@@ -7,7 +7,9 @@
 Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的并列集合”收敛为一个连续的活世界创作系统：
 
 ```text
-设定 -> 地图 -> 历史 -> 冒险 -> 素材 -> 写作 -> 分镜 -> 视频 / 音频 / 发布
+设定 -> 地图 -> 历史 -> 冒险/推演 -> 文本工作台（构思 -> 大纲 -> 正文） -> 分镜 -> 视频 / 音频 / 发布
+
+其中 Authoring 文本工作台是创作核心；素材、速记、画布、记忆和 Experience 是可选输入、投影或推演能力，不是正文创作的必经阶段。纯文字速记与试写优先进入共享编辑器的探索文档，独立素材页允许按真实价值合并、降级或删除。
 ```
 
 完整路线、数据契约、阶段任务、验收指标与视频渠道策略见：
@@ -20,12 +22,19 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 - [体验页叙事运行时与阅读体验收口计划](./plan/agent-runtime-architecture-research-20260814.md)：复核前三轮体验计划后的当前执行真源；先修工具轮次与 provider 超时，再把现有世界书 matcher 接入 NarrativeKernel，以因果拍替代硬字符下限，并收口语义分段与桌面阅读密度。
 - [世界书与设定工作区重构计划](./plan/settings-import-and-review-ux-plan-20260817.md)：从属于 G1.2/G1.2.2；重构世界书首页、可恢复创建工作区和详细设定，支持多文件本地文字抽取、精确去重、基础基调与按分区渐进提炼，并统一进入唯一草稿审阅区。
 - [素材→画布与 C3 场景素材板计划](./superpowers/plans/2026-08-20-scene-material-loop.md)：从属于 G4.1/G1.5；精确反查同源素材，幂等送入现有画布，并以有界场景板作为默认组织面。
-- [统一创作工作区计划](./superpowers/plans/2026-08-22-unified-authoring-workspace.md)：从属于桌面创作方向的 Web 先行阶段；把体验与写作合并为以持续可编辑正文为中心的 Authoring 工作区，AI 结果立即可编辑、只保留瞬时来源提示与请求级撤销，旧体验在 parity 门禁通过前保留。Authoring 已是 canonical 离线创作/推演目的地，Experience 下线等待 parity 审批。
 - [桌面创作迁移总计划](./superpowers/plans/2026-08-21-desktop-authoring-transition-program.md)：P1-P8 的执行顺序、所有权和发布门禁真源。
 - [P1 桌面项目底座计划](./superpowers/plans/2026-08-21-desktop-project-foundation.md)：Electron 安全边界、本地项目、SQLite/原子文本、备份、缓存、IPC 与最小项目门禁的实施真源；已合并本地 `main`。
 - [P2 浏览器旧项目迁移计划](./superpowers/plans/2026-08-21-legacy-project-migration.md)：project-only v3 bundle、v2 兼容 dry-run、稳定 ID、SQLite import journal、staging/校验/原子完成、幂等与最小迁移入口的实施真源；已合并本地 `main`。
 - [受控项目记忆系统计划](./superpowers/plans/2026-08-22-controlled-project-memory-system.md)：从属于统一 Agent 能力架构（Foundation Knowledge Facade）；把 memoryCandidates 升级为有来源、有 revision、可解释检索的受控派生记忆层。M0 记忆内核（schema v2、确定性 importance、lexical 排序、来源失效、receipt/容量）与 M1 运行时/UI 接入（四类触发边界、observer 输出进候选 owner、facade memory reader、Authoring 低干扰审阅）代码侧已完成；剩 live browser audit 与真实 provider 3×3 外部门禁。
-- [Authoring 世界书场景闭环计划](./superpowers/plans/2026-08-23-authoring-worldbook-scene-closure.md)：从属于统一创作工作区；以书为项目、显式绑定世界书为设定源、当前 writingUnit 为现场定位。Task 1-12 与 R3 事务收口已进入整合真源：typed 生成失败与低敏诊断、book.worldbookId 显式绑定及加载门禁、下一拍冻结目标单元插入、chapter.sceneAnchors 场景锚点与 split/merge/delete 迁移、投影 v2、NarrativeKernel provider 前门禁、旧体验导入适配，以及左栏“当前场”/续写坞/检查器现场调整。换书 boundary 保持旧项目归属，persist 再次保存恢复真实撤销。剩 live 截图审计与真实 provider 五用例矩阵外部门禁；`/experience` 保留，退役需用户单独书面审批。
+- [Authoring 文本工作台 v3](./superpowers/plans/2026-08-25-authoring-text-workbench-v3.md)：统一创作工作区的下一阶段真源。探索文档与正文章节共享块级编辑器，大纲升级为项目级编排层，Context Manifest 以 established/intended/speculative 权威和稿件位置选择跨章上下文；场景推演统一为原位 ghost/采纳事务。素材页、画布、记忆和 Experience 只按文本主闭环需要复用，不作为前置。
+- [Authoring 前端可靠性与真实用户模拟计划](./superpowers/plans/2026-08-28-authoring-frontend-reliability-and-user-simulation.md)：文本工作台 v3 的前置可靠性切片。Slice 0–5 已完成唯一交互 owner、可编辑长推演、记忆静默幂等、公开组件主链和长文几何，并由确定性浏览器旅程收口；剩真实 provider canary、Windows 原生中文输入法耐久与用户视觉确认，不以自动化通过替代审美验收。
+- [Authoring 真实页面可见切片推进计划](./superpowers/plans/2026-08-29-authoring-visible-slice-rollout.md)：承接可靠性前置后的当前前端执行入口。V1–V4 与“落笔上下文闭环 P1”C1-0–C1-7 已完成自动化和真实页面 Gate：长推演与整块重写必经一次性 AuthoringRunSession，人物/地点意图和最多三条速记/素材按目标暂存，生成前后显示 manifest/receipt，结果先进入可编辑 Ghost；故障矩阵覆盖零写入、空返回/超时、迟到/stale、持久化重试、观察器恰好一次和精确失效。最终只保留 1440 当前场+参考、1440 Ghost+回执、390 sheet 三张证据，等待用户审美确认。确认后优先做当前场地点与已有地图轻摘要，不启动地图 P1.7 或完整素材页重构。
+- [Authoring F1 双态故事实验室第一阶段实施计划](./superpowers/plans/2026-08-31-authoring-scene-laboratory-f1.md)：C1 之后的当前执行入口，F1-0–F1-7 自动化 Gate 已完成：地点轻桥、真实块下 UI、唯一证据压力投影、稳定方向 fingerprint、production laboratory run、非持久多轴语义/边界投影，以及“唯一所选方向 → 同一冻结 session → 连续可编辑 Ghost → 一次原子采纳多个 writingUnit”。同一 beat 的单元先整体校验，再以一次 ProseMirror history event、共同 origin ref 和 sceneId 写入；现场与大纲 sidecar 共用同一 receipt，保存失败只重试 persist，一次撤销/重做覆盖整拍。最终五视口、亮暗主题、键盘/IME、reduced-motion、快速关闭和导入小说离线复验已通过，只保留三张最终证据；仍需用户确认截图与真实作者文本盲读，之后才冻结第一阶段。不做自动批改后文、第二路由、永久钩子、作者货币、完整素材页或地图 P1.7。
+- [Authoring F2 作家助手成熟编辑器能力对齐计划](./superpowers/plans/2026-09-01-authoring-writer-assistant-parity-f2.md)：F2-1～F2-7 代码与自动化 Gate 已实现；构思/推演夹、真实双栏、快捷切换、实体歧义、三来源快捷词、五类取名、只读资料助手、顶栏画师、校对、四域搜索和自动历史均已收口。F2-4 冻结 `AuthoringEvidenceEnvelope`，F2-5 冻结 `AuthoringVisualBrief`，F2-6 冻结稳定 `AuthoringReviewFinding`/位置索引。最终四组真实页面 Gate 合计 152/152，五张证据位于 `/tmp/pinax-f2-final/`；当前只待用户视觉确认，确认后才冻结 F2 并允许 F3 接主页面。
+- [Authoring F3 因果故事沙盒与活故事图谱计划](./superpowers/plans/2026-09-01-authoring-causal-story-sandbox-f3.md)：F3-0～F3-5 已完成。`NarrativeIntervention`、确定/候选影响、排演范围、分组 Ghost 与采用回执均保持一次性运行边界；单组继续复用 Notebook/双栏事务，无冲突 fresh 多组通过一次 book persistence transaction 与 umbrella receipt 跨章写入。当前章“场景与因果”从 canonical 正文、现场、世界书与项目大纲即时派生场景/节拍纵列和人物/地点/线索泳道，只显示显式因果与兑现，不建第二数据源。F3 本地闭环保持不感知网络；下一项通过 C2-3 的中立 artifact/promotion 接缝完成一个 intervention 的共同排演。
+- [Authoring C2 创作协作平台计划](./superpowers/plans/2026-09-01-authoring-collaboration-platform-c2.md)：与 F3 并行推进，采用“领域先并行、接缝早冻结、页面后合流”。C2-0～C2-2 在独立 worktree 完成持久房间、稳定身份/恢复令牌、disconnect grace、host epoch、ACK/幂等、materialized snapshot、seq gap 恢复、能力授权、客户端内容加密和 Web/Electron transport，不修改 Authoring 核心文件。首个联合纵切改为 F3 共同排演：受邀者只查看一个 intervention 的授权片段与证据，可提方向、补所得/代价和投票；房主唯一生成 branch，并将选中结果提升为本地 Ghost。通用改稿审阅、助手和画师在该纵切稳定后接入；多人直接编辑正文与 CRDT 仍需真实用户 Gate。
+- [Azgaar 地图复用与 Authoring 地点闭环调研](./superpowers/research/azgaar-map-reuse-and-authoring-place-integration-20260829.md)：从属于 G2.4，不把地图升级成文本工作台前置。保留 Pinax 世界书真源、生成 Worker、版本/remap 事务，抽取 Azgaar 成熟几何与矢量表现，先修项目级地图作用域、稳定地点身份和地图资产缓存，再以 Canvas 基础地形 + SVG 语义层打通“当前场地点 -> 地图定位/落图 -> 审阅绑定 -> 返回原 writingUnit”。方向确认后再写逐文件实施计划。
+- [成熟地图平台 v2 实施计划](./superpowers/plans/2026-08-29-mature-map-platform-v2.md)：G2.4 的地图执行真源。P0/P1 完整分支已集成：`MapDocument v2`、稳定地点身份、OpenLayers 10.10 视口原型、地理优先世界档、写作语义覆盖与用户视觉 Gate 均已收口；P1.7 region/local LOD、P2 资产持久化和 Authoring 地图接线暂停，先完成 C1 落笔上下文闭环。
 
 ## 当前优先级
 
@@ -38,7 +47,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 5. Narrative Context Runtime：G4.6 M0-M6 与 G4.6.13 R0-R8 的单 transcript、多步工具、恢复和审计主链已完成。真实性 MVP 进一步加入有界的当前 speaker voice anchor、`world_lookup -> politics_lookup` 只读链，以及与可见生成分离、只记录 allowlist 低敏指标的 shadow critic；它不是生产影子双链，不能生成、替换或改写可见正文。当前只剩真实渠道门禁、质量标注与发布收口。世界书、地理、历史和记忆仍由现有 owner 持有，模型只按需调用只读工具；不恢复 eager 全量注入或静默 fallback。
 6. UI Coherence：G1.5 UI-A 至 UI-F 已完成，主题2的浏览器审计、窄屏 pane、共享视觉基础、阅读面、创作空间、设定链和瞬态层均已收敛。全局 task center 随 G4.2 的真实任务合约实施，不在 UI 层复制状态；主题1的米色游戏化 UI 继续冻结，仅保持共享行为兼容。
 7. Experience Reading：G1.4 M1-M4 与基础响应式 smoke 已完成；G1.4.10 R0/R1 已冻结主题2标准档为物理 `17.5px`、`62em`、B 型 speaker label、仅真实对白轻斜体和 15% 强调硬上限。R2 已开始收口角色识别和段落节奏：纯叙述不再伪造“旁白”署名，玩家与明确角色只在必要处署名，动作回正体、心理保留轻斜体。下一步继续完成行内强调去重、触发标记、阅读外观入口与移动端避让；随后继续双浏览器联机和 M5 真实模型指标。
-8. Writing Notebook：WNB-6A 写作单元重构已完成。schema v3 使用“段落节点 -> 多段 writingUnit -> 场景”，Enter 保持在当前单元，显式 split/merge/move 可单事务撤销；批注、候选、版本、恢复和体验回合导入均使用稳定 `unitId + nodeId` 与来源引用。写作页已演进为 Authoring 统一创作工作区（canonical `/authoring` 路由），AI 命令以光标/选区命令而非页面模式提供，生成正文经单事务插入并支持请求级撤销；下一步继续常用 Markdown、`targets[]` 与查找同类。
+8. Writing Notebook：WNB-6A 写作单元重构已完成。schema v3 使用“段落节点 -> 多段 writingUnit -> 场景”，Enter 保持在当前单元，显式 split/merge/move 可单事务撤销；旧整章正文只在首次导入时按至多三段整理为稳定单元，之后不随编辑自动重排，AI 多段正文保持一个来源单元。批注、候选、版本、恢复和体验回合导入均使用稳定 `unitId + nodeId` 与来源引用。写作页已演进为 Authoring 统一创作工作区（canonical `/authoring` 路由），AI 命令以光标/选区命令而非页面模式提供，生成正文经单事务插入并支持请求级撤销；下一步继续常用 Markdown、`targets[]` 与查找同类。
 9. Agent Runtime：G4.2 M0-M6 实现 Gate 已全部关闭。统一总开关会同时停止手动顾问与后台补全；写作补全、明显冲突和待审结果提醒均有频率上限及无正文本地指标。旧直连 `useCopilot` 已删除，现代路径使用 canonical task，legacy 兼容只保留真实调用边界。可用后端上仍需补 M2 的 30 次真实 provider smoke，完成后才最终结项 G4.2。
 10. Gate 0 可靠性与存储安全网：作为上述主线的支撑项继续补齐，不再单独占据产品主线。
 11. Creative Graph：地理、历史、会话和剧情日志来源已沿素材、章节/纲要、分镜、写作 ContextLedger、分镜 Agent 与视频任务贯通；素材页已能按项目和精确 `sourceRefs` 反查同源素材，并将勾选项幂等送入关系画布。画布默认显示 C3 场景素材板，复用现有 card/outline/edge 数据组织关系、节拍与未放置素材；桌面保留自由画布和导演/视频出口，移动端不提供自由定位。漫画 M2-M6 已支持多页改编、语义视觉圣经、自由构图与出版链。下一步进入 G4.4 M7 连续性质检与分镜转换；跨资产 revision/tag、通用 stale 识别和画布 composable 清理保留后续处理。
@@ -47,7 +56,7 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 
 ### WNB-5 当前进度
 
-WNB-5 第一至第三大阶段已完成：命名章节快照、改写前/恢复前自动检查点、恢复前当前正文变更提示、快照删除、每章数量/总存储预算、单块历史、保存前恢复草稿、章节质量报告和 Pinax 备份纳入。默认版本页只展示当前修订、未保存恢复稿和最近三份整章快照；较早快照、块历史和质量 Gate 仍由底层保存与校验，但不在这一窄栏中全部铺开。下一步是 provider/浏览器 Gate 与真实章节恢复 smoke。
+WNB-5 第一至第三大阶段及 F2-6 自动历史接线已完成：命名章节快照、改写前/恢复前自动检查点、恢复前当前正文变更提示、快照删除、每章数量/总存储预算、单块历史、保存前恢复草稿、章节质量报告和 Pinax 备份纳入；已持久化正文跨越 500/1000/2000 字里程碑时可自动创建一次快照，删除选区、Ghost 采纳、批量校对和全书替换等破坏性动作前也复用同一版本库保护。默认版本页只展示当前修订、未保存恢复稿和最近三份整章快照；较早快照、块历史和质量 Gate 仍由底层保存与校验，但不在这一窄栏中全部铺开。下一步在 F2-7 统一完成真实章节恢复的视觉与交互复验。
 
 ### WNB-6 当前进度
 

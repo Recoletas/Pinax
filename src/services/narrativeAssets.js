@@ -64,6 +64,7 @@ export const CONTENT_REF_TYPES = [
   'storyboard-shot',
   'comic-page',
   'comic-panel',
+  'scene-projection',
   'image',
   'video',
   'audio'

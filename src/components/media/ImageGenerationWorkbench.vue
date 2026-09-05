@@ -1,12 +1,12 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ImageModelPicker from './ImageModelPicker.vue'
 import { generateImage } from '../../services/media/imageProviderService'
 import { listImageProviderConfigs } from '../../services/media/imageProviderConfigStore'
 import {
   addGeneratedImageToLibrary,
   loadGeneratedImageLibrary,
-  saveGeneratedImageLibraryRefs
+  removeGeneratedImageFromLibrary
 } from '../../services/media/mediaAssetStore'
 
 const props = defineProps({
@@ -61,10 +61,53 @@ const props = defineProps({
   referenceCandidates: {
     type: Array,
     default: () => []
+  },
+  layout: {
+    type: String,
+    default: 'stack',
+    validator: (value) => ['stack', 'split'].includes(value)
+  },
+  initialPrompt: {
+    type: String,
+    default: ''
+  },
+  promptSupplement: {
+    type: String,
+    default: ''
+  },
+  contextKey: {
+    type: String,
+    default: ''
+  },
+  generationContext: {
+    type: Object,
+    default: () => ({})
+  },
+  librarySourceRefs: {
+    type: Array,
+    default: null
+  },
+  mobilePane: {
+    type: String,
+    default: 'both',
+    validator: (value) => ['parameters', 'results', 'both'].includes(value)
+  },
+  actionGuard: {
+    type: Function,
+    default: null
   }
 })
 
-const emit = defineEmits(['insert-image', 'save-to-material', 'configs-updated', 'image-preview'])
+const emit = defineEmits([
+  'insert-image',
+  'save-to-material',
+  'configs-updated',
+  'image-preview',
+  'generation-start',
+  'generation-complete',
+  'generation-error',
+  'generation-cancel'
+])
 
 const imagePrompt = ref('')
 const imageNegativePrompt = ref('')
@@ -82,6 +125,12 @@ const storedReferenceImages = ref([])
 const referenceInput = ref(null)
 const referenceStrength = ref(0.65)
 const referenceUploadMessage = ref('')
+const generationStatus = ref({ kind: 'idle', message: '' })
+const activeJob = ref(null)
+let activeGeneration = null
+let libraryLoadRevision = 0
+let latestGeneration = null
+let pendingPromptSync = null
 
 const sizePresets = [
   { label: '1:1 方图', width: 1024, height: 1024 },
@@ -129,17 +178,56 @@ const selectedReferenceImages = computed(() => selectedReferenceIds.value
   .map((id) => allReferenceCandidates.value.find((candidate) => candidate.id === id))
   .filter(Boolean)
   .slice(0, 3))
+const effectiveLibrarySourceRefs = computed(() => (
+  Array.isArray(props.librarySourceRefs) ? props.librarySourceRefs : props.sourceRefs
+))
 const libraryScopeKey = computed(() => JSON.stringify({
+  storageKey: props.storageKey,
   projectId: props.projectId,
   purpose: activeMediaPurpose.value,
-  sourceRefs: props.sourceRefs.map((ref) => [ref.refType, ref.refId, ref.projectId || ''])
+  contextKey: props.contextKey,
+  sourceRefs: effectiveLibrarySourceRefs.value.map((ref) => [ref.refType, ref.refId, ref.projectId || ''])
 }))
-onMounted(async () => {
-  loadModelConfigs()
-  await Promise.all([loadImageLibrary(), loadReferenceLibrary()])
+const generationMessageRole = computed(() => (
+  generationStatus.value.kind === 'error' ? 'alert' : 'status'
+))
+const selectedActionGuard = computed(() => {
+  const entry = selectedPreviewImage.value
+  if (!entry) return {}
+  let supplied = {}
+  try {
+    if (typeof props.actionGuard === 'function') supplied = props.actionGuard(entry) || {}
+  } catch {
+    return { insertDisabled: true, saveDisabled: true, reason: '当前结果状态无法确认，请重新选择。' }
+  }
+  const currentFingerprint = String(
+    props.generationContext?.fingerprint
+      || props.generationContext?.authoringVisualBrief?.fingerprint
+      || ''
+  )
+  const entryFingerprint = String(entry.contextFingerprint || entry.generationParams?.fingerprint || '')
+  const contextDetached = Boolean(props.contextKey && entry.contextKey && props.contextKey !== entry.contextKey)
+  const fingerprintStale = Boolean(currentFingerprint && entryFingerprint && currentFingerprint !== entryFingerprint)
+  const provenanceReason = contextDetached
+    ? '原写作位置已切换，不能插入正文。'
+    : (fingerprintStale ? '画面来源已更新，不能插入正文。' : '')
+  return {
+    insertDisabled: supplied.insertDisabled === true || Boolean(provenanceReason),
+    saveDisabled: supplied.saveDisabled === true,
+    reason: provenanceReason || String(supplied.reason || supplied.insertReason || supplied.saveReason || '')
+  }
+})
+const emptyResultHint = computed(() => {
+  const prompt = String(imagePrompt.value || props.initialPrompt || selectedTextText.value).trim()
+  if (prompt) return `准备生成：${prompt.slice(0, 72)}${prompt.length > 72 ? '…' : ''}`
+  return '写下画面描述后，生成的候选会在这里并排比较。'
 })
 
-watch(imageLibrary, () => saveImageLibrary(), { deep: true })
+onMounted(async () => {
+  loadModelConfigs()
+  await reloadLibraries()
+})
+
 watch(availableModes, (modes) => {
   if (!modes.includes(activeMode.value)) {
     activeMode.value = modes.includes(props.defaultMode) ? props.defaultMode : modes[0]
@@ -147,11 +235,27 @@ watch(availableModes, (modes) => {
 }, { immediate: true })
 watch(libraryScopeKey, () => {
   imagePreviewIndex.value = -1
-  void Promise.all([loadImageLibrary(), loadReferenceLibrary()])
+  void reloadLibraries()
 })
 watch(allReferenceCandidates, (candidates) => {
   const availableIds = new Set(candidates.map((candidate) => candidate.id))
   selectedReferenceIds.value = selectedReferenceIds.value.filter((id) => availableIds.has(id)).slice(0, 3)
+})
+watch(
+  () => [props.contextKey, props.initialPrompt],
+  ([contextKey, initialPrompt], [previousContextKey] = []) => {
+    if (imageGenerating.value) {
+      pendingPromptSync = { contextKey, initialPrompt, previousContextKey }
+      return
+    }
+    syncInitialPrompt(contextKey, initialPrompt, previousContextKey)
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  if (activeGeneration) cancelGeneration('unmount')
+  libraryLoadRevision += 1
 })
 
 function loadModelConfigs() {
@@ -159,6 +263,24 @@ function loadModelConfigs() {
   if (modelConfigs.value.length && !imageSelectedModel.value) {
     imageSelectedModel.value = modelConfigs.value[0].id
   }
+}
+
+function syncInitialPrompt(contextKey, initialPrompt, previousContextKey) {
+  const normalized = String(initialPrompt || '').trim()
+  const contextChanged = previousContextKey !== undefined
+    && String(contextKey || '') !== String(previousContextKey || '')
+  if (contextChanged) {
+    imagePrompt.value = normalized
+    return
+  }
+  if (normalized && !imagePrompt.value.trim()) imagePrompt.value = normalized
+}
+
+function flushPendingPromptSync() {
+  const pending = pendingPromptSync
+  pendingPromptSync = null
+  if (!pending) return
+  syncInitialPrompt(pending.contextKey, pending.initialPrompt, pending.previousContextKey)
 }
 
 function handleConfigsUpdated(configs) {
@@ -169,32 +291,52 @@ function handleConfigsUpdated(configs) {
   emit('configs-updated', modelConfigs.value)
 }
 
-async function loadImageLibrary() {
-  imageLibrary.value = await loadGeneratedImageLibrary(props.storageKey, {
+async function reloadLibraries() {
+  const revision = ++libraryLoadRevision
+  const scope = {
+    storageKey: props.storageKey,
     projectId: props.projectId,
     purpose: activeMediaPurpose.value,
-    sourceRefs: props.sourceRefs
-  })
-}
-
-async function loadReferenceLibrary() {
-  storedReferenceImages.value = await loadGeneratedImageLibrary(props.storageKey, {
-    projectId: props.projectId,
-    purpose: 'storyboard-reference',
-    sourceRefs: props.sourceRefs
-  })
-}
-
-function saveImageLibrary() {
-  saveGeneratedImageLibraryRefs(props.storageKey, imageLibrary.value)
+    sourceRefs: cloneSerializable(effectiveLibrarySourceRefs.value, [])
+  }
+  try {
+    const [nextImages, nextReferences] = await Promise.all([
+      loadGeneratedImageLibrary(scope.storageKey, {
+        projectId: scope.projectId,
+        purpose: scope.purpose,
+        sourceRefs: scope.sourceRefs
+      }),
+      loadGeneratedImageLibrary(scope.storageKey, {
+        projectId: scope.projectId,
+        purpose: 'storyboard-reference',
+        sourceRefs: scope.sourceRefs
+      })
+    ])
+    if (revision !== libraryLoadRevision) return
+    const selectedId = selectedPreviewImage.value?.id || ''
+    imageLibrary.value = nextImages
+    storedReferenceImages.value = nextReferences
+    const restoredIndex = selectedId
+      ? nextImages.findIndex((entry) => entry.id === selectedId)
+      : -1
+    imagePreviewIndex.value = restoredIndex >= 0 ? restoredIndex : (nextImages.length ? 0 : -1)
+  } catch (error) {
+    if (revision !== libraryLoadRevision) return
+    generationStatus.value = {
+      kind: 'error',
+      message: error?.message || '无法读取图片历史'
+    }
+  }
 }
 
 function useSelectedTextAsPrompt() {
+  if (imageGenerating.value) return
   if (!selectedTextText.value) return
   imagePrompt.value = selectedTextText.value
 }
 
 function selectSizePreset(value) {
+  if (imageGenerating.value) return
   const preset = sizePresets.find((item) => `${item.width}x${item.height}` === value)
   if (!preset) return
   imageWidth.value = preset.width
@@ -203,71 +345,327 @@ function selectSizePreset(value) {
 
 async function generateImages() {
   if (!imagePrompt.value.trim()) {
-    alert('请输入提示词')
+    generationStatus.value = { kind: 'error', message: '请先写下画面描述。' }
     return
   }
   if (!imageSelectedModel.value) {
-    alert('请先选择或添加模型')
+    generationStatus.value = { kind: 'error', message: '请先选择或添加图片模型。' }
     return
   }
 
   const cfg = modelConfigs.value.find((item) => item.id === imageSelectedModel.value)
   if (!cfg) {
-    alert('未找到选中的模型配置')
+    generationStatus.value = { kind: 'error', message: '未找到选中的图片模型配置。' }
     return
   }
 
+  if (activeGeneration) return
+  const controller = new AbortController()
+  const frozen = createFrozenGenerationJob(cfg)
+  const providerConfig = deepFreeze(cloneSerializable(cfg, {}))
+  const referenceImages = deepFreeze(selectedReferenceImages.value.map((reference) => ({
+    id: String(reference.mediaAssetId || reference.id || ''),
+    title: referenceLabel(reference),
+    data: String(reference.data || '')
+  })))
+  const running = {
+    controller,
+    job: frozen,
+    providerConfig,
+    referenceImages,
+    discarded: false,
+    cancelEmitted: false,
+    archiveStarted: false
+  }
+  activeGeneration = running
+  latestGeneration = running
+  activeJob.value = frozen
   imageGenerating.value = true
+  generationStatus.value = {
+    kind: 'running',
+    message: frozen.count > 1 ? `正在生成 ${frozen.count} 张候选…` : '正在生成候选…'
+  }
+  emit('generation-start', { job: frozen })
+
+  const archivedEntries = []
   try {
     const results = []
-    for (let i = 0; i < imageCount.value; i += 1) {
-      results.push(await generateImage(cfg, {
-        prompt: imagePrompt.value,
-        negativePrompt: imageNegativePrompt.value,
-        width: imageWidth.value,
-        height: imageHeight.value,
-        count: imageCount.value,
-        referenceImages: selectedReferenceImages.value,
-        referenceStrength: referenceStrength.value
-      }))
+    for (let index = 0; index < frozen.count; index += 1) {
+      assertActiveGeneration(running, frozen)
+      const data = await generateImage(providerConfig, {
+        prompt: frozen.providerPrompt,
+        negativePrompt: frozen.negativePrompt,
+        width: frozen.width,
+        height: frozen.height,
+        count: 1,
+        referenceImages,
+        referenceStrength: frozen.referenceStrength,
+        signal: controller.signal
+      })
+      assertActiveGeneration(running, frozen)
+      results.push(data)
     }
 
+    running.archiveStarted = true
     for (const data of results) {
-      const entry = await addGeneratedImageToLibrary(props.storageKey, {
+      assertActiveGeneration(running, frozen)
+      const entry = await addGeneratedImageToLibrary(frozen.storageKey, {
         id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        prompt: imagePrompt.value,
-        negativePrompt: imageNegativePrompt.value,
-        modelName: cfg.name,
-        modelId: cfg.defaultModel,
-        modelType: cfg.type,
-        width: imageWidth.value,
-        height: imageHeight.value,
-        referenceImageIds: selectedReferenceImages.value.map((reference) => reference.mediaAssetId || reference.id),
-        referenceCount: selectedReferenceImages.value.length,
-        referenceStrength: referenceStrength.value,
+        prompt: frozen.prompt,
+        negativePrompt: frozen.negativePrompt,
+        modelName: frozen.model.name,
+        modelId: frozen.model.defaultModel,
+        modelType: frozen.model.type,
+        width: frozen.width,
+        height: frozen.height,
+        referenceImageIds: frozen.referenceImageIds,
+        referenceCount: frozen.referenceImageIds.length,
+        referenceStrength: frozen.referenceStrength,
+        generationJobId: frozen.jobId,
+        providerPrompt: frozen.providerPrompt,
+        promptSupplement: frozen.promptSupplement,
+        mode: frozen.mode,
+        generationContext: frozen.generationContext,
+        authoringVisualBrief: frozen.authoringVisualBrief,
+        generationSessionId: frozen.sessionId,
+        contextFingerprint: frozen.fingerprint,
+        sourceRevisions: frozen.sourceRevisions,
+        contextKey: frozen.contextKey,
         data,
         createdAt: new Date().toISOString()
       }, {
-        projectId: props.projectId,
-        purpose: activeMediaPurpose.value,
-        sourceRefs: props.sourceRefs
+        projectId: frozen.projectId,
+        purpose: frozen.mediaPurpose,
+        sourceRefs: frozen.sourceRefs,
+        signal: controller.signal
       })
-      imageLibrary.value.unshift(entry)
-      if (entry.mediaPurpose === 'storyboard-reference') {
-        storedReferenceImages.value = [entry, ...storedReferenceImages.value.filter((item) => item.id !== entry.id)]
-      }
-      imagePreviewIndex.value = 0
-      emit('image-preview', entry)
+      archivedEntries.push(entry)
+      assertActiveGeneration(running, frozen)
     }
-    saveImageLibrary()
+    assertActiveGeneration(running, frozen)
+    const committedEntries = [...archivedEntries].reverse()
+    if (libraryScopeKey.value === frozen.libraryScopeKey) {
+      const committedIds = new Set(committedEntries.map((entry) => entry.id))
+      imageLibrary.value = [
+        ...committedEntries,
+        ...imageLibrary.value.filter((entry) => !committedIds.has(entry.id))
+      ].slice(0, 20)
+      const committedReferences = committedEntries.filter((entry) => entry.mediaPurpose === 'storyboard-reference')
+      if (committedReferences.length) {
+        const referenceIds = new Set(committedReferences.map((entry) => entry.id))
+        storedReferenceImages.value = [
+          ...committedReferences,
+          ...storedReferenceImages.value.filter((entry) => !referenceIds.has(entry.id))
+        ].slice(0, 20)
+      }
+      imagePreviewIndex.value = committedEntries.length ? 0 : imagePreviewIndex.value
+      if (committedEntries[0]) emit('image-preview', committedEntries[0])
+    }
+    generationStatus.value = {
+      kind: 'success',
+      message: `已生成 ${archivedEntries.length} 张候选。`
+    }
+    emit('generation-complete', {
+      job: frozen,
+      entries: archivedEntries.map((entry) => ({ ...entry })),
+      count: archivedEntries.length
+    })
   } catch (error) {
-    alert('生成失败: ' + error.message)
+    const cleanupFailures = []
+    if (archivedEntries.length) {
+      for (const entry of [...archivedEntries].reverse()) {
+        try {
+          await removeGeneratedImageFromLibrary(frozen.storageKey, entry, { projectId: frozen.projectId })
+        } catch (cleanupError) {
+          cleanupFailures.push({ entryId: entry.id, error: cleanupError })
+        }
+      }
+      if (libraryScopeKey.value === frozen.libraryScopeKey) {
+        const archivedIds = new Set(archivedEntries.map((entry) => entry.id))
+        imageLibrary.value = imageLibrary.value.filter((entry) => !archivedIds.has(entry.id))
+        imagePreviewIndex.value = imageLibrary.value.length ? 0 : -1
+      }
+    }
+    const cancelled = controller.signal.aborted || running.discarded || isAbortError(error)
+    if (cancelled) {
+      if (latestGeneration === running) {
+        generationStatus.value = cleanupFailures.length
+          ? { kind: 'error', message: `已取消，但有 ${cleanupFailures.length} 张候选未能清理，请刷新历史后重试。` }
+          : { kind: 'cancelled', message: '已取消，本次结果未归档。' }
+      }
+      if (!running.cancelEmitted) {
+        running.cancelEmitted = true
+        emit('generation-cancel', {
+          job: frozen,
+          reason: running.cancelReason || 'cancelled',
+          cleanupFailed: cleanupFailures.length > 0,
+          cleanupFailures
+        })
+      }
+    } else {
+      const errorStatus = {
+        kind: 'error',
+        message: cleanupFailures.length
+          ? `生成失败，且有 ${cleanupFailures.length} 张候选未能清理。`
+          : (error?.message ? `生成失败：${error.message}` : '生成失败，请稍后重试。')
+      }
+      if (latestGeneration === running) generationStatus.value = errorStatus
+      emit('generation-error', { job: frozen, error, message: errorStatus.message, cleanupFailures })
+    }
   } finally {
-    imageGenerating.value = false
+    if (activeGeneration === running) {
+      activeGeneration = null
+      if (activeJob.value?.jobId === frozen.jobId) activeJob.value = null
+      imageGenerating.value = false
+      flushPendingPromptSync()
+    }
   }
 }
 
+function cancelGeneration(reason = 'user') {
+  const running = activeGeneration
+  if (!running || running.discarded) return false
+  running.discarded = true
+  running.cancelReason = reason
+  running.controller.abort(createAbortError('图片生成已取消'))
+  if (activeGeneration === running) activeGeneration = null
+  if (activeJob.value?.jobId === running.job.jobId) activeJob.value = null
+  imageGenerating.value = false
+  flushPendingPromptSync()
+  generationStatus.value = { kind: 'cancelled', message: '正在取消，本次结果不会归档…' }
+  if (!running.archiveStarted) {
+    running.cancelEmitted = true
+    emit('generation-cancel', { job: running.job, reason, cleanupFailed: false, cleanupFailures: [] })
+  }
+  return true
+}
+
+function createFrozenGenerationJob(config) {
+  const generationContext = cloneSerializable(props.generationContext, {})
+  const sessionId = String(generationContext.sessionId || createRuntimeId('image-session'))
+  const jobId = String(generationContext.jobId || createRuntimeId('image-job'))
+  const authoringVisualBrief = cloneSerializable(
+    generationContext.authoringVisualBrief || generationContext.visualBrief,
+    null
+  )
+  const sourceRevisions = cloneSerializable(
+    generationContext.sourceRevisions || authoringVisualBrief?.sourceRevisions,
+    {}
+  )
+  const fingerprint = String(
+    generationContext.fingerprint || authoringVisualBrief?.fingerprint || ''
+  )
+  const sourceRefs = cloneSerializable(props.sourceRefs, [])
+  const librarySourceRefs = cloneSerializable(effectiveLibrarySourceRefs.value, [])
+  const mediaPurpose = activeMediaPurpose.value
+  const prompt = String(imagePrompt.value || '').trim()
+  const promptSupplement = resolvePromptSupplement(generationContext, authoringVisualBrief, prompt)
+  const providerPrompt = mergePromptParts(prompt, promptSupplement)
+  return deepFreeze({
+    jobId,
+    sessionId,
+    submittedAt: new Date().toISOString(),
+    contextKey: String(props.contextKey || ''),
+    storageKey: String(props.storageKey || ''),
+    libraryScopeKey: JSON.stringify({
+      storageKey: props.storageKey,
+      projectId: props.projectId,
+      purpose: mediaPurpose,
+      contextKey: props.contextKey,
+      sourceRefs: librarySourceRefs.map((ref) => [ref.refType, ref.refId, ref.projectId || ''])
+    }),
+    projectId: props.projectId ?? null,
+    sourceRefs,
+    librarySourceRefs,
+    sourceRevisions,
+    fingerprint,
+    authoringVisualBrief,
+    generationContext,
+    prompt,
+    promptSupplement,
+    providerPrompt,
+    negativePrompt: String(imageNegativePrompt.value || ''),
+    mode: String(activeMode.value),
+    mediaPurpose,
+    width: Number(imageWidth.value),
+    height: Number(imageHeight.value),
+    count: Math.min(4, Math.max(1, Number(imageCount.value) || 1)),
+    referenceImageIds: selectedReferenceImages.value.map((reference) => String(reference.mediaAssetId || reference.id || '')).filter(Boolean),
+    referenceStrength: Number(referenceStrength.value),
+    model: {
+      configId: String(config.id || ''),
+      name: String(config.name || ''),
+      type: String(config.type || ''),
+      defaultModel: String(config.defaultModel || '')
+    }
+  })
+}
+
+function assertActiveGeneration(running, job) {
+  if (!running || activeGeneration !== running || running.job.jobId !== job.jobId || running.discarded || running.controller.signal.aborted) {
+    throw createAbortError('图片生成已取消')
+  }
+}
+
+function resolvePromptSupplement(generationContext, authoringVisualBrief, prompt) {
+  const explicit = String(props.promptSupplement || '').trim()
+  if (explicit) return explicit
+  const scoped = String(
+    generationContext?.promptSupplement
+      || authoringVisualBrief?.promptSupplement
+      || authoringVisualBrief?.sceneSupplement
+      || ''
+  ).trim()
+  if (scoped) return scoped
+
+  const generated = String(authoringVisualBrief?.generationPrompt || '').trim()
+  if (!generated || generated === prompt) return ''
+  if (prompt && generated.startsWith(prompt)) return generated.slice(prompt.length).trim()
+  const briefPrompt = String(authoringVisualBrief?.prompt || '').trim()
+  if (briefPrompt && generated.startsWith(briefPrompt)) return generated.slice(briefPrompt.length).trim()
+  return generated
+}
+
+function mergePromptParts(prompt, supplement) {
+  const primary = String(prompt || '').trim()
+  const secondary = String(supplement || '').trim()
+  if (!secondary || secondary === primary) return primary
+  if (secondary.startsWith(primary)) return secondary
+  return [primary, secondary].filter(Boolean).join('\n')
+}
+
+function createAbortError(message = '操作已取消') {
+  if (typeof DOMException === 'function') return new DOMException(message, 'AbortError')
+  const error = new Error(message)
+  error.name = 'AbortError'
+  return error
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || error?.code === 20
+}
+
+function createRuntimeId(prefix) {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function cloneSerializable(value, fallback) {
+  if (value === undefined || value === null) return fallback
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return fallback
+  }
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
+  Object.values(value).forEach(deepFreeze)
+  return Object.freeze(value)
+}
+
 function toggleReference(candidate) {
+  if (imageGenerating.value) return
   const id = candidate?.id
   if (!id) return
   if (selectedReferenceIds.value.includes(id)) {
@@ -287,6 +685,7 @@ function referenceLabel(candidate) {
 }
 
 async function handleReferenceUpload(event) {
+  if (imageGenerating.value) return
   const files = [...(event.target?.files || [])]
     .filter(isSupportedLocalImage)
     .slice(0, 3)
@@ -362,177 +761,233 @@ function previewImage(index) {
 
 function saveToMaterialLib() {
   const imgEntry = imageLibrary.value[imagePreviewIndex.value]
-  if (imgEntry) {
+  if (imgEntry && !selectedActionGuard.value.saveDisabled) {
     emit('save-to-material', {
       ...imgEntry,
       mediaPurpose: imgEntry.mediaPurpose || activeMediaPurpose.value,
-      mode: activeMode.value
+      mode: imgEntry.mode || imgEntry.generationParams?.mode || activeMode.value
     })
   }
-  imagePreviewIndex.value = -1
 }
 
 function emitInsertImage(imgEntry) {
-  if (!imgEntry) return
+  if (!imgEntry || selectedActionGuard.value.insertDisabled) return
   emit('insert-image', imgEntry)
 }
 
 </script>
 
 <template>
-  <section class="media-generation-inline" aria-label="插画生成">
+  <section
+    class="media-generation-inline"
+    :class="`media-generation-inline--${layout}`"
+    :data-mobile-pane="mobilePane"
+    aria-label="插画生成"
+  >
     <div class="image-generation-workbench">
       <div v-if="showHeader" class="image-gen-header">
         <span class="image-gen-title">{{ workbenchTitle }}</span>
       </div>
 
-      <div v-if="availableModes.length > 1" class="image-gen-modes" role="tablist" aria-label="图片用途">
-        <button
-          v-for="mode in availableModes"
-          :key="mode"
-          class="image-gen-mode-btn"
-          :class="{ active: activeMode === mode }"
-          type="button"
-          role="tab"
-          :aria-selected="activeMode === mode"
-          @click="activeMode = mode"
-        >
-          {{ modeLabels[mode] }}
-        </button>
-      </div>
+      <div class="image-gen-workspace">
+        <section class="image-gen-controls" aria-label="插画参数">
+          <fieldset class="image-gen-control-fields" :disabled="imageGenerating">
+            <div v-if="$slots.brief" class="image-gen-brief">
+              <slot name="brief"></slot>
+            </div>
 
-      <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
-        <div class="image-gen-label-row">
-          <label class="image-gen-label">参考图库</label>
-          <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
-        </div>
-        <div class="image-gen-reference-strip">
-          <button
-            v-for="candidate in allReferenceCandidates"
-            :key="candidate.id"
-            type="button"
-            class="image-gen-reference-thumb"
-            :class="{ active: selectedReferenceIds.includes(candidate.id) }"
-            :title="referenceLabel(candidate)"
-            @click="toggleReference(candidate)"
-          >
-            <img :src="candidate.data" :alt="referenceLabel(candidate)" />
-            <span v-if="selectedReferenceIds.includes(candidate.id)" aria-hidden="true">✓</span>
-          </button>
-          <button class="image-gen-reference-upload" type="button" title="上传参考图" @click="referenceInput?.click()">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-              <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5h14v-5"/>
-            </svg>
-            <span>上传</span>
-          </button>
-        </div>
-        <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/*" multiple @change="handleReferenceUpload" />
-        <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
-        <label v-if="selectedReferenceImages.length" class="image-gen-reference-strength">
-          <span>参考强度</span>
-          <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" />
-          <strong>{{ Math.round(referenceStrength * 100) }}%</strong>
-        </label>
-        <p v-else class="image-gen-reference-hint">可从已有图片选择，或上传最多 3 张；生成时会真正传给支持参考图的模型。</p>
-      </div>
+            <div v-if="availableModes.length > 1" class="image-gen-modes" role="group" aria-label="图片用途">
+              <button
+                v-for="mode in availableModes"
+                :key="mode"
+                class="image-gen-mode-btn"
+                :class="{ active: activeMode === mode }"
+                type="button"
+                :aria-pressed="activeMode === mode"
+                @click="activeMode = mode"
+              >
+                {{ modeLabels[mode] }}
+              </button>
+            </div>
 
-      <template v-if="!referenceWorkspaceActive">
-        <div class="image-gen-section">
-          <div class="image-gen-label-row">
-            <label class="image-gen-label">画面描述</label>
-            <button v-if="selectedTextText" class="image-gen-inline-link" type="button" @click="useSelectedTextAsPrompt">
-              {{ importButtonLabel }}
+            <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
+              <div class="image-gen-label-row">
+                <label class="image-gen-label">参考图库</label>
+                <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
+              </div>
+              <div class="image-gen-reference-strip">
+                <button
+                  v-for="candidate in allReferenceCandidates"
+                  :key="candidate.id"
+                  type="button"
+                  class="image-gen-reference-thumb"
+                  :class="{ active: selectedReferenceIds.includes(candidate.id) }"
+                  :title="referenceLabel(candidate)"
+                  :aria-pressed="selectedReferenceIds.includes(candidate.id)"
+                  @click="toggleReference(candidate)"
+                >
+                  <img :src="candidate.data" :alt="referenceLabel(candidate)" />
+                  <span v-if="selectedReferenceIds.includes(candidate.id)" aria-hidden="true">✓</span>
+                </button>
+                <button class="image-gen-reference-upload" type="button" title="上传参考图" @click="referenceInput?.click()">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5h14v-5"/>
+                  </svg>
+                  <span>上传</span>
+                </button>
+              </div>
+              <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/*" multiple @change="handleReferenceUpload" />
+              <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
+              <label v-if="selectedReferenceImages.length" class="image-gen-reference-strength">
+                <span>参考强度</span>
+                <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" />
+                <strong>{{ Math.round(referenceStrength * 100) }}%</strong>
+              </label>
+              <p v-else class="image-gen-reference-hint">可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。</p>
+            </div>
+
+            <template v-if="!referenceWorkspaceActive">
+              <div class="image-gen-section">
+                <div class="image-gen-label-row">
+                  <label class="image-gen-label">画面描述</label>
+                  <button v-if="selectedTextText" class="image-gen-inline-link" type="button" @click="useSelectedTextAsPrompt">
+                    {{ importButtonLabel }}
+                  </button>
+                </div>
+                <textarea
+                  v-model="imagePrompt"
+                  class="image-gen-prompt-input"
+                  placeholder="描述你想生成的插画..."
+                  rows="4"
+                ></textarea>
+              </div>
+
+              <div class="image-gen-section">
+                <ImageModelPicker
+                  v-model="imageSelectedModel"
+                  :configs="modelConfigs"
+                  @configs-updated="handleConfigsUpdated"
+                />
+              </div>
+
+              <button
+                v-if="hasSeparateReferenceWorkspace"
+                class="image-gen-reference-summary"
+                type="button"
+                @click="activeMode = 'reference'"
+              >
+                <span class="image-gen-reference-summary__thumbs" aria-hidden="true">
+                  <img v-for="reference in selectedReferenceImages" :key="reference.id" :src="reference.data" alt="" />
+                  <span v-if="selectedReferenceImages.length === 0">无</span>
+                </span>
+                <span>{{ selectedReferenceImages.length ? `已选 ${selectedReferenceImages.length} 张参考图` : '未选择参考图' }}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+              </button>
+
+              <div class="image-gen-parameter-grid">
+                <label class="image-gen-compact-field">
+                  <span>画幅</span>
+                  <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
+                    <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ preset.label }}</option>
+                  </select>
+                </label>
+                <label class="image-gen-compact-field">
+                  <span>数量</span>
+                  <select v-model.number="imageCount">
+                    <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ count }} 张</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="image-gen-section">
+                <label class="image-gen-label">负面提示词（可选）</label>
+                <textarea
+                  v-model="imageNegativePrompt"
+                  class="image-gen-prompt-input small"
+                  placeholder="不想出现的内容..."
+                  rows="2"
+                ></textarea>
+              </div>
+            </template>
+          </fieldset>
+
+          <div v-if="!referenceWorkspaceActive" class="image-gen-actions">
+            <button
+              v-if="!imageGenerating"
+              class="image-gen-generate-btn"
+              type="button"
+              @click="generateImages"
+              :disabled="!imagePrompt.trim() || !imageSelectedModel"
+            >
+              生成插画
+            </button>
+            <button v-else class="image-gen-cancel-btn" type="button" @click="cancelGeneration('user')">
+              <span class="spin-icon" aria-hidden="true"></span>
+              取消生成
             </button>
           </div>
-          <textarea
-            v-model="imagePrompt"
-            class="image-gen-prompt-input"
-            placeholder="描述你想生成的插画..."
-            rows="3"
-          ></textarea>
-        </div>
+          <p
+            v-if="generationStatus.message"
+            class="image-gen-status"
+            :class="`is-${generationStatus.kind}`"
+            :role="generationMessageRole"
+          >{{ generationStatus.message }}</p>
+        </section>
 
-        <div class="image-gen-section">
-          <ImageModelPicker
-            v-model="imageSelectedModel"
-            :configs="modelConfigs"
-            @configs-updated="handleConfigsUpdated"
-          />
-        </div>
+        <section v-if="!referenceWorkspaceActive" class="image-gen-results" aria-label="插画候选">
+          <div class="image-gen-results-title">
+            <span>候选与历史</span>
+            <small v-if="imageLibrary.length">{{ imageLibrary.length }} 张</small>
+          </div>
 
-        <button
-          v-if="hasSeparateReferenceWorkspace"
-          class="image-gen-reference-summary"
-          type="button"
-          @click="activeMode = 'reference'"
-        >
-          <span class="image-gen-reference-summary__thumbs" aria-hidden="true">
-            <img v-for="reference in selectedReferenceImages" :key="reference.id" :src="reference.data" alt="" />
-            <span v-if="selectedReferenceImages.length === 0">无</span>
-          </span>
-          <span>{{ selectedReferenceImages.length ? `已选 ${selectedReferenceImages.length} 张参考图` : '未选择参考图' }}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-        </button>
-
-        <div class="image-gen-parameter-grid">
-          <label class="image-gen-compact-field">
-            <span>画幅</span>
-            <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
-              <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ preset.label }}</option>
-            </select>
-          </label>
-          <label class="image-gen-compact-field">
-            <span>数量</span>
-            <select v-model.number="imageCount">
-              <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ count }} 张</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="image-gen-section">
-          <label class="image-gen-label">负面提示词（可选）</label>
-          <textarea
-            v-model="imageNegativePrompt"
-            class="image-gen-prompt-input small"
-            placeholder="不想出现的内容..."
-            rows="2"
-          ></textarea>
-        </div>
-
-        <div class="image-gen-actions">
-          <button
-            class="image-gen-generate-btn"
-            type="button"
-            @click="generateImages"
-            :disabled="imageGenerating || !imagePrompt.trim() || !imageSelectedModel"
-          >
-            <span v-if="imageGenerating" class="spin-icon" aria-hidden="true"></span>
-            <span>{{ imageGenerating ? '生成中...' : '生成插画' }}</span>
-          </button>
-        </div>
-
-        <div v-if="imageLibrary.length > 0" class="image-gen-results">
-          <div class="image-gen-results-title">历史记录</div>
-          <div class="image-gen-grid">
-            <div
-              v-for="(img, idx) in imageLibrary"
-              :key="img.id"
-              class="image-gen-thumb"
-              :class="{ active: imagePreviewIndex === idx }"
-              @click="previewImage(idx)"
-            >
-              <img :src="img.data" alt="generated" />
+          <div v-if="selectedPreviewImage" class="image-gen-current-preview">
+            <img :src="selectedPreviewImage.data" :alt="selectedPreviewImage.prompt || sourceTitle || '当前插画候选'" />
+            <div class="image-gen-current-caption">
+              <strong>{{ selectedPreviewImage.prompt || sourceTitle || '当前插画候选' }}</strong>
+              <span v-if="selectedPreviewImage.width && selectedPreviewImage.height">{{ selectedPreviewImage.width }}×{{ selectedPreviewImage.height }}</span>
             </div>
           </div>
-          <div v-if="selectedPreviewImage" class="image-gen-inline-actions">
-            <button v-if="allowInsertImageToEditor" class="image-preview-action-btn" type="button" @click="emitInsertImage(selectedPreviewImage)">插入正文</button>
-            <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
-            <button class="image-preview-action-btn" type="button" @click="saveToMaterialLib">保存为素材</button>
-          </div>
-        </div>
-      </template>
-    </div>
 
+          <div v-else class="image-gen-empty" role="status">
+            <strong>还没有候选</strong>
+            <span>{{ emptyResultHint }}</span>
+          </div>
+
+          <div v-if="imageLibrary.length" class="image-gen-grid" role="group" aria-label="生成历史">
+            <button
+              v-for="(img, idx) in imageLibrary"
+              :key="img.id"
+              type="button"
+              class="image-gen-thumb"
+              :class="{ active: imagePreviewIndex === idx }"
+              :aria-pressed="imagePreviewIndex === idx"
+              :aria-label="`查看候选 ${idx + 1}${img.prompt ? `：${img.prompt}` : ''}`"
+              @click="previewImage(idx)"
+            >
+              <img :src="img.data" alt="" />
+            </button>
+          </div>
+
+          <div v-if="selectedPreviewImage" class="image-gen-inline-actions">
+            <button
+              v-if="allowInsertImageToEditor"
+              class="image-preview-action-btn"
+              type="button"
+              :disabled="selectedActionGuard.insertDisabled"
+              @click="emitInsertImage(selectedPreviewImage)"
+            >插入正文</button>
+            <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
+            <button
+              class="image-preview-action-btn"
+              type="button"
+              :disabled="selectedActionGuard.saveDisabled"
+              @click="saveToMaterialLib"
+            >保存为素材</button>
+          </div>
+          <p v-if="selectedActionGuard.reason" class="image-gen-action-reason" role="status">{{ selectedActionGuard.reason }}</p>
+        </section>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -866,6 +1321,283 @@ function emitInsertImage(imgEntry) {
 .image-preview-action-btn:hover {
   border-color: var(--archive-olive, var(--accent));
   color: var(--archive-olive-strong, var(--accent));
+}
+
+.image-gen-workspace,
+.image-gen-controls,
+.image-gen-results {
+  min-width: 0;
+}
+
+.image-gen-control-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.image-gen-control-fields:disabled {
+  cursor: wait;
+}
+
+.image-gen-brief {
+  margin-bottom: 12px;
+}
+
+.media-generation-inline--split .image-gen-workspace {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.media-generation-inline--split,
+.media-generation-inline--split .image-generation-workbench {
+  height: 100%;
+  min-height: 0;
+}
+
+.media-generation-inline--split .image-gen-controls,
+.media-generation-inline--split .image-gen-results {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.media-generation-inline--split .image-gen-results {
+  align-self: stretch;
+  margin-top: 0;
+  padding-left: 20px;
+  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 42%, var(--border));
+}
+
+.image-gen-results-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.image-gen-results-title small {
+  color: var(--archive-ink-soft, var(--text-muted));
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.image-gen-current-preview {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 48%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary));
+}
+
+.image-gen-current-preview > img {
+  display: block;
+  width: 100%;
+  height: min(42vh, 460px);
+  min-height: 240px;
+  object-fit: contain;
+}
+
+.media-generation-inline--stack .image-gen-current-preview > img {
+  height: min(34vh, 320px);
+  min-height: 180px;
+}
+
+.image-gen-current-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 38%, var(--border));
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+}
+
+.image-gen-current-caption strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-gen-empty {
+  min-height: 240px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 7px;
+  padding: 28px;
+  border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
+  color: var(--archive-ink-soft, var(--text-muted));
+  text-align: center;
+}
+
+.image-gen-empty strong {
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.image-gen-empty span {
+  max-width: 34em;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.media-generation-inline--split .image-gen-grid {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  margin-top: 10px;
+}
+
+.image-gen-thumb {
+  min-width: 0;
+  padding: 0;
+}
+
+.image-gen-thumb:focus-visible,
+.image-preview-action-btn:focus-visible,
+.image-gen-generate-btn:focus-visible,
+.image-gen-cancel-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--archive-olive) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.image-gen-cancel-btn {
+  width: 100%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold) 62%, var(--border));
+  border-radius: 4px;
+  background: var(--archive-paper-soft, var(--bg-primary));
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.image-gen-status,
+.image-gen-action-reason {
+  margin: 8px 0 0;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.image-gen-status.is-error,
+.image-gen-action-reason {
+  color: var(--danger);
+}
+
+.image-gen-status.is-success {
+  color: var(--archive-olive-strong, var(--accent));
+}
+
+.image-gen-status.is-cancelled {
+  color: var(--archive-ink-soft, var(--text-muted));
+}
+
+.image-preview-action-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.image-preview-action-btn:hover:disabled {
+  border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
+  color: var(--archive-ink, var(--text-primary));
+}
+
+@media (max-width: 720px), (max-height: 560px) {
+  .media-generation-inline--split .image-gen-workspace {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .media-generation-inline--split .image-gen-results {
+    margin-top: 12px;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .media-generation-inline--split .image-gen-controls,
+  .media-generation-inline--split .image-gen-results {
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+
+  .media-generation-inline[data-mobile-pane="parameters"] .image-gen-results,
+  .media-generation-inline[data-mobile-pane="results"] .image-gen-controls {
+    display: none;
+  }
+
+  .image-gen-mode-btn,
+  .image-gen-inline-link,
+  .image-gen-reference-summary,
+  .image-gen-compact-field select,
+  .image-gen-generate-btn,
+  .image-gen-cancel-btn,
+  .image-preview-action-btn {
+    min-height: 44px;
+  }
+
+  .image-gen-reference-thumb,
+  .image-gen-reference-upload,
+  .image-gen-thumb {
+    min-height: 44px;
+  }
+
+  .image-gen-reference-strength input[type="range"] {
+    min-height: 44px;
+  }
+
+  :global(.image-model-overlay button),
+  :global(.image-model-overlay input),
+  :global(.image-model-overlay select),
+  :global(.image-model-overlay textarea) {
+    min-height: 44px;
+  }
+
+  .image-gen-current-preview > img,
+  .media-generation-inline--stack .image-gen-current-preview > img {
+    height: min(46vh, 420px);
+    min-height: 220px;
+  }
+}
+
+@media (max-width: 520px) {
+  .image-gen-parameter-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(104px, 0.46fr);
+  }
+
+  .image-gen-empty {
+    min-height: 220px;
+    padding: 22px 16px;
+  }
+
+  .image-gen-current-caption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .image-gen-current-caption strong {
+    width: 100%;
+  }
 }
 
 </style>

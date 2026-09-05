@@ -1,4 +1,4 @@
-import { getWritingNodeLocation, normalizeWritingOriginRefs } from './writingDocumentSchema.js'
+import { normalizeWritingWorldbookReferences } from './writingWorldbookReferences.js'
 
 export const ANNOTATION_SCHEMA_VERSION = 3
 const MAX_CONTEXT_CHARS = 48
@@ -10,6 +10,16 @@ function now() {
 
 function makeId(prefix = 'annotation') {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function stableLegacyAnnotationId(annotation, chapterId, target, body) {
+  const source = JSON.stringify({ chapterId: annotation?.chapterId || chapterId || '', target, body, createdAt: annotation?.createdAt || '' })
+  let hash = 2166136261
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `annotation-legacy-${(hash >>> 0).toString(36)}`
 }
 
 function asText(value) {
@@ -115,7 +125,11 @@ export function resolveSelectionActionPosition(anchor, {
   height = 34,
   gap = 8,
   margin = 10,
-  scale = 1
+  scale = 1,
+  containerLeft = 0,
+  containerRight = viewportWidth,
+  containerTop = 0,
+  containerBottom = viewportHeight
 } = {}) {
   if (!anchor || !viewportWidth || !viewportHeight) return null
   const safeWidth = Math.max(1, Number(width) || 132)
@@ -129,15 +143,19 @@ export function resolveSelectionActionPosition(anchor, {
   const anchorRight = Number(anchor.right) || anchorLeft
   const anchorTop = Number(anchor.top) || 0
   const anchorBottom = Number(anchor.bottom) || anchorTop
-  let left = anchorRight + safeGap
-  let top = anchorBottom + safeGap
+  const minLeft = Math.max(safeMargin, Number(containerLeft) || 0)
+  const maxRight = Math.min(viewportWidth - safeMargin, Number(containerRight) || viewportWidth)
+  const minTop = Math.max(safeMargin, Number(containerTop) || 0)
+  const maxBottom = Math.min(viewportHeight - safeMargin, Number(containerBottom) || viewportHeight)
+  // 选区工具优先悬在收束行上方，避免遮住下一行/下一段正文。
+  let left = anchorRight - visualWidth / 2
+  let top = anchorTop - visualHeight - safeGap
 
-  if (left + visualWidth > viewportWidth - safeMargin) left = anchorLeft - visualWidth - safeGap
-  if (top + visualHeight > viewportHeight - safeMargin) top = anchorTop - visualHeight - safeGap
+  if (top < minTop) top = anchorBottom + safeGap
 
   return {
-    left: Math.round(Math.max(safeMargin, Math.min(left, viewportWidth - visualWidth - safeMargin)) / safeScale),
-    top: Math.round(Math.max(safeMargin, Math.min(top, viewportHeight - visualHeight - safeMargin)) / safeScale)
+    left: Math.round(Math.max(minLeft, Math.min(left, maxRight - visualWidth)) / safeScale),
+    top: Math.round(Math.max(minTop, Math.min(top, maxBottom - visualHeight)) / safeScale)
   }
 }
 
@@ -200,7 +218,8 @@ export function createWritingAnnotation({
   parentId = null,
   reviewType = null,
   severity = null,
-  reviewBatchId = null
+  reviewBatchId = null,
+  references = []
 } = {}) {
   const timestamp = now()
   const normalizedTarget = normalizeTarget(target || {
@@ -223,6 +242,9 @@ export function createWritingAnnotation({
     ...(reviewType ? { reviewType: asText(reviewType) } : {}),
     ...(severity ? { severity: asText(severity) } : {}),
     ...(reviewBatchId ? { reviewBatchId: asText(reviewBatchId) } : {}),
+    ...(normalizeWritingWorldbookReferences(references).length
+      ? { references: normalizeWritingWorldbookReferences(references) }
+      : {}),
     body: asText(body).trim(),
     status: 'open',
     parentId: parentId || undefined,
@@ -282,7 +304,7 @@ export function normalizeWritingAnnotation(annotation, chapterId = null, documen
     : undefined
   return {
     schemaVersion: ANNOTATION_SCHEMA_VERSION,
-    id: asText(annotation.id).trim() || makeId(),
+    id: asText(annotation.id).trim() || stableLegacyAnnotationId(annotation, chapterId, target, body),
     chapterId: annotation.chapterId || chapterId || null,
     target,
     ...(selector ? { selector } : {}),
@@ -291,6 +313,9 @@ export function normalizeWritingAnnotation(annotation, chapterId = null, documen
     ...(annotation.reviewType ? { reviewType: asText(annotation.reviewType) } : {}),
     ...(SEVERITIES.has(annotation.severity) ? { severity: annotation.severity } : {}),
     ...(annotation.reviewBatchId ? { reviewBatchId: asText(annotation.reviewBatchId) } : {}),
+    ...(normalizeWritingWorldbookReferences(annotation.references).length
+      ? { references: normalizeWritingWorldbookReferences(annotation.references) }
+      : {}),
     body,
     status: ['open', 'resolved', 'orphaned'].includes(annotation.status) ? annotation.status : 'open',
     ...(annotation.parentId ? { parentId: annotation.parentId } : {}),
@@ -323,7 +348,167 @@ function resolveSelector(location, selector) {
       : -1
 }
 
+function pointFromLocation(location, offset) {
+  const safeOffset = Math.max(0, Math.min(location.text.length, Number(offset) || 0))
+  return {
+    unitId: location.unitId,
+    unitRevision: location.unitRevision,
+    nodeId: location.nodeId,
+    nodeRevision: location.nodeRevision,
+    start: safeOffset,
+    end: safeOffset,
+    offset: safeOffset
+  }
+}
+
+function rangeSlice(document, startLocation, endLocation, startOffset, endOffset) {
+  const nodes = documentNodes(document)
+  const startIndex = nodes.findIndex((item) => item.nodeId === startLocation.nodeId)
+  const endIndex = nodes.findIndex((item) => item.nodeId === endLocation.nodeId)
+  if (startIndex < 0 || endIndex < startIndex) return null
+  const selectedNodes = nodes.slice(startIndex, endIndex + 1)
+  const exact = selectedNodes.map((item, index) => {
+    if (selectedNodes.length === 1) return item.text.slice(startOffset, endOffset)
+    if (index === 0) return item.text.slice(startOffset)
+    if (index === selectedNodes.length - 1) return item.text.slice(0, endOffset)
+    return item.text
+  }).join('\n')
+  return {
+    exact,
+    nodeIds: selectedNodes.map((item) => item.nodeId).filter(Boolean),
+    unitIds: Array.from(new Set(selectedNodes.map((item) => item.unitId).filter(Boolean)))
+  }
+}
+
+function endpointSelector(location, selector, offset, edge) {
+  const exact = asText(selector?.exact)
+  if (!exact) return undefined
+  const start = edge === 'end'
+    ? Math.max(0, Number(offset) - exact.length)
+    : Math.max(0, Number(offset) || 0)
+  return createWritingSelector({
+    text: exact,
+    start,
+    end: start + exact.length,
+    fullText: location.text
+  })
+}
+
+function freshRangeEndpointSelector(location, startOffset, endOffset, edge, sameNode) {
+  const safeStart = Math.max(0, Math.min(location.text.length, Number(startOffset) || 0))
+  const safeEnd = Math.max(safeStart, Math.min(location.text.length, Number(endOffset) || 0))
+  const from = edge === 'end'
+    ? Math.max(sameNode ? safeStart : 0, safeEnd - MAX_CONTEXT_CHARS)
+    : safeStart
+  const to = edge === 'end'
+    ? safeEnd
+    : Math.min(location.text.length, sameNode ? safeEnd : safeStart + MAX_CONTEXT_CHARS, safeStart + MAX_CONTEXT_CHARS)
+  const exact = location.text.slice(from, to)
+  return exact
+    ? createWritingSelector({ text: exact, start: from, end: to, fullText: location.text })
+    : undefined
+}
+
+function resolveRangeEndpoint(location, point, selector, edge) {
+  if (!location || !point) return -1
+  if (selector?.exact) {
+    const start = resolveSelector(location, selector)
+    return start < 0 ? -1 : edge === 'end' ? start + selector.exact.length : start
+  }
+  // 没有 quote selector 时，只能在节点本身未变化时沿用 offset；正文已经
+  // 改写却继续猜位置，比显式 orphan 更危险。
+  if (Number(point.nodeRevision || 0) !== Number(location.nodeRevision || 0)) return -1
+  return Math.max(0, Math.min(location.text.length, Number(point.offset) || 0))
+}
+
+function resolveAnnotationRangeOnDocument(annotation, document) {
+  const range = annotation.range
+  const startLocation = findNode(document, range?.start?.nodeId)
+  const endLocation = findNode(document, range?.end?.nodeId)
+  if (!startLocation || !endLocation) {
+    return { ...annotation, status: 'orphaned', resolution: 'range-missing-node' }
+  }
+  if (
+    (range.start?.unitId && range.start.unitId !== startLocation.unitId)
+    || (range.end?.unitId && range.end.unitId !== endLocation.unitId)
+  ) {
+    return { ...annotation, status: 'orphaned', resolution: 'range-unit-mismatch' }
+  }
+
+  const sameNode = startLocation.nodeId === endLocation.nodeId
+  let startOffset = -1
+  let endOffset = -1
+  if (sameNode && range.exact) {
+    const wholeRangeSelector = {
+      exact: range.exact,
+      start: Number(range.start?.offset) || 0,
+      prefix: asText(range.startSelector?.prefix),
+      suffix: asText(range.endSelector?.suffix)
+    }
+    startOffset = resolveSelector(startLocation, wholeRangeSelector)
+    endOffset = startOffset < 0 ? -1 : startOffset + range.exact.length
+  } else {
+    startOffset = resolveRangeEndpoint(
+      startLocation,
+      range.start,
+      range.startSelector || annotation.selector,
+      'start'
+    )
+    endOffset = resolveRangeEndpoint(
+      endLocation,
+      range.end,
+      range.endSelector || (sameNode ? annotation.selector : null),
+      'end'
+    )
+  }
+  if (startOffset < 0 || endOffset < 0 || (sameNode && endOffset < startOffset)) {
+    return { ...annotation, status: 'orphaned', resolution: 'range-quote-not-found' }
+  }
+
+  const slice = rangeSlice(document, startLocation, endLocation, startOffset, endOffset)
+  if (!slice) return { ...annotation, status: 'orphaned', resolution: 'range-order-invalid' }
+  const startSelector = endpointSelector(
+    startLocation,
+    range.startSelector || annotation.selector,
+    startOffset,
+    'start'
+  )
+  const endSelector = endpointSelector(
+    endLocation,
+    range.endSelector || (sameNode ? annotation.selector : null),
+    endOffset,
+    'end'
+  )
+  const primarySelector = startSelector || annotation.selector
+  const targetEnd = sameNode
+    ? endOffset
+    : Math.min(startLocation.text.length, startOffset + asText(primarySelector?.exact).length)
+  return {
+    ...annotation,
+    target: {
+      ...pointFromLocation(startLocation, startOffset),
+      start: startOffset,
+      end: targetEnd
+    },
+    ...(primarySelector ? { selector: primarySelector } : {}),
+    range: {
+      ...range,
+      start: pointFromLocation(startLocation, startOffset),
+      end: pointFromLocation(endLocation, endOffset),
+      nodeIds: slice.nodeIds,
+      unitIds: slice.unitIds,
+      exact: slice.exact,
+      ...(startSelector ? { startSelector } : {}),
+      ...(endSelector ? { endSelector } : {})
+    },
+    status: annotation.status === 'resolved' ? 'resolved' : 'open',
+    resolution: 'range-quote',
+    updatedAt: now()
+  }
+}
+
 function resolveAnnotationOnDocument(annotation, document) {
+  if (annotation.range) return resolveAnnotationRangeOnDocument(annotation, document)
   const location = findNode(document, annotation.target.nodeId)
   if (!location) return { ...annotation, status: 'orphaned', resolution: 'missing-node' }
   if (annotation.target.unitId && annotation.target.unitId !== location.unitId) {
@@ -366,8 +551,122 @@ function getUniqueQuoteMatches(exact, document, unitId = null) {
     .flatMap((location) => findAll(location.text, exact).map((start) => ({ location, start })))
 }
 
+function applySplitTransitionToRange(annotation, document, splitNode) {
+  const range = annotation.range
+  const oldNodeId = splitNode?.oldNodeId
+  const newNodeId = splitNode?.newNodeId
+  const splitOffset = Math.max(0, Number(splitNode?.offset) || 0)
+  const startTouches = range?.start?.nodeId === oldNodeId
+  const endTouches = range?.end?.nodeId === oldNodeId
+  if (!startTouches && !endTouches) return null
+
+  const originalStart = Math.max(0, Number(range.start?.offset) || 0)
+  const originalEnd = Math.max(0, Number(range.end?.offset) || 0)
+  if (
+    startTouches
+    && endTouches
+    && originalStart < splitOffset
+    && originalEnd > splitOffset
+  ) {
+    return { ...annotation, status: 'orphaned', resolution: 'split-boundary', updatedAt: now() }
+  }
+
+  const mapPoint = (point, edge) => {
+    if (point?.nodeId !== oldNodeId) {
+      const location = findNode(document, point?.nodeId)
+      return location ? { location, offset: Math.max(0, Number(point?.offset) || 0) } : null
+    }
+    const offset = Math.max(0, Number(point.offset) || 0)
+    // 结束点恰在 split 边界仍属于左侧；开始点恰在边界属于右侧。
+    const movesRight = edge === 'start' ? offset >= splitOffset : offset > splitOffset
+    const location = findNode(document, movesRight ? newNodeId : oldNodeId)
+    if (!location) return null
+    return { location, offset: movesRight ? offset - splitOffset : offset }
+  }
+  const mappedStart = mapPoint(range.start, 'start')
+  const mappedEnd = mapPoint(range.end, 'end')
+  if (!mappedStart || !mappedEnd) {
+    return { ...annotation, status: 'orphaned', resolution: 'range-missing-node', updatedAt: now() }
+  }
+  const slice = rangeSlice(
+    document,
+    mappedStart.location,
+    mappedEnd.location,
+    mappedStart.offset,
+    mappedEnd.offset
+  )
+  if (!slice) return { ...annotation, status: 'orphaned', resolution: 'range-order-invalid', updatedAt: now() }
+  const sameNode = mappedStart.location.nodeId === mappedEnd.location.nodeId
+  // split 可能把旧 endpoint selector 的 exact 一刀切在两块之间；沿用它会
+  // 让本次 transition 看似成功、下一次普通输入却突然 orphan。按新范围
+  // 两端重新截取最多 48 字，保证 selector 完全落在各自的新节点里。
+  const startSelector = freshRangeEndpointSelector(
+    mappedStart.location,
+    mappedStart.offset,
+    sameNode ? mappedEnd.offset : mappedStart.location.text.length,
+    'start',
+    sameNode
+  )
+  const endSelector = freshRangeEndpointSelector(
+    mappedEnd.location,
+    sameNode ? mappedStart.offset : 0,
+    mappedEnd.offset,
+    'end',
+    sameNode
+  )
+  const primarySelector = startSelector || annotation.selector
+  return {
+    ...annotation,
+    target: {
+      ...pointFromLocation(mappedStart.location, mappedStart.offset),
+      start: mappedStart.offset,
+      end: sameNode
+        ? mappedEnd.offset
+        : Math.min(mappedStart.location.text.length, mappedStart.offset + asText(primarySelector?.exact).length)
+    },
+    ...(primarySelector ? { selector: primarySelector } : {}),
+    range: {
+      ...range,
+      start: pointFromLocation(mappedStart.location, mappedStart.offset),
+      end: pointFromLocation(mappedEnd.location, mappedEnd.offset),
+      nodeIds: slice.nodeIds,
+      unitIds: slice.unitIds,
+      exact: slice.exact,
+      ...(startSelector ? { startSelector } : {}),
+      ...(endSelector ? { endSelector } : {})
+    },
+    status: annotation.status === 'resolved' ? 'resolved' : 'open',
+    resolution: 'split-offset',
+    updatedAt: now()
+  }
+}
+
 function applyTransition(annotation, document, transition) {
   const nodeId = annotation.target.nodeId
+  if (['clear', 'replace-all'].includes(String(transition?.type || ''))) {
+    const affectedUnitIds = new Set([
+      ...(Array.isArray(transition?.affectedUnitIds) ? transition.affectedUnitIds : []),
+      ...(Array.isArray(transition?.removedUnitIds) ? transition.removedUnitIds : [])
+    ].map(String))
+    if (affectedUnitIds.has(String(annotation.target?.unitId || ''))) {
+      // 全章替换不是一次可重定位的局部编辑。即使新稿里碰巧再次出现相同
+      // 短语，也不能把旧批注静默绑到完全不同的语境。
+      return {
+        ...annotation,
+        status: 'orphaned',
+        resolution: transition.type === 'clear' ? 'unit-content-cleared' : 'unit-content-replaced',
+        updatedAt: now()
+      }
+    }
+  }
+  if (transition?.type === 'split' && annotation.range) {
+    const transitionedRange = applySplitTransitionToRange(
+      annotation,
+      document,
+      transition.splitNode
+    )
+    if (transitionedRange) return transitionedRange
+  }
   if (transition?.type === 'split' && transition.splitNode?.oldNodeId === nodeId) {
     const splitOffset = Math.max(0, Number(transition.splitNode.offset) || 0)
     const start = Math.max(0, Number(annotation.target.start) || 0)
@@ -403,18 +702,45 @@ function applyTransition(annotation, document, transition) {
     }
   }
   const mapped = transition?.nodeUnitMap?.[nodeId]
-  if (mapped && annotation.target.unitId !== mapped) {
-    return { ...annotation, target: { ...annotation.target, unitId: mapped } }
+  let next = mapped && annotation.target.unitId !== mapped
+    ? { ...annotation, target: { ...annotation.target, unitId: mapped } }
+    : annotation
+  if (next.range && transition?.nodeUnitMap) {
+    const mapPointUnit = (point) => {
+      const unitId = transition.nodeUnitMap?.[point?.nodeId]
+      return unitId && point?.unitId !== unitId ? { ...point, unitId } : point
+    }
+    const start = mapPointUnit(next.range.start)
+    const end = mapPointUnit(next.range.end)
+    if (start !== next.range.start || end !== next.range.end) {
+      next = {
+        ...next,
+        range: {
+          ...next.range,
+          start,
+          end,
+          unitIds: Array.from(new Set([start?.unitId, end?.unitId].filter(Boolean)))
+        }
+      }
+    }
   }
-  return annotation
+  return next
 }
 
 export function reconcileWritingAnnotations(annotations, document, chapterId = null, previousDocument = null, transition = null) {
   return normalizeWritingAnnotations(annotations, chapterId, previousDocument).map((annotation) => {
     const transitioned = applyTransition(annotation, document, transition)
-    if (['split-offset', 'split-boundary'].includes(transitioned.resolution)) return transitioned
+    if ([
+      'split-offset',
+      'split-boundary',
+      'unit-content-cleared',
+      'unit-content-replaced'
+    ].includes(transitioned.resolution)) return transitioned
     const resolved = resolveAnnotationOnDocument(transitioned, document)
     if (resolved.status !== 'orphaned') return resolved
+    // range 有独立的双端点 selector；其中任一端无法唯一解析时不能再退化
+    // 成 target 的单节点模糊匹配，否则会把跨段批注缩到一个碰巧同词的点。
+    if (transitioned.range) return resolved
     const exact = annotation.selector?.exact
     if (!exact) return resolved
     const matches = getUniqueQuoteMatches(exact, document, transitioned.target.unitId)

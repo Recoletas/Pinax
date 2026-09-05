@@ -104,6 +104,60 @@ export function parseNarrativePresentation(text, options = {}) {
   }
 }
 
+// Authoring transport has the same marker grammar as Experience. Keep one
+// canonical projection so protocol markers never reach the notebook model.
+export function normalizeNarrativeTransportProse(text, options = {}) {
+  const presentation = parseNarrativePresentation(text, {
+    complete: true,
+    messageId: options.messageId || 'authoring-transport',
+    speakerMap: options.speakerMap || null,
+    speakerRegistry: options.speakerRegistry || null
+  })
+  return String(presentation.content || '').trim()
+}
+
+// F1-5: reuse the prose response's existing transport structure as bounded
+// boundary hints. This is not another classifier call: marker changes already
+// travelled with the same response. Marker-free providers honestly return no
+// hints and let UnitSemanticProjection use its deterministic fallback.
+export function normalizeNarrativeTransportResult(text, options = {}) {
+  const presentation = parseNarrativePresentation(text, {
+    complete: true,
+    messageId: options.messageId || 'authoring-transport',
+    speakerMap: options.speakerMap || null,
+    speakerRegistry: options.speakerRegistry || null
+  })
+  const prose = String(presentation.content || '').trim()
+  const boundaryHints = []
+  let offset = 0
+  const blocks = Array.isArray(presentation.blocks) ? presentation.blocks : []
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index]
+    if (index > 0) {
+      offset += 2
+      const previous = blocks[index - 1]
+      // Consecutive dialogue remains one exchange even when speakers change.
+      // Other explicit transport-kind shifts are useful but bounded hints.
+      if (presentation.hasMarkers && previous?.kind !== block?.kind
+        && !(previous?.kind === 'dialogue' && block?.kind === 'dialogue')
+        && boundaryHints.length < 8) {
+        boundaryHints.push(Object.freeze({
+          offset,
+          split: true,
+          reason: 'rhetorical-shift',
+          source: 'response-transport'
+        }))
+      }
+    }
+    offset += String(block?.text || '').length
+  }
+  return Object.freeze({
+    prose,
+    boundaryHints: Object.freeze(boundaryHints),
+    boundaryHintSource: presentation.hasMarkers ? 'response-transport' : 'deterministic-fallback'
+  })
+}
+
 export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   const complete = options.complete !== false
   const fallbackSpeaker = normalizeSpeaker(options.fallbackSpeaker)

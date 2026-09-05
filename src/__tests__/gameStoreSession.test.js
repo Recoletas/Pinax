@@ -3555,5 +3555,83 @@ const gameStore = useGameStore()
 
 }
 })
+
+    it('persists observer provenance and publishes the normalized settled contract', async () => {
+      localStorage.clear()
+      setActivePinia(createPinia())
+      vi.useFakeTimers()
+      const gameStore = useGameStore()
+      const settled = []
+      const unsubscribe = gameStore.subscribeAuthoringObserverResults((payload) => settled.push(payload))
+      try {
+        gameStore.resetAuthoringObserverRuntime()
+        const receipt = await gameStore.commitAuthoringProseResult({
+          text: '林昭信任顾远。随后发现密道。',
+          sourceRefs: ['chapter:chapter-observer:unit:unit-observer'],
+          memoryProjectId: 'book-observer',
+          documentId: 'document-observer',
+          chapterId: 'chapter-observer',
+          unitId: 'unit-observer',
+          unitRevision: 7,
+          sourceDocumentRevision: 'source-r21'
+        })
+
+        await vi.advanceTimersByTimeAsync(4500)
+
+        const event = gameStore.getAuthoringDerivedState()
+          .find((item) => item.kind === 'event' && item.documentId === 'document-observer')
+        expect(event).toMatchObject({
+          schemaVersion: 1,
+          derivedAt: expect.any(Number),
+          documentId: 'document-observer',
+          projectId: 'book-observer',
+          chapterId: 'chapter-observer',
+          unitId: 'unit-observer',
+          unitRevision: 7,
+          documentRevision: 'source-r21',
+          status: 'applied',
+          target: {
+            type: 'document',
+            id: 'document-observer',
+            projectId: 'book-observer',
+            documentId: 'document-observer',
+            chapterId: 'chapter-observer',
+            unitId: 'unit-observer',
+            unitRevision: 7,
+            revision: expect.stringMatching(/^document-observer:doc-r\d+$/),
+            sourceDocumentRevision: 'source-r21'
+          },
+          provenance: expect.objectContaining({
+            schemaVersion: 1,
+            derivedAt: expect.any(Number),
+            documentId: 'document-observer',
+            documentRevision: 'source-r21'
+          })
+        })
+        expect(event.provenance.target).toEqual(event.target)
+        expect(gameStore.getAuthoringDerivedState()).toContainEqual(expect.objectContaining({
+          kind: 'relation',
+          subject: '林昭',
+          object: '顾远',
+          subjectId: '',
+          objectId: '',
+          status: 'candidate',
+          identityStatus: 'unresolved',
+          documentId: 'document-observer'
+        }))
+        expect(settled).toContainEqual(expect.objectContaining({
+          status: 'completed',
+          key: 'document-observer:unit:unit-observer',
+          target: event.target,
+          result: expect.objectContaining({ status: 'completed', target: event.target }),
+          error: null
+        }))
+        expect(receipt.observerSchedule.scheduleKey).toBe('document-observer:unit:unit-observer')
+      } finally {
+        unsubscribe()
+        gameStore.resetAuthoringObserverRuntime()
+        vi.useRealTimers()
+      }
+    })
   })
 })

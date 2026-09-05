@@ -42,7 +42,7 @@ import {
   validateServerTaskType
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
-import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
+import { resolveTextModelMaxTokens, runTextModelAgent } from '../../server/services/textModelAgentProvider'
 import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
@@ -53,6 +53,7 @@ import {
   buildCanvasAgentContext,
   buildMaterialsAgentContext
 } from '../services/agents/creativeGraphAgentContext'
+import { buildAuthoringSceneDirectionEnvelope } from '../services/agents/authoring/authoringSceneDirectionPlanner.js'
 import { prepareMaterialAgentTransaction } from '../services/agents/creativeGraphAgentActions'
 import {
   canUndoCanvasAgentTransaction,
@@ -485,6 +486,23 @@ describe('agentContracts', function () {
     expect(getTask('canvas.transition').resultSchema).toBe('canvas-actions.v1')
     expect(getTask('experience.next-actions').id).toBe('authoring.next-actions')
     expect(getTask('experience.next-actions').effectPolicy).toBe('ephemeral')
+    expect(getTask('authoring.scene.directions')).toMatchObject({
+      owner: 'authoring',
+      workflowKind: 'structured-one-shot',
+      contextProfile: 'scene-direction',
+      inputSchema: 'scene-pressure.v1',
+      resultSchema: 'scene-directions.v1',
+      effectPolicy: 'ephemeral'
+    })
+    expect(getTask('authoring.knowledge.query')).toMatchObject({
+      owner: 'authoring',
+      workflowKind: 'validated-chain',
+      contextProfile: 'authoring-knowledge',
+      inputSchema: 'authoring-knowledge-query.v1',
+      resultSchema: 'authoring-knowledge-answer.v1',
+      effectPolicy: 'review-only',
+      maxContextChars: 28000
+    })
     expect(getTask('experience.emergence').id).toBe('authoring.emergence')
     expect(getTask('storyboard.review')).toMatchObject({
       id: 'storyboard.review',
@@ -499,7 +517,7 @@ describe('agentContracts', function () {
     })
 
     expect(getTasksBySurface('settings').length).toBe(12)
-    expect(getTasksBySurface('authoring').length).toBe(17)
+    expect(getTasksBySurface('authoring').length).toBe(19)
     expect(getTasksBySurface('observer').length).toBe(6)
     expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(
       expect.arrayContaining(['materials.refine', 'materials.classify', 'materials.split', 'materials.relate'])
@@ -507,6 +525,37 @@ describe('agentContracts', function () {
     expect(getTask('materials.classify').resultSchema).toBe('material-actions.v1')
     expect(getTask('materials.split').resultSchema).toBe('material-actions.v1')
     expect(getTask('materials.relate').resultSchema).toBe('material-actions.v1')
+
+    var directionEnvelope = buildAuthoringSceneDirectionEnvelope({
+      kind: 'authoring-scene-direction-planning-request',
+      sessionFingerprint: 'manifest-f1',
+      pressureProjection: {
+        availability: 'ready',
+        participants: [{ ref: 'worldbook-entry:lina', name: '莉娜', roles: ['viewpoint'] }],
+        location: null,
+        pressureSeeds: [{ kind: 'information-gap', evidenceRefs: ['worldbook-entry:lina'], summary: '莉娜必须决定是否公开线索。' }],
+        evidence: [{ ref: 'worldbook-entry:lina', sourceRefs: ['worldbook-entry:lina'] }]
+      },
+      contextManifest: {
+        target: { projectId: 'book-f1', unitId: 'unit-f1' },
+        blocks: [{ kind: 'worldbook-entry', text: '莉娜掌握一条未公开线索。', sourceRefs: ['worldbook-entry:lina'] }]
+      }
+    })
+    expect(validateAgentContextEnvelope(directionEnvelope, getTask('authoring.scene.directions'))).toMatchObject({ valid: true })
+    expect(directionEnvelope.blocks.map((item) => item.kind)).toEqual(expect.arrayContaining(['scene', 'worldbook']))
+    expect(resolveTextModelMaxTokens({ taskType: 'authoring.scene.directions' })).toBe(1200)
+    var directionPrompt = buildOpenClawUserMessage(directionEnvelope, '规划本场方向', {
+      taskType: 'authoring.scene.directions', options: { toolChoice: 'none' }
+    })
+    expect(directionPrompt).toContain('immediateGain')
+    expect(directionPrompt).toContain('insufficient-evidence')
+    expect(directionPrompt).toContain('不得创造未知人物')
+    expect(resolveTextModelMaxTokens({ taskType: 'authoring.knowledge.query' })).toBe(2800)
+    var knowledgePrompt = buildOpenClawUserMessage(directionEnvelope, '艾德加此前在哪几章出现？', {
+      taskType: 'authoring.knowledge.query', options: { toolChoice: 'none' }
+    })
+    expect(knowledgePrompt).toContain('evidenceRefs')
+    expect(knowledgePrompt).toContain('不得自行返回 excerpt、locator 或 revision')
 
     var materialContext = buildMaterialsAgentContext({
       selectedAsset: { id: 'selected', title: '当前素材', content: 'VISIBLE MATERIAL' },
@@ -579,6 +628,27 @@ describe('agentContracts', function () {
     expect(materialAgentResult.actions[0]).toMatchObject({
       type: 'material-classification',
       payload: { changes: [{ assetId: 'selected', kind: 'event' }] }
+    })
+    var knowledgeResponse = createAdvisorTaskResponse({
+      taskType: 'authoring.knowledge.query',
+      advice: JSON.stringify({
+        answer: '艾德加在第一章出现。',
+        claims: [{ text: '艾德加在第一章出现。', confidence: 'supported', evidenceRefs: ['node:chapter-1:node-1'] }],
+        missingInformation: [],
+        calculations: []
+      }),
+      target: { type: 'project', id: 'book-knowledge', revision: 'knowledge-r1' }
+    })
+    expect(knowledgeResponse.result).toMatchObject({
+      mode: 'review',
+      knowledgeAnswer: {
+        answer: '艾德加在第一章出现。',
+        claims: [expect.objectContaining({ evidenceRefs: ['node:chapter-1:node-1'] })],
+        missingInformation: [],
+        calculations: []
+      },
+      typedActions: [],
+      action: []
     })
     expect(buildOpenClawUserMessage(
       buildMaterialsAgentContext({ selectedAssets: materialAssets }).context,
@@ -1029,6 +1099,23 @@ describe('agentContracts', function () {
       history: 2,
       memory: 1
     })
+    var sharedAuthoringIndex = createNarrativeResourceIndex({
+      ...narrativeSnapshot,
+      additionalResources: [{
+        id: 'node:chapter-1:node-edgar',
+        domain: 'authoring-manuscript',
+        type: 'manuscript',
+        title: '第一章 · 1.1',
+        summary: '艾德加在钟楼下把钥匙交给莉娜。',
+        sourceRefs: ['node:chapter-1:node-edgar']
+      }]
+    })
+    expect(searchNarrativeResources(sharedAuthoringIndex, 'authoring-manuscript', {
+      query: '艾德加', limit: 4
+    })).toEqual([expect.objectContaining({
+      id: 'node:chapter-1:node-edgar',
+      sourceRefs: ['node:chapter-1:node-edgar']
+    })])
 
     expect(validateNarrativeToolCall({
       id: 'call-invalid',
@@ -2222,11 +2309,16 @@ describe('agentContracts', function () {
     expect(transcriptLoop.trace.planRevision).toMatch(/^bp_/)
     expect(transcriptLoop.totalCalls).toBe(2)
     expect(transcriptLoop.toolRounds).toBe(2)
-    expect(transcriptLoop.usage).toMatchObject({
-      inputTokens: 30,
-      outputTokens: 18,
-      totalTokens: 48
-    })
+    // Phase 7：规划响应无 usage 时也必须保守估算，不能继续把累计量记成只有正文两次调用的 48。
+    expect(transcriptLoop.usage.inputTokens).toBeGreaterThan(30)
+    expect(transcriptLoop.usage.outputTokens).toBeGreaterThanOrEqual(18)
+    expect(transcriptLoop.usage.totalTokens).toBe(
+      transcriptLoop.usage.inputTokens + transcriptLoop.usage.outputTokens
+    )
+    expect(transcriptLoop.trace.tokenBudget.calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ phase: 'plan', source: 'estimated' }),
+      expect.objectContaining({ phase: 'write', source: 'provider' })
+    ]))
     expect(JSON.stringify(transcriptLoop.baseMessages)).not.toContain('submit_narrative_beat_plan')
     expect(transcriptLoop.transcript.messages.some(function (message) {
       return message.parts.some((part) => part.type === 'tool-result' && part.toolCallId === 'single-transcript-call')
@@ -3237,6 +3329,112 @@ describe('agentContracts', function () {
     expect(requestPayload.envelope.blocks.map(function (block) { return block.kind })).toEqual(
       requestEnvelope.blocks.map(function (block) { return block.kind })
     )
+    var reviewProviderBlocks = [{
+      projectId: 'review-provider-book',
+      documentRole: 'manuscript',
+      documentId: 'review-provider-chapter',
+      chapterId: 'review-provider-chapter',
+      documentRevision: 'review-r7',
+      unitId: 'review-provider-unit',
+      unitRevision: '3',
+      nodeId: 'review-provider-node',
+      nodeRevision: '5',
+      text: '艾德加在钟楼下停住脚步。',
+      sourceRefs: [
+        'chapter:review-provider-chapter',
+        'node:review-provider-chapter:review-provider-node'
+      ]
+    }]
+    var reviewAllowedEvidenceRefs = [
+      ...reviewProviderBlocks[0].sourceRefs,
+      'worldbook-entry:review-edgar'
+    ]
+    var reviewProviderAdapted = adaptLegacyContextToEnvelope({
+      context: {
+        projectId: 'review-provider-book',
+        chapterTitle: '钟楼章',
+        reviewBlocks: reviewProviderBlocks,
+        allowedEvidenceRefs: reviewAllowedEvidenceRefs,
+        evidence: [{
+          kind: 'worldbook',
+          sourceRef: 'worldbook-entry:review-edgar',
+          label: '艾德加',
+          revision: 'worldbook-review-r2',
+          text: 'AUTHORIZED WORLDBOOK REVIEW EVIDENCE：艾德加是旧港档案员。'
+        }, {
+          kind: 'worldbook',
+          sourceRef: 'worldbook-entry:review-edgar',
+          label: '重复艾德加',
+          text: 'DUPLICATE AUTHORIZED REVIEW EVIDENCE'
+        }, {
+          kind: 'worldbook',
+          sourceRef: 'worldbook-entry:review-secret',
+          label: '未授权秘密',
+          text: 'UNAUTHORIZED WORLDBOOK REVIEW EVIDENCE'
+        }]
+      },
+      question: '校对这批正文',
+      scope: 'chapter',
+      taskType: 'writing.chapter.health',
+      target: {
+        kind: 'chapter-review',
+        projectId: 'review-provider-book',
+        documentId: 'review-provider-chapter',
+        chapterId: 'review-provider-chapter',
+        documentRevision: 'review-r7'
+      },
+      options: {
+        projectId: 'review-provider-book',
+        chapterReview: true,
+        reviewBlocks: reviewProviderBlocks,
+        allowedEvidenceRefs: reviewAllowedEvidenceRefs
+      }
+    })
+    expect(reviewProviderAdapted.envelope.projectId).toBe('review-provider-book')
+    var serializedReviewTargetBlock = reviewProviderAdapted.envelope.blocks.find(function (block) {
+      return String(block.content).includes('【章节审查目标块】')
+    })
+    expect(serializedReviewTargetBlock.sourceRefs).toEqual(reviewProviderBlocks[0].sourceRefs)
+    var serializedReviewEvidenceBlocks = reviewProviderAdapted.envelope.blocks.filter(function (block) {
+      return block.sourceRefs.includes('worldbook-entry:review-edgar')
+    })
+    expect(serializedReviewEvidenceBlocks).toHaveLength(1)
+    expect(serializedReviewEvidenceBlocks[0]).toMatchObject({
+      kind: 'worldbook',
+      sourceRefs: ['worldbook-entry:review-edgar']
+    })
+    expect(serializedReviewEvidenceBlocks[0].content).toContain('AUTHORIZED WORLDBOOK REVIEW EVIDENCE')
+    expect(JSON.stringify(reviewProviderAdapted.envelope)).not.toContain('worldbook-entry:review-secret')
+    expect(JSON.stringify(reviewProviderAdapted.envelope)).not.toContain('UNAUTHORIZED WORLDBOOK REVIEW EVIDENCE')
+    expect(JSON.stringify(reviewProviderAdapted.envelope)).not.toContain('DUPLICATE AUTHORIZED REVIEW EVIDENCE')
+    var reviewProviderPayload = buildAdvisorRequestPayload({
+      envelope: reviewProviderAdapted.envelope,
+      question: '校对这批正文',
+      taskType: reviewProviderAdapted.resolvedTaskType,
+      options: {
+        projectId: 'review-provider-book',
+        chapterReview: true,
+        reviewBlocks: reviewProviderBlocks,
+        allowedEvidenceRefs: reviewAllowedEvidenceRefs
+      },
+      requestId: 'review-provider-trace',
+      clientStartedAt: 2
+    })
+    var reviewProviderPrompt = buildOpenClawUserMessage(
+      reviewProviderPayload.envelope,
+      reviewProviderPayload.question,
+      {
+        taskType: reviewProviderPayload.taskType,
+        target: reviewProviderPayload.target,
+        options: reviewProviderPayload.options
+      }
+    )
+    expect(reviewProviderPrompt).toContain('worldbook-entry:review-edgar')
+    expect(reviewProviderPrompt).toContain('AUTHORIZED WORLDBOOK REVIEW EVIDENCE')
+    expect(reviewProviderPrompt.match(/AUTHORIZED WORLDBOOK REVIEW EVIDENCE/g)).toHaveLength(1)
+    expect(reviewProviderPrompt.match(/艾德加在钟楼下停住脚步。/g)).toHaveLength(1)
+    expect(reviewProviderPrompt).not.toContain('worldbook-entry:review-secret')
+    expect(reviewProviderPrompt).not.toContain('UNAUTHORIZED WORLDBOOK REVIEW EVIDENCE')
     var serverPrompt = buildOpenClawUserMessage(requestPayload.envelope, requestPayload.question, {
       taskType: requestPayload.taskType,
       target: requestPayload.target,

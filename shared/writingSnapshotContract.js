@@ -3,11 +3,19 @@ export const MAX_WRITING_SNAPSHOTS_PER_CHAPTER = 20
 export const MAX_WRITING_SNAPSHOT_CHARS = 600000
 export const MAX_WRITING_SNAPSHOT_STORAGE_CHARS = 3500000
 
-const SNAPSHOT_REASONS = new Set([
+export const WRITING_SNAPSHOT_REASONS = Object.freeze([
   'manual',
+  'word-milestone',
   'before-rewrite',
+  'before-adoption',
   'before-restore',
   'crash-recovery'
+])
+const SNAPSHOT_REASONS = new Set(WRITING_SNAPSHOT_REASONS)
+const PROTECTION_REASONS = new Set([
+  'before-rewrite',
+  'before-adoption',
+  'before-restore'
 ])
 
 function clone(value) {
@@ -19,7 +27,7 @@ function clone(value) {
   }
 }
 
-function hashText(value) {
+export function getWritingSnapshotContentHash(value) {
   let hash = 2166136261
   const source = String(value ?? '')
   for (let index = 0; index < source.length; index += 1) {
@@ -29,12 +37,62 @@ function hashText(value) {
   return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
-function countWords(value) {
+export function countWritingWords(value) {
   const source = String(value ?? '').trim()
   if (!source) return 0
   const chinese = (source.match(/[\u3400-\u9fff]/g) || []).length
   const latin = (source.match(/[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?/g) || []).length
   return chinese + latin
+}
+
+function normalizeNonNegativeInteger(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number >= 0 ? number : fallback
+}
+
+function normalizeMilestone(value, reason, wordCount, documentRevision) {
+  if (reason !== 'word-milestone') return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const intervalWords = normalizeNonNegativeInteger(value.intervalWords)
+  if (!intervalWords) return null
+  const fromWordCount = normalizeNonNegativeInteger(value.fromWordCount)
+  const toWordCount = normalizeNonNegativeInteger(value.toWordCount, wordCount)
+  if (toWordCount < fromWordCount) return null
+  const crossedBoundaries = [...new Set((Array.isArray(value.crossedBoundaries) ? value.crossedBoundaries : [])
+    .map((item) => normalizeNonNegativeInteger(item))
+    .filter((item) => item > 0 && item % intervalWords === 0 && item > fromWordCount && item <= toWordCount))]
+    .sort((left, right) => left - right)
+  if (!crossedBoundaries.length) return null
+  const coveredBoundaries = [...new Set([
+    ...crossedBoundaries,
+    ...(Array.isArray(value.coveredBoundaries) ? value.coveredBoundaries : [])
+  ]
+    .map((item) => normalizeNonNegativeInteger(item))
+    .filter((item) => item > 0 && item % intervalWords === 0 && item <= toWordCount))]
+    .sort((left, right) => left - right)
+  return {
+    intervalWords,
+    crossedBoundaries,
+    coveredBoundaries,
+    fromWordCount,
+    toWordCount,
+    persistedDocumentRevision: normalizeNonNegativeInteger(
+      value.persistedDocumentRevision,
+      normalizeNonNegativeInteger(documentRevision)
+    )
+  }
+}
+
+function normalizeProtection(value, reason) {
+  if (!PROTECTION_REASONS.has(reason)) return null
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const operation = String(source.operation || '').trim().slice(0, 80)
+  const transactionId = String(source.transactionId || '').trim().slice(0, 160)
+  return {
+    kind: reason,
+    ...(operation ? { operation } : {}),
+    ...(transactionId ? { transactionId } : {})
+  }
 }
 
 function normalizeDate(value, fallback = new Date().toISOString()) {
@@ -74,10 +132,23 @@ export function createWritingSnapshot({
   document = null,
   markdown = '',
   annotations = [],
+  milestone = null,
+  protection = null,
   createdAt = null
 } = {}) {
   if (!String(chapterId || '').trim()) return null
   if (!isStructuredDocument(document)) return null
+
+  const normalizedReason = SNAPSHOT_REASONS.has(reason) ? reason : 'manual'
+  const wordCount = countWritingWords(markdown)
+  const normalizedMilestone = normalizeMilestone(
+    milestone,
+    normalizedReason,
+    wordCount,
+    Number(document.revision || 0)
+  )
+  if (normalizedReason === 'word-milestone' && !normalizedMilestone) return null
+  const normalizedProtection = normalizeProtection(protection, normalizedReason)
 
   const snapshot = {
     schemaVersion: WRITING_SNAPSHOT_SCHEMA_VERSION,
@@ -85,14 +156,16 @@ export function createWritingSnapshot({
     chapterId: String(chapterId),
     chapterTitle: String(chapterTitle || '').trim().slice(0, 160),
     label: normalizeLabel(label),
-    reason: SNAPSHOT_REASONS.has(reason) ? reason : 'manual',
+    reason: normalizedReason,
     createdAt: normalizeDate(createdAt),
     documentRevision: Number(document.revision || 0),
-    contentHash: hashText(markdown),
-    wordCount: countWords(markdown),
+    contentHash: getWritingSnapshotContentHash(markdown),
+    wordCount,
     markdown: String(markdown ?? ''),
     editorDocument: clone(document),
-    annotations: Array.isArray(annotations) ? clone(annotations) || [] : []
+    annotations: Array.isArray(annotations) ? clone(annotations) || [] : [],
+    ...(normalizedMilestone ? { milestone: normalizedMilestone } : {}),
+    ...(normalizedProtection ? { protection: normalizedProtection } : {})
   }
 
   return snapshotCharCount(snapshot) <= MAX_WRITING_SNAPSHOT_CHARS ? snapshot : null
@@ -113,6 +186,8 @@ export function normalizeWritingSnapshot(value, chapterId = null) {
     document: value.editorDocument,
     markdown: value.markdown,
     annotations: value.annotations,
+    milestone: value.milestone,
+    protection: value.protection,
     createdAt: value.createdAt
   })
   if (!snapshot) return null
@@ -139,7 +214,7 @@ export function normalizeWritingSnapshots(values, chapterId = null) {
 
 export function getWritingSnapshotRestoreGuard(snapshot, { chapterId, documentRevision, markdown } = {}) {
   if (!snapshot || String(snapshot.chapterId) !== String(chapterId || '')) return 'chapter-mismatch'
-  if (String(snapshot.contentHash) === hashText(markdown)) return null
+  if (String(snapshot.contentHash) === getWritingSnapshotContentHash(markdown)) return null
   if (Number(snapshot.documentRevision) === Number(documentRevision)) return 'content-changed-without-revision'
   return 'current-chapter-changed'
 }
@@ -152,7 +227,9 @@ export function cloneWritingSnapshotDocument(snapshot) {
 export function getWritingSnapshotReasonLabel(reason) {
   return {
     manual: '手动保存',
+    'word-milestone': '字数里程碑',
     'before-rewrite': '改写前',
+    'before-adoption': '采纳前',
     'before-restore': '恢复前',
     'crash-recovery': '崩溃恢复'
   }[reason] || '版本快照'

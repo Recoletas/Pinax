@@ -60,3 +60,12 @@ export function normalizeWritingSuggestion(rawText, maxLength = 180) {
     ? clipped.slice(0, sentenceEnd + 1).trim()
     : clipped.trim()
 }
+
+export function normalizeWritingSuggestions(rawText, options = {}) {
+  const limit = Math.min(3, Math.max(1, Number(options.limit) || 3))
+  const maxLength = Math.min(120, Math.max(24, Number(options.maxLength) || 96))
+  const source = Array.isArray(rawText) ? rawText : String(rawText || '').split(/\n+/)
+  return [...new Set(source
+    .map((item) => normalizeWritingSuggestion(item, maxLength))
+    .filter(Boolean))].slice(0, limit)
+}

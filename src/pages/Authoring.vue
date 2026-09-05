@@ -1,5 +1,5 @@
 <template>
-  <div class="writing-page wall" :class="{ 'is-zen': writingTypography.zen }" @click="onGlobalClick">
+  <div class="writing-page wall wt3-prototype" :class="{ 'is-zen': writingTypography.zen }" @click="onGlobalClick">
     <!-- 专注全屏退出按钮：仅 Zen 态可见 -->
     <button
       v-if="writingTypography.zen"
@@ -9,26 +9,30 @@
       @click="toggleWritingZen"
     >退出全屏</button>
     <!-- 软木顶栏 — 单行 64-80px 功能薄条: 书选择 / 保存状态 / 4 个功能 tab + 返回 + 主题 -->
-    <div class="wall__cork">
-      <label class="wall__book-pill" :class="{ 'is-empty': !selectedBookId }">
-        <span class="wall__book-pill-mark" aria-hidden="true">书</span>
-        <select
-          v-model="selectedBookId"
-          class="wall__book-select"
-          aria-label="选择书籍"
-          @change="handleHeroBookChange"
+    <!-- 软木顶栏 — 单行功能薄条：编辑器工具 / 保存状态 / 章节抽屉 / 更多。
+         书页签只在多书时出现：单书与 AppShell 页签信息重复，先视觉降重。 -->
+    <div class="wall__cork" :inert="illustratorOpen ? '' : undefined">
+      <div v-if="books.length > 1" class="authoring-book-tabs" role="tablist" aria-label="打开的书稿">
+        <button
+          v-for="book in books"
+          :key="book.id"
+          class="authoring-book-tab"
+          :class="{ 'is-active': selectedBookId === book.id }"
+          type="button"
+          role="tab"
+          :aria-selected="selectedBookId === book.id"
+          :title="book.title"
+          @click="openBook(book.id)"
         >
-          <option value="">未选书</option>
-          <option v-for="book in books" :key="book.id" :value="book.id">
-            {{ book.title }}
-          </option>
-        </select>
-        <svg class="wall__book-pill-arrow" width="8" height="5" viewBox="0 0 8 5" fill="currentColor" aria-hidden="true">
-          <path d="M0 0h8L4 5z"/>
-        </svg>
-      </label>
+          <WorkbenchIcon name="book" :size="14" />
+          <span>{{ book.title }}</span>
+        </button>
+        <button class="authoring-book-tab__new" type="button" title="新建书稿" aria-label="新建书稿" @click="createNewBook">＋</button>
+      </div>
 
-      <div class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态`">
+      <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
+
+      <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态`">
         <span class="wall__save-chip-state">{{ stampStateText }}</span>
       </div>
 
@@ -45,29 +49,72 @@
       </button>
 
       <div class="wall__tabs">
-        <button class="wall__tab" type="button" @click.stop="openAssetInbox" title="打开素材收件箱">收件箱</button>
-        <button class="wall__tab" type="button" @click.stop="openMaterialsPage" title="打开完整素材库">素材库</button>
         <template v-if="isKao">
           <button class="wall__tab" type="button" @click.stop="exportChapterStoryboardDraft" title="导出当前章节分镜草稿" :disabled="!selectedChapterId">分镜</button>
           <button class="wall__tab" type="button" @click.stop="goToAdventure" title="回到冒险">冒险</button>
           <button class="wall__back" type="button" @click="goBack" title="返回首页" aria-label="返回">← 返回</button>
         </template>
-        <details class="wall__more" @click.stop>
-          <summary class="wall__tab" aria-label="更多写作操作" title="更多写作操作">
-            <WorkbenchIcon name="more" :size="16" />
-            <span>更多</span>
-          </summary>
-          <div class="wall__more-menu">
-            <button type="button" :aria-pressed="copilotEnabled.toString()" @click="toggleAgentRuntime">
-              智能 Agent：{{ copilotEnabled ? '开' : '关' }}
-            </button>
-            <button type="button" @click="exportCurrentChapterManuscript" :disabled="!selectedChapterId">导出当前章节</button>
-            <button type="button" @click="exportCurrentBookManuscript" :disabled="!selectedBookId">导出整本书</button>
-            <button type="button" @click="exportChapterStoryboardDraft" :disabled="!selectedChapterId">导出章节分镜</button>
-            <button v-if="!isKao" type="button" @click="goToAdventure">回到冒险</button>
-            <button v-if="!isKao" type="button" @click="goBack">返回首页</button>
+        <button
+          ref="moreToolsTriggerRef"
+          class="wall__tab"
+          type="button"
+          :aria-expanded="moreMenuOpen.toString()"
+          aria-label="更多写作操作"
+          title="更多写作操作"
+          @pointerdown="freezeMobileToolSource"
+          @click.stop="toggleMoreMenu($event)"
+        >
+          <WorkbenchIcon name="more" :size="16" />
+          <span>{{ chapterShelfSheetMode ? '工具' : '更多' }}</span>
+        </button>
+        <Teleport to="body">
+          <!-- 工具条是 42px 单行 + overflow 裁切，absolute 菜单会被整体裁没（死按钮）；
+               菜单固定定位到触发按钮下方，点击任意位置或 Esc 关闭。 -->
+          <div v-if="moreMenuOpen" class="wall__more-menu is-fixed-menu" :style="moreMenuStyle" role="menu" aria-label="更多写作操作" @click.stop>
+            <div class="wall__more-tools" aria-label="写作工具">
+              <button type="button" role="menuitem" @pointerdown="freezeReviewSource" @click="moreAction(openReviewPanel)">校对</button>
+              <button type="button" role="menuitem" @pointerdown="freezeSearchSource" @click="moreAction(openSearchPanel)">查找</button>
+              <button type="button" role="menuitem" @click="moreAction(toggleQuickWords)">快捷词</button>
+              <button type="button" role="menuitem" @click="moreAction(openNameGenerator)">取名</button>
+              <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">双栏</button>
+              <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">画师</button>
+            </div>
+            <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">导出当前章节</button>
+            <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">导出整本书</button>
+            <button type="button" role="menuitem" @click="moreAction(exportChapterStoryboardDraft)" :disabled="!selectedChapterId">导出章节分镜</button>
+            <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">素材收件箱</button>
+            <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">素材库</button>
+            <button type="button" role="menuitem" :aria-pressed="inlineSuggestionEnabled.toString()" @click="moreAction(toggleInlineSuggestion)">{{ inlineSuggestionEnabled ? '自动联想：开' : '自动联想：关' }}</button>
+            <button v-if="!isKao" type="button" role="menuitem" @click="moreAction(goToAdventure)">回到冒险</button>
+            <button v-if="!isKao" type="button" role="menuitem" @click="moreAction(goBack)">返回首页</button>
           </div>
-        </details>
+        </Teleport>
+        <Teleport to="body">
+          <!-- 左栏右键菜单：章节行 / 卷组 -->
+          <div
+            v-if="shelfContextMenu.show"
+            class="shelf-context-menu"
+            :style="{ position: 'fixed', top: `${shelfContextMenu.y}px`, left: `${shelfContextMenu.x}px` }"
+            role="menu"
+            :aria-label="shelfContextMenu.kind === 'chapter' ? '章节操作' : '卷操作'"
+            @click.stop
+            @contextmenu.prevent.stop
+          >
+            <template v-if="shelfContextMenu.kind === 'chapter'">
+              <button type="button" role="menuitem" @click="shelfMenuAction((id) => selectChapter(id))">打开章节</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(openChapterInDual)">在双栏打开</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(renameChapterFromShelf)">重命名</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentChapterManuscript())">导出本章</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => selectInspectorTool('history'))">历史版本</button>
+              <div class="shelf-menu-divider"></div>
+              <button type="button" role="menuitem" class="is-danger" @click="shelfMenuAction(deleteChapterFromShelf)">删除本章</button>
+            </template>
+            <template v-else>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => createNewChapter())">新建章节</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentBookManuscript())">导出整本书</button>
+            </template>
+          </div>
+        </Teleport>
         <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
         <button v-if="false" class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -89,76 +136,88 @@
     ></button>
 
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
-    <main ref="writingMainRef" class="wall__main">
+    <main ref="writingMainRef" class="wall__main" :inert="illustratorOpen ? '' : undefined" :class="{ 'has-inspector': !isKao && inspectorOpen, 'is-dual-inspector': !isKao && inspectorOpen && inspectorDualColumn }">
       <!-- 左：5 层书架 + 章节档案夹 -->
-      <aside id="writing-chapter-shelf" ref="chapterShelfRef" class="wall__shelf" :class="{ 'is-mobile-open': chapterDrawerOpen }" :tabindex="chapterDrawerOpen ? -1 : undefined" aria-label="章节书架">
+      <aside
+        id="writing-chapter-shelf"
+        ref="chapterShelfRef"
+        class="wall__shelf"
+        :class="{ 'is-mobile-open': chapterDrawerOpen }"
+        :tabindex="chapterDrawerOpen ? -1 : undefined"
+        :inert="chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
+        :aria-hidden="chapterShelfSheetMode && !chapterDrawerOpen ? 'true' : undefined"
+        aria-label="章节书架"
+      >
         <div class="wall__shelf-manuscript">
-          <template v-for="book in books" :key="book.id">
-            <div
-              class="wall__folder wall__folder--book"
-              :class="{ 'is-active': selectedBookId === book.id }"
-              :style="{ '--folder-pin': chapterPinColor(book.chapters?.length || 0) }"
-              @click="selectBook(book.id)"
-              role="button"
-              :aria-expanded="(selectedBookId === book.id || expandedBookIds.includes(book.id)).toString()"
-              :aria-label="`书 ${book.title}`"
-            >
-              <span class="wall__folder-tab">书</span>
-              <span class="wall__folder-title">{{ book.title }}</span>
-              <span class="wall__folder-meta">{{ book.chapters?.length || 0 }} 章 · {{ chapterWordTotal(book) }} 字</span>
+          <div class="authoring-chapter-search">
+            <WorkbenchIcon name="search" :size="14" />
+            <input v-model="chapterShelfQuery" type="search" placeholder="搜索章节" aria-label="搜索章节" />
+          </div>
+
+          <div class="authoring-chapter-create">
+            <button class="is-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">新建章</button>
+            <button type="button" @click="createNewBook">新建书</button>
+          </div>
+
+          <div v-if="selectedBookId" class="authoring-chapter-tree">
+            <!-- 文本工作台 v3 正式文档树：构思/正文共用同一稿面。 -->
+            <AuthoringIdeaShelf
+              :docs="wt3IdeaShelfDocs"
+              :catalog="authoringRunReferenceCatalog"
+              :selected="reconciledAuthoringRunReferences"
+              :active-doc-id="wt3ActiveDocId"
+              :current-chapter-id="selectedChapterId || ''"
+              :query="authoringRunReferenceQuery"
+              :notice="authoringRunReferenceNotice"
+              :legacy-note-count="wt3LegacyNoteCount"
+              @create="wt3QuickCapture"
+              @migrate="wt3MigrateLegacyNotes"
+              @open="openExplorationDoc"
+              @open-dual="openExplorationInDual"
+              @add="addAuthoringRunReference"
+              @remove="removeAuthoringRunReference"
+              @refresh="refreshAuthoringRunReference"
+              @link-current="wt3LinkDocToCurrentChapter"
+              @park="wt3SetDocStatus($event, 'parked')"
+              @restore="wt3SetDocStatus($event, 'active')"
+              @delete="wt3DeleteDoc"
+              @open-full="openMaterialsPage"
+              @update:query="authoringRunReferenceQuery = $event"
+            />
+            <div class="authoring-chapter-group is-current" @contextmenu.prevent="openShelfContextMenu($event, 'volume')">
+              <WorkbenchIcon name="folder" :size="14" />
+              <span>第一卷</span>
+              <small>{{ chapters.length }} 章</small>
             </div>
-
-            <template v-if="selectedBookId === book.id || expandedBookIds.includes(book.id)">
-              <div
-                v-for="(chapter, index) in book.id === selectedBookId ? chapters : (book.chapters || [])"
-                :key="chapter.id"
-                class="wall__folder wall__folder--chapter"
-                :class="{
-                  'is-active': selectedChapterId === chapter.id,
-                  'is-dragging': dragIndex === index,
-                  'is-drop-target': dropTargetIndex === index && dropTargetIndex !== dragIndex
-                }"
-                :style="{ '--folder-pin': chapterPinColor(chapter.wordCount || 0) }"
-                :draggable="book.id === selectedBookId ? 'true' : null"
-                @click="onShelfChapterClick(book.id, chapter.id)"
-                @dragstart="onChapterDragStart($event, index, book.id)"
-                @dragover.prevent="onChapterDragOver($event, index, book.id)"
-                @dragleave="onChapterDragLeave(index)"
-                @drop="onChapterDrop($event, index, book.id)"
-                @dragend="onChapterDragEnd"
-                role="button"
-                :aria-label="`第 ${index + 1} 章 ${chapter.title || '无标题章节'} · 拖拽排序`"
-                :aria-grabbed="dragIndex === index ? 'true' : 'false'"
-                :aria-dropeffect="dropTargetIndex === index ? 'move' : 'none'"
-              >
-                <span v-if="book.id === selectedBookId" class="wall__folder-move-stack" @click.stop>
-                  <button
-                    v-if="index > 0"
-                    class="wall__folder-step wall__folder-step--up"
-                    type="button"
-                    @click="reorderChapter(index, index - 1)"
-                    :aria-label="`第 ${index + 1} 章上移`"
-                    title="上移"
-                  >▴</button>
-                  <button
-                    v-if="index < chapters.length - 1"
-                    class="wall__folder-step wall__folder-step--down"
-                    type="button"
-                    @click="reorderChapter(index, index + 1)"
-                    :aria-label="`第 ${index + 1} 章下移`"
-                    title="下移"
-                  >▾</button>
-                </span>
-                <span class="wall__folder-tab">{{ String(index + 1).padStart(2, '0') }}</span>
-                <span class="wall__folder-title">{{ chapter.title || '无标题章节' }}</span>
-                <span class="wall__folder-meta">{{ (chapter.wordCount || 0).toLocaleString() }} 字</span>
-              </div>
-            </template>
-          </template>
-
-          <div class="wall__shelf-actions">
-            <button class="wall__shelf-pin-btn" type="button" @click="createNewBook" title="新建书籍">+ 新书</button>
-            <button class="wall__shelf-pin-btn" type="button" @click="createNewChapter" :disabled="!selectedBookId" title="新建章节">+ 新章</button>
+            <div
+              v-for="entry in visibleChapterEntries"
+              :key="entry.chapter.id"
+              class="authoring-chapter-row"
+              :class="{
+                'is-active': selectedChapterId === entry.chapter.id,
+                'is-dragging': dragIndex === entry.index,
+                'is-drop-target': dropTargetIndex === entry.index && dropTargetIndex !== dragIndex
+              }"
+              draggable="true"
+              role="button"
+              :aria-label="`${chapterRowLabel(entry.index, entry.chapter.title)} · 拖拽排序`"
+              :aria-grabbed="dragIndex === entry.index ? 'true' : 'false'"
+              :aria-dropeffect="dropTargetIndex === entry.index ? 'move' : 'none'"
+              @click="selectChapter(entry.chapter.id)"
+              @contextmenu.prevent="openShelfContextMenu($event, 'chapter', entry)"
+              @dragstart="onChapterDragStart($event, entry.index, selectedBookId)"
+              @dragover.prevent="onChapterDragOver($event, entry.index, selectedBookId)"
+              @dragleave="onChapterDragLeave(entry.index)"
+              @drop="onChapterDrop($event, entry.index, selectedBookId)"
+              @dragend="onChapterDragEnd"
+            >
+              <span class="authoring-chapter-row__title">
+                <span class="authoring-chapter-row__ordinal">{{ chapterRowParts(entry.index, entry.chapter.title).ordinal }}</span>
+                <span class="authoring-chapter-row__name">{{ chapterRowParts(entry.index, entry.chapter.title).name }}</span>
+              </span>
+              <span class="authoring-chapter-row__count">{{ (entry.chapter.wordCount || 0).toLocaleString() }}</span>
+            </div>
+            <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">没有匹配的章节</p>
           </div>
 
           <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
@@ -176,18 +235,18 @@
               <button class="wall__shelf-pin-btn" type="button" @click="bindingSelectOpen = false">取消</button>
             </template>
             <template v-else>
-              <span
-                v-if="bookWorldbookStatus.status === 'bound'"
-                class="wall__binding-text"
-              >世界书：{{ boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId }}</span>
-              <span v-else-if="bookWorldbookStatus.status === 'missing'" class="wall__binding-text is-missing" data-test="worldbook-missing">世界书已缺失</span>
-              <span v-else class="wall__binding-text">未关联世界书</span>
               <button
-                class="wall__shelf-pin-btn"
+                class="wall__binding-compact"
                 type="button"
                 data-test="bind-worldbook"
+                :title="bookWorldbookStatus.status === 'bound' ? `当前世界书：${boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId}，点击更换` : '关联世界书'"
                 @click="openBindingSelect"
-              >{{ bookWorldbookStatus.status === 'missing' ? '重新关联' : (bookWorldbookStatus.status === 'bound' ? '换绑' : '关联世界书') }}</button>
+              >
+                <WorkbenchIcon name="book" :size="13" />
+                <span v-if="bookWorldbookStatus.status === 'bound'">{{ boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId }}</span>
+                <span v-else-if="bookWorldbookStatus.status === 'missing'" class="is-missing" data-test="worldbook-missing">世界书已缺失</span>
+                <span v-else>关联世界书</span>
+              </button>
             </template>
           </div>
         </div>
@@ -207,22 +266,7 @@
       </aside>
 
       <!-- 中：卷宗稿纸（中央主线） -->
-      <section class="wall__dossier" aria-label="章节正文卷宗">
-        <span class="wall__dossier-tape wall__dossier-tape--left" aria-hidden="true"></span>
-        <span class="wall__dossier-tape wall__dossier-tape--right" aria-hidden="true"></span>
-
-        <header class="wall__dossier-head">
-          <span class="wall__dossier-num">{{ chapterNumberLabel }}</span>
-          <input
-            v-model="currentChapterTitle"
-            type="text"
-            class="wall__dossier-title"
-            placeholder="章节标题"
-            @input="onTitleChange"
-            aria-label="章节标题"
-          />
-        </header>
-
+      <section class="wall__dossier" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" aria-label="章节正文卷宗">
         <template v-if="!selectedBookId">
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
@@ -248,32 +292,18 @@
         </template>
 
         <template v-else>
-          <WritingInlineCompletion
-            v-if="!notebookEditorActive"
-            :generating="copilotGenerating"
-            :visible="false"
-            :can-undo="copilotCanUndo"
-            :error="copilotError"
-            :cooling-down="writingAgentCoolingDown"
-            :matched-count="copilotMatchedEntries.length"
-            :style="copilotIndicatorStyle"
-            @accept-unit="acceptWritingSuggestion('unit')"
-            @accept-all="acceptWritingSuggestion('all')"
-            @retry="retryCopilotSuggestion"
-            @undo="undoWritingSuggestionApply"
-            @dismiss="copilotCancel"
-          />
-
           <div class="wall__dossier-body">
+            <Teleport to="#authoring-editor-toolbar-host">
             <div class="editor-toolbar">
               <div class="toolbar-group">
-                <button class="tool-btn" @click="focusTurnComposer" title="聚焦下一拍输入">推进</button>
-                <button class="tool-btn" @click="autoFormat" title="一键排版">排版</button>
-                <button class="tool-btn" @click="insertSeparator" title="插入分隔线">分隔</button>
+                <button class="tool-btn" type="button" title="撤销当前活动窗（Ctrl/Cmd+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">撤销</button>
+                <button class="tool-btn" type="button" title="重做当前活动窗（Ctrl/Cmd+Shift+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">重做</button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFontPanel }" @click.stop="showFontPanel = !showFontPanel" title="字体">字体</button>                <div class="font-panel" v-if="showFontPanel" @click.stop>
+                <div class="toolbar-popover-anchor">
+                <button class="tool-btn" :class="{ active: showFontPanel }" type="button" :aria-expanded="showFontPanel.toString()" @click.stop="toggleFontPanel" title="正文排版设置">排版</button>
+                <div class="font-panel" v-if="showFontPanel" :style="fontPanelStyle" @click.stop>
                   <div class="fp-row"><span class="fp-label">字体</span>
                     <select class="fp-select" :value="writingTypography.fontKey" @change="writingTypography.setFontKey($event.target.value)">
                       <option v-for="option in writingFontOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
@@ -291,67 +321,54 @@
                       <option v-for="lh in [1.5, 1.7, 1.8, 1.9, 2.0, 2.2]" :key="lh" :value="lh">{{ lh }}</option>
                     </select>
                   </div>
-                  <div class="fp-row"><span class="fp-label">样式</span>
-                    <div class="fp-btns">
-                      <button :class="['fp-btn', { active: editorBold }]" @click="editorBold = !editorBold"><strong>B</strong></button>
-                      <button :class="['fp-btn', { active: editorItalic }]" @click="editorItalic = !editorItalic"><em>I</em></button>
-                      <button :class="['fp-btn', { active: editorUnderline }]" @click="editorUnderline = !editorUnderline"><u>U</u></button>
-                    </div>
+                  <div class="fp-row"><span class="fp-label">首行</span>
+                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.firstLineIndent.toString()" @click="writingTypography.toggleFirstLineIndent()">
+                      {{ writingTypography.firstLineIndent ? '缩进两字' : '不缩进' }}
+                    </button>
+                  </div>
+                  <div class="fp-row"><span class="fp-label">段距</span>
+                    <select class="fp-select" :value="writingTypography.paragraphGap" @change="writingTypography.setParagraphGap($event.target.value)">
+                      <option :value="0.65">紧凑</option>
+                      <option :value="1.05">标准</option>
+                      <option :value="1.45">宽松</option>
+                    </select>
+                  </div>
+                  <div class="fp-row"><span class="fp-label">打字机</span>
+                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.typewriter.toString()" title="光标行保持屏幕中央（Ctrl/Cmd+Alt+T）" @click="writingTypography.toggleTypewriter()">
+                      {{ writingTypography.typewriter ? '开' : '关' }}
+                    </button>
+                  </div>
+                  <div class="fp-row"><span class="fp-label">聚焦</span>
+                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.focusParagraph.toString()" title="淡化非当前段落（Ctrl/Cmd+Alt+F）" @click="writingTypography.toggleFocusParagraph()">
+                      {{ writingTypography.focusParagraph ? '开' : '关' }}
+                    </button>
                   </div>
                 </div>
-                <button class="tool-btn" :class="{ active: showNameGen }" @click.stop="showNameGen = !showNameGen" title="随机取名">取名</button>
-                <div class="name-gen-panel" v-if="showNameGen" @click.stop>
-                  <div class="ng-row"><span class="ng-label">类型</span>
-                    <div class="ng-btns">
-                      <button :class="['ng-btn', { active: nameType === 'character' }]" @click="nameType = 'character'">人物</button>
-                      <button :class="['ng-btn', { active: nameType === 'place' }]" @click="nameType = 'place'">地点</button>
-                    </div>
-                  </div>
-                  <div class="ng-row"><span class="ng-label">风格</span>
-                    <div class="ng-btns">
-                      <button :class="['ng-btn', { active: nameStyle === 'western' }]" @click="nameStyle = 'western'">西方</button>
-                      <button :class="['ng-btn', { active: nameStyle === 'ancient' }]" @click="nameStyle = 'ancient'">古风</button>
-                      <button :class="['ng-btn', { active: nameStyle === 'modern' }]" @click="nameStyle = 'modern'">现代</button>
-                    </div>
-                  </div>
-                  <div class="ng-row" v-if="nameType === 'character'"><span class="ng-label">姓氏</span>
-                    <input v-model="fixedSurname" class="ng-input ng-sm" placeholder="可留空" />
-                  </div>
-                  <div class="ng-row" v-if="nameType === 'character'"><span class="ng-label">名字</span>
-                    <input v-model="fixedGivenName" class="ng-input ng-sm" placeholder="可留空" />
-                  </div>
-                  <button class="tool-btn" style="width:100%;justify-content:center;margin-top:8px" @click="doGenerateName">生成</button>
-                  <div class="ng-results" v-if="generatedNames.length > 0">
-                    <div class="ng-result-item" v-for="(item, idx) in generatedNames" :key="idx" @click="selectName(item)">
-                      <span v-if="typeof item === 'string'">{{ item }}</span>
-                      <span v-else class="ng-name-pair">{{ item.en }}<span class="ng-cn">{{ item.cn }}</span></span>
-                    </div>
-                  </div>
                 </div>
+                <button class="tool-btn" :class="{ active: showQuickWords }" type="button" :aria-expanded="showQuickWords.toString()" @click.stop="toggleQuickWords" title="管理写作快捷词">快捷词</button>
+                <button class="tool-btn" :class="{ active: showNameGen }" type="button" :aria-expanded="showNameGen.toString()" @click.stop="openNameGenerator" title="快速取名">取名</button>
+                <button
+                  ref="illustratorTriggerRef"
+                  class="tool-btn authoring-illustrator-trigger"
+                  :class="{ active: illustratorOpen }"
+                  type="button"
+                  :aria-expanded="illustratorOpen.toString()"
+                  title="根据当前选区或文本块生成插画"
+                  data-test="authoring-illustrator-trigger"
+                  @pointerdown="freezeIllustratorSource"
+                  @click.stop="openIllustrator"
+                ><WorkbenchIcon name="palette" :size="15" /><span>画师</span></button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <button
                   class="tool-btn"
-                  :class="{ active: writingTypography.typewriter }"
-                  type="button"
-                  title="打字机滚动：光标行保持屏幕中央（Ctrl/Cmd+Alt+T）"
-                  @click="writingTypography.toggleTypewriter()"
-                >打字机</button>
-                <button
-                  class="tool-btn"
-                  :class="{ active: writingTypography.focusParagraph }"
-                  type="button"
-                  title="段落聚焦：淡化非当前段落（Ctrl/Cmd+Alt+F）"
-                  @click="writingTypography.toggleFocusParagraph()"
-                >聚焦</button>
-                <button
-                  class="tool-btn"
                   :class="{ active: writingTypography.zen }"
+                  :aria-pressed="writingTypography.zen.toString()"
                   type="button"
                   title="专注全屏：隐藏周边界面，Esc 退出（Ctrl/Cmd+Alt+Z）"
                   @click="toggleWritingZen"
-                >全屏</button>
+                >专注</button>
               </div>
               <div class="toolbar-sep"></div>
               <div v-if="editorMode === 'markdown'" class="toolbar-group">
@@ -377,175 +394,214 @@
               </div>
               <div v-if="editorMode === 'markdown'" class="toolbar-sep"></div>
               <div class="toolbar-group">
-                <button class="tool-btn" :class="{ active: showFindReplace }" @click.stop="showFindReplace = !showFindReplace" title="查找替换">查找</button>
+                <button
+                  class="tool-btn"
+                  :class="{ active: reviewPanelOpen }"
+                  type="button"
+                  title="校对当前文稿"
+                  @pointerdown="freezeReviewSource"
+                  @click.stop="openReviewPanel"
+                >校对</button>
+                <button
+                  class="tool-btn"
+                  :class="{ active: searchPanelOpen }"
+                  type="button"
+                  title="查找当前章、全书、构思或设定"
+                  @pointerdown="freezeSearchSource"
+                  @click.stop="openSearchPanel"
+                >查找</button>
               </div>
               <div class="toolbar-spacer"></div>
             </div>
+            </Teleport>
 
-            <div v-if="copilotReferenceAsset" class="copilot-reference-bar">
-              <span class="copilot-reference-kicker">续写参考</span>
-              <span class="copilot-reference-title">{{ copilotReferenceLabel }}</span>
-              <span class="copilot-reference-preview">{{ copilotReferencePreview }}</span>
-              <button class="copilot-reference-clear" type="button" @click="clearCopilotReference">清除</button>
-            </div>
+            <div class="wall__dossier-scroll">
+            <header class="wall__dossier-head wall__chapter-head">
+              <template v-if="wt3ActiveDoc">
+                <span class="wt3-badge">构思</span>
+                <strong class="wall__dossier-title wt3-doc-title">{{ wt3ActiveDoc.title }}</strong>
+                <button type="button" class="tool-btn sm wt3-back-btn" @click="closeExplorationDoc">返回正文</button>
+              </template>
+              <template v-else>
+                <span v-if="selectedChapterOrdinalLabel" class="wall__chapter-ordinal" aria-hidden="true">{{ selectedChapterOrdinalLabel }}</span>
+                <input v-model="currentChapterTitle" type="text" class="wall__dossier-title"
+                  :disabled="historyInteractionLocked" :aria-disabled="historyInteractionLocked.toString()"
+                  :placeholder="selectedChapterOrdinalLabel ? '章名' : '章节标题'" @input="onTitleChange" aria-label="章节标题" />
+              </template>
+            </header>
 
-            <section v-if="chapterOutlineItems.length" class="chapter-outline-bar">
-              <div class="chapter-outline-head">
-                <span class="chapter-outline-title">章节纲要</span>
-                <span class="chapter-outline-count">{{ chapterOutlineItems.length }} 条参与续写与章节分镜</span>
-              </div>
-              <div class="chapter-outline-list">
-                <article v-for="item in chapterOutlineItems" :key="item.id" class="chapter-outline-card">
-                  <div class="chapter-outline-card-main">
-                    <span class="chapter-outline-kind">{{ getAssetKindLabel(item.assetKind) }}</span>
-                    <strong>{{ item.title || '未命名纲要' }}</strong>
-                    <span>{{ getChapterOutlinePreview(item) }}</span>
-                  </div>
-                  <div class="chapter-outline-actions">
-                    <button type="button" @click="insertChapterOutlineItem(item)">插入</button>
-                    <button type="button" @click="removeChapterOutlineItemFromChapter(item.id)">移除</button>
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <div class="find-replace-bar" v-if="showFindReplace" @click.stop>
-              <input v-model="findText" class="find-input" placeholder="查找..." @keydown.enter="findNext" />
-              <button class="tool-btn sm" @click="findPrev">↑</button>
-              <button class="tool-btn sm" @click="findNext">↓</button>
-              <span class="find-count" v-if="findResults.length > 0">{{ findCurrent + 1 }}/{{ findResults.length }}</span>
-              <span class="find-count" v-else-if="findText">无匹配</span>
-              <div class="fr-divider"></div>
-              <input v-model="replaceText" class="find-input" placeholder="替换为..." />
-              <button class="tool-btn sm" @click="replaceOne">单处</button>
-              <button class="tool-btn sm" @click="replaceAll">全部</button>
-              <button class="tool-btn sm close" @click="showFindReplace = false">×</button>
-            </div>
-
-            <AuthoringTransientNotice :notice="authoringTaskNotice" @undo="undoAuthoringTask" />
-            <div v-if="authoringAuxiliary" class="authoring-auxiliary-panel" aria-label="候选列表">
-              <div v-if="authoringAuxiliary.kind === 'candidates'" class="authoring-auxiliary-panel__candidates">
-                <article
-                  v-for="(item, index) in authoringAuxiliary.items"
-                  :key="index"
-                  class="authoring-auxiliary-panel__candidate"
-                >
-                  <strong>{{ item.title || item.name || `候选 ${index + 1}` }}</strong>
-                  <p v-if="item.summary || item.content">{{ item.summary || item.content }}</p>
-                </article>
-              </div>
-              <div v-else class="authoring-auxiliary-panel__options" role="list">
-                <button
-                  v-for="item in authoringAuxiliary.items"
-                  :key="item.index"
-                  type="button"
-                  role="listitem"
-                  class="authoring-auxiliary-panel__option"
-                  @click="insertAuxiliaryOption(item)"
-                >{{ item.content }}</button>
-              </div>
-              <button type="button" class="authoring-auxiliary-panel__dismiss" @click="dismissAuxiliaryOptions">关闭</button>
-            </div>
-            <p v-if="authoringObserverStatus" class="authoring-observer-status" role="status">{{ authoringObserverStatus }}</p>
-            <AuthoringExceptionReview
-              :exceptions="authoringVisibleExceptions"
-              :open="true"
-              @resolve="resolveAuthoringException"
+            <AuthoringTransientNotice
+              v-if="!inspectorOpen || activeInspectorTool !== 'dual'"
+              :notice="authoringTaskNotice"
+              @undo="undoAuthoringTask"
             />
-            <AuthoringMemoryNotice
-              :notice="authoringMemoryNotice"
-              @review="memoryReviewOpen = true"
-            />
-            <AuthoringMemoryReview
-              :open="memoryReviewOpen"
-              :candidates="authoringMemoryCandidates"
-              @confirm="confirmAuthoringMemoryCandidate"
-              @reject="rejectAuthoringMemoryCandidate"
-              @pin="pinAuthoringMemoryCandidate"
-              @demote="demoteAuthoringMemoryCandidate"
-              @supersede="supersedeAuthoringMemoryCandidate"
-              @merge="mergeAuthoringMemoryCandidate"
-              @jump-source="jumpToMemorySource"
-              @close="closeMemoryReview"
-            />
-            <div class="authoring-context-row">
-              <button
-                type="button"
-                class="authoring-context-trigger"
-                :aria-expanded="contextInspectorOpen.toString()"
-                aria-controls="authoring-context-inspector"
-                @click="contextInspectorOpen = !contextInspectorOpen"
-              >上下文说明</button>
-            </div>
-            <AuthoringContextInspector
-              id="authoring-context-inspector"
-              :open="contextInspectorOpen"
-              :ledger="contextLedger"
-              @close="contextInspectorOpen = false"
-            />
-
             <WritingNotebookEditor
+              :key="notebookDocumentKey"
               ref="notebookEditorRef"
               :model-value="markdownContent"
               :document="writingDocument"
-              :annotations="chapterAnnotations"
+              :editable="!pendingGhostAdoption && !atomicHistoryBusy"
+              :annotations="activeEditorAnnotations"
+              :worldbook-mentions="writingWorldbookMentions"
               :active-annotation-id="activeAnnotationId"
               :inline-suggestion="copilotSuggestion"
               :inline-suggestion-visible="copilotVisible"
               :inline-suggestion-generating="copilotGenerating"
+              :inline-suggestion-requesting="copilotRequesting"
               :inline-suggestion-error="copilotError"
               :typewriter="writingTypography.typewriter"
               :focus-paragraph="writingTypography.focusParagraph"
+              :block-composer-open="blockComposer.open || sceneLaboratory.open || (interventionComposer.open && !interventionGhostInDual) || Boolean(adoptionImpact)"
+              :block-composer-target="adoptionImpact?.target || (sceneLaboratory.open ? sceneLaboratory.target : (interventionComposer.open ? interventionDisplayTarget : blockComposer.target))"
+              :intervention-enabled="!wt3ActiveDoc"
+              :block-preview="blockPreview"
+              :atomic-undo-available="hasGhostAdoptionUndoBoundary || hasStructureUndoBoundary"
+              :atomic-redo-available="hasGhostAdoptionRedoBoundary || hasStructureRedoBoundary"
+              :history-locked="historyInteractionLocked"
+              :before-destructive-edit="protectMainDestructiveEdit"
+              :interaction-owner="writingInteractionOwner"
+              :data-document-role="wt3ActiveDoc ? 'exploration' : 'manuscript'"
+              :class="{ 'has-writing-ghost': copilotVisible || blockPreview }"
               :style="notebookEditorStyle"
               @update:modelValue="onNotebookMarkdown"
               @update:document="onNotebookDocumentUpdate"
               @selection-change="onNotebookSelectionChange"
               @unit-transition="onNotebookUnitTransition"
               @annotation-click="handleInlineAnnotationClick"
+              @worldbook-mention-click="openWorldbookMentionDetail"
               @writing-command="handleNotebookWritingCommand"
+              @command-menu-change="onNotebookCommandMenuChange"
+              @composition-change="onNotebookCompositionChange"
+              @writing-paste="onWritingPaste"
+              @blocked-structure-edit="handleBlockedStructureEdit"
+              @editor-focus="activateMainPane"
+              @editor-blur="suppressWritingAgent('blur')"
+              @scroll-owner="handleNotebookScrollOwner"
+              @open-block-composer="openBlockComposer"
+              @open-intervention="openInterventionComposer"
+              @accept-block-preview="acceptBlockPreview"
+              @dismiss-block-preview="dismissBlockPreview"
               @accept-inline-suggestion="acceptWritingSuggestion"
               @dismiss-inline-suggestion="copilotCancel"
+              @cycle-inline-suggestion="cycleCopilotSuggestion"
               @retry-inline-suggestion="retryCopilotSuggestion"
-              @ready="scheduleAnnotationLayout"
+              @history-command="handleNotebookHistoryCommand"
+              @ready="onNotebookReady"
               @input="onNotebookInput"
+              @beforeinput.capture="onWritingBeforeInput"
               @context-menu="showContextMenu"
             />
-            <button
-              v-if="currentWritingOrigin"
-              type="button"
-              class="writing-origin-action"
-              @click="openCurrentWritingOrigin"
-            >来自体验</button>
-
-            <!-- Plan Task 2.2：下一拍输入区，与稿件同宽，挂在编辑器正下方。 -->
-            <AuthoringTurnComposer
-              ref="turnComposerRef"
-              data-test="turn-composer"
-              :busy="authoringTaskBusy"
-              :actor="composerActor"
-              :target="composerTarget"
-              :viewpoint="sceneProjection.viewpointCharacter"
-              :source-refs="composerSourceRefs"
-              :failure="composerFailure"
-              :apply-token="authoringTaskAppliedCount"
-              :direction-candidates="directionCandidates"
-              :dialogue-candidates="dialogueCandidates"
-              :semi-auto-pause-reason="semiAutoPauseReason"
-              :people="composerPeople"
-              :zen-mode="Boolean(writingTypography.zen)"
-              @submit="handleComposerSubmit"
-              @stop="cancelAuthoringTask"
-              @retry-save="handleRetryAuthoringPersist"
-              @select-actor="handleSceneSelectActor"
-              @select-target="handleSceneSelectTarget"
-              @request-reference-summary="handleComposerAuxiliary('参考摘要')"
-              @request-next-directions="handleRequestNextDirections"
-              @request-dialogue-options="handleRequestDialogueOptions"
-              @candidate-action="handleCandidateAction"
-            />
+            <div
+              v-if="activeWritingPane === 'main' && writingInteractionOwner === 'quick-word' && quickWordSuggestions.length"
+              class="authoring-quick-word-strip"
+              role="listbox"
+              aria-label="快捷词建议"
+              @click.stop
+            >
+              <span>{{ quickWordPrefix }}</span>
+              <button
+                v-for="(item, index) in quickWordSuggestions"
+                :key="item.id"
+                type="button"
+                role="option"
+                :aria-keyshortcuts="String(index + 1)"
+                @mousedown.prevent
+                @click="completeQuickWord(item)"
+              ><kbd>{{ index + 1 }}</kbd>{{ item.text }}</button>
+            </div>
+            <Teleport v-if="sceneLaboratory.open" to="#authoring-block-gap">
+              <AuthoringSceneLaboratory
+                :pressure="sceneLaboratoryPressure"
+                :directions="sceneLaboratoryDirections"
+                :selected-direction-id="sceneLaboratory.selectedDirectionId"
+                :phase="sceneLaboratory.phase"
+                :notice="sceneLaboratory.notice"
+                @select="selectSceneLaboratoryDirection"
+                @confirm="confirmSceneLaboratoryDirection"
+                @back="openSceneLaboratoryEvidence"
+                @close="closeSceneLaboratory"
+                @ordinary="openOrdinaryTurnFromSceneLaboratory"
+                @supplement="supplementSceneFromSceneLaboratory"
+                @retry="retrySceneLaboratoryDirections"
+              />
+            </Teleport>
+            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase !== 'ghosts'" :to="chapterShelfSheetMode ? 'body' : '#authoring-block-gap'">
+              <AuthoringInterventionComposer
+                :target="interventionComposer.target"
+                :original-text="interventionComposer.originalText"
+                :phase="interventionComposer.phase"
+                :notice="interventionComposer.notice"
+                :evidence-count="interventionComposer.evidenceCount"
+                :impact-groups="interventionImpactGroups"
+                :candidate-groups="interventionCandidateGroups"
+                :rehearsal-directions="interventionRehearsalDirections"
+                :rehearsal-selection="interventionComposer.rehearsalSelection"
+                :candidate-review-pending-count="interventionCandidateReviewPendingCount"
+                @submit="prepareAuthoringIntervention"
+                @review-candidate="reviewInterventionCandidate"
+                @select-rehearsal="selectInterventionRehearsal"
+                @rehearse="runInterventionRehearsal"
+                @cancel="closeInterventionComposer"
+              />
+            </Teleport>
+            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase === 'ghosts' && !interventionGhostInDual" to="#authoring-block-gap">
+              <AuthoringInterventionGhost
+                :ghosts="interventionGhosts"
+                :active-ghost-id="interventionComposer.activeGhostId"
+                :retrying-ghost-id="interventionComposer.retryingGhostId"
+                :adopting-ghost-id="interventionComposer.adoptingGhostId"
+                :batch-count="interventionBatchGhosts.length"
+                :batch-busy="interventionComposer.adoptingGhostId === 'all'"
+                :persist-pending-ghost-id="interventionComposer.pendingAdoption?.ghostId || ''"
+                :persist-error="interventionComposer.persistError"
+                @select="selectInterventionGhost"
+                @update="updateInterventionGhost"
+                @retry="retryInterventionGhost"
+                @discard="discardInterventionGhost"
+                @adopt="adoptInterventionGhost"
+                @adopt-all="adoptAllInterventionGhosts"
+                @retry-persist="persistPendingInterventionAdoption"
+                @close="closeInterventionComposer"
+              />
+            </Teleport>
+            <Teleport v-else-if="blockComposer.open && !blockPreview" to="#authoring-block-gap">
+              <AuthoringBlockComposer ref="blockComposerRef" :target="blockComposer.target" :empty-chapter="isEmptyChapter"
+                :projection="sceneProjection" :people="composerPeople" :generating="authoringTaskBusy"
+                :failure="blockComposer.failure" :stale-result="blockComposer.staleResult"
+                :context-loading="authoringContextPreflightLoading"
+                :initial-instruction="blockComposer.initialInstruction"
+                :initial-actor-id="sceneActiveActorId"
+                :initial-target-id="sceneDialogueTargetId"
+                @submit="submitBlockTurn" @cancel="closeBlockComposer" @stop="cancelAuthoringTask"
+                @draft-change="scheduleAuthoringContextPreflight"
+                @retry-persist="handleRetryAuthoringPersist">
+              </AuthoringBlockComposer>
+            </Teleport>
+            <Teleport v-if="blockPreview" to="#authoring-block-gap">
+              <AuthoringBlockDraft
+                ref="blockDraftRef"
+                v-model="blockDraftText"
+                :original-text="blockDraftOriginalText"
+                :operation="blockPreview.operation"
+                :has-derived-effects="Boolean(blockPreview?.hasDerivedEffects)"
+                :locked="Boolean(pendingGhostAdoption)"
+                :busy="blockAdoptionBusy"
+                :failure="blockComposer.failure"
+                :stale-result="blockComposer.staleResult"
+                :boundary-hints="blockPreview.boundaryHints"
+                :selected-direction="blockPreview.selectedDirectionReceipt"
+                :session-fingerprint="blockPreview.candidate?.runSession?.manifest?.fingerprint || ''"
+                @accept="acceptBlockPreview"
+                @dismiss="dismissBlockPreview"
+                @restore="restoreBlockDraft"
+              />
+            </Teleport>
+            <Teleport v-else-if="adoptionImpact" to="#authoring-block-gap">
+              <AuthoringAdoptionImpact :impact="adoptionImpact.projection" />
+            </Teleport>
             <Teleport to="body">
               <div
-                v-if="selectionActionsVisible"
+                v-if="selectionActionsVisible && !illustratorOpen && !reviewPanelOpen && !searchPanelOpen"
                 class="writing-selection-actions"
                 :style="selectionToolbarStyle"
                 role="toolbar"
@@ -553,6 +609,16 @@
                 @mousedown.prevent
                 @click.stop
               >
+                <button type="button" title="粗体（Ctrl/Cmd+B）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('bold')">
+                  <strong>B</strong>
+                </button>
+                <button type="button" title="斜体（Ctrl/Cmd+I）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('italic')">
+                  <em>I</em>
+                </button>
+                <button type="button" title="插入分隔线" :disabled="historyInteractionLocked" @click="insertSeparator">
+                  <WorkbenchIcon name="minus" :size="14" />
+                </button>
+                <span aria-hidden="true"></span>
                 <button type="button" title="为选中文字添加批注" @click="openAnnotationFromSelectionMenu">
                   <WorkbenchIcon name="message-square" :size="14" />
                   <span>批注</span>
@@ -563,14 +629,84 @@
                   <span>素材</span>
                 </button>
                 <span aria-hidden="true"></span>
-                <button type="button" title="记住选中的内容" data-action="remember-selection" @click="rememberSelectionFromMenu">
+                <button type="button" title="将选中文字提取为待确认的项目事实" data-action="remember-selection" @click="rememberSelectionFromMenu">
                   <WorkbenchIcon name="sparkles" :size="14" />
-                  <span>记住</span>
+                  <span>事实</span>
                 </button>
               </div>
             </Teleport>
 
+            <Teleport to="body">
+              <AuthoringQuickWords
+                v-if="showQuickWords"
+                :catalog="quickWordCatalog"
+                :enabled-ids="quickWordEnabledIds"
+                @close="showQuickWords = false"
+                @toggle="toggleQuickWord"
+                @insert="insertQuickWord"
+                @click.stop
+              />
+            </Teleport>
+
+            <Teleport to="body">
+              <div v-if="showNameGen" class="quick-name-backdrop" @mousedown.self="closeNameGenerator">
+                <section class="quick-name-workbench" :class="{ 'is-compact': nameCategory !== 'person' }" role="dialog" aria-modal="true" aria-labelledby="quick-name-title" @click.stop>
+                  <header class="quick-name-head">
+                    <div><h2 id="quick-name-title">快速取名</h2><p>点名称只插入正文；建为条目需要单独确认。</p></div>
+                    <button type="button" class="quick-name-close" aria-label="关闭快速取名" :disabled="nameEntityBusy" @click="closeNameGenerator">×</button>
+                  </header>
+                  <div class="quick-name-body">
+                    <div class="quick-name-filters">
+                      <div class="quick-name-filter quick-name-filter--category"><span>类型</span><div role="group" aria-label="名称类型"><button v-for="item in nameCategoryOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameCategory === item.value }" @click="nameCategory = item.value; doGenerateName()">{{ item.label }}</button></div></div>
+                      <template v-if="nameCategory === 'person'">
+                        <div class="quick-name-filter"><span>语言</span><div role="group" aria-label="名字语言"><button v-for="item in nameLanguageOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameStyle === item.value }" @click="nameStyle = item.value; doGenerateName()">{{ item.label }}</button></div></div>
+                        <div class="quick-name-filter"><span>字数</span><div role="group" aria-label="名字字数"><button v-for="item in nameLengthOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameLength === item.value }" @click="nameLength = item.value; doGenerateName()">{{ item.label }}</button></div></div>
+                        <div class="quick-name-filter"><span>性别</span><div role="group" aria-label="名字性别"><button v-for="item in nameGenderOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameGender === item.value }" @click="nameGender = item.value; doGenerateName()">{{ item.label }}</button></div></div>
+                        <div v-if="nameStyle === 'chinese'" class="quick-name-filter quick-name-filter--surname"><label for="quick-name-surname">指定姓氏</label><input id="quick-name-surname" v-model.trim="fixedSurname" maxlength="2" placeholder="可不填" :disabled="nameEntityBusy" @input="doGenerateName" /></div>
+                      </template>
+                    </div>
+                    <div class="quick-name-results" aria-live="polite">
+                      <div v-for="item in generatedNames" :key="item.value" class="quick-name-result" :class="{ 'is-menu-open': activeNameEntityMenu === item.value }">
+                        <button class="quick-name-result__insert" type="button" :aria-label="`插入${item.value}`" @click="selectName(item)">
+                          <strong>{{ item.value }}</strong><span>{{ item.note }}</span>
+                        </button>
+                        <button
+                          class="quick-name-result__more"
+                          type="button"
+                          :aria-label="`${item.value}更多操作`"
+                          :aria-expanded="(activeNameEntityMenu === item.value).toString()"
+                          @click.stop="toggleNameEntityMenu(item)"
+                        >···</button>
+                        <div v-if="activeNameEntityMenu === item.value" class="quick-name-result__menu" role="menu" @click.stop>
+                          <button type="button" role="menuitem" data-test="create-name-entity" :aria-label="`建为${activeNameCategoryLabel}条目`" @click="requestNameEntityCreation(item)"><span aria-hidden="true">＋</span>建为{{ activeNameCategoryLabel }}条目</button>
+                        </div>
+                      </div>
+                    </div>
+                    <section v-if="pendingNameEntityCommand && nameEntityConflicts.length" class="quick-name-conflict" aria-label="同名条目处理">
+                      <div><strong>“{{ pendingNameEntityCommand.selection.text }}”已有同名条目</strong><span>请选择查看已有，或明确仍然新建。</span></div>
+                      <div class="quick-name-conflict__matches">
+                        <button v-for="conflict in nameEntityConflicts" :key="conflict.entryId" type="button" @click="reuseNameEntityConflict(conflict)">查看已有 · {{ conflict.name }}</button>
+                      </div>
+                      <div class="quick-name-conflict__actions"><button type="button" @click="cancelNameEntityConflict">取消</button><button type="button" class="is-primary" :disabled="nameEntityBusy" @click="confirmDuplicateNameEntity">仍然新建</button></div>
+                    </section>
+                    <div v-if="nameEntityNotice" class="quick-name-notice" :class="`is-${nameEntityNoticeKind}`" role="status">
+                      <span>{{ nameEntityNotice }}</span>
+                      <button v-if="nameEntityNoticeKind === 'needs-binding'" type="button" @click="openNameWorldbookBinding">去关联</button>
+                      <button v-else-if="lastNameEntityReceipt" type="button" @click="openCreatedNameEntityEntry">查看条目</button>
+                    </div>
+                  </div>
+                  <footer class="quick-name-foot"><span>{{ nameEntityBusy ? '正在创建条目…' : `${activeNameCategoryLabel} · ${generatedNames.length} 个候选` }}</span><button type="button" :disabled="nameEntityBusy" @click="doGenerateName">换一批</button></footer>
+                </section>
+              </div>
+            </Teleport>
+
+            </div>
+
             <div class="dossier-footer">
+              <template v-if="saveFeedbackVisible">
+                <span class="dossier-footer-stat dossier-footer-stat--save" :class="`is-${saveStatus}`">{{ stampStateText }}</span>
+                <span class="dossier-footer-stat-divider">·</span>
+              </template>
               <span class="dossier-footer-stat">{{ wordCount.toLocaleString() }} 字</span>
               <span class="dossier-footer-stat-divider">·</span>
               <span class="dossier-footer-stat">{{ charCount.toLocaleString() }} 字符</span>
@@ -580,36 +716,108 @@
           </div>
 
           <!-- 右键菜单 -->
-          <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }" @click.stop>
-            <button class="ctx-item" @click="ctxAction('undo')" :disabled="!canUndo">撤销</button>
-            <button class="ctx-item" @click="ctxAction('redo')" :disabled="!canRedo">重做</button>
+          <div v-if="contextMenu.show" ref="contextMenuRef" class="context-menu" role="menu" aria-label="正文操作" tabindex="-1" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px', maxHeight: contextMenu.maxHeight + 'px' }" @pointerdown.prevent @click.stop>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('undo')" :disabled="historyInteractionLocked || !contextMenu.availability.undo">撤销</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('redo')" :disabled="historyInteractionLocked || !contextMenu.availability.redo">重做</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" @click="ctxAction('cut')" :disabled="!selectedText">剪切</button>
-            <button class="ctx-item" @click="ctxAction('copy')" :disabled="!selectedText">复制</button>
-            <button class="ctx-item" @click="ctxAction('paste')">粘贴</button>
-            <button class="ctx-item" @click="ctxAction('delete')" :disabled="!selectedText">删除</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('cut')" :disabled="historyInteractionLocked || !contextMenu.availability.cut">剪切</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('copy')" :disabled="!contextMenu.availability.copy">复制</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('paste')" :disabled="historyInteractionLocked || !contextMenu.availability.paste" :title="contextMenu.availability.paste ? '' : '浏览器未授权读取剪贴板'">粘贴</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('delete')" :disabled="historyInteractionLocked || !contextMenu.availability.deleteSelection">删除</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" @click="ctxAction('selectAll')">全选</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('selectAll')" :disabled="!contextMenu.availability.selectAll">全选</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" @click="ctxAction('splitUnit')">从此处分开</button>
-            <button class="ctx-item" @click="ctxAction('mergePreviousUnit')">与上一单元合并</button>
-            <button class="ctx-item" @click="ctxAction('moveUnitUp')">上移当前单元</button>
-            <button class="ctx-item" @click="ctxAction('moveUnitDown')">下移当前单元</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('splitUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.splitUnit">从此处分开</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('mergePreviousUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergePreviousUnit">与上一单元合并</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitUp')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitUp">上移当前单元</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitDown')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitDown">下移当前单元</button>
           </div>
         </template>
       </section>
 
-      <aside
+      <AuthoringDualPane
+        v-if="!isKao && inspectorOpen && activeInspectorTool === 'dual'"
+        ref="dualPaneRef"
+        :book-id="selectedBookId"
+        :chapters="chapters"
+        :explorations="wt3IdeaShelfDocs"
+        :outline-nodes="wt3OutlineNodes"
+        :outline-edges="wt3OutlineEdges"
+        :worldbook="boundWorldbook"
+        :main-chapter-id="selectedChapterId || ''"
+        :main-exploration-id="wt3ActiveDocId"
+        :initial-chapter-id="dualTargetChapterId"
+        :initial-exploration-id="dualTargetExplorationId"
+        :initial-outline-node-id="dualTargetOutlineNodeId"
+        :initial-worldbook-entry-id="dualTargetWorldbookEntryId"
+        :main-document="writingDocument"
+        :main-markdown="markdownContent"
+        :active="activeWritingPane === 'dual'"
+        :save-chapter="saveDualChapter"
+        :save-exploration="saveDualExploration"
+        :protect-destructive-edit="protectDualDestructiveEdit"
+        :resolve-scene-projection="resolveDualSceneProjection"
+        :editor-style="notebookEditorStyle"
+        :quick-word-prefix="quickWordPrefix"
+        :quick-word-suggestions="writingInteractionOwner === 'quick-word' ? quickWordSuggestions : []"
+        :intervention-ghost-open="interventionGhostInDual"
+        :intervention-ghost-target="interventionDisplayTarget"
+        @close="closeWritingInspector"
+        @activate="activateDualPane"
+        @source-change="handleDualSourceChange"
+        @document-change="dualQuickWordDocument = $event"
+        @command-availability="handleDualCommandAvailability"
+        @selection-change="dualNotebookSelection = $event"
+        @composition-change="dualCompositionActive = $event"
+        @quick-word-complete="completeQuickWord"
+        @swap="swapDualChapter"
+        @open-outline="openOutlineFromDual"
+        @open-worldbook="openWorldbookFromDual"
+      >
+        <template v-if="authoringTaskNotice?.text" #notice>
+          <AuthoringTransientNotice :notice="authoringTaskNotice" @undo="undoAuthoringTask" />
+        </template>
+      </AuthoringDualPane>
+      <Teleport v-if="interventionComposer.open && interventionComposer.phase === 'ghosts' && interventionGhostInDual && interventionGhostTeleportReady" to="#authoring-dual-block-gap">
+        <AuthoringInterventionGhost
+          :ghosts="interventionGhosts"
+          :active-ghost-id="interventionComposer.activeGhostId"
+          :retrying-ghost-id="interventionComposer.retryingGhostId"
+          :adopting-ghost-id="interventionComposer.adoptingGhostId"
+          :batch-count="interventionBatchGhosts.length"
+          :batch-busy="interventionComposer.adoptingGhostId === 'all'"
+          :persist-pending-ghost-id="interventionComposer.pendingAdoption?.ghostId || ''"
+          :persist-error="interventionComposer.persistError"
+          @select="selectInterventionGhost"
+          @update="updateInterventionGhost"
+          @retry="retryInterventionGhost"
+          @discard="discardInterventionGhost"
+          @adopt="adoptInterventionGhost"
+          @adopt-all="adoptAllInterventionGhosts"
+          @retry-persist="persistPendingInterventionAdoption"
+          @close="closeInterventionComposer"
+        />
+      </Teleport>
+
+      <AuthoringWorkspaceToolRail
         v-if="!isKao"
+        :active-tool="activeInspectorTool"
+        :dual="inspectorDualColumn"
+        @before-select="freezeWritingSurfaceBeforeToolSelect"
+        @select="selectInspectorTool"
+      />
+
+      <aside
+        v-if="!isKao && activeInspectorTool !== 'dual'"
         class="writing-inspector"
         ref="writingInspectorRef"
-        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned }"
+        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai' }"
         aria-label="写作检查器"
       >
         <header class="writing-inspector__head">
           <div>
-            <strong>边注</strong>
-            <span v-if="openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
+            <strong>{{ activeInspectorLabel }}</strong>
+            <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
           </div>
           <div class="writing-inspector__head-actions">
             <button
@@ -620,16 +828,83 @@
               title="固定检查器"
               @click="inspectorPinned = !inspectorPinned"
             >⌖</button>
-            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="inspectorOpen = false">×</button>
+            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeWritingInspector">×</button>
           </div>
         </header>
 
-        <nav class="writing-inspector__tabs" aria-label="检查器视图">
+        <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" aria-label="检查器视图">
           <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注</button>
           <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">版本</button>
         </nav>
+        <nav v-else-if="activeInspectorTool === 'scene' && inspectorTab !== 'detail'" class="writing-inspector__tabs" aria-label="现场与因果视图">
+          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">当前场</button>
+          <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">场景与因果</button>
+        </nav>
 
-        <div v-if="inspectorTab === 'detail'" class="writing-inspector__body">
+        <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
+          <AuthoringKnowledgeAssistant
+            v-model:draft="knowledgeAssistant.draft.value"
+            :project-title="currentBook?.title || ''"
+            :messages="knowledgeAssistant.messages.value"
+            :selected-intent="knowledgeAssistant.selectedIntent.value"
+            :busy="knowledgeAssistant.busy.value"
+            :error="knowledgeAssistant.error.value"
+            :notice="authoringMemoryNotice"
+            @select-intent="knowledgeAssistant.selectIntent"
+            @ask="knowledgeAssistant.ask"
+            @cancel="knowledgeAssistant.cancel"
+            @retry="knowledgeAssistant.retry"
+            @clear="knowledgeAssistant.clear"
+            @open-evidence="openAuthoringKnowledgeEvidence"
+            @review-notice="memoryReviewOpen = true"
+          />
+          <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
+            @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
+            @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
+            @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
+        </div>
+        <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body" data-authoring-inspector="outline">
+          <AuthoringOutlinePanel
+            :items="chapterOutlineItems"
+            :project-nodes="wt3OutlineNodes"
+            :project-edges="wt3OutlineEdges"
+            :project-conflicts="wt3OutlineConflicts"
+            :project-filter="wt3OutlineFilter"
+            :chapters="chapters"
+            :explorations="wt3ExplorationDocs"
+            :chapter-title="currentChapterTitle"
+            :focus-project-node-id="inspectorOutlineNodeId"
+            @add="addManualChapterOutlineItem"
+            @update="updateChapterOutlineItem"
+            @remove="removeChapterOutlineItemFromChapter"
+            @move="moveChapterOutlineItem"
+            @insert="insertChapterOutlineItem"
+            @filter="wt3OutlineFilter = $event"
+            @open-project-chapter="selectChapter"
+            @open-project-exploration="openExplorationDoc"
+            @open-dual="openOutlineInDual"
+          />
+        </div>
+        <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
+          <AuthoringWorldbookPanel
+            :worldbook="boundWorldbook"
+            :selected-text="selectedText"
+            :document="writingDocument"
+            :caret-context="authoringSettingCaretContext"
+            :focus-entry-id="inspectorWorldbookEntryId"
+            :writing-unit="activeWritingUnit"
+            :scene-projection="sceneProjection"
+            :context-ledger="contextLedger"
+            :annotations="chapterAnnotations"
+            :candidate-entry-ids="inspectorWorldbookCandidateIds"
+            @bind="openBindingSelect"
+            @open-full="router.push({ name: 'settings-worldbook' })"
+            @annotate="annotateSelectionWithWorldbookEntry"
+            @locate-mention="locateWorldbookMention"
+            @open-dual="openWorldbookEntryInDual"
+          />
+        </div>
+        <div v-else-if="activeInspectorTool === 'scene' && inspectorTab === 'detail'" class="writing-inspector__body" data-authoring-inspector="scene">
           <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
           <AuthoringInspectorDetail
             :detail="inspectorDetailState"
@@ -638,9 +913,12 @@
             :worldbook-status="bookWorldbookStatus.status"
             :character-candidates="curationCharacterCandidates"
             :location-candidates="curationLocationCandidates"
+            :missing-character-ids="curationMissingCharacterIds"
+            :missing-location-id="curationMissingLocationId"
             :busy="sceneCurationBusy"
             :error="sceneCurationError"
             :can-undo="sceneCurationCanUndo"
+            :can-restore-inheritance="sceneCurationCanRestoreInheritance"
             @close="closeSceneDetail"
             @set-actor="handleDetailSetActor"
             @open-full="handleDetailOpenFull"
@@ -649,24 +927,25 @@
             @confirm-emergence="handleDetailConfirmEmergence"
             @dismiss-emergence="handleDetailDismissEmergence"
             @open-source="handleDetailOpenEmergenceSource"
+            @open-map="handleDetailOpenMap"
             @update-draft="handleCurationDraftUpdate"
             @save="handleCurationSave"
             @cancel="handleCurationCancel"
             @undo="handleCurationUndo"
+            @restore-inheritance="handleCurationRestoreInheritance"
             @bind-worldbook="openBindingSelect"
+            @open-worldbook="router.push({ name: 'settings-worldbook' })"
             @search="handleCurationSearch"
+            @run-intent="handleSceneRunIntent"
           />
         </div>
 
-        <div v-else-if="inspectorTab === 'comments'" class="writing-inspector__body">
+        <div v-else-if="activeInspectorTool === 'annotations' && inspectorTab === 'comments'" class="writing-inspector__body" data-authoring-inspector="annotations">
           <div class="writing-inspector__density">
-            <button type="button" class="writing-review-trigger" :disabled="reviewLoading || !selectedChapterId" @click="runChapterReview">
-              {{ reviewLoading ? `审查中 ${reviewCompletedBatches}/${reviewTotalBatches}` : '章节审查' }}
+            <button type="button" class="writing-review-trigger" :disabled="!selectedChapterId" @pointerdown="freezeReviewSource" @click="openReviewPanel">
+              打开校对
             </button>
-            <button v-if="reviewLoading" type="button" class="writing-review-trigger is-quiet" @click="cancelChapterReview">停止</button>
           </div>
-          <p v-if="reviewError" class="writing-review-status is-error" role="alert">{{ reviewError }}</p>
-          <p v-else-if="reviewStatus" class="writing-review-status">{{ reviewStatus }}</p>
 
           <div
             ref="annotationLaneRef"
@@ -800,7 +1079,7 @@
           </div>
         </div>
 
-        <div v-else-if="inspectorTab === 'version'" class="writing-inspector__body writing-version-panel">
+        <div v-else-if="activeInspectorTool === 'history' || inspectorTab === 'version'" class="writing-inspector__body writing-version-panel" data-authoring-inspector="history">
           <div class="writing-version-panel__current">
             <div>
               <span>当前章节</span>
@@ -811,6 +1090,26 @@
               <b>{{ writingDocument?.revision || 0 }}</b>
             </div>
           </div>
+          <section class="writing-version-panel__automatic" aria-label="自动历史设置">
+            <label>
+              <span><strong>自动历史</strong><small>正文落盘并跨过字数节点时保存</small></span>
+              <input
+                type="checkbox"
+                :checked="writingHistoryPreferences.enabled"
+                @change="updateWritingHistoryPreference({ enabled: $event.target.checked })"
+              >
+            </label>
+            <label>
+              <span>保存间隔</span>
+              <select
+                :value="writingHistoryPreferences.intervalWords"
+                :disabled="!writingHistoryPreferences.enabled"
+                @change="updateWritingHistoryPreference({ intervalWords: Number($event.target.value) })"
+              >
+                <option v-for="interval in writingHistoryIntervalOptions" :key="interval" :value="interval">每 {{ interval.toLocaleString() }} 字</option>
+              </select>
+            </label>
+          </section>
           <div class="writing-version-panel__create">
             <input v-model="snapshotLabel" type="text" maxlength="80" placeholder="给这次快照命名" @keydown.enter.prevent="createCurrentWritingSnapshot()">
             <button type="button" :disabled="!selectedChapterId" @click="createCurrentWritingSnapshot()">保存快照</button>
@@ -874,10 +1173,143 @@
             另有 {{ writingSnapshots.length - recentWritingSnapshots.length }} 个较早检查点保留在本地。
           </p>
         </div>
+        <div v-else-if="activeInspectorTool === 'scene' && sceneInspectorMode === 'story'" class="writing-inspector__body" data-authoring-inspector="living-story">
+          <AuthoringLivingStoryProjection
+            :projection="livingStoryProjection"
+            :active-unit-id="activeWritingUnitId || ''"
+            @locate="locateLivingStoryBeat"
+            @open-source="openLivingStorySource"
+            @intervene="interveneFromLivingStory"
+          />
+        </div>
+        <div v-else-if="activeInspectorTool === 'scene'" class="writing-inspector__body writing-scene-overview" data-authoring-inspector="scene">
+          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
+          <AuthoringSceneRail
+            :projection="sceneProjection"
+            @open-detail="openSceneDetail"
+            @advance-with="handleSceneAdvanceWith"
+            @edit="handleSceneEditRequest"
+            @bind-worldbook="openBindingSelect"
+          />
+          <section v-if="sceneProjection.unresolvedEvents?.length > 1" class="writing-scene-overview__events" aria-label="本场未决事件">
+            <strong>全部未决事件</strong>
+            <button
+              v-for="event in sceneProjection.unresolvedEvents"
+              :key="event.id"
+              type="button"
+              @click="openSceneDetail({ kind: 'event', id: event.id })"
+            >{{ event.label }}</button>
+          </section>
+          <div v-if="!activeWritingUnitId" class="writing-inspector__actions">
+            <button type="button" @click="openBlockComposer()">推演本章开场</button>
+          </div>
+        </div>
+        <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body" data-authoring-inspector="characters">
+          <p class="writing-inspector__context"><strong>本场人物</strong><span>来自当前场与绑定世界书</span></p>
+          <div v-if="composerPeople.length" class="writing-inspector-simple-list">
+            <button
+              v-for="person in composerPeople"
+              :key="person.id || person.name"
+              type="button"
+              @click="openSceneDetail({ kind: 'character', id: person.id })"
+            ><strong>{{ person.name || '未命名人物' }}</strong><span>{{ scenePersonRoles(person.id).join(' · ') || '在场' }}</span></button>
+          </div>
+          <div v-else class="writing-inspector__actions">
+            <span>当前场还没有人物。</span>
+            <button type="button" @click="handleSceneEditRequest">从世界书添加</button>
+          </div>
+        </div>
+        <div v-else-if="activeInspectorTool === 'materials'" class="writing-inspector__body" data-authoring-inspector="materials">
+          <p class="writing-inspector__context"><strong>写作素材</strong><span>这里只显示可直接用于当前稿面的收件箱内容</span></p>
+          <div v-if="inboxAssets.length" class="writing-inspector-simple-list">
+            <button
+              v-for="asset in inboxAssets.slice(0, 12)"
+              :key="asset.id"
+              type="button"
+              @click="openInboxAssetFromInspector(asset)"
+            ><strong>{{ asset.title || '未命名素材' }}</strong><span>{{ getAssetKindLabel(asset.kind) }}</span></button>
+          </div>
+          <div v-else class="writing-inspector__actions">
+            <span>当前收件箱没有素材。</span>
+            <button type="button" @click="openAssetInbox">打开收件箱</button>
+          </div>
+          <div class="writing-inspector__actions">
+            <button type="button" @click="openMaterialsPage">打开完整素材库</button>
+          </div>
+        </div>
       </aside>
 
       <button v-if="!isKao && !inspectorOpen" class="writing-inspector__reopen" type="button" title="打开检查器" @click="inspectorOpen = true">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
     </main>
+
+    <AuthoringIllustratorDrawer
+      :open="illustratorOpen"
+      :storage-key="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
+      :brief="illustratorBrief"
+      :generation-brief="illustratorGenerationBrief"
+      :freshness="illustratorFreshness"
+      v-model:selected-scene-source-ids="illustratorSceneSourceIds"
+      :reference-candidates="illustratorReferenceCandidates"
+      :notice="illustratorNotice"
+      @close="closeIllustrator"
+      @save-to-material="handleIllustratorSaveMaterial"
+      @insert-image="handleIllustratorInsertImage"
+      @generation-start="handleIllustratorGenerationStart"
+      @generation-complete="handleIllustratorGenerationComplete"
+      @generation-error="handleIllustratorGenerationError"
+      @generation-cancel="handleIllustratorGenerationCancel"
+    />
+
+    <AuthoringReviewPanel
+      :open="reviewPanelOpen"
+      :document-title="reviewDocumentTitle"
+      :findings="reviewFindings"
+      :busy="reviewLoading"
+      :progress="{ completed: reviewCompletedBatches, total: reviewTotalBatches }"
+      :error="reviewError"
+      :status="reviewStatus"
+      :attention-items="authoringVisibleExceptions"
+      :undo-available="reviewUndoAvailable"
+      @close="closeReviewPanel"
+      @scan="runChapterReview"
+      @cancel="cancelChapterReview"
+      @jump="jumpToReviewFinding"
+      @apply="applyReviewFinding"
+      @ignore="ignoreReviewFinding"
+      @apply-selected="applySelectedReviewFindings"
+      @undo="undoReviewApplication"
+      @resolve-attention="resolveAuthoringException"
+    />
+
+    <AuthoringSearchPanel
+      :open="searchPanelOpen"
+      :query="searchQuery"
+      :scope="searchScope"
+      :findings="searchFindings"
+      :total="searchTotal"
+      :truncated="searchTruncated"
+      :busy="searchBusy"
+      :error="searchError"
+      :notice="searchNotice"
+      :current-chapter-label="searchCurrentChapterLabel"
+      :active-finding-id="activeSearchFindingId"
+      :replacement="searchReplacement"
+      :replace-preview="searchReplacePreview"
+      :replace-busy="searchReplaceBusy"
+      :can-return="searchCanReturn"
+      @close="closeSearchPanel"
+      @update:query="updateSearchQuery"
+      @update:scope="updateSearchScope"
+      @update:replacement="updateSearchReplacement"
+      @search="runProjectSearch"
+      @open-result="openSearchFinding"
+      @return-origin="returnFromSearch"
+      @replace-one="replaceOneSearchFinding"
+      @replace-all="replaceAllSearchFindings"
+      @preview-replace="previewSearchReplaceAll"
+      @confirm-replace="confirmSearchReplaceAll"
+      @cancel-replace-preview="cancelSearchReplacePreview"
+    />
 
     <Transition name="modal-fade">
       <div v-if="assetInboxOpen" class="asset-inbox-overlay" @click.self="closeAssetInbox">
@@ -1044,35 +1476,116 @@
 </template>
 
 <script setup>
-import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { extractWritingSuggestionWindow } from '../services/writingSuggestion'
 import { useWritingAgent } from '../composables/useWritingAgent'
-import { useWorldStore } from '../stores/worldStore'
+import { readWorldbookSnapshot, useWorldStore } from '../stores/worldStore'
+import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
+import { openOrFocusWorkspaceTab } from '../services/workspace/workspaceRouteAdapter.js'
 import { useWritingTypographyStore, WRITING_FONT_OPTIONS, MIN_FONT_SIZE, MAX_FONT_SIZE } from '../stores/writingTypographyStore'
 import { useGameStore } from '../stores/gameStore'
 import { useEditorHistory } from '../composables/useEditorHistory'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import BookmarkButton from '../components/folio/BookmarkButton.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
-import WritingInlineCompletion from '../components/writing/WritingInlineCompletion.vue'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
-import AuthoringTurnComposer from '../components/authoring/AuthoringTurnComposer.vue'
+import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLivingStoryProjection.vue'
+import AuthoringSceneLaboratory from '../components/authoring/AuthoringSceneLaboratory.vue'
+import AuthoringInterventionComposer from '../components/authoring/AuthoringInterventionComposer.vue'
+import AuthoringInterventionGhost from '../components/authoring/AuthoringInterventionGhost.vue'
+import AuthoringBlockComposer from '../components/authoring/AuthoringBlockComposer.vue'
+import AuthoringBlockDraft from '../components/authoring/AuthoringBlockDraft.vue'
+import AuthoringAdoptionImpact from '../components/authoring/AuthoringAdoptionImpact.vue'
+import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
+import AuthoringDualPane from '../components/authoring/AuthoringDualPane.vue'
+import AuthoringQuickWords from '../components/authoring/AuthoringQuickWords.vue'
+import AuthoringKnowledgeAssistant from '../components/authoring/AuthoringKnowledgeAssistant.vue'
+import AuthoringIllustratorDrawer from '../components/authoring/AuthoringIllustratorDrawer.vue'
+import AuthoringReviewPanel from '../components/authoring/AuthoringReviewPanel.vue'
+import AuthoringSearchPanel from '../components/authoring/AuthoringSearchPanel.vue'
+import AuthoringIdeaShelf from '../components/authoring/AuthoringIdeaShelf.vue'
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
+import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
+import AuthoringWorldbookPanel from '../components/authoring/AuthoringWorldbookPanel.vue'
+import { buildWritingContextCandidates } from '../services/agents/context/writingContextReaders.js'
+import { collectWritingContextDependencyRevisions, discoverCrossChapterContext } from '../services/agents/context/crossChapterContext.js'
+import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPositionIndex.js'
+import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
+import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { createAuthoringInterventionSession } from '../services/agents/authoring/authoringInterventionSession.js'
+import { readAuthoringOutlineCausalLinks } from '../services/agents/authoring/authoringCausalLinkReader.js'
+import {
+  createAuthoringInterventionRehearsalScope,
+  selectAuthoringInterventionRehearsalDirection
+} from '../services/agents/authoring/authoringInterventionRehearsal.js'
+import {
+  createAuthoringInterventionRehearsalRun,
+  discardAuthoringInterventionGhost,
+  editAuthoringInterventionGhost
+} from '../services/agents/authoring/authoringInterventionRehearsalRun.js'
+import { generateAuthoringInterventionRehearsalDrafts } from '../services/agents/authoring/authoringInterventionRehearsalProvider.js'
+import {
+  createAuthoringInterventionSingleReceipt,
+  markAuthoringInterventionAdoptionPersisted,
+  prepareAuthoringInterventionAdoption,
+  prepareAuthoringInterventionUmbrella,
+  prepareAuthoringInterventionUmbrellaUndo
+} from '../services/agents/authoring/authoringInterventionAdoption.js'
+import { claimWritingGhostCandidate, createWritingGhostCandidate, validateWritingGhostCandidate } from '../services/agents/authoring/writingGhostCandidate.js'
+import { canRedoWritingAdoptionDeltas, canUndoWritingAdoptionDeltas, prepareWritingAdoptionDeltas } from '../services/agents/authoring/writingAdoptionTransaction.js'
+import { createAdoptionImpactProjection } from '../services/agents/authoring/authoringAdoptionImpactProjection.js'
+import {
+  collectAuthoringSceneRunIntentEffects,
+  createAuthoringSceneRunIntent,
+  readAuthoringSceneRunIntentsForTarget
+} from '../services/agents/authoring/authoringSceneRunIntents.js'
+import { matchWorldbookEntries } from '../services/worldbookContextBuilder.js'
+import { buildAuthoringCaretContext } from '../services/authoring/authoringSettingContext.js'
+import {
+  applyAuthoringReplacePlan,
+  buildAuthoringPositionIndex as buildAuthoringProjectSearchIndex,
+  createAuthoringReplacePlan,
+  reconcileAuthoringSearchFinding,
+  searchAuthoringPositionIndex
+} from '../services/authoring/authoringProjectSearch.js'
+import { buildWritingWorldbookMentions } from '../services/writing/writingWorldbookMentions.js'
+import {
+  buildAuthoringQuickWordCatalog,
+  resolveAuthoringQuickWordPrefix,
+  resolveAuthoringQuickWordSuggestions
+} from '../services/authoring/authoringQuickWords.js'
+import {
+  buildAuthoringEntityEntry,
+  createAuthoringEntityEntryCommand,
+  createAuthoringEntitySelection,
+  createAuthoringEntitySelectionReceipt,
+  findAuthoringEntitySelectionConflicts
+} from '../services/authoring/authoringEntitySelection.js'
 import { buildAuthoringSceneProjection, resolveAuthoringEmergenceDetailModel } from '../services/agents/authoring/authoringSceneProjection.js'
+import { buildAuthoringLivingStoryProjection } from '../services/agents/authoring/authoringLivingStoryProjection.js'
+import { buildAuthoringSceneLocationProjection } from '../services/agents/authoring/authoringSceneLocationProjection.js'
 import AuthoringTransientNotice from '../components/authoring/AuthoringTransientNotice.vue'
-import AuthoringContextInspector from '../components/authoring/AuthoringContextInspector.vue'
-import AuthoringExceptionReview from '../components/authoring/AuthoringExceptionReview.vue'
-import AuthoringMemoryNotice from '../components/authoring/AuthoringMemoryNotice.vue'
 import AuthoringMemoryReview from '../components/authoring/AuthoringMemoryReview.vue'
+import { useAuthoringKnowledgeAssistant } from '../composables/useAuthoringKnowledgeAssistant.js'
+import { useAuthoringIllustrator } from '../composables/useAuthoringIllustrator.js'
+import {
+  saveAuthoringIllustrationAsMaterial,
+  validateAuthoringIllustrationInsert
+} from '../services/agents/authoring/authoringIllustrationActions.js'
+import { assessAuthoringVisualBriefFreshness } from '../services/agents/authoring/authoringVisualBrief.js'
 import { listMemoryCandidates, updateMemoryCandidate, confirmMemoryCandidate, rejectMemoryCandidate, supersedeMemoryCandidates, mergeMemoryCandidateConflicts, replaceMemoryCandidateConflicts } from '../services/memoryCandidates'
 import { createProjectMemoryReader } from '../services/project/projectMemoryReader'
-import { STORAGE_KEYS } from '../composables/useStorage'
+import {
+  loadWritingBooks,
+  saveWritingBooks,
+  createWritingBookRecord
+} from '../services/writing/writingBooksRepository'
 import {
   ASSET_KINDS,
   getAssetKindExplanation,
@@ -1108,10 +1621,25 @@ import { createProjectKnowledgeFacade } from '../services/project/projectKnowled
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor'
-import { buildAuthoringNarrativeContext } from '../services/agents/authoring/authoringNarrativeContext.js'
-import { resolveAuthoringMechanismSignal } from '../services/agents/authoring/authoringMechanismSignal.js'
+import { createAuthoringNarrativeRun } from '../services/agents/authoring/authoringNarrativeRun.js'
+import { createAuthoringRunRepositoryAdapters } from '../services/agents/authoring/authoringRunRepositories.js'
+import { createAuthoringRunSessionAdapter } from '../services/agents/authoring/authoringRunSessionAdapter.js'
+import {
+  createAuthoringSceneLaboratoryRun,
+  selectAuthoringSceneLaboratoryDirection,
+  validateAuthoringSceneLaboratoryRun
+} from '../services/agents/authoring/authoringSceneLaboratoryRun.js'
+import { planAuthoringSceneDirections } from '../services/agents/authoring/authoringSceneDirectionPlanner.js'
+import {
+  addAuthoringRunReferenceSelection,
+  buildAuthoringRunReferenceCatalog,
+  reconcileAuthoringRunReferenceSelections,
+  refreshAuthoringRunReferenceSelection,
+  removeAuthoringRunReferenceSelection,
+  toAuthoringRunReferences
+} from '../services/agents/authoring/authoringRunReferenceSelection.js'
+import { attachDependencyIssuesToReceipt } from '../services/agents/context/contextReceipt.js'
 import { shouldDispatchAuthoringObservers } from '../services/agents/authoring/authoringObserverDispatch'
-import { detectSemiAutoEnvironmentPause } from '../services/agents/authoring/authoringSemiAutoPolicy'
 import { createAuthoringAuxiliaryWorkflow } from '../services/agents/authoring/authoringAuxiliaryWorkflow'
 import { createAuthoringCommandRuntime } from '../services/agents/authoring/authoringRuntime'
 import { buildDocumentRevision } from '../services/agents/authoring/authoringTextTransaction'
@@ -1136,6 +1664,7 @@ import {
 } from '../services/writingSelectionCapture'
 import { wrapMarkdownSelection } from '../services/markdownWrap'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import { useWritingDocument } from '../composables/useWritingDocument'
 import {
   createWritingAnnotation,
@@ -1149,7 +1678,7 @@ import {
   resolveWritingAnnotation,
   updateWritingAnnotationBody
 } from '../services/writing/writingAnnotations.js'
-import { getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
+import { getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import {
   buildBookManuscriptExport,
   buildChapterManuscriptExport
@@ -1161,7 +1690,17 @@ import {
   getWritingCandidateStaleReason,
   normalizeWritingCandidateResponse
 } from '../services/writing/writingCandidates.js'
-import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
+import {
+  createAuthoringReviewBatchContext,
+  createAuthoringReviewSession,
+  getAuthoringReviewWorldbookRevision,
+  ignoreAuthoringReviewFinding,
+  markAuthoringReviewFindingsApplied,
+  mergeAuthoringReviewFindings,
+  prepareAuthoringReviewTransaction,
+  rebaseAuthoringReviewSessionAfterTransaction,
+  reconcileAuthoringReviewSession
+} from '../services/agents/authoring/authoringReviewSession.js'
 import {
   createWritingSnapshot,
   getWritingSnapshotReasonLabel,
@@ -1175,6 +1714,14 @@ import {
   saveWritingSnapshot
 } from '../services/writing/writingSnapshots.js'
 import {
+  WRITING_HISTORY_INTERVAL_OPTIONS,
+  loadWritingHistoryPreferences,
+  planWritingMilestoneSnapshot,
+  recordWritingMilestoneSnapshot,
+  recordWritingProtectionSnapshot,
+  saveWritingHistoryPreferences
+} from '../services/writing/writingAutomaticHistory.js'
+import {
   appendWritingBlockHistory,
   deleteWritingBlockHistoryForChapter,
   listWritingBlockHistory
@@ -1184,13 +1731,42 @@ import {
   listWritingRecoveryDrafts,
   saveWritingRecoveryDraft
 } from '../services/writing/writingRecovery.js'
-import { buildWritingBlockHistoryEntries } from '../../shared/writingBlockHistoryContract.js'
+import {
+  buildWritingBlockHistoryEntries,
+  getWritingBlockText
+} from '../../shared/writingBlockHistoryContract.js'
 import { getExperienceOriginRoute } from '../services/writing/writingExperienceImport.js'
+import {
+  listExplorationDocuments,
+  getExplorationDocument,
+  createExplorationDocument,
+  saveExplorationDocument,
+  deleteExplorationDocument,
+  authoringDocumentKey,
+  createDocumentHandle
+} from '../services/writing/authoringDocumentRepository.js'
+import {
+  listOutlineNodes as listProjectOutlineNodes,
+  listOutlineEdges as listProjectOutlineEdges,
+  fingerprintOutline,
+  normalizeOutlineNodes,
+  upsertOutlineNode as upsertProjectOutlineNode
+} from '../services/writing/projectOutlineRepository.js'
 import { projectExperienceSession } from '../services/agents/authoring/authoringSessionProjection.js'
+import { migrateWritingNotesToExplorations } from '../services/writing/authoringPeripheralBridge.js'
+import { listWritingNotes } from '../services/writingNotes.js'
+import { buildChineseQuoteInsertion } from '../services/writing/writingChineseInput.js'
+import {
+  blocksPassiveInlineSuggestion,
+  resolveWritingInteractionOwner
+} from '../services/writing/writingInteractionPolicy.js'
+import { explainWritingName, generateWritingNames } from '../services/writingNameGenerator.js'
 import {
   normalizeBookWorldbookBinding,
   resolveBookWorldbookStatus,
   previewWorldbookRebind,
+  bindUnboundSceneAnchors,
+  detachSceneAnchorsFromWorldbook,
   createBoundWorldbookSync,
   buildChapterBoundaryPayload
 } from '../services/agents/authoring/authoringProjectWorldbook.js'
@@ -1199,6 +1775,7 @@ import {
   resolveActiveSceneAnchor,
   reconcileSceneAnchorsForUnitTransition,
   upsertSceneAnchor,
+  removeSceneAnchor,
   fingerprintSceneAnchors
 } from '../services/agents/authoring/authoringSceneAnchors.js'
 import { buildSceneCurationCandidates } from '../services/agents/authoring/authoringWorldbookSceneAdapter.js'
@@ -1208,6 +1785,8 @@ import { useAuthoringObservers } from '../composables/useAuthoringObservers.js'
 
 const router = useRouter()
 const route = useRoute()
+
+
 const { isDark, isKao, toggleTheme } = useTheme()
 const {
   clear: clearWritingDocument,
@@ -1220,11 +1799,10 @@ const {
 } = useWritingDocument()
 const worldStore = useWorldStore()
 const gameStore = useGameStore()
+// 工作台标签会话：页面只回报上下文（章、dirty、恢复锚点），不拥有标签状态。
+const workspaceTabsStore = useWorkspaceTabsStore()
 
-const copilotIndicatorStyle = ref({ bottom: '24px', right: '90px' })
 const copilotCursorPos = ref(0)
-const copilotScrollTop = ref(0)
-const copilotScrollLeft = ref(0)
 
 const books = ref([])
 const selectedBookId = ref('')
@@ -1246,6 +1824,8 @@ const {
 const newBookWorldbookId = ref('')
 // 项目级场景锚点（Task 4）：随章节数据持久化，绑定 unitId + 当前书的世界书。
 const sceneAnchors = ref([])
+// Declared before sceneProjection because that computed is watched during setup.
+const authoringObservations = ref([])
 // 最近一次锚点写入回执（撤销安全校验用）。
 const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
@@ -1255,6 +1835,7 @@ const newBookDesc = ref('')
 const newBookInput = ref(null)
 const editorRef = ref(null)
 const notebookEditorRef = ref(null)
+const blockComposerRef = ref(null)
 const writingMainRef = ref(null)
 const writingInspectorRef = ref(null)
 const annotationLaneRef = ref(null)
@@ -1264,23 +1845,433 @@ const annotationLaneHeight = ref(240)
 let annotationLayoutFrame = 0
 let annotationResizeObserver = null
 const notebookSelection = ref(null)
+let notebookSelectionScrollTop = 0
+const inspectorWorldbookEntryId = ref('')
+const inspectorWorldbookCandidateIds = ref([])
+const authoringSettingCaretContext = computed(() => buildAuthoringCaretContext(writingDocument.value, notebookSelection.value))
+const writingWorldbookMentions = computed(() => buildWritingWorldbookMentions(writingDocument.value, boundWorldbook.value))
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
+
+// —— 文本工作台 v3 正式文档树 ——
+// Phase 0 的 URL 原型门控已退役；构思/速记必须在正常 /authoring 可见。
+const wt3ExplorationDocs = ref([])
+const wt3OutlineNodes = ref([])
+const wt3LegacyNoteCount = computed(() => {
+  const migrated = new Set(wt3ExplorationDocs.value.flatMap((doc) => doc.sourceRefs || []))
+  return listWritingNotes().filter((note) => String(note?.content || '').trim() && !migrated.has(`writing-note:${note.id}`)).length
+})
+const wt3ActiveDocId = ref('')
+const wt3PreviousChapterId = ref(null)
+// 离开正文进入构思前的稿面滚动位置（返回正文时恢复，版心不跳）。
+let wt3PreviousChapterScrollTop = 0
+const wt3ActiveDoc = computed(() => wt3ExplorationDocs.value.find((doc) => doc.id === wt3ActiveDocId.value) || null)
+const notebookHistoryEpoch = ref(0)
+// ProseMirror history 必须以书 + 文档作用域为硬边界。切章或在正文/构思间切换时
+// 重建 Notebook；否则旧章 undo step 会被映射到新文档并造成跨章串写。
+const notebookDocumentKey = computed(() => `${selectedBookId.value || 'none'}:${wt3ActiveDocId.value ? `exploration:${wt3ActiveDocId.value}` : `chapter:${selectedChapterId.value || 'none'}`}:${notebookHistoryEpoch.value}`)
+
+function fenceNotebookHistory() {
+  notebookHistoryEpoch.value += 1
+}
+const wt3Handle = shallowRef(null)
+const wt3OutlineEdges = ref([])
+const wt3OutlineConflicts = ref([])
+const wt3OutlineFilter = ref('all')
+const wt3MigratedBookIds = new Set()
+const wt3MigrationTasks = new Map()
+const wt3OutlineConflictsByBook = new Map()
+
+// Phase 3：每本书只迁移一次；动态 import 与仓库写入始终绑定捕获的 bookId。
+// 切书期间完成的旧请求只更新对应书的缓存，不得把节点/冲突串到当前书。
+async function wt3EnsureOutlineMigrated() {
+  const bookId = String(selectedBookId.value || '')
+  if (!bookId || wt3MigratedBookIds.has(bookId)) return true
+  if (wt3MigrationTasks.has(bookId)) return wt3MigrationTasks.get(bookId)
+
+  const task = (async () => {
+    try {
+      const migration = await import('../services/writing/projectOutlineMigration.js')
+      const book = loadWritingBooks().find((item) => String(item.id) === bookId)
+      if (!book) return false
+      const plan = migration.planChapterOutlineMigration(book)
+      let conflicts = plan.conflicts
+
+      if (plan.create.length || plan.skipped.length) {
+        const working = JSON.parse(JSON.stringify(book))
+        const result = migration.applyChapterOutlineMigration(working, plan)
+        conflicts = result.conflicts
+        for (const node of result.created) {
+          const persisted = upsertProjectOutlineNode(bookId, node)
+          if (!persisted?.ok) throw new Error('outline-migration-persist-failed')
+        }
+      }
+
+      wt3MigratedBookIds.add(bookId)
+      wt3OutlineConflictsByBook.set(bookId, conflicts)
+      wt3RefreshDocs(bookId)
+      return true
+    } catch {
+      if (String(selectedBookId.value || '') === bookId) {
+        authoringTask.notify('旧章纲迁移失败，原章节内容仍保留，可稍后重试')
+      }
+      return false
+    } finally {
+      wt3MigrationTasks.delete(bookId)
+    }
+  })()
+
+  wt3MigrationTasks.set(bookId, task)
+  return task
+}
+const wt3Annotations = ref([])
+const activeEditorAnnotations = computed(() => (wt3ActiveDoc.value ? wt3Annotations.value : chapterAnnotations.value))
+function activeAnnotationScopeKey() {
+  const exploration = wt3ActiveDoc.value
+  return exploration
+    ? authoringDocumentKey({
+        role: 'exploration',
+        bookId: exploration.bookId || selectedBookId.value,
+        documentId: exploration.id
+      })
+    : selectedChapterId.value
+}
+
+function reconcileActiveEditorAnnotations(document, previousDocument = null, transition = null) {
+  const reconciled = reconcileWritingAnnotations(
+    activeEditorAnnotations.value,
+    document,
+    activeAnnotationScopeKey(),
+    previousDocument,
+    transition
+  )
+  if (wt3ActiveDoc.value) wt3Annotations.value = reconciled
+  else chapterAnnotations.value = reconciled
+}
+const wt3IdeaShelfDocs = computed(() => wt3ExplorationDocs.value.map((doc) => {
+  const chapterIds = new Set()
+  for (const node of wt3OutlineNodes.value) {
+    if (!(node.explorationRefs || []).some((ref) => ref.documentId === doc.id)) continue
+    for (const chapterId of node.chapterRefs || []) chapterIds.add(String(chapterId))
+  }
+  const associationLabels = [...chapterIds].map((chapterId) => {
+    const index = chapters.value.findIndex((chapter) => String(chapter.id) === chapterId)
+    if (index < 0) return ''
+    return chapterRowLabel(index, chapters.value[index]?.title)
+  }).filter(Boolean)
+  return {
+    ...doc,
+    associatedChapterIds: [...chapterIds],
+    associationLabel: associationLabels.length ? `关联 ${associationLabels.join('、')}` : ''
+  }
+}))
+function chineseChapterNumber(value) {
+  const number = Math.max(1, Number(value) || 1)
+  const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+  if (number < 10) return digits[number]
+  if (number === 10) return '十'
+  if (number < 20) return `十${digits[number % 10]}`
+  if (number < 100) return `${digits[Math.floor(number / 10)]}十${digits[number % 10]}`
+  return String(number)
+}
+
+// 章行只拥有一个序号来源。作者若把“第一章”也写进标题，先去掉标题里的
+// 序号再按目录位置呈现，避免“第一章 第一章 上元夜”；空标题就朴素显示“第一章”。
+function chapterRowLabel(index, title) {
+  const { ordinal, name } = chapterRowParts(index, title)
+  return name ? `${ordinal} ${name}` : ordinal
+}
+// 章行模板用分体式：序号与章名各占一个 span，间隔由排版控制，
+// 不依赖半角空格（不同字重/字体下空格宽度不稳定）。
+function chapterRowParts(index, title) {
+  const ordinal = `第${chineseChapterNumber(index + 1)}章`
+  const name = String(title || '')
+    .trim()
+    .replace(/^第\s*(?:[零〇一二三四五六七八九十百千万两]+|\d+)\s*章(?:\s*[-—:：·、.]?\s*)?/u, '')
+    .trim()
+  return { ordinal, name }
+}
+// 稿面标题与左导航共用同一序号来源：稿面只补“第X章”，章名仍由输入框承载。
+// 作者标题已自带序号时不再重复显示（避免“第一章 第一章 上元夜”）。
+const selectedChapterOrdinalLabel = computed(() => {
+  const index = chapters.value.findIndex((chapter) => String(chapter.id) === String(selectedChapterId.value))
+  if (index < 0) return ''
+  if (/^第\s*[零〇一二三四五六七八九十百千万两0-9]+\s*章/u.test(String(currentChapterTitle.value || '').trim())) return ''
+  return `第${chineseChapterNumber(index + 1)}章`
+})
+watch([selectedBookId, books], () => {
+  const bookId = String(selectedBookId.value || '')
+  wt3RefreshDocs(bookId)
+  void wt3EnsureOutlineMigrated()
+})
+function wt3RefreshDocs(bookId = selectedBookId.value) {
+  const normalizedBookId = String(bookId || '')
+  if (!normalizedBookId) {
+    wt3ExplorationDocs.value = []
+    wt3OutlineNodes.value = []
+    wt3OutlineEdges.value = []
+    wt3OutlineConflicts.value = []
+    return
+  }
+  const isActiveBook = String(selectedBookId.value || '') === normalizedBookId
+  if (isActiveBook) {
+    wt3ExplorationDocs.value = listExplorationDocuments(normalizedBookId)
+    wt3OutlineNodes.value = listProjectOutlineNodes(normalizedBookId)
+    wt3OutlineEdges.value = listProjectOutlineEdges(normalizedBookId)
+    wt3OutlineConflicts.value = wt3OutlineConflictsByBook.get(normalizedBookId) || []
+  }
+  // 页面 saveChapters 以 books.value 为真源写回：仓库新建的探索文档必须
+  // 同步进页面书数组，否则下一次章节保存会把探索文档冲掉。
+  const fresh = loadWritingBooks()
+  const current = books.value.find((item) => String(item.id) === normalizedBookId)
+  if (current) {
+    const updated = fresh.find((item) => String(item.id) === normalizedBookId)
+    if (updated) {
+      current.explorationDocuments = updated.explorationDocuments
+      current.outlineNodes = updated.outlineNodes
+      current.outlineEdges = updated.outlineEdges
+    }
+  }
+}
+
+// 离开探索文档前的持久化：内容 + 批注写回探索文档，清除恢复草稿与 dirty。
+function wt3PersistActiveDoc() {
+  clearPendingDocumentSaveTimers()
+  const doc = wt3ActiveDoc.value
+  if (!doc) return { ok: true }
+  // 块级编辑器的真源是 writingDocument；markdown 投影可能滞后于 IME/命令路径。
+  const content = writingDocument.value
+    ? getWritingDocumentMarkdown(writingDocument.value)
+    : markdownContent.value
+  const result = saveExplorationDocument(doc.bookId || selectedBookId.value, doc.id, {
+    content,
+    annotations: wt3Annotations.value
+  })
+  if (result.ok) {
+    if (recoveryTimeout) {
+      clearTimeout(recoveryTimeout)
+      recoveryTimeout = null
+    }
+    clearWritingRecoveryDraft(authoringDocumentKey({ role: 'exploration', bookId: doc.bookId || selectedBookId.value, documentId: doc.id }))
+    const key = `project:${selectedBookId.value}:authoring`
+    workspaceTabsStore.updateContextByKey(key, { dirty: false })
+    saveStatus.value = 'saved'
+  } else {
+    saveStatus.value = 'error'
+  }
+  return result
+}
+
+// 任何离开探索文档的路径（切章/切书/关闭）统一走这里；正文路径不受影响。
+function wt3PersistBeforeLeaving() {
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前文档')
+    return { ok: false, reason: 'pending-adoption' }
+  }
+  if (!wt3ActiveDoc.value) return { ok: true }
+  const result = wt3PersistActiveDoc()
+  if (!result?.ok) {
+    authoringTask.notify('构思文档保存失败，已留在当前文档')
+    return result || { ok: false, reason: 'persist-failed' }
+  }
+  wt3ActiveDocId.value = ''
+  // 关键：把稿面恢复为上一章已保存内容。随后的章节 boundary/保存以
+  // markdownContent 为准，不恢复就会把探索文本写进正文（Gate 场景 2）。
+  const prev = wt3PreviousChapterId.value
+  const chapter = chapters.value.find((item) => item.id === prev)
+  if (chapter) {
+    const { raw, format } = readChapterSource(chapter)
+    const fallbackMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
+    markdownContent.value = loadChapterDocument(chapter, fallbackMarkdown)
+    editorContent.value = markdownToHtml(markdownContent.value)
+    syncMarkdownToEditor()
+  }
+  wt3PreviousChapterId.value = null
+  return result
+}
+
+function openExplorationDoc(docId) {
+  if (wt3ActiveDocId.value === docId) return
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return false
+  }
+  copilotCancel()
+  if (blockComposer.open) closeBlockComposer()
+  const bookId = selectedBookId.value
+  const doc = getExplorationDocument(bookId, docId)
+  if (!doc) return
+  // 切换构思时只保存当前构思，不清除“返回正文”的章节锚点。
+  const outgoingChapterBoundary = !wt3ActiveDoc.value
+    ? buildCurrentChapterObserverBoundary()
+    : null
+  if (wt3ActiveDoc.value) {
+    const result = wt3PersistActiveDoc()
+    if (!result?.ok) {
+      authoringTask.notify('当前构思保存失败，未切换文档')
+      return false
+    }
+  } else if (selectedChapterId.value && !saveCurrentChapter()) {
+    authoringTask.notify('当前章节保存失败，未打开构思')
+    return false
+  }
+  if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
+  const previousChapterId = wt3PreviousChapterId.value || selectedChapterId.value
+  wt3ActiveDocId.value = docId
+  wt3PreviousChapterId.value = previousChapterId
+  // 构思文档是独立作用域：上一章/上一篇的候选不得进入新文档稿面。
+  authoringTask.dismissAuxiliary()
+  wt3Handle.value = createDocumentHandle({
+    bookId, role: 'exploration', documentId: doc.id, title: doc.title, revision: doc.revision
+  })
+  // 恢复草稿比存储内容新时优先恢复未保存稿。
+  const key = authoringDocumentKey({ role: 'exploration', bookId, documentId: doc.id })
+  const drafts = listWritingRecoveryDrafts(key)
+  const draft = drafts.length ? drafts[drafts.length - 1] : null
+  markdownContent.value = draft?.markdown || String(doc.content || '')
+  wt3Annotations.value = Array.isArray(doc.annotations) ? doc.annotations : []
+  // 记住离开正文时的稿面滚动位置：返回正文后恢复，版心不跳（V2 Gate）。
+  if (!wt3PreviousChapterScrollTop) {
+    wt3PreviousChapterScrollTop = document.querySelector('.wall__dossier-scroll')?.scrollTop || 0
+  }
+  syncMarkdownToEditor()
+  return true
+}
+function closeExplorationDoc() {
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return false
+  }
+  copilotCancel()
+  if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
+  // wt3PersistBeforeLeaving 会清空章节锚点，先取回用于滚动恢复判断
+  const anchorChapterId = wt3PreviousChapterId.value
+  const ok = wt3PersistBeforeLeaving()?.ok === true
+  // 仅在回到同一章锚点时恢复离开前的稿面滚动；切章由章节自身锚点接管。
+  if (ok && wt3PreviousChapterScrollTop && anchorChapterId === selectedChapterId.value) {
+    const target = wt3PreviousChapterScrollTop
+    wt3PreviousChapterScrollTop = 0
+    nextTick(() => requestAnimationFrame(() => {
+      const scroll = document.querySelector('.wall__dossier-scroll')
+      if (scroll) scroll.scrollTop = target
+    }))
+  } else {
+    wt3PreviousChapterScrollTop = 0
+  }
+  return ok
+}
+// 快速落笔：新建探索文档并直接进入编辑。
+function wt3QuickCapture() {
+  if (!selectedBookId.value) return
+  const now = new Date()
+  const stamp = `${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const created = createExplorationDocument(selectedBookId.value, { title: `速记 ${stamp}`, content: '' })
+  // eslint-disable-next-line no-console
+  console.log('[wt3-capture]', JSON.stringify({ ok: created.ok, reason: created.reason || '', bookId: selectedBookId.value }))
+  if (!created.ok) return
+  wt3RefreshDocs()
+  openExplorationDoc(created.document.id)
+}
+function wt3MigrateLegacyNotes() {
+  const result = migrateWritingNotesToExplorations(selectedBookId.value, listWritingNotes())
+  if (!result.ok) {
+    authoringTask.notify('旧速记迁移失败，请检查存储空间')
+    return false
+  }
+  wt3RefreshDocs()
+  authoringTask.notify(result.created.length ? `已迁移 ${result.created.length} 条旧速记到构思` : '旧速记均已迁移')
+}
+// 删除探索文档：绝不触碰正文；正在编辑时先回到上一章。
+function wt3DeleteDoc(docId) {
+  if (wt3ActiveDocId.value === docId) {
+    if (!wt3PersistBeforeLeaving()?.ok) return false
+  }
+  const result = deleteExplorationDocument(selectedBookId.value, docId)
+  if (!result?.ok) {
+    authoringTask.notify('删除构思失败，请检查存储空间')
+    return false
+  }
+  const selectedReference = reconciledAuthoringRunReferences.value
+    .find((item) => item.sourceKind === 'exploration-doc' && item.sourceId === docId)
+  if (selectedReference) removeAuthoringRunReference(selectedReference.id)
+  wt3RefreshDocs()
+  return true
+}
+function wt3SetDocStatus(docId, status) {
+  const doc = wt3ExplorationDocs.value.find((item) => item.id === docId)
+  if (!doc || !['active', 'parked'].includes(status)) return false
+  if (wt3ActiveDocId.value === docId && !wt3PersistBeforeLeaving()?.ok) {
+    authoringTask.notify('速记保存失败，未改变状态')
+    return false
+  }
+  const result = saveExplorationDocument(selectedBookId.value, docId, { status })
+  if (!result?.ok) {
+    authoringTask.notify(status === 'parked' ? '速记搁置失败' : '速记移回失败')
+    return false
+  }
+  if (status === 'parked') {
+    const selectedReference = reconciledAuthoringRunReferences.value
+      .find((item) => item.sourceKind === 'exploration-doc' && item.sourceId === docId)
+    if (selectedReference) removeAuthoringRunReference(selectedReference.id)
+  }
+  wt3RefreshDocs()
+  return true
+}
+function wt3LinkDocToCurrentChapter(docId) {
+  const chapterId = String(selectedChapterId.value || '')
+  const doc = wt3ExplorationDocs.value.find((item) => item.id === docId)
+  if (!doc || !chapterId) return false
+  const linkNodeId = `idea-link-${doc.id}`
+  const existing = wt3OutlineNodes.value.find((node) => node.id === linkNodeId)
+  const result = upsertProjectOutlineNode(selectedBookId.value, {
+    ...(existing || {}),
+    id: linkNodeId,
+    title: doc.title,
+    intent: existing?.intent || '章节速记',
+    status: existing?.status || 'exploring',
+    chapterRefs: [...new Set([...(existing?.chapterRefs || []), chapterId])],
+    explorationRefs: [{ documentId: doc.id, role: 'alternative', state: 'proposed' }]
+  })
+  if (!result?.ok) {
+    authoringTask.notify('速记关联章节失败')
+    return false
+  }
+  wt3RefreshDocs()
+  return true
+}
 const notebookEditorActive = computed(() => editorMode.value === 'wysiwyg')
+
+// Scene projection is watched during setup, so this dependency must exist
+// before the projection computed is declared below.
+const activeWritingUnitId = computed(() => {
+  const selection = readLiveWritingSelectionSnapshot()
+  if (selection?.unitId) return selection.unitId
+  const units = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
+  return units.at(-1)?.attrs?.unitId || null
+})
 
 const notebookEditorStyle = computed(() => ({
   '--notebook-font-family': editorFont.value,
   '--notebook-font-size': editorFontSize.value,
   '--notebook-line-height': String(writingTypography.lineHeight),
-  '--notebook-font-weight': editorBold.value ? '700' : '400',
-  '--notebook-font-style': editorItalic.value ? 'italic' : 'normal',
-  '--notebook-text-decoration': editorUnderline.value ? 'underline' : 'none'
+  '--notebook-font-weight': '400',
+  '--notebook-font-style': 'normal',
+  '--notebook-text-decoration': 'none',
+  // Phase 2：小说标准排版变量（构思/正文共用，原型硬编码迁入变量 owner）。
+  '--notebook-first-line-indent': writingTypography.firstLineIndent ? '2em' : '0',
+  '--notebook-paragraph-gap': String(writingTypography.paragraphGap) + 'em'
 }))
 
 const rightWidth = ref(210)
 const isRightCollapsed = ref(false)
 const resizing = ref(null)
 const selectedText = ref('')
+const notebookCommandMenuOpen = ref(false)
+const writingCompositionActive = ref(false)
 const chapterAnnotations = ref([])
 const activeAnnotationId = ref(null)
 const editingAnnotationId = ref(null)
@@ -1301,16 +2292,29 @@ const reviewError = ref('')
 const reviewStatus = ref('')
 const reviewCompletedBatches = ref(0)
 const reviewTotalBatches = ref(0)
+const reviewPanelOpen = ref(false)
+const reviewSession = shallowRef(null)
+const reviewInvocation = shallowRef(null)
+const reviewUndoReceipt = shallowRef(null)
+const reviewDocumentTitle = computed(() => reviewInvocation.value?.title || currentChapterTitle.value || '')
+const reviewFindings = computed(() => Array.isArray(reviewSession.value?.findings) ? reviewSession.value.findings : [])
+const reviewUndoAvailable = computed(() => Boolean(reviewUndoReceipt.value))
+let preparedReviewSource = null
+let reviewReturnSurface = null
+let reviewPanelChangedSurface = false
 const writingSnapshots = ref([])
 const writingBlockHistory = ref([])
 const writingRecoveryDraft = ref(null)
 const snapshotLabel = ref('')
 const snapshotStatus = ref('')
+const writingHistoryPreferences = ref(loadWritingHistoryPreferences())
+const writingHistoryIntervalOptions = WRITING_HISTORY_INTERVAL_OPTIONS
 let rewriteRequestVersion = 0
 let rewriteAbortController = null
 let reviewAbortController = null
 let recoveryTimeout = null
 let previousNotebookDocument = null
+let previousNotebookAnnotations = null
 // Plan Task 1.4 / spec §7.2：inspectorTab 状态扩为 { baseView, detail, returnFocusRef }。
 // 详情是既有检查器的临时原位视图，不是新常驻 tab、抽屉或 modal。
 const inspectorBaseView = ref('comments')
@@ -1318,26 +2322,808 @@ const inspectorDetailState = ref(null)
 const inspectorReturnFocusRef = ref('')
 let annotationLaneScrollAtOpen = 0
 const sceneDetailNotice = ref('')
+const sceneInspectorMode = ref('current')
 const inspectorTab = computed({
   get: () => (inspectorDetailState.value ? 'detail' : inspectorBaseView.value),
   set: (value) => {
     if (value === 'comments' || value === 'version') {
+      if (inspectorDetailState.value?.kind === 'scene-edit') discardSceneCurationDraft()
       inspectorDetailState.value = null
       inspectorBaseView.value = value
     }
   }
 })
-const inspectorOpen = ref(true)
+const inspectorOpen = ref(false)
 const inspectorPinned = ref(false)
+const dualPaneRef = ref(null)
+const dualNotebookSelection = ref(null)
+const dualCompositionActive = ref(false)
+const dualTargetChapterId = ref('')
+const dualTargetExplorationId = ref('')
+const dualTargetOutlineNodeId = ref('')
+const dualTargetWorldbookEntryId = ref('')
+const dualActiveChapterId = ref('')
+const inspectorOutlineNodeId = ref('')
+const activeWritingPane = ref('main')
+const activeInspectorTool = ref('annotations')
+const inspectorDualColumn = computed(() => inspectorOpen.value && activeInspectorTool.value === 'dual')
+const inspectorLabels = Object.freeze({ annotations: '批注', outline: '大纲', characters: '角色', worldbook: '设定', scene: '现场', materials: '素材', ai: '助手', history: '历史', dual: '双栏' })
+const activeInspectorLabel = computed(() => inspectorLabels[activeInspectorTool.value] || '批注')
+const inspectorReturnSurface = shallowRef(null)
+const knowledgeAssistantInvocation = shallowRef(null)
+const illustratorTriggerRef = ref(null)
+const illustratorController = useAuthoringIllustrator()
+const {
+  open: illustratorOpen,
+  brief: illustratorBrief,
+  selectedSceneSourceIds: illustratorSceneSourceIds,
+  referenceCandidates: illustratorReferenceCandidates,
+  notice: illustratorNotice,
+  generationBrief: illustratorGenerationBrief,
+  freshness: illustratorFreshness
+} = illustratorController
+let preparedIllustratorSource = null
+let preparedMobileToolSource = null
+let illustratorActiveJob = null
+let preparedInspectorToolSelection = null
+
+function activeMainSurfaceIdentity() {
+  const sourceKind = wt3ActiveDoc.value ? 'exploration' : 'chapter'
+  const sourceId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
+  return {
+    pane: 'main',
+    projectId: String(selectedBookId.value || ''),
+    sourceKind,
+    sourceId,
+    scopeKey: `${selectedBookId.value || ''}|main|${sourceKind}|${sourceId}`,
+    documentRevision: String(currentDocumentRevision()),
+    documentSchemaRevision: String(writingDocument.value?.revision ?? '')
+  }
+}
+
+function captureMainWritingSurface() {
+  if (!notebookEditorRef.value || !selectedBookId.value) return null
+  const identity = activeMainSurfaceIdentity()
+  if (!identity.sourceId) return null
+  return Object.freeze({
+    ...identity,
+    selectionBookmark: notebookEditorRef.value.captureSelectionBookmark?.() || null,
+    scroll: captureWritingScrollState(),
+    editorFocused: notebookEditorRef.value.hasEditorFocus?.() === true
+  })
+}
+
+function captureCurrentWritingSurface() {
+  if (activeWritingPane.value === 'dual') {
+    const dualSurface = dualPaneRef.value?.captureSurfaceState?.()
+    if (dualSurface) return dualSurface
+  }
+  return captureMainWritingSurface()
+}
+
+function captureMainDocumentSource() {
+  if (!writingDocument.value || !selectedBookId.value) return null
+  const exploration = wt3ActiveDoc.value
+  const documentRole = exploration ? 'exploration' : 'manuscript'
+  const documentId = String(exploration?.id || selectedChapterId.value || '')
+  if (!documentId) return null
+  return Object.freeze({
+    pane: 'main',
+    projectId: String(selectedBookId.value),
+    sourceKind: exploration ? 'exploration' : 'chapter',
+    role: documentRole,
+    documentRole,
+    documentId,
+    chapterId: exploration ? '' : String(selectedChapterId.value || ''),
+    unitId: String(notebookSelection.value?.unitId || activeWritingUnitId.value || ''),
+    title: String(exploration?.title || currentChapterTitle.value || ''),
+    document: cloneAuthoringRunValue(writingDocument.value),
+    markdown: String(markdownContent.value || ''),
+    documentRevision: currentDocumentRevision(),
+    documentSchemaRevision: String(writingDocument.value?.revision ?? ''),
+    sceneProjection: cloneAuthoringRunValue(sceneProjection.value),
+    worldbookEntries: cloneAuthoringRunValue(boundWorldbook.value?.entries || [])
+  })
+}
+
+function captureActiveDocumentSource() {
+  if (activeWritingPane.value === 'dual') {
+    return dualPaneRef.value?.captureSearchSource?.() || null
+  }
+  return captureMainDocumentSource()
+}
+
+function captureActiveReviewSource() {
+  if (activeWritingPane.value === 'dual') {
+    return dualPaneRef.value?.captureReviewSource?.() || null
+  }
+  return captureMainDocumentSource()
+}
+
+function captureMainKnowledgeAssistantInvocation() {
+  const projectId = String(selectedBookId.value || '')
+  const role = wt3ActiveDoc.value ? 'exploration' : 'manuscript'
+  const documentId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
+  const chapterId = role === 'manuscript' ? String(selectedChapterId.value || '') : ''
+  if (!projectId || !documentId || (role === 'manuscript' && !chapterId)) return null
+  const selection = notebookSelection.value || {}
+  const unitId = String(selection.unitId || activeWritingUnitId.value || '')
+  const unit = (writingDocument.value?.content || []).find((item) => String(item?.attrs?.unitId || '') === unitId)
+  const selectedNodeId = String(selection.nodeId || '')
+  const node = (unit?.content || []).find((item) => String(item?.attrs?.nodeId || '') === selectedNodeId)
+  const target = role === 'manuscript'
+    ? Object.freeze({
+        projectId,
+        documentId,
+        chapterId,
+        ...(unit ? { unitId: String(unit.attrs.unitId) } : {}),
+        ...(node ? { nodeId: String(node.attrs.nodeId) } : {})
+      })
+    : null
+  return Object.freeze({
+    pane: 'main',
+    projectId,
+    role,
+    documentId,
+    chapterId,
+    target,
+    sceneProjection: cloneAuthoringRunValue(sceneProjection.value),
+    liveSource: Object.freeze({
+      projectId,
+      role,
+      documentRole: role,
+      documentId,
+      chapterId,
+      title: String(wt3ActiveDoc.value?.title || currentChapterTitle.value || ''),
+      documentRevision: currentDocumentRevision(),
+      documentSchemaRevision: String(writingDocument.value?.revision ?? ''),
+      document: cloneAuthoringRunValue(writingDocument.value)
+    })
+  })
+}
+
+function captureKnowledgeAssistantInvocation() {
+  if (activeWritingPane.value !== 'dual') return captureMainKnowledgeAssistantInvocation()
+  const source = dualPaneRef.value?.getActiveSource?.() || null
+  const liveSource = dualPaneRef.value?.captureKnowledgeSource?.() || null
+  if (!liveSource) {
+    // 大纲/设定等只读副窗没有落笔 target；助手按项目范围查询，绝不借用
+    // 被遮在后面的主栏章节作为“当前写作位置”。
+    return Object.freeze({
+      pane: 'dual-reference',
+      projectId: String(selectedBookId.value || ''),
+      role: '',
+      documentId: String(source?.id || ''),
+      chapterId: '',
+      target: null,
+      sceneProjection: null,
+      liveSource: null
+    })
+  }
+  const role = liveSource.documentRole === 'exploration' ? 'exploration' : 'manuscript'
+  const target = role === 'manuscript'
+    ? Object.freeze({
+        projectId: String(liveSource.projectId || ''),
+        documentId: String(liveSource.documentId || ''),
+        chapterId: String(liveSource.chapterId || ''),
+        ...(liveSource.unitId ? { unitId: String(liveSource.unitId) } : {}),
+        ...(liveSource.nodeId ? { nodeId: String(liveSource.nodeId) } : {})
+      })
+    : null
+  return Object.freeze({
+    pane: 'dual',
+    projectId: String(liveSource.projectId || ''),
+    role,
+    documentId: String(liveSource.documentId || ''),
+    chapterId: String(liveSource.chapterId || ''),
+    target,
+    sceneProjection: cloneAuthoringRunValue(liveSource.sceneProjection),
+    liveSource
+  })
+}
+
+function writingUnitVisualText(unit) {
+  return (unit?.content || []).map((node) => {
+    if (node?.type === 'mediaReference') return String(node?.attrs?.alt || '')
+    const readNode = (value) => {
+      if (typeof value?.text === 'string') return value.text
+      return (value?.content || []).map(readNode).join('')
+    }
+    return readNode(node)
+  }).filter(Boolean).join('\n\n').trim()
+}
+
+function captureMainIllustratorSource() {
+  if (!notebookEditorRef.value || writingCompositionActive.value) return null
+  const projectId = String(selectedBookId.value || '')
+  const role = wt3ActiveDoc.value ? 'exploration' : 'manuscript'
+  const documentId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
+  const chapterId = role === 'manuscript' ? String(selectedChapterId.value || '') : ''
+  const selection = notebookEditorRef.value.getSelectionSnapshot?.() || notebookSelection.value
+  const unitId = String(selection?.unitId || activeWritingUnitId.value || '')
+  const unit = (writingDocument.value?.content || []).find((item) => String(item?.attrs?.unitId || '') === unitId)
+  const nodeId = String(selection?.nodeId || unit?.content?.[0]?.attrs?.nodeId || '')
+  const node = (unit?.content || []).find((item) => String(item?.attrs?.nodeId || '') === nodeId)
+  if (!projectId || !documentId || !unit || !node || !selection) return null
+  return Object.freeze({
+    pane: 'main',
+    projectId,
+    role,
+    documentRole: role,
+    documentId,
+    chapterId,
+    title: String(wt3ActiveDoc.value?.title || currentChapterTitle.value || ''),
+    documentRevision: currentDocumentRevision(),
+    documentSchemaRevision: String(writingDocument.value?.revision ?? ''),
+    unitId,
+    unitRevision: String(unit?.attrs?.unitRevision ?? ''),
+    nodeId,
+    nodeRevision: String(node?.attrs?.nodeRevision ?? ''),
+    selection: cloneAuthoringRunValue(selection),
+    writingUnit: cloneAuthoringRunValue(unit),
+    writingUnitText: writingUnitVisualText(unit),
+    document: cloneAuthoringRunValue(writingDocument.value),
+    sceneProjection: role === 'manuscript' ? cloneAuthoringRunValue(sceneProjection.value) : null,
+    worldbook: cloneAuthoringRunValue(boundWorldbook.value)
+  })
+}
+
+function captureCurrentIllustratorSource() {
+  if (activeWritingPane.value !== 'dual') return captureMainIllustratorSource()
+  const source = dualPaneRef.value?.captureVisualSource?.()
+  if (!source) return null
+  return Object.freeze({
+    ...source,
+    pane: 'dual',
+    worldbook: cloneAuthoringRunValue(boundWorldbook.value)
+  })
+}
+
+function captureLiveIllustratorSource() {
+  const expectedPane = illustratorBrief.value?.pane
+  if (!expectedPane) return null
+  if (String(activeWritingPane.value || '') !== String(expectedPane || '')) {
+    return captureCurrentIllustratorSource()
+  }
+  return expectedPane === 'dual'
+    ? (() => {
+        const source = dualPaneRef.value?.captureVisualSource?.()
+        return source ? { ...source, pane: 'dual', worldbook: cloneAuthoringRunValue(boundWorldbook.value) } : null
+      })()
+    : captureMainIllustratorSource()
+}
+
+function freezeIllustratorSource(event) {
+  if (event?.button != null && event.button !== 0) return
+  if (isWritingCompositionKey(event)) {
+    preparedIllustratorSource = null
+    return
+  }
+  const invocation = captureCurrentIllustratorSource()
+  const surface = captureCurrentWritingSurface()
+  preparedIllustratorSource = invocation && surface
+    ? { invocation, surface, createdAt: Date.now() }
+    : null
+}
+
+function freezeMobileToolSource(event) {
+  if (!chapterShelfSheetMode.value || isWritingCompositionKey(event)) {
+    preparedMobileToolSource = null
+    return
+  }
+  const invocation = captureCurrentIllustratorSource()
+  const surface = captureCurrentWritingSurface()
+  preparedMobileToolSource = invocation && surface
+    ? { invocation, surface, createdAt: Date.now() }
+    : null
+}
+
+function consumePreparedIllustratorSource(preferred = null) {
+  const candidate = preferred || preparedIllustratorSource
+  preparedIllustratorSource = null
+  if (candidate && Date.now() - Number(candidate.createdAt || 0) < 30000) return candidate
+  const invocation = captureCurrentIllustratorSource()
+  const surface = captureCurrentWritingSurface()
+  return invocation && surface ? { invocation, surface, createdAt: Date.now() } : null
+}
+
+function openIllustratorWithPrepared(prepared = null) {
+  if (writingCompositionActive.value || dualCompositionActive.value) {
+    authoringTask.notify('请先完成当前中文输入，再打开画师')
+    return false
+  }
+  if (blockComposer.open || blockPreview.value || pendingGhostAdoption.value) {
+    authoringTask.notify('请先处理当前推演草稿，再打开画师')
+    return false
+  }
+  // Closing the drawer does not cancel an in-flight provider request. Reopen
+  // that frozen session instead of silently rebinding the late result to a new
+  // chapter or selection.
+  if (illustratorActiveJob && illustratorBrief.value) {
+    illustratorController.reconcile(captureLiveIllustratorSource())
+    illustratorOpen.value = true
+    return true
+  }
+  const source = consumePreparedIllustratorSource(prepared)
+  if (!source) {
+    authoringTask.notify('请先把光标放在正文或速记的文本块中')
+    return false
+  }
+  showFontPanel.value = false
+  showQuickWords.value = false
+  showNameGen.value = false
+  closeSearchPanel({ restore: false })
+  closeReviewPanel({ restore: false })
+  notebookCommandMenuOpen.value = false
+  selectionActionsVisible.value = false
+  contextMenu.value.show = false
+  const started = illustratorController.start({
+    ...source.invocation,
+    sessionId: `visual-session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }, source.surface)
+  if (!started.ok) {
+    authoringTask.notify('当前落笔处无法建立画面任务，请重新选择正文')
+    return false
+  }
+  illustratorController.reconcile(source.invocation)
+  illustratorActiveJob = null
+  return true
+}
+
+function openIllustrator() {
+  return openIllustratorWithPrepared()
+}
+
+function openIllustratorFromMobileTools() {
+  const prepared = preparedMobileToolSource
+  preparedMobileToolSource = null
+  moreMenuOpen.value = false
+  return openIllustratorWithPrepared(prepared)
+}
+
+function reconcileIllustratorSource() {
+  return illustratorController.reconcile(captureLiveIllustratorSource())
+}
+
+function closeIllustrator() {
+  const surface = illustratorController.close()
+  reconcileIllustratorSource()
+  nextTick(async () => {
+    // Scene/worldbook staleness blocks result adoption, but it must not discard
+    // a still-valid editor bookmark. Surface identity owns focus/scroll restore.
+    if (surface?.pane === 'dual' && dualSurfaceTargetMatches(surface)) {
+      activeWritingPane.value = 'dual'
+      if (await dualPaneRef.value?.restoreSurfaceState?.(surface)) return
+    } else if (surface?.pane === 'main' && restoreMainWritingSurface(surface)) {
+      return
+    }
+    const fallbackTrigger = chapterShelfSheetMode.value
+      ? moreToolsTriggerRef.value
+      : illustratorTriggerRef.value
+    fallbackTrigger?.focus?.()
+  })
+}
+
+function illustrationEntryBrief(image = {}) {
+  return image?.generationContext?.authoringVisualBrief
+    || image?.authoringVisualBrief
+    || image?.generationParams?.authoringVisualBrief
+    || null
+}
+
+async function handleIllustratorSaveMaterial(image) {
+  const result = await saveAuthoringIllustrationAsMaterial({
+    image,
+    brief: illustrationEntryBrief(image) || illustratorGenerationBrief.value,
+    projectId: illustratorBrief.value?.projectId || illustratorBrief.value?.source?.projectId
+  })
+  if (!result.ok) {
+    illustratorNotice.value = '素材保存失败；图片候选仍保留，可直接重试保存。'
+    return
+  }
+  illustratorNotice.value = result.reused ? '这张图片已经在素材库中。' : '已保存到素材库。'
+}
+
+function handleIllustratorInsertImage(image) {
+  const entryBrief = illustrationEntryBrief(image)
+  const live = captureLiveIllustratorSource()
+  const entryFreshness = assessAuthoringVisualBriefFreshness(entryBrief, live || {})
+  const source = entryBrief?.source || {}
+  if (source.role !== 'manuscript') {
+    illustratorNotice.value = '当前来源是速记；可保存为素材，不能写入正文。'
+    return
+  }
+  const validation = validateAuthoringIllustrationInsert({
+    image,
+    brief: entryBrief,
+    freshness: entryFreshness,
+    projectId: selectedBookId.value,
+    documentId: source.documentId
+  })
+  if (!validation.ok) {
+    illustratorNotice.value = validation.reason === 'media-asset-missing'
+      ? '图片资产已缺失，不能插入正文。'
+      : '原正文或当前场已经变化，这张候选不能再插入。'
+    reconcileIllustratorSource()
+    return
+  }
+  const payload = {
+    projectId: source.projectId,
+    documentId: source.documentId,
+    mediaAssetId: validation.mediaAssetId,
+    alt: String(image?.prompt || entryBrief?.prompt || '正文插画').replace(/\s+/g, ' ').slice(0, 120),
+    sourceRefs: validation.sourceRefs,
+    afterUnitId: source.unitId,
+    expectedUnitRevision: source.unitRevision,
+    expectedDocumentRevision: source.documentSchemaRevision
+  }
+  const result = entryBrief.pane === 'dual'
+    ? dualPaneRef.value?.insertMediaReference?.(payload)
+    : notebookEditorRef.value?.insertMediaReference?.(payload)
+  if (!result?.ok) {
+    illustratorNotice.value = '正文位置已变化，未写入图片引用。'
+    reconcileIllustratorSource()
+    return
+  }
+  illustratorNotice.value = '已插入正文；正文中只保存媒体引用。'
+  nextTick(reconcileIllustratorSource)
+}
+
+function handleIllustratorGenerationStart(payload = {}) {
+  illustratorActiveJob = payload.job || payload
+  illustratorNotice.value = '正在生成；你可以取消，当前正文不会变化。'
+}
+
+function handleIllustratorGenerationComplete(payload = {}) {
+  if (illustratorActiveJob?.jobId && payload?.job?.jobId && illustratorActiveJob.jobId !== payload.job.jobId) return
+  illustratorActiveJob = null
+  const freshness = reconcileIllustratorSource()
+  illustratorNotice.value = freshness?.fresh
+    ? '候选已生成。选择后可保存为素材或插入正文。'
+    : '候选已生成，但来源已经更新；已禁止插入原正文。'
+}
+
+function handleIllustratorGenerationError() {
+  illustratorActiveJob = null
+  illustratorNotice.value = '生成失败；画面描述和参考图仍保留。'
+}
+
+function handleIllustratorGenerationCancel() {
+  illustratorActiveJob = null
+  illustratorNotice.value = '已取消生成；正文和素材均未写入。'
+}
+
+// rail 的 pointerdown 在编辑器失焦前触发。双栏切到其他工具是一个临时
+// 嵌套层：关闭该工具先回到副窗，再关闭副窗才回到原主窗。
+function freezeWritingSurfaceBeforeToolSelect(tool) {
+  const normalizedTool = String(tool || '')
+  const previous = inspectorReturnSurface.value
+  let next = previous
+  const togglingCurrentTool = inspectorOpen.value && normalizedTool === activeInspectorTool.value
+  if (normalizedTool === 'ai' && !togglingCurrentTool) {
+    knowledgeAssistantInvocation.value = captureKnowledgeAssistantInvocation()
+  }
+  if (!normalizedTool || (inspectorOpen.value && normalizedTool === activeInspectorTool.value)) {
+    preparedInspectorToolSelection = { tool: normalizedTool, previous, next, createdAt: Date.now() }
+    return
+  }
+
+  const snapshot = captureCurrentWritingSurface()
+  if (snapshot) {
+    const leavingDual = inspectorOpen.value && activeInspectorTool.value === 'dual' && normalizedTool !== 'dual'
+    if (leavingDual && snapshot.pane === 'dual') {
+      next = Object.freeze({ ...snapshot, previous })
+    } else if (!inspectorOpen.value) {
+      next = Object.freeze({ ...snapshot, previous: null })
+    // 固定检查器打开期间作者可以重新回到正文落笔；下一次点 rail 时以最新
+    // 的活动选区为返回点，但不让检查器内部按钮覆盖编辑器快照。
+    } else if (snapshot.editorFocused) {
+      next = Object.freeze({
+        ...snapshot,
+        previous: previous?.previous || null
+      })
+    }
+  }
+  // pointerdown 只冻结候选；真正 click/键盘 activate 时才提交。这样触摸
+  // pointercancel 或拖出按钮不会在未打开工具时留下幽灵返回点。
+  preparedInspectorToolSelection = { tool: normalizedTool, previous, next, createdAt: Date.now() }
+}
+
+function prepareToolSelectionIfNeeded(tool) {
+  const normalizedTool = String(tool || '')
+  const preparedIsCurrent = (
+    preparedInspectorToolSelection?.tool === normalizedTool
+    && Date.now() - Number(preparedInspectorToolSelection?.createdAt || 0) < 1000
+  )
+  if (!preparedIsCurrent) {
+    freezeWritingSurfaceBeforeToolSelect(normalizedTool)
+  }
+  const prepared = preparedInspectorToolSelection
+  preparedInspectorToolSelection = null
+  if (prepared) inspectorReturnSurface.value = prepared.next || null
+  return prepared
+}
+
+function clearInspectorReturnSurface() {
+  inspectorReturnSurface.value = null
+  preparedInspectorToolSelection = null
+}
+
+function mainWritingSurfaceMatches(snapshot = {}) {
+  const live = activeMainSurfaceIdentity()
+  return Boolean(
+    snapshot?.pane === 'main'
+    && snapshot.scopeKey === live.scopeKey
+    && snapshot.projectId === live.projectId
+    && snapshot.sourceKind === live.sourceKind
+    && snapshot.sourceId === live.sourceId
+    && snapshot.documentRevision === live.documentRevision
+    && String(snapshot.documentSchemaRevision ?? '') === live.documentSchemaRevision
+  )
+}
+
+function restoreMainWritingSurface(snapshot) {
+  if (!snapshot || !mainWritingSurfaceMatches(snapshot) || !notebookEditorRef.value) return false
+  const restored = snapshot.selectionBookmark
+    ? notebookEditorRef.value.restoreSelectionBookmark?.(snapshot.selectionBookmark, { scrollIntoView: false }) === true
+    : true
+  if (!restored) return false
+  restoreWritingScrollState(snapshot.scroll)
+  if (!snapshot.selectionBookmark) notebookEditorRef.value.focus?.({ scrollIntoView: false })
+  return true
+}
+
+function waitForWritingPaint() {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
+    else setTimeout(resolve, 0)
+  })
+}
+
+async function restoreMainWritingSurfaceWhenReady(snapshot, { attempts = 6, previousEditor = null } = {}) {
+  const retryCount = Math.max(1, Number(attempts) || 1)
+  for (let attempt = 0; attempt < retryCount; attempt += 1) {
+    await nextTick()
+    if (previousEditor && notebookEditorRef.value === previousEditor) {
+      await waitForWritingPaint()
+      continue
+    }
+    const editorInstance = notebookEditorRef.value
+    if (restoreMainWritingSurface(snapshot)) {
+      // selectedChapterId 会先于 keyed Notebook remount 更新。至少跨两次 paint
+      // 复验 ref 与焦点，避免把即将卸载的旧章实例误判为恢复成功。
+      await waitForWritingPaint()
+      await waitForWritingPaint()
+      if (
+        notebookEditorRef.value === editorInstance
+        && mainWritingSurfaceMatches(snapshot)
+        && notebookEditorRef.value?.hasEditorFocus?.() === true
+      ) return true
+    }
+    await waitForWritingPaint()
+  }
+  return false
+}
+
+function dualSurfaceTargetMatches(snapshot = {}) {
+  if (snapshot?.pane !== 'dual' || String(snapshot.projectId || '') !== String(selectedBookId.value || '')) return false
+  const liveId = ({
+    chapter: dualTargetChapterId.value,
+    exploration: dualTargetExplorationId.value,
+    outline: dualTargetOutlineNodeId.value,
+    'worldbook-entry': dualTargetWorldbookEntryId.value
+  })[snapshot.sourceKind]
+  return String(snapshot.sourceId || '') === String(liveId || '')
+}
+
+function restoreWritingSurfaceAfterInspector(snapshot) {
+  if (!snapshot) return false
+  if (snapshot.pane === 'dual') {
+    if (!dualSurfaceTargetMatches(snapshot)) {
+      clearInspectorReturnSurface()
+      return false
+    }
+    const previous = snapshot.previous || null
+    activeInspectorTool.value = 'dual'
+    inspectorOpen.value = true
+    inspectorPinned.value = true
+    activeWritingPane.value = 'dual'
+    inspectorReturnSurface.value = previous
+    nextTick(async () => {
+      const restored = await dualPaneRef.value?.restoreSurfaceState?.(snapshot)
+      if (restored) return
+      // 来源或 revision 在工具打开期间变化：保持 fail-closed，不继续回退到
+      // 更早的主窗 bookmark，也不留下一个看似恢复成功的空副窗。
+      inspectorOpen.value = false
+      activeWritingPane.value = 'main'
+      dualQuickWordDocument.value = null
+      clearInspectorReturnSurface()
+    })
+    return true
+  }
+
+  clearInspectorReturnSurface()
+  nextTick(() => restoreMainWritingSurface(snapshot))
+  return true
+}
+
+function selectInspectorTool(tool) {
+  const prepared = prepareToolSelectionIfNeeded(tool)
+  if (tool === 'dual') {
+    if (inspectorOpen.value && activeInspectorTool.value === 'dual') {
+      if (dualPaneRef.value?.prepareClose?.() === false) {
+        inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value
+        return
+      }
+      closeWritingInspector()
+      return
+    }
+    activeInspectorTool.value = 'dual'
+    inspectorOpen.value = true
+    inspectorPinned.value = true
+    if (!dualTargetChapterId.value && !dualTargetExplorationId.value && !dualTargetOutlineNodeId.value && !dualTargetWorldbookEntryId.value) {
+      dualTargetChapterId.value = String(selectedChapterId.value || chapters.value[0]?.id || '')
+    }
+    return
+  }
+  if (inspectorOpen.value && activeInspectorTool.value === 'dual') {
+    if (dualPaneRef.value?.prepareClose?.() === false) {
+      inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value?.previous || null
+      return
+    }
+    activeWritingPane.value = 'main'
+  }
+  if (inspectorDetailState.value?.kind === 'scene-edit' && tool !== 'scene') {
+    discardSceneCurationDraft()
+    inspectorDetailState.value = null
+  }
+  activeInspectorTool.value = tool
+  inspectorOpen.value = true
+  if (tool === 'scene') {
+    if (inspectorDetailState.value?.kind === 'scene-edit') discardSceneCurationDraft()
+    inspectorDetailState.value = null
+    sceneDetailNotice.value = ''
+    return
+  }
+  if (tool === 'annotations') inspectorTab.value = 'comments'
+  if (tool === 'history') inspectorTab.value = 'version'
+}
+function closeWritingInspector(options = {}) {
+  const restoreSurface = options?.restoreSurface !== false
+  if (inspectorDetailState.value?.kind === 'scene-edit') {
+    discardSceneCurationDraft()
+    inspectorDetailState.value = null
+  }
+  inspectorOpen.value = false
+  activeWritingPane.value = 'main'
+  dualQuickWordDocument.value = null
+  const snapshot = inspectorReturnSurface.value
+  if (!restoreSurface) {
+    clearInspectorReturnSurface()
+    return
+  }
+  restoreWritingSurfaceAfterInspector(snapshot)
+}
+function activateMainPane() {
+  activeWritingPane.value = 'main'
+  nextTick(refreshNotebookCommandAvailability)
+}
+function activateDualPane(source = {}) {
+  dualActiveChapterId.value = source?.kind === 'chapter' ? String(source.id || '') : ''
+  activeWritingPane.value = 'dual'
+}
+function handleDualCommandAvailability(availability = {}) {
+  dualNotebookCommandAvailability.value = {
+    ...emptyNotebookCommandAvailability,
+    ...availability
+  }
+}
+function handleDualSourceChange(source = {}) {
+  const nextId = String(source?.id || '')
+  if (source?.kind === 'exploration') {
+    dualTargetExplorationId.value = nextId
+    dualTargetChapterId.value = ''
+    dualTargetOutlineNodeId.value = ''
+    dualTargetWorldbookEntryId.value = ''
+    dualActiveChapterId.value = ''
+  } else if (source?.kind === 'outline') {
+    dualTargetOutlineNodeId.value = nextId
+    dualTargetChapterId.value = ''
+    dualTargetExplorationId.value = ''
+    dualTargetWorldbookEntryId.value = ''
+    dualActiveChapterId.value = ''
+  } else if (source?.kind === 'worldbook-entry') {
+    dualTargetWorldbookEntryId.value = nextId
+    dualTargetChapterId.value = ''
+    dualTargetExplorationId.value = ''
+    dualTargetOutlineNodeId.value = ''
+    dualActiveChapterId.value = ''
+  } else {
+    dualTargetChapterId.value = nextId
+    dualTargetExplorationId.value = ''
+    dualTargetOutlineNodeId.value = ''
+    dualTargetWorldbookEntryId.value = ''
+    dualActiveChapterId.value = nextId
+  }
+}
+function swapDualChapter({ chapterId = '' } = {}) {
+  const nextMainId = String(chapterId || '')
+  const previousMainId = String(selectedChapterId.value || '')
+  if (!nextMainId || !previousMainId || nextMainId === previousMainId) return false
+  if (!selectChapter(nextMainId)) return false
+  dualTargetChapterId.value = previousMainId
+  dualTargetExplorationId.value = ''
+  dualTargetOutlineNodeId.value = ''
+  dualTargetWorldbookEntryId.value = ''
+  dualActiveChapterId.value = previousMainId
+  activeWritingPane.value = 'main'
+  return true
+}
+watch(selectedBookId, (nextBookId, previousBookId) => {
+  if (!previousBookId || String(nextBookId) === String(previousBookId)) return
+  clearInspectorReturnSurface()
+  if (activeInspectorTool.value === 'dual') inspectorOpen.value = false
+  dualTargetChapterId.value = ''
+  dualTargetExplorationId.value = ''
+  dualTargetOutlineNodeId.value = ''
+  dualTargetWorldbookEntryId.value = ''
+  dualActiveChapterId.value = ''
+})
 const annotationLaneStyle = computed(() => ({
   '--annotation-lane-height': `${annotationLaneHeight.value}px`
 }))
 const editorHistory = useEditorHistory()
 const canUndo = editorHistory.canUndo
 const canRedo = editorHistory.canRedo
-const contextMenu = ref({ show: false, x: 0, y: 0 })
+const emptyNotebookCommandAvailability = Object.freeze({
+  undo: false,
+  redo: false,
+  cut: false,
+  copy: false,
+  paste: false,
+  deleteSelection: false,
+  selectAll: false,
+  splitUnit: false,
+  mergePreviousUnit: false,
+  moveUnitUp: false,
+  moveUnitDown: false,
+  bold: false,
+  italic: false
+})
+const notebookCommandAvailability = ref({ ...emptyNotebookCommandAvailability })
+const dualNotebookCommandAvailability = ref({ ...emptyNotebookCommandAvailability, editable: false })
+const activeNotebookCommandAvailability = computed(() => (
+  activeWritingPane.value === 'dual'
+    ? dualNotebookCommandAvailability.value
+    : { ...notebookCommandAvailability.value, editable: notebookEditorActive.value }
+))
+function dualSharesMainDocument() {
+  const source = dualPaneRef.value?.getActiveSource?.()
+  if (!source?.editable) return false
+  if (source.kind === 'chapter') return String(source.id || '') === String(selectedChapterId.value || '') && !wt3ActiveDocId.value
+  if (source.kind === 'exploration') return String(source.id || '') === String(wt3ActiveDocId.value || '')
+  return false
+}
+const contextMenuRef = ref(null)
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  maxHeight: 480,
+  selectionBookmark: null,
+  selectedText: '',
+  documentRevision: '',
+  availability: { ...emptyNotebookCommandAvailability }
+})
 const dragIndex = ref(-1)
 const dropTargetIndex = ref(-1)
+const chapterShelfQuery = ref('')
+const visibleChapterEntries = computed(() => {
+  const query = chapterShelfQuery.value.trim().toLocaleLowerCase()
+  return chapters.value
+    .map((chapter, index) => ({ chapter, index }))
+    .filter(({ chapter, index }) => !query || `${index + 1} ${chapter.title || ''}`.toLocaleLowerCase().includes(query))
+})
 // Plan Task 1.2：非当前书折叠为单行，可展开查看其完整章节；当前书始终展开。
 const expandedBookIds = ref([])
 function onShelfChapterClick(bookId, chapterId) {
@@ -1351,19 +3137,24 @@ function onShelfChapterClick(bookId, chapterId) {
 function selectBookChapter(bookId, chapterId) {
   if (selectedBookId.value !== bookId) {
     // 复验修复 1：跨书章节跳转同样走统一激活（项目 ID + 绑定世界书同步）。
-    activateBook(bookId)
-    chapters.value = books.value.find((item) => item.id === bookId)?.chapters || []
+    const book = activateBook(bookId)
+    if (!book) return false
+    chapters.value = book.chapters || []
     saveStatus.value = 'saved'
   }
-  selectChapter(chapterId)
+  return selectChapter(chapterId)
 }
 function reorderChapter(fromIdx, toIdx) {
   if (fromIdx < 0 || toIdx < 0 || fromIdx >= chapters.value.length || toIdx >= chapters.value.length) return
-  const list = [...chapters.value]
+  const previous = chapters.value
+  const list = [...previous]
   const [moved] = list.splice(fromIdx, 1)
   list.splice(toIdx, 0, moved)
   chapters.value = list
-  saveChapters()
+  if (!saveChapters()) {
+    chapters.value = previous
+    authoringTask.notify('章节排序保存失败，已恢复原顺序')
+  }
 }
 function onChapterDragStart(e, idx, bookId = null) {
   // 只有当前书的章节参与拖拽排序；展开的其他书章节为静态列表。
@@ -1393,18 +3184,248 @@ writingTypography.init()
 const editorFont = computed(() => writingTypography.fontFamily)
 const editorFontSize = computed(() => `${writingTypography.fontSize}px`)
 const writingFontOptions = WRITING_FONT_OPTIONS
-const showFindReplace = ref(false)
-const findText = ref('')
-const replaceText = ref('')
-const findResults = ref([])
-const findCurrent = ref(0)
+const searchPanelOpen = ref(false)
+const searchInvocation = shallowRef(null)
+const searchIndex = shallowRef(null)
+const searchQuery = ref('')
+const searchScope = ref('current-chapter')
+const searchFindings = ref([])
+const searchTotal = ref(0)
+const searchTruncated = ref(false)
+const searchBusy = ref(false)
+const searchError = ref('')
+const searchNotice = ref('')
+const searchReplacement = ref('')
+const searchReplacePreview = shallowRef(null)
+const searchReplaceBusy = ref(false)
+const activeSearchFindingId = ref('')
+const searchHasNavigated = ref(false)
+const searchCurrentChapterLabel = computed(() => {
+  const chapterId = searchInvocation.value?.chapterId || selectedChapterId.value
+  return chapters.value.find((chapter) => String(chapter?.id || '') === String(chapterId || ''))?.title || '当前章'
+})
+let preparedSearchSource = null
+let searchReturnSurface = null
+let searchDebounceTimer = null
+const searchCanReturn = computed(() => Boolean(searchHasNavigated.value && searchReturnSurface))
 const showNameGen = ref(false)
-const nameType = ref('character')
+const showQuickWords = ref(false)
+const quickWordEnabledIds = ref([])
+const dualQuickWordDocument = shallowRef(null)
+// 仅保存于当前页面会话；切回同一本书时保留最近顺序，不污染世界书或 localStorage。
+const quickWordRecentIdsByBook = reactive(new Map())
+const activeQuickWordSelection = computed(() => (
+  activeWritingPane.value === 'dual' ? dualNotebookSelection.value : notebookSelection.value
+))
+const activeQuickWordDocument = computed(() => (
+  activeWritingPane.value === 'dual' ? dualQuickWordDocument.value : writingDocument.value
+))
+const quickWordCatalog = computed(() => buildAuthoringQuickWordCatalog({
+  worldbook: boundWorldbook.value,
+  document: activeQuickWordDocument.value
+}))
+const activeQuickWordRecentIds = computed(() => (
+  quickWordRecentIdsByBook.get(String(selectedBookId.value || '')) || []
+))
+const quickWordPrefix = computed(() => {
+  if (writingCompositionActive.value || dualCompositionActive.value || !activeNotebookCommandAvailability.value.editable) return ''
+  return resolveAuthoringQuickWordPrefix(activeQuickWordSelection.value, quickWordCatalog.value, quickWordEnabledIds.value)
+})
+const quickWordSuggestions = computed(() => resolveAuthoringQuickWordSuggestions({
+  catalog: quickWordCatalog.value,
+  enabledIds: quickWordEnabledIds.value,
+  recentIds: activeQuickWordRecentIds.value,
+  prefix: quickWordPrefix.value
+}))
 const nameStyle = ref('chinese')
+const nameCategory = ref('person')
+const nameLength = ref('three')
+const nameGender = ref('neutral')
 const fixedSurname = ref('')
-const fixedGivenName = ref('')
 const generatedNames = ref([])
+const activeNameEntityMenu = ref('')
+const pendingNameEntityCommand = shallowRef(null)
+const nameEntityConflicts = ref([])
+const nameEntityNotice = ref('')
+const nameEntityNoticeKind = ref('')
+const nameEntityBusy = ref(false)
+const lastNameEntityReceipt = shallowRef(null)
+const nameCategoryOptions = [{ value: 'person', label: '人物' }, { value: 'place', label: '地点' }, { value: 'organization', label: '组织' }, { value: 'ability', label: '功法/能力' }, { value: 'item', label: '道具' }]
+const activeNameCategoryLabel = computed(() => nameCategoryOptions.find((item) => item.value === nameCategory.value)?.label || '人物')
+const nameLanguageOptions = [{ value: 'chinese', label: '中文' }, { value: 'western', label: '西式' }, { value: 'japanese', label: '日式' }]
+const nameLengthOptions = [{ value: 'two', label: '二字' }, { value: 'three', label: '三字' }, { value: 'multi', label: '多字' }]
+const nameGenderOptions = [{ value: 'male', label: '男名' }, { value: 'female', label: '女名' }, { value: 'neutral', label: '中性' }]
 const showFontPanel = ref(false)
+// 应用级 zoom（设置页 UI 缩放）会让 CSS px ≠ 视觉 px：getBoundingClientRect
+// 是视觉像素，而 fixed 定位的 top/left 按 zoom 后的 CSS 像素解析。
+// 所有弹层定位统一先算视觉坐标、再除以缩放，否则会展开错位。
+function writingUiScale() {
+  const body = document.body
+  const cssZoom = Number.parseFloat(window.getComputedStyle(body).zoom) || 1
+  const transformedScale = body?.offsetWidth > 0
+    ? body.getBoundingClientRect().width / body.offsetWidth
+    : 1
+  return Math.max(0.1, cssZoom !== 1 ? cssZoom : (transformedScale || 1))
+}
+const fontPanelStyle = ref({})
+function toggleFontPanel(event) {
+  showQuickWords.value = false
+  showNameGen.value = false
+  showFontPanel.value = !showFontPanel.value
+  if (!showFontPanel.value) return
+  const anchor = event?.currentTarget?.getBoundingClientRect?.()
+  if (!anchor) return
+  nextTick(() => {
+    const scale = writingUiScale()
+    const width = 330
+    const leftVisual = Math.max(8, Math.min(anchor.left, window.innerWidth - width * scale - 8))
+    fontPanelStyle.value = { position: 'fixed', top: `${Math.round((anchor.bottom + 4) / scale)}px`, left: `${Math.round(leftVisual / scale)}px`, width: `${width}px` }
+  })
+}
+const moreMenuOpen = ref(false)
+const moreMenuStyle = ref({})
+function toggleMoreMenu(event) {
+  moreMenuOpen.value = !moreMenuOpen.value
+  if (!moreMenuOpen.value) return
+  const anchor = event?.currentTarget?.getBoundingClientRect?.()
+  if (!anchor) return
+  const scale = writingUiScale()
+  // 右缘对齐触发按钮；菜单宽度 164 CSS px。
+  const rightVisual = Math.max(8, Math.min(window.innerWidth - anchor.right, window.innerWidth - 164 * scale - 8))
+  moreMenuStyle.value = {
+    position: 'fixed',
+    top: `${Math.round((anchor.bottom + 6) / scale)}px`,
+    right: `${Math.round(rightVisual / scale)}px`
+  }
+}
+function closeMoreMenu({ restorePrepared = true } = {}) {
+  const prepared = preparedMobileToolSource
+  preparedMobileToolSource = null
+  moreMenuOpen.value = false
+  if (restorePrepared && prepared?.surface) {
+    nextTick(async () => {
+      if (prepared.surface.pane === 'dual' && dualSurfaceTargetMatches(prepared.surface)) {
+        activeWritingPane.value = 'dual'
+        if (await dualPaneRef.value?.restoreSurfaceState?.(prepared.surface)) return
+      }
+      if (prepared.surface.pane === 'main') restoreMainWritingSurface(prepared.surface)
+    })
+  }
+}
+function moreAction(action) {
+  closeMoreMenu({ restorePrepared: false })
+  action?.()
+}
+function toggleInlineSuggestion() {
+  setWritingAgentEnabled(!inlineSuggestionEnabled.value)
+}
+// ── 左栏右键菜单：章节行 / 卷组。打包桌面端后没有浏览器原生右键，
+// 一律 prevent 默认并使用自研菜单；动作只接真实存在的能力。──
+const shelfContextMenu = ref({ show: false, x: 0, y: 0, kind: '', chapterId: '', index: -1, title: '' })
+function openShelfContextMenu(event, kind, entry = null) {
+  closeShelfContextMenu()
+  shelfContextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    kind,
+    chapterId: String(entry?.chapter?.id || ''),
+    index: Number(entry?.index ?? -1),
+    title: String(entry?.chapter?.title || '')
+  }
+  nextTick(clampShelfContextMenu)
+}
+function clampShelfContextMenu() {
+  const el = document.querySelector('.shelf-context-menu')
+  if (!el) return
+  const scale = writingUiScale()
+  const rect = el.getBoundingClientRect()
+  const x = Math.max(8, Math.min(shelfContextMenu.value.x, window.innerWidth - rect.width / scale - 8))
+  const y = Math.max(8, Math.min(shelfContextMenu.value.y, window.innerHeight - rect.height / scale - 8))
+  shelfContextMenu.value.x = Math.round(x / scale)
+  shelfContextMenu.value.y = Math.round(y / scale)
+}
+function closeShelfContextMenu() {
+  shelfContextMenu.value.show = false
+}
+function shelfMenuAction(action) {
+  const { chapterId } = shelfContextMenu.value
+  closeShelfContextMenu()
+  action(chapterId)
+}
+function openChapterInDual(chapterId) {
+  const target = chapters.value.find((chapter) => String(chapter?.id) === String(chapterId || ''))
+  if (!target) return false
+  dualTargetChapterId.value = String(target.id)
+  dualTargetExplorationId.value = ''
+  dualTargetOutlineNodeId.value = ''
+  dualTargetWorldbookEntryId.value = ''
+  dualActiveChapterId.value = String(target.id)
+  activeInspectorTool.value = 'dual'
+  inspectorOpen.value = true
+  inspectorPinned.value = true
+  return true
+}
+function openExplorationInDual(documentId) {
+  const target = wt3ExplorationDocs.value.find((doc) => String(doc?.id) === String(documentId || ''))
+  if (!target) return false
+  dualTargetExplorationId.value = String(target.id)
+  dualTargetChapterId.value = ''
+  dualTargetOutlineNodeId.value = ''
+  dualTargetWorldbookEntryId.value = ''
+  dualActiveChapterId.value = ''
+  activeInspectorTool.value = 'dual'
+  inspectorOpen.value = true
+  inspectorPinned.value = true
+  return true
+}
+function openOutlineInDual(nodeId) {
+  const target = wt3OutlineNodes.value.find((node) => String(node?.id) === String(nodeId || ''))
+  if (!target) return false
+  dualTargetOutlineNodeId.value = String(target.id)
+  dualTargetChapterId.value = ''
+  dualTargetExplorationId.value = ''
+  dualTargetWorldbookEntryId.value = ''
+  dualActiveChapterId.value = ''
+  activeInspectorTool.value = 'dual'
+  inspectorOpen.value = true
+  inspectorPinned.value = true
+  return true
+}
+function openWorldbookEntryInDual(entryId) {
+  const target = (boundWorldbook.value?.entries || []).find((entry) => String(entry?.id) === String(entryId || ''))
+  if (!target) return false
+  dualTargetWorldbookEntryId.value = String(target.id)
+  dualTargetChapterId.value = ''
+  dualTargetExplorationId.value = ''
+  dualTargetOutlineNodeId.value = ''
+  dualActiveChapterId.value = ''
+  activeInspectorTool.value = 'dual'
+  inspectorOpen.value = true
+  inspectorPinned.value = true
+  return true
+}
+function openOutlineFromDual(nodeId) {
+  inspectorOutlineNodeId.value = ''
+  selectInspectorTool('outline')
+  nextTick(() => { inspectorOutlineNodeId.value = String(nodeId || '') })
+}
+function openWorldbookFromDual(entryId) {
+  router.push({ name: 'settings-worldbook-advanced', query: { entryId: String(entryId || '') } })
+}
+async function renameChapterFromShelf(chapterId) {
+  if (selectedChapterId.value !== chapterId) selectChapter(chapterId)
+  await nextTick()
+  const input = document.querySelector('.wall__dossier-title')
+  input?.focus()
+  input?.select?.()
+}
+function deleteChapterFromShelf(chapterId) {
+  const chapter = chapters.value.find((item) => String(item.id) === String(chapterId))
+  const label = chapter?.title ? `「${chapter.title}」` : '这一章'
+  if (typeof window !== 'undefined' && !window.confirm(`确定删除${label}？其快照与历史会一并删除。`)) return
+  deleteChapter(chapterId)
+}
 const editorBold = ref(false)
 const editorItalic = ref(false)
 const editorUnderline = ref(false)
@@ -1438,6 +3459,12 @@ const assetActionHelpEntries = [
 ]
 const assetActionHelpMap = Object.fromEntries(assetActionHelpEntries.map((item) => [item.key, item.description]))
 const copilotReferenceAsset = ref(null)
+// —— 书与世界书绑定（Task 2）——
+// currentBook / selectedBookWorldbookId 必须先于 sceneProjection 声明：
+// watch(sceneProjection) 在 setup 期间就会求值，晚声明会触发 TDZ ReferenceError。
+const currentBook = computed(() => books.value.find((item) => item.id === selectedBookId.value) || null)
+const selectedBookWorldbookId = computed(() => normalizeBookWorldbookBinding(currentBook.value))
+
 const chapterOutlineItems = ref([])
 
 // Plan Task 1.3：共享现场投影 —— 左栏现场条与右侧详情（Task 1.4）读取同一份只读投影。
@@ -1470,13 +3497,141 @@ const sceneProjection = computed(() => buildAuthoringSceneProjection({
     dialogueTarget: resolveScenePerson(sceneDialogueTargetId.value)
   },
   // v2 输入（Task 5）：提供锚点数据时现场以锚点 + 绑定世界书 + 真实观察器为唯一依据。
-  document: { unitOrder: documentUnitOrder() },
-  activeUnitId: activeWritingUnitId.value,
+  document: writingDocument.value,
+  // 失焦/未落笔时 activeWritingUnitId 为空——当前场是章节事实，不能因为
+  // 焦点离开正文就整体退化为待设置。回退到最新写作位置（文档末单元）。
+  activeUnitId: activeWritingUnitId.value || documentUnitOrder().at(-1) || null,
+  // 单元顺序是“沿用前文锚点”继承解析的输入；缺了它投影只能在当前单元
+  // 找锚点，落笔处之后/之前的场景会整体退化为待设置。
+  unitOrder: documentUnitOrder(),
+  expectedWorldbookId: selectedBookWorldbookId.value,
   worldbook: boundWorldbook.value || null,
   sceneAnchors: sceneAnchors.value,
   acceptedObservations: authoringObservations.value,
   outlineItems: chapterOutlineItems.value
 }))
+const livingStoryProjection = computed(() => buildAuthoringLivingStoryProjection({
+  projectId: selectedBookId.value,
+  chapterId: selectedChapterId.value,
+  document: writingDocument.value,
+  positionIndex: buildInterventionPositionIndex(),
+  sceneAnchors: sceneAnchors.value,
+  worldbook: boundWorldbook.value,
+  outlineNodes: wt3OutlineNodes.value,
+  outlineEdges: wt3OutlineEdges.value
+}))
+
+const knowledgeAssistantRevisionSignal = computed(() => [
+  selectedBookId.value,
+  selectedChapterId.value,
+  wt3ActiveDocId.value,
+  currentBook.value?.updatedAt || '',
+  writingDocument.value?.revision ?? '',
+  wt3ExplorationDocs.value.map((doc) => `${doc.id}:${doc.revision}:${doc.updatedAt || ''}`).join(','),
+  boundWorldbook.value?.updatedAt || '',
+  fingerprintOutline(wt3OutlineNodes.value, wt3OutlineEdges.value),
+  sceneProjection.value?.projectionFingerprint || ''
+].join('|'))
+const knowledgeAssistantTarget = computed(() => {
+  const projectId = String(selectedBookId.value || '')
+  const invocation = knowledgeAssistantInvocation.value
+  if (invocation && String(invocation.projectId || '') === projectId) return invocation.target || null
+  if (wt3ActiveDoc.value) return null
+  const chapterId = String(selectedChapterId.value || '')
+  if (!projectId || !chapterId) return null
+  const unitId = String(activeWritingUnitId.value || '')
+  const selection = notebookSelection.value || {}
+  const nodeId = unitId && String(selection.unitId || '') === unitId
+    ? String(selection.nodeId || '')
+    : ''
+  return {
+    projectId,
+    documentId: chapterId,
+    chapterId,
+    ...(unitId ? { unitId } : {}),
+    ...(nodeId ? { nodeId } : {})
+  }
+})
+
+function resolveKnowledgeAssistantLiveSource({ phase = 'prepare' } = {}) {
+  const invocation = knowledgeAssistantInvocation.value
+  if (!invocation || String(invocation.projectId || '') !== String(selectedBookId.value || '')) return null
+  // 主栏仍停留在同一来源时，prepare 和 stale 对账都读取此刻内存稿；作者
+  // 可以把助手固定在右侧后继续落笔。副栏在切到助手时会卸载并经自身
+  // persist 边界落盘，所以 prepare 使用冻结稿，后续对账只读 repository。
+  if (invocation.pane === 'main') {
+    const current = captureMainKnowledgeAssistantInvocation()
+    if (current
+      && current.role === invocation.role
+      && current.documentId === invocation.documentId
+      && current.chapterId === invocation.chapterId) return cloneAuthoringRunValue(current.liveSource)
+  }
+  return phase === 'prepare' ? cloneAuthoringRunValue(invocation.liveSource) : null
+}
+const knowledgeAssistantSceneProjection = computed(() => (
+  knowledgeAssistantInvocation.value?.sceneProjection || sceneProjection.value
+))
+const knowledgeAssistant = useAuthoringKnowledgeAssistant({
+  projectId: selectedBookId,
+  target: knowledgeAssistantTarget,
+  resolveLiveSource: resolveKnowledgeAssistantLiveSource,
+  sceneProjection: knowledgeAssistantSceneProjection,
+  revisionSignal: knowledgeAssistantRevisionSignal
+})
+
+function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
+  if (!document || !Array.isArray(document.content)) return null
+  const chapter = kind === 'chapter'
+    ? chapters.value.find((item) => String(item?.id || '') === String(sourceId || '')) || null
+    : null
+  if (kind === 'chapter' && !chapter) return null
+  if (kind !== 'chapter' && kind !== 'exploration') return null
+  const chapterId = String(chapter?.id || '')
+  const acceptedObservations = chapterId
+    ? (gameStore.getAuthoringDerivedState?.() || [])
+      .filter((observation) => (
+        String(observation?.projectId || '') === String(selectedBookId.value || '')
+        && String(observation?.chapterId || '') === chapterId
+      ))
+      .map((observation) => ({
+        id: String(observation?.id || ''),
+        kind: String(observation?.kind || ''),
+        text: String(observation?.text || observation?.summary || ''),
+        subjectId: String(observation?.subjectId || resolveObserverCharacterId(observation?.subject) || ''),
+        objectId: String(observation?.objectId || resolveObserverCharacterId(observation?.object) || ''),
+        relation: String(observation?.relation || ''),
+        unitId: String(observation?.unitId || ''),
+        unitRevision: Number(observation?.unitRevision || 0),
+        documentRevision: String(observation?.documentRevision || ''),
+        sourceRefs: Array.isArray(observation?.sourceRefs) ? observation.sourceRefs : [],
+        status: String(observation?.status || 'applied')
+      }))
+    : []
+  return buildAuthoringSceneProjection({
+    chapter: chapter ? { id: chapterId } : null,
+    documentRevision,
+    projectId: selectedBookId.value || null,
+    runtimeState: {
+      encounteredCharacters: gameStore.encounteredCharacters,
+      plotJournal: gameStore.plotJournal,
+      worldMapState: gameStore.worldMapState,
+      writingTime: gameStore.writingTime,
+      worldMapStateNote: undefined,
+      emergenceCandidates: gameStore.emergenceCandidates,
+      dialogueMode: false,
+      dialogueCharacter: null,
+      activeActor: null,
+      dialogueTarget: null
+    },
+    document,
+    activeUnitId,
+    expectedWorldbookId: selectedBookWorldbookId.value,
+    worldbook: boundWorldbook.value || null,
+    sceneAnchors: chapter ? normalizeSceneAnchors(chapter.sceneAnchors) : [],
+    acceptedObservations,
+    outlineItems: chapter ? normalizeChapterOutlineItems(chapter.outlineItems) : []
+  })
+}
 watch([selectedChapterId, selectedBookId], () => {
   sceneActiveActorId.value = ''
   sceneDialogueTargetId.value = ''
@@ -1500,16 +3655,25 @@ function handleSceneSelectTarget(id) {
   sceneDialogueTargetId.value = id
 }
 function handleSceneAdvanceWith(eventId) {
-  // spec §5.3：未决事件的“以此推进”只把事件填入下一拍输入（场景类型 + 指令上下文）
-  // 并聚焦输入区，由用户确认后才生成；不直接开火。
+  // F1-3：左栏“推演本场”和未决事件推进都先进入同一个场景实验室。
+  // 它只冻结上下文并规划方向；F1-4 前不会生成或写入正文。
   const event = (sceneProjection.value.unresolvedEvents || []).find((item) => item.id === eventId)
-  if (!event || authoringTaskBusy.value) return
-  turnComposerRef.value?.applyAdvanceContext?.({ kind: 'scene', instruction: `以此事件推进：${event.label}` })
-  focusTurnComposer()
+  if (authoringTaskBusy.value) return
+  const instruction = event
+    ? `以此事件推进：${event.label}`
+    : '结合当前场的人物、地点、时间与正文进度，推演本场自然发生的下一步。'
+  void openSceneLaboratory({ target: notebookSelection.value, instruction })
 }
 
 // —— 右侧临时详情（Task 1.4）：数据从同一 projection + worldbook 运行时读取。 ——
 const sceneDetailModel = computed(() => resolveSceneDetailModel(inspectorDetailState.value))
+const sceneLocationBridge = computed(() => buildAuthoringSceneLocationProjection({
+  projectId: selectedBookId.value,
+  chapterId: selectedChapterId.value,
+  writingUnitId: activeWritingUnitId.value,
+  worldbook: boundWorldbook.value,
+  location: sceneProjection.value?.location
+}))
 
 function scenePersonRoles(personId) {
   const projection = sceneProjection.value
@@ -1561,6 +3725,7 @@ function resolveSceneDetailModel(detail) {
   }
   if (detail.kind === 'location') {
     if (!projection.location || projection.location.id !== detail.id) return null
+    const bridge = sceneLocationBridge.value
     return {
       kind: 'location',
       id: detail.id,
@@ -1568,9 +3733,11 @@ function resolveSceneDetailModel(detail) {
       sections: [
         { label: '当前地点', value: projection.location.name },
         { label: '上级区域', value: projection.location.region },
+        { label: '世界书来源', value: bridge.availability === 'ready' ? `${bridge.worldbookName || '当前世界书'} · ${bridge.name}` : '设定已删除或解绑' },
         { label: '本场环境事实', value: '' },
         { label: '当前控制势力', value: '' }
-      ]
+      ],
+      locationBridge: bridge
     }
   }
   if (detail.kind === 'time') {
@@ -1611,8 +3778,72 @@ function resolveSceneDetailModel(detail) {
   return null
 }
 
+function livingStoryUsesSheet() {
+  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 720px)')?.matches)
+}
+
+function locateLivingStoryBeat(beat) {
+  const target = beat?.target
+  if (!target || String(target.projectId || '') !== String(selectedBookId.value || '')
+    || String(target.chapterId || '') !== String(selectedChapterId.value || '')) return false
+  const unit = (writingDocument.value?.content || []).find((item) => (
+    String(item?.attrs?.unitId || '') === String(target.unitId || '')
+  ))
+  if (!unit || !(unit.content || []).some((node) => String(node?.attrs?.nodeId || '') === String(target.nodeId || ''))) {
+    authoringTask.notify('这个故事节点已不在当前正文中')
+    return false
+  }
+  clearInspectorReturnSurface()
+  const focus = () => nextTick(() => {
+    if (target.nodeId) notebookEditorRef.value?.focusNode?.(target.nodeId)
+    else notebookEditorRef.value?.focusWritingUnit?.(target.unitId)
+  })
+  if (livingStoryUsesSheet()) {
+    closeWritingInspector({ restoreSurface: false })
+    nextTick(focus)
+  } else focus()
+  return true
+}
+
+function openLivingStorySource(source) {
+  const sourceRef = String(source?.sourceRef || '')
+  if (sourceRef.startsWith('worldbook-entry:')) {
+    openWorldbookMentionDetail(sourceRef.slice('worldbook-entry:'.length))
+    return true
+  }
+  if (sourceRef.startsWith('outline-node:')) {
+    const nodeId = sourceRef.slice('outline-node:'.length)
+    if (!wt3OutlineNodes.value.some((node) => String(node?.id || '') === nodeId)) {
+      authoringTask.notify('这条线索已从项目大纲移除')
+      return false
+    }
+    inspectorOutlineNodeId.value = ''
+    selectInspectorTool('outline')
+    nextTick(() => { inspectorOutlineNodeId.value = nodeId })
+    return true
+  }
+  return false
+}
+
+function interveneFromLivingStory(beat) {
+  if (!beat?.target) return false
+  clearInspectorReturnSurface()
+  if (livingStoryUsesSheet()) {
+    closeWritingInspector({ restoreSurface: false })
+    nextTick(() => openInterventionComposer(beat.target))
+    return true
+  }
+  return openInterventionComposer(beat.target)
+}
+
 function openSceneDetail(payload) {
   if (!payload?.kind || !payload.id) return
+  // 左栏是现场简报，人物/地点/事件点击后都先进入“现场”详情；
+  // 完整人物档案或地点设定由详情页中的显式动作再跳转，避免把现场点击
+  // 误路由成另一个工具的默认页。
+  activeInspectorTool.value = 'scene'
+  inspectorTab.value = 'detail'
+  inspectorOpen.value = true
   if (!inspectorDetailState.value) {
     annotationLaneScrollAtOpen = annotationLaneRef.value?.scrollTop ?? 0
   }
@@ -1623,8 +3854,16 @@ function openSceneDetail(payload) {
 
 async function closeSceneDetail() {
   const returnRef = inspectorReturnFocusRef.value
+  const closingSceneEditor = inspectorDetailState.value?.kind === 'scene-edit'
   inspectorDetailState.value = null
   sceneDetailNotice.value = ''
+  if (closingSceneEditor) {
+    sceneCurationDraft.value = null
+    sceneCurationBaseline.value = null
+    sceneCurationError.value = null
+    curationLocationQuery.value = ''
+    curationPeopleQuery.value = ''
+  }
   await nextTick()
   // 恢复批注滚动位置，并把焦点还给左栏来源条目。
   if (annotationLaneRef.value && annotationLaneScrollAtOpen) {
@@ -1641,22 +3880,334 @@ watch([inspectorDetailState, sceneProjection], () => {
   // 现场调整是受控草稿路由：失效由草稿 watch 负责，不在这里清。
   if (inspectorDetailState.value.kind === 'scene-edit') return
   if (resolveSceneDetailModel(inspectorDetailState.value)) return
-  inspectorDetailState.value = null
-  sceneDetailNotice.value = '详情对象已失效，已返回批注。'
+  void closeSceneDetail().then(() => {
+    sceneDetailNotice.value = '详情对象已失效，已返回当前场。'
+  })
 })
 
 // —— 现场调整（worldbook scene closure Task 10）——
 // 草稿只存在于内存；保存走 commitSceneAnchorDraft 的原子事务（revision 守卫 +
 // 单次章节持久化）；取消零写入；撤销先做锚点指纹校验。
 const sceneCurationDraft = ref(null)
+const sceneCurationBaseline = shallowRef(null)
 const sceneCurationBusy = ref(false)
 const sceneCurationError = shallowRef(null)
 const curationLocationQuery = ref('')
 const curationPeopleQuery = ref('')
+const authoringSceneRunIntents = shallowRef([])
+
+// F1-3 production laboratory: every entry point prepares one frozen C1 session
+// and one tool-free direction set. The state remains memory-only until F1-4
+// connects a selected direction to the existing Ghost draft workflow.
+const sceneLaboratory = reactive({
+  open: false,
+  phase: 'preparing-context',
+  selectedDirectionId: '',
+  target: null,
+  run: null,
+  failedSession: null,
+  failedPressureProjection: null,
+  instruction: '',
+  notice: '',
+  returnScrollTop: null
+})
+let sceneLaboratoryRequestVersion = 0
+let sceneLaboratoryAbortController = null
+
+const sceneLaboratoryDirections = computed(() => (
+  sceneLaboratory.run?.directionSet?.directions || []
+))
+const sceneLaboratoryPressure = computed(() => {
+  const projection = sceneLaboratory.run?.pressureProjection
+    || sceneLaboratory.failedPressureProjection
+  if (!projection) return null
+  if (sceneLaboratory.phase === 'insufficient') {
+    return { missing: '当前场还缺少明确的目标、冲突、未决事件或地点规则。补充一项后再试。' }
+  }
+  const directionPressure = sceneLaboratory.run?.directionSet?.pressure
+  const seed = projection.pressureSeeds?.[0]
+  const evidenceByRef = new Map((projection.evidence || []).flatMap((item) => (
+    [item.ref, ...(item.sourceRefs || [])].map((ref) => [String(ref), item])
+  )))
+  const evidenceRefs = seed?.evidenceRefs || []
+  const seenEvidence = new Set()
+  const evidence = evidenceRefs.map((ref) => {
+    const item = evidenceByRef.get(String(ref))
+    const worldbookRef = [String(ref), item?.ref, ...(item?.sourceRefs || [])]
+      .map(String)
+      .find((candidate) => candidate.startsWith('worldbook-entry:')) || ''
+    const displayKey = worldbookRef || String(item?.ref || ref)
+    if (seenEvidence.has(displayKey)) return null
+    seenEvidence.add(displayKey)
+    const worldbookId = worldbookRef
+      ? worldbookRef.slice('worldbook-entry:'.length)
+      : ''
+    const entry = worldbookId
+      ? (boundWorldbook.value?.entries || []).find((candidate) => String(candidate?.id || '') === worldbookId)
+      : null
+    return {
+      id: String(ref),
+      label: item?.label || entry?.name || '本场依据',
+      kind: entry?.type || '',
+      entityId: entry?.id || ''
+    }
+  }).filter(Boolean).slice(0, 4)
+  return {
+    statement: directionPressure?.statement || seed?.summary || '根据当前落笔处的有效依据整理本场方向。',
+    evidence
+  }
+})
+
+function sceneLaboratoryFailureMessage(result = {}) {
+  if (result.reason === 'scene-session-prepare-failed' || result.reason === 'scene-session-prepare-threw') {
+    return '当前落笔处或引用已经变化，请核对后重试。'
+  }
+  if (result.reason === 'scene-pressure-conflict') {
+    return '当前场存在互相冲突的依据，请先调整当前场。'
+  }
+  if (result.reason?.includes('json') || result.reason?.includes('direction')) {
+    return '返回的方向不完整或过于相似，已保留现场，可以单独重试。'
+  }
+  return '规划方向时连接中断，已保留冻结现场，可以单独重试。'
+}
+
+function applySceneLaboratoryResult(result, version) {
+  if (version !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return false
+  if (!result?.ok) {
+    sceneLaboratory.phase = 'failed'
+    sceneLaboratory.run = null
+    sceneLaboratory.failedSession = result?.session || null
+    sceneLaboratory.failedPressureProjection = result?.pressureProjection || null
+    sceneLaboratory.notice = sceneLaboratoryFailureMessage(result)
+    return false
+  }
+  sceneLaboratory.run = result.run
+  sceneLaboratory.failedSession = null
+  sceneLaboratory.failedPressureProjection = null
+  sceneLaboratory.phase = result.run.phase
+  sceneLaboratory.selectedDirectionId = result.run.selectedDirectionId || ''
+  sceneLaboratory.notice = ''
+  return true
+}
+
+async function openSceneLaboratory({ target = null, instruction = '' } = {}) {
+  if (authoringTaskBusy.value) return false
+  const frozenTarget = resolveBlockComposerTarget(target || notebookSelection.value || {})
+  if (!frozenTarget.unitId && !isEmptyChapter.value) return false
+  if (interventionComposer.open) closeInterventionComposer({ restoreSelection: false })
+  if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
+  copilotCancel()
+  sceneLaboratoryAbortController?.abort()
+  sceneLaboratoryAbortController = new AbortController()
+  const version = ++sceneLaboratoryRequestVersion
+  sceneLaboratory.open = true
+  sceneLaboratory.phase = 'preparing-context'
+  sceneLaboratory.selectedDirectionId = ''
+  sceneLaboratory.target = frozenTarget
+  sceneLaboratory.run = null
+  sceneLaboratory.failedSession = null
+  sceneLaboratory.failedPressureProjection = null
+  sceneLaboratory.instruction = String(instruction || '').trim()
+  sceneLaboratory.notice = ''
+  nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const dossier = document.querySelector('.wall__dossier-scroll')
+    if (dossier && Number.isFinite(sceneLaboratory.returnScrollTop)) {
+      dossier.scrollTop = sceneLaboratory.returnScrollTop
+    }
+  })))
+  const result = await getAuthoringSceneLaboratoryRunner().prepare({
+    taskId: 'authoring.advance',
+    request: {
+      intent: {
+        instruction: sceneLaboratory.instruction,
+        operation: 'next-passage',
+        invocationTarget: frozenTarget
+      }
+    },
+    signal: sceneLaboratoryAbortController.signal,
+    onPhase: (phase) => {
+      if (version === sceneLaboratoryRequestVersion && sceneLaboratory.open) sceneLaboratory.phase = phase
+    }
+  })
+  return applySceneLaboratoryResult(result, version)
+}
+
+function selectSceneLaboratoryDirection(directionId) {
+  if (!directionId) {
+    sceneLaboratory.selectedDirectionId = ''
+    sceneLaboratory.phase = 'ready'
+    sceneLaboratory.notice = ''
+    return
+  }
+  const selected = selectAuthoringSceneLaboratoryDirection(sceneLaboratory.run, directionId)
+  if (!selected.ok) return
+  sceneLaboratory.run = selected.run
+  sceneLaboratory.selectedDirectionId = selected.run.selectedDirectionId
+  sceneLaboratory.phase = selected.run.phase
+  sceneLaboratory.notice = ''
+}
+
+async function confirmSceneLaboratoryDirection() {
+  if (!sceneLaboratory.selectedDirectionId || !sceneLaboratory.run || authoringTaskBusy.value) return false
+  const requestVersion = sceneLaboratoryRequestVersion
+  const run = sceneLaboratory.run
+  const target = sceneLaboratory.target
+  sceneLaboratory.phase = 'validating-dependencies'
+  sceneLaboratory.notice = ''
+  const validation = await validateAuthoringSceneLaboratoryRun(
+    run,
+    (session) => getAuthoringRunSessionAdapter().collectLiveDependencies(session)
+  )
+  if (requestVersion !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return false
+  if (!validation.ok) {
+    sceneLaboratory.phase = 'failed'
+    sceneLaboratory.failedSession = null
+    sceneLaboratory.failedPressureProjection = null
+    sceneLaboratory.notice = validation.reason === 'scene-session-stale'
+      ? '落笔处或本次依据已变化，未调用正文模型。请重新核对本场方向。'
+      : '未能复核本次冻结依据，正文模型没有启动。'
+    return false
+  }
+
+  sceneLaboratory.phase = 'generating-prose'
+  const submittedComposerVersion = ++blockComposerVersion
+  blockComposer.open = true
+  blockComposer.target = target
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+  let outcome
+  try {
+    outcome = await runAuthoringTurn({
+      operation: 'next-passage',
+      kind: 'action',
+      instruction: '',
+      sourceRefs: [...new Set([...composerSourceRefs.value, ...validation.selection.evidenceRefs])],
+      invocationTarget: target,
+      selectedDirection: validation.selection,
+      authoringRunSession: validation.runSession
+    }, submittedComposerVersion)
+  } catch (error) {
+    outcome = { ok: false, reason: error?.code || 'provider-failed' }
+  }
+  if (requestVersion !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return false
+  if (outcome?.preview) {
+    closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
+    blockComposer.open = true
+    blockComposer.target = target
+    await nextTick()
+    return true
+  }
+  blockComposer.open = false
+  blockComposer.target = null
+  sceneLaboratory.phase = 'direction-selected'
+  sceneLaboratory.notice = outcome?.reason === 'stale'
+    ? '本场依据在生成期间已更新，草稿未进入可采纳状态。'
+    : '本次没有生成可用正文，已保留所选方向。'
+  return false
+}
+
+function openSceneLaboratoryEvidence(evidence = {}) {
+  if (!['character', 'location'].includes(evidence.kind) || !evidence.entityId) return
+  openSceneDetail({ kind: evidence.kind, id: evidence.entityId })
+}
+
+function closeSceneLaboratory({ restoreSelection = true, clearIntents = true } = {}) {
+  if (!sceneLaboratory.open) return false
+  const bookmark = sceneLaboratory.target?.selectionBookmark
+  sceneLaboratoryAbortController?.abort()
+  sceneLaboratoryAbortController = null
+  sceneLaboratoryRequestVersion += 1
+  sceneLaboratory.open = false
+  sceneLaboratory.phase = 'preparing-context'
+  sceneLaboratory.selectedDirectionId = ''
+  sceneLaboratory.target = null
+  sceneLaboratory.run = null
+  sceneLaboratory.failedSession = null
+  sceneLaboratory.failedPressureProjection = null
+  sceneLaboratory.instruction = ''
+  sceneLaboratory.notice = ''
+  sceneLaboratory.returnScrollTop = null
+  if (clearIntents) clearAuthoringSceneRunIntents()
+  if (restoreSelection) nextTick(() => restoreBlockSelection(bookmark))
+  return true
+}
+
+async function retrySceneLaboratoryDirections() {
+  if (sceneLaboratory.phase !== 'failed'
+    || !sceneLaboratory.failedSession
+    || !sceneLaboratory.failedPressureProjection) {
+    return openSceneLaboratory({ target: sceneLaboratory.target, instruction: sceneLaboratory.instruction })
+  }
+  sceneLaboratoryAbortController?.abort()
+  sceneLaboratoryAbortController = new AbortController()
+  const version = ++sceneLaboratoryRequestVersion
+  sceneLaboratory.notice = ''
+  const result = await getAuthoringSceneLaboratoryRunner().retryDirections({
+    session: sceneLaboratory.failedSession,
+    pressureProjection: sceneLaboratory.failedPressureProjection,
+    instruction: sceneLaboratory.instruction,
+    signal: sceneLaboratoryAbortController.signal,
+    onPhase: (phase) => {
+      if (version === sceneLaboratoryRequestVersion && sceneLaboratory.open) sceneLaboratory.phase = phase
+    }
+  })
+  return applySceneLaboratoryResult(result, version)
+}
+
+function openOrdinaryTurnFromSceneLaboratory() {
+  const target = sceneLaboratory.target
+  const preserveSceneIntents = authoringSceneRunIntents.value.length > 0
+  closeSceneLaboratory({ restoreSelection: false, clearIntents: !preserveSceneIntents })
+  blockComposer.initialInstruction = '结合当前场与正文进度，推演自然发生的下一步。'
+  openBlockComposer(target, { preserveInstruction: true, preserveSceneIntents })
+}
+
+function supplementSceneFromSceneLaboratory() {
+  closeSceneLaboratory({ restoreSelection: true })
+  nextTick(() => handleSceneEditRequest())
+}
+
+function sceneCurationPersistentSnapshot(draft = {}) {
+  return {
+    presentCharacterIds: [...(draft.presentCharacterIds || [])].map(String).sort(),
+    locationId: String(draft.locationId || ''),
+    viewpointCharacterId: String(draft.viewpointCharacterId || ''),
+    time: {
+      label: String(draft.time?.label || ''),
+      period: String(draft.time?.period || '')
+    }
+  }
+}
+
+const sceneCurationHasUnsavedChanges = computed(() => (
+  Boolean(sceneCurationDraft.value && sceneCurationBaseline.value)
+  && JSON.stringify(sceneCurationPersistentSnapshot(sceneCurationDraft.value))
+    !== JSON.stringify(sceneCurationBaseline.value)
+))
+
+function clearAuthoringSceneRunIntents() {
+  authoringSceneRunIntents.value = []
+}
+
+function discardSceneCurationDraft() {
+  sceneCurationDraft.value = null
+  sceneCurationBaseline.value = null
+  sceneCurationError.value = null
+  curationLocationQuery.value = ''
+  curationPeopleQuery.value = ''
+}
 
 const sceneCurationCanUndo = computed(() => (
   lastSceneAnchorUndoReceipt.value?.type === 'manual-edit'
   && fingerprintSceneAnchors(sceneAnchors.value) === lastSceneAnchorUndoReceipt.value.afterFingerprint
+))
+const sceneCurationCanRestoreInheritance = computed(() => (
+  Boolean(sceneCurationDraft.value?.unitId)
+  && sceneCurationDraft.value?.unitId === activeWritingUnitId.value
+  && sceneAnchors.value.some((anchor) => (
+    String(anchor?.unitId || '') === String(sceneCurationDraft.value?.unitId || '')
+    && !anchor?.status
+  ))
 ))
 
 const curationCharacterCandidates = computed(() => buildSceneCurationCandidates({
@@ -1671,38 +4222,88 @@ const curationLocationCandidates = computed(() => buildSceneCurationCandidates({
   query: curationLocationQuery.value,
   selectedIds: sceneCurationDraft.value?.locationId ? [sceneCurationDraft.value.locationId] : []
 }))
+const curationWorldbookCharacterIds = computed(() => new Set(
+  (boundWorldbook.value?.entries || [])
+    .filter((entry) => entry?.type === 'character')
+    .map((entry) => String(entry?.id || '')).filter(Boolean)
+))
+const curationWorldbookLocationIds = computed(() => new Set(
+  (boundWorldbook.value?.entries || [])
+    .filter((entry) => entry?.type === 'location')
+    .map((entry) => String(entry?.id || '')).filter(Boolean)
+))
+const curationMissingCharacterIds = computed(() => (
+  bookWorldbookStatus.value.status === 'bound'
+    ? (sceneCurationDraft.value?.presentCharacterIds || [])
+      .filter((id) => !curationWorldbookCharacterIds.value.has(String(id)))
+    : []
+))
+const curationMissingLocationId = computed(() => {
+  const id = String(sceneCurationDraft.value?.locationId || '')
+  return bookWorldbookStatus.value.status === 'bound' && id && !curationWorldbookLocationIds.value.has(id) ? id : ''
+})
 
-function handleSceneEditRequest() {
+function handleSceneEditRequest(options = {}) {
   const unitId = activeWritingUnitId.value
   if (!unitId) return
+  if (!sceneLaboratory.open) {
+    sceneLaboratory.returnScrollTop = notebookSelectionScrollTop
+  }
+  activeInspectorTool.value = 'scene'
+  inspectorOpen.value = true
   const resolution = resolveActiveSceneAnchor({
     anchors: sceneAnchors.value,
     unitOrder: documentUnitOrder(),
     activeUnitId: unitId,
     worldbookId: selectedBookWorldbookId.value
   })
-  const base = resolution.anchor || {}
-  // 草稿从活动锚点/投影初始化；无锚点时为空草稿（manual 空，不发明人物）。
-  sceneCurationDraft.value = {
+  const base = resolution.anchor || resolution.conflictingAnchor || {}
+  const projection = sceneProjection.value || {}
+  const projectedCharacterIds = [
+    projection.viewpointCharacter?.id,
+    projection.activeActor?.id,
+    projection.dialogueTarget?.id,
+    ...(projection.presentCharacters || []).map((person) => person?.id)
+  ].filter((id, index, values) => id && values.indexOf(id) === index)
+  // 有显式/继承锚点时保持锚点值；没有锚点时用当前可见投影预填。
+  // 这里只建立可取消的本地草稿，用户点“保存现场”后才升级为手动锚点。
+  const draft = {
     unitId,
+    projectId: selectedBookId.value,
+    chapterId: selectedChapterId.value,
+    worldbookId: selectedBookWorldbookId.value,
+    sourceWorldbookId: String(base.worldbookId || ''),
+    originAxis: resolution.status,
+    anchorFingerprint: fingerprintSceneAnchors(sceneAnchors.value),
     documentRevision: currentDocumentRevision(),
-    presentCharacterIds: [...(base.presentCharacterIds || [])],
-    locationId: base.locationId || '',
-    viewpointCharacterId: base.viewpointCharacterId || '',
+    presentCharacterIds: [...((resolution.anchor || resolution.conflictingAnchor) ? (base.presentCharacterIds || []) : projectedCharacterIds)],
+    // 旧版持久化的 plannedCharacterIds 不再继续写回；C1-2 的安排只存在于
+    // 当前 AuthoringRunSession，采纳 Ghost 后才产生新的现场锚点。
+    plannedCharacterIds: [],
+    locationId: (resolution.anchor || resolution.conflictingAnchor) ? (base.locationId || '') : (projection.location?.id || ''),
+    viewpointCharacterId: (resolution.anchor || resolution.conflictingAnchor) ? (base.viewpointCharacterId || '') : (projection.viewpointCharacter?.id || ''),
     time: {
-      label: base.time?.label || '',
-      period: base.time?.period || ''
+      label: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.label || '') : (projection.time?.label || ''),
+      period: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.period || '') : (projection.time?.period || '')
     }
   }
+  sceneCurationDraft.value = draft
+  sceneCurationBaseline.value = sceneCurationPersistentSnapshot(draft)
   curationLocationQuery.value = ''
   curationPeopleQuery.value = ''
   sceneCurationError.value = null
   if (!inspectorDetailState.value) {
     annotationLaneScrollAtOpen = annotationLaneRef.value?.scrollTop ?? 0
   }
-  inspectorReturnFocusRef.value = `character:${unitId}`
+  inspectorReturnFocusRef.value = 'scene-edit'
   inspectorTab.value = 'detail'
   inspectorDetailState.value = { kind: 'scene-edit', id: unitId }
+  const focusSelector = {
+    time: '[data-test="curation-time-label"]',
+    location: '[data-test="curation-location-query"]',
+    people: '[data-test="curation-people-query"]'
+  }[options?.axis]
+  if (focusSelector) nextTick(() => document.querySelector(focusSelector)?.focus())
 }
 
 function handleCurationDraftUpdate(draft) {
@@ -1716,11 +4317,27 @@ function handleCurationSearch({ axis, query }) {
 }
 
 function handleCurationSave() {
+  return commitSceneCuration({ closeAfterSave: true })
+}
+
+function commitSceneCuration({ closeAfterSave = true } = {}) {
   if (!sceneCurationDraft.value || sceneCurationBusy.value) return
+  if (bookWorldbookStatus.value.status === 'missing') {
+    sceneCurationError.value = { phase: 'validation', message: '原世界书不可用，请先重新关联或解除关联' }
+    return false
+  }
+  if ((sceneCurationDraft.value.presentCharacterIds || []).length > 8) {
+    sceneCurationError.value = { phase: 'validation', message: '当前场最多保留 8 位在场人物，请先移除多余人物' }
+    return false
+  }
+  if (curationMissingCharacterIds.value.length || curationMissingLocationId.value) {
+    sceneCurationError.value = { phase: 'validation', message: '请先移除或改选失效的人物与地点引用' }
+    return false
+  }
   sceneCurationBusy.value = true
   let result
   try {
-    result = commitSceneAnchorDraft(sceneCurationDraft.value)
+    result = commitSceneAnchorDraft({ ...sceneCurationDraft.value, plannedCharacterIds: [] })
   } finally {
     sceneCurationBusy.value = false
   }
@@ -1730,39 +4347,163 @@ function handleCurationSave() {
       message: result.reason === 'stale'
         ? '文档已变化，请核对当前落笔处后重试'
         : result.reason === 'persist'
-          ? '正文与现场已更新，但章节保存失败；草稿已保留'
+          ? '现场未保存，已恢复原状态；草稿仍保留，可重试'
           : '无法保存这份现场调整'
     }
-    return
+    return false
   }
   sceneCurationError.value = null
   sceneCurationDraft.value = null
-  closeSceneDetail()
+  sceneCurationBaseline.value = null
+  if (closeAfterSave) closeSceneDetail()
+  return true
 }
 
 function handleCurationCancel() {
   // 取消零写入：丢弃本地草稿即可，不触碰锚点/章节。
   sceneCurationDraft.value = null
+  sceneCurationBaseline.value = null
   sceneCurationError.value = null
   closeSceneDetail()
 }
 
 function handleCurationUndo() {
-  if (undoSceneAnchorCommit()) sceneDetailNotice.value = '已撤销上一次现场保存。'
+  if (!undoSceneAnchorCommit()) return
+  // 撤销改变了锚点真源，立即从恢复后的投影重建草稿，不能让表单继续显示
+  // 已被撤销的值。
+  handleSceneEditRequest()
+  sceneDetailNotice.value = '已撤销上一次现场保存。'
 }
 
-// 换书/换章/换单元时关闭过期草稿并恢复基础检查器状态。
-watch([selectedBookId, selectedChapterId, activeWritingUnitId], () => {
+function handleCurationRestoreInheritance() {
+  const draft = sceneCurationDraft.value
+  if (!draft || sceneCurationBusy.value) return
+  if (
+    String(draft.projectId || '') !== String(selectedBookId.value || '')
+    || String(draft.chapterId || '') !== String(selectedChapterId.value || '')
+    || String(draft.anchorFingerprint || '') !== fingerprintSceneAnchors(sceneAnchors.value)
+  ) {
+    sceneCurationError.value = { phase: 'stale', message: '现场锚点已变化，请重新打开当前场后再操作' }
+    return
+  }
+  const result = removeSceneAnchor({
+    anchors: sceneAnchors.value,
+    unitId: draft.unitId,
+    expectedDocumentRevision: draft.documentRevision,
+    liveDocumentRevision: currentDocumentRevision()
+  })
+  if (!result.ok) {
+    sceneCurationError.value = {
+      phase: result.reason,
+      message: result.reason === 'stale'
+        ? '文档已变化，请核对当前落笔处后重试'
+        : '当前落笔处没有可移除的现场'
+    }
+    return
+  }
+  const previousAnchors = sceneAnchors.value
+  sceneAnchors.value = result.anchors
+  if (!saveCurrentChapter()) {
+    sceneAnchors.value = previousAnchors
+    sceneCurationError.value = { phase: 'persist', message: '现场未改变；章节保存失败，可重试' }
+    return
+  }
+  lastSceneAnchorUndoReceipt.value = {
+    beforeFingerprint: fingerprintSceneAnchors(previousAnchors),
+    afterFingerprint: fingerprintSceneAnchors(sceneAnchors.value),
+    previousAnchors,
+    type: 'manual-edit',
+    at: Date.now()
+  }
+  handleSceneEditRequest()
+  sceneDetailNotice.value = sceneProjection.value?.anchorStatus === 'inherited'
+    ? '当前落笔处已恢复沿用前文。'
+    : '已移除当前落笔处的独立现场。'
+}
+
+// 换书/换章/换单元/换绑时关闭过期草稿，避免把旧表单写进新作用域。
+watch([selectedBookId, selectedChapterId, activeWritingUnitId, selectedBookWorldbookId], () => {
   if (!sceneCurationDraft.value) return
-  if (sceneCurationDraft.value.unitId !== activeWritingUnitId.value) {
+  const stillCurrent = (
+    String(sceneCurationDraft.value.projectId || '') === String(selectedBookId.value || '')
+    && String(sceneCurationDraft.value.chapterId || '') === String(selectedChapterId.value || '')
+    && String(sceneCurationDraft.value.unitId || '') === String(activeWritingUnitId.value || '')
+    && String(sceneCurationDraft.value.worldbookId || '') === String(selectedBookWorldbookId.value || '')
+  )
+  if (!stillCurrent) {
     sceneCurationDraft.value = null
+    sceneCurationBaseline.value = null
     sceneCurationError.value = null
     if (inspectorDetailState.value?.kind === 'scene-edit') inspectorDetailState.value = null
+    authoringTask.notify('当前场作用域已变化，请在新的落笔处重新打开')
   }
+})
+
+// 临时意图跟随书 / 文档 / 世界书绑定，不跟随失焦时会回退到末单元的
+// activeWritingUnitId。具体 writingUnit 的切换由 frozen composer target 处理。
+watch([selectedBookId, selectedChapterId, wt3ActiveDocId, selectedBookWorldbookId], () => {
+  if (authoringSceneRunIntents.value.length) clearAuthoringSceneRunIntents()
+  if (sceneLaboratory.open) closeSceneLaboratory({ restoreSelection: false })
 })
 
 function handleDetailSetActor(id) {
   sceneActiveActorId.value = id
+  sceneDialogueTargetId.value = ''
+  closeSceneDetail().then(() => {
+    blockComposer.initialInstruction = '从这个人物此刻的目标、感受与关系出发，推演下一段。'
+    if (!openBlockComposer(notebookSelection.value, { preserveInstruction: true })) return
+    nextTick(() => document.querySelector('[data-test="block-composer"] textarea')?.focus())
+  })
+}
+// C1-2：下一段安排 / 带入本次都先冻结为 run-only scene intent。
+// 这里不保存 scene anchor；下一段意图只有在 Ghost 采纳事务中才兑现。
+async function handleSceneRunIntent(payload = {}) {
+  const draft = sceneCurationDraft.value
+  if (!draft) return false
+  if (sceneCurationHasUnsavedChanges.value) {
+    sceneCurationError.value = {
+      phase: 'unsaved-current-scene',
+      message: '当前场还有未保存的纠正；请先保存当前场或取消改动，再选择临时推演意图。'
+    }
+    return false
+  }
+  const entityKind = payload.entityKind === 'location' ? 'location' : 'character'
+  const entityId = String(payload.entityId || '')
+  const entry = (boundWorldbook.value?.entries || []).find((candidate) => (
+    String(candidate?.id || '') === entityId && String(candidate?.type || '') === entityKind
+  ))
+  const target = resolveBlockComposerTarget({
+    unitId: draft.unitId,
+    selectionBookmark: notebookEditorRef.value?.captureSelectionBookmark?.() || null
+  })
+  const intent = createAuthoringSceneRunIntent({
+    mode: payload.mode,
+    entityKind,
+    entry,
+    target,
+    worldbookId: selectedBookWorldbookId.value,
+    presentCharacterIds: (sceneProjection.value.presentCharacters || []).map((character) => character.id)
+  })
+  if (!intent) {
+    sceneCurationError.value = { phase: 'invalid-run-intent', message: '这条设定已变化，请重新选择。' }
+    return false
+  }
+  authoringSceneRunIntents.value = [intent]
+  sceneActiveActorId.value = ''
+  sceneDialogueTargetId.value = ''
+  blockComposer.initialInstruction = intent.content
+  await closeSceneDetail()
+  // The laboratory owns this central interaction. Keeping the inspector open
+  // would shrink the dossier at desktop widths and cover it on compact screens.
+  inspectorOpen.value = false
+  sceneLaboratory.returnScrollTop = notebookSelectionScrollTop
+  const opened = await openSceneLaboratory({ target, instruction: intent.content })
+  if (!opened) {
+    // A failed planner still owns the frozen intent and can retry in place.
+    if (!sceneLaboratory.open) clearAuthoringSceneRunIntents()
+    return false
+  }
+  return true
 }
 function handleDetailAdvanceWith(eventId) {
   handleSceneAdvanceWith(eventId)
@@ -1798,28 +4539,24 @@ function currentEmergenceCandidate(id) {
   return (sceneProjection.value.emergenceCandidates || []).find((item) => item?.id === id) || null
 }
 
-function closeEmergenceDetailIfOpen(id) {
-  if (inspectorDetailState.value?.kind === 'emergence' && inspectorDetailState.value.id === id) {
-    inspectorDetailState.value = null
-  }
-}
-
 // 确认：只走派生状态路径（runtime event + 移出待审），不自动成为 locked 事实。
 function handleDetailConfirmEmergence(id) {
   const candidate = currentEmergenceCandidate(id)
   if (!candidate) return
   const result = gameStore.acknowledgeEmergenceCandidate(id)
   if (!result?.ok) return
-  closeEmergenceDetailIfOpen(id)
-  sceneDetailNotice.value = '已确认候选，可在纲要与正文中显式使用。'
+  void closeSceneDetail().then(() => {
+    sceneDetailNotice.value = '已确认候选，可在纲要与正文中显式使用。'
+  })
 }
 
 // 忽略：走既有 dismissal 路径（dismissedIds 防止重复涌现）。
 function handleDetailDismissEmergence(id) {
   if (!currentEmergenceCandidate(id)) return
   gameStore.dismissEmergenceCandidate(id)
-  closeEmergenceDetailIfOpen(id)
-  sceneDetailNotice.value = '已忽略该候选。'
+  void closeSceneDetail().then(() => {
+    sceneDetailNotice.value = '已忽略该候选。'
+  })
 }
 
 // 加入纲要：复用章节纲要派生写入路径，不动正文。
@@ -1854,39 +4591,287 @@ function handleDetailOpenEmergenceSource(id) {
   else router.push({ name: 'settings-worldbook' })
 }
 function handleDetailOpenFull(detail) {
-  if (detail.kind === 'location') router.push({ name: 'settings-world-map' })
-  else router.push({ name: 'settings-worldbook' })
+  if (detail.kind === 'time') {
+    handleSceneEditRequest({ axis: 'time' })
+    return
+  }
+  inspectorWorldbookEntryId.value = String(detail?.id || '')
+  inspectorDetailState.value = null
+  activeInspectorTool.value = 'worldbook'
+  inspectorOpen.value = true
+}
+
+async function handleDetailOpenMap(detail) {
+  if (detail?.kind !== 'location') return false
+  const bridge = sceneLocationBridge.value
+  if (!bridge?.canOpenMap || !bridge.mapRoute) return false
+  const selection = notebookEditorRef.value?.getSelection?.() || null
+  const scroll = captureWritingScrollState()
+  workspaceTabsStore.setVolatileRestoreStateByKey(authoringTabKey(selectedBookId.value), {
+    projectId: String(selectedBookId.value || ''),
+    chapterId: String(selectedChapterId.value || ''),
+    writingUnitId: String(activeWritingUnitId.value || ''),
+    documentRevision: String(currentDocumentRevision()),
+    selection: selection ? { from: selection.from, to: selection.to } : null,
+    scroll
+  })
+  await openOrFocusWorkspaceTab(workspaceTabsStore, router, {
+    scope: 'project',
+    surface: 'map',
+    projectId: bridge.projectId,
+    worldbookId: bridge.worldbookId
+  }, {
+    route: bridge.mapRoute,
+    restoreState: {
+      chapterId: bridge.chapterId,
+      objectId: bridge.entryId
+    }
+  })
+  return true
 }
 const notebookCopilotCanUndo = ref(false)
+const pendingWritingGhost = shallowRef(null)
+const pendingGhostAdoption = shallowRef(null)
+const blockDraftRef = ref(null)
+const adoptionImpact = shallowRef(null)
+let adoptionImpactTimer = null
+
+function clearAdoptionImpact() {
+  adoptionImpact.value = null
+  if (adoptionImpactTimer) clearTimeout(adoptionImpactTimer)
+  adoptionImpactTimer = null
+}
+
+function showAdoptionImpact(projection, target) {
+  clearAdoptionImpact()
+  if (!projection?.headline || !target?.unitId) return
+  adoptionImpact.value = Object.freeze({ projection, target: Object.freeze({ ...target }) })
+  adoptionImpactTimer = setTimeout(clearAdoptionImpact, 4200)
+}
+// ProseMirror 只保存正文 steps；Ghost 的现场/大纲 delta 与结构编辑的现场锚点
+// 必须共用同一条按时间排序的 sidecar ledger，两个独立栈无法可靠判断谁才是
+// 当前 history 顶层事务。
+const notebookAtomicUndoReceipts = shallowRef([])
+const notebookAtomicRedoReceipts = shallowRef([])
+const lastNotebookAtomicUndoReceipt = computed(() => notebookAtomicUndoReceipts.value.at(-1) || null)
+const lastNotebookAtomicRedoReceipt = computed(() => notebookAtomicRedoReceipts.value.at(-1) || null)
+const lastGhostAdoptionReceipt = computed(() => lastNotebookAtomicUndoReceipt.value?.kind === 'ghost-adoption'
+  ? lastNotebookAtomicUndoReceipt.value : null)
+const lastGhostUndoReceipt = computed(() => lastNotebookAtomicRedoReceipt.value?.kind === 'ghost-adoption'
+  ? lastNotebookAtomicRedoReceipt.value : null)
+const lastStructureUndoReceipt = computed(() => lastNotebookAtomicUndoReceipt.value?.kind === 'unit-transition'
+  ? lastNotebookAtomicUndoReceipt.value : null)
+const lastStructureRedoReceipt = computed(() => lastNotebookAtomicRedoReceipt.value?.kind === 'unit-transition'
+  ? lastNotebookAtomicRedoReceipt.value : null)
+const atomicHistoryBusy = ref(false)
+let applyingAtomicNotebookHistory = false
+
+function currentGhostTarget(overrides = {}) {
+  const exploration = wt3ActiveDoc.value
+  const selection = notebookSelection.value || {}
+  return {
+    projectId: selectedBookId.value || '',
+    documentId: exploration?.id || selectedChapterId.value || '',
+    role: exploration ? 'exploration' : 'manuscript',
+    chapterId: exploration ? '' : selectedChapterId.value || '',
+    unitId: overrides.unitId || selection.unitId || '',
+    unitRevision: overrides.unitRevision ?? selection.unitRevision ?? '',
+    nodeId: overrides.nodeId || selection.nodeId || '',
+    nodeRevision: overrides.nodeRevision ?? selection.nodeRevision ?? '',
+    caret: overrides.caret ?? copilotCursorPos.value,
+    documentRevision: String(overrides.documentRevision ?? currentDocumentRevision())
+  }
+}
+
+function ghostReceiptMatchesCurrentScope(receipt) {
+  const target = currentGhostTarget()
+  return Boolean(receipt
+    && receipt.projectId === target.projectId
+    && receipt.documentId === target.documentId
+    && receipt.documentRole === target.role)
+}
+
+function currentDocumentContainsGhostUnit(receipt) {
+  const ids = receipt?.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt?.insertedUnitId]
+  const currentIds = new Set((writingDocument.value?.content || []).map((unit) => unit?.attrs?.unitId))
+  return Boolean(ids.length && ids.every((unitId) => unitId && currentIds.has(unitId)))
+}
+
+function currentDocumentContainsNoGhostUnits(receipt) {
+  const ids = receipt?.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt?.insertedUnitId]
+  const currentIds = new Set((writingDocument.value?.content || []).map((unit) => unit?.attrs?.unitId))
+  return Boolean(ids.length && ids.every((unitId) => unitId && !currentIds.has(unitId)))
+}
+
+function currentDocumentMatchesGhostUnitSnapshot(receipt, direction) {
+  const snapshot = direction === 'redo' ? receipt?.afterUnitSnapshot : receipt?.beforeUnitSnapshot
+  const current = (writingDocument.value?.content || [])
+    .find((unit) => unit?.attrs?.unitId === receipt?.insertedUnitId)
+  if (!snapshot || !current) return false
+  return getWritingDocumentMarkdown({ content: [current], meta: {} })
+    === getWritingDocumentMarkdown({ content: [snapshot], meta: {} })
+}
+
+const hasGhostAdoptionUndoBoundary = computed(() => ghostReceiptMatchesCurrentScope(lastGhostAdoptionReceipt.value)
+  && (lastGhostAdoptionReceipt.value.operation === 'rewrite-unit'
+    ? currentDocumentMatchesGhostUnitSnapshot(lastGhostAdoptionReceipt.value, 'redo')
+    : lastGhostAdoptionReceipt.value.afterBodyRevision === currentDocumentBodyRevision())
+  && currentDocumentContainsGhostUnit(lastGhostAdoptionReceipt.value))
+const hasGhostAdoptionRedoBoundary = computed(() => ghostReceiptMatchesCurrentScope(lastGhostUndoReceipt.value)
+  && (lastGhostUndoReceipt.value.operation === 'rewrite-unit'
+    ? currentDocumentMatchesGhostUnitSnapshot(lastGhostUndoReceipt.value, 'undo')
+    : lastGhostUndoReceipt.value.beforeBodyRevision === currentDocumentBodyRevision())
+  && (lastGhostUndoReceipt.value.operation === 'rewrite-unit'
+    ? currentDocumentContainsGhostUnit(lastGhostUndoReceipt.value)
+    : currentDocumentContainsNoGhostUnits(lastGhostUndoReceipt.value)))
+
+const canUndoGhostAdoption = computed(() => !atomicHistoryBusy.value
+  && hasGhostAdoptionUndoBoundary.value
+  && canUndoWritingAdoptionDeltas(lastGhostAdoptionReceipt.value, {
+    sceneAnchors: sceneAnchors.value,
+    outlineNodes: wt3OutlineNodes.value,
+    outlineEdges: wt3OutlineEdges.value
+  }))
+
+const canRedoGhostAdoption = computed(() => !atomicHistoryBusy.value
+  && hasGhostAdoptionRedoBoundary.value
+  && canRedoWritingAdoptionDeltas(lastGhostUndoReceipt.value, {
+    sceneAnchors: sceneAnchors.value,
+    outlineNodes: wt3OutlineNodes.value,
+    outlineEdges: wt3OutlineEdges.value
+  }))
+
+function structureReceiptMatchesCurrentScope(receipt) {
+  const target = currentGhostTarget()
+  return Boolean(receipt
+    && receipt.projectId === target.projectId
+    && receipt.documentId === target.documentId
+    && receipt.documentRole === target.role)
+}
+
+const hasStructureUndoBoundary = computed(() => structureReceiptMatchesCurrentScope(lastStructureUndoReceipt.value)
+  && lastStructureUndoReceipt.value.afterBodyRevision === currentDocumentBodyRevision())
+const hasStructureRedoBoundary = computed(() => structureReceiptMatchesCurrentScope(lastStructureRedoReceipt.value)
+  && lastStructureRedoReceipt.value.beforeBodyRevision === currentDocumentBodyRevision())
+const canUndoStructureTransition = computed(() => !atomicHistoryBusy.value
+  && hasStructureUndoBoundary.value
+  && fingerprintSceneAnchors(sceneAnchors.value) === lastStructureUndoReceipt.value.afterAnchorFingerprint
+  && fingerprintWritingAnnotationState(activeEditorAnnotations.value) === lastStructureUndoReceipt.value.afterAnnotationFingerprint)
+const canRedoStructureTransition = computed(() => !atomicHistoryBusy.value
+  && hasStructureRedoBoundary.value
+  && fingerprintSceneAnchors(sceneAnchors.value) === lastStructureRedoReceipt.value.beforeAnchorFingerprint
+  && fingerprintWritingAnnotationState(activeEditorAnnotations.value) === lastStructureRedoReceipt.value.beforeAnnotationFingerprint)
+
+function invalidateNotebookAtomicHistory() {
+  notebookAtomicUndoReceipts.value = []
+  notebookAtomicRedoReceipts.value = []
+}
+
+function clearNotebookAtomicRedoHistory() {
+  if (notebookAtomicRedoReceipts.value.length) notebookAtomicRedoReceipts.value = []
+}
+
+function pushNotebookAtomicUndoReceipt(receipt) {
+  notebookAtomicUndoReceipts.value = [
+    ...notebookAtomicUndoReceipts.value.slice(-79),
+    Object.freeze(receipt)
+  ]
+  notebookAtomicRedoReceipts.value = []
+}
+
+function canRunInlineWritingAgent() {
+  return !pendingGhostAdoption.value
+    && !blockPreview.value
+    && !blockComposer.open
+    && !blocksPassiveInlineSuggestion(writingInteractionOwner.value)
+}
+
 const {
   enabled: copilotEnabled,
   setEnabled: setWritingAgentEnabled,
   generating: copilotGenerating,
+  requesting: copilotRequesting,
   suggestion: copilotSuggestion,
+  cycleSuggestion: cycleCopilotSuggestion,
   visible: copilotVisible,
   error: copilotError,
-  matchedEntries: copilotMatchedEntries,
   canUndoApply: writingAgentCanUndo,
-  coolingDown: writingAgentCoolingDown,
   onInput: writingAgentOnInput,
   manualTrigger: copilotManualTrigger,
   accept: writingAgentAccept,
+  peek: writingAgentPeek,
   consume: writingAgentConsume,
   cancel: copilotCancel,
   suppress: suppressWritingAgent,
   finishComposition: finishWritingAgentComposition,
   undoLastApply: writingAgentUndo
 } = useWritingAgent({
-  debounceMs: 900,
+  debounceMs: (inputType) => inputType === 'cursor' ? 4200 : 2800,
   getContext: getWritingAgentPageContext,
-  getSnapshot: () => ({
-    content: markdownContent.value,
-    cursorPos: copilotCursorPos.value,
-    documentRevision: Number(writingDocument.value?.revision || 0),
-    nodeTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
-  })
+  canStartSuggestion: canRunInlineWritingAgent,
+  canPresentSuggestion: canRunInlineWritingAgent,
+  onContextManifest: (manifest) => { lastCompiledContextManifest.value = manifest },
+  getLiveContextDependencies: buildLiveContextDependencyRevisions,
+  onCandidateShown: (payload) => {
+    // 请求完成与块推演打开可能同拍发生；块草稿一旦取得所有权，迟到的
+    // inline 结果不得覆盖冻结的 narrative candidate。
+    if (!canRunInlineWritingAgent()) return
+    const next = createWritingGhostCandidate({
+      kind: 'inline',
+      text: payload.text,
+      target: currentGhostTarget({
+        ...(payload.nodeTarget || {}),
+        caret: payload.cursorPos,
+        documentRevision: payload.documentRevision ?? currentDocumentRevision()
+      }),
+      manifest: payload.manifest || lastCompiledContextManifest.value,
+      runOutcome: payload.runOutcome
+    })
+    pendingWritingGhost.value = claimWritingGhostCandidate(pendingWritingGhost.value, next).pending
+  },
+  onCandidateDismissed: () => {
+    if (pendingWritingGhost.value?.mode === 'inline') pendingWritingGhost.value = null
+  },
+  onCandidateAccepted: ({ remaining }) => {
+    const current = pendingWritingGhost.value
+    if (current?.mode !== 'inline') return
+    if (!remaining) {
+      pendingWritingGhost.value = null
+      return
+    }
+    pendingWritingGhost.value = createWritingGhostCandidate({
+      kind: 'inline',
+      text: remaining,
+      target: currentGhostTarget(),
+      manifest: {
+        fingerprint: current.manifestFingerprint,
+        dependencies: current.dependencyRevisions
+      },
+      runOutcome: current.runOutcome,
+      originRefs: current.originRefs
+    })
+  },
+  getSnapshot: () => {
+    const target = currentGhostTarget()
+    const book = books.value.find((item) => String(item.id) === String(target.projectId))
+    return {
+      content: markdownContent.value,
+      cursorPos: copilotCursorPos.value,
+      bookId: target.projectId,
+      bookTitle: book?.title || '',
+      chapterTitle: currentChapterTitle.value,
+      documentRole: target.role,
+      documentId: target.documentId,
+      chapterId: target.chapterId,
+      documentRevision: target.documentRevision,
+      nodeTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value),
+      editorFocused: notebookEditorRef.value?.hasEditorFocus?.() !== false
+    }
+  }
 })
+const inlineSuggestionEnabled = copilotEnabled
 const copilotCanUndo = computed(() => writingAgentCanUndo.value || notebookCopilotCanUndo.value)
+let acceptingInlineSuggestion = false
 
 // 创作命令运行时：一个意图 = 一次 AI 请求 + 一个可撤销的正文事务。
 // 全部命令走统一链：canonical TaskRequest → resolveAgentContext（真实 facade + profile ledger）
@@ -1908,30 +4893,132 @@ function currentChapterDocumentText() {
   return String(markdownContent.value || '')
 }
 
-function currentDocumentRevision() {
-  return buildDocumentRevision(`chapter:${selectedChapterId.value || 'none'}`, currentChapterDocumentText())
+function activeDocumentRevisionKey() {
+  return wt3ActiveDoc.value
+    ? `exploration:${selectedBookId.value}:${wt3ActiveDoc.value.id}`
+    : `chapter:${selectedChapterId.value || 'none'}`
 }
 
-// 低敏感 facade readers：按 profile 需要的 block kind 提供确定性投影，不携带完整 prompt。
+function activeDocumentSourceRef() {
+  return wt3ActiveDoc.value
+    ? `exploration:${wt3ActiveDoc.value.id}`
+    : `chapter:${selectedChapterId.value || 'none'}`
+}
+
+// Markdown 相同不代表编辑器状态相同：split/merge/move 会改变 writingUnit
+// 拓扑，却可能一个字都不改。body 签名保留 unit/node 身份，供 PM 原子历史
+// 对齐；上下文 revision 再叠加标题，供 AI stale 检查。标题编辑不产生 PM step，
+// 因而绝不能让它把 Ghost/结构 sidecar 从正文 history 顶层“隐身”。
+function writingDocumentBodyStateSignature(document = writingDocument.value) {
+  const source = document && typeof document === 'object' ? document : null
+  return JSON.stringify({
+    historyRestoreEpoch: String(source?.meta?.historyRestoreEpoch || ''),
+    markdown: source ? getWritingDocumentMarkdown(source) : currentChapterDocumentText(),
+    units: (source?.content || []).map((unit) => ({
+      id: String(unit?.attrs?.unitId || ''),
+      kind: String(unit?.attrs?.kind || ''),
+      sceneId: String(unit?.attrs?.sceneId || ''),
+      nodes: (unit?.content || []).map((node) => ({
+        id: String(node?.attrs?.nodeId || ''),
+        type: String(node?.type || ''),
+        kind: String(node?.attrs?.kind || '')
+      }))
+    }))
+  })
+}
+
+function writingDocumentStateSignature(document = writingDocument.value) {
+  return JSON.stringify({
+    title: wt3ActiveDoc.value?.title || currentChapterTitle.value || '',
+    body: writingDocumentBodyStateSignature(document)
+  })
+}
+
+function documentStateRevision(document = writingDocument.value) {
+  return buildDocumentRevision(activeDocumentRevisionKey(), writingDocumentStateSignature(document))
+}
+
+function currentDocumentRevision() {
+  return documentStateRevision(writingDocument.value)
+}
+
+function documentBodyStateRevision(document = writingDocument.value) {
+  return buildDocumentRevision(activeDocumentRevisionKey(), writingDocumentBodyStateSignature(document))
+}
+
+function currentDocumentBodyRevision() {
+  return documentBodyStateRevision(writingDocument.value)
+}
+
+function resolveAuthoringReaderSnapshot(request = {}) {
+  const target = request?.intent?.invocationTarget || null
+  const projectId = String(target?.projectId || selectedBookId.value || '')
+  const chapterId = String(target?.chapterId || selectedChapterId.value || '')
+  const book = books.value.find((item) => String(item.id || '') === projectId)
+  const chapter = book?.chapters?.find((item) => String(item.id || '') === chapterId) || null
+  const text = typeof target?.documentText === 'string'
+    ? target.documentText
+    : currentChapterDocumentText()
+  const documentRole = String(target?.documentRole || (wt3ActiveDoc.value ? 'exploration' : 'manuscript'))
+  const documentId = String(target?.documentId || (wt3ActiveDoc.value?.id || chapterId))
+  return {
+    target,
+    projectId,
+    chapterId,
+    chapter,
+    text,
+    documentRole,
+    documentId,
+    revision: String(target?.documentRevision || currentDocumentRevision()),
+    sourceRef: documentRole === 'exploration'
+      ? `exploration:${documentId}`
+      : `chapter:${chapterId}`
+  }
+}
+
+// 低敏感 facade readers：缓存的是 reader 函数，不是章/正文快照。每个 reader
+// 都从本次 request 的冻结 invocationTarget（长推演）或实时稿面重新解析，避免
+// 同一本书第一次调用后永久给后续章节返回旧正文。
 function buildAuthoringKnowledgeReaders() {
-  const chapter = books.value
-    .find((item) => item.id === selectedBookId.value)
-    ?.chapters?.find((item) => item.id === selectedChapterId.value)
-  const selection = readLiveWritingSelectionSnapshot()
-  const text = currentChapterDocumentText()
+  const requestSelection = (request = {}, snapshot = resolveAuthoringReaderSnapshot(request)) => {
+    const target = snapshot.target
+    if (target) {
+      const rawStart = target.markdownFrom ?? target.caret
+      const rawEnd = target.markdownTo ?? rawStart
+      const start = Math.max(0, Math.min(snapshot.text.length, Number(rawStart) || 0))
+      const end = Math.max(start, Math.min(snapshot.text.length, Number(rawEnd) || start))
+      return { start, end, text: snapshot.text.slice(start, end), hasSelection: end > start }
+    }
+    return readLiveWritingSelectionSnapshot()
+  }
   return {
     rules: () => ([{
       text: '保持既有叙事声音与节奏；不引入未确认设定；不输出解释性元话语。',
       sourceRefs: ['rules:authoring']
     }]),
-    style: () => chapter?.styleNote ? [{ text: String(chapter.styleNote), sourceRefs: [`chapter:${chapter.id}`] }] : [],
-    selection: () => {
-      if (!text) return []
-      const start = Math.max(0, (selection.start ?? text.length) - 520)
-      const end = Math.min(text.length, (selection.end ?? text.length) + 240)
-      return [{ text: text.slice(start, end), sourceRefs: [`chapter:${chapter?.id || ''}`] }]
+    style: (request) => {
+      const snapshot = resolveAuthoringReaderSnapshot(request)
+      return snapshot.chapter?.styleNote
+        ? [{ text: String(snapshot.chapter.styleNote), sourceRefs: [snapshot.sourceRef] }]
+        : []
     },
-    scene: () => text ? [{ text: text.slice(-1200), sourceRefs: [`chapter:${chapter?.id || ''}`] }] : [],
+    selection: (request) => {
+      const snapshot = resolveAuthoringReaderSnapshot(request)
+      if (!snapshot.text) return []
+      const selection = requestSelection(request, snapshot)
+      const start = Math.max(0, (selection.start ?? snapshot.text.length) - 520)
+      const end = Math.min(snapshot.text.length, (selection.end ?? snapshot.text.length) + 240)
+      return [{ text: snapshot.text.slice(start, end), sourceRefs: [snapshot.sourceRef] }]
+    },
+    scene: (request) => {
+      const snapshot = resolveAuthoringReaderSnapshot(request)
+      if (!snapshot.text) return []
+      const caret = requestSelection(request, snapshot).end ?? snapshot.text.length
+      return [{
+        text: snapshot.text.slice(Math.max(0, caret - 1200), Math.min(snapshot.text.length, caret + 240)),
+        sourceRefs: [snapshot.sourceRef]
+      }]
+    },
     outline: () => chapterOutlineItems.value.slice(0, 8).map((item) => ({
       text: String(item.preview || item.title || ''),
       sourceRefs: [`asset:${item.assetId || item.id}`]
@@ -1952,14 +5039,17 @@ function buildAuthoringKnowledgeReaders() {
     })),
     memory: createProjectMemoryReader({
       list: ({ status } = {}) => listMemoryCandidates({ status }),
-      context: () => ({
+      context: (request) => {
+        const snapshot = resolveAuthoringReaderSnapshot(request)
+        return ({
         // 项目标识与写入侧统一：都使用当前书 ID，而不是 worldbook ID。
-        projectId: selectedBookId.value || '',
+        projectId: snapshot.projectId,
         sessionId: gameStore.currentSessionId || '',
         currentRevisions: {
-          [`chapter:${selectedChapterId.value || ''}`]: currentDocumentRevision()
+          [snapshot.sourceRef]: snapshot.revision
         }
-      })
+        })
+      }
     }),
     references: () => copilotReferenceAsset.value
       ? [{ text: String(copilotReferenceAsset.value.content || '').slice(0, 1200), sourceRefs: [`asset:${copilotReferenceAsset.value.id}`] }]
@@ -2026,30 +5116,122 @@ function questionFromIntent(request, fallbackKey) {
 
 // 真实 NarrativeKernel 执行器（spec §9）：模块级能力，页面只注入运行时快照。
 let narrativeKernelExecutor = null
-const authoringNarrativeSummaryCache = new Map()
 function getNarrativeKernelExecutor() {
   if (!narrativeKernelExecutor) narrativeKernelExecutor = createNarrativeKernelExecutor()
   return narrativeKernelExecutor
 }
 
-// 内核运行时快照：与体验页同一组 canonical 字段；地点最终以共享投影覆盖。
-function buildAuthoringKernelRuntimeState() {
+let authoringRunSessionAdapter = null
+let authoringRunSessionProjectId = ''
+let authoringNarrativeRun = null
+let authoringNarrativeRunProjectId = ''
+let authoringSceneLaboratoryRunner = null
+let authoringSceneLaboratoryProjectId = ''
+
+function cloneAuthoringRunValue(value) {
+  if (value == null) return value
+  return JSON.parse(JSON.stringify(value))
+}
+
+// 页面只实现“当前编辑器内存稿”的严格读取边界。adapter 会再次核对全部
+// scope ID；不匹配时返回 null，绝不把切章后的新页面状态冒充旧目标。
+function readLiveAuthoringRunTarget(expected = {}) {
+  // 双栏是与主栏平级的可编辑落笔面。先让它按 expected scope 自证；不匹配
+  // 才读取主栏，禁止副栏任务在切章后借到主栏当前文档。
+  const dualTarget = dualPaneRef.value?.readLiveRunTarget?.(expected)
+  if (dualTarget) return dualTarget
+  const role = wt3ActiveDoc.value ? 'exploration' : 'manuscript'
+  const projectId = String(selectedBookId.value || '')
+  const documentId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
+  const chapterId = role === 'manuscript' ? String(selectedChapterId.value || '') : ''
+  if (String(expected.projectId || '') !== projectId
+    || String(expected.role || expected.documentRole || '') !== role
+    || String(expected.documentId || '') !== documentId
+    || String(expected.chapterId || '') !== chapterId) return null
+  const unit = (writingDocument.value?.content || []).find((item) => (
+    String(item?.attrs?.unitId || '') === String(expected.unitId || '')
+  ))
+  const node = (unit?.content || []).find((item) => (
+    String(item?.attrs?.nodeId || '') === String(expected.nodeId || '')
+  ))
+  if (!unit || !node) return null
   return {
-    worldMapState: gameStore.worldMapState,
-    writingTime: gameStore.writingTime,
-    placeStates: gameStore.placeStates,
-    characterStates: gameStore.characterStates,
-    characterRelations: gameStore.characterRelations,
-    canonicalFacts: gameStore.canonicalFacts,
-    runtimeEvents: gameStore.runtimeEvents,
-    encounteredCharacters: gameStore.encounteredCharacters,
-    factionRelations: gameStore.factionRelations,
-    goals: gameStore.goals,
-    keyChoices: gameStore.keyChoices,
-    playerCharacter: gameStore.playerCharacter,
-    dialogueCharacter: gameStore.dialogueCharacter
-    // 复验修复 2：不携带 Experience sceneThread / historyNode——会话状态只参与显式导入。
+    projectId,
+    role,
+    documentRole: role,
+    documentId,
+    chapterId,
+    unitId: String(unit.attrs.unitId),
+    nodeId: String(node.attrs.nodeId),
+    document: cloneAuthoringRunValue(writingDocument.value),
+    documentRevision: currentDocumentRevision(),
+    documentSchemaRevision: String(writingDocument.value?.revision ?? ''),
+    unitRevision: String(unit.attrs.unitRevision ?? ''),
+    nodeRevision: String(node.attrs.nodeRevision ?? ''),
+    sceneProjection: cloneAuthoringRunValue(sceneProjection.value)
   }
+}
+
+function selectedAuthoringRunReferences() {
+  return toAuthoringRunReferences(authoringRunReferenceSelections.value)
+}
+
+function getAuthoringRunSessionAdapter() {
+  const projectId = String(selectedBookId.value || '')
+  if (!authoringRunSessionAdapter || authoringRunSessionProjectId !== projectId) {
+    authoringRunSessionProjectId = projectId
+    const repositoryAdapters = createAuthoringRunRepositoryAdapters({
+      projectId,
+      readLiveTarget: readLiveAuthoringRunTarget
+    })
+    authoringRunSessionAdapter = createAuthoringRunSessionAdapter({
+      repositoryAdapters,
+      readOutlineNodes: (target) => listProjectOutlineNodes(target.projectId),
+      readSceneIntents: (target) => readAuthoringSceneRunIntentsForTarget(
+        authoringSceneRunIntents.value,
+        target
+      ),
+      readReferenceSelections: () => selectedAuthoringRunReferences(),
+      readPinnedCandidateIds: () => contextRunPinnedIds.value,
+      readExcludedCandidateIds: () => contextRunExcludedIds.value,
+      sessionId: () => gameStore.currentSessionId || ''
+    })
+  }
+  return authoringRunSessionAdapter
+}
+
+function getAuthoringNarrativeRun() {
+  const projectId = String(selectedBookId.value || '')
+  if (!authoringNarrativeRun || authoringNarrativeRunProjectId !== projectId) {
+    authoringNarrativeRunProjectId = projectId
+    authoringNarrativeRun = createAuthoringNarrativeRun({
+      prepareSession: (input) => getAuthoringRunSessionAdapter().prepareSession(input),
+      executeSession: async ({ session, ...execution }) => {
+        const settings = await getResolvedApiSettings()
+        return getNarrativeKernelExecutor().executeTurn({
+          ...execution,
+          authoringRunSession: session,
+          settings,
+          resolveLiveContextDependencies: () => (
+            getAuthoringRunSessionAdapter().collectLiveDependencies(session)
+          )
+        })
+      }
+    })
+  }
+  return authoringNarrativeRun
+}
+
+function getAuthoringSceneLaboratoryRunner() {
+  const projectId = String(selectedBookId.value || '')
+  if (!authoringSceneLaboratoryRunner || authoringSceneLaboratoryProjectId !== projectId) {
+    authoringSceneLaboratoryProjectId = projectId
+    authoringSceneLaboratoryRunner = createAuthoringSceneLaboratoryRun({
+      prepareSession: (input) => getAuthoringRunSessionAdapter().prepareSession(input),
+      planDirections: planAuthoringSceneDirections
+    })
+  }
+  return authoringSceneLaboratoryRunner
 }
 
 const authoringWorkflows = {
@@ -2067,24 +5249,7 @@ const authoringWorkflows = {
   // → 资料索引 + 工具注册表 → orchestrator（BeatPlan 规划隔离、只读资料工具、正文 transcript）。
   // provider 缺失时优雅降级为 typed 错误。
   narrative: createNarrativeSceneWorkflow({
-    runTurn: async ({ intentMode, signal, turn, projection, narrativeContext }) => {
-      const settings = await getResolvedApiSettings()
-      // 只读当前书显式绑定的世界书，不读全局 active 状态，也不在回合内创建兜底世界书。
-      const worldbook = boundWorldbook.value || null
-      return getNarrativeKernelExecutor().executeTurn({
-        intentMode,
-        turn,
-        narrativeContext,
-        projection,
-        // Task 6 显式合同：项目 ID 与冻结指纹由调用方提供，执行器不内部猜测。
-        projectId: selectedBookId.value || '',
-        projectionFingerprint: projection?.projectionFingerprint || '',
-        settings,
-        worldbook,
-        runtimeState: buildAuthoringKernelRuntimeState(),
-        signal
-      })
-    }
+    runTurn: (input) => getAuthoringNarrativeRun().runTurn(input)
   }),
   auxiliary: createAuthoringAuxiliaryWorkflow({
     nextActions: async ({ request, envelope, signal }) => {
@@ -2129,9 +5294,10 @@ function getAuthoringRuntime() {
       projectRevision: `project:${projectId}`,
       facade: getAuthoringFacade(),
       workflows: authoringWorkflows,
+      resolveContext: (input) => getAuthoringNarrativeRun().resolveContext(input),
       resolveTarget: () => ({
-        type: 'chapter',
-        id: selectedChapterId.value || '',
+        type: wt3ActiveDoc.value ? 'exploration' : 'chapter',
+        id: wt3ActiveDoc.value?.id || selectedChapterId.value || '',
         revision: currentDocumentRevision()
       }),
       liveRevision: () => currentDocumentRevision(),
@@ -2141,32 +5307,200 @@ function getAuthoringRuntime() {
   return authoringRuntime
 }
 
-// 最近一次真实 resolveAgentContext ledger：上下文说明只展示它，不再用字数猜测拼装。
+// 最近一次真实 resolveAgentContext ledger：AI 辅助只展示它，不用字数猜测拼装。
 const lastExecutionLedger = shallowRef(null)
+const lastCompiledContextManifest = shallowRef(null)
+const lastContextReceipt = shallowRef(null)
+const contextRunPinnedIds = ref([])
+const contextRunExcludedIds = ref([])
+const authoringRunReferenceSelections = ref([])
+const authoringRunReferenceTargetKey = ref('')
+const authoringRunReferenceQuery = ref('')
+const authoringRunReferenceNotice = ref('')
+const authoringRunReferenceCatalogEpoch = ref(0)
+const authoringContextPreflightManifest = shallowRef(null)
+const authoringContextPreflightLoading = ref(false)
+const authoringContextPreflightError = ref('')
+const authoringContextPreflightDraft = shallowRef(null)
+let authoringContextPreflightVersion = 0
+let authoringContextPreflightTimer = null
+
+const authoringRunReferenceCatalog = computed(() => {
+  // epoch 由素材写入/手动刷新推进；computed 仍以当前项目和探索文档为作用域。
+  void authoringRunReferenceCatalogEpoch.value
+  return buildAuthoringRunReferenceCatalog({
+    projectId: selectedBookId.value,
+    explorations: wt3ExplorationDocs.value,
+    assets: listNarrativeAssets({ status: null, projectId: selectedBookId.value || '__no_current_book__' })
+  })
+})
+const reconciledAuthoringRunReferences = computed(() => reconcileAuthoringRunReferenceSelections(
+  authoringRunReferenceSelections.value,
+  authoringRunReferenceCatalog.value,
+  selectedBookId.value
+))
+
+function scheduleAuthoringContextPreflight(draft = authoringContextPreflightDraft.value) {
+  if (draft) authoringContextPreflightDraft.value = draft
+  if (authoringContextPreflightTimer) clearTimeout(authoringContextPreflightTimer)
+  if (!blockComposer.open || !blockComposer.target) return
+  const version = ++authoringContextPreflightVersion
+  authoringContextPreflightLoading.value = true
+  authoringContextPreflightError.value = ''
+  authoringContextPreflightTimer = setTimeout(async () => {
+    authoringContextPreflightTimer = null
+    const currentDraft = authoringContextPreflightDraft.value || {}
+    const instruction = [currentDraft.instruction, currentDraft.directorNote].filter(Boolean).join('\n')
+    let prepared
+    try {
+      prepared = await getAuthoringRunSessionAdapter().prepareSession({
+        taskId: 'authoring.advance',
+        request: { intent: {
+          instruction,
+          operation: currentDraft.operation || 'next-passage',
+          invocationTarget: blockComposer.target
+        } }
+      })
+    } catch (error) {
+      prepared = { ok: false, reason: String(error?.code || error?.message || 'preflight-failed') }
+    }
+    if (version !== authoringContextPreflightVersion || !blockComposer.open) return
+    authoringContextPreflightLoading.value = false
+    if (!prepared?.ok) {
+      authoringContextPreflightManifest.value = null
+      authoringContextPreflightError.value = prepared?.reason || 'preflight-failed'
+      return
+    }
+    authoringContextPreflightManifest.value = prepared.session.manifest
+  }, 180)
+}
+
+function addAuthoringRunReference(item) {
+  const referenceTarget = blockComposer.target || resolveBlockComposerTarget(notebookSelection.value || {})
+  const targetKey = authoringRunReferenceScopeKey(referenceTarget)
+  if (authoringRunReferenceTargetKey.value && authoringRunReferenceTargetKey.value !== targetKey) {
+    clearAuthoringRunReferences()
+  }
+  const result = addAuthoringRunReferenceSelection(authoringRunReferenceSelections.value, item)
+  if (!result.ok) {
+    authoringRunReferenceNotice.value = result.reason === 'limit'
+      ? '本次最多选择三条参考'
+      : result.reason === 'duplicate' ? '这条参考已经选过' : '这条参考当前不可用'
+    return false
+  }
+  authoringRunReferenceSelections.value = result.selections
+  authoringRunReferenceTargetKey.value = targetKey
+  authoringRunReferenceNotice.value = ''
+  scheduleAuthoringContextPreflight()
+  return true
+}
+
+function removeAuthoringRunReference(id) {
+  authoringRunReferenceSelections.value = removeAuthoringRunReferenceSelection(authoringRunReferenceSelections.value, id)
+  authoringRunReferenceNotice.value = ''
+  scheduleAuthoringContextPreflight()
+}
+
+function refreshAuthoringRunReference(id) {
+  authoringRunReferenceCatalogEpoch.value += 1
+  authoringRunReferenceSelections.value = refreshAuthoringRunReferenceSelection(
+    authoringRunReferenceSelections.value,
+    id,
+    authoringRunReferenceCatalog.value
+  )
+  authoringRunReferenceNotice.value = '已确认使用来源的最新版本'
+  scheduleAuthoringContextPreflight()
+}
+
+function clearAuthoringRunReferences() {
+  authoringRunReferenceSelections.value = []
+  authoringRunReferenceTargetKey.value = ''
+  authoringRunReferenceQuery.value = ''
+  authoringRunReferenceNotice.value = ''
+  authoringContextPreflightVersion += 1
+  if (authoringContextPreflightTimer) clearTimeout(authoringContextPreflightTimer)
+  authoringContextPreflightTimer = null
+  authoringContextPreflightManifest.value = null
+  authoringContextPreflightLoading.value = false
+  authoringContextPreflightError.value = ''
+  authoringContextPreflightDraft.value = null
+}
+const blockPreview = shallowRef(null)
+const blockDraftText = ref('')
+const blockDraftOriginalText = ref('')
+
+function toggleContextRunExclusion(candidateId) {
+  const id = String(candidateId || '')
+  if (!id) return
+  contextRunPinnedIds.value = contextRunPinnedIds.value.filter((item) => item !== id)
+  contextRunExcludedIds.value = contextRunExcludedIds.value.includes(id)
+    ? contextRunExcludedIds.value.filter((item) => item !== id)
+    : [...contextRunExcludedIds.value, id]
+  scheduleAuthoringContextPreflight()
+}
+
+watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
+  clearAuthoringRunReferences()
+  contextRunPinnedIds.value = []
+  contextRunExcludedIds.value = []
+  lastCompiledContextManifest.value = null
+  lastContextReceipt.value = null
+  // 上一次执行的 ledger 描述的是旧作用域的上下文账目，不清会让 AI 面板
+  // 在新章节继续展示旧章的 sourceRefs/字数（右栏读错当前对象）。
+  lastExecutionLedger.value = null
+  // 世界书面板的高亮条目同样绑定旧作用域。
+  inspectorWorldbookEntryId.value = ''
+  pendingWritingGhost.value = null
+  blockPreview.value = null
+  blockDraftText.value = ''
+  blockDraftOriginalText.value = ''
+  invalidateNotebookAtomicHistory()
+  notebookCopilotCanUndo.value = false
+})
 
 const authoringTask = useAuthoringTask({
   replaceSelectionTaskIds: ['authoring.rewrite'],
-  resolveTarget: (commandId) => {
-    if (!selectedBookId.value || !selectedChapterId.value) return null
-    const selection = readLiveWritingSelectionSnapshot()
+  resolveTarget: (commandId, invocationTarget = null) => {
+    if (!selectedBookId.value || (!selectedChapterId.value && !wt3ActiveDoc.value)) return null
+    const selection = invocationTarget
+      ? {
+          start: Number(invocationTarget.markdownFrom ?? invocationTarget.caret ?? 0),
+          end: Number(invocationTarget.markdownTo ?? invocationTarget.caret ?? 0),
+          text: '',
+          hasSelection: false,
+          unitId: invocationTarget.unitId || null,
+          unitRevision: Number(invocationTarget.unitRevision || 0),
+          nodeId: invocationTarget.nodeId || null,
+          nodeRevision: Number(invocationTarget.nodeRevision || 0)
+        }
+      : readLiveWritingSelectionSnapshot()
     const text = currentChapterDocumentText()
     // 冻结目标单元（worldbook scene closure Task 3）：请求发起时锁定插入位置。
     // 选区带有效单元 ID 时用之；否则显式回退文档最后一个单元（targetSource 记录来源）。
     const documentUnits = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
     const tailUnit = documentUnits.at(-1)
-    const targetUnitId = selection.unitId || tailUnit?.attrs?.unitId || null
+    const targetUnitId = invocationTarget?.unitId || selection.unitId || tailUnit?.attrs?.unitId || null
     const targetUnitRevision = selection.unitId
       ? Number(selection.unitRevision || 0)
       : Number(tailUnit?.attrs?.unitRevision || 0)
     return {
-      document: { text, revision: currentDocumentRevision() },
-      caret: Number.isFinite(selection.end) ? selection.end : text.length,
+      document: {
+        text: invocationTarget?.documentText ?? text,
+        revision: invocationTarget?.documentRevision || currentDocumentRevision()
+      },
+      caret: Number.isFinite(invocationTarget?.caret)
+        ? Number(invocationTarget.caret)
+        : Number.isFinite(selection.end) ? selection.end : text.length,
       selection,
       targetUnitId,
       targetUnitRevision,
+      targetNodeId: selection.nodeId || null,
+      targetNodeRevision: Number(selection.nodeRevision || 0),
       targetSource: selection.unitId ? 'selection' : (tailUnit ? 'document-tail-fallback' : 'empty-document'),
       request: {
-        context: buildWritingTaskContext(),
+        context: buildWritingTaskContext({}, selection),
+        invocationTarget,
+        documentRole: wt3ActiveDoc.value ? 'exploration' : 'manuscript',
         question: AUTHORING_COMMAND_QUESTIONS[commandId] || AUTHORING_COMMAND_QUESTIONS['authoring.insert'],
         hasSelection: selection.hasSelection,
         selectedText: selection.text || ''
@@ -2180,22 +5514,53 @@ const authoringTask = useAuthoringTask({
       instruction: request.question,
       hasSelection: Boolean(request.hasSelection),
       selectedText: String(request.selectedText || '').slice(0, 400),
-      caret: request.caret ?? null
+      caret: request.caret ?? null,
+      invocationTarget: request.invocationTarget || null
     }
     if (request.turn) {
       intent.turn = request.turn
-      intent.narrativeContext = request.narrativeContext || null
-      // 共享现场投影（spec §10）：内核与左栏/composer 读同一份。
-      intent.projection = sceneProjection.value
+    }
+    if (request.authoringRunSession) {
+      // F1-5 scene laboratory reuses the exact frozen C1 session that produced
+      // the chosen direction; normal composer turns continue to prepare once.
+      intent.authoringRunSession = request.authoringRunSession
     }
     const outcome = await runtime.execute({
       taskId,
       intent,
       signal
     })
-    lastExecutionLedger.value = outcome.ledger
     if (outcome.status === 'stale') {
-      throw Object.assign(new Error('文档已更新，本次结果未写入；可重新执行该命令'), { code: 'AGENT_RESULT_STALE' })
+      const generatedAction = (outcome.result?.actions || [])
+        .find((action) => action?.type === 'text-insert' || action?.type === 'text-patch')
+      const dependencyIssues = outcome.result?.dependencyIssues?.length
+        ? outcome.result.dependencyIssues
+        : [{
+            dependency: `document:${String(outcome.request?.target?.id || 'current')}`,
+            reason: outcome.staleReason || 'revision-changed',
+            expected: String(outcome.request?.target?.revision || ''),
+            actual: currentDocumentRevision()
+          }]
+      const contextReceipt = attachDependencyIssuesToReceipt(
+        outcome.result?.contextReceipt || null,
+        dependencyIssues
+      )
+      throw Object.assign(new Error('文档已更新，本次结果未写入；可重新执行该命令'), {
+        code: 'AGENT_RESULT_STALE',
+        adoptable: false,
+        generatedText: String(generatedAction?.content || ''),
+        contextManifest: outcome.result?.contextManifest || null,
+        contextReceipt,
+        contextCallReceipts: Array.isArray(outcome.result?.contextCallReceipts)
+          ? outcome.result.contextCallReceipts
+          : [],
+        contextOutcome: {
+          ...(outcome.result?.contextOutcome || {}),
+          status: 'stale',
+          dependencyIssues
+        },
+        dependencyIssues
+      })
     }
     const actions = outcome.result?.actions || []
     const textAction = actions.find((action) => action.type === 'text-insert' || action.type === 'text-patch')
@@ -2210,25 +5575,112 @@ const authoringTask = useAuthoringTask({
           documentRevision: String(request.target?.revision || '')
         })]
       }
+      payload.contextManifest = outcome.result?.contextManifest || null
+      payload.contextOutcome = outcome.result?.contextOutcome || null
+      payload.contextReceipt = outcome.result?.contextReceipt || null
+      payload.contextCallReceipts = Array.isArray(outcome.result?.contextCallReceipts)
+        ? outcome.result.contextCallReceipts
+        : []
+      payload.authoringRunSession = outcome.result?.authoringRunSession || null
+      payload.executionLedger = outcome.ledger || null
+      payload.sceneDelta = outcome.result?.sceneDelta || null
+      payload.outlineDelta = outcome.result?.outlineDelta || null
+      payload.boundaryHints = Array.isArray(outcome.result?.boundaryHints) ? outcome.result.boundaryHints : []
+      payload.boundaryHintSource = outcome.result?.boundaryHintSource || ''
+      payload.selectedDirectionReceipt = outcome.result?.selectedDirectionReceipt || null
       return payload
     }
-    if (outcome.result?.suggestions?.length) return { suggestions: outcome.result.suggestions }
-    if (outcome.result?.candidates?.length) return { candidates: outcome.result.candidates }
-    return { text: '' }
+    if (outcome.result?.suggestions?.length) return {
+      suggestions: outcome.result.suggestions,
+      executionLedger: outcome.ledger || null,
+      contextReceipt: outcome.result?.contextReceipt || null
+    }
+    if (outcome.result?.candidates?.length) return {
+      candidates: outcome.result.candidates,
+      executionLedger: outcome.ledger || null,
+      contextReceipt: outcome.result?.contextReceipt || null
+    }
+    return { text: '', executionLedger: outcome.ledger || null, contextReceipt: outcome.result?.contextReceipt || null }
   },
-  applyWritingUnit: ({ text, originRefs, afterUnitId, expectedUnitRevision }) => {
+  applyWritingUnit: ({ text, originRefs, afterUnitId, afterNodeId, expectedUnitRevision }) => {
     const editor = notebookEditorRef.value
     if (!editor || !notebookEditorActive.value) return { ok: false, reason: 'editor-inactive' }
     if (typeof editor.insertAsNewWritingUnit !== 'function') return { ok: false, reason: 'editor-unsupported' }
-    return editor.insertAsNewWritingUnit({ text, originRefs, afterUnitId, expectedUnitRevision })
+    const outcome = editor.insertAsNewWritingUnit({ text, originRefs, afterUnitId, afterNodeId, expectedUnitRevision })
+    if (outcome?.ok) clearNotebookAtomicRedoHistory()
+    return outcome
+  },
+  stageWritingUnit: ({
+    text,
+    originRefs,
+    afterUnitId,
+    afterNodeId,
+    expectedUnitRevision,
+    expectedNodeRevision,
+    contextManifest,
+    contextOutcome,
+    contextReceipt,
+    contextCallReceipts,
+    authoringRunSession,
+    sceneDelta,
+    outlineDelta,
+    boundaryHints = [],
+    boundaryHintSource = '',
+    selectedDirectionReceipt = null,
+    operation = 'next-passage'
+  }) => {
+    copilotCancel()
+    const next = createWritingGhostCandidate({
+      kind: operation === 'rewrite-unit' ? 'rewrite' : 'narrative',
+      text,
+      target: currentGhostTarget({
+        unitId: afterUnitId,
+        nodeId: afterNodeId,
+        unitRevision: expectedUnitRevision,
+        nodeRevision: expectedNodeRevision
+      }),
+      manifest: contextManifest || lastCompiledContextManifest.value,
+      runOutcome: contextOutcome || { status: 'completed' },
+      runSession: authoringRunSession,
+      contextCallReceipts,
+      originRefs,
+      sceneDelta,
+      outlineDelta
+    })
+    pendingWritingGhost.value = claimWritingGhostCandidate(pendingWritingGhost.value, next).pending
+    if (!pendingWritingGhost.value) return false
+    blockDraftOriginalText.value = String(text || '').trim()
+    blockDraftText.value = blockDraftOriginalText.value
+    blockComposer.failure = null
+    blockComposer.staleResult = null
+    blockPreview.value = Object.freeze({
+      text, originRefs, afterUnitId, afterNodeId, expectedUnitRevision, expectedNodeRevision,
+      operation: operation === 'rewrite-unit' ? 'rewrite-unit' : 'next-passage',
+      candidateId: pendingWritingGhost.value.id,
+      candidate: pendingWritingGhost.value,
+      hasDerivedEffects: Boolean(
+        pendingWritingGhost.value.sceneDelta
+        || pendingWritingGhost.value.outlineDelta
+        || collectAuthoringSceneRunIntentEffects(pendingWritingGhost.value.runSession, {
+          receipts: [contextReceipt, ...pendingWritingGhost.value.contextCallReceipts].filter(Boolean)
+        }).intentIds.length
+      ),
+      contextReceipt,
+      contextCallReceipts: pendingWritingGhost.value.contextCallReceipts,
+      boundaryHints: Object.freeze(boundaryHints.map((hint) => Object.freeze({ ...hint }))),
+      boundaryHintSource,
+      selectedDirectionReceipt
+    })
+    return true
   },
   applyPatchToEditor: (patch) => {
     const editor = notebookEditorRef.value
     if (!editor || !notebookEditorActive.value) return false
+    clearNotebookAtomicRedoHistory()
     if (patch.from !== patch.to && typeof editor.replaceTextRange === 'function') {
-      return Boolean(editor.replaceTextRange(patch.from, patch.to, patch.text))
+      return Boolean(editor.replaceTextRange(patch.from, patch.to, patch.text, { origin: 'writing-agent' }))
     }
-    if (typeof editor.insertPlainText === 'function') return Boolean(editor.insertPlainText(patch.text))
+    if (typeof editor.insertPlainText === 'function') return Boolean(editor.insertPlainText(patch.text, { origin: 'writing-agent' }))
     return false
   },
   restoreFullText: (text) => {
@@ -2236,17 +5688,1283 @@ const authoringTask = useAuthoringTask({
     syncMarkdownToEditor()
   },
   persist: () => {
-    saveCurrentChapter()
+    return wt3ActiveDoc.value ? wt3PersistActiveDoc()?.ok === true : saveCurrentChapter()
   },
-  getLiveRevision: () => currentDocumentRevision()
+  getLiveRevision: () => currentDocumentRevision(),
+  onResultAccepted: (result) => {
+    lastExecutionLedger.value = result?.executionLedger || null
+    lastCompiledContextManifest.value = result?.contextManifest || null
+    lastContextReceipt.value = result?.contextReceipt || null
+  },
+  // 作用域真源：迟到结果与撤销回执只对发起时的书/章/构思文档有效。
+  getScopeKey: () => `${selectedBookId.value}|${wt3ActiveDocId.value || ''}|${selectedChapterId.value || ''}`
 })
 const authoringTaskBusy = authoringTask.busy
 const authoringTaskNotice = authoringTask.notice
 const authoringAuxiliary = authoringTask.auxiliary
 const authoringTaskAppliedCount = authoringTask.appliedCount
+onBeforeUnmount(() => {
+  authoringTask.cancel()
+  sceneLaboratoryAbortController?.abort()
+})
 
-// —— 下一拍输入区（plan Task 2.3）：composer 发标准 turn request，页面负责契约校验与执行链。 ——
+// —— 块间输入区：composer 发标准 turn request，页面负责契约校验与执行链。 ——
 const turnComposerRef = ref(null)
+const blockComposer = reactive({ open: false, target: null, failure: null, staleResult: null, initialInstruction: '' })
+const interventionComposer = reactive({
+  open: false,
+  phase: 'draft',
+  target: null,
+  originalText: '',
+  session: null,
+  notice: '',
+  evidenceCount: 0,
+  candidateReviews: {},
+  rehearsalSelection: null,
+  rehearsalResult: null,
+  activeGhostId: '',
+  retryingGhostId: '',
+  adoptingGhostId: '',
+  pendingAdoption: null,
+  persistError: ''
+})
+let interventionRequestVersion = 0
+let interventionAbortController = null
+let authoringInterventionRunner = null
+let authoringInterventionRehearsalRunner = null
+const interventionGhostTeleportReady = ref(false)
+const lastInterventionUmbrellaReceipt = shallowRef(null)
+const interventionImpactGroups = computed(() => {
+  const session = interventionComposer.session
+  const evidenceByRef = new Map((session?.evidenceEnvelope?.evidence || [])
+    .map((item) => [String(item?.sourceRef || ''), item]))
+  return (session?.impactGroups || []).map((group) => ({
+    ...group,
+    evidence: group.evidenceRefs.map((sourceRef) => {
+      const item = evidenceByRef.get(String(sourceRef))
+      return {
+        sourceRef,
+        label: item?.label || '正文依据',
+        excerpt: item?.excerpt || ''
+      }
+    })
+  }))
+})
+const interventionCandidateGroups = computed(() => {
+  const session = interventionComposer.session
+  const evidenceByRef = new Map((session?.evidenceEnvelope?.evidence || [])
+    .map((item) => [String(item?.sourceRef || ''), item]))
+  return (session?.candidateGroups || []).map((group) => ({
+    ...group,
+    reviewStatus: interventionComposer.candidateReviews[group.id] || '',
+    evidence: group.evidenceRefs.map((sourceRef) => {
+      const item = evidenceByRef.get(String(sourceRef))
+      return {
+        sourceRef,
+        label: item?.label || '正文依据',
+        excerpt: item?.excerpt || ''
+      }
+    })
+  }))
+})
+const interventionCandidateReviewPendingCount = computed(() => (
+  (interventionComposer.session?.candidateGroups || []).filter((group) => (
+    !interventionComposer.candidateReviews[group.id]
+  )).length
+))
+const interventionRehearsalScopeResult = computed(() => createAuthoringInterventionRehearsalScope({
+  session: interventionComposer.session,
+  candidateReviews: interventionComposer.candidateReviews
+}))
+const interventionRehearsalDirections = computed(() => (
+  interventionRehearsalScopeResult.value?.ok
+    ? interventionRehearsalScopeResult.value.scope.directions
+    : []
+))
+const interventionGhosts = computed(() => interventionComposer.rehearsalResult?.drafts || [])
+const interventionBatchGhosts = computed(() => {
+  if (interventionComposer.rehearsalResult?.status !== 'fresh'
+    || interventionComposer.rehearsalResult?.adoptable !== true) return []
+  const ghosts = interventionGhosts.value.filter((ghost) => (
+    ghost.status === 'fresh' && !/[\r\n]/.test(String(ghost.text || ''))
+  ))
+  const targets = new Set(ghosts.map((ghost) => `${ghost.target?.documentId || ''}:${ghost.target?.nodeId || ''}`))
+  return ghosts.length > 1 && targets.size === ghosts.length ? ghosts : []
+})
+const activeInterventionGhost = computed(() => interventionGhosts.value.find((ghost) => (
+  ghost.id === interventionComposer.activeGhostId
+)) || interventionGhosts.value[0] || null)
+const interventionGhostInDual = computed(() => Boolean(
+  interventionComposer.phase === 'ghosts'
+  && activeInterventionGhost.value
+  && String(activeInterventionGhost.value.target?.documentId || '') !== String(selectedChapterId.value || '')
+))
+const interventionDisplayTarget = computed(() => (
+  interventionComposer.phase === 'ghosts' && activeInterventionGhost.value
+    ? activeInterventionGhost.value.target
+    : interventionComposer.target
+))
+const blockAdoptionBusy = ref(false)
+let blockComposerVersion = 0
+const historyInteractionLocked = computed(() => blockAdoptionBusy.value || Boolean(pendingGhostAdoption.value) || atomicHistoryBusy.value)
+const activeWritingMutationLocked = computed(() => (
+  historyInteractionLocked.value && (activeWritingPane.value === 'main' || dualSharesMainDocument())
+))
+const isEmptyChapter = computed(() => !String(markdownContent.value || '').trim())
+
+watch(blockDraftText, () => {
+  if (!blockPreview.value || pendingGhostAdoption.value) return
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+})
+
+function resolveBlockComposerTarget(target = {}) {
+  const fallbackUnit = writingDocument.value?.content?.at(-1)
+  const requestedUnitId = target?.unitId || fallbackUnit?.attrs?.unitId || null
+  const unit = (writingDocument.value?.content || [])
+    .find((item) => String(item?.attrs?.unitId || '') === String(requestedUnitId || '')) || fallbackUnit || null
+  const unitId = unit?.attrs?.unitId || null
+  const requestedNodeId = target?.nodeId || null
+  const node = (unit?.content || []).find((item) => String(item?.attrs?.nodeId || '') === String(requestedNodeId || ''))
+    || unit?.content?.at(-1) || null
+  const nodeId = node?.attrs?.nodeId || null
+  const liveSelection = readLiveWritingSelectionSnapshot()
+  const sameLiveNode = Boolean(nodeId && String(liveSelection.nodeId || '') === String(nodeId))
+  const nodeText = node ? getWritingBlockText(node) : ''
+  const nodeEnd = nodeId ? getWritingMarkdownPosition(writingDocument.value, nodeId, nodeText.length) : null
+  const caret = sameLiveNode && Number.isFinite(liveSelection.end)
+    ? liveSelection.end
+    : Number.isFinite(nodeEnd) ? nodeEnd : currentChapterDocumentText().length
+  const cursorLocalOffset = sameLiveNode && Number.isFinite(Number(target?.cursorLocalOffset))
+    ? Math.max(0, Math.min(nodeText.length, Number(target.cursorLocalOffset)))
+    : nodeText.length
+  return Object.freeze({
+    projectId: selectedBookId.value || '',
+    documentId: wt3ActiveDoc.value?.id || selectedChapterId.value || '',
+    documentRole: wt3ActiveDoc.value ? 'exploration' : 'manuscript',
+    chapterId: wt3ActiveDoc.value ? '' : selectedChapterId.value || '',
+    unitId,
+    unitRevision: Number(unit?.attrs?.unitRevision || 0),
+    nodeId,
+    nodeRevision: Number(node?.attrs?.nodeRevision || 0),
+    cursorLocalOffset,
+    caret,
+    markdownFrom: caret,
+    markdownTo: caret,
+    selectionBookmark: target?.selectionBookmark || notebookEditorRef.value?.captureSelectionBookmark?.() || null,
+    documentRevision: currentDocumentRevision(),
+    documentSchemaRevision: Number(writingDocument.value?.revision || 0)
+  })
+}
+
+function authoringRunReferenceScopeKey(target = {}) {
+  return [target.projectId, target.documentRole, target.documentId, target.unitId, target.nodeId]
+    .map((value) => String(value || ''))
+    .join(':')
+}
+
+function blockComposerTargetIsCurrent(target) {
+  if (!target) return false
+  if (
+    String(target.projectId || '') !== String(selectedBookId.value || '')
+    || String(target.documentId || '') !== String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
+    || String(target.documentRole || '') !== (wt3ActiveDoc.value ? 'exploration' : 'manuscript')
+    || String(target.documentRevision || '') !== currentDocumentRevision()
+  ) return false
+  const unit = (writingDocument.value?.content || [])
+    .find((item) => String(item?.attrs?.unitId || '') === String(target.unitId || ''))
+  if (!unit || Number(unit?.attrs?.unitRevision || 0) !== Number(target.unitRevision || 0)) return false
+  const node = (unit.content || [])
+    .find((item) => String(item?.attrs?.nodeId || '') === String(target.nodeId || ''))
+  return Boolean(node && Number(node?.attrs?.nodeRevision || 0) === Number(target.nodeRevision || 0))
+}
+
+function buildInterventionPositionIndex() {
+  const index = buildCurrentAuthoringSearchIndex()
+  if (!index?.ok) return null
+  return buildWritingAuthoringPositionIndex({
+    projectId: selectedBookId.value,
+    chapterOrderRevision: index.chapterOrderRevision,
+    documents: index.documents.map((source, order) => ({
+      projectId: selectedBookId.value,
+      documentId: source.documentId || source.sourceId,
+      documentRole: source.sourceKind === 'exploration' ? 'exploration' : 'manuscript',
+      chapterId: source.chapterId || '',
+      title: source.title,
+      order,
+      documentRevision: source.sourceRevision,
+      documentSchemaRevision: source.document?.revision,
+      document: source.document
+    }))
+  })
+}
+
+function getAuthoringInterventionRunner() {
+  if (authoringInterventionRunner) return authoringInterventionRunner
+  const evidenceReader = createAuthoringKnowledgeQuerySession()
+  authoringInterventionRunner = createAuthoringInterventionSession({
+    prepareEvidence: (input) => evidenceReader.prepare({
+      ...input,
+      liveSource: captureMainDocumentSource(),
+      sceneProjection: sceneProjection.value
+    }),
+    collectEvidenceRevisions: (session) => evidenceReader.collectCurrentRevisions(session, {
+      liveSource: captureMainDocumentSource(),
+      sceneProjection: sceneProjection.value
+    }),
+    readPositionIndex: () => buildInterventionPositionIndex(),
+    readTypedLinks: ({ projectId, target, positionIndex }) => readAuthoringOutlineCausalLinks({
+      projectId,
+      target,
+      positionIndex,
+      outlineNodes: wt3OutlineNodes.value,
+      outlineEdges: wt3OutlineEdges.value
+    })
+  })
+  return authoringInterventionRunner
+}
+
+function getAuthoringInterventionRehearsalRunner() {
+  if (authoringInterventionRehearsalRunner) return authoringInterventionRehearsalRunner
+  authoringInterventionRehearsalRunner = createAuthoringInterventionRehearsalRun({
+    reconcileSession: (session, options) => getAuthoringInterventionRunner().reconcile(session, options),
+    generateDrafts: generateAuthoringInterventionRehearsalDrafts
+  })
+  return authoringInterventionRehearsalRunner
+}
+
+function clearInterventionRehearsalResult() {
+  interventionComposer.rehearsalResult = null
+  interventionComposer.activeGhostId = ''
+  interventionComposer.retryingGhostId = ''
+  interventionComposer.adoptingGhostId = ''
+  interventionComposer.pendingAdoption = null
+  interventionComposer.persistError = ''
+  interventionGhostTeleportReady.value = false
+}
+
+function interventionFailureMessage(reason = '') {
+  if (reason === 'knowledge-required-source-missing' || reason.includes('target')) {
+    return '原文位置已经变化，请回到正文重新打开。'
+  }
+  if (reason === 'intervention-session-aborted') return ''
+  if (reason.includes('evidence') || reason.includes('position')) {
+    return '暂时无法核对这项变化的依据，表单已保留，可以重试。'
+  }
+  return '这项条件还无法建立可靠的影响检查，请调整后重试。'
+}
+
+function openInterventionComposer(target = notebookSelection.value) {
+  if (authoringTaskBusy.value || wt3ActiveDoc.value) return false
+  const frozenTarget = resolveBlockComposerTarget(target || {})
+  const node = getWritingNodeById(frozenTarget.nodeId)
+  const originalText = getWritingNodeText(node).trim()
+  if (!frozenTarget.unitId || !frozenTarget.nodeId || !originalText) return false
+  if (sceneLaboratory.open) closeSceneLaboratory({ restoreSelection: false })
+  if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
+  copilotCancel()
+  interventionAbortController?.abort()
+  interventionAbortController = null
+  interventionRequestVersion += 1
+  interventionComposer.open = true
+  interventionComposer.phase = 'draft'
+  interventionComposer.target = frozenTarget
+  interventionComposer.originalText = originalText
+  interventionComposer.session = null
+  interventionComposer.notice = ''
+  interventionComposer.evidenceCount = 0
+  interventionComposer.candidateReviews = {}
+  interventionComposer.rehearsalSelection = null
+  clearInterventionRehearsalResult()
+  notebookEditorRef.value?.blur?.()
+  return true
+}
+
+function closeInterventionComposer({ restoreSelection = true } = {}) {
+  if (!interventionComposer.open) return false
+  if (interventionComposer.pendingAdoption) {
+    interventionComposer.persistError = interventionComposer.persistError || '正文修改尚未保存，请先重试保存。'
+    return false
+  }
+  const bookmark = interventionComposer.target?.selectionBookmark
+  interventionAbortController?.abort()
+  interventionAbortController = null
+  interventionRequestVersion += 1
+  interventionComposer.open = false
+  interventionComposer.phase = 'draft'
+  interventionComposer.target = null
+  interventionComposer.originalText = ''
+  interventionComposer.session = null
+  interventionComposer.notice = ''
+  interventionComposer.evidenceCount = 0
+  interventionComposer.candidateReviews = {}
+  interventionComposer.rehearsalSelection = null
+  clearInterventionRehearsalResult()
+  if (restoreSelection) nextTick(() => restoreBlockSelection(bookmark))
+  return true
+}
+
+async function prepareAuthoringIntervention(input = {}) {
+  if (!interventionComposer.open || authoringTaskBusy.value) return false
+  interventionAbortController?.abort()
+  interventionAbortController = new AbortController()
+  const version = ++interventionRequestVersion
+  interventionComposer.phase = 'preparing'
+  interventionComposer.notice = ''
+  interventionComposer.candidateReviews = {}
+  interventionComposer.rehearsalSelection = null
+  clearInterventionRehearsalResult()
+  const result = await getAuthoringInterventionRunner().prepare(input, {
+    signal: interventionAbortController.signal
+  })
+  if (version !== interventionRequestVersion || !interventionComposer.open) return false
+  if (!result?.ok) {
+    interventionComposer.phase = 'failed'
+    interventionComposer.session = null
+    interventionComposer.evidenceCount = 0
+    interventionComposer.notice = interventionFailureMessage(result?.reason || '')
+    return false
+  }
+  interventionComposer.phase = 'ready'
+  interventionComposer.session = result.session
+  interventionComposer.evidenceCount = result.session.evidenceEnvelope?.evidence?.length || 0
+  interventionComposer.notice = ''
+  return true
+}
+
+function reviewInterventionCandidate({ groupId = '', decision = '' } = {}) {
+  if (interventionComposer.phase !== 'ready' || !interventionComposer.session) return false
+  const candidate = (interventionComposer.session.candidateGroups || [])
+    .find((group) => String(group?.id || '') === String(groupId || ''))
+  if (!candidate || !['exclude', 'keep'].includes(decision)) return false
+  interventionComposer.candidateReviews = {
+    ...interventionComposer.candidateReviews,
+    [candidate.id]: decision
+  }
+  interventionComposer.rehearsalSelection = null
+  clearInterventionRehearsalResult()
+  return true
+}
+
+function selectInterventionRehearsal(directionId = '') {
+  if (interventionComposer.phase !== 'ready' || !interventionRehearsalScopeResult.value?.ok) return false
+  const selected = selectAuthoringInterventionRehearsalDirection(
+    interventionRehearsalScopeResult.value.scope,
+    directionId
+  )
+  if (!selected?.ok) return false
+  interventionComposer.rehearsalSelection = selected.selection
+  clearInterventionRehearsalResult()
+  return true
+}
+
+async function selectInterventionGhost(ghostId = '') {
+  if (interventionComposer.pendingAdoption && interventionComposer.pendingAdoption.ghostId !== ghostId) return false
+  const ghost = interventionGhosts.value.find((item) => item.id === ghostId)
+  if (!ghost) return false
+  const documentId = String(ghost.target?.documentId || '')
+  interventionGhostTeleportReady.value = false
+  interventionComposer.activeGhostId = ghost.id
+  if (documentId && documentId !== String(selectedChapterId.value || '')) {
+    if (!openChapterInDual(documentId)) return false
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await nextTick()
+      if (typeof document !== 'undefined' && document.getElementById('authoring-dual-block-gap')) break
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    }
+    interventionGhostTeleportReady.value = Boolean(
+      typeof document !== 'undefined' && document.getElementById('authoring-dual-block-gap')
+    )
+    await nextTick()
+    dualPaneRef.value?.focusWritingUnit?.(ghost.target?.unitId)
+    document.getElementById('authoring-dual-block-gap')?.scrollIntoView?.({ block: 'center' })
+  }
+  await nextTick()
+  if (!interventionGhostInDual.value) {
+    notebookEditorRef.value?.focusWritingUnit?.(ghost.target?.unitId)
+    document.getElementById('authoring-block-gap')?.scrollIntoView?.({ block: 'center' })
+  }
+  return true
+}
+
+async function runInterventionRehearsal() {
+  if (interventionComposer.phase !== 'ready'
+    || !interventionComposer.session
+    || !interventionComposer.rehearsalSelection) return false
+  interventionAbortController?.abort()
+  interventionAbortController = new AbortController()
+  const version = ++interventionRequestVersion
+  interventionComposer.phase = 'generating'
+  interventionComposer.notice = ''
+  clearInterventionRehearsalResult()
+  const outcome = await getAuthoringInterventionRehearsalRunner().run({
+    session: interventionComposer.session,
+    selection: interventionComposer.rehearsalSelection
+  }, { signal: interventionAbortController.signal })
+  if (version !== interventionRequestVersion || !interventionComposer.open) return false
+  if (!outcome?.ok) {
+    interventionComposer.phase = outcome?.reason === 'intervention-rehearsal-stale' ? 'stale' : 'ready'
+    interventionComposer.notice = outcome?.reason === 'intervention-rehearsal-stale'
+      ? '原文或依据已经变化，请重新核对后再生成。'
+      : outcome?.reason === 'intervention-rehearsal-aborted'
+        ? ''
+        : '修改草稿生成失败，冻结范围仍保留，可以重试。'
+    return false
+  }
+  interventionComposer.rehearsalResult = outcome.result
+  interventionComposer.phase = 'ghosts'
+  interventionComposer.notice = ''
+  const firstGhost = outcome.result.drafts[0]
+  if (firstGhost) await selectInterventionGhost(firstGhost.id)
+  return true
+}
+
+function updateInterventionGhost({ ghostId = '', text = '' } = {}) {
+  if (interventionComposer.pendingAdoption) return false
+  const updated = editAuthoringInterventionGhost(interventionComposer.rehearsalResult, ghostId, text)
+  if (!updated.ok) return false
+  interventionComposer.rehearsalResult = updated.result
+  return true
+}
+
+async function retryInterventionGhost(ghostId = '') {
+  if (interventionComposer.phase !== 'ghosts' || interventionComposer.retryingGhostId || interventionComposer.pendingAdoption) return false
+  interventionAbortController?.abort()
+  interventionAbortController = new AbortController()
+  const version = ++interventionRequestVersion
+  interventionComposer.retryingGhostId = ghostId
+  const outcome = await getAuthoringInterventionRehearsalRunner().retry({
+    session: interventionComposer.session,
+    result: interventionComposer.rehearsalResult,
+    ghostId
+  }, { signal: interventionAbortController.signal })
+  if (version !== interventionRequestVersion || !interventionComposer.open) return false
+  interventionComposer.retryingGhostId = ''
+  if (!outcome?.ok) {
+    if (outcome?.reason === 'intervention-rehearsal-stale') {
+      interventionComposer.notice = '原文或依据已经变化；已有草稿保留，但不能继续重试。'
+      interventionComposer.rehearsalResult = Object.freeze({
+        ...interventionComposer.rehearsalResult,
+        status: 'stale',
+        drafts: Object.freeze(interventionGhosts.value.map((draft) => Object.freeze({ ...draft, status: 'stale' })))
+      })
+    }
+    return false
+  }
+  interventionComposer.rehearsalResult = outcome.result
+  return true
+}
+
+async function discardInterventionGhost(ghostId = '') {
+  if (interventionComposer.pendingAdoption) return false
+  const currentIndex = interventionGhosts.value.findIndex((ghost) => ghost.id === ghostId)
+  const discarded = discardAuthoringInterventionGhost(interventionComposer.rehearsalResult, ghostId)
+  if (!discarded.ok) return false
+  interventionComposer.rehearsalResult = discarded.result
+  if (!discarded.result.drafts.length) return closeInterventionComposer({ restoreSelection: true })
+  const nextGhost = discarded.result.drafts[Math.min(Math.max(0, currentIndex), discarded.result.drafts.length - 1)]
+  return selectInterventionGhost(nextGhost.id)
+}
+
+function readMainInterventionTarget(expected = {}) {
+  if (String(expected.documentId || '') !== String(selectedChapterId.value || '')) return null
+  const unit = (writingDocument.value?.content || []).find((item) => (
+    String(item?.attrs?.unitId || '') === String(expected.unitId || '')
+  ))
+  const node = (unit?.content || []).find((item) => (
+    String(item?.attrs?.nodeId || '') === String(expected.nodeId || '')
+  ))
+  if (!unit || !node) return null
+  return {
+    projectId: String(selectedBookId.value || ''),
+    documentId: String(selectedChapterId.value || ''),
+    documentRole: 'manuscript',
+    chapterId: String(selectedChapterId.value || ''),
+    unitId: String(unit.attrs.unitId || ''),
+    nodeId: String(node.attrs.nodeId || ''),
+    documentRevision: currentDocumentRevision(),
+    unitRevision: String(unit.attrs.unitRevision ?? ''),
+    nodeRevision: String(node.attrs.nodeRevision ?? ''),
+    nodeText: getWritingNodeText(node),
+    document: cloneAuthoringRunValue(writingDocument.value),
+    markdown: String(markdownContent.value || ''),
+    title: String(currentChapterTitle.value || '')
+  }
+}
+
+function readLiveInterventionAdoptionTarget(ghost) {
+  const expected = ghost?.target || {}
+  const surface = String(expected.documentId || '') === String(selectedChapterId.value || '')
+    ? readMainInterventionTarget(expected)
+    : dualPaneRef.value?.readLiveInterventionTarget?.(expected) || null
+  if (!surface) return null
+  // F3 session 的 documentRevision 来自全书 position index；主/副编辑器各自
+  // 的 surface revision 只用于窗口恢复。采用核对必须回到同一 canonical 口径。
+  const position = buildInterventionPositionIndex()?.entries?.find((entry) => (
+    String(entry.documentId || '') === String(expected.documentId || '')
+    && String(entry.unitId || '') === String(expected.unitId || '')
+    && String(entry.nodeId || '') === String(expected.nodeId || '')
+  ))
+  if (!position) return null
+  return {
+    ...surface,
+    documentRevision: position.documentRevision,
+    unitRevision: position.unitRevision,
+    nodeRevision: position.nodeRevision,
+    nodeText: position.text
+  }
+}
+
+async function persistPendingInterventionAdoption() {
+  const pending = interventionComposer.pendingAdoption
+  if (!pending || interventionComposer.adoptingGhostId) return false
+  interventionComposer.adoptingGhostId = pending.ghostId
+  interventionComposer.persistError = ''
+  const inMain = String(pending.adoption.target.documentId) === String(selectedChapterId.value || '')
+  let persisted = false
+  try {
+    persisted = inMain
+      ? saveCurrentChapter({ automaticHistory: false })
+      : dualPaneRef.value?.persistInterventionAdoption?.() === true
+  } catch {
+    persisted = false
+  }
+  if (!persisted) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '保存失败，草稿与正文修改仍保留；不会再次生成。'
+    return false
+  }
+  await nextTick()
+  const live = readLiveInterventionAdoptionTarget(pending.ghost)
+  const finalized = markAuthoringInterventionAdoptionPersisted(pending.adoption, live)
+  if (!finalized.ok) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '保存后无法核对目标修订，请保留当前页面并重试核对。'
+    return false
+  }
+  lastInterventionUmbrellaReceipt.value = createAuthoringInterventionSingleReceipt(finalized.receipt)
+  try {
+    const observerReceipt = await commitDirectAuthoringObservation({
+      text: pending.adoption.afterText,
+      sourceRefs: pending.adoption.sourceRefs,
+      memoryProjectId: selectedBookId.value,
+      documentId: pending.adoption.target.documentId,
+      chapterId: pending.adoption.target.chapterId,
+      unitId: pending.adoption.target.unitId,
+      unitRevision: Number(live?.unitRevision || 0),
+      sourceDocumentRevision: live?.documentRevision || ''
+    })
+    if (!observerReceipt) throw new Error('observer-schedule-failed')
+  } catch {
+    authoringObserverWarning.value = normalizeAuthoringFailure({
+      phase: 'observer',
+      code: 'AUTHORING_INTERVENTION_OBSERVER_FAILED',
+      message: '正文已保存，相关记忆将在稍后刷新',
+      retryable: true
+    })
+  }
+  const discarded = discardAuthoringInterventionGhost(interventionComposer.rehearsalResult, pending.ghostId)
+  interventionComposer.pendingAdoption = null
+  interventionComposer.adoptingGhostId = ''
+  interventionComposer.persistError = ''
+  if (!discarded.ok || !discarded.result.drafts.length) {
+    closeInterventionComposer({ restoreSelection: false })
+  } else {
+    interventionComposer.rehearsalResult = discarded.result
+    await selectInterventionGhost(discarded.result.drafts[0].id)
+  }
+  authoringTask.notify('这一处已采用并保存；其他排演草稿未改变', { canUndo: true })
+  return true
+}
+
+async function adoptInterventionGhost(ghostId = '') {
+  if (interventionComposer.phase !== 'ghosts' || interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return false
+  const ghost = interventionGhosts.value.find((item) => item.id === ghostId)
+  if (!ghost || ghost.status !== 'fresh') return false
+  interventionComposer.adoptingGhostId = ghost.id
+  interventionComposer.persistError = ''
+  const reconciled = await getAuthoringInterventionRunner().reconcile(interventionComposer.session)
+  if (!reconciled?.ok || reconciled.stale) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.notice = '原文或依据已经变化；已有草稿可查看，但不能采用。'
+    interventionComposer.rehearsalResult = Object.freeze({
+      ...interventionComposer.rehearsalResult,
+      status: 'stale',
+      adoptable: false,
+      drafts: Object.freeze(interventionGhosts.value.map((draft) => Object.freeze({ ...draft, status: 'stale' })))
+    })
+    return false
+  }
+  const live = readLiveInterventionAdoptionTarget(ghost)
+  const prepared = prepareAuthoringInterventionAdoption({
+    session: interventionComposer.session,
+    result: interventionComposer.rehearsalResult,
+    ghost,
+    liveTarget: live
+  })
+  if (!prepared.ok) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.notice = '目标正文已经变化，请重新核对后再排演。'
+    interventionComposer.persistError = '目标正文已经变化，请重新核对后再排演。'
+    return false
+  }
+  const protection = recordWritingProtectionSnapshot({
+    chapterId: prepared.adoption.target.chapterId,
+    chapterTitle: live.title,
+    reason: 'before-adoption',
+    document: live.document,
+    markdown: live.markdown,
+    annotations: prepared.adoption.target.documentId === String(selectedChapterId.value || '') ? chapterAnnotations.value : [],
+    operation: 'intervention-single-group',
+    transactionId: prepared.adoption.id
+  })
+  if (!protection.ok) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '无法保存采用前版本，正文没有变化。'
+    return false
+  }
+  if (prepared.adoption.target.documentId === String(selectedChapterId.value || '')) {
+    writingSnapshots.value = listWritingSnapshots(prepared.adoption.target.chapterId)
+  }
+  const changed = prepared.adoption.target.documentId === String(selectedChapterId.value || '')
+    ? notebookEditorRef.value?.replaceNodeRanges?.([prepared.adoption.patch], { origin: 'writing-agent' }) === true
+    : dualPaneRef.value?.applyInterventionAdoption?.(prepared.adoption.patch) === true
+  if (!changed) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '编辑器没有接受这次修改，正文未变化。'
+    return false
+  }
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
+    saveTimeout = null
+  }
+  interventionComposer.pendingAdoption = Object.freeze({ ghostId: ghost.id, ghost, adoption: prepared.adoption })
+  interventionComposer.adoptingGhostId = ''
+  return persistPendingInterventionAdoption()
+}
+
+function protectInterventionUmbrella(receipt, book) {
+  const chapterIds = [...new Set((receipt?.groups || []).map((group) => group.target?.chapterId).filter(Boolean))]
+  for (const chapterId of chapterIds) {
+    const chapter = (book?.chapters || []).find((item) => String(item?.id || '') === String(chapterId))
+    if (!chapter?.editorDocument) return false
+    const protection = recordWritingProtectionSnapshot({
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      reason: 'before-adoption',
+      document: chapter.editorDocument,
+      markdown: chapter.content || getWritingDocumentMarkdown(chapter.editorDocument),
+      annotations: chapter.annotations || [],
+      operation: 'intervention-umbrella',
+      transactionId: receipt.id
+    })
+    if (!protection.ok) return false
+  }
+  return true
+}
+
+function reloadInterventionBookSurfaces(nextBooks) {
+  books.value = nextBooks
+  const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
+  chapters.value = nextBook?.chapters || []
+  if (!wt3ActiveDoc.value) {
+    reloadMainChapterAfterSearchReplace(chapters.value.find((chapter) => (
+      String(chapter.id) === String(selectedChapterId.value)
+    )))
+  }
+  const dualSource = dualPaneRef.value?.getActiveSource?.()
+  if (dualSource?.kind === 'chapter') {
+    const dualChapter = chapters.value.find((chapter) => String(chapter.id) === String(dualSource.id))
+    if (dualChapter?.editorDocument) {
+      dualPaneRef.value?.reloadSearchSource?.({
+        sourceKind: 'chapter',
+        sourceId: dualChapter.id,
+        title: dualChapter.title,
+        document: dualChapter.editorDocument,
+        markdown: dualChapter.content
+      })
+    }
+  }
+  writingBlockHistory.value = selectedChapterId.value ? listWritingBlockHistory(selectedChapterId.value) : []
+  writingSnapshots.value = selectedChapterId.value ? listWritingSnapshots(selectedChapterId.value) : []
+}
+
+function recordInterventionBlockHistory(beforeBook, afterBook, receipt, source) {
+  for (const chapterId of [...new Set((receipt?.groups || []).map((group) => group.target?.chapterId).filter(Boolean))]) {
+    const before = (beforeBook?.chapters || []).find((chapter) => String(chapter.id) === String(chapterId))
+    const after = (afterBook?.chapters || []).find((chapter) => String(chapter.id) === String(chapterId))
+    if (!before?.editorDocument || !after?.editorDocument) continue
+    const entries = buildWritingBlockHistoryEntries({
+      chapterId,
+      chapterTitle: after.title,
+      previousDocument: before.editorDocument,
+      nextDocument: after.editorDocument,
+      source
+    })
+    if (entries.length) appendWritingBlockHistory(entries)
+  }
+}
+
+async function adoptAllInterventionGhosts() {
+  const ghosts = interventionBatchGhosts.value
+  if (interventionComposer.phase !== 'ghosts' || ghosts.length < 2
+    || interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return false
+  interventionComposer.adoptingGhostId = 'all'
+  interventionComposer.persistError = ''
+  if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '当前正文无法保存，批量采用尚未执行。'
+    return false
+  }
+  const reconciled = await getAuthoringInterventionRunner().reconcile(interventionComposer.session)
+  if (!reconciled?.ok || reconciled.stale) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.notice = '原文或依据已经变化；已有草稿可查看，但不能批量采用。'
+    interventionComposer.rehearsalResult = Object.freeze({
+      ...interventionComposer.rehearsalResult,
+      status: 'stale',
+      adoptable: false,
+      drafts: Object.freeze(interventionGhosts.value.map((draft) => Object.freeze({ ...draft, status: 'stale' })))
+    })
+    return false
+  }
+  const latestBooks = loadWritingBooks()
+  const latestBook = latestBooks.find((book) => String(book.id) === String(selectedBookId.value))
+  const prepared = prepareAuthoringInterventionUmbrella({
+    session: interventionComposer.session,
+    result: interventionComposer.rehearsalResult,
+    ghosts,
+    positionIndex: buildInterventionPositionIndex(),
+    book: latestBook
+  })
+  if (!prepared.ok) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = prepared.reason === 'intervention-umbrella-target-conflict'
+      ? '多个草稿指向同一位置，请逐一选择后采用。'
+      : '部分目标已经变化，批量采用没有写入正文。'
+    return false
+  }
+  if (!protectInterventionUmbrella(prepared.receipt, latestBook)) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '无法保存采用前版本，批量采用没有写入正文。'
+    return false
+  }
+  const nextBooks = latestBooks.map((book) => (
+    String(book.id) === String(prepared.receipt.projectId) ? prepared.nextBook : book
+  ))
+  if (!saveWritingBooks(nextBooks)) {
+    interventionComposer.adoptingGhostId = ''
+    interventionComposer.persistError = '保存失败，批量采用没有写入正文；草稿仍已保留。'
+    return false
+  }
+  recordInterventionBlockHistory(latestBook, prepared.nextBook, prepared.receipt, 'intervention-umbrella')
+  reloadInterventionBookSurfaces(nextBooks)
+  invalidateNotebookAtomicHistory()
+  authoringTask.invalidateReceipt()
+  try {
+    const first = prepared.receipt.groups[0]
+    const observerReceipt = await commitDirectAuthoringObservation({
+      text: prepared.receipt.groups.map((group) => group.afterText).join('\n\n'),
+      sourceRefs: [...new Set(prepared.receipt.groups.flatMap((group) => group.sourceRefs || []))],
+      memoryProjectId: selectedBookId.value,
+      documentId: first.target.documentId,
+      chapterId: first.target.chapterId,
+      unitId: first.target.unitId,
+      unitRevision: Number(first.afterUnitRevision || 0),
+      sourceDocumentRevision: String(first.afterDocumentRevision || '')
+    })
+    if (!observerReceipt) throw new Error('observer-schedule-failed')
+  } catch {
+    authoringObserverWarning.value = normalizeAuthoringFailure({
+      phase: 'observer', code: 'AUTHORING_INTERVENTION_OBSERVER_FAILED',
+      message: '正文已保存，相关记忆将在稍后刷新', retryable: true
+    })
+  }
+  lastInterventionUmbrellaReceipt.value = prepared.receipt
+  const changedCount = prepared.receipt.groupCount
+  const chapterCount = prepared.receipt.chapterCount
+  closeInterventionComposer({ restoreSelection: false })
+  authoringTask.notify(`已采用 ${changedCount} 处 · ${chapterCount} 章；未修改现场、大纲或世界事实`, { canUndo: true })
+  return true
+}
+
+async function undoInterventionUmbrella() {
+  const receipt = lastInterventionUmbrellaReceipt.value
+  if (!receipt || String(receipt.projectId) !== String(selectedBookId.value)) return false
+  if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
+    authoringTask.notify('当前正文保存失败，尚未撤销这次介入')
+    return false
+  }
+  const latestBooks = loadWritingBooks()
+  const latestBook = latestBooks.find((book) => String(book.id) === String(receipt.projectId))
+  const undo = prepareAuthoringInterventionUmbrellaUndo({ receipt, book: latestBook })
+  if (!undo.ok) {
+    lastInterventionUmbrellaReceipt.value = null
+    authoringTask.notify('采用后的目标又被修改，不能越过新修改撤销')
+    return false
+  }
+  const nextBooks = latestBooks.map((book) => (
+    String(book.id) === String(receipt.projectId) ? undo.nextBook : book
+  ))
+  if (!saveWritingBooks(nextBooks)) {
+    authoringTask.notify('撤销保存失败，正文仍保持采用后的状态')
+    return false
+  }
+  const undoneReceipt = { ...receipt, groups: undo.undoneGroups }
+  recordInterventionBlockHistory(latestBook, undo.nextBook, undoneReceipt, 'intervention-umbrella-undo')
+  reloadInterventionBookSurfaces(nextBooks)
+  lastInterventionUmbrellaReceipt.value = null
+  try {
+    await gameStore.handleAuthoringProseUndo({
+      sourceRefs: [...new Set(undo.undoneGroups.flatMap((group) => group.sourceRefs || []))],
+      revision: currentDocumentRevision(),
+      reason: 'intervention-umbrella-undo'
+    })
+  } catch {
+    authoringObserverWarning.value = normalizeAuthoringFailure({
+      phase: 'observer', code: 'AUTHORING_INTERVENTION_UNDO_OBSERVER_FAILED',
+      message: '正文已撤销，记忆状态将在稍后刷新', retryable: true
+    })
+  }
+  authoringTask.notify(undo.unsafeGroups.length
+    ? `已撤销 ${undo.undoneGroups.length} 处；${undo.unsafeGroups.length} 处有后续修改，未覆盖`
+    : `已撤销本次介入的 ${undo.undoneGroups.length} 处正文修改`)
+  return true
+}
+
+watch(() => currentDocumentRevision(), (revision) => {
+  if (!interventionComposer.open || !interventionComposer.session) return
+  if (interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return
+  if (String(interventionComposer.target?.documentRevision || '') === String(revision || '')) return
+  interventionComposer.phase = 'stale'
+  interventionComposer.rehearsalSelection = null
+  clearInterventionRehearsalResult()
+  interventionComposer.notice = '原文已变化，刚才冻结的影响依据已经过期；表单仍保留，请重新核对。'
+})
+
+watch(knowledgeAssistantRevisionSignal, async () => {
+  const session = interventionComposer.session
+  if (!interventionComposer.open || !session) return
+  // 正式采用拥有当前 revision 变化；保存与一次 observer 调度完成前，通用
+  // 资料变更 watcher 不得抢占 session 或清掉仍待持久化的 Ghost。
+  if (interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return
+  interventionAbortController?.abort()
+  interventionAbortController = new AbortController()
+  const version = ++interventionRequestVersion
+  interventionComposer.phase = 'preparing'
+  interventionComposer.notice = '项目资料已变化，正在复核这项条件……'
+  const result = await getAuthoringInterventionRunner().reconcile(session, {
+    signal: interventionAbortController.signal
+  })
+  if (version !== interventionRequestVersion || !interventionComposer.open) return
+  if (!result?.ok || result.stale) {
+    interventionComposer.phase = 'stale'
+    interventionComposer.rehearsalSelection = null
+    clearInterventionRehearsalResult()
+    interventionComposer.notice = '原文或依据已经变化，表单仍保留；请重新核对后再继续。'
+    return
+  }
+  interventionComposer.phase = 'ready'
+  interventionComposer.notice = ''
+})
+
+onBeforeUnmount(() => interventionAbortController?.abort())
+
+function openBlockComposer(target = notebookSelection.value, options = {}) {
+  const frozenTarget = resolveBlockComposerTarget(target || {})
+  const unitId = frozenTarget.unitId
+  if (!unitId && !isEmptyChapter.value) return false
+  const referenceTargetKey = authoringRunReferenceScopeKey(frozenTarget)
+  if (authoringRunReferenceTargetKey.value && authoringRunReferenceTargetKey.value !== referenceTargetKey) {
+    clearAuthoringRunReferences()
+  }
+  authoringRunReferenceTargetKey.value = referenceTargetKey
+  if (options.preserveSceneIntents) {
+    authoringSceneRunIntents.value = readAuthoringSceneRunIntentsForTarget(
+      authoringSceneRunIntents.value,
+      frozenTarget
+    )
+  } else {
+    clearAuthoringSceneRunIntents()
+  }
+  copilotCancel()
+  if (interventionComposer.open) closeInterventionComposer({ restoreSelection: false })
+  blockComposerVersion += 1
+  if (!options.preserveInstruction) blockComposer.initialInstruction = ''
+  blockComposer.open = true
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+  blockComposer.target = frozenTarget
+  scheduleAuthoringContextPreflight()
+  // gap 按钮会有意保留 ProseMirror 选区；composer 一取得所有权就同步
+  // blur 正文，再在挂载完成后把焦点交给指令框，避免下一键串入正文。
+  notebookEditorRef.value?.blur?.()
+  nextTick(() => blockComposerRef.value?.focusInstruction?.())
+  return true
+}
+
+function restoreBlockSelection(bookmark) {
+  notebookEditorRef.value?.restoreSelectionBookmark?.(bookmark)
+}
+
+function abandonBlockComposer({ restoreSelection = false } = {}) {
+  if (pendingGhostAdoption.value) return false
+  const bookmark = blockComposer.target?.selectionBookmark
+  blockComposerVersion += 1
+  authoringTask.cancel()
+  blockPreview.value = null
+  blockDraftText.value = ''
+  blockDraftOriginalText.value = ''
+  pendingWritingGhost.value = null
+  blockComposer.open = false
+  blockComposer.target = null
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+  blockComposer.initialInstruction = ''
+  clearAuthoringRunReferences()
+  clearAuthoringSceneRunIntents()
+  if (restoreSelection) restoreBlockSelection(bookmark)
+  return true
+}
+
+function closeBlockComposer() {
+  return abandonBlockComposer({ restoreSelection: true })
+}
+
+async function acceptBlockPreview() {
+  if (blockAdoptionBusy.value) return false
+  blockAdoptionBusy.value = true
+  try {
+    return await performBlockPreviewAdoption()
+  } finally {
+    blockAdoptionBusy.value = false
+  }
+}
+
+async function performBlockPreviewAdoption() {
+  const preview = blockPreview.value
+  if (!preview) return false
+  let adoption = pendingGhostAdoption.value
+  // 保存失败后的重试只能消费第一次插入时冻结的事务载荷。草稿、inline
+  // candidate、光标与当前上下文此时都不是事务真源，绝不能再次决定是否插入。
+  const adoptedText = adoption?.adoptedText || String(blockDraftText.value || '').trim()
+  if (!adoptedText) {
+    blockComposer.failure = normalizeAuthoringFailure({
+      phase: 'adoption',
+      code: 'AUTHORING_DRAFT_EMPTY',
+      message: '推演草稿为空，请保留正文后再采用',
+      retryable: true
+    })
+    return false
+  }
+  if (!adoption) {
+    const candidate = preview.candidate
+    if (!['narrative', 'rewrite'].includes(candidate?.mode) || candidate.id !== preview.candidateId) {
+      blockComposer.staleResult = { text: adoptedText, target: candidate?.target || null, reason: 'candidate-replaced' }
+      return false
+    }
+    const liveDependencyRevisions = candidate.runSession
+      ? await getAuthoringRunSessionAdapter().collectLiveDependencies(candidate.runSession)
+      : buildLiveContextDependencyRevisions()
+    const validation = validateWritingGhostCandidate(candidate, {
+      target: currentGhostTarget({
+        unitId: preview.afterUnitId,
+        nodeId: preview.afterNodeId,
+        unitRevision: preview.expectedUnitRevision,
+        nodeRevision: preview.expectedNodeRevision
+      }),
+      liveDependencyRevisions
+    })
+    if (!validation.ok) {
+      blockComposer.staleResult = { text: adoptedText, target: candidate.target, reason: validation.reason }
+      return false
+    }
+    if (saveTimeout) {
+      clearTimeout(saveTimeout)
+      saveTimeout = null
+    }
+    // 标题和正文共享同一个文档 revision / 持久化边界。采用开始前撤掉
+    // 尚未执行的标题 autosave；本轮正文事务会把当前标题一并持久化。
+    if (titleTimeout) {
+      clearTimeout(titleTimeout)
+      titleTimeout = null
+    }
+    if (candidate.target.role !== 'exploration') {
+      if (!saveCurrentChapter({ automaticHistory: false })) {
+        blockComposer.failure = normalizeAuthoringFailure({
+          phase: 'adoption',
+          code: 'AUTHORING_PROTECTION_PERSIST_FAILED',
+          message: '无法保存采纳前版本，本次正文没有写入',
+          retryable: true
+        })
+        return false
+      }
+      const protection = recordWritingProtectionSnapshot({
+        chapterId: selectedChapterId.value,
+        chapterTitle: currentChapterTitle.value,
+        reason: 'before-adoption',
+        document: writingDocument.value,
+        markdown: markdownContent.value,
+        annotations: chapterAnnotations.value,
+        operation: preview.operation,
+        transactionId: candidate.id
+      })
+      if (!protection.ok) {
+        blockComposer.failure = normalizeAuthoringFailure({
+          phase: 'adoption',
+          code: 'AUTHORING_PROTECTION_SNAPSHOT_FAILED',
+          message: '采纳前版本保存失败，本次正文没有写入',
+          retryable: true
+        })
+        return false
+      }
+      writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
+    }
+    const beforeBodyRevision = currentDocumentBodyRevision()
+    const beatDraft = preview.operation === 'rewrite-unit'
+      ? null
+      : blockDraftRef.value?.getSceneBeatDraft?.()
+    const proposedUnits = beatDraft?.units?.length
+      ? beatDraft.units.map((unit) => ({ draftUnitId: unit.id, text: unit.text }))
+      : [{ draftUnitId: preview.candidateId, text: adoptedText }]
+    if (proposedUnits.some((unit) => !String(unit.text || '').trim())) {
+      blockComposer.failure = normalizeAuthoringFailure({ phase: 'adoption', code: 'AUTHORING_DRAFT_UNIT_EMPTY', message: '分段草稿中有空单元，请调整边界后再采用', retryable: true })
+      return false
+    }
+    const sceneId = String(candidate.runSession?.sceneProjection?.sceneId || `scene-beat-${String(beatDraft?.fingerprint || candidate.id).slice(0, 24)}`)
+    const outcome = preview.operation === 'rewrite-unit'
+      ? notebookEditorRef.value?.replaceWritingUnit?.({
+          text: adoptedText,
+          originRefs: preview.originRefs,
+          unitId: preview.afterUnitId,
+          expectedUnitRevision: preview.expectedUnitRevision
+        })
+      : notebookEditorRef.value?.insertWritingUnitBatch?.({
+          units: proposedUnits,
+          originRefs: preview.originRefs,
+          sceneId,
+          beatFingerprint: beatDraft?.fingerprint || candidate.id,
+          afterUnitId: preview.afterUnitId,
+          expectedUnitRevision: preview.expectedUnitRevision
+        })
+    if (!outcome?.ok) {
+      blockComposer.failure = normalizeAuthoringFailure({ reason: outcome?.reason || 'editor-write', message: outcome?.message || '生成失败' })
+      return false
+    }
+    const draftChanged = adoptedText !== String(blockDraftOriginalText.value || '').trim()
+    // scene/outline delta 描述的是模型原稿语义。用户改过草稿后只能提交
+    // 编辑后的正文，再由 observer 重新派生；绝不把原稿的“离场/完成”等
+    // 语义效果套到可能已经反转含义的编辑稿上。
+    const adoptionCandidate = candidate.target.role === 'exploration' || draftChanged || preview.operation === 'rewrite-unit'
+      ? { ...candidate, sceneDelta: null, outlineDelta: null }
+      : candidate
+    const sceneIntentEffects = candidate.target.role === 'exploration' || preview.operation === 'rewrite-unit'
+      ? collectAuthoringSceneRunIntentEffects([])
+      : collectAuthoringSceneRunIntentEffects(candidate.runSession, {
+          receipts: [preview.contextReceipt, ...candidate.contextCallReceipts].filter(Boolean)
+        })
+    const deltas = prepareWritingAdoptionDeltas({
+      candidate: adoptionCandidate,
+      insertedUnitId: outcome.unitId,
+      insertedUnitIds: outcome.unitIds || [outcome.unitId],
+      worldbookId: selectedBookWorldbookId.value,
+      sceneAnchors: sceneAnchors.value,
+      outlineNodes: wt3OutlineNodes.value,
+      outlineEdges: wt3OutlineEdges.value,
+      // 只兑现本 session 的显式安排；不再扫描并提交整章旧 planned anchor。
+      commitPlannedEntrances: false,
+      sceneIntentEffects
+    })
+    if (!deltas.ok) {
+      applyingAtomicNotebookHistory = true
+      try {
+        notebookEditorRef.value?.undo?.()
+      } finally {
+        applyingAtomicNotebookHistory = false
+      }
+      // 内部回滚生成了 redo step；该 step 若被用户重做会只有正文、没有
+      // scene/outline delta。重建同文档编辑器，彻底丢弃这条无效历史。
+      fenceNotebookHistory()
+      blockComposer.failure = normalizeAuthoringFailure({ phase: 'adoption', code: 'AUTHORING_DELTA_INVALID', message: '现场或大纲变更已失效，请重新生成', retryable: true })
+      return false
+    }
+    // 从这一刻起 Notebook 历史栈顶部将变成新推演单元，上一笔 Ghost/普通
+    // authoring 回执都不再安全；先失效旧回执，再发布本轮冻结事务。
+    clearNotebookAtomicRedoHistory()
+    authoringTask.invalidateReceipt()
+    sceneAnchors.value = deltas.sceneAnchors
+    wt3OutlineNodes.value = deltas.outlineNodes
+    const book = books.value.find((item) => String(item.id) === String(selectedBookId.value))
+    if (book) book.outlineNodes = deltas.outlineNodes
+    adoption = Object.freeze({
+      candidateId: candidate.id,
+      insertedUnitId: outcome.unitId,
+      insertedUnitIds: Object.freeze(outcome.unitIds || [outcome.unitId]),
+      editorResult: Object.freeze({
+        unitId: outcome.unitId,
+        unitIds: Object.freeze(outcome.unitIds || [outcome.unitId]),
+        focus: outcome.focus || null
+      }),
+      sceneBeatDraft: beatDraft || null,
+      operation: preview.operation,
+      observationSourceRef: `ghost-adoption:${candidate.id}`,
+      beforeUnitSnapshot: outcome.beforeUnit || null,
+      afterUnitSnapshot: preview.operation === 'rewrite-unit'
+        ? cloneAuthoringRunValue((writingDocument.value?.content || [])
+            .find((unit) => unit?.attrs?.unitId === outcome.unitId))
+        : null,
+      receipt: deltas.receipt,
+      documentRole: candidate.target.role,
+      adoptedText,
+      // broad refs 负责解释来源，unit ref 负责精确失效。撤销时只用 unit ref，
+      // 不能拿 chapter ref 把同章此前所有记忆候选一起标 stale。
+      sourceRefs: Object.freeze([...new Set([
+        ...composerSourceRefs.value,
+        ...sceneIntentEffects.sourceRefs,
+        `ghost-adoption:${candidate.id}`,
+        ...(outcome.unitIds || [outcome.unitId]).map((unitId) => `unit:${unitId}`)
+      ])]),
+      beforeDocumentRevision: candidate.target.documentRevision,
+      afterDocumentRevision: currentDocumentRevision(),
+      beforeBodyRevision,
+      afterBodyRevision: currentDocumentBodyRevision(),
+      semanticDeltasDropped: draftChanged && Boolean(candidate.sceneDelta || candidate.outlineDelta)
+    })
+    pendingGhostAdoption.value = adoption
+    // insertAsNewWritingUnit 会同步触发 onContentChange；清掉它在事务标记建立前排入的保存。
+    if (saveTimeout) {
+      clearTimeout(saveTimeout)
+      saveTimeout = null
+    }
+  }
+  const exploration = adoption.documentRole === 'exploration'
+  const persisted = exploration ? wt3PersistActiveDoc()?.ok === true : saveCurrentChapter({ preservePageOutline: true })
+  if (!persisted) {
+    blockComposer.failure = normalizeAuthoringFailure({ phase: 'persist', code: 'AUTHORING_PERSIST_FAILED', message: 'Ghost 事务已保留；重试只会再次保存，不会重新生成或重复插入', retryable: true })
+    return false
+  }
+  if (!exploration) {
+    try {
+      const observerUnitId = adoption.insertedUnitIds?.at(-1) || adoption.insertedUnitId
+      const insertedUnit = (writingDocument.value?.content || [])
+        .find((unit) => unit?.attrs?.unitId === observerUnitId)
+      const observerReceipt = await commitDirectAuthoringObservation({
+        text: adoption.adoptedText,
+        sourceRefs: adoption.sourceRefs,
+        memoryProjectId: selectedBookId.value,
+        documentId: selectedChapterId.value,
+        chapterId: selectedChapterId.value,
+        unitId: observerUnitId,
+        unitRevision: Number(insertedUnit?.attrs?.unitRevision || 0),
+        sourceDocumentRevision: currentDocumentRevision()
+      })
+      if (!observerReceipt) throw new Error('observer-schedule-failed')
+    } catch {
+      authoringObserverWarning.value = normalizeAuthoringFailure({
+        phase: 'observer',
+        code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
+        message: '正文已保存，现场状态将在稍后刷新',
+        retryable: true
+      })
+    }
+  }
+  const shouldFenceRewrittenUnit = adoption.operation === 'rewrite-unit'
+  blockPreview.value = null
+  blockDraftText.value = ''
+  blockDraftOriginalText.value = ''
+  pendingWritingGhost.value = null
+  pendingGhostAdoption.value = null
+  clearAuthoringSceneRunIntents()
+  const committedReceipt = Object.freeze({
+    ...adoption.receipt,
+    adoptedText: adoption.adoptedText,
+    sourceRefs: adoption.sourceRefs,
+    operation: adoption.operation,
+    observationSourceRef: adoption.observationSourceRef,
+    beforeUnitSnapshot: adoption.beforeUnitSnapshot,
+    afterUnitSnapshot: adoption.afterUnitSnapshot,
+    beforeDocumentRevision: adoption.beforeDocumentRevision,
+    afterDocumentRevision: adoption.afterDocumentRevision,
+    beforeBodyRevision: adoption.beforeBodyRevision,
+    afterBodyRevision: adoption.afterBodyRevision
+  })
+  pushNotebookAtomicUndoReceipt({
+    kind: 'ghost-adoption',
+    ...committedReceipt
+  })
+  if (shouldFenceRewrittenUnit) {
+    // Ghost 通过 Teleport 挂在 Notebook 内部的 block gap。必须先让 Ghost
+    // 完成卸载，再重建编辑器以清空旧 rewrite history；否则目标节点会和
+    // Teleport 子树在同一 patch 中一起消失，可能留下空稿面与卸载期异常。
+    await nextTick()
+    fenceNotebookHistory()
+    await nextTick()
+  }
+  blockComposer.open = false
+  blockComposer.initialInstruction = ''
+  clearAuthoringRunReferences()
+  showAdoptionImpact(
+    createAdoptionImpactProjection({ editorResult: adoption.editorResult, receipt: committedReceipt }),
+    adoption.editorResult?.focus || { unitId: adoption.insertedUnitIds?.at(-1) || adoption.insertedUnitId }
+  )
+  authoringTask.notify(exploration
+    ? (adoption.operation === 'rewrite-unit' ? '当前探索文本块已替换' : '推演已纳入探索稿')
+    : (adoption.operation === 'rewrite-unit' ? '当前文本块已替换' : '推演已纳入正文'), { canUndo: true })
+  return true
+}
+
+function dismissBlockPreview() {
+  return abandonBlockComposer({ restoreSelection: true })
+}
+
+function restoreBlockDraft() {
+  if (pendingGhostAdoption.value) return false
+  blockDraftText.value = blockDraftOriginalText.value
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+  return true
+}
+
+async function submitBlockTurn({ target, turn, authorNote }) {
+  const submittedComposerVersion = ++blockComposerVersion
+  if (!blockComposerTargetIsCurrent(target)) {
+    blockComposer.failure = normalizeAuthoringFailure({
+      phase: 'stale',
+      code: 'AUTHORING_TARGET_STALE',
+      message: '打开推演后正文或目标文本块已变化，请在新的落笔处重新打开',
+      retryable: true
+    })
+    return
+  }
+  const outcome = await runAuthoringTurn({
+    ...turn,
+    directorNote: authorNote || turn.directorNote,
+    sourceRefs: turn.sourceRefs,
+    invocationTarget: target
+  }, submittedComposerVersion)
+  // 关闭/重开后，旧 provider 即使忽略 AbortSignal 并迟到返回，也不得
+  // 覆盖新 composer 的 failure/stale/preview 状态。
+  if (submittedComposerVersion !== blockComposerVersion) return
+  blockComposer.failure = outcome?.ok ? null : normalizeAuthoringFailure(outcome)
+  if (outcome?.reason === 'stale' || outcome?.reason === 'target-unit-stale') {
+    blockComposer.staleResult = {
+      text: outcome.text || '',
+      target,
+      adoptable: false,
+      contextManifest: outcome.contextManifest || null,
+      contextReceipt: outcome.contextReceipt || null,
+      contextCallReceipts: Array.isArray(outcome.contextCallReceipts) ? outcome.contextCallReceipts : [],
+      dependencyIssues: outcome.dependencyIssues || []
+    }
+  }
+  if (outcome?.preview) {
+    // AuthoringBlockDraft 挂载后会把焦点放进可编辑草稿。这里不能恢复正文
+    // 选区，否则 commands.focus() 会抢走 textarea 焦点，用户接着打字就会
+    // 误改 canonical 正文。选区书签只在取消/丢弃后恢复。
+    await nextTick()
+  }
+  if (outcome?.ok && !outcome.preview) blockComposer.open = false
+}
 // composer 失败信号：typed 结果对象（phase/code/retryable），不再是两条互相遮蔽的字符串。
 // 半自动据此立即暂停，而不是等下一次 apply token 才反应。
 const composerFailure = shallowRef(null)
@@ -2261,6 +6979,11 @@ function recordComposerOutcome(outcome) {
 // 成功后该正文事务才真正提交：apply token 推进（输入区清空），
 // 并为这段最终落盘的正文补一次观察器调度（复验修复 4）。
 async function handleRetryAuthoringPersist() {
+  if (pendingGhostAdoption.value) {
+    const saved = await acceptBlockPreview()
+    composerFailure.value = saved ? null : blockComposer.failure
+    return
+  }
   const outcome = await Promise.resolve(authoringTask.retryPersist())
   if (!outcome.ok) {
     composerFailure.value = outcome
@@ -2269,7 +6992,16 @@ async function handleRetryAuthoringPersist() {
   composerFailure.value = null
   try {
     if (outcome.text) {
-      await gameStore.commitAuthoringProseResult({ text: outcome.text, sourceRefs: [`chapter:${selectedChapterId.value || 'none'}`] })
+      const observerTarget = currentAuthoringObserverTarget(outcome.insertedUnitId)
+      const observerReceipt = await commitDirectAuthoringObservation({
+        text: outcome.text,
+        sourceRefs: [...new Set([
+          activeDocumentSourceRef(),
+          ...(observerTarget.unitId ? [`unit:${observerTarget.unitId}`] : [])
+        ])],
+        ...observerTarget
+      })
+      if (!observerReceipt) throw new Error('observer-schedule-failed')
     }
     refreshAuthoringObserverState()
   } catch {
@@ -2302,7 +7034,7 @@ const composerPeople = computed(() => {
   return [...byId.values()]
 })
 const composerSourceRefs = computed(() => {
-  const refs = [`chapter:${selectedChapterId.value || 'none'}`]
+  const refs = [activeDocumentSourceRef()]
   if (sceneProjection.value.sceneId) refs.push(`scene-thread:${sceneProjection.value.sceneId}`)
   return refs
 })
@@ -2311,27 +7043,34 @@ function focusTurnComposer() {
   turnComposerRef.value?.$el?.querySelector?.('textarea')?.focus?.()
 }
 
-async function runAuthoringTurn(payload) {
+async function runAuthoringTurn(payload, submissionVersion = blockComposerVersion) {
   if (!selectedBookId.value || !selectedChapterId.value) return { ok: false, text: '', reason: 'no-target' }
-  // 有界半自动（spec §6.4）：记录本拍起点的地点与生成文本，
-  // 供环境暂停信号（直接提问/地点切换）在下一拍决策时使用。
-  const beatStartLocationId = sceneProjection.value.location?.id || ''
-  const beatStartRuntimeEventIndex = Array.isArray(gameStore.runtimeEvents) ? gameStore.runtimeEvents.length : 0
-  semiAutoLastBeat.value = { text: '', previousLocationId: '', mechanismTrigger: false }
   try {
-    return await executeAuthoringTurn(payload, beatStartLocationId, beatStartRuntimeEventIndex)
+    return await executeAuthoringTurn(payload, submissionVersion)
   } catch (err) {
     // 异常也是 typed 失败：composer 立即显示 phase-specific 状态并暂停半自动。
-    composerFailure.value = normalizeAuthoringFailure({
-      phase: 'provider',
-      code: 'AUTHORING_RUNTIME_ERROR',
-      message: '这一拍执行出错，半自动已暂停'
-    })
+    const runStatus = err?.contextOutcome?.status || ''
+    const messages = {
+      aborted: '这一拍已取消',
+      stale: '资料或目标已更新，请重新生成',
+      timeout: '模型响应超时，可以重试这一拍',
+      'grounding-insufficient': '现有资料不足以可靠生成这一拍',
+      'loop-capped': '资料查询达到上限，本轮已停止',
+      'invalid-result': '模型没有返回可用正文'
+    }
+    if (submissionVersion === blockComposerVersion) {
+      composerFailure.value = normalizeAuthoringFailure({
+        phase: runStatus === 'stale' ? 'stale' : runStatus === 'grounding-insufficient' ? 'context' : 'provider',
+        code: err?.code || 'AUTHORING_RUNTIME_ERROR',
+        message: messages[runStatus] || '这一拍执行出错',
+        retryable: err?.contextOutcome?.retryable !== false
+      })
+    }
     throw err
   }
 }
 
-async function executeAuthoringTurn(payload, beatStartLocationId, beatStartRuntimeEventIndex) {
+async function executeAuthoringTurn(payload, submissionVersion = blockComposerVersion) {
   // 绑定缺失门禁：世界书已缺失时先修复绑定或显式解绑，再继续下一拍。
   if (bookWorldbookStatus.value.status === 'missing') {
     authoringTask.notify('世界书已缺失，请先重新关联或解除绑定')
@@ -2344,34 +7083,35 @@ async function executeAuthoringTurn(payload, beatStartLocationId, beatStartRunti
     return { ok: false, reason: 'worldbook-loading' }
   }
   const built = buildAuthoringTurnIntent({
+    operation: payload.operation || 'next-passage',
     kind: payload.kind,
     actorId: payload.actorId || sceneActiveActorId.value,
     targetId: payload.targetId || sceneDialogueTargetId.value,
     viewpointCharacterId: sceneProjection.value.viewpointCharacter?.id || '',
     instruction: payload.instruction || '',
     directorNote: payload.directorNote || '',
-    sourceRefs: payload.sourceRefs?.length ? payload.sourceRefs : composerSourceRefs.value
+    sourceRefs: payload.sourceRefs?.length ? payload.sourceRefs : composerSourceRefs.value,
+    selectedDirection: payload.selectedDirection || null
   })
   if (!built.ok) {
     authoringTask.notify(`这一拍无法提交：${built.reason}`)
     return { ok: false, text: '', reason: built.reason }
   }
   const turn = built.turn
-  const chapterId = String(selectedChapterId.value || '')
-  const narrativeContext = buildAuthoringNarrativeContext({
-    document: writingDocument.value,
-    markdown: currentChapterDocumentText(),
-    projectId: selectedBookId.value || '',
-    chapterId,
-    revision: currentDocumentRevision(),
-    previousSummary: authoringNarrativeSummaryCache.get(chapterId) || null
-  })
-  if (narrativeContext.sceneSummary) {
-    authoringNarrativeSummaryCache.set(chapterId, narrativeContext.sceneSummary)
-  }
   // 空输入 = 继续下一拍；非空按类型映射到对应 NarrativeKernel intentMode。
-  const taskId = turn.instruction ? AUTHORING_TURN_TASK_IDS[turn.kind] : AUTHORING_TURN_TASK_IDS.continue
-  const outcome = await authoringTask.run(taskId, { turn, narrativeContext })
+  const taskId = turn.operation === 'rewrite-unit'
+    ? AUTHORING_TURN_TASK_IDS.action
+    : (turn.instruction || turn.selectedDirection)
+        ? AUTHORING_TURN_TASK_IDS[turn.kind]
+        : AUTHORING_TURN_TASK_IDS.continue
+  const outcome = await authoringTask.run(taskId, {
+    turn,
+    targetOverride: payload.invocationTarget || null,
+    authoringRunSession: payload.authoringRunSession || null
+  })
+  if (submissionVersion !== blockComposerVersion) {
+    return { ok: false, reason: 'superseded', phase: 'provider', code: 'AUTHORING_SUPERSEDED', retryable: true }
+  }
   // typed 失败（error/stale/aborted）统一进 composer 失败信号：半自动立即暂停，
   // 失败不推进 apply token，若只在 token 变化时反应会在之后一次成功时意外恢复连拍。
   // busy 期间 run() 静默返回 undefined，不算失败。
@@ -2384,8 +7124,16 @@ async function executeAuthoringTurn(payload, beatStartLocationId, beatStartRunti
     // 观察器调度独立包裹（Task 5 Step 6）：正文已保存成功，
     // 观察器失败绝不能把已成功的回合变成失败，也不要求用户重新生成。
     try {
-      await gameStore.commitAuthoringProseResult({ text: outcome.text, sourceRefs: [...turn.sourceRefs] })
-      refreshAuthoringObserverState()
+      const observerTarget = currentAuthoringObserverTarget(outcome.insertedUnitId)
+      const observerReceipt = await commitDirectAuthoringObservation({
+        text: outcome.text,
+        sourceRefs: [...new Set([
+          ...turn.sourceRefs,
+          ...(observerTarget.unitId ? [`unit:${observerTarget.unitId}`] : [])
+        ])],
+        ...observerTarget
+      })
+      if (!observerReceipt) throw new Error('observer-schedule-failed')
     } catch {
       authoringObserverWarning.value = normalizeAuthoringFailure({
         phase: 'observer',
@@ -2395,39 +7143,8 @@ async function executeAuthoringTurn(payload, beatStartLocationId, beatStartRunti
       })
       refreshAuthoringObserverState()
     }
-    const mechanismSignal = resolveAuthoringMechanismSignal({
-      generatedText: outcome.text,
-      detectText: (text) => gameStore.detectMechanismTriggers(text),
-      activeMechanism: gameStore.activeMechanism,
-      mechanismContext: gameStore.mechanismContext,
-      runtimeEvents: gameStore.runtimeEvents,
-      eventStartIndex: beatStartRuntimeEventIndex
-    })
-    semiAutoLastBeat.value = {
-      text: String(outcome.text || ''),
-      previousLocationId: beatStartLocationId,
-      mechanismTrigger: mechanismSignal.triggered
-    }
   }
   return outcome
-}
-
-// 有界半自动的环境暂停信号：直接提问 / 地点切换 / 机制触发 / 异常审阅打开。
-const semiAutoLastBeat = ref({ text: '', previousLocationId: '', mechanismTrigger: false })
-const semiAutoPauseReason = computed(() => detectSemiAutoEnvironmentPause({
-  generatedText: semiAutoLastBeat.value.text,
-  previousLocationId: semiAutoLastBeat.value.previousLocationId,
-  currentLocationId: sceneProjection.value.location?.id || '',
-  mechanismTrigger: Boolean(
-    semiAutoLastBeat.value.mechanismTrigger
-    || gameStore.activeMechanism
-    || gameStore.mechanismContext
-  ),
-  exceptionReviewOpen: authoringVisibleExceptions.value.length > 0
-}))
-
-function handleComposerSubmit(payload) {
-  Promise.resolve(runAuthoringTurn(payload)).catch(() => {})
 }
 
 // —— 候选辅助（plan Phase 3 任务 1-2 / spec §8）：下一步方向 + 对话说法。 ——
@@ -2554,14 +7271,12 @@ function handleCandidateAction(payload) {
     return
   }
   if (action === 'advance') {
-    // 按此推进：显式用户指令才生成；走与主按钮完全相同的回合事务链。
+    // 按此推进先进入可检查的块间 composer；候选不能绕过确认直接开火。
     pruneCandidateList(sourceRef, id)
-    Promise.resolve(runAuthoringTurn({
-      kind: 'action',
-      actorId: sceneActiveActorId.value,
-      targetId: sceneDialogueTargetId.value,
-      instruction: item.content
-    })).catch(() => {})
+    blockComposer.initialInstruction = item.content
+    if (openBlockComposer(notebookSelection.value, { preserveInstruction: true })) {
+      nextTick(() => document.querySelector('[data-test="block-composer"] textarea')?.focus())
+    }
   }
 }
 
@@ -2576,6 +7291,7 @@ function dismissAuxiliaryOptions() {
 
 // 用户点选辅助候选：显式动作才写入正文，且复用同一编辑器事务入口。
 function insertAuxiliaryOption(item) {
+  if (rejectLockedNotebookMutation()) return false
   const content = String(item?.content || '').trim()
   if (!content) return
   const editor = notebookEditorRef.value
@@ -2584,11 +7300,16 @@ function insertAuxiliaryOption(item) {
   } else {
     markdownContent.value = `${currentChapterDocumentText()}\n${content}`
   }
-  saveCurrentChapter()
+  const persisted = wt3ActiveDoc.value ? wt3PersistActiveDoc()?.ok === true : saveCurrentChapter()
+  if (!persisted) {
+    authoringTask.notify('候选已插入稿面但保存失败，请先重试保存')
+    return false
+  }
   authoringTask.dismissAuxiliary()
+  return true
 }
 
-// 上下文说明：低敏感度 ledger —— 只描述哪些来源被采用/截断，不含任何原文。
+// 本次 AI 参考：低敏感度 ledger，只描述采用/截断，不含任何原文。
 const contextInspectorOpen = ref(false)
 const contextLedger = computed(() => {
   const ledger = lastExecutionLedger.value
@@ -2609,29 +7330,32 @@ const contextLedger = computed(() => {
 })
 
 // 派生观察器 UI 状态：常规观察保持安静，只有 typed exception 需要用户裁决。
-const authoringObservations = ref([])
 const authoringExceptions = ref([])
 // 观察器刷新失败警告：出现在现场条/检查器状态里，绝不要求用户重新生成正文。
 const authoringObserverWarning = shallowRef(null)
 
 function refreshAuthoringObserverState() {
-  const events = gameStore.getAuthoringObserverEvents?.() || []
+  const derived = gameStore.getAuthoringDerivedState?.() || []
   // 保留观察的正文摘要、来源与 revision 证据（Task 5 Step 5）：
-  // 过滤在投影内做，不在摄取时销毁诊断数据。只收当前书（projectId）的事件。
-  authoringObservations.value = events
-    .filter((event) => String(event?.projectId || '') === selectedBookId.value)
-    .map((event) => ({
-      id: String(event.id || ''),
-      kind: String(event.kind || ''),
-      text: String(event.text || event.summary || ''),
-      subjectId: String(event.subjectId || ''),
-      objectId: String(event.objectId || ''),
-      relation: String(event.relation || ''),
-      unitId: String(event.unitId || ''),
-      unitRevision: Number(event.unitRevision || 0),
-      documentRevision: String(event.documentRevision || ''),
-      sourceRefs: Array.isArray(event.sourceRefs) ? event.sourceRefs : [],
-      status: String(event.status || 'applied')
+  // 调度事件只是诊断账本；现场必须读取真正完成的 derived-state，并只收
+  // 当前书/章。关系提取器产出姓名时，在绑定世界书中解析为稳定角色 ID。
+  authoringObservations.value = derived
+    .filter((observation) => (
+      String(observation?.projectId || '') === selectedBookId.value
+      && String(observation?.chapterId || '') === String(selectedChapterId.value || '')
+    ))
+    .map((observation) => ({
+      id: String(observation.id || ''),
+      kind: String(observation.kind || ''),
+      text: String(observation.text || observation.summary || ''),
+      subjectId: String(observation.subjectId || resolveObserverCharacterId(observation.subject) || ''),
+      objectId: String(observation.objectId || resolveObserverCharacterId(observation.object) || ''),
+      relation: String(observation.relation || ''),
+      unitId: String(observation.unitId || ''),
+      unitRevision: Number(observation.unitRevision || 0),
+      documentRevision: String(observation.documentRevision || ''),
+      sourceRefs: Array.isArray(observation.sourceRefs) ? observation.sourceRefs : [],
+      status: String(observation.status || 'applied')
     }))
   // typed exception（locked-conflict / identity-ambiguity / destructive-retcon）进入审阅队列。
   const knownIds = new Set(authoringExceptions.value.map((item) => item.id))
@@ -2644,6 +7368,41 @@ function refreshAuthoringObserverState() {
     }))
   if (pending.length) authoringExceptions.value.push(...pending)
 }
+
+function resolveObserverCharacterId(value) {
+  const label = String(value || '').trim()
+  if (!label) return ''
+  const entry = (boundWorldbook.value?.entries || []).find((candidate) => (
+    candidate?.type === 'character'
+    && [candidate.name, ...(Array.isArray(candidate.keys) ? candidate.keys : [])]
+      .some((name) => String(name || '').trim() === label)
+  ))
+  return String(entry?.id || '')
+}
+
+function currentAuthoringObserverTarget(unitId = activeWritingUnitId.value) {
+  const unit = (writingDocument.value?.content || [])
+    .find((candidate) => String(candidate?.attrs?.unitId || '') === String(unitId || ''))
+  return {
+    memoryProjectId: selectedBookId.value,
+    documentId: wt3ActiveDoc.value?.id || selectedChapterId.value,
+    chapterId: selectedChapterId.value,
+    unitId: String(unit?.attrs?.unitId || unitId || ''),
+    unitRevision: Number(unit?.attrs?.unitRevision || 0),
+    sourceDocumentRevision: currentDocumentRevision()
+  }
+}
+
+let stopAuthoringObserverResultSubscription = null
+onMounted(() => {
+  stopAuthoringObserverResultSubscription = gameStore.subscribeAuthoringObserverResults?.(() => {
+    refreshAuthoringObserverState()
+  }) || null
+})
+onBeforeUnmount(() => {
+  stopAuthoringObserverResultSubscription?.()
+  stopAuthoringObserverResultSubscription = null
+})
 
 const {
   statusText: authoringObserverStatus,
@@ -2658,6 +7417,7 @@ const {
 })
 
 function cancelAuthoringTask() {
+  blockComposerVersion += 1
   authoringTask.cancel()
 }
 
@@ -2667,8 +7427,35 @@ const memoryReviewOpen = ref(false)
 const authoringMemoryCandidates = ref([])
 let memoryNoticeTimer = null
 
-function showMemoryNotice(text, count = 0) {
-  authoringMemoryNotice.value = { text, count }
+const writingInteractionOwner = computed(() => resolveWritingInteractionOwner({
+  composing: writingCompositionActive.value || dualCompositionActive.value,
+  modalOpen: showNewBookModal.value
+    || assetInboxOpen.value
+    || illustratorOpen.value
+    || reviewPanelOpen.value
+    || searchPanelOpen.value
+    || showQuickWords.value
+    || showNameGen.value
+    || memoryReviewOpen.value
+    || annotationComposerOpen.value
+    || contextMenu.value.show,
+  commandMenuOpen: notebookCommandMenuOpen.value,
+  inspectorEditing: inspectorOpen.value
+    && activeInspectorTool.value === 'scene'
+    && inspectorDetailState.value?.kind === 'scene-edit',
+  blockPreviewOpen: Boolean(blockPreview.value),
+  blockComposerOpen: blockComposer.open,
+  quickWordActive: quickWordSuggestions.value.length > 0,
+  inlineSuggestionVisible: copilotVisible.value,
+  inlineSuggestionRequesting: copilotRequesting.value
+}))
+
+watch(writingInteractionOwner, (owner) => {
+  if (blocksPassiveInlineSuggestion(owner)) suppressWritingAgent(owner)
+})
+
+function showMemoryNotice(text, count = 0, reviewable = false) {
+  authoringMemoryNotice.value = { text, count, reviewable }
   if (memoryNoticeTimer) clearTimeout(memoryNoticeTimer)
   memoryNoticeTimer = setTimeout(() => {
     authoringMemoryNotice.value = null
@@ -2677,10 +7464,17 @@ function showMemoryNotice(text, count = 0) {
 }
 
 function refreshAuthoringMemoryCandidates() {
-  const pending = listMemoryCandidates({ status: 'pending' }) || []
+  const currentProjectId = String(selectedBookId.value || '')
+  const belongsToCurrentProject = (item) => (
+    item.scope === 'project' && String(item.scopeId || '') === currentProjectId
+  )
+  const pending = (listMemoryCandidates({ status: 'pending' }) || []).filter(belongsToCurrentProject)
   const staleSources = listMemoryCandidates({ status: 'stale' }).filter((item) => (
-    item.metadata?.staleReason === 'source-revision-changed'
-    && !item.metadata?.supersededBy
+    belongsToCurrentProject(item)
+    && (
+      item.metadata?.staleReason === 'source-revision-changed'
+      && !item.metadata?.supersededBy
+    )
   ))
   const exceptions = [...pending, ...staleSources]
   // 默认只显示异常：冲突、来源失效、身份歧义。
@@ -2697,14 +7491,18 @@ async function rememberSelectionFromMenu() {
   const selectionText = window.getSelection?.()?.toString?.() || ''
   if (!selectionText.trim()) return
   try {
+    const documentSourceRef = activeDocumentSourceRef()
+    const unitSourceRef = notebookSelection.value?.unitId
+      ? `unit:${notebookSelection.value.unitId}`
+      : ''
     const result = await gameStore.rememberAuthoringSelection({
       content: selectionText,
       // 与召回同口径：显式记住挂在当前书，而不是 active worldbook。
       projectId: selectedBookId.value || '',
-      sourceRefs: [`chapter:${selectedChapterId.value || 'none'}`],
+      sourceRefs: [documentSourceRef, unitSourceRef].filter(Boolean),
       sourceRevision: currentDocumentRevision()
     })
-    showMemoryNotice(result?.candidate ? '已加入记忆候选' : '没有可记住的内容', result?.candidate ? 0 : 0)
+    showMemoryNotice(result?.candidate ? '已加入待确认事实' : '没有可提取的事实', result?.candidate ? 0 : 0)
     refreshAuthoringMemoryCandidates()
   } catch {
     showMemoryNotice('记忆保存失败，请重试')
@@ -2757,9 +7555,161 @@ function mergeAuthoringMemoryCandidate(candidateId) {
   return result
 }
 
+function parseMemorySourceRef(value) {
+  if (typeof value !== 'string') return { type: '', id: '' }
+  const separator = value.indexOf(':')
+  return separator > 0
+    ? { type: value.slice(0, separator), id: value.slice(separator + 1) }
+    : { type: '', id: '' }
+}
+
+function canJumpToMemorySource(value) {
+  return ['chapter', 'unit', 'exploration'].includes(parseMemorySourceRef(value).type)
+}
+
+function findMemoryUnitLocation(unitId) {
+  const currentUnit = (writingDocument.value?.content || []).find((unit) => (
+    String(unit?.attrs?.unitId || '') === String(unitId || '')
+  ))
+  if (currentUnit && selectedChapterId.value) {
+    return { bookId: selectedBookId.value, chapterId: selectedChapterId.value, unitId }
+  }
+  for (const book of books.value) {
+    for (const chapter of book.chapters || []) {
+      if ((chapter.editorDocument?.content || []).some((unit) => (
+        String(unit?.attrs?.unitId || '') === String(unitId || '')
+      ))) return { bookId: book.id, chapterId: chapter.id, unitId }
+    }
+  }
+  return null
+}
+
+function openMemoryChapterSource(chapterId) {
+  const found = findChapterAcrossBooks(chapterId)
+  if (!found) return false
+  if (String(found.book.id) !== String(selectedBookId.value)) {
+    return openBookAtChapter(found.book.id, chapterId)
+  }
+  if (String(selectedChapterId.value) !== String(chapterId)) return selectChapter(chapterId)
+  nextTick(() => notebookEditorRef.value?.focus?.())
+  return true
+}
+
 function jumpToMemorySource(item) {
-  const ref = item?.sourceRefs?.[0]
-  if (ref && currentWritingOrigin && String(ref).startsWith('turn:')) openCurrentWritingOrigin()
+  const refs = (item?.sourceRefs || []).map(parseMemorySourceRef)
+  const source = ['unit', 'exploration', 'chapter']
+    .map((type) => refs.find((ref) => ref.type === type && ref.id))
+    .find(Boolean)
+  if (!source) return false
+  memoryReviewOpen.value = false
+  if (source.type === 'chapter') return openMemoryChapterSource(source.id)
+  if (source.type === 'exploration') {
+    const owner = books.value.find((book) => listExplorationDocuments(book.id)
+      .some((document) => String(document.id) === String(source.id)))
+    if (!owner) return false
+    if (String(owner.id) !== String(selectedBookId.value) && !openBook(owner.id)) return false
+    return Boolean(openExplorationDoc(source.id))
+  }
+  const location = findMemoryUnitLocation(source.id)
+  if (!location || !openMemoryChapterSource(location.chapterId)) return false
+  nextTick(() => nextTick(() => notebookEditorRef.value?.focusWritingUnit?.(location.unitId)))
+  return true
+}
+
+function openAuthoringKnowledgeEvidence(evidence) {
+  const locator = evidence?.locator
+  if (!locator || String(evidence?.projectId || '') !== String(selectedBookId.value || '')) {
+    authoringTask.notify('这条依据不属于当前作品，未打开')
+    return false
+  }
+  // 点击依据是作者主动改变阅读位置，不是临时 inspector 的焦点借用。
+  // 一旦开始导航就作废旧返回点，避免随后关闭助手把作者拉回点击前选区。
+  clearInspectorReturnSurface()
+  void knowledgeAssistant.refreshStaleness()
+  const closeNarrowAssistant = (
+    (locator.kind === 'manuscript' || locator.kind === 'scene')
+    && inspectorOpen.value
+    && activeInspectorTool.value === 'ai'
+    && typeof window !== 'undefined'
+    && window.matchMedia?.('(max-width: 720px)')?.matches
+  )
+  if (closeNarrowAssistant) {
+    closeWritingInspector({ restoreSurface: false })
+    nextTick(() => navigateAuthoringKnowledgeEvidence(evidence))
+    return true
+  }
+  return navigateAuthoringKnowledgeEvidence(evidence)
+}
+
+function navigateAuthoringKnowledgeEvidence(evidence) {
+  const locator = evidence?.locator
+  if (!locator) return false
+
+  if (locator.kind === 'manuscript' || locator.kind === 'scene') {
+    activeWritingPane.value = 'main'
+    const chapterId = String(locator.chapterId || '')
+    if (!chapterId || (chapterId !== String(selectedChapterId.value || '') && !selectChapter(chapterId))) {
+      authoringTask.notify('原文章节已删除或暂时无法打开')
+      return false
+    }
+    nextTick(() => nextTick(() => {
+      if (locator.nodeId && Number.isFinite(Number(locator.start))) {
+        notebookEditorRef.value?.selectNodeRange?.(
+          locator.nodeId,
+          Number(locator.start) || 0,
+          locator.nodeId,
+          Number(locator.end) || Number(locator.start) || 0
+        )
+      } else if (locator.nodeId) notebookEditorRef.value?.focusNode?.(locator.nodeId)
+      else if (locator.unitId) notebookEditorRef.value?.focusWritingUnit?.(locator.unitId)
+    }))
+    return true
+  }
+
+  if (locator.kind === 'worldbook-entry') {
+    if (String(locator.worldbookId || '') !== String(boundWorldbook.value?.id || '')) {
+      authoringTask.notify('设定已删除或与当前作品解绑')
+      return false
+    }
+    openWorldbookMentionDetail(locator.entryId)
+    return true
+  }
+
+  if (locator.kind === 'outline-node') {
+    const exists = wt3OutlineNodes.value.some((node) => String(node?.id || '') === String(locator.nodeId || ''))
+    if (!exists) {
+      authoringTask.notify('大纲节点已删除')
+      return false
+    }
+    inspectorOutlineNodeId.value = ''
+    selectInspectorTool('outline')
+    nextTick(() => { inspectorOutlineNodeId.value = String(locator.nodeId) })
+    return true
+  }
+
+  if (locator.kind === 'exploration') {
+    if (!openExplorationDoc(locator.documentId)) {
+      authoringTask.notify('速记已删除或暂时无法打开')
+      return false
+    }
+    return true
+  }
+
+  if (locator.kind === 'memory-source') {
+    const memory = listMemoryCandidates({ status: null }).find((item) => String(item?.id || '') === String(locator.memoryId || ''))
+    if (!memory || !jumpToMemorySource(memory)) {
+      authoringTask.notify('记忆的原始来源已不可用')
+      return false
+    }
+    return true
+  }
+
+  if (locator.kind === 'history') {
+    router.push({ name: 'settings-worldbook-advanced', query: { historyId: String(locator.historyId || '') } })
+    return true
+  }
+
+  return false
 }
 
 function closeMemoryReview() {
@@ -2773,20 +7723,334 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('memory-candidate-created', handleMemoryCandidateCreated)
   if (memoryNoticeTimer) clearTimeout(memoryNoticeTimer)
+  clearAdoptionImpact()
 })
 
-let memoryCandidateCount = 0
-function handleMemoryCandidateCreated() {
-  memoryCandidateCount += 1
-  showMemoryNotice(`提取了 ${memoryCandidateCount} 条记忆候选`, memoryCandidateCount)
+function handleMemoryCandidateCreated(event) {
+  const detail = event?.detail || {}
+  if (detail.scope !== 'project' || String(detail.scopeId || '') !== String(selectedBookId.value || '')) return
+  refreshAuthoringMemoryCandidates()
+  // 常规自动派生只更新安静的全局记忆入口；只有真实冲突/来源异常
+  // 才在当前书的 AI 检查器里给出一次可打开的聚合提示。
+  if (!detail.attention || !authoringMemoryCandidates.value.length) return
+  const count = authoringMemoryCandidates.value.length
+  showMemoryNotice(`有 ${count} 条记忆冲突待确认`, count, true)
+}
+
+watch(selectedBookId, () => {
+  lastInterventionUmbrellaReceipt.value = null
+  refreshAuthoringMemoryCandidates()
+  quickWordEnabledIds.value = []
+  showQuickWords.value = false
+  memoryReviewOpen.value = false
+  authoringMemoryNotice.value = null
+  if (memoryNoticeTimer) {
+    clearTimeout(memoryNoticeTimer)
+    memoryNoticeTimer = null
+  }
+})
+
+function applyGhostAdoptionDeltaState(receipt, direction) {
+  const redo = direction === 'redo'
+  sceneAnchors.value = normalizeSceneAnchors(redo ? receipt.appliedAnchors : receipt.previousAnchors)
+  wt3OutlineNodes.value = normalizeOutlineNodes(redo ? receipt.appliedOutlineNodes : receipt.previousOutlineNodes)
+  const book = books.value.find((item) => String(item.id) === String(selectedBookId.value))
+  if (book) book.outlineNodes = wt3OutlineNodes.value
+}
+
+function persistGhostAdoptionHistory(receipt) {
+  return receipt.documentRole === 'exploration'
+    ? wt3PersistActiveDoc()?.ok === true
+    : saveCurrentChapter({ preservePageOutline: true })
+}
+
+function ghostDocumentMatchesReceipt(receipt, direction) {
+  const redo = direction === 'redo'
+  if (receipt.operation === 'rewrite-unit') {
+    return currentDocumentContainsGhostUnit(receipt)
+  }
+  return currentDocumentBodyRevision() === (redo ? receipt.afterBodyRevision : receipt.beforeBodyRevision)
+    && (redo ? currentDocumentContainsGhostUnit(receipt) : currentDocumentContainsNoGhostUnits(receipt))
+}
+
+async function undoGhostAdoption() {
+  const receipt = lastGhostAdoptionReceipt.value
+  if (!hasGhostAdoptionUndoBoundary.value) return false
+  if (!canUndoGhostAdoption.value) {
+    authoringTask.notify('当前场或大纲已变化，无法只撤正文；请先处理这些变更')
+    return false
+  }
+  suppressWritingAgent('historyUndo')
+  atomicHistoryBusy.value = true
+  applyingAtomicNotebookHistory = true
+  try {
+    const restored = receipt.operation === 'rewrite-unit'
+      ? notebookEditorRef.value?.restoreWritingUnitSnapshot?.({
+          unitId: receipt.insertedUnitId,
+          snapshot: receipt.beforeUnitSnapshot
+        })
+      : notebookEditorRef.value?.undo?.()
+    if (receipt.operation === 'rewrite-unit' ? !restored?.ok : !restored) {
+      authoringTask.notify(receipt.operation === 'rewrite-unit'
+        ? `无法恢复重写前文本块：${restored?.reason || 'editor-unavailable'}`
+        : '当前编辑历史不可用，未执行撤销')
+      return false
+    }
+    if (!ghostDocumentMatchesReceipt(receipt, 'undo')) {
+      if (receipt.operation === 'rewrite-unit') {
+        notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.afterUnitSnapshot })
+      } else notebookEditorRef.value?.redo?.()
+      fenceNotebookHistory()
+      authoringTask.notify('撤销历史与推演事务不一致，已恢复正文并隔离旧历史')
+      return false
+    }
+    applyGhostAdoptionDeltaState(receipt, 'undo')
+    if (!persistGhostAdoptionHistory(receipt)) {
+      if (receipt.operation === 'rewrite-unit') {
+        notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.afterUnitSnapshot })
+      } else notebookEditorRef.value?.redo?.()
+      applyGhostAdoptionDeltaState(receipt, 'redo')
+      authoringTask.notify('撤销保存失败，正文与当前场已恢复到撤销前')
+      return false
+    }
+    if (receipt.documentRole !== 'exploration') {
+      try {
+        await gameStore.handleAuthoringProseUndo({
+          sourceRefs: receipt.operation === 'rewrite-unit'
+            ? [receipt.observationSourceRef]
+            : (receipt.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt.insertedUnitId])
+                .map((unitId) => `unit:${unitId}`),
+          revision: currentDocumentRevision(),
+          reason: 'ghost-adoption-undo'
+        })
+      } catch {
+        authoringObserverWarning.value = normalizeAuthoringFailure({
+          phase: 'observer', code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
+          message: '正文已撤销，记忆状态将在稍后刷新', retryable: true
+        })
+      }
+    }
+    const historyReceipt = receipt.operation === 'rewrite-unit'
+      ? Object.freeze({
+          ...receipt,
+          beforeUnitSnapshot: cloneAuthoringRunValue((writingDocument.value?.content || [])
+            .find((unit) => unit?.attrs?.unitId === receipt.insertedUnitId))
+        })
+      : receipt
+    notebookAtomicUndoReceipts.value = notebookAtomicUndoReceipts.value.slice(0, -1)
+    notebookAtomicRedoReceipts.value = [...notebookAtomicRedoReceipts.value, historyReceipt]
+    if (receipt.operation === 'rewrite-unit') fenceNotebookHistory()
+    authoringTask.notify(receipt.operation === 'rewrite-unit'
+      ? '已恢复重写前的文本块'
+      : '已同时撤销推演正文、当前场与大纲变更')
+    return true
+  } finally {
+    applyingAtomicNotebookHistory = false
+    atomicHistoryBusy.value = false
+  }
+}
+
+async function redoGhostAdoption() {
+  const receipt = lastGhostUndoReceipt.value
+  if (!hasGhostAdoptionRedoBoundary.value) return false
+  if (!canRedoGhostAdoption.value) {
+    authoringTask.notify('当前场或大纲已变化，无法安全重做这次推演')
+    return false
+  }
+  suppressWritingAgent('historyRedo')
+  atomicHistoryBusy.value = true
+  applyingAtomicNotebookHistory = true
+  try {
+    const restored = receipt.operation === 'rewrite-unit'
+      ? notebookEditorRef.value?.restoreWritingUnitSnapshot?.({
+          unitId: receipt.insertedUnitId,
+          snapshot: receipt.afterUnitSnapshot
+        })
+      : notebookEditorRef.value?.redo?.()
+    if (receipt.operation === 'rewrite-unit' ? !restored?.ok : !restored) {
+      authoringTask.notify(receipt.operation === 'rewrite-unit'
+        ? `无法重新应用文本块重写：${restored?.reason || 'editor-unavailable'}`
+        : '当前编辑历史不可用，未执行重做')
+      return false
+    }
+    if (!ghostDocumentMatchesReceipt(receipt, 'redo')) {
+      if (receipt.operation === 'rewrite-unit') {
+        notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.beforeUnitSnapshot })
+      } else notebookEditorRef.value?.undo?.()
+      fenceNotebookHistory()
+      authoringTask.notify('重做历史与推演事务不一致，已保持撤销状态并隔离旧历史')
+      return false
+    }
+    applyGhostAdoptionDeltaState(receipt, 'redo')
+    if (!persistGhostAdoptionHistory(receipt)) {
+      if (receipt.operation === 'rewrite-unit') {
+        notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.beforeUnitSnapshot })
+      } else notebookEditorRef.value?.undo?.()
+      applyGhostAdoptionDeltaState(receipt, 'undo')
+      authoringTask.notify('重做保存失败，正文与当前场仍保持撤销状态')
+      return false
+    }
+    if (receipt.documentRole !== 'exploration') {
+      const observerUnitId = receipt.insertedUnitIds?.at(-1) || receipt.insertedUnitId
+      const insertedUnit = (writingDocument.value?.content || [])
+        .find((unit) => unit?.attrs?.unitId === observerUnitId)
+      const observerReceipt = await commitDirectAuthoringObservation({
+        text: receipt.adoptedText || '',
+        sourceRefs: [...new Set([
+          ...(receipt.sourceRefs || []),
+          ...(receipt.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt.insertedUnitId])
+            .map((unitId) => `unit:${unitId}`)
+        ])],
+        memoryProjectId: selectedBookId.value,
+        documentId: selectedChapterId.value,
+        chapterId: selectedChapterId.value,
+        unitId: observerUnitId,
+        unitRevision: Number(insertedUnit?.attrs?.unitRevision || 0),
+        sourceDocumentRevision: currentDocumentRevision()
+      })
+      if (!observerReceipt) {
+        authoringObserverWarning.value = normalizeAuthoringFailure({
+          phase: 'observer',
+          code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
+          message: '正文已重做，现场状态将在稍后刷新',
+          retryable: true
+        })
+      }
+    }
+    const historyReceipt = receipt.operation === 'rewrite-unit'
+      ? Object.freeze({
+          ...receipt,
+          afterUnitSnapshot: cloneAuthoringRunValue((writingDocument.value?.content || [])
+            .find((unit) => unit?.attrs?.unitId === receipt.insertedUnitId))
+        })
+      : receipt
+    notebookAtomicRedoReceipts.value = notebookAtomicRedoReceipts.value.slice(0, -1)
+    notebookAtomicUndoReceipts.value = [...notebookAtomicUndoReceipts.value, historyReceipt]
+    if (receipt.operation === 'rewrite-unit') fenceNotebookHistory()
+    authoringTask.notify(receipt.operation === 'rewrite-unit'
+      ? '已重新应用文本块重写'
+      : '已同时重做推演正文、当前场与大纲变更', { canUndo: true })
+    return true
+  } finally {
+    applyingAtomicNotebookHistory = false
+    atomicHistoryBusy.value = false
+  }
+}
+
+function snapshotWritingAnnotationState(annotations = activeEditorAnnotations.value) {
+  return normalizeWritingAnnotations(annotations, activeAnnotationScopeKey()).map((annotation) => ({
+    ...annotation,
+    target: annotation.target ? { ...annotation.target } : null,
+    selector: annotation.selector ? { ...annotation.selector } : null
+  }))
+}
+
+function fingerprintWritingAnnotationState(annotations = activeEditorAnnotations.value) {
+  const stable = snapshotWritingAnnotationState(annotations)
+    .sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))
+  return buildDocumentRevision('annotations', JSON.stringify(stable))
+}
+
+function applyStructureSideState(receipt, direction) {
+  const redo = direction === 'redo'
+  sceneAnchors.value = normalizeSceneAnchors(redo ? receipt.afterSceneAnchors : receipt.beforeSceneAnchors)
+  const annotations = snapshotWritingAnnotationState(redo ? receipt.afterAnnotations : receipt.beforeAnnotations)
+  if (receipt.documentRole === 'exploration') wt3Annotations.value = annotations
+  else chapterAnnotations.value = annotations
+  lastSceneAnchorUndoReceipt.value = null
+  scheduleAnnotationLayout()
+}
+
+function structureDocumentMatchesReceipt(receipt, direction) {
+  const redo = direction === 'redo'
+  return currentDocumentBodyRevision() === (redo ? receipt.afterBodyRevision : receipt.beforeBodyRevision)
+}
+
+async function undoStructureTransition() {
+  const receipt = lastStructureUndoReceipt.value
+  if (!hasStructureUndoBoundary.value) return false
+  if (!canUndoStructureTransition.value) {
+    authoringTask.notify('当前场或批注已变化，无法安全撤销这次文本块调整')
+    return false
+  }
+  suppressWritingAgent('historyUndo')
+  atomicHistoryBusy.value = true
+  applyingAtomicNotebookHistory = true
+  try {
+    if (!notebookEditorRef.value?.undo?.()) return false
+    if (!structureDocumentMatchesReceipt(receipt, 'undo')) {
+      notebookEditorRef.value?.redo?.()
+      invalidateNotebookAtomicHistory()
+      fenceNotebookHistory()
+      authoringTask.notify('文本块历史与正文不一致，已恢复并隔离旧历史')
+      return false
+    }
+    applyStructureSideState(receipt, 'undo')
+    if (!persistGhostAdoptionHistory(receipt)) {
+      notebookEditorRef.value?.redo?.()
+      applyStructureSideState(receipt, 'redo')
+      authoringTask.notify('文本块撤销保存失败，已恢复到撤销前')
+      return false
+    }
+    notebookAtomicUndoReceipts.value = notebookAtomicUndoReceipts.value.slice(0, -1)
+    notebookAtomicRedoReceipts.value = [...notebookAtomicRedoReceipts.value, receipt]
+    authoringTask.notify('已撤销文本块调整及其当前场、批注迁移')
+    return true
+  } finally {
+    applyingAtomicNotebookHistory = false
+    atomicHistoryBusy.value = false
+  }
+}
+
+async function redoStructureTransition() {
+  const receipt = lastStructureRedoReceipt.value
+  if (!hasStructureRedoBoundary.value) return false
+  if (!canRedoStructureTransition.value) {
+    authoringTask.notify('当前场或批注已变化，无法安全重做这次文本块调整')
+    return false
+  }
+  suppressWritingAgent('historyRedo')
+  atomicHistoryBusy.value = true
+  applyingAtomicNotebookHistory = true
+  try {
+    if (!notebookEditorRef.value?.redo?.()) return false
+    if (!structureDocumentMatchesReceipt(receipt, 'redo')) {
+      notebookEditorRef.value?.undo?.()
+      invalidateNotebookAtomicHistory()
+      fenceNotebookHistory()
+      authoringTask.notify('文本块重做历史与正文不一致，已保持撤销状态')
+      return false
+    }
+    applyStructureSideState(receipt, 'redo')
+    if (!persistGhostAdoptionHistory(receipt)) {
+      notebookEditorRef.value?.undo?.()
+      applyStructureSideState(receipt, 'undo')
+      authoringTask.notify('文本块重做保存失败，仍保持撤销状态')
+      return false
+    }
+    notebookAtomicRedoReceipts.value = notebookAtomicRedoReceipts.value.slice(0, -1)
+    notebookAtomicUndoReceipts.value = [...notebookAtomicUndoReceipts.value, receipt]
+    authoringTask.notify('已重做文本块调整及其当前场、批注迁移')
+    return true
+  } finally {
+    applyingAtomicNotebookHistory = false
+    atomicHistoryBusy.value = false
+  }
+}
+
+function handleNotebookHistoryCommand(direction) {
+  return direction === 'redo' ? redoNotebookEdit() : undoNotebookEdit()
 }
 
 function undoAuthoringTask() {
+  if (lastInterventionUmbrellaReceipt.value) return undoInterventionUmbrella()
+  if (hasStructureUndoBoundary.value) return undoStructureTransition()
+  if (hasGhostAdoptionUndoBoundary.value) return undoGhostAdoption()
   const reverted = authoringTask.undoLastRequest()
   if (reverted) {
     // 撤销正文事务：使该事务来源派生的记忆 stale，不静默删除。
     gameStore.handleAuthoringProseUndo({
-      sourceRefs: [`chapter:${selectedChapterId.value}`],
+      sourceRefs: [activeDocumentSourceRef()],
       revision: currentDocumentRevision(),
       reason: 'prose-undo'
     })
@@ -2807,24 +8071,79 @@ watch(copilotEnabled, (value) => {
 
 const saveStatus = ref('saved')
 const chapterDrawerOpen = ref(false)
+const chapterShelfSheetMode = ref(false)
 const chapterDrawerTriggerRef = ref(null)
+const moreToolsTriggerRef = ref(null)
 const chapterShelfRef = ref(null)
+let chapterShelfViewportCleanup = null
 let saveTimeout = null
 let titleTimeout = null
 
+function activeDocumentSaveScopeKey() {
+  const role = wt3ActiveDoc.value ? 'exploration' : 'chapter'
+  const documentId = wt3ActiveDoc.value?.id || selectedChapterId.value || ''
+  return `${selectedBookId.value || ''}|${role}|${documentId}`
+}
+
+function clearPendingDocumentSaveTimers() {
+  if (saveTimeout) clearTimeout(saveTimeout)
+  if (titleTimeout) clearTimeout(titleTimeout)
+  saveTimeout = null
+  titleTimeout = null
+}
+
+watch(() => activeDocumentSaveScopeKey(), (nextScope, previousScope) => {
+  if (!previousScope || nextScope === previousScope) return
+  copilotCancel()
+  contextMenu.value.show = false
+  notebookSelection.value = null
+  selectedText.value = ''
+  hasSelection.value = false
+  if (!pendingGhostAdoption.value && (blockComposer.open || blockPreview.value)) {
+    abandonBlockComposer({ restoreSelection: false })
+  }
+})
+
+watch([
+  selectedBookId,
+  selectedChapterId,
+  wt3ActiveDocId,
+  activeWritingPane,
+  () => writingDocument.value?.revision,
+  () => dualQuickWordDocument.value?.revision,
+  () => sceneProjection.value?.projectionFingerprint,
+  selectedBookWorldbookId,
+  () => boundWorldbook.value?.updatedAt
+], () => {
+  if (illustratorBrief.value) reconcileIllustratorSource()
+})
+
 const shouldLockPageScroll = computed(() => {
-  return assetInboxOpen.value || showNewBookModal.value
+  return assetInboxOpen.value || showNewBookModal.value || illustratorOpen.value
 })
 
 useBodyScrollLock(shouldLockPageScroll)
 
 onMounted(() => {
+  const syncChapterShelfMode = () => {
+    chapterShelfSheetMode.value = Boolean(window.matchMedia?.('(max-width: 720px)').matches)
+  }
+  syncChapterShelfMode()
+  window.addEventListener('resize', syncChapterShelfMode)
+  chapterShelfViewportCleanup = () => window.removeEventListener('resize', syncChapterShelfMode)
   pendingBackJump.value = parseSelectionBackJump(route.query)
   pendingInsertBack.value = parseInsertBackQuery(route.query)
   if (window.matchMedia?.('(max-width: 720px)').matches) {
     inspectorOpen.value = false
   }
   loadBooks()
+  const requestedExplorationId = String(route.query.explorationId || '').trim()
+  if (requestedExplorationId) {
+    wt3RefreshDocs()
+    if (wt3ExplorationDocs.value.some((doc) => doc.id === requestedExplorationId)) {
+      openExplorationDoc(requestedExplorationId)
+    }
+  }
   void worldStore.loadWorldbooksIndex()
   refreshAssetInbox()
   projectLinkedLegacySession()
@@ -2834,26 +8153,62 @@ onMounted(() => {
   document.addEventListener('keydown', handleChapterDrawerKeydown)
   document.addEventListener('keydown', handleWritingInspectorKeydown)
   document.addEventListener('keydown', handleWritingFocusKeydown)
+  document.addEventListener('keydown', handleContextMenuKeydown, true)
   document.addEventListener('pointerdown', dismissSelectionActions)
   window.addEventListener('resize', scheduleAnnotationLayout)
-  window.addEventListener('scroll', hideSelectionActions, true)
+  window.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
+  window.addEventListener('scroll', handleWritingWorkspaceScroll, true)
+  window.visualViewport?.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
+  window.visualViewport?.addEventListener('scroll', handleContextMenuViewportChange, { passive: true })
 })
 
 onBeforeUnmount(() => {
+  if (authoringContextPreflightTimer) clearTimeout(authoringContextPreflightTimer)
+  chapterShelfViewportCleanup?.()
   document.removeEventListener('keydown', handleChapterDrawerKeydown)
   document.removeEventListener('keydown', handleWritingInspectorKeydown)
   document.removeEventListener('keydown', handleWritingFocusKeydown)
+  document.removeEventListener('keydown', handleContextMenuKeydown, true)
   document.body.classList.remove('is-writing-zen')
   document.removeEventListener('pointerdown', dismissSelectionActions)
   window.removeEventListener('resize', scheduleAnnotationLayout)
-  window.removeEventListener('scroll', hideSelectionActions, true)
+  window.removeEventListener('resize', handleContextMenuViewportChange)
+  window.removeEventListener('scroll', handleWritingWorkspaceScroll, true)
+  window.visualViewport?.removeEventListener('resize', handleContextMenuViewportChange)
+  window.visualViewport?.removeEventListener('scroll', handleContextMenuViewportChange)
   annotationResizeObserver?.disconnect()
   if (annotationLayoutFrame) cancelAnimationFrame(annotationLayoutFrame)
   if (recoveryTimeout) {
     clearTimeout(recoveryTimeout)
     recoveryTimeout = null
   }
-  if (saveStatus.value === 'unsaved') writeCurrentWritingRecoveryDraft()
+  clearPendingDocumentSaveTimers()
+  if (['unsaved', 'saving', 'error'].includes(saveStatus.value)) writeCurrentWritingRecoveryDraft()
+})
+
+onBeforeRouteLeave(() => {
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前文档')
+    return false
+  }
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return false
+  }
+  const outgoingBoundary = !wt3ActiveDoc.value ? buildCurrentChapterObserverBoundary() : null
+  if (saveStatus.value !== 'saved') {
+    const persisted = wt3ActiveDoc.value
+      ? wt3PersistActiveDoc()?.ok === true
+      : (!selectedChapterId.value || saveCurrentChapter())
+    if (!persisted) {
+      authoringTask.notify('文档保存失败，已留在当前工作台')
+      return false
+    }
+  }
+  if (outgoingBoundary) dispatchChapterBoundary(outgoingBoundary)
+  copilotCancel()
+  if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
+  return true
 })
 
 function openChapterDrawer() {
@@ -2867,13 +8222,19 @@ function closeChapterDrawer({ restoreFocus = true } = {}) {
   if (restoreFocus && wasOpen) nextTick(() => chapterDrawerTriggerRef.value?.focus())
 }
 
+function isWritingCompositionKey(event) {
+  return Boolean(event?.isComposing || event?.keyCode === 229 || writingCompositionActive.value || dualCompositionActive.value)
+}
+
 function handleChapterDrawerKeydown(event) {
+  if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (event.key !== 'Escape' || !chapterDrawerOpen.value) return
   event.preventDefault()
   closeChapterDrawer()
 }
 
 function handleWritingInspectorKeydown(event) {
+  if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (event.key !== 'Escape' || !inspectorOpen.value) return
   if (!event.target?.closest?.('.writing-inspector')) return
   event.preventDefault()
@@ -2882,8 +8243,7 @@ function handleWritingInspectorKeydown(event) {
     closeSceneDetail()
     return
   }
-  inspectorOpen.value = false
-  nextTick(() => notebookEditorRef.value?.focus?.())
+  closeWritingInspector()
 }
 
 const copilotReferenceLabel = computed(() => {
@@ -2905,7 +8265,7 @@ const activeWritingBlock = computed(() => {
   return getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
 })
 const activeWritingUnit = computed(() => {
-  const unitId = notebookSelection.value?.unitId
+  const unitId = notebookSelection.value?.unitId || activeWritingUnitId.value
   if (unitId) return (writingDocument.value?.content || []).find((unit) => unit?.attrs?.unitId === unitId) || null
   const nodeId = notebookSelection.value?.nodeId
   return nodeId ? getWritingUnitByNodeId(nodeId) : null
@@ -2917,8 +8277,9 @@ function openCurrentWritingOrigin() {
   if (routeTarget) router.push(routeTarget)
 }
 const rootAnnotations = computed(() => {
-  const ids = new Set(chapterAnnotations.value.map((annotation) => annotation.id))
-  return chapterAnnotations.value.filter((annotation) => (
+  const annotations = activeEditorAnnotations.value
+  const ids = new Set(annotations.map((annotation) => annotation.id))
+  return annotations.filter((annotation) => (
     annotation.status !== 'resolved'
       && (!annotation.parentId || !ids.has(annotation.parentId))
   ))
@@ -2944,7 +8305,7 @@ const annotationDraftAnchor = computed(() => {
 })
 
 function getAnnotationSupplements(annotation) {
-  return chapterAnnotations.value.filter((item) => item.parentId === annotation?.id)
+  return activeEditorAnnotations.value.filter((item) => item.parentId === annotation?.id)
 }
 
 function setAnnotationNoteRef(element, annotationId) {
@@ -3078,50 +8439,39 @@ const wordCount = computed(() => {
   return chineseChars + englishWords
 })
 
-const statusText = computed(() => {
-  switch (saveStatus.value) {
-    case 'saved': return '已保存'
-    case 'saving': return '保存中...'
-    case 'unsaved': return '未保存'
-    default: return ''
-  }
-})
-const selectedBookSummary = computed(() => {
-  const book = books.value.find((item) => item.id === selectedBookId.value)
-  if (!book) return ''
-  return book.title || '未命名书籍'
-})
-const selectedChapterSummary = computed(() => {
-  const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
-  if (!chapter) return selectedBookSummary.value
-  const title = String(chapter.title || '无标题章节').trim()
-  const count = Number(chapter.wordCount || 0)
-  return `${title} · ${count.toLocaleString()} 字`
-})
-
-// UI-W2: Pinax Wall computeds. project title derives from selected book
-// or default "未命名作品"; pin strip encodes chapter status (gold=已完稿,
-// olive=在写, rose=草稿, ink=未动) for the cork-board color band.
-const projectTitle = computed(() => {
-  const book = books.value.find((item) => item.id === selectedBookId.value)
-  return book?.title || '未命名作品'
-})
-
 const stampStateText = computed(() => {
-  if (saveStatus.value === 'saving') return '盖印中'
-  if (saveStatus.value === 'unsaved') return '待签'
-  return '已签'
+  if (saveStatus.value === 'saving') return '保存中'
+  if (saveStatus.value === 'unsaved') return '未保存'
+  if (saveStatus.value === 'error') return '保存失败'
+  return '已保存'
 })
 
-const chapterNumberLabel = computed(() => {
-  const idx = chapters.value.findIndex((item) => item.id === selectedChapterId.value)
-  if (idx < 0) return 'No.'
-  return String(idx + 1).padStart(2, '0')
+const saveFeedbackVisible = ref(false)
+let saveFeedbackTimer = null
+watch(saveStatus, (next, previous) => {
+  if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer)
+  saveFeedbackTimer = null
+  if (next === 'saved') {
+    saveFeedbackVisible.value = Boolean(previous && previous !== 'saved')
+    if (saveFeedbackVisible.value) {
+      saveFeedbackTimer = setTimeout(() => {
+        saveFeedbackVisible.value = false
+        saveFeedbackTimer = null
+      }, 1600)
+    }
+    return
+  }
+  saveFeedbackVisible.value = true
+})
+onBeforeUnmount(() => {
+  if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer)
 })
 
 const revisionLabel = computed(() => {
-  const stamp = new Date().toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-  return stamp
+  const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
+  const stamp = Date.parse(chapter?.updatedAt || chapter?.createdAt || '')
+  if (!Number.isFinite(stamp)) return '--:--'
+  return new Date(stamp).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 })
 
 function chapterPinColor(count) {
@@ -3143,6 +8493,21 @@ function handleHeroBookChange() {
 }
 
 function goToAdventure() {
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  const outgoingChapterBoundary = !wt3ActiveDoc.value
+    ? buildCurrentChapterObserverBoundary()
+    : null
+  const saved = wt3ActiveDoc.value
+    ? wt3PersistBeforeLeaving()?.ok === true
+    : (!selectedChapterId.value || saveCurrentChapter())
+  if (!saved) {
+    authoringTask.notify('文档保存失败，已留在创作页')
+    return false
+  }
+  if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
   const hasSession = gameStore.currentSessionId
     && gameStore.sessions.some(s => s.id === gameStore.currentSessionId)
   if (hasSession) {
@@ -3150,6 +8515,7 @@ function goToAdventure() {
   } else {
     router.push({ name: 'opening' })
   }
+  return true
 }
 
 // 打开带 sessionId 的旧体验会话链接时，把已提交的助手回合幂等投影进当前章节。
@@ -3192,8 +8558,23 @@ function projectLinkedLegacySession() {
 }
 
 function goBack() {
-  saveCurrentChapter()
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  const outgoingChapterBoundary = !wt3ActiveDoc.value
+    ? buildCurrentChapterObserverBoundary()
+    : null
+  const saved = wt3ActiveDoc.value
+    ? wt3PersistBeforeLeaving()?.ok === true
+    : (!selectedChapterId.value || saveCurrentChapter())
+  if (!saved) {
+    authoringTask.notify('文档保存失败，已留在创作页')
+    return false
+  }
+  if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
   router.push('/')
+  return true
 }
 
 function readLiveWritingSelectionSnapshot() {
@@ -3216,6 +8597,9 @@ function readLiveWritingSelectionSnapshot() {
         unitRevision: Number(selection.unitRevision || 0),
         nodeId: selection.nodeId || null,
         nodeRevision: Number(selection.nodeRevision || 0),
+        cursorLocalOffset: Number(selection.cursorLocalOffset || 0),
+        selectionLocalStart: Number(selection.selectionLocalStart ?? selection.cursorLocalOffset ?? 0),
+        selectionLocalEnd: Number(selection.selectionLocalEnd ?? selection.cursorLocalOffset ?? 0),
         editorFrom: Number(selection.from || 1),
         editorTo: Number(selection.to || selection.from || 1)
       }
@@ -3312,8 +8696,8 @@ function collectWritingContext() {
   }
 }
 
-function buildWritingTaskContext(task = {}) {
-  const selection = getWritingSelectionSnapshot()
+function buildWritingTaskContext(task = {}, selectionOverride = null) {
+  const selection = selectionOverride || getWritingSelectionSnapshot()
   const paragraph = getWritingParagraphSnapshot(selection.start)
   const contextWindow = extractWritingSuggestionWindow(markdownContent.value || '', selection.start, {
     upstream: 520,
@@ -3357,9 +8741,29 @@ function openAssetInbox() {
   })
 }
 
+function openInboxAssetFromInspector(asset) {
+  assetInboxActiveId.value = String(asset?.id || '')
+  openAssetInbox()
+}
+
 function openMaterialsPage() {
-  saveCurrentChapter()
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  const outgoingChapterBoundary = !wt3ActiveDoc.value
+    ? buildCurrentChapterObserverBoundary()
+    : null
+  const saved = wt3ActiveDoc.value
+    ? wt3PersistBeforeLeaving()?.ok === true
+    : (!selectedChapterId.value || saveCurrentChapter())
+  if (!saved) {
+    authoringTask.notify('文档保存失败，未打开素材页')
+    return false
+  }
+  if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
   router.push({ name: 'materials' })
+  return true
 }
 
 function closeAssetInbox() {
@@ -3433,26 +8837,131 @@ function buildCopilotAssetContext(asset) {
   return parts.filter((part) => part !== '').join('\n')
 }
 
-function getWritingAgentPageContext() {
-  const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
-  const currentChapter = selectedBook?.chapters?.find((chapter) => chapter.id === selectedChapterId.value)
-  const nodeTarget = getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value)
+function getWritingAgentPageContext(invocationTarget = null) {
+  const contextProjectId = String(invocationTarget?.projectId || selectedBookId.value || '')
+  const contextChapterId = String(invocationTarget?.chapterId || selectedChapterId.value || '')
+  const selectedBook = books.value.find((book) => String(book.id || '') === contextProjectId)
+  const currentChapter = selectedBook?.chapters?.find((chapter) => String(chapter.id || '') === contextChapterId)
+  const contextText = typeof invocationTarget?.documentText === 'string'
+    ? invocationTarget.documentText
+    : markdownContent.value
+  const contextDocument = invocationTarget?.documentSnapshot || writingDocument.value
+  const contextCursor = Math.max(0, Math.min(
+    contextText.length,
+    Number(invocationTarget?.caret ?? copilotCursorPos.value) || 0
+  ))
+  const liveNodeTarget = getWritingBlockAtPosition(contextCursor, contextText)
+  const nodeTarget = invocationTarget
+    ? {
+        ...(liveNodeTarget || {}),
+        unitId: invocationTarget.unitId || liveNodeTarget?.unitId || '',
+        unitRevision: Number(invocationTarget.unitRevision ?? liveNodeTarget?.unitRevision ?? 0),
+        nodeId: invocationTarget.nodeId || liveNodeTarget?.nodeId || '',
+        nodeRevision: Number(invocationTarget.nodeRevision ?? liveNodeTarget?.nodeRevision ?? 0)
+      }
+    : liveNodeTarget
+  const matchedWorldbookEntries = matchWorldbookEntries({
+    worldbook: boundWorldbook.value,
+    chatHistory: [{ role: 'user', content: contextText.slice(Math.max(0, contextCursor - 800), contextCursor) }],
+    runtimeState: { currentScene: sceneProjection.value?.location?.name || '' },
+    tokenBudget: 900,
+    scanDepth: 1
+  })?.matchedEntries || []
+  const sceneEntryIds = new Set([
+    sceneProjection.value?.location?.id,
+    sceneProjection.value?.viewpointCharacter?.id,
+    sceneProjection.value?.activeActor?.id,
+    sceneProjection.value?.dialogueTarget?.id,
+    sceneActiveActorId.value,
+    sceneDialogueTargetId.value,
+    ...(sceneProjection.value?.presentCharacters || []).map((person) => person?.id)
+  ].map((id) => String(id || '')).filter(Boolean))
+  const contextWorldbookEntries = new Map(matchedWorldbookEntries.map((entry) => [String(entry?.id || ''), entry]))
+  for (const entry of boundWorldbook.value?.entries || []) {
+    const entryId = String(entry?.id || '')
+    if (!sceneEntryIds.has(entryId)) continue
+    contextWorldbookEntries.set(entryId, {
+      ...entry,
+      ...(contextWorldbookEntries.get(entryId) || {}),
+      matchReason: 'current-scene'
+    })
+  }
+  // Phase 4：readers 产出候选（四轴+位置+表示），选择权归 WritingContextCompiler。
+  const targetUnitId = nodeTarget?.unitId || notebookSelection.value?.unitId || ''
+  const localContextCandidates = buildWritingContextCandidates({
+    projectId: contextProjectId,
+    chapterId: contextChapterId,
+    targetUnitId,
+    document: contextDocument,
+    sceneProjection: sceneProjection.value,
+    outlineNodes: wt3OutlineNodes.value,
+    explorationDocuments: wt3ExplorationDocs.value,
+    referenceAssets: selectedCopilotReferenceAssets(),
+    matchedEntries: [...contextWorldbookEntries.values()]
+  })
+  const crossChapter = discoverCrossChapterContext({
+    book: selectedBook,
+    targetChapterId: contextChapterId,
+    outlineNodes: wt3OutlineNodes.value,
+    outlineEdges: wt3OutlineEdges.value
+  })
+  const positionIndex = buildManuscriptPositionIndex(selectedBook)
+  const contextDependencyRevisions = {
+    'chapter-order': positionIndex.chapterOrderRevision,
+    outline: fingerprintOutline(wt3OutlineNodes.value, wt3OutlineEdges.value)
+  }
   return {
-    content: markdownContent.value,
-    cursorPos: copilotCursorPos.value,
-    bookId: selectedBookId.value || null,
-    bookTitle: selectedBook?.title || '',
-    chapterId: selectedChapterId.value || null,
-    chapterTitle: currentChapterTitle.value,
-    documentRevision: Number(writingDocument.value?.revision || 0),
+    content: contextText,
+    cursorPos: contextCursor,
+    bookId: contextProjectId || null,
+    bookTitle: invocationTarget?.bookTitle ?? selectedBook?.title ?? '',
+    chapterId: contextChapterId || null,
+    chapterTitle: invocationTarget?.chapterTitle ?? currentChapterTitle.value,
+    documentRole: invocationTarget?.documentRole || (wt3ActiveDoc.value ? 'exploration' : 'manuscript'),
+    documentId: invocationTarget?.documentId || wt3ActiveDoc.value?.id || contextChapterId || null,
+    documentRevision: invocationTarget?.documentRevision || currentDocumentRevision(),
+    editorFocused: notebookEditorRef.value?.hasEditorFocus?.() !== false,
     nodeTarget,
     sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     outlineItems: chapterOutlineItems.value,
     referenceAsset: copilotReferenceAsset.value,
     inboxAssets: inboxAssets.value,
     selectedInboxIds: selectedInboxAssetIds.value,
-    worldbook: boundWorldbook.value || null
+    worldbook: boundWorldbook.value || null,
+    contextCandidates: [...localContextCandidates, ...crossChapter.candidates],
+    contextCandidateReport: crossChapter.report,
+    contextRunPinnedIds: contextRunPinnedIds.value,
+    contextRunExcludedIds: contextRunExcludedIds.value,
+    contextDependencyRevisions
   }
+}
+
+function buildLiveContextDependencyRevisions() {
+  const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
+  return {
+    ...collectWritingContextDependencyRevisions({
+      book: selectedBook,
+      document: { ...writingDocument.value, chapterId: selectedChapterId.value || '' },
+      sceneProjection: sceneProjection.value,
+      outlineNodes: wt3OutlineNodes.value,
+      outlineEdges: wt3OutlineEdges.value,
+      worldbook: boundWorldbook.value,
+      explorationDocuments: wt3ExplorationDocs.value,
+      referenceAssets: selectedCopilotReferenceAssets()
+    }),
+    outline: fingerprintOutline(wt3OutlineNodes.value, wt3OutlineEdges.value)
+  }
+}
+
+function selectedCopilotReferenceAssets() {
+  const byId = new Map()
+  for (const asset of [
+    copilotReferenceAsset.value,
+    ...inboxAssets.value.filter((item) => selectedInboxAssetIds.value.includes(item.id))
+  ]) {
+    if (asset?.id) byId.set(String(asset.id), asset)
+  }
+  return [...byId.values()]
 }
 
 function clearCopilotReference(options = {}) {
@@ -3466,6 +8975,10 @@ function clearCopilotReference(options = {}) {
 }
 
 function useAssetAsCopilotContext(asset) {
+  if (!canRunInlineWritingAgent()) {
+    quickNoteStatus.value = '请先采用或丢弃当前推演草稿，再调用行内联想'
+    return false
+  }
   const content = String(asset?.content || '').trim()
   if (!content) {
     quickNoteStatus.value = '素材内容为空'
@@ -3478,7 +8991,9 @@ function useAssetAsCopilotContext(asset) {
     kind: asset.kind,
     source: asset.source,
     content,
-    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : []
+    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : [],
+    updatedAt: asset.updatedAt || null,
+    revision: asset.revision || null
   }
   assetInboxOpen.value = false
   quickNoteStatus.value = `已设为续写参考：${asset.title || '未命名素材'}`
@@ -3548,6 +9063,68 @@ function removeChapterOutlineItemFromChapter(itemId) {
   chapterOutlineItems.value = removeChapterOutlineItem(chapterOutlineItems.value, itemId)
   syncChapterOutlineToCurrentChapter()
   quickNoteStatus.value = '已移出章节纲要'
+}
+
+function addManualChapterOutlineItem(payload = {}) {
+  const content = String(payload.content || '').trim()
+  if (!selectedChapterId.value || !content) return
+  chapterOutlineItems.value = [...chapterOutlineItems.value, createChapterOutlineItem({
+    title: payload.title,
+    content,
+    source: { type: 'manual' }
+  })]
+  syncChapterOutlineToCurrentChapter()
+  quickNoteStatus.value = '已添加章纲节点'
+}
+
+function updateChapterOutlineItem(itemId, updates = {}) {
+  chapterOutlineItems.value = chapterOutlineItems.value.map((item) => (
+    item.id === itemId
+      ? createChapterOutlineItem({ ...item, ...updates, id: item.id, createdAt: item.createdAt, updatedAt: Date.now() })
+      : item
+  ))
+  syncChapterOutlineToCurrentChapter()
+  quickNoteStatus.value = '章纲已更新'
+}
+
+function moveChapterOutlineItem(index, direction) {
+  const target = index + direction
+  if (index < 0 || target < 0 || target >= chapterOutlineItems.value.length) return
+  const next = [...chapterOutlineItems.value]
+  const [item] = next.splice(index, 1)
+  next.splice(target, 0, item)
+  chapterOutlineItems.value = next
+  syncChapterOutlineToCurrentChapter()
+}
+
+function annotateSelectionWithWorldbookEntry(entry) {
+  if (!String(selectedText.value || '').trim()) {
+    quickNoteStatus.value = '先在正文中选中需要关联设定的文字'
+    return
+  }
+  const context = getAnnotationSelectionContext()
+  if (!context || !boundWorldbook.value?.id || !entry?.id) return
+  annotationDraft.value = '核对这里与该设定是否一致'
+  annotationComposerContext.value = {
+    ...context,
+    worldbookReferences: [{
+      kind: 'worldbook-entry',
+      worldbookId: String(boundWorldbook.value.id),
+      entryId: String(entry.id),
+      entryRevision: String(entry?.metadata?.updatedAt || ''),
+      labelSnapshot: String(entry.name || '未命名设定'),
+      source: 'authoring-setting-inspector'
+    }]
+  }
+  inspectorOpen.value = true
+  activeInspectorTool.value = 'annotations'
+  inspectorTab.value = 'comments'
+  annotationComposerOpen.value = true
+  activeAnnotationId.value = null
+  nextTick(() => {
+    scheduleAnnotationLayout()
+    document.querySelector('.writing-annotation-composer textarea')?.focus({ preventScroll: true })
+  })
 }
 
 function insertChapterOutlineItem(item) {
@@ -3713,7 +9290,10 @@ function exportCurrentChapterManuscript() {
     quickNoteStatus.value = '先选择章节'
     return
   }
-  saveCurrentChapter()
+  if (!saveCurrentChapter()) {
+    quickNoteStatus.value = '当前章节保存失败，已取消导出'
+    return
+  }
   const book = books.value.find((item) => item.id === selectedBookId.value)
   const chapter = book?.chapters?.find((item) => item.id === selectedChapterId.value)
   try {
@@ -3730,7 +9310,10 @@ function exportCurrentBookManuscript() {
     quickNoteStatus.value = '先选择书籍'
     return
   }
-  if (selectedChapterId.value) saveCurrentChapter()
+  if (selectedChapterId.value && !saveCurrentChapter()) {
+    quickNoteStatus.value = '当前章节保存失败，已取消导出'
+    return
+  }
   const book = books.value.find((item) => item.id === selectedBookId.value)
   try {
     const file = buildBookManuscriptExport({ book })
@@ -3747,7 +9330,10 @@ function exportChapterStoryboardDraft() {
     return
   }
 
-  saveCurrentChapter()
+  if (!saveCurrentChapter()) {
+    quickNoteStatus.value = '当前章节保存失败，已取消导出'
+    return
+  }
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   const chapterTitle = currentChapterTitle.value || chapter?.title || '当前章节'
   const shots = extractShotsFromChapter({
@@ -3871,6 +9457,134 @@ function resetRewriteState() {
   rewriteUndoReceipt.value = null
 }
 
+function updateWritingHistoryPreference(patch = {}) {
+  const result = saveWritingHistoryPreferences({
+    ...writingHistoryPreferences.value,
+    ...patch
+  })
+  writingHistoryPreferences.value = result.preferences
+  snapshotStatus.value = result.ok
+    ? (result.preferences.enabled
+        ? `自动历史已开启 · 每 ${result.preferences.intervalWords.toLocaleString()} 字`
+        : '自动历史已关闭；手动与保护快照仍会保留。')
+    : '自动历史设置保存失败，已保留原设置。'
+  if (!result.ok) writingHistoryPreferences.value = loadWritingHistoryPreferences()
+  return result.ok
+}
+
+function recordAutomaticHistoryAfterPersist({
+  chapterId,
+  chapterTitle,
+  previousDocument,
+  previousMarkdown,
+  persistedDocument,
+  persistedMarkdown,
+  annotations
+} = {}) {
+  const plan = planWritingMilestoneSnapshot({
+    persisted: true,
+    chapterId,
+    chapterTitle,
+    previousDocument,
+    previousMarkdown,
+    persistedDocument,
+    persistedMarkdown,
+    annotations,
+    preferences: writingHistoryPreferences.value,
+    snapshots: listWritingSnapshots(chapterId)
+  })
+  if (!plan.shouldRecord) return plan
+  const result = recordWritingMilestoneSnapshot(plan)
+  if (result.recorded && String(chapterId) === String(selectedChapterId.value)) {
+    writingSnapshots.value = listWritingSnapshots(chapterId)
+  }
+  if (!result.ok && activeInspectorTool.value === 'history') {
+    snapshotStatus.value = '正文已保存，但自动历史空间不足；请清理较旧版本。'
+  }
+  return result
+}
+
+function recordDestructiveWritingProtection(payload = {}) {
+  const documentRole = payload.documentRole === 'exploration' ? 'exploration' : 'manuscript'
+  const documentId = String(payload.documentId || payload.chapterId || '')
+  const projectId = String(payload.projectId || selectedBookId.value || '')
+  const document = payload.document
+  if (!projectId || !documentId || !document) return false
+  const snapshotKey = documentRole === 'exploration'
+    ? authoringDocumentKey({ role: 'exploration', bookId: projectId, documentId })
+    : documentId
+  const chapter = documentRole === 'manuscript'
+    ? chapters.value.find((item) => String(item?.id || '') === documentId)
+    : null
+  const exploration = documentRole === 'exploration'
+    ? wt3ExplorationDocs.value.find((item) => String(item?.id || '') === documentId)
+    : null
+  const result = recordWritingProtectionSnapshot({
+    chapterId: snapshotKey,
+    chapterTitle: String(payload.title || chapter?.title || exploration?.title || ''),
+    label: `删除前 · 修订 ${Number(document.revision || 0)}`,
+    reason: 'before-rewrite',
+    document,
+    markdown: String(payload.markdown ?? getWritingDocumentMarkdown(document)),
+    annotations: Array.isArray(payload.annotations)
+      ? payload.annotations
+      : documentRole === 'manuscript' ? (chapter?.annotations || []) : (exploration?.annotations || []),
+    operation: String(payload.operation || 'delete-selection'),
+    transactionId: `delete-selection:${snapshotKey}:${Number(document.revision || 0)}`
+  })
+  if (!result.ok) {
+    snapshotStatus.value = '无法保存删除前版本，本次删除已取消。'
+    authoringTask.notify('无法保存删除前版本，本次删除已取消')
+    return false
+  }
+  if (documentRole === 'manuscript' && documentId === String(selectedChapterId.value || '')) {
+    writingSnapshots.value = listWritingSnapshots(documentId)
+  }
+  return true
+}
+
+function protectMainDestructiveEdit(payload = {}) {
+  const exploration = wt3ActiveDoc.value
+  return recordDestructiveWritingProtection({
+    ...payload,
+    pane: 'main',
+    projectId: selectedBookId.value,
+    documentRole: exploration ? 'exploration' : 'manuscript',
+    documentId: String(exploration?.id || selectedChapterId.value || ''),
+    chapterId: exploration ? '' : String(selectedChapterId.value || ''),
+    title: String(exploration?.title || currentChapterTitle.value || ''),
+    annotations: exploration ? wt3Annotations.value : chapterAnnotations.value
+  })
+}
+
+function protectDualDestructiveEdit(payload = {}) {
+  return recordDestructiveWritingProtection(payload)
+}
+
+function protectCurrentRewrite(candidate) {
+  const exploration = wt3ActiveDoc.value
+  const persisted = exploration
+    ? wt3PersistActiveDoc()?.ok === true
+    : saveCurrentChapter({ automaticHistory: false })
+  if (!persisted) return false
+  const documentId = String(exploration?.id || selectedChapterId.value || '')
+  const snapshotKey = exploration
+    ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId })
+    : documentId
+  const protection = recordWritingProtectionSnapshot({
+    chapterId: snapshotKey,
+    chapterTitle: String(exploration?.title || currentChapterTitle.value || ''),
+    reason: 'before-rewrite',
+    document: writingDocument.value,
+    markdown: getWritingDocumentMarkdown(writingDocument.value),
+    annotations: exploration ? wt3Annotations.value : chapterAnnotations.value,
+    operation: String(candidate?.kind || 'rewrite'),
+    transactionId: String(candidate?.id || '')
+  })
+  if (protection.ok && !exploration) writingSnapshots.value = listWritingSnapshots(documentId)
+  return protection.ok
+}
+
 function loadChapterSnapshots(chapterId) {
   writingSnapshots.value = chapterId ? listWritingSnapshots(chapterId) : []
   writingBlockHistory.value = chapterId ? listWritingBlockHistory(chapterId) : []
@@ -3912,7 +9626,7 @@ function formatWritingHistoryPreview(value) {
 
 function createCurrentWritingSnapshot({ label = snapshotLabel.value, reason = 'manual', quiet = false } = {}) {
   if (!selectedChapterId.value) return null
-  if (!saveCurrentChapter()) {
+  if (!saveCurrentChapter({ automaticHistory: false })) {
     snapshotStatus.value = '当前正文保存失败，未创建快照。'
     return null
   }
@@ -3945,7 +9659,17 @@ function createCurrentWritingSnapshot({ label = snapshotLabel.value, reason = 'm
 }
 
 function restoreWritingSnapshot(snapshot) {
+  if (rejectLockedNotebookMutation()) return false
   if (!snapshot || !selectedChapterId.value) return false
+  const dualSource = dualPaneRef.value?.getActiveSource?.()
+  const dualShowsCurrentChapter = dualSource?.kind === 'chapter'
+    && String(dualSource.id || '') === String(selectedChapterId.value || '')
+  // 同章双栏共享一个 canonical document handle。先收口副栏尚未保存的
+  // 事务，再计算 restore guard；否则副栏的延迟 autosave 会复活旧稿并覆盖恢复。
+  if (dualShowsCurrentChapter && dualPaneRef.value?.prepareClose?.() === false) {
+    snapshotStatus.value = '恢复已停止：副栏正文尚未保存。'
+    return false
+  }
   const guard = getWritingSnapshotRestoreGuard(snapshot, {
     chapterId: selectedChapterId.value,
     documentRevision: writingDocument.value?.revision || 0,
@@ -3976,6 +9700,17 @@ function restoreWritingSnapshot(snapshot) {
     return false
   }
 
+  // 恢复旧正文不能复活旧 AI/校对/search session。正文内容即使与历史版本
+  // 完全相同，也以新的 revision/epoch 进入当前时间线。
+  document.revision = Math.max(
+    Number(writingDocument.value?.revision || 0),
+    Number(document.revision || 0)
+  ) + 1
+  document.meta = {
+    ...(document.meta || {}),
+    historyRestoreEpoch: `restore-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
   chapter.editorDocument = document
   chapter.editorDocumentSchemaVersion = document.schemaVersion
   chapter.content = snapshot.markdown
@@ -3986,6 +9721,15 @@ function restoreWritingSnapshot(snapshot) {
     return false
   }
   selectChapter(selectedChapterId.value)
+  if (dualShowsCurrentChapter) {
+    dualPaneRef.value?.reloadSearchSource?.({
+      sourceKind: 'chapter',
+      sourceId: chapter.id,
+      title: chapter.title,
+      document,
+      markdown: snapshot.markdown
+    })
+  }
   snapshotStatus.value = `已恢复「${snapshot.label}」 · 当前修订 ${document.revision}`
   saveStatus.value = 'saved'
   return true
@@ -4013,6 +9757,10 @@ function canRestoreWritingBlockHistory(entry) {
 }
 
 function restoreWritingBlockHistory(entry) {
+  if (rejectLockedNotebookMutation()) {
+    snapshotStatus.value = '正文事务正在提交，暂不能恢复片段历史。'
+    return false
+  }
   if (!canRestoreWritingBlockHistory(entry)) {
     snapshotStatus.value = '这个片段已经不存在或已移到其他写作单元，无法单独恢复。'
     return
@@ -4038,6 +9786,24 @@ function restoreWritingBlockHistory(entry) {
 }
 
 function writeCurrentWritingRecoveryDraft() {
+  // Phase 1：探索文档以稳定文档 key 写恢复草稿（复用同一 store，兼容旧 chapter key）。
+  if (wt3ActiveDoc.value) {
+    if (!writingDocument.value) return null
+    const key = authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
+    const draft = createWritingSnapshot({
+      chapterId: key,
+      chapterTitle: wt3ActiveDoc.value.title,
+      label: '未保存草稿',
+      reason: 'crash-recovery',
+      document: writingDocument.value,
+      markdown: markdownContent.value,
+      annotations: wt3Annotations.value
+    })
+    if (!draft) return null
+    const result = saveWritingRecoveryDraft(draft)
+    if (result.ok) writingRecoveryDraft.value = draft
+    return result.ok ? draft : null
+  }
   if (!selectedChapterId.value || !writingDocument.value) return null
   const draft = createWritingSnapshot({
     chapterId: selectedChapterId.value,
@@ -4056,8 +9822,10 @@ function writeCurrentWritingRecoveryDraft() {
 
 function scheduleWritingRecoveryDraft() {
   if (recoveryTimeout) clearTimeout(recoveryTimeout)
+  const scheduledScopeKey = activeDocumentSaveScopeKey()
   recoveryTimeout = setTimeout(() => {
     recoveryTimeout = null
+    if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
     writeCurrentWritingRecoveryDraft()
   }, 250)
 }
@@ -4075,34 +9843,50 @@ function removeWritingSnapshot(snapshot) {
 }
 
 function loadBooks() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
-    books.value = stored ? JSON.parse(stored) : []
-  } catch (e) {
-    books.value = []
-  }
+  books.value = loadWritingBooks()
 
   ensureInitialBookSelection()
 }
 
-function saveBooks() {
-  try {
-    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify(books.value))
-    return true
-  } catch {
-    saveStatus.value = 'error'
-    return false
+function saveBooks({ preserveOutlineBookId = '' } = {}) {
+  // Phase 1：explorationDocuments / outlineNodes 归文档仓库所有，章节保存
+  // 以仓库当前内容合并回页面数组后再整包写回，避免旧 books.value 冲掉
+  // 并行新建/更新的探索文档（数据丢失竞态）。
+  const freshBooks = loadWritingBooks()
+  for (const pageBook of books.value) {
+    const freshBook = freshBooks.find((item) => String(item.id) === String(pageBook.id))
+    if (!freshBook) continue
+    if (Array.isArray(freshBook.explorationDocuments) || pageBook.explorationDocuments === undefined) {
+      pageBook.explorationDocuments = Array.isArray(freshBook.explorationDocuments) ? freshBook.explorationDocuments : []
+    }
+    const preservePageOutline = String(pageBook.id) === String(preserveOutlineBookId || '')
+    if (!preservePageOutline && (Array.isArray(freshBook.outlineNodes) || pageBook.outlineNodes === undefined)) {
+      pageBook.outlineNodes = Array.isArray(freshBook.outlineNodes) ? freshBook.outlineNodes : []
+    }
+    if (Array.isArray(freshBook.outlineEdges) || pageBook.outlineEdges === undefined) {
+      pageBook.outlineEdges = Array.isArray(freshBook.outlineEdges) ? freshBook.outlineEdges : []
+    }
   }
+  const ok = saveWritingBooks(books.value)
+  if (!ok) saveStatus.value = 'error'
+  return ok
 }
 
 function ensureInitialBookSelection() {
   if (selectedBookId.value || books.value.length === 0) return
-  openBook(books.value[0].id, { fromInitialLoad: true })
+  // bookId query 是项目上下文真源：挂载时优先打开 query 指向的书。
+  const queryBookId = typeof route.query.bookId === 'string' ? route.query.bookId.trim() : ''
+  const preferred = (queryBookId && books.value.find((book) => String(book.id) === queryBookId)) || books.value[0]
+  openBook(preferred.id, { fromInitialLoad: true })
+  // 无 selector 的纯 chapterId 定位（selector 回跳由 pendingBackJump 处理）。
+  const queryChapterId = typeof route.query.chapterId === 'string' ? route.query.chapterId.trim() : ''
+  if (queryChapterId && !pendingBackJump.value && !pendingInsertBack.value) {
+    const chapter = chapters.value.find((item) => item && item.id === queryChapterId)
+    if (chapter) selectChapter(chapter.id)
+  }
 }
 
 // —— 书与世界书绑定（Task 2）——
-const currentBook = computed(() => books.value.find((item) => item.id === selectedBookId.value) || null)
-const selectedBookWorldbookId = computed(() => normalizeBookWorldbookBinding(currentBook.value))
 const bookWorldbookStatus = computed(() => resolveBookWorldbookStatus({
   book: currentBook.value,
   worldbooks: worldStore.worldbooksIndex
@@ -4113,6 +9897,19 @@ const bookWorldbookStatus = computed(() => resolveBookWorldbookStatus({
 // 且旧绑定在激活瞬间被清空，加载窗口内生成链读不到上一书世界书。
 let pendingActivationBoundary = false
 function activateBook(bookId, { savePrevious = true } = {}) {
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return null
+  }
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return null
+  }
+  const bookForBinding = books.value.find((item) => item.id === bookId) || null
+  // null 只供“删除最后一本书”显式清空；未知 ID 不能破坏当前选择。
+  if (bookId != null && !bookForBinding) return null
+  // Phase 1：换书同样先持久化探索文档（按探索文档自身 bookId 落盘）。
+  if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return null
   // 复验修复 1：boundary 载荷必须在 selectedBookId 仍是旧书时构造——
   // 否则旧章节正文会被派生到新书的项目记忆。
   const outgoingBoundary = savePrevious
@@ -4124,13 +9921,18 @@ function activateBook(bookId, { savePrevious = true } = {}) {
       })
     : null
   if (savePrevious) {
-    if (outgoingBoundary) gameStore.noteAuthoringBoundary(outgoingBoundary)
-    saveCurrentChapter()
+    if (selectedChapterId.value && !saveCurrentChapter()) {
+      authoringTask.notify('当前章节保存失败，未切换书籍')
+      return null
+    }
+    if (outgoingBoundary) dispatchChapterBoundary(outgoingBoundary)
     // 已在换书路径记账并保存：抑制 selectChapter 内的第二次 boundary/save。
-    pendingActivationBoundary = true
+    pendingActivationBoundary = Boolean(selectedChapterId.value)
   }
-  const bookForBinding = books.value.find((item) => item.id === bookId) || null
   selectedBookId.value = bookId
+  // 换书即换作用域：旧书的候选面板与待保存回执同步失效。
+  authoringTask.dismissAuxiliary()
+  authoringTask.clearPendingPersist()
   // 项目标识统一：受控记忆的写入与召回都使用当前书 ID。
   gameStore.setAuthoringProjectId(bookId || '')
   // 复验修复 2：同步窗口从这一刻开始（sync() 第一步即清空旧绑定）。
@@ -4159,13 +9961,14 @@ function openBook(bookId, options = {}) {
       resetRewriteState()
       clearCopilotReference({ silent: true })
     }
-    return
+    return false
   }
 
   chapters.value = book.chapters || []
   if (chapters.value.length > 0) {
-    selectChapter(chapters.value[0].id)
+    if (!selectChapter(chapters.value[0].id)) return false
   } else {
+    pendingActivationBoundary = false
     selectedChapterId.value = null
     currentChapterTitle.value = ''
     editorContent.value = ''
@@ -4182,69 +9985,92 @@ function openBook(bookId, options = {}) {
     clearCopilotReference({ silent: true })
   }
   saveStatus.value = 'saved'
+  return true
 }
 
 function selectBook(bookId) {
-  openBook(bookId)
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return false
+  }
+  copilotCancel()
+  authoringTask.dismissAuxiliary()
+  if (blockComposer.open) closeBlockComposer()
+  if (!openBook(bookId)) return false
   closeChapterDrawer()
+  return true
 }
 
 function selectChapter(chapterId) {
+  if (pendingGhostAdoption.value) {
+    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    return false
+  }
+  if (blockPreview.value) {
+    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    return false
+  }
+  // Phase 1：离开探索文档先持久化（含批注），再进入章节管线。
+  const chapter = chapters.value.find((item) => item.id === chapterId)
+  if (!chapter) return false
+  if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return false
+  copilotCancel()
+  if (blockComposer.open) closeBlockComposer()
   // 复验修复 1：activateBook 已按旧书 ID 记过换书 boundary 并保存——
   // 这里若再记一次会把旧章节派生到新书 ID（selectedBookId 已切换）。
   if (pendingActivationBoundary) {
     pendingActivationBoundary = false
   } else if (selectedChapterId.value && selectedChapterId.value !== chapterId) {
     // 章节边界：对上一章做一次去重后的有界派生，不重扫整个项目。
-    gameStore.noteAuthoringBoundary({
+    const outgoingBoundary = {
       scopeKey: `chapter:${selectedChapterId.value}`,
       text: currentChapterDocumentText(),
       sourceRefs: [`chapter:${selectedChapterId.value}`],
       revision: currentDocumentRevision(),
       memoryProjectId: selectedBookId.value || ''
-    })
-    saveCurrentChapter()
+    }
+    if (!saveCurrentChapter()) {
+      authoringTask.notify('当前章节保存失败，未切换章节')
+      return false
+    }
+    dispatchChapterBoundary(outgoingBoundary)
   }
   cancelChapterReview()
   copilotCancel()
   resetRewriteState()
   clearCopilotReference({ silent: true })
   authoringTask.clearPendingPersist()
+  // 候选与正文事务一样绑定当前作用域：旧章节的下一步/涌现候选不得跨章插入。
+  authoringTask.dismissAuxiliary()
   composerFailure.value = null
   selectedChapterId.value = chapterId
-  const chapter = chapters.value.find(c => c.id === chapterId)
-  if (chapter) {
-    currentChapterTitle.value = chapter.title || ''
-    sceneAnchors.value = normalizeSceneAnchors(chapter.sceneAnchors)
-    lastSceneAnchorUndoReceipt.value = null
-    const { raw, format } = readChapterSource(chapter)
-    const fallbackMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
-    markdownContent.value = loadChapterDocument(chapter, fallbackMarkdown)
-    editorContent.value = markdownToHtml(markdownContent.value)
-    chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
-    chapterAnnotations.value = reconcileWritingAnnotations(
-      chapter.annotations,
-      writingDocument.value,
-      chapter.id
-    )
-    loadChapterSnapshots(chapter.id)
-    activeAnnotationId.value = null
-    editingAnnotationId.value = null
-    annotationDraft.value = ''
-    editorHistory.clear()
-    nextTick(() => {
-      if (editorRef.value) editorRef.value.value = markdownContent.value
-    })
-  } else {
-    chapterOutlineItems.value = []
-    chapterAnnotations.value = []
-    activeAnnotationId.value = null
-    editingAnnotationId.value = null
-    annotationDraft.value = ''
-    clearWritingDocument()
-    loadChapterSnapshots(null)
-  }
+  currentChapterTitle.value = chapter.title || ''
+  sceneAnchors.value = normalizeSceneAnchors(chapter.sceneAnchors)
+  lastSceneAnchorUndoReceipt.value = null
+  const { raw, format } = readChapterSource(chapter)
+  const fallbackMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
+  markdownContent.value = loadChapterDocument(chapter, fallbackMarkdown)
+  editorContent.value = markdownToHtml(markdownContent.value)
+  chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
+  chapterAnnotations.value = reconcileWritingAnnotations(
+    chapter.annotations,
+    writingDocument.value,
+    chapter.id
+  )
+  loadChapterSnapshots(chapter.id)
+  activeAnnotationId.value = null
+  editingAnnotationId.value = null
+  annotationDraft.value = ''
+  editorHistory.clear()
+  nextTick(() => {
+    if (editorRef.value) editorRef.value.value = markdownContent.value
+  })
   closeChapterDrawer()
+  return true
 }
 
 function locateQualityIssue(issue) {
@@ -4288,14 +10114,11 @@ function createNewBook() {
 function confirmCreateBook() {
   if (!newBookTitle.value.trim()) return
 
-  const newBook = {
-    id: Date.now().toString(),
+  const newBook = createWritingBookRecord({
     title: newBookTitle.value.trim(),
     description: newBookDesc.value.trim(),
-    worldbookId: String(newBookWorldbookId.value || ''),
-    createdAt: new Date().toISOString(),
-    chapters: []
-  }
+    worldbookId: String(newBookWorldbookId.value || '')
+  })
 
   books.value.push(newBook)
   saveBooks()
@@ -4308,15 +10131,51 @@ function confirmCreateBook() {
 async function bindSelectedBookWorldbook(nextId, { confirmed = false } = {}) {
   const book = currentBook.value
   if (!book) return { ok: false, reason: 'no-book' }
+  const bookId = String(book.id || '')
   const preview = previewWorldbookRebind({ book, nextWorldbookId: nextId })
   if (preview.requiresConfirmation && !confirmed) {
     return { ok: false, reason: 'confirmation-required', preview }
   }
-  book.worldbookId = String(nextId || '')
-  if (saveBooks() === false) return { ok: false, reason: 'persist' }
-  const loaded = await syncBookWorldbook(book, book.id)
+  const bindingId = String(nextId || '')
+  let preloadedWorldbook = null
+  if (bindingId) {
+    try {
+      preloadedWorldbook = await worldStore.loadWorldbookForProject(bindingId)
+    } catch {
+      preloadedWorldbook = null
+    }
+    if (!preloadedWorldbook) return { ok: false, reason: 'missing-worldbook' }
+  }
+  // 选择器打开期间用户可能已切书；异步加载完成后不得改写另一书的绑定。
+  if (String(currentBook.value?.id || '') !== bookId) return { ok: false, reason: 'stale' }
+  const previousWorldbookId = book.worldbookId
+  const previousChapters = book.chapters
+  const migration = bindingId
+    ? bindUnboundSceneAnchors({ chapters: book.chapters, nextWorldbookId: bindingId })
+    : detachSceneAnchorsFromWorldbook({ chapters: book.chapters })
+  book.worldbookId = bindingId
+  book.chapters = migration.chapters
+  if (String(book.id) === String(selectedBookId.value)) chapters.value = book.chapters
+  if (saveBooks() === false) {
+    book.worldbookId = previousWorldbookId
+    book.chapters = previousChapters
+    if (String(book.id) === String(selectedBookId.value)) chapters.value = previousChapters
+    return { ok: false, reason: 'persist' }
+  }
+  if ((migration.migratedAnchorCount || migration.clearedReferenceCount) && String(book.id) === String(selectedBookId.value)) {
+    const chapter = chapters.value.find((item) => String(item.id) === String(selectedChapterId.value))
+    sceneAnchors.value = normalizeSceneAnchors(chapter?.sceneAnchors)
+  }
+  const synchronized = await syncBookWorldbook(book, book.id)
+  const loaded = synchronized || (String(selectedBookId.value || '') === bookId ? preloadedWorldbook : null)
+  if (!synchronized && loaded && String(selectedBookId.value || '') === bookId) boundWorldbook.value = loaded
   refreshAuthoringObserverState()
-  return { ok: Boolean(loaded || !String(nextId || '').trim()), worldbook: loaded }
+  return {
+    ok: Boolean(loaded || !bindingId.trim()),
+    worldbook: loaded,
+    migratedAnchorCount: migration.migratedAnchorCount || 0,
+    clearedReferenceCount: migration.clearedReferenceCount || 0
+  }
 }
 
 // 绑定选择的内联交互（一行文字 + 文字动作，无卡片）。
@@ -4331,18 +10190,25 @@ async function openBindingSelect() {
 
 async function confirmBindingSelect() {
   const nextId = String(bindingDraftWorldbookId.value || '')
-  const result = await bindSelectedBookWorldbook(nextId)
+  let result = await bindSelectedBookWorldbook(nextId)
   if (result.reason === 'confirmation-required') {
-    const confirmed = window.confirm(`换绑世界书将影响 ${result.preview.affectedAnchorCount} 个场景锚点，继续？`)
+    const confirmed = window.confirm(nextId
+      ? `换绑世界书将使 ${result.preview.affectedAnchorCount} 个旧现场需要重新确认，继续？`
+      : `解除关联将保留时间，但移除 ${result.preview.affectedAnchorCount} 个现场中的人物与地点引用，继续？`)
     if (!confirmed) return
-    const finalResult = await bindSelectedBookWorldbook(nextId, { confirmed: true })
-    if (!finalResult.ok) authoringTask.notify(nextId ? '世界书已缺失，请检查该世界书是否存在' : '已解除绑定')
+    result = await bindSelectedBookWorldbook(nextId, { confirmed: true })
+  }
+  if (!result.ok) {
+    authoringTask.notify(result.reason === 'stale'
+      ? '书稿已切换，本次关联未写入'
+      : nextId ? '世界书不可用，已保留原关联' : '解除关联失败，已保留原关联')
+    return
   }
   bindingSelectOpen.value = false
 }
 
 function createNewChapter() {
-  if (!selectedBookId.value) return
+  if (!selectedBookId.value || pendingGhostAdoption.value || wt3ActiveDoc.value) return false
 
   const newChapter = {
     id: Date.now().toString(),
@@ -4355,39 +10221,60 @@ function createNewChapter() {
   }
 
   chapters.value.push(newChapter)
-  saveChapters()
-  selectChapter(newChapter.id)
+  if (!saveChapters()) {
+    chapters.value.pop()
+    authoringTask.notify('新章节保存失败，请检查存储空间')
+    return false
+  }
+  return selectChapter(newChapter.id)
 }
 
 function deleteChapter(chapterId) {
+  if (pendingGhostAdoption.value || wt3ActiveDoc.value) return false
+  const previous = chapters.value
+  const next = previous.filter((chapter) => chapter.id !== chapterId)
+  if (next.length === previous.length) return false
+  chapters.value = next
+  if (!saveChapters()) {
+    chapters.value = previous
+    authoringTask.notify('删除章节失败，正文未变更')
+    return false
+  }
   deleteWritingSnapshotsForChapter(chapterId)
   deleteWritingBlockHistoryForChapter(chapterId)
   clearWritingRecoveryDraft(chapterId)
-  chapters.value = chapters.value.filter(c => c.id !== chapterId)
   if (selectedChapterId.value === chapterId) {
-    selectedChapterId.value = chapters.value.length > 0 ? chapters.value[0].id : null
-    if (selectedChapterId.value) {
-      selectChapter(selectedChapterId.value)
-    } else {
+    selectedChapterId.value = null
+    if (next[0]) selectChapter(next[0].id)
+    else {
       currentChapterTitle.value = ''
       editorContent.value = ''
       markdownContent.value = ''
+      clearWritingDocument()
       chapterOutlineItems.value = []
       loadChapterSnapshots(null)
     }
   }
-  saveChapters()
+  return true
 }
 
 function deleteBook(bookId) {
+  if (pendingGhostAdoption.value) return false
+  if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return false
   const bookToDelete = books.value.find((book) => book.id === bookId)
-  for (const chapter of bookToDelete?.chapters || []) {
+  if (!bookToDelete) return false
+  const previous = books.value
+  books.value = previous.filter((book) => book.id !== bookId)
+  if (!saveBooks()) {
+    books.value = previous
+    authoringTask.notify('删除书籍失败，项目未变更')
+    return false
+  }
+  for (const chapter of bookToDelete.chapters || []) {
     deleteWritingSnapshotsForChapter(chapter.id)
     deleteWritingBlockHistoryForChapter(chapter.id)
     clearWritingRecoveryDraft(chapter.id)
   }
-  books.value = books.value.filter(b => b.id !== bookId)
-  saveBooks()
   if (selectedBookId.value === bookId) {
     // 复验修复 2：删除当前书也走统一激活（不保存已删章节、不记 boundary）；
     // 无剩余书时显式清空项目 ID 与旧绑定，不留幽灵世界书。
@@ -4406,6 +10293,7 @@ function deleteBook(bookId) {
       boundWorldbook.value = null
     }
   }
+  return true
 }
 
 function saveChapters() {
@@ -4418,12 +10306,301 @@ function saveChapters() {
   return false
 }
 
-function saveCurrentChapter() {
+function saveDualChapter({ chapterId = '', title = '', markdown = '', document = null, wordCount: nextWordCount = 0, automaticHistory = true } = {}) {
+  const chapter = chapters.value.find((item) => String(item?.id) === String(chapterId))
+  if (!chapter || !document) return false
+  const previous = {
+    title: chapter.title,
+    content: chapter.content,
+    contentFormat: chapter.contentFormat,
+    editorDocument: chapter.editorDocument,
+    editorDocumentSchemaVersion: chapter.editorDocumentSchemaVersion,
+    wordCount: chapter.wordCount,
+    updatedAt: chapter.updatedAt
+  }
+  const clonedDocument = JSON.parse(JSON.stringify(document))
+  chapter.title = String(title || chapter.title || '')
+  chapter.content = String(markdown || '')
+  chapter.contentFormat = 'md'
+  chapter.editorDocument = clonedDocument
+  chapter.editorDocumentSchemaVersion = Number(clonedDocument.schemaVersion || 3)
+  chapter.wordCount = Number(nextWordCount || 0)
+  chapter.updatedAt = new Date().toISOString()
+  if (!saveChapters()) {
+    Object.assign(chapter, previous)
+    return false
+  }
+  if (automaticHistory) recordAutomaticHistoryAfterPersist({
+    chapterId: chapter.id,
+    chapterTitle: chapter.title,
+    previousDocument: previous.editorDocument,
+    previousMarkdown: previous.content,
+    persistedDocument: clonedDocument,
+    persistedMarkdown: chapter.content,
+    annotations: chapter.annotations || []
+  })
+  // 作家助手桌面双栏允许同一章在两个位置同时打开。Pinax 仍只保留
+  // 一个 document handle：副栏编辑时把共享文档投影回主栏，而不是让
+  // 两个编辑器各自持久化一份互相覆盖的正文。
+  if (!wt3ActiveDoc.value && String(selectedChapterId.value) === String(chapterId)) {
+    currentChapterTitle.value = chapter.title
+    markdownContent.value = chapter.content
+    writingDocument.value = clonedDocument
+    editorContent.value = markdownToHtml(chapter.content)
+  }
+  return true
+}
+
+function saveDualExploration({ documentId = '', title = '', markdown = '', document = null } = {}) {
+  const target = wt3ExplorationDocs.value.find((doc) => String(doc?.id) === String(documentId))
+  if (!target || !document) return false
+  const result = saveExplorationDocument(selectedBookId.value, documentId, {
+    title: String(title || target.title || ''),
+    content: String(markdown || '')
+  })
+  if (!result?.ok) return false
+  wt3RefreshDocs()
+  if (String(wt3ActiveDocId.value) === String(documentId)) {
+    markdownContent.value = String(markdown || '')
+    writingDocument.value = JSON.parse(JSON.stringify(document))
+    editorContent.value = markdownToHtml(markdownContent.value)
+  }
+  return true
+}
+
+// 自动保存只负责落盘。语义观察器在章节/页面边界消费这段时间真正改过的
+// 稳定文本节点；同一节点连续修改只保留最后版本，避免每秒重扫整章。
+const pendingObserverNodesByChapter = new Map()
+
+function observerScheduleAcknowledged(receipt) {
+  const schedule = receipt?.observerSchedule
+  return Boolean(schedule?.accepted
+    || ['duplicate-pending', 'duplicate-executed'].includes(schedule?.reason))
+}
+
+// 直接观察与章节边界共享一份 changed-node backlog。这里只确认本次确实
+// 已进入观察器队列的 unit/revision；同章其他单元、以及等待期间又编辑出的
+// 同单元新 revision 必须继续留给 boundary，不能整章清空。
+function acknowledgePendingObserverUnit({ chapterId = '', unitId = '', unitRevision = 0 } = {}) {
+  const chapterKey = String(chapterId || '')
+  const unitKey = String(unitId || '')
+  if (!chapterKey || !unitKey) return 0
+  const pending = pendingObserverNodesByChapter.get(chapterKey)
+  if (!pending) return 0
+  let removed = 0
+  for (const [nodeId, item] of pending) {
+    if (
+      String(item?.unitId || '') === unitKey
+      && Number(item?.unitRevision || 0) <= Number(unitRevision || 0)
+    ) {
+      pending.delete(nodeId)
+      removed += 1
+    }
+  }
+  if (!pending.size) pendingObserverNodesByChapter.delete(chapterKey)
+  return removed
+}
+
+async function commitDirectAuthoringObservation(payload = {}) {
+  // 捕获调用时目标，避免 await provider/bridge 期间移动光标后确认错 unit。
+  const target = Object.freeze({
+    ...payload,
+    sourceRefs: Object.freeze([...(Array.isArray(payload.sourceRefs) ? payload.sourceRefs : [])])
+  })
+  const receipt = await gameStore.commitAuthoringProseResult(target)
+  if (
+    observerScheduleAcknowledged(receipt)
+    && String(target.documentId || '') === String(target.chapterId || '')
+  ) {
+    acknowledgePendingObserverUnit(target)
+  }
+  return receipt
+}
+
+function collectChangedWritingNodes(previousDocument, nextDocument) {
+  const previousById = new Map()
+  for (const unit of previousDocument?.content || []) {
+    for (const node of unit?.content || []) {
+      const nodeId = String(node?.attrs?.nodeId || '')
+      if (!nodeId) continue
+      previousById.set(nodeId, {
+        text: getWritingBlockText(node).trim(),
+        unitId: String(unit?.attrs?.unitId || '')
+      })
+    }
+  }
+  const changed = []
+  for (const unit of nextDocument?.content || []) {
+    for (const node of unit?.content || []) {
+      const nodeId = String(node?.attrs?.nodeId || '')
+      const text = getWritingBlockText(node).trim()
+      const unitId = String(unit?.attrs?.unitId || '')
+      const previous = previousById.get(nodeId)
+      if (!nodeId || !text || (previous?.text === text && previous?.unitId === unitId)) continue
+      changed.push({
+        nodeId,
+        text,
+        unitId,
+        unitRevision: Number(unit?.attrs?.unitRevision || 0)
+      })
+    }
+  }
+  return changed
+}
+
+// 清空节点、删除节点/单元、或把节点迁到另一单元时都没有可供 observer
+// 重算的正文，但旧候选仍需按原 unit 失效。文本改写本身由调度器在重算前
+// 统一失效，避免这里与正常 derive 重复做两次。
+function collectInvalidatedWritingUnits(previousDocument, nextDocument) {
+  const nextById = new Map()
+  for (const unit of nextDocument?.content || []) {
+    for (const node of unit?.content || []) {
+      const nodeId = String(node?.attrs?.nodeId || '')
+      if (!nodeId) continue
+      nextById.set(nodeId, {
+        text: getWritingBlockText(node).trim(),
+        unitId: String(unit?.attrs?.unitId || '')
+      })
+    }
+  }
+  const invalidated = new Set()
+  for (const unit of previousDocument?.content || []) {
+    const previousUnitId = String(unit?.attrs?.unitId || '')
+    if (!previousUnitId) continue
+    for (const node of unit?.content || []) {
+      const nodeId = String(node?.attrs?.nodeId || '')
+      const previousText = getWritingBlockText(node).trim()
+      if (!nodeId || !previousText) continue
+      const next = nextById.get(nodeId)
+      if (!next?.text || next.unitId !== previousUnitId) invalidated.add(previousUnitId)
+    }
+  }
+  return [...invalidated]
+}
+
+function rememberPendingObserverNodes(chapterId, changedNodes) {
+  const key = String(chapterId || '')
+  if (!key || !changedNodes.length) return
+  const pending = pendingObserverNodesByChapter.get(key) || new Map()
+  for (const node of changedNodes) {
+    // delete + set 让最新改动排到末尾；后续预算优先保留最近编辑的节点。
+    pending.delete(node.nodeId)
+    pending.set(node.nodeId, node)
+  }
+  while (pending.size > 24) pending.delete(pending.keys().next().value)
+  pendingObserverNodesByChapter.set(key, pending)
+}
+
+function listPendingObserverDeltas(chapterId, maxCharsPerUnit = 5000) {
+  const pending = pendingObserverNodesByChapter.get(String(chapterId || ''))
+  if (!pending?.size) return []
+  const grouped = new Map()
+  for (const item of pending.values()) {
+    const unitId = String(item?.unitId || '')
+    if (!unitId || !String(item?.text || '').trim()) continue
+    const items = grouped.get(unitId) || []
+    items.push(item)
+    grouped.set(unitId, items)
+  }
+  return [...grouped.entries()].map(([unitId, items]) => {
+    const selected = []
+    let used = 0
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]
+      const value = String(item.text || '').trim()
+      const remaining = Math.max(0, maxCharsPerUnit - used)
+      if (!remaining) break
+      selected.unshift(value.length > remaining ? value.slice(value.length - remaining) : value)
+      used += Math.min(value.length, remaining) + 2
+    }
+    return {
+      changedText: selected.join('\n\n').trim(),
+      unitId,
+      unitRevision: Math.max(0, ...items.map((item) => Number(item?.unitRevision || 0))),
+      // 保存对象快照而不只保存 nodeId：等待异步 boundary 回执期间同一节点
+      // 可能再次编辑，确认旧快照时绝不能误删新 revision。
+      pendingNodes: Object.freeze([...items])
+    }
+  }).filter((delta) => delta.changedText)
+}
+
+function acknowledgePendingObserverNodes(chapterId, pendingNodes = []) {
+  const chapterKey = String(chapterId || '')
+  const pending = pendingObserverNodesByChapter.get(chapterKey)
+  if (!pending?.size) return 0
+  let removed = 0
+  for (const expected of pendingNodes) {
+    const nodeId = String(expected?.nodeId || '')
+    if (!nodeId || pending.get(nodeId) !== expected) continue
+    pending.delete(nodeId)
+    removed += 1
+  }
+  if (!pending.size) pendingObserverNodesByChapter.delete(chapterKey)
+  return removed
+}
+
+function dispatchChapterBoundary(payload) {
+  if (!payload) return null
+  const chapterId = String(payload.scopeKey || '').replace(/^chapter:/, '')
+  const deltas = listPendingObserverDeltas(chapterId)
+  if (!deltas.length) return null
+  const dispatches = deltas.map((delta) => Promise.resolve(gameStore.noteAuthoringBoundary({
+    ...payload,
+    scopeKey: `${payload.scopeKey}:unit:${delta.unitId}`,
+    changedText: delta.changedText,
+    unitId: delta.unitId,
+    unitRevision: delta.unitRevision,
+    chapterId,
+    sourceRefs: [...new Set([...(payload.sourceRefs || []), `unit:${delta.unitId}`])],
+    sourceDocumentRevision: payload.revision
+  })).then((result) => {
+    if (result?.derived) acknowledgePendingObserverNodes(chapterId, delta.pendingNodes)
+    return result
+  }).catch(() => {
+    authoringObserverWarning.value = normalizeAuthoringFailure({
+      phase: 'observer',
+      code: 'AUTHORING_OBSERVER_BOUNDARY_FAILED',
+      message: '章节已保存，部分记忆观察将在下次离开章节时重试',
+      retryable: true
+    })
+    return null
+  }))
+  return Promise.allSettled(dispatches)
+}
+
+function buildCurrentChapterObserverBoundary() {
+  return buildChapterBoundaryPayload({
+    previousChapterId: selectedChapterId.value,
+    previousProjectId: selectedBookId.value,
+    text: currentChapterDocumentText(),
+    revision: currentDocumentRevision()
+  })
+}
+
+function saveCurrentChapter({ preservePageOutline = false, automaticHistory = true } = {}) {
+  clearPendingDocumentSaveTimers()
+  // Phase 1 防御：探索文档激活期间正文保存管线必须离场；
+  // 正常离开路径已由 wt3PersistBeforeLeaving 先清 handle 并恢复章内容。
+  if (wt3ActiveDoc.value) return false
   if (!selectedChapterId.value) return false
 
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   if (!chapter) return false
 
+  const chapterBeforeSave = {
+    title: chapter.title,
+    editorDocument: chapter.editorDocument,
+    editorDocumentSchemaVersion: chapter.editorDocumentSchemaVersion,
+    content: chapter.content,
+    contentFormat: chapter.contentFormat,
+    outlineItems: chapter.outlineItems,
+    annotations: chapter.annotations,
+    sceneAnchors: chapter.sceneAnchors,
+    wordCount: chapter.wordCount,
+    updatedAt: chapter.updatedAt
+  }
+  const book = books.value.find((item) => item.id === selectedBookId.value)
+  const previousBookUpdatedAt = book?.updatedAt
   const previousDocument = chapter.editorDocument || null
   chapter.title = currentChapterTitle.value
   syncFromCurrentEditor()
@@ -4439,14 +10616,48 @@ function saveCurrentChapter() {
   chapter.sceneAnchors = normalizeSceneAnchors(sceneAnchors.value)
   chapter.wordCount = wordCount.value
   chapter.updatedAt = new Date().toISOString()
-  const saved = saveChapters()
-  if (saved) {
-    // 手工保存/checkpoint 边界：持久化成功后调度一次有界派生（prose-commit）。
-    gameStore.noteAuthoringTextCommit({
-      text: markdownContent.value,
-      sourceRefs: [`chapter:${chapter.id}`],
-      revision: nextDocument?.revision || currentDocumentRevision(),
-      memoryProjectId: selectedBookId.value || ''
+  const saved = preservePageOutline ? (() => {
+    if (!book) return false
+    book.chapters = chapters.value
+    book.updatedAt = new Date().toISOString()
+    return saveBooks({ preserveOutlineBookId: selectedBookId.value })
+  })() : saveChapters()
+  if (!saved) {
+    Object.assign(chapter, chapterBeforeSave)
+    if (book) book.updatedAt = previousBookUpdatedAt
+    saveStatus.value = 'error'
+    return false
+  }
+  if (saved) rememberPendingObserverNodes(
+    chapter.id,
+    collectChangedWritingNodes(previousDocument, nextDocument)
+  )
+  if (saved && previousDocument) {
+    const invalidatedUnitIds = collectInvalidatedWritingUnits(previousDocument, nextDocument)
+    if (invalidatedUnitIds.length) {
+      void gameStore.handleAuthoringProseUndo({
+        sourceRefs: invalidatedUnitIds.map((unitId) => `unit:${unitId}`),
+        revision: currentDocumentRevision(),
+        reason: 'prose-source-removed'
+      }).catch(() => {
+        authoringObserverWarning.value = normalizeAuthoringFailure({
+          phase: 'observer',
+          code: 'AUTHORING_OBSERVER_INVALIDATION_FAILED',
+          message: '正文已保存，旧记忆来源将在稍后刷新',
+          retryable: true
+        })
+      })
+    }
+  }
+  if (automaticHistory && previousDocument) {
+    recordAutomaticHistoryAfterPersist({
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      previousDocument,
+      previousMarkdown: chapterBeforeSave.content,
+      persistedDocument: nextDocument,
+      persistedMarkdown: chapter.content,
+      annotations: chapter.annotations
     })
   }
   if (saved && previousDocument) {
@@ -4462,28 +10673,41 @@ function saveCurrentChapter() {
       writingBlockHistory.value = listWritingBlockHistory(chapter.id)
     }
   }
-  return saved
+  if (recoveryTimeout) {
+    clearTimeout(recoveryTimeout)
+    recoveryTimeout = null
+  }
+  clearWritingRecoveryDraft(chapter.id)
+  writingRecoveryDraft.value = null
+  saveStatus.value = 'saved'
+  return true
 }
 
 function onTitleChange() {
+  if (historyInteractionLocked.value) return
   saveStatus.value = 'unsaved'
+  scheduleWritingRecoveryDraft()
   if (titleTimeout) clearTimeout(titleTimeout)
+  const scheduledScopeKey = activeDocumentSaveScopeKey()
   titleTimeout = setTimeout(() => {
-    saveCurrentChapter()
+    titleTimeout = null
+    if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
     saveStatus.value = 'saving'
-    setTimeout(() => { saveStatus.value = 'saved' }, 300)
+    const saved = saveCurrentChapter()
+    saveStatus.value = saved ? 'saved' : 'error'
   }, 500)
 }
 
 // 一键排版：规范段落分隔
 function autoFormat() {
+  if (rejectLockedNotebookMutation()) return
   let text = markdownContent.value
   // 替换多个换行为双换行（段落分隔）
   text = text.replace(/\n{3,}/g, '\n\n')
   // 移除行首行尾多余空格
   text = text.split('\n').map(line => line.trim()).join('\n')
   // 移除全角空格
-  text = text.replace(/　/g, ' ').trim()
+  text = text.replace(/\u3000/g, ' ').trim()
   markdownContent.value = text
   syncMarkdownToEditor()
   onContentChange()
@@ -4491,9 +10715,14 @@ function autoFormat() {
 
 // 插入分隔线
 function insertSeparator() {
+  if (activeWritingPane.value === 'dual') {
+    if (rejectActiveWritingMutation()) return
+    dualPaneRef.value?.runCommand?.('insertDivider')
+    return
+  }
+  if (rejectLockedNotebookMutation()) return
   if (notebookEditorActive.value && notebookEditorRef.value) {
     notebookEditorRef.value.insertDivider()
-    onContentChange()
     return
   }
 
@@ -4512,102 +10741,148 @@ function insertSeparator() {
   onContentChange()
 }
 
-// 随机取名
-function doGenerateName() {
-  // 中文字符池
-  const charPool = '瑾言清晚长风昭华知意逾白屿森念卿知行听澜挽棠墨深绾绾晏礼言蹊如故未歇星野映之清欢妄惊鸿云深瑶霜露璃萤雪'
-  const ancientCharPool = '寻欢孤城吹雪小凤留香浪中棠十一郎不凡清扬我行问天慕白未央紫轩飞羽寒江孤鸿寒烟凝蝶落霞凌霜白露秋璃夏萤冬雪云浅萧默'
-
-  generatedNames.value = []
-
-  if (nameType.value === 'place') {
-    const places = {
-      western: ['Willowbrook', 'Ironforge', 'Silvermoon', 'DragonSpine', 'Stormwind', 'Darkwood', 'Brightport', 'Goldshire', 'Misty Valley', 'Sunnyridge', 'CrystalLake', 'Ravencliff', 'Thornwood', 'Stonehaven', 'Duskwood'],
-      ancient: ['长安城', '洛阳城', '扬州城', '成都府', '苏州城', '杭州城', '汴京城', '金陵城', '燕京城', '临安府', '襄阳城', '荆州城', '泉州城', '广州城', '福州城'],
-      modern: ['朝阳区', '海淀区', '浦东新区', '天河区', '南山区', '江汉区', '玄武区', '西城区', '东城区', '西湖区', '静安区', '黄浦区', '南开区', '和平区', '江岸区']
-    }
-    const list = places[nameStyle.value] || places.modern
-    for (let i = 0; i < 5; i++) {
-      generatedNames.value.push(list[Math.floor(Math.random() * list.length)])
-    }
-    generatedNames.value = [...new Set(generatedNames.value)]
-    return
-  }
-
-  const hasSurname = fixedSurname.value.trim()
-  const hasGivenName = fixedGivenName.value.trim()
-
-  if (nameStyle.value === 'western') {
-    const firstNames = ['Oliver', 'Emma', 'Liam', 'Sophia', 'Noah', 'Isabella', 'James', 'Mia', 'Benjamin', 'Charlotte', 'Lucas', 'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Alexander', 'Abigail', 'Henry', 'Emily', 'William', 'Ava', 'Michael', 'Ella', 'Daniel', 'Scarlett', 'Matthew', 'Grace', 'Sebastian', 'Chloe', 'Jack', 'Victoria', 'Owen', 'Aria', 'Luke', 'Lily', 'Dylan', 'Hannah', 'Gabriel', 'Zoey']
-    const lastNames = ['Anderson', 'Thompson', 'White', 'Mitchell', 'Clark', 'Roberts', 'Taylor', 'Martinez', 'Harris', 'Robinson', 'Lee', 'Walker', 'Hall', 'Allen', 'Young', 'King', 'Wright', 'Lopez', 'Hill', 'Scott', 'Green', 'Adams', 'Baker', 'Nelson', 'Carter', 'Mitchell', 'Perez', 'Roberts', 'Turner', 'Phillips', 'Campbell', 'Parker', 'Evans', 'Edwards', 'Collins']
-    const firstCn = ['奥利弗', '艾玛', '利亚姆', '索菲亚', '诺亚', '伊莎贝拉', '詹姆斯', '米娅', '本杰明', '夏洛特', '卢卡斯', '艾米莉亚', '梅森', '哈珀', '伊桑', '伊芙琳', '亚历山大', '阿比盖尔', '亨利', '艾米丽', '威廉', '艾娃', '迈克尔', '艾拉', '丹尼尔', '斯嘉丽', '马修', '格蕾丝', '塞巴斯蒂安', '克洛伊', '杰克', '维多利亚', '欧文', '艾瑞亚', '卢克', '莉莉', '迪伦', '汉娜', '加布里埃尔', '佐伊']
-    const lastCn = ['安德森', '汤普森', '怀特', '米切尔', '克拉克', '罗伯茨', '泰勒', '马丁内斯', '哈里斯', '鲁宾逊', '李', '沃克', '霍尔', '艾伦', '扬', '金', '赖特', '洛佩兹', '希尔', '斯科特', '格林', '亚当斯', '贝克', '纳尔逊', '卡特', '米切尔', '佩雷斯', '罗伯茨', '特纳', '菲利普斯', '坎贝尔', '帕克', '埃文斯', '爱德华兹', '柯林斯']
-
-    // 尝试匹配用户输入
-    let fixedFirst = null, fixedLast = null
-    if (hasGivenName) {
-      const idx = firstCn.indexOf(fixedGivenName.value.trim())
-      if (idx >= 0) fixedFirst = firstNames[idx]
-      else fixedFirst = fixedGivenName.value.trim()
-    }
-    if (hasSurname) {
-      const idx = lastCn.indexOf(fixedSurname.value.trim())
-      if (idx >= 0) fixedLast = lastNames[idx]
-      else fixedLast = fixedSurname.value.trim()
-    }
-
-    const seen = new Set()
-    for (let i = 0; i < 8 && seen.size < 8; i++) {
-      let f = fixedFirst || firstNames[Math.floor(Math.random() * firstNames.length)]
-      let l = fixedLast || lastNames[Math.floor(Math.random() * lastNames.length)]
-      let enName = f + ' ' + l
-      if (seen.has(enName)) continue
-      seen.add(enName)
-      let fIdx = firstNames.indexOf(f)
-      let lIdx = lastNames.indexOf(l)
-      let cnName = (fIdx >= 0 ? firstCn[fIdx] : f) + '·' + (lIdx >= 0 ? lastCn[lIdx] : l)
-      generatedNames.value.push({ en: enName, cn: cnName })
-    }
-  } else {
-    // 算法化生成中文姓名
-    const surnames = ['李', '王', '张', '刘', '陈', '杨', '赵', '黄', '周', '吴', '徐', '孙', '胡', '朱', '高', '林', '何', '郭', '马', '罗', '梁', '宋', '郑', '谢', '韩', '唐', '冯', '于', '董', '萧', '程', '曹', '袁', '邓', '许', '傅', '沈', '曾', '彭', '吕', '苏', '卢', '蒋', '蔡', '贾', '丁', '魏', '薛', '叶', '阎', '余', '潘', '杜', '戴', '夏', '钟', '汪', '田', '任', '姜', '范', '方', '石', '姚', '谭', '廖', '邹', '熊', '金', '陆', '郝', '孔', '白', '崔', '康', '毛', '邱', '秦', '江', '史', '顾', '侯', '邵', '孟', '龙', '万', '段', '漕', '钱', '汤', '尹', '黎', '易', '常', '武', '乔', '贺', '赖', '龚', '文']
-    const pool = nameStyle.value === 'ancient' ? ancientCharPool : charPool
-
-    const seen = new Set()
-    const getName = () => {
-      let surname = hasSurname ? fixedSurname.value.trim() : surnames[Math.floor(Math.random() * surnames.length)]
-      let given = hasGivenName ? fixedGivenName.value.trim() : ''
-      if (!given) {
-        // 随机生成1-2个汉字的名字
-        const len = Math.random() < 0.6 ? 1 : 2
-        for (let i = 0; i < len; i++) {
-          given += pool[Math.floor(Math.random() * pool.length)]
-        }
-      }
-      return surname + given
-    }
-
-    for (let i = 0; i < 20 && seen.size < 10; i++) {
-      const name = getName()
-      if (seen.has(name)) continue
-      seen.add(name)
-      generatedNames.value.push(name)
-    }
-  }
+const generatedNameBatches = new Map()
+function currentNameBatchKey() {
+  if (nameCategory.value !== 'person') return nameCategory.value
+  return [nameCategory.value, nameStyle.value, nameLength.value, nameGender.value, fixedSurname.value.trim()].join(':')
 }
 
-function selectName(item) {
-  if (notebookEditorActive.value && notebookEditorRef.value) {
-    notebookEditorRef.value.insertText(typeof item === 'string' ? item : item.en)
-    onContentChange()
-    showNameGen.value = false
+function doGenerateName() {
+  if (nameEntityBusy.value) return
+  activeNameEntityMenu.value = ''
+  pendingNameEntityCommand.value = null
+  nameEntityConflicts.value = []
+  nameEntityNotice.value = ''
+  nameEntityNoticeKind.value = ''
+  lastNameEntityReceipt.value = null
+  const batchKey = currentNameBatchKey()
+  const recentBatches = generatedNameBatches.get(batchKey) || []
+  const recentValues = recentBatches.flat()
+  let values = generateWritingNames({
+    category: nameCategory.value,
+    language: nameStyle.value,
+    length: nameLength.value,
+    gender: nameGender.value,
+    surname: fixedSurname.value,
+    exclude: recentValues,
+    count: 12
+  })
+  // 当前分类空间用尽后只清除此筛选组合，不影响其他类型最近十批。
+  if (!values.length) {
+    generatedNameBatches.delete(batchKey)
+    values = generateWritingNames({
+      category: nameCategory.value,
+      language: nameStyle.value,
+      length: nameLength.value,
+      gender: nameGender.value,
+      surname: fixedSurname.value,
+      count: 12
+    })
+  }
+  generatedNameBatches.set(batchKey, [...recentBatches, values].slice(-10))
+  generatedNames.value = values.map((value, index) => ({
+    value,
+    note: explainWritingName({ category: nameCategory.value, value, index })
+  }))
+}
+
+function openNameGenerator() {
+  showFontPanel.value = false
+  closeSearchPanel({ restore: false })
+  closeReviewPanel({ restore: false })
+  showQuickWords.value = false
+  showNameGen.value = true
+  doGenerateName()
+}
+
+function toggleQuickWords() {
+  showFontPanel.value = false
+  closeSearchPanel({ restore: false })
+  closeReviewPanel({ restore: false })
+  showNameGen.value = false
+  showQuickWords.value = !showQuickWords.value
+}
+
+function toggleQuickWord(id) {
+  const key = String(id || '')
+  if (!quickWordCatalog.value.some((item) => item.id === key)) return false
+  quickWordEnabledIds.value = quickWordEnabledIds.value.includes(key)
+    ? quickWordEnabledIds.value.filter((item) => item !== key)
+    : [...quickWordEnabledIds.value, key]
+  return true
+}
+
+function insertQuickWord(value) {
+  const insertion = String(value || '')
+  if (!insertion || writingCompositionActive.value || dualCompositionActive.value) return false
+  if (rejectActiveWritingMutation()) return false
+  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('insertText', insertion))
+  if (!notebookEditorActive.value || !notebookEditorRef.value) return false
+  return Boolean(notebookEditorRef.value.insertText(insertion))
+}
+
+function recordQuickWordUse(item) {
+  const id = String(item?.id || '')
+  const bookId = String(selectedBookId.value || '')
+  if (!id || !bookId) return
+  const current = quickWordRecentIdsByBook.get(bookId) || []
+  quickWordRecentIdsByBook.set(bookId, [id, ...current.filter((candidate) => candidate !== id)].slice(0, 24))
+}
+
+function completeQuickWord(item) {
+  const value = String(item?.text || '')
+  const prefix = quickWordPrefix.value
+  if (!prefix || !value.startsWith(prefix)) return false
+  const inserted = insertQuickWord(value.slice(prefix.length))
+  if (inserted) recordQuickWordUse(item)
+  return inserted
+}
+
+function closeNameGenerator({ force = false } = {}) {
+  if (nameEntityBusy.value && !force) return
+  showNameGen.value = false
+  activeNameEntityMenu.value = ''
+  pendingNameEntityCommand.value = null
+  nameEntityConflicts.value = []
+  nameEntityNotice.value = ''
+  nameEntityNoticeKind.value = ''
+}
+
+function nameEntityCategoryLabel(category) {
+  return nameCategoryOptions.find((item) => item.value === category)?.label || '设定'
+}
+
+function createNameEntitySelection(item) {
+  const value = typeof item === 'object' ? item?.value : item
+  const rationale = typeof item === 'object' ? item?.note : ''
+  return createAuthoringEntitySelection({
+    text: value,
+    category: nameCategory.value,
+    projectId: selectedBookId.value,
+    rationale
+  })
+}
+
+function insertNameEntitySelection(selection) {
+  if (!selection || String(selection.projectId || '') !== String(selectedBookId.value || '')) return false
+  if (activeWritingPane.value === 'dual') {
+    if (rejectActiveWritingMutation()) return false
+    if (!dualPaneRef.value?.runCommand?.('insertText', selection.text)) return false
+    closeNameGenerator({ force: true })
     generatedNames.value = []
-    return
+    return true
+  }
+  if (rejectLockedNotebookMutation()) return false
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    if (!notebookEditorRef.value.insertText(selection.text)) return false
+    closeNameGenerator({ force: true })
+    generatedNames.value = []
+    return true
   }
 
   const editor = editorRef.value
-  if (!editor) return
-  const name = typeof item === 'string' ? item : item.en
+  if (!editor) return false
+  const name = selection.text
   const start = editor.selectionStart ?? markdownContent.value.length
   const end = editor.selectionEnd ?? markdownContent.value.length
   markdownContent.value = markdownContent.value.slice(0, start) + name + markdownContent.value.slice(end)
@@ -4618,20 +10893,178 @@ function selectName(item) {
   })
   syncMarkdownToEditor()
   onContentChange()
-  showNameGen.value = false
+  closeNameGenerator({ force: true })
   generatedNames.value = []
+  return true
 }
 
-// 查找下一个
-function findNext() {
-  if (!findText.value) return
-  if (findResults.value.length === 0) {
-    searchFind()
+function selectName(item) {
+  return insertNameEntitySelection(createNameEntitySelection(item))
+}
+
+function toggleNameEntityMenu(item) {
+  if (nameEntityBusy.value) return
+  const key = String(item?.value || '')
+  activeNameEntityMenu.value = activeNameEntityMenu.value === key ? '' : key
+  pendingNameEntityCommand.value = null
+  nameEntityConflicts.value = []
+  nameEntityNotice.value = ''
+  nameEntityNoticeKind.value = ''
+  lastNameEntityReceipt.value = null
+}
+
+function currentNameEntityTarget() {
+  const projectId = String(selectedBookId.value || '')
+  const worldbookId = String(selectedBookWorldbookId.value || '')
+  if (
+    !projectId
+    || !worldbookId
+    || boundWorldbookSyncing.value
+    || !boundWorldbookSyncReady()
+    || bookWorldbookStatus.value.status !== 'bound'
+    || String(currentBook.value?.id || '') !== projectId
+    || String(boundWorldbook.value?.id || '') !== worldbookId
+  ) return null
+  return { projectId, worldbookId, book: currentBook.value, worldbook: boundWorldbook.value }
+}
+
+async function requestNameEntityCreation(item) {
+  if (nameEntityBusy.value) return false
+  const selection = createNameEntitySelection(item)
+  const target = currentNameEntityTarget()
+  if (!selection || !target) {
+    activeNameEntityMenu.value = ''
+    nameEntityNoticeKind.value = 'needs-binding'
+    nameEntityNotice.value = boundWorldbookSyncing.value ? '正在读取当前书的世界书，请稍后再试' : '请先为当前书关联世界书'
+    return false
   }
-  if (findResults.value.length > 0) {
-    findCurrent.value = (findCurrent.value + 1) % findResults.value.length
-    highlightFind()
+  const command = createAuthoringEntityEntryCommand(selection, target)
+  if (!command) {
+    nameEntityNoticeKind.value = 'error'
+    nameEntityNotice.value = '当前书或世界书已经变化，请重新选择名称'
+    return false
   }
+  const conflicts = findAuthoringEntitySelectionConflicts(selection, target.worldbook)
+  if (conflicts.length) {
+    activeNameEntityMenu.value = ''
+    pendingNameEntityCommand.value = command
+    nameEntityConflicts.value = conflicts
+    nameEntityNotice.value = ''
+    nameEntityNoticeKind.value = ''
+    nextTick(() => document.querySelector('.quick-name-conflict')?.scrollIntoView({ block: 'nearest' }))
+    return false
+  }
+  return persistNameEntityCommand(command)
+}
+
+async function persistNameEntityCommand(command) {
+  if (nameEntityBusy.value || command?.kind !== 'create-worldbook-entry') return false
+  const target = currentNameEntityTarget()
+  if (!target || target.projectId !== command.projectId || target.worldbookId !== command.worldbookId) {
+    nameEntityNoticeKind.value = 'error'
+    nameEntityNotice.value = '当前书或世界书已经变化，本次没有写入'
+    return false
+  }
+  if (!command.allowDuplicate) {
+    const liveConflicts = findAuthoringEntitySelectionConflicts(command.selection, target.worldbook)
+    if (liveConflicts.length) {
+      pendingNameEntityCommand.value = command
+      nameEntityConflicts.value = liveConflicts
+      nextTick(() => document.querySelector('.quick-name-conflict')?.scrollIntoView({ block: 'nearest' }))
+      return false
+    }
+  }
+  const entryDraft = buildAuthoringEntityEntry(command)
+  if (!entryDraft) return false
+  nameEntityBusy.value = true
+  nameEntityNotice.value = ''
+  nameEntityNoticeKind.value = ''
+  let entry = null
+  let recovered = false
+  try {
+    entry = await worldStore.addEntry(command.worldbookId, entryDraft)
+  } catch (error) {
+    // 条目正文写成功、索引保存失败时 addEntry 会抛错。按一次性 selection ID
+    // 从持久化快照对账，避免作者重试造成第二个同名条目。
+    const snapshot = readWorldbookSnapshot(command.worldbookId)
+    entry = (snapshot?.entries || []).find((candidate) => (
+      String(candidate?.metadata?.authoringSelectionId || '') === String(command.selection.id)
+    )) || null
+    recovered = Boolean(entry)
+    if (!entry) {
+      nameEntityNoticeKind.value = 'error'
+      nameEntityNotice.value = error?.message || '世界书条目创建失败，请稍后重试'
+      nameEntityBusy.value = false
+      return false
+    }
+  }
+
+  const receipt = createAuthoringEntitySelectionReceipt(command, { entry })
+  lastNameEntityReceipt.value = receipt
+  pendingNameEntityCommand.value = null
+  nameEntityConflicts.value = []
+  activeNameEntityMenu.value = ''
+
+  const stillCurrent = (
+    String(selectedBookId.value || '') === command.projectId
+    && String(selectedBookWorldbookId.value || '') === command.worldbookId
+    && String(currentBook.value?.id || '') === command.projectId
+  )
+  let refreshed = false
+  if (stillCurrent) {
+    try {
+      const synced = await syncBookWorldbook(currentBook.value, selectedBookId.value)
+      refreshed = Boolean((synced?.entries || []).some((candidate) => String(candidate?.id || '') === String(entry.id)))
+    } catch {
+      refreshed = false
+    }
+  }
+  nameEntityNoticeKind.value = 'success'
+  nameEntityNotice.value = refreshed
+    ? `已建为${nameEntityCategoryLabel(command.selection.entityKind)}条目${recovered ? '，写入已恢复' : ''}`
+    : `条目已创建，将在重新打开世界书后显示`
+  nameEntityBusy.value = false
+  return true
+}
+
+function cancelNameEntityConflict() {
+  pendingNameEntityCommand.value = null
+  nameEntityConflicts.value = []
+}
+
+function confirmDuplicateNameEntity() {
+  const pending = pendingNameEntityCommand.value
+  if (!pending) return false
+  const command = createAuthoringEntityEntryCommand(pending.selection, {
+    projectId: pending.projectId,
+    worldbookId: pending.worldbookId,
+    allowDuplicate: true
+  })
+  return persistNameEntityCommand(command)
+}
+
+function reuseNameEntityConflict(conflict) {
+  const command = pendingNameEntityCommand.value
+  if (!command || !conflict?.entryId) return false
+  lastNameEntityReceipt.value = createAuthoringEntitySelectionReceipt(command, {
+    entry: { id: conflict.entryId },
+    reused: true
+  })
+  closeNameGenerator({ force: true })
+  nextTick(() => openWorldbookMentionDetail(conflict.entryId))
+  return true
+}
+
+function openCreatedNameEntityEntry() {
+  const entryId = lastNameEntityReceipt.value?.entryId
+  if (!entryId) return
+  closeNameGenerator({ force: true })
+  nextTick(() => openWorldbookMentionDetail(entryId))
+}
+
+function openNameWorldbookBinding() {
+  closeNameGenerator({ force: true })
+  nextTick(openBindingSelect)
 }
 
 // 更新选区状态
@@ -4696,10 +11129,15 @@ function toggleStyle(style) {
 }
 
 function applyStyleToSelection(style) {
+  if (activeWritingPane.value === 'dual') {
+    if (rejectActiveWritingMutation()) return
+    if (['bold', 'italic', 'strike', 'code'].includes(style)) dualPaneRef.value?.runCommand?.('toggleMark', style)
+    return
+  }
+  if (rejectLockedNotebookMutation()) return
   if (notebookEditorActive.value && notebookEditorRef.value) {
     if (['bold', 'italic', 'strike', 'code'].includes(style)) {
       notebookEditorRef.value.toggleMark(style)
-      onContentChange()
     }
     return
   }
@@ -4749,9 +11187,13 @@ function clearSelectionStyle() {
   // TODO(undo-redo): document.execCommand('removeFormat') is contenteditable-only
   // and does not work on textarea.
   if (editorMode.value !== 'wysiwyg') return
+  if (activeWritingPane.value === 'dual') {
+    if (rejectActiveWritingMutation()) return
+    dualPaneRef.value?.runCommand?.('clearMarks')
+    return
+  }
   if (notebookEditorActive.value && notebookEditorRef.value) {
     notebookEditorRef.value.clearMarks()
-    onContentChange()
     return
   }
   const editor = editorRef.value
@@ -4770,6 +11212,50 @@ function adjustFontSize(delta) {
   onContentChange()
 }
 
+function rejectLockedNotebookMutation() {
+  if (!historyInteractionLocked.value) return false
+  authoringTask.notify(pendingGhostAdoption.value
+    ? '推演正文正在提交或等待重试，暂不能改动稿面'
+    : '正在提交推演正文，请稍候')
+  return true
+}
+
+function rejectActiveWritingMutation() {
+  if (!activeWritingMutationLocked.value) return false
+  authoringTask.notify(pendingGhostAdoption.value
+    ? '当前文档正在提交推演正文或等待重试，暂不能改动'
+    : '当前文档正在提交推演正文，请稍候')
+  return true
+}
+
+function undoNotebookEdit() {
+  if (rejectActiveWritingMutation()) return false
+  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('undo'))
+  suppressWritingAgent('history')
+  if (hasStructureUndoBoundary.value) return undoStructureTransition()
+  if (hasGhostAdoptionUndoBoundary.value) return undoGhostAdoption()
+  return Boolean(notebookEditorRef.value?.undo?.())
+}
+
+function redoNotebookEdit() {
+  if (rejectActiveWritingMutation()) return false
+  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('redo'))
+  suppressWritingAgent('history')
+  if (hasStructureRedoBoundary.value) return redoStructureTransition()
+  if (hasGhostAdoptionRedoBoundary.value) return redoGhostAdoption()
+  return Boolean(notebookEditorRef.value?.redo?.())
+}
+
+function toggleNotebookMark(mark) {
+  if (rejectActiveWritingMutation()) return
+  if (activeWritingPane.value === 'dual') {
+    dualPaneRef.value?.runCommand?.('toggleMark', mark)
+    return
+  }
+  if (!notebookEditorRef.value?.toggleMark?.(mark)) return
+  nextTick(refreshNotebookCommandAvailability)
+}
+
 // 沉浸三件套（P0c）：打字机滚动 / 段落聚焦 / 专注全屏。
 // Zen 态联动 AppShell 全局 chrome（body 级类，离开页面时清理）。
 watch(() => writingTypography.zen, (zen) => {
@@ -4780,13 +11266,54 @@ function toggleWritingZen() {
   writingTypography.toggleZen()
 }
 
+function handleQuickWordDigitKey(event) {
+  if (
+    event.repeat
+    || event.ctrlKey
+    || event.metaKey
+    || event.altKey
+    || event.shiftKey
+    || event.getModifierState?.('AltGraph')
+    || writingInteractionOwner.value !== 'quick-word'
+    || activeQuickWordSelection.value?.empty !== true
+    || !/^[1-6]$/.test(String(event.key || ''))
+  ) return false
+  const editor = event.target?.closest?.('.ProseMirror')
+  if (!editor) return false
+  const targetsDualPane = Boolean(editor.closest('[data-test="authoring-dual-pane"]'))
+  if (targetsDualPane !== (activeWritingPane.value === 'dual')) return false
+  const item = quickWordSuggestions.value[Number(event.key) - 1]
+  if (!item || !completeQuickWord(item)) return false
+  event.preventDefault()
+  return true
+}
+
 // Zen 下隐藏顶栏/书架/检查器；Esc 或快捷键退出。
 function handleWritingFocusKeydown(event) {
-  if (event.key === 'Escape' && writingTypography.zen) {
-    writingTypography.toggleZen()
-    return
+  if (event.defaultPrevented || isWritingCompositionKey(event)) return
+  if (handleQuickWordDigitKey(event)) return
+  if (event.key === 'Escape') {
+    if (moreMenuOpen.value || showFontPanel.value || showQuickWords.value || showNameGen.value || shelfContextMenu.value.show) {
+      event.preventDefault()
+      closeMoreMenu()
+      showFontPanel.value = false
+      showQuickWords.value = false
+      showNameGen.value = false
+      closeShelfContextMenu()
+      return
+    }
+    if (writingTypography.zen) {
+      event.preventDefault()
+      writingTypography.toggleZen()
+      return
+    }
   }
-  if (!(event.ctrlKey || event.metaKey) || !event.altKey) return
+  if (
+    event.repeat
+    || event.getModifierState?.('AltGraph')
+    || !(event.ctrlKey || event.metaKey)
+    || !event.altKey
+  ) return
   const key = event.key.toLowerCase()
   if (key === 't') {
     event.preventDefault()
@@ -4798,96 +11325,6 @@ function handleWritingFocusKeydown(event) {
     event.preventDefault()
     toggleWritingZen()
   }
-}
-
-// 查找上一个
-function findPrev() {
-  if (!findText.value) return
-  if (findResults.value.length === 0) {
-    searchFind()
-  }
-  if (findResults.value.length > 0) {
-    findCurrent.value = (findCurrent.value - 1 + findResults.value.length) % findResults.value.length
-    highlightFind()
-  }
-}
-
-// 执行搜索
-function searchFind() {
-  findResults.value = []
-  findCurrent.value = 0
-  if (!findText.value) return
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
-  let match
-  while ((match = regex.exec(text)) !== null) {
-    findResults.value.push(match.index)
-  }
-}
-
-// 高亮当前匹配并滚动
-function highlightFind() {
-  nextTick(() => {
-    if (findResults.value.length === 0) return
-    if (editorMode.value === 'markdown') return
-    if (notebookEditorActive.value && notebookEditorRef.value) {
-      notebookEditorRef.value.selectText(findText.value, findCurrent.value)
-      notebookEditorRef.value.focus()
-      return
-    }
-    const pos = findResults.value[findCurrent.value]
-    if (!editorRef.value) return
-    setSelectionByTextOffsets(pos, pos + findText.value.length)
-    editorRef.value.focus()
-  })
-}
-
-// 替换一处
-function replaceOne() {
-  if (!findText.value || findResults.value.length === 0) return
-  if (notebookEditorActive.value && notebookEditorRef.value) {
-    const replaced = notebookEditorRef.value.replaceText(findText.value, replaceText.value, findCurrent.value)
-    if (!replaced) return
-    searchFind()
-    onContentChange()
-    return
-  }
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const pos = findResults.value[findCurrent.value]
-  const nextText = text.substring(0, pos) + replaceText.value + text.substring(pos + findText.value.length)
-  if (editorMode.value === 'markdown') {
-    markdownContent.value = nextText
-    syncMarkdownToEditor()
-  } else {
-    setEditorPlainText(nextText)
-  }
-  searchFind()
-  onContentChange()
-}
-
-// 替换全部
-function replaceAll() {
-  if (!findText.value) return
-  if (notebookEditorActive.value && notebookEditorRef.value) {
-    const replaced = notebookEditorRef.value.replaceAll(findText.value, replaceText.value)
-    if (!replaced) return
-    findResults.value = []
-    findCurrent.value = 0
-    onContentChange()
-    return
-  }
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
-  const nextText = text.replace(regex, replaceText.value)
-  if (editorMode.value === 'markdown') {
-    markdownContent.value = nextText
-    syncMarkdownToEditor()
-  } else {
-    setEditorPlainText(nextText)
-  }
-  findResults.value = []
-  findCurrent.value = 0
-  onContentChange()
 }
 
 function captureSelectionAsAsset() {
@@ -4957,6 +11394,15 @@ function applyBackJumpToTextarea(jump) {
   syncCopilotCursorFromEditor()
 }
 
+// 一次性 query（selector/insert/session）消费后清空，但保留 bookId/chapterId
+// canonical 定位——工作台标签与刷新/深链都依赖这两个键。
+function clearTransientQuery() {
+  const nextQuery = { ...route.query }
+  if (selectedBookId.value) nextQuery.bookId = String(selectedBookId.value)
+  if (selectedChapterId.value) nextQuery.chapterId = String(selectedChapterId.value)
+  router.replace({ query: nextQuery })
+}
+
 function tryApplyPendingBackJump() {
   const jump = pendingBackJump.value
   if (!jump) return
@@ -4970,14 +11416,14 @@ function tryApplyPendingBackJump() {
     nextTick(() => nextTick(() => {
       applyBackJumpToTextarea(jump)
       pendingBackJump.value = null
-      router.replace({ query: {} })
+      clearTransientQuery()
     }))
     return
   }
   nextTick(() => {
     applyBackJumpToTextarea(jump)
     pendingBackJump.value = null
-    router.replace({ query: {} })
+    clearTransientQuery()
   })
 }
 
@@ -5013,13 +11459,127 @@ function openBookAtChapter(bookId, chapterId) {
   if (!book) return false
   chapters.value = book.chapters || []
   if (chapters.value.some((c) => c.id === chapterId)) {
-    selectChapter(chapterId)
+    if (!selectChapter(chapterId)) return false
   } else if (chapters.value.length > 0) {
-    selectChapter(chapters.value[0].id)
+    if (!selectChapter(chapters.value[0].id)) return false
   }
-  saveChapters()
   return true
 }
+
+// —— 工作台标签计划 Task 3：选择 <-> query 双向同步 ——
+// 选择 -> query：replace 同步 canonical 定位，不污染浏览器历史；
+// 一次性回跳/插入参数仍生效期间不做 replace，避免吞掉 selector 定位。
+function authoringTabKey(bookId) {
+  return bookId ? `project:${String(bookId)}:authoring` : ''
+}
+
+let pendingWorkspaceReturnRestore = null
+let pendingWorkspaceReturnKey = ''
+
+// F1-0 地图往返书签只活在 workspace session ledger。回到同书同章且正文
+// revision 未变化时才恢复；任何跨章或正文变化都 fail-closed，绝不把旧位置
+// 套到新的文档上。
+watch(
+  [selectedBookId, selectedChapterId, writingDocument, notebookEditorRef],
+  ([bookId, chapterId]) => {
+    if (!bookId || !chapterId || !notebookEditorRef.value || !writingDocument.value) return
+    const key = authoringTabKey(bookId)
+    if (!pendingWorkspaceReturnRestore && key !== pendingWorkspaceReturnKey) {
+      pendingWorkspaceReturnKey = key
+      pendingWorkspaceReturnRestore = workspaceTabsStore.consumeVolatileRestoreStateByKey(key)
+    }
+    const snapshot = pendingWorkspaceReturnRestore
+    if (!snapshot) return
+    if (
+      String(snapshot.projectId || '') !== String(bookId)
+      || String(snapshot.chapterId || '') !== String(chapterId)
+    ) return
+    pendingWorkspaceReturnRestore = null
+    if (String(snapshot.documentRevision || '') !== String(currentDocumentRevision())) return
+    nextTick(() => requestAnimationFrame(() => {
+      if (snapshot.selection) {
+        notebookEditorRef.value?.setSelection?.(snapshot.selection.from, snapshot.selection.to)
+      }
+      restoreWritingScrollState(snapshot.scroll)
+    }))
+  },
+  { flush: 'post' }
+)
+
+function reportTabContext(bookId, chapterId) {
+  const key = authoringTabKey(bookId)
+  if (!key) return
+  const book = books.value.find((item) => String(item.id) === String(bookId))
+  workspaceTabsStore.updateContextByKey(key, {
+    chapterId: chapterId ? String(chapterId) : '',
+    worldbookId: book ? (book.worldbookId || '') : '',
+    title: book?.title || '',
+    restoreState: { chapterId: chapterId ? String(chapterId) : '' },
+    route: {
+      name: 'authoring',
+      query: {
+        bookId: String(bookId),
+        ...(chapterId ? { chapterId: String(chapterId) } : {})
+      }
+    }
+  })
+}
+
+watch(
+  [selectedBookId, selectedChapterId],
+  ([bookId, chapterId]) => {
+    reportTabContext(bookId, chapterId)
+    if (!bookId || route.name !== 'authoring') return
+    if (pendingBackJump.value || pendingInsertBack.value) return
+    const nextQuery = { ...route.query, bookId: String(bookId) }
+    if (chapterId) nextQuery.chapterId = String(chapterId)
+    const currentQuery = route.query || {}
+    const unchanged = String(currentQuery.bookId || '') === nextQuery.bookId
+      && String(currentQuery.chapterId || '') === (nextQuery.chapterId || '')
+    if (unchanged) return
+    router.replace({ query: nextQuery })
+  },
+  { flush: 'post' }
+)
+
+// dirty 点：正文未落盘（含保存失败）时标签显示未保存状态。
+watch(saveStatus, (status) => {
+  const key = authoringTabKey(selectedBookId.value)
+  if (!key) return
+  const dirty = status === 'unsaved' || status === 'saving' || status === 'error'
+  workspaceTabsStore.updateContextByKey(key, { dirty })
+})
+
+// query -> 选择：浏览器后退/前进或标签切换回本页时跟随 URL。
+// replace 触发的同值变化在上方守卫里被短路，不会形成循环。
+watch(
+  () => route.query.bookId,
+  (rawBookId) => {
+    const bookId = typeof rawBookId === 'string' ? rawBookId.trim() : ''
+    if (!bookId || route.name !== 'authoring') return
+    if (String(bookId) === String(selectedBookId.value)) return
+    if (!books.value.some((book) => String(book.id) === String(bookId))) return
+    selectBook(String(bookId))
+  }
+)
+
+watch(
+  () => route.query.chapterId,
+  (rawChapterId) => {
+    const chapterId = typeof rawChapterId === 'string' ? rawChapterId.trim() : ''
+    if (!chapterId || route.name !== 'authoring') return
+    if (String(chapterId) === String(selectedChapterId.value || '')) return
+    const inCurrentBook = (chapters.value || []).some((item) => item && item.id === chapterId)
+    if (inCurrentBook) {
+      selectChapter(chapterId)
+      return
+    }
+    const found = findChapterAcrossBooks(chapterId)
+    if (found && String(found.book.id) !== String(selectedBookId.value)) {
+      openBookAtChapter(found.book.id, chapterId)
+    }
+  }
+)
 
 // W1 (2026-06-27) editor source round-trip: handle ?chapterId=...&insertAssetId=...
 // fired by Notes.vue's `insertAssetBackToSource`. Loads the asset, finds the
@@ -5046,7 +11606,10 @@ function performInsertAtChapter(chapter, asset) {
   recordChapterAssetSources([asset], chapter)
   syncMarkdownToEditor()
   onContentChange()
-  saveCurrentChapter()
+  if (!saveCurrentChapter()) {
+    quickNoteStatus.value = '素材已插入稿面但保存失败，请先重试保存'
+    return false
+  }
 
   if (editorRef.value) {
     nextTick(() => {
@@ -5081,7 +11644,7 @@ function tryApplyPendingInsertBack() {
   if (!found) {
     // Silently ignore — spec: missing chapter is a no-op, not an error.
     pendingInsertBack.value = null
-    router.replace({ query: {} })
+    clearTransientQuery()
     return
   }
   const { book, chapter } = found
@@ -5092,7 +11655,7 @@ function tryApplyPendingInsertBack() {
     .find((a) => a && a.id === ins.insertAssetId)
   if (!asset) {
     pendingInsertBack.value = null
-    router.replace({ query: {} })
+    clearTransientQuery()
     quickNoteStatus.value = '素材已被删除,已取消插入'
     return
   }
@@ -5101,7 +11664,7 @@ function tryApplyPendingInsertBack() {
     nextTick(() => nextTick(() => {
       const ok = performInsertAtChapter(chapter, asset)
       pendingInsertBack.value = null
-      router.replace({ query: {} })
+      clearTransientQuery()
       return ok
     }))
   }
@@ -5124,38 +11687,58 @@ function tryApplyPendingInsertBack() {
 function onContentChange() {
   syncFromCurrentEditor()
   saveStatus.value = 'unsaved'
+  if (wt3ActiveDoc.value) {
+    workspaceTabsStore.updateContextByKey(`project:${selectedBookId.value}:authoring`, { dirty: true })
+  }
   scheduleWritingRecoveryDraft()
   if (saveTimeout) clearTimeout(saveTimeout)
+  const scheduledScopeKey = activeDocumentSaveScopeKey()
+  // Ghost 采纳尚未落盘时禁止普通自动保存越过事务边界。
+  if (pendingGhostAdoption.value) return
+  // Phase 1：探索文档编辑走探索持久化，绝不进入正文保存管线
+  // （否则自动保存会把探索文本写进当前章节、并把书数组回写为无探索状态）。
+  if (wt3ActiveDoc.value) {
+    saveTimeout = setTimeout(() => {
+      saveTimeout = null
+      if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
+      saveStatus.value = 'saving'
+      const result = wt3PersistActiveDoc()
+      if (result.ok) {
+        clearWritingRecoveryDraft(authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id }))
+        writingRecoveryDraft.value = null
+      }
+      saveStatus.value = result.ok ? 'saved' : 'error'
+    }, 1000)
+    return
+  }
   saveTimeout = setTimeout(() => {
+    saveTimeout = null
+    if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
     saveStatus.value = 'saving'
     const saved = saveCurrentChapter()
     if (saved) {
       clearWritingRecoveryDraft(selectedChapterId.value)
       writingRecoveryDraft.value = null
     }
-    setTimeout(() => { saveStatus.value = saved ? 'saved' : 'error' }, 300)
+    saveStatus.value = saved ? 'saved' : 'error'
   }, 1000)
 }
 
 function captureWritingScrollState() {
-  const surface = notebookEditorRef.value?.getRootElement?.()?.closest('.writing-notebook-editor')
-    ?.querySelector('.writing-notebook-editor__surface')
+  const scrollElement = notebookEditorRef.value?.getScrollElement?.()
   return {
-    pageTop: writingMainRef.value?.scrollTop || 0,
-    surfaceTop: surface?.scrollTop || 0,
-    surfaceLeft: surface?.scrollLeft || 0
+    top: scrollElement?.scrollTop || 0,
+    left: scrollElement?.scrollLeft || 0
   }
 }
 
 function restoreWritingScrollState(snapshot) {
   if (!snapshot) return
   nextTick(() => requestAnimationFrame(() => {
-    if (writingMainRef.value) writingMainRef.value.scrollTop = snapshot.pageTop
-    const surface = notebookEditorRef.value?.getRootElement?.()?.closest('.writing-notebook-editor')
-      ?.querySelector('.writing-notebook-editor__surface')
-    if (surface) {
-      surface.scrollTop = snapshot.surfaceTop
-      surface.scrollLeft = snapshot.surfaceLeft
+    const scrollElement = notebookEditorRef.value?.getScrollElement?.()
+    if (scrollElement) {
+      scrollElement.scrollTop = snapshot.top
+      scrollElement.scrollLeft = snapshot.left
     }
   }))
 }
@@ -5165,15 +11748,113 @@ function onEditorInput() {
 }
 
 function onWritingCompositionStart() {
+  writingCompositionActive.value = true
   suppressWritingAgent('composition')
 }
 
 function onWritingCompositionEnd() {
+  writingCompositionActive.value = false
   finishWritingAgentComposition()
+  nextTick(() => schedulePassiveWritingSuggestion('input'))
+}
+
+function onWritingBeforeInput(event) {
+  // Teleport 的推演草稿/输入区实际挂在编辑器 widget 内，beforeinput 会沿
+  // Editor 根的 capture 监听器经过。中文引号转换只能接管 ProseMirror 正文，
+  // 否则在草稿输入引号会 preventDefault 后写进 canonical 正文。
+  const eventTarget = event?.target instanceof Element ? event.target : null
+  if (!eventTarget?.closest('.ProseMirror') || eventTarget.closest('#authoring-block-gap')) return
+  if (['historyUndo', 'historyRedo'].includes(event?.inputType)) {
+    const redo = event.inputType === 'historyRedo'
+    const ownsHistory = historyInteractionLocked.value
+      || (redo
+        ? hasGhostAdoptionRedoBoundary.value || hasStructureRedoBoundary.value
+        : hasGhostAdoptionUndoBoundary.value || hasStructureUndoBoundary.value)
+    if (ownsHistory) {
+      event.preventDefault()
+      handleNotebookHistoryCommand(redo ? 'redo' : 'undo')
+    }
+    return
+  }
+  const editor = notebookEditorRef.value
+  const selection = editor?.getSelection?.()
+  const insertion = buildChineseQuoteInsertion({
+    data: event?.data,
+    selectedText: selection?.text,
+    previousText: selection?.previousText,
+    nextText: selection?.nextText,
+    from: selection?.from,
+    // Safari/iOS 的 final beforeinput 可能已报 isComposing=false，但编辑器
+    // 仍处于 compositionend 的 DOMObserver settling 窗口。父层 owner 必须
+    // 继续让行，避免智能引号与 IME 最终事务重复写入。
+    composing: event?.isComposing || writingCompositionActive.value,
+    inputType: event?.inputType
+  })
+  if (!insertion || !editor) return
+  event.preventDefault()
+  if (insertion.text && !editor.insertPlainText(insertion.text)) return
+  editor.setSelection(insertion.caret, insertion.caret)
 }
 
 function onWritingPaste() {
   suppressWritingAgent('paste')
+}
+
+function handleNotebookScrollOwner(event = {}) {
+  // 光标越过视口边缘时浏览器会自动跟随滚动；这仍属于 cursor dwell，
+  // 不能把刚排入的联想取消。只有 wheel/touch/滚动条这类显式浏览动作才暂停。
+  if (event.source === 'user') suppressWritingAgent('scroll')
+}
+
+function onNotebookCompositionChange(active, meta = {}) {
+  if (active) {
+    onWritingCompositionStart()
+    return
+  }
+  if (meta?.reason) {
+    writingCompositionActive.value = false
+    suppressWritingAgent(`composition-${meta.reason}`)
+    return
+  }
+  onWritingCompositionEnd()
+}
+
+function onNotebookCommandMenuChange(open) {
+  notebookCommandMenuOpen.value = Boolean(open)
+  if (open) suppressWritingAgent('command-menu')
+}
+
+function handleBlockedStructureEdit() {
+  authoringTask.notify('文本块边界受当前场与批注保护；请用右键菜单显式拆分、合并或移动文本块')
+}
+
+function schedulePassiveWritingSuggestion(inputType, cursorPos = copilotCursorPos.value) {
+  const currentNodeText = notebookEditorActive.value
+    ? String(notebookSelection.value?.currentNodeText || '')
+    : getWritingParagraphSnapshot(cursorPos).text
+  const target = currentGhostTarget({ caret: cursorPos })
+  const book = books.value.find((item) => String(item.id) === String(target.projectId))
+  writingAgentOnInput({
+    content: markdownContent.value,
+    cursorPos,
+    bookId: target.projectId,
+    bookTitle: book?.title || '',
+    chapterTitle: currentChapterTitle.value,
+    documentRole: target.role,
+    documentId: target.documentId,
+    chapterId: target.chapterId,
+    documentRevision: target.documentRevision,
+    unitId: target.unitId,
+    unitRevision: target.unitRevision,
+    nodeId: target.nodeId,
+    nodeRevision: target.nodeRevision,
+    editorFocused: notebookEditorRef.value?.hasEditorFocus?.() !== false,
+    hasSelection: Boolean(selectedText.value),
+    currentNodeEmpty: !currentNodeText.trim(),
+    interactionOwner: writingInteractionOwner.value,
+    inputType,
+    composing: writingCompositionActive.value
+  })
 }
 
 function syncCopilotCursorFromEditor(options = {}) {
@@ -5181,7 +11862,7 @@ function syncCopilotCursorFromEditor(options = {}) {
   if (notebookEditorActive.value) {
     const snapshot = readLiveWritingSelectionSnapshot()
     if (cancelOnMove && copilotVisible.value && snapshot.end !== copilotCursorPos.value) {
-      copilotCancel()
+      copilotCancel('cursor-move')
     }
     copilotCursorPos.value = snapshot.end
     selectedText.value = snapshot.text
@@ -5194,29 +11875,38 @@ function syncCopilotCursorFromEditor(options = {}) {
   const selectionEnd = Math.max(0, Math.min(text.length, Math.max(editor.selectionStart, editor.selectionEnd ?? editor.selectionStart)))
   const nextCursor = Math.max(0, Math.min(text.length, editor.selectionStart))
   if (cancelOnMove && copilotVisible.value && nextCursor !== copilotCursorPos.value) {
-    copilotCancel()
+    copilotCancel('cursor-move')
   }
   copilotCursorPos.value = nextCursor
   selectedText.value = selectionEnd > selectionStart
     ? text.slice(selectionStart, selectionEnd)
     : ''
-  copilotScrollTop.value = editor.scrollTop || 0
-  copilotScrollLeft.value = editor.scrollLeft || 0
-}
-
-function onEditorScroll(event) {
-  copilotScrollTop.value = event.target?.scrollTop || 0
-  copilotScrollLeft.value = event.target?.scrollLeft || 0
 }
 
 function acceptWritingSuggestion(mode = 'all') {
   if (notebookEditorActive.value && notebookEditorRef.value) {
-    const inserted = writingAgentConsume(mode)
+    const inserted = writingAgentPeek(mode)
     if (!inserted) return
-    const accepted = notebookEditorRef.value.insertPlainText(inserted)
-    if (!accepted) return
-    notebookCopilotCanUndo.value = true
-    syncCopilotCursorFromEditor()
+    // inline 采纳会成为新的 history 顶层事务；此前长推演/authoring 回执
+    // 从此不再能安全地驱动 scene/outline 回滚。
+    clearNotebookAtomicRedoHistory()
+    authoringTask.invalidateReceipt()
+    acceptingInlineSuggestion = true
+    try {
+      const accepted = notebookEditorRef.value.insertPlainText(inserted, { origin: 'writing-agent' })
+      if (!accepted) return
+      // 插入已同步推进 getSnapshot 的正文，consume 必须走信任路径，
+      // 否则二次 revision 校验会把自己刚插入的内容判为“落笔处已变化”并回滚。
+      const consumed = writingAgentConsume(mode, { ignoreRevision: true })
+      if (consumed !== inserted) {
+        notebookEditorRef.value.undo()
+        return
+      }
+      notebookCopilotCanUndo.value = true
+      syncCopilotCursorFromEditor()
+    } finally {
+      acceptingInlineSuggestion = false
+    }
     return
   }
   const editor = editorRef.value
@@ -5279,7 +11969,7 @@ function undoWritingSuggestionApply() {
 
 function retryCopilotSuggestion() {
   syncCopilotCursorFromEditor()
-  copilotManualTrigger()
+  if (copilotManualTrigger() === false) return
   nextTick(() => {
     if (notebookEditorActive.value) notebookEditorRef.value?.focus()
     else editorRef.value?.focus()
@@ -5311,7 +12001,7 @@ function onTextAreaKeydown(e) {
   }
 
   // Esc 拒绝建议
-  if (e.key === 'Escape' && (copilotVisible.value || copilotGenerating.value)) {
+  if (e.key === 'Escape' && (copilotVisible.value || copilotRequesting.value)) {
     e.preventDefault()
     copilotCancel()
     return
@@ -5357,70 +12047,273 @@ function onTextAreaKeydown(e) {
   }
 }
 
-function showContextMenu(e) {
-  if (editorMode.value !== 'wysiwyg') return
-  const sel = window.getSelection()
-  selectedText.value = sel ? sel.toString() : ''
-  const root = notebookEditorActive.value
-    ? notebookEditorRef.value?.getRootElement?.()
-    : editorRef.value
-  if (!root) return
-  const rect = root.getBoundingClientRect()
-  contextMenu.value = {
-    show: true,
-    x: Math.min(e.clientX, rect.right - 160),
-    y: Math.min(e.clientY, rect.bottom - 10)
+function clipboardReadAvailable() {
+  return typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function'
+}
+
+function refreshNotebookCommandAvailability() {
+  const resolved = notebookEditorRef.value?.getCommandAvailability?.() || {}
+  notebookCommandAvailability.value = {
+    ...emptyNotebookCommandAvailability,
+    ...resolved,
+    paste: resolved.paste !== false && clipboardReadAvailable()
+  }
+  editorBold.value = Boolean(notebookCommandAvailability.value.bold)
+  editorItalic.value = Boolean(notebookCommandAvailability.value.italic)
+  return notebookCommandAvailability.value
+}
+
+function onNotebookReady() {
+  scheduleAnnotationLayout()
+  nextTick(refreshNotebookCommandAvailability)
+}
+
+function clampContextMenuPosition() {
+  const element = contextMenuRef.value
+  if (!element || !contextMenu.value.show) return
+  const body = document.body
+  const cssZoom = Number.parseFloat(window.getComputedStyle(body).zoom) || 1
+  const transformedScale = body?.offsetWidth > 0
+    ? body.getBoundingClientRect().width / body.offsetWidth
+    : 1
+  const scale = Math.max(0.1, cssZoom !== 1 ? cssZoom : (transformedScale || 1))
+  const viewport = window.visualViewport
+  const leftEdge = Number(viewport?.offsetLeft || 0)
+  const topEdge = Number(viewport?.offsetTop || 0)
+  const rightEdge = leftEdge + Number(viewport?.width || window.innerWidth)
+  const bottomEdge = topEdge + Number(viewport?.height || window.innerHeight)
+  const margin = 8
+  const availableVisualHeight = Math.max(44, bottomEdge - topEdge - margin * 2)
+  contextMenu.value.maxHeight = Math.floor(availableVisualHeight / scale)
+  const visualWidth = Math.min(
+    Math.max(Number(element.getBoundingClientRect?.().width || 0), Number(element.offsetWidth || 0) * scale),
+    Math.max(0, rightEdge - leftEdge - margin * 2)
+  )
+  const visualHeight = Math.min(Number(element.scrollHeight || element.offsetHeight || 0) * scale, availableVisualHeight)
+  const desiredVisualX = Number(contextMenu.value.anchorX ?? contextMenu.value.x * scale)
+  const desiredVisualY = Number(contextMenu.value.anchorY ?? contextMenu.value.y * scale)
+  const clampedVisualX = Math.max(
+    leftEdge + margin,
+    Math.min(desiredVisualX, rightEdge - visualWidth - margin)
+  )
+  const clampedVisualY = Math.max(
+    topEdge + margin,
+    Math.min(desiredVisualY, bottomEdge - visualHeight - margin)
+  )
+  contextMenu.value.x = Math.round(clampedVisualX / scale)
+  contextMenu.value.y = Math.round(clampedVisualY / scale)
+}
+
+function handleContextMenuViewportChange() {
+  if (contextMenu.value.show) nextTick(clampContextMenuPosition)
+}
+
+function contextMenuKeyboardItems() {
+  return Array.from(contextMenuRef.value?.querySelectorAll?.('.ctx-item:not(:disabled)') || [])
+}
+
+function focusContextMenuItem(index = 0) {
+  const items = contextMenuKeyboardItems()
+  if (!items.length) {
+    contextMenuRef.value?.focus?.({ preventScroll: true })
+    return false
+  }
+  const safeIndex = (index + items.length) % items.length
+  items[safeIndex]?.focus?.({ preventScroll: true })
+  return true
+}
+
+function closeContextMenuFromKeyboard() {
+  if (!contextMenu.value.show) return
+  const snapshot = { ...contextMenu.value }
+  contextMenu.value.show = false
+  nextTick(() => {
+    if (!restoreContextMenuTarget(snapshot)) return
+    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
+  })
+}
+
+function handleContextMenuKeydown(event) {
+  if (!contextMenu.value.show || isWritingCompositionKey(event)) return
+  const items = contextMenuKeyboardItems()
+  const currentIndex = items.indexOf(document.activeElement)
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    closeContextMenuFromKeyboard()
+    return
+  }
+
+  if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!items.length) return
+    if (event.key === 'Home') return void focusContextMenuItem(0)
+    if (event.key === 'End') return void focusContextMenuItem(items.length - 1)
+    const direction = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1
+    focusContextMenuItem((currentIndex < 0 ? (direction > 0 ? -1 : 0) : currentIndex) + direction)
+    return
+  }
+
+  // 菜单显示时键盘 owner 必须是菜单。即使浏览器/测试环境没有及时把
+  // focus 移到按钮，也不能让 Backspace、正文字符或 Ctrl/Cmd+Z 穿透到
+  // 仍保存着旧 selection 的 ProseMirror。
+  if (!contextMenuRef.value?.contains?.(event.target)) {
+    event.preventDefault()
+    event.stopPropagation()
+    focusContextMenuItem(0)
+    return
+  }
+
+  const commandKey = (event.ctrlKey || event.metaKey) && ['z', 'y', 'x', 'v'].includes(event.key.toLowerCase())
+  if (commandKey || ['Backspace', 'Delete'].includes(event.key)) {
+    event.preventDefault()
+    event.stopPropagation()
   }
 }
 
-function ctxAction(action) {
-  if (editorMode.value !== 'wysiwyg') return
-  if (notebookEditorActive.value && notebookEditorRef.value) {
-    switch (action) {
-      case 'undo': notebookEditorRef.value.undo(); break
-      case 'redo': notebookEditorRef.value.redo(); break
-      case 'delete': notebookEditorRef.value.deleteSelection(); onContentChange(); break
-      case 'selectAll': notebookEditorRef.value.selectAll(); break
-      case 'copy': document.execCommand('copy'); break
-      case 'cut': document.execCommand('cut'); onContentChange(); break
-      case 'paste': document.execCommand('paste'); break
-      case 'splitUnit': notebookEditorRef.value.splitWritingUnit(); break
-      case 'mergePreviousUnit': notebookEditorRef.value.mergeWritingUnit('previous'); break
-      case 'moveUnitUp': notebookEditorRef.value.moveWritingUnit('up'); break
-      case 'moveUnitDown': notebookEditorRef.value.moveWritingUnit('down'); break
-    }
-    contextMenu.value.show = false
-    return
+async function writeClipboardText(value) {
+  const text = String(value || '')
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    await navigator.clipboard.writeText(text)
+    return true
   }
-  const editor = editorRef.value
-  if (!editor) return
-  editor.focus()
+  // 非安全上下文的兼容后备只复制临时 textarea，不再让 execCommand
+  // 直接操作 ProseMirror 选区。
+  const activeElement = document.activeElement
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = Boolean(document.execCommand?.('copy'))
+  textarea.remove()
+  activeElement?.focus?.()
+  if (!copied) throw new Error('clipboard-write-unavailable')
+  return true
+}
 
-  switch (action) {
-    case 'undo': editorHistory.undo(editorRef.value); break
-    case 'redo': editorHistory.redo(editorRef.value); break
-    // TODO(undo-redo): cut/copy/paste/delete below use document.execCommand
-    // which is deprecated and unreliable on textarea. Replace with
-    // native Clipboard API + direct textarea manipulation in a follow-up.
-    case 'cut':
-      document.execCommand('cut')
-      selectedText.value = ''
-      break
-    case 'copy':
-      document.execCommand('copy')
-      break
-    case 'paste':
-      document.execCommand('paste')
-      break
-    case 'delete':
-      document.execCommand('delete')
-      onContentChange()
-      break
-    case 'selectAll':
-      document.execCommand('selectAll')
-      break
+async function readClipboardText() {
+  if (!clipboardReadAvailable()) throw new Error('clipboard-read-unavailable')
+  return navigator.clipboard.readText()
+}
+
+function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scrollIntoView = false } = {}) {
+  if (
+    requireCurrentDocument
+    && String(snapshot?.documentRevision || '') !== String(currentDocumentRevision())
+  ) {
+    authoringTask.notify('正文已变化，请在目标位置重新打开菜单')
+    return false
   }
+  if (!snapshot?.selectionBookmark) return true
+  if (notebookEditorRef.value?.restoreSelectionBookmark?.(snapshot.selectionBookmark, { scrollIntoView })) return true
+  authoringTask.notify('原选区已失效，请重新选择后操作')
+  return false
+}
+
+function restoreEditorAfterContextMenu(snapshot) {
+  const restored = restoreContextMenuTarget(snapshot, { scrollIntoView: false })
+  nextTick(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false }))
+  return restored
+}
+
+function showContextMenu(e, meta = {}) {
+  if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return
+  suppressWritingAgent('context-menu')
+  notebookEditorRef.value.closeCommandMenu?.()
+  notebookCommandMenuOpen.value = false
+  const selection = notebookEditorRef.value.getSelection?.() || {}
+  selectedText.value = String(selection.text || '')
+  const availability = refreshNotebookCommandAvailability()
+  const body = document.body
+  const cssZoom = Number.parseFloat(window.getComputedStyle(body).zoom) || 1
+  const transformedScale = body?.offsetWidth > 0
+    ? body.getBoundingClientRect().width / body.offsetWidth
+    : 1
+  const scale = Math.max(0.1, cssZoom !== 1 ? cssZoom : (transformedScale || 1))
+  const keyboardAnchor = meta?.keyboardTriggered ? meta.anchorRect : null
+  const anchorX = Number(keyboardAnchor?.left ?? e.clientX ?? 0)
+  const anchorY = Number(keyboardAnchor?.bottom ?? e.clientY ?? 0)
+  contextMenu.value = {
+    show: true,
+    x: Math.round(anchorX / scale),
+    y: Math.round(anchorY / scale),
+    anchorX,
+    anchorY,
+    maxHeight: 480,
+    selectionBookmark: notebookEditorRef.value.captureSelectionBookmark?.() || null,
+    selectedText: String(selection.text || ''),
+    documentRevision: currentDocumentRevision(),
+    availability: { ...availability }
+  }
+  notebookEditorRef.value.blur?.()
+  nextTick(() => {
+    clampContextMenuPosition()
+    focusContextMenuItem(0)
+  })
+}
+
+async function ctxAction(action) {
+  if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return false
+  const snapshot = { ...contextMenu.value }
   contextMenu.value.show = false
+  const mutatesDocument = ['undo', 'redo', 'delete', 'cut', 'paste', 'splitUnit', 'mergePreviousUnit', 'moveUnitUp', 'moveUnitDown'].includes(action)
+  if (mutatesDocument && rejectLockedNotebookMutation()) {
+    restoreEditorAfterContextMenu(snapshot)
+    return false
+  }
+
+  const availabilityKey = action === 'delete' ? 'deleteSelection' : action
+  if (
+    ['cut', 'copy', 'paste', 'delete'].includes(action)
+    && !snapshot.availability?.[availabilityKey]
+  ) {
+    restoreEditorAfterContextMenu(snapshot)
+    return false
+  }
+
+  try {
+    if (action === 'copy') {
+      await writeClipboardText(snapshot.selectedText)
+      return restoreContextMenuTarget(snapshot)
+    }
+    if (action === 'cut') {
+      await writeClipboardText(snapshot.selectedText)
+      if (!restoreContextMenuTarget(snapshot)) return false
+      return Boolean(notebookEditorRef.value.deleteSelection?.())
+    }
+    if (action === 'paste') {
+      const clipboardText = await readClipboardText()
+      if (!clipboardText) {
+        authoringTask.notify('剪贴板里没有可粘贴的文本')
+        restoreEditorAfterContextMenu(snapshot)
+        return false
+      }
+      if (!restoreContextMenuTarget(snapshot)) return false
+      return Boolean(notebookEditorRef.value.insertPlainText?.(clipboardText, { origin: 'input' }))
+    }
+  } catch {
+    authoringTask.notify(action === 'paste'
+      ? '浏览器未允许读取剪贴板，请使用系统粘贴快捷键'
+      : '复制到剪贴板失败，请使用系统快捷键')
+    restoreEditorAfterContextMenu(snapshot)
+    return false
+  }
+
+  if (action === 'undo') return undoNotebookEdit()
+  if (action === 'redo') return redoNotebookEdit()
+  if (action === 'selectAll') return Boolean(notebookEditorRef.value.selectAll?.())
+  if (!restoreContextMenuTarget(snapshot)) return false
+  if (action === 'delete') return Boolean(notebookEditorRef.value.deleteSelection?.())
+  if (action === 'splitUnit') return Boolean(notebookEditorRef.value.splitWritingUnit?.())
+  if (action === 'mergePreviousUnit') return Boolean(notebookEditorRef.value.mergeWritingUnit?.('previous'))
+  if (action === 'moveUnitUp') return Boolean(notebookEditorRef.value.moveWritingUnit?.('up'))
+  if (action === 'moveUnitDown') return Boolean(notebookEditorRef.value.moveWritingUnit?.('down'))
+  return false
 }
 
 function applyStyleToRange(styleMap) {
@@ -5466,56 +12359,68 @@ function onNotebookMarkdown(markdown) {
   onContentChange()
 }
 
-function onNotebookDocumentUpdate(document) {
+function onNotebookDocumentUpdate(document, transition = null) {
   const previousDocument = writingDocument.value
   previousNotebookDocument = previousDocument
+  previousNotebookAnnotations = snapshotWritingAnnotationState()
   writingDocument.value = document
-  chapterAnnotations.value = reconcileWritingAnnotations(
-    chapterAnnotations.value,
-    document,
-    selectedChapterId.value,
-    previousDocument
-  )
+  // 结构变更只能从原始批注快照做一次 typed reconcile；不能先按普通
+  // 文本编辑模糊重定位、再拿已改过的 offset 处理 split/merge。
+  reconcileActiveEditorAnnotations(document, previousDocument, transition)
   markRewriteCandidatesStale()
   scheduleAnnotationLayout()
+  nextTick(refreshNotebookCommandAvailability)
 }
 
 function onNotebookUnitTransition(transition) {
-  chapterAnnotations.value = reconcileWritingAnnotations(
-    chapterAnnotations.value,
-    writingDocument.value,
-    selectedChapterId.value,
-    previousNotebookDocument,
-    transition
-  )
+  const structural = ['split', 'merge', 'move', 'delete', 'clear', 'replace-all'].includes(String(transition?.type || ''))
+  const beforeDocument = previousNotebookDocument
+  const beforeAnnotations = previousNotebookAnnotations || snapshotWritingAnnotationState()
+  const beforeSceneAnchors = normalizeSceneAnchors(sceneAnchors.value)
   // 场景锚点随单元转换迁移（Task 4）：split/merge/delete/move 各有确定性规则。
-  if (transition?.type) {
+  // 探索文档没有正文场景锚点，不能拿探索单元 ID 改写当前章节的锚点。
+  if (!wt3ActiveDoc.value && transition?.type) {
     const result = reconcileSceneAnchorsForUnitTransition({
       anchors: sceneAnchors.value,
       transition
     })
     if (result.ok) {
-      lastSceneAnchorUndoReceipt.value = {
-        beforeFingerprint: fingerprintSceneAnchors(sceneAnchors.value),
-        afterFingerprint: fingerprintSceneAnchors(result.anchors),
-        type: transition.type,
-        at: Date.now()
-      }
       sceneAnchors.value = result.anchors
+      // 结构编辑改变了手动锚点撤销所依赖的文档拓扑，旧回执不再安全。
+      lastSceneAnchorUndoReceipt.value = null
     }
   }
+  if (structural && beforeDocument) {
+    const afterAnnotations = snapshotWritingAnnotationState()
+    const afterSceneAnchors = normalizeSceneAnchors(sceneAnchors.value)
+    pushNotebookAtomicUndoReceipt({
+      kind: 'unit-transition',
+      transition: Object.freeze({ ...transition }),
+      projectId: selectedBookId.value || '',
+      documentId: wt3ActiveDoc.value?.id || selectedChapterId.value || '',
+      documentRole: wt3ActiveDoc.value ? 'exploration' : 'manuscript',
+      chapterId: wt3ActiveDoc.value ? '' : selectedChapterId.value || '',
+      beforeDocumentRevision: documentStateRevision(beforeDocument),
+      afterDocumentRevision: currentDocumentRevision(),
+      beforeBodyRevision: documentBodyStateRevision(beforeDocument),
+      afterBodyRevision: currentDocumentBodyRevision(),
+      beforeSceneAnchors,
+      afterSceneAnchors,
+      beforeAnchorFingerprint: fingerprintSceneAnchors(beforeSceneAnchors),
+      afterAnchorFingerprint: fingerprintSceneAnchors(afterSceneAnchors),
+      beforeAnnotations,
+      afterAnnotations,
+      beforeAnnotationFingerprint: fingerprintWritingAnnotationState(beforeAnnotations),
+      afterAnnotationFingerprint: fingerprintWritingAnnotationState(afterAnnotations)
+    })
+    authoringTask.invalidateReceipt()
+    notebookCopilotCanUndo.value = false
+  }
   previousNotebookDocument = null
+  previousNotebookAnnotations = null
   markRewriteCandidatesStale()
   scheduleAnnotationLayout()
 }
-
-// 当前活动 writingUnit：优先编辑器选区所在单元；无有效活动单元时显式回退文档末尾。
-const activeWritingUnitId = computed(() => {
-  const selection = readLiveWritingSelectionSnapshot()
-  if (selection?.unitId) return selection.unitId
-  const units = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
-  return units.at(-1)?.attrs?.unitId || null
-})
 
 // 文档单元顺序（投影锚点解析用）。
 function documentUnitOrder() {
@@ -5527,6 +12432,14 @@ function documentUnitOrder() {
 // 原子提交场景锚点草稿（Task 4）：revision 守卫 + 立即持久化章节一次。
 // 取消路径绝不进入本函数；撤销前先校验当前锚点指纹是否仍是回执记录的状态。
 function commitSceneAnchorDraft(draft) {
+  if (
+    String(draft?.projectId || '') !== String(selectedBookId.value || '')
+    || String(draft?.chapterId || '') !== String(selectedChapterId.value || '')
+    || String(draft?.worldbookId || '') !== String(selectedBookWorldbookId.value || '')
+    || String(draft?.anchorFingerprint || '') !== fingerprintSceneAnchors(sceneAnchors.value)
+  ) {
+    return { ok: false, reason: 'stale' }
+  }
   const result = upsertSceneAnchor({
     anchors: sceneAnchors.value,
     anchor: { ...draft, unitId: draft.unitId || activeWritingUnitId.value, worldbookId: selectedBookWorldbookId.value },
@@ -5558,8 +12471,13 @@ function undoSceneAnchorCommit() {
   const receipt = lastSceneAnchorUndoReceipt.value
   if (!receipt || receipt.type !== 'manual-edit') return false
   if (fingerprintSceneAnchors(sceneAnchors.value) !== receipt.afterFingerprint) return false
+  const appliedAnchors = sceneAnchors.value
   sceneAnchors.value = normalizeSceneAnchors(receipt.previousAnchors)
-  saveCurrentChapter()
+  if (!saveCurrentChapter()) {
+    sceneAnchors.value = appliedAnchors
+    authoringTask.notify('当前场撤销保存失败，已恢复撤销前状态')
+    return false
+  }
   lastSceneAnchorUndoReceipt.value = null
   return true
 }
@@ -5567,39 +12485,97 @@ function undoSceneAnchorCommit() {
 // （撤销逻辑已合并进 undoSceneAnchorCommit：指纹校验 + previousAnchors 恢复。）
 
 function onNotebookSelectionChange(selection) {
+  const previousCursor = copilotCursorPos.value
+  const transactionOwned = acceptingInlineSuggestion || applyingAtomicNotebookHistory
   notebookSelection.value = selection
+  if (inspectorOpen.value && activeInspectorTool.value === 'ai' && activeWritingPane.value === 'main') {
+    const currentInvocation = captureMainKnowledgeAssistantInvocation()
+    if (currentInvocation) knowledgeAssistantInvocation.value = currentInvocation
+  }
+  notebookSelectionScrollTop = document.querySelector('.wall__dossier-scroll')?.scrollTop || 0
   const snapshot = readLiveWritingSelectionSnapshot()
+  const cursorMoved = snapshot.end !== previousCursor
+  if (!transactionOwned && (cursorMoved || selection?.text)) copilotCancel('cursor-move')
   copilotCursorPos.value = snapshot.end
   selectedText.value = snapshot.text
   hasSelection.value = Boolean(selection?.text)
-  if (selection?.text?.trim() && selection.cursorRect) {
-    const bodyZoom = Number.parseFloat(window.getComputedStyle(document.body).zoom) || 1
-    const position = resolveSelectionActionPosition(selection.cursorRect, {
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
-      width: 138,
-      scale: bodyZoom
-    })
-    if (position) {
-      selectionToolbarStyle.value = {
-        top: `${position.top}px`,
-        left: `${position.left}px`
-      }
-      selectionActionsVisible.value = true
-    }
-  } else {
-    hideSelectionActions()
+  editorBold.value = Boolean(selection?.activeMarks?.bold)
+  editorItalic.value = Boolean(selection?.activeMarks?.italic)
+  refreshNotebookCommandAvailability()
+  if (!transactionOwned && cursorMoved && copilotEnabled.value && !selection?.text) {
+    schedulePassiveWritingSuggestion('cursor', snapshot.end)
   }
+  positionSelectionActions(selection)
   if (annotationComposerOpen.value && selection?.text) {
     annotationComposerContext.value = getAnnotationSelectionContext()
     scheduleAnnotationLayout()
   }
   const selectedNodeId = selection?.nodeId
   if (!inspectorPinned.value && selectedNodeId) {
-    activeAnnotationId.value = chapterAnnotations.value.find((annotation) => (
+    activeAnnotationId.value = activeEditorAnnotations.value.find((annotation) => (
       annotation.target?.nodeId === selectedNodeId && annotation.status === 'open'
     ))?.id || null
   }
+}
+
+function positionSelectionActions(selection) {
+  // 画师是覆盖整个写作工作台的 modal owner。编辑器在失焦和图片加载时
+  // 仍可能补发 selectionchange；这些迟到事件不能让正文浮条穿透到画师上层。
+  if (illustratorOpen.value) {
+    hideSelectionActions()
+    return
+  }
+  if (selection?.text?.trim() && selection.cursorRect) {
+    const rect = selection.cursorRect
+    if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+      hideSelectionActions()
+      return
+    }
+    selectionActionsVisible.value = true
+    // 浮条宽度随按钮集合变化（B/I/分隔线加入后远超旧估宽）；
+    // 先渲染再实测 offsetWidth/Height，交给 resolver 按缩放做视口钳制。
+    nextTick(() => {
+      if (illustratorOpen.value) {
+        hideSelectionActions()
+        return
+      }
+      const bar = document.querySelector('.writing-selection-actions')
+      const bodyZoom = writingUiScale()
+      const measuredWidth = Math.max(166, Number(bar?.offsetWidth) || 340)
+      const measuredHeight = Math.max(34, Number(bar?.offsetHeight) || 36)
+      const manuscriptRect = writingMainRef.value?.querySelector?.('.wall__dossier')?.getBoundingClientRect?.()
+      const position = resolveSelectionActionPosition(rect, {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        width: measuredWidth,
+        height: measuredHeight,
+        scale: bodyZoom,
+        containerLeft: manuscriptRect?.left,
+        containerRight: manuscriptRect?.right,
+        containerTop: manuscriptRect?.top,
+        containerBottom: manuscriptRect?.bottom
+      })
+      if (position) {
+        selectionToolbarStyle.value = {
+          top: `${position.top}px`,
+          left: `${position.left}px`
+        }
+        selectionActionsVisible.value = true
+      }
+    })
+  } else {
+    hideSelectionActions()
+  }
+}
+
+function handleWritingWorkspaceScroll(event) {
+  const scrollTarget = event?.target instanceof Element ? event.target : null
+  if (scrollTarget && contextMenuRef.value?.contains?.(scrollTarget)) return
+  // fixed 菜单绑定的是打开瞬间的 bookmark；视口滚动后继续悬浮会伪装成
+  // 当前屏幕目标，实际却修改已离屏旧段。任何 owner 滚动都先关闭它。
+  if (contextMenu.value.show) contextMenu.value.show = false
+  positionSelectionActions(notebookEditorRef.value?.getSelection?.())
+  scheduleAnnotationLayout()
 }
 
 function hideSelectionActions() {
@@ -5630,30 +12606,13 @@ const quickAiRewriteInstructions = {
 
 async function handleNotebookWritingCommand(command = {}) {
   if (command.id === 'ai-continue') {
-    if (!copilotEnabled.value) {
-      quickNoteStatus.value = '写作 AI 当前已关闭，请先启用写作补全。'
-      return
-    }
-    if (command.markdown != null) {
-      markdownContent.value = String(command.markdown || '')
-      editorContent.value = markdownToHtml(markdownContent.value)
-      writingDocument.value = syncFromMarkdown(markdownContent.value)
-    }
-    const commandCursor = Number(command.cursorMarkdownOffset)
-    if (command.cursorMarkdownOffset != null && Number.isFinite(commandCursor)) {
-      copilotCursorPos.value = Math.max(0, Math.min(markdownContent.value.length, commandCursor))
-      selectedText.value = ''
-    } else {
-      syncCopilotCursorFromEditor()
-    }
-    await copilotManualTrigger()
+    openBlockComposer({ ...notebookSelection.value, ...command })
     return
   }
 
   if (command.id === 'ai-review-chapter') {
-    inspectorOpen.value = true
-    inspectorTab.value = 'comments'
-    await runChapterReview()
+    freezeReviewSource()
+    openReviewPanel()
     return
   }
 
@@ -5678,8 +12637,11 @@ async function handleNotebookWritingCommand(command = {}) {
     end: target.text.length,
     fullText: target.text
   })
+  const annotationScopeId = wt3ActiveDoc.value
+    ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
+    : selectedChapterId.value
   const annotation = createWritingAnnotation({
-    chapterId: selectedChapterId.value,
+    chapterId: annotationScopeId,
     target: {
       unitId: target.unitId,
       unitRevision: target.unitRevision,
@@ -5701,7 +12663,8 @@ async function handleNotebookWritingCommand(command = {}) {
     body: instruction,
     kind: 'comment'
   })
-  chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
+  if (wt3ActiveDoc.value) wt3Annotations.value = [annotation, ...wt3Annotations.value]
+  else chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
   activeAnnotationId.value = annotation.id
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
@@ -5734,8 +12697,37 @@ function openAnnotationInspector() {
 }
 
 function handleInlineAnnotationClick(annotationId) {
-  const annotation = chapterAnnotations.value.find((item) => item.id === annotationId)
+  const annotation = activeEditorAnnotations.value.find((item) => item.id === annotationId)
   if (annotation) locateAnnotation(annotation)
+}
+
+function openWorldbookMentionDetail(payload) {
+  const entryId = typeof payload === 'object' ? payload?.entryId : payload
+  const entryIds = typeof payload === 'object' && Array.isArray(payload?.entryIds)
+    ? [...new Set(payload.entryIds.map((id) => String(id || '')).filter(Boolean))]
+    : entryId ? [String(entryId)] : []
+  if (!entryIds.length) return
+  if (payload?.nodeId) {
+    // 点击提及只移动 caret，不制造正文选区和悬浮编辑菜单。
+    notebookEditorRef.value?.selectNodeRange?.(payload.nodeId, payload.end, payload.nodeId, payload.end)
+  }
+  inspectorWorldbookEntryId.value = ''
+  inspectorWorldbookCandidateIds.value = entryIds.length > 1 ? entryIds : []
+  activeInspectorTool.value = 'worldbook'
+  inspectorOpen.value = true
+  if (entryIds.length === 1) nextTick(() => { inspectorWorldbookEntryId.value = entryIds[0] })
+}
+
+function locateWorldbookMention(occurrence) {
+  if (!occurrence?.nodeId) return
+  nextTick(() => {
+    notebookEditorRef.value?.selectNodeRange?.(
+      occurrence.nodeId,
+      Number(occurrence.start) || 0,
+      occurrence.nodeId,
+      Number(occurrence.end) || Number(occurrence.start) || 0
+    )
+  })
 }
 
 function getWritingNodeText(node) {
@@ -5905,7 +12897,7 @@ function getCurrentRewriteTarget() {
     text: block.text,
     range: { start: block.start, end: block.end },
     editorRange: null,
-    documentRevision: Number(writingDocument.value?.revision || 0)
+    documentRevision: currentDocumentRevision()
   }
 }
 
@@ -6223,6 +13215,7 @@ function retryRewriteCandidates() {
 }
 
 function applyRewriteCandidate(candidate) {
+  if (rejectLockedNotebookMutation()) return
   if (!candidate || candidate.status !== 'ready') return
   const current = getCurrentRewriteComparison()
   const staleReason = getWritingCandidateStaleReason(candidate, current)
@@ -6239,25 +13232,25 @@ function applyRewriteCandidate(candidate) {
     return
   }
 
-  createCurrentWritingSnapshot({
-    label: `改写前 · 修订 ${writingDocument.value?.revision || 0}`,
-    reason: 'before-rewrite',
-    quiet: true
-  })
+  if (!protectCurrentRewrite(candidate)) {
+    rewriteError.value = '无法保存改写前版本，正文没有变化。'
+    return
+  }
 
   const before = markdownContent.value
   let applied = false
   let fallbackAfter = ''
   if (notebookEditorActive.value && candidate.kind === 'multi-selection') {
-    applied = Boolean(notebookEditorRef.value?.replaceNodeRanges?.(candidate.patches))
+    applied = Boolean(notebookEditorRef.value?.replaceNodeRanges?.(candidate.patches, { origin: 'writing-agent' }))
   } else if (notebookEditorActive.value && candidate.kind === 'selection' && rewriteTarget.value?.editorRange) {
     applied = Boolean(notebookEditorRef.value?.replaceTextRange?.(
       rewriteTarget.value.editorRange.from,
       rewriteTarget.value.editorRange.to,
-      candidate.text
+      candidate.text,
+      { origin: 'writing-agent' }
     ))
   } else if (notebookEditorActive.value && candidate.kind === 'block') {
-    applied = Boolean(notebookEditorRef.value?.replaceNodeText?.(candidate.nodeId, candidate.text))
+    applied = Boolean(notebookEditorRef.value?.replaceNodeText?.(candidate.nodeId, candidate.text, { origin: 'writing-agent' }))
   } else {
     const actions = candidate.patches
       ? candidate.patches.map((patch) => ({
@@ -6276,9 +13269,10 @@ function applyRewriteCandidate(candidate) {
       rewriteError.value = '候选缺少可应用的正文范围，请重新生成。'
       return
     }
+    const transactionDocumentId = wt3ActiveDoc.value?.id || selectedChapterId.value
     const transaction = applyWritingAgentTransaction(before, actions, {
       resultId: candidate.id,
-      chapterId: selectedChapterId.value,
+      chapterId: transactionDocumentId,
       cursorBefore: readCurrentEditorCursor(before)
     })
     if (!transaction.ok) {
@@ -6303,13 +13297,17 @@ function applyRewriteCandidate(candidate) {
   rewriteError.value = ''
   rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
   if (rewriteTarget.value?.annotationId) {
-    chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, rewriteTarget.value.annotationId)
+    if (wt3ActiveDoc.value) {
+      wt3Annotations.value = deleteWritingAnnotation(wt3Annotations.value, rewriteTarget.value.annotationId)
+    } else {
+      chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, rewriteTarget.value.annotationId)
+    }
     activeAnnotationId.value = null
     onContentChange()
   }
   nextTick(() => {
     rewriteUndoReceipt.value = {
-      chapterId: selectedChapterId.value,
+      documentId: wt3ActiveDoc.value?.id || selectedChapterId.value,
       before,
       after: fallbackAfter || markdownContent.value,
       editorTransaction: notebookEditorActive.value && !fallbackAfter
@@ -6332,7 +13330,8 @@ function dismissRewriteCandidate(candidate) {
 
 function undoRewriteCandidate() {
   const receipt = rewriteUndoReceipt.value
-  if (!receipt || receipt.chapterId !== selectedChapterId.value || markdownContent.value !== receipt.after) {
+  const liveDocumentId = wt3ActiveDoc.value?.id || selectedChapterId.value
+  if (!receipt || receipt.documentId !== liveDocumentId || markdownContent.value !== receipt.after) {
     rewriteError.value = '正文已经继续变化，不能撤销这次采用。'
     return
   }
@@ -6342,11 +13341,11 @@ function undoRewriteCandidate() {
   }
   const undone = undoWritingAgentTransaction(markdownContent.value, {
     type: 'writing-agent-transaction',
-    chapterId: receipt.chapterId,
+    chapterId: receipt.documentId,
     before: receipt.before,
     after: receipt.after,
     cursorBefore: readCurrentEditorCursor(receipt.before)
-  }, selectedChapterId.value)
+  }, liveDocumentId)
   if (!undone.ok) {
     rewriteError.value = '正文已经继续变化，不能撤销这次采用。'
     return
@@ -6469,8 +13468,11 @@ function createAnnotationFromSelection() {
   if (!body) return
   const scrollState = captureWritingScrollState()
 
+  const annotationScopeId = wt3ActiveDoc.value
+    ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
+    : selectedChapterId.value
   const annotation = createWritingAnnotation({
-    chapterId: selectedChapterId.value,
+    chapterId: annotationScopeId,
     target: {
       unitId: context.block.unitId,
       unitRevision: context.block.unitRevision,
@@ -6481,10 +13483,16 @@ function createAnnotationFromSelection() {
     },
     selector: context.selector,
     range: context.range,
+    references: context.worldbookReferences || [],
     body,
     kind: 'comment'
   })
-  chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
+  if (wt3ActiveDoc.value) {
+    wt3Annotations.value = [annotation, ...wt3Annotations.value]
+    // 探索批注随切换/关闭持久化到探索文档（wt3PersistActiveDoc）。
+  } else {
+    chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
+  }
   activeAnnotationId.value = annotation.id
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
@@ -6521,7 +13529,11 @@ function cancelAnnotationEdit() {
 function saveAnnotationEdit(annotation) {
   const body = annotationEditDraft.value.trim()
   if (!annotation?.id || !body) return
-  chapterAnnotations.value = updateWritingAnnotationBody(chapterAnnotations.value, annotation.id, body)
+  if (wt3ActiveDoc.value) {
+    wt3Annotations.value = updateWritingAnnotationBody(wt3Annotations.value, annotation.id, body)
+  } else {
+    chapterAnnotations.value = updateWritingAnnotationBody(chapterAnnotations.value, annotation.id, body)
+  }
   editingAnnotationId.value = null
   annotationEditDraft.value = ''
   quickNoteStatus.value = '批注已更新'
@@ -6530,7 +13542,11 @@ function saveAnnotationEdit(annotation) {
 
 function deleteAnnotation(annotation) {
   if (!annotation?.id) return
-  chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, annotation.id)
+  if (wt3ActiveDoc.value) {
+    wt3Annotations.value = deleteWritingAnnotation(wt3Annotations.value, annotation.id)
+  } else {
+    chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, annotation.id)
+  }
   if (activeAnnotationId.value === annotation.id) activeAnnotationId.value = null
   if (editingAnnotationId.value === annotation.id) cancelAnnotationEdit()
   if (rewriteTarget.value?.annotationId === annotation.id) closeAnnotationRewrite()
@@ -6538,76 +13554,544 @@ function deleteAnnotation(annotation) {
   onContentChange()
 }
 
-function buildChapterReviewBatches() {
-  const blocks = getCurrentWritingNodeDescriptors()
-    .filter((block) => block?.nodeId && String(block.text || '').trim())
-    .map((block) => ({
-      unitId: block.unitId,
-      unitRevision: Number(block.unitRevision || 0),
-      nodeId: block.nodeId,
-      nodeRevision: Number(block.nodeRevision || 0),
-      kind: block.kind || 'prose',
-      text: String(block.text || '')
-    }))
-  const batches = []
-  for (let index = 0; index < blocks.length; index += 6) {
-    batches.push(blocks.slice(index, index + 6))
+function freezeReviewSource() {
+  preparedReviewSource = captureActiveReviewSource()
+  reviewReturnSurface = captureCurrentWritingSurface()
+  reviewPanelChangedSurface = false
+}
+
+function reviewSourceIdentity(source = {}) {
+  const value = source && typeof source === 'object' ? source : {}
+  return [value.projectId, value.pane, value.documentRole, value.documentId, value.documentRevision]
+    .map((value) => String(value || ''))
+    .join('|')
+}
+
+function openReviewPanel() {
+  const source = preparedReviewSource || captureActiveReviewSource()
+  preparedReviewSource = null
+  if (!source?.document || !['manuscript', 'exploration'].includes(source.documentRole)) {
+    authoringTask.notify('请先把活动窗口切到正文或速记')
+    return false
   }
-  return batches
+  closeSearchPanel({ restore: false })
+  showQuickWords.value = false
+  showNameGen.value = false
+  if (!reviewReturnSurface) reviewReturnSurface = captureCurrentWritingSurface()
+  const changedTarget = reviewSourceIdentity(reviewInvocation.value) !== reviewSourceIdentity(source)
+  reviewInvocation.value = source
+  reviewPanelOpen.value = true
+  if (changedTarget) {
+    reviewSession.value = null
+    reviewUndoReceipt.value = null
+    reviewError.value = ''
+    reviewStatus.value = ''
+  }
+  if (!reviewSession.value && !reviewLoading.value) nextTick(runChapterReview)
+  return true
 }
 
-function createReviewAnnotation(finding, reviewBlocks, reviewBatchId) {
-  const startBlock = reviewBlocks.find((block) => block.nodeId === finding.start.nodeId)
-  const endBlock = reviewBlocks.find((block) => block.nodeId === finding.end.nodeId)
-  if (!startBlock || !endBlock) return null
-  const context = buildAnnotationRangeContext({
-    startBlock,
-    endBlock,
-    localStart: finding.start.offset,
-    localEnd: finding.end.offset,
-    exact: finding.exact
+function closeReviewPanel({ restore = true } = {}) {
+  cancelChapterReview()
+  reviewPanelOpen.value = false
+  preparedReviewSource = null
+  const surface = reviewReturnSurface
+  reviewReturnSurface = null
+  if (!restore || reviewPanelChangedSurface || !surface) return
+  nextTick(() => {
+    if (surface.pane === 'dual') dualPaneRef.value?.restoreSurfaceState?.(surface)
+    else restoreMainWritingSurface(surface)
   })
-  if (!context) return null
-  return createWritingAnnotation({
+}
+
+function freezeSearchSource() {
+  preparedSearchSource = captureActiveDocumentSource() || captureMainDocumentSource()
+  searchReturnSurface = captureCurrentWritingSurface()
+}
+
+function openSearchPanel() {
+  const dualSource = activeWritingPane.value === 'dual' ? dualPaneRef.value?.getActiveSource?.() : null
+  const source = preparedSearchSource || captureActiveDocumentSource() || captureMainDocumentSource()
+  preparedSearchSource = null
+  if (!selectedBookId.value) {
+    authoringTask.notify('请先打开一本书稿')
+    return false
+  }
+  closeReviewPanel({ restore: false })
+  showQuickWords.value = false
+  showNameGen.value = false
+  if (!searchReturnSurface) searchReturnSurface = captureCurrentWritingSurface()
+  searchInvocation.value = source || {
+    pane: 'main',
+    projectId: selectedBookId.value,
+    documentRole: 'manuscript',
+    documentId: selectedChapterId.value,
     chapterId: selectedChapterId.value,
-    target: {
-      unitId: context.block.unitId,
-      unitRevision: context.block.unitRevision,
-      nodeId: context.block.nodeId,
-      nodeRevision: context.block.nodeRevision,
-      start: context.selector.start,
-      end: context.selector.end
-    },
-    selector: context.selector,
-    range: context.range,
-    body: finding.body,
-    kind: 'review-finding',
-    createdBy: 'agent',
-    reviewType: finding.kind,
-    severity: finding.severity,
-    reviewBatchId
+    title: currentChapterTitle.value
+  }
+  if (dualSource?.kind === 'worldbook-entry') searchScope.value = 'worldbook'
+  else if (dualSource?.kind === 'exploration' || source?.documentRole === 'exploration') searchScope.value = 'exploration'
+  else searchScope.value = 'current-chapter'
+  searchHasNavigated.value = false
+  activeSearchFindingId.value = ''
+  searchError.value = ''
+  searchNotice.value = ''
+  searchReplacePreview.value = null
+  searchPanelOpen.value = true
+  if (searchQuery.value.trim()) nextTick(runProjectSearch)
+  else searchIndex.value = buildCurrentAuthoringSearchIndex()
+  return true
+}
+
+function captureAuthoringSearchLiveSources() {
+  const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]
+    .filter((source) => source?.document && String(source.projectId || '') === String(selectedBookId.value || ''))
+    .map((source) => ({
+      ...source,
+      // Search 的 source revision 已包含 canonical document 全量签名；这里用
+      // schema revision 与 repository 口径对齐，避免同一已落盘文稿被误判为
+      // 两个 divergent owner。
+      documentRevision: Number(source.document?.revision || 0),
+      documentSchemaRevision: Number(source.document?.revision || 0)
+    }))
+  return sources
+}
+
+function searchFailureMessage(reason) {
+  return ({
+    'ambiguous-live-source': '同一文稿在两个窗口存在不同未保存版本，请先保存或关闭其中一个窗口。',
+    'project-mismatch': '当前作品已经切换，请重新打开查找。',
+    'current-chapter-missing': '当前章节已经不存在。',
+    'live-source-document-invalid': '活动窗口的文稿结构尚未稳定，请稍后重试。',
+    'live-source-schema-revision-mismatch': '活动窗口正在更新，请稍后重试。'
+  })[reason] || '无法建立当前作品的查找索引。'
+}
+
+function buildCurrentAuthoringSearchIndex({ live = true, book = currentBook.value } = {}) {
+  if (!book || String(book.id || '') !== String(selectedBookId.value || '')) return null
+  const result = buildAuthoringProjectSearchIndex({
+    projectId: selectedBookId.value,
+    book,
+    explorations: wt3ExplorationDocs.value,
+    worldbook: boundWorldbook.value,
+    liveSources: live ? captureAuthoringSearchLiveSources() : []
+  })
+  if (!result?.ok) searchError.value = searchFailureMessage(result?.reason)
+  return result
+}
+
+function runProjectSearch(payload = {}) {
+  const query = String(payload.query ?? searchQuery.value).trim()
+  const scope = String(payload.scope || searchScope.value)
+  if (!query) {
+    searchFindings.value = []
+    searchTotal.value = 0
+    searchTruncated.value = false
+    searchError.value = ''
+    return false
+  }
+  searchBusy.value = true
+  searchError.value = ''
+  searchNotice.value = ''
+  searchReplacePreview.value = null
+  try {
+    const index = buildCurrentAuthoringSearchIndex()
+    if (!index?.ok) return false
+    const currentChapterId = searchInvocation.value?.documentRole === 'manuscript'
+      ? searchInvocation.value.chapterId
+      : selectedChapterId.value
+    const result = searchAuthoringPositionIndex(index, {
+      query,
+      scope,
+      currentChapterId,
+      limit: 500
+    })
+    if (!result.ok) {
+      searchError.value = searchFailureMessage(result.reason)
+      return false
+    }
+    searchIndex.value = index
+    searchQuery.value = query
+    searchScope.value = scope
+    searchFindings.value = [...result.findings]
+    searchTotal.value = result.total
+    searchTruncated.value = result.truncated
+    activeSearchFindingId.value = ''
+    return true
+  } finally {
+    searchBusy.value = false
+  }
+}
+
+function updateSearchQuery(value) {
+  searchQuery.value = String(value || '')
+  searchReplacePreview.value = null
+  searchError.value = ''
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  if (!searchQuery.value.trim()) {
+    searchFindings.value = []
+    searchTotal.value = 0
+    searchTruncated.value = false
+    return
+  }
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null
+    if (searchPanelOpen.value) runProjectSearch()
+  }, 220)
+}
+
+function updateSearchScope(value) {
+  searchScope.value = String(value || 'current-chapter')
+  searchReplacePreview.value = null
+}
+
+function updateSearchReplacement(value) {
+  searchReplacement.value = String(value ?? '')
+  searchReplacePreview.value = null
+}
+
+async function selectMainSearchTarget(finding) {
+  const target = finding?.target || {}
+  if (target.sourceKind === 'manuscript') {
+    if (String(selectedChapterId.value || '') !== String(target.chapterId || '')) {
+      if (!selectChapter(target.chapterId)) return false
+      await nextTick()
+    }
+  } else if (target.sourceKind === 'exploration') {
+    if (String(wt3ActiveDoc.value?.id || '') !== String(target.documentId || '')) {
+      if (!openExplorationDoc(target.documentId)) return false
+      await nextTick()
+    }
+    if (target.field === 'title') return true
+  } else {
+    return false
+  }
+  if (!target.nodeId) return true
+  const selected = notebookEditorRef.value?.selectNodeRange?.(
+    target.nodeId,
+    target.startOffset,
+    target.nodeId,
+    target.endOffset
+  )
+  if (selected) notebookEditorRef.value?.focus?.()
+  return Boolean(selected)
+}
+
+async function openSearchFinding(finding) {
+  const freshIndex = buildCurrentAuthoringSearchIndex()
+  if (!freshIndex?.ok) return false
+  const freshness = reconcileAuthoringSearchFinding(freshIndex, finding)
+  if (!freshness.fresh) {
+    searchFindings.value = searchFindings.value.map((item) => (
+      item.id === finding.id ? { ...item, status: freshness.reason === 'source-missing' ? 'detached' : 'stale' } : item
+    ))
+    searchNotice.value = '这个结果对应的来源已经变化，请重新查找。'
+    return false
+  }
+  activeSearchFindingId.value = finding.id
+  searchHasNavigated.value = true
+  if (finding.target?.sourceKind === 'worldbook-entry') {
+    openWorldbookMentionDetail(finding.target.entryId)
+    return true
+  }
+  return selectMainSearchTarget(finding)
+}
+
+async function returnFromSearch() {
+  const surface = searchReturnSurface
+  if (!surface) return false
+  let restored = false
+  if (surface.pane === 'dual') {
+    restored = Boolean(await dualPaneRef.value?.restoreSurfaceState?.(surface))
+  } else {
+    let previousEditor = null
+    if (surface.sourceKind === 'chapter' && String(selectedChapterId.value || '') !== String(surface.sourceId || '')) {
+      previousEditor = notebookEditorRef.value
+      if (!selectChapter(surface.sourceId)) return false
+    } else if (surface.sourceKind === 'exploration' && String(wt3ActiveDoc.value?.id || '') !== String(surface.sourceId || '')) {
+      previousEditor = notebookEditorRef.value
+      if (!openExplorationDoc(surface.sourceId)) return false
+    }
+    restored = await restoreMainWritingSurfaceWhenReady(surface, { previousEditor })
+  }
+  if (restored) {
+    searchHasNavigated.value = false
+    activeSearchFindingId.value = ''
+  }
+  return restored
+}
+
+function closeSearchPanel({ restore = true } = {}) {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
+  const shouldRestore = restore && !searchHasNavigated.value
+  const surface = searchReturnSurface
+  searchPanelOpen.value = false
+  searchReplacePreview.value = null
+  preparedSearchSource = null
+  searchReturnSurface = null
+  if (!shouldRestore || !surface) return
+  nextTick(() => {
+    if (surface.pane === 'dual') dualPaneRef.value?.restoreSurfaceState?.(surface)
+    else restoreMainWritingSurface(surface)
   })
 }
 
-function reviewAnnotationFingerprint(annotation) {
-  return [
-    annotation?.kind,
-    annotation?.reviewType,
-    annotation?.range?.start?.nodeId || annotation?.target?.nodeId,
-    annotation?.range?.start?.offset ?? annotation?.selector?.start,
-    annotation?.range?.end?.nodeId || annotation?.target?.nodeId,
-    annotation?.range?.end?.offset ?? annotation?.selector?.end,
-    annotation?.body
-  ].join('|')
+function persistSearchEditorsBeforeReplace() {
+  if (historyInteractionLocked.value || writingCompositionActive.value || dualCompositionActive.value) {
+    searchError.value = '正文正在输入或提交，请完成当前操作后再替换。'
+    return false
+  }
+  if (!wt3ActiveDoc.value && selectedChapterId.value && !saveCurrentChapter()) {
+    searchError.value = '当前章节保存失败，替换没有执行。'
+    return false
+  }
+  if (dualPaneRef.value?.prepareClose?.() === false) {
+    searchError.value = '副窗正文保存失败，替换没有执行。'
+    return false
+  }
+  return true
+}
+
+function prepareSearchReplacePlan({ findings = null, scope = searchScope.value, expectedTotal = null } = {}) {
+  if (!persistSearchEditorsBeforeReplace()) return null
+  const index = buildCurrentAuthoringSearchIndex({ live: false })
+  if (!index?.ok) return null
+  const result = createAuthoringReplacePlan({
+    index,
+    query: searchQuery.value,
+    replacement: searchReplacement.value,
+    scope,
+    currentChapterId: searchInvocation.value?.chapterId || selectedChapterId.value,
+    findings,
+    expectedTotal
+  })
+  if (!result.ok) {
+    searchError.value = result.reason === 'replace-no-change'
+      ? '替换文字与原文相同。'
+      : result.reason.includes('stale')
+        ? '正文已经变化，请重新查找后再替换。'
+        : '无法建立完整替换预览，正文没有变化。'
+    return null
+  }
+  searchIndex.value = index
+  return result.plan
+}
+
+function createSearchProtectionSnapshots(plan, book, index) {
+  for (const chapterPlan of plan.chapters || []) {
+    const chapter = (book.chapters || []).find((item) => String(item?.id || '') === String(chapterPlan.chapterId || ''))
+    const source = index?.manuscripts?.find((item) => String(item?.chapterId || '') === String(chapterPlan.chapterId || ''))
+    if (!chapter || !source?.document) return false
+    const protection = recordWritingProtectionSnapshot({
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      reason: 'before-rewrite',
+      document: source.document,
+      markdown: getWritingDocumentMarkdown(source.document),
+      annotations: chapter.annotations || [],
+      operation: plan.scope === 'manuscript' ? 'replace-all-book' : 'replace-all-chapter',
+      transactionId: plan.id
+    })
+    if (!protection.ok) return false
+  }
+  return true
+}
+
+function reloadMainChapterAfterSearchReplace(chapter) {
+  if (!chapter || wt3ActiveDoc.value) return
+  currentChapterTitle.value = chapter.title || ''
+  const { raw, format } = readChapterSource(chapter)
+  const fallbackMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
+  markdownContent.value = loadChapterDocument(chapter, fallbackMarkdown)
+  editorContent.value = markdownToHtml(markdownContent.value)
+  chapterOutlineItems.value = normalizeChapterOutlineItems(chapter.outlineItems || [])
+  chapterAnnotations.value = reconcileWritingAnnotations(chapter.annotations, writingDocument.value, chapter.id)
+  sceneAnchors.value = normalizeSceneAnchors(chapter.sceneAnchors)
+  loadChapterSnapshots(chapter.id)
+  fenceNotebookHistory()
+}
+
+function commitSearchReplacePlan(plan) {
+  if (!plan || searchReplaceBusy.value) return false
+  if (!persistSearchEditorsBeforeReplace()) return false
+  searchReplaceBusy.value = true
+  searchError.value = ''
+  try {
+    const latestBooks = loadWritingBooks()
+    const latestBook = latestBooks.find((book) => String(book?.id || '') === String(plan.projectId || ''))
+    if (!latestBook) {
+      searchError.value = '当前作品已经不存在，替换没有执行。'
+      return false
+    }
+    const latestIndex = buildAuthoringProjectSearchIndex({ projectId: plan.projectId, book: latestBook })
+    const applied = applyAuthoringReplacePlan({ book: latestBook, index: latestIndex, plan })
+    if (!applied.ok) {
+      searchError.value = '预览后正文又有变化，全部章节均未替换。'
+      searchReplacePreview.value = null
+      return false
+    }
+    if (!createSearchProtectionSnapshots(plan, latestBook, latestIndex)) {
+      searchError.value = '无法保存替换前版本，全部章节均未替换。'
+      return false
+    }
+
+    const nextBooks = latestBooks.map((book) => (
+      String(book.id) === String(plan.projectId) ? applied.nextBook : book
+    ))
+    if (!saveWritingBooks(nextBooks)) {
+      searchError.value = '作品保存失败，全部章节均未替换。'
+      return false
+    }
+
+    for (const chapterReceipt of applied.receipt.chapters || []) {
+      const beforeChapter = (latestBook.chapters || []).find((item) => String(item.id) === String(chapterReceipt.chapterId))
+      const afterChapter = (applied.nextBook.chapters || []).find((item) => String(item.id) === String(chapterReceipt.chapterId))
+      if (!beforeChapter?.editorDocument || !afterChapter?.editorDocument) continue
+      const entries = buildWritingBlockHistoryEntries({
+        chapterId: chapterReceipt.chapterId,
+        chapterTitle: afterChapter.title,
+        previousDocument: beforeChapter.editorDocument,
+        nextDocument: afterChapter.editorDocument,
+        source: 'search-replace'
+      })
+      if (entries.length) appendWritingBlockHistory(entries)
+      rememberPendingObserverNodes(chapterReceipt.chapterId, (chapterReceipt.changedNodes || []).map((node) => ({
+        nodeId: node.nodeId,
+        text: node.afterText,
+        unitId: node.unitId,
+        unitRevision: Number(afterChapter.editorDocument.content.find((unit) => unit?.attrs?.unitId === node.unitId)?.attrs?.unitRevision || 0)
+      })))
+    }
+
+    books.value = nextBooks
+    const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
+    chapters.value = nextBook?.chapters || []
+    if (!wt3ActiveDoc.value) {
+      reloadMainChapterAfterSearchReplace(chapters.value.find((chapter) => String(chapter.id) === String(selectedChapterId.value)))
+    }
+    const dualSource = dualPaneRef.value?.getActiveSource?.()
+    if (dualSource?.kind === 'chapter') {
+      const dualChapter = chapters.value.find((chapter) => String(chapter.id) === String(dualSource.id))
+      if (dualChapter?.editorDocument) {
+        dualPaneRef.value?.reloadSearchSource?.({
+          sourceKind: 'chapter',
+          sourceId: dualChapter.id,
+          title: dualChapter.title,
+          document: dualChapter.editorDocument,
+          markdown: dualChapter.content
+        })
+      }
+    }
+    writingBlockHistory.value = selectedChapterId.value ? listWritingBlockHistory(selectedChapterId.value) : []
+    writingSnapshots.value = selectedChapterId.value ? listWritingSnapshots(selectedChapterId.value) : []
+    void gameStore.handleAuthoringProseUndo({
+      sourceRefs: applied.receipt.affectedUnitRefs || [],
+      revision: currentDocumentRevision(),
+      reason: 'search-replace'
+    }).catch(() => {})
+    searchReplacePreview.value = null
+    searchReturnSurface = null
+    searchHasNavigated.value = false
+    activeSearchFindingId.value = ''
+    runProjectSearch()
+    searchNotice.value = `已替换 ${applied.receipt.chapterCount} 章 ${applied.receipt.matchCount} 处；每章均保留替换前版本。`
+    return true
+  } finally {
+    searchReplaceBusy.value = false
+  }
+}
+
+function replaceOneSearchFinding({ finding, replacement } = {}) {
+  if (!finding) return false
+  searchReplacement.value = String(replacement ?? searchReplacement.value)
+  const plan = prepareSearchReplacePlan({ findings: [finding], scope: searchScope.value })
+  return plan ? commitSearchReplacePlan(plan) : false
+}
+
+function replaceAllSearchFindings(payload = {}) {
+  searchReplacement.value = String(payload.replacement ?? searchReplacement.value)
+  const plan = prepareSearchReplacePlan({
+    scope: payload.scope || searchScope.value,
+    expectedTotal: payload.expectedTotal ?? searchTotal.value
+  })
+  return plan ? commitSearchReplacePlan(plan) : false
+}
+
+function previewSearchReplaceAll(payload = {}) {
+  searchReplacement.value = String(payload.replacement ?? searchReplacement.value)
+  const plan = prepareSearchReplacePlan({
+    scope: 'manuscript',
+    expectedTotal: payload.expectedTotal ?? searchTotal.value
+  })
+  if (!plan) return false
+  searchReplacePreview.value = plan
+  searchNotice.value = `请确认：将修改 ${plan.chapterCount} 章 ${plan.matchCount} 处。`
+  return true
+}
+
+function confirmSearchReplaceAll(preview) {
+  const plan = searchReplacePreview.value
+  if (!plan || String(preview?.id || '') !== String(plan.id || '')) return false
+  return commitSearchReplacePlan(plan)
+}
+
+function cancelSearchReplacePreview() {
+  searchReplacePreview.value = null
+  searchNotice.value = ''
+}
+
+function currentLiveReviewSource() {
+  const invocation = reviewInvocation.value
+  if (!invocation) return null
+  const live = invocation.pane === 'dual'
+    ? dualPaneRef.value?.captureReviewSource?.()
+    : captureMainDocumentSource()
+  if (!live) return null
+  const liveScene = live.sceneProjection || sceneProjection.value || null
+  const liveWorldbookEntries = live.worldbookEntries || boundWorldbook.value?.entries || []
+  const sourceRevisions = {}
+  for (const evidence of reviewSession.value?.evidence || []) {
+    if (evidence.kind === 'scene') {
+      sourceRevisions[evidence.sourceRef] = String(
+        liveScene?.projectionFingerprint || liveScene?.revision || liveScene?.updatedAt || ''
+      )
+      continue
+    }
+    if (evidence.kind !== 'worldbook') continue
+    const entryId = String(evidence.sourceRef || '').replace(/^worldbook-entry:/, '')
+    const entry = liveWorldbookEntries.find((item) => String(item?.id || '') === entryId)
+    sourceRevisions[evidence.sourceRef] = entry
+      ? getAuthoringReviewWorldbookRevision(entry)
+      : ''
+  }
+  return {
+    ...live,
+    sceneProjection: liveScene,
+    worldbookEntries: liveWorldbookEntries,
+    sourceRevisions
+  }
 }
 
 async function runChapterReview() {
-  if (reviewLoading.value || !selectedChapterId.value) return
-  const reviewChapterId = selectedChapterId.value
-  const reviewDocumentRevision = Number(writingDocument.value?.revision || 0)
-  const batches = buildChapterReviewBatches()
-  if (!batches.length) {
-    reviewError.value = '当前章节没有可审查的正文片段。'
+  if (reviewLoading.value) return
+  const source = reviewInvocation.value || captureActiveReviewSource()
+  if (!source?.document) {
+    reviewError.value = '当前活动窗口没有可校对的正文。'
+    return
+  }
+  reviewInvocation.value = source
+  const initialSession = createAuthoringReviewSession({
+    source,
+    sceneProjection: source.sceneProjection || sceneProjection.value,
+    worldbookEntries: source.worldbookEntries || boundWorldbook.value?.entries || [],
+    maxNodesPerWindow: 6,
+    windowOverlap: 1
+  })
+  if (!initialSession) {
+    reviewError.value = '当前文稿没有可校对的正文片段。'
     reviewStatus.value = ''
     return
   }
@@ -6619,44 +14103,56 @@ async function runChapterReview() {
   reviewError.value = ''
   reviewStatus.value = ''
   reviewCompletedBatches.value = 0
-  reviewTotalBatches.value = batches.length
-  const findings = []
+  reviewTotalBatches.value = initialSession.windows.length
+  reviewUndoReceipt.value = null
+  const completedBatches = []
   let failedBatches = 0
+  let staleDuringRun = false
+  reviewSession.value = mergeAuthoringReviewFindings(initialSession, completedBatches)
 
   try {
-    for (let index = 0; index < batches.length; index += 1) {
+    for (let index = 0; index < initialSession.windows.length; index += 1) {
       if (controller.signal.aborted) break
-      const reviewBlocks = batches[index]
-      const question = '审查这批正文，只返回有明确定位的高价值问题；不要改写正文。优先指出重复、衔接断裂、视角/角色连续性、时间或设定冲突。'
+      const window = initialSession.windows[index]
+      const batch = createAuthoringReviewBatchContext(initialSession, window.id)
+      if (!batch) continue
       try {
         const taskResult = await requestAdvisorTask({
           context: {
-            chapterTitle: currentChapterTitle.value,
-            wordCount: wordCount.value,
-            chapterOutline: buildChapterOutlineContext(chapterOutlineItems.value),
-            reviewBlocks
+            chapterTitle: source.title,
+            reviewBlocks: batch.reviewBlocks,
+            evidence: batch.evidence,
+            allowedEvidenceRefs: batch.allowedEvidenceRefs
           },
-          question,
-          scope: 'chapter',
+          question: '校对这批正文，只返回能精确定位的问题。确定且唯一的修法给出 replacement；不确定时只说明问题。检查错别字、标点与引号、重复、病句、称谓、时间、数值和当前场冲突，不做发布审核。',
+          scope: source.documentRole === 'exploration' ? 'selection' : 'chapter',
           taskType: 'writing.chapter.health',
-          target: {
-            kind: 'chapter-review',
-            id: reviewChapterId,
-            revision: String(reviewDocumentRevision),
-            nodeIds: reviewBlocks.map((block) => block.nodeId)
-          },
+          target: batch.target,
           options: {
-            chapterId: reviewChapterId,
+            projectId: source.projectId,
+            chapterId: source.chapterId,
+            documentId: source.documentId,
+            documentRole: source.documentRole,
+            documentRevision: source.documentRevision,
             chapterReview: true,
-            reviewBlocks
+            reviewBlocks: batch.reviewBlocks,
+            allowedEvidenceRefs: batch.allowedEvidenceRefs
           },
           signal: controller.signal
         })
-        const batchFindings = normalizeWritingReviewFindings(taskResult.result?.findings, {
-          blocks: reviewBlocks,
-          maxFindings: 8
+        completedBatches.push({
+          windowId: window.id,
+          findings: taskResult.result?.findings || []
         })
-        findings.push(...batchFindings.map((finding) => ({ finding, reviewBlocks, batchIndex: index })))
+        reviewSession.value = mergeAuthoringReviewFindings(initialSession, completedBatches)
+        const live = currentLiveReviewSource()
+        const reconciled = reconcileAuthoringReviewSession(reviewSession.value, live ? { source: live, sourceRevisions: live.sourceRevisions } : {})
+        if (reconciled?.status === 'stale' || reconciled?.status === 'detached') {
+          reviewSession.value = reconciled
+          staleDuringRun = true
+          controller.abort()
+          break
+        }
       } catch (error) {
         if (controller.signal.aborted || error?.code === 'AGENT_REQUEST_ABORTED') break
         failedBatches += 1
@@ -6665,38 +14161,19 @@ async function runChapterReview() {
       }
     }
 
-    if (selectedChapterId.value !== reviewChapterId
-      || Number(writingDocument.value?.revision || 0) !== reviewDocumentRevision) {
-      reviewError.value = '章节或正文已变化，本次审查结果已丢弃，请重新审查。'
+    if (staleDuringRun) {
+      reviewError.value = '校对期间文稿或引用资料发生变化；结果已保留为过期建议，不能采用。'
       return
     }
-
-    const existing = new Set(chapterAnnotations.value.map(reviewAnnotationFingerprint))
-    const annotations = findings
-      .map(({ finding, reviewBlocks, batchIndex }) => createReviewAnnotation(
-        finding,
-        reviewBlocks,
-        `${reviewChapterId}:review:${reviewDocumentRevision}:${batchIndex}`
-      ))
-      .filter((annotation) => annotation && !existing.has(reviewAnnotationFingerprint(annotation)))
-
-    if (annotations.length) {
-      chapterAnnotations.value = [...annotations, ...chapterAnnotations.value]
-      inspectorOpen.value = true
-      inspectorTab.value = 'comments'
-      onContentChange()
-    }
-
+    const findingCount = reviewSession.value?.findings?.length || 0
     if (controller.signal.aborted) {
-      reviewError.value = annotations.length ? `已停止，保留 ${annotations.length} 条审查发现。` : '章节审查已停止。'
-    } else if (failedBatches && annotations.length) {
-      reviewError.value = `已完成 ${batches.length - failedBatches}/${batches.length} 批，保留 ${annotations.length} 条发现；失败批次可重试。`
+      reviewStatus.value = findingCount ? `已停止，保留 ${findingCount} 条只读结果。` : '校对已停止。'
     } else if (failedBatches) {
-      reviewError.value = `${failedBatches} 批审查失败，未写入无定位建议。`
+      reviewError.value = findingCount
+        ? `已完成 ${initialSession.windows.length - failedBatches}/${initialSession.windows.length} 批，保留 ${findingCount} 条结果。`
+        : `${failedBatches} 批校对失败，没有写入正文。`
     } else {
-      reviewStatus.value = annotations.length
-        ? `审查完成，新增 ${annotations.length} 条可定位发现。`
-        : '审查完成，当前批次没有发现明确问题。'
+      reviewStatus.value = findingCount ? `校对完成 · ${findingCount} 条结果` : '校对完成，没有发现明确问题。'
     }
   } finally {
     reviewLoading.value = false
@@ -6707,6 +14184,165 @@ async function runChapterReview() {
 function cancelChapterReview() {
   reviewAbortController?.abort()
 }
+
+async function jumpToReviewFinding(finding) {
+  const target = finding?.target
+  const invocation = reviewInvocation.value
+  if (!target || !invocation) return false
+  reviewPanelChangedSurface = true
+  if (invocation.pane === 'dual') {
+    return Boolean(await dualPaneRef.value?.navigateSearchLocator?.({
+      ...target,
+      sourceKind: invocation.sourceKind,
+      sourceId: invocation.documentId
+    }))
+  }
+  if (invocation.documentRole === 'manuscript' && String(selectedChapterId.value) !== String(invocation.documentId)) {
+    if (!selectChapter(invocation.documentId)) return false
+    await nextTick()
+  } else if (invocation.documentRole === 'exploration' && String(wt3ActiveDoc.value?.id || '') !== String(invocation.documentId)) {
+    if (!openExplorationDoc(invocation.documentId)) return false
+    await nextTick()
+  }
+  const selected = notebookEditorRef.value?.selectNodeRange?.(
+    target.nodeId,
+    target.startOffset,
+    target.endNodeId || target.nodeId,
+    target.endOffset
+  )
+  if (selected) notebookEditorRef.value?.focus?.()
+  return Boolean(selected)
+}
+
+function reopenReviewFindings(session, findingIds) {
+  const ids = new Set(findingIds)
+  return Object.freeze({
+    ...session,
+    status: 'ready',
+    staleReason: '',
+    findings: Object.freeze((session?.findings || []).map((finding) => (
+      ids.has(finding.id) && finding.status === 'applied'
+        ? Object.freeze({ ...finding, status: 'open' })
+        : finding
+    )))
+  })
+}
+
+function applyReviewFinding(finding) {
+  return applySelectedReviewFindings(finding?.id ? [finding.id] : [])
+}
+
+function applySelectedReviewFindings(findingIds = []) {
+  if (historyInteractionLocked.value || !reviewSession.value) return false
+  const invocation = reviewInvocation.value
+  const live = currentLiveReviewSource()
+  const sessionBefore = reviewSession.value
+  const transaction = prepareAuthoringReviewTransaction(reviewSession.value, findingIds, live ? { source: live, sourceRevisions: live.sourceRevisions } : {})
+  if (!transaction.ok) {
+    reviewSession.value = reconcileAuthoringReviewSession(reviewSession.value, live ? { source: live, sourceRevisions: live.sourceRevisions } : {})
+    reviewError.value = transaction.reason.includes('detached')
+      ? '原文位置已经失效；仍可查看建议，但不能采用。'
+      : '正文或引用资料已经变化，请重新校对后再采用。'
+    return false
+  }
+
+  if (invocation.documentRole === 'manuscript' && transaction.patches.length > 1) {
+    const protection = recordWritingProtectionSnapshot({
+      chapterId: invocation.chapterId,
+      chapterTitle: invocation.title,
+      reason: 'before-rewrite',
+      document: live.document,
+      markdown: live.markdown,
+      annotations: invocation.pane === 'main' ? chapterAnnotations.value : [],
+      operation: 'proofing-batch',
+      transactionId: transaction.receipt.id
+    })
+    if (!protection.ok) {
+      reviewError.value = '无法保存批量采用前版本，正文没有变化。'
+      return false
+    }
+    if (String(invocation.chapterId) === String(selectedChapterId.value)) {
+      writingSnapshots.value = listWritingSnapshots(invocation.chapterId)
+    }
+  }
+
+  const changed = invocation.pane === 'dual'
+    ? dualPaneRef.value?.replaceReviewRanges?.(transaction.patches)
+    : notebookEditorRef.value?.replaceNodeRanges?.(transaction.patches, { origin: 'writing-agent' })
+  if (!changed) {
+    reviewError.value = '编辑器没有接受这次修改，正文未变化。'
+    return false
+  }
+  reviewPanelChangedSurface = true
+  const after = currentLiveReviewSource()
+  const appliedSession = markAuthoringReviewFindingsApplied(sessionBefore, transaction.receipt.findingIds)
+  reviewSession.value = rebaseAuthoringReviewSessionAfterTransaction(
+    appliedSession,
+    transaction,
+    after ? { source: after, sourceRevisions: after.sourceRevisions } : {}
+  ) || appliedSession
+  reviewUndoReceipt.value = Object.freeze({
+    ...transaction.receipt,
+    pane: invocation.pane,
+    afterDocumentRevision: after?.documentRevision || '',
+    findingIds: Object.freeze([...transaction.receipt.findingIds]),
+    sessionBefore
+  })
+  reviewError.value = ''
+  reviewStatus.value = transaction.patches.length > 1
+    ? `已一次采用 ${transaction.patches.length} 条，可撤销一次恢复。`
+    : '已采用，可撤销。'
+  return true
+}
+
+function ignoreReviewFinding(finding) {
+  if (!finding?.id || !reviewSession.value) return
+  reviewSession.value = ignoreAuthoringReviewFinding(reviewSession.value, finding.id)
+}
+
+function undoReviewApplication() {
+  const receipt = reviewUndoReceipt.value
+  if (!receipt || !reviewSession.value) return false
+  const live = currentLiveReviewSource()
+  if (!live || String(live.documentRevision || '') !== String(receipt.afterDocumentRevision || '')) {
+    reviewError.value = '采用后正文又有修改，不能越过新修改撤销校对。'
+    reviewUndoReceipt.value = null
+    return false
+  }
+  const undone = receipt.pane === 'dual'
+    ? dualPaneRef.value?.runCommand?.('undo')
+    : notebookEditorRef.value?.undo?.()
+  if (!undone) return false
+  reviewSession.value = receipt.sessionBefore || reopenReviewFindings(reviewSession.value, receipt.findingIds)
+  reviewUndoReceipt.value = null
+  nextTick(() => {
+    const restored = currentLiveReviewSource()
+    reviewSession.value = reconcileAuthoringReviewSession(reviewSession.value, restored ? { source: restored, sourceRevisions: restored.sourceRevisions } : {})
+  })
+  reviewStatus.value = '已撤销本次采用。'
+  return true
+}
+
+watch(
+  [writingDocument, dualQuickWordDocument, selectedChapterId, wt3ActiveDocId, boundWorldbook, sceneProjection],
+  () => {
+    if (!reviewPanelOpen.value || reviewLoading.value || !reviewSession.value) return
+    nextTick(() => {
+      const live = currentLiveReviewSource()
+      const reconciled = reconcileAuthoringReviewSession(
+        reviewSession.value,
+        live ? { source: live, sourceRevisions: live.sourceRevisions } : {}
+      )
+      if (!reconciled) return
+      reviewSession.value = reconciled
+      if (reconciled.status === 'stale' || reconciled.status === 'detached') {
+        reviewUndoReceipt.value = null
+        reviewStatus.value = '正文或引用资料已变化；旧结果保留查看，但不能采用。'
+      }
+    })
+  },
+  { flush: 'post' }
+)
 
 function startRewriteFromAnnotation(annotation) {
   if (!annotation || annotation.status === 'orphaned') return
@@ -6792,25 +14428,42 @@ function handleAnnotationKeydown(event, annotation, index) {
 }
 
 function onNotebookInput(payload = {}) {
+  // Ghost 采纳窗口内：编辑器插入及其 focus 事务都会以普通 'input' 冒出，
+  // 这里只同步光标；任何清候选/失效回执/新联想都会把刚要 consume 的建议清空，
+  // 导致 accept 的 consume 校验失败而整段回滚（Tab 采纳静默丢内容）。
+  if (applyingAtomicNotebookHistory || acceptingInlineSuggestion) {
+    syncCopilotCursorFromEditor()
+    return
+  }
   syncCopilotCursorFromEditor()
   if (payload.inputType !== 'writing-agent') {
     notebookCopilotCanUndo.value = false
+    // 新的 forward 编辑会让 ProseMirror 丢弃 redo branch；普通 history
+    // undo/redo 只是在 branch 内移动，必须保留 Ghost redo ledger。
+    if (!['historyUndo', 'historyRedo'].includes(payload.inputType)) clearNotebookAtomicRedoHistory()
     authoringTask.invalidateReceipt()
   }
-  if (!copilotEnabled.value || payload.composing || payload.inputType !== 'input') return
-  writingAgentOnInput({
-    content: markdownContent.value,
-    cursorPos: copilotCursorPos.value,
-    hasSelection: Boolean(selectedText.value),
-    inputType: payload.inputType,
-    composing: false
-  })
+  if (payload.inputType !== 'input') {
+    // selection-change 会先于 input 到达，可能已经排入一条 cursor dwell。
+    // 历史、粘贴及程序化写入必须在这里取消那条定时器，不能只 return。
+    suppressWritingAgent(payload.inputType || 'document-change')
+    return
+  }
+  if (!copilotEnabled.value || payload.composing || writingCompositionActive.value) return
+  schedulePassiveWritingSuggestion(payload.inputType)
 }
 
-function syncMarkdownToEditor() {
+function syncMarkdownToEditor({ fenceHistory = true } = {}) {
   editorContent.value = markdownToHtml(markdownContent.value || '')
   if (notebookEditorActive.value) {
     writingDocument.value = syncFromMarkdown(markdownContent.value || '')
+    if (fenceHistory) {
+      // replace-all 型外部同步不能与既有 ProseMirror steps 共用 history。
+      // addToHistory:false 只会映射旧 steps，不会清栈；这里以当前结果为新基线。
+      invalidateNotebookAtomicHistory()
+      authoringTask.invalidateReceipt()
+      fenceNotebookHistory()
+    }
   }
 }
 
@@ -6885,12 +14538,18 @@ function setSelectionByTextOffsets(start, end) {
 function onGlobalClick() {
   contextMenu.value.show = false
   showFontPanel.value = false
+  showQuickWords.value = false
   showNameGen.value = false
-  showFindReplace.value = false
+  moreMenuOpen.value = false
+  closeShelfContextMenu()
   hasSelection.value = false
 }
 
 function syncSelectionCommandState() {
+  if (notebookEditorActive.value && notebookEditorRef.value) {
+    refreshNotebookCommandAvailability()
+    return
+  }
   try {
     editorBold.value = document.queryCommandState('bold')
     editorItalic.value = document.queryCommandState('italic')
@@ -6922,6 +14581,9 @@ function stopResizeRight() {
 
 </script>
 
-<style scoped src="./Writing.scoped.css"></style>
+<style scoped src="./Writing.scoped.css">
+</style>
 
 <style src="./Writing.global.css"></style>
+
+<style src="./Authoring.block-native.css"></style>

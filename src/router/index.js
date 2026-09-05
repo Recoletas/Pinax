@@ -104,6 +104,9 @@ const workbenchChildren = [
     name: 'authoring',
     component: Authoring,
     meta: {
+      // Authoring 已有项目级低干扰记忆通知与审阅入口；全局浮动记忆按钮
+      // 会遮挡移动端工具带和现场 sheet，且形成第二个状态 owner。
+      hideGlobalMemory: true,
       activityKey: 'authoring',
       title: '创作'
     }

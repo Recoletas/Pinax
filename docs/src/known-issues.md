@@ -21,9 +21,15 @@
 
 - ✅ 2026-08-22：`Writing.vue` 已演进为 `Authoring.vue` 并成为 canonical 创作路由 `/authoring`；`/writing` 与 `name: 'writing'` 兼容重定向，一级导航合并为单一“创作”。命令条、事务化 AI 插入 + 请求级撤销、低敏感上下文说明层和 typed exception 审阅已落地；旧体验会话经 `?sessionId=` 幂等投影进章节 writingUnit。
 - 🟡 **已知缺口**：Experience 路由尚未下线。Task 8（offline Experience 重定向到 Authoring）的前置条件——parity artifact 含 1440/1024/390 截图与用户验收——未满足，gate 保持 pending；当前 `/experience` 原样可用，属有意保留而非回归。
-- 🟡 **已知缺口**：live browser audit（`UI_AUDIT_ROUTES=authoring,experience ... npm run audit:ui`）与真实 provider 矩阵未运行（无开发服务/凭据）。audit 脚本已具备 authoring 路由与 regular/long/generating/error/stale/context/conflict 状态及 advisor 拦截场景。
-- 🟡 **已知缺口**：conflict 审计状态目前只能验证“无异常时审阅面保持安静”；向页面注入 typed exception 需要审计钩子或 observer runtime 真实输出，留待 live gate 阶段补齐。
-- 处理入口：[统一创作工作区计划](../superpowers/plans/2026-08-22-unified-authoring-workspace.md) 与 [parity 证据](../agent-runs/2026-08-22-unified-authoring-workspace/parity.md)。
+- ✅ 2026-08-28：菜单、短 Ghost、可编辑长草稿、IME、粘贴和页面 Escape 已收敛到统一交互策略；cursor-dwell 使用文档/节点/光标指纹与 4.2 秒停驻，菜单/弹层/合成期间不再抢输入。
+- ✅ 2026-08-28：长推演已从只读 decoration 改为正文版心内的可编辑草稿；草稿可删改/恢复，只有确认纳入才以单事务写正文。
+- ✅ 2026-08-28：autosave 与语义观察已解耦；observer 使用 changed-unit delta 和 revision identity，重复排队、已执行 revision 与 exact duplicate 静默跳过，stale 在落库前复核。
+- ✅ 2026-08-28：现场“以此推进”的 initialInstruction 已端到端传入 composer；大纲、现场详情、记忆/异常审阅主链的 props、emit 与关闭动作已接通。素材、画布等外围能力仍按文本核心边界冻结，不以新占位壳补齐工具数量。
+- ✅ 2026-08-28：Authoring journey 的失败、harness error 与 timeout 现在均非零退出；核心断言不因 provider 不可用而 skip，失败证据受预算约束，成功产物可清理。
+- 🟡 **外部门禁**：合成 composition 事件已有自动覆盖，但 Windows 原生中文输入法连续写作、回看前文、Space/`/`、批注与长草稿仍需 30 分钟人工耐久，不能由 synthetic event 代替。
+- 🟡 **外部门禁**：真实 provider 的 Ghost/长推演 canary 尚未在本轮凭据环境执行；空返回必须作为渠道失败单列，不能回退为 UI journey 绿灯。
+- 🟡 **视觉验收**：自动旅程已覆盖长文滚动、右键、visual viewport 和固定浮层关闭合同；2026-08-28 修复 1024px 右栏压窄正文与 390px 检查器方向错误。2026-08-29 又依据 2559px 用户实图确认并修复最终 Authoring 样式缺少结构所有权的问题：即使旧 scoped 样式在运行态/HMR 中整层缺失，顶栏、章节栏、稿面和工具 rail 也不再退化为满宽普通文档流；常规手机保持单行 chrome，仅 ≤240 CSS px 的 200% zoom 距离换行。12 状态截图为 0 console / 0 scenario failure，390px 200% zoom 四状态为 0 a11y failure。版心、密度与工具栏协调性仍需用户看代表界面确认。
+- 处理入口：[Authoring 文本工作台 v3](../superpowers/plans/2026-08-25-authoring-text-workbench-v3.md) 与 [Authoring 前端可靠性/真实用户模拟计划](../superpowers/plans/2026-08-28-authoring-frontend-reliability-and-user-simulation.md)。
 
 ### 体验叙事工具协议兼容
 

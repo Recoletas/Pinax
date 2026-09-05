@@ -6,12 +6,15 @@ import FolioSurface from '../components/folio/FolioSurface.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
+import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
 
 const route = useRoute()
 const router = useRouter()
+const workspaceTabsStore = useWorkspaceTabsStore()
 
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
@@ -275,6 +278,9 @@ function handleSelectPanel(routeName) {
           </div>
         </div>
       </FolioSurface>
+
+      <!-- 第二层工作台标签：位于顶栏之下、路由内容之上；标签状态归 workspaceTabsStore，导航真源仍是 URL。 -->
+      <WorkspaceTabs />
     </template>
 
     <main class="shell-content">
@@ -1098,7 +1104,7 @@ function handleSelectPanel(routeName) {
 
 .theme-kao .shell-brand-route strong {
   color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 900;
   letter-spacing: 0;
@@ -1186,7 +1192,7 @@ function handleSelectPanel(routeName) {
 }
 
 .theme-kao .shell-subnav-label {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
 }
 
 /* V3: meta chip uses archive-rose 22% border + ink-dot prefix in
@@ -1234,7 +1240,7 @@ function handleSelectPanel(routeName) {
 
 .theme-kao .shell-drawer__copy strong {
   color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   text-transform: none;
 }
 

@@ -28,7 +28,7 @@
    - W2: source/import, field/section/revision, place, research and maintenance workflows.
 3. `2026-08-22-unified-agent-authoring-runtime.md`
    - W3-W4 and runtime half of W6: writing tasks, NarrativeKernel profile, auxiliary tasks and derived observations.
-4. `2026-08-22-unified-authoring-workspace.md`
+4. Authoring 运行时接入（现已吸收到 `2026-08-25-authoring-text-workbench-v3.md`）
    - W5, UI half of W6 and W7: one editable authoring surface, transient undo, context inspector, exception review and compatibility retirement.
 
 ## Dependency graph
@@ -120,7 +120,7 @@ Expected: all files pass; client and server expose the same canonical task IDs; 
 
 - [ ] **Step 6: Execute Workspace UI from the integrated runtime**
 
-Run `2026-08-22-unified-authoring-workspace.md` in a fresh worktree based on the integrated commit.
+Authoring 后续接入以 `2026-08-25-authoring-text-workbench-v3.md` 为唯一真源。
 
 - [ ] **Step 7: Run release gates before compatibility cleanup**
 

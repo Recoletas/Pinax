@@ -3,8 +3,15 @@ import { parseNarrativePresentation } from '../narrativePresentation.js'
 
 export const WRITING_DOCUMENT_SCHEMA_VERSION = 3
 export const WRITING_UNIT_KINDS = new Set(['passage', 'scene', 'note', 'source'])
+export const WRITING_UNIT_BOUNDARY_POLICY = 'passage-v1'
 
-const BLOCK_TYPES = new Set(['prose', 'scene-heading', 'divider', 'quote', 'author-note', 'source-reference'])
+// Imported prose is packed once into readable passage-sized units. These are
+// compatibility defaults, not live reflow rules: after import, unit boundaries
+// only change through the editor's explicit split/merge commands.
+const IMPORTED_PASSAGE_PARAGRAPHS = 3
+
+const BLOCK_TYPES = new Set(['prose', 'scene-heading', 'divider', 'quote', 'author-note', 'source-reference', 'media-reference'])
+const MEDIA_REFERENCE_PATTERN = /^!\[([^\]]*)\]\(pinax-media:\/\/([^\s)]+)\)\s*$/i
 const LITERAL_INLINE_MARKDOWN_PATTERN = /(\*\*|__)[^\n]+?\1|(^|[^*])\*[^*\n]+?\*(?!\*)|(^|[^_])_[^_\n]+?_(?!_)|~~[^\n]+?~~|`[^`\n]+?`|\[[^\]\n]+\]\([^\s)]+\)/
 
 function hashText(value) {
@@ -124,7 +131,19 @@ function classifyToken(token) {
   return 'prose'
 }
 
+function parseMediaReferenceToken(token) {
+  if (token?.type !== 'paragraph') return null
+  const raw = String(token.raw || token.text || '').trim()
+  const match = raw.match(MEDIA_REFERENCE_PATTERN)
+  if (!match) return null
+  return {
+    alt: String(match[1] || '').trim() || '正文插画',
+    mediaAssetId: String(match[2] || '').trim()
+  }
+}
+
 function blockNode(token, index, leadingMarkdown) {
+  const mediaReference = parseMediaReferenceToken(token)
   const kind = classifyToken(token)
   const rawMarkdown = token.raw || ''
   const text = tokenPlainText(token)
@@ -135,6 +154,19 @@ function blockNode(token, index, leadingMarkdown) {
     rawMarkdown,
     leadingMarkdown,
     originalText: text
+  }
+
+  if (mediaReference?.mediaAssetId) {
+    return {
+      type: 'mediaReference',
+      attrs: {
+        ...attrs,
+        kind: 'media-reference',
+        mediaAssetId: mediaReference.mediaAssetId,
+        alt: mediaReference.alt,
+        sourceRefs: []
+      }
+    }
   }
 
   if (kind === 'divider') return { type: 'divider', attrs }
@@ -163,40 +195,57 @@ function unitKindForNode(node) {
   if (node?.attrs?.kind === 'scene-heading') return 'scene'
   if (node?.attrs?.kind === 'author-note') return 'note'
   if (node?.attrs?.kind === 'source-reference') return 'source'
+  if (node?.attrs?.kind === 'media-reference') return 'source'
   return 'passage'
+}
+
+function isStandaloneUnitNode(node) {
+  return ['divider', 'author-note', 'source-reference', 'media-reference'].includes(node?.attrs?.kind)
+}
+
+function passageParagraphCount(nodes) {
+  return nodes.filter((node) => node?.attrs?.kind !== 'scene-heading').length
+}
+
+function partitionPassageNodes(nodes) {
+  const groups = []
+  let pending = []
+  const flush = () => {
+    if (pending.length) groups.push(pending)
+    pending = []
+  }
+  nodes.forEach((node) => {
+    if (isStandaloneUnitNode(node)) {
+      flush()
+      groups.push([node])
+      return
+    }
+    if (node?.attrs?.kind === 'scene-heading') flush()
+    if (pending.length && passageParagraphCount(pending) >= IMPORTED_PASSAGE_PARAGRAPHS) flush()
+    pending.push(node)
+  })
+  flush()
+  return groups
 }
 
 function groupNodesIntoUnits(nodes, { migration = false } = {}) {
   const units = []
-  let pending = []
-  const flush = () => {
-    if (!pending.length) return
-    const first = pending[0]
+  const append = (content) => {
+    if (!content.length) return
+    const first = content[0]
     units.push({
       type: 'writingUnit',
       attrs: {
         unitId: createUnitId(first.attrs?.nodeId || JSON.stringify(first)),
-        unitRevision: Math.max(0, ...pending.map((node) => Number(node.attrs?.nodeRevision || 0))),
+        unitRevision: Math.max(0, ...content.map((node) => Number(node.attrs?.nodeRevision || 0))),
         kind: unitKindForNode(first),
         sceneId: null,
         originRefs: []
       },
-      content: pending
+      content
     })
-    pending = []
   }
-
-  nodes.forEach((node) => {
-    const kind = node?.attrs?.kind
-    const startsUnit = kind === 'scene-heading' || kind === 'divider' || kind === 'author-note' || kind === 'source-reference'
-    if (startsUnit) flush()
-    pending.push(node)
-    // A divider is its own boundary unit; author/source notes are standalone
-    // units. The migration path keeps the historical scene heading together
-    // with its following prose.
-    if (kind === 'divider' || kind === 'author-note' || kind === 'source-reference') flush()
-  })
-  flush()
+  partitionPassageNodes(nodes).forEach(append)
 
   if (!units.length) {
     const emptyNode = {
@@ -245,20 +294,32 @@ function renderInline(content = []) {
 function renderNode(node) {
   const attrs = node.attrs || {}
   if (node.type === 'divider') return '---\n'
+  if (node.type === 'mediaReference') {
+    const alt = String(attrs.alt || '正文插画').replace(/[\]\r\n]/g, ' ').trim() || '正文插画'
+    return `![${alt}](pinax-media://${attrs.mediaAssetId || ''})\n`
+  }
   const text = renderInline(node.content)
   if (node.type === 'sceneHeading') return `${'#'.repeat(Math.max(1, attrs.level || 1))} ${text}\n`
-  if (node.type === 'quote') return `> ${text}\n`
-  if (node.type === 'authorNote') return `> 作者注：${text}\n`
-  if (node.type === 'sourceReference') return `> 来源：${text}\n`
+  if (node.type === 'quote') return `${text.split('\n').map((line) => `> ${line}`).join('\n')}\n`
+  if (node.type === 'authorNote') {
+    const [first = '', ...rest] = text.split('\n')
+    return [`> 作者注：${first}`, ...rest.map((line) => `> ${line}`)].join('\n') + '\n'
+  }
+  if (node.type === 'sourceReference') {
+    const [first = '', ...rest] = text.split('\n')
+    return [`> 来源：${first}`, ...rest.map((line) => `> ${line}`)].join('\n') + '\n'
+  }
   return `${text}\n`
 }
 
 function isUntouched(node) {
   if (node?.type === 'divider') return node?.attrs?.rawMarkdown != null
+  if (node?.type === 'mediaReference') return Boolean(node?.attrs?.rawMarkdown != null)
   return Boolean(node?.attrs?.rawMarkdown != null && node?.attrs?.originalText === getNodeText(node))
 }
 
 function getNodeText(node) {
+  if (node?.type === 'mediaReference') return String(node?.attrs?.alt || '')
   if (typeof node?.text === 'string') return node.text
   return (node?.content || []).map(getNodeText).join('')
 }
@@ -308,9 +369,42 @@ export function createWritingDocument(markdown = '') {
     meta: {
       sourceHash: hashText(source),
       trailingMarkdown: leadingMarkdown,
-      importedAt: new Date().toISOString()
+      importedAt: new Date().toISOString(),
+      unitBoundaryPolicy: WRITING_UNIT_BOUNDARY_POLICY
     },
     updatedAt: new Date().toISOString()
+  }
+}
+
+/**
+ * Upgrade documents created before semantic writing units were introduced.
+ * AI-origin units and already-normalized documents are left byte-for-byte
+ * stable; legacy oversized prose units are packed once, preserving every node
+ * ID and the original unit ID on the first resulting unit.
+ */
+export function normalizeWritingUnitBoundaries(document) {
+  if (!document || document.meta?.unitBoundaryPolicy === WRITING_UNIT_BOUNDARY_POLICY) return document
+  const content = (document.content || []).flatMap((unit) => {
+    const originRefs = normalizeWritingOriginRefs(unit?.attrs?.originRefs)
+    if (originRefs.length || !['passage', 'scene'].includes(unit?.attrs?.kind)) return [unit]
+    const groups = partitionPassageNodes(unit.content || [])
+    return groups.map((nodes, index) => ({
+      ...unit,
+      attrs: {
+        ...unit.attrs,
+        unitId: index === 0
+          ? unit.attrs.unitId
+          : createUnitId(`${unit.attrs.unitId}\u0000${nodes[0]?.attrs?.nodeId || index}`),
+        kind: unitKindForNode(nodes[0]),
+        originRefs
+      },
+      content: nodes
+    }))
+  })
+  return {
+    ...document,
+    content,
+    meta: { ...(document.meta || {}), unitBoundaryPolicy: WRITING_UNIT_BOUNDARY_POLICY }
   }
 }
 
@@ -335,7 +429,9 @@ export function getWritingDocumentNodes(document) {
 
 function toV3Node(node, index) {
   const sourceAttrs = node?.attrs || {}
-  const { blockId: _blockId, revision: _revision, ...attrs } = sourceAttrs
+  const attrs = { ...sourceAttrs }
+  delete attrs.blockId
+  delete attrs.revision
   return {
     ...node,
     attrs: {
@@ -348,16 +444,18 @@ function toV3Node(node, index) {
 }
 
 export function migrateWritingDocumentToV3(document, fallbackMarkdown = '') {
-  if (document?.schemaVersion === 3 && validateWritingDocument(document).valid) return document
+  if (document?.schemaVersion === 3 && validateWritingDocument(document).valid) {
+    return normalizeWritingUnitBoundaries(document)
+  }
   if (document?.schemaVersion !== 2 || !Array.isArray(document?.content)) {
     return createWritingDocument(fallbackMarkdown)
   }
-  return {
+  return normalizeWritingUnitBoundaries({
     ...document,
     schemaVersion: 3,
     content: groupNodesIntoUnits(document.content.map(toV3Node), { migration: true }),
     meta: { ...(document.meta || {}), migratedFrom: 2 }
-  }
+  })
 }
 
 export function getWritingNodeLocation(document, nodeId) {
@@ -392,7 +490,8 @@ export function getChapterDocument(chapter) {
     const migrated = migrateWritingDocumentToV3(candidate, chapter?.content || '')
     return validateWritingDocument(migrated).valid ? migrated : null
   }
-  return validateWritingDocument(candidate).valid ? candidate : null
+  if (!validateWritingDocument(candidate).valid) return null
+  return normalizeWritingUnitBoundaries(candidate)
 }
 
 /**
@@ -452,6 +551,9 @@ export function getWritingBlockAtPosition(document, position = 0) {
       end,
       text: getNodeText(node)
     }
+    // leadingMarkdown 是前一块后的空白。光标落在段间空行时应归属前一块，
+    // 不能继续遍历后把它错误映射到文档最后一个节点。
+    if (cursor < start) return last || candidate
     last = candidate
     if (cursor >= start && cursor <= end) return candidate
     offset = end
@@ -500,9 +602,13 @@ export function getWritingMarkdownPosition(document, nodeId, localOffset = 0) {
     if ((attrs.nodeId || attrs.blockId) === nodeId) {
       const textLength = getNodeText(node).length
       const safeLocalOffset = Math.max(0, Math.min(textLength, Number(localOffset) || 0))
+      const continuationPrefixLength = ['quote', 'authorNote', 'sourceReference'].includes(node.type)
+        ? (getNodeText(node).slice(0, safeLocalOffset).match(/\n/g) || []).length * 2
+        : 0
       return bodyStart
         + writingNodeMarkdownPrefix(node).length
         + inlineMarkdownCursorOffset(node.content || [], safeLocalOffset)
+        + continuationPrefixLength
     }
     offset = bodyStart + bodyMarkdown.length
   }
@@ -512,6 +618,7 @@ export function getWritingMarkdownPosition(document, nodeId, localOffset = 0) {
 function editorNodeTypeForWritingNode(node) {
   if (node?.type === 'sceneHeading') return 'heading'
   if (node?.type === 'divider') return 'horizontalRule'
+  if (node?.type === 'mediaReference') return 'mediaReference'
   if (node?.type === 'quote' || node?.type === 'authorNote' || node?.type === 'sourceReference') return 'blockquote'
   return 'paragraph'
 }
@@ -519,6 +626,7 @@ function editorNodeTypeForWritingNode(node) {
 function writingKindForEditorNode(node) {
   if (node?.type === 'heading') return 'scene-heading'
   if (node?.type === 'horizontalRule') return 'divider'
+  if (node?.type === 'mediaReference') return 'media-reference'
   if (node?.type === 'blockquote') {
     const blockKind = node?.attrs?.blockKind || node?.attrs?.nodeKind
     if (blockKind === 'source-reference') return 'source-reference'
@@ -542,10 +650,40 @@ function editorInlineContent(node) {
   if (node?.type !== 'blockquote') return content
   const flattened = []
   content.forEach((child, index) => {
-    if (index > 0) flattened.push({ type: 'text', text: '\n' })
+    // blockquote 的直接 paragraph 是真实段落边界；canonical 以空行编码，
+    // 单个换行则保留为同段内的软换行。这样切章/重载后 DOM 层级不漂移。
+    if (index > 0) flattened.push({ type: 'text', text: '\n\n' })
     flattened.push(...(child?.content || []))
   })
   return flattened
+}
+
+function splitBlockquoteInlineParagraphs(content = []) {
+  const paragraphs = [[]]
+  const append = (source, text) => {
+    if (!text) return
+    paragraphs[paragraphs.length - 1].push({ ...source, text })
+  }
+  content.forEach((item) => {
+    if (item?.type !== 'text' || typeof item.text !== 'string') {
+      paragraphs[paragraphs.length - 1].push(item)
+      return
+    }
+    let cursor = 0
+    for (const match of item.text.matchAll(/\n{2,}/g)) {
+      append(item, item.text.slice(cursor, match.index))
+      const newlineCount = match[0].length
+      const paragraphBreaks = Math.max(1, Math.floor(newlineCount / 2))
+      for (let index = 0; index < paragraphBreaks; index += 1) paragraphs.push([])
+      if (newlineCount % 2) append(item, '\n')
+      cursor = Number(match.index) + newlineCount
+    }
+    append(item, item.text.slice(cursor))
+  })
+  return paragraphs.map((paragraph) => ({
+    type: 'paragraph',
+    ...(paragraph.length ? { content: paragraph } : {})
+  }))
 }
 
 export function writingDocumentToEditorContent(document) {
@@ -572,12 +710,17 @@ export function writingDocumentToEditorContent(document) {
         }
       }
       if (node.type === 'sceneHeading') editorNode.attrs.level = Number(node.attrs?.level || 1)
+      if (node.type === 'mediaReference') {
+        editorNode.attrs.mediaAssetId = String(node.attrs?.mediaAssetId || '')
+        editorNode.attrs.alt = String(node.attrs?.alt || '正文插画')
+        editorNode.attrs.sourceRefs = Array.isArray(node.attrs?.sourceRefs) ? node.attrs.sourceRefs : []
+      }
       if (node.type === 'blockquote' || node.type === 'quote' || node.type === 'authorNote' || node.type === 'sourceReference') {
         editorNode.attrs.blockKind = node.attrs?.kind || 'quote'
       }
-      if (node.type !== 'divider') {
+      if (node.type !== 'divider' && node.type !== 'mediaReference') {
         editorNode.content = editorNode.type === 'blockquote'
-          ? [{ type: 'paragraph', content: inline }]
+          ? splitBlockquoteInlineParagraphs(inline)
           : inline
       }
       return editorNode
@@ -612,6 +755,8 @@ export function editorContentToWritingDocument(content, previousDocument = null)
         ? 'sceneHeading'
         : node.type === 'horizontalRule'
           ? 'divider'
+          : node.type === 'mediaReference'
+            ? 'mediaReference'
           : node.type === 'blockquote'
             ? kind === 'source-reference'
               ? 'sourceReference'
@@ -624,6 +769,10 @@ export function editorContentToWritingDocument(content, previousDocument = null)
           && previous.attrs?.kind === kind
           && JSON.stringify(previous.content || []) === JSON.stringify(inline)
           && (writingType !== 'sceneHeading' || Number(previous.attrs?.level || 1) === Number(node.attrs?.level || 1))
+          && (writingType !== 'mediaReference' || (
+            String(previous.attrs?.mediaAssetId || '') === String(node.attrs?.mediaAssetId || '')
+            && String(previous.attrs?.alt || '') === String(node.attrs?.alt || '')
+          ))
         : false
       const nodeRevision = unchanged
         ? previousRevision
@@ -637,10 +786,15 @@ export function editorContentToWritingDocument(content, previousDocument = null)
         originalText: unchanged ? previous.attrs?.originalText ?? text : null
       }
       if (node.type === 'heading') attrs.level = Number(node.attrs?.level || 1)
+      if (node.type === 'mediaReference') {
+        attrs.mediaAssetId = String(node.attrs?.mediaAssetId || '')
+        attrs.alt = String(node.attrs?.alt || '正文插画')
+        attrs.sourceRefs = Array.isArray(node.attrs?.sourceRefs) ? node.attrs.sourceRefs : []
+      }
       return {
         type: writingType,
         attrs,
-        ...(node.type === 'horizontalRule' ? {} : { content: inline })
+        ...(['horizontalRule', 'mediaReference'].includes(node.type) ? {} : { content: inline })
       }
     })
     const nextUnit = {
@@ -806,7 +960,8 @@ export function validateWritingDocument(document) {
       if (!nodeId || nodeIds.has(nodeId)) errors.push(`nodeId:${nodeId || 'missing'}`)
       nodeIds.add(nodeId)
       if (!Number.isInteger(node?.attrs?.nodeRevision) || node.attrs.nodeRevision < 0) errors.push(`nodeRevision:${nodeId || 'missing'}`)
-      if (kind !== 'divider' && !Array.isArray(node.content)) errors.push(`content:${nodeId || 'missing'}`)
+      if (!['divider', 'media-reference'].includes(kind) && !Array.isArray(node.content)) errors.push(`content:${nodeId || 'missing'}`)
+      if (kind === 'media-reference' && !String(node?.attrs?.mediaAssetId || '').trim()) errors.push(`mediaAssetId:${nodeId || 'missing'}`)
     }
   }
   return { valid: errors.length === 0, errors }

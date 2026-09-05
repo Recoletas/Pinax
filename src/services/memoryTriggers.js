@@ -32,8 +32,14 @@ export function createMemoryTriggers({
       sessionId: text(event.sessionId),
       scopeKey: text(event.scopeKey),
       text: String(event.text || ''),
+      changedText: typeof event.changedText === 'string' ? event.changedText : undefined,
+      changedRanges: event.changedRanges ?? event.changedRange ?? undefined,
       sourceRefs: normalizeSourceRefs(event.sourceRefs),
       revision: text(event.revision),
+      chapterId: text(event.chapterId),
+      unitId: text(event.unitId),
+      unitRevision: Number(event.unitRevision || 0),
+      sourceDocumentRevision: text(event.sourceDocumentRevision),
       range: event.range || null,
       at: Number(clock())
     }
@@ -56,7 +62,6 @@ export function createMemoryTriggers({
       if (boundaryDedupe.get(dedupeKey) === payload.revision) {
         return { handled: false, reason: 'duplicate-boundary' }
       }
-      boundaryDedupe.set(dedupeKey, payload.revision)
     }
 
     // Agent 关闭时不发生自动模型提取；显式“记住”的本地候选由 rememberExplicitly 单独创建。
@@ -66,8 +71,18 @@ export function createMemoryTriggers({
     if (typeof derive !== 'function') {
       return { handled: true, type, derived: false, reason: 'no-derive' }
     }
-    await derive(payload)
-    return { handled: true, type, derived: true }
+    const derivation = await derive(payload)
+    const duplicateSchedule = ['duplicate-pending', 'duplicate-executed'].includes(derivation?.reason)
+    if (derivation?.accepted === false && !duplicateSchedule) {
+      return { handled: true, type, derived: false, reason: derivation.reason || 'derive-rejected' }
+    }
+    // boundary 只有真正进入 observer 队列（或确认已有同一任务）后才占用
+    // 去重键。Agent 关闭、runtime 未就绪等拒绝不能吞掉下一次重试。
+    if (type === 'boundary') {
+      const dedupeKey = `${payload.projectId}:${payload.sessionId}:${payload.scopeKey}`
+      boundaryDedupe.set(dedupeKey, payload.revision)
+    }
+    return { handled: true, type, derived: true, derivation: derivation || null }
   }
 
   async function rememberExplicitly({

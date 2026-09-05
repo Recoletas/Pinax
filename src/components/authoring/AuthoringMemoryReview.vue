@@ -5,9 +5,10 @@ import { computed, ref } from 'vue'
 // 确认/拒绝/置顶/降权经 repository API；不弹逐条 modal，不做自动采纳。
 const props = defineProps({
   open: Boolean,
-  candidates: { type: Array, default: () => [] }
+  candidates: { type: Array, default: () => [] },
+  canJumpSource: { type: Function, default: () => false }
 })
-const emit = defineEmits(['confirm', 'reject', 'pin', 'demote', 'supersede', 'jump-source', 'close'])
+const emit = defineEmits(['confirm', 'reject', 'pin', 'demote', 'supersede', 'merge', 'jump-source', 'close'])
 
 const KIND_LABELS = {
   'author-preference': '作者偏好',
@@ -77,7 +78,7 @@ function closeOnEsc(event) {
         <button type="button" data-action="pin-candidate" @click="emit('pin', item.id)">置顶</button>
         <button type="button" data-action="demote-candidate" @click="emit('demote', item.id)">降权</button>
         <button
-          v-if="item.sourceRefs?.length"
+          v-if="item.sourceRefs?.some((ref) => props.canJumpSource(ref))"
           type="button"
           data-action="jump-source"
           @click="emit('jump-source', item)"
@@ -86,3 +87,103 @@ function closeOnEsc(event) {
     </article>
   </section>
 </template>
+
+<style scoped>
+.authoring-memory-review {
+  display: grid;
+  margin: 0 0 10px;
+  padding: 0 2px;
+  border-block: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.authoring-memory-review__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  font-size: 13px;
+}
+
+.authoring-memory-review__dismiss,
+.authoring-memory-review__actions button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.authoring-memory-review__dismiss {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 18px;
+}
+
+.authoring-memory-review__item {
+  padding: 11px 0 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.authoring-memory-review__reason {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.authoring-memory-review__summary {
+  margin: 5px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.authoring-memory-review__source {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.authoring-memory-review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+.authoring-memory-review__actions button {
+  min-height: 44px;
+  padding: 4px 0;
+  font-size: 12px;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.authoring-memory-review__dismiss:hover,
+.authoring-memory-review__actions button:hover {
+  color: var(--accent-primary);
+}
+
+.authoring-memory-review__actions button:focus-visible,
+.authoring-memory-review__dismiss:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 1px;
+}
+
+@media (max-width: 760px) {
+  .authoring-memory-review {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: var(--z-workbench-sheet, 60);
+    max-height: 60dvh;
+    margin: 0;
+    padding: 0 16px calc(10px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border-bottom: 0;
+    background: var(--surface-workbench-raised, var(--surface-primary));
+  }
+}
+</style>

@@ -3,6 +3,7 @@
 // 纯函数模块：归一化、活动锚点解析、upsert 与单元拆分/合并/删除迁移。
 
 export const SCENE_ANCHOR_SCHEMA_VERSION = 1
+export const MAX_AUTHORING_PRESENT_CHARACTERS = 8
 
 function stableString(value) {
   return String(value ?? '').trim()
@@ -22,13 +23,21 @@ export function normalizeSceneAnchor(input = {}) {
   const source = input && typeof input === 'object' ? input : {}
   const unitId = stableString(source.unitId)
   if (!unitId) {
-    return { status: 'invalid', unitId: '', worldbookId: '', presentCharacterIds: [] }
+    return { status: 'invalid', unitId: '', worldbookId: '', presentCharacterIds: [], plannedCharacterIds: [] }
   }
   const seen = new Set()
   const presentCharacterIds = (Array.isArray(source.presentCharacterIds) ? source.presentCharacterIds : [])
     .map((id) => stableString(id))
     .filter(Boolean)
     .filter((id) => (seen.has(id) ? false : (seen.add(id), true)))
+  // V5 领域语义：planned = “安排下一段入场”。约束下一次推演/大纲 intent，
+  // 不立即改变当前现场；采纳兑现后由页面移入 presentCharacterIds。
+  const plannedSeen = new Set()
+  const plannedCharacterIds = (Array.isArray(source.plannedCharacterIds) ? source.plannedCharacterIds : [])
+    .map((id) => stableString(id))
+    .filter(Boolean)
+    .filter((id) => (plannedSeen.has(id) ? false : (plannedSeen.add(id), true)))
+    .filter((id) => (presentCharacterIds.includes(id) ? false : true))
   return Object.freeze({
     schemaVersion: SCENE_ANCHOR_SCHEMA_VERSION,
     id: stableString(source.id) || deterministicId(`${unitId}\u0000${stableString(source.worldbookId)}`),
@@ -36,6 +45,7 @@ export function normalizeSceneAnchor(input = {}) {
     worldbookId: stableString(source.worldbookId),
     castMode: source.castMode === 'auto' ? 'auto' : 'manual',
     presentCharacterIds,
+    plannedCharacterIds,
     locationId: stableString(source.locationId),
     viewpointCharacterId: stableString(source.viewpointCharacterId),
     time: {
@@ -104,7 +114,7 @@ export function resolveActiveSceneAnchor({ anchors, unitOrder, activeUnitId, wor
 // 原子 upsert：revision 守卫 + 不可变数组更新。失败时返回原文档状态。
 export function upsertSceneAnchor({ anchors, anchor, expectedDocumentRevision, liveDocumentRevision }) {
   if (
-    Number(expectedDocumentRevision ?? 0) !== Number(liveDocumentRevision ?? 0)
+    String(expectedDocumentRevision ?? '') !== String(liveDocumentRevision ?? '')
   ) {
     return { ok: false, reason: 'stale', anchors: normalizeSceneAnchors(anchors) }
   }
@@ -120,7 +130,21 @@ export function upsertSceneAnchor({ anchors, anchor, expectedDocumentRevision, l
   return { ok: true, anchors: nextAnchors }
 }
 
-// 单元转换迁移（split/merge/delete/move）：
+// 删除当前单元自己的显式锚点，让解析器重新沿单元顺序继承前文。
+// 与 upsert 使用同一 revision 守卫，避免光标/正文已变化时误删别处状态。
+export function removeSceneAnchor({ anchors, unitId, expectedDocumentRevision, liveDocumentRevision }) {
+  const current = normalizeSceneAnchors(anchors)
+  if (String(expectedDocumentRevision ?? '') !== String(liveDocumentRevision ?? '')) {
+    return { ok: false, reason: 'stale', anchors: current }
+  }
+  const targetUnitId = stableString(unitId)
+  if (!targetUnitId) return { ok: false, reason: 'invalid-anchor', anchors: current }
+  const nextAnchors = current.filter((anchor) => anchor.unitId !== targetUnitId)
+  if (nextAnchors.length === current.length) return { ok: false, reason: 'no-anchor', anchors: current }
+  return { ok: true, anchors: nextAnchors }
+}
+
+// 单元转换迁移（split/merge/delete/move/clear/replace-all）：
 // - split：锚点留在 keptUnitId，不复制到 createdUnitId；
 // - merge：removedUnitId 的锚点移动到 keptUnitId，后一个来源胜出；
 // - delete：锚点保留为 status:'stale' + staleReason:'unit-deleted'（可诊断、可恢复）；
@@ -134,7 +158,7 @@ export function reconcileSceneAnchorsForUnitTransition({ anchors, transition }) 
 
   if (type === 'split') {
     // keptUnitId 保留原锚点；createdUnitId 不复制。
-    return { ok: true, anchors: current.filter((anchor) => anchor.unitId !== transition.createdUnitId || true) }
+    return { ok: true, anchors: current }
   }
 
   if (type === 'merge') {
@@ -165,6 +189,17 @@ export function reconcileSceneAnchorsForUnitTransition({ anchors, transition }) 
     const nextAnchors = current.map((anchor) => (
       anchor.unitId === removedUnitId
         ? { ...anchor, status: 'stale', staleReason: 'unit-deleted' }
+        : anchor
+    ))
+    return { ok: true, anchors: nextAnchors }
+  }
+
+  if (type === 'clear' || type === 'replace-all') {
+    const affected = new Set((transition.affectedUnitIds || []).map(stableString).filter(Boolean))
+    if (!affected.size) return { ok: false, reason: 'invalid-transition', anchors: current }
+    const nextAnchors = current.map((anchor) => (
+      affected.has(anchor.unitId)
+        ? { ...anchor, status: 'stale', staleReason: type === 'clear' ? 'unit-content-cleared' : 'unit-content-replaced' }
         : anchor
     ))
     return { ok: true, anchors: nextAnchors }

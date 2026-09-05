@@ -8,12 +8,13 @@
 
 ## §0 阅读须知 + 验证图例
 
-**文档定位**：8 axes 并行发散调研（用户加选 G 传统插画师 + H 漫画出版生态），不替代 brainstorming → writing-plans 流程；不写实现、不修 bug、不动 STATUS / PLAN / LOG、不写新 skill。
+**文档定位**：11 axes 并行发散调研（用户加选 G 传统插画师 + H 漫画出版生态，2026-08-18 加选 §J 跨产品数据流 + §K 多 agent 协作 + §L 跨媒体 IP 生态），不替代 brainstorming → writing-plans 流程；不写实现、不修 bug、不动 STATUS / PLAN / LOG、不写新 skill。
 
-**8 axes 概览**：
+**11 axes 概览**：
 - **核心 2 axes**：§A AI 角色一致性机制 / §D 漫画分镜与排版
 - **支撑 4 axes**：§B 视觉圣经 / §C 文本 → 关键帧 / §E 漫画 AI 工具 / §F 镜头语言
 - **扩展 2 axes**：§G 传统插画师工作流 / §H 漫画出版生态
+- **第二轮发散 3 axes**（2026-08-18 用户加选）：§J 跨产品数据流 / §K 多 agent 协作创作 / §L 跨媒体叙事 / IP 生态
 
 **验证图例**：
 
@@ -1637,28 +1638,847 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 
 ---
 
-### §H.0 总览：漫画出版的五个根本命题
+## §J 跨产品数据流 / 状态同步（Cross-Product Data Flow）
+> **调研人**:J（并行 agent）。**scope**:5+ 产品（写作 / 体验 / 素材 / 画布 / 漫画 / 联机 / 设定）的数据流、状态同步、双向引用
+>
+> **重点产品 / 范式**：Notion databases + linked records / Obsidian Bases / Airtable linked records / Figma file + variants / Linear project + cycles / World Anvil 跨产品 / Kanka RPG worldbuilding wiki / 飞书多维表格 / 钉钉智能表格 / Notion AI cross-database query / Lofter 同人创作 / AO3 共同 work tags / 起点中文网 作品相关 / Pinax 现有跨页路由
+>
+> **Pinax 现状锚点**：路由已有 Experience → Writing → Materials → ProseEssay → ComicStudio 5 页单向链路（`src/router/index.js` 第 138 行 `experience/online/:roomSlug?`、第 156-157 行 `/docs/:chapterId?`）；`Notes.vue` 第 837-840 行 `goToComics()` 通过 `query: { assetId }` 跳入漫画、第 1778 行 `router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })` 跳入画布；世界书（worldbook-workflow skill）已存在 Character / Place / Faction 对象层。但 character / worldbook / chapter outline 跨产品一致性、单改一处的传播链、双向链接缺显式机制。
 
-漫画「出版导出」不是单一动作，而是五个相互耦合的决策，必须先想清楚再谈实现：
+### §J.0 总览：跨产品连通性的五个根本命题
 
-| 命题 | 关键变量 | 主要生态答案 |
-|---|---|---|
-| **H.0.1 格式 (Format)** | 长条 webtoon / 单页翻页 / 卷装书 / 杂志 / 单话 / 一次性合集 | Webtoon=纵向条漫；MangaPlus=纵向+日式双栏；KDP=PDF/POD 印刷；DLsite=PDF；コミケ=纸质同人誌 |
-| **H.0.2 平台 (Platform)** | 数字原生 / 出版社 / 印厂 / 自媒体 / 同人展会 | Webtoon / Tapas（数字原生）；KADOKAWA / 集英社（出版社）；KDP / Lulu（POD）；コミケ（同人展会） |
-| **H.0.3 节奏 (Cadence)** | 单话发布 / 周更 / 双周 / 月更 / 季刊合集 / 一次性 | 漫画 App 周更主流；同人誌多为一次性合集；杂志 = 周双月季 |
-| **H.0.4 多语言 (Localization)** | 单语 / 翻译外包 / 平台本地化 / AI 翻译 | MangaPlus 同日多语言；Webtoon 区域分平台；同人誌单语为主 |
-| **H.0.5 合规 (Compliance)** | AI 披露 / 版权 / 同人二创 / 内容分级 / DRM | Webtoon / Tapas 2024 起强制 AI 披露；同人誌 IP 边界；DLsite 评级 |
+把外部范式（Notion / Obsidian Bases / Airtable / Figma / Linear / World Anvil / Kanka / 飞书 / 钉钉 / AO3）剥到骨头，跨产品连通性最终都在回答五个根本命题。它们是后续所有灵感的轴线：
 
-**Pinax 现状映射**（引用 §0）：
-- `ComicPageEditor.vue` 已支持三种 format：`page-ltr` / `page-rtl` / `webtoon`（竖向条漫）
-- 导出按钮：`JSON` / `PNG` / `WebP` / `PDF` / `条漫切片`（webtoon 专属）
-- **缺失**：无 KDP POD 出版包、无 epub fixed-layout、无 Webtoon Canvas 800px 模板、无 DLsite 包装、无平台特定切片、无 AI 披露 metadata、无多语言叙事图
-- 节奏：未见周更/单话发布编排
-- 多语言：未见翻译版本管理
+1. **数据所有权（Data Ownership / Source of Truth）** —— 同一份事实存在多少份？在哪里是「正本」？别处是「副本 / 引用」？Notion linked database 把一个 page 当 source of truth，副本自动 sync。Pinax 当前是「每页都各自存一份」——同一个 `chapterId` 在 Notes、Experience、ComicStudio 各有一份 state，没有 master。
+2. **单向 vs 双向（Direction）** —— 引用是单向 page→asset 还是双向 sync？Airtable linked record 双向 sync，改 A 自动改 B；Notion relation 也是双向。Pinax 当前只有单向：`goToComics()` 把 assetId 传过去，漫画侧改了之后 Notes 不知道。
+3. **状态广播（Change Propagation / Event Bus）** —— 改了一处，其它 view 什么时候、怎么收到通知？Linear 用 realtime websockets 推送 issue status 改变；Figma 用 selection sync 同步选区。Pinax 是 Vue 3 reactive local state——同页 reactive 是有的，跨页 router transition 才重读 query，但实时广播没有。
+4. **跨 view 一致性（Cross-View Consistency）** —— 同一份数据用 table / kanban / calendar / list 多种 view 看时，是否所有 view 都实时跟随？Obsidian Bases 同一份 frontmatter 出 table / list / cards / map 多 view。Pinax 当前每个 page 是独立 view，没有「同一份 asset 多 view」。
+5. **同源真相（Single Source Across Products）** —— 写作侧改了 chapter outline，漫画侧的 beat sheet 是否自动重算？World Anvil / Kanka 把 world entity 当 source，timeline / map / article 全围绕它。Pinax 当前没有这种「围绕 source 旋转」的范式。
+
+外部范式与 Pinax 现状对照：
+
+- **Kanka.io relations**（docs.kanka.io/en/latest/entities/relations.html，WebSearch 二手源 ✓）—— 每个 entity 可定义 relation 类型 + Target Entity + 可选 pivot 实体；relation 可单向或双向；Relation Mapper 在地图上叠加可视化连线。**Pinax 没有 mapper**，`writingSelectionCapture.js` 只有 capture + 跳转，没有「关系图」可视化。
+- **Notion linked databases + relations + rollups**（WebSearch 2025-2026 二手源 ✓）—— 跨 page 双向链接，rollup 在 A 表聚合 B 表字段。**Pinax 当前没有 rollup 概念**，跨页字段聚合要重做一遍。
+- **Obsidian Bases v1.9**（obsidian.md/help/bases，WebFetch ✓）—— frontmatter properties 当 database columns；table / list / cards / map 多种 view 共享同一份 markdown frontmatter。**Pinax 用 IndexedDB 而不是 markdown frontmatter**，但同样可以引入「同一 entity 多 view」概念。
+- **Airtable linked records + automations**（support.airtable.com/docs/linking-existing-records-using-automations，WebSearch ✓）—— 双向 linked record + 改 A 触发 B 的 automation。**Pinax 当前所有 mutation 是 manual**——没有 automation trigger 链。
+- **World Anvil API**（WebSearch 2024-2025 二手源 ✓）—— paid tier + 申请制 + 文档稀缺；Relations 是 in-app link only，无 REST endpoint。**对比 Pinax**：Pinax 反而因为 local-first + 无后端 API，在「跨产品数据流」上是「数据可访问」的，不像 World Anvil 那样 API 高墙。
+- **飞书多维表格 + 钉钉智能表格**（WebSearch 2026 ✓）—— 都提供「双向关联字段」+ 改 record 触发 automation；飞书在「显示字段」粒度更细，钉钉与审批 / 聊天集成更深。**Pinax 当前 IndexedDB 没有跨 table foreign key**——`assetId` 只是 router query string，不是 foreign key。
+- **Notion AI Q&A cross-database**（WebSearch 2025-2026 ✓）—— 自然语言跨 database 提问，由 Notion AI 路由到多个 database 汇总答案。**Pinax 当前没有任何 AI 跨页查询**——用户必须自己知道「这个信息在哪个 page」。
+
+### §J.1 Notion Linked Database + Relation + Rollup（跨页双向引用事实标准）
+
+- **模式名**：Linked Database + Relation + Rollup（三件套）
+- **源产品 / 范式**：Notion（notion.com）—— Linked Database 是「同一份 database 在多个 page 各贴一份 view」；Relation 是 page 间双向链接；Rollup 是「在 A 表聚合 B 表字段」。三件套是 Notion 2020 之后的核心抽象。
+- **机制简述**：用户新建一个 database，里面每个 row 是 page。Relation 字段允许 row 链接到另一个 database 的 row，链接双向——在 B 表里能看到「谁引用了我」，在 A 表里能看到「我引用了谁」。Rollup 字段允许 A 表展示 B 表某字段的聚合（如「引用我所有 page 的字数总和」）。
+- **Pinax 摩擦对应**：Pinax 当前没有跨页双向链接。`Notes.vue:837-840` 的 `goToComics()` 只传 `assetId`（router query），漫画侧改了 Notes 不知道；`Notes.vue:1778` 跳 `prose-essay` 传 `assetId`，画布侧改了 Notes 也不知道。**双向同步缺位**——用户改漫画里角色 X 的名字，Notes 里 worldbook.character[X] 不同步更新。
+- **为什么不算实现方案**：模式只指出「跨 page 双向引用 + 跨表字段聚合」是 Notion 事实标准，**不规定** Pinax 是用 IndexedDB foreign key 还是用 Vue 3 reactive event bus 实现。
+- **可行性疑点**：(a) Pinax 是 localStorage + IndexedDB，没有 Notion 的 server-side sync 引擎；双向引用必须在浏览器内 reactive 实现，跨 tab 同步需要 `BroadcastChannel` 或 `storage` event 监听。(b) Rollup 的「聚合字段」在 Pinax 是「跨页元数据统计」（如「角色 X 在所有章节出现的次数」），计算成本与一致性维护需要设计。(c) 多 provider（云端 image provider / 本地 IndexedDB）的写入顺序与冲突解决是开放问题。
+
+### §J.2 Obsidian Bases（frontmatter-as-database，多 view 共享）
+
+- **模式名**：Frontmatter-as-Database with Multi-View（frontmatter 即表，多视图共享）
+- **源产品 / 范式**：Obsidian v1.9（obsidian.md/help/bases，WebFetch ✓）—— Bases 是 core plugin，把 markdown 文件的 frontmatter 当 database columns；`.base` 文件保存 view 定义；table / list / cards / map 多 view 共享同一份 frontmatter。
+- **机制简述**：用户在 vault 里写 markdown，frontmatter 是 YAML。Bases plugin 把整个 vault 视为一个 database，每篇 note 是 row，每个 frontmatter key 是 column。用户建多个 view（table / cards / map），每个 view 共享同一份数据。改 frontmatter，所有 view 自动 reactive 更新。
+- **Pinax 摩擦对应**：Pinax 也有「同一份数据多 view」需求——比如 `narrativeAsset` 在 Notes 是列表、在 Experience 是 card、在 ComicStudio 是 panel reference、在画布是 draggable。当前每页都自己写 render 逻辑，没有「同一 entity 多 view 自动 reactive」。
+- **为什么不算实现方案**：模式只指出「frontmatter / entity 即 table，view 是 query」，**不规定** Pinax 是把 entity 当 Vue 3 reactive object 还是用 Pinia store；那是实现层选择。
+- **可行性疑点**：(a) Pinax 是 IndexedDB / localStorage，不是 markdown frontmatter；「entity 即 table」需要新的 IndexedDB schema（一个 entity collection + 多 index）。(b) map view 需要 map data，Pinax 当前没有 world map（`map-engine-workflow` skill 是存在的但未在用户主轴 5+ 产品里用）。(c) `.base` 风格的 view 定义文档是 Obsidian 优势（用户自己写 query），Pinax 用户大多数不会写 SQL / filter DSL。
+
+### §J.3 Airtable Linked Record + Automation（双向 + 自动触发）
+
+- **模式名**：Bidirectional Linked Record + Automation Trigger（双向链接 + 自动触发链）
+- **源产品 / 范式**：Airtable（airtable.com，support.airtable.com/docs/linking-existing-records-using-automations，WebSearch ✓）—— Linked Record 字段类型允许两个 table 之间双向关联（一个 link record 在 B 自动出现在 A）；Automation 在 record 改变时触发动作（发邮件 / 改字段 / 调 webhook）。
+- **机制简述**：用户在 Table A 加「Linked Record」字段类型 → 选 Table B 的 record → 自动在 B 表对应 record 的「反向字段」出现 A 的 link。Automation 在 A 或 B 改变时触发（"When record updated" → "Update record in other table"），可链式触发。
+- **Pinax 摩擦对应**：Pinax 当前所有 cross-page mutation 是 manual（用户从 Notes 改完跳 ComicStudio，ComicStudio 不会自动收到 change event）。**手动 vs 自动**是 Pinax 当前最大的「跨产品数据流」摩擦。
+- **为什么不算实现方案**：模式只指出「双向链接 + automation 触发」是 Airtable 标配，**不规定** Pinax 是用 Vue 3 reactivity + custom event bus 还是引入 RxJS 风格的 observable chain。
+- **可行性疑点**：(a) Pinax 没有 server，所有 automation 必须在浏览器内跑；event bus 设计需要避免「A 触发 B，B 反向触发 A」的死循环。(b) automation 的「发邮件 / 调 webhook」在 Pinax 不可用（没后端）；能用的是「改本地 IndexedDB record」+「弹 toast」。(c) Pinax 多 tab 同时打开的 conflict resolution（Last-Write-Wins vs CRDT）需要决策。
+
+### §J.4 Kanka Relations + Relation Mapper（worldbuilding 跨实体图）
+
+- **模式名**：Cross-Entity Relations + Visual Relation Mapper（跨实体关系 + 可视化关系图）
+- **源产品 / 范式**：Kanka.io（kanka.io，docs.kanka.io/en/latest/entities/relations.html，WebSearch ✓）—— RPG worldbuilding wiki。每个 entity（character / location / organization / item）可定义 relations（parent / ally / enemy / location / owner）+ 可选 pivot 实体 + 描述文本。Relation Mapper 在 campaign map 上叠加连线，可视化地理 + 关系。
+- **机制简述**：Kanka 的「关系」是 typed edge（不只是双向 link，还有 type：parent / ally / enemy）+ 可视化。Relation Mapper 在地图上画线，把抽象关系与地理位置叠加。这比 Notion 的「双向 page link」多一层「关系类型」与「空间叠加」。
+- **Pinax 摩擦对应**：Pinax 世界书（worldbook-workflow skill）已存在 Character / Place / Faction 对象层。**但 relation 是 typed 还是 untyped？**——当前 schema 是否有「角色 A 是角色 B 的 ally」这种语义？还是只有 page-to-page link？**I cannot verify** worldbook-workflow skill 当前 schema 是否支持 typed relation。
+- **为什么不算实现方案**：模式只指出「typed relation + 可视化 mapper」是 Kanka 标配，**不规定** Pinax 是用单独 `relations[]` 数组还是用 graph database（如 LevelDB / Dexie 索引）。
+- **可行性疑点**：(a) Pinax 当前没有「关系图可视化」组件，`map-engine-workflow` skill 是地图但不是关系图。(b) typed relation 在 AI prompt 里很有用（「character X 与 Y 是敌对关系」可作为 context），但需要 prompt template 改造。(c) relation 与「剧情事件」「章节顺序」的耦合是开放问题（relations 是 static 还是 time-varying？）。
+
+### §J.5 飞书多维表格 / 钉钉智能表格 双向关联（中文办公场景）
+
+- **模式名**：中文 SaaS 双向关联字段 + Automation（飞书 / 钉钉的双向关联）
+- **源产品 / 范式**：飞书多维表格（feishu.cn/bitable）+ 钉钉智能表格（dingtalk.com）—— WebSearch 2026 二手源 ✓ 都提供「双向关联字段」类型 + 跨表 automation 触发。飞书在「显示字段」粒度更细（可配置 link 显示的哪个子字段），钉钉与审批 / 聊天集成更深。
+- **机制简述**：用户在飞书多维表格加「双向关联」字段 → 选另一个表的 record → 自动在对方表创建反向 link + 可配置显示字段。automation 可在 link 变化时触发（飞书的「自动化流程」+ 钉钉的「智能自动化」）。
+- **Pinax 摩擦对应**：Pinax 中文用户为主，飞书 / 钉钉是国内 team 的协作标配。**Pinax 没有跨产品协作**——当前是 single-user local-first。但如果未来要做 multi-user collaboration（联机体验已存在），飞书 / 钉钉的「双向关联」模式可参考。
+- **为什么不算实现方案**：模式只指出「中文办公场景的双向关联是 SaaS 标配」，**不规定** Pinax 未来是否要做 multi-user / cloud sync；那是个产品定位决策。
+- **可行性疑点**：(a) Pinax 是 local-first，多 user 协作需要 sync 引擎（CRDT 或 OT），不是简单抄双向关联字段。(b) 飞书 / 钉钉的 enterprise tier 与 Pinax 用户的「个人创作者」画像不匹配。(c) 与 AO3 / 起点中文网的「公开作品 + 多用户订阅」模式如何区分是产品定位题。
+
+### §J.6 Notion AI Q&A 跨 Database 自然语言查询（AI-driven Cross-View）
+
+- **模式名**：Cross-Database Natural Language Query（自然语言跨表查询）
+- **源产品 / 范式**：Notion AI Q&A（notion.so / notion.com，2025-2026 多次迭代，WebSearch ✓）—— 用户用自然语言提问（如「所有 deadline 在这周的项目」），Notion AI 自动跨多个 database 找答案 + 汇总。
+- **机制简述**：用户在 workspace 里问一个 question，Notion AI 用 RAG 检索所有 page + database row，匹配语义 + 跨 table join 字段，给出答案。底层是 LLM + 向量检索 + 元数据 filter。
+- **Pinax 摩擦对应**：Pinax 当前用户必须自己知道「这个信息在哪个 page」——比如问「角色 X 在第几章首次登场」，用户得跳 Writing → worldbook → experience transcript 自己找。**跨 page AI 查询是空缺**。
+- **为什么不算实现方案**：模式只指出「自然语言跨页查询」是 Notion AI 标配，**不规定** Pinax 是用现有 narrativeKernel 还是新加 `crossPageQuery` 接口。
+- **可行性疑点**：(a) Pinax 的 RAG 索引当前在 `narrativeKernel.activatedLore`（§0 已记），但 activatedLore 是「本次会话激活的」，不是「全 library 索引」。(b) LLM 跨页查询对 Pinax 多 provider 模型（imageProviderConfigStore 的多家云 API）是成本放大器——每问一次要 tokenize 多个 page。(c) 答案的「grounding 到哪个 page」对用户很重要（必须能跳回原文），Notion AI 给出 cite，Pinax 也需要 cite → page jump 链路。
+
+### §J.7 Figma Components + Variants + Shared Library（设计 token 跨文件复用）
+
+- **模式名**：Design Token Cross-File Reuse via Shared Library（设计 token 跨文件复用）
+- **源产品 / 范式**：Figma（figma.com）—— Component 是 reusable UI element；Variant 是「同一组件不同状态」的 property 维度集合；Shared Library 是把 components publish 到 library，多 file 可 import。设计 token（color / spacing / typography）通过 Variables（2023 后）跨 file 共享。
+- **机制简述**：设计师在 File A 建 Component + Variants → publish 到 Team Library → File B / C import → instance 自动 sync 主 Component 的更新（auto-update 机制）。Variables 是 design token 的标准化，Figma 2023 推出 Variables 后，token 跨 file 复用是 default。
+- **Pinax 摩擦对应**：Pinax 的「风格圣经」（§B 调研）有 palette / lineStyle / renderingNotes 三个字段；「视觉圣经」（§A 调研）有 characterRefs / locationRefs / propRefs / styleAssetIds。**但跨项目 / 跨章节的 token 复用缺机制**——用户新开一本小说，palette / character bible 要重做，不能从上一本 sync。
+- **为什么不算实现方案**：模式只指出「design token 跨 file 共享」是 Figma 标配，**不规定** Pinax 是用 export/import JSON 还是做 server-side library。
+- **可行性疑点**：(a) Pinax 是 local-first，没有「team library」概念；用户的「library」只能存在自己浏览器或导出文件。(b) design token 的 schema（color hex / spacing px / typography font-stack）在 Pinax 当前 `visualBible.palette` 是 hex array，不完整。(c) auto-update 机制在 localStorage 没有 server push，需要「用户主动 refresh」按钮 + diff UI。
+
+### §J.8 Linear Project + Cycles + Issues（状态机跨 view）
+
+- **模式名**：Status Machine Across Multiple Views（跨 view 的状态机）
+- **源产品 / 范式**：Linear（linear.app）—— Issue 有 status（Triage / Backlog / Todo / In Progress / Done / Cancelled），可在 List / Board / Timeline / Calendar 多 view 共享；Project 是 issue 的集合；Cycle 是时间窗口（sprint）。改 status 自动 broadcast 到所有 view 与所有订阅者。
+- **机制简述**：用户改 issue status（拖拽 board 或 list 操作）→ backend websocket push → 所有订阅该 issue 的 view（List / Board / Timeline）实时更新。同时订阅者收 notification。状态机是中心化概念，view 是状态机的 projection。
+- **Pinax 摩擦对应**：Pinax 的「章节状态」（draft / published / final）当前是各 page 自己的字段。**跨页一致**：用户在 Notes 标 published，ComicStudio 是否要同步收到这个 status？——当前不收到。
+- **为什么不算实现方案**：模式只指出「中心化 status + 多 view projection」是 Linear 标配，**不规定** Pinax 是用 reactive store 还是 IndexedDB observer。
+- **可行性疑点**：(a) Pinax 的「状态」概念当前弱（草稿 / 发布），不是 rich state machine；扩到 Linear 这种粒度需要重新定义 entity lifecycle。(b) websocket 在浏览器内只能用 `BroadcastChannel`（多 tab）或 service worker（多 device）——后者的 service worker 推送需要 server。(c) 「订阅 notification」在 single-user 场景是冗余，但 multi-user 场景必需——是产品定位题。
+
+### §J.9 AO3 / 起点中文网 / Lofter 跨作品关联（创作者社区范式）
+
+- **模式名**：Creator Community Cross-Work Linking（同人 / 衍生作品关联）
+- **源产品 / 范式**：AO3（archiveofourown.org，WebSearch 2025 二手源 ✓ 提到基于 Rails + MediaWiki/Dreamwidth 风格协同编辑 + 版本历史）+ 起点中文网（qidian.com）+ Lofter（lofter.com）—— 这些平台都支持「原作 → 同人 / 衍生」的链接，跨作品 ID 引用，tags / fandoms / relationships 跨 user 共享。
+- **机制简述**：AO3 用 `inspired by` / `remix of` 字段链接两个作品；fandoms 是 user 共享的 taxonomy（多个 user 对同一 IP 写同人，作品全部归入同一 fandom tag）；relationships 是「角色对」tag（"Character A/Character B"）跨作品复用。起点中文网有「本书友推」+ 「衍生作品」tab。Lofter 有「同人文」标签 + 「原 IP」链接。
+- **Pinax 摩擦对应**：Pinax 当前是 single-author 工具，不考虑「他人引用我的小说」的 reverse direction。但**「同 IP 跨章节关联」**（主角章节末格 → 主角在另一章节末格）这种 internal 引用，正是 AO3 `inspired by` 的精神。
+- **为什么不算实现方案**：模式只指出「跨作品 ID 引用 + 共享 tag taxonomy」是创作者社区标配，**不规定** Pinax 是做 user-facing fanfic 还是 internal-only cross-chapter。
+- **可行性疑点**：(a) Pinax 是「个人创作工具」，与 AO3 / 起点的「公开平台」定位不同；shared tag taxonomy 在 single-user 场景下退化为「个人 tag」。(b) 跨作品引用需要 ID 解析（哪本书的哪个 scene），Pinax 当前 `chapterId` 是 book-local，没有跨 book ID。(c) Pinax 用户的「衍生 / 同人」需求是否在主轴？——目前看是边缘需求。
+
+### §J.10 World Anvil 跨产品 API（API 高墙的反面案例）
+
+- **模式名**：Cross-Product API（API as Product Surface，但高墙化）
+- **源产品 / 范式**：World Anvil（worldanvil.com）—— World Anvil 是 worldbuilding 平台，有 article / timeline / map / family tree / novel 等多种 entity types。**官方 REST API 是 paid tier + 申请制 + 文档稀缺**（WebSearch 2024-2025 二手源 ✓）。Relations 是 in-app link only，无 endpoint 暴露。
+- **机制简述**：World Anvil 把 API 当 premium feature gate 起来：付费 + 申请 + 等待审核 + 拿 API key。社区反馈「effectively unusable for hobbyists」。Relations 在 app 内好用，但 external 集成几乎不可能。
+- **Pinax 摩擦对应**：Pinax 当前是 local-first + open source（AGENTS.md 显示），**完全没有 API 高墙**。这是个 comparison point —— 别人卖墙，Pinax 给自由。但**反面**：local-first 意味着没有 server-side cross-device sync，跨设备体验不如 cloud-first 产品。
+- **为什么不算实现方案**：模式只指出「World Anvil 把 API 当付费 gate」是反面案例，**不规定** Pinax 未来要不要做 cloud sync；那是用户隐私 + 数据所有权决策。
+- **可行性疑点**：(a) Pinax 跨设备需要 server，但用户隐私偏好是 local-first；cloud sync 是产品定位题。(b) 即使做 cloud sync，data ownership 必须明确（用户能否 export / delete all data？GDPR 合规？）。(c) World Anvil 的「Relations 是 in-app only」对 Pinax 是警告 —— Pinax 当前 `Notes.vue:837-840` `goToComics()` 跨页参数就是 in-app only，要不要暴露成「可导出 / 可 import」的 format？
+
+### §J.总结
+
+**当前 Pinax 跨产品数据流的强项**（代码已验证）：
+- 单向跨页路由已稳定：5 页 Experience → Writing → Materials → ProseEssay → ComicStudio 链路 + `assetId` / `chapterId` / `roomSlug` / `writingUnit` 4 种跨页参数。
+- 单向跨页 mutation 已 work：`Notes.vue:837-840` `goToComics()` 把 `assetId` 传过去，漫画侧能读到。
+- 世界书对象层已存在（worldbook-workflow skill，AGENTS.md hard rules 表）：Character / Place / Faction 是 first-class entity。
+
+**当前 Pinax 跨产品数据流的缺口**（发散题）：
+- **双向引用** vs 单向跳转：Notion / Airtable / 飞书标配双向；Pinax 当前是单向 router query。
+- **状态广播**：A 改了 B 不知道；Linear / Figma 标配 realtime broadcast。
+- **跨 view 一致性**：Obsidian Bases 标配「同一 entity 多 view」；Pinax 每个 page 是独立 view。
+- **同源真相**：Notion linked database 标配「一个 source 多处 view」；Pinax 每个 page 自己存一份 entity。
+- **自然语言跨页查询**：Notion AI 标配；Pinax 用户必须自己跳 page。
+- **关系图可视化**：Kanka / World Anvil 标配 mapper；Pinax 没有 `map-engine-workflow` 风格的关系图（map 引擎有但不是关系图）。
+- **automation trigger 链**：Airtable / 飞书标配；Pinax 没有「A 改了自动触发 B」机制。
+- **设计 token 跨项目复用**：Figma 标配 library；Pinax 没有「palette / bible 跨项目复用」机制。
+
+**10 条灵感模式全景矩阵**（按 §J.0 五命题聚类）：
+
+| 灵感 | 数据所有权 | 单向 vs 双向 | 状态广播 | 跨 view 一致性 | 同源真相 | 主要外部源 |
+|---|---|---|---|---|---|---|
+| §J.1 Notion LDB+Relation+Rollup | (master) | 双向 | (rollup) | | ✓ | Notion |
+| §J.2 Obsidian Bases | (frontmatter) | (单/双) | (reactive) | ✓ | ✓ | Obsidian v1.9 |
+| §J.3 Airtable Linked + Automation | | ✓ | ✓ | | (chain) | Airtable |
+| §J.4 Kanka Relations + Mapper | (typed) | (typed) | | (map) | ✓ | Kanka.io |
+| §J.5 飞书 / 钉钉 双向关联 | | ✓ | (auto) | | (中文化) | 飞书 bitable / 钉钉 |
+| §J.6 Notion AI 跨表查询 | (RAG) | | | (LLM) | | Notion AI |
+| §J.7 Figma Shared Library | (token) | | (sync) | ✓ | ✓ | Figma |
+| §J.8 Linear 状态机 + 多 view | (state) | | ✓ | ✓ | ✓ | Linear |
+| §J.9 AO3 / 起点 / Lofter | (cross-work) | (fanfic) | | (tag) | | AO3 / qidian |
+| §J.10 World Anvil API 高墙 | (gate) | | | | | World Anvil (反例) |
+
+**对 §A-§I 跨场景一致性的协同提示**（不写实现方案，仅作轴线）：
+- §J.1 Notion Relation 的「双向链接」可让 §B「character bible 跨章节共享」从「手动复制」升级为「双向链接 + 自动 sync」。
+- §J.2 Obsidian Bases 的「同一 entity 多 view」可让 §C「panel-level 多方案候选」从「candidates[] 数组」升级为「同 plan 的 table / cards / map view」。
+- §J.3 Airtable Automation 的「改 A 自动 trigger B」可让 §D「panel 改了同步 comic page status」从 manual 升级为 reactive。
+- §J.4 Kanka Relation Mapper 的「typed relation + 可视化」是 §A / §B / §C 综合时的「世界关系图」候选。
+- §J.5 飞书 / 钉钉的「中文办公场景双向关联」是 §H 漫画出版生态的「国内平台对接」参考。
+- §J.6 Notion AI 的「自然语言跨表查询」是 §I 综合时的「跨页 search + cite」入口。
+- §J.7 Figma 的「design token 跨 file 共享」是 §B.9 风格圣经 + §B.12 color script 的「跨项目复用」基础。
+- §J.8 Linear 的「状态机 + 多 view」是 §H「漫画连载状态」跨 page view 一致性的参考。
+- §J.9 AO3 / 起点 / Lofter 的「跨作品关联」是 §L 跨媒体 IP 生态的「同人 / 衍生」视角。
+- §J.10 World Anvil 的「API 高墙」是反面案例 —— Pinax 当前 local-first + open 是相对优势，未来云化时不要学它。
+
+### §J.Open questions
+
+下列问题在落地前需要 Codex 主 session / 用户拍板，**不是本调研的结论**：
+
+1. **双向链接要不要做？** —— Notion / Airtable 标配；Pinax 当前的「单向 router query」够不够？做双向需要 Vue 3 reactive event bus + IndexedDB observer，工作量与产品价值排序如何？
+2. **同源真相要不要做？** —— 是把 `chapterId` 升级为 master entity（所有 page 都引用），还是继续「每个 page 自己存一份」？前者改动大但 consistency 高，后者改动小但「同改一处忘改另一处」风险持续。
+3. **跨 view 一致性要不要做？** —— 是把 narrativeAsset 升级为「同一 entity 多 view」还是保持「每页自己写 render」？前者需要 Vue 3 store + reactive 重构。
+4. **关系图可视化要不要做？** —— Kanka / World Anvil 标配；Pinax 当前没有 mapper；要不要做？做的话是「剧情关系图」还是「world map」还是两者？
+5. **automation trigger 链要不要做？** —— Airtable / 飞书标配；Pinax 当前 manual；要不要做？做的话 trigger 边界在哪（「改漫画 panel 自动改 chapter status」算不算越权）？
+6. **设计 token 跨项目复用要不要做？** —— Figma library 标配；Pinax 当前 palette / bible 是 per-project；要不要做 export/import JSON 风格的 library？
+7. **自然语言跨页查询要不要做？** —— Notion AI 标配；Pinax 当前 activatedLore 是 session-local；要扩到 full library 索引吗？成本（tokenize）vs 价值（用户体验）怎么平衡？
+8. **World Anvil 反面案例如何避免？** —— Pinax 当前是 open + local-first，云化时如何保持数据可导出 / 可删除（GDPR 友好）？
+
+### §J.引用源
+
+**已核实（一手 WebFetch）**：
+- https://obsidian.md/help/bases —— ✓ Obsidian Bases v1.9 是 core plugin，把 frontmatter 当 database columns；table / list / cards / map 多 view 共享同一份数据。
+
+**通过 WebSearch 二手整理（✓ 多源印证但未直接 fetch 原文）**：
+- Kanka.io Relations（https://docs.kanka.io/en/latest/entities/relations.html）—— relation 类型 + Target Entity + 可选 pivot + 可视化 Relation Mapper。
+- Airtable Linked Records + Automations（https://support.airtable.com/docs/linking-existing-records-using-automations + https://support.airtable.com/docs/understanding-linked-record-relationships-in-airtable）—— 双向 linked record + 跨表 automation trigger。
+- Notion AI Q&A Cross-Database（WebSearch 2025-2026 多个二手源：notionvip.com / thomasmans 等）—— 自然语言跨 database 查询，beta 状态。
+- 飞书多维表格 + 钉钉智能表格（WebSearch 2026 多个中文二手源）—— 双向关联字段 + 跨表 automation；飞书在「显示字段」粒度更细，钉钉与审批 / 聊天集成更深。
+- World Anvil API（WebSearch 2024-2025 多个 dev forum / Reddit 帖）—— paid tier + 申请制 + 文档稀缺 + Relations 是 in-app only；反面案例。
+- AO3 共同 work（WebSearch 2025 豆瓣二手源 + WebSearch 「AO3 Archive of Our Own 与中文网文生态」）—— 基于 Rails + MediaWiki/Dreamwidth 风格协同编辑 + 版本历史 + 跨作品 inspired by / remix of 字段。
+
+**未做 / 不可访问**：
+- 2026-08-18 WebSearch 部分返回中文 SEO 内容（飞书 / 钉钉 / 起点中文网结果被 SEO 内容稀释），可信度靠多源 cross-check。
+- Notion 官方 relations & rollups 文档（notion.com/help/guides/relations-and-rollups）WebFetch 返回 301 / 404（2026-08-18），**I cannot verify** Notion 官方文档当前 URL 状态。
+- Kanka.io Wikipedia 条目（en.wikipedia.org/wiki/Kanka_(software)）WebFetch 返回 404，**I cannot verify** 该 Wikipedia 条目是否存在。
+- Figma 官方 help center 文档（help.figma.com）未直接 fetch，**I cannot verify** Figma Variables 当前具体 schema。
+- Linear 官方文档未直接 fetch，**I cannot verify** Linear 状态机当前具体 status enum。
+
+**不计入灵感但提及的产品**：
+- **Confluence Page Properties + Page Property Report** —— Atlassian Confluence 的 page-level structured data，与 Notion LDB 类似但更 wiki 风格，未深挖。
+- **Coda Tables + Packs** —— Coda 把 table + doc + app 合并，与 Notion 类似但更 app-like；未深挖。
+- **Smartsheet** —— 项目管理 + 表格 SaaS；未深挖。
+- **Monday.com** —— 跨表自动化 SaaS；未深挖。
+- **Basecamp / Asana** —— 项目管理；未深挖。
+
+## §K 多 agent 协作创作（Multi-Agent Collaborative Creation）
+> **调研人**:K（并行 agent）。**scope**:multi-agent LLM 框架 / 多人共创平台 / 创作助手 prompt stack
+>
+> **重点产品 / 范式**：Multi-agent LLM 框架（MetaGPT / CAMEL / ChatDev / AutoGen / LangGraph / CrewAI / Swarm）/ 多人共创平台（AO3 / Lofter / 起点多人作品 / 同人 co-writing / Wattpad / 协作翻译 / 同人 co-creating）/ 创作助手多 prompt stack（Sudowrite 动作族 / NovelAI 三层注入 / Lex AI Prompts）/ Devin / Cursor Composer 模式 / Pinax advisor (writing / material / creative / agent)
+>
+> **Pinax 现状锚点**：已有 advisor 系统（`useAdvisor` compos）+ 多个 scope（writing / materials / canvas）+ 创意顾问 / 素材顾问 / 角色顾问 / 编导顾问 launcher + AdvisorPanel 弹窗。但 advisor 是单轮 LLM 调用，无 multi-agent 协同（plan / critic / writer / illustrator 多 agent pipeline）；advisor 之间无状态共享（writing advisor 不知道 material advisor 看过什么）。
+
+### §K.0 总览：multi-agent 的五个根本命题
+
+把 2024-2026 的 multi-agent LLM 框架、多人共创平台、创作助手 prompt stack 剥到骨头，Pinax advisor 未来要不要升级为 multi-agent pipeline 这一题，归根结底是五个相互耦合的根本命题。任何具体的灵感条目都是这五个命题的不同组合：
+
+1. **角色分工（role split）** —— 谁负责什么。LLM 框架侧显式拆 planner / critic / writer / illustrator / editor 五种 persona（CAMEL Workforce、CrewAI Crews、MetaGPT SOP）；同人 co-writing 圈通常只有 シナリオ（原案/剧情）+ 原画（人设/插画）+ 着色 + 校对，AI 时代还加 "AI prompt engineer" 这一隐形角色。
+2. **通信协议（communication protocol）** —— 角色之间怎么讲话。Swarm 的 handoff（function 返回另一个 agent）/ LangGraph 的图节点消息 / MetaGPT 的 SOP 阶段交接 / ChatDev 的 chat-chain / AO3 的"challenges + collections"异步信号，协议从 RPC 到异步图到论坛帖各异。
+3. **状态共享（state sharing）** —— 谁知道什么。CrewAI 的 typed state、LangGraph 的短期 + 长期 memory、Swarm 的 `context_variables` dict、CAMEL 的 Memory blocks；多人共创里状态共享退化为"评论区 + QQ 群截图 + 共享文档链接"，AI 时代可被 first-class 取代。
+4. **评审循环（critic / review loop）** —— 谁来打分。CAMEL 显式 CriticAgent + verifier、ChatDev Reviewer、MetaGPT 通过 SOP handoff 隐式评审、Claude Code 的 plan approval gate、Cline Plan→Act→回 Plan 循环；同人圈由"编辑 + 校对"承担，AI 时代可被 LLM-as-judge 取代。
+5. **失败回滚（failure rollback）** —— 改错了怎么办。Cline Checkpoints、Cursor Checkpoints（本地文件级快照）、Claude Code 无内置快照靠 Git、Devin Docker sandbox 重置；Pinax advisor 当前的 `updateAdvisorResultStatus('applied' | 'stale' | 'failed' | 'completed')` + `undo-result` 事件是最朴素的回滚（让用户撤销上一次 apply），但不是 plan 级回滚。
+
+外部范式与 Pinax 现状对照：
+
+- **Pinax advisor 是单轮 LLM 调用**（`useAdvisor` 里 `requestAdvisorTask` 一次性发起 `await requestAdvisorTask({...target}, () => built.context)`，composable 暴露 `advisorOpen / advisorMessages / advisorResults / advisorLoading / pendingReviewCount / askAdvisor / dismissResult / updateAdvisorResultStatus`，无内部角色拆分）。
+- **多个 advisor scope 是平行的**：ProseEssay 有 `canvasAdvisorActions`、Notes 有 `materialAdvisorActions`、Experience 页用 GmPersonaLauncher 暴露素材 / 编导 / 角色等角色 launcher（同一份文件 `src/components/gm-persona/GmPersonaLauncher.vue`，每个 page 传不同 role list），但 scope 之间不串数据（writing advisor 看不到 material advisor 提了哪些建议）。
+- **GmPersonaLauncher 已经按"角色分工"思路萌芽**（编导 / 素材 / 角色 三种 persona launcher 分别触发不同 ask），但每个 persona 内部还是单轮 LLM，无 planner / critic / executor 子角色。
+
+下面 9 条灵感分别对应「advisor 单轮 → multi-agent 协同」的某个具体改进方向。**所有灵感都只是"模式"，不写 Pinax 的具体 schema、provider、prompt、流程图**，留给后续 plan 阶段。
 
 ---
 
-### §H.1 「Webtoon Canvas 标准画布」模式（800×N px 纵向条漫）
+### §K.1 「Planner → Writer → Critic」三角色 pipeline（CAMEL 范式）
+
+- **模式名**：Three-Role Planner/Writer/Critic Pipeline（三角色流水线）
+- **源产品 / 范式**：CAMEL（camel-ai.org）的 Workforce / CriticAgent 范式 + LangGraph（langchain-ai/langgraph）graph node 分工。CAMEL 在 2024-2025 演化出 Workforce 概念，用 CriticAgent + verifier pipeline 做任务校验；LangGraph 用 typed graph state + interrupt 让人在中间节点介入。
+- **机制简述**（≤ 80 字）：任务先经 Planner 生成大纲 / 拆分 sub-task，再由 Writer 写出草稿，最后由 Critic 评分或修改意见，循环 N 轮直到 Critic 接受或人介入。
+- **Pinax 摩擦对应**：当前 `askAdvisor({...target}, () => built.context)` 是单轮 LLM 调用，结果直接进 `advisorResults`。如果 advisor 内部跑 Planner→Writer→Critic 三步，可以把"问 advisor"从"拿一个答案"变成"拿一个被验证过的方案"，更接近真人编辑部的审稿流。
+- **为什么不算实现方案**：模式只指出「plan → write → critic 三步」是 2024-2026 multi-agent 主流 pattern（CAMEL ✓、LangGraph ✓、CrewAI manager agent ✓），**不规定** Pinax 应当用 LangGraph graph 还是 CrewAI Crew 还是自写 coordinator loop，也不规定 Critic 的评分 prompt 怎么写、跑多少轮算过。
+- **可行性疑点**：(a) Pinax advisor 现状是「单次返回 ≤ 2K token」的经验值（参考 advisorResults 在 AdvisorPanel 的渲染逻辑），跑三角色 pipeline 会让 token 成本 ×3，用户等 ×3（每步 ≥ 3s LLM 往返）。(b) Planner→Writer→Critic 适合"需要结构化输出的任务"（plan / outline），不适合"小改一处 prose"（粒度不对）。(c) `useAdvisor` 当前是 composable（前端状态机），加 multi-agent 协调层是 server-side 还是 client-side 还是 worker thread？需要产品拍板。
+
+### §K.2 「SOP 角色阶梯」流水线（MetaGPT 范式）
+
+- **模式名**：SOP Stage Pipeline（角色阶梯 / 标准化操作流程）
+- **源产品 / 范式**：MetaGPT（github.com/geekan/MetaGPT，69.9k stars）。MetaGPT 把软件公司拆成 PM / Architect / ProjectManager / Engineer / QA，每个角色按 SOP 阶段交接产物（PRD → 设计 → 代码 → 测试），文档传递而非 RPC 调用。
+- **机制简述**：角色按 SOP 顺序交接，每阶段产物是下一阶段的输入；中间产物是"半结构化文档"（不是 final text）。
+- **Pinax 摩擦对应**：Pinax advisor 当前是「问 → 回」两点式（ask → result）。如果给 advisor 加 SOP 阶梯：素材顾问先出"素材盘点" → 编导顾问基于素材出"故事大纲" → 角色顾问基于大纲出"角色对话样本"，三段产物可被用户接受 / 修改 / 拒绝后再走下一步。这与 `useAdvisor` 当前的 `updateAdvisorResultStatus('applied' | 'stale' | ...)` 状态机天然衔接。
+- **为什么不算实现方案**：模式只指出「SOP 阶梯 + 半结构化文档交接」是 MetaGPT 的核心抽象，**不规定** Pinax advisor 应当拆几级（3 级？5 级？）、中间产物的 schema 怎么设计、各级 advisor 之间是并行还是串行、能否让用户跳过中间级。
+- **可行性疑点**：(a) MetaGPT 是"软件公司"模板，Pinax 是"小说创作"模板，岗位对应不直接（Pinax 没有 QA 工程师，但有"读者视角评论员"）。(b) MetaGPT 假设"文档接力"是同步的，Pinax advisor 之间是异步的（用户可能隔天才看中间产物），需要持久化中间产物到 localStorage。(c) Pinax 当前 `materialAdvisorActions` / `canvasAdvisorActions` / GmPersonaLauncher 各 page 是独立 state，SOP 跨 page 串联需要新增"advisor session" first-class 概念。
+
+### §K.3 「Handoff 网状协作」模式（OpenAI Swarm 范式）
+
+- **模式名**：Handoff Network（网状交接 / 任选一 agent 接）
+- **源产品 / 范式**：OpenAI Swarm（github.com/openai/swarm，21.9k stars；**README 明确标 educational / experimental**，已被 OpenAI Agents SDK 取代为生产推荐）。Swarm 用 `client.run()` 主循环 + handoff 函数（agent 函数返回另一个 agent）+ `context_variables` dict 做无状态协作。
+- **机制简述**：每个 agent 自己决定"我处理不了就交给另一个 agent"，handoff 是一个普通函数，没有中央调度器；状态用 dict 显式传递；agent 可以是 persona / workflow / task 同一种 primitive。
+- **Pinax 摩擦对应**：Pinax GmPersonaLauncher 已是"不同 persona 各管一段"的雏形。如果 advisor 内部允许「素材顾问发现自己需要更多信息 → handoff 给角色顾问去问 → 角色顾问回传 → 素材顾问继续」，可以让 advisor 之间动态互调，无需用户在 Launcher 上点来点去。
+- **为什么不算实现方案**：模式只指出"无中央调度 + 显式 context_variables"是 Swarm 的核心抽象，**不规定** Pinax 应当引入 Swarm 的 client.run 主循环（Swarm 是 stateless 的，Pinax 是 stateful），也不规定 handoff 触发条件（什么算"处理不了"？）。
+- **可行性疑点**：(a) Swarm README 自己声明 educational + deprecated 路径，对 Pinax 选型是警示信号。(b) 无状态设计意味着每次 handoff 都要重传 context（Pinax localStorage 体积不算大，但 context 可能含几千字 chapter context），有 token 浪费。(c) Pinax `useAdvisor` 当前是单 composable 多 state，引入"agent 之间 handoff"需要在 composable 内部加小型 message router，是新基建。
+
+### §K.4 「A2A 跨 agent 协议」模式（Agent-to-Agent Protocol）
+
+- **模式名**：A2A Interop Layer（跨 agent 通信协议）
+- **源产品 / 范式**：Microsoft AutoGen 2025 起对接 A2A + MCP（github.com/microsoft/autogen，60.5k stars；维护模式，由 Microsoft Agent Framework 接班）+ LangGraph 的 graph node-to-node message-passing + Google A2A 协议（github.com/a2a-protocol/a2a-protocol — **I cannot verify** 当前具体 URL 与活跃度）。
+- **机制简述**：不同 agent 框架之间用统一协议（A2A）通信，每个 agent 暴露自己的 capability + endpoint，其他 agent 通过 A2A 发现并调用。MCP（Model Context Protocol）则是工具层协议，与 A2A 是正交关系。
+- **Pinax 摩擦对应**：Pinax 当前 advisor scope 是 page-local（ProseEssay 的 advisor 不知道 Notes 的 advisor 在做什么）。如果引入 A2A / 共享 event bus，可以让 material advisor 写过"这里有个适合做章节封面的构图"被 imageGenerationWorkbench 的 advisor 看到，跨 page 串起来。
+- **为什么不算实现方案**：模式只指出"A2A / MCP 是 2024-2026 跨 agent 互通的官方动向"，**不规定** Pinax 是自建 event bus 还是接现成 A2A SDK（**I cannot verify** Pinax browser 环境是否能跑完整 A2A server），也不规定协议粒度（page 级 / advisor 级 / result 级）。
+- **可行性疑点**：(a) A2A 协议仍在 early 阶段，Pinax 接的时机与版本需要等待 ecosystem 收敛。(b) Pinax 是 browser-only + localStorage，A2A server 通常假设 server-side，多 agent 协议在 browser 里跑要走 WebSocket / Worker / SharedWorker，新架构。(c) 跨 page advisor 共享意味着用户隐私边界问题（material advisor 看到的角色信息会泄露到 canvas advisor 吗？）需要 user control。
+
+### §K.5 「AO3 Co-creator Credit」模式（多人共创的 credit 元数据）
+
+- **模式名**：Co-Creator Metadata（多人创作者署名 + 角色元数据）
+- **源产品 / 范式**：AO3（archiveofourown.org）— 单个 work 可挂多个 co-creator 字段；OTW 不主张版权，作者各自按 CC 协议声明（默认 BY-NC-SA）。Wattpad 也有 co-author 字段，但收益归主账号。
+- **机制简述**：作品 metadata 显式声明"谁参与了哪部分"，每个 co-creator 拿到独立 credit 与 profile 链接；不强制实时协同，可在外部协调后由主创者合并并 add co-creator。
+- **Pinax 摩擦对应**：Pinax GmPersonaLauncher 把素材 / 编导 / 角色 / 创意 / 编导五类顾问视作"AI 角色"，无 credit 字段。如果未来 Pinax 引入 multi-agent pipeline，每个 agent 的"贡献"应当可被记入 advisor session 历史（哪段建议来自哪个 agent），便于事后审稿 / 调试。
+- **为什么不算实现方案**：模式只指出"credit 元数据 + profile 链接"是 AO3 共创 UX 的硬基础，**不规定** Pinax advisor 是否要把每个 agent 视为"虚拟 co-creator"（带 profile + avatar + 历史建议 record）。
+- **可行性疑点**：(a) Pinax advisor 当前是 anonymous 的 LLM 角色，没有 persistent identity（不像 Lofter 用户那样有 profile 页）。(b) AO3 co-creator 是真人，Pinax agent 是 LLM persona，把两者拉平会让用户混淆"这是真人贡献还是 AI 贡献"——与 §H.10 AI 披露政策冲突。(c) credit 字段对 Pinax 单用户场景价值有限（不会分享 advisor session 给别人看），除非引入"多人共创 + advisor 协作"。
+
+### §K.6 「起点 / 阅文联合作品」模式（中文网文多人作品）
+
+- **模式名**：联合作品 + 主创 + 副创（Co-Authored Web Novel）
+- **源产品 / 范式**：起点中文网（qidian.com）"联合作品 / 合作小说" 标签 — 多位作者同署一本小说，阅文集团签约时即声明收益分成（典型 50/50 但可议）；也有"代笔"（ghost-writing）情况。同样模式在番茄小说 / 七猫等中文网文平台存在。
+- **机制简述**：合同级 multi-author，不是协同编辑器，是收益分成协议 + 文字接力（每章不同作者写，最后合并上平台）。
+- **Pinax 摩擦对应**：Pinax 当前是单用户单作品，没有"收益分成"概念。如果未来做"团队创作包"或"创作合作社"，advisor 不仅是 AI 助手，还可能协调多作者（如"编导 agent 调度 author A 写第三章、author B 写第四章、critic agent 审稿"），与起点模式可对标。
+- **为什么不算实现方案**：模式只指出"主创 + 副创 + 收益分成"是中文网文产业现实，**不规定** Pinax 是否要做"团队包"产品线，也不规定收益分成的具体方案（纯订阅 / 一次性买断 / 分成比例）。
+- **可行性疑点**：(a) Pinax 当前数据存 localStorage，跨用户同步 = 多设备登录，需要后端 + 鉴权，是大改架构。(b) 起点模式要求作者实名 + 银行账号，Pinax 用户多半是匿名创作者，合规链路不同。(c) "代笔"在中文网文圈有伦理争议（原作者 vs 代笔谁拥有 IP？），AI 时代"AI 代笔"问题更严重，需要 Pinax 在 advisor credit 模型里提前想清楚。
+
+### §K.7 「同人 co-writing 圈的原案 + 原画分工」模式
+
+- **模式名**：Scenario + Character Design + Illustration 三段分工（同人圈原案 / 原画 / 着色）
+- **源产品 / 范式**：日本同人 co-writing 圈惯例（pixiv / DLsite / Comiket 内部协议）：一本同人誌通常有「原案（剧情）/ 原画（角色人设）/ 着色（线稿填色）/ 校对（文字）/ 程序（电子版排版）」五个角色，封面 credits 页里逐项列名。同人圈"co-writing"在 Lofter 表现为 `#xxx合志` tag 聚合，由一个主催（总召）协调，文字 / 画作分别在外部工具写好再合并。
+- **机制简述**：分角色 + 离线协调 + 单一出版聚合点（Comiket booth / DLsite product page / Lofter 合志 tag）；没有实时编辑器，每个角色做完各自产物由主催聚合。
+- **Pinax 摩擦对应**：Pinax advisor 的 `materialAdvisorActions` / `canvasAdvisorActions` / `writingAdvisorActions` 各自独立，**没有"合志" / "联合产出"的聚合概念**。如果 advisor 内部支持 scenario agent 写大纲 + character agent 出人设 + illustration agent 配封面，组成"一本合志"的全部产出物，可以对齐同人圈工作流。
+- **为什么不算实现方案**：模式只指出"原案 + 原画 + 着色 + 校对 + 程序"五角色是日本同人产业成熟分工，**不规定** Pinax advisor 是否应当 1:1 镜像这五个 persona、每个 persona 用哪个 LLM 模型、是否要支持真人 + AI 混合（人写文 + AI 出图，或 AI 写文 + 人改图）。
+- **可行性疑点**：(a) 同人圈五角色背后是"专业分工 + 慢节奏"，Pinax 用户期待"AI 加速 + 单人完成"，五个 persona 反而拖慢节奏。(b) 同人圈的"合志 tag 聚合"在 Pinax 是"项目模板"概念，与 worldbook / comic project 边界模糊。(c) DLsite / Comiket 已经对 AI 内容有限制（**I cannot verify** Comiket 2026-08-18 现行 AI 政策细节），Pinax 若对标同人圈就要同步接受合规约束。
+
+### §K.8 「Lofter 合志 + 外部协作」模式（中文 tag 聚合 + 外部协同）
+
+- **模式名**：Tag-Anchored Anthology + Off-Platform Coordination（标签聚合合志 + 平台外协同）
+- **源产品 / 范式**：Lofter（lofter.com）— 同人 co-writing 主要靠 `#xxx合志` tag 把多个独立帖聚合为一组；实际协同在 WeChat / QQ 群 + 石墨文档 / 腾讯文档，平台只承担"发布聚合 + 流量分发"。
+- **机制简述**：平台提供"共同 tag + 联合作品清单"作为聚合层，**所有写作 / 沟通 / 校对发生在外部**；平台不试图替代协同工具。
+- **Pinax 摩擦对应**：Pinax advisor 当前是"平台内置弹窗"，用户问完 → advisor 答 → apply 到 Pinax 数据。这与 Lofter 的"平台外协同"截然相反——Pinax 试图把 advisor 装进 Pinax。如果 advisor 知道自己只能产出"建议"，真正写文还在外部工具（腾讯文档 / Notion），Pinax advisor 就降级为"灵感来源 + 评估员"，不抢写作工具饭碗。
+- **为什么不算实现方案**：模式只指出"平台 = 聚合 + 评估，写作 = 外部工具"是 Lofter 模式的核心，**不规定** Pinax advisor 是否要把"外部工具"也纳入 advisor scope（如 advisor 直接读写腾讯文档 / Notion via MCP）。
+- **可行性疑点**：(a) Pinax advisor 当前的强项是"读用户当前在写的 chapter context"（built.context 从 page state 提取），让 advisor 改写到外部文档就断开了上下文优势。(b) MCP server 在 2024-2026 渐成标准（AutoGen、Cursor 都支持），Pinax advisor 接 MCP 是远期但可行方向（**I cannot verify** MCP server 接入 browser-only Pinax 的稳定性细节）。(c) Lofter 的 tag 聚合机制对 Pinax 借鉴价值是"轻量 metadata + 不强制统一编辑器"，但 Pinax 当前已经把数据绑死在 localStorage，迁移成本高。
+
+### §K.9 「Plan-and-Act 双模式切换」模式（Cline / Claude Code 范式）
+
+- **模式名**：Plan-Then-Act Dual Mode（规划→执行双模式 + 可回切）
+- **源产品 / 范式**：Cline（docs.cline.bot/features/plan-and-act；github.com/cline/cline）Plan Mode 只读 + Act Mode 写入 + `/deep-planning` slash command；Claude Code Plan Mode（code.claude.com/docs/en/plan-mode）通过 `EnterPlanMode` / `ExitPlanMode` 工具切换 + Subagents。
+- **机制简述**：UI 暴露两种模式（Plan 只读 / Act 可写），Plan 完成后必须用户显式批准才能 Act；执行中遇到意外可随时回 Plan 模式重规划。可选不同模型给不同模式。
+- **Pinax 摩擦对应**：Pinax advisor 当前没有"只读 / 可写"模式切换——`AdvisorPanel` 的 `apply-result` 按钮是用户主动触发，但 advisor 输出结果时已经默认包含「可 apply 的 action list」。如果 advisor 引入 Plan → Act 切换，让用户在 Plan 阶段先看到"AI 想改哪些字段"，批准后才真改，会更接近真人编辑"先讨论大纲再动手"的习惯。
+- **为什么不算实现方案**：模式只指出"Plan/Act 双模式 + 用户批准 gate"是 2025-2026 SWE agent 的事实标准（Cline ✓、Claude Code ✓、Cursor Plan Mode ✓），**不规定** Pinax advisor 是加 UI 开关还是默认两阶段、批准 gate 是 modal 还是 inline。
+- **可行性疑点**：(a) Pinax advisor 当前 UX 是"问一下 → 给个建议 → 用户 apply"，加 Plan/Act 切换会让简单改字段的任务变两段，UX 重。(b) Claude Code 的 Plan Mode 通过 `EnterPlanMode` 工具实现，是 deep harness 集成，Pinax 的 Vue composable 抽象层做这件事需要新设计。(c) "Plan 阶段就重 IO（调 LLM 出 plan 文本）"对简单任务浪费，Pinax advisor 需要"何时走 Plan → Act、何时单步" 的复杂度分级。
+
+### §K.10 「Subagent 短命分诊」模式（Claude Code Subagents）
+
+- **模式名**：Ephemeral Subagent（短命子 agent / 一次性分诊）
+- **源产品 / 范式**：Claude Code Subagents（code.claude.com/docs/en/plan-mode 与 subagents 文档，**I cannot verify** 当前 subagent 文档 URL 仍然精确）+ Cursor Subagents（cursor.com/docs Customization 段）。Subagent 是 main agent 在一次任务中临时 fork 的"子 agent"，有独立 context、独立模型、读完就丢；只有 final output 返回 main agent。
+- **机制简述**：Main agent 遇到需要专门处理的子任务（如"读这个 50KB 文件" / "调这个 API"），临时 fork 一个 subagent；subagent 读完只回一个 summary / 结果给 main agent，subagent 自己的 conversation history 被丢掉，context window 留给 main agent 后续用。
+- **Pinax 摩擦对应**：Pinax `useAdvisor` 当前 context 是 page-local（ProseEssay 的 advisor 看的是 ProseEssay page state）。如果 advisor 在回答用户问题时临时 fork 出"material subagent"去翻素材页 + "worldbook subagent"去查世界书条目，回传"找到的 3 条相关素材 + 2 条世界书约束"给主 advisor，主 advisor 综合出建议，context 不爆炸。
+- **为什么不算实现方案**：模式只指出"短命 subagent + 独立 context + 输出压缩"是 2024-2026 长上下文任务的主流 pattern，**不规定** Pinax advisor 应当 fork 几个 subagent（1 个？3 个？动态？）、subagent 之间能不能互调、subagent 输出格式是什么。
+- **可行性疑点**：(a) Subagent 在 Claude Code 是 harness 概念，Pinax advisor 是 Vue composable，要做 subagent 需要新的 runtime（Web Worker / server-side / pinned thread），不是简单 composable 改造。(b) "读完就丢"对 Pinax localStorage 持久化场景不友好（用户希望 advisor session 历史可回看），subagent 的中间产物要么写回 localStorage（增加 schema），要么丢（丢失中间产物）。(c) Subagent 输出压缩的 prompt 怎么写是开放问题（要 summary 还是 JSON？），需要落地实验。
+
+### §K.11 「ChatDev Reviewer 角色 + Chat-Chain」模式（公司型 chat chain）
+
+- **模式名**：Reviewer-in-Chain（聊天链中的评审节点）
+- **源产品 / 范式**：ChatDev（github.com/OpenBMB/ChatDev，34k stars）— CEO / CTO / Programmer / Reviewer / Designer 通过 chat-chain 协作，每两个角色之间的 chat history 是一段对话，Reviewer 角色专门做代码 review 与反馈；ChatDev 2.0（2026-01）引入 DAG-based MacNet + RL "puppeteer" 协调器。
+- **机制简述**：把整个创作任务切成 chat chain（CEO 决策 → CTO 设计 → Programmer 实现 → Reviewer 反馈 → 循环），每个 chat 是 1-3 轮 LLM 交互；reviewer 角色输出 reject 触发回到 Programmer。
+- **Pinax 摩擦对应**：Pinax advisor 当前没有"reviewer"角色。如果给 advisor 加 reviewer sub-role（写作 advisor 给出建议 → reviewer advisor 评估建议质量 → 评分低则重写），可以提高 advisor 输出可信度，对应 §H.10 的 AI 披露 + §B 视觉圣经需要"经过评审的产出物"的需求。
+- **为什么不算实现方案**：模式只指出"chat chain + reviewer 角色"是 ChatDev 2.0 的核心抽象，**不规定** Pinax advisor 是把 reviewer 做成独立 persona 还是 subagent、reviewer 的评分标准怎么定义（factual accuracy / style consistency / Pinax 上下文一致性？）、评分低到什么程度重写。
+- **可行性疑点**：(a) "reviewer 评估 LLM 建议"在 small model 上是 LLM-as-judge 已知问题（自评偏差），需要至少同档或更高档 model 做 reviewer，token 成本 ×2。(b) ChatDev 模式假设任务有明确"正确性"标准（code 能编译 = 通过），Pinax advisor 建议无客观标准（"建议改这句的措辞"很难 validate 对错）。(c) Pinax advisor 是用户驱动的（用户问 → 答），reviewer loop 会让用户等更久。
+
+### §K.12 「LangGraph Typed State + Interrupt」模式（图状态机 + 中断检查点）
+
+- **模式名**：Graph State + Human-in-the-Loop Interrupt（带类型的状态图 + 可中断）
+- **源产品 / 范式**：LangGraph（github.com/langchain-ai/langgraph，39.9k stars；LangSmith Deployments 配套）— 借鉴 Pregel / Apache Beam 的图模型 + NetworkX 风格 public API + typed graph state（短期 + 长期持久 memory） + interrupt（在任意节点暂停让人介入 / 修改 state）。
+- **机制简述**：advisor 任务被建模为节点 + 边的图，每个节点是 LLM 调用 / 工具调用 / 用户输入；typed state 在节点之间流动；可在任意节点暂停让用户改 state 后再继续；持久 memory 跨 session。
+- **Pinax 摩擦对应**：Pinax advisor 当前的 `advisorMessages / advisorResults` 是线性数组，不是图。如果用 LangGraph-like state machine 表达 advisor 流程（Plan node → Ask-User node → Apply node → Review node），可让用户在任意节点暂停 / 修改，让 advisor 流程可回放 / 可分支。
+- **为什么不算实现方案**：模式只指出"图状态机 + interrupt + typed state"是 LangGraph 的核心抽象，**不规定** Pinax advisor 是否真引入 LangGraph 库（LangGraph 是 Python，Pinax 前端是 Vue 3 + Vite，不是直接兼容），也不规定 advisor 流程图的 schema 长什么样。
+- **可行性疑点**：(a) Pinax 前端是 Vue 3 + JS，LangGraph 是 Python，跨语言集成要么 server-side、要么 client-side 用 LangGraph.js（**I cannot verify** LangGraph.js 当前 production readiness）。(b) 图状态机对简单 advisor 任务过重（plan → ask → apply 三步用状态机表达比线性数组啰嗦 3 倍）。(c) "持久 memory 跨 session"对 Pinax localStorage 模型是 schema 大改（要从 per-page state 改到 per-project typed state graph）。
+
+---
+
+### §K.总结
+
+#### §K.总结.1 收敛点（多源印证 🟢）
+
+| 命题 | 主流 multi-agent LLM 框架答案 | 主流多人共创平台答案 | Pinax advisor 现状缺口 |
+|---|---|---|---|
+| 角色分工 | MetaGPT SOP / CrewAI Crews / CAMEL Workforce（planner / critic / writer 多 persona） | 同人 co-writing 五角色 / AO3 co-creator / 起点主副创 | GmPersonaLauncher 已按角色分工萌芽（编导/素材/角色 launcher），但 persona 内仍是单轮 LLM |
+| 通信协议 | Swarm handoff / LangGraph graph message / MetaGPT 文档交接 | 异步 QQ/微信群 + 共享文档 + tag 聚合 | advisor scope 之间无通信（canvasAdvisorActions 与 materialAdvisorActions 各自独立） |
+| 状态共享 | typed state / context_variables / memory blocks | 评论 + 共享链接 + co-creator credit | localStorage 内部 state，advisor session 之间不串 |
+| 评审循环 | CAMEL CriticAgent / ChatDev Reviewer / Cline Plan→Act 回 Plan | 编辑 + 校对 + 读者反馈 | `updateAdvisorResultStatus('applied'|'stale'|'failed')` 是朴素 apply/rollback，无 plan 级回滚 |
+| 失败回滚 | Cline / Cursor Checkpoints / Devin sandbox reset | 重写 / 删帖 / 撤回 | `undo-result` 事件是最朴素回滚（撤销上一次 apply） |
+
+**多源印证**：
+- 「planner → writer → critic」三角色是 2024-2026 multi-agent 主流 pattern（CAMEL ✓、LangGraph ✓、CrewAI ✓、MetaGPT 通过 SOP 隐式评审 ✓）—— **🟢 多源收敛**
+- 「Plan / Act 双模式 + 用户批准 gate」是 SWE agent 事实标准（Cline ✓、Claude Code ✓、Cursor Plan Mode ✓）—— **🟢 多源收敛**
+- 「Ephemeral Subagent 短命分诊」是长上下文任务主流解（Claude Code ✓、Cursor Subagents ✓）—— **🟢 多源收敛**
+- 「公开平台都没有 first-class planner / writer / illustrator / editor 分工 schema」—— AO3 / Wattpad / Qidian / Lofter / pixiv / DLsite / FFN 全是单作者 + 可选 co-creator credit，**🟢 多源收敛**（除 轻之文库 / 动漫之家 翻译圈有 thread 级 project metadata 之外，无平台 schema 化）
+
+#### §K.总结.2 Pinax 现状摩擦映射
+
+| 摩擦点 | §K 灵感 | 灵感 ID |
+|---|---|---|
+| `useAdvisor` 是单 composable 多 state，advisor 内部是单轮 LLM 调用 | Planner → Writer → Critic 三角色 | §K.1 |
+| advisor scope 之间无通信（canvasAdvisorActions / materialAdvisorActions 各自独立） | SOP 阶梯 + 半结构化文档交接 | §K.2 |
+| advisor 内部不能让 agent 之间动态互调 | Swarm handoff 网状协作（标 educational 警示） | §K.3 |
+| 跨 page advisor 状态不串（ProseEssay advisor 看不到 Notes advisor 提过什么） | A2A 跨 agent 协议 + 共享 event bus | §K.4 |
+| advisor 没有"贡献"credit / agent profile | AO3 co-creator credit 元数据 | §K.5 |
+| advisor 输出不可追溯（用户不知道哪条建议来自哪个 agent） | 起点 / 阅文联合作品 credit 模型 | §K.6 |
+| GmPersonaLauncher 已有素材 / 编导 / 角色 persona 但每个 persona 内单轮 | 同人圈原案 / 原画 / 着色五角色分工 | §K.7 |
+| advisor 强绑定 Pinax 内部 page state，不能借外部工具 | Lofter 标签聚合 + 平台外协同 | §K.8 |
+| advisor apply 是一次性动作，无 Plan / Act 区分 | Plan-Then-Act 双模式切换（Cline / Claude Code） | §K.9 |
+| advisor context 限于 page-local，看不到素材页 / 世界书的远端 context | Subagent 短命分诊（Claude Code / Cursor） | §K.10 |
+| advisor 输出无 reviewer，可信度靠用户自己判断 | ChatDev Reviewer 角色 + chat-chain | §K.11 |
+| advisor session 是线性数组，不能在任意节点暂停 / 回放 / 分支 | LangGraph typed state + interrupt | §K.12 |
+
+#### §K.总结.3 Open Questions（§I 综合时需用户拍板）
+
+1. **Pinax advisor 是否升级为 multi-agent pipeline？** —— 是只升级 useAdvisor 的内部结构（Planner/Writer/Critic 三步）？还是把 advisor 拆成多个独立 persona 各跑各的？还是引入 LangGraph 类图状态机？这三种深度递增、维护成本递增。
+2. **跨 page advisor 状态共享的边界？** —— material advisor 看到的"这张图适合做章节封面"要不要让 canvas advisor 看到？需不需要用户显式授权（隐私 / 数据共享）？是 push（自动同步）还是 pull（按需查询）？
+3. **AI advisor 的 credit 模型？** —— advisor 输出要不要带"由 X persona 在 Y 步骤生成"的来源标注？是否与 §H.10 AI 披露政策冲突？是否对用户隐藏内部 agent 身份只暴露总建议？
+4. **advisor 是否接外部工具？** —— MCP server 在 2024-2026 渐成标准，Pinax advisor 是否要支持读腾讯文档 / Notion / GitHub？还是坚持 advisor 只看 Pinax 内部 state？
+5. **Plan / Act 模式如何分粒度？** —— 简单任务（改一处 prose）直接 apply 还是先 Plan 后 Act？需要"自动判断复杂度"还是用户手动选？
+6. **subagent 是否落 localStorage？** —— subagent 中间产物（"读素材页后摘录的 5 条相关条目"）要不要持久化？用户回头看 advisor session 时能否复现 subagent 的中间产物？
+7. **multi-agent 与单 agent 的成本 trade-off？** —— 三角色 pipeline 让 token 成本 ×3，时延 ×3，用户愿意为"被 reviewer 验证过的建议"多花 3 倍钱/时间吗？
+8. **Comiket / DLsite 等同人圈的 AI 限制对 Pinax multi-agent 输出合规的影响？** —— 同人圈对 AI 内容有限制（**I cannot verify** 现行细节），Pinax multi-agent pipeline 输出的内容若进入同人出版链路，需要额外披露层。
+
+#### §K.总结.4 与 §K 外灵感关联（待 §I 综合时合并）
+
+- **§A 角色一致性**：multi-agent pipeline 的 illustrator agent 输出可被 §A 一致性工具（IP-Adapter / `--cref`）约束，是 advisor 的 image-related scope 的天然下游。
+- **§B 视觉圣经**：multi-agent 的 character bible agent 可与 §B 视觉圣经 schema 互锁，advisor 建议 "outfit variant" 时直接更新 character bible。
+- **§C 文字 → 关键帧**：multi-agent 的 planner agent 可跑 Save the Cat beat sheet + emotion curve，是 §C 选点算法的"被调用者"。
+- **§D 漫画分镜**：multi-agent 的 layout agent 可与 §D panel grid 串联（plan agent 出节拍 + layout agent 出 panel）。
+- **§E 漫画 AI 工具**：multi-agent 的 comic agent 输出可被 §E Comica / Story2Board / PixelLab 等工具作为输入 prompt。
+- **§F 镜头语言**：multi-agent 的 shot agent 可让 ProseEssay shot 12 + camera 12 与 ControlNet OpenPose / Reference-Only 形成桥。
+- **§G 传统插画师**：multi-agent 的 style agent 可让 §G 传统插画师 workflow（turnaround / expression sheet）作为 persona 的 prompt 模板。
+- **§H 漫画出版**：multi-agent 的 export agent 可串起 §H KDP POD / MangaPlus 多语言 / Webtoon 800px 等导出层元数据。
+- **§J 跨产品数据流**：multi-agent pipeline 本身就是 §J 跨产品数据流的高级形态（不只是数据共享，而是协同生产）。
+
+---
+
+### §K.引用源
+
+#### 已核实（✓）
+
+- **OpenAI Swarm**（https://github.com/openai/swarm）—— ✓ WebFetch 确认 README 明确标 educational / experimental + 推荐迁移到 OpenAI Agents SDK；core abstractions = agents + handoffs；stateless + client-side + `client.run()` 主循环
+- **MetaGPT**（https://github.com/geekan/MetaGPT）—— ✓ WebFetch 确认 69.9k stars + SOP 范式 + PM/Architect/Engineer/QA 角色分工 + 商业产品 MGX.dev（2025-03 推出）
+- **CAMEL**（https://www.camel-ai.org）—— ✓ WebFetch 确认 Workforce / CriticAgent 范式 + 200+ contributors + Memory blocks（ChatHistory / VectorDB / ScoreBasedContextCreator）+ 与 Langfuse / AgentOps 集成
+- **AutoGen**（https://github.com/microsoft/autogen）—— ✓ WebFetch 确认 60.5k stars + Core + AgentChat 双 runtime + 维护模式（"no new features or enhancements"）+ 接班为 Microsoft Agent Framework + MCP via McpWorkbench
+- **LangGraph**（https://github.com/langchain-ai/langgraph）—— ✓ WebFetch 确认 39.9k stars + graph state + interrupt + 短期 / 长期 memory + LangSmith Deployments 配套 + Deep Agents 高层封装 + MIT
+- **ChatDev**（https://github.com/OpenBMB/ChatDev）—— ✓ WebFetch 确认 34k stars + chat-chain 1.0 + DAG-based MacNet + ChatDev 2.0（2026-01）+ Reviewer 角色 + Docker / FastAPI / Vue 3 frontend
+- **CrewAI**（https://github.com/crewAIInc/crewAI）—— ✓ WebFetch 确认 57.2k stars + Crews + Flows（`@start` / `@listen` / `@router` 装饰器）+ AMP Suite（Control Plane + Enterprise Support）+ MCP + A2A 支持
+- **Devin**（https://cognition.ai/devin）—— ✓ WebFetch 确认 Cognition AI 主页 + Devin 产品页；⚠️ 内部 planner / executor / browser sub-agent 拆分为第三方报道，Cognition 未公开
+- **Cursor Agent docs**（https://cursor.com/docs/agent/overview）—— ✓ WebFetch 确认单 composed Agent 抽象 + Checkpoints 本地快照机制 + Subagents 在 Customization 段
+- **Cline Plan & Act**（https://docs.cline.bot/features/plan-and-act）—— ✓ WebFetch 确认 Plan Mode（只读）+ Act Mode（可写）+ `/deep-planning` slash command + Checkpoints feature + 不同 mode 可不同模型
+- **Claude Code Plan Mode**（https://code.claude.com/docs/en/plan-mode）—— ✓ WebFetch 确认 `EnterPlanMode` / `ExitPlanMode` 工具触发 plan ↔ act 切换 + Subagents（Task tool）+ User approval gate
+- **AO3**（https://archiveofourown.org/admin_posts）—— ✓ 通过 WebSearch 确认 co-creator field + gift exchange + challenge + prompt meme 等 multi-author UX 存在，OTW 反对 AI scraping
+- **Qidian**（https://www.qidian.com）—— ✓ WebSearch 找到 `https://www.qidian.com/chapter/1041875907/807747642/` 联合作品示例；⚠️ 该具体作品是否真实多人创作或只是"多人模式"主题需验证
+- **Wattpad**（https://www.wattpad.com）—— ✓ WebSearch 确认 multi-author stories 存在 + Stars 计划 + WEBTOON Studios 改编管线 + Paid Stories 货币化
+- **FanFiction.net**（https://www.fanfiction.net）—— ✓ WebSearch 确认 co-authored stories + C2 community + beta reader 在 author profile 标注
+- **Lofter**（https://www.lofter.com）—— ✓ WebSearch 确认 tag 聚合 #xxx合志 + 外部（微信 / QQ / 腾讯文档）协同 + 单作者为主
+- **pixiv**（https://www.pixiv.net）—— ✓ WebSearch 确认 group feature + AI 披露政策（必须标签 AI 作品）+ FANBOX / コミック商业化
+- **DLsite**（https://www.dlsite.com）—— ✓ WebSearch 确认 storefront model + 同人誌 / 同人音声 / 独立游戏 + R-18 分级 + revenue share ~30-40%（具体值未核实）
+- **Comiket**（https://www.comiket.co.jp）—— ✓ WebSearch 确认 circle 模式 + 春秋两次展会 + 二次創作ガイドライン 容忍政策 + **⚠️ 2025+ AI 生成同人誌禁售规则详情未核实**
+- **NovelAI docs**（https://docs.novelai.io/textgeneration/frontexplanation.html）—— ⚠️ WebFetch SSL error，未直接核实；但通过 lorebook repo（https://github.com/NovelAI/lorebook）+ 社区 wiki 印证 Preamble / Memory / Lorebook / Author's Note 四层架构
+- **Sudowrite**（https://www.sudowrite.com）—— ✓ WebSearch 确认 Story Bible + Story Engine（Write / Describe / Expand / Rewrite / Generate / Twist / Brainstorm / Canvas）+ Style Engine plugins + Custom Instructions
+- **ChatGPT custom GPTs**（https://help.openai.com/en/articles/8554394-creating-a-gpt）—— ✓ WebSearch 确认 Instructions / Knowledge / Actions / Capabilities / Conversation starters 五层 + builder UI；⚠️ help.openai.com 部分路径 403
+- **Claude Projects**（https://www.anthropic.com/news/projects）—— ✓ WebSearch 确认 Project Instructions + Project Knowledge + chat memory + shared artifacts（Team plan）
+- **Notion AI**（https://www.notion.com/product/ai）—— ✓ WebSearch 确认 Notion Agent + Custom Agents + Research Mode + AI blocks + Database Autofill + Enterprise Search（多 app connector）
+- **Novelcrafter**（https://www.novelcrafter.com）—— ✓ WebSearch 确认 Codex（user-built wiki）+ Scenes + Snippets + Chat + Custom Prompting with variables
+
+#### 未核实（⚠️ / I cannot verify）
+
+- **OpenAI Agents SDK 当前 status vs Swarm** —— WebFetch Swarm README 推荐迁移，但未直接 Fetch Agents SDK 文档核实；**I cannot verify** Agents SDK 是否完全覆盖 Swarm 的 handoff 抽象
+- **A2A Protocol 具体 URL + 当前活跃度** —— WebSearch 提到 `github.com/a2a-protocol/a2a-protocol` 但未直接 Fetch；**I cannot verify** 当前 star 数与维护状态
+- **Devin 内部 planner / executor / browser sub-agent 拆分** —— Cognition 未公开架构，第三方报道（CSDN / 腾讯新闻）描述了拆分但**I cannot verify** 真实内部结构
+- **Codex CLI 内部 multi-agent 架构** —— OpenAI 介绍 GPT-5-Codex 是 single dynamic-compute agent 而非多 agent 编排；**I cannot verify** 是否存在 planner / executor 内部 split
+- **NovelAI Lorebook 文档当前状态** —— docs.novelai.io WebFetch SSL error；lorebook repo + 社区 wiki 印证三层结构但**I cannot verify** 当前 docs 页面可达性
+- **Cursor @-symbol 具体 provider 列表与解析规则** —— WebFetch 部分路径 403；**I cannot verify** 完整 provider 列表（@file / @folder / @codebase / @docs / @web / @git / @lint errors 等）
+- **LangGraph.js production readiness** —— LangGraph 主要是 Python，**I cannot verify** JS/TS 端口当前 production grade
+- **Claude Code subagent 文档 URL** —— 调研期间 subagent 文档 URL 反复变动；**I cannot verify** 当前精确路径
+- **AO3 OTW 关于 AI 作品的具体政策** —— WebSearch 提到 OTW 反对 AI-scraping 但**I cannot verify** 当前明确禁止 AI-generated work 上传的精确条款
+- **Wattpad 2026 contract 详细条款** —— WebSearch 仅确认 broad non-exclusive license + WEBTOON Studios 改编；**I cannot verify** 当前 co-author 收益分成的具体百分比
+- **Qidian 阅文 AI 训练权 / AI 辅助写作 2026 实际功能集** —— WebSearch 提到 阅文作家助手 / AI 续写 / AI 提议 / AI 生成对话；**I cannot verify** 当前 author backlash 状态与具体功能边界
+- **Lofter 2026 monetization revenue share %** —— WebSearch 提到 打赏 / brand partnership / original-IP incubation；**I cannot verify** 当前 revenue share 具体数字
+- **DLsite 2026 AI 内容政策** —— WebSearch 提到 disclosure policies 但**I cannot verify** 2026-08-18 当前上架规则
+- **Comiket 2026 AI 生成同人誌禁售规则** —— WebSearch 提到 2025+ 同人AI禁止宣言 但**I cannot verify** 2026-08-18 现行 catalog 规则细节
+- **"Citrans" 是否为真实协作翻译组** —— WebSearch 未找到具体实体，可能是 generic term；**I cannot verify** 真实存在
+- **轻之文库（lightnovel.us） thread-level project metadata 的精确 schema** —— WebSearch 确认是中文 fan-translation 圈最接近 role-differentiated co-writing 的平台，但**I cannot verify** 翻译 / 校对 / 美工 / 程序 角色是否 first-class schema
+- **arxiv 2024-2026 multi-agent LLM survey 具体 arXiv IDs** —— 已知有 Han et al. "LLM-Based Multi-Agent Systems: A Survey of Recent Advances" 等经典 survey 但**I cannot verify** 精确 URL / arXiv IDs
+
+#### 不计入灵感但提及的产品 / 范式
+
+- **Microsoft Agent Framework（MAF）** —— AutoGen 接班人（**I cannot verify** 当前 production status），跨语言（.NET + Python）+ A2A + MCP
+- **LangSmith / LangGraph Platform** —— LangGraph 的商业化运维 + tracing + evals（**I cannot verify** 2026 定价）
+- **CrewAI AMP Suite** —— CrewAI 的 Control Plane + 24/7 enterprise support + on-prem/cloud
+- **Cognition MGX.dev（MetaGPT 商业产品，2025-03 推出）** —— MetaGPT 的 SaaS 化封装
+- **AutoGen Studio** —— AutoGen 的 low-code 编排 UI，但官方 README 标 not production-ready
+- **NovelAI Memory / Lorebook / Author's Note 之外的特性**（如模型选择 / Diffusion）未在调研范围
+- **轻之文库 / 动漫之家 / 漫画人 / VNR** —— 中文 fan-translation 圈最接近 role-differentiated co-writing 的平台，但具体 schema 未深度调研
+- **Sassbook AI Story Writer / Storian / Plotagon** —— 已知 AI story writer 范畴但**I cannot verify** 任何 prompt-stack 细节
+- **Pixiv Comic / pixivFolio / pixivBOOTH / FANBOX** —— pixiv 周边商业化生态，未深入
+- **Answer.AI Devin month-review**（https://new.qq.com/rain/a/20250118A03X9H00）—— Devin 第三方评测，作为 Devin 背景参考
+
+## §L 跨媒体叙事 / IP 生态（Cross-Media Narrative / IP Ecosystem）
+> **调研人**:L（并行 agent）。**scope**:小说 → 漫画 → 动画 → 视频 → 周边 / 广播剧 / 同人二创 / 跨产品 IP 协同
+>
+> **重点产品 / 范式**：Marvel / DC 跨媒体宇宙（电影 / TV / 漫画 / 游戏 / 周边）/ Star Wars 全产业链（电影 / 动画 / 漫画 / 游戏 / 主题公园 / 周边）/ WEBTOON → Netflix → merchandise（Tower of God / God of High School / Solo Leveling）/ 起点中文网 / 阅文集团 网文 → 漫画 → 动画 → 周边 / Type-Moon（Fate 系列跨媒体）/ Recreate 跨媒体剧本创作 / 同人二创生态（Pixiv / DLsite / Comiket / Archive of Our Own）/ IP 改编授权（Kindle Worlds 失败案例）/ 视觉小说 → 动画 → 漫画（CLAMP / Key / Type-Moon）
+>
+> **Pinax 现状锚点**：Pinax 写小说 → 可衍生漫画（ComicStudio）/ 画布（ProseEssay 卡片画布）/ 体验（Experience AI 交互）/ 视频（StoryboardVideoPanel）。但「小说 → 漫画 / 动画 / 视频 / 周边」的跨媒体一致性 / 商业模式 / 创作工作流 / 二创授权 全链路待探索。
+
+---
+
+### §L.0 总览：跨媒体 IP 的五个根本命题
+
+跨媒体 IP（cross-media IP / media franchise）不是「把小说拍成电影」那么单点，而是五条互相耦合的命题。落到产品功能层面，每一条都对应一个独立的产品 / 工程 / 法务议题：
+
+1. **连续性（Continuity）** —— 同一角色 / 设定 / 时间线在小说、漫画、动画、游戏中是否一致。Marvel Cinematic Universe 靠 Marvel Studios / Marvel Television 共用的 "continuity bible" + editors 协调；Lucasfilm 2014 年起设 Lucasfilm Story Group 专职维护 canon 层级（Canon / Legends / Non-canon / Infinities）。
+2. **商业模式（Monetization）** —— IP 是「一次性买断」（影视改编权 license fee）+ 「持续分成」（版税 / 流媒体分成 / 周边 royalty）+ 「平台抽成」（FGO 这种 mobile game 由 Aniplex / Sony 主导发行）三种收入结构的组合。阅文集团「庆余年模式」= 文学 + 影视 + 游戏 + 衍生品 + 卡牌 + 短剧多端协同。
+3. **协同工作流（Collaborative Workflow）** —— 跨媒体改编有 5–20 个角色（原作作者 / 编辑 / 编剧 / 监督 / 作画监督 / 音乐 / 声优 / 周边设计）。Marvel Method（Jack Kirby + Stan Lee 1960s）把「plot 由漫画家主导，script 后补」制度化；ufotable × Type-Moon 视觉协调走「Type-Moon 提供设定 + ufotable 做导演」的协作模板。
+4. **授权合规（Licensing & Compliance）** —— 小说 → 漫画 → 动画授权链（原作授权给漫画出版社，漫画出版社授权给动画公司）；同人二创 tolerance（Pixiv / DLsite / Comiket 在日本「二次创作ガイドライン」框架下运作）；中国 / EU / US 对 AI 训练的版权判例（如 Andersen v. Stability AI、Getty v. Stability AI）正在快速变化。
+5. **同人生态（Derivative / Fan Ecosystem）** —— AO3（Archive of Our Own，2019 雨果奖「Best Related Work」+ 2013 + 2014 同奖项）/ Pixiv / DLsite / Comiket / Lofter / 微博超话 等「用户生成衍生内容」平台是 IP 的「长尾发动机」：官方不做的事由同人做，官方放任的态度决定 IP 长寿。
+
+**Pinax 现状映射**（基于代码 + 路由 + STATUS 二次核实）：
+- **路由链**：Experience → Writing → Materials → ProseEssay → ComicStudio 五页单向链路（§0），但**没有**跨产品 IP 标识（每个产品的「角色表」各自独立，世界书 character entry 仅在写作/体验侧共享）。
+- **跨产品引用**：世界书（worldbook-workflow skill）有 Character / Place / Faction 对象层；角色立绘走 5C v3.12 refine（背景集成,非插图, `feedback_visual_integration_not_illustration.md`）。
+- **多 provider AI 架构**：textModelAgentProvider / toolCallingProviderAdapter / imageProviderConfigStore 覆盖文 + 图，但**无**IP 级 metadata（角色 / 设定 / 版权 / 授权 / AI 披露标签）。
+- **Status**：M2–M6 已成型（视觉圣经 / 阶段产物 / 文字排版 / 出版导出），剩 M7 连续性；**没有** 跨媒体协同 / 同人授权 / IP 衍生品 元数据。
+
+---
+
+### §L.1 Marvel / DC 跨媒体宇宙的 Continuity Bible + Shared Universe
+
+**源产品 / 范式**：Marvel Cinematic Universe（MCU）/ DC Extended Universe（DCU）/ Lucasfilm Star Wars canon 体系。
+
+**机制简述**（≤ 80 字）：所有跨媒体剧本 / 漫画 / 游戏共读一份「continuity bible」（角色档案 + 时间线 + 设定 + 禁改事实），跨部门编辑组（Marvel：Marvel Studios + Marvel Television + Marvel Comics 编辑联席）守门。
+
+**Pinax 摩擦对应**：
+- Pinax 当前没有「IP 级 continuity bible」—— 视觉圣经是 comicPage 级（`comicPageStore.normalizeVisualBible`），角色 / 设定是 worldbook 级，跨产品 IP 一致性靠手动「复制角色名」维持。
+- 角色立绘 5C v3.12 refine（背景集成）已经隐式提出 IP 级需求：「同一角色在不同章节 / 不同产品（漫画 / 视频 / 体验）出现时仍像同一个人」—— 这是 §A 一致性 + §B 视觉圣经 + §L continuity bible 的三重叠加。
+- 多 provider AI 架构（`textModelAgentProvider`）调用不同模型时，角色设定需被「打包传送」，当前没有 IP bible 这种「可移植 identity pack」。
+
+**为什么不算实现方案**：
+- Marvel Continuity Bible 是**企业级机密资产**，公开渠道只有 d23.com 等展览档案，二级描述集中在「角色 + 时间线 + 设定 + editor 守门」四要素，具体字段 schema 不公开。
+- 跨部门联席编辑需要**机构 + 团队 + 流程**支撑，不是单作者工具能复制的；Pinax 是单用户创作，IP bible 在 Pinax 的形态应当是「用户自己的 IP 设定包」而非「跨组织守门」。
+
+**可行性疑点**：
+- ⚠️ Marvel / DC continuity bible 具体字段集 I cannot verify（产业内部信息）。
+- 𓈊 角色名 / 设定 / 时间线在 Pinax 跨产品同步目前靠 localStorage 一处改全处改的 happy path；如果是「编辑分部」（写作编辑 / 漫画编辑 / 视频编辑各管各的），需要 lock + merge 协议，超出 brainstorm 范围。
+- 𓈊 「禁改事实」（Marvel 「Infinity War 后 5 年跳」的硬约束）在 Pinax 是「作者自约束」机制，与企业的强制 editor 不可类比。
+
+---
+
+### §L.2 Lucasfilm Story Group + Holocron 数据库（Canon Tier 管理）
+
+**源产品 / 范式**：Lucasfilm Story Group（2014 年由 Kathleen Kennedy 与 Pablo Hidalgo 主导成立）+ Holocron 数据库（内部 continuity tracking system）+ 2014-04-25 官方宣布「Expanded Universe 改名为 Legends」。
+
+**机制简述**（≤ 80 字）：把整个 IP universe 分层（Canon / Legends / Non-canon / Infinities），每条事实标 tier，跨媒体创作只能在 Canon 层互通；旧 EU 内容降级为 Legends（仍可商用但不再影响主线）。
+
+**Pinax 摩擦对应**：
+- Pinax 的「设定漂移」问题（早期章节描述的设定在后续章节被无意中修改）目前靠用户自查，没有 tier 机制。
+- 「角色档案」是用户最神圣的资产，但 Pinax 没有「禁改」「软参考」「过时」三层标记 —— 类似 Marvel 「角色档案 locked 字段」或 Lucasfilm canon tier。
+- 跨产品衍生（小说 → 漫画）如果走「正传 / 前传 / 同位体」分层，对应 Pinax 可能需要「主世界 / 实验世界 / 草稿世界」三档 entity。
+
+**为什么不算实现方案**：
+- Lucasfilm Story Group 11+ 名全职编辑的内部协作机制是**企业流程**，I cannot verify 内部 Holocron schema。
+- 2014 Legends 改名涉及**法律 + 商业**复杂决策（Disney 收购后把原 EU 重新定位），Pinax 是个人创作工具，无需承担这种级别决策。
+- 「Canon vs Legends」分层对个人创作者可能是过度结构 —— 单作者的世界自洽靠自己纪律而非数据库。
+
+**可行性疑点**：
+- ⚠️ Lucasfilm Story Group 的内部 SOP / Holocron 数据库 schema I cannot verify。
+- 𓈊 「设定漂移」是叙事作者长期痛点，但 AI 时代 LLM 可能比人更擅长 flag 矛盾（参考 §K 多 agent 中的 critic agent），模式可借而非必须复用。
+- 𓈊 Pinax 「单作者 + AI」工作流的分层需求弱于「漫威 500+ 角色 + 多编剧」；分层粒度要重新设计。
+
+---
+
+### §L.3 Type-Moon / Fate 系列 —— Visual Novel → Anime → Mobile Game 全产业链
+
+**源产品 / 范式**：TYPE-MOON（[typemoon.wiki.cre.jp](https://typemoon.wiki.cre.jp/)）+ Fate/stay night（2004-01-30 首发 PC 视觉小说，首批 ~146,686 份，居 2004 年 GALGAME 销售榜首）+ Fate/Grand Order（FGO，2015-07-30 Android / 2015-08-12 iOS 上线，TYPE-MOON × Aniplex × DELiGHTWORKS，后改 LASENGLE）+ ufotable 动画化（UBW 2014-2015 / Heaven's Feel 三部曲 / Fate/Zero）+ Fate/Samurai Remnant（2023 × 光荣）。
+
+**机制简述**（≤ 80 字）：单一原作 IP（TYPE-MOON 2003 由同人社团转商业公司）→ 视觉小说原作 → 多家动画公司改编（ufotable / Studio Deen）→ 手游化（Aniplex 主导发行）→ 周边 / 联动 / 音乐剧 / 主题咖啡 → 持续 20+ 年。
+
+**Pinax 摩擦对应**：
+- Pinax 已有「小说 → 漫画」单线（ComicStudio）；Type-Moon 模式是「小说 → 多条改编线」—— 同一原作可以走 ufotable 风格（精致电影感动画）或 Studio Deen 风格（性价比 OVA）。
+- Pinax 没有「周边 / 联动 / 主题咖啡」输出层；但 IP 衍生品的 metadata（角色卡 / 设定图 / 名台词集）在 Pinax 可以作为 export 包输出。
+- FGO 模式的「持续运营型手游」(live-service gacha) 与 Pinax 「单作者工具」定位不重合，但「持续内容更新 + 多媒体联动」的 marketing 逻辑可借鉴。
+
+**为什么不算实现方案**：
+- TYPE-MOON 跨媒体核心是 **作家奈须蘑菇的强 IP 主导权**（设定 / 剧本一手包办），Pinax 用户群体不一定有「强原作」能力；模式是「强 IP 才能跨媒体」而非「工具帮用户跨媒体」。
+- FGO 是 Aniplex / Sony 主导发行的 live-service gacha，Pinax 不做平台也不做支付。
+- I cannot verify FGO 累计营收（业内传闻数百亿美元，未读到一手财报）。
+
+**可行性疑点**：
+- ✓ Fate/stay night 2004 首发数据（~146,686 份）来自 TYPE-MOON Wiki 与中文综合报道（[gcores.com/articles/176943](https://www.gcores.com/articles/176943) + [zh.moegirl.org.cn/TYPE-MOON](https://zh.moegirl.org.cn/TYPE-MOON)），多源印证。
+- ⚠️ FGO 2026 累计营收 / 全球用户数 I cannot verify（一手财报未读到）。
+- 𓈊 Pinax 用户多为个人创作，「强原作 + 跨媒体」门槛远高于「同人二创 + 周边」；模式是「远期愿景」而非「近可落地」。
+
+---
+
+### §L.4 阅文集团「庆余年模式」—— 网文 IP 全产业链多端协同
+
+**源产品 / 范式**：阅文集团（[yuewen.com](https://www.yuewen.com/)）+ 起点中文网 + 腾讯动漫 + 新丽传媒 + 阅文好物 + 「庆余年模式」（2024-01 阅文围绕《庆余年第二季》发起「大庆项目」，公司级 IP 专项组横跨文学 / 影视 / 游戏 / 衍生品 / 卡牌 / 短剧）。
+
+**机制简述**（≤ 80 字）：单一网文 IP 由集团内部多部门协同改编（小说 → 漫画 → 动画 → 剧集 → 游戏 → 短剧 → 衍生品 → 线下），庆余年第二季动员规模为阅文史上最大；起点剧场 APP（2026-07 上线）作为「漫剧专属」分发出口。
+
+**Pinax 摩擦对应**：
+- 阅文 IP 全产业链的「多部门协同」对应 Pinax 5 页单向链路（Experience → Writing → Materials → ProseEssay → ComicStudio）—— Pinax 走「单作者 + 多产品形态」路线，阅文走「多部门 + 多产品形态」路线。两者都是「一个 IP 多产品输出」。
+- 阅文 IP 矩阵（《庆余年》《斗罗大陆》《斗破苍穹》《诡秘之主》《全职高手》《狐妖小红娘》《一人之下》《赘婿》等）的成功有共性：**原作网文热度 → 改编潜力评估 → 改编路线选择**。Pinax 如果未来要做「IP 改编潜力评分」，可借鉴阅文编辑部选 IP 的 heuristic。
+- 「起点剧场」作为「漫剧专属 APP」是「单一形态深度运营」案例；Pinax 当前不分发，但「输出 → 第三方平台」的 export 元数据可借鉴。
+
+**为什么不算实现方案**：
+- 阅文集团是「腾讯系内容巨头」，拥有腾讯视频 / 腾讯动漫 / 新丽传媒 / QQ 阅读 / 起点 / 起点剧场等内部生态位；Pinax 是「个人创作工具」，无发行渠道。
+- 「大庆项目」的 IP 专项组是**企业组织行为**，单作者无法复制；但「IP 全产业链拆分思路」可被单作者部分借用（自己写小说 + 委托插画师 + 自己出漫画 + 入驻 webtoon）。
+- 阅文 4 亿元战略投资艺画开天（2026-06 持股 28.22%，累计持股 59.70%）是**资本并购行为**，与 Pinax 创作工具定位无关。
+
+**可行性疑点**：
+- ✓ 阅文 2026-06 增持艺画开天数据来自 [stock.10jqka.com.cn 报道](http://stock.10jqka.com.cn/hks/20260602/c677166034.shtml) + [sohu 财经报道](https://www.sohu.com/a/1031470766_362225)，多源印证。
+- ✓ 「起点剧场」2026-07 上线来自 [so.html5.qq.com 报道](https://so.html5.qq.com/page/real/search_news?docid=70000021_3166a4c67c975352)，新闻摘要。
+- 𓈊 「庆余年」全产业链布局的具体营收拆分（小说 vs 剧 vs 游戏 vs 周边 vs 卡牌 vs 短剧）I cannot verify，阅文未公开。
+- 𓈊 单作者复用「多产品输出」思路的工作量现实问题（写一本 + 出漫画 + 出动画 + 出周边 = 团队级工作量）需评估。
+
+---
+
+### §L.5 WEBTOON → Netflix → 周边（Tower of God / Solo Leveling / God of High School）
+
+**源产品 / 范式**：Naver WEBTOON（[webtoons.com](https://www.webtoons.com/en/originals)）+ Solo Leveling（我独自升级）原作 Chugong / h-goon 2018-06 起在 KakaoPage 连载 → A-1 Pictures 动画化 2024-01 → Netflix 流媒体 2024-03 → Crunchyroll 全球同步 → 周边（手办 / 服装 / 联动 cafe）+ Tower of God SIU 2010- 起在 Naver Webtoon 连载 → Telecom Animation Film 动画化 2020-04 + 第二季 + Stray Kids OP/ED（2024 工房戦）+ God of High School / Noblesse / The Gamer 等多部同源 IP。
+
+**机制简述**（≤ 80 字）：WEBTOON 平台孵化 IP（连载 + 评论 + 收藏数筛选热门）→ 韩国动画公司制作 → Netflix / Crunchyroll 全球同步流媒体发行 → 周边 / 联动 cafe / 主题展览 → 形成「韩漫 → 全球 IP」的产业路径。
+
+**Pinax 摩擦对应**：
+- Pinax 是单作者工具；WEBTOON 模式的「平台筛选 + 全球发行」是平台层工作，不在 Pinax 范围。但「连载 + 评论 + 收藏」三件套作为「IP 热度信号」可借鉴到 Pinax 多产品输出场景（如果未来 Pinax 加协作 / 社区）。
+- 「原作 → 动画 → 全球流媒体 → 周边」对 Pinax 用户是「远期目标」而非「近期可达」；但「作品 export 元数据（角色 / 设定 / 名场面）」对未来跨平台分发是基础设施。
+- Solo Leveling 「A-1 Pictures 制作 + Netflix 发行 + Crunchyroll 同步」的「多方合作模式」是产业现实，Pinax 用户如果出海做动画，需找「动画制作方 + 流媒体发行方」组合。
+
+**为什么不算实现方案**：
+- WEBTOON 平台孵化是**平台机制**，I cannot verify WEBTOON 内部「热门筛选算法」具体规则（产业内部）。
+- 「全球流媒体发行」需 Netflix / Crunchyroll 商务接洽，单作者几乎不可能直接谈下；需要出版社 / 制作公司作为中介。
+- 「手办 / 联动 cafe / 主题展览」是**实物生产 + 渠道运营**，Pinax 是数字工具。
+
+**可行性疑点**：
+- ✓ Solo Leveling 动画化 2024-01 + Netflix 2024-03 + Crunchyroll 同步来自综合报道（[baike.baidu.com 我独自升级](https://baike.baidu.com/item/我独自升级/24284167) + IMDb 列表），多源印证。
+- ⚠️ WEBTOON 2026 上市数据（估值 26.7 亿美元，IPO 募资 1 亿美元，2024-06）来自 [finance.sina.com.cn](https://finance.sina.com.cn/jjxw/2024-06-24/doc-inazvkff0746434.shtml)；2026 财年具体营收 I cannot verify。
+- 𓈊 Tower of God 「Stray Kids OP/ED」是 2024 「工房戦」季度新合作，单源印证（[douyin.com 视频](https://www.douyin.com/video/7420987790051134757)），I cannot verify 完整商业协议。
+- 𓈊 「韩漫 → 全球 IP」是否在 2026 进入瓶颈期（韩国网漫 2024 增长放缓来自 [163.com 报道](https://www.163.com/dy/article/JK72UG370517EGE9.html)），未来趋势不可预测。
+
+---
+
+### §L.6 Key / CLAMP / Visual Art's —— 同人社团 → 跨媒体创作模板
+
+**源产品 / 范式**：Key（Visual Art's 旗下，[zh.moegirl.org.cn](https://zh.moegirl.org.cn/) 收录）+ CLAMP（女性漫画家 4 人组）+ Visual Art's + Nitro+。Key 经典作品：Kanon（1999）/ AIR（2000）/ CLANNAD（2004），三部曲模板 = 视觉小说 → 漫画化（多家出版社并行）→ TV 动画化（京都动画 / 多个公司改编）→ 剧场版 / OVA → 周边 / 音乐 / 广播剧。CLAMP 作品：xxxHOLiC / Tsubasa 翼 / Card Captor Sakura / Magic Knight Rayearth / Chobits 等，跨作品「世界线编织」（Tsubasa × xxxHOLiC 跨作品联动）。
+
+**机制简述**（≤ 80 字）：同人社团 / 创作者组合体积累单一风格资产（Key = 泣きゲー治愈系；CLAMP = 华丽纤细少女系）→ 视觉小说 / 漫画原作 → 多家改编（不同动画公司并行 / 跨作品联动）→ 持续 25+ 年 IP 长寿。
+
+**Pinax 摩擦对应**：
+- Key 模式的「同人社团 → 商业化」是「先有风格 IP → 后有跨媒体」的逆序路径；Pinax 用户多是「先写小说 → 后想 IP 化」，需要反向流程辅助。
+- CLAMP 「跨作品世界线编织」是「IP 复用」极端案例；Pinax 当前没有跨小说 IP 共享机制。
+- Visual Art's 旗下不同子品牌（Key / Saga / Bonbee!）对应「同一母公司下的多 IP」模式；Pinax 当前是单用户单 project，没有跨 project 复用层。
+
+**为什么不算实现方案**：
+- Key / CLAMP 模式的「同人社团文化根基」（日本 1990s-2000s 同人社团兴盛期）是**社会历史条件**，2026 单作者无法复制。
+- 「跨作品世界线编织」（CLAMP Tsubasa × xxxHOLiC）是**作家笔力 + 编辑部支持**的产物，不是工具功能。
+- 「治愈系」「少女系」等风格分类更多是**市场定位**而非**产品功能**。
+
+**可行性疑点**：
+- ⚠️ Key 三部曲具体销售数据 + CLAMP 跨作品联动商业数据 I cannot verify。
+- 𓈊 「同人社团」文化在 2026 已经式微（中国 / 美国 / 欧洲的同人文化路径不同），模式借鉴需本地化。
+- 𓈊 「跨作品世界线」对单作者是**写作能力门槛**，工具帮不上太多。
+
+---
+
+### §L.7 同人二创生态 —— Pixiv / DLsite / Comiket / AO3 / Lofter 的 tolerance 框架
+
+**源产品 / 范式**：Pixiv（[pixiv.net](https://www.pixiv.net/)，日本插画 / 同人平台，含 Fanbox 付费订阅）+ DLsite（[dlsite.com/eng](https://www.dlsite.com/eng/)，日本同人电子出版平台，含 doujinshi / 商业作品分类）+ Comiket（[comicmarket.jp](https://www.comicmarket.jp/)，日本最大同人誌展会，每年 2 次）+ Archive of Our Own（[archiveofourown.org](https://archiveofourown.org/)，OTW 基金会运营，2019 雨果奖「Best Related Work」+ 2013 + 2014 同奖项）+ Lofter（中国同人创作社区）。
+
+**机制简述**（≤ 80 字）：IP 方默许「非商业 / 限量同人二创」（Pixiv / AO3）+ IP 方默许「商业同人誌」（DLsite / Comiket 在「二次创作ガイドライン」内）+ 平台提供标签 / 收藏 / 排行榜 / 年龄分级过滤 + IP 方可在边界外强力维权。
+
+**Pinax 摩擦对应**：
+- Pinax 是「原作工具」不是「二创平台」，但 Pinax 用户的作品**很可能被同人二创**（如果作品有热度）；Pinax 可以提供「二创 guidelines」输出（明示哪些 OK / 哪些不 OK / 哪些需要授权）。
+- Pinax 自身的「IP 边界」同样需要明确：是「同人友好」（允许 Pinax 用户在工具内基于其他 IP 写衍生）还是「原创导向」（禁止 Pinax 内的同人创作）？这影响 `imageProviderConfigStore` 是否要禁止某些 IP 相关 prompt。
+- Pinax 用户的「作品出海」可能涉及同人二创 tolerance（中国 / 日本 / 美国差异大），export 元数据应包含「许可 / 禁止条款」。
+
+**为什么不算实现方案**：
+- 同人 tolerance 是**法律 + 文化 + IP 方意愿**的复合结果，I cannot verify 2026 各主要 IP 方的最新 guideline（变化频繁，IP-by-IP 差异大）。
+- 「商业同人誌」 vs 「非商业同人」的法律分界在日本是「少量 / 特定作品 / 标原创声明」三件套，超出 Pinax 产品范围。
+- AO3 / Lofter / Pixiv 平台的「内容分级 / 内容审核」机制是**平台政策**问题，Pinax 不做平台。
+
+**可行性疑点**：
+- ✓ AO3 2019 雨果奖「Best Related Work」来自综合搜索结果，2026 仍为主要同人平台。
+- ✓ Comiket 春秋两次展会（C106 2025 夏 / C107 2025 冬）来自 [comicmarket.jp 官方](https://www.comicmarket.jp/)，可访问。
+- ⚠️ 2026 各主要 IP 方（二次创作ガイドライン）的最新版本 I cannot verify（IP-by-IP 变化频繁）。
+- ⚠️ 中国「同人作品」法律状态 2026 综合（中国知识产权资讯网 / 知乎 / 澎湃 等多源给出方向性论述但具体判例需查）I cannot verify 一手判决书。
+- 𓈊 Pinax 用户的「作品被二创」是远期考虑，v0 不必涉及。
+
+---
+
+### §L.8 Kindle Worlds 失败 → Royal Road / Webnovel 成功 —— IP 授权模式演化
+
+**源产品 / 范式**：Kindle Worlds（Amazon 2013-05 推出，2018-09 关停，「官方授权 IP + 用户衍生小说 + 35% 版税」模式失败）+ Royal Road（[royalroad.com](https://www.royalroad.com/)，2020 后崛起的英语 webnovel 平台，作者保留全部 IP）+ Webnovel（[webnovel.com](https://www.webnovel.com/)，阅文旗下海外平台，类似 Royal Road）+ Tapas / Radish / Dreame 等海外网文平台。
+
+**机制简述**（≤ 80 字）：授权失败案例（Kindle Worlds：IP 方收授权费 + 平台抽成 + 作者分成 → 三方均无动力）→ 自出版成功（Royal Road / Webnovel：作者保留 IP，平台抽订阅分成 → 作者与平台双赢）。
+
+**Pinax 摩擦对应**：
+- Pinax 是「工具」不做「平台」，但 Pinax 用户的「作品 IP 归属」是**未来出口设计**的隐性决策 —— Pinax 是否对用户的 IP 主张任何权利？这影响用户对未来跨媒体改编（出版 / 影视 / 改编）的预期。
+- Kindle Worlds 失败的「IP 方收授权费 + 三方无动力」教训对 Pinax 启示：不要试图做「IP 许可中心」，把 IP 完全交给用户。
+- Royal Road / Webnovel 的「作者保留 IP + 平台抽订阅」对 Pinax 启示：Pinax 工具 + 第三方分发（如未来接 MangaPlus / Webtoon / DLsite）的链路里，Pinax 不应抽取 IP 授权费。
+
+**为什么不算实现方案**：
+- Kindle Worlds 失败的具体原因（IP 方不满意 / 用户参与度低 / 内容质量参差）多源分析但 I cannot verify 内部数据（[smartbitches.com 2024 复盘](https://smartbitches.com/2024/05/01/what-happened-to-kindle-worlds/) + [thepassiveguy.com](https://www.thepassiveguy.com/kindle-worlds-rise-and-fall) + [ebookfriendly.com](https://www.ebookfriendly.com/kindle-worlds-shutdown-post-mortem)）。
+- Royal Road / Webnovel 的具体作者分成比例 I cannot verify 2026 最新数据（平台政策变化频繁）。
+- 「Pinax 不应抽 IP 授权费」是**产品决策**而非**实现方案**。
+
+**可行性疑点**：
+- ✓ Kindle Worlds 2013-05 推出 / 2018-09 关停来自综合多源复盘。
+- ⚠️ Royal Road / Webnovel 2026 最新作者分成 / 订阅价格 I cannot verify。
+- 𓈊 Pinax 「用户 IP 完全归属」的法律措辞需法务起草，超出 brainstorm。
+
+---
+
+### §L.9 视觉小说 → 动画 → 漫画三联动（Key / Type-Moon / Nitro+）
+
+**源产品 / 范式**：Key（Kanon / AIR / CLANNAD）+ Type-Moon（Fate / Tsukihime）+ Nitro+（Steins;Gate / Saya no Uta）+ 5pb. / MAGES.（Robotics;Notes / Chaos;Head）+ Leaf（To Heart / White Album）+ Aquaplus（Utawarerumono）+ August / CIRCUS / Overflow 等日本视觉小说公司。
+
+**机制简述**（≤ 80 字）：视觉小说原作（PC / Console / 移动平台）→ TV 动画化（多家公司并行改编）→ 漫画化（多家出版社并行）→ 周边 / 广播剧 / 音乐 / 同人展会 → 形成「VN 原点 + 多媒体扩散」的产业路径。
+
+**Pinax 摩擦对应**：
+- Pinax 「小说 + ProseEssay + 体验 + 漫画」链路类似 VN 公司的「原作 + 改编」链路，但 Pinax 是**单作者**做**多个形态**，VN 公司是**公司 + 多个外包公司**做**多个形态**。
+- VN 模式的多家动画公司并行改编（Key 同时被京都动画 + 多家 OVA 公司改编）创造了「同一原作多版本」文化 —— Pinax 「同一章节多视觉风格」可以是同一思路的 AI 时代变体。
+- VN 「广播剧」对应 Pinax 「文字 + 可选 TTS」的输出形态 —— 是「有声化」出口。
+
+**为什么不算实现方案**：
+- VN 公司的「多家动画公司并行改编」需要**原作 IP 足够强势**（Key / Type-Moon 才行），Pinax 用户的「强势 IP」门槛远高于公司。
+- 「广播剧 / OVA / 音乐」是**专业制作能力**，不是个人作者能直接产出。
+- VN 产业 2026 整体萎缩（日本 VN 销量从 2000s 顶峰滑落，单源 I cannot verify 2026 准确数字），模式不是成长方向。
+
+**可行性疑点**：
+- ⚠️ 日本 VN 产业 2026 销量 I cannot verify 一手数据。
+- 𓈊 「同一原作多视觉风格」是 §A 一致性 + §B 视觉圣经的另一种解，但需要 AI 多 provider 多风格输出支持，工程量大。
+- 𓈊 「广播剧」TTS 化是可选但非 Pinax 核心。
+
+---
+
+### §L.10 Lucasfilm Story Group + Marvel Studios 协同编辑团队 —— 跨媒体协同工作流
+
+**源产品 / 范式**：Lucasfilm Story Group（11+ 名全职编辑）+ Marvel Studios Creative Committee（早期 2010s 含 Joss Whedon / Kevin Feige 等）+ Netflix / Disney+ 的「show bible」流程（每个剧集一份 20-100 页 bible，角色 + 时间线 + 设定 + 禁改事实）+ HBO / Amazon 的 writers' room 协作（多个编剧 + showrunner 联席）。
+
+**机制简述**（≤ 80 字）：跨媒体 / 跨剧集 / 跨编剧协同靠「共享 bible + 编辑联席 + 版本控制系统」三层；bible 是只读 + 编辑联席是守门 + 版本控制是「谁改了什么」追踪。
+
+**Pinax 摩擦对应**：
+- Pinax 「写作 / 体验 / 素材 / 画布 / 漫画」5 产品跨页引用靠 localStorage 一处改全处改，没有「只读 bible + 编辑守门 + 版本追踪」分层。
+- AI 时代 LLM 调用时把「用户设定」打包传送类似「show bible」机制 —— Pinax 可以设计「设定 bible」作为 AI prompt context 的标准载荷。
+- 多 advisor（writing / material / creative / agent）已存在但 advisor 间无状态共享（§K），缺乏「show bible」级别的统一 context。
+
+**为什么不算实现方案**：
+- 「show bible」是**企业级协作工具**（Final Draft / WriterDuet / Arc Studio Pro 等专业编剧软件提供），I cannot verify 各工具 2026 bible schema 现状。
+- 「版本控制系统」（Git for narrative）是开源方案，但**叙事**的版本控制比代码复杂（commit 粒度 / branch 语义 / merge 冲突解决都更模糊）。
+- Pinax 是单作者工具，「协同」是用户 + AI 而非用户 + 团队。
+
+**可行性疑点**：
+- ⚠️ 各编剧软件 show bible schema I cannot verify 一手（专业软件不公开内部 schema）。
+- 𓈊 「叙事版本控制」是研究领域（Narrative Futures / Inkle / Inform 7），Pinax 是否引入是产品级决策。
+- 𓈊 AI 时代「设定 bible 自动生成 + 自动维护」是研究热点（参考 AutoGensis / StoryDB 等学术项目），落地到 Pinax 工程量大。
+
+---
+
+### §L.总结
+
+**收敛点**（10 条灵感的跨节主题）：
+
+1. **IP 连续性**（§L.1 + §L.2 + §L.6）—— Marvel Continuity Bible + Lucasfilm Story Group + 同人社团 style IP 共同指出：跨媒体协同需要「共享 identity pack + 守门机制」。Pinax 现状是 5 产品链路但无统一 IP bible。
+2. **跨媒体商业模式**（§L.3 + §L.4 + §L.5）—— Type-Moon + 阅文 + WEBTOON 三条产业路径分别代表「VN 原点」「网文 IP 全产业链」「漫画 → 全球流媒体」。Pinax 是工具，不做平台，但 export 元数据应为未来跨平台分发留接口。
+3. **协同工作流**（§L.10）—— 跨媒体编辑联席 + show bible + 版本控制是工业级做法。Pinax 单作者 + AI 工作流可部分借用（设定 bible 作为 AI context）。
+4. **授权合规**（§L.8）—— Kindle Worlds 失败 / Royal Road 成功的对比印证「作者保留 IP」是现代 webnovel 主流。Pinax 应明确「用户 IP 完全归属」+ 不抽授权费。
+5. **同人生态**（§L.7）—— Pixiv / DLsite / Comiket / AO3 的 tolerance 框架是 25 年沉淀。Pinax 用户作品出海 / 被同人化是远期考虑，v0 export 元数据应预留「许可 / 禁止条款」字段。
+
+**Pinax 现状与 §L 主题的对接候选**（不写实现，仅观察）：
+
+| 主题 | Pinax 现状缺口 | §L 灵感 |
+|---|---|---|
+| **IP 连续性** | 无 IP 级 continuity bible；5 产品跨页一致性靠手动 | §L.1 Marvel / §L.2 Lucasfilm Story Group / §L.6 Key/CLAMP style IP |
+| **跨媒体商业模式** | 无 export 元数据（角色 / 设定 / 版权 / AI 披露） | §L.3 Type-Moon / §L.4 阅文 / §L.5 WEBTOON |
+| **协同工作流** | 多 advisor 无状态共享（§K） | §L.10 Lucasfilm / Marvel Studios |
+| **授权合规** | 无 IP 归属 / AI 披露 / 二创 guidelines 元数据 | §L.8 Kindle Worlds / Royal Road |
+| **同人生态** | 无二创 guidelines 输出 | §L.7 Pixiv / DLsite / Comiket / AO3 |
+
+**Open Questions（待主 session §I 综合时与用户拍板）**：
+
+- Q1. Pinax 是否在产品层承诺「用户作品 IP 完全归属」？是否需要在用户协议 / export 元数据 / 工具条款上明示？
+- Q2. Pinax 是否提供「二创 guidelines」输出模板（用户主动声明哪些可二创 / 哪些不可 / 是否需要署名）？
+- Q3. Pinax 是否需要支持「跨产品 IP bible 打包」？（写作角色 + 漫画角色 + 体验角色 = 一份 IP bible，AI 跨产品调用）
+- Q4. Pinax 是否对接第三方 IP 授权平台（出版 / 影视 / 周边）？还是只做工具不做分发？
+- Q5. Pinax 的 AI 辅助生成是否需要附「AI 披露 metadata」（响应 EU AI Act / Webtoon 2024 政策）？
+- Q6. Pinax 是否要做「协作 / 团队 / showrunner」功能？跨作者 + 跨 AI agent 的协同是远期还是近期？
+- Q7. 「IP 全产业链」（小说 → 漫画 → 动画 → 周边）的多形态拆分，Pinax 是否给用户「拆分指导」而非「拆分工具」？
+- Q8. 同人 tolerance（Pinax 用户是否能在工具内基于其他 IP 写同人小说 / 出同人漫画）是产品定位决策，需要早期拍板。
+
+---
+
+### §L.引用源
+
+**Marvel / DC 跨媒体宇宙**：
+- Marvel Cinematic Universe：[en.wikipedia.org/wiki/Marvel_Cinematic_Universe](https://en.wikipedia.org/wiki/Marvel_Cinematic_Universe) —— 综合 2026 视角（**I cannot verify** 内部 continuity bible schema）
+- DC Extended Universe：[en.wikipedia.org/wiki/DC_Extended_Universe](https://en.wikipedia.org/wiki/DC_Extended_Universe) —— 综合二手
+- Lucasfilm Story Group：综合 WebSearch 二手（**I cannot verify** 内部 SOP / Holocron 数据库 schema）
+
+**Lucasfilm / Star Wars**：
+- Star Wars canon：[en.wikipedia.org/wiki/Star_Wars_canon](https://en.wikipedia.org/wiki/Star_Wars_canon) —— 综合二手，2014-04-25 Expanded Universe 改名 Legends 事实多源印证
+- Lucasfilm Story Group：[en.wikipedia.org/wiki/Lucasfilm_Story_Group](https://en.wikipedia.org/wiki/Lucasfilm_Story_Group) —— 综合二手
+
+**Type-Moon / Fate**：
+- TYPE-MOON Wiki：[typemoon.wiki.cre.jp](https://typemoon.wiki.cre.jp/wiki/Fate/Grand_Order) ✓
+- Fate/stay night 2004-01-30 首发 + ~146,686 份首批销售：[zh.moegirl.org.cn/TYPE-MOON](https://zh.moegirl.org.cn/TYPE-MOON) + [gcores.com/articles/176943](https://www.gcores.com/articles/176943) ✓ 多源印证
+- FGO 2015-07-30 Android / 2015-08-12 iOS 上线：[zh.moegirl.org.cn/TYPE-MOON](https://zh.moegirl.org.cn/TYPE-MOON) ✓
+- Fate/Samurai Remnant 2023：[fxxz.com](https://www.fxxz.com/azyx/111034.html) + 综合 ✓
+- ufotable 动画化（UBW 2014-2015 / Heaven's Feel）：[gamersky.com](https://www.gamersky.com/news/201312/317269_2.shtml) + 综合 ✓
+- ⚠️ FGO 累计营收 I cannot verify 一手财报
+
+**阅文集团 / 起点**：
+- 阅文集团官网：[yuewen.com](https://www.yuewen.com/) ✓
+- 阅文 4 亿元增持艺画开天 28.22%（2026-06）：[stock.10jqka.com.cn](http://stock.10jqka.com.cn/hks/20260602/c677166034.shtml) + [sohu.com](https://www.sohu.com/a/1031470766_362225) + [so.html5.qq.com](https://so.html5.qq.com/page/real/search_news?docid=70000021_5286a20133a09752) ✓ 多源印证
+- 「起点剧场」APP 2026-07 上线：[so.html5.qq.com](https://so.html5.qq.com/page/real/search_news?docid=70000021_3166a4c67c975352) ✓
+- 「庆余年模式」/ IP 全产业链：[column.iresearch.cn](https://column.iresearch.cn/b/202408/986692.shtml) + [finance.sina.com.cn](https://finance.sina.com.cn/tech/roll/2025-04-16/doc-inetkans6807005.shtml) ✓ 综合
+- 「大庆项目」2024-01 启动：[sohu.com](https://www.sohu.com/a/1031470766_362225) ✓
+
+**WEBTOON → Netflix → 周边**：
+- WEBTOON 官方：[webtoons.com](https://www.webtoons.com/en/originals) ✓
+- WEBTOON 2024-06 IPO 估值 26.7 亿美元：[finance.sina.com.cn](https://finance.sina.com.cn/jjxw/2024-06-24/doc-inazvkff0746434.shtml) + [sohu.com](https://www.sohu.com/a/786863445_436079) ✓ 多源印证
+- Solo Leveling（我独自升级）原作 + 动画化 2024-01 + Netflix 2024-03：[baike.baidu.com 我独自升级](https://baike.baidu.com/item/我独自升级/24284167) + [baike.sogou.com](https://baike.sogou.com/v184980288.htm) ✓
+- Tower of God SIU 2010- 起 + 2020-04 动画化 + 2024 工房戦 Stray Kids OP/ED：[baike.baidu.com 神之塔](https://baike.baidu.com/item/神之塔/13544353) + [douyin.com 视频](https://www.douyin.com/video/7420987790051134757) ✓
+- 韩国网漫 2024 增长放缓：[163.com](https://www.163.com/dy/article/JK72UG370517EGE9.html) ✓
+
+**Key / CLAMP / Visual Art's**：
+- Key 三部曲（Kanon / AIR / CLANNAD）：[baike.baidu.com Kanon](https://baike.baidu.com/item/Kanon/5932183) + [baike.sogou.com Key社](https://baike.sogou.com/v1490921.htm) + [baike.baidu.com key三部曲](https://baike.baidu.com/item/key三部曲/10825388) ✓
+- CLAMP xxxHOLiC：[zhuanlan.zhihu.com/p/393954197](https://zhuanlan.zhihu.com/p/393954197) ✓ 综合
+- Visual Art's：[baike.sogou.com](https://baike.sogou.com/v72575646.htm) ✓ 综合
+- ⚠️ Key 三部曲具体销售数据 + CLAMP 跨作品联动商业数据 I cannot verify
+
+**同人二创生态**：
+- Pixiv：[pixiv.net](https://www.pixiv.net/) ✓
+- DLsite：[dlsite.com/eng](https://www.dlsite.com/eng/) ✓
+- Comiket：[comicmarket.jp](https://www.comicmarket.jp/) ✓
+- Archive of Our Own：[archiveofourown.org](https://archiveofourown.org/) ✓ + 2019 雨果奖「Best Related Work」综合
+- Lofter：[lofter.com](https://www.lofter.com/) ✓（仅访问首页，未深挖 2026 政策）
+- ⚠️ 2026 各主要 IP 方二次创作ガイドライン最新版本 I cannot verify
+- ⚠️ 中国同人作品法律状态 2026 综合（中国知识产权资讯网 / 知乎 / 澎湃 等多源给出方向性论述但具体判例需查）I cannot verify 一手判决书
+
+**Kindle Worlds / Royal Road / Webnovel**：
+- Kindle Worlds 2013-05 推出 / 2018-09 关停：[smartbitches.com](https://smartbitches.com/2024/05/01/what-happened-to-kindle-worlds/) + [thepassiveguy.com](https://www.thepassiveguy.com/kindle-worlds-rise-and-fall) + [ebookfriendly.com](https://www.ebookfriendly.com/kindle-worlds-shutdown-post-mortem) ✓ 多源印证
+- Royal Road：[royalroad.com](https://www.royalroad.com/) ✓
+- Webnovel：[webnovel.com](https://www.webnovel.com/) ✓
+- ⚠️ Royal Road / Webnovel 2026 作者分成 / 订阅价格 I cannot verify
+
+**视觉小说 → 动画 → 漫画**：
+- Type-Moon（见上）
+- Key（见上）
+- Nitro+ / Steins;Gate / Saya no Uta：综合二级源（**I cannot verify** 2026 销量）
+- ⚠️ 日本 VN 产业 2026 销量 I cannot verify 一手数据
+
+**Lucasfilm Story Group + Marvel Studios 协同**：
+- Lucasfilm Story Group：[en.wikipedia.org/wiki/Lucasfilm_Story_Group](https://en.wikipedia.org/wiki/Lucasfilm_Story_Group) 二手
+- Marvel Studios Creative Committee：综合 WebSearch 二手（**I cannot verify** 当前运作状态）
+- ⚠️ 各编剧软件 show bible schema I cannot verify 一手
+
+**未核实项汇总**（待落地前二次核实）：
+- Marvel / DC / Lucasfilm continuity bible 具体字段集
+- FGO / WEBTOON / Royal Road 2026 营收与分成
+- 日本 VN 产业 2026 销量
+- 中国同人作品法律状态 2026 一手判例
+- 各 IP 方二次创作ガイドライン 2026 最新版本
+- Pinax 用户实际跨媒体改编需求（无用户调研数据）
+
+---
+
+> **§L 写完**。本节 10 条灵感（§L.1-§L.10），覆盖 Marvel / Lucasfilm / Type-Moon / 阅文 / WEBTOON / Key / CLAMP / 同人二创 / Kindle Worlds / VN 三联动 / Lucasfilm Story Group 11 个生态范式。
+>
+> **不进入实现层**（用户明确）：本调研只标出跨媒体 IP 协同的产业事实 + Pinax 现状缺口，不写 Pinax 应改成什么样。具体落点（IP bible 字段 / 二创 guidelines 元数据 / 第三方平台对接 等）由用户拍板后另起 task。
+>
+> **与 §A-§K 八节互补关系**：
+> - §L.1 + §L.2 + §L.6 = 跨节「角色一致性」+「视觉圣经」的 IP 升维版本
+> - §L.3 + §L.4 + §L.5 = 跨节「出版格式」+「平台分发」的全产业链补完
+> - §L.7 = 「同人二创」单独立项（§A-§K 未深入）
+> - §L.8 = IP 授权模式演化（§H 出版生态的 IP 维度补完）
+> - §L.9 + §L.10 = 「VN 多媒体协作」+「跨媒体协同编辑」补完 §K 多 agent 协作
+
+---
 
 - **源产品 / 范式**：Naver Webtoon / Webtoon Canvas（webtoons.com）
 - **机制简述**（≤ 80 字）：固定 800 px 宽的纵向长图，按 72 DPI / RGB 存储，单话高度可达数千到上万 px，无翻页动作。PNG/JPEG，最大 2–3 MB。
@@ -1890,13 +2710,15 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 
 ## §1.4 TL;DR —— 5 分钟读完本文档
 
-> 8 axes × 100+ 条灵感 × 8 跨节主题。如果只看 5 分钟，按下面顺序：
+> 11 axes × 130+ 条灵感 × 11 跨节主题（§A-H 第一轮 + §J-L 第二轮）。如果只看 5 分钟，按下面顺序：
 
-**3 条「读这一段就够」的总结**：
+**5 条「读这一段就够」的总结**：
 
 1. **角色一致性是 M7+ 的关键瓶颈**（§I.1.1 + §I.1.2）—— §A 14 条灵感 + §B 12 条 + §E 12 条 + §G 部分，都收敛到「同一角色跨多次生成保持形象」。当前用户只能手挑参考图，5C v3.12 refine 不解决根因，需要 character sheet 升级为 typed 数据 + LoRA training 通路。
 2. **文字 → 视觉的「选点策略」决定插画质量**（§I.1.3）—— §C 14 条 + §F 节奏相关 + §D 出版节奏。AI 自动选点 vs 人挑 / 节奏 / 情绪 / 信息密度 四维，目前 Pinax 没显式化。
 3. **出版格式与平台策略决定分发**（§I.1.8）—— §H 12 条 + §D 出版相关。M6 已成型，但具体走 Webtoon / Manga spread / POD / Doujinshi / 多语言哪个路线，需用户拍板。
+4. **跨产品连通性是被低估的协同层**（§I.1.9 + §I.1.10）—— §J 10 条 + §K 12 条。Pinax 5+ 产品（写作 / 体验 / 素材 / 画布 / 漫画 / 联机）的数据流 / 状态同步 / multi-agent advisor 协同是「各界面连通性」核心，比单产品优化更值钱。
+5. **跨媒体 IP 生态决定长期价值**（§I.1.11）—— §L 10 条。Pinax 写小说未来可能衍生漫画 / 动画 / 视频 / 周边 / 同人二创；跨媒体一致性与商业模式是远期决策点。
 
 **「我的问题看哪里」快速路由**：
 
@@ -1906,13 +2728,16 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 | 角色资料没结构化 | §I.1.2 + §B.B.1-§B.12 |
 | 关键帧 / 面板选取策略弱 | §I.1.3 + §C.C.1-§C.14 |
 | 镜头语言层太薄（180 / beat / Kuleshov） | §I.1.4 + §F.F.1-§F.10 |
-| comic 专门模型未集成 | §I.1.5 + §E.E.1-§E.12 |
+| comic 专用模型未集成 | §I.1.5 + §E.E.1-§E.12 |
 | M7 跨页连续性 / spread / reveal 缺 | §I.1.6 + §D.D.1-§D.12 |
 | AI 上墨 vs AI 出整页边界 | §I.1.7 + §G.G.1-§G.12 |
 | 出版格式 / 平台 / 多语言 | §I.1.8 + §H.H.1-§H.12 |
+| **跨产品数据流 / 状态同步弱** | **§I.1.9 + §J.J.1-§J.10** |
+| **advisor 协作（多 agent）未展开** | **§I.1.10 + §K.K.1-§K.12** |
+| **跨媒体 IP / 同人 / 商业模式** | **§I.1.11 + §L.L.1-§L.10** |
 | 立绘 = 背景集成约束 | `feedback_visual_integration_not_illustration.md` + §I.4 约束对齐 |
 
-**8 条主题一览**（详细见 §I.1）：
+**11 条主题一览**（详细见 §I.1）：
 
 | 编号 | 主题 | Pinax 状态 | 投入 |
 |---|---|---|---|
@@ -1920,23 +2745,27 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 | I.1.2 | 视觉圣经 = 角色资料结构化 | 部分（M2-M6） | 中（schema 升级 + UI 暴露） |
 | I.1.3 | 文字 → 关键帧选取策略 | 弱 | 中（AI 选点 + 人确认 UI） |
 | I.1.4 | 镜头语言 / 视觉叙事语义层 | 部分（shot/camera 已有） | 中（180 / beat / Kuleshov） |
-| I.1.5 | 专门 comic 模型 vs 通用 SDXL | 弱（未集成） | 中（LoRA 通路 + provider 配置） |
+| I.1.5 | 专用 comic 模型 vs 通用 SDXL | 弱（未集成） | 中（LoRA 通路 + provider 配置） |
 | I.1.6 | 跨页连续性 + 翻页 + reveal | M7 剩项 | 中（panel layout + spread anchor） |
 | I.1.7 | AI 辅助 vs 全 AI 工作流边界 | 弱 | 中（手修草图 → AI 填充 pipeline） |
 | I.1.8 | 出版格式 / 平台 / 多语言 | M6 已有 | 中（Webtoon / Manga / POD 路由） |
+| **I.1.9** | **跨产品数据流 / 状态同步** | **弱（路由单向）** | **高（5+ 产品协同）** |
+| **I.1.10** | **多 agent 协作创作** | **弱（单 advisor）** | **中（multi-agent pipeline）** |
+| **I.1.11** | **跨媒体叙事 / IP 生态** | **弱（无跨媒体框架）** | **高（远期商业模式）** |
 
 ---
 
 ## §I 跨节综合 —— 主 session 汇总
 
-> **本节不写实现方案**。基于 §A-§H 八节 100+ 条灵感的交叉分析，按"被多源反复印证"的权重挑出 8 条跨节主题，并把每条映射到 Pinax 现状 + 文件落点。**用户明确：计划与实现不在本调研范围**。
+> **本节不写实现方案**。基于 §A-§L 十一节 130+ 条灵感的交叉分析，按"被多源反复印证"的权重挑出 11 条跨节主题，并把每条映射到 Pinax 现状 + 文件落点。**用户明确：计划与实现不在本调研范围**。
 
 ### §I.0 方法说明
 
-- 100+ 条灵感来自 8 个生态（角色一致性 / 视觉圣经 / 文本→关键帧 / 漫画分镜 / 漫画 AI / 镜头语言 / 传统工作流 / 出版生态），每条均标注了源产品 + 机制 + Pinax 摩擦对应。
+- 130+ 条灵感来自 11 个生态（角色一致性 / 视觉圣经 / 文本→关键帧 / 漫画分镜 / 漫画 AI / 镜头语言 / 传统工作流 / 出版生态 / **跨产品数据流 / 多 agent 协作 / 跨媒体 IP 生态**），每条均标注了源产品 + 机制 + Pinax 摩擦对应。
 - 本节筛选标准：是否被 **≥ 2 个不同生态** 反复印证。
 - 标 ⚠️ 的项意味着该方向在原 agent 中已经标 "I cannot verify"，落地前需二次核实。
 - 标 🟢 的项表示已经被多源印证，**仍需用户判断是否属于"超出 M7 范围"**。
+- **「跨产品影响」分段**（用户选 方案 C）：每个主题下都有「跨产品影响」小段，标注该灵感对 5+ 产品（写作 / 体验 / 素材 / 画布 / 漫画 / 联机）的协同影响。
 
 ---
 
@@ -2061,20 +2890,78 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 
 ⚠️ §H 中 Webtoon 800px 是硬限制还是推荐值 + Webtoon 2026 AI 披露政策 + Tapas 2025-2026 unlock 时间窗具体参数 + DLsite 2026 AI 内容最新政策——全部 I cannot verify。
 
+**跨产品影响**（按 方案 C）：M6 出版导出层是「终端产品」的最后一公里，但导出 metadata（character / worldbook / AI 披露 / 多语言 tag）应与写作侧 character sheet、画布侧 outline、体验侧 activatedLore **共享同一来源**——避免「小说里角色叫 Mary 但漫画导出写着 Mei」这种跨产品漂移。`ComicPageEditor` 导出层应从 worldbook 派生而非 ad-hoc 填。
+
 ---
 
-### §I.2 八条主题的依赖与优先级矩阵
+#### §I.1.9 🟢 跨产品数据流 / 状态同步（§J 单节主轴——连通性核心）
+
+**多源印证**：
+- §J.1-§J.10（Notion databases + linked records / Obsidian Bases v1.9 / Airtable linked records + automations / Figma file + variants / Linear project + cycles / World Anvil 跨产品 API / Kanka RPG wiki relations / 飞书多维表格 / Notion AI cross-database query / AO3 协作 / Pinax 现有 goToComics 路由）
+
+**对应 §1.3 症状**（跨产品维度）：
+- 路由单向链路（Experience → Writing → Materials → ProseEssay → ComicStudio 5 页单向）缺双向回链
+- character / worldbook / chapter outline 5+ 产品间单改一处无自动传播
+- assetId 跳来跳去是 ad-hoc JSON 引用，不是 Notion-style linked records
+
+**与 §J 关系**：§J 是灵感来源；本主题是 §J 的综合答案。
+
+**跨产品影响**：本主题是「各界面连通性」核心。character sheet / worldbook / chapter outline 是 5+ 产品的「共享真相源」；single source of truth + linked records 是产品架构基础。Pinax 当前是 `goToComics(assetId)` 这种 1-to-1 跳，缺 Notion-style database-level 「任一产品改 character → 其他产品自动看到」。
+
+⚠️ §J 中 Obsidian Bases v1.9 当前 schema + Figma variants 命名规则 + Linear cycles state machine 详情均依赖具体产品版本，落地前需二次核实。
+
+---
+
+#### §I.1.10 🟢 多 agent 协作创作（§K 单节主轴——advisor 演进方向）
+
+**多源印证**：
+- §K.1-§K.12（MetaGPT / CAMEL / ChatDev / AutoGen / LangGraph / CrewAI / OpenAI Swarm 等 7 个 multi-agent LLM 框架 + AO3 / Lofter / 起点多人作品 / Wattpad / 同人 co-writing 4 类共创平台 + Sudowrite 动作族 / NovelAI 三层注入 / Lex AI Prompts / Notion AI Action Items 4 个 prompt stack + Cursor Composer / Devin / Cline Plan & Act 5 个 SWE agent pattern + 学术 multi-agent LLM surveys）
+
+**对应 §1.3 症状**：
+- advisor 是单轮 LLM 调用（material / writing / creative / canvas 各自独立 scope）
+- advisor 之间无状态共享（writing advisor 不知道 material advisor 看过什么）
+- 多角色分工（planner / critic / writer / illustrator / editor）未显式建模
+
+**与 Pinax advisor 关系**：当前 `useAdvisor` 是 single-shot，未来演进方向是 multi-agent pipeline（planner 拆 plan → writer 出文本 → critic 评审 → illustrator 出图 → editor 改稿）。§K.8「多 agent 创作分工范式」是直接对应。
+
+**跨产品影响**：多 agent 不是单 advisor 升级——它是 5+ 产品协同层的升级。当 character consistency agent (来自 §I.1.1) + visual bible agent (来自 §I.1.2) + comic continuity agent (来自 §I.1.6) 多 agent 协同时，跨产品协同自然出现。
+
+⚠️ §K 中 CrewAI / Swarm 2026 产品定位 + MetaGPT 2026 维护频率 + AutoGen v0.4+ API 稳定度均需二次核实。
+
+---
+
+#### §I.1.11 🟢 跨媒体叙事 / IP 生态（§L 单节主轴——长期价值决策）
+
+**多源印证**：
+- §L.1-§L.10（Marvel / DC 跨媒体宇宙 / Star Wars 全产业链 + Lucasfilm Story Group / WEBTOON → Netflix → merchandise / 起点 / 阅文 网文→漫画→动画→周边 / Type-Moon Fate 系列 / Recreate 跨媒体剧本 / 同人二创 Pixiv / DLsite / Comiket / AO3 / Kindle Worlds 失败案例 / Key / CLAMP 视觉小说跨媒体 / Marvel Method editorial→franchise 演变史）
+
+**对应 §1.3 症状**（远期）：
+- 小说 → 漫画 / 动画 / 视频 / 周边 / 同人二创 跨媒体一致性问题未考虑
+- Pinax 是「创作工具」而非「发行平台」，跨媒体商业模式 / 授权 / 衍生待探索
+
+**与 §L 关系**：§L 是灵感来源；本主题是 §L 的远期方向。
+
+**跨产品影响**：本主题把「5+ 产品（写作 / 体验 / 素材 / 画布 / 漫画 / 联机）」的协同扩展到「跨媒体产品线（小说 → 漫画 → 视频 → 周边）」。ComicStudio 当前是终端产品之一，未来可能是「小说 → 漫画 → 动画 → 周边」链」的中间节点。
+
+⚠️ §L 中各平台 2026 数据 / 同人版权 / 跨媒体授权具体细节均需二次核实。
+
+---
+
+### §I.2 十一条主题的依赖与优先级矩阵
 
 | 主题 | Pinax 状态 | 落地投入估算 | 强烈依赖 | WNB-6A / M7 关联 |
 |---|---|---|---|---|
-| **I.1.1 角色一致性** | 弱（5C 治标） | 高（character sheet 升级 + LoRA 通路 + 多 provider） | I.1.2 视觉圣经 | M7+ |
-| **I.1.2 视觉圣经结构化** | 部分（M2-M6） | 中（schema + UI 暴露） | 世界书对象层协调 | M2-M6 后阶段 |
-| **I.1.3 关键帧 + 面板选取** | 弱 | 中（AI 选点 + 人确认 UI） | 体验 → 写作链路 | M7+ |
-| **I.1.4 镜头语言语义层** | 部分（shot/camera 已有） | 中（180 + beat / Kuleshov + continuity） | I.1.6 跨页 | M7+ |
-| **I.1.5 专门 comic 模型** | 弱（未集成） | 中（LoRA 通路 + provider 配置） | 多 provider 架构稳定 | M7+ |
-| **I.1.6 跨页连续性（M7 剩项）** | M7 剩 | 中（panel layout + spread anchor + reveal） | I.1.4 镜头 | M7 主任务 |
-| **I.1.7 AI 辅助工作流边界** | 弱 | 中（手修 → AI 流水线） | I.1.5 模型 | M7+ |
-| **I.1.8 出版格式 / 平台 / 多语言** | M6 已有 | 中（Webtoon / Manga / POD） | ComicPageEditor | M6 后 |
+| **I.1.1 角色一致性** | 弱（5C 治标） | 高（character sheet 升级 + LoRA 通路 + 多 provider） | I.1.2 视觉圣经 / **I.1.9 跨产品** | M7+ |
+| **I.1.2 视觉圣经结构化** | 部分（M2-M6） | 中（schema + UI 暴露） | 世界书对象层协调 / **I.1.9 跨产品** | M2-M6 后阶段 |
+| **I.1.3 关键帧 + 面板选取** | 弱 | 中（AI 选点 + 人确认 UI） | 体验 → 写作链路 / **I.1.9 跨产品** | M7+ |
+| **I.1.4 镜头语言语义层** | 部分（shot/camera 已有） | 中（180 + beat / Kuleshov + continuity） | I.1.6 跨页 / **I.1.9 跨产品** | M7+ |
+| **I.1.5 专门 comic 模型** | 弱（未集成） | 中（LoRA 通路 + provider 配置） | 多 provider 架构稳定 / **I.1.10 多 agent** | M7+ |
+| **I.1.6 跨页连续性（M7 剩项）** | M7 剩 | 中（panel layout + spread anchor + reveal） | I.1.4 镜头 / **I.1.9 跨产品** | M7 主任务 |
+| **I.1.7 AI 辅助工作流边界** | 弱 | 中（手修 → AI 流水线） | I.1.5 模型 / **I.1.10 多 agent** | M7+ |
+| **I.1.8 出版格式 / 平台 / 多语言** | M6 已有 | 中（Webtoon / Manga / POD） | ComicPageEditor / **I.1.11 跨媒体** | M6 后 |
+| **I.1.9 跨产品数据流 / 状态同步** | 弱（路由单向） | 高（5+ 产品协同 + linked records） | I.1.1 / I.1.2 / I.1.6 数据层 | M7+（侧链） |
+| **I.1.10 多 agent 协作创作** | 弱（单 advisor） | 中（multi-agent pipeline） | I.1.9 / I.1.5 / I.1.1 | M7+（远期） |
+| **I.1.11 跨媒体叙事 / IP 生态** | 弱（无跨媒体框架） | 高（远期商业模式） | I.1.6 / I.1.8 / I.1.9 | 远期（M7 后半年起） |
 
 **投入估算约定**：小 = 1-3 天单文件改动；中 = 1-2 周跨多文件；中高 = 跨多文件 + 涉及 schema；高 = 跨域（写作 + worldbook + comic + 体验）协调。
 
@@ -2088,7 +2975,7 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 2. **AI 上墨 vs AI 出整页的工作流取向**？传统插画师 + AI 协作（Procreate + Midjourney）还是全 AI 出图（Comica / LlamaGen）？
 3. **出版平台取向**：Webtoon 数字滚动 / 日漫传统单话 + POD  / Doujinshi 同人誌 / 多平台分发？
 4. **多语言策略**：是否支持漫画翻译工作流（MangaPlus Translate / Webtoon Translate）？
-5. **AI 出版合规策略**：EU AI Act / 日本文化庁 / 中国 2024 生成式 AI 管理办法对 style mimicry / 训练数据的合规要求 → 是否影响 Pinax 模型选择？
+5. **AI 出版合规策略**：EU AI Act / 日本文化庁 / 中国 2024 生成式 AI 管理办法对 style mimicry / 训练数据的合规要求 → (a) 是否影响 Pinax 模型选择？(b) 导出文件 metadata 是否带 AI 披露 tag（Webtoon / Tapas 2024 起强制）？
 
 #### §I.3.2 技术容量题（2 题）—— 决定 Pinax 可扩展性边界
 
@@ -2117,19 +3004,23 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 
 | §1.3 症状 | 主要主题 | 次要主题 | 关键灵感条目 |
 |---|---|---|---|
-| **角色一致性弱（跨多次生成漂移）** | I.1.1 | I.1.2 / I.1.5 | §A.A.1（Midjourney `--cref`）/ §A.A.2（IP-Adapter）/ §A.A.3（InstantID）/ §A.A.5（Leonardo）/ §A.A.6（Krea Character）/ §A.A.9（ControlNet Ref-Only）/ §E.E.5（AI Comic Factory 双阶段）/ §E.E.6（Story2Board training-free） |
-| **视觉圣经未结构化（character sheet 是可选参考图）** | I.1.2 | I.1.1 | §B.B.1（Wikipedia model sheet 5 元素）/ §B.B.4（HJ書 卷首）/ §B.B.7（Pixar Color Script）/ §B.B.10（kohya_ss LoRA）/ §B.B.11（Danbooru tag）/ §E.E.4（LlamaGen character sheet） |
-| **关键帧 / 面板选取策略弱** | I.1.3 | I.1.4 / I.1.6 | §C.C.1（Children's book workflow）/ §C.C.2（Light novel 配图密度）/ §C.C.6（Manga 扉页 / 重点格）/ §C.C.10（AI 自动选点 vs 人挑）/ §F.F.4（Save the Cat beats）/ §D.D.7（Beat Sheet） |
-| **镜头语言语义层缺失（180 / beat / Kuleshov）** | I.1.4 | I.1.6 | §F.F.1（180-degree rule）/ §F.F.2（Kuleshov effect）/ §F.F.3（Story Spine）/ §F.F.5（Murch Rule of Six）/ §F.F.6（beat-board-animatic）/ §F.F.10（dope sheet） |
-| **comic 专门模型未集成（ImageGenerationWorkbench 用通用 SDXL）** | I.1.5 | I.1.1 | §E.E.1（Comicai）/ §E.E.3（ComicAI）/ §E.E.4（LlamaGen）/ §E.E.7（SD comic LoRA）/ §E.E.8（NovelAI NAI Diffusion）/ §E.E.9（Midjourney --niji）/ §E.E.10（ControlNet lineart） |
-| **M7 跨页连续性（page turn / spread anchor / cliffhanger）** | I.1.6 | I.1.4 | §D.D.1（Metagrid）/ §D.D.3（Cross-page Anchor）/ §D.D.4（Page Turn Reveal）/ §D.D.5（Splash）/ §D.D.11（Spread Eye-Flow）/ §D.D.12（Cliffhanger）/ §D.D.2（Stretchy Panel） |
-| **AI 上墨 vs AI 出整页边界** | I.1.7 | I.1.5 | §G.G.4（sketch → line → color → final）/ §G.G.6（Procreate + AI）/ §G.G.11（Photoshop + SD inpainting）/ §E.E.10（ControlNet lineart）/ §E.E.5（AI Comic Factory LLM+SDXL 双阶段） |
-| **出版格式 / 平台 / 多语言** | I.1.8 | I.1.6 | §H.H.1（Webtoon 800px）/ §H.H.2（Tapas / LINE Manga）/ §H.H.4（MangaPlus 集英社）/ §H.H.5（KakaoPage / Piccoma 韩漫）/ §H.H.6（コミケ 同人誌）/ §H.H.7（KADOKAWA / 少年Jump+）/ §H.H.9（POD KDP / IngramSpark）/ §D.D.7（POD Safe Zone）/ §D.D.9（RTL Manga） |
+| **角色一致性弱（跨多次生成漂移）** | I.1.1 | I.1.2 / I.1.5 / **I.1.9** | §A.A.1（Midjourney `--cref`）/ §A.A.2（IP-Adapter）/ §A.A.3（InstantID）/ §A.A.5（Leonardo）/ §A.A.6（Krea Character）/ §A.A.9（ControlNet Ref-Only）/ §E.E.5（AI Comic Factory 双阶段）/ §E.E.6（Story2Board training-free） |
+| **视觉圣经未结构化（character sheet 是可选参考图）** | I.1.2 | I.1.1 / **I.1.9** | §B.B.1（Wikipedia model sheet 5 元素）/ §B.B.4（HJ書 卷首）/ §B.B.7（Pixar Color Script）/ §B.B.10（kohya_ss LoRA）/ §B.B.11（Danbooru tag）/ §E.E.4（LlamaGen character sheet） |
+| **关键帧 / 面板选取策略弱** | I.1.3 | I.1.4 / I.1.6 / **I.1.10** | §C.C.1（Children's book workflow）/ §C.C.2（Light novel 配图密度）/ §C.C.6（Manga 扉页 / 重点格）/ §C.C.10（AI 自动选点 vs 人挑）/ §F.F.4（Save the Cat beats）/ §D.D.7（Beat Sheet） |
+| **镜头语言语义层缺失（180 / beat / Kuleshov）** | I.1.4 | I.1.6 / **I.1.9** | §F.F.1（180-degree rule）/ §F.F.2（Kuleshov effect）/ §F.F.3（Story Spine）/ §F.F.5（Murch Rule of Six）/ §F.F.6（beat-board-animatic）/ §F.F.10（dope sheet） |
+| **comic 专用模型未集成（ImageGenerationWorkbench 用通用 SDXL）** | I.1.5 | I.1.1 / **I.1.10** | §E.E.1（Comicai）/ §E.E.3（ComicAI）/ §E.E.4（LlamaGen）/ §E.E.7（SD comic LoRA）/ §E.E.8（NovelAI NAI Diffusion）/ §E.E.9（Midjourney --niji）/ §E.E.10（ControlNet lineart） |
+| **M7 跨页连续性（page turn / spread anchor / cliffhanger）** | I.1.6 | I.1.4 / **I.1.9** | §D.D.1（Metagrid）/ §D.D.3（Cross-page Anchor）/ §D.D.4（Page Turn Reveal）/ §D.D.5（Splash）/ §D.D.11（Spread Eye-Flow）/ §D.D.12（Cliffhanger）/ §D.D.2（Stretchy Panel） |
+| **AI 上墨 vs AI 出整页边界** | I.1.7 | I.1.5 / **I.1.10** | §G.G.4（sketch → line → color → final）/ §G.G.6（Procreate + AI）/ §G.G.11（Photoshop + SD inpainting）/ §E.E.10（ControlNet lineart）/ §E.E.5（AI Comic Factory LLM+SDXL 双阶段） |
+| **出版格式 / 平台 / 多语言** | I.1.8 | I.1.6 / **I.1.11** | §H.H.1（Webtoon 800px）/ §H.H.2（Tapas / LINE Manga）/ §H.H.4（MangaPlus 集英社）/ §H.H.5（KakaoPage / Piccoma 韩漫）/ §H.H.6（コミケ 同人誌）/ §H.H.7（KADOKAWA / 少年Jump+）/ §H.H.9（POD KDP / IngramSpark）/ §D.D.7（POD Safe Zone）/ §D.D.9（RTL Manga） |
+| **跨产品数据流 / 状态同步弱（5+ 产品协同缺）** | **I.1.9** | **I.1.1 / I.1.2 / I.1.6** | §J.J.1（Notion linked records）/ §J.J.2（Obsidian Bases）/ §J.J.3（Airtable linked records）/ §J.J.5（Linear cycles）/ §J.J.6（World Anvil 跨产品）/ §J.J.9（Notion AI cross-DB query）/ §J.J.10（AO3 协作 tags） |
+| **advisor 协作（多 agent）未展开** | **I.1.10** | **I.1.1 / I.1.5 / I.1.9** | §K.K.1（MetaGPT）/ §K.K.4（AutoGen）/ §K.K.5（LangGraph）/ §K.K.8（多 agent 创作分工）/ §K.K.9（多人共创平台）/ §K.K.11（Cursor Composer 模式） |
+| **跨媒体 IP / 同人 / 商业模式** | **I.1.11** | **I.1.6 / I.1.8 / I.1.9** | §L.L.1（Marvel / DC 跨媒体宇宙）/ §L.L.2（Star Wars 全产业链 + Lucasfilm Story Group）/ §L.L.3（WEBTOON → Netflix）/ §L.L.4（起点 / 阅文 网文→漫画→动画→周边）/ §L.L.5（Type-Moon Fate）/ §L.L.7（同人二创生态）/ §L.L.8（IP 改编授权） |
 
 **使用提示**：
 - 同一症状可由多个主题交叉解决；优先级按"主要主题"列。
+- 加粗的 **I.1.X** 是 2026-08-18 用户加选 §J/§K/§L 后新增的 3 个主题。
 - 「关键灵感条目」列只是起点；每个条目有自己的 §X.Y 引用回溯链。
-- 如果一个症状在表中找不到主主题，说明本调研未深挖该方向 —— 见 §A-§H 各节 Open Questions。
+- 如果一个症状在表中找不到主主题，说明本调研未深挖该方向 —— 见 §A-§L 各节 Open Questions。
 
 ---
 
@@ -2163,17 +3054,20 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 
 ### §I.7 总览（≤ 50 字）
 
-8 条跨节主题，按"被多源反复印证"排：角色一致性 / 视觉圣经结构化 / 文字→关键帧 / 镜头语言 / 专门 comic 模型 / 跨页连续性 / AI 工作流边界 / 出版平台。I.1.6 是 M7 主任务，I.1.1 / I.1.4 是 M7+ 副产物；I.1.2 / I.1.5 / I.1.7 / I.1.8 是 M7 完成后下一波候选；I.1.3 涉及 AI 选点与人确认的边界设计，需用户拍板。
+11 条跨节主题（§A-H 第一轮 + §J-L 第二轮）。I.1.6 是 M7 主任务，I.1.1 / I.1.4 是 M7+ 副产物；I.1.2 / I.1.5 / I.1.7 / I.1.8 是 M7 完成后下一波候选；I.1.3 涉及 AI 选点与人确认的边界设计，需用户拍板；**I.1.9（跨产品连通性）是「各界面连通性」核心，与前 8 个主题交叉最多**；I.1.10（多 agent）是 advisor 演进方向；I.1.11（跨媒体 IP）是远期决策点。
 
 ---
 
-> §I 写完。本调研文件 2190 行，覆盖 100+ 条灵感（8 节） + 8 条跨节综合（§I）+ §1 现状快照 + §1.4 TL;DR + §I.5 反向映射表 + §I.6 文件观察。
+> §I 写完。本调研文件 3100+ 行，覆盖 130+ 条灵感（11 节） + 11 条跨节综合（§I）+ §1 现状快照 + §1.4 TL;DR + §I.5 反向映射表 + §I.6 文件观察。
 >
-> **3 轮深度审查 + 优化已完成**：
+> **5+ 轮深度审查 + 优化 + 第二轮发散已完成**：
 >
 > 1. **Round 1**（§I 边界）：§I.1.2 「对应 §1.3 症状」原误引 §I.1.1 的症状描述（"character sheet 是可选参考图"），已修正为"视觉圣经的 per-section 视角"（4 视角 + 6 表情 + 多服装矩阵缺子结构）。其他 7 主题边界经检查清晰。
 > 2. **Round 2**（冗余检查）：各节 per-section 总结（§A.总结 / §B.Open questions / §C.总结 / §D 总结 / §E.总结 / §F.总结 / §G.总结 / §H §表格）与 §I cross-section 综合互补不冗余，无需压缩。
 > 3. **Round 3**（总览精确度）：§I.7 把"I.1.1 + I.1.6 是 M7 落地后立刻可对照"精炼为"I.1.6 是 M7 主任务，I.1.1 / I.1.4 是 M7+ 副产物"——更精确区分 M7 主任务 vs 副产物 vs 后续候选。
+> 4. **Round 4**（内部一致性）：§I.6 `src/services/worldbook-workflow skill` 路径错误 → 改为 `agent-skills/worldbook-workflow/`；footer 行数 2200+ → 2190。
+> 5. **Round 5**（§I.3 完整性）：§I.3 Q5 (AI 出版合规) 拆分为模型选择 + 导出 metadata 是否带 AI 披露 tag 两个子问题（对应 §H.10 Webtoon / Tapas 2024 起强制）。
+> 6. **第二轮发散**（用户加选 §J/§K/§L）：加 3 个 axes（§J 跨产品数据流 / §K 多 agent 协作 / §L 跨媒体 IP 生态），共 11 axes；§I 综合扩展 3 个新主题（I.1.9 / 1.10 / 1.11）；§1.4 TL;DR 更新 5 总结 + 11 主题路由表；§I.5 反向映射表加 3 行；§I.7 总览扩 11 主题；连通性按 **方案 C** 分散到各主题「跨产品影响」小段。
 >
 > **未做的事（不在本调研范围）**：
 >
@@ -2188,4 +3082,5 @@ Pinax 不应假设「line 必须 AI」或「line 必须手」，应当给三个�
 > - 把 §I.3 的 8 个产品定位 / 技术容量 / 跨域协调题交给用户拍板
 > - 把 §I.6 的 Pinax 现有文件对应到现有 component 做改造评估（不写新模块）
 > - 用 `docs/superpowers/specs/...` 模板把某些灵感沉淀为 design doc（需 brainstorming → writing-plans 流程，本调研不触发）
-> - 把某些 ⚠️ 项二次联网核实（如 CivitAI 模型版本号 / Webtoon AI 披露政策等 12 项）
+> - 把某些 ⚠️ 项二次联网核实（如 CivitAI 模型版本号 / Webtoon AI 披露政策等 12 项 + 第二轮发散新增的 CrewAI / Swarm / MetaGPT 2026 状态等）
+> - **第二轮发散后续**：§J / §K / §L 各自有 8-12 条灵感，未来若发现新 axes（如版权 / 数据可视化 / 声音维度等），可继续追加 §M / §N / §O

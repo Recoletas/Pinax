@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { createAuthoringProjectAdapter } from '../services/agents/authoring/authoringProjectAdapter.js'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow.js'
 import {
@@ -13,11 +13,112 @@ import { normalizeObservation } from '../services/agents/observers/authoringObse
 import { createAuthoringObserverWorkflow } from '../services/agents/observers/authoringObserverWorkflow.js'
 import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler.js'
 import { createMemoryTriggers } from '../services/memoryTriggers.js'
-import { runObserverMemoryDerivation, createAuthoringObserverRunner } from '../services/agents/observers/authoringObserverDerivation.js'
+import {
+  createAuthoringObserverRunner,
+  deriveRelationsFromDelta,
+  runObserverMemoryDerivation
+} from '../services/agents/observers/authoringObserverDerivation.js'
 import { listMemoryCandidates } from '../services/memoryCandidates.js'
+import { shouldTriggerWritingAgent, useWritingAgent } from '../composables/useWritingAgent.js'
+import { resolveWritingInteractionOwner, WRITING_INTERACTION_OWNER } from '../services/writing/writingInteractionPolicy.js'
+import {
+  createAuthoringEvidenceEnvelope,
+  createAuthoringKnowledgeAnswer,
+  normalizeAuthoringEvidence,
+  reconcileAuthoringKnowledgeAnswer,
+  selectAuthoringEvidenceEnvelope,
+  sourceRefForAuthoringEvidenceLocator
+} from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
+import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import {
+  assessAuthoringVisualBriefFreshness,
+  createAuthoringVisualBrief,
+  finalizeAuthoringVisualBrief,
+  reconcileAuthoringVisualBrief
+} from '../services/agents/authoring/authoringVisualBrief.js'
+import { createWritingDocument } from '../services/writing/writingDocumentSchema.js'
+
+vi.mock('../services/advisorTaskService', () => ({
+  requestAdvisorTask: vi.fn(async () => ({ advice: ['续写的下一句。'] }))
+}))
+
+describe('inline writing suggestion trigger', () => {
+  it('triggers after substantive text at either input or a settled cursor position', () => {
+    const stem = '潮水漫过台阶，林昭停下脚步，听见门后传来一阵很轻的呼吸，他没有立刻回头，只把手慢慢按在门闩上'
+    const input = (ending, extra = {}) => ({ content: `${stem}${ending}`, cursorPos: `${stem}${ending}`.length, inputType: 'input', ...extra })
+    expect(shouldTriggerWritingAgent(input('。'))).toBe(true)
+    expect(shouldTriggerWritingAgent(input('，'))).toBe(true)
+    expect(shouldTriggerWritingAgent(input('a'))).toBe(true)
+    expect(shouldTriggerWritingAgent(input('。', { hasSelection: true }))).toBe(false)
+    expect(shouldTriggerWritingAgent({ content: stem, cursorPos: 0, inputType: 'cursor' })).toBe(true)
+    expect(shouldTriggerWritingAgent({ content: stem, cursorPos: 8, inputType: 'cursor' })).toBe(true)
+    expect(shouldTriggerWritingAgent({ content: '短句。', cursorPos: 3, inputType: 'cursor' })).toBe(false)
+    const chapterOpening = '细雨落在深夜空荡的站台上。'
+    expect(shouldTriggerWritingAgent({
+      content: chapterOpening,
+      cursorPos: chapterOpening.length,
+      inputType: 'input'
+    })).toBe(true)
+    expect(shouldTriggerWritingAgent(input('。', { currentNodeEmpty: true }))).toBe(false)
+    expect(shouldTriggerWritingAgent(input('。', { interactionOwner: WRITING_INTERACTION_OWNER.COMMAND_MENU }))).toBe(false)
+    expect(shouldTriggerWritingAgent(input('。', { interactionOwner: WRITING_INTERACTION_OWNER.BLOCK_REVIEW }))).toBe(false)
+    expect(shouldTriggerWritingAgent(input('。', { interactionOwner: WRITING_INTERACTION_OWNER.QUICK_WORD }))).toBe(false)
+    expect(shouldTriggerWritingAgent(input('。', { interactionOwner: WRITING_INTERACTION_OWNER.INLINE_REVIEW }))).toBe(true)
+    expect(resolveWritingInteractionOwner({ quickWordActive: true, inlineSuggestionVisible: true })).toBe(WRITING_INTERACTION_OWNER.QUICK_WORD)
+    expect(resolveWritingInteractionOwner({ blockPreviewOpen: true, quickWordActive: true })).toBe(WRITING_INTERACTION_OWNER.BLOCK_REVIEW)
+  })
+
+  it('coalesces duplicate input and cursor notifications for one caret revision', async () => {
+    vi.useFakeTimers()
+    try {
+      const { requestAdvisorTask } = await import('../services/advisorTaskService')
+      requestAdvisorTask.mockClear()
+      const snapshot = {
+        content: '潮水漫过台阶，林昭停下脚步，听见门后传来很轻的呼吸。',
+        cursorPos: 27,
+        documentId: 'ch-dedupe',
+        chapterId: 'ch-dedupe'
+      }
+      const agent = useWritingAgent({
+        enabled: true,
+        debounceMs: 20,
+        resolveProviderCredential: async () => true,
+        getContext: () => snapshot,
+        getSnapshot: () => snapshot
+      })
+      const input = {
+        ...snapshot,
+        inputType: 'cursor',
+        currentNodeEmpty: false,
+        interactionOwner: WRITING_INTERACTION_OWNER.EDITOR
+      }
+      agent.onInput(input)
+      agent.onInput(input)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+
+      agent.onInput(input)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+      agent.cancel('test-cleanup')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the generation target metadata when cycling alternatives', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const source = readFileSync(resolve(__dirname, '../composables/useWritingAgent.js'), 'utf8')
+    const cycleBody = source.slice(source.indexOf('function cycleSuggestion'), source.indexOf('function undoLastApply'))
+    expect(cycleBody).toContain('...(activeCandidateContext || {})')
+    expect(source).toContain('activeCandidateContext = Object.freeze({')
+    expect(source).toContain("snapshot.documentRole === 'exploration' && snapshot.documentId")
+  })
+})
 
 describe('authoring project adapter', () => {
-  it('projects writing and experience state into one project/document revision', () => {
+  it('projects writing and experience state into one project/document revision', async () => {
     const adapter = createAuthoringProjectAdapter({
       projectId: 'wb-1',
       projectRevision: 'project-r8',
@@ -27,6 +128,405 @@ describe('authoring project adapter', () => {
     expect(adapter.getProject()).toEqual({ id: 'wb-1', revision: 'project-r8' })
     expect(adapter.getDocumentTarget()).toMatchObject({ id: 'chapter-3', revision: 'doc-r5' })
     expect(adapter.getNarrativeTarget()).toMatchObject({ id: 'session-2', revision: 'scene-r4' })
+
+    const manuscriptLocator = { kind: 'manuscript', documentId: 'chapter-1', chapterId: 'chapter-1', unitId: 'unit-1', nodeId: 'node-1' }
+    expect(sourceRefForAuthoringEvidenceLocator(manuscriptLocator)).toBe('node:chapter-1:node-1')
+    expect(normalizeAuthoringEvidence({
+      projectId: 'book-knowledge',
+      sourceRef: 'node:wrong-document:node-1',
+      authority: 'manuscript',
+      label: '错误来源',
+      excerpt: '不得接受来源和 locator 不一致的证据。',
+      revision: 'manuscript-r1',
+      locator: manuscriptLocator
+    }, { projectId: 'book-knowledge' })).toBe(null)
+    const evidenceEnvelope = createAuthoringEvidenceEnvelope({
+      projectId: 'book-knowledge',
+      queryIntent: 'calculation',
+      question: '十二公里分三天，每天多少？',
+      evidence: [{
+        projectId: 'book-knowledge',
+        sourceRef: 'node:chapter-1:node-1',
+        authority: 'manuscript',
+        label: '第一章 · 路程',
+        excerpt: '艾德加要在三天内走完十二公里。',
+        revision: 'manuscript-r1',
+        locator: manuscriptLocator
+      }, {
+        projectId: 'book-knowledge',
+        sourceRef: 'exploration:note-1',
+        authority: 'suggestion',
+        label: '速度速记',
+        excerpt: '也许可以让他走得更快。',
+        revision: 'exploration-r1',
+        locator: { kind: 'exploration', documentId: 'note-1' }
+      }],
+      createdAt: 1
+    })
+    expect(Object.isFrozen(evidenceEnvelope)).toBe(true)
+    expect(evidenceEnvelope.sourceAuthorization).toMatchObject({
+      mode: 'exact-read-only',
+      allowedOperations: ['read-source', 'locate-source'],
+      deniedOperations: expect.arrayContaining(['write-manuscript', 'write-worldbook', 'write-outline'])
+    })
+    const answerInput = {
+      answer: '按正文数字复算，每天四公里。',
+      claims: [{
+        text: '正文给出了十二公里和三天。',
+        confidence: 'supported',
+        evidenceRefs: ['node:chapter-1:node-1', 'node:chapter-1:invented']
+      }, {
+        text: '速记已经成为世界事实。',
+        confidence: 'supported',
+        evidenceRefs: ['exploration:note-1']
+      }, {
+        text: '艾德加要走完这段路。',
+        confidence: 'supported',
+        evidenceRefs: ['node:chapter-1:node-1']
+      }],
+      calculations: [{
+        label: '每日路程',
+        inputs: [
+          { label: '总路程', value: 12, unit: '公里', evidenceRefs: ['node:chapter-1:node-1'] },
+          { label: '天数', value: 3, unit: '天', evidenceRefs: ['node:chapter-1:node-1'] }
+        ],
+        expression: '12 / 3',
+        result: 999,
+        unit: '公里/日'
+      }, {
+        label: '不安全计算',
+        inputs: [{ label: '数字', value: 1, evidenceRefs: ['node:chapter-1:node-1'] }],
+        expression: 'process.exit()',
+        result: 1
+      }]
+    }
+    const answer = createAuthoringKnowledgeAnswer({ evidenceEnvelope, modelOutput: answerInput, createdAt: 10 })
+    expect(answer.claims.map((claim) => claim.confidence)).toEqual(['partial', 'partial', 'supported'])
+    expect(answer.claims.flatMap((claim) => claim.evidenceRefs)).not.toContain('node:chapter-1:invented')
+    expect(answer.calculations).toEqual([expect.objectContaining({
+      label: '每日路程', expression: '12/3', result: 4, unit: '公里/日', confidence: 'supported'
+    })])
+    expect(answer.missingInformation).toEqual(expect.arrayContaining([
+      '回答引用了未授权资料，已忽略该引用。',
+      '计算式不安全或无法复算，已忽略。'
+    ]))
+    expect(createAuthoringKnowledgeAnswer({ evidenceEnvelope, modelOutput: answerInput, createdAt: 999 }).fingerprint)
+      .toBe(answer.fingerprint)
+    expect(selectAuthoringEvidenceEnvelope(answer, ['node:chapter-1:node-1'])).toMatchObject({
+      kind: 'authoring-evidence-envelope',
+      evidence: [expect.objectContaining({ sourceRef: 'node:chapter-1:node-1' })]
+    })
+    expect(selectAuthoringEvidenceEnvelope(answer, ['node:chapter-1:invented'])).toBe(null)
+    expect(reconcileAuthoringKnowledgeAnswer(answer, {
+      'node:chapter-1:node-1': 'manuscript-r2',
+      'exploration:note-1': 'exploration-r1'
+    })).toMatchObject({
+      stale: true,
+      staleSources: [expect.objectContaining({ sourceRef: 'node:chapter-1:node-1', reason: 'revision-changed' })]
+    })
+
+    const chapterOneDocument = createWritingDocument('艾德加在钟楼下把钥匙交给莉娜。')
+    const chapterTwoDocument = createWritingDocument('莉娜在港口再次见到艾德加。')
+    let knowledgeBook = {
+      id: 'book-query',
+      title: '雾港纪事',
+      worldbookId: 'worldbook-query',
+      chapters: [
+        { id: 'query-chapter-1', title: '第一章', editorDocument: chapterOneDocument },
+        { id: 'query-chapter-2', title: '第二章', editorDocument: chapterTwoDocument }
+      ]
+    }
+    const queryRepositories = {
+      getBook: async (projectId) => projectId === 'book-query' ? knowledgeBook : null,
+      getBoundWorldbook: async () => ({
+        projectId: 'book-query',
+        worldbookId: 'worldbook-query',
+        worldbook: {
+          id: 'worldbook-query',
+          entries: [{ id: 'edgar', name: '艾德加', type: 'character', content: '旧港档案员。' }, {
+            id: 'foreign', projectId: 'book-foreign', name: '艾德加跨项目哨兵', content: '不得进入查询。'
+          }]
+        }
+      }),
+      listExplorations: async () => [{ id: 'query-note', role: 'exploration', title: '艾德加备忘', content: '也许让艾德加隐瞒钥匙。', revision: 1 }],
+      listOutlineNodes: async () => [{ id: 'query-outline', projectId: 'book-query', title: '钥匙伏笔', intent: '第二章兑现艾德加交出的钥匙。', status: 'adopted' }],
+      listOutlineEdges: async () => [],
+      listMemories: async () => [{
+        id: 'query-memory', scope: 'project', scopeId: 'book-query', projectId: 'book-query',
+        status: 'active', content: '艾德加曾保管旧册。', sourceRef: 'node:missing:missing'
+      }]
+    }
+    const knowledgeQuery = createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 })
+    const wholeBook = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加此前在哪几章出现？', now: 5
+    })
+    expect(wholeBook.ok).toBe(true)
+    const wholeEvidence = wholeBook.session.evidenceEnvelope.evidence
+    expect(wholeEvidence.filter((item) => item.authority === 'manuscript')).toHaveLength(2)
+    expect(JSON.stringify(wholeEvidence)).not.toContain('艾德加跨项目哨兵')
+    const authorizedRefs = wholeBook.session.toolAuthorization.sources.map((item) => item.sourceRef).sort()
+    const serializedRefs = wholeBook.session.contextEnvelope.blocks.flatMap((block) => block.sourceRefs).sort()
+    expect(authorizedRefs).toEqual(serializedRefs)
+    expect(wholeBook.session.toolAuthorization.deniedOperations).toContain('write-manuscript')
+
+    const chapterOneUnit = chapterOneDocument.content[0]
+    const chapterOneNode = chapterOneUnit.content[0]
+    const throughTarget = await knowledgeQuery.prepare({
+      projectId: 'book-query',
+      queryIntent: 'character',
+      question: '挖角色：艾德加此前做过什么？',
+      target: {
+        projectId: 'book-query',
+        documentId: 'query-chapter-1',
+        chapterId: 'query-chapter-1',
+        unitId: chapterOneUnit.attrs.unitId,
+        nodeId: chapterOneNode.attrs.nodeId
+      }
+    })
+    expect(throughTarget.ok).toBe(true)
+    expect(throughTarget.session.retrievalScope).toBe('through-target')
+    expect(throughTarget.session.evidenceEnvelope.evidence.some((item) => item.sourceRef.startsWith('node:query-chapter-2:'))).toBe(false)
+
+    const unsavedDocument = createWritingDocument('艾德加刚在当前内存稿刻下鸦羽印记。')
+    const unsavedUnit = unsavedDocument.content[0]
+    const unsavedNode = unsavedUnit.content[0]
+    const unsavedQuery = await knowledgeQuery.prepare({
+      projectId: 'book-query',
+      queryIntent: 'setting',
+      question: '鸦羽印记是什么？',
+      target: {
+        projectId: 'book-query',
+        documentId: 'query-chapter-1',
+        chapterId: 'query-chapter-1',
+        unitId: unsavedUnit.attrs.unitId,
+        nodeId: unsavedNode.attrs.nodeId
+      },
+      liveSource: {
+        projectId: 'book-query',
+        role: 'manuscript',
+        documentId: 'query-chapter-1',
+        chapterId: 'query-chapter-1',
+        documentRevision: 'live-chapter-r2',
+        documentSchemaRevision: String(unsavedDocument.revision),
+        document: unsavedDocument
+      }
+    })
+    expect(unsavedQuery.ok).toBe(true)
+    expect(unsavedQuery.session.evidenceEnvelope.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sourceRef: `node:query-chapter-1:${unsavedNode.attrs.nodeId}`,
+        excerpt: expect.stringContaining('鸦羽印记')
+      })
+    ]))
+    const liveUnsavedRevisions = await knowledgeQuery.collectCurrentRevisions(unsavedQuery.session, {
+      liveSource: {
+        projectId: 'book-query',
+        role: 'manuscript',
+        documentId: 'query-chapter-1',
+        chapterId: 'query-chapter-1',
+        documentRevision: 'live-chapter-r2',
+        documentSchemaRevision: String(unsavedDocument.revision),
+        document: unsavedDocument
+      }
+    })
+    expect(liveUnsavedRevisions[`node:query-chapter-1:${unsavedNode.attrs.nodeId}`]).toBeTruthy()
+    expect(await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'setting', question: '鸦羽印记是什么？',
+      liveSource: {
+        projectId: 'book-query', role: 'manuscript', documentId: 'query-chapter-2', chapterId: 'query-chapter-1',
+        documentRevision: 'live-invalid', documentSchemaRevision: String(unsavedDocument.revision), document: unsavedDocument
+      }
+    })).toMatchObject({ ok: false, reason: 'knowledge-live-source-invalid' })
+
+    const unsavedExploration = createWritingDocument('速记里刚写下尚未落盘的蓝铜钥匙。')
+    const explorationQuery = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '蓝铜钥匙在哪里？',
+      liveSource: {
+        projectId: 'book-query', role: 'exploration', documentId: 'query-note', chapterId: '',
+        documentRevision: 'live-note-r2', documentSchemaRevision: String(unsavedExploration.revision),
+        title: '艾德加备忘', document: unsavedExploration
+      }
+    })
+    expect(explorationQuery.ok).toBe(true)
+    expect(explorationQuery.session.retrievalScope).toBe('whole-book')
+    expect(explorationQuery.session.evidenceEnvelope.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRef: 'exploration:query-note', excerpt: expect.stringContaining('蓝铜钥匙') })
+    ]))
+    const freeFromUnsavedSurface = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'free', question: '这一段怎样写得更紧？',
+      target: {
+        projectId: 'book-query', documentId: 'query-chapter-1', chapterId: 'query-chapter-1',
+        unitId: 'unit-not-yet-persisted', nodeId: 'node-not-yet-persisted'
+      },
+      liveSource: {
+        projectId: 'book-query', role: 'exploration', documentId: 'query-note', chapterId: '',
+        documentRevision: 'live-note-r2', documentSchemaRevision: String(unsavedExploration.revision),
+        title: '艾德加备忘', document: unsavedExploration
+      }
+    })
+    expect(freeFromUnsavedSurface).toMatchObject({
+      ok: true,
+      session: { retrievalScope: 'project', target: null, evidenceEnvelope: { evidence: [] } }
+    })
+
+    const missing = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'setting', question: '泽尔布星人的出生地在哪里？'
+    })
+    expect(missing).toMatchObject({ ok: true, session: { evidenceEnvelope: { evidence: [] } } })
+    const liveRevisions = await knowledgeQuery.collectCurrentRevisions(wholeBook.session)
+    expect(Object.keys(liveRevisions).sort()).toEqual(authorizedRefs)
+    knowledgeBook = {
+      ...knowledgeBook,
+      chapters: [{ ...knowledgeBook.chapters[0], editorDocument: createWritingDocument('艾德加的钥匙来源已经改写。') }, knowledgeBook.chapters[1]]
+    }
+    const changedRevisions = await knowledgeQuery.collectCurrentRevisions(wholeBook.session)
+    expect(changedRevisions[wholeEvidence.find((item) => item.sourceRef.startsWith('node:query-chapter-1:')).sourceRef]).toBeUndefined()
+
+    const visualDocument = createWritingDocument('雨水沿着铜窗流下。\n\n艾德加把蓝铜钥匙放在桌上。')
+    const visualUnit = visualDocument.content[0]
+    const visualNode = visualUnit.content[0]
+    const visualInput = {
+      sessionId: 'visual-session-1',
+      pane: 'main',
+      projectId: 'book-visual',
+      role: 'manuscript',
+      documentId: 'visual-chapter',
+      chapterId: 'visual-chapter',
+      documentRevision: 'document-r4',
+      documentSchemaRevision: String(visualDocument.revision),
+      document: visualDocument,
+      selection: {
+        empty: false,
+        text: '蓝铜钥匙放在桌上',
+        markdownFrom: 14,
+        markdownTo: 23,
+        unitId: visualUnit.attrs.unitId,
+        unitRevision: visualUnit.attrs.unitRevision,
+        nodeId: visualNode.attrs.nodeId,
+        nodeRevision: visualNode.attrs.nodeRevision,
+        endUnitId: visualUnit.attrs.unitId,
+        endUnitRevision: visualUnit.attrs.unitRevision,
+        endNodeId: visualNode.attrs.nodeId,
+        endNodeRevision: visualNode.attrs.nodeRevision
+      },
+      sceneProjection: {
+        projectId: 'book-visual',
+        chapterId: 'visual-chapter',
+        activeUnitId: visualUnit.attrs.unitId,
+        projectionFingerprint: 'scene-r4',
+        sourceRefs: ['chapter:visual-chapter'],
+        presentCharacters: [{
+          id: 'edgar', name: '艾德加', goal: '藏起钥匙', mood: '警觉', sourceRefs: ['worldbook-entry:edgar']
+        }],
+        location: { id: 'harbor', name: '雾港仓库', region: '旧港', sourceRefs: ['worldbook-entry:harbor'] },
+        time: { id: 'midnight', label: '深夜', period: '午夜', sourceRefs: ['scene-anchor:visual'] }
+      },
+      worldbookEntries: [
+        { id: 'edgar', name: '艾德加', type: 'character', content: '旧港档案员，随身带着蓝铜钥匙。' },
+        { id: 'harbor', name: '雾港仓库', type: 'location', content: '终年潮湿的旧仓库。' }
+      ]
+    }
+    const visualBrief = createAuthoringVisualBrief(visualInput)
+    expect(Object.isFrozen(visualBrief)).toBe(true)
+    expect(visualBrief).toMatchObject({
+      kind: 'authoring-visual-brief',
+      status: 'prepared',
+      sessionId: 'visual-session-1',
+      projectId: 'book-visual',
+      pane: 'main',
+      source: {
+        projectId: 'book-visual', documentId: 'visual-chapter', chapterId: 'visual-chapter',
+        documentRevision: 'document-r4', documentSchemaRevision: '0',
+        unitId: visualUnit.attrs.unitId, unitRevision: '0', nodeId: visualNode.attrs.nodeId, nodeRevision: '0'
+      },
+      promptSource: { kind: 'selection', text: '蓝铜钥匙放在桌上', range: { from: 14, to: 23 } }
+    })
+    expect(visualBrief.scene.sources).toEqual([
+      expect.objectContaining({ id: 'character:edgar', selected: false, available: true, sourceRef: 'worldbook-entry:edgar' }),
+      expect.objectContaining({ id: 'location:harbor', selected: false, available: true, sourceRef: 'worldbook-entry:harbor' }),
+      expect.objectContaining({ id: 'time:midnight', selected: false, available: true })
+    ])
+    const unitFallbackBrief = createAuthoringVisualBrief({
+      ...visualInput,
+      selection: { ...visualInput.selection, empty: true, text: '' }
+    })
+    expect(unitFallbackBrief.promptSource).toMatchObject({
+      kind: 'writing-unit',
+      text: expect.stringContaining('艾德加把蓝铜钥匙放在桌上。')
+    })
+    expect(createAuthoringVisualBrief(JSON.parse(JSON.stringify(visualInput))).fingerprint).toBe(visualBrief.fingerprint)
+    const textOnlyVisualBrief = finalizeAuthoringVisualBrief(visualBrief, { prompt: '只画蓝铜钥匙' })
+    expect(textOnlyVisualBrief).toMatchObject({
+      selectedSceneSourceIds: [],
+      selectedSceneSources: [],
+      sourceRefs: ['chapter:visual-chapter']
+    })
+    expect(textOnlyVisualBrief.generationPrompt).toBe('只画蓝铜钥匙')
+
+    const finalizedVisualBrief = finalizeAuthoringVisualBrief(visualBrief, {
+      prompt: '一把蓝铜钥匙静置在潮湿木桌上',
+      selectedSceneSourceIds: ['time:midnight', 'location:harbor', 'character:edgar']
+    })
+    expect(finalizedVisualBrief).toMatchObject({
+      status: 'finalized',
+      prompt: '一把蓝铜钥匙静置在潮湿木桌上',
+      selectedSceneSourceIds: ['character:edgar', 'location:harbor', 'time:midnight'],
+      sourceRefs: expect.arrayContaining([
+        'chapter:visual-chapter',
+        'worldbook-entry:edgar',
+        'worldbook-entry:harbor',
+        `scene-projection:visual-chapter:${visualUnit.attrs.unitId}`
+      ])
+    })
+    expect(finalizedVisualBrief.generationPrompt).toContain('人物：艾德加')
+    expect(finalizeAuthoringVisualBrief(visualBrief, {
+      prompt: '一把蓝铜钥匙静置在潮湿木桌上',
+      selectedSceneSourceIds: ['character:edgar', 'time:midnight', 'location:harbor']
+    }).fingerprint).toBe(finalizedVisualBrief.fingerprint)
+    expect(assessAuthoringVisualBriefFreshness(finalizedVisualBrief, visualInput)).toEqual({
+      fresh: true,
+      stale: false,
+      detached: false,
+      staleSources: []
+    })
+    expect(reconcileAuthoringVisualBrief(finalizedVisualBrief, visualInput)).toMatchObject({
+      fresh: true, stale: false, detached: false, staleSources: []
+    })
+
+    const changedVisualInputs = [
+      ['projectId', (value) => { value.projectId = 'another-book' }],
+      ['documentId', (value) => { value.documentId = 'another-document' }],
+      ['documentRevision', (value) => { value.documentRevision = 'document-r5' }],
+      ['documentSchemaRevision', (value) => { value.documentSchemaRevision = '1' }],
+      ['unitId', (value) => { value.selection.unitId = 'another-unit' }],
+      ['unitRevision', (value) => { value.selection.unitRevision = 1 }],
+      ['nodeId', (value) => { value.selection.nodeId = 'another-node' }],
+      ['nodeRevision', (value) => { value.selection.nodeRevision = 1 }],
+      ['sceneRevision', (value) => { value.sceneProjection.projectionFingerprint = 'scene-r5' }],
+      ['sourceRevision', (value) => { value.worldbookEntries[0].content = '艾德加的设定已经修改。' }]
+    ]
+    for (const [field, mutate] of changedVisualInputs) {
+      const changed = JSON.parse(JSON.stringify(visualInput))
+      mutate(changed)
+      const assessment = assessAuthoringVisualBriefFreshness(finalizedVisualBrief, changed)
+      expect(assessment.stale, field).toBe(true)
+      expect(assessment.staleSources.some((issue) => issue.field === field), field).toBe(true)
+    }
+    expect(createAuthoringVisualBrief({ pane: 'main', projectId: 'book-visual' })).toBe(null)
+    expect(finalizeAuthoringVisualBrief(visualBrief, { selectedSceneSourceIds: ['character:missing'] })).toBe(null)
+    expect(assessAuthoringVisualBriefFreshness(finalizedVisualBrief, {})).toMatchObject({
+      stale: true,
+      detached: true,
+      staleSources: [expect.objectContaining({ reason: 'source-missing' })]
+    })
+    const paneMissingInput = JSON.parse(JSON.stringify(visualInput))
+    delete paneMissingInput.pane
+    expect(assessAuthoringVisualBriefFreshness(finalizedVisualBrief, paneMissingInput)).toMatchObject({
+      fresh: false,
+      stale: true,
+      detached: true,
+      staleSources: expect.arrayContaining([expect.objectContaining({ field: 'pane', reason: 'pane-missing' })])
+    })
   })
 })
 
@@ -191,17 +691,66 @@ it('routes %s to %s without narrative agent looping' + '（参数组合并）', 
 })
 
 describe('authoring observer workflow', () => {
-  it("auto-commits routine derived facts and surfaces locked conflicts（合并3例）", async () => {
+  it("auto-commits routine derived facts and surfaces locked conflicts（合并4例）", async () => {
 {
 const applyDerived = vi.fn(async () => ({ revision: 'derived-r3' }))
     const workflow = createAuthoringObserverWorkflow({ derive: vi.fn(async () => ({
       observations: [
-        { id: 'o1', kind: 'relation', authority: 'derived', text: '林昭信任顾远' },
+        {
+          id: 'o1',
+          kind: 'relation',
+          authority: 'derived',
+          text: '林昭信任顾远',
+          subjectId: 'character:lin-zhao',
+          objectId: 'character:gu-yuan'
+        },
         { id: 'o2', kind: 'identity', conflictsWith: 'locked:char-1', text: '林昭改名' }
       ]
     })), applyDerived })
-    const result = await workflow.run({ task: { id: 'observer.relations.derive' }, request: { target: { revision: 'doc-r2' }, intent: {} }, context: { envelope: {} } })
-    expect(applyDerived).toHaveBeenCalledWith([expect.objectContaining({ id: 'o1' })], expect.any(Object))
+    const result = await workflow.run({
+      task: { id: 'observer.relations.derive' },
+      request: {
+        target: {
+          type: 'document',
+          id: 'document:chapter-2',
+          documentId: 'document:chapter-2',
+          revision: 'receipt-r2',
+          sourceDocumentRevision: 'doc-r2'
+        },
+        intent: {
+          provenance: {
+            projectId: 'book-1',
+            documentId: 'document:chapter-2',
+            chapterId: 'chapter-2',
+            unitId: 'unit-4',
+            unitRevision: 3,
+            documentRevision: 'doc-r2',
+            sourceRefs: ['chapter:chapter-2'],
+            derivedAt: 1_777_000_000_000
+          }
+        }
+      },
+      context: { envelope: {} }
+    })
+    expect(applyDerived).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'o1',
+        documentId: 'document:chapter-2',
+        schemaVersion: 1,
+        derivedAt: 1_777_000_000_000,
+        status: 'applied',
+        target: expect.objectContaining({
+          documentId: 'document:chapter-2',
+          chapterId: 'chapter-2',
+          unitId: 'unit-4',
+          revision: 'receipt-r2',
+          sourceDocumentRevision: 'doc-r2'
+        })
+      })
+    ], expect.objectContaining({
+      target: expect.objectContaining({ documentId: 'document:chapter-2' }),
+      provenance: expect.objectContaining({ documentId: 'document:chapter-2', schemaVersion: 1 })
+    }))
     expect(result.exceptions).toEqual([expect.objectContaining({ observationId: 'o2', reason: 'locked-conflict' })])
 }
 {
@@ -228,6 +777,8 @@ const observation = normalizeObservation({
       kind: 'relation',
       authority: 'locked',
       text: '林昭信任顾远',
+      subjectId: 'character:lin-zhao',
+      objectId: 'character:gu-yuan',
       sourceRefs: ['turn:t8', 'turn:t8', 'chapter:c2'],
       baseRevision: 'doc-r5'
     })
@@ -236,21 +787,63 @@ const observation = normalizeObservation({
       kind: 'relation',
       authority: 'derived',
       baseRevision: 'doc-r5',
-      conflictsWith: null
+      conflictsWith: null,
+      status: 'applied',
+      identityStatus: 'resolved'
     })
     expect(observation.sourceRefs).toEqual(['turn:t8', 'chapter:c2'])
     expect(Object.isFrozen(observation)).toBe(true)
+
+    const unresolved = normalizeObservation({
+      id: 'o10',
+      kind: 'relation',
+      text: '阿七信任顾远',
+      subject: '阿七',
+      object: '顾远'
+    })
+    expect(unresolved).toMatchObject({ status: 'candidate', identityStatus: 'unresolved' })
+
+    const ambiguous = deriveRelationsFromDelta({
+      text: '阿七信任顾远。',
+      knownIdentities: [
+        { id: 'character:lin-zhao', name: '林昭', aliases: ['阿七'] },
+        { id: 'character:lin-qi', name: '林七', aliases: ['阿七'] },
+        { id: 'character:gu-yuan', name: '顾远' }
+      ]
+    })
+    expect(ambiguous[0]).toMatchObject({
+      subject: '阿七',
+      subjectId: '',
+      objectId: 'character:gu-yuan',
+      ambiguous: true,
+      identityStatus: 'ambiguous'
+    })
+}
+{
+const applyDerived = vi.fn()
+    const workflow = createAuthoringObserverWorkflow({
+      derive: vi.fn(async () => ({ observations: [{ id: 'o-stale', kind: 'event', text: '发现密道' }] })),
+      applyDerived
+    })
+    const result = await workflow.run({
+      task: { id: 'observer.events.derive' },
+      request: { target: { id: 'doc-stale', revision: 'r-old' }, intent: {} },
+      context: { envelope: {}, isCurrent: () => false }
+    })
+    expect(result).toMatchObject({ status: 'stale', applied: null })
+    expect(applyDerived).not.toHaveBeenCalled()
 }
 })
 })
 
 describe('authoring observer scheduler', () => {
-  it("coalesces by document revision, waits for editor idle, and cancels superseded work（合并4例）", async () => {
+  it("coalesces by document revision, waits for editor idle, and cancels superseded work（合并5例）", async () => {
 {
 vi.useFakeTimers()
     try {
       const run = vi.fn(async (delta) => ({ status: 'completed', applied: delta.documentRevision }))
-      const scheduler = createAuthoringObserverScheduler({ run, idleDelayMs: 500 })
+      const onSettled = vi.fn()
+      const scheduler = createAuthoringObserverScheduler({ run, idleDelayMs: 500, onSettled })
 
       scheduler.scheduleObservers({ documentId: 'doc-1', documentRevision: 'doc-r1', text: '第一版。' })
       scheduler.scheduleObservers({ documentId: 'doc-1', documentRevision: 'doc-r2', text: '第二版正文更长。' })
@@ -264,6 +857,14 @@ vi.useFakeTimers()
       const revisions = run.mock.calls.map((call) => call[0].documentRevision).sort()
       expect(revisions).toEqual(['doc-r2', 'doc2-r1'])
       expect(revisions).not.toContain('doc-r1')
+      expect(onSettled).toHaveBeenCalledTimes(2)
+      expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({
+        status: 'completed',
+        key: 'doc-1',
+        target: expect.objectContaining({ documentId: 'doc-1', revision: 'doc-r2' }),
+        result: expect.objectContaining({ status: 'completed', applied: 'doc-r2' }),
+        error: null
+      }))
     } finally {
       vi.useRealTimers()
     }
@@ -274,7 +875,8 @@ vi.useFakeTimers()
       let releaseRun
       const run = vi.fn(() => new Promise((resolve) => { releaseRun = resolve }))
       const onResult = vi.fn()
-      const scheduler = createAuthoringObserverScheduler({ run, idleDelayMs: 100, onResult })
+      const onSettled = vi.fn()
+      const scheduler = createAuthoringObserverScheduler({ run, idleDelayMs: 100, onResult, onSettled })
 
       // Scheduling returns synchronously — persistence never awaits observer work.
       const scheduleResult = scheduler.scheduleObservers({ documentId: 'doc-9', documentRevision: 'doc-r1', text: '提交的正文。' })
@@ -292,17 +894,36 @@ vi.useFakeTimers()
       releaseRun?.({ status: 'stale' })
       await vi.advanceTimersByTimeAsync(0)
       expect(onResult).not.toHaveBeenCalled()
+      expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({
+        status: 'stale',
+        key: 'doc-9',
+        target: expect.objectContaining({
+          type: 'document',
+          documentId: 'doc-9',
+          revision: 'doc-r2'
+        }),
+        result: expect.objectContaining({ status: 'stale' }),
+        error: null
+      }))
       expect(scheduler.pendingCount()).toBe(0)
 
+      const frozenSettled = vi.fn()
       const staleScheduler = createAuthoringObserverScheduler({
         run: async () => ({ status: 'completed' }),
         idleDelayMs: 10,
-        onResult
+        onResult,
+        onSettled: frozenSettled
       })
       staleScheduler.scheduleObservers({ documentId: 'doc-x', documentRevision: 'old-rev', expectedRevision: 'new-rev' })
       await vi.advanceTimersByTimeAsync(50)
       expect(staleScheduler.pendingCount()).toBe(0)
       expect(onResult).not.toHaveBeenCalled()
+      expect(frozenSettled).toHaveBeenCalledWith(expect.objectContaining({
+        status: 'stale',
+        key: 'doc-x',
+        result: null,
+        error: null
+      }))
     } finally {
       vi.useRealTimers()
     }
@@ -319,15 +940,77 @@ const calls = []
 }
 {
 const calls = []
+    const onSettled = vi.fn()
     const scheduler = createAuthoringObserverScheduler({
       invalidate: async () => { throw new Error('invalidate-failed') },
-      run: async (delta) => calls.push(['run', delta.revision])
+      run: async (delta) => calls.push(['run', delta.revision]),
+      onSettled
     })
     scheduler.schedule({ sourceRefs: ['chapter:1'], revision: 'rev-4' })
     const results = await scheduler.flush()
     expect(calls).toEqual([])
     expect(results[0].ok).toBe(false)
     expect(results[0].stage).toBe('invalidate')
+    expect(onSettled).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      key: 'source:chapter:1@rev-4',
+      target: expect.objectContaining({ type: 'document', revision: 'rev-4' }),
+      result: null,
+      error: expect.objectContaining({ message: 'invalidate-failed' })
+    }))
+}
+{
+let fire
+    let releaseRun
+    const writes = []
+    const onSettled = vi.fn()
+    const scheduler = createAuthoringObserverScheduler({
+      delayFn: (callback) => {
+        fire = callback
+        return Symbol('timer')
+      },
+      cancelFn: vi.fn(),
+      run: async (delta, execution) => {
+        await new Promise((resolve) => { releaseRun = resolve })
+        if (!execution.isCurrent()) return { status: 'stale', documentRevision: delta.documentRevision }
+        writes.push(delta.documentRevision)
+        return { status: 'completed', documentRevision: delta.documentRevision }
+      },
+      onSettled
+    })
+    scheduler.scheduleObservers({
+      memoryProjectId: 'book-7',
+      documentId: 'doc-in-flight',
+      chapterId: 'chapter-7',
+      unitId: 'unit-9',
+      unitRevision: 4,
+      documentRevision: 'receipt-r7',
+      sourceDocumentRevision: 'source-r11',
+      text: '林昭发现密道。'
+    })
+    const running = fire()
+    await Promise.resolve()
+    expect(scheduler.cancelObservers('doc-in-flight')).toBe(true)
+    releaseRun()
+    await running
+    expect(writes).toEqual([])
+    expect(onSettled).toHaveBeenCalledWith({
+      status: 'stale',
+      key: 'doc-in-flight',
+      target: {
+        type: 'document',
+        id: 'doc-in-flight',
+        projectId: 'book-7',
+        documentId: 'doc-in-flight',
+        chapterId: 'chapter-7',
+        unitId: 'unit-9',
+        unitRevision: 4,
+        revision: 'receipt-r7',
+        sourceDocumentRevision: 'source-r11'
+      },
+      result: { status: 'stale', documentRevision: 'receipt-r7' },
+      error: null
+    })
 }
 })
 })
@@ -336,12 +1019,14 @@ describe('legacy experience state bridge', () => {
   it("commits one prose result before scheduling derived observations（合并2例）", async () => {
 {
 const insertText = vi.fn(async () => ({ revision: 'doc-r4' }))
-    const scheduleObservers = vi.fn()
+    const observerSchedule = { accepted: true, key: 'doc-r4:unit:u-8' }
+    const scheduleObservers = vi.fn(async () => observerSchedule)
     const bridge = createLegacyExperienceStateBridge({ insertText, scheduleObservers })
-    await bridge.commitNarrativeResult({ text: '林昭推开门。', baseRevision: 'doc-r3', sourceRefs: ['turn:t8'] })
+    const receipt = await bridge.commitNarrativeResult({ text: '林昭推开门。', baseRevision: 'doc-r3', sourceRefs: ['turn:t8'] })
     expect(insertText).toHaveBeenCalledOnce()
     expect(scheduleObservers).toHaveBeenCalledWith(expect.objectContaining({ documentRevision: 'doc-r4' }))
     expect(insertText.mock.invocationCallOrder[0]).toBeLessThan(scheduleObservers.mock.invocationCallOrder[0])
+    expect(receipt).toEqual({ revision: 'doc-r4', observerSchedule })
 }
 {
 const insertText = vi.fn(async () => { throw new Error('persist-failed') })
@@ -377,6 +1062,73 @@ it('handles %s with derive=%s' + '（参数组合并）', async () => {
   if (failuresK5.length) throw new Error(failuresK5.join('\n'))
 })
 }
+
+  it('forwards the edited-node delta without falling back to the whole chapter', async () => {
+    const derive = vi.fn()
+    const triggers = createMemoryTriggers({ derive })
+    await triggers.handle({
+      type: 'boundary',
+      projectId: 'p-delta',
+      sessionId: 's-delta',
+      scopeKey: 'chapter:7',
+      text: '旧开头。旧中段。新结尾。',
+      changedText: '新结尾。',
+      revision: 'r-delta-1'
+    })
+    expect(derive).toHaveBeenCalledWith(expect.objectContaining({
+      text: '旧开头。旧中段。新结尾。',
+      changedText: '新结尾。'
+    }))
+  })
+
+  it('occupies boundary dedupe only after observer scheduling is accepted or already scheduled', async () => {
+    const disabledDerive = vi.fn()
+    const disabled = createMemoryTriggers({
+      derive: disabledDerive,
+      isAgentEnabled: () => false
+    })
+    const boundary = {
+      type: 'boundary',
+      projectId: 'p-retry',
+      sessionId: 's-retry',
+      scopeKey: 'chapter:7:unit:u-1',
+      revision: 'r-1'
+    }
+    await expect(disabled.handle(boundary)).resolves.toMatchObject({
+      handled: true,
+      derived: false,
+      reason: 'agent-disabled'
+    })
+    await expect(disabled.handle(boundary)).resolves.toMatchObject({ reason: 'agent-disabled' })
+    expect(disabledDerive).not.toHaveBeenCalled()
+
+    const rejectedDerive = vi.fn(async () => ({ accepted: false, reason: 'runtime-not-ready' }))
+    const rejected = createMemoryTriggers({ derive: rejectedDerive })
+    await expect(rejected.handle(boundary)).resolves.toMatchObject({
+      derived: false,
+      reason: 'runtime-not-ready'
+    })
+    await expect(rejected.handle(boundary)).resolves.toMatchObject({
+      derived: false,
+      reason: 'runtime-not-ready'
+    })
+    expect(rejectedDerive).toHaveBeenCalledTimes(2)
+
+    const acceptedDerive = vi.fn(async () => ({ accepted: true, key: 'accepted-key' }))
+    const accepted = createMemoryTriggers({ derive: acceptedDerive })
+    await expect(accepted.handle(boundary)).resolves.toMatchObject({ derived: true })
+    await expect(accepted.handle(boundary)).resolves.toMatchObject({
+      handled: false,
+      reason: 'duplicate-boundary'
+    })
+    expect(acceptedDerive).toHaveBeenCalledTimes(1)
+
+    const duplicateDerive = vi.fn(async () => ({ accepted: false, skipped: true, reason: 'duplicate-pending' }))
+    const alreadyScheduled = createMemoryTriggers({ derive: duplicateDerive })
+    await expect(alreadyScheduled.handle(boundary)).resolves.toMatchObject({ derived: true })
+    await expect(alreadyScheduled.handle(boundary)).resolves.toMatchObject({ reason: 'duplicate-boundary' })
+    expect(duplicateDerive).toHaveBeenCalledTimes(1)
+  })
 
   it("creates an explicit local candidate when the provider is unavailable（合并4例）", async () => {
 {
@@ -493,8 +1245,8 @@ localStorage.removeItem('pinax.memoryCandidates')
 localStorage.removeItem('pinax.memoryCandidates')
     const applied = []
     const runner = createAuthoringObserverRunner({
-      applyDerived: async (routine) => {
-        applied.push(routine.length)
+      applyDerived: async (routine, meta) => {
+        applied.push({ routine, meta })
         return { count: routine.length }
       },
       memoryTarget: { projectId: 'p1' }
@@ -502,6 +1254,11 @@ localStorage.removeItem('pinax.memoryCandidates')
     const result = await runner.run({
       documentId: 'doc-1',
       documentRevision: 'doc-r7',
+      sourceDocumentRevision: 'source-r12',
+      memoryProjectId: 'book-1',
+      chapterId: 'chapter-1',
+      unitId: 'unit-2',
+      unitRevision: 6,
       text: '林昭答应在天亮前返回。第二天清晨他真的回来了。',
       sourceRefs: ['turn:t8', 'chapter:c2'],
       knownNames: ['林昭'],
@@ -509,10 +1266,217 @@ localStorage.removeItem('pinax.memoryCandidates')
     })
     expect(result.status).toBe('completed')
     expect(result.memoryQueued).toBeGreaterThanOrEqual(1)
+    expect(result.target).toEqual({
+      type: 'document',
+      id: 'doc-1',
+      projectId: 'book-1',
+      documentId: 'doc-1',
+      chapterId: 'chapter-1',
+      unitId: 'unit-2',
+      unitRevision: 6,
+      revision: 'doc-r7',
+      sourceDocumentRevision: 'source-r12'
+    })
+    expect(result.provenance).toMatchObject({
+      schemaVersion: 1,
+      derivedAt: expect.any(Number),
+      documentId: 'doc-1',
+      documentRevision: 'source-r12',
+      target: result.target
+    })
+    const appliedObservation = applied.flatMap((entry) => entry.routine)[0]
+    expect(appliedObservation).toMatchObject({
+      schemaVersion: 1,
+      derivedAt: result.provenance.derivedAt,
+      documentId: 'doc-1',
+      target: result.target,
+      provenance: result.provenance
+    })
+    expect(applied[0].meta).toMatchObject({ target: result.target, provenance: result.provenance })
     const stored = listMemoryCandidates({ status: 'pending' })
     expect(stored.length).toBeGreaterThanOrEqual(1)
     expect(stored[0].sourceRevision).toBe('doc-r7')
     expect(stored[0].sourceRefs).toEqual(['turn:t8', 'chapter:c2'])
 }
 })
+})
+
+describe('inline suggestion provider credential gate', () => {
+  const SNAPSHOT = {
+    content: '潮水漫过台阶，林昭站在岸边看着灯。',
+    documentId: 'ch-1',
+    chapterId: 'ch-1'
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('skips passive generation without provider credential（合并3例）', async () => {
+    const { requestAdvisorTask } = await import('../services/advisorTaskService')
+    {
+      // 被动联想：无凭据 → 不发请求、不弹错、不产生请求指标。
+      const agent = useWritingAgent({ enabled: true, resolveProviderCredential: async () => false })
+      await agent.generate(SNAPSHOT, 16, false)
+      expect(requestAdvisorTask).not.toHaveBeenCalled()
+      expect(agent.error.value).toBe('')
+      expect(agent.generating.value).toBe(false)
+    }
+    {
+      // 手动触发：无凭据 → 给出可操作提示而不是 provider 报错。
+      const agent = useWritingAgent({ enabled: true, resolveProviderCredential: async () => false })
+      await agent.generate(SNAPSHOT, 16, true)
+      expect(requestAdvisorTask).not.toHaveBeenCalled()
+      expect(agent.error.value).toContain('配置模型服务')
+    }
+    {
+      // 对照：有凭据时请求照常发出（防过度拦截）。
+      const agent = useWritingAgent({ enabled: true, resolveProviderCredential: async () => true })
+      await agent.generate(SNAPSHOT, 16, true)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+    }
+    {
+      // 上下文编译发生在网络请求之前；即使同步抛错，请求 owner 和 spinner
+      // 也必须在同一个 finally 中释放，不能把编辑器永久锁在“正在续写”。
+      const brokenSnapshot = { ...SNAPSHOT }
+      Object.defineProperty(brokenSnapshot, 'contextCandidates', {
+        get() {
+          throw new Error('context compiler boom')
+        }
+      })
+      const agent = useWritingAgent({ enabled: true, resolveProviderCredential: async () => true })
+      await agent.generate(brokenSnapshot, 16, true)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+      expect(agent.requesting.value).toBe(false)
+      expect(agent.generating.value).toBe(false)
+      expect(agent.error.value).toContain('context compiler boom')
+    }
+  })
+
+  it('refuses manual inline generation while another interaction owns the editor', async () => {
+    const { requestAdvisorTask } = await import('../services/advisorTaskService')
+    const agent = useWritingAgent({
+      enabled: true,
+      resolveProviderCredential: async () => true,
+      getContext: () => SNAPSHOT,
+      getSnapshot: () => ({ ...SNAPSHOT, cursorPos: 16 }),
+      canStartSuggestion: () => false
+    })
+
+    expect(agent.manualTrigger()).toBe(false)
+    expect(requestAdvisorTask).not.toHaveBeenCalled()
+    expect(agent.requesting.value).toBe(false)
+  })
+
+  it('drops a provider result when block review takes ownership during the request', async () => {
+    const { requestAdvisorTask } = await import('../services/advisorTaskService')
+    let resolveRequest
+    requestAdvisorTask.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
+    let canPresent = true
+    const onCandidateShown = vi.fn()
+    const agent = useWritingAgent({
+      enabled: true,
+      resolveProviderCredential: async () => true,
+      getSnapshot: () => ({ ...SNAPSHOT, cursorPos: 16 }),
+      canStartSuggestion: () => true,
+      canPresentSuggestion: () => canPresent,
+      onCandidateShown
+    })
+
+    const request = agent.generate(SNAPSHOT, 16, true)
+    await vi.waitFor(() => expect(requestAdvisorTask).toHaveBeenCalledOnce())
+    canPresent = false
+    resolveRequest({ advice: ['这条迟到的联想不得覆盖块推演。'] })
+    await request
+
+    expect(agent.suggestion.value).toBe('')
+    expect(agent.visible.value).toBe(false)
+    expect(onCandidateShown).not.toHaveBeenCalled()
+    expect(agent.requesting.value).toBe(false)
+  })
+
+  it('lets a cursor-move cancellation re-arm the same fingerprint without treating it as user dismissal', async () => {
+    vi.useFakeTimers()
+    try {
+      const { requestAdvisorTask } = await import('../services/advisorTaskService')
+      const snapshot = {
+        content: '潮水漫过台阶，林昭停下脚步，听见门后传来一阵很轻的呼吸。',
+        cursorPos: 30,
+        documentId: 'ch-cursor-rearm',
+        chapterId: 'ch-cursor-rearm',
+        editorFocused: true
+      }
+      const createAgent = () => useWritingAgent({
+        enabled: true,
+        debounceMs: 20,
+        resolveProviderCredential: async () => true,
+        getContext: () => snapshot,
+        getSnapshot: () => snapshot
+      })
+      const input = {
+        ...snapshot,
+        inputType: 'cursor',
+        currentNodeEmpty: false,
+        interactionOwner: WRITING_INTERACTION_OWNER.EDITOR
+      }
+
+      const cursorMoved = createAgent()
+      await cursorMoved.generate(snapshot, snapshot.cursorPos, true)
+      expect(cursorMoved.suggestion.value).toBeTruthy()
+      cursorMoved.cancel('cursor-move')
+      cursorMoved.onInput(input)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(2)
+
+      requestAdvisorTask.mockClear()
+      const dismissed = createAgent()
+      await dismissed.generate(snapshot, snapshot.cursorPos, true)
+      dismissed.cancel('user')
+      dismissed.onInput(input)
+      await vi.advanceTimersByTimeAsync(25)
+      expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('ghost adoption consume after editor insert', () => {
+  it('trusted consume survives the snapshot advance caused by the insert itself（合并2例）', async () => {
+    const { requestAdvisorTask } = await import('../services/advisorTaskService')
+    {
+      // 复现：编辑器插入同步推进快照正文后，consume 的二次 revision 校验
+      // 把刚插入的内容判为“落笔处已变化”而返回空串（页面随即回滚）。
+      let live = { content: '守卫在门口停下脚步，他握紧了手里的提灯。', cursorPos: 20, documentId: 'ch-1', chapterId: 'ch-1' }
+      const agent = useWritingAgent({
+        enabled: true,
+        resolveProviderCredential: async () => true,
+        getSnapshot: () => live,
+      })
+      await agent.generate(live, 20, true)
+      const suggested = agent.peek('all')
+      expect(suggested).toBeTruthy()
+      // 模拟 insertPlainText：正文同步包含建议文本，光标推进。
+      live = { content: live.content + suggested, cursorPos: live.cursorPos + suggested.length, documentId: 'ch-1', chapterId: 'ch-1' }
+      // 旧行为（不带 ignoreRevision）：consume 返回空串 → 页面 undo，采纳必败。
+      expect(agent.consume('all')).toBe('')
+      // 新行为：信任路径返回插入文本。
+      expect(agent.consume('all', { ignoreRevision: true })).toBe(suggested)
+      expect(requestAdvisorTask).toHaveBeenCalled()
+    }
+    {
+      // 守卫仍需生效：快照在插入之外被改变时，默认 consume 依旧拒绝。
+      let live = { content: '潮水漫过台阶，林昭站在岸边看着灯。', cursorPos: 16, documentId: 'ch-1', chapterId: 'ch-1' }
+      const agent = useWritingAgent({
+        enabled: true,
+        resolveProviderCredential: async () => true,
+        getSnapshot: () => live,
+      })
+      await agent.generate(live, 16, true)
+      const suggested = agent.peek('all')
+      live = { content: '用户自己又打了一段完全不同的文字。', cursorPos: 17, documentId: 'ch-1', chapterId: 'ch-1' }
+      expect(agent.consume('all')).toBe('')
+      expect(suggested).toBeTruthy()
+    }
+  })
 })

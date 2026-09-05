@@ -95,7 +95,8 @@ function findStructuredFieldByRef(ref, entry) {
   return null
 }
 
-function syncStructuredEntries(entries, structuredSettings) {
+function syncStructuredEntries(entries, structuredSettings, normalizationNow = Date.now()) {
+  const stableNow = Number.isFinite(Number(normalizationNow)) ? Number(normalizationNow) : Date.now()
   const nextEntries = entries.map((entry) => ({
     ...entry,
     metadata: { ...(entry.metadata || {}) }
@@ -135,7 +136,7 @@ function syncStructuredEntries(entries, structuredSettings) {
           content,
           metadata: {
             ...baseEntry.metadata,
-            updatedAt: keysChanged ? Date.now() : (baseEntry.metadata?.updatedAt || Date.now())
+            updatedAt: keysChanged ? stableNow : (baseEntry.metadata?.updatedAt ?? stableNow)
           }
         }
         continue
@@ -143,7 +144,7 @@ function syncStructuredEntries(entries, structuredSettings) {
 
       const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
       const contentChanged = !baseEntry || baseEntry.content !== content
-      const now = Date.now()
+      const now = stableNow
       const entry = {
         ...(baseEntry || {}),
         id: baseEntry?.id || `entry_structured_${section.key}_${field.key}`,
@@ -221,7 +222,7 @@ function normalizeEntryVoice(entry = {}) {
   }
 }
 
-function normalizeWorldbook(raw = {}) {
+function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
   const source = decodeStored(raw, {})
   const structuredSettings = normalizeStructuredSettings(source.structuredSettings)
   // A1.4 迁移守卫：旧存档的 structured entry 没有 userTouched 字段。
@@ -245,7 +246,7 @@ function normalizeWorldbook(raw = {}) {
       metadata: { ...entry.metadata, [STRUCTURED_USER_TOUCHED_KEY]: touched }
     }
   })
-  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings)
+  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings, normalizationNow)
   const entries = syncedEntries.map((entry) => {
     const normalizedEntry = normalizeEntryVoice(entry)
     return normalizedEntry?.type === 'location' && !isPlaceOverviewEntry(normalizedEntry)
@@ -296,13 +297,32 @@ function normalizeWorldbook(raw = {}) {
           chunkIds: [...new Set((Array.isArray(document.chunkIds) ? document.chunkIds : []).map(String).filter(Boolean))],
           contentHash: document.contentHash ? String(document.contentHash) : null,
           warnings: ensureArray(document.warnings).map(String),
-          createdAt: Number(document.createdAt) || Date.now()
+          createdAt: Number.isFinite(Number(document.createdAt))
+            ? Number(document.createdAt)
+            : normalizationNow
         }
       }),
     // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
     geoHistory: normalizeGeoHistory(source.geoHistory),
     structuredSettings
   }
+}
+
+// Authoring run 的只读世界书边界：从指定 storage key 读取一份独立快照，
+// 复用正式 worldbook 归一逻辑，但不切换 activeWorldbook，也不执行旧来源归档
+// 迁移或任何持久化写入。项目与世界书绑定关系由上层 repository adapter 核对。
+export function readWorldbookSnapshot(worldbookId) {
+  const id = String(worldbookId ?? '').trim()
+  if (!id) return null
+  const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + id), null)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  // 纯读必须确定性：旧 structured-settings-only 世界书会在归一时派生 entry，
+  // 不能每次用新的 Date.now() 生成不同 revision。优先使用存档时间；旧档无时间
+  // 时固定为 0，正式可写 load/save 流程仍使用默认当前时间。
+  const persistedAt = Number(raw.updatedAt ?? raw.createdAt)
+  const normalizationNow = Number.isFinite(persistedAt) ? persistedAt : 0
+  const snapshot = normalizeWorldbook(raw, { normalizationNow })
+  return String(snapshot?.id ?? '').trim() === id ? snapshot : null
 }
 
 function createWorldBookId() {

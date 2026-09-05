@@ -6,6 +6,7 @@ import {
 import { resolveLegacyTaskAlias } from '../../shared/agentCapabilityContract.js'
 import { buildAuthoringTurnUnitMarkdown } from '../services/writing/writingAuthoringTurnImport.js'
 import { authoringFailure } from '../services/agents/authoring/authoringExecutionResult.js'
+import { attachDependencyIssuesToReceipt } from '../services/agents/context/contextReceipt.js'
 
 const NOTICE_DURATION_MS = 6000
 
@@ -16,17 +17,22 @@ const NOTICE_DURATION_MS = 6000
 //   编辑器写入与持久化都确认后才推进 apply token（下一拍输入区据此清空草稿）；
 // - revision 在请求前捕获、应用前用 getLiveRevision 复查，过期则不写入并给出可重试提示；
 // - 辅助结果（下一步/对话选项/涌现）只进入候选列表，永不作为正文插入；
-// - 只保留一个请求级撤销回执，手动编辑即失效。
+// - 只保留一个请求级撤销回执，手动编辑即失效；
+// - 请求发起时的作用域（getScopeKey：书/章/文档）绑定迟到结果与撤销回执：
+//   切章/切文档后到达的候选静默丢弃、旧回执不得改写新作用域正文。
 export function useAuthoringTask({
   resolveTarget = () => null,
   execute = null,
   applyPatchToEditor = () => false,
   applyWritingUnit = null,
+  stageWritingUnit = null,
   restoreFullText = () => {},
   persist = () => {},
   getLiveRevision = null,
+  getScopeKey = null,
   replaceSelectionTaskIds = ['authoring.rewrite'],
-  emitDiagnostic = null
+  emitDiagnostic = null,
+  onResultAccepted = null
 } = {}) {
   const busy = ref(false)
   const error = ref('')
@@ -40,11 +46,37 @@ export function useAuthoringTask({
   const appliedCount = ref(0)
   let noticeTimer = null
   let abortController = null
+  let requestVersion = 0
   let requestStartedAt = 0
   let requestDiagnosticId = ''
+  // 与 lastReceipt 同生命周期的作用域快照；null 表示当前无回执或未启用作用域门禁。
+  let lastReceiptScope = null
 
   function requestIdOf() {
     return requestDiagnosticId
+  }
+
+  function scopeKeyNow() {
+    if (typeof getScopeKey !== 'function') return null
+    return String(getScopeKey() ?? '')
+  }
+
+  // 未提供 getScopeKey 时保持旧行为（门禁关闭），既有调用点与测试不受影响。
+  function scopeUnchangedSince(captured) {
+    if (captured === null) return true
+    return scopeKeyNow() === captured
+  }
+
+  function publishAcceptedResult(result, requestScopeKey) {
+    if (!scopeUnchangedSince(requestScopeKey)) return false
+    if (typeof onResultAccepted === 'function') {
+      try {
+        onResultAccepted(result)
+      } catch {
+        // 检查器账本等非正文副作用失败，不能反向污染正文事务。
+      }
+    }
+    return true
   }
 
   // 低敏诊断：只上报 phase/code/retryable/耗时/请求 ID；正文、prompt、transcript 永不进入指标。
@@ -87,37 +119,108 @@ export function useAuthoringTask({
     }, NOTICE_DURATION_MS)
   }
 
-  async function run(commandId, { turn = null, narrativeContext = null } = {}) {
+  async function run(commandId, {
+    turn = null,
+    narrativeContext = null,
+    targetOverride = null,
+    authoringRunSession = null
+  } = {}) {
     if (busy.value) return
-    const target = resolveTarget(commandId)
+    const target = resolveTarget(commandId, targetOverride)
     if (!target?.document) return
     const canonicalId = resolveLegacyTaskAlias(commandId)
     busy.value = true
     error.value = ''
     lastReceipt.value = null
+    lastReceiptScope = null
     auxiliary.value = null
-    abortController = new AbortController()
+    const version = ++requestVersion
+    const controller = new AbortController()
+    abortController = controller
     requestStartedAt = performance.now()
     requestDiagnosticId = `${commandId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`
+    const requestScopeKey = scopeKeyNow()
     try {
       const result = await execute?.({
         taskId: commandId,
         request: turn
-          ? { ...target.request, turn, ...(narrativeContext ? { narrativeContext } : {}) }
+          ? {
+              ...target.request,
+              turn,
+              ...(narrativeContext ? { narrativeContext } : {}),
+              ...(authoringRunSession ? { authoringRunSession } : {})
+            }
           : target.request,
-        signal: abortController.signal
+        signal: controller.signal
       })
+      // cancel 必须是逻辑失效，不只寄希望于 provider 遵守 AbortSignal。
+      // 忽略 abort 的迟到 resolve 在任何候选/stage/editor/persist 副作用前退出。
+      if (version !== requestVersion || controller.signal.aborted) {
+        return { ok: false, reason: 'aborted', phase: 'provider', code: 'AUTHORING_ABORTED', retryable: true }
+      }
+      if (!scopeUnchangedSince(requestScopeKey)) {
+        return { ok: false, text: '', staleScope: true }
+      }
+      // 所有结果（包括辅助候选）都绑定发起时文档，而不只是正文写入。
+      // 否则同章编辑期间返回的旧候选仍会污染当前输入区。
+      const baseRevision = String(target.document.revision || '')
+      const liveRevision = String(getLiveRevision?.() ?? baseRevision)
+      if (liveRevision !== baseRevision) {
+        const generatedText = String(result?.text || '')
+        const dependencyIssues = [{
+          dependency: 'document:current',
+          reason: 'revision-changed',
+          expected: baseRevision,
+          actual: liveRevision
+        }]
+        const contextReceipt = attachDependencyIssuesToReceipt(
+          result?.contextReceipt || null,
+          dependencyIssues
+        )
+        showNotice('文档已更新，本次结果未写入；可重新执行该命令', { canUndo: false })
+        return {
+          ...typedFailure(commandId, {
+            phase: 'stale',
+            code: 'AUTHORING_STALE',
+            message: '文档已更新，本次结果未写入；可重新执行该命令',
+            retryable: true,
+            generatedTextAvailable: Boolean(generatedText)
+          }, 'stale', generatedText),
+          adoptable: false,
+          generatedText,
+          contextManifest: result?.contextManifest || null,
+          contextReceipt,
+          contextOutcome: {
+            ...(result?.contextOutcome || {}),
+            status: 'stale',
+            dependencyIssues
+          },
+          contextCallReceipts: Array.isArray(result?.contextCallReceipts) ? result.contextCallReceipts : [],
+          dependencyIssues
+        }
+      }
+      // execute 必须保持纯返回；检查器账本等 UI side effects 只在取消、
+      // 作用域与 revision 三重门禁通过后发布。
+      publishAcceptedResult(result, requestScopeKey)
 
       // 辅助结果：候选列表展示，绝不插入正文。
       // 结果同时带回 outcome（suggestions/candidates），供下一拍输入区上方的
       // 候选短列表（spec §8）消费；这里只负责"候选不入正文"的边界。
       const optionSuggestions = (result?.suggestions || []).filter((item) => item?.type === 'option' && item.content)
       if (optionSuggestions.length) {
+        // 候选是渲染态而非事务：作用域已切换时静默丢弃（同 observer stale 零写入），
+        // 不在新章节弹出“候选已生成”的误导提示，也不计入 provider 故障指标。
+        if (!scopeUnchangedSince(requestScopeKey)) {
+          return { ok: false, text: '', auxiliary: 'options', staleScope: true }
+        }
         auxiliary.value = { kind: 'options', taskId: canonicalId, items: optionSuggestions }
         showNotice(`已生成 ${optionSuggestions.length} 个候选，请在列表中查看`)
         return { ok: true, text: '', auxiliary: 'options', suggestions: optionSuggestions }
       }
       if (Array.isArray(result?.candidates) && result.candidates.length) {
+        if (!scopeUnchangedSince(requestScopeKey)) {
+          return { ok: false, text: '', auxiliary: 'candidates', staleScope: true }
+        }
         auxiliary.value = { kind: 'candidates', taskId: canonicalId, items: result.candidates }
         showNotice(`已提炼 ${result.candidates.length} 个涌现候选，请审阅`)
         return { ok: true, text: '', auxiliary: 'candidates', candidates: result.candidates }
@@ -131,19 +234,6 @@ export function useAuthoringTask({
           code: 'AUTHORING_EMPTY_RESULT',
           message: '本次没有生成可插入的正文'
         }, 'empty-result')
-      }
-
-      // 过期门禁：文档在请求期间被改动则丢弃结果（同长度修改也会改变 revision 指纹）。
-      const baseRevision = String(target.document.revision || '')
-      const liveRevision = String(getLiveRevision?.() ?? baseRevision)
-      if (liveRevision !== baseRevision) {
-        showNotice('文档已更新，本次结果未写入；可重新执行该命令', { canUndo: false })
-        return typedFailure(commandId, {
-          phase: 'stale',
-          code: 'AUTHORING_STALE',
-          message: '文档已更新，本次结果未写入；可重新执行该命令',
-          retryable: true
-        }, 'stale')
       }
 
       // 选区改写精确替换选区；其余在光标处插入。
@@ -164,6 +254,31 @@ export function useAuthoringTask({
           code: 'AUTHORING_EMPTY_RESULT',
           message: '本次没有生成可插入的正文'
         }, 'empty-result')
+      }
+      if (useUnitPath && typeof stageWritingUnit === 'function') {
+        const staged = stageWritingUnit({
+          text: generated,
+          originRefs,
+          afterUnitId: target.targetUnitId || null,
+          afterNodeId: target.targetNodeId || null,
+          expectedUnitRevision: target.targetUnitRevision ?? null,
+          expectedNodeRevision: target.targetNodeRevision ?? null,
+          contextManifest: result?.contextManifest || null,
+          contextOutcome: result?.contextOutcome || null,
+          contextReceipt: result?.contextReceipt || null,
+          contextCallReceipts: Array.isArray(result?.contextCallReceipts) ? result.contextCallReceipts : [],
+          authoringRunSession: result?.authoringRunSession || null,
+          sceneDelta: result?.sceneDelta || null,
+          outlineDelta: result?.outlineDelta || null,
+          boundaryHints: Array.isArray(result?.boundaryHints) ? result.boundaryHints : [],
+          boundaryHintSource: result?.boundaryHintSource || '',
+          selectedDirectionReceipt: result?.selectedDirectionReceipt || null,
+          operation: turn?.operation || 'next-passage'
+        })
+        if (staged) {
+          showNotice('推演草稿已就绪，可修改后再采用')
+          return { ok: true, preview: true, text: generated }
+        }
       }
       const patch = replaceSelection
         ? {
@@ -186,6 +301,7 @@ export function useAuthoringTask({
             text: generated,
             originRefs,
             afterUnitId: target.targetUnitId || null,
+            afterNodeId: target.targetNodeId || null,
             expectedUnitRevision: target.targetUnitRevision ?? null
           })
         : applyPatchToEditor(patch)
@@ -232,6 +348,9 @@ export function useAuthoringTask({
       }
 
       const insertedUnitId = String(writeOutcome.unitId || '')
+      // patch 路径没有新单元 ID，但观察器仍必须绑定请求发起时冻结的目标
+      // 单元；不能等请求结束后再猜当前光标所在单元。
+      const observedUnitId = insertedUnitId || String(target.targetUnitId || '')
 
       // 持久化确认：保存失败同样视为未提交（apply token 不推进），
       // 但保留一次待保存回执供“再次保存”重试；回执含内存中的正文与
@@ -244,7 +363,7 @@ export function useAuthoringTask({
         showNotice(error.value)
         pendingPersist.value = {
           requestId: requestIdOf(),
-          insertedUnitId,
+          insertedUnitId: observedUnitId,
           generatedTextAvailable: true,
           text: generated,
           undoReceipt: applied.receipt || null,
@@ -263,15 +382,20 @@ export function useAuthoringTask({
 
       currentDocument.value = applied.document
       lastReceipt.value = applied.receipt
+      lastReceiptScope = requestScopeKey
       appliedCount.value += 1
       showNotice(
         replaceSelection ? '已替换选区内容' : '已把生成的正文写入当前章节',
         { canUndo: true }
       )
-      return { ok: true, text: generated }
+      return { ok: true, text: generated, insertedUnitId: observedUnitId }
     } catch (err) {
+      if (version !== requestVersion || controller.signal.aborted) {
+        return { ok: false, reason: 'aborted', phase: 'provider', code: 'AUTHORING_ABORTED', retryable: true }
+      }
       if (err?.name === 'AbortError' || err?.code === 'AGENT_REQUEST_ABORTED' || err?.code === 'AGENT_ABORTED') {
-        showNotice('已停止生成')
+        // 边界切换触发的中止不该在新章节里弹出“已停止生成”，与作用域门禁一致静默。
+        if (scopeUnchangedSince(requestScopeKey)) showNotice('已停止生成')
         // 停止是可见的暂停态（半自动据此暂停），但不算 provider 故障指标。
         return typedFailure(commandId, {
           phase: 'provider',
@@ -292,21 +416,46 @@ export function useAuthoringTask({
       error.value = String(err?.message || '生成失败')
       showNotice(error.value)
       const staleReason = err?.code === 'AGENT_RESULT_STALE'
-      return staleReason
-        ? typedFailure(commandId, {
+      if (staleReason) {
+        const generatedText = String(err?.generatedText || '')
+        return {
+          ...typedFailure(commandId, {
             phase: 'stale',
             code: 'AUTHORING_STALE',
             message: error.value,
-            retryable: true
-          }, 'stale')
-        : typedFailure(commandId, {
-            phase: 'provider',
-            code: String(err?.code || 'AUTHORING_PROVIDER_FAILED'),
-            message: error.value
-          }, 'error')
+            retryable: true,
+            generatedTextAvailable: Boolean(generatedText)
+          }, 'stale', generatedText),
+          adoptable: false,
+          generatedText,
+          contextManifest: err?.contextManifest || null,
+          contextReceipt: err?.contextReceipt || null,
+          contextOutcome: err?.contextOutcome || { status: 'stale' },
+          contextCallReceipts: Array.isArray(err?.contextCallReceipts) ? err.contextCallReceipts : [],
+          dependencyIssues: Array.isArray(err?.dependencyIssues) ? err.dependencyIssues : []
+        }
+      }
+      const generatedText = String(err?.generatedText || '')
+      return {
+        ...typedFailure(commandId, {
+          phase: 'provider',
+          code: String(err?.code || 'AUTHORING_PROVIDER_FAILED'),
+          message: error.value,
+          generatedTextAvailable: Boolean(generatedText)
+        }, 'error', generatedText),
+        adoptable: false,
+        generatedText,
+        contextManifest: err?.contextManifest || null,
+        contextReceipt: err?.contextReceipt || null,
+        contextOutcome: err?.contextOutcome || null,
+        contextCallReceipts: Array.isArray(err?.contextCallReceipts) ? err.contextCallReceipts : [],
+        dependencyIssues: Array.isArray(err?.dependencyIssues) ? err.dependencyIssues : []
+      }
     } finally {
-      busy.value = false
-      abortController = null
+      if (version === requestVersion) {
+        busy.value = false
+        if (abortController === controller) abortController = null
+      }
     }
   }
 
@@ -314,6 +463,7 @@ export function useAuthoringTask({
   // 同时清除待保存回执：正文已被手动改动，旧的插入回执不可再代表当前文档。
   function invalidateReceipt() {
     lastReceipt.value = null
+    lastReceiptScope = null
     pendingPersist.value = null
     if (notice.value?.canUndo) clearNotice()
   }
@@ -356,18 +506,36 @@ export function useAuthoringTask({
     const receipt = lastReceipt.value
     const document = currentDocument.value
     if (!receipt || !document) return false
+    // 作用域守卫：回执只对发起时的书/章/文档有效；切章后旧回执会把旧正文
+    // 整篇写进新章节（restoreFullText 是全文替换），必须先失效再拒绝。
+    if (!scopeUnchangedSince(lastReceiptScope)) {
+      lastReceipt.value = null
+      currentDocument.value = null
+      return false
+    }
     const restored = undoAuthoringText(document, receipt)
-    lastReceipt.value = null
     if (!restored) return false
-    currentDocument.value = restored
     restoreFullText(restored.text)
-    persist(restored)
+    if (persist(restored) === false) {
+      // 已应用版本此前已持久化；撤销保存失败时把稿面恢复到已保存版本，
+      // 并保留回执供用户再次撤销，不能假报成功。
+      restoreFullText(document.text)
+      currentDocument.value = document
+      error.value = '撤销内容未能保存，正文已恢复到撤销前状态'
+      showNotice(error.value)
+      return false
+    }
+    lastReceipt.value = null
+    currentDocument.value = restored
     clearNotice()
     return true
   }
 
   function cancel() {
+    requestVersion += 1
     abortController?.abort()
+    abortController = null
+    busy.value = false
   }
 
   function dismissAuxiliary() {

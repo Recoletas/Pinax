@@ -90,7 +90,7 @@ function onEnter() {
 .worldbook-hero__roman {
   position: absolute;
   top: 24px; left: 28px;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 88px;
   font-style: italic;
   font-weight: 400;
@@ -111,7 +111,7 @@ function onEnter() {
   border: 1.5px solid color-mix(in srgb, var(--archive-rose) 58%, transparent);
   border-radius: 50%;
   color: color-mix(in srgb, var(--archive-rose) 84%, var(--archive-ink));
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -146,7 +146,7 @@ function onEnter() {
 
 .worldbook-hero__name {
   margin: 0;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: clamp(28px, 4vw, 48px);
   line-height: 1.05;
   font-weight: 650;
@@ -177,7 +177,7 @@ function onEnter() {
 
 .worldbook-hero__hook {
   margin: 0;
-  font-family: var(--font-serif, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 15px;
   line-height: 1.6;
   color: color-mix(in srgb, var(--archive-ink) 86%, transparent);

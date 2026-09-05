@@ -644,7 +644,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   grid-row: 1;
   color: color-mix(in srgb, var(--archive-gold) 82%, var(--archive-paper));
   border-right: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 13px;
   font-style: italic;
   font-weight: 900;
@@ -741,7 +741,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   border-radius: 0;
   box-shadow: none;
   color: var(--text-primary);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   width: min(900px, 56vw);
   transform: translate(-10px, 34px);
   transform-origin: 8% 18%;
@@ -805,7 +805,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   align-items: flex-start;
   width: fit-content;
   color: var(--archive-paper);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(48px, 6.5vw, 96px);
   font-style: italic;
   font-weight: 760;
@@ -927,7 +927,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
 
 .opening-history-card__year {
   color: var(--archive-gold);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 12px;
   font-style: italic;
   font-weight: 900;
@@ -937,7 +937,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
 
 .opening-history-card__title {
   color: var(--archive-paper);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 800;
   line-height: 1.2;
@@ -1016,7 +1016,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
 .opening-mission strong {
   max-width: 18ch;
   color: var(--archive-paper);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(20px, 2.4vw, 32px);
   font-weight: 800;
   line-height: 1.14;
@@ -1068,7 +1068,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   border-radius: 0;
   box-shadow: none;
   color: var(--text-primary);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   transform: perspective(1100px) rotateZ(-5deg) rotateY(13deg);
   transform-origin: right bottom;
   overflow: visible;
@@ -1196,7 +1196,7 @@ function getActiveEntryNames(typeValue, limit = 3) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 900;
   background: color-mix(in srgb, #000 16%, transparent);

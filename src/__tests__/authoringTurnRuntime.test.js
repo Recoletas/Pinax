@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow.js'
+import {
+  AUTHORING_NARRATIVE_RUN_ERROR_CODES,
+  createAuthoringNarrativeRun
+} from '../services/agents/authoring/authoringNarrativeRun.js'
 import { createAuthoringCommandRuntime } from '../services/agents/authoring/authoringRuntime.js'
+import { applyAgentResultTransaction } from '../services/agents/agentResultTransaction.js'
 import { shouldDispatchAuthoringObservers } from '../services/agents/authoring/authoringObserverDispatch.js'
 import {
   AUTHORING_TURN_TASK_IDS,
@@ -97,6 +102,230 @@ const runTurn = vi.fn(async () => ({ text: '潮水又涨了一截。' }))
     expect(runTurn.mock.calls[0][0].turn).toBeNull()
     expect(runTurn.mock.calls[0][0].intentMode).toBe('continue')
 }
+{
+    const receipt = { kind: 'authoring-selected-direction-receipt', title: '正面核对', fingerprint: 'selection-1' }
+    const runTurn = vi.fn(async () => ({
+      text: ':::action\n莉娜推开档案室的门。\n:::thought|莉娜\n她意识到总册被人动过。',
+      selectedDirectionReceipt: receipt
+    }))
+    const workflow = createNarrativeSceneWorkflow({ runTurn })
+    const result = await workflow.run({
+      task: { id: AUTHORING_TURN_TASK_IDS.action },
+      request: { target: { revision: 'doc-r1' }, intent: { turn: makeTurn() }, options: {} },
+      context: { envelope: {}, ledger: {} }
+    })
+    expect(result.actions[0].content).toBe('莉娜推开档案室的门。\n\n她意识到总册被人动过。')
+    expect(result.boundaryHints).toEqual([expect.objectContaining({ split: true, reason: 'rhetorical-shift', source: 'response-transport' })])
+    expect(result.boundaryHintSource).toBe('response-transport')
+    expect(result.selectedDirectionReceipt).toBe(receipt)
+}
+{
+const deepFreeze = (value) => {
+      if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
+      for (const child of Object.values(value)) deepFreeze(child)
+      return Object.freeze(value)
+    }
+    const sceneProjection = {
+      schemaVersion: 1,
+      projectId: 'book-1',
+      chapterId: 'ch-9',
+      activeUnitId: 'unit-1',
+      projectionFingerprint: 'scene-fp-1',
+      location: { id: 'dock' }
+    }
+    const includedText = '只允许光标前的正文。'
+    const contextCallReceipts = [{ kind: 'model-call-receipt', callIndex: 0, manifestFingerprint: 'manifest-run-1' }]
+    const session = deepFreeze({
+      schemaVersion: 1,
+      kind: 'authoring-run-session',
+      status: 'prepared',
+      runId: 'run-1',
+      taskId: 'authoring.advance',
+      taskKind: 'manuscript',
+      profile: 'narrative-long',
+      target: {
+        projectId: 'book-1', chapterId: 'ch-9', documentId: 'ch-9',
+        unitId: 'unit-1', nodeId: 'node-1', documentRevision: 'doc-r1'
+      },
+      sceneProjection,
+      manifest: {
+        schemaVersion: 1,
+        kind: 'compiled-context-manifest',
+        fingerprint: 'manifest-run-1',
+        profile: 'narrative-long',
+        taskKind: 'manuscript',
+        target: { projectId: 'book-1', chapterId: 'ch-9', unitId: 'unit-1' },
+        totalChars: includedText.length,
+        budget: { totalChars: 12800, maxItems: 24 },
+        blocks: [{
+          candidateId: 'unit-before-caret',
+          kind: 'manuscript-unit',
+          text: includedText,
+          chars: includedText.length,
+          sourceRefs: ['unit:chapter-9:unit-1'],
+          sourceAuthority: 'canonical-manuscript',
+          revision: 'unit-r1'
+        }],
+        excluded: [{
+          candidateId: 'unit-after-caret',
+          kind: 'manuscript-unit',
+          reason: 'after-target-excluded',
+          sourceRefs: ['unit:chapter-9:unit-2']
+        }]
+      }
+    })
+    const prepareSession = vi.fn(async () => ({ ok: true, session }))
+    const executeSession = vi.fn(async () => ({ text: '冻结上下文生成的正文。', contextCallReceipts }))
+    const fallbackResolver = vi.fn(async () => ({ fallback: true }))
+    const narrativeRun = createAuthoringNarrativeRun({ prepareSession, executeSession, fallbackResolver })
+    const runtime = createAuthoringCommandRuntime({
+      projectId: 'book-1',
+      projectRevision: 'project-r1',
+      facade: { resolve: vi.fn(() => { throw new Error('narrative must not use facade') }) },
+      workflows: { narrative: createNarrativeSceneWorkflow({ runTurn: narrativeRun.runTurn }) },
+      resolveContext: narrativeRun.resolveContext,
+      resolveTarget: () => ({ type: 'chapter', id: 'ch-9', revision: 'doc-r1' }),
+      liveRevision: () => 'doc-r1',
+      applyActions: async () => ({ applied: 1 })
+    })
+    const outcome = await runtime.execute({
+      taskId: 'authoring.advance',
+      intent: { projection: { chapterId: 'wrong-live-projection' } }
+    })
+
+    expect(outcome.status).toBe('applied')
+    expect(outcome.result.authoringRunSession).toBe(session)
+    expect(outcome.result.contextCallReceipts).toBe(contextCallReceipts)
+    expect(prepareSession).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'authoring.advance' }))
+    expect(fallbackResolver).not.toHaveBeenCalled()
+    expect(executeSession).toHaveBeenCalledWith(expect.objectContaining({
+      session,
+      contextManifest: session.manifest,
+      projectId: 'book-1',
+      projection: sceneProjection
+    }))
+    expect(executeSession.mock.calls[0][0].narrativeContext).toBeUndefined()
+    expect(executeSession.mock.calls[0][0].intent).toBeUndefined()
+    expect(outcome.envelope.blocks.map((block) => block.included)).toEqual([true])
+    expect(outcome.envelope.manifestExcluded).toBe(session.manifest.excluded)
+    expect(outcome.ledger.parts.map((part) => part.status)).toEqual(['included', 'excluded'])
+
+    prepareSession.mockClear()
+    const selectedDirection = Object.freeze({
+      kind: 'authoring-scene-direction-selection', version: 1,
+      id: 'share', title: '正面核对', action: '摊开缺页核对。',
+      immediateGain: '确认线索', cost: '交出主动权',
+      evidenceRefs: Object.freeze(['worldbook-entry:char-edgar']), entityRefs: Object.freeze(['worldbook-entry:char-edgar']),
+      sessionFingerprint: 'manifest-run-1', directionSetFingerprint: 'directions-1', fingerprint: 'selection-1'
+    })
+    const selectedOutcome = await runtime.execute({
+      taskId: 'authoring.advance',
+      intent: {
+        turn: makeTurn({ selectedDirection }),
+        authoringRunSession: session
+      }
+    })
+    expect(selectedOutcome.status).toBe('applied')
+    expect(prepareSession).not.toHaveBeenCalled()
+    expect(executeSession).toHaveBeenLastCalledWith(expect.objectContaining({
+      session,
+      turn: expect.objectContaining({ selectedDirection })
+    }))
+
+    const staleReceipt = { kind: 'model-call-receipt', manifestFingerprint: 'manifest-run-1' }
+    const dependencyIssues = [{ dependency: 'unit:unit-1', reason: 'revision-changed' }]
+    executeSession.mockResolvedValueOnce({
+      text: '已生成但不可采纳的正文。',
+      adoptable: false,
+      contextManifest: session.manifest,
+      contextReceipt: staleReceipt,
+      contextCallReceipts,
+      contextOutcome: { status: 'stale', dependencyIssues },
+      dependencyIssues
+    })
+    await expect(createNarrativeSceneWorkflow({ runTurn: narrativeRun.runTurn }).run({
+      task: { id: 'authoring.advance' },
+      request: { target: { revision: 'doc-r1' }, intent: {} },
+      context: { envelope: outcome.envelope, ledger: outcome.ledger, authoringRunSession: session }
+    })).rejects.toMatchObject({
+      code: 'AGENT_RESULT_STALE',
+      adoptable: false,
+      generatedText: '已生成但不可采纳的正文。',
+      contextManifest: session.manifest,
+      contextReceipt: staleReceipt,
+      contextCallReceipts,
+      contextOutcome: { status: 'stale' },
+      dependencyIssues
+    })
+
+    executeSession.mockResolvedValueOnce({
+      text: '带有越权工具证据的正文。',
+      adoptable: false,
+      contextManifest: session.manifest,
+      contextReceipt: staleReceipt,
+      contextCallReceipts,
+      contextOutcome: {
+        status: 'invalid-result',
+        code: 'AUTHORING_TOOL_EVIDENCE_UNAUTHORIZED'
+      },
+      dependencyIssues: []
+    })
+    await expect(narrativeRun.runTurn({ authoringRunSession: session }))
+      .rejects.toMatchObject({
+        code: 'AUTHORING_TOOL_EVIDENCE_UNAUTHORIZED',
+        adoptable: false,
+        generatedText: '带有越权工具证据的正文。',
+        contextOutcome: { status: 'invalid-result' },
+        contextReceipt: staleReceipt,
+        contextCallReceipts
+      })
+
+    await expect(narrativeRun.resolveContext({
+      taskId: 'authoring.rewrite',
+      request: { target: { revision: 'doc-r1' } },
+      facade: { id: 'legacy-facade' }
+    })).resolves.toEqual({ fallback: true })
+    expect(fallbackResolver).toHaveBeenCalledTimes(1)
+
+    const invalidRun = createAuthoringNarrativeRun({
+      prepareSession: async () => ({ ok: true, session: { ...session } }),
+      executeSession,
+      fallbackResolver
+    })
+    await expect(invalidRun.resolveContext({
+      taskId: 'authoring.advance',
+      request: { target: { revision: 'doc-r1' } }
+    })).rejects.toMatchObject({
+      code: AUTHORING_NARRATIVE_RUN_ERROR_CODES.SESSION_INVALID,
+      reason: 'session-not-deep-frozen'
+    })
+}
+})
+
+describe('agent result transaction fail-closed gates', () => {
+  const target = { revision: 'r1' }
+
+  it('rejects incomplete or malformed workflow results before calling the adapter', async () => {
+    const apply = vi.fn()
+    await expect(applyAgentResultTransaction({
+      taskId: 'authoring.advance', result: { status: 'failed', actions: [] }, target, currentRevision: 'r1', adapter: { apply }
+    })).resolves.toMatchObject({ status: 'failed', error: { code: 'AGENT_RESULT_NOT_COMPLETED' } })
+    await expect(applyAgentResultTransaction({
+      taskId: 'authoring.advance', result: { status: 'completed', actions: {} }, target, currentRevision: 'r1', adapter: { apply }
+    })).resolves.toMatchObject({ status: 'failed', error: { code: 'AGENT_RESULT_ACTIONS_INVALID' } })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('converts adapter exceptions into a typed retryable transaction failure', async () => {
+    const result = await applyAgentResultTransaction({
+      taskId: 'authoring.advance',
+      result: { status: 'completed', actions: [{ type: 'text-insert', content: '正文。' }] },
+      target,
+      currentRevision: 'r1',
+      adapter: { apply: async () => { throw new Error('quota') } }
+    })
+    expect(result).toMatchObject({ status: 'failed', error: { code: 'AGENT_TRANSACTION_APPLY_FAILED', retryable: true } })
+  })
 })
 })
 
@@ -274,8 +503,9 @@ const success = { ok: true, text: '守卫在门口停下脚步。' }
     const stale = { ok: false, text: '', reason: 'stale' }
     const aborted = { ok: false, text: '', reason: 'aborted' }
     const editorFailure = { ok: false, text: '守卫在门口停下脚步。', reason: 'editor-write' }
+    const preview = { ok: true, preview: true, text: '守卫在门口停下脚步。' }
     expect(shouldDispatchAuthoringObservers(success)).toBe(true)
-    for (const outcome of [failure, stale, aborted, editorFailure]) {
+    for (const outcome of [failure, stale, aborted, editorFailure, preview]) {
       expect(shouldDispatchAuthoringObservers(outcome)).toBe(false)
     }
 }
@@ -329,24 +559,59 @@ const before = { text: DOC_TEXT, revision: buildDocumentRevision('chapter:ch-9',
 })
 
 describe('page wiring for turn execution', () => {
-  it('mounts the composer, executes the real kernel, fills advance-with context and gates observer scheduling on success', async () => {
+  it('mounts the block composer, executes the real kernel, freezes its target and gates observer scheduling on success', async () => {
     const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
-    expect(source).toContain('<AuthoringTurnComposer')
+    expect(source).toContain('<AuthoringBlockComposer')
+    expect(source.indexOf('const activeWritingUnitId = computed')).toBeLessThan(source.indexOf('const sceneProjection = computed'))
+    expect(source.indexOf('const authoringObservations = ref')).toBeLessThan(source.indexOf('const sceneProjection = computed'))
+    expect(source).toContain('openBlockComposer')
+    expect(source).toContain('selectionBookmark')
+    expect(source).toContain('documentRevision')
     expect(source).toContain('AUTHORING_TURN_TASK_IDS')
     expect(source).toContain('buildAuthoringTurnIntent')
     // 缺陷 1：真实内核执行链，不再直接调裸 provider step。
     expect(source).toContain('createNarrativeKernelExecutor')
-    expect(source).toContain('buildAuthoringKernelRuntimeState')
+    expect(source).toContain('createAuthoringNarrativeRun')
+    expect(source).toContain('createAuthoringRunSessionAdapter')
+    expect(source).toContain('getAuthoringNarrativeRun().resolveContext')
+    expect(source).not.toContain('buildAuthoringKernelRuntimeState')
     expect(source).not.toMatch(/\brunNarrativeAgentTurn\b/)
     // 缺陷 2：回合结果作为 writingUnit 写入编辑器。
     expect(source).toContain('insertAsNewWritingUnit')
+    expect(source).toContain('replaceWritingUnit')
+    expect(source).toContain("preview.operation === 'rewrite-unit'")
     // 缺陷 4：观察器只在成功提交后经 bridge 调度；失败/stale 零调度。
     expect(source).toContain('commitAuthoringProseResult')
     expect(source).not.toContain('.finally(refreshAuthoringObserverState')
-    // 缺陷 6：“以此推进”只填入输入区并聚焦。
-    expect(source).toContain('applyAdvanceContext')
-    // 共享投影随请求进入内核。
-    expect(source).toContain('intent.projection')
+    // ai-continue 只打开冻结目标的块间输入，不触发 inline runner。
+    expect(source).toContain("if (command.id === 'ai-continue')")
+    expect(source).toContain('openBlockComposer({ ...notebookSelection.value, ...command })')
+    // 共享投影由 repository adapter 在提交瞬间读取并冻结；页面 intent 不再
+    // 携带一份可覆盖 session 的旧投影。
+    expect(source).toContain('sceneProjection: cloneAuthoringRunValue(sceneProjection.value)')
+    expect(source).not.toContain('intent.projection')
+    // 入场安排只能随正文采纳事务提交；旧的先写现场 helper 不得回流。
+    expect(source).not.toContain('applyPlannedEntrancesForUnit')
+    expect(source).not.toContain('readSceneIntents: () => []')
+    expect(source).toContain('readAuthoringSceneRunIntentsForTarget(')
+    expect(source).toContain('collectAuthoringSceneRunIntentEffects(candidate.runSession,')
+    expect(source).toContain('commitPlannedEntrances: false')
+    expect(source).not.toContain('@save-and-simulate=')
+
+    // runtime 在 provider 返回后仍可能因正文 revision 变化判 stale。页面必须把
+    // 已生成正文与冻结上下文回执完整交给 Ghost 层，而不是只抛一个空错误。
+    const staleBranchStart = source.indexOf("if (outcome.status === 'stale')")
+    const staleBranchEnd = source.indexOf('const actions = outcome.result?.actions || []', staleBranchStart)
+    expect(staleBranchStart).toBeGreaterThan(-1)
+    expect(staleBranchEnd).toBeGreaterThan(staleBranchStart)
+    const staleBranch = source.slice(staleBranchStart, staleBranchEnd)
+    expect(staleBranch).toContain("generatedText: String(generatedAction?.content || '')")
+    expect(staleBranch).toContain('contextManifest: outcome.result?.contextManifest || null')
+    expect(staleBranch).toContain('contextReceipt,')
+    expect(staleBranch).toContain('contextCallReceipts:')
+    expect(staleBranch).toContain('dependencyIssues')
+    expect(source).toContain('payload.contextCallReceipts =')
+    expect(source).toContain('contextCallReceipts: pendingWritingGhost.value.contextCallReceipts')
   })
 })
 
@@ -468,7 +733,7 @@ describe('typed failures and low-sensitive diagnostics (worldbook scene closure 
     return { task, metrics, persistCalls: () => persistCalls, restoredTexts }
   }
 
-  it("reports diagnostics that carry only phase/code/retryable/duration/requestId/taskId（合并4例）", async () => {
+  it("reports diagnostics that carry only phase/code/retryable/duration/requestId/taskId（合并6例）", async () => {
 {
 const { task, metrics } = buildDiagnosticHarness()
     const outcome = await task.run('authoring.advance')
@@ -563,6 +828,89 @@ const harness = buildDiagnosticHarness({
     }
     void retry
 }
+{
+const contextManifest = { fingerprint: 'manifest-invalid' }
+    const contextReceipt = { kind: 'model-call-receipt', manifestFingerprint: 'manifest-invalid' }
+    const contextCallReceipts = [{ kind: 'model-call-receipt', callIndex: 0 }]
+    const task = useAuthoringTask({
+      resolveTarget: () => ({
+        document: { text: DOC_TEXT, revision: 'doc-r1' },
+        caret: DOC_TEXT.length,
+        selection: { start: DOC_TEXT.length, end: DOC_TEXT.length, hasSelection: false },
+        request: { question: '按此推进' }
+      }),
+      execute: async () => {
+        throw Object.assign(new Error('工具证据未获授权'), {
+          code: 'AUTHORING_TOOL_EVIDENCE_UNAUTHORIZED',
+          adoptable: false,
+          generatedText: '已生成但不能采纳的正文。',
+          contextManifest,
+          contextReceipt,
+          contextCallReceipts,
+          contextOutcome: { status: 'invalid-result' },
+          dependencyIssues: []
+        })
+      },
+      getLiveRevision: () => 'doc-r1'
+    })
+    const outcome = await task.run('authoring.advance')
+    expect(outcome).toMatchObject({
+      ok: false,
+      phase: 'provider',
+      reason: 'error',
+      code: 'AUTHORING_TOOL_EVIDENCE_UNAUTHORIZED',
+      adoptable: false,
+      text: '已生成但不能采纳的正文。',
+      generatedText: '已生成但不能采纳的正文。',
+      contextManifest,
+      contextReceipt,
+      contextCallReceipts,
+      contextOutcome: { status: 'invalid-result' }
+    })
+}
+{
+const contextManifest = { fingerprint: 'manifest-race' }
+    const contextReceipt = { kind: 'model-call-receipt', manifestFingerprint: 'manifest-race' }
+    const contextCallReceipts = [{ kind: 'model-call-receipt', callIndex: 0 }]
+    const task = useAuthoringTask({
+      resolveTarget: () => ({
+        document: { text: DOC_TEXT, revision: 'doc-r1' },
+        caret: DOC_TEXT.length,
+        selection: { start: DOC_TEXT.length, end: DOC_TEXT.length, hasSelection: false },
+        request: { question: '按此推进' }
+      }),
+      execute: async () => ({
+        text: '迟到但仍需保留的正文。',
+        contextManifest,
+        contextReceipt,
+        contextCallReceipts,
+        contextOutcome: { status: 'completed' }
+      }),
+      getLiveRevision: () => 'doc-r2'
+    })
+    const outcome = await task.run('authoring.advance')
+    expect(outcome).toMatchObject({
+      ok: false,
+      phase: 'stale',
+      reason: 'stale',
+      adoptable: false,
+      text: '迟到但仍需保留的正文。',
+      generatedText: '迟到但仍需保留的正文。',
+      contextManifest,
+      contextCallReceipts,
+      contextOutcome: { status: 'stale' },
+      dependencyIssues: [{
+        dependency: 'document:current',
+        reason: 'revision-changed',
+        expected: 'doc-r1',
+        actual: 'doc-r2'
+      }]
+    })
+    expect(outcome.contextReceipt).toMatchObject({
+      manifestFingerprint: 'manifest-race',
+      dependencyIssues: [{ dependency: 'document:current', reason: 'revision-changed' }]
+    })
+}
 })
 
   it("returns nothing-to-save when retryPersist is called without a receipt（合并3例）", async () => {
@@ -605,4 +953,126 @@ const metrics = []
     expect(metrics).toHaveLength(0)
 }
 })
+})
+
+describe('useAuthoringTask scope gating (right-rail sync audit)', () => {
+  function buildScopedHarness({ scopeRef = { value: 'book-1|ch-1|' }, deferred = false, executeResult = null } = {}) {
+    const calls = { applyPatchToEditor: [], restoredTexts: [] }
+    let resolveExecute
+    const getResolveExecute = () => resolveExecute
+    const task = useAuthoringTask({
+      resolveTarget: () => ({
+        document: { text: DOC_TEXT, revision: buildDocumentRevision('chapter:c1', DOC_TEXT) },
+        caret: DOC_TEXT.length,
+        selection: { start: DOC_TEXT.length, end: DOC_TEXT.length, hasSelection: false },
+        request: { question: '按此推进' }
+      }),
+      execute: () => {
+        if (!deferred) return Promise.resolve(executeResult)
+        return new Promise((resolve) => { resolveExecute = resolve })
+      },
+      applyPatchToEditor: (patch) => {
+        calls.applyPatchToEditor.push(patch)
+        return true
+      },
+      persist: () => true,
+      restoreFullText: (text) => { calls.restoredTexts.push(text) },
+      getLiveRevision: () => buildDocumentRevision('chapter:c1', DOC_TEXT),
+      getScopeKey: () => scopeRef.value
+    })
+    return { task, calls, getResolveExecute }
+  }
+
+  it('binds auxiliary candidates and undo receipts to the request scope（合并4例）', async () => {
+{
+// 作用域未变：选项候选照常进入候选列表（防过度拦截的对照）。
+const { task } = buildScopedHarness({
+  executeResult: { suggestions: [{ type: 'option', content: '下一拍：追向码头尽头。' }] }
+})
+const outcome = await task.run('authoring.options')
+expect(outcome?.ok).toBe(true)
+expect(task.auxiliary.value?.kind).toBe('options')
+expect(task.auxiliary.value.items[0].content).toContain('码头')
+}
+{
+// 迟到候选：请求期间切章 → 静默丢弃，不设置候选、不出提示、不留错误。
+const scope = { value: 'book-1|ch-1|' }
+const { task, getResolveExecute } = buildScopedHarness({
+  scopeRef: scope,
+  deferred: true,
+  executeResult: { suggestions: [{ type: 'option', content: '旧章节候选' }] }
+})
+const pending = task.run('authoring.options')
+scope.value = 'book-1|ch-2|'
+getResolveExecute()({ suggestions: [{ type: 'option', content: '旧章节候选' }] })
+const outcome = await pending
+expect(outcome?.ok).toBe(false)
+expect(outcome?.staleScope).toBe(true)
+expect(task.auxiliary.value).toBeNull()
+expect(task.notice.value).toBeNull()
+expect(task.error.value).toBe('')
+}
+{
+// 同一作用域内撤销成功：正文全文恢复是允许路径。
+const { task, calls } = buildScopedHarness({ executeResult: { text: '新增的一段。' } })
+await task.run('authoring.continue')
+expect(task.undoLastRequest()).toBe(true)
+expect(calls.restoredTexts).toEqual([DOC_TEXT])
+}
+{
+// 跨作用域撤销被拒：切章后旧回执不得把旧章正文灌进新章，且回执立即失效。
+const scope = { value: 'book-1|ch-1|' }
+const { task, calls } = buildScopedHarness({ scopeRef: scope, executeResult: { text: '新增的一段。' } })
+await task.run('authoring.continue')
+scope.value = 'book-1|ch-9|'
+expect(task.undoLastRequest()).toBe(false)
+expect(calls.restoredTexts).toHaveLength(0)
+// 回执已被守卫清空：回到原文档也不会再执行陈旧恢复。
+scope.value = 'book-1|ch-1|'
+expect(task.undoLastRequest()).toBe(false)
+}
+  })
+})
+
+describe('useAuthoringTask cancellation generation gate', () => {
+  it('drops a provider result that resolves after cancel before publishing or applying it', async () => {
+    let resolveExecute
+    const applyPatchToEditor = vi.fn(() => true)
+    const persist = vi.fn(() => true)
+    const onResultAccepted = vi.fn()
+    const task = useAuthoringTask({
+      resolveTarget: () => ({
+        document: { text: DOC_TEXT, revision: buildDocumentRevision('chapter:c1', DOC_TEXT) },
+        caret: DOC_TEXT.length,
+        selection: { start: DOC_TEXT.length, end: DOC_TEXT.length, hasSelection: false },
+        request: { question: '按此推进' }
+      }),
+      execute: () => new Promise((resolve) => { resolveExecute = resolve }),
+      applyPatchToEditor,
+      persist,
+      restoreFullText: vi.fn(),
+      getLiveRevision: () => buildDocumentRevision('chapter:c1', DOC_TEXT),
+      onResultAccepted
+    })
+
+    const pending = task.run('authoring.continue')
+    expect(task.busy.value).toBe(true)
+    task.cancel()
+    expect(task.busy.value).toBe(false)
+    resolveExecute({
+      text: '这段结果忽略了 AbortSignal，仍然迟到返回。',
+      suggestions: [{ type: 'option', content: '也不能发布为候选。' }]
+    })
+
+    await expect(pending).resolves.toMatchObject({
+      ok: false,
+      reason: 'aborted',
+      code: 'AUTHORING_ABORTED'
+    })
+    expect(onResultAccepted).not.toHaveBeenCalled()
+    expect(applyPatchToEditor).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+    expect(task.auxiliary.value).toBeNull()
+    expect(task.appliedCount.value).toBe(0)
+  })
 })

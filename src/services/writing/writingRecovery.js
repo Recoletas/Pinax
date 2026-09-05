@@ -16,7 +16,7 @@ export function listWritingRecoveryDrafts(chapterId = null) {
 export function saveWritingRecoveryDraft(snapshot) {
   const normalized = normalizeStoredWritingSnapshot(snapshot)
   if (!normalized || normalized.reason !== 'crash-recovery') return { ok: false, reason: 'invalid-recovery-draft' }
-  const drafts = readDrafts().filter((draft) => draft.chapterId !== snapshot.chapterId)
+  const drafts = readDrafts().filter((draft) => String(draft.chapterId) !== String(normalized.chapterId))
   if (!setItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS, [normalized, ...drafts])) {
     return { ok: false, reason: 'storage-write-failed' }
   }

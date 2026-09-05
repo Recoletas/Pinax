@@ -1,5 +1,5 @@
 import { createTaskRequest, validateTaskRequest } from '../../../../shared/agentTaskRequestContract.js'
-import { resolveAgentContext } from '../agentContextResolver.js'
+import { resolveAgentContext as resolveDefaultAgentContext } from '../agentContextResolver.js'
 import { applyAgentResultTransaction } from '../agentResultTransaction.js'
 import { createAgentExecutionMetric } from '../agentExecutionMetrics.js'
 import { createAuthoringTaskDispatcher, resolveAuthoringTaskId } from './authoringTaskDispatcher.js'
@@ -27,6 +27,7 @@ export function createAuthoringCommandRuntime({
   projectRevision = '',
   facade,
   workflows,
+  resolveContext = resolveDefaultAgentContext,
   resolveTarget,
   liveRevision = null,
   applyActions = async () => ({}),
@@ -56,7 +57,7 @@ export function createAuthoringCommandRuntime({
 
     let context
     try {
-      context = await resolveAgentContext({ taskId: canonicalId, request, facade })
+      context = await resolveContext({ taskId: canonicalId, request, facade })
     } catch (error) {
       recordExecutionMetric({ request, task: { workflowKind: '', contextProfile: '' }, result: { status: 'failed', error: { code: 'AGENT_CONTEXT_RESOLVE_FAILED' } }, timing: { durationMs: Date.now() - startedAt }, ledger: {} })
       throw error
@@ -72,7 +73,9 @@ export function createAuthoringCommandRuntime({
       result = await dispatcher.run({
         taskId: canonicalId,
         request,
-        context: { envelope: context.envelope, ledger: context.ledger, profile: context.profile }
+        // C1-1B：session、manifest 与现场投影均属于上下文合同，dispatcher
+        // 必须完整透传，不能在 runtime 重新挑选一份字段子集。
+        context
       })
     } catch (error) {
       recordExecutionMetric({

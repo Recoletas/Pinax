@@ -1,0 +1,160 @@
+<template>
+  <section v-if="manifest || selectedReferences.length" class="authoring-context-summary" data-test="context-summary" :data-context-mode="mode" :aria-label="mode === 'actual' ? '生成后实际参考' : '生成前上下文预检'">
+    <details :open="openByDefault">
+      <summary>
+        <strong>{{ mode === 'actual' ? '实际参考' : '参考范围' }}</strong>
+        <span>{{ summaryText }}</span>
+      </summary>
+      <div class="authoring-context-summary__body">
+        <section v-for="group in visibleGroups" :key="group.id">
+          <h4>{{ group.label }} <span>{{ group.items.length }}</span></h4>
+          <ul>
+            <li v-for="item in group.items" :key="item.id">
+              <span><strong>{{ item.label }}</strong><small>{{ item.reason }}</small></span>
+              <span class="authoring-context-summary__state">{{ item.state }}</span>
+              <button v-if="mode === 'planned' && item.candidateId" type="button" @click="$emit('exclude', item.candidateId)">本次排除</button>
+            </li>
+          </ul>
+        </section>
+        <p v-if="loading">正在按当前落笔处核对参考…</p>
+        <p v-else-if="error">暂时无法完成预检；提交时仍会重新冻结并校验。</p>
+      </div>
+    </details>
+  </section>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+
+const props = defineProps({
+  mode: { type: String, default: 'planned' },
+  manifest: { type: Object, default: null },
+  receipt: { type: Object, default: null },
+  selectedReferences: { type: Array, default: () => [] },
+  loading: Boolean,
+  error: { type: String, default: '' },
+  openByDefault: Boolean
+})
+defineEmits(['exclude'])
+
+const groupMeta = Object.freeze([
+  { id: 'manuscript', label: '当前正文', shortLabel: '正文', kinds: ['manuscript-unit'] },
+  { id: 'chapter', label: '章节上下文', shortLabel: '章节', kinds: ['chapter-continuity', 'outline-node'] },
+  { id: 'scene', label: '当前场', shortLabel: '现场', kinds: ['scene-projection', 'author-note'] },
+  { id: 'worldbook', label: '世界设定', shortLabel: '设定', kinds: ['worldbook-entry'] },
+  { id: 'reference', label: '作者参考', shortLabel: '自选', kinds: ['exploration-doc', 'narrative-asset'] },
+  { id: 'memory', label: '相关记忆', shortLabel: '记忆', kinds: ['memory'] }
+])
+const receiptById = computed(() => new Map((props.receipt?.entries || []).map((entry) => [entry.candidateId, entry])))
+const invalidated = computed(() => new Set((props.receipt?.invalidatedSources || []).map((item) => item.dependency)))
+
+function exclusionState(reason) {
+  if (String(reason).startsWith('budget-')) return '因篇幅省略'
+  if (reason === 'conflict-set-loser') return '冲突中未采用'
+  if (reason === 'author-removed-for-run') return '本次已排除'
+  if (['source-revision-changed', 'revision-missing-fail-closed', 'source-missing', 'source-stale'].includes(reason)) return '来源已失效'
+  return '未采用'
+}
+
+function exclusionReason(reason) {
+  if (String(reason).startsWith('budget-')) return '本轮篇幅有限，未送入模型'
+  if (reason === 'conflict-set-loser') return '与更可靠的来源冲突'
+  if (reason === 'author-removed-for-run') return '已由作者从本次推演移除'
+  if (['source-revision-changed', 'revision-missing-fail-closed', 'source-missing', 'source-stale'].includes(reason)) return '来源版本已经变化或不可读取'
+  return '与本次落笔处关联不足'
+}
+
+function displayLabel(label, kind) {
+  const value = String(label || '').trim()
+  if (kind === 'memory') return ({
+    'plot-event': '剧情记忆',
+    'character-state': '人物状态',
+    'project-fact': '项目事实',
+    'world-fact': '世界事实',
+    relation: '关系记忆'
+  })[value] || (value && !value.includes('-') ? value : '相关记忆')
+  return value || kindFallback(kind)
+}
+
+function includedState(block) {
+  const actual = receiptById.value.get(block.candidateId)
+  if (invalidated.value.has(block.primarySourceRef)) return '版本已过期'
+  if (props.mode !== 'actual' || !props.receipt) return block.representationReduced ? '将截取' : '将采用'
+  if (!actual?.included) return '调用时省略'
+  if (actual.cut) return '实际截取'
+  return '实际使用'
+}
+
+const manifestItems = computed(() => {
+  const blocks = (props.manifest?.blocks || []).map((block) => ({
+    id: `included:${block.candidateId}`,
+    candidateId: block.candidateId,
+    kind: block.kind,
+    label: displayLabel(block.label, block.kind),
+    reason: block.reason || '与当前落笔处相关',
+    state: includedState(block)
+  }))
+  const excluded = (props.manifest?.excluded || []).map((item) => ({
+    id: `excluded:${item.candidateId}`,
+    candidateId: item.candidateId,
+    kind: item.kind || item.sourceKind || 'other',
+    label: displayLabel(item.label, item.kind || item.sourceKind),
+    reason: exclusionReason(item.reason),
+    state: exclusionState(item.reason)
+  }))
+  return [...blocks, ...excluded]
+})
+
+const selectedFallback = computed(() => props.selectedReferences.map((item) => ({
+  id: `selected:${item.id}`,
+  candidateId: '',
+  kind: item.sourceKind,
+  label: item.label,
+  reason: item.selectionStatus === 'ready' ? `作者选中的本次${roleLabel(item.usageRole)}` : '需要核对来源',
+  state: ({ ready: '待冻结', modified: '内容已更新', missing: '来源已删除', 'project-mismatch': '其他项目' })[item.selectionStatus] || '待核对'
+})))
+
+const allItems = computed(() => manifestItems.value.length ? manifestItems.value : selectedFallback.value)
+const visibleGroups = computed(() => groupMeta.map((group) => ({
+  ...group,
+  items: allItems.value.filter((item) => group.kinds.includes(item.kind))
+})).filter((group) => group.items.length))
+const summaryText = computed(() => visibleGroups.value.flatMap((group) => {
+  const count = group.items.filter((item) => !['未采用', '本次已排除'].includes(item.state)).length
+  return count > 0 ? [`${group.shortLabel} ${count}`] : []
+}).join(' · ') || '提交时核对')
+
+function kindFallback(kind) {
+  return ({
+    'manuscript-unit': '落笔处正文', 'chapter-continuity': '章节摘要', 'scene-projection': '当前场',
+    'outline-node': '已采纳大纲', 'worldbook-entry': '世界书条目', 'exploration-doc': '速记',
+    'narrative-asset': '素材', memory: '记忆', 'author-note': '作者安排'
+  })[kind] || '参考来源'
+}
+
+function roleLabel(role) {
+  return ({ fact: '事实', intent: '意图', inspiration: '灵感' })[role] || '灵感'
+}
+</script>
+
+<style scoped>
+.authoring-context-summary { color: var(--text-secondary); font-size: 11px; }
+.authoring-context-summary details { border-bottom: 1px solid var(--border-subtle); }
+.authoring-context-summary summary { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 0; cursor: pointer; }
+.authoring-context-summary summary strong { color: var(--text-primary); font-size: 12px; }
+.authoring-context-summary summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.authoring-context-summary__body { padding-bottom: 9px; }
+.authoring-context-summary__body section + section { margin-top: 8px; }
+.authoring-context-summary h4 { margin: 0; color: var(--text-primary); font-size: 11px; font-weight: 600; }
+.authoring-context-summary h4 span { color: var(--text-secondary); font-weight: 400; }
+.authoring-context-summary ul { margin: 3px 0 0; padding: 0; list-style: none; }
+.authoring-context-summary li { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border-subtle); }
+.authoring-context-summary li > span:first-child { display: grid; min-width: 0; flex: 1; }
+.authoring-context-summary li strong, .authoring-context-summary li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-context-summary li strong { color: var(--text-primary); font-weight: 550; }
+.authoring-context-summary__state { flex: 0 0 auto; color: var(--archive-olive-strong); }
+.authoring-context-summary button { border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.authoring-context-summary button:hover { color: var(--text-primary); }
+.authoring-context-summary button:focus-visible, .authoring-context-summary summary:focus-visible { outline: 2px solid var(--focus-ring, currentColor); outline-offset: 2px; }
+.authoring-context-summary p { margin: 7px 0 0; line-height: 1.5; }
+</style>

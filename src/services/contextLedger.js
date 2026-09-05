@@ -1,4 +1,4 @@
-import { estimateTokens } from '../composables/useTokenEstimate'
+import { estimateTokens } from '../composables/useTokenEstimate.js'
 
 export const CONTEXT_PREVIEW_LIMIT = 120
 export const CONTEXT_LEDGER_PART_LIMIT = 40

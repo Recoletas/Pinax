@@ -325,13 +325,14 @@ function handleMemoryRecorded(event) {
 }
 
 function handleMemoryCandidateCreated(event) {
-  const { text, kind, scope, kindLabel } = event.detail || {}
-  const prefix = scope === 'session' ? '待确认记忆' : '记忆候选'
-  const label = kindLabel || kind || '记录记忆'
-  message.value = `${prefix} · ${label}：${text || ''}`
-  showIndicator.value = true
-
+  const { attention, conflictCount } = event.detail || {}
   refreshCandidates()
+  if (!attention) {
+    showQuietIndicator()
+    return
+  }
+  message.value = conflictCount > 1 ? `${conflictCount} 条记忆冲突待确认` : '有记忆冲突待确认'
+  showIndicator.value = true
   scheduleIndicatorHide()
 }
 
@@ -343,6 +344,13 @@ function refreshCandidates() {
   if (hasMemoryCandidates()) {
     showIndicator.value = true
   }
+}
+
+function showQuietIndicator() {
+  const pendingCount = pendingCandidates.value.length
+  const totalCount = pendingCount + activeCandidates.value.length + staleCandidates.value.length
+  message.value = pendingCount ? `记忆 · ${pendingCount} 条待确认` : `记忆 · ${totalCount} 条`
+  showIndicator.value = totalCount > 0
 }
 
 const currentCandidates = computed(() => {
@@ -847,7 +855,7 @@ function getRestoreButtonLabel(candidate) {
 function scheduleIndicatorHide() {
   if (hideTimer) clearTimeout(hideTimer)
   hideTimer = setTimeout(() => {
-    showIndicator.value = hasMemoryCandidates()
+    showQuietIndicator()
   }, 2500)
 }
 
@@ -855,6 +863,7 @@ onMounted(() => {
   window.addEventListener('memory-recorded', handleMemoryRecorded)
   window.addEventListener('memory-candidate-created', handleMemoryCandidateCreated)
   refreshCandidates()
+  showQuietIndicator()
 })
 
 onUnmounted(() => {

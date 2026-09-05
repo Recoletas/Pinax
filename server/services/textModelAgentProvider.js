@@ -78,6 +78,8 @@ export function resolveTextModelMaxTokens(taskMeta = {}) {
   if (taskType.startsWith('writing.fix.') && candidateCount > 1) {
     return Math.min(3600, 1800 + (candidateCount * 400))
   }
+  if (taskType === 'authoring.scene.directions') return 1200
+  if (taskType === 'authoring.knowledge.query') return 2800
   if (taskType === 'writing.chapter.health' || options.chapterReview) return 2800
   return 1800
 }

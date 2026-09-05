@@ -71,7 +71,7 @@ function tokenize(value) {
   return [...result]
 }
 
-function resource(input) {
+function resource(input = {}) {
   const aliases = unique(input.aliases || [])
   const summary = clip(input.summary, NARRATIVE_TOOL_LIMITS.maxGetItemChars)
   const sourceRefs = unique(input.sourceRefs || [])
@@ -105,6 +105,15 @@ function resource(input) {
     searchableText,
     tokens: tokenize(searchableText)
   }
+}
+
+// Authoring 资料助手、后续全文搜索与因果沙盒可把各自已经完成作用域核对的
+// 只读资料投影到同一索引。这里仍是唯一 tokenizer/ranker owner；调用方只能
+// 提供资源字段，不能注入自定义 score 或可写 handle。
+function additionalResources(snapshot = {}) {
+  return (Array.isArray(snapshot?.additionalResources) ? snapshot.additionalResources : [])
+    .map((item) => resource(item || {}))
+    .filter((item) => item.id && item.domain && item.summary)
 }
 
 function worldResources(worldbook) {
@@ -423,6 +432,9 @@ function politicsResources(runtimeState = {}) {
 export function createNarrativeResourceSnapshotRevision(snapshot = {}) {
   const worldbook = snapshot?.worldbook || {}
   const runtimeState = snapshot?.runtimeState || {}
+  const additional = Array.isArray(snapshot?.additionalResources)
+    ? snapshot.additionalResources
+    : []
   return createNarrativeRevision('res', {
     projectId: text(snapshot?.projectId || worldbook?.id),
     sessionId: text(snapshot?.sessionId),
@@ -459,6 +471,21 @@ export function createNarrativeResourceSnapshotRevision(snapshot = {}) {
       Number(memory?.updatedAt || memory?.createdAt || 0),
       text(memory?.content)
     ]),
+    // 没有扩展资源时不增加新字段，保持旧 narrative snapshot/cursor
+    // revision 完全兼容。扩展 revision 仅参与索引失效，不进入搜索评分。
+    ...(additional.length ? {
+      additionalResources: additional.map((item) => [
+        text(item?.id),
+        text(item?.domain),
+        text(item?.type),
+        text(item?.title),
+        text(item?.summary),
+        item?.aliases || [],
+        item?.sourceRefs || [],
+        text(item?.revision),
+        Number(item?.updatedAt || 0)
+      ])
+    } : {}),
     politics: {
       factionRelations: runtimeState?.factionRelations || {},
       characterRelations: runtimeState?.characterRelations || {},
@@ -475,7 +502,8 @@ export function createNarrativeResourceIndex(snapshot = {}) {
     ...geoResources(snapshot?.worldbook),
     ...historyResources(snapshot?.worldbook),
     ...memoryResources(snapshot?.memories),
-    ...politicsResources(snapshot?.runtimeState)
+    ...politicsResources(snapshot?.runtimeState),
+    ...additionalResources(snapshot)
   ]
   const byId = new Map()
   const byDomain = new Map()
@@ -484,6 +512,8 @@ export function createNarrativeResourceIndex(snapshot = {}) {
     if (!byDomain.has(item.domain)) byDomain.set(item.domain, [])
     byDomain.get(item.domain).push(item)
   }
+  const baseDomains = ['world', 'geo', 'history', 'memory', 'politics']
+  const extraDomains = [...byDomain.keys()].filter((domain) => !baseDomains.includes(domain))
   return {
     schemaVersion: 1,
     projectId: text(snapshot?.projectId || snapshot?.worldbook?.id),
@@ -492,7 +522,9 @@ export function createNarrativeResourceIndex(snapshot = {}) {
     resources,
     byId,
     byDomain,
-    counts: Object.fromEntries(['world', 'geo', 'history', 'memory', 'politics'].map((domain) => [
+    // 基础域始终保留 0 值，避免破坏现有 tool/audit 的结构合同；
+    // Authoring 等扩展域只在实际存在时追加。
+    counts: Object.fromEntries([...baseDomains, ...extraDomains].map((domain) => [
       domain,
       byDomain.get(domain)?.length || 0
     ]))

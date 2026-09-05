@@ -16,7 +16,7 @@ const requestedStates = String(process.env.UI_AUDIT_STATES || 'empty')
   .map((value) => value.trim())
   .filter((value) => [
     'empty', 'regular', 'long', 'loading', 'partial', 'error', 'stale', 'cancelled', 'writing-unit', 'scene-board',
-    'generating', 'context', 'conflict', 'scene-rail', 'detail',
+    'generating', 'context', 'conflict', 'scene-rail', 'detail', 'ghost', 'annotations', 'ai-reference',
     'desktop-project-empty', 'desktop-project-error', 'desktop-project-readonly'
   ].includes(value))
 const requestedRoutes = new Set(String(process.env.UI_AUDIT_ROUTES || '')
@@ -48,7 +48,7 @@ const routes = [
     id: 'authoring',
     path: '/authoring',
     surfaces: ['.writing-page'],
-    keyboardTargets: ['.wall__cork button', '.turn-composer__primary', '.authoring-context-trigger', '.wall__shelf-scene button', '.writing-notebook-editor__surface .ProseMirror']
+    keyboardTargets: ['.wall__cork button', '.wall__block-entry', '[data-authoring-tool="annotations"]', '.wall__shelf-scene button', '.writing-notebook-editor__surface .ProseMirror']
   },
   { id: 'materials', path: '/materials', surfaces: ['.notes-content-area', '.material-drawer', '.reading-deck', '.notes-sidekick'] },
   { id: 'prose-essay', path: '/prose-essay', surfaces: ['.prose-essay-page', '.pe-main', '.card-wall', '.left-panel'] },
@@ -536,7 +536,7 @@ async function installThemeFixture(page, state) {
 
 function supportsActionState(route, state) {
   if (route.id === 'authoring') {
-    return ['empty', 'regular', 'long', 'generating', 'error', 'stale', 'context', 'conflict', 'scene-rail', 'detail',
+    return ['empty', 'regular', 'long', 'generating', 'error', 'stale', 'conflict', 'scene-rail', 'detail', 'ghost', 'annotations', 'ai-reference',
       'current-scene', 'worldbook-unbound', 'worldbook-missing'].includes(state)
   }
   const desktopState = state.startsWith('desktop-project-')
@@ -653,6 +653,12 @@ async function installActionScenario(page, state) {
 
 async function triggerActionScenario(page, route, state) {
   if (route.id === 'authoring') {
+    if (state === 'annotations' || state === 'ai-reference') {
+      const tool = state === 'annotations' ? 'annotations' : 'ai'
+      await page.locator(`[data-authoring-tool="${tool}"]`).click()
+      await page.locator(`[data-authoring-inspector="${tool}"]`).waitFor({ state: 'visible' })
+      return { assertion: `authoring ${tool} tool owns one inspector`, passed: true }
+    }
     if (!['generating', 'error', 'stale', 'context', 'conflict'].includes(state)) return null
     if (state === 'generating') {
       // Fusion P4：九指令横条已退役，停止/生成入口只剩 composer 主按钮三态。

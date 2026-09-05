@@ -3041,7 +3041,7 @@ function exportEditingPackage() {
 }
 
 .prose-top__id-mark {
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
 }
@@ -3249,7 +3249,7 @@ function exportEditingPackage() {
 
 .prose-hero__title {
   margin: 0;
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 26px;
   font-weight: 700;
   line-height: 1.2;

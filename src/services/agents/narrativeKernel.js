@@ -8,6 +8,7 @@ import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
 import { matchWorldbookEntries } from '../worldbookContextBuilder'
 import { speakerIdOf } from '../narrativePresentation'
 import { toKernelVoiceProfile } from '../narrativeVoiceProfile'
+import { NARRATIVE_BEAT_PLAN_TOOL } from '../../../shared/narrativeBeatPlanContract'
 
 const BLOCK_LIMITS = Object.freeze({
   rules: 900,
@@ -19,6 +20,7 @@ const BLOCK_LIMITS = Object.freeze({
   cast: 1200,   // R4：场景角色编排
   note: 400,   // R2：本轮导演注
   lore: 1400,  // P2：activatedLore —— 当前场景命中的世界书普通条目预算
+  'compiled-context': 16000, // Phase 4：narrative-long manifest（正文/现场/大纲/探索）
   style: 600
 })
 
@@ -381,12 +383,14 @@ export function buildNarrativeKernel({
   sceneThread = null,      // Q2：SceneThread 软状态（跨回合场景线程）
   intentMode = '',         // authoring runtime：narrative-scene profile 的意图模式（continue/advance/character/scene/trigger），仅透传记录
   turnContext = null,      // authoring turn contract 的低敏元数据（类型/说话人/对象），正文指令仍取最后一条 user message
-  sceneProjection = null   // authoring fusion：与左栏/composer 同一份共享现场投影（spec §10），覆盖地点并落 chapter 证据
+  sceneProjection = null,  // authoring fusion：与左栏/composer 同一份共享现场投影（spec §10），覆盖地点并落 chapter 证据
+  contextManifest = null   // 文本工作台 v3 Phase 4：唯一 compiled context 输入
 } = {}) {
   const recent = compactMessages(messages)
   const latestUser = [...recent].reverse().find((message) => message.role === 'user') || null
-  const rules = hardRuleEntries(worldbook)
-  const forbidden = clip(worldbook?.forbidden, 360)
+  const manifestBlocks = Array.isArray(contextManifest?.blocks) ? contextManifest.blocks : null
+  const rules = manifestBlocks ? [] : hardRuleEntries(worldbook)
+  const forbidden = manifestBlocks ? '' : clip(worldbook?.forbidden, 360)
   const characters = (Array.isArray(runtimeState?.encounteredCharacters) ? runtimeState.encounteredCharacters : [])
     .slice(-8)
     .map((character) => ({
@@ -409,11 +413,31 @@ export function buildNarrativeKernel({
   const historyNode = runtimeState?.historyNode || null
   const causality = buildRuntimeCausalityContext({ runtimeState })
   // R4：场景角色编排 —— 主 speaker 完整卡 + 其他角色摘要
-  const cast = buildSceneCast(worldbook, runtimeState, messages)
+  const cast = buildSceneCast(manifestBlocks ? null : worldbook, runtimeState, messages)
   const speaker = cast.find((member) => member.role === 'speaker')
-  // P2：activatedLore —— 复用同一 matcher（确定性种子，同输入同命中集）。
-  // 常驻/禁写规则已进 rules 块，这里只装普通条目；新会话允许少量 starter。
-  const matchedLore = matchWorldbookEntries({
+  // Phase 4 ownership closure：存在 compiled manifest 时，lore 只从 manifest
+  // 序列化（Compiler 已完成发现/资格/冲突/表示），Kernel 不再自选来源。
+  const manifestLore = manifestBlocks
+    ? manifestBlocks.filter((block) => block.kind === 'worldbook-entry')
+    : null
+  const matchedLore = manifestLore
+    ? manifestLore.map((block) => ({
+        id: text(block.sourceId)
+          || block.sourceRefs?.find((ref) => String(ref).startsWith('worldbook-entry:'))?.slice('worldbook-entry:'.length)
+          || block.candidateId,
+        candidateId: block.candidateId,
+        name: text(block.label)
+          || block.sourceRefs?.find((ref) => String(ref).startsWith('worldbook-entry:'))?.slice('worldbook-entry:'.length)
+          || block.candidateId,
+        type: 'lore',
+        matchReason: 'manifest',
+        content: block.text,
+        sourceRefs: block.sourceRefs,
+        metadata: {
+          sourceRef: block.sourceRefs?.find((ref) => String(ref).startsWith('worldbook-entry:')) || ''
+        }
+      }))
+    : matchWorldbookEntries({
     worldbook,
     chatHistory: messages,
     runtimeState,
@@ -441,6 +465,7 @@ export function buildNarrativeKernel({
   for (const entry of matchedLore) {
     const meta = {
       entryId: text(entry?.id),
+      candidateId: text(entry?.candidateId),
       name: text(entry?.name),
       type: text(entry?.type),
       matchReason: text(entry?.matchReason),
@@ -458,7 +483,7 @@ export function buildNarrativeKernel({
     loreMeta.push(meta)
   }
   // P2：无条目命中时（全新会话）退回世界概述，避免模型在空白中写作。
-  const worldOverview = text(worldbook?.worldDescription || worldbook?.description)
+  const worldOverview = manifestBlocks ? '' : text(worldbook?.worldDescription || worldbook?.description)
   const loreBlockEntries = loreMeta.length > 0
     ? loreMeta
     : (worldOverview ? [{
@@ -494,7 +519,7 @@ export function buildNarrativeKernel({
       actorId: text(turnContext?.actorId),
       targetId: text(turnContext?.targetId)
     }, latestUser?.id ? [`message:${latestUser.id}`] : []),
-    makeBlock('scene', {
+    ...(!manifestBlocks ? [makeBlock('scene', {
       world: {
         id: text(projectId || worldbook?.id),
         name: text(worldbook?.name)
@@ -518,9 +543,9 @@ export function buildNarrativeKernel({
     }, [
       ...(text(place.placeId) ? [`place:${text(place.placeId)}`] : []),
       ...characters.map((character) => `character:${character.id || character.name}`)
-    ]),
+    ])] : []),
     // 共享现场投影证据块（spec §10）：只带稳定 ID 与低敏摘要，来源与左栏一致。
-    ...(sceneProjection && typeof sceneProjection === 'object' ? [makeBlock('projection', {
+    ...(!manifestBlocks && sceneProjection && typeof sceneProjection === 'object' ? [makeBlock('projection', {
       schemaVersion: text(sceneProjection.schemaVersion),
       chapterId: text(sceneProjection.chapterId),
       sceneId: text(sceneProjection.sceneId),
@@ -539,7 +564,7 @@ export function buildNarrativeKernel({
       ...(Array.isArray(sceneProjection.sourceRefs) ? sceneProjection.sourceRefs.map(text).filter(Boolean).slice(0, 16) : [])
     ])] : []),
     // R4：场景角色编排 —— 主 speaker 完整角色卡 + 其他角色受限摘要
-    ...(cast.length > 0 ? [makeCastBlock(cast)] : []),
+    ...(!manifestBlocks && cast.length > 0 ? [makeCastBlock(cast)] : []),
     // P2：activatedLore —— 当前地点/角色/历史/关键词命中的世界书普通条目（请求模型前确定性装配）。
     // 无条目命中时（如全新会话）退回世界概述，避免模型在空白中写作。
     ...(loreBlockEntries.length > 0 ? [makeBlock('lore', {
@@ -548,7 +573,18 @@ export function buildNarrativeKernel({
     }, loreBlockEntries
       .map((entry) => entry.entryId ? `worldbook-entry:${entry.entryId}` : '')
       .filter(Boolean))] : []),
-    ...(text(sceneSummary?.summary)
+    ...(manifestBlocks ? [makeBlock('compiled-context', {
+      manifestFingerprint: text(contextManifest.fingerprint),
+      entries: manifestBlocks
+        .filter((entry) => entry.kind !== 'worldbook-entry')
+        .map((entry) => ({
+          candidateId: text(entry.candidateId),
+          kind: text(entry.kind),
+          representation: text(entry.representation),
+          text: typeof entry.text === 'string' ? entry.text : ''
+        }))
+    }, manifestBlocks.flatMap((entry) => entry.sourceRefs || []))] : []),
+    ...(!manifestBlocks && text(sceneSummary?.summary)
       ? [makeBlock('summary', {
           revision: text(sceneSummary.revision),
           sourceRevision: text(sceneSummary.sourceRevision),
@@ -557,11 +593,11 @@ export function buildNarrativeKernel({
         }, sceneSummary.sourceRefs || [])]
       : []),
     // C2.2：recent 只保留引用（真实 role messages 改由 transcript 承载，避免全文双写）。
-    makeBlock('recent', {
+    ...(!manifestBlocks ? [makeBlock('recent', {
       messageIds: recent.map((message) => message.id).filter(Boolean),
       count: recent.length
-    }, recent.map((message) => message.id).filter(Boolean).map((id) => `message:${id}`)),
-    makeBlock('continuity', {
+    }, recent.map((message) => message.id).filter(Boolean).map((id) => `message:${id}`))] : []),
+    ...(!manifestBlocks ? [makeBlock('continuity', {
       goals: activeGoals(runtimeState),
       recentChoices: (Array.isArray(runtimeState?.keyChoices) ? runtimeState.keyChoices : [])
         .slice(-4)
@@ -595,22 +631,28 @@ export function buildNarrativeKernel({
       ...activeGoals(runtimeState).map((goal) => `goal:${goal.id || goal.title}`),
       ...(text(historyNode?.id) ? [`history:${text(historyNode.id)}`] : []),
       ...causality.sourceEventIds.map((eventId) => `runtime-event:${eventId}`)
-    ]),
+    ])] : []),
     // R2：本轮导演注（用户输入，仅下一轮生效）。插在文风之前，优先级高于文风。
     ...(text(authorNote) ? [makeBlock('note', { text: clip(authorNote, BLOCK_LIMITS.note) }, [])] : []),
-    makeBlock('style', {
-      fingerprint: clip(worldbook?.writingStyle, BLOCK_LIMITS.style - 40)
-    }, text(worldbook?.writingStyle) ? [`worldbook:${text(worldbook?.id)}:style`] : [])
+    ...(!manifestBlocks ? [makeBlock('style', {
+      fingerprint: manifestBlocks ? '' : clip(worldbook?.writingStyle, BLOCK_LIMITS.style - 40)
+    }, text(worldbook?.writingStyle) ? [`worldbook:${text(worldbook?.id)}:style`] : [])] : [])
   ]
 
   // P1：geo 仅在当前有地点或用户问路线时暴露（options.hasPlace）
-  const activeToolNames = resolveNarrativeActiveToolNames(latestUser?.content, {
-    hasPlace: Boolean(text(place.placeId)),
-    hasPolitics: Object.keys(runtimeState?.factionRelations || {}).length > 0
-      || Object.keys(runtimeState?.characterRelations || {}).length > 0
-      || Object.keys(runtimeState?.canonicalFacts || {}).length > 0
-      || Object.keys(runtimeState?.placeStates || {}).length > 0
-  })
+  const activeToolNames = manifestBlocks
+    ? [
+        ...(manifestBlocks.some((block) => block.kind === 'worldbook-entry') ? ['world_lookup'] : []),
+        ...(manifestBlocks.some((block) => block.kind === 'memory') ? ['memory_lookup'] : []),
+        NARRATIVE_BEAT_PLAN_TOOL
+      ]
+    : resolveNarrativeActiveToolNames(latestUser?.content, {
+        hasPlace: Boolean(text(place.placeId)),
+        hasPolitics: Object.keys(runtimeState?.factionRelations || {}).length > 0
+          || Object.keys(runtimeState?.characterRelations || {}).length > 0
+          || Object.keys(runtimeState?.canonicalFacts || {}).length > 0
+          || Object.keys(runtimeState?.placeStates || {}).length > 0
+      })
   const toolCatalog = getNarrativeToolCatalog({ activeTools: activeToolNames })
   const revision = createNarrativeRevision('nar', {
     projectId: text(projectId || worldbook?.id),
@@ -632,7 +674,7 @@ export function buildNarrativeKernel({
       speakerId: speaker?.speakerId || null,
       sampleCount: speaker?.voice?.samples?.length || 0
     },
-    recentMessages: recent,  // C2.2：供 orchestrator 把真实 role messages 注入 transcript
+    recentMessages: manifestBlocks ? [] : recent,  // manifest 正文已冻结在 compiled-context；旧 transcript 不得成为第二真源。
     activatedLore: {  // P2：供 ledger/trace 记录激活原因分布
       entries: loreBlockEntries,
       totalMatched: matchedLore.length,

@@ -75,7 +75,7 @@ function entryCount(preset) {
 }
 
 .preset-card__roman {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 14px;
   font-style: italic;
   color: color-mix(in srgb, var(--archive-rose) 64%, transparent);
@@ -83,7 +83,7 @@ function entryCount(preset) {
 }
 
 .preset-card__name {
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display);
   font-size: 16px;
   font-weight: 600;
   line-height: 1.2;

@@ -80,7 +80,7 @@ defineEmits(['select'])
 
 .side-panel-title {
   margin-top: 6px;
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 22px;
   line-height: 1;
   font-weight: 820;
@@ -129,7 +129,7 @@ defineEmits(['select'])
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
@@ -148,7 +148,7 @@ defineEmits(['select'])
 
 .side-link-label {
   display: block;
-  font-family: var(--font-display, "Iowan Old Style", "Songti SC", "STSong", Georgia, serif);
+  font-family: var(--font-display, var(--font-display));
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;

@@ -164,7 +164,7 @@ const componentAttrs = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 30px;
   font-weight: 900;
   line-height: 1;

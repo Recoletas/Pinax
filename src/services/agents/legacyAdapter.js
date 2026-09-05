@@ -17,6 +17,12 @@ function revisionOf(value) {
   return `rev-${(hash >>> 0).toString(36)}-${text.length.toString(36)}`
 }
 
+function uniqueRefs(values = []) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => safeStr(value).trim())
+    .filter(Boolean))]
+}
+
 export function adaptLegacyContextToEnvelope({
   context,
   question,
@@ -42,6 +48,11 @@ export function adaptLegacyContextToEnvelope({
       const paragraphText = safeStr(context.paragraph?.text || context.paragraphText)
       const before = safeStr(context.contextWindow?.before)
       const after = safeStr(context.contextWindow?.after)
+      const hasEvidenceAuthorization = Array.isArray(context.allowedEvidenceRefs)
+      const allowedEvidenceRefs = new Set(uniqueRefs(context.allowedEvidenceRefs))
+      const authorizeRefs = (values) => uniqueRefs(values).filter((sourceRef) => (
+        !hasEvidenceAuthorization || allowedEvidenceRefs.has(sourceRef)
+      ))
 
       if (targetText) {
         blocks.push({
@@ -71,11 +82,42 @@ export function adaptLegacyContextToEnvelope({
         })
       }
       if (Array.isArray(context.reviewBlocks) && context.reviewBlocks.length) {
+        const reviewSourceRefs = authorizeRefs(context.reviewBlocks.flatMap((block) => block?.sourceRefs || []))
         blocks.push({
           kind: 'scene',
           content: `【章节审查目标块】\n${JSON.stringify(context.reviewBlocks)}`,
           priority: 1100,
-          sourceRefs: []
+          sourceRefs: reviewSourceRefs
+        })
+      }
+      const evidenceSourceRefs = new Set()
+      for (const evidence of Array.isArray(context.evidence) ? context.evidence : []) {
+        const sourceRef = safeStr(evidence?.sourceRef || evidence?.ref).trim()
+        const evidenceText = safeStr(evidence?.text || evidence?.content).trim()
+        if (
+          !sourceRef
+          || !evidenceText
+          || evidenceSourceRefs.has(sourceRef)
+          || !hasEvidenceAuthorization
+          || !allowedEvidenceRefs.has(sourceRef)
+        ) continue
+        evidenceSourceRefs.add(sourceRef)
+        const evidenceKind = safeStr(evidence?.kind).trim()
+        const kind = evidenceKind === 'worldbook'
+          ? 'worldbook'
+          : evidenceKind === 'scene' ? 'scene' : 'references'
+        const label = safeStr(evidence?.label || evidence?.title || sourceRef).trim()
+        const revision = safeStr(evidence?.revision || evidence?.sourceRevision).trim()
+        blocks.push({
+          kind,
+          content: [
+            `【校对依据：${label}】`,
+            `来源：${sourceRef}`,
+            revision ? `修订：${revision}` : '',
+            evidenceText
+          ].filter(Boolean).join('\n'),
+          priority: kind === 'scene' ? 850 : kind === 'worldbook' ? 650 : 500,
+          sourceRefs: [sourceRef]
         })
       }
       blocks.push({
@@ -112,11 +154,11 @@ export function adaptLegacyContextToEnvelope({
   const revisionSeed = target?.text ?? target?.baseText ?? context
   const envelope = buildContextEnvelope({
     surface,
-    projectId: null,
+    projectId: target?.projectId || options?.projectId || context?.projectId || null,
     target: {
       type: targetType,
-      id: target?.id || null,
-      revision: target?.revision || target?.baseRevision || revisionOf(
+      id: target?.id || target?.documentId || target?.chapterId || null,
+      revision: target?.revision || target?.baseRevision || target?.documentRevision || revisionOf(
         typeof revisionSeed === 'string' ? revisionSeed : JSON.stringify(revisionSeed || {})
       )
     },

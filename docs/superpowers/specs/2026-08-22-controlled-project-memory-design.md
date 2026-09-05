@@ -2,7 +2,7 @@
 
 **日期：** 2026-08-22
 **状态：** 已确认，可进入实施计划
-**上游调研：** `docs/superpowers/research/pinax-memory-system-deep-brief-20260822.md`
+**决策真源：** 本设计已吸收上游记忆调研；中间 brief 已清理
 **从属架构：** `docs/superpowers/specs/2026-08-22-unified-agent-capability-architecture-design.md`
 
 ## 1. 目标

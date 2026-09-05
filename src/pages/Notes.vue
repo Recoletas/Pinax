@@ -583,6 +583,7 @@ import {
   setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
+import { createExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
 import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'
 import {
   addNarrativeImageAsset,
@@ -1743,6 +1744,22 @@ function createNewNote() {
 
 function confirmCreateNote() {
   if (!newNoteTitle.value.trim()) return
+
+  // Phase 11：有明确项目上下文的纯文字试写归 Authoring exploration 所有；
+  // 素材页继续保留图片、音频、文件及已有 narrative asset 的整理能力。
+  const bookId = String(route.query.bookId || '').trim()
+  if (bookId) {
+    const created = createExplorationDocument(bookId, {
+      title: newNoteTitle.value.trim(),
+      content: newNoteTitle.value.trim(),
+      sourceRefs: ['materials:text-capture']
+    })
+    if (created.ok) {
+      showNewNoteModal.value = false
+      router.push({ name: 'authoring', query: { bookId, explorationId: created.document.id, wt3: '1' } })
+      return
+    }
+  }
 
   const newNote = addNarrativeAsset({
     title: newNoteTitle.value.trim(),

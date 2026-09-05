@@ -32,6 +32,20 @@ const TOOL_DOMAINS = Object.freeze({
   politics_lookup: 'politics'
 })
 
+function availableToolNames(index, allowedToolNames) {
+  // 未显式提供 allowlist 时保持 legacy registry 合同；Authoring manifest
+  // 必须传 Kernel 的最小目录，且只保留索引中确有资源的 world/memory 域。
+  if (!Array.isArray(allowedToolNames)) return Object.keys(EXECUTORS)
+  return allowedToolNames.filter((name) => {
+    if (name === NARRATIVE_BEAT_PLAN_TOOL) return true
+    const domain = TOOL_DOMAINS[name]
+    if (!domain) return false
+    if (Number(index?.counts?.[domain] || 0) > 0) return true
+    const resources = index?.byDomain?.get?.(domain)
+    return Array.isArray(resources) && resources.length > 0
+  })
+}
+
 function text(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()
 }
@@ -40,7 +54,8 @@ export function createNarrativeToolRegistry({
   index,
   projectId = '',
   sessionId = '',
-  currentPlaceId = ''
+  currentPlaceId = '',
+  allowedToolNames = null
 } = {}) {
   const cache = new Map()
   const context = {
@@ -48,6 +63,7 @@ export function createNarrativeToolRegistry({
     sessionId: text(sessionId || index?.sessionId),
     currentPlaceId: text(currentPlaceId)
   }
+  const names = Object.freeze(availableToolNames(index, allowedToolNames))
 
   async function execute(rawCall, options = {}) {
     const validation = validateNarrativeToolCall(rawCall)
@@ -80,6 +96,9 @@ export function createNarrativeToolRegistry({
     }
     if (!index?.byId || !index?.byDomain) {
       return createNarrativeToolError(call, 'NARRATIVE_RESOURCE_INDEX_MISSING', '叙事资源索引不可用')
+    }
+    if (Array.isArray(allowedToolNames) && !names.includes(call.name)) {
+      return createNarrativeToolError(call, 'NARRATIVE_TOOL_NOT_AUTHORIZED', `当前资料索引未授权工具：${call.name}`)
     }
     if (call.arguments.cursor) {
       const cursor = parseNarrativeCursor(call.arguments.cursor, {
@@ -139,7 +158,7 @@ export function createNarrativeToolRegistry({
 
   return {
     revision: index?.revision || '',
-    names: Object.keys(EXECUTORS),
+    names,
     execute,
     clearCache() {
       cache.clear()

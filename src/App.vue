@@ -96,28 +96,9 @@ function handleShowTipEvent(event) {
   })
 }
 
-// Phase C5: memory-candidate-created 翻译为 tip
-// scope 不是 'session' (即 global-author / worldbook 等可复用素材) 时触发
-function handleMemoryCandidateCreated(event) {
-  const detail = event?.detail
-  if (!detail || !detail.id) return
-  if (detail.scope === 'session') return
-  const tipId = `asset-auto-detected-${detail.id}`
-  if (tip.isSeen(tipId)) return
-  const text = String(detail.text || '').slice(0, 28)
-  tip.showTip({
-    id: tipId,
-    title: '已自动识别到素材',
-    body: `「${text}…」已加入候选。点左下角 记忆 按钮确认。`,
-    variant: 'success',
-    autoHide: true
-  })
-}
-
 onMounted(() => {
   window.addEventListener('ai-generation-meta', handleGenerationMeta)
   window.addEventListener('pinax:show-tip', handleShowTipEvent)
-  window.addEventListener('memory-candidate-created', handleMemoryCandidateCreated)
   syncDocumentTitle()
   // Tip 系统绑定 router (category=nav 的 tip 在路由切换时自动 dismiss)
   tip.bindRouter(router)
@@ -132,7 +113,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('ai-generation-meta', handleGenerationMeta)
   window.removeEventListener('pinax:show-tip', handleShowTipEvent)
-  window.removeEventListener('memory-candidate-created', handleMemoryCandidateCreated)
   hideNotice()
 })
 

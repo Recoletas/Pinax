@@ -23,6 +23,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
   WRITING_NOTES: 'project',
   WRITING_SESSIONS: 'project',
   WRITING_SNAPSHOTS: 'project',
+  WRITING_HISTORY_PREFERENCES: 'preference',
   WRITING_BLOCK_HISTORY: 'project',
   WRITING_RECOVERY_DRAFTS: 'project',
   NARRATIVE_ASSETS: 'project',
@@ -57,6 +58,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
 
   PLAYABLE_WORLD_ENTRY_INTENT: 'project',
   GAME_SETTINGS: 'preference',
+  WORKSPACE_TABS: 'preference',
   API_SETTINGS: 'secret-config',
   EXPERIENCE_READING_PROFILE: 'preference',
   EXPERIENCE_NARRATIVE_EXPANSION: 'preference',

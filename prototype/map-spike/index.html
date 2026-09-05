@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pinax Map P1 Spike — 三份同数据原型</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; background: #101418; color: #d8dee6; }
+    header { display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-bottom: 1px solid #2a313a; flex-wrap: wrap; }
+    header h1 { font-size: 14px; margin: 0 12px 0 0; font-weight: 600; }
+    .proto-tabs button, .actions button { background: #1c232c; color: #d8dee6; border: 1px solid #3a4450; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+    .proto-tabs button.active { background: #2b527a; border-color: #3f77b5; }
+    .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    #status { padding: 4px 14px; font-size: 12px; color: #9fb0c0; border-bottom: 1px solid #2a313a; min-height: 22px; white-space: pre-wrap; }
+    #stage { position: relative; height: calc(100vh - 76px); }
+    #stage .pane { position: absolute; inset: 0; display: none; }
+    #stage .pane.active { display: block; }
+    #pane-canvas canvas.base { transform-origin: 0 0; position: absolute; top: 0; left: 0; image-rendering: auto; }
+    #pane-canvas { overflow: hidden; cursor: grab; }
+    .hint { position: absolute; left: 12px; bottom: 12px; background: rgba(16,20,24,.82); border: 1px solid #3a4450; border-radius: 6px; padding: 6px 10px; font-size: 12px; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Map P1 Spike</h1>
+    <div class="proto-tabs" id="proto-tabs">
+      <button data-proto="p15" class="active">P1.5 写作地图（浅色）</button>
+      <button data-proto="canvas">① 当前 Canvas（基线参照）</button>
+      <button data-proto="ol-raster">② OL 地形底图 + 聚合地点（浅/深主题）</button>
+      <button data-proto="ol-vector">③ OL 全矢量（压力对照）</button>
+    </div>
+    <div class="proto-tabs" id="mode-tabs" style="display:none">
+      <button data-mode="writing" class="active">写作（默认）</button>
+      <button data-mode="explore">探索</button>
+      <button data-mode="review">审阅</button>
+    </div>
+    <div class="actions">
+      <button id="btn-theme">主题：浅色</button>
+      <button id="btn-zoom-burst">连续缩放测帧</button>
+      <button id="btn-mount-20">20 次挂载/卸载</button>
+      <button id="btn-report">导出测量 JSON</button>
+    </div>
+  </header>
+  <div id="status">初始化…</div>
+  <div id="stage">
+    <div class="pane active" id="pane-p15"></div>
+    <div class="pane" id="pane-canvas"></div>
+    <div class="pane" id="pane-ol-raster"></div>
+    <div class="pane" id="pane-ol-vector"></div>
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

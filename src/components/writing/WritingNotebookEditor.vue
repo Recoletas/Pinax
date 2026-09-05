@@ -2,16 +2,20 @@
   <section
     ref="notebookRoot"
     class="writing-notebook-editor"
-    :class="{ 'is-focus-paragraph': focusParagraph }"
+    :class="{ 'is-focus-paragraph': focusParagraph, 'is-composing': interactionComposing || compositionSettling }"
     aria-label="实时 Markdown 写作编辑器"
+    @compositionstart.capture="handleCompositionStart"
+    @compositionend.capture="handleCompositionEnd"
+    @paste.capture="handlePaste"
+    @beforeinput.capture="handleDestructiveBeforeInput"
+    @keydown.capture="handleNotebookHistoryKeydown"
   >
     <EditorContent
       v-if="editor"
       ref="notebookSurface"
       :editor="editor"
       class="writing-notebook-editor__surface"
-      @contextmenu.prevent="handleContextMenu"
-      @scroll.passive="updateCurrentLineOverlay"
+      @contextmenu="handleContextMenu"
     />
 
     <div
@@ -30,6 +34,11 @@
       <div
         v-if="commandMenu.open"
         class="writing-command-menu-shell"
+        :class="{
+          'is-submenu-left': commandMenu.submenuPlacement === 'left',
+          'is-stacked': commandMenu.submenuPlacement === 'below',
+          'is-sublevel': Boolean(activeWritingSection)
+        }"
         :style="{
           top: `${commandMenu.top}px`,
           left: `${commandMenu.left}px`,
@@ -46,7 +55,7 @@
           :style="{ maxHeight: `${commandMenu.maxHeight}px` }"
         >
           <button
-            v-for="(command, index) in writingMenuItems"
+            v-for="(command, index) in availableWritingMenuItems"
             :id="`writing-command-${index}`"
             :key="command.id"
             type="button"
@@ -117,13 +126,15 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import { Extension, getMarkRange } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Fragment, Slice } from '@tiptap/pm/model'
+import { AllSelection, NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { closeHistory, isHistoryTransaction, redoNoScroll, undoNoScroll } from '@tiptap/pm/history'
 import {
   Heading2,
   ChevronRight,
@@ -146,6 +157,7 @@ import {
   createWritingUnitFromAuthoringTurn
 } from '../../services/writing/writingAuthoringTurnImport.js'
 import {
+  MediaReferenceNode,
   WritingDocumentNode,
   WritingNodeAttributes,
   WritingUnitNode
@@ -159,33 +171,68 @@ import {
   resolveWritingCommandMenuKey,
   resolveMarkdownHeadingShortcut
 } from '../../services/writing/liveMarkdownPreview.js'
+import {
+  WRITING_INTERACTION_OWNER,
+  blocksPassiveInlineSuggestion
+} from '../../services/writing/writingInteractionPolicy.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
   document: { type: Object, default: null },
   editable: { type: Boolean, default: true },
   annotations: { type: Array, default: () => [] },
+  worldbookMentions: { type: Array, default: () => [] },
   activeAnnotationId: { type: String, default: null },
   inlineSuggestion: { type: String, default: '' },
   inlineSuggestionVisible: Boolean,
   inlineSuggestionGenerating: Boolean,
+  inlineSuggestionRequesting: Boolean,
   inlineSuggestionError: { type: String, default: '' },
   typewriter: Boolean,
-  focusParagraph: Boolean
+  focusParagraph: Boolean,
+  blockComposerOpen: Boolean,
+  blockComposerTarget: { type: Object, default: null },
+  blockPreview: { type: Object, default: null },
+  blockComposerEnabled: { type: Boolean, default: true },
+  interventionEnabled: { type: Boolean, default: false },
+  atomicUndoAvailable: Boolean,
+  atomicRedoAvailable: Boolean,
+  historyLocked: Boolean,
+  interactionOwner: { type: String, default: WRITING_INTERACTION_OWNER.EDITOR },
+  beforeDestructiveEdit: { type: Function, default: null },
+  blockGapId: { type: String, default: 'authoring-block-gap' }
 })
 
-const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'writing-command', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'retry-inline-suggestion', 'ready'])
+const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'worldbook-mention-click', 'writing-command', 'open-block-composer', 'open-intervention', 'accept-block-preview', 'dismiss-block-preview', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'cycle-inline-suggestion', 'retry-inline-suggestion', 'history-command', 'command-menu-change', 'composition-change', 'writing-paste', 'blocked-structure-edit', 'editor-focus', 'editor-blur', 'scroll-owner', 'ready'])
 
 const initialDocument = props.document || createWritingDocument(props.modelValue)
 const notebookRoot = ref(null)
 const notebookSurface = ref(null)
 const commandMenuRef = ref(null)
 const commandSubmenuRef = ref(null)
-const commandMenu = ref({ open: false, activeIndex: 0, rootIndex: 0, sectionId: null, anchorFrom: null, anchorTo: null, top: 0, left: 0, width: 300, maxHeight: 320 })
+const commandMenu = ref({ open: false, activeIndex: 0, rootIndex: 0, sectionId: null, anchorFrom: null, anchorTo: null, top: 0, left: 0, width: 300, maxHeight: 320, submenuPlacement: 'right', structureAllowed: true })
 const currentLineOverlay = ref({ visible: false, top: 0, left: 0, width: 0, height: 0 })
+const interactionComposing = ref(false)
+const compositionSettling = ref(false)
+let programmaticScrollUntil = 0
+let userScrollIntentUntil = 0
+let applyingExternalDocument = false
+let lastCommandMenuGeometry = null
+let compositionRefreshTimer = null
+let componentUnmounting = false
+let allSelectionCompositionActive = false
+let compositionSessionToken = 0
+let editorDocumentGeneration = 0
+
+const COMMAND_MENU_WIDTH = 300
+const COMMAND_MENU_FALLBACK_HEIGHT = 216
+const COMMAND_MENU_MAX_HEIGHT = 320
+const COMMAND_SUBMENU_GAP = 6
+const blockGapDomId = computed(() => String(props.blockGapId || 'authoring-block-gap').replace(/[^a-zA-Z0-9_-]/g, '') || 'authoring-block-gap')
+const blockGapSelector = computed(() => `#${blockGapDomId.value}`)
 
 const writingMenuItems = [
-  { id: 'ai-continue', label: 'AI 续写', description: '从光标处续写下一句', icon: Sparkles, agent: true },
+  { id: 'ai-continue', label: '推演下一段', description: '生成可编辑草稿，确认后成为正文单元', icon: Sparkles, agent: true },
   {
     id: 'revise-previous',
     label: '修改上一段',
@@ -211,22 +258,257 @@ const writingMenuItems = [
   }
 ]
 const writingCommands = writingMenuItems.flatMap((item) => item.children || [item])
+const availableWritingMenuItems = computed(() => commandMenu.value.structureAllowed
+  ? writingMenuItems
+  : writingMenuItems.filter((item) => item.id !== 'insert-structure'))
 const activeWritingSection = computed(() => (
-  writingMenuItems.find((item) => item.id === commandMenu.value.sectionId && item.children?.length) || null
+  availableWritingMenuItems.value.find((item) => item.id === commandMenu.value.sectionId && item.children?.length) || null
 ))
-const activeWritingCommands = computed(() => activeWritingSection.value?.children || writingMenuItems)
+const activeWritingCommands = computed(() => activeWritingSection.value?.children || availableWritingMenuItems.value)
 
 const annotationPluginKey = new PluginKey('writingAnnotationDecorations')
+const worldbookMentionPluginKey = new PluginKey('writingWorldbookMentionDecorations')
 const liveMarkdownPluginKey = new PluginKey('writingLiveMarkdownDecorations')
+const chinesePunctuationPluginKey = new PluginKey('writingChinesePunctuationDecorations')
 const inlineSuggestionPluginKey = new PluginKey('writingInlineSuggestion')
+const blockGapPluginKey = new PluginKey('writingBlockGap')
+const focusParagraphPluginKey = new PluginKey('writingFocusParagraphDecorations')
+const writingUnitIntegrityPluginKey = new PluginKey('writingUnitIntegrity')
 const inlineSuggestionAnchor = ref(null)
+let commandMenuLiteralBypass = ''
+let lastTopologyWarningAt = 0
+
+function isInlineSuggestionLayerBlocked() {
+  return interactionComposing.value
+    || compositionSettling.value
+    || commandMenu.value.open
+    || props.blockComposerOpen
+    || Boolean(props.blockPreview?.text)
+    || blocksPassiveInlineSuggestion(props.interactionOwner)
+}
+
+function stopHandledKey(event) {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function protectDestructiveSelection(operation = 'delete-selection') {
+  const currentEditor = editor.value
+  if (!currentEditor || currentEditor.state.selection.empty || typeof props.beforeDestructiveEdit !== 'function') return true
+  const document = currentDocument.value
+  return props.beforeDestructiveEdit({
+    operation,
+    document: document ? JSON.parse(JSON.stringify(document)) : null,
+    markdown: getWritingDocumentMarkdown(document),
+    selectionText: String(getSelection()?.text || '')
+  }) !== false
+}
+
+function handleDestructiveBeforeInput(event) {
+  if (event?.defaultPrevented || event?.isComposing || interactionComposing.value || compositionSettling.value) return
+  if (!['deleteByCut', 'deleteByDrag', 'deleteContentBackward', 'deleteContentForward'].includes(String(event?.inputType || ''))) return
+  if (protectDestructiveSelection(event.inputType)) return
+  stopHandledKey(event)
+}
+
+function isDirectWritingUnitParagraph($position) {
+  return Boolean(
+    $position?.depth === 2
+    && $position.parent?.type?.name === 'paragraph'
+    && $position.node(1)?.type?.name === 'writingUnit'
+  )
+}
+
+function handleNotebookHistoryKeydown(event) {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || interactionComposing.value || compositionSettling.value) return
+  if (event.target?.closest?.(blockGapSelector.value)) return
+  const modifier = event.ctrlKey || event.metaKey
+  if (!modifier || event.altKey) return
+  const key = String(event.key || '').toLowerCase()
+  const undoRequested = key === 'z' && !event.shiftKey
+  const redoRequested = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)
+  if ((undoRequested || redoRequested) && props.historyLocked) {
+    stopHandledKey(event)
+    emit('history-command', redoRequested ? 'redo' : 'undo')
+  } else if (undoRequested && props.atomicUndoAvailable) {
+    stopHandledKey(event)
+    emit('history-command', 'undo')
+  } else if (redoRequested && props.atomicRedoAvailable) {
+    stopHandledKey(event)
+    emit('history-command', 'redo')
+  }
+}
+
+function writingInputType(transaction) {
+  const explicit = transaction.getMeta('writingInputOrigin')
+  if (explicit) return explicit
+  if (transaction.getMeta('writingAgentInsert')) return 'writing-agent'
+  if (isHistoryTransaction(transaction)) {
+    const historyMeta = Object.values(transaction.meta || {})
+      .find((value) => value && typeof value === 'object' && 'redo' in value && 'historyState' in value)
+    return historyMeta?.redo ? 'historyRedo' : 'historyUndo'
+  }
+  return transaction.getMeta('uiEvent') || 'input'
+}
+
+function createChinesePunctuationDecorations(doc) {
+  const decorations = []
+  doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return
+    for (const match of node.text.matchAll(/[“”‘’]/g)) {
+      const start = pos + Number(match.index || 0)
+      decorations.push(Decoration.inline(start, start + 1, { class: 'writing-cjk-quote' }))
+    }
+  })
+  return DecorationSet.create(doc, decorations)
+}
+
+const ChinesePunctuationDecorations = Extension.create({
+  name: 'writingChinesePunctuationDecorations',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: chinesePunctuationPluginKey,
+      state: {
+        init: (_, state) => createChinesePunctuationDecorations(state.doc),
+        apply: (transaction, previous) => transaction.docChanged
+          ? createChinesePunctuationDecorations(transaction.doc)
+          : previous
+      },
+      props: { decorations: (state) => chinesePunctuationPluginKey.getState(state) }
+    })]
+  }
+})
+
+function createBlockGapDecorations(state) {
+  if (!props.blockComposerEnabled) return DecorationSet.empty
+  if (!state.selection.empty && !props.blockPreview?.text && !props.blockComposerOpen) return DecorationSet.empty
+  const { $from } = state.selection
+  let unit = null
+  let anchorNodeId = props.blockPreview?.afterNodeId || props.blockComposerTarget?.nodeId || null
+  let position = state.doc.content.size
+  const fixedUnitId = props.blockPreview?.afterUnitId || props.blockComposerTarget?.unitId || ''
+  if (fixedUnitId) {
+    state.doc.forEach((candidate, offset) => {
+      if (unit || candidate.type.name !== 'writingUnit' || candidate.attrs?.unitId !== fixedUnitId) return
+      unit = candidate
+      position = offset + candidate.nodeSize
+      candidate.descendants((node) => {
+        if (!props.blockPreview?.afterNodeId && !props.blockComposerTarget?.nodeId && node.isTextblock) {
+          anchorNodeId = node.attrs?.nodeId || anchorNodeId
+        }
+      })
+    })
+  }
+  for (let depth = $from.depth; !unit && depth > 0; depth -= 1) {
+    const candidate = $from.node(depth)
+    if (!anchorNodeId && candidate.isTextblock) anchorNodeId = candidate.attrs?.nodeId || null
+    if (candidate.type.name !== 'writingUnit') continue
+    unit = candidate
+    position = $from.after(depth)
+    break
+  }
+  if (!unit && !fixedUnitId) {
+    state.doc.forEach((candidate, offset) => {
+      if (unit || candidate.type.name !== 'writingUnit') return
+      if (state.selection.from >= offset && state.selection.from <= offset + candidate.nodeSize) {
+        unit = candidate
+        position = offset + candidate.nodeSize
+      }
+    })
+  }
+  if (fixedUnitId && !unit) return DecorationSet.empty
+  return DecorationSet.create(state.doc, [Decoration.widget(position, () => {
+    const gap = document.createElement('div')
+    gap.id = blockGapDomId.value
+    gap.className = 'writing-unit-gap'
+    gap.contentEditable = 'false'
+    if (props.blockPreview?.text) {
+      gap.classList.add('has-preview')
+    } else if (props.blockComposerOpen) {
+      // The mounted child can be the normal composer or another block-owned
+      // authoring surface. Reserve real document flow for either one; relying
+      // on :has(.authoring-block-composer) leaves later surfaces at height 0.
+      gap.classList.add('has-composer')
+    } else if (!props.blockComposerOpen) {
+      const actions = document.createElement('div')
+      actions.className = 'writing-unit-gap__actions'
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'writing-unit-gap__action'
+      button.textContent = unit?.textContent.trim() ? '＋ 推演下一段' : '＋ 推演本章开场'
+      button.addEventListener('mousedown', (event) => event.preventDefault())
+      button.addEventListener('click', () => emit('open-block-composer', {
+          unitId: unit?.attrs.unitId || null,
+          unitRevision: Number(unit?.attrs.unitRevision || 0),
+          nodeId: anchorNodeId
+      }))
+      actions.append(button)
+      if (props.interventionEnabled && unit?.textContent.trim()) {
+        const intervention = document.createElement('button')
+        intervention.type = 'button'
+        intervention.className = 'writing-unit-gap__action is-secondary'
+        intervention.textContent = '改变条件'
+        intervention.addEventListener('mousedown', (event) => event.preventDefault())
+        intervention.addEventListener('click', () => emit('open-intervention', {
+          unitId: unit?.attrs.unitId || null,
+          unitRevision: Number(unit?.attrs.unitRevision || 0),
+          nodeId: anchorNodeId
+        }))
+        actions.append(intervention)
+      }
+      gap.append(actions)
+    }
+    return gap
+  }, {
+    side: -1,
+    // key 必须包含“锚定单元是否有正文”：ProseMirror 对同 key widget 复用旧
+    // DOM、不重跑工厂，标签（推演本章开场/下一段）会停留在首次创建的状态。
+    key: `writing-gap-${unit?.attrs.unitId || 'empty'}-${unit?.textContent.trim() ? 'text' : 'empty'}-${props.blockPreview?.text ? `preview:${props.blockPreview.candidateId || 'pending'}` : props.blockComposerOpen ? 'open' : 'closed'}`,
+    // Composer / editable draft are real form controls mounted inside a ProseMirror
+    // widget. Their keyboard, paste, input and selection events belong to the form,
+    // never to the canonical document view.
+    stopEvent: (event) => Boolean(event.target?.closest?.(blockGapSelector.value)),
+    ignoreSelection: true
+  })])
+}
+
+const BlockGapDecorations = Extension.create({
+  name: 'writingBlockGap',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: blockGapPluginKey,
+      state: {
+        init: (_, state) => createBlockGapDecorations(state),
+        apply: (transaction, previous, _oldState, newState) => (
+          transaction.docChanged || transaction.selectionSet || transaction.getMeta(blockGapPluginKey)
+            ? createBlockGapDecorations(newState)
+            : previous
+        )
+      },
+      props: {
+        decorations: (state) => blockGapPluginKey.getState(state),
+        handleKeyDown: (view, event) => {
+          if (!props.blockPreview?.text) return false
+          if (event.target?.closest?.(blockGapSelector.value)) return false
+          if (event.isComposing || view.composing || interactionComposing.value || commandMenu.value.open) return false
+          if (event.key === 'Escape') {
+            stopHandledKey(event)
+            emit('dismiss-block-preview')
+            return true
+          }
+          return false
+        }
+      }
+    })]
+  }
+})
 
 function createInlineSuggestionDecorations(state) {
   const suggestion = String(props.inlineSuggestion || '')
   const visible = props.inlineSuggestionVisible && suggestion
-  const generating = props.inlineSuggestionGenerating
-  const failed = !generating && !visible && String(props.inlineSuggestionError || '')
-  if ((!visible && !generating && !failed) || !state.selection.empty) {
+  const generating = Boolean(props.inlineSuggestionGenerating)
+  const error = String(props.inlineSuggestionError || '')
+  if (isInlineSuggestionLayerBlocked() || (!visible && !generating && !error) || !state.selection.empty) {
     return DecorationSet.empty
   }
   if (inlineSuggestionAnchor.value == null) inlineSuggestionAnchor.value = state.selection.from
@@ -234,32 +516,29 @@ function createInlineSuggestionDecorations(state) {
 
   return DecorationSet.create(state.doc, [Decoration.widget(inlineSuggestionAnchor.value, () => {
     const widget = document.createElement('span')
-    widget.className = 'writing-inline-suggestion'
-    if (generating) widget.classList.add('is-generating')
-    if (failed) widget.classList.add('is-error')
-    widget.setAttribute('aria-label', visible ? `AI 续写建议：${suggestion}` : generating ? 'AI 正在续写' : 'AI 续写失败')
-    widget.title = visible
-      ? '点击采纳；Tab 全部采纳；Ctrl/Command + 右方向键采纳一句；Esc 忽略'
-      : failed ? '点击重试' : ''
+    widget.className = `writing-inline-suggestion${generating ? ' is-generating' : error ? ' is-error' : ''}`
+    widget.setAttribute('aria-label', generating ? 'AI 正在联想' : error ? `AI 联想失败：${error}` : `AI 续写建议：${suggestion}`)
+    widget.title = generating ? '正在联想' : error ? '点击重试；Esc 忽略' : '点击采纳；Tab 全部采纳；Ctrl/Command + 右方向键采纳一句；Esc 忽略'
 
     const content = document.createElement('span')
     content.className = 'writing-inline-suggestion__content'
-    content.textContent = visible ? suggestion : generating ? '正在续写…' : '续写失败'
+    content.textContent = generating ? '正在联想…' : error ? error : suggestion
     widget.append(content)
 
     const hint = document.createElement('span')
     hint.className = 'writing-inline-suggestion__hint'
-    hint.textContent = visible ? 'Tab 采纳' : failed ? '点击重试' : ''
+    hint.textContent = generating ? '' : error ? '点击重试 · Esc 忽略' : 'Tab 采用 · ⌥[ / ⌥] 换方向 · Esc 忽略'
     if (hint.textContent) widget.append(hint)
     widget.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return
       event.preventDefault()
-      if (visible) emit('accept-inline-suggestion', 'all')
-      else if (failed) emit('retry-inline-suggestion')
+      if (error) emit('retry-inline-suggestion')
+      else if (visible) emit('accept-inline-suggestion', 'all')
     })
     return widget
   }, {
     side: 1,
-    key: `writing-inline-${inlineSuggestionAnchor.value}-${visible ? suggestion : generating ? 'generating' : `error:${props.inlineSuggestionError}`}`
+    key: `writing-inline-${inlineSuggestionAnchor.value}-${generating ? 'generating' : error ? `error:${error}` : `suggestion:${suggestion}`}`
   })])
 }
 
@@ -278,21 +557,43 @@ const InlineSuggestionDecorations = Extension.create({
       },
       props: {
         decorations: (state) => inlineSuggestionPluginKey.getState(state),
-        handleKeyDown: (_view, event) => {
+        handleKeyDown: (view, event) => {
+          const active = Boolean((props.inlineSuggestionVisible && props.inlineSuggestion)
+            || props.inlineSuggestionRequesting || props.inlineSuggestionError)
+          if (!active || event.isComposing || view.composing || isInlineSuggestionLayerBlocked()) return false
+          if (event.key === 'Escape') {
+            stopHandledKey(event)
+            emit('dismiss-inline-suggestion')
+            return true
+          }
+          if (props.inlineSuggestionError && event.key === 'Enter') {
+            stopHandledKey(event)
+            emit('retry-inline-suggestion')
+            return true
+          }
           if (!props.inlineSuggestionVisible || !props.inlineSuggestion) return false
           if (event.key === 'Tab') {
-            event.preventDefault()
+            stopHandledKey(event)
             emit('accept-inline-suggestion', 'all')
             return true
           }
           if (event.key === 'ArrowRight' && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault()
+            stopHandledKey(event)
             emit('accept-inline-suggestion', 'unit')
             return true
           }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            emit('dismiss-inline-suggestion')
+          const pureAlt = event.altKey
+            && !event.ctrlKey
+            && !event.metaKey
+            && !event.getModifierState?.('AltGraph')
+          if (pureAlt && (event.code === 'BracketRight' || event.key === ']')) {
+            stopHandledKey(event)
+            emit('cycle-inline-suggestion', 1)
+            return true
+          }
+          if (pureAlt && (event.code === 'BracketLeft' || event.key === '[')) {
+            stopHandledKey(event)
+            emit('cycle-inline-suggestion', -1)
             return true
           }
           return false
@@ -320,7 +621,7 @@ function createLiveMarkdownDecorations(state) {
     const from = $from.before(depth)
     const classes = ['is-current-writing-line']
     const attrs = { class: classes.join(' ') }
-    if (canOpenWritingCommandMenu({
+    if (isDirectWritingUnitParagraph($from) && canOpenWritingCommandMenu({
       selectionEmpty: state.selection.empty,
       nodeType: node.type.name,
       parentOffset: $from.parentOffset,
@@ -398,9 +699,11 @@ const LiveMarkdownInput = Extension.create({
       props: {
         handleTextInput(view, from, to, text) {
           if (from !== to) return false
+          if (view.composing || interactionComposing.value || compositionSettling.value) return false
           const { state } = view
           const $from = state.doc.resolve(from)
           const node = $from.parent
+          if (!isDirectWritingUnitParagraph($from)) return false
           const shortcut = resolveMarkdownHeadingShortcut({
             nodeType: node.type.name,
             currentLevel: node.attrs.level,
@@ -432,32 +735,30 @@ const LiveMarkdownInput = Extension.create({
 })
 
 function closeCommandMenu() {
+  if (!commandMenu.value.open) return false
   commandMenu.value.open = false
+  commandMenu.value.submenuPlacement = 'right'
+  lastCommandMenuGeometry = null
+  emit('command-menu-change', false)
+  return true
 }
 
 function getWritingCommandContext(view) {
-  const { $from } = view.state.selection
-  let currentNodeId = null
-  let currentBlockPos = $from.pos
-  for (let depth = $from.depth; depth > 0; depth -= 1) {
-    const node = $from.node(depth)
-    if (!node.isTextblock) continue
-    currentNodeId = node.attrs?.nodeId || null
-    currentBlockPos = $from.before(depth)
-    break
-  }
+  const currentBlock = resolveEditorBlockSelection({ state: view.state }, view.state.selection.from)
+  const currentNodeId = currentBlock?.node?.attrs?.nodeId || null
+  const currentBlockPos = currentBlock?.pos ?? view.state.selection.from
 
   let previousNode = null
-  view.state.doc.descendants((node, pos) => {
-    if (pos >= currentBlockPos) return false
-    if (node.isTextblock && node.attrs?.nodeId) {
+  view.state.doc.forEach((unit, unitPos) => {
+    unit.forEach((node, blockOffset) => {
+      const pos = unitPos + 1 + blockOffset
+      if (pos >= currentBlockPos || !node.attrs?.nodeId) return
       previousNode = {
         nodeId: node.attrs.nodeId,
-        text: node.textContent,
+        text: editorBlockPlainText(node),
         nodeRevision: Number(node.attrs?.nodeRevision || 0)
       }
-    }
-    return true
+    })
   })
   return {
     currentNodeId,
@@ -465,7 +766,7 @@ function getWritingCommandContext(view) {
     cursorMarkdownOffset: getWritingMarkdownPosition(
       currentDocument.value,
       currentNodeId,
-      $from.parentOffset
+      currentBlock?.localOffset || 0
     ),
     markdown: getWritingDocumentMarkdown(currentDocument.value)
   }
@@ -481,18 +782,129 @@ function getBodyUiScale() {
   return Math.max(0.1, transformedScale || 1)
 }
 
-function positionCommandMenu(view, menuHeight = 216) {
-  if (!notebookRoot.value) return
-  const coordinates = view.coordsAtPos(view.state.selection.from, 1)
-  const scale = getBodyUiScale()
-  const position = resolveWritingCommandMenuPosition({
-    anchor: coordinates,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    menuWidth: 300,
-    menuHeight,
+function getCommandMenuViewport() {
+  const visualViewport = window.visualViewport
+  return {
+    width: Number(visualViewport?.width) || window.innerWidth,
+    height: Number(visualViewport?.height) || window.innerHeight,
+    offsetLeft: Number(visualViewport?.offsetLeft) || 0,
+    offsetTop: Number(visualViewport?.offsetTop) || 0
+  }
+}
+
+function isCommandMenuStacked() {
+  const viewport = getCommandMenuViewport()
+  return viewport.width <= 760 || viewport.height <= 520
+}
+
+function measureCommandMenuElement(element, scale, heightLimit = COMMAND_MENU_MAX_HEIGHT) {
+  if (!element) return null
+  const box = element.getBoundingClientRect?.()
+  const borderHeight = Math.max(0, Number(element.offsetHeight || 0) - Number(element.clientHeight || 0))
+  const naturalHeight = Math.max(
+    Number(box?.height || 0) / scale,
+    Number(element.scrollHeight || 0) + borderHeight
+  )
+  return {
+    // shell 曾在窄 visual viewport 被压缩时，DOM rect 只反映压缩后的宽度；
+    // 保留 300px 的自然宽度，视口恢复后才能重新展开，最终裁切仍交给 resolver。
+    width: Math.max(COMMAND_MENU_WIDTH, Number(box?.width || 0) / scale),
+    height: Math.max(1, Math.min(COMMAND_MENU_MAX_HEIGHT, heightLimit, naturalHeight))
+  }
+}
+
+function resolveCommandSubmenuPlacement({ anchor, viewport, mainWidth, submenuWidth, scale }) {
+  if (isCommandMenuStacked()) return 'below'
+  const minimumLeft = viewport.offsetLeft + 12
+  const maximumRight = viewport.offsetLeft + viewport.width - 12
+  const mainVisualWidth = mainWidth * scale
+  const submenuVisualWidth = submenuWidth * scale
+  const gap = COMMAND_SUBMENU_GAP * scale
+  const anchoredLeft = Math.max(
+    minimumLeft,
+    Math.min(Number(anchor.left || 0), maximumRight - mainVisualWidth)
+  )
+  const overflowRight = Math.max(0, anchoredLeft + mainVisualWidth + gap + submenuVisualWidth - maximumRight)
+  const overflowLeft = Math.max(0, minimumLeft - (anchoredLeft - gap - submenuVisualWidth))
+  return overflowRight <= overflowLeft ? 'right' : 'left'
+}
+
+function measureCommandMenuGeometry({ anchor, viewport, scale, heightLimit = COMMAND_MENU_MAX_HEIGHT }) {
+  const main = measureCommandMenuElement(commandMenuRef.value, scale, heightLimit)
+  if (!main) return null
+  const submenu = measureCommandMenuElement(commandSubmenuRef.value, scale, heightLimit)
+  if (!submenu) {
+    commandMenu.value.submenuPlacement = 'right'
+    return {
+      menuWidth: main.width,
+      menuHeight: main.height,
+      collisionWidth: main.width,
+      collisionHeight: main.height,
+      collisionOffsetLeft: 0,
+      collisionOffsetTop: 0
+    }
+  }
+
+  const placement = resolveCommandSubmenuPlacement({
+    anchor,
+    viewport,
+    mainWidth: main.width,
+    submenuWidth: submenu.width,
     scale
   })
+  commandMenu.value.submenuPlacement = placement
+  if (placement === 'below') {
+    return {
+      // 短/窄 visual viewport 采用二级替换一级，碰撞盒只计算当前层。
+      menuWidth: submenu.width,
+      menuHeight: submenu.height,
+      collisionWidth: submenu.width,
+      collisionHeight: submenu.height,
+      collisionOffsetLeft: 0,
+      collisionOffsetTop: 0
+    }
+  }
+  return {
+    menuWidth: main.width,
+    menuHeight: main.height,
+    collisionWidth: main.width + COMMAND_SUBMENU_GAP + submenu.width,
+    collisionHeight: Math.max(main.height, submenu.height),
+    collisionOffsetLeft: placement === 'left' ? -(COMMAND_SUBMENU_GAP + submenu.width) : 0,
+    collisionOffsetTop: 0
+  }
+}
+
+function resolveCommandMenuGeometry(view, geometry) {
+  if (!notebookRoot.value || !geometry) return null
+  let anchor = null
+  try {
+    anchor = view.coordsAtPos(view.state.selection.from, 1)
+  } catch {
+    return null
+  }
+  const scale = getBodyUiScale()
+  const viewport = getCommandMenuViewport()
+  return resolveWritingCommandMenuPosition({
+    anchor,
+    viewportWidth: viewport.width,
+    viewportHeight: viewport.height,
+    viewportOffsetLeft: viewport.offsetLeft,
+    viewportOffsetTop: viewport.offsetTop,
+    ...geometry,
+    scale
+  })
+}
+
+function positionCommandMenu(view, geometry = lastCommandMenuGeometry) {
+  const fallbackGeometry = {
+    menuWidth: COMMAND_MENU_WIDTH,
+    menuHeight: COMMAND_MENU_FALLBACK_HEIGHT,
+    collisionWidth: COMMAND_MENU_WIDTH,
+    collisionHeight: COMMAND_MENU_FALLBACK_HEIGHT,
+    collisionOffsetLeft: 0,
+    collisionOffsetTop: 0
+  }
+  const position = resolveCommandMenuGeometry(view, geometry || fallbackGeometry)
   if (!position) return
   Object.assign(commandMenu.value, position)
 }
@@ -500,17 +912,95 @@ function positionCommandMenu(view, menuHeight = 216) {
 function measureAndPositionCommandMenu(view) {
   nextTick(() => {
     if (!commandMenu.value.open || editor.value?.view !== view) return
-    const measuredHeight = commandMenuRef.value?.getBoundingClientRect?.().height
     const scale = getBodyUiScale()
-    positionCommandMenu(view, measuredHeight > 0 ? measuredHeight / scale : 216)
+    const viewport = getCommandMenuViewport()
+    let anchor = null
+    try {
+      anchor = view.coordsAtPos(view.state.selection.from, 1)
+    } catch {
+      return
+    }
+    let geometry = measureCommandMenuGeometry({ anchor, viewport, scale })
+    if (!geometry) return
+    const initialPosition = resolveCommandMenuGeometry(view, geometry)
+    if (!initialPosition) return
+    geometry = measureCommandMenuGeometry({
+      anchor,
+      viewport,
+      scale,
+      heightLimit: initialPosition.maxHeight
+    }) || geometry
+    lastCommandMenuGeometry = geometry
+    positionCommandMenu(view, geometry)
   })
 }
 
 function openCommandMenu(view) {
+  if (
+    interactionComposing.value
+    || compositionSettling.value
+    || props.blockComposerOpen
+    || props.blockPreview?.text
+    || blocksPassiveInlineSuggestion(props.interactionOwner)
+  ) return false
   const { from, to } = view.state.selection
-  commandMenu.value = { ...commandMenu.value, open: true, activeIndex: 0, rootIndex: 0, sectionId: null, anchorFrom: from, anchorTo: to }
+  const directParagraph = view.state.selection.$from
+  const structureAllowed = isDirectWritingUnitParagraph(directParagraph)
+    && directParagraph.parent.content.size === 0
+  // 空行命令菜单取得键盘所有权时，必须同步撤掉 pending/requesting/Ghost，
+  // 否则同一枚 Tab 会在菜单关闭后继续落到行内补全插件。
+  emit('dismiss-inline-suggestion')
+  commandMenuLiteralBypass = ''
+  lastCommandMenuGeometry = null
+  commandMenu.value = {
+    ...commandMenu.value,
+    open: true,
+    activeIndex: 0,
+    rootIndex: 0,
+    sectionId: null,
+    anchorFrom: from,
+    anchorTo: to,
+    width: COMMAND_MENU_WIDTH,
+    maxHeight: COMMAND_MENU_MAX_HEIGHT,
+    submenuPlacement: 'right',
+    structureAllowed
+  }
+  emit('command-menu-change', true)
   positionCommandMenu(view)
   measureAndPositionCommandMenu(view)
+  return true
+}
+
+function handleWritingCommandBeforeInput(view, event) {
+  if (
+    event.inputType !== 'insertText'
+    || ![' ', '/'].includes(String(event.data || ''))
+    || event.isComposing
+    || view.composing
+    || interactionComposing.value
+    || compositionSettling.value
+  ) return false
+  const text = String(event.data || '')
+  if (commandMenuLiteralBypass === text) {
+    commandMenuLiteralBypass = ''
+    return false
+  }
+  // 软键盘没有可靠 keydown。菜单已打开时再次输入同一字符表示用户要
+  // 字面 Space/“/”：关闭菜单并让浏览器继续这一次 beforeinput。
+  if (commandMenu.value.open) {
+    closeCommandMenu()
+    return false
+  }
+  const { $from } = view.state.selection
+  if (!isDirectWritingUnitParagraph($from) || !canOpenWritingCommandMenu({
+    selectionEmpty: view.state.selection.empty,
+    nodeType: $from.parent.type.name,
+    parentOffset: $from.parentOffset,
+    contentSize: $from.parent.content.size
+  })) return false
+  if (!openCommandMenu(view)) return false
+  event.preventDefault()
+  return true
 }
 
 function revealActiveWritingCommand() {
@@ -538,12 +1028,12 @@ function executeWritingCommand(commandId) {
     emit('writing-command', { id: commandId, ...getWritingCommandContext(view) })
     return true
   }
-  const chain = editor.value?.chain().focus()
+  const chain = editor.value?.chain().focus(undefined, { scrollIntoView: false })
   if (!chain) return false
   const actions = {
     'heading-2': () => chain.toggleHeading({ level: 2 }).run(),
     blockquote: () => chain.toggleBlockquote().run(),
-    divider: () => chain.setHorizontalRule().run()
+    divider: () => insertDivider()
   }
   const executed = Boolean(actions[commandId]?.())
   closeCommandMenu()
@@ -551,11 +1041,12 @@ function executeWritingCommand(commandId) {
 }
 
 function enterWritingCommandSection(sectionId, rootIndex = commandMenu.value.rootIndex) {
-  const section = writingMenuItems.find((item) => item.id === sectionId && item.children?.length)
+  const section = availableWritingMenuItems.value.find((item) => item.id === sectionId && item.children?.length)
   if (!section) return false
   commandMenu.value.sectionId = section.id
   commandMenu.value.rootIndex = rootIndex
   commandMenu.value.activeIndex = 0
+  lastCommandMenuGeometry = null
   revealActiveWritingCommand()
   if (editor.value?.view) measureAndPositionCommandMenu(editor.value.view)
   return true
@@ -565,6 +1056,7 @@ function leaveWritingCommandSection() {
   if (!commandMenu.value.sectionId) return false
   commandMenu.value.sectionId = null
   commandMenu.value.activeIndex = Math.max(0, commandMenu.value.rootIndex)
+  lastCommandMenuGeometry = null
   revealActiveWritingCommand()
   if (editor.value?.view) measureAndPositionCommandMenu(editor.value.view)
   return true
@@ -588,7 +1080,7 @@ function activateRootWritingCommand(index) {
 }
 
 function runRootWritingCommand(index) {
-  const command = writingMenuItems[index]
+  const command = availableWritingMenuItems.value[index]
   if (!editor.value || !command) return false
   if (command.children?.length) return enterWritingCommandSection(command.id, index)
   commandMenu.value.activeIndex = index
@@ -602,7 +1094,22 @@ const WritingCommandMenu = Extension.create({
       props: {
         handleKeyDown(view, event) {
           if (event.isComposing || view.composing) return false
+          const commandShortcut = (event.metaKey || event.ctrlKey)
+            && !event.altKey
+            && !event.getModifierState?.('AltGraph')
+            && event.key === '/'
+          // 系统键盘重复事件属于第一次快捷键的同一意图；菜单已经打开后
+          // 必须继续消费，不能把长按 Ctrl/Cmd+/ 解释成“关闭、再打开”。
+          if (event.repeat && commandShortcut) {
+            stopHandledKey(event)
+            return true
+          }
           if (commandMenu.value.open) {
+            if (event.key === 'Tab') {
+              stopHandledKey(event)
+              closeCommandMenu()
+              return true
+            }
             const commands = activeWritingCommands.value
             const activeCommand = commands[commandMenu.value.activeIndex]
             const result = resolveWritingCommandMenuKey({
@@ -613,49 +1120,64 @@ const WritingCommandMenu = Extension.create({
               hasParent: Boolean(commandMenu.value.sectionId)
             })
             if (result?.action === 'move') {
-              event.preventDefault()
+              stopHandledKey(event)
               commandMenu.value.activeIndex = result.index
               revealActiveWritingCommand()
               return true
             }
             if (result?.action === 'select') {
-              event.preventDefault()
+              stopHandledKey(event)
               return runWritingCommand(result.index)
             }
             if (result?.action === 'expand') {
-              event.preventDefault()
+              stopHandledKey(event)
               return enterWritingCommandSection(commands[result.index]?.id)
             }
             if (result?.action === 'back') {
-              event.preventDefault()
+              stopHandledKey(event)
               return leaveWritingCommandSection()
             }
             if (result?.action === 'close') {
-              event.preventDefault()
+              stopHandledKey(event)
               closeCommandMenu()
               return true
             }
             if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-              event.preventDefault()
+              stopHandledKey(event)
               return true
             }
+            if (event.key === ' ' || event.key === '/') commandMenuLiteralBypass = event.key
             closeCommandMenu()
             return false
           }
 
           const { $from } = view.state.selection
-          const canOpen = canOpenWritingCommandMenu({
+          if (commandShortcut && isDirectWritingUnitParagraph($from) && canOpenWritingCommandMenu({
+            selectionEmpty: view.state.selection.empty,
+            nodeType: $from.parent.type.name,
+            parentOffset: $from.parentOffset,
+            contentSize: $from.parent.content.size,
+            trigger: 'shortcut'
+          })) {
+            if (!openCommandMenu(view)) return false
+            stopHandledKey(event)
+            return true
+          }
+          const canOpen = isDirectWritingUnitParagraph($from) && canOpenWritingCommandMenu({
             selectionEmpty: view.state.selection.empty,
             nodeType: $from.parent.type.name,
             parentOffset: $from.parentOffset,
             contentSize: $from.parent.content.size
           })
           if (canOpen && (event.key === ' ' || event.key === '/')) {
-            event.preventDefault()
-            openCommandMenu(view)
+            if (!openCommandMenu(view)) return false
+            stopHandledKey(event)
             return true
           }
           return false
+        },
+        handleDOMEvents: {
+          beforeinput: handleWritingCommandBeforeInput
         }
       }
     })]
@@ -690,7 +1212,7 @@ function createAnnotationDecorations(doc) {
       && annotationText(annotation)
   ))
   const blockPositions = new Map()
-  doc.descendants((node, pos) => {
+  collectDirectWritingBlocks(doc).forEach(({ node, pos }) => {
     if (node.attrs?.nodeId) blockPositions.set(node.attrs.nodeId, { node, pos })
   })
 
@@ -717,12 +1239,15 @@ function resolveAnnotationDocumentRange(annotation, nodePositions) {
   const endNode = nodePositions.get(endNodeId)
   if (!startNode || !endNode) return null
 
-  const startOffset = Math.max(0, Math.min(startNode.node.content.size, annotationStart(annotation)))
+  const startText = editorBlockPlainText(startNode.node)
+  const endText = editorBlockPlainText(endNode.node)
+  const startOffset = Math.max(0, Math.min(startText.length, annotationStart(annotation)))
   const fallbackLength = annotationText(annotation).length
   const endOffset = annotation?.range?.end?.offset ?? (startOffset + fallbackLength)
-  const safeEndOffset = Math.max(0, Math.min(endNode.node.content.size, Number(endOffset) || 0))
-  const from = startNode.pos + 1 + startOffset
-  const to = endNode.pos + 1 + safeEndOffset
+  const safeEndOffset = Math.max(0, Math.min(endText.length, Number(endOffset) || 0))
+  const from = editorDocumentPositionAtBlockOffset(startNode, startOffset)
+  const to = editorDocumentPositionAtBlockOffset(endNode, safeEndOffset)
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null
   return to >= from ? { from, to } : null
 }
 
@@ -752,6 +1277,67 @@ const AnnotationDecorations = Extension.create({
   }
 })
 
+function createWorldbookMentionDecorations(doc) {
+  const nodePositions = new Map()
+  collectDirectWritingBlocks(doc).forEach(({ node, pos }) => {
+    if (node.attrs?.nodeId) nodePositions.set(node.attrs.nodeId, { node, pos })
+  })
+  const decorations = []
+  for (const mention of props.worldbookMentions || []) {
+    const location = nodePositions.get(mention?.nodeId)
+    if (!location) continue
+    const textLength = editorBlockPlainText(location.node).length
+    const start = Math.max(0, Math.min(textLength, Number(mention.start) || 0))
+    const end = Math.max(start, Math.min(textLength, Number(mention.end) || start))
+    if (end <= start) continue
+    const from = editorDocumentPositionAtBlockOffset(location, start)
+    const to = editorDocumentPositionAtBlockOffset(location, end)
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) continue
+    decorations.push(Decoration.inline(from, to, {
+      class: `writing-worldbook-mention is-${mention.entryType || 'general'}`,
+      'data-worldbook-entry-id': mention.entryId,
+      'data-worldbook-entry-ids': (mention.entryIds || [mention.entryId]).filter(Boolean).join(','),
+      'data-worldbook-node-id': mention.nodeId,
+      'data-worldbook-start': String(start),
+      'data-worldbook-end': String(end),
+      title: mention.ambiguous ? `${mention.label || mention.text} · 选择来源` : `${mention.label || mention.text} · 打开设定`
+    }, { worldbookEntryId: mention.entryId }))
+  }
+  return DecorationSet.create(doc, decorations)
+}
+
+const WorldbookMentionDecorations = Extension.create({
+  name: 'writingWorldbookMentionDecorations',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: worldbookMentionPluginKey,
+      state: {
+        init: (_, state) => createWorldbookMentionDecorations(state.doc),
+        apply: (transaction, oldDecorations, _oldState, newState) => (
+          transaction.docChanged || transaction.getMeta(worldbookMentionPluginKey)
+            ? createWorldbookMentionDecorations(newState.doc)
+            : oldDecorations
+        )
+      },
+      props: {
+        decorations: (state) => worldbookMentionPluginKey.getState(state),
+        handleClick: (_view, _pos, event) => {
+          const marker = event.target?.closest?.('[data-worldbook-entry-id]')
+          if (!marker) return false
+          emit('worldbook-mention-click', {
+            entryId: marker.dataset.worldbookEntryId,
+            entryIds: String(marker.dataset.worldbookEntryIds || '').split(',').filter(Boolean),
+            nodeId: marker.dataset.worldbookNodeId,
+            start: Number(marker.dataset.worldbookStart) || 0,
+            end: Number(marker.dataset.worldbookEnd) || 0
+          })
+          return true
+        }
+      }
+    })]
+  }
+})
+
 // 段落聚焦装饰（P0c）：光标所在段落打 is-focus-current-block 标记，
 // 其余段落由 CSS 淡化到 35%。用 PM 原生 decoration 而非命令式 class——
 // 命令式标记会被 ProseMirror 的 DOM 重渲染抹掉。
@@ -759,7 +1345,7 @@ const FocusParagraphDecorations = Extension.create({
   name: 'writingFocusParagraphDecorations',
   addProseMirrorPlugins() {
     return [new Plugin({
-      key: new PluginKey('writingFocusParagraphDecorations'),
+      key: focusParagraphPluginKey,
       props: {
         decorations(state) {
           if (!props.focusParagraph || !state.selection.empty) return DecorationSet.empty
@@ -783,26 +1369,401 @@ const FocusParagraphDecorations = Extension.create({
   }
 })
 
+function writingUnitIds(doc) {
+  const ids = []
+  doc.forEach((node) => {
+    if (node.type.name === 'writingUnit') ids.push(String(node.attrs?.unitId || ''))
+  })
+  return ids
+}
+
+function selectedWritingUnitIds(state) {
+  if (state.selection instanceof AllSelection) return writingUnitIds(state.doc)
+  const ids = []
+  const { from, to, empty } = state.selection
+  state.doc.forEach((node, pos) => {
+    if (node.type.name !== 'writingUnit') return
+    const end = pos + node.nodeSize
+    const intersects = empty
+      ? from >= pos && from <= end
+      : from < end && to > pos
+    if (intersects) ids.push(String(node.attrs?.unitId || ''))
+  })
+  return ids
+}
+
+function hasSameWritingUnitTopology(before, after) {
+  const beforeIds = writingUnitIds(before)
+  const afterIds = writingUnitIds(after)
+  return beforeIds.length === afterIds.length
+    && beforeIds.every((id, index) => id && id === afterIds[index])
+}
+
+function warnBlockedStructureEdit(reason = 'implicit-topology-change') {
+  const now = Date.now()
+  if (now - lastTopologyWarningAt < 250) return
+  lastTopologyWarningAt = now
+  emit('blocked-structure-edit', { reason })
+}
+
+// writingUnit 是正文、当前场、批注和来源共同使用的稳定边界。任何没有
+// typed transition 的 transaction 都不得增删/重排这些顶层节点；这样即使
+// 浏览器或 StarterKit 新增了键盘路径，也不会静默吞掉 unitId/originRefs。
+const WritingUnitIntegrity = Extension.create({
+  name: 'writingUnitIntegrity',
+  priority: 1100,
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: writingUnitIntegrityPluginKey,
+      filterTransaction(transaction, state) {
+        if (
+          allSelectionCompositionActive
+          && transaction.docChanged
+          && !transaction.getMeta('writingUnitTransition')
+          && !isHistoryTransaction(transaction)
+        ) return false
+        if (!transaction.docChanged || hasSameWritingUnitTopology(state.doc, transaction.doc)) return true
+        if (
+          applyingExternalDocument
+          || transaction.getMeta('writingUnitTransition')
+          || transaction.getMeta('writingAgentInsert')
+          || isHistoryTransaction(transaction)
+        ) return writingUnitIds(transaction.doc).every(Boolean)
+        warnBlockedStructureEdit()
+        return false
+      },
+      props: {
+        handleKeyDown(view, event) {
+          if (
+            event.isComposing
+            || event.keyCode === 229
+            || view.composing
+            || interactionComposing.value
+            || compositionSettling.value
+          ) return false
+          if (!(view.state.selection instanceof AllSelection)) return false
+          if (!['Backspace', 'Delete'].includes(event.key)) return false
+          stopHandledKey(event)
+          return replaceWholeWritingDocument('', { origin: 'structure' })
+        },
+        handleTextInput(view, _from, _to, text) {
+          if (view.composing || interactionComposing.value || compositionSettling.value) return false
+          if (!(view.state.selection instanceof AllSelection)) return false
+          return replaceWholeWritingDocument(text, { origin: 'structure' })
+        },
+        handleDOMEvents: {
+          beforeinput(view, event) {
+            if (
+              event.isComposing
+              || view.composing
+              || interactionComposing.value
+              || compositionSettling.value
+            ) return false
+            const inputType = String(event.inputType || '')
+            if (!inputType.startsWith('insert') && !inputType.startsWith('delete')) return false
+            if (view.state.selection instanceof AllSelection) {
+              if (inputType.startsWith('insert')) {
+                const transferredText = event.dataTransfer?.getData?.('text/plain')
+                const replacement = typeof event.data === 'string'
+                  ? event.data
+                  : (typeof transferredText === 'string' ? transferredText : '')
+                // paste/drop/yank 等 beforeinput 往往只有 inputType、没有 payload。
+                // 缺失文本不是“用户输入了空串”，更不能被解释为清空整章；
+                // paste 的明确纯文本由 capture handler 原子接管，其余交回原生链路。
+                if (!replacement && !['insertParagraph', 'insertLineBreak'].includes(inputType)) return false
+                event.preventDefault()
+                return replaceWholeWritingDocument(replacement, { origin: 'structure' })
+              }
+              event.preventDefault()
+              return replaceWholeWritingDocument('', { origin: 'structure' })
+            }
+            const unitIds = selectedWritingUnitIds(view.state)
+            if (unitIds.length <= 1) return false
+            event.preventDefault()
+            warnBlockedStructureEdit('cross-unit-selection')
+            return true
+          }
+        }
+      }
+    })]
+  }
+})
+
 const currentDocument = ref(initialDocument)
+
+function resolveEditorBlockSelection(currentEditor, probePosition, cursorPosition = probePosition) {
+  const resolved = currentEditor.state.doc.resolve(
+    Math.max(0, Math.min(currentEditor.state.doc.content.size, probePosition))
+  )
+  let unitDepth = -1
+  for (let depth = resolved.depth; depth > 0; depth -= 1) {
+    if (resolved.node(depth).type.name === 'writingUnit') {
+      unitDepth = depth
+      break
+    }
+  }
+  const blockDepth = unitDepth + 1
+  if (unitDepth > 0 && blockDepth <= resolved.depth) {
+    const unit = resolved.node(unitDepth)
+    const node = resolved.node(blockDepth)
+    const pos = resolved.before(blockDepth)
+    return {
+      node,
+      unit,
+      unitPos: resolved.before(unitDepth),
+      pos,
+      localOffset: editorBlockTextOffsetAtPosition(node, pos, cursorPosition)
+    }
+  }
+  return null
+}
+
+function editorBlockPlainText(node) {
+  if (node?.type?.name === 'blockquote') {
+    const parts = []
+    node.forEach((child) => parts.push(child.textContent || ''))
+    return parts.join('\n\n')
+  }
+  return String(node?.textContent || '')
+}
+
+function collectDirectWritingBlocks(doc) {
+  const blocks = []
+  doc?.forEach?.((unit, unitPos) => {
+    if (unit.type.name !== 'writingUnit') return
+    unit.forEach((node, blockOffset) => {
+      blocks.push({
+        node,
+        pos: unitPos + 1 + blockOffset,
+        text: editorBlockPlainText(node)
+      })
+    })
+  })
+  return blocks
+}
+
+function buildEditorPlainTextSnapshot(currentEditor, startBlockSelection, endBlockSelection) {
+  const { from, to } = currentEditor.state.selection
+  const blocks = collectDirectWritingBlocks(currentEditor.state.doc)
+  const fullText = blocks.map((block) => block.text).join('\n')
+  if (currentEditor.state.selection instanceof AllSelection) {
+    return { text: fullText, beforeText: '', afterText: '' }
+  }
+  const findBlockIndex = (selection) => blocks.findIndex((block) => (
+    block.pos === selection?.pos
+    || (
+      selection?.node?.attrs?.nodeId
+      && block.node.attrs?.nodeId === selection.node.attrs.nodeId
+    )
+  ))
+  const startIndex = findBlockIndex(startBlockSelection)
+  const endIndex = findBlockIndex(endBlockSelection)
+  if (startIndex < 0 || endIndex < startIndex) {
+    return {
+      text: currentEditor.state.doc.textBetween(from, to, '\n'),
+      beforeText: currentEditor.state.doc.textBetween(0, from, '\n'),
+      afterText: currentEditor.state.doc.textBetween(to, currentEditor.state.doc.content.size, '\n')
+    }
+  }
+  const absoluteOffset = (index, localOffset) => {
+    const prefix = blocks.slice(0, index).reduce((length, block) => length + block.text.length + 1, 0)
+    return prefix + Math.max(0, Math.min(blocks[index].text.length, Number(localOffset) || 0))
+  }
+  const start = absoluteOffset(startIndex, startBlockSelection?.localOffset)
+  const end = absoluteOffset(endIndex, endBlockSelection?.localOffset)
+  return {
+    text: fullText.slice(start, Math.max(start, end)),
+    beforeText: fullText.slice(0, start),
+    afterText: fullText.slice(Math.max(start, end))
+  }
+}
+
+function editorBlockTextOffsetAtPosition(node, nodePos, documentPos) {
+  const text = editorBlockPlainText(node)
+  if (!node || node.type.name !== 'blockquote') {
+    return Math.max(0, Math.min(text.length, documentPos - nodePos - 1))
+  }
+  let plainOffset = 0
+  let childPos = nodePos + 1
+  for (let index = 0; index < node.childCount; index += 1) {
+    const child = node.child(index)
+    const childTextLength = child.textContent.length
+    const childTextStart = childPos + 1
+    const childTextEnd = childTextStart + child.content.size
+    if (documentPos <= childTextEnd) {
+      return Math.max(0, Math.min(text.length, plainOffset + documentPos - childTextStart))
+    }
+    plainOffset += childTextLength
+    childPos += child.nodeSize
+    if (index < node.childCount - 1) plainOffset += 2
+  }
+  return text.length
+}
+
+function editorDocumentPositionAtBlockOffset(location, requestedOffset = 0) {
+  const node = location?.node
+  const nodePos = Number(location?.pos)
+  if (!node || !Number.isFinite(nodePos)) return null
+  const text = editorBlockPlainText(node)
+  let remaining = Math.max(0, Math.min(text.length, Number(requestedOffset) || 0))
+  if (node.type.name !== 'blockquote') return nodePos + 1 + remaining
+  let childPos = nodePos + 1
+  for (let index = 0; index < node.childCount; index += 1) {
+    const child = node.child(index)
+    const childTextLength = child.textContent.length
+    if (remaining <= childTextLength) return childPos + 1 + remaining
+    remaining -= childTextLength
+    childPos += child.nodeSize
+    if (index < node.childCount - 1) remaining = Math.max(0, remaining - 2)
+  }
+  return Math.max(nodePos + 1, nodePos + node.nodeSize - 1)
+}
+
+function buildSelectionSnapshot(currentEditor) {
+  const { from, to } = currentEditor.state.selection
+  const startBlockSelection = resolveEditorBlockSelection(currentEditor, from)
+  const endBlockSelection = from === to
+    ? startBlockSelection
+    : resolveEditorBlockSelection(currentEditor, Math.max(from, to - 1), to) || startBlockSelection
+  const startBlock = startBlockSelection?.node
+  const plainTextSnapshot = buildEditorPlainTextSnapshot(
+    currentEditor,
+    startBlockSelection,
+    endBlockSelection
+  )
+  const resolveCanonicalTarget = (blockSelection) => {
+    const unitId = String(blockSelection?.unit?.attrs?.unitId || '')
+    const nodeId = String(blockSelection?.node?.attrs?.nodeId || '')
+    const unit = (currentDocument.value?.content || []).find((candidate) => (
+      String(candidate?.attrs?.unitId || '') === unitId
+    ))
+    const node = (unit?.content || []).find((candidate) => (
+      String(candidate?.attrs?.nodeId || '') === nodeId
+    ))
+    return {
+      unitId: unitId || null,
+      unitRevision: Number(unit?.attrs?.unitRevision ?? blockSelection?.unit?.attrs?.unitRevision ?? 0),
+      nodeId: nodeId || null,
+      nodeRevision: Number(node?.attrs?.nodeRevision ?? blockSelection?.node?.attrs?.nodeRevision ?? 0)
+    }
+  }
+  // editorContentToWritingDocument 会推进 canonical revision，但不会为了版本号
+  // 再向 ProseMirror 回写一轮事务。选区身份因此必须按稳定 ID 回查当前文档，
+  // 不能继续读取 editor node 上的旧 revision。
+  const startTarget = resolveCanonicalTarget(startBlockSelection)
+  const endTarget = resolveCanonicalTarget(endBlockSelection)
+  const markdownFrom = getWritingMarkdownPosition(
+    currentDocument.value,
+    startTarget.nodeId,
+    startBlockSelection?.localOffset
+  )
+  const markdownTo = getWritingMarkdownPosition(
+    currentDocument.value,
+    endTarget.nodeId,
+    endBlockSelection?.localOffset
+  )
+  let cursorRect = null
+  if (from !== to) {
+    try {
+      const head = currentEditor.state.selection.head
+      const domPosition = currentEditor.view.domAtPos(head, head === from ? -1 : 1)
+      const caretRange = document.createRange()
+      caretRange.setStart(domPosition.node, domPosition.offset)
+      caretRange.collapse(true)
+      const caretBox = caretRange.getBoundingClientRect()
+      const coordinates = caretBox.height > 0
+        ? caretBox
+        : currentEditor.view.coordsAtPos(head, -1)
+      cursorRect = {
+        top: coordinates.top,
+        right: coordinates.right,
+        bottom: coordinates.bottom,
+        left: coordinates.left
+      }
+    } catch {
+      cursorRect = null
+    }
+  }
+  return {
+    from,
+    to,
+    empty: from === to,
+    text: plainTextSnapshot.text,
+    beforeText: plainTextSnapshot.beforeText,
+    afterText: plainTextSnapshot.afterText,
+    currentNodeText: editorBlockPlainText(startBlock),
+    cursorLocalOffset: Number(startBlockSelection?.localOffset || 0),
+    selectionLocalStart: Number(startBlockSelection?.localOffset || 0),
+    selectionLocalEnd: Number(endBlockSelection?.localOffset || 0),
+    nodeId: startTarget.nodeId,
+    unitId: startTarget.unitId,
+    unitRevision: startTarget.unitRevision,
+    selectionBookmark: currentEditor.state.selection.getBookmark(),
+    documentRevision: Number(currentDocument.value?.revision || 0),
+    nodeRevision: startTarget.nodeRevision,
+    startNodeId: startTarget.nodeId,
+    startNodeRevision: startTarget.nodeRevision,
+    endUnitId: endTarget.unitId,
+    endUnitRevision: endTarget.unitRevision,
+    endNodeId: endTarget.nodeId,
+    endNodeRevision: endTarget.nodeRevision,
+    markdownFrom,
+    markdownTo,
+    activeMarks: {
+      bold: currentEditor.isActive('bold'),
+      italic: currentEditor.isActive('italic'),
+      strike: currentEditor.isActive('strike'),
+      code: currentEditor.isActive('code')
+    },
+    cursorRect
+  }
+}
+
+function emitCurrentSelectionSnapshot(currentEditor) {
+  emit('selection-change', buildSelectionSnapshot(currentEditor))
+}
+
+function publishCurrentSelectionState(currentEditor) {
+  const { from, to } = currentEditor.state.selection
+  if (
+    commandMenu.value.open
+    && (from !== commandMenu.value.anchorFrom || to !== commandMenu.value.anchorTo)
+  ) closeCommandMenu()
+  emitCurrentSelectionSnapshot(currentEditor)
+  updateCurrentLineOverlay()
+  scrollTypewriterIntoView()
+}
 
 const editor = useEditor({
   extensions: [
     StarterKit.configure({
       document: false,
       heading: { levels: [1, 2, 3] },
+      // canonical writingDocument 只建模 prose/heading/divider/quote；关闭
+      // 无法无损往返的节点，避免列表/代码块/硬换行在保存时被吞稿。
+      bulletList: false,
+      orderedList: false,
+      listItem: false,
+      codeBlock: false,
+      hardBreak: false,
       history: true
     }),
     WritingDocumentNode,
     WritingUnitNode,
+    MediaReferenceNode,
     WritingNodeAttributes,
+    WritingUnitIntegrity,
     AnnotationDecorations,
+    WorldbookMentionDecorations,
+    ChinesePunctuationDecorations,
+    BlockGapDecorations,
     FocusParagraphDecorations,
     LiveMarkdownInput,
     LiveMarkdownDecorations,
     WritingCommandMenu,
     InlineSuggestionDecorations,
     UniqueID.configure({
-      types: ['paragraph', 'heading', 'horizontalRule', 'blockquote'],
+      types: ['paragraph', 'heading', 'horizontalRule', 'blockquote', 'mediaReference'],
       attributeName: 'nodeId',
       generateID: ({ node, pos }) => `node-editor-${node.type.name}-${pos}-${Date.now().toString(36)}`
     })
@@ -814,112 +1775,48 @@ const editor = useEditor({
   editable: props.editable,
   onCreate({ editor: currentEditor }) {
     emit('ready', currentEditor)
-    emitDocument(currentEditor)
+    // 初始 document 已由父页完成 hydrate。这里不能伪装成一次用户编辑，
+    // 否则刚打开章节就会进入未保存 → 自动保存，并触发观察器与“已保存”闪现。
+    emitCurrentSelectionSnapshot(currentEditor)
     updateCurrentLineOverlay()
   },
   onUpdate({ editor: currentEditor, transaction }) {
     if (!transaction.docChanged) return
-    emitDocument(currentEditor)
-    const transition = transaction.getMeta('writingUnitTransition')
+    const transition = transaction.getMeta('writingUnitTransition') || null
+    emitDocument(currentEditor, transition)
+    // Tiptap 会先发 selectionUpdate、再发 update。文本事务若在前一个事件里
+    // 发布选区，markdown 偏移仍会按旧 document 计算。文档真源更新后在这里
+    // 统一发布一次；父页随后处理 input 时拿到的也是同一 revision 的选区。
+    publishCurrentSelectionState(currentEditor)
     if (transition) emit('unit-transition', transition)
     emit('input', {
-      inputType: transaction.getMeta('writingAgentInsert') ? 'writing-agent' : (transaction.getMeta('uiEvent') || 'input'),
+      inputType: writingInputType(transaction),
       composing: Boolean(transaction.getMeta('composition'))
     })
   },
-  onSelectionUpdate({ editor: currentEditor }) {
-    const { from, to } = currentEditor.state.selection
-    if (
-      commandMenu.value.open
-      && (from !== commandMenu.value.anchorFrom || to !== commandMenu.value.anchorTo)
-    ) closeCommandMenu()
-    const getBlockSelection = (probePosition, cursorPosition = probePosition) => {
-      const resolved = currentEditor.state.doc.resolve(Math.max(0, Math.min(currentEditor.state.doc.content.size, probePosition)))
-      for (let depth = resolved.depth; depth > 0; depth -= 1) {
-        const node = resolved.node(depth)
-        if (node?.attrs?.nodeId) {
-          let unit = null
-          for (let parentDepth = depth - 1; parentDepth > 0; parentDepth -= 1) {
-            const parent = resolved.node(parentDepth)
-            if (parent.type.name === 'writingUnit') {
-              unit = parent
-              break
-            }
-          }
-          return {
-            node,
-            unit,
-            localOffset: Math.max(0, Math.min(node.content.size, cursorPosition - resolved.start(depth)))
-          }
-        }
-      }
-      return null
+  onSelectionUpdate({ editor: currentEditor, transaction }) {
+    if (applyingExternalDocument) return
+    // docChanged 事务由紧随其后的 onUpdate 在 currentDocument 更新后发布，
+    // 防止同一次输入出现一份旧 markdown 坐标和一份新坐标。
+    if (transaction?.docChanged) return
+    publishCurrentSelectionState(currentEditor)
+  },
+  onTransaction({ editor: currentEditor, transaction }) {
+    // 光标处 Ctrl/Cmd+B/I 只改变 stored marks，不一定触发 selectionUpdate
+    // 或 docChanged；仍需把真实 Tiptap mark 状态同步给外层工具栏。
+    if (transaction.storedMarksSet && !transaction.docChanged && !transaction.selectionSet) {
+      emitCurrentSelectionSnapshot(currentEditor)
     }
-    const startBlockSelection = getBlockSelection(from)
-    const endBlockSelection = from === to
-      ? startBlockSelection
-      : getBlockSelection(Math.max(from, to - 1), to) || startBlockSelection
-    const startBlock = startBlockSelection?.node
-    const endBlock = endBlockSelection?.node
-    const markdownFrom = getWritingMarkdownPosition(
-      currentDocument.value,
-      startBlock?.attrs?.nodeId,
-      startBlockSelection?.localOffset
-    )
-    const markdownTo = getWritingMarkdownPosition(
-      currentDocument.value,
-      endBlock?.attrs?.nodeId,
-      endBlockSelection?.localOffset
-    )
-    let cursorRect = null
-    if (from !== to) {
-      try {
-        const head = currentEditor.state.selection.head
-        const domPosition = currentEditor.view.domAtPos(head, head === from ? -1 : 1)
-        const caretRange = document.createRange()
-        caretRange.setStart(domPosition.node, domPosition.offset)
-        caretRange.collapse(true)
-        const caretBox = caretRange.getBoundingClientRect()
-        const coordinates = caretBox.height > 0
-          ? caretBox
-          : currentEditor.view.coordsAtPos(head, -1)
-        cursorRect = {
-          top: coordinates.top,
-          right: coordinates.right,
-          bottom: coordinates.bottom,
-          left: coordinates.left
-        }
-      } catch {
-        cursorRect = null
-      }
-    }
-    emit('selection-change', {
-      from,
-      to,
-      empty: from === to,
-      text: currentEditor.state.doc.textBetween(from, to, '\n'),
-      beforeText: currentEditor.state.doc.textBetween(0, from, '\n'),
-      nodeId: startBlock?.attrs?.nodeId || null,
-      unitId: startBlockSelection?.unit?.attrs?.unitId || null,
-      unitRevision: Number(startBlockSelection?.unit?.attrs?.unitRevision || 0),
-      nodeRevision: Number(startBlock?.attrs?.nodeRevision || 0),
-      startNodeId: startBlock?.attrs?.nodeId || null,
-      startNodeRevision: Number(startBlock?.attrs?.nodeRevision || 0),
-      endNodeId: endBlock?.attrs?.nodeId || null,
-      endNodeRevision: Number(endBlock?.attrs?.nodeRevision || 0),
-      markdownFrom,
-      markdownTo,
-      cursorRect
-    })
-    updateCurrentLineOverlay()
-    scrollTypewriterIntoView()
   },
   onFocus() {
+    emit('editor-focus')
     updateCurrentLineOverlay()
     scrollTypewriterIntoView()
   },
   onBlur() {
+    closeCommandMenu()
     currentLineOverlay.value.visible = false
+    emit('editor-blur')
   }
 })
 
@@ -928,14 +1825,19 @@ const editor = useEditor({
 function scrollTypewriterIntoView() {
   if (!props.typewriter) return
   const currentEditor = editor.value
-  const surface = notebookSurface.value?.$el || notebookSurface.value
-  if (!currentEditor || !surface || !currentEditor.view.hasFocus()) return
+  const scrollElement = getScrollElement()
+  if (!currentEditor || !scrollElement || !currentEditor.view.hasFocus()) return
   if (!currentEditor.state.selection.empty) return
   try {
     const coordinates = currentEditor.view.coordsAtPos(currentEditor.state.selection.head, 1)
-    const box = surface.getBoundingClientRect()
+    const box = scrollElement.getBoundingClientRect()
     const delta = (coordinates.top + coordinates.bottom) / 2 - (box.top + box.height / 2)
-    if (Math.abs(delta) > 1) surface.scrollTop += delta
+    if (Math.abs(delta) > 1) {
+      programmaticScrollUntil = Date.now() + 120
+      // coordsAtPos/DOMRect 是视觉像素，scrollTop 是布局像素。应用级 zoom
+      // 下不换算会每次只追赶一部分距离，连续输入时产生反复抖动。
+      scrollElement.scrollTop += delta / getBodyUiScale()
+    }
   } catch {
     // best-effort typewriter scrolling
   }
@@ -944,7 +1846,7 @@ function scrollTypewriterIntoView() {
 function updateCurrentLineOverlay() {
   const currentEditor = editor.value
   const root = notebookRoot.value
-  if (!currentEditor || !root || !currentEditor.view.hasFocus() || !currentEditor.state.selection.empty) {
+  if (!props.typewriter || !currentEditor || !root || !currentEditor.view.hasFocus() || !currentEditor.state.selection.empty) {
     currentLineOverlay.value.visible = false
     return
   }
@@ -972,41 +1874,267 @@ function updateCurrentLineOverlay() {
   }
 }
 
-function emitDocument(currentEditor) {
+function emitDocument(currentEditor, transition = null) {
   const nextDocument = editorContentToWritingDocument(currentEditor.getJSON(), currentDocument.value)
   currentDocument.value = nextDocument
   if (currentEditor.storage) currentEditor.storage.writingDocument = nextDocument
-  emit('update:document', nextDocument)
+  // 结构 transaction 的新文档与 transition 必须同拍交给父层。若父层先按
+  // 普通文本变更重定位批注、随后才收到 split/merge，重复词会被第一次
+  // 模糊匹配永久改错 offset，第二次 typed reconcile 已无法恢复。
+  emit('update:document', nextDocument, transition)
   emit('update:modelValue', getWritingDocumentMarkdown(nextDocument))
 }
 
 function handleContextMenu(event) {
-  emit('context-menu', event)
+  const target = event?.target instanceof Element ? event.target : null
+  // block composer / editable draft 是嵌在 EditorContent 内的独立表单所有者。
+  // 它们必须保留系统右键菜单，绝不能把 cut/delete/paste 转发到旧的 PM 选区。
+  if (
+    !target?.closest?.('.ProseMirror')
+    || target.closest(blockGapSelector.value)
+    || target.closest('textarea, input, select, [contenteditable="true"]:not(.ProseMirror)')
+  ) return
+  event.preventDefault()
+  // 鼠标右键的 button=2；Shift+F10/Menu 键及触屏长按通常为 0。后两者
+  // 应保留浏览器已建立的 caret/selection，而不是拿合成坐标再命中别处。
+  const keyboardTriggered = Number(event?.button || 0) !== 2
+  // 右键点在现有选区外时，让“拆分/合并/粘贴”等命令明确作用于点击处；
+  // 点在已有选区内则保留整段选区，供复制、剪切和删除使用。
+  const currentEditor = editor.value
+  const hit = keyboardTriggered
+    ? null
+    : currentEditor?.view?.posAtCoords?.({ left: event.clientX, top: event.clientY })
+  if (!keyboardTriggered && currentEditor && Number.isFinite(hit?.pos)) {
+    const { from, to, empty } = currentEditor.state.selection
+    if (empty || hit.pos < from || hit.pos > to) {
+      const safePos = Math.max(0, Math.min(currentEditor.state.doc.content.size, hit.pos))
+      const selection = TextSelection.near(currentEditor.state.doc.resolve(safePos))
+      currentEditor.view.dispatch(currentEditor.state.tr.setSelection(selection))
+    }
+  }
+  let anchorRect = null
+  if (keyboardTriggered && currentEditor) {
+    try {
+      anchorRect = currentEditor.view.coordsAtPos(currentEditor.state.selection.head, 1)
+    } catch {
+      anchorRect = null
+    }
+  }
+  emit('context-menu', event, { keyboardTriggered, anchorRect })
+}
+
+function refreshInlineSuggestionLayer() {
+  if (!editor.value) return
+  editor.value.view.dispatch(editor.value.state.tr.setMeta(inlineSuggestionPluginKey, true))
+}
+
+function eventBelongsToCanonicalEditor(event) {
+  const target = event?.target instanceof Element ? event.target : null
+  return Boolean(target?.closest?.('.ProseMirror') && !target.closest(blockGapSelector.value))
+}
+
+function cancelPendingComposition(reason = 'cancelled') {
+  const owned = interactionComposing.value
+    || compositionSettling.value
+    || allSelectionCompositionActive
+    || Boolean(compositionRefreshTimer)
+  compositionSessionToken += 1
+  if (compositionRefreshTimer) clearTimeout(compositionRefreshTimer)
+  compositionRefreshTimer = null
+  allSelectionCompositionActive = false
+  interactionComposing.value = false
+  compositionSettling.value = false
+  if (owned) emit('composition-change', false, { reason })
+}
+
+function handleCompositionStart(event) {
+  if (!eventBelongsToCanonicalEditor(event)) return
+  if (compositionRefreshTimer) {
+    clearTimeout(compositionRefreshTimer)
+    compositionRefreshTimer = null
+  }
+  compositionSessionToken += 1
+  compositionSettling.value = false
+  // 全选后的 provisional IME DOM 不得提前清空正文。compositionend 有最终
+  // 文本时再提交一次 typed replace-all；取消候选（空 data）保持原稿不变。
+  allSelectionCompositionActive = editor.value?.state.selection instanceof AllSelection
+  interactionComposing.value = true
+  closeCommandMenu()
+  emit('composition-change', true)
+}
+
+function handleCompositionEnd(event) {
+  if (!eventBelongsToCanonicalEditor(event)) return
+  interactionComposing.value = false
+  compositionSettling.value = true
+  const replaceAllAfterComposition = allSelectionCompositionActive
+  const committedCompositionText = replaceAllAfterComposition ? String(event?.data || '') : ''
+  const settledSessionToken = compositionSessionToken
+  const settledDocumentGeneration = editorDocumentGeneration
+  // capture 回调先于 ProseMirror 的 compositionend 处理。等当前事件与 Vue
+  // prop flush 都结束，再显式 flush DOMObserver 并重绘装饰，避免打断候选串
+  // 或丢掉最后一个合成字符。
+  queueMicrotask(() => {
+    if (
+      componentUnmounting
+      || compositionSessionToken !== settledSessionToken
+      || editorDocumentGeneration !== settledDocumentGeneration
+    ) return
+    compositionRefreshTimer = setTimeout(() => {
+      compositionRefreshTimer = null
+      if (
+        componentUnmounting
+        || compositionSessionToken !== settledSessionToken
+        || editorDocumentGeneration !== settledDocumentGeneration
+      ) return
+      editor.value?.view?.domObserver?.flush?.()
+      if (replaceAllAfterComposition && committedCompositionText) {
+        replaceWholeWritingDocument(committedCompositionText, { origin: 'structure' })
+      }
+      allSelectionCompositionActive = false
+      compositionSettling.value = false
+      refreshInlineSuggestionLayer()
+      // 直到 DOMObserver/final transaction 已完成才交还交互 owner。父层会在
+      // 此事件后冻结联想 fingerprint；提前发会把合成前快照排进定时器，最终
+      // 因 fingerprint 不一致静默丢掉整次中文输入后的联想。
+      emit('composition-change', false)
+    }, 0)
+  })
+}
+
+function handlePaste(event) {
+  // Composer / editable draft physically live inside the PM widget, but paste
+  // belongs to their textarea. Never inspect or mutate the frozen PM selection.
+  if (!eventBelongsToCanonicalEditor(event)) return
+  closeCommandMenu()
+  emit('writing-paste', event)
+  const currentEditor = editor.value
+  if (!currentEditor) return
+  if (currentEditor.state.selection instanceof AllSelection) {
+    const text = event.clipboardData?.getData?.('text/plain')
+    // 文件剪贴板、无 text/plain 或读取失败都保持原稿；只有拿到明确的
+    // 非空纯文本时才把“全选 + 粘贴”解释为 typed replace-all。
+    if (typeof text !== 'string' || !text) return
+    event.preventDefault()
+    replaceWholeWritingDocument(text, { origin: 'structure' })
+    return
+  }
+  const unitIds = selectedWritingUnitIds(currentEditor.state)
+  if (unitIds.length <= 1) return
+  event.preventDefault()
+  warnBlockedStructureEdit('cross-unit-paste')
+}
+
+function handleScrollOwnerScroll() {
+  updateCurrentLineOverlay()
+  const now = Date.now()
+  const userOwned = now <= userScrollIntentUntil
+  if (commandMenu.value.open && userOwned) {
+    // 命令锚点属于原空行；用户主动浏览后不能把菜单钉在视口边缘、继续
+    // 对离屏旧位置执行操作。
+    closeCommandMenu()
+  } else if (commandMenu.value.open && editor.value?.view) {
+    if (lastCommandMenuGeometry) positionCommandMenu(editor.value.view, lastCommandMenuGeometry)
+    else measureAndPositionCommandMenu(editor.value.view)
+  }
+  // wheel/touch/滚动条意图优先于刚发生的打字机自动居中窗口；否则用户
+  // 紧接着主动浏览时，滚动事件会被误吞，迟到 Ghost 仍会弹出。
+  if (now <= userScrollIntentUntil) emit('scroll-owner', { source: 'user' })
+  else if (now > programmaticScrollUntil) emit('scroll-owner', { source: 'selection-follow' })
+}
+
+function markUserScrollIntent(event) {
+  if (event.type === 'pointerdown' && event.target !== boundScrollOwner) return
+  userScrollIntentUntil = Date.now() + 500
+}
+
+function handleViewportChange() {
+  bindScrollOwner()
+  updateCurrentLineOverlay()
+  if (commandMenu.value.open && editor.value?.view) measureAndPositionCommandMenu(editor.value.view)
+}
+
+// Authoring 的章节标题和正文属于同一张稿纸，因此由外层
+// .wall__dossier-scroll 唯一持有滚动；独立挂载时再回退到编辑器 surface。
+// 所有依赖视口的浮层和打字机滚动都必须使用同一个 owner，不能各滚各的。
+let boundScrollOwner = null
+
+function getScrollElement() {
+  const root = notebookRoot.value
+  return root?.closest?.('.wall__dossier-scroll')
+    || notebookSurface.value?.$el
+    || notebookSurface.value
+    || null
+}
+
+function bindScrollOwner() {
+  const nextOwner = getScrollElement()
+  if (nextOwner === boundScrollOwner) return
+  boundScrollOwner?.removeEventListener?.('scroll', handleScrollOwnerScroll)
+  boundScrollOwner?.removeEventListener?.('wheel', markUserScrollIntent)
+  boundScrollOwner?.removeEventListener?.('touchmove', markUserScrollIntent)
+  boundScrollOwner?.removeEventListener?.('pointerdown', markUserScrollIntent)
+  boundScrollOwner = nextOwner
+  boundScrollOwner?.addEventListener?.('scroll', handleScrollOwnerScroll, { passive: true })
+  boundScrollOwner?.addEventListener?.('wheel', markUserScrollIntent, { passive: true })
+  boundScrollOwner?.addEventListener?.('touchmove', markUserScrollIntent, { passive: true })
+  boundScrollOwner?.addEventListener?.('pointerdown', markUserScrollIntent, { passive: true })
 }
 
 watch(() => props.editable, (editable) => {
   editor.value?.setEditable(editable)
 })
 
+function applyExternalWritingDocument(nextDocument) {
+  const currentEditor = editor.value
+  if (!currentEditor) return
+  // compositionend 的最终提交在下一轮 task 执行。同 key 恢复快照/切换同一
+  // 文档版本时必须先作废旧会话，否则迟到的全选 IME 文本会覆盖新文档。
+  editorDocumentGeneration += 1
+  cancelPendingComposition('external-document')
+  closeCommandMenu()
+  currentDocument.value = nextDocument
+  applyingExternalDocument = true
+  try {
+    currentEditor.chain()
+      .setMeta('addToHistory', false)
+      .setContent({
+        type: 'doc',
+        content: writingDocumentToEditorContent(nextDocument)
+      }, { emitUpdate: false })
+      .run()
+  } finally {
+    applyingExternalDocument = false
+  }
+  if (currentEditor.storage) currentEditor.storage.writingDocument = nextDocument
+  // setContent 可能保留相同的 ProseMirror selection，因而不会触发
+  // selectionUpdate；切章完成后仍须主动公布新文档下的真 selection。
+  emitCurrentSelectionSnapshot(currentEditor)
+  updateCurrentLineOverlay()
+  scrollTypewriterIntoView()
+}
+
 watch(() => props.document, (nextDocument) => {
   if (!nextDocument || !editor.value) return
-  if (nextDocument.revision === currentDocument.value.revision) return
-  currentDocument.value = nextDocument
-  editor.value.commands.setContent({
-    type: 'doc',
-    content: writingDocumentToEditorContent(nextDocument)
-  }, false)
+  // revision 只在单文档内单调；切章时两个不同文档完全可能同为 revision 0。
+  // 仅凭 revision 跳过会留下上一章的 ProseMirror doc 与稳定节点 ID。
+  if (nextDocument === currentDocument.value) return
+  // 编辑器自己发出的事务会经页面回写再回来（保存边界、批注 reconcile 会
+  // 产生同 revision 的克隆对象）。内容一致时 setContent 重放会打断撤销栈
+  // 并把光标摔到文末；只有 markdown 投影真正不同才是外部文档切换。
+  // 同内容克隆（保存边界/批注 reconcile 产生的引用替换）：直接跳过。
+  // setContent 重放会打断撤销栈（V1 修复的 P0）；克隆与编辑器自身的文档
+  // 内容完全一致，编辑器持有的 currentDocument 就是内容真源，任何书账
+  // 替换都会让采用事务的候选校验拿到另一份引用而误判 stale。
+  if (getWritingDocumentMarkdown(nextDocument) === getWritingDocumentMarkdown(currentDocument.value)) return
+  applyExternalWritingDocument(nextDocument)
 })
 
 watch(() => props.modelValue, (nextMarkdown) => {
   if (!editor.value) return
   const nextDocument = createWritingDocument(nextMarkdown)
   if (getWritingDocumentMarkdown(currentDocument.value) === nextMarkdown) return
-  currentDocument.value = nextDocument
-  editor.value.commands.setContent({
-    type: 'doc',
-    content: writingDocumentToEditorContent(nextDocument)
-  }, false)
+  applyExternalWritingDocument(nextDocument)
 })
 
 watch(() => [props.annotations, props.activeAnnotationId], () => {
@@ -1014,48 +2142,217 @@ watch(() => [props.annotations, props.activeAnnotationId], () => {
   editor.value.view.dispatch(editor.value.state.tr.setMeta(annotationPluginKey, true))
 }, { deep: true })
 
+watch(() => props.worldbookMentions, () => {
+  if (!editor.value) return
+  editor.value.view.dispatch(editor.value.state.tr.setMeta(worldbookMentionPluginKey, true))
+}, { deep: true })
+
+watch(() => props.focusParagraph, () => {
+  if (!editor.value) return
+  editor.value.view.dispatch(editor.value.state.tr.setMeta(focusParagraphPluginKey, true))
+})
+
+watch(() => props.typewriter, () => nextTick(updateCurrentLineOverlay))
+
+watch(() => [props.blockComposerOpen, props.blockComposerTarget, props.blockPreview], () => {
+  if (!editor.value) return
+  if (props.blockComposerOpen || props.blockPreview?.text) closeCommandMenu()
+  editor.value.view.dispatch(editor.value.state.tr.setMeta(blockGapPluginKey, true))
+  refreshInlineSuggestionLayer()
+})
+
 watch(
-  () => [props.inlineSuggestionVisible, props.inlineSuggestion, props.inlineSuggestionGenerating, props.inlineSuggestionError],
-  ([visible, suggestion, generating, error], [wasVisible, , wasGenerating, wasError]) => {
+  () => [props.inlineSuggestionVisible, props.inlineSuggestion, props.inlineSuggestionGenerating, props.inlineSuggestionError, props.interactionOwner],
+  ([visible, suggestion, generating, error], [wasVisible, wasSuggestion, wasGenerating, wasError]) => {
     const active = Boolean((visible && suggestion) || generating || error)
     const wasActive = Boolean(wasVisible || wasGenerating || wasError)
     if (!active) inlineSuggestionAnchor.value = null
-    else if (!wasActive) inlineSuggestionAnchor.value = editor.value?.state.selection.from ?? null
+    // 部分采纳会同步推进 selection，随后把 props.suggestion 替换为余文。
+    // owner 仍是 inline-review，但锚点必须跟到新光标；否则余文装饰消失，
+    // 键盘处理器却仍会吞 Tab/Ctrl+→，形成“隐藏采纳”。
+    else if (!wasActive || suggestion !== wasSuggestion) {
+      inlineSuggestionAnchor.value = editor.value?.state.selection.from ?? null
+    }
     if (editor.value) editor.value.view.dispatch(editor.value.state.tr.setMeta(inlineSuggestionPluginKey, true))
   }
 )
 
+onMounted(() => {
+  nextTick(bindScrollOwner)
+  window.addEventListener('resize', handleViewportChange, { passive: true })
+  window.visualViewport?.addEventListener('resize', handleViewportChange, { passive: true })
+  window.visualViewport?.addEventListener('scroll', handleViewportChange, { passive: true })
+})
+
 onBeforeUnmount(() => {
+  componentUnmounting = true
+  if (commandMenu.value.open) closeCommandMenu()
+  cancelPendingComposition('editor-unmount')
+  boundScrollOwner?.removeEventListener?.('scroll', handleScrollOwnerScroll)
+  boundScrollOwner?.removeEventListener?.('wheel', markUserScrollIntent)
+  boundScrollOwner?.removeEventListener?.('touchmove', markUserScrollIntent)
+  boundScrollOwner?.removeEventListener?.('pointerdown', markUserScrollIntent)
+  boundScrollOwner = null
+  window.removeEventListener('resize', handleViewportChange)
+  window.visualViewport?.removeEventListener('resize', handleViewportChange)
+  window.visualViewport?.removeEventListener('scroll', handleViewportChange)
   editor.value?.destroy()
 })
 
-function focus() {
-  editor.value?.commands.focus()
+function focus(options = {}) {
+  editor.value?.commands.focus(undefined, { scrollIntoView: options.scrollIntoView !== false })
+}
+
+function blur() {
+  return Boolean(editor.value?.commands.blur?.())
+}
+
+function hasEditorFocus() {
+  return Boolean(editor.value?.view?.hasFocus?.())
 }
 
 function insertText(text) {
   if (!editor.value || text == null) return false
-  return editor.value.chain().focus().insertContent(String(text)).run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).insertContent(String(text)).run()
 }
 
-function insertPlainText(text) {
+function sealEditorHistoryGroup(currentEditor = editor.value) {
+  if (!currentEditor) return
+  currentEditor.view.dispatch(
+    closeHistory(currentEditor.state.tr).setMeta('addToHistory', false)
+  )
+}
+
+function createPlainTextParagraphs(state, value, options = {}) {
+  const paragraphType = state.schema.nodes.paragraph
+  if (!paragraphType) return []
+  const marks = Object.prototype.hasOwnProperty.call(options, 'marks')
+    ? options.marks
+    : (state.storedMarks || state.selection.$from.marks())
+  const normalized = String(value).replace(/\r\n?/g, '\n')
+  const lines = options.blankLineParagraphs ? normalized.split(/\n{2,}/) : normalized.split('\n')
+  return lines.map((line) => paragraphType.create(
+    {
+      nodeId: `node-editor-paste-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+      nodeRevision: 0,
+      nodeKind: 'prose',
+      rawMarkdown: null,
+      leadingMarkdown: '',
+      originalText: null
+    },
+    line ? state.schema.text(line, marks) : null
+  ))
+}
+
+function replaceWholeWritingDocument(text = '', options = {}) {
+  const currentEditor = editor.value
+  if (!currentEditor) return false
+  const { state } = currentEditor
+  const unitType = state.schema.nodes.writingUnit
+  const firstUnit = state.doc.firstChild
+  if (!unitType || !firstUnit) return false
+  const previousUnitIds = writingUnitIds(state.doc)
+  const unitId = String(firstUnit.attrs?.unitId || `unit-editor-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`)
+  const paragraphs = createPlainTextParagraphs(state, text)
+  if (!paragraphs.length) return false
+  const replacementUnit = unitType.create({
+    ...firstUnit.attrs,
+    unitId,
+    unitRevision: Number(firstUnit.attrs?.unitRevision || 0) + 1,
+    unitKind: 'passage',
+    sceneId: null,
+    originRefs: []
+  }, paragraphs)
+  const transaction = state.tr
+    .replaceWith(0, state.doc.content.size, replacementUnit)
+    .setMeta('writingInputOrigin', options.origin === 'writing-agent' ? 'writing-agent' : 'structure')
+    .setMeta('writingUnitTransition', {
+      transitionId: `transition-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+      type: String(text) ? 'replace-all' : 'clear',
+      keptUnitId: unitId,
+      removedUnitId: null,
+      removedUnitIds: previousUnitIds.filter((id) => id !== unitId),
+      affectedUnitIds: previousUnitIds,
+      nodeUnitMap: Object.fromEntries(paragraphs.map((node) => [node.attrs.nodeId, unitId]))
+    })
+  transaction.setSelection(TextSelection.near(transaction.doc.resolve(Math.max(1, transaction.doc.content.size - 1)), -1))
+  currentEditor.view.dispatch(closeHistory(transaction))
+  sealEditorHistoryGroup(currentEditor)
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return true
+}
+
+function insertPlainText(text, options = {}) {
   const currentEditor = editor.value
   const value = String(text ?? '')
   if (!currentEditor || !value) return false
-  const { from, to } = currentEditor.state.selection
-  const textNode = currentEditor.state.schema.text(value)
-  const transaction = currentEditor.state.tr
-    .replaceRangeWith(from, to, textNode)
-    .setMeta('writingAgentInsert', true)
-    .scrollIntoView()
-  currentEditor.view.dispatch(transaction)
-  currentEditor.commands.focus(from + value.length)
+  const origin = options.origin === 'writing-agent' ? 'writing-agent' : 'input'
+  const normalized = value.replace(/\r\n?/g, '\n')
+  const { state } = currentEditor
+  const selectedUnitIds = selectedWritingUnitIds(state)
+  if (state.selection instanceof AllSelection) {
+    return replaceWholeWritingDocument(normalized, { origin })
+  }
+  if (selectedUnitIds.length > 1) {
+    warnBlockedStructureEdit('cross-unit-insert')
+    return false
+  }
+  const transaction = state.tr.setMeta('writingInputOrigin', origin)
+  if (normalized.includes('\n')) {
+    const paragraphs = createPlainTextParagraphs(state, normalized)
+    if (!paragraphs.length) return false
+    transaction.replaceSelection(Slice.maxOpen(Fragment.fromArray(paragraphs)))
+  } else {
+    transaction.insertText(normalized, state.selection.from, state.selection.to)
+  }
+  currentEditor.view.dispatch(origin === 'writing-agent' ? closeHistory(transaction) : transaction)
+  if (origin === 'writing-agent') sealEditorHistoryGroup(currentEditor)
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
   return true
 }
 
 function insertDivider() {
-  if (!editor.value) return false
-  return editor.value.chain().focus().setHorizontalRule().run()
+  const currentEditor = editor.value
+  if (!currentEditor) return false
+  const { state } = currentEditor
+  const probe = state.selection.empty ? state.selection.from : Math.max(state.selection.from, state.selection.to - 1)
+  const target = resolveEditorBlockSelection(currentEditor, probe, state.selection.to)
+  const dividerType = state.schema.nodes.horizontalRule
+  const paragraphType = state.schema.nodes.paragraph
+  if (!target || !dividerType || !paragraphType) return false
+
+  const freshNodeAttrs = (kind) => ({
+    nodeId: `node-editor-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    nodeRevision: 0,
+    nodeKind: kind === 'divider' ? 'divider' : 'prose',
+    rawMarkdown: null,
+    leadingMarkdown: '',
+    originalText: null
+  })
+  const divider = dividerType.create(freshNodeAttrs('divider'))
+  const blockEnd = target.pos + target.node.nodeSize
+  const unitContentEnd = target.unitPos + 1 + target.unit.content.size
+  const needsTrailingParagraph = blockEnd >= unitContentEnd
+  const trailingParagraph = needsTrailingParagraph
+    ? paragraphType.create(freshNodeAttrs('paragraph'))
+    : null
+  const replacement = trailingParagraph ? [divider, trailingParagraph] : [divider]
+  const replaceEmptyBlock = state.selection.empty
+    && target.node.type.name === 'paragraph'
+    && !target.node.textContent
+  const transaction = (replaceEmptyBlock
+    ? state.tr.replaceWith(target.pos, blockEnd, replacement)
+    : state.tr.insert(blockEnd, replacement))
+    .setMeta('writingInputOrigin', 'structure')
+  const selectionAnchor = replaceEmptyBlock ? target.pos + divider.nodeSize : blockEnd + divider.nodeSize
+  transaction.setSelection(TextSelection.near(
+    transaction.doc.resolve(Math.min(transaction.doc.content.size, selectionAnchor)),
+    1
+  ))
+  currentEditor.view.dispatch(closeHistory(transaction).scrollIntoView())
+  sealEditorHistoryGroup(currentEditor)
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return true
 }
 
 // 一次 AI 正文 = 一个新 writingUnit（plan Task 2.3 / worldbook scene closure Task 3）：
@@ -1081,9 +2378,18 @@ function insertAsNewWritingUnit({ text, originRefs, afterUnitId, expectedUnitRev
       }
     })
     if (!target) return { ok: false, reason: 'target-unit-missing' }
+    // 修订比较必须读 canonical 文档（currentDocument）：PM 节点的
+    // unitRevision attrs 只在节点创建时写入，页面侧 revision 演进从不回写
+    // PM attrs——旧 setContent 风暴掩盖了这一点，同内容守卫后暴露。
+    const canonicalUnit = (currentDocument.value?.content || []).find(
+      (unit) => unit?.attrs?.unitId === afterUnitId
+    )
+    const currentRevision = Number(
+      (canonicalUnit || target.node).attrs?.unitRevision || 0
+    )
     if (
       expectedUnitRevision !== null && expectedUnitRevision !== undefined
-      && Number(target.node.attrs.unitRevision || 0) !== Number(expectedUnitRevision || 0)
+      && currentRevision !== Number(expectedUnitRevision || 0)
     ) {
       return { ok: false, reason: 'target-unit-stale' }
     }
@@ -1103,10 +2409,16 @@ function insertAsNewWritingUnit({ text, originRefs, afterUnitId, expectedUnitRev
     sceneId: null,
     originRefs: [created.originRef]
   }, children)
+  const replacedPlaceholder = Boolean(target
+    && currentEditor.state.doc.childCount === 1
+    && !target.node.textContent.trim())
   const insertPosition = target ? target.pos + target.node.nodeSize : Math.max(1, currentEditor.state.doc.content.size)
-  const transaction = currentEditor.state.tr
-    .insert(insertPosition, unitNode)
+  const insertedStart = replacedPlaceholder ? target.pos : insertPosition
+  const transaction = (replacedPlaceholder
+    ? currentEditor.state.tr.replaceWith(target.pos, target.pos + target.node.nodeSize, unitNode)
+    : currentEditor.state.tr.insert(insertPosition, unitNode))
     .setMeta('writingAgentInsert', true)
+    .setMeta('writingInputOrigin', 'writing-agent')
     .setMeta('writingUnitTransition', {
       type: 'insert',
       keptUnitId: created.unit.attrs.unitId,
@@ -1114,33 +2426,352 @@ function insertAsNewWritingUnit({ text, originRefs, afterUnitId, expectedUnitRev
       removedUnitId: null,
       nodeUnitMap: Object.fromEntries(children.map((child) => [child.attrs.nodeId, created.unit.attrs.unitId]))
     })
-    .scrollIntoView()
+  const insertedEnd = Math.min(transaction.doc.content.size, insertedStart + unitNode.nodeSize - 1)
+  transaction.setSelection(TextSelection.near(transaction.doc.resolve(insertedEnd), -1)).scrollIntoView()
+  // AI 单元及其前后用户输入必须是三个独立 history events；否则 500ms
+  // grouping 窗口内的一次 Undo 可能同时删掉用户上一笔或下一笔正文。
+  currentEditor.view.dispatch(closeHistory(transaction))
+  currentEditor.view.dispatch(closeHistory(currentEditor.state.tr).setMeta('addToHistory', false))
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return { ok: true, unitId: created.unit.attrs.unitId, replacedPlaceholder, focus: { unitId: created.unit.attrs.unitId, edge: 'end' } }
+}
+
+// 画师结果只以稳定 MediaAsset 引用进入正文。该命令在一次 ProseMirror
+// transaction 中插入独立 writingUnit；目标或 document revision 变化时
+// fail closed，调用方不能退回当前光标或文末。
+function insertMediaReference({
+  mediaAssetId,
+  alt = '正文插画',
+  sourceRefs = [],
+  afterUnitId,
+  expectedUnitRevision,
+  expectedDocumentRevision
+} = {}) {
+  const currentEditor = editor.value
+  const assetId = String(mediaAssetId || '').trim()
+  const targetUnitId = String(afterUnitId || '').trim()
+  if (!currentEditor || !assetId || !targetUnitId) return { ok: false, reason: 'invalid-media-reference' }
+  if (expectedDocumentRevision !== undefined && expectedDocumentRevision !== null
+    && String(currentDocument.value?.revision ?? '') !== String(expectedDocumentRevision)) {
+    return { ok: false, reason: 'target-document-stale' }
+  }
+
+  let target = null
+  currentEditor.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'writingUnit' && String(node.attrs?.unitId || '') === targetUnitId) {
+      target = { node, pos: offset }
+    }
+  })
+  if (!target) return { ok: false, reason: 'target-unit-missing' }
+  const canonicalUnit = (currentDocument.value?.content || []).find((unit) => (
+    String(unit?.attrs?.unitId || '') === targetUnitId
+  ))
+  if (!canonicalUnit) return { ok: false, reason: 'target-unit-missing' }
+  if (expectedUnitRevision !== undefined && expectedUnitRevision !== null
+    && Number(canonicalUnit.attrs?.unitRevision || 0) !== Number(expectedUnitRevision || 0)) {
+    return { ok: false, reason: 'target-unit-stale' }
+  }
+
+  const schema = currentEditor.state.schema
+  const unitType = schema.nodes.writingUnit
+  const mediaType = schema.nodes.mediaReference
+  if (!unitType || !mediaType) return { ok: false, reason: 'media-node-unavailable' }
+  const createdAt = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
+  const nodeId = `node-editor-media-${createdAt}`
+  const unitId = `unit-editor-media-${createdAt}`
+  const mediaNode = mediaType.create({
+    nodeId,
+    nodeRevision: 0,
+    nodeKind: 'media-reference',
+    rawMarkdown: null,
+    leadingMarkdown: '\n',
+    originalText: null,
+    mediaAssetId: assetId,
+    alt: String(alt || '正文插画').replace(/[\r\n]+/g, ' ').trim() || '正文插画',
+    sourceRefs: Array.isArray(sourceRefs) ? sourceRefs : []
+  })
+  const unitNode = unitType.create({
+    unitId,
+    unitRevision: 0,
+    unitKind: 'source',
+    sceneId: null,
+    originRefs: []
+  }, [mediaNode])
+  const insertPosition = target.pos + target.node.nodeSize
+  const transaction = currentEditor.state.tr
+    .insert(insertPosition, unitNode)
+    .setMeta('authoringMediaInsert', {
+      mediaAssetId: assetId,
+      unitId,
+      nodeId,
+      afterUnitId: targetUnitId
+    })
+    .setMeta('writingInputOrigin', 'media-insert')
+    .setMeta('writingUnitTransition', {
+      type: 'insert-media',
+      keptUnitId: unitId,
+      createdUnitId: unitId,
+      removedUnitId: null,
+      nodeUnitMap: { [nodeId]: unitId }
+    })
+  transaction.setSelection(NodeSelection.create(transaction.doc, insertPosition + 1)).scrollIntoView()
+  currentEditor.view.dispatch(closeHistory(transaction))
+  currentEditor.view.dispatch(closeHistory(currentEditor.state.tr).setMeta('addToHistory', false))
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return { ok: true, unitId, nodeId, mediaAssetId: assetId, afterUnitId: targetUnitId }
+}
+
+function stableBatchId(seed = '') {
+  let hash = 2166136261
+  const value = String(seed || '')
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+// 一个 SceneBeatDraft = 一个编辑器 history event。全部 proposed units 在 dispatch
+// 前完成目标、revision、origin、节点与 ID 校验；中途任何失败都保持正文零写入。
+function insertWritingUnitBatch({ units = [], originRefs, sceneId = null, beatFingerprint = '', afterUnitId, expectedUnitRevision } = {}) {
+  const currentEditor = editor.value
+  const proposals = Array.isArray(units) ? units : []
+  if (!currentEditor || !proposals.length) return { ok: false, reason: 'no-editor' }
+  const originRef = Array.isArray(originRefs) ? originRefs[0] : null
+  const schema = currentEditor.state.schema
+  const unitType = schema.nodes.writingUnit
+  const paragraphType = schema.nodes.paragraph
+  if (!unitType || !paragraphType) return { ok: false, reason: 'no-unit-type' }
+
+  let target = null
+  if (afterUnitId) {
+    currentEditor.state.doc.forEach((node, offset) => {
+      if (node.type.name === 'writingUnit' && node.attrs.unitId === afterUnitId) target = { node, pos: offset }
+    })
+    if (!target) return { ok: false, reason: 'target-unit-missing' }
+    const canonicalUnit = (currentDocument.value?.content || []).find(
+      (unit) => unit?.attrs?.unitId === afterUnitId
+    )
+    const currentRevision = Number((canonicalUnit || target.node).attrs?.unitRevision || 0)
+    if (expectedUnitRevision !== null && expectedUnitRevision !== undefined
+      && currentRevision !== Number(expectedUnitRevision || 0)) {
+      return { ok: false, reason: 'target-unit-stale' }
+    }
+  }
+
+  const usedUnitIds = new Set()
+  const usedNodeIds = new Set()
+  currentEditor.state.doc.descendants((node) => {
+    if (node.type.name === 'writingUnit' && node.attrs?.unitId) usedUnitIds.add(node.attrs.unitId)
+    if (node.attrs?.nodeId) usedNodeIds.add(node.attrs.nodeId)
+  })
+  const createdUnits = []
+  const unitNodes = []
+  for (let index = 0; index < proposals.length; index += 1) {
+    const proposal = proposals[index] || {}
+    const value = String(proposal.text ?? '').trim()
+    const created = createWritingUnitFromAuthoringTurn({ text: value, originRef })
+    if (!created.ok) return { ok: false, reason: 'invalid-turn' }
+    const stableSeed = `${beatFingerprint || originRef?.requestId || 'beat'}\u0000${proposal.draftUnitId || index}`
+    const unitId = `unit-${stableBatchId(stableSeed)}`
+    if (usedUnitIds.has(unitId)) return { ok: false, reason: 'duplicate-unit-id' }
+    usedUnitIds.add(unitId)
+    const children = created.unit.content.map((node, nodeIndex) => {
+      const nodeId = `node-${stableBatchId(`${stableSeed}\u0000${nodeIndex}\u0000${node.content?.[0]?.text || ''}`)}`
+      if (usedNodeIds.has(nodeId)) return null
+      usedNodeIds.add(nodeId)
+      return paragraphType.create(
+        { ...node.attrs, nodeId, nodeKind: node.attrs.kind },
+        node.content.map((inline) => schema.text(inline.text || ''))
+      )
+    })
+    if (children.some((child) => !child)) return { ok: false, reason: 'duplicate-node-id' }
+    const unitNode = unitType.create({
+      unitId,
+      unitRevision: 0,
+      unitKind: 'passage',
+      sceneId: sceneId || null,
+      originRefs: [created.originRef]
+    }, children)
+    createdUnits.push({ unitId, draftUnitId: proposal.draftUnitId || '', text: value })
+    unitNodes.push(unitNode)
+  }
+
+  const replacedPlaceholder = Boolean(target
+    && currentEditor.state.doc.childCount === 1
+    && !target.node.textContent.trim())
+  const insertPosition = target ? target.pos + target.node.nodeSize : Math.max(1, currentEditor.state.doc.content.size)
+  const insertedStart = replacedPlaceholder ? target.pos : insertPosition
+  const fragment = Fragment.fromArray(unitNodes)
+  const transaction = (replacedPlaceholder
+    ? currentEditor.state.tr.replaceWith(target.pos, target.pos + target.node.nodeSize, fragment)
+    : currentEditor.state.tr.insert(insertPosition, fragment))
+    .setMeta('writingAgentInsert', true)
+    .setMeta('writingInputOrigin', 'writing-agent')
+    .setMeta('writingUnitTransition', {
+      type: 'insert-batch',
+      keptUnitId: createdUnits[0].unitId,
+      createdUnitId: createdUnits[0].unitId,
+      createdUnitIds: createdUnits.map((unit) => unit.unitId),
+      removedUnitId: replacedPlaceholder ? afterUnitId : null,
+      nodeUnitMap: Object.fromEntries(unitNodes.flatMap((unitNode, unitIndex) => (
+        unitNode.content.content.map((child) => [child.attrs.nodeId, createdUnits[unitIndex].unitId])
+      )))
+    })
+  const insertedSize = unitNodes.reduce((sum, node) => sum + node.nodeSize, 0)
+  const insertedEnd = Math.min(transaction.doc.content.size, insertedStart + insertedSize - 1)
+  transaction.setSelection(TextSelection.near(transaction.doc.resolve(insertedEnd), -1)).scrollIntoView()
+  currentEditor.view.dispatch(closeHistory(transaction))
+  currentEditor.view.dispatch(closeHistory(currentEditor.state.tr).setMeta('addToHistory', false))
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return {
+    ok: true,
+    unitId: createdUnits[0].unitId,
+    unitIds: createdUnits.map((unit) => unit.unitId),
+    units: createdUnits,
+    replacedPlaceholder,
+    focus: { unitId: createdUnits.at(-1).unitId, edge: 'end' }
+  }
+}
+
+// “重写当前块”保留稳定 unitId，并把整次替换压成一个 history event。
+// revision 守卫读取 canonical document；失败绝不回退为插入。
+function replaceWritingUnit({ text, originRefs, unitId, expectedUnitRevision } = {}) {
+  const currentEditor = editor.value
+  const value = String(text ?? '')
+  if (!currentEditor || !value || !unitId) return { ok: false, reason: 'no-editor' }
+  let target = null
+  currentEditor.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'writingUnit' && node.attrs.unitId === unitId) target = { node, pos: offset }
+  })
+  if (!target) return { ok: false, reason: 'target-unit-missing' }
+  const canonicalUnit = (currentDocument.value?.content || []).find(
+    (unit) => unit?.attrs?.unitId === unitId
+  )
+  if (!canonicalUnit) return { ok: false, reason: 'target-unit-missing' }
+  const currentRevision = Number((canonicalUnit || target.node).attrs?.unitRevision || 0)
+  if (expectedUnitRevision !== null && expectedUnitRevision !== undefined
+    && currentRevision !== Number(expectedUnitRevision || 0)) {
+    return { ok: false, reason: 'target-unit-stale' }
+  }
+  const originRef = Array.isArray(originRefs) ? originRefs[0] : null
+  const created = createWritingUnitFromAuthoringTurn({ text: value, originRef })
+  if (!created.ok) return { ok: false, reason: 'invalid-turn' }
+  const schema = currentEditor.state.schema
+  const paragraphType = schema.nodes.paragraph
+  const unitType = schema.nodes.writingUnit
+  if (!paragraphType || !unitType) return { ok: false, reason: 'no-unit-type' }
+  const children = created.unit.content.map((node) => paragraphType.create(
+    { ...node.attrs, nodeKind: node.attrs.kind },
+    node.content.map((inline) => schema.text(inline.text || ''))
+  ))
+  const replacement = unitType.create({
+    unitId,
+    unitRevision: currentRevision + 1,
+    unitKind: target.node.attrs.unitKind || 'passage',
+    sceneId: target.node.attrs.sceneId || null,
+    originRefs: [...new Set([
+      ...(Array.isArray(target.node.attrs.originRefs) ? target.node.attrs.originRefs : []),
+      created.originRef
+    ].filter(Boolean))]
+  }, children)
+  const transaction = currentEditor.state.tr
+    .replaceWith(target.pos, target.pos + target.node.nodeSize, replacement)
+    .setMeta('writingAgentReplace', true)
+    .setMeta('writingInputOrigin', 'writing-agent')
+  const replacementEnd = Math.min(transaction.doc.content.size, target.pos + replacement.nodeSize - 1)
+  transaction.setSelection(TextSelection.near(transaction.doc.resolve(replacementEnd), -1)).scrollIntoView()
+  currentEditor.view.dispatch(closeHistory(transaction))
+  currentEditor.view.dispatch(closeHistory(currentEditor.state.tr).setMeta('addToHistory', false))
+  currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return {
+    ok: true,
+    unitId,
+    replacedUnit: true,
+    beforeUnit: JSON.parse(JSON.stringify(canonicalUnit)),
+    focus: { unitId, edge: 'end' }
+  }
+}
+
+// 重写撤销/重做使用确切 schema-v3 单元快照，避免把目标 unitId 当成一次
+// “插入/删除”历史。事务不进入 PM history；页面 sidecar receipt 负责方向与持久化。
+function restoreWritingUnitSnapshot({ unitId, snapshot } = {}) {
+  const currentEditor = editor.value
+  if (!currentEditor || !unitId || !snapshot) return { ok: false, reason: 'snapshot-missing' }
+  let target = null
+  currentEditor.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'writingUnit' && node.attrs.unitId === unitId) target = { node, pos: offset }
+  })
+  if (!target) return { ok: false, reason: 'target-unit-missing' }
+  const content = writingDocumentToEditorContent({ schemaVersion: 3, revision: 0, content: [snapshot], meta: {} })
+  const json = content?.[0]
+  if (!json) return { ok: false, reason: 'snapshot-invalid' }
+  let replacement
+  try {
+    replacement = currentEditor.state.schema.nodeFromJSON(json)
+  } catch {
+    return { ok: false, reason: 'snapshot-invalid' }
+  }
+  const transaction = currentEditor.state.tr
+    .replaceWith(target.pos, target.pos + target.node.nodeSize, replacement)
+    .setMeta('addToHistory', false)
+    .setMeta('writingInputOrigin', 'historyRestore')
   currentEditor.view.dispatch(transaction)
-  nextTick(() => currentEditor.commands.focus('end'))
-  return { ok: true, unitId: created.unit.attrs.unitId }
+  return { ok: true, unitId }
+}
+
+function runHistoryWithoutScroll(command) {
+  const currentEditor = editor.value
+  if (!currentEditor) return false
+  const changed = command(currentEditor.state, currentEditor.view.dispatch)
+  if (changed) currentEditor.commands.focus(undefined, { scrollIntoView: false })
+  return Boolean(changed)
 }
 
 function undo() {
-  return Boolean(editor.value?.chain().focus().undo().run())
+  return runHistoryWithoutScroll(undoNoScroll)
 }
 
 function redo() {
-  return Boolean(editor.value?.chain().focus().redo().run())
+  return runHistoryWithoutScroll(redoNoScroll)
 }
 
 function toggleMark(mark) {
   if (!editor.value || !['bold', 'italic', 'strike', 'code'].includes(mark)) return false
-  return editor.value.chain().focus().toggleMark(mark).run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).toggleMark(mark).run()
 }
 
 function getSelection() {
   if (!editor.value) return null
   const { from, to } = editor.value.state.selection
+  const startBlockSelection = resolveEditorBlockSelection(editor.value, from)
+  const endBlockSelection = from === to
+    ? startBlockSelection
+    : resolveEditorBlockSelection(editor.value, Math.max(from, to - 1), to) || startBlockSelection
+  const plainTextSnapshot = buildEditorPlainTextSnapshot(editor.value, startBlockSelection, endBlockSelection)
+  let cursorRect = null
+  if (from !== to) {
+    try {
+      const head = editor.value.state.selection.head
+      const coordinates = editor.value.view.coordsAtPos(head, head === from ? -1 : 1)
+      cursorRect = {
+        top: coordinates.top,
+        right: coordinates.right,
+        bottom: coordinates.bottom,
+        left: coordinates.left
+      }
+    } catch {
+      cursorRect = null
+    }
+  }
   return {
     from,
     to,
     empty: from === to,
-    text: editor.value.state.doc.textBetween(from, to, '\n')
+    text: plainTextSnapshot.text,
+    previousText: plainTextSnapshot.beforeText.slice(-1),
+    nextText: plainTextSnapshot.afterText.slice(0, 1),
+    cursorRect
   }
 }
 
@@ -1151,7 +2782,7 @@ function getRootElement() {
 function getAnnotationAnchorMetrics(annotation) {
   if (!editor.value || !annotation) return null
   const blockPositions = new Map()
-  editor.value.state.doc.descendants((node, pos) => {
+  collectDirectWritingBlocks(editor.value.state.doc).forEach(({ node, pos }) => {
     if (node.attrs?.nodeId) blockPositions.set(node.attrs.nodeId, { node, pos })
   })
   const range = resolveAnnotationDocumentRange(annotation, blockPositions)
@@ -1187,26 +2818,37 @@ function setSelection(from, to = from) {
   const max = editor.value.state.doc.content.size
   const safeFrom = Math.max(1, Math.min(max, Number(from) || 1))
   const safeTo = Math.max(safeFrom, Math.min(max, Number(to) || safeFrom))
-  return editor.value.chain().focus().setTextSelection({ from: safeFrom, to: safeTo }).run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).setTextSelection({ from: safeFrom, to: safeTo }).run()
 }
 
 function findTextRange(query, occurrence = 0, nodeId = null) {
   if (!editor.value || !String(query || '')) return null
-  const needle = String(query).toLocaleLowerCase()
+  const queryText = String(query)
+  const needle = queryText.toLocaleLowerCase()
+  const requestedOccurrence = Number.isFinite(Number(occurrence)) ? Math.max(0, Number(occurrence)) : 0
   let seen = 0
   let result = null
 
-  editor.value.state.doc.nodesBetween(0, editor.value.state.doc.content.size, (node, pos, parent) => {
-    if (result || !node.isText) return
-    if (nodeId && parent?.attrs?.nodeId !== nodeId) return
-    const text = String(node.text || '')
-    const index = text.toLocaleLowerCase().indexOf(needle)
-    if (index < 0) return
-    if (seen === Number(occurrence) || !Number.isFinite(Number(occurrence))) {
-      result = { from: pos + index, to: pos + index + String(query).length }
-      return
-    }
-    seen += 1
+  // 只遍历 writingUnit 的直接块：blockquote 内部 paragraph 是编辑器实现，
+  // canonical ID/偏移属于外层 quote，不能把内部节点当成另一个正文块。
+  editor.value.state.doc.forEach((unit, unitPos) => {
+    unit.forEach((node, blockOffset) => {
+      if (result || (nodeId && node.attrs?.nodeId !== nodeId)) return
+      const location = { node, pos: unitPos + 1 + blockOffset }
+      const haystack = editorBlockPlainText(node).toLocaleLowerCase()
+      let index = haystack.indexOf(needle)
+      while (index >= 0) {
+        if (seen === requestedOccurrence) {
+          result = {
+            from: editorDocumentPositionAtBlockOffset(location, index),
+            to: editorDocumentPositionAtBlockOffset(location, index + queryText.length)
+          }
+          return
+        }
+        seen += 1
+        index = haystack.indexOf(needle, index + needle.length)
+      }
+    })
   })
   return result
 }
@@ -1220,55 +2862,78 @@ function selectNodeRange(startNodeId, startOffset, endNodeId, endOffset) {
   const startNode = findNodeRange(startNodeId)
   const endNode = findNodeRange(endNodeId || startNodeId)
   if (!editor.value || !startNode || !endNode) return false
-  const from = Math.max(startNode.from, startNode.from + Math.max(0, Number(startOffset) || 0))
-  const to = Math.max(from, endNode.from + Math.max(0, Number(endOffset) || 0))
+  if (endNode.from < startNode.from) return false
+  const from = editorDocumentPositionAtBlockOffset(startNode, startOffset)
+  const to = editorDocumentPositionAtBlockOffset(endNode, endOffset)
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return false
+  if (to < from) return false
   return setSelection(from, to)
 }
 
 function findNodeRange(nodeId) {
   if (!editor.value || !nodeId) return null
-  let result = null
-  editor.value.state.doc.descendants((node, pos) => {
-    if (result || node.attrs?.nodeId !== nodeId) return !result
-    result = {
+  const location = collectDirectWritingBlocks(editor.value.state.doc)
+    .find(({ node }) => node.attrs?.nodeId === nodeId)
+  if (!location) return null
+  const { node, pos } = location
+  return {
       nodeId,
-      from: pos + 1,
-      to: pos + node.nodeSize - 1,
+      pos,
+      from: editorDocumentPositionAtBlockOffset({ node, pos }, 0),
+      to: editorDocumentPositionAtBlockOffset({ node, pos }, editorBlockPlainText(node).length),
+      textLength: editorBlockPlainText(node).length,
       node
-    }
-    return false
-  })
-  return result
+  }
 }
 
-function replaceTextRange(from, to, text) {
+function replaceTextRange(from, to, text, options = {}) {
   if (!editor.value) return false
   const start = Number(from)
   const end = Number(to)
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) return false
-  const transaction = editor.value.state.tr.insertText(String(text ?? ''), start, end)
-  editor.value.view.dispatch(transaction)
-  editor.value.commands.focus()
+  const origin = options.origin === 'writing-agent' ? 'writing-agent' : 'input'
+  const transaction = editor.value.state.tr
+    .insertText(String(text ?? ''), start, end)
+    .setMeta('writingInputOrigin', origin)
+  editor.value.view.dispatch(origin === 'writing-agent' ? closeHistory(transaction) : transaction)
+  if (origin === 'writing-agent') sealEditorHistoryGroup(editor.value)
+  editor.value.commands.focus(undefined, { scrollIntoView: false })
   return true
 }
 
-function replaceNodeText(nodeId, text) {
+function replaceNodeText(nodeId, text, options = {}) {
   const range = findNodeRange(nodeId)
-  return range ? replaceTextRange(range.from, range.to, text) : false
+  if (!range || !editor.value) return false
+  if (range.node.type.name !== 'blockquote') return replaceTextRange(range.from, range.to, text, options)
+  const origin = options.origin === 'writing-agent' ? 'writing-agent' : 'input'
+  const paragraphs = createPlainTextParagraphs(editor.value.state, String(text ?? ''), {
+    marks: null,
+    blankLineParagraphs: true
+  })
+  if (!paragraphs.length) return false
+  const replacement = range.node.type.create(range.node.attrs, paragraphs, range.node.marks)
+  const transaction = editor.value.state.tr
+    .replaceWith(range.pos, range.pos + range.node.nodeSize, replacement)
+    .setMeta('writingInputOrigin', origin)
+  editor.value.view.dispatch(origin === 'writing-agent' ? closeHistory(transaction) : transaction)
+  if (origin === 'writing-agent') sealEditorHistoryGroup(editor.value)
+  editor.value.commands.focus(undefined, { scrollIntoView: false })
+  return true
 }
 
-function replaceNodeRanges(patches) {
+function replaceNodeRanges(patches, options = {}) {
   if (!editor.value || !Array.isArray(patches) || !patches.length) return false
+  const origin = options.origin === 'writing-agent' ? 'writing-agent' : 'input'
   const ranges = patches.map((patch) => {
     const node = findNodeRange(patch?.nodeId)
     if (!node) return null
     const editorRange = patch?.editorRange
     const from = Number.isFinite(Number(editorRange?.from))
       ? Number(editorRange.from)
-      : node.from + Math.max(0, Number(patch?.range?.startOffset || 0))
+      : editorDocumentPositionAtBlockOffset(node, patch?.range?.startOffset || 0)
     const to = Number.isFinite(Number(editorRange?.to))
       ? Number(editorRange.to)
-      : node.from + Math.max(0, Number(patch?.range?.endOffset ?? (node.to - node.from)))
+      : editorDocumentPositionAtBlockOffset(node, patch?.range?.endOffset ?? node.textLength)
     if (!Number.isFinite(from) || !Number.isFinite(to) || from < node.from || to < from || to > node.to) return null
     return { from, to, text: String(patch?.replacement ?? patch?.text ?? '') }
   })
@@ -1277,10 +2942,11 @@ function replaceNodeRanges(patches) {
   for (let index = 1; index < ordered.length; index += 1) {
     if (ordered[index - 1].from < ordered[index].to) return false
   }
-  const transaction = editor.value.state.tr
+  const transaction = editor.value.state.tr.setMeta('writingInputOrigin', origin)
   ordered.forEach((range) => transaction.insertText(range.text, range.from, range.to))
-  editor.value.view.dispatch(transaction)
-  editor.value.commands.focus()
+  editor.value.view.dispatch(origin === 'writing-agent' ? closeHistory(transaction) : transaction)
+  if (origin === 'writing-agent') sealEditorHistoryGroup(editor.value)
+  editor.value.commands.focus(undefined, { scrollIntoView: false })
   return true
 }
 
@@ -1288,85 +2954,217 @@ function focusNode(nodeId) {
   const range = findNodeRange(nodeId)
   if (!editor.value || !range) return false
   const position = Math.max(1, Number(range.from) || 1)
-  const focused = editor.value.chain().focus().setTextSelection({ from: position, to: position }).run()
+  const focused = editor.value.chain().focus(undefined, { scrollIntoView: false }).setTextSelection({ from: position, to: position }).run()
   editor.value.commands.scrollIntoView?.()
   return Boolean(focused)
 }
 
+function focusWritingUnit(unitId) {
+  const currentEditor = editor.value
+  if (!currentEditor || !unitId) return false
+  let position = null
+  currentEditor.state.doc.forEach((unit, unitPos) => {
+    if (position != null || String(unit?.attrs?.unitId || '') !== String(unitId)) return
+    let firstTextblockOffset = null
+    unit.forEach((node, offset) => {
+      if (firstTextblockOffset == null && node.isTextblock) firstTextblockOffset = offset
+    })
+    position = unitPos + 1 + Number(firstTextblockOffset || 0) + 1
+  })
+  if (position == null) return false
+  const focused = currentEditor.chain().focus(undefined, { scrollIntoView: false }).setTextSelection(position).scrollIntoView().run()
+  return Boolean(focused)
+}
+
 function splitWritingUnit() {
-  return Boolean(editor.value?.chain().focus().splitWritingUnit().run())
+  const changed = Boolean(editor.value?.chain().focus(undefined, { scrollIntoView: false }).splitWritingUnit().run())
+  if (changed) sealEditorHistoryGroup()
+  return changed
 }
 
 function mergeWritingUnit(direction = 'previous') {
-  return Boolean(editor.value?.chain().focus().mergeWritingUnit(direction).run())
+  const changed = Boolean(editor.value?.chain().focus(undefined, { scrollIntoView: false }).mergeWritingUnit(direction).run())
+  if (changed) sealEditorHistoryGroup()
+  return changed
 }
 
 function moveWritingUnit(direction) {
-  return Boolean(editor.value?.chain().focus().moveWritingUnit(direction).run())
+  const changed = Boolean(editor.value?.chain().focus(undefined, { scrollIntoView: false }).moveWritingUnit(direction).run())
+  if (changed) sealEditorHistoryGroup()
+  return changed
 }
 
 function replaceText(query, replacement, occurrence = 0) {
   const range = findTextRange(query, occurrence)
   if (!range) return false
-  return editor.value.chain().focus().insertContentAt(range, String(replacement ?? '')).run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).insertContentAt(range, String(replacement ?? '')).run()
 }
 
 function replaceAll(query, replacement) {
   if (!editor.value || !String(query || '')) return false
-  const needle = String(query).toLocaleLowerCase()
   const ranges = []
-  editor.value.state.doc.nodesBetween(0, editor.value.state.doc.content.size, (node, pos) => {
-    if (!node.isText) return
-    const text = String(node.text || '')
-    let index = text.toLocaleLowerCase().indexOf(needle)
-    while (index >= 0) {
-      ranges.push({ from: pos + index, to: pos + index + String(query).length })
-      index = text.toLocaleLowerCase().indexOf(needle, index + String(query).length)
-    }
-  })
+  for (let occurrence = 0; ; occurrence += 1) {
+    const range = findTextRange(query, occurrence)
+    if (!range) break
+    ranges.push(range)
+  }
   if (!ranges.length) return false
   const transaction = editor.value.state.tr
   ranges.reverse().forEach((range) => {
     transaction.insertText(String(replacement ?? ''), range.from, range.to)
   })
   editor.value.view.dispatch(transaction)
-  editor.value.commands.focus()
+  editor.value.commands.focus(undefined, { scrollIntoView: false })
   return true
 }
 
 function clearMarks() {
   if (!editor.value) return false
-  return editor.value.chain().focus().unsetAllMarks().run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).unsetAllMarks().run()
 }
 
 function deleteSelection() {
   if (!editor.value) return false
-  return editor.value.chain().focus().deleteSelection().run()
+  if (!protectDestructiveSelection('delete-selection')) return false
+  if (editor.value.state.selection instanceof AllSelection) return replaceWholeWritingDocument('', { origin: 'structure' })
+  if (selectedWritingUnitIds(editor.value.state).length > 1) {
+    warnBlockedStructureEdit('cross-unit-delete')
+    return false
+  }
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).deleteSelection().run()
 }
 
 function selectAll() {
   if (!editor.value) return false
-  return editor.value.chain().focus().selectAll().run()
+  return editor.value.chain().focus(undefined, { scrollIntoView: false }).selectAll().run()
+}
+
+function captureSelectionBookmark() {
+  return editor.value?.state.selection.getBookmark() || null
+}
+
+// 双栏等外部运行 owner 需要在提交瞬间读取与 selection-change 完全相同的
+// 稳定 node/unit + markdown 光标快照。只暴露只读快照，不暴露 ProseMirror
+// state，避免调用方各自重新推导一套位置语义。
+function getSelectionSnapshot() {
+  return editor.value ? buildSelectionSnapshot(editor.value) : null
+}
+
+function getCommandAvailability() {
+  const currentEditor = editor.value
+  if (!currentEditor) {
+    return {
+      undo: false,
+      redo: false,
+      cut: false,
+      copy: false,
+      deleteSelection: false,
+      selectAll: false,
+      splitUnit: false,
+      mergePreviousUnit: false,
+      moveUnitUp: false,
+      moveUnitDown: false,
+      bold: false,
+      italic: false
+    }
+  }
+  const commands = currentEditor.can()
+  const selection = currentEditor.state.selection
+  const hasSelection = !selection.empty
+  const allSelection = selection instanceof AllSelection
+  const textSelection = selection instanceof TextSelection
+  const nodeSelection = selection instanceof NodeSelection
+  const selectedUnits = selectedWritingUnitIds(currentEditor.state)
+  const crossesProtectedUnitBoundary = !allSelection && selectedUnits.length > 1
+  const selectedPlainText = hasSelection ? String(getSelection()?.text || '') : ''
+  const hasSerializableText = Boolean(selectedPlainText) && (textSelection || allSelection) && !nodeSelection
+  const canDeleteSelection = hasSelection && !crossesProtectedUnitBoundary
+  const startBlock = textSelection
+    ? resolveEditorBlockSelection(currentEditor, selection.from)
+    : null
+  const endBlock = textSelection
+    ? resolveEditorBlockSelection(currentEditor, Math.max(selection.from, selection.to - 1), selection.to)
+    : null
+  let selectedTextHasMarks = false
+  if (textSelection && hasSelection) {
+    currentEditor.state.doc.nodesBetween(selection.from, selection.to, (node) => {
+      if (node.isText && node.marks?.length) selectedTextHasMarks = true
+    })
+  }
+  // 自定义剪贴板目前只序列化纯文本；只有单一、无 marks 的 prose 段落
+  // 能做到 Cut→Paste 无损。标题、引用、全章/unit 编排仍可 Copy 为纯文本，
+  // 但不提供会永久降级结构的 Cut。
+  const canLosslesslyCut = hasSerializableText
+    && canDeleteSelection
+    && !allSelection
+    && startBlock?.pos === endBlock?.pos
+    && startBlock?.node?.type?.name === 'paragraph'
+    && !selectedTextHasMarks
+  return {
+    undo: Boolean(commands.undo?.()),
+    redo: Boolean(commands.redo?.()),
+    cut: canLosslesslyCut,
+    copy: hasSerializableText,
+    paste: !crossesProtectedUnitBoundary && !nodeSelection,
+    deleteSelection: canDeleteSelection,
+    selectAll: currentEditor.state.doc.content.size > 0,
+    splitUnit: Boolean(commands.splitWritingUnit?.()),
+    mergePreviousUnit: Boolean(commands.mergeWritingUnit?.('previous')),
+    moveUnitUp: Boolean(commands.moveWritingUnit?.('up')),
+    moveUnitDown: Boolean(commands.moveWritingUnit?.('down')),
+    bold: currentEditor.isActive('bold'),
+    italic: currentEditor.isActive('italic')
+  }
+}
+
+function restoreSelectionBookmark(bookmark, options = {}) {
+  if (!editor.value || !bookmark?.resolve) return false
+  try {
+    const view = editor.value.view
+    const selection = bookmark.resolve(editor.value.state.doc)
+    view.dispatch(editor.value.state.tr.setSelection(selection))
+    // tiptap commands.focus() 走异步 focus 管理：右键菜单刚卸载、焦点还在
+    // 菜单按钮上时，DOM 选区可能滞留不画——journey/用户看到的仍是“无选区”。
+    // view.focus() 同步聚焦并从内部 state 回写 DOM selection。
+    view.focus()
+    if (options.scrollIntoView === false) {
+      const dom = view.domAtPos(editor.value.state.selection.from)
+      const targetNode = dom.node instanceof Element ? dom.node : dom.node.parentElement
+      targetNode?.scrollIntoView?.({ block: 'nearest' })
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 defineExpose({
   editor,
   focus,
+  blur,
   insertText,
   insertPlainText,
   insertAsNewWritingUnit,
+  insertMediaReference,
+  insertWritingUnitBatch,
+  replaceWritingUnit,
+  restoreWritingUnitSnapshot,
   insertDivider,
   undo,
   redo,
   toggleMark,
   getSelection,
   getRootElement,
+  getScrollElement,
+  hasEditorFocus,
+  closeCommandMenu,
   getAnnotationAnchorMetrics,
   setSelection,
   selectText,
   selectNodeRange,
   findNodeRange,
   focusNode,
+  focusWritingUnit,
   replaceNodeText,
   replaceNodeRanges,
   splitWritingUnit,
@@ -1377,7 +3175,11 @@ defineExpose({
   replaceAll,
   clearMarks,
   deleteSelection,
-  selectAll
+  selectAll,
+  getSelectionSnapshot,
+  captureSelectionBookmark,
+  restoreSelectionBookmark,
+  getCommandAvailability
 })
 </script>
 
@@ -1416,7 +3218,15 @@ defineExpose({
   text-decoration: var(--notebook-text-decoration, none);
   letter-spacing: 0;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  line-break: strict;
+  word-break: normal;
+  overflow-wrap: break-word;
+  font-kerning: normal;
+}
+
+.writing-notebook-editor__surface .writing-cjk-quote {
+  font-family: "LXGW WenKai", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-variant-east-asian: proportional-width;
 }
 
 .writing-notebook-editor__surface .ProseMirror::selection,
@@ -1431,6 +3241,118 @@ defineExpose({
   padding: 0;
 }
 
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]:not(:first-child) {
+  margin-top: 0.62em;
+}
+
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]:not(:first-child)::after {
+  position: absolute;
+  inset-inline-start: -14px;
+  top: -0.36em;
+  width: 8px;
+  content: '';
+  border-top: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 24%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]:not(:first-child):hover::after,
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit].is-current-writing-unit:not(:first-child)::after {
+  opacity: 0.7;
+}
+
+.writing-unit-gap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 0;
+  margin: 0;
+  z-index: 4;
+}
+
+.writing-unit-gap::before,
+.writing-unit-gap::after {
+  display: none;
+}
+
+.writing-unit-gap__actions {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.writing-unit-gap__action {
+  position: relative;
+  min-height: 28px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--notebook-muted) 76%, transparent);
+  font: 500 12px/1.2 var(--font-sans, sans-serif);
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+  cursor: pointer;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.writing-unit-gap__action::before {
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  width: 26px;
+  margin-right: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--notebook-muted) 22%, transparent);
+  content: '';
+}
+
+.writing-unit-gap__action.is-secondary::before {
+  display: none;
+}
+
+.writing-unit-gap__action.is-secondary {
+  color: color-mix(in srgb, var(--notebook-muted) 62%, transparent);
+}
+
+.writing-unit-gap.has-preview {
+  height: auto;
+  margin: 10px 0 18px;
+}
+
+.writing-unit-gap.has-composer,
+.writing-unit-gap:has(.authoring-block-composer) {
+  height: auto;
+  margin: 10px 0 18px;
+}
+
+.writing-unit-gap__action:hover,
+.writing-unit-gap__action:focus-visible {
+  color: var(--accent-primary);
+  opacity: 1;
+  outline: none;
+}
+
+.writing-unit-gap__action:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+@media (max-width: 640px) {
+  .writing-unit-gap__action {
+    min-height: 36px;
+  }
+
+  .writing-unit-gap__actions { right: 2px; gap: 10px; }
+
+  .writing-unit-gap__action::before {
+    width: 16px;
+  }
+}
+
 .writing-notebook-editor__surface section[data-writing-unit] > * {
   position: relative;
   margin: 0 0 var(--notebook-paragraph-gap, 1.05em);
@@ -1438,7 +3360,7 @@ defineExpose({
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-current-writing-line {
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 6%, transparent);
+  background: transparent;
 }
 
 .writing-current-line {
@@ -1477,11 +3399,12 @@ defineExpose({
 .writing-notebook-editor__surface .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
   position: absolute;
   inset-inline-start: -14px;
-  top: 0.45em;
-  width: 2px;
-  height: 24px;
+  top: 0.42em;
+  bottom: auto;
+  width: 1px;
+  height: 1em;
   content: '';
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 68%, transparent);
+  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 34%, transparent);
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-live-markdown-active::before {
@@ -1544,6 +3467,10 @@ defineExpose({
   white-space: pre-wrap;
 }
 
+.writing-notebook-editor.is-composing .writing-inline-suggestion {
+  display: none;
+}
+
 .writing-notebook-editor__surface .ProseMirror .writing-inline-suggestion__content {
   font: inherit;
 }
@@ -1579,6 +3506,30 @@ defineExpose({
   text-decoration-color: var(--archive-olive-strong, #1f4d7a);
 }
 
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention {
+  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 42%, transparent);
+  background: linear-gradient(to top, color-mix(in srgb, var(--archive-olive, #1f4d7a) 7%, transparent) 34%, transparent 34%);
+  cursor: pointer;
+}
+
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention.is-character {
+  border-bottom-color: color-mix(in srgb, var(--accent, #1677ff) 52%, transparent);
+}
+
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention.is-rule,
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention.is-forbidden {
+  border-bottom-style: dashed;
+}
+
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention.is-ambiguous {
+  border-bottom-style: dotted;
+  border-bottom-color: color-mix(in srgb, var(--text-secondary) 58%, transparent);
+}
+
+.writing-notebook-editor__surface .ProseMirror .writing-worldbook-mention:hover {
+  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 11%, transparent);
+}
+
 .writing-notebook-editor__surface .ProseMirror h1,
 .writing-notebook-editor__surface .ProseMirror h2,
 .writing-notebook-editor__surface .ProseMirror h3 {
@@ -1600,11 +3551,56 @@ defineExpose({
   color: var(--notebook-muted);
 }
 
+.writing-notebook-editor__surface .ProseMirror blockquote > p {
+  margin: 0;
+}
+
+.writing-notebook-editor__surface .ProseMirror blockquote > p + p {
+  margin-top: 0.72em;
+}
+
 .writing-notebook-editor__surface .ProseMirror hr {
   width: 38%;
   margin: 2.25em auto;
   border: 0;
   border-top: 1px solid var(--notebook-rule);
+}
+
+.writing-notebook-editor__surface .ProseMirror figure[data-media-reference] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  margin: 1.4em 0;
+  padding: 10px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
+  background: color-mix(in srgb, var(--notebook-paper) 92%, var(--accent-primary) 8%);
+  color: var(--notebook-muted);
+  font: 500 12px/1.5 var(--font-sans, sans-serif);
+  white-space: normal;
+}
+
+.writing-notebook-editor__surface .ProseMirror figure[data-media-reference].ProseMirror-selectednode {
+  border-color: color-mix(in srgb, var(--accent-primary) 54%, var(--notebook-rule));
+  background: color-mix(in srgb, var(--notebook-paper) 86%, var(--accent-primary) 14%);
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 16%, transparent);
+}
+
+.writing-media-reference__mark {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
+  border-radius: 999px;
+  color: var(--accent-primary);
+  font-size: 10px;
+}
+
+.writing-media-reference__caption {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .writing-notebook-editor__loading {
@@ -1614,6 +3610,9 @@ defineExpose({
 }
 
 .writing-command-menu-shell {
+  --notebook-paper: var(--surface-workbench-raised, var(--archive-paper-soft, #fbfdfe));
+  --notebook-ink: var(--archive-ink, var(--text-primary, #1a1a1a));
+  --notebook-muted: var(--archive-ink-soft, var(--text-secondary, #4a637d));
   position: fixed;
   z-index: var(--z-popover, 100);
 }
@@ -1649,6 +3648,26 @@ defineExpose({
   position: absolute;
   top: 0;
   left: calc(100% + 6px);
+}
+
+.writing-command-menu-shell.is-submenu-left .writing-command-submenu {
+  right: calc(100% + 6px);
+  left: auto;
+}
+
+/* visualViewport 变窄或变矮时，二级菜单替换一级而不是上下叠两块；
+   这同时覆盖移动端软键盘抬起后的短视口。 */
+.writing-command-menu-shell.is-stacked.is-sublevel > .writing-command-menu:not(.writing-command-submenu) {
+  visibility: hidden;
+  position: absolute;
+  pointer-events: none;
+}
+
+.writing-command-menu-shell.is-stacked .writing-command-submenu,
+.writing-command-menu-shell.is-stacked.is-submenu-left .writing-command-submenu {
+  top: 0;
+  right: auto;
+  left: 0;
 }
 
 .writing-command-submenu__title {
@@ -1709,8 +3728,10 @@ defineExpose({
 }
 
 @media (max-width: 760px) {
-  .writing-command-submenu {
+  .writing-command-submenu,
+  .writing-command-menu-shell.is-submenu-left .writing-command-submenu {
     top: calc(100% + 6px);
+    right: auto;
     left: 0;
   }
 

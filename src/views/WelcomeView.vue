@@ -550,7 +550,7 @@ const welcomeArchiveItems = [
   background: transparent;
   padding: 4px 12px;
   min-height: 26px;
-  font-family: "Noto Serif SC", "Iowan Old Style", "Songti SC", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 600;
   color: color-mix(in srgb, var(--archive-ink, #241a15) 60%, transparent);
@@ -592,7 +592,7 @@ const welcomeArchiveItems = [
   left: 10px;
   top: 10px;
   color: color-mix(in srgb, var(--archive-rose) 78%, var(--archive-ink));
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.24em;
@@ -609,7 +609,7 @@ const welcomeArchiveItems = [
   writing-mode: vertical-rl;
   transform: rotate(180deg);
   color: color-mix(in srgb, var(--archive-olive) 22%, var(--archive-ink));
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(44px, 5vw, 76px);
   font-weight: 900;
   letter-spacing: 0.14em;
@@ -1026,7 +1026,7 @@ const welcomeArchiveItems = [
 }
 
 .welcome-world-chip__name {
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(28px, 3vw, 38px);
   line-height: 1.02;
   font-weight: 760;
@@ -1218,7 +1218,7 @@ const welcomeArchiveItems = [
 }
 .welcome-recent-session__title {
   color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 16px;
   line-height: 1.2;
   font-weight: 760;
@@ -1276,7 +1276,7 @@ const welcomeArchiveItems = [
 
 .welcome-poster-meta__brand {
   color: var(--archive-ink);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: clamp(34px, 3.4vw, 48px);
   line-height: 1;
   font-weight: 900;
@@ -1364,7 +1364,7 @@ const welcomeArchiveItems = [
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 900;
   background: color-mix(in srgb, #000 18%, transparent);

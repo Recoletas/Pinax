@@ -44,6 +44,8 @@ const ADVISOR_TASK_INSTRUCTIONS = {
   'canvas.relate': '任务：分析当前选中节点与直接邻居之间值得建立或修改的关系。不得扫描整个画布。',
   'canvas.transition': '任务：检查选中镜头与直接邻居的转场，只修改上下文中已有节点之间的转场关系。',
   'experience.next-actions': '任务：基于当前对话、地点、历史、角色状态、精简记忆和未决线索生成玩家可选的下一步行动。不得替玩家选择。',
+  'authoring.scene.directions': '任务：只根据冻结的场景压力与证据，生成二至三个会改变人物行动或信息处置的因果方向。不得续写正文，不得创造未知人物、地点、组织或规则。',
+  'authoring.knowledge.query': '任务：只根据本次冻结且明确授权的项目证据回答作者问题。事实必须引用证据块给出的完整 sourceRef；资料不足就明确说明，不得补写看似合理的设定，也不得返回任何写入动作。',
   'experience.emergence': '任务：审阅当前已有涌现候选，指出最符合对话与地点历史的一项。不得创造新候选或直接修改世界状态。',
   'storyboard.review': '任务：检查当前镜头与前后镜头的动作、人物、空间、光线、景别、运镜和转场连续性。只提出必要的当前镜头字段修改。',
   'storyboard.video.prompt': '任务：为当前已确认分镜镜头准备一条视频生成提示词。只返回待确认请求，不提交媒体任务。'
@@ -194,18 +196,25 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
   "summary": "一句话总结本批次",
   "findings": [
     {
-      "id": "finding-1",
-      "kind": "重复|衔接|POV|角色连续性|时间|设定冲突|节奏|语言",
+      "kind": "proofing|consistency",
+      "issueType": "typo|punctuation|quote|repetition|grammar|naming|time|number|scene-conflict",
       "severity": "low|medium|high",
-      "body": "指出具体问题以及为什么影响当前文本",
-      "start": { "nodeId": "目标节点 ID", "offset": 0 },
-      "end": { "nodeId": "目标节点 ID", "offset": 8 },
-      "exact": "必须与 start/end 范围逐字一致的原文"
+      "reason": "指出具体、可核查的问题",
+      "target": {
+        "nodeId": "目标节点 ID",
+        "startOffset": 0,
+        "endOffset": 8,
+        "exact": "必须与范围逐字一致的原文"
+      },
+      "replacement": "只替换 exact 的确定修正；没有唯一修法时必须为 null",
+      "evidenceRefs": ["只能逐字使用上下文提供的 sourceRef"],
+      "confidence": 0.9
     }
   ],
   "issues": []
 }
-只审查任务选项中列出的目标节点。每条 finding 必须有真实 nodeId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。只返回重复、衔接、视角、角色连续性、时间、设定冲突、节奏或语言问题，不要泛泛评价“更生动”“加强描写”。不得返回 replacement、action，不得修改正文，不得引用目标节点之外的内容。最多返回 8 条，并按实际严重度排序。`
+只校对上下文列出的目标节点，结果按正文顺序返回。每条 finding 必须有真实 nodeId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。proofing 只处理错别字、标点、异常引号、重复词、病句和明显语病；consistency 只处理有证据支持的称谓、时间、数值或当前场冲突。不得扩展成节奏、文风、情节结构评价，也不得冒充任何发布平台的审核规则。
+规范中文引号必须保持外层“……”、嵌套‘……’，不要把正确的“外层‘内层’”当成错误。首行缩进是编辑器排版，不得在 replacement 前增删空格、制表符或全角空格。replacement 只能替换 exact，不能包含换行、标题、Markdown、解释或思考；没有唯一且确定的替换时返回 null。事实一致性 finding 的 evidenceRefs 必须来自上下文授权来源；不得返回 action 或直接修改正文。最多返回 8 条。`
   }
 
   if (taskType === 'materials.classify') {
@@ -317,6 +326,64 @@ parts 为 2-4 项，不得编造上下文没有的事实。`
 options 必须为 2-3 项，使用中文，不得替玩家决定，不得输出预设式万能选项。`
   }
 
+  if (taskType === 'authoring.scene.directions') {
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown。证据不足时输出：
+{
+  "status": "insufficient-evidence",
+  "missing": ["缺少的事实"]
+}
+证据充分时输出：
+{
+  "status": "ready",
+  "pressure": {
+    "statement": "一句有真实取舍的场景压力",
+    "evidenceRefs": ["只能使用上下文中的 sourceRefs"]
+  },
+  "directions": [{
+    "id": "稳定短 ID",
+    "title": "短标题",
+    "action": "人物实际采取的行动或信息处置",
+    "immediateGain": "一个眼前所得",
+    "cost": "一个代价",
+    "evidenceRefs": ["只能使用上下文中的 sourceRefs"],
+    "entityRefs": ["只能使用压力投影允许的实体 ref"]
+  }]
+}
+directions 只能为 2-3 条；不得只改变语气、文风或氛围；任意两条不得是同义行动；不得输出完整正文。`
+  }
+
+  if (taskType === 'authoring.knowledge.query') {
+    const knowledgeIntent = String(options.knowledgeIntent || 'whole-book')
+    const intentRule = ({
+      setting: '查设定：分别说明世界书规则、正文表现和当前场状态，不把其中一种冒充另一种。',
+      foreshadowing: '找伏笔：逐项区分已埋、已兑现、疑似和证据不足；大纲只代表作者意图。',
+      calculation: '算数值：每个输入都要给授权来源，只输出由数字、+ - * / 和括号构成的 expression；宿主会重新计算，禁止心算后只报结论。',
+      clues: '理线索：只排列已有事实、时间与因果；任何推断都明确写“推测”并降为 partial。',
+      character: '挖角色：分别说明世界书设定、正文行为和当前场状态，不把速记当作人物事实。',
+      'whole-book': '问全书：按章节或来源组织答案，引用每个结论实际依赖的原文。',
+      free: '自由问：只提供一般写作建议，claims、evidenceRefs 和 calculations 必须为空。'
+    })[knowledgeIntent] || '只回答当前问题，不扩展为正文生成或资料写入。'
+    return `输出要求：只输出一个 JSON 对象，不要 Markdown、分析过程或写入动作。格式：
+{
+  "answer": "面向作者的简洁回答；资料不足时明确写当前资料中没有找到",
+  "claims": [{
+    "text": "一个可独立核查的结论",
+    "confidence": "supported|partial|unsupported",
+    "evidenceRefs": ["必须逐字来自证据块 sourceRef"]
+  }],
+  "missingInformation": ["资料缺少的具体部分"],
+  "calculations": [{
+    "label": "计算名称",
+    "inputs": [{ "label": "输入名", "value": 0, "unit": "可选单位", "evidenceRefs": ["授权 sourceRef"] }],
+    "expression": "只含数字、+ - * / 与括号的可复算算式",
+    "result": "模型计算结果",
+    "unit": "可选单位"
+  }]
+}
+每个事实 claim 至少引用一条授权证据。大纲只证明作者意图，速记只证明作者建议，不能冒充正文已经发生；推测必须降为 partial 并在文字中标为推测。不得自行返回 excerpt、locator 或 revision，这些字段由宿主从冻结证据补齐。没有证据时 claims 返回空数组并填写 missingInformation。非数值问题 calculations 返回空数组。`
+      + `\n本次模式：${intentRule}`
+  }
+
   if (taskType === 'experience.emergence') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
@@ -400,6 +467,12 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
     providerConfig: _providerConfig,
     agentProvider: _agentProvider,
     fallbackProvider: _fallbackProvider,
+    // Validation inputs are already serialized once in the authorized envelope.
+    // Keep them server-side for result normalization, but never duplicate a full
+    // chapter batch or its authorization catalog in the provider prompt.
+    reviewBlocks: _reviewBlocks,
+    allowedEvidenceRefs: _allowedEvidenceRefs,
+    reviewSourceRevisions: _reviewSourceRevisions,
     ...promptOptions
   } = taskMeta.options || {}
   const optionsText = serializeContext(promptOptions)

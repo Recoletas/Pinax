@@ -160,44 +160,14 @@
           >速记</button>
         </header>
         <section class="ws-live-codex" aria-label="现场索引">
-          <article
+          <SceneIndexSection
             v-for="section in codexSections"
             :key="section.key"
-            class="ws-codex-section"
-            :data-section="section.key"
-            :class="{
-              'ws-codex-section--open': activeCodexSection === section.key,
-              'ws-codex-section--has-update': section.update > 0
-            }"
+            :section="section"
+            :open="activeCodexSection === section.key"
+            @toggle="toggleCodexSection"
+            @open-detail="openCodexDetail"
           >
-            <div
-              class="ws-codex-section__trigger"
-              role="button"
-              tabindex="0"
-              :aria-expanded="(activeCodexSection === section.key).toString()"
-              @click="toggleCodexSection(section.key)"
-              @keydown.enter.prevent="toggleCodexSection(section.key)"
-              @keydown.space.prevent="toggleCodexSection(section.key)"
-            >
-              <span class="ws-codex-section__summary">
-                <span class="ws-codex-section__heading">
-                  <strong class="ws-codex-section__label">{{ section.label }}</strong>
-                  <span class="ws-codex-section__count">{{ section.count }}</span>
-                  <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
-                </span>
-                <span class="ws-codex-section__latest">{{ section.latest }}</span>
-              </span>
-              <button
-                type="button"
-                class="ws-codex-section__quick-detail"
-                :aria-label="`查看${section.label}详情`"
-                @click.stop="openCodexDetail(section.key)"
-                @keydown.enter.stop="openCodexDetail(section.key)"
-                @keydown.space.stop="openCodexDetail(section.key)"
-              >查看</button>
-            </div>
-
-            <div v-if="activeCodexSection === section.key" class="ws-codex-section__body">
               <TimeQuickRail
                 v-if="section.key === 'time'"
                 class="ws-codex-time-rail"
@@ -219,8 +189,7 @@
                 @open-detail="openCodexDetail"
                 @open-place="openPlaceContext"
               />
-            </div>
-          </article>
+          </SceneIndexSection>
         </section>
       </aside>
       <SessionPicker
@@ -557,6 +526,7 @@ import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GamePanel from '../components/GamePanel.vue'
 import InputArea from '../components/InputArea.vue'
 import NarrativeAgentStatus from '../components/experience/NarrativeAgentStatus.vue'
+import SceneIndexSection from '../components/scene/SceneIndexSection.vue'
 import StatusBar from '../components/StatusBar.vue'
 import QuestLog from '../components/QuestLog.vue'
 import GeographyPanel from '../components/geography/GeographyPanel.vue'
@@ -571,6 +541,7 @@ import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, getItem, setTextItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
+import { loadWritingBooks, saveWritingBooks } from '../services/writing/writingBooksRepository'
 import { useTipState } from '../composables/useTipState'
 import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
 import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
@@ -620,7 +591,7 @@ function selectFirstWritingChapter() {
 function openWritingCollectDialog({ message, turn }) {
   writingCollectMessage.value = message
   writingCollectTurn.value = turn
-  writingCollectBooks.value = getItem(STORAGE_KEYS.WRITING_BOOKS) || []
+  writingCollectBooks.value = loadWritingBooks()
   writingCollectBookId.value = writingCollectBooks.value[0]?.id || ''
   selectFirstWritingChapter()
   writingCollectStatus.value = ''
@@ -651,7 +622,7 @@ useTransientLayer({
 })
 
 function confirmWritingCollect() {
-  const books = getItem(STORAGE_KEYS.WRITING_BOOKS) || []
+  const books = loadWritingBooks()
   const result = appendExperienceTurnToChapter({
     books,
     bookId: writingCollectBookId.value,
@@ -667,7 +638,7 @@ function confirmWritingCollect() {
     writingCollectStatus.value = result.reason === 'already-imported' ? '这段体验已经收进稿件。' : '写入失败，原稿件未改变'
     return
   }
-  if (!setItem(STORAGE_KEYS.WRITING_BOOKS, result.books)) {
+  if (!saveWritingBooks(result.books)) {
     writingCollectStatus.value = '写入失败，原稿件未改变'
     return
   }

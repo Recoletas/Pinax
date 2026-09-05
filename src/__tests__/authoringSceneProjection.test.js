@@ -1,9 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   AUTHORING_SCENE_PROJECTION_SCHEMA_VERSION,
   buildAuthoringSceneProjection
 } from '../services/agents/authoring/authoringSceneProjection.js'
-import { normalizeSceneAnchors } from '../services/agents/authoring/authoringSceneAnchors.js'
+import { normalizeSceneAnchors, removeSceneAnchor, upsertSceneAnchor } from '../services/agents/authoring/authoringSceneAnchors.js'
+import { buildAuthoringScenePressureProjection } from '../services/agents/authoring/authoringScenePressureProjection.js'
+import { parseAuthoringSceneDirectionSet } from '../services/agents/authoring/authoringSceneDirectionSet.js'
+import {
+  buildAuthoringSceneLaboratorySelection,
+  createAuthoringSceneLaboratoryRun,
+  selectAuthoringSceneLaboratoryDirection,
+  validateAuthoringSceneLaboratoryRun
+} from '../services/agents/authoring/authoringSceneLaboratoryRun.js'
+import {
+  buildUnitSemanticProjection,
+  createSceneBeatDraft,
+  setSceneBeatBoundary
+} from '../services/agents/authoring/unitSemanticProjection.js'
 
 const CHAPTER = { id: 'chapter-9', title: '旧港税务所', projectId: 'book-1' }
 
@@ -302,7 +315,8 @@ const ANCHOR_UNIT_B = {
   castMode: 'manual',
   presentCharacterIds: ['char-lina'],
   locationId: 'place-tax-office',
-  viewpointCharacterId: 'char-lina'
+  viewpointCharacterId: 'char-lina',
+  time: { label: '入夜后', period: '夜晚' }
 }
 
 function v2Input(overrides = {}) {
@@ -310,7 +324,11 @@ function v2Input(overrides = {}) {
     chapter: CHAPTER,
     documentRevision: 'rev-v2',
     projectId: 'book-1',
-    document: { revision: 'rev-v2', unitOrder: ['unit-a', 'unit-b', 'unit-c'] },
+    document: {
+      revision: 'rev-v2',
+      unitOrder: ['unit-a', 'unit-b', 'unit-c'],
+      content: ['unit-a', 'unit-b', 'unit-c'].map((unitId) => ({ attrs: { unitId, unitRevision: 0 } }))
+    },
     activeUnitId: 'unit-b',
     worldbook: WORLDBOOK,
     sceneAnchors: normalizeSceneAnchors([ANCHOR_UNIT_B]),
@@ -348,6 +366,7 @@ const projection = buildAuthoringSceneProjection(v2Input())
       anchorStatus: 'explicit'
     })
     expect(projection.presentCharacters.map((item) => item.id)).toEqual(['char-lina'])
+    expect(projection.time).toMatchObject({ label: '入夜后', period: '夜晚' })
     expect(projection.activeRelations[0]).toMatchObject({
       subjectId: 'char-lina',
       objectId: 'char-edgar'
@@ -372,6 +391,7 @@ const projection = buildAuthoringSceneProjection(v2Input({
       acceptedObservations: [
         { id: 'x1', kind: 'relation', text: '未采纳', subjectId: 'char-lina', objectId: 'char-mother', relation: '疏远', unitId: 'unit-b', status: 'pending', sourceRefs: [] },
         { id: 'x2', kind: 'event', text: '过期事件', unitId: 'unit-old', status: 'applied', sourceRefs: [] },
+        { id: 'x2b', kind: 'event', text: '同单元旧修订', unitId: 'unit-b', unitRevision: 9, status: 'applied', sourceRefs: [] },
         { id: 'x3', kind: 'event', text: '当前单元事件', unitId: 'unit-b', unitRevision: 0, status: 'applied', sourceRefs: ['document-delta'] }
       ]
     }))
@@ -379,6 +399,277 @@ const projection = buildAuthoringSceneProjection(v2Input({
     expect(projection.activeRelations.map((r) => r.label)).not.toContain('疏远')
     expect(projection.unresolvedEvents.map((e) => e.label)).toContain('当前单元事件')
     expect(projection.unresolvedEvents.map((e) => e.label)).not.toContain('过期事件')
+    expect(projection.unresolvedEvents.map((e) => e.label)).not.toContain('同单元旧修订')
+}
+{
+const projection = buildAuthoringSceneProjection(v2Input({
+      runtimeState: { activeActor: { id: 'char-lina', name: '莉娜' } }
+    }))
+    expect(projection.activeActor).toMatchObject({ id: 'char-lina', name: '莉娜' })
+    // 行动者是 run-only UI 选择，不改变锚点本身。
+    expect(projection.anchorId).toBeTruthy()
+}
+{
+    // F1-2 fixed reading fixtures: all planning evidence comes from one frozen
+    // C1 session; no planner receives tool authorization and insufficient data
+    // never gets padded into template directions.
+    const deepFreeze = (value) => {
+      if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
+      for (const child of Object.values(value)) deepFreeze(child)
+      return Object.freeze(value)
+    }
+    const makeSession = ({ scene = {}, references = [], sceneIntents = [], blocks = [] } = {}) => deepFreeze({
+      kind: 'authoring-run-session',
+      status: 'prepared',
+      target: {
+        projectId: 'book-1', chapterId: 'chapter-9', documentId: 'chapter-9',
+        unitId: 'unit-b', nodeId: 'node-b', documentRevision: 'doc-r1',
+        unitRevision: '1', nodeRevision: '1'
+      },
+      sceneProjection: {
+        projectId: 'book-1', chapterId: 'chapter-9', activeUnitId: 'unit-b',
+        projectionFingerprint: 'scene-fp-fixed', worldbookStatus: 'bound', anchorStatus: 'explicit',
+        viewpointCharacter: { id: 'char-lina', name: '莉娜', sourceRefs: ['worldbook-entry:char-lina'] },
+        presentCharacters: [{ id: 'char-lina', name: '莉娜', sourceRefs: ['worldbook-entry:char-lina'] }],
+        activeRelations: [], unresolvedEvents: [], ...scene
+      },
+      references,
+      sceneIntents,
+      candidates: blocks.map((block) => ({
+        id: block.candidateId,
+        kind: block.kind,
+        label: block.label,
+        primarySourceRef: block.sourceRefs[0],
+        revision: block.revision,
+        representations: { full: block.text, summary: block.text }
+      })),
+      manifest: {
+        kind: 'compiled-context-manifest',
+        fingerprint: `manifest-${blocks.map((block) => block.candidateId).join('-') || 'empty'}`,
+        target: { projectId: 'book-1', chapterId: 'chapter-9', unitId: 'unit-b' },
+        dependencies: { 'document:chapter-9': 'doc-r1' },
+        blocks,
+        excluded: []
+      },
+      toolAuthorization: { tools: ['world_lookup'] }
+    })
+    const block = (id, kind, label, text, ref) => ({
+      candidateId: id, kind, label, text, sourceRefs: [ref], revision: `${id}-r1`
+    })
+    const fixtures = [
+      makeSession({
+        scene: {
+          presentCharacters: [
+            { id: 'char-lina', name: '莉娜', sourceRefs: ['worldbook-entry:char-lina'] },
+            { id: 'char-edgar', name: '艾德加', sourceRefs: ['worldbook-entry:char-edgar'] }
+          ],
+          activeRelations: [{ subjectId: 'char-lina', objectId: 'char-edgar', label: '莉娜怀疑艾德加隐瞒总册下落', sourceRefs: ['worldbook-entry:char-edgar'] }]
+        },
+        blocks: [block('dual-goal', 'worldbook-entry', '艾德加', '艾德加试图掩盖总册失窃。', 'worldbook-entry:char-edgar')]
+      }),
+      makeSession({
+        sceneIntents: [{ entityId: 'char-edgar', label: '安排下一段 · 艾德加', content: '安排艾德加在下一段进入当前场。', sourceRefs: ['worldbook-entry:char-edgar'] }],
+        blocks: [block('arrival', 'scene-intent', '艾德加入场', '安排艾德加在下一段进入当前场。', 'worldbook-entry:char-edgar')]
+      }),
+      makeSession({
+        scene: { location: { id: 'place-tax-office', name: '旧港税务所', sourceRefs: ['worldbook-entry:place-tax-office'], mapStatus: 'confirmed' } },
+        blocks: [block('place-rule', 'worldbook-entry', '旧港税务所', '第三排第七格只能由黄铜钥匙开启。', 'worldbook-entry:place-tax-office')]
+      }),
+      makeSession({
+        scene: { unresolvedEvents: [{ id: 'event-bell', label: '钟声提前响起', sourceRefs: ['observation:event-bell'] }] },
+        blocks: [block('event', 'scene-projection', '未决事件', '钟声提前响起。', 'observation:event-bell')]
+      }),
+      makeSession({
+        references: [{ id: 'note-1', label: '速记', excerpt: '让莉娜用假编号试探知情者。', usageRole: 'intent', sourceRefs: ['exploration-doc:note-1'] }],
+        blocks: [block('reference', 'exploration-doc', '速记', '让莉娜用假编号试探知情者。', 'exploration-doc:note-1')]
+      })
+    ]
+    const fixtureDirectionActions = [
+      ['先收起总册，不让艾德加看见缺页。', '把缺页摊开，要求艾德加解释失窃时间。', '故意说错失窃年份，观察艾德加是否纠正。'],
+      ['在门外截住艾德加，先问清来意。', '让艾德加直接进入档案室共同核对。', '藏起钥匙，只让艾德加辨认门锁痕迹。'],
+      ['用黄铜钥匙开启第三排第七格。', '封住暗格，先检查周围是否有人来过。', '用错误钥匙试探机关的响应规律。'],
+      ['立即循声前往钟楼确认敲钟者。', '锁住档案室，等待第二次钟声定位。', '让同伴去钟楼，自己守住总册。'],
+      ['照速记故意报错暗格编号。', '先验证速记来源，再决定是否试探。', '放弃假编号，直接询问对方是否知情。']
+    ]
+    const beforeStorage = JSON.stringify({ ...localStorage })
+    for (const [fixtureIndex, session] of fixtures.entries()) {
+      const planner = vi.fn(async (request) => {
+        expect(request.toolPolicy).toEqual({ allowTools: false, toolChoice: 'none' })
+        expect(request).not.toHaveProperty('toolAuthorization')
+        expect(request.contextManifest).toBe(session.manifest)
+        const evidenceRef = request.pressureProjection.evidence[0].ref
+        const entityRef = request.pressureProjection.participants[0]?.ref
+          || request.pressureProjection.location?.ref
+        return {
+          pressure: { statement: request.pressureProjection.pressureSeeds[0].summary, evidenceRefs: [evidenceRef] },
+          directions: [
+            { id: 'hold', title: '保留主动', action: fixtureDirectionActions[fixtureIndex][0], immediateGain: '保住调查主动权', cost: '可能错过立即求证', evidenceRefs: [evidenceRef], entityRefs: entityRef ? [entityRef] : [] },
+            { id: 'share', title: '正面核对', action: fixtureDirectionActions[fixtureIndex][1], immediateGain: '更快确认关键事实', cost: '交出部分控制权', evidenceRefs: [evidenceRef], entityRefs: entityRef ? [entityRef] : [] },
+            { id: 'probe', title: '改变处置', action: fixtureDirectionActions[fixtureIndex][2], immediateGain: '获得另一条判断依据', cost: '误判会暴露自己的意图', evidenceRefs: [evidenceRef], entityRefs: entityRef ? [entityRef] : [] }
+          ]
+        }
+      })
+      const laboratory = createAuthoringSceneLaboratoryRun({ prepareSession: async () => ({ ok: true, session }), planDirections: planner })
+      const prepared = await laboratory.prepare({ request: { intent: { instruction: '推演本场' } } })
+      expect(prepared.ok).toBe(true)
+      expect(prepared.run.phase).toBe('ready')
+      expect(prepared.run.runSession).toBe(session)
+      expect(new Set(prepared.run.directionSet.directions.map((direction) => direction.action)).size).toBeGreaterThanOrEqual(2)
+      expect(planner).toHaveBeenCalledTimes(1)
+      const selected = selectAuthoringSceneLaboratoryDirection(prepared.run, 'share')
+      expect(selected.run).toMatchObject({ phase: 'direction-selected', selectedDirectionId: 'share' })
+      expect(Object.isFrozen(selected.run)).toBe(true)
+      const selection = buildAuthoringSceneLaboratorySelection(selected.run)
+      expect(selection).toMatchObject({
+        ok: true,
+        selection: {
+          kind: 'authoring-scene-direction-selection',
+          id: 'share',
+          title: '正面核对',
+          sessionFingerprint: session.manifest.fingerprint,
+          evidenceRefs: expect.any(Array),
+          fingerprint: expect.stringMatching(/^scene-direction-selection-/)
+        }
+      })
+      expect(JSON.stringify(selection)).not.toContain(fixtureDirectionActions[fixtureIndex][0])
+      expect(JSON.stringify(selection)).not.toContain(fixtureDirectionActions[fixtureIndex][2])
+      const live = await validateAuthoringSceneLaboratoryRun(selected.run, async () => ({ 'document:chapter-9': 'doc-r1' }))
+      expect(live).toMatchObject({ ok: true, runSession: session, selection: { id: 'share' } })
+      if (fixtureIndex === 0) {
+        const stale = await validateAuthoringSceneLaboratoryRun(selected.run, async () => ({ 'document:chapter-9': 'doc-r2' }))
+        expect(stale).toMatchObject({ ok: false, reason: 'scene-session-stale', dependencyIssues: [expect.objectContaining({ reason: 'revision-changed' })] })
+      }
+    }
+
+    const insufficientSession = makeSession({ blocks: [block('prose', 'manuscript-unit', '当前正文', '雨落在窗外。', 'unit:chapter-9:unit-b')] })
+    const insufficientPlanner = vi.fn()
+    const insufficient = await createAuthoringSceneLaboratoryRun({
+      prepareSession: async () => ({ ok: true, session: insufficientSession }),
+      planDirections: insufficientPlanner
+    }).prepare()
+    expect(insufficient).toMatchObject({ ok: true, run: { phase: 'insufficient', directionSet: null } })
+    expect(insufficientPlanner).not.toHaveBeenCalled()
+
+    const pressure = buildAuthoringScenePressureProjection(fixtures[0]).projection
+    const unknown = parseAuthoringSceneDirectionSet({
+      pressure: { statement: '试探来客。', evidenceRefs: [pressure.evidence[0].ref] },
+      directions: [
+        { id: 'a', title: '试探', action: '询问总册。', immediateGain: '得到回答', cost: '暴露目的', evidenceRefs: [pressure.evidence[0].ref], entityRefs: ['worldbook-entry:unknown'] },
+        { id: 'b', title: '离开', action: '锁门后离开。', immediateGain: '保住线索', cost: '失去时机', evidenceRefs: [pressure.evidence[0].ref], entityRefs: [] }
+      ]
+    }, pressure)
+    expect(unknown).toMatchObject({ ok: false, reason: 'direction-entity-unknown' })
+    const duplicate = parseAuthoringSceneDirectionSet({
+      pressure: { statement: '必须处理眼前线索。', evidenceRefs: [pressure.evidence[0].ref] },
+      directions: [
+        { id: 'a', title: '先问', action: '当面询问总册下落。', immediateGain: '得到回答', cost: '暴露目的', evidenceRefs: [pressure.evidence[0].ref] },
+        { id: 'b', title: '再问', action: '当面询问总册下落！', immediateGain: '确认态度', cost: '引起警惕', evidenceRefs: [pressure.evidence[0].ref] }
+      ]
+    }, pressure)
+    expect(duplicate).toMatchObject({ ok: false, reason: 'direction-action-duplicate' })
+    expect(parseAuthoringSceneDirectionSet('{broken', pressure)).toMatchObject({ ok: false, reason: 'direction-output-invalid-json' })
+    expect(parseAuthoringSceneDirectionSet({ status: 'insufficient-evidence', missing: ['人物目标'] }, pressure))
+      .toMatchObject({ ok: false, reason: 'insufficient-evidence', missing: ['人物目标'] })
+
+    const failedPlanner = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error('timeout'), { code: 'TIMEOUT' }))
+      .mockImplementationOnce(async (request) => {
+        const evidenceRef = request.pressureProjection.evidence[0].ref
+        return {
+          pressure: { statement: '来客迫使莉娜立刻决定是否公开缺页。', evidenceRefs: [evidenceRef] },
+          directions: [
+            { id: 'retry-a', title: '暂时隐瞒', action: '先收起总册再询问来意。', immediateGain: '保住主动权', cost: '来客会察觉回避', evidenceRefs: [evidenceRef], entityRefs: [] },
+            { id: 'retry-b', title: '当面核对', action: '摊开缺页要求对方解释。', immediateGain: '立即取得回应', cost: '提前暴露关键线索', evidenceRefs: [evidenceRef], entityRefs: [] }
+          ]
+        }
+      })
+    const failedLaboratory = createAuthoringSceneLaboratoryRun({
+      prepareSession: async () => ({ ok: true, session: fixtures[0] }),
+      planDirections: failedPlanner
+    })
+    const phases = []
+    const failedRun = await failedLaboratory.prepare({ onPhase: (phase) => phases.push(phase) })
+    expect(failedRun).toMatchObject({ ok: false, reason: 'scene-direction-planning-failed', cause: 'TIMEOUT' })
+    expect(failedPlanner).toHaveBeenCalledTimes(1)
+    expect(phases).toEqual(['preparing-context', 'planning-directions'])
+    const retried = await failedLaboratory.retryDirections({
+      session: failedRun.session,
+      pressureProjection: failedRun.pressureProjection
+    })
+    expect(retried).toMatchObject({ ok: true, run: { phase: 'ready', runSession: fixtures[0] } })
+    expect(failedPlanner).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify({ ...localStorage })).toBe(beforeStorage)
+}
+{
+    // F1-4 semantic/boundary calibration stays pure and multi-axis. It must
+    // neither revive fixed-three-paragraph packing nor confuse depiction with
+    // a world-state change.
+    const environment = buildUnitSemanticProjection({
+      text: '雨落在税务所的高窗上。\n\n灰尘沿书架边缘铺着。\n\n穹顶映着一层暗淡的蓝光。'
+    })
+    expect(environment.paragraphs.every((paragraph) => paragraph.axes.effects.includes('depicts'))).toBe(true)
+    expect(environment.paragraphs.some((paragraph) => paragraph.axes.effects.includes('changes'))).toBe(false)
+
+    const dialogue = createSceneBeatDraft({
+      text: '“你来晚了。”\n\n“路上有人跟着我。”\n\n“那就别说名字。”\n\n“总册呢？”'
+    })
+    expect(dialogue.units).toHaveLength(1)
+    expect(dialogue.paragraphs.every((paragraph) => paragraph.axes.functions.includes('dialogue'))).toBe(true)
+
+    const changedWorld = createSceneBeatDraft({
+      text: '莉娜推开暗格，穹顶最暗的那颗星随即亮起。\n\n她意识到机关已经回应了黄铜钥匙。'
+    })
+    expect(changedWorld.paragraphs[0].axes).toMatchObject({ subjects: expect.arrayContaining(['environment']), effects: expect.arrayContaining(['changes']) })
+    expect(changedWorld.units).toHaveLength(2)
+
+    const importedChapter = createSceneBeatDraft({
+      text: [
+        '雾从码头一直漫到旧港的石阶。',
+        '莉娜把潮湿的总册夹在外套里。',
+        '“钟声比约定早了一刻。”艾德加说。',
+        '“所以有人已经进去过。”',
+        '他们没有再说话，只沿着税务所外墙前行。',
+        '次日清晨，钟楼广场只剩下烧焦的绳索。',
+        '守卫认出那是昨夜封门用的绳结。',
+        '莉娜意识到失窃者一直留在城内。',
+        '她把这一发现写在总册最后一页。',
+        '窗外的雾仍贴着钟楼缓慢流动。'
+      ].join('\n\n')
+    })
+    expect(importedChapter.units.length).toBeGreaterThanOrEqual(3)
+    expect(importedChapter.units).not.toHaveLength(Math.ceil(importedChapter.paragraphs.length / 3))
+
+    const transitionBoundary = importedChapter.boundaries.find((boundary) => boundary.reason === 'scene-transition')
+    expect(transitionBoundary).toBeTruthy()
+    const authorMerged = setSceneBeatBoundary(importedChapter, transitionBoundary.key, false)
+    expect(authorMerged.boundaries.find((boundary) => boundary.key === transitionBoundary.key))
+      .toMatchObject({ split: false, source: 'author' })
+    const revised = createSceneBeatDraft({
+      text: importedChapter.paragraphs.map((paragraph, index) => index === 4 ? `${paragraph.text}他们在门前停了很久。` : paragraph.text).join('\n\n'),
+      corrections: authorMerged.corrections
+    })
+    expect(revised.boundaries.some((boundary) => boundary.source === 'author')).toBe(false)
+    expect(Object.isFrozen(revised)).toBe(true)
+
+    const hintedText = '雨声压住了走廊里的脚步。\n\n莉娜推开档案室的门。\n\n“总册被人动过。”'
+    const hinted = createSceneBeatDraft({
+      text: hintedText,
+      boundaryHints: [{ offset: hintedText.indexOf('\n\n') + 2, split: true, reason: 'rhetorical-shift' }],
+      sessionFingerprint: 'manifest-f1-5',
+      direction: {
+        kind: 'authoring-scene-direction-selection', fingerprint: 'direction-f1-5',
+        action: '推门核对总册', immediateGain: '确认线索', cost: '暴露行踪', evidenceRefs: ['worldbook-entry:place-tax-office']
+      }
+    })
+    expect(hinted).toMatchObject({
+      sessionFingerprint: 'manifest-f1-5',
+      directionFingerprint: 'direction-f1-5',
+      beat: { action: '推门核对总册' },
+      prose: expect.stringContaining('雨声'),
+      proposedUnits: expect.any(Array)
+    })
+    expect(hinted.proposedUnits).toHaveLength(hinted.units.length)
+    expect(hinted.boundaries[0]).toMatchObject({ split: true, source: 'response-hint', reason: 'rhetorical-shift' })
 }
 })
 
@@ -410,6 +701,14 @@ const projection = buildAuthoringSceneProjection(v2Input({
       sceneAnchors: normalizeSceneAnchors([{ ...ANCHOR_UNIT_B, worldbookId: '' }])
     }))
     expect(projection.worldbookStatus).toBe('unbound')
+}
+{
+const projection = buildAuthoringSceneProjection(v2Input({
+      expectedWorldbookId: 'wb-missing',
+      worldbook: null,
+      sceneAnchors: []
+    }))
+    expect(projection).toMatchObject({ worldbookId: 'wb-missing', worldbookStatus: 'missing' })
 }
 {
 const first = buildAuthoringSceneProjection(v2Input())
@@ -453,5 +752,38 @@ describe('v2 projection never leaks Experience session state (复验修复 2)', 
     expect(projection.sceneId).toBeNull()
     expect(projection.sourceRefs.some((ref) => String(ref).startsWith('scene-thread:'))).toBe(false)
     expect(projection.presentCharacters.map((p) => p.id)).toEqual(['char-lina'])
+  })
+})
+
+describe('scene anchor revision guard', () => {
+  it('accepts equal opaque revision tokens without numeric coercion', () => {
+    const result = upsertSceneAnchor({
+      anchors: [],
+      anchor: ANCHOR_UNIT_B,
+      expectedDocumentRevision: 'writing-k2n-2f-9',
+      liveDocumentRevision: 'writing-k2n-2f-9'
+    })
+    expect(result.ok).toBe(true)
+  })
+
+  it('removes only the active explicit anchor so the resolver can inherit again', () => {
+    const anchors = normalizeSceneAnchors([
+      { ...ANCHOR_UNIT_B, unitId: 'unit-a' },
+      { ...ANCHOR_UNIT_B, unitId: 'unit-b', locationId: 'place-other' }
+    ])
+    const result = removeSceneAnchor({
+      anchors,
+      unitId: 'unit-b',
+      expectedDocumentRevision: 'rev-v2',
+      liveDocumentRevision: 'rev-v2'
+    })
+    expect(result.ok).toBe(true)
+    expect(result.anchors.map((anchor) => anchor.unitId)).toEqual(['unit-a'])
+    expect(removeSceneAnchor({
+      anchors,
+      unitId: 'unit-b',
+      expectedDocumentRevision: 'old',
+      liveDocumentRevision: 'new'
+    })).toMatchObject({ ok: false, reason: 'stale' })
   })
 })

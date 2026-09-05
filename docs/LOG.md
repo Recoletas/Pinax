@@ -2,6 +2,363 @@
 
 > 只记录近期用户可感知变化、验证结果和仍会影响后续判断的风险。过程性 UI 微调不再逐条保留。
 
+## 2026-09-02 - F3-5 活故事图谱最小投影
+
+- 右侧“现场”新增“场景与因果”页签，不增加新的工具 rail 项。它把当前章 canonical writingUnit 按场景与节拍排成纵向序列，并以轻量人物、地点、线索泳道和“因果 / 揭示 / 改变 / 兑现”筛选提供作者可读的章节投影。
+- 投影是冻结、带指纹的纯派生数据：定位来自 canonical position index，当前场来自 scene anchor，人物/地点来自精确无歧义世界书命中，线索与关系来自定位到正文的项目大纲节点。只有显式 `causes` 与 `foreshadows` 进入因果/兑现；没有新增持久化图谱、词法因果推断、拖动重排或网络依赖。
+- 点击人物/地点复用世界书详情，点击节拍回到对应正文，“改变这里”复用既有 intervention composer；390px 复用工具栏上方线性 sheet，不把图谱缩成画布。focused UI 12/12、F3 Gate 5/5（37 checks）、1440/390 真实页面 24/24 及最终 `verify:full`（20/20 文件、200/200 用例、Vite/VitePress build、diff check）通过；浏览、筛选、定位与发起干预均零正式写入。下一窗口为 C2-3 一个 intervention 的共同排演整合。
+
+## 2026-09-02 - C2-0～C2-2 协作可靠性底座冻结
+
+- 在独立 worktree 从干净基线完成协议 v2、SQLite room/member/event/snapshot/idempotency、稳定身份与 host epoch、ACK/gap recovery、权限/配额/TTL、客户端 AES-GCM 内容边界，以及 Web/Electron 远端 transport；未继承或修改 Authoring/F3 WIP。
+- 多轮 Sol medium 实现与只读复审关闭了浏览器 Origin、邀请撤销后连接、resume 丢响应/重放、maintenance 广播、密文与 status TTL、真实 fragment-only 邀请、heartbeat、ghost member、JSON parser 路径隔离和有界 limiter 等跨层问题。冻结提交为 foundation `5f97714`、transport `12b9596`。
+- Codex 独立复验 foundation 28/28、transport 43/43；最终 `verify:full` exit 0，保持 20/20 文件、200/200 用例、Vite build、diff check 与 VitePress build 全绿。公共 TLS/WSS、packaged Electron 和真实双浏览器仍是外部门禁；F3-5 释放 Authoring owner 后才能进入单一 C2-3 integration window。
+
+## 2026-09-02 - F3-3B 可编辑分组 Ghost
+
+- 新增 `AuthoringInterventionRehearsalRun` 与无工具 provider adapter。冻结请求始终包含原条件，并只加入 selection receipt 指定的确定后文；保持项仅作约束，排除项与未授权证据不能进入请求。provider 前后各做一次 live reconcile；未知、重复或缺失 target 整轮失败。
+- 每个目标形成独立内存 Ghost，可编辑、单组重新生成和放弃，不出现采用入口，不触发正文 autosave、现场、大纲、记忆或 observer。页面通过 abort/version guard 拒绝关闭、取消和迟到结果。
+- 同章 Ghost 使用目标 writingUnit 的既有 block gap；跨章目标复用 F2 双栏，临时收起目录并滚动定位，不复制编辑器。1440/390 真实页验证单一请求、编辑/重试零写入、跨章定位、零横向溢出和零页面错误；focused UI 12/12、F3 Gate 5/5 与 Vite build 通过。下一项 F3-4。
+
+## 2026-09-02 - F3-3A 排演范围冻结
+
+- 新增纯内存 `AuthoringInterventionRehearsalScope` 与 selection receipt。范围必须绑定原 intervention session fingerprint；任何“可能相关”尚未审阅时都拒绝建立方向，不替作者默认选择。
+- 确定影响是唯一可改目标；“保留不改”只进入 unchanged constraints，“本次排除”既不进入改写目标，也不进入选择回执的 evidence authorization。方向回执冻结 intervention target、rewrite/unchanged/excluded refs、精确 evidence 和 scope fingerprint。
+- 块下工作台在候选未处理时只显示“先处理 N 项可能相关”；完成后以两条连续行展示“最小修补 / 连锁推演”，单一确定影响时第二条为“保留后果”。选择后只显示调整与保持数量，不增加卡片、内部术语或生成空壳。
+- focused UI 2 文件 / 12 用例、F3 离线 Gate 5/5 与 1440/390 真实页旅程通过；范围选择前后正文、现场、大纲、记忆存储一致，两视口无水平溢出和页面错误。未请求 provider、生成 Ghost 或写正式数据；下一项 F3-3B。
+
+## 2026-09-02 - F3-2B 非确定候选审阅
+
+- “改变条件”把非确定关系从确定影响中彻底分离：`foreshadows`、并列、相似和只具时间关系的路径进入默认折叠的“可能相关”，独立限制最多五项，不会挤占三项确定影响额度。每项仍保留正文位置、作者可读原因与可展开证据。
+- 作者可以选择“本次排除”或“保留不改”。决定只存在当前 composer session，重新核对、切换 writingUnit 或关闭后清除，不写 localStorage、大纲、正文、现场或记忆；后续 F3-3 可把两种决定分别解释为上下文排除与保持原文约束。
+- 移动端沿用现有 bottom sheet 和 44px 触控，折叠摘要只占一行；展开后继续使用连续行与下划线动作，没有增加卡片墙或内部诊断术语。
+- focused UI 2 文件 / 12 用例、F3 离线 Gate 5/5、1440/390 真实旅程通过；真实页同时比对正式存储在审阅前后完全一致，两视口无水平溢出和页面错误。未请求 provider 或生成 Ghost；下一项进入 F3-3。
+
+## 2026-09-02 - F3-2A 有证据影响组
+
+- “改变条件”完成首段真实影响传播：新增只读适配器，把项目大纲中作者明确建立的 `causes` 边按稳定 writingUnit/node 定位为至多三组确定影响；只走两跳，不因同章、相似措辞或普通提及推断因果。`foreshadows`、`alternative`、`parallel` 只保留为后续可展开候选。
+- `AuthoringInterventionSession` 在准备时把关系端点纳入同一 F2 evidence envelope，并冻结 typed links、影响组和 revision。返回或重新核对时，正文位置、证据来源以及大纲关系的删除、改型或新增都会使旧 session stale，不能静默沿用预览。
+- 块下 UI 使用连续行而非卡片墙，展示作者可读的章节位置、明确原因和可展开原文依据；没有确定关系时说明相似措辞和普通提及不会自动列入。移动端压缩原文与输入区，仍使用工具 rail 上方可滚动 sheet。
+- focused UI 2 文件 / 12 用例、F3 离线 Gate 5/5、1440/390 真实页旅程通过，两视口均无横向溢出和页面错误。该切片没有请求 provider、生成 Ghost 或写入正文、现场、大纲、记忆；下一项 F3-2B 只处理非确定候选审阅。
+
+## 2026-09-02 - F3-1B 块下“改变条件”入口
+
+- 正文 writingUnit 间隙在“推演下一段”旁增加次级“改变条件”，探索速记和空章不显示。表单只包含事件/事实/时间/作用、原条件、改后条件与可选目的；桌面沿正文内容轴展开，720px 以下进入工具 rail 上方的全宽 bottom sheet，关闭恢复正文选区且不改变 scrollTop。
+- “先看影响”不调用正文模型，也不写正文、当前场、大纲或记忆；它从当前 repository 建立全书位置索引，并通过 F2 `AuthoringKnowledgeQuerySession` 把目标节点作为 required evidence 冻结进 `AuthoringInterventionSession`。项目资料变化后自动 reconcile，位置或证据失效只保留表单并标 stale。
+- focused UI 12/12、F3 四组离线 Gate、Vite production build 与 1440/390 隔离真实页面检查通过；两视口均无横向溢出、无页面错误，移动 sheet 使用不透明 raised surface。F3-2A 下一步只显示至多三组有原因、有证据的影响，不生成 Ghost 或自动改后文。
+
+## 2026-09-02 - F3-0 因果沙盒调研与离线机制 Gate
+
+- 复核 Scrivener、Plottr、Novelcrafter、Sudowrite、Ink/Inky、Failbetter QBN、Wildermyth 与 JSON Canvas 一手资料，确定正文/设定继续是真源，场景卡、关系图和运行状态只作投影；完整观察与可复用/不可照搬边界记录在 `docs/superpowers/research/2026-09-02-authoring-causal-sandbox-f3-0.md`。
+- 新增纯内存 `NarrativeIntervention` 与 `TypedNarrativeLink`。一次干预只允许一个 operation，必须冻结精确正文目标和 F2 evidence；明确依赖按 operation 白名单最多扩展两跳，默认最多三组，未知证据、跨项目与失效位置均 fail-closed。`mentions/similar-to` 只进入展开候选，单独 `precedes` 不冒充因果。
+- 当前场加人物、暴雨改停电、钥匙烧毁改藏起、事件提前三天四组离线 fixture 完成 A 无依据邻近回答代理、B 关键词搜索、C 类型化关系 + F2 证据/位置索引对照。C 为 4/4 零误报、零漏报，A/B 每组 2–3 个误报；每个 established 影响带可定位证据并产生两个不同目标集合的排演方向。
+- `npm run eval:authoring-causal-sandbox`、新增文件 ESLint、Vite production build 和 scoped diff check 通过。未触碰 `Authoring.vue`、持久化 schema、provider 或用户 5173；下一项 F3-1 单一干预入口。
+
+## 2026-09-02 - F3-1A 单一干预运行边界
+
+- `AuthoringKnowledgeQuerySession` 新增显式 `requiredSourceRefs`：目标正文与作者指定的世界书对象必须进入同一 evidence envelope；来源不存在、越过目标时序或不属于当前项目时直接失败，不能由普通检索结果替代。
+- 新增纯内存 `AuthoringInterventionSession`，把位置索引、精确证据和单操作 intervention 冻结为一次 session；准备过程响应取消，完成后同时核对正文位置 revision 和全部证据 revision，任何缺失或变化都标 stale。
+- 离线因果 Gate 增加 session prepare/fresh/stale 断言并继续 4/4 对照通过；`authoringAgentWorkflows` 25/25、ESLint 与 Vite production build 通过。此切片没有修改 `Authoring.vue`、请求正文模型或写入正式数据；下一项 F3-1B 块下表单。
+
+## 2026-09-02 - F2-7 最终自动化视觉与真实页面 Gate
+
+- 最终验收没有再造页面，而是复验构思、多窗、快捷词/取名、资料助手、画师、校对/搜索/历史的共同信息层级和活动编辑 owner。移动快捷词/取名 Gate 改走正式 `更多` 菜单；双栏截图改为正文 + 项目大纲；画师一次生成两张不同的确定性候选；390 截图证明快捷词条跟随悬浮副编辑窗。
+- 四组真实 Authoring Gate 合计 152/152：多窗/快捷词/取名 61/61，资料助手 27/27，画师 31/31，校对/搜索/自动历史 33/33。覆盖 1440/1024/390、selection/焦点/scrollTop、活动主副窗、IME、44px 触控、失败/取消/迟到/stale、资料只读权限和零水平滚动。F2 交付级 `verify:full` 为 20/20 文件、200/200 用例，Vite、diff check 与 VitePress 全绿。
+- 五张最终截图与聚合报告只保存在 `/tmp/pinax-f2-final/`：非空推演夹、正文 + 大纲副窗、问全书依据、画师两候选、390 悬浮编辑窗快捷词。Codex 已逐张检查；仍需用户视觉确认，确认前不把 F2 标为最终视觉冻结，也不让 F3 接主页面。
+
+## 2026-09-02 - F2-6 校对、全文搜索与自动历史
+
+- 顶栏新增无聊天输入的 `校对` 工作台。扫描只读生成稳定 `AuthoringReviewFinding`，按正文顺序支持跳到、采用、忽略和批量单事务撤销；采用一个修正后，其余未相交发现随已知文本事务重定位，相交项才失效。中文双引号、嵌套引号和段首缩进保持保守检查。
+- 人物、设定、时间和数值一致性结论必须引用当前场投影或本轮精确授权的 `worldbook-entry:`；目标正文自身、无证据断言和未授权条目均拒绝。世界书证据继续使用 canonical matcher 和有界字符预算，provider 每批只收到一次审查正文块及命中/当前场条目，不接收整本世界书。
+- `查找` 统一当前章、全书、构思、设定四域，并保存稳定 locator。跨章命中可返回原 selection、焦点和 scrollTop；替换只对正文开放，全书替换先预览影响并以单次项目保存原子提交，构思和设定保持只读。
+- 自动历史复用 `writingSnapshots`，默认每 500 字，可关闭或选择 1000/2000 字。只在正文 revision 已持久化且真正跨越里程碑时写一次；删除选区、旧改写、Ghost 采纳、批量校对、全书替换和恢复前建立带原因的保护点。恢复同章副栏先提交脏稿，再以新 editor epoch 重载恢复版本，旧 autosave、资料回答和校对结果不能覆盖或冒充 fresh。
+- focused 4 文件 / 50 用例与 Vite production build 通过；现有 5173 上真实页面 Gate 33/33，覆盖 1440/390、精确世界书证据、四域搜索、跨章返回、历史设置、焦点/选区/滚动恢复和零横向溢出。最终 `verify:full` 为 20/20 文件、200/200 用例，Vite、diff check 与 VitePress 全绿；门禁补齐了自动历史偏好进入 Pinax 备份清单。报告与截图仅在 `/tmp/pinax-f2-review-search-history/`；下一项 F2-7 统一视觉与真实作者验收。
+
+## 2026-09-01 - F2-5 画师与可复用视觉来源合同
+
+- Authoring 顶栏已增加一级 `画师`。桌面使用覆盖式宽工作抽屉，左侧管理来源和参数、右侧比较候选与历史；390px 使用全屏参数/结果切换。工作区继续复用现有 `ImageGenerationWorkbench`、图片 provider、世界书关联参考图、媒体资产存储和素材桥，没有复制第二套生成器。
+- 新增一次性 `AuthoringVisualBrief`：从真实活动主栏或副栏冻结正文选区，未选择时回退 active writingUnit；人物、地点和时间仅在作者明确勾选后进入生成 prompt。brief 和媒体候选保留稳定 source refs、project/document/unit/node revisions、scene fingerprint 与 sessionId，切书、切章、改稿、改现场或改设定后旧结果保留但标记 stale/detached。
+- `保存为素材` 与 `插入正文` 保持两个显式动作。素材保存幂等保留正文、世界书、现场和图片 provenance；正文插入重新校验媒体与目标 revision，并以一个可撤销事务加入独立媒体 writingUnit。正式稿只保存 `pinax-media://<assetId>`，不写 base64。关闭、失败、取消、stale、detached 和迟到结果均不会修改正文或素材。
+- 抽屉打开不会压窄正文或销毁双栏/助手状态，关闭后恢复原 selection、焦点和 scrollTop；移动全屏画师也不会被正文选区浮条穿透。隔离真实页面 Gate 31/31，focused 3 文件 / 47 用例，最终 `verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿。截图/report 仅在 `/tmp/pinax-f2-illustrator/`。下一项为 F2-6 校对、全文搜索与自动历史。
+
+## 2026-09-01 - F2-4 资料助手与可复用证据合同
+
+- 右侧 AI 区已收为成熟的项目资料助手：提供查设定、找伏笔、理线索、挖角色、算数值、问全书和显式自由问；默认界面不再展示上下文统计、manifest、receipt、候选 ID 或记忆诊断壳。事实回答附可展开原文依据，点击可回到正文、设定、大纲、速记或记忆来源；自由建议不会伪造项目引用。
+- 新增一次性 `AuthoringKnowledgeQuerySession` 与 `AuthoringEvidenceEnvelope`。正文、绑定世界书、大纲、历史、当前场、速记和受控项目记忆通过同一个 narrative resource tokenizer/ranker 检索，并冻结稳定 locator、source revision、authority 与精确只读授权。provider 实际序列化 refs 与授权集合严格一致；跨项目、删除、错误 locator、未知 evidence ref、不安全数值表达式和 suggestion 冒充事实均 fail-closed。
+- 查询入口会在 rail pointerdown 失焦前冻结真实活动编辑面。未等待自动保存的主稿/速记直接进入本轮证据；从副栏第二章打开助手按副栏 target 截止，不会借主栏第一章或读取未来章节。资料修改后旧回答保留并标记 stale；查询、失败、关闭和来源定位都不修改正文、世界书、大纲、现场、素材、速记或记忆，也不新增聊天 localStorage。
+- 助手打开/关闭保持正文 selection、焦点与 scrollTop；390px 使用完整 sheet，快捷任务和来源动作满足 44px，三视口无水平滚动。隔离真实页面 Gate 27/27，focused 4 文件 / 58 用例与最终 `verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿。截图和报告只保留在 `/tmp/pinax-f2-knowledge/`。下一项为 F2-5 画师与 `AuthoringVisualBrief`，F3 继续只读调研/离线 fixture。
+
+## 2026-09-01 - F2-3B 取名实体合同与活动窗快捷词收口
+
+- 快速取名冻结 `AuthoringEntitySelection` 为纯候选数据；点名称只插入最后聚焦的正文栏，每行独立 `…` 才产生 `create-worldbook-entry` command。五类映射沿用世界书 canonical 类型，功法/能力使用 `lore` 并在 metadata 保留原语义，不为这一刀扩大全仓 schema。
+- 创建只允许当前书显式绑定的世界书，不复用 active/default fallback；未绑定、加载中、切书或换绑均零写入。正文提及和同名检查共用 exact-term matcher，覆盖 name、keys 和 keysSecondary；同名必须查看已有、明确仍然新建或取消。成功使用 `worldStore.addEntry` 返回的 ID 生成稳定 source ref，并重新同步 `boundWorldbook`；索引保存失败可按一次性 selection ID 从只读快照恢复，避免重试重复创建。
+- 快捷词 resolver 增加当前书 session LRU，只有成功补全才记最近使用且不写 localStorage/世界书。1–6 数字键只在活动 `.ProseMirror`、collapsed caret、无 modifier/repeat/IME 时接管；拖选、资料副窗和块/Ghost 审阅 fail-closed。主栏与副栏分别读取自己的 canonical document，副栏异章的智能提取和候选条不再借用主栏。
+- 真实隔离页 Gate 58/58，覆盖 1440/1024/390、主/副栏数字补全、最近排序、异章正文提取、插入零世界书写、显式创建单次写入、同名停顿、未绑定零写入/关联引导、44px 触控与零横向溢出；focused 3 文件 / 38 用例通过，最终 `verify:full` 为 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿。截图与 report 仅在 `/tmp/pinax-f2-dual/`。下一项按新顺序进入 F2-4 资料助手与 `AuthoringEvidenceEnvelope`。
+
+## 2026-09-01 - F2-2 多窗合同证据校正
+
+- 用户指出“第二窗只读”与作家助手成熟功能不符后，暂停运行时代码实现并重查一手证据。
+- Apple App Store 作家助手版本记录明确写明 5.8.0“未发布悬浮章节支持编辑”、5.10.1“支持悬浮任意章节”；官方宣传截图确认正文顶部“大纲 / 上一章”入口、独立悬浮标题和“取消悬浮”。
+- F2-2 改为：两个不同章节或章节 + 速记均可编辑，各自拥有 document handle、caret/selection、scroll、IME、undo/redo 和保存边界；大纲/角色/设定按正式资料权限呈现。用户实机截图进一步证明同一章可在主副栏打开，因此同一 handle 采用双视图、唯一正文真源与持久化 owner，不能复制两份互相覆盖的数据。
+- `ui-style-check` 新增成熟产品对齐门禁：命名复刻对象时，必须先冻结可验证的入口、默认内容、编辑权限、焦点/保存/撤销和移动降级合同，不得用便于实现的简化版替代成熟能力。
+- 用户随后提供作家助手桌面端实机截图，纠正了“把移动端悬浮入口外推到桌面顶栏”的第二处错误。桌面正式合同改为：最右 rail 保留 `双栏`；展开区位于 rail 左侧，包含第二正文编辑面与独立章节搜索/目录；顶栏不增加“多窗”。移动端才使用悬浮 sheet。
+- 完成 F2-2 章节首切片：`双栏` rail 在桌面最右，第二可编辑正文和 218px 副章目录位于其左侧；可独立切章、编辑保存，同章双视图回投共享正文。`WritingNotebookEditor` 的固定 block-gap id 改为实例化 prop，避免两个编辑器把 Ghost/事件挂到错误栏。390 默认展示可编辑正文，目录从副栏标题调出。
+- 新增隔离浏览器 `f2-dual-pane-check`：1440 验证两个编辑器、rail 最右、无顶栏“多窗”、同章同步、异章落盘和无重复 gap id；390 验证全宽 sheet、正文/目录切换与零溢出。全部通过，截图和 report 仅保存在 `/tmp/pinax-f2-dual/`；F2-2 的非章节来源与活动窗 AI/observer 所有权仍待后续切片。
+- F2-2 第二切片补齐主副交换、活动面标识和编辑安全边界：副栏 undo/redo 只操作自身历史，同章结果回投共享正文；快速关闭重开保留 session 内来源，合成输入期间 rail 关闭会被拒绝，结束后再正常卸载。副栏 Ghost owner 尚未接入，因此暂时完全隐藏其块间推演入口，避免出现可见空壳。
+- 速记进入同一双栏：左侧速记菜单新增“在双栏打开”，副目录在章节组后提供速记组；速记继续复用 `WritingNotebookEditor` 和正式 exploration repository，可编辑、撤销并独立保存，不改变主章。真实 Gate 新增主副交换、同/异章 undo/redo、IME 快速开关、速记直达和落盘检查；补测 1024 时发现绝对定位仍受 52px grid area 约束并被压成 1px，改为跨全网格定位后形成 720px rail 左侧覆盖层。1440/1024/390 全部通过。
+- F2-2 第三切片将项目大纲与绑定世界书条目接入同一副窗目录。章节/速记继续是可编辑文档，大纲节点与世界设定沿用 Authoring 正式资料权限，只展示内容、关系、章节映射和来源，并提供“在大纲中打开 / 完整设定”，不冒充正文编辑器或绕过 repository 开放写入。大纲详情和设定详情也可直接“在双栏打开”。来源被删除或世界书解绑时保留“资料已删除/设定已删除或解绑”，不再静默切换到其他项目。
+- 隔离浏览器 Gate 扩为四类 companion source：1440 验证大纲与世界设定详情没有 ProseMirror、仍能进入正式页面；原同章/异章/速记保存、undo/redo、交换、IME、快速重开继续通过，1024 rail 左覆盖与 390 sheet 仍零溢出、零 page/console error。活动副窗的 Ghost/observer/快捷词与全局命令归属仍留下一切片，真实 Windows 中文输入法仍是外部门禁。
+- F2-2 第四切片建立活动窗命令 owner。副窗向页面回报自身来源、编辑权限和实时 command availability；顶栏撤销/重做、粗体/斜体、清除格式、取名插入和分隔线按最后聚焦的主栏或副栏执行。资料副窗主动禁用写命令。主栏存在 Ghost 提交锁时，仅主栏和同章双视图受锁，另一章或速记仍可独立编辑；副栏继续不挂载 Ghost、observer 或记忆观察，未建立完整 session/revision owner 前不会产生半套 AI 写入链。
+- F2-2 第五切片开始建立副栏 Ghost 的独立 session owner。`WritingNotebookEditor` 向宿主暴露与 selection-change 同源的只读稳定选区快照；`AuthoringDualPane` 从自己的 canonical document、末端 unit/node、markdown caret 和结构/内容指纹冻结运行目标，并只按 expected scope 提供 live 重读。页面统一 AuthoringRunSession reader 先向副栏自证 scope，不匹配才读取主栏，因而副栏生成不会在切章后借用主栏正文。副栏章节按自身 sceneAnchors、对应章节观察结果和绑定世界书重建现场；探索速记使用无章节事实的保守投影，杜绝左侧当前场串入。此切片只建立冻结/重读边界，尚未开放可见 Ghost，也未调度 observer；focused UI contract 与 Vite production build 通过。
+
+## 2026-09-01 - F2-3 快捷切换与正文实体歧义
+
+- 校正执行重心：双栏可见主链已够用，后续 Ghost 对称能力不再阻塞 F2 其他成熟编辑器能力。副窗原“目录”改为“切换”，使用章节/大纲/角色/设定/便签五个同级来源；单类搜索和名称/摘要/类型行替代五组来源同时平铺，移动端选择后自动返回内容。
+- 正文实体高亮继续只使用 `writingWorldbookMentions`。matcher 现在先按术语聚合同名条目：唯一命中仍直接打开资料；多个条目共享同一名称时产出显式 candidate IDs 和点状低强调，点击进入设定栏的来源选择，不再按世界书数组顺序静默绑定第一条。
+- 真实双栏 Gate 覆盖 1440/1024/390、五类快捷切换、编辑保存、资料权限、IME 与零横向溢出，全部通过；focused 13/13 与 Vite production build 通过。下一切片为智能快捷词与取名质量。
+- 真实 F2 Gate 新增“顶栏撤销只影响活动异章”和“资料副窗禁用全局编辑命令”，其余四来源、同章同步、异章/速记保存、交换、IME、1024/390 响应式继续全绿。下一切片只处理副栏 Ghost/observer 的冻结 target、迟到结果与采纳事务，不复用页面当前主栏 snapshot 冒充副章真源。
+- F2-3 智能快捷词首切片完成：顶栏“快捷词”按角色、设定、智能提取管理当前项目词条；角色与设定复用绑定世界书稳定来源，智能提取从当前正文确定性生成，不新增长期存储。启用项只保留在当前书会话，输入词首时稿面只出现一行短候选，点击补齐剩余文字；主副窗共用活动编辑 owner，资料副窗与 IME composition 期间拒绝插入。390 改为贴底内容型 sheet，并提供中文标点行。
+- 快捷词真实 Gate 已并入既有 `f2-dual-pane-check`：1440 验证入口、三来源与词首补全，390 验证贴底 sheet、八个中文标点和零横向溢出；focused 13/13 与 Vite production build 通过，截图为 `/tmp/pinax-f2-dual/quick-words-1440.png`、`quick-words-390.png`。F2-3 下一切片为取名分类、批次去重与插入 owner。
+- F2-3 取名质量切片完成：保留顶栏“取名”，增加人物、地点、组织、功法/能力、道具五类。人物继续显示语言、字数、性别和指定姓氏，其他类型只保留类型行，面板高度随内容收口；候选依据扩为每批十二种不重复说明，不再整批复用同一个性别标签。
+- 取名历史从会提前耗尽的全局 `Set` 改为按分类/筛选组合隔离的最近十批窗口；同批继续按人物名字核心或非人物名称词根降重。合同测试验证五类各连续十批、每批十二个，共 120 个候选无重复。真实 Gate 验证主栏插入、最后聚焦副栏插入、同章双视图同步，以及 390 底部 sheet；截图为 `/tmp/pinax-f2-dual/quick-name-1440.png`、`quick-name-390.png`。
+
+## 2026-09-01 - Authoring F2-1 构思与推演夹归位
+
+- 左侧“构思”开始按成熟编辑器的灵感便签层级工作：新建速记收进标题行 `＋`，普通速记直接平铺，不再显示“未编排 N”；已有关联只用一行淡副文说明章节，搁置项保持折叠。每条速记通过单一菜单带入推演、关联当前章、搁置或删除，不再常驻一排符号动作；新建关联复用项目大纲的稳定 exploration/chapter refs。
+- 视觉复验补齐速记与章节目录的一致性：两者标题统一为 13px/400、普通行统一 28px，左侧文字起点一致；关联章节副文提升为与目录计数一致的 11px，只有含副文的速记行按内容增高。
+- 速记和素材继续复用原有 run-only selection、最多三条、project/target/revision 冻结与 stale 门禁。选择非空后只显示一行“推演夹 N/3”，管理面以构思区浮层按需打开；没有新增 localStorage 或第二份选择状态。
+- 推演器和当前场详情已卸载 `AuthoringContextPicker`，推演器默认态同时移除生成前“将参考/参考范围”统计。上下文预检、manifest、receipt 和异常失效逻辑仍在生成链工作，只是不再把技术诊断作为正文旁常驻界面。
+- focused tests 通过；隔离浏览器在 1440/390 验证旧选择器为 0、“未编排”层级为 0、零横向溢出和零 page error。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 全绿。截图仍待用户确认，F2-2 真实多窗未开始；未启动、停止或重启 5173。
+
+## 2026-09-01 - Authoring F1-7 视觉确认返工一轮
+
+- 用户判定首轮最终截图“有点乱、UI 不够吸引人”，因此 F1 不冻结。根因不是功能缺失，而是实验室把压力、依据、方向三列和动作做成同权数据表，回响缺乏完成层级，390 当前场又把人物、当前视角和临时作用拆成多条松散纵向信息。
+- 代表性区域先收为编辑型页边批注：实验室按“此刻难题 → 三条行动 → 所得/代价 → 确认”单向阅读，行动成为主信息，所得/代价用两条短语义线退居第二层；选中项使用页边信号和浅工作面，不引入卡片墙、渐变或装饰图标。采纳回响改为短来源线与低对比确认面。
+- 390 当前场把人物与当前视角放回同一行，临时作用只在需要时续行。Authoring 已有项目级记忆通知和审阅 owner，因此路由隐藏重复的全局记忆浮球，避免遮挡移动工具带和现场 sheet。
+- 推演器的参考工具进一步收口：默认态只显示“参考范围 正文 2 · 现场 1 · 设定 2”和“本次参考 添加/2/3”两条入口；零项不再展示。搜索框、速记/素材分组、来源列表与“管理素材”全部在作者主动展开后出现，删除“只影响这次推演”、`0/3`、默认“打开完整页面”等并列噪声。普通下一段推演标题下的“生成后先预览，确认才写入正文”已删除；重写任务仍保留其必要的替换边界说明。
+- 新版真实 F1-7 Gate 27/27，`authoringTurnComposer + uiControlContract` focused 12/12；新截图已覆盖原三张路径，等待用户再次确认。视觉未冻结。
+
+## 2026-09-01 - Authoring F1-7 最终视觉与移动端自动化 Gate
+
+- 完成真实 Authoring 全旅程：1440 从当前场带入人物，查看三条有证据的行动/所得/代价方向，键盘选择后进入连续可编辑 Ghost，调整单元边界并原子采纳，最后只显示 receipt 中真实发生的新增单元与现场回响。1024 检查器以覆盖层存在，正文宽度、selection 与 scrollTop 不漂移；900、200% 有效视口和 390 sheet 均无横向溢出，长人物名、地点名和代价可换行，移动动作满足 44px。
+- 实验室不再在阶段切换时反复聚焦标题，只在初次挂载聚焦；普通 Escape 关闭并恢复正文焦点，IME composition/229 Escape 不误关。reduced-motion 同时关闭 transition 与 animation，快速关闭后的迟到 planner 结果不重新打开实验室。
+- 修复 C1 重写回归：采用重写稿后，旧顺序会在 Ghost Teleport 仍挂载时重建 Notebook，导致目标节点与 Teleport 子树同帧销毁、稿面短暂为空并产生 Vue 卸载异常。现在先卸载 Ghost，再隔离 ProseMirror history，稳定保留 unitId、单元数量、作者编辑稿和撤销边界。
+- 浏览器 Gate：F1-7 27/27、F1 分段/采纳 31/31、C1 reference 23/23、fault 31/31、final 24/24。导入 fixture 5 章离线 eval 覆盖最长 3679 字章节，固定三段装箱=false、场景漏切=0、对白碎裂=0、错误合并=0。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 全绿；首次运行捕获到 jsdom focus 在卸载后的迟到滚动测量，关闭两处仅用于定位光标的测试滚动后复跑无未处理异常。`/tmp/pinax-authoring-f1/` 已只保留 1440 方向、1440 回响、390 当前场 sheet 三张最终证据。用户确认截图与真实作者文本盲读前，F1 仍不标记为视觉冻结。
+
+## 2026-09-01 - Authoring F1-6 原子批量采纳与真实回响
+
+- `SceneBeatDraft` 的最终单元边界现直接进入编辑器批量写入：一个 beat 的全部 proposed units 在 dispatch 前完成目标 revision、内容、稳定 unit/node ID 与 origin 校验，通过后以一个 ProseMirror history event 写入，共享同一 authoring-turn origin ref 与 sceneId；不再循环逐单元插入或保存。重写当前块仍保持原有单单元原子替换语义。
+- adoption sidecar receipt 兼容单元并新增完整 `insertedUnitIds` / `insertedUnitCount`。现场锚点落在 beat 首单元，合法 outline fulfillment 关联本次全部单元；任一单元、人物上限、现场或大纲校验失败会先整批撤销正文并隔离无效 redo。首次持久化失败保留第一次 editor result，再次保存只重试 persist；observer 只在保存成功后对整拍调度一次。
+- 撤销/重做继续复用同一 Notebook 原子 ledger 和一个 PM history boundary：一次撤销移除整拍全部新单元并恢复现场/大纲，一次重做整体恢复；记忆失效来源覆盖本次全部精确 `unit:` refs，不触碰推演前记忆。
+- 新增纯 `AdoptionImpactProjection` 与低干扰页边回响。反馈只读取 editor result 和正式 receipt，展示实际新增单元数以及确实发生的现场/大纲变化；正文里出现“离开、毁坏”等词不会被推断为世界变化。回响无交互控件、约 4.2 秒退场，与新单元同轴且不形成永久状态栏。
+- 验证：focused 4 文件 / 69 用例通过；真实 4183 F1-5/F1-6 旅程 31/31、既有 C1 故障矩阵 31/31，覆盖首次保存失败、persist-only 重试、模型零重调、observer 单次调度、整拍撤销/重做与回响/receipt 对账。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 全绿。F1-6 截图在 `/tmp/pinax-authoring-f1/f1-6-adoption-impact-1440.png`；临时 4183 已关闭，未触碰用户 5173。下一项为 F1-7 最终视觉、移动端与整轮冻结。
+
+## 2026-08-31 - 落笔上下文闭环 P1 C1-7 最终页面验收
+
+- 新增 `rollout-c1-final-audit.mjs`，把此前分散的当前场、参考选择、Ghost 与移动 sheet 旅程收成唯一最终页面 Gate。1440 当前场证据同时显示世界书人物/地点、纠正当前/安排下一段/仅供本次三种语义和两条作者参考；1440 Ghost 证据显示可编辑非正文稿与实际参考；390 证据显示右侧详情降为可独立滚动的底部 sheet。
+- Gate 直接测量固定侧栏、工具 rail 和检查器在正文滚动前后的坐标；检查详情开关前后的正文 selection/scrollTop；比较目标 writingUnit 与 Ghost 的内容轴和宽度；额外验证 1024 检查器覆盖层不压窄正文、390 sheet 完整位于视口内且参考动作保持 44px 逻辑触控高度。1440/1024/390 均无横向滚动和 page/console error。
+- 最终 Gate 24/24，C1 参考/重写旅程 23/23、故障矩阵 31/31；三张批准证据保存在 `docs/engineering/authoring-c1-assets/`，中间报告继续留在忽略的 `tmp/`。最终 `verify:full` exit 0：20/20 文件、200/200 用例、Vite build、`git diff --check` 与 VitePress build 全绿。没有启动、停止或重启 5173。自动化 C1 P1 到此完成，仍保留用户审美确认、真实 provider 和 Windows 原生中文输入法耐久外部门禁。
+
+## 2026-08-31 - 落笔上下文闭环 P1 C1-6 故障注入
+
+- 新增独立 `rollout-c1-fault-check.mjs`，在隔离浏览器 context 中对真实 Authoring 生产路径注入 provider 和 `writing_books` 持久化故障，不触碰用户浏览器数据。下一段与重写两种 Ghost 均验证编辑后放弃仍为正文、现场、大纲、作者素材和记忆零写入，且不调度正文观察器。
+- provider mock 支持按 narrative phase 注入延迟和 typed HTTP 失败。空正文与 504 timeout 都保留 composer、目标和作者指令，不发布 Ghost；生成中切章会取消旧 session，正常离页保存之后的迟到响应不再产生额外正式写入；Ghost 发布后作者修改目标 writingUnit 会推进 revision，旧草稿保留但不可采纳，也不重发模型。
+- 首次采用后定点让 `writing_books` 保存失败，确认 Ghost 锁定为“待保存”、正文只插入一次且观察器尚未调度；恢复存储后“再次保存”只重试持久化，不再请求模型、不重复插入，并恰好调度一次带 `ghost-adoption:` 与新 `unit:` 来源的观察器。撤销只失效本次新 unit，推演前既有记忆仍为 active。
+- 验证：真实 5173 故障矩阵 31/31；focused 2 文件 / 36 用例；`verify:full` exit 0，20/20 文件、200/200 用例、Vite build、`git diff --check` 与 VitePress build 全绿。没有启动、停止或重启 5173。下一项为 C1-7 三张真实页面最终视觉/鲁棒性验收。
+
+## 2026-08-31 - 落笔上下文闭环 P1 C1-4/5 当前文本块重写
+
+- 现有块间推演器新增“推演下一段 / 重写当前块”任务切换，不另建生成入口。重写仍经生产 `AuthoringRunSession`、最多三条作者参考、生成前预检与生成后 receipt；普通推演继续只读取光标前正文，只有作者显式选择重写时才把目标 writingUnit 全文作为“待重写文本块”纳入 manifest，未来单元仍不可见。“安排下一段”不会污染重写，run-only 设定仍可参考。
+- 生成结果继续落在目标 writingUnit 下方的可编辑 Ghost。采用作者编辑稿时原位替换整个 writingUnit，保留稳定 unitId、单元数量和相邻正文；模型原稿携带的 scene/outline delta 与 next-passage intent 在重写路径一律不兑现。保存失败沿既有 pending adoption 只重试持久化，不再次请求模型。
+- 重写事务保存替换前/后的精确 schema-v3 单元快照，并与 scene/outline sidecar receipt 共用撤销边界；撤销恢复原文本块但不删除 unit，重做恢复编辑后的版本。重写观察器使用本次 `ghost-adoption:<candidateId>` 来源失效，避免撤销时误伤同 unit 在重写前已有的记忆候选。
+- focused 2 文件 / 52 用例、Vite build、diff check 与真实 5173 旅程 23/23 已通过；1440 覆盖冻结预检、可编辑重写 Ghost、原位替换与撤销，390 覆盖任务切换和零横向溢出，页面与 console error 为零。最终 `verify:full` 全绿：20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 通过。
+
+## 2026-08-31 - 落笔上下文闭环 P1 C1-3 本次参考
+
+- 新增独立的 run-only 参考选择合同与轻量行式选择器。当前场详情和推演区可按“速记 / 素材”搜索、预览并最多选择三条；选择只保存稳定来源 ID、作者用途和点击时 revision，不改变素材归档/采纳状态，也不新增长期 localStorage。速记与普通素材默认只作灵感，剧情事件作本次意图，只有明确的人物事实素材形成事实约束。
+- 已选来源按书、章节、writingUnit 和目标节点隔离；放弃、采纳或切换目标时清除，provider/保存失败时保留。同一来源重复选择和第四条选择在 controller 层拒绝；来源删除、跨项目或内容修订会明确显示，旧 revision 进入生产 reader 后按 `source-revision-changed` 排除，作者点击“采用新版”后才更新选择。
+- 生成前摘要直接调用生产 `AuthoringRunSessionAdapter.prepareSession()`，复用正文光标边界、当前场、世界书、记忆、去重、冲突与预算规则；预检期间暂时禁用生成动作，避免作者在清单尚未冻结时误提交。展开项只显示“当前正文 / 章节上下文 / 当前场 / 世界设定 / 作者参考 / 相关记忆”、来源名称、加入原因、截取/冲突/排除状态，不暴露 profile、token 或 candidate ID。生成后由实际 manifest + receipt 显示“实际使用 / 因篇幅省略 / 来源失效 / 冲突中未采用”，stale 结果也保留实际回执。
+- focused 3 文件 / 58 用例与真实 5173 C1-3 旅程 14/14 已通过；1440 覆盖当前场选择、冻结预检和 Ghost + 实际参考，390 sheet 可滚动完成选择，均无横向滚动或页面错误。最终 `verify:full` 全绿：20/20 文件、200/200 用例、Vite/VitePress build 与 diff check 通过。
+
+## 2026-08-31 - 落笔上下文闭环 P1 C1-2 现场三意图
+
+- 新增内存型 scene run intent 合同，按 project/chapter/writingUnit 隔离人物与地点的 `next-passage` / `run-only`；当前场调整不再提供含混的“保存并推演”，纠正当前只由“保存当前场”持久化。临时动作只打开绑定到目标 writingUnit 的 composer，不提前写 `sceneAnchors`，切书、切章、切构思、切世界书、放弃或成功采纳时清除。
+- session adapter 对临时意图执行 fail-closed 校验并从绑定世界书精确重读条目，核对条目类型、worldbookId 与点击时 revision；合法 intent 以唯一 `worldbook-entry:<id>` 进入 manifest、revision/stale 对账与最小工具授权。run-only 永不产生 scene delta；next-passage 只有同时进入最终 manifest 且 receipt 确认完整序列化时才可兑现，作者本次移除、packing 排除、provider 省略/截断均不写现场。人物上限统一为 8，并在 UI、意图创建与采纳事务三层拒绝第 9 人，避免锚点写入后被投影静默截断。provider/生成失败与保存失败保留 intent 和草稿，保存重试不会再次请求模型。
+- 真实 5173 V5 旅程更新为“安排下一段 → composer → 生成 → 编辑 Ghost → 采纳”，并断言采纳前 localStorage 与左栏现场均无临时写入、采纳后正文和人物现场同时更新、console/page error 为零。390px 复验确认普通列表 AX 结构、按压态、44px 逻辑触控高度和零横向溢出。Focused 3 文件 / 59 用例与最终 `verify:full` 全绿：20/20 文件、200/200 用例、Vite/VitePress build、diff check 通过。下一项 C1-3 只做最多三条“本次参考”及作者可读的生成前/后摘要。
+
+## 2026-08-30 - 落笔上下文闭环 P1 C1-1B 生产接线
+
+- 新增薄 `AuthoringRunSessionAdapter` 与 repository bundle。长推演从稳定 project/document/chapter/unit/node/caret target 出发，在提交瞬间重读当前 structured document、共享场景投影、绑定世界书、显式参考、记忆和已采纳大纲，再创建递归冻结 session；页面旧 `compileWritingContext(snapshot.contextCandidates)`、整章 narrativeContext、整本世界书和全量 runtime 已退出生产叙事路径。
+- 场景 revision 现在覆盖 provider 实际能看到的地点、时间、人物、未决事件与派生名称，不再只信旧锚点 fingerprint。Authoring 世界书匹配关闭概率随机漏项并纳入本轮指令；纯读旧 structured-settings-only 世界书不会因 `Date.now()` 漂移 revision。绑定 project/id 三重核对，四条参考、非法来源类型、跨项目和缺失来源 fail-closed；记忆可解析未选素材、探索文档和其他章节的 provenance revision。
+- NarrativeKernel 的 manifest 模式删除旧 scene/projection/cast/summary/recent/continuity/style 与自选 matcher；最小 resource index 和 registry 只暴露 manifest 已入选的 world/memory 资源与 BeatPlan。provider 与 receipt 共享最终 serializer，回执记录实际块、截断/省略、compiler 排除、有界工具 evidence 与授权结果；完成后从 repository 重读 exact dependencies，stale 正文和 receipt 得以保留但不可采纳，工具 evidence 越权以自身错误 fail-closed。
+- Ghost 采纳前按冻结 session 再次核对 live revision。“安排下一段”不再提前调用章节保存，而与正文、scene/outline delta 在内存中一次准备、一次最终持久化；保存失败只重试保存。事务层 revision race 同样保留生成正文与失效来源，原位 stale 预览可选择复制并保持正文换行/缩进，不提供采纳动作。
+- 验证：focused 4 文件 / 82 用例、上下文生命周期 6/6、Vite build、`git diff --check` 和 production dry-run 1 项通过；整棵树仍必须在提交前通过唯一最终 `verify:full`。未启动、停止或重启 5173。下一项是 C1-2/C1-3 三种现场意图、最多三条“本次参考”和作者可读的生成前/后摘要；素材页、历史/政治、地图 P1.7 继续暂停。
+
+## 2026-08-30 - Authoring 安全检查点与地图 P1 整支集成
+
+- 将跨会话 Authoring WIP 固化为可恢复检查点 `41caf45`。writingUnit/Ghost、现场采纳、observer、共享样式与真实旅程 harness 已形成同一状态链，因此没有做可能破坏事务边界的 hunk 硬拆；地图调研和计划以独立文档提交 `9a57c63` 保留。
+- 从干净基线合入 `feature/map-platform-v2` 全部 15 个提交，而非只挑末尾视觉修正。整合保留 `MapDocumentV2`、`MapBindingV2`、稳定地点身份、legacy migration、generator contract、固定 fixtures、OpenLayers spike、世界档地理优先渲染、写作语义覆盖、第三方 notices 和最终批准/失败证据；`ol` 精确锁定为 `10.10.0`。
+- `package.json` 同时保留 Authoring 证据清理脚本与地图依赖；`integration.test.js` 同时保留两边断言。地图 21 个 case 按 schema、identity、migration、隔离、generator、语义与 fixture 合成 8 个合同组，断言不减，测试预算回到硬上限。
+- 验证：地图聚焦 8/8；最终 `verify:full` 为 20/20 个测试文件、200/200 个用例，Vite build、`git diff --check` 与 VitePress build 全部通过。地图 P1 到此暂停，不推进 P1.7/P2；下一项回到 C1-1B 生产长推演接线。
+
+## 2026-08-30 - 落笔上下文闭环 P1 C1-1A 冻结合同
+
+- 新增一次性、内存型 `AuthoringRunSession`。提交时冻结 project/document/chapter/unit/node/caret 和共享 `sceneProjection`，正文 discovery 只保留目标前最多三个 writingUnit 与当前节点 caret 前缀；光标后正文、未来 writingUnit 和过远前文不会进入返回 session。
+- 新增 run 专用 scene/worldbook/reference/memory readers。显式速记/素材限制最多三条并重新读取来源，保留 `intent / fact / inspiration`；默认素材只作 inspiration，只有明确 fact 才升为事实约束。记忆严格检查 scope、status 与单一主来源 revision，其余 refs 只作 provenance；stale、删除、跨项目、缺 revision 项只输出无正文的排除元数据。世界书 selection 只提供 entryId/matchReason，reader 按当前 project + `projection.worldbookId` 从绑定 repository 重读 live entry；caller 伪装的旧/外项目正文不会进入 session。Outline additional candidate 必须把 canonical primary ref 绑定到自身 revision，否则提交前拒绝。
+- 候选归一与 Compiler 保留 label/sourceKind/sourceId/usageRole/primarySourceRef、表示降级和安全排除原因；候选及 manifest 递归冻结，canonical primary sourceRef、表示或 dependency 同源异版时整轮拒绝。世界书条目只使用 `worldbook-entry:<id>`，run revision 覆盖所有上下文相关字段；记忆来源依赖使用独立 `memory-source:` 命名空间。
+- 新增 manifest tool authorization。授权前复算 manifest 指纹；世界书/记忆工具索引只用最终 manifest 已入选块的实际表示合成，不读取整本世界书、全量记忆、excluded、dependencies 或 provenance 扩权；sourceId/ref/project/指纹篡改 fail-closed，验证后的资源与 Map 查询面均只读。
+- 新增 C1 live dependency collector，正文 document/unit/node、当前场、世界书、探索、素材、记忆和 scene intent 与冻结阶段复用同一 revision helper。fixture 的 fresh manifest 对账为零差异，修改 node/worldbook/asset/memory/scene intent 均只产生对应 stale；C1-1B 必须从 repository 实时重读外部来源，不能把 session 快照回填成 live 值。
+- 验证：`narrativeKernelExecutor.test.js` focused 41/41；`eval:authoring-context-lifecycle` 6/6；C1 变更文件定向 ESLint、`git diff --check` 和 production smoke dry-run 1 项通过。遵守 P1 节奏，未运行全量门禁；未修改 Authoring UI、未启动或重启 5173。下一步 C1-1B 接 executor/runTurn/Kernel、实际 receipt 与结果 stale 复核。
+
+## 2026-08-29 - 落笔上下文闭环 P1 C1-0 基线
+
+- 先完成 C1-0，不扩建素材页、历史/政治或新记忆类型，也不与当前 Authoring 可见切片并发改页面。基线记录为 `integration/consolidation-20260823` 的 `c55f3207` 加当前 dirty worktree；地图隔离 worktree 可继续并行。
+- 新增隔离的两章/三个 writingUnit 验收 fixture，覆盖当前场角色/地点/时间、世界书人物/地点、一条速记、一条叙事素材、一条有效和一条 stale 记忆；通过真实 repository/store/schema 装载，临时快照不会进入用户浏览器 localStorage。
+- 5173 真实页面基线确认：当前场能显示莉娜、艾德加与旧港税务所，但只有“保存现场 / 保存并推演”等旧动作；没有三种 scene intent、最多三条“本次参考”选择器和作者可读的冻结预检。AI 面板的“本次参考 1 项 / 等待生成”只是旧 ledger 占位。
+- 只读上下文审计确认 C1-1 的 P0：当前 unit 光标后内容仍能绕过 manifest；长推演没有受控记忆；素材会被一律提升为 fact 且存在跨项目洗入风险；Kernel/tool index 仍可访问 manifest 外来源；receipt 没覆盖旧 narrativeContext/runtime/tool evidence。
+- 完整断链、文件 owner 与 C1-1A 纯服务下一刀见 `docs/superpowers/research/authoring-context-closure-c1-0-baseline-20260829.md`。本切片未修改 Authoring 产品行为，未启动或重启开发服务。
+
+## 2026-08-27 - Authoring 审计收口与工作区整理
+
+- 修复 `/authoring` 运行时白屏：`watch(sceneProjection)` 在 setup 期立即求值时读取了约 3200 行之后声明的 `selectedBookWorldbookId`，TDZ ReferenceError 使 canonical 创作路由整体挂载失败；两个声明已上移到首次使用之前。
+- 右侧工具状态同步审计首轮：AI 候选列表（下一步/对话选项/涌现）跨章/跨书/跨构思不再残留，迟到候选按作用域静默丢弃且不计指标；请求级撤销回执绑定发起时的书/章/文档作用域，切章后旧回执不能再把旧章正文整篇恢复进新章节。四个切换边界同步清理候选与待保存回执。
+- 第三轮遗留的约 270 文件脏工作区已按来源分堆落盘为三个单一关注点提交（源码 WIP / 历史资料纯删除 / 文档交接），未跟踪的 `SceneIndexSection.vue` 与 `writingNameGenerator.js` 随引用方入库。
+- 验证：verify:full exit 0（20 文件 / 170 用例、budget ok、Vite build、git diff --check、VitePress build 全过）；全路由空状态 UI audit（1440px）0 console error。外围 comics/prose-essay 两项 audit 提示属冻结区/误报级，本轮不处理。
+
+## 2026-08-26 - Authoring 文本主链代码审计
+
+- 第三轮继续收口编辑对象作用域：探索文档更新与单元拆并只重定位探索批注，不再改写正文批注或正文当前场锚点；结构变化会显式失效旧手工锚点撤销回执。
+- Ghost 采纳改为 peek → 编辑器插入 → consume，插入失败不再提前丢失候选；部分采纳后以实时 caret/node/revision 重建剩余目标。生成中和失败状态补回同一 caret decoration，支持 Enter 重试与 Esc 取消。
+- 查找、批注定位和替换按文本块的连续 `textContent` 匹配，粗体/斜体/link 拆出的相邻 text node 不再导致视觉连续文本无法命中；结构移动使用 ProseMirror 正式内容集合。
+- writing service 静态检查顺带修复导出文件名控制字符规则和 v2→v3 attrs 清理告警。验证：focused 4 文件 / 38 用例通过，`src/services/writing/*.js` 与 `useWritingAgent` ESLint 通过；完整 `verify:full` 留到本轮代码审计完成后执行。
+
+- 修复光标上下文误取第一单元；块级 Composer/Ghost 改为使用请求时 `unitId` 固定原位。
+- scene anchor revision 改按 opaque token 比较，锚点时间进入 v2 当前场投影。
+- Ghost 采纳失败时冻结编辑并阻止自动保存、切书和切章；“再次保存”重试同一 Ghost 事务。
+- 自动联想在输入与移动光标后分别等待 2.8s / 4.2s settled idle；不再要求特定句末标点。
+- 显式素材先成为 Context Candidate，再由唯一 Compiler 选择，不再绕过 manifest 独立拼入提示词。
+- 卷宗外层停止滚动；长章节实页确认只有正文滚动容器，章节标题无数字装饰，段落首行缩进计算值为 32px。
+- 第二轮按函数与失败路径复查后，构思/章节/书籍导航全部改为“保存成功才离场”；新建、排序、删除失败回滚，避免 localStorage quota 失败产生半事务或先删历史。
+- Ghost 换候选保留首次生成的节点、光标、manifest 与 document revision；普通编辑后废弃组合撤销回执，避免撤销普通输入时连带错误回滚当前场/大纲。
+- 旧章节没有显式 revision 时改用稳定正文指纹；大纲边纳入 live dependency。随机候选 ID 被拒绝，保证 manifest 可复现。
+- 构思批注从展示、编辑、删除、快速改写到批量审查统一使用当前文档作用域，不再误读或误写正文批注。
+- 验证：focused 5 文件 / 87 用例；`verify:full` 20 文件 / 163 用例、Vite build、diff check、VitePress build 全过。真实 provider 和构思批注实页交互仍是外部门禁。
+- 扩展轮从 Authoring 入口建立 197 文件递归依赖图，再按函数、写入边界、异步边界与 revision 传递反查；不再以少量 focused tests 代替代码检查。
+- 修复富文本节点只读第一个 text child、前文插入后光标强制跳文末、find occurrence 只命中每节点首次、节点选区 offset 越界、Ghost 不校验 node/caret，以及无 insertedUnitId 仍准备现场/大纲 delta。
+- Context Compiler 现在对稳定候选 ID 去重，full 超预算时会尝试 excerpt/summary；正文单元 ID 不再随全文档 revision 漂移；世界书/素材 ISO 时间戳作为 opaque revision，不再被 `Number()` 压成 `NaN`。
+- 当前场明确分离书级绑定 ID 与已加载世界书对象，能真正报告 missing 并阻止缺设定生成；同单元不同 revision 的旧观察不再进入投影。正文设定标注改为全局长词优先，避免短别名抢占长全称。
+- 大纲节点 refs 去重且非法 revision 归零；旧章纲冲突迁移保留确定指纹，执行时不再篡改输入 plan。Agent 结果事务拒绝未完成/畸形结果，adapter 异常归一为可重试 typed failure。
+- 扩展轮验证：focused 4 文件 / 68 用例；最终 `verify:full` 20 文件 / 169 用例、Vite build、diff check、VitePress build 全过。
+
+## 2026-08-24 - Authoring 上下文设定信息架构与验证节奏纠偏
+
+- 设定匹配范围冻结为非空选区，或当前文本段光标之前加前 2-3 个完整文本块；光标后文字、同单元后文和整章不参与即时匹配。
+- 设定首屏不再按当前场/正文/约束/最近引用堆多个来源组，而是区分“正在写这里”和“写作时别忘记”。块距离只参与前者内部排序；单条详情负责当前真实用法、本章引用轨迹和条目正文，不展示相关性分数、字符距离或调用次数。
+- `visual-alignment-workflow` 新增阶段验证门禁：设计阶段不测试，实现阶段连续完成完整行为切片，切片 Gate 才运行一次 focused 与截图，整轮 Gate 才运行 full verification；仅编译阻断或关键崩溃允许提前检查。
+- 本次只修订计划和共享状态，未运行测试或构建；既有正文装饰和右栏实现仍是待按新信息架构返工的 WIP。
+
+## 2026-08-24 - Authoring 右侧设定详情完整切片
+
+- 逆向确认作家助手把设定内容面与“章节提及”检索/回跳分开，正文提及高亮由设定分类颜色控制；Pinax 继承职责分离，不复制其数据模型或视觉资产。
+- 新上下文选择器按稳定文本块顺序读取当前段 caret 之前与前 3 个完整文本块；条目按最近真实命中排序，当前场与生效约束进入独立提醒层，光标后文不参与即时匹配。
+- 详情面收为设定正文、当前用法、本章引用轨迹和正文回跳；关键词与关系降入折叠次级区。正文提及点击携带 nodeId/offset，移动 caret 后打开对应详情，不制造正文选区或浮动编辑菜单。
+- 宽屏双栏保持左索引与右详情两个 owner；1024 降级时隐藏索引并显示单栏详情。切片 Gate 聚焦测试 6/6；1440/1024 浏览器复验 0 console error，正文提及 6 处、引用轨迹 2 处，响应式状态正确。完整验证按阶段门禁留到后续多个切片收口。
+
+## 2026-08-24 - Authoring 右侧大纲完整切片
+
+- 逆向确认作家助手大纲采用分类/条目索引与单一内容编辑面，章纲作为独立资料参与写作，并提供文本/逻辑图/思维导图等视图。Pinax 当前没有对应图模型，因此不先放空壳，只重构已有章节章纲真数据。
+- 大纲改为左侧有序节点索引、右侧内容与来源详情；点击节点只选择，不再直接把章纲塞进正文。插入正文成为详情中的明确“插入到当前光标”动作。
+- 新建、编辑、来源说明、上移/下移与二次确认删除共用同一详情 owner；宽屏双栏保留索引，单栏与 1024px 自动钻取详情。
+- 交互契约并入既有测试项，focused 6/6；1440/1024 Playwright 复验节点 3 条、1024 详情可见且索引隐藏、0 console error。截图为 `/tmp/authoring-outline-1440.png` 与 `/tmp/authoring-outline-1024.png`；完整验证按阶段门禁留到多个工具切片收口。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 0-2
+
+- Phase 0 原型经用户确认：构思/正文双角色共用同一块级编辑器，构思/大纲树放右侧（方案 R），首行缩进 2em、三重构思区分信号（标题色带+实底徽标+未归章说明）。
+- Phase 1 新增 authoringDocumentRepository：AuthoringDocumentHandle 合同、稳定文档 key（正文兼容 chapter: 旧 key、探索为 exploration:book:doc 命名空间）、探索文档 CRUD；删除探索绝不触碰正文。切换/换书/刷新统一 persist-before-leave，恢复草稿按文档 key 回填，探索批注随文档持久化。
+- 修复三个数据竞态/串写：探索输入误触正文自动保存管线；章节 saveBooks 整包回写冲掉仓库并行的探索文档（保存前按仓库合并仓库拥有字段）；选择→query 同步吞掉未知参数。
+- Phase 1 补项：writingSourceRefs 统一条目级 sourceRef 为 worldbook-entry: 唯一形态（旧 worldbook:<entryId> 归一，无法判定 fail-closed）；resolveAuthoringDocumentPosition 解析 unit/node 位置与各级 revision 及光标前文字符量。
+- Phase 2：章节行改 `第一章　章名`（中文数字+全角空格），中央 `01` 装饰编号移除；排版变量（首行缩进/段距）收敛到 writingTypographyStore 注入，构思与正文共用；搁置分组与删除入口落地。
+- 验证：Phase 1 四场景 Playwright 行为验证全过（创建/切换/刷新持久化、探索不写正文、删除隔离、恢复草稿回填）；focused 合同并入 authoringWorldbookBinding.test.js；verify:full exit 0（20 文件/129 用例）。原型与行为脚本暂留 scripts/ 与工作树，未提交。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 3
+
+- 项目级大纲真源落地：书级 outlineNodes/outlineEdges，节点允许零章节映射，exploration refs 三态（proposed/adopted/rejected），边拒绝悬空端点与自环，确定性大纲指纹供挂起请求 stale 判定。
+- 时间位置真源：chapterOrderRevision 指纹（重排/增删章即失效）、before/at/after-target 判定（任一端缺失 fail-closed unknown）、unit 级 order index。
+- 旧 chapter.outlineItems 惰性可重入迁移：手写项保留原 id 与内容零丢失，素材项转引用，分叉进入一次性冲突审阅不静默合并，未完成时旧 reader 继续工作。
+- 大纲面板新增项目级线性视图（全部/未编排/人物线/伏笔筛选）与分叉审阅横幅；首次打开惰性触发迁移。
+- 验证：focused 合同（归一/时间判定含重排失效/幂等迁移零丢失）并入宿主测试；live 接线检查迁移与面板渲染通过。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 4
+
+- 上下文所有权收敛到 WritingContextCompiler：readers 只产出带 sourceAuthority、narrativeStatus、temporalRelation、scope、position、revision 与多表示的候选；固定执行 discover → eligibility → conflict → representation → packing，并按四种 profile 输出带指纹的 CompiledContextManifest。
+- 自动联想与长叙事使用同一候选 discovery，分别按 inline-fast / narrative-long 预算编译；世界书条目只使用 canonical `worldbook-entry:` 引用。NarrativeKernel 收到 manifest 后不再自行匹配世界书、规则、角色卡或文风，并把非世界书候选统一序列化为 compiled-context 块。
+- Narrative executor 从 Kernel 实际序列化结果生成 ModelCallReceipt，记录 declared / actual、截断和 token usage/估算，并执行 manifest 对账；AI 辅助右栏 Context Ledger 暂时直接显示最近 compiled manifest 的 profile、采用项、预算与冲突数。
+- Gate 覆盖共享合法候选全集、世界书 ref 唯一、Kernel 无越权来源与 manifest→receipt 映射；focused 13/13。`verify:full` exit 0：20/20 测试文件、141/200 用例、Vite build、diff check、VitePress 全过。未启动用户 dev server，live screenshot audit 未运行。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 5
+
+- eligibility 在冲突与预算前新增 projectId 一致性和 revision 必填门禁；rejected、未知正文位置和未钉选 after-target 继续 fail-closed。`narrative-long` 不再因 profile 允许 alternatives 就把未采纳探索稿带进正文，alternative 只对 exploration / conflict-check task view 开放。
+- 显式钉选未来来源在编译时强制改为 `intent + intendedReference`，不会伪装成已经发生的 fact。manifest 块补充 claimKey、claimType、conflictRole 与 overrideOf，便于运行时和后续 Ledger 解释。
+- 正文冲突视图只保留权威 winner 并排除 challenger；矛盾检查与探索视图保留完整 winner/challenger 集合。低权威无法裁决时继续报告 unresolved。作者纠正生成独立 author-explicit run-only override，优先于 imported/machine 来源但不改写原世界书候选。
+- Gate 15/15，覆盖跨项目/缺 revision 排除、未来钉选、正文单视图、检查双视图、explicit 胜 machine 与 override 源不变；叙事 production dry-run 60 项。`verify:full` exit 0：20/20 文件、143/200 用例、Vite build、diff check、VitePress 全过。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 6
+
+- 新增独立 writingFactIndex，不把 Experience 的 narrativeSceneSummary 直接升格。结构化事实按 writingUnit 建增量叶索引，记录 claim/entity/predicate/value/facet/status/evidence/source revision；rejected 与缺证据记录不进入事实层，同 revision 直接复用旧叶节点。
+- scene/range/chapter 聚合记录全部 child revisions、facts、facets 与 evidence coverage；精确查询始终读取 fact index，不依赖 prose summary。摘要请求只带 previous neutral summary、changed unit facts 和当前 aggregate revision。
+- continuity projection 记录 summary coverage、facets、knownOmissions、method 与完整事实层；模型失败、空结果或 child revision stale 时保留旧投影。正文与探索的 fact task view 仅在 run 内派生，hypothesis/alternative 不进入正文视图且不会改写真源。
+- Gate 17/17：密码、身体特征、机制、时间承诺、位置五类精确事实 5/5 召回；摘要只覆盖 1 项时其余 4 项遗漏均可解释并回读证据；单 unit 局部失效、failure/stale 保旧、rejected 不变 fact。`verify:full` exit 0：20/20 文件、145/200 用例、Vite build、diff check、VitePress 全过。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 7
+
+- 新增四 profile 累计 token budget：inline-fast/manual-short 不开放工具和临时摘要，narrative-long 保留 BeatPlan + 两轮资料，analysis-background 才允许后台摘要。narrative orchestrator 在每次 model call 前按累计 input、序列化输入估算与最大输出预留 fail-closed，保留既有轮次、工具数、重复调用与超时护栏。
+- 每次成功模型调用记录低敏 token receipt（phase、input/output/total、provider/estimated）；provider 无 usage 时按实际序列化字符保守估算。Authoring executor 从 Kernel 实际块生成逐调用 manifest receipt，并继续执行 declared/actual/cut 对账。
+- 运行结果统一为 completed、budget-capped、context-truncated、stale、aborted、timeout、grounding-insufficient、loop-capped、invalid-result；有正文的 budget-capped 标记 degraded。Composer 对 stale/取消/超时/资料不足/loop/空结果显示不同 typed 状态；inline 新请求仍 abort 旧请求，abort 不记失败、不进入冷却。
+- Gate 22/22，覆盖 inline 禁工具/摘要、无 usage 累计估算、调用前预算拒绝、逐调用 receipt 与九类 outcome；production dry-run 60 项。`verify:full` exit 0：20/20 文件、147/200 用例、Vite build、diff check、VitePress 全过。上下文生命周期 0/6 的六个硬失败至此代码侧全部关闭，允许进入 Phase 8 跨章生产化。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 8
+
+- 跨章候选发现正式接入 inline-fast 与 narrative-long 共用的 Compiler：旧章只提供结构化 fact index、continuity 和至多 600 字必要尾段；未来章节不读取正文。大纲 `causes` / `foreshadows` 反向遍历支持多跳兑现，当前邻域、当前场、adopted intent/exploration、伏笔/因果前驱、前章和一般摘要使用显式 attention priority。
+- Compiler 新增 run-only 移除/钉选和依赖 revision 快照；未来钉选仍降为 intended reference，缺 revision fail-closed。同章的事实、摘要与 excerpt 只选择一种表示，不重复占预算。
+- inline 与 narrative 在模型返回后都复核实际依赖；chapter order、所用章节/continuity、unit、scene、outline、exploration 或世界书 revision 变化时丢弃迟到结果，无关编辑不误伤。右栏旧 Context Ledger 收口为一行“本次参考 N 项”，展开可见原因、表示、排除、实际字符与 receipt 截断，并允许本轮钉选/移除。
+- Phase 8 focused Gate 11/11；上下文生命周期保持 6/6。`verify:full` exit 0：20/20 文件、150/200 用例、Vite build、diff check、VitePress 全过。下一步 Phase 9 统一探索、推演与 Ghost。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 9
+
+- 新增统一 `WritingGhostCandidate`：inline 与 narrative、正文与探索共用一个 pending owner，候选冻结 project/document/role/chapter/unit/node/caret、document/unit revisions、实际依赖、manifest fingerprint、run outcome 与来源。新候选替换旧候选；切书、切章、切探索和丢弃均清理 pending。
+- 自动联想与长推演都在采纳前校验实际依赖；无关 revision 不误伤，目标文档/unit 或实际依赖变化 fail-closed stale。普通 inline 候选可分句采纳，剩余文本继续保留同一 target/dependency 快照；含 scene/outline delta 的候选只允许整体采纳。
+- 探索文档使用同一 inline-fast / narrative-long Compiler 和 Ghost 路径。探索推演采纳只写 exploration repository，不调用 canonical scene commit 或 observer；正文采纳保持原现场链。Narrative workflow 将 manifest、receipt 与 typed outcome 一路传到候选 owner。
+- Phase 9 focused 28/28；上下文生命周期 6/6；production dry-run 60 项。`verify:full` exit 0：20/20 文件、153/200 用例、Vite build、diff check、VitePress 全过。下一步 Phase 10 收口 prose + optional scene/outline delta 的原子采纳、失败重试与撤销。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 10
+
+- 新增 `writingAdoptionTransaction`，基于统一 Ghost 准备 scene anchor 与 outline fulfillment 的不可变变更及 AdoptionReceipt；锚点绑定实际新 writing unit，大纲节点写入 fulfilled + unit ref，缺失节点在持久化前 fail-closed。
+- Narrative workflow、task mapper 与 Ghost owner 贯通 optional scene/outline delta。正文、scene anchors 与 page-owned outline nodes 由同一次书级保存提交；探索文档明确剥离 canonical delta，保持探索推演不改当前场或项目大纲。
+- 保存失败时保留已插入正文与 pending adoption，重试跳过 stale/插入/delta 阶段，只再次持久化，避免重新生成、重复 writing unit 或重复 revision。成功后才调 prose observer；observer 失败不改变已保存事实。
+- 采纳撤销校验 project/document/role 与 scene/outline after fingerprint，随后恢复编辑器、锚点和大纲前态并再次持久化；相关状态已变化则拒绝误撤销。现有 scene projection 继续按 unit order 只向前继承，不读取后文 anchor。
+- Phase 10 focused 37/37；上下文生命周期 6/6；production dry-run 60 项。`verify:full` exit 0：20/20 文件、155/200 用例、Vite build、diff check、VitePress 全过。下一步 Phase 11 外围重组与删除。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 11
+
+- 新增 `authoringPeripheralBridge`：外围模块只可创建 exploration、planned outline intent 或稳定 canvas ref，不向 Authoring 核心复制聊天 transcript、正文全文或新的可见记忆草稿库。
+- 旧 `writing_notes` 在构思树提供显式迁移入口；每条 exploration 记录 `writing-note:<id>` 来源，重复执行按来源幂等跳过，旧数据不自动删除。素材页在路由具有 bookId 时将纯文字新建改为未编排 exploration 并回到 Authoring；没有项目上下文时保留原素材行为，图片、音频和文件 picker 不受影响。
+- Experience 建议桥可选择创建带 session/message refs 的 exploration，或创建带 entity refs 的 planned scene intent；画布桥只允许 outline/exploration/manuscript/asset 四类 typed ref。外围模块禁用时，文档 repository、项目大纲、Compiler、Ghost 与采纳事务仍独立完成探索 → 大纲 → 正文主链。
+- Phase 11 focused 37/37。`verify:full` exit 0：20/20 文件、158/200 用例、Vite build、diff check、VitePress 全过。下一步 Phase 12 视觉、中文输入与最终收口。
+
+## 2026-08-25 - Authoring 文本工作台 v3 Phase 12
+
+- Authoring 在编辑器 `beforeinput` 边界将非 composition 的直双引号转为中文 `“”`：空选区光标落在引号中间，有选区时一次事务包裹选文；IME composition 与其他输入不拦截，沿用 ProseMirror history 撤销。
+- 探索/正文在同一个 WritingNotebookEditor 上标记 document role，继续共享小说标准排版。Ghost 可见时 current-line 与 current-unit rail 降为辅助层，避免批注/当前块/Ghost 同屏争主强调。
+- 窄屏关闭的 chapter sheet 增加 inert + aria-hidden，打开后恢复焦点语义；520px 以下 editor toolbar 改为完整换行，修复 390px 在 200% 缩放时可聚焦按钮被容器裁切。
+- UI audit 12 captures（regular/long/ghost/annotations × 1440/1024/390）：0 console errors、0 a11y failures、0 scenario failures；normal 与 200% 均无横向 overflow。Phase 12 focused 45/45；`verify:full` exit 0：20/20 文件、160/200 用例、Vite build、diff check、VitePress 全过。自动门禁完成，仍保留用户最终验收与 30 分钟实体中文输入耐久复验。
+
+### 2026-08-25 用户验收后续纠偏
+
+- 块间长推演的收起态从居中常驻“推演后续”收为稿面右侧轻量“＋ 推演下一段”；展开态继续从独立面板收成正文中的临时续写行，取消色块和左侧强调边，内容起点与正文首字对齐，高度由约 242px 压到 181px。界面明示“生成后先预览，确认才写入正文”，主动作为“生成候选”；推进类型、说明、高级设置与生成动作组成一条紧凑原位编辑流。
+- 发现 Phase 2/11 的构思与速记入口虽已连接真实 exploration repository，但仍被 `wt3=1` 原型参数门控，正常 `/authoring` 不可见。现已退役 URL 门控，左树正式常驻“构思 / ＋ 快速落笔 / 未编排 / 搑置 / 正文”；旧 `writing_notes` 有数据时显示幂等“迁移旧速记 N”。素材收件箱、素材库和素材工具仍保留，不再被原型删除测试样式误隐藏。
+- 中文引号输入增加光标前文幂等：输入法在同一按键链重复发出左引号时不再得到 `““正文”`；已成对的引号选区也不二次包裹。显示层将中文双/单引号固定为 CJK 字体字形，不再与 Cmd 等西文等宽字形混排；正文使用 strict 中文换行，避免收引号落到不舒服的行首。选区动作收为“批注 / 素材 / 事实”；工具条受白色稿面边界约束并优先悬在选区上方，不再压住下一行正文。
+- 顶部编辑工具栏按作家助手的“持久化排版 + 真实编辑命令 + 查找 + 沉浸”职责重组：删除会 trim 全文/删全角空格的危险“一键排版”和脱离人物/地点真源的随机“取名”；顶栏收为撤销、重做、选区粗体/斜体、分隔线、排版、打字机、聚焦、专注和查找。B/I 现在写入 ProseMirror mark，不再用整篇 CSS 假装选区格式；排版面板补齐持久化首行缩进与紧凑/标准/宽松段距。
+
 ## 当前摘要
 
 - 产品主线正在从“文字游戏 + 写作工具集合”收口为“可玩的世界书”：进入世界、冒险、沉淀剧情，再写成作品或整理为分镜。
@@ -12,6 +369,13 @@
 - 2026-08-24 Authoring 世界书场景闭环完成 R3 并整合：每本书显式绑定世界书、下一拍插在当前 writingUnit 之后、chapter.sceneAnchors 场景锚点、投影 v2 + 投影指纹、typed 失败与 phase 级恢复、左栏“当前场”/续写坞/检查器现场调整 UI 收口；补齐换书 boundary 旧项目归属、世界书加载窗口门禁和 persist 再保存真实撤销。verify:full 73 文件/901 用例 exit 0。
 - 2026-08-24 恢复测试规模硬门禁：核心 Vitest 从整合后的 73 文件/901 用例收敛到 20 文件/111 用例，保留高风险主链并合并相邻用例，阶段性重复合同与已有 eval/smoke 覆盖项退出核心测试；仓库 canonical `testing-verification` skill 与自定义 reporter 共同强制 20 文件/200 用例总上限，超限不得声明完成。
 - 2026-08-24 修复 Authoring 控制文本泄漏门禁误杀：内部协议 token 仍在正文任意位置拒绝；用户 instruction 与导演注不再按任意子串拒绝，只拦截完整输出、独立控制行和显式标签元文本，使“守卫拦住她的去路”这类正常实现用户意图的正文可以提交。
+- 2026-08-24 Authoring 改为 writingUnit 块级连续工作台：自动联想只提供最多三个短暂 ghost 方向，显式长生成冻结目标单元并在其后创建新单元；合法 marker 先清洗，内部协议继续拒绝。中央稿面移除底部回合坞、纲要/记忆/异常常驻与拟物卷宗装饰，左栏负责章节和现场，右栏八项工具共用单详情 owner，底栏负责保存/字数/自动联想。
+- 2026-08-24 修正 Authoring 文本块边界：旧连续正文在首次加载时按至多三个自然段整理为稳定 passage 单元，保留 nodeId 与首块 unitId；AI 生成的多段 writingUnit 不拆分，整理完成后仅显式 split/merge 改变边界。推演入口和生成插入重新以当前 writingUnit 为准，移除按段落数量移动入口及采纳时隐式拆分旧单元的兼容补丁。
+- 2026-08-24 修复新章节生成回归：块间推演按钮不再读取已移除的段落变量，空白占位单元可以正常打开开场推演；自动联想仍需明确句末并静默 3 秒，但新章开头的最低有效正文由 40 字降至 12 字。
+- 2026-08-24 调整自动联想语义：输入停顿和移动光标都可启动 1.5 秒静默计时，光标可以停在章节任意位置；取消句末标点硬门槛，改为章节正文至少 12 字且当前无选区、非输入法组词和冷却状态。连续移动或继续输入会重置计时，不会为途经位置逐个发送请求。
+- 2026-08-24 补齐 Authoring 右侧辅助工作区：大纲详情支持节点新增、就地编辑、删除、上下排序及插入正文；设定详情直接消费当前书绑定的世界书，支持搜索、类型过滤、跳转完整设定，并将正文选区关联为设定批注。工具轨新增双栏切换，可固定加宽辅助详情列；focused 28/28 与 Vite build 通过，本批次继续不逐项提交。
+- 2026-08-24 复盘 Authoring 右侧设定方向：确认“全量条目平铺、类型横排筛选、把条目正文拼进批注、双栏只加宽”均不满足写作伴随场景，暂停继续扩展。逆向作家助手 5.15 本地安装包确认其核心为分类目录树、当前设定编辑面、搜索命中片段、分类提及高亮及目录/内容双栏；结合 Pinax 的结构化字段、世界书条目、场景锚点、context ledger 和 writing annotation v3，形成上下文辅助工作区详细计划，要求先交付“当前落笔处索引 + 单条详情”的代表性截图切片，用户确认后再扩展搜索、编辑、高亮和大纲。
+- 2026-08-24 执行 Authoring 上下文辅助工作区首个视觉 Gate：当前落笔处设定由纯函数按当前场、正文提及、实际 context ledger、开放批注和常驻约束确定性分组，默认最多 12 项且不扫描整章或调用模型；正文批注新增稳定 `worldbookId/entryId/revision` 引用，不再复制条目全文。宽屏双栏现为真实索引 + 单条详情，1024 自动降为单栏；Playwright 1440/1024 fixture 命中 3 项、0 console error。临时独立测试已删除并合并进既有测试，后续搜索、轻编辑、高亮和大纲等待用户确认本切片方向。
 
 ## 2026-08-23 - Authoring 世界书场景闭环
 
@@ -2453,3 +2817,26 @@ Deferred（按重要性排序，不在本 commit）：
 - 续写候选不再使用右下角浮动状态卡。新增 ProseMirror widget decoration，把候选、生成中和失败状态绑定到请求时 caret；候选保持无框弱化文字，支持点击/Tab 全部采纳、Ctrl/Command+右方向键采纳一句、Esc 忽略。Notebook 路径在采纳前后都不会重新出现右下角“已写入正文”浮条。
 - 修复 Notebook 当前视觉行在长文档中的累计漂移。根因是 `coordsAtPos()` / `getBoundingClientRect()` 已返回缩放后的视觉坐标，而绝对定位元素仍处在 `body.zoom` 的 CSS 坐标系中，旧实现造成二次缩放。新增纯 geometry helper 同时换算 top、left、width、caret height 与 line height；0.85 缩放第 80 段从 `-490.9px` 收敛为 `-5.1px`，1.0 缩放为 `-6.4px` 的正常垂直居中。
 - 完整 `npm run verify:full` 通过：40 个核心测试文件 / 332 个用例、12 个视觉用例、Vite/VitePress build 和 `git diff --check` 全部通过；未启动或重启服务。
+# 2026-08-25 - 文本工作台 Phase 2/12 验收纠偏
+
+- 用户验收发现此前“Phase 0-12 代码侧全部完成”的结论不成立：小说首行缩进样式仍被 `.wt3-prototype` 实验选择器限制，正常 `/authoring` 不生效；中文引号只测试 ASCII `"` 的纯函数转换，没有覆盖中文输入事件和已有右引号越过。
+- 正常稿面现直接使用 `--notebook-first-line-indent`，排版 store 补齐 `firstLineIndent` 与 `paragraphGap` 的初始化和持久化；中文输入覆盖直引号/中文左引号成对插入、选区包裹，以及右侧已有 `”` 时移动光标避免重复。
+- 5173 页面级复现：18px 字号 computed `text-indent` 为 36px，直接输入中文左右引号后的正文为单一 `“中文输入”`。实体中文输入法 30 分钟耐久和用户复验仍是 Gate，未通过前不再声明 Phase 0-12 全部完成。
+- 同轮继续发现桌面滚动所有权违背原计划：后置 CSS 让正文与右检查器共用 `.wall__main` 滚动，选区工具滚动时直接隐藏，批注锚点不重排。现改为 981px 以上中央稿面独立滚动、左右栏/工具轨/详情固定并各自管理内部溢出；选区工具与批注锚点在正文滚动时重算位置。5173 实测中央 `scrollTop 0→420` 时左栏、工具轨和详情 top 均保持 117.89px；0.85 页面缩放下中央滚动 40px，选区工具视觉移动 -34px并保持可见。
+- 字数/字符/修订状态栏原先位于长正文末尾，仅靠 `position: sticky; bottom: 0`，因此初始视口不可见。现将中央列拆成独立正文滚动区与固定状态栏两个真实区域，底栏不参与正文滚动；清除旧稿面底部 padding，使状态栏贴合中央列底边，正文尾部呼吸空间仍由编辑器滚动内容承担。
+- 删除正文稿面上孤立的“来自体验”回跳按钮；writing unit 的 `originRefs` 与历史/来源跳转能力继续保留，不把内部 provenance 作为正文旁常驻操作。中央列的左右留白改为滚动容器内部 gutter，滚动容器和底栏本身铺满中央列；5173 实测正文滚动区右边界与工具轨左边界同为 1402.609px，间距 0，正文文字宽度与留白不变。
+- 复核本机作家助手 5.15.0 后纠正“删除取名”的错误方向：其 PC 顶栏“取名”实际打开 720×560 的独立“快速取名”工作面，移动端公开流程的核心维度为语言、字数和性别。Authoring 已按该产品结构恢复顶栏“取名”，提供中文/西式/日式、二字/三字/多字、男名/女名/中性与中文指定姓氏，候选支持换一批并点击插入当前光标；未复制作家助手私有代码、接口或素材。5173 实测 1440px 弹层为 612×476 视觉像素（受应用 0.85 缩放影响，对应 CSS 720×560），390px 无横向溢出，候选“秦长宁”成功写入 ProseMirror。
+- 用户复验指出首版取名底层仍只是少量固定成名洗牌，完整姓名虽不同但会在同批出现“陆闻溪 / 唐闻溪”式只换姓重复。现拆出 `writingNameGenerator`：中文按单姓/复姓与单名/双名/三字名规则组合，西式和日式分别按 first/last 与姓/名组合；每类扩充独立核心名池。去重单位从完整字符串提升为“名字核心”，同批及连续换批都不会仅替换姓氏复用同一个名；筛选空间用尽才重置会话历史。合同断言覆盖连续两批各 12 个候选、批内核心名唯一、跨批核心名零重叠、三语言与指定姓氏多字名。
+# 2026-09-02 - F3-4B 多组伞形采用与安全撤销
+
+- fresh 无冲突 Ghost 现可一次采用多处；跨章替换复用 canonical 全书 patch，在一次 book repository 保存中持久化，并形成包含每组 before/after revision 的 umbrella receipt。同 target 冲突和多行跨节点保持 fail-closed，可继续单组处理。
+- 采用前为每个受影响章建立共享 transaction id 的保护集，成功后 observer 仅调度一次。回响只说明实际更改的处数/章数和未修改的现场、大纲、世界事实，不生成模型推测结论。
+- 单组/多组采用共用 receipt 撤销 owner；撤销逆序检查目标 after text 与 revision，后续手改组会隔离，其他组仍可恢复。移动双栏中反馈条改归属当前活动窗格，撤销不再被副窗拦截。
+- 验证：focused UI 12/12、F3 离线 Gate 5/5（32 checks）、1440/390 真实页面 50/50 及最终 `verify:full` 全部通过（20/20 文件、200/200 用例、Vite/VitePress build、diff check）。未启动、停止或重启 5173。
+
+# 2026-09-02 - F3-4A 单组原子采用
+
+- fresh 条件排演 Ghost 现可逐组“采用此处”。采用前会再次 reconcile 冻结 session，并用 F3 canonical position index 的 project/document/unit/node revision 校验目标；stale 组保持零写入。
+- 同章和跨章分别复用 Notebook 与 F2 双栏的单一 ProseMirror transaction。采用前创建一份保护快照；双栏补充 apply/persist 薄接口，保存失败保留 Ghost 和内存正文，只重试 persist，不重新替换或调用 provider。
+- 成功持久化后仅移除已采用组，其他 Ghost 仍可编辑，observer 只调度一次。修复双栏 surface revision 与 position revision 混用、保存回写触发资料 watcher 抢占采用 session 两个竞态。
+- 验证：F3 离线 Gate 5/5、focused UI 12/12、1440/390 真实页面跨章单组采用旅程及最终 `verify:full` 全部通过（20/20 文件、200/200 用例、Vite/VitePress build、diff check）；多组 umbrella receipt、采用回响与安全撤销留到 F3-4B。未启动、停止或重启 5173。

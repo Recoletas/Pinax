@@ -245,20 +245,27 @@ export function queueMemoryCandidate(input = {}) {
   const current = listMemoryCandidates()
   const duplicate = findDuplicateMemoryCandidate(candidate, current)
   if (duplicate) {
-    candidate.duplicateOf = duplicate.id
-    candidate.similarTo = ''
-    candidate.conflictsWith = []
-  } else {
-    const similar = findSimilarMemoryCandidate(candidate, current)
-    if (similar) {
-      candidate.similarTo = similar.id
-      candidate.conflictsWith = []
-    } else {
-      candidate.conflictsWith = findConflictingMemoryCandidates(candidate, current, { excludeId: candidate.id })
+    return {
+      success: false,
+      queued: false,
+      skipped: true,
+      reason: 'exact-duplicate',
+      candidate: duplicate,
+      duplicateOf: duplicate.id
     }
   }
+
+  const similar = findSimilarMemoryCandidate(candidate, current)
+  if (similar) {
+    candidate.similarTo = similar.id
+    candidate.conflictsWith = []
+  } else {
+    candidate.conflictsWith = findConflictingMemoryCandidates(candidate, current, { excludeId: candidate.id })
+  }
   const next = [candidate, ...current]
-  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+    return { success: false, queued: false, skipped: true, reason: 'storage-failed' }
+  }
   emitMemoryCandidateEvent(candidate)
   return { success: true, queued: true, candidate }
 }
@@ -358,7 +365,9 @@ export function supersedeMemoryCandidates(input = {}) {
       updatedAt: now
     }
   })]
-  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+    return { success: false, skipped: true, reason: 'storage-failed' }
+  }
   emitMemoryCandidateEvent(candidate)
   return { success: true, candidate, supersededIds: supersedesIds }
 }
@@ -1185,12 +1194,19 @@ function clampConfidence(value) {
 function emitMemoryCandidateEvent(candidate) {
   if (typeof window === 'undefined') return
   try {
+    const conflicts = Array.isArray(candidate.conflictsWith) ? candidate.conflictsWith : []
+    const attention = conflicts.length > 0
+      || Boolean(candidate.metadata?.staleReason)
+      || candidate.metadata?.migrationWarning === 'identity-ambiguity'
     window.dispatchEvent(new CustomEvent('memory-candidate-created', {
       detail: {
         id: candidate.id,
         kind: candidate.kind,
         scope: candidate.scope,
         scopeId: candidate.scopeId,
+        derivedBy: candidate.derivedBy,
+        attention,
+        conflictCount: conflicts.length,
         text: candidate.content.slice(0, 60)
       }
     }))

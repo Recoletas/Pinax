@@ -23,6 +23,34 @@ It does **not** import the full six-step greenfield page-building workflow, v0 c
 4. Verify responsive breakpoints match the existing components in the same view; do not introduce a new breakpoint without reason.
 5. If the change is behaviorally new (new state, new interaction), add or update a UI-facing test under `src/__tests__/`.
 
+## 1.1 Mature-product parity gate
+
+When the user names a mature product as the interaction baseline, or asks to
+"直接复刻 / 照着做 / 不要重复造轮子", parity research is a blocking preflight,
+not optional inspiration:
+
+1. Before planning or coding, inspect current first-party product pages, release
+   notes, screenshots, manuals, or a locally available official client. Record
+   which claims are directly verified and which remain inference.
+   A user-supplied screenshot of the named product is higher-priority evidence
+   for the shown platform and version than generic marketing copy.
+2. Freeze the reference interaction contract explicitly: entry point, default
+   content, layout/overlay behavior, editable versus read-only states, switching,
+   focus and selection ownership, save/undo boundaries, close behavior, and
+   mobile degradation.
+3. Do not replace a verified mature-product capability with a simpler local
+   interpretation merely because it is easier to implement. For example, an
+   editable floating chapter window must not silently become a read-only preview.
+4. If repository plans or prior notes conflict with newly verified product
+   evidence or an explicit user correction, pause implementation and amend the
+   plan/contract before touching runtime UI.
+5. Adapt brand visuals and internal data architecture to Pinax, but preserve the
+   verified task path and user-visible semantics unless the user approves a
+   deliberate divergence.
+6. Do not extrapolate a mobile screenshot into a desktop layout (or the reverse).
+   Freeze desktop, tablet, and phone evidence separately; only the unsupported
+   breakpoint may use an explicitly labeled adaptation.
+
 ## 2. Preflight: four positioning questions
 
 Borrowed from the source skill's early positioning step, but adapted for existing-product UI work.

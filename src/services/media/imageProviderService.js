@@ -145,6 +145,7 @@ export async function testImageProviderConnection(config = {}, options = {}) {
 
 export async function generateImage(config = {}, input = {}) {
   const options = normalizeImageOptions(input)
+  throwIfAborted(options.signal)
   const fetchImpl = getFetch(input.fetchImpl)
   const baseUrl = normalizeBaseUrl(config.baseUrl)
   const capabilities = getImageProviderCapabilities(config)
@@ -229,7 +230,7 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
     return generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt })
   }
 
-  const response = await fetchImpl(`${buildMinimaxRoot(baseUrl)}/v1/image_generation`, {
+  const response = await fetchWithSignal(fetchImpl, `${buildMinimaxRoot(baseUrl)}/v1/image_generation`, {
     method: 'POST',
     headers: buildHeaders(config),
     body: JSON.stringify({
@@ -241,15 +242,15 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
       prompt_optimizer: false,
       aigc_watermark: false
     })
-  })
-  const payload = await readJsonResponse(response, 'MiniMax Image')
+  }, options.signal)
+  const payload = await readJsonResponse(response, 'MiniMax Image', options.signal)
   const providerCode = Number(payload?.base_resp?.status_code ?? 0)
   if (providerCode !== 0) {
     throw new Error(`MiniMax Image ${providerCode}: ${payload?.base_resp?.status_msg || '生成失败'}`)
   }
   const base64 = payload?.data?.image_base64?.[0]
   if (typeof base64 === 'string' && base64.trim()) return `data:image/jpeg;base64,${base64}`
-  return resolveImageCandidate(payload?.data?.image_urls?.[0], fetchImpl)
+  return resolveImageCandidate(payload?.data?.image_urls?.[0], fetchImpl, options.signal)
 }
 
 /**
@@ -257,7 +258,7 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
  * 浏览器提交哨兵/空 key + 生成参数, 服务器注入 MINIMAX_API_KEY 后转发 MiniMax。
  */
 async function generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt }) {
-  const response = await fetchImpl('/api/media/images', {
+  const response = await fetchWithSignal(fetchImpl, '/api/media/images', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -266,22 +267,24 @@ async function generateWithMinimaxViaServer(config, options, fetchImpl, { model,
       aspectRatio: normalizeMinimaxAspectRatio(options.width, options.height, model),
       providerConfig: { apiKey: config.apiKey, baseUrl: config.baseUrl }
     })
-  })
+  }, options.signal)
   let payload = {}
   try {
     payload = await response.json()
+    throwIfAborted(options.signal)
   } catch {
+    throwIfAborted(options.signal)
     payload = {}
   }
   if (!response.ok || payload?.ok !== true) {
     throw new Error(payload?.message || `MiniMax Image error: ${response.status || 'unknown'}`)
   }
-  return resolveImageCandidate(payload.image, fetchImpl)
+  return resolveImageCandidate(payload.image, fetchImpl, options.signal)
 }
 
 async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {
   const hasReferences = options.referenceImages.length > 0 || Boolean(options.maskImage)
-  const response = await fetchImpl(`${requireBaseUrl(baseUrl)}/sdapi/v1/${hasReferences ? 'img2img' : 'txt2img'}`, {
+  const response = await fetchWithSignal(fetchImpl, `${requireBaseUrl(baseUrl)}/sdapi/v1/${hasReferences ? 'img2img' : 'txt2img'}`, {
     method: 'POST',
     headers: buildHeaders(config),
     body: JSON.stringify({
@@ -301,9 +304,9 @@ async function generateWithSdWebui(config, options, fetchImpl, baseUrl) {
         } : {})
       } : {})
     })
-  })
-  const payload = await readJsonResponse(response, 'SD WebUI')
-  return resolveImageCandidate(payload.images?.[0], fetchImpl)
+  }, options.signal)
+  const payload = await readJsonResponse(response, 'SD WebUI', options.signal)
+  return resolveImageCandidate(payload.images?.[0], fetchImpl, options.signal)
 }
 
 async function generateWithOpenAI(config, options, fetchImpl) {
@@ -323,9 +326,9 @@ async function generateWithOpenAI(config, options, fetchImpl) {
           })
         }
       }
-  const response = await fetchImpl(request.url, request.init)
-  const payload = await readJsonResponse(response, 'DALL-E')
-  return resolveImageCandidate(payload.data?.[0]?.b64_json || payload.data?.[0]?.url, fetchImpl)
+  const response = await fetchWithSignal(fetchImpl, request.url, request.init, options.signal)
+  const payload = await readJsonResponse(response, 'DALL-E', options.signal)
+  return resolveImageCandidate(payload.data?.[0]?.b64_json || payload.data?.[0]?.url, fetchImpl, options.signal)
 }
 
 async function generateWithStability(config, options, fetchImpl) {
@@ -343,7 +346,7 @@ async function generateWithStability(config, options, fetchImpl) {
       form.append('text_prompts[1][weight]', '-1')
     }
   }
-  const response = await fetchImpl(`https://api.stability.ai/v1/generation/${engine}/${hasReferences ? 'image-to-image' : 'text-to-image'}`, {
+  const response = await fetchWithSignal(fetchImpl, `https://api.stability.ai/v1/generation/${engine}/${hasReferences ? 'image-to-image' : 'text-to-image'}`, {
     method: 'POST',
     headers: hasReferences ? { ...buildAuthHeaders(config), Accept: 'application/json' } : buildHeaders(config),
     body: form || JSON.stringify({
@@ -354,9 +357,9 @@ async function generateWithStability(config, options, fetchImpl) {
       height: options.height,
       width: options.width
     })
-  })
-  const payload = await readJsonResponse(response, 'Stability')
-  return resolveImageCandidate(payload.artifacts?.[0]?.base64, fetchImpl)
+  }, options.signal)
+  const payload = await readJsonResponse(response, 'Stability', options.signal)
+  return resolveImageCandidate(payload.artifacts?.[0]?.base64, fetchImpl, options.signal)
 }
 
 async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
@@ -364,21 +367,22 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
     throw new Error('当前 ComfyUI adapter 需要自定义工作流才能使用参考图，请改用通用 HTTP 模板或 SD WebUI')
   }
   const url = requireBaseUrl(baseUrl)
-  const response = await fetchImpl(`${url}/prompt`, {
+  const response = await fetchWithSignal(fetchImpl, `${url}/prompt`, {
     method: 'POST',
     headers: buildHeaders(config),
     body: JSON.stringify({ prompt: options.prompt })
-  })
-  const payload = await readJsonResponse(response, 'ComfyUI')
+  }, options.signal)
+  const payload = await readJsonResponse(response, 'ComfyUI', options.signal)
   const promptId = payload.prompt_id
   if (!promptId) throw new Error('ComfyUI 未返回任务 ID')
 
   const wait = typeof options.wait === 'function' ? options.wait : defaultWait
   for (let attempt = 0; attempt < options.maxPollAttempts; attempt += 1) {
-    await wait(options.pollIntervalMs)
-    const historyResponse = await fetchImpl(`${url}/history/${promptId}`)
+    await waitWithSignal(wait, options.pollIntervalMs, options.signal)
+    const historyResponse = await fetchWithSignal(fetchImpl, `${url}/history/${promptId}`, {}, options.signal)
     if (!historyResponse.ok) continue
     const history = await historyResponse.json()
+    throwIfAborted(options.signal)
     const outputs = history[promptId]?.outputs || {}
 
     for (const node of Object.values(outputs)) {
@@ -387,8 +391,12 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
       const params = new URLSearchParams({ filename: image.filename })
       if (image.subfolder) params.set('subfolder', image.subfolder)
       if (image.type) params.set('type', image.type)
-      const imageResponse = await fetchImpl(`${url}/view?${params}`)
-      if (imageResponse.ok) return blobToDataUrl(await imageResponse.blob())
+      const imageResponse = await fetchWithSignal(fetchImpl, `${url}/view?${params}`, {}, options.signal)
+      if (imageResponse.ok) {
+        const blob = await imageResponse.blob()
+        throwIfAborted(options.signal)
+        return blobToDataUrl(blob, options.signal)
+      }
     }
   }
 
@@ -396,14 +404,14 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
 }
 
 async function generateWithGenericHttp(config, options, fetchImpl, baseUrl) {
-  const response = await fetchImpl(requireBaseUrl(baseUrl), {
+  const response = await fetchWithSignal(fetchImpl, requireBaseUrl(baseUrl), {
     method: 'POST',
     headers: buildHeaders(config),
     body: renderRequestTemplate(config.requestTemplate, options)
-  })
-  const payload = await readJsonResponse(response, 'HTTP')
+  }, options.signal)
+  const payload = await readJsonResponse(response, 'HTTP', options.signal)
   const candidate = readPath(payload, config.responsePath) || findCommonImageCandidate(payload)
-  return resolveImageCandidate(candidate, fetchImpl)
+  return resolveImageCandidate(candidate, fetchImpl, options.signal)
 }
 
 function normalizeImageOptions(input) {
@@ -465,15 +473,18 @@ function findCommonImageCandidate(payload) {
     || ''
 }
 
-async function resolveImageCandidate(candidate, fetchImpl) {
+async function resolveImageCandidate(candidate, fetchImpl, signal) {
+  throwIfAborted(signal)
   const value = Array.isArray(candidate) ? candidate[0] : candidate
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error('未能从响应中提取图片，请检查响应字段映射或模型返回格式')
   }
   if (/^https?:\/\//i.test(value)) {
-    const response = await fetchImpl(value)
+    const response = await fetchWithSignal(fetchImpl, value, {}, signal)
     if (!response.ok) throw new Error(`下载图片失败: ${response.status}`)
-    return blobToDataUrl(await response.blob())
+    const blob = await response.blob()
+    throwIfAborted(signal)
+    return blobToDataUrl(blob, signal)
   }
   if (value.startsWith('data:image/')) return value
   return `data:image/png;base64,${value}`
@@ -487,12 +498,16 @@ function buildAuthHeaders(config) {
   return config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}
 }
 
-async function readJsonResponse(response, providerLabel) {
+async function readJsonResponse(response, providerLabel, signal) {
+  throwIfAborted(signal)
   if (!response.ok) {
     const details = await readResponseError(response)
+    throwIfAborted(signal)
     throw new Error(`${providerLabel} error: ${response.status}${details ? ` ${details}` : ''}`)
   }
-  return response.json()
+  const payload = await response.json()
+  throwIfAborted(signal)
+  return payload
 }
 
 async function readResponseError(response) {
@@ -623,15 +638,68 @@ function getFetch(fetchImpl) {
   return resolved
 }
 
+async function fetchWithSignal(fetchImpl, url, init = {}, signal) {
+  throwIfAborted(signal)
+  const response = await fetchImpl(url, signal ? { ...init, signal } : init)
+  throwIfAborted(signal)
+  return response
+}
+
+function waitWithSignal(wait, ms, signal) {
+  throwIfAborted(signal)
+  if (!signal) return Promise.resolve().then(() => wait(ms))
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(abortReason(signal))
+    signal.addEventListener('abort', abort, { once: true })
+    Promise.resolve()
+      .then(() => wait(ms))
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', abort))
+  }).then((value) => {
+    throwIfAborted(signal)
+    return value
+  })
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return
+  throw abortReason(signal)
+}
+
+function abortReason(signal) {
+  if (signal?.reason instanceof Error) return signal.reason
+  if (typeof DOMException === 'function') return new DOMException('操作已取消', 'AbortError')
+  const error = new Error('操作已取消')
+  error.name = 'AbortError'
+  return error
+}
+
 function defaultWait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function blobToDataUrl(blob) {
+function blobToDataUrl(blob, signal) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onloadend = () => resolve(reader.result)
-    reader.onerror = reject
+    const abort = () => {
+      try { reader.abort() } catch { /* reader may already be complete */ }
+      reject(abortReason(signal))
+    }
+    if (signal?.aborted) return abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    reader.onloadend = () => {
+      signal?.removeEventListener('abort', abort)
+      try {
+        throwIfAborted(signal)
+        resolve(reader.result)
+      } catch (error) {
+        reject(error)
+      }
+    }
+    reader.onerror = () => {
+      signal?.removeEventListener('abort', abort)
+      reject(reader.error || new Error('无法读取图片内容'))
+    }
     reader.readAsDataURL(blob)
   })
 }

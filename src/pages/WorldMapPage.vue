@@ -3,32 +3,74 @@
     <SettingsSectionNav />
     <div class="world-map-page__body">
       <WorldMapPanel
+        v-if="mapContextReady"
         :focus-place-id="focusPlaceId"
         :focus-history-node-id="focusHistoryNodeId"
         :focus-entry-id="focusEntryId"
         @open-settings="openFocusedPlaceSettings"
         @open-worldbook="openWorldbookImport"
       />
+      <p v-else class="world-map-page__loading" role="status">{{ mapContextError || '正在打开这本书的地图…' }}</p>
       <PerfOverlay />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useWorldStore } from '../stores/worldStore'
+import { loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 import WorldMapPanel from '../components/geography/WorldMapPanel.vue'
 import PerfOverlay from '../components/debug/PerfOverlay.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 
 const route = useRoute()
 const router = useRouter()
+const worldStore = useWorldStore()
+const mapContextReady = ref(false)
+const mapContextError = ref('')
+let contextRequestId = 0
 const focusPlaceId = computed(() => String(route.query.placeId || ''))
 const focusHistoryNodeId = computed(() => String(route.query.historyNodeId || ''))
 const focusEntryId = computed(() => String(route.query.entryId || ''))
+const requestedWorldbookId = computed(() => {
+  const explicit = String(route.query.worldbookId || '')
+  if (explicit) return explicit
+  const bookId = String(route.query.bookId || '')
+  return String(loadWritingBooks().find((book) => String(book?.id || '') === bookId)?.worldbookId || '')
+})
+
+watch(
+  requestedWorldbookId,
+  async (worldbookId) => {
+    const requestId = ++contextRequestId
+    mapContextReady.value = !worldbookId
+    mapContextError.value = ''
+    if (!worldbookId) return
+    try {
+      await worldStore.loadWorldbooksIndex()
+      if (requestId !== contextRequestId) return
+      const loaded = await worldStore.setActiveWorldbook(worldbookId)
+      if (!loaded) throw new Error('worldbook-missing')
+    } catch {
+      if (requestId === contextRequestId) mapContextError.value = '这本书关联的世界书已不可用。'
+    } finally {
+      if (requestId === contextRequestId) mapContextReady.value = !mapContextError.value
+    }
+  },
+  { immediate: true }
+)
 
 function openFocusedPlaceSettings(placeId) {
-  router.push({ name: 'settings-structured', query: placeId ? { placeId } : {} })
+  router.push({
+    name: 'settings-structured',
+    query: {
+      ...(route.query.bookId ? { bookId: String(route.query.bookId) } : {}),
+      ...(route.query.worldbookId ? { worldbookId: String(route.query.worldbookId) } : {}),
+      ...(placeId ? { placeId } : {})
+    }
+  })
 }
 
 function openWorldbookImport() {
@@ -59,5 +101,11 @@ function openWorldbookImport() {
   flex-direction: column;
   gap: 12px;
   overflow: auto;
+}
+
+.world-map-page__loading {
+  margin: 18px 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 </style>

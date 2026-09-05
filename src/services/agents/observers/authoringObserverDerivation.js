@@ -1,5 +1,9 @@
 import { createAuthoringObserverWorkflow } from './authoringObserverWorkflow.js'
-import { queueMemoryCandidate, listMemoryCandidates } from '../../memoryCandidates.js'
+import {
+  normalizeAuthoringObserverProvenance,
+  normalizeAuthoringObserverTarget
+} from './authoringObservationContract.js'
+import { queueMemoryCandidate } from '../../memoryCandidates.js'
 import { MEMORY_TEXT_LIMIT } from '../../memoryCompaction.js'
 
 export const OBSERVER_MEMORY_KIND_MAP = Object.freeze({
@@ -64,10 +68,83 @@ function detectNameAmbiguity(names) {
   return [...ambiguous]
 }
 
+function normalizeKnownIdentity(value) {
+  if (typeof value === 'string') {
+    const name = value.trim()
+    return name ? { id: '', name, aliases: [name] } : null
+  }
+  if (!value || typeof value !== 'object') return null
+  const id = String(value.id || value.entryId || '').trim()
+  const aliases = [
+    value.name,
+    value.title,
+    ...(Array.isArray(value.aliases) ? value.aliases : []),
+    ...(Array.isArray(value.keys) ? value.keys : []),
+    ...(Array.isArray(value.keysSecondary) ? value.keysSecondary : [])
+  ].map((alias) => String(alias || '').trim()).filter(Boolean)
+  if (!id && aliases.length === 0) return null
+  return { id, name: aliases[0] || id, aliases: [...new Set(aliases)] }
+}
+
+function resolveKnownIdentity(label, knownIdentities) {
+  const normalized = String(label || '').trim()
+  if (!normalized) return { id: '', status: 'unresolved' }
+  const matches = (knownIdentities || [])
+    .map(normalizeKnownIdentity)
+    .filter(Boolean)
+    .filter((identity) => identity.aliases.includes(normalized))
+  const stableIds = [...new Set(matches.map((identity) => identity.id).filter(Boolean))]
+  if (stableIds.length === 1) return { id: stableIds[0], status: 'resolved' }
+  if (stableIds.length > 1) return { id: '', status: 'ambiguous' }
+  return { id: '', status: 'unresolved' }
+}
+
+function extractChangedRangeText(range, fullText) {
+  if (typeof range === 'string') return range.trim()
+  if (!range || typeof range !== 'object') return ''
+
+  for (const key of ['changedText', 'text', 'content']) {
+    const value = range[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+
+  const start = Number(range.start ?? range.from ?? range.startOffset)
+  const end = Number(range.end ?? range.to ?? range.endOffset)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return ''
+  return fullText.slice(
+    Math.max(0, Math.min(fullText.length, start)),
+    Math.max(0, Math.min(fullText.length, end))
+  ).trim()
+}
+
+// 新调用方可以提供本次真实改动，旧调用方仍可只传全文 text。
+// changedText 优先；其次消费 changedRanges/changedRange 中的文本或 JS 字符偏移。
+export function resolveObserverDeltaText(delta = {}) {
+  const hasChangedText = typeof delta?.changedText === 'string'
+  const changedText = hasChangedText ? delta.changedText.trim() : ''
+  if (changedText) return changedText
+
+  const fullText = String(delta?.text || '')
+  const rawRanges = delta?.changedRanges ?? delta?.changedRange
+  const hasChangedRanges = rawRanges !== undefined && rawRanges !== null
+  const ranges = Array.isArray(rawRanges) ? rawRanges : (rawRanges ? [rawRanges] : [])
+  const rangeText = ranges
+    .map((range) => extractChangedRangeText(range, fullText))
+    .filter(Boolean)
+    .join('\n')
+    .trim()
+
+  if (rangeText) return rangeText
+  return hasChangedText || hasChangedRanges ? '' : fullText
+}
+
 // 确定性派生：只依赖正文与既有锁定/已知事实，不做任何模型调用。
 // 每个函数返回原始 observation 数组，typed exception 标记由既有 observer workflow 判定。
 export function deriveEntitiesFromDelta({ text = '', knownNames = [], lockedFacts = [] } = {}) {
-  const names = new Set((knownNames || []).map(String))
+  const names = new Set((knownNames || [])
+    .map(normalizeKnownIdentity)
+    .filter(Boolean)
+    .map((identity) => identity.name))
   let match
   SPEAKER_PATTERN.lastIndex = 0
   while ((match = SPEAKER_PATTERN.exec(text))) {
@@ -89,12 +166,16 @@ export function deriveEntitiesFromDelta({ text = '', knownNames = [], lockedFact
     }))
 }
 
-export function deriveRelationsFromDelta({ text = '', knownNames = [], lockedFacts = [] } = {}) {
+export function deriveRelationsFromDelta({ text = '', knownNames = [], knownIdentities = null, lockedFacts = [] } = {}) {
   const observations = []
+  const identityCatalog = Array.isArray(knownIdentities) ? knownIdentities : knownNames
   let match
   RELATION_PATTERN.lastIndex = 0
   while ((match = RELATION_PATTERN.exec(text))) {
     if (!match[1] || !match[3]) continue
+    const subjectIdentity = resolveKnownIdentity(match[1], identityCatalog)
+    const objectIdentity = resolveKnownIdentity(match[3], identityCatalog)
+    const identityAmbiguous = subjectIdentity.status === 'ambiguous' || objectIdentity.status === 'ambiguous'
     observations.push({
       id: nextObservationId('relation'),
       kind: 'relation',
@@ -102,14 +183,21 @@ export function deriveRelationsFromDelta({ text = '', knownNames = [], lockedFac
       text: `${match[1]}${match[2]}${match[3]}`
         + '',
       subject: match[1],
+      subjectId: subjectIdentity.id,
       relation: match[2],
       object: match[3],
+      objectId: objectIdentity.id,
+      ambiguous: identityAmbiguous,
+      identityStatus: identityAmbiguous
+        ? 'ambiguous'
+        : subjectIdentity.status === 'resolved' && objectIdentity.status === 'resolved'
+          ? 'resolved'
+          : 'unresolved',
       conflictsWith: findLockedConflict(match[0], lockedFacts),
       sourceRefs: ['document-delta']
     })
     if (observations.length >= 12) break
   }
-  void knownNames
   return observations
 }
 
@@ -156,7 +244,12 @@ export function deriveTimelineFromDelta({ text = '', lockedFacts = [] } = {}) {
   return observations
 }
 
-export function deriveMemoryFromDelta({ text = '', lockedFacts = [], sourceRefs = null } = {}) {
+export function deriveMemoryFromDelta(delta = {}) {
+  const {
+    lockedFacts = [],
+    sourceRefs = null
+  } = delta
+  const text = resolveObserverDeltaText(delta)
   const sentences = String(text || '')
     .split(/(?<=[。！？])/)
     .map((sentence) => sentence.trim())
@@ -182,8 +275,12 @@ export async function runObserverMemoryDerivation({
   projectId = '',
   scope = 'project',
   derivedBy = 'prose-commit',
-  queue = queueMemoryCandidate
+  queue = queueMemoryCandidate,
+  isCurrent = null
 } = {}) {
+  if (typeof isCurrent === 'function' && !isCurrent()) {
+    return { status: 'stale', queued: [], skipped: [], exceptions: [] }
+  }
   const revision = String(delta.revision || '').trim()
   const expectedRevision = String(delta.expectedRevision || '').trim()
   // 返回时来源 revision 已变化 → 整批丢弃为 stale result。
@@ -191,7 +288,7 @@ export async function runObserverMemoryDerivation({
     return { status: 'stale', queued: [], skipped: [], exceptions: [] }
   }
 
-  const text = String(delta.text || '')
+  const text = resolveObserverDeltaText(delta)
   if (!text.trim()) {
     return { status: 'completed', queued: [], skipped: [], exceptions: [] }
   }
@@ -200,6 +297,7 @@ export async function runObserverMemoryDerivation({
     .filter(Boolean)
 
   const observations = deriveMemoryFromDelta({
+    ...delta,
     text,
     lockedFacts: Array.isArray(delta.lockedFacts) ? delta.lockedFacts : [],
     sourceRefs
@@ -209,6 +307,9 @@ export async function runObserverMemoryDerivation({
   const skipped = []
   const exceptions = []
   for (const observation of observations) {
+    if (typeof isCurrent === 'function' && !isCurrent()) {
+      return { status: 'stale', queued: [], skipped: [], exceptions: [] }
+    }
     // 不信任观察器发明的 ID：候选 id 一律由 repository 生成。
     const content = String(observation.text || '').trim()
     if (!sourceRefs.length || observation.sourceRefs?.[0] === 'document-delta') {
@@ -236,6 +337,14 @@ export async function runObserverMemoryDerivation({
       sourceRevision: revision
     })
     const candidate = result?.candidate
+    if (result?.skipped) {
+      skipped.push({
+        observationId: observation.id,
+        reason: result.reason || 'queue-skipped',
+        candidateId: candidate?.id || ''
+      })
+      continue
+    }
     if (!result?.success || !candidate) {
       skipped.push({ observationId: observation.id, reason: 'queue-rejected' })
       continue
@@ -278,21 +387,56 @@ export function createAuthoringObserverRunner({ applyDerived, onException = null
   })
 
   return Object.freeze({
-    async run(delta = {}) {
-      const text = String(delta?.text || '')
+    async run(delta = {}, execution = {}) {
+      const text = resolveObserverDeltaText(delta)
       const documentRevision = String(delta?.documentRevision || '')
+      const target = normalizeAuthoringObserverTarget({
+        type: 'document',
+        id: String(delta.documentId || ''),
+        projectId: String(delta.memoryProjectId || delta.projectId || ''),
+        documentId: String(delta.documentId || ''),
+        chapterId: String(delta.chapterId || ''),
+        unitId: String(delta.unitId || ''),
+        unitRevision: Number(delta.unitRevision || 0),
+        revision: documentRevision,
+        sourceDocumentRevision: String(delta.sourceDocumentRevision || '')
+      })
+      const provenance = normalizeAuthoringObserverProvenance({
+        projectId: target.projectId,
+        documentId: target.documentId,
+        chapterId: target.chapterId,
+        unitId: target.unitId,
+        unitRevision: target.unitRevision,
+        documentRevision: target.sourceDocumentRevision || target.revision,
+        sourceDocumentRevision: target.sourceDocumentRevision,
+        sourceRefs: Array.isArray(delta.sourceRefs) ? delta.sourceRefs : [],
+        target
+      }, target)
       if (!text.trim()) {
-        return { status: 'completed', documentRevision, derived: 0, exceptions: [] }
+        return {
+          status: 'completed',
+          documentRevision,
+          target,
+          provenance,
+          derived: 0,
+          memoryQueued: 0,
+          exceptions: []
+        }
       }
       const intent = {
         text,
         knownNames: Array.isArray(delta.knownNames) ? delta.knownNames : [],
-        lockedFacts: Array.isArray(delta.lockedFacts) ? delta.lockedFacts : []
+        knownIdentities: Array.isArray(delta.knownIdentities) ? delta.knownIdentities : null,
+        lockedFacts: Array.isArray(delta.lockedFacts) ? delta.lockedFacts : [],
+        provenance
       }
       const exceptions = []
       let derived = 0
       let memoryQueued = 0
       for (const taskId of AUTHORING_OBSERVER_TASK_IDS) {
+        if (typeof execution.isCurrent === 'function' && !execution.isCurrent()) {
+          return { status: 'stale', documentRevision, target, provenance, derived: 0, memoryQueued: 0, exceptions: [] }
+        }
         // memory 输出改走受控候选 owner，不再落入 derived-state。
         if (taskId === 'observer.memory.derive' && memoryTarget) {
           try {
@@ -301,8 +445,12 @@ export function createAuthoringObserverRunner({ applyDerived, onException = null
               : memoryTarget
             const memoryResult = await runObserverMemoryDerivation({
               delta: { ...delta, revision: String(delta.revision || documentRevision), lockedFacts: intent.lockedFacts },
-              projectId: typeof resolvedTarget === 'object' ? resolvedTarget.projectId : ''
+              projectId: typeof resolvedTarget === 'object' ? resolvedTarget.projectId : '',
+              isCurrent: execution.isCurrent
             })
+            if (memoryResult.status === 'stale') {
+              return { status: 'stale', documentRevision, target, provenance, derived: 0, memoryQueued: 0, exceptions: [] }
+            }
             exceptions.push(...(memoryResult.exceptions || []))
             memoryQueued += memoryResult.queued.length
           } catch {
@@ -313,9 +461,12 @@ export function createAuthoringObserverRunner({ applyDerived, onException = null
         try {
           const result = await workflow.run({
             task: { id: taskId },
-            request: { target: { type: 'document', id: String(delta.documentId || ''), revision: documentRevision }, intent },
-            context: { envelope: { blocks: [] } }
+            request: { target, intent },
+            context: { envelope: { blocks: [] }, isCurrent: execution.isCurrent }
           })
+          if (result.status === 'stale') {
+            return { status: 'stale', documentRevision, target, provenance, derived: 0, memoryQueued: 0, exceptions: [] }
+          }
           exceptions.push(...(result.exceptions || []))
           if (result.applied && typeof result.applied === 'object') {
             derived += Number(result.applied.count ?? 0)
@@ -325,7 +476,7 @@ export function createAuthoringObserverRunner({ applyDerived, onException = null
         }
       }
       if (exceptions.length && typeof onException === 'function') onException(exceptions, delta)
-      return { status: 'completed', documentRevision, derived, memoryQueued, exceptions }
+      return { status: 'completed', documentRevision, target, provenance, derived, memoryQueued, exceptions }
     }
   })
 }

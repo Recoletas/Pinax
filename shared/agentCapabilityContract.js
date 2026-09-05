@@ -34,6 +34,8 @@ const rows = [
   ['authoring.review.selection', 'authoring', 'structured-one-shot', 'writing-selection', 'text-target.v1', 'review-suggestions.v1', 'review-only'],
   ['authoring.review.chapter', 'authoring', 'validated-chain', 'writing-chapter', 'chapter-revision.v1', 'review-suggestions.v1', 'review-only'],
   ['authoring.next-actions', 'authoring', 'structured-one-shot', 'narrative-advisor', 'scene-revision.v1', 'action-options.v1', 'ephemeral'],
+  ['authoring.scene.directions', 'authoring', 'structured-one-shot', 'scene-direction', 'scene-pressure.v1', 'scene-directions.v1', 'ephemeral'],
+  ['authoring.knowledge.query', 'authoring', 'validated-chain', 'authoring-knowledge', 'authoring-knowledge-query.v1', 'authoring-knowledge-answer.v1', 'review-only'],
   ['authoring.dialogue-options', 'authoring', 'structured-one-shot', 'narrative-dialogue', 'scene-revision.v1', 'dialogue-options.v1', 'ephemeral'],
   ['authoring.emergence', 'authoring', 'validated-chain', 'narrative-state', 'runtime-revision.v1', 'runtime-candidate.v1', 'review-draft'],
   ['authoring.trigger', 'authoring', 'validated-chain', 'narrative-scene', 'trigger-intent.v1', 'prose-segment.v1', 'direct-text'],

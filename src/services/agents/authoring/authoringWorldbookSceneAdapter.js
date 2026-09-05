@@ -129,5 +129,6 @@ export function buildSceneCurationCandidates({ axis, worldbook, query = '', sele
       selected: selected.has(String(entry.id)),
       summary: String(entry.content || '').replace(/\s+/g, ' ').slice(0, 120)
     }))
+    .sort((left, right) => Number(right.selected) - Number(left.selected))
     .slice(0, normalizedQuery ? 24 : limit)
 }

@@ -1,0 +1,1649 @@
+.theme-legacy .writing-page {
+  --surface-workbench-muted: #eef1f5;
+  --surface-workbench-raised: #fafbfd;
+  --authoring-chrome-surface: #fbfcfd;
+  --authoring-hairline: #e8ebef;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* Authoring 位于 AppShell 页签层之下：填满 shell-content 剩余高度，
+     不再取 100vh——否则页签层高度变成第二根页面级滚动条。 */
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .wall__cork {
+  display: flex;
+  flex: 0 0 42px;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  min-height: 42px;
+  max-height: 42px;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--authoring-chrome-surface);
+  border-bottom-color: var(--authoring-hairline);
+  box-shadow: none;
+  scrollbar-width: none;
+}
+
+.theme-legacy .writing-page .wall__cork::-webkit-scrollbar,
+.theme-legacy .writing-page .authoring-book-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.theme-legacy .writing-page .wall__save-chip,
+.theme-legacy .writing-page .wall__chapter-trigger,
+.theme-legacy .writing-page .wall__tab,
+.theme-legacy .writing-page .wall__back {
+  align-self: stretch;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.theme-legacy .writing-page .wall__save-chip {
+  padding-inline: 10px;
+}
+
+/* 保存状态签（唯一 owner）：原字体/胶囊样式在死层（font-display 衬线 +
+   重胶囊边框），页面实际渲染为裸文本。状态签应当安静：小号无衬线、
+   无边框，仅用颜色区分状态；出现即短暂，稳定保存态不占位。 */
+.theme-legacy .writing-page .wall__save-chip {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-inline: 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .wall__save-chip-state {
+  color: var(--text-secondary);
+  font: 400 12px/1 var(--font-sans, sans-serif);
+  letter-spacing: 0.02em;
+}
+
+.theme-legacy .writing-page .wall__save-chip.is-saving .wall__save-chip-state {
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
+
+.theme-legacy .writing-page .wall__save-chip.is-saved .wall__save-chip-state {
+  color: color-mix(in srgb, var(--archive-olive, #5e7a4e) 78%, var(--text-secondary));
+}
+
+.theme-legacy .writing-page .wall__save-chip.is-unsaved .wall__save-chip-state,
+.theme-legacy .writing-page .wall__save-chip.is-error .wall__save-chip-state {
+  color: var(--signal-danger, #a04b3c);
+}
+
+.theme-legacy .writing-page .wall__tabs {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
+.theme-legacy .writing-page .wall__tab,
+.theme-legacy .writing-page .wall__back {
+  height: 100%;
+  padding-inline: 12px;
+}
+
+.theme-legacy .writing-page .wall__tab:hover:not(:disabled),
+.theme-legacy .writing-page .wall__back:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .authoring-book-tabs {
+  display: flex;
+  align-self: stretch;
+  min-width: 0;
+  max-width: min(48vw, 680px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-inline-end: 1px solid var(--authoring-hairline);
+  scrollbar-width: none;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host {
+  display: flex;
+  flex: 0 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host:empty {
+  display: none;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  min-width: max-content;
+  width: auto;
+  max-width: none;
+  height: 100%;
+  margin: 0;
+  padding: 0 8px;
+  gap: 2px;
+  border: 0;
+  border-inline-end: 1px solid var(--authoring-hairline);
+  border-radius: 0;
+  background: var(--authoring-chrome-surface);
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .toolbar-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 100%;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn {
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn:hover,
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn.active {
+  border: 0;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn--format {
+  min-width: 28px;
+  padding-inline: 7px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .toolbar-sep {
+  height: 18px;
+  margin: 0 3px;
+  border-inline-start: 1px solid var(--border-subtle);
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .font-panel,
+.theme-legacy .writing-page .toolbar-popover-anchor .name-gen-panel {
+  /* 弹层定位属于本层：Writing.scoped.css 的 scope id 为空（死层），
+     .font-panel 的 position:absolute 从未生效过，面板会内联进工具条。 */
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 0;
+  z-index: 70;
+  width: 330px;
+  min-width: 330px;
+  margin: 0;
+  padding: 16px 20px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--archive-paper-soft, #fff);
+  box-shadow: 0 8px 16px rgb(0 0 0 / 14%);
+}
+
+.quick-name-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(20 24 29 / 28%);
+}
+
+.quick-name-workbench {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--archive-paper-soft, var(--bg-primary));
+  color: var(--text-primary);
+  box-shadow: 0 20px 55px rgb(0 0 0 / 22%);
+}
+
+.quick-name-workbench.is-compact { height: min(480px, calc(100vh - 48px)); }
+
+.quick-name-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 82px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.quick-name-head h2 { margin: 0; font: 600 18px/1.4 var(--font-sans); }
+.quick-name-head p { margin: 5px 0 0; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
+.quick-name-close { width: 32px; height: 32px; border: 0; background: transparent; color: var(--text-secondary); font-size: 22px; cursor: pointer; }
+.quick-name-close:hover { color: var(--text-primary); background: var(--surface-workbench-muted); }
+
+.quick-name-body { flex: 1; min-height: 0; padding: 18px 24px; overflow: auto; }
+.quick-name-filters { display: grid; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid var(--border-subtle); }
+.quick-name-filter { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 12px; }
+.quick-name-filter > span,
+.quick-name-filter > label { color: var(--text-secondary); font: 13px/1.4 var(--font-sans); }
+.quick-name-filter > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.quick-name-filter button,
+.quick-name-filter input,
+.quick-name-foot button { min-height: 32px; padding: 0 14px; border: 1px solid var(--border-subtle); border-radius: 4px; background: transparent; color: var(--text-secondary); font: 13px var(--font-sans); cursor: pointer; }
+.quick-name-filter button.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent); }
+.quick-name-filter button:disabled,
+.quick-name-filter input:disabled,
+.quick-name-close:disabled,
+.quick-name-foot button:disabled { opacity: .48; cursor: wait; }
+.quick-name-filter input { width: 132px; cursor: text; }
+.quick-name-filter button:focus-visible,
+.quick-name-filter input:focus-visible,
+.quick-name-results button:focus-visible,
+.quick-name-close:focus-visible,
+.quick-name-foot button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.quick-name-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 22px; padding-top: 12px; }
+.quick-name-result { position: relative; display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) 34px; align-content: start; border-bottom: 1px solid var(--border-subtle); }
+.quick-name-result__insert { display: flex; min-width: 0; min-height: 54px; align-items: center; justify-content: space-between; gap: 8px; padding: 0 4px 0 6px; border: 0; background: transparent; color: var(--text-primary); text-align: left; cursor: pointer; }
+.quick-name-result__insert:hover { color: var(--accent); }
+.quick-name-result__insert strong { overflow: hidden; font: 500 16px/1.4 var(--font-serif); letter-spacing: .02em; text-overflow: ellipsis; white-space: nowrap; }
+.quick-name-result__insert span { flex: 0 0 auto; color: var(--text-muted); font: 11px var(--font-sans); }
+.quick-name-result__more { align-self: center; width: 32px; min-height: 32px; border: 0; border-radius: 3px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.quick-name-result__more:hover,
+.quick-name-result__more[aria-expanded="true"] { background: var(--surface-workbench-muted); color: var(--text-primary); }
+.quick-name-result__menu { grid-column: 1 / -1; padding: 0 4px 7px; }
+.quick-name-result__menu button { width: 100%; min-height: 34px; padding: 0 10px; border: 1px solid var(--border-subtle); border-radius: 3px; background: var(--surface-workbench-muted); color: var(--text-primary); font: 12px var(--font-sans); text-align: left; cursor: pointer; }
+.quick-name-result__menu button span { margin-right: 5px; color: var(--accent); }
+.quick-name-result__menu button:hover { border-color: var(--accent); color: var(--accent); }
+.quick-name-conflict { display: grid; gap: 10px; margin-top: 14px; padding: 12px 0; border-block: 1px solid var(--border-subtle); }
+.quick-name-conflict > div:first-child { display: grid; gap: 2px; }
+.quick-name-conflict strong { color: var(--text-primary); font: 600 13px/1.5 var(--font-sans); }
+.quick-name-conflict span { color: var(--text-secondary); font: 11px/1.5 var(--font-sans); }
+.quick-name-conflict__matches { display: flex; flex-wrap: wrap; gap: 6px; }
+.quick-name-conflict__matches button,
+.quick-name-conflict__actions button,
+.quick-name-notice button { min-height: 32px; padding: 0 11px; border: 1px solid var(--border-subtle); border-radius: 3px; background: transparent; color: var(--text-secondary); font: 12px var(--font-sans); cursor: pointer; }
+.quick-name-conflict__matches button:hover { color: var(--accent); }
+.quick-name-conflict__actions { display: flex; justify-content: flex-end; gap: 7px; }
+.quick-name-conflict__actions button.is-primary { border-color: var(--accent); color: var(--accent); }
+.quick-name-notice { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 7px 10px; border-left: 2px solid var(--border-strong); background: var(--surface-workbench-muted); color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
+.quick-name-notice.is-success { border-left-color: var(--signal-success, #4b7b62); color: var(--text-primary); }
+.quick-name-notice.is-error { border-left-color: var(--signal-danger, #a04b3c); }
+.quick-name-notice button { flex: 0 0 auto; color: var(--accent); }
+.quick-name-foot { display: flex; align-items: center; justify-content: space-between; min-height: 58px; padding: 12px 24px; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font: 12px var(--font-sans); }
+.quick-name-foot button { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 720px) {
+  .quick-name-backdrop { align-items: end; padding: 0; }
+  .quick-name-workbench { width: 100%; height: min(680px, calc(100dvh - 42px)); border-radius: 10px 10px 0 0; }
+  .quick-name-workbench.is-compact { height: min(590px, calc(100dvh - 42px)); }
+  .quick-name-head, .quick-name-body, .quick-name-foot { padding-inline: 18px; }
+  .quick-name-filter { grid-template-columns: 58px minmax(0, 1fr); }
+  .quick-name-results { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+  .quick-name-result__more,
+  .quick-name-result__menu button,
+  .quick-name-conflict__matches button,
+  .quick-name-conflict__actions button,
+  .quick-name-notice button { min-height: 44px; }
+}
+
+@media (max-width: 520px) {
+  .quick-name-results { grid-template-columns: minmax(0, 1fr); }
+  .quick-name-filter--category { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+  .quick-name-filter--category > span { display: none; }
+  .quick-name-filter--category > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+  .quick-name-filter--category button { min-width: 0; padding-inline: 5px; }
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-row,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-row {
+  min-height: 32px;
+  margin: 0 0 12px;
+  gap: 12px;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-label,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-label {
+  width: 40px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-select,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-workbench-muted);
+  color: var(--text-primary);
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-btn,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-btn {
+  min-width: 40px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--surface-workbench-muted);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-btn:hover,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-btn:hover {
+  border-color: var(--accent, #1677ff);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .fp-btn.active,
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-btn.active {
+  border: 2px solid var(--accent, #1677ff);
+  background: color-mix(in srgb, var(--accent, #1677ff) 8%, var(--archive-paper-soft));
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-results {
+  max-height: 176px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.theme-legacy .writing-page .toolbar-popover-anchor .ng-result-item {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 3px;
+}
+
+.theme-legacy .writing-page .wall__binding-line {
+  margin: 4px;
+  padding: 0;
+  border: 0;
+}
+
+.theme-legacy .writing-page .wall__binding-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 400 11px/1 var(--font-sans, sans-serif);
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .wall__binding-compact:hover {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .wall__binding-compact span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .authoring-book-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.theme-legacy .writing-page .authoring-book-tab,
+.theme-legacy .writing-page .authoring-book-tab__new {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  border-inline-end: 1px solid var(--border-subtle);
+  background: #f8fafb;
+  color: var(--text-secondary);
+  font: 400 13px/1 var(--font-sans, sans-serif);
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .authoring-book-tab {
+  gap: 6px;
+  min-width: 112px;
+  max-width: 190px;
+}
+
+.theme-legacy .writing-page .authoring-book-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .authoring-book-tab:hover,
+.theme-legacy .writing-page .authoring-book-tab__new:hover {
+  background: var(--authoring-chrome-surface);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .authoring-book-tab.is-active {
+  position: relative;
+  background: var(--authoring-chrome-surface);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .authoring-book-tab.is-active::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  height: 2px;
+  content: '';
+  background: var(--accent, #1677ff);
+}
+
+.theme-legacy .writing-page .authoring-book-tab__new {
+  width: 38px;
+  justify-content: center;
+  padding: 0;
+  font-size: 18px;
+}
+
+.theme-legacy .writing-page .wall__main {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: clamp(220px, 18vw, 276px) minmax(0, 1fr) 52px;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface-workbench-muted);
+}
+
+.theme-legacy .writing-page .wall__main.has-inspector {
+  grid-template-columns: clamp(220px, 18vw, 276px) minmax(0, 1fr) minmax(280px, 320px) 52px;
+}
+
+.theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
+  grid-template-columns: clamp(220px, 18vw, 276px) minmax(520px, 1fr) minmax(540px, 620px) 52px;
+}
+
+.theme-legacy .writing-page .writing-tool-rail {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: stretch;
+  border-inline-start: 1px solid var(--authoring-hairline);
+  background: var(--authoring-chrome-surface);
+}
+
+.theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
+  grid-column: 4;
+}
+
+.theme-legacy .writing-page .writing-inspector {
+  grid-column: 3;
+  grid-row: 1;
+  border-inline-start-color: var(--authoring-hairline);
+  background: var(--authoring-chrome-surface);
+}
+
+.theme-legacy .writing-page .writing-inspector__body--assistant {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .writing-inspector__body--assistant > .authoring-knowledge {
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+}
+
+.theme-legacy .writing-page .wall__shelf {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(120px, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-inline-end: 1px solid var(--authoring-hairline);
+  background: var(--authoring-chrome-surface);
+  box-shadow: none;
+}
+
+/* Authoring 左栏是导航，不再使用占高的书脊卡片。书作为紧凑分组标题，
+   章节作为单行目录；状态通过字重、底色和左侧刻度表达。 */
+.theme-legacy .writing-page .wall__shelf-manuscript {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  gap: 0;
+  padding: 0;
+}
+
+.theme-legacy .writing-page .authoring-chapter-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  height: 30px;
+  margin: 13px 13px 10px;
+  padding: 0 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  background: var(--surface-workbench-muted);
+}
+
+.theme-legacy .writing-page .authoring-chapter-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: 13px/1.4 var(--font-sans, sans-serif);
+}
+
+.theme-legacy .writing-page .authoring-chapter-create {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 12px;
+}
+
+.theme-legacy .writing-page .authoring-chapter-create button {
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--archive-paper-soft);
+  color: var(--text-primary);
+  font: 400 13px/1 var(--font-sans, sans-serif);
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .authoring-chapter-create button.is-primary {
+  border-color: var(--accent, #1677ff);
+  background: var(--accent, #1677ff);
+  color: var(--text-on-accent, #fff);
+}
+
+.theme-legacy .writing-page .authoring-chapter-create button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.theme-legacy .writing-page .authoring-chapter-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 4px 4px;
+}
+
+.theme-legacy .writing-page .authoring-chapter-group,
+.theme-legacy .writing-page .authoring-chapter-row {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+}
+
+.theme-legacy .writing-page .authoring-chapter-group {
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  height: 28px;
+  padding: 0 8px 0 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.theme-legacy .writing-page .authoring-chapter-group.is-current {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.theme-legacy .writing-page .authoring-chapter-group small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.theme-legacy .writing-page .authoring-chapter-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  height: 28px;
+  padding: 0 8px 0 34px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .authoring-chapter-row:hover {
+  background: color-mix(in srgb, var(--accent, #1677ff) 5%, transparent);
+}
+
+.theme-legacy .writing-page .authoring-chapter-row.is-active {
+  position: relative;
+  background: color-mix(in srgb, var(--accent, #1677ff) 15%, var(--archive-paper-soft));
+  color: var(--text-primary);
+}
+
+/* 当前章单一左刻度：不用整条强调边，只给 2px 位置信号。 */
+.theme-legacy .writing-page .authoring-chapter-row.is-active::before {
+  position: absolute;
+  inset-block: 6px;
+  inset-inline-start: 22px;
+  width: 2px;
+  content: '';
+  border-radius: 1px;
+  background: var(--accent, #1677ff);
+}
+
+.theme-legacy .writing-page .authoring-chapter-row__title {
+  display: flex;
+  align-items: baseline;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .authoring-chapter-row__ordinal {
+  flex: 0 0 auto;
+  margin-inline-end: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-legacy .writing-page .authoring-chapter-row__name {
+  min-width: 0;
+  margin-inline-start: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.theme-legacy .writing-page .authoring-chapter-row__count {
+  margin-inline-start: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.theme-legacy .writing-page .authoring-chapter-empty {
+  margin: 12px 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.theme-legacy .writing-page .wall__folder,
+.theme-legacy .writing-page .wall__folder--book,
+.theme-legacy .writing-page .wall__folder--chapter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 7px 6px 34px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  clip-path: none;
+}
+
+.theme-legacy .writing-page .wall__folder--book {
+  min-height: 42px;
+  margin-top: 3px;
+  padding-inline-start: 32px;
+}
+
+.theme-legacy .writing-page .wall__folder.is-active {
+  border-color: color-mix(in srgb, var(--archive-olive) 24%, var(--border-subtle));
+  background: color-mix(in srgb, var(--archive-olive) 7%, transparent);
+}
+
+.theme-legacy .writing-page .wall__folder.is-active::after {
+  position: absolute;
+  inset-block: 7px;
+  inset-inline-start: 0;
+  width: 2px;
+  content: '';
+  background: var(--archive-olive);
+}
+
+.theme-legacy .writing-page .wall__folder-tab,
+.theme-legacy .writing-page .wall__folder--book .wall__folder-tab,
+.theme-legacy .writing-page .wall__folder--chapter .wall__folder-tab {
+  width: 25px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 600 10px/1 var(--font-sans, sans-serif);
+}
+
+.theme-legacy .writing-page .wall__folder-title,
+.theme-legacy .writing-page .wall__folder--book .wall__folder-title,
+.theme-legacy .writing-page .wall__folder--chapter .wall__folder-title {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.theme-legacy .writing-page .wall__folder--book .wall__folder-title {
+  font-weight: 700;
+}
+
+.theme-legacy .writing-page .wall__folder-meta,
+.theme-legacy .writing-page .wall__folder--book .wall__folder-meta,
+.theme-legacy .writing-page .wall__folder--chapter .wall__folder-meta {
+  margin: 0 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.theme-legacy .writing-page .wall__folder-move-stack {
+  position: absolute;
+  z-index: 2;
+  inset-inline-end: 4px;
+  top: 50%;
+  display: none;
+  align-items: center;
+  gap: 1px;
+  transform: translateY(-50%);
+}
+
+.theme-legacy .writing-page .wall__folder--chapter:hover .wall__folder-move-stack,
+.theme-legacy .writing-page .wall__folder--chapter:focus-within .wall__folder-move-stack {
+  display: flex;
+}
+
+.theme-legacy .writing-page .wall__folder--chapter:hover .wall__folder-meta,
+.theme-legacy .writing-page .wall__folder--chapter:focus-within .wall__folder-meta {
+  visibility: hidden;
+}
+
+.theme-legacy .writing-page .wall__folder-step {
+  width: 15px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 9px;
+  line-height: 20px;
+}
+
+.theme-legacy .writing-page .wall__shelf-actions {
+  gap: 12px;
+  margin: 6px 4px 0;
+}
+
+.theme-legacy .writing-page .wall__shelf-pin-btn {
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: 0;
+}
+
+.theme-legacy .writing-page .wall__binding-line {
+  margin: 4px;
+  padding: 0;
+  border: 0;
+}
+
+.theme-legacy .writing-page .wall__shelf-scene {
+  border-top: 1px solid var(--border-subtle);
+  /* 实底：上方案件列表内部滚动到底时，行不能从当前场底下透出来 */
+  background: var(--authoring-chrome-surface);
+}
+
+.theme-legacy .writing-page .scene-rail {
+  gap: 6px;
+  padding: 9px 10px 10px;
+  border-top: 0;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section__trigger {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 32px;
+  gap: 4px;
+  padding: 0 1px;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-live-codex {
+  display: block;
+  padding: 0;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section,
+.theme-legacy .writing-page .scene-rail .ws-codex-section--open {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section::after,
+.theme-legacy .writing-page .scene-rail .ws-codex-section__trigger::before {
+  display: none;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section__quick-detail {
+  min-width: 17px;
+  min-height: 24px;
+  width: 17px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section__quick-detail:hover {
+  border: 0;
+  background: transparent;
+  color: var(--archive-olive-strong);
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section__label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.theme-legacy .writing-page .scene-rail .ws-codex-section__count,
+.theme-legacy .writing-page .scene-rail .ws-codex-section__new {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 9px;
+}
+
+.theme-legacy .writing-page .wall__dossier {
+  --authoring-manuscript-gutter: clamp(34px, 6vw, 104px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding-top: 48px;
+  padding-bottom: 0;
+  padding-inline: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-workbench-raised);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .wall__dossier-body,
+.theme-legacy .writing-page .wall__dossier-head,
+.theme-legacy .writing-page .editor-toolbar {
+  background: transparent;
+}
+
+.theme-legacy .writing-page .wall__dossier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 0;
+  padding-bottom: 8px;
+  border-bottom: 0;
+}
+
+.theme-legacy .writing-page .wall__dossier-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: 600 24px/1.35 var(--font-display, var(--font-serif));
+}
+
+/* 稿面标题的章序：与左导航同一序号来源，只显示“第X章”，章名由输入框承载。 */
+.theme-legacy .writing-page .wall__chapter-ordinal {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+  font: 600 24px/1.35 var(--font-display, var(--font-serif));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .writing-notebook-editor,
+.theme-legacy .writing-page .writing-notebook-editor__surface {
+  --notebook-paper: transparent;
+  background: transparent;
+}
+
+.theme-legacy .writing-page .writing-notebook-editor__surface {
+  padding-top: 20px;
+}
+
+.theme-legacy .writing-page .wall__dossier-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  padding-inline: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.theme-legacy .writing-page .wall__dossier-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-inline: var(--authoring-manuscript-gutter);
+  overflow-y: auto;
+  overflow-x: clip;
+  /* 稿面轻微抬升：与中央蓝灰外围只保持小幅明度差，不做卡片边框。 */
+  background: var(--surface-workbench-raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #16324f 4%, transparent);
+}
+
+:not(.theme-legacy) .writing-page .wall__dossier-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-inline: clamp(28px, 6vw, 96px);
+  overflow-y: auto;
+  overflow-x: clip;
+}
+
+.theme-legacy .writing-page .dossier-footer {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+  padding: 8px var(--authoring-manuscript-gutter);
+  border-top: 1px solid var(--authoring-hairline);
+  background: var(--surface-workbench-raised);
+  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+}
+
+.theme-legacy .writing-page .dossier-footer-stat-divider {
+  color: color-mix(in srgb, var(--text-secondary) 42%, transparent);
+}
+
+.theme-legacy .writing-page .dossier-footer-stat--save.is-saved {
+  color: var(--text-secondary);
+}
+
+.theme-legacy .writing-page .dossier-footer-stat--save.is-error {
+  color: var(--signal-danger, #a04b3c);
+}
+
+.theme-legacy .writing-page .wall__dossier::before,
+.theme-legacy .writing-page .wall__dossier::after {
+  display: none;
+}
+
+.theme-legacy .writing-page .writing-inspector:not(.is-open) {
+  display: none;
+}
+
+.theme-legacy .writing-page .writing-inspector__reopen {
+  display: none;
+}
+
+@media (max-width: 1180px) and (min-width: 981px) {
+  .theme-legacy .writing-page .wall__main {
+    grid-template-columns: 220px minmax(0, 1fr) 52px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-inspector {
+    grid-template-columns: 220px minmax(0, 1fr) 52px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
+    grid-template-columns: 220px minmax(0, 1fr) 52px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
+    grid-column: 3;
+  }
+
+  /* Laptop distance：检查器是辅助层，不能用第四列把正文压到半屏。
+     贴在工具 rail 左侧覆盖稿面，关闭后不保留 phantom column。 */
+  .theme-legacy .writing-page .writing-inspector {
+    position: absolute;
+    z-index: var(--z-workbench-sheet);
+    grid-column: auto;
+    grid-row: auto;
+    inset-block: 0;
+    inset-inline-end: 52px;
+    width: min(340px, calc(100% - 264px));
+    height: auto;
+    max-height: none;
+    overflow: hidden;
+    box-shadow: -12px 0 32px color-mix(in srgb, #000 14%, transparent);
+  }
+}
+
+@media (max-width: 980px) {
+  .theme-legacy .writing-page .wall__main {
+    grid-template-columns: 190px minmax(0, 1fr) 52px;
+    padding: 0;
+  }
+
+  .theme-legacy .writing-page .writing-tool-rail {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
+    grid-column: 3;
+  }
+
+  .theme-legacy .writing-page .writing-inspector {
+    position: absolute;
+    z-index: var(--z-workbench-sheet);
+    grid-column: auto;
+    grid-row: auto;
+    inset-block: 0;
+    inset-inline-end: 52px;
+    width: min(340px, calc(100% - 242px));
+    height: auto;
+    max-height: none;
+    overflow: hidden;
+    transform: translateX(calc(100% + 52px));
+    transition: transform var(--motion-page) var(--motion-ease-out);
+    box-shadow: -12px 0 32px color-mix(in srgb, #000 16%, transparent);
+  }
+
+  .theme-legacy .writing-page .writing-inspector.is-open {
+    transform: translateX(0);
+  }
+
+  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
+    grid-template-columns: 190px minmax(0, 1fr) 52px;
+  }
+}
+
+@media (max-width: 720px) {
+  .theme-legacy .writing-page .wall__main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+  }
+
+  .theme-legacy .writing-page .wall__shelf {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: var(--z-workbench-sheet);
+    width: min(340px, calc(100vw - 42px));
+    max-height: none;
+    overflow: auto;
+    transform: translateX(calc(-100% - 18px));
+    transition: transform var(--motion-page) var(--motion-ease-out);
+    box-shadow: var(--shadow-workbench-float);
+  }
+
+  .theme-legacy .writing-page .wall__shelf.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .theme-legacy .writing-page .writing-tool-rail {
+    grid-column: 1;
+    position: fixed;
+    inset-inline: 0;
+    inset-block-end: 0;
+    width: auto;
+  }
+
+  /* Phone distance：右侧窄抽屉会只留下破碎的正文残片。移动端改为
+     工具 rail 上方的全宽 bottom sheet，正文仍在上方保持可辨认。 */
+  .theme-legacy .writing-page .writing-inspector {
+    position: absolute;
+    grid-column: auto;
+    grid-row: auto;
+    inset-block-start: auto;
+    inset-inline: 0;
+    inset-block-end: 44px;
+    width: auto;
+    height: min(62vh, 480px);
+    max-height: min(62vh, 480px);
+    border-inline-start: 0;
+    border-top: 1px solid var(--authoring-hairline);
+    transform: translateY(calc(100% + 44px));
+    box-shadow: 0 -12px 32px color-mix(in srgb, #000 16%, transparent);
+  }
+
+  .theme-legacy .writing-page .writing-inspector.is-open {
+    transform: translateY(0);
+  }
+
+  .theme-legacy .writing-page .writing-inspector__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .theme-legacy .writing-page .writing-inspector.is-assistant {
+    inset-block-start: 0;
+    inset-block-end: 44px;
+    height: auto;
+    max-height: none;
+  }
+
+  .theme-legacy .writing-page .writing-inspector__body--assistant {
+    overflow: hidden;
+  }
+}
+
+/* Phase 12：Ghost 是稿面唯一主强调；候选出现时 current-line 与 unit rail
+   仍保留位置提示，但降为辅助层，避免三种蓝色/橄榄色同时争夺注意力。 */
+.writing-page .writing-notebook-editor.has-writing-ghost .writing-current-line {
+  opacity: 0.24;
+}
+
+.writing-page .writing-notebook-editor.has-writing-ghost .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
+  opacity: 0.32;
+}
+
+@media (max-width: 520px) {
+  .theme-legacy .writing-page .authoring-editor-toolbar-host {
+    flex: 1 1 auto;
+    order: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  /* global.css 的 ≤980 断点让工具换行；cork 是 42px 单行 + 裁切，
+     换行只会把工具整体裁没。手机断点必须保持单行、由宿主横向滚动。 */
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar {
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+
+  .theme-legacy .writing-page .wall__tabs {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  /* 底部工具 rail 固定后，底栏必须让出 rail 高度，保存/字数不被遮挡。 */
+  .theme-legacy .writing-page .dossier-footer {
+    padding-bottom: 60px;
+  }
+
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar {
+    width: auto;
+    height: 100%;
+    flex-wrap: nowrap;
+  }
+}
+
+/* 200% browser zoom on a 390px phone leaves about 195 CSS px. At that
+   accessibility distance wrapping is intentional; normal phone and desktop
+   widths keep the compact single-row chrome above. */
+@media (max-width: 240px) {
+  .theme-legacy .writing-page .wall__cork {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    min-height: 42px;
+    max-height: none;
+    overflow-x: hidden;
+  }
+
+  .theme-legacy .writing-page .authoring-editor-toolbar-host {
+    flex: 1 0 100%;
+    order: 3;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar {
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+}
+
+/* ── 更多菜单（fixed）：工具条裁切上下文里的 absolute 菜单是“死按钮”。── */
+.wall__more-menu.is-fixed-menu {
+  position: fixed;
+  z-index: 1300;
+  width: 164px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, #16324f 16%, transparent);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 28px rgb(15 32 51 / 16%);
+}
+
+.wall__more-menu.is-fixed-menu button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #1c2b3a;
+  font: 400 13px/1 var(--font-sans, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wall__more-menu.is-fixed-menu button:hover:not(:disabled),
+.wall__more-menu.is-fixed-menu button:focus-visible {
+  background: #eef1f5;
+  outline: none;
+}
+
+.wall__more-menu.is-fixed-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.wall__more-tools {
+  display: none;
+}
+
+.theme-legacy .writing-page .authoring-illustrator-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+@media (max-width: 520px) {
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar > .toolbar-group:not(:first-child),
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar > .toolbar-sep,
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar > .toolbar-spacer {
+    display: none;
+  }
+
+  .wall__more-menu.is-fixed-menu {
+    inset: auto 0 0 !important;
+    width: 100% !important;
+    max-height: min(78dvh, 620px);
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -18px 42px rgb(15 32 51 / 18%);
+  }
+
+  .wall__more-tools {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid #e8ebef;
+  }
+
+  .wall__more-menu.is-fixed-menu .wall__more-tools button {
+    min-height: 48px;
+    padding: 0 8px;
+    background: #f5f7f9;
+    text-align: center;
+  }
+
+  .wall__more-menu.is-fixed-menu > button {
+    min-height: 44px;
+  }
+}
+
+/* ── 专注全屏：Zen 不只隐藏 AppShell 壳，还要收掉 Authoring 自己的
+   顶栏/左栏/工具 rail，稿面占满整个视口。Esc 或退出按钮恢复。 ── */
+body.is-writing-zen .writing-page .wall__cork,
+body.is-writing-zen .writing-page .wall__shelf,
+body.is-writing-zen .writing-page .writing-tool-rail,
+body.is-writing-zen .writing-page .writing-inspector {
+  display: none !important;
+}
+
+body.is-writing-zen .writing-page .wall__main {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+body.is-writing-zen .writing-page .wall__main.has-inspector,
+body.is-writing-zen .writing-page .wall__main.has-inspector.is-dual-inspector {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+/* ── 查找替换条重设计：旧样式全部位于死层（Writing.scoped.css），
+   页面实际裸奔。这里给出唯一 owner。── */
+.theme-legacy .writing-page .find-replace-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--authoring-hairline);
+  border-radius: 10px;
+  background: var(--surface-workbench-raised);
+  box-shadow: 0 4px 14px rgb(15 32 51 / 8%);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.theme-legacy .writing-page .find-replace-bar .fr-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.theme-legacy .writing-page .find-replace-bar .find-input {
+  box-sizing: border-box;
+  width: 200px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--surface-primary, #fff);
+  color: var(--text-primary);
+  font: 400 13px/1.2 var(--font-sans, sans-serif);
+}
+
+.theme-legacy .writing-page .find-replace-bar .find-input:focus {
+  outline: none;
+  border-color: var(--accent, #1677ff);
+}
+
+.theme-legacy .writing-page .find-replace-bar .fr-replace-input {
+  width: 180px;
+}
+
+.theme-legacy .writing-page .find-replace-bar .find-count {
+  min-width: 44px;
+  color: var(--text-secondary);
+  font: 400 12px/1 var(--font-sans, sans-serif);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.theme-legacy .writing-page .find-replace-bar .find-count.is-empty {
+  color: var(--signal-danger, #a04b3c);
+}
+
+.theme-legacy .writing-page .find-replace-bar .fr-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--authoring-hairline);
+}
+
+.theme-legacy .writing-page .find-replace-bar .tool-btn.sm {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .find-replace-bar .tool-btn.sm:hover:not(:disabled) {
+  border-color: var(--authoring-hairline);
+  background: var(--surface-workbench-muted);
+  color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .find-replace-bar .tool-btn.sm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.theme-legacy .writing-page .find-replace-bar .fr-close {
+  margin-left: auto;
+  font-size: 15px;
+}
+
+/* 选中文字浮条：格式动作与批注/素材/事实同一视觉语言。 */
+.writing-selection-actions button {
+  gap: 4px;
+}
+
+/* Zen 连 AppShell 工作台页签一并收起，只留退出按钮与正文。 */
+body.is-writing-zen .ws-tabs {
+  display: none !important;
+}
+
+/* 大纲节点标签与上下行保持呼吸，避免和章节行挤在一起。 */
+.theme-legacy .writing-page .wt3-node-label {
+  margin-block-start: 8px;
+  padding-block-start: 2px;
+}
+
+/* 构思文档头：徽标 + 标题 + 返回正文保持单行；标题过长省略，按钮不换行。 */
+.theme-legacy .writing-page .wt3-doc-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-legacy .writing-page .wt3-back-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+/* ── 右键菜单（唯一 owner）──────────────────────────────────────
+   正文 .context-menu 的原样式在死层（Writing.scoped.css）从未生效；
+   打包桌面端后也没有浏览器原生右键可依赖，左栏章节/卷组与正文统一
+   使用自研菜单。 ── */
+.context-menu {
+  position: fixed;
+  overflow-y: auto;
+  min-width: 176px;
+  max-height: calc(100dvh - 16px);
+  padding: 5px;
+  border: 1px solid var(--authoring-hairline);
+  border-radius: 8px;
+  background: var(--surface-workbench-raised, #fff);
+  box-shadow: 0 12px 30px rgb(15 32 51 / 16%);
+  z-index: 1250;
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 13px/1.3 var(--font-sans, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-item:hover:not(:disabled) {
+  background: var(--surface-workbench-muted);
+}
+
+.ctx-item:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ctx-item:focus-visible {
+  outline: 2px solid var(--accent, #1677ff);
+  outline-offset: -2px;
+}
+
+.ctx-item.is-danger {
+  color: var(--signal-danger, #a04b3c);
+}
+
+.ctx-item.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--signal-danger, #a04b3c) 8%, transparent);
+}
+
+.ctx-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--authoring-hairline);
+}
+
+@media (pointer: coarse), (max-width: 520px) {
+  .ctx-item { min-height: 40px; }
+}
+
+/* 左栏章节/卷组右键菜单：与正文菜单同一视觉语言 */
+/* 菜单 Teleport 到 body，脱离 .theme-legacy 作用域——变量不可用，用字面量。 */
+.shelf-context-menu {
+  position: fixed;
+  min-width: 148px;
+  padding: 5px;
+  border: 1px solid #e8ebef;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgb(15 32 51 / 16%);
+  z-index: 1250;
+}
+
+.shelf-context-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #1c2b3a;
+  font: 400 13px/1.3 var(--font-sans, sans-serif);
+  text-align: left;
+  cursor: pointer;
+}
+
+.shelf-context-menu button:hover:not(:disabled) {
+  background: #eef1f5;
+}
+
+.shelf-context-menu button.is-danger {
+  color: #a04b3c;
+}
+
+.shelf-context-menu button.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #a04b3c 8%, transparent);
+}
+
+.shelf-context-menu .shelf-menu-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: #e8ebef;
+}
+
+/* F2-3：输入联想只占一行，不把正文推成新的工具面板。 */
+.authoring-quick-word-strip {
+  position: sticky;
+  z-index: 18;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  min-height: 34px;
+  margin: -42px auto 8px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--surface-workbench-raised) 94%, transparent);
+  box-shadow: 0 6px 18px rgb(15 32 51 / 10%);
+  backdrop-filter: blur(8px);
+}
+
+.authoring-quick-word-strip > span {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.authoring-quick-word-strip > button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-primary);
+  font: 500 12px/1.2 var(--font-sans, sans-serif);
+  cursor: pointer;
+}
+
+.authoring-quick-word-strip > button kbd {
+  margin-right: 4px;
+  color: var(--text-muted);
+  font: 9px/1 var(--font-sans, sans-serif);
+}
+
+.authoring-quick-word-strip.is-dual {
+  position: absolute;
+  inset-inline-start: 50%;
+  bottom: 8px;
+  margin: 0;
+  transform: translateX(-50%);
+}
+
+.authoring-quick-word-strip > button:hover,
+.authoring-quick-word-strip > button:focus-visible {
+  outline: 0;
+  background: var(--surface-hover);
+}
+
+@media (max-width: 720px) {
+  .authoring-quick-word-strip {
+    bottom: 50px;
+    max-width: calc(100% - 16px);
+  }
+}

@@ -1,5 +1,47 @@
 # Agent Runs
 
+## 2026-09-02 C2 collaboration v2 foundation
+
+Base commit: `e8b9df1e0a6def8fc667066e181ff818a6a2c675`
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| C2-W1 | Sol medium sub-agent | `/tmp/pinax-c2-foundation` / `feature/collaboration-v2-foundation` | C2-0/C2-1：纯协议合同、wire fixture、repository/materializer、身份/epoch/ACK/恢复/权限/配额/密文 fixture；旧 Experience compatibility；不触碰 Authoring/F3 | complete at `5f97714`; Codex matrix 28/28 + scoped lint green | `docs/agent-runs/c2-w1-foundation.summary.md` |
+| C2-W2 | Sol medium sub-agents | `/tmp/pinax-c2-transport` / `feature/collaboration-v2-transport` | C2-2：transport/protocol client、WebCrypto、Web/Electron endpoint、REST/WS relay、真实邀请入口与安全生命周期；基线 `5f97714`，不触碰 Authoring/F3 | complete at `12b9596`; Codex foundation 28/28 + transport 43/43 + `verify:full` green | `docs/agent-runs/c2-w2-transport.summary.md` |
+| C2-S | Sol medium read-only reviewers | `/tmp/pinax-c2-transport` | 多轮跨层安全/可靠性复审：Origin、撤销、resume、TTL、maintenance、邀请入口、heartbeat、parser scope、limiter GC 与终态 | complete; all blocker/high findings closed before freeze | findings absorbed into `06cc77b`…`12b9596` |
+| C2-I | Codex | integration window TBD | 合并 foundation/transport，并接 C2-3 共同排演可见纵切 | waiting: F3-5 仍持有 Authoring owner；释放后安排单一 integration window | C2 branches remain isolated and frozen |
+
+### Write locks and merge conditions
+
+- C2 owns only new `shared/collaboration/`, `server/realtime/v2/`, `server/repositories/collaboration/`, `src/services/collaboration/`, collaboration fixtures/smokes, and the minimum old Experience compatibility adapter.
+- C2 must not modify `src/pages/Authoring.vue`, Authoring CSS/editor/Ghost/history, F3 domain objects, worldbook/history/media stores, or `docs/STATUS.md`.
+- W2 starts from the reviewed W1 contract commit; W1 and W2 do not edit overlapping implementation files.
+- F3-4B 已形成本地 promotion/adoption 边界，但 F3-5 仍持有 Authoring owner；C2-3 只能在其释放后进入单一 integration window，由一个 owner 合并 foundation 并增加首个可见共同排演切片。
+
+## 2026-08-31 Authoring 落笔上下文闭环 C1-2
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| C1-2 | Codex + bounded read-only audit workers | `/home/recoletas/jiuguan/text-game-framework` / `integration/consolidation-20260823` | 人物/地点三种现场意图、session reader/adapter、精确世界书授权、manifest/receipt 兑现门禁、8 人上限、Ghost 采纳 effect 与生命周期；不实施 C1-3 素材选择器 | 完成，整树门禁全绿 | focused 3 文件/59 用例、真实 5173 V5 旅程 5/5、390 无溢出/AX 阻断；`verify:full` 20/20 文件、200/200 用例及 Vite/VitePress/diff 全绿；下一刀 C1-3 |
+
+本轮共享文件 owner 已解除；`plannedCharacterIds` 只保留旧数据兼容，不得恢复为新运行临时意图真源。C1-3 应抽出轻量 reference controller/picker，不继续把完整选择和回执状态堆入 `Authoring.vue`。
+
+## 2026-08-30 Authoring 落笔上下文闭环 C1-1B
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| C1-1B | Codex + bounded audit workers | `/home/recoletas/jiuguan/text-game-framework` / `integration/consolidation-20260823` | 生产长推演接入冻结 AuthoringRunSession、manifest-only Kernel/工具、实际 receipt、provider 后 live revision/stale；修复 Ghost 原子采纳与 stale 可见性 | 实现与 focused Gate 完成；提交只允许在唯一最终 `verify:full` 全绿后产生 | focused 4 文件/82 用例、上下文生命周期 6/6、Vite build、diff check、production dry-run 1 项通过；下一刀 C1-2/C1-3 |
+
+本轮文件 owner 已解除；后续不得恢复页面旧 `contextCandidates`、整本世界书或全量 runtime 作为生产长推演的第二真源。C1-2/C1-3 只在当前集成分支继续修改现场三意图、“本次参考”和作者可读摘要；地图 P1.7/P2 仍暂停。
+
+## 2026-08-29 Map Platform v2（P0–P1 首轮）
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| MAP-V2 | ZCode（地图轨道，已收口） | 已整支集成 `integration/consolidation-20260823`；来源 baseline `c22af4c`、tip `95e9d29` | 世界档视觉层级与写作语义覆盖 P1 完成（P1.5 重做 + P1.6A/B）：地理优先真实底图、屏幕空间标签规划、落陆内推、浅海压缩、河网汇流系统、语义覆盖层；用户视觉验收通过 | 已集成并暂停；遗留进入以后重新排期的 P4 style pack 与 P1.7 region/local，不继续占用 Authoring 共享文件 | 验收图 `docs/engineering/map-p1-assets/light-world-{base,writing}-1440.png`；Gate 25 项全过。整合后地图合同聚焦 8/8、全项目 20 文件/200 用例与 build/docs 全过；失败证据 `p15-light-world-1440.png` 保留 |
+
+地图 P1 写锁已解除。P1.7/P2 暂停；以后恢复时必须从最新整合基线重新登记 owner，P6 前仍不得直接触碰 Authoring、router、workspace/worldStore 或 `worldbookContextBuilder.js`。
+
 ## 2026-08-06 Structured Place Catalog
 
 | ID | Owner | Workspace | Scope | Status | Output |

@@ -3,6 +3,7 @@
 // 上下文都从这里读取。投影 v2：以当前 writingUnit + 显式场景锚点 + 绑定世界书 +
 // 真实观察器结果为现场依据；旧 v1 输入（runtimeState.sceneThread）仅作为兼容路径保留。
 import {
+  MAX_AUTHORING_PRESENT_CHARACTERS,
   resolveActiveSceneAnchor,
   normalizeSceneAnchors,
   fingerprintSceneAnchors
@@ -16,7 +17,6 @@ import {
 
 export const AUTHORING_SCENE_PROJECTION_SCHEMA_VERSION = 2
 
-const MAX_PRESENT_CHARACTERS = 8
 const MAX_RELATIONS = 6
 const MAX_EVENTS = 6
 
@@ -121,14 +121,16 @@ function buildV2Scene({
   chapterId,
   documentRevision,
   activeUnitId,
+  expectedWorldbookId,
   worldbook,
   sceneAnchors,
   acceptedObservations,
+  activeUnitRevision,
   previousChapterProjection,
   unitOrder
 }) {
   const sourceRefs = new Set()
-  const worldbookId = cleanText(worldbook?.id)
+  const worldbookId = cleanText(expectedWorldbookId || worldbook?.id)
   const anchors = normalizeSceneAnchors(sceneAnchors)
   const order = (Array.isArray(unitOrder) && unitOrder.length ? unitOrder : [activeUnitId]).filter(Boolean)
 
@@ -139,25 +141,41 @@ function buildV2Scene({
     worldbookId
   })
 
-  const worldbookStatus = !worldbookId ? 'unbound' : (worldbook ? 'bound' : 'missing')
+  const loadedWorldbookMatches = Boolean(worldbook && cleanText(worldbook.id) === worldbookId)
+  const worldbookStatus = !worldbookId ? 'unbound' : (loadedWorldbookMatches ? 'bound' : 'missing')
   const index = buildWorldbookSceneIndex(worldbookStatus === 'bound' ? worldbook : null)
 
   let location = null
   let time = null
   const presentCharacters = []
+  const plannedCharacters = []
   const missingRefs = []
 
   if (resolution.anchor) {
     const anchor = resolution.anchor
+    const timeLabel = cleanText(anchor.time?.label)
+    const timePeriod = cleanText(anchor.time?.period)
+    if (timeLabel || timePeriod) {
+      time = {
+        id: stableId('time', timeLabel, timePeriod),
+        label: timeLabel || timePeriod,
+        period: timePeriod,
+        sourceRefs: [`scene-anchor:${anchor.id}`]
+      }
+    }
     if (anchor.locationId) {
       const resolvedLocation = resolveSceneLocation(index, anchor.locationId)
       if (resolvedLocation) location = resolvedLocation
       else missingRefs.push(anchor.locationId)
     }
-    for (const characterId of anchor.presentCharacterIds.slice(0, MAX_PRESENT_CHARACTERS)) {
+    for (const characterId of anchor.presentCharacterIds.slice(0, MAX_AUTHORING_PRESENT_CHARACTERS)) {
       const character = resolveSceneCharacter(index, characterId)
       if (character) presentCharacters.push(character)
       else missingRefs.push(characterId)
+    }
+    for (const characterId of (anchor.plannedCharacterIds || []).slice(0, MAX_AUTHORING_PRESENT_CHARACTERS)) {
+      const character = resolveSceneCharacter(index, characterId)
+      if (character) plannedCharacters.push(character)
     }
   }
   if (missingRefs.length) sourceRefs.add('worldbook:missing-refs')
@@ -166,11 +184,15 @@ function buildV2Scene({
   const currentObservations = asArray(acceptedObservations).filter((observation) => (
     cleanText(observation?.status || 'applied') === 'applied'
     && cleanText(observation?.unitId) === cleanText(activeUnitId)
+    && (activeUnitRevision == null || observation?.unitRevision == null
+      || Number(observation.unitRevision) === Number(activeUnitRevision))
   ))
 
   const activeRelations = selectActiveRelations({
     index,
     presentCharacterIds: presentCharacters.map((character) => character.id),
+    plannedCharacters,
+    plannedCharacterIds: plannedCharacters.map((character) => character.id),
     acceptedRelations: currentObservations
       .filter((observation) => cleanText(observation?.kind) === 'relation')
       .map((observation) => ({
@@ -206,7 +228,7 @@ function buildV2Scene({
       presentCharacterIds: asArray(previousChapterProjection.presentCharacters)
         .map((character) => cleanText(character?.id))
         .filter(Boolean)
-        .slice(0, MAX_PRESENT_CHARACTERS)
+        .slice(0, MAX_AUTHORING_PRESENT_CHARACTERS)
     }
   }
 
@@ -232,6 +254,8 @@ function buildV2Scene({
     location,
     time,
     presentCharacters,
+    plannedCharacters,
+    plannedCharacterIds: plannedCharacters.map((character) => character.id),
     activeRelations,
     unresolvedEvents,
     projectionFingerprint: computeSceneProjectionFingerprint({
@@ -253,6 +277,7 @@ export function buildAuthoringSceneProjection({
   projectId = null,
   runtimeState = null,
   worldbook = null,
+  expectedWorldbookId = null,
   observerState = null,
   outlineItems = [],
   // v2 输入（worldbook scene closure Task 5）：
@@ -285,15 +310,20 @@ export function buildAuthoringSceneProjection({
       : (document?.content || [])
         .map((unit) => unit?.attrs?.unitId || unit?.unitId)
         .filter(Boolean)
+    const activeDocumentUnit = (document?.content || []).find((unit) => (
+      cleanText(unit?.attrs?.unitId || unit?.unitId) === cleanText(activeUnitId)
+    ))
     v2Scene = buildV2Scene({
       projectId: resolvedProjectId,
       chapterId,
       documentRevision,
       activeUnitId,
+      expectedWorldbookId,
       unitOrder: documentUnits.length ? documentUnits : [activeUnitId].filter(Boolean),
       worldbook,
       sceneAnchors,
       acceptedObservations: acceptedObservations || [],
+      activeUnitRevision: activeDocumentUnit?.attrs?.unitRevision ?? activeDocumentUnit?.unitRevision ?? null,
       previousChapterProjection
     })
     for (const ref of v2Scene.extraSourceRefs || []) sourceRefs.add(ref)
@@ -335,7 +365,7 @@ export function buildAuthoringSceneProjection({
   // 在场人物：只有场景线程 cast 携带“本场参与”证据；
   // encounteredCharacters 只说明曾经遇到，没有本场依据，不得进入 presentCharacters。
   const presentCharacters = []
-  for (const member of asArray(sceneThread?.cast).slice(0, MAX_PRESENT_CHARACTERS)) {
+  for (const member of asArray(sceneThread?.cast).slice(0, MAX_AUTHORING_PRESENT_CHARACTERS)) {
     const summary = buildCharacterSummary(
       member?.characterId,
       member?.name,
@@ -449,14 +479,18 @@ export function buildAuthoringSceneProjection({
       chapterId: chapterId || '',
       activeUnitId: cleanText(activeUnitId),
       documentRevision: documentRevision == null ? '' : String(documentRevision),
-      worldbookId: cleanText(worldbook?.id)
+      worldbookId: cleanText(expectedWorldbookId || worldbook?.id)
     }),
-    viewpointCharacter: isV2 ? v2Scene.viewpointCharacter : explicitCharacter(state.viewpointCharacter),
-    activeActor: isV2 ? v2Scene.activeActor : explicitCharacter(state.activeActor),
-    dialogueTarget: isV2 ? v2Scene.dialogueTarget : dialogueTarget,
+    viewpointCharacter: isV2 ? v2Scene.viewpointCharacter : viewpointCharacter,
+    // v2 的锚点仍是真源；行动者/对象是本次推演的 run-only UI 选择，
+    // 可以叠加显示，但不会被持久化成场景事实。
+    activeActor: isV2 ? (v2Scene.activeActor || activeActor) : activeActor,
+    dialogueTarget: isV2 ? (v2Scene.dialogueTarget || dialogueTarget) : dialogueTarget,
     location: isV2 ? v2Scene.location : location,
     time: isV2 ? v2Scene.time : time,
     presentCharacters: isV2 ? v2Scene.presentCharacters : presentCharacters,
+    plannedCharacters: isV2 ? (v2Scene.plannedCharacters || []) : [],
+    plannedCharacterIds: isV2 ? (v2Scene.plannedCharacterIds || []) : [],
     activeRelations: isV2 ? v2Scene.activeRelations : activeRelations,
     unresolvedEvents: isV2 ? v2Scene.unresolvedEvents : unresolvedEvents,
     emergenceCandidates,

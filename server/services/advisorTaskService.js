@@ -17,6 +17,8 @@ export const ADVISOR_TASK_MODES = {
   'canvas.relate': 'review',
   'canvas.transition': 'review',
   'experience.next-actions': 'review',
+  'authoring.scene.directions': 'review',
+  'authoring.knowledge.query': 'review',
   'experience.emergence': 'review',
   'storyboard.review': 'review',
   'storyboard.video.prompt': 'review'
@@ -168,6 +170,18 @@ function buildAdvisorResult(taskType, advice, options = {}) {
     stalePolicy: base.stalePolicy || 'require-same-base-text'
   }
 
+  if (taskType === 'authoring.knowledge.query') {
+    result.knowledgeAnswer = {
+      answer: typeof base.answer === 'string' ? base.answer : (base.summary || ''),
+      claims: Array.isArray(base.claims) ? base.claims : [],
+      missingInformation: Array.isArray(base.missingInformation) ? base.missingInformation : [],
+      calculations: Array.isArray(base.calculations) ? base.calculations : []
+    }
+    result.summary = result.knowledgeAnswer.answer || '当前资料中没有找到足够依据。'
+    result.typedActions = []
+    result.action = []
+  }
+
   if (taskType === 'writing.fix.selection' || taskType === 'writing.fix.paragraph') {
     result.candidates = normalizeWritingCandidates(base.candidates, {
       text: result.replacement,
@@ -181,15 +195,27 @@ function buildAdvisorResult(taskType, advice, options = {}) {
   }
 
   if (taskType === 'writing.chapter.health' && options.chapterReview) {
+    const reviewTarget = options.reviewTarget && typeof options.reviewTarget === 'object'
+      ? options.reviewTarget
+      : {}
     result.findings = normalizeWritingReviewFindings(base.findings, {
       blocks: options.reviewBlocks,
-      maxFindings: 8
+      maxFindings: 8,
+      projectId: options.projectId || reviewTarget.projectId,
+      documentRole: options.documentRole || reviewTarget.documentRole,
+      documentId: options.documentId || reviewTarget.documentId,
+      chapterId: options.chapterId || reviewTarget.chapterId,
+      documentRevision: options.documentRevision || reviewTarget.documentRevision,
+      allowedEvidenceRefs: options.allowedEvidenceRefs,
+      source: 'model'
     })
     result.issues = result.findings.map((finding) => ({
       type: 'review-finding',
       severity: finding.severity,
-      message: finding.body,
+      message: finding.reason,
       kind: finding.kind,
+      issueType: finding.issueType,
+      evidenceRefs: finding.evidenceRefs,
       nodeIds: finding.nodeIds
     }))
   }

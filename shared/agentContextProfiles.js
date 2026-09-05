@@ -12,6 +12,8 @@ export const AGENT_CONTEXT_PROFILES = Object.freeze({
   'writing-chapter': Object.freeze({ blocks: ['rules', 'style', 'selection', 'outline', 'worldbook'], maxChars: 24000 }),
   'narrative-scene': Object.freeze({ blocks: ['rules', 'style', 'scene', 'character', 'location', 'history', 'memory', 'worldbook'], maxChars: 32000 }),
   'narrative-advisor': Object.freeze({ blocks: ['rules', 'scene', 'character', 'worldbook'], maxChars: 16000 }),
+  'scene-direction': Object.freeze({ blocks: ['rules', 'style', 'selection', 'scene', 'character', 'location', 'history', 'memory', 'outline', 'worldbook', 'references'], maxChars: 16000 }),
+  'authoring-knowledge': Object.freeze({ blocks: ['rules', 'selection', 'scene', 'worldbook', 'outline', 'history', 'memory', 'references'], maxChars: 28000 }),
   'narrative-dialogue': Object.freeze({ blocks: ['rules', 'style', 'scene', 'character'], maxChars: 14000 }),
   'narrative-state': Object.freeze({ blocks: ['rules', 'scene', 'character', 'location', 'history', 'memory', 'worldbook'], maxChars: 20000 }),
   'narrative-memory': Object.freeze({ blocks: ['rules', 'scene', 'memory'], maxChars: 18000 }),

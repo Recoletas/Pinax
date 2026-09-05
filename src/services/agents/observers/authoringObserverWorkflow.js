@@ -1,4 +1,8 @@
-import { normalizeObservation } from './authoringObservationContract'
+import {
+  normalizeAuthoringObserverProvenance,
+  normalizeAuthoringObserverTarget,
+  normalizeObservation
+} from './authoringObservationContract'
 
 function exceptionReasonOf(raw) {
   if (raw?.conflictsWith && String(raw.conflictsWith).startsWith('locked:')) return 'locked-conflict'
@@ -15,7 +19,7 @@ export function createAuthoringObserverWorkflow({ derive, applyDerived } = {}) {
     async run({ task, request, context }) {
       const derived = await derive({ task, request, envelope: context.envelope })
       const rawObservations = Array.isArray(derived?.observations) ? derived.observations : []
-      const routine = []
+      const routineInputs = []
       const exceptions = []
       for (const raw of rawObservations) {
         const reason = exceptionReasonOf(raw)
@@ -28,16 +32,44 @@ export function createAuthoringObserverWorkflow({ derive, applyDerived } = {}) {
           })
           continue
         }
-        routine.push(normalizeObservation(raw))
+        routineInputs.push(raw)
       }
 
+      const requestTarget = request?.target || {}
+      const requestProvenance = request?.intent?.provenance || {}
+      const target = normalizeAuthoringObserverTarget({
+        ...(requestProvenance.target || {}),
+        ...requestTarget,
+        projectId: requestProvenance.projectId || requestTarget.projectId,
+        documentId: requestProvenance.documentId || requestTarget.documentId || requestTarget.id,
+        chapterId: requestProvenance.chapterId || requestTarget.chapterId,
+        unitId: requestProvenance.unitId || requestTarget.unitId,
+        unitRevision: requestProvenance.unitRevision ?? requestTarget.unitRevision,
+        sourceDocumentRevision: requestProvenance.sourceDocumentRevision || requestTarget.sourceDocumentRevision
+      })
+      const provenance = normalizeAuthoringObserverProvenance({
+        ...requestProvenance,
+        target
+      }, target)
+      const routine = routineInputs.map((raw) => normalizeObservation(raw, { provenance, target }))
       const meta = {
         taskId: String(task?.id || ''),
         baseRevision: String(request?.target?.revision || ''),
+        target,
+        provenance,
         envelope: context.envelope
       }
       let applied = null
       if (routine.length > 0) {
+        if (typeof context?.isCurrent === 'function' && !context.isCurrent()) {
+          return {
+            status: 'stale',
+            taskId: String(task?.id || ''),
+            effectPolicy: 'derived-state',
+            applied: null,
+            exceptions: []
+          }
+        }
         applied = await applyDerived(routine, meta)
       }
       return {

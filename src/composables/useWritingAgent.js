@@ -1,30 +1,30 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService'
+import { getResolvedApiSettings } from '../services/api'
+import { worldbookEntryRef } from '../services/writing/writingSourceRefs.js'
+import { compileWritingContext } from '../services/agents/context/writingContextCompiler.js'
+import { isContextManifestStale } from '../services/agents/context/contextManifestLifecycle.js'
 import {
   addBlock,
   BLOCK_KINDS,
   buildContextEnvelope,
   clipContextEnvelope
 } from '../services/agents/agentContextEnvelope'
-import { buildWritingAgentContext } from '../services/writingAgentContext'
-import { buildReferenceContext } from '../services/writingAgentReferences'
-import { buildWorldbookContext } from '../services/worldbookContextBuilder'
 import {
   appendContextLedgerPart,
-  createContextLedger,
-  mergeContextLedgers
+  createContextLedger
 } from '../services/contextLedger'
-import { normalizeWritingSuggestion } from '../services/writingSuggestion'
-import { sourceRefsToEvidenceRefs } from '../services/narrativeAssets'
+import { extractWritingSuggestionWindow, normalizeWritingSuggestions } from '../services/writingSuggestion'
 import {
   PASSIVE_HINT_TYPES,
   canRequestPassiveHint,
   getAgentRuntimePolicy,
   recordAgentRuntimeEvent,
-  setAgentRuntimeEnabled
 } from '../services/agents/agentRuntimePolicy'
+import { canArmPassiveInlineSuggestion } from '../services/writing/writingInteractionPolicy.js'
 
-const DEFAULT_DEBOUNCE_MS = 900
+const DEFAULT_DEBOUNCE_MS = 2800
+const INLINE_CONTEXT_LIMITS = Object.freeze({ upstream: 720, downstream: 80, worldbookEntries: 4 })
 const DEFAULT_FAILURE_LIMIT = 3
 const DEFAULT_COOLDOWN_MS = 60000
 const SUPPRESSED_INPUT_TYPES = new Set([
@@ -44,22 +44,37 @@ export function createWritingRevision(content, cursorPos = 0) {
   return `writing-${(hash >>> 0).toString(36)}-${text.length.toString(36)}-${Number(cursorPos).toString(36)}`
 }
 
+export function createWritingRequestFingerprint(snapshot = {}, cursorPos = snapshot.cursorPos || 0) {
+  const nodeTarget = snapshot.nodeTarget || snapshot
+  return [
+    String(snapshot.bookId || snapshot.projectId || ''),
+    String(snapshot.documentRole || snapshot.role || 'manuscript'),
+    String(snapshot.documentId || snapshot.chapterId || ''),
+    String(snapshot.chapterId || ''),
+    String(snapshot.bookTitle || ''),
+    String(snapshot.chapterTitle || snapshot.documentTitle || ''),
+    String(nodeTarget?.unitId || ''),
+    String(nodeTarget?.unitRevision ?? ''),
+    String(nodeTarget?.nodeId || ''),
+    String(nodeTarget?.nodeRevision ?? ''),
+    String(snapshot.documentRevision ?? ''),
+    createWritingRevision(snapshot.content, cursorPos)
+  ].join('\u0000')
+}
+
 export function shouldTriggerWritingAgent(input = {}) {
   const content = String(input.content || '')
-  const cursorPos = Math.max(0, Math.min(content.length, Number(input.cursorPos) || 0))
-  const before = content.slice(Math.max(0, cursorPos - 180), cursorPos)
   if (
     input.enabled === false
     || input.composing
+    || input.editorFocused === false
     || input.hasSelection
     || input.coolingDown
+    || !canArmPassiveInlineSuggestion(input)
     || SUPPRESSED_INPUT_TYPES.has(input.inputType)
-    || cursorPos < 40
-    || before.trim().length < 32
+    || content.trim().length < 12
   ) return false
-
-  const last = before.slice(-1)
-  return /[\u3002\uff01\uff1f\uff0c\uff1b\uff1a\u201d\u300d\u300fA-Za-z0-9]$/.test(last)
+  return true
 }
 
 function firstSuggestionUnit(suggestion) {
@@ -95,67 +110,55 @@ export function undoWritingSuggestion(content, receipt) {
 
 export function buildWritingAgentInput(snapshot, cursorPos) {
   const content = String(snapshot.content || '')
+  const inlineWindow = extractWritingSuggestionWindow(content, cursorPos, INLINE_CONTEXT_LIMITS)
   const nodeTarget = snapshot.nodeTarget && typeof snapshot.nodeTarget === 'object'
     ? snapshot.nodeTarget
     : null
-  const writingContext = buildWritingAgentContext({
-    book: { id: snapshot.bookId, title: snapshot.bookTitle },
-    chapter: {
-      id: snapshot.chapterId,
-      title: snapshot.chapterTitle,
-      wordCount: content.replace(/\s/g, '').length
-    },
-    editorContent: content,
-    cursorPosition: cursorPos,
-    outlineItems: snapshot.outlineItems,
-    referenceAsset: snapshot.referenceAsset,
-    inboxAssets: snapshot.inboxAssets,
-    selectedInboxIds: snapshot.selectedInboxIds,
-    worldbook: snapshot.worldbook
-  })
-  const references = buildReferenceContext({
-    referenceAsset: snapshot.referenceAsset,
-    inboxAssets: snapshot.inboxAssets,
-    selectedInboxIds: snapshot.selectedInboxIds,
-    outlineContext: writingContext.outline.contextText,
-    currentChapterId: snapshot.chapterId,
-    currentBookId: snapshot.bookId
-  })
-  const selectedReferenceAssets = [
-    snapshot.referenceAsset,
-    ...(snapshot.inboxAssets || [])
-      .filter((asset) => (snapshot.selectedInboxIds || []).includes(asset.id))
-  ].filter(Boolean)
-  const referenceSourceRefs = [...new Set(selectedReferenceAssets.flatMap((asset) => [
-    asset.id ? `narrative-asset:${asset.id}` : '',
-    ...sourceRefsToEvidenceRefs(asset.sourceRefs || [])
-  ]).filter(Boolean))]
   const chapterSourceRefs = [...new Set([
     snapshot.chapterId ? `chapter:${snapshot.chapterId}` : '',
+    snapshot.documentRole === 'exploration' && snapshot.documentId ? `exploration:${snapshot.documentId}` : '',
     ...(Array.isArray(snapshot.sourceRefs) ? snapshot.sourceRefs : [])
   ].filter(Boolean))]
-  const worldbook = buildWorldbookContext({
-    worldbook: snapshot.worldbook,
-    chatHistory: [{
-      role: 'user',
-      content: [references.contextText, writingContext.cursor.before, writingContext.cursor.after]
-        .filter(Boolean)
-        .join('\n\n')
-    }],
-    runtimeState: {
-      activities: snapshot.chapterTitle ? [{ title: snapshot.chapterTitle }] : []
+  // Phase 4 ownership closure：世界书/大纲/探索上下文统一经 WritingContextCompiler
+  // （inline-fast 预算）；不再在 inline 链内运行独立 matcher/语义 builder。
+  const manifest = compileWritingContext({
+    candidates: snapshot.contextCandidates || [],
+    target: {
+      projectId: snapshot.bookId || '',
+      documentId: snapshot.documentId || snapshot.chapterId || '',
+      documentRole: snapshot.documentRole || 'manuscript',
+      chapterId: snapshot.chapterId || '',
+      unitId: nodeTarget?.unitId || ''
     },
-    tokenBudget: 520,
-    scanDepth: 1
+    profile: 'inline-fast',
+    taskKind: snapshot.documentRole === 'exploration' ? 'exploration' : 'manuscript',
+    excludedCandidateIds: snapshot.contextRunExcludedIds || [],
+    pinnedCandidateIds: snapshot.contextRunPinnedIds || [],
+    dependencyRevisions: snapshot.contextDependencyRevisions || {}
   })
+  const manifestWorldbookBlocks = manifest.blocks.filter((block) => block.kind === 'worldbook-entry')
+  const manifestContextText = manifest.blocks
+    .filter((block) => block.kind !== 'worldbook-entry')
+    .map((block) => block.text)
+    .join('\n\n')
+  const worldbook = {
+    matchedEntries: manifestWorldbookBlocks.map((block) => ({
+      id: block.candidateId.startsWith('wb-entry:') ? block.candidateId.slice('wb-entry:'.length) : block.candidateId,
+      content: block.text,
+      sourceRefs: block.sourceRefs
+    })),
+    contextLedger: null,
+    warnings: manifest.unresolvedConflicts.map((conflict) => `未裁决冲突：${conflict.claimKey}`)
+  }
+  const manifestFingerprint = manifest.fingerprint
 
-  const revision = createWritingRevision(content, cursorPos)
+  const revision = createWritingRequestFingerprint(snapshot, cursorPos)
   let envelope = buildContextEnvelope({
     surface: 'writing',
     projectId: snapshot.bookId || null,
     target: {
       type: 'cursor-window',
-      id: snapshot.chapterId || null,
+      id: snapshot.documentId || snapshot.chapterId || null,
       revision
     },
     budget: { maxChars: 12000 }
@@ -172,25 +175,27 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
       nodeTarget?.nodeId ? `当前节点：${nodeTarget.nodeId}（revision ${nodeTarget.nodeRevision}）` : '',
       nodeTarget ? `当前节点范围：${nodeTarget.start}-${nodeTarget.end}` : '',
       '【光标前】',
-      writingContext.cursor.before || '（空）',
+      inlineWindow.before || '（空）',
       '【光标后】',
-      writingContext.cursor.after || '（空）'
+      inlineWindow.after || '（空）'
     ].filter(Boolean).join('\n')
   }, {
     priority: 700,
     sourceRefs: chapterSourceRefs
   })
-  if (references.contextText) {
-    envelope = addBlock(envelope, BLOCK_KINDS.REFERENCES, references.contextText, {
-      priority: 350,
-      sourceRefs: referenceSourceRefs
+  if (manifestContextText) {
+    envelope = addBlock(envelope, BLOCK_KINDS.REFERENCES, manifestContextText, {
+      priority: 360,
+      sourceRefs: [...new Set(manifest.blocks
+        .filter((block) => block.kind !== 'worldbook-entry')
+        .flatMap((block) => block.sourceRefs))]
     })
   }
-  const worldbookText = worldbook.messages.map((message) => message.content).join('\n\n')
+  const worldbookText = manifestWorldbookBlocks.map((block) => block.text).join('\n\n')
   if (worldbookText) {
     envelope = addBlock(envelope, BLOCK_KINDS.WORLD_BOOK, worldbookText, {
       priority: 250,
-      sourceRefs: worldbook.matchedEntries.map((entry) => `worldbook:${entry.id}`)
+      sourceRefs: worldbook.matchedEntries.map((entry) => worldbookEntryRef(entry.id)).filter(Boolean)
     })
   }
   envelope = clipContextEnvelope(envelope)
@@ -203,31 +208,33 @@ export function buildWritingAgentInput(snapshot, cursorPos) {
     source: 'generation',
     title: snapshot.chapterTitle || '当前章节',
     purpose: 'writing-cursor-window',
-    content: `${writingContext.cursor.before}${writingContext.cursor.after}`,
+    content: `${inlineWindow.before}${inlineWindow.after}`,
     included: true,
     limit: 760,
     sourceRefs: chapterSourceRefs
   })
-  if (references.contextText) {
+  if (manifestContextText) {
     writingLedger = appendContextLedgerPart(writingLedger, {
       source: 'generation',
-      title: '写作引用',
-      purpose: 'writing-references',
-      content: references.contextText,
+      title: '编译后的写作上下文',
+      purpose: 'writing-compiled-context',
+      content: manifestContextText,
       included: true,
-      limit: references.budgetReport.totalChars,
-      truncated: references.budgetReport.overflowed,
-      sourceRefs: referenceSourceRefs
+      limit: manifest.budget?.usedChars || manifestContextText.length,
+      truncated: false,
+      sourceRefs: [...new Set(manifest.blocks.flatMap((block) => block.sourceRefs || []))]
     })
   }
 
   return {
     envelope,
-    ledger: mergeContextLedgers(worldbook.contextLedger, writingLedger),
+    ledger: writingLedger,
+    contextManifest: manifest,
+    manifestFingerprint,
     revision,
     nodeTarget,
-    documentRevision: Number(snapshot.documentRevision || 0),
-    matchedEntries: worldbook.matchedEntries,
+    documentRevision: String(snapshot.documentRevision ?? ''),
+    matchedEntries: worldbook.matchedEntries.slice(0, INLINE_CONTEXT_LIMITS.worldbookEntries),
     warnings: worldbook.warnings
   }
 }
@@ -237,8 +244,11 @@ export function useWritingAgent(options = {}) {
   const failureLimit = options.failureLimit ?? DEFAULT_FAILURE_LIMIT
   const cooldownMs = options.cooldownMs ?? DEFAULT_COOLDOWN_MS
   const enabled = ref(options.enabled !== false && getAgentRuntimePolicy().enabled)
+  const requesting = ref(false)
   const generating = ref(false)
-  const suggestion = ref('')
+  const suggestions = ref([])
+  const activeSuggestionIndex = ref(0)
+  const suggestion = computed(() => suggestions.value[activeSuggestionIndex.value] || '')
   const error = ref('')
   const matchedEntries = ref([])
   const warnings = ref([])
@@ -248,27 +258,68 @@ export function useWritingAgent(options = {}) {
   const cooldownUntil = ref(0)
   const composing = ref(false)
   let timer = null
+  let generatingVisibilityTimer = null
+  let cooldownVisibilityTimer = null
   let requestVersion = 0
+  let requestController = null
+  let pendingFingerprint = ''
+  let pendingInputType = ''
+  let activeFingerprint = ''
+  let lastRequestedFingerprint = ''
+  let dismissedFingerprint = ''
+  let activeManifest = null
+  let activeCandidateContext = null
+  let activeRevision = ''
 
   const visible = computed(() => Boolean(suggestion.value))
   const coolingDown = computed(() => cooldownUntil.value > Date.now())
   const canUndoApply = computed(() => Boolean(lastReceipt.value))
 
-  function cancel() {
+  function clearPendingTimer() {
+    if (timer) clearTimeout(timer)
+    timer = null
+    pendingFingerprint = ''
+    pendingInputType = ''
+  }
+
+  function clearGeneratingVisibilityTimer() {
+    if (generatingVisibilityTimer) clearTimeout(generatingVisibilityTimer)
+    generatingVisibilityTimer = null
+    generating.value = false
+  }
+
+  function cancel(reason = 'user') {
+    const cancelledFingerprint = activeFingerprint || pendingFingerprint
     if (suggestion.value) {
       recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'dismissed', {
         chars: suggestion.value.length
       })
     }
+    if (reason === 'user' && activeFingerprint) dismissedFingerprint = activeFingerprint
+    // 光标离开不是“拒绝这个候选”。清掉该落笔处的请求去重后，用户在
+    // 文档未变化时移回这里，仍可按正常 dwell 重新触发；显式 Esc/点击
+    // 拒绝继续由 dismissedFingerprint 抑制。
+    if (reason === 'cursor-move' && cancelledFingerprint === lastRequestedFingerprint) {
+      lastRequestedFingerprint = ''
+    }
     requestVersion += 1
-    if (timer) clearTimeout(timer)
-    timer = null
-    generating.value = false
-    suggestion.value = ''
+    clearPendingTimer()
+    clearGeneratingVisibilityTimer()
+    requesting.value = false
+    requestController?.abort()
+    requestController = null
+    suggestions.value = []
+    activeSuggestionIndex.value = 0
+    activeManifest = null
+    activeCandidateContext = null
+    activeRevision = ''
+    activeFingerprint = ''
+    error.value = ''
+    options.onCandidateDismissed?.({ reason })
   }
 
   function suppress(reason = '') {
-    cancel()
+    cancel(reason || 'suppressed')
     if (reason === 'composition') composing.value = true
   }
 
@@ -276,12 +327,20 @@ export function useWritingAgent(options = {}) {
     composing.value = false
   }
 
-  function markFailure(message) {
+  function markFailure(message, { visible = true } = {}) {
     failureCount.value += 1
-    error.value = message || '补全失败'
+    error.value = visible ? (message || '补全失败') : ''
     if (failureCount.value >= failureLimit) {
       cooldownUntil.value = Date.now() + cooldownMs
       failureCount.value = 0
+      if (cooldownVisibilityTimer) clearTimeout(cooldownVisibilityTimer)
+      cooldownVisibilityTimer = setTimeout(() => {
+        if (cooldownUntil.value <= Date.now()) {
+          cooldownUntil.value = 0
+          error.value = ''
+        }
+        cooldownVisibilityTimer = null
+      }, cooldownMs)
     }
   }
 
@@ -293,61 +352,149 @@ export function useWritingAgent(options = {}) {
     return cooldownUntil.value > Date.now()
   }
 
-  async function generate(snapshot, cursorPos, manual = false) {
-    if (!enabled.value || !snapshot?.chapterId || (!manual && hasActiveCooldown())) return
+  async function hasTextProviderCredential() {
+    if (typeof options.resolveProviderCredential === 'function') {
+      return Boolean(await options.resolveProviderCredential())
+    }
+    // settings.apiKey 是浏览器侧用户密钥；serverKey 表示部署侧代持密钥。
+    // 两者都没有时，行内联想注定失败，不应发出请求。
+    const settings = await getResolvedApiSettings().catch(() => null)
+    if (!settings) return false
+    return Boolean(settings.serverKey || (settings.apiKey && !settings.serverKey))
+  }
+
+  async function generate(snapshot, cursorPos, manual = false, triggerFingerprint = '', triggerInputType = '') {
+    if (typeof options.canStartSuggestion === 'function'
+      && options.canStartSuggestion({ manual, snapshot }) === false) return false
+    if (!enabled.value || !(snapshot?.documentId || snapshot?.chapterId) || (!manual && (snapshot?.editorFocused === false || hasActiveCooldown()))) return
+    const snapshotFingerprint = createWritingRequestFingerprint(snapshot, cursorPos)
+    if (!manual && triggerFingerprint && triggerFingerprint !== snapshotFingerprint) return
+    const requestFingerprint = triggerFingerprint || snapshotFingerprint
     if (!manual) {
       const permission = canRequestPassiveHint(PASSIVE_HINT_TYPES.WRITING_INLINE)
-      if (!permission.allowed) return
+      // 光标停驻已有文本是用户主动选择的新落笔处，已有 fingerprint 去重、
+      // 显式 dismiss 与 4.2s dwell 已负责限流；不能再被全局 45s 窗口吞掉。
+      if (!permission.allowed && !(triggerInputType === 'cursor' && permission.reason === 'frequency-limit')) return
     }
-    const input = buildWritingAgentInput(snapshot, cursorPos)
-    const startedAt = Date.now()
-    recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'requested', {
-      chars: String(snapshot.content || '').length,
-      at: startedAt
-    })
+    if (!manual) lastRequestedFingerprint = requestFingerprint
+    activeFingerprint = requestFingerprint
+    pendingFingerprint = ''
     const version = ++requestVersion
-    generating.value = true
-    suggestion.value = ''
-    error.value = ''
-    contextLedger.value = input.ledger
-    matchedEntries.value = input.matchedEntries
-    warnings.value = input.warnings
-
+    // 凭据解析也是请求生命周期的一部分。先取得 interaction owner，新的输入、
+    // Escape 或作用域切换才能在 preflight await 期间使旧版本失效。
+    requesting.value = true
+    // 凭据门禁：未配置 provider 时被动联想静默跳过（不发请求、不记请求指标、
+    // 不在稿面弹错误），手动触发给出可操作提示而不是 provider 原始报错。
+    let hasCredential = false
     try {
+      hasCredential = await hasTextProviderCredential()
+    } catch {
+      hasCredential = false
+    }
+    if (!hasCredential) {
+      if (version !== requestVersion) return
+      requesting.value = false
+      if (manual) markFailure('先在右上角设置里配置模型服务，再使用行内联想', { visible: true })
+      activeFingerprint = ''
+      return
+    }
+    if (version !== requestVersion) return
+    const startedAt = Date.now()
+    let input = null
+    try {
+      input = buildWritingAgentInput(snapshot, cursorPos)
+      options.onContextManifest?.(input.contextManifest)
+      recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'requested', {
+        chars: String(snapshot.content || '').length,
+        at: startedAt
+      })
+      requestController?.abort()
+      requestController = new AbortController()
+      clearGeneratingVisibilityTimer()
+      if (manual) generating.value = true
+      else {
+        generatingVisibilityTimer = setTimeout(() => {
+          if (version === requestVersion && requesting.value) generating.value = true
+          generatingVisibilityTimer = null
+        }, 500)
+      }
+      suggestions.value = []
+      activeSuggestionIndex.value = 0
+      error.value = ''
+      contextLedger.value = input.ledger
+      matchedEntries.value = input.matchedEntries
+      warnings.value = input.warnings
       const result = await requestAdvisorTask({
         envelope: input.envelope,
         question: '续写光标处的下一句正文，只返回正文。',
         taskType: 'authoring.complete.inline',
         scope: 'continue',
-        options: { contextLedgerVersion: input.ledger?.schemaVersion || 1 }
+        options: { contextLedgerVersion: input.ledger?.schemaVersion || 1 },
+        signal: requestController.signal
       })
       if (version !== requestVersion) return
+      if (typeof options.getLiveContextDependencies === 'function'
+        && isContextManifestStale(input.contextManifest, options.getLiveContextDependencies())) {
+        error.value = manual ? '参考资料已更新，请重新生成' : ''
+        recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'stale', { latencyMs: Date.now() - startedAt })
+        return
+      }
       const latest = options.getSnapshot?.()
-      const latestRevision = createWritingRevision(latest?.content, latest?.cursorPos)
+      const latestRevision = createWritingRequestFingerprint(latest, latest?.cursorPos)
       if (latestRevision !== input.revision) return
-      const normalized = normalizeWritingSuggestion(result.advice, 160)
-      if (!normalized) {
+      const normalized = normalizeWritingSuggestions(result.advice)
+      if (!normalized.length) {
         recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'empty', {
           latencyMs: Date.now() - startedAt
         })
-        markFailure('模型未返回可插入正文')
+        markFailure('模型未返回可插入正文', { visible: manual })
         return
       }
-      suggestion.value = normalized
+      // 请求期间可能打开块推演、模态层或编辑器之外的工具。迟到结果在最终
+      // 展示前重新核对 owner，不能先写 suggestions 再靠页面回调清理，因为
+      // 那会覆盖块推演冻结的 Ghost candidate。
+      if (typeof options.canPresentSuggestion === 'function'
+        && options.canPresentSuggestion({ manual, snapshot, cursorPos }) === false) {
+        activeFingerprint = ''
+        activeManifest = null
+        activeRevision = ''
+        activeCandidateContext = null
+        return false
+      }
+      suggestions.value = normalized
+      activeManifest = input.contextManifest
+      activeRevision = input.revision
+      activeCandidateContext = Object.freeze({
+        manifest: input.contextManifest,
+        nodeTarget: input.nodeTarget,
+        documentRevision: input.documentRevision,
+        cursorPos,
+        runOutcome: { status: 'completed' }
+      })
+      options.onCandidateShown?.({
+        text: normalized[0],
+        alternatives: normalized,
+        ...activeCandidateContext
+      })
       failureCount.value = 0
       recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'shown', {
-        chars: normalized.length,
+        chars: normalized[0].length,
         latencyMs: Date.now() - startedAt
       })
     } catch (requestError) {
       if (version !== requestVersion) return
+      if (requestController?.signal.aborted || requestError?.name === 'AbortError' || requestError?.code === 'AGENT_REQUEST_ABORTED') return
       recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'failed', {
         latencyMs: Date.now() - startedAt,
         reason: requestError?.message
       })
-      markFailure(requestError?.message)
+      markFailure(requestError?.message, { visible: manual })
     } finally {
-      if (version === requestVersion) generating.value = false
+      if (version === requestVersion) {
+        requesting.value = false
+        clearGeneratingVisibilityTimer()
+        requestController = null
+      }
     }
   }
 
@@ -358,31 +505,56 @@ export function useWritingAgent(options = {}) {
     ) {
       lastReceipt.value = null
     }
-    if (suggestion.value || generating.value) cancel()
-    if (timer) clearTimeout(timer)
-    timer = null
+    const fingerprint = createWritingRequestFingerprint(input, input.cursorPos)
+    if (requesting.value && activeFingerprint === fingerprint) return
+    if (suggestion.value || requesting.value) cancel('superseded')
     if (!shouldTriggerWritingAgent({
       ...input,
       enabled: enabled.value,
       composing: composing.value || input.composing,
       coolingDown: hasActiveCooldown()
     })) {
-      if (SUPPRESSED_INPUT_TYPES.has(input.inputType) || input.composing) cancel()
+      clearPendingTimer()
+      if (SUPPRESSED_INPUT_TYPES.has(input.inputType) || input.composing) cancel('suppressed')
       return
     }
-    const snapshot = options.getContext?.()
-    timer = setTimeout(() => generate(snapshot, input.cursorPos, false), debounceMs)
+    if (timer && pendingFingerprint === fingerprint
+      && !(pendingInputType === 'cursor' && input.inputType !== 'cursor')) return
+    clearPendingTimer()
+    if (fingerprint === lastRequestedFingerprint || fingerprint === dismissedFingerprint) return
+    error.value = ''
+    const delay = typeof debounceMs === 'function' ? debounceMs(input.inputType) : debounceMs
+    pendingFingerprint = fingerprint
+    pendingInputType = String(input.inputType || '')
+    timer = setTimeout(() => {
+      timer = null
+      const triggerInputType = pendingInputType
+      pendingInputType = ''
+      generate(options.getContext?.(), input.cursorPos, false, fingerprint, triggerInputType)
+    }, delay)
   }
 
   function manualTrigger() {
     const snapshot = options.getContext?.()
     const cursorPos = options.getSnapshot?.()?.cursorPos ?? 0
+    if (typeof options.canStartSuggestion === 'function'
+      && options.canStartSuggestion({ manual: true, snapshot }) === false) return false
     cooldownUntil.value = 0
+    if (cooldownVisibilityTimer) clearTimeout(cooldownVisibilityTimer)
+    cooldownVisibilityTimer = null
+    if (timer || requesting.value || suggestion.value) cancel('manual-trigger')
     return generate(snapshot, cursorPos, true)
   }
 
   function accept(content, cursorPos, mode = 'all') {
     if (!suggestion.value) return null
+    if (typeof options.getLiveContextDependencies === 'function'
+      && isContextManifestStale(activeManifest, options.getLiveContextDependencies())) {
+      error.value = '参考资料已更新，请重新生成'
+      return null
+    }
+    // 注意：markdown 文本路径（非 notebook 编辑器）使用本函数；notebook 路径
+    // 走 peek→insert→consume(信任模式)。
     const result = applyWritingSuggestion(content, cursorPos, suggestion.value, mode)
     const receipt = {
       before: String(content || ''),
@@ -391,9 +563,24 @@ export function useWritingAgent(options = {}) {
       afterRevision: createWritingRevision(result.content, result.newCursorPos)
     }
     lastReceipt.value = receipt
-    suggestion.value = mode === 'unit'
-      ? suggestion.value.slice(result.inserted.length)
-      : ''
+    if (mode === 'unit') {
+      suggestions.value[activeSuggestionIndex.value] = suggestion.value.slice(result.inserted.length)
+      const latest = options.getSnapshot?.() || {}
+      activeRevision = createWritingRequestFingerprint({
+        ...latest,
+        content: result.content,
+        cursorPos: result.newCursorPos
+      }, result.newCursorPos)
+      activeFingerprint = activeRevision
+    } else {
+      suggestions.value = []
+      activeFingerprint = ''
+    }
+    options.onCandidateAccepted?.({
+      mode,
+      inserted: result.inserted,
+      remaining: suggestions.value[activeSuggestionIndex.value] || ''
+    })
     recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'accepted', {
       chars: result.inserted.length,
       reason: mode
@@ -401,14 +588,34 @@ export function useWritingAgent(options = {}) {
     return result
   }
 
-  function consume(mode = 'all') {
-    if (!suggestion.value) return ''
-    const inserted = mode === 'unit'
-      ? firstSuggestionUnit(suggestion.value)
-      : suggestion.value
-    suggestion.value = mode === 'unit'
-      ? suggestion.value.slice(inserted.length)
-      : ''
+  function consume(mode = 'all', { ignoreRevision = false } = {}) {
+    // ignoreRevision：编辑器插入成功后的确认型消费。插入本身会同步推进快照，
+    // 此时 revision 必然已变；陈旧性已由插入前的 peek 把关，这里不再二次校验，
+    // 否则守卫会把自己刚插入的正文当成"落笔处已变化"而回滚（Ghost Tab 采纳必败）。
+    const inserted = peek(mode, { ignoreRevision })
+    if (!inserted) return ''
+    if (mode === 'unit') suggestions.value[activeSuggestionIndex.value] = suggestion.value.slice(inserted.length)
+    else suggestions.value = []
+    if (suggestions.value[activeSuggestionIndex.value]) {
+      const latest = options.getSnapshot?.()
+      activeRevision = createWritingRequestFingerprint(latest, latest?.cursorPos)
+      activeFingerprint = activeRevision
+      activeCandidateContext = Object.freeze({
+        ...(activeCandidateContext || {}),
+        nodeTarget: latest?.nodeTarget || null,
+        documentRevision: String(latest?.documentRevision ?? ''),
+        cursorPos: latest?.cursorPos ?? 0
+      })
+    } else {
+      activeRevision = ''
+      activeCandidateContext = null
+      activeFingerprint = ''
+    }
+    options.onCandidateAccepted?.({
+      mode,
+      inserted,
+      remaining: suggestions.value[activeSuggestionIndex.value] || ''
+    })
     lastReceipt.value = null
     recordAgentRuntimeEvent(PASSIVE_HINT_TYPES.WRITING_INLINE, 'accepted', {
       chars: inserted.length,
@@ -417,10 +624,41 @@ export function useWritingAgent(options = {}) {
     return inserted
   }
 
+  function peek(mode = 'all', { ignoreRevision = false } = {}) {
+    if (!suggestion.value) return ''
+    if (!ignoreRevision) {
+      const latest = options.getSnapshot?.()
+      if (activeRevision && createWritingRequestFingerprint(latest, latest?.cursorPos) !== activeRevision) {
+        error.value = '落笔处已变化，请重新生成'
+        return ''
+      }
+      // manifest/revision 两道守卫都是“插入前”的陈旧性检查：编辑器插入本身会
+      // 同步推进文档 revision，consume 确认阶段必须跳过，否则会拒绝自己刚写入的内容。
+      if (typeof options.getLiveContextDependencies === 'function'
+        && isContextManifestStale(activeManifest, options.getLiveContextDependencies())) {
+        error.value = '参考资料已更新，请重新生成'
+        return ''
+      }
+    }
+    return mode === 'unit'
+      ? firstSuggestionUnit(suggestion.value)
+      : suggestion.value
+  }
+
   function setEnabled(nextEnabled) {
     enabled.value = Boolean(nextEnabled)
-    setAgentRuntimeEnabled(enabled.value)
-    if (!enabled.value) cancel()
+    if (!enabled.value) cancel('disabled')
+  }
+
+  function cycleSuggestion(delta) {
+    if (suggestions.value.length < 2) return false
+    activeSuggestionIndex.value = (activeSuggestionIndex.value + delta + suggestions.value.length) % suggestions.value.length
+    options.onCandidateShown?.({
+      text: suggestion.value,
+      alternatives: [...suggestions.value],
+      ...(activeCandidateContext || {})
+    })
+    return true
   }
 
   function undoLastApply(content) {
@@ -429,13 +667,20 @@ export function useWritingAgent(options = {}) {
     return result
   }
 
-  onBeforeUnmount(cancel)
+  onBeforeUnmount(() => {
+    cancel('unmount')
+    if (cooldownVisibilityTimer) clearTimeout(cooldownVisibilityTimer)
+  })
 
   return {
     enabled,
     setEnabled,
     generating,
+    requesting,
     suggestion,
+    suggestions,
+    activeSuggestionIndex,
+    cycleSuggestion,
     visible,
     error,
     matchedEntries,
@@ -445,7 +690,9 @@ export function useWritingAgent(options = {}) {
     canUndoApply,
     onInput,
     manualTrigger,
+    generate,
     accept,
+    peek,
     consume,
     cancel,
     suppress,

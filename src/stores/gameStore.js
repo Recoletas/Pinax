@@ -60,6 +60,7 @@ import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
 import { createLegacyExperienceStateBridge } from '../services/agents/authoring/legacyExperienceStateBridge'
 import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler'
 import { createAuthoringObserverRunner } from '../services/agents/observers/authoringObserverDerivation'
+import { normalizeAuthoringObserverProvenance } from '../services/agents/observers/authoringObservationContract'
 import { createMemoryTriggers } from '../services/memoryTriggers'
 import { invalidateMemoryBySource } from '../services/memoryCandidates'
 import { buildNarrativeContinuityFrame } from '../services/agents/narrativeContinuityFrame'
@@ -922,7 +923,8 @@ const authoringMemoryTriggerEvents = []
 const authoringObserverEvents = []
 const authoringDerivedState = []
 const authoringObserverExceptions = []
-let authoringLastDocumentRevision = ''
+const authoringObserverResultListeners = new Set()
+const authoringLastDocumentRevisions = new Map()
 let authoringDocumentSequence = 0
 
 function recordAuthoringObserverEvent(delta) {
@@ -930,18 +932,32 @@ function recordAuthoringObserverEvent(delta) {
   if (authoringObserverEvents.length > 50) authoringObserverEvents.shift()
 }
 
-function recordAuthoringObserverResult(result) {
+function recordAuthoringObserverResult(settled) {
+  if (settled?.status && settled.status !== 'completed') return
+  const result = settled?.result || settled
+  const target = settled?.target || result?.target || {}
   for (const exception of result?.exceptions || []) {
     authoringObserverExceptions.push({
       id: String(exception.observationId || `exception-${Date.now().toString(36)}`),
       reason: String(exception.reason || ''),
       summary: String(exception.text || ''),
+      documentId: String(target.documentId || ''),
       documentRevision: String(result.documentRevision || ''),
       recordedAt: Date.now()
     })
   }
   if (authoringObserverExceptions.length > 50) {
     authoringObserverExceptions.splice(0, authoringObserverExceptions.length - 50)
+  }
+}
+
+function notifyAuthoringObserverResult(result) {
+  for (const listener of [...authoringObserverResultListeners]) {
+    try {
+      listener(result)
+    } catch {
+      // 一个页面监听器失败不能破坏后台派生或其他监听器。
+    }
   }
 }
 
@@ -4237,9 +4253,23 @@ export const useGameStore = defineStore('game', {
     ensureAuthoringObserverRuntime() {
       if (authoringObserverBridge) return authoringObserverBridge
       authoringObserverScheduler = createAuthoringObserverScheduler({
+        // 每次重算先让同一稳定 writing unit 的旧派生失效。只处理 unit
+        // 来源；chapter/turn 等宽来源不能因改一段正文而整批作废。
+        invalidate: async (delta) => {
+          const unitRefs = [...new Set((delta.sourceRefs || []).filter((ref) => (
+            String(ref || '').startsWith('unit:')
+          )))]
+          for (const sourceRef of unitRefs) {
+            invalidateMemoryBySource({
+              sourceRef,
+              currentRevision: delta.sourceDocumentRevision || delta.documentRevision || '',
+              reason: 'prose-unit-revised'
+            })
+          }
+        },
         // 真实派生：编辑空闲后对文档 delta 执行五个 observer derive workflow；
         // 常规结果写入 derived-state，typed exception 分离进入审阅队列。
-        run: async (delta) => {
+        run: async (delta, execution) => {
           const runner = createAuthoringObserverRunner({
             // 候选项目归属优先用 delta 携带的 memoryProjectId（Authoring 书 ID），
             // 否则回退 active worldbook，保证写入口径与召回口径一致。
@@ -4247,8 +4277,33 @@ export const useGameStore = defineStore('game', {
               projectId: String(delta?.memoryProjectId || '').trim() || authoringActiveProjectId || resolveActiveWorldbookId() || ''
             }),
             applyDerived: async (routine, meta) => {
+              const provenance = meta?.provenance || {}
               for (const observation of routine) {
-                authoringDerivedState.push({ ...observation, baseRevision: String(meta?.baseRevision || '') })
+                const observationRefs = Array.isArray(observation.sourceRefs) ? observation.sourceRefs : []
+                const sourceRefs = observationRefs.length && observationRefs[0] !== 'document-delta'
+                  ? observationRefs
+                  : (Array.isArray(provenance.sourceRefs) ? provenance.sourceRefs : [])
+                const finalProvenance = normalizeAuthoringObserverProvenance({
+                  ...provenance,
+                  sourceRefs,
+                  target: meta?.target || provenance.target
+                }, meta?.target || provenance.target)
+                authoringDerivedState.push({
+                  ...observation,
+                  schemaVersion: finalProvenance.schemaVersion,
+                  derivedAt: finalProvenance.derivedAt,
+                  documentId: finalProvenance.documentId,
+                  target: finalProvenance.target,
+                  provenance: finalProvenance,
+                  baseRevision: String(meta?.baseRevision || ''),
+                  projectId: finalProvenance.projectId,
+                  chapterId: finalProvenance.chapterId,
+                  unitId: finalProvenance.unitId,
+                  unitRevision: finalProvenance.unitRevision,
+                  documentRevision: finalProvenance.documentRevision,
+                  sourceRefs,
+                  status: observation.status === 'candidate' ? 'candidate' : 'applied'
+                })
               }
               if (authoringDerivedState.length > 200) {
                 authoringDerivedState.splice(0, authoringDerivedState.length - 200)
@@ -4257,24 +4312,26 @@ export const useGameStore = defineStore('game', {
             },
             onException: null
           })
-          const result = await runner.run(delta)
-          recordAuthoringObserverResult(result)
-          return result
+          return runner.run(delta, execution)
+        },
+        onSettled: (settled) => {
+          recordAuthoringObserverResult(settled)
+          notifyAuthoringObserverResult(settled)
         }
       })
       authoringObserverBridge = createLegacyExperienceStateBridge({
-        insertText: async ({ text }) => {
+        insertText: async ({ text, observerContext }) => {
           // 正文已由回合事务提交；此处只生成确定性 document receipt 供观察器对齐版本。
           authoringDocumentSequence += 1
           return {
-            revision: `${this.currentSessionId || 'session'}:doc-r${authoringDocumentSequence}`,
+            revision: `${observerContext?.documentId || this.currentSessionId || 'session'}:doc-r${authoringDocumentSequence}`,
             chars: String(text || '').length
           }
         },
         scheduleObservers: (delta) => {
           recordAuthoringObserverEvent(delta)
           // Agent-off gate：关闭后不做自动派生调度。
-          if (!authoringMemoryAgentEnabled) return
+          if (!authoringMemoryAgentEnabled) return { accepted: false, reason: 'agent-disabled' }
           authoringMemoryTriggerEvents.push({
             type: 'prose-commit',
             projectId: String(delta.memoryProjectId || '').trim() || authoringActiveProjectId,
@@ -4283,9 +4340,13 @@ export const useGameStore = defineStore('game', {
             revision: delta.documentRevision || '',
             emittedAt: Date.now()
           })
-          authoringObserverScheduler.scheduleObservers({
-            documentId: this.currentSessionId || 'session',
-            ...delta
+          return authoringObserverScheduler.scheduleObservers({
+            ...delta,
+            // 同章不同单元各自排队；同一单元的新 revision 则替换旧任务，
+            // 让空闲观察只派生最终文本，而不是按键过程中每版都写候选。
+            scheduleKey: delta.unitId
+              ? `${delta.documentId || this.currentSessionId || 'session'}:unit:${delta.unitId}`
+              : String(delta.documentId || this.currentSessionId || 'session')
           })
         }
       })
@@ -4302,17 +4363,26 @@ export const useGameStore = defineStore('game', {
           if (authoringMemoryTriggerEvents.length > 100) {
             authoringMemoryTriggerEvents.splice(0, authoringMemoryTriggerEvents.length - 100)
           }
-          if (!authoringObserverScheduler || !payload.text) return
+          if (!authoringObserverScheduler || !payload.text) {
+            return { accepted: false, reason: !payload.text ? 'empty-text' : 'observer-unavailable' }
+          }
           // boundary 使用独立调度键：避免与紧随其后的 prose-commit 因同 key 合并而互相取消。
           const documentId = payload.type === 'boundary'
             ? `${payload.sessionId || 'authoring'}:boundary:${payload.scopeKey || 'unknown'}`
             : (payload.sessionId || 'authoring')
-          authoringObserverScheduler.scheduleObservers({
+          return authoringObserverScheduler.scheduleObservers({
             documentId,
+            scheduleKey: documentId,
             documentRevision: payload.revision,
             text: payload.text,
+            changedText: payload.changedText,
+            changedRanges: payload.changedRanges,
             sourceRefs: payload.sourceRefs,
-            memoryProjectId: payload.projectId
+            memoryProjectId: payload.projectId,
+            chapterId: payload.chapterId,
+            unitId: payload.unitId,
+            unitRevision: payload.unitRevision,
+            sourceDocumentRevision: payload.sourceDocumentRevision
           })
         },
         invalidate: async (payload) => {
@@ -4355,7 +4425,7 @@ export const useGameStore = defineStore('game', {
     },
 
     // Authoring 页面正文事务提交：调度一次有界观察派生（真正产出记忆候选）并记录 prose-commit 事件。
-    noteAuthoringTextCommit({ text = '', sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
+    noteAuthoringTextCommit({ text = '', changedText = undefined, changedRanges = undefined, sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
       const contentText = String(text || '')
       if (!contentText.trim()) return { accepted: false, reason: 'empty-text' }
       // Agent-off gate：关闭后不做自动记忆派生（显式“记住”仍可本地建候选）。
@@ -4370,6 +4440,8 @@ export const useGameStore = defineStore('game', {
         documentId: sessionId || this.currentSessionId || 'authoring',
         documentRevision: revision,
         text: contentTextTrimmed,
+        changedText,
+        changedRanges,
         sourceRefs,
         memoryProjectId: memoryProjectIdResolved
       })
@@ -4385,7 +4457,8 @@ export const useGameStore = defineStore('game', {
     },
 
     // 章节/会话边界：对上一范围做一次去重后的有界派生，不重扫整个项目。
-    async noteAuthoringBoundary({ scopeKey = '', text = '', sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
+    async noteAuthoringBoundary({ scopeKey = '', text = '', changedText = undefined, changedRanges = undefined, sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '', chapterId = '', unitId = '', unitRevision = 0, sourceDocumentRevision = '' } = {}) {
+      this.ensureAuthoringObserverRuntime()
       const triggers = this.ensureAuthoringMemoryTriggers()
       return triggers.handle({
         type: 'boundary',
@@ -4393,8 +4466,14 @@ export const useGameStore = defineStore('game', {
         sessionId: sessionId || this.currentSessionId || '',
         scopeKey,
         text,
+        changedText,
+        changedRanges,
         sourceRefs,
-        revision
+        revision,
+        chapterId,
+        unitId,
+        unitRevision,
+        sourceDocumentRevision
       })
     },
 
@@ -4403,20 +4482,28 @@ export const useGameStore = defineStore('game', {
     },
 
     // 每次可见正文提交后调用一次：先落正文 receipt，再调度派生观察器（顺序由 bridge 保证）。
-    async commitAuthoringProseResult({ text, sourceRefs = [], memoryProjectId = '' } = {}) {
+    async commitAuthoringProseResult({ text, sourceRefs = [], memoryProjectId = '', documentId = '', chapterId = '', unitId = '', unitRevision = 0, sourceDocumentRevision = '' } = {}) {
       const contentText = String(text || '')
       if (!contentText.trim()) return null
       try {
         if (String(memoryProjectId || '').trim()) this.setAuthoringProjectId(memoryProjectId)
         const bridge = this.ensureAuthoringObserverRuntime()
+        const observerDocumentId = String(documentId || chapterId || this.currentSessionId || 'authoring')
         const receipt = await bridge.commitNarrativeResult({
           text: contentText,
-          baseRevision: authoringLastDocumentRevision,
+          baseRevision: authoringLastDocumentRevisions.get(observerDocumentId) || '',
           sourceRefs,
           // 派生候选的项目归属与召回口径保持一致。
-          memoryProjectId: String(memoryProjectId || '').trim() || authoringActiveProjectId
+          memoryProjectId: String(memoryProjectId || '').trim() || authoringActiveProjectId,
+          observerContext: {
+            documentId: observerDocumentId,
+            chapterId: String(chapterId || ''),
+            unitId: String(unitId || ''),
+            unitRevision: Number(unitRevision || 0),
+            sourceDocumentRevision: String(sourceDocumentRevision || '')
+          }
         })
-        authoringLastDocumentRevision = receipt.revision
+        authoringLastDocumentRevisions.set(observerDocumentId, receipt.revision)
         return receipt
       } catch {
         // 观察器调度失败绝不影响已提交的可见正文。
@@ -4424,11 +4511,11 @@ export const useGameStore = defineStore('game', {
       }
     },
 
-    async handleAuthoringProseUndo({ sourceRefs = [], revision = '' } = {}) {
+    async handleAuthoringProseUndo({ sourceRefs = [], revision = '', reason = 'prose-undo' } = {}) {
       await this.ensureAuthoringMemoryTriggers().invalidate({
         sourceRefs,
         revision,
-        reason: 'prose-undo'
+        reason
       })
     },
 
@@ -4444,10 +4531,16 @@ export const useGameStore = defineStore('game', {
       return authoringDerivedState.map((item) => ({ ...item }))
     },
 
+    subscribeAuthoringObserverResults(listener) {
+      if (typeof listener !== 'function') return () => {}
+      authoringObserverResultListeners.add(listener)
+      return () => authoringObserverResultListeners.delete(listener)
+    },
+
     resetAuthoringObserverRuntime() {
       // 取消全部待执行派生（含 boundary 独立键），避免切换/重置会话后旧任务继续执行。
       authoringObserverScheduler?.cancelAll()
-      authoringLastDocumentRevision = ''
+      authoringLastDocumentRevisions.clear()
       authoringObserverEvents.length = 0
       authoringDerivedState.length = 0
       authoringMemoryTriggerEvents.length = 0

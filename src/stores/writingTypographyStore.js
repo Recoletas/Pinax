@@ -32,21 +32,28 @@ export const WRITING_FONT_OPTIONS = Object.freeze([
 ])
 
 const FONT_KEYS = new Set(WRITING_FONT_OPTIONS.map((option) => option.key))
-export const DEFAULT_FONT_KEY = 'cmd'
+// 可见切片 V1：中文正文默认中文优先栈（雅黑），等宽栈只作为显式选项。
+export const DEFAULT_FONT_KEY = 'yahei'
 export const MIN_FONT_SIZE = 12
 export const MAX_FONT_SIZE = 28
+export const DEFAULT_FONT_SIZE = 17
 export const VALID_LINE_HEIGHTS = [1.5, 1.7, 1.8, 1.9, 2.0, 2.2]
 export const DEFAULT_LINE_HEIGHT = 1.8
 
 function clampFontSize(value) {
   const parsed = Math.round(Number(value))
-  if (!Number.isFinite(parsed)) return 16
+  if (!Number.isFinite(parsed)) return DEFAULT_FONT_SIZE
   return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, parsed))
 }
 
 function normalizeLineHeight(value) {
   const parsed = Number(value)
   return VALID_LINE_HEIGHTS.includes(parsed) ? parsed : DEFAULT_LINE_HEIGHT
+}
+
+function normalizeParagraphGap(value) {
+  const parsed = Number(value)
+  return [0.65, 1.05, 1.45].includes(parsed) ? parsed : 1.05
 }
 
 function readPersisted() {
@@ -65,6 +72,9 @@ export function normalizeWritingTypography(input = {}) {
     fontKey,
     fontSize: clampFontSize(source.fontSize),
     lineHeight: normalizeLineHeight(source.lineHeight),
+    // 文本工作台 v3 Phase 2：“小说标准”预设的唯一排版变量。
+    firstLineIndent: source.firstLineIndent === false ? false : true,
+    paragraphGap: normalizeParagraphGap(source.paragraphGap),
     typewriter: Boolean(source.typewriter),
     focusParagraph: Boolean(source.focusParagraph),
     zen: Boolean(source.zen)
@@ -79,8 +89,10 @@ export function getFontStackByKey(key) {
 export const useWritingTypographyStore = defineStore('writingTypography', {
   state: () => ({
     fontKey: DEFAULT_FONT_KEY,
-    fontSize: 16,
+    fontSize: DEFAULT_FONT_SIZE,
     lineHeight: DEFAULT_LINE_HEIGHT,
+    firstLineIndent: true,
+    paragraphGap: 1.05,
     // 沉浸三件套（P0c）：打字机滚动 / 段落聚焦 / 专注全屏
     typewriter: false,
     focusParagraph: false,
@@ -98,6 +110,8 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
       this.fontKey = persisted.fontKey
       this.fontSize = persisted.fontSize
       this.lineHeight = persisted.lineHeight
+      this.firstLineIndent = persisted.firstLineIndent
+      this.paragraphGap = persisted.paragraphGap
       this.typewriter = persisted.typewriter
       this.focusParagraph = persisted.focusParagraph
       this.zen = persisted.zen
@@ -126,6 +140,16 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
       this.lineHeight = normalizeLineHeight(value)
       this.persist()
     },
+    toggleFirstLineIndent() {
+      this.init()
+      this.firstLineIndent = !this.firstLineIndent
+      this.persist()
+    },
+    setParagraphGap(value) {
+      this.init()
+      this.paragraphGap = normalizeParagraphGap(value)
+      this.persist()
+    },
     toggleTypewriter() {
       this.init()
       this.typewriter = !this.typewriter
@@ -147,6 +171,8 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
           fontKey: this.fontKey,
           fontSize: this.fontSize,
           lineHeight: this.lineHeight,
+          firstLineIndent: this.firstLineIndent,
+          paragraphGap: this.paragraphGap,
           typewriter: this.typewriter,
           focusParagraph: this.focusParagraph,
           zen: this.zen

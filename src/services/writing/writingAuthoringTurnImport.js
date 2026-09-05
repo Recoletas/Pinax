@@ -2,7 +2,7 @@
 // 纯函数：不碰 DOM、不碰 store。编辑器与事务层共用这里的单元构建和
 // Markdown 投影，保证回执文本与编辑器实际写入逐字节一致。
 import { normalizeWritingOriginRefs, validateWritingDocument } from './writingDocumentSchema.js'
-import { CONTROL_PROTOCOL_TOKEN_PATTERN } from '../agents/authoring/authoringTurnContract.js'
+import { normalizeNarrativeTransportProse } from '../narrativePresentation.js'
 
 export function buildAuthoringTurnOriginRef({
   requestId = '',
@@ -31,19 +31,11 @@ export function getAuthoringTurnOriginFingerprint(originRef) {
   ].join('\u0000')
 }
 
-function stripControlProtocolTokens(text) {
-  return String(text || '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(new RegExp(CONTROL_PROTOCOL_TOKEN_PATTERN.source, 'gi'), '').trim())
-    .filter(Boolean)
-    .join('\n\n')
-}
-
 // 单元的 Markdown 投影：'\n' + 段落以空行连接 + 结尾换行。
 // 与 writingDocumentSchema 的渲染规则一致（首节点 leadingMarkdown='\n'，
 // 每个段落节点渲染为 `${text}\n`）。
 export function buildAuthoringTurnUnitMarkdown(text) {
-  const paragraphs = stripControlProtocolTokens(text).split('\n\n').filter(Boolean)
+  const paragraphs = normalizeNarrativeTransportProse(text).split('\n\n').filter(Boolean)
   if (!paragraphs.length) return ''
   return `\n${paragraphs.join('\n\n')}\n`
 }
@@ -60,7 +52,7 @@ function createNodeId(seed) {
 export function createWritingUnitFromAuthoringTurn({ text = '', originRef = null } = {}) {
   const [ref] = normalizeWritingOriginRefs([originRef])
   if (!ref) return { ok: false, reason: 'invalid-origin-ref', unit: null }
-  const paragraphs = stripControlProtocolTokens(text)
+  const paragraphs = normalizeNarrativeTransportProse(text)
     .split('\n\n')
     .map((part) => part.trim())
     .filter(Boolean)
@@ -131,8 +123,14 @@ export function insertAuthoringTurnAfterUnit({
   if (fingerprints.has(created.fingerprint)) {
     return { ok: false, reason: 'already-imported', document }
   }
-  const nextContent = content.slice()
-  nextContent.splice(targetIndex + 1, 0, created.unit)
+  const placeholderText = (content[0]?.content || [])
+    .flatMap((node) => node.content || [])
+    .map((part) => part.text || '')
+    .join('')
+  const replacedPlaceholder = content.length === 1 && targetIndex === 0 && !placeholderText.trim()
+  const nextContent = replacedPlaceholder
+    ? [created.unit]
+    : [...content.slice(0, targetIndex + 1), created.unit, ...content.slice(targetIndex + 1)]
   const now = new Date().toISOString()
   const nextDocument = {
     ...document,
@@ -144,7 +142,7 @@ export function insertAuthoringTurnAfterUnit({
   if (!validateWritingDocument(nextDocument).valid) {
     return { ok: false, reason: 'invalid-document', document }
   }
-  return { ok: true, document: nextDocument, unitId: created.unit.attrs.unitId, fingerprint: created.fingerprint }
+  return { ok: true, document: nextDocument, unitId: created.unit.attrs.unitId, fingerprint: created.fingerprint, replacedPlaceholder }
 }
 
 // 旧调用点兼容：追加到文档末尾 = 以最后一个单元为目标委托给目标感知插入。

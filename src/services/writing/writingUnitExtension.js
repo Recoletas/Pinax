@@ -1,10 +1,13 @@
 import { Extension, Node, mergeAttributes } from '@tiptap/core'
+import { closeHistory } from '@tiptap/pm/history'
+import { TextSelection } from '@tiptap/pm/state'
 
 const makeId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
-function unitPositionAt(state, index) {
+function unitPositionAt(source, index) {
+  const doc = source?.doc || source
   let found = null
-  state.doc.forEach((node, pos, childIndex) => {
+  doc?.forEach?.((node, pos, childIndex) => {
     if (childIndex === index) found = { node, pos }
   })
   return found
@@ -33,6 +36,52 @@ function nodeWithId(node, nodeId) {
   return node.type.create({ ...node.attrs, nodeId, nodeRevision: Number(node.attrs?.nodeRevision || 0) }, node.content, node.marks)
 }
 
+function splitBlockquoteAtSelection(node, resolved, quoteDepth, idFactory) {
+  if (resolved.depth <= quoteDepth || resolved.node(quoteDepth) !== node) return null
+  const paragraphIndex = resolved.index(quoteDepth)
+  const paragraph = resolved.node(quoteDepth + 1)
+  if (!paragraph?.isTextblock) return null
+  const paragraphOffset = Math.max(0, Math.min(paragraph.content.size, resolved.parentOffset))
+  const leftChildren = node.content.content.slice(0, paragraphIndex)
+  const rightChildren = node.content.content.slice(paragraphIndex + 1)
+
+  if (paragraphOffset > 0) {
+    leftChildren.push(paragraph.type.create(
+      paragraph.attrs,
+      paragraph.content.cut(0, paragraphOffset),
+      paragraph.marks
+    ))
+  }
+  if (paragraphOffset < paragraph.content.size) {
+    const rightParagraph = paragraph.type.create(
+      paragraph.attrs,
+      paragraph.content.cut(paragraphOffset),
+      paragraph.marks
+    )
+    rightChildren.unshift(paragraphOffset > 0
+      ? nodeWithId(rightParagraph, idFactory('node'))
+      : rightParagraph)
+  }
+  if (!leftChildren.length || !rightChildren.length) return null
+
+  const previousTextLength = node.content.content
+    .slice(0, paragraphIndex)
+    .reduce((length, child) => length + child.textContent.length, 0)
+  const separatorLength = paragraphIndex * 2
+  // 在上一段末尾拆分，与在下一段开头拆分应落到同一个 canonical
+  // 边界。blockquote 的直接段落之间以两个换行保存，因此当右侧直接
+  // 从下一段开始时，还要跨过这段分隔符；否则批注会被迁到右块内偏后
+  // 两个字符的位置。
+  const trailingParagraphSeparator = paragraphOffset === paragraph.content.size && rightChildren.length
+    ? 2
+    : 0
+  return {
+    left: node.type.create(node.attrs, leftChildren, node.marks),
+    right: nodeWithId(node.type.create(node.attrs, rightChildren, node.marks), idFactory('node')),
+    offset: previousTextLength + separatorLength + paragraphOffset + trailingParagraphSeparator
+  }
+}
+
 function createTransition(type, keptUnitId, createdUnitId = null, removedUnitId = null, units = []) {
   const nodeUnitMap = {}
   units.forEach((unit) => {
@@ -40,10 +89,28 @@ function createTransition(type, keptUnitId, createdUnitId = null, removedUnitId 
       if (node.attrs?.nodeId) nodeUnitMap[node.attrs.nodeId] = unit.attrs?.unitId || keptUnitId
     })
   })
-  return { type, keptUnitId, createdUnitId, removedUnitId, nodeUnitMap }
+  return { transitionId: makeId('transition'), type, keptUnitId, createdUnitId, removedUnitId, nodeUnitMap }
+}
+
+function documentUnitPosition(doc, unitId) {
+  let found = null
+  doc.forEach((node, pos) => {
+    if (found == null && String(node.attrs?.unitId || '') === String(unitId || '')) found = pos
+  })
+  return found
+}
+
+function dispatchStructuralTransaction(dispatch, transaction, selectionPosition = null, bias = 1) {
+  transaction.setMeta('writingInputOrigin', 'structure')
+  if (Number.isFinite(selectionPosition)) {
+    const safePosition = Math.max(0, Math.min(transaction.doc.content.size, selectionPosition))
+    transaction.setSelection(TextSelection.near(transaction.doc.resolve(safePosition), bias))
+  }
+  dispatch(closeHistory(transaction).scrollIntoView())
 }
 
 function splitUnitTransaction(state, dispatch, idFactory = makeId) {
+  if (!state.selection.empty) return false
   const current = currentUnit(state)
   if (!current || current.unitIndex < 0) return false
   const { node: unit, unitPos } = current
@@ -81,6 +148,29 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
         }
         return
       }
+      if (innerOffset > 0 && innerOffset < child.content.size && child.type.name === 'blockquote') {
+        const quoteSplit = splitBlockquoteAtSelection(child, current.resolved, current.depth + 1, idFactory)
+        if (quoteSplit) {
+          const { left, right } = quoteSplit
+          splitIndex = index
+          splitNode = {
+            oldNodeId: child.attrs?.nodeId || null,
+            newNodeId: right.attrs?.nodeId || null,
+            offset: quoteSplit.offset
+          }
+          splitChildren = {
+            left: unit.content.content.slice(0, index).concat(left),
+            right: [right].concat(unit.content.content.slice(index + 1))
+          }
+          return
+        }
+        const quoteDepth = current.depth + 1
+        const atQuoteStart = current.resolved.node(quoteDepth) === child
+          && current.resolved.index(quoteDepth) === 0
+          && current.resolved.parentOffset === 0
+        splitIndex = atQuoteStart ? index : index + 1
+        return
+      }
       splitIndex = innerOffset === 0 ? index : index + 1
     }
     childOffset += child.nodeSize
@@ -105,12 +195,14 @@ function splitUnitTransaction(state, dispatch, idFactory = makeId) {
       ...createTransition('split', leftUnit.attrs.unitId, rightUnit.attrs.unitId, null, [leftUnit, rightUnit]),
       ...(splitNode ? { splitNode } : {})
     })
-    dispatch(transaction.scrollIntoView())
+    const rightUnitPos = documentUnitPosition(transaction.doc, rightUnit.attrs.unitId)
+    dispatchStructuralTransaction(dispatch, transaction, rightUnitPos == null ? null : rightUnitPos + 1, 1)
   }
   return true
 }
 
 function mergeUnitTransaction(state, dispatch, direction = 'previous') {
+  if (!state.selection.empty) return false
   const current = currentUnit(state)
   if (!current || current.unitIndex < 0) return false
   const neighborIndex = direction === 'next' ? current.unitIndex + 1 : current.unitIndex - 1
@@ -133,17 +225,22 @@ function mergeUnitTransaction(state, dispatch, direction = 'previous') {
       right.attrs.unitId,
       [merged]
     ))
-    dispatch(transaction.scrollIntoView())
+    const cursorInCurrentUnit = state.selection.from - current.unitPos
+    const selectionPosition = direction === 'next'
+      ? from + cursorInCurrentUnit
+      : from + 1 + left.content.size + Math.max(0, cursorInCurrentUnit - 1)
+    dispatchStructuralTransaction(dispatch, transaction, selectionPosition, -1)
   }
   return true
 }
 
 function moveUnitTransaction(state, dispatch, direction) {
+  if (!state.selection.empty) return false
   const current = currentUnit(state)
   if (!current || current.unitIndex < 0) return false
   const targetIndex = direction === 'up' ? current.unitIndex - 1 : current.unitIndex + 1
   if (targetIndex < 0 || targetIndex >= state.doc.childCount) return false
-  const units = state.doc.children.slice()
+  const units = state.doc.content.content.slice()
   const [moving] = units.splice(current.unitIndex, 1)
   units.splice(targetIndex, 0, moving)
   if (dispatch) {
@@ -151,7 +248,14 @@ function moveUnitTransaction(state, dispatch, direction) {
     transaction.setMeta('writingUnitTransition', createTransition(
       'move', moving.attrs.unitId, null, null, units
     ))
-    dispatch(transaction.scrollIntoView())
+    const movedPos = documentUnitPosition(transaction.doc, moving.attrs.unitId)
+    const unitRelativeCursor = state.selection.from - current.unitPos
+    dispatchStructuralTransaction(
+      dispatch,
+      transaction,
+      movedPos == null ? null : movedPos + Math.max(1, Math.min(moving.nodeSize - 1, unitRelativeCursor)),
+      1
+    )
   }
   return true
 }
@@ -160,6 +264,7 @@ function moveUnitTransaction(state, dispatch, direction) {
 // 场景锚点据此把该单元的锚点标记为 stale（保留可诊断，不静默丢弃）。
 // 文档至少要剩一个单元（doc 内容模型是 writingUnit+），最后一个单元不可删。
 function deleteUnitTransaction(state, dispatch) {
+  if (!state.selection.empty) return false
   const current = currentUnit(state)
   if (!current || current.unitIndex < 0) return false
   if (state.doc.childCount <= 1) return false
@@ -174,7 +279,9 @@ function deleteUnitTransaction(state, dispatch) {
       createdUnitId: null,
       removedUnitId: removed.attrs?.unitId || null
     })
-    dispatch(transaction)
+    const focusIndex = Math.min(current.unitIndex, transaction.doc.childCount - 1)
+    const focusUnit = unitPositionAt(transaction.doc, focusIndex)
+    dispatchStructuralTransaction(dispatch, transaction, focusUnit ? focusUnit.pos + 1 : null, 1)
   }
   return true
 }
@@ -190,6 +297,9 @@ export const WritingUnitNode = Node.create({
   group: 'writingUnit',
   content: 'block+',
   defining: true,
+  // 顶层写作单元是跨系统身份边界；StarterKit 的 joinBackward/
+  // joinForward 不能绕过 typed merge transaction 静默吞掉 unit attrs。
+  isolating: true,
   addAttributes() {
     return {
       unitId: { default: null, parseHTML: (element) => element.dataset.unitId, renderHTML: (attrs) => ({ 'data-unit-id': attrs.unitId }) },
@@ -210,6 +320,39 @@ export const WritingUnitNode = Node.create({
       moveWritingUnit: (direction) => ({ state, dispatch }) => moveUnitTransaction(state, dispatch, direction),
       deleteWritingUnit: () => ({ state, dispatch }) => deleteUnitTransaction(state, dispatch)
     }
+  }
+})
+
+export const MediaReferenceNode = Node.create({
+  name: 'mediaReference',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  isolating: true,
+  addAttributes() {
+    return {
+      nodeId: { default: null },
+      nodeRevision: { default: 0 },
+      nodeKind: { default: 'media-reference' },
+      rawMarkdown: { default: null },
+      leadingMarkdown: { default: '' },
+      originalText: { default: null },
+      mediaAssetId: { default: '' },
+      alt: { default: '正文插画' },
+      sourceRefs: { default: [], rendered: false }
+    }
+  },
+  parseHTML: () => [{ tag: 'figure[data-media-reference]' }],
+  renderHTML({ HTMLAttributes }) {
+    const alt = String(HTMLAttributes.alt || '正文插画')
+    return ['figure', mergeAttributes(HTMLAttributes, {
+      'data-media-reference': '',
+      'data-media-asset-id': HTMLAttributes.mediaAssetId || '',
+      contenteditable: 'false'
+    }),
+    ['span', { class: 'writing-media-reference__mark', 'aria-hidden': 'true' }, '插图'],
+    ['figcaption', { class: 'writing-media-reference__caption' }, alt]]
   }
 })
 

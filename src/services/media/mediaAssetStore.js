@@ -13,6 +13,7 @@ const MEDIA_PURPOSES = new Set([
   'storyboard-take'
 ])
 const MEDIA_STATUSES = new Set(['draft', 'accepted', 'rejected', 'superseded'])
+const libraryOperationQueues = new WeakMap()
 
 export function createMediaAsset(input = {}) {
   const now = Date.now()
@@ -72,19 +73,39 @@ export function listMediaAssets(filters = {}, options = {}) {
 export async function saveMediaAsset(input = {}, options = {}) {
   const storage = resolveStorage(options.storage)
   const binaryStore = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
+  throwIfAborted(options.signal)
   const blob = await normalizeBinary(options.binary)
+  throwIfAborted(options.signal)
   const asset = createMediaAsset({
     ...input,
     mimeType: input.mimeType || blob.type
   })
   const current = readMetadata(storage)
-  const next = [asset, ...current.filter((item) => item.id !== asset.id)]
+  const previousAsset = current.find((item) => item.id === asset.id) || null
+  const previousBlob = previousAsset ? await binaryStore.get(asset.id) : null
+  let binaryStored = false
+  let metadataStored = false
 
-  await binaryStore.put(asset.id, blob)
   try {
-    writeMetadata(storage, next)
+    throwIfAborted(options.signal)
+    await binaryStore.put(asset.id, blob)
+    binaryStored = true
+    throwIfAborted(options.signal)
+    const latest = readMetadata(storage)
+    writeMetadata(storage, [asset, ...latest.filter((item) => item.id !== asset.id)])
+    metadataStored = true
+    throwIfAborted(options.signal)
   } catch (error) {
-    await binaryStore.delete(asset.id).catch(() => {})
+    if (metadataStored) {
+      try {
+        const latest = readMetadata(storage).filter((item) => item.id !== asset.id)
+        writeMetadata(storage, previousAsset ? [previousAsset, ...latest] : latest)
+      } catch { /* best-effort rollback */ }
+    }
+    if (binaryStored) {
+      if (previousBlob) await binaryStore.put(asset.id, previousBlob).catch(() => {})
+      else await binaryStore.delete(asset.id).catch(() => {})
+    }
     throw error
   }
   return asset
@@ -130,14 +151,34 @@ export async function deleteMediaAsset(assetId, options = {}) {
   const asset = current.find((item) => item.id === assetId) || null
   if (!asset) return null
   const binaryStore = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
-  await binaryStore.delete(asset.id)
-  writeMetadata(storage, current.filter((item) => item.id !== asset.id))
-  return asset
+  const previousBlob = await binaryStore.get(asset.id)
+  let binaryDeleted = false
+  try {
+    await binaryStore.delete(asset.id)
+    binaryDeleted = true
+    const latest = readMetadata(storage)
+    writeMetadata(storage, latest.filter((item) => item.id !== asset.id))
+    return asset
+  } catch (error) {
+    if (binaryDeleted && previousBlob) await binaryStore.put(asset.id, previousBlob).catch(() => {})
+    throw error
+  }
 }
 
-export async function addGeneratedImageToLibrary(libraryKey, entry = {}, options = {}) {
+export function addGeneratedImageToLibrary(libraryKey, entry = {}, options = {}) {
+  const storage = resolveStorage(options.storage)
+  return enqueueLibraryOperation(storage, libraryKey, () => addGeneratedImageToLibraryUnlocked(
+    libraryKey,
+    entry,
+    { ...options, storage }
+  ))
+}
+
+async function addGeneratedImageToLibraryUnlocked(libraryKey, entry = {}, options = {}) {
   if (!entry.data) throw new Error('生成图片缺少可归档内容')
   const storage = resolveStorage(options.storage)
+  throwIfAborted(options.signal)
+  const generationParams = normalizeSerializableObject(entry.generationParams)
   const asset = await saveMediaAsset({
     id: entry.mediaAssetId,
     projectId: options.projectId,
@@ -150,41 +191,126 @@ export async function addGeneratedImageToLibrary(libraryKey, entry = {}, options
     model: entry.modelId || entry.modelName,
     promptSnapshot: entry.prompt,
     generationParams: {
-      negativePrompt: entry.negativePrompt || '',
-      modelName: entry.modelName || '',
-      modelId: entry.modelId || '',
-      width: entry.width || null,
-      height: entry.height || null,
-      referenceImageIds: normalizeStringList(entry.referenceImageIds),
-      referenceCount: normalizePositiveNumber(entry.referenceCount),
-      referenceStrength: normalizePositiveNumber(entry.referenceStrength),
-      presentation: normalizeImagePresentation(entry.presentation)
+      ...generationParams,
+      negativePrompt: String(entry.negativePrompt ?? generationParams.negativePrompt ?? ''),
+      modelName: String(entry.modelName ?? generationParams.modelName ?? ''),
+      modelId: String(entry.modelId ?? generationParams.modelId ?? ''),
+      providerPrompt: String(entry.providerPrompt ?? generationParams.providerPrompt ?? entry.prompt ?? ''),
+      promptSupplement: String(entry.promptSupplement ?? generationParams.promptSupplement ?? ''),
+      mode: String(entry.mode ?? generationParams.mode ?? ''),
+      width: entry.width ?? generationParams.width ?? null,
+      height: entry.height ?? generationParams.height ?? null,
+      referenceImageIds: normalizeStringList(entry.referenceImageIds ?? generationParams.referenceImageIds),
+      referenceCount: normalizePositiveNumber(entry.referenceCount ?? generationParams.referenceCount),
+      referenceStrength: normalizePositiveNumber(entry.referenceStrength ?? generationParams.referenceStrength),
+      presentation: normalizeImagePresentation(entry.presentation ?? generationParams.presentation),
+      generationContext: normalizeSerializableRecord(entry.generationContext ?? generationParams.generationContext),
+      authoringVisualBrief: normalizeSerializableRecord(entry.authoringVisualBrief ?? generationParams.authoringVisualBrief),
+      sessionId: String(entry.generationSessionId ?? generationParams.sessionId ?? generationParams.generationSessionId ?? ''),
+      fingerprint: String(entry.contextFingerprint ?? generationParams.fingerprint ?? generationParams.contextFingerprint ?? ''),
+      sourceRevisions: normalizeSerializableObject(entry.sourceRevisions ?? generationParams.sourceRevisions),
+      contextKey: String(entry.contextKey ?? generationParams.contextKey ?? '')
     },
     mimeType: entry.mimeType,
-    width: entry.width,
-    height: entry.height,
+    width: entry.width ?? generationParams.width,
+    height: entry.height ?? generationParams.height,
     status: entry.status || 'draft',
     createdAt: entry.createdAt
   }, {
     binary: entry.data,
     storage,
     binaryStore: options.binaryStore,
-    indexedDBImpl: options.indexedDBImpl
+    indexedDBImpl: options.indexedDBImpl,
+    signal: options.signal
   })
   const libraryEntry = {
     id: normalizeText(entry.id) || `img_${asset.id}`,
     mediaAssetId: asset.id,
     createdAt: normalizeCreatedAt(entry.createdAt, asset.createdAt)
   }
-  const current = readImageLibrary(storage, libraryKey)
-  writeImageLibrary(storage, libraryKey, [
-    libraryEntry,
-    ...current.filter((item) => item.id !== libraryEntry.id && item.mediaAssetId !== asset.id)
-  ].slice(0, options.limit || 20))
-  return hydrateGeneratedImageEntry(libraryEntry, asset, entry.data)
+  try {
+    throwIfAborted(options.signal)
+    const latest = readImageLibrary(storage, libraryKey)
+    writeImageLibrary(storage, libraryKey, [
+      libraryEntry,
+      ...latest.filter((item) => item.id !== libraryEntry.id && item.mediaAssetId !== asset.id)
+    ].slice(0, options.limit || 20))
+    throwIfAborted(options.signal)
+    return hydrateGeneratedImageEntry(libraryEntry, asset, entry.data)
+  } catch (error) {
+    try {
+      const latest = readImageLibrary(storage, libraryKey)
+      writeImageLibrary(storage, libraryKey, latest.filter((item) => (
+        item.id !== libraryEntry.id && item.mediaAssetId !== asset.id
+      )))
+    } catch { /* best-effort rollback */ }
+    await deleteMediaAsset(asset.id, {
+      storage,
+      binaryStore: options.binaryStore,
+      indexedDBImpl: options.indexedDBImpl
+    }).catch(() => {})
+    throw error
+  }
 }
 
-export async function loadGeneratedImageLibrary(libraryKey, options = {}) {
+export function removeGeneratedImageFromLibrary(libraryKey, entryOrId, options = {}) {
+  const storage = resolveStorage(options.storage)
+  return enqueueLibraryOperation(storage, libraryKey, () => removeGeneratedImageFromLibraryUnlocked(
+    libraryKey,
+    entryOrId,
+    { ...options, storage }
+  ))
+}
+
+async function removeGeneratedImageFromLibraryUnlocked(libraryKey, entryOrId, options = {}) {
+  const storage = resolveStorage(options.storage)
+  const current = readImageLibrary(storage, libraryKey)
+  const requestedId = normalizeText(typeof entryOrId === 'object' ? entryOrId?.id : entryOrId)
+  const requestedMediaId = normalizeText(typeof entryOrId === 'object' ? entryOrId?.mediaAssetId : '')
+  const matched = current.find((entry) => (
+    (requestedId && normalizeText(entry.id) === requestedId)
+    || (requestedMediaId && normalizeText(entry.mediaAssetId) === requestedMediaId)
+  )) || null
+  if (!matched) {
+    if (requestedMediaId) {
+      await deleteMediaAsset(requestedMediaId, {
+        storage,
+        binaryStore: options.binaryStore,
+        indexedDBImpl: options.indexedDBImpl
+      })
+    }
+    return null
+  }
+
+  writeImageLibrary(storage, libraryKey, current.filter((entry) => entry !== matched))
+  const mediaAssetId = normalizeText(matched.mediaAssetId || requestedMediaId)
+  try {
+    if (mediaAssetId) {
+      await deleteMediaAsset(mediaAssetId, {
+        storage,
+        binaryStore: options.binaryStore,
+        indexedDBImpl: options.indexedDBImpl
+      })
+    }
+  } catch (error) {
+    const latest = readImageLibrary(storage, libraryKey)
+    if (!latest.some((entry) => imageLibraryEntryKey(entry) === imageLibraryEntryKey(matched))) {
+      writeImageLibrary(storage, libraryKey, [matched, ...latest])
+    }
+    throw error
+  }
+  return matched
+}
+
+export function loadGeneratedImageLibrary(libraryKey, options = {}) {
+  const storage = resolveStorage(options.storage)
+  return enqueueLibraryOperation(storage, libraryKey, () => loadGeneratedImageLibraryUnlocked(
+    libraryKey,
+    { ...options, storage }
+  ))
+}
+
+async function loadGeneratedImageLibraryUnlocked(libraryKey, options = {}) {
   const storage = resolveStorage(options.storage)
   const binaryStore = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
   const current = readImageLibrary(storage, libraryKey).slice(0, options.limit || 20)
@@ -202,29 +328,42 @@ export async function loadGeneratedImageLibrary(libraryKey, options = {}) {
         continue
       }
       if (!entry.data) continue
+      const legacyGenerationParams = normalizeSerializableObject(entry.generationParams)
 
       const asset = await saveMediaAsset({
         id: `media_${normalizeText(entry.id) || createMediaAssetId()}`,
-        projectId: options.projectId,
+        projectId: entry.projectId ?? options.projectId,
         kind: 'image',
-        purpose: options.purpose || 'illustration',
-        sourceRefs: options.sourceRefs,
+        purpose: entry.mediaPurpose || entry.purpose || options.purpose || 'illustration',
+        sourceRefs: entry.sourceRefs ?? options.sourceRefs,
+        parentAssetId: entry.parentAssetId,
+        generationJobId: entry.generationJobId,
         provider: entry.modelType,
         model: entry.modelId || entry.modelName,
         promptSnapshot: entry.prompt,
         generationParams: {
-          negativePrompt: entry.negativePrompt || '',
-          modelName: entry.modelName || '',
-          modelId: entry.modelId || '',
-          width: entry.width || null,
-          height: entry.height || null,
-          referenceImageIds: normalizeStringList(entry.referenceImageIds),
-          referenceCount: normalizePositiveNumber(entry.referenceCount),
-          referenceStrength: normalizePositiveNumber(entry.referenceStrength),
-          presentation: normalizeImagePresentation(entry.presentation)
+          ...legacyGenerationParams,
+          negativePrompt: String(entry.negativePrompt ?? legacyGenerationParams.negativePrompt ?? ''),
+          modelName: String(entry.modelName ?? legacyGenerationParams.modelName ?? ''),
+          modelId: String(entry.modelId ?? legacyGenerationParams.modelId ?? ''),
+          providerPrompt: String(entry.providerPrompt ?? legacyGenerationParams.providerPrompt ?? entry.prompt ?? ''),
+          promptSupplement: String(entry.promptSupplement ?? legacyGenerationParams.promptSupplement ?? ''),
+          mode: String(entry.mode ?? legacyGenerationParams.mode ?? ''),
+          width: entry.width ?? legacyGenerationParams.width ?? null,
+          height: entry.height ?? legacyGenerationParams.height ?? null,
+          referenceImageIds: normalizeStringList(entry.referenceImageIds ?? legacyGenerationParams.referenceImageIds),
+          referenceCount: normalizePositiveNumber(entry.referenceCount ?? legacyGenerationParams.referenceCount),
+          referenceStrength: normalizePositiveNumber(entry.referenceStrength ?? legacyGenerationParams.referenceStrength),
+          presentation: normalizeImagePresentation(entry.presentation ?? legacyGenerationParams.presentation),
+          generationContext: normalizeSerializableRecord(entry.generationContext ?? legacyGenerationParams.generationContext),
+          authoringVisualBrief: normalizeSerializableRecord(entry.authoringVisualBrief ?? legacyGenerationParams.authoringVisualBrief),
+          sessionId: String(entry.generationSessionId ?? legacyGenerationParams.sessionId ?? legacyGenerationParams.generationSessionId ?? ''),
+          fingerprint: String(entry.contextFingerprint ?? legacyGenerationParams.fingerprint ?? legacyGenerationParams.contextFingerprint ?? ''),
+          sourceRevisions: normalizeSerializableObject(entry.sourceRevisions ?? legacyGenerationParams.sourceRevisions),
+          contextKey: String(entry.contextKey ?? legacyGenerationParams.contextKey ?? '')
         },
-        width: entry.width,
-        height: entry.height,
+        width: entry.width ?? legacyGenerationParams.width,
+        height: entry.height ?? legacyGenerationParams.height,
         createdAt: entry.createdAt
       }, { binary: entry.data, storage, binaryStore })
       const ref = {
@@ -240,7 +379,8 @@ export async function loadGeneratedImageLibrary(libraryKey, options = {}) {
     }
   }
 
-  writeImageLibrary(storage, libraryKey, refs)
+  const latest = readImageLibrary(storage, libraryKey)
+  writeImageLibrary(storage, libraryKey, mergeLoadedLibraryRefs(latest, current, refs, options.limit || 20))
   return hydrated
 }
 
@@ -294,6 +434,41 @@ function readImageLibrary(storage, libraryKey) {
 function writeImageLibrary(storage, libraryKey, entries) {
   if (!libraryKey) throw new Error('图片历史缺少存储键')
   storage.setItem(libraryKey, JSON.stringify(entries))
+}
+
+function enqueueLibraryOperation(storage, libraryKey, task) {
+  let queues = libraryOperationQueues.get(storage)
+  if (!queues) {
+    queues = new Map()
+    libraryOperationQueues.set(storage, queues)
+  }
+  const key = String(libraryKey || '')
+  const previous = queues.get(key) || Promise.resolve()
+  const running = previous.catch(() => {}).then(task)
+  queues.set(key, running)
+  return running.finally(() => {
+    if (queues.get(key) === running) queues.delete(key)
+  })
+}
+
+function mergeLoadedLibraryRefs(latest, snapshot, replacements, limit) {
+  const snapshotIds = new Set(snapshot.map((entry) => normalizeText(entry?.id)).filter(Boolean))
+  const replacementById = new Map(
+    replacements.map((entry) => [normalizeText(entry?.id), entry]).filter(([id]) => id)
+  )
+  const seen = new Set()
+  return latest
+    .map((entry) => {
+      const id = normalizeText(entry?.id)
+      return snapshotIds.has(id) && replacementById.has(id) ? replacementById.get(id) : entry
+    })
+    .filter((entry) => {
+      const key = `${normalizeText(entry?.id)}|${imageLibraryEntryKey(entry)}`
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, limit)
 }
 
 function resolveStorage(storage) {
@@ -374,19 +549,34 @@ function blobToDataUrl(blob) {
 }
 
 function hydrateGeneratedImageEntry(libraryEntry, asset, data) {
+  const generationParams = normalizeSerializableObject(asset.generationParams)
   return {
     id: libraryEntry.id,
     mediaAssetId: asset.id,
     storageRef: asset.storageRef,
+    projectId: asset.projectId,
+    sourceRefs: normalizeSourceRefs(asset.sourceRefs, { projectId: asset.projectId }),
+    parentAssetId: asset.parentAssetId,
+    generationJobId: asset.generationJobId,
     prompt: asset.promptSnapshot,
-    negativePrompt: asset.generationParams?.negativePrompt || '',
-    modelName: asset.generationParams?.modelName || asset.model,
-    modelId: asset.generationParams?.modelId || asset.model,
+    negativePrompt: generationParams.negativePrompt || '',
+    providerPrompt: generationParams.providerPrompt || asset.promptSnapshot,
+    promptSupplement: generationParams.promptSupplement || '',
+    mode: generationParams.mode || '',
+    modelName: generationParams.modelName || asset.model,
+    modelId: generationParams.modelId || asset.model,
     modelType: asset.provider,
-    referenceImageIds: normalizeStringList(asset.generationParams?.referenceImageIds),
-    referenceCount: normalizePositiveNumber(asset.generationParams?.referenceCount),
-    referenceStrength: normalizePositiveNumber(asset.generationParams?.referenceStrength),
-    presentation: normalizeImagePresentation(asset.generationParams?.presentation),
+    referenceImageIds: normalizeStringList(generationParams.referenceImageIds),
+    referenceCount: normalizePositiveNumber(generationParams.referenceCount),
+    referenceStrength: normalizePositiveNumber(generationParams.referenceStrength),
+    presentation: normalizeImagePresentation(generationParams.presentation),
+    generationParams,
+    generationContext: normalizeSerializableRecord(generationParams.generationContext),
+    authoringVisualBrief: normalizeSerializableRecord(generationParams.authoringVisualBrief),
+    generationSessionId: String(generationParams.sessionId || generationParams.generationSessionId || ''),
+    contextFingerprint: String(generationParams.fingerprint || generationParams.contextFingerprint || ''),
+    sourceRevisions: normalizeSerializableObject(generationParams.sourceRevisions),
+    contextKey: String(generationParams.contextKey || ''),
     mediaPurpose: asset.purpose,
     width: asset.width,
     height: asset.height,
@@ -469,4 +659,22 @@ function normalizeSerializableObject(value) {
   } catch {
     return {}
   }
+}
+
+function normalizeSerializableRecord(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return null
+  }
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return
+  if (signal.reason instanceof Error) throw signal.reason
+  if (typeof DOMException === 'function') throw new DOMException('操作已取消', 'AbortError')
+  const error = new Error('操作已取消')
+  error.name = 'AbortError'
+  throw error
 }

@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
@@ -13,10 +14,12 @@ import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.v
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import ComicPagePreview from '../components/media/ComicPagePreview.vue'
 import ComicStageWorkbench from '../components/media/ComicStageWorkbench.vue'
+import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import NarrativeTurn from '../components/experience/NarrativeTurn.vue'
+import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import {
   buildSystemPrompt,
   buildPromptSequence,
@@ -48,6 +51,7 @@ import {
   saveImageProviderConfig
 } from '../services/media/imageProviderConfigStore'
 import {
+  addGeneratedImageToLibrary,
   deleteMediaAsset,
   getMediaAsset,
   loadGeneratedImageLibrary,
@@ -131,6 +135,7 @@ import {
   buildNarrativeVoiceContract
 } from '../services/agents/narrativeVoicePolicy'
 import {
+  resolveMarkdownHeadingShortcut,
   resolveWritingCommandMenuPosition
 } from '../services/writing/liveMarkdownPreview.js'
 import {
@@ -140,6 +145,7 @@ import {
   getWritingDocumentMarkdown,
   getWritingMarkdownPosition,
   migrateWritingDocumentToV3,
+  normalizeWritingUnitBoundaries,
   validateWritingDocument,
   writingDocumentToEditorContent
 } from '../services/writing/writingDocumentSchema.js'
@@ -174,7 +180,36 @@ import {
   listWritingRecoveryDrafts,
   saveWritingRecoveryDraft
 } from '../services/writing/writingRecovery.js'
-import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
+import {
+  inspectChineseQuoteNesting,
+  normalizeWritingReviewFindings,
+  validateWritingReviewReplacement
+} from '../../shared/writingReviewContract.js'
+import {
+  assessAuthoringReviewFreshness,
+  collectLocalAuthoringProofingFindings,
+  createAuthoringReviewBatchContext,
+  createAuthoringReviewSession,
+  getAuthoringReviewWorldbookRevision,
+  markAuthoringReviewFindingsApplied,
+  mergeAuthoringReviewFindings,
+  prepareAuthoringReviewTransaction,
+  rebaseAuthoringReviewSessionAfterTransaction
+} from '../services/agents/authoring/authoringReviewSession.js'
+import {
+  applyWritingDocumentTextPatches,
+  applyAuthoringReplacePlan,
+  buildAuthoringPositionIndex as buildAuthoringProjectSearchIndex,
+  createAuthoringReplacePlan,
+  reconcileAuthoringSearchFinding,
+  searchAuthoringPositionIndex
+} from '../services/authoring/authoringProjectSearch.js'
+import {
+  normalizeWritingHistoryPreferences,
+  planWritingMilestoneSnapshot,
+  recordWritingMilestoneSnapshot,
+  recordWritingProtectionSnapshot
+} from '../services/writing/writingAutomaticHistory.js'
 import { buildWritingQualityReport } from '../../shared/writingQualityContract.js'
 import {
   appendExperienceTurnToChapter,
@@ -225,6 +260,45 @@ describe('PromptBuilder', () => {
     expect(migrated.content[0].content.map((node) => node.attrs.nodeId)).toEqual(['h1', 'p1', 'p2'])
     expect(getWritingNodeLocation(migrated, 'p2')).toMatchObject({ unitId: 'unit-v2-h1', nodeId: 'p2' })
 
+    const passageDocument = createWritingDocument([
+      '第一段。', '第二段。', '第三段。', '第四段。', '第五段。', '第六段。', '第七段。'
+    ].join('\n\n'))
+    expect(passageDocument.content.map((unit) => unit.content.length)).toEqual([3, 3, 1])
+    expect(createWritingDocument([
+      '第一段。', '第二段。', '第三段。', '第四段。', '第五段。', '第六段。', '第七段。'
+    ].join('\n\n')).content.map((unit) => unit.attrs.unitId)).toEqual(
+      passageDocument.content.map((unit) => unit.attrs.unitId)
+    )
+
+    const legacyUnit = {
+      ...passageDocument,
+      content: [{
+        ...passageDocument.content[0],
+        attrs: { ...passageDocument.content[0].attrs, unitId: 'legacy-whole-chapter' },
+        content: passageDocument.content.flatMap((unit) => unit.content)
+      }],
+      meta: { sourceHash: 'legacy' }
+    }
+    const normalizedLegacy = normalizeWritingUnitBoundaries(legacyUnit)
+    expect(normalizedLegacy.content.map((unit) => unit.content.length)).toEqual([3, 3, 1])
+    expect(normalizedLegacy.content[0].attrs.unitId).toBe('legacy-whole-chapter')
+    expect(normalizeWritingUnitBoundaries(normalizedLegacy)).toBe(normalizedLegacy)
+    expect(normalizedLegacy.content.flatMap((unit) => unit.content).map((node) => node.attrs.nodeId)).toEqual(
+      legacyUnit.content[0].content.map((node) => node.attrs.nodeId)
+    )
+
+    const generatedLegacy = {
+      ...legacyUnit,
+      content: [{
+        ...legacyUnit.content[0],
+        attrs: {
+          ...legacyUnit.content[0].attrs,
+          originRefs: [{ type: 'authoring-turn', requestId: 'request-1', sourceRevision: 1 }]
+        }
+      }]
+    }
+    expect(normalizeWritingUnitBoundaries(generatedLegacy).content).toHaveLength(1)
+
     const makeUnitEditor = (document) => new Editor({
       extensions: [
         StarterKit.configure({ document: false }),
@@ -251,6 +325,7 @@ describe('PromptBuilder', () => {
     const splitEditorJson = unitEditor.getJSON()
     expect(splitEditorJson.content).toHaveLength(2)
     expect(splitEditorJson.content[0].attrs.unitId).not.toBe(splitEditorJson.content[1].attrs.unitId)
+    expect(unitEditor.state.selection.$from.node(1).attrs.unitId).toBe(splitEditorJson.content[1].attrs.unitId)
     splitEditorJson.content.forEach((unit) => {
       unit.content.forEach((node) => {
         expect(splitTransition.nodeUnitMap[node.attrs.nodeId]).toBe(unit.attrs.unitId)
@@ -298,14 +373,20 @@ describe('PromptBuilder', () => {
     const leftUnitId = mergeEditor.getJSON().content[0].attrs.unitId
     const rightUnitId = mergeEditor.getJSON().content[1].attrs.unitId
     mergeEditor.commands.setTextSelection(mergeEditor.state.doc.child(0).nodeSize + 2)
+    const rightCursorParentText = mergeEditor.state.selection.$from.parent.textContent
     expect(mergeEditor.commands.mergeWritingUnit('previous')).toBe(true)
     expect(mergeEditor.getJSON().content).toHaveLength(1)
     expect(mergeEditor.getJSON().content[0].attrs.unitId).toBe(leftUnitId)
+    expect(mergeEditor.state.selection.$from.node(1).attrs.unitId).toBe(leftUnitId)
+    expect(mergeEditor.state.selection.$from.parent.textContent).toBe(rightCursorParentText)
     expect(unitTransition).toMatchObject({ type: 'merge', keptUnitId: leftUnitId, removedUnitId: rightUnitId })
     expect(mergeEditor.commands.undo()).toBe(true)
     expect(mergeEditor.getJSON().content).toHaveLength(2)
     mergeEditor.commands.setTextSelection(mergeEditor.state.doc.child(0).nodeSize + 2)
+    const movedCursorOffset = mergeEditor.state.selection.from - mergeEditor.state.doc.child(0).nodeSize
     expect(mergeEditor.commands.moveWritingUnit('up')).toBe(true)
+    expect(mergeEditor.state.selection.$from.node(1).attrs.unitId).toBe(rightUnitId)
+    expect(mergeEditor.state.selection.from).toBe(movedCursorOffset)
     mergeEditor.getJSON().content.forEach((unit) => {
       unit.content.forEach((node) => {
         expect(unitTransition.nodeUnitMap[node.attrs.nodeId]).toBe(unit.attrs.unitId)
@@ -313,6 +394,28 @@ describe('PromptBuilder', () => {
     })
     expect(mergeEditor.commands.undo()).toBe(true)
     mergeEditor.destroy()
+
+    const boundaryEditor = makeUnitEditor(createWritingDocument([
+      '左一。', '左二。', '左三。', '右一。'
+    ].join('\n\n')))
+    const boundaryBefore = boundaryEditor.getJSON()
+    expect(boundaryBefore.content).toHaveLength(2)
+    const firstUnitSize = boundaryEditor.state.doc.child(0).nodeSize
+    // 右单元开头的 Backspace 与左单元末尾的 Delete 都不能借 ProseMirror
+    // 默认 join 行为静默抹掉业务 writingUnit 边界。
+    boundaryEditor.commands.setTextSelection(firstUnitSize + 2)
+    boundaryEditor.commands.keyboardShortcut('Backspace')
+    expect(boundaryEditor.getJSON()).toEqual(boundaryBefore)
+    boundaryEditor.commands.setTextSelection(firstUnitSize - 2)
+    boundaryEditor.commands.keyboardShortcut('Delete')
+    expect(boundaryEditor.getJSON()).toEqual(boundaryBefore)
+    // 合并仍是显式结构命令，并产生可撤销的一次事务。
+    boundaryEditor.commands.setTextSelection(firstUnitSize + 2)
+    expect(boundaryEditor.commands.mergeWritingUnit('previous')).toBe(true)
+    expect(boundaryEditor.getJSON().content).toHaveLength(1)
+    expect(boundaryEditor.commands.undo()).toBe(true)
+    expect(boundaryEditor.getJSON()).toEqual(boundaryBefore)
+    boundaryEditor.destroy()
 
     const cursorDocument = editorContentToWritingDocument({
       type: 'doc',
@@ -324,6 +427,17 @@ describe('PromptBuilder', () => {
     const cursorMarkdown = getWritingDocumentMarkdown(cursorDocument)
     expect(getWritingMarkdownPosition(cursorDocument, 'blank', 0)).toBe(cursorMarkdown.lastIndexOf('\n'))
     expect(getWritingMarkdownPosition(cursorDocument, 'missing', 0)).toBeNull()
+
+    expect(resolveMarkdownHeadingShortcut({
+      nodeType: 'paragraph',
+      textBefore: '##',
+      insertedText: ' '
+    })).toEqual({ level: 2, removePrefix: 2, insertedText: '' })
+    expect(resolveMarkdownHeadingShortcut({
+      nodeType: 'paragraph',
+      textBefore: '##',
+      insertedText: '标题'
+    })).toBeNull()
 
     expect(resolveWritingCommandMenuPosition({
       anchor: { top: 700, right: 140, bottom: 724, left: 120 },
@@ -340,6 +454,534 @@ describe('PromptBuilder', () => {
       menuHeight: 180,
       scale: 0.85
     })).toMatchObject({ top: 634, left: 141, width: 300, maxHeight: 180, placement: 'above' })
+    expect(resolveWritingCommandMenuPosition({
+      anchor: { top: 100, right: 950, bottom: 120, left: 930 },
+      viewportWidth: 1000,
+      viewportHeight: 800,
+      menuWidth: 300,
+      menuHeight: 180,
+      collisionWidth: 606,
+      collisionHeight: 180,
+      collisionOffsetLeft: -306
+    })).toMatchObject({ top: 128, left: 688, width: 300, maxHeight: 180, placement: 'below' })
+    expect(resolveWritingCommandMenuPosition({
+      anchor: { top: 730, right: 800, bottom: 750, left: 780 },
+      viewportWidth: 400,
+      viewportHeight: 300,
+      viewportOffsetLeft: 600,
+      viewportOffsetTop: 500,
+      menuWidth: 200,
+      menuHeight: 120
+    })).toMatchObject({ top: 602, left: 780, width: 200, maxHeight: 120, placement: 'above' })
+
+    const initialNotebookDocument = createWritingDocument('第一章正文。')
+    const nextNotebookDocument = createWritingDocument('第二章正文。')
+    const notebookPublicationOrder = []
+    const notebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: {
+        document: initialNotebookDocument,
+        'onUpdate:document': (document) => notebookPublicationOrder.push(['document', document]),
+        onSelectionChange: (selection) => notebookPublicationOrder.push(['selection', selection]),
+        onInput: (input) => notebookPublicationOrder.push(['input', input])
+      }
+    })
+    await vi.waitFor(() => {
+      expect(notebook.emitted('selection-change')?.at(-1)?.[0]).toMatchObject({
+        currentNodeText: '第一章正文。',
+        documentRevision: initialNotebookDocument.revision
+      })
+    })
+    expect(notebook.emitted('update:document')).toBeUndefined()
+    await notebook.setProps({ document: nextNotebookDocument })
+    await flushPromises()
+    expect(notebook.emitted('selection-change')?.at(-1)?.[0]).toMatchObject({
+      currentNodeText: '第二章正文。',
+      documentRevision: nextNotebookDocument.revision
+    })
+    expect(notebook.emitted('update:document')).toBeUndefined()
+    expect(notebook.vm.getCommandAvailability()).toMatchObject({
+      undo: false,
+      redo: false,
+      cut: false,
+      copy: false,
+      selectAll: true
+    })
+    await notebook.setProps({
+      inlineSuggestionVisible: true,
+      inlineSuggestion: '门后传来一声轻响。'
+    })
+    await flushPromises()
+    const ghost = notebook.find('.writing-inline-suggestion')
+    expect(ghost.exists()).toBe(true)
+    ghost.element.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: false,
+      cancelable: true,
+      button: 2
+    }))
+    expect(notebook.emitted('accept-inline-suggestion')).toBeUndefined()
+    ghost.element.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: false,
+      cancelable: true,
+      button: 0
+    }))
+    expect(notebook.emitted('accept-inline-suggestion')?.at(-1)?.[0]).toBe('all')
+    const altGraphEvent = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: ']',
+      code: 'BracketRight',
+      altKey: true,
+      ctrlKey: true
+    })
+    notebook.find('.ProseMirror').element.dispatchEvent(altGraphEvent)
+    expect(altGraphEvent.defaultPrevented).toBe(false)
+    expect(notebook.emitted('cycle-inline-suggestion')).toBeUndefined()
+    const altGraphSlashEvent = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: '/',
+      code: 'Slash',
+      altKey: true,
+      ctrlKey: true
+    })
+    notebook.find('.ProseMirror').element.dispatchEvent(altGraphSlashEvent)
+    expect(altGraphSlashEvent.defaultPrevented).toBe(false)
+    expect(notebook.emitted('command-menu-change')).toBeUndefined()
+    await notebook.setProps({ inlineSuggestionVisible: false, inlineSuggestion: '' })
+    notebook.vm.editor.commands.setTextSelection(2)
+    await flushPromises()
+    notebookPublicationOrder.length = 0
+    notebook.vm.editor.view.dispatch(notebook.vm.editor.state.tr.insertText('新'))
+    await flushPromises()
+    expect(notebookPublicationOrder.map(([kind]) => kind).slice(0, 3)).toEqual([
+      'document',
+      'selection',
+      'input'
+    ])
+    const editedNotebookDocument = notebookPublicationOrder.find(([kind]) => kind === 'document')?.[1]
+    const editedNotebookSelection = notebookPublicationOrder.find(([kind]) => kind === 'selection')?.[1]
+    const editedNotebookUnit = editedNotebookDocument.content[0]
+    const editedNotebookNode = editedNotebookUnit.content[0]
+    expect(editedNotebookSelection).toMatchObject({
+      currentNodeText: getWritingDocumentMarkdown(editedNotebookDocument).trimEnd(),
+      documentRevision: editedNotebookDocument.revision,
+      unitId: editedNotebookUnit.attrs.unitId,
+      unitRevision: editedNotebookUnit.attrs.unitRevision,
+      nodeId: editedNotebookNode.attrs.nodeId,
+      nodeRevision: editedNotebookNode.attrs.nodeRevision
+    })
+    notebookPublicationOrder.length = 0
+    expect(notebook.vm.insertPlainText('“')).toBe(true)
+    await flushPromises()
+    expect(notebookPublicationOrder.findLast(([kind]) => kind === 'input')?.[1]?.inputType).toBe('input')
+    notebookPublicationOrder.length = 0
+    expect(notebook.vm.insertPlainText('联想', { origin: 'writing-agent' })).toBe(true)
+    await flushPromises()
+    expect(notebookPublicationOrder.findLast(([kind]) => kind === 'input')?.[1]?.inputType).toBe('writing-agent')
+    expect(notebook.vm.getCommandAvailability().undo).toBe(true)
+    notebookPublicationOrder.length = 0
+    expect(notebook.vm.undo()).toBe(true)
+    await flushPromises()
+    expect(notebookPublicationOrder.findLast(([kind]) => kind === 'input')?.[1]?.inputType).toBe('historyUndo')
+    expect(notebook.vm.getCommandAvailability().redo).toBe(true)
+    notebookPublicationOrder.length = 0
+    expect(notebook.vm.redo()).toBe(true)
+    await flushPromises()
+    expect(notebookPublicationOrder.findLast(([kind]) => kind === 'input')?.[1]?.inputType).toBe('historyRedo')
+    await notebook.setProps({ atomicUndoAvailable: true })
+    await notebook.find('.ProseMirror').trigger('keydown', { key: 'z', ctrlKey: true })
+    expect(notebook.emitted('history-command')?.at(-1)?.[0]).toBe('undo')
+    expect(typeof notebook.vm.closeCommandMenu).toBe('function')
+    await notebook.find('.ProseMirror').trigger('compositionstart')
+    notebook.unmount()
+    expect(notebook.emitted('composition-change')?.at(-1)).toEqual([
+      false,
+      { reason: 'editor-unmount' }
+    ])
+
+    const multilineSource = createWritingDocument('开头。')
+    const multilineNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: multilineSource }
+    })
+    await flushPromises()
+    // jsdom 没有完整的 Range geometry；这里只为设定插入位置，不测试
+    // 浏览器滚动。关闭 focus 的异步 scrollIntoView，避免卸载后迟到测量。
+    multilineNotebook.vm.editor.commands.focus('end', { scrollIntoView: false })
+    expect(multilineNotebook.vm.insertPlainText('第一行\n第二行\n第三行', { origin: 'writing-agent' })).toBe(true)
+    await flushPromises()
+    const multilineJson = multilineNotebook.vm.editor.getJSON()
+    expect(multilineJson.content).toHaveLength(1)
+    expect(multilineJson.content[0].content.map((node) => (
+      node.content?.map((item) => item.text || '').join('') || ''
+    ))).toEqual([
+      '开头。第一行',
+      '第二行',
+      '第三行'
+    ])
+    const multilineDocument = editorContentToWritingDocument(multilineJson, multilineSource)
+    const multilineMarkdown = getWritingDocumentMarkdown(multilineDocument)
+    const multilineReloaded = createWritingDocument(multilineMarkdown)
+    expect(multilineReloaded.content.map((unit) => (
+      unit.content.map((node) => ({ type: node.type, text: node.content?.map((item) => item.text || '').join('') || '' }))
+    ))).toEqual(multilineDocument.content.map((unit) => (
+      unit.content.map((node) => ({ type: node.type, text: node.content?.map((item) => item.text || '').join('') || '' }))
+    )))
+    const initialUnitId = multilineNotebook.vm.editor.getJSON().content[0].attrs.unitId
+    const beforeInvalidBatch = multilineNotebook.vm.editor.getJSON()
+    expect(multilineNotebook.vm.insertWritingUnitBatch({
+      units: [
+        { draftUnitId: 'draft-valid', text: '先通过的单元。' },
+        { draftUnitId: 'draft-invalid', text: '' }
+      ],
+      originRefs: [{ type: 'authoring-turn', requestId: 'request-invalid-batch', sourceRevision: 1 }],
+      sceneId: 'scene-invalid',
+      beatFingerprint: 'beat-invalid',
+      afterUnitId: initialUnitId
+    })).toMatchObject({ ok: false, reason: 'invalid-turn' })
+    expect(multilineNotebook.vm.editor.getJSON()).toEqual(beforeInvalidBatch)
+    const batch = multilineNotebook.vm.insertWritingUnitBatch({
+      units: [
+        { draftUnitId: 'draft-a', text: '第一拍。' },
+        { draftUnitId: 'draft-b', text: '第二拍。' }
+      ],
+      originRefs: [{ type: 'authoring-turn', requestId: 'request-batch', sourceRevision: 1 }],
+      sceneId: 'scene-beat-1',
+      beatFingerprint: 'beat-1',
+      afterUnitId: initialUnitId
+    })
+    expect(batch).toMatchObject({ ok: true, unitIds: [expect.any(String), expect.any(String)] })
+    expect(new Set(batch.unitIds).size).toBe(2)
+    expect(multilineNotebook.vm.editor.getJSON().content.slice(-2).map((unit) => unit.attrs.sceneId))
+      .toEqual(['scene-beat-1', 'scene-beat-1'])
+    expect(multilineNotebook.vm.undo()).toBe(true)
+    expect(multilineNotebook.vm.editor.getJSON().content).toHaveLength(1)
+    expect(multilineNotebook.vm.redo()).toBe(true)
+    expect(multilineNotebook.vm.editor.getJSON().content).toHaveLength(3)
+    multilineNotebook.unmount()
+
+    const replacementSource = createWritingDocument('第一单元一。\n\n第一单元二。\n\n第一单元三。\n\n第二单元。')
+    const replacementNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: replacementSource }
+    })
+    await flushPromises()
+    replacementNotebook.vm.editor.commands.selectAll()
+    expect(replacementNotebook.vm.getCommandAvailability()).toMatchObject({
+      cut: false,
+      copy: true,
+      paste: true,
+      deleteSelection: true
+    })
+    const beforeMissingPayloadPaste = replacementNotebook.vm.editor.state.doc.textContent
+    const missingPayloadPaste = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(missingPayloadPaste, 'clipboardData', {
+      value: { getData: () => '', types: ['Files'] }
+    })
+    replacementNotebook.find('.ProseMirror').element.dispatchEvent(missingPayloadPaste)
+    expect(missingPayloadPaste.defaultPrevented).toBe(false)
+    expect(replacementNotebook.vm.editor.state.doc.textContent).toBe(beforeMissingPayloadPaste)
+
+    const replacementEventsBefore = replacementNotebook.emitted('unit-transition')?.length || 0
+    const textPayloadPaste = new Event('paste', { bubbles: true, cancelable: true })
+    Object.defineProperty(textPayloadPaste, 'clipboardData', {
+      value: { getData: (type) => type === 'text/plain' ? '替换甲。\n替换乙。' : '', types: ['text/plain'] }
+    })
+    replacementNotebook.find('.ProseMirror').element.dispatchEvent(textPayloadPaste)
+    await flushPromises()
+    expect(textPayloadPaste.defaultPrevented).toBe(true)
+    expect(replacementNotebook.vm.editor.state.doc.textContent).toBe('替换甲。替换乙。')
+    const replaceTransition = replacementNotebook.emitted('unit-transition')?.at(replacementEventsBefore)?.[0]
+    expect(replaceTransition).toMatchObject({ type: 'replace-all' })
+    const structuralDocumentEvent = replacementNotebook.emitted('update:document')?.at(-1)
+    expect(structuralDocumentEvent?.[1]).toBe(replaceTransition)
+    expect(replacementNotebook.vm.undo()).toBe(true)
+    expect(replacementNotebook.vm.editor.state.doc.textContent).toBe(beforeMissingPayloadPaste)
+    replacementNotebook.unmount()
+
+    const compositionNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: createWritingDocument('不得被候选过程清掉。') }
+    })
+    await flushPromises()
+    compositionNotebook.vm.editor.commands.selectAll()
+    const compositionSurface = compositionNotebook.find('.ProseMirror').element
+    compositionSurface.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }))
+    expect(compositionNotebook.vm.editor.state.doc.textContent).toBe('不得被候选过程清掉。')
+    compositionSurface.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '最终合成。' }))
+    await vi.waitFor(() => {
+      expect(compositionNotebook.vm.editor.state.doc.textContent).toBe('最终合成。')
+    })
+    expect(compositionNotebook.emitted('unit-transition')?.at(-1)?.[0]).toMatchObject({ type: 'replace-all' })
+    expect(compositionNotebook.vm.undo()).toBe(true)
+    expect(compositionNotebook.vm.editor.state.doc.textContent).toBe('不得被候选过程清掉。')
+    compositionNotebook.unmount()
+
+    const staleCompositionNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: createWritingDocument('旧正文。') }
+    })
+    await flushPromises()
+    staleCompositionNotebook.vm.editor.commands.selectAll()
+    const staleCompositionSurface = staleCompositionNotebook.find('.ProseMirror').element
+    staleCompositionSurface.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }))
+    staleCompositionSurface.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '迟到候选。' }))
+    await staleCompositionNotebook.setProps({ document: createWritingDocument('刚恢复的正文。') })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(staleCompositionNotebook.vm.editor.state.doc.textContent).toBe('刚恢复的正文。')
+    expect(staleCompositionNotebook.emitted('composition-change')?.at(-1)).toEqual([
+      false,
+      { reason: 'external-document' }
+    ])
+    staleCompositionNotebook.unmount()
+
+    const rewriteSource = createWritingDocument('改写前。')
+    const rewriteNodeId = rewriteSource.content[0].content[0].attrs.nodeId
+    const rewriteNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: rewriteSource }
+    })
+    await flushPromises()
+    expect(rewriteNotebook.vm.replaceNodeText(rewriteNodeId, 'AI 改写。', { origin: 'writing-agent' })).toBe(true)
+    expect(rewriteNotebook.vm.insertPlainText('用户续写。')).toBe(true)
+    expect(rewriteNotebook.vm.undo()).toBe(true)
+    expect(rewriteNotebook.vm.editor.state.doc.textContent).toBe('AI 改写。')
+    expect(rewriteNotebook.vm.undo()).toBe(true)
+    expect(rewriteNotebook.vm.editor.state.doc.textContent).toBe('改写前。')
+    rewriteNotebook.unmount()
+
+    const quoteSource = createWritingDocument('> 甲。\n> 乙。\n')
+    const quoteNodeId = quoteSource.content[0].content[0].attrs.nodeId
+    const quoteNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: quoteSource }
+    })
+    await flushPromises()
+    expect(quoteNotebook.vm.selectText('乙。', 0, quoteNodeId)).toBe(true)
+    await flushPromises()
+    expect(quoteNotebook.emitted('selection-change')?.at(-1)?.[0]).toMatchObject({
+      nodeId: quoteNodeId,
+      currentNodeText: '甲。\n乙。',
+      selectionLocalStart: 3,
+      selectionLocalEnd: 5
+    })
+    expect(quoteNotebook.vm.getCommandAvailability()).toMatchObject({ cut: false, copy: true })
+    expect(quoteNotebook.vm.replaceNodeText(quoteNodeId, '新甲。\n新乙。', { origin: 'writing-agent' })).toBe(true)
+    await flushPromises()
+    const quoteDocument = quoteNotebook.emitted('update:document')?.at(-1)?.[0]
+    expect(getWritingDocumentMarkdown(quoteDocument)).toBe('> 新甲。\n> 新乙。\n')
+    expect(quoteNotebook.vm.undo()).toBe(true)
+    expect(getWritingDocumentMarkdown(quoteNotebook.emitted('update:document')?.at(-1)?.[0])).toBe('> 甲。\n> 乙。\n')
+    expect(quoteNotebook.vm.replaceNodeText(quoteNodeId, '段一。\n\n段二。', { origin: 'writing-agent' })).toBe(true)
+    await flushPromises()
+    const paragraphQuoteDocument = quoteNotebook.emitted('update:document')?.at(-1)?.[0]
+    expect(writingDocumentToEditorContent(paragraphQuoteDocument)[0].content[0].content).toHaveLength(2)
+    expect(getWritingDocumentMarkdown(paragraphQuoteDocument)).toBe('> 段一。\n> \n> 段二。\n')
+    expect(quoteNotebook.vm.selectText('段一。\n\n段二。', 0, quoteNodeId)).toBe(true)
+    await flushPromises()
+    expect(quoteNotebook.emitted('selection-change')?.at(-1)?.[0]).toMatchObject({
+      text: '段一。\n\n段二。',
+      selectionLocalStart: 0,
+      selectionLocalEnd: 8
+    })
+    quoteNotebook.unmount()
+
+    const identitySource = createWritingDocument('节点身份不能丢。')
+    const identityNodeId = identitySource.content[0].content[0].attrs.nodeId
+    const identityNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: identitySource }
+    })
+    await flushPromises()
+    identityNotebook.vm.editor.commands.focus('end', { scrollIntoView: false })
+    const selectionBeforeKeyboardMenu = {
+      from: identityNotebook.vm.editor.state.selection.from,
+      to: identityNotebook.vm.editor.state.selection.to
+    }
+    const keyboardContextEvent = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: 0,
+      clientY: 0
+    })
+    identityNotebook.find('.ProseMirror').element.dispatchEvent(keyboardContextEvent)
+    expect(identityNotebook.vm.editor.state.selection.from).toBe(selectionBeforeKeyboardMenu.from)
+    expect(identityNotebook.vm.editor.state.selection.to).toBe(selectionBeforeKeyboardMenu.to)
+    expect(identityNotebook.emitted('context-menu')?.at(-1)?.[1]).toMatchObject({ keyboardTriggered: true })
+
+    await identityNotebook.find('.ProseMirror').trigger('keydown', { key: '/', ctrlKey: true })
+    await nextTick()
+    const commandMenuText = document.body.querySelector('.writing-command-menu')?.textContent || ''
+    expect(commandMenuText).toContain('审查本章')
+    expect(commandMenuText).not.toContain('插入结构')
+    identityNotebook.vm.closeCommandMenu()
+
+    expect(identityNotebook.vm.selectText('身份', 0, identityNodeId)).toBe(true)
+    expect(identityNotebook.vm.getCommandAvailability()).toMatchObject({ cut: true, copy: true })
+    expect(identityNotebook.vm.insertDivider()).toBe(true)
+    const identityJson = identityNotebook.vm.editor.getJSON()
+    expect(identityJson.content[0].content[0]).toMatchObject({
+      type: 'paragraph',
+      attrs: { nodeId: identityNodeId }
+    })
+    expect(identityJson.content[0].content[0].content.map((node) => node.text).join('')).toBe('节点身份不能丢。')
+    expect(identityJson.content[0].content[1].type).toBe('horizontalRule')
+    let dividerPosition = null
+    identityNotebook.vm.editor.state.doc.descendants((node, pos) => {
+      if (dividerPosition == null && node.type.name === 'horizontalRule') dividerPosition = pos
+    })
+    identityNotebook.vm.editor.commands.setNodeSelection(dividerPosition)
+    expect(identityNotebook.vm.getCommandAvailability()).toMatchObject({
+      cut: false,
+      copy: false,
+      paste: false,
+      deleteSelection: true
+    })
+    expect(identityNotebook.vm.undo()).toBe(true)
+    expect(identityNotebook.vm.editor.getJSON().content[0].content).toHaveLength(1)
+    identityNotebook.unmount()
+
+    const boundaryAvailabilitySource = createWritingDocument('左一。\n\n左二。\n\n左三。\n\n右一。')
+    const boundaryAvailabilityNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: boundaryAvailabilitySource }
+    })
+    await flushPromises()
+    const firstBoundaryNode = boundaryAvailabilitySource.content[0].content[0]
+    const lastBoundaryNode = boundaryAvailabilitySource.content.at(-1).content.at(-1)
+    expect(boundaryAvailabilityNotebook.vm.selectNodeRange(
+      firstBoundaryNode.attrs.nodeId,
+      0,
+      lastBoundaryNode.attrs.nodeId,
+      lastBoundaryNode.content.map((node) => node.text || '').join('').length
+    )).toBe(true)
+    expect(boundaryAvailabilityNotebook.vm.getCommandAvailability()).toMatchObject({
+      cut: false,
+      copy: true,
+      paste: false,
+      deleteSelection: false
+    })
+    boundaryAvailabilityNotebook.unmount()
+
+    const splitQuoteSource = createWritingDocument('> 甲。\n>\n> 乙。\n')
+    const splitQuoteEditor = makeUnitEditor(splitQuoteSource)
+    let firstQuoteParagraphPos = null
+    let secondQuoteParagraphPos = null
+    let quoteParagraphIndex = 0
+    splitQuoteEditor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== 'paragraph') return true
+      if (quoteParagraphIndex === 0) firstQuoteParagraphPos = pos
+      if (quoteParagraphIndex === 1) secondQuoteParagraphPos = pos
+      quoteParagraphIndex += 1
+      return true
+    })
+    let quoteSplitTransition = null
+    splitQuoteEditor.on('transaction', ({ transaction }) => {
+      quoteSplitTransition = transaction.getMeta('writingUnitTransition') || quoteSplitTransition
+    })
+    splitQuoteEditor.commands.setTextSelection(secondQuoteParagraphPos + 1)
+    expect(splitQuoteEditor.commands.splitWritingUnit()).toBe(true)
+    const splitQuoteJson = splitQuoteEditor.getJSON()
+    expect(splitQuoteJson.content).toHaveLength(2)
+    expect(splitQuoteJson.content[0].content[0].content[0].content.map((node) => node.text)).toEqual(['甲。'])
+    expect(splitQuoteJson.content[1].content[0].content[0].content.map((node) => node.text)).toEqual(['乙。'])
+    expect(quoteSplitTransition.splitNode.offset).toBe(4)
+    expect(splitQuoteEditor.state.selection.$from.node(1).attrs.unitId).toBe(splitQuoteJson.content[1].attrs.unitId)
+    splitQuoteEditor.destroy()
+
+    const endOfFirstQuoteEditor = makeUnitEditor(splitQuoteSource)
+    let endOfFirstTransition = null
+    endOfFirstQuoteEditor.on('transaction', ({ transaction }) => {
+      endOfFirstTransition = transaction.getMeta('writingUnitTransition') || endOfFirstTransition
+    })
+    endOfFirstQuoteEditor.commands.setTextSelection(firstQuoteParagraphPos + 1 + '甲。'.length)
+    expect(endOfFirstQuoteEditor.commands.splitWritingUnit()).toBe(true)
+    expect(endOfFirstTransition.splitNode.offset).toBe(4)
+    expect(endOfFirstQuoteEditor.getJSON().content).toHaveLength(2)
+    endOfFirstQuoteEditor.destroy()
+
+    for (const literalTrigger of [' ', '/']) {
+      const commandNotebook = mount(WritingNotebookEditor, {
+        attachTo: document.body,
+        props: { document: createWritingDocument('') }
+      })
+      await flushPromises()
+      const view = commandNotebook.vm.editor.view
+      const dispatchBeforeInput = () => {
+        const event = new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertText',
+          data: literalTrigger
+        })
+        return Boolean(view.someProp('handleDOMEvents', (handlers) => handlers.beforeinput?.(view, event)))
+      }
+      expect(dispatchBeforeInput()).toBe(true)
+      expect(commandNotebook.emitted('command-menu-change')?.at(-1)?.[0]).toBe(true)
+      expect(dispatchBeforeInput()).toBe(false)
+      expect(commandNotebook.emitted('command-menu-change')?.at(-1)?.[0]).toBe(false)
+      view.dispatch(view.state.tr.insertText(literalTrigger))
+      expect(view.state.doc.textContent).toBe(literalTrigger)
+      expect(commandNotebook.emitted('command-menu-change')?.filter(([open]) => open === true)).toHaveLength(1)
+      commandNotebook.unmount()
+    }
+
+    const shortcutNotebook = mount(WritingNotebookEditor, {
+      attachTo: document.body,
+      props: { document: createWritingDocument('') }
+    })
+    await flushPromises()
+    const shortcutSurface = shortcutNotebook.find('.ProseMirror').element
+    shortcutSurface.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: '/',
+      code: 'Slash',
+      ctrlKey: true
+    }))
+    const repeatedShortcut = new KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: '/',
+      code: 'Slash',
+      ctrlKey: true,
+      repeat: true
+    })
+    shortcutSurface.dispatchEvent(repeatedShortcut)
+    expect(repeatedShortcut.defaultPrevented).toBe(true)
+    expect(shortcutNotebook.emitted('command-menu-change')?.filter(([open]) => open === true)).toHaveLength(1)
+    expect(shortcutNotebook.emitted('command-menu-change')?.filter(([open]) => open === false) || []).toHaveLength(0)
+    shortcutNotebook.unmount()
+
+    // 文档作用域必须通过 Vue key 重建整个 ProseMirror 实例。仅 setContent
+    // 会把旧 history 映射到新 doc，随后 undo 可把上一章写进当前章。
+    const scopedKey = ref('book-1:chapter:a')
+    const scopedDocument = ref(createWritingDocument('甲章正文。'))
+    const scopedEditor = ref(null)
+    const ScopedNotebookHost = defineComponent({
+      setup() {
+        return () => h(WritingNotebookEditor, {
+          key: scopedKey.value,
+          ref: scopedEditor,
+          document: scopedDocument.value
+        })
+      }
+    })
+    const scopedHost = mount(ScopedNotebookHost, { attachTo: document.body })
+    await flushPromises()
+    expect(scopedEditor.value.insertPlainText('旧章修改')).toBe(true)
+    const previousEditor = scopedEditor.value
+    scopedDocument.value = createWritingDocument('乙章正文。')
+    scopedKey.value = 'book-1:chapter:b'
+    await nextTick()
+    await flushPromises()
+    expect(scopedEditor.value).not.toBe(previousEditor)
+    expect(scopedHost.find('.ProseMirror').text()).toContain('乙章正文。')
+    expect(scopedEditor.value.undo()).toBe(false)
+    expect(scopedHost.find('.ProseMirror').text()).not.toContain('甲章正文。')
+    scopedHost.unmount()
 
     const unchangedRewriteTarget = {
       chapterId: 'chapter-1',
@@ -456,6 +1098,70 @@ describe('PromptBuilder', () => {
     expect(afterSplit).not.toHaveProperty('blockRevision')
     expect(resolveWritingAnnotation(afterSplit, splitDocument)).toMatchObject({ target: { nodeId: annotationNode.attrs.nodeId } })
 
+    const replacedAnnotationDocument = createWritingDocument('另一处也写着唯一锚点。')
+    replacedAnnotationDocument.content[0].attrs.unitId = annotationDocument.content[0].attrs.unitId
+    const afterReplaceAll = reconcileWritingAnnotations(
+      [annotation],
+      replacedAnnotationDocument,
+      'chapter-1',
+      annotationDocument,
+      {
+        type: 'replace-all',
+        keptUnitId: annotationDocument.content[0].attrs.unitId,
+        affectedUnitIds: [annotationDocument.content[0].attrs.unitId],
+        nodeUnitMap: {
+          [replacedAnnotationDocument.content[0].content[0].attrs.nodeId]: annotationDocument.content[0].attrs.unitId
+        }
+      }
+    )[0]
+    expect(afterReplaceAll).toMatchObject({ status: 'orphaned', resolution: 'unit-content-replaced' })
+
+    const rangedSelector = createWritingSelector({
+      text: '唯一锚点',
+      start: 0,
+      end: 4,
+      fullText: '唯一锚点。'
+    })
+    const rangedAnnotation = createWritingAnnotation({
+      chapterId: 'chapter-1',
+      target: {
+        unitId: annotationDocument.content[0].attrs.unitId,
+        nodeId: annotationNode.attrs.nodeId,
+        start: 0,
+        end: 4
+      },
+      selector: rangedSelector,
+      range: {
+        start: { unitId: annotationDocument.content[0].attrs.unitId, nodeId: annotationNode.attrs.nodeId, offset: 0 },
+        end: { unitId: annotationDocument.content[0].attrs.unitId, nodeId: annotationNode.attrs.nodeId, offset: 4 },
+        nodeIds: [annotationNode.attrs.nodeId],
+        unitIds: [annotationDocument.content[0].attrs.unitId],
+        exact: '唯一锚点',
+        startSelector: rangedSelector,
+        endSelector: rangedSelector
+      },
+      body: '范围必须同步'
+    })
+    const shiftedRangeDocument = structuredClone(annotationDocument)
+    shiftedRangeDocument.content[0].attrs.unitRevision += 1
+    shiftedRangeDocument.content[0].content[1].attrs.nodeRevision += 1
+    shiftedRangeDocument.content[0].content[1].content = [{ type: 'text', text: '前插唯一锚点。' }]
+    const shiftedRangeAnnotation = reconcileWritingAnnotations(
+      [rangedAnnotation],
+      shiftedRangeDocument,
+      'chapter-1',
+      annotationDocument
+    )[0]
+    expect(shiftedRangeAnnotation).toMatchObject({
+      status: 'open',
+      target: { nodeId: annotationNode.attrs.nodeId, start: 2, end: 6 },
+      range: {
+        start: { nodeId: annotationNode.attrs.nodeId, offset: 2 },
+        end: { nodeId: annotationNode.attrs.nodeId, offset: 6 },
+        exact: '唯一锚点'
+      }
+    })
+
     const splitSource = createWritingDocument('左左右右')
     const splitSourceUnit = splitSource.content[0]
     const splitSourceNode = splitSourceUnit.content[0]
@@ -478,8 +1184,16 @@ describe('PromptBuilder', () => {
         }
       ]
     }
-    const makeSplitAnnotation = (id, start, end) => ({
-      ...createWritingAnnotation({
+    const makeSplitAnnotation = (id, start, end) => {
+      const exact = '左左右右'.slice(start, end)
+      const selector = createWritingSelector({
+        text: exact,
+        start,
+        end,
+        fullText: '左左右右'
+      })
+      return {
+        ...createWritingAnnotation({
         chapterId: 'chapter-1',
         target: {
           unitId: splitSourceUnit.attrs.unitId,
@@ -487,16 +1201,21 @@ describe('PromptBuilder', () => {
           start,
           end
         },
-        selector: createWritingSelector({
-          text: '左左右右'.slice(start, end),
-          start,
-          end,
-          fullText: '左左右右'
-        }),
+        selector,
+        range: {
+          start: { unitId: splitSourceUnit.attrs.unitId, nodeId: splitSourceNode.attrs.nodeId, offset: start },
+          end: { unitId: splitSourceUnit.attrs.unitId, nodeId: splitSourceNode.attrs.nodeId, offset: end },
+          nodeIds: [splitSourceNode.attrs.nodeId],
+          unitIds: [splitSourceUnit.attrs.unitId],
+          exact,
+          startSelector: selector,
+          endSelector: selector
+        },
         body: id
       }),
-      id
-    })
+        id
+      }
+    }
     const splitAnnotations = reconcileWritingAnnotations([
       makeSplitAnnotation('split-left', 0, 2),
       makeSplitAnnotation('split-right', 2, 4),
@@ -517,15 +1236,104 @@ describe('PromptBuilder', () => {
     })
     expect(splitAnnotations.find((item) => item.id === 'split-left')).toMatchObject({
       status: 'open',
-      target: { unitId: splitSourceUnit.attrs.unitId, nodeId: splitSourceNode.attrs.nodeId, start: 0, end: 2 }
+      target: { unitId: splitSourceUnit.attrs.unitId, nodeId: splitSourceNode.attrs.nodeId, start: 0, end: 2 },
+      range: {
+        start: { nodeId: splitSourceNode.attrs.nodeId, offset: 0 },
+        end: { nodeId: splitSourceNode.attrs.nodeId, offset: 2 }
+      }
     })
     expect(splitAnnotations.find((item) => item.id === 'split-right')).toMatchObject({
       status: 'open',
-      target: { unitId: 'unit-split-right', nodeId: 'node-split-right', start: 0, end: 2 }
+      target: { unitId: 'unit-split-right', nodeId: 'node-split-right', start: 0, end: 2 },
+      range: {
+        start: { nodeId: 'node-split-right', offset: 0 },
+        end: { nodeId: 'node-split-right', offset: 2 }
+      }
     })
     expect(splitAnnotations.find((item) => item.id === 'split-crossing')).toMatchObject({
       status: 'orphaned', resolution: 'split-boundary'
     })
+
+    const crossRangeSource = createWritingDocument('甲乙丙丁\n\n末段')
+    const crossRangeUnit = crossRangeSource.content[0]
+    const crossRangeStartNode = crossRangeUnit.content[0]
+    const crossRangeEndNode = crossRangeUnit.content[1]
+    const crossStartSelector = createWritingSelector({ text: '乙丙丁', start: 1, end: 4, fullText: '甲乙丙丁' })
+    const crossEndSelector = createWritingSelector({ text: '末段', start: 0, end: 2, fullText: '末段' })
+    const crossRangeAnnotation = createWritingAnnotation({
+      chapterId: 'chapter-1',
+      target: {
+        unitId: crossRangeUnit.attrs.unitId,
+        nodeId: crossRangeStartNode.attrs.nodeId,
+        start: 1,
+        end: 4
+      },
+      selector: crossStartSelector,
+      range: {
+        start: { unitId: crossRangeUnit.attrs.unitId, nodeId: crossRangeStartNode.attrs.nodeId, offset: 1 },
+        end: { unitId: crossRangeUnit.attrs.unitId, nodeId: crossRangeEndNode.attrs.nodeId, offset: 2 },
+        nodeIds: [crossRangeStartNode.attrs.nodeId, crossRangeEndNode.attrs.nodeId],
+        unitIds: [crossRangeUnit.attrs.unitId],
+        exact: '乙丙丁\n末段',
+        startSelector: crossStartSelector,
+        endSelector: crossEndSelector
+      },
+      body: '跨节点拆分后仍应稳定'
+    })
+    const crossRangeRightNode = {
+      ...structuredClone(crossRangeStartNode),
+      attrs: { ...crossRangeStartNode.attrs, nodeId: 'node-cross-range-right' },
+      content: [{ type: 'text', text: '丙丁' }]
+    }
+    const crossRangeSplitDocument = {
+      ...crossRangeSource,
+      content: [
+        {
+          ...crossRangeUnit,
+          content: [{ ...structuredClone(crossRangeStartNode), content: [{ type: 'text', text: '甲乙' }] }]
+        },
+        {
+          ...crossRangeUnit,
+          attrs: { ...crossRangeUnit.attrs, unitId: 'unit-cross-range-right' },
+          content: [crossRangeRightNode, crossRangeEndNode]
+        }
+      ]
+    }
+    const transitionedCrossRange = reconcileWritingAnnotations(
+      [crossRangeAnnotation],
+      crossRangeSplitDocument,
+      'chapter-1',
+      crossRangeSource,
+      {
+        type: 'split',
+        keptUnitId: crossRangeUnit.attrs.unitId,
+        createdUnitId: 'unit-cross-range-right',
+        nodeUnitMap: {
+          [crossRangeStartNode.attrs.nodeId]: crossRangeUnit.attrs.unitId,
+          'node-cross-range-right': 'unit-cross-range-right',
+          [crossRangeEndNode.attrs.nodeId]: 'unit-cross-range-right'
+        },
+        splitNode: {
+          oldNodeId: crossRangeStartNode.attrs.nodeId,
+          newNodeId: 'node-cross-range-right',
+          offset: 2
+        }
+      }
+    )[0]
+    expect(transitionedCrossRange).toMatchObject({
+      status: 'open',
+      range: {
+        startSelector: { exact: '乙' },
+        endSelector: { exact: '末段' },
+        nodeIds: [crossRangeStartNode.attrs.nodeId, 'node-cross-range-right', crossRangeEndNode.attrs.nodeId]
+      }
+    })
+    expect(reconcileWritingAnnotations(
+      [transitionedCrossRange],
+      crossRangeSplitDocument,
+      'chapter-1',
+      crossRangeSplitDocument
+    )[0]).toMatchObject({ status: 'open', resolution: 'range-quote' })
 
     const historyBefore = createWritingDocument('甲。\n\n乙。')
     const historyAfter = structuredClone(historyBefore)
@@ -613,6 +1421,617 @@ describe('PromptBuilder', () => {
     expect(historyEntries).toHaveLength(1)
     localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
     localStorage.removeItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS)
+
+    // F2-6 校对：合法中文嵌套引号和段首全角缩进不能被本地扫描误修；
+    // 相邻窗口的重叠节点只能产生一个稳定 finding，批量采用保持单事务且
+    // 在范围相交或来源 revision 变化时 fail closed。
+    const reviewDocument = createWritingDocument([
+      '　　“她说：‘回来。’”',
+      '这里这里。。',
+      '第三段正常。',
+      '第四段正常。'
+    ].join('\n\n'))
+    const reviewSession = createAuthoringReviewSession({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'review-chapter',
+      chapterId: 'review-chapter',
+      documentRevision: reviewDocument.revision,
+      document: reviewDocument,
+      maxNodesPerWindow: 2,
+      windowOverlap: 1
+    })
+    expect(reviewSession).toBeTruthy()
+    expect(reviewSession.windows).toHaveLength(3)
+    expect(reviewSession.windows[1].blocks[0].nodeId)
+      .toBe(reviewSession.windows[0].blocks.at(-1).nodeId)
+    expect(inspectChineseQuoteNesting('“她说：‘回来。’”')).toEqual({ valid: true, reason: '' })
+    expect(inspectChineseQuoteNesting('“她说：“回来。””')).toMatchObject({
+      valid: false,
+      reason: 'noncanonical-opening-quote'
+    })
+    expect(validateWritingReviewReplacement({
+      nodeText: '　　“她说：‘回来。’”',
+      startOffset: 0,
+      endOffset: 2,
+      exact: '　　',
+      replacement: ''
+    })).toMatchObject({ valid: false, reason: 'first-line-indent-changed' })
+    const localReviewFindings = collectLocalAuthoringProofingFindings(reviewSession)
+    const protectedQuoteNodeId = reviewSession.windows[0].blocks[0].nodeId
+    expect(localReviewFindings.some((finding) => finding.target.nodeId === protectedQuoteNodeId)).toBe(false)
+    expect(localReviewFindings.map((finding) => finding.issueType)).toEqual(
+      expect.arrayContaining(['punctuation', 'repetition'])
+    )
+
+    const worldbookReviewDocument = createWritingDocument('艾德加沿着雨街走向钟楼。')
+    const worldbookReviewSession = createAuthoringReviewSession({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'worldbook-review-chapter',
+      chapterId: 'worldbook-review-chapter',
+      documentRevision: worldbookReviewDocument.revision,
+      document: worldbookReviewDocument,
+      sceneProjection: {
+        projectionFingerprint: 'scene-review-1',
+        presentCharacters: [{ id: 'scene-forced', name: '场内角色' }]
+      },
+      worldbookEntries: [
+        {
+          id: 'matched-edgar',
+          name: '艾德加',
+          keys: ['艾德加'],
+          content: '艾德加是旧港档案员。'
+        },
+        {
+          id: 'scene-forced',
+          name: '场内角色',
+          keys: ['正文没有这个触发词'],
+          content: '此人已经精确进入当前场。',
+          revision: 3
+        },
+        {
+          id: 'unrelated-lore',
+          name: '无关沙海',
+          keys: ['沙海'],
+          content: '远方沙海与当前正文无关。'
+        },
+        {
+          id: 'disabled-edgar',
+          name: '停用艾德加',
+          keys: ['艾德加'],
+          content: '停用条目不得进入校对证据。',
+          enabled: false
+        }
+      ]
+    })
+    const selectedReviewWorldbookRefs = worldbookReviewSession.evidence
+      .filter((entry) => entry.kind === 'worldbook')
+      .map((entry) => entry.sourceRef)
+    expect(selectedReviewWorldbookRefs).toHaveLength(2)
+    expect(selectedReviewWorldbookRefs).toEqual(expect.arrayContaining([
+      'worldbook-entry:matched-edgar',
+      'worldbook-entry:scene-forced'
+    ]))
+    expect(selectedReviewWorldbookRefs).not.toEqual(expect.arrayContaining([
+      'worldbook-entry:unrelated-lore',
+      'worldbook-entry:disabled-edgar'
+    ]))
+    const changedUndeclaredWorldbookEntry = {
+      id: 'matched-edgar',
+      name: '艾德加',
+      keys: ['艾德加'],
+      content: '艾德加的档案内容已经变化。'
+    }
+    expect(worldbookReviewSession.sourceRevisions['worldbook-entry:matched-edgar']).toMatch(/^authoring-review-worldbook-/)
+    expect(assessAuthoringReviewFreshness(worldbookReviewSession, {
+      positionIndex: worldbookReviewSession.positionIndex,
+      sourceRevisions: {
+        ...worldbookReviewSession.sourceRevisions,
+        'worldbook-entry:matched-edgar': getAuthoringReviewWorldbookRevision(changedUndeclaredWorldbookEntry)
+      }
+    })).toMatchObject({
+      fresh: false,
+      stale: true,
+      reason: 'source-revision-changed:worldbook-entry:matched-edgar'
+    })
+
+    const scopedReviewDocument = createWritingDocument([
+      '第一段提到港区通行令。',
+      '第二段记录守门人的动作。',
+      '第三段转向雨中的长街。',
+      '目标场里的人物停在钟楼下。',
+      '第五段继续追踪脚印。',
+      '第六段收起旧地图。',
+      '尾声回到无人码头。'
+    ].join('\n\n'))
+    const scopedReviewUnitId = scopedReviewDocument.content[1].attrs.unitId
+    const scopedReviewSession = createAuthoringReviewSession({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'scoped-review-chapter',
+      chapterId: 'scoped-review-chapter',
+      documentRevision: scopedReviewDocument.revision,
+      document: scopedReviewDocument,
+      unitId: scopedReviewUnitId,
+      maxNodesPerWindow: 1,
+      windowOverlap: 0,
+      sceneProjection: {
+        projectionFingerprint: 'scene-scoped-r1',
+        presentCharacters: [{ id: 'scene-scoped-character', name: '场内角色' }]
+      },
+      worldbookEntries: [{
+        id: 'scene-scoped-character',
+        name: '场内角色',
+        keys: ['正文未出现的场景专属触发词'],
+        content: '场内角色只约束当前目标写作单元。'
+      }, {
+        id: 'matched-permit',
+        name: '港区通行令',
+        keys: ['通行令'],
+        content: '港区通行令是全章可核对的相关设定。'
+      }]
+    })
+    const scopedReviewBatches = scopedReviewSession.windows.map((window) => (
+      createAuthoringReviewBatchContext(scopedReviewSession, window.id)
+    ))
+    expect(scopedReviewBatches.some((batch) => (
+      !batch.reviewBlocks.some((block) => block.unitId === scopedReviewUnitId)
+    ))).toBe(true)
+    for (const batch of scopedReviewBatches) {
+      const containsTargetUnit = batch.reviewBlocks.some((block) => block.unitId === scopedReviewUnitId)
+      const evidenceRefs = batch.evidence.map((entry) => entry.sourceRef)
+      expect(evidenceRefs).toContain('worldbook-entry:matched-permit')
+      if (containsTargetUnit) {
+        expect(evidenceRefs).toEqual(expect.arrayContaining([
+          `scene-projection:scoped-review-chapter:${scopedReviewUnitId}`,
+          'worldbook-entry:scene-scoped-character'
+        ]))
+      } else {
+        expect(evidenceRefs).not.toContain(`scene-projection:scoped-review-chapter:${scopedReviewUnitId}`)
+        expect(evidenceRefs).not.toContain('worldbook-entry:scene-scoped-character')
+      }
+      expect(batch.allowedEvidenceRefs).toEqual(expect.arrayContaining([
+        ...batch.reviewBlocks.flatMap((block) => block.sourceRefs),
+        ...evidenceRefs
+      ]))
+    }
+
+    const cappedWorldbookReviewSession = createAuthoringReviewSession({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'capped-worldbook-review-chapter',
+      chapterId: 'capped-worldbook-review-chapter',
+      documentRevision: worldbookReviewDocument.revision,
+      document: worldbookReviewDocument,
+      worldbookEntries: Array.from({ length: 25 }, (_, index) => ({
+        id: `constant-review-${String(index + 1).padStart(2, '0')}`,
+        name: `常驻校对条目 ${String(index + 1).padStart(2, '0')}`,
+        content: '常'.repeat(700),
+        injection: { mode: 'constant' }
+      }))
+    })
+    const cappedReviewWorldbookEvidence = cappedWorldbookReviewSession.evidence
+      .filter((entry) => entry.kind === 'worldbook')
+    expect(cappedReviewWorldbookEvidence).toHaveLength(18)
+    expect(cappedReviewWorldbookEvidence.reduce((total, entry) => total + entry.text.length, 0)).toBe(12000)
+    expect(cappedReviewWorldbookEvidence.every((entry) => entry.text.length <= 1200)).toBe(true)
+    expect(cappedReviewWorldbookEvidence.some((entry) => entry.text.length < 700)).toBe(true)
+
+    const overlapBlock = reviewSession.windows[0].blocks.at(-1)
+    const repeatedWindowFinding = {
+      issueType: 'typo',
+      reason: '重叠窗口只保留一次',
+      target: {
+        nodeId: overlapBlock.nodeId,
+        startOffset: 0,
+        endOffset: 2,
+        exact: overlapBlock.text.slice(0, 2)
+      },
+      replacement: '此处'
+    }
+    const mergedWindowReview = mergeAuthoringReviewFindings(reviewSession, [
+      { windowId: reviewSession.windows[0].id, findings: [repeatedWindowFinding] },
+      { windowId: reviewSession.windows[1].id, findings: [repeatedWindowFinding] }
+    ])
+    expect(mergedWindowReview.findings.filter((finding) => finding.reason === '重叠窗口只保留一次'))
+      .toHaveLength(1)
+
+    const transactionDocument = createWritingDocument('第一段正常。\n\n错字甲和错字乙。\n\n第三段正常。')
+    let transactionSession = createAuthoringReviewSession({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'transaction-chapter',
+      chapterId: 'transaction-chapter',
+      documentRevision: transactionDocument.revision,
+      document: transactionDocument,
+      maxNodesPerWindow: 3,
+      windowOverlap: 1
+    })
+    const transactionWindow = transactionSession.windows[0]
+    const transactionBlock = transactionWindow.blocks[1]
+    const consistencyTarget = {
+      nodeId: transactionBlock.nodeId,
+      startOffset: 0,
+      endOffset: 3,
+      exact: '错字甲'
+    }
+    const consistencyNormalizationOptions = {
+      blocks: transactionWindow.blocks,
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'transaction-chapter',
+      chapterId: 'transaction-chapter',
+      documentRevision: transactionDocument.revision,
+      allowedEvidenceRefs: [
+        ...transactionBlock.sourceRefs,
+        'worldbook-entry:canonical-name',
+        'scene-projection:transaction-chapter:current'
+      ]
+    }
+    for (const issueType of ['naming', 'time', 'number', 'scene-conflict']) {
+      expect(normalizeWritingReviewFindings([{
+        issueType,
+        reason: `${issueType} 需要外部事实证据`,
+        target: consistencyTarget,
+        evidenceRefs: []
+      }], consistencyNormalizationOptions), issueType).toEqual([])
+    }
+    expect(normalizeWritingReviewFindings([{
+      issueType: 'naming',
+      reason: '目标自身引用不能证明称谓冲突',
+      target: consistencyTarget,
+      evidenceRefs: transactionBlock.sourceRefs
+    }], consistencyNormalizationOptions)).toEqual([])
+    expect(normalizeWritingReviewFindings([{
+      issueType: 'time',
+      reason: '未授权事实引用必须先被过滤',
+      target: consistencyTarget,
+      evidenceRefs: ['worldbook-entry:not-authorized']
+    }], consistencyNormalizationOptions)).toEqual([])
+    expect(normalizeWritingReviewFindings([{
+      issueType: 'naming',
+      reason: '世界书可以证明称谓冲突',
+      target: consistencyTarget,
+      evidenceRefs: [...transactionBlock.sourceRefs, 'worldbook-entry:canonical-name']
+    }], consistencyNormalizationOptions)).toMatchObject([{
+      kind: 'consistency',
+      issueType: 'naming',
+      evidenceRefs: expect.arrayContaining(['worldbook-entry:canonical-name'])
+    }])
+    expect(normalizeWritingReviewFindings([{
+      issueType: 'scene-conflict',
+      reason: '当前场投影可以证明现场冲突',
+      target: consistencyTarget,
+      evidenceRefs: ['scene-projection:transaction-chapter:current']
+    }], consistencyNormalizationOptions)).toMatchObject([{
+      kind: 'consistency',
+      issueType: 'scene-conflict',
+      evidenceRefs: ['scene-projection:transaction-chapter:current']
+    }])
+    expect(normalizeWritingReviewFindings([{
+      issueType: 'typo',
+      reason: '纯校对问题不依赖外部事实',
+      target: consistencyTarget,
+      evidenceRefs: []
+    }], consistencyNormalizationOptions)).toMatchObject([{
+      kind: 'proofing',
+      issueType: 'typo',
+      evidenceRefs: []
+    }])
+    transactionSession = mergeAuthoringReviewFindings(transactionSession, [{
+      windowId: transactionWindow.id,
+      findings: [
+        {
+          issueType: 'typo',
+          reason: '第一处错字',
+          target: { nodeId: transactionBlock.nodeId, startOffset: 0, endOffset: 3, exact: '错字甲' },
+          replacement: '正甲'
+        },
+        {
+          issueType: 'grammar',
+          reason: '相交范围',
+          target: { nodeId: transactionBlock.nodeId, startOffset: 2, endOffset: 5, exact: '甲和错' },
+          replacement: '甲并正'
+        },
+        {
+          issueType: 'typo',
+          reason: '第二处错字',
+          target: { nodeId: transactionBlock.nodeId, startOffset: 4, endOffset: 7, exact: '错字乙' },
+          replacement: '正字乙'
+        }
+      ]
+    }])
+    const reviewFindingId = (reason) => transactionSession.findings.find((finding) => finding.reason === reason)?.id
+    const liveReviewSource = (document) => ({
+      projectId: 'review-book',
+      documentRole: 'manuscript',
+      documentId: 'transaction-chapter',
+      chapterId: 'transaction-chapter',
+      documentRevision: document.revision,
+      document
+    })
+    const reviewTransaction = prepareAuthoringReviewTransaction(transactionSession, [
+      reviewFindingId('第一处错字'),
+      reviewFindingId('第二处错字')
+    ], liveReviewSource(transactionDocument))
+    expect(reviewTransaction).toMatchObject({
+      ok: true,
+      patches: [{ replacement: '正甲' }, { replacement: '正字乙' }],
+      receipt: {
+        type: 'authoring-review-transaction',
+        findingIds: [reviewFindingId('第一处错字'), reviewFindingId('第二处错字')]
+      }
+    })
+    expect(prepareAuthoringReviewTransaction(transactionSession, [
+      reviewFindingId('第一处错字'),
+      reviewFindingId('相交范围')
+    ], liveReviewSource(transactionDocument))).toMatchObject({
+      ok: false,
+      reason: 'finding-ranges-overlap'
+    })
+    const firstReviewTransaction = prepareAuthoringReviewTransaction(transactionSession, [
+      reviewFindingId('第一处错字')
+    ], liveReviewSource(transactionDocument))
+    const firstReviewApplied = applyWritingDocumentTextPatches(
+      transactionDocument,
+      firstReviewTransaction.patches,
+      { now: '2026-09-02T09:00:00.000Z' }
+    )
+    expect(firstReviewApplied.ok).toBe(true)
+    const rebasedReviewSession = rebaseAuthoringReviewSessionAfterTransaction(
+      markAuthoringReviewFindingsApplied(transactionSession, firstReviewTransaction.receipt.findingIds),
+      firstReviewTransaction,
+      liveReviewSource(firstReviewApplied.document)
+    )
+    expect(rebasedReviewSession).toMatchObject({ status: 'ready' })
+    expect(rebasedReviewSession.findings.find((finding) => finding.reason === '第一处错字')).toMatchObject({ status: 'applied' })
+    expect(rebasedReviewSession.findings.find((finding) => finding.reason === '相交范围')).toMatchObject({ status: 'stale' })
+    expect(rebasedReviewSession.findings.find((finding) => finding.reason === '第二处错字')).toMatchObject({
+      status: 'open',
+      target: { startOffset: 3, endOffset: 6, exact: '错字乙' }
+    })
+    expect(prepareAuthoringReviewTransaction(rebasedReviewSession, [
+      reviewFindingId('第二处错字')
+    ], liveReviewSource(firstReviewApplied.document))).toMatchObject({ ok: true })
+    const staleReviewDocument = structuredClone(transactionDocument)
+    staleReviewDocument.revision += 1
+    expect(prepareAuthoringReviewTransaction(transactionSession, [
+      reviewFindingId('第一处错字')
+    ], liveReviewSource(staleReviewDocument))).toMatchObject({
+      ok: false,
+      reason: 'session-stale'
+    })
+
+    // F2-6 统一搜索：四个作者可见范围共用稳定 locator；只有正文允许
+    // 替换，全书替换先冻结完整影响计划，再以纯函数一次生成整本 nextBook。
+    const searchChapterOneDocument = createWritingDocument('旧名守在门口。')
+    const searchChapterTwoDocument = createWritingDocument('旧名走过长街。\n\n钟声后旧名回头。')
+    const searchBook = {
+      id: 'search-book',
+      name: '搜索验收书',
+      worldbookId: 'search-worldbook',
+      chapters: [
+        {
+          id: 'search-chapter-1',
+          title: '第一章',
+          content: getWritingDocumentMarkdown(searchChapterOneDocument),
+          contentFormat: 'md',
+          editorDocument: searchChapterOneDocument
+        },
+        {
+          id: 'search-chapter-2',
+          title: '第二章',
+          content: getWritingDocumentMarkdown(searchChapterTwoDocument),
+          contentFormat: 'md',
+          editorDocument: searchChapterTwoDocument
+        }
+      ]
+    }
+    const searchExplorations = [{
+      id: 'search-idea-1',
+      projectId: 'search-book',
+      title: '构思索引',
+      content: '构思词藏在纸边。',
+      editorDocument: createWritingDocument('构思词藏在纸边。')
+    }]
+    const searchWorldbook = {
+      id: 'search-worldbook',
+      entries: [{ id: 'search-entry-1', name: '旧港', type: 'location', content: '世界词藏在灯塔背面。' }]
+    }
+    const searchIndex = buildAuthoringProjectSearchIndex({
+      projectId: 'search-book',
+      book: searchBook,
+      explorations: searchExplorations,
+      worldbook: searchWorldbook
+    })
+    expect(searchIndex).toMatchObject({ ok: true, projectId: 'search-book' })
+    const currentChapterSearch = searchAuthoringPositionIndex(searchIndex, {
+      query: '旧名',
+      scope: 'current-chapter',
+      currentChapterId: 'search-chapter-1'
+    })
+    const manuscriptSearch = searchAuthoringPositionIndex(searchIndex, {
+      query: '旧名',
+      scope: 'manuscript'
+    })
+    const explorationSearch = searchAuthoringPositionIndex(searchIndex, {
+      query: '构思词',
+      scope: 'exploration'
+    })
+    const worldbookSearch = searchAuthoringPositionIndex(searchIndex, {
+      query: '世界词',
+      scope: 'worldbook'
+    })
+    expect(currentChapterSearch).toMatchObject({ ok: true, total: 1, truncated: false })
+    expect(manuscriptSearch).toMatchObject({ ok: true, total: 3, truncated: false })
+    expect(explorationSearch).toMatchObject({ ok: true, total: 1, truncated: false })
+    expect(worldbookSearch).toMatchObject({ ok: true, total: 1, truncated: false })
+    expect(manuscriptSearch.findings.every((finding) => (
+      finding.target.unitId && finding.target.nodeId && finding.target.sourceRevision
+    ))).toBe(true)
+    expect(explorationSearch.findings.every((finding) => finding.target.sourceKind === 'exploration')).toBe(true)
+    expect(worldbookSearch.findings.every((finding) => finding.target.sourceKind === 'worldbook-entry')).toBe(true)
+    expect(reconcileAuthoringSearchFinding(searchIndex, manuscriptSearch.findings[0]))
+      .toMatchObject({ fresh: true, reason: 'fresh' })
+    expect(createAuthoringReplacePlan({
+      index: searchIndex,
+      query: '构思词',
+      replacement: '新构思',
+      scope: 'exploration'
+    })).toMatchObject({ ok: false, reason: 'replace-scope-read-only' })
+    expect(createAuthoringReplacePlan({
+      index: searchIndex,
+      query: '旧名',
+      replacement: '新名',
+      scope: 'manuscript',
+      findings: manuscriptSearch.findings,
+      expectedTotal: manuscriptSearch.total - 1
+    })).toMatchObject({ ok: false, reason: 'replace-preview-incomplete' })
+
+    const replacePlanResult = createAuthoringReplacePlan({
+      index: searchIndex,
+      query: '旧名',
+      replacement: '新名',
+      scope: 'manuscript',
+      findings: manuscriptSearch.findings,
+      expectedTotal: manuscriptSearch.total
+    })
+    expect(replacePlanResult).toMatchObject({
+      ok: true,
+      plan: { chapterCount: 2, matchCount: 3, query: '旧名', replacement: '新名' }
+    })
+    const unchangedSearchBook = structuredClone(searchBook)
+    const appliedSearchReplace = applyAuthoringReplacePlan({
+      book: searchBook,
+      index: searchIndex,
+      plan: replacePlanResult.plan,
+      now: '2026-09-02T08:00:00.000Z'
+    })
+    expect(appliedSearchReplace).toMatchObject({
+      ok: true,
+      receipt: { chapterCount: 2, matchCount: 3 }
+    })
+    expect(searchBook).toEqual(unchangedSearchBook)
+    expect(appliedSearchReplace.nextBook.chapters.map((chapter) => chapter.content.join?.('') || chapter.content))
+      .toEqual([expect.stringContaining('新名'), expect.stringContaining('新名')])
+    expect(appliedSearchReplace.nextBook.chapters.some((chapter) => chapter.content.includes('旧名'))).toBe(false)
+
+    const changedSearchBook = structuredClone(searchBook)
+    changedSearchBook.chapters[0].editorDocument.content[0].content[0].content[0].text = '别名守在门口。'
+    const changedSearchIndex = buildAuthoringProjectSearchIndex({
+      projectId: 'search-book',
+      book: changedSearchBook,
+      explorations: searchExplorations,
+      worldbook: searchWorldbook
+    })
+    expect(reconcileAuthoringSearchFinding(changedSearchIndex, manuscriptSearch.findings[0]))
+      .toMatchObject({ fresh: false, reason: 'source-revision-changed' })
+    const staleReplaceBook = structuredClone(searchBook)
+    staleReplaceBook.chapters[1].editorDocument.revision += 1
+    const staleReplaceBookBefore = structuredClone(staleReplaceBook)
+    expect(applyAuthoringReplacePlan({
+      book: staleReplaceBook,
+      index: searchIndex,
+      plan: replacePlanResult.plan,
+      now: '2026-09-02T08:01:00.000Z'
+    })).toMatchObject({ ok: false, reason: 'replace-plan-stale' })
+    expect(staleReplaceBook).toEqual(staleReplaceBookBefore)
+
+    // F2-6 自动历史：只有成功持久化且 revision/字数真正跨区间才写一份；
+    // 同一计划、回删和同 revision 不重复，介入前保护版本仍复用同一快照库。
+    localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+    localStorage.removeItem(STORAGE_KEYS.WRITING_HISTORY_PREFERENCES)
+    expect(normalizeWritingHistoryPreferences({ enabled: false, intervalWords: 1000 })).toEqual({
+      schemaVersion: 1,
+      enabled: false,
+      intervalWords: 1000
+    })
+    const milestoneBeforeDocument = createWritingDocument('甲'.repeat(499))
+    const milestoneAfterDocument = createWritingDocument('甲'.repeat(1001))
+    milestoneAfterDocument.revision = milestoneBeforeDocument.revision + 1
+    const milestonePlan = planWritingMilestoneSnapshot({
+      persisted: true,
+      chapterId: 'milestone-chapter',
+      chapterTitle: '里程碑章',
+      previousDocument: milestoneBeforeDocument,
+      previousMarkdown: getWritingDocumentMarkdown(milestoneBeforeDocument),
+      persistedDocument: milestoneAfterDocument,
+      persistedMarkdown: getWritingDocumentMarkdown(milestoneAfterDocument),
+      preferences: { enabled: true, intervalWords: 500 },
+      snapshots: [],
+      createdAt: '2026-09-02T09:00:00.000Z'
+    })
+    expect(milestonePlan).toMatchObject({
+      shouldRecord: true,
+      reason: 'word-milestone',
+      crossedBoundaries: [500, 1000]
+    })
+    expect(recordWritingMilestoneSnapshot(milestonePlan)).toMatchObject({ ok: true, recorded: true })
+    expect(recordWritingMilestoneSnapshot(milestonePlan)).toMatchObject({
+      ok: true,
+      recorded: false,
+      reason: 'persisted-revision-already-snapshotted'
+    })
+    expect(listWritingSnapshots('milestone-chapter')).toHaveLength(1)
+    expect(listWritingSnapshots('milestone-chapter')[0]).toMatchObject({
+      reason: 'word-milestone',
+      milestone: { crossedBoundaries: [500, 1000], coveredBoundaries: [500, 1000] }
+    })
+    expect(planWritingMilestoneSnapshot({
+      persisted: false,
+      chapterId: 'milestone-chapter',
+      previousDocument: milestoneBeforeDocument,
+      persistedDocument: milestoneAfterDocument,
+      preferences: { enabled: true, intervalWords: 500 }
+    })).toMatchObject({ shouldRecord: false, reason: 'not-persisted' })
+    expect(planWritingMilestoneSnapshot({
+      persisted: true,
+      chapterId: 'milestone-chapter',
+      previousDocument: milestoneAfterDocument,
+      previousMarkdown: getWritingDocumentMarkdown(milestoneAfterDocument),
+      persistedDocument: milestoneAfterDocument,
+      persistedMarkdown: getWritingDocumentMarkdown(milestoneAfterDocument),
+      preferences: { enabled: true, intervalWords: 500 }
+    })).toMatchObject({ shouldRecord: false, reason: 'revision-not-advanced' })
+    const milestoneReducedDocument = createWritingDocument('甲'.repeat(400))
+    milestoneReducedDocument.revision = milestoneAfterDocument.revision + 1
+    expect(planWritingMilestoneSnapshot({
+      persisted: true,
+      chapterId: 'milestone-chapter',
+      previousDocument: milestoneAfterDocument,
+      previousMarkdown: getWritingDocumentMarkdown(milestoneAfterDocument),
+      persistedDocument: milestoneReducedDocument,
+      persistedMarkdown: getWritingDocumentMarkdown(milestoneReducedDocument),
+      preferences: { enabled: true, intervalWords: 500 }
+    })).toMatchObject({ shouldRecord: false, reason: 'word-count-decreased' })
+    const protectionSnapshotInput = {
+      chapterId: 'milestone-chapter',
+      chapterTitle: '里程碑章',
+      reason: 'before-adoption',
+      document: milestoneAfterDocument,
+      markdown: getWritingDocumentMarkdown(milestoneAfterDocument),
+      operation: 'ghost-adoption',
+      transactionId: 'adoption-transaction-1',
+      createdAt: '2026-09-02T09:01:00.000Z'
+    }
+    expect(recordWritingProtectionSnapshot(protectionSnapshotInput)).toMatchObject({ ok: true, recorded: true })
+    expect(recordWritingProtectionSnapshot(protectionSnapshotInput)).toMatchObject({
+      ok: true,
+      recorded: false,
+      reason: 'protection-already-recorded'
+    })
+    expect(recordWritingProtectionSnapshot({
+      ...protectionSnapshotInput,
+      reason: 'before-restore',
+      operation: 'history-restore',
+      transactionId: 'restore-transaction-1',
+      createdAt: '2026-09-02T09:02:00.000Z'
+    })).toMatchObject({ ok: true, recorded: true })
+    expect(listWritingSnapshots('milestone-chapter').map((item) => item.reason))
+      .toEqual(expect.arrayContaining(['word-milestone', 'before-adoption', 'before-restore']))
+    localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+    localStorage.removeItem(STORAGE_KEYS.WRITING_HISTORY_PREFERENCES)
 
     const importInput = {
       books: [{ id: 'book-1', name: '长篇', chapters: [{ id: 'chapter-1', title: '第一章', content: '旧文。', contentFormat: 'md' }] }],
@@ -1219,6 +2638,7 @@ describe('Media services', () => {
       responsePath: 'result.images.0'
     }
 
+    const generationController = new AbortController()
     const image = await generateImage(config, {
       prompt: '雨夜 "街角"',
       negativePrompt: '模糊',
@@ -1227,12 +2647,14 @@ describe('Media services', () => {
       count: 1,
       referenceImages: [{ id: 'ref-1', data: 'data:image/png;base64,YWJj' }],
       referenceStrength: 0.7,
+      signal: generationController.signal,
       fetchImpl
     })
     const request = fetchImpl.mock.calls[0]
     const body = JSON.parse(request[1].body)
 
     expect(request[0]).toBe('https://images.example/generate')
+    expect(request[1].signal).toBe(generationController.signal)
     expect(request[1].headers.Authorization).toBe('Bearer secret')
     expect(body).toEqual({
       prompt: '雨夜 "街角"',
@@ -1244,6 +2666,32 @@ describe('Media services', () => {
       strength: 0.7
     })
     expect(image).toBe('data:image/png;base64,abc')
+
+    const alreadyCancelled = new AbortController()
+    const cancelledFetch = vi.fn()
+    alreadyCancelled.abort()
+    await expect(generateImage(config, {
+      prompt: '不会发出的请求',
+      signal: alreadyCancelled.signal,
+      fetchImpl: cancelledFetch
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(cancelledFetch).not.toHaveBeenCalled()
+
+    const lateController = new AbortController()
+    let resolveLatePayload
+    const lateFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => new Promise((resolve) => { resolveLatePayload = resolve })
+    })
+    const lateGeneration = generateImage(config, {
+      prompt: '取消后的迟到结果',
+      signal: lateController.signal,
+      fetchImpl: lateFetch
+    })
+    await vi.waitFor(() => expect(resolveLatePayload).toBeTypeOf('function'))
+    lateController.abort()
+    resolveLatePayload({ result: { images: ['data:image/png;base64,bGF0ZQ=='] } })
+    await expect(lateGeneration).rejects.toMatchObject({ name: 'AbortError' })
 
     const connection = await testImageProviderConnection(config, { fetchImpl })
     expect(connection).toMatchObject({ ok: true, reachable: true, authenticated: true, status: 200 })
@@ -1378,6 +2826,30 @@ describe('Media services', () => {
       get: async (id) => blobs.get(id) || null,
       delete: async (id) => blobs.delete(id)
     }
+    const cancelledArchiveKey = 'integration-cancelled-image-library'
+    const archiveController = new AbortController()
+    const ignoringAbortBinaryStore = {
+      put: async (id, blob) => {
+        blobs.set(id, blob)
+        archiveController.abort()
+      },
+      get: binaryStore.get,
+      delete: binaryStore.delete
+    }
+    await expect(addGeneratedImageToLibrary(cancelledArchiveKey, {
+      id: 'cancelled-image',
+      prompt: '取消后不能归档',
+      data: 'data:image/png;base64,Y2FuY2VsbGVk'
+    }, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      binaryStore: ignoringAbortBinaryStore,
+      signal: archiveController.signal
+    })).rejects.toMatchObject({ name: 'AbortError' })
+    expect(JSON.parse(localStorage.getItem(cancelledArchiveKey) || '[]')).toEqual([])
+    expect(listMediaAssets({ projectId: 'book-1' })).toEqual([])
+    expect(blobs.size).toBe(0)
+
     const media = await saveMediaAsset({
       id: 'media-1',
       projectId: 'book-1',
@@ -1400,6 +2872,209 @@ describe('Media services', () => {
     expect(storedMetadata).not.toContain('YWJj')
     expect(listMediaAssets({ projectId: 'book-1' })).toHaveLength(1)
     expect(await resolved.blob.text()).toBe('abc')
+
+    const authoringLibraryKey = 'integration-authoring-image-library'
+    localStorage.removeItem(authoringLibraryKey)
+    const generatedAuthoringImage = await addGeneratedImageToLibrary(authoringLibraryKey, {
+      id: 'authoring-image-1',
+      prompt: '艾德加站在雨夜街口',
+      providerPrompt: '艾德加站在雨夜街口\n人物：艾德加（黑色长外套）',
+      promptSupplement: '人物：艾德加（黑色长外套）',
+      mode: 'illustration',
+      modelType: 'http',
+      modelId: 'image-model-1',
+      generationJobId: 'image-job-1',
+      generationSessionId: 'visual-session-1',
+      contextFingerprint: 'visual-fingerprint-1',
+      contextKey: 'chapter-1:unit-2',
+      generationContext: {
+        sessionId: 'visual-session-1',
+        authoringVisualBrief: { kind: 'authoring-visual-brief', prompt: '艾德加站在雨夜街口' }
+      },
+      authoringVisualBrief: { kind: 'authoring-visual-brief', prompt: '艾德加站在雨夜街口' },
+      sourceRevisions: { 'chapter:chapter-1': 'revision-7' },
+      data: 'data:image/png;base64,YXV0aG9yaW5n'
+    }, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      sourceRefs: [{ refType: 'chapter', refId: 'chapter-1', projectId: 'book-1', version: 'revision-7' }],
+      binaryStore
+    })
+    const hydratedAuthoringImages = await loadGeneratedImageLibrary(authoringLibraryKey, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      binaryStore
+    })
+    expect(generatedAuthoringImage).toMatchObject({
+      generationJobId: 'image-job-1',
+      generationSessionId: 'visual-session-1',
+      contextFingerprint: 'visual-fingerprint-1',
+      sourceRevisions: { 'chapter:chapter-1': 'revision-7' },
+      generationContext: {
+        authoringVisualBrief: { kind: 'authoring-visual-brief' }
+      }
+    })
+    expect(hydratedAuthoringImages[0]).toMatchObject({
+      providerPrompt: '艾德加站在雨夜街口\n人物：艾德加（黑色长外套）',
+      promptSupplement: '人物：艾德加（黑色长外套）',
+      mode: 'illustration',
+      authoringVisualBrief: { kind: 'authoring-visual-brief' },
+      generationSessionId: 'visual-session-1',
+      contextFingerprint: 'visual-fingerprint-1',
+      sourceRevisions: { 'chapter:chapter-1': 'revision-7' }
+    })
+    expect(localStorage.getItem(authoringLibraryKey)).not.toContain('YXV0aG9yaW5n')
+    let releaseLibraryRead
+    const delayedBinaryStore = {
+      ...binaryStore,
+      get: (id) => new Promise((resolve) => {
+        releaseLibraryRead = () => resolve(blobs.get(id) || null)
+      })
+    }
+    const delayedLibraryLoad = loadGeneratedImageLibrary(authoringLibraryKey, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      binaryStore: delayedBinaryStore
+    })
+    await vi.waitFor(() => expect(releaseLibraryRead).toBeTypeOf('function'))
+    let concurrentArchiveSettled = false
+    const concurrentArchive = addGeneratedImageToLibrary(authoringLibraryKey, {
+      id: 'authoring-image-during-load',
+      prompt: '加载期间生成的新图',
+      data: 'data:image/png;base64,bmV3LWltYWdl'
+    }, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      binaryStore
+    }).finally(() => { concurrentArchiveSettled = true })
+    await Promise.resolve()
+    expect(concurrentArchiveSettled).toBe(false)
+    releaseLibraryRead()
+    await delayedLibraryLoad
+    const concurrentlyArchivedImage = await concurrentArchive
+    expect(JSON.parse(localStorage.getItem(authoringLibraryKey))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'authoring-image-1' }),
+      expect.objectContaining({ id: 'authoring-image-during-load' })
+    ]))
+    await Promise.all([
+      deleteMediaAsset(concurrentlyArchivedImage.mediaAssetId, { binaryStore }),
+      deleteMediaAsset(generatedAuthoringImage.mediaAssetId, { binaryStore })
+    ])
+    const mediaIdsAfterConcurrentDelete = listMediaAssets({ projectId: 'book-1' }).map((entry) => entry.id)
+    expect(mediaIdsAfterConcurrentDelete).not.toContain(concurrentlyArchivedImage.mediaAssetId)
+    expect(mediaIdsAfterConcurrentDelete).not.toContain(generatedAuthoringImage.mediaAssetId)
+
+    const legacyAuthoringLibraryKey = 'integration-legacy-authoring-image-library'
+    localStorage.setItem(legacyAuthoringLibraryKey, JSON.stringify([{
+      id: 'legacy-authoring-image',
+      prompt: '旧版画师结果',
+      data: 'data:image/png;base64,bGVnYWN5',
+      generationParams: {
+        generationContext: { sessionId: 'legacy-session' },
+        authoringVisualBrief: { kind: 'authoring-visual-brief', fingerprint: 'legacy-fingerprint' },
+        sessionId: 'legacy-session',
+        fingerprint: 'legacy-fingerprint',
+        sourceRevisions: { 'chapter:chapter-1': 'revision-3' }
+      }
+    }]))
+    const migratedLegacyAuthoringImages = await loadGeneratedImageLibrary(legacyAuthoringLibraryKey, {
+      projectId: 'book-1',
+      purpose: 'illustration',
+      binaryStore
+    })
+    expect(migratedLegacyAuthoringImages[0]).toMatchObject({
+      generationContext: { sessionId: 'legacy-session' },
+      authoringVisualBrief: { kind: 'authoring-visual-brief', fingerprint: 'legacy-fingerprint' },
+      generationSessionId: 'legacy-session',
+      contextFingerprint: 'legacy-fingerprint',
+      sourceRevisions: { 'chapter:chapter-1': 'revision-3' }
+    })
+    await deleteMediaAsset(migratedLegacyAuthoringImages[0].mediaAssetId, { binaryStore })
+
+    const workbenchLibraryKey = 'integration-image-workbench'
+    localStorage.setItem(workbenchLibraryKey, JSON.stringify([{
+      id: 'legacy-workbench-image',
+      prompt: '保留中的画面描述',
+      generationContext: { sessionId: 'workbench-session' },
+      data: 'data:image/png;base64,YWJj',
+      createdAt: new Date(0).toISOString()
+    }]))
+    const workbench = mount(ImageGenerationWorkbench, {
+      props: {
+        storageKey: workbenchLibraryKey,
+        layout: 'split',
+        mobilePane: 'results',
+        initialPrompt: '作者可见的画面描述',
+        promptSupplement: '人物：艾德加（黑色长外套）',
+        contextKey: 'workbench-context',
+        generationContext: {
+          sessionId: 'workbench-session',
+          fingerprint: 'workbench-fingerprint',
+          sourceRevisions: { 'chapter:chapter-1': 'revision-7' },
+          authoringVisualBrief: { kind: 'authoring-visual-brief', fingerprint: 'workbench-fingerprint' }
+        },
+        sourceRefs: [{ refType: 'chapter', refId: 'chapter-1', projectId: 'book-1', version: 'revision-7' }],
+        allowInsertImageToEditor: true,
+        actionGuard: () => ({ insertDisabled: true, insertReason: '来源已更新，不能插入' })
+      },
+      slots: { brief: () => h('p', { class: 'integration-brief' }, '冻结来源摘要') }
+    })
+    await flushPromises()
+    expect(workbench.classes()).toContain('media-generation-inline--split')
+    expect(workbench.attributes('data-mobile-pane')).toBe('results')
+    expect(workbench.get('.image-gen-prompt-input').element.value).toBe('作者可见的画面描述')
+    expect(workbench.get('.integration-brief').text()).toBe('冻结来源摘要')
+    expect(workbench.get('.image-gen-thumb').element.tagName).toBe('BUTTON')
+    expect(workbench.get('.image-preview-action-btn').attributes('disabled')).toBeDefined()
+    expect(workbench.get('.image-gen-action-reason').text()).toContain('来源已更新')
+    const materialButton = workbench.findAll('.image-preview-action-btn').at(-1)
+    await materialButton.trigger('click')
+    expect(workbench.emitted('save-to-material')?.[0]?.[0]).toMatchObject({
+      id: 'legacy-workbench-image',
+      generationContext: { sessionId: 'workbench-session' }
+    })
+    expect(workbench.find('.image-gen-current-preview').exists()).toBe(true)
+
+    const originalFetch = globalThis.fetch
+    let resolveLateWorkbenchFetch
+    const lateWorkbenchFetch = vi.fn((_url, init) => new Promise((resolve) => {
+      resolveLateWorkbenchFetch = () => resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, image: 'data:image/png;base64,bGF0ZS13b3JrYmVuY2g=' })
+      })
+      expect(init.signal).toBeInstanceOf(AbortSignal)
+    }))
+    globalThis.fetch = lateWorkbenchFetch
+    await workbench.get('.image-gen-generate-btn').trigger('click')
+    await vi.waitFor(() => expect(workbench.emitted('generation-start')).toHaveLength(1))
+    const frozenWorkbenchJob = workbench.emitted('generation-start')[0][0].job
+    expect(frozenWorkbenchJob).toMatchObject({
+      sessionId: 'workbench-session',
+      contextKey: 'workbench-context',
+      prompt: '作者可见的画面描述',
+      promptSupplement: '人物：艾德加（黑色长外套）',
+      providerPrompt: '作者可见的画面描述\n人物：艾德加（黑色长外套）',
+      count: 1,
+      sourceRevisions: { 'chapter:chapter-1': 'revision-7' }
+    })
+    expect(Object.isFrozen(frozenWorkbenchJob)).toBe(true)
+    expect(JSON.parse(lateWorkbenchFetch.mock.calls[0][1].body).prompt).toBe(frozenWorkbenchJob.providerPrompt)
+    await workbench.setProps({
+      contextKey: 'workbench-context-next',
+      initialPrompt: '新落笔处的画面描述'
+    })
+    expect(workbench.get('.image-gen-prompt-input').element.value).toBe('作者可见的画面描述')
+    await workbench.get('.image-gen-cancel-btn').trigger('click')
+    expect(workbench.get('.image-gen-prompt-input').element.value).toBe('新落笔处的画面描述')
+    expect(workbench.emitted('generation-cancel')).toHaveLength(1)
+    expect(lateWorkbenchFetch.mock.calls[0][1].signal.aborted).toBe(true)
+    resolveLateWorkbenchFetch()
+    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('未归档'))
+    expect(workbench.emitted('generation-complete')).toBeUndefined()
+    expect(localStorage.getItem(STORAGE_KEYS.MEDIA_ASSETS)).not.toContain(frozenWorkbenchJob.jobId)
+    globalThis.fetch = originalFetch
+    workbench.unmount()
 
     const parsedScript = parseComicScript(`\`\`\`json
       {"title":"雨夜来客","layout":"strip-4","pagePurpose":"旅人带来危险的秘密","pageTurnHook":"密信上的印记指向掌柜","continuityNotes":["雨势持续"],"visualBibleRefs":[{"kind":"location","refId":"tavern-1","note":"木质酒馆"}],"panels":[
@@ -2681,3 +4356,374 @@ describe('Settings agent dispatcher integration', () => {
     expect(aborted.error.code).toBe('AGENT_TASK_UNKNOWN'.replace('TASK_UNKNOWN', 'ABORTED'))
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 世界书地点地图合同（MapDocument v2）— 自 mapModelV2.test.js 并入（P1.5 Task 0，
+// 偿还测试文件预算；用例数不减，后续地图合同用例也追加在此宿主）。
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * MapDocument v2 / MapBinding v2 / placeIdentity / mapMigration 合同测试。
+ * P0 冻结合同的行为基线；含两本书/两世界书身份隔离用例（计划 §9.2）。
+ */
+
+
+
+import { generateMap } from '../services/world-map/engine/index.ts'
+import {
+  MAP_FIXTURES,
+  TWO_BOOK_IDENTITY_FIXTURE,
+  LEGACY_MAP_CONFIG_JSON_SAMPLE,
+} from '../services/world-map/testing/fixtures.ts'
+import {
+  validateMapDocumentV2,
+  emptyFeatureCollections,
+} from '../services/world-map/model/mapDocumentV2.ts'
+import { COLLECTION_BY_FEATURE_TYPE } from '../services/world-map/model/mapFeature.ts'
+import {
+  formatLegacyPlaceId,
+  parseLegacyPlaceId,
+  samePlaceIdentity,
+  identitySurvivesRemap,
+} from '../services/world-map/model/placeIdentity.ts'
+import {
+  parseLegacyMapConfig,
+  projectLegacyToMapDocumentV2,
+} from '../services/world-map/model/mapMigration.ts'
+import { computeConfigHash, assertUniqueFeatureIds } from '../services/world-map/generators/generatorContract.ts'
+import { mapWorkspaceTabKey, mockOpenMapIntentDispatcher } from '../services/world-map/integration/mapWorkspaceIntent.ts'
+
+function projectFixture(fixtureId) {
+  const data = generateMap({ ...MAP_FIXTURES[fixtureId].config })
+  return projectLegacyToMapDocumentV2(data, {
+    mapAssetId: `test-${fixtureId}`,
+    projectId: 'project-1',
+    worldbookId: 'wb-1',
+    revision: 1,
+    generatorVersion: 'test',
+    legacyMarkers: [
+      { id: 'mk-1', name: '青岚城', x: 100, y: 100, type: 'capital', importance: 1, worldbookId: 'wb-1' },
+    ],
+    legacyMapId: 'map-old-1',
+  })
+}
+
+describe('MapDocumentV2 schema', () => {
+  it('校验 legacy 投影、集合归属、唯一 id 与有限坐标', () => {
+    const { document } = projectFixture('archipelago')
+    const result = validateMapDocumentV2(document)
+    expect(result.errors).toEqual([])
+    expect(result.ok).toBe(true)
+    const featureCount = Object.values(document.featureCollections).reduce((s, l) => s + l.length, 0)
+    expect(featureCount).toBeLessThan(document.baseAsset.width * document.baseAsset.height)
+    expect(featureCount).toBeGreaterThan(0)
+    // 计划 §3.1：land 集合是聚合陆块，不逐 cell 复制。
+    expect(document.featureCollections.land.length).toBeLessThanOrEqual(document.featureCollections.settlements.length + 50)
+    // 拒绝重复 feature id 与放错集合的 feature。
+    const doc = {
+      schemaVersion: 2,
+      mapAssetId: 'm', projectId: 'p', worldbookId: 'w', revision: 1, seed: 's',
+      bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+      coordinateSystem: { kind: 'fictional-plane', yAxis: 'down', units: 'px' },
+      generator: { id: 'pinax-legacy', version: '1', configHash: 'h' },
+      baseAsset: { width: 10, height: 10 },
+      featureCollections: {
+        ...emptyFeatureCollections(),
+        land: [
+          { mapObjectId: 'dup', geometry: { type: 'point', coordinates: [1, 1] }, properties: { featureId: 'dup', featureType: 'landmass', mapRevision: 1, displayPriority: 1 } },
+        ],
+        rivers: [
+          // 同 id 跨集合重复
+          { mapObjectId: 'dup', geometry: { type: 'point', coordinates: [2, 2] }, properties: { featureId: 'dup', featureType: 'river', mapRevision: 1, displayPriority: 1 } },
+          // river 放进了 rivers（合法），下面放一个非法归属：landmass 放进 rivers
+          { mapObjectId: 'wrong', geometry: { type: 'point', coordinates: [3, 3] }, properties: { featureId: 'wrong', featureType: 'landmass', mapRevision: 1, displayPriority: 1 } },
+        ],
+      },
+      aliases: [], style: { styleId: 'atlas-clean' }, createdAt: 0, updatedAt: 0,
+    }
+    const invalidResult = validateMapDocumentV2(doc)
+    expect(invalidResult.ok).toBe(false)
+    expect(invalidResult.duplicateFeatureIds).toContain('dup')
+    expect(invalidResult.errors.some((e) => e.message.includes("belongs in 'land'"))).toBe(true)
+    // 拒绝非有限坐标与错误 schemaVersion。
+    const base = {
+      schemaVersion: 2,
+      mapAssetId: 'm', projectId: 'p', worldbookId: 'w', revision: 1, seed: 's',
+      bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+      coordinateSystem: { kind: 'fictional-plane', yAxis: 'down', units: 'px' },
+      generator: { id: 'pinax-legacy', version: '1', configHash: 'h' },
+      baseAsset: { width: 10, height: 10 },
+      featureCollections: emptyFeatureCollections(),
+      aliases: [], style: { styleId: 'atlas-clean' }, createdAt: 0, updatedAt: 0,
+    }
+    expect(validateMapDocumentV2({ ...base, schemaVersion: 1 }).ok).toBe(false)
+    const badCoord = {
+      ...base,
+      featureCollections: {
+        ...emptyFeatureCollections(),
+        settlements: [{ mapObjectId: 's1', geometry: { type: 'point', coordinates: [NaN, 1] }, properties: { featureId: 's1', featureType: 'settlement', mapRevision: 1, displayPriority: 1 } }],
+      },
+    }
+    expect(validateMapDocumentV2(badCoord).ok).toBe(false)
+    // featureType 与集合的固定归属
+    expect(COLLECTION_BY_FEATURE_TYPE['narrative-place']).toBe('narrativePlaces')
+  })
+})
+
+describe('placeIdentity 三层身份', () => {
+  it('兼容 legacy placeId，并保持稳定叙事身份与版本化空间投影分离', () => {
+    const id = formatLegacyPlaceId('wb-alpha', 'map-old-1', 'mk-1')
+    expect(id).toBe('place:wb-alpha:map-old-1:mk-1')
+    expect(parseLegacyPlaceId(id)).toEqual({ worldbookId: 'wb-alpha', mapId: 'map-old-1', siteId: 'mk-1' })
+    expect(parseLegacyPlaceId('not-a-place-id')).toBeNull()
+    expect(parseLegacyPlaceId('place:wb::site')).toBeNull()
+    // 身份比较不含地图版本；remap 允许换 mapObjectId 但不许换 mapAssetId。
+    const a = { worldbookId: 'wb-1', worldbookEntryId: 'e1' }
+    expect(samePlaceIdentity(a, { worldbookId: 'wb-1', worldbookEntryId: 'e1' })).toBe(true)
+    expect(samePlaceIdentity(a, { worldbookId: 'wb-2', worldbookEntryId: 'e1' })).toBe(false)
+    const before = { identity: a, object: { mapAssetId: 'm1', mapRevision: 3, mapObjectId: 'settlement:5' } }
+    // 合法 remap：同 asset，换 revision + 换 mapObjectId
+    expect(identitySurvivesRemap(before, { mapAssetId: 'm1', mapRevision: 4, mapObjectId: 'settlement:9' })).toBe(true)
+    // 非法：换了 mapAssetId（等于换了一张地图）
+    expect(identitySurvivesRemap(before, { mapAssetId: 'm2', mapRevision: 4, mapObjectId: 'settlement:9' })).toBe(false)
+    // 非法：revision 没变（不是 remap）
+    expect(identitySurvivesRemap(before, { mapAssetId: 'm1', mapRevision: 3, mapObjectId: 'settlement:9' })).toBe(false)
+  })
+})
+
+describe('legacy mapConfigJSON 迁移', () => {
+  it('解析各代配置并投影 legacy alias 与 narrative-place candidate', () => {
+    const parsed = parseLegacyMapConfig(LEGACY_MAP_CONFIG_JSON_SAMPLE)
+    expect(parsed.issues).toEqual([])
+    expect(parsed.recipe).toEqual(expect.objectContaining({ seed: 'legacy-seed-777' }))
+    expect(parsed.legacyMarkers).toHaveLength(2)
+    expect(parsed.legacyMarkers[0]).toMatchObject({ worldbookEntryId: 'ent-a1', bindingStatus: 'confirmed' })
+    expect(parsed.activeLegacyRevisionId).toBe('rev-1')
+    // 空/非法/最老格式都有可解释 issues，不静默丢失。
+    expect(parseLegacyMapConfig(null).issues).toHaveLength(1)
+    const broken = parseLegacyMapConfig('{not json')
+    expect(broken.recipe).toBeNull()
+    expect(broken.issues[0]).toContain('not valid JSON')
+    const oldest = parseLegacyMapConfig('{"seed":"x","pointCount":5000}')
+    expect(oldest.recipe).toEqual({ seed: 'x', pointCount: 5000 })
+    expect(oldest.legacyMarkers).toEqual([])
+    expect(oldest.issues[0]).toContain('pre-bucket')
+    // 投影建立 legacy placeId alias 与 narrative-place candidate。
+    const legacy = parseLegacyMapConfig(LEGACY_MAP_CONFIG_JSON_SAMPLE)
+    const data = generateMap({ ...MAP_FIXTURES.archipelago.config })
+    const { document, aliases } = projectLegacyToMapDocumentV2(data, {
+      mapAssetId: 'map-asset-alpha',
+      projectId: 'book-alpha',
+      worldbookId: 'wb-alpha',
+      revision: 7,
+      generatorVersion: 'legacy-round2',
+      legacyMapId: 'map-old-1',
+      legacyMarkers: legacy.legacyMarkers,
+    })
+    // confirmed marker → narrative-place feature
+    expect(document.featureCollections.narrativePlaces).toHaveLength(2)
+    const qinglan = document.featureCollections.narrativePlaces.find((f) => f.properties.label === '青岚城')
+    expect(qinglan.properties.bindingStatus).toBe('confirmed')
+    // userAdded 无 worldbook → unbound
+    const ferry = document.featureCollections.narrativePlaces.find((f) => f.properties.label === '沉沙渡')
+    expect(ferry.properties.bindingStatus).toBe('unbound')
+    // legacy placeId alias 只对有 worldbookId 的 marker 生成
+    expect(aliases.some((a) => a.legacyKey === 'place:wb-alpha:map-old-1:mk-1' && a.kind === 'legacy-place-id')).toBe(true)
+    expect(aliases.every((a) => a.legacyKey !== 'place:wb-alpha:map-old-1:mk-2')).toBe(true)
+  })
+})
+
+describe('两本书 / 两个世界书身份隔离', () => {
+  it('保持 tab、地点身份与 mock intent 在书间隔离且零写入', async () => {
+    const { bookA, bookB, mapAssetA, mapAssetB } = TWO_BOOK_IDENTITY_FIXTURE
+    expect(mapWorkspaceTabKey(bookA.bookId)).toBe('project:book-alpha:map')
+    expect(mapWorkspaceTabKey(bookB.bookId)).not.toBe(mapWorkspaceTabKey(bookA.bookId))
+    const idA = { worldbookId: bookA.worldbookId, worldbookEntryId: bookA.entries[0] }
+    const idB = { worldbookId: bookB.worldbookId, worldbookEntryId: bookB.entries[0] }
+    expect(samePlaceIdentity(idA, idB)).toBe(false)
+    // 同名 entry id 在不同世界书下不是同一地点
+    expect(samePlaceIdentity(idA, { worldbookId: bookB.worldbookId, worldbookEntryId: bookA.entries[0] })).toBe(false)
+    expect(mapAssetA).not.toBe(mapAssetB)
+    // mock intent 消费方不写任何真源。
+    const result = await mockOpenMapIntentDispatcher({
+      projectId: 'book-alpha',
+      bookId: 'book-alpha',
+      worldbookId: 'wb-alpha',
+      worldbookEntryId: 'ent-a1',
+      mode: 'place',
+      returnTo: { chapterId: 'ch-1', writingUnitId: 'unit-1', documentRevision: 3 },
+    })
+    expect(result.kind).toBe('cancelled')
+    expect(result.wroteNothing).toBe(true)
+    expect(result.bindingReceipt).toBeUndefined()
+  })
+})
+
+describe('generatorContract', () => {
+  it('生成稳定 configHash，并在输出前拒绝重复 id', () => {
+    expect(computeConfigHash({ a: 1, b: 2 })).toBe(computeConfigHash({ b: 2, a: 1 }))
+    expect(computeConfigHash({ a: 1 })).not.toBe(computeConfigHash({ a: 2 }))
+    // 生成器输出重复 id 立即抛错（输出前门禁）。
+    const f = { mapObjectId: 'x', geometry: { type: 'point', coordinates: [0, 0] }, properties: { featureId: 'x', featureType: 'river', mapRevision: 1, displayPriority: 1 } }
+    expect(() => assertUniqueFeatureIds([f])).not.toThrow()
+    expect(() => assertUniqueFeatureIds([f, { ...f }])).toThrow(/duplicate mapObjectId/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1.5 Task B：地点语义合同 kind/scope/parentFeatureId（测试先行）
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('P1.5 地点语义合同：kind / scope / parentFeatureId', () => {
+
+  function semDoc(features) {
+    return {
+      schemaVersion: 2,
+      mapAssetId: 'm', projectId: 'p', worldbookId: 'w', revision: 1, seed: 's',
+      bounds: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+      coordinateSystem: { kind: 'fictional-plane', yAxis: 'down', units: 'px' },
+      generator: { id: 'pinax-legacy', version: '1', configHash: 'h' },
+      baseAsset: { width: 100, height: 100 },
+      featureCollections: {
+        land: [], water: [], regions: [], rivers: [], routes: [], settlements: [], narrativePlaces: [],
+        ...features,
+      },
+      aliases: [], style: { styleId: 'atlas-clean' }, createdAt: 0, updatedAt: 0,
+    }
+  }
+  const point = (id, extra = {}) => ({
+    mapObjectId: id,
+    geometry: { type: 'point', coordinates: [10, 10] },
+    properties: { featureId: id, featureType: 'settlement', mapRevision: 1, displayPriority: 1, ...extra },
+  })
+
+  it('校验 kind/scope 的合法与非法枚举', () => {
+    const doc = semDoc({ settlements: [point('s1', { kind: 'capital', scope: 'region' })] })
+    expect(validateV2(doc).ok).toBe(true)
+    // 非法 kind / scope 被拒绝。
+    const bad = semDoc({ settlements: [point('s1', { kind: 'megacity', scope: 'region' })] })
+    expect(validateV2(bad).ok).toBe(false)
+    const badScope = semDoc({ settlements: [point('s1', { kind: 'city', scope: 'galaxy' })] })
+    expect(validateV2(badScope).ok).toBe(false)
+  })
+
+  it('校验父子层级、环、保守语义派生与迁移投影', () => {
+    const doc = semDoc({
+      settlements: [
+        point('s1', { kind: 'village', scope: 'local', parentFeatureId: 'r1' }),
+        point('r1', { kind: 'city', scope: 'region' }),
+      ],
+    })
+    expect(validateV2(doc).ok).toBe(true)
+    const missing = semDoc({ settlements: [point('s1', { parentFeatureId: 'ghost' })] })
+    expect(validateV2(missing).ok).toBe(false)
+    const selfRef = semDoc({ settlements: [point('s1', { parentFeatureId: 's1' })] })
+    expect(validateV2(selfRef).ok).toBe(false)
+    // 父子 scope 违反粗细顺序（子比父更粗）被拒绝且拒绝环。
+    // scope 粗细顺序 world > region > local > site；子 scope 必须不粗于父
+    const inverted = semDoc({
+      settlements: [
+        point('s1', { kind: 'village', scope: 'world', parentFeatureId: 'r1' }),
+        point('r1', { kind: 'city', scope: 'region' }),
+      ],
+    })
+    expect(validateV2(inverted).ok).toBe(false)
+    const cycle = semDoc({
+      settlements: [
+        point('a', { scope: 'local', parentFeatureId: 'b' }),
+        point('b', { scope: 'local', parentFeatureId: 'a' }),
+      ],
+    })
+    expect(validateV2(cycle).ok).toBe(false)
+    // legacy 保守派生：capital/port/人口证据决定 kind 与 scope。
+    const capital = deriveSettlementSemantics({ capital: true, port: false, population: 9000 }, [{ population: 9000 }, { population: 100 }, { population: 50 }])
+    expect(capital).toEqual({ kind: 'capital', scope: 'region' })
+    const city = deriveSettlementSemantics({ capital: false, port: false, population: 8000 }, [{ population: 9000 }, { population: 100 }, { population: 50 }])
+    expect(city).toEqual({ kind: 'city', scope: 'region' })
+    const portTown = deriveSettlementSemantics({ capital: false, port: true, population: 90 }, [{ population: 9000 }, { population: 100 }, { population: 50 }])
+    expect(portTown).toEqual({ kind: 'town', scope: 'local' })
+    const village = deriveSettlementSemantics({ capital: false, port: false, population: 60 }, [{ population: 9000 }, { population: 100 }, { population: 50 }])
+    expect(village).toEqual({ kind: 'village', scope: 'local' })
+    // 迁移投影写入派生语义且 capital 优先于人口规则。
+    const project = projectSem
+    const generateMap = generateMapSem
+    const MAP_FIXTURES = MAP_FIXTURES_SEM
+    const data = generateMap({ ...MAP_FIXTURES.archipelago.config })
+    const { document } = project(data, {
+      mapAssetId: 'sem', projectId: 'p', worldbookId: 'w', revision: 1,
+      generatorVersion: 'test', legacyMarkers: [],
+    })
+    const settlements = document.featureCollections.settlements
+    expect(settlements.length).toBeGreaterThan(0)
+    for (const f of settlements) {
+      expect(['capital', 'city', 'town', 'village']).toContain(f.properties.kind)
+      expect(['region', 'local']).toContain(f.properties.scope)
+    }
+    // 有 capital 的地图必须至少派生出一个 capital
+    expect(settlements.some((f) => f.properties.kind === 'capital')).toBe(true)
+    // 校验器接受派生结果
+    expect(validateV2(document).ok).toBe(true)
+  })
+})
+
+import { validateMapDocumentV2 as validateV2 } from '../services/world-map/model/mapDocumentV2.ts'
+import { deriveSettlementSemantics, projectLegacyToMapDocumentV2 as projectSem } from '../services/world-map/model/mapMigration.ts'
+import { generateMap as generateMapSem } from '../services/world-map/engine/index.ts'
+import { MAP_FIXTURES as MAP_FIXTURES_SEM } from '../services/world-map/testing/fixtures.ts'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P1.5 Task C：author-semantic fixture 结构合同
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('P1.5 author-semantic fixture', () => {
+  const {
+    AUTHOR_SEMANTIC_FIXTURE,
+    validateAuthorSemanticFixture,
+  } = require_ts_fixture()
+
+  function require_ts_fixture() {
+    return {
+      AUTHOR_SEMANTIC_FIXTURE: authorSemanticFixtureRef.AUTHOR_SEMANTIC_FIXTURE,
+      validateAuthorSemanticFixture: authorSemanticFixtureRef.validateAuthorSemanticFixture,
+    }
+  }
+
+  it('固定 fixture 合法、数量受控并覆盖同名/冲突/上下文配额', () => {
+    const result = validateAuthorSemanticFixture()
+    expect(result.errors).toEqual([])
+    expect(result.ok).toBe(true)
+    // 数量符合计划：国家 2-4、首都/主城 3-6、聚落 20-40、世界书地点 12-24。
+    const doc = AUTHOR_SEMANTIC_FIXTURE.document
+    expect(doc.featureCollections.regions.length).toBeGreaterThanOrEqual(2)
+    expect(doc.featureCollections.regions.length).toBeLessThanOrEqual(4)
+    const all = [
+      ...doc.featureCollections.settlements,
+      ...doc.featureCollections.narrativePlaces,
+    ]
+    const capitals = all.filter((f) => f.properties.kind === 'capital')
+    const cities = all.filter((f) => f.properties.kind === 'city')
+    expect(capitals.length + cities.length).toBeGreaterThanOrEqual(3)
+    expect(capitals.length + cities.length).toBeLessThanOrEqual(6)
+    expect(doc.featureCollections.settlements.length).toBeGreaterThanOrEqual(20)
+    expect(doc.featureCollections.settlements.length).toBeLessThanOrEqual(40)
+    expect(AUTHOR_SEMANTIC_FIXTURE.worldbookPlaces.length).toBeGreaterThanOrEqual(12)
+    expect(AUTHOR_SEMANTIC_FIXTURE.worldbookPlaces.length).toBeLessThanOrEqual(24)
+    // 覆盖同名、未落图、冲突、stale 与上下文配额。
+    const fx = AUTHOR_SEMANTIC_FIXTURE
+    const names = fx.document.featureCollections.narrativePlaces.map((f) => f.properties.label)
+    expect(names.filter((n) => n === '听雨轩').length).toBe(2) // 同名
+    expect(fx.worldbookPlaces.filter((p) => p.status === 'unplaced').length).toBe(2)
+    expect(fx.worldbookPlaces.filter((p) => p.status === 'conflict').length).toBe(1)
+    expect(fx.worldbookPlaces.filter((p) => p.status === 'stale').length).toBe(1)
+    const reasons = fx.contextSignals.map((s) => s.reason)
+    expect(reasons.filter((r) => r === 'current-scene').length).toBe(1)
+    expect(reasons.filter((r) => r === 'current-unit').length).toBeGreaterThanOrEqual(2)
+    expect(reasons.filter((r) => r === 'chapter-reference').length).toBeGreaterThanOrEqual(4)
+    expect(reasons.filter((r) => r === 'chapter-reference').length).toBeLessThanOrEqual(8)
+    // 未落图地点不产生空间 feature
+    for (const p of fx.worldbookPlaces.filter((p) => p.status === 'unplaced')) {
+      expect(p.mapObjectId).toBeUndefined()
+    }
+  })
+})
+
+import * as authorSemanticFixtureRef from '../services/world-map/testing/fixtures.ts'

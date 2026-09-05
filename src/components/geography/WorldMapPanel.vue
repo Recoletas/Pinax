@@ -562,6 +562,22 @@ const constraintIssues = computed(() => [
 const confirmedBindingCount = computed(() => (activeWorldbook.value?.entries || [])
   .filter((entry) => entry?.mapBinding?.status === 'confirmed').length)
 
+// F1-0：Authoring 只传稳定 entry id。地图只定位已经存在的 marker，
+// 不为未落图地点生成坐标或自动确认候选。
+watch(
+  [() => props.focusEntryId, markers],
+  ([entryId, currentMarkers]) => {
+    const wanted = String(entryId || '')
+    if (!wanted) return
+    const marker = (Array.isArray(currentMarkers) ? currentMarkers : []).find((item) => (
+      String(item?.worldbookEntryId || '') === wanted
+      && item?.bindingStatus === 'confirmed'
+    ))
+    if (marker?.id) focusMarkerId.value = String(marker.id)
+  },
+  { deep: true, immediate: true }
+)
+
 async function handleGenerate() {
   if (pendingMapReplacement.value) {
     atlasToolsOpen.value = true

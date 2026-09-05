@@ -445,7 +445,7 @@ function handleEnter(item) {
 
 .welcome-subtitle {
   margin: 0;
-  font-family: 'Baskerville', 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  font-family: var(--font-display);
   font-style: italic;
   font-size: 13px;
   line-height: 1.5;

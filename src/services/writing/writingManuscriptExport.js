@@ -5,7 +5,7 @@ const MARKDOWN_MIME = 'text/markdown;charset=utf-8'
 function safeFilename(value, fallback) {
   const normalized = String(value || '')
     .replace(/[\\/:*?"<>|：／？＊＂＜＞｜＼]+/g, '_')
-    .replace(/[\u0000-\u001f]+/g, '_')
+    .replace(/\p{Cc}+/gu, '_')
     .replace(/[.\s]+$/g, '')
     .trim()
     .slice(0, 96)

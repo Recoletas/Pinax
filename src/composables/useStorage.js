@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   PROSE_QUICK_NOTE_DRAFT: 'prose_quick_note_draft',
   WORLDBOOK_CREATE_DRAFT: 'worldbook_create_draft_v1',
   WORLDBOOK_RESEARCH_SETTINGS: 'worldbook_research_settings_v1',
+  WORKSPACE_TABS: 'workspace_tabs_v1',
 
   // 小说写作
   WRITING_BOOKS: 'writing_books',
@@ -23,6 +24,7 @@ export const STORAGE_KEYS = {
   WRITING_NOTES: 'writing_notes',
   WRITING_SESSIONS: 'writing_sessions',
   WRITING_SNAPSHOTS: 'writing_snapshots_v1',
+  WRITING_HISTORY_PREFERENCES: 'writing_history_preferences_v1',
   WRITING_BLOCK_HISTORY: 'writing_block_history_v1',
   WRITING_RECOVERY_DRAFTS: 'writing_recovery_drafts_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',

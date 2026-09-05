@@ -25,12 +25,74 @@ export function previewWorldbookRebind({ book, nextWorldbookId }) {
     const anchors = Array.isArray(chapter?.sceneAnchors) ? chapter.sceneAnchors : []
     for (const anchor of anchors) {
       const anchorWorldbookId = String(anchor?.worldbookId || '').trim()
-      if (!anchorWorldbookId) continue
-      if (nextId && anchorWorldbookId !== nextId) affectedAnchorCount += 1
-      if (!nextId) affectedAnchorCount += 1
+      if (!nextId) {
+        const hasDirectoryRefs = Boolean(
+          anchorWorldbookId
+          || String(anchor?.locationId || '').trim()
+          || String(anchor?.viewpointCharacterId || '').trim()
+          || (Array.isArray(anchor?.presentCharacterIds) && anchor.presentCharacterIds.length)
+        )
+        if (hasDirectoryRefs) affectedAnchorCount += 1
+        continue
+      }
+      if (anchorWorldbookId && anchorWorldbookId !== nextId) affectedAnchorCount += 1
     }
   }
   return { affectedAnchorCount, requiresConfirmation: affectedAnchorCount > 0 }
+}
+
+// 首次关联世界书时，未绑定阶段创建的锚点（此时 UI 只允许填写时间）可以
+// 安全归属到新世界书。已有非空归属绝不迁移：其中的人物/地点 ID 属于旧目录，
+// 必须继续由 worldbook-mismatch 要求作者重新确认。
+export function bindUnboundSceneAnchors({ chapters, nextWorldbookId } = {}) {
+  const nextId = String(nextWorldbookId || '').trim()
+  const source = Array.isArray(chapters) ? chapters : []
+  if (!nextId) return { chapters: source, migratedAnchorCount: 0 }
+  let migratedAnchorCount = 0
+  const nextChapters = source.map((chapter) => {
+    if (!Array.isArray(chapter?.sceneAnchors)) return chapter
+    let chapterChanged = false
+    const sceneAnchors = chapter.sceneAnchors.map((anchor) => {
+      if (!anchor?.unitId || String(anchor.worldbookId || '').trim()) return anchor
+      chapterChanged = true
+      migratedAnchorCount += 1
+      return { ...anchor, worldbookId: nextId }
+    })
+    return chapterChanged ? { ...chapter, sceneAnchors } : chapter
+  })
+  return { chapters: migratedAnchorCount ? nextChapters : source, migratedAnchorCount }
+}
+
+// 解绑时保留不依赖世界书的时间轴；人物、视角与地点 ID 属于旧目录，
+// 必须在用户确认后一起移除，不能伪装成仍有效的未绑定引用。
+export function detachSceneAnchorsFromWorldbook({ chapters } = {}) {
+  const source = Array.isArray(chapters) ? chapters : []
+  let clearedReferenceCount = 0
+  const nextChapters = source.map((chapter) => {
+    if (!Array.isArray(chapter?.sceneAnchors)) return chapter
+    let changed = false
+    const sceneAnchors = chapter.sceneAnchors.map((anchor) => {
+      if (!anchor?.unitId) return anchor
+      const hadWorldbookReference = Boolean(
+        String(anchor.worldbookId || '').trim()
+        || String(anchor.locationId || '').trim()
+        || String(anchor.viewpointCharacterId || '').trim()
+        || (Array.isArray(anchor.presentCharacterIds) && anchor.presentCharacterIds.length)
+      )
+      if (!hadWorldbookReference) return anchor
+      changed = true
+      clearedReferenceCount += 1
+      return {
+        ...anchor,
+        worldbookId: '',
+        presentCharacterIds: [],
+        locationId: '',
+        viewpointCharacterId: ''
+      }
+    })
+    return changed ? { ...chapter, sceneAnchors } : chapter
+  })
+  return { chapters: clearedReferenceCount ? nextChapters : source, clearedReferenceCount }
 }
 
 // 绑定世界书的时序安全同步（复验修复 2）：

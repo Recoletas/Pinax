@@ -3,6 +3,22 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { trapFocusWithin } from '../composables/useTransientLayer'
+import { generateWritingNames } from '../services/writingNameGenerator.js'
+import {
+  createWritingDocument,
+  editorContentToWritingDocument,
+  getWritingDocumentMarkdown,
+  validateWritingDocument,
+  writingDocumentToEditorContent
+} from '../services/writing/writingDocumentSchema.js'
+import { getAuthoringIllustrationSourceRefs } from '../services/agents/authoring/authoringIllustrationActions.js'
+import {
+  buildAuthoringEntityEntry,
+  createAuthoringEntityEntryCommand,
+  createAuthoringEntitySelection,
+  createAuthoringEntitySelectionReceipt,
+  findAuthoringEntitySelectionConflicts
+} from '../services/authoring/authoringEntitySelection.js'
 
 // U1：控件契约 —— workbench-controls.css 静态检查。
 // 断言核心 class、:focus-visible、coarse pointer 命中区，并防止 transition: all 回潮。
@@ -15,8 +31,22 @@ const uiAudit = readFileSync(resolve(__dirname, '../../scripts/ui-audit.mjs'), '
 const proseEssay = readFileSync(resolve(__dirname, '../pages/ProseEssay.vue'), 'utf8')
 const notes = readFileSync(resolve(__dirname, '../pages/Notes.vue'), 'utf8')
 const writing = readFileSync(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+const writingGlobalCss = readFileSync(resolve(__dirname, '../pages/Writing.global.css'), 'utf8')
+const authoringBlockCss = readFileSync(resolve(__dirname, '../pages/Authoring.block-native.css'), 'utf8')
 const legacyExperience = readFileSync(resolve(__dirname, '../pages/legacy/Experience.vue'), 'utf8')
 const notebookEditor = readFileSync(resolve(__dirname, '../components/writing/WritingNotebookEditor.vue'), 'utf8')
+const authoringDualPane = readFileSync(resolve(__dirname, '../components/authoring/AuthoringDualPane.vue'), 'utf8')
+const authoringIllustratorDrawer = readFileSync(resolve(__dirname, '../components/authoring/AuthoringIllustratorDrawer.vue'), 'utf8')
+const authoringIllustratorComposable = readFileSync(resolve(__dirname, '../composables/useAuthoringIllustrator.js'), 'utf8')
+const authoringIllustrationActions = readFileSync(resolve(__dirname, '../services/agents/authoring/authoringIllustrationActions.js'), 'utf8')
+const writingDocumentSchema = readFileSync(resolve(__dirname, '../services/writing/writingDocumentSchema.js'), 'utf8')
+const authoringQuickWords = readFileSync(resolve(__dirname, '../components/authoring/AuthoringQuickWords.vue'), 'utf8')
+const authoringKnowledgeAssistant = readFileSync(resolve(__dirname, '../components/authoring/AuthoringKnowledgeAssistant.vue'), 'utf8')
+const authoringInterventionComposer = readFileSync(resolve(__dirname, '../components/authoring/AuthoringInterventionComposer.vue'), 'utf8')
+const authoringInterventionGhost = readFileSync(resolve(__dirname, '../components/authoring/AuthoringInterventionGhost.vue'), 'utf8')
+const authoringLivingStory = readFileSync(resolve(__dirname, '../components/authoring/AuthoringLivingStoryProjection.vue'), 'utf8')
+const authoringKnowledgeComposable = readFileSync(resolve(__dirname, '../composables/useAuthoringKnowledgeAssistant.js'), 'utf8')
+const authoringToolRail = readFileSync(resolve(__dirname, '../components/authoring/AuthoringWorkspaceToolRail.vue'), 'utf8')
 const gamePanel = readFileSync(resolve(__dirname, '../components/GamePanel.vue'), 'utf8')
 const narrativeTurn = readFileSync(resolve(__dirname, '../components/experience/NarrativeTurn.vue'), 'utf8')
 const imageWorkbench = readFileSync(resolve(__dirname, '../components/media/ImageGenerationWorkbench.vue'), 'utf8')
@@ -30,12 +60,27 @@ const desktopProjectGate = existsSync(desktopProjectGatePath)
   : ''
 
 describe('workbench control contract (U1)', () => {
+  it('keeps the authoring shell structural when legacy scoped styles are unavailable', () => {
+    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/)
+    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
+    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__main \{[\s\S]*display: grid;[\s\S]*grid-template-columns:/)
+    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
+    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__dossier \{[\s\S]*display: flex;[\s\S]*flex-direction: column;/)
+    const regularPhoneChrome = authoringBlockCss.slice(
+      authoringBlockCss.indexOf('@media (max-width: 520px)'),
+      authoringBlockCss.indexOf('@media (max-width: 240px)')
+    )
+    expect(regularPhoneChrome).not.toContain('flex: 1 0 100%')
+    expect(authoringBlockCss).toContain('@media (max-width: 240px)')
+  })
+
   it("uses one authoring destination while retaining writing and experience compatibility（合并4例）", async () => {
 {
 const routerSource = await readFile(resolve(__dirname, '../router/index.js'), 'utf8')
     const navSource = await readFile(resolve(__dirname, '../config/workbenchNav.js'), 'utf8')
     expect(routerSource).toContain("name: 'authoring'")
     expect(routerSource).toContain("path: 'authoring'")
+    expect(routerSource).toMatch(/path: 'authoring',[\s\S]*?hideGlobalMemory: true,[\s\S]*?title: '创作'/)
     expect(routerSource).toContain("path: 'experience'")
     expect(routerSource).toContain("path: '/writing', redirect: { name: 'authoring' }")
     expect(navSource).toContain("key: 'authoring'")
@@ -44,9 +89,250 @@ const routerSource = await readFile(resolve(__dirname, '../router/index.js'), 'u
 {
 const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
     expect(source.match(/<WritingNotebookEditor/g)).toHaveLength(1)
+    for (const chapterNavClass of ['authoring-chapter-search', 'authoring-chapter-create', 'authoring-chapter-tree', 'authoring-chapter-row']) {
+      expect(source).toContain(chapterNavClass)
+    }
+    expect(source).not.toContain('authoring-chapter-filter')
+    expect(source).not.toContain('wt3-side-right')
+    expect(source).not.toContain('wt3-right-tree')
+    expect(source).toContain(':docs="wt3IdeaShelfDocs"')
+    expect(source).toContain('function chineseChapterNumber(value)')
+    expect(source).toContain("return name ? `${ordinal} ${name}` : ordinal")
+    expect(source).toContain(':aria-label="`${chapterRowLabel(entry.index, entry.chapter.title)} · 拖拽排序`"')
+    expect(source).toContain('v-for="entry in visibleChapterEntries"')
+    expect(source).not.toContain('<template v-for="book in books"')
     expect(source).not.toContain('AuthoringCommandBar')
     expect(source).not.toMatch(/scene[- ]branch|场景分支|草稿分支/)
     expect(source).not.toMatch(/authoring-mode-tabs|体验模式|写作模式/)
+    expect(source).toContain('class="writing-page wall wt3-prototype"')
+    expect(source).not.toContain('const wt3Prototype')
+    expect(source).toContain("文本工作台 v3 正式文档树")
+    expect(source).toContain('<AuthoringIdeaShelf')
+    expect(source).toContain('<AuthoringDualPane')
+    expect(source).toContain('<AuthoringQuickWords')
+    expect(source).toContain('<AuthoringKnowledgeAssistant')
+    expect(source).toContain('<AuthoringInterventionComposer')
+    expect(source).toContain('@open-intervention="openInterventionComposer"')
+    expect(source).toContain(':intervention-enabled="!wt3ActiveDoc"')
+    expect(source).toContain('createAuthoringInterventionSession')
+    expect(notebookEditor).toContain("emit('open-intervention'")
+    expect(authoringInterventionComposer).toContain('先看影响')
+    expect(authoringInterventionComposer).toContain('不会修改正文')
+    expect(authoringInterventionComposer).not.toMatch(/manifest|receipt|token|candidate ID/i)
+    expect(authoringInterventionGhost).toContain('data-test="intervention-adopt"')
+    expect(authoringInterventionGhost).toContain('data-test="intervention-retry-persist"')
+    expect(authoringInterventionGhost).toContain('data-test="intervention-adopt-all"')
+    expect(source).toContain('<AuthoringLivingStoryProjection')
+    expect(source).toContain('sceneInspectorMode === \'story\'')
+    expect(source).toContain('@intervene="interveneFromLivingStory"')
+    expect(authoringLivingStory).toContain('data-test="living-story-projection"')
+    expect(authoringLivingStory).toContain('从正文、当前场和项目大纲即时派生')
+    expect(authoringLivingStory).toContain('@media (max-width: 720px)')
+    expect(authoringLivingStory).not.toMatch(/localStorage|saveWritingBooks|updateProjectOutline/)
+    expect(authoringInterventionGhost).toContain('其他排演草稿不受影响')
+    expect(source).toContain('prepareAuthoringInterventionAdoption')
+    expect(source).toContain('persistPendingInterventionAdoption')
+    expect(source).toContain('prepareAuthoringInterventionUmbrellaUndo')
+    expect(authoringDualPane).toContain('applyInterventionAdoption')
+    expect(authoringDualPane).toContain('persistInterventionAdoption')
+    expect(source).toContain('<AuthoringIllustratorDrawer')
+    expect(source).toContain('data-test="authoring-illustrator-trigger"')
+    expect(source).toContain('@pointerdown="freezeIllustratorSource"')
+    expect(source).toContain('captureCurrentIllustratorSource')
+    expect(source).toContain('v-if="selectionActionsVisible && !illustratorOpen && !reviewPanelOpen && !searchPanelOpen"')
+    expect(source).toMatch(/function positionSelectionActions\(selection\) \{[\s\S]*?if \(illustratorOpen\.value\) \{[\s\S]*?hideSelectionActions\(\)/)
+    expect(authoringDualPane).toContain('captureVisualSource')
+    expect(authoringDualPane).toContain('insertMediaReference')
+    expect(authoringIllustratorDrawer).toContain('<ImageGenerationWorkbench')
+    expect(authoringIllustratorDrawer).toContain('<Teleport to="body">')
+    expect(authoringIllustratorDrawer).toContain('application.inert = true')
+    expect(authoringIllustratorDrawer).toContain('<template #brief>')
+    expect(authoringIllustratorDrawer).toContain(':action-guard="guardResultAction"')
+    expect(authoringIllustratorComposable).toContain('createAuthoringVisualBrief')
+    expect(authoringIllustratorComposable).toContain('assessAuthoringVisualBriefFreshness')
+    expect(authoringIllustratorComposable).not.toContain('localStorage')
+    expect(authoringIllustrationActions).toContain('validateAuthoringIllustrationInsert')
+    expect(authoringIllustrationActions).toContain('saveAuthoringIllustrationAsMaterial')
+    expect(source).toContain('<AuthoringReviewPanel')
+    expect(source).toContain('@pointerdown="freezeReviewSource"')
+    expect(source).toContain('prepareAuthoringReviewTransaction')
+    expect(source).toContain('<AuthoringSearchPanel')
+    expect(source).toContain('@pointerdown="freezeSearchSource"')
+    expect(source).toContain('createAuthoringReplacePlan')
+    expect(source).toContain('applyAuthoringReplacePlan')
+    expect(source).toContain('saveWritingBooks(nextBooks)')
+    expect(source).not.toContain('showFindReplace')
+    expect(source).toContain(':checked="writingHistoryPreferences.enabled"')
+    expect(source).toContain('planWritingMilestoneSnapshot')
+    expect(source).toContain('recordWritingProtectionSnapshot')
+    expect(source).toContain(':before-destructive-edit="protectMainDestructiveEdit"')
+    expect(source).toContain(':protect-destructive-edit="protectDualDestructiveEdit"')
+    expect(source).toContain('dualPaneRef.value?.prepareClose?.() === false')
+    expect(source).toContain('dualPaneRef.value?.reloadSearchSource?.({')
+    expect(source).toMatch(/document\.revision = Math\.max\([\s\S]*?Number\(document\.revision \|\| 0\)[\s\S]*?\) \+ 1/)
+    expect(source).toContain('historyRestoreEpoch: `restore-${Date.now().toString(36)}-')
+    expect(source).toContain("historyRestoreEpoch: String(source?.meta?.historyRestoreEpoch || '')")
+    expect(authoringDualPane).toContain("historyRestoreEpoch: String(documentState.value?.meta?.historyRestoreEpoch || '')")
+    expect(source).not.toContain('<AuthoringAiReference')
+    expect(authoringToolRail).toContain("{ id: 'ai', label: '助手' }")
+    const knowledgeTemplate = authoringKnowledgeAssistant.split('<script setup>')[0]
+    for (const task of ['查设定', '找伏笔', '理线索', '挖角色', '算数值', '问全书', '自由问']) {
+      expect(authoringKnowledgeAssistant).toContain(task)
+    }
+    expect(knowledgeTemplate).toContain('查看依据')
+    expect(knowledgeTemplate).toContain('资料已更新')
+    expect(knowledgeTemplate).not.toMatch(/manifest|receipt|token|candidate ID|上下文数量/i)
+    expect(knowledgeTemplate).not.toContain('<q>')
+    expect(authoringKnowledgeComposable).toContain('createAuthoringKnowledgeQuerySession')
+    expect(authoringKnowledgeComposable).toContain('reconcileAuthoringKnowledgeAnswer')
+    expect(authoringKnowledgeComposable).toContain('resolveLiveSource')
+    expect(authoringKnowledgeComposable).toContain('AbortController')
+    expect(authoringKnowledgeComposable).not.toContain('localStorage')
+    expect(source).toContain("normalizedTool === 'ai'")
+    expect(source).toContain('captureKnowledgeAssistantInvocation()')
+    expect(source).toContain('if (wt3ActiveDoc.value) return null')
+    expect(authoringDualPane).toContain('captureKnowledgeSource')
+    expect(source).toContain('aria-label="快捷词建议"')
+    expect(source).toContain('writingCompositionActive.value || dualCompositionActive.value')
+    expect(authoringQuickWords).toContain('角色')
+    expect(authoringQuickWords).toContain('设定')
+    expect(authoringQuickWords).toContain('智能提取')
+    expect(authoringQuickWords).toContain("['，', '。', '！', '？', '：', '；', '“', '”']")
+    expect(source).toContain('handleQuickWordDigitKey(event)')
+    expect(source).toContain(':aria-keyshortcuts="String(index + 1)"')
+    expect(source).toContain('@document-change="dualQuickWordDocument = $event"')
+    expect(authoringDualPane).toContain('aria-label="副栏快捷词建议"')
+    expect(authoringDualPane).toContain("emit('document-change', value)")
+    expect(source).toContain("activeInspectorTool === 'dual'")
+    expect(source).toContain('在双栏打开')
+    expect(source).not.toContain('>多窗<')
+    expect(authoringDualPane).toContain('data-test="authoring-dual-pane"')
+    expect(authoringDualPane).toContain('data-test="authoring-dual-directory"')
+    expect(authoringDualPane).toContain('aria-label="副窗内容类型"')
+    expect(authoringDualPane).toContain("{ id: 'character', label: '角色' }")
+    expect(authoringDualPane).toContain("{ id: 'exploration', label: '便签' }")
+    expect(authoringDualPane).toContain('closeSwitchOnNarrow()')
+    expect(authoringDualPane).toContain(':editable="true"')
+    expect(authoringDualPane).toContain(':block-composer-enabled="interventionGhostOpen"')
+    expect(authoringDualPane).toContain(':block-composer-target="interventionGhostTarget"')
+    expect(authoringDualPane).toContain(':before-destructive-edit="protectDestructiveEdit"')
+    expect(authoringDualPane).toContain('block-gap-id="authoring-dual-block-gap"')
+    expect(authoringDualPane).toContain('aria-label="交换主副章"')
+    expect(authoringDualPane).toContain('captureRunTarget,')
+    expect(authoringDualPane).toContain('readLiveRunTarget')
+    expect(authoringDualPane).toContain("selectedKind === 'exploration'")
+    expect(authoringDualPane).toContain("props.saveExploration")
+    expect(authoringDualPane).toContain("selectedKind === 'outline'")
+    expect(authoringDualPane).toContain("selectedKind === 'worldbook-entry'")
+    expect(authoringDualPane).toContain('data-outline-node-id')
+    expect(authoringDualPane).toContain('data-worldbook-entry-id')
+    expect(authoringDualPane).toContain('设定已删除或解绑')
+    expect(authoringDualPane).toContain('getSelectionSnapshot?.()')
+    expect(authoringDualPane).toContain('props.resolveSceneProjection?.({')
+    expect(writing).toContain('activeNotebookCommandAvailability')
+    expect(writing).toContain("activeWritingPane.value === 'dual'")
+    expect(writing).toContain("dualPaneRef.value?.runCommand?.('undo')")
+    expect(writing).toContain('dualSharesMainDocument()')
+    expect(writing).toContain(':resolve-scene-projection="resolveDualSceneProjection"')
+    expect(writing).toContain('dualPaneRef.value?.readLiveRunTarget?.(expected)')
+    expect(writing).toContain('@open-dual="openOutlineInDual"')
+    expect(writing).toContain('@open-dual="openWorldbookEntryInDual"')
+    expect(notebookEditor).toContain("blockGapId: { type: String, default: 'authoring-block-gap' }")
+    expect(notebookEditor).toContain('beforeDestructiveEdit: { type: Function, default: null }')
+    expect(notebookEditor).toContain('blockComposerEnabled: { type: Boolean, default: true }')
+    expect(source).toContain('@swap="swapDualChapter"')
+    expect(source).toContain('@open-dual="openExplorationInDual"')
+    expect(source).toContain(':save-exploration="saveDualExploration"')
+    expect(authoringBlockCss).toMatch(/\.wall__main\.has-inspector[\s\S]*grid-template-columns:[^;]+52px/)
+    expect(source).not.toContain("＋ 快速落笔")
+    expect(source).not.toContain('未编排 {{')
+    expect(source).not.toContain('<AuthoringContextPicker')
+    expect(source).toContain(':legacy-note-count="wt3LegacyNoteCount"')
+    expect(source).toContain(':chapters="chapters"')
+    expect(source).toContain(':explorations="wt3ExplorationDocs"')
+    expect(source).toContain('@open-project-chapter="selectChapter"')
+    expect(source).toContain('@open-project-exploration="openExplorationDoc"')
+    expect(source).toContain("const wt3MigratedBookIds = new Set()")
+    expect(source).toContain("const wt3MigrationTasks = new Map()")
+    expect(source).toContain("const bookId = String(selectedBookId.value || '')")
+    expect(source).toContain("wt3RefreshDocs(bookId)")
+    expect(source).toContain('const wt3IdeaShelfDocs = computed')
+    expect(source).toContain("associationLabel: associationLabels.length ? `关联")
+    expect(source).not.toMatch(/node\.chapterRef(?!s)/)
+    expect(source).not.toContain('node.adoptedDocumentId')
+    expect(source).not.toContain("includes('wt3=1')")
+    expect(source).toContain('<span>事实</span>')
+    expect(notebookEditor).toContain('writing-cjk-quote')
+    expect(notebookEditor).toContain("'data-worldbook-entry-ids'")
+    expect(source).toContain(':candidate-entry-ids="inspectorWorldbookCandidateIds"')
+    expect(notebookEditor).toContain('line-break: strict')
+    const authoringTemplate = source.split('<script setup>')[0]
+    for (const command of ['undoNotebookEdit', 'redoNotebookEdit', "toggleNotebookMark('bold')", "toggleNotebookMark('italic')", 'insertSeparator']) {
+      expect(authoringTemplate).toContain(command)
+    }
+    expect(authoringTemplate).not.toContain('@click="autoFormat"')
+    expect(authoringTemplate).toContain('openNameGenerator')
+    expect(authoringTemplate).toContain('快速取名')
+    for (const namingDimension of ['名称类型', '名字语言', '名字字数', '名字性别']) {
+      expect(authoringTemplate).toContain(namingDimension)
+    }
+    for (const category of ['人物', '地点', '组织', '功法/能力', '道具']) expect(source).toContain(category)
+    expect(authoringTemplate).toContain('@click="selectName(item)"')
+    expect(authoringTemplate).toContain('data-test="create-name-entity"')
+    expect(authoringTemplate).toContain('@click="requestNameEntityCreation(item)"')
+    expect(authoringTemplate).toContain('仍然新建')
+    const entityTypes = { person: 'character', place: 'location', organization: 'organization', ability: 'lore', item: 'item' }
+    for (const [category, entryType] of Object.entries(entityTypes)) {
+      const selection = createAuthoringEntitySelection({
+        id: `selection-${category}`,
+        text: `${category}-name`,
+        category,
+        projectId: 'book-1',
+        rationale: '候选依据'
+      })
+      expect(Object.isFrozen(selection)).toBe(true)
+      expect(buildAuthoringEntityEntry(selection)).toBe(null)
+      const command = createAuthoringEntityEntryCommand(selection, { projectId: 'book-1', worldbookId: 'wb-real' })
+      expect(buildAuthoringEntityEntry(command)).toMatchObject({
+        type: entryType,
+        metadata: { authoringEntityKind: category, authoringSelectionId: `selection-${category}` }
+      })
+      expect(createAuthoringEntitySelectionReceipt(command, { entry: { id: `entry-${category}` } })).toMatchObject({
+        projectId: 'book-1',
+        worldbookId: 'wb-real',
+        sourceRef: `worldbook-entry:entry-${category}`
+      })
+    }
+    expect(createAuthoringEntitySelection({ text: '无效分类', category: 'unknown' })).toBe(null)
+    expect(createAuthoringEntityEntryCommand(
+      createAuthoringEntitySelection({ text: '错书', category: 'person', projectId: 'book-1' }),
+      { projectId: 'book-2', worldbookId: 'wb-2' }
+    )).toBe(null)
+    const conflictSelection = createAuthoringEntitySelection({ text: '阿昭', category: 'person', projectId: 'book-1' })
+    expect(findAuthoringEntitySelectionConflicts(conflictSelection, {
+      id: 'wb-real', entries: [{ id: 'char-lina', type: 'character', name: '林昭', keysSecondary: ['阿昭'] }]
+    })).toMatchObject([{ entryId: 'char-lina', sourceRef: 'worldbook-entry:char-lina', sameType: true }])
+    const firstBatch = generateWritingNames({ language: 'chinese', length: 'three', gender: 'neutral', count: 12, random: () => 0.5 })
+    const secondBatch = generateWritingNames({ language: 'chinese', length: 'three', gender: 'neutral', count: 12, exclude: firstBatch, random: () => 0.5 })
+    expect(new Set(firstBatch).size).toBe(12)
+    expect(new Set(secondBatch).size).toBe(12)
+    expect(secondBatch.some((name) => firstBatch.includes(name))).toBe(false)
+    for (const category of ['person', 'place', 'organization', 'ability', 'item']) {
+      const recent = []
+      for (let batch = 0; batch < 10; batch += 1) {
+        const values = generateWritingNames({ category, count: 12, exclude: recent.flat(), random: () => 0.5 })
+        expect(values).toHaveLength(12)
+        expect(values.some((name) => recent.flat().includes(name))).toBe(false)
+        recent.push(values)
+      }
+      expect(new Set(recent.flat()).size).toBe(120)
+    }
+    for (const language of ['western', 'japanese']) {
+      expect(generateWritingNames({ language, length: 'multi', gender: 'female', count: 12 }).length).toBe(12)
+    }
+    expect(generateWritingNames({ language: 'chinese', length: 'multi', gender: 'male', surname: '顾', count: 8 }).every((name) => name.startsWith('顾') && name.length >= 4)).toBe(true)
+    expect(authoringTemplate).toContain('writingTypography.toggleFirstLineIndent()')
+    expect(authoringTemplate).toContain('writingTypography.setParagraphGap')
 }
 {
 expect(existsSync(desktopProjectGatePath)).toBe(true)
@@ -152,17 +438,61 @@ const proseTemplate = proseEssay.split('<script setup>')[0]
     expect(imageWorkbench).toContain('ref="referenceInput"')
     expect(imageWorkbench).toContain('isSupportedLocalImage')
     expect(imageWorkbench).toContain('referenceUploadMessage')
+    expect(imageWorkbench).toContain('new AbortController()')
+    expect(imageWorkbench).toContain('promptSupplement')
+    expect(imageWorkbench).toContain('actionGuard')
+    expect(imageWorkbench).toContain('<slot name="brief"></slot>')
+
+    const sourceDocument = createWritingDocument('前文。\n\n![雾港](pinax-media://media-1)\n')
+    expect(validateWritingDocument(sourceDocument)).toMatchObject({ valid: true })
+    const mediaNode = sourceDocument.content.flatMap((unit) => unit.content).find((node) => node.type === 'mediaReference')
+    expect(mediaNode?.attrs).toMatchObject({
+      kind: 'media-reference',
+      mediaAssetId: 'media-1',
+      alt: '雾港'
+    })
+    const roundTripped = editorContentToWritingDocument(
+      writingDocumentToEditorContent(sourceDocument),
+      sourceDocument
+    )
+    expect(validateWritingDocument(roundTripped)).toMatchObject({ valid: true })
+    expect(getWritingDocumentMarkdown(roundTripped)).toContain('![雾港](pinax-media://media-1)')
+    expect(getWritingDocumentMarkdown(roundTripped)).not.toContain('data:image')
+    expect(writingDocumentSchema).toContain("const MEDIA_REFERENCE_PATTERN")
+    expect(getAuthoringIllustrationSourceRefs({
+      projectId: 'book-1',
+      prompt: '雾港夜景',
+      sourceRefs: ['chapter:chapter-1', 'worldbook-entry:location-harbor', 'scene-projection:chapter-1:unit-1'],
+      sourceRevisions: {
+        'chapter:chapter-1': 'chapter-rev-4',
+        'worldbook-entry:location-harbor': 'entry-rev-2',
+        'scene-projection:chapter-1:unit-1': 'scene-rev-3'
+      }
+    }, {
+      mediaAssetId: 'media-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'chapter-1', projectId: 'book-1' }]
+    })).toEqual(expect.arrayContaining([
+      expect.objectContaining({ refType: 'chapter', refId: 'chapter-1', version: 'chapter-rev-4' }),
+      expect.objectContaining({ refType: 'worldbook-entry', refId: 'location-harbor', version: 'entry-rev-2' }),
+      expect.objectContaining({ refType: 'scene-projection', refId: 'chapter-1:unit-1', version: 'scene-rev-3' }),
+      expect.objectContaining({ refType: 'image', refId: 'media-1' })
+    ]))
 }
 {
 expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDocument.value)')
     expect(notebookEditor).toContain('markdownFrom')
     expect(notebookEditor).toContain('resolveWritingCommandMenuPosition')
     expect(notebookEditor).toContain('const scale = getBodyUiScale()')
-    expect(notebookEditor).toContain('measuredHeight / scale')
+    expect(notebookEditor).toContain('collisionWidth')
+    expect(notebookEditor).toContain('getCommandMenuViewport()')
+    expect(notebookEditor).toContain("window.visualViewport?.addEventListener('resize', handleViewportChange")
+    expect(notebookEditor).toContain('positionCommandMenu(editor.value.view, lastCommandMenuGeometry)')
+    expect(notebookEditor).toContain("'is-submenu-left': commandMenu.submenuPlacement === 'left'")
+    expect(notebookEditor).toContain('onBlur() {\n    closeCommandMenu()')
     expect(notebookEditor).not.toContain('commandMenu.value.top = Math.round(visualTop / scale)')
-    expect(writing).toContain('command.cursorMarkdownOffset != null')
-    expect(writing).toContain('command.cursorMarkdownOffset')
-    expect(writing).toContain('if (command.markdown != null)')
+    expect(writing).toContain('openBlockComposer({ ...notebookSelection.value, ...command })')
+    expect(writing).toContain('selectionBookmark')
+    expect(notebookEditor).toContain("trigger: 'shortcut'")
     expect(writing).toContain('const target = getNodeRewriteTarget(previousNodeId)')
     expect(writing).toContain('getRewriteTargetFromAnnotation(annotation)')
     expect(writing).toContain('target.startOffset')
@@ -177,17 +507,52 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(notebookEditor).toContain('data-writing-unit')
     expect(notebookEditor).toContain('splitWritingUnit')
     expect(notebookEditor).toContain('mergeWritingUnit')
+    expect(notebookEditor).toContain('nodeId: anchorNodeId')
+    expect(notebookEditor).not.toContain('nodeId: anchorNode?.attrs.nodeId')
+    expect(notebookEditor).toContain('props.inlineSuggestionGenerating')
+    expect(notebookEditor).toContain('props.inlineSuggestionError')
+    expect(notebookEditor).toContain("event.key === 'Enter'")
+    expect(notebookEditor).toContain('focusParagraphPluginKey')
+    expect(notebookEditor).toContain("section[data-writing-unit]:not(:first-child)::after")
+    expect(notebookEditor).toContain('bottom: auto;')
+    expect(notebookEditor).toContain('height: 1em;')
+    expect(writingGlobalCss).toContain('.writing-notebook-editor__surface .ProseMirror > section > p {')
+    expect(writingGlobalCss).toContain('text-indent: var(--notebook-first-line-indent, 2em)')
+    expect(writingGlobalCss).not.toContain('.wt3-prototype .writing-notebook-editor__surface .ProseMirror > section > p {')
+    expect(writingGlobalCss).toContain('Desktop ownership: manuscript scrolls; shelf, tool rail and inspector stay')
+    expect(writingGlobalCss).toContain('height: 100%;\n    overflow: hidden;')
+    expect(writing).toContain("window.addEventListener('scroll', handleWritingWorkspaceScroll, true)")
+    expect(writing).toContain('positionSelectionActions(notebookEditorRef.value?.getSelection?.())')
+    expect(writing).toContain('scheduleAnnotationLayout()')
+    expect(writing).toContain('class="wall__dossier-scroll"')
+    expect(authoringBlockCss).toContain('.theme-legacy .writing-page .wall__dossier-scroll {')
+    expect(authoringBlockCss).toContain('overflow-y: auto;\n  overflow-x: clip;')
+    expect(authoringBlockCss).toContain('.theme-legacy .writing-page .dossier-footer {\n  position: static;')
+    expect(authoringBlockCss).toContain('padding-top: 48px;\n  padding-bottom: 0;')
+    expect(authoringBlockCss).toContain('padding-inline: 0;\n  padding-bottom: 0;\n  overflow: hidden;')
+    expect(authoringBlockCss).toContain('padding-inline: var(--authoring-manuscript-gutter);\n  overflow-y: auto;')
+    expect(authoringBlockCss).toContain('z-index: var(--z-workbench-sheet);')
+    expect(authoringBlockCss).toContain('inset-inline-end: 52px;\n    width: min(340px, calc(100% - 242px));')
+    expect(authoringBlockCss).toContain('.theme-legacy .writing-page .writing-inspector.is-open {\n    transform: translateX(0);')
+    expect(authoringBlockCss).toContain('inset-block-end: 44px;\n    width: auto;\n    height: min(62vh, 480px);')
+    expect(authoringBlockCss).toContain('.theme-legacy .writing-page .writing-inspector.is-open {\n    transform: translateY(0);')
     expect(notebookEditor).not.toMatch(/运行单元|执行序号|输出区|command mode/i)
-    expect(writing).toMatch(/从此处分开|与上一单元合并|来自体验/)
+    expect(writing).toMatch(/从此处分开|与上一单元合并/)
+    expect(writing).not.toContain('>来自体验</button>')
     expect(writing).toContain('class="writing-block-history"')
     expect(writing).toContain('v-for="entry in recentWritingBlockHistory"')
     expect(writing).toContain('@click="restoreWritingBlockHistory(entry)"')
-    const writingAgentContext = writing.slice(
-      writing.indexOf('function getWritingAgentPageContext()'),
-      writing.indexOf('function clearCopilotReference', writing.indexOf('function getWritingAgentPageContext()'))
-    )
+    const writingAgentContextStart = writing.indexOf('function getWritingAgentPageContext(')
+    const writingAgentContextEnd = writing.indexOf('function buildLiveContextDependencyRevisions', writingAgentContextStart)
+    expect(writingAgentContextStart).toBeGreaterThanOrEqual(0)
+    expect(writingAgentContextEnd).toBeGreaterThan(writingAgentContextStart)
+    const writingAgentContext = writing.slice(writingAgentContextStart, writingAgentContextEnd)
     expect(writingAgentContext).toContain('nodeTarget')
     expect(writingAgentContext).not.toContain('blockTarget')
+    expect(writing).toContain('const inserted = writingAgentPeek(mode)')
+    expect(writing).toContain('if (!wt3ActiveDoc.value && transition?.type)')
+    expect(writing).toContain('function reconcileActiveEditorAnnotations(')
+    expect(writing).toContain('if (wt3ActiveDoc.value) wt3Annotations.value = reconciled')
     const selectionPayload = notebookEditor.slice(
       notebookEditor.indexOf("emit('selection-change'"),
       notebookEditor.indexOf('updateCurrentLineOverlay()', notebookEditor.indexOf("emit('selection-change'"))
@@ -195,6 +560,9 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(selectionPayload).not.toMatch(/blockId:|blockRevision:|startBlockId:|endBlockId:/)
     const exposedEditorApi = notebookEditor.slice(notebookEditor.indexOf('defineExpose({'), notebookEditor.indexOf('</script>'))
     expect(exposedEditorApi).not.toMatch(/findBlockRange|focusBlock|replaceBlockText|replaceBlockRanges/)
+    expect(exposedEditorApi).toContain('closeCommandMenu')
+    expect(exposedEditorApi).toContain('insertWritingUnitBatch')
+    expect(notebookEditor.match(/emitCurrentSelectionSnapshot\(currentEditor\)/g)?.length).toBeGreaterThanOrEqual(3)
 }
 {
 expect(writing).toContain('const scrollState = captureWritingScrollState()')
@@ -322,7 +690,9 @@ describe('authoring memory projection contracts', () => {
   it("shows a transient candidate count and reserves review for exceptions（合并3例）", async () => {
 {
 const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
-    expect(source).toContain('<AuthoringMemoryNotice')
+    expect(source).toContain('<AuthoringKnowledgeAssistant')
+    expect(source).toContain(':notice="authoringMemoryNotice"')
+    expect(source).not.toContain('<AuthoringMemoryNotice')
     expect(source).toContain('<AuthoringMemoryReview')
     expect(source).not.toMatch(/memory-confirm-modal-per-candidate/)
 }

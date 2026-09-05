@@ -375,7 +375,7 @@ const cssVars = computed(() => ({
   pointer-events: none;
   max-width: 36ch;
   color: var(--archive-paper);
-  font-family: "Iowan Old Style", "Songti SC", "STSong", Georgia, serif;
+  font-family: var(--font-display);
   font-size: 12px;
   font-style: italic;
   line-height: 1.45;

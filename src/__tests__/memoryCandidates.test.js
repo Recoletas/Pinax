@@ -36,10 +36,76 @@ import {
   invalidateMemoryBySource
 } from '@/services/memoryCandidates'
 import { createMemoryRecallReceipt, inspectMemoryCapacity } from '@/services/memoryReceipt'
+import {
+  deriveMemoryFromDelta,
+  runObserverMemoryDerivation
+} from '@/services/agents/observers/authoringObserverDerivation'
+import { createAuthoringObserverScheduler } from '@/services/agents/observers/authoringObserverScheduler'
 
 describe('memoryCandidates', () => {
   beforeEach(() => {
     localStorage.removeItem(STORAGE_KEYS.MEMORY_CANDIDATES)
+  })
+
+  it('emits silent routine events and attention-only conflict events after durable storage', () => {
+    const dispatchEvent = vi.spyOn(window, 'dispatchEvent')
+    const routine = queueMemoryCandidate({
+      content: '旧书店在西街。',
+      scope: 'project',
+      scopeId: 'project-1',
+      kind: 'project-fact',
+      derivedBy: 'prose-commit'
+    })
+    expect(routine.success).toBe(true)
+    expect(dispatchEvent.mock.calls.at(-1)?.[0]?.detail).toMatchObject({
+      id: routine.candidate.id,
+      scopeId: 'project-1',
+      derivedBy: 'prose-commit',
+      attention: false,
+      conflictCount: 0
+    })
+
+    const active = createMemoryCandidate({
+      id: 'active-conflict',
+      content: '旧书店已经搬到东街。',
+      scope: 'project',
+      scopeId: 'project-1',
+      kind: 'project-fact',
+      status: 'active'
+    })
+    localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify([active]))
+    const conflict = queueMemoryCandidate({
+      content: '旧书店仍在西街营业。',
+      scope: 'project',
+      scopeId: 'project-1',
+      kind: 'project-fact',
+      derivedBy: 'boundary'
+    })
+    expect(conflict.success).toBe(true)
+    expect(dispatchEvent.mock.calls.at(-1)?.[0]?.detail).toMatchObject({
+      id: conflict.candidate.id,
+      attention: true,
+      conflictCount: 1
+    })
+
+    const eventCountBeforeFailure = dispatchEvent.mock.calls.length
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('quota-exceeded')
+    })
+    let failed
+    try {
+      failed = queueMemoryCandidate({
+        content: '这条候选无法持久化。',
+        scope: 'project',
+        scopeId: 'project-1',
+        kind: 'plot-event'
+      })
+    } finally {
+      setItem.mockRestore()
+    }
+    expect(failed).toMatchObject({ success: false, queued: false, reason: 'storage-failed' })
+    expect(dispatchEvent).toHaveBeenCalledTimes(eventCountBeforeFailure)
+    dispatchEvent.mockRestore()
   })
 
   it("queues normalized pending candidates（合并4例）（合并4例）", async () => {
@@ -344,12 +410,26 @@ const first = queueMemoryCandidate({
       scopeId: 'project-1',
       kind: 'project-fact'
     })
+    const persistedBeforeDuplicate = localStorage.getItem(STORAGE_KEYS.MEMORY_CANDIDATES)
+    const dispatchEvent = vi.spyOn(window, 'dispatchEvent')
     const duplicate = queueMemoryCandidate({
       content: ' 旧书店 在 西街 ',
       scope: 'project',
       scopeId: 'project-1',
       kind: 'project-fact'
     })
+    expect(duplicate).toMatchObject({
+      success: false,
+      queued: false,
+      skipped: true,
+      reason: 'exact-duplicate',
+      duplicateOf: first.candidate.id
+    })
+    expect(duplicate.candidate.id).toBe(first.candidate.id)
+    expect(localStorage.getItem(STORAGE_KEYS.MEMORY_CANDIDATES)).toBe(persistedBeforeDuplicate)
+    expect(dispatchEvent).not.toHaveBeenCalled()
+    dispatchEvent.mockRestore()
+
     const otherScope = queueMemoryCandidate({
       content: '旧书店在西街。',
       scope: 'project',
@@ -357,8 +437,80 @@ const first = queueMemoryCandidate({
       kind: 'project-fact'
     })
 
-    expect(duplicate.candidate.duplicateOf).toBe(first.candidate.id)
     expect(otherScope.candidate.duplicateOf).toBe('')
+}
+{
+    const callbacks = []
+    const run = vi.fn(async () => ({ status: 'completed' }))
+    const scheduler = createAuthoringObserverScheduler({
+      run,
+      delayFn: (callback) => {
+        callbacks.push(callback)
+        return callback
+      },
+      cancelFn: vi.fn()
+    })
+    const payload = {
+      documentId: 'doc-dedupe',
+      documentRevision: 'doc-r7',
+      text: '全文的旧内容。尾部新增了线索。',
+      changedText: '尾部新增了线索。'
+    }
+
+    expect(scheduler.scheduleObservers(payload).accepted).toBe(true)
+    expect(scheduler.scheduleObservers({
+      ...payload,
+      changedText: undefined,
+      changedRanges: [{ text: '尾部新增了线索。' }]
+    })).toMatchObject({ accepted: false, skipped: true, reason: 'duplicate-pending' })
+
+    await callbacks[0]()
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(scheduler.scheduleObservers({ ...payload })).toMatchObject({
+      accepted: false,
+      skipped: true,
+      reason: 'duplicate-executed'
+    })
+    expect(scheduler.scheduleObservers({ ...payload, changedText: '尾部又新增了另一条线索。' }).accepted).toBe(true)
+    scheduler.cancelAll()
+}
+{
+    const fullText = '旧开头记载了无关天气。旧第二句仍是背景材料。林昭在尾声发现密室钥匙。'
+    const changedText = '林昭在尾声发现密室钥匙。'
+    const fromChangedText = deriveMemoryFromDelta({ text: fullText, changedText })
+    expect(fromChangedText[0].text).toBe(changedText)
+
+    const start = fullText.indexOf(changedText)
+    const fromRange = deriveMemoryFromDelta({
+      text: fullText,
+      changedRanges: [{ start, end: start + changedText.length }]
+    })
+    expect(fromRange[0].text).toBe(changedText)
+    expect(deriveMemoryFromDelta({ text: fullText, changedText: '' })).toEqual([])
+    expect(deriveMemoryFromDelta({ text: fullText })[0].text).toBe('旧开头记载了无关天气。旧第二句仍是背景材料。')
+
+    const skippedQueue = vi.fn(async () => ({
+      success: false,
+      queued: false,
+      skipped: true,
+      reason: 'exact-duplicate',
+      candidate: { id: 'mem-existing' }
+    }))
+    const derivation = await runObserverMemoryDerivation({
+      delta: {
+        text: fullText,
+        changedText,
+        revision: 'doc-r7',
+        sourceRefs: ['chapter:1']
+      },
+      projectId: 'project-1',
+      queue: skippedQueue
+    })
+    expect(derivation.queued).toEqual([])
+    expect(derivation.skipped[0]).toMatchObject({
+      reason: 'exact-duplicate',
+      candidateId: 'mem-existing'
+    })
 }
 {
 
