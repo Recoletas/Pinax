@@ -11,6 +11,8 @@
 
 ## 当前事实
 
+- **第二轮夜间计划（2026-09-06，待执行）**：[任务书](./plan/authoring-overnight-round2-20260906.md)已按合并后 main 编制，U/K 各 6 主包 + 3 储备。强制工作区/网络隔离、实际进度接续、最终树冻结；U 做输入/搜索安全和追加要求再试，K 做安全/真实源桥接及 gate 后默认关闭窄 I0。启动 owner 先确认 K24 范围、共同基线与续接方式；没有启动 worker、服务或本轮计时，以下首夜“尚未启动”仅为历史。
+
 - **U/K 合并交付（2026-09-06，覆盖下面旧状态）**：用户确认最终冻结；以 U 最终树 `9fe8e063` 收敛 composer 展开布局，保留集成安全修复，K0–K4 按离线模块纳入本地 main。主线工作区 `/home/recoletas/jiuguan/pinax-integration-20260906`；原 `text-game-framework` 旧 integration 与 WIP 保留，后续开发请使用 main 工作区。未接生产、未 push、未动 server-version。核心门禁与交互遗留详见 [合并回执](./agent-runs/overnight-merge-20260906.md)；J9/J11 仍未关闭，A3 不标视觉冻结。
 
 - **夜间长程任务书（2026-09-05，尚未启动）**：用户确认A2-1 Worldbook；Character/Outline桌面无需重构，手机详情优先待选，首夜保持堆叠。[U/K各约8小时任务书](./plan/authoring-overnight-dual-track-20260905.md)已给出独立worktree、逐时预算、写集、6小时功能冻结、最低/目标交付与晨间验收。U做安全收口/A2-3/A3代表片，K做只读合同/适配/最小查询；夜间不接线/合并/push。文档verify:full exit0（20/200、双build/diff），14个链接有效；只写计划，未启动worker。长期记录见LOG。

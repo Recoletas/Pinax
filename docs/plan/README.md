@@ -18,8 +18,9 @@
 
 ## 当前体验执行入口
 
-- [U/K各约8小时夜间长程任务](./authoring-overnight-dual-track-20260905.md)：两线独立工作区、逐时预算、最低/目标交付、写集、冻结时点和晨间验收；首夜不推广未确认的手机详情优先布局，不自动接线/合并。任务书已写，尚未启动。
-- [体验主线与设定／历史能力支线并行计划](./authoring-parallel-foundation-plan-20260905.md)：保留现有UI六波交付，新增K0–K4只读能力支线；I0–I2单窗口接入，历史写库和大规模重构按后续Gate排队。[代码与Utopia候选参考证据](./authoring-parallel-foundation-research-20260905.md)。当前仅计划，未启动支线实现。
+- [第二轮夜间任务书](./authoring-overnight-round2-20260906.md)：main 合并后 U 稳定交互/作者追加要求再试，K 安全硬化/F2 默认关闭窄接入；各 6 主包 + 3 储备、独立写集、接续与最终树冻结。计划待执行，未启动。
+- [首夜任务与复盘（历史）](./authoring-overnight-dual-track-20260905.md)：首夜成果已合 main，“8h”不是实际工作量证明；第二轮以新任务书为准。
+- [体验主线与设定／历史能力支线并行计划](./authoring-parallel-foundation-plan-20260905.md)：上位 K/I/H/E 路线；K0–K4 已离线合入，I0 的本轮窄接缝范围与 gate 见第二轮任务书，I1/历史写入仍未开放。
 - [UI/UX 与故事试演详细计划](./authoring-ux-and-story-play-plan-20260905.md)：A0–A5依赖、18个任务包、代表性视觉切片和真实作者验收。
 - [二轮调研证据](./authoring-ux-story-play-research-20260905.md)：实页/代码/历史/假设分级及参考边界，不是已完成功能清单。
 - [当前产品计划](../PLAN.md)：F1/F2/F3、桌面、协作等专项入口及约束的统一导航。
