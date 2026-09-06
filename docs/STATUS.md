@@ -6,11 +6,16 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex | `/home/recoletas/jiuguan/text-game-framework` | `integration/consolidation-20260823` | UI/UX与趣味性二轮调研、18个任务包与六波交付计划已完成，verify:full exit 0（20文件/200用例、双build/diff）；本轮不实施产品改动。下一包先小高度助手输入遮挡、标题与返回收口，再资料层级/手机任务流及试演样板；保留其他WIP，C2-3继续冻结。 |
+| Codex integration | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | U 最终交付与 K0–K4 离线模块合并；原工作区保留旧 integration/WIP。后续以本 main 工作区继续，J9/J11、视觉确认和 K 接线仍待处理。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
+- **U/K 合并交付（2026-09-06，覆盖下面旧状态）**：用户确认最终冻结；以 U 最终树 `9fe8e063` 收敛 composer 展开布局，保留集成安全修复，K0–K4 按离线模块纳入本地 main。主线工作区 `/home/recoletas/jiuguan/pinax-integration-20260906`；原 `text-game-framework` 旧 integration 与 WIP 保留，后续开发请使用 main 工作区。未接生产、未 push、未动 server-version。核心门禁与交互遗留详见 [合并回执](./agent-runs/overnight-merge-20260906.md)；J9/J11 仍未关闭，A3 不标视觉冻结。
+
+- **夜间长程任务书（2026-09-05，尚未启动）**：用户确认A2-1 Worldbook；Character/Outline桌面无需重构，手机详情优先待选，首夜保持堆叠。[U/K各约8小时任务书](./plan/authoring-overnight-dual-track-20260905.md)已给出独立worktree、逐时预算、写集、6小时功能冻结、最低/目标交付与晨间验收。U做安全收口/A2-3/A3代表片，K做只读合同/适配/最小查询；夜间不接线/合并/push。文档verify:full exit0（20/200、双build/diff），14个链接有效；只写计划，未启动worker。长期记录见LOG。
+- **并行计划交付验证（2026-09-05）**：详细计划与调研证据已完成，37个本地链接有效；`verify:full` exit 0：20/20文件、200/200用例、Vite/VitePress build及diff通过。只证明本轮文档与当时工作树门禁通过，不代表K/I/H/E已实现；未改产品代码、运行worker或请求真实模型。长期记录已进入LOG，不追加重复Recently done条目。
+- **并行建设安排（2026-09-05）**：用户确认原UI/UX与趣味计划正在执行，以下旧回执中的“本轮只调研”不表示暂停该实现。新增[并行计划](./plan/authoring-parallel-foundation-plan-20260905.md)：U主线继续；K支线先做只读身份/事实/时间/视角能力，经独立验证后单窗口接入，不平行重写页面或存储。本轮仅编制计划；下一实施包K0/K1，尚未启动。main发布基线为f03e40f，活动工作区保留旧integration历史，接续移植需含未跟踪文件的真实快照，禁止整支合回旧历史。详见[本轮证据](./plan/authoring-parallel-foundation-research-20260905.md)与LOG。
 - **产品主线**：`设定/地图/历史 -> 体验推演 -> 素材/写作 -> 插画/漫画 -> 画布/视频`。`docs/PLAN.md` 与 `docs/plan/pinax-integrated-product-roadmap.md` 是产品计划真源；专项计划必须从属于既有 G 编号。
 - **统一 Agent 能力架构（Foundation 已落地）**：`2026-08-22-unified-agent-capability-rollout.md` 总执行图与四份详细计划执行中。`feature/unified-agent-foundation` 已完成 Task 1-9；F1-2、F2-4 与角色卡补全按只追加原则新增对应任务，当前目录为 47 项 canonical 任务（6 类 workflow、25 个上下文 profile、7 类 effect policy、18 条 legacy alias）。`agentTaskRequestContract`、Project Knowledge Facade、稀疏上下文解析器、确定性路由、结果事务层与隐私安全指标保持不变；客户端 `agentTaskRegistry` 与服务端 `agentTaskAllowlist` 继续由共享目录派生、集合完全一致。后续 track 仍只能向集成 owner 申请目录修订。
 - **桌面创作方向（P2 已落地）**：Electron 本地项目底座、UTF-8 TXT + SQLite、备份/缓存、安全 IPC、浏览器旧项目迁移与 Windows 打包修复均已实现；桌面使用 Hash History，浏览器继续 Web History。Windows portable ZIP 已完成宿主侧静态检查，Windows clean-machine 仍是外部门禁。后续按 P3 起把统一 Authoring 数据所有权适配到桌面项目真源。
@@ -38,6 +43,8 @@
 - **验证基线**：整合树继续执行 20 个测试文件 / 200 个用例硬预算，提交门禁为测试、Vite build、diff check 与 VitePress build 全绿。C1 最终页面 Gate 24/24：1440 当前场+世界书人物/地点+本次参考、1440 可编辑 Ghost+实际参考、390 sheet 三张证据已保留；1024 覆盖层、固定侧栏、selection/scrollTop、Ghost 内容轴、44px 逻辑触控与三视口零横向溢出均通过。C1 参考/重写旅程 23/23、故障矩阵 31/31。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 和 `git diff --check` 全绿。没有启动、停止或重启 5173。真实 provider 长推演、Windows 原生中文输入法耐久和用户视觉确认仍是外部门禁。
 
 ## Recently done
+
+- 2026-09-05：09-05 UI/UX 计划 A2-1 Worldbook 代表片实施：设定详情"内容优先 + AI 规则折叠 + 对象属性紧凑行"——触发词/进入上下文归"用于AI的规则"折叠段（默认收起），类型/分组归紧凑对象属性行。模板重构不改数据权限。focused 30/30 + acceptance 19/19。代表图 `tmp/authoring-rollout/a2/worldbook-after-1440.png`。
 
 - 2026-09-05：仓库保守清理（`integration/consolidation-20260823`）：删除11个零消费者旧模块/临时脚本/孤立快照及无人使用的CI依赖上传job；更新README、文档导航、代码地图与测试命令。保留正在执行的UI计划及实现WIP、迁移/兼容/地图原型/fixture/数据。`verify:full` exit 0：20/20文件、200/200用例、双build与diff通过；73个本地链接有效，CI YAML解析通过，未运行远端Actions。删除可从Git历史恢复，未提交。详见[清理日志](./LOG.md)。
 

@@ -311,3 +311,10 @@ defineExpose({ focusInstruction })
   .authoring-block-composer__starters button { min-height: 40px; }
 }
 </style>
+<style scoped>
+.authoring-block-composer__adjust{border-top:1px dashed var(--border-subtle);margin-top:4px;padding-top:2px}
+.authoring-block-composer__adjust summary{color:var(--text-secondary);font:500 12px/1 var(--font-sans);cursor:pointer;padding:8px 0;list-style:none;user-select:none}
+.authoring-block-composer__adjust summary::before{content:'› ';display:inline-block;transition:transform 120ms}
+.authoring-block-composer__adjust[open] summary::before{transform:rotate(90deg)}
+.authoring-block-composer__adjust-body{display:grid;gap:10px;padding-bottom:8px}
+</style>

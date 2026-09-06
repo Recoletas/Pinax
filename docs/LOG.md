@@ -2,6 +2,30 @@
 
 > 只记录近期用户可感知变化、验证结果和仍会影响后续判断的风险。过程性 UI 微调不再逐条保留。
 
+## 2026-09-06 - U/K 夜间交付集成与计划复盘
+
+- 用户要求合并两线。以 main `f03e40f` 为基准冻结 U 完整工作树（含未跟踪文件），只提取真实增量，避免把旧 integration 的 222 条历史重新并入；K 来源 `5498bf5`，保留离线边界。
+- 首次全量测试 196/200，发现最终 U 文件与交接报告不符：已有 A3 折叠布局、人物 option ID 丢失及旧断言。修复人物选择、重写提示、DOM 选区 head/反向方向、失效右键书签 fail-closed、延迟 focus 销毁保护、payload 剩余预算和重复 CSS；保留原本更轻的内容层级。
+- 合成代码 `verify:full` exit 0（20/20 文件、200/200 用例、Vite/VitePress build、diff）；隔离 5196 页面 acceptance 19/19、V2 5/5，K eval 46/46 和 benchmark exit 0。详细命令、额外交互遗留及验证边界见 [回执](./agent-runs/overnight-merge-20260906.md)。
+- K 自报有效工作约 1.5h，证明“约 8h”计划容量不足；原计划允许最低交付提前退出且缺储备队列。已写回成果分层、授权储备、门禁接续与有效时间记录要求，不用重复验证或越界接线填时长。
+- 前轮因 U 仍在修改而暂停；本轮用户确认冻结后，接收最终树 `9fe8e063` 的展开布局与摘要，保留人物 ID 等安全修复和精确写作单元断言，完成本地 main 集成。原工作区和 K 分支保留；未 push、未触碰生产分支。
+
+## 2026-09-05 - U/K双线各约8小时夜间任务书
+
+- 根据用户最新交接与A2-1 Worldbook确认，编制[首夜任务书](./plan/authoring-overnight-dual-track-20260905.md)。查看角色/设定390基线；不把54px字段高度或已清晰的Character/Outline桌面层级列成强制重构。手机详情优先尚未获选，首夜保持堆叠。
+- U：已知payload/J1安全专题、A2-3作用范围、A3入口/反馈/试稿代表片。K：K0/K1、现有结构只读适配、有界查询与独立矩阵。各列8小时预算、最低/目标范围、写集、超时转向、6小时功能冻结与晨间验收。
+- 明确共同干净候选基线、两个独立worktree、测试页面必须来自本线源码、默认无付费模型/用户数据迁移，夜间不接I0、不合并或push。普通CLI不保证持续8小时，需启动者配置长程续接与截止；本轮不启动worker或计时。
+- 按docs-status-handoff同步两份原计划与导航；`verify:full` exit0：20/20文件、200/200用例、Vite/VitePress build和diff通过，14个本地链接有效；回执补写后复查diff及文档build。没有修改产品代码或运行浏览器交互测试，不代表两条夜间任务已启动或完成。
+
+## 2026-09-05 - 体验主线与设定／历史能力支线并行调研
+
+- 新增[详细并行计划](./plan/authoring-parallel-foundation-plan-20260905.md)与[调研证据](./plan/authoring-parallel-foundation-research-20260905.md)，从属于G1.2/G3/G4.6，不替换正在执行的UI/UX与故事试演六波计划。
+- 核对世界书/正文仓储、角色和地点身份、历史/状态/因果、F2知识查询、manifest工具授权及桌面适配。确认runtimeEvents默认只保留200条；现有事实字段不具备完整双时态/角色可见性；地点v2与旧历史alias并存；F2历史查询存在不等于Authoring正文工具已授权历史。
+- 排程为U体验主线 + K0–K4只读支线，I0–I2由单owner接入；H0/H1历史写入、E0–E2测量和责任抽离按Gate排队。明确拟议合同、文件锁、分支基线、合成样例、故障/权限矩阵、停止与回退，不引入第二数据库或全文搜索器。
+- Utopia仅以deeplethe/utopia作为待用户确认的候选，一手README与SQL用于借鉴事实版本、时间和候选隔离；不把企业批量自动入库照搬为作者事实确认。本轮未运行其软件。
+- 当前main发布基线f03e40f；活动工作区仍在旧integration历史且继续有UI增量，后续必须比较包含未跟踪文件的真实快照，不能整支merge旧历史或把git diff main中的假删除用于移植。
+- 本轮只写计划及导航/状态，不改产品代码，不启停5173，不调用真实模型，不创建worker、提交或push。`npm run verify:full` exit 0：20/20文件、200/200用例、Vite build、diff check与VitePress build通过；37个本地文档链接有效。验证对应当时活动工作树，不代表K/I/H/E已实现或用户视觉/真实模型通过；最终回执补写后另跑diff与文档build。
+
 ## 2026-09-05 - 仓库保守清理与当前文档入口
 
 - 清理11个已跟踪且无未提交修改的文件：7个 `scripts/__u*.tmp.mjs` 早期一次性检查脚本；已无对应测试文件的 `src/__tests__/__snapshots__/visual-verification.test.js.snap`；无代码消费者的 `WritingInlineCompletion.vue`、`writingProfessionalActions.js`、`writingBlockCommands.js`。没有删仍使用的测试；当前行内补全继续由Notebook的ProseMirror实现负责。

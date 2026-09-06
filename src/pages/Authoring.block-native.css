@@ -1702,3 +1702,11 @@ body.is-writing-zen .ws-tabs {
   font: 400 14px/1.6 var(--font-body, var(--font-sans, sans-serif));
   overflow-wrap: anywhere;
 }
+
+/* gap 容器放行指针后，恢复按钮与 teleport 表单（composer/draft）的可点性。 */
+#authoring-block-gap .writing-unit-gap__action,
+#authoring-block-gap .authoring-block-composer,
+#authoring-block-gap .authoring-block-draft,
+#authoring-block-gap .writing-unit-gap__actions {
+  pointer-events: auto;
+}

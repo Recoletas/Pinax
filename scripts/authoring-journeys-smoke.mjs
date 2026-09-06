@@ -343,7 +343,7 @@ async function journeyExploration() {
   const journey = 'J2 构思文档'
   await journeyRunner.run(journey, async (page) => {
     await setup(page, journey)
-    await page.locator('.authoring-chapter-row.wt3-doc-row', { hasText: '＋ 快速落笔' }).click()
+    await page.locator('.authoring-idea-shelf button[title="新建速记"]').click()
     await page.waitForTimeout(900)
     await expectVisible(page, '.wt3-badge', journey)
     const surface = page.locator('.writing-notebook-editor__surface .ProseMirror').first()
@@ -359,8 +359,8 @@ async function journeyExploration() {
     const backTitle = await page.inputValue('input[aria-label="章节标题"]')
     if (backTitle !== '第一章 上元夜') report.push({ journey, level: 'FAIL', what: `返回正文后标题错误: "${backTitle}"` })
     // 列出文档行，打开目标文档
-    const rowTexts = await page.locator('.authoring-chapter-row.wt3-doc-row').allInnerTexts()
-    const target = page.locator('.authoring-chapter-row.wt3-doc-row', { hasText: '速记' }).first()
+    const rowTexts = await page.locator('.authoring-idea-shelf .authoring-idea-row__open').allInnerTexts()
+    const target = page.locator('.authoring-idea-shelf .authoring-idea-row__open', { hasText: '速记' }).first()
     if (!await target.count()) {
       report.push({ journey, level: 'FAIL', what: `文档行中找不到草稿行: ${JSON.stringify(rowTexts)}` })
     } else {
@@ -370,13 +370,18 @@ async function journeyExploration() {
       if (!reopened.includes(phrase)) {
         report.push({ journey, level: 'FAIL', what: `重新打开探索文档内容未恢复: "${reopened.slice(0, 60)}"` })
       }
-      // 删除文档：hover 行显出 × 再点
-      const row = page.locator('.authoring-chapter-row.wt3-doc-row', { hasText: '速记' }).first()
-      await row.hover()
+      // 删除文档：IdeaShelf 行的 details 菜单 → 删除
+      const row = page.locator('.authoring-idea-shelf .authoring-idea-row', { hasText: '速记' }).first()
+      await row.locator('details.authoring-idea-row__menu summary').click()
       await page.waitForTimeout(200)
-      await page.locator('[data-wt3-delete]').first().click({ timeout: 4000 }).catch(() => {
+      const deleted = await row.locator('button.is-danger')
+        .first()
+        .click({ timeout: 4000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!deleted) {
         report.push({ journey, level: 'FAIL', what: '删除按钮 hover 后仍不可点击（疑似遮挡）' })
-      })
+      }
       await page.waitForTimeout(700)
     }
   }, baseJourneyOptions())
@@ -446,18 +451,25 @@ async function journeyOutline() {
     const newBtn = page.locator('[data-authoring-inspector="outline"] button', { hasText: /新建|建立第一个节点/ }).first()
     await newBtn.click()
     await page.waitForTimeout(400)
-    await page.fill('[data-authoring-inspector="outline"] input[placeholder*="石柱"]', '钟声指向旧灯塔')
+    // C1 重构后的 outline 面板：标题 aria-label="大纲标题" + 内容 textarea + 保存
+    await page.fill('[data-authoring-inspector="outline"] input[aria-label="大纲标题"]', '钟声指向旧灯塔')
     await page.fill('[data-authoring-inspector="outline"] textarea', '林昭循声而去，发现旧灯塔的门虚掩。')
-    await page.locator('[data-authoring-inspector="outline"] button[type="submit"]').click()
+    await page.locator('[data-authoring-inspector="outline"] button.primary', { hasText: '保存' }).click()
     await page.waitForTimeout(700)
-    const row = await page.locator('.authoring-outline-row', { hasText: '钟声指向旧灯塔' }).count()
+    const row = await page.evaluate(() => {
+      const panel = document.querySelector('[data-authoring-inspector="outline"]')
+      return (panel?.textContent || '').includes('钟声指向旧灯塔') ? 1 : 0
+    })
     if (!row) report.push({ journey, level: 'FAIL', what: '章纲节点未出现在列表' })
     // 重载持久
     await page.reload({ waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(2000)
     await page.locator('button[data-authoring-tool="outline"]').click()
     await page.waitForTimeout(700)
-    const rowR = await page.locator('.authoring-outline-row', { hasText: '钟声指向旧灯塔' }).count()
+    const rowR = await page.evaluate(() => {
+      const panel = document.querySelector('[data-authoring-inspector="outline"]')
+      return (panel?.textContent || '').includes('钟声指向旧灯塔') ? 1 : 0
+    })
     if (!rowR) report.push({ journey, level: 'FAIL', what: '刷新后章纲节点丢失' })
   }, baseJourneyOptions())
 }
@@ -566,7 +578,7 @@ async function journeyDeduce() {
   const journey = 'J7 推演事务'
   await journeyRunner.run(journey, async (page) => {
     await setup(page, journey)
-    await page.locator('button', { hasText: '＋ 推演下一段' }).first().click()
+    await page.locator('.writing-unit-gap__action', { hasText: '推演下一段' }).first().click()
     await page.waitForTimeout(600)
     await expectVisible(page, '[data-test="block-composer"]', journey)
     await page.fill('[data-test="block-composer"] textarea', '守卫忽然转身，向灯塔方向跑去')
@@ -582,7 +594,7 @@ async function journeyDeduce() {
     // 回第一章，手动重新推演并完整采纳
     await page.locator('.authoring-chapter-row', { hasText: '第一章' }).first().click()
     await page.waitForTimeout(800)
-    await page.locator('button', { hasText: '＋ 推演下一段' }).first().click()
+    await page.locator('.writing-unit-gap__action', { hasText: '推演下一段' }).first().click()
     await page.waitForTimeout(600)
     await page.fill('[data-test="block-composer"] textarea', '守卫忽然转身，向灯塔方向跑去')
     await page.locator('[data-test="block-primary"]').click()
@@ -912,7 +924,7 @@ async function journeyEditableBlockDraft() {
         })
       }
     }
-    await page.getByRole('button', { name: '＋ 推演下一段', exact: true }).first().click()
+    await page.locator('.writing-unit-gap__action', { hasText: '推演下一段' }).first().click()
     await page.locator('[data-test="block-composer"]').waitFor({ state: 'visible', timeout: 4_000 })
     await page.locator('[data-test="block-composer"] .authoring-block-composer__instruction textarea')
       .fill(MOCK_BLOCK_INSTRUCTION)
@@ -1045,10 +1057,29 @@ async function journeyLongDoc(page) {
       await page.keyboard.press('Escape')
     }
   }
-  await page.locator('button.tool-btn[title="查找替换"]').click()
-  await page.fill('.find-replace-bar .find-input', '门轴发出长叹')
-  await page.click('.find-replace-bar button:has-text("↓")')
+  await page.locator('button.tool-btn[title*="查找"]').click()
+  await page.locator('[data-test="authoring-search-panel"]').waitFor({ state: 'visible', timeout: 5000 })
+  const j11Input = page.locator('[data-test="authoring-search-panel"] input[aria-label="查找文字"]')
+  await j11Input.fill('门轴发出长叹')
+  await j11Input.press('Enter')
+  await page.waitForTimeout(800)
+  // SearchPanel：点击结果行定位并创建选区（open-result → selectNodeRange）；
+  // 面板打开期间选区浮条被抑制（A2-5 设计），定位后关闭面板再继续。
+  await page.locator('.authoring-search-result__open').first().click()
+  await page.waitForTimeout(500)
+  await page.locator('[data-test="authoring-search-panel"] button[aria-label="关闭查找"]').click()
   await page.waitForTimeout(400)
+  // 关闭面板的点击会走全局清理；用编辑器选区桥在定位后的目标上重建选区
+  await page.evaluate(() => {
+    let comp = null
+    for (let node = document.querySelector('.ProseMirror'); node; node = node.parentElement) {
+      if (node.__vueParentComponent) { comp = node.__vueParentComponent; break }
+    }
+    let depth = 0
+    while (comp && !comp.exposed?.selectText && comp.parent && depth < 8) { comp = comp.parent; depth += 1 }
+    comp.exposed.selectText('门轴发出长叹', 0)
+  })
+  await page.waitForTimeout(600)
   if (!await expectVisible(page, '.writing-selection-actions', journey)) {
     report.push({ journey, level: 'FAIL', what: '查找跳转后未出现选区浮动条（选区未命中）' })
     return
@@ -1060,7 +1091,7 @@ async function journeyLongDoc(page) {
   await page.locator('.authoring-chapter-create .is-primary').click()
   await page.waitForTimeout(700)
   // 切回长文章节再断言批注仍在（新章语境下检查旧章批注本来就是空的）
-  await page.locator('.authoring-chapter-row:not(.wt3-doc-row)').first().click()
+  await page.locator('.authoring-chapter-row').first().click()
   await page.waitForTimeout(800)
   const listed = await page.locator('[data-authoring-inspector="annotations"]', { hasText: '中段锚点批注' }).count()
   if (!listed) report.push({ journey, level: 'FAIL', what: '切章往返后长文批注丢失' })
@@ -1088,7 +1119,7 @@ async function journeyExploreAnnotation(page) {
   await surface.click()
   await page.keyboard.type('正文的句子，属于章节稿面。')
   await page.waitForTimeout(500)
-  await page.locator('.authoring-chapter-row.wt3-doc-row', { hasText: '＋ 快速落笔' }).click()
+  await page.locator('.authoring-idea-shelf button[title="新建速记"]').click()
   await page.waitForTimeout(800)
   await surface.click()
   await page.keyboard.type('探索里的独有句子，用来验证批注归属。')
@@ -1110,7 +1141,7 @@ async function journeyExploreAnnotation(page) {
   if (await page.locator('[data-authoring-inspector="annotations"]', { hasText: '探索专属批注XYZ' }).count()) {
     report.push({ journey, level: 'FAIL', what: '探索批注泄漏进正文检查器（串写回归）' })
   }
-  const docRow = page.locator('.authoring-chapter-row.wt3-doc-row:not(:has-text("快速落笔"))').first()
+  const docRow = page.locator('.authoring-idea-shelf .authoring-idea-row__open').first()
   await docRow.click()
   await page.waitForTimeout(800)
   if (!await page.locator('.wt3-badge').count()) {

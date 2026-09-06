@@ -12574,10 +12574,11 @@ function closeContextMenuFromKeyboard() {
   if (!contextMenu.value.show) return
   const snapshot = { ...contextMenu.value }
   contextMenu.value.show = false
-  nextTick(() => {
-    if (!restoreContextMenuTarget(snapshot)) return
-    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
-  })
+  // 同步恢复：nextTick 恢复有一个“焦点在 BODY”的空窗期，journey/用户
+  // 在这个窗口内快照或按键都会丢失焦点。restoreContextMenuTarget 内部
+  // 的 restoreSelectionBookmark → view.focus() 已经是同步操作。
+  if (!restoreContextMenuTarget(snapshot)) return
+  notebookEditorRef.value?.focus?.({ scrollIntoView: false })
 }
 
 function handleContextMenuKeydown(event) {
@@ -12649,17 +12650,26 @@ async function readClipboardText() {
 }
 
 function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scrollIntoView = false } = {}) {
-  if (
-    requireCurrentDocument
+  const revisionStale = requireCurrentDocument
     && String(snapshot?.documentRevision || '') !== String(currentDocumentRevision())
-  ) {
+  if (revisionStale) {
+    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
     authoringTask.notify('正文已变化，请在目标位置重新打开菜单')
     return false
   }
-  if (!snapshot?.selectionBookmark) return true
-  if (notebookEditorRef.value?.restoreSelectionBookmark?.(snapshot.selectionBookmark, { scrollIntoView })) return true
-  authoringTask.notify('原选区已失效，请重新选择后操作')
-  return false
+  if (!snapshot?.selectionBookmark) {
+    // 无选区书签时至少归还焦点，不能让 Esc 关菜单后焦点留在浮层/BODY 上。
+    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
+    return true
+  }
+  const restored = notebookEditorRef.value?.restoreSelectionBookmark?.(snapshot.selectionBookmark, { scrollIntoView })
+  if (!restored) {
+    // 书签 resolve 失败（文档结构变了）也归还焦点。
+    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
+    authoringTask.notify('原选区已失效，请重新选择后操作')
+    return false
+  }
+  return true
 }
 
 function restoreEditorAfterContextMenu(snapshot) {

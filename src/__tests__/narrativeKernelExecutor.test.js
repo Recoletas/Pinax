@@ -313,7 +313,9 @@ import {
   reconcileManifestWithReceipt
 } from '../services/agents/context/contextReceipt.js'
 import { buildNarrativeKernel } from '../services/agents/narrativeKernel.js'
-import { serializeNarrativeKernelForProvider } from '../services/agents/narrativeAgentOrchestrator.js'
+import { narrativeTranscriptStaticOverheadChars,
+  serializeKernelWithinTextPartBudget,
+  serializeNarrativeKernelForProvider } from '../services/agents/narrativeAgentOrchestrator.js'
 import {
   aggregateWritingFactIndexes,
   buildContinuitySummaryRequest,
@@ -623,6 +625,56 @@ describe('model call receipt — produced from actual serialization', () => {
     expect(longReceipt.omissions).toContainEqual({
       candidateId: 'compiler-cut', reason: 'budget-excluded', stage: 'compiler'
     })
+
+    // U1 安全收口：最终 payload 加静态前缀受 transcript text part 上限约束；
+    // omitted 与 serializedBlocks 必须和实际发送一致；极端超限抛 typed 错误。
+    const overhead = narrativeTranscriptStaticOverheadChars({ phase: 'prose', formatInstructions: '以莉娜视角。' })
+    const bounded = serializeKernelWithinTextPartBudget({
+      revision: 'nar-u1',
+      blocks: [
+        {
+          kind: 'compiled-context',
+          content: {
+            manifestFingerprint: longManifest.fingerprint,
+            entries: Array.from({ length: 6 }, (_, index) => ({
+              candidateId: `u1-${index}`,
+              kind: 'manuscript-unit',
+              representation: 'full',
+              text: `第${index}段。${'雾港的潮声一遍遍洗过石阶，'.repeat(90)}`
+            }))
+          },
+          sourceRefs: ['writing-unit:u1']
+        },
+        { kind: 'turn', content: { instruction: '守卫追向灯塔。' }, sourceRefs: ['author'] },
+        { kind: 'summary', content: { text: '前情提要。' }, sourceRefs: ['chapter:5'] }
+      ]
+    }, overhead)
+    expect(bounded.payload.length + overhead).toBeLessThanOrEqual(8000)
+    const boundedParsed = JSON.parse(bounded.payload)
+    const includedIds = new Set(
+      (boundedParsed.blocks.find((b) => b.kind === 'compiled-context')?.content?.entries || []).map((e) => e.candidateId)
+    )
+    for (const omitted of bounded.omittedCandidateIds) {
+      expect(includedIds.has(omitted)).toBe(false)
+    }
+    const passthrough = serializeKernelWithinTextPartBudget({
+      revision: 'nar-u1-small',
+      blocks: [{ kind: 'turn', content: { instruction: '短指令。' }, sourceRefs: ['author'] }]
+    }, overhead, { initial: serializeNarrativeKernelForProvider({
+      revision: 'nar-u1-small',
+      blocks: [{ kind: 'turn', content: { instruction: '短指令。' }, sourceRefs: ['author'] }]
+    }) })
+    expect(passthrough.payload.length + overhead).toBeLessThanOrEqual(8000)
+    // 静态指令耗尽预算时，短 payload 和复用 initial 也必须拒绝。
+    for (const staticChars of [7999, 8000, 9000]) {
+      expect(() => serializeKernelWithinTextPartBudget({
+        revision: 'short', blocks: []
+      }, staticChars, { initial: passthrough })).toThrow('本回合参考内容超出单次请求上限')
+    }
+    expect(() => serializeKernelWithinTextPartBudget({
+      revision: 'nar-u1-huge',
+      blocks: [{ kind: 'turn', content: { instruction: '放不下的指令'.repeat(2000) }, sourceRefs: ['author'] }]
+    }, 7900)).toThrow('本回合参考内容超出单次请求上限')
   })
 
   it('flags declared-but-not-serialized and missing pieces (fail-closed accounting)', () => {

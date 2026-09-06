@@ -617,8 +617,18 @@ Focused Gate（BASE=5173，`node scripts/authoring-journeys-smoke.mjs`）：**J6
 - 新增按 project/chapter/writingUnit 隔离的内存型 scene run intent。人物和地点均可直接选择“安排下一段”或“仅供本次参考”；“保存当前场”是唯一纠正当前动作，旧“保存并推演”不再混合事实保存与运行意图。若表单仍有未保存的当前场纠正，临时动作会 fail-closed，要求先保存或取消。
 - 临时意图只携带稳定 ID、作用域、世界书 revision 与 canonical `worldbook-entry:<id>`。session adapter 从绑定世界书精确重读条目并把它纳入 manifest 与最小工具授权，不依赖关键词 matcher 碰巧命中；非法 payload、跨实体或非 canonical ref 均在 reader 阶段拒绝。
 - `next-passage` 只有在最终 manifest 实际入选且 receipt 确认完整序列化时，才在 Ghost 采纳事务中形成显式人物/地点 effect，并与正文和其他 scene/outline delta 一次持久化；`run-only`、本次移除、packing 排除和 provider 省略/截断均不形成 scene delta。在场人物 8 人上限由 UI、意图创建与采纳事务三层共用，不能写入第 9 人再由投影静默截掉。作者修改 Ghost 不会抹掉合法明确安排，保存失败保留草稿、receipt 与 intent，重试只重试保存。provider 失败和 Ghost 编辑期间保留；放弃、成功采纳及书/章/构思/世界书切换清除，迟到结果仍受 frozen target 与 live revision 门禁。
+- **计划交接（2026-09-05）**：09-05 UI/UX 计划接管后续实施，A2-1 Worldbook 代表片已实施（内容优先 + AI 规则折叠 + 对象属性紧凑行），详见 09-05 计划 A2-1 交付记录。
 - 真实 5173 V5 旅程 5/5，明确断言采纳前 localStorage 与左栏现场零临时写入，采纳后编辑稿和艾德加入场同时落地，且 console/page error 为零。390px 复验确认候选区为普通列表 + 按压态、移动动作 44px 逻辑高度、零横向溢出。Focused 3 文件 / 59 用例与最终 `verify:full` 全绿：20/20 文件、200/200 用例、Vite/VitePress build、diff check 通过。
 - 下一刀 C1-3：新增独立的轻量 reference controller/picker，最多选择三条速记/素材，并把冻结 manifest 和实际 receipt 以“将参考 / 实际参考”的作者语言展示；不把素材管理页搬入工作台。
+
+#### 计划交接与新增修复（2026-09-05）
+
+用户批准 [09-05 UI/UX 与故事试演计划](../plan/authoring-ux-and-story-play-plan-20260905.md) 接管后续实施，本计划 V6/V7 由该计划 A2 波次承接。交接时实施三项修复：
+- **空章节打字失效（P0）**：后续会话的 gap 重设计（0→54px 实体块 + stopEvent 吞事件）覆盖了空章节首行——gap 容器改 `pointer-events: none`、按钮/表单恢复 `auto`
+- **UX-03 落地**：检查器"现场"页复刻的四行交互索引替换为只读紧凑概览（时间/人物/地点 + 调整当前场/推演动作），不再与左栏重复
+- **场景流内核 payload 超限**：`narrativeKernelPayload` 是单 text part（合同上限 8000 字符），场景块加入后必然越限——按块 2400 字符界额截断
+
+A1-R 阻断项（720×450 助手输入遮挡）实测已被先行会话修复（四尺寸复验通过）。回归：acceptance 19/19、V2 Gate 5/5（探索定位已适配 IdeaShelf）、vitest 200/200。V6/V7/V8 不再单独执行，由 09-05 计划统一接管。未提交。
 
 #### P1 C1-3 本次参考与作者可读回执（2026-08-31）
 

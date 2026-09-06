@@ -642,7 +642,9 @@ export function buildNarrativeKernel({
   // P1：geo 仅在当前有地点或用户问路线时暴露（options.hasPlace）
   const activeToolNames = manifestBlocks
     ? [
-        ...(manifestBlocks.some((block) => block.kind === 'worldbook-entry') ? ['world_lookup'] : []),
+        // world_lookup 是基础只读工具：无论本次 manifest 是否命中条目，
+        // 正文请求都不能变成空工具目录（否则 prose 请求直接被拒）。
+        'world_lookup',
         ...(manifestBlocks.some((block) => block.kind === 'memory') ? ['memory_lookup'] : []),
         NARRATIVE_BEAT_PLAN_TOOL
       ]

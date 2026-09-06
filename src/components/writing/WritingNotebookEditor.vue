@@ -422,6 +422,9 @@ function createBlockGapDecorations(state) {
     gap.id = blockGapDomId.value
     gap.className = 'writing-unit-gap'
     gap.contentEditable = 'false'
+    // 54px 的 gap 块会盖住空章节的首行：容器必须放行指针事件，
+    // 否则点击落不到 ProseMirror 上，caret 进不去、打字失效。
+    gap.style.pointerEvents = 'none'
     if (props.blockPreview?.text) {
       gap.classList.add('has-preview')
     } else if (props.blockComposerOpen) {
@@ -1414,6 +1417,51 @@ function warnBlockedStructureEdit(reason = 'implicit-topology-change') {
   emit('blocked-structure-edit', { reason })
 }
 
+// 点击稿件面空白区域（段落下方/行尾之外的留白）：把 caret 放到离点击
+// 最近的文本块末尾，而不是让 DOM 选区落在根容器上与 PM state 脱节。
+// 右键菜单书签、后续输入都依赖两者一致。
+function placeCaretFromClick(view, event) {
+  try {
+    // 点空白 = 想在正文末尾继续写：caret 落到最后一个文本块的末尾。
+    // posAtCoords 在留白处的返回值不可靠，不采用。
+    const applyAtEnd = () => {
+      if (view.isDestroyed) return
+      const docSize = view.state.doc.content.size
+      const $end = view.state.doc.resolve(Math.max(1, docSize - 1))
+      view.dispatch(view.state.tr.setSelection(TextSelection.near($end, -1)))
+      view.focus()
+    }
+    applyAtEnd()
+    // mousedown 被接管后浏览器不再放 caret，PM 的 selection 同步与
+    // mouseup/click 的默认链会把选区拉回文首——等事件循环走完再钉一次。
+    setTimeout(applyAtEnd, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// 空白点击捕获：坐标处没有可放置 caret 的文本（点在稿面留白上）时，PM
+// 默认行为会让 DOM selection 与 state.selection 脱节。这里显式接管。
+const BlankAreaClickSync = Extension.create({
+  name: 'writingBlankAreaClickSync',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      props: {
+        handleDOMEvents: {
+          mousedown: (view, event) => {
+            if (event.button !== 0) return false
+            // 只接管直接点在 PM 根元素上的点击（正文留白）；块内点击与
+            // gap/composer 等浮层控件交回默认处理。
+            if (event.target !== view.dom) return false
+            return placeCaretFromClick(view, event)
+          }
+        }
+      }
+    })]
+  }
+})
+
 // writingUnit 是正文、当前场、批注和来源共同使用的稳定边界。任何没有
 // typed transition 的 transaction 都不得增删/重排这些顶层节点；这样即使
 // 浏览器或 StarterKit 新增了键盘路径，也不会静默吞掉 unitId/originRefs。
@@ -1761,6 +1809,7 @@ const editor = useEditor({
     MediaReferenceNode,
     WritingNodeAttributes,
     WritingUnitIntegrity,
+    BlankAreaClickSync,
     AnnotationDecorations,
     WorldbookMentionDecorations,
     ChinesePunctuationDecorations,
@@ -2208,7 +2257,24 @@ onBeforeUnmount(() => {
 })
 
 function focus(options = {}) {
-  editor.value?.commands.focus(undefined, { scrollIntoView: options.scrollIntoView !== false })
+  const view = editor.value?.view
+  if (!view) return
+  // tiptap commands.focus() 走异步 focus 管理：右键菜单等浮层刚卸载、焦点
+  // 还在浮层控件上时，PM 的 view.focus() 只做 dom.focus() 不主动回写 DOM
+  // 选区——外部拿到的仍是“无选区”。这里显式把内部 state 选区写到 DOM。
+  view.focus()
+  try {
+    const selection = view.state.selection
+    const domSel = window.getSelection()
+    if (!domSel) return
+    const anchor = view.domAtPos(selection.anchor)
+    const head = view.domAtPos(selection.head)
+    // 保留反向选区；Range.setEnd 在 end < start 时会折叠选区。
+    domSel.setBaseAndExtent(anchor.node, anchor.offset, head.node, head.offset)
+  } catch { /* 空文档等场景忽略 */ }
+  if (options?.scrollIntoView !== false) {
+    try { view.dispatch(view.state.tr.scrollIntoView()) } catch { /* ignore */ }
+  }
 }
 
 function blur() {

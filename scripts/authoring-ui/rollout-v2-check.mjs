@@ -138,10 +138,10 @@ const before = await page.evaluate(() => ({
   proseWidth: Math.round(document.querySelector('.ProseMirror')?.getBoundingClientRect().width)
 }))
 await page.evaluate(() => {
-  // 未编排探索的打开事件绑定在内层 .wt3-doc-open 按钮（外层行还带删除按钮）
-  const row = [...document.querySelectorAll('.wall__shelf .wt3-doc-row')]
-    .find((el) => (el.textContent || '').includes('未编排速记'))
-  row?.querySelector('.wt3-doc-open')?.click()
+  // IdeaShelf 组件：文档打开按钮 .authoring-idea-row__open
+  const row = [...document.querySelectorAll('.authoring-idea-shelf .authoring-idea-row__open')]
+    .find((el) => (el.textContent || '').includes('速记'))
+  row?.click()
 })
 await page.waitForTimeout(1200)
 const inExploration = await page.evaluate(() => document.querySelector('.wt3-badge')?.textContent || '')

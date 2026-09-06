@@ -38,24 +38,20 @@
       </span>
     </div>
 
-    <div v-if="selectedBoundary" class="authoring-block-draft__boundary-action" role="group" aria-label="调整草稿单元边界">
-      <span>{{ selectedBoundary.split ? '这里将开始新的写作单元' : '这两段暂时保持在同一写作单元' }}</span>
-      <button type="button" :aria-pressed="selectedBoundary.split.toString()" :disabled="locked || busy" @click="setBoundary(true)">拆分</button>
-      <button type="button" :aria-pressed="(!selectedBoundary.split).toString()" :disabled="locked || busy" @click="setBoundary(false)">合并</button>
-    </div>
-
-    <section v-if="beatDraft.units.length" class="authoring-block-draft__unit-plan" aria-label="写作单元预览">
-      <header>
-        <span>单元预览</span>
-        <strong>拟分为 {{ beatDraft.units.length }} 个写作单元</strong>
-      </header>
-      <ol>
+    <details v-if="beatDraft.units.length" class="authoring-block-draft__structure">
+      <summary>调整结构（{{ beatDraft.units.length }} 个写作单元）</summary>
+      <div v-if="selectedBoundary" class="authoring-block-draft__boundary-action" role="group" aria-label="调整草稿单元边界">
+        <span>{{ selectedBoundary.split ? '这里将开始新的写作单元' : '这两段暂时保持在同一写作单元' }}</span>
+        <button type="button" :aria-pressed="selectedBoundary.split.toString()" :disabled="locked || busy" @click="setBoundary(true)">拆分</button>
+        <button type="button" :aria-pressed="(!selectedBoundary.split).toString()" :disabled="locked || busy" @click="setBoundary(false)">合并</button>
+      </div>
+      <ol class="authoring-block-draft__unit-plan">
         <li v-for="(unit, index) in beatDraft.units" :key="unit.id">
           <span>{{ index + 1 }}</span>
           <p>{{ unitPreview(unit) }}</p>
         </li>
       </ol>
-    </section>
+    </details>
 
     <p v-if="failure || staleResult" class="authoring-block-draft__failure" role="alert">
       {{ failure?.message || '落笔处已经变化，请重新选择位置生成；这份草稿仍为你保留。' }}
@@ -65,7 +61,7 @@
     </p>
 
     <footer class="authoring-block-draft__footer">
-      <span>{{ characterCount }} 字符 · {{ paragraphCount }} 段<span v-if="beatDraft.units.length"> · {{ beatDraft.units.length }} 个单元将原子纳入</span></span>
+      <span>{{ characterCount }} 字 · {{ paragraphCount }} 段</span>
       <div class="authoring-block-draft__actions">
         <button v-if="changed && !locked" type="button" :disabled="busy" @click="emit('restore')">恢复生成稿</button>
         <button v-if="!locked" type="button" :disabled="busy" @click="emit('dismiss')">丢弃</button>
@@ -511,4 +507,12 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
   .authoring-block-draft__unit-plan { grid-template-columns: 1fr; gap: 4px; }
   .authoring-block-draft__unit-plan > header { display: flex; justify-content: space-between; gap: 12px; }
 }
+</style>
+<style scoped>
+.authoring-block-draft__structure{margin:0;border-top:1px dashed var(--border-subtle);padding-top:2px}
+.authoring-block-draft__structure summary{color:var(--text-secondary);font:500 12px/1 var(--font-sans);cursor:pointer;padding:8px 0;list-style:none;user-select:none}
+.authoring-block-draft__structure summary::before{content:'› ';display:inline-block;transition:transform 120ms}
+.authoring-block-draft__structure[open] summary::before{transform:rotate(90deg)}
+.authoring-block-draft__structure .authoring-block-draft__unit-plan{margin:6px 0;padding-inline-start:24px}
+.authoring-block-draft__structure .authoring-block-draft__boundary-action{margin:6px 0}
 </style>

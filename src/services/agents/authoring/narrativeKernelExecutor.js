@@ -5,7 +5,8 @@
 import { buildNarrativeKernel } from '../narrativeKernel.js'
 import {
   runNarrativeAgentGeneration,
-  serializeNarrativeKernelForProvider
+  narrativeTranscriptStaticOverheadChars,
+  serializeKernelWithinTextPartBudget,
 } from '../narrativeAgentOrchestrator.js'
 import { getNarrativeResourceIndex } from '../narrativeResourceIndex.js'
 import { createNarrativeToolRegistry } from '../narrativeToolRegistry.js'
@@ -215,7 +216,12 @@ export function createNarrativeKernelExecutor({
       sceneProjection: manifestMode ? null : (projection || null),
       contextManifest
     })
-    const kernelSerialization = serializeNarrativeKernelForProvider(kernel)
+    // U1：executor 的 receipt 读取这里的 serializedBlocks——必须与实际发送
+    // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。
+    const kernelSerialization = serializeKernelWithinTextPartBudget(
+      kernel,
+      narrativeTranscriptStaticOverheadChars({ phase: 'prose', formatInstructions })
+    )
     const index = manifestMode
       ? manifestAccess.index
       : buildResourceIndex({

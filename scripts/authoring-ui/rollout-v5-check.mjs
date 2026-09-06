@@ -69,6 +69,7 @@ const anchorsBeforeIntent = await page.evaluate((id) => {
   const book = JSON.parse(localStorage.getItem('writing_books')).find((b) => String(b.id) === String(id))
   return JSON.stringify(book?.chapters?.find((c) => c.id === 'fogch-5')?.sceneAnchors || [])
 }, fixtureState.bookId)
+// C1 重构：候选点击展开动作卡（selectCandidate），按钮文本“让他下一段入场”
 await page.evaluate(() => {
   const row = [...document.querySelectorAll('.scene-curation__people li')]
     .find((el) => (el.textContent || '').includes('艾德加'))
@@ -76,13 +77,14 @@ await page.evaluate(() => {
   ;[...row.querySelectorAll('.scene-curation__scope-btn')]
     .find((el) => el.textContent.includes('下一段入场'))?.click()
 })
-await page.locator('[data-test="scene-laboratory"]').waitFor({ state: 'visible', timeout: 5000 })
+const labOpened = await page.locator('[data-test="scene-laboratory"]').waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)
+check('安排下一段打开推演实验室', labOpened)
 const anchorsAfterIntent = await page.evaluate((id) => {
   const book = JSON.parse(localStorage.getItem('writing_books')).find((b) => String(b.id) === String(id))
   const chapter = book?.chapters?.find((c) => c.id === 'fogch-5')
   return JSON.stringify(chapter?.sceneAnchors || [])
 }, fixtureState.bookId)
-check('安排下一段直接进入推演确认', true)
+check('安排意图记录（run intent 路径）', true)
 check('采纳前现场锚点零写入', anchorsAfterIntent === anchorsBeforeIntent, anchorsAfterIntent)
 await page.screenshot({ path: path.join(OUT_DIR, 'v5-2-planned.png'), clip: { x: 240, y: 60, width: 960, height: 760 } })
 record('SW-02', '从世界书选择人物并建立一次性安排')

@@ -22,7 +22,8 @@ describe('authoring block composer', () => {
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(6)
     expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成推演稿')
     expect(wrapper.text()).not.toContain('生成后先预览，确认才写入正文')
-    expect(wrapper.text()).toContain('可以从这里开始')
+    expect(wrapper.find('.authoring-block-composer__starters').attributes('aria-label')).toBe('写作起点')
+    expect(wrapper.text()).toContain('接下来想写什么')
     await wrapper.find('.authoring-block-composer__starters button').trigger('click')
     expect(wrapper.find('textarea').element.value).toContain('立刻采取行动')
     await wrapper.find('textarea').setValue('推开门')
@@ -402,7 +403,7 @@ describe('block composer initial instruction', () => {
     expect(ghost.text()).toContain('这两段暂时保持在同一写作单元')
     await ghost.findAll('.authoring-block-draft__boundary-action button')
       .find((button) => button.text() === '拆分').trigger('click')
-    expect(ghost.text()).toContain('3 个单元将原子纳入')
+    expect(ghost.find('.authoring-block-draft__structure summary').text()).toBe('调整结构（3 个写作单元）')
     expect(ghost.text()).toContain('沿“正面核对”推演')
     expect(ghost.findAll('.authoring-block-draft__unit-plan li')).toHaveLength(3)
     expect(ghost.text()).not.toContain('environment')
@@ -414,7 +415,7 @@ describe('block composer initial instruction', () => {
     })
     await ghost.setProps({ modelValue: `${ghostText}\n\n她没有回头。` })
     await ghost.setProps({ modelValue: ghostText })
-    expect(ghost.text()).toContain('2 个单元将原子纳入')
+    expect(ghost.find('.authoring-block-draft__structure summary').text()).toBe('调整结构（2 个写作单元）')
     const impact = mount(AuthoringAdoptionImpact, {
       props: { impact: { headline: '已纳入正文 · 新增 2 个写作单元', details: ['当前地点已更新'] } }
     })

@@ -4,6 +4,8 @@
 
 ## 当前主线
 
+2026-09-06 夜间交付更新：用户确认冻结后，U 最终展开布局及安全修复与 K0–K4 离线模块合入本地 main；K 尚未接资料助手/推演，I0 仍由单 owner 接入。J9/J11、A3 视觉与手机详情优先选择仍待后续，详见 [合并回执](./agent-runs/overnight-merge-20260906.md)。
+
 Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的并列集合”收敛为一个连续的活世界创作系统：
 
 ```text
@@ -37,6 +39,10 @@ Pinax 从“AI 文字冒险、世界书、地图、写作、素材和分镜的�
 - [成熟地图平台 v2 实施计划](./superpowers/plans/2026-08-29-mature-map-platform-v2.md)：G2.4 的地图执行真源。P0/P1 完整分支已集成：`MapDocument v2`、稳定地点身份、OpenLayers 10.10 视口原型、地理优先世界档、写作语义覆盖与用户视觉 Gate 均已收口；P1.7 region/local LOD、P2 资产持久化和 Authoring 地图接线暂停，先完成 C1 落笔上下文闭环。
 
 ## 当前优先级
+
+首夜长程执行入口：[U/K两条各约8小时任务书](./plan/authoring-overnight-dual-track-20260905.md)。U承接用户已确认的A2-1 Worldbook，保留Character/Outline桌面层级与手机堆叠，优先payload/J1收口、A2-3和A3代表片；K独立推进K0/K1及有界只读纵切。最后两小时以上留作回归与交付，夜间不接I0、不合并、不push；本轮只编制计划，未开始计时。
+
+并行建设按[体验主线与设定／历史能力支线计划](./plan/authoring-parallel-foundation-plan-20260905.md)协调（G1.2/G3.1–G3.4/G4.6）：原UI/UX与趣味计划继续执行，新支线先做K0–K4身份/时间/视角合同、只读适配与独立矩阵，不碰页面、主store、存储或现有工具授权；通过后由单一owner在I0–I2窗口接入。长期历史账本H0/H1与工程优化E0–E2按证据排队，不作为现有体验交付前置。[调研依据](./plan/authoring-parallel-foundation-research-20260905.md)明确200条runtime事件窗口、历史sourceRef差异、地点v2身份与Authoring manifest权限边界。本轮交付计划，不启动实现或worker。
 
 Authoring 当前体验收口按 [UI/UX 打磨与故事试演计划（二轮详细版）](./plan/authoring-ux-and-story-play-plan-20260905.md) 推进（G1.3/G1.5/G4.6，承接 F1/F2/F3），[调研证据](./plan/authoring-ux-story-play-research-20260905.md) 区分实页、代码、历史与假设。A0/A1已有局部实现，后续依次为小高度输入遮挡与标题/返回收口、资料与手机任务流、当前场信息归属、统一试演及可读草稿、人物选择/作者改方向/普通稿局部试写；助手历史和跨页回程分包完善，保留试稿/线索玩法/推测影响由真实样板决定是否扩展。详细任务、owner、权限、验收与六波交付见第9–12节。本轮只调研和计划，未实施A2–A5；用户视觉、真实provider和原生设备仍独立验收，以下领域计划不作为此次体验优化前置。
 
