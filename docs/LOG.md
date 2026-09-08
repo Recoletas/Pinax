@@ -2,6 +2,21 @@
 
 > 只记录近期用户可感知变化、验证结果和仍会影响后续判断的风险。过程性 UI 微调不再逐条保留。
 
+## 2026-09-08 - 人物 IF 补充研究与第四轮夜间队列
+
+- 读取旧工作区[人物/空间研究](./plan/authoring-character-fate-research-20260908.md)，以原文快照移入 main 文档目录，保留原文件不改；另写[补充研究](./plan/authoring-character-fate-followup-20260908.md)，复核 Inform/ink/Anytype/Obsidian 与 Generative Agents 一手资料和当前源码，不把旧树的“K 未实现”当现状。
+- 推荐同基线单信念 IF，先行动提议/作者确认再写正文；A/B 不强制差异，角色自由文本不伪装结构化信念，预测不写正式事实。空间/回溯后置；薄只读引用与速记候选是次级可交付，不建统一写库。
+- [第四轮任务书](./plan/authoring-overnight-round4-20260908.md)：U 10 包/K 8 包/owner 4 包/加深 6 包，逐项承接旧任务。增加真实工作量与独立就绪队列，O40 续接不通过必须报夜间启动失败，不以普通会话冒充长程执行。
+- 验收后的增量核对：U 已补焦点销毁守卫及命名/解绑/统一撤销入口，本轮初次 verify:full exit 0（20/200、双 build/diff）；K 更新至 5baa1b8，正式 composable 失效焦点探针一次 prepare/零 mock provider/exit 0，完整新点击矩阵本轮未重跑。J9/追加要求/留作构思仍待，不声称两线全完成。
+- 只改研究、计划和入口/状态，未修产品、启动 worker、启停服务、合并或 push。最终 `npm run verify:full` exit 0：20/20 文件、200/200 用例、Vite/VitePress build 与 diff 通过；35 个本地链接有效，U10/K8/O4/D6 编号齐全，原研究副本 hash 一致。回执补写后复查 diff 与文档 build。验证不代表 IF/第四轮已实现或真实模型效果通过。
+
+## 2026-09-07 - 第三轮夜间计划与第二轮缺口接续
+
+- 编制[第三轮任务书](./plan/authoring-overnight-round3-20260907.md)，逐项映射第二轮主包与储备。纠正未经实测的工时估算、worker 自报完成及 K 页面接线写集缺失；固定追加要求最小状态机，要求启动/退出接续实测与独立验收，8h 仅为运行上限。
+- 核对 K 最新 d3978d1：取消、无效零预算及未点名必需来源单项探针已拒绝；新增“两个必需来源 × 合法 items=1/chars=1”仍 ready 并补回原文，default-off 指纹仍不同。浏览器动态 import 门禁不算真实点击闭环。仅诊断，不在本轮修产品代码。
+- 保留 main 的 U 未提交代码与独立 K 分支；第三轮明确不同实际基线的快照/写集与晨间集成门禁，不提前合并。同步计划导航与当前状态；未启动 worker、计时或服务，未提交/push。
+- 文档与当前 main/U 工作树验证：`npm run verify:full` exit 0，20/20 文件、200/200 用例、Vite/VitePress build 与 diff 通过；第三轮任务书 3 个本地链接有效，U31–36/K31–36 齐全。通过不代表 U 遗留、K 独立分支或真实模型验收通过；回执补写后另跑 diff 与文档 build。
+
 ## 2026-09-06 - 第二轮夜间计划
 
 - 基于 main `6b7a017` 的实际交付、J9/J11、最终展开 composer、F2 prepare/返回链与 K 快照边界，编制[第二轮任务书](./plan/authoring-overnight-round2-20260906.md)。不重复已完成 K0–K4，不把静态层级小改包装为长程任务。

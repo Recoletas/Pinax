@@ -1,6 +1,6 @@
 # 第二轮夜间任务书：稳定写作、可改试演、资料能力接入
 
-日期：2026-09-06。状态：**计划待执行，未派发、未开始计时**。承接 main `6b7a017`；不从原目录的旧 integration/WIP 分叉。
+日期：2026-09-06。状态更新（2026-09-07）：**已执行、部分交付，未整体验收通过；后续由[第三轮任务书](./authoring-overnight-round3-20260907.md)接管**。以下保留第二轮原定目标与范围，不代表已完成。原计划承接 main `6b7a017`；不从原目录的旧 integration/WIP 分叉。
 
 从属 [体验计划](./authoring-ux-and-story-play-plan-20260905.md) A2–A4 与 [并行能力计划](./authoring-parallel-foundation-plan-20260905.md) K/I0/E0；不替换产品路线。前轮事实见 [合并回执](../agent-runs/overnight-merge-20260906.md)。
 

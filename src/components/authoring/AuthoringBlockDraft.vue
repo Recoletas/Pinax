@@ -53,6 +53,9 @@
       </ol>
     </details>
 
+    <p v-if="previousDraft" class="authoring-block-draft__prev-note">
+      上一份试稿已保留在会话中
+    </p>
     <p v-if="failure || staleResult" class="authoring-block-draft__failure" role="alert">
       {{ failure?.message || '落笔处已经变化，请重新选择位置生成；这份草稿仍为你保留。' }}
     </p>
@@ -65,6 +68,7 @@
       <div class="authoring-block-draft__actions">
         <button v-if="changed && !locked" type="button" :disabled="busy" @click="emit('restore')">恢复生成稿</button>
         <button v-if="!locked" type="button" :disabled="busy" @click="emit('dismiss')">丢弃</button>
+        <button v-if="!locked" type="button" :disabled="busy" @click="emit('save-as-exploration')">留作构思</button>
         <button
           type="button"
           class="is-primary"
@@ -89,12 +93,13 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   failure: { type: Object, default: null },
   staleResult: { type: Object, default: null },
+  previousDraft: { type: String, default: '' },
   boundaryHints: { type: Array, default: () => [] },
   selectedDirection: { type: Object, default: null },
   sessionFingerprint: { type: String, default: '' }
 })
 
-const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore'])
+const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore', 'save-as-exploration'])
 const draftInput = ref(null)
 const boundaryCorrections = ref([])
 const stableBoundaryHints = ref([])
@@ -507,6 +512,8 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
   .authoring-block-draft__unit-plan { grid-template-columns: 1fr; gap: 4px; }
   .authoring-block-draft__unit-plan > header { display: flex; justify-content: space-between; gap: 12px; }
 }
+
+.authoring-block-draft__prev-note{margin:0 0 6px;color:var(--text-muted);font-size:11px}
 </style>
 <style scoped>
 .authoring-block-draft__structure{margin:0;border-top:1px dashed var(--border-subtle);padding-top:2px}
@@ -515,4 +522,6 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 .authoring-block-draft__structure[open] summary::before{transform:rotate(90deg)}
 .authoring-block-draft__structure .authoring-block-draft__unit-plan{margin:6px 0;padding-inline-start:24px}
 .authoring-block-draft__structure .authoring-block-draft__boundary-action{margin:6px 0}
+
+.authoring-block-draft__prev-note{margin:0 0 6px;color:var(--text-muted);font-size:11px}
 </style>

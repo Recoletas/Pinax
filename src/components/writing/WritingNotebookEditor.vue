@@ -221,6 +221,11 @@ let lastCommandMenuGeometry = null
 let compositionRefreshTimer = null
 let componentUnmounting = false
 let allSelectionCompositionActive = false
+// U42：selectAll() 命令的作者意图标记。PM 在 writingUnit 包裹的文档中
+// 可能将全选映射为 TextSelection 而非 AllSelection（DOM 选区不含结构边界），
+// 导致 handleCompositionStart 的 instanceof 检查失败。此标记在 selectAll()
+// 和实际 compositionstart 之间持续生效，不依赖 PM 选区类型。
+let selectAllIntentActive = false
 let compositionSessionToken = 0
 let editorDocumentGeneration = 0
 
@@ -1454,8 +1459,31 @@ const BlankAreaClickSync = Extension.create({
             // 只接管直接点在 PM 根元素上的点击（正文留白）；块内点击与
             // gap/composer 等浮层控件交回默认处理。
             if (event.target !== view.dom) return false
-            return placeCaretFromClick(view, event)
+            const handled = placeCaretFromClick(view, event)
+            if (handled) event.preventDefault()
+            return handled
           }
+        }
+      }
+    })]
+  }
+})
+
+// U31：浏览器原生 Ctrl+A 在 writingUnit 包裹的文档中不产生 PM AllSelection
+// （DOM 选区只覆盖文本内容，不含结构边界）。但 handleCompositionStart 依赖
+// AllSelection 判定是否在 compositionend 后做 replace-all。这里显式拦截
+// Ctrl/Cmd+A 并创建 AllSelection，使全选+IME 的原子替换行为与用户意图一致。
+const SelectAllHandler = Extension.create({
+  name: 'writingSelectAllHandler',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      props: {
+        handleKeyDown: (view, event) => {
+          if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false
+          if (event.key !== 'a' && event.key !== 'A') return false
+          view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)))
+          event.preventDefault()
+          return true
         }
       }
     })]
@@ -1810,6 +1838,7 @@ const editor = useEditor({
     WritingNodeAttributes,
     WritingUnitIntegrity,
     BlankAreaClickSync,
+    SelectAllHandler,
     AnnotationDecorations,
     WorldbookMentionDecorations,
     ChinesePunctuationDecorations,
@@ -1839,6 +1868,19 @@ const editor = useEditor({
   },
   onUpdate({ editor: currentEditor, transaction }) {
     if (!transaction.docChanged) return
+    // U33：键盘 undo/redo 的事务副作用可能使 PM view 丢失焦点（DOM 重渲染
+    // 替换含 caret 的节点），导致后续 redo/继续编辑的键盘事件无法到达编辑器。
+    // historyUndo/historyRedo 后显式恢复焦点。
+    if (writingInputType(transaction) === 'historyUndo' || writingInputType(transaction) === 'historyRedo') {
+      if (!currentEditor.view.dom.contains(document.activeElement)) {
+        // setTimeout 而非 nextTick：PM 事务的 DOM 渲染在 microtask 之后，
+        // nextTick 的 focus 会被后续渲染覆盖。
+        setTimeout(() => {
+          if (componentUnmounting || !currentEditor.view || currentEditor.isDestroyed) return
+          currentEditor.commands.focus(undefined, { scrollIntoView: false })
+        }, 0)
+      }
+    }
     const transition = transaction.getMeta('writingUnitTransition') || null
     emitDocument(currentEditor, transition)
     // Tiptap 会先发 selectionUpdate、再发 update。文本事务若在前一个事件里
@@ -1999,6 +2041,7 @@ function cancelPendingComposition(reason = 'cancelled') {
   if (compositionRefreshTimer) clearTimeout(compositionRefreshTimer)
   compositionRefreshTimer = null
   allSelectionCompositionActive = false
+  selectAllIntentActive = false
   interactionComposing.value = false
   compositionSettling.value = false
   if (owned) emit('composition-change', false, { reason })
@@ -2014,7 +2057,19 @@ function handleCompositionStart(event) {
   compositionSettling.value = false
   // 全选后的 provisional IME DOM 不得提前清空正文。compositionend 有最终
   // 文本时再提交一次 typed replace-all；取消候选（空 data）保持原稿不变。
-  allSelectionCompositionActive = editor.value?.state.selection instanceof AllSelection
+  // U42：不依赖 instanceof AllSelection——PM 在 writingUnit 包裹的文档中
+  // 可能把全选映射为跨全文档的 TextSelection 而非 AllSelection。
+  // 改为检查选区是否覆盖整个文档内容。
+  // U42：优先检查 selectAll 意图标记（不依赖 PM 选区类型——writingUnit
+  // 结构下 PM 可能将全选同步为 TextSelection）。标记在 compositionend 后清除。
+  const compSel = editor.value?.state.selection
+  const compDocSize = editor.value.state.doc.content.size
+  const coversWholeDoc = compSel && (
+    compSel instanceof AllSelection
+    || (compSel instanceof TextSelection && compSel.from <= 1 && compSel.to >= compDocSize - 1)
+  )
+  allSelectionCompositionActive = selectAllIntentActive || coversWholeDoc
+  selectAllIntentActive = false
   interactionComposing.value = true
   closeCommandMenu()
   emit('composition-change', true)
@@ -3110,6 +3165,7 @@ function deleteSelection() {
 
 function selectAll() {
   if (!editor.value) return false
+  selectAllIntentActive = true
   return editor.value.chain().focus(undefined, { scrollIntoView: false }).selectAll().run()
 }
 

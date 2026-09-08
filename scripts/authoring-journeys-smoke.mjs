@@ -507,13 +507,18 @@ async function journeySceneBinding() {
   }, baseJourneyOptions())
 }
 
-// ---------- AI 链路旅程（需要后端；探测失败则跳过） ----------
+// ---------- AI 链路旅程（需要后端；仅显式 opt-in 才探测真实后端） ----------
+// U01：旧版用 BASE.replace('5173','3001') 字符串替换探测——非标准端口会误判
+// 为"后端可用"进而把生成请求发到 Vite 而非真实后端。现在要求显式
+// ALLOW_REAL_PROVIDER=1 才进入 AI 旅程；默认一律跳过并记录跳过原因。
 async function backendAvailable() {
+  if (process.env.ALLOW_REAL_PROVIDER !== '1') return false
+  const backendBase = process.env.REAL_PROVIDER_BASE || 'http://127.0.0.1:3001'
   let timer = null
   try {
     const controller = new AbortController()
     timer = setTimeout(() => controller.abort(), 2500)
-    await fetch(BASE.replace('5173', '3001').replace('5174', '3001') + '/', { signal: controller.signal })
+    await fetch(backendBase + '/', { signal: controller.signal })
     return true
   } catch {
     return false
@@ -858,7 +863,18 @@ async function journeyCompositionIsolation() {
     // 全选 + IME 最终提交：候选过程中原稿保持，composition settled 后只
     // 形成一次 replace-all，并以最终 revision 重新武装一次被动联想。
     await surface.click()
-    await page.keyboard.press('ControlOrMeta+A')
+    // U02：合成键盘 Ctrl+A 在 PM + writingUnit 结构下不可靠地创建 AllSelection。
+    // 改用编辑器暴露的 selectAll() 命令（与用户菜单行为一致）。
+    await page.evaluate(() => {
+      let comp = null
+      for (let node = document.querySelector('.ProseMirror'); node; node = node.parentElement) {
+        if (node.__vueParentComponent) { comp = node.__vueParentComponent; break }
+      }
+      let depth = 0
+      while (comp && !comp.exposed?.selectAll && comp.parent && depth < 8) { comp = comp.parent; depth += 1 }
+      comp.exposed.selectAll()
+    })
+    await page.waitForTimeout(200)
     const allSelectionBefore = await canonicalEditorText(page)
     // 被动联想的产品门槛是正文至少 12 字；这里必须跨过门槛，才能验证
     // composition settled 后以最终 revision 恰好重新武装一次。
@@ -1069,16 +1085,7 @@ async function journeyLongDoc(page) {
   await page.waitForTimeout(500)
   await page.locator('[data-test="authoring-search-panel"] button[aria-label="关闭查找"]').click()
   await page.waitForTimeout(400)
-  // 关闭面板的点击会走全局清理；用编辑器选区桥在定位后的目标上重建选区
-  await page.evaluate(() => {
-    let comp = null
-    for (let node = document.querySelector('.ProseMirror'); node; node = node.parentElement) {
-      if (node.__vueParentComponent) { comp = node.__vueParentComponent; break }
-    }
-    let depth = 0
-    while (comp && !comp.exposed?.selectText && comp.parent && depth < 8) { comp = comp.parent; depth += 1 }
-    comp.exposed.selectText('门轴发出长叹', 0)
-  })
+  // U03：关闭面板后选区浮条应由产品逻辑自动恢复（closeSearchPanel 内修复）
   await page.waitForTimeout(600)
   if (!await expectVisible(page, '.writing-selection-actions', journey)) {
     report.push({ journey, level: 'FAIL', what: '查找跳转后未出现选区浮动条（选区未命中）' })

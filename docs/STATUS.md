@@ -11,7 +11,7 @@
 
 ## 当前事实
 
-- **第二轮夜间计划（2026-09-06，待执行）**：[任务书](./plan/authoring-overnight-round2-20260906.md)已按合并后 main 编制，U/K 各 6 主包 + 3 储备。强制工作区/网络隔离、实际进度接续、最终树冻结；U 做输入/搜索安全和追加要求再试，K 做安全/真实源桥接及 gate 后默认关闭窄 I0。启动 owner 先确认 K24 范围、共同基线与续接方式；没有启动 worker、服务或本轮计时，以下首夜“尚未启动”仅为历史。
+- **第四轮夜间计划（2026-09-08，待执行）**：[任务书](./plan/authoring-overnight-round4-20260908.md)及[人物 IF 补充调研](./plan/authoring-character-fate-followup-20260908.md)接管第三轮未完成项。建议人物单信念 IF 优先；U 10 包/K 8 包/6 加深包，补普通追加要求、保旧稿/构思、资料安全接线，并提供薄对象引用/提炼候选与隔离空间实验后续。新树 U 销毁守卫及统一撤销已补，全量 exit 0；K 5baa1b8 拒绝回退单项复验通过，完整组合仍待验。J9、U34–36 未关闭；旧 main WIP 与 K 分支保留。O40 续接不通过即夜间启动失败，不再降级冒充已启动。本轮只研究/计划，未启动实现/合并/push。
 
 - **U/K 合并交付（2026-09-06，覆盖下面旧状态）**：用户确认最终冻结；以 U 最终树 `9fe8e063` 收敛 composer 展开布局，保留集成安全修复，K0–K4 按离线模块纳入本地 main。主线工作区 `/home/recoletas/jiuguan/pinax-integration-20260906`；原 `text-game-framework` 旧 integration 与 WIP 保留，后续开发请使用 main 工作区。未接生产、未 push、未动 server-version。核心门禁与交互遗留详见 [合并回执](./agent-runs/overnight-merge-20260906.md)；J9/J11 仍未关闭，A3 不标视觉冻结。
 

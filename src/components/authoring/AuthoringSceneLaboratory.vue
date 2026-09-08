@@ -6,6 +6,7 @@ const props = defineProps({
   pressure: { type: Object, default: null },
   directions: { type: Array, default: () => [] },
   selectedDirectionId: { type: String, default: '' },
+  appendRequirement: { type: String, default: '' },
   phase: { type: String, default: 'ready' },
   notice: { type: String, default: '' }
 })
@@ -157,8 +158,21 @@ function handleLaboratoryKeydown(event) {
 
       <footer v-if="selectedDirection" class="authoring-scene-lab__footer is-selection">
         <p><span>{{ notice ? '当前状态' : '准备沿此方向落笔' }}</span>{{ notice || selectedDirection.title }}</p>
-        <button type="button" @click="emit('select', '')">换方向</button>
-        <button type="button" class="is-primary" @click="emit('confirm', selectedDirection)">按此推演</button>
+        <!-- U44：追加一句要求，改变当前方向下的具体行动 -->
+        <div class="authoring-scene-lab__append">
+          <input
+            type="text"
+            class="authoring-scene-lab__append-input"
+            :value="appendRequirement"
+            placeholder="按这个方向，但……（可留空直接推演）"
+            aria-label="追加要求"
+            @input="emit('append-requirement', $event.target.value)"
+          />
+        </div>
+        <div class="authoring-scene-lab__footer-actions">
+          <button type="button" @click="emit('select', '')">换方向</button>
+          <button type="button" class="is-primary" @click="emit('confirm', selectedDirection)">{{ appendRequirement ? '按新要求推演' : '按此推演' }}</button>
+        </div>
       </footer>
     </template>
   </section>
@@ -465,4 +479,9 @@ function handleLaboratoryKeydown(event) {
     animation: none !important;
   }
 }
+
+.authoring-scene-lab__append{margin:8px 0 6px}
+.authoring-scene-lab__append-input{box-sizing:border-box;width:100%;min-height:32px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-primary);font:400 13px/1.4 var(--font-body);outline:0}
+.authoring-scene-lab__append-input:focus{border-color:var(--accent-primary,var(--accent,#1677ff))}
+.authoring-scene-lab__footer-actions{display:flex;gap:8px;margin-top:6px}
 </style>

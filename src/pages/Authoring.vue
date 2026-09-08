@@ -518,6 +518,8 @@
                 :phase="sceneLaboratory.phase"
                 :notice="sceneLaboratory.notice"
                 @select="selectSceneLaboratoryDirection"
+                :append-requirement="sceneLaboratoryAppendRequirement"
+                @append-requirement="sceneLaboratoryAppendRequirement = $event"
                 @confirm="confirmSceneLaboratoryDirection"
                 @back="openSceneLaboratoryEvidence"
                 @close="closeSceneLaboratory"
@@ -608,9 +610,11 @@
                 :boundary-hints="blockPreview.boundaryHints"
                 :selected-direction="blockPreview.selectedDirectionReceipt"
                 :session-fingerprint="blockPreview.candidate?.runSession?.manifest?.fingerprint || ''"
+                :previous-draft="previousBlockDraftText"
                 @accept="acceptBlockPreview"
                 @dismiss="dismissBlockPreview"
                 @restore="restoreBlockDraft"
+                @save-as-exploration="saveBlockDraftAsExploration"
               />
             </Teleport>
             <Teleport v-else-if="adoptionImpact" to="#authoring-block-gap">
@@ -4112,6 +4116,7 @@ const sceneLaboratory = reactive({
 let sceneLaboratoryRequestVersion = 0
 let sceneLaboratoryAbortController = null
 
+const sceneLaboratoryAppendRequirement = ref('')
 const sceneLaboratoryDirections = computed(() => (
   sceneLaboratory.run?.directionSet?.directions || []
 ))
@@ -4267,6 +4272,7 @@ async function confirmSceneLaboratoryDirection() {
     return false
   }
 
+  sceneLaboratoryAppendRequirement.value = ''
   sceneLaboratory.phase = 'generating-prose'
   const submittedComposerVersion = ++blockComposerVersion
   blockComposer.open = true
@@ -4278,7 +4284,7 @@ async function confirmSceneLaboratoryDirection() {
     outcome = await runAuthoringTurn({
       operation: 'next-passage',
       kind: 'action',
-      instruction: '',
+            instruction: sceneLaboratoryAppendRequirement.value || '',
       sourceRefs: [...new Set([...composerSourceRefs.value, ...validation.selection.evidenceRefs])],
       invocationTarget: target,
       selectedDirection: validation.selection,
@@ -5626,6 +5632,9 @@ function clearAuthoringRunReferences() {
 const blockPreview = shallowRef(null)
 const blockDraftText = ref('')
 const blockDraftOriginalText = ref('')
+// U44：上一份试稿，用于新旧稿对比和取消恢复
+const previousBlockDraftText = ref('')
+const hasPreviousBlockDraft = computed(() => Boolean(previousBlockDraftText.value?.trim()))
 
 function toggleContextRunExclusion(candidateId) {
   const id = String(candidateId || '')
@@ -5847,6 +5856,7 @@ const authoringTask = useAuthoringTask({
     })
     pendingWritingGhost.value = claimWritingGhostCandidate(pendingWritingGhost.value, next).pending
     if (!pendingWritingGhost.value) return false
+      if (blockDraftText.value?.trim()) previousBlockDraftText.value = blockDraftText.value
     blockDraftOriginalText.value = String(text || '').trim()
     blockDraftText.value = blockDraftOriginalText.value
     blockComposer.failure = null
@@ -7360,6 +7370,25 @@ async function performBlockPreviewAdoption() {
   return true
 }
 
+async function saveBlockDraftAsExploration() {
+  const text = String(blockDraftText.value || '').trim()
+  if (!text || !selectedBookId.value) return
+  const title = `试稿 ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`
+  const result = await import('../services/writing/authoringDocumentRepository.js')
+    .then(mod => mod.createExplorationDocument(selectedBookId.value, {
+      title,
+      content: text,
+      sourceRefs: [`chapter:${selectedChapterId.value}`]
+    }))
+  if (result?.ok) {
+    blockDraftText.value = ''
+    dismissBlockPreview()
+    authoringTask.notify('已留作构思，可在左栏构思区查看')
+  } else {
+    authoringTask.notify('留作构思保存失败，请重试')
+  }
+}
+
 function dismissBlockPreview() {
   return abandonBlockComposer({ restoreSelection: true })
 }
@@ -8571,7 +8600,29 @@ const shouldLockPageScroll = computed(() => {
 
 useBodyScrollLock(shouldLockPageScroll)
 
+// U33：键盘 undo/redo 后 PM 事务副作用可能使编辑器丢失焦点（DOM 重渲染
+// 替换含 caret 的节点），导致后续 redo 键盘事件落在 BODY 上。当选区仍在
+// 编辑器内但焦点不在时，转发 undo/redo 到编辑器。
+function handleEditorHistoryKeyForward(event) {
+  if (!event.ctrlKey && !event.metaKey) return
+  const key = String(event.key || '').toLowerCase()
+  const isUndo = key === 'z' && !event.shiftKey
+  const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)
+  if (!isUndo && !isRedo) return
+  const pm = document.querySelector('.writing-notebook-editor__surface .ProseMirror')
+  if (!pm || pm.contains(document.activeElement)) return
+  const sel = window.getSelection()
+  if (!sel?.anchorNode || !pm.contains(sel.anchorNode)) return
+  event.preventDefault()
+  pm.focus()
+  nextTick(() => {
+    if (isRedo) redoNotebookEdit()
+    else undoNotebookEdit()
+  })
+}
+
 onMounted(() => {
+  document.addEventListener('keydown', handleEditorHistoryKeyForward)
   const syncChapterShelfMode = () => {
     chapterShelfSheetMode.value = Boolean(window.matchMedia?.('(max-width: 720px)').matches)
   }
@@ -8616,6 +8667,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleWritingInspectorKeydown)
   document.removeEventListener('keydown', handleWritingFocusKeydown)
   document.removeEventListener('keydown', handleContextMenuKeydown, true)
+  document.removeEventListener('keydown', handleEditorHistoryKeyForward)
   document.body.classList.remove('is-writing-zen')
   document.removeEventListener('pointerdown', dismissSelectionActions)
   window.removeEventListener('resize', scheduleAnnotationLayout)
@@ -11679,9 +11731,13 @@ function undoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
   if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('undo'))
   suppressWritingAgent('history')
-  if (hasStructureUndoBoundary.value) return undoStructureTransition()
-  if (hasGhostAdoptionUndoBoundary.value) return undoGhostAdoption()
-  return Boolean(notebookEditorRef.value?.undo?.())
+  let result = false
+  if (hasStructureUndoBoundary.value) result = undoStructureTransition()
+  else if (hasGhostAdoptionUndoBoundary.value) result = undoGhostAdoption()
+  else result = Boolean(notebookEditorRef.value?.undo?.())
+  // U33：undo 后编辑器可能因事务副作用失去焦点，导致 redo 键盘无法到达。
+  if (result) nextTick(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false }))
+  return result
 }
 
 function redoNotebookEdit() {
@@ -13041,7 +13097,9 @@ function hideSelectionActions() {
 
 function dismissSelectionActions(event) {
   const target = event.target instanceof Element ? event.target : null
-  if (target?.closest('.writing-selection-actions, .writing-notebook-editor__surface')) return
+  // U03：搜索面板内的点击（含关闭）不视为"放弃选区"——面板关闭后如果
+  // 定位产生的文字选区仍在编辑器内，浮条应恢复可操作。
+  if (target?.closest('.writing-selection-actions, .writing-notebook-editor__surface, [data-test="authoring-search-panel"]')) return
   hideSelectionActions()
 }
 
@@ -14285,10 +14343,22 @@ function closeSearchPanel({ restore = true } = {}) {
   }
   const shouldRestore = restore && !searchHasNavigated.value
   const surface = searchReturnSurface
+  const navigatedToEditor = searchHasNavigated.value && surface && surface.pane !== 'dual'
   searchPanelOpen.value = false
   searchReplacePreview.value = null
   preparedSearchSource = null
   searchReturnSurface = null
+  // U03：搜索定位后关闭面板，如当前编辑器仍有有效文字选区，恢复选区浮条。
+  // 面板打开时浮条被 !searchPanelOpen 抑制是设计；关闭后不应残留隐藏状态。
+  if (navigatedToEditor) {
+    nextTick(() => {
+      const sel = window.getSelection()
+      const pm = document.querySelector('.writing-notebook-editor__surface .ProseMirror')
+      if (sel?.rangeCount && pm?.contains(sel.anchorNode) && !sel.isCollapsed) {
+        selectionActionsVisible.value = true
+      }
+    })
+  }
   if (!shouldRestore || !surface) return
   nextTick(() => {
     if (surface.pane === 'dual') dualPaneRef.value?.restoreSurfaceState?.(surface)
