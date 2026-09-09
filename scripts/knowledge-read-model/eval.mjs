@@ -82,7 +82,9 @@ const {
   stableStringify,
   KNOWLEDGE_LIMITS
 } = await import(join(modelDir, 'index.js'))
+const { isDeepFrozen } = await import(join(modelDir, 'contract.js'))
 const { findCandidatesByName, buildAliasIndex } = await import(join(modelDir, 'identity.js'))
+const { createKnowledgeScope } = await import(join(modelDir, 'query.js'))
 const { createLegacySnapshotA, createLegacySnapshotB, LEGACY_FIXTURE_IDS: L } = await import(join(scriptDir, 'fixtures', 'legacySnapshot.js'))
 const { createRichSnapshotA, RICH_FIXTURE_IDS: R } = await import(join(scriptDir, 'fixtures', 'richSnapshot.js'))
 
@@ -247,10 +249,24 @@ check('source-research-claim-linked-and-stale-flag', '来源', '研究 claim 经
   return true
 })
 
-check('source-memory-not-entity-bound', '来源', '记忆无实体绑定：不给内容、报不可用，不伪造归属', () => {
-  const result = queryKnowledge(authRequest({ sourceScope: { includeSources: ['worldbook-entry', 'canonical-fact', 'memory'] } }), { snapshot: freshLegacy() })
-  assertEq(result.excerpts.some((item) => item.sourceKind === 'memory'), false)
-  assertEq(result.diagnostics.some((d) => d.code === 'memory-entity-binding-unavailable'), true)
+check('source-memory-explicit-ref-only', '来源', '记忆只能按显式 id 引用查询（v1.1）；不能借实体关联伪造归属', () => {
+  const snapshot = freshLegacy()
+  const byAssociation = queryKnowledge(authRequest({ sourceScope: { includeSources: ['worldbook-entry', 'canonical-fact', 'memory'] } }), { snapshot })
+  assertEq(byAssociation.excerpts.some((item) => item.sourceKind === 'memory'), false, '实体查询不附带记忆')
+  const explicit = queryKnowledge(authRequest({
+    entityRefs: [{ kind: 'memory', id: 'mem_001' }],
+    sourceScope: { includeSources: ['worldbook-entry', 'canonical-fact', 'memory'] }
+  }), { snapshot })
+  const memoryItem = explicit.excerpts.find((item) => item.sourceKind === 'memory')
+  if (!memoryItem) throw new Error('显式引用的记忆未返回')
+  assertEq(memoryItem.id, 'excerpt:memory:mem_001')
+  assertEq(explicit.coverage.resolvedEntities, 1, '精确解析')
+  const inactive = queryKnowledge(authRequest({
+    entityRefs: [{ kind: 'memory', id: 'mem_002' }],
+    sourceScope: { includeSources: ['memory'] }
+  }), { snapshot })
+  assertEq(inactive.excerpts.length, 0, '非 active 记忆不可查')
+  assertEq(inactive.coverage.unresolvedRefs.length, 1)
   return true
 })
 
@@ -667,14 +683,15 @@ check('purity-input-hash-invariant', '纯净性', '冻结与非冻结输入查�
     if (hashValue(frozen) !== frozenHash) throw new Error(`${name} 冻结输入被变异`)
     const plain = make()
     const plainHash = hashValue(plain)
-    queryKnowledge({
+    const plainResult = queryKnowledge({
       schemaVersion: 1, projectId: name === 'legacy' ? L.projectAId : R.projectId,
       entityRefs: [{ kind: 'worldbook-entry', id: name === 'legacy' ? L.entryLincheng : 'entry_loc_001' }],
-      questionKind: 'fact-at-time',
+      questionKind: 'entity-context',
       storyTime: name === 'legacy' ? undefined : { timelineId: R.timelineId, eraId: 'age-strife', ordinal: 2 },
       perspective: { viewer: 'character', characterRef: { kind: 'runtime-character', id: name === 'legacy' ? L.runtimeBailuId : R.runtimeBailuId } }
     }, { snapshot: plain })
     if (hashValue(plain) !== plainHash) throw new Error(`${name} 非冻结输入被变异`)
+    if (plainResult.status !== 'denied') throw new Error(`${name} 未冻结快照应被拒绝`)
   }
   return true
 })
@@ -694,6 +711,103 @@ check('purity-no-forbidden-imports', '纯净性', 'K 模块源码不引用存储
       if (text.includes(needle)) throw new Error(`${file} 含禁用引用 ${needle}`)
     }
   }
+  return true
+})
+
+// 安全硬化（round-2 K22）--------------------------------------------------------
+check('k22-output-budget-counts-full-item', '硬化', '输出预算按整条序列化计数：大字段撑不出超额输出', () => {
+  const raw = createLegacySnapshotA()
+  for (let i = 0; i < 10; i += 1) {
+    raw.runtime.canonicalFacts['huge_' + i] = {
+      subjectId: L.legacyPlaceId, predicate: 'x'.repeat(120), value: 'v' + i,
+      status: 'confirmed', sourceRefs: Array.from({ length: 8 }, (_, j) => 'r'.repeat(159) + j)
+    }
+  }
+  const result = queryKnowledge(authRequest({
+    entityRefs: [{ kind: 'runtime-place', id: L.legacyPlaceId }]
+  }), { snapshot: freezeKnowledgeSnapshot(raw) })
+  assertEq(result.coverage.truncated, true, '预算触发截断')
+  assertEq(stableStringify(result.facts).length <= KNOWLEDGE_LIMITS.maxOutputChars, true, '序列化总量不超预算')
+  return true
+})
+
+check('k22-unfrozen-snapshot-rejected', '硬化', '未冻结快照被 typed 拒绝；模块不冻结也不克隆调用方对象', () => {
+  const plain = createLegacySnapshotA()
+  const direct = queryKnowledge(authRequest(), { snapshot: plain })
+  assertEq(direct.status, 'denied')
+  assertEq(direct.diagnostics.some((d) => d.code === 'snapshot-unfrozen'), true)
+  assertEq(isDeepFrozen(plain), false, '调用方对象未被悄悄冻结')
+  const scope = createKnowledgeScope(createLegacySnapshotB())
+  assertEq(scope.ok, false)
+  return true
+})
+
+check('k22-ordinal-cap-and-extremes', '硬化', '超大 ordinal 拒绝；0/负/超上限预算拒绝；1e6 边界可用', () => {
+  const snapshot = freshLegacy()
+  const huge = queryKnowledge(authRequest({
+    questionKind: 'fact-at-time',
+    storyTime: { timelineId: 'timeline:any', eraId: 'age-strife', ordinal: 9007199254740992 }
+  }), { snapshot })
+  assertEq(huge.status, 'unsupported', '2^53 ordinal 被拒')
+  const edge = queryKnowledge(authRequest({
+    questionKind: 'fact-at-time',
+    storyTime: { timelineId: 'timeline:any', eraId: 'age-strife', ordinal: 1000000 }
+  }), { snapshot })
+  assertEq(edge.status === 'partial' || edge.status === 'conflict' || edge.status === 'ready' || edge.status === 'unknown', true, '1e6 边界可处理')
+  for (const bad of [0, -5, KNOWLEDGE_LIMITS.maxOutputChars + 1]) {
+    const r = queryKnowledge(authRequest(), { snapshot, budget: { maxOutputChars: bad } })
+    assertEq(r.status, 'denied', '异常预算 denied: ' + bad)
+  }
+  return true
+})
+
+check('k22-unicode-and-long-refs', '硬化', 'Unicode id 精确匹配可用；超长 ref 请求被拒；指纹稳定', () => {
+  const raw = createLegacySnapshotA()
+  raw.worldbook.entries.push({
+    id: 'entry_포션🧪', name: '포션🧪药水', content: 'Unicode 名称条目，含 emoji 与组合字符 é́。',
+    keys: [], keysSecondary: [], type: 'item',
+    injection: { mode: 'selective', probability: 100, cooldown: 0, depth: 4, excludeRecursion: false, group: null },
+    relations: { tags: [], locations: [], characters: [], events: [] },
+    metadata: { createdAt: 1, updatedAt: 2, reviewState: 'ready' }
+  })
+  const snapshot = freezeKnowledgeSnapshot(raw)
+  const result = queryKnowledge({ ...authRequest(), entityRefs: [{ kind: 'worldbook-entry', id: 'entry_포션🧪' }] }, { snapshot })
+  assertEq(result.coverage.resolvedEntities, 1, 'Unicode id 命中')
+  assertEq(result.excerpts[0].title, '포션🧪药水')
+  const longRef = queryKnowledge({ ...authRequest(), entityRefs: [{ kind: 'worldbook-entry', id: 'e'.repeat(161) }] }, { snapshot })
+  assertEq(longRef.status, 'unsupported', '超长 id 请求被拒')
+  return true
+})
+
+check('k22-diagnostic-budget-cap', '硬化', '诊断条目有硬上限，超量不泄露额外信息', () => {
+  const refs = Array.from({ length: 8 }, (_, i) => ({ kind: 'worldbook-entry', id: 'entry_missing_' + i }))
+  const result = queryKnowledge({ ...authRequest({ entityRefs: refs }), entityRefs: refs }, { snapshot: freshLegacy() })
+  assertEq(result.coverage.requestedEntities, 8)
+  assertEq(result.diagnostics.length <= KNOWLEDGE_LIMITS.maxDiagnosticEntries, true)
+  const serialized = stableStringify(result)
+  assertEq(serialized.includes('临江志'), false, '空结果不泄露世界书内容')
+  return true
+})
+
+check('k22-new-claim-invalidates-scope', '硬化', '命中条目新增关联 claim → scope revision 与指纹变化；无关 claim 不影响', () => {
+  const base = queryKnowledge(authRequest(), { snapshot: freshLegacy() })
+  const mutated = createLegacySnapshotA()
+  mutated.worldbook.research.claims.push({
+    id: 'C3', type: 'history', text: '新增矛盾 claim：临江城从未有过港税旧约。',
+    basis: 'research', sourceRefs: ['S1'], evidenceRefs: [], confidence: 0.3, status: 'ready'
+  })
+  const lincheng = mutated.worldbook.entries.find((entry) => entry.id === L.entryLincheng)
+  lincheng.metadata.claimIds = [...(lincheng.metadata.claimIds ?? []), 'C3']
+  const next = queryKnowledge(authRequest(), { snapshot: freezeKnowledgeSnapshot(mutated) })
+  assertEq(next.fingerprint !== base.fingerprint, true, '新增关联 claim 改变指纹')
+  const unrelated = createLegacySnapshotA()
+  unrelated.worldbook.research.claims.push({
+    id: 'C9', type: 'history', text: '无关条目的新 claim。', basis: 'research', sourceRefs: [], evidenceRefs: [], status: 'ready'
+  })
+  const harbor = unrelated.worldbook.entries.find((entry) => entry.id === L.entryHarbor)
+  harbor.metadata.claimIds = ['C9']
+  const keep = queryKnowledge(authRequest(), { snapshot: freezeKnowledgeSnapshot(unrelated) })
+  assertEq(keep.fingerprint, base.fingerprint, '无关 claim 不改指纹')
   return true
 })
 

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   entryIntent: { type: Object, default: null },
@@ -7,11 +7,23 @@ const props = defineProps({
   directions: { type: Array, default: () => [] },
   selectedDirectionId: { type: String, default: '' },
   appendRequirement: { type: String, default: '' },
+  ifBranches: { type: Object, default: null },
+  ifActiveBranch: { type: String, default: 'A' },
+  ifPlans: { type: Object, default: () => ({}) },
+  ifBaseline: { type: Array, default: () => [] },
+  initialIfOpen: { type: Boolean, default: false },
+  initialIfActor: { type: String, default: '' },
   phase: { type: String, default: 'ready' },
   notice: { type: String, default: '' }
 })
 
-const emit = defineEmits(['select', 'confirm', 'back', 'close', 'ordinary', 'supplement', 'retry'])
+const emit = defineEmits(['select', 'confirm', 'back', 'close', 'ordinary', 'supplement', 'retry', 'start-if', 'switch-if-branch', 'write-if-draft', 'append-requirement', 'plan-if', 'select-if'])
+const ifOpen = ref(props.initialIfOpen)
+const ifActor = ref(props.initialIfActor)
+watch(() => props.initialIfOpen, value => { ifOpen.value = value })
+watch(() => props.initialIfActor, value => { ifActor.value = value })
+const ifBeliefA = ref('')
+const ifBeliefB = ref('')
 const titleRef = ref(null)
 const selectedDirection = computed(() => (
   props.directions.find((direction) => direction.id === props.selectedDirectionId) || null
@@ -156,8 +168,8 @@ function handleLaboratoryKeydown(event) {
         </li>
       </ol>
 
-      <footer v-if="selectedDirection" class="authoring-scene-lab__footer is-selection">
-        <p><span>{{ notice ? '当前状态' : '准备沿此方向落笔' }}</span>{{ notice || selectedDirection.title }}</p>
+      <footer v-if="selectedDirection || initialIfOpen" class="authoring-scene-lab__footer is-selection">
+        <p><span>{{ notice ? '当前状态' : '准备沿此方向落笔' }}</span>{{ notice || selectedDirection?.title || '填写一条信念，比较两种条件下的选择。' }}</p>
         <!-- U44：追加一句要求，改变当前方向下的具体行动 -->
         <div class="authoring-scene-lab__append">
           <input
@@ -169,7 +181,64 @@ function handleLaboratoryKeydown(event) {
             @input="emit('append-requirement', $event.target.value)"
           />
         </div>
-        <div class="authoring-scene-lab__footer-actions">
+        <!-- U45: 只改一个条件（人物 IF 入口） -->
+        <div class="authoring-scene-lab__if-entry">
+          <button type="button" class="authoring-scene-lab__if-toggle"
+            :aria-expanded="ifOpen ? 'true' : 'false'"
+            @click="ifOpen = !ifOpen">{{ ifOpen ? '收起人物 IF' : '只改一个条件' }}</button>
+          <div v-if="ifOpen" class="authoring-scene-lab__if-panel" role="group" aria-label="人物 IF 面板">
+            <p class="authoring-scene-lab__if-hint">同一情境，只改一句信念，对照 A/B 行动。</p>
+            <label class="authoring-scene-lab__if-label">人物
+              <input type="text" class="authoring-scene-lab__if-input" v-model="ifActor"
+                placeholder="如：艾德加" aria-label="IF 人物名" /></label>
+            <label class="authoring-scene-lab__if-label">条件 A（当前假设）
+              <input type="text" class="authoring-scene-lab__if-input" v-model="ifBeliefA"
+                placeholder="如：忠于城主" aria-label="条件 A" /></label>
+            <label class="authoring-scene-lab__if-label">条件 B（试验假设）
+              <input type="text" class="authoring-scene-lab__if-input" v-model="ifBeliefB"
+                placeholder="如：暗中背叛城主" aria-label="条件 B" /></label>
+            <button type="button" class="is-primary authoring-scene-lab__if-start"
+              :disabled="!ifActor || !ifBeliefA || !ifBeliefB"
+              @click="emit('start-if', { actor: ifActor, beliefA: ifBeliefA, beliefB: ifBeliefB })">开始 A/B 对照</button>
+          </div>
+        </div>
+        <div v-if="ifBranches && ifBranches.A && ifBranches.B" class="authoring-scene-lab__ab" role="group" aria-label="A/B 对照">
+          <p>两支只改变信念；行动可能相同。代价是预测，条件是作者假设。仅在本次会话保留，请及时留作构思。</p>
+          <details>
+            <summary>查看共用的冻结依据</summary>
+            <p v-for="(fact, index) in ifBaseline" :key="index" class="authoring-scene-lab__baseline">{{ fact.text }}</p>
+          </details>
+          <div v-for="bid in ['A', 'B']" :key="bid"
+            class="authoring-scene-lab__ab-card"
+            :class="{ 'is-active': ifActiveBranch === bid }"
+            role="button" tabindex="0"
+            :aria-label="'切换到 ' + bid"
+            @click="emit('switch-if-branch', bid)"
+            @keydown.enter="emit('switch-if-branch', bid)">
+            <span class="authoring-scene-lab__ab-label">{{ bid }}</span>
+            <span class="authoring-scene-lab__ab-belief">{{ ifBranches[bid]?.belief ?? '' }}</span>
+          </div>
+          <div class="authoring-scene-lab__if-choices">
+            <p v-if="ifPlans[ifActiveBranch]?.status === 'planning'" role="status">正在整理 {{ ifActiveBranch }} 的行动…</p>
+            <p v-if="ifPlans[ifActiveBranch]?.status === 'failed'" role="alert">{{ ifPlans[ifActiveBranch].message }}</p>
+            <button v-if="!ifPlans[ifActiveBranch] || ifPlans[ifActiveBranch]?.status === 'failed'"
+              type="button" @click="emit('plan-if', ifActiveBranch)">重试这一支的行动</button>
+            <button v-for="direction in ifPlans[ifActiveBranch]?.run?.directionSet?.directions || []"
+              :key="direction.id" type="button"
+              :aria-pressed="ifPlans[ifActiveBranch].run.selectedDirectionId === direction.id"
+              @click="emit('select-if', { branchId: ifActiveBranch, directionId: direction.id })">
+              <strong>{{ direction.title }}</strong>
+              <span>{{ direction.action }}</span>
+              <span>眼前所得：{{ direction.immediateGain }} · 预测代价：{{ direction.cost }}</span>
+              <small>依据：{{ (direction.evidenceRefs || []).join('、') }}</small>
+            </button>
+            <button type="button" class="is-primary"
+              :disabled="!ifPlans[ifActiveBranch]?.run?.selectedDirectionId"
+              :aria-label="'以 ' + ifActiveBranch + ' 条件写正文'"
+              @click="emit('write-if-draft', ifActiveBranch)">按此假设写成正文</button>
+          </div>
+        </div>
+        <div v-if="!ifBranches?.A && selectedDirection" class="authoring-scene-lab__footer-actions">
           <button type="button" @click="emit('select', '')">换方向</button>
           <button type="button" class="is-primary" @click="emit('confirm', selectedDirection)">{{ appendRequirement ? '按新要求推演' : '按此推演' }}</button>
         </div>
@@ -179,6 +248,10 @@ function handleLaboratoryKeydown(event) {
 </template>
 
 <style scoped>
+.authoring-scene-lab__if-choices { display: grid; gap: 8px; min-width: 0; }
+.authoring-scene-lab__if-choices button { display: grid; gap: 4px; text-align: start; white-space: normal; overflow-wrap: anywhere; }
+.authoring-scene-lab__if-choices [aria-pressed="true"] { outline: 1px solid var(--text-secondary); }
+.authoring-scene-lab__baseline { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 .authoring-scene-lab {
   position: relative;
   width: 100%;

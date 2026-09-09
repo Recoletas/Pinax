@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AuthoringBlockComposer from '../components/authoring/AuthoringBlockComposer.vue'
 import AuthoringBlockDraft from '../components/authoring/AuthoringBlockDraft.vue'
+import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
 import AuthoringAdoptionImpact from '../components/authoring/AuthoringAdoptionImpact.vue'
 import AuthoringIdeaShelf from '../components/authoring/AuthoringIdeaShelf.vue'
 import AuthoringContextSummary from '../components/authoring/AuthoringContextSummary.vue'
@@ -192,6 +193,22 @@ describe('block composer initial instruction', () => {
     expect(laboratory.text()).toContain('连接中断，现场仍已保留。')
     await laboratory.findAll('.authoring-scene-lab__footer button').find((button) => button.text() === '重试方向').trigger('click')
     expect(laboratory.emitted('retry')).toHaveLength(1)
+    await laboratory.setProps({ phase: 'ready', selectedDirectionId: 'verify' })
+    await laboratory.find('.authoring-scene-lab__if-toggle').trigger('click')
+    expect(laboratory.find('[aria-label="人物 IF 面板"]').exists()).toBe(true)
+    await laboratory.find('[aria-label="IF 人物名"]').setValue('莉娜')
+    await laboratory.find('[aria-label="条件 A"]').setValue('守诺')
+    await laboratory.find('[aria-label="条件 B"]').setValue('协商')
+    await laboratory.find('.authoring-scene-lab__if-start').trigger('click')
+    expect(laboratory.emitted('start-if')?.at(-1)).toEqual([{ actor: '莉娜', beliefA: '守诺', beliefB: '协商' }])
+    await laboratory.setProps({ ifBranches: { A: { belief: '守诺' }, B: { belief: '协商' } },
+      ifActiveBranch: 'B', ifPlans: { B: { status: 'ready', run: { selectedDirectionId: '', directionSet: { directions } } } } })
+    expect(laboratory.find('[aria-label="以 B 条件写正文"]').element.disabled).toBe(true)
+    await laboratory.find('.authoring-scene-lab__if-choices button').trigger('click')
+    expect(laboratory.emitted('select-if')?.at(-1)).toEqual([{ branchId: 'B', directionId: 'conceal' }])
+    await laboratory.setProps({ ifPlans: { B: { status: 'ready', run: { selectedDirectionId: 'conceal', directionSet: { directions } } } } })
+    await laboratory.find('[aria-label="以 B 条件写正文"]').trigger('click')
+    expect(laboratory.emitted('write-if-draft')?.at(-1)).toEqual(['B'])
 
     const interventionTarget = { ...target, projectId: 'book-1', documentId: 'ch-1', nodeId: 'node-1' }
     const intervention = mount(AuthoringInterventionComposer, {
@@ -382,6 +399,18 @@ describe('block composer initial instruction', () => {
     expect(livingStory.text()).not.toContain('艾德加锁上档案室')
 
     const ghostText = '雨落在税务所的高窗上。\n\n莉娜翻到缺页的位置。\n\n次日清晨，她带着总册回到钟楼。'
+    const notes = mount(AuthoringNotesExtractionPreview, {
+      props: { bookId: 'missing-book', source: { id: 'note', revision: 1, content: '阿禾握紧了银戒指，走进废弃小屋。' } }
+    })
+    await notes.find('.notes-extract__btn').trigger('click')
+    expect(notes.findAll('.notes-extract__card')).toHaveLength(3)
+    expect(notes.text()).toContain('尚未创建正式设定')
+    await notes.find('.is-primary').trigger('click')
+    expect(notes.text()).toContain('原速记已改变或删除')
+    expect(notes.findAll('.notes-extract__card')).toHaveLength(3)
+    await notes.find('textarea').setValue('新文本')
+    expect(notes.findAll('.notes-extract__card')).toHaveLength(0)
+    notes.unmount()
     const ghost = mount(AuthoringBlockDraft, {
       props: {
         modelValue: ghostText,
@@ -397,6 +426,15 @@ describe('block composer initial instruction', () => {
       }
     })
     const boundaryTicks = ghost.findAll('.authoring-block-draft__boundary-tick')
+    await ghost.setProps({ previousDraft: '上一稿\n第二段', ifBranch: 'A' })
+    expect(ghost.find('.authoring-block-draft__previous-text').text()).toBe('上一稿\n第二段')
+    await ghost.find('[aria-label="IF 草稿切换"] button:nth-child(2)').trigger('click')
+    expect(ghost.emitted('switch-if')?.at(-1)).toEqual(['B'])
+    await ghost.find('[aria-label="IF 草稿切换"] button:last-child').trigger('click')
+    expect(ghost.emitted('retry-if')).toHaveLength(1)
+    await ghost.setProps({ locked: true })
+    expect(ghost.find('[aria-label="IF 草稿切换"] button').element.disabled).toBe(true)
+    await ghost.setProps({ locked: false })
     expect(boundaryTicks).toHaveLength(2)
     expect(boundaryTicks.filter((button) => button.classes().includes('is-split'))).toHaveLength(1)
     await boundaryTicks[0].trigger('click')

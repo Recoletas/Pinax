@@ -138,6 +138,7 @@ export async function requestAdvisorTask({
   target = null,
   options = {},
   mode,
+  settingsSnapshot = null,
   signal = null
 } = {}) {
   const normalizedQuestion = normalizeQuestion(question)
@@ -168,7 +169,7 @@ export async function requestAdvisorTask({
   recordAgentRequestTrace(traceBase)
 
   try {
-    const apiSettings = await getResolvedApiSettings()
+    const apiSettings = settingsSnapshot || await getResolvedApiSettings()
     const providerOptions = buildAdvisorProviderOptions(apiSettings, options)
     const response = await api.post('/advisor/task', buildAdvisorRequestPayload({
       envelope: built.envelope,

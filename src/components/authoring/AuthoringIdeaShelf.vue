@@ -99,6 +99,7 @@
                 @click="runRowAction($event, () => $emit('link-current', doc.id))"
               >{{ doc.associatedChapterIds?.includes(currentChapterId) ? '已关联本章' : '关联当前章' }}</button>
               <button type="button" @click="runRowAction($event, () => $emit('park', doc.id))">搁置</button>
+              <button type="button" @click="runRowAction($event, () => $emit('extract-preview', doc.id))">提炼候选</button>
               <button type="button" class="is-danger" @click="runRowAction($event, () => $emit('delete', doc.id))">删除</button>
             </div>
           </details>
@@ -141,6 +142,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
+  'extract-preview',
   'create', 'migrate', 'open', 'open-dual', 'add', 'remove', 'refresh', 'link-current', 'park', 'restore', 'delete', 'open-full', 'update:query'
 ])
 

@@ -27,7 +27,13 @@ export const KNOWLEDGE_STATUSES = [
 
 export const QUESTION_KINDS = ['entity-context', 'fact-at-time', 'history-causes']
 
-export const ENTITY_KINDS = ['worldbook-entry', 'runtime-character', 'runtime-place', 'geo-history-node']
+/**
+ * v1.1 additive change (round-2 K21/K23): entity kind 'memory' allows exact
+ * by-id memory references. Requests that never use it behave exactly as the
+ * frozen v1; memories still cannot be attributed to other entities by
+ * association.
+ */
+export const ENTITY_KINDS = ['worldbook-entry', 'runtime-character', 'runtime-place', 'geo-history-node', 'memory']
 
 export const TIME_PRECISIONS = ['era', 'year', 'moment', 'unknown']
 
@@ -108,7 +114,9 @@ export const REASON_CODES = Object.freeze({
   historyCycleTruncated: 'history-cycle-truncated',
   historyHopLimitReached: 'history-hop-limit-reached',
   // lifecycle
-  aborted: 'aborted'
+  aborted: 'aborted',
+  // hardening (round-2 K22)
+  snapshotUnfrozen: 'snapshot-unfrozen'
 })
 
 const STATUS_PRECEDENCE = Object.freeze({
@@ -182,7 +190,11 @@ function normalizeStoryTime(raw) {
     time.precision = hasOrdinal ? 'year' : 'era'
   }
   if (hasOrdinal) {
-    if (!Number.isInteger(raw.ordinal) || raw.ordinal < 0) return { error: 'story-time-ordinal-invalid' }
+    // Absurd ordinals (beyond any author timeline) are rejected outright:
+    // they would silently lose precision in interval arithmetic.
+    if (!Number.isInteger(raw.ordinal) || raw.ordinal < 0 || raw.ordinal > 1000000) {
+      return { error: 'story-time-ordinal-invalid' }
+    }
     time.ordinal = raw.ordinal
     if (!hasEra) return { error: 'story-time-ordinal-needs-era' }
   }
@@ -515,6 +527,19 @@ export function freezeKnowledgeSnapshot(value) {
     return node
   }
   return walk(value)
+}
+
+/**
+ * True when the value (and everything reachable) is frozen. Scope building
+ * requires this: a scope must never alias an object the caller could still
+ * mutate, otherwise its alias index silently drifts from the content.
+ */
+export function isDeepFrozen(value, seen = new WeakSet()) {
+  if (value === null || typeof value !== 'object') return true
+  if (seen.has(value)) return true
+  seen.add(value)
+  if (!Object.isFrozen(value)) return false
+  return Object.values(value).every((item) => isDeepFrozen(item, seen))
 }
 
 /**

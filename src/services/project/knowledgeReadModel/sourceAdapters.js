@@ -368,14 +368,38 @@ export function adaptResearchClaims(snapshot, resolvedEntryKeys) {
 }
 
 /**
- * Memories have no explicit entity binding in the production shape, so v1
- * cannot attribute them to a queried entity. They are counted, not returned:
- * inventing an entity match would fabricate provenance.
+ * Memory excerpts, v1.1: memories are queryable ONLY by explicit 'memory'
+ * entity-kind id references (never by association with other entities —
+ * that would fabricate provenance). scopeFingerprint covers exactly the
+ * referenced memories.
  */
-export function adaptMemories(snapshot) {
+export function adaptMemories(snapshot, resolvedMemoryIds) {
+  const wanted = resolvedMemoryIds ?? new Set()
+  if (wanted.size === 0) return { items: [], scopeFingerprint: null, diagnostics: [] }
   const memories = Array.isArray(snapshot.memories) ? snapshot.memories : []
-  const active = memories.filter((memory) => memory && memory.status === 'active')
-  return { items: [], unboundCount: active.length, diagnostics: [] }
+  const items = []
+  const scopeInputs = []
+  for (const memory of memories) {
+    if (!memory || typeof memory.id !== 'string' || !wanted.has(memory.id)) continue
+    scopeInputs.push([memory.id, memory.status ?? null, hashValue(memory.content ?? '')])
+    const bounded = boundedText(memory.content)
+    items.push({
+      kind: 'excerpt',
+      id: `excerpt:memory:${memory.id}`,
+      entityKeys: [`memory:${snapshot.project.id}:${memory.id}`],
+      sourceKind: 'memory',
+      title: typeof memory.title === 'string' && memory.title ? memory.title : '相关记忆',
+      text: bounded.text,
+      textTruncated: bounded.truncated,
+      memoryStatus: memory.status ?? null,
+      authority: memory.authority ?? null,
+      revision: `memory:${hashValue(memory)}`
+    })
+  }
+  const scopeFingerprint = scopeInputs.length > 0
+    ? `memories:${hashValue(scopeInputs)}`
+    : null
+  return { items, scopeFingerprint, diagnostics: [] }
 }
 
 /**

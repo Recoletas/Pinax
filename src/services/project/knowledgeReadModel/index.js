@@ -18,6 +18,7 @@ export {
   SOURCE_KINDS,
   REASON_CODES,
   freezeKnowledgeSnapshot,
+  isDeepFrozen,
   hashValue,
   hashText,
   stableStringify,

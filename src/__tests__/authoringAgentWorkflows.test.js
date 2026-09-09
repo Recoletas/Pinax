@@ -29,6 +29,7 @@ import {
   selectAuthoringEvidenceEnvelope,
   sourceRefForAuthoringEvidenceLocator
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
+import { useAuthoringKnowledgeAssistant, recordKnowledgeSeamFocus } from '../composables/useAuthoringKnowledgeAssistant.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
 import {
   assessAuthoringVisualBriefFreshness,
@@ -381,6 +382,330 @@ describe('authoring project adapter', () => {
     }
     const changedRevisions = await knowledgeQuery.collectCurrentRevisions(wholeBook.session)
     expect(changedRevisions[wholeEvidence.find((item) => item.sourceRef.startsWith('node:query-chapter-1:')).sourceRef]).toBeUndefined()
+
+    // 受限 I0 接缝（round-2 K24）：默认关闭——session 不带标记，重复准备
+    // 指纹稳定（与既有路径逐位一致）。
+    expect(wholeBook.session.knowledgeReadModel).toBeUndefined()
+    const offRepeat = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加此前在哪几章出现？', now: 5
+    })
+    expect(offRepeat.session.knowledgeReadModel).toBeUndefined()
+    const offThird = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加此前在哪几章出现？', now: 5
+    })
+    expect(offThird.session.fingerprint).toBe(offRepeat.session.fingerprint)
+
+    const revisionByRef = Object.fromEntries(wholeEvidence.map((item) => [item.sourceRef, item.revision]))
+    // 显式启用：只返回被点名的授权来源，revision 与目录直通一致。
+    const bridged = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:edgar', 'memory:query-memory'] },
+      now: 6
+    })
+    expect(bridged.ok).toBe(true)
+    expect(bridged.session.knowledgeReadModel).toMatchObject({ enabled: true, status: 'ready' })
+    const bridgedRefs = bridged.session.evidenceEnvelope.evidence.map((item) => item.sourceRef).sort()
+    expect(bridgedRefs).toEqual(['memory:query-memory', 'worldbook-entry:edgar'])
+    expect(bridged.session.evidenceEnvelope.evidence.every(
+      (item) => item.revision === revisionByRef[item.sourceRef]
+    )).toBe(true)
+    expect(bridged.session.evidenceEnvelope.evidence.every(
+      (item) => bridged.session.toolAuthorization.sources.some((source) => source.sourceRef === item.sourceRef)
+    )).toBe(true)
+    expect(bridged.session.collectable !== false).toBe(true)
+    const bridgedLiveRevisions = await knowledgeQuery.collectCurrentRevisions(bridged.session)
+    expect(bridgedLiveRevisions['worldbook-entry:edgar']).toBe(revisionByRef['worldbook-entry:edgar'])
+
+    // 桥接路径的时点问题：K 诚实 unknown，不足说明进入 missingInformation。
+    const bridgedTime = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar'],
+        storyTime: { timelineId: 'timeline:any', eraId: 'age-strife', ordinal: 3 }
+      },
+      now: 7
+    })
+    expect(bridgedTime.ok).toBe(true)
+    expect(bridgedTime.session.knowledgeReadModel.status).toBe('ready')
+    expect(bridgedTime.session.knowledgeReadModel.resultStatus).toBe('unknown')
+    expect(bridgedTime.session.evidenceEnvelope.missingInformation.length).toBeGreaterThan(0)
+
+    // 请求授权目录外的来源：typed 失败，零内容，不走旧检索补回。
+    const unauthorized = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:not-authorized'] }
+    })
+    expect(unauthorized).toMatchObject({ ok: false, reason: 'knowledge-read-model-source-unauthorized' })
+
+    // 非可映射 authority（manuscript）被 K typed 拒绝 → 降级回退原检索路径，
+    // 授权范围不变并标记 degraded。
+    const manuscriptRef = offRepeat.session.evidenceEnvelope.evidence.find((item) => item.authority === 'manuscript').sourceRef
+    // round-3 K33：全部点名来源都不可映射 → typed 终态，不回退旧检索。
+    const unmappable = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加此前在哪几章出现？',
+      knowledgeReadModel: { enabled: true, sourceRefs: [manuscriptRef] }
+    })
+    expect(unmappable).toMatchObject({ ok: false, reason: 'knowledge-read-model-no-mappable-source' })
+    // 信号访问异常 = 内部故障 → 降级；降级证据严格限于点名∩授权范围。
+    const degraded = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加此前在哪几章出现？',
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: [manuscriptRef],
+        signal: { get aborted() { throw new Error('poisoned-signal') } }
+      }
+    })
+    expect(degraded.ok).toBe(true)
+    expect(degraded.session.knowledgeReadModel.status).toBe('degraded')
+    const degradedRefs = degraded.session.evidenceEnvelope.evidence.map((item) => item.sourceRef)
+    expect(degradedRefs).toEqual([manuscriptRef])
+    // 正常信号下取消仍是终态（信号检查多点之一）。
+    const lateAbort = new AbortController()
+    lateAbort.abort()
+    const lateAborted = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar'], signal: lateAbort.signal
+      }
+    })
+    expect(lateAborted).toMatchObject({ ok: false, reason: 'knowledge-read-model-aborted' })
+
+    // round-3 复验阻断修复：接缝 typed 拒绝是终态——UI 不得自动回退旧查询，
+    // 其他资料不得因此进入模型调用；作者必须看到可理解的停止原因。
+    localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
+    const seamStopExecute = vi.fn(async (input) => {
+      const refs = ((input?.envelope?.blocks) || []).flatMap((block) => block.sourceRefs || [])
+      const cited = (refs.filter((ref) => ref.startsWith('node:')).concat(refs)).slice(0, 2)
+      return { result: { knowledgeAnswer: { answer: '已找到相关资料。', claims: cited.map((ref) => ({ text: '引用 ' + ref, confidence: 'supported', evidenceRefs: [ref] })), missingInformation: [], calculations: [] } } }
+    })
+    const seamStopAssistant = useAuthoringKnowledgeAssistant({
+      projectId: 'book-query',
+      querySession: createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 }),
+      executeQuery: seamStopExecute
+    })
+    // 真实失效序列：先正常提问拿到回答证据 → 点名其中一条正文来源 →
+    // 该来源从目录中消失（章内容改写使 node id 更新）→ 接缝 typed 终态。
+    const firstSeamProbeAsk = await seamStopAssistant.ask({ question: '艾德加此前在哪几章出现？', appendUser: false })
+    expect(firstSeamProbeAsk).toBe(true)
+    const answeredRefs = seamStopAssistant.messages.value
+      .filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
+    const targetRef = answeredRefs.find((ref) => ref.startsWith('node:'))
+    console.log('DEBUG2:', JSON.stringify({
+      answeredRefs,
+      msgTypes: seamStopAssistant.messages.value.map((m) => [m.role, Boolean(m.answer), (m.answer?.evidence || []).length, m.answer?.answer?.slice(0, 30)])
+    }))
+    recordKnowledgeSeamFocus(targetRef)
+    const providerCallsBeforeStop = seamStopExecute.mock.calls.length
+    const originalGetBook = queryRepositories.getBook
+    const originalGetBoundWorldbook = queryRepositories.getBoundWorldbook
+    queryRepositories.getBook = async () => {
+      const book = await originalGetBook('book-query')
+      return { ...book, chapters: [{ id: 'brand-new-chapter', title: '改写章', editorDocument: createWritingDocument('全新的正文内容。') }] }
+    }
+    const stoppedAsk = await seamStopAssistant.ask({ question: '再核对这一段。', appendUser: false })
+    expect(stoppedAsk).toBe(false)
+    expect(seamStopExecute.mock.calls.length).toBe(providerCallsBeforeStop)
+    expect(seamStopAssistant.error.value).toContain('聚焦的资料当前不可用')
+    // lastRequest 保留属于既有 retry 语义：重试会再次命中同一终态并再次
+    // 停止，不会绕道旧检索。
+    queryRepositories.getBook = originalGetBook
+    queryRepositories.getBoundWorldbook = originalGetBoundWorldbook
+
+    // round-4 K41：默认关闭时除开关键本身外零额外读取；trace 不积累敏感
+    // 内容；worldbook 内容读取次数与无接缝路径一致（不多读）。
+    const flagKey = 'pinax_knowledge_read_model_enabled'
+    localStorage.removeItem(flagKey)
+    const readCounter = { flag: 0, worldbook: 0 }
+    const rawGetItem = Storage.prototype.getItem
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (key) {
+      if (key === flagKey) readCounter.flag += 1
+      if (String(key).startsWith('worldbook_')) readCounter.worldbook += 1
+      return rawGetItem.call(this, key)
+    })
+    try {
+      recordKnowledgeSeamFocus('worldbook-entry:edgar')
+      const offAsk = await seamStopAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+      expect(offAsk).toBe(true)
+      expect(readCounter.flag).toBe(1)
+      expect(readCounter.worldbook).toBeLessThanOrEqual(2)
+      const offTrace = JSON.stringify(window.__pinaxKnowledgeSeamTrace)
+      expect(offTrace).not.toContain('旧港档案员')
+      seamStopAssistant.clear()
+      recordKnowledgeSeamFocus('')
+    } finally {
+      getItemSpy.mockRestore()
+    }
+    seamStopAssistant.clear()
+    recordKnowledgeSeamFocus('')
+    localStorage.removeItem('pinax_knowledge_read_model_enabled')
+
+    // round-4 K42：焦点单次消费 + 实例归属校验，修复模块级焦点跨实例
+    // 串扰与旧焦点无提示持续限制无关新问题。
+    localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
+    const focusProbeExecute = vi.fn(async (input) => {
+      const refs = ((input?.envelope?.blocks) || []).flatMap((block) => block.sourceRefs || [])
+      // 优先引用世界书来源，让焦点消费探针能覆盖可映射路径。
+      const cited = (refs.filter((ref) => ref.startsWith('worldbook-entry:')).concat(refs)).slice(0, 2)
+      return { result: { knowledgeAnswer: { answer: '收到。', claims: cited.map((ref) => ({ text: '引用 ' + ref, confidence: 'supported', evidenceRefs: [ref] })), missingInformation: [], calculations: [] } } }
+    })
+    const focusProbeAssistant = useAuthoringKnowledgeAssistant({
+      projectId: 'book-query',
+      querySession: createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 }),
+      executeQuery: focusProbeExecute
+    })
+    // 无本实例回答证据时，陈旧焦点被忽略：走旧路径且不消费 K。
+    recordKnowledgeSeamFocus('worldbook-entry:edgar')
+    const staleFocusAsk = await focusProbeAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+    expect(staleFocusAsk).toBe(true)
+    expect(focusProbeExecute).toHaveBeenCalledTimes(1)
+    let probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
+    expect(probeTrace.seamPrepares).toBe(0)
+    expect(probeTrace.staleFocusIgnored).toBeGreaterThanOrEqual(1)
+    // 焦点单次消费：一次接缝提问后，后续无新点击的提问回到旧路径。
+    const edgarAnswer = focusProbeAssistant.messages.value.find((m) => m.role === 'assistant')
+    const mappableRef = edgarAnswer.answer.evidence.map((item) => item.sourceRef)
+      .find((ref) => ref.startsWith('worldbook-entry:'))
+    expect(mappableRef).toBeTruthy()
+    recordKnowledgeSeamFocus(mappableRef)
+    const seamAsk = await focusProbeAssistant.ask({ question: '再核对艾德加。', appendUser: false })
+    expect(seamAsk).toBe(true)
+    probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
+    expect(probeTrace.seamPrepares).toBe(1)
+    const callsAfterSeam = focusProbeExecute.mock.calls.length
+    const plainAsk = await focusProbeAssistant.ask({ question: '艾德加此前在哪几章出现？', appendUser: false })
+    expect(plainAsk).toBe(true)
+    expect(focusProbeExecute.mock.calls.length).toBe(callsAfterSeam + 1)
+    probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
+    expect(probeTrace.seamPrepares).toBe(1, '焦点已被消费，不再进入接缝')
+    focusProbeAssistant.clear()
+    localStorage.removeItem('pinax_knowledge_read_model_enabled')
+
+    // round-4 K42：接缝取消信号真实传入 prepare 并阻止发布——provider 收
+    // 到 abort 前后都不发布内容。
+    const cancelProbeExecute = vi.fn(async (input) => {
+      const refs = ((input?.envelope?.blocks) || []).flatMap((block) => block.sourceRefs || [])
+      const cited = (refs.filter((ref) => ref.startsWith('worldbook-entry:')).concat(refs)).slice(0, 2)
+      return { result: { knowledgeAnswer: { answer: '收到。', claims: cited.map((ref) => ({ text: '引用 ' + ref, confidence: 'supported', evidenceRefs: [ref] })), missingInformation: [], calculations: [] } } }
+    })
+    const cancelSession = createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 })
+    const cancelAssistant = useAuthoringKnowledgeAssistant({
+      projectId: 'book-query',
+      querySession: cancelSession,
+      executeQuery: cancelProbeExecute
+    })
+    const cancelFocusAsk = await cancelAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+    expect(cancelFocusAsk).toBe(true)
+    const cancelAnswerRefs = cancelAssistant.messages.value.filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
+    const cancelController = new AbortController()
+    cancelController.abort()
+    const cancellingSession = createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 })
+    const cancellingAssistant = useAuthoringKnowledgeAssistant({
+      projectId: 'book-query',
+      querySession: cancellingSession,
+      executeQuery: cancelProbeExecute
+    })
+    const cancelTargetRef = cancelAnswerRefs.find((ref) => ref.startsWith('worldbook-entry:'))
+    expect(cancelTargetRef).toBeTruthy()
+    recordKnowledgeSeamFocus(cancelTargetRef)
+    // 直接以已取消信号构造接缝请求：prepare 必须终态失败且零发布。
+    const cancelledPrepared = await cancellingSession.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: { enabled: true, sourceRefs: [cancelTargetRef], signal: cancelController.signal }
+    })
+    expect(cancelledPrepared).toMatchObject({ ok: false, reason: 'knowledge-read-model-aborted' })
+    recordKnowledgeSeamFocus('')
+    localStorage.removeItem('pinax_knowledge_read_model_enabled')
+
+    // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
+    // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复
+    // 启用准备指纹稳定，桥接 scope 不跨请求残留。
+    const currentChapterTwoRef = offRepeat.session.evidenceEnvelope.evidence
+      .find((item) => item.sourceRef.startsWith('node:query-chapter-2:'))?.sourceRef
+    expect(currentChapterTwoRef).toBeTruthy()
+    const scoped = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'setting', question: '艾德加是谁？',
+      target: { chapterId: 'query-chapter-1' },
+      knowledgeReadModel: { enabled: true, sourceRefs: [currentChapterTwoRef] }
+    })
+    expect(scoped).toMatchObject({ ok: false, reason: 'knowledge-read-model-source-unauthorized' })
+    const through = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'setting', question: '艾德加是谁？',
+      target: { chapterId: 'query-chapter-2' },
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:edgar'] }
+    })
+    expect(through.ok).toBe(true)
+    expect(through.session.knowledgeReadModel.status).toBe('ready')
+    expect(through.session.retrievalScope).toBe('through-target')
+    const throughRepeat = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'setting', question: '艾德加是谁？',
+      target: { chapterId: 'query-chapter-2' },
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:edgar'] }
+    })
+    expect(throughRepeat.session.fingerprint).toBe(through.session.fingerprint)
+
+    // 验收缺口修复（round-2 复验）：取消是终态——不降级、不回退旧检索、
+    // 零内容发布。
+    const abortedController = new AbortController()
+    abortedController.abort()
+    const abortedSeam = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar'], signal: abortedController.signal
+      }
+    })
+    expect(abortedSeam).toMatchObject({ ok: false, reason: 'knowledge-read-model-aborted' })
+
+    // 预算耗尽不是故障：K 的答案（含空）必须被尊重，不回退旧检索绕过预算。
+    const tinyBudget = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar', 'memory:query-memory'],
+        budget: { maxOutputItems: 1, maxOutputChars: 400 }
+      }
+    })
+    expect(tinyBudget.ok).toBe(true)
+    expect(tinyBudget.session.knowledgeReadModel.status).toBe('ready')
+    expect(tinyBudget.session.evidenceEnvelope.evidence.length).toBeLessThanOrEqual(1)
+    expect(tinyBudget.session.knowledgeReadModel.resultStatus === 'partial'
+      || tinyBudget.session.knowledgeReadModel.resultStatus === 'ready').toBe(true)
+
+    // requiredSourceRefs：接缝模式下请求集必须覆盖必需来源，否则 typed 失败；
+    // 覆盖但被预算裁掉时，从授权目录补齐，绝不让必需来源缺席却标 ready。
+    const requiredNotRequested = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      requiredSourceRefs: ['memory:query-memory'],
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:edgar'] }
+    })
+    expect(requiredNotRequested).toMatchObject({ ok: false, reason: 'knowledge-read-model-required-source-not-requested' })
+    // round-3 K31：必需来源装不进预算 → typed 失败，不补回原文绕过。
+    const requiredTooTight = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      requiredSourceRefs: ['memory:query-memory', 'worldbook-entry:edgar'],
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar', 'memory:query-memory'],
+        budget: { maxOutputItems: 1, maxOutputChars: 400 }
+      }
+    })
+    expect(requiredTooTight).toMatchObject({ ok: false, reason: 'knowledge-read-model-required-source-does-not-fit' })
+    const requiredIncluded = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      requiredSourceRefs: ['memory:query-memory', 'worldbook-entry:edgar'],
+      knowledgeReadModel: {
+        enabled: true, sourceRefs: ['worldbook-entry:edgar', 'memory:query-memory'],
+        budget: { maxOutputItems: 12, maxOutputChars: 12000 }
+      }
+    })
+    expect(requiredIncluded.ok).toBe(true)
+    const requiredRefsReturned = requiredIncluded.session.evidenceEnvelope.evidence.map((item) => item.sourceRef).sort()
+    expect(requiredRefsReturned).toEqual(['memory:query-memory', 'worldbook-entry:edgar'])
+
+    // liveSource（未保存正文）+ 接缝：live 校验失败时整个 prepare 仍
+    // fail-closed，桥接不绕过 liveSource 合同。
+    const livePlusSeam = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
+      liveSource: { projectId: 'book-query', role: 'manuscript', chapterId: 'query-chapter-1', documentId: 'wrong', documentRevision: 'r1', document: chapterOneDocument },
+      knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:edgar'] }
+    })
+    expect(livePlusSeam).toMatchObject({ ok: false, reason: 'knowledge-live-source-invalid' })
 
     const visualDocument = createWritingDocument('雨水沿着铜窗流下。\n\n艾德加把蓝铜钥匙放在桌上。')
     const visualUnit = visualDocument.content[0]

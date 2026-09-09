@@ -1,4 +1,5 @@
 import { buildContextEnvelope, clipContextEnvelope } from '../agentContextEnvelope.js'
+import { createAuthoringKnowledgeEvidenceBridge } from '../../project/knowledgeReadModel/authoringEvidenceBridge.js'
 import {
   AUTHORING_KNOWLEDGE_INTENTS,
   createAuthoringEvidenceEnvelope,
@@ -784,6 +785,7 @@ export function createAuthoringKnowledgeQuerySession({
     liveSource = null,
     sceneProjection = null,
     requiredSourceRefs = [],
+    knowledgeReadModel = null,
     now = Date.now()
   } = {}) {
     const projectId = text(rawProjectId)
@@ -829,20 +831,170 @@ export function createAuthoringKnowledgeQuerySession({
     if (requiredRefs.some((sourceRef) => !scopedByRef.has(sourceRef))) {
       return Object.freeze({ ok: false, reason: 'knowledge-required-source-missing' })
     }
-    const retrieved = searchCatalogEvidence(
-      scopedCatalog,
-      normalizedQuestion,
-      queryIntent,
-      projectId,
-      evidenceLimit
-    )
-    const selected = packProviderEvidence([
-      ...requiredRefs.map((sourceRef) => scopedByRef.get(sourceRef)),
-      ...retrieved.filter((item) => !requiredRefs.includes(item.sourceRef))
-    ].slice(0, evidenceLimit))
-    const missingInformation = queryIntent !== 'free' && selected.length === 0
-      ? ['当前项目中没有检索到与问题直接相关的资料。']
-      : []
+
+    // 受限 I0 接缝（round-2 K24）：默认关闭。knowledgeReadModel 为 null 时
+    // 下面整段不执行，路径与既有行为逐位一致；显式启用时只在**已经过 F2
+    // 授权与 through-target 裁剪的目录子集**上做 K 精确查询，结果映射回
+    // 原证据格式（sourceRef/revision 直通）。仅作者视角；请求了授权目录外
+    // 的来源直接 typed 失败，绝不走旧检索补回同一被拒资料。
+    const knowledgeFilter = knowledgeReadModel && typeof knowledgeReadModel === 'object'
+      ? knowledgeReadModel
+      : null
+    let knowledgeState = null
+    let selected = null
+    let missingInformation = []
+    if (knowledgeFilter?.enabled === true) {
+      const knowledgeSignal = knowledgeFilter.signal ?? null
+      const knowledgeAborted = () => knowledgeSignal?.aborted === true
+      const requestedRefs = [...new Set(list(knowledgeFilter.sourceRefs).map((item) => text(item, 240)).filter(Boolean))]
+      const unauthorized = requestedRefs.filter((sourceRef) => !scopedByRef.has(sourceRef))
+      if (!queryIntent || queryIntent === 'free' || requestedRefs.length === 0 || unauthorized.length > 0) {
+        return Object.freeze({ ok: false, reason: 'knowledge-read-model-source-unauthorized' })
+      }
+      // 接缝模式下必需来源必须被点名；缺失直接 typed 失败——不允许
+      // "必需来源缺席却标 ready"，也不靠旧检索悄悄补回。
+      const missingRequired = requiredRefs.filter((sourceRef) => !requestedRefs.includes(sourceRef))
+      if (missingRequired.length > 0) {
+        return Object.freeze({ ok: false, reason: 'knowledge-read-model-required-source-not-requested' })
+      }
+      let degradedReason = null
+      let bridge = null
+      let kResult = null
+      let back = null
+      try {
+        // 取消在入口/桥构建后/发布前多点检查：底层 reader 无法真中断时，
+        // 至少保证不发布结果、不进入后续步骤。信号访问异常按内部故障降级。
+        if (knowledgeAborted()) {
+          return Object.freeze({ ok: false, reason: 'knowledge-read-model-aborted' })
+        }
+        const boundWorldbookId = text(snapshot.book.worldbookId)
+        const bridgeInput = requestedRefs
+          .map((sourceRef) => scopedByRef.get(sourceRef))
+          .filter(Boolean)
+        if (!boundWorldbookId || bridgeInput.length === 0) {
+          // 无绑定/无可映射输入不是故障：调用方点名的来源 K 无法服务，
+          // typed 终态，不回退旧检索。
+          return Object.freeze({ ok: false, reason: 'knowledge-read-model-no-mappable-source' })
+        } else {
+          const built = createAuthoringKnowledgeEvidenceBridge({
+            projectId,
+            worldbookId: boundWorldbookId,
+            authorizedEvidence: bridgeInput,
+            structuredCharacterTombstones: list(snapshot.worldbook?.structuredCharacterTombstones)
+          })
+          if (!built.ok) {
+            const allUnmappable = bridgeInput.length > 0
+              && built.rejected.filter((item) => item.reason === 'authority-not-mappable').length >= bridgeInput.length
+            if (allUnmappable) {
+              return Object.freeze({ ok: false, reason: 'knowledge-read-model-no-mappable-source' })
+            }
+            degradedReason = 'knowledge-read-model-bridge-unusable'
+          } else {
+            if (knowledgeAborted()) {
+              return Object.freeze({ ok: false, reason: 'knowledge-read-model-aborted' })
+            }
+            bridge = built.bridge
+            const query = bridge.queryBySourceRefs(requestedRefs, {
+              storyTime: knowledgeFilter.storyTime,
+              budget: knowledgeFilter.budget,
+              signal: knowledgeFilter.signal
+            })
+            if (!query.ok) {
+              degradedReason = 'knowledge-read-model-query-error'
+            } else {
+              kResult = query.kResult
+              // 取消与拒绝是终态：不发布内容、绝不回退旧检索（否则取消的
+              // 请求会"成功"并带出未点名资料，被拒资料会被旧路径补回）。
+              if (kResult.status === 'aborted') {
+                return Object.freeze({ ok: false, reason: 'knowledge-read-model-aborted' })
+              }
+              if (kResult.status === 'denied') {
+                return Object.freeze({ ok: false, reason: 'knowledge-read-model-denied' })
+              }
+              back = bridge.toAuthoringEvidence(kResult)
+              if (!back.ok) {
+                degradedReason = 'knowledge-read-model-query-error'
+              }
+              // 空证据（无匹配/预算裁剪到零）是 K 的正当答案：照常发布
+              // 空结果 + 不足说明，不回退旧检索绕过预算。
+            }
+          }
+        }
+        if (degradedReason) {
+          // 仅真运行故障（桥不可用/内部异常）降级：范围严格限于"本次点名
+          // ∩ 原 F2 授权目录"的精确条目（按 sourceRef 排序），不运行检索、
+          // 不扩大到整个目录；session 标明降级。
+          selected = packProviderEvidence(
+            requestedRefs.map((sourceRef) => scopedByRef.get(sourceRef)).filter(Boolean).slice(0, evidenceLimit)
+          )
+          missingInformation = selected.length === 0
+            ? ['当前项目中没有检索到与问题直接相关的资料。']
+            : []
+          knowledgeState = deepFreeze({
+            enabled: true,
+            status: 'degraded',
+            reason: degradedReason,
+            fingerprint: null
+          })
+        } else {
+          if (knowledgeAborted()) {
+            return Object.freeze({ ok: false, reason: 'knowledge-read-model-aborted' })
+          }
+          // 硬安全/预算优先：必需来源必须真的出现在最终证据里。被预算或
+          // 截断挤掉的必需来源一律 typed 失败——不补回原文绕过预算，也不
+          // 为保 required 扩预算；成功时最终条数/字符仍由 K 预算保证。
+          if (knowledgeAborted()) {
+            return Object.freeze({ ok: false, reason: 'knowledge-read-model-aborted' })
+          }
+          const evidence = back.evidence.slice(0, evidenceLimit)
+          const present = new Set(evidence.map((item) => item.sourceRef))
+          const missingRequired = requiredRefs.filter((sourceRef) => !present.has(sourceRef))
+          if (missingRequired.length > 0) {
+            return Object.freeze({ ok: false, reason: 'knowledge-read-model-required-source-does-not-fit' })
+          }
+          selected = evidence
+          missingInformation = back.missingInformation
+          knowledgeState = deepFreeze({
+            enabled: true,
+            status: 'ready',
+            reason: null,
+            fingerprint: `knowledge-read-model-${bridge.fingerprint}-${kResult.fingerprint}`,
+            rejected: bridge.rejected,
+            diagnostics: (kResult.diagnostics ?? []).map((item) => item.code),
+            resultStatus: kResult.status
+          })
+        }
+      } catch {
+        selected = packProviderEvidence(
+          requestedRefs.map((sourceRef) => scopedByRef.get(sourceRef)).filter(Boolean).slice(0, evidenceLimit)
+        )
+        missingInformation = selected.length === 0
+          ? ['当前项目中没有检索到与问题直接相关的资料。']
+          : []
+        knowledgeState = deepFreeze({
+          enabled: true,
+          status: 'degraded',
+          reason: 'knowledge-read-model-error',
+          fingerprint: null
+        })
+      }
+    }
+    if (!selected) {
+      const retrieved = searchCatalogEvidence(
+        scopedCatalog,
+        normalizedQuestion,
+        queryIntent,
+        projectId,
+        evidenceLimit
+      )
+      selected = packProviderEvidence([
+        ...requiredRefs.map((sourceRef) => scopedByRef.get(sourceRef)),
+        ...retrieved.filter((item) => !requiredRefs.includes(item.sourceRef))
+      ].slice(0, evidenceLimit))
+      missingInformation = queryIntent !== 'free' && selected.length === 0
+        ? ['当前项目中没有检索到与问题直接相关的资料。']
+        : []
+    }
     const evidenceEnvelope = createAuthoringEvidenceEnvelope({
       projectId,
       queryIntent,
@@ -877,12 +1029,16 @@ export function createAuthoringKnowledgeQuerySession({
       evidenceEnvelope,
       contextEnvelope,
       toolAuthorization: clone(evidenceEnvelope.sourceAuthorization),
+      ...(knowledgeState ? { knowledgeReadModel: knowledgeState } : {}),
       createdAt: Number(now) || Date.now(),
+      // 默认关闭（knowledgeState 为 null）时哈希输入与旧 main 完全一致，
+      // 不引入恒定的 null 字段改变指纹。
       fingerprint: `knowledge-session-${stableHash({
         projectRevision,
         retrievalScope,
         target: targetResult.target,
-        evidence: evidenceEnvelope.fingerprint
+        evidence: evidenceEnvelope.fingerprint,
+        ...(knowledgeState ? { knowledgeReadModel: knowledgeState } : {})
       })}`
     })
     return Object.freeze({ ok: true, session })

@@ -20,7 +20,7 @@ const props = defineProps({
   canRestoreInheritance: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['update-draft', 'save', 'cancel', 'undo', 'restore-inheritance', 'bind-worldbook', 'open-worldbook', 'search', 'run-intent'])
+const emit = defineEmits(['update-draft', 'save', 'cancel', 'undo', 'restore-inheritance', 'bind-worldbook', 'open-worldbook', 'search', 'run-intent', 'if-experiment'])
 
 const locationQuery = ref('')
 const peopleQuery = ref('')
@@ -239,6 +239,7 @@ function chooseCurrentLocation(candidate) {
               >{{ isViewpoint(candidate) ? '取消视角' : '设为视角' }}</button>
               <button v-if="!isSelected(candidate)" type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'character', 'next-passage')">让他下一段入场</button>
               <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'character', 'run-only')">仅带入本次推演</button>
+              <button type="button" class="scene-curation__scope-btn" data-test="character-if" @click="emit('if-experiment', candidate)">人物 IF 试验</button>
             </div>
           </li>
           <li v-for="id in missingCharacterIds" :key="`missing:${id}`" class="scene-curation__invalid-ref">

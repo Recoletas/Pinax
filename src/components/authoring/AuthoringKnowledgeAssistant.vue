@@ -73,7 +73,7 @@
             <div class="authoring-knowledge__evidence-list">
               <button v-for="evidence in message.answer.evidence" :key="evidence.sourceRef" type="button"
                 :class="{ 'is-stale': staleSource(message.answer, evidence.sourceRef) }"
-                @click="$emit('open-evidence', evidence)">
+                @click="onEvidenceClick(evidence)">
                 <span><strong>{{ evidence.label }}</strong><small>{{ authorityLabel(evidence.authority) }}</small></span>
                 <span class="authoring-knowledge__evidence-excerpt">{{ evidence.excerpt }}</span>
                 <span class="authoring-knowledge__evidence-open">回到原文 <span aria-hidden="true">→</span></span>
@@ -122,6 +122,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
+import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+
 const props = defineProps({
   projectTitle: { type: String, default: '' },
   messages: { type: Array, default: () => [] },
@@ -132,6 +134,16 @@ const props = defineProps({
   notice: { type: Object, default: null }
 })
 const emit = defineEmits(['update:draft', 'select-intent', 'ask', 'cancel', 'retry', 'clear', 'open-evidence', 'review-notice', 'open-illustrator'])
+// 点证据既回原文；对 K 可映射的来源（世界设定/历史/相关记忆）同时登记
+// 为下一次提问的可信点名来源（受限 I0，默认关）。正文/大纲/现场等不可
+// 映射来源不登记——不制造注定失败的接缝请求。
+const SEAM_MAPPABLE_AUTHORITIES = ['worldbook', 'history', 'memory']
+function onEvidenceClick(evidence) {
+  if (evidence && SEAM_MAPPABLE_AUTHORITIES.includes(evidence.authority)) {
+    recordKnowledgeSeamFocus(evidence.sourceRef)
+  }
+  emit('open-evidence', evidence)
+}
 
 const primaryTasks = Object.freeze([
   { id: 'setting', label: '查设定', placeholder: '要核对哪条人物、地点或规则设定？' },

@@ -3407,6 +3407,13 @@ defineExpose({
   display: none;
 }
 
+/* Empty gap space must pass clicks through to prose; mounted controls must
+   not inherit that rule or the editor underneath steals every click. */
+.writing-unit-gap > *,
+.writing-unit-gap__action {
+  pointer-events: auto;
+}
+
 .writing-unit-gap__actions {
   position: relative;
   display: flex;

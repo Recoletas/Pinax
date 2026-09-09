@@ -162,7 +162,7 @@ async function openLocationDetail(page, mobile = false) {
 async function openSceneLaboratory(page, { mobile = false, intent = 'run-only' } = {}) {
   if (mobile) {
     const sceneTool = page.locator('[data-authoring-tool="scene"]')
-    const sceneEdit = page.locator('.writing-inspector.is-open [data-test="scene-edit"]')
+    const sceneEdit = page.locator('.writing-inspector.is-open [data-test="scene-edit"], .writing-inspector.is-open [data-test="scene-overview-edit"]').first()
     await sceneTool.click({ force: true })
     if (!await sceneEdit.isVisible().catch(() => false)) await sceneTool.click({ force: true })
     await sceneEdit.click()
@@ -259,6 +259,52 @@ function stableWritingStorage(snapshot) {
 
 const browser = await chromium.launch()
 try {
+  if (SLICE === 'if') {
+    for (const width of [1440, 390]) {
+      const context = await seedFinalContext(browser, { width, height: 900 })
+      const page = await context.newPage()
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      const provider = await installDeterministicProviderMock(page, { passiveInline: false, blockText: finalProse })
+      const calls = await mockDirectionPlanner(page)
+      await openTarget(page)
+      const lab = await openSceneLaboratory(page, { mobile: width === 390 })
+      await lab.locator('.authoring-scene-lab__direction').first().click()
+      await lab.getByRole('button', { name: '只改一个条件' }).click()
+      await lab.getByLabel('IF 人物名', { exact: true }).fill('艾德加')
+      await lab.getByLabel('条件 A', { exact: true }).fill('守诺')
+      await lab.getByLabel('条件 B', { exact: true }).fill('坦白')
+      await lab.getByRole('button', { name: '开始 A/B 对照' }).click()
+      await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').first().waitFor()
+      await page.waitForFunction(() => !document.querySelector('.authoring-scene-lab__if-choices [role="status"]'))
+      check('F1-if 两支独立规划且共享冻结资料 ' + width,
+        calls.length === 3 && calls[1].question !== calls[2].question &&
+        JSON.stringify(calls[1].envelope) === JSON.stringify(calls[2].envelope))
+      check('F1-if 未选择不写正文 ' + width, provider.count({ kind: 'narrative' }) === 0 &&
+        await lab.getByLabel('以 A 条件写正文').isDisabled())
+      await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
+      await lab.getByLabel('以 A 条件写正文').click()
+      const draft = page.locator('[data-test="block-draft"]')
+      await draft.waitFor({ timeout: 30000 }).catch(async error => {
+        console.log('IF draft diagnostic', JSON.stringify({ text: await page.locator('.wall__dossier').innerText(), provider: provider.summary(), errors }))
+        throw error
+      })
+      await draft.locator('textarea').fill('A 支作者手改内容。')
+      await draft.getByRole('button', { name: 'B 条件', exact: true }).click()
+      await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
+      await lab.getByLabel('以 B 条件写正文').click()
+      await draft.waitFor({ timeout: 30000 })
+      await draft.locator('textarea').fill('B 支作者手改内容。')
+      const count = provider.count({ kind: 'narrative' })
+      await draft.getByRole('button', { name: 'A 条件', exact: true }).click()
+      check('F1-if 切换保留手改稿且不调用模型 ' + width,
+        await draft.locator('textarea').inputValue() === 'A 支作者手改内容。' &&
+        provider.count({ kind: 'narrative' }) === count)
+      await draft.screenshot({ path: path.join(OUT_DIR, 'if-draft-' + width + '.png') })
+      check('F1-if 无页面错误 ' + width, errors.length === 0, errors.join(' | '))
+      await context.close()
+    }
+  } else {
   const desktopContext = await seedContext(browser, { width: 1440, height: 900 })
   const page = await desktopContext.newPage()
   const errors = []
@@ -682,6 +728,7 @@ try {
     check('F1-7 快速关闭后的迟到方向不恢复旧实验室',
       await reducedPage.locator('[data-test="scene-laboratory"]').count() === 0)
     await reducedContext.close()
+  }
   }
 } catch (error) {
   check(SLICE ? `F1-${SLICE} 浏览器旅程执行完成` : 'F1 浏览器旅程执行完成', false, error?.stack || error)

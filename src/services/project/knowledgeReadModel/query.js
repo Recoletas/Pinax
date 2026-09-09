@@ -22,7 +22,9 @@ import {
   contextBudget,
   createEmptyResult,
   fingerprintParts,
+  isDeepFrozen,
   normalizeKnowledgeRequest,
+  stableStringify,
   promoteStatus,
   validateKnowledgeContext
 } from './contract.js'
@@ -84,6 +86,12 @@ function failResult(status, diagnostics) {
 export function createKnowledgeScope(snapshot) {
   const validation = validateKnowledgeContext({ snapshot })
   if (!validation.ok) return { ok: false, errors: validation.errors }
+  // Freeze responsibility: the module never freezes (or clones) caller
+  // objects. It refuses unfrozen snapshots instead, so a scope can never
+  // hold an alias index that drifts away from mutable content.
+  if (!isDeepFrozen(snapshot)) {
+    return { ok: false, errors: [{ path: 'snapshot', code: 'snapshot-unfrozen' }] }
+  }
   const worldbookId = snapshot.worldbook.id
   const timeline = snapshot.timeline ?? deriveTimelineFromGeoHistory(worldbookId, snapshot.geoHistory)
   const timelineCheck = validateTimeline(timeline)
@@ -181,38 +189,25 @@ function truncateOutput(facts, excerpts, hypotheses, budget) {
   const keptHypotheses = []
   const countTruncated = { facts: 0, excerpts: 0, hypotheses: 0 }
   let itemCount = 0
-  for (const fact of facts) {
-    if (itemCount >= budget.maxOutputItems || chars + JSON.stringify(fact.value ?? null).length > budget.maxOutputChars) {
-      truncated = true
-      countTruncated.facts += 1
-      continue
-    }
-    chars += JSON.stringify(fact.value ?? null).length
-    itemCount += 1
-    keptFacts.push(fact)
-  }
-  for (const excerpt of excerpts) {
-    const size = excerpt.text.length
+  // The budget covers the WHOLE serialized item (ids, predicates, sourceRefs,
+  // diagnostics-bearing fields — not just text/value), so large non-text
+  // fields cannot silently inflate the output past the contract limit.
+  const pushItem = (item, kind) => {
+    const size = stableStringify(item).length
     if (itemCount >= budget.maxOutputItems || chars + size > budget.maxOutputChars) {
       truncated = true
-      countTruncated.excerpts += 1
-      continue
+      countTruncated[kind] += 1
+      return
     }
     chars += size
     itemCount += 1
-    keptExcerpts.push(excerpt)
+    if (kind === 'facts') keptFacts.push(item)
+    else if (kind === 'excerpts') keptExcerpts.push(item)
+    else keptHypotheses.push(item)
   }
-  for (const hypothesis of hypotheses) {
-    const size = hypothesis.text.length
-    if (itemCount >= budget.maxOutputItems || chars + size > budget.maxOutputChars) {
-      truncated = true
-      countTruncated.hypotheses += 1
-      continue
-    }
-    chars += size
-    itemCount += 1
-    keptHypotheses.push(hypothesis)
-  }
+  for (const fact of facts) pushItem(fact, 'facts')
+  for (const excerpt of excerpts) pushItem(excerpt, 'excerpts')
+  for (const hypothesis of hypotheses) pushItem(hypothesis, 'hypotheses')
   return { keptFacts, keptExcerpts, keptHypotheses, truncated, countTruncated, chars }
 }
 
@@ -433,7 +428,7 @@ export function queryKnowledge(request, context) {
     scopeResult = createKnowledgeScope(context.snapshot)
   }
   if (!scopeResult.ok) {
-    return failResult('denied', [{ code: REASON_CODES.contextInvalid }])
+    return failResult('denied', scopeResult.errors.map((error) => ({ code: error.code ?? REASON_CODES.contextInvalid })))
   }
   const scope = scopeResult.scope
   const snapshot = scope.snapshot
@@ -464,6 +459,7 @@ export function queryKnowledge(request, context) {
   const resolvedNodeKeys = new Set()
   const resolvedEntryIds = new Set()
   const runtimeCharacterIds = new Set()
+  const resolvedMemoryIds = new Set()
   let anyRefDenied = false
   for (const ref of requestNorm.entityRefs) {
     if (signal?.aborted) return failResult('aborted', [{ code: REASON_CODES.aborted }])
@@ -478,6 +474,8 @@ export function queryKnowledge(request, context) {
       } else if (resolution.entity.kind === 'runtime-character') {
         runtimeCharacterIds.add(resolution.entity.id)
         resolvedEntryKeys.add(resolution.key)
+      } else if (resolution.entity.kind === 'memory') {
+        resolvedMemoryIds.add(resolution.entity.id)
       }
     } else if (resolution.status === 'ambiguous') {
       result.coverage.ambiguousRefs.push({ ref: { kind: ref.kind, id: ref.id }, candidates: resolution.candidates })
@@ -603,11 +601,11 @@ export function queryKnowledge(request, context) {
     if (adaptedClaims.scopeFingerprint) scopeRevisions.researchClaims = adaptedClaims.scopeFingerprint
     for (const diagnostic of adaptedClaims.diagnostics) pushDiagnostic(result, diagnostic)
   }
-  if (includeSources.has('memory')) {
-    const adaptedMemory = adaptMemories(snapshot)
-    if (adaptedMemory.unboundCount > 0) {
-      pushDiagnostic(result, { code: REASON_CODES.memoryEntityBindingUnavailable })
-    }
+  if (includeSources.has('memory') && resolvedMemoryIds.size > 0) {
+    const adaptedMemory = adaptMemories(snapshot, resolvedMemoryIds)
+    excerpts.push(...adaptedMemory.items)
+    if (adaptedMemory.scopeFingerprint) scopeRevisions.memories = adaptedMemory.scopeFingerprint
+    for (const diagnostic of adaptedMemory.diagnostics) pushDiagnostic(result, diagnostic)
   }
 
   // Unadopted drafts: excluded by policy unless explicitly allowlisted.

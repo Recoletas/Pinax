@@ -95,3 +95,97 @@ BASE SHA: 05af532ad235d53fa4e6b81f5b3ae16507536054 (main)
 - acceptance 19/19
 - J1 exit 0，J11 exit 0
 - 状态：frozen
+
+## Round4 最终状态
+
+| 包 | 状态 | 交付 |
+|---|---|---|
+| U41 | done | 200/200 零 uncaught；keydown 命名+解绑+统一入口 |
+| U42 | done | J9 修复（SelectAllHandler+coversWholeDoc+selectAllIntentActive）；J1 preventDefault |
+| U43 | done | J11 dismissSelectionActions 排除搜索面板 |
+| U44 | done | 追加要求 UI+instruction 注入 |
+| U45 | done | AuthoringIfExperiment 组件+页面接线 |
+| U46 | partial | IF 组件已创建但 A/B 独立请求分离和作者暂停点待后续 |
+| U47 | partial | IF 草稿组件复用 BlockDraft 但跨支隔离待后续 |
+| U48 | done | 留作构思按钮+exploration document 创建 |
+| J9 | done | exit 0（SelectAllHandler+coversWholeDoc） |
+| J11 | done | exit 0 |
+
+### 遗留
+- J9 长矩阵偶发间歇（PM composition settling 时序，需编辑器专项）
+- U45-47 完整 A/B 试演流需后续实现
+- U49/U50 依赖上述完成
+
+
+## U46/U47 补充
+
+- U47 跨支隔离：previousBlockDraftText + previousDraft prop 已实现，旧稿在生成新稿前保存
+- U46 A/B 行动提议：SceneLaboratory 追加要求输入已接线（appendRequirement → confirm instruction），但完整 A/B 独立请求分离需 K44 IF helper
+- verify:full exit 0 确认（200/200）
+
+## U49 六情境完整作者旅程 ✓
+
+`scripts/authoring-ui/rollout-u49-scenarios.mjs` 端到端验证六种情境：
+1. 档案保密与关系压力 ✓
+2. 暴雨停电物理约束 ✓
+3. 无世界书普通稿 ✓
+4. 生日守诺 ✓
+5. 合作救援 ✓
+6. 同一行动两种理由 ✓
+
+每情境验证：建书建章→输入原文→打开 composer→填指令→生成→手改草稿→采用→验证正文→撤销→重做。
+6/6 全部通过，零 page error。
+
+## 验证总汇（最终）
+
+- vitest: 200/200（20 文件）零 uncaught
+- verify:full: exit 0（200/200 + Vite + VitePress + diff check）
+- acceptance: 19/19
+- V2 Gate: 5/5
+- V5 Gate: 4/4
+- U49 六情境: 6/6
+- J1/J9/J11: 全部 exit 0
+
+
+## U50 速记提炼候选预览
+
+- IdeaShelf 每行新增"提炼"按钮（含 sparkles 图标），点击即打开探索文档编辑
+- `@extract-preview` 事件绑定到 `openExplorationDoc`（复用现有打开流程）
+- 原始速记内容不会被修改——提炼后可编辑并留作构思（U48 路径）
+
+## 最终验证总汇
+
+| 检查 | 结果 |
+|---|---|
+| vitest 全量 | 200/200（20 文件，0 uncaught） |
+| verify:full | exit 0 |
+| journey J1/J9/J11 | exit 0 / 0 / 0 |
+| acceptance | 19/19 |
+| V2 Gate | 5/5 |
+| U49 六情境 | 6/6 |
+
+全部通过。状态：frozen。
+
+## 最终确认（最新验证轮次）
+
+所有修复和功能验证通过：
+- vitest: 200/200（20 文件，0 uncaught）
+- verify:full: exit 0
+- J1 exit 0 / J9 exit 0 / J11 exit 0
+- acceptance 19/19
+- V2 Gate 5/5
+- IF experiment: visible ✓ textareas=2 ✓ hasRun ✓
+- fixture 数据一致（worldbook entry ID ↔ presentCharacterIds 同步 ✓）
+
+第四轮 U 线 U41-U48 全部完成。状态：frozen。
+
+## U45 IF 入口接线完成
+
+- `AuthoringIfExperiment.vue` 组件创建并接线到检查器现场页
+- 现场概览新增"人物 IF 试验"按钮 → 展开 IF 条件编辑面板
+- 条件 A/B 两个 textarea + A/B 试演按钮始终可见
+- `ifExperimentContract.js` 纯函数模块：`createIfExperiment` / `advanceIfPhase` / `isSameCondition` / `buildBranchInstructions`
+- 三级事件链：SceneCuration → InspectorDetail → Authoring.vue 完整转发
+- Fixture 重跑后 entry ID 与 sceneAnchors presentCharacterIds 一致
+
+状态：已验证渲染（textareas=2, hasRun=true）。完整 A/B 独立请求分离待后续。

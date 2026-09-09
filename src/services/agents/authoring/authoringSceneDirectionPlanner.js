@@ -75,7 +75,7 @@ export function buildAuthoringSceneDirectionEnvelope(planningRequest = {}) {
   }), MAX_CONTEXT_CHARS)
 }
 
-export async function planAuthoringSceneDirections(planningRequest, { signal = null } = {}) {
+export async function planAuthoringSceneDirections(planningRequest, { signal = null, settingsSnapshot = null } = {}) {
   if (planningRequest?.kind !== 'authoring-scene-direction-planning-request'
     || planningRequest?.toolPolicy?.allowTools !== false
     || planningRequest?.toolPolicy?.toolChoice !== 'none') {
@@ -90,6 +90,7 @@ export async function planAuthoringSceneDirections(planningRequest, { signal = n
     taskType: TASK_ID,
     scope: 'writing',
     mode: 'direct',
+    settingsSnapshot,
     options: {
       toolChoice: 'none',
       maxOutputChars: planningRequest.outputPolicy?.maxChars || 2400

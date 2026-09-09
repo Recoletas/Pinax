@@ -28,7 +28,7 @@ const props = defineProps({
   canRestoreInheritance: { type: Boolean, default: false }
 })
 
-const emit = defineEmits([
+const emit = defineEmits(['if-experiment',
   'close',
   'set-actor',
   'open-full',
@@ -125,6 +125,7 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
       @bind-worldbook="emit('bind-worldbook')"
       @open-worldbook="emit('open-worldbook')"
       @search="(payload) => emit('search', payload)"
+      @if-experiment="(candidate) => emit('if-experiment', candidate)"
       @run-intent="(payload) => emit('run-intent', payload)"
     />
     <slot v-if="detail.kind === 'scene-edit'" name="context" />

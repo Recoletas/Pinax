@@ -53,9 +53,16 @@
       </ol>
     </details>
 
-    <p v-if="previousDraft" class="authoring-block-draft__prev-note">
-      上一份试稿已保留在会话中
-    </p>
+    <div v-if="ifBranch" class="authoring-block-draft__actions" aria-label="IF 草稿切换">
+      <button v-for="branch in ['A', 'B']" :key="branch" type="button"
+        :aria-pressed="ifBranch === branch" :disabled="busy || locked"
+        @click="emit('switch-if', branch)">{{ branch }} 条件</button>
+      <button type="button" :disabled="busy || locked" @click="emit('retry-if')">重试当前条件</button>
+    </div>
+    <details v-if="previousDraft" class="authoring-block-draft__structure">
+      <summary>查看上一份试稿（只读）</summary>
+      <p class="authoring-block-draft__previous-text">{{ previousDraft }}</p>
+    </details>
     <p v-if="failure || staleResult" class="authoring-block-draft__failure" role="alert">
       {{ failure?.message || '落笔处已经变化，请重新选择位置生成；这份草稿仍为你保留。' }}
     </p>
@@ -94,12 +101,13 @@ const props = defineProps({
   failure: { type: Object, default: null },
   staleResult: { type: Object, default: null },
   previousDraft: { type: String, default: '' },
+  ifBranch: { type: String, default: '' },
   boundaryHints: { type: Array, default: () => [] },
   selectedDirection: { type: Object, default: null },
   sessionFingerprint: { type: String, default: '' }
 })
 
-const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore', 'save-as-exploration'])
+const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore', 'save-as-exploration', 'switch-if', 'retry-if'])
 const draftInput = ref(null)
 const boundaryCorrections = ref([])
 const stableBoundaryHints = ref([])
@@ -229,6 +237,11 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 </script>
 
 <style scoped>
+.authoring-block-draft__previous-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
 .authoring-block-draft {
   width: 100%;
   padding: 14px 12px 12px 36px;

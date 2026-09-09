@@ -99,11 +99,19 @@ async function installKnowledgeProvider(page) {
       .filter((block) => String(block.content || '').includes('艾德加'))
       .flatMap((block) => block.sourceRefs || []))]
     const isFree = payload.options?.knowledgeIntent === 'free'
+    const worldRefs = refs.filter((ref) => ref.startsWith('worldbook-entry:')).slice(0, 2)
     const claims = isFree ? [] : [{
       text: '艾德加曾在正文中出现。',
       confidence: edgarRefs.length ? 'supported' : 'unsupported',
       evidenceRefs: edgarRefs.slice(0, 4)
     }]
+    if (!isFree && worldRefs.length) {
+      claims.push({
+        text: '设定资料中存在相关记录，可点击依据回原文。',
+        confidence: 'supported',
+        evidenceRefs: worldRefs
+      })
+    }
     const knowledgeAnswer = {
       answer: isFree
         ? '可以先把这一场的选择压缩成一个不可兼得的取舍，再决定落笔。'
@@ -127,15 +135,16 @@ async function installKnowledgeProvider(page) {
   return requests
 }
 
-async function createPage(browser, viewport) {
+async function createPage(browser, viewport, { knowledgeSeamFlag = false } = {}) {
   const context = await browser.newContext({ viewport, deviceScaleFactor: 1 })
   const storage = isolatedStorage()
-  await context.addInitScript((snapshot) => {
+  await context.addInitScript(({ flag, snapshot }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
     localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
-  }, storage)
+    if (flag) localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
+  }, { flag: knowledgeSeamFlag, snapshot: storage })
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', (error) => errors.push(`pageerror:${error.message}`))
@@ -312,7 +321,246 @@ try {
   await browser.close()
 }
 
+// --- 知识接缝（round-2 K24）浏览器运行时闭环 ---------------------------------
+// 默认关闭的 UI 回归已由上方页面旅程覆盖；本节在**真实浏览器运行时**里
+// 动态 import 生产 session 模块（走同一 dev server 转换管线），用内存
+// 仓库跑接缝四段流：默认关/精确查询溯源/取消终态/越权拒绝/来源改后失效。
+// 这不是点击旅程（接缝无 UI 入口，按计划 default-off），但它在浏览器里
+// 执行的正是将随 I0 启用的模块本体。
+async function runKnowledgeSeamBrowserGate(browser) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  const seamStorage = isolatedStorage()
+  await context.addInitScript((snapshot) => {
+    localStorage.clear()
+    for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
+    localStorage.setItem('app_theme_variant', 'legacy')
+    localStorage.setItem('app_ui_zoom', '1')
+  }, seamStorage)
+  const page = await context.newPage()
+  const seamErrors = []
+  page.on('pageerror', (error) => seamErrors.push(`pageerror:${error.message}`))
+  await page.goto(`${BASE}/authoring`, { waitUntil: 'domcontentloaded' })
+  const seam = await page.evaluate(async () => {
+    const sessionModule = await import('/src/services/agents/authoring/authoringKnowledgeQuerySession.js')
+    const answerModule = await import('/src/services/agents/authoring/authoringKnowledgeAnswerContract.js')
+    const writingModule = await import('/src/services/writing/writingDocumentSchema.js')
+    const { createAuthoringKnowledgeQuerySession } = sessionModule
+    const { createAuthoringKnowledgeAnswer, reconcileAuthoringKnowledgeAnswer } = answerModule
+    const { createWritingDocument } = writingModule
+
+    const chapterOne = createWritingDocument('艾德加在钟楼下把钥匙交给莉娜。')
+    let worldbookEntries = [
+      { id: 'entry_key', name: '蓝铜钥匙', type: 'item', content: '旧港档案室的钥匙，艾德加保管多年。' },
+      { id: 'entry_edgar', name: '艾德加', type: 'character', content: '旧港档案员。' }
+    ]
+    const repositories = {
+      getBook: async () => ({
+        id: 'seam-book', title: '接缝浏览器验证', worldbookId: 'seam-worldbook',
+        chapters: [{ id: 'seam-chapter-1', title: '第一章', editorDocument: chapterOne }]
+      }),
+      getBoundWorldbook: async () => ({
+        projectId: 'seam-book', worldbookId: 'seam-worldbook',
+        worldbook: { id: 'seam-worldbook', entries: worldbookEntries }
+      }),
+      listExplorations: async () => [],
+      listOutlineNodes: async () => [],
+      listOutlineEdges: async () => [],
+      listMemories: async () => []
+    }
+    const session = createAuthoringKnowledgeQuerySession({ repositories, maxEvidence: 12 })
+    const request = {
+      projectId: 'seam-book', queryIntent: 'whole-book', question: '蓝铜钥匙有什么设定？'
+    }
+    const out = {}
+
+    // 0) 默认关闭：无标记，原路径照常
+    const off = await session.prepare({ ...request })
+    out.offNoMarker = off.ok && off.session.knowledgeReadModel === undefined
+
+    // 1) 启用：精确来源、revision 可溯源
+    const on = await session.prepare({
+      ...request, knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:entry_key'] }
+    })
+    out.onReady = on.ok && on.session.knowledgeReadModel?.status === 'ready'
+    out.onExactRefs = JSON.stringify(on.session.evidenceEnvelope.evidence.map((item) => item.sourceRef).sort())
+      === JSON.stringify(['worldbook-entry:entry_key'])
+    const originalRevision = on.session.evidenceEnvelope.evidence[0]?.revision ?? null
+
+    // 2) 取消是终态：不回退旧检索、零内容
+    const controller = new AbortController()
+    controller.abort()
+    const aborted = await session.prepare({
+      ...request, knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:entry_key'], signal: controller.signal }
+    })
+    out.abortedTerminal = aborted.ok === false && aborted.reason === 'knowledge-read-model-aborted'
+
+    // 3) 越权拒绝：目录外来源 typed 失败、零内容
+    const denied = await session.prepare({
+      ...request, knowledgeReadModel: { enabled: true, sourceRefs: ['worldbook-entry:not-authorized'] }
+    })
+    out.deniedTyped = denied.ok === false && denied.reason === 'knowledge-read-model-source-unauthorized'
+
+    // 4) 来源改后旧答案失效（stale 对账）
+    const answer = createAuthoringKnowledgeAnswer({
+      evidenceEnvelope: on.session.evidenceEnvelope,
+      modelOutput: { answer: '钥匙由艾德加保管。', claims: [{ text: '钥匙由艾德加保管。', evidenceRefs: ['worldbook-entry:entry_key'], confidence: 'supported' }] }
+    })
+    const before = reconcileAuthoringKnowledgeAnswer(answer, await session.collectCurrentRevisions(on.session))
+    worldbookEntries = worldbookEntries.map((entry) => entry.id === 'entry_key'
+      ? { ...entry, content: '（作者已改写）钥匙被扔进海里。' }
+      : entry)
+    const after = reconcileAuthoringKnowledgeAnswer(answer, await session.collectCurrentRevisions(on.session))
+    out.staleFlow = answer.stale === false
+      && before.stale === false
+      && after.stale === true
+      && after.staleSources.some((item) => item.sourceRef === 'worldbook-entry:entry_key' && item.reason === 'revision-changed')
+    out.revisionCarried = typeof originalRevision === 'string' && originalRevision.length > 0
+    return out
+  })
+  await context.close()
+  check(results, '接缝浏览器运行时：默认关闭无标记', seam.offNoMarker === true)
+  check(results, '接缝浏览器运行时：精确来源且 revision 直通', seam.onReady === true && seam.onExactRefs === true && seam.revisionCarried === true)
+  check(results, '接缝浏览器运行时：已取消请求终态失败、零内容回退', seam.abortedTerminal === true)
+  check(results, '接缝浏览器运行时：越权来源 typed 拒绝', seam.deniedTyped === true)
+  check(results, '接缝浏览器运行时：来源改后旧答案 stale 失效', seam.staleFlow === true)
+  check(results, '接缝浏览器运行时：无页面错误', seamErrors.length === 0, seamErrors.join('\n'))
+}
+
+// --- K34 点击闭环：作者可操作入口真实进入接缝（非 page.evaluate/CLI）------
+async function runKnowledgeSeamClickGate(browser) {
+  const desktop = await createPage(browser, { width: 1440, height: 900 }, { knowledgeSeamFlag: true })
+  const page = desktop.page
+  const editor = page.locator('.wall__dossier .ProseMirror')
+  const assistant = page.locator('.authoring-knowledge')
+  await editor.locator('p').first().waitFor({ timeout: 30000 })
+
+  // 1) 无焦点来源的提问走旧路径：trace 0。
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await fillAndAsk(page, '艾德加此前在哪几章出现？')
+  await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).waitFor({ timeout: 30000 })
+  let trace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
+  check(results, 'click: 无焦点来源时提问不走接缝', trace && trace.seamPrepares === 0, JSON.stringify(trace))
+
+  // 2) 作者点开依据并点击一条 K 可映射来源（世界设定）→ 登记焦点 + 回原文。
+  await assistant.locator('.authoring-knowledge__evidence summary').first().click()
+  const seamRows = assistant.locator('.authoring-knowledge__evidence-list > button')
+  const focusRow = seamRows.filter({ hasText: '世界设定' }).first()
+  await focusRow.click()
+  await page.waitForTimeout(400)
+  // 世界设定来源的"回到原文"会切到设定面板，助手抽屉随之关闭——真实作者
+  // 会重新打开助手继续追问；焦点来源已登记在应用内。
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
+
+  // 3) 追问：本次真实进入接缝（trace +1），envelope 只含焦点来源，
+  //    provider 请求每次提问恰好一次（无第二次调用）。
+  const providerCountBefore = desktop.requests.length
+  await fillAndAsk(page, '再核对一次这个来源里艾德加的记录。')
+  await assistant.locator('.authoring-knowledge__answer').last().getByText(/已在 \d+ 处正文片段找到艾德加|当前资料中没有找到足够依据/).first().waitFor({ timeout: 30000 })
+  trace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
+  check(results, 'click: 追问真实进入 K 接缝（trace+1）', trace && trace.seamPrepares === 1, JSON.stringify(trace))
+  const seamRequest = desktop.requests[desktop.requests.length - 1]
+  const seamEnvelopeRefs = JSON.stringify(seamRequest?.refs || [])
+  check(results, 'click: 接缝请求只含点名的焦点来源', seamEnvelopeRefs === JSON.stringify(trace?.lastSeamRefs || []) && (trace?.lastSeamRefs?.length ?? 0) === 1, seamEnvelopeRefs)
+  check(results, 'click: 接缝提问没有第二次 provider 调用', desktop.requests.length === providerCountBefore + 1, `${desktop.requests.length - providerCountBefore}`)
+
+  // 4) 启用态完整闭环：修改聚焦来源（世界书条目，经正式存储层写合成
+  //    fixture）→ 正文写入触发刷新信号 → 接缝回答 stale。
+  await assistant.locator('.authoring-knowledge__answer').last()
+    .locator('.authoring-knowledge__evidence summary').first().click()
+  const focusedEntryId = trace.lastFocusRef.replace('worldbook-entry:', '')
+  const sourceChanged = await page.evaluate(({ entryId }) => {
+    return (async () => {
+      const { createBrowserStorageRepository } = await import('/src/services/storage/browserStorageRepository.js')
+      const storage = createBrowserStorageRepository()
+      const books = JSON.parse(storage.getText('writing_books') || '[]')
+      const book = books.find((item) => Array.isArray(item.chapters))
+      if (!book?.worldbookId) return { ok: false, reason: 'no-bound-worldbook' }
+      const key = 'worldbook_' + book.worldbookId
+      const worldbook = JSON.parse(storage.getText(key) || 'null')
+      if (!worldbook?.entries) return { ok: false, reason: 'no-worldbook' }
+      const entry = worldbook.entries.find((item) => item.id === entryId)
+      if (!entry) return { ok: false, reason: 'entry-missing' }
+      entry.content = '（作者已改写）' + entry.content
+      storage.setText(key, JSON.stringify(worldbook))
+      return { ok: true }
+    })()
+  }, { entryId: focusedEntryId })
+  check(results, 'click: 聚焦来源内容已在存储层改写', sourceChanged.ok === true, JSON.stringify(sourceChanged))
+  // 正文写入只是触发助手刷新信号的真实作者动作；导致 stale 的原因是
+  // 聚焦的世界书条目内容已变（revision 对账）。
+  await editor.locator('p').first().click()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText('（触发刷新）')
+  await assistant.getByText(/资料已更新/).first().waitFor({ timeout: 10000 })
+  const staleSeamChips = await assistant.locator('.authoring-knowledge__answer').last()
+    .locator('.authoring-knowledge__evidence-list > button.is-stale').count()
+  check(results, 'click: 来源修改后接缝回答标记 stale', staleSeamChips >= 1, `stale=${staleSeamChips}`)
+
+  // 4b) 接缝回答来源可点回原文（点击会切到设定面板，旅程随后重开助手）。
+  await assistant.locator('.authoring-knowledge__answer').last()
+    .locator('.authoring-knowledge__evidence-list > button').first().click()
+  await page.waitForTimeout(300)
+  check(results, 'click: 接缝回答来源可回原文', (await editor.count()) > 0)
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
+
+  // 5) 点名来源失效是终态：删除该条目后再追问 → typed 停止，provider 零
+  //    调用，其他资料不因回退进入模型。
+  const providerCountBeforeDelete = desktop.requests.length
+  const removed = await page.evaluate(({ entryId }) => {
+    return (async () => {
+      const { createBrowserStorageRepository } = await import('/src/services/storage/browserStorageRepository.js')
+      const storage = createBrowserStorageRepository()
+      const books = JSON.parse(storage.getText('writing_books') || '[]')
+      const book = books.find((item) => Array.isArray(item.chapters))
+      const key = 'worldbook_' + book.worldbookId
+      const worldbook = JSON.parse(storage.getText(key) || 'null')
+      worldbook.entries = worldbook.entries.filter((item) => item.id !== entryId)
+      storage.setText(key, JSON.stringify(worldbook))
+      return { ok: true }
+    })()
+  }, { entryId: focusedEntryId })
+  check(results, 'click: 聚焦来源已从存储层移除', removed.ok === true)
+  await fillAndAsk(page, '再核对一次这个来源里艾德加的记录。')
+  const seamRejectionTrace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
+  check(results, 'click: 点名来源失效 → 终态停止（不回退旧查询）',
+    seamRejectionTrace.seamRejections === 1 && seamRejectionTrace.seamPrepares === 1,
+    JSON.stringify(seamRejectionTrace))
+  check(results, 'click: 终态停止后 provider 零调用、其他资料未进入模型',
+    desktop.requests.length === providerCountBeforeDelete,
+    `${desktop.requests.length - providerCountBeforeDelete}`)
+  const stopErrorVisible = await assistant.getByText('聚焦的资料当前不可用，本次查询已停止；请重新选择来源后再试.').count()
+    + await assistant.getByText('聚焦的资料当前不可用，本次查询已停止；请重新选择来源后再试。').count()
+  check(results, 'click: 作者看到可理解的停止原因', stopErrorVisible >= 1)
+  // 关闭重开助手：composable 实例不销毁，焦点已单次消费，追问走旧路径。
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await page.waitForTimeout(200)
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
+  const providerCountReopen = desktop.requests.length
+  await fillAndAsk(page, '艾德加此前在哪几章出现？')
+  await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).last().waitFor({ timeout: 30000 })
+  const reopenTrace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
+  check(results, 'click: 关闭重开后焦点已消费，追问走旧路径',
+    desktop.requests.length === providerCountReopen + 1 && reopenTrace.seamPrepares === 1,
+    JSON.stringify({ requests: desktop.requests.length - providerCountReopen, seamPrepares: reopenTrace.seamPrepares }))
+  check(results, 'click: 接缝旅程无控制台错误', desktop.errors.length === 0, desktop.errors.join('\n'))
+  await desktop.context.close()
+}
+
+const failed0 = results.filter((result) => !result.pass)
+
+// 追加浏览器接缝段（复用已打开的浏览器实例会随上方 finally 关闭，这里独立重启）
+const seamBrowser = await chromium.launch()
+try {
+  await runKnowledgeSeamBrowserGate(seamBrowser)
+  await runKnowledgeSeamClickGate(seamBrowser)
+} finally {
+  await seamBrowser.close()
+}
+
 const failed = results.filter((result) => !result.pass)
 fs.writeFileSync(path.join(OUT_DIR, 'report.json'), JSON.stringify({ total: results.length, failed: failed.length, results }, null, 2))
-console.log(`F2-4 knowledge assistant Gate: ${results.length - failed.length}/${results.length}`)
+console.log(`F2-4 knowledge assistant Gate: ${results.length - failed.length}/${results.length}（含知识接缝浏览器运行时 6 项；默认关闭 UI 回归 ${results.length - failed0.length - 6}/${results.length - 6}）`)
 if (failed.length) process.exitCode = 1

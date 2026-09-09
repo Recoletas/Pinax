@@ -25,6 +25,10 @@ export function geoNodeKey(worldbookId, nodeId) {
   return `geonode:${worldbookId}:${nodeId}`
 }
 
+export function memoryEntityKey(projectId, memoryId) {
+  return `memory:${projectId}:${memoryId}`
+}
+
 /**
  * Build the explicit alias index from an authorized snapshot. Sources of
  * mappings (all explicit, no name guessing):
@@ -135,6 +139,20 @@ export function resolveEntityRef(ref, snapshot, aliasIndex) {
       status: 'resolved',
       key,
       entity: { key, kind: 'runtime-character', id: ref.id, character }
+    }
+  }
+  if (ref.kind === 'memory') {
+    const key = memoryEntityKey(snapshot.project.id, ref.id)
+    const memories = Array.isArray(snapshot.memories) ? snapshot.memories : []
+    const memory = memories.find((item) => item && item.id === ref.id)
+    if (!memory) return { status: 'unresolved' }
+    if (memory.status !== undefined && memory.status !== 'active') {
+      return { status: 'unresolved', reason: 'memory-not-active' }
+    }
+    return {
+      status: 'resolved',
+      key,
+      entity: { key, kind: 'memory', id: ref.id, memory }
     }
   }
   if (ref.kind === 'runtime-place') {

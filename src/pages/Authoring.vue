@@ -174,6 +174,7 @@
               @migrate="wt3MigrateLegacyNotes"
               @open="openExplorationDoc"
               @open-dual="openExplorationInDual"
+              @extract-preview="openNotesExtraction"
               @add="addAuthoringRunReference"
               @remove="removeAuthoringRunReference"
               @refresh="refreshAuthoringRunReference"
@@ -184,6 +185,11 @@
               @open-full="openMaterialsPage"
               @update:query="authoringRunReferenceQuery = $event"
             />
+            <AuthoringNotesExtractionPreview v-if="notesExtractionSource"
+              :key="notesExtractionSource.id + ':' + notesExtractionSource.revision"
+              :book-id="selectedBookId" :source="notesExtractionSource"
+              :existing-entries="boundWorldbook?.entries || []"
+              @close="notesExtractionSource = null" @saved="wt3RefreshDocs()" />
             <div class="authoring-chapter-group is-current" @contextmenu.prevent="openShelfContextMenu($event, 'volume')">
               <WorkbenchIcon name="folder" :size="14" />
               <span>第一卷</span>
@@ -509,7 +515,7 @@
                 @click="completeQuickWord(item)"
               ><kbd>{{ index + 1 }}</kbd>{{ item.text }}</button>
             </div>
-            <Teleport v-if="sceneLaboratory.open" to="#authoring-block-gap">
+            <Teleport v-if="sceneLaboratory.open && !blockPreview" to="#authoring-block-gap">
               <AuthoringSceneLaboratory
                 :entry-intent="activeSceneLaboratoryIntent"
                 :pressure="sceneLaboratoryPressure"
@@ -519,6 +525,14 @@
                 :notice="sceneLaboratory.notice"
                 @select="selectSceneLaboratoryDirection"
                 :append-requirement="sceneLaboratoryAppendRequirement"
+                :if-branches="characterIfBranches"
+                :if-active-branch="characterIfActiveBranch"
+                :if-plans="ifPlans"
+                :initial-if-open="ifEntryOpen"
+                :initial-if-actor="ifEntryActor"
+                :if-baseline="characterIfExperiment.active.value?.baselineFacts || []"
+                @plan-if="planIfBranch"
+                @select-if="selectIfDirection"
                 @append-requirement="sceneLaboratoryAppendRequirement = $event"
                 @confirm="confirmSceneLaboratoryDirection"
                 @back="openSceneLaboratoryEvidence"
@@ -526,6 +540,9 @@
                 @ordinary="openOrdinaryTurnFromSceneLaboratory"
                 @supplement="supplementSceneFromSceneLaboratory"
                 @retry="retrySceneLaboratoryDirections"
+                @start-if="startCharacterIfExperiment"
+                @switch-if-branch="switchIfDraft"
+                @write-if-draft="writeIfBranchDraft"
               />
             </Teleport>
             <Teleport v-else-if="sceneCurationPreviewOpen" to="#authoring-block-gap">
@@ -583,7 +600,7 @@
                 @close="closeInterventionComposer"
               />
             </Teleport>
-            <Teleport v-else-if="blockComposer.open && !blockPreview" to="#authoring-block-gap">
+            <Teleport v-else-if="blockComposer.open && !blockPreview && !sceneLaboratory.open" to="#authoring-block-gap">
               <AuthoringBlockComposer ref="blockComposerRef" :target="blockComposer.target" :empty-chapter="isEmptyChapter"
                 :projection="sceneProjection" :people="composerPeople" :generating="authoringTaskBusy"
                 :failure="blockComposer.failure" :stale-result="blockComposer.staleResult"
@@ -611,6 +628,9 @@
                 :selected-direction="blockPreview.selectedDirectionReceipt"
                 :session-fingerprint="blockPreview.candidate?.runSession?.manifest?.fingerprint || ''"
                 :previous-draft="previousBlockDraftText"
+                :if-branch="characterIfActive ? characterIfActiveBranch : ''"
+                @switch-if="switchIfDraft"
+                @retry-if="retryIfDraft"
                 @accept="acceptBlockPreview"
                 @dismiss="dismissBlockPreview"
                 @restore="restoreBlockDraft"
@@ -988,6 +1008,7 @@
             @open-worldbook="router.push({ name: 'settings-worldbook' })"
             @search="handleCurationSearch"
             @run-intent="handleSceneRunIntent"
+            @if-experiment="openIfEntry"
           />
         </div>
 
@@ -1252,6 +1273,7 @@
           </section>
           <div class="writing-inspector__actions">
             <button type="button" data-test="scene-overview-edit" @click="handleSceneEditRequest">调整当前场</button>
+            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">人物 IF 试验</button>
             <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">推演本章开场</button>
           </div>
         </div>
@@ -1567,6 +1589,8 @@ import AuthoringIllustratorDrawer from '../components/authoring/AuthoringIllustr
 import AuthoringReviewPanel from '../components/authoring/AuthoringReviewPanel.vue'
 import AuthoringSearchPanel from '../components/authoring/AuthoringSearchPanel.vue'
 import AuthoringIdeaShelf from '../components/authoring/AuthoringIdeaShelf.vue'
+import { useCharacterIfExperiment } from '../composables/useCharacterIfExperiment.js'
+import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
 import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
 import AuthoringCharacterPanel from '../components/authoring/AuthoringCharacterPanel.vue'
@@ -4117,6 +4141,219 @@ let sceneLaboratoryRequestVersion = 0
 let sceneLaboratoryAbortController = null
 
 const sceneLaboratoryAppendRequirement = ref('')
+const ifEntryOpen = ref(false)
+const ifEntryActor = ref('')
+async function openIfEntry(candidate = null) {
+  const name = candidate?.name || sceneProjection.value.presentCharacters?.[0]?.name || ''
+  await closeSceneDetail()
+  await openSceneLaboratory()
+  ifEntryOpen.value = true
+  ifEntryActor.value = name
+}
+const notesExtractionSource = shallowRef(null)
+function openNotesExtraction(doc) {
+  const id = typeof doc === 'string' ? doc : doc?.id
+  if (id === wt3ActiveDocId.value && !wt3PersistActiveDoc()?.ok) return
+  notesExtractionSource.value = getExplorationDocument(selectedBookId.value, id)
+}
+watch(selectedBookId, () => { notesExtractionSource.value = null })
+const characterIfExperiment = useCharacterIfExperiment({ projectId: selectedBookId })
+const characterIfActive = computed(() => characterIfExperiment.isActive.value)
+const characterIfBranches = computed(() => characterIfExperiment.branches.value)
+const characterIfActiveBranch = computed(() => characterIfExperiment.activeBranch.value)
+
+// Session-only snapshots retain each candidate's own target and receipts.
+const ifBranchDrafts = shallowRef({ A: null, B: null })
+const ifBusy = ref(false)
+const ifBaselineRun = shallowRef(null)
+const ifSettings = shallowRef(null)
+const ifPlans = reactive({ A: null, B: null })
+let ifPlanningController = null
+
+async function planIfBranch(branchId) {
+  const experiment = characterIfExperiment.active.value
+  if (!experiment || !['A', 'B'].includes(branchId) || ifPlans[branchId]?.status === 'planning') return
+  const branch = experiment.branches[branchId]
+  const baseline = ifBaselineRun.value
+  if (!baseline || branch.lifecycle === 'stale') return
+  ifPlans[branchId] = { status: 'planning', run: null }
+  const runner = createAuthoringSceneLaboratoryRun({
+    planDirections: (request, options) => planAuthoringSceneDirections(request, {
+      ...options, settingsSnapshot: ifSettings.value
+    })
+  })
+  const result = await runner.retryDirections({
+    session: baseline.runSession,
+    pressureProjection: baseline.pressureProjection,
+    instruction: `作者假设（不是正式设定）：${experiment.actorRef.slice('character:'.length)}的信念是“${branch.belief}”。其他事实保持不变。请给出行动、原文依据、眼前所得与预测代价。无需刻意制造冲突。`,
+    signal: ifPlanningController?.signal
+  })
+  if (characterIfExperiment.active.value !== experiment || ifPlanningController?.signal.aborted) return
+  ifPlans[branchId] = result.ok
+    ? { status: 'ready', run: result.run }
+    : { status: 'failed', run: null, message: '本支没有获得有效行动或依据，可重试；另一支不受影响。' }
+}
+
+function selectIfDirection({ branchId, directionId }) {
+  const plan = ifPlans[branchId]
+  if (!plan?.run || ifBusy.value) return
+  const selected = selectAuthoringSceneLaboratoryDirection(plan.run, directionId)
+  if (selected.ok) ifPlans[branchId] = { status: 'ready', run: selected.run }
+}
+
+function retainIfDraft() {
+  if (!characterIfActive.value || !blockPreview.value) return
+  ifBranchDrafts.value = { ...ifBranchDrafts.value, [characterIfActiveBranch.value]: {
+    preview: blockPreview.value, ghost: pendingWritingGhost.value,
+    text: blockDraftText.value, original: blockDraftOriginalText.value,
+    previous: previousBlockDraftText.value
+  } }
+}
+
+function switchIfDraft(branchId) {
+  if (!['A', 'B'].includes(branchId) || !characterIfActive.value ||
+      ifBusy.value || authoringTaskBusy.value || pendingGhostAdoption.value || blockAdoptionBusy.value) return
+  retainIfDraft()
+  characterIfExperiment.switchBranch(branchId)
+  const draft = ifBranchDrafts.value[branchId]
+  blockPreview.value = draft?.preview || null
+  pendingWritingGhost.value = draft?.ghost || null
+  blockDraftText.value = draft?.text || ''
+  blockDraftOriginalText.value = draft?.original || ''
+  previousBlockDraftText.value = draft?.previous || ''
+  if (draft) {
+    blockComposer.open = true
+    blockComposer.target = sceneLaboratory.target
+  }
+  blockComposer.failure = null
+  blockComposer.staleResult = null
+}
+
+function retryIfDraft() {
+  if (ifBusy.value || authoringTaskBusy.value || pendingGhostAdoption.value || blockAdoptionBusy.value) return
+  if (characterIfExperiment.phase.value === 'stale') {
+    blockComposer.failure = { message: '依据已变化，旧稿可留作构思；请重新开始对照。' }
+    return
+  }
+  retainIfDraft()
+  blockPreview.value = null
+  pendingWritingGhost.value = null
+  return writeIfBranchDraft(characterIfActiveBranch.value)
+}
+
+async function writeIfBranchDraft(branchId) {
+  if (!characterIfExperiment.isActive.value || ifBusy.value || authoringTaskBusy.value) return false
+  const experiment = characterIfExperiment.active.value
+  const branch = characterIfBranches.value[branchId]
+  const selectedRun = ifPlans[branchId]?.run
+  if (!selectedRun?.selectedDirectionId) {
+    sceneLaboratory.notice = '先选定这一支的行动，再确认写成正文。'
+    return false
+  }
+  if (!branch?.belief || !sceneLaboratory.target || !sceneLaboratory.run ||
+      ['stale', 'failed', 'cancelled'].includes(branch.lifecycle)) return false
+  switchIfDraft(branchId)
+  retainIfDraft()
+  blockPreview.value = null
+  pendingWritingGhost.value = null
+  ifBusy.value = true
+  const version = ++sceneLaboratoryRequestVersion
+  let validation
+  try {
+    validation = await validateAuthoringSceneLaboratoryRun(
+      selectedRun,
+      (session) => getAuthoringRunSessionAdapter().collectLiveDependencies(session)
+    )
+  } catch {
+    validation = { ok: false }
+  }
+  if (version !== sceneLaboratoryRequestVersion || !sceneLaboratory.open ||
+      characterIfExperiment.active.value !== experiment || selectedBookId.value !== experiment.projectId) {
+    ifBusy.value = false
+    return false
+  }
+  if (!validation.ok) {
+    ifBusy.value = false
+    characterIfExperiment.stale('baseline-changed')
+    sceneLaboratory.notice = '本次依据已变化，请重新核对后开启 IF 对照。'
+    return false
+  }
+  sceneLaboratory.phase = 'generating-prose'
+  const submittedVersion = ++blockComposerVersion
+  blockComposer.open = true
+  blockComposer.target = sceneLaboratory.target
+  blockComposer.failure = null
+  let outcome
+  try {
+    outcome = await runAuthoringTurn({
+      operation: 'next-passage',
+      kind: 'action',
+      instruction: branch.belief,
+      sourceRefs: [...new Set([...composerSourceRefs.value, ...validation.selection.evidenceRefs])],
+      invocationTarget: sceneLaboratory.target,
+      selectedDirection: validation.selection,
+      authoringRunSession: validation.runSession
+    }, submittedVersion)
+  } catch (error) {
+    outcome = { ok: false, reason: error?.code || 'provider-failed' }
+  }
+  ifBusy.value = false
+  if (version !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return false
+  if (outcome?.preview) {
+    sceneLaboratory.phase = 'direction-selected'
+    retainIfDraft()
+    await nextTick()
+    return true
+  }
+  blockComposer.open = false
+  blockComposer.target = null
+  sceneLaboratory.phase = 'direction-selected'
+  sceneLaboratory.notice = '本次没有生成可用正文，已保留 IF 条件，可重试。'
+  if (outcome?.code === 'NARRATIVE_GROUNDING_REQUIRED') sceneLaboratory.notice = '模型未提供这项行动所需的资料证据，未生成可采纳稿。请重试或选择另一行动。'
+  switchIfDraft(branchId)
+  blockComposer.failure = normalizeAuthoringFailure({
+    phase: 'generation', message: '这次重试未成功，上一份草稿仍为你保留。', retryable: true
+  })
+  return false
+}
+
+async function startCharacterIfExperiment({ actor, beliefA, beliefB }) {
+  if (!sceneLaboratory.run || !selectedBookId.value || ifBusy.value || authoringTaskBusy.value) return
+  const baseline = sceneLaboratory.run
+  const version = sceneLaboratoryRequestVersion
+  let settings
+  ifBusy.value = true
+  try { settings = Object.freeze({ ...await getResolvedApiSettings() }) } catch {
+    sceneLaboratory.notice = '无法读取模型配置，请检查设置后重试。'
+    return
+  } finally {
+    ifBusy.value = false
+  }
+  if (version !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return
+  const started = characterIfExperiment.start({
+    targetRef: baseline.runSession.target,
+    baselineFacts: baseline.runSession.manifest.blocks.map(block => ({
+      ref: block.id || block.sourceRefs?.[0] || block.kind, text: block.text
+    })),
+    sourceRevisions: baseline.runSession.manifest.dependencies,
+    actorRef: `character:${actor}`,
+    beliefA, beliefB,
+    modelConfig: { provider: settings.provider || '', model: settings.model || '', baseUrl: settings.baseUrl || '' }
+  })
+  if (started) {
+    ifPlanningController?.abort()
+    ifPlanningController = new AbortController()
+    ifBaselineRun.value = baseline
+    ifSettings.value = settings
+    ifPlans.A = null
+    ifPlans.B = null
+    ifBranchDrafts.value = { A: null, B: null }
+    sceneLaboratory.notice = `IF 对照已启动：A「${beliefA}」 vs B「${beliefB}」`
+    await Promise.all([planIfBranch('A'), planIfBranch('B')])
+  } else {
+    sceneLaboratory.notice = 'IF 对照启动失败'
+  }
+}
 const sceneLaboratoryDirections = computed(() => (
   sceneLaboratory.run?.directionSet?.directions || []
 ))
@@ -4272,7 +4509,7 @@ async function confirmSceneLaboratoryDirection() {
     return false
   }
 
-  sceneLaboratoryAppendRequirement.value = ''
+  const appendReq = sceneLaboratoryAppendRequirement.value
   sceneLaboratory.phase = 'generating-prose'
   const submittedComposerVersion = ++blockComposerVersion
   blockComposer.open = true
@@ -4284,7 +4521,7 @@ async function confirmSceneLaboratoryDirection() {
     outcome = await runAuthoringTurn({
       operation: 'next-passage',
       kind: 'action',
-            instruction: sceneLaboratoryAppendRequirement.value || '',
+      instruction: appendReq || '',
       sourceRefs: [...new Set([...composerSourceRefs.value, ...validation.selection.evidenceRefs])],
       invocationTarget: target,
       selectedDirection: validation.selection,
@@ -4295,6 +4532,7 @@ async function confirmSceneLaboratoryDirection() {
   }
   if (requestVersion !== sceneLaboratoryRequestVersion || !sceneLaboratory.open) return false
   if (outcome?.preview) {
+    if (sceneLaboratoryAppendRequirement.value === appendReq) sceneLaboratoryAppendRequirement.value = ''
     closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
     blockComposer.open = true
     blockComposer.target = target
@@ -4317,6 +4555,15 @@ function openSceneLaboratoryEvidence(evidence = {}) {
 
 function closeSceneLaboratory({ restoreSelection = true, clearIntents = true } = {}) {
   if (!sceneLaboratory.open) return false
+  ifEntryOpen.value = false
+  ifEntryActor.value = ''
+  characterIfExperiment.stop()
+  ifPlanningController?.abort()
+  ifBaselineRun.value = null
+  ifSettings.value = null
+  ifPlans.A = null
+  ifPlans.B = null
+  ifBranchDrafts.value = { A: null, B: null }
   const bookmark = sceneLaboratory.target?.selectionBookmark
   sceneLaboratoryAbortController?.abort()
   sceneLaboratoryAbortController = null
@@ -5411,7 +5658,8 @@ function getAuthoringNarrativeRun() {
     authoringNarrativeRun = createAuthoringNarrativeRun({
       prepareSession: (input) => getAuthoringRunSessionAdapter().prepareSession(input),
       executeSession: async ({ session, ...execution }) => {
-        const settings = await getResolvedApiSettings()
+        const settings = session === ifBaselineRun.value?.runSession && ifSettings.value
+          ? ifSettings.value : await getResolvedApiSettings()
         return getNarrativeKernelExecutor().executeTurn({
           ...execution,
           authoringRunSession: session,
@@ -5661,6 +5909,14 @@ watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
   blockPreview.value = null
   blockDraftText.value = ''
   blockDraftOriginalText.value = ''
+  previousBlockDraftText.value = ''
+  ifBranchDrafts.value = { A: null, B: null }
+  characterIfExperiment.stop()
+  ifPlanningController?.abort()
+  ifBaselineRun.value = null
+  ifSettings.value = null
+  ifPlans.A = null
+  ifPlans.B = null
   invalidateNotebookAtomicHistory()
   notebookCopilotCanUndo.value = false
 })
@@ -5856,7 +6112,7 @@ const authoringTask = useAuthoringTask({
     })
     pendingWritingGhost.value = claimWritingGhostCandidate(pendingWritingGhost.value, next).pending
     if (!pendingWritingGhost.value) return false
-      if (blockDraftText.value?.trim()) previousBlockDraftText.value = blockDraftText.value
+    if (blockDraftText.value?.trim()) previousBlockDraftText.value = blockDraftText.value
     blockDraftOriginalText.value = String(text || '').trim()
     blockDraftText.value = blockDraftOriginalText.value
     blockComposer.failure = null
@@ -7066,12 +7322,14 @@ function restoreBlockSelection(bookmark) {
 
 function abandonBlockComposer({ restoreSelection = false } = {}) {
   if (pendingGhostAdoption.value) return false
+  if (characterIfActive.value) closeSceneLaboratory({ restoreSelection: false })
   const bookmark = blockComposer.target?.selectionBookmark
   blockComposerVersion += 1
   authoringTask.cancel()
   blockPreview.value = null
   blockDraftText.value = ''
   blockDraftOriginalText.value = ''
+  previousBlockDraftText.value = ''
   pendingWritingGhost.value = null
   blockComposer.open = false
   blockComposer.target = null
@@ -7326,6 +7584,12 @@ async function performBlockPreviewAdoption() {
     }
   }
   const shouldFenceRewrittenUnit = adoption.operation === 'rewrite-unit'
+  const otherIfBranch = characterIfActive.value ? (characterIfActiveBranch.value === 'A' ? 'B' : 'A') : null
+  if (otherIfBranch) {
+    ifBranchDrafts.value = { ...ifBranchDrafts.value, [characterIfActiveBranch.value]: null }
+    characterIfExperiment.stale('adopted-other-branch')
+    sceneLaboratory.notice = '正文已变化。另一支仅保留供阅读或留作构思，重新对照需重新核对现场。'
+  }
   blockPreview.value = null
   blockDraftText.value = ''
   blockDraftOriginalText.value = ''
@@ -7367,25 +7631,64 @@ async function performBlockPreviewAdoption() {
   authoringTask.notify(exploration
     ? (adoption.operation === 'rewrite-unit' ? '当前探索文本块已替换' : '推演已纳入探索稿')
     : (adoption.operation === 'rewrite-unit' ? '当前文本块已替换' : '推演已纳入正文'), { canUndo: true })
+  if (otherIfBranch && ifBranchDrafts.value[otherIfBranch]) {
+    // Adoption's busy guard still owns this tick; restore only after it releases.
+    nextTick(() => { if (!blockAdoptionBusy.value) switchIfDraft(otherIfBranch) })
+  }
   return true
 }
 
+let saveAsExplorationInProgress = false
+
 async function saveBlockDraftAsExploration() {
+  // U48 增强：双击防重——已有保存操作进行中时直接返回，不重复创建。
+  if (saveAsExplorationInProgress) return
   const text = String(blockDraftText.value || '').trim()
   if (!text || !selectedBookId.value) return
+  saveAsExplorationInProgress = true
+  const projectId = selectedBookId.value
+  const chapterId = selectedChapterId.value
+  const composerVersion = blockComposerVersion
+  const experiment = characterIfExperiment.active.value
+  const manifest = blockPreview.value?.candidate?.runSession?.manifest
+  const contextNote = [
+    experiment ? `人物 IF · ${characterIfActiveBranch.value} 条件：${experiment.branches[characterIfActiveBranch.value].belief}（作者假设）` : '',
+    manifest ? '来源版本：' + JSON.stringify(manifest.dependencies || {}) : ''
+  ].filter(Boolean).join('\n')
   const title = `试稿 ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString().slice(0, 5)}`
-  const result = await import('../services/writing/authoringDocumentRepository.js')
-    .then(mod => mod.createExplorationDocument(selectedBookId.value, {
+  // A source reference is not a revision: do not invent one from wall time.
+  let result
+  try {
+    const repository = await import('../services/writing/authoringDocumentRepository.js')
+    result = await repository.createExplorationDocument(projectId, {
       title,
-      content: text,
-      sourceRefs: [`chapter:${selectedChapterId.value}`]
-    }))
+      content: contextNote ? text + '\n\n---\n' + contextNote : text,
+      sourceRefs: chapterId ? [`chapter:${chapterId}`] : []
+    })
+  } catch {
+    result = { ok: false }
+  } finally {
+    saveAsExplorationInProgress = false
+  }
+  if (selectedBookId.value !== projectId || selectedChapterId.value !== chapterId ||
+      blockComposerVersion !== composerVersion || String(blockDraftText.value || '').trim() !== text) return
   if (result?.ok) {
+    wt3RefreshDocs(projectId)
+    if (experiment && characterIfExperiment.active.value === experiment) {
+      ifBranchDrafts.value = { ...ifBranchDrafts.value, [characterIfActiveBranch.value]: null }
+      blockPreview.value = null
+      pendingWritingGhost.value = null
+      blockDraftText.value = ''
+      switchIfDraft(characterIfActiveBranch.value === 'A' ? 'B' : 'A')
+      authoringTask.notify('已留作构思，另一支仍保留在本次对照中')
+      return
+    }
     blockDraftText.value = ''
     dismissBlockPreview()
     authoringTask.notify('已留作构思，可在左栏构思区查看')
   } else {
     authoringTask.notify('留作构思保存失败，请重试')
+    // 保存失败不丢稿：blockDraftText 保留，作者可重试。
   }
 }
 
