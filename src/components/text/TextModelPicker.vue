@@ -275,11 +275,12 @@ useTransientLayer({
             <label><span>模型</span><input v-model="editingConfig.model" placeholder="模型名称" /></label>
             <p v-if="editingIsMinimax" class="text-model-hint">未填 Key 将使用服务器内置密钥（服务器配置了
               <code>MINIMAX_API_KEY</code> 时生效）。</p>
-            <p v-if="connectionState.message" class="text-model-message" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
           </div>
+          <p v-if="connectionState.message" class="text-model-message text-model-message--result" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
 
           <footer>
             <template v-if="editingIsBuiltin">
+              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
               <button type="button" class="is-primary" @click="useBuiltin">使用此模型</button>
               <button type="button" @click="closeConfig">关闭</button>
             </template>
@@ -345,6 +346,7 @@ useTransientLayer({
 .text-model-hint { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
 .text-model-hint code { padding: 0 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .text-model-message { margin: 0; font-size: 11px; line-height: 1.5; }
+.text-model-message--result { padding: 0 16px 12px; }
 .text-model-message.is-success { color: var(--success, #34805a); }
 .text-model-message.is-error { color: var(--danger); }
 </style>

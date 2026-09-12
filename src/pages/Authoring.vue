@@ -2803,10 +2803,24 @@ async function refreshBoundWorldbookAfterCharacterChange() {
   return syncBookWorldbook(currentBook.value, selectedBookId.value)
 }
 
+async function ensureBookWorldbookForAuthoring() {
+  if (boundWorldbook.value?.id) return boundWorldbook.value
+  const book = currentBook.value
+  if (!book?.id) return null
+  const created = await worldStore.createWorldbook({
+    name: `${String(book.title || '未命名书稿').trim()} · 资料库`,
+    description: '随书稿建立的人物与设定资料库'
+  })
+  const binding = await bindSelectedBookWorldbook(created.id)
+  if (!binding.ok) throw new Error('资料库已建立，但未能关联到当前书稿')
+  return binding.worldbook || created
+}
+
 async function createAuthoringCharacter(payload) {
-  if (!boundWorldbook.value?.id) return openBindingSelect()
   try {
-    const entry = await worldStore.addEntry(boundWorldbook.value.id, payload)
+    const worldbook = await ensureBookWorldbookForAuthoring()
+    if (!worldbook?.id) throw new Error('请先打开一本书稿')
+    const entry = await worldStore.addEntry(worldbook.id, payload)
     await refreshBoundWorldbookAfterCharacterChange()
     inspectorCharacterEntryId.value = String(entry?.id || '')
     authoringTask.notify(`已新建角色「${payload.name}」`)
@@ -2852,9 +2866,10 @@ async function removeAuthoringCharacter(entryId) {
 }
 
 async function createAuthoringSetting(payload) {
-  if (!boundWorldbook.value?.id) return openBindingSelect()
   try {
-    const entry = await worldStore.addEntry(boundWorldbook.value.id, payload)
+    const worldbook = await ensureBookWorldbookForAuthoring()
+    if (!worldbook?.id) throw new Error('请先打开一本书稿')
+    const entry = await worldStore.addEntry(worldbook.id, payload)
     await refreshBoundWorldbookAfterCharacterChange()
     inspectorWorldbookEntryId.value = String(entry?.id || '')
     authoringTask.notify(`已新建设定「${payload.name}」`)

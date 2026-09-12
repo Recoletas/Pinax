@@ -1,4 +1,6 @@
-const MAX_MANUSCRIPT_BYTES = 2 * 1024 * 1024
+import { detectEncodingFromBytes, SOURCE_ENCODING_CANDIDATES } from '../encodingDetector.js'
+
+const MAX_MANUSCRIPT_BYTES = 5 * 1024 * 1024
 const MAX_MANUSCRIPT_CHARS = 1_000_000
 const MAX_MANUSCRIPT_CHAPTERS = 500
 
@@ -163,9 +165,32 @@ export function validateManuscriptFile(file) {
     return { ok: false, message: '目前只支持 .txt、.md 和 .markdown 文件。' }
   }
   if (Number(file.size || 0) > MAX_MANUSCRIPT_BYTES) {
-    return { ok: false, message: '文件超过 2 MB，请拆分后再导入。' }
+    return { ok: false, message: '文件超过 5 MB，请拆分后再导入。' }
   }
   return { ok: true }
+}
+
+export function decodeManuscriptBytes(bytes, encoding = 'auto') {
+  const source = ArrayBuffer.isView(bytes)
+    ? new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    : new Uint8Array(bytes || [])
+  if (!source.length) return { ok: false, message: '文件里没有可导入的正文。' }
+
+  if (encoding === 'auto') {
+    const detected = detectEncodingFromBytes(source)
+    if (!detected.text) return { ok: false, message: detected.warnings[0] || '无法读取文件编码。' }
+    return { ok: true, ...detected }
+  }
+
+  if (!SOURCE_ENCODING_CANDIDATES.includes(encoding)) {
+    return { ok: false, message: '不支持所选文件编码。' }
+  }
+  try {
+    const text = new TextDecoder(encoding, { fatal: true }).decode(source)
+    return { ok: true, encoding, confidence: 'manual', text, candidates: [], warnings: [] }
+  } catch {
+    return { ok: false, message: `无法按 ${encoding} 读取这份文件，请尝试其他编码。` }
+  }
 }
 
 export const MANUSCRIPT_IMPORT_LIMITS = Object.freeze({

@@ -174,7 +174,12 @@ onBeforeUnmount(flushSave)
         </div>
       </template>
       <div v-else-if="worldbook" class="setting-empty"><strong>还没有设定</strong><button type="button" @click="startCreate">新建设定</button></div>
-      <div v-else class="setting-empty"><button type="button" @click="emit('bind')">关联世界书</button></div>
+      <div v-else class="setting-empty">
+        <strong>从第一条设定开始</strong>
+        <p>新建时会自动为这本书建立资料库；也可以关联已有资料库。</p>
+        <button type="button" @click="startCreate">新建设定</button>
+        <button type="button" @click="emit('bind')">关联已有资料库</button>
+      </div>
     </main>
     <aside class="setting-directory">
       <div class="catalog-window-controls"><button type="button" title="固定设定工作台" @click="emit('toggle-pin')">⌖</button><button type="button" title="关闭设定工作台" @click="emit('close')">×</button></div>

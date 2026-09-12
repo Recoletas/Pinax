@@ -20,7 +20,7 @@
         >
           <strong>选择一份书稿</strong>
           <span>或把 .txt / .md 文件拖到这里</span>
-          <small>UTF-8 编码，最大 2 MB；选择文件不会立即写入。</small>
+          <small>支持常见中文编码，最大 5 MB；选择文件不会立即写入。</small>
         </button>
         <input ref="fileInput" class="manuscript-import__file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" @change="handleFileInput">
         <p v-if="error" class="manuscript-import__error" role="alert">{{ error }}</p>
@@ -48,6 +48,18 @@
           <span>{{ parsed.filename }}</span>
           <span>{{ parsed.charCount.toLocaleString('zh-CN') }} 字符</span>
           <span>{{ draftChapters.length }} 章</span>
+          <span>{{ encodingName }}</span>
+        </div>
+
+        <div v-if="encodingWarning" class="manuscript-import__encoding" role="status">
+          <span>{{ encodingWarning }}</span>
+          <label>
+            <span>改用编码</span>
+            <select v-model="selectedEncoding" @change="reparseEncoding">
+              <option value="auto">自动识别</option>
+              <option v-for="candidate in encodingOptions" :key="candidate" :value="candidate">{{ candidate.toUpperCase() }}</option>
+            </select>
+          </label>
         </div>
 
         <ol class="manuscript-import__chapters" aria-label="待导入章节">
@@ -80,6 +92,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   buildSingleChapterPreview,
   createImportedWritingBook,
+  decodeManuscriptBytes,
   parseManuscriptText,
   validateManuscriptFile
 } from '../../services/writing/writingManuscriptImport.js'
@@ -95,6 +108,9 @@ const bookTitle = ref('')
 const mode = ref('auto')
 const draftChapters = ref([])
 const error = ref('')
+const fileBytes = ref(null)
+const selectedEncoding = ref('auto')
+const encodingInfo = ref(null)
 
 const autoChapters = computed(() => parsed.value?.chapters || [])
 const canConfirm = computed(() => Boolean(
@@ -102,6 +118,16 @@ const canConfirm = computed(() => Boolean(
   && draftChapters.value.length
   && draftChapters.value.every((chapter) => chapter.title.trim())
 ))
+const encodingName = computed(() => {
+  const name = encodingInfo.value?.encoding
+  if (!name) return ''
+  return `${name.toUpperCase()}${['high', 'manual'].includes(encodingInfo.value.confidence) ? '' : ' · 请抽查'}`
+})
+const encodingWarning = computed(() => encodingInfo.value?.warnings?.[0] || '')
+const encodingOptions = computed(() => {
+  const candidates = (encodingInfo.value?.candidates || []).map((item) => item.encoding)
+  return [...new Set(['utf-8', 'gb18030', 'big5', 'utf-16le', 'utf-16be', ...candidates])]
+})
 
 function cloneChapters(chapters) {
   return chapters.map((chapter) => ({ title: chapter.title, content: chapter.content }))
@@ -120,13 +146,20 @@ async function readFile(file) {
     return
   }
   try {
-    const text = await file.text()
-    const result = parseManuscriptText({ text, filename: file.name })
+    fileBytes.value = await file.arrayBuffer()
+    selectedEncoding.value = 'auto'
+    const decoded = decodeManuscriptBytes(fileBytes.value)
+    if (!decoded.ok) {
+      error.value = decoded.message
+      return
+    }
+    const result = parseManuscriptText({ text: decoded.text, filename: file.name })
     if (!result.ok) {
       error.value = result.message
       return
     }
     parsed.value = result
+    encodingInfo.value = decoded
     bookTitle.value = result.title
     mode.value = 'auto'
     draftChapters.value = cloneChapters(result.chapters)
@@ -136,6 +169,26 @@ async function readFile(file) {
   } catch (readError) {
     error.value = readError?.message || '文件读取失败，请重新选择。'
   }
+}
+
+async function reparseEncoding() {
+  if (!fileBytes.value || !parsed.value) return
+  error.value = ''
+  const decoded = decodeManuscriptBytes(fileBytes.value, selectedEncoding.value)
+  if (!decoded.ok) {
+    error.value = decoded.message
+    return
+  }
+  const result = parseManuscriptText({ text: decoded.text, filename: parsed.value.filename })
+  if (!result.ok) {
+    error.value = result.message
+    return
+  }
+  parsed.value = result
+  encodingInfo.value = decoded
+  bookTitle.value = result.title
+  mode.value = 'auto'
+  draftChapters.value = cloneChapters(result.chapters)
 }
 
 function handleFileInput(event) {
@@ -159,6 +212,9 @@ function reset() {
   bookTitle.value = ''
   draftChapters.value = []
   error.value = ''
+  fileBytes.value = null
+  selectedEncoding.value = 'auto'
+  encodingInfo.value = null
   nextTick(() => fileInput.value?.focus())
 }
 
@@ -305,6 +361,9 @@ onMounted(() => {
 .manuscript-import__mode small { color: var(--text-secondary); line-height: 1.35; }
 
 .manuscript-import__summary { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--text-secondary); font-size: 12px; }
+.manuscript-import__encoding { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-block: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.manuscript-import__encoding label { display: flex; align-items: center; gap: 7px; flex: none; }
+.manuscript-import__encoding select { min-height: 36px; border: 1px solid var(--border); border-radius: 4px; padding: 0 8px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .manuscript-import__chapters { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
 .manuscript-import__chapters li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .manuscript-import__chapters li > span { padding-top: 11px; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -329,6 +388,8 @@ onMounted(() => {
   .manuscript-import__review,
   .manuscript-import__foot { padding-left: 16px; padding-right: 16px; }
   .manuscript-import__mode { grid-template-columns: 1fr; }
+  .manuscript-import__encoding { align-items: stretch; flex-direction: column; }
+  .manuscript-import__encoding label { justify-content: space-between; }
   .manuscript-import__foot { align-items: stretch; flex-direction: column; }
   .manuscript-import__foot p { max-width: none; }
   .manuscript-import__foot > div { display: grid; grid-template-columns: 1fr 1fr; }

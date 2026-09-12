@@ -6,12 +6,12 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex integration | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 推演 P2 与 Web 内测首访/导入线已合入；继续做组合验收、真实长篇导入检查与首批作者走查。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
-- **Web 内测 B 线（2026-09-12，已合入 main）**：欢迎页统一为 Authoring-first 入口，第一次使用可直接空白写作或导入 UTF-8 TXT/Markdown；空白路径只问书名，自动建立“第一章”并聚焦正文。导入先预览拆章和章名、确认后新建书稿，不覆盖旧书。首页与设置明确浏览器本地保存和无云同步；JSON 作品备份默认排除模型密钥，并明确不包含 IndexedDB 来源/媒体原件。下一门槛是真实长篇旧稿拆章人工检查。
+- **Web 小范围内测已具备启动条件（2026-09-12，已合入 main）**：Authoring-first 首访、空白书与立即保存、常见中文编码 TXT/Markdown 导入（5 MB）、首次人物/设定自动建立随书资料库、备份 UI 清空恢复、低敏诊断、内置 MiniMax 可见连通性检查均已闭环。GB18030 75 万字符/120 章代表样本通过；真实模型文本与结构化设定可用，工具结果往返仍不承诺。首轮限 3–5 位桌面 Chrome/Edge 作者；P4 五次真实作品的主观体验就是本轮内测目标，不以代理脚本冒充完成。见[就绪回执](./agent-runs/web-beta-readiness-20260912.md)。
+- **Web 内测 B 线（2026-09-12，已合入 main）**：欢迎页统一为 Authoring-first 入口，第一次使用可直接空白写作或导入 TXT/Markdown；空白路径只问书名，自动建立“第一章”并聚焦正文。导入先预览拆章和章名、确认后新建书稿，不覆盖旧书。首页与设置明确浏览器本地保存和无云同步；JSON 作品备份默认排除模型密钥，并明确不包含 IndexedDB 来源/媒体原件。
 - **Web 内测运营与自救（2026-09-12，已合入 main）**：欢迎页可进入备份设置；手册提供 15 分钟固定体验任务、反馈模板和数据恢复顺序。设置页可下载低敏诊断 JSON，只报告版本、浏览器/视口、存储容量及书稿/章节数量，不输出正文、标题、项目 ID、提示词、模型回复或 API Key。
 - **Web 正文离页安全网（2026-09-12，已合入 main）**：Authoring 在 1 秒自动保存尚未触发时遇到刷新、正常关页或移动后台，会先同步写恢复副本，再通过既有仓储保存；成功清理副本，失败保留并请求浏览器阻止误离开。系统强杀浏览器进程仍不承诺必然触发页面事件。
 

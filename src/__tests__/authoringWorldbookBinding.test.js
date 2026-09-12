@@ -126,6 +126,7 @@ import {
 import {
   buildSingleChapterPreview,
   createImportedWritingBook,
+  decodeManuscriptBytes,
   parseManuscriptText,
   validateManuscriptFile
 } from '../services/writing/writingManuscriptImport.js'
@@ -228,8 +229,16 @@ localStorage.clear()
     expect(imported).toMatchObject({ ok: true, book: { title: '旧稿' } })
     expect(imported.book.chapters[0].id).toBe('chapter-0')
     expect(imported.book.chapters[2].content).toBe('正文二。')
+    const gb18030 = decodeManuscriptBytes(new Uint8Array([
+      0xb5, 0xda, 0xd2, 0xbb, 0xd5, 0xc2, 0x20, 0xd3, 0xea, 0xd2, 0xb9, 0x0a,
+      0xd5, 0xfd, 0xce, 0xc4, 0xd2, 0xbb, 0xa1, 0xa3
+    ]))
+    expect(gb18030).toMatchObject({ ok: true, encoding: 'gb18030' })
+    expect(parseManuscriptText({ filename: '旧编码.txt', text: gb18030.text }).chapters[0])
+      .toMatchObject({ title: '第一章 雨夜', content: '正文一。' })
     expect(validateManuscriptFile({ name: '稿件.docx', size: 1 })).toMatchObject({ ok: false })
-    expect(validateManuscriptFile({ name: '稿件.txt', size: 2 * 1024 * 1024 + 1 })).toMatchObject({ ok: false })
+    expect(validateManuscriptFile({ name: '稿件.txt', size: 4 * 1024 * 1024 })).toMatchObject({ ok: true })
+    expect(validateManuscriptFile({ name: '稿件.txt', size: 5 * 1024 * 1024 + 1 })).toMatchObject({ ok: false })
 }
   })
 })

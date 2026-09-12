@@ -2,7 +2,7 @@
   <div class="api-settings-panel">
     <div class="ai-settings-head">
       <strong>AI 文本模型</strong>
-      <p>内置 MiniMax 开箱即用（密钥由服务器提供，不可编辑）。也可添加自己的模型配置，自定义配置可任意编辑、删除。</p>
+      <p>内置 MiniMax 由部署服务器提供密钥，无需作者填写；首次使用前可打开详情测试连通性。也可添加自己的模型配置。</p>
     </div>
 
     <TextModelPicker
@@ -32,7 +32,7 @@ const configs = ref([])
 const currentNote = computed(() => {
   const resolved = resolveSelectedTextProviderConfig()
   if (resolved?.builtin) {
-    return '当前使用内置 MiniMax：密钥由服务器配置，开箱即用。'
+    return '当前使用内置 MiniMax：能否生成取决于部署服务器状态，可在模型详情中测试。'
   }
   return `当前使用「${resolved?.name || '自定义配置'}」，模型 ${resolved?.model || '—'}。`
 })

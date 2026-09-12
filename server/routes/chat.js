@@ -1093,7 +1093,7 @@ router.post('/test', async (req, res) => {
   const structured = await probeStructuredProviderCapabilities({
     id: provider,
     baseUrl: effectiveBaseUrl,
-    apiKey,
+    apiKey: effectiveApiKey,
     model,
     format
   })

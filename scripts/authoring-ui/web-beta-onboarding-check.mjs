@@ -40,10 +40,12 @@ try {
   const dialog = page.getByRole('dialog', { name: '导入 TXT / Markdown' })
   await dialog.waitFor({ timeout: 30_000 })
   await dialog.locator('input[type=file]').setInputFiles({
-    name: '潮汐档案.md',
-    mimeType: 'text/markdown',
-    buffer: Buffer.from('# 潮汐档案\n\n## 第一章 失灯\n\n港口熄灯。\n\n## 第二章 回声\n\n钟声从水下传来。')
+    name: '潮汐档案.txt',
+    mimeType: 'text/plain',
+    // GB18030 bytes keep this browser gate independent of Node-only codec packages.
+    buffer: Buffer.from('2320b3b1cfabb5b5b0b80a0a232320b5dad2bbd5c220caa7b5c60a0ab8dbbfdacfa8b5c6a1a30a0a232320b5dab6fed5c220bbd8c9f90a0ad6d3c9f9b4d3cbaecfc2b4abc0b4a1a3', 'hex')
   })
+  await dialog.getByText(/GB18030/).waitFor()
   await dialog.getByLabel('书名').fill('潮汐档案·内测稿')
   if (await dialog.locator('.manuscript-import__chapters li').count() !== 2) throw new Error('expected two detected chapters')
   await dialog.getByLabel('第 1 章标题').fill('第一章 雨港失灯')
@@ -59,6 +61,30 @@ try {
   await page.locator('.ProseMirror').waitFor({ timeout: 30_000 })
   const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('writing_books') || '[]')[0]?.title)
   if (persisted !== '潮汐档案·内测稿') throw new Error('import did not survive reload')
+
+  // 内测数据闭环：用真实 UI 导出，清空浏览器数据，再用同一文件预览并恢复。
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '备份', exact: true }).click()
+  const backupSettings = page.getByRole('dialog', { name: '设置' })
+  const backupDownloadPromise = page.waitForEvent('download')
+  await backupSettings.getByRole('button', { name: '导出本地作品备份' }).click()
+  const backupDownload = await backupDownloadPromise
+  const backupPath = await backupDownload.path()
+  await backupSettings.getByRole('button', { name: '关闭' }).click()
+  await page.evaluate(() => localStorage.clear())
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.getByRole('button', { name: '备份', exact: true }).click()
+  const restoreSettings = page.getByRole('dialog', { name: '设置' })
+  await restoreSettings.locator('[data-test="backup-import-input"]').setInputFiles(backupPath)
+  await restoreSettings.locator('[data-test="backup-review"]').waitFor()
+  await restoreSettings.locator('[data-test="backup-restore-confirm"]').click()
+  await restoreSettings.getByText(/已导入 \d+ 个键/).waitFor()
+  await restoreSettings.getByRole('button', { name: '关闭' }).click()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('writing_books') || '[]')[0])
+  if (restored?.title !== '潮汐档案·内测稿' || restored?.chapters?.[0]?.content !== '港口熄灯。') {
+    throw new Error('backup UI round-trip did not restore manuscript')
+  }
 
   const blankContext = await browser.newContext({ viewport: { width: 1440, height: 900 } })
   const blankPage = await blankContext.newPage()
@@ -89,6 +115,27 @@ try {
   if (!(await blankPage.locator('.ProseMirror').innerText()).includes('灯塔第一次照向内陆')) {
     throw new Error('blank-start manuscript did not survive immediate reload')
   }
+  await blankPage.locator('[data-authoring-tool="characters"]').click()
+  const characterWorkbench = blankPage.locator('[data-authoring-inspector="characters"]')
+  await characterWorkbench.getByText('从第一个人物开始').waitFor()
+  await characterWorkbench.getByRole('button', { name: '新建人物', exact: true }).click()
+  const characterName = characterWorkbench.getByLabel('角色名称')
+  await characterName.waitFor()
+  await characterName.fill('守塔人岑禾')
+  await characterName.blur()
+  await blankPage.waitForTimeout(700)
+  const blankWorldbook = await blankPage.evaluate(() => {
+    const book = JSON.parse(localStorage.getItem('writing_books') || '[]')[0]
+    const worldbook = book?.worldbookId
+      ? JSON.parse(localStorage.getItem(`worldbook_${book.worldbookId}`) || 'null')
+      : null
+    return { bookWorldbookId: book?.worldbookId || '', worldbook }
+  })
+  if (!blankWorldbook.bookWorldbookId || blankWorldbook.worldbook?.entries?.[0]?.name !== '守塔人岑禾') {
+    throw new Error('first character did not provision, bind and persist the book data library')
+  }
+  screenshots.push('/tmp/pinax-web-beta-first-character-1440.png')
+  await blankPage.screenshot({ path: screenshots.at(-1), fullPage: true })
   await blankContext.close()
 
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 } })
@@ -116,7 +163,18 @@ try {
   await mobilePage.waitForTimeout(250)
   screenshots.push('/tmp/pinax-web-beta-new-book-390.png')
   await mobilePage.screenshot({ path: screenshots.at(-1), fullPage: true })
-  await mobileNewBook.getByRole('button', { name: '关闭新建书稿' }).click()
+  await mobileNewBook.getByPlaceholder('输入书籍名称').fill('掌上潮声')
+  await mobileNewBook.locator('[data-test="new-book-confirm"]').click()
+  await mobilePage.locator('.ProseMirror').waitFor()
+  await mobilePage.locator('[data-authoring-tool="characters"]').click()
+  const mobileCharacter = mobilePage.locator('[data-authoring-inspector="characters"]')
+  await mobileCharacter.getByText('从第一个人物开始').waitFor()
+  if (await mobilePage.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) {
+    throw new Error('mobile first-character flow horizontal overflow')
+  }
+  screenshots.push('/tmp/pinax-web-beta-first-character-390.png')
+  await mobilePage.screenshot({ path: screenshots.at(-1), fullPage: true })
+  await mobilePage.evaluate(() => localStorage.clear())
   await mobilePage.goto(baseUrl, { waitUntil: 'domcontentloaded' })
   await mobilePage.getByRole('heading', { name: /从一句话开始/ }).waitFor()
   await mobilePage.locator('[data-test="welcome-import-manuscript"]').click()
@@ -132,9 +190,11 @@ try {
     ok: true,
     desktopImport: stored[0].chapters.map((chapter) => chapter.title),
     reload: persisted,
+    backupRoundTrip: restored.title,
     blankStart: {
       bookTitle: blankStored[0].title,
-      chapterTitle: blankStored[0].chapters[0].title
+      chapterTitle: blankStored[0].chapters[0].title,
+      firstCharacter: blankWorldbook.worldbook.entries[0].name
     },
     diagnosticPrivacy: diagnostic.privacy,
     mobileOverflow,
