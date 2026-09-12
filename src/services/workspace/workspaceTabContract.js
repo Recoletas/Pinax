@@ -11,8 +11,14 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
   canvas: 'prose-essay',
   settings: 'settings-structured',
   map: 'settings-world-map',
-  comics: 'comics'
+  comics: 'comics',
+  // 项目高级条目（联动闭环 L2）：带 bookId 是项目 surface；不带时回落全局模式。
+  entries: 'settings-worldbook-advanced'
 })
+
+// 双模式路由：同名路由带 bookId 是项目 surface，不带是全局 surface。
+// 路由适配器对它们不做「补默认书」的 canonical 化，避免全局访问被吞进项目。
+export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced']))
 
 export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
   experience: 'experience',
@@ -36,6 +42,7 @@ export const SURFACE_LABELS = Object.freeze({
   'settings-worldbook': '设定',
   'settings-worldbook-create': '创建世界书',
   'settings-worldbook-advanced': '高级设定',
+  entries: '条目',
   'online-experience': '联机',
   'collaboration-review': '协作审阅'
 })
@@ -85,13 +92,18 @@ export function resolveRouteIntent(route) {
   const bookId = typeof query.bookId === 'string' && query.bookId ? query.bookId : ''
   for (const [surface, routeName] of Object.entries(PROJECT_SURFACE_ROUTE_NAMES)) {
     if (routeName === name) {
-      if (!bookId) return null
-      return {
-        scope: 'project',
-        surface,
-        projectId: bookId,
-        worldbookId: typeof query.worldbookId === 'string' && query.worldbookId ? query.worldbookId : null
+      // 双模式路由（高级条目）不带 bookId 时回落全局模式判断，不能在这里截断；
+      // 其余 project surface 无 bookId 仍不产生标签（由适配器 canonical 化）。
+      if (!bookId && !DUAL_MODE_ROUTE_NAMES.has(name)) return null
+      if (bookId) {
+        return {
+          scope: 'project',
+          surface,
+          projectId: bookId,
+          worldbookId: typeof query.worldbookId === 'string' && query.worldbookId ? query.worldbookId : null
+        }
       }
+      break
     }
   }
   for (const [surface, routeName] of Object.entries(GLOBAL_SURFACE_ROUTE_NAMES)) {
@@ -225,7 +237,7 @@ export function tabRouteEqualsRoute(tab, route) {
   const tabQuery = tab.route.query || {}
   const routeQuery = route.query || {}
   if (String(tab.route.params?.roomSlug || '') !== String(route.params?.roomSlug || '')) return false
-  const keys = ['bookId', 'chapterId', 'focus', 'worldbookId']
+  const keys = ['bookId', 'chapterId', 'focus', 'worldbookId', 'entryId']
   return keys.every((key) => String(tabQuery[key] || '') === String(routeQuery[key] || ''))
 }
 

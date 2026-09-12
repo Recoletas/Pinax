@@ -31,6 +31,11 @@ const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
 const ACTIVE_WORLDBOOK_ID_KEY = 'active_worldbook_id'
 
+// 世界书页面与 Authoring 都可能并发请求不同资料库。只有最后发起的加载
+// 可以切换全局 activeWorldbook；较慢的旧请求仍可把自己的精确快照返回给
+// 项目调用方，但不能在完成时把当前界面倒回旧库。
+let worldbookActivationSequence = 0
+
 function decodeStored(raw, fallback) {
   if (raw == null) return fallback
   if (typeof raw === 'string') {
@@ -590,18 +595,20 @@ export const useWorldStore = defineStore('world', {
     },
 
     async loadWorldbook(worldbookId) {
+      const activationTicket = ++worldbookActivationSequence
       this.isLoading = true
       try {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
         const normalized = normalizeWorldbook(raw)
-        this.activeWorldbook = await migrateLegacyWorldbookSources(worldbookId, normalized)
-        return this.activeWorldbook
+        const loaded = await migrateLegacyWorldbookSources(worldbookId, normalized)
+        if (activationTicket === worldbookActivationSequence) this.activeWorldbook = loaded
+        return loaded
       } catch (e) {
-        this.lastError = e.message
+        if (activationTicket === worldbookActivationSequence) this.lastError = e.message
         return null
       } finally {
-        this.isLoading = false
+        if (activationTicket === worldbookActivationSequence) this.isLoading = false
       }
     },
 
@@ -745,7 +752,10 @@ export const useWorldStore = defineStore('world', {
       if (this.activeWorldbook?.id === worldbookId) return this.activeWorldbook
 
       const loaded = await this.loadWorldbook(worldbookId)
-      if (loaded) setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbookId)
+      // 若期间已有更新的加载成为 active，本次旧请求不能覆盖持久化选择。
+      if (loaded && String(this.activeWorldbook?.id || '') === String(worldbookId)) {
+        setItem(ACTIVE_WORLDBOOK_ID_KEY, worldbookId)
+      }
       return loaded
     },
 

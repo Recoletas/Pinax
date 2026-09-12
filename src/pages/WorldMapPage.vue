@@ -1,6 +1,9 @@
 <template>
   <div class="world-map-page">
-    <SettingsSectionNav />
+    <div class="world-map-page__topbar">
+      <SettingsSectionNav />
+      <SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" />
+    </div>
     <div class="world-map-page__body">
       <WorldMapPanel
         v-if="mapContextReady"
@@ -8,6 +11,7 @@
         :focus-history-node-id="focusHistoryNodeId"
         :focus-entry-id="focusEntryId"
         @open-settings="openFocusedPlaceSettings"
+        @open-entry="openProjectWorldbookAdvanced"
         @open-worldbook="openWorldbookImport"
       />
       <p v-else class="world-map-page__loading" role="status">{{ mapContextError || '正在打开这本书的地图…' }}</p>
@@ -17,50 +21,32 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { loadWritingBooks } from '../services/writing/writingBooksRepository.js'
+import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import WorldMapPanel from '../components/geography/WorldMapPanel.vue'
 import PerfOverlay from '../components/debug/PerfOverlay.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
 const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
-const mapContextReady = ref(false)
-const mapContextError = ref('')
-let contextRequestId = 0
+// 与另两个设定页共用同一项目上下文解析（bookId -> book.worldbookId，竞态令牌内聚）。
+const { context, worldbook, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const mapContextReady = computed(() => {
+  if (context.value?.mode === 'global') return Boolean(worldStore.activeWorldbook)
+  return Boolean(worldbook.value)
+})
+const mapContextError = computed(() => {
+  if (context.value?.status === 'missing-worldbook' || loadError.value) return '这本书关联的世界书已不可用。'
+  if (context.value?.status === 'unbound') return '这本书还没有关联世界书。'
+  return loadError.value || ''
+})
 const focusPlaceId = computed(() => String(route.query.placeId || ''))
 const focusHistoryNodeId = computed(() => String(route.query.historyNodeId || ''))
 const focusEntryId = computed(() => String(route.query.entryId || ''))
-const requestedWorldbookId = computed(() => {
-  const explicit = String(route.query.worldbookId || '')
-  if (explicit) return explicit
-  const bookId = String(route.query.bookId || '')
-  return String(loadWritingBooks().find((book) => String(book?.id || '') === bookId)?.worldbookId || '')
-})
-
-watch(
-  requestedWorldbookId,
-  async (worldbookId) => {
-    const requestId = ++contextRequestId
-    mapContextReady.value = !worldbookId
-    mapContextError.value = ''
-    if (!worldbookId) return
-    try {
-      await worldStore.loadWorldbooksIndex()
-      if (requestId !== contextRequestId) return
-      const loaded = await worldStore.setActiveWorldbook(worldbookId)
-      if (!loaded) throw new Error('worldbook-missing')
-    } catch {
-      if (requestId === contextRequestId) mapContextError.value = '这本书关联的世界书已不可用。'
-    } finally {
-      if (requestId === contextRequestId) mapContextReady.value = !mapContextError.value
-    }
-  },
-  { immediate: true }
-)
 
 function openFocusedPlaceSettings(placeId) {
   router.push({
@@ -69,6 +55,18 @@ function openFocusedPlaceSettings(placeId) {
       ...(route.query.bookId ? { bookId: String(route.query.bookId) } : {}),
       ...(route.query.worldbookId ? { worldbookId: String(route.query.worldbookId) } : {}),
       ...(placeId ? { placeId } : {})
+    }
+  })
+}
+
+function openProjectWorldbookAdvanced(entryId) {
+  // 地图 → 条目：同一 canonical entry，保留项目上下文与回程。
+  router.push({
+    name: 'settings-worldbook-advanced',
+    query: {
+      ...(route.query.bookId ? { bookId: String(route.query.bookId) } : {}),
+      ...(route.query.worldbookId ? { worldbookId: String(route.query.worldbookId) } : {}),
+      ...(entryId ? { entryId: String(entryId) } : {})
     }
   })
 }
@@ -90,6 +88,14 @@ function openWorldbookImport() {
   background: var(--bg-primary);
   color: var(--text-primary);
   padding: 12px;
+}
+
+.world-map-page__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .world-map-page__body {

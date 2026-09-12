@@ -1029,7 +1029,7 @@
             @undo="handleCurationUndo"
             @restore-inheritance="handleCurationRestoreInheritance"
             @bind-worldbook="openBindingSelect"
-            @open-worldbook="router.push({ name: 'settings-worldbook' })"
+            @open-worldbook="openProjectSettingsSurface('settings')"
             @search="handleCurationSearch"
             @run-intent="handleSceneRunIntent"
             @if-experiment="openIfEntry"
@@ -1946,6 +1946,37 @@ const {
   loadWorldbookForProject: (id) => worldStore.loadWorldbookForProject(id)
 })
 const newBookWorldbookId = ref('')
+// L5 跨页资料同步：同浏览器其他标签/设定页修改绑定世界书后，保守刷新。
+// 只比较 revision，内容未变不动；变化时用当前 book.worldbookId 重新加载（自带令牌）。
+async function refreshBoundWorldbookIfChanged({ notify = false } = {}) {
+  const worldbookId = normalizeBookWorldbookBinding(currentBook.value)
+  if (!worldbookId || boundWorldbookSyncing.value) return false
+  const snapshot = readWorldbookSnapshot(worldbookId)
+  if (!snapshot) return false
+  const current = boundWorldbook.value
+  if (current && String(current.id || '') === String(snapshot.id || '')
+    && String(current.updatedAt || '') === String(snapshot.updatedAt || '')) return false
+  const loaded = await syncBookWorldbook(currentBook.value, selectedBookId.value)
+  if (loaded && notify) authoringTask.notify('设定资料已更新：当前场与后续推演将使用新资料')
+  return Boolean(loaded)
+}
+function handleExternalWorldbookStorageChange(event) {
+  const key = String(event?.key || '')
+  if (key.startsWith('worldbook_') || key === 'writing_books') {
+    refreshBoundWorldbookIfChanged({ notify: true })
+  }
+}
+function handleAuthoringVisibilityRefresh() {
+  if (document.visibilityState === 'visible') refreshBoundWorldbookIfChanged({ notify: true })
+}
+onMounted(() => {
+  window.addEventListener('storage', handleExternalWorldbookStorageChange)
+  document.addEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', handleExternalWorldbookStorageChange)
+  document.removeEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
+})
 // 项目级场景锚点（Task 4）：随章节数据持久化，绑定 unitId + 当前书的世界书。
 const sceneAnchors = ref([])
 // Declared before sceneProjection because that computed is watched during setup.
@@ -2838,8 +2869,22 @@ async function createAuthoringCharacter(payload) {
 
 let authoringCharacterSaveQueue = Promise.resolve()
 
+function entryRevisionOf(entry) {
+  return String(entry?.metadata?.updatedAt ?? entry?.updatedAt ?? '')
+}
+
 function updateAuthoringCharacter(entryId, payload, options = {}) {
   if (!boundWorldbook.value?.id || !entryId) return false
+  // L5 冲突防护：设定页改过同一条目时，本地旧快照不得覆盖新值。
+  const persistedForConflict = readWorldbookSnapshot(boundWorldbook.value.id)
+  const persistedEntry = (persistedForConflict?.entries || []).find((item) => String(item?.id || '') === String(entryId))
+  const localEntry = (boundWorldbook.value.entries || []).find((item) => String(item?.id || '') === String(entryId))
+  if (persistedEntry && localEntry
+    && entryRevisionOf(persistedEntry) !== entryRevisionOf(localEntry)) {
+    void refreshBoundWorldbookAfterCharacterChange()
+    authoringTask.notify((options.label || '人物') + '在其他页面已被修改，已刷新为最新值；请基于新内容再编辑')
+    return false
+  }
   const worldbookId = boundWorldbook.value.id
   authoringCharacterSaveQueue = authoringCharacterSaveQueue.catch(() => false).then(async () => {
     try {
@@ -3679,6 +3724,8 @@ function openOutlineFromDual(nodeId) {
   nextTick(() => { inspectorOutlineNodeId.value = String(nodeId || '') })
 }
 function openWorldbookFromDual(entryId) {
+  // L4：项目上下文出程——同一书绑定的同一条目；无书时保留全局世界书访问。
+  if (openProjectSettingsSurface('entries', { entryId: String(entryId || '') })) return
   router.push({ name: 'settings-worldbook-advanced', query: { entryId: String(entryId || '') } })
 }
 async function renameChapterFromShelf(chapterId) {
@@ -5204,12 +5251,50 @@ function handleDetailEmergenceOutline(id) {
   sceneDetailNotice.value = '已加入章节纲要。'
 }
 
+// L4 统一出程 helper：跳转前捕获书/章/单元/revision/选区/滚动到 Authoring 标签的
+// volatile ledger；设定页的「回到正文」只负责激活标签，恢复由既有 watcher 消费。
+async function openProjectSettingsSurface(surface, { entryId = '', placeId = '', historyNodeId = '', extraQuery = {} } = {}) {
+  const bookId = String(selectedBookId.value || '')
+  if (!bookId) return false
+  const routeName = { settings: 'settings-structured', map: 'settings-world-map', entries: 'settings-worldbook-advanced' }[surface]
+  if (!routeName) return false
+  const worldbookId = String(selectedBookWorldbookId.value || '')
+  const selection = notebookEditorRef.value?.getSelection?.() || null
+  const scroll = captureWritingScrollState()
+  workspaceTabsStore.setVolatileRestoreStateByKey(authoringTabKey(bookId), {
+    projectId: bookId,
+    chapterId: String(selectedChapterId.value || ''),
+    writingUnitId: String(activeWritingUnitId.value || ''),
+    documentRevision: String(currentDocumentRevision()),
+    selection: selection ? { from: selection.from, to: selection.to } : null,
+    scroll
+  })
+  const query = { bookId }
+  if (worldbookId) query.worldbookId = worldbookId
+  if (entryId) query.entryId = String(entryId)
+  if (placeId) query.placeId = String(placeId)
+  if (historyNodeId) query.historyNodeId = String(historyNodeId)
+  Object.assign(query, extraQuery)
+  await openOrFocusWorkspaceTab(workspaceTabsStore, router, {
+    scope: 'project',
+    surface,
+    projectId: bookId,
+    worldbookId
+  }, {
+    route: { name: routeName, query },
+    restoreState: { chapterId: String(selectedChapterId.value || ''), objectId: entryId || placeId || '' }
+  })
+  return true
+}
+
 // 打开来源：按 typed 来源映射到对应设置页；不修改任何状态。
 function handleDetailOpenEmergenceSource(id) {
   const candidate = currentEmergenceCandidate(id)
   if (!candidate) return
   const firstRef = (Array.isArray(candidate.sourceRefs) ? candidate.sourceRefs : [])[0]
   const refType = typeof firstRef === 'object' ? firstRef?.type : String(firstRef || '').split(':')[0]
+  const refId = typeof firstRef === 'object' ? String(firstRef?.id || '') : String(firstRef || '').split(':')[1] || ''
+  if (openProjectSettingsSurface(refType === 'place' ? 'map' : 'settings', refType === 'place' ? { placeId: refId } : {})) return
   if (refType === 'place') router.push({ name: 'settings-world-map' })
   else router.push({ name: 'settings-worldbook' })
 }
@@ -8710,7 +8795,9 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
   }
 
   if (locator.kind === 'history') {
-    router.push({ name: 'settings-worldbook-advanced', query: { historyId: String(locator.historyId || '') } })
+    const historyNodeId = String(locator.historyNodeId || locator.historyId || '')
+    if (openProjectSettingsSurface('map', { historyNodeId })) return true
+    router.push({ name: 'settings-world-map', query: { historyNodeId } })
     return true
   }
 

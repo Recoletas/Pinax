@@ -6,8 +6,15 @@
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
         :active-worldbook="activeWorldbook"
+        :project-label="projectContextLabel"
+        :project-locked="isProjectMode"
+        :route-mismatch-notice="contextNotice"
         @change="onWorldbookChange"
-      />
+      >
+        <template #actions>
+          <SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" />
+        </template>
+      </SettingsContextBar>
 
       <SettingsSectionNav />
     </div>
@@ -59,8 +66,21 @@
     </section>
 
     <div class="settings-body">
+      <div v-if="contextLoading" class="empty-state" role="status">正在打开这本书的设定…</div>
+      <template v-else-if="projectContextStatus === 'unbound'">
+        <div class="empty-state" data-test="settings-unbound">
+          <p>这本书还没有关联世界书。</p>
+          <p class="empty-state__hint">回写作工作台右栏「关联世界书」完成关联后，这里会打开它的设定。</p>
+        </div>
+      </template>
+      <div v-else-if="projectContextStatus === 'missing-book'" class="empty-state">
+        <p>这本书已不存在。</p>
+      </div>
+      <div v-else-if="loadError" class="empty-state">
+        <p>{{ loadError }}</p>
+      </div>
       <StructuredSettingsWorkspace
-        v-if="activeWorldbook"
+        v-else-if="activeWorldbook"
         :worldbook="activeWorldbook"
       />
       <div v-else class="empty-state">
@@ -75,9 +95,11 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
+import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
+import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 
 const router = useRouter()
@@ -87,12 +109,21 @@ const selectedWorldbookId = ref('')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook)
+// 项目上下文：bookId -> book.worldbookId 唯一真源；全局模式沿用既有 active 行为。
+const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const isProjectMode = computed(() => context.value?.mode === 'project')
+const projectContextLabel = computed(() => context.value?.book?.title || '')
+const projectContextStatus = computed(() => context.value?.status || '')
 const placeEntityIndex = computed(() => buildPlaceEntityIndex(activeWorldbook.value || {}))
 const focusedPlace = computed(() => resolvePlaceEntity(placeEntityIndex.value, String(route.query.placeId || '')))
+const contextNotice = computed(() => (context.value?.status === 'route-mismatch' ? context.value.notice : ''))
 
 function openFocusedPlaceMap(kind = '', itemId = '') {
   if (!focusedPlace.value?.placeId) return
+  // L6：地点/历史/条目 → 地图保留项目上下文，不丢书与绑定。
   const query = { placeId: focusedPlace.value.placeId }
+  if (route.query.bookId) query.bookId = String(route.query.bookId)
+  if (route.query.worldbookId) query.worldbookId = String(route.query.worldbookId)
   if (kind === 'history' && itemId) query.historyNodeId = itemId
   if (kind === 'entry' && itemId) query.entryId = itemId
   router.push({ name: 'settings-world-map', query })
@@ -103,6 +134,8 @@ function onGlobalClick() {
 }
 
 async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
+  // 项目模式：世界书由书稿关联决定，选择器已锁定，不在这里静默换库。
+  if (isProjectMode.value) return
   if (worldbookId) {
     await worldStore.setActiveWorldbook(worldbookId)
   }
@@ -111,7 +144,8 @@ async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
 onMounted(async () => {
   try {
     await worldStore.loadWorldbooksIndex()
-    if (typeof worldStore.ensureActiveWorldbook === 'function') {
+    // 全局模式保留既有 active 行为；项目模式由 useSettingsProjectContext 按书绑定加载。
+    if (!isProjectMode.value && !context.value?.worldbookId && typeof worldStore.ensureActiveWorldbook === 'function') {
       await worldStore.ensureActiveWorldbook()
     }
     if (activeWorldbook.value?.id) {

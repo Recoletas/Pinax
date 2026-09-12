@@ -6,10 +6,15 @@
         :worldbooks-index="worldbooksIndex"
         :active-worldbook="activeWorldbook"
         :meta-label="`${worldbooksIndex.length} 本世界书 · ${entries.length} 条目`"
+        :project-label="projectContextLabel"
+        :project-locked="isProjectMode"
+        :route-mismatch-notice="contextNotice"
         @change="onWorldbookChange"
       >
         <template #actions>
+          <SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" />
           <button
+            v-if="!isProjectMode"
             class="editor-create-action"
             type="button"
             aria-label="新建世界书"
@@ -24,8 +29,23 @@
       <SettingsSectionNav />
     </div>
 
+    <div v-if="requestedEntryMissing" class="entry-missing-strip" data-test="entry-missing" role="status">
+      <p>要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。</p>
+    </div>
+
     <div class="editor-layout">
-      <section class="editor-main" v-if="activeWorldbook">
+      <div v-if="contextLoading" class="editor-empty" role="status">正在打开这本书的条目…</div>
+      <div v-else-if="projectContextStatus === 'unbound'" class="editor-empty" data-test="entries-unbound">
+        <p>这本书还没有关联世界书。</p>
+        <p>回写作工作台右栏「关联世界书」完成关联后，这里会打开它的条目。</p>
+      </div>
+      <div v-else-if="projectContextStatus === 'missing-book'" class="editor-empty">
+        <p>这本书已不存在。</p>
+      </div>
+      <div v-else-if="loadError" class="editor-empty">
+        <p>{{ loadError }}</p>
+      </div>
+      <section class="editor-main" v-else-if="activeWorldbook">
         <nav class="editor-tabs" aria-label="世界书编辑分区">
           <button
             v-for="tab in editorTabs"
@@ -647,6 +667,8 @@ import { createSettingsPageDispatcher } from '../services/agents/settings/settin
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
+import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
+import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 const router = useRouter()
@@ -725,6 +747,14 @@ const editorTabs = [
 ]
 
 const selectedWorldbookId = ref('')
+// 项目上下文（联动闭环 L3）：先解析正确的世界书，再处理 entryId 定位。
+const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const isProjectMode = computed(() => context.value?.mode === 'project')
+const projectContextLabel = computed(() => context.value?.book?.title || '')
+const projectContextStatus = computed(() => context.value?.status || '')
+const contextNotice = computed(() => (context.value?.status === 'route-mismatch' ? context.value.notice : ''))
+// query 指向的条目在正确库里仍不存在：明确提示，不静默选中第一条冒充目标。
+const requestedEntryMissing = ref(false)
 
 const maintenanceCandidateCount = computed(() => findWorldbookAuditTargets(entries.value, {
   brief: maintenanceBrief.value
@@ -924,9 +954,15 @@ watch(groupStats, (stats) => {
 }, { immediate: true })
 
 watch(
-  () => [String(route.query.entryId || ''), entries.value.map((entry) => entry.id).join('|')],
+  () => [String(route.query.entryId || ''), entries.value.map((entry) => entry.id).join('|'), contextLoading.value],
   async ([entryId]) => {
-    if (!entryId || !entries.value.some((entry) => entry.id === entryId)) return
+    if (!entryId || contextLoading.value) return
+    if (!entries.value.some((entry) => entry.id === entryId)) {
+      // 在正确库里也找不到：明确「已不存在」，保留目录与回程，不冒充目标。
+      requestedEntryMissing.value = true
+      return
+    }
+    requestedEntryMissing.value = false
     editorTab.value = 'entries'
     entrySearch.value = ''
     entryTypeFilter.value = 'all'
@@ -1367,6 +1403,8 @@ function ignoreMaintenanceCandidate(candidate) {
 }
 
 async function onWorldbookChange(worldbookId) {
+  // 项目模式：世界书由书稿关联决定，不在这里静默换库。
+  if (isProjectMode.value) return
   await worldStore.setActiveWorldbook(worldbookId)
 }
 
@@ -1948,10 +1986,13 @@ async function exportActiveWorldbook() {
 onMounted(async () => {
   try {
     await worldStore.loadWorldbooksIndex()
-    if (typeof worldStore.ensureActiveWorldbook === 'function') {
-      await worldStore.ensureActiveWorldbook()
-    } else if (worldbooksIndex.value.length > 0) {
-      await worldStore.setActiveWorldbook(worldbooksIndex.value[0].id)
+    // 项目模式由 useSettingsProjectContext 按书绑定加载；全局模式保留既有 active 行为。
+    if (!isProjectMode.value && !context.value?.worldbookId) {
+      if (typeof worldStore.ensureActiveWorldbook === 'function') {
+        await worldStore.ensureActiveWorldbook()
+      } else if (worldbooksIndex.value.length > 0) {
+        await worldStore.setActiveWorldbook(worldbooksIndex.value[0].id)
+      }
     }
   } catch (e) {
     console.error('[世界书·高级设置] 初始化失败:', e)
@@ -1992,6 +2033,37 @@ onMounted(async () => {
      Mirror StructuredSettings.vue .settings-body so the editor scrolls
      inside the bounded shell. */
   overflow: auto;
+}
+
+.entry-missing-strip {
+  margin: 10px clamp(16px, 3vw, 42px) 0;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.entry-missing-strip p {
+  margin: 0;
+}
+
+.editor-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 32px 18px;
+}
+
+.editor-empty p {
+  margin: 0;
 }
 
 .editor-main {

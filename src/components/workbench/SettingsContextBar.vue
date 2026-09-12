@@ -1,13 +1,14 @@
 <template>
   <header class="settings-context-bar" data-test="settings-context-bar">
     <div class="context-main">
-      <span class="context-kicker">ACTIVE WORLD</span>
+      <span class="context-kicker">{{ projectLabel ? 'PROJECT · ' + projectLabel : 'ACTIVE WORLD' }}</span>
       <select
         v-if="worldbooksIndex.length"
         class="context-worldbook-select"
         :value="selectedId"
-        :disabled="disabled"
-        aria-label="选择当前世界书"
+        :disabled="disabled || projectLocked"
+        :aria-label="projectLocked ? '当前书稿关联的世界书（回工作台更换关联）' : '选择当前世界书'"
+        :title="projectLocked ? '世界书由《' + projectLabel + '》的关联决定；回工作台可更换关联' : ''"
         @change="onChange"
       >
         <option v-for="worldbook in worldbooksIndex" :key="worldbook.id" :value="worldbook.id">
@@ -15,6 +16,7 @@
         </option>
       </select>
       <strong v-else class="context-worldbook-empty">{{ activeWorldbook?.name || emptyLabel }}</strong>
+      <span v-if="routeMismatchNotice" class="context-mismatch" role="status">{{ routeMismatchNotice }}</span>
     </div>
 
     <div v-if="showMeta" class="context-meta" aria-label="设定页信息">
@@ -38,7 +40,11 @@ const props = defineProps({
   saveLabel: { type: String, default: '自动保存' },
   emptyLabel: { type: String, default: '尚未选择世界书' },
   showMeta: { type: Boolean, default: true },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  // 项目模式：世界书由书稿关联决定，选择器只读；显示所属书稿名。
+  projectLabel: { type: String, default: '' },
+  projectLocked: { type: Boolean, default: false },
+  routeMismatchNotice: { type: String, default: '' }
 })
 
 const emit = defineEmits(['update:modelValue', 'change'])
@@ -106,6 +112,15 @@ function onChange(event) {
   font-size: 9px;
   letter-spacing: 0.1em;
   line-height: 1;
+}
+
+.context-mismatch {
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .context-worldbook-select,

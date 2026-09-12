@@ -414,6 +414,15 @@
           <button
             type="button"
             class="toolbar-text-btn"
+            :disabled="!entity.entryIds?.length"
+            :title="entity.entryIds?.length ? '打开该地点的设定条目' : '该地点还没有设定条目'"
+            @click="emit('open-entry', entity.entryIds?.[0] || '')"
+          >
+            打开条目
+          </button>
+          <button
+            type="button"
+            class="toolbar-text-btn"
             :disabled="!buildPlaceRuntimePatch(entity)"
             @click="handleEnterPlace(entity)"
           >
@@ -488,7 +497,7 @@ const props = defineProps({
     default: ''
   }
 })
-const emit = defineEmits(['open-settings', 'open-worldbook'])
+const emit = defineEmits(['open-settings', 'open-worldbook', 'open-entry'])
 
 const geoStore = useGeographyStore()
 const { overview, locations, activeWorldNode: activeNode, voronoiConfig, markers, mapVersions, activeMapRevision } = storeToRefs(geoStore)

@@ -3,7 +3,7 @@
 // push 只发生在显式用户意图（激活/打开/关闭标签），并用 syncing 标志防循环。
 // 旧无 query 的 project 链接 replace 为 canonical URL（最近书或首书）。
 import { loadWritingBooks } from '../writing/writingBooksRepository'
-import { PROJECT_SURFACE_ROUTE_NAMES } from './workspaceTabContract'
+import { PROJECT_SURFACE_ROUTE_NAMES, DUAL_MODE_ROUTE_NAMES } from './workspaceTabContract'
 
 const PROJECT_ROUTE_NAMES = new Set(Object.values(PROJECT_SURFACE_ROUTE_NAMES))
 
@@ -54,7 +54,8 @@ export function resolveDefaultBookId(store) {
 }
 
 function processRouteChange(store, router, to) {
-  if (PROJECT_ROUTE_NAMES.has(to.name) && !to.query?.bookId) {
+  // 双模式路由（高级条目）不带 bookId 是合法的全局访问，不能被补默认书后吞进项目标签。
+  if (PROJECT_ROUTE_NAMES.has(to.name) && !DUAL_MODE_ROUTE_NAMES.has(to.name) && !to.query?.bookId) {
     const bookId = resolveDefaultBookId(store)
     if (bookId) {
       const canonical = { name: to.name, query: { ...to.query, bookId } }

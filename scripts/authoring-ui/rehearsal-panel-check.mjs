@@ -677,6 +677,40 @@ try {
     check(`R1 ${tag} 无页面错误`, errors.length === 0, errors.join(' | '))
     await context.close()
   }
+
+  // L5：已冻结的试演不能在设定被其他页面改写后继续使用旧资料。
+  // storage 事件模拟另一个浏览器标签页完成保存；提交应在请求模型前被
+  // manifest revision 门禁拦住，旧路线只读保留。
+  {
+    const context = await seed(browser, { width: 1440, height: 900 })
+    const page = await context.newPage()
+    await installDeterministicProviderMock(page, { passiveInline: false, blockText: PROSE })
+    const { panel, advisory } = await openRehearsal(page)
+    const callsBefore = advisory.length
+    const changedEntryId = state.characterEntryIds[0]
+    await page.evaluate(({ worldbookId, entryId }) => {
+      const key = `worldbook_${worldbookId}`
+      const worldbook = JSON.parse(localStorage.getItem(key) || '{}')
+      const entry = (worldbook.entries || []).find((item) => String(item.id) === String(entryId))
+      if (!entry) throw new Error(`missing worldbook entry ${entryId}`)
+      const revision = String(Date.now() + 10000)
+      entry.content = `${String(entry.content || '')}\n外部标签页补充：此人拒绝在钟响后进入暗格。`
+      entry.metadata = { ...(entry.metadata || {}), updatedAt: revision }
+      entry.updatedAt = revision
+      worldbook.updatedAt = revision
+      const nextValue = JSON.stringify(worldbook)
+      localStorage.setItem(key, nextValue)
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue: nextValue }))
+    }, { worldbookId: state.worldbookId, entryId: changedEntryId })
+    await page.waitForTimeout(700)
+    await panel.getByLabel('试演行动').fill('让莉娜继续追问艾德加')
+    await panel.getByRole('button', { name: '试演', exact: true }).click()
+    await panel.locator('.rehearsal-stale').waitFor({ state: 'visible', timeout: 10000 })
+    const stale = await panel.locator('.rehearsal-stale').innerText()
+    check('L5 1440 设定外部更新后冻结试演阻止续跑', stale.includes('正文或参考已变化') && advisory.length === callsBefore,
+      JSON.stringify({ stale, callsBefore, callsAfter: advisory.length }))
+    await context.close()
+  }
 } finally {
   await browser.close()
 }

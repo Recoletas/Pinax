@@ -16,12 +16,59 @@ import {
   bindUnboundSceneAnchors,
   detachSceneAnchorsFromWorldbook
 } from '../services/agents/authoring/authoringProjectWorldbook.js'
+import {
+  resolveSettingsProjectContext,
+  createSettingsWorldbookLoader
+} from '../services/workspace/settingsProjectContext.js'
 
 // worldbook scene closure Task 2：每本书显式绑定一个世界书。
 // 绑定是书的数据，不是全局 active 状态的隐式回退。
 
 describe('authoring project worldbook binding', () => {
-  it("normalizes the binding id to a trimmed string（合并4例）", async () => {
+  it("normalizes the binding id to a trimmed string（合并5例）", async () => {
+{
+// —— 设定页项目上下文解析（联动闭环 L1）：bookId -> book.worldbookId 是唯一项目绑定。——
+    const books = [
+      { id: 'book-a', worldbookId: 'wa', title: '书甲' },
+      { id: 'book-b', worldbookId: 'wb', title: '书乙' },
+      { id: 'book-none', worldbookId: '', title: '未绑' }
+    ]
+    expect(resolveSettingsProjectContext({ books, bookId: 'book-a' }))
+      .toMatchObject({ mode: 'project', bookId: 'book-a', worldbookId: 'wa', status: 'ready', notice: '' })
+    // 路由快照与绑定不一致：采用当前绑定并产生可读提示，不静默按旧 query 打开。
+    expect(resolveSettingsProjectContext({ books, bookId: 'book-a', worldbookId: 'wb' }))
+      .toMatchObject({ mode: 'project', worldbookId: 'wa', status: 'route-mismatch' })
+    // 未绑定与书不存在：明确空态，不回退别的库。
+    expect(resolveSettingsProjectContext({ books, bookId: 'book-none' }))
+      .toMatchObject({ status: 'unbound', worldbookId: '' })
+    expect(resolveSettingsProjectContext({ books, bookId: 'book-gone' }))
+      .toMatchObject({ status: 'missing-book', worldbookId: '' })
+    // 全局模式：显式 worldbookId 优先，否则沿用 active 兜底；无 bookId 时不解析项目。
+    expect(resolveSettingsProjectContext({ books, worldbookId: 'wx', fallbackWorldbookId: 'wa' }))
+      .toMatchObject({ mode: 'global', worldbookId: 'wx', source: 'explicit-global', status: 'ready' })
+    expect(resolveSettingsProjectContext({ books, fallbackWorldbookId: 'wa' }))
+      .toMatchObject({ mode: 'global', worldbookId: 'wa', source: 'fallback-active' })
+    expect(resolveSettingsProjectContext({ books }))
+      .toMatchObject({ mode: 'global', worldbookId: '', status: 'unbound' })
+}
+{
+// —— 世界书内容加载竞态：只认最后一次请求；缺失/失败 typed 返回，不回退其他库。——
+    const calls = []
+    let resolveSlow
+    const loader = createSettingsWorldbookLoader(async (id) => {
+      calls.push(id)
+      if (id === 'wa-slow') return new Promise((resolve) => { resolveSlow = resolve })
+      if (id === 'wb') return { id: 'wb', entries: [] }
+      return null
+    })
+    const slow = loader('wa-slow')
+    const fast = await loader('wb')
+    expect(fast).toMatchObject({ ok: true, worldbook: { id: 'wb' } })
+    resolveSlow({ id: 'wa-slow' })
+    expect(await slow).toMatchObject({ ok: false, reason: 'superseded' })
+    expect(await loader('missing')).toMatchObject({ ok: false, reason: 'missing-worldbook', worldbook: null })
+    expect(calls).toEqual(['wa-slow', 'wb', 'missing'])
+}
 {
 expect(normalizeBookWorldbookBinding({ worldbookId: 42 })).toBe('42')
     expect(normalizeBookWorldbookBinding({ worldbookId: ' wb-1 ' })).toBe('wb-1')
@@ -992,6 +1039,23 @@ describe('authoring document repository (text workbench v3 Phase 1)', () => {
     expect(worldStore.activeWorldbook.id).toBe('wb-active')
     expect(storage.getItem('worldbook_wb-bound')).toBe(worldbookBeforeRead)
     expect(readWorldbookSnapshot('missing')).toBe(null)
+
+    // 设定页与 Authoring 快速切换不同资料库时，旧库的 legacy 归档可能更晚
+    // 完成。两个调用都应返回各自精确快照，但只有最后发起的请求能切 active。
+    storage.setItem('worldbook_wb-slow', JSON.stringify({
+      id: 'wb-slow', name: '慢库', entries: [],
+      sourceDocuments: [{ id: 'legacy-slow', title: '旧资料', content: '需要异步归档的正文。', createdAt: 1 }]
+    }))
+    storage.setItem('worldbook_wb-fast', JSON.stringify({
+      id: 'wb-fast', name: '快库', entries: [], sourceDocuments: []
+    }))
+    const slowWorldbook = worldStore.loadWorldbook('wb-slow')
+    const fastWorldbook = worldStore.loadWorldbook('wb-fast')
+    const [slowLoaded, fastLoaded] = await Promise.all([slowWorldbook, fastWorldbook])
+    expect(slowLoaded.id).toBe('wb-slow')
+    expect(fastLoaded.id).toBe('wb-fast')
+    expect(worldStore.activeWorldbook.id).toBe('wb-fast')
+    expect(worldStore.isLoading).toBe(false)
 
     // structured-settings-only 旧档会在纯读时派生 entry。即使系统时间前进，
     // snapshot 与用于 manifest stale 对账的 entry revision 也必须保持一致。

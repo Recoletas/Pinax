@@ -12,7 +12,7 @@
       role="tab"
       :aria-selected="(tab.key === currentTabKey).toString()"
       :data-test="`settings-section-tab-${tab.key}`"
-      :to="{ name: tab.routeName }"
+      :to="sectionRoute(tab)"
     >
       <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="14" />
       <span class="settings-section-tab__label">{{ tab.label }}</span>
@@ -36,6 +36,23 @@ const tabs = [
 const route = useRoute()
 const currentRouteName = computed(() => String(route.name || ''))
 const currentTabKey = computed(() => tabs.find((tab) => tab.routeNames.includes(currentRouteName.value))?.key || '')
+
+// 分区切换保留项目上下文与适用的对象定位（联动闭环 L2）。
+// bookId/worldbookId 始终保留；对象定位只带给用得到它的分区，跨分区清除。
+// 正文回程不依赖这里的 query（存在 Authoring 标签的 volatile ledger），不会被覆盖。
+const QUERY_WHITELIST_BY_TAB = {
+  structured: ['bookId', 'worldbookId', 'placeId'],
+  map: ['bookId', 'worldbookId', 'placeId', 'historyNodeId', 'entryId'],
+  advanced: ['bookId', 'worldbookId', 'entryId']
+}
+function sectionRoute(tab) {
+  const query = {}
+  for (const key of QUERY_WHITELIST_BY_TAB[tab.key] || []) {
+    const value = route.query?.[key]
+    if (typeof value === 'string' && value) query[key] = value
+  }
+  return { name: tab.routeName, query }
+}
 </script>
 
 <style scoped>
