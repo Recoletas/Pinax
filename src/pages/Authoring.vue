@@ -443,6 +443,12 @@
               :notice="authoringTaskNotice"
               @undo="undoAuthoringTask"
             />
+            <AuthoringFirstRunPath
+              v-if="firstRunGuideVisible"
+              :stage="firstRunGuideStage"
+              @advance="advanceFirstRunGuide"
+              @dismiss="dismissFirstRunGuide"
+            />
             <WritingNotebookEditor
               :key="notebookDocumentKey"
               ref="notebookEditorRef"
@@ -1626,6 +1632,7 @@ import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNo
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
 import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
 import AuthoringManuscriptImport from '../components/authoring/AuthoringManuscriptImport.vue'
+import AuthoringFirstRunPath from '../components/authoring/AuthoringFirstRunPath.vue'
 import AuthoringCharacterPanel from '../components/authoring/AuthoringCharacterPanel.vue'
 import AuthoringWorldbookPanel from '../components/authoring/AuthoringWorldbookPanel.vue'
 import { buildWritingContextCandidates } from '../services/agents/context/writingContextReaders.js'
@@ -6468,6 +6475,60 @@ const activeWritingMutationLocked = computed(() => (
   historyInteractionLocked.value && (activeWritingPane.value === 'main' || dualSharesMainDocument())
 ))
 const isEmptyChapter = computed(() => !String(markdownContent.value || '').trim())
+
+const firstRunGuideActive = ref(String(route.query.guide || '') === 'first-run')
+const firstRunCharacterCount = computed(() => (
+  (boundWorldbook.value?.entries || []).filter((entry) => entry?.type === 'character').length
+))
+const firstRunGuideStage = computed(() => {
+  if (isEmptyChapter.value) return 1
+  if (!firstRunCharacterCount.value) return 2
+  if (!(sceneProjection.value.presentCharacters || []).length) return 3
+  return 4
+})
+const firstRunGuideVisible = computed(() => Boolean(
+  firstRunGuideActive.value
+  && selectedBookId.value
+  && selectedChapterId.value
+  && !wt3ActiveDoc.value
+  && !rehearsal.run.value
+))
+
+function clearFirstRunGuideQuery() {
+  if (String(route.query.guide || '') !== 'first-run') return
+  const query = { ...route.query }
+  delete query.guide
+  void router.replace({ name: 'authoring', query })
+}
+
+function dismissFirstRunGuide() {
+  firstRunGuideActive.value = false
+  clearFirstRunGuideQuery()
+}
+
+function advanceFirstRunGuide(stage) {
+  if (stage === 1) {
+    notebookEditorRef.value?.focus?.({ scrollIntoView: false })
+    return
+  }
+  if (stage === 2) {
+    selectInspectorTool('characters')
+    return
+  }
+  if (stage === 3) {
+    if (!activeWritingUnitId.value) notebookEditorRef.value?.focus?.({ scrollIntoView: false })
+    nextTick(() => handleSceneEditRequest({ axis: 'people' }))
+    return
+  }
+  selectInspectorTool('rehearsal')
+}
+
+watch(() => String(route.query.guide || ''), (guide) => {
+  if (guide === 'first-run') firstRunGuideActive.value = true
+})
+watch(() => Boolean(rehearsal.run.value), (started) => {
+  if (started && firstRunGuideActive.value) dismissFirstRunGuide()
+})
 
 watch(blockDraftText, () => {
   if (!blockPreview.value || pendingGhostAdoption.value) return

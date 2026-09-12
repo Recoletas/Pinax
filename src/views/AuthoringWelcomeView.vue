@@ -16,8 +16,8 @@
         <p>直接写正文，不必先建立世界，也不必先配置 AI。需要时再打开设定、批注和推演。</p>
 
         <div class="authoring-welcome__actions">
-          <router-link class="authoring-welcome__primary" data-test="welcome-start-authoring" to="/authoring?start=new">开始写作</router-link>
-          <router-link class="authoring-welcome__secondary" data-test="welcome-import-manuscript" to="/authoring?start=import">导入已有书稿</router-link>
+          <router-link class="authoring-welcome__primary" data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run">开始写作</router-link>
+          <router-link class="authoring-welcome__secondary" data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run">导入已有书稿</router-link>
         </div>
 
         <div class="authoring-welcome__local-note">
@@ -44,25 +44,22 @@
 
         <div class="authoring-welcome__journey">
           <span class="authoring-welcome__section-label">一条最短创作回路</span>
-          <p class="authoring-welcome__journey-lede">不用先整理完整设定。写到人物要做决定时，再把工具叫到正文旁。</p>
+          <p class="authoring-welcome__journey-lede">不用先学完所有工具，只顺着故事完成这一轮。</p>
           <ol>
             <li>
               <span aria-hidden="true">01</span>
-              <p><strong>先落下一段正文</strong><small>新建空白书，或导入常见中文编码的 TXT / Markdown 旧稿。</small></p>
+              <p><strong>写一场</strong><small>从眼前正在发生的事开始。</small></p>
             </li>
             <li>
               <span aria-hidden="true">02</span>
-              <p><strong>让人物进入当前场</strong><small>在右栏「角色」建人物，再从左下「当前场」安排谁在场。</small></p>
+              <p><strong>放入人物</strong><small>角色 → 当前场，告诉 Pinax 谁能回应。</small></p>
             </li>
             <li>
               <span aria-hidden="true">03</span>
-              <p><strong>试走一条岔路</strong><small>打开右栏「推演」，读回应、换走法；满意后再把试稿带回正文。</small></p>
+              <p><strong>试一条岔路</strong><small>推演回应和另一种走法，再决定是否写回。</small></p>
             </li>
           </ol>
-          <div class="authoring-welcome__journey-end">
-            <span><strong>写完这一轮</strong><small>刷新确认正文仍在，再导出一份作品备份。</small></span>
-            <button type="button" @click="settings.open('storage')">去备份 →</button>
-          </div>
+          <p class="authoring-welcome__journey-end">进入稿面后会继续提示当前下一步；随时可以关闭。</p>
         </div>
 
         <nav class="authoring-welcome__tools" aria-label="开始前的帮助">
@@ -174,9 +171,7 @@ onBeforeUnmount(() => {
 .authoring-welcome__journey p { display: grid; gap: 5px; margin: 0; }
 .authoring-welcome__journey strong { font-size: 14px; }
 .authoring-welcome__journey small { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 12px; line-height: 1.65; }
-.authoring-welcome__journey-end { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 4px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent); }
-.authoring-welcome__journey-end > span { display: grid; gap: 3px; }
-.authoring-welcome__journey-end button { flex: none; min-height: 36px; padding: 0; border: 0; background: none; color: var(--archive-olive); font: 600 12px/1 var(--font-body); cursor: pointer; }
+.authoring-welcome__journey-end { margin: 4px 0 0; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent); color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; line-height: 1.6; }
 .authoring-welcome__tools { display: flex; align-items: baseline; gap: 7px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
 .authoring-welcome__tools button { padding: 0; color: var(--archive-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--archive-ink) 24%, transparent); text-underline-offset: 4px; }
 
