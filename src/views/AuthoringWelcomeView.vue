@@ -28,7 +28,7 @@
 
       <aside class="authoring-welcome__guide" aria-label="开始使用">
         <div v-if="recentBooks.length" class="authoring-welcome__recent">
-          <span class="authoring-welcome__section-label">继续写</span>
+          <span class="authoring-welcome__section-label">回到书稿</span>
           <router-link
             v-for="book in recentBooks"
             :key="book.id"
@@ -42,19 +42,32 @@
           </router-link>
         </div>
 
-        <div class="authoring-welcome__steps">
-          <span class="authoring-welcome__section-label">第一次使用</span>
+        <div class="authoring-welcome__journey">
+          <span class="authoring-welcome__section-label">一条最短创作回路</span>
+          <p class="authoring-welcome__journey-lede">不用先整理完整设定。写到人物要做决定时，再把工具叫到正文旁。</p>
           <ol>
-            <li><span>01</span><p><strong>新建或导入</strong><small>空白开始，或带入 UTF-8 的 TXT / Markdown 书稿。</small></p></li>
-            <li><span>02</span><p><strong>先写，再按需请 AI</strong><small>正文自动保存在本机；生成内容由你决定是否采用。</small></p></li>
-            <li><span>03</span><p><strong>定期带走作品</strong><small>可导出章节、整本书和本地作品备份。</small></p></li>
+            <li>
+              <span aria-hidden="true">01</span>
+              <p><strong>先落下一段正文</strong><small>新建空白书，或导入常见中文编码的 TXT / Markdown 旧稿。</small></p>
+            </li>
+            <li>
+              <span aria-hidden="true">02</span>
+              <p><strong>让人物进入当前场</strong><small>在右栏「角色」建人物，再从左下「当前场」安排谁在场。</small></p>
+            </li>
+            <li>
+              <span aria-hidden="true">03</span>
+              <p><strong>试走一条岔路</strong><small>打开右栏「推演」，读回应、换走法；满意后再把试稿带回正文。</small></p>
+            </li>
           </ol>
+          <div class="authoring-welcome__journey-end">
+            <span><strong>写完这一轮</strong><small>刷新确认正文仍在，再导出一份作品备份。</small></span>
+            <button type="button" @click="settings.open('storage')">去备份 →</button>
+          </div>
         </div>
 
-        <nav class="authoring-welcome__tools" aria-label="其他工作区">
-          <router-link to="/settings/structured">补充设定</router-link>
-          <router-link to="/materials">整理素材</router-link>
-          <button type="button" @click="settings.open('ai')">配置 AI</button>
+        <nav class="authoring-welcome__tools" aria-label="开始前的帮助">
+          <span>AI 暂时不可用？</span>
+          <button type="button" @click="settings.open('ai')">测试模型连接</button>
         </nav>
       </aside>
     </main>
@@ -147,21 +160,25 @@ onBeforeUnmount(() => {
 
 .authoring-welcome__guide { display: grid; gap: 30px; padding: 28px 0 28px 28px; border-left: 1px solid color-mix(in srgb, var(--archive-ink) 18%, transparent); }
 .authoring-welcome__recent,
-.authoring-welcome__steps { display: grid; gap: 12px; }
+.authoring-welcome__journey { display: grid; gap: 12px; }
 .authoring-welcome__recent > a { display: flex; align-items: center; justify-content: space-between; min-height: 58px; gap: 12px; padding: 0 2px 10px; border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 13%, transparent); color: inherit; text-decoration: none; }
 .authoring-welcome__recent > a > span:first-child { min-width: 0; display: grid; gap: 4px; }
 .authoring-welcome__recent strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-welcome__recent small { color: var(--archive-ink-soft, var(--text-secondary)); }
 
-.authoring-welcome__steps ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.authoring-welcome__steps li { display: grid; grid-template-columns: 30px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 12%, transparent); }
-.authoring-welcome__steps li > span { padding-top: 2px; color: var(--archive-olive); font-size: 10px; font-variant-numeric: tabular-nums; }
-.authoring-welcome__steps p { display: grid; gap: 4px; margin: 0; }
-.authoring-welcome__steps strong { font-size: 13px; }
-.authoring-welcome__steps small { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 12px; line-height: 1.55; }
-.authoring-welcome__tools { display: flex; flex-wrap: wrap; gap: 16px; }
-.authoring-welcome__tools a,
-.authoring-welcome__tools button { padding: 0; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--archive-ink) 24%, transparent); text-underline-offset: 4px; }
+.authoring-welcome__journey-lede { max-width: 330px; margin: 2px 0 4px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 13px; line-height: 1.7; }
+.authoring-welcome__journey ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: none; }
+.authoring-welcome__journey li { position: relative; display: grid; grid-template-columns: 32px 1fr; gap: 12px; padding: 14px 0 16px; }
+.authoring-welcome__journey li:not(:last-child)::after { position: absolute; top: 34px; bottom: -2px; left: 11px; width: 1px; background: color-mix(in srgb, var(--archive-olive) 32%, transparent); content: ''; }
+.authoring-welcome__journey li > span { display: grid; place-items: center; align-self: start; width: 23px; height: 23px; border: 1px solid color-mix(in srgb, var(--archive-olive) 50%, transparent); border-radius: 50%; color: var(--archive-olive); font-size: 9px; font-variant-numeric: tabular-nums; }
+.authoring-welcome__journey p { display: grid; gap: 5px; margin: 0; }
+.authoring-welcome__journey strong { font-size: 14px; }
+.authoring-welcome__journey small { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 12px; line-height: 1.65; }
+.authoring-welcome__journey-end { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 4px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent); }
+.authoring-welcome__journey-end > span { display: grid; gap: 3px; }
+.authoring-welcome__journey-end button { flex: none; min-height: 36px; padding: 0; border: 0; background: none; color: var(--archive-olive); font: 600 12px/1 var(--font-body); cursor: pointer; }
+.authoring-welcome__tools { display: flex; align-items: baseline; gap: 7px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
+.authoring-welcome__tools button { padding: 0; color: var(--archive-ink); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--archive-ink) 24%, transparent); text-underline-offset: 4px; }
 
 @media (max-width: 820px) {
   .authoring-welcome { background: var(--archive-paper, var(--bg-primary)); }
@@ -180,5 +197,7 @@ onBeforeUnmount(() => {
   .authoring-welcome__actions { display: grid; }
   .authoring-welcome__actions a { min-height: 48px; }
   .authoring-welcome__local-note { margin-top: 30px; }
+  .authoring-welcome__guide { gap: 26px; }
+  .authoring-welcome__journey-lede { max-width: none; }
 }
 </style>
