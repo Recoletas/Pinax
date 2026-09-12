@@ -123,6 +123,12 @@ import {
   subscribeWritingBooks,
   normalizeWritingBook
 } from '../services/writing/writingBooksRepository.js'
+import {
+  buildSingleChapterPreview,
+  createImportedWritingBook,
+  parseManuscriptText,
+  validateManuscriptFile
+} from '../services/writing/writingManuscriptImport.js'
 
 describe('writing books repository', () => {
   it("loads, saves and revises books through one boundary（合并5例）", async () => {
@@ -195,6 +201,35 @@ localStorage.clear()
     } finally {
       Storage.prototype.setItem = originalSetItem
     }
+}
+{
+    // Web beta 首访：Markdown 标题拆章、纯文本章节识别和整篇回退均不丢正文。
+    const markdown = parseManuscriptText({
+      filename: '潮汐档案.md',
+      text: '# 潮汐档案\n\n## 第一章 失灯\n\n港口熄灯。\n\n## 第二章 回声\n\n钟声从水下传来。'
+    })
+    expect(markdown).toMatchObject({ ok: true, title: '潮汐档案', detected: true })
+    expect(markdown.chapters.map((chapter) => chapter.title)).toEqual(['第一章 失灯', '第二章 回声'])
+    expect(markdown.chapters[0].content).toBe('港口熄灯。')
+
+    const plain = parseManuscriptText({
+      filename: '旧稿.txt',
+      text: '前置说明\n\n第一章 雨夜\n正文一。\n\n第二章 来客\n正文二。'
+    })
+    expect(plain.chapters.map((chapter) => chapter.title)).toEqual(['卷首', '第一章 雨夜', '第二章 来客'])
+    expect(buildSingleChapterPreview(plain)).toEqual([{ title: '正文', content: plain.text.trim() }])
+
+    const imported = createImportedWritingBook({
+      title: plain.title,
+      chapters: plain.chapters,
+      now: () => new Date('2026-09-12T00:00:00.000Z'),
+      idFactory: (kind, index) => `${kind}-${index}`
+    })
+    expect(imported).toMatchObject({ ok: true, book: { title: '旧稿' } })
+    expect(imported.book.chapters[0].id).toBe('chapter-0')
+    expect(imported.book.chapters[2].content).toBe('正文二。')
+    expect(validateManuscriptFile({ name: '稿件.docx', size: 1 })).toMatchObject({ ok: false })
+    expect(validateManuscriptFile({ name: '稿件.txt', size: 2 * 1024 * 1024 + 1 })).toMatchObject({ ok: false })
 }
   })
 })

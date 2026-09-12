@@ -2399,6 +2399,28 @@
   margin-top: 16px;
 }
 
+.modal-hint {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.modal-options {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.modal-options summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modal-options[open] summary { margin-bottom: 16px; }
+.modal-options > .input-label:first-of-type { margin-top: 0; }
+
 .input {
   width: 100%;
   padding: 10px 12px;
@@ -2427,6 +2449,13 @@
   gap: 8px;
   padding: 16px 20px;
   border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+  .modal { width: min(440px, calc(100vw - 24px)); }
+  .modal-close { width: 44px; height: 44px; }
+  .modal-footer .btn,
+  .modal-footer .btn-primary { min-height: 44px; }
 }
 
 .btn {

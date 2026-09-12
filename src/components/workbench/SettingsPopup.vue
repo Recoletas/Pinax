@@ -101,7 +101,7 @@
             </tbody>
           </table>
           <div class="storage-actions">
-            <button class="settings-btn settings-btn--primary" type="button" @click="handleExportBackup">导出全部备份</button>
+            <button class="settings-btn settings-btn--primary" type="button" @click="handleExportBackup">导出本地作品备份</button>
             <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">导入备份</button>
             <input
               ref="backupInputRef"
@@ -130,7 +130,19 @@
               <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
             </div>
           </div>
+          <p class="storage-boundary-note">包含书稿、设定与本地创作记录；不包含模型密钥，也不包含来源文件和媒体的 IndexedDB 原件。备份文件请妥善保存。</p>
           <p v-if="backupFeedback" class="backup-feedback" role="status">{{ backupFeedback }}</p>
+
+          <div class="beta-support">
+            <div>
+              <strong>内测遇到问题？</strong>
+              <span>诊断文件只含浏览器环境、存储用量和书稿数量，不含正文、标题、ID、模型密钥或生成内容。</span>
+            </div>
+            <div class="beta-support__actions">
+              <button class="settings-btn" type="button" @click="openBetaGuide">查看内测说明</button>
+              <button class="settings-btn" type="button" data-test="beta-diagnostic-export" @click="handleExportDiagnostic">导出诊断信息</button>
+            </div>
+          </div>
         </section>
       </div>
     </div>
@@ -145,8 +157,11 @@ import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/b
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
 import { useExperienceNarrativeExpansion } from '../../composables/useExperienceNarrativeExpansion'
 import { useExperienceReadingPreferences } from '../../composables/useExperienceReadingPreferences'
+import { exportBetaDiagnosticReport } from '../../utils/betaDiagnosticExport.js'
+import { useRouter } from 'vue-router'
 
 const { close, activeSection, isOpen } = useSettingsPopup()
+const router = useRouter()
 const expansion = useExperienceNarrativeExpansion()
 const { profileName: readingProfile, setProfile: setReadingProfile, profiles: readingProfileObjects } = useExperienceReadingPreferences()
 const readingProfileOptions = Object.values(readingProfileObjects)
@@ -177,10 +192,27 @@ function formatBytes(bytes) {
 
 function handleExportBackup() {
   try {
-    exportAllBackup()
+    const result = exportAllBackup()
+    backupFeedback.value = `已导出 ${result.keyCount} 项本地作品数据；模型密钥未包含。`
   } catch (e) {
     console.error('[SettingsPopup] backup export failed:', e)
+    backupFeedback.value = '备份导出失败，请稍后重试。'
   }
+}
+
+async function handleExportDiagnostic() {
+  try {
+    await exportBetaDiagnosticReport()
+    backupFeedback.value = '诊断信息已导出；发送前仍可用文本编辑器打开检查。'
+  } catch (error) {
+    console.error('[SettingsPopup] diagnostic export failed:', error)
+    backupFeedback.value = '诊断信息导出失败，请直接描述你看到的问题。'
+  }
+}
+
+function openBetaGuide() {
+  close()
+  void router.push('/docs/10-beta-guide')
 }
 
 function pickBackupFile() {
@@ -453,6 +485,33 @@ watch(isOpen, async (open) => {
   padding-top: 4px;
 }
 
+.storage-boundary-note {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.beta-support {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.beta-support > div:first-child {
+  display: grid;
+  gap: 5px;
+  max-width: 420px;
+}
+
+.beta-support strong { font-size: 13px; }
+.beta-support span { color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.beta-support__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
 .backup-import-input {
   position: absolute;
   width: 1px;
@@ -526,6 +585,15 @@ watch(isOpen, async (open) => {
   font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+  .settings-modal__close { width: 44px; height: 44px; }
+  .settings-tab,
+  .storage-actions .settings-btn { min-height: 44px; }
+  .beta-support { align-items: stretch; flex-direction: column; }
+  .beta-support__actions { justify-content: stretch; }
+  .beta-support__actions .settings-btn { min-height: 44px; flex: 1; }
 }
 
 .settings-btn--primary {

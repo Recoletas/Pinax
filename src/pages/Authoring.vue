@@ -81,6 +81,7 @@
             </div>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">导出当前章节</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">导出整本书</button>
+            <button type="button" role="menuitem" @click="moreAction(openManuscriptImport)">导入 TXT / Markdown</button>
             <button type="button" role="menuitem" @click="moreAction(exportChapterStoryboardDraft)" :disabled="!selectedChapterId">导出章节分镜</button>
             <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">素材收件箱</button>
             <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">素材库</button>
@@ -280,7 +281,8 @@
               <strong>尚未建立书稿</strong>
             </div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewBook">建立第一本书</button>
+              <button class="wall__pin-cta" type="button" @click="createNewBook">新建书稿</button>
+              <button class="wall__pin-link" type="button" data-test="empty-import-manuscript" @click="openManuscriptImport">导入 TXT / Markdown</button>
             </div>
           </div>
         </template>
@@ -1527,10 +1529,10 @@
     <Transition name="modal-fade">
       <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
         <Transition name="modal-scale" appear>
-          <div class="modal">
+          <form class="modal" role="dialog" aria-modal="true" aria-labelledby="new-book-title" @submit.prevent="confirmCreateBook">
             <div class="modal-header">
-              <h3>新建书籍</h3>
-              <button class="modal-close" @click="showNewBookModal = false">
+              <h3 id="new-book-title">新建书稿</h3>
+              <button class="modal-close" type="button" aria-label="关闭新建书稿" @click="showNewBookModal = false">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                   <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
                 </svg>
@@ -1545,26 +1547,36 @@
                 placeholder="输入书籍名称"
                 ref="newBookInput"
               />
-              <label class="input-label">简介（可选）</label>
-              <textarea
-                v-model="newBookDesc"
-                class="input textarea"
-                placeholder="输入书籍简介"
-              ></textarea>
-              <label class="input-label">世界书</label>
-              <select v-model="newBookWorldbookId" class="input" aria-label="新建书籍绑定世界书">
-                <option value="">暂不绑定</option>
-                <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
-              </select>
+              <p class="modal-hint">创建后会自动建立“第一章”，可以立即写正文。</p>
+              <details class="modal-options">
+                <summary>可选：简介与世界书</summary>
+                <label class="input-label">简介</label>
+                <textarea
+                  v-model="newBookDesc"
+                  class="input textarea"
+                  placeholder="一句话记下这本书想写什么"
+                ></textarea>
+                <label class="input-label">世界书</label>
+                <select v-model="newBookWorldbookId" class="input" aria-label="新建书籍绑定世界书">
+                  <option value="">暂不绑定</option>
+                  <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
+                </select>
+              </details>
             </div>
             <div class="modal-footer">
-              <button class="btn" @click="showNewBookModal = false">取消</button>
-              <button class="btn-primary" @click="confirmCreateBook" :disabled="!newBookTitle.trim()">创建</button>
+              <button class="btn" type="button" @click="showNewBookModal = false">取消</button>
+              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim()">创建并开始写</button>
             </div>
-          </div>
+          </form>
         </Transition>
       </div>
     </Transition>
+
+    <AuthoringManuscriptImport
+      v-if="showManuscriptImport"
+      @close="closeManuscriptImport"
+      @import="confirmManuscriptImport"
+    />
 
   </div>
 </template>
@@ -1613,6 +1625,7 @@ import { useCharacterIfExperiment } from '../composables/useCharacterIfExperimen
 import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
 import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
+import AuthoringManuscriptImport from '../components/authoring/AuthoringManuscriptImport.vue'
 import AuthoringCharacterPanel from '../components/authoring/AuthoringCharacterPanel.vue'
 import AuthoringWorldbookPanel from '../components/authoring/AuthoringWorldbookPanel.vue'
 import { buildWritingContextCandidates } from '../services/agents/context/writingContextReaders.js'
@@ -1934,6 +1947,8 @@ const authoringObservations = ref([])
 const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
 const showNewBookModal = ref(false)
+const showManuscriptImport = ref(false)
+const manuscriptImportReturnFocus = shallowRef(null)
 const newBookTitle = ref('')
 const newBookDesc = ref('')
 const newBookInput = ref(null)
@@ -9033,7 +9048,7 @@ watch([
 })
 
 const shouldLockPageScroll = computed(() => {
-  return assetInboxOpen.value || showNewBookModal.value || illustratorBlocking.value
+  return assetInboxOpen.value || showNewBookModal.value || showManuscriptImport.value || illustratorBlocking.value
 })
 
 useBodyScrollLock(shouldLockPageScroll)
@@ -9073,6 +9088,9 @@ onMounted(() => {
     inspectorOpen.value = false
   }
   loadBooks()
+  const startIntent = String(route.query.start || '')
+  if (startIntent === 'import') openManuscriptImport({ clearRouteIntent: true })
+  else if (startIntent === 'new') createNewBook({ clearRouteIntent: true })
   const requestedExplorationId = String(route.query.explorationId || '').trim()
   if (requestedExplorationId) {
     wt3RefreshDocs()
@@ -9094,6 +9112,8 @@ onMounted(() => {
   window.addEventListener('resize', scheduleAnnotationLayout)
   window.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
   window.addEventListener('scroll', handleWritingWorkspaceScroll, true)
+  window.addEventListener('pagehide', handleAuthoringPageExit)
+  document.addEventListener('visibilitychange', handleAuthoringVisibilityChange)
   window.visualViewport?.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
   window.visualViewport?.addEventListener('scroll', handleContextMenuViewportChange, { passive: true })
 })
@@ -9111,6 +9131,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', scheduleAnnotationLayout)
   window.removeEventListener('resize', handleContextMenuViewportChange)
   window.removeEventListener('scroll', handleWritingWorkspaceScroll, true)
+  window.removeEventListener('beforeunload', handleAuthoringPageExit)
+  window.removeEventListener('pagehide', handleAuthoringPageExit)
+  document.removeEventListener('visibilitychange', handleAuthoringVisibilityChange)
   window.visualViewport?.removeEventListener('resize', handleContextMenuViewportChange)
   window.visualViewport?.removeEventListener('scroll', handleContextMenuViewportChange)
   annotationResizeObserver?.disconnect()
@@ -9122,6 +9145,35 @@ onBeforeUnmount(() => {
   clearPendingDocumentSaveTimers()
   if (['unsaved', 'saving', 'error'].includes(saveStatus.value)) writeCurrentWritingRecoveryDraft()
 })
+
+function handleAuthoringVisibilityChange() {
+  if (document.visibilityState === 'hidden') handleAuthoringPageExit({ type: 'visibilitychange' })
+}
+
+function handleAuthoringPageExit(event) {
+  if (!['unsaved', 'saving', 'error'].includes(saveStatus.value)) return true
+
+  // 浏览器刷新、关页和移动端切后台不会等待自动保存定时器。先留下同步恢复副本，
+  // 再走现有持久化边界；正式保存成功时该边界会清除这份副本。
+  writeCurrentWritingRecoveryDraft()
+  if (pendingGhostAdoption.value || blockPreview.value) {
+    if (event?.type === 'beforeunload') {
+      event.preventDefault?.()
+      event.returnValue = ''
+    }
+    return false
+  }
+  clearPendingDocumentSaveTimers()
+  const persisted = wt3ActiveDoc.value
+    ? wt3PersistActiveDoc()?.ok === true
+    : (!selectedChapterId.value || saveCurrentChapter({ automaticHistory: false }))
+
+  if (!persisted && event?.type === 'beforeunload') {
+    event.preventDefault?.()
+    event.returnValue = ''
+  }
+  return persisted
+}
 
 onBeforeRouteLeave(() => {
   if (pendingGhostAdoption.value) {
@@ -9386,6 +9438,9 @@ const stampStateText = computed(() => {
 const saveFeedbackVisible = ref(false)
 let saveFeedbackTimer = null
 watch(saveStatus, (next, previous) => {
+  const needsExitGuard = ['unsaved', 'saving', 'error'].includes(next)
+  if (needsExitGuard) window.addEventListener('beforeunload', handleAuthoringPageExit)
+  else window.removeEventListener('beforeunload', handleAuthoringPageExit)
   if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer)
   saveFeedbackTimer = null
   if (next === 'saved') {
@@ -11039,28 +11094,86 @@ function locateQualityIssue(issue) {
   }
 }
 
-function createNewBook() {
+function createNewBook({ clearRouteIntent = false } = {}) {
   showNewBookModal.value = true
   newBookTitle.value = ''
   newBookDesc.value = ''
   newBookWorldbookId.value = ''
   void worldStore.loadWorldbooksIndex()
   nextTick(() => newBookInput.value?.focus())
+  if (!clearRouteIntent || String(route.query.start || '') !== 'new') return
+  const query = { ...route.query }
+  delete query.start
+  void router.replace({ name: 'authoring', query })
+}
+
+function openManuscriptImport({ clearRouteIntent = false } = {}) {
+  if (!showManuscriptImport.value) manuscriptImportReturnFocus.value = document.activeElement
+  showManuscriptImport.value = true
+  if (!clearRouteIntent || String(route.query.start || '') !== 'import') return
+  const query = { ...route.query }
+  delete query.start
+  void router.replace({ name: 'authoring', query })
+}
+
+function closeManuscriptImport() {
+  showManuscriptImport.value = false
+  const returnTarget = manuscriptImportReturnFocus.value
+  manuscriptImportReturnFocus.value = null
+  nextTick(() => {
+    if (returnTarget?.isConnected) returnTarget.focus()
+  })
+}
+
+function confirmManuscriptImport(book) {
+  if (!book?.id || !Array.isArray(book.chapters) || !book.chapters.length) {
+    authoringTask.notify('书稿结构无效，未执行导入')
+    return false
+  }
+  const previousBooks = books.value
+  books.value = [...books.value, book]
+  if (!saveBooks()) {
+    books.value = previousBooks
+    authoringTask.notify('导入未能保存，请检查浏览器存储空间')
+    return false
+  }
+  showManuscriptImport.value = false
+  manuscriptImportReturnFocus.value = null
+  selectBook(book.id)
+  authoringTask.notify(`已导入《${book.title}》· ${book.chapters.length} 章`)
+  return true
 }
 
 function confirmCreateBook() {
   if (!newBookTitle.value.trim()) return
 
+  const createdAt = new Date().toISOString()
   const newBook = createWritingBookRecord({
     title: newBookTitle.value.trim(),
     description: newBookDesc.value.trim(),
     worldbookId: String(newBookWorldbookId.value || '')
   })
+  newBook.chapters = [{
+    id: `${Date.now()}-chapter-1`,
+    title: '第一章',
+    content: '',
+    contentFormat: 'md',
+    outlineItems: [],
+    wordCount: 0,
+    createdAt,
+    updatedAt: createdAt
+  }]
 
-  books.value.push(newBook)
-  saveBooks()
+  const previousBooks = books.value
+  books.value = [...books.value, newBook]
+  if (!saveBooks()) {
+    books.value = previousBooks
+    authoringTask.notify('书稿未能保存，请检查浏览器存储空间')
+    return
+  }
   selectBook(newBook.id)
   showNewBookModal.value = false
+  nextTick(() => requestAnimationFrame(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false })))
 }
 
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；

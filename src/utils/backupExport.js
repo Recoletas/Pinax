@@ -1,5 +1,6 @@
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { buildLegacyMigrationBundle } from '../services/migration/legacyMigrationBundle'
+import { STORAGE_KEY_POLICY } from '../services/storage/storageKeyPolicy.js'
 import { downloadJsonFile, timestampForFilename } from './download'
 
 /**
@@ -93,8 +94,15 @@ export const PINAX_BACKUP_DYNAMIC_PREFIXES = Object.freeze([
 ])
 
 // P1-5：备份版本 2 —— 新增 experience 摘要节（回合/检查点 + 记忆 revision）。
-// 现有 key-value 打包不变（向后兼容），版本 2 只增加摘要供恢复校验。
+// Web beta 起默认排除 secret-config；旧 v1/v2 文件仍可按原合同恢复。
 export const BACKUP_VERSION = 2
+
+export const PINAX_BACKUP_SECRET_KEYS = Object.freeze(
+  Object.entries(STORAGE_KEY_POLICY)
+    .filter(([, storageClass]) => storageClass === 'secret-config')
+    .map(([storageKeyName]) => STORAGE_KEYS[storageKeyName])
+    .filter(Boolean)
+)
 
 /**
  * Resolve the actual key set at export time so per-world and per-section
@@ -115,11 +123,13 @@ export function getPinaxBackupKeys(storage = localStorage) {
  * Read all Pinax-related localStorage keys and pack into a single JSON.
  * Non-existent keys are skipped (not stored as null).
  */
-export function buildBackup() {
+export function buildBackup({ storage = localStorage, includeSecrets = false } = {}) {
   const entries = {}
+  const excludedSecrets = new Set(includeSecrets ? [] : PINAX_BACKUP_SECRET_KEYS)
   let included = 0
-  for (const key of getPinaxBackupKeys()) {
-    const raw = localStorage.getItem(key)
+  for (const key of getPinaxBackupKeys(storage)) {
+    if (excludedSecrets.has(key)) continue
+    const raw = storage.getItem(key)
     if (raw === null) continue
     entries[key] = raw
     included++
@@ -130,9 +140,11 @@ export function buildBackup() {
     exportedAt: new Date().toISOString(),
     app: 'Pinax',
     keyCount: included,
+    excludedSecretKeys: [...excludedSecrets].filter((key) => storage.getItem(key) !== null),
+    includesIndexedDb: false,
     keys: entries,
     // P1-5：体验回合/检查点 + 记忆 revision 摘要（低敏，供恢复校验）
-    experience: buildExperienceBackupSummary(localStorage)
+    experience: buildExperienceBackupSummary(storage)
   }
 }
 
@@ -408,11 +420,15 @@ export function restoreBackup(input, {
   }
 }
 
-export function exportAllBackup() {
-  const backup = buildBackup()
+export function exportAllBackup(options = {}) {
+  const backup = buildBackup(options)
   const filename = `pinax-backup-${timestampForFilename()}.json`
   downloadJsonFile(backup, filename)
-  return { filename, keyCount: backup.keyCount }
+  return {
+    filename,
+    keyCount: backup.keyCount,
+    excludedSecretKeyCount: backup.excludedSecretKeys.length
+  }
 }
 
 export async function exportLegacyMigrationBundle(options = {}) {

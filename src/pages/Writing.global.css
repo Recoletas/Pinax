@@ -1755,6 +1755,11 @@
 .writing-page .wall__empty-actions {
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .writing-page .wall__pin-cta {
@@ -1764,6 +1769,20 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--archive-olive) 92%, var(--archive-ink));
   font-weight: 600;
+}
+
+.writing-page .wall__pin-link {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--archive-ink-soft, var(--text-secondary));
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 36%, transparent);
+  text-underline-offset: 4px;
+  cursor: pointer;
 }
 
 .writing-page .editor-toolbar {

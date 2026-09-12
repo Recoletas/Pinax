@@ -8,6 +8,7 @@ import {
   restoreBackup
 } from '../utils/backupExport'
 import { STORAGE_KEYS } from '../composables/useStorage'
+import { buildBetaDiagnosticReport } from '../utils/betaDiagnosticExport.js'
 
 describe('backupExport', () => {
   beforeEach(() => {
@@ -26,8 +27,10 @@ localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"sk-test"}')
     expect(b.schemaVersion).toBe(2)
     expect(b.app).toBe('Pinax')
     expect(typeof b.exportedAt).toBe('string')
-    expect(b.keyCount).toBeGreaterThanOrEqual(2)
-    expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBe('{"apiKey":"sk-test"}')
+    expect(b.keyCount).toBeGreaterThanOrEqual(1)
+    expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBeUndefined()
+    expect(b.excludedSecretKeys).toContain(STORAGE_KEYS.API_SETTINGS)
+    expect(b.includesIndexedDb).toBe(false)
     expect(b.keys[STORAGE_KEYS.WRITING_BOOKS]).toBe('[]')
 }
 {
@@ -92,6 +95,40 @@ localStorage.setItem('same-key', 'same')
     expect(plan.incompatible).toEqual([])
     expect(localStorage.getItem('overwrite-key')).toBe('old')
 }
+{
+    localStorage.clear()
+    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{
+      id: 'private-book-id',
+      title: '不能出现在诊断里的书名',
+      chapters: [{ id: 'private-chapter-id', title: '隐私章名', content: '隐私正文' }]
+    }]))
+    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, JSON.stringify({ apiKey: 'sk-private' }))
+
+    const report = await buildBetaDiagnosticReport({
+      navigatorRef: {
+        language: 'zh-CN',
+        onLine: true,
+        userAgent: 'Pinax test browser',
+        storage: {
+          estimate: async () => ({ usage: 1024, quota: 4096 }),
+          persisted: async () => false
+        }
+      },
+      locationRef: { pathname: '/authoring' },
+      windowRef: { innerWidth: 1440, innerHeight: 900, devicePixelRatio: 1 },
+      now: () => new Date('2026-09-12T00:00:00.000Z')
+    })
+    const serialized = JSON.stringify(report)
+    expect(report).toMatchObject({
+      schemaVersion: 1,
+      writing: { bookCount: 1, chapterCount: 1 },
+      storage: { estimatedOriginUsageBytes: 1024, persistentStorage: false },
+      privacy: { includesManuscriptText: false, includesApiKeys: false }
+    })
+    expect(serialized).not.toContain('隐私')
+    expect(serialized).not.toContain('private-book-id')
+    expect(serialized).not.toContain('sk-private')
+}
 })
 
   it("rejects malformed or future-version backups without touching storage（合并4例）", async () => {
@@ -120,7 +157,7 @@ localStorage.setItem('protected-key', 'keep')
 
 localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '"x"')
     const b = buildBackup()
-    expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBe('"x"')
+    expect(b.keys[STORAGE_KEYS.API_SETTINGS]).toBeUndefined()
     expect('undefined' in b.keys).toBe(false)
     expect(b.keys[STORAGE_KEYS.WRITING_BOOKS]).toBeUndefined()
 }
@@ -147,11 +184,13 @@ for (const v of Object.values(STORAGE_KEYS)) {
 
     try {
       localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"abc"}')
-      const { filename, keyCount } = exportAllBackup()
+      localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, '[]')
+      const { filename, keyCount, excludedSecretKeyCount } = exportAllBackup()
 
       expect(filename.startsWith('pinax-backup-')).toBe(true)
       expect(filename.endsWith('.json')).toBe(true)
       expect(keyCount).toBe(1)
+      expect(excludedSecretKeyCount).toBe(1)
       expect(fakeAnchor.click).toHaveBeenCalled()
     } finally {
       createElementSpy.mockRestore()
@@ -207,7 +246,8 @@ localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"abc"}')
     const b = buildBackup()
     const round = JSON.parse(JSON.stringify(b))
     expect(round.version).toBe(2)
-    expect(round.keys[STORAGE_KEYS.API_SETTINGS]).toBe('{"apiKey":"abc"}')
+    expect(round.keys[STORAGE_KEYS.API_SETTINGS]).toBeUndefined()
+    expect(JSON.stringify(round)).not.toContain('abc')
 }
 {
 

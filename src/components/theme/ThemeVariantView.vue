@@ -8,8 +8,10 @@ const props = defineProps({
 
 const RESOLVERS = {
   welcome: {
-    kao: () => import('../../views/WelcomeView.vue'),
-    legacy: () => import('../../views/legacy/WelcomeView.vue'),
+    // 首页承担产品入口而不是主题样稿展示；两套视觉变量共用同一条
+    // Authoring-first 任务路径，避免切换主题后重新出现“先冒险再写作”。
+    kao: () => import('../../views/AuthoringWelcomeView.vue'),
+    legacy: () => import('../../views/AuthoringWelcomeView.vue'),
   },
   opening: {
     kao: () => import('../../pages/OpeningPage.vue'),
