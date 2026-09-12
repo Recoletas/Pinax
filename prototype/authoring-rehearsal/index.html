@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN" class="theme-legacy">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>推演工作面 · Pinax 交互样稿</title>
+  <link rel="stylesheet" href="/src/styles/themes/legacy.css" />
+  <style>
+    * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
+    body { margin:0; background:var(--surface-workbench-muted); color:var(--archive-ink); font:14px/1.6 system-ui,sans-serif; }
+    button,input,textarea { font:inherit; }
+    button { cursor:pointer; border:0; background:none; color:inherit; min-height:44px; padding:8px 12px; }
+    button:hover { color:var(--accent); background:var(--accent-light); }
+    button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    button[aria-pressed=true] { color:var(--accent); }
+    .primary { background:var(--accent); color:var(--accent-text); padding:12px 22px; }
+    .primary:hover { background:var(--accent-hover); color:var(--accent-text); }
+    .mast { height:60px; padding:0 32px; display:flex; align-items:center; gap:16px; border-bottom:1px solid var(--hairline-soft); }
+    .mast strong { letter-spacing:.14em; font-size:13px; }
+    .mast small { margin-left:auto; color:var(--text-muted); }
+    .mast button { font-size:12px; }
+    .document { max-width:760px; margin:56px auto; padding:32px 44px; background:var(--archive-paper-soft); }
+    .eyebrow { color:var(--text-muted); font-size:12px; letter-spacing:.04em; }
+    h1,h2,h3,p { margin:0; }
+    .document h1 { margin:18px 0 36px; font:600 30px/1.5 serif; }
+    .prose { font:19px/2.1 'Noto Serif CJK SC','Songti SC',serif; }
+    .prose p { margin:0 0 24px; }
+    .entry { display:flex; align-items:center; justify-content:space-between; border-block:1px solid var(--hairline-soft); margin:28px 0; padding:12px 0; color:var(--text-secondary); font:13px/1.6 system-ui,sans-serif; }
+    .entry button { color:var(--accent); }
+    .workspace { display:grid; grid-template-columns:260px minmax(0,1fr); min-height:calc(100dvh - 60px); }
+    .context { padding:30px 26px; border-right:1px solid var(--hairline-soft); }
+    .context .back { padding-left:0; margin-bottom:44px; }
+    .context h2 { font-size:18px; font-weight:500; margin:10px 0 24px; }
+    .context blockquote { margin:0; padding:0 0 0 16px; border-left:2px solid var(--border-strong); color:var(--text-secondary); font:15px/2 serif; }
+    .context dl { margin-top:36px; display:grid; grid-template-columns:40px 1fr; gap:14px 10px; font-size:12px; }
+    .context dt { color:var(--text-muted); }
+    .context dd { margin:0; }
+    .context details { margin-top:32px; color:var(--text-secondary); font-size:12px; }
+    .mobile-context { display:none; }
+    summary { cursor:pointer; padding:8px 0; }
+    .sheet { background:var(--archive-paper-soft); min-width:0; padding:30px clamp(24px,4vw,72px); }
+    .topline { display:flex; align-items:center; gap:20px; margin-bottom:36px; }
+    .topline .eyebrow { margin-right:auto; }
+    .mode { border-bottom:1px solid var(--hairline-soft); display:flex; }
+    .mode button { font-size:13px; }
+    .mode [aria-pressed=true] { border-bottom:2px solid var(--accent); }
+    .question { font:500 clamp(24px,2.4vw,34px)/1.5 'Noto Serif CJK SC','Songti SC',serif; max-width:760px; letter-spacing:.025em; }
+    .subtitle { color:var(--text-secondary); margin-top:12px; }
+    .explore { display:grid; grid-template-columns:210px minmax(0,1fr); gap:42px; margin-top:48px; }
+    .paths { display:grid; align-content:start; gap:8px; }
+    .paths button { display:grid; gap:5px; text-align:left; padding:16px; border-left:2px solid transparent; }
+    .paths button[aria-pressed=true] { background:var(--surface-workbench-muted); border-color:var(--accent); }
+    .paths strong { font-weight:500; font-size:16px; }
+    .paths span { font-size:12px; color:var(--text-muted); }
+    .reading { min-width:0; max-width:660px; padding-top:14px; }
+    .reading h2 { font:500 25px/1.6 serif; margin:0 0 22px; }
+    .reading .action { font:19px/1.95 serif; }
+    .consequence { margin-top:30px; padding-top:20px; border-top:1px solid var(--hairline-soft); font-size:14px; color:var(--text-secondary); line-height:1.9; }
+    .consequence em { font-style:normal; color:var(--archive-ink); }
+    .note { margin:24px 0; color:var(--text-secondary); font-size:13px; }
+    .note textarea { display:block; width:100%; margin-top:10px; border:0; border-bottom:1px solid var(--border); padding:12px 0; resize:vertical; background:none; color:var(--archive-ink); }
+    .decision { display:flex; align-items:center; gap:16px; margin-top:30px; }
+    .decision small { color:var(--text-muted); }
+    .compare { margin-top:34px; }
+    .beliefs { display:grid; grid-template-columns:1fr 1fr; gap:32px; }
+    .beliefs label { display:grid; gap:12px; color:var(--text-secondary); font-size:12px; }
+    .beliefs input { width:100%; min-width:0; border:0; border-bottom:1px solid var(--border); background:none; color:var(--archive-ink); padding:12px 0; font-size:17px; }
+    .branch-readings { display:grid; grid-template-columns:1fr 1fr; gap:48px; margin-top:30px; }
+    .branch-readings article { min-width:0; }
+    .branch-readings h2 { font:500 24px/1.6 serif; margin-bottom:16px; }
+    .branch-readings p { font:17px/1.95 serif; }
+    .branch-readings .cost { margin:20px 0; font:13px/1.8 system-ui,sans-serif; color:var(--text-secondary); }
+    .branch-readings button { color:var(--accent); border-bottom:1px solid var(--accent); padding-left:0; }
+    .draft { max-width:780px; margin:0 auto; }
+    .draft-head { display:flex; align-items:center; gap:16px; margin-bottom:24px; }
+    .draft-head h1 { font:500 27px/1.5 serif; }
+    .draft-head span { margin-left:auto; font-size:12px; color:var(--text-muted); }
+    .draft textarea { width:100%; min-height:350px; border:0; padding:0; background:none; color:var(--archive-ink); font:20px/2.1 serif; resize:vertical; }
+    .draft textarea:focus-visible { outline:none; box-shadow:-2px 0 var(--accent); padding-left:14px; }
+    .draft footer { display:flex; align-items:center; flex-wrap:wrap; gap:12px; border-top:1px solid var(--hairline-soft); padding-top:20px; margin-top:24px; }
+    .draft footer .primary { margin-left:auto; }
+    .message { margin-top:20px; color:var(--accent); font-size:13px; }
+    @media(max-width:900px) {
+      .workspace { grid-template-columns:200px minmax(0,1fr); }
+      .context { padding:24px 20px; }
+      .sheet { padding:24px; }
+      .explore { grid-template-columns:1fr; gap:24px; margin-top:32px; }
+      .paths { grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+      .paths button { padding:10px; border-left:0; border-bottom:2px solid transparent; }
+      .paths strong { font-size:14px; }
+      .paths span { display:none; }
+      .reading { padding:0; }
+      .branch-readings { gap:24px; }
+    }
+    @media(max-width:720px) {
+      .mast { height:48px; padding:0 16px; gap:8px; }
+      .mast small { font-size:10px; }
+      .workspace { display:block; min-height:calc(100dvh - 48px); }
+      .context { padding:8px 20px; border-right:0; border-bottom:1px solid var(--hairline-soft); }
+      .context .back { margin:0; }
+      .context .context-body { display:none; }
+      .context .mobile-context { display:block; margin:0; padding-bottom:4px; }
+      .sheet { padding:24px 20px; }
+      .topline { margin-bottom:24px; gap:8px; }
+      .question { font-size:25px; }
+      .subtitle { font-size:13px; }
+      .reading h2 { font-size:23px; }
+      .reading .action { font-size:18px; }
+      .decision { flex-wrap:wrap; }
+      .beliefs, .branch-readings { grid-template-columns:1fr; gap:24px; }
+      .branch-readings article + article { border-top:1px solid var(--hairline-soft); padding-top:24px; }
+      .document { margin:0; padding:28px 24px; }
+      .draft textarea { min-height:390px; font-size:18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="mast"><strong>PINAX</strong><span>创作</span><small>交互样稿 · 固定样例 · 不保存</small><button id="theme" aria-label="切换深浅主题">◐</button></header>
+  <main id="manuscript" class="document">
+    <div class="eyebrow">雾港纪事 / 第二章</div><h1>第三排第七格</h1>
+    <div class="prose"><p>黄铜钥匙在她掌心发热。税务所后门仍锁着，门缝里却漏进海潮退去后的腥味。</p><p>艾德加本应守在档案室外，此刻走廊里只有他的旧呢帽。</p><p>莉娜想起书记里的那句话：第七响钟拖长时，不要回答任何人喊出的真名。</p></div>
+    <div class="entry"><span>从这里，试试另一种可能</span><button id="open">推演下一段 →</button></div>
+    <div class="prose"><p>书架深处传来纸页翻动声。每翻一页，穹顶的星图便亮起一颗。</p></div>
+  </main>
+  <main id="work" class="workspace" hidden>
+    <aside class="context">
+      <button class="back" id="return">← 返回正文</button>
+      <details class="mobile-context"><summary>落笔处 · 第三排第七格</summary><p>莉娜想起书记里的那句话：第七响钟拖长时，不要回答任何人喊出的真名。</p><p>旧港税务所 · 第七响之后 · 莉娜、艾德加</p></details>
+      <div class="context-body"><div class="eyebrow">落笔处 · 第二章</div><h2>第三排第七格</h2>
+        <blockquote>莉娜想起书记里的那句话：第七响钟拖长时，不要回答任何人喊出的真名。</blockquote>
+        <dl><dt>时间</dt><dd>第七响之后</dd><dt>地点</dt><dd>旧港税务所</dd><dt>人物</dt><dd>莉娜、艾德加</dd></dl>
+        <details><summary>本次参考</summary><p>当前段落、艾德加的人物设定。这里仅为布局样例，不读取项目资料。</p></details>
+      </div>
+    </aside>
+    <section class="sheet">
+      <div class="topline"><span class="eyebrow" id="stage">推演下一段</span><nav class="mode" aria-label="推演方式"><button id="normal" aria-pressed="true">故事走向</button><button id="if" aria-pressed="false">人物假设</button></nav></div>
+      <div id="choices">
+        <h1 class="question" tabindex="-1">要不要让艾德加<br>知道缺页的秘密？</h1>
+        <p class="subtitle">线索在他手里。信任他，也意味着交出一部分主动权。</p>
+        <div id="ordinary" class="explore">
+          <nav class="paths" aria-label="可能的走向">
+            <button data-path="0" aria-pressed="false"><strong>独自追查</strong><span>把秘密留在自己手里</span></button>
+            <button data-path="1" aria-pressed="true"><strong>让他靠近真相</strong><span>以信任换取线索</span></button>
+            <button data-path="2" aria-pressed="false"><strong>用谎言试探</strong><span>先看他知道多少</span></button>
+          </nav>
+          <article class="reading"><h2 id="action-title"></h2><p class="action" id="action"></p>
+            <p class="consequence" id="consequence"></p>
+            <details class="note"><summary>我还想加一点要求</summary><textarea aria-label="本次要求" placeholder="例如：让莉娜保持戒备，不要立刻和解。"></textarea></details>
+            <div class="decision"><button id="write" class="primary">沿这条路试写 →</button><small>先看试稿，再决定是否采用</small></div>
+          </article>
+        </div>
+        <section id="comparison" class="compare" hidden>
+          <div class="beliefs"><label>艾德加 · 原先的想法<input aria-label="原先的想法" value="承诺比真相更重要" /></label><label>如果他更相信……<input aria-label="另一种想法" value="真相不该属于任何一个人" /></label></div>
+          <p class="eyebrow" style="margin-top:14px">作者假设，不改正式设定。以下为固定示例，修改输入不会重新生成。</p>
+          <div class="branch-readings"><article><h2>替她守住秘密</h2><p>他认出装订线的伤口，却把总册合上，先问莉娜：这件事还有谁知道？</p><p class="cost">莉娜多了一个同盟，但两个人也将共同承担隐瞒的风险。</p><button data-branch="0">试写这个选择 →</button></article><article><h2>把缺页带到众人面前</h2><p>他把缺页移到灯下，坚持让值夜的书记也过来看。他不愿让证据只留在两个人手里。</p><p class="cost">证据有了见证者，莉娜却失去了独自决定调查方向的余地。</p><button data-branch="1">试写这个选择 →</button></article></div>
+        </section>
+      </div>
+      <section id="draft" class="draft" hidden>
+        <button id="back-choices" style="padding-left:0;margin-bottom:22px">← 回到走向，试另一条路</button>
+        <header class="draft-head"><h1 id="draft-title">让他靠近真相</h1><span>试稿 · 可修改</span></header>
+        <textarea id="draft-text" aria-label="编辑样例试稿"></textarea>
+        <footer><button id="keep">留作构思</button><button id="adopt" class="primary">采用这版正文</button></footer>
+      </section>
+      <p id="message" class="message" role="status"></p>
+    </section>
+  </main>
+  <script type="module">
+    // Isolated interaction mock: no repositories, localStorage, providers or production routes.
+    const $ = id => document.getElementById(id)
+    const paths = [
+      ['把他留在门外', '莉娜把缺页压回总册，借口需要安静核对账目，请艾德加去走廊守着。她决定自己检查暗格。', '她保住了调查的主动权。但艾德加已经看见她遮住那一页，下次再向他求助，就没那么容易了。', '莉娜用手背盖住缺页，把总册往自己这边拖了一寸。\n\n“替我看着门，好吗？”\n\n艾德加没有立刻动。他的目光落在她绷紧的手指上，过了一会儿，才拿起椅背上的旧呢帽。'],
+      ['把缺页推到他面前', '莉娜不再遮掩，将总册转向艾德加，请他辨认装订线上那道新伤。她想知道，他究竟认不认得这种拆线手法。', '他可能认出是谁动过总册。可是从这一刻起，这个秘密也属于他了——莉娜得接受他追问自己为何会来这里。', '莉娜把缺页摊在窗下，用指甲压住断线的地方。\n\n“你见过这种装订法吗？”\n\n艾德加没有碰纸。他先看了一眼门，才将灯往她手边移了移。\n\n“这不是撕掉的。”他说，“有人把整根线抽出来，又照原样缝了回去。”\n\n她松开手指。纸页在两个人之间慢慢翘起，那道一直被她盖住的编号终于露了出来。'],
+      ['故意说错一个编号', '莉娜随口报出一个不存在的暗格编号，装作只是对照目录。她等着看艾德加是否会纠正她。', '一次脱口而出的纠正，就可能暴露他的知情程度。但如果他看穿试探，之后的每一句话都会更难判断。', '“第三排，第九格。”莉娜说，翻页的手没有停。\n\n艾德加抬起了头。\n\n她没有看他，只把那个编号又念了一遍，像是在记住一件无关紧要的小事。']
+    ]
+    let selected = 1, mode = 'normal', draftKey = ''
+    const drafts = new Map()
+    function sizeDraft() { $('draft-text').style.height = 'auto'; $('draft-text').style.height = $('draft-text').scrollHeight + 'px' }
+    function select(index) {
+      selected = index
+      $('action-title').textContent = paths[index][0]; $('action').textContent = paths[index][1]; $('consequence').textContent = paths[index][2]
+      document.querySelectorAll('[data-path]').forEach(el => el.setAttribute('aria-pressed', String(Number(el.dataset.path) === index)))
+    }
+    function remember() { if (!$('draft').hidden && draftKey) drafts.set(draftKey, $('draft-text').value) }
+    function showChoices(next = mode) {
+      remember(); mode = next; $('draft').hidden = true; $('choices').hidden = false
+      $('ordinary').hidden = mode !== 'normal'; $('comparison').hidden = mode === 'normal'
+      $('normal').setAttribute('aria-pressed', String(mode === 'normal')); $('if').setAttribute('aria-pressed', String(mode === 'if'))
+      $('stage').textContent = '推演下一段'; $('message').textContent = ''
+    }
+    function showDraft(branch = null) {
+      draftKey = branch === null ? 'normal-' + selected : 'if-' + branch
+      $('draft-title').textContent = branch === null ? ['独自追查', '让他靠近真相', '用谎言试探'][selected] : ['替她守住秘密', '把缺页带到众人面前'][branch]
+      const sample = branch === null ? paths[selected][3] : branch === 0 ? '艾德加合上总册，手掌仍压在封面上。\n\n“还有谁知道？”\n\n莉娜摇头。他把灯转向门口，声音低了下来。\n\n“那么，先别让第三个人看到它。”' : '艾德加把灯芯拨亮，叫住了门外值夜的书记。\n\n“请你过来看看。”\n\n莉娜伸出去的手停在半空。缺页已经被推到了光下，她来不及再把它收回来。'
+      $('draft-text').value = drafts.get(draftKey) ?? sample
+      $('choices').hidden = true; $('draft').hidden = false; $('stage').textContent = '试写 · 正文尚未改变'; $('message').textContent = ''
+      sizeDraft()
+      $('draft-title').scrollIntoView({block:'nearest'}); $('draft-text').focus({preventScroll:true})
+    }
+    $('open').onclick = () => { $('manuscript').hidden = true; $('work').hidden = false; showChoices(); document.querySelector('.question').focus({preventScroll:true}); window.scrollTo(0,0) }
+    $('return').onclick = () => { remember(); $('work').hidden = true; $('manuscript').hidden = false; $('open').focus() }
+    $('normal').onclick = () => showChoices('normal'); $('if').onclick = () => showChoices('if')
+    $('back-choices').onclick = () => showChoices()
+    document.querySelectorAll('[data-path]').forEach(el => { el.onclick = () => select(Number(el.dataset.path)) })
+    document.querySelectorAll('[data-branch]').forEach(el => { el.onclick = () => showDraft(Number(el.dataset.branch)) })
+    $('write').onclick = () => showDraft()
+    $('draft-text').addEventListener('input', sizeDraft)
+    $('keep').onclick = () => { remember(); $('message').textContent = '样稿演示：正式版会留作构思；这里未写入任何项目数据。' }
+    $('adopt').onclick = () => { remember(); $('message').textContent = '样稿演示：正式版会将编辑稿写回落笔处；这里未修改正文。' }
+    $('theme').onclick = () => document.documentElement.classList.toggle('dark')
+    select(selected)
+  </script>
+</body>
+</html>

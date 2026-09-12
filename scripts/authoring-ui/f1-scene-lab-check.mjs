@@ -8,8 +8,8 @@ import { installDeterministicProviderMock } from './provider-mock.mjs'
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5173'
 const SLICE = String(process.env.F1_SLICE || '').trim()
-const FIXTURE_DIR = path.resolve('tmp/authoring-context-closure')
-const OUT_DIR = path.resolve('/tmp/pinax-authoring-f1')
+const FIXTURE_DIR = path.resolve(process.env.FIXTURE_DIR || 'tmp/authoring-context-closure')
+const OUT_DIR = path.resolve(process.env.OUT_DIR || '/tmp/pinax-authoring-f1')
 const REPORT_DIR = path.resolve('tmp/authoring-rollout/f1')
 const state = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-state.json'), 'utf8'))
 const sourceStorage = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-localstorage.json'), 'utf8'))
@@ -159,6 +159,36 @@ async function openLocationDetail(page, mobile = false) {
   return detail
 }
 
+// sticky 输入条会盖住滚动区底部与刚进入视口的栏头：滚到能点到的位置再点。
+async function clickReachable(page, locator, attempts = 14) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const point = await locator.evaluate((node) => {
+      const scroller = (() => {
+        let parent = node.parentElement
+        while (parent && parent !== document.body) {
+          const overflow = getComputedStyle(parent).overflowY
+          if ((overflow === 'auto' || overflow === 'scroll') && parent.scrollHeight > parent.clientHeight) return parent
+          parent = parent.parentElement
+        }
+        return null
+      })()
+      const box = node.getBoundingClientRect()
+      const x = Math.round(box.left + Math.max(4, box.width / 2))
+      const y = Math.round(box.top + Math.max(4, Math.min(box.height / 2, box.height - 4)))
+      const outside = box.bottom < 0 || box.top > window.innerHeight || box.right < 0 || box.left > window.innerWidth
+      if (outside) { node.scrollIntoView({ block: 'center' }); return null }
+      const hit = document.elementFromPoint(x, y)
+      if (hit && (hit === node || node.contains(hit))) return { x, y }
+      if (scroller) scroller.scrollTop += 48
+      else window.scrollBy(0, 48)
+      return null
+    }).catch(() => null)
+    if (point) { await page.mouse.click(point.x, point.y); return }
+    await page.waitForTimeout(120)
+  }
+  await locator.click({ force: true })
+}
+
 async function openSceneLaboratory(page, { mobile = false, intent = 'run-only' } = {}) {
   if (mobile) {
     const sceneTool = page.locator('[data-authoring-tool="scene"]')
@@ -174,9 +204,16 @@ async function openSceneLaboratory(page, { mobile = false, intent = 'run-only' }
   const edgar = inspector.locator('.scene-curation__people li').filter({ hasText: '艾德加' }).first()
   await edgar.waitFor({ state: 'visible' })
   await edgar.locator('.scene-curation__person-toggle').click()
-  await edgar.getByRole('button', { name: intent === 'next-passage' ? '让他下一段入场' : '仅带入本次推演' }).click()
   const laboratory = page.locator('[data-test="scene-laboratory"]')
-  await laboratory.waitFor({ state: 'visible' })
+  await edgar.getByRole('button', { name: intent === 'next-passage' ? '让他下一段入场' : '仅带入本次推演' }).click()
+  const rehearsalPanel = page.locator('[data-test="rehearsal-panel"]')
+  await rehearsalPanel.waitFor({ state: 'visible' })
+  if (SLICE === 'if') {
+    // 人物 IF 需要一次已冻结、信息充足的推演起点，再从推演右栏进入对照。
+    await clickReachable(page, rehearsalPanel.getByLabel('更多试演操作'))
+    await clickReachable(page, rehearsalPanel.getByRole('button', { name: '人物信念对照' }))
+    await laboratory.waitFor({ state: 'visible' })
+  }
   return laboratory
 }
 
@@ -259,30 +296,145 @@ function stableWritingStorage(snapshot) {
 
 const browser = await chromium.launch()
 try {
-  if (SLICE === 'if') {
-    for (const width of [1440, 390]) {
-      const context = await seedFinalContext(browser, { width, height: 900 })
+  if (SLICE === 'rehearsal') {
+    for (const width of [1440, 390, 720, 900]) {
+      const context = await seedFinalContext(browser, { width, height: width === 720 ? 450 : 900 }, { dark: width === 900 })
+      const page = await context.newPage()
+      const errors = []
+      page.on('pageerror', error => errors.push(error.message))
+      const provider = await installDeterministicProviderMock(page, { passiveInline: false, blockText: finalProse,
+        expectedComposerInstruction: '莉娜直接坦白', excludedDirectionTexts: ['莉娜先隐瞒缺页', '继续追问钥匙'] })
+      await mockDirectionPlanner(page)
+      const steps = []
+      await page.route('**/api/advisor/task', async route => {
+        const payload = route.request().postDataJSON()
+        if (payload.taskType !== 'authoring.rehearsal.step') return route.fallback()
+        steps.push(payload)
+        const output = { response: '艾德加移开压在总册上的手，追问她为何知道缺页。\n\n“你来之前，就知道要找哪一页？”他没有接那把钥匙，只把桌上的灯转向她。灯光照见她袖口新沾的纸灰。\n\n莉娜还没回答，他已经把门推开一道缝，向走廊看了一眼，又退回来，等她先开口。', change: '他已经察觉她隐瞒了线索。', choices: ['解释钥匙的来历', '反问他为什么守在这里'], evidenceRefs: [] }
+        await route.fulfill({ json: { taskType: payload.taskType, advice: JSON.stringify(output), result: { task: payload.taskType, rehearsal: output } } })
+      })
+      await openTarget(page)
+      await page.locator('[data-authoring-tool="rehearsal"]').click()
+      const panel = page.locator('[data-test="rehearsal-panel"]')
+      await panel.getByRole('button', { name: '从当前段落开始', exact: true }).click()
+      await panel.getByLabel('试演行动').waitFor({ timeout: 15000 }).catch(async error => {
+        console.log('Rehearsal diagnostic', JSON.stringify({ text: await panel.innerText(), errors }))
+        await page.screenshot({ path: path.join(OUT_DIR, 'rehearsal-failure-' + width + '.png') })
+        throw error
+      })
+      await panel.screenshot({ path: path.join(OUT_DIR, 'rehearsal-entry-' + width + '.png') })
+      // Let initial fixture migration/autosave settle before measuring rehearsal writes.
+      await page.waitForTimeout(1200)
+      const storedBefore = stableWritingStorage(await page.evaluate(() => ({ ...localStorage })))
+      await panel.getByLabel('试演行动').fill('莉娜先隐瞒缺页')
+      await panel.getByRole('button', { name: '试演', exact: true }).click()
+      await panel.locator('.rehearsal-steps li').first().waitFor()
+      await panel.getByLabel('试演行动').fill('继续追问钥匙')
+      await panel.getByRole('button', { name: '试演', exact: true }).click()
+      await panel.locator('.rehearsal-steps li').nth(1).waitFor()
+      check('F1-rehearsal 第二步承接第一步 ' + width, steps[1].question.includes('莉娜先隐瞒缺页') && steps[1].question.includes('艾德加移开'))
+      check('F1-rehearsal 不生成或插入正式正文 ' + width, provider.count({ kind: 'narrative' }) === 0 && await page.locator('[data-test="block-draft"]').count() === 0)
+      check('F1-rehearsal 旧步默认连续可读 ' + width,
+        await panel.locator('.rehearsal-step-body').evaluateAll(nodes => nodes.every(node => node.offsetParent)) &&
+        await panel.locator('.rehearsal-step-head').evaluateAll(nodes => nodes.every(node => node.getAttribute('aria-expanded') === 'true')))
+      await clickReachable(page, panel.locator('.rehearsal-step-head').first())
+      check('F1-rehearsal 作者折叠只影响该步 ' + width,
+        await panel.locator('.rehearsal-step-head').evaluateAll(nodes => nodes[0].getAttribute('aria-expanded') === 'false'
+          && nodes.slice(1).every(node => node.getAttribute('aria-expanded') === 'true')))
+      await clickReachable(page, panel.locator('.rehearsal-step-head').first())
+      await clickReachable(page, panel.locator('.rehearsal-back').first())
+      await panel.getByLabel('试演行动').fill('莉娜直接坦白')
+      await panel.getByRole('button', { name: '试演', exact: true }).click()
+      await panel.locator('.rehearsal-steps li').first().waitFor()
+      check('F1-rehearsal 回退后不带旧路 ' + width, !steps[2].question.includes('继续追问钥匙') && !steps[2].question.includes('莉娜先隐瞒缺页'))
+      await panel.locator('.rehearsal-steps li').first().scrollIntoViewIfNeeded()
+      await page.screenshot({ path: path.join(OUT_DIR, 'rehearsal-path-' + width + '.png') })
+      check('F1-rehearsal 阅读滚动时输入不被带走 ' + width, await panel.evaluate(el => {
+        const flow = el.querySelector('.rehearsal-flow')
+        const input = el.querySelector('textarea')
+        const before = input.getBoundingClientRect()
+        const own = getComputedStyle(flow).overflowY === 'auto' && flow.scrollHeight > flow.clientHeight
+        if (own) {
+          const top = flow.scrollTop
+          flow.scrollTop = flow.scrollHeight
+          const after = input.getBoundingClientRect()
+          flow.scrollTop = top
+          return before.top === after.top && flow.clientHeight >= 80
+        }
+        return before.height > 0
+      }))
+      check('F1-rehearsal 输入可达且不横向溢出 ' + width, await panel.evaluate(el => {
+        const input = el.querySelector('.rehearsal-compose textarea')
+        if (input) {
+          const box = input.getBoundingClientRect()
+          const hit = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2))
+          if (!(hit === input || input.contains(hit))) return false
+        }
+        return el.scrollWidth <= el.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1
+      }))
+      await clickReachable(page, panel.getByRole('button', { name: '写成试稿', exact: true }))
+      await page.locator('[data-test="block-draft"]').waitFor({ timeout: 45000 }).catch(async error => {
+        console.log('Rehearsal draft diagnostic', JSON.stringify({ text: await panel.innerText(), errors, provider: provider.summary() }))
+        throw error
+      })
+      await page.screenshot({ path: path.join(OUT_DIR, 'rehearsal-draft-' + width + '.png') })
+      check('F1-rehearsal 选定事件显式写成草稿 ' + width, provider.count({ kind: 'narrative' }) > 0)
+      check('F1-rehearsal 正文请求只携带当前选择 ' + width,
+        provider.summary().composerInstructionSeen && !provider.summary().excludedDirectionSeen)
+      const storedAfter = stableWritingStorage(await page.evaluate(() => ({ ...localStorage })))
+      // Critic latency/counter telemetry is not manuscript, world state or memory.
+      const changedKeys = [...new Set([...Object.keys(storedBefore), ...Object.keys(storedAfter)])]
+        .filter(key => key !== 'pinax_narrative_critic_metrics_v1' && storedBefore[key] !== storedAfter[key])
+      check('F1-rehearsal 采用前正式存储不变 ' + width, changedKeys.length === 0, changedKeys.join(', '))
+      if (!await page.locator('.writing-inspector.is-open [data-test="rehearsal-panel"]').count()) await page.locator('[data-authoring-tool="rehearsal"]').click()
+      const beforeView = provider.count({ kind: 'narrative' })
+      await clickReachable(page, panel.getByRole('button', { name: '查看试稿', exact: true }))
+      check('F1-rehearsal 查看已有试稿不重新生成 ' + width, provider.count({ kind: 'narrative' }) === beforeView)
+      check('F1-rehearsal 浏览器无页面错误 ' + width, errors.length === 0, errors.join(' | '))
+      await context.close()
+    }
+  } else if (SLICE === 'if') {
+    for (const width of [1440, 390, 720, 900]) {
+      const context = await seedFinalContext(browser, { width, height: width === 720 ? 450 : 900 }, { dark: width === 900 })
       const page = await context.newPage()
       const errors = []
       page.on('pageerror', error => errors.push(error.message))
       const provider = await installDeterministicProviderMock(page, { passiveInline: false, blockText: finalProse })
       const calls = await mockDirectionPlanner(page)
       await openTarget(page)
-      const lab = await openSceneLaboratory(page, { mobile: width === 390 })
-      await lab.locator('.authoring-scene-lab__direction').first().click()
-      await lab.getByRole('button', { name: '只改一个条件' }).click()
+      const lab = await openSceneLaboratory(page, { mobile: width <= 720 })
+      if (await lab.getByRole('button', { name: '只改一个条件' }).isVisible()) await lab.getByRole('button', { name: '只改一个条件' }).click()
       await lab.getByLabel('IF 人物名', { exact: true }).fill('艾德加')
-      await lab.getByLabel('条件 A', { exact: true }).fill('守诺')
-      await lab.getByLabel('条件 B', { exact: true }).fill('坦白')
+      await lab.getByLabel('条件 A', { exact: true }).fill('即使受罚，也要遵守对莉娜的承诺')
+      await lab.getByLabel('条件 B', { exact: true }).fill('比起守诺，更应该公开真相')
+      await lab.evaluate(el => el.scrollIntoView({ block: 'start' }))
+      await page.screenshot({ path: path.join(OUT_DIR, 'if-setup-' + width + '.png') })
       await lab.getByRole('button', { name: '开始 A/B 对照' }).click()
       await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').first().waitFor()
       await page.waitForFunction(() => !document.querySelector('.authoring-scene-lab__if-choices [role="status"]'))
+      await lab.evaluate(el => el.scrollIntoView({ block: 'start' }))
+      await page.screenshot({ path: path.join(OUT_DIR, 'if-compare-' + width + '.png') })
+      check('F1-if 宽度适配且主按钮可见 ' + width, await lab.evaluate(el => {
+        const button = el.querySelector('.authoring-scene-lab__write')
+        const style = getComputedStyle(button)
+        return el.scrollWidth <= el.clientWidth + 1 && style.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+          [...el.querySelectorAll('.authoring-scene-lab__branch')].filter(branch => getComputedStyle(branch).display !== 'none').length === (el.clientWidth > 780 ? 2 : 1)
+      }))
+      await lab.getByRole('button', { name: '修改条件', exact: true }).click()
+      check('F1-if 修改条件保留原值 ' + width,
+        await lab.getByLabel('条件 A', { exact: true }).inputValue() === '即使受罚，也要遵守对莉娜的承诺')
+      await lab.getByRole('button', { name: '取消修改', exact: true }).click()
+      check('F1-if 阶段互斥且无技术引用 ' + width,
+        await lab.locator('form, [aria-label="本场方向"]').count() === 0 &&
+        !(await lab.innerText()).includes('unit:'))
       check('F1-if 两支独立规划且共享冻结资料 ' + width,
         calls.length === 3 && calls[1].question !== calls[2].question &&
         JSON.stringify(calls[1].envelope) === JSON.stringify(calls[2].envelope))
       check('F1-if 未选择不写正文 ' + width, provider.count({ kind: 'narrative' }) === 0 &&
         await lab.getByLabel('以 A 条件写正文').isDisabled())
-      await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
+      await lab.locator('[aria-label="A 条件行动"] .authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
+      await lab.getByLabel('以 A 条件写正文').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: path.join(OUT_DIR, 'if-selected-' + width + '.png') })
       await lab.getByLabel('以 A 条件写正文').click()
       const draft = page.locator('[data-test="block-draft"]')
       await draft.waitFor({ timeout: 30000 }).catch(async error => {
@@ -291,7 +443,7 @@ try {
       })
       await draft.locator('textarea').fill('A 支作者手改内容。')
       await draft.getByRole('button', { name: 'B 条件', exact: true }).click()
-      await lab.locator('.authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
+      await lab.locator('[aria-label="B 条件行动"] .authoring-scene-lab__if-choices [aria-pressed]').nth(1).click()
       await lab.getByLabel('以 B 条件写正文').click()
       await draft.waitFor({ timeout: 30000 })
       await draft.locator('textarea').fill('B 支作者手改内容。')

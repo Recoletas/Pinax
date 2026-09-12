@@ -517,7 +517,13 @@ describe('agentContracts', function () {
     })
 
     expect(getTasksBySurface('settings').length).toBe(13)
-    expect(getTasksBySurface('authoring').length).toBe(19)
+    expect(getTasksBySurface('authoring').length).toBe(20)
+    expect(getTask('authoring.rehearsal.step')).toMatchObject({ resultSchema: 'rehearsal-response.v1', effectPolicy: 'ephemeral' })
+    const rehearsalResponse = createAdvisorTaskResponse({ taskType: 'authoring.rehearsal.step', advice: JSON.stringify({
+      response: '他收回伸向信封的手。', change: '信封仍在桌上。', choices: ['问他在担心什么'], evidenceRefs: [],
+      actions: [{ type: 'text-insert', content: '不能写入' }], replacement: '不能写入'
+    }) })
+    expect(rehearsalResponse.result).toMatchObject({ rehearsal: { response: '他收回伸向信封的手。' }, typedActions: [], action: [], replacement: '' })
     expect(getTasksBySurface('observer').length).toBe(6)
     expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(
       expect.arrayContaining(['materials.refine', 'materials.classify', 'materials.split', 'materials.relate'])

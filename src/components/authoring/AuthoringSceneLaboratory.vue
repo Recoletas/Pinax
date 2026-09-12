@@ -10,6 +10,7 @@ const props = defineProps({
   ifBranches: { type: Object, default: null },
   ifActiveBranch: { type: String, default: 'A' },
   ifPlans: { type: Object, default: () => ({}) },
+  ifBusy: { type: Boolean, default: false },
   ifBaseline: { type: Array, default: () => [] },
   initialIfOpen: { type: Boolean, default: false },
   initialIfActor: { type: String, default: '' },
@@ -18,7 +19,23 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select', 'confirm', 'back', 'close', 'ordinary', 'supplement', 'retry', 'start-if', 'switch-if-branch', 'write-if-draft', 'append-requirement', 'plan-if', 'select-if'])
-const ifOpen = ref(props.initialIfOpen)
+const ifOpen = ref(props.initialIfOpen || Boolean(props.ifBranches?.A))
+const editingConditions = ref(false)
+const visibleBranch = ref(props.ifActiveBranch)
+const hasComparison = computed(() => Boolean(props.ifBranches?.A && props.ifBranches?.B))
+watch(() => props.ifActiveBranch, value => { visibleBranch.value = value })
+watch(() => props.ifBranches?.A, value => {
+  if (value) { editingConditions.value = false; ifOpen.value = true }
+})
+function editConditions() {
+  ifBeliefA.value = props.ifBranches?.A?.belief || ifBeliefA.value
+  ifBeliefB.value = props.ifBranches?.B?.belief || ifBeliefB.value
+  editingConditions.value = true
+}
+function startComparison() {
+  if (props.ifBusy) return
+  emit('start-if', { actor: ifActor.value.trim(), beliefA: ifBeliefA.value.trim(), beliefB: ifBeliefB.value.trim() })
+}
 const ifActor = ref(props.initialIfActor)
 watch(() => props.initialIfOpen, value => { ifOpen.value = value })
 watch(() => props.initialIfActor, value => { ifActor.value = value })
@@ -35,6 +52,7 @@ const intentName = computed(() => String(
   || ''
 ).trim())
 const heading = computed(() => {
+  if (ifOpen.value) return '同一情境，两种选择'
   if (!props.entryIntent || !intentName.value) return '推演本场'
   if (props.entryIntent.mode === 'next-passage') {
     return props.entryIntent.entityKind === 'location'
@@ -46,6 +64,7 @@ const heading = computed(() => {
     : `带${intentName.value}参与这次推演`
 })
 const headingDetail = computed(() => {
+  if (ifOpen.value) return '只改一句信念，看看人物会怎么做'
   if (!props.entryIntent) return '先选清楚因果方向，再决定是否写成正文'
   return props.entryIntent.mode === 'next-passage'
     ? '采纳推演稿后才更新当前场'
@@ -84,6 +103,7 @@ function handleLaboratoryKeydown(event) {
 <template>
   <section
     class="authoring-scene-lab"
+    :class="{ 'is-comparing': ifOpen }"
     data-test="scene-laboratory"
     :data-scene-lab-phase="phase"
     :aria-label="heading"
@@ -97,7 +117,7 @@ function handleLaboratoryKeydown(event) {
       <button type="button" aria-label="关闭场景实验室" @click="emit('close')">收起</button>
     </header>
 
-    <p v-if="entryIntent" class="authoring-scene-lab__intent">
+    <p v-if="entryIntent && !ifOpen" class="authoring-scene-lab__intent">
       <span>{{ intentKindLabel }}</span><strong>{{ intentName }}</strong><small>{{ entryIntent.mode === 'next-passage' ? '下一段生效' : '仅本次' }}</small>
     </p>
 
@@ -146,7 +166,12 @@ function handleLaboratoryKeydown(event) {
         </div>
       </div>
 
-      <ol class="authoring-scene-lab__directions" aria-label="本场方向">
+      <div class="authoring-scene-lab__mode">
+        <button v-if="ifOpen" type="button" @click="ifOpen = false">← 返回本场方向</button>
+        <button v-else type="button" @click="ifOpen = true">{{ hasComparison ? '继续人物对照' : '只改一个条件' }}</button>
+        <button v-if="ifOpen && hasComparison && !editingConditions" type="button" @click="editConditions">修改条件</button>
+      </div>
+      <ol v-if="!ifOpen" class="authoring-scene-lab__directions" aria-label="本场方向">
         <li v-for="(direction, index) in directions" :key="direction.id">
           <button
             type="button"
@@ -168,96 +193,100 @@ function handleLaboratoryKeydown(event) {
         </li>
       </ol>
 
-      <footer v-if="selectedDirection || initialIfOpen" class="authoring-scene-lab__footer is-selection">
-        <p><span>{{ notice ? '当前状态' : '准备沿此方向落笔' }}</span>{{ notice || selectedDirection?.title || '填写一条信念，比较两种条件下的选择。' }}</p>
-        <!-- U44：追加一句要求，改变当前方向下的具体行动 -->
-        <div class="authoring-scene-lab__append">
-          <input
-            type="text"
-            class="authoring-scene-lab__append-input"
-            :value="appendRequirement"
-            placeholder="按这个方向，但……（可留空直接推演）"
-            aria-label="追加要求"
-            @input="emit('append-requirement', $event.target.value)"
-          />
-        </div>
-        <!-- U45: 只改一个条件（人物 IF 入口） -->
-        <div class="authoring-scene-lab__if-entry">
-          <button type="button" class="authoring-scene-lab__if-toggle"
-            :aria-expanded="ifOpen ? 'true' : 'false'"
-            @click="ifOpen = !ifOpen">{{ ifOpen ? '收起人物 IF' : '只改一个条件' }}</button>
-          <div v-if="ifOpen" class="authoring-scene-lab__if-panel" role="group" aria-label="人物 IF 面板">
-            <p class="authoring-scene-lab__if-hint">同一情境，只改一句信念，对照 A/B 行动。</p>
-            <label class="authoring-scene-lab__if-label">人物
-              <input type="text" class="authoring-scene-lab__if-input" v-model="ifActor"
-                placeholder="如：艾德加" aria-label="IF 人物名" /></label>
-            <label class="authoring-scene-lab__if-label">条件 A（当前假设）
-              <input type="text" class="authoring-scene-lab__if-input" v-model="ifBeliefA"
-                placeholder="如：忠于城主" aria-label="条件 A" /></label>
-            <label class="authoring-scene-lab__if-label">条件 B（试验假设）
-              <input type="text" class="authoring-scene-lab__if-input" v-model="ifBeliefB"
-                placeholder="如：暗中背叛城主" aria-label="条件 B" /></label>
-            <button type="button" class="is-primary authoring-scene-lab__if-start"
-              :disabled="!ifActor || !ifBeliefA || !ifBeliefB"
-              @click="emit('start-if', { actor: ifActor, beliefA: ifBeliefA, beliefB: ifBeliefB })">开始 A/B 对照</button>
-          </div>
-        </div>
-        <div v-if="ifBranches && ifBranches.A && ifBranches.B" class="authoring-scene-lab__ab" role="group" aria-label="A/B 对照">
-          <p>两支只改变信念；行动可能相同。代价是预测，条件是作者假设。仅在本次会话保留，请及时留作构思。</p>
-          <details>
-            <summary>查看共用的冻结依据</summary>
-            <p v-for="(fact, index) in ifBaseline" :key="index" class="authoring-scene-lab__baseline">{{ fact.text }}</p>
-          </details>
-          <div v-for="bid in ['A', 'B']" :key="bid"
-            class="authoring-scene-lab__ab-card"
-            :class="{ 'is-active': ifActiveBranch === bid }"
-            role="button" tabindex="0"
-            :aria-label="'切换到 ' + bid"
-            @click="emit('switch-if-branch', bid)"
-            @keydown.enter="emit('switch-if-branch', bid)">
-            <span class="authoring-scene-lab__ab-label">{{ bid }}</span>
-            <span class="authoring-scene-lab__ab-belief">{{ ifBranches[bid]?.belief ?? '' }}</span>
-          </div>
-          <div class="authoring-scene-lab__if-choices">
-            <p v-if="ifPlans[ifActiveBranch]?.status === 'planning'" role="status">正在整理 {{ ifActiveBranch }} 的行动…</p>
-            <p v-if="ifPlans[ifActiveBranch]?.status === 'failed'" role="alert">{{ ifPlans[ifActiveBranch].message }}</p>
-            <button v-if="!ifPlans[ifActiveBranch] || ifPlans[ifActiveBranch]?.status === 'failed'"
-              type="button" @click="emit('plan-if', ifActiveBranch)">重试这一支的行动</button>
-            <button v-for="direction in ifPlans[ifActiveBranch]?.run?.directionSet?.directions || []"
-              :key="direction.id" type="button"
-              :aria-pressed="ifPlans[ifActiveBranch].run.selectedDirectionId === direction.id"
-              @click="emit('select-if', { branchId: ifActiveBranch, directionId: direction.id })">
-              <strong>{{ direction.title }}</strong>
-              <span>{{ direction.action }}</span>
-              <span>眼前所得：{{ direction.immediateGain }} · 预测代价：{{ direction.cost }}</span>
-              <small>依据：{{ (direction.evidenceRefs || []).join('、') }}</small>
-            </button>
-            <button type="button" class="is-primary"
-              :disabled="!ifPlans[ifActiveBranch]?.run?.selectedDirectionId"
-              :aria-label="'以 ' + ifActiveBranch + ' 条件写正文'"
-              @click="emit('write-if-draft', ifActiveBranch)">按此假设写成正文</button>
-          </div>
-        </div>
-        <div v-if="!ifBranches?.A && selectedDirection" class="authoring-scene-lab__footer-actions">
+      <footer v-if="!ifOpen && selectedDirection" class="authoring-scene-lab__footer is-selection">
+        <p><span>准备沿此方向落笔</span>{{ selectedDirection.title }}</p>
+        <label class="authoring-scene-lab__append">
+          <span class="sr-only">追加要求</span>
+          <input type="text" class="authoring-scene-lab__append-input"
+            :value="appendRequirement" placeholder="按这个方向，但……（可留空）" aria-label="追加要求"
+            @input="emit('append-requirement', $event.target.value)" />
+        </label>
+        <div class="authoring-scene-lab__footer-actions">
           <button type="button" @click="emit('select', '')">换方向</button>
           <button type="button" class="is-primary" @click="emit('confirm', selectedDirection)">{{ appendRequirement ? '按新要求推演' : '按此推演' }}</button>
         </div>
       </footer>
+
+      <form v-if="ifOpen && (!hasComparison || editingConditions)" class="authoring-scene-lab__if-panel"
+        aria-label="人物 IF 面板" @submit.prevent="startComparison">
+        <label class="authoring-scene-lab__if-label is-actor">这次想试谁的选择
+          <input v-model="ifActor" required class="authoring-scene-lab__if-input"
+            placeholder="人物名字，如：艾德加" aria-label="IF 人物名" />
+        </label>
+        <div class="authoring-scene-lab__conditions">
+          <label class="authoring-scene-lab__if-label"><span>原先的想法 <small>作者假设 A</small></span>
+            <textarea v-model="ifBeliefA" required rows="2" class="authoring-scene-lab__if-input"
+              placeholder="如：即使受罚，也要遵守承诺" aria-label="条件 A" />
+          </label>
+          <label class="authoring-scene-lab__if-label"><span>换一种想法 <small>作者假设 B</small></span>
+            <textarea v-model="ifBeliefB" required rows="2" class="authoring-scene-lab__if-input"
+              placeholder="如：比起守诺，更应该公开真相" aria-label="条件 B" />
+          </label>
+        </div>
+        <div class="authoring-scene-lab__form-actions">
+          <span>{{ hasComparison ? '重新对照会替换本次两支试稿，请先留作构思。' : '不修改正式人物设定。' }}</span>
+          <button v-if="hasComparison" type="button" @click="editingConditions = false">取消修改</button>
+          <button type="submit" class="is-primary"
+            :disabled="ifBusy || !ifActor.trim() || !ifBeliefA.trim() || !ifBeliefB.trim()">{{ ifBusy ? '正在准备…' : '开始 A/B 对照' }}</button>
+        </div>
+      </form>
+
+      <div v-else-if="ifOpen && hasComparison" class="authoring-scene-lab__ab" aria-label="A/B 对照">
+        <div class="authoring-scene-lab__branch-nav" aria-label="查看人物条件">
+          <button v-for="bid in ['A', 'B']" :key="bid" type="button"
+            :aria-pressed="visibleBranch === bid" @click="visibleBranch = bid">
+            <strong>{{ bid === 'A' ? '原先的想法' : '换一种想法' }}</strong>
+            <span>{{ ifBranches[bid].belief }}</span>
+          </button>
+        </div>
+        <div class="authoring-scene-lab__comparison">
+          <section v-for="bid in ['A', 'B']" :key="bid"
+            class="authoring-scene-lab__branch" :class="{ 'is-visible': visibleBranch === bid }"
+            :aria-label="bid + ' 条件行动'">
+            <header class="authoring-scene-lab__branch-heading">
+              <span>{{ bid === 'A' ? '原先的想法' : '换一种想法' }} · 作者假设</span>
+              <h3>{{ ifBranches[bid].belief }}</h3>
+            </header>
+            <div class="authoring-scene-lab__if-choices">
+              <p v-if="ifPlans[bid]?.status === 'planning'" role="status">正在推演这种想法下的行动…</p>
+              <p v-if="ifPlans[bid]?.status === 'failed'" role="alert">{{ ifPlans[bid].message }}</p>
+              <button v-if="!ifPlans[bid] || ifPlans[bid]?.status === 'failed'"
+                type="button" @click="emit('plan-if', bid)">重试这一支的行动</button>
+              <button v-for="direction in ifPlans[bid]?.run?.directionSet?.directions || []"
+                :key="direction.id" type="button" class="authoring-scene-lab__if-choice"
+                :aria-pressed="ifPlans[bid].run.selectedDirectionId === direction.id"
+                @click="emit('select-if', { branchId: bid, directionId: direction.id })">
+                <strong>{{ direction.title }}</strong>
+                <span>{{ direction.action }}</span>
+                <span class="authoring-scene-lab__tradeoff"><small>可能得到</small>{{ direction.immediateGain }}</span>
+                <span class="authoring-scene-lab__tradeoff"><small>可能付出</small>{{ direction.cost }}</span>
+              </button>
+            </div>
+            <button type="button" class="is-primary authoring-scene-lab__write"
+              :disabled="ifBusy || !ifPlans[bid]?.run?.selectedDirectionId || ['stale', 'failed', 'cancelled'].includes(ifBranches[bid]?.lifecycle)"
+              :aria-label="'以 ' + bid + ' 条件写正文'"
+              @click="emit('write-if-draft', bid)">写成这一版正文</button>
+          </section>
+        </div>
+        <details class="authoring-scene-lab__references">
+          <summary>本次参考与说明</summary>
+          <p>两种选择共用同一份现场资料；行动可能相同，代价只是预测。对照仅在本次会话保留，可将草稿留作构思。</p>
+          <p v-for="(fact, index) in ifBaseline" :key="index" class="authoring-scene-lab__baseline">{{ fact.text }}</p>
+        </details>
+      </div>
+      <p v-if="notice && !notice.startsWith('IF 对照已启动')" class="authoring-scene-lab__notice" role="status">{{ notice }}</p>
     </template>
   </section>
 </template>
 
 <style scoped>
-.authoring-scene-lab__if-choices { display: grid; gap: 8px; min-width: 0; }
-.authoring-scene-lab__if-choices button { display: grid; gap: 4px; text-align: start; white-space: normal; overflow-wrap: anywhere; }
-.authoring-scene-lab__if-choices [aria-pressed="true"] { outline: 1px solid var(--text-secondary); }
 .authoring-scene-lab__baseline { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
 .authoring-scene-lab {
   position: relative;
   width: 100%;
   max-width: 100%;
   padding: 18px 16px 16px 42px;
-  border-block: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+  border-block: 1px solid color-mix(in srgb, var(--hairline-soft) 78%, transparent);
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-body);
@@ -297,7 +326,7 @@ function handleLaboratoryKeydown(event) {
   gap: 9px;
   margin: -4px 0 10px;
   padding: 7px 0;
-  border-block: 1px solid var(--border-subtle);
+  border-block: 1px solid var(--hairline-soft);
   font-size: 12px;
 }
 .authoring-scene-lab__intent span,
@@ -313,18 +342,18 @@ function handleLaboratoryKeydown(event) {
 }
 .authoring-scene-lab button:focus-visible,
 .authoring-scene-lab__head strong:focus-visible {
-  outline: 2px solid var(--control-focus, var(--accent-primary));
+  outline: 2px solid var(--control-focus, var(--accent));
   outline-offset: 2px;
 }
 .authoring-scene-lab__direction:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--control-focus, var(--accent-primary)) 52%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--control-focus, var(--accent)) 52%, transparent);
   outline-offset: -1px;
 }
 .authoring-scene-lab__pressure {
   display: grid;
   gap: 5px;
   padding: 12px 16px 11px;
-  border-block: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border-subtle));
+  border-block: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--hairline-soft));
   background: color-mix(in srgb, var(--archive-olive) 4%, transparent);
 }
 .authoring-scene-lab__pressure > span,
@@ -362,7 +391,7 @@ function handleLaboratoryKeydown(event) {
   list-style: none;
 }
 .authoring-scene-lab__directions li {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--hairline-soft);
 }
 .authoring-scene-lab__direction {
   display: grid;
@@ -464,13 +493,13 @@ function handleLaboratoryKeydown(event) {
 .authoring-scene-lab__footer .is-primary {
   min-width: 104px;
   padding-inline: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 54%, var(--border-default));
-  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 54%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--archive-olive-strong, var(--text-primary));
 }
 .authoring-scene-lab__insufficient {
   padding: 9px 0 12px;
-  border-block: 1px solid var(--border-subtle);
+  border-block: 1px solid var(--hairline-soft);
 }
 .authoring-scene-lab__working {
   display: flex;
@@ -478,7 +507,7 @@ function handleLaboratoryKeydown(event) {
   gap: 12px;
   min-height: 82px;
   padding: 12px 0;
-  border-block: 1px solid var(--border-subtle);
+  border-block: 1px solid var(--hairline-soft);
 }
 .authoring-scene-lab__working-mark {
   width: 18px;
@@ -499,7 +528,7 @@ function handleLaboratoryKeydown(event) {
   line-height: 1.55;
 }
 .authoring-scene-lab__insufficient.is-failed {
-  border-top-color: color-mix(in srgb, var(--color-danger, #9a4d45) 34%, var(--border-subtle));
+  border-top-color: color-mix(in srgb, var(--color-danger, #9a4d45) 34%, var(--hairline-soft));
 }
 @keyframes scene-lab-turn {
   to { transform: rotate(360deg); }
@@ -553,8 +582,63 @@ function handleLaboratoryKeydown(event) {
   }
 }
 
-.authoring-scene-lab__append{margin:8px 0 6px}
-.authoring-scene-lab__append-input{box-sizing:border-box;width:100%;min-height:32px;padding:6px 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-primary);font:400 13px/1.4 var(--font-body);outline:0}
+.authoring-scene-lab__append{margin:0; min-width:0}
+.authoring-scene-lab__append-input{box-sizing:border-box;width:100%;min-height:32px;padding:6px 10px;border:1px solid var(--hairline-soft);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-primary);font:400 13px/1.4 var(--font-body);outline:0}
 .authoring-scene-lab__append-input:focus{border-color:var(--accent-primary,var(--accent,#1677ff))}
 .authoring-scene-lab__footer-actions{display:flex;gap:8px;margin-top:6px}
+.authoring-scene-lab { container-type: inline-size; }
+.authoring-scene-lab__footer.is-selection { display:grid; grid-template-columns:minmax(0, 1fr) auto; align-items:center; }
+.authoring-scene-lab__footer.is-selection > p { grid-column:1 / -1; }
+.authoring-scene-lab__mode { display:flex; justify-content:space-between; gap:16px; padding-block:16px; }
+.authoring-scene-lab__mode button { color:var(--text-secondary); font-size:12px; min-height:32px; padding:0; }
+.authoring-scene-lab__if-panel { display:grid; gap:24px; padding-block:8px 20px; }
+.authoring-scene-lab__conditions,
+.authoring-scene-lab__comparison { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:28px; }
+.authoring-scene-lab__if-label { display:grid; gap:10px; min-width:0; font-size:14px; font-weight:600; }
+.authoring-scene-lab__if-label.is-actor { max-width:360px; }
+.authoring-scene-lab__if-label small { margin-left:8px; font-size:11px; font-weight:400; color:var(--text-secondary); }
+.authoring-scene-lab__if-input { box-sizing:border-box; width:100%; min-width:0; padding:12px; border:1px solid var(--hairline-soft); border-radius:0; background:var(--surface-workbench-muted); color:var(--text-primary); font:400 15px/1.65 var(--font-body); resize:vertical; }
+.authoring-scene-lab__if-input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.authoring-scene-lab__form-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:16px; font-size:12px; }
+.authoring-scene-lab__form-actions > span { margin-right:auto; color:var(--text-secondary); }
+.authoring-scene-lab .is-primary { min-height:40px; padding:8px 16px; background:var(--accent); color:var(--accent-text); font-size:13px; }
+.authoring-scene-lab button:disabled { opacity:.45; cursor:not-allowed; }
+.authoring-scene-lab__branch { min-width:0; display:flex; flex-direction:column; }
+.authoring-scene-lab__branch + .authoring-scene-lab__branch { border-inline-start:1px solid var(--hairline-soft); padding-inline-start:28px; }
+.authoring-scene-lab__branch-heading { min-height:92px; padding-bottom:12px; }
+.authoring-scene-lab__branch-heading > span { font-size:11px; color:var(--text-secondary); }
+.authoring-scene-lab__branch-heading h3 { margin:8px 0 0; font-size:19px; line-height:1.55; font-weight:600; overflow-wrap:anywhere; }
+.authoring-scene-lab__if-choices { display:grid; gap:8px; min-width:0; margin-bottom:16px; }
+.authoring-scene-lab__if-choices .authoring-scene-lab__if-choice { display:grid; gap:6px; width:100%; padding:12px; text-align:start; white-space:normal; overflow-wrap:anywhere; border:1px solid transparent; border-bottom-color:var(--hairline-soft); font-size:13px; line-height:1.65; }
+.authoring-scene-lab__if-choice > strong { font-size:16px; font-weight:600; }
+.authoring-scene-lab__if-choice > span { color:var(--text-secondary); }
+.authoring-scene-lab__if-choices .authoring-scene-lab__if-choice[aria-pressed="true"] { border-color:var(--accent); background:var(--surface-workbench-muted); }
+.authoring-scene-lab__if-choice:hover { background:var(--surface-workbench-muted); }
+.authoring-scene-lab__tradeoff { display:block; font-size:12px; }
+.authoring-scene-lab__tradeoff small { margin-right:8px; font-size:11px; }
+.authoring-scene-lab__write { align-self:flex-start; margin-top:auto; }
+.authoring-scene-lab__references { margin-top:24px; padding-top:12px; border-top:1px solid var(--hairline-soft); color:var(--text-secondary); font-size:12px; line-height:1.65; }
+.authoring-scene-lab__references summary { cursor:pointer; }
+.authoring-scene-lab__notice { font-size:13px; line-height:1.65; }
+.authoring-scene-lab__branch-nav { display:none; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__head strong { font-size:20px; }
+.authoring-scene-lab .authoring-scene-lab__head button { font-size:12px; min-height:32px; color:var(--text-secondary); }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__pressure { background:none; padding:4px 0 8px; border:0; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__pressure > span { display:none; }
+.authoring-scene-lab__if-choice[aria-pressed="true"] > strong::after { content:' · 已选'; color:var(--accent); font-size:11px; font-weight:400; }
+@container (max-width:720px) {
+  .authoring-scene-lab__if-panel { gap:16px; }
+  .authoring-scene-lab__conditions, .authoring-scene-lab__comparison { grid-template-columns:1fr; gap:20px; }
+  .authoring-scene-lab__footer.is-selection { grid-template-columns:1fr; }
+  .authoring-scene-lab__footer-actions { justify-content:flex-end; }
+  .authoring-scene-lab__branch-nav { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:20px; }
+  .authoring-scene-lab__branch-nav button { display:grid; align-content:start; gap:8px; padding:10px; text-align:start; border-bottom:2px solid var(--hairline-soft); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+  .authoring-scene-lab__branch-nav button[aria-pressed="true"] { border-color:var(--accent); background:var(--surface-workbench-muted); }
+  .authoring-scene-lab__branch-nav span { color:var(--text-secondary); }
+  .authoring-scene-lab__branch:not(.is-visible) { display:none; }
+  .authoring-scene-lab__branch + .authoring-scene-lab__branch { border:0; padding:0; }
+  .authoring-scene-lab__branch-heading { display:none; }
+  .authoring-scene-lab__mode button, .authoring-scene-lab .is-primary { min-height:44px; }
+  .authoring-scene-lab__form-actions > span { flex-basis:100%; }
+}
 </style>

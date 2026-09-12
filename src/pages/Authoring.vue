@@ -136,7 +136,7 @@
     ></button>
 
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
-    <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': !isKao && inspectorOpen, 'is-dual-inspector': !isKao && inspectorOpen && inspectorDualColumn }">
+    <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': !isKao && inspectorOpen, 'is-dual-inspector': !isKao && inspectorOpen && inspectorDualColumn, 'has-sequential-inspector': !isKao && inspectorOpen && activeInspectorTool === 'rehearsal' }">
       <!-- 左：5 层书架 + 章节档案夹 -->
       <aside
         id="writing-chapter-shelf"
@@ -457,8 +457,8 @@
               :inline-suggestion-error="copilotError"
               :typewriter="writingTypography.typewriter"
               :focus-paragraph="writingTypography.focusParagraph"
-              :block-composer-open="blockComposer.open || sceneLaboratory.open || sceneCurationPreviewOpen || (interventionComposer.open && !interventionGhostInDual) || Boolean(adoptionImpact)"
-              :block-composer-target="adoptionImpact?.target || (sceneLaboratory.open ? sceneLaboratory.target : (sceneCurationPreviewOpen ? sceneCurationTarget : (interventionComposer.open ? interventionDisplayTarget : blockComposer.target)))"
+              :block-composer-open="blockComposer.open || sceneCurationPreviewOpen || (interventionComposer.open && !interventionGhostInDual) || Boolean(adoptionImpact)"
+              :block-composer-target="adoptionImpact?.target || (sceneCurationPreviewOpen ? sceneCurationTarget : (interventionComposer.open ? interventionDisplayTarget : blockComposer.target))"
               :intervention-enabled="!wt3ActiveDoc"
               :block-preview="blockPreview"
               :atomic-undo-available="hasGhostAdoptionUndoBoundary || hasStructureUndoBoundary"
@@ -515,37 +515,7 @@
                 @click="completeQuickWord(item)"
               ><kbd>{{ index + 1 }}</kbd>{{ item.text }}</button>
             </div>
-            <Teleport v-if="sceneLaboratory.open && !blockPreview" to="#authoring-block-gap">
-              <AuthoringSceneLaboratory
-                :entry-intent="activeSceneLaboratoryIntent"
-                :pressure="sceneLaboratoryPressure"
-                :directions="sceneLaboratoryDirections"
-                :selected-direction-id="sceneLaboratory.selectedDirectionId"
-                :phase="sceneLaboratory.phase"
-                :notice="sceneLaboratory.notice"
-                @select="selectSceneLaboratoryDirection"
-                :append-requirement="sceneLaboratoryAppendRequirement"
-                :if-branches="characterIfBranches"
-                :if-active-branch="characterIfActiveBranch"
-                :if-plans="ifPlans"
-                :initial-if-open="ifEntryOpen"
-                :initial-if-actor="ifEntryActor"
-                :if-baseline="characterIfExperiment.active.value?.baselineFacts || []"
-                @plan-if="planIfBranch"
-                @select-if="selectIfDirection"
-                @append-requirement="sceneLaboratoryAppendRequirement = $event"
-                @confirm="confirmSceneLaboratoryDirection"
-                @back="openSceneLaboratoryEvidence"
-                @close="closeSceneLaboratory"
-                @ordinary="openOrdinaryTurnFromSceneLaboratory"
-                @supplement="supplementSceneFromSceneLaboratory"
-                @retry="retrySceneLaboratoryDirections"
-                @start-if="startCharacterIfExperiment"
-                @switch-if-branch="switchIfDraft"
-                @write-if-draft="writeIfBranchDraft"
-              />
-            </Teleport>
-            <Teleport v-else-if="sceneCurationPreviewOpen" to="#authoring-block-gap">
+            <Teleport v-if="sceneCurationPreviewOpen" to="#authoring-block-gap">
               <AuthoringSceneCurationPreview
                 :draft="sceneCurationDraft"
                 :baseline="sceneCurationBaseline"
@@ -853,7 +823,7 @@
         v-if="!isKao && activeInspectorTool !== 'dual'"
         class="writing-inspector"
         ref="writingInspectorRef"
-        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
+        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
         aria-label="写作检查器"
       >
         <header class="writing-inspector__head">
@@ -862,6 +832,16 @@
             <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
           </div>
           <div class="writing-inspector__head-actions">
+            <!-- 顺序展开（≤1180）时推演排在正文之后：回程入口必须常驻 sticky 标题栏，
+                 不能放在会随内容滚走的出处行里。宽屏由 CSS 隐藏。 -->
+            <button
+              v-if="activeInspectorTool === 'rehearsal'"
+              class="writing-inspector__manuscript-btn"
+              type="button"
+              aria-label="回到正文"
+              title="回到正文"
+              @click="scrollRehearsalBackToManuscript"
+            >正文</button>
             <button
               class="writing-inspector__icon-btn"
               type="button"
@@ -874,6 +854,42 @@
           </div>
         </header>
 
+        <div v-if="activeInspectorTool === 'rehearsal'" class="writing-inspector__rehearsal">
+          <AuthoringSceneLaboratory v-if="ifEntryOpen && sceneLaboratory.open"
+                :entry-intent="activeSceneLaboratoryIntent"
+                :pressure="sceneLaboratoryPressure"
+                :directions="sceneLaboratoryDirections"
+                :selected-direction-id="sceneLaboratory.selectedDirectionId"
+                :phase="sceneLaboratory.phase"
+                :notice="sceneLaboratory.notice"
+                @select="selectSceneLaboratoryDirection"
+                :append-requirement="sceneLaboratoryAppendRequirement"
+                :if-branches="characterIfBranches"
+                :if-active-branch="characterIfActiveBranch"
+                :if-plans="ifPlans"
+                :if-busy="ifBusy"
+                :initial-if-open="ifEntryOpen"
+                :initial-if-actor="characterIfExperiment.active.value?.actorRef?.slice('character:'.length) || ifEntryActor"
+                :if-baseline="characterIfExperiment.active.value?.baselineFacts || []"
+                @plan-if="planIfBranch"
+                @select-if="selectIfDirection"
+                @append-requirement="sceneLaboratoryAppendRequirement = $event"
+                @confirm="confirmSceneLaboratoryDirection"
+                @back="openSceneLaboratoryEvidence"
+                @close="ifEntryOpen = false"
+                @ordinary="openOrdinaryTurnFromSceneLaboratory"
+                @supplement="supplementSceneFromSceneLaboratory"
+                @retry="retrySceneLaboratoryDirections"
+                @start-if="startCharacterIfExperiment"
+                @switch-if-branch="switchIfDraft"
+                @write-if-draft="writeIfBranchDraft"
+              />
+          <AuthoringRehearsalPanel v-else :rehearsal="rehearsal"
+            :preparing="rehearsalPreparing || (sceneLaboratory.open && ['preparing-context', 'planning-directions'].includes(sceneLaboratory.phase))"
+            :drafting="rehearsalDrafting" :draft-state="rehearsalDraftState" :notice="rehearsalNotice || (!rehearsal.run.value ? sceneLaboratory.notice : '')"
+            :title="rehearsalOriginTitle" @start="startRehearsal" @draft="writeRehearsalDraft"
+            @locate="locateRehearsalOrigin" @view-draft="showRehearsalDraft" @if="openRehearsalIf" />
+        </div>
         <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" aria-label="检查器视图">
           <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注</button>
           <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">版本</button>
@@ -1575,6 +1591,10 @@ import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.v
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
 import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLivingStoryProjection.vue'
 import AuthoringSceneLaboratory from '../components/authoring/AuthoringSceneLaboratory.vue'
+import AuthoringRehearsalPanel from '../components/authoring/AuthoringRehearsalPanel.vue'
+import { useAuthoringRehearsal } from '../composables/useAuthoringRehearsal.js'
+import { rehearsalPathText } from '../services/agents/authoring/authoringRehearsal.js'
+import { reconcileManifestDependencies } from '../services/agents/context/contextManifestLifecycle.js'
 import AuthoringSceneCurationPreview from '../components/authoring/AuthoringSceneCurationPreview.vue'
 import AuthoringInterventionComposer from '../components/authoring/AuthoringInterventionComposer.vue'
 import AuthoringInterventionGhost from '../components/authoring/AuthoringInterventionGhost.vue'
@@ -2432,7 +2452,7 @@ const inspectorCharacterEntryId = ref('')
 const activeWritingPane = ref('main')
 const activeInspectorTool = ref('annotations')
 const inspectorDualColumn = computed(() => inspectorOpen.value && activeInspectorTool.value === 'dual')
-const inspectorLabels = Object.freeze({ annotations: '批注', outline: '大纲', characters: '角色', worldbook: '设定', scene: '现场', collaboration: '共同排演', materials: '素材', ai: '助手', history: '历史', dual: '双栏' })
+const inspectorLabels = Object.freeze({ annotations: '批注', outline: '大纲', characters: '角色', worldbook: '设定', scene: '现场', rehearsal: '推演', collaboration: '共同排演', materials: '素材', ai: '助手', history: '历史', dual: '双栏' })
 const activeInspectorLabel = computed(() => inspectorLabels[activeInspectorTool.value] || '批注')
 const inspectorReturnSurface = shallowRef(null)
 const knowledgeAssistantInvocation = shallowRef(null)
@@ -4141,6 +4161,94 @@ let sceneLaboratoryRequestVersion = 0
 let sceneLaboratoryAbortController = null
 
 const sceneLaboratoryAppendRequirement = ref('')
+const rehearsalPreparing = ref(false)
+const rehearsalDrafting = ref(false)
+const rehearsalNotice = ref('')
+const rehearsalOriginTitle = ref('')
+const rehearsal = useAuthoringRehearsal({
+  getSettings: getResolvedApiSettings,
+  validate: async (run) => {
+    const live = await getAuthoringRunSessionAdapter().collectLiveDependencies(run.runSession)
+    return reconcileManifestDependencies(run.runSession.manifest, live).length === 0
+  }
+})
+// Which route produced the ghost currently waiting in the manuscript. Ownership
+// comes from the preview receipt's own frozen session, so another tool's draft
+// can never be reported as this route's trial.
+const rehearsalDraftRoute = ref('')
+const rehearsalDraftState = computed(() => {
+  if (!blockPreview.value) return 'none'
+  const session = rehearsal.run.value?.runSession
+  if (!session || blockPreview.value.candidate?.runSession !== session) return 'foreign'
+  return rehearsalDraftRoute.value === rehearsal.route.value ? 'same-route' : 'other-route'
+})
+async function startRehearsal() {
+  if (rehearsalPreparing.value || rehearsalDrafting.value || rehearsal.busy.value || blockPreview.value) {
+    rehearsalNotice.value = '请先处理正文中已有的试稿，再开始新的试演。'
+    return
+  }
+  if (rehearsal.steps.value.length && !window.confirm('重新确定起点会清除本次试演。继续吗？')) return
+  rehearsalPreparing.value = true; rehearsalNotice.value = ''; ifEntryOpen.value = false; rehearsalDraftRoute.value = ''
+  try {
+    const ok = await openSceneLaboratory()
+    if (!ok || !rehearsal.run.value) rehearsalNotice.value = sceneLaboratory.notice || '当前现场不足以试演，请补充人物或行动目标。'
+  } finally { rehearsalPreparing.value = false }
+}
+function scrollRehearsalBackToManuscript() {
+  const scroller = writingMainRef.value
+  if (scroller?.scrollTo) scroller.scrollTo({ top: 0 })
+  else if (scroller) scroller.scrollTop = 0
+  const dossier = document.querySelector('.wall__dossier')
+  if (dossier) dossier.scrollIntoView({ block: 'start' })
+}
+function locateRehearsalOrigin() {
+  const target = rehearsal.run.value?.target
+  if (target) restoreBlockSelection(target.selectionBookmark || target)
+  closeRehearsalOverlay()
+}
+function openRehearsalIf() {
+  if (!rehearsal.run.value) return
+  sceneLaboratory.run = rehearsal.run.value; sceneLaboratory.target = rehearsal.run.value.target
+  sceneLaboratory.open = true; sceneLaboratory.phase = 'ready'; ifEntryOpen.value = true
+}
+function showRehearsalDraft() {
+  closeRehearsalOverlay()
+  const candidate = blockPreview.value
+  nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (candidate && candidate === blockPreview.value) document.querySelector('[data-test="block-draft"]')?.scrollIntoView({ block: 'start' })
+  })))
+}
+async function writeRehearsalDraft() {
+  if (rehearsalDrafting.value || rehearsal.busy.value || !rehearsal.steps.value.length || authoringTaskBusy.value) return
+  if (blockPreview.value || Object.values(ifBranchDrafts.value).some(Boolean)) {
+    rehearsalNotice.value = '正文中还有待处理的试稿，请先采用、留作构思或放弃，再写这一版。'
+    return
+  }
+  // Returning from character comparison must not leak its model/branch ownership
+  // into a plain rehearsal draft. Unhandled comparison drafts are preserved above.
+  if (characterIfActive.value) closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
+  rehearsalDrafting.value = true; rehearsalNotice.value = ''
+  const run = rehearsal.run.value
+  const route = rehearsal.route.value
+  const scope = activeDocumentSaveScopeKey()
+  try {
+    if (!await rehearsal.check() || scope !== activeDocumentSaveScopeKey()) return
+    const instruction = '将以下作者选定的假想事件写成连续正文，承接冻结的落笔处。保留事件顺序和人物回应，不把这些假想写成正式世界设定，不输出步骤编号或说明：\n' + rehearsalPathText(rehearsal.steps.value)
+    blockComposer.open = true; blockComposer.target = run.target
+    const version = ++blockComposerVersion
+    const outcome = await runAuthoringTurn({ operation: 'next-passage', kind: 'action', instruction,
+      invocationTarget: run.target, authoringRunSession: run.runSession }, version)
+    if (scope !== activeDocumentSaveScopeKey()) return
+    if (outcome?.preview) {
+      rehearsalDraftRoute.value = route
+      showRehearsalDraft()
+      rehearsalNotice.value = '试稿已放在正文落笔处，采用前仍可修改。'
+    } else rehearsalNotice.value = (outcome?.message || blockComposer.failure?.message || '没有生成可用试稿') + '；试演仍保留，可以重试。'
+  } catch (cause) { if (scope === activeDocumentSaveScopeKey()) rehearsalNotice.value = cause?.message || '试稿生成失败，可重试。' }
+  finally { rehearsalDrafting.value = false }
+}
+watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => { rehearsal.clear(); rehearsalDraftRoute.value = ''; rehearsalNotice.value = ''; rehearsalOriginTitle.value = '' })
+onBeforeUnmount(() => rehearsal.clear())
 const ifEntryOpen = ref(false)
 const ifEntryActor = ref('')
 async function openIfEntry(candidate = null) {
@@ -4210,6 +4318,10 @@ function retainIfDraft() {
   } }
 }
 
+function closeRehearsalOverlay() {
+  if (writingInspectorRef.value && getComputedStyle(writingInspectorRef.value).position === 'absolute') closeWritingInspector()
+}
+
 function switchIfDraft(branchId) {
   if (!['A', 'B'].includes(branchId) || !characterIfActive.value ||
       ifBusy.value || authoringTaskBusy.value || pendingGhostAdoption.value || blockAdoptionBusy.value) return
@@ -4224,6 +4336,11 @@ function switchIfDraft(branchId) {
   if (draft) {
     blockComposer.open = true
     blockComposer.target = sceneLaboratory.target
+    closeRehearsalOverlay()
+  } else {
+    ifEntryOpen.value = true
+    activeInspectorTool.value = 'rehearsal'
+    inspectorOpen.value = true
   }
   blockComposer.failure = null
   blockComposer.staleResult = null
@@ -4302,6 +4419,7 @@ async function writeIfBranchDraft(branchId) {
   if (outcome?.preview) {
     sceneLaboratory.phase = 'direction-selected'
     retainIfDraft()
+    closeRehearsalOverlay()
     await nextTick()
     return true
   }
@@ -4319,6 +4437,10 @@ async function writeIfBranchDraft(branchId) {
 
 async function startCharacterIfExperiment({ actor, beliefA, beliefB }) {
   if (!sceneLaboratory.run || !selectedBookId.value || ifBusy.value || authoringTaskBusy.value) return
+  if (blockPreview.value && !characterIfActive.value) {
+    sceneLaboratory.notice = '请先处理正文里已有的试稿，再开始人物对照。'
+    return
+  }
   const baseline = sceneLaboratory.run
   const version = sceneLaboratoryRequestVersion
   let settings
@@ -4427,13 +4549,26 @@ function applySceneLaboratoryResult(result, version) {
   sceneLaboratory.phase = result.run.phase
   sceneLaboratory.selectedDirectionId = result.run.selectedDirectionId || ''
   sceneLaboratory.notice = ''
+  if (['ready', 'insufficient'].includes(result.run.phase)) {
+    rehearsal.start(result.run)
+    rehearsalOriginTitle.value = chapters.value.find(chapter => chapter.id === selectedChapterId.value)?.title || '当前段落'
+    activeInspectorTool.value = 'rehearsal'; inspectorOpen.value = true
+  }
   return true
 }
 
 async function openSceneLaboratory({ target = null, instruction = '' } = {}) {
-  if (authoringTaskBusy.value) return false
+  if (authoringTaskBusy.value || rehearsal.busy.value || ifBusy.value) return false
+  if (blockPreview.value || Object.values(ifBranchDrafts.value).some(Boolean)) {
+    rehearsalNotice.value = '请先处理正文中已有的试稿，再开始新的试演。'
+    return false
+  }
+  if (characterIfActive.value) closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
   const frozenTarget = resolveBlockComposerTarget(target || notebookSelection.value || {})
   if (!frozenTarget.unitId && !isEmptyChapter.value) return false
+  rehearsal.clear()
+  ifEntryOpen.value = false
+  activeInspectorTool.value = 'rehearsal'; inspectorOpen.value = true
   if (interventionComposer.open) closeInterventionComposer({ restoreSelection: false })
   if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
   copilotCancel()

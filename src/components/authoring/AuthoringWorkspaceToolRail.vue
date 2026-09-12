@@ -20,6 +20,7 @@ const baseTools = Object.freeze([
   { id: 'characters', label: '角色', icon: 'users' },
   { id: 'worldbook', label: '设定', icon: 'archive' },
   { id: 'scene', label: '现场', icon: 'storyboard' },
+  { id: 'rehearsal', label: '推演', icon: 'network' },
   { id: 'dual', label: '双栏', icon: 'panel-left' },
   { ...assistantTool, icon: 'sparkles' },
   { id: 'history', label: '历史', icon: 'undo-extension' }
@@ -53,5 +54,5 @@ const tools = computed(() => props.collaborationVisible
 .writing-tool-rail button[aria-pressed="true"]::before { background: var(--accent-primary); }
 .writing-tool-rail button:hover, .writing-tool-rail button:focus-visible { background: color-mix(in srgb, var(--accent-primary) 6%, transparent); color: var(--text-primary); outline: none; }
 /* 与 Authoring 的全宽 sheet 同时切为底部工具带，避免 641–720px 留下被稿面遮住的竖栏。 */
-@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; flex-direction: row; overflow-x: auto; border-top: 1px solid var(--border-subtle); } .writing-tool-rail button { flex: 1 0 48px; min-height: 44px; } }
+@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; flex-direction: row; padding-block: 0; overflow-x: auto; border-top: 1px solid var(--border); } .writing-tool-rail button { flex: 1 0 48px; min-height: 44px; } }
 </style>

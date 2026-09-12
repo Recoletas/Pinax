@@ -170,6 +170,13 @@ function buildAdvisorResult(taskType, advice, options = {}) {
     stalePolicy: base.stalePolicy || 'require-same-base-text'
   }
 
+  if (taskType === 'authoring.rehearsal.step') {
+    result.rehearsal = { response: base.response, change: base.change, choices: base.choices, evidenceRefs: base.evidenceRefs }
+    result.typedActions = []
+    result.action = []
+    result.replacement = ''
+  }
+
   if (taskType === 'authoring.knowledge.query') {
     result.knowledgeAnswer = {
       answer: typeof base.answer === 'string' ? base.answer : (base.summary || ''),

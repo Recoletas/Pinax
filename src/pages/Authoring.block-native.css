@@ -535,6 +535,23 @@
   --authoring-catalog-body-size: 14px;
 }
 
+/* 顺序展开时推演的回程入口常驻 sticky 标题栏；宽屏不是顺序展开，不显示。 */
+.writing-inspector__manuscript-btn {
+  border: 1px solid var(--authoring-hairline);
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+}
+.writing-inspector__manuscript-btn:hover { color: var(--accent); }
+@media (min-width: 1181px) {
+  .writing-inspector__manuscript-btn { display: none; }
+}
+
+.writing-inspector__rehearsal { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
+.writing-inspector__rehearsal > .authoring-scene-lab { overflow:auto; }
+
 .theme-legacy .writing-page .writing-inspector__body--assistant {
   min-height: 0;
   overflow: hidden;
@@ -1198,6 +1215,12 @@
     max-height: none;
   }
 
+  .theme-legacy .writing-page .writing-inspector.is-rehearsal {
+    inset-block-end: 48px;
+    height: min(74dvh, 640px);
+    max-height: calc(100dvh - 104px);
+  }
+
   .theme-legacy .writing-page .writing-inspector__body--assistant {
     overflow: hidden;
   }
@@ -1205,6 +1228,115 @@
 
 /* Phase 12：Ghost 是稿面唯一主强调；候选出现时 current-line 与 unit rail
    仍保留位置提示，但降为辅助层，避免三种蓝色/橄榄色同时争夺注意力。 */
+@media (max-width: 720px) and (max-height: 600px) {
+  .theme-legacy .writing-page .writing-inspector.is-rehearsal {
+    position: fixed;
+    inset-block-start: 56px;
+    height: auto;
+    max-height: none;
+  }
+}
+
+/* 推演右栏：≤1180 改为同一工作区内、正文之后的顺序展开，不再用覆盖层
+   压住稿面。只作用于推演工具；角色、设定、批注仍走既有抽屉与底部面板。
+   规格：一个纵向滚动（wall__main），输入条只在推演区内 sticky。 */
+@media (max-width: 1180px) {
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector {
+    /* 稿面保底高度由卷宗自己的 min-height 决定，推演内容再高也不挤扁它；
+       两者相加超出工作区时由 wall__main 单一纵向滚动承接。 */
+    grid-template-rows: auto auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .wall__dossier {
+    min-height: min(66vh, 560px);
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal {
+    position: static;
+    z-index: auto;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    inset: auto;
+    width: auto;
+    /* 必须随内容撑高：auto 会被行轨道按最小贡献钳到 min-height，
+       sticky 标题栏随内容滚出视口（720×450 实测）。 */
+    height: max-content;
+    min-height: min(64vh, 560px);
+    max-height: none;
+    border-inline-start: 0;
+    border-top: 1px solid var(--authoring-hairline);
+    transform: none;
+    transition: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .writing-inspector__head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--authoring-chrome-surface);
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector__rehearsal {
+    overflow: visible;
+    /* 顺序展开时检查器必须随内容撑高：flex:1（basis 0）会让 auto 高度算成 0，
+       盒子被 min-height 钳住，sticky 标题栏随内容滚出视口。 */
+    flex: none;
+    min-height: 0;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-panel {
+    height: auto;
+    min-height: 0;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-flow {
+    flex: none;
+    overflow: visible;
+    /* 顺序展开时输入条 sticky 在推演区底部，留给最后一步滚出遮挡的空间。 */
+    padding-bottom: 112px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-footer {
+    position: sticky;
+    /* 工作区底缘比视口低约 11px（顶栏布局），粘性底边留出余量不被裁。 */
+    bottom: 12px;
+    z-index: 1;
+    /* 顺序展开时行动者条会让输入区变高；压缩内边距保证底部不被裁。 */
+    padding: 8px 14px 6px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-compose {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-compose textarea {
+    /* 顺序展开：默认单行高度给故事区让空间；聚焦或输入多行时仍可长高。 */
+    min-height: 40px;
+    height: 40px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-compose:focus-within textarea,
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-compose textarea:not(:placeholder-shown) {
+    height: auto;
+    min-height: 40px;
+  }
+}
+
+@media (max-width: 720px) {
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-footer {
+    bottom: 48px;
+  }
+
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-flow {
+    padding-bottom: 168px;
+  }
+}
 .writing-page .writing-notebook-editor.has-writing-ghost .writing-current-line {
   opacity: 0.24;
 }

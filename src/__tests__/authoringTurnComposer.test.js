@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import AuthoringBlockComposer from '../components/authoring/AuthoringBlockComposer.vue'
 import AuthoringBlockDraft from '../components/authoring/AuthoringBlockDraft.vue'
 import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
@@ -194,21 +194,109 @@ describe('block composer initial instruction', () => {
     await laboratory.findAll('.authoring-scene-lab__footer button').find((button) => button.text() === '重试方向').trigger('click')
     expect(laboratory.emitted('retry')).toHaveLength(1)
     await laboratory.setProps({ phase: 'ready', selectedDirectionId: 'verify' })
-    await laboratory.find('.authoring-scene-lab__if-toggle').trigger('click')
+    await laboratory.find('.authoring-scene-lab__mode button').trigger('click')
+    expect(laboratory.find('[aria-label="本场方向"]').exists()).toBe(false)
     expect(laboratory.find('[aria-label="人物 IF 面板"]').exists()).toBe(true)
     await laboratory.find('[aria-label="IF 人物名"]').setValue('莉娜')
     await laboratory.find('[aria-label="条件 A"]').setValue('守诺')
     await laboratory.find('[aria-label="条件 B"]').setValue('协商')
-    await laboratory.find('.authoring-scene-lab__if-start').trigger('click')
+    await laboratory.find('form').trigger('submit')
     expect(laboratory.emitted('start-if')?.at(-1)).toEqual([{ actor: '莉娜', beliefA: '守诺', beliefB: '协商' }])
     await laboratory.setProps({ ifBranches: { A: { belief: '守诺' }, B: { belief: '协商' } },
       ifActiveBranch: 'B', ifPlans: { B: { status: 'ready', run: { selectedDirectionId: '', directionSet: { directions } } } } })
     expect(laboratory.find('[aria-label="以 B 条件写正文"]').element.disabled).toBe(true)
-    await laboratory.find('.authoring-scene-lab__if-choices button').trigger('click')
+    expect(laboratory.find('form').exists()).toBe(false)
+    await laboratory.find('[aria-label="B 条件行动"] .authoring-scene-lab__if-choices button').trigger('click')
     expect(laboratory.emitted('select-if')?.at(-1)).toEqual([{ branchId: 'B', directionId: 'conceal' }])
     await laboratory.setProps({ ifPlans: { B: { status: 'ready', run: { selectedDirectionId: 'conceal', directionSet: { directions } } } } })
     await laboratory.find('[aria-label="以 B 条件写正文"]').trigger('click')
     expect(laboratory.emitted('write-if-draft')?.at(-1)).toEqual(['B'])
+    const { useAuthoringRehearsal } = await import('../composables/useAuthoringRehearsal.js')
+    const { parseRehearsalResponse, rehearsalPathText } = await import('../services/agents/authoring/authoringRehearsal.js')
+    const response = { response: '他没有回答。', change: '谈话暂时停住。', choices: ['再问一次'], evidenceRefs: ['unit:known'] }
+    expect(parseRehearsalResponse(response, ['unit:known'])).toEqual(response)
+    expect(() => parseRehearsalResponse(response, [])).toThrow()
+    const requests = []
+    let current = true
+    const replay = useAuthoringRehearsal({ validate: async () => current, getSettings: async () => ({}), step: async input => {
+      requests.push(input.steps.map(item => item.action)); return response
+    } })
+    replay.start({ target: 'frozen' })
+    const routeA = replay.route.value
+    expect(routeA).not.toBe('')
+    await replay.advance('先隐瞒')
+    await replay.advance({ text: '继续追问', actor: '艾德加', targets: ['莉娜'] })
+    // 行动意图进入请求与路径文本：谁行动、指向谁，模型从行动完成后接写。
+    expect(replay.steps.value[1].actor).toBe('艾德加')
+    expect(replay.steps.value[1].targets).toEqual(['莉娜'])
+    const pathText = rehearsalPathText(replay.steps.value)
+    expect(pathText).toContain('行动 艾德加（对 莉娜）：继续追问')
+    expect(requests[1]).toEqual(['先隐瞒'])
+    // 每条走法有自己的身份和自己的未提交草稿：换路与提交都不清另一条路打过的字。
+    replay.action.value = 'A 路未提交草稿'
+    replay.rewind(0)
+    const routeB = replay.route.value
+    expect(routeB).not.toBe(routeA)
+    expect(replay.action.value).toBe('')
+    await replay.advance('直接坦白')
+    expect(requests[2]).toEqual([])
+    replay.restore(routeA)
+    expect(replay.steps.value[1].action).toBe('继续追问')
+    expect(replay.action.value).toBe('A 路未提交草稿')
+    expect(replay.otherRoutes.value.some(item => item.id === replay.route.value)).toBe(false)
+    expect(replay.otherRoutes.value.map(item => item.id)).toEqual([routeB])
+    const RehearsalPanel = (await import('../components/authoring/AuthoringRehearsalPanel.vue')).default
+    const panel = mount(RehearsalPanel, { props: { rehearsal: replay, title: '第三排第七格' } })
+    expect(panel.find('h2').exists()).toBe(false)
+    // 连续阅读：默认两步都展开；折叠由作者主动触发，并留在该步身份上。
+    expect(panel.findAll('.rehearsal-step-head').map(head => head.attributes('aria-expanded'))).toEqual(['true', 'true'])
+    expect(panel.findAll('.rehearsal-step-body').every(body => body.isVisible())).toBe(true)
+    await panel.findAll('.rehearsal-step-head')[0].trigger('click')
+    expect(panel.findAll('.rehearsal-step-head').map(head => head.attributes('aria-expanded'))).toEqual(['false', 'true'])
+    await panel.findAll('.rehearsal-step-head')[0].trigger('click')
+    expect(panel.find('.rehearsal-consequence').attributes('open')).toBeUndefined()
+    expect(panel.find('footer form textarea').exists()).toBe(true)
+    expect(panel.find('.rehearsal-flow textarea').exists()).toBe(false)
+    expect(panel.find('footer').text()).toContain('写成试稿')
+    expect(panel.find('.rehearsal-compare').exists()).toBe(true)
+    expect(panel.find('.rehearsal-compare').text()).toContain('另一路')
+    expect(panel.findAll('.rehearsal-compare-pick button')).toHaveLength(0)
+    await panel.find('.rehearsal-options button').trigger('click')
+    expect(replay.action.value).toBe('再问一次')
+    expect(panel.find('.rehearsal-options button').attributes('aria-pressed')).toBe('true')
+    await panel.find('footer form textarea').setValue('再问一次')
+    expect(panel.find('.rehearsal-options button').attributes('aria-pressed')).toBe('true')
+    expect(requests).toHaveLength(3)
+    await panel.find('textarea').trigger('keydown', { key: 'Enter', ctrlKey: true, isComposing: true })
+    expect(requests).toHaveLength(3)
+    await panel.find('form').trigger('submit')
+    await flushPromises()
+    expect(requests).toHaveLength(4)
+    await panel.setProps({ draftState: 'same-route' })
+    await panel.find('.rehearsal-export').trigger('click')
+    expect(panel.emitted('view-draft')).toHaveLength(1)
+    expect(requests).toHaveLength(4)
+    panel.unmount()
+    current = false; expect(await replay.advance('再问')).toBe(false)
+    expect(replay.stale.value).toBe(true)
+    replay.clear()
+    let finishLate
+    const delayed = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}),
+      step: () => new Promise(resolve => { finishLate = resolve }) })
+    delayed.start({ target: 'old' })
+    const pendingStep = delayed.advance('等待回应')
+    await flushPromises()
+    delayed.cancel()
+    delayed.start({ target: 'new' })
+    finishLate(response)
+    expect(await pendingStep).toBe(false)
+    expect(delayed.steps.value).toEqual([])
+    await laboratory.findAll('.authoring-scene-lab__branch-nav button')[0].trigger('click')
+    expect(laboratory.find('[aria-label="A 条件行动"]').classes()).toContain('is-visible')
+    await laboratory.findAll('.authoring-scene-lab__mode button')[1].trigger('click')
+    expect(laboratory.find('[aria-label="条件 A"]').element.value).toBe('守诺')
+    await laboratory.find('.authoring-scene-lab__mode button').trigger('click')
+    expect(laboratory.find('.authoring-scene-lab__direction.is-selected').exists()).toBe(true)
 
     const interventionTarget = { ...target, projectId: 'book-1', documentId: 'ch-1', nodeId: 'node-1' }
     const intervention = mount(AuthoringInterventionComposer, {

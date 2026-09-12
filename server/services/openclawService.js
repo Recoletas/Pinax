@@ -31,6 +31,7 @@ export const OPENCLAW_PROVIDER = Object.freeze({
 })
 
 const ADVISOR_TASK_INSTRUCTIONS = {
+  'authoring.rehearsal.step': '任务：在作者隔离的故事试演中，承接给定路径和最新行动，只演出一次具体回应。用人物对白与动作呈现，不写评审建议，不生成正式正文，不改设定。人物仅能依据已知信息行动；作者知道的秘密不等于人物知道。不得捏造引用、确定概率或强迫冲突升级。',
   'writing.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
   'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
   'writing.close.thread': '任务：收束当前线索。给 1-2 个自然收束方式。',
@@ -326,6 +327,9 @@ parts 为 2-4 项，不得编造上下文没有的事实。`
 options 必须为 2-3 项，使用中文，不得替玩家决定，不得输出预设式万能选项。`
   }
 
+  if (taskType === 'authoring.rehearsal.step') {
+    return '只输出 JSON：{"response":"80-250字的具体动作/对白回应，不重复作者行动","change":"一句本次假想局面变化，80字以内","choices":["一个可试的具体行动","另一个可试的具体行动"],"evidenceRefs":["依据的原文 sourceRef"]}。response 最多600字符，choices 1-3条，每条最多80字符。仅引用上下文给出的 sourceRefs；回应是未采用的假想，不是正式事实。资料不足时明确描述不确定性，不假装角色已知秘密。不要输出 summary、replacement 或任何写入动作。'
+  }
   if (taskType === 'authoring.scene.directions') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。证据不足时输出：
 {
