@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "first-run strip appears after welcome CTA",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "stage 1 is write",
+      "ok": true,
+      "note": "01 / 04先写下眼前发生的一件事不用先补齐设定，从人物此刻看见或做出的事落笔"
+    },
+    {
+      "name": "dismiss hides strip",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "dismiss persisted per book",
+      "ok": true,
+      "note": "book=1789322328416"
+    },
+    {
+      "name": "closed book stays closed after reload",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "menu reopens guidance",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "stage advances to characters after real text",
+      "ok": true,
+      "note": "02 / 04记住一个关键人物姓名和一句背景就够，之后可以在写作中慢慢补。打开角"
+    },
+    {
+      "name": "second book gets its own guidance",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "per-book isolation: current book not in another book closed list",
+      "ok": true,
+      "note": "closed=[]"
+    }
+  ],
+  "passed": 9,
+  "failed": 0
+}

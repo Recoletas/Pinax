@@ -214,7 +214,11 @@ describe('block composer initial instruction', () => {
     const { useAuthoringRehearsal } = await import('../composables/useAuthoringRehearsal.js')
     const { parseRehearsalResponse, rehearsalPathText } = await import('../services/agents/authoring/authoringRehearsal.js')
     const response = { response: '他没有回答。', change: '谈话暂时停住。', choices: ['再问一次'], evidenceRefs: ['unit:known'] }
-    expect(parseRehearsalResponse(response, ['unit:known'])).toEqual(response)
+    // 无后果批次是合法结果：四字段保留，后果段为空且已提交。
+    expect(parseRehearsalResponse(response, ['unit:known'])).toEqual({
+      ...response,
+      consequences: [], consequenceVersion: 1, consequenceStatus: 'committed', consequenceIssues: []
+    })
     expect(() => parseRehearsalResponse(response, [])).toThrow()
     const requests = []
     let current = true
@@ -279,6 +283,16 @@ describe('block composer initial instruction', () => {
     panel.unmount()
     current = false; expect(await replay.advance('再问')).toBe(false)
     expect(replay.stale.value).toBe(true)
+    const rejectedReplay = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}), step: async () => ({
+      ...response, response: '他把门闩推回原处。', consequenceStatus: 'needs-review', consequenceIssues: ['引文不匹配']
+    }) })
+    rejectedReplay.start({ target: 'frozen' })
+    rejectedReplay.action.value = '确认门闩'
+    expect(await rejectedReplay.advance()).toBe(false)
+    expect(rejectedReplay.lastRejected.value.response).toContain('门闩')
+    expect(rejectedReplay.acceptRejectedWithoutConsequences()).toBe(true)
+    expect(rejectedReplay.steps.value.at(-1).consequenceStatus).toBe('author-accepted-without-consequences')
+    expect(rejectedReplay.steps.value.at(-1).consequences).toEqual([])
     replay.clear()
     let finishLate
     const delayed = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}),

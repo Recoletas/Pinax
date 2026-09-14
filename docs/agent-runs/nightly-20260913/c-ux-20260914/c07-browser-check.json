@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "initial focus lands on a control inside dialog",
+      "ok": true,
+      "note": "关闭"
+    },
+    {
+      "name": "Tab cycles stay inside settings dialog",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "Esc closes settings and restores trigger focus",
+      "ok": true,
+      "note": "focus=备份"
+    },
+    {
+      "name": "nested model picker opens above settings",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "Esc closes only inner picker, settings stays",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "second Esc closes settings",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "focus returns to welcome trigger after nested flow",
+      "ok": true,
+      "note": "focus=备份"
+    },
+    {
+      "name": "arrow key moves tab selection (storage→ai wrap)",
+      "ok": true,
+      "note": "active=settings-tab-ai"
+    },
+    {
+      "name": "Esc during IME composition does not close dialog",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "mobile close control meets 44px touch target",
+      "ok": true,
+      "note": "{\"x\":287,\"y\":178.328125,\"width\":44.1875,\"height\":44.1875}"
+    },
+    {
+      "name": "import dialog ignores composing Escape",
+      "ok": true,
+      "note": ""
+    }
+  ],
+  "passed": 11,
+  "failed": 0
+}

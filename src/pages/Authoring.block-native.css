@@ -94,6 +94,70 @@
   color: var(--signal-danger, #a04b3c);
 }
 
+/* 保存失败/恢复副本自救条(C05):顶栏下的唯一自救位置。
+   错误态才用信号色;恢复稿提示保持中性,不把正常写作吓成故障。 */
+.theme-legacy .writing-page .wall__save-rescue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 8px 16px;
+  border-block: 1px solid color-mix(in srgb, var(--signal-danger, #a04b3c) 24%, var(--border-subtle, transparent));
+  background: color-mix(in srgb, var(--signal-danger, #a04b3c) 5%, transparent);
+}
+
+.theme-legacy .writing-page .wall__save-rescue.is-recovery {
+  border-block-color: var(--border-subtle);
+  background: color-mix(in srgb, var(--archive-olive, #5e7a4e) 5%, transparent);
+}
+
+.theme-legacy .writing-page .wall__save-rescue__text {
+  min-width: 0;
+  color: var(--signal-danger, #a04b3c);
+  font: 400 12px/1.5 var(--font-sans, sans-serif);
+}
+
+.theme-legacy .writing-page .wall__save-rescue.is-recovery .wall__save-rescue__text {
+  color: var(--text-secondary);
+}
+
+.theme-legacy .writing-page .wall__save-rescue__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+
+.theme-legacy .writing-page .wall__save-rescue__actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--signal-danger, #a04b3c) 38%, var(--border-subtle, transparent));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font: 500 12px/1 var(--font-sans, sans-serif);
+  cursor: pointer;
+}
+
+.theme-legacy .writing-page .wall__save-rescue.is-recovery .wall__save-rescue__actions button {
+  border-color: color-mix(in srgb, var(--archive-olive, #5e7a4e) 36%, var(--border-subtle, transparent));
+}
+
+.theme-legacy .writing-page .wall__save-rescue__actions button:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.theme-legacy .writing-page .wall__save-rescue__actions button:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--archive-olive, #5e7a4e));
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .theme-legacy .writing-page .wall__save-rescue { padding: 8px 12px; }
+  .theme-legacy .writing-page .wall__save-rescue__actions { margin-inline-start: 0; }
+  .theme-legacy .writing-page .wall__save-rescue__actions button { min-height: 44px; }
+}
+
 .theme-legacy .writing-page .wall__tabs {
   display: flex;
   align-items: center;
@@ -979,6 +1043,9 @@
   background: transparent;
   color: var(--text-primary);
   font: 600 24px/1.35 var(--font-display, var(--font-serif));
+  /* 章名是单行 input(既有编辑语义):非聚焦时以省略号提示截断,
+     全名通过悬停 title 与屏幕阅读器可达;聚焦后可左右滚动查看。 */
+  text-overflow: ellipsis;
 }
 
 /* 稿面标题的章序：与左导航同一序号来源，只显示“第X章”，章名由输入框承载。 */

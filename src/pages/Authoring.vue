@@ -79,6 +79,8 @@
               <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">双栏</button>
               <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">画师</button>
             </div>
+            <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">继续创作指引</button>
+            <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">备份与恢复</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">导出当前章节</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">导出整本书</button>
             <button type="button" role="menuitem" @click="moreAction(openManuscriptImport)">导入 TXT / Markdown</button>
@@ -125,6 +127,23 @@
             <path d="M7 10a3 3 0 100-6 3 3 0 000 6zM7 0v1.5M7 12.5V14M0 7h1.5M12.5 7H14"/>
           </svg>
         </button>
+      </div>
+    </div>
+
+    <!-- 保存失败/检测到恢复副本时的自救条:唯一自救位置,成功或丢弃后即退场。
+         不抢焦点、不弹窗;正文输入保持可继续。 -->
+    <div
+      v-if="saveRescueVisible"
+      class="wall__save-rescue"
+      :class="saveStatus === 'error' ? 'is-error' : 'is-recovery'"
+      data-test="save-rescue"
+      role="status"
+    >
+      <span class="wall__save-rescue__text">{{ saveRescueText }}</span>
+      <div class="wall__save-rescue__actions">
+        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-retry" @click="retrySaveFromRescue">重试保存</button>
+        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-export" @click="exportUnsavedManuscriptFromRescue">导出当前正文</button>
+        <button v-if="writingRecoveryDraft" type="button" data-test="save-rescue-recovery" @click="openRecoveryFromRescue">查看恢复稿</button>
       </div>
     </div>
 
@@ -434,6 +453,7 @@
                 <span v-if="selectedChapterOrdinalLabel" class="wall__chapter-ordinal" aria-hidden="true">{{ selectedChapterOrdinalLabel }}</span>
                 <input v-model="currentChapterTitle" type="text" class="wall__dossier-title"
                   :disabled="historyInteractionLocked" :aria-disabled="historyInteractionLocked.toString()"
+                  :title="currentChapterTitle"
                   :placeholder="selectedChapterOrdinalLabel ? '章名' : '章节标题'" @input="onTitleChange" aria-label="章节标题" />
               </template>
             </header>
@@ -895,8 +915,10 @@
           <AuthoringRehearsalPanel v-else :rehearsal="rehearsal"
             :preparing="rehearsalPreparing || (sceneLaboratory.open && ['preparing-context', 'planning-directions'].includes(sceneLaboratory.phase))"
             :drafting="rehearsalDrafting" :draft-state="rehearsalDraftState" :notice="rehearsalNotice || (!rehearsal.run.value ? sceneLaboratory.notice : '')"
+            :first-run-hint="firstRunPanelHint"
             :title="rehearsalOriginTitle" @start="startRehearsal" @draft="writeRehearsalDraft"
-            @locate="locateRehearsalOrigin" @view-draft="showRehearsalDraft" @if="openRehearsalIf" />
+            @locate="locateRehearsalOrigin" @view-draft="showRehearsalDraft" @if="openRehearsalIf"
+            @check-connection="openRehearsalConnectionSettings" />
         </div>
         <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" aria-label="检查器视图">
           <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注</button>
@@ -1611,7 +1633,8 @@ import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLiv
 import AuthoringSceneLaboratory from '../components/authoring/AuthoringSceneLaboratory.vue'
 import AuthoringRehearsalPanel from '../components/authoring/AuthoringRehearsalPanel.vue'
 import { useAuthoringRehearsal } from '../composables/useAuthoringRehearsal.js'
-import { rehearsalPathText } from '../services/agents/authoring/authoringRehearsal.js'
+import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
+import { useSettingsPopup } from '../composables/useSettingsPopup.js'
 import { reconcileManifestDependencies } from '../services/agents/context/contextManifestLifecycle.js'
 import AuthoringSceneCurationPreview from '../components/authoring/AuthoringSceneCurationPreview.vue'
 import AuthoringInterventionComposer from '../components/authoring/AuthoringInterventionComposer.vue'
@@ -4259,12 +4282,12 @@ const rehearsal = useAuthoringRehearsal({
 // Which route produced the ghost currently waiting in the manuscript. Ownership
 // comes from the preview receipt's own frozen session, so another tool's draft
 // can never be reported as this route's trial.
-const rehearsalDraftRoute = ref('')
+const rehearsalDraftSource = shallowRef(null)
 const rehearsalDraftState = computed(() => {
   if (!blockPreview.value) return 'none'
   const session = rehearsal.run.value?.runSession
   if (!session || blockPreview.value.candidate?.runSession !== session) return 'foreign'
-  return rehearsalDraftRoute.value === rehearsal.route.value ? 'same-route' : 'other-route'
+  return rehearsalDraftSource.value?.routeId === rehearsal.route.value ? 'same-route' : 'other-route'
 })
 async function startRehearsal() {
   if (rehearsalPreparing.value || rehearsalDrafting.value || rehearsal.busy.value || blockPreview.value) {
@@ -4272,7 +4295,7 @@ async function startRehearsal() {
     return
   }
   if (rehearsal.steps.value.length && !window.confirm('重新确定起点会清除本次试演。继续吗？')) return
-  rehearsalPreparing.value = true; rehearsalNotice.value = ''; ifEntryOpen.value = false; rehearsalDraftRoute.value = ''
+  rehearsalPreparing.value = true; rehearsalNotice.value = ''; ifEntryOpen.value = false; rehearsalDraftSource.value = null
   try {
     const ok = await openSceneLaboratory()
     if (!ok || !rehearsal.run.value) rehearsalNotice.value = sceneLaboratory.notice || '当前现场不足以试演，请补充人物或行动目标。'
@@ -4313,25 +4336,31 @@ async function writeRehearsalDraft() {
   if (characterIfActive.value) closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
   rehearsalDrafting.value = true; rehearsalNotice.value = ''
   const run = rehearsal.run.value
-  const route = rehearsal.route.value
   const scope = activeDocumentSaveScopeKey()
   try {
     if (!await rehearsal.check() || scope !== activeDocumentSaveScopeKey()) return
-    const instruction = '将以下作者选定的假想事件写成连续正文，承接冻结的落笔处。保留事件顺序和人物回应，不把这些假想写成正式世界设定，不输出步骤编号或说明：\n' + rehearsalPathText(rehearsal.steps.value)
+    const source = rehearsal.createDraftSource()
+    if (!source) return
+    const instruction = '将以下作者选定的假想事件写成连续正文，承接冻结的落笔处。保留事件顺序和人物回应，不把这些假想写成正式世界设定，不输出步骤编号或说明：\n' + source.pathText
     blockComposer.open = true; blockComposer.target = run.target
     const version = ++blockComposerVersion
     const outcome = await runAuthoringTurn({ operation: 'next-passage', kind: 'action', instruction,
       invocationTarget: run.target, authoringRunSession: run.runSession }, version)
     if (scope !== activeDocumentSaveScopeKey()) return
     if (outcome?.preview) {
-      rehearsalDraftRoute.value = route
+      if (!rehearsal.draftSourceIsCurrent(source)) {
+        dismissBlockPreview()
+        rehearsalNotice.value = '生成期间这条走法已经变化，试稿没有挂到正文；请重新写成试稿。'
+        return
+      }
+      rehearsalDraftSource.value = Object.freeze({ ...source, candidateId: outcome.preview.candidateId })
       showRehearsalDraft()
       rehearsalNotice.value = '试稿已放在正文落笔处，采用前仍可修改。'
     } else rehearsalNotice.value = (outcome?.message || blockComposer.failure?.message || '没有生成可用试稿') + '；试演仍保留，可以重试。'
   } catch (cause) { if (scope === activeDocumentSaveScopeKey()) rehearsalNotice.value = cause?.message || '试稿生成失败，可重试。' }
   finally { rehearsalDrafting.value = false }
 }
-watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => { rehearsal.clear(); rehearsalDraftRoute.value = ''; rehearsalNotice.value = ''; rehearsalOriginTitle.value = '' })
+watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => { rehearsal.clear(); rehearsalDraftSource.value = null; rehearsalNotice.value = ''; rehearsalOriginTitle.value = '' })
 onBeforeUnmount(() => rehearsal.clear())
 const ifEntryOpen = ref(false)
 const ifEntryActor = ref('')
@@ -6561,22 +6590,36 @@ const activeWritingMutationLocked = computed(() => (
 ))
 const isEmptyChapter = computed(() => !String(markdownContent.value || '').trim())
 
-const firstRunGuideActive = ref(String(route.query.guide || '') === 'first-run')
 const firstRunCharacterCount = computed(() => (
   (boundWorldbook.value?.entries || []).filter((entry) => entry?.type === 'character').length
 ))
-const firstRunGuideStage = computed(() => {
-  if (isEmptyChapter.value) return 1
-  if (!firstRunCharacterCount.value) return 2
-  if (!(sceneProjection.value.presentCharacters || []).length) return 3
-  return 4
+// 首次指引的唯一状态 owner 在 useAuthoringFirstRun;这里只喂真实产物并承接导航意图。
+// 创建 run 不再结束指引:发起试演后提示按真实回应/试稿状态继续,归右栏同一位置。
+const {
+  stageIndex: firstRunStageIndex,
+  stripVisible: firstRunStripVisible,
+  panelHint: firstRunPanelHint,
+  activate: activateFirstRun,
+  dismiss: dismissFirstRunForBook,
+  complete: completeFirstRun,
+  reopen: reopenFirstRun
+} = useAuthoringFirstRun({
+  bookId: selectedBookId,
+  artifacts: computed(() => ({
+    hasManuscript: !isEmptyChapter.value,
+    hasCharacters: firstRunCharacterCount.value > 0,
+    hasPresentCast: (sceneProjection.value.presentCharacters || []).length > 0,
+    rehearsalStarted: Boolean(rehearsal.run.value),
+    hasResponse: rehearsal.steps.value.length > 0,
+    hasDraft: rehearsalDraftState.value === 'same-route'
+  }))
 })
+const firstRunGuideStage = firstRunStageIndex
 const firstRunGuideVisible = computed(() => Boolean(
-  firstRunGuideActive.value
+  firstRunStripVisible.value
   && selectedBookId.value
   && selectedChapterId.value
   && !wt3ActiveDoc.value
-  && !rehearsal.run.value
 ))
 
 function clearFirstRunGuideQuery() {
@@ -6587,8 +6630,25 @@ function clearFirstRunGuideQuery() {
 }
 
 function dismissFirstRunGuide() {
-  firstRunGuideActive.value = false
+  dismissFirstRunForBook()
   clearFirstRunGuideQuery()
+}
+
+function reopenFirstRunGuidance() {
+  if (reopenFirstRun() !== 'need-book') return
+  void router.push('/')
+}
+
+// 更多/帮助里的“备份与恢复”:AppShell 已挂载全局设置,直达存储分区。
+const appSettings = useSettingsPopup()
+function openBackupSettings() {
+  appSettings.open('storage')
+}
+
+// 推演失败就地回程:打开模型连接检查,关闭设置后焦点回到“检查模型连接”,
+// 草拟行动保持不动,可继续重试。
+function openRehearsalConnectionSettings() {
+  appSettings.open('ai')
 }
 
 function advanceFirstRunGuide(stage) {
@@ -6608,12 +6668,10 @@ function advanceFirstRunGuide(stage) {
   selectInspectorTool('rehearsal')
 }
 
-watch(() => String(route.query.guide || ''), (guide) => {
-  if (guide === 'first-run') firstRunGuideActive.value = true
-})
-watch(() => Boolean(rehearsal.run.value), (started) => {
-  if (started && firstRunGuideActive.value) dismissFirstRunGuide()
-})
+// query 与当前书哪个先就绪都激活一次;已关闭/已完成的书由 composable 拒绝。
+watch([selectedBookId, () => String(route.query.guide || '')], ([bookIdValue, guide]) => {
+  if (bookIdValue && guide === 'first-run') activateFirstRun(bookIdValue)
+}, { immediate: true })
 
 watch(blockDraftText, () => {
   if (!blockPreview.value || pendingGhostAdoption.value) return
@@ -7642,6 +7700,7 @@ function abandonBlockComposer({ restoreSelection = false } = {}) {
   blockDraftOriginalText.value = ''
   previousBlockDraftText.value = ''
   pendingWritingGhost.value = null
+  rehearsalDraftSource.value = null
   blockComposer.open = false
   blockComposer.target = null
   blockComposer.failure = null
@@ -7660,8 +7719,12 @@ function closeBlockComposer() {
 async function acceptBlockPreview() {
   if (blockAdoptionBusy.value) return false
   blockAdoptionBusy.value = true
+  // 采纳成功即这条创作回路完成:指引对本书收尾,之后只能从菜单显式重开。
+  const guided = firstRunStripVisible.value || Boolean(firstRunPanelHint.value)
   try {
-    return await performBlockPreviewAdoption()
+    const ok = await performBlockPreviewAdoption()
+    if (ok && guided) completeFirstRun()
+    return ok
   } finally {
     blockAdoptionBusy.value = false
   }
@@ -7670,6 +7733,15 @@ async function acceptBlockPreview() {
 async function performBlockPreviewAdoption() {
   const preview = blockPreview.value
   if (!preview) return false
+  if (rehearsalDraftSource.value?.candidateId === preview.candidateId && !rehearsal.draftSourceIsCurrent(rehearsalDraftSource.value)) {
+    blockComposer.failure = normalizeAuthoringFailure({
+      phase: 'stale',
+      code: 'AUTHORING_REHEARSAL_SOURCE_STALE',
+      message: '这份试稿对应的走法已经变化，请回到推演重新生成',
+      retryable: false
+    })
+    return false
+  }
   let adoption = pendingGhostAdoption.value
   // 保存失败后的重试只能消费第一次插入时冻结的事务载荷。草稿、inline
   // candidate、光标与当前上下文此时都不是事务真源，绝不能再次决定是否插入。
@@ -7902,6 +7974,7 @@ async function performBlockPreviewAdoption() {
     sceneLaboratory.notice = '正文已变化。另一支仅保留供阅读或留作构思，重新对照需重新核对现场。'
   }
   blockPreview.value = null
+  rehearsalDraftSource.value = null
   blockDraftText.value = ''
   blockDraftOriginalText.value = ''
   pendingWritingGhost.value = null
@@ -9622,6 +9695,40 @@ onBeforeUnmount(() => {
   if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer)
 })
 
+// —— 保存失败 / 恢复副本自救(C05):动作挂在状态旁,成功即退场;——
+// 导出必须取当前可见且未保存的实际正文(getEditorText),不能从旧持久化副本读。
+const saveRescueVisible = computed(() => saveStatus.value === 'error' || Boolean(writingRecoveryDraft.value))
+const saveRescueText = computed(() => {
+  if (saveStatus.value === 'error') return '正文保存失败，你的输入仍保留在稿面。'
+  const time = writingRecoveryDraft.value ? formatWritingSnapshotTime(writingRecoveryDraft.value.createdAt) : ''
+  return time ? `发现一份未保存的恢复稿 · ${time}` : '发现一份未保存的恢复稿。'
+})
+
+function retrySaveFromRescue() {
+  if (saveStatus.value === 'saving') return
+  saveCurrentChapter()
+}
+
+function exportUnsavedManuscriptFromRescue() {
+  if (!selectedChapterId.value) return
+  const liveText = getEditorText()
+  if (!liveText.trim()) {
+    authoringTask.notify('当前正文是空的，没有可导出的内容')
+    return
+  }
+  const chapterTitle = currentChapterTitle.value || '未命名章节'
+  try {
+    downloadTextFile(liveText, `${chapterTitle}-${Date.now()}.md`, 'text/markdown;charset=utf-8')
+    authoringTask.notify('已导出当前正文，包含尚未保存的修改')
+  } catch (error) {
+    authoringTask.notify(error?.message || '导出失败，请重试')
+  }
+}
+
+function openRecoveryFromRescue() {
+  selectInspectorTool('history')
+}
+
 const revisionLabel = computed(() => {
   const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
   const stamp = Date.parse(chapter?.updatedAt || chapter?.createdAt || '')
@@ -11288,9 +11395,10 @@ function closeManuscriptImport() {
   })
 }
 
-function confirmManuscriptImport(book) {
+function confirmManuscriptImport(book, respond = null) {
   if (!book?.id || !Array.isArray(book.chapters) || !book.chapters.length) {
     authoringTask.notify('书稿结构无效，未执行导入')
+    respond?.(false)
     return false
   }
   const previousBooks = books.value
@@ -11298,12 +11406,14 @@ function confirmManuscriptImport(book) {
   if (!saveBooks()) {
     books.value = previousBooks
     authoringTask.notify('导入未能保存，请检查浏览器存储空间')
+    respond?.(false)
     return false
   }
   showManuscriptImport.value = false
   manuscriptImportReturnFocus.value = null
   selectBook(book.id)
   authoringTask.notify(`已导入《${book.title}》· ${book.chapters.length} 章`)
+  respond?.(true)
   return true
 }
 

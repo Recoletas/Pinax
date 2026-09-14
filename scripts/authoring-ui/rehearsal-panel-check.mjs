@@ -238,7 +238,7 @@ async function manuscriptLength(page) {
 
 async function reading(page) {
   return page.evaluate(() => {
-    const items = [...document.querySelectorAll('.rehearsal-steps li')]
+    const items = [...document.querySelectorAll('.rehearsal-steps > li')]
     const style = (selector, property) => { const element = document.querySelector(selector); return element ? getComputedStyle(element)[property] : null }
     const scroller = (() => {
       const flow = document.querySelector('.rehearsal-flow')
@@ -332,12 +332,12 @@ try {
 
     // R2/R3：连续阅读、建议上限、折叠身份。
     await submit(panel, '莉娜先隐瞒缺页')
-    await panel.locator('.rehearsal-steps li').first().waitFor({ timeout: 30000 }).catch(async (error) => {
+    await panel.locator('.rehearsal-steps > li').first().waitFor({ timeout: 30000 }).catch(async (error) => {
       console.log('rehearsal diagnostic', JSON.stringify({ text: (await panel.innerText()).slice(0, 400), requests: advisory.length, errors }))
       throw error
     })
     await submit(panel, '继续追问钥匙')
-    await panel.locator('.rehearsal-steps li').nth(1).waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').nth(1).waitFor({ timeout: 30000 })
     await page.waitForTimeout(400)
     const two = await reading(page)
     check(`R2 ${tag} 旧步默认连续可读`, two.count === 2 && two.visibleBodies === 2 && two.firstBodyChars > 40 && two.latestBodyChars > 40, JSON.stringify(two))
@@ -390,10 +390,10 @@ try {
     check(`P2 ${tag} 点名对象后可以提交`, unblocked === false, unblocked)
     const expectedTarget = blocked.targets[0]
     await panel.getByRole('button', { name: '试演', exact: true }).click()
-    await panel.locator('.rehearsal-steps li').nth(2).waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').nth(2).waitFor({ timeout: 30000 })
     await page.waitForTimeout(300)
     const intentSeen = advisory.at(-1)
-    const stepShowsActor = await page.evaluate(() => document.querySelectorAll('.rehearsal-steps li')[2]?.querySelector('.rehearsal-step-action')?.textContent.trim() || '')
+    const stepShowsActor = await page.evaluate(() => document.querySelectorAll('.rehearsal-steps > li')[2]?.querySelector('.rehearsal-step-action')?.textContent.trim() || '')
     check(`P2 ${tag} 请求声明行动者与对象`, typeof intentSeen?.question === 'string'
       && intentSeen.question.includes(`行动者：${expectedActor}`) && intentSeen.question.includes(`动作对象：${expectedTarget}`)
       && intentSeen.question.includes('在场人物'), JSON.stringify({ actor: expectedActor, target: expectedTarget, head: intentSeen?.question?.slice(0, 150) }))
@@ -405,17 +405,17 @@ try {
       && intentSeen.question.includes('名单之外的人物不得出现台词、名字或关键行动'), intentSeen.question.slice(0, 220))
     // 恢复两步状态：从第三步（最新）换路，归档三步旧路，当前路保留前两步。
     await clickInView(panel.locator('.rehearsal-step').nth(2).getByRole('button', { name: '从这里换路' }))
-    await panel.locator('.rehearsal-steps li').nth(1).waitFor({ timeout: 10000 })
+    await panel.locator('.rehearsal-steps > li').nth(1).waitFor({ timeout: 10000 })
     await page.waitForTimeout(250)
 
     // R2：作者折叠不因追加重置。
     await clickInView(panel.locator('.rehearsal-step-head').first())
-    const foldedOnce = await page.evaluate(() => !document.querySelector('.rehearsal-steps li .rehearsal-step-body')?.offsetParent)
+    const foldedOnce = await page.evaluate(() => !document.querySelector('.rehearsal-steps > li .rehearsal-step-body')?.offsetParent)
     await submit(panel, '先说明缺页的来路')
-    await panel.locator('.rehearsal-steps li').nth(2).waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').nth(2).waitFor({ timeout: 30000 })
     await page.waitForTimeout(400)
     const appended = await reading(page)
-    const foldedState = await page.evaluate(() => document.querySelector('.rehearsal-steps li .rehearsal-step-head')?.getAttribute('aria-expanded'))
+    const foldedState = await page.evaluate(() => document.querySelector('.rehearsal-steps > li .rehearsal-step-head')?.getAttribute('aria-expanded'))
     check(`R2 ${tag} 追加结果不重置作者折叠`, foldedOnce && foldedState === 'false' && appended.visibleBodies === 2,
       JSON.stringify({ foldedOnce, foldedState, visibleBodies: appended.visibleBodies }))
     await clickInView(panel.locator('.rehearsal-step-head').first())
@@ -429,7 +429,7 @@ try {
     const waiting = await reading(page)
     hold.armed = false
     hold.release()
-    await panel.locator('.rehearsal-steps li').nth(3).waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').nth(3).waitFor({ timeout: 30000 })
     await page.waitForTimeout(500)
     const landed = await reading(page)
     check(`R2 ${tag} 回读时新结果不抢滚动`, landed.scrollTop - waiting.scrollTop <= 8,
@@ -461,7 +461,7 @@ try {
       const bar = document.querySelector('.rehearsal-routes')
       return {
         names: [...bar.querySelectorAll('[data-route] span')].map((item) => item.textContent.trim()),
-        steps: document.querySelectorAll('.rehearsal-steps li').length,
+        steps: document.querySelectorAll('.rehearsal-steps > li').length,
         compare: bar.querySelectorAll('.rehearsal-compare').length
       }
     })
@@ -472,14 +472,14 @@ try {
       JSON.stringify({ longRouteId, shortRouteId }))
 
     await submit(panel, '直接摊牌，不再隐瞒')
-    await panel.locator('.rehearsal-steps li').first().waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').first().waitFor({ timeout: 30000 })
     await panel.getByLabel('试演行动').fill('从这一步换成直接摊牌')
     await page.waitForTimeout(200)
     await clickRoute(page, panel, longRouteId)
     await page.waitForTimeout(300)
     const onLong = await page.evaluate(() => ({
       id: document.querySelector('[data-test="rehearsal-panel"]').dataset.currentRoute,
-      steps: document.querySelectorAll('.rehearsal-steps li').length,
+      steps: document.querySelectorAll('.rehearsal-steps > li').length,
       input: document.querySelector('.rehearsal-compose textarea')?.value || ''
     }))
     check(`R4 ${tag} 换到旧路带回该路状态`, onLong.id === longRouteId && onLong.steps === 4 && onLong.input === '', JSON.stringify(onLong))
@@ -487,7 +487,7 @@ try {
     await page.waitForTimeout(300)
     const onShort = await page.evaluate(() => ({
       id: document.querySelector('[data-test="rehearsal-panel"]').dataset.currentRoute,
-      steps: document.querySelectorAll('.rehearsal-steps li').length,
+      steps: document.querySelectorAll('.rehearsal-steps > li').length,
       input: document.querySelector('.rehearsal-compose textarea')?.value || ''
     }))
     check(`R4 ${tag} 切回原路恢复未提交输入`, onShort.id === shortRouteId && onShort.steps === 1 && onShort.input === '从这一步换成直接摊牌', JSON.stringify(onShort))
@@ -499,7 +499,7 @@ try {
     await page.waitForTimeout(300)
     const rootRouteId = await panel.evaluate((el) => el.dataset.currentRoute)
     await submit(panel, '从起点再试一步')
-    await panel.locator('.rehearsal-steps li').first().waitFor({ timeout: 30000 })
+    await panel.locator('.rehearsal-steps > li').first().waitFor({ timeout: 30000 })
     await clickRoute(page, panel, reproRouteId)
     await page.waitForTimeout(300)
     const reproBack = await page.evaluate(() => ({
@@ -599,7 +599,7 @@ try {
       await page.waitForTimeout(350)
       const returned = await page.evaluate(() => {
         const dossier = document.querySelector('.wall__dossier').getBoundingClientRect()
-        return { top: Math.round(dossier.top), visible: dossier.top >= -2 && dossier.top < window.innerHeight, steps: document.querySelectorAll('.rehearsal-steps li').length }
+        return { top: Math.round(dossier.top), visible: dossier.top >= -2 && dossier.top < window.innerHeight, steps: document.querySelectorAll('.rehearsal-steps > li').length }
       })
       check(`R6 ${tag} 一键回正文后稿面可见且会话保留`, returned.visible === true && returned.steps > 0, JSON.stringify(returned))
     }
@@ -629,9 +629,9 @@ try {
       await clickInView(panel.locator('[data-route-root]'))
       await page.waitForTimeout(250)
       await submit(panel, '把缺页直接摊给艾德加看')
-      await panel.locator('.rehearsal-steps li').first().waitFor({ timeout: 30000 })
+      await panel.locator('.rehearsal-steps > li').first().waitFor({ timeout: 30000 })
       await submit(panel, '请艾德加自己决定要不要看')
-      await panel.locator('.rehearsal-steps li').nth(1).waitFor({ timeout: 30000 })
+      await panel.locator('.rehearsal-steps > li').nth(1).waitFor({ timeout: 30000 })
       await page.waitForTimeout(300)
       const routeBRequests = advisory.slice(routeA).map((item) => item.question)
       check('R7 1440 第二路两步各带前一步', routeBRequests.length === 2

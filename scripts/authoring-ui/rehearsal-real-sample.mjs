@@ -41,24 +41,29 @@ function buildStorage() {
 }
 const SNAPSHOT = buildStorage()
 
-// 三类场景（P2-4）：所有行动写清行动者与对象。
+// 三类场景（A08）：第一路行动在两路间不同（分岔起点），第二步两路同文——
+// 同一作者行动在两路各得一次回应，应用按行动原文分配同一 issueKey，
+// 用于对照承诺/知情差异（J06/J07）。conceal 场同文请求守门；
+// cooperate 场同文请求共享线索。
+const SHARED_GUARD = '莉娜请艾德加今晚守住档案室门口，不让任何人进去'
+const SHARED_SHARE = '莉娜请艾德加一起守夜，把线索摊开共享'
 const SCENARIOS = [
   {
-    id: 'conceal', label: '隐瞒或坦白：关系代价',
-    routeA: ['莉娜把缺页的事先瞒下来，独自去查暗格', '莉娜对艾德加坚持说自己在对账'],
-    routeB: ['莉娜把缺页直接摊在艾德加面前', '莉娜向艾德加坦白自己昨夜独自下过档案室']
+    id: 'conceal', label: '秘密透露或隐瞒（同文守门请求）',
+    routeA: ['莉娜把账册被调包的事直接告诉艾德加', SHARED_GUARD],
+    routeB: ['莉娜对艾德加只字不提账册的事，独自翻查暗格', SHARED_GUARD]
   },
   {
-    id: 'cooperate', label: '合作或拒绝：利益冲突',
-    routeA: ['莉娜请艾德加一起守夜，共享线索', '莉娜把黄铜钥匙交给艾德加保管一夜'],
-    routeB: ['莉娜谢绝艾德加的帮忙，自己守住暗格', '莉娜请艾德加离开档案室，只守住门口']
+    id: 'cooperate', label: '交付或拒收（同文共享请求）',
+    routeA: ['莉娜把黄铜钥匙交给艾德加保管一夜', SHARED_SHARE],
+    routeB: ['莉娜谢绝艾德加的帮忙，自己把钥匙收进口袋', SHARED_SHARE]
   },
   {
     id: 'probe', label: '追问或离开：信息取舍（含歧义输入检查）',
     routeA: ['莉娜追问艾德加对总册知道多少', 'AMBIGIOUS:追问他昨夜为何不在档案室外'],
     routeB: ['莉娜不再追问，转身回楼上避开风头', '莉娜留下钥匙和字条，暂时离开税务所']
   }
-]
+].filter((scenario) => !process.env.REAL_SCENARIO || scenario.id === process.env.REAL_SCENARIO)
 // 凭空人物启发检查：这些角色词出现在回应里即标记（fixture 世界无这些在场人物）。
 const INVENTED_ROLE_WORDS = /抄表员|水手|船长|老板|侍者|职员|陌生人|年轻人|老者|卫兵|店员/
 
@@ -90,9 +95,30 @@ try {
     const errors = []
     page.on('pageerror', (error) => errors.push(error.message.slice(0, 200)))
     const stepQuestions = []
+    const wireSteps = []
     await page.route('**/api/advisor/task', async (route) => {
       const payload = route.request().postDataJSON?.() || {}
-      if (payload.taskType === 'authoring.rehearsal.step') stepQuestions.push(payload.question)
+      if (payload.taskType === 'authoring.rehearsal.step') {
+        const question = payload.question
+        const verification = payload.options?.rehearsalVerification || null
+        const response = await route.fetch()
+        const body = await response.json().catch(() => null)
+        const rehearsal = body?.result?.rehearsal || null
+        // wire 层直接记录后果批次：不依赖面板渲染（C 未接线时也能取证）。
+        wireSteps.push({
+          actionText: verification?.actionText || '',
+          allowedFactKeys: verification?.allowedFactKeys || [],
+          questionFactBlock: /可登记事实：([^\n]*)/.exec(question || '')?.[1] || '',
+          knowledgeView: /知情约束[^\n]*\n((?:-[^\n]+\n?)+)/.exec(question || '')?.[1]?.trim() || '',
+          consequenceStatus: rehearsal?.consequenceStatus || 'absent',
+          consequenceIssues: rehearsal?.consequenceIssues || [],
+          consequences: rehearsal?.consequences || [],
+          rawAdvice: typeof body?.advice === 'string' ? body.advice : ''
+        })
+        stepQuestions.push(question)
+        await route.fulfill({ response })
+        return
+      }
       return route.continue()
     })
     await page.goto(`${BASE}/authoring?bookId=${state.bookId}&chapterId=${state.targetChapterId}`, { waitUntil: 'domcontentloaded' })
@@ -114,20 +140,39 @@ try {
     const panel = page.locator('[data-test="rehearsal-panel"]')
     await panel.getByRole('button', { name: '从当前段落开始', exact: true }).click()
     await panel.getByLabel('试演行动').waitFor({ timeout: 60000 })
+    // A08 同时走真实的“本次条件”入口：事实用应用生成的稳定 factKey 进入
+    // 模型请求，避免让模型把自然语言事实误当机器标识。
+    await panel.locator('.rehearsal-conditions > summary').click()
+    await panel.getByLabel('只在这次推演成立的事实').fill('账册被调包')
+    await panel.getByLabel('谁知道').selectOption({ label: '莉娜' })
+    await panel.getByLabel('谁还不知道').selectOption({ label: '艾德加' })
+    await panel.getByRole('button', { name: '用于本次推演', exact: true }).click()
 
     async function submit(action) {
       await panel.getByLabel('试演行动').fill(action)
       await panel.getByRole('button', { name: '试演', exact: true }).click()
     }
     async function readStep(index) {
-      await panel.locator('.rehearsal-steps li').nth(index).waitFor({ timeout: 120000 })
+      const failure = panel.locator('[data-test="rehearsal-failure"]')
+      await page.waitForFunction((wanted) => {
+        const root = document.querySelector('[data-test="rehearsal-panel"]')
+        const failed = root?.querySelector('[data-test="rehearsal-failure"]')
+        return (root?.querySelectorAll('.rehearsal-steps > li').length || 0) > wanted || Boolean(failed?.offsetParent)
+      }, index, { timeout: 180000 })
+      if (await failure.isVisible()) {
+        const keep = panel.locator('[data-test="rehearsal-failure-keep"]')
+        if (!await keep.count()) throw new Error(`真实推演请求失败：${await failure.textContent()}\nRAW=${wireSteps.at(-1)?.rawAdvice || '（无）'}`)
+        await keep.click()
+        await failure.waitFor({ state: 'hidden', timeout: 5000 })
+      }
+      await page.waitForFunction((wanted) => (document.querySelector('[data-test="rehearsal-panel"]')?.querySelectorAll('.rehearsal-steps > li').length || 0) > wanted, index, { timeout: 5000 })
       await page.waitForTimeout(400)
       await panel.locator('.rehearsal-consequence').evaluateAll((nodes) => {
         nodes.forEach((node) => { node.open = true })
       })
       await page.waitForTimeout(150)
-      return page.evaluate((i) => {
-        const item = document.querySelectorAll('.rehearsal-steps li')[i]
+      return panel.evaluate((root, i) => {
+        const item = root.querySelectorAll('.rehearsal-steps > li')[i]
         return {
           action: item.querySelector('.rehearsal-step-action')?.innerText?.trim(),
           response: item.querySelector('.rehearsal-response')?.innerText?.trim(),
@@ -169,8 +214,12 @@ try {
         const step = await readStep(entry.routes[route].length)
         step.declaredActor = declaredActor
         const question = stepQuestions[questionIndex]
+        const wire = wireSteps[questionIndex]
         questionIndex += 1
         step.requestCast = question?.match(/在场人物（[^）]*）：(.+)\n/)?.[1] || ''
+        step.routeId = await panel.evaluate((el) => el.dataset.currentRoute)
+        step.wire = wire || null
+        if (wire && wire.consequenceStatus === 'needs-review') problems.push(`${scenario.id}/${route}/step${stepIndex + 1}: 后果 needs-review——${(wire.consequenceIssues || []).join('；')}`)
         entry.routes[route].push(step)
       }
     }
@@ -218,6 +267,16 @@ try {
   // —— 结构化初检（启发式；语义判断仍需人工）——
   const WHITELIST = ['莉娜', '艾德加']
   for (const scenario of raw) {
+    // 同文第二步的议题对齐检查：两路同一作者行动 → 承诺应可按 issueKey 比较
+    const [a2, b2] = [scenario.routes.A?.[1], scenario.routes.B?.[1]]
+    if (a2?.wire?.actionText && a2.wire.actionText === b2?.wire?.actionText) {
+      const issueA = (a2.wire.consequences || []).filter(item => item.kind === 'commitment').map(item => item.issueKey)
+      const issueB = (b2.wire.consequences || []).filter(item => item.kind === 'commitment').map(item => item.issueKey)
+      scenario.issueAlignment = { actionText: a2.wire.actionText, issueA, issueB, comparable: Boolean(issueA.length && issueB.length && issueA.some(key => issueB.includes(key))) }
+      if (!scenario.issueAlignment.comparable && (issueA.length || issueB.length)) {
+        problems.push(`${scenario.id}: 同文请求的承诺 issueKey 未对齐——A=${issueA.join(',')} B=${issueB.join(',')}`)
+      }
+    }
     for (const route of ['A', 'B']) {
       scenario.routes[route].forEach((step, index) => {
         const tag = `${scenario.id}/${route}/step${index + 1}`
@@ -239,13 +298,30 @@ try {
   const md = ['# P2 真实模型推演小样本 · 原始输出', '', `模型：${MODEL}（${BASEURL}）`, '', '> 行动者/对象已写入请求；歧义输入检查见 probe 场；在场人物白名单已随请求归档。', '']
   for (const scenario of raw) {
     md.push(`## ${scenario.label}（${scenario.id}）`, '')
+    if (scenario.issueAlignment) {
+      md.push(`**同文请求议题对齐**：${scenario.issueAlignment.comparable ? '两路承诺 issueKey 已对齐，可对照' : '未对齐（见初检）'}`, '')
+    }
     if (scenario.ambiguiltyCheck) {
       md.push(`**歧义输入检查**：输入「${scenario.ambiguiltyCheck.action}」→ ${scenario.ambiguiltyCheck.submitDisabled ? '已被拦截（提交禁用）' : '未被拦截！'}，提示：${scenario.ambiguiltyCheck.hint}`, '')
     }
     for (const route of ['A', 'B']) {
-      md.push(`### 路 ${route}`, '')
+      md.push(`### 路 ${route}（routeId ${scenario.routes[route][0]?.routeId || '未知'}）`, '')
       scenario.routes[route].forEach((step, index) => {
-        md.push(`**第 ${index + 1} 步 · 行动者 ${step.declaredActor}**：${step.action}`, '', `**人物回应**：`, '', step.response, '', `**局面变化**：${step.change || '（无）'}`, '', `**建议**：${(step.choices || []).join(' / ') || '（无）'}`, '', '---', '')
+        md.push(`**第 ${index + 1} 步 · 行动者 ${step.declaredActor}**：${step.action}`, '', `**人物回应**：`, '', step.response, '', `**局面变化**：${step.change || '（无）'}`, '', `**建议**：${(step.choices || []).join(' / ') || '（无）'}`)
+        const consequences = step.wire?.consequences || []
+        if (consequences.length) {
+          md.push('', `**登记后果**（${step.wire.consequenceStatus}）：`)
+          for (const item of consequences) {
+            if (item.kind === 'knowledge') {
+              md.push(`- knowledge · ${item.knowerRef} 得知 ${item.factKey} · 引文「${item.source.quote}」`)
+            } else {
+              md.push(`- commitment · ${item.promisorRef}${item.beneficiaryRef ? `→${item.beneficiaryRef}` : ''} · ${item.state}${item.condition ? `（条件：${item.condition}）` : ''} · ${item.content} · key ${item.commitmentKey} · issue ${item.issueKey} · 引文「${item.source.quote}」`)
+            }
+          }
+        } else {
+          md.push('', `**登记后果**：无（${step.wire?.consequenceStatus || 'absent'}）`)
+        }
+        md.push('', '---', '')
       })
     }
     if (scenario.draft) {

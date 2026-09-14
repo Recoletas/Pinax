@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "technical key table collapsed by default",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "export action visible near top",
+      "ok": true,
+      "note": "{\"x\":430.296875,\"y\":438.578125,\"width\":105.78125,\"height\":30.59375}"
+    },
+    {
+      "name": "export feedback in author language",
+      "ok": true,
+      "note": "备份文件已生成：包含 9 项本地作品数据，模型密钥未包含。请妥善保存。"
+    },
+    {
+      "name": "review shows exported-at and book title metadata",
+      "ok": true,
+      "note": "备份已读取，确认后才会写入备份生成于 2026-09-13 17:58:16包含 1 本书稿：《雾港纪事·P1》恢复将：新增 0 项 · 覆盖 0 项 · 内容相同跳过 9 项确认"
+    },
+    {
+      "name": "restore success with direct book return",
+      "ok": true,
+      "note": "备份已恢复，数据已写回当前浏览器。 继续《雾港纪事·P1》"
+    },
+    {
+      "name": "two-book backup preview names the count",
+      "ok": true,
+      "note": "备份已恢复，数据已写回当前浏览器。 打开作品列表"
+    },
+    {
+      "name": "multi-book restore returns to works list",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "broken backup suggests concrete next step",
+      "ok": true,
+      "note": "备份不是有效 JSON。请确认这是本应用“导出本地作品备份”生成的文件，再重新选择。"
+    }
+  ],
+  "passed": 8,
+  "failed": 0
+}

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "continue entry visible on desktop",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "continue link targets most recent book without guide param",
+      "ok": true,
+      "note": "/authoring?bookId=1789316385302"
+    },
+    {
+      "name": "no new-book dialog on continue",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "authoring opened the expected book",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "empty library keeps both primary paths",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "390: continue entry inside first screen",
+      "ok": true,
+      "note": "{\"x\":13.59375,\"y\":109.734375,\"width\":362.796875,\"height\":53.1875}"
+    }
+  ],
+  "passed": 6,
+  "failed": 0
+}

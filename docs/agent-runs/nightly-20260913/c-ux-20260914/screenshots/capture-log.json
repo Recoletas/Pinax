@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "commit": "a2782a7",
+  "dirty": "M docs/user-manual/01-quickstart.md\n M docs/user-manual/10-beta-guide.md\n M scripts/authoring-ui/ux-state-capture.mjs\n M src/pages/Authoring.block-native.css\n M src/pages/Authoring.vue\n?? docs/agent-runs/nightly-20260913/",
+  "captures": [
+    {
+      "name": "c08-matrix-long-title-1280",
+      "label": "1280x800",
+      "note": "视口矩阵:长章名稿面可读性",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "file": "docs/agent-runs/nightly-20260913/c-ux-20260914/screenshots/c08-matrix-long-title-1280.png"
+    },
+    {
+      "name": "c08-matrix-long-title-1024",
+      "label": "1024x768",
+      "note": "视口矩阵:长章名稿面可读性",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "file": "docs/agent-runs/nightly-20260913/c-ux-20260914/screenshots/c08-matrix-long-title-1024.png"
+    },
+    {
+      "name": "c08-matrix-long-title-900-dark",
+      "label": "900x700 暗色",
+      "note": "视口矩阵:长章名稿面可读性",
+      "viewport": {
+        "width": 900,
+        "height": 700
+      },
+      "file": "docs/agent-runs/nightly-20260913/c-ux-20260914/screenshots/c08-matrix-long-title-900-dark.png"
+    }
+  ]
+}

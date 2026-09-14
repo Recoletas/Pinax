@@ -2,6 +2,7 @@ import { validateServerTaskType, isNewEnvelopePayload } from './agentTaskAllowli
 import { validateWritingReplacement } from '../../shared/writingReplacementContract.js'
 import { normalizeWritingCandidates } from '../../shared/writingCandidateContract.js'
 import { normalizeWritingReviewFindings } from '../../shared/writingReviewContract.js'
+import { normalizeRehearsalConsequences } from '../../shared/authoringRehearsalConsequenceContract.js'
 
 export const ADVISOR_TASK_MODES = {
   'writing.fix.selection': 'replace',
@@ -171,7 +172,33 @@ function buildAdvisorResult(taskType, advice, options = {}) {
   }
 
   if (taskType === 'authoring.rehearsal.step') {
-    result.rehearsal = { response: base.response, change: base.change, choices: base.choices, evidenceRefs: base.evidenceRefs }
+    // 后果批次用共享合同归一化：quote 对请求时捕获的原文强校验，
+    // ref/factKey/commitmentKey 只认授权清单。非法批次整批不提交，
+    // 保留 issues 以便客户端按“待核对”呈现，不静默丢 delta。
+    const verification = options.rehearsalVerification && typeof options.rehearsalVerification === 'object'
+      ? options.rehearsalVerification
+      : {}
+    const parsedResponse = typeof base.response === 'string' ? base.response : ''
+    const batch = normalizeRehearsalConsequences(base.consequences, {
+      allowedRefs: verification.allowedRefs,
+      allowedFactKeys: verification.allowedFactKeys,
+      knownCommitments: verification.knownCommitments,
+      allowedEvidenceRefs: verification.allowedEvidenceRefs,
+      authorizedItems: verification.authorizedItems,
+      sceneLocationRef: verification.sceneLocationRef,
+      actionText: verification.actionText,
+      responseText: parsedResponse
+    })
+    result.rehearsal = {
+      response: base.response,
+      change: base.change,
+      choices: base.choices,
+      evidenceRefs: base.evidenceRefs,
+      consequences: batch.consequences,
+      consequenceVersion: batch.version,
+      consequenceStatus: batch.ok ? 'committed' : 'needs-review',
+      consequenceIssues: batch.issues
+    }
     result.typedActions = []
     result.action = []
     result.replacement = ''

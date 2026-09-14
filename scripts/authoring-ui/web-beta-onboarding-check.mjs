@@ -49,7 +49,8 @@ try {
     // GB18030 bytes keep this browser gate independent of Node-only codec packages.
     buffer: Buffer.from('2320b3b1cfabb5b5b0b80a0a232320b5dad2bbd5c220caa7b5c60a0ab8dbbfdacfa8b5c6a1a30a0a232320b5dab6fed5c220bbd8c9f90a0ad6d3c9f9b4d3cbaecfc2b4abc0b4a1a3', 'hex')
   })
-  await dialog.getByText(/GB18030/).waitFor()
+  // 编码工具改为常驻折叠层,选项文本常驻 DOM;断言目标是摘要行的识别编码,需收窄定位。
+  await dialog.locator('.manuscript-import__summary').getByText(/GB18030/).waitFor()
   await dialog.getByLabel('书名').fill('潮汐档案·内测稿')
   if (await dialog.locator('.manuscript-import__chapters li').count() !== 2) throw new Error('expected two detected chapters')
   await dialog.getByLabel('第 1 章标题').fill('第一章 雨港失灯')
@@ -82,7 +83,9 @@ try {
   await restoreSettings.locator('[data-test="backup-import-input"]').setInputFiles(backupPath)
   await restoreSettings.locator('[data-test="backup-review"]').waitFor()
   await restoreSettings.locator('[data-test="backup-restore-confirm"]').click()
-  await restoreSettings.getByText(/已导入 \d+ 个键/).waitFor()
+  // C04:恢复成功反馈改为作者语言,单本书备份给出直达书稿回程。
+  await restoreSettings.getByText(/备份已恢复/).waitFor()
+  await restoreSettings.getByRole('link', { name: /继续《潮汐档案·内测稿》/ }).waitFor()
   await restoreSettings.getByRole('button', { name: '关闭' }).click()
   await page.reload({ waitUntil: 'domcontentloaded' })
   const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('writing_books') || '[]')[0])

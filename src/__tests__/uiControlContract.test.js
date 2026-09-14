@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import { ref } from 'vue'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { trapFocusWithin } from '../composables/useTransientLayer'
+import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
 import { generateWritingNames } from '../services/writingNameGenerator.js'
 import {
   createWritingDocument,
@@ -51,6 +53,7 @@ const authoringInterventionGhost = readFileSync(resolve(__dirname, '../component
 const authoringLivingStory = readFileSync(resolve(__dirname, '../components/authoring/AuthoringLivingStoryProjection.vue'), 'utf8')
 const authoringKnowledgeComposable = readFileSync(resolve(__dirname, '../composables/useAuthoringKnowledgeAssistant.js'), 'utf8')
 const authoringToolRail = readFileSync(resolve(__dirname, '../components/authoring/AuthoringWorkspaceToolRail.vue'), 'utf8')
+const rehearsalPanelSource = readFileSync(resolve(__dirname, '../components/authoring/AuthoringRehearsalPanel.vue'), 'utf8')
 const rehearsalReviewSurface = readFileSync(resolve(__dirname, '../components/collaboration/RehearsalReviewSurface.vue'), 'utf8')
 const collaborationReview = readFileSync(resolve(__dirname, '../pages/CollaborationReview.vue'), 'utf8')
 const gamePanel = readFileSync(resolve(__dirname, '../components/GamePanel.vue'), 'utf8')
@@ -66,21 +69,81 @@ const desktopProjectGate = existsSync(desktopProjectGatePath)
   : ''
 
 describe('workbench control contract (U1)', () => {
-  it('keeps the authoring shell structural when legacy scoped styles are unavailable', () => {
-    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/)
-    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
-    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__main \{[\s\S]*display: grid;[\s\S]*grid-template-columns:/)
-    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
-    expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__dossier \{[\s\S]*display: flex;[\s\S]*flex-direction: column;/)
-    const regularPhoneChrome = authoringBlockCss.slice(
-      authoringBlockCss.indexOf('@media (max-width: 520px)'),
-      authoringBlockCss.indexOf('@media (max-width: 240px)')
-    )
-    expect(regularPhoneChrome).not.toContain('flex: 1 0 100%')
-    expect(authoringBlockCss).toContain('@media (max-width: 240px)')
+  it('keeps first-run guidance truthful and bound to one book', () => {
+    localStorage.clear()
+    const bookId = ref('book-a')
+    const artifacts = ref({
+      hasManuscript: false, hasCharacters: false, hasPresentCast: false,
+      rehearsalStarted: false, hasResponse: false, hasDraft: false
+    })
+    const guide = useAuthoringFirstRun({ bookId, artifacts })
+    expect(guide.activate('book-a')).toBe(true)
+    expect(guide.phase.value).toBe('write')
+    expect(guide.stageIndex.value).toBe(1)
+
+    artifacts.value = { ...artifacts.value, hasManuscript: true }
+    expect(guide.stageIndex.value).toBe(2)
+    artifacts.value = { ...artifacts.value, hasCharacters: true }
+    expect(guide.stageIndex.value).toBe(3)
+    artifacts.value = { ...artifacts.value, hasPresentCast: true }
+    expect(guide.stageIndex.value).toBe(4)
+
+    // 创建 run 不再冒充完成:阶段进入 response,提示按真实产物说话。
+    artifacts.value = { ...artifacts.value, rehearsalStarted: true }
+    expect(guide.phase.value).toBe('response')
+    expect(guide.stripVisible.value).toBe(false)
+    expect(guide.panelHint.value).toContain('回应会出现在这里')
+    artifacts.value = { ...artifacts.value, hasResponse: true }
+    expect(guide.panelHint.value).toContain('写成试稿')
+    artifacts.value = { ...artifacts.value, hasDraft: true }
+    expect(guide.panelHint.value).toContain('仍可修改')
+    expect(guide.panelHint.value).toContain('由你决定')
+
+    // 指引绑定当前书:切到另一本书不带 A 的进度。
+    bookId.value = 'book-b'
+    expect(guide.phase.value).toBe('')
+    expect(guide.panelHint.value).toBe('')
+
+    // 关闭按书持久化,已关闭的书不再被 query 激活;作者可显式重开。
+    bookId.value = 'book-a'
+    guide.dismiss()
+    expect(JSON.parse(localStorage.getItem('authoring_first_run_v1')).closedBookIds).toContain('book-a')
+    expect(guide.activate('book-a')).toBe(false)
+    expect(guide.reopen()).toBe('active')
+
+    // 没有打开的书时重开要求回作品选择,不伪续接。
+    bookId.value = ''
+    expect(guide.reopen()).toBe('need-book')
+
+    // 采纳后完成:完成的书同样不被 query 复活。
+    bookId.value = 'book-c'
+    guide.activate('book-c')
+    guide.complete()
+    expect(JSON.parse(localStorage.getItem('authoring_first_run_v1')).completedBookIds).toContain('book-c')
+    expect(guide.activate('book-c')).toBe(false)
+
+    // 页面接线:run 创建不再触发结束;面板消费右栏提示;菜单提供显式重开。
+    expect(writing).toContain('useAuthoringFirstRun(')
+    expect(writing).toContain(':first-run-hint="firstRunPanelHint"')
+    expect(writing).toContain('data-test="more-reopen-first-run"')
+    expect(writing).not.toContain('if (started && firstRunGuideActive.value) dismissFirstRunGuide()')
+    expect(rehearsalPanelSource).toContain('data-test="rehearsal-first-run-hint"')
   })
 
-  it("uses one authoring destination while retaining writing and experience compatibility（合并4例）", async () => {
+  it("keeps the authoring shell structural and one authoring destination（合并5例）", async () => {
+    {
+      expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/)
+      expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
+      expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__main \{[\s\S]*display: grid;[\s\S]*grid-template-columns:/)
+      expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
+      expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__dossier \{[\s\S]*display: flex;[\s\S]*flex-direction: column;/)
+      const regularPhoneChrome = authoringBlockCss.slice(
+        authoringBlockCss.indexOf('@media (max-width: 520px)'),
+        authoringBlockCss.indexOf('@media (max-width: 240px)')
+      )
+      expect(regularPhoneChrome).not.toContain('flex: 1 0 100%')
+      expect(authoringBlockCss).toContain('@media (max-width: 240px)')
+    }
 {
     // A1：临时工具返回副稿时恢复阅读状态，过期来源不能恢复旧状态。
     const { shallowMount } = await import('@vue/test-utils')

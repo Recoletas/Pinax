@@ -7,15 +7,24 @@ const props = defineProps({
   notice: { type: String, default: '' },
   title: { type: String, default: '' },
   drafting: Boolean,
-  draftState: { type: String, default: 'none' }
+  draftState: { type: String, default: 'none' },
+  firstRunHint: { type: String, default: '' }
 })
-const emit = defineEmits(['start', 'draft', 'view-draft', 'locate', 'if'])
+const emit = defineEmits(['start', 'draft', 'view-draft', 'locate', 'if', 'check-connection'])
 const steps = computed(() => props.rehearsal.steps.value)
 const last = computed(() => steps.value.at(-1))
 const atLimit = computed(() => steps.value.length >= props.rehearsal.maxSteps)
 const suggestions = computed(() => (last.value?.choices || []).slice(0, 3))
 const locked = computed(() => props.preparing || props.drafting || props.rehearsal.busy.value)
 const stale = computed(() => props.rehearsal.stale.value)
+const rejected = computed(() => props.rehearsal.lastRejected.value)
+// 失败就地回程:错误翻译成作者能行动的一句话,原始细节保留为次级信息;
+// 草拟行动、行动者与对象不动,重试直接重发同一意图。
+const failureHeadline = computed(() => {
+  const raw = String(props.rehearsal.error.value || '')
+  if (/network|fetch|timeout|ECONN|ERR_|status code \d{3}/i.test(raw)) return '推演没有完成：暂时连不上推演服务。'
+  return '推演没有完成。'
+})
 const flow = ref(null)
 const input = ref(null)
 const more = ref(null)
@@ -23,7 +32,7 @@ const hasNew = ref(false)
 const follow = ref(true)
 
 function chooseAction(choice) {
-  props.rehearsal.action.value = choice
+  props.rehearsal.setAction(choice)
   nextTick(() => input.value?.focus())
 }
 function menuAction(action) {
@@ -44,13 +53,13 @@ function submitFromKeyboard(event) {
     submit()
   }
 }
-function pickActor(name) {
-  actor.value = name
-  target.value = ''
+function pickActor(ref) {
+  actorRef.value = ref
+  targetRef.value = ''
 }
 function submit() {
   if (locked.value || !props.rehearsal.action.value.trim()) return
-  if (ambiguousTarget.value && !target.value) {
+  if (ambiguousTarget.value && !targetRef.value) {
     input.value?.focus()
     return
   }
@@ -93,7 +102,7 @@ function scrollToPosition(value) {
   if (typeof window.scrollTo === 'function') window.scrollTo({ top: value })
 }
 function onFlowScroll() {
-  props.rehearsal.readingScroll.value = scrollTopOf()
+  props.rehearsal.setReadingScroll(scrollTopOf())
   follow.value = distanceFromBottom() < 64
   if (follow.value) hasNew.value = false
 }
@@ -139,7 +148,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   document.removeEventListener('scroll', onAnyScroll, { capture: true })
-  props.rehearsal.readingScroll.value = scrollTopOf()
+  props.rehearsal.setReadingScroll(scrollTopOf())
 })
 
 // 走法：名字取与当前路分开的那一次行动，而不是统一的第一步或序号。
@@ -173,39 +182,71 @@ const compareSide = computed(() => {
 })
 const compareOpen = ref(false)
 
+const conditionText = ref('')
+const conditionKnowerRef = ref('')
+const conditionUnawareRef = ref('')
+const conditionIssue = ref('')
+
 // P2-1 行动意图：默认行动者=视角人物；出现代词且在场多人时不自动猜对象，
 // 要求作者点名。会话内状态，不写作品数据。
-const participants = computed(() => {
-  const list = props.rehearsal.run.value?.pressureProjection?.participants || []
-  return list.filter(person => person?.name).map(person => ({
-    name: String(person.name),
-    viewpoint: (person.roles || []).includes('viewpoint')
-  }))
-})
-const actor = ref('')
-const defaultActor = computed(() => participants.value.find(person => person.viewpoint)?.name
-  || participants.value[0]?.name || '')
-const activeActor = computed(() => actor.value || defaultActor.value)
-watch(defaultActor, (value) => { if (!actor.value && value) actor.value = '' })
-const others = computed(() => participants.value.filter(person => person.name !== activeActor.value).map(person => person.name))
+const participants = computed(() => props.rehearsal.participants.value)
+const actorRef = ref('')
+const defaultActorRef = computed(() => participants.value.find(person => person.roles.includes('viewpoint') && person.status !== 'planned')?.ref
+  || participants.value.find(person => person.status !== 'planned')?.ref || '')
+const activeActor = computed(() => participants.value.find(person => person.ref === (actorRef.value || defaultActorRef.value)) || null)
+watch(defaultActorRef, (value) => { if (!actorRef.value && value) actorRef.value = '' })
+const others = computed(() => participants.value.filter(person => person.status !== 'planned' && person.ref !== activeActor.value?.ref))
 const ambiguousTarget = computed(() => {
   const text = props.rehearsal.action.value
   if (!text.trim() || !others.value.length) return null
-  if (others.value.some(name => text.includes(name))) return null
+  if (others.value.some(person => text.includes(person.name))) return null
   if (/[他她它]|对方|那人/.test(text)) return others.value
   return null
 })
-const target = ref('')
+const targetRef = ref('')
 watch([ambiguousTarget, () => props.rehearsal.route.value], ([names]) => {
-  if (!names) target.value = ''
+  if (!names) targetRef.value = ''
 })
 function buildIntent() {
-  const targets = []
-  if (target.value) targets.push(target.value)
-  const named = others.value.filter(name => props.rehearsal.action.value.includes(name))
-  for (const name of named) if (!targets.includes(name)) targets.push(name)
-  return { text: props.rehearsal.action.value, actor: activeActor.value, targets }
+  const selected = []
+  if (targetRef.value) selected.push(participants.value.find(person => person.ref === targetRef.value))
+  for (const person of others.value.filter(item => props.rehearsal.action.value.includes(item.name))) {
+    if (!selected.some(item => item?.ref === person.ref)) selected.push(person)
+  }
+  return {
+    text: props.rehearsal.action.value,
+    actor: activeActor.value?.name || '',
+    actorRef: activeActor.value?.ref || '',
+    targets: selected.filter(Boolean).map(person => person.name),
+    targetRefs: selected.filter(Boolean).map(person => person.ref)
+  }
 }
+function saveCondition() {
+  const fact = conditionText.value.trim()
+  if (!fact) { conditionIssue.value = '先写下一条本次推演成立的事实。'; return }
+  const knowerRefs = conditionKnowerRef.value ? [conditionKnowerRef.value] : []
+  const unawareRefs = conditionUnawareRef.value && conditionUnawareRef.value !== conditionKnowerRef.value
+    ? [conditionUnawareRef.value] : []
+  if (!props.rehearsal.freezeConditions({ facts: [{ text: fact, knowerRefs, unawareRefs }] })) {
+    conditionIssue.value = '这条条件没有保存，请检查人物选择或缩短文字。'
+    return
+  }
+  conditionIssue.value = ''
+}
+function personName(ref) { return participants.value.find(person => person.ref === ref)?.name || '未指名人物' }
+function consequenceLines(item) {
+  return (item.consequences || []).map((entry) => {
+    if (entry.kind === 'knowledge') return `${personName(entry.knowerRef)}得知了本次条件中的事实`
+    if (entry.kind === 'commitment') {
+      const states = { promised: '答应', conditioned: '有条件答应', refused: '拒绝', withdrawn: '收回承诺' }
+      return `${personName(entry.promisorRef)}${states[entry.state] || '回应'}：${entry.content}${entry.condition ? `（条件：${entry.condition}）` : ''}`
+    }
+    if (entry.kind === 'item') return entry.state === 'delivered' ? `${entry.name || '物品'}交到${personName(entry.toRef)}手中` : `${personName(entry.toRef)}没有接下${entry.name || '物品'}`
+    if (entry.kind === 'location') return `${personName(entry.moverRef)}${entry.state === 'left' ? '离开了现场' : '回到了现场'}`
+    return ''
+  }).filter(Boolean)
+}
+const compareDifferences = computed(() => (props.rehearsal.compareRoutes(compareId.value)?.differences || []).slice(0, 3))
 // 展开对照时把它带进视野：作者不该为一屏之外的比较内容再滚一次。
 async function onCompareToggle(event) {
   compareOpen.value = event.target.open
@@ -233,6 +274,7 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
         </div>
       </details>
     </header>
+    <p v-if="firstRunHint" class="rehearsal-first-run-hint" data-test="rehearsal-first-run-hint">{{ firstRunHint }}</p>
     <div ref="flow" class="rehearsal-flow" @scroll.passive="onFlowScroll">
       <template v-if="!rehearsal.run.value">
         <p class="rehearsal-intro">试一个行动，看看人物如何回应。</p>
@@ -240,6 +282,18 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
         <p class="rehearsal-limit">暂不写入正文 · 刷新后不保留</p>
       </template>
       <template v-else>
+        <details v-if="!steps.length" class="rehearsal-conditions" data-test="rehearsal-conditions">
+          <summary>{{ rehearsal.conditions.value?.facts?.length ? '本次条件已补充' : '补充本次条件' }}</summary>
+          <div class="rehearsal-condition-form">
+            <label>只在这次推演成立的事实<input v-model="conditionText" maxlength="120" placeholder="例如：艾德加已经看过那封信" :disabled="locked" /></label>
+            <div v-if="participants.length" class="rehearsal-condition-people">
+              <label>谁知道<select v-model="conditionKnowerRef" :disabled="locked"><option value="">不指定</option><option v-for="person in participants" :key="'knows-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+              <label>谁还不知道<select v-model="conditionUnawareRef" :disabled="locked"><option value="">不指定</option><option v-for="person in participants" :key="'unaware-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+            </div>
+            <p v-if="conditionIssue" class="rehearsal-ambiguous" role="status">{{ conditionIssue }}</p>
+            <button type="button" class="rehearsal-condition-save" :disabled="locked || !conditionText.trim()" @click="saveCondition">用于本次推演</button>
+          </div>
+        </details>
         <p v-if="!steps.length && rehearsal.run.value.directionSet?.pressure?.statement" class="rehearsal-question">{{ rehearsal.run.value.directionSet.pressure.statement }}</p>
         <ol class="rehearsal-steps">
           <li v-for="(item, index) in steps" :key="item.id" class="rehearsal-step" :data-step="item.id">
@@ -252,7 +306,7 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
               <div class="rehearsal-response"><p v-for="(paragraph, paragraphIndex) in paragraphs(item.response)" :key="paragraphIndex">{{ paragraph }}</p></div>
               <div class="rehearsal-step-tools">
                 <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">从这里换路</button>
-                <details class="rehearsal-consequence"><summary>局面变化</summary><p>{{ item.change }}</p></details>
+                <details class="rehearsal-consequence"><summary>局面变化</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
               </div>
             </div>
           </li>
@@ -284,6 +338,10 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             <nav v-if="otherRoutes.length > 1" class="rehearsal-compare-pick" aria-label="选择要比较的走法">
               <button v-for="path in otherRoutes" :key="path.id" type="button" :data-route="path.id" :aria-pressed="path.id === compareId" @click="compareId = path.id">{{ routeName(path) }}<small>第 {{ path.steps.length }} 步</small></button>
             </nav>
+            <div v-if="compareDifferences.length" class="rehearsal-compare-differences" data-test="rehearsal-compare-differences">
+              <h4>真正不同的后果</h4>
+              <p v-for="difference in compareDifferences" :key="difference.key"><span>{{ difference.label }}</span><small>当前路：{{ difference.a.statusLabel }} · 另一路：{{ difference.b.statusLabel }}</small></p>
+            </div>
             <article v-for="side in [compareSide.mine, compareSide.theirs]" :key="side.depth + '-' + side.index" class="rehearsal-compare-side">
               <h4>{{ side === compareSide.mine ? '当前路' : '另一路' }} · 第 {{ side.depth }} 步</h4>
               <p v-if="side.depth === 0" class="rehearsal-compare-empty">还没有这一步。</p>
@@ -298,26 +356,39 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
           </details>
         </div>
       </template>
-      <p v-if="rehearsal.error.value" class="rehearsal-error" role="alert">{{ rehearsal.error.value }}</p>
+      <div v-if="rehearsal.error.value" class="rehearsal-failure" role="alert" data-test="rehearsal-failure">
+        <p class="rehearsal-failure__text">{{ failureHeadline }}行动草稿和已有走法都还在。</p>
+        <div v-if="rejected" class="rehearsal-rejected">
+          <p>这次人物回应可以先读，但它登记的后果没有通过核对，所以还没有接到当前走法上。</p>
+          <blockquote>{{ rejected.response }}</blockquote>
+        </div>
+        <details class="rehearsal-failure__technical"><summary>技术信息</summary><p class="rehearsal-failure__detail">{{ rehearsal.error.value }}</p></details>
+        <div class="rehearsal-failure__actions">
+          <button type="button" :disabled="rehearsal.busy.value" data-test="rehearsal-failure-retry" @click="submit">{{ rehearsal.busy.value ? '正在重试…' : '重试' }}</button>
+          <button v-if="rejected" type="button" data-test="rehearsal-failure-keep" @click="rehearsal.acceptRejectedWithoutConsequences">保留回应，不登记后果</button>
+          <button v-if="rejected" type="button" data-test="rehearsal-failure-discard" @click="rehearsal.discardRejected">弃掉这次回应</button>
+          <button type="button" data-test="rehearsal-failure-connect" @click="emit('check-connection')">检查模型连接</button>
+        </div>
+      </div>
       <p v-else-if="notice" class="rehearsal-error" role="status">{{ notice }}</p>
     </div>
     <footer v-if="rehearsal.run.value" class="rehearsal-footer">
       <form class="rehearsal-compose" :class="{ 'is-comparing': compareOpen }" @submit.prevent="submit">
         <div v-if="!stale && !atLimit && participants.length > 1" class="rehearsal-cast" aria-label="行动者">
           <span class="rehearsal-cast-label">行动者</span>
-          <button v-for="person in participants" :key="person.name" type="button" class="rehearsal-cast-person" :aria-pressed="person.name === activeActor ? 'true' : 'false'" :disabled="locked" @click="pickActor(person.name)">{{ person.name }}</button>
+          <button v-for="person in participants.filter(item => item.status !== 'planned')" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="person.ref === activeActor?.ref ? 'true' : 'false'" :disabled="locked" @click="pickActor(person.ref)">{{ person.name }}</button>
         </div>
-        <textarea v-if="!stale && !atLimit" ref="input" v-model="rehearsal.action.value" maxlength="300" rows="2" aria-label="试演行动" :placeholder="last ? '接下来，让人物…' : '让人物…'" :readonly="locked" @keydown="submitFromKeyboard" />
-        <p v-if="!stale && !atLimit && ambiguousTarget && !target" class="rehearsal-ambiguous" role="status">{{ ambiguousTarget.length > 1 ? '这句话里的「他/她」指向谁？点名或选一个，不自动猜。' : '这句话要交给谁回应？点名或选一个，不自动猜。' }}</p>
+        <textarea v-if="!stale && !atLimit" ref="input" :value="rehearsal.action.value" maxlength="300" rows="2" aria-label="试演行动" :placeholder="last ? '接下来，让人物…' : '让人物…'" :readonly="locked" @input="rehearsal.setAction($event.target.value)" @keydown="submitFromKeyboard" />
+        <p v-if="!stale && !atLimit && ambiguousTarget && !targetRef" class="rehearsal-ambiguous" role="status">{{ ambiguousTarget.length > 1 ? '这句话里的「他/她」指向谁？点名或选一个，不自动猜。' : '这句话要交给谁回应？点名或选一个，不自动猜。' }}</p>
         <div v-if="!stale && !atLimit && ambiguousTarget" class="rehearsal-cast is-target" aria-label="动作对象">
-          <button v-for="name in ambiguousTarget" :key="name" type="button" class="rehearsal-cast-person" :aria-pressed="target === name ? 'true' : 'false'" :disabled="locked" @click="target = name">{{ name }}</button>
+          <button v-for="person in ambiguousTarget" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="targetRef === person.ref ? 'true' : 'false'" :disabled="locked" @click="targetRef = person.ref">{{ person.name }}</button>
         </div>
         <div class="rehearsal-dock-actions">
           <button v-if="draftState === 'same-route'" type="button" class="rehearsal-export" @click="emit('view-draft')">查看试稿<WorkbenchIcon name="arrow-right" :size="14" /></button>
           <button v-else-if="draftState !== 'none'" type="button" class="rehearsal-export" @click="emit('view-draft')">正文已有{{ draftState === 'other-route' ? '另一条走法' : '其他来源' }}的待处理试稿<WorkbenchIcon name="arrow-right" :size="14" /></button>
           <button v-else-if="steps.length" type="button" class="rehearsal-export" :disabled="locked || stale" @click="emit('draft')">{{ drafting ? '正在写成试稿…' : '写成试稿' }}</button>
           <button v-if="rehearsal.busy.value" type="button" class="rehearsal-primary" @click="rehearsal.cancel">停止</button>
-          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked || !rehearsal.action.value.trim() || Boolean(ambiguousTarget && !target)" title="Ctrl / ⌘ + Enter">试演<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked || !rehearsal.action.value.trim() || Boolean(ambiguousTarget && !targetRef)" title="Ctrl / ⌘ + Enter">试演<WorkbenchIcon name="arrow-right" :size="14" /></button>
           <button v-else-if="stale" type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">重新确定起点</button>
         </div>
       </form>
@@ -334,6 +405,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 button:focus-visible, textarea:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 button:not(:disabled):hover { color:var(--accent); }
 .rehearsal-origin { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:2px 18px; border-bottom:1px solid var(--hairline-soft); font-size:12px; color:var(--text-secondary); }
+.rehearsal-first-run-hint { margin:0; padding:9px 18px; border-bottom:1px solid var(--hairline-soft); color:var(--archive-olive, var(--accent-primary)); font-size:12px; line-height:1.55; }
 .rehearsal-source { display:flex; align-items:center; gap:8px; padding:0; min-width:0; text-align:left; }
 .rehearsal-source span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 svg { flex-shrink:0; }
@@ -346,6 +418,13 @@ svg { flex-shrink:0; }
 .rehearsal-flow { flex:1; min-height:0; overflow-y:auto; padding:16px 18px 18px; overscroll-behavior:contain; }
 .rehearsal-intro { margin:12px 0 20px; font-size:15px; line-height:1.8; }
 .rehearsal-question { font-size:15px; line-height:1.85; margin:0 0 18px; color:var(--text-secondary); }
+.rehearsal-conditions { margin:0 0 16px; border-bottom:1px solid var(--hairline-soft); color:var(--text-secondary); font-size:12px; }
+.rehearsal-conditions > summary { min-height:36px; display:flex; align-items:center; cursor:pointer; color:var(--text-secondary); }
+.rehearsal-condition-form { display:grid; gap:10px; padding:2px 0 14px; }
+.rehearsal-condition-form label { display:grid; gap:5px; line-height:1.55; }
+.rehearsal-condition-form input, .rehearsal-condition-form select { box-sizing:border-box; width:100%; min-height:36px; padding:6px 8px; border:1px solid var(--hairline-soft); border-radius:4px; background:var(--archive-paper); color:var(--archive-ink); font:13px/1.5 var(--font-ui,sans-serif); }
+.rehearsal-condition-people { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.rehearsal-condition-save { justify-self:start; padding:0 10px; border:1px solid var(--hairline-soft); border-radius:4px; }
 .rehearsal-steps { list-style:none; margin:0; padding:0; }
 .rehearsal-step + .rehearsal-step { margin-top:16px; }
 .rehearsal-step-head { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:baseline; gap:8px; width:100%; text-align:left; padding:6px 0; color:var(--text-secondary); font-size:13px; line-height:1.7; }
@@ -365,6 +444,7 @@ svg { flex-shrink:0; }
 .rehearsal-consequence > summary { cursor:pointer; padding:4px 0; }
 .rehearsal-consequence[open] { flex-basis:100%; }
 .rehearsal-consequence p { margin:0 0 4px; line-height:1.8; }
+.rehearsal-consequence ul { margin:6px 0 4px; padding-left:18px; line-height:1.75; color:var(--text-secondary); }
 .rehearsal-options { display:grid; margin-top:14px; border-top:1px solid var(--hairline-soft); }
 .rehearsal-options button { text-align:left; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; font-size:13px; line-height:1.7; }
 .rehearsal-options svg { color:var(--text-muted); }
@@ -390,6 +470,10 @@ svg { flex-shrink:0; }
 .rehearsal-compare-action { margin:0; font-size:13px; line-height:1.7; color:var(--text-secondary); }
 .rehearsal-compare-latest { margin:8px 0 0; font-size:12px; line-height:1.8; color:var(--text-muted); }
 .rehearsal-compare-empty { margin:0; font-size:12px; color:var(--text-muted); }
+.rehearsal-compare-differences { margin:10px 0 14px; padding:10px 12px; border-left:2px solid var(--accent); background:var(--surface-workbench-muted); }
+.rehearsal-compare-differences h4 { margin:0 0 7px; font-size:12px; color:var(--text-secondary); }
+.rehearsal-compare-differences p { display:grid; gap:2px; margin:6px 0; font-size:12px; line-height:1.55; }
+.rehearsal-compare-differences small { color:var(--text-muted); }
 .rehearsal-cast { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; font-size:12px; color:var(--text-secondary); }
 .rehearsal-cast-label { color:var(--text-muted); }
 .rehearsal-cast-person { min-height:28px; padding:2px 10px; border:1px solid var(--hairline-soft); border-radius:999px; font-size:12px; color:var(--text-secondary); }
@@ -408,12 +492,23 @@ svg { flex-shrink:0; }
 .rehearsal-dock-actions button { display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; text-align:left; }
 .rehearsal-export { margin-right:auto; color:var(--text-secondary); padding:0 4px; }
 .rehearsal-error, .rehearsal-limit, .rehearsal-wait { color:var(--text-secondary); font-size:12px; line-height:1.8; }
+.rehearsal-failure { margin:12px 0 0; padding:10px 12px; border:1px solid color-mix(in srgb, var(--danger, #a04b3c) 34%, transparent); border-radius:6px; background:color-mix(in srgb, var(--danger, #a04b3c) 6%, transparent); }
+.rehearsal-failure__text { margin:0; color:var(--danger, #a04b3c); font-size:12px; font-weight:650; line-height:1.55; }
+.rehearsal-failure__detail { margin:4px 0 0; color:var(--text-secondary); font-size:11px; line-height:1.5; overflow-wrap:anywhere; }
+.rehearsal-rejected { margin:8px 0 2px; color:var(--text-secondary); font-size:12px; line-height:1.65; }
+.rehearsal-rejected p { margin:0; }
+.rehearsal-rejected blockquote { margin:6px 0 0; padding-left:10px; border-left:2px solid var(--hairline-soft); color:var(--archive-ink); font-family:var(--font-body,serif); }
+.rehearsal-failure__technical { margin-top:4px; color:var(--text-muted); font-size:11px; }
+.rehearsal-failure__technical > summary { min-height:28px; display:flex; align-items:center; cursor:pointer; }
+.rehearsal-failure__actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.rehearsal-failure__actions button { min-height:32px; padding:0 10px; border:1px solid color-mix(in srgb, var(--danger, #a04b3c) 38%, transparent); border-radius:4px; font-size:12px; }
 @media(max-width:720px) {
   button, .rehearsal-more > summary, .rehearsal-step-head, .rehearsal-routes-more > summary, .rehearsal-compare > summary, .rehearsal-consequence > summary { min-height:44px; box-sizing:border-box; }
   .rehearsal-flow { padding:14px 18px; }
   .rehearsal-route { min-height:44px; align-items:center; }
   .rehearsal-cast-person { min-height:44px; }
   .rehearsal-cast { row-gap:6px; }
+  .rehearsal-condition-form input, .rehearsal-condition-form select, .rehearsal-condition-save { min-height:44px; }
 }
 @media(max-width:720px) and (max-height:600px) {
   .rehearsal-footer { padding:6px 12px; }

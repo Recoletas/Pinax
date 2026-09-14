@@ -1,6 +1,6 @@
 <template>
   <div class="settings-overlay" @click.self="close">
-    <div class="settings-modal" role="dialog" aria-modal="true" aria-label="设置">
+    <div ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" @keydown="onModalKeydown">
       <header class="settings-modal__head">
         <h2>设置</h2>
         <button
@@ -12,15 +12,18 @@
         >×</button>
       </header>
 
-      <nav class="settings-tabs" role="tablist" aria-label="设置分区">
+      <nav class="settings-tabs" role="tablist" aria-label="设置分区" @keydown="onTablistKeydown">
         <button
           v-for="tab in tabs"
+          :id="`settings-tab-${tab.key}`"
           :key="tab.key"
           class="settings-tab"
           :class="{ active: activeSection === tab.key }"
           :data-test="`settings-tab-${tab.key}`"
           role="tab"
           :aria-selected="(activeSection === tab.key).toString()"
+          :aria-controls="`settings-panel-${tab.key}`"
+          :tabindex="activeSection === tab.key ? 0 : -1"
           type="button"
           @click="activeSection = tab.key"
         >{{ tab.label }}</button>
@@ -30,6 +33,7 @@
         <!-- 全局锁定主题2亮色：外观（主题/明暗/缩放）配置区已移除（用户要求） -->
         <section
           v-show="activeSection === 'ai'"
+          id="settings-panel-ai"
           class="settings-section"
           role="tabpanel"
           aria-label="AI 配置"
@@ -39,6 +43,7 @@
 
         <section
           v-show="activeSection === 'experience'"
+          id="settings-panel-experience"
           class="settings-section"
           role="tabpanel"
           aria-label="体验"
@@ -76,6 +81,7 @@
 
         <section
           v-show="activeSection === 'storage'"
+          id="settings-panel-storage"
           class="settings-section"
           role="tabpanel"
           aria-label="存储"
@@ -89,19 +95,9 @@
               {{ storageHealth.isCritical.value ? '请立即导出备份并清理' : storageHealth.isWarning.value ? '建议导出备份' : '存储充足' }}
             </span>
           </div>
-          <table class="storage-table">
-            <thead>
-              <tr><th>key</th><th>大小</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in storageTopKeys" :key="row.key">
-                <td><code>{{ row.key }}</code></td>
-                <td>{{ formatBytes(row.bytes) }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="storage-actions">
-            <button class="settings-btn settings-btn--primary" type="button" @click="handleExportBackup">导出本地作品备份</button>
+          <p class="storage-lead">作品和创作记录保存在当前浏览器。换设备或清理浏览器之前，先导出一份备份。</p>
+          <div class="storage-actions storage-actions--lead">
+            <button class="settings-btn settings-btn--primary" type="button" data-test="backup-export-button" @click="handleExportBackup">导出本地作品备份</button>
             <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">导入备份</button>
             <input
               ref="backupInputRef"
@@ -114,7 +110,9 @@
           </div>
           <div v-if="backupPlan" class="backup-review" data-test="backup-review" role="status">
             <strong>备份已读取，确认后才会写入</strong>
-            <span>新增 {{ backupPlan.add.length }} · 覆盖 {{ backupPlan.overwrite.length }} · 跳过 {{ backupPlan.skip.length }}</span>
+            <span v-if="backupExportedAt">备份生成于 {{ backupExportedAt }}</span>
+            <span v-if="backupWorksLine">{{ backupWorksLine }}</span>
+            <span>恢复将：新增 {{ backupPlan.add.length }} 项 · 覆盖 {{ backupPlan.overwrite.length }} 项 · 内容相同跳过 {{ backupPlan.skip.length }} 项</span>
             <span v-if="backupPlan.incompatible.length" class="backup-review__error">{{ backupPlan.incompatible.join('；') }}</span>
             <div v-if="backupPlan.restoreWarnings?.length" class="backup-review__warnings" role="alert">
               <span v-for="warning in backupPlan.restoreWarnings" :key="warning">{{ warning }}</span>
@@ -130,8 +128,27 @@
               <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
             </div>
           </div>
-          <p class="storage-boundary-note">包含书稿、设定与本地创作记录；不包含模型密钥，也不包含来源文件和媒体的 IndexedDB 原件。备份文件请妥善保存。</p>
-          <p v-if="backupFeedback" class="backup-feedback" role="status">{{ backupFeedback }}</p>
+          <p class="storage-boundary-note">备份包含书稿、设定与本地创作记录；不包含模型密钥，也不包含来源文件和媒体的 IndexedDB 原件。备份文件请妥善保存。</p>
+          <p v-if="backupFeedback" class="backup-feedback" role="status" data-test="backup-feedback">
+            {{ backupFeedback }}
+            <router-link v-if="restoredTarget" :to="{ name: 'authoring', query: { bookId: restoredTarget.bookId } }">继续《{{ restoredTarget.bookTitle }}》</router-link>
+            <router-link v-else-if="restoreSucceeded" to="/">打开作品列表</router-link>
+          </p>
+
+          <details class="storage-technical">
+            <summary>技术详情：各部分占用</summary>
+            <table class="storage-table">
+              <thead>
+                <tr><th scope="col">存储项</th><th scope="col">大小</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in storageTopKeys" :key="row.key">
+                  <td><code>{{ row.key }}</code></td>
+                  <td>{{ formatBytes(row.bytes) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </details>
 
           <div class="beta-support">
             <div>
@@ -150,11 +167,12 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
+import { computed, ref, nextTick } from 'vue'
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
+import { useTransientLayer, trapFocusWithin } from '../../composables/useTransientLayer'
 import { useExperienceNarrativeExpansion } from '../../composables/useExperienceNarrativeExpansion'
 import { useExperienceReadingPreferences } from '../../composables/useExperienceReadingPreferences'
 import { exportBetaDiagnosticReport } from '../../utils/betaDiagnosticExport.js'
@@ -176,6 +194,37 @@ const backupPlan = ref(null)
 const backupFeedback = ref('')
 const backupBusy = ref(false)
 const backupRiskAccepted = ref(false)
+const restoredTarget = ref(null)
+const restoreSucceeded = ref(false)
+
+// 备份里的书数只在能真实解析时展示;解析不了就说"本地创作数据",不把键数换名成书数。
+const backupExportedAt = computed(() => {
+  try {
+    const parsed = JSON.parse(backupText.value || '{}')
+    return typeof parsed?.exportedAt === 'string' ? parsed.exportedAt.slice(0, 19).replace('T', ' ') : ''
+  } catch { return '' }
+})
+
+function readBackupBooks() {
+  const parsed = JSON.parse(backupText.value || '{}')
+  const raw = parsed?.keys?.writing_books
+  if (typeof raw !== 'string') return null
+  const books = JSON.parse(raw)
+  const list = Array.isArray(books) ? books : (books && Array.isArray(books.books) ? books.books : null)
+  return Array.isArray(list) ? list : null
+}
+
+const backupWorksLine = computed(() => {
+  const list = readBackupBooksSafe()
+  if (!list) return ''
+  if (list.length === 1) return `包含 1 本书稿：《${String(list[0]?.title || '未命名书稿')}》`
+  if (list.length > 1) return `包含 ${list.length} 本书稿`
+  return '这份备份里没有书稿数据'
+})
+
+function readBackupBooksSafe() {
+  try { return readBackupBooks() } catch { return null }
+}
 
 // 全局锁定主题2亮色：外观 tab（主题/明暗/缩放）已移除（用户要求）
 const tabs = [
@@ -193,10 +242,12 @@ function formatBytes(bytes) {
 function handleExportBackup() {
   try {
     const result = exportAllBackup()
-    backupFeedback.value = `已导出 ${result.keyCount} 项本地作品数据；模型密钥未包含。`
+    backupFeedback.value = `备份文件已生成：包含 ${result.keyCount} 项本地作品数据，模型密钥未包含。请妥善保存。`
+    restoreSucceeded.value = false
+    restoredTarget.value = null
   } catch (e) {
     console.error('[SettingsPopup] backup export failed:', e)
-    backupFeedback.value = '备份导出失败，请稍后重试。'
+    backupFeedback.value = '备份导出失败，请稍后重试；如持续失败，请用“导出诊断信息”反馈。'
   }
 }
 
@@ -225,17 +276,19 @@ async function handleBackupFile(event) {
   if (!file) return
 
   backupFeedback.value = ''
+  restoredTarget.value = null
+  restoreSucceeded.value = false
   try {
     backupText.value = await file.text()
     backupPlan.value = createRestorePlan(backupText.value)
     backupRiskAccepted.value = false
     if (!backupPlan.value.valid) {
-      backupFeedback.value = backupPlan.value.incompatible.join('；') || '备份不可导入'
+      backupFeedback.value = `${backupPlan.value.incompatible.join('；') || '备份不可导入'}。请确认这是本应用“导出本地作品备份”生成的文件，再重新选择。`
       backupPlan.value = null
     }
   } catch (error) {
     backupPlan.value = null
-    backupFeedback.value = error?.message || '备份读取失败'
+    backupFeedback.value = `${error?.message || '备份读取失败'}。请重新选择备份文件；文件应是 .json 格式。`
   }
 }
 
@@ -243,6 +296,15 @@ function cancelBackupRestore() {
   backupPlan.value = null
   backupText.value = ''
   backupRiskAccepted.value = false
+}
+
+// 恢复成功后的回程:备份里恰好一本书才直达该书,否则回作品列表,不猜测。
+function resolveRestoredTarget() {
+  const list = readBackupBooksSafe()
+  if (list?.length === 1 && list[0]?.id) {
+    return { bookId: String(list[0].id), bookTitle: String(list[0]?.title || '未命名书稿') }
+  }
+  return null
 }
 
 function confirmBackupRestore() {
@@ -254,40 +316,52 @@ function confirmBackupRestore() {
       acceptRestoreRisk: backupRiskAccepted.value,
     })
     if (result.success) {
-      backupFeedback.value = `已导入 ${result.written.length} 个键，跳过 ${result.skipped.length} 个键。`
+      restoredTarget.value = resolveRestoredTarget()
+      restoreSucceeded.value = true
+      backupFeedback.value = '备份已恢复，数据已写回当前浏览器。'
       cancelBackupRestore()
       storageHealth.refresh()
+    } else if (result.reason === 'quota') {
+      backupFeedback.value = '存储空间不足，已撤销本次导入，原有数据未变。可先“导出本地作品备份”留底，再清理浏览器存储后重试。'
+    } else if (result.reason === 'restore-risk-not-accepted') {
+      backupFeedback.value = '这份备份会替换较新的数据，需要先勾选确认后才能导入。'
     } else {
-      backupFeedback.value = result.reason === 'quota'
-        ? '存储空间不足，已撤销本次导入。'
-        : result.error || '备份写入失败，未完成导入。'
+      backupFeedback.value = `${result.error || '备份写入失败，未完成导入'}。原有数据未变，可重新选择备份文件再试。`
     }
   } finally {
     backupBusy.value = false
   }
 }
 
-function onKeydown(e) {
-  if (e.key === 'Escape' && isOpen.value) {
-    e.preventDefault()
-    close()
-  }
+// 键盘与焦点契约(C07):打开聚焦关闭钮,Tab 圈在弹窗内,Esc 只关最上层,
+// 关闭后焦点回到确切触发器(所有入口统一,由 useTransientLayer 记录)。
+const modalRef = ref(null)
+useTransientLayer({
+  id: 'settings-popup',
+  isOpen,
+  onClose: () => close(),
+  initialFocus: () => closeBtnRef.value,
+  exclusive: false
+})
+
+function onModalKeydown(event) {
+  if (event.key !== 'Tab') return
+  trapFocusWithin(event, modalRef.value)
 }
 
-onMounted(() => {
-  document.addEventListener('keydown', onKeydown)
-})
-
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onKeydown)
-})
-
-watch(isOpen, async (open) => {
-  if (open) {
-    await nextTick()
-    closeBtnRef.value?.focus()
-  }
-})
+function onTablistKeydown(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const index = tabs.findIndex((tab) => tab.key === activeSection.value)
+  let next = index
+  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+  if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+  if (event.key === 'Home') next = 0
+  if (event.key === 'End') next = tabs.length - 1
+  if (next === index) return
+  event.preventDefault()
+  activeSection.value = tabs[next].key
+  nextTick(() => document.getElementById(`settings-tab-${tabs[next].key}`)?.focus())
+}
 </script>
 
 <style scoped>
@@ -485,6 +559,35 @@ watch(isOpen, async (open) => {
   padding-top: 4px;
 }
 
+.storage-lead {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.storage-actions--lead { justify-content: flex-start; padding-top: 0; }
+
+.storage-technical {
+  border-block: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.storage-technical summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.storage-technical summary:hover { color: var(--text-primary); }
+
+.storage-technical .storage-table { margin-top: 4px; }
+
+.backup-feedback { display: grid; gap: 4px; justify-items: start; }
+.backup-feedback a { color: var(--accent); font-weight: 650; }
+
 .storage-boundary-note {
   margin: 10px 0 0;
   color: var(--text-secondary);
@@ -588,9 +691,10 @@ watch(isOpen, async (open) => {
 }
 
 @media (max-width: 720px) {
-  .settings-modal__close { width: 44px; height: 44px; }
+  /* 小屏存在全局视觉缩放,52px 才能保证物理触控区 ≥44px。 */
+  .settings-modal__close { width: 52px; height: 52px; }
   .settings-tab,
-  .storage-actions .settings-btn { min-height: 44px; }
+  .storage-actions .settings-btn { min-height: 52px; }
   .beta-support { align-items: stretch; flex-direction: column; }
   .beta-support__actions { justify-content: stretch; }
   .beta-support__actions .settings-btn { min-height: 44px; flex: 1; }

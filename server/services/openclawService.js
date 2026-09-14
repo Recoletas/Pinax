@@ -328,7 +328,12 @@ options 必须为 2-3 项，使用中文，不得替玩家决定，不得输出�
   }
 
   if (taskType === 'authoring.rehearsal.step') {
-    return '只输出 JSON：{"response":"80-250字的具体动作/对白回应，不重复作者行动","change":"一句本次假想局面变化，80字以内","choices":["一个可试的具体行动","另一个可试的具体行动"],"evidenceRefs":["依据的原文 sourceRef"]}。response 最多600字符，choices 1-3条，每条最多80字符。仅引用上下文给出的 sourceRefs；回应是未采用的假想，不是正式事实。资料不足时明确描述不确定性，不假装角色已知秘密。不要输出 summary、replacement 或任何写入动作。'
+    return '只输出 JSON：{"response":"80-250字的具体动作/对白回应，不重复作者行动","change":"一句本次假想局面变化，80字以内","choices":["一个可试的具体行动","另一个可试的具体行动"],"evidenceRefs":["依据的原文 sourceRef"],"consequences":[]}'
+      + ' response 最多600字符，choices 1-3条，每条最多80字符。仅引用上下文给出的 sourceRefs；回应是未采用的假想，不是正式事实。资料不足时明确描述不确定性，不假装角色已知秘密。不要输出 summary、replacement 或任何写入动作。'
+      + ' consequences 是本步后果登记，协议最多2条，但每次只输出最明确的1条；没有就给空数组，只能登记问题中列出的事实与人物：'
+      + ' 行动让某人确实得知已列出的事实时输出 {"kind":"knowledge","knowerRef":"人物ref","factKey":"事实标识","source":{"kind":"action或response","quote":"逐字原句"}}；'
+      + ' 人物在回应中承诺/有条件承诺/拒绝/撤回时输出 {"kind":"commitment","promisorRef":"人物ref","beneficiaryRef":"人物ref或省略","state":"promised|conditioned|refused|withdrawn","content":"具体承诺","condition":"条件或省略","source":{"kind":"response","quote":"回应逐字原句"}}；更新既有承诺必须原样带上其 commitmentKey，新承诺不要编造 key。'
+      + ' quote 必须逐字来自本次作者行动或 response 字段原文，choices 不属于回应原文、绝不能作为 quote；未列出的事实与人物 ref 一律不要登记。'
   }
   if (taskType === 'authoring.scene.directions') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。证据不足时输出：
@@ -477,6 +482,9 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
     reviewBlocks: _reviewBlocks,
     allowedEvidenceRefs: _allowedEvidenceRefs,
     reviewSourceRevisions: _reviewSourceRevisions,
+    // rehearsal 的后果校验原文（行动原文/授权 ref/factKey/承诺 key）只用于
+    // 服务端归一化，不进入 provider prompt；后果清单由任务指令与问题承载。
+    rehearsalVerification: _rehearsalVerification,
     ...promptOptions
   } = taskMeta.options || {}
   const optionsText = serializeContext(promptOptions)

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "preview appears with detected chapters",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "mode switch to single shows rebuild notice",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "author chapter title survives mode round-trip",
+      "ok": true,
+      "note": "手改章名·潮汐"
+    },
+    {
+      "name": "author book title survives mode round-trip",
+      "ok": true,
+      "note": "手改的书名"
+    },
+    {
+      "name": "encoding tools reachable without warning",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "manual book title not clobbered by re-encode",
+      "ok": true,
+      "note": "手改的书名"
+    },
+    {
+      "name": "re-selecting a file works after reset",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "import creates exactly one book",
+      "ok": true,
+      "note": "books=1"
+    },
+    {
+      "name": "dialog closed after successful import",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "empty file error shown in dialog",
+      "ok": true,
+      "note": "文件里没有可导入的正文。"
+    },
+    {
+      "name": "quota failure shows inline dialog error",
+      "ok": true,
+      "note": "导入未能保存：浏览器存储空间不足。预览仍保留，可重试或先清理浏览器存储。"
+    },
+    {
+      "name": "quota failure creates no book (count unchanged from earlier import)",
+      "ok": true,
+      "note": "books=1"
+    },
+    {
+      "name": "preview kept and confirm retryable after quota failure",
+      "ok": true,
+      "note": ""
+    }
+  ],
+  "passed": 13,
+  "failed": 0
+}

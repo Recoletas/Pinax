@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "base": "http://127.0.0.1:5213",
+  "results": [
+    {
+      "name": "rescue bar appears on save failure",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "failure text keeps ownership with author",
+      "ok": true,
+      "note": "正文保存失败，你的输入仍保留在稿面。重试保存导出当前正文"
+    },
+    {
+      "name": "typed input still present after failed save",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "export contains live unsaved text",
+      "ok": true,
+      "note": "雾从旧港税务所的石阶上漫下来，莉娜把抄表册护在怀里。\n钟楼敲过第七响，最后一声比"
+    },
+    {
+      "name": "retry saves and rescue exits",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "text really persisted after retry",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "recovery draft seeded for refresh test",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "recovery entry reachable after refresh",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "recovery variant is neutral, not alarm",
+      "ok": true,
+      "note": "发现一份未保存的恢复稿 · 9/14 01:58查看恢复稿"
+    },
+    {
+      "name": "history panel shows recovery draft with time/preview",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "discard leaves current manuscript unchanged",
+      "ok": true,
+      "note": ""
+    }
+  ],
+  "passed": 11,
+  "failed": 0
+}
