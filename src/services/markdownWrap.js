@@ -2,7 +2,7 @@
  * Markdown selection wrapping — pure functions.
  *
  * Replaces contenteditable-only `document.execCommand('bold'/'italic'/...)`
- * with a markdown-string transform that Writing.vue's textarea can apply
+ * with a markdown-string transform that an editor adapter can apply
  * directly to `markdownContent` (no DOM dependency).
  *
  * Every function is pure: no DOM, no localStorage, no global state.

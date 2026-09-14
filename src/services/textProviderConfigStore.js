@@ -16,7 +16,7 @@ import { MINIMAX_SERVER_KEY_SENTINEL } from '../../shared/textModelKeys'
 
 export const BUILTIN_TEXT_CONFIG_ID = 'text-minimax-builtin'
 
-// 与 useApiSettings.providers 对齐; 单独维护以免与 composable → api.js → 本 store 形成循环依赖。
+// 文本 provider 的唯一前端目录；设置 UI 与生成调用都消费这里，避免多处漂移。
 export const TEXT_PROVIDER_TYPES = Object.freeze([
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', defaultModel: 'deepseek-v4-flash' },
   { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', defaultModel: '' },

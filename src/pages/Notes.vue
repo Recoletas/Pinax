@@ -220,7 +220,7 @@
                   <span class="active-card__tape" aria-hidden="true"></span>
                   <!-- K3c (2026-06-27): 稿纸横线 (ruled lines) 装饰,
                        让 textarea 文字视觉上"写在稿纸上". 跟 ::before
-                       红线 + Writing.vue wall__dossier 同源. -->
+                       红线 + Authoring 稿面 dossier 同源. -->
                   <div class="active-card__ruled-lines" aria-hidden="true"></div>
                   <div class="active-card__header">
                     <input
@@ -563,7 +563,6 @@ import { useAdvisor } from '../composables/useAdvisor'
 import { useCanvasBoard } from '../composables/useCanvasBoard'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
-import CharacterPortrait from '../components/folio/CharacterPortrait.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
@@ -4327,11 +4326,6 @@ function syncSelectionCommandState() {
   letter-spacing: 0.08em;
 }
 
-/* ============================================================
-   UI-N2: Notes Archive Drawer 局部骨架
-   视觉由 kao.css 中 .theme-kao .material-drawer 等规则覆写
-   ============================================================ */
-
 .notes-content-area {
   position: relative;
   display: grid;
@@ -4423,7 +4417,7 @@ function syncSelectionCommandState() {
 }
 
 /* K4 (2026-06-27): .keeper-corner block removed (decorative
-   档案员 role framing — CharacterPortrait + 卷数 + +号 add button).
+   档案员 role framing — 卷数 + +号 add button).
    The + add entry point is preserved in the top "新素材" tab + the
    0-state "新建第一条" CTA. */
 
@@ -4585,9 +4579,6 @@ function syncSelectionCommandState() {
     0 9px 18px color-mix(in srgb, var(--archive-ink) 12%, transparent);
   transform: rotate(0deg) translateY(-1px);
 }
-
-/* Keep the refined paper stack above the kao theme's older flat card
-   override without changing card behavior. */
 .notes-content-area .index-card {
   background:
     linear-gradient(225deg, color-mix(in srgb, var(--archive-paper-strong) 72%, transparent) 0 7px, transparent 7.5px) top right / 11px 11px no-repeat,
@@ -4919,7 +4910,6 @@ function syncSelectionCommandState() {
   position: relative;
   padding: 0;
   min-height: 0;
-  /* UI-N4: 移除旧的 border / opacity 让 kao.css 接管（@layer kao 优先级低于 scoped） */
 }
 
 .empty-archive__cell-roman {
@@ -4989,7 +4979,7 @@ function syncSelectionCommandState() {
 
 /* 被推上来的卡 (K3c 2026-06-27): 升为 archive-folio 卷宗 (纸感 + 红线
    稿纸 + 30px 横线 + 撕角胶带). 文字直接写在 active-card 内部,
-   透明 textarea 让 ruled lines 透出. 跟 Writing.vue wall__dossier
+   透明 textarea 让 ruled lines 透出. 跟 Authoring 稿面 dossier
    视觉同源 (paper + 44px 红线 + 30px 横线 + tape). */
 .active-card {
   position: relative;
@@ -5000,8 +4990,6 @@ function syncSelectionCommandState() {
   max-width: 760px;
   margin: 8px auto 4px;
   padding: 28px 28px 16px 60px;
-  /* 默认主题 (无 .theme-kao) 走 paper-soft 蓝白档案册底;
-     kao.css .theme-kao .active-card 接管暖色 + ruled lines 装饰. */
   background:
     linear-gradient(180deg,
       color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper)) 0%,

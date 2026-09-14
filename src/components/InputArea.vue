@@ -119,9 +119,7 @@
         :disabled="gameStore.isLoading"
         :title="action.title || ''"
       >
-        <!-- UI-E18-FIX3: emoji icon was rendered inline next to the
-             label. Kao theme keeps the emoji (muted via .theme-kao
-             .quick-btn rules); default mode hides the icon span. -->
+        <!-- Icons remain secondary to the action labels. -->
         <span class="quick-btn__icon" aria-hidden="true">{{ action.icon }}</span>
         <span class="quick-btn__label">{{ action.label }}</span>
       </button>
@@ -654,14 +652,6 @@ function updatePromptInfo() {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
   color: var(--text-primary);
 }
-
-/* UI-E18-FIX3: hide emoji icon in default (steel-blue dossier) theme
-   — the colorful emoji (▶ 🌿 💬 💭) read as chat-sticker decoration,
-   not as tool-strip glyphs, and clash with the archive-folio palette.
-   Kao theme keeps the emoji (already muted via .theme-kao .quick-btn
-   rules below — opacity 0.6 + hover reveal). The split between
-   quick-btn__icon (visual) and quick-btn__label (semantic) keeps the
-   text accessible to assistive tech even when the icon is hidden. */
 .theme-legacy .quick-btn__icon {
   display: none;
 }
@@ -1244,135 +1234,8 @@ function updatePromptInfo() {
 .add-char-btn:hover:not(:disabled) { background: var(--accent-hover); }
 .add-char-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* E16-NOVEL: kao input area as a footnote, not a chat row.
-   Per 微信阅读 / 古龙 online: the player input is a margin
-   annotation, not a message. Width matches the prose column
-   (720px), centered. No visible send button chrome — just a
-   thin dotted baseline + subtle "记" suffix that types when
-   the input has text. The moment input looks like a chat
-   input, the prose column above stops feeling like a chapter. */
-.theme-kao .input-area {
-  background: transparent;
-  border: none;
-  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  border-radius: 0;
-  padding: 14px 36px 18px;
-  max-width: 720px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.theme-kao .input-row {
-  gap: 0;
-  align-items: baseline;
-}
-
-.theme-kao .input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--archive-ink);
-  font-family: var(--font-body);
-  font-size: 16px;
-  line-height: 1.75;
-  padding: 4px 0;
-  text-indent: 0;
-}
-
-.theme-kao .input:focus {
-  outline: none;
-}
-
-.theme-kao .input::placeholder {
-  color: color-mix(in srgb, var(--archive-ink) 44%, transparent);
-  font-style: italic;
-}
-
 /* Send button — minimal text suffix, not a button. Disabled state
    hides it so the prose footnote rhythm stays quiet. */
-.theme-kao .send-btn {
-  background: transparent;
-  border: none;
-  color: color-mix(in srgb, var(--archive-olive-strong) 72%, transparent);
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  padding: 4px 8px;
-  margin-left: 6px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.theme-kao .send-btn:hover:not(:disabled) {
-  color: var(--archive-olive-strong);
-}
-
-.theme-kao .send-btn:disabled {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.theme-kao .quick-actions {
-  gap: 0;
-  margin-bottom: 4px;
-  opacity: 0.6;
-  transition: opacity 0.2s ease;
-}
-
-.theme-kao .quick-actions:hover {
-  opacity: 1;
-}
-
-.theme-kao .quick-btn {
-  background: transparent;
-  border: none;
-  border-right: 1px dotted color-mix(in srgb, var(--archive-ink) 24%, transparent);
-  border-radius: 0;
-  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
-  font-family: var(--font-sans);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  padding: 4px 10px;
-}
-
-.theme-kao .quick-btn:first-child { border-radius: 0; }
-.theme-kao .quick-btn:last-child { border-radius: 0; }
-.theme-kao .quick-btn:only-child { border-radius: 0; }
-.theme-kao .quick-btn:hover {
-  background: color-mix(in srgb, var(--archive-paper-strong) 50%, var(--archive-paper));
-  color: var(--archive-olive-strong);
-  border-color: var(--archive-gold);
-}
-.theme-kao .quick-btn:active {
-  background: color-mix(in srgb, var(--archive-gold) 12%, var(--archive-paper));
-}
-
-.theme-kao .info-btn {
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 24%, transparent);
-  border-radius: 0;
-  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
-  width: 28px;
-  height: 28px;
-  margin-left: 8px;
-}
-
-.theme-kao .info-btn:hover {
-  color: var(--archive-gold);
-  border-color: var(--archive-gold);
-}
-
-@media (max-width: 640px) {
-  .theme-kao .input-area {
-    padding: 8px 10px 10px;
-  }
-  .theme-kao .send-btn {
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-}
 
 /* M2：移动输入区 —— 快捷操作单行横向滚动（不再换行堆叠）、
    底部安全区（iPhone 手势区）由 env() 预留，不写死 bottom。 */

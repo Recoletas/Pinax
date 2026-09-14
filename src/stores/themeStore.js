@@ -1,12 +1,7 @@
 import { defineStore } from 'pinia'
 
-// 全局锁定「主题2 · 亮色」：variant 固定 legacy、colorScheme 固定 light，
-// initTheme 不再读 localStorage（见下），所有主题切换 UI 已隐藏。
-export const DEFAULT_VARIANT = 'legacy'
 export const DEFAULT_COLOR_SCHEME = 'light'
-export const VALID_VARIANTS = ['kao', 'legacy']
 export const VALID_COLOR_SCHEMES = ['light', 'dark']
-export const LS_VARIANT = 'app_theme_variant'
 export const LS_COLOR = 'app_theme'
 
 // Phase F: 全局 UI 缩放档位 (用户反馈默认 100% 偏大)
@@ -23,40 +18,31 @@ function detectCssZoomSupport() {
     const probe = document.createElement('div')
     probe.style.zoom = '1'
     return probe.style.zoom === '1'
-  } catch (_) {
+  } catch {
     return false
   }
 }
 
 export const useThemeStore = defineStore('theme', {
   state: () => ({
-    variant: DEFAULT_VARIANT,
     colorScheme: DEFAULT_COLOR_SCHEME,
     uiZoom: DEFAULT_UI_ZOOM,
     initialized: false,
   }),
   actions: {
     initTheme() {
-      // 2026-08-22 解锁外观切换：恢复读取 localStorage 的 variant/colorScheme
-      // （2026-08-10 曾应用户要求锁定 legacy+light 并隐藏切换 UI；现在暗色
-      // token 体系已补齐 legacy 变体，见 docs/superpowers/research/
-      // writing-ui-typography-keyboard-research-20260822.md §8）。
-      let storedVariant = null
       let storedColorScheme = null
       try {
-        storedVariant = localStorage.getItem(LS_VARIANT)
         storedColorScheme = localStorage.getItem(LS_COLOR)
-      } catch (_) {
-        storedVariant = null
+      } catch {
         storedColorScheme = null
       }
-      this.variant = VALID_VARIANTS.includes(storedVariant) ? storedVariant : DEFAULT_VARIANT
       this.colorScheme = VALID_COLOR_SCHEMES.includes(storedColorScheme) ? storedColorScheme : DEFAULT_COLOR_SCHEME
       // 缩放的 stored 值仍保留（用户手动调过的 85/90/95/100% 会继续生效）。
       let z = null
       try {
         z = localStorage.getItem(LS_UI_ZOOM)
-      } catch (_) {
+      } catch {
         z = null
       }
       const parsedZoom = Number(z)
@@ -64,35 +50,17 @@ export const useThemeStore = defineStore('theme', {
       this.applyToHtml()
       this.initialized = true
     },
-    setVariant(v) {
-      if (!VALID_VARIANTS.includes(v)) return
-      this.variant = v
-      try { localStorage.setItem(LS_VARIANT, v) } catch (_) { /* storage disabled — in-memory state still applies */ }
-      this.applyToHtml()
-    },
     setColorScheme(s) {
       if (!VALID_COLOR_SCHEMES.includes(s)) return
       this.colorScheme = s
-      try { localStorage.setItem(LS_COLOR, s) } catch (_) { /* storage disabled — in-memory state still applies */ }
-      this.applyToHtml()
-    },
-    // Atomic variant + colorScheme update for the 4-radio appearance
-    // switcher. A single click should fire exactly one applyToHtml(),
-    // one setItem pair, and one Vue reactivity flush — not two of each.
-    setAppearance(variant, colorScheme) {
-      if (!VALID_VARIANTS.includes(variant)) return
-      if (!VALID_COLOR_SCHEMES.includes(colorScheme)) return
-      this.variant = variant
-      this.colorScheme = colorScheme
-      try { localStorage.setItem(LS_VARIANT, variant) } catch (_) { /* storage disabled — in-memory state still applies */ }
-      try { localStorage.setItem(LS_COLOR, colorScheme) } catch (_) { /* storage disabled — in-memory state still applies */ }
+      try { localStorage.setItem(LS_COLOR, s) } catch { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
     setUiZoom(z) {
       const parsed = Number(z)
       if (!VALID_UI_ZOOMS.includes(parsed)) return
       this.uiZoom = parsed
-      try { localStorage.setItem(LS_UI_ZOOM, String(parsed)) } catch (_) { /* storage disabled — in-memory state still applies */ }
+      try { localStorage.setItem(LS_UI_ZOOM, String(parsed)) } catch { /* storage disabled — in-memory state still applies */ }
       this.applyToHtml()
     },
     // 与 useViewportHeight.syncViewportHeight 同一公式: 布局高度 = 视口高 / zoom,
@@ -107,8 +75,8 @@ export const useThemeStore = defineStore('theme', {
     },
     applyToHtml() {
       const html = document.documentElement
-      html.classList.remove('theme-kao', 'theme-legacy')
-      html.classList.add(`theme-${this.variant}`)
+      // Compatibility class name; this is the only current product theme.
+      html.classList.add('theme-legacy')
       html.classList.remove('theme-dark', 'theme-light')
       html.classList.add(`theme-${this.colorScheme}`)
 

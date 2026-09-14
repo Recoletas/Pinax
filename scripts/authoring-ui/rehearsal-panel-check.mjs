@@ -5,10 +5,8 @@
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { installDeterministicProviderMock } from './provider-mock.mjs'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
 const BASE = process.env.BASE || 'http://127.0.0.1:5198'
 const WIDTHS = (process.env.REHEARSAL_WIDTHS || '1440,1280,1024,900,720,390').split(',').map(Number)
 const OUT_DIR = path.resolve(process.env.OUT_DIR || '/tmp/pinax-rehearsal-polish/final')
@@ -67,7 +65,6 @@ async function seed(browser, viewport, { dark = false } = {}) {
   await context.addInitScript(({ snapshot, colorScheme }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', colorScheme)
     localStorage.setItem('app_ui_zoom', '1')
   }, { snapshot: SNAPSHOT, colorScheme: dark ? 'dark' : 'light' })
@@ -123,7 +120,17 @@ async function openRehearsal(page) {
   await page.locator('[data-authoring-tool="rehearsal"]').click()
   const panel = page.locator('[data-test="rehearsal-panel"]')
   await panel.getByRole('button', { name: '从当前段落开始', exact: true }).click()
-  await panel.getByLabel('试演行动').waitFor({ timeout: 30000 })
+  try {
+    await panel.getByLabel('试演行动').waitFor({ timeout: 30000 })
+  } catch (error) {
+    console.log('rehearsal open diagnostic', JSON.stringify({
+      text: (await panel.innerText()).slice(0, 800),
+      url: page.url(),
+      sceneLaboratory: await page.locator('.scene-laboratory').count(),
+      buttonDisabled: await panel.getByRole('button', { name: /从当前段落开始|正在核对现场/ }).isDisabled().catch(() => null)
+    }))
+    throw error
+  }
   return { panel, advisory, hold }
 }
 
@@ -308,7 +315,13 @@ try {
     const context = await seed(browser, { width, height }, { dark: width === 900 })
     const page = await context.newPage()
     const errors = []
-    page.on('pageerror', (error) => errors.push(error.message.slice(0, 200)))
+    page.on('pageerror', (error) => {
+      errors.push(error.message.slice(0, 200))
+      console.log('rehearsal page error', error.message.slice(0, 500))
+    })
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text().slice(0, 200))
+    })
     await installDeterministicProviderMock(page, { passiveInline: false, blockText: PROSE })
     const { panel, advisory, hold } = await openRehearsal(page)
     const tag = String(width)

@@ -21,7 +21,7 @@ README/文档里的 check mark 不算验证；只有本文件记录了实际命�
 | 本地分支 | 20 个（含 backup/、integration/、night/、publish/、server-version） | `git for-each-ref refs/heads` |
 | remote | `git@github.com:Recoletas/Pinax.git`（SSH，URL 无凭据；仅记录 host/repo 标识） | `git remote -v`（redact 复核） |
 | tracked 敏感名文件 | 仅 `.env.example`、`server/.env.example`（模板，非真实值） | `git ls-files \| grep -iE ...` |
-| tracked 演示图 | `docs/demo/` 下 15 个图片/媒体 + 1 个 md（虽在 ignore 规则内但已 tracked） | `git ls-files docs/demo` |
+| tracked 演示图 | `docs/demo/` 的历史图片/媒体已从当前树删除，只保留 1 个原创合成 md | `git ls-files docs/demo` |
 | 现有第三方说明 | `THIRD_PARTY_NOTICES.md`（Dependency / Adapted source 分级，OpenLayers BSD-2、Azgaar MIT 镜像）；字体 OFL | 文件实读 |
 | LICENSE | PolyForm Noncommercial（保持原样，B 不改正文） | `LICENSE` |
 | 版本标识 | `package.json` version `1.0.0`；诊断导出仅含该版本，无 commit | `src/utils/betaDiagnosticExport.js` |
@@ -48,7 +48,7 @@ README/文档里的 check mark 不算验证；只有本文件记录了实际命�
 ### tracked/ignored 目录
 
 - tracked 顶层：`src/ server/ shared/ scripts/ docs/ deploy/ electron/ prototype/ agent-skills/` 等（详见 git）。
-- `docs/demo/` 中 15 个图片为 tracked（演示截图/概念图），权属与“是否适合公开”待 B02 逐个归类。
+- `docs/demo/` 当前只保留原创合成文字演示；历史图片已在 2026-09-14 清理。
 - `deploy/`：README 已声明含 `/root/Pinax` 固定路径、Node 18 与系统级 Nginx 修改，不能当通用安装器（README.md:59），公开时保留该警示。
 
 ### 扫描范围定义（B01 执行）
@@ -66,9 +66,9 @@ README/文档里的 check mark 不算验证；只有本文件记录了实际命�
 | refs/tracked 盘点 | verified | B00 | 本文件 §2 |
 | 当前树凭据/隐私扫描 | verified（0 真实凭据） | B01 | gitleaks 8.30.1，1055 文件归档扫描：3 命中均为同一 8 字符低熵占位串（fixtures/测试），按哈希比对与历史命中同一值；判定假阳性 |
 | 历史 refs 扫描 | verified（0 真实凭据） | B01 | `gitleaks git --log-opts="--all"` 覆盖全部 20 个本地 refs：14 命中 / 同一占位串；redact 模式，报告存 /tmp/gitleaks-history-all.json |
-| 二进制/演示图人工检查 | verified（3 类 unknown 待作者决策） | B01/B02 | 逐张人工查看关键图 + 资产归类，见 THIRD_PARTY_NOTICES.md 资产权属表 |
+| 二进制/演示图人工检查 | verified（1 类 unknown 待作者决策） | B01/B02/O | Kao 美术、旧主题截图/概念图和带水印参考图已从当前树删除；剩余项见 THIRD_PARTY_NOTICES.md |
 | 依赖许可覆盖核查 | verified | B02 | 26 个生产依赖按实装版本核验并登记 THIRD_PARTY_NOTICES.md；devDeps 不随发行分发（已注明） |
-| 演示图/示例文本来源归类 | verified | B02 | unknown 共 3 类：kao-archive 系列美术、AI 生成图（含 docs/demo 概念图）、小红书截屏 kao.jpg；均只登记不删除 |
+| 演示图/示例文本来源归类 | verified | B02/O | Kao 及旧 demo 二进制已删除；只剩生产中使用的 `authoring-image-style-presets.webp` 待确认 |
 | 许可决策对照页 | verified | B02 | docs/engineering/public-alpha-license-notes.md（不改 LICENSE） |
 | Node 22 统一（engines/.nvmrc/CI） | verified | B03 | engines `>=22.13 <23`、.nvmrc 22.22.3（实装验证）、CI `node-version-file: .nvmrc`；Node 20 下 doctor 正确报 MISS |
 | dev 后端代理参数化 | verified | B03 | `PINAX_DEV_BACKEND_ORIGIN`（默认 3001 不变）；实测代理 /api 真实回环到 3012 后端；ws/http 派生与尾斜杠边界验证 |
@@ -116,7 +116,7 @@ README/文档里的 check mark 不算验证；只有本文件记录了实际命�
 | user-decision | refs 公开集合（backup/night/integration 分支去留） | §2 表 |
 | user-decision | 历史若含疑似敏感内容时的处理（轮换/重写范围） | B01 只列疑似项，不自动处理 |
 | pending | GitHub 私密安全报告是否启用、维护联系渠道 | B06 落 SECURITY 时只写已存在渠道 |
-| pending | `docs/demo/` 图片权属归类 | B02 |
+| resolved-local | `docs/demo/` 图片权属 | 旧主题与概念图已从当前树删除；历史提交是否重写另行决策 |
 
 ## 5. 已声明的边界
 

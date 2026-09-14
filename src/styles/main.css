@@ -115,11 +115,6 @@
   --accent-rose-light: rgba(185, 85, 103, 0.12);
   --accent-emerald: #2d9978;
   --accent-emerald-light: rgba(45, 153, 120, 0.12);
-
-  /* Kao / archive-folio visual system (default = blue-white dossier).
-     kao.css keeps a warm override gated by .theme-kao. Switching the
-     theme variant (.theme-legacy / .theme-kao) re-binds these tokens
-     to different palettes without touching page-level CSS. */
   --archive-paper: #f3f6fb;
   --archive-paper-strong: #e1e9f4;
   --archive-paper-soft: #fbfdfe;
@@ -189,8 +184,6 @@
   --accent-rose-light: rgba(228, 129, 147, 0.15);
   --accent-emerald: #5bc9a3;
   --accent-emerald-light: rgba(91, 201, 163, 0.15);
-
-  /* Kao / archive-folio visual system (dark = blue-steel night-reading) */
   --archive-paper: #11202e;
   --archive-paper-strong: #1a2c3d;
   --archive-paper-soft: #162636;
@@ -724,16 +717,6 @@ body {
 
 .overflow-hidden { overflow: hidden; }
 .overflow-auto { overflow: auto; }
-
-/* RP Text Styles - for v-html injected content.
-   E19 (2026-06-27): all .rp-* rules re-bound to var(--archive-*)
-   tokens. No raw hex, no forced override flags, no purple/violet/magenta.
-   Themes (.theme-legacy / .theme-kao) layer their own token
-   rebindings on top; the global fallback uses default-mode archive
-   tokens (warm archive-folio palette) so unthemed contexts still
-   read as restrained dossier. Distinction is morphological
-   (italic / underline / size), not rainbow color.
-   Backgrounds are restricted to 4-8% tint hover states only. */
 .rp-dialogue {
   font-style: italic;
   font-weight: 600;

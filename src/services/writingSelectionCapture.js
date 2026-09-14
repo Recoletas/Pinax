@@ -1,8 +1,8 @@
 /**
- * writingSelectionCapture — capture a textarea selection from Writing.vue as a
+ * writingSelectionCapture — capture an Authoring editor selection as a
  * narrative asset, then route to Notes.vue for review.
  *
- * Why a dedicated service (and not a one-off in Writing.vue):
+ * Why a dedicated service (and not a page-local helper):
  *   - Keeps the two-step write (addNarrativeAsset + source enrichment) in one
  *     place so the schema lives next to the only caller.
  *   - Pure input/output makes it unit-testable without mounting Vue.

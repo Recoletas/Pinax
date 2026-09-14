@@ -64,7 +64,6 @@ async function seedFixtureStorage(context, theme = 'light') {
   await page.evaluate(({ snapshot, theme }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', theme)
     localStorage.setItem('app_ui_zoom', '1')
   }, { snapshot: fixtureStorage, theme })

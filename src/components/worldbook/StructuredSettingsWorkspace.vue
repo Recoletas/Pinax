@@ -1,6 +1,6 @@
 <template>
   <div class="settings-workspace">
-    <section v-if="sourceDocuments.length && !isKao" class="source-rail" aria-label="来源资料">
+    <section v-if="sourceDocuments.length" class="source-rail" aria-label="来源资料">
       <div class="source-rail__lead">
         <span class="source-rail__mark">来源</span>
         <strong>{{ sourceDocuments.length }} 份资料</strong>
@@ -48,15 +48,12 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useSettingKeyboardShortcuts } from '../../composables/useSettingKeyboardShortcuts'
-import { useTheme } from '../../composables/useTheme'
 import StructuredSettingsPanel from './StructuredSettingsPanel.vue'
 import SettingKeyboardHints from './SettingKeyboardHints.vue'
 
 const props = defineProps({
   worldbook: { type: Object, default: null }
 })
-const { isKao } = useTheme()
-
 const panelRef = ref(null)
 const activeSourceId = ref('')
 

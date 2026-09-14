@@ -67,7 +67,8 @@
 
 ### 产品整合收口
 
-- 🔴 现有工作区仍有功能并列、来源引用不统一和页面级组件过大的问题；当前事实入口统一为 [PLAN.md](../PLAN.md) 与 [Pinax 产品整合与演进主计划](../plan/pinax-integrated-product-roadmap.md)。
+- 🔴 页面级组件仍然过大：`Authoring.vue` 12,823 行/143 imports，`Notes.vue` 5,583 行，`Experience.vue` 4,429 行，`ProseEssay.vue` 4,571 行；`gameStore.js` 4,854 行。Authoring 定向 ESLint 已无 warning，Block、Ghost adoption、章节 review 与搜索/替换已各有完整 workflow owner；写作 Agent/inline suggestion 编排仍在页面。下一轮按完整请求生命周期收口，不再拆百行状态碎片。
+- 🟡 `src/services/` 当前 312 个文件，其中 72 个仍位于根层。新模块不得继续堆根层；旧文件先盘点生产消费者和 owner，再做不改行为的纯路径迁移。当前事实入口统一为 [PLAN.md](../PLAN.md) 与 [Pinax 产品整合与演进主计划](../plan/pinax-integrated-product-roadmap.md)。
 
 ### 漫画生产工作台仍未形成闭环
 

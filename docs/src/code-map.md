@@ -2,6 +2,9 @@
 
 > 目标是快速找到行为负责人，不在这里复述实现细节。
 
+数据所有权、依赖方向、代码放置规则与渐进拆分顺序见
+[当前架构与代码边界](../engineering/current-architecture.md)。
+
 ## 顶层
 
 | 路径 | 角色 |
@@ -28,7 +31,7 @@
 | 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js`, `src/services/media/imageProviderService.js` |
 | 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/relationCanvas.js`, `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
 
-`/writing` 已由router重定向到 `/authoring`；`/experience` 保留兼容，不能因入口收敛直接删除其会话和运行时。实际注册入口以 `src/router/index.js` 为准。
+`/writing` 已由 router 重定向到 `/authoring`，旧 `Writing.vue` wrapper 已删除；`/opening` 重定向到 `/experience`。`/experience` 保留兼容，不能因入口收敛直接删除其会话和运行时。实际注册入口以 `src/router/index.js` 为准。
 
 ## 重点子系统
 

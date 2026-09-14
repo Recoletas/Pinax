@@ -1,7 +1,7 @@
-/* 5C: legacy = map-era blue-white.
-   K6 (2026-06-27): keep theme 2 self-contained. The migrated dossier
-   surfaces now consume archive/accent variant tokens; if legacy only
-   overrides the old base tokens it inherits theme 1 stamp/gold traces. */
+/* `theme-legacy` is retained as a CSS compatibility namespace only. It is the
+   single current Pinax visual system after the Kao variant was retired. Rename
+   it only in a dedicated mechanical migration so saved screenshots and UI
+   contracts do not mix with behavior work. */
 :root.theme-legacy {
   --bg-primary: #f3f3f3;
   --bg-secondary: #ffffff;
@@ -54,10 +54,6 @@
   --shadow-workbench: 0 12px 30px rgba(15, 23, 42, 0.09);
   --shadow-workbench-float: 0 18px 44px rgba(15, 23, 42, 0.15);
 }
-
-/* E17 correction: theme 2 owns the Experience live-codex rail chrome.
-   The blue-white archive skin should not rely on the kao olive/gold
-   sheet or on the generic :not(.theme-kao) fallback in Experience.vue. */
 .theme-legacy .ws-right-rail {
   display: flex;
   flex-direction: column;
@@ -243,10 +239,6 @@
 .theme-legacy .ws-section--compact {
   padding: 5px 8px 7px;
 }
-
-/* W5b UX sweep: mirror the .theme-kao data-dossier-stamp rule.
-   Without this, Experience right-rail section titles (卷宗一/二/三)
-   silently disappear when the user picks theme-legacy. */
 .theme-legacy .ws-section::before {
   content: attr(data-dossier-stamp);
   display: block;
@@ -258,15 +250,6 @@
   margin-bottom: 4px;
   text-transform: uppercase;
 }
-
-/* ============================================================================
-   UI-E18: Experience prose / edit / role distinction for theme 2.
-   Theme 2 is the COMPETITION DEFAULT — must read as steel-blue dossier,
-   not warm archive-folio. Mirrors theme 1's structural choices (single
-   column, speaker label, 段首缩进, drop cap, role color mark) but uses
-   the legacy palette tokens so it doesn't drift into the warm signature.
-   All values bound to var(--archive-*) tokens (token-only discipline).
-   ============================================================================ */
 .theme-legacy .prose {
   position: relative;
   margin: 0;
@@ -414,8 +397,6 @@
 .theme-legacy .prose__edit-actions .tavern-btn:hover:not(.primary) {
   background: color-mix(in srgb, var(--archive-olive) 8%, var(--archive-paper-soft));
 }
-
-/* Scene break — same ◇ convention as theme 1, but using steel-blue. */
 .theme-legacy .scene-break {
   text-align: center;
   margin: 1.6em 0;
@@ -649,13 +630,6 @@
   background: color-mix(in srgb, var(--archive-paper-strong) 12%, var(--archive-paper-soft));
   color: color-mix(in srgb, var(--archive-ink) 82%, transparent);
 }
-
-/* E18-B (round 2): 速记面板 (quick-note-workspace) 按钮 chrome —
-   导入速记 / 存为素材 / 清空选择 + 编辑器面板 保存素材 / 清空.
-   Default .action-btn 在 Experience.vue scoped CSS 里用 archive-gold
-   + 撕角 clip-path (kao 主题1 signature), theme 2 走 steel-blue
-   dossier 所以去掉 clip-path 改 archive-olive 边 + archive-paper-soft
-   底. 让 panel 内的 5 个按钮 (2 编辑器 + 3 对话段) 都一致. */
 .theme-legacy .quick-note-workspace-actions .action-btn,
 .theme-legacy .quick-note-panel-head .action-btn {
   height: 30px;

@@ -437,7 +437,6 @@ export function buildNarrativeGateStorage(apiSettings = null, { nickname = '' } 
     }
   ]
   const storage = {
-    app_theme_variant: 'legacy',
     app_theme: 'light',
     worldbooks_index: [{
       id: worldbook.id,

@@ -41,7 +41,6 @@ try {
     const context = await browser.newContext({ viewport: { width, height: width < 600 ? 844 : 900 }, reducedMotion: 'reduce' })
     await context.addInitScript(({ snapshot, theme }) => {
       for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-      localStorage.setItem('app_theme_variant', 'legacy')
       localStorage.setItem('app_theme', theme)
       localStorage.setItem('app_ui_zoom', '1')
     }, { snapshot, theme })
@@ -90,7 +89,11 @@ try {
             title.textContent = original
             return { visible, lines: rects.length }
           })
-          check(`${label} 长章名换行完整显示`, longTitle.visible && longTitle.lines >= 2, longTitle)
+          check(
+            `${label} 长章名完整显示（空间不足时换行）`,
+            longTitle.visible && (width > 390 || longTitle.lines >= 2),
+            longTitle
+          )
           if (width <= 720) {
             await header.getByRole('button', { name: '切换副窗内容', exact: true }).click()
             await page.waitForTimeout(100)

@@ -52,7 +52,6 @@ async function createPage(browser, viewport, snapshot = storage) {
   await context.addInitScript((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
   }, snapshot)
   const page = await context.newPage()

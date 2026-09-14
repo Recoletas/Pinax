@@ -11,13 +11,13 @@ const BASE = process.env.BASE || 'http://127.0.0.1:5173'
 const FIXTURE_DIR = path.resolve('tmp/authoring-rollout')
 const OUT_DIR = path.resolve('/tmp/pinax-f2-illustrator')
 const FINAL_DIR = path.resolve('/tmp/pinax-f2-final')
-const IMAGE_PATHS = [
-  path.resolve('src/assets/characters/kao-archive-opening-scene-01.webp'),
-  path.resolve('src/assets/characters/kao-archive-opening-scene-02.webp')
+const IMAGE_FIXTURES = [
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#d7e3ef"/><circle cx="22" cy="25" r="12" fill="#52708d"/></svg>',
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#edf1f5"/><path d="M8 52L32 10l24 42z" fill="#31536f"/></svg>'
 ]
 const state = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-state.json'), 'utf8'))
 const baseStorage = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-localstorage.json'), 'utf8'))
-const imageDataUrls = IMAGE_PATHS.map((imagePath) => `data:image/webp;base64,${fs.readFileSync(imagePath).toString('base64')}`)
+const imageDataUrls = IMAGE_FIXTURES.map((source) => `data:image/svg+xml;base64,${Buffer.from(source).toString('base64')}`)
 const screenshotPaths = {
   desktop: path.join(OUT_DIR, 'illustrator-1440.png'),
   tablet: path.join(OUT_DIR, 'illustrator-1024.png'),
@@ -151,7 +151,6 @@ async function createPage(browser, viewport) {
   await context.addInitScript((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
   }, storage)
   const page = await context.newPage()
@@ -615,7 +614,7 @@ const failed = results.filter((result) => !result.pass)
 const report = {
   generatedAt: new Date().toISOString(),
   base: BASE,
-  fixtureImages: IMAGE_PATHS.map((imagePath) => path.relative(process.cwd(), imagePath)),
+  fixtureImages: ['synthetic-circle.svg', 'synthetic-triangle.svg'],
   total: results.length,
   failed: failed.length,
   screenshots: screenshotPaths,

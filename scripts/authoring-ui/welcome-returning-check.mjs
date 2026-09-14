@@ -25,7 +25,6 @@ try {
   await page.evaluate((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', 'light')
   }, fixtureStorage)
   await page.reload({ waitUntil: 'domcontentloaded' })
@@ -71,7 +70,6 @@ try {
   await mobilePage.evaluate((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', 'light')
   }, fixtureStorage)
   await mobilePage.reload({ waitUntil: 'domcontentloaded' })

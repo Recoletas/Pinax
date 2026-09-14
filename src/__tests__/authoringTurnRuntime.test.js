@@ -561,14 +561,17 @@ const before = { text: DOC_TEXT, revision: buildDocumentRevision('chapter:ch-9',
 describe('page wiring for turn execution', () => {
   it('mounts the block composer, executes the real kernel, freezes its target and gates observer scheduling on success', async () => {
     const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+    const blockWorkflowSource = await readFile(resolve(__dirname, '../composables/useAuthoringBlockWorkflow.js'), 'utf8')
+    const adoptionWorkflowSource = await readFile(resolve(__dirname, '../composables/useAuthoringGhostAdoptionWorkflow.js'), 'utf8')
+    const turnWiring = `${source}\n${blockWorkflowSource}\n${adoptionWorkflowSource}`
     expect(source).toContain('<AuthoringBlockComposer')
     expect(source.indexOf('const activeWritingUnitId = computed')).toBeLessThan(source.indexOf('const sceneProjection = computed'))
     expect(source.indexOf('const authoringObservations = ref')).toBeLessThan(source.indexOf('const sceneProjection = computed'))
     expect(source).toContain('openBlockComposer')
     expect(source).toContain('selectionBookmark')
     expect(source).toContain('documentRevision')
-    expect(source).toContain('AUTHORING_TURN_TASK_IDS')
-    expect(source).toContain('buildAuthoringTurnIntent')
+    expect(turnWiring).toContain('AUTHORING_TURN_TASK_IDS')
+    expect(turnWiring).toContain('buildAuthoringTurnIntent')
     // 缺陷 1：真实内核执行链，不再直接调裸 provider step。
     expect(source).toContain('createNarrativeKernelExecutor')
     expect(source).toContain('createAuthoringNarrativeRun')
@@ -594,8 +597,8 @@ describe('page wiring for turn execution', () => {
     expect(source).not.toContain('applyPlannedEntrancesForUnit')
     expect(source).not.toContain('readSceneIntents: () => []')
     expect(source).toContain('readAuthoringSceneRunIntentsForTarget(')
-    expect(source).toContain('collectAuthoringSceneRunIntentEffects(candidate.runSession,')
-    expect(source).toContain('commitPlannedEntrances: false')
+    expect(turnWiring).toContain('collectAuthoringSceneRunIntentEffects(candidate.runSession,')
+    expect(turnWiring).toContain('commitPlannedEntrances: false')
     expect(source).not.toContain('@save-and-simulate=')
 
     // runtime 在 provider 返回后仍可能因正文 revision 变化判 stale。页面必须把

@@ -1,10 +1,8 @@
 // WA-B: writingAgentContext (2026-06-29)
 //
-// Pure helper for the Writing page's advisor / agent context payload.
-// Writing.vue currently spreads ~10 context fields inline inside
-// collectWritingContext() + buildAdvisorActionContext() (defensive reads,
-// paragraph / cursor window snapshots, chapter outline, reference asset,
-// inbox selection). This module centralizes that into one pure builder
+// Pure compatibility helper for the structured writing-agent context payload.
+// It centralizes defensive reads, paragraph / cursor snapshots, chapter
+// outline, reference assets and inbox selection into one pure builder
 // that returns a stable, snapshot-safe JSON envelope, plus a small
 // taskType catalog so the agent panel can route by intent instead of
 // routing every request through the generic chapter-health task.
@@ -18,15 +16,10 @@
 //     empty defaults (`''`, `[]`, `null`, `0`), never throw.
 //   - No new dependencies. Uses existing chapter-outline + setting-panel
 //     helpers for snapshot formatting, but only when input has data.
-//   - Backward compatible: useAdvisor() and the existing 5 quick actions
-//     (selection / paragraph / thread / chapter / continue) keep working
-//     untouched. New taskTypes are additive — Writing.vue can adopt them
-//     in a follow-up slice without rewriting askAdvisor flow.
+//   - Backward compatible: the existing task type identifiers remain stable.
 //
-// Used by:
-//   - Writing.vue (next slice: replace inline collectWritingContext with
-//     this helper, swap advisorQuickActions to getWritingQuickActions()).
-//   - useAdvisor tests (sanity-check taskType routing via getWritingQuickActions).
+// Current status: contract/test support only; production Authoring uses the
+// authoring evidence/session pipeline. Do not add new page dependencies here.
 //
 // Not used by:
 //   - Experience.vue, GamePanel.vue (independent advisor paths).
@@ -431,10 +424,9 @@ export function buildWritingAgentContext(input = {}, options = {}) {
  *
  * Each action has an explicit taskType from WRITING_TASK_TYPES, a scope
  * hint (for legacy buildAdvisorActionTarget compatibility), and a
- * disabled flag based on the current context state. Writing.vue's
- * advisor panel can render this list directly; the legacy inline
- * `advisorQuickActions` computed can be replaced with a call to this
- * function in a follow-up slice.
+ * disabled flag based on the current context state. This is retained for
+ * compatibility tests; current Authoring quick actions use their own task
+ * registry and must not start a second production path through this helper.
  *
  * The 5 existing actions (FIX_SELECTION / FIX_PARAGRAPH / CONTINUE_LIGHT
  * / CLOSE_THREAD / CHAPTER_HEALTH) keep the same scope strings the
@@ -442,10 +434,8 @@ export function buildWritingAgentContext(input = {}, options = {}) {
  * (selection / paragraph / continue / thread / chapter) — adding
  * taskType does not break the legacy target resolver.
  *
- * The 2 new actions (GENERATE_FROM_ASSET / EXTRACT_TO_ASSET) introduce
- * scope strings (`reference-asset`, `paragraph-or-selection`) that the
- * legacy resolver does not yet know about. Writing.vue should handle
- * these as no-op / informational until Window A ships the schema.
+ * The 2 additional actions (GENERATE_FROM_ASSET / EXTRACT_TO_ASSET) retain
+ * their historical scope strings for callers that still validate the schema.
  *
  * @param {object} [flags] Current context availability flags.
  * @param {boolean} [flags.hasSelection]

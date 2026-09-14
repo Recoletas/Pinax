@@ -552,13 +552,7 @@ const { readFileSync } = await import('node:fs')
     expect(activationBody).toContain('syncBookWorldbook')
     // openBook 走统一激活。
     expect(source).toMatch(/function openBook\(bookId, options = \{\}\) \{\n {2}const \{ fromInitialLoad = false \} = options\n {2}const book = activateBook\(bookId\)/)
-    // 跨书章节跳转与 insert-back 换书不再绕过同步（不得直接改 selectedBookId）。
-    const selectBookChapterBody = source.slice(
-      source.indexOf('function selectBookChapter'),
-      source.indexOf('function selectBookChapter') + 600
-    )
-    expect(selectBookChapterBody).toContain('activateBook(bookId)')
-    expect(selectBookChapterBody).not.toContain('selectedBookId.value = bookId')
+    // insert-back 与路由恢复的跨书跳转不再绕过同步（不得直接改 selectedBookId）。
     const openBookAtChapterBody = source.slice(
       source.indexOf('function openBookAtChapter'),
       source.indexOf('function openBookAtChapter') + 500
@@ -587,19 +581,16 @@ const { readFileSync } = await import('node:fs')
     expect(explorationBoundary).toContain("authoringTask.notify('构思文档保存失败，已留在当前文档')")
     expect(explorationBoundary.indexOf('if (!result?.ok)')).toBeLessThan(explorationBoundary.indexOf("wt3ActiveDocId.value = ''"))
     expect(source).not.toContain('watch(markdownContent')
-    // 删除当前书也走统一激活，不再直接改 selectedBookId。
-    const deleteBody = source.slice(source.indexOf('function deleteBook'), source.indexOf('function deleteBook') + 1200)
-    expect(deleteBody).toContain('activateBook(nextBookId, { savePrevious: false })')
-    expect(deleteBody).not.toContain('selectedBookId.value = books.value[0].id')
-    expect(deleteBody).not.toContain('selectBook(nextBookId)')
 }
 {
 const { readFileSync } = await import('node:fs')
     const { resolve } = await import('node:path')
     const source = readFileSync(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+    const blockWorkflow = readFileSync(resolve(__dirname, '../composables/useAuthoringBlockWorkflow.js'), 'utf8')
     // 复验修复 2：同步窗口内（syncing=true / boundWorldbook=null）下一拍先被门禁拦下。
     expect(source).toContain('boundWorldbookSyncReady()')
-    expect(source).toMatch(/!boundWorldbookSyncReady\(\)[\s\S]{0,200}worldbook-loading/)
+    expect(source).toContain('worldbookReady: boundWorldbookSyncReady()')
+    expect(blockWorkflow).toMatch(/!context\.worldbookReady[\s\S]{0,200}worldbook-loading/)
     // 同步工厂第一步即清空旧绑定（时序行为测试见 authoringWorldbookBinding.test.js）。
     const bindingModule = readFileSync(resolve(__dirname, '../services/agents/authoring/authoringProjectWorldbook.js'), 'utf8')
     expect(bindingModule).toMatch(/boundWorldbook\.value = null[\s\S]{0,300}syncing\.value = true/)

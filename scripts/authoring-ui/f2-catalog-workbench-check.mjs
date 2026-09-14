@@ -21,7 +21,6 @@ async function openPage(browser, width) {
   await context.addInitScript(({ snapshot, color }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', color)
     localStorage.setItem('app_ui_zoom', '1')
   }, { snapshot: storage, color: COLOR })

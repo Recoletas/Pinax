@@ -152,13 +152,15 @@ async function createPage(browser, viewport) {
   await context.addInitScript((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
     localStorage.setItem('pinax_agent_runtime_policy_v1', JSON.stringify({ enabled: true, passiveHints: { 'writing-inline': false } }))
   }, isolatedStorage())
   const page = await context.newPage()
   const errors = []
-  page.on('pageerror', (error) => errors.push(`pageerror:${error.message}`))
+  page.on('pageerror', (error) => {
+    errors.push(`pageerror:${error.message}`)
+    console.log('F2-6 page error', error.message)
+  })
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(`console:${message.text()}`)
   })

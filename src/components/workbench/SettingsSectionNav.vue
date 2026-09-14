@@ -161,29 +161,6 @@ function sectionRoute(tab) {
 }
 
 /* 兼容旧主题的色彩覆盖；主题 2 仍保持冷白稿面。 */
-.theme-kao .settings-section-nav {
-  border-bottom-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft));
-}
-
-.theme-kao .settings-section-tab {
-  min-height: 34px;
-  border-bottom-color: transparent;
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .settings-section-tab:hover {
-  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-  color: var(--archive-ink);
-}
-
-.theme-kao .settings-section-tab.active {
-  color: var(--archive-ink);
-}
-
-.theme-kao .settings-section-tab.active {
-  border-bottom-color: var(--archive-olive);
-}
 
 /* Theme 2: one quiet workbench rail shared by every settings surface. */
 .theme-legacy .settings-section-nav {

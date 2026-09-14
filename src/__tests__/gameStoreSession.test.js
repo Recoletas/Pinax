@@ -2680,7 +2680,7 @@ const worldStore = useWorldStore()
       }
     }
 
-    // Mimic the applyPlayableWorldHistoryPatch flow from OpeningPage.vue.
+    // Apply the pure history-entry patch through the runtime's public mutations.
     const patches = consumePlayableWorldHistoryIntent(historyPatch)
     expect(patches).not.toBeNull()
     if (patches.historyNode) {

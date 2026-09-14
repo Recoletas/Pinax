@@ -1,10 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useTheme } from './composables/useTheme'
 import { useViewportHeight } from './composables/useViewportHeight'
 import MemoryIndicator from './components/MemoryIndicator.vue'
-import ThemeAssets from './components/theme/ThemeAssets.vue'
 import TipBanner from './components/tip/TipBanner.vue'
 import { useGameStore } from './stores/gameStore'
 import { useThemeStore } from './stores/themeStore.js'
@@ -12,7 +10,6 @@ import { useTipState } from './composables/useTipState'
 import { ensureDefaultImageConfig } from './services/media/imageProviderConfigStore'
 import DesktopProjectGate from './components/desktop/DesktopProjectGate.vue'
 
-const { initTheme } = useTheme()
 const themeStore = useThemeStore()
 themeStore.initTheme()
 const route = useRoute()
@@ -69,7 +66,7 @@ function handleGenerationMeta(event) {
   }, 5000)
 }
 
-// 任意代码 (含 useApiSettings 等非 Vue 模块) 都可以通过
+// 任意非 Vue 模块也可以通过
 // window.dispatchEvent(new CustomEvent('pinax:show-tip', { detail: {...} })) 触发 tip。
 function handleShowTipEvent(event) {
   const detail = event?.detail
@@ -126,7 +123,6 @@ watch(
 
 <template>
   <div class="app-root">
-    <ThemeAssets />
     <DesktopProjectGate>
       <router-view />
       <transition name="meta-toast-fade">

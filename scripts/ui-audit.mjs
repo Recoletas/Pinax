@@ -507,7 +507,6 @@ async function installThemeFixture(page, state) {
       'text_model_selected'
     ]
     fixtureKeys.forEach((key) => localStorage.removeItem(key))
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', 'light')
     localStorage.setItem('pinax_ui_audit_state', fixtureState)
     Object.entries(fixture).forEach(([key, value]) => localStorage.setItem(key, JSON.stringify(value)))

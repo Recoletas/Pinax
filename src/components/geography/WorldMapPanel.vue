@@ -1506,9 +1506,6 @@ watch(
 }
 
 .ai-warning {
-  /* W5b UX sweep: switch raw #f59e0b / #b45309 (warm orange) to
-     var(--warning) so dark-mode + theme-legacy stay on-palette and
-     WCAG-AA contrast holds (dark kao paper #b45309 ≈ 2.7:1 fail). */
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   border-color: color-mix(in srgb, var(--warning) 24%, transparent);
   color: var(--warning);

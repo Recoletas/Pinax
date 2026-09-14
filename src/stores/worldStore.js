@@ -315,7 +315,7 @@ function syncStructuredEntries(entries, structuredSettings, normalizationNow = D
 
 /**
  * 归一化 geoHistory 容器。
- * - 缺失 / 空 → null（OpeningPage 可据此优雅隐藏历史节点区）。
+ * - 缺失 / 空 → null（调用方可据此隐藏历史节点区）。
  * - 数组 → { nodes: [...] }。
  * - 对象 → 保留全部生成器字段，仅把 nodes 强制成数组。
  * 节点内部字段不裁剪：历史/地图窗口的生成器可自由扩展节点结构，

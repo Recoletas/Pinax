@@ -25,7 +25,6 @@ try {
   await page.evaluate((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', 'light')
     const fill = (key, size) => localStorage.setItem(key, 'x'.repeat(size))
     try { for (let i = 0; i < 64; i += 1) fill(`quota-fill-${i}`, 256 * 1024) } catch { /* 粗填 */ }

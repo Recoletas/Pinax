@@ -1,8 +1,40 @@
 # 开发日志
 
+- 2026-09-14：进一步为夜间架构计划增加 A14–A17/B15–B18/C14–C17 溢出队列与固定调度控制表；覆盖 Authoring 首载/故障、Experience-store 接缝、ProseEssay-素材边界。单次 worker 提前 final 按同工作树续派处理，任务板记录检查点与 active/blocked 区间。仍仅修计划，未启动实施。
+
+- 2026-09-14：夜间架构任务书最终追加第三批 12 个生产代码包与八小时持续运行协议；实际范围覆盖 Authoring 输入/切换/工具所有权、gameStore 分支/状态提取/记忆/reset、Notes 画布/偏好/术语/组件。规定 T+6:30 前提前返回续派、末段组合和 active/等待时间分列。本轮仍为计划修订，未执行代码或 skill 改动。
+
+- 2026-09-14：夜间任务书追加 S0–S8 skill 优化与案例复核，针对 visual/full 覆盖误述、工作台大标题通则、世界书副作用身份与状态文档重复制定具体修订任务；单包工时不再作为任务充足的依据。仅编制计划，canonical skills 尚未改变。
+
+- 2026-09-14：按用户要求扩充三线架构夜间计划，追加 12 个实作接续包及 8 个文档整理包；README 能力/备份表述核实、架构与导航、贡献入口和历史说明整理列为明确交付。仅修订计划与入口，未执行重构或改写公共 README。
+
 > 只记录近期用户可感知变化、验证结果和仍会影响后续判断的风险。过程性 UI 微调不再逐条保留。
 
+## 2026-09-14 - Authoring workspace navigation / persistence / inspector owner 抽取
+
+- 后续编制[三线夜间架构任务书](./plan/architecture-night-three-tracks-20260914.md)：按 Authoring/gameStore/Notes 独占写集并行，明确可恢复 WIP 基线、完整职责主包、储备接续、失败恢复、组合树验收与晨间试用。计划尚未实施；不再用缺乏量尺的成熟度百分比或精确工时推断完成度。
+
+- 第十片不再拆零散状态：新增 `useAuthoringBlockWorkflow`，把 composer/preview/draft/failure、请求代次与迟到结果拒收、turn 构建/执行、observer 隔离、探索保存和持久化重试整体迁出。第十一片 `useAuthoringGhostAdoptionWorkflow` 一次迁出 stale/依赖复核、保护点、编辑器写入、scene/outline delta、失败回滚、保存重试回执、observer、IF 消费与撤销；第十二片 `useAuthoringReviewWorkflow` 迁出校对来源冻结、分批模型循环、取消/失效、采用/忽略/批量保护与撤销；第十三片 `useAuthoringSearchWorkflow` 迁出来源冻结、四域索引、去抖、结果新鲜度、跨章定位/回程和替换预览/全书原子提交。`Authoring.vue` 从本轮起点 13,781 行降至 12,823 行（单轮净降 958；累计从 15,932 行降 3,109），143 imports。浏览器 Gate 抓到并修复 Block host 参数名与 Review null identity；修后定向 ESLint 0/0、聚焦 55/55、Vite build、F2 校对/查找/历史 33/33、推演右栏 304/304、F1 rehearsal 48/48、IF 28/28 通过。下一片是写作 Agent/inline suggestion 完整生命周期。
+
+- 新增 `useAuthoringWorkspaceNavigation`，把书/章与 URL 双向同步、工作台标签上下文和 dirty 回报、离开正文时的 selection/scroll/revision 快照、设定/地图/条目出程及返回正文恢复从 `Authoring.vue` 收到一个 composable。页面仍注入 canonical 书稿 refs、选择动作、revision 和滚动适配器，没有新增 reactive snapshot、存储格式或路由合同。
+- 随后新增 `useAuthoringPersistence`：正文、标题、恢复稿三个 timer，以及 beforeunload/pagehide/visibilitychange、路由离场保存、保存反馈和失败自救不再散在页面生命周期中；正式章节/探索事务仍由原有保存函数执行。浏览器故障矩阵验证拒写保留输入、导出实时正文、重试保存、刷新恢复入口和丢弃不改正文全部通过。
+- 第三片新增 `useAuthoringInspectorState`，把工具 rail 选择、检查器开关/固定、基础/详情页、双栏嵌套返回栈和焦点快照冻结/恢复过渡收为单一 owner。页面保留编辑器 DOM、source 身份比对和真实焦点/滚动恢复的适配职责，未改模板、样式、断点、工具业务或存储合同。
+- 第四片新增 `useAuthoringSceneWorkflow`，收口当前场可取消草稿、基线/dirty、人物地点搜索与候选、绑定库失效引用、撤销/继承可用性及换书/章/单元/绑定时的草稿失效。页面只负责从当前投影构造初始草稿、调用 canonical scene-anchor 事务并还原编辑器 UI。
+- 第五片新增 `useAuthoringRehearsalWorkflow`：既有 `useAuthoringRehearsal` 继续只负责路线/步骤/条件状态机，新 owner 负责确定起点、文档作用域复核、试稿生成和稳定 route receipt 归属；页面仅注入现场、Ghost 与滚动适配。
+- 第六片新增 `useAuthoringInterventionState`：干预 session、证据与候选投影、待审核计数、Ghost 批量资格、当前 Ghost/双栏归属及清理不变量归为一个 owner。provider 执行和正文采用事务未与本片混改。
+- 第七片新增 `useAuthoringInterventionWorkflow`：prepare/rehearse/retry/discard、资料 revision 变化后的 reconcile、取消令牌和迟到结果拒收归入同一请求生命周期；页面注入 runner 和 Ghost 定位，单组/跨章正文采用仍保持独立事务。
+- 第八片新增 `useAuthoringCharacterIfWorkflow`：人物 A/B 规划、配置快照、分支独立草稿、切换/重试/生成、依赖复核与失效归入完整会话 owner；Character IF 使用自己的取消与请求代次，不再与普通 Scene Laboratory 共用 version。
+- 第九片新增 `useAuthoringSceneLaboratoryWorkflow`：压力与证据投影、prepare/retry/select/confirm、取消和向正文 Ghost 的交接整体迁出页面；页面只注入目标解析、runner、Ghost surface 与选择恢复。
+- 继续把 scene-anchor 的作用域/revision 校验、原子保存失败回滚、指纹撤销与恢复继承收入同一 workflow，页面仅注入章节持久化、通知和 UI 回程。随后删除 15 个已无模板/生产消费者的页面函数及其孤立状态/辅助逻辑，涵盖旧 textarea 键盘与格式、世界书批注桥、质量问题定位、旧改写/联想撤销和无入口书籍删除处理。
+- 过程中真实浏览器捕获到 composable 初始化顺序 TDZ，将检查器到场景清理改为延迟回调后页面恢复。同时确认 UX-03 收掉右栏重复索引后，390 窄屏失去了当前地点到详情/地图的路径；仅在左栏收起时把概览地点变为 44px 文字入口，桌面仍由左栏负责，不恢复整套重复交互。
+- `Authoring.vue` 内设置出程和地图出程改走同一 controller；删除旧书架/场景/双栏/格式残留、被当前推演右栏替代的候选链及本轮确认的孤立处理。页面从 15,932 行降到 13,781 行；新增明确 owner 后 import 为 144，定向 ESLint 仍为 0 error / 0 warning。
+- 验证：设定联动浏览器 Gate 20/20；保存自救浏览器 Gate 全过；检查器抽离后双栏旅程全过、A1 117/117、推演右栏 207/207；场景片后设定联动 20/20、F1 rehearsal 48/48、IF 28/28；聚焦合同 37/37，Vite production build 通过。A1 旧断言中“长标题必须两行”收紧为“完整可见且 390 窄屏实际换行”，未为测试扭曲 UI。旧 F1 无 slice 大脚本在完成地点详情/地图路径后，仍依赖“首次 planner 必须进入失败态”的历史 mock，本轮不扩张测试工程修理它。下一片是 rehearsal/intervention facade。
+
 ## 2026-09-14 - StoryForge 借鉴与 Public Alpha 三线夜间任务书
+
+- 重做当前生产依赖与 owner 盘点，新增架构真源和 `src/` 放置速查；确认生产 import 图无循环，主要债务集中在 Authoring/gameStore 体量与 services 根层。删除旧 Writing wrapper、旧 Settings/SidePanel、废弃 Authoring reference UI、旧 `useApiSettings`、三套未接生产的 Authoring 策略及无人消费的体验素材 summarizer。后续以 navigation/persistence/inspector 为顺序拆 Authoring 编排，不整页重写。
+
+- 后续死代码收口移除 Kao 可切换主题、专用开场页、冻结旧欢迎/体验页、角色档案美术链及旧主题演示二进制；`/opening` 改为兼容重定向到当前体验页，预设世界直接激活并进入当前体验，不再写入无人消费的开场意图。单一 legacy 主题继续支持明暗模式和界面缩放。
 
 - 任务书随后完成 A/B/C 组合集成：右栏贯通本次条件、结构化后果、路线差异和冻结试稿来源；首访/导入/保存/备份自救与公共 README、Node/CI、依赖安全、贡献/安全入口进入 main。公开线剩余 10 个 lint error 已清零，旧 `createSnapshot` 三处运行时错误迁到现有时间线 owner。
 - MiniMax 合成实测 12/12 单步返回，后果 8/12 直接通过、4/12 被引文门禁拒绝并由显式无后果降级继续；真实试稿 2/3 完成，第三份双 300 秒超时。由此只声明渠道闭环与可恢复，模型后果质量/长试稿稳定性仍为 partial。

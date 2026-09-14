@@ -470,11 +470,6 @@
             <FolioSurface as="div" variant="chrome" :decorated="false">
               <div class="inline-detail-card">
                 <header class="inline-detail-header">
-                  <CharacterPortrait
-                    pose-id="speaker-thumb"
-                    size="thumb"
-                    :caption="inlineDetail?.speaker || '对话人'"
-                  />
                   <span class="inline-detail-icon">{{ inlineDetail.type === 'dialogue' ? '💬' : '📦' }}</span>
                   <span class="inline-detail-title">{{ inlineDetail.type === 'dialogue' ? '对话详情' : '物品信息' }}</span>
                   <button class="inline-detail-close control-icon" type="button" @click="closeInlineDetail">×</button>
@@ -536,7 +531,6 @@ import TimeQuickRail from '../components/TimeQuickRail.vue'
 import FolioSurface from '@/components/folio/FolioSurface.vue'
 import ContourField from '@/components/workbench/ContourField.vue'
 import WorkbenchIcon from '@/components/workbench/WorkbenchIcon.vue'
-import CharacterPortrait from '@/components/folio/CharacterPortrait.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
@@ -551,7 +545,6 @@ import { validateExperienceAgentResult } from '../services/agents/experienceAgen
 import { createAuthoringTaskDispatcher } from '../services/agents/authoring/authoringTaskDispatcher'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { trapFocusWithin, useTransientLayer } from '../composables/useTransientLayer'
-import { clearPlayableWorldEntryIntent } from '../services/playableWorldEntry'
 import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
 import {
   applyOnlineNarrativeCompletion,
@@ -653,7 +646,7 @@ const tip = useTipState()
 // a single composable. The composable reads uiZoom from themeStore so the
 // emitted --experience-prose-size = physicalFontSize / uiZoom, keeping the
 // rendered font at 17.5px even under global zoom 0.85. CSS owners is now
-// `src/styles/experience-reading.css` (loaded via ThemeAssets for variant=legacy).
+// `src/styles/experience-reading.css` owns the reading-plane geometry.
 const { profileName: readingProfile, cssVars: readingProfileVars } = useExperienceReadingPreferences()
 // UI-E11-A: workstation topstrip / left rail / right rail all read from
 // this single source of truth. Replaces the 6 record-folio computeds
@@ -1685,7 +1678,6 @@ async function handleSend(text, options = {}) {
   const source = options?.source || 'manual-input'
   const isAutoAdvance = source === 'auto-advance'
   const shouldAutoFollow = !isAutoAdvance && autoAdvanceEnabled.value && canUseAutoAdvance.value
-  clearPlayableWorldEntryIntent()
   if (props.onlineSession) {
     if (!props.onlineSession.isConnected?.value) return
     props.onlineSession.proposeAction?.(text)
@@ -1962,11 +1954,6 @@ function quickNoteWordCount(text) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* K6 (2026-06-27): 默认主题去掉 accent-rose / accent-amber 暖色
-     角部叠加 (这是 kao 主题1 的 SaaS 配色痕迹, 跟蓝白档案册
-     不搭). 改用 --archive-olive / --archive-gold 派生 (冷色 dossier
-     调). 跟 .ws-topstrip / .ws-right-rail 的 --archive-paper-soft
-     底色一致. */
   background:
     radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--archive-olive) 14%, transparent), transparent 24%),
     radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--archive-gold) 12%, transparent), transparent 22%),
@@ -2030,8 +2017,6 @@ function quickNoteWordCount(text) {
   letter-spacing: 0;
   color: var(--text-primary);
 }
-
-/* Pass 3: warm-gold multiply overlay — uses its own DOM element to avoid cascade collision with kao blade ::after above */
 
 .quick-notes-rail {
   position: fixed;
@@ -2181,12 +2166,6 @@ function quickNoteWordCount(text) {
   font-size: 13px;
   font-weight: 600;
 }
-
-/* UI-E12-F: quick-note input bumped 13 → 14px / 1.65 → 1.7 for
-   readable product feel. Scoped CSS is the source of truth for
-   the quick-note workspace (separate from workstation center
-   stage); kept out of kao.css because the workspace is a modal,
-   not a page column. */
 .quick-note-workspace-input {
   flex: 1;
   min-height: 240px;
@@ -2526,7 +2505,7 @@ function quickNoteWordCount(text) {
 
 /* Phase 1C archive-folio overrides
    5C v3.5: drop the page-level gradient + ::before / ::after pseudo
-   overlays. <CharacterBackdrop> is now the page background; the
+   overlays. The page background and
    folio chrome frame is gone (translucent panel reads through the
    art). */
 .game-page {
@@ -3265,43 +3244,7 @@ function quickNoteWordCount(text) {
 </style>
 
 <style>
-
-.theme-kao .game-page .sidebar-head-copy span {
-  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-  letter-spacing: 0.18em;
-}
-
-.theme-kao .game-page .sidebar-head-copy strong {
-  color: var(--archive-ink);
-}
-
-/* UI-K4 (2026-06-27): default (blue-white dossier) theme rules for
-   the workstation classes that K2 added in kao.css under `.theme-kao`.
-   Under default, those classes would render unstyled (no grid, no
-   border, no padding) — exactly the "旧工具页" regression the user
-   reported. These rules mirror the kao.css layout / token recipe
-   (same colors via the --archive-* tokens, same `·` separator stamp
-   language, same grid proportions) but are gated by :not(.theme-kao)
-   so they only apply in default mode. When .theme-kao is on the root,
-   :not(.theme-kao) is false for every element (root is always an
-   ancestor), so kao.css takes over and these rules are inert.
-
-   Specificity: .not(.theme-kao).X is (0,2,0), equal to .theme-kao.X.
-   Cascade order: kao.css is imported in main.js (loaded before any
-   component <style>), so the unscoped :not(.theme-kao) block here
-   only matches in default mode and is structurally inert in kao. */
-</style>
-
-<style>
-/* Workstation layout — default (blue-white dossier) variant.
-   K2 / K3 added the template skeleton (ws-layout + ws-topstrip +
-   ws-center-stage + ws-right-rail + ws-dossier-hero + ws-section);
-   the K2 visual rules live in kao.css under .theme-kao. These
-   :not(.theme-kao) rules reproduce the same token recipe in default
-   mode so the page reads as a steel-blue dossier, not an unstyled
-   HTML page. */
-
-:not(.theme-kao) .ws-layout {
+.theme-legacy .ws-layout {
   position: relative;
   z-index: 1;
   display: grid;
@@ -3320,7 +3263,7 @@ function quickNoteWordCount(text) {
   gap: 12px;
 }
 
-:not(.theme-kao) .ws-topstrip {
+.theme-legacy .ws-topstrip {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
@@ -3337,7 +3280,7 @@ function quickNoteWordCount(text) {
   border-radius: 0;
 }
 
-:not(.theme-kao) .ws-topstrip__main {
+.theme-legacy .ws-topstrip__main {
   display: inline-flex;
   align-items: baseline;
   gap: 14px;
@@ -3345,7 +3288,7 @@ function quickNoteWordCount(text) {
   flex: 1 1 auto;
 }
 
-:not(.theme-kao) .ws-topstrip__title {
+.theme-legacy .ws-topstrip__title {
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 500;
@@ -3354,7 +3297,7 @@ function quickNoteWordCount(text) {
   white-space: nowrap;
 }
 
-:not(.theme-kao) .ws-topstrip__chip {
+.theme-legacy .ws-topstrip__chip {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
@@ -3366,33 +3309,33 @@ function quickNoteWordCount(text) {
   text-overflow: ellipsis;
 }
 
-:not(.theme-kao) .ws-topstrip__chip-kicker {
+.theme-legacy .ws-topstrip__chip-kicker {
   color: var(--archive-olive);
   font-weight: 600;
 }
 
-:not(.theme-kao) .ws-topstrip__chip-value {
+.theme-legacy .ws-topstrip__chip-value {
   color: var(--archive-ink);
   font-weight: 500;
 }
 
-:not(.theme-kao) .ws-topstrip__chip-tail {
+.theme-legacy .ws-topstrip__chip-tail {
   color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
   font-size: 12px;
 }
 
-:not(.theme-kao) .ws-topstrip__chip-sep {
+.theme-legacy .ws-topstrip__chip-sep {
   color: color-mix(in srgb, var(--archive-gold) 50%, transparent);
   font-weight: 400;
 }
 
-:not(.theme-kao) .ws-topstrip__actions {
+.theme-legacy .ws-topstrip__actions {
   display: inline-flex;
   align-items: center;
   gap: 10px;
 }
 
-:not(.theme-kao) .ws-topstrip__settings-link {
+.theme-legacy .ws-topstrip__settings-link {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -3410,7 +3353,7 @@ function quickNoteWordCount(text) {
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
 }
 
-:not(.theme-kao) .ws-topstrip__settings-link::before {
+.theme-legacy .ws-topstrip__settings-link::before {
   content: "·";
   position: absolute;
   left: 8px;
@@ -3420,22 +3363,22 @@ function quickNoteWordCount(text) {
   font-weight: 900;
 }
 
-:not(.theme-kao) .ws-topstrip__settings-link:hover:not(:disabled) {
+.theme-legacy .ws-topstrip__settings-link:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--archive-rose) 44%, var(--border));
   color: var(--archive-ink);
   background: color-mix(in srgb, var(--archive-paper-soft) 70%, transparent);
 }
 
-:not(.theme-kao) .ws-topstrip__settings-link:hover:not(:disabled)::before {
+.theme-legacy .ws-topstrip__settings-link:hover:not(:disabled)::before {
   color: var(--archive-rose);
 }
 
-:not(.theme-kao) .ws-topstrip__settings-link:disabled {
+.theme-legacy .ws-topstrip__settings-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-:not(.theme-kao) .ws-topstrip__session-chip {
+.theme-legacy .ws-topstrip__session-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3450,7 +3393,7 @@ function quickNoteWordCount(text) {
   font-size: 12px;
 }
 
-:not(.theme-kao) .ws-topstrip__session-chip-label {
+.theme-legacy .ws-topstrip__session-chip-label {
   font-weight: 500;
   max-width: 160px;
   overflow: hidden;
@@ -3458,7 +3401,7 @@ function quickNoteWordCount(text) {
   white-space: nowrap;
 }
 
-:not(.theme-kao) .ws-topstrip__session-chip-btn {
+.theme-legacy .ws-topstrip__session-chip-btn {
   display: inline-flex;
   align-items: center;
   min-height: 22px;
@@ -3475,12 +3418,12 @@ function quickNoteWordCount(text) {
   transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
 }
 
-:not(.theme-kao) .ws-topstrip__session-chip-btn:hover {
+.theme-legacy .ws-topstrip__session-chip-btn:hover {
   border-color: var(--archive-rose);
   color: var(--archive-ink);
 }
 
-:not(.theme-kao) .ws-center-stage {
+.theme-legacy .ws-center-stage {
   position: relative;
   z-index: 1;
   display: flex;
@@ -3493,48 +3436,34 @@ function quickNoteWordCount(text) {
   overflow: hidden;
 }
 
-:not(.theme-kao) .ws-right-rail > :not(.contour-field) {
+.theme-legacy .ws-right-rail > :not(.contour-field) {
   position: relative;
   z-index: calc(var(--z-stage-decor) + 1);
 }
 
-:not(.theme-kao) .ws-right-rail {
+.theme-legacy .ws-right-rail {
   position: relative;
   isolation: isolate;
   overflow: hidden;
 }
 
-:not(.theme-kao) .ws-right-rail :deep(.contour-field) {
+.theme-legacy .ws-right-rail :deep(.contour-field) {
   left: 24%;
   opacity: 0.34;
 }
-
-/* UI-E18-FIX: E18 made prose / rp-* / scene-break visible, but the
-   workstation center stage still uses GamePanel.vue's `.chat-container {
-   height: 100% }` (E10-era). In a flex column, `height: 100%` resolves
-   to 100% of parent, pushing InputArea below the visible viewport.
-   The page-level `bottomAnchor.scrollIntoView()` then scrolls the
-   document, not the chat region, so the input is never naturally
-   pinned to the bottom. Kao theme already has this exact fix at
-   kao.css L2432 + L2694 (`.theme-kao .ws-center-stage > .chat-container
-   { flex:1 1 auto; min-height:0; height:auto; overflow-y:auto }` +
-   `.theme-kao .ws-center-stage > .input-area { flex-shrink:0 }`).
-   This rule mirrors those two in default mode so the input always
-   stays visible at the bottom of the center stage, and the chat
-   region becomes the internal scroll surface. */
-:not(.theme-kao) .ws-center-stage > .chat-container {
+.theme-legacy .ws-center-stage > .chat-container {
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
   overflow-y: auto;
 }
 
-:not(.theme-kao) .ws-center-stage > .input-area {
+.theme-legacy .ws-center-stage > .input-area {
   flex-shrink: 0;
   align-self: stretch;
 }
 
-:not(.theme-kao) .ws-right-rail {
+.theme-legacy .ws-right-rail {
   grid-row: 2;
   grid-column: 2;
   display: flex;
@@ -3548,7 +3477,7 @@ function quickNoteWordCount(text) {
   color: var(--archive-ink);
 }
 
-:not(.theme-kao) .ws-dossier-bar {
+.theme-legacy .ws-dossier-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3559,7 +3488,7 @@ function quickNoteWordCount(text) {
   background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
 }
 
-:not(.theme-kao) .ws-dossier-bar__label {
+.theme-legacy .ws-dossier-bar__label {
   font-family: var(--font-sans, sans-serif);
   font-size: 11px;
   font-weight: 700;
@@ -3567,7 +3496,7 @@ function quickNoteWordCount(text) {
   color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
 }
 
-:not(.theme-kao) .ws-dossier-bar__quick-cta {
+.theme-legacy .ws-dossier-bar__quick-cta {
   min-height: 22px;
   padding: 1px 9px;
   /* U2：quiet 控件，无闭合框 */
@@ -3580,7 +3509,7 @@ function quickNoteWordCount(text) {
   cursor: pointer;
 }
 
-:not(.theme-kao) .ws-dossier-hero {
+.theme-legacy .ws-dossier-hero {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3589,21 +3518,18 @@ function quickNoteWordCount(text) {
   border-bottom: 1px solid var(--hairline-soft);
 }
 
-:not(.theme-kao) .ws-dossier-hero > .character-portrait {
+.theme-legacy .ws-dossier-hero > .character-portrait {
   position: relative;
   z-index: 1;
   flex-shrink: 0;
 }
 
-:not(.theme-kao) .ws-dossier-hero__quick-cta {
+.theme-legacy .ws-dossier-hero__quick-cta {
   position: relative;
   display: inline-flex;
   align-items: center;
   min-height: 28px;
   padding: 4px 12px 4px 18px;
-  /* K6 (2026-06-27): 默认主题 border 改 archive-olive (冷色 dossier 调,
-     不再用 archive-rose 暖色, archive-rose 留给 kao 主题 印章色
-     + 跟 K0 audit §3.4 "印章必须有温度" 一致). */
   border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
   border-radius: 0;
   background: transparent;
@@ -3615,7 +3541,7 @@ function quickNoteWordCount(text) {
   transition: border-color 0.16s ease, color 0.16s ease;
 }
 
-:not(.theme-kao) .ws-dossier-hero__quick-cta::before {
+.theme-legacy .ws-dossier-hero__quick-cta::before {
   content: "·";
   position: absolute;
   left: 8px;
@@ -3625,17 +3551,17 @@ function quickNoteWordCount(text) {
   font-weight: 900;
 }
 
-:not(.theme-kao) .ws-dossier-hero__quick-cta:hover:not(:disabled) {
+.theme-legacy .ws-dossier-hero__quick-cta:hover:not(:disabled) {
   border-color: var(--archive-olive);
   color: var(--archive-ink);
 }
 
-:not(.theme-kao) .ws-dossier-hero__quick-cta:disabled {
+.theme-legacy .ws-dossier-hero__quick-cta:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-:not(.theme-kao) .ws-section {
+.theme-legacy .ws-section {
   position: relative;
   display: block;
   padding: 12px 14px;
@@ -3644,28 +3570,28 @@ function quickNoteWordCount(text) {
   border-top: 1px solid var(--hairline-soft);
 }
 
-:not(.theme-kao) .ws-section:first-of-type {
+.theme-legacy .ws-section:first-of-type {
   border-top: 0;
 }
 
-:not(.theme-kao) .ws-live-codex {
+.theme-legacy .ws-live-codex {
   display: grid;
   gap: 6px;
   padding: 8px;
   overflow: auto;
 }
 
-:not(.theme-kao) .ws-codex-section {
+.theme-legacy .ws-codex-section {
   border: 1px solid color-mix(in srgb, var(--archive-olive) 14%, var(--border));
   background: color-mix(in srgb, var(--archive-paper) 56%, transparent);
 }
 
-:not(.theme-kao) .ws-codex-section--open {
+.theme-legacy .ws-codex-section--open {
   background: color-mix(in srgb, var(--archive-paper-soft) 88%, transparent);
   border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--border));
 }
 
-:not(.theme-kao) .ws-codex-section__trigger {
+.theme-legacy .ws-codex-section__trigger {
   width: 100%;
   min-height: 48px;
   display: grid;
@@ -3680,13 +3606,13 @@ function quickNoteWordCount(text) {
   cursor: pointer;
 }
 
-:not(.theme-kao) .ws-codex-section__label {
+.theme-legacy .ws-codex-section__label {
   font-size: 12px;
   font-weight: 700;
 }
 
-:not(.theme-kao) .ws-codex-section__count,
-:not(.theme-kao) .ws-codex-section__new {
+.theme-legacy .ws-codex-section__count,
+.theme-legacy .ws-codex-section__new {
   min-width: 20px;
   justify-self: start;
   border: 1px solid color-mix(in srgb, var(--archive-olive) 22%, var(--border));
@@ -3696,12 +3622,12 @@ function quickNoteWordCount(text) {
   text-align: center;
 }
 
-:not(.theme-kao) .ws-codex-section__new {
+.theme-legacy .ws-codex-section__new {
   border-color: color-mix(in srgb, var(--archive-rose) 32%, var(--border));
   color: var(--archive-rose);
 }
 
-:not(.theme-kao) .ws-codex-section__latest {
+.theme-legacy .ws-codex-section__latest {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3710,17 +3636,15 @@ function quickNoteWordCount(text) {
   font-size: 12px;
 }
 
-:not(.theme-kao) .ws-codex-section__body {
+.theme-legacy .ws-codex-section__body {
   padding: 0 8px 8px;
 }
 
-:not(.theme-kao) .ws-demo-banner {
+.theme-legacy .ws-demo-banner {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  /* K6 (2026-06-27): 默认主题去掉 archive-amber 暖色 (kao 主题1
-     痕迹), 改 archive-olive / archive-gold 冷色. */
   background: color-mix(in srgb, var(--archive-olive) 6%, var(--archive-paper-soft));
   border: 1px dashed color-mix(in srgb, var(--archive-olive) 36%, var(--border));
   border-radius: 4px;
@@ -3728,14 +3652,14 @@ function quickNoteWordCount(text) {
   color: var(--archive-ink);
 }
 
-:not(.theme-kao) .ws-demo-banner__head {
+.theme-legacy .ws-demo-banner__head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-:not(.theme-kao) .ws-demo-banner__kicker {
+.theme-legacy .ws-demo-banner__kicker {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -3744,62 +3668,62 @@ function quickNoteWordCount(text) {
   color: var(--archive-olive);
 }
 
-:not(.theme-kao) .ws-demo-banner__scene {
+.theme-legacy .ws-demo-banner__scene {
   font-family: var(--font-display, serif);
   font-size: 15px;
   font-weight: 600;
   color: var(--archive-ink);
 }
 
-:not(.theme-kao) .ws-demo-banner__step {
+.theme-legacy .ws-demo-banner__step {
   margin-left: auto;
   font-size: 11px;
   color: var(--archive-ink-soft);
   font-variant-numeric: tabular-nums;
 }
 
-:not(.theme-kao) .ws-demo-banner__hint {
+.theme-legacy .ws-demo-banner__hint {
   margin: 0;
   font-size: 12px;
   line-height: 1.55;
   color: color-mix(in srgb, var(--archive-ink) 78%, transparent);
 }
 
-:not(.theme-kao) .ws-demo-banner__actions {
+.theme-legacy .ws-demo-banner__actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
 @media (max-width: 980px) {
-  :not(.theme-kao) .ws-layout {
+  .theme-legacy .ws-layout {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto 1fr;
     padding: 12px 12px 16px 56px;
   }
 
-  :not(.theme-kao) .ws-topstrip {
+  .theme-legacy .ws-topstrip {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
   }
 
-  :not(.theme-kao) .ws-topstrip__actions {
+  .theme-legacy .ws-topstrip__actions {
     justify-content: flex-end;
   }
 
-  :not(.theme-kao) .ws-right-rail {
+  .theme-legacy .ws-right-rail {
     grid-row: 3;
     grid-column: 1;
   }
 }
 
 @media (max-width: 640px) {
-  :not(.theme-kao) .ws-layout {
+  .theme-legacy .ws-layout {
     padding: 10px 10px 14px 52px;
   }
 
-  :not(.theme-kao) .ws-topstrip__session-chip-label {
+  .theme-legacy .ws-topstrip__session-chip-label {
     max-width: 100px;
   }
 }
@@ -3820,7 +3744,7 @@ function quickNoteWordCount(text) {
     gap: 8px;
   }
 
-  :not(.theme-kao) .ws-topstrip {
+  .theme-legacy .ws-topstrip {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
@@ -3843,12 +3767,12 @@ function quickNoteWordCount(text) {
     margin-left: auto;
   }
 
-  :not(.theme-kao) .ws-topstrip__reading-control,
-  :not(.theme-kao) .ws-topstrip__session-chip {
+  .theme-legacy .ws-topstrip__reading-control,
+  .theme-legacy .ws-topstrip__session-chip {
     display: none;
   }
 
-  :not(.theme-kao) .ws-center-stage {
+  .theme-legacy .ws-center-stage {
     grid-row: 2;
     grid-column: 1;
     min-height: 0;
@@ -3880,30 +3804,6 @@ function quickNoteWordCount(text) {
     align-items: center;
     justify-content: center;
   }
-}
-
-/* UI-E4A: dedupe right-rail section labels.
-   The dossier-stamp kicker above is the canonical first-read title
-   ("卷宗一 · 在场人物" etc.). The internal sub-panel header text
-   in StatusBar (.status-header text), GeographyPanel (.panel-kicker +
-   .panel-heading), and QuestLog (.panel-header > span text) duplicates
-   the same field name and competes for visual weight. In kao mode we
-   hide the redundant text and let the dossier-stamp own the title.
-   Functional sub-elements (avatars, time row, count badge, expand
-   icons) all stay visible — only the decorative title text is removed.
-   The .game-page scope keeps this from leaking to ProseEssay /
-   Settings / Character which also use .panel-header but are not
-   mounted under .game-page. Same pattern as the dossier-stamp rule
-   above: no scoped global, no broad deep selector, no layer-override
-   keyword. */
-.theme-kao .game-page .status-header > span:last-child {
-  display: none;
-}
-.theme-kao .game-page .geo-title-block {
-  display: none;
-}
-.theme-kao .game-page .panel-header > span:not(.count-badge) {
-  display: none;
 }
 
 /* Operational index: neutral information plane with a small directional

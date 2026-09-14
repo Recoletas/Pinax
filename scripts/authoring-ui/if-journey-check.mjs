@@ -26,7 +26,6 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
 await context.addInitScript((snapshot) => {
   localStorage.clear()
   for (const [k, v] of Object.entries(snapshot)) localStorage.setItem(k, v)
-  localStorage.setItem('app_theme_variant', 'legacy')
   localStorage.setItem('app_ui_zoom', '1')
 }, baseStorage)
 const page = await context.newPage()

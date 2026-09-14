@@ -114,7 +114,6 @@ async function seed(browser, viewport) {
   await context.addInitScript((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', 'light')
     localStorage.setItem('app_ui_zoom', '1')
   }, SNAPSHOT)
@@ -250,7 +249,6 @@ try {
     await context.addInitScript((snapshot) => {
       localStorage.clear()
       for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-      localStorage.setItem('app_theme_variant', 'legacy')
       localStorage.setItem('app_theme', 'light')
       localStorage.setItem('app_ui_zoom', '1')
     }, F1_SNAPSHOT)

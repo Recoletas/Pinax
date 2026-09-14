@@ -4,7 +4,8 @@ import { createPinaxRouterHistory } from './history'
 
 // 懒加载页面组件
 const AppShell = () => import('../layouts/AppShell.vue')
-const ThemeVariantView = () => import('../components/theme/ThemeVariantView.vue')
+const AuthoringWelcomeView = () => import('../views/AuthoringWelcomeView.vue')
+const Experience = () => import('../pages/Experience.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorkspace.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
@@ -22,8 +23,7 @@ const workbenchChildren = [
   {
     path: '',
     name: 'welcome',
-    component: ThemeVariantView,
-    props: { view: 'welcome' },
+    component: AuthoringWelcomeView,
     meta: {
       immersiveShell: true,
       hideActivityBar: true,
@@ -33,8 +33,7 @@ const workbenchChildren = [
   {
     path: 'opening',
     name: 'opening',
-    component: ThemeVariantView,
-    props: { view: 'opening' },
+    redirect: (to) => ({ name: 'experience', query: to.query }),
     meta: {
       immersiveShell: true,
       hideActivityBar: true,
@@ -47,8 +46,7 @@ const workbenchChildren = [
   {
     path: 'experience',
     name: 'experience',
-    component: ThemeVariantView,
-    props: { view: 'experience' },
+    component: Experience,
     meta: {
       activityKey: 'authoring',
       title: '体验'

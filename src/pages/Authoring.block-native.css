@@ -1902,6 +1902,29 @@ body.is-writing-zen .ws-tabs {
   overflow-wrap: anywhere;
 }
 
+.writing-scene-overview__fact-link {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 32%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.writing-scene-overview__fact-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.writing-scene-overview__fact-link:focus-visible {
+  outline: 2px solid var(--control-focus, currentColor);
+  outline-offset: 2px;
+}
+
 /* gap 容器放行指针后，恢复按钮与 teleport 表单（composer/draft）的可点性。 */
 #authoring-block-gap .writing-unit-gap__action,
 #authoring-block-gap .authoring-block-composer,

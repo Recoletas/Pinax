@@ -11,6 +11,16 @@
 
 ## 当前事实
 
+- **夜间架构计划最终加量（仍待执行）**：任务书已形成四层队列：第二批 12 包、D1–D8 文档、S0–S8 skill、第三批 A10–A13/B11–B14/C10–C13，并追加 A14–A17/B15–B18/C14–C17 溢出包。§19–21 要求提前 final 后原 worktree 续派、T+0:30 至 T+8:00 固定检查、T+6:30 冻结和时间证据；不用等待/重复测试凑时间。本次仍只修改计划，尚未启动 worker、修改 skills 或实施代码。
+
+- **2026-09-14 三线夜间架构计划待执行**：[详细任务书](./plan/architecture-night-three-tracks-20260914.md)已编制，A 接管 Authoring 写作助手生命周期，B 整理 gameStore 会话规范化/保存/历史，C 整理 Notes 目录/编辑/异步归属。包含同一 WIP 基线快照、独占写集、主包与储备、约 8 小时预算及组合验收；尚未创建实施 worktree、启动 worker 或合并。任务板已登记 planned，不覆盖其他历史任务状态。
+
+- **2026-09-14 Authoring 第十至十三片已按完整事务收口**：`useAuthoringBlockWorkflow` 接管 Block composer/preview/turn；`useAuthoringGhostAdoptionWorkflow` 接管 stale 复核、编辑器写入、scene/outline delta、回滚/重试、observer、IF 消费与撤销；`useAuthoringReviewWorkflow` 接管章节校对的冻结、分批模型循环、采用与撤销；`useAuthoringSearchWorkflow` 接管来源冻结、四域索引、去抖、结果新鲜度、跨章定位/回程和替换预览/全书原子提交。`Authoring.vue` 由本轮起点 13,781 行降至 **12,823 行**（单轮净降 958；累计从 15,932 行降 3,109），143 imports。定向 ESLint 0/0、聚焦 55/55、Vite build、F2 校对/查找/历史 33/33、推演右栏 304/304、F1 rehearsal 48/48、IF 28/28 通过。浏览器门禁真实抓到并修复 Block host 参数名和 Review null identity 两处迁移错误；下一刀是写作 Agent/inline suggestion 生命周期，而不是继续拆百行 helper。
+
+- **2026-09-14 当前架构已重新盘点并持续收口**：新增[当前架构与代码边界](./engineering/current-architecture.md)和 `src/README.md`，明确 Web/Server/Desktop 入口、书稿/世界书/标签/推演/素材/地图的唯一 owner、AI 四层链路和新代码放置规则。静态生产 import 图无循环依赖；主要结构风险是仍有 12,823 行/143 imports 的 `Authoring.vue`、`gameStore.js` 4,854 行，以及 `src/services` 312 文件中 72 个仍在根层。本轮累计删除 14 个生产不可达的旧页面/UI/策略/空 barrel 模块，未搬动正式数据 schema 或核心运行时。
+
+- **2026-09-14 Kao 娱乐化支线与冻结旧页面已从当前树清理**：产品收为一套当前视觉（仍保留亮/暗与界面缩放）；删除 Kao 主题 CSS、角色档案美术链、独立 Opening、两套冻结 Welcome/Experience、旧主题演示图与无人消费的开场意图写入，共改动 98 个文件（删除 42 个）、净删约 1.15 万行。`/opening` 只作保留 query 的兼容重定向，Authoring、设定联动、推演右栏、地图与通用归档数据不变。`verify:full` 20/20 文件、200/200 用例及双 build/diff 全绿；推演 Gate 304/304、设定联动 Gate 20/20、首访/导入 smoke 通过。公开素材只剩 `authoring-image-style-presets.webp` 的来源/授权待确认；本批尚未 commit/push。
+
 - **2026-09-14 StoryForge/Public Alpha 夜间成果已进入 main 并完成本地封板**：推演右栏已接本次条件、稳定人物 ref、结构化局面变化、最多三项路线后果差异与冻结试稿来源；非法后果回应可读，作者可显式“保留回应但不登记后果”。MiniMax 合成样本 12/12 单步返回，后果 8/12 直接通过、4/12 被严格引文门禁拒绝后人工降级；试稿 2/3 完成，第三份双 300 秒超时，因此真实模型质量仍是 partial，不写成全绿。最终 main 的干净 clone 已完成 `npm ci`、`verify:full`、doctor、公共链接与官方源 audit；作者主链 smoke 曾因 GB18030 文案选择器歧义假失败，已收紧到摘要编码标签并复跑。公开准备线已合入，剩余 10 个 lint error 清零；npm 对 Electron 上游 node-gyp 的 lock 条目仍给出 git 依赖完整性警告，但无需 SSH 凭据即可安装。素材权属、许可证/公开 refs、GitHub 私密安全渠道与 Actions 首跑仍是外部闸门。
 
 - **2026-09-13/14 三线夜间计划已执行并由 O 集成**：[总任务书](./plan/pinax-nightly-storyforge-public-alpha-20260913.md)的 A/B/C 主交付已组合；各 worker 实际约 1.5–2 小时，未达到计划的 8 小时墙钟，储备包不冒称完成。实现与残余以本页上一条及三线回执为准。

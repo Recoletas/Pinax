@@ -1,6 +1,6 @@
 /**
  * Download text content as a file via Blob + ObjectURL.
- * Extracted from Writing.vue's local helper so backupExport can reuse.
+ * Shared by the current Authoring and backup/export flows.
  */
 
 export function downloadTextFile(content, filename, mimeType = 'text/plain;charset=utf-8') {

@@ -73,7 +73,6 @@ export const PINAX_BACKUP_KEYS = [
   STORAGE_KEYS.WORLD_NODES,
   // Legacy / undeclared keys still written by some paths
   'app_theme',
-  'app_theme_variant',
   'app_ui_zoom',
   'colorScheme',
   'plot_journal',

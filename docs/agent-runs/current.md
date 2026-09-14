@@ -1,5 +1,24 @@
 # Agent Runs
 
+## 2026-09-14 三线夜间架构整理（待执行）
+
+若前三层全完成，§20 的 A14–A17/B15–B18/C14–C17 作为溢出队列，扩大写集前由 O 转锁。§21 固定 T+0:30/1:30/2:30/3:30/4:30/5:30/6:15/6:30/7:15/8:00 检查点，并记录续派与 active/blocked 区间。当前仍仅是 planned。
+
+持续运行规则见 §19：T0 同基线启动，O 每 45–60 分钟检查；worker 早于 T+6:30 返回时在原 worktree 续派。第三批候选为 A10–A13、B11–B14、C10–C13；最后 90 分钟冻结并组合。当前仍未启动，不将计划中的写集登记为活跃锁。
+
+新增 S 包按 §16–17 派发：A 独占 UI skill（S2），B 世界书 skill（S3），C 文档交接 skill（S4），O 持验证/maintenance/共享规则并完成 S0/S1/S5–S8。skill 改动与产品分提交，生效点显式交接；当前仅计划，无技能改动/活跃写锁。
+
+加量派发以任务书 §13–15 为准：A0–A4 → A6 → A7/A8/A9；B0–B5 → B7 → B8/B9/B10；C0–C4 → C6 → C7/C8/C9。各线必须交本域文档补丁，公共 README/架构/导航由 O 提前串行合并，D1–D8 未落地不能标整轮完成。未启动，无新增活跃写锁。
+
+入口：[详细任务书](../plan/architecture-night-three-tracks-20260914.md)。当前仅编制计划，未启动 worker；以下不是活跃写锁。实际启动时由 O 补齐共同基线 SHA、工作区、分支、进程和开始时间。
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| ARCH-O | Codex 集成/验收 | 当前 main；独立集成树待创建 | 基线、边界、共享断言、组合验收与文档 | planned | 任务书；实施回执待产出 |
+| ARCH-A | 待分配 Claude worker | 待创建 | Authoring 写作助手生命周期 | planned | `architecture-night-20260914/a/summary.md`（待产出） |
+| ARCH-B | 待分配 Claude worker | 待创建 | gameStore 会话规范化/保存/历史 | planned | `architecture-night-20260914/b/summary.md`（待产出） |
+| ARCH-C | 待分配 Claude worker | 待创建 | Notes 目录/编辑/异步归属 | planned | `architecture-night-20260914/c/summary.md`（待产出） |
+
 ## 2026-09-13/14 StoryForge 借鉴与 Public Alpha 夜间计划
 
 计划已执行并由 O 在 2026-09-14 完成组合收口。入口：[总任务书](../plan/pinax-nightly-storyforge-public-alpha-20260913.md)，[调度与启动](../plan/pinax-nightly-20260913/execution.md)，[编制证据](./nightly-20260913/planning-evidence.md)。

@@ -141,7 +141,6 @@ async function createPage(browser, viewport, { knowledgeSeamFlag = false } = {})
   await context.addInitScript(({ flag, snapshot }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
     if (flag) localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
   }, { flag: knowledgeSeamFlag, snapshot: storage })
@@ -333,7 +332,6 @@ async function runKnowledgeSeamBrowserGate(browser) {
   await context.addInitScript((snapshot) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_ui_zoom', '1')
   }, seamStorage)
   const page = await context.newPage()

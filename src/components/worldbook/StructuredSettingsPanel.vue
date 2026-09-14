@@ -1,5 +1,5 @@
 <template>
-  <section class="structured-settings-panel" :class="{ 'is-continuous': !isKao }">
+  <section class="structured-settings-panel is-continuous">
     <div class="section-workbench">
       <aside class="section-rail">
         <div class="panel-lead">
@@ -155,7 +155,6 @@
 <script setup>
 import { computed, provide, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useWorldStore } from '../../stores/worldStore'
-import { useTheme } from '../../composables/useTheme'
 import {
   SETTING_SECTIONS,
   getSettingField,
@@ -185,8 +184,6 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const worldStore = useWorldStore()
-const { isKao } = useTheme()
-
 // 设定 Agent 调度入口：字段/分区/修订统一走 canonical 任务分发，草稿仍只进入审核区。
 const settingsDispatcher = createSettingsPageDispatcher({
   adapters: {

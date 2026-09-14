@@ -22,10 +22,6 @@ import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
 import { seedWorldbookPresets as presets } from './seedWorldbookPresets'
 import { createEmptyStructuredSettings, normalizeStructuredSettings } from './settingPanelSchema'
 import {
-  buildPlayableWorldActionHooks,
-  savePlayableWorldEntryIntent
-} from './playableWorldEntry'
-import {
   normalizeResearchClaims,
   normalizeResearchConflicts,
   refreshResearchReview
@@ -797,12 +793,11 @@ export function presetSignature(preset) {
 }
 
 /**
- * 一键进入 preset 世界：导入预设 → setActive → 写入 playable world entry intent → 跳转 /opening。
+ * 一键进入 preset 世界：导入预设 → setActive → 进入当前体验页。
  * - `preset`：seedWorldbookPresets 任意一项
- * - `action`：可选 playable action override；不传则取 buildPlayableWorldActionHooks(preset)[0]
- * - `router`：必须传入 vue-router 的 router 实例；这里只调用 router.push({ name: 'opening' })
+ * - `router`：必须传入 vue-router 的 router 实例
  */
-export async function enterPresetWorld(worldStore, router, preset, action = null) {
+export async function enterPresetWorld(worldStore, router, preset) {
   if (!preset) return null
 
   // 同 preset 重复点击时复用既有副本，避免「每次点都新建一份一模一样」。
@@ -815,18 +810,8 @@ export async function enterPresetWorld(worldStore, router, preset, action = null
     if (typeof worldStore.setActiveWorldbook === 'function') {
       await worldStore.setActiveWorldbook(existing.id)
     }
-    const intentAction = action || buildPlayableWorldActionHooks(preset)[0]
-    if (intentAction) {
-      savePlayableWorldEntryIntent({
-        worldbookId: existing.id,
-        worldbookName: existing.name,
-        presetId: preset.id,
-        presetName: preset.name,
-        action: intentAction
-      })
-    }
     if (router && typeof router.push === 'function') {
-      router.push({ name: 'experience' })
+      router.push({ name: 'experience', query: { worldbookId: existing.id } })
     }
     return existing
   }
@@ -852,17 +837,6 @@ export async function enterPresetWorld(worldStore, router, preset, action = null
     sourcePresetId: preset.id,
     presetSignature: signature
   })
-
-  const resolvedAction = action || buildPlayableWorldActionHooks(preset)[0]
-  if (resolvedAction) {
-    savePlayableWorldEntryIntent({
-      worldbookId: created.id,
-      worldbookName: created.name,
-      presetId: preset.id,
-      presetName: preset.name,
-      action: resolvedAction
-    })
-  }
 
   if (router && typeof router.push === 'function') {
     // 体验页以 worldbookId 作为显式入口意图，避免它恢复到另一本世界书的旧会话。

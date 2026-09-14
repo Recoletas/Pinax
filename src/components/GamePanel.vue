@@ -1,12 +1,7 @@
 <template>
   <div class="chat-container prose-reading-plane" ref="scrollContainer">
-    <!-- UI-E11-B: 0-state hero block. v-if gated on displayMessages.length === 0
-         so once the first message lands, the hero disappears and the
-         conversation takes the full column. CharacterPortrait narrator
-         (5B v0.1 ship 立绘, kaov-archive-narrator.webp 144KB) shows in
-         240px left column; greeting + 3 quick action CTA (续写 / 速记 /
-         切场景) right column. Each CTA emits('quick-action', id) — parent
-         Experience.vue handles the action (per E11-PLAN-QA Fix #2). -->
+    <!-- Empty-state actions disappear after the first message so the
+         conversation can take the full reading column. -->
     <section
       v-if="displayMessages.length === 0"
       class="chat-container__hero"
@@ -640,297 +635,9 @@ summary .arrow {
 /* UI-E6A record-book ledger overrides — kept verbatim from the previous
    round so the typography / spine / folio / chapter-rule layer is still
    the foundation. The new UI-E9 book spread sits on top of this. */
-.theme-kao .chat-container {
-  position: relative;
-  background: transparent;
-  padding: 18px 0 24px 24px;
-  gap: 0;
-}
-
-.theme-kao .chat-container::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 12px;
-  bottom: 12px;
-  width: 4px;
-  background: repeating-linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--archive-gold) 24%, transparent) 0 3px,
-    transparent 3px 7px
-  );
-  pointer-events: none;
-}
-
-/* UI-E10: chapter-rule deleted. UI-E15 also removes the later per-entry
-   marginalia header; role identity now lives in the message speaker badge.
-   The E9 ribbon-between-spreads divider is gone.
-   UI-E10-CLEAN 2026-06-22: .scene-stage__indicator reference removed
-   (indicator was deleted from Experience.vue + kao.css; section anchor
-   is now per-entry marginalia only). */
-
-/* UI-E10 SCENE-ENTRY — 单列可读场景记录流
-   ============================================================================
-   Replaces UI-E9 book-spread (ledger-spread + __sheets + __spine +
-   page-header / page-stamp + ink-stamp + continued-mark + chapter-rule).
-   The double-page pair structure fragmented conversation reading; users
-   had to mentally jump between left sheet and right sheet within one
-   logical turn, and the long-assistant 续 mark pulled focus to layout
-   instead of content. E10 collapses each message into one <article
-   class="scene-entry"> with:
-     - left speaker badge — keeps user / narrator identity visible without
-       the noisy date / 第 N 条 / 续页 / 页 N metadata stack
-     - body = .msg-item + .text-wrapper (E6A preserved)
-     - role-color 3px left bar comes from .msg-item role classes
-       (preserved below)
-   The .theme-kao .game-page::before shared vertical axis was deleted
-   in UI-E10-CLEAN 2026-06-22 (was masked behind record-folio / sidebar
-   borders). UI-E11 will replace with a sticky topstrip, not a hidden
-   1px line. This entry-level margin just adds breathing room around
-   the msg-item card. */
-.theme-kao .thought-wrapper {
-  max-width: 100%;
-  margin: 6px 0 8px;
-}
-
-.theme-kao details {
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  border-radius: 0;
-}
-
-.theme-kao summary {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--archive-ink-soft) 64%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 50%, transparent);
-}
-
-.theme-kao .thought-body {
-  font-family: var(--font-display);
-  font-size: 13px;
-  line-height: 1.65;
-  border-top: 1px dotted color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  color: color-mix(in srgb, var(--archive-ink-soft) 78%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 40%, transparent);
-}
-
-/* E16-NOVEL: the kao theme owns the prose column. Per
-   微信阅读 / 古龙 online: Songti 17px / 1.75 / 段首缩进 2em.
-   No inter-paragraph margin (indent is the only separator).
-   The drop cap uses --font-display (LXGW WenKai) gold-to-rose
-   gradient — same calligraphy we ship on 5C / Writing W3. */
-.theme-kao .prose {
-  font-family: var(--font-body);
-  font-size: 17px;
-  line-height: 1.75;
-  color: var(--archive-ink);
-  text-indent: 0;
-}
-.theme-kao .prose--opening {
-  text-indent: 0;
-}
-.theme-kao .prose--opening .prose__body {
-  text-indent: 0;
-}
-.theme-kao .prose--opening .prose__body::first-letter {
-  float: left;
-  font-family: var(--font-display);
-  font-size: 3em;
-  line-height: 0.95;
-  margin: 0.06em 0.12em 0 0;
-  font-weight: 700;
-  background: linear-gradient(180deg,
-    var(--archive-olive-strong) 0%,
-    var(--archive-gold) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-indent: 0;
-}
-.theme-kao .prose__speaker {
-  font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
-  text-transform: uppercase;
-  text-indent: 0;
-}
-.theme-kao .prose__speaker--user {
-  color: color-mix(in srgb, var(--archive-olive-strong) 92%, var(--archive-ink));
-}
-.theme-kao .prose__speaker--assistant {
-  color: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-gold));
-}
-.theme-kao .prose__speaker--system {
-  color: color-mix(in srgb, var(--archive-ink) 60%, transparent);
-  font-style: italic;
-}
-
-.theme-kao .prose__body {
-  display: block;
-  text-indent: 0;
-}
-
-.theme-kao .narrative-block {
-  margin: 0;
-  text-indent: 0;
-}
-
-.theme-kao :deep(.narrative-block) {
-  margin: 0;
-  text-indent: 0;
-}
-
-.theme-kao :deep(.narrative-block + .narrative-block) {
-  margin-top: 0.72em;
-}
-
-.theme-kao :deep(.narrative-block--narration) {
-  text-indent: 2em;
-}
-
-.theme-kao :deep(.narrative-block--action),
-.theme-kao :deep(.narrative-block--thought) {
-  color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-olive));
-  font-style: italic;
-  text-indent: 1em;
-}
-
-.theme-kao :deep(.narrative-block--dialogue) {
-  color: color-mix(in srgb, var(--archive-ink) 94%, var(--archive-olive-strong));
-  font-weight: 520;
-}
-
-.theme-kao :deep(.narrative-block--system) {
-  margin: 1em 0;
-  padding: 0.55em 0.8em;
-  border-left: 2px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 42%, transparent);
-  color: color-mix(in srgb, var(--archive-ink) 68%, transparent);
-  font-size: 0.9em;
-  text-indent: 0;
-}
-
-.theme-kao :deep(.narrative-block__speaker) {
-  display: block;
-  margin-bottom: 0.28em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
-  font-family: var(--font-sans);
-  font-size: 0.72em;
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.35;
-  text-indent: 0;
-}
-
-.theme-kao :deep(.narrative-block__text) {
-  display: inline;
-}
-
-.theme-kao .narrative-block + .narrative-block {
-  margin-top: 0.72em;
-}
-
-.theme-kao .narrative-block--narration {
-  text-indent: 2em;
-}
-
-.theme-kao .narrative-block--action,
-.theme-kao .narrative-block--thought {
-  color: color-mix(in srgb, var(--archive-ink) 82%, var(--archive-olive));
-  font-style: italic;
-  text-indent: 1em;
-}
-
-.theme-kao .narrative-block--dialogue {
-  color: color-mix(in srgb, var(--archive-ink) 94%, var(--archive-olive-strong));
-  font-weight: 520;
-}
-
-.theme-kao .narrative-block--system {
-  margin: 1em 0;
-  padding: 0.55em 0.8em;
-  border-left: 2px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 42%, transparent);
-  color: color-mix(in srgb, var(--archive-ink) 68%, transparent);
-  font-size: 0.9em;
-  text-indent: 0;
-}
-
-.theme-kao .narrative-block__speaker {
-  display: block;
-  margin-bottom: 0.28em;
-  color: color-mix(in srgb, var(--archive-olive-strong) 88%, var(--archive-ink));
-  font-family: var(--font-sans);
-  font-size: 0.72em;
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.35;
-  text-indent: 0;
-}
-
-.theme-kao .narrative-block__text {
-  display: inline;
-}
-.theme-kao .prose.compression-complete {
-  font-style: italic;
-  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
-  font-size: 15px;
-}
-.theme-kao .scene-break {
-  text-align: center;
-  margin: 1.6em 0;
-  color: color-mix(in srgb, var(--archive-ink) 56%, transparent);
-  font-family: var(--font-display);
-  font-size: 14px;
-  letter-spacing: 0.04em;
-}
-.theme-kao .scene-break__mark {
-  display: block;
-  font-size: 18px;
-  margin-bottom: 4px;
-  color: color-mix(in srgb, var(--archive-gold) 70%, var(--archive-ink));
-}
-.theme-kao .scene-break__text {
-  font-family: var(--font-body);
-  font-size: 13px;
-  color: color-mix(in srgb, var(--archive-ink) 64%, transparent);
-  font-style: italic;
-}
-.theme-kao .tavern-textarea {
-  width: 100%;
-  min-height: 80px;
-  font-family: var(--font-body);
-  font-size: 17px;
-  line-height: 1.75;
-  background: color-mix(in srgb, var(--archive-paper-soft) 80%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
-  border-radius: 0;
-  padding: 8px 10px;
-  color: var(--archive-ink);
-  resize: vertical;
-}
 
 /* Mobile — single column, no padding change needed (text is
    already 17px / 1.75). Just compact chat-container padding. */
-@media (max-width: 760px) {
-  .theme-kao .chat-container {
-    padding: 20px 20px 32px;
-  }
-  .theme-kao .prose {
-    font-size: 16px;
-    line-height: 1.8;
-  }
-
-  .theme-kao :deep(.narrative-block--narration) {
-    text-indent: 1.5em;
-  }
-}
 
 /* UI-E11-B + UI-E12-W1: 0-state hero block — narrator portrait + greeting
    + 3 quick action CTA. Shows only when displayMessages.length === 0
@@ -941,134 +648,21 @@ summary .arrow {
    rule. UI-E12-W1: padding bumped 22/18/28 → 32/24/36 + paper-strong
    6% wash + position:relative so the empty state reads as a workbench
    card with a page corner, not as a flat fill-in form. */
-.theme-kao .chat-container__hero {
-  position: relative;
-  display: block;
-  padding: 30px 34px 34px;
-  background: color-mix(in srgb, var(--archive-paper-strong) 6%, transparent);
-  border-bottom: 1px dotted color-mix(in srgb, var(--archive-gold) 24%, transparent);
-}
-.theme-kao .chat-container__hero-prompt {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 760px;
-}
-.theme-kao .chat-container__hero-kicker {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--archive-olive-strong);
-}
 /* UI-E12-W1: hero greeting bumped 18 → 22px so the empty-state first
    read hits harder. DISPLAY LXGW still reserved for kicker positions;
    22px is the largest text on the page so it can carry the brush face
    without losing readability. Letter-spacing 0.04 → 0.06em lets the
    brush strokes breathe at the larger size. No LXGW in body (text-main
    stays 17px Songti per E12-F contract #2). */
-.theme-kao .chat-container__hero-greeting {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0;
-  color: var(--archive-ink);
-}
 /* UI-E12-W1: hero hint 14 → 15px / 1.65 → 1.7 so the secondary copy
    reads alongside the 22px greeting without feeling like a footnote.
    Still BODY Songti (not DISPLAY) per font-layer contract. */
-.theme-kao .chat-container__hero-hint {
-  margin: 0;
-  max-width: 620px;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.7;
-  color: color-mix(in srgb, var(--archive-ink) 84%, transparent);
-}
-.theme-kao .chat-container__hero-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 8px;
-}
-.theme-kao .chat-container__hero-slip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 92px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 22%, transparent);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--archive-paper) 70%, transparent);
-  color: var(--archive-ink);
-  font-family: var(--font-sans);
-  text-align: left;
-  cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 color-mix(in srgb, var(--archive-paper-soft) 70%, transparent),
-    0 8px 18px color-mix(in srgb, var(--archive-ink) 10%, transparent);
-  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
-}
-.theme-kao .chat-container__hero-slip:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--archive-olive) 44%, var(--border));
-}
-.theme-kao .chat-container__hero-slip span {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--archive-olive-strong);
-}
-.theme-kao .chat-container__hero-slip strong {
-  font-size: 15px;
-  line-height: 1.3;
-}
-.theme-kao .chat-container__hero-slip small {
-  color: color-mix(in srgb, var(--archive-ink) 62%, transparent);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.theme-kao .chat-container__hero-slip.is-primary {
-  border-color: color-mix(in srgb, var(--archive-olive) 42%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper-soft) 74%, transparent);
-}
 
 /* UI-E12-W1: hero folio corner — top-right stamp showing the
    short case ID only (no page index, see UI-E12-FIX2). Positioned
    absolutely on the hero block (which has position: relative).
    Sans 9px so it reads as a small ledger mark, not a heading.
    archive-ink 50% so it doesn't compete with the 22px greeting. */
-.theme-kao .chat-container__hero-folio {
-  position: absolute;
-  top: 8px;
-  right: 12px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  font-family: var(--font-sans);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: color-mix(in srgb, var(--archive-ink) 50%, transparent);
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 760px) {
-  .theme-kao .chat-container__hero {
-    padding: 26px 20px 24px;
-  }
-  .theme-kao .chat-container__hero-greeting {
-    font-size: 22px;
-  }
-  .theme-kao .chat-container__hero-actions {
-    grid-template-columns: 1fr;
-  }
-}
 
 /* UI-E12-W1: dark-mode hero wash override. The default hero wash is
    paper-strong 6% on light mode, which gives the empty state a
@@ -1077,18 +671,6 @@ summary .arrow {
    page's archive-paper-deep bg — the wash disappears. Switch to
    paper-soft 8% (cooler, slightly bluer) so the wash contrast inverts
    correctly and the hero still reads as a raised card. */
-.theme-kao.theme-dark .chat-container__hero {
-  background: color-mix(in srgb, var(--archive-paper-soft) 8%, transparent);
-}
-
-/* UI-E19: in-place editor chrome. The .prose itself gets a subtle
-   background lift + soft inset frame when .prose--editing is on, and
-   the inner .prose__editor takes over the body content. Per-theme
-   color choices come from kao.css / legacy.css (steel-blue dossier
-   for legacy, warm archive-folio for kao) — scoped CSS only owns
-   layout (display, min-height, padding, white-space, transition
-   timing). No out-in / unmount-remount: the .prose stays mounted, only
-   its child swaps from .prose__body to .prose__editor via v-if/v-else. */
 .prose {
   transition: background-color 160ms ease, box-shadow 160ms ease,
               min-height 160ms ease;

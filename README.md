@@ -133,6 +133,7 @@ dev 代理默认指向 `127.0.0.1:3001`；多工作树并行时用 `PINAX_DEV_BA
 
 - 用户手册：[docs/user-manual](docs/user-manual/README.md)（快速开始见 [01-quickstart](docs/user-manual/01-quickstart.md)）
 - 代码地图：[docs/src/code-map.md](docs/src/code-map.md)
+- 当前运行架构与代码边界：[docs/engineering/current-architecture.md](docs/engineering/current-architecture.md)
 - 已知风险：[docs/src/known-issues.md](docs/src/known-issues.md)
 - 当前计划：[docs/PLAN.md](docs/PLAN.md)；近期变化：[docs/LOG.md](docs/LOG.md)
 - 项目文档导航：[docs/README.md](docs/README.md)

@@ -36,10 +36,6 @@ defineProps({
   opacity: var(--contour-opacity, 0.46);
 }
 
-:global(html.theme-kao .contour-field) {
-  display: none;
-}
-
 .contour-field.is-masked {
   mask-image: linear-gradient(90deg, transparent 4%, #000 34%, #000 88%, transparent);
 }

@@ -17,7 +17,7 @@ diff 检查、VitePress 构建、无密钥浏览器 smoke、生产依赖 audit �
 | GitHub Actions 实际运行 | **blocked-external** | 本轮不允许 push；ci.yml 为本地等价验证通过，**GitHub 运行待作者 push 后首次触发** |
 | stores/gameStore.js 两处行尾空格 | 未动 | `src/stores/*` 非自由写集；首次 push 的全树空白检查会报这 2 条，属可解释存量（其余已修/豁免） |
 | C 线接口（Authoring.vue、面板、用户手册更新） | 未做 | C 线写权；B 仅核对 README 与手册链接目标存在 |
-| 演示素材 unknown 权属 3 类 | **user-decision** | kao-archive 系列美术（随应用分发）、AI 生成图、docs/demo/kao.jpg（小红书截屏带水印）；只登记不删除，公开前需作者替换/下架/授权 |
+| 演示素材 unknown 权属 | **partially-resolved** | Kao 美术、旧主题截图/概念图与带水印参考图已在 O 后续清理中删除；当前树只剩 `authoring-image-style-presets.webp` 的生成来源/授权待确认 |
 
 ## 2. 本夜作者可感知变化（B 线范围内）
 

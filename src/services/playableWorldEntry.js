@@ -232,7 +232,7 @@ export function clearPlayableWorldEntryIntent() {
 /**
  * consumePlayableWorldHistoryIntent(intent)
  * Pure helper: given a playable world intent, return the runtime patches a
- * consumer (OpeningPage.vue / gameStore.applyHistoryInit) should apply when
+ * runtime consumer should apply when
  * seeding a fresh session that was entered from a prior history node.
  *
  * Returns null when the intent carries no historyNode — callers can short

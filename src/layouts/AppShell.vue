@@ -318,9 +318,6 @@ function handleSelectPanel(routeName) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* UI-K1: default mast surface is blue-white dossier paper (archive
-     tokens). The .theme-kao override below re-binds archive-* to warm
-     palette when the user picks "现代". */
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent) 220px);
   color: var(--text-primary);
@@ -355,13 +352,6 @@ function handleSelectPanel(routeName) {
   z-index: var(--z-workbench-chrome);
   box-shadow: 0 14px 24px color-mix(in srgb, var(--archive-ink) 14%, transparent);
 }
-
-/* V3 (2026-06-25): mast paper-fiber baseline. Drops the SaaS
-   backdrop-filter:blur(18px) (translucent / glassy top-bar) and
-   replaces it with a flat archive-paper surface. The kao theme
-   adds the speckle layer on top via ::before; legacy theme keeps
-   the simple 2-stop gradient with no blur. The mast now reads as
-   paper, not as a floating glass bar. */
 .shell-mast {
   position: sticky;
   top: 0;
@@ -458,12 +448,6 @@ function handleSelectPanel(routeName) {
   line-height: 1.35;
   letter-spacing: 0.04em;
 }
-
-/* V3 (2026-06-25): tabs share tear-edge dashed dividers instead of
-   a Material-style gap. gap:0 + border-left:1px dashed archive-gold
-   on every tab except :first-child gives a paper-tear signature
-   between activities. The kao theme re-colors the dash to
-   archive-rose / archive-gold per variant. */
 .shell-tabbar {
   min-width: 0;
   display: flex;
@@ -656,12 +640,7 @@ function handleSelectPanel(routeName) {
   justify-content: flex-end;
 }
 
-/* V3 (2026-06-25): mast chips (设置 / 存储 / 切换) move to the
-   archive-rose ink-dot stamp language. transparent background +
-   1px solid archive-rose 22% border + ::before `·` ink dot in
-   archive-rose. hover promotes the dot to a solid mark + lifts
-   the border to archive-rose 40%. border-radius: 0 (档案册硬切角).
-   Replaces V1's rounded-grey-rect SaaS chip language. */
+/* Mast actions use the shared square, low-chrome control language. */
 .shell-meta-chip {
   position: relative;
   min-height: var(--control-height-md);
@@ -1048,218 +1027,8 @@ function handleSelectPanel(routeName) {
   }
 }
 
-/* archive-folio chrome overrides — gated by .theme-kao so the classic
-   blue-white legacy variant does not inherit these visuals.
-   The .app-shell scoped styles below remain the source for shared
-   layout/positioning; only the kao-specific archive visual language
-   is conditional. */
-.theme-kao .app-shell {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 96%, var(--archive-paper)));
-  color: var(--archive-ink);
-}
-
-.theme-kao .app-shell::before {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-gold) 10%, transparent), transparent 120px),
-    linear-gradient(118deg, transparent 0 62%, color-mix(in srgb, var(--archive-olive) 8%, transparent) 62.2% 66%, transparent 66.2%),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 52px,
-      color-mix(in srgb, var(--border) 7%, transparent) 52px 53px
-    );
-  opacity: 0.62;
-}
-
-/* V3 (2026-06-25): the .theme-kao .shell-mast overrides that used to
-   sit here were redundant — kao.css owns the kao mast baseline now
-   (V3 paper-fiber: flat archive-paper surface + 1px archive-gold
-   14% bottom edge + ::before speckle overlay; no backdrop-filter, no
-   box-shadow). The legacy ::before paper-grain overlay that was
-   here is now ALSO owned by kao.css (the same 3-stop radial-gradient
-   speckle layer used by .is-archive-paper is shared with the mast).
-   Keeping a redundant rule here would re-introduce the SaaS blur. */
-.theme-kao .shell-mast::before {
-  background:
-    linear-gradient(116deg, transparent 0 68%, color-mix(in srgb, var(--archive-gold) 10%, transparent) 68.2% 72%, transparent 72.2%),
-    linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--border) 10%, transparent) 22px 23px, transparent 23px 100%);
-}
-
-.theme-kao .shell-menu-btn {
-  border-color: color-mix(in srgb, var(--archive-gold) 22%, var(--border));
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper)));
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-menu-btn:hover {
-  border-color: color-mix(in srgb, var(--archive-olive) 34%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper));
-}
-
-.theme-kao .shell-brand-mark {
-  color: color-mix(in srgb, var(--archive-gold) 82%, var(--archive-ink));
-  font-size: 11px;
-}
-
-.theme-kao .shell-brand-route strong {
-  color: var(--archive-ink);
-  font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.theme-kao .shell-brand-route span {
-  color: var(--archive-ink-soft);
-}
-
-/* V3 (2026-06-25): kao archive-folio overrides for the mast tab /
-   chip stamp language. The .shell-tab-indicator slide bar is GONE
-   (V3 deletes V2's 2px accent bar — replaced by the archive-rose
-   ◆ ::before stamp on active tabs). Tabs read as paper-tear
-   dashed dividers (border-left 1px dashed archive-gold 18%) +
-   semantic icon + ink-dot chip language. */
-.theme-kao .shell-tabbar {
-  gap: 0;
-}
-
-.theme-kao .shell-tab {
-  min-height: 38px;
-  border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  background: transparent;
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .shell-tab:hover {
-  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-tab.active {
-  background: transparent;
-  color: var(--archive-ink);
-}
-
-/* V3: active tab's archive-rose ◆ stamp. Uses --archive-rose (the
-   kao pink-ink stamp color) instead of --accent (the SaaS blue) so
-   the mark reads as an archive-folio stamp, not a SaaS highlight. */
-.theme-kao .shell-tab.active::before {
-  color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
-}
-
-.theme-kao .shell-tab__label {
-  font-size: 13px;
-}
-
-/* R2-A (2026-07-16): kao 主题下 subnav 沿用 archive-rose 墨点
-   印章 + archive-ink 文字。和 shell-tab 同家族，只是更紧凑。 */
-.theme-kao .shell-subnav-btn {
-  border-left-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .shell-subnav-btn:hover {
-  background: color-mix(in srgb, var(--archive-paper) 80%, transparent);
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-subnav-btn::before {
-  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
-}
-
-.theme-kao .shell-subnav-btn:hover::before {
-  color: var(--archive-rose);
-  font-weight: 900;
-}
-
-.theme-kao .shell-subnav-btn.active {
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-subnav-btn.active::before {
-  color: color-mix(in srgb, var(--archive-rose) 88%, transparent);
-}
-
-.theme-kao .shell-subnav-icon {
-  color: color-mix(in srgb, var(--archive-ink-soft) 88%, transparent);
-}
-
-.theme-kao .shell-subnav-btn.active .shell-subnav-icon,
-.theme-kao .shell-subnav-btn:hover .shell-subnav-icon {
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-subnav-label {
-  font-family: var(--font-display, var(--font-display));
-}
-
 /* V3: meta chip uses archive-rose 22% border + ink-dot prefix in
    archive-rose. Replaces V1's grey-rectangle-with-accent language. */
-.theme-kao .shell-meta-chip {
-  border-color: color-mix(in srgb, var(--archive-rose) 22%, var(--border));
-  background: transparent;
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-meta-chip::before {
-  color: color-mix(in srgb, var(--archive-rose) 60%, transparent);
-}
-
-.theme-kao .shell-meta-chip:hover {
-  border-color: color-mix(in srgb, var(--archive-rose) 40%, var(--border));
-  color: var(--archive-ink);
-}
-
-.theme-kao .shell-meta-chip:hover::before {
-  color: var(--archive-rose);
-}
-
-.theme-kao .shell-overlay {
-  background: color-mix(in srgb, var(--archive-ink) 16%, transparent);
-}
-
-.theme-kao .shell-drawer {
-  border-right-color: color-mix(in srgb, var(--archive-gold) 18%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, var(--archive-paper-soft)), color-mix(in srgb, var(--archive-paper) 94%, var(--archive-paper)));
-  box-shadow: 18px 0 42px color-mix(in srgb, var(--archive-ink) 14%, transparent);
-  mix-blend-mode: normal;
-}
-
-.theme-kao .shell-drawer__head {
-  border-bottom-color: color-mix(in srgb, var(--archive-gold) 16%, transparent);
-  background:
-    linear-gradient(126deg, color-mix(in srgb, var(--archive-gold) 10%, transparent) 0 28%, transparent 28.4% 100%);
-}
-
-.theme-kao .shell-drawer__copy span {
-  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
-}
-
-.theme-kao .shell-drawer__copy strong {
-  color: var(--archive-ink);
-  font-family: var(--font-display);
-  text-transform: none;
-}
-
-.theme-kao .shell-drawer__close {
-  border-color: color-mix(in srgb, var(--archive-gold) 18%, var(--border));
-  background: color-mix(in srgb, var(--archive-paper) 92%, var(--archive-paper));
-  color: var(--archive-ink-soft);
-}
-
-.theme-kao .shell-drawer__activity {
-  border-right-color: color-mix(in srgb, var(--archive-gold) 14%, transparent);
-  background: color-mix(in srgb, var(--archive-paper) 34%, transparent);
-}
-
-/* V4 (2026-06-26): reduced-motion must disable the stamp micro-
-   animation. The stamp still toggles content / opacity instantly,
-   but transform and the longer transitions fall back to near-zero
-   so vestibular-sensitive users never see the slide-in. The kao
-   archive-rose color override above keeps the stamp visible. */
 @media (prefers-reduced-motion: reduce) {
   .shell-tab::before {
     transition: opacity 0.01s ease, width 0.01s ease, margin-right 0.01s ease;

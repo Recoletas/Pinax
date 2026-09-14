@@ -4,6 +4,20 @@
 
 ## 当前主线
 
+夜间计划补充第四层溢出队列与固定控制表：三线主任务全完成后，才可分别进入 Authoring 加载/故障、Experience/store 接缝、ProseEssay/素材公共边界。O 在 T+0:30 至 T+8:00 按固定检查点续派并留时间证据；单次 worker final 不等于该线结束。见任务书 §20–21。
+
+夜间架构任务池最终扩为三层：核心迁移、相邻收口、A10–A13/B11–B14/C10–C13 第三批深挖。执行按任务书 §19 在 T+6:30 前持续续派，同一 worker 提前返回后由 O 在原 worktree 继续派包；最后 90 分钟统一集成。持续时间必须来自有效实施/复核，不使用等待和重复测试凑数。
+
+夜间计划再补 S0–S8：修订验证/UI/世界书/文档交接与 agent-maintenance 的实际偏差，形成“事故证据 → 有界规则修改 → 案例复核 → 下轮触发”的轻量闭环。单包原工时为未校准猜测，不再据此判工作量；技能整理纳入三线写集与 O 集成，详见任务书 §16–17（待执行）。
+
+三线任务书已加量：新增 12 个代码接续包及 D1–D8 文档整理，第一批后继续显式参考/Observer/第二条素材异步链；README、上手说明、架构真源、文档导航与过期内容纠偏是必交，不只更新回执。执行顺序与冻结窗口见任务书 §13–15。
+
+下一轮执行入口：[三线夜间架构整理任务书](./plan/architecture-night-three-tracks-20260914.md)（待执行）。A：Authoring 行内写作助手/文档输入适配；B：gameStore 会话规范化/保存调度/历史投影；C：Notes 素材目录/编辑保存/异步归属。约 8 小时并行预算，必须预留组合验收；按完整职责迁移验收，不以减行数或耗满时间代替交付。
+
+2026-09-14 架构整理持续收口：以[当前架构与代码边界](./engineering/current-architecture.md)作为代码 owner 真源。Authoring 的 navigation、persistence、inspector、scene、scene laboratory、Character IF、rehearsal、intervention 已抽出；Block、Ghost adoption、章节校对以及搜索/替换也分别进入完整 workflow。`Authoring.vue` 已从本轮起点 13,781 行降至 12,823 行。下一阶段按同样尺度处理写作 Agent/inline suggestion 的触发、请求所有权、取消、候选、失效与采用衔接；不是继续拆零散状态。根层 service 迁移保持纯路径变更。
+
+2026-09-14 开始收口 Kao 娱乐化分支：删除可切换 Kao 主题、专用角色美术、独立开场页、冻结旧体验/欢迎页及历史主题截图；`/opening` 仅保留到当前 `/experience` 的兼容重定向。Authoring、设定、推演、地图和通用归档数据语义继续保留，产品不再维护两套视觉/页面树。
+
 2026-09-14 [StoryForge 借鉴、Public Alpha 准备与作者体验三线任务书](./plan/pinax-nightly-storyforge-public-alpha-20260913.md)已执行并完成 O 集成：A 的推演条件/后果合同与 C 的右栏、首访、导入、自救已经贯通，B 的 Node/CI/lint/公共文档/安全入口已进入 main。下一阶段不再扩写这份夜间任务书，先做小范围 Web 内测：真实作者五次完整推演、长试稿延迟与 MiniMax 后果遵约率是产品 Gate；公开前另由作者决定素材权属、许可证、公开 refs 与 GitHub 安全渠道。A11/A12/A13 及 C10–C12 等储备未因主线完成而自动算完成。
 
 2026-09-12 完成并独立复验 [设定页 ↔ Authoring 工作台联动闭环计划](./plan/settings-authoring-linkage-closure-20260912.md)：项目/全局设定上下文、三分区保留、正文精确往返、跨页刷新、删除引用失效和冻结推演 stale 已落地；复验另修 active 世界书加载竞态、全局显式库加载和历史节点路由。联动 Gate 20/20、推演 Gate 304/304；剩余门禁是用户视觉确认与真实作品中重开推演后的资料采用质量，不再继续扩写导航基础设施。

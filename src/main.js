@@ -5,7 +5,9 @@ import App from './App.vue'
 import { useWorkspaceTabsStore } from './stores/workspaceTabsStore'
 import { installWorkspaceRouteAdapter } from './services/workspace/workspaceRouteAdapter'
 import './styles/main.css'
-import './styles/themes/kao.css' // kao is the default variant — bundle into initial CSS chunk to avoid FOUC
+import './styles/themes/legacy.css'
+import './styles/experience-reading.css'
+import './styles/workbench-controls.css'
 
 const app = createApp(App)
 const pinia = createPinia()

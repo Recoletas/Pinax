@@ -2,9 +2,8 @@
 //
 // Pure helper for sorting, summarizing, and budget-bounding the reference
 // assets + selected inbox + chapter outline that flow into the writing
-// agent's prompt. Replaces Writing.vue's getCopilotContext() which
-// currently joins `outline + single asset` into one string with no
-// budget control (a 5-asset inbox could blow past token limits).
+// agent's prompt. Kept as a pure compatibility contract for the structured
+// writing-agent input; the retired Writing.vue page no longer owns this flow.
 //
 // Design contract:
 //   - Pure: takes plain object in, returns plain object out.
@@ -20,8 +19,6 @@
 //     (getAssetKindLabel, getAssetSourceDetail) for label formatting.
 //
 // Used by:
-//   - Writing.vue (next slice: replace buildCopilotAssetContext with
-//     buildReferenceContext in getCopilotContext()).
 //   - useWritingAgent.buildWritingAgentInput() (structured reference input).
 //   - WA-B writingAgentContext (consumer reads blocks for routing hints).
 //

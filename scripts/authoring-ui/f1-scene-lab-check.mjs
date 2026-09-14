@@ -258,7 +258,6 @@ async function seedFinalContext(browser, viewport, { dark = false, reducedMotion
   await context.addInitScript(({ snapshot, colorScheme }) => {
     localStorage.clear()
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
-    localStorage.setItem('app_theme_variant', 'legacy')
     localStorage.setItem('app_theme', colorScheme)
     localStorage.setItem('app_ui_zoom', '1')
   }, { snapshot: storage, colorScheme: dark ? 'dark' : 'light' })

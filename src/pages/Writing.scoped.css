@@ -1,6 +1,3 @@
-/* W4: manuscript-top — legacy variant fallback (kao variant rules live
-   in kao.css .theme-kao block; legacy uses generic SaaS chrome). Kept
-   scoped here so Writing.vue remains the single owner. */
 .manuscript-top {
   display: flex;
   align-items: center;
@@ -108,10 +105,6 @@
   color: var(--accent);
   border-color: var(--accent);
 }
-
-/* UI-W2: Pinax Wall — legacy variant fallback (kao variant rules live
-   in kao.css .theme-kao block; legacy uses generic chrome). Kept
-   scoped here so Writing.vue remains the single owner. */
 .wall {
   background: var(--bg-primary);
 }

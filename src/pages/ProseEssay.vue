@@ -123,7 +123,7 @@
       <button type="button" class="control-toggle" :aria-pressed="canvasSurface === 'free'" @click="canvasSurface = 'free'">自由画布</button>
     </nav>
 
-    <section v-if="cards.length === 0 && isKao" class="prose-hero is-archive-paper" aria-label="画布零态引导">
+    <section v-if="cards.length === 0" class="prose-hero is-archive-paper" aria-label="画布零态引导">
       <div class="prose-hero__inner">
         <h1 class="prose-hero__title">画布空白</h1>
         <p class="prose-hero__desc">输入主题，或从素材库拖入素材生成画布。</p>
@@ -542,7 +542,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
-const { isDark, isKao, toggleTheme } = useTheme()
+const { isDark, toggleTheme } = useTheme()
 const {
   advisorOpen,
   advisorMessages,
@@ -2964,11 +2964,6 @@ function exportEditingPackage() {
 .prose-essay-page.is-archive-paper.is-archive-paper::before {
   display: none;
 }
-
-/* V3 archive-folio top strip — paper-fiber surface inherited from
-   FolioSurface chrome variant + scoped stamp-language CSS. legacy
-   variant uses --border / --surface-* tokens; kao variant overrides
-   live in src/styles/themes/kao.css gated by .theme-kao. */
 .prose-essay__hero {
   flex: none;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
