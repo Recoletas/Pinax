@@ -1353,7 +1353,7 @@ export async function getEvents(category) {
 function handleApiError(error) {
   const errorData = error.response?.data
   console.error('API Error:', errorData || error.message)
-  
+
   // 抛出一个友好的错误，包含后端返回的细节
   const timeoutMessage = error?.code === 'ECONNABORTED' ? 'AI 请求超时，请缩短输入或稍后重试' : ''
   const baseMessage = errorData?.message || errorData?.error?.message || errorData?.error || timeoutMessage || '请求失败，请检查网络或配置'

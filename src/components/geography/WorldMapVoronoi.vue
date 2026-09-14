@@ -323,7 +323,9 @@ try {
   canvasBgColor = styles.getPropertyValue('--surface-soft').trim()
     || styles.getPropertyValue('--bg-secondary').trim()
     || canvasBgColor
-} catch {}
+} catch {
+  // CSS 变量缺失时沿用 canvasBgColor 默认值
+}
 
 const configKey = computed(() => JSON.stringify(props.config || {}))
 

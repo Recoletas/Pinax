@@ -1,0 +1,30 @@
+name: 功能建议
+description: 对写作体验与能力的改进建议
+labels: [enhancement]
+body:
+  - type: textarea
+    id: author-task
+    attributes:
+      label: 解决的作者任务
+      description: 哪个写作环节现在不顺手？你现在怎么绕？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: 影响面（可多选）
+      options:
+        - label: 涉及数据写入（书稿/世界书/素材库）
+        - label: 涉及模型调用
+        - label: 涉及服务端
+        - label: 涉及桌面端

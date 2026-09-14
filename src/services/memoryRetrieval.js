@@ -31,7 +31,7 @@ export function tokenizeMemoryQuery(query) {
   if (!raw) return { terms: [], bigrams: new Set() }
   const seen = new Set()
   const terms = []
-  const chunks = raw.split(/[\s,，。！？、；：,.!?;:"'“”‘’（）()\[\]{}<>《》\n\r\t/]+/u)
+  const chunks = raw.split(/[\s,，。！？、；：,.!?;:"'“”‘’（）()[\]{}<>《》\n\r\t/]+/u)
   for (const chunk of chunks) {
     const cleaned = chunk.trim().toLowerCase()
     if (!cleaned) continue

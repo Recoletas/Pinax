@@ -4,7 +4,14 @@
   "license": "SEE LICENSE IN LICENSE",
   "main": ".vite/build/main.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  },
   "scripts": {
+    "doctor": "node scripts/doctor.mjs",
     "dev": "vite",
     "build": "vite build",
     "start": "pm2 start ecosystem.config.js",
@@ -13,13 +20,15 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "lint": "eslint src --ext .js,.vue",
+    "lint:delta": "node scripts/lint-delta.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "verify": "npm run verify:full",
     "verify:contract": "vitest run --reporter=default --reporter=./scripts/vitest-budget-reporter.mjs",
     "verify:post": "vite build && git diff --check",
-    "verify:full": "vitest run --reporter=default --reporter=./scripts/vitest-budget-reporter.mjs && vite build && git diff --check && vitepress build docs/src",
+    "verify:full": "vitest run --reporter=default --reporter=./scripts/vitest-budget-reporter.mjs && npm run lint:delta && vite build && git diff --check && vitepress build docs/src",
     "verify:browser": "node scripts/ui-audit.mjs && node scripts/online-narrative-smoke.mjs",
+    "ci:authoring-smoke": "node scripts/ci/authoring-smoke.mjs",
     "smoke:authoring-journeys": "node scripts/authoring-journeys-smoke.mjs",
     "artifacts:authoring:prune": "node scripts/authoring-ui/prune.mjs",
     "docs:dev": "vitepress dev docs/src",
@@ -55,10 +64,11 @@
     "smoke:desktop-migration": "node scripts/desktop-legacy-migration-smoke.mjs"
   },
   "dependencies": {
-    "@tiptap/extension-unique-id": "^3.29.2",
-    "@tiptap/pm": "^3.29.2",
-    "@tiptap/starter-kit": "^3.29.2",
-    "@tiptap/vue-3": "^3.29.2",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-unique-id": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
+    "@tiptap/vue-3": "^3.31.3",
     "alea": "^1.0.1",
     "axios": "^1.6.0",
     "better-sqlite3": "^12.11.1",

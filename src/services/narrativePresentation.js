@@ -436,7 +436,7 @@ function sanitizeTransportMarkers(text) {
 
 function sanitizeNarrativeSectionTitles(text) {
   return String(text || '')
-    .replace(/[【\[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
+    .replace(/[【[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
     .trim()
 }
 

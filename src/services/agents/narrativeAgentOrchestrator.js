@@ -752,7 +752,7 @@ function validateNarrativeStepResponse(response, allowedToolNames = null) {
 function hasNarrativeBody(value) {
   return String(value ?? '')
     .replace(/:::\s*[a-z]+(?:[|：][^\s|：]{0,80})?\s*/gi, '')
-    .replace(/[【\[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
+    .replace(/[【[](?:正文|旁白|回应|叙述|对白|正文开始|正文完|完)[】\]]/gi, '')
     .trim().length > 0
 }
 

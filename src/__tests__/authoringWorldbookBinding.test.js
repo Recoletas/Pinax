@@ -298,7 +298,6 @@ import {
   resolveRouteIntent
 } from '../services/workspace/workspaceTabContract.js'
 import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
-import { saveWritingBooks } from '../services/writing/writingBooksRepository'
 
 describe('workspace tabs store', () => {
   it("dedupes, hydrates, closes neighbors and syncs from routes（合并6例）", async () => {
@@ -466,7 +465,6 @@ describe('workspace tabs store', () => {
 })
 // —— 工作台标签计划 Task 3：路由适配器（mock router，验证双向同步与防循环）——
 import {
-  installWorkspaceRouteAdapter,
   activateWorkspaceTab,
   closeWorkspaceTab,
   openOrFocusWorkspaceTab
@@ -559,7 +557,6 @@ describe('workspace route adapter', () => {
 
 // —— 复验修复 2：绑定同步的时序安全（行为测试，非源码 pin）——
 import { createBoundWorldbookSync, buildChapterBoundaryPayload } from '../services/agents/authoring/authoringProjectWorldbook.js'
-import { vi } from 'vitest'
 
 describe('createBoundWorldbookSync timing safety', () => {
   function makeSync() {

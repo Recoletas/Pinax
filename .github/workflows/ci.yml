@@ -15,15 +15,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 完整历史：供 PR/push 显式取基准，避免无参数 git diff --check 什么也没检查
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
+
+      - name: Resolve diff base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "range=origin/${{ github.base_ref }}...HEAD" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.before }}" ] && ! [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
+            echo "range=${{ github.event.before }}...${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            # 首次 push 等无基准事件：与空树比较，得到可解释的全树空白错误检查
+            EMPTY_TREE=$(git hash-object -t tree /dev/null)
+            echo "range=${EMPTY_TREE}...HEAD" >> "$GITHUB_OUTPUT"
+            echo "note=无 push 基准，改为空树→HEAD 全树检查" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Whitespace check (base to HEAD)
+        run: |
+          echo "运行范围: ${{ steps.base.outputs.range }}"
+          git diff --check "${{ steps.base.outputs.range }}"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Lint delta gate
+        run: npm run lint:delta
+
       - name: Run tests
         run: npm run test:run
 
@@ -37,10 +63,51 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
         run: npm ci
       - name: Run build
         run: npm run build
+
+  authoring-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # 无密钥作者主路径：欢迎页→诊断导出→导入合成稿→刷新→隐私合同；
+      # 网络守卫拦截一切非本机请求，出现任何 provider 外发即失败。
+      - name: Run authoring smoke (no model key)
+        run: node scripts/ci/authoring-smoke.mjs
+        env:
+          SMOKE_OUT_DIR: smoke-artifacts
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authoring-smoke-artifacts
+          path: smoke-artifacts/
+          retention-days: 7

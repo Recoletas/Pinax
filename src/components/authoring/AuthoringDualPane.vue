@@ -42,7 +42,7 @@
           :block-composer-target="interventionGhostTarget"
           :block-composer-enabled="interventionGhostOpen"
           :history-locked="false"
-          :before-destructive-edit="protectDestructiveEdit"
+          :before-destructive-edit="requestDestructiveProtection"
           block-gap-id="authoring-dual-block-gap"
           :style="editorStyle"
           :data-document-role="selectedKind === 'exploration' ? 'dual-exploration' : 'dual-manuscript'"
@@ -103,8 +103,8 @@
         <WorkbenchIcon name="folder" :size="14" />
         <span>第一卷</span>
       </div>
+      <template v-if="activeSwitch === 'chapter'">
       <button
-        v-if="activeSwitch === 'chapter'"
         v-for="entry in filteredChapters"
         :key="entry.chapter.id"
         type="button"
@@ -116,6 +116,7 @@
       >
         <span><strong>{{ chapterLabel(entry.index, entry.chapter.title) }}</strong></span>
       </button>
+      </template>
       <template v-if="activeSwitch === 'exploration'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="pencil" :size="14" />
@@ -568,7 +569,7 @@ function onSelectionChange(value) {
   refreshCommands()
 }
 
-function protectDestructiveEdit(payload = {}) {
+function requestDestructiveProtection(payload = {}) {
   if (typeof props.protectDestructiveEdit !== 'function' || !selectedSource.value) return true
   return props.protectDestructiveEdit({
     ...payload,

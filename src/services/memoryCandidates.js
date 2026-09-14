@@ -937,7 +937,7 @@ function tokenizeRecallQuery(query) {
   }
 
   const rawString = String(query)
-  const chunks = rawString.split(/[\s,，。！？、；：,.!?;:"'“”‘’（）()\[\]{}<>《》\n\r\t/]+/u)
+  const chunks = rawString.split(/[\s,，。！？、；：,.!?;:"'“”‘’（）()[\]{}<>《》\n\r\t/]+/u)
   for (const chunk of chunks) {
     const cleaned = String(chunk || '').trim()
     if (!cleaned) continue

@@ -6,9 +6,14 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
+| Codex / 2026-09-14 夜间成果集成 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | A/B/C 已组合并完成本地封板：推演后果右栏、首访/导入/自救、公开 alpha 工程；真实 MiniMax 12 步 + 3 试稿尝试。公开动作与外部决策仍待用户。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
+
+- **2026-09-14 StoryForge/Public Alpha 夜间成果已进入 main 并完成本地封板**：推演右栏已接本次条件、稳定人物 ref、结构化局面变化、最多三项路线后果差异与冻结试稿来源；非法后果回应可读，作者可显式“保留回应但不登记后果”。MiniMax 合成样本 12/12 单步返回，后果 8/12 直接通过、4/12 被严格引文门禁拒绝后人工降级；试稿 2/3 完成，第三份双 300 秒超时，因此真实模型质量仍是 partial，不写成全绿。最终 main 的干净 clone 已完成 `npm ci`、`verify:full`、doctor、公共链接与官方源 audit；作者主链 smoke 曾因 GB18030 文案选择器歧义假失败，已收紧到摘要编码标签并复跑。公开准备线已合入，剩余 10 个 lint error 清零；npm 对 Electron 上游 node-gyp 的 lock 条目仍给出 git 依赖完整性警告，但无需 SSH 凭据即可安装。素材权属、许可证/公开 refs、GitHub 私密安全渠道与 Actions 首跑仍是外部闸门。
+
+- **2026-09-13/14 三线夜间计划已执行并由 O 集成**：[总任务书](./plan/pinax-nightly-storyforge-public-alpha-20260913.md)的 A/B/C 主交付已组合；各 worker 实际约 1.5–2 小时，未达到计划的 8 小时墙钟，储备包不冒称完成。实现与残余以本页上一条及三线回执为准。
 
 - **2026-09-12 设定页 ↔ Authoring 联动闭环已实现并独立复验（代码+浏览器通过；视觉/真实模型待验）**：项目设定上下文解析器以 bookId→book.worldbookId 为唯一项目真源；设定/地图/条目按项目上下文初始化，分区切换保留合法定位，三页共用「回到正文」；跨标签刷新、本地编辑 revision 防护、删除引用失效和冻结推演 stale 已闭环。独立验收修掉 active 世界书慢请求反向覆盖、显式全局 worldbookId 未加载、历史节点路由错误，并收紧原 Gate 的空页面/任意单元假阳性。联动 Gate 20/20（含两书两库、全局入口、精确回章回 unit、删除失效），推演 Gate 304/304（设定外部更新后 provider 前 stale），F1 rehearsal 48/48、IF 28/28；`verify:full` 20/200 全绿。真实模型重开推演是否实际采用新资料仍待用户。见[回执](./agent-runs/settings-linkage-closure-20260912.md)。
 
@@ -213,7 +218,7 @@
 
 ## Next up
 
-Authoring 后续按[二轮详细计划第9–12节](./plan/authoring-ux-and-story-play-plan-20260905.md)：批准实施后先补A0缺口、处理小高度助手输入遮挡并确认双栏标题，再做设定内容优先/手机目录详情代表片，随后统一试演与人物选择样板。本轮停在调研与计划，不自动续做代码；以下联机、桌面与各领域外部门禁继续保留，不作为此次体验打磨前置。
+下一轮从[StoryForge 借鉴与 Public Alpha 三线夜间任务书](./plan/pinax-nightly-storyforge-public-alpha-20260913.md)进入O00；目前只完成计划编制，尚未开始8h运行。09-05旧体验任务按09-06至09-12的实际交付视为已接管，不重做已完成首访/推演右栏/设定往返。以下联机、桌面等保留各自后续边界，不作为本夜前置。
 
 1. 执行 C2-3 pilot Gate：在开启 `VITE_COLLABORATION_V2_ENABLED` 的 TLS/WSS 环境完成至少 5 次真实双人共同排演，记录低敏 join/reconnect、proposal→selected→promoted→adopted 漏斗和失败原因；同时验证 1440/1024/390、深浅主题与 packaged Electron。Gate 通过前不进入 C2-4。
 2. 桌面方向进入 P3：把 Authoring 正文与桌面项目真源适配到 plain-text manuscript editor；并在 Windows clean-machine 验证 portable 包、v2/v3 迁移、原生 SQLite、锁与原子 rename。

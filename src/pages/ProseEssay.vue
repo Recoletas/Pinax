@@ -705,7 +705,7 @@ function focusTopicInput() {
     const el = topicInputRef.value
     if (el && typeof el.focus === 'function') {
       el.focus()
-      try { el.select?.() } catch {}
+      try { el.select?.() } catch { /* selection support is optional */ }
     }
   })
 }
@@ -1073,7 +1073,7 @@ function savePileInlineEdit() {
         o.preview = pile.name ? pile.name : `[牌堆 ${pile.cardIds.length}张]`
       }
     })
-    createSnapshot('更新牌堆')
+    addTimeline('更新牌堆')
     saveData()
   }
   inlineEditingPile.value = null
@@ -1827,7 +1827,7 @@ function addToOutline() {
       preview: getCardPreview(selectedCard.value)
     })
   }
-  createSnapshot('加入大纲')
+  addTimeline('加入大纲')
   saveData()
   trackPreference('adopt_card', selectedCard.value)
 }
@@ -1970,7 +1970,7 @@ function removeCardFromOutline(cardIdOrPileId) {
   const idx = outline.value.findIndex(o => o.cardId === cardIdOrPileId || o.pileId === cardIdOrPileId)
   if (idx !== -1) {
     outline.value.splice(idx, 1)
-    createSnapshot('移出大纲')
+    addTimeline('移出大纲')
     saveData()
   }
 }

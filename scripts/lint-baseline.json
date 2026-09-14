@@ -1,0 +1,4 @@
+{
+  "comment": "B04 lint error 基线。2026-09-14 集成窗口已清零全部 error；新 error 会使 lint:delta 失败。历史 warning 暂不作为公开 alpha 阻断。",
+  "entries": []
+}

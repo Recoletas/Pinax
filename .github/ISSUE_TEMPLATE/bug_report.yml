@@ -1,0 +1,68 @@
+name: Bug 报告
+description: 写作流程中遇到的可复现问题
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请阅读 [CONTRIBUTING](../blob/main/CONTRIBUTING.md) 的数据边界：
+        **不要**粘贴私人书稿正文/书名、API Key、全量浏览器 dump；截图请用合成稿件。
+  - type: textarea
+    id: author-task
+    attributes:
+      label: 作者任务与现象
+      description: 你在哪个写作环节想做什么、实际发生了什么
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤（最小合成数据）
+      placeholder: |
+        1. 打开 /authoring
+        2. 导入含两个章节的 TXT
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: entry
+    attributes:
+      label: 入口
+      options:
+        - 统一创作（Authoring）
+        - 导入（TXT/Markdown/DOCX/PDF）
+        - 世界书 / 设定
+        - 推演 / 右栏
+        - 备份 / 诊断
+        - 地图 / 素材 / 画布
+        - 桌面端（Electron）
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: "`npm run doctor` 的输出可直接粘贴（该输出只含变量名与布尔状态）"
+      placeholder: |
+        - OS：
+        - 浏览器：
+        - Node：`node --version`
+        - 是否配置模型密钥：是/否
+  - type: textarea
+    id: logs
+    attributes:
+      label: 控制台报错（密钥值请替换为 ***）
+  - type: checkboxes
+    id: data-boundary
+    attributes:
+      label: 数据边界确认
+      options:
+        - label: 我确认本报告不含私人书稿内容与真实密钥
+          required: true

@@ -1,5 +1,18 @@
 # Agent Runs
 
+## 2026-09-13/14 StoryForge 借鉴与 Public Alpha 夜间计划
+
+计划已执行并由 O 在 2026-09-14 完成组合收口。入口：[总任务书](../plan/pinax-nightly-storyforge-public-alpha-20260913.md)，[调度与启动](../plan/pinax-nightly-20260913/execution.md)，[编制证据](./nightly-20260913/planning-evidence.md)。
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| SF-PLAN | Codex + 三位只读scope reviewer | `pinax-integration-20260906` / `main@5152aad` | 核查现状并编制30主包、12储备、6项owner职责 | 计划完成；verify:full exit 0、21新增链接通过；没有启动实施worker | 上述任务书与编制证据 |
+| SF-A | runtime worker + Codex integration | `night/sf-runtime-20260913` → `main` | 后果/身份/知情/实际请求与试稿来源 | 主包集成；A08 partial（12 步、2/3 试稿） | `nightly-20260913/a-runtime/a01-a08-receipt.md` |
+| SF-B | public worker + Codex integration | `night/public-alpha-20260913` → `main` | Node/CI/lint/公共贡献/来源核查 | 本地工程项集成并经最终 main 干净 clone 复验；外部公开决策待用户 | `nightly-20260913/night-sf-alpha-20260913/morning-review.md` |
+| SF-C | UX worker + Codex integration | `night/authoring-ux-20260913` → `main` | 首访/导入/自救/后果右栏与键盘 | 集成；A/C 接线阻断解除 | `nightly-20260913/c-ux-20260914/summary.md` |
+
+三条夜间写锁已解除；旧 worktree/端口不再视为活跃任务。下列历史看板保留为证据。
+
 ## 2026-09-02 C2 collaboration v2 foundation
 
 Base commit: `e8b9df1e0a6def8fc667066e181ff818a6a2c675`

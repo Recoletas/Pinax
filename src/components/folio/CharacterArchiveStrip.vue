@@ -23,8 +23,8 @@ const isSwitcher = computed(() => props.role === 'scene-switcher')
     :class="{ 'character-archive-strip--switcher': isSwitcher }"
     :aria-label="ariaLabel"
   >
+    <template v-if="isSwitcher">
     <button
-      v-if="isSwitcher"
       v-for="tile in tiles"
       :key="tile.poseId"
       type="button"
@@ -36,8 +36,9 @@ const isSwitcher = computed(() => props.role === 'scene-switcher')
       <CharacterPortrait :pose-id="tile.poseId" size="thumb" />
       <span class="character-archive-strip__kicker">{{ tile.kicker }}</span>
     </button>
+    </template>
+    <template v-else>
     <figure
-      v-else
       v-for="tile in tiles"
       :key="tile.poseId"
       class="character-archive-strip__tile"
@@ -45,6 +46,7 @@ const isSwitcher = computed(() => props.role === 'scene-switcher')
       <CharacterPortrait :pose-id="tile.poseId" size="thumb" />
       <figcaption class="character-archive-strip__kicker">{{ tile.kicker }}</figcaption>
     </figure>
+    </template>
   </div>
 </template>
 

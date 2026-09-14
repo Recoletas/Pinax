@@ -388,7 +388,7 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringDualPane).toContain(':editable="true"')
     expect(authoringDualPane).toContain(':block-composer-enabled="interventionGhostOpen"')
     expect(authoringDualPane).toContain(':block-composer-target="interventionGhostTarget"')
-    expect(authoringDualPane).toContain(':before-destructive-edit="protectDestructiveEdit"')
+    expect(authoringDualPane).toContain(':before-destructive-edit="requestDestructiveProtection"')
     expect(authoringDualPane).toContain('block-gap-id="authoring-dual-block-gap"')
     expect(authoringDualPane).toContain('aria-label="交换主副章"')
     expect(authoringDualPane).toContain('captureRunTarget,')

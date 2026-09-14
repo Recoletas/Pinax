@@ -39,7 +39,9 @@ export function parseCardBlock(text) {
   try {
     const parsed = JSON.parse(block)
     if (Array.isArray(parsed)) return parsed
-  } catch { }
+  } catch {
+    // 非 JSON 数组块：回退到正则提取
+  }
 
   const objectMatches = block.match(/\{[\s\S]*?\}/g) || []
   const objectItems = []
@@ -52,7 +54,9 @@ export function parseCardBlock(text) {
         objectItems.push({ content, emotion })
       }
       continue
-    } catch { }
+    } catch {
+      // 单对象 JSON 解析失败：回退到字段正则提取
+    }
 
     const contentMatch = rawObject.match(/["']?content["']?\s*[:：]\s*["']([\s\S]*?)["']/)
     const emotionMatch = rawObject.match(/["']?emotion["']?\s*[:：]\s*["']([\s\S]*?)["']/)

@@ -20,7 +20,6 @@ function makeStubCtx() {
     height: 0,
     data: new Uint8ClampedArray(4),
     addColorStop: noop,        // 渐变 API
-    addColorStop: noop,
   })
   return new Proxy({
     canvas: { width: 0, height: 0 },

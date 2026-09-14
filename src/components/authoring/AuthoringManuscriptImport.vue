@@ -318,7 +318,7 @@ function handleDrop(event) {
 }
 
 function excerpt(content) {
-  const text = String(content || '').replace(/[#>*_`\[\]()~-]+/gu, ' ').replace(/\s+/gu, ' ').trim()
+  const text = String(content || '').replace(/[#>*_`()~-]+|\[|\]/gu, ' ').replace(/\s+/gu, ' ').trim()
   return text ? text.slice(0, 88) : '空章节'
 }
 

@@ -551,7 +551,7 @@ const { readFileSync } = await import('node:fs')
     expect(activationBody).toContain('setAuthoringProjectId')
     expect(activationBody).toContain('syncBookWorldbook')
     // openBook 走统一激活。
-    expect(source).toMatch(/function openBook\(bookId, options = \{\}\) \{\n  const \{ fromInitialLoad = false \} = options\n  const book = activateBook\(bookId\)/)
+    expect(source).toMatch(/function openBook\(bookId, options = \{\}\) \{\n {2}const \{ fromInitialLoad = false \} = options\n {2}const book = activateBook\(bookId\)/)
     // 跨书章节跳转与 insert-back 换书不再绕过同步（不得直接改 selectedBookId）。
     const selectBookChapterBody = source.slice(
       source.indexOf('function selectBookChapter'),

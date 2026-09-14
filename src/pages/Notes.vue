@@ -2207,7 +2207,7 @@ function autoFormat() {
   // 移除行首行尾多余空格
   text = text.split('\n').map(line => line.trim()).join('\n')
   // 移除全角空格
-  text = text.replace(/　/g, ' ').trim()
+  text = text.replace(/\u3000/g, ' ').trim()
   markdownContent.value = text
   syncMarkdownToEditor()
   onContentChange()

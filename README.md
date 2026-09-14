@@ -1,8 +1,11 @@
 # Pinax
 
-Pinax 是以作者为中心、以本地数据为基础的 AI 辅助创作工作台。核心入口是 `/authoring`：管理书稿与章节、查阅设定、尝试故事走向，再由作者编辑、采用或放弃生成内容。
+> **English short version:** Pinax is a local-first Chinese novel writing workbench — start writing from a single sentence, keep your manuscripts in your own browser and local server, and bring in AI drafting, story rehearsal and world settings only when you want them. Requires Node 22 (≥22.13). `npm ci`, then `npm run dev` (frontend) and `npm run server` (optional backend); writing, manuscript import (TXT/Markdown with GB18030/UTF-8 detection) and backup export work **without any API key**. Licensed under PolyForm Noncommercial (source-available, not OSI open source) — see [LICENSE](LICENSE).
 
-可以直接开始写作，不必先生成世界、玩一段冒险或配置 AI。设定、地图、体验和视听创作是可选的创作支撑：
+Pinax 是一个**本地优先的中文小说创作工作台**：从一句话开始写作，不必先建世界、玩冒险或配置 AI；
+需要时再打开设定、推演与素材工具，生成内容始终由作者审阅采用。
+
+![欢迎页：从一句话开始](docs/screenshots/welcome-1440.png)
 
 ```text
 正文 / 构思 / 大纲 ← 设定、地点、历史、体验素材
@@ -12,34 +15,67 @@ Pinax 是以作者为中心、以本地数据为基础的 AI 辅助创作工作�
   素材 / 插画 / 漫画 / 画布与分镜
 ```
 
-项目正在向 Authoring 收敛并打磨 UI/UX 与故事试演体验；详细进度以 [当前计划](docs/PLAN.md) 和 [共享状态](docs/STATUS.md) 为准。计划中的玩法、真实模型验收和桌面迁移进度不等同于已发布能力。
+数据保存在你自己的浏览器与本地服务中；没有账号，没有云端同步。项目以 **Public Alpha** 状态发布：
+核心写作闭环可用，外围能力分级见下表，允许存在粗糙边缘。
 
-## 快速开始
+## 15 分钟上手
 
-建议使用 Node.js 22.x（≥22.13）和 npm；测试及部分依赖对 Node 小版本有要求，SQLite 等原生依赖还需匹配系统与运行时。当前仓库不再适合按旧部署脚本的 Node 18 配置安装。
+需要 Node.js 22（≥22.13；仓库带 `.nvmrc`，`nvm use` 即可）和 npm。
 
 ```bash
-git clone <Pinax 仓库地址>
-cd text-game-framework
-npm ci
+git clone https://github.com/Recoletas/Pinax.git
+cd Pinax
+npm ci          # 完整安装（含原生模块编译，需要构建工具链）
 
-# 终端 1：起后端（3001）
+npm run doctor  # 可选：自检环境（只读，不写任何配置）
+
+# 终端 1：后端（默认 3001；可选，AI 相关功能需要）
 npm run server
 
-# 终端 2：起前端（5173）
+# 终端 2：前端（默认 5173）
 npm run dev
 ```
 
-打开 `http://localhost:5173` 后：
+打开 `http://localhost:5173`：
 
-1. 首页直接点 **开始写作**；已有书稿可选 **导入已有书稿**，先预览 TXT / Markdown 的拆章结果，再确认创建。
-2. 需要时关联世界书，在角色、设定、大纲或双栏中查阅、编辑资料。
-3. 使用 AI 前，在 **设置** 中配置模型渠道并测试连接；生成内容先审阅，再决定是否采用。
-4. 若使用内置 MiniMax，由部署者参考 [server/.env.example](server/.env.example) 配置 `server/.env` 中的 `MINIMAX_API_KEY`；没有服务端密钥时该渠道不能实际生成。自带渠道与服务端内置渠道的配置不要混淆。
+1. 点 **开始写作** 直接写；或选 **导入已有书稿**，预览 TXT / Markdown（自动识别 GB18030/UTF-8 编码）拆章结果后确认创建。导入与首章写作**无需任何密钥**。
+2. 界面右侧是可折叠的创作工具栏：资料、批注、推演。写完点 **备份** 导出作品 JSON。
+3. 需要 AI 时，在 **设置** 中配置自带模型渠道，或由部署者参考 [server/.env.example](server/.env.example) 配置服务端 `MINIMAX_API_KEY`。不要把私密 key 放进 `VITE_*` 前端变量。
 
-前端默认5173，Express默认3001，开发代理配置见 [vite.config.js](vite.config.js)。后端读取 `server/.env`，根目录 `.env.example` 的旧服务参数需按用途迁入服务端环境；不要把私密key放进 `VITE_*` 前端变量。
+![导入书稿后的编辑器](docs/screenshots/authoring-editor-import-1440.png)
 
-用户手册见 [使用指南](docs/user-manual/README.md)。部分旧章节仍描述体验优先的流程，当前创作入口和能力归属以本页与代码地图为准。
+截图来自本仓库自动化验收（合成稿件）实际运行的版本。
+
+## 能力分级（2026-09-14，随版本更新）
+
+| 能力 | 状态 | 依据 |
+| --- | --- | --- |
+| 写作（章节/构思/大纲/双栏/历史） | 可用 | 核心测试套件（20 文件/200 用例预算）+ 无密钥浏览器旅程 |
+| 导入（TXT/Markdown 编码识别、DOCX/PDF） | 可用 | 导入测试 + CI 无密钥导入旅程 |
+| 备份 / 低敏诊断导出 | 可用 | 隐私合同有测试断言（不含正文/密钥） |
+| 设定 / 世界书往返 | 可用 | 设定联动测试与浏览器 Gate |
+| 推演（右栏受控推演、草稿采用） | 实验 | 有浏览器 Gate 与合同测试；真实模型质量未做大规模验收 |
+| 人物 IF / 体验入口 | 实验 | `/experience` 保留旧会话兼容，不是写作前置 |
+| 地图引擎 | 实验 | P1/P2 有 Gate 报告；大规模世界性能未验 |
+| 媒体（插画/漫画预设） | 实验 | 有组件级 Gate；实际生成质量依赖渠道 |
+| 协作（多人共写） | 实验 | 传输/权限协议与故障矩阵已落地；真实双人 pilot 未完成 |
+| 桌面端（Electron） | 实验 | 打包底座与旧数据迁移存在；Authoring→桌面项目真源适配未完成 |
+
+"可用"指有自动化门禁覆盖且每轮验证；"实验"指能力存在但不应作为唯一作品数据路径。
+测试状态详见 [docs/src/test-status.md](docs/src/test-status.md)。
+
+## 数据边界
+
+- 浏览器稿件与配置主要在 `localStorage`；来源归档、媒体使用 IndexedDB。浏览器清理、隐私模式和配额会影响保存——**请定期用"备份"导出作品**；本地优先不等于自动云同步。JSON 作品备份默认排除自定义模型 API Key，也不包含 IndexedDB 来源或媒体原件。
+- 自带 API key 默认保存在当前浏览器，生成请求可能经服务端代理发送；内置渠道密钥由部署者放在服务端环境，禁止提交真实 `.env`。
+- 服务端媒体缓存、协作数据库与 Electron 项目是独立数据边界；不要把 `data/` 或数据库当构建缓存删除。
+- 前端不向任何第三方发起遥测；AI 请求只发往你在设置中配置的模型渠道。
+
+## 贡献与安全
+
+- 贡献流程、验证要求与数据边界约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+- 安全问题请勿使用公开 issue：见 [SECURITY.md](SECURITY.md)（私密报告渠道为公开前待设置项）。
+- 第三方依赖与仓库内素材的来源/许可登记见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 当前分支与部署
 
@@ -54,49 +90,31 @@ npm ci
 npm run build
 ```
 
-Express提供 `dist/` 和API。生产进程可按 [ecosystem.config.js](ecosystem.config.js) 使用PM2管理（需另行安装）；更新后端需重启对应进程，具体名称以部署现场为准。HTTPS、访问控制、限流、密钥与日志脱敏由部署者配置。
+Express 提供 `dist/` 和 API。生产进程可按 [ecosystem.config.js](ecosystem.config.js) 使用 PM2 管理（需另行安装）；更新后端需重启对应进程，具体名称以部署现场为准。HTTPS、访问控制、限流、密钥与日志脱敏由部署者配置。
 
-[deploy/](deploy/) 保留旧服务器模板；`setup.sh` 含 `/root/Pinax` 固定路径、Node 18安装和系统级Nginx修改，不能作为当前通用一键安装器直接执行。
-
-## 文档入口
-
-- 当前计划：[docs/PLAN.md](docs/PLAN.md)
-- 产品路线图：[docs/plan/pinax-integrated-product-roadmap.md](docs/plan/pinax-integrated-product-roadmap.md)
-- 近期变化：[docs/LOG.md](docs/LOG.md)
-- 项目文档导航：[docs/README.md](docs/README.md)
-- 当前体验优化：[UI/UX 与故事试演计划](docs/plan/authoring-ux-and-story-play-plan-20260905.md)
-- 代码 owning surface：[docs/src/code-map.md](docs/src/code-map.md)
-- 已知风险：[docs/src/known-issues.md](docs/src/known-issues.md)
-
-## 主要工作区
-
-- **创作 `/authoring`**：章节与构思、大纲、双栏编辑、资料助手、批注、查找、校对与历史；推演草稿经作者审阅采用
-- **设定**：快速导入、高级设置、结构化设定、世界地图
-- **体验 `/experience`**：保留文字冒险与旧会话兼容，不是写作的前置步骤
-- **素材**：带来源的剧情片段、图片和创作资产
-- **画布**：素材关系、时间轴、分镜编排
-
-`/writing` 已重定向到 `/authoring`。Electron 项目底座与旧数据迁移工具已存在，但 Authoring 到桌面项目真源的完整适配仍按桌面专项计划推进，不将浏览器稿件宣称为已自动同步到磁盘项目。
+[deploy/](deploy/) 保留旧服务器模板；`setup.sh` 含 `/root/Pinax` 固定路径、Node 18 安装和系统级 Nginx 修改，不能作为当前通用一键安装器直接执行。
 
 ## 开发脚本
 
 | 命令 | 说明 |
 | --- | --- |
+| `npm run doctor` | 只读环境自检（Node/原生模块/端口/密钥存在性） |
 | `npm run dev` | 启动前端开发服务器 |
 | `npm run server` | 启动 Express 后端 |
 | `npm run test` | Vitest 监听模式 |
 | `npm run test:run` | 一次性跑所有测试 |
+| `npm run lint:delta` | lint 差分门禁（新增错误即失败） |
 | `npm run build` | 生产构建到 `dist/` |
-| `npm run docs:dev` | 本地启动 VitePress 文档站 |
-| `npm run docs:build` | 构建 VitePress 文档站 |
-| `npm run verify:full` / `npm run verify` | 核心测试及预算、Vite构建、diff检查、VitePress构建 |
+| `npm run docs:dev` / `docs:build` | VitePress 文档站 |
+| `npm run verify:full` / `npm run verify` | 核心测试及预算、lint 门禁、Vite 构建、diff 检查、VitePress 构建 |
 | `npm run verify:contract` | 核心测试和预算检查 |
-| `npm run desktop:dev` | Electron开发入口，需要对应原生依赖环境 |
-| `npm run desktop:make` | 按Forge配置生成桌面分发包，平台验收另行执行 |
-| `npm start` | PM2 启动生产服务 |
-| `npm run stop` | PM2 停止生产服务 |
+| `npm run ci:authoring-smoke` | 本地复跑 CI 的无密钥作者旅程（含网络外发守卫） |
+| `npm run desktop:dev` / `desktop:make` | Electron 开发/打包（平台验收另行执行） |
+| `npm start` / `npm run stop` | PM2 启停生产服务 |
 
-核心套件硬预算为最多20个文件/200个用例。浏览器旅程、离线eval和真实provider测试另有前置条件，见 [验证说明](docs/src/test-status.md)；完整脚本以 [package.json](package.json) 为准。若已有开发服务运行，复用它，不为验收重复启停。
+核心套件硬预算为最多 20 个文件/200 个用例。浏览器旅程、离线 eval 和真实 provider 测试另有前置条件，见 [验证说明](docs/src/test-status.md)；完整脚本以 [package.json](package.json) 为准。若已有开发服务运行，复用它，不为验收重复启停。
+
+dev 代理默认指向 `127.0.0.1:3001`；多工作树并行时用 `PINAX_DEV_BACKEND_ORIGIN=http://127.0.0.1:<端口>` 指向各自后端（见 [vite.config.js](vite.config.js)）。
 
 ## 仓库结构
 
@@ -105,21 +123,22 @@ Express提供 `dist/` 和API。生产进程可按 [ecosystem.config.js](ecosyste
 - `shared/`：前后端共享合同与校验
 - `electron/`：桌面进程、项目存储与迁移
 - `docs/`：用户手册、开发文档、计划、日志
-- `scripts/`：回归、诊断、基准与发布检查
+- `scripts/`：回归、诊断、基准、CI smoke 与发布检查
 - `prototype/`：仍被研究/验证使用的实验原型，不是默认产品入口
 - `agent-skills/`：仓库工作流规范
 - `deploy/`：部署模板和脚本
 - `ecosystem.config.js`：PM2 配置
 
-## 数据与部署边界
+## 文档入口
 
-- 浏览器稿件与配置主要在 `localStorage`；来源归档、媒体等还使用 IndexedDB。浏览器清理、隐私模式和配额会影响保存，请定期使用备份/导出；本地优先不等于自动云同步。JSON 作品备份默认排除自定义模型 API Key，也不包含 IndexedDB 来源或媒体原件。
-- 自带API key默认保存在当前浏览器，生成请求可能经服务端代理发送。内置渠道密钥由部署者放在服务端环境，禁止提交真实 `.env`。
-- 服务端媒体缓存、协作数据库与Electron项目是独立数据边界；不要把 `data/` 或数据库当构建缓存删除。
-- `dist/`、依赖和临时验收输出不应提交。清理时保留正在执行的计划、fixture、未确认截图和未提交工作，不能仅凭“未import”就删除迁移或兼容入口。
+- 用户手册：[docs/user-manual](docs/user-manual/README.md)（快速开始见 [01-quickstart](docs/user-manual/01-quickstart.md)）
+- 代码地图：[docs/src/code-map.md](docs/src/code-map.md)
+- 已知风险：[docs/src/known-issues.md](docs/src/known-issues.md)
+- 当前计划：[docs/PLAN.md](docs/PLAN.md)；近期变化：[docs/LOG.md](docs/LOG.md)
+- 项目文档导航：[docs/README.md](docs/README.md)
 
 ## 许可证
 
-Pinax 代码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)。这是一种允许查看、修改和非商业再分发的 source-available 许可证，不是 OSI 定义下的开源许可证：商业销售、商业 SaaS、付费托管、商业集成或其他商业用途需要事先取得版权所有者的单独许可。
+Pinax 代码采用 [PolyForm Noncommercial License 1.0.0](LICENSE)。这是一种允许查看、修改和非商业再分发的 source-available 许可证，**不是 OSI 定义下的开源许可证**：商业销售、商业 SaaS、付费托管、商业集成或其他商业用途需要事先取得版权所有者的单独许可。许可证选型对照见 [docs/engineering/public-alpha-license-notes.md](docs/engineering/public-alpha-license-notes.md)。
 
 本许可证只覆盖本仓库中由 Pinax 项目提供的代码和文件。第三方依赖、字体、图片、演示素材、模型服务以及用户自己的世界书、文章和生成内容，仍分别受其原始许可证、服务条款或用户权利约束。完整条款见仓库根目录的 [LICENSE](LICENSE)。

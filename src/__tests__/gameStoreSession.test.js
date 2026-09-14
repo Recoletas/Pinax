@@ -3167,6 +3167,7 @@ try {
       expect(stored[0].sourceRevision).toBe('doc-r9')
       expect(stored[0].derivedBy).toBe('prose-commit')
     } finally {
+      // Cleanup below is shared with both success and failure paths.
     }
 
     vi.restoreAllMocks()

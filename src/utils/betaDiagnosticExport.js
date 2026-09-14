@@ -1,5 +1,6 @@
 import { STORAGE_KEYS } from '../composables/useStorage.js'
 import { downloadJsonFile, timestampForFilename } from './download.js'
+import { buildInfo } from './buildInfo.js'
 import packageInfo from '../../package.json'
 
 const DIAGNOSTIC_VERSION = 1
@@ -57,6 +58,11 @@ export async function buildBetaDiagnosticReport({
     schemaVersion: DIAGNOSTIC_VERSION,
     generatedAt: now().toISOString(),
     app: { name: 'Pinax', version: APP_VERSION },
+    build: {
+      commit: buildInfo.commit,
+      channel: buildInfo.channel,
+      dirty: buildInfo.dirty
+    },
     environment: {
       path: String(locationRef?.pathname || '/'),
       language: String(navigatorRef?.language || ''),
