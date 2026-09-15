@@ -503,14 +503,14 @@
               @writing-paste="onWritingPaste"
               @blocked-structure-edit="handleBlockedStructureEdit"
               @editor-focus="activateMainPane"
-              @editor-blur="suppressWritingAgent('blur')"
+              @editor-blur="writingAgentHost.notifyBlur()"
               @scroll-owner="handleNotebookScrollOwner"
               @open-block-composer="openBlockComposer"
               @open-intervention="openInterventionComposer"
               @accept-block-preview="acceptBlockPreview"
               @dismiss-block-preview="dismissBlockPreview"
               @accept-inline-suggestion="acceptWritingSuggestion"
-              @dismiss-inline-suggestion="copilotCancel"
+              @dismiss-inline-suggestion="writingAgentHost.notifyDismiss()"
               @cycle-inline-suggestion="cycleCopilotSuggestion"
               @retry-inline-suggestion="retryCopilotSuggestion"
               @history-command="handleNotebookHistoryCommand"
@@ -1622,8 +1622,10 @@ import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
-import { extractWritingSuggestionWindow } from '../services/writingSuggestion'
+import { extractWritingSuggestionWindow } from '../services/agents/authoring/writingSuggestion'
 import { useWritingAgent } from '../composables/useWritingAgent'
+import { useInlineWritingAgentHost } from '../composables/useInlineWritingAgentHost'
+import { useAuthoringReferenceSource } from '../composables/useAuthoringReferenceSource'
 import { readWorldbookSnapshot, useWorldStore } from '../stores/worldStore'
 import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
 import { useAuthoringWorkspaceNavigation } from '../composables/useAuthoringWorkspaceNavigation.js'
@@ -1755,7 +1757,7 @@ import {
 import {
   createWritingNoteFromAsset,
   prependWritingNote
-} from '../services/writingNotes'
+} from '../services/agents/authoring/writingNotes'
 import {
   addAssetsToChapterOutline,
   buildChapterOutlineContext,
@@ -1797,7 +1799,7 @@ import {
   parseSelectionBackJump,
   resolveInsertOffset,
   spliceTextAt
-} from '../services/writingSelectionCapture'
+} from '../services/agents/authoring/writingSelectionCapture'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useWritingDocument } from '../composables/useWritingDocument'
@@ -1877,11 +1879,10 @@ import {
 } from '../services/writing/projectOutlineRepository.js'
 import { projectExperienceSession } from '../services/agents/authoring/authoringSessionProjection.js'
 import { migrateWritingNotesToExplorations } from '../services/writing/authoringPeripheralBridge.js'
-import { listWritingNotes } from '../services/writingNotes.js'
+import { listWritingNotes } from '../services/agents/authoring/writingNotes.js'
 import { buildChineseQuoteInsertion } from '../services/writing/writingChineseInput.js'
 import {
-  blocksPassiveInlineSuggestion,
-  resolveWritingInteractionOwner
+  blocksPassiveInlineSuggestion
 } from '../services/writing/writingInteractionPolicy.js'
 import { explainWritingName, generateWritingNames } from '../services/writingNameGenerator.js'
 import {
@@ -2256,7 +2257,7 @@ function openExplorationDoc(docId) {
     authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
     return false
   }
-  copilotCancel()
+  writingAgentHost.cancelForScopeChange()
   if (blockComposer.open) closeBlockComposer()
   const bookId = selectedBookId.value
   const doc = getExplorationDocument(bookId, docId)
@@ -2302,7 +2303,7 @@ function closeExplorationDoc() {
     authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
     return false
   }
-  copilotCancel()
+  writingAgentHost.cancelForScopeChange()
   if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
   // wt3PersistBeforeLeaving 会清空章节锚点，先取回用于滚动恢复判断
   const anchorChapterId = wt3PreviousChapterId.value
@@ -3609,7 +3610,13 @@ const assetActionHelpEntries = [
   { key: 'reject', label: '拒绝', description: '将素材标记为拒绝，不再参与当前流程。' }
 ]
 const assetActionHelpMap = Object.fromEntries(assetActionHelpEntries.map((item) => [item.key, item.description]))
-const copilotReferenceAsset = ref(null)
+// 显式续写参考:身份冻结/作用域绑定/请求前可用性收口在 referenceSource(A6)。
+const referenceSource = useAuthoringReferenceSource()
+// 所有进入模型上下文(context/manifest/知识 references)的路径必须经此读取:
+// 作用域不匹配即 fail-closed 返回 null。UI 展示可读 referenceSource.reference。
+function readCurrentCopilotReference() {
+  return referenceSource.readForScope(activeDocumentSaveScopeKey())
+}
 // —— 书与世界书绑定（Task 2）——
 // currentBook / selectedBookWorldbookId 必须先于 sceneProjection 声明：
 // watch(sceneProjection) 在 setup 期间就会求值，晚声明会触发 TDZ ReferenceError。
@@ -4190,7 +4197,7 @@ const sceneLaboratoryWorkflow = useAuthoringSceneLaboratoryWorkflow({
     inspectorOpen.value = true
     if (interventionComposer.open) closeInterventionComposer({ restoreSelection: false })
     if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
-    copilotCancel()
+    writingAgentHost.cancelForToolTakeover()
   },
   restoreScroll: (scrollTop) => nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
     const dossier = document.querySelector('.wall__dossier-scroll')
@@ -4801,11 +4808,10 @@ const {
     })
   },
   getSnapshot: () => {
-    const target = currentGhostTarget()
-    const book = books.value.find((item) => String(item.id) === String(target.projectId))
+    const { cursorPos, target, book } = readWritingAgentSource()
     return {
       content: markdownContent.value,
-      cursorPos: copilotCursorPos.value,
+      cursorPos,
       bookId: target.projectId,
       bookTitle: book?.title || '',
       chapterTitle: currentChapterTitle.value,
@@ -4813,13 +4819,12 @@ const {
       documentId: target.documentId,
       chapterId: target.chapterId,
       documentRevision: target.documentRevision,
-      nodeTarget: getWritingBlockAtPosition(copilotCursorPos.value, markdownContent.value),
+      nodeTarget: getWritingBlockAtPosition(cursorPos, markdownContent.value),
       editorFocused: notebookEditorRef.value?.hasEditorFocus?.() !== false
     }
   }
 })
 const inlineSuggestionEnabled = copilotEnabled
-let acceptingInlineSuggestion = false
 
 // 创作命令运行时：一个意图 = 一次 AI 请求 + 一个可撤销的正文事务。
 // 全部命令走统一链：canonical TaskRequest → resolveAgentContext（真实 facade + profile ledger）
@@ -4999,9 +5004,12 @@ function buildAuthoringKnowledgeReaders() {
         })
       }
     }),
-    references: () => copilotReferenceAsset.value
-      ? [{ text: String(copilotReferenceAsset.value.content || '').slice(0, 1200), sourceRefs: [`asset:${copilotReferenceAsset.value.id}`] }]
-      : []
+    references: () => {
+      const reference = readCurrentCopilotReference()
+      return reference
+        ? [{ text: String(reference.content || '').slice(0, 1200), sourceRefs: [`asset:${reference.id}`] }]
+        : []
+    }
   }
 }
 
@@ -5405,7 +5413,7 @@ const blockWorkflow = useAuthoringBlockWorkflow({
     pendingWritingGhost.value = null
     rehearsalDraftSource.value = null
   },
-  cancelCopilot: () => copilotCancel(),
+  cancelCopilot: () => writingAgentHost.cancelForToolTakeover(),
   closeIntervention: () => {
     if (interventionComposer.open) closeInterventionComposer({ restoreSelection: false })
   },
@@ -5701,7 +5709,7 @@ const authoringTask = useAuthoringTask({
     selectedDirectionReceipt = null,
     operation = 'next-passage'
   }) => {
-    copilotCancel()
+    writingAgentHost.cancelForToolTakeover()
     const next = createWritingGhostCandidate({
       kind: operation === 'rewrite-unit' ? 'rewrite' : 'narrative',
       text,
@@ -6268,7 +6276,7 @@ function openInterventionComposer(target = notebookSelection.value) {
   if (!frozenTarget.unitId || !frozenTarget.nodeId || !originalText) return false
   if (sceneLaboratory.open) closeSceneLaboratory({ restoreSelection: false })
   if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
-  copilotCancel()
+  writingAgentHost.cancelForToolTakeover()
   interventionWorkflow.cancel()
   interventionComposer.open = true
   interventionComposer.phase = 'draft'
@@ -6980,32 +6988,45 @@ const memoryReviewOpen = ref(false)
 const authoringMemoryCandidates = ref([])
 let memoryNoticeTimer = null
 
-const writingInteractionOwner = computed(() => resolveWritingInteractionOwner({
-  composing: writingCompositionActive.value || dualCompositionActive.value,
-  modalOpen: showNewBookModal.value
-    || assetInboxOpen.value
-    || illustratorOpen.value
-    || reviewPanelOpen.value
-    || searchPanelOpen.value
-    || showQuickWords.value
-    || showNameGen.value
-    || memoryReviewOpen.value
-    || annotationComposerOpen.value
-    || contextMenu.value.show,
-  commandMenuOpen: notebookCommandMenuOpen.value,
-  inspectorEditing: inspectorOpen.value
-    && activeInspectorTool.value === 'scene'
-    && inspectorDetailState.value?.kind === 'scene-edit',
-  blockPreviewOpen: Boolean(blockPreview.value),
-  blockComposerOpen: blockComposer.open,
-  quickWordActive: quickWordSuggestions.value.length > 0,
-  inlineSuggestionVisible: copilotVisible.value,
-  inlineSuggestionRequesting: copilotRequesting.value
-}))
-
-watch(writingInteractionOwner, (owner) => {
-  if (blocksPassiveInlineSuggestion(owner)) suppressWritingAgent(owner)
+// 行内写作助手的页面编排 owner:光标/组合态/触发调度/互斥仲裁收口在
+// host;agent(composable)只保留请求身份、timer 与候选内核。
+const writingAgentHost = useInlineWritingAgentHost({
+  cursorRef: copilotCursorPos,
+  compositionRef: writingCompositionActive,
+  agent: {
+    cancel: copilotCancel,
+    suppress: suppressWritingAgent,
+    finishComposition: finishWritingAgentComposition,
+    onInput: writingAgentOnInput,
+    consume: writingAgentConsume,
+    visible: copilotVisible,
+    requesting: copilotRequesting,
+    enabled: copilotEnabled
+  },
+  readCursorSnapshot: readLiveWritingCursorSnapshot,
+  buildAgentInput: buildPassiveAgentInput,
+  readInteractionSignals: () => ({
+    dualComposing: dualCompositionActive.value,
+    modalOpen: showNewBookModal.value
+      || assetInboxOpen.value
+      || illustratorOpen.value
+      || reviewPanelOpen.value
+      || searchPanelOpen.value
+      || showQuickWords.value
+      || showNameGen.value
+      || memoryReviewOpen.value
+      || annotationComposerOpen.value
+      || contextMenu.value.show,
+    commandMenuOpen: notebookCommandMenuOpen.value,
+    inspectorEditing: inspectorOpen.value
+      && activeInspectorTool.value === 'scene'
+      && inspectorDetailState.value?.kind === 'scene-edit',
+    blockPreviewOpen: Boolean(blockPreview.value),
+    blockComposerOpen: blockComposer.open,
+    quickWordActive: quickWordSuggestions.value.length > 0
+  })
 })
+const writingInteractionOwner = writingAgentHost.interactionOwner
 
 function showMemoryNotice(text, count = 0, reviewable = false) {
   authoringMemoryNotice.value = { text, count, reviewable }
@@ -7335,7 +7356,7 @@ async function undoGhostAdoption() {
     authoringTask.notify('当前场或大纲已变化，无法只撤正文；请先处理这些变更')
     return false
   }
-  suppressWritingAgent('historyUndo')
+  writingAgentHost.notifyHistory('historyUndo')
   atomicHistoryBusy.value = true
   applyingAtomicNotebookHistory = true
   try {
@@ -7412,7 +7433,7 @@ async function redoGhostAdoption() {
     authoringTask.notify('当前场或大纲已变化，无法安全重做这次推演')
     return false
   }
-  suppressWritingAgent('historyRedo')
+  writingAgentHost.notifyHistory('historyRedo')
   atomicHistoryBusy.value = true
   applyingAtomicNotebookHistory = true
   try {
@@ -7528,7 +7549,7 @@ async function undoStructureTransition() {
     authoringTask.notify('当前场或批注已变化，无法安全撤销这次文本块调整')
     return false
   }
-  suppressWritingAgent('historyUndo')
+  writingAgentHost.notifyHistory('historyUndo')
   atomicHistoryBusy.value = true
   applyingAtomicNotebookHistory = true
   try {
@@ -7564,7 +7585,7 @@ async function redoStructureTransition() {
     authoringTask.notify('当前场或批注已变化，无法安全重做这次文本块调整')
     return false
   }
-  suppressWritingAgent('historyRedo')
+  writingAgentHost.notifyHistory('historyRedo')
   atomicHistoryBusy.value = true
   applyingAtomicNotebookHistory = true
   try {
@@ -7665,7 +7686,7 @@ const {
   openHistory: () => selectInspectorTool('history'),
   buildOutgoingBoundary: buildCurrentChapterObserverBoundary,
   dispatchOutgoingBoundary: dispatchChapterBoundary,
-  cancelCopilot: copilotCancel,
+  cancelCopilot: () => writingAgentHost.cancelForToolTakeover(),
   abandonBlockComposer,
   markExplorationDirty: () => {
     workspaceTabsStore.updateContextByKey(`project:${selectedBookId.value}:authoring`, { dirty: true })
@@ -7674,7 +7695,8 @@ const {
 
 watch(() => activeDocumentSaveScopeKey(), (nextScope, previousScope) => {
   if (!previousScope || nextScope === previousScope) return
-  copilotCancel()
+  referenceSource.clearIfScopeChanged(nextScope)
+  writingAgentHost.cancelForScopeChange()
   contextMenu.value.show = false
   notebookSelection.value = null
   selectedText.value = ''
@@ -8228,7 +8250,7 @@ function buildWritingTaskContext(task = {}, selectionOverride = null) {
     paragraph,
     contextWindow,
     chapterOutline: buildChapterOutlineContext(chapterOutlineItems.value),
-    referenceAsset: buildCopilotAssetContext(copilotReferenceAsset.value)
+    referenceAsset: buildCopilotAssetContext(readCurrentCopilotReference())
   }
 }
 
@@ -8436,7 +8458,7 @@ function getWritingAgentPageContext(invocationTarget = null) {
     nodeTarget,
     sourceRefs: sourceRefsToEvidenceRefs(currentChapter?.sourceRefs || []),
     outlineItems: chapterOutlineItems.value,
-    referenceAsset: copilotReferenceAsset.value,
+    referenceAsset: readCurrentCopilotReference(),
     inboxAssets: inboxAssets.value,
     selectedInboxIds: selectedInboxAssetIds.value,
     worldbook: boundWorldbook.value || null,
@@ -8468,7 +8490,7 @@ function buildLiveContextDependencyRevisions() {
 function selectedCopilotReferenceAssets() {
   const byId = new Map()
   for (const asset of [
-    copilotReferenceAsset.value,
+    readCurrentCopilotReference(),
     ...inboxAssets.value.filter((item) => selectedInboxAssetIds.value.includes(item.id))
   ]) {
     if (asset?.id) byId.set(String(asset.id), asset)
@@ -8478,17 +8500,19 @@ function selectedCopilotReferenceAssets() {
 
 function clearCopilotReference(options = {}) {
   const { silent = false } = options
-  if (!copilotReferenceAsset.value) return
-  copilotReferenceAsset.value = null
-  copilotCancel()
+  if (!referenceSource.clear()) return
+  writingAgentHost.cancelForToolTakeover()
   if (!silent) {
     quickNoteStatus.value = '已清除续写参考'
   }
 }
 
 function useAssetAsCopilotContext(asset) {
-  if (!canRunInlineWritingAgent()) {
-    quickNoteStatus.value = '请先采用或丢弃当前推演草稿，再调用行内联想'
+  // 收件箱弹层本身令 interaction owner 变为 modal;“续写参考”是作者从
+  // 收件箱发起的显式意图,确认后弹层即关闭并交还所有权,不能被自己的
+  // 弹层挡下。此处只检查真正冲突的正文占用:Ghost 采纳、块试稿、块 composer。
+  if (pendingGhostAdoption.value || blockPreview.value || blockComposer.open || writingCompositionActive.value) {
+    quickNoteStatus.value = '请先处理当前草稿或输入法组合，再设置续写参考'
     return false
   }
   const content = String(asset?.content || '').trim()
@@ -8497,22 +8521,13 @@ function useAssetAsCopilotContext(asset) {
     return
   }
 
-  copilotReferenceAsset.value = {
-    id: asset.id,
-    title: asset.title || '',
-    kind: asset.kind,
-    source: asset.source,
-    content,
-    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : [],
-    updatedAt: asset.updatedAt || null,
-    revision: asset.revision || null
-  }
+  referenceSource.select(asset, { scopeKey: activeDocumentSaveScopeKey() })
   assetInboxOpen.value = false
   quickNoteStatus.value = `已设为续写参考：${asset.title || '未命名素材'}`
 
   nextTick(() => {
     editorRef.value?.focus()
-    syncCopilotCursorFromEditor()
+    syncCursorAndSelection()
     if (copilotEnabled.value) {
       copilotManualTrigger()
     }
@@ -9463,7 +9478,7 @@ function selectBook(bookId) {
     authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
     return false
   }
-  copilotCancel()
+  writingAgentHost.cancelForScopeChange()
   authoringTask.dismissAuxiliary()
   if (blockComposer.open) closeBlockComposer()
   if (!openBook(bookId)) return false
@@ -9484,7 +9499,7 @@ function selectChapter(chapterId) {
   const chapter = chapters.value.find((item) => item.id === chapterId)
   if (!chapter) return false
   if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return false
-  copilotCancel()
+  writingAgentHost.cancelForScopeChange()
   if (blockComposer.open) closeBlockComposer()
   // 复验修复 1：activateBook 已按旧书 ID 记过换书 boundary 并保存——
   // 这里若再记一次会把旧章节派生到新书 ID（selectedBookId 已切换）。
@@ -9506,7 +9521,7 @@ function selectChapter(chapterId) {
     dispatchChapterBoundary(outgoingBoundary)
   }
   cancelChapterReview()
-  copilotCancel()
+  writingAgentHost.cancelForScopeChange()
   resetRewriteState()
   clearCopilotReference({ silent: true })
   authoringTask.clearPendingPersist()
@@ -10519,7 +10534,7 @@ function rejectActiveWritingMutation() {
 function undoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
   if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('undo'))
-  suppressWritingAgent('history')
+  writingAgentHost.notifyHistory('history')
   let result = false
   if (hasStructureUndoBoundary.value) result = undoStructureTransition()
   else if (hasGhostAdoptionUndoBoundary.value) result = undoGhostAdoption()
@@ -10532,7 +10547,7 @@ function undoNotebookEdit() {
 function redoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
   if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('redo'))
-  suppressWritingAgent('history')
+  writingAgentHost.notifyHistory('history')
   if (hasStructureRedoBoundary.value) return redoStructureTransition()
   if (hasGhostAdoptionRedoBoundary.value) return redoGhostAdoption()
   return Boolean(notebookEditorRef.value?.redo?.())
@@ -10660,7 +10675,7 @@ function applyBackJumpToTextarea(jump) {
     notebookEditorRef.value.focus()
     if (selected) notebookEditorRef.value.selectText(selected)
     selectedText.value = selected
-    syncCopilotCursorFromEditor()
+    syncCursorAndSelection()
     return
   }
   const ta = editorRef.value
@@ -10683,7 +10698,7 @@ function applyBackJumpToTextarea(jump) {
     ta.scrollTop = Math.max(0, (targetLine - 3) * lineHeight)
   }
   selectedText.value = text.slice(start, end)
-  syncCopilotCursorFromEditor()
+  syncCursorAndSelection()
 }
 
 // 一次性 query（selector/insert/session）消费后清空，但保留 bookId/chapterId
@@ -10829,7 +10844,7 @@ function performInsertAtChapter(chapter, asset) {
         ta.scrollTop = Math.max(0, (targetLine - 3) * lineHeight)
       }
       selectedText.value = result.text.slice(result.insertStart, result.insertEnd)
-      syncCopilotCursorFromEditor()
+      syncCursorAndSelection()
     })
   }
 
@@ -10905,15 +10920,8 @@ function restoreWritingScrollState(snapshot) {
   }))
 }
 
-function onWritingCompositionStart() {
-  writingCompositionActive.value = true
-  suppressWritingAgent('composition')
-}
-
 function onWritingCompositionEnd() {
-  writingCompositionActive.value = false
-  finishWritingAgentComposition()
-  nextTick(() => schedulePassiveWritingSuggestion('input'))
+  writingAgentHost.notifyCompositionEnd()
 }
 
 function onWritingBeforeInput(event) {
@@ -10955,23 +10963,22 @@ function onWritingBeforeInput(event) {
 }
 
 function onWritingPaste() {
-  suppressWritingAgent('paste')
+  writingAgentHost.notifyPaste()
 }
 
 function handleNotebookScrollOwner(event = {}) {
   // 光标越过视口边缘时浏览器会自动跟随滚动；这仍属于 cursor dwell，
   // 不能把刚排入的联想取消。只有 wheel/touch/滚动条这类显式浏览动作才暂停。
-  if (event.source === 'user') suppressWritingAgent('scroll')
+  if (event.source === 'user') writingAgentHost.notifyUserScroll()
 }
 
 function onNotebookCompositionChange(active, meta = {}) {
   if (active) {
-    onWritingCompositionStart()
+    writingAgentHost.notifyCompositionStart()
     return
   }
   if (meta?.reason) {
-    writingCompositionActive.value = false
-    suppressWritingAgent(`composition-${meta.reason}`)
+    writingAgentHost.notifyCompositionAborted(meta.reason)
     return
   }
   onWritingCompositionEnd()
@@ -10979,20 +10986,27 @@ function onNotebookCompositionChange(active, meta = {}) {
 
 function onNotebookCommandMenuChange(open) {
   notebookCommandMenuOpen.value = Boolean(open)
-  if (open) suppressWritingAgent('command-menu')
+  writingAgentHost.notifyCommandMenu(open)
 }
 
 function handleBlockedStructureEdit() {
   authoringTask.notify('文本块边界受当前场与批注保护；请用右键菜单显式拆分、合并或移动文本块')
 }
 
-function schedulePassiveWritingSuggestion(inputType, cursorPos = copilotCursorPos.value) {
+// 行内助手的主来源窄接口:落笔处身份(ghost target)、书与光标只在此读一次,
+// 调度 payload 与请求快照(getSnapshot)共用,不再各自读 markdownContent/target。
+function readWritingAgentSource(cursorPos = copilotCursorPos.value) {
+  const target = currentGhostTarget({ caret: cursorPos })
+  const book = books.value.find((item) => String(item.id) === String(target.projectId))
+  return { cursorPos, target, book }
+}
+
+function buildPassiveAgentInput(cursorPos) {
+  const { target, book } = readWritingAgentSource(cursorPos)
   const currentNodeText = notebookEditorActive.value
     ? String(notebookSelection.value?.currentNodeText || '')
     : getWritingParagraphSnapshot(cursorPos).text
-  const target = currentGhostTarget({ caret: cursorPos })
-  const book = books.value.find((item) => String(item.id) === String(target.projectId))
-  writingAgentOnInput({
+  return {
     content: markdownContent.value,
     cursorPos,
     bookId: target.projectId,
@@ -11008,37 +11022,34 @@ function schedulePassiveWritingSuggestion(inputType, cursorPos = copilotCursorPo
     nodeRevision: target.nodeRevision,
     editorFocused: notebookEditorRef.value?.hasEditorFocus?.() !== false,
     hasSelection: Boolean(selectedText.value),
-    currentNodeEmpty: !currentNodeText.trim(),
-    interactionOwner: writingInteractionOwner.value,
-    inputType,
-    composing: writingCompositionActive.value
-  })
+    currentNodeEmpty: !currentNodeText.trim()
+  }
 }
 
-function syncCopilotCursorFromEditor(options = {}) {
-  const { cancelOnMove = false } = options
+function readLiveWritingCursorSnapshot() {
   if (notebookEditorActive.value) {
     const snapshot = readLiveWritingSelectionSnapshot()
-    if (cancelOnMove && copilotVisible.value && snapshot.end !== copilotCursorPos.value) {
-      copilotCancel('cursor-move')
-    }
-    copilotCursorPos.value = snapshot.end
-    selectedText.value = snapshot.text
-    return
+    return { end: snapshot.end, text: snapshot.text }
   }
   const editor = editorRef.value
-  if (!editor || typeof editor.selectionStart !== 'number') return
+  if (!editor || typeof editor.selectionStart !== 'number') {
+    return { end: copilotCursorPos.value, text: selectedText.value }
+  }
   const text = markdownContent.value || ''
   const selectionStart = Math.max(0, Math.min(text.length, Math.min(editor.selectionStart, editor.selectionEnd ?? editor.selectionStart)))
   const selectionEnd = Math.max(0, Math.min(text.length, Math.max(editor.selectionStart, editor.selectionEnd ?? editor.selectionStart)))
   const nextCursor = Math.max(0, Math.min(text.length, editor.selectionStart))
-  if (cancelOnMove && copilotVisible.value && nextCursor !== copilotCursorPos.value) {
-    copilotCancel('cursor-move')
+  return {
+    end: nextCursor,
+    text: selectionEnd > selectionStart ? text.slice(selectionStart, selectionEnd) : ''
   }
-  copilotCursorPos.value = nextCursor
-  selectedText.value = selectionEnd > selectionStart
-    ? text.slice(selectionStart, selectionEnd)
-    : ''
+}
+
+// 光标同步与工具栏选区状态的页面耦合点;调度/取消决策不再进页面。
+function syncCursorAndSelection(options = {}) {
+  const snapshot = writingAgentHost.syncCursor(options)
+  selectedText.value = snapshot.text
+  return snapshot
 }
 
 function acceptWritingSuggestion(mode = 'all') {
@@ -11046,30 +11057,30 @@ function acceptWritingSuggestion(mode = 'all') {
     const inserted = writingAgentPeek(mode)
     if (!inserted) return
     // inline 采纳会成为新的 history 顶层事务；此前长推演/authoring 回执
-    // 从此不再能安全地驱动 scene/outline 回滚。
-    clearNotebookAtomicRedoHistory()
-    authoringTask.invalidateReceipt()
-    acceptingInlineSuggestion = true
-    try {
-      const accepted = notebookEditorRef.value.insertPlainText(inserted, { origin: 'writing-agent' })
-      if (!accepted) return
-      // 插入已同步推进 getSnapshot 的正文，consume 必须走信任路径，
-      // 否则二次 revision 校验会把自己刚插入的内容判为“落笔处已变化”并回滚。
-      const consumed = writingAgentConsume(mode, { ignoreRevision: true })
-      if (consumed !== inserted) {
-        notebookEditorRef.value.undo()
-        return
+    // 从此不再能安全地驱动 scene/outline 回滚。两个接缝由现有原子历史
+    // owner 在此显式执行,插入→信任 consume→不符回退的顺序契约在
+    // host.commitAdoption 内保持。
+    const outcome = writingAgentHost.commitAdoption(mode, inserted, {
+      editor: notebookEditorRef.value,
+      beforeInsert: () => {
+        clearNotebookAtomicRedoHistory()
+        authoringTask.invalidateReceipt()
+      },
+      onAdopted: () => {
+        notebookCopilotCanUndo.value = true
+      },
+      afterSync: () => {
+        syncCursorAndSelection()
       }
-      notebookCopilotCanUndo.value = true
-      syncCopilotCursorFromEditor()
-    } finally {
-      acceptingInlineSuggestion = false
+    })
+    if (outcome === 'uncertain') {
+      authoringTask.notify('采纳结果未确认，请检查正文；可用撤销核对')
     }
     return
   }
   const editor = editorRef.value
   if (editor) {
-    syncCopilotCursorFromEditor()
+    syncCursorAndSelection()
   }
   const result = writingAgentAccept(
     markdownContent.value,
@@ -11087,19 +11098,19 @@ function acceptWritingSuggestion(mode = 'all') {
   nextTick(() => {
     if (notebookEditorActive.value && notebookEditorRef.value) {
       notebookEditorRef.value.focus()
-      syncCopilotCursorFromEditor()
+      syncCursorAndSelection()
       return
     }
     if (editorRef.value) {
       editorRef.value.setSelectionRange(result.newCursorPos, result.newCursorPos)
       editorRef.value.focus()
-      syncCopilotCursorFromEditor()
+      syncCursorAndSelection()
     }
   })
 }
 
 function retryCopilotSuggestion() {
-  syncCopilotCursorFromEditor()
+  syncCursorAndSelection()
   if (copilotManualTrigger() === false) return
   nextTick(() => {
     if (notebookEditorActive.value) notebookEditorRef.value?.focus()
@@ -11291,7 +11302,7 @@ function restoreEditorAfterContextMenu(snapshot) {
 
 function showContextMenu(e, meta = {}) {
   if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return
-  suppressWritingAgent('context-menu')
+  writingAgentHost.notifyContextMenuOpen()
   notebookEditorRef.value.closeCommandMenu?.()
   notebookCommandMenuOpen.value = false
   const selection = notebookEditorRef.value.getSelection?.() || {}
@@ -11465,24 +11476,19 @@ function documentUnitOrder() {
 }
 
 function onNotebookSelectionChange(selection) {
-  const previousCursor = copilotCursorPos.value
-  const transactionOwned = acceptingInlineSuggestion || applyingAtomicNotebookHistory
+  const transactionOwned = writingAgentHost.isAdoptionInFlight() || applyingAtomicNotebookHistory
   notebookSelection.value = selection
   if (inspectorOpen.value && activeInspectorTool.value === 'ai' && activeWritingPane.value === 'main') {
     const currentInvocation = captureMainKnowledgeAssistantInvocation()
     if (currentInvocation) knowledgeAssistantInvocation.value = currentInvocation
   }
   notebookSelectionScrollTop = document.querySelector('.wall__dossier-scroll')?.scrollTop || 0
-  const snapshot = readLiveWritingSelectionSnapshot()
-  const cursorMoved = snapshot.end !== previousCursor
-  if (!transactionOwned && (cursorMoved || selection?.text)) copilotCancel('cursor-move')
-  copilotCursorPos.value = snapshot.end
-  selectedText.value = snapshot.text
-  hasSelection.value = Boolean(selection?.text)
+  const hasSelectionText = Boolean(selection?.text)
+  const selectionSnapshot = writingAgentHost.handleSelectionMoved({ transactionOwned, hasSelectionText })
+  selectedText.value = selectionSnapshot.text
+  hasSelection.value = hasSelectionText
   refreshNotebookCommandAvailability()
-  if (!transactionOwned && cursorMoved && copilotEnabled.value && !selection?.text) {
-    schedulePassiveWritingSuggestion('cursor', snapshot.end)
-  }
+  writingAgentHost.scheduleCursorDwell({ transactionOwned, hasSelectionText, snapshot: selectionSnapshot })
   positionSelectionActions(selection)
   if (annotationComposerOpen.value && selection?.text) {
     annotationComposerContext.value = getAnnotationSelectionContext()
@@ -12247,7 +12253,7 @@ function applyRewriteCandidate(candidate) {
     rewriteInstruction.value = ''
     scheduleAnnotationLayout()
     notebookEditorRef.value?.focus?.()
-    syncCopilotCursorFromEditor()
+    syncCursorAndSelection()
   })
 }
 
@@ -12737,11 +12743,11 @@ function onNotebookInput(payload = {}) {
   // Ghost 采纳窗口内：编辑器插入及其 focus 事务都会以普通 'input' 冒出，
   // 这里只同步光标；任何清候选/失效回执/新联想都会把刚要 consume 的建议清空，
   // 导致 accept 的 consume 校验失败而整段回滚（Tab 采纳静默丢内容）。
-  if (applyingAtomicNotebookHistory || acceptingInlineSuggestion) {
-    syncCopilotCursorFromEditor()
+  if (applyingAtomicNotebookHistory || writingAgentHost.isAdoptionInFlight()) {
+    syncCursorAndSelection()
     return
   }
-  syncCopilotCursorFromEditor()
+  syncCursorAndSelection()
   if (payload.inputType !== 'writing-agent') {
     notebookCopilotCanUndo.value = false
     // 新的 forward 编辑会让 ProseMirror 丢弃 redo branch；普通 history
@@ -12749,14 +12755,7 @@ function onNotebookInput(payload = {}) {
     if (!['historyUndo', 'historyRedo'].includes(payload.inputType)) clearNotebookAtomicRedoHistory()
     authoringTask.invalidateReceipt()
   }
-  if (payload.inputType !== 'input') {
-    // selection-change 会先于 input 到达，可能已经排入一条 cursor dwell。
-    // 历史、粘贴及程序化写入必须在这里取消那条定时器，不能只 return。
-    suppressWritingAgent(payload.inputType || 'document-change')
-    return
-  }
-  if (!copilotEnabled.value || payload.composing || writingCompositionActive.value) return
-  schedulePassiveWritingSuggestion(payload.inputType)
+  writingAgentHost.notifyEditorInput(payload)
 }
 
 function syncMarkdownToEditor({ fenceHistory = true } = {}) {

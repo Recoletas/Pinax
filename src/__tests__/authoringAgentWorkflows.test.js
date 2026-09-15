@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { ref } from 'vue'
 import { createAuthoringProjectAdapter } from '../services/agents/authoring/authoringProjectAdapter.js'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow.js'
 import {
@@ -20,6 +21,8 @@ import {
 } from '../services/agents/observers/authoringObserverDerivation.js'
 import { listMemoryCandidates } from '../services/memoryCandidates.js'
 import { shouldTriggerWritingAgent, useWritingAgent } from '../composables/useWritingAgent.js'
+import { useInlineWritingAgentHost } from '../composables/useInlineWritingAgentHost.js'
+import { useAuthoringReferenceSource } from '../composables/useAuthoringReferenceSource.js'
 import { resolveWritingInteractionOwner, WRITING_INTERACTION_OWNER } from '../services/writing/writingInteractionPolicy.js'
 import {
   createAuthoringEvidenceEnvelope,
@@ -1678,7 +1681,7 @@ describe('inline suggestion provider credential gate', () => {
     }
   })
 
-  it('refuses manual inline generation while another interaction owns the editor', async () => {
+  it('keeps one editor owner: refuses manual trigger and drops late results（合并2例）', async () => {
     const { requestAdvisorTask } = await import('../services/advisorTaskService')
     const agent = useWritingAgent({
       enabled: true,
@@ -1691,15 +1694,12 @@ describe('inline suggestion provider credential gate', () => {
     expect(agent.manualTrigger()).toBe(false)
     expect(requestAdvisorTask).not.toHaveBeenCalled()
     expect(agent.requesting.value).toBe(false)
-  })
 
-  it('drops a provider result when block review takes ownership during the request', async () => {
-    const { requestAdvisorTask } = await import('../services/advisorTaskService')
     let resolveRequest
     requestAdvisorTask.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
     let canPresent = true
     const onCandidateShown = vi.fn()
-    const agent = useWritingAgent({
+    const lateAgent = useWritingAgent({
       enabled: true,
       resolveProviderCredential: async () => true,
       getSnapshot: () => ({ ...SNAPSHOT, cursorPos: 16 }),
@@ -1708,19 +1708,19 @@ describe('inline suggestion provider credential gate', () => {
       onCandidateShown
     })
 
-    const request = agent.generate(SNAPSHOT, 16, true)
+    const request = lateAgent.generate(SNAPSHOT, 16, true)
     await vi.waitFor(() => expect(requestAdvisorTask).toHaveBeenCalledOnce())
     canPresent = false
     resolveRequest({ advice: ['这条迟到的联想不得覆盖块推演。'] })
     await request
 
-    expect(agent.suggestion.value).toBe('')
-    expect(agent.visible.value).toBe(false)
+    expect(lateAgent.suggestion.value).toBe('')
+    expect(lateAgent.visible.value).toBe(false)
     expect(onCandidateShown).not.toHaveBeenCalled()
-    expect(agent.requesting.value).toBe(false)
+    expect(lateAgent.requesting.value).toBe(false)
   })
 
-  it('lets a cursor-move cancellation re-arm the same fingerprint without treating it as user dismissal', async () => {
+    it('re-arms temporary cancellations (cursor/scope/tool) without suppressing later dwell; user rejection still suppresses', async () => {
     vi.useFakeTimers()
     try {
       const { requestAdvisorTask } = await import('../services/advisorTaskService')
@@ -1760,8 +1760,233 @@ describe('inline suggestion provider credential gate', () => {
       dismissed.onInput(input)
       await vi.advanceTimersByTimeAsync(25)
       expect(requestAdvisorTask).toHaveBeenCalledTimes(1)
+
+      // 作用域切换与工具接管同为临时取消:回原落笔处可重新触发。
+      for (const reason of ['scope-change', 'tool-takeover']) {
+        requestAdvisorTask.mockClear()
+        const agent = createAgent()
+        await agent.generate(snapshot, snapshot.cursorPos, true)
+        agent.cancel(reason)
+        agent.onInput(input)
+        await vi.advanceTimersByTimeAsync(25)
+        expect(requestAdvisorTask).toHaveBeenCalledTimes(2)
+      }
     } finally {
       vi.useRealTimers()
+    }
+  })
+})
+
+describe('inline writing agent page host', () => {
+  it('owns cursor/adoption/routing and reference scope contracts（合并7例）', async () => {
+    const { nextTick } = await import('vue')
+    const createAgentStub = () => {
+      const calls = { cancel: [], suppress: [], onInput: [] }
+      return {
+        calls,
+        visible: ref(false),
+        requesting: ref(false),
+        enabled: ref(true),
+        cancel: vi.fn((reason) => calls.cancel.push(reason || 'user')),
+        suppress: vi.fn((reason) => calls.suppress.push(reason)),
+        finishComposition: vi.fn(),
+        onInput: vi.fn(),
+        peek: vi.fn(() => '第一句。第二句。'),
+        consume: vi.fn(() => '第一句。第二句。')
+      }
+    }
+
+    // (1) 采纳提交顺序:beforeInsert → 插入 → 信任 consume → adopted → sync。
+    {
+      const agent = createAgentStub()
+      const order = []
+      const host = useInlineWritingAgentHost({ agent, readCursorSnapshot: () => ({ end: 10, text: '' }) })
+      const editor = { insertPlainText: vi.fn(() => true), undo: vi.fn() }
+      const adopted = host.commitAdoption('all', '第一句。第二句。', {
+        editor,
+        beforeInsert: () => order.push('history-seam'),
+        onAdopted: () => order.push('adopted'),
+        afterSync: () => order.push('sync')
+      })
+      expect(adopted).toBe('adopted')
+      expect(order).toEqual(['history-seam', 'adopted', 'sync'])
+      expect(agent.consume).toHaveBeenCalledWith('all', { ignoreRevision: true })
+      expect(editor.undo).not.toHaveBeenCalled()
+      expect(host.isAdoptionInFlight()).toBe(false)
+    }
+
+    // (2) 插入失败不消费;consume 数量不符 → 编辑器 undo。
+    {
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({ agent, readCursorSnapshot: () => ({ end: 0, text: '' }) })
+      const rejected = { insertPlainText: vi.fn(() => false), undo: vi.fn() }
+      expect(host.commitAdoption('all', '文本。', { editor: rejected })).toBe('rejected')
+      expect(agent.consume).not.toHaveBeenCalled()
+      const mismatchAgent = { ...agent, consume: vi.fn(() => '只一段。') }
+      const mismatchEditor = { insertPlainText: vi.fn(() => true), undo: vi.fn() }
+      expect(useInlineWritingAgentHost({ agent: mismatchAgent, readCursorSnapshot: () => ({ end: 0, text: '' }) })
+        .commitAdoption('all', '两段。', { editor: mismatchEditor })).toBe('rejected')
+      expect(mismatchEditor.undo).toHaveBeenCalled()
+    }
+
+    // (3) 选区移动:真实移动或选中文本 → 取消;未移动不取消。
+    {
+      let snapshot = { end: 10, text: '' }
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({ agent, readCursorSnapshot: () => snapshot })
+      host.setCursor(10)
+      const moved = host.handleSelectionMoved({ transactionOwned: false, hasSelectionText: false })
+      expect(moved.cursorMoved).toBe(false)
+      expect(agent.calls.cancel).toEqual([])
+      snapshot = { end: 18, text: '' }
+      host.handleSelectionMoved({ transactionOwned: false, hasSelectionText: false })
+      expect(agent.calls.cancel).toEqual(['cursor-move'])
+      snapshot = { end: 26, text: '' }
+      host.handleSelectionMoved({ transactionOwned: true, hasSelectionText: false })
+      expect(agent.calls.cancel).toEqual(['cursor-move'])
+    }
+
+    // (4) dwell 调度:移动+可用+无选区 → schedule('cursor');选中文本/禁用不调度。
+    {
+      let snapshot = { end: 10, text: '' }
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({
+        agent,
+        readCursorSnapshot: () => snapshot,
+        buildAgentInput: (pos) => ({ content: '正文', cursorPos: pos })
+      })
+      snapshot = { end: 22, text: '' }
+      const moved = host.handleSelectionMoved({ transactionOwned: false, hasSelectionText: false })
+      host.scheduleCursorDwell({ transactionOwned: false, hasSelectionText: false, snapshot: moved })
+      expect(agent.onInput).toHaveBeenCalledTimes(1)
+      expect(agent.onInput.mock.calls[0][0].inputType).toBe('cursor')
+      host.scheduleCursorDwell({ transactionOwned: false, hasSelectionText: true, snapshot: { cursorMoved: true } })
+      expect(agent.onInput).toHaveBeenCalledTimes(1)
+      agent.enabled.value = false
+      host.scheduleCursorDwell({ transactionOwned: false, hasSelectionText: false, snapshot: { cursorMoved: true, end: 30 } })
+      expect(agent.onInput).toHaveBeenCalledTimes(1)
+    }
+
+    // (5) 输入路由:非 input 类型取消 dwell;组合态静默。
+    {
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({
+        agent,
+        readCursorSnapshot: () => ({ end: 0, text: '' }),
+        buildAgentInput: (pos) => ({ content: '正文', cursorPos: pos })
+      })
+      host.notifyEditorInput({ inputType: 'historyUndo' })
+      expect(agent.calls.suppress).toContain('historyUndo')
+      expect(agent.onInput).not.toHaveBeenCalled()
+      host.compositionActive.value = true
+      host.notifyEditorInput({ inputType: 'input', composing: false })
+      expect(agent.onInput).not.toHaveBeenCalled()
+    }
+
+    // (6) 互斥仲裁:阻断性 owner 出现时抑制;解除不重复抑制。
+    {
+      const signals = ref({ modalOpen: false })
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({
+        agent,
+        readCursorSnapshot: () => ({ end: 0, text: '' }),
+        readInteractionSignals: () => signals.value
+      })
+      signals.value = { modalOpen: true }
+      await nextTick()
+      expect(agent.calls.suppress).toContain('modal')
+      signals.value = { modalOpen: false }
+      await nextTick()
+      expect(agent.calls.suppress.filter((reason) => reason === 'modal')).toHaveLength(1)
+    }
+
+    // (7) 显式参考 owner:身份冻结、作用域绑定、请求前可用性。
+    {
+      const source = useAuthoringReferenceSource()
+      const selected = source.select({ id: 'asset-1', title: '潮汐表', kind: 'note', content: '  黄昏起雾时数航灯。  ' }, { scopeKey: 'book-a|chapter|ch-1' })
+      expect(selected.ok).toBe(true)
+      expect(source.reference.value.content).toBe('黄昏起雾时数航灯。')
+      expect(source.readForScope('book-a|chapter|ch-1')).not.toBeNull()
+      expect(source.clearIfScopeChanged('book-a|chapter|ch-2')).toBe(true)
+      expect(source.reference.value).toBeNull()
+      source.select({ id: 'asset-2', content: '灯塔在一月开门。' }, { scopeKey: 'book-a|chapter|ch-2' })
+      expect(source.readForScope('book-a|chapter|ch-1')).toBeNull()
+      expect(source.readForScope('book-a|chapter|ch-2').id).toBe('asset-2')
+      expect(source.select({ id: 'asset-3', content: '   ' }, { scopeKey: 'x' }).ok).toBe(false)
+    }
+
+    // (8) A17 故障复核·provider 迟到:请求在途时作用域取消,迟到 resolve
+    // 不得显示候选、不得残留 requesting。
+    {
+      const { requestAdvisorTask } = await import('../services/advisorTaskService')
+      let resolveLate
+      requestAdvisorTask.mockImplementation(() => new Promise((resolve) => { resolveLate = resolve }))
+      try {
+        const live = { content: '潮水漫过台阶，林昭停下脚步，听见门后传来一阵很轻的呼吸。', cursorPos: 16, documentId: 'ch-a17-late', chapterId: 'ch-a17-late', editorFocused: true }
+        const agent = useWritingAgent({
+          enabled: true,
+          resolveProviderCredential: async () => true,
+          getContext: () => live,
+          getSnapshot: () => live
+        })
+        const request = agent.generate(live, 16, true)
+        await vi.waitFor(() => expect(requestAdvisorTask).toHaveBeenCalled())
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        agent.cancel('scope-change')
+        resolveLate({ advice: ['作用域已切换,这条迟到结果必须丢弃。'] })
+        await request
+        expect(agent.suggestion.value).toBe('')
+        expect(agent.visible.value).toBe(false)
+        expect(agent.requesting.value).toBe(false)
+      } finally {
+        requestAdvisorTask.mockImplementation(async () => ({ advice: ['续写的下一句。'] }))
+      }
+    }
+
+    // (9) A17 故障复核·surface 销毁:编辑器插入抛错视为失败——不消费、
+    // 不崩溃、采纳标志在 finally 复位,可再次采纳。
+    {
+      const agent = createAgentStub()
+      const host = useInlineWritingAgentHost({ agent, readCursorSnapshot: () => ({ end: 0, text: '' }) })
+      const destroyed = {
+        insertPlainText: vi.fn(() => { throw new Error('surface destroyed') }),
+        undo: vi.fn()
+      }
+      expect(host.commitAdoption('all', '文本。', { editor: destroyed })).toBe('rejected')
+      expect(agent.consume).not.toHaveBeenCalled()
+      expect(host.isAdoptionInFlight()).toBe(false)
+      // 故障复位后可再次采纳:换回与插入文本一致的 consume 桩。
+      agent.consume = vi.fn(() => '文本。')
+      expect(host.commitAdoption('all', '文本。', { editor: { insertPlainText: vi.fn(() => true), undo: vi.fn() } })).toBe('adopted')
+    }
+
+    // (10) A17 故障复核·采纳窗口互斥:窗口内 isAdoptionInFlight 为真,
+    // 第二次提交不得重入。
+    {
+      const calls = { cancel: [], suppress: [], onInput: [] }
+      const agent = {
+        visible: ref(false),
+        requesting: ref(false),
+        enabled: ref(true),
+        cancel: vi.fn((r) => calls.cancel.push(r || 'user')),
+        suppress: vi.fn(),
+        finishComposition: vi.fn(),
+        onInput: vi.fn(),
+        consume: vi.fn(() => 'X')
+      }
+      const host = useInlineWritingAgentHost({ agent, readCursorSnapshot: () => ({ end: 0, text: '' }) })
+      let inner = ''
+      const editor = {
+        insertPlainText: vi.fn(() => {
+          inner = host.commitAdoption('all', 'X', { editor }) || 'falsy'
+          return true
+        }),
+        undo: vi.fn()
+      }
+      const outer = host.commitAdoption('all', 'X', { editor })
+      expect(outer).toBe('adopted')
+      expect(inner).toBe('rejected')
+      expect(host.isAdoptionInFlight()).toBe(false)
     }
   })
 })

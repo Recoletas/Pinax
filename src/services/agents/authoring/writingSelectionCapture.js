@@ -18,7 +18,7 @@ import {
   addNarrativeAsset,
   findDuplicateNarrativeAsset,
   updateNarrativeAsset
-} from './narrativeAssets'
+} from '../../narrativeAssets'
 
 const MAX_SNIPPET = 240
 const MAX_TITLE = 24

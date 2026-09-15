@@ -105,7 +105,7 @@ Run this self-check before claiming the UI task done:
 Quick rubric cues:
 
 - `Philosophy alignment`: do color, type, layout, and motion all agree, or are there foreign elements mixed in?
-- `Visual hierarchy`: run the squint test. Title/body ratio should usually be at least `2.5x`; hero surfaces often need `4x-6x`.
+- `Visual hierarchy`: run the squint test. For entry / narrative surfaces the primary headline should read clearly larger than body text (hero surfaces even more). For writing tools this rule does not apply to chrome: the manuscript text and chapter title own the visual weight, while save state, configuration, and decoration stay quiet and must not compete for space.
 - `Craft quality`: keep a consistent spacing system, usually a small repeatable scale; control color count; keep font families tight, usually no more than two.
 - `Functionality`: run the deletion test. If removing an element does not hurt clarity or workflow, it probably should go.
 - `Originality`: avoid cliché by default, but still look for one “unexpected but right” decision instead of settling for template output.
@@ -115,6 +115,18 @@ Output weighting for Pinax:
 - Workbench / dashboard / editor surfaces: prioritize `Functionality`, `Craft quality`, then `Visual hierarchy`.
 - Entry / narrative / showcase surfaces: prioritize `Visual hierarchy`, `Functionality`, then `Originality`.
 - If clarity and novelty conflict on a dense operational screen, clarity wins.
+
+## 5. Author-task continuity (Pinax writing tools)
+
+1. New capabilities continue the action the author is already performing. Do not force a page switch, a different editor, or a modal tutorial to reach a feature that can live where the author's cursor already is.
+2. Surface placement (right rail, inline, drawer) follows the current workflow's ownership, not a global law. "All features live in the right rail" is not a product-wide rule; what matters is one primary display location per message and no duplicated state between surfaces.
+3. Distinguish the two text-affecting tools: rehearsal produces selectable story branches the author may adopt; annotations propose edits to existing text. A visual flourish that makes passive content look interactive is a defect, not delight.
+
+## 6. Visual evidence and the no-change option
+
+1. Screenshots are evidence only when they preserve reality: original viewport, scroll position, empty states, long titles, and the selected object. Cropped or pre-scrolled captures that flatter the entry under test do not count.
+2. If you can view images, actually view them and record what you saw; if you cannot, state "visuals unverified" explicitly. Geometry data and DOM assertions never substitute for looking.
+3. No-change is a valid outcome. When the existing surface already serves the author task, keep it and record the benefit evidence instead; "the plan said to restructure" is not a reason to change a working UI.
 
 If any dimension is weak, list:
 

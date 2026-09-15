@@ -14,7 +14,7 @@ import {
   appendContextLedgerPart,
   createContextLedger
 } from '../services/contextLedger'
-import { extractWritingSuggestionWindow, normalizeWritingSuggestions } from '../services/writingSuggestion'
+import { extractWritingSuggestionWindow, normalizeWritingSuggestions } from '../services/agents/authoring/writingSuggestion'
 import {
   PASSIVE_HINT_TYPES,
   canRequestPassiveHint,
@@ -296,10 +296,13 @@ export function useWritingAgent(options = {}) {
       })
     }
     if (reason === 'user' && activeFingerprint) dismissedFingerprint = activeFingerprint
-    // 光标离开不是“拒绝这个候选”。清掉该落笔处的请求去重后，用户在
-    // 文档未变化时移回这里，仍可按正常 dwell 重新触发；显式 Esc/点击
-    // 拒绝继续由 dismissedFingerprint 抑制。
-    if (reason === 'cursor-move' && cancelledFingerprint === lastRequestedFingerprint) {
+    // 光标离开不是“拒绝这个候选”；作用域切换与工具接管同样是临时取消。
+    // 这三类都清掉该落笔处的请求去重:用户回到原文处仍可按正常 dwell
+    // 重新触发;显式 Esc/点击拒绝继续由 dismissedFingerprint 抑制。
+    if (
+      ['cursor-move', 'scope-change', 'tool-takeover'].includes(reason)
+      && cancelledFingerprint === lastRequestedFingerprint
+    ) {
       lastRequestedFingerprint = ''
     }
     requestVersion += 1
