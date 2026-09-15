@@ -103,12 +103,12 @@ AI request
 
 | 热点 | 当前规模 | 判断 |
 | --- | ---: | --- |
-| `Authoring.vue` | 12,823 行、143 个 import | 最大风险；Block、Ghost adoption、章节 review 与搜索/替换已有独立 owner，写作 Agent/inline suggestion 编排仍挤在页面 |
-| `Notes.vue` | 5,583 行 | 素材编辑与展示状态耦合 |
+| `Authoring.vue` | 12,822 行 | 最大风险；导航、保存、场景、推演、Ghost adoption、review/search 与 inline agent 已有独立 owner，批注/改写及编辑器适配仍挤在页面 |
+| `Notes.vue` | 4,405 行 | catalog/editor 生命周期已拆开；插画 DOM、拖拽/锚点、新建弹窗与 sidekick 仍在页面 |
 | `Experience.vue` | 4,429 行 | 兼容运行时仍重，不能继续承接新写作功能 |
 | `ProseEssay.vue` | 4,571 行 | 画布状态仍主要由页面持有 |
-| `gameStore.js` | 4,854 行 | 体验会话、历史、生成与状态变化职责过宽 |
-| `src/services/` | 312 个文件，72 个位于根层 | 域目录已经出现，但旧文件尚未迁完 |
+| `gameStore.js` | 3,656 行 | 会话、历史、runtime projection 与状态解析已分域；完整 turn 编排仍偏重 |
+| `src/services/` 根层 | 67 个文件 | 域目录已经出现，但旧文件尚未迁完 |
 
 本轮已经删除生产图完全不可达的旧 Writing wrapper、旧 Settings modal、旧 SidePanel、Kao/folio 残壳、旧 Authoring reference picker 和无人消费的体验素材 summarizer。仍只被测试引用的旧纯合同不在本轮硬删：它们需要先判断是迁移合同、未来能力还是废弃测试，不能用“没有页面 import”一刀切。
 
@@ -131,7 +131,8 @@ AI request
 11. ✅ `useAuthoringGhostAdoptionWorkflow`：单组 Ghost 从 stale 与依赖复核、保护点、编辑器写入、scene/outline delta、失败回滚、保存重试回执，到 observer、Character IF 消费、撤销和采用回响，已成为一个原子协调器；页面只提供 editor/repository 适配。
 12. ✅ `useAuthoringReviewWorkflow`：校对来源冻结、分批模型调用、取消/进度、live source reconcile、单项/批量采用、保护点、忽略和撤销已归入同一会话 owner。
 13. ✅ `useAuthoringSearchWorkflow`：搜索来源冻结、四域检索、跨章定位/返回、replace plan、批量保护与全书原子持久化已成为一个会话 owner；页面只适配编辑器选择、保护快照与提交后刷新。
-14. ⏭ 写作 Agent/inline suggestion：下一片整体迁出停驻触发、请求身份、取消/迟到响应、候选与失效状态，并保持 Ghost 采用和编辑器输入所有权边界。
+14. ✅ `useInlineWritingAgentHost` + `useAuthoringReferenceSource`：停驻触发、请求身份、IME/光标路由、取消/迟到响应、参考 scope、候选失效与采用接缝已迁出；页面只转发编辑器语义事件并提供事务 hooks。
+15. ⏭ 批注/改写工作区：整体迁出批注 CRUD、选区冻结、改写候选生成/失效/采用与回程；编辑器 DOM 定位继续由页面适配器持有。
 每片要求：减少页面自有状态/过渡逻辑与总行数，不以新增一个显式 composable import 伪装成退步；不得新增第二套 reactive snapshot；既有浏览器 Gate 保持同等行为覆盖。
 
 ### B. 根层 services 归域
@@ -144,7 +145,7 @@ AI request
 
 ### D. Experience 与 gameStore 隔离
 
-停止向 `/experience` 增加 Authoring 功能。先把 provider transport、history projection、runtime delta 拆为独立 facade，再决定体验页长期保留、插件化或退役；在真实存档迁移与用户验收前不删兼容数据。
+停止向 `/experience` 增加 Authoring 功能。会话规范化/调度、history/runtime projection、branch graph、observer、journal、生命周期默认值和自由文本状态解析现位于 `src/services/experience/`；store 只保留应用 action。下一刀是把完整 turn 编排收成 coordinator，再决定体验页长期保留、插件化或退役；在真实存档迁移与用户验收前不删兼容数据。
 
 ## 8. 变更检查表
 

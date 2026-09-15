@@ -149,9 +149,11 @@ import {
 import {
   computeFactionDeltas,
   filterMentionedNames,
+  parseActivityEvents,
   parseGoalIntent,
   parseKeyChoiceLabels,
   parseLocationChange,
+  parseWritingCharacterChange,
   parseWritingTimeChange
 } from '../services/experience/gameStateExtraction.js'
 import {
@@ -3083,156 +3085,14 @@ export const useGameStore = defineStore('game', {
 
     // 提取角色状态变化
     extractCharacterChanges(content) {
-      const char = { ...this.writingCharacter }
-      let updated = false
-
-      // 提取角色名字（如果未设置或为默认值）
-      if (!char.name || char.name === 'User') {
-        const namePatterns = [
-          // 直接称呼（最常见）
-          /你叫([^\s，。！？]{2,8})/,
-          /你的名字[叫是]([^\s，。！？]{2,8})/,
-          /名叫([^\s，。！？]{2,8})/,
-          /名为([^\s，。！？]{2,8})/,
-          // 自我介绍
-          /我是([^\s，。！？]{2,8})[，。！？]/,
-          /我叫([^\s，。！？]{2,8})[，。！？]/,
-          // 身份描述
-          /你是([^\s，。！？]{2,8})[，。！？，一个]/,
-          /作为一个叫([^\s，。！？]{2,8})的/,
-          // 第三人称叙事开头
-          /^([^\s，。！？]{2,8})[说想看走站坐躺醒]/m,
-          // 常见句式
-          /一个叫([^\s，。！？]{2,8})的/,
-          /名叫([^\s，。！？]{2,8})的[男女]/,
-          // 名字后面跟描述
-          /^([^\s，。！？]{2,8})，.{0,30}(醒来|睁眼|起身)/m
-        ]
-        for (const pattern of namePatterns) {
-          const match = content.match(pattern)
-          if (match && match[1]) {
-            const name = match[1].trim()
-            // 过滤掉常见的非名字词
-            const excludeWords = ['你', '我', '他', '她', '它', '这', '那', '一个', '一位', '自己', '年轻', '少年', '少女', '男子', '女子', '男人', '女人', '老人', '青年', '中年']
-            if (!excludeWords.includes(name) && !/\d/.test(name) && name.length >= 2 && name.length <= 8) {
-              char.name = name
-              updated = true
-              debugLog('[extractCharacterChanges] 检测到角色名:', char.name)
-              break
-            }
-          }
-        }
-      }
-
-      // 提取性别
-      if (!char.gender) {
-        const genderPatterns = [
-          /你是一个(\d{1,3})岁的(男|女)/,
-          /你是个(\d{1,3})岁的(男|女)/,
-          /你是(男|女)的/,
-          /一个(男|女)[性孩人]/,
-          /(男|女)主人公/,
-          /作为(男|女)/,
-          /性别[是为](男|女)/,
-          /(男|女)士/,
-          /(男|女)孩/
-        ]
-        for (const pattern of genderPatterns) {
-          const match = content.match(pattern)
-          if (match) {
-            // 有些模式性别在第二个捕获组
-            char.gender = match[2] || match[1]
-            if (char.gender === '男' || char.gender === '女') {
-              updated = true
-              debugLog('[extractCharacterChanges] 检测到性别:', char.gender)
-              break
-            }
-          }
-        }
-      }
-
-      // 提取年龄
-      if (!char.age) {
-        const agePatterns = [
-          /(\d{1,3})岁的[男女]/,
-          /一个(\d{1,3})岁的/,
-          /年龄[是为](\d{1,3})/,
-          /今年(\d{1,3})岁/
-        ]
-        for (const pattern of agePatterns) {
-          const match = content.match(pattern)
-          if (match && match[1]) {
-            const age = parseInt(match[1])
-            if (age > 0 && age < 200) {
-              char.age = age + '岁'
-              updated = true
-              debugLog('[extractCharacterChanges] 检测到年龄:', char.age)
-              break
-            }
-          }
-        }
-      }
-
-      // 检测情绪变化关键词
-      const moodKeywords = {
-        happy: ['开心', '高兴', '兴奋', '喜悦', '欣慰', '满足', '快乐', '愉快'],
-        sad: ['悲伤', '难过', '伤心', '沮丧', '失落', '忧郁', '悲痛'],
-        angry: ['愤怒', '生气', '恼火', '恼怒', '气恼', '愤慨'],
-        afraid: ['害怕', '恐惧', '惊恐', '惶恐', '不安', '担忧'],
-        surprised: ['惊讶', '吃惊', '意外', '震惊', '惊奇']
-      }
-
-      let moodDelta = 0
-      for (const [mood, keywords] of Object.entries(moodKeywords)) {
-        for (const keyword of keywords) {
-          if (content.includes(keyword)) {
-            if (mood === 'happy') moodDelta += 5
-            else if (mood === 'sad') moodDelta -= 5
-            else if (mood === 'angry') moodDelta -= 3
-            else if (mood === 'afraid') moodDelta -= 4
-            else if (mood === 'surprised') moodDelta += 1
-          }
-        }
-      }
-
-      if (moodDelta !== 0) {
-        const currentMood = char.mood || 50
-        char.mood = Math.max(0, Math.min(100, currentMood + moodDelta))
-        updated = true
-        debugLog('[extractCharacterChanges] 情绪变化:', moodDelta, '新情绪值:', char.mood)
-      }
-
-      // 如果有变化，保存
-      if (updated) {
-        this.saveWritingCharacter(char)
-      }
+      const character = parseWritingCharacterChange(content, this.writingCharacter)
+      if (character) this.saveWritingCharacter(character)
     },
 
     // 提取活动事件
     extractActivityEvents(content) {
-      const eventPatterns = [
-        // 获得物品 - 需要完整的物品名
-        { pattern: /获得了?(.+?)(?:。|，|\s)/, type: 'event' },
-        // 完成决定 - 需要完整的决定内容
-        { pattern: /做出了?(?:一个|项)?(.+?)(?:决定|选择)(?:。|，)/, type: 'decision' },
-        // 遇到 NPC - 需要完整描述
-        { pattern: /遇到了?(.+?)(?:，|。)/, type: 'encounter' },
-        // 完成里程碑
-        { pattern: /完成了?(.+?)(?:任务|委托|目标)(?:。|，)/, type: 'milestone' }
-      ]
-
-      for (const { pattern, type } of eventPatterns) {
-        const match = content.match(pattern)
-        if (match && match[0]) {
-          const title = match[0].trim()
-          if (title.length >= 4 && title.length <= 50) {
-            this.addActivity({
-              title,
-              type,
-              date: this.formatCurrentTime()
-            })
-          }
-        }
+      for (const event of parseActivityEvents(content)) {
+        this.addActivity({ ...event, date: this.formatCurrentTime() })
       }
     },
 

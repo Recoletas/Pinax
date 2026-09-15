@@ -6,12 +6,12 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-15 架构三线集成 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | A/B/C 修正树已按 B → C → A 压缩合入；集成审查补 Experience 失败/取消最终落盘、关闭 AI 重生成 no-op，以及 Notes 媒体迁移/参考图耐久写入。组合 `verify:full`、两项浏览器 Gate 与故障矩阵均通过，工作树已提交并解除三线写锁。 |
+| Codex / 2026-09-15 架构收尾第一轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 已先将验收节点推送到 origin；当前完成 B12 人物/活动状态纯解析迁移并刷新架构真源。下一片是 Authoring 批注/改写完整工作区，不再拆零散 helper。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
-- **2026-09-15 三线架构修正树已完成集成（最终门禁进行中）**：共同基线 `37e0679`；B 的会话规范化/保存调度/历史投影、C 的 Notes 目录与编辑生命周期、A 的 Authoring 行内写作 Agent owner 已依次压缩合入 main。独立复验确认 A 参考 scope、IME、临时取消与采纳异常边界闭环；C 的 catalog refresh 不再重装 editor，同 id 激活为 no-op，破坏性 mutation 有耐久结果。集成审查另发现并修复 B 普通生成失败/取消未保存最终回滚态、关闭 AI 仍改重生成分支，以及 C 媒体迁移和参考图新建仍可能假成功。最终组合证据写入[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。A12、B12 的明确 partial 与其余溢出包继续留在后续队列，不冒称整份夜间计划全做完。
+- **2026-09-15 三线架构修正树已完成集成并开始下一轮收尾**：共同基线 `37e0679`；B/C/A 已压缩合入并完成组合验证，详见[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。随后 B12 的人物与活动提取也迁入纯 `gameStateExtraction`，store 只应用结果，`gameStore.js` 降至 3,656 行；世界书人物条目仍由原 owner 掌握，不被 Experience 启发式反写。A12 与其余溢出包继续留在后续队列。
 
 - **2026-09-14 Authoring 第十至十三片已按完整事务收口**：`useAuthoringBlockWorkflow` 接管 Block composer/preview/turn；`useAuthoringGhostAdoptionWorkflow` 接管 stale 复核、编辑器写入、scene/outline delta、回滚/重试、observer、IF 消费与撤销；`useAuthoringReviewWorkflow` 接管章节校对的冻结、分批模型循环、采用与撤销；`useAuthoringSearchWorkflow` 接管来源冻结、四域索引、去抖、结果新鲜度、跨章定位/回程和替换预览/全书原子提交。`Authoring.vue` 由本轮起点 13,781 行降至 **12,823 行**（单轮净降 958；累计从 15,932 行降 3,109），143 imports。定向 ESLint 0/0、聚焦 55/55、Vite build、F2 校对/查找/历史 33/33、推演右栏 304/304、F1 rehearsal 48/48、IF 28/28 通过。浏览器门禁真实抓到并修复 Block host 参数名和 Review null identity 两处迁移错误；下一刀是写作 Agent/inline suggestion 生命周期，而不是继续拆百行 helper。
 

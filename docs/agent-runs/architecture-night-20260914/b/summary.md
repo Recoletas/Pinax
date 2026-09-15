@@ -20,7 +20,7 @@
 | D2/D4/D6/D7 供稿 | **done** | `docs-contributions.md`（Node engines 偏差等） |
 | B8 journal/来源投影 | **done** | `gameJournalProjection.js` |
 | B11 分支回合图（第三批） | **done** | `gameBranchTurnGraph.js` + 生产 action 路径矩阵用例 |
-| **B12 状态提取流水线（第三批）** | **partial** | 已迁：时间/地点解析 + 轻状态家族（目标/已遇角色/关键选择/阵营增减，第二刀）；**未迁仍在 store：extractCharacterChanges（约 127 行）、extractActivityEvents**。不写“状态提取已完成” |
+| **B12 状态提取流水线（第三批）** | **done after integration** | 时间/地点、人物、活动及轻状态家族均由 `gameStateExtraction.js` 纯解析；store action 只应用结果。worldbook 候选枚举仍由原 owner 提供，不反写正式人物设定。 |
 | **B13 记忆/observer 生命周期（第三批）** | **done** | 审计发现并修复：换书（setAuthoringProjectId）原先不取消旧作用域待执行派生、不清缓冲；现取消+清缓冲、订阅保留、同标识幂等（矩阵覆盖）。页面此前从不调用 resetAuthoringObserverRuntime——该事实已登记，A 侧若需在卸载时显式 reset 属接口请求，不改 A 文件 |
 | **B14 生命周期默认值（第三批）** | **done** | `gameLifecycleDefaults.js`：runtime reset 补丁唯一装配（56/56 字段程序化核验等价）；范围合同（保留 sessions/currentSessionId/apiSettings 等）写入模块头注 + 矩阵覆盖冷启动/旧会话/runtime-only reset |
 
@@ -113,17 +113,14 @@ B-R1/R2/R3 重做：
   为 O 指导 B-R2 明示授权的窄提交点**。不再声明"零增删"。
 - 矩阵 **19/19**（Node 20.20.2 与 22.22.3 双版本）；全量 vitest 200/200；
   `verify:full` exit 0（20/20 files、200/200、lint:delta、双 build、diff、docs）。
-- B12 仍为 partial（extractCharacterChanges/extractActivityEvents 未迁）；
-  B9/B10 剩余清扫留队列——按 O 门槛标注 merge-candidate with declared
-  partials，不冒称整夜完成。
+- B12 在 O 集成后的下一片完成；B9/B10 剩余清扫仍留队列，不因本项完成自动升级。
 
 ## 已知失败与供 O 重点复核
 
-- 无失败项。B12 未迁部分（extractCharacterChanges/extractActivityEvents）逐函数列明，下一刀入口即此。
+- 无失败项。下一处高价值边界是完整 turn 编排，不再继续拆状态解析 helper。
 - 危险 diff：`switchBranch`/`applyRuntimeSnapshot`/`saveCurrentSession`/`resetRuntimeState` 四个委托重写（等价性靠逐字迁移 + 字段集/矩阵核验）；`setAuthoringProjectId` 的新取消语义（换书即失效，行为变更已单列）。
 - `scripts/lib/arch-node-resolve.mjs` 仅服务离线 eval（vue→runtime-core 别名 + 无扩展名解析），不参与 Vite 生产构建解析；构建解析由 vitest/vite build 门禁覆盖。
 
 ## 剩余队列
 
 - B9（turn 编排阶段切分）、B10 剩余项（store 内无用变量/过时注释的触及面清扫）
-- B12 未迁函数：extractCharacterChanges、extractActivityEvents

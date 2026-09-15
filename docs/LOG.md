@@ -1,5 +1,7 @@
 # 开发日志
 
+- 2026-09-15：启动架构收尾第一轮并完成 B12。将 Experience 自由文本中的视角人物 name/gender/age/mood 与活动事件解析迁入纯 `gameStateExtraction.js`；store 的两个同名 action 只负责调用正式保存/活动写入边界，未把启发式结果反写世界书人物条目。故障矩阵在既有用例中补纯解析与生产 action 等价，20/20 通过；公开表面保持 73 state keys / 137 actions，`gameStore.js` 从集成后的 3,796 行降至 3,656 行。架构真源同步到合并后实际状态；下一片是 Authoring 批注/改写工作区。
+
 - 2026-09-15：完成夜间架构 A/B/C 修正树的独立验收与 main 集成。按 B → C → A 压缩为三个领域提交；集成审查额外修复普通体验生成失败/取消未耐久保存最终回滚态、关闭 AI 时重新生成仍改分支，以及 Notes 旧媒体迁移/参考图新建仍可能把写盘失败当成功。故障矩阵由 19 扩为 20 项并在 Node 20/22 通过；Notes J1–J6d、A focused 31/31 与组合 focused 35/35 通过。最终 `verify:full` 与提交 SHA 见[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。A12、B12 保持 partial。
 
 - 2026-09-15：独立复验 A 修正树 `f6e158b`：merge-base 已精确回到共同基线 `37e0679`，相对基线仅 2 提交，未复活旧 Authoring/Kao/Opening；死服务删除、inline host/reference owner 与 UI skill 方向可保留。重新运行 focused 31/31、推演 Gate 304/304、F2 Gate 33/33、`verify:full` 20/20 文件与 200/200 用例及双 build/diff 全绿，skill shim/frontmatter 完整。代码审查仍发现确定 P0：`activeDocumentSaveScopeKey` 是函数，三处生产新接线却读取 `.value`，使参考绑定空 scope，且两个辅助上下文仍绕过请求前 gate；另有 IME 结束同步时序、临时取消误记用户拒绝与 consume/undo 异常边界。A 改为 fix-required，二次指导要求生产跨章请求断言后再验收。

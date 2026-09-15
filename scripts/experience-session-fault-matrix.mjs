@@ -316,6 +316,15 @@ check('B12 状态提取：解析等价、首个匹配、单级失败不中断流
   assert.equal(extraction.parseLocationChange('他们来到了旧税所的门前'), '旧税所的门前') // 与原正则一致的贪婪匹配
   assert.equal(extraction.parseLocationChange('他们来到了旧税所，天色已晚'), '旧税所')
   assert.equal(extraction.parseLocationChange('无事发生。'), null)
+  assert.deepEqual(
+    extraction.parseWritingCharacterChange('我叫林舟，今年19岁。她既惊讶又开心。', { name: 'User', mood: 50 }),
+    { name: '林舟', age: '19岁', mood: 56 }
+  )
+  assert.equal(extraction.parseWritingCharacterChange('只是风吹过长街。', { name: '林舟', mood: 50 }), null)
+  assert.deepEqual(extraction.parseActivityEvents('他获得了铜钥匙。随后遇到了守门人，停下脚步。'), [
+    { title: '获得了铜钥匙。', type: 'event' },
+    { title: '遇到了守门人，', type: 'encounter' }
+  ])
   // 流水线隔离：stub 一个阶段抛错，其余阶段仍执行
   storageMap.clear()
   const store = freshStore()
@@ -388,7 +397,7 @@ check('B11 生产路径：store.switchBranch 切换恢复与 gc 经真实 action
 })
 
 
-check('B12 第二刀：目标/关键选择经生产 action，阵营/已遇角色为纯解析等价（worldbook 归属属原 owner）', async () => {
+check('B12 状态家族：人物/活动/目标/关键选择走生产 action，worldbook 候选保持原 owner', async () => {
   const extractionModule = await import('../src/services/experience/gameStateExtraction.js')
   storageMap.clear()
   const store = freshStore()
@@ -401,6 +410,16 @@ check('B12 第二刀：目标/关键选择经生产 action，阵营/已遇角色
   assert.equal(goal.status, 'completed', '文本含“完成”应判 completed')
   store.extractKeyChoices('你决定前往北方。他答应了全部条件。')
   assert.deepEqual(store.keyChoices.map((item) => item.label), ['你决定前往北方', '答应了全部条件'])
+  store.writingCharacter = { name: 'User', mood: 50 }
+  store.extractCharacterChanges('我叫林舟，今年19岁。她既惊讶又开心。')
+  assert.equal(store.writingCharacter.name, '林舟')
+  assert.equal(store.writingCharacter.age, '19岁')
+  assert.equal(store.writingCharacter.mood, 56)
+  store.extractActivityEvents('他获得了铜钥匙。随后遇到了守门人，停下脚步。')
+  assert.deepEqual(store.activities.map(({ title, type }) => ({ title, type })), [
+    { title: '获得了铜钥匙。', type: 'event' },
+    { title: '遇到了守门人，', type: 'encounter' }
+  ])
   // 纯解析等价（涉及 worldbook 候选的提取器保持原 owner，不伪装生产接线）
   const { computeFactionDeltas, filterMentionedNames } = extractionModule
   assert.deepEqual(computeFactionDeltas('潮汐议会向商会施压，商会怀疑林舟', ['潮汐议会', '商会']), [
