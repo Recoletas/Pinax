@@ -1,5 +1,7 @@
 # 开发日志
 
+- 2026-09-15：继续按完整 owner 收口 Authoring，而非零散减行。新增 `useAuthoringRewriteWorkflow` 接管改写请求代次、取消、候选/选择、stale、锁定片段和采用生命周期；新增 `useAuthoringAnnotationSession` 接管批注草稿、根项投影、创建/编辑/删除及作用域重置。页面只保留选区/DOM 与正文事务适配，`Authoring.vue` 由 12,822 行降至 12,521 行；切章旧批注 composer 同步清除。定向 ESLint 0 warning、聚焦 40/40、Vite build 与 F2 工作台 Gate 33/33 通过；J3 旧旅程停在已退役的首访按钮，未冒称产品 Gate 通过。
+
 - 2026-09-15：启动架构收尾第一轮并完成 B12。将 Experience 自由文本中的视角人物 name/gender/age/mood 与活动事件解析迁入纯 `gameStateExtraction.js`；store 的两个同名 action 只负责调用正式保存/活动写入边界，未把启发式结果反写世界书人物条目。故障矩阵在既有用例中补纯解析与生产 action 等价，20/20 通过；公开表面保持 73 state keys / 137 actions，`gameStore.js` 从集成后的 3,796 行降至 3,656 行。架构真源同步到合并后实际状态；下一片是 Authoring 批注/改写工作区。
 
 - 2026-09-15：完成夜间架构 A/B/C 修正树的独立验收与 main 集成。按 B → C → A 压缩为三个领域提交；集成审查额外修复普通体验生成失败/取消未耐久保存最终回滚态、关闭 AI 时重新生成仍改分支，以及 Notes 旧媒体迁移/参考图新建仍可能把写盘失败当成功。故障矩阵由 19 扩为 20 项并在 Node 20/22 通过；Notes J1–J6d、A focused 31/31 与组合 focused 35/35 通过。最终 `verify:full` 与提交 SHA 见[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。A12、B12 保持 partial。

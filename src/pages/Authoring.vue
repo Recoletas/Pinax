@@ -1668,6 +1668,8 @@ import { useAuthoringBlockWorkflow } from '../composables/useAuthoringBlockWorkf
 import { useAuthoringGhostAdoptionWorkflow } from '../composables/useAuthoringGhostAdoptionWorkflow.js'
 import { useAuthoringReviewWorkflow } from '../composables/useAuthoringReviewWorkflow.js'
 import { useAuthoringSearchWorkflow } from '../composables/useAuthoringSearchWorkflow.js'
+import { useAuthoringRewriteWorkflow } from '../composables/useAuthoringRewriteWorkflow.js'
+import { useAuthoringAnnotationSession } from '../composables/useAuthoringAnnotationSession.js'
 import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
 import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
@@ -1804,7 +1806,6 @@ import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useWritingDocument } from '../composables/useWritingDocument'
 import {
-  createWritingAnnotation,
   createWritingSelector,
   deleteWritingAnnotation,
   getWritingAnnotationLabel,
@@ -1812,8 +1813,7 @@ import {
   reconcileWritingAnnotations,
   resolveAnnotationLaneLayout,
   resolveSelectionActionPosition,
-  resolveWritingAnnotation,
-  updateWritingAnnotationBody
+  resolveWritingAnnotation
 } from '../services/writing/writingAnnotations.js'
 import { getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import {
@@ -1821,12 +1821,6 @@ import {
   buildChapterManuscriptExport
 } from '../services/writing/writingManuscriptExport.js'
 import { downloadTextFile } from '../utils/download.js'
-import {
-  buildWritingCandidateDiff,
-  createWritingCandidateRequest,
-  getWritingCandidateStaleReason,
-  normalizeWritingCandidateResponse
-} from '../services/writing/writingCandidates.js'
 import {
   createWritingSnapshot,
   getWritingSnapshotReasonLabel,
@@ -2427,19 +2421,6 @@ const selectedText = ref('')
 const notebookCommandMenuOpen = ref(false)
 const writingCompositionActive = ref(false)
 const chapterAnnotations = ref([])
-const activeAnnotationId = ref(null)
-const editingAnnotationId = ref(null)
-const annotationEditDraft = ref('')
-const annotationDraft = ref('')
-const annotationComposerOpen = ref(false)
-const annotationComposerContext = ref(null)
-const rewriteInstruction = ref('')
-const rewriteTarget = ref(null)
-const rewriteCandidates = ref([])
-const selectedRewriteCandidateId = ref(null)
-const rewriteLockedSegments = ref([])
-const rewriteLoading = ref(false)
-const rewriteError = ref('')
 const writingSnapshots = ref([])
 const writingBlockHistory = ref([])
 const writingRecoveryDraft = ref(null)
@@ -2447,11 +2428,94 @@ const snapshotLabel = ref('')
 const snapshotStatus = ref('')
 const writingHistoryPreferences = ref(loadWritingHistoryPreferences())
 const writingHistoryIntervalOptions = WRITING_HISTORY_INTERVAL_OPTIONS
-let rewriteRequestVersion = 0
-let rewriteAbortController = null
 let previousNotebookDocument = null
 let previousNotebookAnnotations = null
 let annotationLaneScrollAtOpen = 0
+const {
+  activeAnnotationId,
+  editingAnnotationId,
+  annotationEditDraft,
+  annotationDraft,
+  annotationComposerOpen,
+  annotationComposerContext,
+  marginAnnotations,
+  openAnnotationCount,
+  annotationDraftAnchor,
+  canCreateAnnotation,
+  getAnnotationSupplements,
+  addAnnotation,
+  closeAnnotationComposer,
+  createAnnotationFromSelection,
+  startAnnotationEdit,
+  cancelAnnotationEdit,
+  saveAnnotationEdit,
+  deleteAnnotation,
+  resetAnnotationSession
+} = useAuthoringAnnotationSession({
+  getAnnotations: () => activeEditorAnnotations.value,
+  setAnnotations: (annotations) => {
+    if (wt3ActiveDoc.value) wt3Annotations.value = annotations
+    else chapterAnnotations.value = annotations
+  },
+  getSelectionContext: () => getAnnotationSelectionContext(),
+  getScopeId: () => activeAnnotationScopeKey(),
+  canCreateTarget: () => Boolean(
+    selectedChapterId.value && selectedText.value.trim() && activeWritingBlock.value?.nodeId
+  ),
+  captureScroll: () => captureWritingScrollState(),
+  restoreScroll: (snapshot) => restoreWritingScrollState(snapshot),
+  openCommentsInspector: () => {
+    inspectorOpen.value = true
+    inspectorTab.value = 'comments'
+  },
+  setStatus: (message) => { quickNoteStatus.value = message },
+  onChanged: () => onContentChange(),
+  onBeforeDelete: (annotation) => {
+    if (rewriteTarget.value?.annotationId === annotation.id) closeAnnotationRewrite()
+  },
+  clearDraftNoteRef: () => setAnnotationNoteRef(null, 'annotation-draft'),
+  scheduleLayout: () => scheduleAnnotationLayout(),
+  focusEditor: () => notebookEditorRef.value?.focus?.(),
+  focusEditField: () => document.querySelector('.writing-annotation__edit')?.focus()
+})
+const {
+  rewriteInstruction,
+  rewriteTarget,
+  rewriteCandidates,
+  selectedRewriteCandidateId,
+  selectedRewriteCandidate,
+  rewriteLoading,
+  rewriteError,
+  resetRewriteState,
+  markRewriteCandidatesStale,
+  generateRewriteCandidates,
+  cancelRewriteGeneration,
+  retryRewriteCandidates,
+  applyRewriteCandidate,
+  dismissRewriteCandidate
+} = useAuthoringRewriteWorkflow({
+  getCurrentTarget: () => getCurrentRewriteTarget(),
+  getCurrentComparison: (target) => getCurrentRewriteComparison(target),
+  getChapterId: () => selectedChapterId.value,
+  getEditorMode: () => editorMode.value,
+  buildTaskContext: (options) => buildWritingTaskContext(options),
+  commitCandidate: (candidate, target) => commitRewriteCandidate(candidate, target),
+  onCandidateApplied: ({ target }) => {
+    if (!target?.annotationId) return
+    if (wt3ActiveDoc.value) {
+      wt3Annotations.value = deleteWritingAnnotation(wt3Annotations.value, target.annotationId)
+    } else {
+      chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, target.annotationId)
+    }
+    activeAnnotationId.value = null
+    onContentChange()
+  },
+  onAfterApplied: () => {
+    scheduleAnnotationLayout()
+    notebookEditorRef.value?.focus?.()
+    syncCursorAndSelection()
+  }
+})
 const sceneDetailNotice = ref('')
 const sceneInspectorMode = ref('current')
 const dualPaneRef = ref(null)
@@ -7856,38 +7920,6 @@ const activeWritingUnit = computed(() => {
   const nodeId = notebookSelection.value?.nodeId
   return nodeId ? getWritingUnitByNodeId(nodeId) : null
 })
-const rootAnnotations = computed(() => {
-  const annotations = activeEditorAnnotations.value
-  const ids = new Set(annotations.map((annotation) => annotation.id))
-  return annotations.filter((annotation) => (
-    annotation.status !== 'resolved'
-      && (!annotation.parentId || !ids.has(annotation.parentId))
-  ))
-})
-const marginAnnotations = computed(() => rootAnnotations.value)
-const annotationDraftAnchor = computed(() => {
-  const context = annotationComposerContext.value
-  if (!annotationComposerOpen.value || !context?.block?.nodeId || !context?.range) return null
-  return {
-    id: 'annotation-draft',
-    target: {
-      unitId: context.block.unitId,
-      unitRevision: context.block.unitRevision,
-      nodeId: context.block.nodeId,
-      nodeRevision: context.block.nodeRevision,
-      start: context.selector?.start || 0,
-      end: context.selector?.end || 0
-    },
-    selector: context.selector,
-    range: context.range,
-    status: 'open'
-  }
-})
-
-function getAnnotationSupplements(annotation) {
-  return activeEditorAnnotations.value.filter((item) => item.parentId === annotation?.id)
-}
-
 function setAnnotationNoteRef(element, annotationId) {
   const previous = annotationNoteRefs.get(annotationId)
   if (previous && previous !== element) annotationResizeObserver?.unobserve(previous)
@@ -7976,18 +8008,8 @@ watch(
   { deep: true, flush: 'post' }
 )
 
-const openAnnotationCount = computed(() => rootAnnotations.value.filter((annotation) => annotation.status === 'open').length)
-const selectedRewriteCandidate = computed(() => rewriteCandidates.value.find(
-  (candidate) => candidate.id === selectedRewriteCandidateId.value
-) || rewriteCandidates.value[0] || null)
 const recentWritingSnapshots = computed(() => writingSnapshots.value.slice(0, 3))
 const recentWritingBlockHistory = computed(() => writingBlockHistory.value.slice(0, 4))
-const canCreateAnnotation = computed(() => Boolean(
-  selectedChapterId.value
-  && annotationDraft.value.trim()
-  && selectedText.value.trim()
-  && activeWritingBlock.value?.nodeId
-))
 
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -8935,19 +8957,6 @@ function quickNoteWordCount(text) {
   return chineseChars + englishWords
 }
 
-function resetRewriteState() {
-  rewriteRequestVersion += 1
-  rewriteAbortController?.abort()
-  rewriteAbortController = null
-  rewriteLoading.value = false
-  rewriteError.value = ''
-  rewriteInstruction.value = ''
-  rewriteTarget.value = null
-  rewriteCandidates.value = []
-  selectedRewriteCandidateId.value = null
-  rewriteLockedSegments.value = []
-}
-
 function updateWritingHistoryPreference(patch = {}) {
   const result = saveWritingHistoryPreferences({
     ...writingHistoryPreferences.value,
@@ -9436,9 +9445,7 @@ function openBook(bookId, options = {}) {
       clearWritingDocument()
       chapterOutlineItems.value = []
       chapterAnnotations.value = []
-      activeAnnotationId.value = null
-      editingAnnotationId.value = null
-      annotationDraft.value = ''
+      resetAnnotationSession()
       resetRewriteState()
       clearCopilotReference({ silent: true })
     }
@@ -9457,11 +9464,7 @@ function openBook(bookId, options = {}) {
     clearWritingDocument()
     chapterOutlineItems.value = []
     chapterAnnotations.value = []
-    activeAnnotationId.value = null
-    editingAnnotationId.value = null
-    annotationDraft.value = ''
-    annotationComposerOpen.value = false
-    annotationComposerContext.value = null
+    resetAnnotationSession()
     resetRewriteState()
     clearCopilotReference({ silent: true })
   }
@@ -9543,9 +9546,7 @@ function selectChapter(chapterId) {
     chapter.id
   )
   loadChapterSnapshots(chapter.id)
-  activeAnnotationId.value = null
-  editingAnnotationId.value = null
-  annotationDraft.value = ''
+  resetAnnotationSession()
   editorHistory.clear()
   nextTick(() => {
     if (editorRef.value) editorRef.value.value = markdownContent.value
@@ -11623,35 +11624,29 @@ async function handleNotebookWritingCommand(command = {}) {
     end: target.text.length,
     fullText: target.text
   })
-  const annotationScopeId = wt3ActiveDoc.value
-    ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
-    : selectedChapterId.value
-  const annotation = createWritingAnnotation({
-    chapterId: annotationScopeId,
-    target: {
-      unitId: target.unitId,
-      unitRevision: target.unitRevision,
-      nodeId: target.nodeId,
-      nodeRevision: target.nodeRevision,
-      start: 0,
-      end: target.text.length
-    },
-    selector,
-    range: {
+  const annotation = addAnnotation({
+    context: {
+      block: {
+        unitId: target.unitId,
+        unitRevision: target.unitRevision,
+        nodeId: target.nodeId,
+        nodeRevision: target.nodeRevision
+      },
+      selector,
+      range: {
       start: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: 0 },
       end: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: target.text.length },
       unitIds: [target.unitId],
       nodeIds: [target.nodeId],
       exact: target.text,
       startSelector: selector,
-      endSelector: selector
+        endSelector: selector
+      }
     },
     body: instruction,
     kind: 'comment'
   })
-  if (wt3ActiveDoc.value) wt3Annotations.value = [annotation, ...wt3Annotations.value]
-  else chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
-  activeAnnotationId.value = annotation.id
+  if (!annotation) return
   inspectorOpen.value = true
   inspectorTab.value = 'comments'
   rewriteInstruction.value = instruction
@@ -12001,193 +11996,20 @@ function getCurrentRewriteComparison(targetOverride = null) {
   }
 }
 
-function markRewriteCandidatesStale() {
-  const current = getCurrentRewriteComparison()
-  if (!current) return
-  rewriteCandidates.value = rewriteCandidates.value.map((candidate) => {
-    if (candidate.status === 'applied' || candidate.status === 'dismissed') return candidate
-    const reason = getWritingCandidateStaleReason(candidate, current)
-    return reason
-      ? { ...candidate, status: 'stale', statusDetail: reason }
-      : candidate
-  })
-}
-
-function isRewriteTargetStillCurrent(target) {
-  if (!target) return false
-  const current = getCurrentRewriteComparison(target)
-  if (!current) return false
-  const candidate = target.kind === 'multi-selection'
-    ? {
-        chapterId: target.chapterId,
-        documentRevision: target.documentRevision,
-        patches: (target.nodes || []).map((node) => ({
-          unitId: node.unitId,
-          unitRevision: node.unitRevision,
-          nodeId: node.nodeId,
-          nodeRevision: node.nodeRevision,
-          baseText: node.text
-        }))
-      }
-    : {
-        chapterId: target.chapterId,
-        documentRevision: target.documentRevision,
-        unitId: target.unitId,
-        unitRevision: target.unitRevision,
-        nodeId: target.nodeId,
-        nodeRevision: target.nodeRevision,
-        baseText: target.text
-      }
-  return !getWritingCandidateStaleReason(candidate, current)
-}
-
-async function generateRewriteCandidates(targetOverride = null) {
-  if (targetOverride && !isRewriteTargetStillCurrent(targetOverride)) {
-    rewriteError.value = '原改写目标已经变化，请重新选中正文后再生成。'
-    return
-  }
-
-  const target = targetOverride || getCurrentRewriteTarget()
-  if (!target?.text?.trim()) {
-    rewriteError.value = '先把光标放入正文块，或选中需要改写的文字。'
-    return
-  }
-
-  rewriteAbortController?.abort()
-  const abortController = new AbortController()
-  rewriteAbortController = abortController
-  const requestVersion = ++rewriteRequestVersion
-  rewriteLoading.value = true
-  rewriteError.value = ''
-  rewriteTarget.value = target
-  rewriteCandidates.value = []
-  selectedRewriteCandidateId.value = null
-
-  const scope = target.kind === 'block' ? 'paragraph' : 'selection'
-  const taskType = target.kind === 'block' ? 'writing.fix.paragraph' : 'writing.fix.selection'
-  const question = rewriteInstruction.value.trim() || (target.kind === 'block'
-    ? '请修正当前正文块，处理重复、语病和衔接，但不要无依据扩写。'
-    : '请改写当前选区，保持原意、视角和人物语气，减少重复并改善节奏。')
-  const request = createWritingCandidateRequest({
-    target,
-    documentRevision: target.documentRevision,
-    chapterId: selectedChapterId.value,
-    question
-  })
-
-  try {
-    const context = buildWritingTaskContext({ scope, question, taskType })
-    const taskResult = await requestAdvisorTask({
-      context,
-      question,
-      scope,
-      taskType,
-      target: request.target,
-      options: {
-        editorMode: editorMode.value,
-        chapterId: selectedChapterId.value,
-        candidateCount: 3,
-        lockedSegments: rewriteLockedSegments.value,
-        multiBlock: target.kind === 'multi-selection',
-        targetBlocks: target.nodes || []
-      },
-      signal: abortController.signal
-    })
-    if (requestVersion !== rewriteRequestVersion) return
-
-    const targetNodesById = new Map((target.nodes || []).map((node) => [node.nodeId, node]))
-    const candidates = normalizeWritingCandidateResponse(taskResult.result, request).map((candidate) => {
-      const patches = candidate.patches?.map((patch) => {
-        const targetNode = targetNodesById.get(patch.nodeId)
-        return {
-          ...patch,
-          baseText: targetNode?.baseText || patch.baseText,
-          targetRange: targetNode?.range || patch.targetRange,
-          editorRange: targetNode?.editorRange || patch.editorRange,
-          startOffset: targetNode?.startOffset,
-          endOffset: targetNode?.endOffset,
-          diff: buildWritingCandidateDiff(targetNode?.baseText || patch.baseText, patch.replacement)
-        }
-      })
-      return {
-        ...candidate,
-        kind: target.kind,
-        chapterId: selectedChapterId.value,
-        documentRevision: target.documentRevision,
-        unitId: target.unitId,
-        unitRevision: target.unitRevision,
-        nodeId: target.nodeId,
-        nodeRevision: target.nodeRevision,
-        targetRange: target.range,
-        lockedSegments: rewriteLockedSegments.value,
-        patches,
-        status: 'ready',
-        diff: target.kind === 'multi-selection'
-          ? null
-          : buildWritingCandidateDiff(target.text, candidate.text)
-      }
-    })
-    if (!candidates.length) throw new Error('模型未返回可审阅的改写候选')
-    rewriteCandidates.value = candidates
-    selectedRewriteCandidateId.value = candidates[0].id
-  } catch (error) {
-    if (requestVersion === rewriteRequestVersion) {
-      rewriteError.value = error?.code === 'AGENT_REQUEST_ABORTED'
-        ? '本次生成已取消，可重新生成。'
-        : error?.message || '改写候选生成失败'
-    }
-  } finally {
-    if (requestVersion === rewriteRequestVersion) {
-      rewriteLoading.value = false
-      if (rewriteAbortController === abortController) rewriteAbortController = null
-    }
-  }
-}
-
-function cancelRewriteGeneration() {
-  rewriteRequestVersion += 1
-  rewriteAbortController?.abort()
-  rewriteAbortController = null
-  rewriteLoading.value = false
-  rewriteError.value = '本次生成已取消，可重新生成。'
-}
-
-function retryRewriteCandidates() {
-  if (rewriteLoading.value || !rewriteTarget.value) return
-  generateRewriteCandidates(rewriteTarget.value)
-}
-
-function applyRewriteCandidate(candidate) {
-  if (rejectLockedNotebookMutation()) return
-  if (!candidate || candidate.status !== 'ready') return
-  const current = getCurrentRewriteComparison()
-  const staleReason = getWritingCandidateStaleReason(candidate, current)
-  if (staleReason) {
-    candidate.status = 'stale'
-    candidate.statusDetail = staleReason
-    rewriteError.value = '正文或目标块已经变化，这条候选已过期，请重新生成。'
-    return
-  }
-
-  const lockedSegments = candidate.lockedSegments || []
-  if (!candidate.patches && lockedSegments.some((segment) => !candidate.text.includes(segment.text))) {
-    rewriteError.value = '候选没有保留全部锁定片段，不能采用。'
-    return
-  }
-
+function commitRewriteCandidate(candidate, target) {
+  if (rejectLockedNotebookMutation()) return { ok: false, silent: true }
   if (!protectCurrentRewrite(candidate)) {
-    rewriteError.value = '无法保存改写前版本，正文没有变化。'
-    return
+    return { ok: false, message: '无法保存改写前版本，正文没有变化。' }
   }
 
   const before = markdownContent.value
   let applied = false
   if (notebookEditorActive.value && candidate.kind === 'multi-selection') {
     applied = Boolean(notebookEditorRef.value?.replaceNodeRanges?.(candidate.patches, { origin: 'writing-agent' }))
-  } else if (notebookEditorActive.value && candidate.kind === 'selection' && rewriteTarget.value?.editorRange) {
+  } else if (notebookEditorActive.value && candidate.kind === 'selection' && target?.editorRange) {
     applied = Boolean(notebookEditorRef.value?.replaceTextRange?.(
-      rewriteTarget.value.editorRange.from,
-      rewriteTarget.value.editorRange.to,
+      target.editorRange.from,
+      target.editorRange.to,
       candidate.text,
       { origin: 'writing-agent' }
     ))
@@ -12208,8 +12030,7 @@ function applyRewriteCandidate(candidate) {
         baseText: candidate.baseText
       }]
     if (actions.some((action) => !action.range)) {
-      rewriteError.value = '候选缺少可应用的正文范围，请重新生成。'
-      return
+      return { ok: false, message: '候选缺少可应用的正文范围，请重新生成。' }
     }
     const transactionDocumentId = wt3ActiveDoc.value?.id || selectedChapterId.value
     const transaction = applyWritingAgentTransaction(before, actions, {
@@ -12218,10 +12039,12 @@ function applyRewriteCandidate(candidate) {
       cursorBefore: readCurrentEditorCursor(before)
     })
     if (!transaction.ok) {
-      candidate.status = 'stale'
-      candidate.statusDetail = transaction.reason
-      rewriteError.value = '正文已变化，候选没有应用。'
-      return
+      return {
+        ok: false,
+        stale: true,
+        reason: transaction.reason,
+        message: '正文已变化，候选没有应用。'
+      }
     }
     markdownContent.value = transaction.content
     syncMarkdownToEditor()
@@ -12229,38 +12052,9 @@ function applyRewriteCandidate(candidate) {
     applied = true
   }
 
-  if (!applied) {
-    rewriteError.value = '编辑器没有接受这次改写，请重新生成。'
-    return
-  }
-
-  candidate.status = 'applied'
-  rewriteError.value = ''
-  rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
-  if (rewriteTarget.value?.annotationId) {
-    if (wt3ActiveDoc.value) {
-      wt3Annotations.value = deleteWritingAnnotation(wt3Annotations.value, rewriteTarget.value.annotationId)
-    } else {
-      chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, rewriteTarget.value.annotationId)
-    }
-    activeAnnotationId.value = null
-    onContentChange()
-  }
-  nextTick(() => {
-    rewriteTarget.value = null
-    rewriteCandidates.value = []
-    selectedRewriteCandidateId.value = null
-    rewriteInstruction.value = ''
-    scheduleAnnotationLayout()
-    notebookEditorRef.value?.focus?.()
-    syncCursorAndSelection()
-  })
-}
-
-function dismissRewriteCandidate(candidate) {
-  if (!candidate) return
-  candidate.status = 'dismissed'
-  rewriteCandidates.value = rewriteCandidates.value.map((item) => item.id === candidate.id ? candidate : item)
+  return applied
+    ? { ok: true }
+    : { ok: false, message: '编辑器没有接受这次改写，请重新生成。' }
 }
 
 function buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact }) {
@@ -12363,102 +12157,6 @@ function getAnnotationSelectionContext() {
     ? startBlock.text.slice(localStart, localEnd)
     : [startBlock.text.slice(localStart), endBlock.text.slice(0, localEnd)].join('\n'))
   return buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact })
-}
-
-function createAnnotationFromSelection() {
-  const body = annotationDraft.value.trim()
-  const context = annotationComposerContext.value || getAnnotationSelectionContext()
-  if (!context) {
-    quickNoteStatus.value = '请先在正文中选中需要批注的片段'
-    return
-  }
-  if (!body) return
-  const scrollState = captureWritingScrollState()
-
-  const annotationScopeId = wt3ActiveDoc.value
-    ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
-    : selectedChapterId.value
-  const annotation = createWritingAnnotation({
-    chapterId: annotationScopeId,
-    target: {
-      unitId: context.block.unitId,
-      unitRevision: context.block.unitRevision,
-      nodeId: context.block.nodeId,
-      nodeRevision: context.block.nodeRevision,
-      start: context.selector.start,
-      end: context.selector.end
-    },
-    selector: context.selector,
-    range: context.range,
-    references: context.worldbookReferences || [],
-    body,
-    kind: 'comment'
-  })
-  if (wt3ActiveDoc.value) {
-    wt3Annotations.value = [annotation, ...wt3Annotations.value]
-    // 探索批注随切换/关闭持久化到探索文档（wt3PersistActiveDoc）。
-  } else {
-    chapterAnnotations.value = [annotation, ...chapterAnnotations.value]
-  }
-  activeAnnotationId.value = annotation.id
-  inspectorOpen.value = true
-  inspectorTab.value = 'comments'
-  quickNoteStatus.value = '批注已添加'
-  onContentChange()
-  nextTick(() => {
-    closeAnnotationComposer({ restoreFocus: false })
-    restoreWritingScrollState(scrollState)
-  })
-}
-
-function closeAnnotationComposer({ restoreFocus = true } = {}) {
-  annotationComposerOpen.value = false
-  annotationComposerContext.value = null
-  annotationDraft.value = ''
-  setAnnotationNoteRef(null, 'annotation-draft')
-  scheduleAnnotationLayout()
-  if (restoreFocus) nextTick(() => notebookEditorRef.value?.focus?.())
-}
-
-function startAnnotationEdit(annotation) {
-  if (!annotation) return
-  activeAnnotationId.value = annotation.id
-  editingAnnotationId.value = annotation.id
-  annotationEditDraft.value = annotation.body
-  nextTick(() => document.querySelector('.writing-annotation__edit')?.focus())
-}
-
-function cancelAnnotationEdit() {
-  editingAnnotationId.value = null
-  annotationEditDraft.value = ''
-}
-
-function saveAnnotationEdit(annotation) {
-  const body = annotationEditDraft.value.trim()
-  if (!annotation?.id || !body) return
-  if (wt3ActiveDoc.value) {
-    wt3Annotations.value = updateWritingAnnotationBody(wt3Annotations.value, annotation.id, body)
-  } else {
-    chapterAnnotations.value = updateWritingAnnotationBody(chapterAnnotations.value, annotation.id, body)
-  }
-  editingAnnotationId.value = null
-  annotationEditDraft.value = ''
-  quickNoteStatus.value = '批注已更新'
-  onContentChange()
-}
-
-function deleteAnnotation(annotation) {
-  if (!annotation?.id) return
-  if (wt3ActiveDoc.value) {
-    wt3Annotations.value = deleteWritingAnnotation(wt3Annotations.value, annotation.id)
-  } else {
-    chapterAnnotations.value = deleteWritingAnnotation(chapterAnnotations.value, annotation.id)
-  }
-  if (activeAnnotationId.value === annotation.id) activeAnnotationId.value = null
-  if (editingAnnotationId.value === annotation.id) cancelAnnotationEdit()
-  if (rewriteTarget.value?.annotationId === annotation.id) closeAnnotationRewrite()
-  quickNoteStatus.value = '批注已删除'
-  onContentChange()
 }
 
 function freezeReviewSource() {

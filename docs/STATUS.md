@@ -6,10 +6,12 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-15 架构收尾第一轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 已先将验收节点推送到 origin；当前完成 B12 人物/活动状态纯解析迁移并刷新架构真源。下一片是 Authoring 批注/改写完整工作区，不再拆零散 helper。 |
+| Codex / 2026-09-15 架构收尾第一轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 已完成 B12 与 Authoring 批注/改写会话 owner；当前复验并推送本片。下一片收批注 selection/DOM adapter 与分散 scope reset，之后进入全仓 durable mutation result。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
+
+- **2026-09-15 Authoring 批注/改写会话已按完整 owner 迁出**：新增 `useAuthoringRewriteWorkflow`，统一请求代次、取消、候选选择、stale、锁定片段与采用后清理；新增 `useAuthoringAnnotationSession`，统一批注草稿、根项投影、创建/编辑/删除及作用域 reset。页面只保留 ProseMirror/Markdown 提交事务、选区解析、边注 lane DOM 测量和滚动定位。`Authoring.vue` 从 12,822 行降至 12,521 行；切章现在会关闭旧批注 composer，避免跨章沿用旧选区。F2 工作台浏览器 Gate 33/33；旧 J3 harness 因仍寻找已退役首访按钮而无法启动，记为脚本债务而非产品通过。
 
 - **2026-09-15 三线架构修正树已完成集成并开始下一轮收尾**：共同基线 `37e0679`；B/C/A 已压缩合入并完成组合验证，详见[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。随后 B12 的人物与活动提取也迁入纯 `gameStateExtraction`，store 只应用结果，`gameStore.js` 降至 3,656 行；世界书人物条目仍由原 owner 掌握，不被 Experience 启发式反写。A12 与其余溢出包继续留在后续队列。
 
