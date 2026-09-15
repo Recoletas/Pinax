@@ -11,6 +11,8 @@
 
 ## 当前事实
 
+- **2026-09-15 三线夜间成果独立复验：均需修正后集成**：A 已在修正树 `f6e158b` 从共同基线 `37e0679` 逐意图重建，未再复活 143 文件旧快照；host/reference owner 抽取方向成立，独立 focused 31/31、推演 304/304、F2 33/33 与 `verify:full` 全绿，但生产把函数 `activeDocumentSaveScopeKey` 错作 `.value`，参考实际绑定空 scope，IME/临时取消/采纳异常边界也未闭环，故为 fix-required。B 在 `fc19801` 已修 Node 22 navigator、API 口径与 B12/B13/B14 状态；随后 `5e0d12c` 修空项目 id 并让空闲 writer 强制写盘，但把 `saveCurrentSession()` 放进 `applyRuntimeSnapshot()` 会在分支/撤销/失败事务中途保存半成品。独立复跑矩阵 16/16、`verify:full` 全绿，但尚未覆盖外层事务 fresh reload，故仍为 fix-required。C 在 `8bb8256` 已修正不同 id 保存失败保护，但 `loadNotes()` 同 id/异步重载仍可能覆盖草稿，仍为 fix-required。A/B/C 二次指导分别位于各修正 worktree 的 `a|b|c/O-REACCEPTANCE-AND-FIX-GUIDE-20260915.md`。当前不得直接合并；D1–D8 公共文档与 S0–S8 O 侧收尾也尚未完成。
+
 - **夜间架构计划最终加量（仍待执行）**：任务书已形成四层队列：第二批 12 包、D1–D8 文档、S0–S8 skill、第三批 A10–A13/B11–B14/C10–C13，并追加 A14–A17/B15–B18/C14–C17 溢出包。§19–21 要求提前 final 后原 worktree 续派、T+0:30 至 T+8:00 固定检查、T+6:30 冻结和时间证据；不用等待/重复测试凑时间。本次仍只修改计划，尚未启动 worker、修改 skills 或实施代码。
 
 - **2026-09-14 三线夜间架构计划待执行**：[详细任务书](./plan/architecture-night-three-tracks-20260914.md)已编制，A 接管 Authoring 写作助手生命周期，B 整理 gameStore 会话规范化/保存/历史，C 整理 Notes 目录/编辑/异步归属。包含同一 WIP 基线快照、独占写集、主包与储备、约 8 小时预算及组合验收；尚未创建实施 worktree、启动 worker 或合并。任务板已登记 planned，不覆盖其他历史任务状态。

@@ -1,5 +1,13 @@
 # 开发日志
 
+- 2026-09-15：独立复验 A 修正树 `f6e158b`：merge-base 已精确回到共同基线 `37e0679`，相对基线仅 2 提交，未复活旧 Authoring/Kao/Opening；死服务删除、inline host/reference owner 与 UI skill 方向可保留。重新运行 focused 31/31、推演 Gate 304/304、F2 Gate 33/33、`verify:full` 20/20 文件与 200/200 用例及双 build/diff 全绿，skill shim/frontmatter 完整。代码审查仍发现确定 P0：`activeDocumentSaveScopeKey` 是函数，三处生产新接线却读取 `.value`，使参考绑定空 scope，且两个辅助上下文仍绕过请求前 gate；另有 IME 结束同步时序、临时取消误记用户拒绝与 consume/undo 异常边界。A 改为 fix-required，二次指导要求生产跨章请求断言后再验收。
+
+- 2026-09-15：独立复验 B 线 `fc19801` 后继续审查 `5e0d12c`：Node 20/22 原矩阵各 14/14、API surface 73 state/136 actions 零增删、focused 13/13；新矩阵 16/16，`5e0d12c` 上 `verify:full` 20/20 文件与 200/200 用例及双 build/diff 全绿。故障注入确认空闲 writer 原先持久化旧 runtime；但 `5e0d12c` 把同步保存放进 `applyRuntimeSnapshot()`，会破坏外层分支/撤销/失败事务原子性，且现有矩阵未做 fresh reload。B 维持 fix-required，二次指导要求外层最终一致态一次提交，并纠正恒真/弱断言。
+
+- 2026-09-15：独立复验 C 线修复 HEAD `8bb8256`。Notes smoke J1–J6、focused 10/10、`verify:full` 20/20 文件与 200/200 用例及双 build/diff 均通过，首轮“不同 id 切换遇配额失败”修复有效；但代码审查确认 `loadNotes()` 仍将目录刷新、选择与编辑器重装绑定，同 id/异步刷新可覆盖 debounce 窗口内草稿。C 维持 fix-required，二次指导要求拆分 refresh/activation、补 J6a–J6d、统一 durable mutation 结果。
+
+- 2026-09-15：独立初验夜间 A/B/C。A 的 merge-base 错在 `f8b7dd0`，漏掉共同基线 `37e0679` 的 143 文件快照；B 的新 fault matrix 在 Node 22 因 navigator 只读赋值失败；C 的保存失败仍会继续切素材并覆盖编辑器输入。为三线和 O 分别写修改指导，状态改为需修正后集成；未合并、未删除 worker 分支。
+
 - 2026-09-14：进一步为夜间架构计划增加 A14–A17/B15–B18/C14–C17 溢出队列与固定调度控制表；覆盖 Authoring 首载/故障、Experience-store 接缝、ProseEssay-素材边界。单次 worker 提前 final 按同工作树续派处理，任务板记录检查点与 active/blocked 区间。仍仅修计划，未启动实施。
 
 - 2026-09-14：夜间架构任务书最终追加第三批 12 个生产代码包与八小时持续运行协议；实际范围覆盖 Authoring 输入/切换/工具所有权、gameStore 分支/状态提取/记忆/reset、Notes 画布/偏好/术语/组件。规定 T+6:30 前提前返回续派、末段组合和 active/等待时间分列。本轮仍为计划修订，未执行代码或 skill 改动。

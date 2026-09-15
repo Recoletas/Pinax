@@ -1,5 +1,16 @@
 # Agent Runs
 
+## 2026-09-15 夜间架构成果修正
+
+独立初验入口：[O 修改与集成指导](./architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)。三线提交已冻结，但“完成”不等于可合并；按各分线 `MODIFICATION_GUIDE.md` fix-forward，A 例外为正确基线重建。
+
+| ID | 当前分支 / HEAD | 初验状态 | 下一动作 | 指导 |
+|---|---|---|---|---|
+| ARCH-A-R | `night/arch-a-20260914-fix@f6e158b` + 未提交修正 | fix-required（复验 2）：正确基线重建成立；参考 scope 生产接线把函数误作 `.value`，IME/临时取消/采纳异常仍缺 | 按二次指导修 scope gate 与生命周期边界，最终 clean HEAD 复验 | A fix worktree 内 `a/O-REACCEPTANCE-AND-FIX-GUIDE-20260915.md` |
+| ARCH-B-R | `arch/gamestore-20260914@5e0d12c` | fix-required（复验 2）：首轮阻断已修；投影内部提前 save 会制造半事务；矩阵 16/16、full 全绿但缺事务 fresh reload | 把持久化移到 switch/undo/failure/regenerate 最终提交点，修假断言后双 Node 复验 | B worktree 内 `b/O-REACCEPTANCE-AND-FIX-GUIDE-20260915.md` |
+| ARCH-C-R | `arch/notes-20260914@8bb8256` | fix-required（复验 2）：不同 id 切换已修；同 id `loadNotes` 重载及若干异步刷新仍可覆盖草稿 | 拆开 catalog refresh/editor activation，补 J6a–J6d 与 durable mutation 结果 | C worktree 内 `c/O-REACCEPTANCE-AND-FIX-GUIDE-20260915.md` |
+| ARCH-O-R | `main@37e0679` | waiting-fixes：公共 D/S 包未落地 | 审共享断言与 skills/docs；修正后 B → C → A 组合验收 | 本节总指导 |
+
 ## 2026-09-14 三线夜间架构整理（待执行）
 
 若前三层全完成，§20 的 A14–A17/B15–B18/C14–C17 作为溢出队列，扩大写集前由 O 转锁。§21 固定 T+0:30/1:30/2:30/3:30/4:30/5:30/6:15/6:30/7:15/8:00 检查点，并记录续派与 active/blocked 区间。当前仍仅是 planned。

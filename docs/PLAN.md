@@ -4,6 +4,8 @@
 
 ## 当前主线
 
+三线交付后的执行入口改为[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)：A 先修共同基线；B 首轮 Node/API/状态修复已完成，但须把 runtime 恢复的 session 同步与持久化移到 switch/undo/failure/regenerate 最终一致态；C 须继续拆开 catalog refresh/editor activation，关闭同 id 重载、异步刷新与 mutation 假成功。修正完成后按 B → C → A 组合。旧 A 分支禁止整支合入，公共 D/S 包由 O 串行完成。
+
 夜间计划补充第四层溢出队列与固定控制表：三线主任务全完成后，才可分别进入 Authoring 加载/故障、Experience/store 接缝、ProseEssay/素材公共边界。O 在 T+0:30 至 T+8:00 按固定检查点续派并留时间证据；单次 worker final 不等于该线结束。见任务书 §20–21。
 
 夜间架构任务池最终扩为三层：核心迁移、相邻收口、A10–A13/B11–B14/C10–C13 第三批深挖。执行按任务书 §19 在 T+6:30 前持续续派，同一 worker 提前返回后由 O 在原 worktree 继续派包；最后 90 分钟统一集成。持续时间必须来自有效实施/复核，不使用等待和重复测试凑数。
