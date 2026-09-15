@@ -554,13 +554,14 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
-import { marked } from 'marked'
-import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import { useCanvasBoard } from '../composables/useCanvasBoard'
+import { useNotesAssetEditor } from '../composables/useNotesAssetEditor'
+import { useNotesAssetCatalog } from '../composables/useNotesAssetCatalog'
+import { useNotesMaterialAdvisor } from '../composables/useNotesMaterialAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
@@ -569,17 +570,17 @@ import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue
 import { STORAGE_KEYS, getItem } from '../composables/useStorage'
 import { useTipState } from '../composables/useTipState'
 import { useGameStore } from '../stores/gameStore'
+import { htmlToMarkdown, markdownImageDescriptors, markdownToHtml } from '../services/notes/assetMarkdown'
+import {
+  computeIllustrationFigureView,
+  imageBaseWidth
+} from '../services/notes/illustrationPresentation'
 import {
   addNarrativeAsset,
   buildNarrativeAssetContentHash,
   DEFAULT_IMAGE_PRESENTATION,
-  deleteNarrativeAsset,
   getAssetKindLabel,
-  listActiveNarrativeAssets,
-  listNarrativeAssets,
-  mergeNarrativeAssets,
   normalizeImagePresentation,
-  setNarrativeAssetsStatus,
   updateNarrativeAsset
 } from '../services/narrativeAssets'
 import { createExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
@@ -587,30 +588,11 @@ import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'
 import {
   addNarrativeImageAsset,
   getMediaImagePresentation,
-  hydrateNarrativeImageAssets,
   migrateNarrativeImageAssets,
   updateMediaImagePresentation,
   updateNarrativeImagePresentation
 } from '../services/media/narrativeImageAssetBridge'
-import {
-  createMarkdownMediaReference,
-  hydrateMarkdownMediaContent,
-  migrateMarkdownMediaContent
-} from '../services/media/markdownMediaBridge'
 import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
-import {
-  deleteAssetCanvasReferences,
-  ensureAssetCanvasCard,
-  ensureAssetCanvasCards,
-  ensureAssetCanvasCardWithExtra,
-  findAssetCanvasCard
-} from '../services/relationCanvas'
-import { generateProfessionalInfoForAsset } from '../services/professionalInfoGenerator'
-import {
-  buildMaterialsAgentContext,
-  createContentRevision
-} from '../services/agents/creativeGraphAgentContext'
-import { prepareMaterialAgentTransaction } from '../services/agents/creativeGraphAgentActions'
 
 const router = useRouter()
 const tip = useTipState()
@@ -632,19 +614,11 @@ const {
 } = useAdvisor()
 const gameStore = useGameStore()
 
-const chapters = ref([])
-const selectedChapterId = ref(null)
-const currentChapterTitle = ref('')
-const editorContent = ref('')
 const showNewNoteModal = ref(false)
 const newNoteTitle = ref('')
 const newNoteInput = ref(null)
 const editorRef = ref(null)
 const previewRef = ref(null)
-const editorMode = ref('wysiwyg')
-const markdownContent = ref('')
-const renderedMarkdownContent = ref('')
-const renderedMarkdownSource = ref('')
 const sidekickWorkspace = ref('materials')
 const mobilePane = ref('content')
 const materialMobilePanes = [
@@ -655,10 +629,6 @@ const materialMobilePanes = [
 const illustrationPreview = ref(null)
 const sidekickImageModelConfigs = ref([])
 const sidekickImageModelId = ref('')
-const checkedAssetIds = ref([])
-const canvasImportRevision = ref(0)
-const canvasTransferFeedback = ref('')
-const collapsedAssetKinds = ref({})
 
 // UI-N10: Multi-card canvas — 取消 N6 的 MAX_PINNED_SLIPS=3 硬限,
 // 改为 Infinity (实际 9999), 默认所有素材 visible on canvas.
@@ -670,7 +640,6 @@ const collapsedAssetKinds = ref({})
 // 保留 N6/N9 拖拽 + z-index + 持久化 (pinnedSlipPositions / NOTES_PINNED_SLIPS_KEY),
 // 不破坏 useCanvasBoard composable 签名.
 const MAX_PINNED_SLIPS = 9999 // was 3; N10 removes hard cap
-const MAX_HINTED_SLIPS = 6 // 多于此数才显示底部 cross 翻页提示
 const pinnedSlipIds = ref([])
 const explicitPinnedSlipIds = ref([])
 const pinnedSlipPositions = reactive({})
@@ -731,32 +700,13 @@ const sidekickItems = computed(() => {
 // items 走 computed, positions 走 reactive (持久化到 localStorage)
 // UI-N9: 新增 bringToFront + focusedZId, 点击/拖拽时把 slip 浮到最上层
 const {
-  draggingId,
-  isDragging,
-  onItemDragStart,
-  onItemDragOver,
-  onItemDragEnd,
   onBoardDragOver,
-  onBoardDrop,
-  layoutItems: layoutItemsFn,
-  styleFor,
-  bringToFront,
+  onBoardDrop
 } = useCanvasBoard({
   boardRef,
   items: pinnedSlipAssets,
   positions: pinnedSlipPositions
 })
-
-// 包装成 computed, 避免模板里 v-for="slip in layoutItems()" 每次渲染
-// 都调用函数返回新数组导致的无限循环
-const layoutItems = computed(() => layoutItemsFn())
-
-// UI-N10: slipStyleFor — 在 useCanvasBoard 的 styleFor 基础上偏移到
-// slip-stack 容器内 (主卡占 main 区, slip 围绕). 位置用绝对 + left/top
-// 表达自由拖拽 (来自 persisted positions); 默认 grid 来自 useCanvasBoard.
-function slipStyleFor(slip) {
-  return styleFor(slip)
-}
 
 const imageContextMenu = ref({ show: false, x: 0, y: 0 })
 const illustrationSelected = ref(false)
@@ -772,30 +722,91 @@ const imageLayoutOptions = [
   { value: 'front-center', label: '浮于文字上方' }
 ]
 const editorFont = ref("'Microsoft YaHei', sans-serif")
-const showFindReplace = ref(false)
-const findText = ref('')
-const replaceText = ref('')
-const findResults = ref([])
-const findCurrent = ref(0)
-const showNameGen = ref(false)
-const nameType = ref('character')
-const nameStyle = ref('chinese')
-const fixedSurname = ref('')
-const fixedGivenName = ref('')
-const generatedNames = ref([])
-const showFontPanel = ref(false)
 const editorFontSize = ref('16px')
 const editorBold = ref(false)
 const editorItalic = ref(false)
 const editorUnderline = ref(false)
-const hasSelection = ref(false)
 const isGeneratingProfessionalInfo = ref(false)
-const selectionFontSize = ref('16px')
-const selectionToolbarStyle = ref({ top: '100px', left: '100px' })
 
-const saveStatus = ref('saved')
-let saveTimeout = null
-let titleTimeout = null
+// ---- C1/C2/C3 owner 接线：目录与批量（catalog）、编辑与保存（editor） ----
+// editor 只通过窄接口依赖 catalog 的选中态；extractEditorMarkdown/flushVisualPresentation
+// 是页面插画域的两个接缝（C7 将随图片呈现一并归位）。
+const editorApi = useNotesAssetEditor({
+  getSelectedAsset: () => catalogApi.selectedAsset.value,
+  getSelectedChapterId: () => catalogApi.selectedChapterId.value,
+  extractEditorMarkdown,
+  flushVisualPresentation,
+  editorRef,
+  renderWysiwyg: renderCurrentEditor,
+  renderPreview: renderPreviewSurface
+})
+const catalogApi = useNotesAssetCatalog({
+  editor: editorApi,
+  onAssetDeselected: resetIllustrationSelection,
+  onSelectionChanged: () => { mobilePane.value = 'content' },
+  navigate: (location) => router.push(location),
+  colorForKind: getAssetKindColor
+})
+const {
+  assetKindOrder,
+  chapters,
+  selectedChapterId,
+  selectedAsset,
+  checkedAssetIds,
+  collapsedAssetKinds,
+  groupedChapters,
+  currentAssetIndex,
+  canGoPrev,
+  canGoNext,
+  canvasTransferFeedback,
+  mediaGenerationProjectId,
+  mediaGenerationSourceRefs,
+  refreshCatalog,
+  replaceEditorFromPersisted,
+  selectChapter,
+  goPrevAsset,
+  goNextAsset,
+  toggleCheckedAsset,
+  createAsset,
+  setSelectedAssetKind,
+  setCheckedAssetsState,
+  mergeCheckedAssets,
+  deleteChapter,
+  deleteCheckedAssets,
+  isAssetOnCanvas,
+  openSelectedAssetInCanvas,
+  sendCheckedAssetsToCanvas,
+  generateAndImportToCanvas
+} = catalogApi
+const {
+  currentChapterTitle,
+  editorMode,
+  markdownContent,
+  renderedMarkdownSource,
+  renderedMarkdownContent,
+  saveStatus,
+  statusText,
+  previewHtml,
+  saveCurrentChapter,
+  onContentChange,
+  onTitleChange,
+  switchEditorMode: switchEditorModeInternal,
+  syncMarkdownToEditor,
+  getEditorPlainText: getEditorText,
+  createMarkdownMediaReference
+} = editorApi
+
+// C6：素材顾问结果采用/撤销 owner（第二条异步来源身份链）
+const {
+  materialAdvisorActions,
+  handleAskAdvisor,
+  applyMaterialAdvisorResult,
+  undoMaterialAdvisorResult
+} = useNotesMaterialAdvisor({
+  catalog: catalogApi,
+  editor: editorApi,
+  advisor: { updateAdvisorResultStatus, askAdvisor }
+})
 
 onMounted(() => {
   const initialWorkspace = String(route.query.workspace || 'materials')
@@ -803,12 +814,20 @@ onMounted(() => {
   mobilePane.value = initialWorkspace === 'illustration' ? 'tools' : 'content'
   loadSidekickImageModels()
   loadNotesPinnedSlipsPref()
-  loadNotes(String(route.query.assetId || ''))
+  // C-R2：首次初始化允许显式重装编辑器；迁移晚到只刷新目录/图片投影，不再重装
+  refreshCatalog()
+  {
+    const preferredAssetId = String(route.query.assetId || '')
+    const initialAssetId = preferredAssetId && chapters.value.some((asset) => asset.id === preferredAssetId)
+      ? preferredAssetId
+      : chapters.value[0]?.id || null
+    replaceEditorFromPersisted(initialAssetId)
+  }
   void migrateNarrativeImageAssets().then(() => {
-    loadNotes(selectedChapterId.value || String(route.query.assetId || ''))
+    refreshCatalog()
   })
-  // K3c (2026-06-27): 初始 auto-grow (loadNotes 触发 selectChapter,
-  // selectChapter 里已调 autoResizeTextarea, 这里是 belt-and-suspenders)
+  // K3c (2026-06-27): 初始 auto-grow (replaceEditorFromPersisted 触发 selectChapter 同路径,
+  // 这里是 belt-and-suspenders)
   nextTick(() => autoResizeTextarea())
 
   // Phase C6: 首次进入素材库, 若画布空, 弹 "素材入画布" tip
@@ -820,7 +839,7 @@ onMounted(() => {
         tip.showTip({
           id: 'materials-to-canvas',
           title: '素材入画布',
-          body: '右上角 "导当前到画布" 可导入选中素材; 选中多个后用 "导入" 批量入画布。',
+          body: '右上角 "导当前到画布" 可导入选中素材; 勾选多项后用 "送入画布" 批量入画布。',
           cta: {
             label: '去看画布',
             action: () => router.push('/prose-essay')
@@ -858,75 +877,6 @@ function goToComics() {
   })
 }
 
-let markdownMediaRenderRevision = 0
-watch(markdownContent, (content) => {
-  const revision = ++markdownMediaRenderRevision
-  renderedMarkdownSource.value = content
-  renderedMarkdownContent.value = content
-  void hydrateMarkdownMediaContent(content).then((hydrated) => {
-    if (revision === markdownMediaRenderRevision) {
-      renderedMarkdownContent.value = hydrated
-      if (editorMode.value === 'wysiwyg' && document.activeElement !== editorRef.value) {
-        nextTick(renderCurrentEditor)
-      }
-    }
-  })
-}, { immediate: true })
-
-const previewHtml = computed(() => markdownToHtml(renderedMarkdownContent.value))
-watch(previewHtml, () => {
-  if (editorMode.value === 'preview') nextTick(renderPreviewSurface)
-})
-const selectedAsset = computed(() => chapters.value.find((asset) => asset.id === selectedChapterId.value) || null)
-const materialAdvisorSelection = computed(() => {
-  const checked = new Set(checkedAssetIds.value)
-  const selected = chapters.value
-    .filter((asset) => checked.has(asset.id))
-    .map((asset) => asset.id === selectedAsset.value?.id
-      ? {
-          ...asset,
-          title: currentChapterTitle.value,
-          content: markdownContent.value
-        }
-      : asset)
-  if (selected.length) return selected
-  if (!selectedAsset.value) return []
-  return [{
-    ...selectedAsset.value,
-    title: currentChapterTitle.value,
-    content: markdownContent.value
-  }]
-})
-const materialAdvisorActions = computed(() => [
-  {
-    label: '精简当前素材',
-    question: '精简当前素材，保留可复用事实、人物动机和关键细节。',
-    scope: 'materials',
-    taskType: 'materials.refine',
-    disabled: !selectedAsset.value
-  },
-  {
-    label: '分类建议',
-    question: '判断所选素材最合适的分类，并说明理由。',
-    scope: 'materials',
-    taskType: 'materials.classify',
-    disabled: materialAdvisorSelection.value.length === 0
-  },
-  {
-    label: '拆分建议',
-    question: '判断当前素材是否需要拆分，并给出清晰的拆分边界。',
-    scope: 'materials',
-    taskType: 'materials.split',
-    disabled: !selectedAsset.value
-  },
-  {
-    label: '关联发现',
-    question: '分析所选素材之间有依据的关系。',
-    scope: 'materials',
-    taskType: 'materials.relate',
-    disabled: materialAdvisorSelection.value.length < 2
-  }
-])
 const mainVisualPreview = computed(() => {
   const generated = illustrationPreview.value
   if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
@@ -975,6 +925,14 @@ watch([
     if (editorMode.value === 'preview') renderPreviewSurface()
   })
 })
+// C11 + UI-N10：目录变化后先恢复“默认全部上画布”（仅 prefs 为空时），再裁剪已消失 id
+watch(chapters, () => {
+  if (pinnedSlipIds.value.length === 0 && chapters.value.length > 0) {
+    pinnedSlipIds.value = chapters.value.map((asset) => asset.id)
+  }
+  nextTick(prunePinnedSlipReferences)
+})
+
 const imageReferenceCandidates = computed(() => chapters.value
   .filter((asset) => asset.image?.data)
   .map((asset) => ({
@@ -999,12 +957,6 @@ function showMainVisualPreview(entry) {
 }
 
 let illustrationDrag = null
-
-function imageBaseWidth(wrap) {
-  if (wrap === 'inline') return 32
-  if (wrap === 'top-bottom') return 68
-  return 42
-}
 
 function illustrationTargetFromFigure(figure) {
   if (!figure) return null
@@ -1234,80 +1186,6 @@ function chooseImageLayout(value) {
   imageContextMenu.value.show = false
 }
 
-const mediaGenerationSourceAssets = computed(() => {
-  if (checkedAssetIds.value.length > 0) {
-    const checked = new Set(checkedAssetIds.value)
-    return chapters.value.filter((asset) => checked.has(asset.id))
-  }
-  return selectedAsset.value ? [selectedAsset.value] : []
-})
-const mediaGenerationProjectId = computed(() => {
-  const projectIds = [...new Set(mediaGenerationSourceAssets.value.map((asset) => asset.projectId ?? null))]
-  return projectIds.length === 1 ? projectIds[0] : null
-})
-const mediaGenerationSourceRefs = computed(() => mediaGenerationSourceAssets.value.map((asset) => ({
-  refType: 'narrative-asset',
-  refId: asset.id,
-  projectId: asset.projectId ?? null,
-  excerpt: asset.content
-})))
-const assetKindOrder = [
-  'storyboard-seed',
-  'reference-image',
-  'draft-prose',
-  'event',
-  'character-fact',
-  'worldbook-draft',
-  'inspiration'
-]
-const groupedChapters = computed(() => assetKindOrder
-  .map((kind) => ({
-    kind,
-    label: getAssetKindLabel(kind),
-    color: getAssetKindColor(kind),
-    items: chapters.value.filter((asset) => asset.kind === kind)
-  }))
-  .filter((group) => group.items.length > 0))
-
-// N2: page-flip navigation for active card (reading deck prev/next).
-const currentAssetIndex = computed(() => {
-  if (!selectedChapterId.value) return -1
-  return chapters.value.findIndex((a) => a.id === selectedChapterId.value)
-})
-const canGoPrev = computed(() => currentAssetIndex.value > 0)
-const canGoNext = computed(() => {
-  const i = currentAssetIndex.value
-  return i >= 0 && i < chapters.value.length - 1
-})
-function goPrevAsset() {
-  const i = currentAssetIndex.value
-  if (i > 0) selectChapter(chapters.value[i - 1].id)
-}
-function goNextAsset() {
-  const i = currentAssetIndex.value
-  if (i >= 0 && i < chapters.value.length - 1) selectChapter(chapters.value[i + 1].id)
-}
-
-const turndownService = new TurndownService({
-  headingStyle: 'atx',
-  bulletListMarker: '-',
-  codeBlockStyle: 'fenced',
-  emDelimiter: '*',
-  strongDelimiter: '**',
-  br: '  '
-})
-turndownService.addRule('underline', {
-  filter: ['u'],
-  replacement(content) {
-    return `<u>${content}</u>`
-  }
-})
-
-marked.setOptions({
-  gfm: true,
-  breaks: true
-})
-
 const charCount = computed(() => getEditorText().length)
 
 const wordCount = computed(() => {
@@ -1318,14 +1196,6 @@ const wordCount = computed(() => {
   return chineseChars + englishWords
 })
 
-const statusText = computed(() => {
-  switch (saveStatus.value) {
-    case 'saved': return '已保存'
-    case 'saving': return '保存中...'
-    case 'unsaved': return '未保存'
-    default: return ''
-  }
-})
 const selectedAssetSummary = computed(() => {
   if (!selectedAsset.value) return ''
   const title = String(selectedAsset.value.title || '无标题素材').trim()
@@ -1362,12 +1232,12 @@ function goToAdventure() {
 }
 
 function goBack() {
-  saveCurrentChapter()
+  if (!catalogApi.saveOrBlock('返回首页')) return
   router.push('/')
 }
 
 function goToWriting() {
-  saveCurrentChapter()
+  if (!catalogApi.saveOrBlock('返回写作')) return
   router.push({ name: 'writing' })
 }
 
@@ -1375,7 +1245,7 @@ function goToAssetSource() {
   const asset = selectedAsset.value
   const src = asset?.source
   if (!src || src.type !== 'chapter' || !src.chapterId) return
-  saveCurrentChapter()
+  if (!catalogApi.saveOrBlock('前往正文来源')) return
   const query = {
     chapterId: src.chapterId,
     sourceAssetId: asset.id
@@ -1391,7 +1261,7 @@ function insertAssetBackToSource() {
   const asset = selectedAsset.value
   const src = asset?.source
   if (!src || src.type !== 'chapter' || !src.chapterId) return
-  saveCurrentChapter()
+  if (!catalogApi.saveOrBlock('回填正文来源')) return
   const query = {
     chapterId: src.chapterId,
     insertAssetId: asset.id
@@ -1404,335 +1274,6 @@ function insertAssetBackToSource() {
     name: 'writing',
     query
   })
-}
-
-function getAssetWordCount(asset) {
-  const text = String(asset?.content || '').trim()
-  if (!text) return 0
-  const chineseChars = (text.match(/[一-龥]/g) || []).length
-  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-}
-
-async function handleAskAdvisor(input) {
-  const action = typeof input === 'string'
-    ? { label: input, question: input, scope: 'materials', taskType: 'materials.classify' }
-    : input
-  if (!action || action.disabled) return
-
-  saveCurrentChapter()
-  const selection = materialAdvisorSelection.value
-  const primary = action.taskType === 'materials.refine' || action.taskType === 'materials.split'
-    ? selection.find((asset) => asset.id === selectedAsset.value?.id) || selectedAsset.value
-    : null
-  const built = buildMaterialsAgentContext({
-    selectedAsset: primary,
-    selectedAssets: primary ? [primary] : selection
-  })
-  if (!built.assets.length) return
-
-  const target = primary
-    ? {
-        kind: 'asset',
-        id: primary.id,
-        text: String(primary.content || ''),
-        range: { start: 0, end: String(primary.content || '').length },
-        revision: createContentRevision(primary.content || '')
-      }
-    : {
-        kind: 'asset-selection',
-        id: built.assets.map((asset) => asset.id).join(','),
-        text: JSON.stringify(built.assets),
-        revision: built.revision
-      }
-
-  await askAdvisor({ ...action, scope: 'materials', target, mode: 'notes' }, () => built.context)
-}
-
-function applyMaterialAdvisorResult(result) {
-  const action = result?.actions?.find((item) => item?.type === 'text-patch')
-  const materialActions = (result?.actions || []).filter((item) => String(item?.type || '').startsWith('material-'))
-  if (materialActions.length) {
-    applyMaterialDomainResult(result, materialActions)
-    return
-  }
-  const assetId = result?.target?.id
-  const asset = chapters.value.find((item) => item.id === assetId)
-  if (!action || !asset) {
-    updateAdvisorResultStatus(result?.id, 'failed', '目标素材不存在或结果不可应用')
-    return
-  }
-
-  const currentContent = asset.id === selectedAsset.value?.id
-    ? String(markdownContent.value || '')
-    : String(asset.content || '')
-  if (currentContent !== String(action.baseText || '')) {
-    updateAdvisorResultStatus(result.id, 'stale', '素材内容已变化，请重新生成')
-    return
-  }
-
-  const nextContent = String(action.content || '')
-  updateNarrativeAsset(assetId, { content: nextContent })
-  result.applyReceipt = {
-    type: 'material-refine',
-    assetId,
-    before: currentContent,
-    after: nextContent
-  }
-  updateAdvisorResultStatus(result.id, 'applied')
-  loadNotes(assetId)
-}
-
-function undoMaterialAdvisorResult(result) {
-  const receipt = result?.applyReceipt
-  if (receipt?.type === 'material-agent-transaction') {
-    undoMaterialDomainResult(result, receipt)
-    return
-  }
-  if (!receipt || receipt.type !== 'material-refine') return
-  const asset = chapters.value.find((item) => item.id === receipt.assetId)
-  const currentContent = asset?.id === selectedAsset.value?.id
-    ? String(markdownContent.value || '')
-    : String(asset?.content || '')
-  if (!asset || currentContent !== receipt.after) {
-    result.statusDetail = '素材内容已再次变化，无法自动撤销'
-    return
-  }
-
-  updateNarrativeAsset(receipt.assetId, { content: receipt.before })
-  result.applyReceipt = null
-  updateAdvisorResultStatus(result.id, 'completed')
-  loadNotes(receipt.assetId)
-}
-
-function materialState(asset) {
-  if (!asset) return null
-  return {
-    id: asset.id,
-    title: asset.title,
-    content: asset.content,
-    kind: asset.kind,
-    status: asset.status,
-    projectId: asset.projectId ?? null,
-    source: asset.source || null,
-    sourceRefs: Array.isArray(asset.sourceRefs) ? asset.sourceRefs : []
-  }
-}
-
-function materialStatesEqual(left, right) {
-  return JSON.stringify(materialState(left)) === JSON.stringify(materialState(right))
-}
-
-function currentMaterialTargetRevision(target) {
-  const allAssets = listNarrativeAssets({ status: null })
-  if (target?.kind === 'asset') {
-    const asset = allAssets.find((item) => item.id === target.id)
-    return createContentRevision(asset?.content || '')
-  }
-  const ids = String(target?.id || '').split(',').filter(Boolean)
-  const byId = new Map(allAssets.map((asset) => [asset.id, asset]))
-  const selected = ids.map((id) => byId.get(id)).filter(Boolean)
-  return buildMaterialsAgentContext({ selectedAssets: selected }).revision
-}
-
-function restoreMaterialSnapshots(snapshots) {
-  for (const snapshot of snapshots || []) {
-    updateNarrativeAsset(snapshot.id, {
-      title: snapshot.title,
-      content: snapshot.content,
-      kind: snapshot.kind,
-      status: snapshot.status,
-      projectId: snapshot.projectId,
-      source: snapshot.source,
-      sourceRefs: snapshot.sourceRefs
-    })
-  }
-}
-
-function applyMaterialDomainResult(result, actions) {
-  if (currentMaterialTargetRevision(result?.target) !== result?.target?.revision) {
-    updateAdvisorResultStatus(result?.id, 'stale', '素材选择或内容已变化，请重新生成')
-    return
-  }
-
-  const allAssets = listNarrativeAssets({ status: null })
-  const allById = new Map(allAssets.map((asset) => [asset.id, asset]))
-  const allowedIds = result.target?.kind === 'asset'
-    ? [result.target.id]
-    : String(result.target?.id || '').split(',').filter(Boolean)
-  const allowedAssets = allowedIds.map((id) => allById.get(id)).filter(Boolean)
-  const transaction = prepareMaterialAgentTransaction(actions, allowedAssets, { resultId: result.id })
-  if (!transaction.ok) {
-    updateAdvisorResultStatus(result.id, 'failed', `无法应用素材动作：${transaction.reason}`)
-    return
-  }
-
-  const created = []
-  try {
-    for (const operation of transaction.operations) {
-      if (operation.type === 'update') {
-        if (!updateNarrativeAsset(operation.assetId, operation.patch)) {
-          throw new Error(`素材不存在：${operation.assetId}`)
-        }
-      } else if (operation.type === 'create') {
-        created.push(addNarrativeAsset(operation.asset))
-      }
-    }
-  } catch (error) {
-    created.forEach((asset) => deleteNarrativeAsset(asset.id))
-    restoreMaterialSnapshots(transaction.receipt.before)
-    updateAdvisorResultStatus(result.id, 'failed', error.message || '素材事务执行失败')
-    return
-  }
-
-  const afterAssets = listNarrativeAssets({ status: null })
-  const touchedIds = new Set(transaction.receipt.before.map((asset) => asset.id))
-  result.applyReceipt = {
-    ...transaction.receipt,
-    after: afterAssets.filter((asset) => touchedIds.has(asset.id)).map(materialState),
-    created: created.map(materialState)
-  }
-  updateAdvisorResultStatus(result.id, 'applied')
-  checkedAssetIds.value = []
-  loadNotes(created[0]?.id || selectedChapterId.value)
-}
-
-function undoMaterialDomainResult(result, receipt) {
-  const current = listNarrativeAssets({ status: null })
-  const currentById = new Map(current.map((asset) => [asset.id, asset]))
-  const touchedUnchanged = (receipt.after || []).every((snapshot) =>
-    materialStatesEqual(currentById.get(snapshot.id), snapshot)
-  )
-  const createdUnchanged = (receipt.created || []).every((snapshot) =>
-    materialStatesEqual(currentById.get(snapshot.id), snapshot)
-  )
-  if (!touchedUnchanged || !createdUnchanged) {
-    result.statusDetail = '相关素材已再次变化，无法自动撤销'
-    return
-  }
-
-  for (const snapshot of receipt.created || []) deleteNarrativeAsset(snapshot.id)
-  restoreMaterialSnapshots(receipt.before)
-  result.applyReceipt = null
-  updateAdvisorResultStatus(result.id, 'completed')
-  loadNotes(receipt.before[0]?.id || selectedChapterId.value)
-}
-
-let notesMediaLoadRevision = 0
-
-function sortNoteAssets(assets) {
-  return [...assets].sort((a, b) => {
-    const rank = { accepted: 0, inbox: 1 }
-    const diff = (rank[a.status] ?? 9) - (rank[b.status] ?? 9)
-    if (diff !== 0) return diff
-    return Number(b.createdAt || 0) - Number(a.createdAt || 0)
-  })
-}
-
-function loadNotes(preferredChapterId = '') {
-  const revision = ++notesMediaLoadRevision
-  chapters.value = sortNoteAssets(listActiveNarrativeAssets())
-  void hydrateNarrativeImageAssets(chapters.value).then((hydrated) => {
-    if (revision !== notesMediaLoadRevision) return
-    const hydratedImages = new Map(hydrated.map((asset) => [asset.id, asset.image]))
-    chapters.value = sortNoteAssets(chapters.value.map((asset) => (
-      hydratedImages.get(asset.id)
-        ? { ...asset, image: hydratedImages.get(asset.id) }
-        : asset
-    )))
-  })
-
-  // UI-N10: 默认所有素材 visible on canvas (避免 0 张时大空 void)
-  // 仅在 prefs 没保存过时默认全开; 否则尊重 user 选择
-  if (pinnedSlipIds.value.length === 0 && chapters.value.length > 0) {
-    pinnedSlipIds.value = chapters.value.map((a) => a.id)
-  }
-
-  const nextChapterId = preferredChapterId && chapters.value.some((asset) => asset.id === preferredChapterId)
-    ? preferredChapterId
-    : chapters.value[0]?.id || null
-
-  if (nextChapterId) {
-    selectChapter(nextChapterId)
-  } else {
-    selectedChapterId.value = null
-    currentChapterTitle.value = ''
-    editorContent.value = ''
-    markdownContent.value = ''
-  }
-}
-
-function selectChapter(chapterId) {
-  if (selectedChapterId.value && selectedChapterId.value !== chapterId) {
-    saveCurrentChapter()
-  }
-  selectedIllustrationTarget.value = null
-  illustrationSelected.value = false
-  imageContextMenu.value.show = false
-  selectedChapterId.value = chapterId
-  mobilePane.value = 'content'
-  const chapter = chapters.value.find(c => c.id === chapterId)
-  if (chapter) {
-    currentChapterTitle.value = chapter.title || ''
-    const raw = chapter.content || ''
-    const format = chapter.contentFormat || (looksLikeHtml(raw) ? 'html' : 'md')
-    const nextMarkdown = format === 'md' ? raw : htmlToMarkdown(raw)
-    markdownContent.value = nextMarkdown
-    editorContent.value = markdownToHtml(markdownContent.value)
-    void migrateSelectedChapterMarkdownMedia(chapter, nextMarkdown)
-    nextTick(() => {
-      renderCurrentEditor()
-      renderPreviewSurface()
-    })
-  }
-}
-
-async function migrateSelectedChapterMarkdownMedia(chapter, sourceMarkdown) {
-  const result = await migrateMarkdownMediaContent(sourceMarkdown, {
-    projectId: chapter.projectId ?? null,
-    purpose: 'illustration',
-    sourceRefs: [{
-      refType: 'narrative-asset',
-      refId: chapter.id,
-      projectId: chapter.projectId ?? null,
-      excerpt: chapter.content
-    }]
-  })
-  if (!result.changed) return
-  if (selectedChapterId.value !== chapter.id || markdownContent.value !== sourceMarkdown) return
-
-  markdownContent.value = result.content
-  editorContent.value = markdownToHtml(result.content)
-  chapter.content = result.content
-  chapter.contentFormat = 'md'
-  chapter.embeddedImagePresentations = remapEmbeddedImagePresentations(
-    chapter.embeddedImagePresentations,
-    sourceMarkdown,
-    result.content
-  )
-  updateNarrativeAsset(chapter.id, {
-    content: result.content,
-    contentFormat: 'md',
-    embeddedImagePresentations: chapter.embeddedImagePresentations
-  })
-  nextTick(() => {
-    renderCurrentEditor()
-    renderPreviewSurface()
-  })
-}
-
-function remapEmbeddedImagePresentations(presentations, previousMarkdown, nextMarkdown) {
-  const current = presentations && typeof presentations === 'object' ? presentations : {}
-  const previous = markdownImageDescriptors(previousMarkdown)
-  const next = markdownImageDescriptors(nextMarkdown)
-  const remapped = { ...current }
-  previous.forEach((descriptor, index) => {
-    const replacement = next[index]
-    if (!replacement || replacement.key === descriptor.key || !current[descriptor.key]) return
-    remapped[replacement.key] = current[descriptor.key]
-    delete remapped[descriptor.key]
-  })
-  return remapped
 }
 
 function createNewNote() {
@@ -1760,7 +1301,7 @@ function confirmCreateNote() {
     }
   }
 
-  const newNote = addNarrativeAsset({
+  const created = createAsset({
     title: newNoteTitle.value.trim(),
     content: newNoteTitle.value.trim(),
     kind: 'inspiration',
@@ -1769,8 +1310,14 @@ function confirmCreateNote() {
       type: 'manual'
     }
   })
+  if (!created.ok) {
+    canvasTransferFeedback.value = '新建素材未保存（存储写入失败）'
+    showNewNoteModal.value = false
+    return
+  }
 
-  loadNotes(newNote.id)
+  refreshCatalog()
+  selectChapter(created.asset.id)
   showNewNoteModal.value = false
 }
 
@@ -1803,83 +1350,7 @@ function groupIndexLabel(idx) {
   return GROUP_INDEX_ROMAN[idx] || String(idx + 1).padStart(2, '0')
 }
 
-function openSelectedAssetInCanvas() {
-  if (!selectedAsset.value) return
-  saveCurrentChapter()
-  ensureAssetCanvasCard(selectedAsset.value)
-  canvasImportRevision.value += 1
-  router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
-}
-
-async function generateAndImportToCanvas() {
-  if (!selectedAsset.value) return
-  saveCurrentChapter()
-
-  isGeneratingProfessionalInfo.value = true
-  try {
-    const result = await generateProfessionalInfoForAsset({
-      asset: selectedAsset.value,
-      settings: null,
-      assetKind: selectedAsset.value.kind
-    })
-
-    const extraFields = result.success ? result.extraFields : null
-    ensureAssetCanvasCardWithExtra(selectedAsset.value, extraFields)
-  } catch (err) {
-    console.error('生成专业信息失败:', err)
-    ensureAssetCanvasCardWithExtra(selectedAsset.value, null)
-  } finally {
-    isGeneratingProfessionalInfo.value = false
-    canvasImportRevision.value += 1
-    router.push({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
-  }
-}
-
-function isAssetOnCanvas(assetId) {
-  canvasImportRevision.value
-  return Boolean(findAssetCanvasCard(assetId))
-}
-
 // UI-N6: Pinned slip methods
-function isPinned(assetId) {
-  return pinnedSlipIds.value.includes(assetId)
-}
-
-function togglePinSlip(assetId) {
-  if (!assetId) return
-  if (pinnedSlipIds.value.includes(assetId)) {
-    unpinSlip(assetId)
-    return
-  }
-  // UI-N10: 无 MAX cap — 加新张到列表尾部, 默认位置由 useCanvasBoard 网格决定
-  const nextIds = [...pinnedSlipIds.value, assetId]
-  pinnedSlipIds.value = nextIds
-  saveNotesPinnedSlipsPref()
-}
-
-function unpinSlip(assetId) {
-  pinnedSlipIds.value = pinnedSlipIds.value.filter((id) => id !== assetId)
-  delete pinnedSlipPositions[assetId]
-  saveNotesPinnedSlipsPref()
-}
-
-// UI-N9: 点击画布上的 slip: 先 z-index 浮到最上, 再切到主卡编辑
-function onSlipClick(slip) {
-  if (!slip?.id) return
-  bringToFront(slip.id)
-  selectChapter(slip.id)
-}
-
-// UI-N10: 批量钉入 — 移除 MAX cap, 所有勾选都钉入画布
-function importCheckedToPinboard() {
-  const targets = getCheckedAssets().filter((asset) => !isPinned(asset.id))
-  if (targets.length === 0) return
-  for (const asset of targets) {
-    togglePinSlip(asset.id)
-  }
-  checkedAssetIds.value = []
-}
-
 // UI-N10: 状态色 (Lusion data-color-bg 三件套的简化版 — 用 archive token)
 function getStatusColor(status) {
   switch (status) {
@@ -1895,12 +1366,20 @@ function getStatusColor(status) {
   }
 }
 
-// K3b (2026-06-27): scrollCanvasToBottom 保留作 useCanvasBoard 兼容,
-// K3b 删了 multi-canvas__bottom-cross footer, 函数 no-op.
-function scrollCanvasToBottom() {
-  const board = boardRef?.value
-  if (!board) return
-  board.scrollTo({ top: board.scrollHeight, behavior: 'smooth' })
+
+// C11：素材目录变化后裁剪钉住引用——已删除/已归档的 id 不再长期留在 localStorage 偏好里
+function prunePinnedSlipReferences() {
+  const valid = new Set(chapters.value.map((asset) => asset.id))
+  const nextIds = pinnedSlipIds.value.filter((id) => valid.has(id))
+  const nextExplicit = explicitPinnedSlipIds.value.filter((id) => valid.has(id))
+  const stalePositionIds = Object.keys(pinnedSlipPositions).filter((id) => !valid.has(id))
+  for (const id of stalePositionIds) delete pinnedSlipPositions[id]
+  if (nextIds.length === pinnedSlipIds.value.length
+    && nextExplicit.length === explicitPinnedSlipIds.value.length
+    && stalePositionIds.length === 0) return
+  pinnedSlipIds.value = nextIds
+  explicitPinnedSlipIds.value = nextExplicit
+  saveNotesPinnedSlipsPref()
 }
 
 function loadNotesPinnedSlipsPref() {
@@ -1941,86 +1420,8 @@ function saveNotesPinnedSlipsPref() {
   }
 }
 
-function toggleCheckedAsset(assetId) {
-  checkedAssetIds.value = checkedAssetIds.value.includes(assetId)
-    ? checkedAssetIds.value.filter((id) => id !== assetId)
-    : [...checkedAssetIds.value, assetId]
-}
-
-function getCheckedAssets() {
-  const checked = new Set(checkedAssetIds.value)
-  return chapters.value.filter((asset) => checked.has(asset.id))
-}
-
 function importCurrentToCanvas() {
   openSelectedAssetInCanvas()
-}
-
-function sendCheckedAssetsToCanvas() {
-  const selected = getCheckedAssets()
-  if (!selected.length) return
-  saveCurrentChapter()
-  const result = ensureAssetCanvasCards(selected)
-  canvasImportRevision.value += 1
-  canvasTransferFeedback.value = `已送入画布 ${result.cards.length} 项，其中 ${result.existingAssetIds.length} 项已存在`
-  const primary = selected.find((asset) => asset.id === selectedAsset.value?.id) || selected[0]
-  checkedAssetIds.value = []
-  router.push({ name: 'prose-essay', query: { assetId: primary.id } })
-}
-
-function importAllToCanvas() {
-  chapters.value
-    .forEach((asset) => ensureAssetCanvasCard(asset))
-  canvasImportRevision.value += 1
-}
-
-function setSelectedAssetKind(kind) {
-  if (!selectedAsset.value) return
-  saveCurrentChapter()
-  updateNarrativeAsset(selectedAsset.value.id, { kind })
-  loadNotes(selectedAsset.value.id)
-}
-
-function setCheckedAssetsState(status) {
-  const targets = getCheckedAssets()
-  if (targets.length === 0) return
-  saveCurrentChapter()
-  const targetIds = targets.map((asset) => asset.id)
-  setNarrativeAssetsStatus(targetIds, status)
-  checkedAssetIds.value = []
-
-  const targetSet = new Set(targetIds)
-  const selectedId = selectedChapterId.value
-  const hidesFromActiveList = status === 'archived' || status === 'rejected'
-  const nextId = hidesFromActiveList && targetSet.has(selectedId)
-    ? chapters.value.find((asset) => !targetSet.has(asset.id))?.id || null
-    : selectedId || targetIds[0] || null
-  loadNotes(nextId)
-}
-
-function mergeCheckedAssets() {
-  const targets = getCheckedAssets()
-  if (targets.length < 2) return
-
-  saveCurrentChapter()
-  const selectedId = selectedChapterId.value
-  const targetId = targets.some((asset) => asset.id === selectedId) ? selectedId : targets[0].id
-  const removableIds = targets.map((asset) => asset.id).filter((id) => id !== targetId)
-  const canvasAttached = removableIds.filter((id) => isAssetOnCanvas(id))
-  if (canvasAttached.length > 0) {
-    const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
-      ? false
-      : window.confirm(`有 ${canvasAttached.length} 项素材已在画布中。继续合并会移除这些旧画布节点，是否继续？`)
-    if (!confirmed) return
-  }
-
-  const result = mergeNarrativeAssets(targets.map((asset) => asset.id), { targetId })
-  if (!result) return
-
-  canvasAttached.forEach((assetId) => deleteAssetCanvasReferences(assetId))
-  checkedAssetIds.value = []
-  canvasImportRevision.value += 1
-  loadNotes(result.asset.id)
 }
 
 function getAssetKindColor(kind) {
@@ -2080,7 +1481,12 @@ async function saveGeneratedImageAsset(imgEntry) {
       presentation: normalizeImagePresentation(presentation)
     }
   })
-  loadNotes(imgEntry.mode === 'comic' && currentAssetId ? currentAssetId : asset.id)
+  refreshCatalog()
+  if (imgEntry.mode === 'comic' && currentAssetId) {
+    // 保留当前编辑对象，只刷新目录
+  } else {
+    selectChapter(asset.id)
+  }
 }
 
 function insertImageMarkdown(imgEntry) {
@@ -2104,429 +1510,6 @@ function insertImageMarkdown(imgEntry) {
     markdownContent.value = `${markdownContent.value}${imageMarkdown}`
   }
   syncMarkdownToEditor()
-  onContentChange()
-}
-
-function deleteChapter(chapterId) {
-  if (selectedChapterId.value === chapterId) {
-    saveCurrentChapter()
-  }
-
-  const asset = chapters.value.find((item) => item.id === chapterId)
-  const ok = typeof window === 'undefined' || typeof window.confirm !== 'function'
-    ? true
-    : window.confirm(`删除素材「${asset?.title || '无标题素材'}」？如果它已导入画布，对应节点、连线和时间轴引用也会移除。`)
-  if (!ok) return
-
-  const nextId = selectedChapterId.value === chapterId
-    ? chapters.value.find((item) => item.id !== chapterId)?.id || null
-    : selectedChapterId.value
-  const deleted = deleteNarrativeAsset(chapterId)
-  if (deleted) {
-    deleteAssetCanvasReferences(chapterId)
-    checkedAssetIds.value = checkedAssetIds.value.filter((id) => id !== chapterId)
-    canvasImportRevision.value += 1
-  }
-  loadNotes(nextId)
-}
-
-function deleteCheckedAssets() {
-  const targets = getCheckedAssets()
-  if (targets.length === 0) return
-
-  saveCurrentChapter()
-  const titles = targets
-    .slice(0, 3)
-    .map((asset) => `「${asset.title || '无标题素材'}」`)
-    .join('、')
-  const preview = titles ? `（${titles}${targets.length > 3 ? ' 等' : ''}）` : ''
-  const ok = typeof window === 'undefined' || typeof window.confirm !== 'function'
-    ? true
-    : window.confirm(`删除选中的 ${targets.length} 个素材${preview}？如果它们已导入画布，对应节点、连线和时间轴引用也会移除。`)
-  if (!ok) return
-
-  const targetIds = new Set(targets.map((asset) => asset.id))
-  const nextId = targetIds.has(selectedChapterId.value)
-    ? chapters.value.find((asset) => !targetIds.has(asset.id))?.id || null
-    : selectedChapterId.value
-  let deletedCount = 0
-
-  targetIds.forEach((assetId) => {
-    const deleted = deleteNarrativeAsset(assetId)
-    if (!deleted) return
-    deleteAssetCanvasReferences(assetId)
-    deletedCount += 1
-  })
-
-  checkedAssetIds.value = []
-  if (deletedCount > 0) {
-    canvasImportRevision.value += 1
-  }
-  loadNotes(nextId)
-}
-
-function saveCurrentChapter() {
-  if (!selectedChapterId.value) return
-
-  const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
-  if (chapter) {
-    chapter.title = currentChapterTitle.value
-    syncFromCurrentEditor()
-    chapter.content = markdownContent.value
-    const presentation = mainVisualPreview.value?.presentation
-    const generated = illustrationPreview.value
-    if (presentation && generated?.sourceAssetId === chapter.id && generated.entry?.mediaAssetId) {
-      updateMediaImagePresentation(generated.entry.mediaAssetId, presentation)
-    } else if (presentation && chapter.image) {
-      chapter.image = { ...chapter.image, presentation }
-      updateNarrativeImagePresentation(chapter.id, presentation)
-    }
-    updateNarrativeAsset(chapter.id, {
-      title: chapter.title,
-      content: chapter.content
-    })
-  }
-}
-
-function onTitleChange() {
-  saveStatus.value = 'unsaved'
-  if (titleTimeout) clearTimeout(titleTimeout)
-  titleTimeout = setTimeout(() => {
-    saveCurrentChapter()
-    saveStatus.value = 'saving'
-    setTimeout(() => { saveStatus.value = 'saved' }, 300)
-  }, 500)
-}
-
-// 一键排版：规范段落分隔
-function autoFormat() {
-  let text = markdownContent.value
-  // 替换多个换行为双换行（段落分隔）
-  text = text.replace(/\n{3,}/g, '\n\n')
-  // 移除行首行尾多余空格
-  text = text.split('\n').map(line => line.trim()).join('\n')
-  // 移除全角空格
-  text = text.replace(/\u3000/g, ' ').trim()
-  markdownContent.value = text
-  syncMarkdownToEditor()
-  onContentChange()
-}
-
-// 插入分隔线
-function insertSeparator() {
-  const editor = editorRef.value
-  if (!editor) return
-  const start = editor.selectionStart ?? markdownContent.value.length
-  const end = editor.selectionEnd ?? markdownContent.value.length
-  const sepText = '—— · ——\n\n'
-  markdownContent.value = markdownContent.value.slice(0, start) + sepText + markdownContent.value.slice(end)
-  nextTick(() => {
-    editor.focus()
-    const pos = start + sepText.length
-    editor.setSelectionRange(pos, pos)
-  })
-  syncMarkdownToEditor()
-  onContentChange()
-}
-
-// 随机取名
-function doGenerateName() {
-  // 中文字符池
-  const charPool = '瑾言清晚长风昭华知意逾白屿森念卿知行听澜挽棠墨深绾绾晏礼言蹊如故未歇星野映之清欢妄惊鸿云深瑶霜露璃萤雪'
-  const ancientCharPool = '寻欢孤城吹雪小凤留香浪中棠十一郎不凡清扬我行问天慕白未央紫轩飞羽寒江孤鸿寒烟凝蝶落霞凌霜白露秋璃夏萤冬雪云浅萧默'
-
-  generatedNames.value = []
-
-  if (nameType.value === 'place') {
-    const places = {
-      western: ['Willowbrook', 'Ironforge', 'Silvermoon', 'DragonSpine', 'Stormwind', 'Darkwood', 'Brightport', 'Goldshire', 'Misty Valley', 'Sunnyridge', 'CrystalLake', 'Ravencliff', 'Thornwood', 'Stonehaven', 'Duskwood'],
-      ancient: ['长安城', '洛阳城', '扬州城', '成都府', '苏州城', '杭州城', '汴京城', '金陵城', '燕京城', '临安府', '襄阳城', '荆州城', '泉州城', '广州城', '福州城'],
-      modern: ['朝阳区', '海淀区', '浦东新区', '天河区', '南山区', '江汉区', '玄武区', '西城区', '东城区', '西湖区', '静安区', '黄浦区', '南开区', '和平区', '江岸区']
-    }
-    const list = places[nameStyle.value] || places.modern
-    for (let i = 0; i < 5; i++) {
-      generatedNames.value.push(list[Math.floor(Math.random() * list.length)])
-    }
-    generatedNames.value = [...new Set(generatedNames.value)]
-    return
-  }
-
-  const hasSurname = fixedSurname.value.trim()
-  const hasGivenName = fixedGivenName.value.trim()
-
-  if (nameStyle.value === 'western') {
-    const firstNames = ['Oliver', 'Emma', 'Liam', 'Sophia', 'Noah', 'Isabella', 'James', 'Mia', 'Benjamin', 'Charlotte', 'Lucas', 'Amelia', 'Mason', 'Harper', 'Ethan', 'Evelyn', 'Alexander', 'Abigail', 'Henry', 'Emily', 'William', 'Ava', 'Michael', 'Ella', 'Daniel', 'Scarlett', 'Matthew', 'Grace', 'Sebastian', 'Chloe', 'Jack', 'Victoria', 'Owen', 'Aria', 'Luke', 'Lily', 'Dylan', 'Hannah', 'Gabriel', 'Zoey']
-    const lastNames = ['Anderson', 'Thompson', 'White', 'Mitchell', 'Clark', 'Roberts', 'Taylor', 'Martinez', 'Harris', 'Robinson', 'Lee', 'Walker', 'Hall', 'Allen', 'Young', 'King', 'Wright', 'Lopez', 'Hill', 'Scott', 'Green', 'Adams', 'Baker', 'Nelson', 'Carter', 'Mitchell', 'Perez', 'Roberts', 'Turner', 'Phillips', 'Campbell', 'Parker', 'Evans', 'Edwards', 'Collins']
-    const firstCn = ['奥利弗', '艾玛', '利亚姆', '索菲亚', '诺亚', '伊莎贝拉', '詹姆斯', '米娅', '本杰明', '夏洛特', '卢卡斯', '艾米莉亚', '梅森', '哈珀', '伊桑', '伊芙琳', '亚历山大', '阿比盖尔', '亨利', '艾米丽', '威廉', '艾娃', '迈克尔', '艾拉', '丹尼尔', '斯嘉丽', '马修', '格蕾丝', '塞巴斯蒂安', '克洛伊', '杰克', '维多利亚', '欧文', '艾瑞亚', '卢克', '莉莉', '迪伦', '汉娜', '加布里埃尔', '佐伊']
-    const lastCn = ['安德森', '汤普森', '怀特', '米切尔', '克拉克', '罗伯茨', '泰勒', '马丁内斯', '哈里斯', '鲁宾逊', '李', '沃克', '霍尔', '艾伦', '扬', '金', '赖特', '洛佩兹', '希尔', '斯科特', '格林', '亚当斯', '贝克', '纳尔逊', '卡特', '米切尔', '佩雷斯', '罗伯茨', '特纳', '菲利普斯', '坎贝尔', '帕克', '埃文斯', '爱德华兹', '柯林斯']
-
-    // 尝试匹配用户输入
-    let fixedFirst = null, fixedLast = null
-    if (hasGivenName) {
-      const idx = firstCn.indexOf(fixedGivenName.value.trim())
-      if (idx >= 0) fixedFirst = firstNames[idx]
-      else fixedFirst = fixedGivenName.value.trim()
-    }
-    if (hasSurname) {
-      const idx = lastCn.indexOf(fixedSurname.value.trim())
-      if (idx >= 0) fixedLast = lastNames[idx]
-      else fixedLast = fixedSurname.value.trim()
-    }
-
-    const seen = new Set()
-    for (let i = 0; i < 8 && seen.size < 8; i++) {
-      let f = fixedFirst || firstNames[Math.floor(Math.random() * firstNames.length)]
-      let l = fixedLast || lastNames[Math.floor(Math.random() * lastNames.length)]
-      let enName = f + ' ' + l
-      if (seen.has(enName)) continue
-      seen.add(enName)
-      let fIdx = firstNames.indexOf(f)
-      let lIdx = lastNames.indexOf(l)
-      let cnName = (fIdx >= 0 ? firstCn[fIdx] : f) + '·' + (lIdx >= 0 ? lastCn[lIdx] : l)
-      generatedNames.value.push({ en: enName, cn: cnName })
-    }
-  } else {
-    // 算法化生成中文姓名
-    const surnames = ['李', '王', '张', '刘', '陈', '杨', '赵', '黄', '周', '吴', '徐', '孙', '胡', '朱', '高', '林', '何', '郭', '马', '罗', '梁', '宋', '郑', '谢', '韩', '唐', '冯', '于', '董', '萧', '程', '曹', '袁', '邓', '许', '傅', '沈', '曾', '彭', '吕', '苏', '卢', '蒋', '蔡', '贾', '丁', '魏', '薛', '叶', '阎', '余', '潘', '杜', '戴', '夏', '钟', '汪', '田', '任', '姜', '范', '方', '石', '姚', '谭', '廖', '邹', '熊', '金', '陆', '郝', '孔', '白', '崔', '康', '毛', '邱', '秦', '江', '史', '顾', '侯', '邵', '孟', '龙', '万', '段', '漕', '钱', '汤', '尹', '黎', '易', '常', '武', '乔', '贺', '赖', '龚', '文']
-    const pool = nameStyle.value === 'ancient' ? ancientCharPool : charPool
-
-    const seen = new Set()
-    const getName = () => {
-      let surname = hasSurname ? fixedSurname.value.trim() : surnames[Math.floor(Math.random() * surnames.length)]
-      let given = hasGivenName ? fixedGivenName.value.trim() : ''
-      if (!given) {
-        // 随机生成1-2个汉字的名字
-        const len = Math.random() < 0.6 ? 1 : 2
-        for (let i = 0; i < len; i++) {
-          given += pool[Math.floor(Math.random() * pool.length)]
-        }
-      }
-      return surname + given
-    }
-
-    for (let i = 0; i < 20 && seen.size < 10; i++) {
-      const name = getName()
-      if (seen.has(name)) continue
-      seen.add(name)
-      generatedNames.value.push(name)
-    }
-  }
-}
-
-function selectName(item) {
-  const editor = editorRef.value
-  if (!editor) return
-  const name = typeof item === 'string' ? item : item.en
-  const start = editor.selectionStart ?? markdownContent.value.length
-  const end = editor.selectionEnd ?? markdownContent.value.length
-  markdownContent.value = markdownContent.value.slice(0, start) + name + markdownContent.value.slice(end)
-  nextTick(() => {
-    editor.focus()
-    const pos = start + name.length
-    editor.setSelectionRange(pos, pos)
-  })
-  syncMarkdownToEditor()
-  onContentChange()
-  showNameGen.value = false
-  generatedNames.value = []
-}
-
-// 查找下一个
-function findNext() {
-  if (!findText.value) return
-  if (findResults.value.length === 0) {
-    searchFind()
-  }
-  if (findResults.value.length > 0) {
-    findCurrent.value = (findCurrent.value + 1) % findResults.value.length
-    highlightFind()
-  }
-}
-
-// 更新选区状态
-function updateSelectionStyle() {
-  if (editorMode.value !== 'wysiwyg') {
-    hasSelection.value = false
-    return
-  }
-
-  const editor = editorRef.value
-  if (!editor) {
-    hasSelection.value = false
-    return
-  }
-
-  const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) {
-    hasSelection.value = false
-    return
-  }
-
-  const range = sel.getRangeAt(0)
-  if (range.collapsed || !editor.contains(range.commonAncestorContainer)) {
-    hasSelection.value = false
-    syncSelectionCommandState()
-    return
-  }
-
-  const rangeRect = range.getBoundingClientRect()
-  if (!rangeRect || (!rangeRect.width && !rangeRect.height)) {
-    hasSelection.value = false
-    return
-  }
-
-  hasSelection.value = true
-  syncSelectionCommandState()
-
-  const toolbarWidth = 280
-  const toolbarHeight = 36
-  const margin = 8
-  let left = rangeRect.left + rangeRect.width / 2 - toolbarWidth / 2
-  let top = rangeRect.top - toolbarHeight - margin
-
-  if (top < 8) {
-    top = rangeRect.bottom + margin
-  }
-
-  left = Math.max(12, Math.min(left, window.innerWidth - toolbarWidth - 12))
-
-  selectionToolbarStyle.value = {
-    top: `${Math.round(top)}px`,
-    left: `${Math.round(left)}px`
-  }
-}
-
-function toggleStyle(style) {
-  if (style === 'bold') editorBold.value = !editorBold.value
-  else if (style === 'italic') editorItalic.value = !editorItalic.value
-  else if (style === 'underline') editorUnderline.value = !editorUnderline.value
-}
-
-function applyStyleToSelection(style) {
-  if (editorMode.value !== 'wysiwyg') return
-  const editor = editorRef.value
-  if (!editor) return
-  editor.focus()
-  if (style === 'bold') document.execCommand('bold')
-  if (style === 'italic') document.execCommand('italic')
-  if (style === 'underline') document.execCommand('underline')
-  onContentChange()
-}
-
-function adjustSelectionFont(delta) {
-  const sizes = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24]
-  const current = parseInt(selectionFontSize.value)
-  const idx = sizes.indexOf(current)
-  const newIdx = Math.max(0, Math.min(sizes.length - 1, idx + delta))
-  selectionFontSize.value = sizes[newIdx] + 'px'
-  const sel = window.getSelection()
-  if (editorMode.value === 'wysiwyg' && sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
-    applyStyleToRange({ fontSize: selectionFontSize.value })
-    onContentChange()
-  }
-}
-
-function clearSelectionStyle() {
-  if (editorMode.value !== 'wysiwyg') return
-  const editor = editorRef.value
-  if (!editor) return
-  editor.focus()
-  document.execCommand('removeFormat')
-  onContentChange()
-}
-
-function adjustFontSize(delta) {
-  const sizes = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30]
-  const currentStr = editorFontSize.value
-  const current = parseInt(currentStr.replace('px', ''))
-  const idx = sizes.indexOf(current)
-  const newIdx = Math.max(0, Math.min(sizes.length - 1, idx + delta))
-  editorFontSize.value = sizes[newIdx] + 'px'
-  onContentChange()
-}
-
-// 查找上一个
-function findPrev() {
-  if (!findText.value) return
-  if (findResults.value.length === 0) {
-    searchFind()
-  }
-  if (findResults.value.length > 0) {
-    findCurrent.value = (findCurrent.value - 1 + findResults.value.length) % findResults.value.length
-    highlightFind()
-  }
-}
-
-// 执行搜索
-function searchFind() {
-  findResults.value = []
-  findCurrent.value = 0
-  if (!findText.value) return
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
-  let match
-  while ((match = regex.exec(text)) !== null) {
-    findResults.value.push(match.index)
-  }
-}
-
-// 高亮当前匹配并滚动
-function highlightFind() {
-  nextTick(() => {
-    if (findResults.value.length === 0) return
-    const pos = findResults.value[findCurrent.value]
-    if (editorMode.value === 'markdown') return
-    if (!editorRef.value) return
-    setSelectionByTextOffsets(pos, pos + findText.value.length)
-    editorRef.value.focus()
-  })
-}
-
-// 替换一处
-function replaceOne() {
-  if (!findText.value || findResults.value.length === 0) return
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const pos = findResults.value[findCurrent.value]
-  const nextText = text.substring(0, pos) + replaceText.value + text.substring(pos + findText.value.length)
-  if (editorMode.value === 'markdown') {
-    markdownContent.value = nextText
-    syncMarkdownToEditor()
-  } else {
-    setEditorPlainText(nextText)
-  }
-  searchFind()
-  onContentChange()
-}
-
-// 替换全部
-function replaceAll() {
-  if (!findText.value) return
-  const text = editorMode.value === 'markdown' ? markdownContent.value : getEditorText()
-  const regex = new RegExp(findText.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
-  const nextText = text.replace(regex, replaceText.value)
-  if (editorMode.value === 'markdown') {
-    markdownContent.value = nextText
-    syncMarkdownToEditor()
-  } else {
-    setEditorPlainText(nextText)
-  }
-  findResults.value = []
-  findCurrent.value = 0
-  onContentChange()
-}
-
-function onContentChange() {
-  syncFromCurrentEditor()
-  saveStatus.value = 'unsaved'
-  if (saveTimeout) clearTimeout(saveTimeout)
-  saveTimeout = setTimeout(() => {
-    saveStatus.value = 'saving'
-    saveCurrentChapter()
-    setTimeout(() => { saveStatus.value = 'saved' }, 300)
-  }, 1000)
-}
-
-function onEditorInput() {
   onContentChange()
 }
 
@@ -2573,75 +1556,40 @@ function onTextAreaKeydown(e) {
   }
 }
 
-function applyStyleToRange(styleMap) {
-  const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) return
-  const range = sel.getRangeAt(0)
-  if (range.collapsed) return
-
-  const span = document.createElement('span')
-  Object.entries(styleMap).forEach(([k, v]) => {
-    span.style[k] = v
-  })
-
-  try {
-    range.surroundContents(span)
-  } catch {
-    const fragment = range.extractContents()
-    span.appendChild(fragment)
-    range.insertNode(span)
-  }
-
-  sel.removeAllRanges()
-  const newRange = document.createRange()
-  newRange.selectNodeContents(span)
-  sel.addRange(newRange)
-}
-
-function getEditorText() {
-  return markdownToPlainText(markdownContent.value || '')
-}
-
-function setEditorPlainText(text) {
-  markdownContent.value = text
-  editorContent.value = markdownToHtml(text)
-  renderCurrentEditor()
-}
-
 function switchEditorMode(mode) {
-  if (editorMode.value === mode) return
-  syncFromCurrentEditor()
-  editorMode.value = mode
-  if (mode !== 'wysiwyg') {
-    hasSelection.value = false
+  switchEditorModeInternal(mode)
+}
+
+// ---- 页面插画域接缝（editor/catalog 通过窄接口回调到这里） ----
+
+// WYSIWYG DOM → 净 markdown（剥离主图/还原内嵌图，保持插画锚点同步）
+function extractEditorMarkdown() {
+  const anchorOffset = getIllustrationAnchorOffset(editorRef.value)
+  if (anchorOffset !== null && mainVisualPreview.value) {
+    applyImagePresentation({ anchorOffset }, false, false, { source: 'primary', key: '' })
   }
-  if (mode === 'wysiwyg') {
-    nextTick(renderCurrentEditor)
-  }
-  if (mode === 'preview') {
-    nextTick(renderPreviewSurface)
+  const cleanHtml = getEditorHtmlWithoutIllustration(editorRef.value)
+  return htmlToMarkdown(cleanHtml)
+}
+
+// 保存时把当前插画版式落盘（生成图→媒体仓储；素材图→叙事图片；投影同步）
+function flushVisualPresentation(chapter) {
+  const presentation = mainVisualPreview.value?.presentation
+  const generated = illustrationPreview.value
+  if (presentation && generated?.sourceAssetId === chapter.id && generated.entry?.mediaAssetId) {
+    updateMediaImagePresentation(generated.entry.mediaAssetId, presentation)
+  } else if (presentation && chapter.image) {
+    chapter.image = { ...chapter.image, presentation }
+    updateNarrativeImagePresentation(chapter.id, presentation)
   }
 }
 
-function syncMarkdownToEditor() {
-  editorContent.value = markdownToHtml(markdownContent.value || '')
-  if (editorMode.value === 'wysiwyg') renderCurrentEditor()
-}
-
-function syncFromCurrentEditor() {
-  if (editorMode.value === 'wysiwyg' && editorRef.value) {
-    const anchorOffset = getIllustrationAnchorOffset(editorRef.value)
-    if (anchorOffset !== null && mainVisualPreview.value) {
-      applyImagePresentation({ anchorOffset }, false, false, { source: 'primary', key: '' })
-    }
-    const cleanHtml = getEditorHtmlWithoutIllustration(editorRef.value)
-    markdownContent.value = htmlToMarkdown(cleanHtml)
-    editorContent.value = markdownToHtml(markdownContent.value)
-    return
-  }
-  if (editorMode.value === 'markdown') {
-    editorContent.value = markdownToHtml(markdownContent.value || '')
-  }
+// 切换/清空选择时清理插画选择态（catalog 的 onAssetDeselected 接缝）
+function resetIllustrationSelection() {
+  selectedIllustrationTarget.value = null
+  illustrationSelected.value = false
+  imageContextMenu.value.show = false
+  editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
 }
 
 function renderCurrentEditor() {
@@ -2752,36 +1700,24 @@ function enhanceEmbeddedIllustrations(root, interactive) {
 }
 
 function createIllustrationFigure({ image, presentation, interactive, source, key = '', label }) {
-  const figure = document.createElement(presentation.wrap === 'inline' ? 'span' : 'figure')
   const selectedTarget = selectedIllustrationTarget.value
-  const selected = illustrationSelected.value
+  const isSelected = illustrationSelected.value
     && selectedTarget?.source === source
     && (source !== 'embedded' || selectedTarget.key === key)
+  // C7：类名/aria/样式为纯视图模型（services/notes/illustrationPresentation），页面只做 DOM 构建
+  const view = computeIllustrationFigureView({ presentation, interactive, selected: isSelected, label, src: image.src })
+
+  const figure = document.createElement(view.tagName)
   figure.dataset.narrativeIllustration = 'true'
   figure.dataset.imageSource = source
   if (key) figure.dataset.imageKey = key
   figure.contentEditable = 'false'
-  figure.className = [
-    'narrative-illustration',
-    `illustration-wrap--${presentation.wrap}`,
-    `illustration-align--${presentation.align}`,
-    interactive ? 'is-editable' : '',
-    interactive && selected ? 'is-selected' : ''
-  ].filter(Boolean).join(' ')
-  figure.setAttribute('aria-label', `${label}，${layoutLabel(presentation)}`)
+  figure.className = view.className
+  figure.setAttribute('aria-label', view.ariaLabel)
   if (interactive) figure.title = '拖动图片移动，拖动右下角缩放，右键设置文字环绕'
-
-  const baseWidth = imageBaseWidth(presentation.wrap)
-  figure.style.width = `${Math.min(100, Math.max(16, baseWidth * presentation.scale))}%`
-  figure.style.setProperty('--illustration-gap', `${presentation.textGap}px`)
-  if (['behind', 'front'].includes(presentation.wrap)) {
-    figure.style.left = `${presentation.positionX}%`
-    figure.style.top = `${presentation.positionY}%`
-  }
-  if (presentation.wrap === 'tight') {
-    figure.style.shapeOutside = `url(${JSON.stringify(image.src)})`
-    figure.style.shapeImageThreshold = '0.12'
-    figure.style.shapeMargin = `${presentation.textGap}px`
+  for (const [prop, value] of Object.entries(view.style)) {
+    if (prop === 'width' || prop === 'left' || prop === 'top') figure.style[prop] = value
+    else figure.style.setProperty(prop, value)
   }
 
   image.draggable = false
@@ -2794,37 +1730,6 @@ function createIllustrationFigure({ image, presentation, interactive, source, ke
     figure.appendChild(resizeHandle)
   }
   return figure
-}
-
-function markdownImageDescriptors(markdown) {
-  const descriptors = []
-  const occurrences = new Map()
-  const visit = (tokens = []) => {
-    tokens.forEach((token) => {
-      if (token?.type === 'image') {
-        const href = String(token.href || '')
-        const mediaId = href.match(/^pinax-media:\/\/([a-zA-Z0-9_-]+)/)?.[1]
-        const baseKey = mediaId
-          ? `media:${mediaId}`
-          : `src:${buildNarrativeAssetContentHash(href)}`
-        const occurrence = occurrences.get(baseKey) || 0
-        occurrences.set(baseKey, occurrence + 1)
-        descriptors.push({
-          key: occurrence === 0 ? baseKey : `${baseKey}:${occurrence}`,
-          href,
-          alt: String(token.text || '')
-        })
-      }
-      if (Array.isArray(token?.tokens)) visit(token.tokens)
-      if (Array.isArray(token?.items)) token.items.forEach((item) => visit(item.tokens || []))
-    })
-  }
-  try {
-    visit(marked.lexer(String(markdown || '')))
-  } catch {
-    return []
-  }
-  return descriptors
 }
 
 function fallbackImageDescriptor(image, index) {
@@ -2935,95 +1840,12 @@ function getTextOffsetFromPoint(root, clientX, clientY, fallbackOffset = 0) {
   }
 }
 
-function layoutLabel(presentation) {
-  const labels = {
-    inline: '嵌入文字',
-    square: `四周型 · ${presentation.align === 'left' ? '左' : '右'}`,
-    tight: `紧密型 · ${presentation.align === 'left' ? '左' : '右'}`,
-    'top-bottom': '上下型',
-    behind: '衬于文字下方',
-    front: '浮于文字上方'
-  }
-  return labels[presentation.wrap] || '图片版式'
-}
-
-function markdownToHtml(md) {
-  if (!md) return ''
-  return sanitizeHtml(marked.parse(md))
-}
-
-function htmlToMarkdown(html) {
-  if (!html) return ''
-  return turndownService.turndown(html).replace(/\n{3,}/g, '\n\n')
-}
-
-function looksLikeHtml(text) {
-  return /<\/?[a-z][\s\S]*>/i.test(text)
-}
-
-function markdownToPlainText(md) {
-  if (!md) return ''
-  if (typeof document === 'undefined') return md
-  const div = document.createElement('div')
-  div.innerHTML = markdownToHtml(md)
-  return div.innerText || ''
-}
-
-function setSelectionByTextOffsets(start, end) {
-  const root = editorRef.value
-  if (!root) return
-
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let node
-  let offset = 0
-  let startNode = null
-  let endNode = null
-  let startOffset = 0
-  let endOffset = 0
-
-  while ((node = walker.nextNode())) {
-    const len = node.textContent.length
-    if (!startNode && offset + len >= start) {
-      startNode = node
-      startOffset = Math.max(0, start - offset)
-    }
-    if (offset + len >= end) {
-      endNode = node
-      endOffset = Math.max(0, end - offset)
-      break
-    }
-    offset += len
-  }
-
-  if (!startNode || !endNode) return
-  const range = document.createRange()
-  range.setStart(startNode, startOffset)
-  range.setEnd(endNode, endOffset)
-  const sel = window.getSelection()
-  sel.removeAllRanges()
-  sel.addRange(range)
-}
-
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
   imageContextMenu.value.show = false
   selectedIllustrationTarget.value = null
   illustrationSelected.value = false
   editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
-  showFontPanel.value = false
-  showNameGen.value = false
-  showFindReplace.value = false
-  hasSelection.value = false
-}
-
-function syncSelectionCommandState() {
-  try {
-    editorBold.value = document.queryCommandState('bold')
-    editorItalic.value = document.queryCommandState('italic')
-    editorUnderline.value = document.queryCommandState('underline')
-  } catch {
-    // ignore unsupported environments
-  }
 }
 
 </script>

@@ -128,6 +128,23 @@ export function addNarrativeAsset(input = {}, { dedupe = false } = {}) {
   return asset
 }
 
+/** C-R3：结果型新建；存储写入失败返回 { ok:false }，不产生未持久化的“已创建素材”。 */
+export function addNarrativeAssetDurable(input = {}, { dedupe = false } = {}) {
+  const asset = createNarrativeAsset(input)
+  if (!asset.content) {
+    return { ok: false, reason: 'empty-content' }
+  }
+  const current = listNarrativeAssets({ status: null })
+  if (dedupe) {
+    const duplicate = findDuplicateNarrativeAsset(asset, current)
+    if (duplicate) return { ok: true, asset: duplicate, deduped: true }
+  }
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, [asset, ...current])) {
+    return { ok: false, reason: 'storage-write-failed' }
+  }
+  return { ok: true, asset }
+}
+
 export function normalizeContentRef(ref = {}, fallbackProjectId = null) {
   if (!ref || typeof ref !== 'object') return null
   const refType = normalizeText(ref.refType || ref.type)
@@ -215,8 +232,7 @@ export function findDuplicateNarrativeAsset(input = {}, assets = null) {
   }) || null
 }
 
-export function updateNarrativeAsset(assetId, patch = {}) {
-  const current = listNarrativeAssets({ status: null })
+function buildNarrativeAssetUpdate(current, assetId, patch = {}) {
   const now = Date.now()
   let updated = null
 
@@ -249,34 +265,68 @@ export function updateNarrativeAsset(assetId, patch = {}) {
     return updated
   })
 
+  return { next, updated }
+}
+
+export function updateNarrativeAsset(assetId, patch = {}) {
+  const current = listNarrativeAssets({ status: null })
+  const { next, updated } = buildNarrativeAssetUpdate(current, assetId, patch)
   if (!updated) return null
   setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   return updated
+}
+
+/**
+ * C-R3：结果型更新。setItem 失败（含被吞掉的配额异常）返回 { ok:false }，
+ * 不产生假成功对象；调用方据此跳过 receipt/画布清理等副作用。
+ */
+export function updateNarrativeAssetDurable(assetId, patch = {}) {
+  const current = listNarrativeAssets({ status: null })
+  const { next, updated } = buildNarrativeAssetUpdate(current, assetId, patch)
+  if (!updated) return { ok: false, reason: 'asset-not-found' }
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+    return { ok: false, reason: 'storage-write-failed' }
+  }
+  return { ok: true, asset: updated }
 }
 
 export function setNarrativeAssetStatus(assetId, status) {
   return updateNarrativeAsset(assetId, { status })
 }
 
-export function deleteNarrativeAsset(assetId) {
+function buildNarrativeAssetRemoval(current, assetId) {
   const normalizedId = normalizeText(assetId)
-  if (!normalizedId) return null
-
-  const current = listNarrativeAssets({ status: null })
   const deleted = current.find((asset) => asset.id === normalizedId) || null
-  if (!deleted) return null
+  if (!normalizedId || !deleted) return { next: current, deleted: null }
+  return {
+    next: current.filter((asset) => asset.id !== normalizedId),
+    deleted
+  }
+}
 
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, current.filter((asset) => asset.id !== normalizedId))
+export function deleteNarrativeAsset(assetId) {
+  const current = listNarrativeAssets({ status: null })
+  const { next, deleted } = buildNarrativeAssetRemoval(current, assetId)
+  if (!deleted) return null
+  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   return deleted
 }
 
-export function setNarrativeAssetsStatus(assetIds = [], status) {
-  const ids = new Set(Array.isArray(assetIds) ? assetIds : [])
-  if (ids.size === 0) return []
-
+export function deleteNarrativeAssetDurable(assetId) {
   const current = listNarrativeAssets({ status: null })
+  const { next, deleted } = buildNarrativeAssetRemoval(current, assetId)
+  if (!deleted) return { ok: false, reason: 'asset-not-found' }
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+    return { ok: false, reason: 'storage-write-failed' }
+  }
+  return { ok: true, deleted }
+}
+
+function buildNarrativeAssetsStatusUpdate(current, assetIds = [], status) {
+  const ids = new Set(Array.isArray(assetIds) ? assetIds : [])
   const now = Date.now()
   const updated = []
+  if (ids.size === 0) return { next: current, updated }
   const next = current.map((asset) => {
     if (!ids.has(asset.id)) return asset
     const item = {
@@ -287,18 +337,33 @@ export function setNarrativeAssetsStatus(assetIds = [], status) {
     updated.push(item)
     return item
   })
+  return { next, updated }
+}
 
+export function setNarrativeAssetsStatus(assetIds = [], status) {
+  const current = listNarrativeAssets({ status: null })
+  const { next, updated } = buildNarrativeAssetsStatusUpdate(current, assetIds, status)
   if (updated.length > 0) {
     setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   }
   return updated
 }
 
-export function mergeNarrativeAssets(assetIds = [], { targetId = null, title = null, status = null } = {}) {
+export function setNarrativeAssetsStatusDurable(assetIds = [], status) {
+  const current = listNarrativeAssets({ status: null })
+  const { next, updated } = buildNarrativeAssetsStatusUpdate(current, assetIds, status)
+  if (updated.length === 0) return { ok: true, changed: [] }
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+    return { ok: false, reason: 'storage-write-failed' }
+  }
+  return { ok: true, changed: updated }
+}
+
+function buildNarrativeAssetMerge(currentOrLoader, assetIds = [], { targetId = null, title = null, status = null } = {}) {
   const ids = [...new Set(Array.isArray(assetIds) ? assetIds.map(normalizeText).filter(Boolean) : [])]
   if (ids.length < 2) return null
 
-  const current = listNarrativeAssets({ status: null })
+  const current = typeof currentOrLoader === 'function' ? currentOrLoader() : currentOrLoader
   const byId = new Map(current.map((asset) => [asset.id, asset]))
   const selected = ids.map((id) => byId.get(id)).filter(Boolean)
   if (selected.length < 2) return null
@@ -333,10 +398,29 @@ export function mergeNarrativeAssets(assetIds = [], { targetId = null, title = n
   const next = current
     .map((asset) => asset.id === target.id ? merged : asset)
     .filter((asset) => asset.id === target.id || !selectedIds.has(asset.id))
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
   return {
+    next,
     asset: merged,
     mergedIds: selected.filter((asset) => asset.id !== target.id).map((asset) => asset.id)
+  }
+}
+
+export function mergeNarrativeAssetsDurable(assetIds = [], options = {}) {
+  const buildResult = buildNarrativeAssetMerge(listNarrativeAssets({ status: null }), assetIds, options)
+  if (!buildResult) return null
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, buildResult.next)) {
+    return { ok: false, reason: 'storage-write-failed' }
+  }
+  return { ok: true, asset: buildResult.asset, mergedIds: buildResult.mergedIds }
+}
+
+export function mergeNarrativeAssets(assetIds = [], options = {}) {
+  const buildResult = buildNarrativeAssetMerge(() => listNarrativeAssets({ status: null }), assetIds, options)
+  if (!buildResult) return null
+  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, buildResult.next)
+  return {
+    asset: buildResult.asset,
+    mergedIds: buildResult.mergedIds
   }
 }
 
