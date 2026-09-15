@@ -83,7 +83,6 @@ import {
   recordNarrativeProductionRun
 } from '../services/agents/narrativeProductionMetrics'
 import { getItem, setItem, getTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { debounce, flushPending } from '../composables/useDebounce'
 import { useWorldStore } from './worldStore'
 import { parseCharacterCards } from '../services/characterCard'
 import {
@@ -96,777 +95,85 @@ import {
 } from '../../shared/narrativeTurnContract.js'
 import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
 import { normalizeNarrativeIntent, intentToOrchestratorMode, narrativeExpansionFactor } from '../../shared/narrativeGenerationIntentContract.js'
+import {
+  ADVENTURE_TRIGGER_COOLDOWN_MS,
+  ADVENTURE_TRIGGER_MAX_PER_WINDOW,
+  ADVENTURE_TRIGGER_WINDOW_MS,
+  DEFAULT_ADVENTURE_STATE,
+  DEFAULT_WORLD_MAP_STATE,
+  DEFAULT_WRITING_CHARACTER,
+  DEFAULT_WRITING_TIME,
+  PLOT_JOURNAL_TURN_INTERVAL,
+  cloneState,
+  combineExtensionContent,
+  compactPlotJournalSummary,
+  createEmptySessionRuntime,
+  findSession,
+  getWorldbookEntryNames,
+  normalizeAdventureState,
+  normalizeAdventureTriggerDraft,
+  normalizeAdventureTriggerHistory,
+  normalizeCanonicalFacts,
+  normalizeCharacterRelations,
+  normalizeCharacterStates,
+  normalizeEmergenceCandidates,
+  normalizeEmergenceDismissedIds,
+  normalizeEmergenceDraft,
+  normalizeEncounteredCharacters,
+  normalizeFactionRelations,
+  normalizeGoals,
+  normalizeKeyChoices,
+  normalizeNumber,
+  normalizePlaceStates,
+  normalizePlotJournal,
+  normalizeTextValue,
+  normalizeWorldMapState,
+  normalizeWritingCharacter,
+  normalizeWritingTime
+} from '../services/experience/gameSessionNormalization.js'
+import {
+  buildCreatedSessionRecord,
+  buildCurrentSessionFields,
+  deriveSessionTitle,
+  findLatestSessionForWorldbook,
+  flushSessionListWriter,
+  getSessionListWriter
+} from '../services/experience/gameSessionScheduler.js'
+import { buildRuntimeSnapshot, projectRuntimeSnapshot } from '../services/experience/gameRuntimeProjection.js'
+import { createAuthoringObserverHub } from '../services/experience/gameObserverRuntime.js'
+import { buildRuntimeResetPatch } from '../services/experience/gameLifecycleDefaults.js'
+import {
+  buildAdventureCreativeSourceRefs as buildCreativeSourceRefs,
+  buildPlotJournalEntry as buildJournalEntry
+} from '../services/experience/gameJournalProjection.js'
+import {
+  computeFactionDeltas,
+  filterMentionedNames,
+  parseGoalIntent,
+  parseKeyChoiceLabels,
+  parseLocationChange,
+  parseWritingTimeChange
+} from '../services/experience/gameStateExtraction.js'
+import {
+  collectBranchTurnChain as collectTurnChain,
+  collectVisibleMessageIds as collectChainMessageIds,
+  gcUnreachableTurns as gcBranchTurns,
+  latestBranchTurn as latestCommittedBranchTurn,
+  markSupersededMessages
+} from '../services/experience/gameBranchTurnGraph.js'
 
-const DEFAULT_WORLD_MAP_STATE = {
-  map: { countries: [] },
-  currentCountry: '',
-  currentCity: '',
-  currentScene: '',
-  placeId: ''
-}
-
-const DEFAULT_WRITING_CHARACTER = {
-  name: 'User',
-  gender: '',
-  age: '',
-  traits: [],
-  mood: 50,
-  description: '',
-  goal: ''
-}
 
 function buildAdventureCreativeSourceRefs(store, messageIds = [], plotEntry = null) {
-  const projectId = store.worldId || resolveActiveWorldbookId() || null
-  const sessionId = String(store.currentSessionId || 'session')
-  const refs = (Array.isArray(messageIds) ? messageIds : [])
-    .map((messageId) => normalizeContentRef({
-      refType: 'session-message',
-      refId: `${sessionId}:${String(messageId || '').trim()}`,
-      projectId
-    }, projectId))
-    .filter(Boolean)
-
-  const historyNodeId = String(store.historyNode?.id || '').trim()
-  if (historyNodeId) {
-    refs.push(normalizeContentRef({
-      refType: 'history-node',
-      refId: historyNodeId,
-      projectId,
-      excerpt: store.historyNode?.summary || store.historyNode?.title
-    }, projectId))
-  }
-
-  const placeId = String(store.worldMapState?.placeId || store.historyNode?.placeId || '').trim()
-  if (placeId) {
-    refs.push(normalizeContentRef({
-      refType: 'map-site',
-      refId: placeId,
-      projectId,
-      excerpt: [
-        store.worldMapState?.currentCountry,
-        store.worldMapState?.currentCity,
-        store.worldMapState?.currentScene
-      ].filter(Boolean).join(' / ')
-    }, projectId))
-  }
-
-  const journal = plotEntry || store.latestPlotJournalEntry?.()
-  const journalId = String(journal?.id || journal?.chapterId || '').trim()
-  if (journalId) {
-    refs.push(normalizeContentRef({
-      refType: 'plot-journal',
-      refId: journalId,
-      projectId,
-      excerpt: journal?.summary
-    }, projectId))
-  }
-
-  return mergeSourceRefs(refs)
-}
-
-const DEFAULT_WRITING_TIME = {
-  eraId: 'custom',
-  eraName: '',
-  year: '',
-  month: '',
-  day: ''
-}
-
-const DEFAULT_ADVENTURE_STATE = {
-  goals: [],
-  encounteredCharacters: [],
-  factionRelations: {},
-  keyChoices: [],
-  plotJournal: [],
-  adventureTriggers: {
-    prose: null,
-    storyboard: null
-  },
-  adventureTriggerHistory: [],
-  emergenceCandidates: [],
-  emergenceDismissedIds: []
-}
-
-const PLOT_JOURNAL_TURN_INTERVAL = 8
-const PLOT_JOURNAL_MAX_SUMMARY_CHARS = 420
-const ADVENTURE_TRIGGER_COOLDOWN_MS = 3000
-const ADVENTURE_TRIGGER_WINDOW_MS = 60 * 1000
-const ADVENTURE_TRIGGER_MAX_PER_WINDOW = 2
-
-function normalizeTextValue(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim()
-}
-
-// C4：同消息续接 —— 合并 base 与新增 parsed 正文，保留 blocks 避免 marker 接缝。
-function combineExtensionContent(extensionBase, newParsed) {
-  if (!extensionBase) return { content: newParsed.content, presentation: newParsed }
-  const baseBlocks = Array.isArray(extensionBase.presentation?.blocks)
-    ? extensionBase.presentation.blocks
-    : []
-  const content = [extensionBase.content, newParsed.content]
-    .map((value) => String(value ?? '').trim())
-    .filter(Boolean)
-    .join('\n\n')
-  return {
-    content,
-    presentation: {
-      version: 3,
-      source: 'model-structured',
-      status: 'complete',
-      content,
-      blocks: [...baseBlocks, ...(newParsed.blocks || [])],
-      hasMarkers: baseBlocks.length > 0 || newParsed.hasMarkers === true
-    }
-  }
-}
-
-function buildStableRuntimeId(prefix, value, fallback = 'item') {
-  const token = normalizeTextValue(value).slice(0, 24) || fallback
-  return `${prefix}_${token}`
-}
-
-function normalizeNumber(value, fallback = 0) {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : fallback
-}
-
-function compactPlotJournalSummary(messages = []) {
-  const structuredSummary = buildHeuristicContextSummary(messages, {
-    maxSummaryChars: PLOT_JOURNAL_MAX_SUMMARY_CHARS
+  // 纯投影在 gameJournalProjection（B8）；store 只补充 active worldbook 回退
+  return buildCreativeSourceRefs(store, messageIds, plotEntry, {
+    projectIdFallback: resolveActiveWorldbookId()
   })
-  const sections = structuredSummary
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  let currentSection = ''
-  const plotEvents = []
-  const playerActions = []
-  const unresolved = []
-
-  for (const line of sections) {
-    const headingMatch = line.match(/^【(.+?)】$/)
-    if (headingMatch) {
-      currentSection = headingMatch[1]
-      continue
-    }
-    if (!line.startsWith('- ')) continue
-    const content = normalizeTextValue(line.slice(2))
-    if (!content) continue
-
-    if (currentSection === '剧情进展') {
-      plotEvents.push(content)
-    } else if (currentSection === '玩家意图/行动') {
-      playerActions.push(content)
-    } else if (currentSection === '未解决线索') {
-      unresolved.push(content)
-    }
-  }
-
-  const parts = []
-  if (plotEvents.length > 0) {
-    parts.push(`剧情：${plotEvents.slice(0, 3).join('；')}`)
-  }
-  if (playerActions.length > 0) {
-    parts.push(`行动：${playerActions.slice(-2).join('；')}`)
-  }
-  if (unresolved.length > 0) {
-    parts.push(`未决：${unresolved.slice(0, 2).join('；')}`)
-  }
-
-  const compact = normalizeTextValue(parts.join(' '))
-  if (compact) {
-    return compact.length > PLOT_JOURNAL_MAX_SUMMARY_CHARS
-      ? `${compact.slice(0, PLOT_JOURNAL_MAX_SUMMARY_CHARS - 1)}…`
-      : compact
-  }
-
-  return normalizeTextValue(structuredSummary).slice(0, PLOT_JOURNAL_MAX_SUMMARY_CHARS)
 }
 
-function normalizeWorldMapState(raw = {}) {
-  const map = raw && typeof raw.map === 'object' ? raw.map : { countries: [] }
-  return {
-    map: {
-      ...map,
-      countries: Array.isArray(map.countries) ? map.countries : []
-    },
-    currentCountry: raw?.currentCountry || '',
-    currentCity: raw?.currentCity || '',
-    currentScene: raw?.currentScene || '',
-    placeId: raw?.placeId || ''
-  }
-}
-
-function normalizeWritingCharacter(raw = {}) {
-  return {
-    ...DEFAULT_WRITING_CHARACTER,
-    ...(raw && typeof raw === 'object' ? raw : {}),
-    traits: Array.isArray(raw?.traits) ? raw.traits : []
-  }
-}
-
-function normalizeWritingTime(raw = {}) {
-  return {
-    ...DEFAULT_WRITING_TIME,
-    ...(raw && typeof raw === 'object' ? raw : {})
-  }
-}
-
-function normalizePlaceStates(raw = {}) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([placeId, state]) => {
-    const id = normalizeTextValue(placeId)
-    if (!id || !state || typeof state !== 'object' || Array.isArray(state)) return null
-    const danger = Number(state.danger)
-    return [id, {
-      status: normalizeTextValue(state.status),
-      controllerId: normalizeTextValue(state.controllerId),
-      ...(Number.isFinite(danger) ? { danger: Math.max(0, Math.min(100, danger)) } : {})
-    }]
-  }).filter(Boolean))
-}
-
-function normalizeCharacterStates(raw = {}) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([characterId, state]) => {
-    const id = normalizeTextValue(characterId)
-    if (!id || !state || typeof state !== 'object' || Array.isArray(state)) return null
-    const mood = Number(state.mood)
-    return [id, {
-      status: normalizeTextValue(state.status),
-      ...(typeof state.alive === 'boolean' ? { alive: state.alive } : {}),
-      placeId: normalizeTextValue(state.placeId),
-      goal: normalizeTextValue(state.goal),
-      ...(Number.isFinite(mood) ? { mood: Math.max(0, Math.min(100, mood)) } : {}),
-      knowledgeRefs: Array.isArray(state.knowledgeRefs)
-        ? state.knowledgeRefs.map(normalizeTextValue).filter(Boolean).slice(0, 24)
-        : []
-    }]
-  }).filter(Boolean))
-}
-
-const CHARACTER_RELATION_KINDS = new Set([
-  'parent',
-  'child',
-  'sibling',
-  'spouse',
-  'grandparent',
-  'grandchild',
-  'guardian',
-  'ward',
-  'adoptive-parent',
-  'adoptive-child'
-])
-
-function normalizeCharacterRelations(raw = {}) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  return Object.fromEntries(Object.entries(raw).slice(0, 64).map(([relationId, relation]) => {
-    const id = normalizeTextValue(relationId)
-    const subjectId = normalizeTextValue(relation?.subjectId).slice(0, 120)
-    const objectId = normalizeTextValue(relation?.objectId).slice(0, 120)
-    const kind = normalizeTextValue(relation?.kind)
-    if (!id || !subjectId || !objectId || !CHARACTER_RELATION_KINDS.has(kind)) return null
-    const status = ['confirmed', 'disputed', 'ended'].includes(relation?.status)
-      ? relation.status
-      : 'confirmed'
-    return [id, {
-      subjectId,
-      objectId,
-      kind,
-      status,
-      sourceRefs: Array.isArray(relation?.sourceRefs)
-        ? relation.sourceRefs
-          .filter((ref) => typeof ref === 'string')
-          .map(normalizeTextValue)
-          .filter(Boolean)
-          .slice(0, 8)
-        : []
-    }]
-  }).filter(Boolean))
-}
-
-function normalizeCanonicalFacts(raw = {}) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  return Object.fromEntries(Object.entries(raw).slice(0, 96).map(([factId, fact]) => {
-    const id = normalizeTextValue(factId)
-    const subjectId = normalizeTextValue(fact?.subjectId).slice(0, 120)
-    const predicate = normalizeTextValue(fact?.predicate).slice(0, 120)
-    const value = fact?.value
-    const validValue = (
-      value === null
-      || (typeof value === 'number' && Number.isFinite(value))
-      || typeof value === 'boolean'
-      || typeof value === 'string'
-    )
-    if (!id || !subjectId || !predicate || !validValue) return null
-    const confidence = Number(fact?.confidence)
-    return [id, {
-      subjectId,
-      predicate,
-      value: typeof value === 'string' ? value.slice(0, 240) : value,
-      status: ['confirmed', 'disputed', 'retired'].includes(fact?.status)
-        ? fact.status
-        : 'confirmed',
-      ...(Number.isFinite(confidence)
-        ? { confidence: Math.max(0, Math.min(1, confidence)) }
-        : {}),
-      sourceRefs: Array.isArray(fact?.sourceRefs)
-        ? fact.sourceRefs
-          .filter((ref) => typeof ref === 'string')
-          .map(normalizeTextValue)
-          .filter(Boolean)
-          .slice(0, 8)
-        : []
-    }]
-  }).filter(Boolean))
-}
-
-function normalizeGoals(raw = []) {
-  if (!Array.isArray(raw)) return []
-
-  const seen = new Set()
-  const goals = []
-
-  for (const item of raw) {
-    const title = normalizeTextValue(item?.title || item?.label || item)
-    if (!title || seen.has(title)) continue
-    seen.add(title)
-    goals.push({
-      id: normalizeTextValue(item?.id) || buildStableRuntimeId('goal', title, 'goal'),
-      title,
-      status: normalizeTextValue(item?.status) || 'active',
-      source: normalizeTextValue(item?.source) || 'runtime',
-      updatedAt: Number(item?.updatedAt || item?.createdAt || Date.now())
-    })
-  }
-
-  return goals.slice(0, 6)
-}
-
-function normalizeEncounteredCharacters(raw = []) {
-  if (!Array.isArray(raw)) return []
-
-  const seen = new Set()
-  const characters = []
-
-  for (const item of raw) {
-    const name = normalizeTextValue(item?.name || item)
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    characters.push({
-      id: normalizeTextValue(item?.id) || buildStableRuntimeId('char', name, 'character'),
-      name,
-      gender: normalizeTextValue(item?.gender),
-      age: normalizeTextValue(item?.age),
-      traits: Array.isArray(item?.traits)
-        ? item.traits.map(normalizeTextValue).filter(Boolean).slice(0, 12)
-        : [],
-      description: normalizeTextValue(item?.description),
-      goal: normalizeTextValue(item?.goal),
-      source: normalizeTextValue(item?.source) || 'runtime',
-      firstSeenAt: Number(item?.firstSeenAt || item?.lastSeenAt || Date.now()),
-      lastSeenAt: Number(item?.lastSeenAt || item?.firstSeenAt || Date.now())
-    })
-  }
-
-  return characters.slice(0, 12)
-}
-
-function normalizeFactionRelations(raw = {}) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-
-  return Object.entries(raw).reduce((acc, [key, value]) => {
-    const name = normalizeTextValue(key)
-    const numeric = Number(value)
-    if (!name || !Number.isFinite(numeric)) return acc
-    acc[name] = Math.max(-100, Math.min(100, Math.round(numeric)))
-    return acc
-  }, {})
-}
-
-function normalizeKeyChoices(raw = []) {
-  if (!Array.isArray(raw)) return []
-
-  const seen = new Set()
-  const choices = []
-
-  for (const item of raw) {
-    const label = normalizeTextValue(item?.label || item?.title || item?.detail || item)
-    if (!label || seen.has(label)) continue
-    seen.add(label)
-    choices.push({
-      id: normalizeTextValue(item?.id) || buildStableRuntimeId('choice', label, 'choice'),
-      label,
-      source: normalizeTextValue(item?.source) || 'runtime',
-      createdAt: Number(item?.createdAt || item?.updatedAt || Date.now())
-    })
-  }
-
-  return choices.slice(-10)
-}
-
-function normalizePlotJournal(raw = []) {
-  if (!Array.isArray(raw)) return []
-
-  return raw
-    .map((item, index) => {
-      const summary = normalizeTextValue(item?.summary || item?.content || '')
-      if (!summary) return null
-      return {
-        id: normalizeTextValue(item?.id) || buildStableRuntimeId('journal', item?.chapterId || String(index + 1), 'journal'),
-        chapterId: normalizeTextValue(item?.chapterId || `chapter-${index + 1}`),
-        summary,
-        participants: Array.isArray(item?.participants) ? item.participants.map(normalizeTextValue).filter(Boolean) : [],
-        locations: Array.isArray(item?.locations) ? item.locations.map(normalizeTextValue).filter(Boolean) : [],
-        keyChoices: Array.isArray(item?.keyChoices) ? item.keyChoices.map(normalizeTextValue).filter(Boolean) : [],
-        unresolvedHooks: Array.isArray(item?.unresolvedHooks) ? item.unresolvedHooks.map(normalizeTextValue).filter(Boolean) : [],
-        sourceMessageIds: Array.isArray(item?.sourceMessageIds) ? item.sourceMessageIds : [],
-        sourceStartIndex: normalizeNumber(item?.sourceStartIndex, 0),
-        sourceEndIndex: normalizeNumber(item?.sourceEndIndex, 0),
-        createdAt: normalizeNumber(item?.createdAt, Date.now())
-      }
-    })
-    .filter(Boolean)
-    .slice(-8)
-}
-
-function normalizeAdventureTriggerShot(raw = {}, index = 0) {
-  const shotType = normalizeTextValue(raw?.shotType || raw?.shotSize || 'medium')
-  const cameraMovement = normalizeTextValue(raw?.cameraMovement || raw?.camera || 'fixed')
-  return {
-    shotId: normalizeTextValue(raw?.shotId || String(index + 1)) || String(index + 1),
-    sequence: normalizeNumber(raw?.sequence, index + 1),
-    sourceText: normalizeTextValue(raw?.sourceText || raw?.content || ''),
-    content: normalizeTextValue(raw?.content || raw?.sourceText || ''),
-    shotType: shotType || 'medium',
-    shotSize: shotType || 'medium',
-    cameraMovement: cameraMovement || 'fixed',
-    camera: cameraMovement || 'fixed',
-    duration: Math.max(1, normalizeNumber(raw?.duration, 3)),
-    visual: normalizeTextValue(raw?.visual || raw?.tone || ''),
-    dialogue: normalizeTextValue(raw?.dialogue || ''),
-    sound: normalizeTextValue(raw?.sound || ''),
-    transition: normalizeTextValue(raw?.transition || 'cut') || 'cut',
-    notes: normalizeTextValue(raw?.notes || ''),
-    emotion: normalizeTextValue(raw?.emotion || ''),
-    scene: normalizeTextValue(raw?.scene || '')
-  }
-}
-
-function normalizeAdventureTriggerDraft(raw = null, type = 'prose') {
-  if (!raw || typeof raw !== 'object') return null
-
-  const normalizedType = type === 'storyboard' ? 'storyboard' : 'prose'
-  const status = normalizeTextValue(raw?.status || 'ready') || 'ready'
-  const draft = {
-    type: normalizedType,
-    chapterId: normalizeTextValue(raw?.chapterId || ''),
-    sourcePlotId: normalizeTextValue(raw?.sourcePlotId || raw?.chapterId || ''),
-    title: normalizeTextValue(raw?.title || ''),
-    summary: normalizeTextValue(raw?.summary || ''),
-    error: normalizeTextValue(raw?.error || ''),
-    assetId: normalizeTextValue(raw?.assetId || ''),
-    storyboardDocumentId: normalizeTextValue(raw?.storyboardDocumentId || ''),
-    storyboardVersionId: normalizeTextValue(raw?.storyboardVersionId || ''),
-    generatedAt: normalizeNumber(raw?.generatedAt, 0),
-    updatedAt: normalizeNumber(raw?.updatedAt, Date.now()),
-    acceptedAt: normalizeNumber(raw?.acceptedAt, 0),
-    status: ['generating', 'ready', 'accepted', 'error'].includes(status) ? status : 'ready',
-    sourceMessageIds: Array.isArray(raw?.sourceMessageIds) ? raw.sourceMessageIds : []
-  }
-
-  if (normalizedType === 'storyboard') {
-    draft.shots = Array.isArray(raw?.shots)
-      ? raw.shots.map((shot, index) => normalizeAdventureTriggerShot(shot, index)).filter((shot) => shot.sourceText || shot.content)
-      : []
-  } else {
-    draft.content = normalizeTextValue(raw?.content || '')
-  }
-
-  return draft
-}
-
-function normalizeAdventureTriggerHistory(raw = []) {
-  if (!Array.isArray(raw)) return []
-
-  return raw
-    .map((item) => {
-      const createdAt = normalizeNumber(item?.createdAt, 0)
-      if (!createdAt) return null
-      const type = normalizeTextValue(item?.type || '')
-      return {
-        type: type === 'storyboard' ? 'storyboard' : 'prose',
-        createdAt
-      }
-    })
-    .filter(Boolean)
-    .slice(-12)
-}
-
-function normalizeAdventureTriggersState(raw = {}) {
-  const source = raw && typeof raw === 'object' ? raw : {}
-  return {
-    prose: normalizeAdventureTriggerDraft(source?.prose, 'prose'),
-    storyboard: normalizeAdventureTriggerDraft(source?.storyboard, 'storyboard')
-  }
-}
-
-function normalizeEmergenceCausalState(raw = null) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const place = raw.place && typeof raw.place === 'object' && !Array.isArray(raw.place)
-    ? {
-        placeId: normalizeTextValue(raw.place.placeId),
-        status: normalizeTextValue(raw.place.status).slice(0, 80),
-        controllerId: normalizeTextValue(raw.place.controllerId).slice(0, 120),
-        danger: Number.isFinite(Number(raw.place.danger))
-          ? Math.max(0, Math.min(100, Number(raw.place.danger)))
-          : null
-      }
-    : null
-  const character = raw.character && typeof raw.character === 'object' && !Array.isArray(raw.character)
-    ? {
-        characterId: normalizeTextValue(raw.character.characterId),
-        name: normalizeTextValue(raw.character.name).slice(0, 80),
-        status: normalizeTextValue(raw.character.status).slice(0, 80),
-        goal: normalizeTextValue(raw.character.goal).slice(0, 120),
-        knowledgeRefs: Array.isArray(raw.character.knowledgeRefs)
-          ? raw.character.knowledgeRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
-          : [],
-        relationRefs: Array.isArray(raw.character.relationRefs)
-          ? raw.character.relationRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
-          : [],
-        factRefs: Array.isArray(raw.character.factRefs)
-          ? raw.character.factRefs.map(normalizeTextValue).filter(Boolean).slice(0, 4)
-          : []
-      }
-    : null
-  return {
-    place,
-    character,
-    activeEventIds: Array.isArray(raw.activeEventIds)
-      ? raw.activeEventIds.map(normalizeTextValue).filter(Boolean).slice(0, 2)
-      : [],
-    blockedConflictCodes: Array.isArray(raw.blockedConflictCodes)
-      ? raw.blockedConflictCodes.map(normalizeTextValue).filter(Boolean).slice(0, 6)
-      : []
-  }
-}
-
-function normalizeEmergenceCandidates(raw = []) {
-  if (!Array.isArray(raw)) return []
-  return raw
-    .map((candidate) => {
-      const id = normalizeTextValue(candidate?.id)
-      const summary = normalizeTextValue(candidate?.summary)
-      if (!id || !summary) return null
-      return {
-        ...candidate,
-        id,
-        type: ['history-hook', 'goal-pressure', 'faction-pressure'].includes(candidate?.type)
-          ? candidate.type
-          : 'history-hook',
-        status: 'candidate',
-        title: normalizeTextValue(candidate?.title) || '待确认的剧情候选',
-        summary: summary.slice(0, 260),
-        hook: normalizeTextValue(candidate?.hook),
-        factionName: normalizeTextValue(candidate?.factionName),
-        placeId: normalizeTextValue(candidate?.placeId),
-        participants: Array.isArray(candidate?.participants)
-          ? candidate.participants.map(normalizeTextValue).filter(Boolean).slice(0, 6)
-          : [],
-        reasons: Array.isArray(candidate?.reasons)
-          ? candidate.reasons.map(normalizeTextValue).filter(Boolean).slice(0, 4)
-          : [],
-        sourceRefs: Array.isArray(candidate?.sourceRefs)
-          ? candidate.sourceRefs
-            .filter((ref) => ref && typeof ref === 'object' && normalizeTextValue(ref.id))
-            .map((ref) => ({ type: normalizeTextValue(ref.type) || 'runtime', id: normalizeTextValue(ref.id) }))
-            .slice(0, 8)
-          : [],
-        causalState: normalizeEmergenceCausalState(candidate?.causalState),
-        score: Math.max(0, Math.min(100, Math.round(Number(candidate?.score) || 0))),
-        createdAt: normalizeNumber(candidate?.createdAt, Date.now())
-      }
-    })
-    .filter(Boolean)
-    .slice(0, 2)
-}
-
-function normalizeEmergenceDismissedIds(raw = []) {
-  if (!Array.isArray(raw)) return []
-  return [...new Set(raw.map(normalizeTextValue).filter(Boolean))].slice(-24)
-}
-
-function normalizeEmergenceEvent(raw = null) {
-  if (!raw || typeof raw !== 'object') return null
-  const title = normalizeTextValue(raw.title)
-  const summary = normalizeTextValue(raw.summary)
-  const placeId = normalizeTextValue(raw.placeId)
-  if (!title || !summary || !placeId) return null
-  const changes = validateStateDelta(raw.changes || [])
-  if (!changes.valid || changes.sanitized.length === 0 || changes.sanitized.length > 6) return null
-  return {
-    ...raw,
-    v: normalizeNumber(raw.v, 1),
-    kind: 'emergent-event-v1',
-    candidateId: normalizeTextValue(raw.candidateId),
-    title: title.slice(0, 80),
-    summary: summary.slice(0, 520),
-    placeId,
-    participants: Array.isArray(raw.participants) ? raw.participants.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
-    factions: Array.isArray(raw.factions) ? raw.factions.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
-    causes: Array.isArray(raw.causes) ? raw.causes.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
-    changes: changes.sanitized.slice(0, 6),
-    consequences: Array.isArray(raw.consequences) ? raw.consequences.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
-    unresolvedHooks: Array.isArray(raw.unresolvedHooks) ? raw.unresolvedHooks.map(normalizeTextValue).filter(Boolean).slice(0, 6) : [],
-    choices: Array.isArray(raw.choices)
-      ? raw.choices.map((choice, index) => ({
-        id: normalizeTextValue(choice?.id) || `choice-${index + 1}`,
-        label: normalizeTextValue(choice?.label).slice(0, 48),
-        intent: normalizeTextValue(choice?.intent).slice(0, 120),
-        risk: normalizeTextValue(choice?.risk).slice(0, 120)
-      })).filter((choice) => choice.label).slice(0, 3)
-      : [],
-    confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0.5)),
-    sourceRefs: Array.isArray(raw.sourceRefs) ? raw.sourceRefs.slice(0, 8) : []
-  }
-}
-
-function normalizeEmergenceDraft(raw = null) {
-  if (!raw || typeof raw !== 'object') return null
-  const status = normalizeTextValue(raw.status)
-  const decision = normalizeTextValue(raw.decision)
-  return {
-    candidateId: normalizeTextValue(raw.candidateId),
-    status: ['generating', 'ready', 'error'].includes(status) ? status : 'error',
-    decision: ['pending', 'applied', 'rejected', 'rolled-back'].includes(decision) ? decision : 'pending',
-    event: normalizeEmergenceEvent(raw.event),
-    error: normalizeTextValue(raw.error),
-    appliedEventId: normalizeTextValue(raw.appliedEventId),
-    rollbackEventId: normalizeTextValue(raw.rollbackEventId),
-    generatedAt: normalizeNumber(raw.generatedAt, 0),
-    updatedAt: normalizeNumber(raw.updatedAt, Date.now())
-  }
-}
-
-function normalizeAdventureState(raw = {}) {
-  return {
-    goals: normalizeGoals(raw?.goals),
-    encounteredCharacters: normalizeEncounteredCharacters(raw?.encounteredCharacters),
-    factionRelations: normalizeFactionRelations(raw?.factionRelations),
-    keyChoices: normalizeKeyChoices(raw?.keyChoices),
-    plotJournal: normalizePlotJournal(raw?.plotJournal),
-    adventureTriggers: normalizeAdventureTriggersState(raw?.adventureTriggers),
-    adventureTriggerHistory: normalizeAdventureTriggerHistory(raw?.adventureTriggerHistory),
-    adventureTriggerCooldownUntil: normalizeNumber(raw?.adventureTriggerCooldownUntil, 0),
-    emergenceCandidates: normalizeEmergenceCandidates(raw?.emergenceCandidates),
-    emergenceDismissedIds: normalizeEmergenceDismissedIds(raw?.emergenceDismissedIds),
-    emergenceDraft: normalizeEmergenceDraft(raw?.emergenceDraft)
-  }
-}
-
-function getWorldbookEntryNames(worldbook, type, limit = 20) {
-  const normalizedType = normalizeTextValue(type).toLowerCase()
-  const entries = Array.isArray(worldbook?.entries) ? worldbook.entries : []
-  return entries
-    .filter((entry) => normalizeTextValue(entry?.type).toLowerCase() === normalizedType)
-    .flatMap((entry) => {
-      if (normalizedType !== 'character') return [normalizeTextValue(entry?.name || entry?.keys?.[0])]
-      const cards = parseCharacterCards(entry?.content)
-      return cards.length
-        ? cards.map((card) => card.name)
-        : [normalizeTextValue(entry?.name || entry?.keys?.[0])]
-    })
-    .map(normalizeTextValue)
-    .filter(Boolean)
-    .filter((name, index, names) => names.indexOf(name) === index)
-    .slice(0, limit)
-}
-
-function createEmptySessionRuntime() {
-  return {
-    messages: [],
-    chatHistory: [],
-    time: { day: 1, period: '早晨' },
-    player: { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 },
-    inventory: [],
-    quests: [],
-    flags: {},
-    activities: [],
-    npcRelations: {},
-    discoveredPlaces: [],
-    completedQuests: [],
-    writingCharacter: normalizeWritingCharacter(DEFAULT_WRITING_CHARACTER),
-    writingTime: normalizeWritingTime(DEFAULT_WRITING_TIME),
-    placeStates: {},
-    characterStates: {},
-    characterRelations: {},
-    canonicalFacts: {},
-    worldMapState: normalizeWorldMapState(DEFAULT_WORLD_MAP_STATE),
-    playerCharacter: { name: 'User', avatar: '', gender: '', age: '' },
-    aiCharacter: { name: 'Assistant', avatar: '' },
-    dialogueMode: false,
-    dialogueCharacter: null,
-    activeMechanism: null,
-    mechanismContext: null,
-    milestoneEvent: null,
-    goals: [],
-    encounteredCharacters: [],
-    factionRelations: {},
-    keyChoices: [],
-    plotJournal: [],
-    adventureTriggers: cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null }),
-    adventureTriggerHistory: [],
-    adventureTriggerCooldownUntil: 0,
-    emergenceCandidates: [],
-    emergenceDismissedIds: [],
-    emergenceDraft: null,
-    runtimeEvents: [],
-    historyNode: null,
-    narrativeSceneSummary: null,
-    sceneThread: null
-  }
-}
-
-function cloneState(value, fallback) {
-  try {
-    return JSON.parse(JSON.stringify(value ?? fallback))
-  } catch {
-    return JSON.parse(JSON.stringify(fallback))
-  }
-}
-
-// P1：applyRuntimeSnapshot 实际读取的字段 —— turn/session 快照只保留这些，
-// 不再随每个回合快照复制完整 messages/chatHistory（正文已被多份保存导致二次增长）。
-const RUNTIME_SNAPSHOT_KEYS = Object.freeze([
-  'player', 'inventory', 'quests', 'flags', 'activities',
-  'goals', 'encounteredCharacters', 'factionRelations', 'keyChoices', 'plotJournal',
-  'adventureTriggers', 'adventureTriggerHistory', 'adventureTriggerCooldownUntil',
-  'emergenceCandidates', 'emergenceDismissedIds', 'emergenceDraft',
-  'npcRelations', 'discoveredPlaces', 'completedQuests',
-  'writingCharacter', 'writingTime', 'placeStates', 'characterStates',
-  'characterRelations', 'canonicalFacts', 'worldMapState', 'historyNode',
-  'narrativeSceneSummary', 'sceneThread', 'activeMechanism', 'mechanismContext',
-  'milestoneEvent', 'dialogueMode', 'dialogueCharacter', 'runtimeEvents'
-])
-
-function normalizeRuntimeSnapshot(snapshot, { forSession = false } = {}) {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return {}
-  const result = {}
-  for (const key of RUNTIME_SNAPSHOT_KEYS) {
-    if (snapshot[key] !== undefined) result[key] = snapshot[key]
-  }
-  // session 需要 playerCharacter/aiCharacter（loadSession 读取）；turn 快照不需要。
-  if (forSession) {
-    if (snapshot.playerCharacter !== undefined) result.playerCharacter = snapshot.playerCharacter
-    if (snapshot.aiCharacter !== undefined) result.aiCharacter = snapshot.aiCharacter
-  }
-  return result
-}
 
 function debugLog(...args) {
-  if (import.meta.env.DEV) {
+  // import.meta.env 仅由打包器注入；plain node 下为 undefined（脚本矩阵环境）
+  if (import.meta.env?.DEV) {
     console.debug(...args)
   }
 }
@@ -880,86 +187,18 @@ function resolveActiveWorldbookId() {
   }
 }
 
-function findSession(sessions, id) {
-  if (!id || !Array.isArray(sessions)) return null
-  return sessions.find((session) => session.id === id) || null
-}
-
-// Per-store-instance debouncer for saveSessions (Pinax Tier 1 #11).
-// WeakMap so the debouncer is garbage-collected with the store instance.
-// 500ms trailing-only merge; 5+ writes per AI reply cycle collapse to 1.
-const saveSessionDebouncers = new WeakMap()
+// Narrative abort controllers stay module-level (per store instance).
 const narrativeAbortControllers = new WeakMap()
-
-function getSaveSessionsDebouncer(store) {
-  if (!saveSessionDebouncers.has(store)) {
-    saveSessionDebouncers.set(store, debounce(() => {
-      setItem(STORAGE_KEYS.WRITING_SESSIONS, store.sessions)
-    }, 500, { leading: false, trailing: true }))
-  }
-  return saveSessionDebouncers.get(store)
-}
-
-// 3-event unload flush (guarded: SSR / Node tests have no window/document).
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', flushPending)
-  window.addEventListener('pagehide', flushPending)
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) flushPending()
-    })
-  }
-}
 
 // Authoring runtime（模块级、非持久化）：正文提交后经统一 bridge 调度后台派生观察器。
 // 观察器输出永远是低优先级 derived state / typed exception，不直接改正文和 locked canon。
+// 订阅/缓冲/异常隔离的唯一 owner 是 gameObserverRuntime 的 hub（B7）；
+// bridge/scheduler/memoryTriggers 的编排闭包留在 store（需要会话能力）。
 let authoringObserverBridge = null
 let authoringObserverScheduler = null
 let authoringMemoryTriggers = null
-let authoringMemoryAgentEnabled = true
-// Authoring 记忆的项目标识真源：页面选书时同步；未同步时回退 active worldbook。
-let authoringActiveProjectId = ''
-const authoringMemoryTriggerEvents = []
-const authoringObserverEvents = []
-const authoringDerivedState = []
-const authoringObserverExceptions = []
-const authoringObserverResultListeners = new Set()
-const authoringLastDocumentRevisions = new Map()
-let authoringDocumentSequence = 0
+const authoringObserverHub = createAuthoringObserverHub()
 
-function recordAuthoringObserverEvent(delta) {
-  authoringObserverEvents.push({ ...delta, scheduledAt: Date.now() })
-  if (authoringObserverEvents.length > 50) authoringObserverEvents.shift()
-}
-
-function recordAuthoringObserverResult(settled) {
-  if (settled?.status && settled.status !== 'completed') return
-  const result = settled?.result || settled
-  const target = settled?.target || result?.target || {}
-  for (const exception of result?.exceptions || []) {
-    authoringObserverExceptions.push({
-      id: String(exception.observationId || `exception-${Date.now().toString(36)}`),
-      reason: String(exception.reason || ''),
-      summary: String(exception.text || ''),
-      documentId: String(target.documentId || ''),
-      documentRevision: String(result.documentRevision || ''),
-      recordedAt: Date.now()
-    })
-  }
-  if (authoringObserverExceptions.length > 50) {
-    authoringObserverExceptions.splice(0, authoringObserverExceptions.length - 50)
-  }
-}
-
-function notifyAuthoringObserverResult(result) {
-  for (const listener of [...authoringObserverResultListeners]) {
-    try {
-      listener(result)
-    } catch {
-      // 一个页面监听器失败不能破坏后台派生或其他监听器。
-    }
-  }
-}
 
 export const useGameStore = defineStore('game', {
   state: () => ({
@@ -1937,51 +1176,14 @@ export const useGameStore = defineStore('game', {
     },
 
     buildPlotJournalEntry() {
-      const history = Array.isArray(this.chatHistory) ? this.chatHistory : []
-      const bodyMessages = history.filter((message) => message?.role === 'user' || message?.role === 'assistant')
-      const lastEntry = this.plotJournal?.[this.plotJournal.length - 1] || null
-      const sourceStartIndex = normalizeNumber(lastEntry?.sourceEndIndex, 0)
-      const pendingMessages = bodyMessages.slice(sourceStartIndex)
-      const assistantTurns = pendingMessages.filter((message) => message.role === 'assistant').length
-
-      if (assistantTurns < PLOT_JOURNAL_TURN_INTERVAL) {
-        return null
-      }
-
-      const summary = compactPlotJournalSummary(pendingMessages)
-      if (!summary) {
-        return null
-      }
-
-      const chapterNumber = (this.plotJournal?.length || 0) + 1
-      const participants = normalizeEncounteredCharacters(this.encounteredCharacters)
-        .slice(-4)
-        .map((character) => character.name)
-      const locations = [
-        this.worldMapState?.currentCountry,
-        this.worldMapState?.currentCity,
-        this.worldMapState?.currentScene
-      ].map(normalizeTextValue).filter(Boolean)
-      const keyChoices = normalizeKeyChoices(this.keyChoices)
-        .slice(-3)
-        .map((choice) => choice.label)
-      const unresolvedHooks = normalizeGoals(this.goals)
-        .filter((goal) => goal.status !== 'completed')
-        .slice(0, 3)
-        .map((goal) => goal.title)
-
-      return {
-        chapterId: `chapter-${chapterNumber}`,
-        summary,
-        participants,
-        locations,
-        keyChoices,
-        unresolvedHooks,
-        sourceMessageIds: pendingMessages.map((_, index) => `chat-${sourceStartIndex + index + 1}`),
-        sourceStartIndex,
-        sourceEndIndex: bodyMessages.length,
-        createdAt: Date.now()
-      }
+      return buildJournalEntry({
+        chatHistory: this.chatHistory,
+        plotJournal: this.plotJournal,
+        encounteredCharacters: this.encounteredCharacters,
+        worldMapState: this.worldMapState,
+        keyChoices: this.keyChoices,
+        goals: this.goals
+      })
     },
 
     maybeAppendPlotJournalEntry() {
@@ -2001,24 +1203,25 @@ export const useGameStore = defineStore('game', {
     },
 
     saveSessions() {
-      getSaveSessionsDebouncer(this)()
+      // 500ms trailing 去抖；写手属于 scheduler 模块，store 只提供只读 getter
+      getSessionListWriter(this, { getSessions: () => this.sessions })()
     },
 
     flushSaveSessions() {
-      const debounced = saveSessionDebouncers.get(this)
-      if (debounced) debounced.flush()
-      else setItem(STORAGE_KEYS.WRITING_SESSIONS, this.sessions)
+      // 返回最近/本次写盘结果（true/false），让保存失败对调用方可观测
+      return flushSessionListWriter(this, { getSessions: () => this.sessions })
+    },
+
+    // B-R2：外层事务（switchBranch/undo-extension/生成失败恢复/regenerateFrom
+    // 出口）的最终一致态提交点：先用 canonical 组装器把当前 runtime 同步进
+    // 会话记录，再立即写盘。事务中间态不得调用本方法。
+    commitCurrentSessionNow() {
+      this.saveCurrentSession()
+      return this.flushSaveSessions()
     },
 
     getLatestSessionForWorldbook(worldbookId) {
-      if (!worldbookId) return null
-      const target = worldbookId
-      const sorted = [...this.sessions].sort(
-        (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0),
-      )
-      return (
-        sorted.find((s) => (s.worldbookId || s.worldId) === target) || null
-      )
+      return findLatestSessionForWorldbook(this.sessions, worldbookId)
     },
 
     createSession(options = {}) {
@@ -2028,24 +1231,12 @@ export const useGameStore = defineStore('game', {
         ? this.getRuntimeSnapshot()
         : createEmptySessionRuntime()
 
-      const session = {
+      const session = buildCreatedSessionRecord({
         id: 'sess_' + Date.now(),
-        schemaVersion: 1,
         title,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        worldId: currentWorldbookId,
         worldbookId: currentWorldbookId,
-        runtimeState,
-        messages: cloneState(runtimeState.messages, []),
-        chatHistory: cloneState(runtimeState.chatHistory, []),
-        worldState: {
-          character: cloneState(runtimeState.writingCharacter, DEFAULT_WRITING_CHARACTER),
-          time: cloneState(runtimeState.writingTime, DEFAULT_WRITING_TIME),
-          worldMap: cloneState(runtimeState.worldMapState, DEFAULT_WORLD_MAP_STATE),
-          activities: cloneState(runtimeState.activities, [])
-        }
-      }
+        runtimeState
+      })
       this.sessions.push(session)
       this.currentSessionId = session.id
       if (!inheritRuntimeState) {
@@ -2061,31 +1252,26 @@ export const useGameStore = defineStore('game', {
       const idx = this.sessions.findIndex(s => s.id === this.currentSessionId)
       if (idx === -1) return
       this.messages = normalizeNarrativeMessages(this.messages)
-      const runtimeState = this.getRuntimeSnapshot()
       const worldbookId = this.worldId || this.sessions[idx].worldbookId || this.sessions[idx].worldId || resolveActiveWorldbookId() || ''
-      this.sessions[idx].schemaVersion = this.sessions[idx].schemaVersion || 1
-      this.sessions[idx].messages = cloneState(this.messages, [])
-      this.sessions[idx].chatHistory = cloneState(this.chatHistory, [])
-      this.sessions[idx].runtimeState = runtimeState
-      this.sessions[idx].worldState = {
-        character: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
-        time: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
-        worldMap: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
-        activities: cloneState(this.activities, [])
-      }
-      // R1a：回合事务记录随 session 持久化（LRU ≤50，含全量 preRuntimeSnapshot）
-      this.sessions[idx].turnRecords = normalizeTurnRecords(this.turnRecords)
-      this.sessions[idx].lastCommittedTurnId = this.lastCommittedTurnId || null
-      this.sessions[idx].activeBranchId = this.activeBranchId || 'main'  // P0-4：活动分支持久化
-      this.sessions[idx].worldId = worldbookId
-      this.sessions[idx].worldbookId = worldbookId
-      this.sessions[idx].updatedAt = Date.now()
-      // 更新标题为第一条消息的前30字
+      // 会话记录字段构造归 scheduler 模块；store 仍是 sessions 数组的唯一 owner
+      const fields = buildCurrentSessionFields({
+        messages: this.messages,
+        chatHistory: this.chatHistory,
+        runtimeState: this.getRuntimeSnapshot(),
+        writingCharacter: this.writingCharacter,
+        writingTime: this.writingTime,
+        worldMapState: this.worldMapState,
+        activities: this.activities,
+        turnRecords: this.turnRecords,
+        lastCommittedTurnId: this.lastCommittedTurnId,
+        activeBranchId: this.activeBranchId,
+        worldbookId,
+        previousSchemaVersion: this.sessions[idx].schemaVersion
+      })
+      Object.assign(this.sessions[idx], fields)
       if (this.messages.length > 1) {
-        const firstMsg = this.messages.find(m => m.role === 'assistant' && m.content)
-        if (firstMsg) {
-          this.sessions[idx].title = firstMsg.content.slice(0, 30) + (firstMsg.content.length > 30 ? '...' : '')
-        }
+        const derivedTitle = deriveSessionTitle(this.messages)
+        if (derivedTitle) this.sessions[idx].title = derivedTitle
       }
       this.saveSessions()
     },
@@ -2204,102 +1390,72 @@ export const useGameStore = defineStore('game', {
     },
 
     getRuntimeSnapshot({ forSession = true } = {}) {
-      const snapshot = {
-        messages: cloneState(this.messages, []),
-        chatHistory: cloneState(this.chatHistory, []),
-        time: cloneState(this.time, { day: 1, period: '早晨' }),
-        player: cloneState(this.player, { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 }),
-        inventory: cloneState(this.inventory, []),
-        quests: cloneState(this.quests, []),
-        flags: cloneState(this.flags, {}),
-        activities: cloneState(this.activities, []),
-        goals: cloneState(this.goals, DEFAULT_ADVENTURE_STATE.goals),
-        encounteredCharacters: cloneState(this.encounteredCharacters, DEFAULT_ADVENTURE_STATE.encounteredCharacters),
-        factionRelations: cloneState(this.factionRelations, DEFAULT_ADVENTURE_STATE.factionRelations),
-        keyChoices: cloneState(this.keyChoices, DEFAULT_ADVENTURE_STATE.keyChoices),
-        plotJournal: cloneState(this.plotJournal, DEFAULT_ADVENTURE_STATE.plotJournal),
-        adventureTriggers: cloneState(this.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers),
-        adventureTriggerHistory: cloneState(this.adventureTriggerHistory, []),
+      // 快照构建归 projection 模块：store 只提供只读字段视图
+      return buildRuntimeSnapshot({
+        messages: this.messages,
+        chatHistory: this.chatHistory,
+        time: this.time,
+        player: this.player,
+        inventory: this.inventory,
+        quests: this.quests,
+        flags: this.flags,
+        activities: this.activities,
+        goals: this.goals,
+        encounteredCharacters: this.encounteredCharacters,
+        factionRelations: this.factionRelations,
+        keyChoices: this.keyChoices,
+        plotJournal: this.plotJournal,
+        adventureTriggers: this.adventureTriggers,
+        adventureTriggerHistory: this.adventureTriggerHistory,
         adventureTriggerCooldownUntil: this.adventureTriggerCooldownUntil,
-        emergenceCandidates: cloneState(this.emergenceCandidates, []),
-        emergenceDismissedIds: cloneState(this.emergenceDismissedIds, []),
-        emergenceDraft: cloneState(this.emergenceDraft, null),
-        npcRelations: cloneState(this.npcRelations, {}),
-        discoveredPlaces: cloneState(this.discoveredPlaces, []),
-        completedQuests: cloneState(this.completedQuests, []),
-        writingCharacter: cloneState(this.writingCharacter, DEFAULT_WRITING_CHARACTER),
-        writingTime: cloneState(this.writingTime, DEFAULT_WRITING_TIME),
-        placeStates: cloneState(this.placeStates, {}),
-        characterStates: cloneState(this.characterStates, {}),
-        characterRelations: cloneState(this.characterRelations, {}),
-        canonicalFacts: cloneState(this.canonicalFacts, {}),
-        worldMapState: cloneState(this.worldMapState, DEFAULT_WORLD_MAP_STATE),
-        historyNode: cloneState(this.historyNode, null),
-        narrativeSceneSummary: cloneState(this.narrativeSceneSummary, null),
-        sceneThread: cloneState(this.sceneThread, null),
+        emergenceCandidates: this.emergenceCandidates,
+        emergenceDismissedIds: this.emergenceDismissedIds,
+        emergenceDraft: this.emergenceDraft,
+        npcRelations: this.npcRelations,
+        discoveredPlaces: this.discoveredPlaces,
+        completedQuests: this.completedQuests,
+        writingCharacter: this.writingCharacter,
+        writingTime: this.writingTime,
+        placeStates: this.placeStates,
+        characterStates: this.characterStates,
+        characterRelations: this.characterRelations,
+        canonicalFacts: this.canonicalFacts,
+        worldMapState: this.worldMapState,
+        historyNode: this.historyNode,
+        narrativeSceneSummary: this.narrativeSceneSummary,
+        sceneThread: this.sceneThread,
         activeMechanism: this.activeMechanism,
-        mechanismContext: cloneState(this.mechanismContext, null),
-        milestoneEvent: cloneState(this.milestoneEvent, null),
-        playerCharacter: cloneState(this.playerCharacter, { name: 'User', avatar: '' }),
-        aiCharacter: cloneState(this.aiCharacter, { name: 'Assistant', avatar: '' }),
+        mechanismContext: this.mechanismContext,
+        milestoneEvent: this.milestoneEvent,
+        playerCharacter: this.playerCharacter,
+        aiCharacter: this.aiCharacter,
         dialogueMode: this.dialogueMode,
-        dialogueCharacter: cloneState(this.dialogueCharacter, null),
-        runtimeEvents: capRuntimeEvents(
-          Array.isArray(this.runtimeEvents) ? this.runtimeEvents : [],
-          RUNTIME_EVENT_LIMIT
-        )
-      }
-      // P1：只保留 applyRuntimeSnapshot / loadSession 实际读取的字段，剥离 messages/chatHistory/time 等。
-      return normalizeRuntimeSnapshot(snapshot, { forSession })
+        dialogueCharacter: this.dialogueCharacter,
+        runtimeEvents: this.runtimeEvents
+      }, { forSession })
     },
 
     // R1a：从 preRuntimeSnapshot 恢复 runtime state（回合事务失败/regenerate 回滚用）。
     // 复用 loadSession 的 normalize 模式；不恢复 messages/chatHistory（由调用方单独处理）。
     applyRuntimeSnapshot(snapshot) {
       if (!snapshot || typeof snapshot !== 'object') return
-      const s = snapshot
-      this.placeStates = normalizePlaceStates(s.placeStates)
-      this.characterStates = normalizeCharacterStates(s.characterStates)
-      this.characterRelations = normalizeCharacterRelations(s.characterRelations)
-      this.canonicalFacts = normalizeCanonicalFacts(s.canonicalFacts)
-      this.worldMapState = normalizeWorldMapState(s.worldMapState || DEFAULT_WORLD_MAP_STATE)
-      this.historyNode = cloneState(s.historyNode || null, null)
-      this.narrativeSceneSummary = normalizeNarrativeSceneSummary(s.narrativeSceneSummary)
-      this.sceneThread = normalizeNarrativeSceneThread(s.sceneThread || null)
-      this.activities = cloneState(s.activities || [], [])
-      const adventureState = normalizeAdventureState(s)
-      this.goals = adventureState.goals
-      this.encounteredCharacters = adventureState.encounteredCharacters
-      this.factionRelations = adventureState.factionRelations
-      this.keyChoices = adventureState.keyChoices
-      this.plotJournal = adventureState.plotJournal
-      this.adventureTriggers = cloneState(adventureState.adventureTriggers, DEFAULT_ADVENTURE_STATE.adventureTriggers)
-      this.adventureTriggerHistory = cloneState(adventureState.adventureTriggerHistory, [])
-      this.adventureTriggerCooldownUntil = adventureState.adventureTriggerCooldownUntil || 0
-      this.emergenceCandidates = cloneState(adventureState.emergenceCandidates, [])
-      this.emergenceDismissedIds = cloneState(adventureState.emergenceDismissedIds, [])
-      this.emergenceDraft = cloneState(adventureState.emergenceDraft, null)
-      this.adventureTriggerPendingType = null
-      this.player = cloneState(s.player || this.player, { vitality: 100, maxVitality: 100, mood: 80, maxMood: 100, money: 100, level: 1, exp: 0 })
-      this.inventory = cloneState(s.inventory || this.inventory, [])
-      this.quests = cloneState(s.quests || this.quests, [])
-      this.flags = cloneState(s.flags || this.flags, {})
-      this.npcRelations = cloneState(s.npcRelations || this.npcRelations, {})
-      this.discoveredPlaces = cloneState(s.discoveredPlaces || this.discoveredPlaces, [])
-      this.completedQuests = cloneState(s.completedQuests || this.completedQuests, [])
-      this.activeMechanism = s.activeMechanism ?? null
-      this.mechanismContext = cloneState(s.mechanismContext || null, null)
-      this.milestoneEvent = cloneState(s.milestoneEvent || null, null)
-      this.dialogueMode = !!s.dialogueMode
-      this.dialogueCharacter = cloneState(s.dialogueCharacter || null, null)
-      this.writingCharacter = normalizeWritingCharacter(s.writingCharacter || DEFAULT_WRITING_CHARACTER)
-      this.writingTime = normalizeWritingTime(s.writingTime || DEFAULT_WRITING_TIME)
-      this.runtimeEvents = capRuntimeEvents(
-        Array.isArray(s.runtimeEvents) ? s.runtimeEvents : [],
-        RUNTIME_EVENT_LIMIT
-      )
-      // 立即落盘（不依赖 500ms debouncer），崩溃/刷新不丢恢复结果
-      this.flushSaveSessions()
+      // 恢复补丁由 projection 模块归一化；缺失字段回退当前状态（与迁出前一致），
+      // assign 后立即落盘（不依赖 500ms debouncer），崩溃/刷新不丢恢复结果
+      const patch = projectRuntimeSnapshot(snapshot, {
+        player: this.player,
+        inventory: this.inventory,
+        quests: this.quests,
+        flags: this.flags,
+        npcRelations: this.npcRelations,
+        discoveredPlaces: this.discoveredPlaces,
+        completedQuests: this.completedQuests
+      })
+      Object.assign(this, patch)
+      // B-R1：本方法只负责内存投影（normalize + 一次性更新 Pinia runtime），
+      // 不自行保存、不 flush——落盘由外层事务（switchBranch/undo-extension/
+      // 生成失败恢复/regenerateFrom）在最终一致态统一提交，避免中途存档
+      // 把"半事务"写进存档。
+      return patch
     },
 
     appendRuntimeEvent(input = {}) {
@@ -2829,28 +1985,11 @@ export const useGameStore = defineStore('game', {
     // P1：删除后清理完全不可达的 turn record（无 assistantMessageIds/userMessageIds、
     // 无 baseMessageId 引用、无其他 turn 把它当 parent）。仍被分支链引用的拓扑保留。
     gcUnreachableTurns() {
-      const records = this.turnRecords || {}
-      const ids = Object.keys(records)
-      const referencedAsParent = new Set()
-      const referencedAsBase = new Set()
-      for (const turn of Object.values(records)) {
-        if (turn.parentTurnId) referencedAsParent.add(turn.parentTurnId)
-        if (turn.baseMessageId) {
-          // baseMessageId 指向消息而非 turn，跳过
-        }
-      }
-      // 保留：有消息 / 被其他 turn 当 parent / 是 lastCommittedTurnId 或 pendingBranchParentTurnId
-      for (const id of ids) {
-        const turn = records[id]
-        if (!turn) continue
-        const hasMessages = (turn.assistantMessageIds?.length || 0) + (turn.userMessageIds?.length || 0) > 0
-        const isReferenced = referencedAsParent.has(id)
-          || this.lastCommittedTurnId === id
-          || this.pendingBranchParentTurnId === id
-        if (hasMessages || isReferenced) continue
-        delete records[id]
-      }
-      this.turnRecords = records
+      // GC 判定归 branch-turn 图模块（B11）：store 只保留保留条件里的游标
+      this.turnRecords = gcBranchTurns(this.turnRecords, {
+        lastCommittedTurnId: this.lastCommittedTurnId,
+        pendingBranchParentTurnId: this.pendingBranchParentTurnId
+      })
     },
 
     // --- 新增：核心”执行”功能 ---
@@ -2889,47 +2028,17 @@ export const useGameStore = defineStore('game', {
     // user/assistant 消息 id。嵌套分叉时，只有祖先链上的消息可见，
     // 子分支独有历史不会被误提升为共享。
     collectBranchTurnChain(branchId) {
-      const chain = new Set()
-      if (!branchId) return chain
-      const records = Object.values(this.turnRecords || {})
-        .filter((r) => r?.status === 'committed')
-      const branchTurns = records
-        .filter((r) => r.branchId === branchId)
-        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
-      let current = null
-      if (branchTurns.length > 0) {
-        current = branchTurns[0]
-      } else if (this.pendingBranchParentTurnId && this.turnRecords[this.pendingBranchParentTurnId]) {
-        // P1-3：当前分支尚无 committed turn（新分支刚创建）→ 从明确的分叉父 turn 建链，
-        // 不依赖可能丢失的全局 lastCommittedTurnId。
-        current = this.turnRecords[this.pendingBranchParentTurnId]
-      } else if (this.lastCommittedTurnId && this.turnRecords[this.lastCommittedTurnId]) {
-        // 兜底：无 pending 分叉父 turn 时回退到最近提交 turn 的链。
-        current = this.turnRecords[this.lastCommittedTurnId]
-      } else {
-        return chain
-      }
-      const guard = new Set()
-      while (current && !guard.has(current.id)) {
-        guard.add(current.id)
-        chain.add(current.id)
-        current = current.parentTurnId ? this.turnRecords[current.parentTurnId] : null
-      }
-      return chain
+      return collectTurnChain(this.turnRecords, {
+        branchId,
+        pendingBranchParentTurnId: this.pendingBranchParentTurnId,
+        lastCommittedTurnId: this.lastCommittedTurnId
+      })
     },
 
     // P0-1：当前分支可见消息 id 集合（含祖先链 turn 的消息 + 无 branchId 的共享历史）。
     currentBranchVisibleMessageIds() {
       const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
-      const ids = new Set()
-      for (const turnId of chain) {
-        const turn = this.turnRecords[turnId]
-        if (!turn) continue
-        for (const id of [...(turn.userMessageIds || []), ...(turn.assistantMessageIds || [])]) {
-          ids.add(id)
-        }
-      }
-      return ids
+      return collectChainMessageIds(this.turnRecords, chain)
     },
 
     // P1-4：当前分支链上的 turn id 集合（记忆候选分支隔离用）。
@@ -3061,27 +2170,19 @@ export const useGameStore = defineStore('game', {
     // R1b：切换候选/分支。恢复该分支的 post snapshot + 重建 chatHistory。
     switchBranch(branchId) {
       if (!branchId || branchId === this.activeBranchId) return
-      // P0-3：取该分支**最新** committed turn（按 committedAt 降序），
-      // 避免多回合分支恢复到过早状态。
-      const branchTurns = Object.values(this.turnRecords || {})
-        .filter((r) => r?.branchId === branchId && r?.postRuntimeSnapshot)
-        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))
-      const turn = branchTurns[0] || null
+      // 最新回合选择与 superseded 标记判定归 branch-turn 图模块（B11）
+      const turn = latestCommittedBranchTurn(this.turnRecords, branchId)
       // P0-2：同步提交游标到目标分支最新 turn —— 否则切分支后继续生成，
       // 新 turn 会以其它分支的回合作父节点，重新造成跨分支污染。
       if (turn?.id) this.lastCommittedTurnId = turn.id
       if (turn?.postRuntimeSnapshot) {
         this.applyRuntimeSnapshot(turn.postRuntimeSnapshot)
       }
-      // 重算 superseded：目标分支的消息解除标记，其他分支的消息标记（隐藏）
-      for (const m of this.messages || []) {
-        if (!m || typeof m !== 'object') continue
-        if (m.branchId && m.branchId !== branchId) m.superseded = true
-        else m.superseded = false
-      }
+      markSupersededMessages(this.messages, branchId)
       this.activeBranchId = branchId
       this.rebuildChatHistory()
-      this.saveCurrentSession()
+      // 最终一致态提交点（B-R2）
+      this.commitCurrentSessionNow()
     },
 
     // R6：统一动作 dispatcher —— 按钮/快捷键/命令走同一入口。
@@ -3206,7 +2307,8 @@ export const useGameStore = defineStore('game', {
               // P0-3：移除引用被撤销消息的未消费 inlineEvents（按 messageId 关联）。
               this.inlineEvents = (this.inlineEvents || []).filter((event) => event?.messageId !== targetId)
               this.rebuildChatHistory()
-              this.saveCurrentSession()
+              // 最终一致态提交点（B-R2）
+              this.commitCurrentSessionNow()
               return { ok: true }
             }
           default:
@@ -3774,9 +2876,10 @@ export const useGameStore = defineStore('game', {
           this.pendingBranchParentTurnId = null  // P1-3：新分支已 committed，清理回退游标
         }
 
-        // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为一个事务落盘
+        // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为
+        // 一个事务落盘（B-R2：成功出口的唯一最终一致态提交点，带立即 flush）
         if (this.currentSessionId) {
-          this.saveCurrentSession()
+          this.commitCurrentSessionNow()
         }
 
         // Authoring runtime：可见正文提交后，经统一 bridge 调度一次后台派生观察器。
@@ -3922,139 +3025,44 @@ export const useGameStore = defineStore('game', {
 
       debugLog('[extractAndUpdateState] 开始提取状态更新')
 
-      // 提取时间变化
-      this.extractTimeChanges(content)
-
-      // 提取地点变化
-      this.extractLocationChanges(content)
-
-      // 提取角色状态变化
-      this.extractCharacterChanges(content)
-
-      // 提取活动事件
-      this.extractActivityEvents(content)
-
-      // 轻状态：目标 / 已遇角色 / 关键选择 / 阵营关系
-      this.extractAdventureState(content)
-
-      // 剧情日志：每累计约 8 轮 assistant 回复，压成 1 条可写回的摘要
-      this.maybeAppendPlotJournalEntry()
-
-      // 只在完整回复完成并提取状态后收集候选，不在流式文本期间弹出事件。
-      this.refreshEmergenceCandidates()
+      // B12 流水线：各提取阶段相互隔离——单类解析异常记录后继续，
+      // 不留下“时间已写、地点丢失”的半写状态，也不让解析异常冒泡
+      // 打断回合完成流程。阶段顺序与迁出前一致。
+      const stages = [
+        ['time', () => this.extractTimeChanges(content)],
+        ['location', () => this.extractLocationChanges(content)],
+        ['character', () => this.extractCharacterChanges(content)],
+        ['activity', () => this.extractActivityEvents(content)],
+        ['adventure', () => this.extractAdventureState(content)],
+        ['plot-journal', () => this.maybeAppendPlotJournalEntry()],
+        // 只在完整回复完成并提取状态后收集候选，不在流式文本期间弹出事件。
+        ['emergence', () => this.refreshEmergenceCandidates()]
+      ]
+      for (const [stage, run] of stages) {
+        try {
+          run()
+        } catch (error) {
+          // 单级失败必须生产可观测（console.warn），不能用仅 dev 的 debugLog 静默
+          console.warn(`[extractAndUpdateState] ${stage} 阶段解析失败（已跳过，不影响其他阶段）:`, error?.message)
+        }
+      }
     },
 
     // 提取时间变化
     extractTimeChanges(content) {
-      const currentTime = { ...this.writingTime }
-      let updated = false
-
-      // 检测"次日"、"第二天"等日期推进
-      if (/次日|第二天|翌日|隔天/.test(content)) {
-        const currentDay = parseInt(currentTime.day) || 1
-        currentTime.day = String(currentDay + 1)
-        updated = true
-        debugLog('[extractTimeChanges] 检测到日期推进，新日期:', currentTime.day)
-      }
-
-      // 检测完整日期格式：X年X月X日（最优先）
-      const fullDateMatch = content.match(/(\d{1,4})年(\d{1,2})月(\d{1,2})日/)
-      if (fullDateMatch) {
-        const year = fullDateMatch[1]
-        const month = fullDateMatch[2]
-        const day = fullDateMatch[3]
-
-        if (parseInt(year) > 0 && parseInt(year) < 10000) {
-          currentTime.year = year
-          updated = true
-        }
-        if (parseInt(month) >= 1 && parseInt(month) <= 12) {
-          currentTime.month = month
-          updated = true
-        }
-        if (parseInt(day) >= 1 && parseInt(day) <= 31) {
-          currentTime.day = day
-          updated = true
-        }
-        debugLog('[extractTimeChanges] 检测到完整日期:', year, month, day)
-      } else {
-        // 单独检测年份（避免匹配年龄）
-        const yearMatch = content.match(/(\d{2,4})年(?!纪|代|龄)/)
-        if (yearMatch && yearMatch[1]) {
-          const year = yearMatch[1]
-          if (year !== currentTime.year && parseInt(year) > 0 && parseInt(year) < 10000) {
-            currentTime.year = year
-            updated = true
-            debugLog('[extractTimeChanges] 检测到年份:', year)
-          }
-        }
-
-        // 单独检测月份
-        const monthMatch = content.match(/(\d{1,2})月/)
-        if (monthMatch && monthMatch[1]) {
-          const month = parseInt(monthMatch[1])
-          if (month >= 1 && month <= 12 && String(month) !== currentTime.month) {
-            currentTime.month = String(month)
-            updated = true
-            debugLog('[extractTimeChanges] 检测到月份:', month)
-          }
-        }
-
-        // 单独检测日期
-        const dayMatch = content.match(/(\d{1,2})日/)
-        if (dayMatch && dayMatch[1]) {
-          const day = parseInt(dayMatch[1])
-          if (day >= 1 && day <= 31 && String(day) !== currentTime.day) {
-            currentTime.day = String(day)
-            updated = true
-            debugLog('[extractTimeChanges] 检测到日期:', day)
-          }
-        }
-      }
-
-      // 检测纪年/年号
-      const eraMatch = content.match(/([^\s，。！？\d]{2,6})(元年|二年|三年|\d+年)/)
-      if (eraMatch && eraMatch[1]) {
-        currentTime.eraName = eraMatch[1]
-        currentTime.eraId = 'chinese'
-        updated = true
-        debugLog('[extractTimeChanges] 检测到纪年:', eraMatch[1])
-      }
-
-      if (updated) {
-        this.saveWritingTime(currentTime)
-      }
+      const nextWritingTime = parseWritingTimeChange(content, this.writingTime)
+      if (nextWritingTime) this.saveWritingTime(nextWritingTime)
     },
 
     // 提取地点变化
     extractLocationChanges(content) {
-      // 匹配地点变化的模式
-      const locationPatterns = [
-        /来到[了]?([^\s，。！？]{2,20})/,
-        /到达[了]?([^\s，。！？]{2,20})/,
-        /进入[了]?([^\s，。！？]{2,20})/,
-        /抵达[了]?([^\s，。！？]{2,20})/,
-        /身处([^\s，。！？]{2,20})/,
-        /位于([^\s，。！？]{2,20})/,
-        /站在([^\s，。！？]{2,20})/,
-        /位于([^\s，。！？]{2,20})/
-      ]
-
-      for (const pattern of locationPatterns) {
-        const match = content.match(pattern)
-        if (match && match[1]) {
-          let location = match[1].trim()
-          // 清理常见的后缀词
-          location = location.replace(/[的地得]$/, '')
-          if (location.length >= 2 && location.length <= 15) {
-            debugLog('[extractLocationChanges] 检测到地点变化:', location)
-            this.saveWorldMapState({
-              ...this.worldMapState,
-              currentScene: location
-            })
-            return // 只更新第一个匹配的
-          }
-        }
+      // 地点解析在 gameStateExtraction（B12）；store 只保留应用边界
+      const location = parseLocationChange(content)
+      if (location) {
+        this.saveWorldMapState({
+          ...this.worldMapState,
+          currentScene: location
+        })
       }
     },
 
@@ -4274,7 +3282,7 @@ export const useGameStore = defineStore('game', {
             // 候选项目归属优先用 delta 携带的 memoryProjectId（Authoring 书 ID），
             // 否则回退 active worldbook，保证写入口径与召回口径一致。
             memoryTarget: (delta) => ({
-              projectId: String(delta?.memoryProjectId || '').trim() || authoringActiveProjectId || resolveActiveWorldbookId() || ''
+              projectId: String(delta?.memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId() || resolveActiveWorldbookId() || ''
             }),
             applyDerived: async (routine, meta) => {
               const provenance = meta?.provenance || {}
@@ -4288,7 +3296,7 @@ export const useGameStore = defineStore('game', {
                   sourceRefs,
                   target: meta?.target || provenance.target
                 }, meta?.target || provenance.target)
-                authoringDerivedState.push({
+                authoringObserverHub.pushDerived({
                   ...observation,
                   schemaVersion: finalProvenance.schemaVersion,
                   derivedAt: finalProvenance.derivedAt,
@@ -4305,9 +3313,6 @@ export const useGameStore = defineStore('game', {
                   status: observation.status === 'candidate' ? 'candidate' : 'applied'
                 })
               }
-              if (authoringDerivedState.length > 200) {
-                authoringDerivedState.splice(0, authoringDerivedState.length - 200)
-              }
               return { count: routine.length }
             },
             onException: null
@@ -4315,26 +3320,26 @@ export const useGameStore = defineStore('game', {
           return runner.run(delta, execution)
         },
         onSettled: (settled) => {
-          recordAuthoringObserverResult(settled)
-          notifyAuthoringObserverResult(settled)
+          authoringObserverHub.recordResult(settled)
+          authoringObserverHub.dispatch(settled)
         }
       })
       authoringObserverBridge = createLegacyExperienceStateBridge({
         insertText: async ({ text, observerContext }) => {
           // 正文已由回合事务提交；此处只生成确定性 document receipt 供观察器对齐版本。
-          authoringDocumentSequence += 1
+          const documentSequence = authoringObserverHub.nextDocumentSequence()
           return {
-            revision: `${observerContext?.documentId || this.currentSessionId || 'session'}:doc-r${authoringDocumentSequence}`,
+            revision: `${observerContext?.documentId || this.currentSessionId || 'session'}:doc-r${documentSequence}`,
             chars: String(text || '').length
           }
         },
         scheduleObservers: (delta) => {
-          recordAuthoringObserverEvent(delta)
+          authoringObserverHub.recordEvent(delta)
           // Agent-off gate：关闭后不做自动派生调度。
-          if (!authoringMemoryAgentEnabled) return { accepted: false, reason: 'agent-disabled' }
-          authoringMemoryTriggerEvents.push({
+          if (!authoringObserverHub.isAgentEnabled()) return { accepted: false, reason: 'agent-disabled' }
+          authoringObserverHub.pushTriggerEvent({
             type: 'prose-commit',
-            projectId: String(delta.memoryProjectId || '').trim() || authoringActiveProjectId,
+            projectId: String(delta.memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId(),
             sessionId: this.currentSessionId || '',
             sourceRefs: delta.sourceRefs || [],
             revision: delta.documentRevision || '',
@@ -4359,10 +3364,7 @@ export const useGameStore = defineStore('game', {
       authoringMemoryTriggers = createMemoryTriggers({
         // derive 真正生成候选：经 observer scheduler → runner(memoryTarget) 队列化。
         derive: async (payload) => {
-          authoringMemoryTriggerEvents.push({ ...payload, emittedAt: Date.now() })
-          if (authoringMemoryTriggerEvents.length > 100) {
-            authoringMemoryTriggerEvents.splice(0, authoringMemoryTriggerEvents.length - 100)
-          }
+          authoringObserverHub.pushTriggerEvent({ ...payload, emittedAt: Date.now() })
           if (!authoringObserverScheduler || !payload.text) {
             return { accepted: false, reason: !payload.text ? 'empty-text' : 'observer-unavailable' }
           }
@@ -4389,23 +3391,30 @@ export const useGameStore = defineStore('game', {
           for (const sourceRef of payload.sourceRefs || []) {
             invalidateMemoryBySource({ sourceRef, currentRevision: payload.revision, reason: payload.reason })
           }
-          authoringMemoryTriggerEvents.push({ ...payload, type: 'invalidation', emittedAt: Date.now() })
+          authoringObserverHub.pushTriggerEvent({ ...payload, type: 'invalidation', emittedAt: Date.now() })
         },
-        isAgentEnabled: () => authoringMemoryAgentEnabled
+        isAgentEnabled: () => authoringObserverHub.isAgentEnabled()
       })
       return authoringMemoryTriggers
     },
 
     setAuthoringProjectId(projectId) {
-      authoringActiveProjectId = String(projectId || '').trim()
+      const next = String(projectId || '').trim()
+      if (authoringObserverHub.getActiveProjectId() === next) return
+      authoringObserverHub.setActiveProjectId(next)
+      // B13：换书即换作用域——取消旧项目作用域的待执行派生并清空观察器
+      // 缓冲/来源镜像，与页面 dismissAuxiliary 的失效合同一致；订阅保留
+      //（页面仍挂载）。bridge 未创建时无可取消任务。
+      authoringObserverScheduler?.cancelAll()
+      authoringObserverHub.clearBuffers()
     },
 
     setAuthoringMemoryAgentEnabled(value) {
-      authoringMemoryAgentEnabled = value !== false
+      authoringObserverHub.setAgentEnabled(value !== false)
     },
 
     resolveAuthoringMemoryProjectId() {
-      return authoringActiveProjectId || resolveActiveWorldbookId() || ''
+      return authoringObserverHub.getActiveProjectId() || resolveActiveWorldbookId() || ''
     },
 
     // 显式“记住”：provider 不可用也创建本地 pending 候选。
@@ -4429,11 +3438,12 @@ export const useGameStore = defineStore('game', {
       const contentText = String(text || '')
       if (!contentText.trim()) return { accepted: false, reason: 'empty-text' }
       // Agent-off gate：关闭后不做自动记忆派生（显式“记住”仍可本地建候选）。
-      if (!authoringMemoryAgentEnabled) {
+      if (!authoringObserverHub.isAgentEnabled()) {
         return { accepted: false, reason: 'agent-disabled' }
       }
       const contentTextTrimmed = contentText
-      this.setAuthoringProjectId(memoryProjectId)
+      // 仅显式传入项目时同步；空值不得触发换书取消/清缓冲语义（B13）
+      if (String(memoryProjectId || '').trim()) this.setAuthoringProjectId(memoryProjectId)
       this.ensureAuthoringObserverRuntime()
       const memoryProjectIdResolved = String(memoryProjectId || '').trim() || this.resolveAuthoringMemoryProjectId()
       const result = authoringObserverScheduler.scheduleObservers({
@@ -4445,7 +3455,7 @@ export const useGameStore = defineStore('game', {
         sourceRefs,
         memoryProjectId: memoryProjectIdResolved
       })
-      authoringMemoryTriggerEvents.push({
+      authoringObserverHub.pushTriggerEvent({
         type: 'prose-commit',
         projectId: memoryProjectIdResolved,
         sessionId: sessionId || this.currentSessionId || '',
@@ -4478,7 +3488,7 @@ export const useGameStore = defineStore('game', {
     },
 
     getAuthoringMemoryTriggerEvents() {
-      return authoringMemoryTriggerEvents.map((event) => ({ ...event }))
+      return authoringObserverHub.getTriggerEvents()
     },
 
     // 每次可见正文提交后调用一次：先落正文 receipt，再调度派生观察器（顺序由 bridge 保证）。
@@ -4491,10 +3501,10 @@ export const useGameStore = defineStore('game', {
         const observerDocumentId = String(documentId || chapterId || this.currentSessionId || 'authoring')
         const receipt = await bridge.commitNarrativeResult({
           text: contentText,
-          baseRevision: authoringLastDocumentRevisions.get(observerDocumentId) || '',
+          baseRevision: authoringObserverHub.getLastDocumentRevision(observerDocumentId),
           sourceRefs,
           // 派生候选的项目归属与召回口径保持一致。
-          memoryProjectId: String(memoryProjectId || '').trim() || authoringActiveProjectId,
+          memoryProjectId: String(memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId(),
           observerContext: {
             documentId: observerDocumentId,
             chapterId: String(chapterId || ''),
@@ -4503,7 +3513,7 @@ export const useGameStore = defineStore('game', {
             sourceDocumentRevision: String(sourceDocumentRevision || '')
           }
         })
-        authoringLastDocumentRevisions.set(observerDocumentId, receipt.revision)
+        authoringObserverHub.setLastDocumentRevision(observerDocumentId, receipt.revision)
         return receipt
       } catch {
         // 观察器调度失败绝不影响已提交的可见正文。
@@ -4520,58 +3530,44 @@ export const useGameStore = defineStore('game', {
     },
 
     getAuthoringObserverEvents() {
-      return authoringObserverEvents.map((event) => ({ ...event }))
+      return authoringObserverHub.getEvents()
     },
 
     getAuthoringObserverExceptions() {
-      return authoringObserverExceptions.map((exception) => ({ ...exception }))
+      return authoringObserverHub.getExceptions()
     },
 
     getAuthoringDerivedState() {
-      return authoringDerivedState.map((item) => ({ ...item }))
+      return authoringObserverHub.getDerived()
     },
 
     subscribeAuthoringObserverResults(listener) {
-      if (typeof listener !== 'function') return () => {}
-      authoringObserverResultListeners.add(listener)
-      return () => authoringObserverResultListeners.delete(listener)
+      return authoringObserverHub.subscribe(listener)
     },
 
     resetAuthoringObserverRuntime() {
       // 取消全部待执行派生（含 boundary 独立键），避免切换/重置会话后旧任务继续执行。
       authoringObserverScheduler?.cancelAll()
-      authoringLastDocumentRevisions.clear()
-      authoringObserverEvents.length = 0
-      authoringDerivedState.length = 0
-      authoringMemoryTriggerEvents.length = 0
-      authoringObserverExceptions.length = 0
+      authoringObserverHub.clearBuffers()
     },
 
     extractGoalState(content) {
-      const goalPatterns = [
-        /(?:目标|任务目标|当前目标)[：:\s]+([^。！？\n]{4,40})/,
-        /(?:你需要|你必须|你得)([^。！？\n]{4,36})/
-      ]
-
-      for (const pattern of goalPatterns) {
-        const match = content.match(pattern)
-        const title = normalizeTextValue(match?.[1])
-        if (!title) continue
+      // 解析在 gameStateExtraction（B12 第二刀）；store 只保留应用
+      const intent = parseGoalIntent(content, normalizeTextValue)
+      if (intent) {
         this.upsertGoal({
-          title,
+          title: intent.title,
           source: 'derived-parse',
-          status: /完成|达成|解决/.test(content) ? 'completed' : 'active',
+          status: intent.status,
           updatedAt: Date.now()
         })
-        return
       }
     },
 
     extractEncounteredCharacters(content) {
       const worldStore = useWorldStore()
       const candidates = getWorldbookEntryNames(worldStore.activeWorldbook, 'character', 24)
-      for (const name of candidates) {
-        if (!name || !content.includes(name)) continue
+      for (const name of filterMentionedNames(content, candidates)) {
         this.addEncounteredCharacter({
           name,
           source: 'worldbook-match',
@@ -4581,15 +3577,7 @@ export const useGameStore = defineStore('game', {
     },
 
     extractKeyChoices(content) {
-      const choicePatterns = [
-        /(?:你决定|你选择|最终决定|最后选择)([^。！？\n]{3,36})/,
-        /(?:答应了|拒绝了|站在了)([^。！？\n]{3,36})/
-      ]
-
-      for (const pattern of choicePatterns) {
-        const match = content.match(pattern)
-        const label = normalizeTextValue(match?.[0] || match?.[1])
-        if (!label) continue
+      for (const label of parseKeyChoiceLabels(content, normalizeTextValue)) {
         this.recordKeyChoice({
           label,
           source: 'derived-parse',
@@ -4601,15 +3589,9 @@ export const useGameStore = defineStore('game', {
     extractFactionRelations(content) {
       const worldStore = useWorldStore()
       const factions = getWorldbookEntryNames(worldStore.activeWorldbook, 'organization', 20)
-      for (const name of factions) {
-        if (!name || !content.includes(name)) continue
-        let delta = 0
-        if (new RegExp(`${name}.{0,12}(信任|支持|帮助|保护)`).test(content)) delta += 8
-        if (new RegExp(`${name}.{0,12}(怀疑|敌视|威胁|施压|逼迫)`).test(content)) delta -= 8
-        if (delta !== 0) {
-          const current = Number(this.factionRelations?.[name] || 0)
-          this.setFactionRelation(name, current + delta)
-        }
+      for (const { name, delta } of computeFactionDeltas(content, factions)) {
+        const current = Number(this.factionRelations?.[name] || 0)
+        this.setFactionRelation(name, current + delta)
       }
     },
 
@@ -4618,64 +3600,9 @@ export const useGameStore = defineStore('game', {
     },
 
     resetRuntimeState() {
+      // 字段补丁由 lifecycle 默认值模块唯一装配（B14）；范围合同见该模块头注
       this.cancelNarrativeGeneration('runtime-reset')
-      const runtime = createEmptySessionRuntime()
-      this.gameId = null
-      this.messages = runtime.messages
-      this.chatHistory = runtime.chatHistory
-      this.time = runtime.time
-      this.player = runtime.player
-      this.inventory = runtime.inventory
-      this.quests = runtime.quests
-      this.flags = runtime.flags
-      this.activities = runtime.activities
-      this.goals = runtime.goals
-      this.encounteredCharacters = runtime.encounteredCharacters
-      this.factionRelations = runtime.factionRelations
-      this.keyChoices = runtime.keyChoices
-      this.plotJournal = runtime.plotJournal
-      this.adventureTriggers = runtime.adventureTriggers
-      this.adventureTriggerHistory = runtime.adventureTriggerHistory
-      this.adventureTriggerCooldownUntil = runtime.adventureTriggerCooldownUntil
-      this.emergenceCandidates = runtime.emergenceCandidates
-      this.emergenceDismissedIds = runtime.emergenceDismissedIds
-      this.emergenceDraft = runtime.emergenceDraft
-      this.adventureTriggerPendingType = null
-      this.npcRelations = runtime.npcRelations
-      this.discoveredPlaces = runtime.discoveredPlaces
-      this.completedQuests = runtime.completedQuests
-      this.writingCharacter = runtime.writingCharacter
-      this.writingTime = runtime.writingTime
-      this.placeStates = runtime.placeStates
-      this.characterStates = runtime.characterStates
-      this.characterRelations = runtime.characterRelations
-      this.canonicalFacts = runtime.canonicalFacts
-      this.worldMapState = runtime.worldMapState
-      this.historyNode = runtime.historyNode
-      this.isPlaying = false
-      this.activeMechanism = runtime.activeMechanism
-      this.mechanismContext = runtime.mechanismContext
-      this.milestoneEvent = runtime.milestoneEvent
-      this.playerCharacter = runtime.playerCharacter
-      this.aiCharacter = runtime.aiCharacter
-      this.dialogueMode = runtime.dialogueMode
-      this.dialogueCharacter = runtime.dialogueCharacter
-      this.inlineEvents = []
-      this.lastWorldbookContext = null
-      this.lastMemoryContext = ''
-      this.lastContextLedger = null
-      this.lastMemoryRecall = null
-      this.lastNarrativeKernel = null
-      this.lastNarrativeContextAudit = null
-      this.lastNarrativeAgentTrace = null
-      this.narrativeAgentStatus = null
-      this.narrativeSceneSummary = null
-      this.sceneThread = null
-      this.isLoading = false
-      this.lastError = null
-      this.quickNoteImportMode = false
-      this.quickNoteSelectedMessageIndexes = []
-      this.runtimeEvents = Array.isArray(runtime.runtimeEvents) ? runtime.runtimeEvents : []
+      Object.assign(this, buildRuntimeResetPatch())
     },
 
     resetGlobalWritingAssets() {
