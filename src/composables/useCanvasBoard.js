@@ -1,5 +1,5 @@
 import { computed, isRef, ref } from 'vue'
-import { clamp } from '../services/canvasGeometry'
+import { clamp } from '../services/canvas/canvasGeometry'
 
 /**
  * UI-N6 / UI-N6F2: Free-placement canvas board composable.

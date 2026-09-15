@@ -1,5 +1,5 @@
-import { getResolvedApiSettings } from './api'
-import { runGenerationTask } from './generationService'
+import { getResolvedApiSettings } from '../api'
+import { runGenerationTask } from '../generationService'
 import { parseJsonFromAiContent } from './worldbookImportGeneration'
 
 export const WORLDBOOK_MAINTENANCE_MODES = Object.freeze({

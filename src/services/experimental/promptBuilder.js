@@ -12,7 +12,7 @@
 import {
   NARRATIVE_STYLES,
   SYSTEM_TEMPLATES
-} from './promptRegistry'
+} from '../promptRegistry'
 
 // 提示词层定义
 const LAYERS = {

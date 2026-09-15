@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
-import { createExperienceSessionAdapter } from '../services/experienceSessionAdapter'
+import { createExperienceSessionAdapter } from '../services/experience/experienceSessionAdapter'
 import { scrubCollaborationInviteFragment } from '../services/collaboration/endpoint'
 import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
 import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'

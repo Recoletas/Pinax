@@ -4,7 +4,9 @@
 
 ## 当前主线
 
-三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main。后续已完成 B12、Authoring 批注/改写工作区，以及 durable mutation result 的书稿/写作历史/素材/Notes 四个接缝：生产素材写入不再使用 legacy API，批量删除不再可能半途提交。当前架构收尾顺序：世界书 mutation result（保持原 revision/激活规则）→ Experience turn coordinator → Authoring 首载/书稿激活协调器；A12 跨工具关闭顺序在相关 owner 中一并关闭。组合证据见[验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。
+2026-09-15 架构收口已经完成当前可安全一次落地的主体：世界书写入统一经过 durable mutation owner，Experience 完整回合编排迁出 store，Authoring 首载/换书与右栏打开顺序各有唯一协调器，Notes 插画交互和 ProseEssay 七键持久化迁出页面；低 fan-in services 完成归域，迁移、试验、兼容与退役代码有显式生命周期。当前不再以继续拆大文件作为独立目标；下一阶段只在真实功能改动经过这些边界时继续瘦身。架构真源见[当前架构与代码边界](./engineering/current-architecture.md)，本轮回执见 `docs/agent-runs/architecture-closure-20260915.md`。
+
+此前三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main；本轮承接并关闭其中明确留下的 B12、A12、世界书异常型写入、Experience turn coordinator 与页面能力边界。组合基线证据见[三线验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。
 
 夜间计划补充第四层溢出队列与固定控制表：三线主任务全完成后，才可分别进入 Authoring 加载/故障、Experience/store 接缝、ProseEssay/素材公共边界。O 在 T+0:30 至 T+8:00 按固定检查点续派并留时间证据；单次 worker final 不等于该线结束。见任务书 §20–21。
 

@@ -16,7 +16,7 @@ import {
   STRUCTURED_GENERATION_TIMEOUTS
 } from '../../shared/structuredSettingContract'
 import { normalizeSettingCandidates } from '../../shared/structuredSettingCandidateContract'
-import { selectSourceChunks } from './worldbookSourceSelection'
+import { selectSourceChunks } from './worldbook/worldbookSourceSelection'
 import { loadSourceArtifacts, loadSourceChunks } from './worldbookSourceArchive'
 
 const MAX_CONSTRAINT_ENTRIES = 12

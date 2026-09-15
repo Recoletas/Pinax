@@ -24,7 +24,7 @@ import {
   normalizeSourceArtifact
 } from '@/services/worldbookSourceArchive'
 import { detectSourceKind, parseSourceFiles } from '@/services/worldbookSourceAdapters'
-import { selectSourceChunks } from '@/services/worldbookSourceSelection'
+import { selectSourceChunks } from '@/services/worldbook/worldbookSourceSelection'
 import { extractEpub } from '@/services/epubAdapter'
 
 // ---------- 编码 fixture 构造（无新依赖，纯手工字节表） ----------

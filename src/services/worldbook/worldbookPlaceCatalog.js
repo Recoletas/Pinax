@@ -7,7 +7,7 @@ import {
   normalizePlaceReference,
   placeFingerprint,
   validatePlacePayload
-} from '../../shared/placeEntryContract.js'
+} from '../../../shared/placeEntryContract.js'
 
 function text(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()

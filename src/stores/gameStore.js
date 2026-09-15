@@ -1,12 +1,11 @@
 import { defineStore } from 'pinia'
-import { sendAction as apiSendAction, getState, recordMemory } from '../services/api'
+import { sendAction as apiSendAction } from '../services/api'
 import {
   resolveSelectedTextProviderConfig,
   toResolvedTextApiSettings
 } from '../services/textProviderConfigStore'
 import {
   buildNarrativeFormatInstructions,
-  ensureNarrativeMessage,
   getTrustedMessageSpeaker,
   normalizeNarrativeMessages,
   parseNarrativePresentation
@@ -17,7 +16,7 @@ import {
   formatAdventureStoryboardSeedContent,
   generateAdventureProseDraft,
   generateAdventureStoryboardDraft
-} from '../services/generationAdventureTriggers'
+} from '../services/experience/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import {
   appendPlayerHistoryNode,
@@ -27,10 +26,9 @@ import {
 } from '../services/playerHistory'
 import { buildGeoHistoryRuntimeContext } from '../services/worldHistory/runtimeContext'
 import { buildEmergenceCandidates } from '../services/worldHistory/emergenceScheduler'
-import { generateEmergenceEventDraft } from '../services/generationEmergence'
+import { generateEmergenceEventDraft } from '../services/experience/generationEmergence'
 import {
-  archiveMemoryCandidate,
-  listScopedActiveMemoryCandidates
+  archiveMemoryCandidate
 } from '../services/memoryCandidates'
 import {
   RUNTIME_EVENT_LIMIT,
@@ -56,45 +54,25 @@ import {
   normalizeContentRef
 } from '../services/narrativeAssets'
 import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
-import { buildNarrativeKernel } from '../services/agents/narrativeKernel'
 import { createLegacyExperienceStateBridge } from '../services/agents/authoring/legacyExperienceStateBridge'
 import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler'
 import { createAuthoringObserverRunner } from '../services/agents/observers/authoringObserverDerivation'
 import { normalizeAuthoringObserverProvenance } from '../services/agents/observers/authoringObservationContract'
 import { createMemoryTriggers } from '../services/memoryTriggers'
 import { invalidateMemoryBySource } from '../services/memoryCandidates'
-import { buildNarrativeContinuityFrame } from '../services/agents/narrativeContinuityFrame'
-import { getNarrativeResourceIndex } from '../services/agents/narrativeResourceIndex'
-import { buildNarrativeContextAudit } from '../services/agents/narrativeContextAudit'
-import { createNarrativeToolRegistry } from '../services/agents/narrativeToolRegistry'
-import {
-  buildTurnReceipt,
-  createNarrativeAgentContextLedger,
-  runNarrativeAgentGeneration
-} from '../services/agents/narrativeAgentOrchestrator'
 import {
   normalizeNarrativeSceneSummary,
   resolveNarrativeSceneSummary
 } from '../services/agents/narrativeSceneSummary'
 import { normalizeNarrativeSceneThread, sceneThreadRevision, SCENE_THREAD_LIMITS } from '../../shared/narrativeSceneThreadContract'
-import { buildNarrativeSceneThread } from '../services/agents/narrativeSceneThread'
-import {
-  createNarrativeProductionObserver,
-  recordNarrativeProductionRun
-} from '../services/agents/narrativeProductionMetrics'
 import { getItem, setItem, getTextItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useWorldStore } from './worldStore'
-import { parseCharacterCards } from '../services/characterCard'
 import {
   createMessageId,
-  createNarrativeTurnRecord,
-  commitNarrativeTurnRecord,
-  failNarrativeTurnRecord,
   normalizeTurnRecords,
-  TURN_RECORD_LIMIT,
 } from '../../shared/narrativeTurnContract.js'
 import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
-import { normalizeNarrativeIntent, intentToOrchestratorMode, narrativeExpansionFactor } from '../../shared/narrativeGenerationIntentContract.js'
+import { normalizeNarrativeIntent } from '../../shared/narrativeGenerationIntentContract.js'
 import {
   ADVENTURE_TRIGGER_COOLDOWN_MS,
   ADVENTURE_TRIGGER_MAX_PER_WINDOW,
@@ -103,10 +81,7 @@ import {
   DEFAULT_WORLD_MAP_STATE,
   DEFAULT_WRITING_CHARACTER,
   DEFAULT_WRITING_TIME,
-  PLOT_JOURNAL_TURN_INTERVAL,
   cloneState,
-  combineExtensionContent,
-  compactPlotJournalSummary,
   createEmptySessionRuntime,
   findSession,
   getWorldbookEntryNames,
@@ -142,6 +117,7 @@ import {
 import { buildRuntimeSnapshot, projectRuntimeSnapshot } from '../services/experience/gameRuntimeProjection.js'
 import { createAuthoringObserverHub } from '../services/experience/gameObserverRuntime.js'
 import { buildRuntimeResetPatch } from '../services/experience/gameLifecycleDefaults.js'
+import { cancelExperienceTurn, runExperienceTurn } from '../services/experience/experienceTurnCoordinator.js'
 import {
   buildAdventureCreativeSourceRefs as buildCreativeSourceRefs,
   buildPlotJournalEntry as buildJournalEntry
@@ -188,9 +164,6 @@ function resolveActiveWorldbookId() {
     return null
   }
 }
-
-// Narrative abort controllers stay module-level (per store instance).
-const narrativeAbortControllers = new WeakMap()
 
 // Authoring runtime（模块级、非持久化）：正文提交后经统一 bridge 调度后台派生观察器。
 // 观察器输出永远是低优先级 derived state / typed exception，不直接改正文和 locked canon。
@@ -2378,13 +2351,7 @@ export const useGameStore = defineStore('game', {
     },
 
     cancelNarrativeGeneration(reason = 'user-cancelled') {
-      const controller = narrativeAbortControllers.get(this)
-      if (controller && !controller.signal.aborted) {
-        const error = new Error(reason)
-        error.code = 'NARRATIVE_AGENT_ABORTED'
-        controller.abort(error)
-      }
-      this.narrativeAgentStatus = null
+      cancelExperienceTurn(this, reason)
     },
 
     setNarrativeAgentStatus(status) {
@@ -2399,645 +2366,8 @@ export const useGameStore = defineStore('game', {
     },
 
     // 体验生成生命周期；资料选择与 provider 循环由 orchestrator 负责。
-    async generateAIResponse({ narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null, intent = null } = {}) {
-      this.cancelNarrativeGeneration('superseded')
-      const controller = new AbortController()
-      const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-      const productionObserver = createNarrativeProductionObserver()
-      narrativeAbortControllers.set(this, controller)
-      this.isLoading = true
-      this.lastError = null
-      let messageIndex = -1
-      let placeholderId = ''
-      let productionMode = 'continue'
-      let effectiveIntent = ''
-      let productionOutcome = 'error'
-      let productionError = null
-      let productionKernel = null
-      let completedAgentRun = null
-      // C4：同消息续接目标 + 回滚基线（catch 回滚时也要用，故声明在 try 外）
-      let extensionTarget = null
-      let extensionBase = null
-      // R1a：回合事务。在 provider 调用前抓取 preRuntimeSnapshot，失败时回滚。
-      let turnRecord = null
-      try {
-        this.loadApiSettings()
-
-        const worldStore = useWorldStore()
-        const worldbook = worldStore.activeWorldbook
-        const hasAssistantHistory = this.chatHistory.some(m => m.role === 'assistant')
-        // C1：显式 intent 优先；否则按历史推断（无 assistant 历史 → open）。
-        // normalizeNarrativeIntent 对空值恒返回 'respond'，故这里先判断是否显式传入。
-        effectiveIntent = (intent != null && String(intent).trim() !== '')
-          ? normalizeNarrativeIntent(intent)
-          : (!hasAssistantHistory ? 'open' : 'respond')
-        // C4：extend → 同消息续接目标（当前分支最后一条可见已提交 assistant）。
-        extensionTarget = effectiveIntent === 'extend' ? this.findLastVisibleAssistantMessage() : null
-        const baseTurnId = extensionTarget
-          ? (this.findTurnByMessageId(extensionTarget.id)?.id || null)
-          : null
-
-        // R1a：生成前快照 —— 覆盖当前位置/时间/角色/关系/事实/目标/事件/记忆游标。
-        // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
-        turnRecord = createNarrativeTurnRecord({
-          id: requestId,
-          // C4：extension 以 base turn 为父；否则重生成传 sibling 父、正常生成走 lastCommittedTurnId
-          parentTurnId: extensionTarget
-            ? baseTurnId
-            : (parentTurnId != null ? parentTurnId : (this.lastCommittedTurnId || null)),
-          // P0-1：真实生成必须落在当前活动分支，并记录本回合 user 消息 id
-          branchId: this.activeBranchId || 'main',
-          userMessageIds: userMessageId ? [userMessageId] : [],
-          preRuntimeSnapshot: this.getRuntimeSnapshot({ forSession: false }),
-          kind: extensionTarget ? 'extension' : 'normal',
-          baseMessageId: extensionTarget?.id || null,
-        })
-        this.pendingTurnRecord = turnRecord
-
-        const isInitGeneration = effectiveIntent === 'open'
-        productionMode = intentToOrchestratorMode(effectiveIntent)
-        const narrativeProjectId = this.worldId || worldbook?.id || ''
-        const narrativeSessionId = this.currentSessionId || ''
-        const sceneSummaryResolution = resolveNarrativeSceneSummary({
-          messages: this.chatHistory,
-          previousSummary: this.narrativeSceneSummary,
-          projectId: narrativeProjectId,
-          sessionId: narrativeSessionId
-        })
-        this.narrativeSceneSummary = sceneSummaryResolution.summary
-        // C2.3：ContinuityFrame —— 从当前分支可见消息（带 presentation）派生，
-        // 供 turn note 做连续锚点（替代从 recent block 重新切句）。
-        const continuityVisibleIds = this.currentBranchVisibleMessageIds()
-        const continuityMessages = (this.messages || []).filter((m) => (
-          m && !m.superseded && (!m.branchId || continuityVisibleIds.has(m.id))
-        ))
-        // Q2：SceneThread —— 场景未变化时复用，否则重建（软状态，随快照/分支/撤销/刷新恢复）。
-        this.sceneThread = buildNarrativeSceneThread({
-          previous: this.sceneThread,
-          runtimeState: {
-            worldMapState: this.worldMapState,
-            writingTime: this.writingTime,
-            goals: this.goals,
-            encounteredCharacters: this.encounteredCharacters,
-            historyNode: this.historyNode
-          },
-          messages: continuityMessages
-        })
-        const continuityFrame = buildNarrativeContinuityFrame({
-          messages: continuityMessages,
-          runtimeState: {
-            worldMapState: this.worldMapState,
-            writingTime: this.writingTime,
-            goals: this.goals,
-            encounteredCharacters: this.encounteredCharacters,
-            historyNode: this.historyNode
-          }
-        })
-        const narrativeKernel = buildNarrativeKernel({
-          worldbook,
-          runtimeState: {
-            worldMapState: this.worldMapState,
-            writingTime: this.writingTime,
-            placeStates: this.placeStates,
-            characterStates: this.characterStates,
-            characterRelations: this.characterRelations,
-            canonicalFacts: this.canonicalFacts,
-            runtimeEvents: this.runtimeEvents,
-            encounteredCharacters: this.encounteredCharacters,
-            factionRelations: this.factionRelations,
-            goals: this.goals,
-            keyChoices: this.keyChoices,
-            playerCharacter: this.playerCharacter,
-            dialogueCharacter: this.dialogueCharacter,
-            historyNode: this.historyNode
-          },
-          messages: this.chatHistory,
-          sceneSummary: this.narrativeSceneSummary,
-          projectId: narrativeProjectId,
-          sessionId: narrativeSessionId,
-          authorNote: directorNote,  // R2：本轮导演注
-          continuityFrame,
-          sceneThread: this.sceneThread
-        })
-        productionKernel = narrativeKernel
-        const narrativeMemories = listScopedActiveMemoryCandidates({
-          projectId: narrativeProjectId,
-          sessionId: narrativeSessionId,
-          limitPerScope: 100
-        }).filter((memory) => ['project', 'session'].includes(memory.scope))
-
-        // P1-4：记忆分支隔离 —— 排除属于非当前分支链 turn 产生的候选。
-        // 手动/共享候选（不在任何 turn 的 memoryCandidateIds 里）保留。
-        const branchMemoryFilter = this.buildBranchMemoryFilter()
-        const narrativeMemoriesFiltered = branchMemoryFilter ? narrativeMemories.filter(branchMemoryFilter) : narrativeMemories
-
-        const narrativeIndex = getNarrativeResourceIndex({
-          projectId: narrativeProjectId,
-          sessionId: narrativeSessionId,
-          worldbook,
-          runtimeState: {
-            factionRelations: this.factionRelations,
-            characterRelations: this.characterRelations,
-            canonicalFacts: this.canonicalFacts,
-            placeStates: this.placeStates,
-            worldMapState: this.worldMapState
-          },
-          memories: narrativeMemoriesFiltered
-        })
-        const narrativeRegistry = createNarrativeToolRegistry({
-          index: narrativeIndex,
-          projectId: narrativeProjectId,
-          sessionId: narrativeSessionId,
-          currentPlaceId: this.worldMapState?.placeId || ''
-        })
-        this.lastNarrativeKernel = narrativeKernel
-        this.lastWorldbookContext = null
-        this.lastMemoryContext = ''
-        this.lastMemoryRecall = {
-          source: 'narrative-tools',
-          includedCount: 0,
-          excludedCount: 0,
-          totalItems: narrativeIndex.counts?.memory || 0,
-          contentChars: 0,
-          items: [],
-          included: [],
-          excluded: [],
-          counts: { project: 0, session: 0 }
-        }
-
-        // C4：extend → 复用目标消息（同消息续接）；否则新建 placeholder。extensionBase 作为回滚基线。
-        extensionBase = null
-        if (extensionTarget) {
-          extensionTarget.isStreaming = true
-          extensionBase = {
-            content: extensionTarget.content || '',
-            presentation: extensionTarget.presentation || null,
-            segments: extensionTarget.segments || null
-          }
-          placeholderId = extensionTarget.id
-          messageIndex = this.messages.findIndex((message) => message?.id === extensionTarget.id)
-        } else {
-          messageIndex = this.messages.length
-          const placeholder = ensureNarrativeMessage({
-            role: 'assistant',
-            name: this.dialogueCharacter?.name || this.aiCharacter.name,
-            content: '',
-            timestamp: Date.now(),
-            dialogueMode: !!this.dialogueCharacter,
-            isStreaming: true,
-            branchId: this.activeBranchId,  // R1b：区分分支
-            // P1-5：携带 cast 的 speakerMap（名字→稳定 id），dialogue block 解析时
-            // speakerId 与 SceneCast 对齐，角色改名不漂移
-            speakerMap: this.buildCastSpeakerMap()
-          }, messageIndex)
-          placeholderId = placeholder.id
-          this.messages.push(placeholder)
-        }
-        const getPlaceholder = () => this.messages.find((message) => message?.id === placeholderId)
-
-        let fullContent = ''
-        let cleanContent = ''
-        // 修复输出截断：原 init=1500/常规=800/auto=460 对中文叙事偏小，
-        // 且工具调用（决策+参数）与正文共用同一 maxTokens 预算，模型常在
-        // Q1：maxTokens 按 intent 决定，并按叙事展开度缩放 —— open 基 3000、其他基 2600，
-        // 足以容纳 BeatPlan/工具结果与完整场景正文。展开度由 resolveNarrativeExpansion() 读取。
-        const expansionLevel = this.resolveNarrativeExpansion()
-        const baseTokens = isInitGeneration ? 3000 : 2600
-        const maxTokens = Math.min(5000, Math.round(baseTokens * narrativeExpansionFactor(expansionLevel)))
-        const agentRun = await runNarrativeAgentGeneration({
-          kernel: narrativeKernel,
-          registry: narrativeRegistry,
-          mode: productionMode,
-          intent: effectiveIntent,  // C1：传 intent 给 orchestrator（供 turn note）
-          formatInstructions: buildNarrativeFormatInstructions(),
-          worldId: this.worldId,
-          settings: { ...this.apiSettings, expansion: expansionLevel },
-          requestId,
-          signal: controller.signal,
-          maxTokens,
-          onStatus: (status) => {
-            productionObserver.observeStatus(status)
-            if (narrativeAbortControllers.get(this) === controller) {
-              this.setNarrativeAgentStatus({
-                ...status,
-                requestId
-              })
-            }
-          },
-          callbacks: {
-            onChunk: (chunk) => {
-              productionObserver.observeChunk(chunk)
-              if (chunk.content) {
-                fullContent += chunk.content
-                const targetMessage = getPlaceholder()
-                if (!targetMessage) return
-                const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: targetMessage.id,
-                  complete: false,
-                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role,
-                  // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
-                  speakerMap: targetMessage.speakerMap || null,
-                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
-                  speakerRegistry: this.buildSpeakerRegistry()
-                })
-                const combined = combineExtensionContent(extensionBase, parsed)
-                cleanContent = combined.content
-                targetMessage.content = combined.content
-                targetMessage.presentation = combined.presentation
-              }
-            },
-            onComplete: () => {
-              const targetMessage = getPlaceholder()
-              if (targetMessage) {
-                targetMessage.isStreaming = false
-                const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: targetMessage.id,
-                  complete: true,
-                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role,
-                  // P1-4：完成解析也带 speakerMap
-                  speakerMap: targetMessage.speakerMap || null,
-                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
-                  speakerRegistry: this.buildSpeakerRegistry()
-                })
-                const combined = combineExtensionContent(extensionBase, parsed)
-                cleanContent = combined.content
-                targetMessage.content = combined.content
-                targetMessage.presentation = combined.presentation
-              }
-            },
-            onError: (error) => {
-              console.error('Stream error:', error)
-            }
-          }
-        })
-        completedAgentRun = agentRun
-        const completedMessage = getPlaceholder()
-        messageIndex = this.messages.findIndex((message) => message?.id === placeholderId)
-        this.lastNarrativeContextAudit = buildNarrativeContextAudit({
-          kernel: narrativeKernel,
-          index: narrativeIndex,
-          toolTrace: agentRun.trace
-        })
-        this.lastContextLedger = createNarrativeAgentContextLedger({
-          run: agentRun,
-          kernel: narrativeKernel,
-          sessionId: narrativeSessionId,
-          worldbookId: narrativeProjectId
-        })
-
-        const finalSource = String(agentRun.finalText || fullContent || completedMessage?.content || '')
-        const finalParsed = parseNarrativePresentation(finalSource, {
-          messageId: completedMessage?.id,
-          complete: true,
-          fallbackSpeaker: getTrustedMessageSpeaker(completedMessage),
-          role: completedMessage?.role,
-          // P1-4：最终清洗解析也带 speakerMap
-          speakerMap: completedMessage?.speakerMap || null,
-          // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
-          speakerRegistry: this.buildSpeakerRegistry()
-        })
-        // P0：parser 可观察性 —— 块数 / 平均块长 / 最长块长（供诊断分段问题）。
-        {
-          const blockChars = (finalParsed?.blocks || []).map((block) => String(block?.text || '').length)
-          this.lastNarrativeAgentTrace = {
-            ...agentRun.trace,
-            presentationStats: {
-              blockCount: blockChars.length,
-              avgBlockChars: blockChars.length
-                ? Math.round(blockChars.reduce((sum, value) => sum + value, 0) / blockChars.length)
-                : 0,
-              maxBlockChars: blockChars.length ? Math.max(...blockChars) : 0
-            },
-            // P2：activatedLore —— 激活条目数与原因分布（constant/bound/history/keyword/starter）
-            loreStats: narrativeKernel?.activatedLore
-              ? {
-                  activeCount: narrativeKernel.activatedLore.entries.length,
-                  totalMatched: narrativeKernel.activatedLore.totalMatched,
-                  truncatedCount: narrativeKernel.activatedLore.truncatedCount,
-                  reasons: narrativeKernel.activatedLore.reasons
-                }
-              : null
-          }
-        }
-        cleanContent = combineExtensionContent(extensionBase, finalParsed).content
-        if (!cleanContent || messageIndex < 0) {
-          throw Object.assign(new Error('模型没有返回可用正文'), {
-            code: 'NARRATIVE_STREAM_EMPTY'
-          })
-        }
-        // C4：extend 只消费新 segment 做状态提取/记忆/机制，避免重复消费整篇聚合正文。
-        const stateContent = extensionTarget ? (finalParsed.content || '') : cleanContent
-        // C4：extend 原地更新最后一条 assistant chatHistory；否则追加新条目。
-        if (extensionTarget) {
-          const lastAssistantIdx = this.chatHistory.map((m) => m.role).lastIndexOf('assistant')
-          if (lastAssistantIdx >= 0) this.chatHistory[lastAssistantIdx].content = cleanContent
-          else this.chatHistory.push({ role: 'assistant', content: cleanContent })
-        } else {
-          this.chatHistory.push({ role: 'assistant', content: cleanContent })
-        }
-
-        // 追加运行时事件侧车 (v1: capped append-only envelope)
-        // P1：携带 messageId/turnId provenance，供删除事务精确清理。
-        this.appendRuntimeEvent({
-          type: 'turn',
-          source: 'assistant',
-          payload: {
-            preview: String(cleanContent || '').slice(0, 200),
-            messageIndex
-          },
-          messageId: getPlaceholder()?.id || null,
-          turnId: turnRecord?.id || null
-        })
-
-        // P0-3：回合事务提交**延迟**到所有 state 修改之后（见 productionOutcome 前）。
-        // 正文已写入但 turn record 尚未 committed —— 后续步骤（状态提取/机制/记忆）失败
-        // 时 catch 会回滚 preRuntimeSnapshot，不留"正文已提交、状态未提交"的半成功回合。
-        // P0-2：commit 前**不**保存会话 —— 崩溃不留下无 committed turn 的正文。
-
-        // 记录重要的叙事事件到记忆系统（C4：只消费新 segment）
-        if (stateContent && stateContent.length > 20) {
-          // 检测是否有重要事件（对话、物品获得、地点发现等）
-          const hasDialogue = /"[^"]{5,}"|“[^”]{5,}”|「[^」]{5,}」/.test(stateContent)
-          const hasItem = /获得|发现.*物品|得到/.test(stateContent)
-          const hasLocation = /首次进入|发现.*地方|抵达|踏入/.test(stateContent)
-
-          if (hasDialogue || hasItem || hasLocation) {
-            const eventType = hasLocation ? 'location_discovery' : hasItem ? 'item_acquisition' : 'dialogue'
-            // R5：记忆候选结构化上下文 —— 谁、在哪、何时、哪个回合
-            // （metadata 原样落库，供追溯"谁对谁说了什么关键事实"）
-            const speaker = this.dialogueCharacter?.name || this.playerCharacter?.name || '主角'
-            const place = this.worldMapState?.currentScene || ''
-            const time = this.writingTime ? `${this.writingTime.year || ''}-${this.writingTime.month || ''}-${this.writingTime.day || ''}` : ''
-            // P0-2：await 记忆写入 —— 候选 id 在回合事务提交前收集，随 commit 后统一保存，
-            // 避免"回合已提交、候选 id 异步迟到且未保存"的不一致。
-            try {
-              const memRes = await recordMemory(
-                stateContent,
-                eventType,
-                {
-                  character: speaker,
-                  scope: 'session',
-                  scopeId: this.currentSessionId || '',
-                  sourceRef: `gameStore:${this.currentSessionId || 'unknown'}:${messageIndex}`,
-                  speaker,
-                  place,
-                  time,
-                  turnId: turnRecord?.id || '',
-                }
-              )
-              if (memRes?.candidate?.id && turnRecord) {
-                turnRecord.memoryCandidateIds = [...new Set([
-                  ...(turnRecord.memoryCandidateIds || []),
-                  memRes.candidate.id
-                ])]
-              }
-            } catch {
-              // 记忆写入失败不阻塞正文提交（候选是尽力而为）
-            }
-          }
-        }
-
-        // 内联事件标记保留（对话、物品等可点击查看）—— C4：只消费新 segment
-        const inlineEvents = this.detectInlineEvents(stateContent, messageIndex)
-        if (inlineEvents.length > 0) {
-          this.addInlineEvents(inlineEvents)
-        }
-
-        // 从 AI 回复中提取状态更新 —— C4：只消费新 segment
-        this.extractAndUpdateState(stateContent)
-
-        // Q4：写回 SceneThread —— 把本轮 BeatPlan 的有效变化/人物 meaningful move 写入软状态，
-        // 并在 post snapshot 之前完成，保证分支/撤销/刷新恢复一致。
-        if (this.sceneThread && completedAgentRun?.beatPlan) {
-          this.sceneThread = this.applyBeatPlanToSceneThread(this.sceneThread, completedAgentRun.beatPlan)
-        }
-
-        // R1b：state 提取完成后补抓 post snapshot（候选切换时恢复该分支的 state）
-        if (turnRecord) {
-          turnRecord.postRuntimeSnapshot = this.getRuntimeSnapshot({ forSession: false })
-        }
-
-        // 检测机制触发（战斗、交易、任务、对话）—— C4：只消费新 segment
-        const mechanism = this.detectMechanismTriggers(stateContent)
-        if (mechanism) {
-          const targetMessage = getPlaceholder()
-          if (targetMessage) {
-            targetMessage.mechanismTrigger = mechanism
-          }
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('story-mechanism-ready', {
-              detail: mechanism
-            }))
-          }
-          // P0-3：不再在 commit 前保存会话（commit 后统一保存）
-        }
-
-        // P0-3：回合事务提交 —— 所有 state 修改（extractAndUpdateState/机制/记忆）完成后，
-        // 才把 turn record 标记 committed。正文、状态、回执作为同一事务原子提交。
-        if (turnRecord) {
-          const targetMsg = getPlaceholder()
-          // C4：extension 把新正文写为 segment（首次 extend 时先包装 base segment）。
-          if (extensionTarget) {
-            const now = Date.now()
-            const segments = Array.isArray(targetMsg.segments)
-              ? targetMsg.segments
-              : [{
-                  id: createMessageId('segment'),
-                  turnId: baseTurnId || '',
-                  intent: 'respond',
-                  cleanContent: extensionBase.content,
-                  blocks: extensionBase.presentation?.blocks || [],
-                  createdAt: targetMsg.timestamp || now,
-                  sourceRequestId: null,
-                  base: true
-                }]
-            const segmentId = createMessageId('segment')
-            segments.push({
-              id: segmentId,
-              turnId: turnRecord.id,
-              intent: 'extend',
-              cleanContent: finalParsed.content,
-              blocks: finalParsed.blocks || [],
-              createdAt: now,
-              sourceRequestId: requestId
-            })
-            // 注意：extractAndUpdateState 可能触发 saveCurrentSession（normalize 重排 messages），
-            // 因此必须写回当前 messages 中的对象（targetMsg），而非早期缓存的 extensionTarget。
-            targetMsg.segments = segments
-            turnRecord.segmentId = segmentId
-          }
-          const receipt = buildTurnReceipt({
-            ledger: this.lastContextLedger,
-            run: completedAgentRun,
-            sceneSummary: this.narrativeSceneSummary,
-            directorNote,
-          })
-          commitNarrativeTurnRecord(turnRecord, {
-            assistantMessageIds: extensionTarget ? [] : (targetMsg?.id ? [targetMsg.id] : []),
-            directorNote: String(directorNote || '').trim() || null,
-            receipt,
-            segmentId: extensionTarget ? turnRecord.segmentId : null,
-          })
-          this.turnRecords[turnRecord.id] = turnRecord
-          this.lastCommittedTurnId = turnRecord.id
-          this.pendingTurnRecord = null
-          this.lastTurnReceipt = receipt  // P1-5：体验页渲染最近一次回执
-          this.pendingBranchParentTurnId = null  // P1-3：新分支已 committed，清理回退游标
-        }
-
-        // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为
-        // 一个事务落盘（B-R2：成功出口的唯一最终一致态提交点，带立即 flush）
-        if (this.currentSessionId) {
-          this.commitCurrentSessionNow()
-        }
-
-        // Authoring runtime：可见正文提交后，经统一 bridge 调度一次后台派生观察器。
-        // 观察器不阻塞、不改正文；保存/回滚顺序保持不变（此调用在事务与落盘之后）。
-        await this.commitAuthoringProseResult({
-          text: finalParsed.content,
-          sourceRefs: turnRecord?.id ? [`turn:${turnRecord.id}`] : []
-        })
-
-        productionOutcome = 'success'
-      } catch (e) {
-        productionError = e
-        productionOutcome = controller.signal.aborted || e?.code === 'NARRATIVE_AGENT_ABORTED'
-          ? 'cancelled'
-          : 'error'
-        // C4：extension 失败 → 恢复目标消息基线（不删除已有消息）；否则移除 placeholder。
-        if (extensionTarget) {
-          const rollbackTarget = this.messages.find((message) => message?.id === placeholderId) || extensionTarget
-          rollbackTarget.isStreaming = false
-          rollbackTarget.content = extensionBase.content
-          rollbackTarget.presentation = extensionBase.presentation
-          rollbackTarget.segments = extensionBase.segments
-        } else {
-          const placeholderIndex = this.messages.findIndex((message) => message?.id === placeholderId)
-          if (placeholderIndex >= 0) {
-            this.messages.splice(placeholderIndex, 1)
-          }
-        }
-        // R1a：回合事务失败回滚 —— 恢复生成前的 runtime state。
-        // 取消/失败都不应留下"半提交"的 state（地点/时间/角色被改了但正文没提交）。
-        if (turnRecord?.preRuntimeSnapshot) {
-          failNarrativeTurnRecord(turnRecord)
-          this.applyRuntimeSnapshot(turnRecord.preRuntimeSnapshot)
-          // P0-3：恢复后重建 chatHistory —— applyRuntimeSnapshot 不碰消息层，
-          // 但正文已写入 chatHistory，必须重建避免"正文残留但回合未提交"。
-          this.rebuildChatHistory()
-          // P0-3：归档本回合已入队的记忆候选（状态提取前已真实入库，失败必须清理）
-          for (const candidateId of turnRecord.memoryCandidateIds || []) {
-            try { archiveMemoryCandidate(candidateId, { note: 'turn-failed' }) } catch { /* 尽力而为 */ }
-          }
-          this.pendingTurnRecord = null
-        }
-        // P1-5：导演注失败保留 —— 本回合的导演注未消费，恢复到 pending 供重试
-        if (directorNote && !this.pendingDirectorNote) {
-          this.pendingDirectorNote = String(directorNote).trim() || null
-        }
-        if (!controller.signal.aborted && e?.code !== 'NARRATIVE_AGENT_ABORTED') {
-          console.error('AI Error:', e)
-          this.lastError = e.message
-          this.messages.push({ id: createMessageId('system'), role: 'system', content: `AI 错误：${e.message}`, timestamp: Date.now() })
-          this.setNarrativeAgentStatus({
-            phase: 'error',
-            code: e?.code || 'NARRATIVE_AGENT_FAILED',
-            message: e.message,
-            at: Date.now()
-          })
-        }
-      } finally {
-        const ownsGeneration = narrativeAbortControllers.get(this) === controller
-        if (ownsGeneration) {
-          narrativeAbortControllers.delete(this)
-          this.isLoading = false
-          if (this.narrativeAgentStatus?.phase === 'complete') {
-            this.narrativeAgentStatus = null
-          }
-        }
-        const timing = productionObserver.snapshot()
-        const targetMessage = this.messages.find((message) => message?.id === placeholderId)
-        const trace = completedAgentRun?.trace || null
-        const summaryBlock = (productionKernel?.blocks || []).find((block) => block?.kind === 'summary')
-        const isTypedFailureVisible = productionOutcome !== 'error'
-          || this.narrativeAgentStatus?.phase === 'error'
-          || this.messages.some((message) => (
-            message?.role === 'system'
-            && String(message?.content || '').startsWith('AI 错误：')
-          ))
-        recordNarrativeProductionRun({
-          runId: requestId,
-          provider: this.apiSettings?.provider,
-          model: this.apiSettings?.model,
-          mode: productionMode,
-          intent: effectiveIntent,
-          outcome: productionOutcome,
-          errorCode: productionError?.code,
-          retryable: productionError?.retryable,
-          protocolOk: productionOutcome === 'success'
-            ? true
-            : (/^NARRATIVE_(PROVIDER_|AGENT_DECISION_INVALID)/.test(productionError?.code || '')
-                ? false
-                : null),
-          protocol: trace?.protocol || 'agent-sse-v1',
-          capabilitySource: trace?.capabilitySource || (this.apiSettings?.capabilities ? 'probe' : 'static-default'),
-          toolRepairCount: trace?.toolRepairCount ?? trace?.repairCount,
-          reasoningRoundTrip: trace?.reasoningRoundTrip,
-          terminalMode: trace?.terminalMode,
-          groundingPolicy: trace?.groundingPolicy?.level,
-          orphanedCallCount: trace?.orphanedCallCount,
-          fallbackReason: trace?.fallbackReason,
-          transcriptRevision: trace?.transcriptRevision,
-          finishReason: trace?.finishReason,
-          boundedCompletion: trace?.boundedCompletion,
-          incomplete: trace?.incomplete,
-          plan: {
-            revision: trace?.planRevision,
-            mode: trace?.beatMode,
-            targetChars: trace?.targetChars
-          },
-          timing,
-          tools: {
-            rounds: completedAgentRun?.toolRounds ?? timing.toolRounds,
-            calls: completedAgentRun?.totalCalls ?? timing.totalCalls,
-            evidenceCount: completedAgentRun?.finalToolResults?.length ?? timing.evidenceCount,
-            errorCount: (trace?.calls || []).filter((call) => call?.errorCode).length
-          },
-          usage: {
-            inputTokens: completedAgentRun?.usage?.inputTokens,
-            outputTokens: completedAgentRun?.usage?.outputTokens,
-            totalTokens: completedAgentRun?.usage?.totalTokens,
-            estimatedFinalTokens: timing.estimatedOutputTokens
-          },
-          context: {
-            kernelChars: productionKernel?.budget?.usedChars,
-            summaryChars: summaryBlock?.chars,
-            finalToolResultChars: trace?.finalResultChars
-          },
-          cleanup: {
-            renderSettled: productionOutcome === 'success'
-              ? Boolean(targetMessage && !targetMessage.isStreaming && targetMessage.content)
-              : !targetMessage,
-            requestReleased: narrativeAbortControllers.get(this) !== controller,
-            loadingOwnerSettled: !ownsGeneration || this.isLoading === false,
-            failureVisible: isTypedFailureVisible
-          }
-        })
-        // 普通生成失败/取消也必须保存“回滚完成 + loading 已清理”的最终一致态。
-        // regenerate 由外层 switchBranch 负责提交，避免把临时失败分支写入存档。
-        if (
-          ownsGeneration
-          && productionOutcome !== 'success'
-          && this.currentSessionId
-          && !this._isRegenerating
-        ) {
-          this.commitCurrentSessionNow()
-        }
-      }
-      // P0-3：返回生成结果（'success' | 'error' | 'cancelled'），供 regenerateFrom 失败恢复分支
-      return productionOutcome
+    async generateAIResponse(options = {}) {
+      return runExperienceTurn(this, options)
     },
 
     // 从 AI 回复中提取并更新状态

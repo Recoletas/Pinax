@@ -112,6 +112,40 @@ export function useAuthoringInspectorState({
     restoreWritingSurface?.(snapshot)
   }
 
+  // Non-toggle entry used by deep links and tool-owned open actions. It keeps
+  // close ordering in the inspector owner instead of letting every page helper
+  // directly mutate active tool/open/detail refs in a different order.
+  function openInspectorTool(tool, options = {}) {
+    const normalizedTool = String(tool || '')
+    if (!INSPECTOR_LABELS[normalizedTool]) return false
+    const previousTool = activeInspectorTool.value
+    const prepared = prepareToolSelection(normalizedTool)
+    if (inspectorOpen.value && activeInspectorTool.value === 'dual' && normalizedTool !== 'dual') {
+      if (dualPaneRef.value?.prepareClose?.() === false) {
+        inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value?.previous || null
+        return false
+      }
+      activeWritingPane.value = 'main'
+    }
+    if (inspectorDetailState.value?.kind === 'scene-edit' && normalizedTool !== 'scene') {
+      discardSceneDraft?.()
+      inspectorDetailState.value = null
+    }
+    activeInspectorTool.value = normalizedTool
+    inspectorOpen.value = true
+    if (options.pinned != null) inspectorPinned.value = Boolean(options.pinned)
+    if (options.baseView === 'comments' || options.baseView === 'version') {
+      inspectorBaseView.value = options.baseView
+    }
+    const ownsDetailState = Object.prototype.hasOwnProperty.call(options, 'detailState')
+    if (ownsDetailState) {
+      inspectorDetailState.value = options.detailState || null
+    } else if (normalizedTool !== previousTool || options.baseView) {
+      inspectorDetailState.value = null
+    }
+    return true
+  }
+
   function selectInspectorTool(tool) {
     const prepared = prepareToolSelection(tool)
     if (tool === 'dual') {
@@ -168,6 +202,7 @@ export function useAuthoringInspectorState({
     inspectorReturnFocusRef,
     inspectorReturnSurface,
     inspectorTab,
+    openInspectorTool,
     selectInspectorTool
   })
 }

@@ -24,8 +24,9 @@ import {
   getPlaceSourceRevision,
   listPlaceEntries,
   preparePlaceForWrite
-} from '../services/worldbookPlaceCatalog'
+} from '../services/worldbook/worldbookPlaceCatalog'
 import { archiveSourceDocuments } from '../services/worldbookSourceArchive'
+import { mutationFailure, mutationSuccess } from '../services/storage/durableMutationResult.js'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -474,6 +475,68 @@ function persistOrThrow(key, value, label) {
   if (!setItem(key, value)) throw storageWriteError(label)
 }
 
+function cloneMutationValue(value) {
+  if (value == null) return value
+  return JSON.parse(JSON.stringify(value))
+}
+
+function captureWorldbookMutation(store, worldbookId = '') {
+  const id = String(worldbookId || '').trim()
+  return {
+    id,
+    worldbook: id ? cloneMutationValue(getItem(WORLDBOOK_KEY_PREFIX + id)) : null,
+    index: cloneMutationValue(store.worldbooksIndex),
+    activeWorldbook: cloneMutationValue(store.activeWorldbook),
+    activeId: decodeStoredId(getItem(ACTIVE_WORLDBOOK_ID_KEY))
+  }
+}
+
+function restoreWorldbookMutation(store, snapshot) {
+  let restored = true
+  if (snapshot.id) {
+    if (snapshot.worldbook == null) {
+      try { removeItem(WORLDBOOK_KEY_PREFIX + snapshot.id) } catch { restored = false }
+    } else if (!setItem(WORLDBOOK_KEY_PREFIX + snapshot.id, snapshot.worldbook)) {
+      restored = false
+    }
+  }
+  store.worldbooksIndex = snapshot.index || []
+  store.activeWorldbook = snapshot.activeWorldbook || null
+  const persistedIndex = decodeStored(getItem(WORLDBOOKS_INDEX_KEY), [])
+  if (
+    JSON.stringify(persistedIndex) !== JSON.stringify(store.worldbooksIndex)
+    && !setItem(WORLDBOOKS_INDEX_KEY, store.worldbooksIndex)
+  ) restored = false
+  if (snapshot.activeId) {
+    if (
+      decodeStoredId(getItem(ACTIVE_WORLDBOOK_ID_KEY)) !== snapshot.activeId
+      && !setItem(ACTIVE_WORLDBOOK_ID_KEY, snapshot.activeId)
+    ) restored = false
+  } else {
+    try { removeItem(ACTIVE_WORLDBOOK_ID_KEY) } catch { restored = false }
+  }
+  return restored
+}
+
+function worldbookMutationFailure(error, rollbackOk) {
+  const code = String(error?.code || '')
+  return mutationFailure(code || 'worldbook-mutation-failed', {
+    retryable: code === 'quota-exceeded' || error?.name === 'QuotaExceededError',
+    message: String(error?.message || '世界书写入失败'),
+    errorName: String(error?.name || 'Error'),
+    rollbackOk
+  })
+}
+
+function unwrapWorldbookMutation(result, payloadKey) {
+  if (result?.ok) return payloadKey ? result[payloadKey] : result
+  const error = new Error(result?.message || '世界书写入失败')
+  error.name = result?.errorName || 'Error'
+  error.code = result?.reason || 'worldbook-mutation-failed'
+  error.retryable = Boolean(result?.retryable)
+  throw error
+}
+
 async function migrateLegacyWorldbookSources(worldbookId, worldbook) {
   const legacySources = worldbook?.sourceDocuments?.filter((source) => (
     source?.content && !source.archiveRef
@@ -621,7 +684,7 @@ export const useWorldStore = defineStore('world', {
       return String(loaded?.id || '') === id ? loaded : null
     },
 
-    async createWorldbook(data = {}) {
+    async _createWorldbookMutation(data = {}) {
       const now = Date.now()
       const worldbook = {
         id: createWorldBookId(),
@@ -688,7 +751,7 @@ export const useWorldStore = defineStore('world', {
       }
     },
 
-    async updateWorldbook(worldbookId, updates) {
+    async _updateWorldbookMutation(worldbookId, updates) {
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
       if (idx < 0) throw new Error('世界书不存在')
 
@@ -722,7 +785,7 @@ export const useWorldStore = defineStore('world', {
       return updated
     },
 
-    async deleteWorldbook(worldbookId) {
+    async _deleteWorldbookMutation(worldbookId) {
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
       if (idx < 0) return
 
@@ -777,7 +840,7 @@ export const useWorldStore = defineStore('world', {
 
     // ---------- 条目 CRUD ----------
 
-    async addEntry(worldbookId, entryData) {
+    async _addEntryMutation(worldbookId, entryData) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
@@ -855,7 +918,7 @@ export const useWorldStore = defineStore('world', {
       return persistedEntry
     },
 
-    async updateEntry(worldbookId, entryId, updates) {
+    async _updateEntryMutation(worldbookId, entryId, updates) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
@@ -935,7 +998,7 @@ export const useWorldStore = defineStore('world', {
       return updated
     },
 
-    async deleteEntry(worldbookId, entryId) {
+    async _deleteEntryMutation(worldbookId, entryId) {
       let worldbook = this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
@@ -970,6 +1033,84 @@ export const useWorldStore = defineStore('world', {
         this.worldbooksIndex[idx].updatedAt = worldbook.updatedAt
         if (!await this.saveWorldbooksIndex()) throw storageWriteError('世界书索引')
       }
+    },
+
+    // ---------- 统一 durable mutation 边界 ----------
+
+    async _runWorldbookMutation(worldbookId, mutate, payloadKey = '') {
+      const snapshot = captureWorldbookMutation(this, worldbookId)
+      try {
+        const payload = await mutate()
+        return mutationSuccess(payloadKey ? { [payloadKey]: payload } : {})
+      } catch (error) {
+        const rollbackOk = restoreWorldbookMutation(this, snapshot)
+        this.lastError = String(error?.message || '世界书写入失败')
+        return worldbookMutationFailure(error, rollbackOk)
+      }
+    },
+
+    createWorldbookDurable(data = {}) {
+      return this._runWorldbookMutation('', () => this._createWorldbookMutation(data), 'worldbook')
+    },
+
+    updateWorldbookDurable(worldbookId, updates) {
+      return this._runWorldbookMutation(worldbookId, () => this._updateWorldbookMutation(worldbookId, updates), 'worldbook')
+    },
+
+    deleteWorldbookDurable(worldbookId) {
+      return this._runWorldbookMutation(worldbookId, async () => {
+        await this._deleteWorldbookMutation(worldbookId)
+        return true
+      }, 'deleted')
+    },
+
+    addEntryDurable(worldbookId, entryData) {
+      return this._runWorldbookMutation(worldbookId, () => this._addEntryMutation(worldbookId, entryData), 'entry')
+    },
+
+    updateEntryDurable(worldbookId, entryId, updates) {
+      return this._runWorldbookMutation(worldbookId, () => this._updateEntryMutation(worldbookId, entryId, updates), 'entry')
+    },
+
+    deleteEntryDurable(worldbookId, entryId) {
+      return this._runWorldbookMutation(worldbookId, async () => {
+        await this._deleteEntryMutation(worldbookId, entryId)
+        return true
+      }, 'deleted')
+    },
+
+    importFromSillyTavernDurable(worldbookData) {
+      return this._runWorldbookMutation('', () => this._importFromSillyTavernMutation(worldbookData), 'worldbook')
+    },
+
+    // Compatibility surface. Existing consumers keep their historical payload
+    // and exception behavior, while every write now crosses the durable owner.
+    async createWorldbook(data = {}) {
+      return unwrapWorldbookMutation(await this.createWorldbookDurable(data), 'worldbook')
+    },
+
+    async updateWorldbook(worldbookId, updates) {
+      return unwrapWorldbookMutation(await this.updateWorldbookDurable(worldbookId, updates), 'worldbook')
+    },
+
+    async deleteWorldbook(worldbookId) {
+      return unwrapWorldbookMutation(await this.deleteWorldbookDurable(worldbookId), 'deleted')
+    },
+
+    async addEntry(worldbookId, entryData) {
+      return unwrapWorldbookMutation(await this.addEntryDurable(worldbookId, entryData), 'entry')
+    },
+
+    async updateEntry(worldbookId, entryId, updates) {
+      return unwrapWorldbookMutation(await this.updateEntryDurable(worldbookId, entryId, updates), 'entry')
+    },
+
+    async deleteEntry(worldbookId, entryId) {
+      return unwrapWorldbookMutation(await this.deleteEntryDurable(worldbookId, entryId), 'deleted')
+    },
+
+    async importFromSillyTavern(worldbookData) {
+      return unwrapWorldbookMutation(await this.importFromSillyTavernDurable(worldbookData), 'worldbook')
     },
 
     // ---------- 结构化地点目录 ----------
@@ -1137,7 +1278,7 @@ export const useWorldStore = defineStore('world', {
 
     // ---------- SillyTavern 导入 ----------
 
-    async importFromSillyTavern(worldbookData) {
+    async _importFromSillyTavernMutation(worldbookData) {
       const now = Date.now()
       const pinaxSourceDocuments = worldbookData?.extensions?.pinax_source_documents
       const archivedSourceDocuments = await archiveSourceDocuments(

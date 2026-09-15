@@ -35,7 +35,7 @@ import {
 import {
   invalidateMemoryBySource
 } from '@/services/memoryCandidates'
-import { createMemoryRecallReceipt, inspectMemoryCapacity } from '@/services/memoryReceipt'
+import { createMemoryRecallReceipt, inspectMemoryCapacity } from '@/services/experimental/memoryReceipt'
 import {
   deriveMemoryFromDelta,
   runObserverMemoryDerivation

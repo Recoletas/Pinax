@@ -1,5 +1,7 @@
 # 开发日志
 
+- 2026-09-15：完成架构主体一次性收口。世界书所有正式 mutation 统一经过可回滚 durable owner；ProseEssay 七键画布保存进入原子 repository。Experience 完整 turn 编排迁入 `experienceTurnCoordinator`，store 只保留状态/action；Authoring 初载/换书和 inspector 打开顺序分别进入唯一 composable，Notes 插画 pointer/selection 会话迁出页面。低 fan-in canvas/experience/worldbook 服务归域，legacy playable intent 标为 migration，旧 prompt/memory receipt 标为 experimental，零消费者 markdownWrap 删除；根层 services 67→42，静态生产图 505 文件/1,318 边/0 循环。全量与故障矩阵结果见[回执](./agent-runs/architecture-closure-20260915.md)。
+
 - 2026-09-15：执行 durable mutation result 大切片。新增 `storage/durableMutationResult` 最小合同，统一书稿、写作快照/恢复/块历史/自动历史、素材和 Notes 的 `{ ok, reason, retryable }`。素材域所有生产写入调用已迁移到 durable API；legacy API 仅作兼容包装且不再伪造写盘成功。Notes 批量删除从逐项提交改为一次原子写盘；Authoring 选区收藏从“新建+补写来源”收为单次提交；编辑器不再复制 normalize 规则做写后读回。失败路径保留草稿/选择/画布引用，跨域部分成功明示降级。正常 UI 结构与视觉未变。定向组合 63/63；最终 `verify:full` exit 0（20/20 文件、200/200 用例、lint delta、Vite/VitePress build、diff）。
 
 - 2026-09-15：继续按完整 owner 收口 Authoring，而非零散减行。两片合计新增四个边界：rewrite workflow 管请求/候选/stale/采用，annotation session 管 CRUD/编辑态，annotation selection 管跨节点选区与稳定 descriptor，annotation layout 管 lane 几何/observer/resize/滚动；书/章/构思切换共用 scope reset。`Authoring.vue` 从 12,822 行降至 12,299 行。浏览器首跑抓到 inspector 初始化 TDZ 并修正依赖顺序；J3 正文批注、J12 构思批注隔离随后 clean，F2 33/33；旧 journey 的“新建书稿 + 自动首章”入口同步当前行为。

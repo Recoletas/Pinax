@@ -656,13 +656,13 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { formatWorldbookStatus } from '../services/worldbookFeedback'
+import { formatWorldbookStatus } from '../services/worldbook/worldbookFeedback'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
   createWorldbookMaintenanceServices,
   findWorldbookAuditTargets,
   WORLDBOOK_MAINTENANCE_MODES
-} from '../services/worldbookMaintenance'
+} from '../services/worldbook/worldbookMaintenance'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'

@@ -1,4 +1,4 @@
-import { parseSourceFiles } from './worldbookSourceAdapters'
+import { parseSourceFiles } from '../worldbookSourceAdapters'
 
 let requestSequence = 0
 

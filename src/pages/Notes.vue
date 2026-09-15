@@ -562,6 +562,7 @@ import { useCanvasBoard } from '../composables/useCanvasBoard'
 import { useNotesAssetEditor } from '../composables/useNotesAssetEditor'
 import { useNotesAssetCatalog } from '../composables/useNotesAssetCatalog'
 import { useNotesMaterialAdvisor } from '../composables/useNotesMaterialAdvisor'
+import { useNotesIllustrationInteraction } from '../composables/useNotesIllustrationInteraction'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
 import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
@@ -572,8 +573,7 @@ import { useTipState } from '../composables/useTipState'
 import { useGameStore } from '../stores/gameStore'
 import { htmlToMarkdown, markdownImageDescriptors, markdownToHtml } from '../services/notes/assetMarkdown'
 import {
-  computeIllustrationFigureView,
-  imageBaseWidth
+  computeIllustrationFigureView
 } from '../services/notes/illustrationPresentation'
 import {
   buildNarrativeAssetContentHash,
@@ -707,9 +707,6 @@ const {
   positions: pinnedSlipPositions
 })
 
-const imageContextMenu = ref({ show: false, x: 0, y: 0 })
-const illustrationSelected = ref(false)
-const selectedIllustrationTarget = ref(null)
 const imageLayoutOptions = [
   { value: 'inline-center', label: '嵌入文字' },
   { value: 'square-left', label: '四周型 · 左侧' },
@@ -794,6 +791,27 @@ const {
   getEditorPlainText: getEditorText,
   createMarkdownMediaReference
 } = editorApi
+
+const {
+  imageContextMenu,
+  illustrationSelected,
+  selectedIllustrationTarget,
+  startIllustrationDrag,
+  moveIllustrationDrag,
+  finishIllustrationDrag,
+  cancelIllustrationDrag,
+  selectIllustrationFromEvent,
+  showEditorContextMenu,
+  chooseImageLayout,
+  resetSelection: resetIllustrationInteraction
+} = useNotesIllustrationInteraction({
+  editorRef,
+  activateFigure: activateIllustrationFigure,
+  presentationForTarget,
+  applyPresentation: applyImagePresentation,
+  textOffsetFromPoint: getTextOffsetFromPoint,
+  currentCaretOffset: getCurrentEditorCaretOffset
+})
 
 // C6：素材顾问结果采用/撤销 owner（第二条异步来源身份链）
 const {
@@ -955,7 +973,6 @@ function showMainVisualPreview(entry) {
   nextTick(refreshIllustrationSurfaces)
 }
 
-let illustrationDrag = null
 
 function illustrationTargetFromFigure(figure) {
   if (!figure) return null
@@ -1032,158 +1049,6 @@ function applyImagePresentation(patch = {}, persist = true, refresh = true, illu
   if (refresh) nextTick(refreshIllustrationSurfaces)
 }
 
-function startIllustrationDrag(event) {
-  if (event.button !== 0) return
-  const figure = event.target.closest?.('[data-narrative-illustration]')
-  if (!figure) return
-  const target = activateIllustrationFigure(figure, event.currentTarget)
-  const presentation = presentationForTarget(target)
-  if (!presentation) return
-  event.preventDefault()
-  event.stopPropagation()
-  const root = event.currentTarget
-  const mode = event.target.closest?.('[data-illustration-resize]') ? 'resize' : 'move'
-  illustrationDrag = {
-    pointerId: event.pointerId,
-    root,
-    figure,
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    startWidth: figure.getBoundingClientRect().width,
-    mode,
-    target,
-    presentation,
-    moved: false
-  }
-  selectedIllustrationTarget.value = target
-  illustrationSelected.value = true
-  figure.classList.add('is-selected')
-  figure.classList.add(mode === 'resize' ? 'is-resizing' : 'is-dragging')
-  figure.setPointerCapture?.(event.pointerId)
-}
-
-function moveIllustrationDrag(event) {
-  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
-  const dx = event.clientX - illustrationDrag.startClientX
-  const dy = event.clientY - illustrationDrag.startClientY
-  illustrationDrag.moved ||= Math.hypot(dx, dy) > 3
-  if (illustrationDrag.mode === 'resize') {
-    const rootWidth = illustrationDrag.root.getBoundingClientRect().width || 1
-    const basePercent = imageBaseWidth(illustrationDrag.presentation.wrap)
-    const minWidth = rootWidth * basePercent * 0.5 / 100
-    const maxWidth = rootWidth * Math.min(100, basePercent * 2) / 100
-    const width = Math.min(maxWidth, Math.max(minWidth, illustrationDrag.startWidth + dx))
-    illustrationDrag.figure.style.width = `${width}px`
-    return
-  }
-  const base = ['behind', 'front'].includes(illustrationDrag.presentation.wrap)
-    ? 'translate(-50%, -50%) '
-    : ''
-  illustrationDrag.figure.style.transform = `${base}translate(${dx}px, ${dy}px)`
-}
-
-function finishIllustrationDrag(event) {
-  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
-  const drag = illustrationDrag
-  drag.figure.releasePointerCapture?.(event.pointerId)
-  illustrationDrag = null
-  if (!drag.moved) {
-    drag.figure.classList.remove('is-dragging')
-    drag.figure.classList.remove('is-resizing')
-    drag.figure.style.transform = ''
-    return
-  }
-
-  const presentation = drag.presentation
-  const rect = drag.root.getBoundingClientRect()
-  if (drag.mode === 'resize') {
-    const widthPercent = (drag.figure.getBoundingClientRect().width / Math.max(1, rect.width)) * 100
-    applyImagePresentation({
-      scale: widthPercent / imageBaseWidth(presentation.wrap)
-    }, true, true, drag.target)
-    return
-  }
-  if (['behind', 'front'].includes(presentation.wrap)) {
-    applyImagePresentation({
-      positionX: ((event.clientX - rect.left) / rect.width) * 100,
-      positionY: ((event.clientY - rect.top) / rect.height) * 100
-    }, true, true, drag.target)
-    return
-  }
-
-  const previousPointerEvents = drag.figure.style.pointerEvents
-  drag.figure.style.pointerEvents = 'none'
-  const anchorOffset = getTextOffsetFromPoint(
-    drag.root,
-    event.clientX,
-    event.clientY,
-    presentation.anchorOffset
-  )
-  drag.figure.style.pointerEvents = previousPointerEvents
-  const align = ['square', 'tight'].includes(presentation.wrap)
-    ? (event.clientX < rect.left + rect.width / 2 ? 'left' : 'right')
-    : presentation.align
-  applyImagePresentation({ anchorOffset, align }, true, true, drag.target)
-}
-
-function cancelIllustrationDrag(event) {
-  if (!illustrationDrag || illustrationDrag.pointerId !== event.pointerId) return
-  illustrationDrag.figure.classList.remove('is-dragging')
-  illustrationDrag.figure.classList.remove('is-resizing')
-  illustrationDrag.figure.style.transform = ''
-  illustrationDrag = null
-}
-
-function selectIllustrationFromEvent(event) {
-  const figure = event.target.closest?.('[data-narrative-illustration]')
-  if (!figure) {
-    selectedIllustrationTarget.value = null
-    illustrationSelected.value = false
-    editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
-    return
-  }
-  event.stopPropagation()
-  selectedIllustrationTarget.value = activateIllustrationFigure(figure)
-  illustrationSelected.value = true
-  figure.classList.add('is-selected')
-}
-
-function showEditorContextMenu(event) {
-  const figure = event.target.closest?.('[data-narrative-illustration]')
-  if (!figure) {
-    imageContextMenu.value.show = false
-    return
-  }
-  event.preventDefault()
-  event.stopPropagation()
-  selectedIllustrationTarget.value = activateIllustrationFigure(figure)
-  illustrationSelected.value = true
-  figure.classList.add('is-selected')
-  imageContextMenu.value = {
-    show: true,
-    x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
-    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 330))
-  }
-}
-
-function setImageLayout(value) {
-  const separator = value.lastIndexOf('-')
-  const wrap = value.slice(0, separator)
-  const align = value.slice(separator + 1)
-  const target = selectedIllustrationTarget.value
-  const current = presentationForTarget(target)
-  if (!current) return
-  const patch = { wrap, align }
-  if (target?.source !== 'embedded') {
-    patch.anchorOffset = getCurrentEditorCaretOffset() ?? current.anchorOffset
-  }
-  applyImagePresentation(patch, true, true, target)
-}
-
-function chooseImageLayout(value) {
-  setImageLayout(value)
-  imageContextMenu.value.show = false
-}
 
 const charCount = computed(() => getEditorText().length)
 
@@ -1585,10 +1450,7 @@ function flushVisualPresentation(chapter) {
 
 // 切换/清空选择时清理插画选择态（catalog 的 onAssetDeselected 接缝）
 function resetIllustrationSelection() {
-  selectedIllustrationTarget.value = null
-  illustrationSelected.value = false
-  imageContextMenu.value.show = false
-  editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
+  resetIllustrationInteraction()
 }
 
 function renderCurrentEditor() {
@@ -1841,10 +1703,7 @@ function getTextOffsetFromPoint(root, clientX, clientY, fallbackOffset = 0) {
 
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
-  imageContextMenu.value.show = false
-  selectedIllustrationTarget.value = null
-  illustrationSelected.value = false
-  editorRef.value?.querySelectorAll('[data-narrative-illustration]').forEach((item) => item.classList.remove('is-selected'))
+  resetIllustrationInteraction()
 }
 
 </script>

@@ -54,7 +54,7 @@ AI request
 | 数据 | 唯一写入边界 / owner | 当前持久化 | 说明 |
 | --- | --- | --- | --- |
 | 书稿、章节、writing units | `src/services/writing/writingBooksRepository.js`；编辑事务由 Notebook/Authoring 发起 | `localStorage.writing_books` | 页面不得另造第二份长期书稿 store |
-| 世界书、条目、结构化设定 | `src/stores/worldStore.js` | `worldbook_*` + index keys | 项目模式必须由 bookId 解析绑定 worldbookId |
+| 世界书、条目、结构化设定 | `src/stores/worldStore.js` 的 durable mutation owner | `worldbook_*` + index keys | 项目模式必须由 bookId 解析绑定 worldbookId；本体/索引/active 指针失败时回滚 |
 | 工作台标签 | `src/stores/workspaceTabsStore.js` + `workspaceRouteAdapter` | 安全导航快照 | URL 是导航真源；selection/scroll 只存内存 ledger |
 | 当前场、推演、干预 | `src/services/agents/authoring/` 中的 session/projection/transaction | 正式现场有限持久化；Ghost/session 多为内存 | provider 前后都要核对 revision |
 | 素材 | `src/services/narrativeAssets.js` | localStorage | AI 输出先是候选，不直接成为正文/世界事实 |
@@ -65,7 +65,7 @@ AI request
 
 浏览器写入必须通过现有 repository/store。`src/composables/useStorage.js` 是兼容底层，不应成为新业务模块直接设计 schema 的理由。桌面适配通过 `src/services/storage/` 和 Electron bridge 逐步接管，不能在页面里判断文件系统路径。
 
-持久化结果的共享形状由 `src/services/storage/durableMutationResult.js` 提供：成功和失败都显式返回 `{ ok, reason, retryable }`，各域只附加自己的 payload。书稿、写作快照/恢复/块历史和素材已使用该合同；legacy 布尔或对象 API 仅作兼容包装，生产写入调用方不得再通过异常、`null` 或写后读回猜测结果。
+持久化结果的共享形状由 `src/services/storage/durableMutationResult.js` 提供：成功和失败都显式返回 `{ ok, reason, retryable }`，各域只附加自己的 payload。书稿、写作快照/恢复/块历史、素材、世界书与散文画布整包保存均使用该合同。世界书 legacy payload/异常 API 仅是 durable owner 上的兼容包装；散文画布的七类键由一个 repository 原子提交。
 
 ## 4. AI 与推演边界
 
@@ -105,12 +105,12 @@ AI request
 
 | 热点 | 当前规模 | 判断 |
 | --- | ---: | --- |
-| `Authoring.vue` | 12,299 行 | 最大风险；主要生成工作流和批注/改写工作区已有独立 owner；页面仍集中书稿激活、编辑器事务、快捷工具与若干 DOM 定位适配 |
-| `Notes.vue` | 4,405 行 | catalog/editor 生命周期已拆开；插画 DOM、拖拽/锚点、新建弹窗与 sidekick 仍在页面 |
-| `Experience.vue` | 4,429 行 | 兼容运行时仍重，不能继续承接新写作功能 |
-| `ProseEssay.vue` | 4,571 行 | 画布状态仍主要由页面持有 |
-| `gameStore.js` | 3,656 行 | 会话、历史、runtime projection 与状态解析已分域；完整 turn 编排仍偏重 |
-| `src/services/` 根层 | 67 个文件 | 域目录已经出现，但旧文件尚未迁完 |
+| `Authoring.vue` | 12,192 行 | 仍是最大组合根；初载/换书事务和右栏打开顺序已有 owner，剩余主要是编辑器 DOM 适配、模板与跨能力接线 |
+| `Notes.vue` | 4,263 行 | catalog/editor 与插画 pointer/selection/context-menu 会话已拆开；DOM 渲染和 sidekick 仍在页面 |
+| `Experience.vue` | 4,439 行 | 兼容运行时仍重，不能继续承接新写作功能 |
+| `ProseEssay.vue` | 4,395 行 | 交互状态仍在页面；七类持久键、序列化和失败回滚已归 `canvas/proseCanvasRepository` |
+| `gameStore.js` | 2,990 行 | store 保留 action/state 应用；完整 turn 的准备、流式、提交和回滚归 `experienceTurnCoordinator` |
+| `src/services/` 根层 | 42 个文件 | 低 fan-in canvas/experience/worldbook 文件已归域；根层只继续处理高 fan-in 或跨域历史文件 |
 
 本轮已经删除生产图完全不可达的旧 Writing wrapper、旧 Settings modal、旧 SidePanel、Kao/folio 残壳、旧 Authoring reference picker 和无人消费的体验素材 summarizer。仍只被测试引用的旧纯合同不在本轮硬删：它们需要先判断是迁移合同、未来能力还是废弃测试，不能用“没有页面 import”一刀切。
 
@@ -136,20 +136,22 @@ AI request
 14. ✅ `useInlineWritingAgentHost` + `useAuthoringReferenceSource`：停驻触发、请求身份、IME/光标路由、取消/迟到响应、参考 scope、候选失效与采用接缝已迁出；页面只转发编辑器语义事件并提供事务 hooks。
 15. ✅ `useAuthoringRewriteWorkflow` + `useAuthoringAnnotationSession`：改写请求代次/取消/候选/失效/采用状态，以及批注草稿、根项投影、创建/编辑/删除和作用域重置均已有唯一 owner。页面只注入批注集合、选区、滚动和正文提交适配；切章会同步清除旧 composer 上下文。
 16. ✅ `useAuthoringAnnotationSelection` + `useAuthoringAnnotationLayout`：选区冻结、跨节点 range/selector、writing node descriptor 进入无状态 selection adapter；边注 lane 测量、ResizeObserver、窗口 resize、滚动恢复和卸载清理由 DOM layout owner 负责。切书、切章、进入/离开构思统一走 `resetAnnotationWorkspaceScope`，不会跨文档保留 composer 或改写候选；ProseMirror 实例和长期 annotations 仍只由页面/repository 提供。
-17. 🟡 durable mutation result：书稿、写作快照/恢复/块历史、素材与 Notes 已迁移为可判定的 `{ ok, reason, retryable }`。素材生产写入入口已零 legacy 调用，批量删除改为单次原子写盘，选区收藏由两次写盘收为一次。下一域只处理世界书 store 的异常型写入，不改其 revision/激活规则。
+17. ✅ durable mutation result：书稿、历史、素材、世界书与散文画布已有可判定结果。世界书本体先写而索引失败时恢复本体、索引、active 快照；旧 API 只做兼容解包，不再形成第二条写路径。
+18. ✅ `useAuthoringBookActivation`：首载 query、旧章保存/boundary、换书作用域清理、世界书同步和首章选择成为一个事务 owner；章节内容 hydration 仍由编辑器 adapter 负责。
+19. ✅ inspector open ordering：深链接、双栏、现场、推演、批注、设定和共同排演统一经 `openInspectorTool`；离开双栏先 `prepareClose`，离开现场草稿先 discard，不再由各 open helper 自行排列关闭语句。
 每片要求：减少页面自有状态/过渡逻辑与总行数，不以新增一个显式 composable import 伪装成退步；不得新增第二套 reactive snapshot；既有浏览器 Gate 保持同等行为覆盖。
 
-### B. 根层 services 归域
+### B. 根层 services 归域（v1 完成）
 
-先生成“文件 → 生产消费者 → owner”清单，再做纯移动。优先移动只有 1–3 个消费者、无循环风险的文件；`api.js`、`narrativeAssets.js`、`worldbookContextBuilder.js` 等高 fan-in 文件暂不移动。移动片不得同时改行为。
+canvas、Experience 与低 fan-in worldbook 服务已完成纯路径归域，根文件从 67 个降至 42 个。`api.js`、`narrativeAssets.js`、`worldbookContextBuilder.js` 等高 fan-in 文件保留，避免为了目录外观制造跨域反向依赖。生命周期清单见 `src/services/README.md`。
 
-### C. 兼容/试验合同设退出条件
+### C. 兼容/试验合同设退出条件（v1 完成）
 
-对仅被测试引用的模块逐个标记：`production`、`migration`、`experimental` 或 `retire`。只有 retire 项才连同对应测试删除；migration 项必须记录数据版本和最早删除日期；experimental 项不得由正式页面偷偷依赖。
+目录和清单已经区分 `production / migration / experimental / compatibility / retire`。旧 playable intent 进入 migration，旧 prompt builder 与未接线 memory receipt 进入 experimental；零消费者 `markdownWrap` 已删除。正式代码不得 import experimental。
 
-### D. Experience 与 gameStore 隔离
+### D. Experience 与 gameStore 隔离（turn owner 完成）
 
-停止向 `/experience` 增加 Authoring 功能。会话规范化/调度、history/runtime projection、branch graph、observer、journal、生命周期默认值和自由文本状态解析现位于 `src/services/experience/`；store 只保留应用 action。下一刀是把完整 turn 编排收成 coordinator，再决定体验页长期保留、插件化或退役；在真实存档迁移与用户验收前不删兼容数据。
+停止向 `/experience` 增加 Authoring 功能。会话规范化/调度、history/runtime projection、branch graph、observer、journal、状态解析以及完整 turn coordinator 均位于 `src/services/experience/`；store 只保留状态与应用 action。是否保留、插件化或退役 Experience 是产品决策，不再是核心架构阻塞项；真实存档迁移与用户验收前不删兼容数据。
 
 ## 8. 变更检查表
 

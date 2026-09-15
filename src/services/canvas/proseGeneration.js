@@ -1,4 +1,4 @@
-import { runGenerationTask } from './generationService'
+import { runGenerationTask } from '../generationService'
 
 function logAttempts(label, generationResult) {
   for (const attempt of generationResult?.attempts || []) {

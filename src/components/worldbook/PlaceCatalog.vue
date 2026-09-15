@@ -249,7 +249,7 @@ import {
   PLACE_SCALES
 } from '../../../shared/placeEntryContract.js'
 import { mergeUniqueSentences } from '../../../shared/placeDescriptionMerge.js'
-import { adoptPlaceDraft, getPlaceDeleteImpact, getPlaceOverview, listPlaceEntries } from '../../services/worldbookPlaceCatalog'
+import { adoptPlaceDraft, getPlaceDeleteImpact, getPlaceOverview, listPlaceEntries } from '../../services/worldbook/worldbookPlaceCatalog'
 import { createSettingPlaceServices } from '../../services/settingPlaceGeneration'
 import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsPlaceWorkflow } from '../../services/agents/settings/settingsPlaceWorkflow'

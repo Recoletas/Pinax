@@ -1,4 +1,4 @@
-import { runGenerationTask } from './generationService'
+import { runGenerationTask } from '../generationService'
 
 export const FALLBACK_DIALOGUE_OPTIONS = [
   '追问关键细节',

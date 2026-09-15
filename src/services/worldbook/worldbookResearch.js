@@ -1,6 +1,6 @@
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getResolvedApiSettings } from './api'
-import { runGenerationTask } from './generationService'
+import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { getResolvedApiSettings } from '../api'
+import { runGenerationTask } from '../generationService'
 
 export const WORLDBOOK_RESEARCH_PROVIDERS = Object.freeze([
   { value: 'brave', label: 'Brave Search', needsKey: true },

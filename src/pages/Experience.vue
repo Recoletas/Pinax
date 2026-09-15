@@ -550,7 +550,7 @@ import {
   applyOnlineNarrativeCompletion,
   applyOnlineRuntimePatch,
   buildOnlineRuntimePatch
-} from '../services/onlineExperienceBridge'
+} from '../services/experience/onlineExperienceBridge'
 import { appendExperienceTurnToChapter } from '../services/writing/writingExperienceImport.js'
 
 const props = defineProps({

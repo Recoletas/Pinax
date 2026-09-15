@@ -1,5 +1,5 @@
-import { getItem, STORAGE_KEYS } from '../composables/useStorage'
-import { normalizeStringList } from '../../shared/memoryContract'
+import { getItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { normalizeStringList } from '../../../shared/memoryContract'
 
 function text(value) {
   return String(value ?? '').trim()

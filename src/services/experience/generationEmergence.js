@@ -1,6 +1,6 @@
-import { runGenerationTask } from './generationService'
-import { validateStateDelta } from './runtimeEvents'
-import { buildWorldbookContext } from './worldbookContextBuilder'
+import { runGenerationTask } from '../generationService'
+import { validateStateDelta } from '../runtimeEvents'
+import { buildWorldbookContext } from '../worldbookContextBuilder'
 
 const MAX_SUMMARY_CHARS = 520
 const MAX_ARRAY_ITEMS = 6

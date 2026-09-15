@@ -24,7 +24,7 @@ import {
   buildSystemPrompt,
   buildPromptSequence,
   buildNarrativeConstraints
-} from '../services/promptBuilder'
+} from '../services/experimental/promptBuilder'
 import { getShotTypes, inferShotTypeFromEmotion } from '../types/director'
 import {
   buildEditingPackage,
@@ -62,6 +62,7 @@ import {
   migrateCanvasAttachedImages,
   serializeCanvasCards
 } from '../services/media/canvasImageAssetBridge'
+import { saveProseCanvasWorkspace } from '../services/canvas/proseCanvasRepository.js'
 import {
   addComicPanelTake,
   addComicPanelStageArtifact,
@@ -4105,6 +4106,24 @@ describe('Media services', () => {
     expect(localStorage.getItem(STORAGE_KEYS.PROSE_CARDS_V1)).not.toContain('YWJj')
     expect(JSON.stringify(serializeCanvasCards(migratedCards))).not.toContain('YWJj')
     expect(listMediaAssets({ sourceRef: { refType: 'canvas-card', refId: 'card-1' } })).toHaveLength(1)
+    const canvasStorageData = new Map([['prose_edges_v1', JSON.stringify([{ id: 'old-edge' }])]])
+    let canvasWriteCount = 0
+    const failingCanvasStorage = {
+      getItem: (key) => canvasStorageData.get(key) ?? null,
+      setItem: (key, value) => {
+        canvasWriteCount += 1
+        if (canvasWriteCount === 3) throw new Error('quota')
+        canvasStorageData.set(key, value)
+      },
+      removeItem: (key) => canvasStorageData.delete(key)
+    }
+    const canvasSave = saveProseCanvasWorkspace({
+      cards: [{ id: 'new-card' }],
+      edges: [{ id: 'new-edge' }]
+    }, { storage: failingCanvasStorage })
+    expect(canvasSave).toMatchObject({ ok: false, reason: 'storage-write-failed', rollbackOk: true })
+    expect(JSON.parse(canvasStorageData.get('prose_edges_v1'))).toEqual([{ id: 'old-edge' }])
+    expect(canvasStorageData.has(STORAGE_KEYS.PROSE_CARDS_V1)).toBe(false)
     await deleteMediaAsset(canvasImage.mediaAssetId, { binaryStore })
     await deleteMediaAsset(generatedRoughId, { binaryStore })
     await deleteMediaAsset(generatedLineId, { binaryStore })

@@ -1,5 +1,5 @@
-import { getResolvedApiSettings } from './api'
-import { runGenerationTask } from './generationService'
+import { getResolvedApiSettings } from '../api'
+import { runGenerationTask } from '../generationService'
 
 export function parseJsonFromAiContent(content) {
   const raw = String(content || '').replace(/^\uFEFF/, '').trim()

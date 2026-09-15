@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import NarrativeBlock from './NarrativeBlock.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-import { speakerToneOf, speakerGroupMarkers } from '../../services/experienceSpeakerTone'
+import { speakerToneOf, speakerGroupMarkers } from '../../services/experience/experienceSpeakerTone'
 
 const props = defineProps({
   message: { type: Object, required: true },

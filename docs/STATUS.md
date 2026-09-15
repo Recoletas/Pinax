@@ -6,16 +6,14 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-15 架构收尾第二轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | durable mutation result 已完成书稿/写作历史/素材/Notes 域并通过组合验证；当前收口文档、提交并推送。下一片是世界书异常型写入，随后进入 Experience turn coordinator。 |
+| Codex / 2026-09-15 架构完整收口 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 主体实现与独立复验完成：故障矩阵 20/20、`verify:full` 20/20 文件 / 200/200 用例、双 build/diff 全绿；当前仅做提交与推送交接。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
-- **2026-09-15 durable mutation result 已完成书稿与素材大切片**：新增最小共享结果合同，书稿、快照、恢复稿、块历史、自动历史与素材写入统一返回 `{ ok, reason, retryable }`。Authoring、Experience、Notes、ProseEssay、gameStore 及素材媒体桥的生产写入已全部切换至 durable API；Notes 批量删除改为单次原子写盘，正文选区收为素材由两次写盘收为一次。失败时不再清草稿、不更改选择、不清画布引用；跨域部分成功会显式说明。定向组合 63/63，文档后 `verify:full` exit 0：20/20 文件、200/200 用例、lint delta、双 build/diff 全绿。未改样式、布局或断点。
+- **2026-09-15 当前架构主体完成收口**：世界书 create/update/delete/entry/import 已统一经过 durable mutation owner，本体成功而索引失败会恢复本体、索引与 active 快照；ProseEssay 七类画布键由单一 repository 原子提交并失败回滚。Experience 完整回合的准备、流式、提交、取消与失败恢复迁入 `experienceTurnCoordinator`，`gameStore.js` 从 3,656 行降至 2,990 行。Authoring 首载/换书事务和 inspector 非 toggle 打开顺序各有唯一 composable；Notes 插画拖放/缩放/选择会话迁出页面。`Authoring.vue` 12,192 行、Notes 4,263 行、ProseEssay 4,395 行。低 fan-in services 完成 canvas/experience/worldbook 归域，根层 67→42；生命周期分为 production/migration/experimental/compatibility/retire，生产 import 图 505 文件/1,318 边/0 循环，experimental 无正式消费者。完整证据见[架构收口回执](./agent-runs/architecture-closure-20260915.md)。
 
-- **2026-09-15 Authoring 批注/改写完整工作区已迁出**：`useAuthoringRewriteWorkflow` 负责请求/候选/stale/采用，`useAuthoringAnnotationSession` 负责 CRUD/编辑态，`useAuthoringAnnotationSelection` 冻结跨节点选区与稳定身份，`useAuthoringAnnotationLayout` 负责 lane 几何、observer、resize 和滚动恢复；跨书、章、正文/构思切换统一清除旧 composer 与候选。`Authoring.vue` 两片合计从 12,822 行降至 12,299 行。迁移实页复验先抓到并修正 inspector owner 的 TDZ；随后 J3 正文批注与 J12 构思批注隔离均 clean，F2 工作台 Gate 33/33。旧旅程的新建书稿/自动首章入口同步到当前产品语义。
-
-- **2026-09-15 三线架构修正树已完成集成并开始下一轮收尾**：共同基线 `37e0679`；B/C/A 已压缩合入并完成组合验证，详见[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。随后 B12 的人物与活动提取也迁入纯 `gameStateExtraction`，store 只应用结果，`gameStore.js` 降至 3,656 行；世界书人物条目仍由原 owner 掌握，不被 Experience 启发式反写。A12 与其余溢出包继续留在后续队列。
+- **2026-09-15 Authoring 批注/改写工作区与 durable 基础已完成**：`useAuthoringRewriteWorkflow`、annotation session/selection/layout 已承担请求、CRUD、选区和 DOM lane；书稿、历史、素材与 Notes 写入使用共享 `{ ok, reason, retryable }`，素材批删和选区收藏不再分步假成功。这些边界是本轮激活协调器、世界书和 Prose 事务继续收口的前置，不另保留平行写路径。
 
 - **2026-09-14 Authoring 第十至十三片已按完整事务收口**：`useAuthoringBlockWorkflow` 接管 Block composer/preview/turn；`useAuthoringGhostAdoptionWorkflow` 接管 stale 复核、编辑器写入、scene/outline delta、回滚/重试、observer、IF 消费与撤销；`useAuthoringReviewWorkflow` 接管章节校对的冻结、分批模型循环、采用与撤销；`useAuthoringSearchWorkflow` 接管来源冻结、四域索引、去抖、结果新鲜度、跨章定位/回程和替换预览/全书原子提交。`Authoring.vue` 由本轮起点 13,781 行降至 **12,823 行**（单轮净降 958；累计从 15,932 行降 3,109），143 imports。定向 ESLint 0/0、聚焦 55/55、Vite build、F2 校对/查找/历史 33/33、推演右栏 304/304、F1 rehearsal 48/48、IF 28/28 通过。浏览器门禁真实抓到并修复 Block host 参数名和 Review null identity 两处迁移错误；下一刀是写作 Agent/inline suggestion 生命周期，而不是继续拆百行 helper。
 

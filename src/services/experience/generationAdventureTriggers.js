@@ -1,7 +1,7 @@
-import { buildWorldbookContext } from './worldbookContextBuilder'
-import { runGenerationTask } from './generationService'
-import { validateStoryboardShots } from './storyboardStore'
-import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../types/director'
+import { buildWorldbookContext } from '../worldbookContextBuilder'
+import { runGenerationTask } from '../generationService'
+import { validateStoryboardShots } from '../storyboardStore'
+import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../../types/director'
 
 const STORYBOARD_SHOT_TYPES = Object.keys(SHOT_TYPES)
 const STORYBOARD_CAMERA_MOVEMENTS = Object.keys(CAMERA_MOVEMENTS)

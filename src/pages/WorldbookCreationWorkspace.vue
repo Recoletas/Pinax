@@ -9,7 +9,7 @@ import {
   createWorldbookFromPayload,
   tryAiGenerateFromBrief
 } from '../services/worldbookQuickImportHelpers'
-import { buildWorldbookImportPreview } from '../services/worldbookImportGeneration'
+import { buildWorldbookImportPreview } from '../services/worldbook/worldbookImportGeneration'
 import {
   buildSourceArchiveBundle,
   cleanupUnreferencedSourceArtifacts,
@@ -24,8 +24,8 @@ import {
   saveSourceArchiveBundle
 } from '../services/worldbookSourceArchive'
 import { detectSourceKind } from '../services/worldbookSourceAdapters'
-import { parseSourceFilesWithWorker } from '../services/worldbookSourceParser'
-import { selectSourceChunks } from '../services/worldbookSourceSelection'
+import { parseSourceFilesWithWorker } from '../services/worldbook/worldbookSourceParser'
+import { selectSourceChunks } from '../services/worldbook/worldbookSourceSelection'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsImportWorkflow } from '../services/agents/settings/settingsImportWorkflow'
 import { createSettingsGenerationWorkflow } from '../services/agents/settings/settingsGenerationWorkflow'
@@ -33,7 +33,7 @@ import {
   getCreationGenerationFailure,
   getCreationGenerationLabel,
   getCreationSourceResultState
-} from '../services/worldbookCreationState'
+} from '../services/worldbook/worldbookCreationState'
 
 const route = useRoute()
 const router = useRouter()

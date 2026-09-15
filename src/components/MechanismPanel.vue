@@ -119,7 +119,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { buildFallbackOptions, generateDialogueOptions } from '../services/dialogueOptions'
+import { buildFallbackOptions, generateDialogueOptions } from '../services/experience/dialogueOptions'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },

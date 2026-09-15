@@ -3,7 +3,7 @@ import {
   isCreationGenerationActive,
   normalizeCreationGenerationAction,
   normalizeCreationGenerationState
-} from './worldbookCreationState'
+} from './worldbook/worldbookCreationState'
 import { sha256HexOfText } from './contentHash'
 import { normalizeEncodingDetection } from './encodingDetector'
 import {

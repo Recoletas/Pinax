@@ -118,7 +118,7 @@ dev 代理默认指向 `127.0.0.1:3001`；多工作树并行时用 `PINAX_DEV_BA
 
 ## 仓库结构
 
-- `src/`：Vue 前端
+- `src/`：Vue 前端；[代码放置速查](src/README.md)与[服务生命周期](src/services/README.md)
 - `server/`：Express 后端
 - `shared/`：前后端共享合同与校验
 - `electron/`：桌面进程、项目存储与迁移

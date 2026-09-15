@@ -20,15 +20,15 @@ import {
   buildWorldbookImportPreview,
   normalizeWorldbookAiResult,
   parseJsonFromAiContent
-} from '@/services/worldbookImportGeneration'
+} from '@/services/worldbook/worldbookImportGeneration'
 import {
   buildFallbackResearchQueries,
   buildIncrementalResearchQuery,
   mergeResearchSources,
   normalizeWorldbookResearchSettings,
   researchWorldbookGap
-} from '@/services/worldbookResearch'
-import { selectSourceChunks } from '@/services/worldbookSourceSelection'
+} from '@/services/worldbook/worldbookResearch'
+import { selectSourceChunks } from '@/services/worldbook/worldbookSourceSelection'
 import {
   normalizeResearchFetchRequest,
   normalizeResearchRequest,
@@ -40,8 +40,8 @@ import {
   normalizeResearchClaims,
   normalizeResearchConflicts,
   refreshResearchReview
-} from '@/services/worldbookResearchClaims'
-import { createResearchRevision } from '@/services/worldbookResearchRevision'
+} from '@/services/worldbook/worldbookResearchClaims'
+import { createResearchRevision } from '@/services/worldbook/worldbookResearchRevision'
 import {
   buildSettingGenerationMessages,
   extractSettingContent,
@@ -63,7 +63,7 @@ import {
   findWorldbookAuditCandidates,
   findWorldbookAuditTargets,
   normalizeWorldbookMaintenanceResult
-} from '@/services/worldbookMaintenance'
+} from '@/services/worldbook/worldbookMaintenance'
 import {
   archiveSourceDocuments,
   buildSourceArchiveBundle,
@@ -81,7 +81,7 @@ import {
   getCreationGenerationFailure,
   getCreationGenerationLabel,
   getCreationSourceResultState
-} from '@/services/worldbookCreationState'
+} from '@/services/worldbook/worldbookCreationState'
 import { groupSettingCandidates } from '../../shared/structuredSettingCandidateContract.js'
 import {
   STRUCTURED_GENERATION_SCHEMA_IDS,
@@ -93,7 +93,7 @@ import {
   parseSourceFile,
   parseSourceFiles
 } from '@/services/worldbookSourceAdapters'
-import { parseSourceFilesWithWorker } from '@/services/worldbookSourceParser'
+import { parseSourceFilesWithWorker } from '@/services/worldbook/worldbookSourceParser'
 
 function createFixturePdf(text) {
   const stream = `BT /F1 18 Tf 72 720 Td (${text}) Tj ET\n`
@@ -651,11 +651,26 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     const quotaStore = useWorldStore()
     await quotaStore.loadWorldbooksIndex()
     const nativeSetItem = Storage.prototype.setItem
+    const rollbackBook = await quotaStore.createWorldbook({ name: '事务前世界书' })
+    const indexQuota = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (String(key) === 'worldbooks_index') throw Object.assign(new Error('index quota'), { name: 'QuotaExceededError' })
+      return nativeSetItem.call(this, key, value)
+    })
+    const durableUpdate = await quotaStore.updateWorldbookDurable(rollbackBook.id, { name: '不应留下的新名称' })
+    expect(durableUpdate).toMatchObject({ ok: false, reason: 'quota-exceeded', retryable: true, rollbackOk: true })
+    expect(JSON.parse(localStorage.getItem(`worldbook_${rollbackBook.id}`)).name).toBe('事务前世界书')
+    indexQuota.mockRestore()
     const quotaStorage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
       if (String(key).startsWith('worldbook_')) {
         throw Object.assign(new Error('storage quota'), { name: 'QuotaExceededError' })
       }
       return nativeSetItem.call(this, key, value)
+    })
+    await expect(quotaStore.createWorldbookDurable({ name: 'durable 失败结果' })).resolves.toMatchObject({
+      ok: false,
+      reason: 'quota-exceeded',
+      retryable: true,
+      rollbackOk: true
     })
     await expect(quotaStore.createWorldbook({ name: '不应写入的世界书' })).rejects.toMatchObject({
       name: 'QuotaExceededError',

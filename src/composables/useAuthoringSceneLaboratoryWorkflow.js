@@ -132,7 +132,7 @@ export function useAuthoringSceneLaboratoryWorkflow({
     const frozenTarget = resolveTarget(target || getDefaultTarget() || {})
     if (!frozenTarget.unitId && !isEmptyDocument()) return false
     rehearsal.clear()
-    prepareSurface()
+    if (prepareSurface() === false) return false
     const request = beginRequest()
     laboratory.open = true
     laboratory.phase = 'preparing-context'

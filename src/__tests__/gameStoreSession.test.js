@@ -5,7 +5,7 @@ import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 import { confirmMemoryCandidate, createMemoryCandidate, listMemoryCandidates } from '../services/memoryCandidates'
 import { listNarrativeAssets } from '../services/narrativeAssets'
-import { consumePlayableWorldHistoryIntent } from '../services/playableWorldEntry'
+import { consumePlayableWorldHistoryIntent } from '../services/migration/playableWorldEntry'
 import {
   runGenerationTask,
   runGenerationStreamTask,

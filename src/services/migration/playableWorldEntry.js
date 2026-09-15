@@ -1,4 +1,4 @@
-import { getItem, removeItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, removeItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
 
 function normalizeText(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()

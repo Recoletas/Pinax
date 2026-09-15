@@ -476,7 +476,6 @@
 import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
 import AdvisorPanel from '../components/AdvisorPanel.vue'
@@ -493,7 +492,7 @@ import {
 } from '../services/storyboardStore'
 import {
   generateProseCardsFromTopic
-} from '../services/proseGeneration'
+} from '../services/canvas/proseGeneration'
 import {
   buildEditingPackage,
   buildEditingPackageZip,
@@ -513,18 +512,20 @@ import {
   migrateNarrativeImageAssets
 } from '../services/media/narrativeImageAssetBridge'
 import {
-  migrateCanvasAttachedImages,
-  saveCanvasCards
+  migrateCanvasAttachedImages
 } from '../services/media/canvasImageAssetBridge'
+import {
+  readProseCanvasWorkspace,
+  saveProseCanvasWorkspace
+} from '../services/canvas/proseCanvasRepository.js'
 import {
   rectToLocalRect,
   getConnectorPoint,
   makeEdgePath,
   getCardWallPoint,
   clampNodePosition,
-  commitNodePosition,
-  clamp
-} from '../services/canvasGeometry'
+  commitNodePosition
+} from '../services/canvas/canvasGeometry'
 import { useCanvasViewport } from '../composables/useCanvasViewport'
 import { buildCanvasAgentContext } from '../services/agents/creativeGraphAgentContext'
 import {
@@ -538,7 +539,7 @@ import {
   moveOutlineItem,
   removeCardFromOutline as removeCardFromSceneOutline,
   upsertSceneRelationship
-} from '../services/sceneMaterialBoard'
+} from '../services/canvas/sceneMaterialBoard'
 
 const router = useRouter()
 const route = useRoute()
@@ -611,45 +612,6 @@ const cameraMovements = [
 const canvasAssets = ref([])
 const showCardDetailDialog = ref(false)
 
-// Storage keys
-const EDGES_KEY = STORAGE_KEYS.PROSE_EDGES_V1
-const OUTLINE_KEY = STORAGE_KEYS.PROSE_OUTLINE_V1
-const TIMELINE_KEY = STORAGE_KEYS.PROSE_TIMELINE_V1
-const PILES_KEY = STORAGE_KEYS.PROSE_PILES_V1
-const COMMITS_KEY = STORAGE_KEYS.PROSE_COMMITS_V1
-const BRANCHES_KEY = STORAGE_KEYS.PROSE_BRANCHES_V1
-
-// Emotion config
-const emotionLabels = {
-  joy: '喜悦',
-  sorrow: '忧伤',
-  calm: '平静',
-  anxiety: '焦虑',
-  anger: '愤怒',
-  surprise: '惊艳',
-  nostalgia: '怀旧',
-  hope: '希望'
-}
-
-const emotionColors = {
-  joy: { bg: 'var(--bg-secondary)', badge: '#ffb300', dot: '#ffc107' },
-  sorrow: { bg: 'var(--bg-secondary)', badge: '#5c6bc0', dot: '#7986cb' },
-  calm: { bg: 'var(--bg-secondary)', badge: '#66bb6a', dot: '#81c784' },
-  anxiety: { bg: 'var(--bg-secondary)', badge: '#ec407a', dot: '#f06292' },
-  anger: { bg: 'var(--bg-secondary)', badge: '#ef5350', dot: '#e57373' },
-  surprise: { bg: 'var(--bg-secondary)', badge: '#ff7043', dot: '#ff8a65' },
-  nostalgia: { bg: 'var(--bg-secondary)', badge: '#ab47bc', dot: '#ba68c8' },
-  hope: { bg: 'var(--bg-secondary)', badge: '#26c6da', dot: '#4dd0e1' }
-}
-
-const edgeColors = {
-  consciousness: 'var(--accent)',
-  contrast: '#ef5350',
-  elaboration: '#66bb6a',
-  parallel: '#ab47bc',
-  continuation: 'var(--accent)'
-}
-
 // Edge types
 const edgeTypes = [
   { value: 'continuation', label: '前后镜', desc: '镜头顺序推进' },
@@ -694,7 +656,6 @@ const showExportMenu = ref(false)
 const showStoryboardVideoPanel = ref(false)
 const storyboardVideoContext = ref(null)
 const cardWallRef = ref(null)
-const edgesSvgRef = ref(null)
 const apiSettings = ref(null)
 // V3 top strip: topic input element ref so the 0-state "输入主题" CTA
 // can move focus into the input without scrolling the canvas.
@@ -935,13 +896,8 @@ watch(canvasSurface, (surface) => {
 watch(hoveredPileId, () => updateLayout())
 watch(expandedPileId, () => updateLayout())
 
-// Per-card undo/redo history
-const cardHistory = ref({}) // cardId -> { past: [], future: [] }
-const inlineEditingCard = ref(null) // card being edited inline
-const inlineEditingContent = ref('')
-const inlineEditingEmotion = ref('calm')
-const inlineEditingPile = ref(null) // pile being edited inline
-const inlineEditingPileName = ref('')
+// Detail-editor undo belongs to the current canvas session and is not persisted.
+const cardHistory = ref({})
 
 // Continuation groups (sourceId -> Set of cardIds)
 const continuationGroups = ref({})
@@ -961,134 +917,31 @@ function computeEdgePositions() {
   viewport.scheduleEdgeFlush()
 }
 
-function getRelatedCards(cardId) {
-  const related = []
-  edges.value.forEach(e => {
-    if (e.sourceId === cardId) {
-      const target = cards.value.find(c => c.id === e.targetId)
-      if (target) related.push(target)
-    } else if (e.targetId === cardId) {
-      const source = cards.value.find(c => c.id === e.sourceId)
-      if (source) related.push(source)
-    }
-  })
-  return related
-}
-
 function pushHistory(cardId, content, emotion) {
-  if (!cardHistory.value[cardId]) {
-    cardHistory.value[cardId] = { past: [], future: [] }
-  }
+  if (!cardHistory.value[cardId]) cardHistory.value[cardId] = { past: [], future: [] }
   cardHistory.value[cardId].past.push({ content, emotion })
   cardHistory.value[cardId].future = []
-  if (cardHistory.value[cardId].past.length > 50) {
-    cardHistory.value[cardId].past.shift()
-  }
+  if (cardHistory.value[cardId].past.length > 50) cardHistory.value[cardId].past.shift()
 }
 
 function undoCard() {
   if (!selectedCard.value) return
-  const hid = cardHistory.value[selectedCard.value.id]
-  if (!hid || hid.past.length === 0) return
-  const current = { content: editingContent.value, emotion: editingEmotion.value }
-  hid.future.unshift(current)
-  const prev = hid.past.pop()
-  editingContent.value = prev.content
-  editingEmotion.value = prev.emotion
+  const history = cardHistory.value[selectedCard.value.id]
+  if (!history?.past.length) return
+  history.future.unshift({ content: editingContent.value, emotion: editingEmotion.value })
+  const previous = history.past.pop()
+  editingContent.value = previous.content
+  editingEmotion.value = previous.emotion
 }
 
 function redoCard() {
   if (!selectedCard.value) return
-  const hid = cardHistory.value[selectedCard.value.id]
-  if (!hid || hid.future.length === 0) return
-  const current = { content: editingContent.value, emotion: editingEmotion.value }
-  hid.past.push(current)
-  const next = hid.future.shift()
+  const history = cardHistory.value[selectedCard.value.id]
+  if (!history?.future.length) return
+  history.past.push({ content: editingContent.value, emotion: editingEmotion.value })
+  const next = history.future.shift()
   editingContent.value = next.content
   editingEmotion.value = next.emotion
-}
-
-function canUndo() {
-  if (!selectedCard.value) return false
-  const hid = cardHistory.value[selectedCard.value.id]
-  return hid && hid.past.length > 0
-}
-
-function canRedo() {
-  if (!selectedCard.value) return false
-  const hid = cardHistory.value[selectedCard.value.id]
-  return hid && hid.future.length > 0
-}
-
-function startInlineEdit(card, e) {
-  e.stopPropagation()
-  e.preventDefault()
-  inlineEditingCard.value = card
-  inlineEditingContent.value = card.content
-  inlineEditingEmotion.value = card.emotion
-  if (!cardHistory.value[card.id]) {
-    cardHistory.value[card.id] = { past: [], future: [] }
-  }
-}
-
-function saveInlineEdit() {
-  if (!inlineEditingCard.value) return
-  const card = cards.value.find(c => c.id === inlineEditingCard.value.id)
-  if (!card) return
-  const previousEmotion = card.emotion
-  pushHistory(inlineEditingCard.value.id, card.content, card.emotion)
-  card.content = inlineEditingContent.value
-  card.emotion = inlineEditingEmotion.value
-  card.wordCount = countWords(inlineEditingContent.value)
-  card.updatedAt = new Date().toISOString()
-  addTimeline('更新卡片')
-  saveData()
-
-  if (card.emotion !== previousEmotion) {
-    trackPreference('emotion_changed', card)
-  }
-
-  inlineEditingCard.value = null
-}
-
-function cancelInlineEdit() {
-  inlineEditingCard.value = null
-}
-
-function startPileInlineEdit(pile, e) {
-  e.stopPropagation()
-  e.preventDefault()
-  inlineEditingPile.value = pile
-  inlineEditingPileName.value = pile.name || ''
-}
-
-function savePileInlineEdit() {
-  if (!inlineEditingPile.value) return
-  const pile = piles.value.find(p => p.pileId === inlineEditingPile.value.pileId)
-  if (pile) {
-    pile.name = inlineEditingPileName.value
-    // update outline preview
-    outline.value.forEach(o => {
-      if (o.pileId === pile.pileId) {
-        o.preview = pile.name ? pile.name : `[牌堆 ${pile.cardIds.length}张]`
-      }
-    })
-    addTimeline('更新牌堆')
-    saveData()
-  }
-  inlineEditingPile.value = null
-}
-
-function cancelPileInlineEdit() {
-  inlineEditingPile.value = null
-}
-
-function handleInlineKeydown(e) {
-  if (e.key === 'Escape') {
-    cancelInlineEdit()
-  } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    saveInlineEdit()
-  }
 }
 
 onMounted(async () => {
@@ -1208,9 +1061,10 @@ function inferZone(cardId) {
 async function loadData() {
   try {
     const rawCards = await migrateCanvasAttachedImages()
-    edges.value = getItem(EDGES_KEY) || []
-    outline.value = getItem(OUTLINE_KEY) || []
-    timeline.value = getItem(TIMELINE_KEY) || []
+    const workspace = readProseCanvasWorkspace()
+    edges.value = workspace.edges
+    outline.value = workspace.outline
+    timeline.value = workspace.timeline
 
     cards.value = rawCards.map((card, idx) => ({
       ...card,
@@ -1221,9 +1075,9 @@ async function loadData() {
       extraFields: card.extraFields || null
     }))
 
-    piles.value = getItem(PILES_KEY) || []
-    proseCommits.value = getItem(COMMITS_KEY) || []
-    proseBranches.value = getItem(BRANCHES_KEY) || { current: 'main', list: [{ name: 'main', headCommitId: null }] }
+    piles.value = workspace.piles
+    proseCommits.value = workspace.commits
+    proseBranches.value = workspace.branches
   } catch {
     cards.value = []
     edges.value = []
@@ -1234,14 +1088,17 @@ async function loadData() {
 }
 
 function saveData() {
-  saveCanvasCards(cards.value)
-  setItem(EDGES_KEY, edges.value)
-  setItem(OUTLINE_KEY, outline.value)
-  setItem(TIMELINE_KEY, timeline.value)
-  setItem(PILES_KEY, piles.value)
-  setItem(COMMITS_KEY, proseCommits.value.slice(0, 50))
-  setItem(BRANCHES_KEY, proseBranches.value)
+  const result = saveProseCanvasWorkspace({
+    cards: cards.value,
+    edges: edges.value,
+    outline: outline.value,
+    timeline: timeline.value,
+    piles: piles.value,
+    commits: proseCommits.value,
+    branches: proseBranches.value
+  })
   nextTick(() => computeEdgePositions())
+  return result.ok
 }
 
 function addTimeline(action) {
@@ -1251,15 +1108,6 @@ function addTimeline(action) {
     at: new Date().toISOString()
   })
   saveData()
-}
-
-function formatTime(isoString) {
-  const d = new Date(isoString)
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mi = String(d.getMinutes()).padStart(2, '0')
-  return `${mm}-${dd} ${hh}:${mi}`
 }
 
 function countWords(text) {
@@ -1475,11 +1323,6 @@ function getShotTypeLabel(shotType) {
   return found ? found.label : shotType
 }
 
-function getTimelineDuration(item) {
-  const extra = getCardExtraFields(item.cardId)
-  return extra?.duration || 3
-}
-
 function getOutlineCard(item) {
   if (!item) return null
   if (item.cardId) return cards.value.find((card) => card.id === item.cardId) || null
@@ -1558,12 +1401,6 @@ function getCardTimelineSequence(cardId) {
 
 function isCardInTimeline(cardId) {
   return getCardTimelineSequence(cardId) > 0
-}
-
-function getCardExtraFields(cardId) {
-  if (!cardId) return null
-  const card = cards.value.find(c => c.id === cardId)
-  return card?.extraFields || null
 }
 
 function selectCard(card) {
@@ -1979,15 +1816,6 @@ function clearTimeline() {
   outline.value = []
   addTimeline('清空时间轴')
   saveData()
-}
-
-function removeCardFromOutline(cardIdOrPileId) {
-  const idx = outline.value.findIndex(o => o.cardId === cardIdOrPileId || o.pileId === cardIdOrPileId)
-  if (idx !== -1) {
-    outline.value.splice(idx, 1)
-    addTimeline('移出大纲')
-    saveData()
-  }
 }
 
 function jumpToCard(cardId) {
@@ -2510,13 +2338,6 @@ const timelineSummaryLabel = computed(() => {
   if (shotCount === 0) return '时间轴为空'
   return `${shotCount} 镜 / ${timelineTotalDuration.value}s`
 })
-const directorStatusLabel = computed(() => {
-  if (currentMode.value !== 'directing') return ''
-  const status = directorExportStatus.value
-  if (!status) return ''
-  return `${status.title} · ${status.detail}`
-})
-
 // R2-B: persistent COMPACT video control descriptor for the timeline
 // header. Mirrors the export-menu badge logic so the same "未/更/警/已"
 // language stays coherent. Does NOT duplicate the existing video button
@@ -2670,11 +2491,6 @@ function getDirectorStoryboardShots(result) {
   return result.shots || result.version?.shots || []
 }
 
-function getDirectorStoryboardValidation(result) {
-  if (!result) return null
-  return result.validation || result.version?.validation || null
-}
-
 function getDirectorExportContext() {
   const rawShots = buildDirectorRawShots()
   const sourceRefs = buildDirectorSourceRefs()
@@ -2823,13 +2639,6 @@ function exportToMarkdown() {
 function getCameraMovementLabel(movement) {
   const found = cameraMovements.find(m => m.value === movement)
   return found ? found.label : movement
-}
-
-function getEdgeClass(edgeType) {
-  if (currentMode.value === 'directing') {
-    return 'director-edge'
-  }
-  return ''
 }
 
 function getEdgeStyle(edge) {

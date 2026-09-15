@@ -1,8 +1,8 @@
 const HAN_RUN = /[\p{Script=Han}]+/gu
 const WORD_TOKEN = /[A-Za-z0-9_]{2,}/g
 
-import { findChapterMarks } from './chapterDetector'
-import { normalizeChapterList } from '../../shared/chapterContract'
+import { findChapterMarks } from '../chapterDetector'
+import { normalizeChapterList } from '../../../shared/chapterContract'
 
 function text(value) {
   return String(value ?? '').trim()

@@ -654,8 +654,10 @@ check('B-R3 重新生成边界：关闭 AI 严格 no-op，失败候选恢复旧�
   assert.equal(fresh.flags.route, 'old')
 
   const fs = await import('node:fs')
-  const source = fs.readFileSync(new URL('../src/stores/gameStore.js', import.meta.url), 'utf8')
-  assert.match(source, /productionOutcome !== 'success'[\s\S]{0,180}!this\._isRegenerating[\s\S]{0,100}commitCurrentSessionNow\(\)/)
+  const storeSource = fs.readFileSync(new URL('../src/stores/gameStore.js', import.meta.url), 'utf8')
+  const coordinatorSource = fs.readFileSync(new URL('../src/services/experience/experienceTurnCoordinator.js', import.meta.url), 'utf8')
+  assert.match(storeSource, /generateAIResponse\(options = \{\}\) \{\s+return runExperienceTurn\(this, options\)/)
+  assert.match(coordinatorSource, /productionOutcome !== 'success'[\s\S]{0,180}!store\._isRegenerating[\s\S]{0,100}store\.commitCurrentSessionNow\(\)/)
 })
 
 
