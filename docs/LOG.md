@@ -1,5 +1,11 @@
 # 开发日志
 
+- 2026-09-15：接受用户对 README 首版的验收否决并重做公共首页。首版把结构化说明误当成专业展示，且未在提交前人眼检查两张截图，导致空白编辑器验收图占据核心位置；现以原创品牌标记、居中大标题、五枚真实状态/技术徽章、短导航和“正文 + 可编辑候选 + 实际参考”截图建立首屏，欢迎页下沉，ASCII 流程换成 Mermaid 作者采用/放弃分叉。同步审计 GitHub Actions：test/build 成功，`authoring-smoke` 在首张产物前失败且旧脚本没有启动阶段诊断；本轮补 CI Chromium 参数、子进程尾日志和所有启动/旅程失败的 `failure.log`。修正版 run `34966982539` 由新增诊断确认根因：Ubuntu runner 的 Vite `localhost` 监听与脚本固定 `127.0.0.1` 探测不一致；现显式以 `--host 127.0.0.1` 启动。README 29/29 本地引用、`CI=true` smoke 和 `verify:full` 均通过；远端 Actions 以修复提交触发后的结果为准。
+
+- 2026-09-15：清理旧 Pinax 文件树并解除主线对旧仓库的结构依赖。共移除 14 棵旧 worktree；对 6 棵含未提交内容的树先创建 `archive/*-wip-20260915` 本地恢复引用。当前 `pinax-integration-20260906` 由 `--no-hardlinks` 副本接管，实体 `.git` 无 alternates，HEAD `90a3e8b`、归档 refs、GitHub origin 与 `git fsck --full` 均核验通过。旧 `text-game-framework` 送入系统回收站而非不可恢复擦除；独立移动仓库 `~/Pinax` 未修改。
+
+- 2026-09-15：重组仓库 README 的公共信息架构。首页现在先说明 Pinax 的作者价值与受控 AI 采用链，再给出能力、无 Key 快速启动、模型配置、数据/隐私边界、Public Alpha 成熟度、真实技术架构及贡献入口；移除容易过期的日期能力快照、分支交接和具体生产部署现场说明。此次只改文档，不改变产品行为、数据合同或 PolyForm Noncommercial 许可。README 本地链接 27/27 有效；`verify:full` exit 0（20/20 文件、200/200 用例、lint delta、Vite/VitePress build、diff）。
+
 - 2026-09-15：完成架构主体一次性收口。世界书所有正式 mutation 统一经过可回滚 durable owner；ProseEssay 七键画布保存进入原子 repository。Experience 完整 turn 编排迁入 `experienceTurnCoordinator`，store 只保留状态/action；Authoring 初载/换书和 inspector 打开顺序分别进入唯一 composable，Notes 插画 pointer/selection 会话迁出页面。低 fan-in canvas/experience/worldbook 服务归域，legacy playable intent 标为 migration，旧 prompt/memory receipt 标为 experimental，零消费者 markdownWrap 删除；根层 services 67→42，静态生产图 505 文件/1,318 边/0 循环。全量与故障矩阵结果见[回执](./agent-runs/architecture-closure-20260915.md)。
 
 - 2026-09-15：执行 durable mutation result 大切片。新增 `storage/durableMutationResult` 最小合同，统一书稿、写作快照/恢复/块历史/自动历史、素材和 Notes 的 `{ ok, reason, retryable }`。素材域所有生产写入调用已迁移到 durable API；legacy API 仅作兼容包装且不再伪造写盘成功。Notes 批量删除从逐项提交改为一次原子写盘；Authoring 选区收藏从“新建+补写来源”收为单次提交；编辑器不再复制 normalize 规则做写后读回。失败路径保留草稿/选择/画布引用，跨域部分成功明示降级。正常 UI 结构与视觉未变。定向组合 63/63；最终 `verify:full` exit 0（20/20 文件、200/200 用例、lint delta、Vite/VitePress build、diff）。

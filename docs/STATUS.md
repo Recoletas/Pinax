@@ -6,7 +6,6 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-15 架构完整收口 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | 主体实现与独立复验完成：故障矩阵 20/20、`verify:full` 20/20 文件 / 200/200 用例、双 build/diff 全绿；当前仅做提交与推送交接。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
@@ -87,6 +86,10 @@
 - **验证基线**：整合树继续执行 20 个测试文件 / 200 个用例硬预算，提交门禁为测试、Vite build、diff check 与 VitePress build 全绿。C1 最终页面 Gate 24/24：1440 当前场+世界书人物/地点+本次参考、1440 可编辑 Ghost+实际参考、390 sheet 三张证据已保留；1024 覆盖层、固定侧栏、selection/scrollTop、Ghost 内容轴、44px 逻辑触控与三视口零横向溢出均通过。C1 参考/重写旅程 23/23、故障矩阵 31/31。最终 `verify:full` 为 20/20 文件、200/200 用例、Vite/VitePress build 和 `git diff --check` 全绿。没有启动、停止或重启 5173。真实 provider 长推演、Windows 原生中文输入法耐久和用户视觉确认仍是外部门禁。
 
 ## Recently done
+
+- **2026-09-15 旧工作区安全清理**：移除 14 棵旧 Pinax worktree；其中 9 棵原本干净，另外 5 棵连同旧根工作区的未提交内容先冻结为 6 个 `archive/*-wip-20260915` stash-shaped 本地引用。`pinax-integration-20260906` 通过 `--no-hardlinks` 复制为独立 `.git` 仓库，Git 对象无 alternates、`fsck --full` 通过，远端仍为 `git@github.com:Recoletas/Pinax.git`。旧 `text-game-framework` 已送入系统回收站，`~/Pinax` 移动仓库未触碰。
+
+- **2026-09-15 README 公共入口重做（用户纠正后）**：首版虽改善信息层级，但被用户复验判定缺少 GitHub 项目首页应有的视觉识别，且误用空白稿面验收图。修正版增加原创 Pinax 标记、居中大标题、CI/状态/技术/许可徽章和短导航；主图换成真实“正文 + 可编辑候选 + 实际参考”工作台，欢迎页下沉到折叠上手区；纯文本流程改为 Mermaid 作者采用分叉。39 个引用中 29 个本地引用全部有效，`CI=true` 无密钥 smoke 通过，`verify:full` exit 0（20/20 文件、200/200 用例、lint delta、Vite/VitePress build、diff）。
 
 - 2026-09-05：09-05 UI/UX 计划 A2-1 Worldbook 代表片实施：设定详情"内容优先 + AI 规则折叠 + 对象属性紧凑行"——触发词/进入上下文归"用于AI的规则"折叠段（默认收起），类型/分组归紧凑对象属性行。模板重构不改数据权限。focused 30/30 + acceptance 19/19。代表图 `tmp/authoring-rollout/a2/worldbook-after-1440.png`。
 
