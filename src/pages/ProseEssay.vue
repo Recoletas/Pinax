@@ -501,7 +501,7 @@ import {
   toMarkdown
 } from '../services/shotExporter'
 import {
-  addNarrativeAsset,
+  addNarrativeAssetDurable,
   createNarrativeAssetSourceRef,
   listNarrativeAssets,
   mergeSourceRefs,
@@ -1397,7 +1397,7 @@ function createCardFromAsset(asset, emotion = 'calm', extraFields = null) {
 function createMaterialCard(content, emotion = 'calm', extraFields = null, sourceId = '') {
   const normalizedContent = String(content || '').trim()
   if (!normalizedContent) return null
-  const asset = addNarrativeAsset({
+  const persisted = addNarrativeAssetDurable({
     title: normalizedContent.slice(0, 24),
     content: normalizedContent,
     kind: 'storyboard-seed',
@@ -1407,6 +1407,11 @@ function createMaterialCard(content, emotion = 'calm', extraFields = null, sourc
       id: sourceId
     }
   })
+  if (!persisted.ok) {
+    generationError.value = '素材保存失败，未创建画布卡片'
+    return null
+  }
+  const asset = persisted.asset
   canvasAssets.value = [asset, ...canvasAssets.value.filter((item) => item.id !== asset.id)]
   return createCardFromAsset(asset, emotion, extraFields)
 }
@@ -1652,9 +1657,19 @@ async function sendSelectedCardToMaterials() {
       data: firstImage.data
     } : null
   }
-  const asset = firstImage?.data
-    ? await addNarrativeImageAsset(assetInput)
-    : addNarrativeAsset(assetInput)
+  let asset
+  try {
+    if (firstImage?.data) {
+      asset = await addNarrativeImageAsset(assetInput)
+    } else {
+      const persisted = addNarrativeAssetDurable(assetInput)
+      if (!persisted.ok) throw new Error(persisted.reason)
+      asset = persisted.asset
+    }
+  } catch {
+    generationError.value = '素材保存失败，画布节点保持不变'
+    return
+  }
 
   card.assetId = asset.id
   card.wordCount = countWords(asset.content)

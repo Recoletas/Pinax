@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
+  addNarrativeAssetDurable,
   buildNarrativeAssetContentHash,
   createNarrativeAssetSourceRef,
   createNarrativeAsset,
   deleteNarrativeAsset,
+  deleteNarrativeAssetsDurable,
   findDuplicateNarrativeAsset,
   getAssetKindExplanation,
   getAssetKindLabel,
@@ -15,12 +17,14 @@ import {
   listNarrativeAssets,
   mergeSourceRefs,
   mergeNarrativeAssets,
+  mergeNarrativeAssetsDurable,
   normalizeContentRef,
   normalizeImagePresentation,
   sourceRefsToEvidenceRefs,
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
-  updateNarrativeAsset
+  updateNarrativeAsset,
+  updateNarrativeAssetDurable
 } from '@/services/narrativeAssets'
 import { createChapterOutlineItemFromAsset } from '@/services/chapterOutline'
 import {
@@ -265,6 +269,11 @@ const first = addNarrativeAsset({
     expect(result?.asset.sourceRefs).toHaveLength(2)
     expect(listNarrativeAssets({ status: null })).toHaveLength(1)
     expect(mergeNarrativeAssets([first.id, 'missing'])).toBeNull()
+    expect(mergeNarrativeAssetsDurable([first.id, 'missing'])).toMatchObject({
+      ok: false,
+      reason: 'merge-invalid-selection',
+      retryable: false
+    })
 }
 {
 
@@ -354,6 +363,30 @@ const first = addNarrativeAsset({
     expect(listNarrativeAssets({ status: null }).map((asset) => asset.id)).toEqual([second.id])
     expect(deleteNarrativeAsset(first.id)).toBeNull()
     expect(deleteNarrativeAsset('')).toBeNull()
+
+    const beforeFailedBatch = localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+    const originalSetItem = Storage.prototype.setItem
+    Storage.prototype.setItem = () => { throw new DOMException('quota', 'QuotaExceededError') }
+    try {
+      expect(deleteNarrativeAssetsDurable([second.id])).toMatchObject({
+        ok: false,
+        reason: 'storage-write-failed',
+        retryable: true
+      })
+      expect(updateNarrativeAssetDurable(second.id, { title: '不应写入' })).toMatchObject({
+        ok: false,
+        reason: 'storage-write-failed',
+        retryable: true
+      })
+      expect(addNarrativeAssetDurable({ content: '不应创建' })).toMatchObject({
+        ok: false,
+        reason: 'storage-write-failed',
+        retryable: true
+      })
+    } finally {
+      Storage.prototype.setItem = originalSetItem
+    }
+    expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).toBe(beforeFailedBatch)
 }
 {
 

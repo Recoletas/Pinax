@@ -1,5 +1,6 @@
 import { STORAGE_KEYS, getItem, setItem } from '../../composables/useStorage.js'
 import { normalizeStoredWritingSnapshot, normalizeStoredWritingSnapshots } from './writingSnapshots.js'
+import { mutationFailure, mutationSuccess, storageWriteFailure } from '../storage/durableMutationResult.js'
 
 function readDrafts() {
   return normalizeStoredWritingSnapshots(getItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS))
@@ -15,20 +16,20 @@ export function listWritingRecoveryDrafts(chapterId = null) {
 
 export function saveWritingRecoveryDraft(snapshot) {
   const normalized = normalizeStoredWritingSnapshot(snapshot)
-  if (!normalized || normalized.reason !== 'crash-recovery') return { ok: false, reason: 'invalid-recovery-draft' }
+  if (!normalized || normalized.reason !== 'crash-recovery') return mutationFailure('invalid-recovery-draft')
   const drafts = readDrafts().filter((draft) => String(draft.chapterId) !== String(normalized.chapterId))
   if (!setItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS, [normalized, ...drafts])) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'writing-recovery-drafts' })
   }
-  return { ok: true, snapshot: normalized }
+  return mutationSuccess({ snapshot: normalized })
 }
 
 export function clearWritingRecoveryDraft(chapterId) {
   const id = String(chapterId || '')
-  if (!id) return { ok: false, reason: 'missing-chapter-id' }
+  if (!id) return mutationFailure('missing-chapter-id')
   const drafts = readDrafts().filter((draft) => String(draft.chapterId) !== id)
   if (!setItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS, drafts)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'writing-recovery-drafts' })
   }
-  return { ok: true }
+  return mutationSuccess()
 }

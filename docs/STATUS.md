@@ -6,10 +6,12 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-15 架构收尾第一轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | B12 与 Authoring 批注/改写完整工作区已完成；当前执行全量门禁并推送。下一片进入 durable mutation result，按书稿/世界书/素材/Notes 分域推进。 |
+| Codex / 2026-09-15 架构收尾第二轮 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | durable mutation result 已完成书稿/写作历史/素材/Notes 域并通过组合验证；当前收口文档、提交并推送。下一片是世界书异常型写入，随后进入 Experience turn coordinator。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
+
+- **2026-09-15 durable mutation result 已完成书稿与素材大切片**：新增最小共享结果合同，书稿、快照、恢复稿、块历史、自动历史与素材写入统一返回 `{ ok, reason, retryable }`。Authoring、Experience、Notes、ProseEssay、gameStore 及素材媒体桥的生产写入已全部切换至 durable API；Notes 批量删除改为单次原子写盘，正文选区收为素材由两次写盘收为一次。失败时不再清草稿、不更改选择、不清画布引用；跨域部分成功会显式说明。定向组合 63/63，文档后 `verify:full` exit 0：20/20 文件、200/200 用例、lint delta、双 build/diff 全绿。未改样式、布局或断点。
 
 - **2026-09-15 Authoring 批注/改写完整工作区已迁出**：`useAuthoringRewriteWorkflow` 负责请求/候选/stale/采用，`useAuthoringAnnotationSession` 负责 CRUD/编辑态，`useAuthoringAnnotationSelection` 冻结跨节点选区与稳定身份，`useAuthoringAnnotationLayout` 负责 lane 几何、observer、resize 和滚动恢复；跨书、章、正文/构思切换统一清除旧 composer 与候选。`Authoring.vue` 两片合计从 12,822 行降至 12,299 行。迁移实页复验先抓到并修正 inspector owner 的 TDZ；随后 J3 正文批注与 J12 构思批注隔离均 clean，F2 工作台 Gate 33/33。旧旅程的新建书稿/自动首章入口同步到当前产品语义。
 

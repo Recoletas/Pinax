@@ -1,7 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  listNarrativeAssets,
-  updateNarrativeAsset,
   updateNarrativeAssetDurable
 } from '../services/narrativeAssets'
 import {
@@ -192,10 +190,8 @@ export function useNotesAssetEditor({
    * 返回 { ok, assetId, reason? }；持久化失败时 ok=false，调用方（catalog/页面）
    * 必须阻止切换与破坏性动作——未保存输入保留在编辑器真源 markdownContent。
    *
-   * 顺序（O 验收 P0 修正）：先构造 patch 并持久化，成功后才推进 catalog 投影与插画版式；
-   * 投影不再是“写成功前的已保存真源”。useStorage.setItem 会吞掉配额异常只返回 false，
-   * 且 updateNarrativeAsset 不检查该返回值，因此以“写后读回”作为持久化判据
-   * （narrativeAssets.normalizeText 为 trim-only 且文件冻结，这里本地复刻比较基准）。
+   * 顺序：先通过 narrativeAssets 结果型边界持久化，成功后才推进 catalog 投影与插画版式；
+   * 页面不再复刻 normalize 规则或通过“写后读回”猜测保存结果。
    */
   function saveCurrentChapter() {
     const chapter = getSelectedAsset()
@@ -203,25 +199,14 @@ export function useNotesAssetEditor({
 
     syncFromCurrentEditor()
     const patch = { title: currentChapterTitle.value, content: markdownContent.value }
-    try {
-      updateNarrativeAsset(chapter.id, patch)
-    } catch (error) {
-      console.warn('[Notes] 保存失败（输入保留在编辑器）:', error)
+    const persisted = updateNarrativeAssetDurable(chapter.id, patch)
+    if (!persisted.ok) {
       saveStatus.value = 'failed'
-      return { ok: false, reason: 'storage-write-failed', assetId: chapter.id }
+      return { ...persisted, assetId: chapter.id }
     }
 
-    const persisted = listNarrativeAssets({ status: null }).find((asset) => asset.id === chapter.id)
-    const persistedOk = Boolean(persisted)
-      && persisted.title === String(patch.title ?? '').trim()
-      && persisted.content === String(patch.content ?? '').trim()
-    if (!persistedOk) {
-      saveStatus.value = 'failed'
-      return { ok: false, reason: 'storage-write-failed', assetId: chapter.id }
-    }
-
-    chapter.title = patch.title
-    chapter.content = patch.content
+    chapter.title = persisted.asset.title
+    chapter.content = persisted.asset.content
     try {
       flushVisualPresentation(chapter)
     } catch (error) {

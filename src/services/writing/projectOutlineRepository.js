@@ -2,7 +2,8 @@
 // 大纲只保存简短 intent、层级顺序、少量叙事关系、document/unit/entity refs、
 // 章节映射与 adopted/rejected。不得复制探索全文、正文全文或世界书条目。
 // 真源：书级 outlineNodes[] / outlineEdges[]。节点允许零章节映射。
-import { findWritingBook, loadWritingBooks, saveWritingBooks } from './writingBooksRepository.js'
+import { findWritingBook, loadWritingBooks, saveWritingBooksDurable } from './writingBooksRepository.js'
+import { mutationFailure, mutationSuccess } from '../storage/durableMutationResult.js'
 
 export const OUTLINE_SCHEMA_VERSION = 1
 
@@ -134,12 +135,12 @@ function readBook(bookId) {
 function writeBook(bookId, mutator) {
   const books = loadWritingBooks()
   const book = findWritingBook(books, bookId)
-  if (!book) return { ok: false, reason: 'book-missing' }
+  if (!book) return mutationFailure('book-missing')
   const rejected = mutator(book)
-  if (rejected === false) return { ok: false, reason: 'mutator-rejected' }
+  if (rejected === false) return mutationFailure('mutator-rejected')
   book.updatedAt = new Date().toISOString()
-  if (!saveWritingBooks(books)) return { ok: false, reason: 'persist' }
-  return { ok: true }
+  const persisted = saveWritingBooksDurable(books)
+  return persisted.ok ? mutationSuccess({ revision: persisted.revision }) : persisted
 }
 
 export function listOutlineNodes(bookId) {
@@ -167,28 +168,30 @@ export function upsertOutlineNode(bookId, input) {
       : [...nodes, node]
     book.outlineNodes = next
   })
-  return result.ok ? { ok: true, node: getOutlineNode(bookId, node.id), created: !existing } : result
+  return result.ok
+    ? mutationSuccess({ node: getOutlineNode(bookId, node.id), created: !existing, revision: result.revision })
+    : result
 }
 
 // 边校验：拒绝悬空端点与自环；端点必须同项目。
 export function addOutlineEdge(bookId, input) {
   const fromId = text(input?.fromNodeId || input?.from)
   const toId = text(input?.toNodeId || input?.to)
-  if (fromId && fromId === toId) return { ok: false, reason: 'self-loop' }
+  if (fromId && fromId === toId) return mutationFailure('self-loop')
   const edge = normalizeOutlineEdge(input)
-  if (!edge) return { ok: false, reason: 'invalid-edge' }
+  if (!edge) return mutationFailure('invalid-edge')
   const nodes = listOutlineNodes(bookId)
   const ids = new Set(nodes.map((node) => node.id))
   if (!ids.has(edge.fromNodeId) || !ids.has(edge.toNodeId)) {
-    return { ok: false, reason: 'dangling-endpoint' }
+    return mutationFailure('dangling-endpoint')
   }
-  if (edge.fromNodeId === edge.toNodeId) return { ok: false, reason: 'self-loop' }
+  if (edge.fromNodeId === edge.toNodeId) return mutationFailure('self-loop')
   const edges = listOutlineEdges(bookId)
-  if (edges.some((item) => item.id === edge.id)) return { ok: true, edge, deduped: true }
+  if (edges.some((item) => item.id === edge.id)) return mutationSuccess({ edge, deduped: true })
   const result = writeBook(bookId, (book) => {
     book.outlineEdges = [...edges, edge]
   })
-  return result.ok ? { ok: true, edge } : result
+  return result.ok ? mutationSuccess({ edge, revision: result.revision }) : result
 }
 
 export function removeOutlineEdge(bookId, edgeId) {

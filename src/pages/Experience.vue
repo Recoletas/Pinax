@@ -535,10 +535,10 @@ import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
 import { getTextItem, getItem, setTextItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
-import { loadWritingBooks, saveWritingBooks } from '../services/writing/writingBooksRepository'
+import { loadWritingBooks, saveWritingBooksDurable } from '../services/writing/writingBooksRepository'
 import { useTipState } from '../composables/useTipState'
 import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
-import { ASSET_KINDS, addNarrativeAsset, getAssetKindLabel } from '../services/narrativeAssets'
+import { ASSET_KINDS, addNarrativeAssetDurable, getAssetKindLabel } from '../services/narrativeAssets'
 import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
@@ -631,7 +631,7 @@ function confirmWritingCollect() {
     writingCollectStatus.value = result.reason === 'already-imported' ? '这段体验已经收进稿件。' : '写入失败，原稿件未改变'
     return
   }
-  if (!saveWritingBooks(result.books)) {
+  if (!saveWritingBooksDurable(result.books).ok) {
     writingCollectStatus.value = '写入失败，原稿件未改变'
     return
   }
@@ -1861,7 +1861,7 @@ function saveQuickNoteAsAsset() {
     return false
   }
 
-  const asset = addNarrativeAsset({
+  const persisted = addNarrativeAssetDurable({
     content,
     kind: narrativeAssetKind.value,
     projectId: gameStore.worldId || null,
@@ -1873,6 +1873,11 @@ function saveQuickNoteAsAsset() {
     sourceRefs: gameStore.getCurrentCreativeSourceRefs([])
   })
 
+  if (!persisted.ok) {
+    quickNoteStatus.value = '素材保存失败，草稿已保留'
+    return false
+  }
+  const asset = persisted.asset
   clearQuickNoteDraft()
   quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
   return true
@@ -1886,7 +1891,7 @@ function saveSelectedDialogueSegmentsAsAsset() {
   }
 
   const content = refs.map(({ message }) => String(message.content || '').trim()).join('\n\n')
-  const asset = addNarrativeAsset({
+  const persisted = addNarrativeAssetDurable({
     content,
     kind: narrativeAssetKind.value,
     projectId: gameStore.worldId || null,
@@ -1900,6 +1905,11 @@ function saveSelectedDialogueSegmentsAsAsset() {
     )
   })
 
+  if (!persisted.ok) {
+    quickNoteStatus.value = '素材保存失败，已选对话保持不变'
+    return false
+  }
+  const asset = persisted.asset
   quickNoteImportOpen.value = false
   gameStore.setQuickNoteImportMode(false)
   quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`

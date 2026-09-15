@@ -3,6 +3,11 @@
 // 首期持久化真源仍是 localStorage 的 writing_books，repository 为后续桌面 adapter 留边界。
 // 旧记录兼容：title 缺失时回退 legacy `name`（只读兼容，不删除原字段）。
 import { STORAGE_KEYS, getItem, setItem } from '../../composables/useStorage'
+import {
+  mutationFailure,
+  mutationSuccess,
+  storageWriteFailure
+} from '../storage/durableMutationResult'
 
 let revision = 0
 const revisionListeners = new Set()
@@ -31,20 +36,25 @@ export function loadWritingBooks() {
   return stored.map(normalizeWritingBook).filter(Boolean)
 }
 
-export function saveWritingBooks(books) {
-  if (!Array.isArray(books)) return false
+export function saveWritingBooksDurable(books) {
+  if (!Array.isArray(books)) return mutationFailure('invalid-books')
   const ok = setItem(STORAGE_KEYS.WRITING_BOOKS, books)
-  if (ok) {
-    const currentRevision = nextRevision()
-    for (const listener of revisionListeners) {
-      try {
-        listener({ revision: currentRevision, books })
-      } catch {
-        // 订阅方异常不阻断持久化。
-      }
+  if (!ok) return storageWriteFailure({ resource: 'writing-books' })
+
+  const currentRevision = nextRevision()
+  for (const listener of revisionListeners) {
+    try {
+      listener({ revision: currentRevision, books })
+    } catch {
+      // 订阅方异常不阻断持久化。
     }
   }
-  return ok
+  return mutationSuccess({ books, revision: currentRevision })
+}
+
+// 兼容旧页面：新代码应使用结果型 API，旧布尔调用不再自己写盘。
+export function saveWritingBooks(books) {
+  return saveWritingBooksDurable(books).ok
 }
 
 export function findWritingBook(books, bookId) {
@@ -67,33 +77,44 @@ export function createWritingBookRecord({ title, description = '', worldbookId =
 }
 
 // 仓储级读改写：外部 surface（标签解析器、Experience 写回）不持有页面内存数组时使用。
-// 页面内（Authoring）继续持有同一数组就地修改后 saveWritingBooks，避免双写竞争。
+// 页面内（Authoring）继续持有同一数组就地修改后交给结果型写盘边界，避免双写竞争。
 export function updateWritingBook(bookId, mutator) {
   const books = loadWritingBooks()
   const book = findWritingBook(books, bookId)
-  if (!book) return { ok: false, reason: 'not-found' }
-  const patch = mutator(book)
+  if (!book) return mutationFailure('not-found')
+  if (typeof mutator !== 'function') return mutationFailure('invalid-mutator')
+  let patch
+  try {
+    patch = mutator(book)
+  } catch {
+    return mutationFailure('mutator-failed')
+  }
+  if (patch === false) return mutationFailure('mutator-rejected')
   if (patch && typeof patch === 'object' && patch !== book) {
     Object.assign(book, patch)
   }
   book.updatedAt = new Date().toISOString()
-  if (!saveWritingBooks(books)) return { ok: false, reason: 'persist' }
-  return { ok: true, book }
+  const persisted = saveWritingBooksDurable(books)
+  return persisted.ok
+    ? mutationSuccess({ book, revision: persisted.revision })
+    : persisted
 }
 
 export function renameWritingBook(bookId, title) {
   const nextTitle = String(title || '').trim()
-  if (!nextTitle) return { ok: false, reason: 'empty-title' }
+  if (!nextTitle) return mutationFailure('empty-title')
   return updateWritingBook(bookId, () => ({ title: nextTitle }))
 }
 
 export function deleteWritingBook(bookId) {
   const books = loadWritingBooks()
   const removed = findWritingBook(books, bookId)
-  if (!removed) return { ok: false, reason: 'not-found' }
+  if (!removed) return mutationFailure('not-found')
   const remaining = books.filter((book) => String(book.id) !== String(bookId))
-  if (!saveWritingBooks(remaining)) return { ok: false, reason: 'persist' }
-  return { ok: true, book: removed }
+  const persisted = saveWritingBooksDurable(remaining)
+  return persisted.ok
+    ? mutationSuccess({ book: removed, revision: persisted.revision })
+    : persisted
 }
 
 export function subscribeWritingBooks(listener) {

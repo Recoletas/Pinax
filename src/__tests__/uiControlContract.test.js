@@ -294,7 +294,7 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain('@pointerdown="freezeSearchSource"')
     expect(authoringSearchComposable).toContain('createAuthoringReplacePlan')
     expect(authoringSearchComposable).toContain('applyAuthoringReplacePlan')
-    expect(source).toContain('saveWritingBooks(nextBooks)')
+    expect(source).toContain('saveWritingBooksDurable(nextBooks).ok')
     expect(source).not.toContain('showFindReplace')
     expect(source).toContain(':checked="writingHistoryPreferences.enabled"')
     expect(source).toContain('planWritingMilestoneSnapshot')

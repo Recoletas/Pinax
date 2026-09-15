@@ -1738,7 +1738,7 @@ import { listMemoryCandidates, updateMemoryCandidate, confirmMemoryCandidate, re
 import { createProjectMemoryReader } from '../services/project/projectMemoryReader'
 import {
   loadWritingBooks,
-  saveWritingBooks,
+  saveWritingBooksDurable,
   createWritingBookRecord
 } from '../services/writing/writingBooksRepository'
 import {
@@ -1751,8 +1751,7 @@ import {
   mergeSourceRefs,
   normalizeContentRef,
   sourceRefsToEvidenceRefs,
-  setNarrativeAssetsStatus,
-  setNarrativeAssetStatus
+  setNarrativeAssetsStatusDurable
 } from '../services/narrativeAssets'
 import {
   buildWorldbookEntryFromAsset,
@@ -6723,7 +6722,7 @@ async function adoptAllInterventionGhosts() {
   const nextBooks = latestBooks.map((book) => (
     String(book.id) === String(prepared.receipt.projectId) ? prepared.nextBook : book
   ))
-  if (!saveWritingBooks(nextBooks)) {
+  if (!saveWritingBooksDurable(nextBooks).ok) {
     interventionComposer.adoptingGhostId = ''
     interventionComposer.persistError = '保存失败，批量采用没有写入正文；草稿仍已保留。'
     return false
@@ -6778,7 +6777,7 @@ async function undoInterventionUmbrella() {
   const nextBooks = latestBooks.map((book) => (
     String(book.id) === String(receipt.projectId) ? undo.nextBook : book
   ))
-  if (!saveWritingBooks(nextBooks)) {
+  if (!saveWritingBooksDurable(nextBooks).ok) {
     authoringTask.notify('撤销保存失败，正文仍保持采用后的状态')
     return false
   }
@@ -8309,6 +8308,17 @@ function getSelectedInboxAssets() {
   return inboxAssets.value.filter((asset) => picked.has(asset.id))
 }
 
+// 素材状态是独立持久域：只有真正写盘后才刷新收件箱。
+// 若正文/大纲/世界书事务已先完成，失败文案明示部分成功，不伪装原子跨域写入。
+function persistInboxAssetStatus(assetIds, status, completedAction = '') {
+  const result = setNarrativeAssetsStatusDurable(assetIds, status)
+  if (result.ok) return true
+  quickNoteStatus.value = completedAction
+    ? `${completedAction}，但素材状态未保存，请重试`
+    : '素材状态未保存，请重试'
+  return false
+}
+
 function getSelectedWorldbookDraftAssets() {
   return getSelectedInboxAssets().filter((asset) => canConvertAssetToWorldbookEntry(asset))
 }
@@ -8526,7 +8536,7 @@ function addAssetToChapterOutline(asset) {
   const result = addInboxAssetsToChapterOutline([asset])
   if (!result?.addedItems.length) return
 
-  setNarrativeAssetStatus(asset.id, 'accepted')
+  if (!persistInboxAssetStatus([asset.id], 'accepted', '章节纲要已更新')) return
   refreshAssetInbox()
   quickNoteStatus.value = `已加入章节纲要：${result.addedItems[0].title}，会参与续写和章节分镜`
 }
@@ -8542,7 +8552,7 @@ function addSelectedAssetsToChapterOutline() {
   if (!result?.addedItems.length) return
 
   const acceptedIds = result.addedItems.map((item) => item.assetId).filter(Boolean)
-  setNarrativeAssetsStatus(acceptedIds, 'accepted')
+  if (!persistInboxAssetStatus(acceptedIds, 'accepted', '章节纲要已更新')) return
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已加入 ${result.addedItems.length} 条章节纲要，会参与续写和章节分镜`
@@ -8610,7 +8620,7 @@ function insertAssetsIntoChapter(assets = []) {
 
 function insertAssetIntoChapter(asset) {
   if (!insertAssetsIntoChapter([asset])) return
-  setNarrativeAssetStatus(asset.id, 'accepted')
+  if (!persistInboxAssetStatus([asset.id], 'accepted', '正文已插入')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已插入章节'
 }
@@ -8627,7 +8637,7 @@ function saveAssetAsMaterial(asset) {
       ...createWritingNoteFromAsset(asset, { fallbackLabel: '素材' }),
       wordCount: quickNoteWordCount(content)
     })
-    setNarrativeAssetStatus(asset.id, 'accepted')
+    if (!persistInboxAssetStatus([asset.id], 'accepted', '写作素材已创建')) return false
     refreshAssetInbox()
     quickNoteStatus.value = `已转成素材：${note.title}`
     return true
@@ -8668,7 +8678,7 @@ async function acceptWorldbookDraftAsset(asset) {
 
     const entry = buildWorldbookEntryFromAsset(asset)
     await worldStore.addEntry(worldbook.id, entry)
-    setNarrativeAssetStatus(asset.id, 'accepted')
+    if (!persistInboxAssetStatus([asset.id], 'accepted', '世界书条目已写入')) return
     refreshAssetInbox()
     quickNoteStatus.value = formatWorldbookStatus(`写入成功：${entry.name}`)
   } catch (error) {
@@ -8697,7 +8707,7 @@ async function acceptSelectedWorldbookDraftAssets() {
       acceptedIds.push(asset.id)
     }
 
-    setNarrativeAssetsStatus(acceptedIds, 'accepted')
+    if (!persistInboxAssetStatus(acceptedIds, 'accepted', '世界书条目已批量写入')) return
     selectedInboxAssetIds.value = selectedInboxAssetIds.value.filter((id) => !acceptedIds.includes(id))
     refreshAssetInbox()
     quickNoteStatus.value = formatWorldbookStatus(`批量写入成功：${acceptedIds.length} 条条目。`)
@@ -8713,7 +8723,7 @@ function insertSelectedAssetsIntoChapter() {
     return
   }
   if (!insertAssetsIntoChapter(selectedAssets)) return
-  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'accepted')
+  if (!persistInboxAssetStatus(selectedAssets.map((asset) => asset.id), 'accepted', '正文已插入')) return
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已插入 ${selectedAssets.length} 条素材`
@@ -8841,7 +8851,7 @@ function exportChapterStoryboardDraft() {
 }
 
 function archiveAsset(asset) {
-  setNarrativeAssetStatus(asset.id, 'archived')
+  if (!persistInboxAssetStatus([asset.id], 'archived')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已归档素材'
 }
@@ -8852,14 +8862,14 @@ function archiveSelectedAssets() {
     quickNoteStatus.value = '先选择素材'
     return
   }
-  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'archived')
+  if (!persistInboxAssetStatus(selectedAssets.map((asset) => asset.id), 'archived')) return
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已归档 ${selectedAssets.length} 条素材`
 }
 
 function rejectAsset(asset) {
-  setNarrativeAssetStatus(asset.id, 'rejected')
+  if (!persistInboxAssetStatus([asset.id], 'rejected')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已拒绝素材'
 }
@@ -8870,7 +8880,7 @@ function rejectSelectedAssets() {
     quickNoteStatus.value = '先选择素材'
     return
   }
-  setNarrativeAssetsStatus(selectedAssets.map((asset) => asset.id), 'rejected')
+  if (!persistInboxAssetStatus(selectedAssets.map((asset) => asset.id), 'rejected')) return
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已拒绝 ${selectedAssets.length} 条素材`
@@ -9297,9 +9307,9 @@ function saveBooks({ preserveOutlineBookId = '' } = {}) {
       pageBook.outlineEdges = Array.isArray(freshBook.outlineEdges) ? freshBook.outlineEdges : []
     }
   }
-  const ok = saveWritingBooks(books.value)
-  if (!ok) saveStatus.value = 'error'
-  return ok
+  const result = saveWritingBooksDurable(books.value)
+  if (!result.ok) saveStatus.value = 'error'
+  return result.ok
 }
 
 function ensureInitialBookSelection() {
@@ -12128,7 +12138,7 @@ function createAuthoringSearchWorkflow() {
     persistEditorsBeforeReplace: (setError) => persistSearchEditorsBeforeReplace(setError),
     createProtectionSnapshots: (plan, book, index) => createSearchProtectionSnapshots(plan, book, index),
     loadBooks: () => loadWritingBooks(),
-    saveBooks: (nextBooks) => saveWritingBooks(nextBooks),
+    saveBooks: (nextBooks) => saveWritingBooksDurable(nextBooks).ok,
     afterReplace: (result) => afterSearchReplace(result)
   })
 }

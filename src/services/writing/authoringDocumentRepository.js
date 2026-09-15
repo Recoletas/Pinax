@@ -1,4 +1,5 @@
-import { loadWritingBooks, saveWritingBooks } from './writingBooksRepository'
+import { loadWritingBooks, saveWritingBooksDurable } from './writingBooksRepository'
+import { mutationFailure, mutationSuccess } from '../storage/durableMutationResult'
 
 // Authoring 文档仓库（文本工作台 v3 Phase 1）：
 // 同一本书的两类文档角色共用 writingDocument schema 与编辑器，
@@ -22,11 +23,11 @@ function readBook(bookId) {
 function mutateBook(bookId, mutator) {
   const books = loadWritingBooks()
   const book = findBook(books, bookId)
-  if (!book) return { ok: false, reason: 'book-missing' }
+  if (!book) return mutationFailure('book-missing')
   const result = mutator(book)
-  if (result === false) return { ok: false, reason: 'mutator-rejected' }
-  if (!saveWritingBooks(books)) return { ok: false, reason: 'persist' }
-  return { ok: true, book }
+  if (result === false) return mutationFailure('mutator-rejected')
+  const persisted = saveWritingBooksDurable(books)
+  return persisted.ok ? mutationSuccess({ book, revision: persisted.revision }) : persisted
 }
 
 function normalizeExplorationDocument(raw) {
@@ -94,13 +95,13 @@ export function createExplorationDocument(bookId, { title = '未命名探索', c
     createdAt: now,
     updatedAt: now
   })
-  if (!doc) return { ok: false, reason: 'invalid-document' }
+  if (!doc) return mutationFailure('invalid-document')
   const result = mutateBook(bookId, (book) => {
     if (!Array.isArray(book.explorationDocuments)) book.explorationDocuments = []
     book.explorationDocuments.push(doc)
     book.updatedAt = now
   })
-  return result.ok ? { ok: true, document: doc } : result
+  return result.ok ? mutationSuccess({ document: doc, revision: result.revision }) : result
 }
 
 export function saveExplorationDocument(bookId, documentId, { title = null, content = null, status = null, outlineNodeIds = null, annotations = null } = {}) {
@@ -117,7 +118,9 @@ export function saveExplorationDocument(bookId, documentId, { title = null, cont
     doc.updatedAt = new Date().toISOString()
     book.updatedAt = doc.updatedAt
   })
-  return result.ok ? { ok: true, document: getExplorationDocument(bookId, documentId) } : result
+  return result.ok
+    ? mutationSuccess({ document: getExplorationDocument(bookId, documentId), revision: result.revision })
+    : result
 }
 
 // 删除探索文档绝不触碰正文：只从 explorationDocuments 移除，
@@ -130,7 +133,7 @@ export function deleteExplorationDocument(bookId, documentId) {
     book.explorationDocuments = next
     book.updatedAt = new Date().toISOString()
   })
-  return result.ok ? { ok: true } : result
+  return result.ok ? mutationSuccess({ revision: result.revision }) : result
 }
 
 // 位置与 revision 解析（Phase 1）：给定文档与稳定 target，

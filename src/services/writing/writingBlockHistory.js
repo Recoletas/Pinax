@@ -6,6 +6,7 @@ import {
   normalizeWritingBlockHistory,
   normalizeWritingBlockHistoryEntry
 } from '../../../shared/writingBlockHistoryContract.js'
+import { mutationFailure, mutationSuccess, storageWriteFailure } from '../storage/durableMutationResult.js'
 
 function readHistory() {
   return normalizeWritingBlockHistory(getItem(STORAGE_KEYS.WRITING_BLOCK_HISTORY))
@@ -18,12 +19,12 @@ function writeHistory(values) {
     candidate.pop()
   }
   if (getWritingBlockHistoryStorageSize(candidate) > MAX_WRITING_BLOCK_HISTORY_STORAGE_CHARS) {
-    return { ok: false, reason: 'storage-budget-exceeded' }
+    return mutationFailure('storage-budget-exceeded')
   }
   if (!setItem(STORAGE_KEYS.WRITING_BLOCK_HISTORY, candidate)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'writing-block-history' })
   }
-  return { ok: true, entries: candidate }
+  return mutationSuccess({ entries: candidate })
 }
 
 export function listWritingBlockHistory(chapterId) {
@@ -34,13 +35,13 @@ export function appendWritingBlockHistory(entries) {
   const incoming = (Array.isArray(entries) ? entries : [])
     .map((entry) => normalizeWritingBlockHistoryEntry(entry))
     .filter(Boolean)
-  if (!incoming.length) return { ok: true, entries: readHistory() }
+  if (!incoming.length) return mutationSuccess({ entries: readHistory() })
   return writeHistory([...incoming, ...readHistory()])
 }
 
 export function deleteWritingBlockHistoryForChapter(chapterId) {
   const id = String(chapterId || '')
-  if (!id) return { ok: false, reason: 'missing-chapter-id' }
+  if (!id) return mutationFailure('missing-chapter-id')
   return writeHistory(readHistory().filter((entry) => entry.chapterId !== id))
 }
 

@@ -1,4 +1,9 @@
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import {
+  mutationFailure,
+  mutationSuccess,
+  storageWriteFailure
+} from './storage/durableMutationResult'
 
 export const ASSET_SCHEMA_VERSION = 1
 
@@ -113,36 +118,26 @@ export function createNarrativeAsset(input = {}) {
 }
 
 export function addNarrativeAsset(input = {}, { dedupe = false } = {}) {
-  const asset = createNarrativeAsset(input)
-  if (!asset.content) {
-    throw new Error('素材内容不能为空')
-  }
-
-  const current = listNarrativeAssets({ status: null })
-  if (dedupe) {
-    const duplicate = findDuplicateNarrativeAsset(asset, current)
-    if (duplicate) return duplicate
-  }
-  const next = [asset, ...current]
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
-  return asset
+  const result = addNarrativeAssetDurable(input, { dedupe })
+  if (result.ok) return result.asset
+  throw new Error(result.reason === 'empty-content' ? '素材内容不能为空' : '素材保存失败')
 }
 
 /** C-R3：结果型新建；存储写入失败返回 { ok:false }，不产生未持久化的“已创建素材”。 */
 export function addNarrativeAssetDurable(input = {}, { dedupe = false } = {}) {
   const asset = createNarrativeAsset(input)
   if (!asset.content) {
-    return { ok: false, reason: 'empty-content' }
+    return mutationFailure('empty-content')
   }
   const current = listNarrativeAssets({ status: null })
   if (dedupe) {
     const duplicate = findDuplicateNarrativeAsset(asset, current)
-    if (duplicate) return { ok: true, asset: duplicate, deduped: true }
+    if (duplicate) return mutationSuccess({ asset: duplicate, deduped: true })
   }
   if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, [asset, ...current])) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'narrative-assets' })
   }
-  return { ok: true, asset }
+  return mutationSuccess({ asset })
 }
 
 export function normalizeContentRef(ref = {}, fallbackProjectId = null) {
@@ -269,11 +264,8 @@ function buildNarrativeAssetUpdate(current, assetId, patch = {}) {
 }
 
 export function updateNarrativeAsset(assetId, patch = {}) {
-  const current = listNarrativeAssets({ status: null })
-  const { next, updated } = buildNarrativeAssetUpdate(current, assetId, patch)
-  if (!updated) return null
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
-  return updated
+  const result = updateNarrativeAssetDurable(assetId, patch)
+  return result.ok ? result.asset : null
 }
 
 /**
@@ -283,11 +275,11 @@ export function updateNarrativeAsset(assetId, patch = {}) {
 export function updateNarrativeAssetDurable(assetId, patch = {}) {
   const current = listNarrativeAssets({ status: null })
   const { next, updated } = buildNarrativeAssetUpdate(current, assetId, patch)
-  if (!updated) return { ok: false, reason: 'asset-not-found' }
+  if (!updated) return mutationFailure('asset-not-found')
   if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'narrative-assets', assetId: normalizeText(assetId) })
   }
-  return { ok: true, asset: updated }
+  return mutationSuccess({ asset: updated })
 }
 
 export function setNarrativeAssetStatus(assetId, status) {
@@ -305,21 +297,38 @@ function buildNarrativeAssetRemoval(current, assetId) {
 }
 
 export function deleteNarrativeAsset(assetId) {
-  const current = listNarrativeAssets({ status: null })
-  const { next, deleted } = buildNarrativeAssetRemoval(current, assetId)
-  if (!deleted) return null
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
-  return deleted
+  const result = deleteNarrativeAssetDurable(assetId)
+  return result.ok ? result.deleted : null
 }
 
 export function deleteNarrativeAssetDurable(assetId) {
   const current = listNarrativeAssets({ status: null })
   const { next, deleted } = buildNarrativeAssetRemoval(current, assetId)
-  if (!deleted) return { ok: false, reason: 'asset-not-found' }
+  if (!deleted) return mutationFailure('asset-not-found')
   if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'narrative-assets', assetId: normalizeText(assetId) })
   }
-  return { ok: true, deleted }
+  return mutationSuccess({ deleted })
+}
+
+// 批量删除只写盘一次：任一目标不存在或写盘失败时，不产生“删了一半”的状态。
+export function deleteNarrativeAssetsDurable(assetIds = []) {
+  const ids = [...new Set((Array.isArray(assetIds) ? assetIds : []).map(normalizeText).filter(Boolean))]
+  if (ids.length === 0) return mutationSuccess({ deleted: [], deletedIds: [] })
+
+  const current = listNarrativeAssets({ status: null })
+  const wanted = new Set(ids)
+  const deleted = current.filter((asset) => wanted.has(asset.id))
+  if (deleted.length !== ids.length) {
+    const found = new Set(deleted.map((asset) => asset.id))
+    return mutationFailure('asset-not-found', {
+      missingAssetIds: ids.filter((id) => !found.has(id))
+    })
+  }
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, current.filter((asset) => !wanted.has(asset.id)))) {
+    return storageWriteFailure({ resource: 'narrative-assets', assetIds: ids })
+  }
+  return mutationSuccess({ deleted, deletedIds: ids })
 }
 
 function buildNarrativeAssetsStatusUpdate(current, assetIds = [], status) {
@@ -341,22 +350,18 @@ function buildNarrativeAssetsStatusUpdate(current, assetIds = [], status) {
 }
 
 export function setNarrativeAssetsStatus(assetIds = [], status) {
-  const current = listNarrativeAssets({ status: null })
-  const { next, updated } = buildNarrativeAssetsStatusUpdate(current, assetIds, status)
-  if (updated.length > 0) {
-    setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)
-  }
-  return updated
+  const result = setNarrativeAssetsStatusDurable(assetIds, status)
+  return result.ok ? result.changed : []
 }
 
 export function setNarrativeAssetsStatusDurable(assetIds = [], status) {
   const current = listNarrativeAssets({ status: null })
   const { next, updated } = buildNarrativeAssetsStatusUpdate(current, assetIds, status)
-  if (updated.length === 0) return { ok: true, changed: [] }
+  if (updated.length === 0) return mutationSuccess({ changed: [] })
   if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'narrative-assets' })
   }
-  return { ok: true, changed: updated }
+  return mutationSuccess({ changed: updated })
 }
 
 function buildNarrativeAssetMerge(currentOrLoader, assetIds = [], { targetId = null, title = null, status = null } = {}) {
@@ -407,21 +412,16 @@ function buildNarrativeAssetMerge(currentOrLoader, assetIds = [], { targetId = n
 
 export function mergeNarrativeAssetsDurable(assetIds = [], options = {}) {
   const buildResult = buildNarrativeAssetMerge(listNarrativeAssets({ status: null }), assetIds, options)
-  if (!buildResult) return null
+  if (!buildResult) return mutationFailure('merge-invalid-selection')
   if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, buildResult.next)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'narrative-assets' })
   }
-  return { ok: true, asset: buildResult.asset, mergedIds: buildResult.mergedIds }
+  return mutationSuccess({ asset: buildResult.asset, mergedIds: buildResult.mergedIds })
 }
 
 export function mergeNarrativeAssets(assetIds = [], options = {}) {
-  const buildResult = buildNarrativeAssetMerge(() => listNarrativeAssets({ status: null }), assetIds, options)
-  if (!buildResult) return null
-  setItem(STORAGE_KEYS.NARRATIVE_ASSETS, buildResult.next)
-  return {
-    asset: buildResult.asset,
-    mergedIds: buildResult.mergedIds
-  }
+  const result = mergeNarrativeAssetsDurable(assetIds, options)
+  return result.ok ? { asset: result.asset, mergedIds: result.mergedIds } : null
 }
 
 export function getAssetKindLabel(kind) {

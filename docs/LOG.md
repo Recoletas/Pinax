@@ -1,5 +1,7 @@
 # 开发日志
 
+- 2026-09-15：执行 durable mutation result 大切片。新增 `storage/durableMutationResult` 最小合同，统一书稿、写作快照/恢复/块历史/自动历史、素材和 Notes 的 `{ ok, reason, retryable }`。素材域所有生产写入调用已迁移到 durable API；legacy API 仅作兼容包装且不再伪造写盘成功。Notes 批量删除从逐项提交改为一次原子写盘；Authoring 选区收藏从“新建+补写来源”收为单次提交；编辑器不再复制 normalize 规则做写后读回。失败路径保留草稿/选择/画布引用，跨域部分成功明示降级。正常 UI 结构与视觉未变。定向组合 63/63；最终 `verify:full` exit 0（20/20 文件、200/200 用例、lint delta、Vite/VitePress build、diff）。
+
 - 2026-09-15：继续按完整 owner 收口 Authoring，而非零散减行。两片合计新增四个边界：rewrite workflow 管请求/候选/stale/采用，annotation session 管 CRUD/编辑态，annotation selection 管跨节点选区与稳定 descriptor，annotation layout 管 lane 几何/observer/resize/滚动；书/章/构思切换共用 scope reset。`Authoring.vue` 从 12,822 行降至 12,299 行。浏览器首跑抓到 inspector 初始化 TDZ 并修正依赖顺序；J3 正文批注、J12 构思批注隔离随后 clean，F2 33/33；旧 journey 的“新建书稿 + 自动首章”入口同步当前行为。
 
 - 2026-09-15：启动架构收尾第一轮并完成 B12。将 Experience 自由文本中的视角人物 name/gender/age/mood 与活动事件解析迁入纯 `gameStateExtraction.js`；store 的两个同名 action 只负责调用正式保存/活动写入边界，未把启发式结果反写世界书人物条目。故障矩阵在既有用例中补纯解析与生产 action 等价，20/20 通过；公开表面保持 73 state keys / 137 actions，`gameStore.js` 从集成后的 3,796 行降至 3,656 行。架构真源同步到合并后实际状态；下一片是 Authoring 批注/改写工作区。

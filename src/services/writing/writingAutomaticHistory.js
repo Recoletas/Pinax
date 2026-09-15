@@ -8,6 +8,7 @@ import {
   listWritingSnapshots,
   saveWritingSnapshot
 } from './writingSnapshots.js'
+import { mutationSuccess, storageWriteFailure } from '../storage/durableMutationResult.js'
 
 export const WRITING_HISTORY_PREFERENCES_SCHEMA_VERSION = 1
 export const WRITING_HISTORY_INTERVAL_OPTIONS = Object.freeze([500, 1000, 2000])
@@ -50,8 +51,8 @@ export function saveWritingHistoryPreferences(value) {
   const preferences = normalizeWritingHistoryPreferences(value)
   const ok = setItem(STORAGE_KEYS.WRITING_HISTORY_PREFERENCES, preferences)
   return ok
-    ? { ok: true, preferences }
-    : { ok: false, reason: 'storage-write-failed', preferences }
+    ? mutationSuccess({ preferences })
+    : storageWriteFailure({ resource: 'writing-history-preferences', preferences })
 }
 
 function recordedMilestoneBoundaries(snapshots, intervalWords) {

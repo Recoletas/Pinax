@@ -65,6 +65,8 @@ AI request
 
 浏览器写入必须通过现有 repository/store。`src/composables/useStorage.js` 是兼容底层，不应成为新业务模块直接设计 schema 的理由。桌面适配通过 `src/services/storage/` 和 Electron bridge 逐步接管，不能在页面里判断文件系统路径。
 
+持久化结果的共享形状由 `src/services/storage/durableMutationResult.js` 提供：成功和失败都显式返回 `{ ok, reason, retryable }`，各域只附加自己的 payload。书稿、写作快照/恢复/块历史和素材已使用该合同；legacy 布尔或对象 API 仅作兼容包装，生产写入调用方不得再通过异常、`null` 或写后读回猜测结果。
+
 ## 4. AI 与推演边界
 
 生成链分成四层：
@@ -134,7 +136,7 @@ AI request
 14. ✅ `useInlineWritingAgentHost` + `useAuthoringReferenceSource`：停驻触发、请求身份、IME/光标路由、取消/迟到响应、参考 scope、候选失效与采用接缝已迁出；页面只转发编辑器语义事件并提供事务 hooks。
 15. ✅ `useAuthoringRewriteWorkflow` + `useAuthoringAnnotationSession`：改写请求代次/取消/候选/失效/采用状态，以及批注草稿、根项投影、创建/编辑/删除和作用域重置均已有唯一 owner。页面只注入批注集合、选区、滚动和正文提交适配；切章会同步清除旧 composer 上下文。
 16. ✅ `useAuthoringAnnotationSelection` + `useAuthoringAnnotationLayout`：选区冻结、跨节点 range/selector、writing node descriptor 进入无状态 selection adapter；边注 lane 测量、ResizeObserver、窗口 resize、滚动恢复和卸载清理由 DOM layout owner 负责。切书、切章、进入/离开构思统一走 `resetAnnotationWorkspaceScope`，不会跨文档保留 composer 或改写候选；ProseMirror 实例和长期 annotations 仍只由页面/repository 提供。
-17. ⏭ durable mutation result：统一仍以 boolean、异常和隐式 toast 混合表达的写盘结果；先盘点书稿、世界书、素材和 Notes 的高风险写入，再逐域迁移为可判定的 `{ ok, reason, retryable }`，不得一次改全仓 schema。
+17. 🟡 durable mutation result：书稿、写作快照/恢复/块历史、素材与 Notes 已迁移为可判定的 `{ ok, reason, retryable }`。素材生产写入入口已零 legacy 调用，批量删除改为单次原子写盘，选区收藏由两次写盘收为一次。下一域只处理世界书 store 的异常型写入，不改其 revision/激活规则。
 每片要求：减少页面自有状态/过渡逻辑与总行数，不以新增一个显式 composable import 伪装成退步；不得新增第二套 reactive snapshot；既有浏览器 Gate 保持同等行为覆盖。
 
 ### B. 根层 services 归域

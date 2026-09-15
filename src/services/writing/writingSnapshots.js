@@ -10,6 +10,7 @@ import {
   getWritingDocumentMarkdown,
   validateWritingDocument
 } from './writingDocumentSchema.js'
+import { mutationFailure, mutationSuccess, storageWriteFailure } from '../storage/durableMutationResult.js'
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
@@ -121,12 +122,12 @@ function writeSnapshots(values) {
     candidate.splice(selectedIndex, 1)
   }
   if (getWritingSnapshotStorageSize(candidate) > MAX_WRITING_SNAPSHOT_STORAGE_CHARS) {
-    return { ok: false, reason: 'storage-budget-exceeded' }
+    return mutationFailure('storage-budget-exceeded')
   }
   if (!setItem(STORAGE_KEYS.WRITING_SNAPSHOTS, candidate)) {
-    return { ok: false, reason: 'storage-write-failed' }
+    return storageWriteFailure({ resource: 'writing-snapshots' })
   }
-  return { ok: true, snapshots: candidate }
+  return mutationSuccess({ snapshots: candidate })
 }
 
 export function listWritingSnapshots(chapterId) {
@@ -135,7 +136,7 @@ export function listWritingSnapshots(chapterId) {
 
 export function saveWritingSnapshot(snapshot) {
   const normalized = normalizeStoredWritingSnapshot(snapshot)
-  if (!normalized) return { ok: false, reason: 'invalid-snapshot' }
+  if (!normalized) return mutationFailure('invalid-snapshot')
   const existing = readSnapshots().filter((item) => item.id !== normalized.id)
   const sameChapter = existing.filter((item) => item.chapterId === normalized.chapterId)
   const otherChapters = existing.filter((item) => item.chapterId !== normalized.chapterId)
@@ -149,18 +150,18 @@ export function saveWritingSnapshot(snapshot) {
   if (!result.ok) return result
   const retained = result.snapshots.some((item) => item.id === normalized.id)
   return retained
-    ? { ...result, snapshot: normalized, retained: true }
-    : { ok: false, reason: 'snapshot-retention-exhausted', snapshots: result.snapshots, retained: false }
+    ? mutationSuccess({ snapshots: result.snapshots, snapshot: normalized, retained: true })
+    : mutationFailure('snapshot-retention-exhausted', { snapshots: result.snapshots, retained: false })
 }
 
 export function deleteWritingSnapshot(snapshotId) {
   const id = String(snapshotId || '')
-  if (!id) return { ok: false, reason: 'missing-id' }
+  if (!id) return mutationFailure('missing-id')
   return writeSnapshots(readSnapshots().filter((snapshot) => snapshot.id !== id))
 }
 
 export function deleteWritingSnapshotsForChapter(chapterId) {
   const id = String(chapterId || '')
-  if (!id) return { ok: false, reason: 'missing-chapter-id' }
+  if (!id) return mutationFailure('missing-chapter-id')
   return writeSnapshots(readSnapshots().filter((snapshot) => snapshot.chapterId !== id))
 }

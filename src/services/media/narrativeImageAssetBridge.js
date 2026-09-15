@@ -3,7 +3,6 @@ import {
   listNarrativeAssets,
   normalizeImagePresentation,
   normalizeSourceRefs,
-  updateNarrativeAsset,
   updateNarrativeAssetDurable
 } from '../narrativeAssets'
 import {
@@ -97,13 +96,14 @@ export function updateNarrativeImagePresentation(assetId, presentation, options 
   const asset = listNarrativeAssets({ status: null }).find((item) => item.id === assetId)
   if (!asset?.image) return null
   const normalized = normalizeImagePresentation(presentation)
-  const updated = updateNarrativeAsset(asset.id, {
+  const updated = updateNarrativeAssetDurable(asset.id, {
     image: { ...asset.image, presentation: normalized }
   })
+  if (!updated.ok) return null
   if (asset.image.mediaAssetId) {
     updateMediaImagePresentation(asset.image.mediaAssetId, normalized, options)
   }
-  return updated
+  return updated.asset
 }
 
 export function updateMediaImagePresentation(mediaAssetId, presentation, options = {}) {

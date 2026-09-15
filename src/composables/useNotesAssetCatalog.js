@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import {
   addNarrativeAssetDurable,
   deleteNarrativeAssetDurable,
+  deleteNarrativeAssetsDurable,
   getAssetKindLabel,
   listActiveNarrativeAssets,
   listNarrativeAssets,
@@ -309,13 +310,12 @@ export function useNotesAssetCatalog({
       : window.confirm(`删除选中的 ${targets.length} 个素材${preview}？如果它们已导入画布，对应节点、连线和时间轴引用也会移除。`)
     if (!ok) return { ok: false, reason: 'cancelled' }
 
-    const deletedIds = []
-    let failure = null
-    for (const asset of targets) {
-      const result = deleteNarrativeAssetDurable(asset.id)
-      if (!result.ok) { failure = result; break }
-      deletedIds.push(asset.id)
+    const result = deleteNarrativeAssetsDurable(targets.map((asset) => asset.id))
+    if (!result.ok) {
+      canvasTransferFeedback.value = '批量删除未执行（存储写入失败），素材和画布引用保持不变'
+      return result
     }
+    const deletedIds = result.deletedIds
 
     const deletedSet = new Set(deletedIds)
     const nextId = deletedSet.has(selectedChapterId.value)
@@ -330,11 +330,7 @@ export function useNotesAssetCatalog({
     refreshCatalog()
     selectChapter(nextId)
 
-    if (failure) {
-      canvasTransferFeedback.value = `部分删除未执行（存储写入失败），已删除 ${deletedIds.length} 项`
-      return { ok: false, reason: failure.reason, deletedIds }
-    }
-    return { ok: true, deletedIds }
+    return result
   }
 
   // ---- 画布交接 ----

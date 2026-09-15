@@ -50,7 +50,7 @@ import {
   describeRuntimeStateTransitions
 } from '../services/runtimeEventCausality'
 import {
-  addNarrativeAsset,
+  addNarrativeAssetDurable,
   createNarrativeAssetSourceRef,
   mergeSourceRefs,
   normalizeContentRef
@@ -1093,7 +1093,7 @@ export const useGameStore = defineStore('game', {
       const creativeSourceRefs = this.getCurrentCreativeSourceRefs(sourceMessageIds, plotEntry)
 
       if (triggerType === 'storyboard') {
-        const asset = addNarrativeAsset({
+        const persistedAsset = addNarrativeAssetDurable({
           title: draft.title || this.buildAdventureTriggerTitle('storyboard', plotEntry),
           content: formatAdventureStoryboardSeedContent(draft),
           kind: 'storyboard-seed',
@@ -1106,6 +1106,8 @@ export const useGameStore = defineStore('game', {
           },
           sourceRefs: creativeSourceRefs
         })
+        if (!persistedAsset.ok) throw new Error('素材保存失败，未采纳这份分镜草稿')
+        const asset = persistedAsset.asset
         const storyboardSourceRefs = mergeSourceRefs([
           ...asset.sourceRefs,
           createNarrativeAssetSourceRef(asset)
@@ -1145,7 +1147,7 @@ export const useGameStore = defineStore('game', {
         }
       }
 
-      const asset = addNarrativeAsset({
+      const persistedAsset = addNarrativeAssetDurable({
         title: draft.title || this.buildAdventureTriggerTitle('prose', plotEntry),
         content: draft.content || '',
         kind: 'draft-prose',
@@ -1158,6 +1160,8 @@ export const useGameStore = defineStore('game', {
           },
           sourceRefs: creativeSourceRefs
         })
+      if (!persistedAsset.ok) throw new Error('素材保存失败，未采纳这份正文草稿')
+      const asset = persistedAsset.asset
 
       const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
         ...draft,

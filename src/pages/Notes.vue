@@ -576,12 +576,11 @@ import {
   imageBaseWidth
 } from '../services/notes/illustrationPresentation'
 import {
-  addNarrativeAsset,
   buildNarrativeAssetContentHash,
   DEFAULT_IMAGE_PRESENTATION,
   getAssetKindLabel,
   normalizeImagePresentation,
-  updateNarrativeAsset
+  updateNarrativeAssetDurable
 } from '../services/narrativeAssets'
 import { createExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
 import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'
@@ -1015,7 +1014,7 @@ function persistCurrentImagePresentation(target, presentation) {
   if (target.type === 'media') updateMediaImagePresentation(target.id, presentation)
   if (target.type === 'narrative') updateNarrativeImagePresentation(target.id, presentation)
   if (target.type === 'embedded') {
-    updateNarrativeAsset(target.id, {
+    updateNarrativeAssetDurable(target.id, {
       embeddedImagePresentations: selectedAsset.value?.embeddedImagePresentations || {}
     })
   }

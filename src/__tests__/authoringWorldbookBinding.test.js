@@ -163,6 +163,7 @@ const source = [{
 import {
   loadWritingBooks,
   saveWritingBooks,
+  saveWritingBooksDurable,
   findWritingBook,
   createWritingBookRecord,
   renameWritingBook,
@@ -207,6 +208,11 @@ localStorage.clear()
     const unsubscribe = subscribeWritingBooks((event) => seen.push(event.revision))
     expect(saveWritingBooks([{ id: 'b1', title: '书一' }])).toBe(true)
     expect(saveWritingBooks('not-an-array')).toBe(false)
+    expect(saveWritingBooksDurable('not-an-array')).toMatchObject({
+      ok: false,
+      reason: 'invalid-books',
+      retryable: false
+    })
     unsubscribe()
     saveWritingBooks([{ id: 'b1', title: '书一改' }])
     expect(seen).toHaveLength(1)
@@ -245,6 +251,12 @@ localStorage.clear()
       const seen = []
       subscribeWritingBooks(() => seen.push(1))
       expect(saveWritingBooks([{ id: 'b1' }])).toBe(false)
+      expect(saveWritingBooksDurable([{ id: 'b1' }])).toMatchObject({
+        ok: false,
+        reason: 'storage-write-failed',
+        retryable: true,
+        resource: 'writing-books'
+      })
       expect(seen).toHaveLength(0)
     } finally {
       Storage.prototype.setItem = originalSetItem

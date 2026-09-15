@@ -3,21 +3,15 @@
  * narrative asset, then route to Notes.vue for review.
  *
  * Why a dedicated service (and not a page-local helper):
- *   - Keeps the two-step write (addNarrativeAsset + source enrichment) in one
- *     place so the schema lives next to the only caller.
+ *   - Keeps the selection identity and its single durable write in one place.
  *   - Pure input/output makes it unit-testable without mounting Vue.
- *   - `createNarrativeAsset` (via `addNarrativeAsset`) strips unknown fields
- *     from `source` via `normalizeSource`, so we follow up with
- *     `updateNarrativeAsset` to inject chapterId / selectorOffset /
- *     selectorLength / selectorSnippet. `updateNarrativeAsset` preserves
- *     `source` as-is (no normalization), so this works without touching
- *     narrativeAssets.js.
+ *   - narrativeAssets.normalizeSource preserves selection metadata, so content
+ *     and its stable selector are committed atomically instead of in two writes.
  */
 
 import {
-  addNarrativeAsset,
-  findDuplicateNarrativeAsset,
-  updateNarrativeAsset
+  addNarrativeAssetDurable,
+  findDuplicateNarrativeAsset
 } from '../../narrativeAssets'
 
 const MAX_SNIPPET = 240
@@ -91,48 +85,42 @@ export function createAssetFromSelection(input = {}) {
     excerpt: cleanSnippet(snippet)
   }]
 
-  try {
-    const duplicate = findDuplicateNarrativeAsset({ content, projectId, sourceRefs })
-    if (duplicate) {
-      return {
-        ok: true,
-        assetId: duplicate.id,
-        asset: duplicate,
-        source: duplicate.source,
-        deduplicated: true
-      }
-    }
-
-    const asset = addNarrativeAsset({
-      title: cleanSnippet(snippet, MAX_TITLE) || '未命名素材',
-      content,
-      kind,
-      status,
-      projectId,
-      source: { type: 'chapter', id: chapterId, messageIds: [] },
-      sourceRefs
-    })
-
-    const enrichedSource = buildSelectionSource({
-      chapterId,
-      offset: offsetRaw,
-      length: lengthRaw,
-      snippet
-    })
-    const enriched = updateNarrativeAsset(asset.id, { source: enrichedSource })
-
+  const duplicate = findDuplicateNarrativeAsset({ content, projectId, sourceRefs })
+  if (duplicate) {
     return {
       ok: true,
-      assetId: enriched?.id || asset.id,
-      asset: enriched || asset,
-      source: enrichedSource
+      assetId: duplicate.id,
+      asset: duplicate,
+      source: duplicate.source,
+      deduplicated: true
     }
-  } catch (error) {
+  }
+
+  const enrichedSource = buildSelectionSource({
+    chapterId,
+    offset: offsetRaw,
+    length: lengthRaw,
+    snippet
+  })
+  const created = addNarrativeAssetDurable({
+    title: cleanSnippet(snippet, MAX_TITLE) || '未命名素材',
+    content,
+    kind,
+    status,
+    projectId,
+    source: enrichedSource,
+    sourceRefs
+  })
+  if (!created.ok) {
     return {
-      ok: false,
-      reason: 'write-failed',
-      message: error?.message || '写入素材失败'
+      ...created,
+      message: created.reason === 'storage-write-failed' ? '存储写入失败，素材未创建' : '写入素材失败'
     }
+  }
+  return {
+    ...created,
+    assetId: created.asset.id,
+    source: enrichedSource
   }
 }
 
