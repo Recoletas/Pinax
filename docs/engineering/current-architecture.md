@@ -103,7 +103,7 @@ AI request
 
 | 热点 | 当前规模 | 判断 |
 | --- | ---: | --- |
-| `Authoring.vue` | 12,521 行 | 最大风险；主要生成工作流已有独立 owner，批注编辑会话与改写候选生命周期也已迁出；选区冻结、批注定位/布局和编辑器事务适配仍挤在页面 |
+| `Authoring.vue` | 12,299 行 | 最大风险；主要生成工作流和批注/改写工作区已有独立 owner；页面仍集中书稿激活、编辑器事务、快捷工具与若干 DOM 定位适配 |
 | `Notes.vue` | 4,405 行 | catalog/editor 生命周期已拆开；插画 DOM、拖拽/锚点、新建弹窗与 sidekick 仍在页面 |
 | `Experience.vue` | 4,429 行 | 兼容运行时仍重，不能继续承接新写作功能 |
 | `ProseEssay.vue` | 4,571 行 | 画布状态仍主要由页面持有 |
@@ -133,7 +133,8 @@ AI request
 13. ✅ `useAuthoringSearchWorkflow`：搜索来源冻结、四域检索、跨章定位/返回、replace plan、批量保护与全书原子持久化已成为一个会话 owner；页面只适配编辑器选择、保护快照与提交后刷新。
 14. ✅ `useInlineWritingAgentHost` + `useAuthoringReferenceSource`：停驻触发、请求身份、IME/光标路由、取消/迟到响应、参考 scope、候选失效与采用接缝已迁出；页面只转发编辑器语义事件并提供事务 hooks。
 15. ✅ `useAuthoringRewriteWorkflow` + `useAuthoringAnnotationSession`：改写请求代次/取消/候选/失效/采用状态，以及批注草稿、根项投影、创建/编辑/删除和作用域重置均已有唯一 owner。页面只注入批注集合、选区、滚动和正文提交适配；切章会同步清除旧 composer 上下文。
-16. ⏭ 批注定位与编辑器适配：把选区冻结/范围构造收成纯 selection adapter，把边注 lane 测量/ResizeObserver 收成 DOM adapter；随后归并章节/构思切换中剩余的分散 UI reset。不要把 ProseMirror 实例、DOM 节点或第二份 annotations snapshot 放进业务 composable。
+16. ✅ `useAuthoringAnnotationSelection` + `useAuthoringAnnotationLayout`：选区冻结、跨节点 range/selector、writing node descriptor 进入无状态 selection adapter；边注 lane 测量、ResizeObserver、窗口 resize、滚动恢复和卸载清理由 DOM layout owner 负责。切书、切章、进入/离开构思统一走 `resetAnnotationWorkspaceScope`，不会跨文档保留 composer 或改写候选；ProseMirror 实例和长期 annotations 仍只由页面/repository 提供。
+17. ⏭ durable mutation result：统一仍以 boolean、异常和隐式 toast 混合表达的写盘结果；先盘点书稿、世界书、素材和 Notes 的高风险写入，再逐域迁移为可判定的 `{ ok, reason, retryable }`，不得一次改全仓 schema。
 每片要求：减少页面自有状态/过渡逻辑与总行数，不以新增一个显式 composable import 伪装成退步；不得新增第二套 reactive snapshot；既有浏览器 Gate 保持同等行为覆盖。
 
 ### B. 根层 services 归域

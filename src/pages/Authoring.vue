@@ -1670,6 +1670,8 @@ import { useAuthoringReviewWorkflow } from '../composables/useAuthoringReviewWor
 import { useAuthoringSearchWorkflow } from '../composables/useAuthoringSearchWorkflow.js'
 import { useAuthoringRewriteWorkflow } from '../composables/useAuthoringRewriteWorkflow.js'
 import { useAuthoringAnnotationSession } from '../composables/useAuthoringAnnotationSession.js'
+import { useAuthoringAnnotationSelection } from '../composables/useAuthoringAnnotationSelection.js'
+import { useAuthoringAnnotationLayout } from '../composables/useAuthoringAnnotationLayout.js'
 import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
 import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
 import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
@@ -1806,12 +1808,10 @@ import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useWritingDocument } from '../composables/useWritingDocument'
 import {
-  createWritingSelector,
   deleteWritingAnnotation,
   getWritingAnnotationLabel,
   normalizeWritingAnnotations,
   reconcileWritingAnnotations,
-  resolveAnnotationLaneLayout,
   resolveSelectionActionPosition,
   resolveWritingAnnotation
 } from '../services/writing/writingAnnotations.js'
@@ -1992,12 +1992,6 @@ const notebookEditorRef = ref(null)
 const blockComposerRef = ref(null)
 const writingMainRef = ref(null)
 const writingInspectorRef = ref(null)
-const annotationLaneRef = ref(null)
-const annotationNoteRefs = new Map()
-const annotationLaneLayout = ref({})
-const annotationLaneHeight = ref(240)
-let annotationLayoutFrame = 0
-let annotationResizeObserver = null
 const notebookSelection = ref(null)
 let notebookSelectionScrollTop = 0
 const inspectorWorldbookEntryId = ref('')
@@ -2225,6 +2219,7 @@ function wt3PersistBeforeLeaving() {
     authoringTask.notify('构思文档保存失败，已留在当前文档')
     return result || { ok: false, reason: 'persist-failed' }
   }
+  resetAnnotationWorkspaceScope()
   wt3ActiveDocId.value = ''
   // 关键：把稿面恢复为上一章已保存内容。随后的章节 boundary/保存以
   // markdownContent 为准，不恢复就会把探索文本写进正文（Gate 场景 2）。
@@ -2270,6 +2265,7 @@ function openExplorationDoc(docId) {
     authoringTask.notify('当前章节保存失败，未打开构思')
     return false
   }
+  resetAnnotationWorkspaceScope()
   if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
   const previousChapterId = wt3PreviousChapterId.value || selectedChapterId.value
   wt3ActiveDocId.value = docId
@@ -2430,7 +2426,22 @@ const writingHistoryPreferences = ref(loadWritingHistoryPreferences())
 const writingHistoryIntervalOptions = WRITING_HISTORY_INTERVAL_OPTIONS
 let previousNotebookDocument = null
 let previousNotebookAnnotations = null
-let annotationLaneScrollAtOpen = 0
+const {
+  getAnnotationSelectionContext,
+  buildFullNodeAnnotationContext,
+  getCurrentWritingNodeDescriptors
+} = useAuthoringAnnotationSelection({
+  hasDocument: () => Boolean(selectedChapterId.value),
+  isNotebookActive: () => notebookEditorActive.value,
+  getNotebookSelection: () => notebookSelection.value,
+  getWritingNodeById: (nodeId) => getWritingNodeById(nodeId),
+  getWritingUnitByNodeId: (nodeId) => getWritingUnitByNodeId(nodeId),
+  findNotebookNodeRange: (nodeId) => notebookEditorRef.value?.findNodeRange?.(nodeId),
+  getWritingDocument: () => writingDocument.value,
+  getLiveSelection: () => readLiveWritingSelectionSnapshot(),
+  getWritingBlockAtPosition: (position, markdown) => getWritingBlockAtPosition(position, markdown),
+  getMarkdown: () => markdownContent.value
+})
 const {
   activeAnnotationId,
   editingAnnotationId,
@@ -2516,6 +2527,13 @@ const {
     syncCursorAndSelection()
   }
 })
+
+function resetAnnotationWorkspaceScope() {
+  resetAnnotationSession()
+  resetRewriteState()
+  scheduleAnnotationLayout()
+}
+
 const sceneDetailNotice = ref('')
 const sceneInspectorMode = ref('current')
 const dualPaneRef = ref(null)
@@ -2559,6 +2577,26 @@ const {
   setAssistantInvocation: (invocation) => { knowledgeAssistantInvocation.value = invocation },
   discardSceneDraft: () => discardSceneCurationDraft(),
   restoreWritingSurface: restoreWritingSurfaceAfterInspector
+})
+const {
+  annotationLaneRef,
+  annotationLaneStyle,
+  setAnnotationNoteRef,
+  getAnnotationNoteStyle,
+  refreshAnnotationLayout,
+  scheduleAnnotationLayout,
+  captureAnnotationLaneScroll,
+  restoreAnnotationLaneScroll
+} = useAuthoringAnnotationLayout({
+  annotations: marginAnnotations,
+  draftAnchor: annotationDraftAnchor,
+  activeAnnotationId,
+  inspectorOpen,
+  inspectorTab,
+  getDocumentRevision: () => writingDocument.value?.revision,
+  getEditorRoot: () => notebookEditorRef.value?.getRootElement?.(),
+  getWritingMain: () => writingMainRef.value,
+  getAnchorMetrics: (annotation) => notebookEditorRef.value?.getAnnotationAnchorMetrics?.(annotation)
 })
 const illustratorTriggerRef = ref(null)
 const illustratorMinimized = ref(false)
@@ -3313,9 +3351,6 @@ watch(selectedBookId, (nextBookId, previousBookId) => {
   dualTargetWorldbookEntryId.value = ''
   dualActiveChapterId.value = ''
 })
-const annotationLaneStyle = computed(() => ({
-  '--annotation-lane-height': `${annotationLaneHeight.value}px`
-}))
 const editorHistory = useEditorHistory()
 const emptyNotebookCommandAvailability = Object.freeze({
   undo: false,
@@ -4155,7 +4190,7 @@ function openSceneDetail(payload) {
   inspectorTab.value = 'detail'
   inspectorOpen.value = true
   if (!inspectorDetailState.value) {
-    annotationLaneScrollAtOpen = annotationLaneRef.value?.scrollTop ?? 0
+    captureAnnotationLaneScroll()
   }
   sceneDetailNotice.value = ''
   inspectorReturnFocusRef.value = `${payload.kind}:${payload.id}`
@@ -4170,11 +4205,8 @@ async function closeSceneDetail() {
   if (closingSceneEditor) {
     discardSceneCurationDraft()
   }
-  await nextTick()
+  await restoreAnnotationLaneScroll()
   // 恢复批注滚动位置，并把焦点还给左栏来源条目。
-  if (annotationLaneRef.value && annotationLaneScrollAtOpen) {
-    annotationLaneRef.value.scrollTop = annotationLaneScrollAtOpen
-  }
   if (returnRef && chapterShelfRef.value) {
     chapterShelfRef.value.querySelector(`[data-scene-rail-item="${CSS.escape(returnRef)}"]`)?.focus?.()
   }
@@ -4461,7 +4493,7 @@ function handleSceneEditRequest(options = {}) {
   }
   beginSceneCuration(draft)
   if (!inspectorDetailState.value) {
-    annotationLaneScrollAtOpen = annotationLaneRef.value?.scrollTop ?? 0
+    captureAnnotationLaneScroll()
   }
   inspectorReturnFocusRef.value = 'scene-edit'
   inspectorTab.value = 'detail'
@@ -7846,7 +7878,6 @@ onMounted(() => {
   document.addEventListener('keydown', handleWritingFocusKeydown)
   document.addEventListener('keydown', handleContextMenuKeydown, true)
   document.addEventListener('pointerdown', dismissSelectionActions)
-  window.addEventListener('resize', scheduleAnnotationLayout)
   window.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
   window.addEventListener('scroll', handleWritingWorkspaceScroll, true)
   window.visualViewport?.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
@@ -7863,13 +7894,10 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleEditorHistoryKeyForward)
   document.body.classList.remove('is-writing-zen')
   document.removeEventListener('pointerdown', dismissSelectionActions)
-  window.removeEventListener('resize', scheduleAnnotationLayout)
   window.removeEventListener('resize', handleContextMenuViewportChange)
   window.removeEventListener('scroll', handleWritingWorkspaceScroll, true)
   window.visualViewport?.removeEventListener('resize', handleContextMenuViewportChange)
   window.visualViewport?.removeEventListener('scroll', handleContextMenuViewportChange)
-  annotationResizeObserver?.disconnect()
-  if (annotationLayoutFrame) cancelAnimationFrame(annotationLayoutFrame)
 })
 
 function openChapterDrawer() {
@@ -7920,94 +7948,6 @@ const activeWritingUnit = computed(() => {
   const nodeId = notebookSelection.value?.nodeId
   return nodeId ? getWritingUnitByNodeId(nodeId) : null
 })
-function setAnnotationNoteRef(element, annotationId) {
-  const previous = annotationNoteRefs.get(annotationId)
-  if (previous && previous !== element) annotationResizeObserver?.unobserve(previous)
-  if (element) {
-    annotationNoteRefs.set(annotationId, element)
-    annotationResizeObserver?.observe(element)
-  } else {
-    annotationNoteRefs.delete(annotationId)
-  }
-}
-
-function getAnnotationNoteStyle(annotation) {
-  const position = annotationLaneLayout.value[annotation.id]
-  if (!position) return undefined
-  const maxOffset = Math.max(0, position.height / 2 - 8)
-  const anchorOffset = Math.max(-maxOffset, Math.min(maxOffset, position.anchorOffset))
-  return {
-    top: `${position.top}px`,
-    '--annotation-anchor-offset': `${anchorOffset}px`
-  }
-}
-
-function setupAnnotationResizeObserver() {
-  if (annotationResizeObserver || typeof ResizeObserver === 'undefined') return
-  const root = notebookEditorRef.value?.getRootElement?.()
-  if (!root) return
-  annotationResizeObserver = new ResizeObserver(() => scheduleAnnotationLayout())
-  annotationResizeObserver.observe(root)
-  if (writingMainRef.value) annotationResizeObserver.observe(writingMainRef.value)
-  annotationNoteRefs.forEach((note) => annotationResizeObserver.observe(note))
-}
-
-function refreshAnnotationLayout() {
-  setupAnnotationResizeObserver()
-  if (
-    !window.matchMedia?.('(min-width: 981px)').matches
-    || !inspectorOpen.value
-    || inspectorTab.value !== 'comments'
-  ) {
-    annotationLaneLayout.value = {}
-    annotationLaneHeight.value = 0
-    return
-  }
-
-  const lane = annotationLaneRef.value
-  const root = notebookEditorRef.value?.getRootElement?.()
-  if (!lane || !root) return
-  const laneRect = lane.getBoundingClientRect()
-  const rootRect = root.getBoundingClientRect()
-  const laneScale = lane.offsetHeight > 0 ? laneRect.height / lane.offsetHeight : 1
-  const safeScale = Number.isFinite(laneScale) && laneScale > 0 ? laneScale : 1
-  const layoutAnnotations = annotationDraftAnchor.value
-    ? [...marginAnnotations.value, annotationDraftAnchor.value]
-    : marginAnnotations.value
-  const items = layoutAnnotations.map((annotation) => {
-    const note = annotationNoteRefs.get(annotation.id)
-    const metrics = annotation.status === 'orphaned'
-      ? null
-      : notebookEditorRef.value?.getAnnotationAnchorMetrics?.(annotation)
-    return {
-      id: annotation.id,
-      height: note?.offsetHeight || 64,
-      desiredCenter: metrics ? (metrics.viewportY - laneRect.top) / safeScale : undefined
-    }
-  })
-  const layout = resolveAnnotationLaneLayout(items, { gap: 14 })
-  annotationLaneLayout.value = layout
-  const notesBottom = Object.values(layout).reduce(
-    (maximum, item) => Math.max(maximum, item.top + item.height),
-    0
-  )
-  annotationLaneHeight.value = Math.max(240, (rootRect.bottom - laneRect.top) / safeScale, notesBottom + 24)
-}
-
-function scheduleAnnotationLayout() {
-  if (annotationLayoutFrame) cancelAnimationFrame(annotationLayoutFrame)
-  annotationLayoutFrame = requestAnimationFrame(() => {
-    annotationLayoutFrame = 0
-    nextTick(refreshAnnotationLayout)
-  })
-}
-
-watch(
-  [marginAnnotations, annotationDraftAnchor, activeAnnotationId, inspectorOpen, inspectorTab, () => writingDocument.value?.revision],
-  scheduleAnnotationLayout,
-  { deep: true, flush: 'post' }
-)
-
 const recentWritingSnapshots = computed(() => writingSnapshots.value.slice(0, 3))
 const recentWritingBlockHistory = computed(() => writingBlockHistory.value.slice(0, 4))
 
@@ -9445,8 +9385,7 @@ function openBook(bookId, options = {}) {
       clearWritingDocument()
       chapterOutlineItems.value = []
       chapterAnnotations.value = []
-      resetAnnotationSession()
-      resetRewriteState()
+      resetAnnotationWorkspaceScope()
       clearCopilotReference({ silent: true })
     }
     return false
@@ -9464,8 +9403,7 @@ function openBook(bookId, options = {}) {
     clearWritingDocument()
     chapterOutlineItems.value = []
     chapterAnnotations.value = []
-    resetAnnotationSession()
-    resetRewriteState()
+    resetAnnotationWorkspaceScope()
     clearCopilotReference({ silent: true })
   }
   saveStatus.value = 'saved'
@@ -9525,7 +9463,7 @@ function selectChapter(chapterId) {
   }
   cancelChapterReview()
   writingAgentHost.cancelForScopeChange()
-  resetRewriteState()
+  resetAnnotationWorkspaceScope()
   clearCopilotReference({ silent: true })
   authoringTask.clearPendingPersist()
   // 候选与正文事务一样绑定当前作用域：旧章节的下一步/涌现候选不得跨章插入。
@@ -9546,7 +9484,6 @@ function selectChapter(chapterId) {
     chapter.id
   )
   loadChapterSnapshots(chapter.id)
-  resetAnnotationSession()
   editorHistory.clear()
   nextTick(() => {
     if (editorRef.value) editorRef.value.value = markdownContent.value
@@ -11618,31 +11555,9 @@ async function handleNotebookWritingCommand(command = {}) {
   }
 
   resetRewriteState()
-  const selector = createWritingSelector({
-    text: target.text,
-    start: 0,
-    end: target.text.length,
-    fullText: target.text
-  })
+  const context = buildFullNodeAnnotationContext(target)
   const annotation = addAnnotation({
-    context: {
-      block: {
-        unitId: target.unitId,
-        unitRevision: target.unitRevision,
-        nodeId: target.nodeId,
-        nodeRevision: target.nodeRevision
-      },
-      selector,
-      range: {
-      start: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: 0 },
-      end: { unitId: target.unitId, unitRevision: target.unitRevision, nodeId: target.nodeId, nodeRevision: target.nodeRevision, offset: target.text.length },
-      unitIds: [target.unitId],
-      nodeIds: [target.nodeId],
-      exact: target.text,
-      startSelector: selector,
-        endSelector: selector
-      }
-    },
+    context,
     body: instruction,
     kind: 'comment'
   })
@@ -11713,40 +11628,6 @@ function getWritingNodeById(nodeId) {
 function getWritingUnitByNodeId(nodeId) {
   return (writingDocument.value?.content || [])
     .find((unit) => (unit.content || []).some((node) => node?.attrs?.nodeId === nodeId)) || null
-}
-
-function getCurrentWritingNodeDescriptors() {
-  const nodes = (writingDocument.value?.content || []).flatMap((unit) => (
-    (unit?.content || []).map((node) => ({ node, unit }))
-  ))
-  const descriptors = []
-  let probe = 0
-  for (const { node, unit } of nodes) {
-    const nodeId = node?.attrs?.nodeId
-    const text = getWritingNodeText(node)
-    let descriptor = null
-    if (nodeId) {
-      for (let position = probe; position <= markdownContent.value.length; position += 1) {
-        const candidate = getWritingBlockAtPosition(position, markdownContent.value)
-        if (candidate?.nodeId === nodeId) {
-          descriptor = { ...candidate, text }
-          break
-        }
-      }
-    }
-    descriptor ||= {
-      nodeId: nodeId || null,
-      unitId: unit?.attrs?.unitId || null,
-      unitRevision: Number(unit?.attrs?.unitRevision || 0),
-      nodeRevision: Number(node?.attrs?.nodeRevision ?? node?.attrs?.revision ?? 0),
-      start: probe,
-      end: probe + text.length,
-      text
-    }
-    descriptors.push(descriptor)
-    probe = Math.max(probe + 1, descriptor.end + 1)
-  }
-  return descriptors
 }
 
 function buildRewriteSelectionNodes(startNodeId, endNodeId, selection) {
@@ -12055,108 +11936,6 @@ function commitRewriteCandidate(candidate, target) {
   return applied
     ? { ok: true }
     : { ok: false, message: '编辑器没有接受这次改写，请重新生成。' }
-}
-
-function buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact }) {
-  const startNodeId = startBlock?.nodeId
-  const endNodeId = endBlock?.nodeId
-  if (!startNodeId || !endNodeId || !exact) return null
-  const startExact = startBlock.text.slice(localStart, Math.min(startBlock.text.length, localStart + 48)) || (startBlock.text ? exact.slice(0, 48) : '')
-  const endExact = endBlock.text.slice(Math.max(0, localEnd - 48), localEnd) || (endBlock.text ? exact.slice(-48) : '')
-  const startSelector = createWritingSelector({
-    text: startExact,
-    start: localStart,
-    end: localStart + startExact.length,
-    fullText: startBlock.text
-  })
-  const endSelector = createWritingSelector({
-    text: endExact,
-    start: Math.max(0, localEnd - endExact.length),
-    end: localEnd,
-    fullText: endBlock.text
-  })
-  const nodes = getCurrentWritingNodeDescriptors()
-  const startIndex = nodes.findIndex((node) => node.nodeId === startNodeId)
-  const endIndex = nodes.findIndex((node) => node.nodeId === endNodeId)
-  const selectedNodes = startIndex >= 0 && endIndex >= startIndex ? nodes.slice(startIndex, endIndex + 1) : [startBlock, endBlock]
-  const nodeIds = selectedNodes.map((node) => node.nodeId).filter(Boolean)
-  const unitIds = Array.from(new Set(selectedNodes.map((node) => node.unitId).filter(Boolean)))
-
-  return {
-    block: startBlock,
-    selector: startSelector,
-    range: {
-      start: {
-        unitId: startBlock.unitId,
-        unitRevision: startBlock.unitRevision,
-        nodeId: startNodeId,
-        nodeRevision: startBlock.nodeRevision,
-        offset: localStart
-      },
-      end: {
-        unitId: endBlock.unitId,
-        unitRevision: endBlock.unitRevision,
-        nodeId: endNodeId,
-        nodeRevision: endBlock.nodeRevision,
-        offset: localEnd
-      },
-      unitIds,
-      nodeIds,
-      exact,
-      ...(startExact ? { startSelector } : {}),
-      ...(endExact ? { endSelector } : {})
-    }
-  }
-}
-
-function getAnnotationSelectionContext() {
-  if (!selectedChapterId.value) return null
-
-  if (notebookEditorActive.value && notebookSelection.value?.text) {
-    const selection = notebookSelection.value
-    const startNodeId = selection.startNodeId || selection.nodeId
-    const endNodeId = selection.endNodeId || startNodeId
-    const startNode = getWritingNodeById(startNodeId)
-    const endNode = getWritingNodeById(endNodeId)
-    const startUnit = getWritingUnitByNodeId(startNodeId)
-    const endUnit = getWritingUnitByNodeId(endNodeId)
-    const startRange = notebookEditorRef.value?.findNodeRange?.(startNodeId)
-    const endRange = notebookEditorRef.value?.findNodeRange?.(endNodeId)
-    if (!startNode || !endNode || !startRange || !endRange) return null
-    const startBlock = {
-      unitId: startUnit?.attrs?.unitId || null,
-      unitRevision: Number(startUnit?.attrs?.unitRevision || 0),
-      nodeId: startNodeId,
-      nodeRevision: Number(startNode.attrs?.nodeRevision || 0),
-      text: (startNode.content || []).map((item) => item?.text || '').join('')
-    }
-    const endBlock = {
-      unitId: endUnit?.attrs?.unitId || null,
-      unitRevision: Number(endUnit?.attrs?.unitRevision || 0),
-      nodeId: endNodeId,
-      nodeRevision: Number(endNode.attrs?.nodeRevision || 0),
-      text: (endNode.content || []).map((item) => item?.text || '').join('')
-    }
-    return buildAnnotationRangeContext({
-      startBlock,
-      endBlock,
-      localStart: Math.max(0, Number(selection.from) - startRange.from),
-      localEnd: Math.max(0, Number(selection.to) - endRange.from),
-      exact: selection.text
-    })
-  }
-
-  const snapshot = readLiveWritingSelectionSnapshot()
-  if (!snapshot?.hasSelection) return null
-  const startBlock = getWritingBlockAtPosition(snapshot.start, markdownContent.value)
-  const endBlock = getWritingBlockAtPosition(Math.max(snapshot.start, snapshot.end - 1), markdownContent.value)
-  if (!startBlock?.nodeId || !endBlock?.nodeId) return null
-  const localStart = Math.max(0, snapshot.start - startBlock.start)
-  const localEnd = Math.max(0, snapshot.end - endBlock.start)
-  const exact = snapshot.text || (startBlock.nodeId === endBlock.nodeId
-    ? startBlock.text.slice(localStart, localEnd)
-    : [startBlock.text.slice(localStart), endBlock.text.slice(0, localEnd)].join('\n'))
-  return buildAnnotationRangeContext({ startBlock, endBlock, localStart, localEnd, exact })
 }
 
 function freezeReviewSource() {

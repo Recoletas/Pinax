@@ -4,7 +4,7 @@
 
 ## 当前主线
 
-三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main。集成验收补齐 Experience 与 Notes 的耐久写入；B12 人物/活动状态提取和 Authoring 批注/改写会话 owner 随后完成。当前架构收尾顺序：批注 selection/DOM adapter 与 scope reset → 全仓 mutation result/durability 统一 → Experience turn coordinator；A12 跨工具关闭顺序作为前两项触及相关工具时一并关闭。组合证据见[验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。
+三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main。集成验收补齐 Experience 与 Notes 的耐久写入；B12 人物/活动状态提取和 Authoring 批注/改写完整工作区随后完成。当前架构收尾顺序：全仓 mutation result/durability 分域统一 → Experience turn coordinator → Authoring 首载/书稿激活协调器；A12 跨工具关闭顺序在相关 owner 中一并关闭。组合证据见[验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。
 
 夜间计划补充第四层溢出队列与固定控制表：三线主任务全完成后，才可分别进入 Authoring 加载/故障、Experience/store 接缝、ProseEssay/素材公共边界。O 在 T+0:30 至 T+8:00 按固定检查点续派并留时间证据；单次 worker final 不等于该线结束。见任务书 §20–21。
 

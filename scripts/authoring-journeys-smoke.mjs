@@ -31,12 +31,15 @@ async function expectVisible(page, selector, journey, timeout = 6000) {
 async function setup(page, journey, { chapters = 2 } = {}) {
   await page.goto(BASE + '/authoring', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1800)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一本书' }).click()
+  await page.locator('.wall__pin-cta', { hasText: /新建书稿|建立第一本书/ }).click()
   await page.fill('.modal input[placeholder="输入书籍名称"]', '雾港旧事')
   await page.click('.modal-footer .btn-primary')
   await page.waitForTimeout(700)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一章' }).click()
-  await page.waitForTimeout(900)
+  const firstChapterAction = page.locator('.wall__pin-cta', { hasText: '建立第一章' })
+  if (await firstChapterAction.count()) {
+    await firstChapterAction.click()
+    await page.waitForTimeout(900)
+  }
   await page.fill('input[aria-label="章节标题"]', '第一章 上元夜')
   const surface = page.locator('.writing-notebook-editor__surface .ProseMirror').first()
   await surface.click()
@@ -1041,12 +1044,15 @@ async function journeyLongDoc(page) {
   const journey = 'J11 长文'
   await page.goto(BASE + '/authoring', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1800)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一本书' }).click()
+  await page.locator('.wall__pin-cta', { hasText: /新建书稿|建立第一本书/ }).click()
   await page.fill('.modal input[placeholder="输入书籍名称"]', '雾港旧事')
   await page.click('.modal-footer .btn-primary')
   await page.waitForTimeout(700)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一章' }).click()
-  await page.waitForTimeout(900)
+  const firstChapterAction = page.locator('.wall__pin-cta', { hasText: '建立第一章' })
+  if (await firstChapterAction.count()) {
+    await firstChapterAction.click()
+    await page.waitForTimeout(900)
+  }
   const surface = page.locator('.writing-notebook-editor__surface .ProseMirror').first()
   await surface.click()
   for (let i = 0; i < 20; i += 1) {
@@ -1115,12 +1121,15 @@ async function journeyExploreAnnotation(page) {
   const journey = 'J12 探索批注隔离'
   await page.goto(BASE + '/authoring', { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1800)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一本书' }).click()
+  await page.locator('.wall__pin-cta', { hasText: /新建书稿|建立第一本书/ }).click()
   await page.fill('.modal input[placeholder="输入书籍名称"]', '雾港旧事')
   await page.click('.modal-footer .btn-primary')
   await page.waitForTimeout(700)
-  await page.locator('.wall__pin-cta', { hasText: '建立第一章' }).click()
-  await page.waitForTimeout(900)
+  const firstChapterAction = page.locator('.wall__pin-cta', { hasText: '建立第一章' })
+  if (await firstChapterAction.count()) {
+    await firstChapterAction.click()
+    await page.waitForTimeout(900)
+  }
   await page.fill('input[aria-label="章节标题"]', '第一章')
   const surface = page.locator('.writing-notebook-editor__surface .ProseMirror').first()
   await surface.click()
