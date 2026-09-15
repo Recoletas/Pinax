@@ -31,7 +31,26 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "range=origin/${{ github.base_ref }}...HEAD" >> "$GITHUB_OUTPUT"
           elif [ -n "${{ github.event.before }}" ] && ! [[ "${{ github.event.before }}" =~ ^0+$ ]]; then
-            echo "range=${{ github.event.before }}...${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            BEFORE="${{ github.event.before }}"
+            SHA="${{ github.sha }}"
+            MERGE_BASE=""
+            if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+              MERGE_BASE=$(git merge-base "$BEFORE" "$SHA" || true)
+            fi
+
+            if [ -n "$MERGE_BASE" ]; then
+              echo "range=${MERGE_BASE}...${SHA}" >> "$GITHUB_OUTPUT"
+            else
+              FIRST_PUSH_COMMIT=$(node -e "const event = require(process.env.GITHUB_EVENT_PATH); process.stdout.write(event.commits?.[0]?.id || '')")
+              if [ -n "$FIRST_PUSH_COMMIT" ] && git cat-file -e "${FIRST_PUSH_COMMIT}^" 2>/dev/null; then
+                echo "range=${FIRST_PUSH_COMMIT}^...${SHA}" >> "$GITHUB_OUTPUT"
+                echo "note=push 前序提交不可比较，改用本次 push 首提交之父作为基准" >> "$GITHUB_STEP_SUMMARY"
+              else
+                EMPTY_TREE=$(git hash-object -t tree /dev/null)
+                echo "range=${EMPTY_TREE}...HEAD" >> "$GITHUB_OUTPUT"
+                echo "note=无法解析 push 基准，改为空树→HEAD 全树检查" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
           else
             # 首次 push 等无基准事件：与空树比较，得到可解释的全树空白错误检查
             EMPTY_TREE=$(git hash-object -t tree /dev/null)

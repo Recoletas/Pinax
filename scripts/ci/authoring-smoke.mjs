@@ -14,7 +14,7 @@
  *   SMOKE_OUT_DIR（截图/日志目录，默认 tmp/authoring-smoke）
  */
 import { spawn } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +31,7 @@ const nodeBin = process.execPath
 const children = []
 let journeyFailed = false
 const blockedRequests = []
+const processDiagnostics = []
 
 function log(message) {
   console.log(`[authoring-smoke] ${message}`)
@@ -73,8 +74,18 @@ function startProcess(name, command, args, env) {
     detached: true
   })
   children.push({ name, child })
-  child.stdout.on('data', (data) => process.stdout.write(`[${name}] ${data}`))
-  child.stderr.on('data', (data) => process.stderr.write(`[${name}] ${data}`))
+  child.stdout.on('data', (data) => {
+    const message = String(data)
+    processDiagnostics.push(`[${name}:stdout] ${message}`)
+    process.stdout.write(`[${name}] ${message}`)
+  })
+  child.stderr.on('data', (data) => {
+    const message = String(data)
+    processDiagnostics.push(`[${name}:stderr] ${message}`)
+    process.stderr.write(`[${name}] ${message}`)
+  })
+  child.on('error', (error) => processDiagnostics.push(`[${name}:error] ${error?.stack || error}`))
+  child.on('exit', (code, signal) => processDiagnostics.push(`[${name}:exit] code=${code} signal=${signal}`))
   log(`${name} started pid=${child.pid}`)
   return child
 }
@@ -94,15 +105,26 @@ async function stopAll() {
   }
 }
 
+async function writeFailureReport(error, phase) {
+  await mkdir(OUT_DIR, { recursive: true })
+  await writeFile(join(OUT_DIR, 'failure.log'), [
+    `phase=${phase}`,
+    `error=${error?.stack || error}`,
+    '',
+    ...processDiagnostics.slice(-200)
+  ].join('\n'), 'utf8')
+}
+
 // 合成稿件：GB18030 编码的“# 潮汐档案 / # 第二章 晨雾”两章文本，
 // 字节序列与 C 线 Gate 的合成样例保持同源语义，内容不含任何真实书稿。
 const SYNTHETIC_GB18030_HEX =
   '2320b3b1cfabb5b5b0b80a0a232320b5dad2bbd5c220caa7b5c60a0ab8dbbfdacfa8b5c6a1a30a0a232320b5dab6fed5c220bbd8c9f90a0ad6d3c9f9b4d3cbaecfc2b4abc0b4a1a3'
 
 async function runJourney() {
-  const { default: fs } = await import('node:fs/promises')
   await mkdir(OUT_DIR, { recursive: true })
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({
+    args: process.env.CI ? ['--disable-dev-shm-usage', '--no-sandbox'] : []
+  })
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })
 
@@ -193,7 +215,7 @@ async function main() {
   await waitUntil(() => httpReachable(`http://127.0.0.1:${BACK_PORT}/api/rooms`), `backend :${BACK_PORT}`)
 
   const viteBin = join(root, 'node_modules', 'vite', 'bin', 'vite.js')
-  startProcess('vite', nodeBin, [viteBin, '--port', String(FRONT_PORT), '--strictPort'], {
+  startProcess('vite', nodeBin, [viteBin, '--host', '127.0.0.1', '--port', String(FRONT_PORT), '--strictPort'], {
     PINAX_DEV_BACKEND_ORIGIN: `http://127.0.0.1:${BACK_PORT}`
   })
   await waitUntil(() => httpReachable(BASE_URL), `frontend :${FRONT_PORT}`)
@@ -203,6 +225,7 @@ async function main() {
   } catch (error) {
     journeyFailed = true
     console.error('[authoring-smoke] journey FAILED:', error?.message || error)
+    await writeFailureReport(error, 'journey')
   }
 
   if (blockedRequests.length > 0) {
@@ -221,6 +244,11 @@ async function main() {
 
 try {
   await main()
+} catch (error) {
+  journeyFailed = true
+  console.error('[authoring-smoke] startup FAILED:', error?.stack || error)
+  await writeFailureReport(error, 'startup')
+  process.exitCode = 1
 } finally {
   await stopAll()
 }
