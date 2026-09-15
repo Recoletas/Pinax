@@ -1,5 +1,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { listNarrativeAssets, updateNarrativeAsset } from '../services/narrativeAssets'
+import {
+  listNarrativeAssets,
+  updateNarrativeAsset,
+  updateNarrativeAssetDurable
+} from '../services/narrativeAssets'
 import {
   createMarkdownMediaReference,
   hydrateMarkdownMediaContent,
@@ -154,20 +158,23 @@ export function useNotesAssetEditor({
     // 来源身份核对：素材已切换或正文已再编辑时，旧迁移结果不得写回
     if (getSelectedChapterId() !== asset.id || markdownContent.value !== sourceMarkdown) return
 
-    markdownContent.value = result.content
-    editorContent.value = markdownToHtml(result.content)
-    asset.content = result.content
-    asset.contentFormat = 'md'
-    asset.embeddedImagePresentations = remapEmbeddedImagePresentations(
+    const embeddedImagePresentations = remapEmbeddedImagePresentations(
       asset.embeddedImagePresentations,
       sourceMarkdown,
       result.content
     )
-    updateNarrativeAsset(asset.id, {
+    const persisted = updateNarrativeAssetDurable(asset.id, {
       content: result.content,
       contentFormat: 'md',
-      embeddedImagePresentations: asset.embeddedImagePresentations
+      embeddedImagePresentations
     })
+    if (!persisted.ok) return
+
+    markdownContent.value = result.content
+    editorContent.value = markdownToHtml(result.content)
+    asset.content = result.content
+    asset.contentFormat = 'md'
+    asset.embeddedImagePresentations = embeddedImagePresentations
     nextTick(() => {
       renderWysiwyg()
       renderPreview()

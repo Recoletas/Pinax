@@ -4,7 +4,7 @@
 
 ## 当前主线
 
-三线交付后的执行入口改为[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)：A 先修共同基线；B 首轮 Node/API/状态修复已完成，但须把 runtime 恢复的 session 同步与持久化移到 switch/undo/failure/regenerate 最终一致态；C 须继续拆开 catalog refresh/editor activation，关闭同 id 重载、异步刷新与 mutation 假成功。修正完成后按 B → C → A 组合。旧 A 分支禁止整支合入，公共 D/S 包由 O 串行完成。
+三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main。集成验收又补齐 Experience 失败/取消最终一致态落盘、关闭 AI 的重生成 no-op，以及 Notes 媒体迁移/参考图新建的耐久写入。后续不再重复这轮拆分；从 A12 跨工具关闭顺序、B12 人物/活动状态提取两个明确 partial 中择一继续，或先进入真实作者 Web 内测收集架构之外的产品问题。组合证据见[验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。
 
 夜间计划补充第四层溢出队列与固定控制表：三线主任务全完成后，才可分别进入 Authoring 加载/故障、Experience/store 接缝、ProseEssay/素材公共边界。O 在 T+0:30 至 T+8:00 按固定检查点续派并留时间证据；单次 worker final 不等于该线结束。见任务书 §20–21。
 
@@ -14,7 +14,7 @@
 
 三线任务书已加量：新增 12 个代码接续包及 D1–D8 文档整理，第一批后继续显式参考/Observer/第二条素材异步链；README、上手说明、架构真源、文档导航与过期内容纠偏是必交，不只更新回执。执行顺序与冻结窗口见任务书 §13–15。
 
-下一轮执行入口：[三线夜间架构整理任务书](./plan/architecture-night-three-tracks-20260914.md)（待执行）。A：Authoring 行内写作助手/文档输入适配；B：gameStore 会话规范化/保存调度/历史投影；C：Notes 素材目录/编辑保存/异步归属。约 8 小时并行预算，必须预留组合验收；按完整职责迁移验收，不以减行数或耗满时间代替交付。
+三线夜间架构整理任务书已执行并完成修正集成。A/B/C 的主职责切片进入 main；计划中的 A12、B12 和未启动溢出包仍按 summary 明示为 partial/队列，不由“整合完成”自动升级为 done。
 
 2026-09-14 架构整理持续收口：以[当前架构与代码边界](./engineering/current-architecture.md)作为代码 owner 真源。Authoring 的 navigation、persistence、inspector、scene、scene laboratory、Character IF、rehearsal、intervention 已抽出；Block、Ghost adoption、章节校对以及搜索/替换也分别进入完整 workflow。`Authoring.vue` 已从本轮起点 13,781 行降至 12,823 行。下一阶段按同样尺度处理写作 Agent/inline suggestion 的触发、请求所有权、取消、候选、失效与采用衔接；不是继续拆零散状态。根层 service 迁移保持纯路径变更。
 

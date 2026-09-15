@@ -1,9 +1,10 @@
 import {
-  addNarrativeAsset,
+  addNarrativeAssetDurable,
   listNarrativeAssets,
   normalizeImagePresentation,
   normalizeSourceRefs,
-  updateNarrativeAsset
+  updateNarrativeAsset,
+  updateNarrativeAssetDurable
 } from '../narrativeAssets'
 import {
   deleteMediaAsset,
@@ -20,7 +21,7 @@ export async function migrateNarrativeImageAssets(options = {}) {
     if (asset.kind !== 'reference-image' || !asset.image?.data) continue
     try {
       const mediaAsset = await saveImageBinary(asset.id, asset, options)
-      updateNarrativeAsset(asset.id, {
+      updateNarrativeAssetDurable(asset.id, {
         image: toNarrativeImageMetadata(asset.image, mediaAsset)
       })
     } catch {
@@ -62,12 +63,14 @@ export async function addNarrativeImageAsset(input = {}, options = {}) {
   }
 
   try {
-    const asset = addNarrativeAsset({
+    const created = addNarrativeAssetDurable({
       ...input,
       id: narrativeAssetId,
       kind: 'reference-image',
       image: toNarrativeImageMetadata(image, mediaAsset)
     })
+    if (!created.ok) throw new Error(`参考图素材保存失败：${created.reason}`)
+    const asset = created.asset
     const selfRef = {
       refType: 'narrative-asset',
       refId: asset.id,

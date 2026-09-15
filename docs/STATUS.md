@@ -6,16 +6,12 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-14 夜间成果集成 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | A/B/C 已组合并完成本地封板：推演后果右栏、首访/导入/自救、公开 alpha 工程；真实 MiniMax 12 步 + 3 试稿尝试。公开动作与外部决策仍待用户。 |
+| Codex / 2026-09-15 架构三线集成 | `/home/recoletas/jiuguan/pinax-integration-20260906` | `main` | A/B/C 修正树已按 B → C → A 压缩合入；集成审查补 Experience 失败/取消最终落盘、关闭 AI 重生成 no-op，以及 Notes 媒体迁移/参考图耐久写入。组合 `verify:full`、两项浏览器 Gate 与故障矩阵均通过，工作树已提交并解除三线写锁。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
-- **2026-09-15 三线夜间成果独立复验：均需修正后集成**：A 已在修正树 `f6e158b` 从共同基线 `37e0679` 逐意图重建，未再复活 143 文件旧快照；host/reference owner 抽取方向成立，独立 focused 31/31、推演 304/304、F2 33/33 与 `verify:full` 全绿，但生产把函数 `activeDocumentSaveScopeKey` 错作 `.value`，参考实际绑定空 scope，IME/临时取消/采纳异常边界也未闭环，故为 fix-required。B 在 `fc19801` 已修 Node 22 navigator、API 口径与 B12/B13/B14 状态；随后 `5e0d12c` 修空项目 id 并让空闲 writer 强制写盘，但把 `saveCurrentSession()` 放进 `applyRuntimeSnapshot()` 会在分支/撤销/失败事务中途保存半成品。独立复跑矩阵 16/16、`verify:full` 全绿，但尚未覆盖外层事务 fresh reload，故仍为 fix-required。C 在 `8bb8256` 已修正不同 id 保存失败保护，但 `loadNotes()` 同 id/异步重载仍可能覆盖草稿，仍为 fix-required。A/B/C 二次指导分别位于各修正 worktree 的 `a|b|c/O-REACCEPTANCE-AND-FIX-GUIDE-20260915.md`。当前不得直接合并；D1–D8 公共文档与 S0–S8 O 侧收尾也尚未完成。
-
-- **夜间架构计划最终加量（仍待执行）**：任务书已形成四层队列：第二批 12 包、D1–D8 文档、S0–S8 skill、第三批 A10–A13/B11–B14/C10–C13，并追加 A14–A17/B15–B18/C14–C17 溢出包。§19–21 要求提前 final 后原 worktree 续派、T+0:30 至 T+8:00 固定检查、T+6:30 冻结和时间证据；不用等待/重复测试凑时间。本次仍只修改计划，尚未启动 worker、修改 skills 或实施代码。
-
-- **2026-09-14 三线夜间架构计划待执行**：[详细任务书](./plan/architecture-night-three-tracks-20260914.md)已编制，A 接管 Authoring 写作助手生命周期，B 整理 gameStore 会话规范化/保存/历史，C 整理 Notes 目录/编辑/异步归属。包含同一 WIP 基线快照、独占写集、主包与储备、约 8 小时预算及组合验收；尚未创建实施 worktree、启动 worker 或合并。任务板已登记 planned，不覆盖其他历史任务状态。
+- **2026-09-15 三线架构修正树已完成集成（最终门禁进行中）**：共同基线 `37e0679`；B 的会话规范化/保存调度/历史投影、C 的 Notes 目录与编辑生命周期、A 的 Authoring 行内写作 Agent owner 已依次压缩合入 main。独立复验确认 A 参考 scope、IME、临时取消与采纳异常边界闭环；C 的 catalog refresh 不再重装 editor，同 id 激活为 no-op，破坏性 mutation 有耐久结果。集成审查另发现并修复 B 普通生成失败/取消未保存最终回滚态、关闭 AI 仍改重生成分支，以及 C 媒体迁移和参考图新建仍可能假成功。最终组合证据写入[集成验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。A12、B12 的明确 partial 与其余溢出包继续留在后续队列，不冒称整份夜间计划全做完。
 
 - **2026-09-14 Authoring 第十至十三片已按完整事务收口**：`useAuthoringBlockWorkflow` 接管 Block composer/preview/turn；`useAuthoringGhostAdoptionWorkflow` 接管 stale 复核、编辑器写入、scene/outline delta、回滚/重试、observer、IF 消费与撤销；`useAuthoringReviewWorkflow` 接管章节校对的冻结、分批模型循环、采用与撤销；`useAuthoringSearchWorkflow` 接管来源冻结、四域索引、去抖、结果新鲜度、跨章定位/回程和替换预览/全书原子提交。`Authoring.vue` 由本轮起点 13,781 行降至 **12,823 行**（单轮净降 958；累计从 15,932 行降 3,109），143 imports。定向 ESLint 0/0、聚焦 55/55、Vite build、F2 校对/查找/历史 33/33、推演右栏 304/304、F1 rehearsal 48/48、IF 28/28 通过。浏览器门禁真实抓到并修复 Block host 参数名和 Review null identity 两处迁移错误；下一刀是写作 Agent/inline suggestion 生命周期，而不是继续拆百行 helper。
 

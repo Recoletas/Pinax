@@ -9,11 +9,11 @@
 
 | 包 | 状态 | 交付 |
 |---|---|---|
-| B0 API/存档地图 | **done** | `b0-api-map.md`（口径已回填：73 state keys / 136 actions） |
+| B0 API/存档地图 | **done** | `b0-api-map.md`（最终口径：73 state keys / 137 actions） |
 | B1 规范化与快照 | **done** | `gameSessionNormalization.js`（函数体逐字节迁移；经 B10 清扫后 37 个导出，6 个仅内部消费的 helper 降级私有） |
 | B2 会话保存调度 | **done** | `gameSessionScheduler.js`：每实例 500ms trailing 写手 + lastWriteOk（保存失败可观测）；unload flush 语义：**flushPending 为应用级全局 flush（清空全部 useDebounce 任务），非每 store 隔离**，注册单处、与迁出前一致 |
 | B3 历史/恢复投影 | **done** | `gameRuntimeProjection.js`；loadSession 的 legacy 回退链留 store（登记 D4） |
-| B4 facade 收尾 | **done** | 公开 API 统一脚本核验：`experience-store-api-surface.mjs` 73 state keys / 136 actions，`37e0679` 与工作树**零增删** |
+| B4 facade 收尾 | **done** | 公开 API 统一脚本核验：`experience-store-api-surface.mjs` 73 state keys / 137 actions；唯一新增为外层事务窄提交点 `commitCurrentSessionNow` |
 | B5 自审与验证 | **done** | 故障矩阵 14/14（含配额失败三元断言：返回/内存/持久化；switchBranch/gc 生产路径用例）；浏览器：Experience 渲染/刷新零 pageerror，Authoring 推演 Gate 304/304 |
 | B7 observer 订阅（第二批） | **done** | `gameObserverRuntime.js` hub；订阅寿命合同显式化 |
 | S3 世界书 skill | **done** | a30b82c；guide 修订留 O |
@@ -28,9 +28,9 @@
 
 | 指标 | 基线 `37e0679` | 工作树 |
 |---|---|---|
-| gameStore.js 行数 | 4,854 | 3,759 左右（以最终提交为准） |
+| gameStore.js 行数 | 4,854 | 3,796（含 O 集成修复） |
 | state keys（顶层，4 空格缩进口径） | 73 | 73，零增删 |
-| actions（4 空格函数定义口径） | 136 | 136，零增删 |
+| actions（4 空格函数定义口径） | 136 | 137，新增最终一致态窄提交点 |
 | store 内 timer | WeakMap 去抖器 + 全局 unload 监听 | 零 timer；调度在 scheduler，unload 监听单处 |
 | 新模块 | 0 | `src/services/experience/` 8 个文件 |
 | 存档 schema | WRITING_SESSIONS v1 | 不变 |
@@ -47,7 +47,7 @@
 
 ## 验证记录（修正后）
 
-- `experience-session-fault-matrix.mjs`：**19/19**，Node `v20.20.2` 与 `v22.22.3` 双环境通过
+- `experience-session-fault-matrix.mjs`：源分支 **19/19**；O 集成补失败出口后为 **20/20**，Node `v20.20.2` 与 `v22.22.3` 双环境通过
 - `npx vitest run`（全量）：修复后 **200/200**；focused gameStoreSession 6/6
 - `npm run verify:full`：修正 HEAD **exit 0**（见下方提交信息；组合后由 O 重跑）
 - 浏览器：rehearsal-panel 304/304（首轮实现树；修复未触 UI，组合树由 O 复验）

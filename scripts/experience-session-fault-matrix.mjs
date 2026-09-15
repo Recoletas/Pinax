@@ -598,6 +598,47 @@ check('B-R2 undo-extension 旅程：撤销后 fresh reload，segment 与 runtime
   assert.ok(fresh.turnRecords['t-base'], '基回合随会话持久化')
 })
 
+check('B-R3 重新生成边界：关闭 AI 严格 no-op，失败候选恢复旧分支并耐久保存', async () => {
+  storageMap.clear()
+  const store = freshStore()
+  store.loadSessions()
+  store.createSession({ title: '重新生成边界' })
+  store.messages = [
+    { id: 'm-user', role: 'user', content: '推门' },
+    { id: 'm-old', role: 'assistant', content: '门后是旧路', branchId: 'main' }
+  ]
+  store.turnRecords = {
+    't-old': {
+      id: 't-old', status: 'committed', branchId: 'main', committedAt: 100,
+      parentTurnId: null, userMessageIds: ['m-user'], assistantMessageIds: ['m-old'],
+      postRuntimeSnapshot: { flags: { route: 'old' } }
+    }
+  }
+  store.lastCommittedTurnId = 't-old'
+  store.flags = { route: 'old' }
+  store.commitCurrentSessionNow()
+
+  store.useAI = false
+  const before = JSON.stringify(store.$state)
+  assert.equal(await store.regenerateFrom(0), false)
+  assert.equal(JSON.stringify(store.$state), before, '关闭 AI 时不得创建分支或改 runtime')
+
+  store.useAI = true
+  store.generateAIResponse = async () => 'error'
+  assert.equal(await store.regenerateFrom(0), true)
+  assert.equal(store.activeBranchId, 'main')
+  assert.equal(store.flags.route, 'old')
+  const fresh = freshStore()
+  fresh.loadSessions()
+  fresh.loadSession(store.currentSessionId)
+  assert.equal(fresh.activeBranchId, 'main', '失败恢复后的旧分支必须已落盘')
+  assert.equal(fresh.flags.route, 'old')
+
+  const fs = await import('node:fs')
+  const source = fs.readFileSync(new URL('../src/stores/gameStore.js', import.meta.url), 'utf8')
+  assert.match(source, /productionOutcome !== 'success'[\s\S]{0,180}!this\._isRegenerating[\s\S]{0,100}commitCurrentSessionNow\(\)/)
+})
+
 
 check('B14 补丁键集：runtime reset 补丁与基线逐字段清单完全一致（56 项）', async () => {
   const { buildRuntimeResetPatch } = await import('../src/services/experience/gameLifecycleDefaults.js')

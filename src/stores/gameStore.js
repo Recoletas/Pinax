@@ -1439,8 +1439,8 @@ export const useGameStore = defineStore('game', {
     // 复用 loadSession 的 normalize 模式；不恢复 messages/chatHistory（由调用方单独处理）。
     applyRuntimeSnapshot(snapshot) {
       if (!snapshot || typeof snapshot !== 'object') return
-      // 恢复补丁由 projection 模块归一化；缺失字段回退当前状态（与迁出前一致），
-      // assign 后立即落盘（不依赖 500ms debouncer），崩溃/刷新不丢恢复结果
+      // 恢复补丁由 projection 模块归一化；缺失字段回退当前状态（与迁出前一致）。
+      // 本层只计算并应用投影；是否以及何时落盘由外层完整事务决定。
       const patch = projectRuntimeSnapshot(snapshot, {
         player: this.player,
         inventory: this.inventory,
@@ -2100,6 +2100,10 @@ export const useGameStore = defineStore('game', {
 
     async regenerateFrom(index) {
       debugLog('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
+      // 未启用 AI 时“重新生成”没有可执行的后续动作；必须保持为严格 no-op，
+      // 不能先回滚 runtime、创建临时分支或改写 superseded 标记。
+      if (!this.useAI) return false
+
       // 1. 确保游戏在播放状态
       this.isPlaying = true
 
@@ -2142,8 +2146,8 @@ export const useGameStore = defineStore('game', {
       this.rebuildChatHistory();
       debugLog('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
 
-      // 3. 如果开启了 AI，立即触发重新生成
-      if (this.useAI) {
+      // 3. 立即触发重新生成（useAI 已在入口守卫）
+      {
         // 标记为重写后续，避免触发初始化逻辑
         this._isRegenerating = true
         // P0-3：新 turn 作为旧 turn 的 sibling（同父级），并传入源用户消息 id，
@@ -2165,6 +2169,7 @@ export const useGameStore = defineStore('game', {
         this._isRegenerating = false
         debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
       }
+      return true
     },
 
     // R1b：切换候选/分支。恢复该分支的 post snapshot + 重建 chatHistory。
@@ -3014,6 +3019,16 @@ export const useGameStore = defineStore('game', {
             failureVisible: isTypedFailureVisible
           }
         })
+        // 普通生成失败/取消也必须保存“回滚完成 + loading 已清理”的最终一致态。
+        // regenerate 由外层 switchBranch 负责提交，避免把临时失败分支写入存档。
+        if (
+          ownsGeneration
+          && productionOutcome !== 'success'
+          && this.currentSessionId
+          && !this._isRegenerating
+        ) {
+          this.commitCurrentSessionNow()
+        }
       }
       // P0-3：返回生成结果（'success' | 'error' | 'cancelled'），供 regenerateFrom 失败恢复分支
       return productionOutcome
