@@ -1,4 +1,4 @@
-import { MEMORY_RETRIEVAL_POLICY, normalizeStringList } from '../../shared/memoryContract'
+import { MEMORY_RETRIEVAL_POLICY, normalizeStringList } from '../../../shared/memoryContract'
 import { deriveMemoryImportance } from './memoryImportance'
 
 const AUTHORITY_SCORES = Object.freeze({

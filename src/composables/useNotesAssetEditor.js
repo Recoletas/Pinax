@@ -1,7 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   updateNarrativeAssetDurable
-} from '../services/narrativeAssets'
+} from '../services/media/narrativeAssets'
 import {
   createMarkdownMediaReference,
   hydrateMarkdownMediaContent,
@@ -209,9 +209,9 @@ export function useNotesAssetEditor({
     chapter.content = persisted.asset.content
     try {
       flushVisualPresentation(chapter)
-    } catch (error) {
+    } catch {
       // 正文已持久化；版式落盘失败只降级提示，不回滚、不判失败
-      console.warn('[Notes] 插画版式落盘失败（正文已保存）:', error)
+
     }
     saveStatus.value = 'saved'
     return { ok: true, assetId: chapter.id }

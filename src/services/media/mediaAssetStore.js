@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../../composables/useStorage'
-import { normalizeImagePresentation, normalizeSourceRefs } from '../narrativeAssets'
+import { normalizeImagePresentation, normalizeSourceRefs } from './narrativeAssets'
 
 export const MEDIA_ASSET_SCHEMA_VERSION = 1
 export const MEDIA_DATABASE_NAME = 'pinax-media'

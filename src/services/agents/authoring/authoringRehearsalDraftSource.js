@@ -15,6 +15,10 @@ function freezeDeep(value) {
 export function buildRehearsalDraftSource({ run, route, routeState }) {
   if (!run || !route) return null
   const steps = Array.isArray(route.steps) ? route.steps : []
+  const toolReceipts = steps.flatMap((step) => step?.toolReceipt ? [step.toolReceipt] : [])
+  const toolResultRefs = [...new Set(toolReceipts.flatMap((receipt) => (
+    (receipt.calls || []).flatMap((call) => call.resultRefs || [])
+  )))]
   const source = {
     kind: 'authoring-rehearsal-draft-source',
     version: 1,
@@ -22,7 +26,14 @@ export function buildRehearsalDraftSource({ run, route, routeState }) {
     stepIds: steps.map(step => step.id),
     conditionGeneration: run.conditionGeneration ?? 0,
     pathText: rehearsalPathText(steps),
+    consequences: steps.flatMap((step) => (step.consequences || []).map((consequence) => ({
+      ...consequence,
+      stepId: step.id,
+      stepAction: step.action
+    }))),
     prefixFingerprint: consequenceFingerprint('draft-prefix', steps.map(step => [step.id, step.response, step.change])),
+    toolReceiptFingerprint: consequenceFingerprint('draft-tools', toolReceipts),
+    toolResultRefs,
     stateFingerprint: routeState?.stateFingerprint || '',
     // 冻结的目标落点：编辑/采纳沿用既有 Ghost 目标版本事务，来源可核对
     target: run.target ? JSON.parse(JSON.stringify(run.target)) : null,
@@ -41,6 +52,8 @@ export function isRehearsalDraftSourceCurrent(source, { route, routeState, condi
   if (steps.some((step, index) => step.id !== source.stepIds[index])) return false
   const prefixFingerprint = consequenceFingerprint('draft-prefix', steps.map(step => [step.id, step.response, step.change]))
   if (prefixFingerprint !== source.prefixFingerprint) return false
+  const toolReceipts = steps.flatMap((step) => step?.toolReceipt ? [step.toolReceipt] : [])
+  if (consequenceFingerprint('draft-tools', toolReceipts) !== source.toolReceiptFingerprint) return false
   if (routeState?.stateFingerprint && source.stateFingerprint && routeState.stateFingerprint !== source.stateFingerprint) return false
   return true
 }

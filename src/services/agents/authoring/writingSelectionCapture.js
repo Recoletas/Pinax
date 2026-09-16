@@ -12,7 +12,7 @@
 import {
   addNarrativeAssetDurable,
   findDuplicateNarrativeAsset
-} from '../../narrativeAssets'
+} from '../../media/narrativeAssets'
 
 const MAX_SNIPPET = 240
 const MAX_TITLE = 24

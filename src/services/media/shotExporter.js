@@ -13,9 +13,9 @@ import {
   FPS,
   inferShotTypeFromEmotion,
   inferToneFromEmotion
-} from '../types/director'
+} from '../../types/director'
 import { getAssetKindLabel } from './narrativeAssets'
-import { getChapterMarkdown } from './writing/writingDocumentSchema.js'
+import { getChapterMarkdown } from '../writing/writingDocumentSchema.js'
 
 /**
  * @typedef {Object} Shot

@@ -25,8 +25,8 @@ import {
   setNarrativeAssetStatus,
   updateNarrativeAsset,
   updateNarrativeAssetDurable
-} from '@/services/narrativeAssets'
-import { createChapterOutlineItemFromAsset } from '@/services/chapterOutline'
+} from '@/services/media/narrativeAssets'
+import { createChapterOutlineItemFromAsset } from '@/services/writing/chapterOutline'
 import {
   addNarrativeImageAsset,
   getMediaImagePresentation,
@@ -40,7 +40,7 @@ import {
 import {
   ensureAssetCanvasCards,
   listRelationCanvasCards
-} from '@/services/relationCanvas'
+} from '@/services/canvas/relationCanvas'
 
 describe('narrativeAssets', () => {
   beforeEach(() => {

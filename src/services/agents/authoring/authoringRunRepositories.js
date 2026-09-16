@@ -5,8 +5,8 @@
 import { readWorldbookSnapshot } from '../../../stores/worldStore.js'
 import { getExplorationDocument } from '../../writing/authoringDocumentRepository.js'
 import { findWritingBook, loadWritingBooks } from '../../writing/writingBooksRepository.js'
-import { listNarrativeAssets } from '../../narrativeAssets.js'
-import { listMemoryCandidates } from '../../memoryCandidates.js'
+import { listNarrativeAssets } from '../../media/narrativeAssets.js'
+import { listMemoryCandidates } from '../../memory/memoryCandidates.js'
 import { buildDocumentRevision } from './authoringTextTransaction.js'
 import {
   getChapterDocument,

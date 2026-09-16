@@ -12,7 +12,7 @@ import {
   normalizeRuntimeEvent,
   rollbackStateDelta,
   validateStateDelta
-} from '../services/runtimeEvents'
+} from '../services/experience/runtimeEvents'
 
 describe('runtimeEvents', () => {
   it("exports the schema constants and allowlists（合并4例）", async () => {

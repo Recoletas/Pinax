@@ -89,6 +89,10 @@ jobs:
         run: npm ci
       - name: Run build
         run: npm run build
+      - name: Authoring build-size gate
+        run: npm run architecture:build-size
+      - name: Architecture structure gate
+        run: npm run architecture:check
 
   authoring-smoke:
     runs-on: ubuntu-latest
@@ -123,10 +127,23 @@ jobs:
         env:
           SMOKE_OUT_DIR: smoke-artifacts
 
+      - name: Run workspace backup smoke (no model key)
+        run: npm run ci:workspace-backup-smoke
+        env:
+          BACKUP_CHECK_OUT_DIR: backup-smoke-artifacts
+
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: authoring-smoke-artifacts
           path: smoke-artifacts/
+          retention-days: 7
+
+      - name: Upload backup failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-backup-smoke-artifacts
+          path: backup-smoke-artifacts/
           retention-days: 7

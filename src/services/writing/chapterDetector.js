@@ -13,7 +13,7 @@ import {
   aggregateChapterDetectionConfidence,
   computeUnmatchedRanges,
   normalizeChapterList
-} from '../../shared/chapterContract'
+} from '../../../shared/chapterContract'
 
 const CN_NUMERAL = '零〇一二三四五六七八九十百千万两0-9０-９'
 // 行内空白含全角空格 U+3000（中文网文标题常用）。

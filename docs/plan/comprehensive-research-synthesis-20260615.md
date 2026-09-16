@@ -363,7 +363,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 | 8 | Color contrast `#9a6a2f` → token(v2 从 T3 升) | `.rp-dialogue-quote-warm` 当前在 archive paper 上 fail WCAG AA | `src/styles/main.css:694-700` | 1 天真 bug |
 | 9 | Vue 3.5 特性 sweep | 启用 `defineModel` / `useTemplateRef` / `useId` / `onWatcherCleanup` | Vue 全局 | drop-in 收益 |
 | 10 | ~~立体感 v5 plan doc 落地(v2 新)~~ | 历史计划已完成并清理；本条从 Tier 1 删除 | — | 0 |
-| 11 | **V2 世界书对齐 + CJK token 修 + save debounce**(bundle exception) | 一次申请 `worldbook-workflow` + `gameStore` 例外;3 个 fix 一并发 | `src/services/worldbookContextBuilder.js` + `src/stores/gameStore.js`(都 "do not touch") | **例外请求先** |
+| 11 | **V2 世界书对齐 + CJK token 修 + save debounce**(bundle exception) | 一次申请 `worldbook-workflow` + `gameStore` 例外;3 个 fix 一并发 | `src/services/worldbook/worldbookContextBuilder.js` + `src/stores/gameStore.js`(都 "do not touch") | **例外请求先** |
 | 12 | Pinia 3 升级 + `markRaw` on LLM(v2 增 `markRaw` 单独条目) | 版本 bump 单独 PR(不绑 setup-store 迁移);`useCopilot.js` / `useMem0.js` LLM 响应 `markRaw` | `package.json` + `src/composables/useCopilot.js` / `useMem0.js` | 1-2 天,v2 grep 验证 LLM 响应未 markRaw |
 
 **v2 新增 6 个 Tier 1**:
@@ -400,7 +400,7 @@ Pinax 在差异化点(worldbook 上下文构建、地图引擎、kao 档案册�
 | 25 | Local-first Phase A | schema 文档 + IndexedDB 替代 localStorage 写热点 | `src/composables/useStorage.js` + 新 `services/storage/IndexedDBStore.js` | 不变 |
 | 26 | **`comlink.transfer()` worker payload** | 改 `worker-bridge.ts:91-98` 用 `comlink.transfer(Float64Array.buffer)` | `src/services/world-map/engine/worker-bridge.ts` | 不变 |
 | 27 | IndexedDB 缓存 `VoronoiMapData` | key = `seed + configHash`,lazy rehydrate | `src/stores/geographyStore.js:189` | 不变 |
-| 28 | **Vector RAG 世界书 spike**(v2 从 T4 升) | 装 mem0ai 已装;1-2 周 spike:100 entries → mem0ai 提取 entities + relations + 索引;A/B 测上下文质量 | `src/services/worldbookContextBuilder.js`("do not touch" 例外) | T4→T2(spike) |
+| 28 | **Vector RAG 世界书 spike**(v2 从 T4 升) | 装 mem0ai 已装;1-2 周 spike:100 entries → mem0ai 提取 entities + relations + 索引;A/B 测上下文质量 | `src/services/worldbook/worldbookContextBuilder.js`("do not touch" 例外) | T4→T2(spike) |
 | 29 | **`currentScene` + `sceneState` token**(v2 新) | `gameStore` 加 `sceneState: { scene, beat, mood }` 字段,会话恢复时携带 | `src/stores/gameStore.js`("do not touch" 例外) | 新 |
 | 30 | **`effectScope` per session**(v2 新) | 每个会话一个 `effectScope`,`scope.stop()` 清理 watchers / listeners / observers | `src/composables/useSession.js`(新)或 `useCopilot.js` | 新 |
 | 31 | **i18n 基础设施**(v2 新) | 装 `vue-i18n@9`;`Settings.vue:33-35` 已暴露 `locale: 'zh-CN' | 'en-US'` 但无效果;加 `messages/zh-CN.json` + `messages/en-US.json`;chrome 留中文,error/toast/worldbook schema 文档走 en-US | `src/components/Settings.vue:33-35,232` + 新 `src/i18n/` | 新 |

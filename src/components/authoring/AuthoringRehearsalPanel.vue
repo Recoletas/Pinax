@@ -8,7 +8,8 @@ const props = defineProps({
   title: { type: String, default: '' },
   drafting: Boolean,
   draftState: { type: String, default: 'none' },
-  firstRunHint: { type: String, default: '' }
+  firstRunHint: { type: String, default: '' },
+  memoryWorkflow: { type: Object, default: null }
 })
 const emit = defineEmits(['start', 'draft', 'view-draft', 'locate', 'if', 'check-connection'])
 const steps = computed(() => props.rehearsal.steps.value)
@@ -246,6 +247,19 @@ function consequenceLines(item) {
     return ''
   }).filter(Boolean)
 }
+function receiptSources(item) {
+  const refs = new Set((item.toolReceipt?.calls || []).flatMap(call => call.resultRefs || []))
+  return (props.rehearsal.run.value?.runSession?.manifest?.blocks || [])
+    .filter(block => refs.has(block.primarySourceRef) || (block.sourceRefs || []).some(ref => refs.has(ref)))
+    .map(block => ({
+      title: block.label || '历史资料',
+      type: block.kind === 'history-node' ? '历史' : '参考',
+      summary: String(block.text || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    }))
+}
+function receiptCount(item) {
+  return (item.toolReceipt?.calls || []).reduce((total, call) => total + Number(call.resultCount || 0), 0)
+}
 const compareDifferences = computed(() => (props.rehearsal.compareRoutes(compareId.value)?.differences || []).slice(0, 3))
 // 展开对照时把它带进视野：作者不该为一屏之外的比较内容再滚一次。
 async function onCompareToggle(event) {
@@ -307,6 +321,13 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
               <div class="rehearsal-step-tools">
                 <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">从这里换路</button>
                 <details class="rehearsal-consequence"><summary>局面变化</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
+                <details v-if="item.toolReceipt?.status === 'completed'" class="rehearsal-evidence" data-test="rehearsal-evidence">
+                  <summary>查阅 {{ receiptCount(item) }} 项 · 查看</summary>
+                  <ul><li v-for="source in receiptSources(item)" :key="source.title"><strong>{{ source.title }}</strong><small>{{ source.type }} · {{ source.summary }}</small></li></ul>
+                </details>
+                <p v-else-if="item.toolReceipt?.status === 'unavailable'" class="rehearsal-evidence-status">本次未能查阅资料，可用下方原行动重试。</p>
+                <p v-else-if="item.toolReceipt?.status === 'denied'" class="rehearsal-evidence-status">请求的资料不在本次参考范围。<button type="button" @click="emit('locate')">查看本次参考</button></p>
+                <p v-else-if="item.toolReceipt?.status === 'failed'" class="rehearsal-evidence-status">资料查询失败，回应未采用查询结果。</p>
               </div>
             </div>
           </li>
@@ -355,6 +376,18 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             </article>
           </details>
         </div>
+        <section v-if="memoryWorkflow?.available.value" class="rehearsal-memory" data-test="rehearsal-memory">
+          <button v-if="!memoryWorkflow.open.value" type="button" class="rehearsal-memory-open" @click="memoryWorkflow.begin">记住一项变化</button>
+          <form v-else @submit.prevent="memoryWorkflow.submit">
+            <p>采用稿已经保存。选择一项变化，加入现有记忆审核：</p>
+            <div class="rehearsal-memory-options" role="radiogroup" aria-label="选择要记住的变化">
+              <button v-for="(consequence, consequenceIndex) in memoryWorkflow.consequences.value" :key="consequence.stepId + consequenceIndex" type="button" role="radio" :aria-checked="memoryWorkflow.selectedIndex.value === consequenceIndex" @click="memoryWorkflow.select(consequenceIndex)">{{ consequence.content || consequence.name || consequence.stepAction }}</button>
+            </div>
+            <label>记忆文字<input :value="memoryWorkflow.draft.value" maxlength="180" @input="memoryWorkflow.setDraft($event.target.value)" /></label>
+            <p v-if="memoryWorkflow.error.value" class="rehearsal-memory-error" role="alert">{{ memoryWorkflow.error.value }}</p>
+            <div class="rehearsal-memory-actions"><button type="button" @click="memoryWorkflow.cancel">取消</button><button type="submit">加入待审核</button></div>
+          </form>
+        </section>
       </template>
       <div v-if="rehearsal.error.value" class="rehearsal-failure" role="alert" data-test="rehearsal-failure">
         <p class="rehearsal-failure__text">{{ failureHeadline }}行动草稿和已有走法都还在。</p>
@@ -445,6 +478,14 @@ svg { flex-shrink:0; }
 .rehearsal-consequence[open] { flex-basis:100%; }
 .rehearsal-consequence p { margin:0 0 4px; line-height:1.8; }
 .rehearsal-consequence ul { margin:6px 0 4px; padding-left:18px; line-height:1.75; color:var(--text-secondary); }
+.rehearsal-evidence > summary { cursor:pointer; padding:4px 0; }
+.rehearsal-evidence[open] { flex-basis:100%; }
+.rehearsal-evidence ul { margin:6px 0 4px; padding:0; list-style:none; }
+.rehearsal-evidence li { display:grid; gap:2px; padding:6px 0; border-top:1px solid var(--hairline-soft); }
+.rehearsal-evidence strong { color:var(--text-primary); font-weight:600; }
+.rehearsal-evidence small { color:var(--text-muted); line-height:1.65; }
+.rehearsal-evidence-status { flex-basis:100%; margin:4px 0 0; color:var(--text-muted); line-height:1.65; }
+.rehearsal-evidence-status button { padding:0 4px; text-decoration:underline; text-underline-offset:3px; }
 .rehearsal-options { display:grid; margin-top:14px; border-top:1px solid var(--hairline-soft); }
 .rehearsal-options button { text-align:left; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; font-size:13px; line-height:1.7; }
 .rehearsal-options svg { color:var(--text-muted); }
@@ -453,6 +494,17 @@ svg { flex-shrink:0; }
 .rehearsal-new { display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:6px 10px; border:1px solid var(--hairline-soft); border-radius:999px; font-size:12px; color:var(--text-secondary); background:var(--archive-paper); }
 .rehearsal-stale { margin-top:14px; font-size:12px; line-height:1.8; color:var(--text-secondary); }
 .rehearsal-routes { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 14px; margin-top:20px; padding-top:12px; border-top:1px solid var(--hairline-soft); font-size:12px; color:var(--text-secondary); }
+.rehearsal-memory { margin-top:16px; padding-top:12px; border-top:1px solid var(--hairline-soft); font-size:12px; }
+.rehearsal-memory-open { padding:4px 0; color:var(--accent); }
+.rehearsal-memory form, .rehearsal-memory label { display:grid; gap:8px; }
+.rehearsal-memory form > p { margin:0; line-height:1.65; color:var(--text-secondary); }
+.rehearsal-memory-options { display:grid; }
+.rehearsal-memory-options button { padding:7px 0; text-align:left; border-bottom:1px solid var(--hairline-soft); }
+.rehearsal-memory-options button[aria-checked="true"] { color:var(--accent); }
+.rehearsal-memory input { min-height:38px; padding:6px 8px; border:1px solid var(--hairline-soft); background:var(--archive-paper); color:var(--text-primary); font:inherit; }
+.rehearsal-memory-actions { display:flex; justify-content:flex-end; gap:8px; }
+.rehearsal-memory-actions button { padding:0 10px; border:1px solid var(--hairline-soft); }
+.rehearsal-memory-error { color:var(--danger, #a04b3c) !important; }
 .rehearsal-route { display:flex; align-items:baseline; gap:6px; min-width:0; padding:2px 0; text-align:left; font-size:12px; }
 .rehearsal-route span { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rehearsal-route small { color:var(--text-muted); font-size:11px; }
@@ -503,7 +555,7 @@ svg { flex-shrink:0; }
 .rehearsal-failure__actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 .rehearsal-failure__actions button { min-height:32px; padding:0 10px; border:1px solid color-mix(in srgb, var(--danger, #a04b3c) 38%, transparent); border-radius:4px; font-size:12px; }
 @media(max-width:720px) {
-  button, .rehearsal-more > summary, .rehearsal-step-head, .rehearsal-routes-more > summary, .rehearsal-compare > summary, .rehearsal-consequence > summary { min-height:44px; box-sizing:border-box; }
+  button, .rehearsal-more > summary, .rehearsal-step-head, .rehearsal-routes-more > summary, .rehearsal-compare > summary, .rehearsal-consequence > summary, .rehearsal-evidence > summary { min-height:44px; box-sizing:border-box; }
   .rehearsal-flow { padding:14px 18px; }
   .rehearsal-route { min-height:44px; align-items:center; }
   .rehearsal-cast-person { min-height:44px; }

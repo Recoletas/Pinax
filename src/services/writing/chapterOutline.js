@@ -2,7 +2,7 @@ import {
   createNarrativeAssetSourceRef,
   getAssetKindLabel,
   mergeSourceRefs
-} from './narrativeAssets'
+} from '../media/narrativeAssets'
 
 export const CHAPTER_OUTLINE_SCHEMA_VERSION = 1
 

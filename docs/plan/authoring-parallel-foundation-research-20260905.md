@@ -22,9 +22,9 @@
 | E06 | 代码 | [地点身份 v2](../../src/services/world-map/model/placeIdentity.ts)、[地点目录](../../src/services/worldbookPlaceCatalog.js) | 稳定叙事身份为 worldbookId + worldbookEntryId；地图对象和正文场景出现另有作用域，旧 place 字符串只作 alias。 |
 | E07 | 代码 | [旧地点引用](../../src/services/worldHistory/placeRefs.js)、[历史地点聚合](../../src/services/worldHistory/placeEntity.js) | 旧历史仍以 worldbook/map/site 组成地点引用。新旧身份不能靠字符串格式直接等同；需要有证据的引用对照，未映射就返回 unresolved。 |
 | E08 | 代码 | [历史生成](../../src/services/worldHistory/historyGenerator.js)、[地理历史管线](../../src/services/worldHistory/geoHistoryPipeline.js) | 已有确定性的地理历史节点生成，不是长期自治历史模拟。保留历史节点草稿/显式写入，避免重列为从零开发。 |
-| E09 | 代码 | [事件状态](../../src/services/runtimeEvents.js) | canonicalFacts 仅允许 subjectId/predicate/标量value/status/confidence/sourceRefs 等有限字段；不是双时态事实表。关系合同限于亲属类别，不能直接塞“信任/背叛”等新结构。 |
-| E10 | 代码 | [事件上限](../../src/services/runtimeEvents.js) | RUNTIME_EVENT_LIMIT=200，capRuntimeEvents 保留尾部窗口。事件 ts 是记录时间，不能当故事时间；缺旧事件不能重建任意过去状态。 |
-| E11 | 代码 | [因果报告](../../src/services/runtimeEventCausality.js)、[涌现调度](../../src/services/worldHistory/emergenceScheduler.js) | 已有分支、回滚、冲突、stale 传播和有界候选。首期应读既有结论，不再实现另一套因果判定，也不把涌现建议当已发生事件。 |
+| E09 | 代码 | [事件状态](../../src/services/experience/runtimeEvents.js) | canonicalFacts 仅允许 subjectId/predicate/标量value/status/confidence/sourceRefs 等有限字段；不是双时态事实表。关系合同限于亲属类别，不能直接塞“信任/背叛”等新结构。 |
+| E10 | 代码 | [事件上限](../../src/services/experience/runtimeEvents.js) | RUNTIME_EVENT_LIMIT=200，capRuntimeEvents 保留尾部窗口。事件 ts 是记录时间，不能当故事时间；缺旧事件不能重建任意过去状态。 |
+| E11 | 代码 | [因果报告](../../src/services/experience/runtimeEventCausality.js)、[涌现调度](../../src/services/worldHistory/emergenceScheduler.js) | 已有分支、回滚、冲突、stale 传播和有界候选。首期应读既有结论，不再实现另一套因果判定，也不把涌现建议当已发生事件。 |
 | E12 | 代码 | [工具注册](../../src/services/agents/narrativeToolRegistry.js)、[历史工具](../../src/services/agents/tools/historyLookup.js) | 世界/地理/历史/记忆/政治工具已有；history_lookup 委托共享索引 search/get/trace。工具存在不代表 Authoring 每条路径均获授权。 |
 | E13 | 代码 | [manifest 授权](../../src/services/agents/context/manifestToolAuthorization.js)、[Kernel](../../src/services/agents/narrativeKernel.js) | 当前 Authoring 授权仅映射 worldbook-entry 与 memory。来源链、依赖或旧 runtime 不能扩张工具可读范围；历史接入是跨合同集成包，不是注册表加一行。 |
 | E14 | 代码 | [资料问答](../../src/services/agents/authoring/authoringKnowledgeQuerySession.js)、[资源索引](../../src/services/agents/narrativeResourceIndex.js) | F2 已把绑定世界书的 geoHistory 转为历史证据，并复用 tokenizer/ranker；问答历史 sourceRef 为 history-node，旧叙事索引采用 history。必须显式映射，不靠改前缀授权。 |
@@ -32,7 +32,7 @@
 | E16 | 代码 | [桌面存储适配](../../src/services/storage/storageRepository.js)、[桌面 schema](../../electron/projects/migrations/001-foundation.sql) | 浏览器/桌面 adapter 与 SQLite 文件事务底座已存在，但 Authoring 正文尚未全面迁移。长期历史存储必须与桌面 P3 所有权对齐。 |
 | E17 | 代码 | [UI 合同测试](../../src/__tests__/uiControlContract.test.js) | 静态源码断言与组件行为测试并存；拆模块会触碰静态断言。测试通过不证明真实模型因果质量，应补行为/故障证据而非更多字符串检查。 |
 | E18 | 历史+代码 | [体验计划第10–11节](./authoring-ux-and-story-play-plan-20260905.md)、[体验调研](./authoring-ux-story-play-research-20260905.md) | A4 方向可改、A5 普通稿局部试写等已有任务归属；新计划只列依赖，不复制成第二组 UI 工作。 |
-| E19 | 代码 | [研究 claims](../../src/services/worldbookResearchClaims.js)、[项目记忆](../../src/services/memoryCandidates.js) | 研究资料 claims、项目记忆、运行时 canonicalFacts 有不同证据与状态含义，不能按字段同名混为“正式事实”。 |
+| E19 | 代码 | [研究 claims](../../src/services/worldbookResearchClaims.js)、[项目记忆](../../src/services/memory/memoryCandidates.js) | 研究资料 claims、项目记忆、运行时 canonicalFacts 有不同证据与状态含义，不能按字段同名混为“正式事实”。 |
 
 ## 3. Utopia 候选参考：已核验与不确定
 

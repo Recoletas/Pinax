@@ -38,7 +38,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { getFeaturedPressureRow, getHookExcerpt } from '../../services/worldbookQuickImportHelpers'
+import { getFeaturedPressureRow, getHookExcerpt } from '../../services/worldbook/worldbookQuickImportHelpers'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
 const props = defineProps({

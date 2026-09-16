@@ -177,7 +177,7 @@ Conditionally allowed, only if the page cannot reach the target without a reusab
 Forbidden in this pass:
 
 - `src/stores/**`
-- `src/services/worldbookContextBuilder.js`
+- `src/services/worldbook/worldbookContextBuilder.js`
 - `src/services/generation*`
 - `server/**`
 - routing files

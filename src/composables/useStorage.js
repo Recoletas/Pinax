@@ -126,8 +126,8 @@ export function getItem(key) {
   try {
     const raw = localStorage.getItem(key)
     return raw ? JSON.parse(raw) : null
-  } catch (e) {
-    console.warn(`[storage] getItem failed for key: ${key}`, e)
+  } catch {
+
     return null
   }
 }
@@ -139,8 +139,8 @@ export function setItem(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
     return true
-  } catch (e) {
-    console.warn(`[storage] setItem failed for key: ${key}`, e)
+  } catch {
+
     return false
   }
 }
@@ -151,8 +151,8 @@ export function setItem(key, value) {
 export function getTextItem(key) {
   try {
     return localStorage.getItem(key) || ''
-  } catch (e) {
-    console.warn(`[storage] getTextItem failed for key: ${key}`, e)
+  } catch {
+
     return ''
   }
 }
@@ -164,8 +164,8 @@ export function setTextItem(key, value) {
   try {
     localStorage.setItem(key, String(value ?? ''))
     return true
-  } catch (e) {
-    console.warn(`[storage] setTextItem failed for key: ${key}`, e)
+  } catch {
+
     return false
   }
 }

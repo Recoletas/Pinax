@@ -60,4 +60,4 @@ effect 四类定义（计划 §P0）：UI select（纯选择状态）、binding�
 `package.json` / `package-lock.json`（本 worktree 已例外登记 ol 依赖）、
 `src/router/index.js`、`src/config/workbenchNav.js`、
 `src/stores/workspaceTabsStore.js`、`src/stores/worldStore.js`、
-`src/services/worldbookContextBuilder.js`、`docs/STATUS.md` / `docs/PLAN.md`。
+`src/services/worldbook/worldbookContextBuilder.js`、`docs/STATUS.md` / `docs/PLAN.md`。

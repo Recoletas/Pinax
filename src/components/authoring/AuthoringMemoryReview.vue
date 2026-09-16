@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 
 // 受控记忆异常审阅：默认只列 pending 冲突 / 来源失效 / 身份歧义候选。
 // 确认/拒绝/置顶/降权经 repository API；不弹逐条 modal，不做自动采纳。

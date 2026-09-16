@@ -655,7 +655,7 @@ async function handleGenerate() {
     // have both produced a usable replacement map.
     pendingVoronoiConfig.value = config
   } catch (err) {
-    console.error('Failed to generate Voronoi config:', err)
+
     aiError.value = err.message || '生成失败'
   } finally {
     streaming.value = false
@@ -1041,7 +1041,7 @@ async function clearPlaceBinding(place) {
   try {
     const entries = (worldbook.entries || []).map((entry) => {
       if (String(entry.id) !== String(place.entryId)) return entry
-      const { mapBinding: _mapBinding, ...withoutBinding } = entry
+      const {  ...withoutBinding } = entry
       return withoutBinding
     })
     await worldStore.updateWorldbook(worldbook.id, { entries })
@@ -1209,9 +1209,7 @@ onMounted(async () => {
   try {
     await worldStore.loadWorldbooksIndex()
     await worldStore.ensureActiveWorldbook()
-  } catch (error) {
-    console.warn('[WorldMapPanel] Failed to load active worldbook:', error)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
   syncWorldbookLocationMarkers()
 })
 

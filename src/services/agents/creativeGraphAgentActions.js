@@ -1,4 +1,4 @@
-import { ASSET_KINDS } from '../narrativeAssets'
+import { ASSET_KINDS } from '../media/narrativeAssets'
 
 const VALID_KINDS = new Set(ASSET_KINDS.map((kind) => kind.value))
 const VALID_RELATIONS = new Set(['causes', 'character', 'place', 'time', 'supports'])

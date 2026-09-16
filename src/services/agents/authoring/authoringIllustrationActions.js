@@ -1,4 +1,4 @@
-import { listNarrativeAssets, normalizeSourceRefs } from '../../narrativeAssets.js'
+import { listNarrativeAssets, normalizeSourceRefs } from '../../media/narrativeAssets.js'
 import { addNarrativeImageAsset } from '../../media/narrativeImageAssetBridge.js'
 import { listMediaAssets } from '../../media/mediaAssetStore.js'
 

@@ -59,7 +59,7 @@ export default defineConfig({
           'markdown': ['marked', 'turndown'],
           // AI 服务
           'ai-services': [
-            './src/services/shotExporter.js'
+            './src/services/media/shotExporter.js'
           ]
         }
       }

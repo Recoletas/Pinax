@@ -309,7 +309,7 @@ const { presets } = seedWorldbookPresets // presets 数组
 **S17 把"导入小说/JSON" 和 "AI 生成" UI 从 WorldBookQuickImport 挪到 WorldBookEditor**, 让主页 1 行 2 个按钮的跳转目的地实际有内容。
 
 具体改动:
-- 把 `WorldBookQuickImport.vue` 的 `novelInput` / `randomInput` / `pendingImport` / `novelSegments` / `enterPresetWorld` / `createWorldbookFromPayload` / `tryAiExtractEntries` / `tryAiGenerateFromBrief` 等逻辑**提取到 `src/services/worldbookQuickImportHelpers.js`** 复用
+- 把 `WorldBookQuickImport.vue` 的 `novelInput` / `randomInput` / `pendingImport` / `novelSegments` / `enterPresetWorld` / `createWorldbookFromPayload` / `tryAiExtractEntries` / `tryAiGenerateFromBrief` 等逻辑**提取到 `src/services/worldbook/worldbookQuickImportHelpers.js`** 复用
 - 在 `WorldBookEditor.vue` 加一个 `editorTab = 'create'` 第 6 个 tab "新建/导入" (在现有 5 个 tab 之后):
   - 嵌入 1 段 worldbookQuickImportHelpers 的 2 个表单 (小说导入 / AI 生成)
   - 给这 2 个表单 section 加 `data-section="import"` / `data-section="ai"` 属性
@@ -424,7 +424,7 @@ legacy 主题 (主题 2) 不走这个 hero 设计, 用 `legacy/OpeningPage.vue` 
 
 ## 12. 实施步骤概览 (writing-plans 阶段细化)
 
-1. 备份 `WorldBookQuickImport.vue` 的关键 inline 函数 (`enterPresetWorld` / `enterDefaultWorld` / `countPresetEntries` / `featuredPressureRow`) 到 `src/services/worldbookQuickImportHelpers.js` 备用 (因为这些函数会大量复用)
+1. 备份 `WorldBookQuickImport.vue` 的关键 inline 函数 (`enterPresetWorld` / `enterDefaultWorld` / `countPresetEntries` / `featuredPressureRow`) 到 `src/services/worldbook/worldbookQuickImportHelpers.js` 备用 (因为这些函数会大量复用)
 2. 改写 `WorldBookQuickImport.vue`: 删 3000 行, 写 600 行 (撕角 hero + 我的世界书 + preset 网格 + 1 行 2 按钮)
 3. 改 `WorldBookEditor.vue`: 加 `data-section` 属性 + `?section=` query param 处理
 4. 改 `workbenchNav.js` (S16 已经把 default 改为 `settings-worldbook`, 不动)

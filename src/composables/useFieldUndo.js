@@ -11,7 +11,7 @@ export function useFieldUndo({ limit = 50, throttleMs = 200 } = {}) {
   const future = ref([])
   let lastPushAt = 0
 
-  function push({ before, after, at }) {
+  function push({ before, after }) {
     const now = Date.now()
     if (now - lastPushAt < throttleMs) return
     if (stack.value.length > 0 && stack.value[stack.value.length - 1].after === after) return

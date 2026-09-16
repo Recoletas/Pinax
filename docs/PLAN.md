@@ -4,7 +4,7 @@
 
 ## 当前主线
 
-2026-09-16 [Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)完成首轮验收与部分集成：C 线完整工作区 ZIP 已实现并经组合修复，覆盖 localStorage、来源归档、媒体二进制、预览、SHA-256、schema/path 校验、补偿回滚和幂等恢复；64 MB 上限附近来源 + 20 MB 媒体 + 100 章压力样本通过。R-X 只合入 Experience 四类页面会话与机制投影，页面 4,439→3,603 行；`gameStore` 涌现/冒险/分支 owner、页面最终行数/import 指标仍未达。A/B 试演工具与记忆 UI、Authoring/Notes/Prose 深拆、services 归域、异步分包和全仓 lint 清零没有交付，继续按任务书标为 partial/not-started，不把本次部分合入写成整夜完成。组合回执见 [integration summary](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
+2026-09-16 [Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)的未交付项已完成组合：普通试演接入受 manifest 限定的单次 `history_lookup` 与作者可读回执，采用稿后果可进入既有 pending memory 审核；完整工作区 ZIP 覆盖 localStorage、来源归档和已落盘媒体并具备预览、校验、回滚和幂等恢复。Authoring/Notes/Prose/Experience/gameStore 与根层 services 全部达到结构预算，Authoring 重面板按需分包，全仓 ESLint 为 0 warning。确定性 provider/浏览器与 64 MB 来源 + 20 MB 媒体 + 100 章压力样本已验收；真实外部 provider 未运行。组合回执见 [integration summary](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
 
 2026-09-15 架构收口已经完成当前可安全一次落地的主体：世界书写入统一经过 durable mutation owner，Experience 完整回合编排迁出 store，Authoring 首载/换书与右栏打开顺序各有唯一协调器，Notes 插画交互和 ProseEssay 七键持久化迁出页面；低 fan-in services 完成归域，迁移、试验、兼容与退役代码有显式生命周期。当前不再以继续拆大文件作为独立目标；下一阶段只在真实功能改动经过这些边界时继续瘦身。架构真源见[当前架构与代码边界](./engineering/current-architecture.md)，本轮回执见 `docs/agent-runs/architecture-closure-20260915.md`。
 
@@ -122,8 +122,7 @@ R0-R7 已完成实现 Gate，2026-08-14 叙事运行时收口计划 P0-P5 已并
 
 联机模式、Agent 基础契约、关系画布优化、视频任务网关和页面接线已按 A-F 窗口完成实现与集成：
 
-- [Online / Agents / Canvas / Video 执行包](./agent-runs/2026-07-16-online-agents-canvas-video/README.md)
-- [Round 2 可见入口、画布、顾问与漫画收口](./agent-runs/2026-07-16-round2-integration/README.md)
+- [2026-07-16 Online / Agents / Canvas / Video 与 Round 2 历史任务板](./agent-runs/current.md)
 - [当前窗口任务板](./agent-runs/current.md)
 
 A-E 的结果已由 F 在恢复后的七月产品基线上整合，Round 2 又补齐入口可发现性、拖拽状态机、顾问生命周期和漫画页级制作。测试总量保持 200，未启动用户已有的 dev server。后续功能继续回到地理、历史融合与 Creative Graph 主线，不再扩展本执行包。

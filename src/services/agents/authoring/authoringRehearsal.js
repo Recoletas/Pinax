@@ -4,6 +4,7 @@
 
 import { requestAdvisorTask } from '../../advisorTaskService.js'
 import { buildAuthoringSceneDirectionEnvelope } from './authoringSceneDirectionPlanner.js'
+import { runAuthoringRehearsalToolStep } from './authoringRehearsalToolRun.js'
 import {
   buildRehearsalRequestPlan as planRehearsalRequest,
   parseRehearsalResponse,
@@ -31,11 +32,26 @@ export async function requestRehearsalStep({ run, steps, action, signal, setting
   const refs = envelope.blocks.flatMap(block => block.sourceRefs || [])
   const planned = planRehearsalRequest({ run, steps, action, routeState, refs })
   if (planned.error) throw new Error(planned.error)
-  const result = await requestAdvisorTask({
-    taskType: 'authoring.rehearsal.step', envelope, settingsSnapshot, signal,
-    scope: 'writing', mode: 'direct',
-    options: { toolChoice: 'none', maxOutputChars: REHEARSAL_MAX_OUTPUT_CHARS, rehearsalVerification: planned.verification },
-    question: planned.question
+  const requestFallback = async ({ signal: fallbackSignal }) => {
+    const result = await requestAdvisorTask({
+      taskType: 'authoring.rehearsal.step', envelope, settingsSnapshot, signal: fallbackSignal,
+      scope: 'writing', mode: 'direct',
+      options: { toolChoice: 'none', maxOutputChars: REHEARSAL_MAX_OUTPUT_CHARS, rehearsalVerification: planned.verification },
+      question: planned.question
+    })
+    return result.result?.rehearsal || result.advice
+  }
+  const executed = await runAuthoringRehearsalToolStep({
+    manifest: run.runSession.manifest,
+    envelope,
+    question: planned.question,
+    settingsSnapshot,
+    signal,
+    requestFallback,
+    parseFinal: (output) => parseRehearsalResponse(output, refs, planned.verification)
   })
-  return parseRehearsalResponse(result.result?.rehearsal || result.advice, refs, planned.verification)
+  return {
+    ...parseRehearsalResponse(executed.output, refs, planned.verification),
+    toolReceipt: executed.toolReceipt
+  }
 }

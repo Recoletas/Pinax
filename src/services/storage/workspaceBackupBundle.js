@@ -16,7 +16,7 @@ import {
   loadAllSourceArchiveRecords,
   replaceAllSourceArchiveRecords,
   restoreSourceArchiveRecords
-} from '../worldbookSourceArchive'
+} from '../worldbook/worldbookSourceArchive'
 import {
   MEDIA_ASSET_SCHEMA_VERSION,
   deleteMediaBinaryById,

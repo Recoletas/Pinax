@@ -9,7 +9,7 @@ import {
   getAuthoringReviewWindows,
   resolveAuthoringPosition
 } from '../../writing/authoringPositionIndex.js'
-import { matchWorldbookEntries } from '../../worldbookContextBuilder.js'
+import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
 
 export const AUTHORING_REVIEW_SESSION_SCHEMA_VERSION = 1
 export const AUTHORING_LOCAL_REVIEW_FINDING_LIMIT = 64

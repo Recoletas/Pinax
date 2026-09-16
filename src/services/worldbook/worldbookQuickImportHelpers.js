@@ -14,19 +14,19 @@
 import {
   tryAiGenerateWorldbookJsonFromBrief,
   createQuickImportExtractServices
-} from './worldbook/worldbookImportGeneration'
-import { createSettingsPageDispatcher } from './agents/settings/settingsTaskDispatcher'
-import { createSettingsImportWorkflow } from './agents/settings/settingsImportWorkflow'
-import { formatWorldbookStatus } from './worldbook/worldbookFeedback'
-import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
+} from './worldbookImportGeneration'
+import { createSettingsPageDispatcher } from '../agents/settings/settingsTaskDispatcher'
+import { createSettingsImportWorkflow } from '../agents/settings/settingsImportWorkflow'
+import { formatWorldbookStatus } from './worldbookFeedback'
+import { normalizeNarrativeVoiceProfile } from '../narrativeVoiceProfile'
 import { seedWorldbookPresets as presets } from './seedWorldbookPresets'
 import { createEmptyStructuredSettings, normalizeStructuredSettings } from './settingPanelSchema'
 import {
   normalizeResearchClaims,
   normalizeResearchConflicts,
   refreshResearchReview
-} from './worldbook/worldbookResearchClaims'
-import { createResearchRevision } from './worldbook/worldbookResearchRevision'
+} from './worldbookResearchClaims'
+import { createResearchRevision } from './worldbookResearchRevision'
 import { archiveSourceDocuments } from './worldbookSourceArchive'
 
 // ----- Entry-type constants (mirrors WorldBookQuickImport.vue) -----

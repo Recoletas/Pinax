@@ -37,7 +37,7 @@ import {
   toJianyingDraft,
   toMarkdown,
   toPremiereCSV
-} from '../services/shotExporter'
+} from '../services/media/shotExporter'
 import {
   createImageModelConfigDraft,
   generateImage,

@@ -3,16 +3,16 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { getItem, STORAGE_KEYS } from '../composables/useStorage'
-import { confirmMemoryCandidate, createMemoryCandidate, listMemoryCandidates } from '../services/memoryCandidates'
-import { listNarrativeAssets } from '../services/narrativeAssets'
+import { confirmMemoryCandidate, createMemoryCandidate, listMemoryCandidates } from '../services/memory/memoryCandidates'
+import { listNarrativeAssets } from '../services/media/narrativeAssets'
 import { consumePlayableWorldHistoryIntent } from '../services/migration/playableWorldEntry'
 import {
   runGenerationTask,
   runGenerationStreamTask,
   runNarrativeAgentTurn
 } from '../services/generationService'
-import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
-import { listStoryboardDocuments } from '../services/storyboardStore'
+import { seedWorldbookPresets } from '../services/worldbook/seedWorldbookPresets'
+import { listStoryboardDocuments } from '../services/media/storyboardStore'
 import { getExperienceTurnImportEligibility } from '../services/writing/writingExperienceImport'
 
 vi.mock('../services/api', () => ({

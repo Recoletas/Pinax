@@ -1,4 +1,4 @@
-import { STRUCTURED_SETTING_SECTIONS } from '../../shared/structuredSettingContract'
+import { STRUCTURED_SETTING_SECTIONS } from '../../../shared/structuredSettingContract'
 
 export const SETTING_SECTIONS = STRUCTURED_SETTING_SECTIONS
 

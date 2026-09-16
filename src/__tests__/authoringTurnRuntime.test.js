@@ -23,7 +23,7 @@ import {
 import { useAuthoringTask } from '../composables/useAuthoringTask.js'
 import { createWritingDocument, getWritingDocumentMarkdown, validateWritingDocument } from '../services/writing/writingDocumentSchema.js'
 import {
-  appendAuthoringTurnToDocument,
+
   buildAuthoringTurnOriginRef,
   insertAuthoringTurnAfterUnit
 } from '../services/writing/writingAuthoringTurnImport.js'

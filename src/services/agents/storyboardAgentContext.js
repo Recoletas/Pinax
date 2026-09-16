@@ -1,6 +1,6 @@
 import { buildContextEnvelope, clipContextEnvelope } from './agentContextEnvelope'
 import { createContentRevision } from './creativeGraphAgentContext'
-import { sourceRefsToEvidenceRefs } from '../narrativeAssets'
+import { sourceRefsToEvidenceRefs } from '../media/narrativeAssets'
 
 function text(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim()

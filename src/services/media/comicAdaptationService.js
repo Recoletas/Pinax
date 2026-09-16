@@ -1,5 +1,5 @@
 import { getResolvedApiSettings } from '../api'
-import { mergeSourceRefs, normalizeSourceRefs } from '../narrativeAssets'
+import { mergeSourceRefs, normalizeSourceRefs } from './narrativeAssets'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
 import { runGenerationTask } from '../generationService'
 import { createComicPage } from './comicPageStore'

@@ -250,7 +250,7 @@ import { useGameStore } from '../stores/gameStore'
 import { useWorkstationMeta } from '../composables/useWorkstationMeta'
 import TimeSettings from './TimeSettings.vue'
 
-const props = defineProps({
+defineProps({
   railMode: {
     type: String,
     default: ''
@@ -350,9 +350,6 @@ const playerName = computed(() => {
   return raw
 })
 const playerAvatar = computed(() => gameStore.playerCharacter?.avatar || '')
-const playerAge = computed(() => editingAge.value || gameStore.playerCharacter?.age || '-')
-const playerGender = computed(() => editingGender.value || gameStore.playerCharacter?.gender || '-')
-
 // UI-E11-C: 0-data inline hint gates. Truthy 0 data -> show inline hint
 // instead of empty stat stacks. The time-empty gate moved out — time is
 // now its own 4th codex section (Experience.vue codexSections), so this
@@ -369,12 +366,7 @@ onMounted(() => {
   syncCharacterData()
 })
 
-function loadCharacterData() {
-  if (typeof gameStore.loadWritingCharacter === 'function') {
-    gameStore.loadWritingCharacter()
-  }
-  syncCharacterData()
-}
+
 
 function syncCharacterData() {
   const data = gameStore.writingCharacter || {}
@@ -432,7 +424,7 @@ function importFromJSON() {
     }
     importText.value = ''
     activeTab.value = 'info'
-  } catch (e) {
+  } catch {
     importError.value = 'JSON 格式错误，请检查输入'
   }
 }

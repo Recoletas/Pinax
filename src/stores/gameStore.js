@@ -12,54 +12,27 @@ import {
 } from '../services/narrativePresentation'
 // P4：可信说话者注册表（verified/unresolved/message-fallback）
 import { buildSpeakerRegistry as buildSpeakerRegistryEntries } from '../../shared/narrativeSpeakerContract'
-import {
-  formatAdventureStoryboardSeedContent,
-  generateAdventureProseDraft,
-  generateAdventureStoryboardDraft
-} from '../services/experience/generationAdventureTriggers'
 import { buildHeuristicContextSummary, compressChatHistory } from '../services/contextCompression'
 import {
   appendPlayerHistoryNode,
-  buildPlayerHistoryContext,
   buildPlayerHistoryNodeFromPlotJournal,
   getPlayerHistoryNodeKey
-} from '../services/playerHistory'
-import { buildGeoHistoryRuntimeContext } from '../services/worldHistory/runtimeContext'
-import { buildEmergenceCandidates } from '../services/worldHistory/emergenceScheduler'
-import { generateEmergenceEventDraft } from '../services/experience/generationEmergence'
+} from '../services/experience/playerHistory'
 import {
   archiveMemoryCandidate
-} from '../services/memoryCandidates'
+} from '../services/memory/memoryCandidates'
 import {
   RUNTIME_EVENT_LIMIT,
-  applyStateDelta,
-  buildStateDeltaExplanation,
-  buildStateDeltaPreview,
   capRuntimeEvents,
-  createRuntimeEvent,
-  rollbackStateDelta,
-  validateStateDelta
-} from '../services/runtimeEvents'
+  createRuntimeEvent
+} from '../services/experience/runtimeEvents'
 import {
   buildRuntimeConflictKey,
-  buildRuntimeCausalityContext,
   buildRuntimeEventCausality,
-  canResolveRuntimeConflict,
-  describeRuntimeStateTransitions
-} from '../services/runtimeEventCausality'
-import {
-  addNarrativeAssetDurable,
-  createNarrativeAssetSourceRef,
-  mergeSourceRefs,
-  normalizeContentRef
-} from '../services/narrativeAssets'
-import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
-import { createLegacyExperienceStateBridge } from '../services/agents/authoring/legacyExperienceStateBridge'
-import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler'
-import { createAuthoringObserverRunner } from '../services/agents/observers/authoringObserverDerivation'
-import { normalizeAuthoringObserverProvenance } from '../services/agents/observers/authoringObservationContract'
-import { createMemoryTriggers } from '../services/memoryTriggers'
-import { invalidateMemoryBySource } from '../services/memoryCandidates'
+  canResolveRuntimeConflict
+} from '../services/experience/runtimeEventCausality'
+import { gameEmergenceActions } from '../services/experience/gameEmergenceCoordinator.js'
+import { adventureTriggerActions } from '../services/experience/adventureTriggerCoordinator.js'
 import {
   normalizeNarrativeSceneSummary,
   resolveNarrativeSceneSummary
@@ -74,9 +47,6 @@ import {
 import { normalizeExperienceAction } from '../../shared/experienceActionContract.js'
 import { normalizeNarrativeIntent } from '../../shared/narrativeGenerationIntentContract.js'
 import {
-  ADVENTURE_TRIGGER_COOLDOWN_MS,
-  ADVENTURE_TRIGGER_MAX_PER_WINDOW,
-  ADVENTURE_TRIGGER_WINDOW_MS,
   DEFAULT_ADVENTURE_STATE,
   DEFAULT_WORLD_MAP_STATE,
   DEFAULT_WRITING_CHARACTER,
@@ -86,19 +56,13 @@ import {
   findSession,
   getWorldbookEntryNames,
   normalizeAdventureState,
-  normalizeAdventureTriggerDraft,
-  normalizeAdventureTriggerHistory,
   normalizeCanonicalFacts,
   normalizeCharacterRelations,
   normalizeCharacterStates,
-  normalizeEmergenceCandidates,
-  normalizeEmergenceDismissedIds,
-  normalizeEmergenceDraft,
   normalizeEncounteredCharacters,
   normalizeFactionRelations,
   normalizeGoals,
   normalizeKeyChoices,
-  normalizeNumber,
   normalizePlaceStates,
   normalizePlotJournal,
   normalizeTextValue,
@@ -115,7 +79,7 @@ import {
   getSessionListWriter
 } from '../services/experience/gameSessionScheduler.js'
 import { buildRuntimeSnapshot, projectRuntimeSnapshot } from '../services/experience/gameRuntimeProjection.js'
-import { createAuthoringObserverHub } from '../services/experience/gameObserverRuntime.js'
+import { gameAuthoringObserverActions } from '../services/experience/gameAuthoringObserverCoordinator.js'
 import { buildRuntimeResetPatch } from '../services/experience/gameLifecycleDefaults.js'
 import {
   detectMechanismTriggersFromContent,
@@ -137,13 +101,7 @@ import {
   parseWritingCharacterChange,
   parseWritingTimeChange
 } from '../services/experience/gameStateExtraction.js'
-import {
-  collectBranchTurnChain as collectTurnChain,
-  collectVisibleMessageIds as collectChainMessageIds,
-  gcUnreachableTurns as gcBranchTurns,
-  latestBranchTurn as latestCommittedBranchTurn,
-  markSupersededMessages
-} from '../services/experience/gameBranchTurnGraph.js'
+import { gameBranchWorkflowActions } from '../services/experience/gameBranchWorkflow.js'
 
 
 function buildAdventureCreativeSourceRefs(store, messageIds = [], plotEntry = null) {
@@ -156,9 +114,7 @@ function buildAdventureCreativeSourceRefs(store, messageIds = [], plotEntry = nu
 
 function debugLog(...args) {
   // import.meta.env 仅由打包器注入；plain node 下为 undefined（脚本矩阵环境）
-  if (import.meta.env?.DEV) {
-    console.debug(...args)
-  }
+  if (import.meta.env?.DEV) globalThis.console?.debug?.(...args)
 }
 
 function resolveActiveWorldbookId() {
@@ -169,16 +125,6 @@ function resolveActiveWorldbookId() {
     return null
   }
 }
-
-// Authoring runtime（模块级、非持久化）：正文提交后经统一 bridge 调度后台派生观察器。
-// 观察器输出永远是低优先级 derived state / typed exception，不直接改正文和 locked canon。
-// 订阅/缓冲/异常隔离的唯一 owner 是 gameObserverRuntime 的 hub（B7）；
-// bridge/scheduler/memoryTriggers 的编排闭包留在 store（需要会话能力）。
-let authoringObserverBridge = null
-let authoringObserverScheduler = null
-let authoringMemoryTriggers = null
-const authoringObserverHub = createAuthoringObserverHub()
-
 
 export const useGameStore = defineStore('game', {
   state: () => ({
@@ -436,400 +382,7 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
     },
 
-    refreshEmergenceCandidates(options = {}) {
-      const worldStore = useWorldStore()
-      const worldbook = worldStore.activeWorldbook
-      const nextCandidates = normalizeEmergenceCandidates(buildEmergenceCandidates({
-        geoHistoryContext: buildGeoHistoryRuntimeContext({
-          worldbook,
-          geoHistory: worldbook?.geoHistory,
-          worldMapState: this.worldMapState,
-          historyNode: this.historyNode,
-          playerHistoryContext: buildPlayerHistoryContext(worldbook?.geoHistory)
-        }),
-        worldMapState: this.worldMapState,
-        historyNode: this.historyNode,
-        plotJournal: this.plotJournal,
-        goals: this.goals,
-        encounteredCharacters: this.encounteredCharacters,
-        placeStates: this.placeStates,
-        characterStates: this.characterStates,
-        factionRelations: this.factionRelations,
-        causalityContext: buildRuntimeCausalityContext({
-          runtimeState: this.getRuntimeSnapshot()
-        }),
-        now: options?.now,
-        limit: 2,
-        dismissedIds: this.emergenceDismissedIds
-      }))
-      const previousIds = new Set((this.emergenceCandidates || []).map((candidate) => candidate?.id).filter(Boolean))
-      this.emergenceCandidates = nextCandidates
-      for (const candidate of nextCandidates) {
-        if (previousIds.has(candidate.id)) continue
-        this.appendRuntimeEvent({
-          type: 'display_event',
-          source: 'emergence',
-          payload: {
-            kind: 'emergence-candidate-ready',
-            candidateId: candidate.id,
-            candidateType: candidate.type,
-            placeId: candidate.placeId || '',
-            sourceRefs: candidate.sourceRefs
-          }
-        })
-      }
-      this.saveCurrentSession()
-      return this.emergenceCandidates
-    },
-
-    // 涌现候选确认（写作工作区审阅闭环 / spec §8.3）：
-    // 只走派生状态路径——留下确认 runtime event 并把候选移出待审；
-    // 不直接改写 locked/canonical 设定，正文与事实仍由用户在文档中显式落笔。
-    acknowledgeEmergenceCandidate(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id)
-      if (!candidate) return { ok: false, reason: 'candidate-missing' }
-      this.emergenceDismissedIds = normalizeEmergenceDismissedIds([
-        ...(this.emergenceDismissedIds || []),
-        id
-      ])
-      this.emergenceCandidates = (this.emergenceCandidates || []).filter((item) => item?.id !== id)
-      if (this.emergenceDraft?.candidateId === id && this.emergenceDraft.decision !== 'applied') {
-        this.emergenceDraft = null
-      }
-      this.appendRuntimeEvent({
-        type: 'display_event',
-        source: 'emergence',
-        payload: {
-          kind: 'emergence-candidate-confirmed',
-          candidateId: id,
-          candidateType: candidate.type,
-          placeId: candidate.placeId || '',
-          sourceRefs: candidate.sourceRefs
-        }
-      })
-      this.saveCurrentSession()
-      return { ok: true, candidateId: id }
-    },
-
-    dismissEmergenceCandidate(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      if (!id) return
-      this.emergenceDismissedIds = normalizeEmergenceDismissedIds([
-        ...(this.emergenceDismissedIds || []),
-        id
-      ])
-      this.emergenceCandidates = (this.emergenceCandidates || []).filter((candidate) => candidate?.id !== id)
-      if (this.emergenceDraft?.candidateId === id && this.emergenceDraft.decision !== 'applied') {
-        this.emergenceDraft = null
-      }
-      this.appendRuntimeEvent({
-        type: 'display_event',
-        source: 'emergence',
-        payload: {
-          kind: 'emergence-candidate-dismissed',
-          candidateId: id
-        }
-      })
-      this.saveCurrentSession()
-    },
-
-    setEmergenceDraft(draft) {
-      this.emergenceDraft = normalizeEmergenceDraft(draft)
-      this.saveCurrentSession()
-      return this.emergenceDraft
-    },
-
-    getEmergenceDraftState(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id) || null
-      const draft = this.emergenceDraft?.candidateId === id ? this.emergenceDraft : null
-      return {
-        candidate,
-        draft,
-        isGenerating: Boolean(draft?.status === 'generating'),
-        isReady: Boolean(draft?.status === 'ready' && draft.event),
-        isPending: Boolean(draft?.status === 'ready' && draft.event && (!draft.decision || draft.decision === 'pending')),
-        isApplied: Boolean(draft?.decision === 'applied'),
-        isRejected: Boolean(draft?.decision === 'rejected'),
-        isRolledBack: Boolean(draft?.decision === 'rolled-back')
-      }
-    },
-
-    getEmergenceStateDeltaPreview(candidateId) {
-      const state = this.getEmergenceDraftState(candidateId)
-      if (!state.isReady) {
-        return { valid: false, state: this.getRuntimeSnapshot(), changes: [], errors: [{ code: 'draft-not-ready' }] }
-      }
-      const preview = buildStateDeltaPreview(this.getRuntimeSnapshot(), state.draft.event.changes)
-      return {
-        ...preview,
-        explanation: buildStateDeltaExplanation({
-          causes: state.draft.event.causes,
-          consequences: state.draft.event.consequences
-        })
-      }
-    },
-
-    applyEmergenceRuntimeRoots(nextState, paths = []) {
-      for (const path of [...new Set(paths)]) {
-        switch (path) {
-          case 'goals':
-            this.goals = normalizeGoals(nextState.goals)
-            break
-          case 'encounteredCharacters':
-            this.encounteredCharacters = normalizeEncounteredCharacters(nextState.encounteredCharacters)
-            break
-          case 'factionRelations':
-            this.factionRelations = normalizeFactionRelations(nextState.factionRelations)
-            break
-          case 'keyChoices':
-            this.keyChoices = normalizeKeyChoices(nextState.keyChoices)
-            break
-          case 'plotJournal':
-            this.plotJournal = normalizePlotJournal(nextState.plotJournal)
-            break
-          case 'activities':
-            this.activities = Array.isArray(nextState.activities) ? cloneState(nextState.activities, []) : []
-            break
-          case 'placeStates':
-            this.placeStates = normalizePlaceStates(nextState.placeStates)
-            break
-          case 'characterStates':
-            this.characterStates = normalizeCharacterStates(nextState.characterStates)
-            break
-          case 'characterRelations':
-            this.characterRelations = normalizeCharacterRelations(nextState.characterRelations)
-            break
-          case 'canonicalFacts':
-            this.canonicalFacts = normalizeCanonicalFacts(nextState.canonicalFacts)
-            break
-          case 'writingTime':
-            this.writingTime = normalizeWritingTime(nextState.writingTime)
-            break
-          case 'worldMapState':
-            this.worldMapState = normalizeWorldMapState(nextState.worldMapState || {})
-            break
-          case 'mechanismContext':
-            this.mechanismContext = cloneState(nextState.mechanismContext, null)
-            break
-          case 'milestoneEvent':
-            this.milestoneEvent = cloneState(nextState.milestoneEvent, null)
-            break
-          case 'flags':
-            this.flags = cloneState(nextState.flags, {})
-            break
-          case 'inventory':
-            this.inventory = Array.isArray(nextState.inventory) ? cloneState(nextState.inventory, []) : []
-            break
-          case 'quests':
-            this.quests = Array.isArray(nextState.quests) ? cloneState(nextState.quests, []) : []
-            break
-          default:
-            break
-        }
-      }
-    },
-
-    applyEmergenceDraft(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const state = this.getEmergenceDraftState(id)
-      if (!state.isReady) throw new Error('事件草稿尚未生成')
-      if (state.isApplied) throw new Error('事件草稿已经应用')
-      if (state.isRejected) throw new Error('事件草稿已拒绝')
-
-      const preview = this.getEmergenceStateDeltaPreview(id)
-      if (!preview.valid) throw new Error('事件状态变更未通过校验')
-      const changedPaths = Object.keys(preview.before)
-      this.applyEmergenceRuntimeRoots(preview.state, changedPaths)
-      const appliedState = this.getRuntimeSnapshot()
-      const after = Object.fromEntries(changedPaths.map((path) => [
-        path,
-        cloneState(appliedState[path], null)
-      ]))
-      const transitions = describeRuntimeStateTransitions(preview.before, after)
-      const event = this.appendRuntimeEvent({
-        type: 'state_delta',
-        source: 'runtime',
-        payload: {
-          kind: 'emergence-state-applied',
-          candidateId: id,
-          placeId: state.draft.event.placeId,
-          causes: state.draft.event.causes,
-          consequences: state.draft.event.consequences,
-          explanation: preview.explanation,
-          sourceRefs: state.draft.event.sourceRefs,
-          ops: preview.appliedOps,
-          inverseOps: preview.inverseOps,
-          before: preview.before,
-          after,
-          transitions,
-          contextual: false
-        }
-      })
-      this.emergenceDraft = normalizeEmergenceDraft({
-        ...state.draft,
-        decision: 'applied',
-        appliedEventId: event.id,
-        error: '',
-        updatedAt: Date.now()
-      })
-      this.saveCurrentSession()
-      return {
-        draft: this.emergenceDraft,
-        event,
-        preview: { ...preview, state: appliedState, after }
-      }
-    },
-
-    rejectEmergenceDraft(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const state = this.getEmergenceDraftState(id)
-      if (!state.isReady) throw new Error('事件草稿尚未生成')
-      if (state.isApplied) throw new Error('事件草稿已经应用，不能拒绝')
-      this.emergenceDraft = normalizeEmergenceDraft({
-        ...state.draft,
-        decision: 'rejected',
-        error: '',
-        updatedAt: Date.now()
-      })
-      this.appendRuntimeEvent({
-        type: 'display_event',
-        source: 'runtime',
-        payload: {
-          kind: 'emergence-draft-rejected',
-          candidateId: id,
-          placeId: state.draft.event.placeId,
-          contextual: false
-        }
-      })
-      this.saveCurrentSession()
-      return this.emergenceDraft
-    },
-
-    rollbackEmergenceDraft(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const state = this.getEmergenceDraftState(id)
-      if (!state.isApplied || !state.draft.appliedEventId) throw new Error('没有可回滚的事件应用')
-      const appliedEvent = (this.runtimeEvents || []).find((event) => event?.id === state.draft.appliedEventId)
-      if (!appliedEvent) throw new Error('找不到事件应用记录')
-
-      const rollback = rollbackStateDelta(this.getRuntimeSnapshot(), appliedEvent)
-      if (!rollback.valid) {
-        this.emergenceDraft = normalizeEmergenceDraft({
-          ...state.draft,
-          error: `回滚冲突：${rollback.conflicts.join('、') || '状态已变化'}`,
-          updatedAt: Date.now()
-        })
-        this.saveCurrentSession()
-        return { success: false, rollback, draft: this.emergenceDraft }
-      }
-
-      const changedPaths = Object.keys(rollback.before)
-      this.applyEmergenceRuntimeRoots(rollback.state, changedPaths)
-      const rolledBackState = this.getRuntimeSnapshot()
-      const after = Object.fromEntries(changedPaths.map((path) => [
-        path,
-        cloneState(rolledBackState[path], null)
-      ]))
-      const transitions = describeRuntimeStateTransitions(rollback.before, after)
-      const rollbackEvent = this.appendRuntimeEvent({
-        type: 'state_delta',
-        source: 'runtime',
-        parentId: appliedEvent.id,
-        payload: {
-          kind: 'emergence-state-rollback',
-          candidateId: id,
-          rollbackOf: appliedEvent.id,
-          explanation: '因为原事件应用已被撤回，所以恢复应用前的状态',
-          inverseOps: rollback.inverseOps,
-          before: rollback.before,
-          after,
-          transitions,
-          contextual: false
-        }
-      })
-      this.emergenceDraft = normalizeEmergenceDraft({
-        ...state.draft,
-        decision: 'rolled-back',
-        rollbackEventId: rollbackEvent.id,
-        error: '',
-        updatedAt: Date.now()
-      })
-      this.saveCurrentSession()
-      return {
-        success: true,
-        rollback: { ...rollback, state: rolledBackState, after },
-        event: rollbackEvent,
-        draft: this.emergenceDraft
-      }
-    },
-
-    async generateEmergenceDraft(candidateId) {
-      const id = normalizeTextValue(candidateId)
-      const candidate = (this.emergenceCandidates || []).find((item) => item?.id === id)
-      if (!candidate) throw new Error('找不到剧情候选')
-      if (this.emergenceDraft?.status === 'generating') throw new Error('事件正在具体化，请稍候')
-
-      this.loadApiSettings()
-      const now = Date.now()
-      this.setEmergenceDraft({
-        candidateId: id,
-        status: 'generating',
-        event: null,
-        error: '',
-        generatedAt: now,
-        updatedAt: now
-      })
-
-      try {
-        const worldStore = useWorldStore()
-        const result = await generateEmergenceEventDraft({
-          candidate,
-          worldbook: worldStore.activeWorldbook,
-          runtimeState: this.getRuntimeSnapshot(),
-          chatHistory: this.chatHistory,
-          settings: this.apiSettings,
-          worldId: this.worldId || worldStore.activeWorldbook?.id || ''
-        })
-        if (!result?.success || !result.event) throw new Error(result?.error || '事件具体化失败')
-
-        const draft = this.setEmergenceDraft({
-          candidateId: id,
-          status: 'ready',
-          event: result.event,
-          error: '',
-          generatedAt: now,
-          updatedAt: Date.now()
-        })
-        this.appendRuntimeEvent({
-          type: 'display_event',
-          source: 'emergence',
-          payload: {
-            kind: 'emergence-draft-ready',
-            candidateId: id,
-            placeId: result.event.placeId,
-            contextual: false
-          }
-        })
-        this.saveCurrentSession()
-        return draft
-      } catch (error) {
-        return this.setEmergenceDraft({
-          candidateId: id,
-          status: 'error',
-          event: null,
-          error: error?.message || '事件具体化失败',
-          generatedAt: now,
-          updatedAt: Date.now()
-        })
-      }
-    },
-
-    clearEmergenceDraft() {
-      this.emergenceDraft = null
-      this.saveCurrentSession()
-    },
+    ...gameEmergenceActions,
 
     async persistLatestPlayerHistoryNode() {
       const worldStore = useWorldStore()
@@ -879,285 +432,12 @@ export const useGameStore = defineStore('game', {
         })
         this.saveCurrentSession()
         return persisted
-      } catch (error) {
+      } catch {
         return null
       }
     },
 
-    setAdventureTriggerDraft(type, draft) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      this.adventureTriggers = {
-        ...(this.adventureTriggers || cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null })),
-        [triggerType]: normalizeAdventureTriggerDraft(draft, triggerType)
-      }
-      this.saveCurrentSession()
-      return this.adventureTriggers[triggerType]
-    },
-
-    clearAdventureTriggerDraft(type) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      this.adventureTriggers = {
-        ...(this.adventureTriggers || cloneState(DEFAULT_ADVENTURE_STATE.adventureTriggers, { prose: null, storyboard: null })),
-        [triggerType]: null
-      }
-      this.saveCurrentSession()
-    },
-
-    latestPlotJournalEntry() {
-      return this.plotJournal?.[this.plotJournal.length - 1] || null
-    },
-
-    getAdventureTriggerState(type, nowInput = Date.now()) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      const latestEntry = this.latestPlotJournalEntry()
-      const draft = this.adventureTriggers?.[triggerType] || null
-      const now = normalizeNumber(nowInput, Date.now())
-      const recentHistory = (this.adventureTriggerHistory || [])
-        .filter((item) => now - Number(item?.createdAt || 0) <= ADVENTURE_TRIGGER_WINDOW_MS)
-      const usesRemaining = Math.max(0, ADVENTURE_TRIGGER_MAX_PER_WINDOW - recentHistory.length)
-      const cooldownRemainingMs = Math.max(0, Number(this.adventureTriggerCooldownUntil || 0) - now)
-      const hasDraftForLatestEntry = Boolean(draft && latestEntry && draft.sourcePlotId === (latestEntry.id || latestEntry.chapterId))
-      const isAccepted = Boolean(hasDraftForLatestEntry && draft?.status === 'accepted')
-      const cooldownRemainingSeconds = Math.ceil(cooldownRemainingMs / 1000)
-      let blockReason = ''
-
-      if (!latestEntry?.summary) {
-        blockReason = '当前剧情还不足以生成草稿'
-      } else if (this.adventureTriggerPendingType === triggerType) {
-        blockReason = 'AI 正在处理草稿，请稍候'
-      } else if (cooldownRemainingMs > 0) {
-        blockReason = `按钮冷却中，请在 ${cooldownRemainingSeconds} 秒后重试`
-      } else if (usesRemaining <= 0) {
-        blockReason = '本分钟触发次数已达上限，请稍后再试'
-      } else if (isAccepted) {
-        blockReason = '这段剧情的草稿已保存'
-      }
-
-      return {
-        type: triggerType,
-        latestEntry,
-        draft,
-        isReady: Boolean(latestEntry?.summary),
-        isGenerating: this.adventureTriggerPendingType === triggerType,
-        isAccepted,
-        cooldownRemainingMs,
-        cooldownRemainingSeconds,
-        usesRemaining,
-        blockReason,
-        canGenerate: Boolean(latestEntry?.summary) && this.adventureTriggerPendingType !== triggerType && cooldownRemainingMs === 0 && usesRemaining > 0 && !isAccepted,
-        hasDraftForLatestEntry
-      }
-    },
-
-    registerAdventureTriggerUsage(type) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      const now = Date.now()
-      const history = normalizeAdventureTriggerHistory([
-        ...(this.adventureTriggerHistory || []).filter((item) => now - Number(item?.createdAt || 0) <= ADVENTURE_TRIGGER_WINDOW_MS),
-        { type: triggerType, createdAt: now }
-      ])
-      this.adventureTriggerHistory = history
-      this.adventureTriggerCooldownUntil = now + ADVENTURE_TRIGGER_COOLDOWN_MS
-      this.saveCurrentSession()
-    },
-
-    buildAdventureTriggerTitle(type, plotEntry) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      const chapterId = normalizeTextValue(plotEntry?.chapterId || '')
-      if (triggerType === 'storyboard') {
-        return chapterId ? `${chapterId} 分镜草稿` : '冒险分镜草稿'
-      }
-      return chapterId ? `${chapterId} 章节草稿` : '冒险章节草稿'
-    },
-
-    async generateAdventureTriggerDraft(type) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      const triggerState = this.getAdventureTriggerState(triggerType)
-      if (!triggerState.isReady || !triggerState.latestEntry) {
-        throw new Error('当前剧情还不足以生成草稿')
-      }
-      if (triggerState.isGenerating) {
-        throw new Error('AI 正在处理草稿，请稍候')
-      }
-      if (triggerState.cooldownRemainingMs > 0) {
-        throw new Error('按钮冷却中，请稍后再试')
-      }
-      if (triggerState.usesRemaining <= 0) {
-        throw new Error('本分钟触发次数已达上限，请稍后再试')
-      }
-
-      this.loadApiSettings()
-      this.adventureTriggerPendingType = triggerType
-      const plotEntry = triggerState.latestEntry
-      const title = this.buildAdventureTriggerTitle(triggerType, plotEntry)
-
-      this.setAdventureTriggerDraft(triggerType, {
-        type: triggerType,
-        title,
-        chapterId: plotEntry.chapterId,
-        sourcePlotId: plotEntry.id || plotEntry.chapterId,
-        summary: plotEntry.summary,
-        sourceMessageIds: plotEntry.sourceMessageIds || [],
-        updatedAt: Date.now(),
-        generatedAt: Date.now(),
-        status: 'generating',
-        ...(triggerType === 'storyboard' ? { shots: [] } : { content: '' })
-      })
-
-      try {
-        const worldStore = useWorldStore()
-        const payload = {
-          worldbook: worldStore.activeWorldbook,
-          runtimeState: this.getRuntimeSnapshot(),
-          chatHistory: this.chatHistory,
-          plotEntry,
-          settings: this.apiSettings,
-          sessionTitle: findSession(this.sessions, this.currentSessionId)?.title || ''
-        }
-
-        const result = triggerType === 'storyboard'
-          ? await generateAdventureStoryboardDraft(payload)
-          : await generateAdventureProseDraft(payload)
-
-        if (!result?.success) {
-          throw new Error(triggerType === 'storyboard' ? '整理分镜失败，请稍后重试' : '章节草稿生成失败，请稍后重试')
-        }
-
-        this.registerAdventureTriggerUsage(triggerType)
-        return this.setAdventureTriggerDraft(triggerType, {
-          type: triggerType,
-          title,
-          chapterId: plotEntry.chapterId,
-          sourcePlotId: plotEntry.id || plotEntry.chapterId,
-          summary: plotEntry.summary,
-          sourceMessageIds: plotEntry.sourceMessageIds || [],
-          generatedAt: Date.now(),
-          updatedAt: Date.now(),
-          status: 'ready',
-          ...(triggerType === 'storyboard'
-            ? { shots: result.shots || [] }
-            : { content: result.content || '' })
-        })
-      } catch (error) {
-        this.setAdventureTriggerDraft(triggerType, {
-          type: triggerType,
-          title,
-          chapterId: plotEntry.chapterId,
-          sourcePlotId: plotEntry.id || plotEntry.chapterId,
-          summary: plotEntry.summary,
-          sourceMessageIds: plotEntry.sourceMessageIds || [],
-          generatedAt: Date.now(),
-          updatedAt: Date.now(),
-          status: 'error',
-          error: error?.message || '草稿生成失败',
-          ...(triggerType === 'storyboard' ? { shots: [] } : { content: '' })
-        })
-        throw error
-      } finally {
-        this.adventureTriggerPendingType = null
-      }
-    },
-
-    async acceptAdventureTriggerDraft(type) {
-      const triggerType = type === 'storyboard' ? 'storyboard' : 'prose'
-      const draft = this.adventureTriggers?.[triggerType]
-      if (!draft || draft.status !== 'ready') {
-        throw new Error('当前没有可采纳的草稿')
-      }
-
-      const plotEntry = this.latestPlotJournalEntry()
-      const projectId = this.worldId || resolveActiveWorldbookId() || null
-      const sourceMessageIds = Array.isArray(draft.sourceMessageIds) ? draft.sourceMessageIds : []
-      const creativeSourceRefs = this.getCurrentCreativeSourceRefs(sourceMessageIds, plotEntry)
-
-      if (triggerType === 'storyboard') {
-        const persistedAsset = addNarrativeAssetDurable({
-          title: draft.title || this.buildAdventureTriggerTitle('storyboard', plotEntry),
-          content: formatAdventureStoryboardSeedContent(draft),
-          kind: 'storyboard-seed',
-          projectId,
-          status: 'inbox',
-          source: {
-            type: 'experience-session',
-            id: this.currentSessionId || '',
-            messageIds: sourceMessageIds
-          },
-          sourceRefs: creativeSourceRefs
-        })
-        if (!persistedAsset.ok) throw new Error('素材保存失败，未采纳这份分镜草稿')
-        const asset = persistedAsset.asset
-        const storyboardSourceRefs = mergeSourceRefs([
-          ...asset.sourceRefs,
-          createNarrativeAssetSourceRef(asset)
-        ])
-
-        const storyboard = saveValidatedStoryboardVersion({
-          projectId,
-          source: {
-            sourceType: 'narrative-asset',
-            sourceId: asset.id,
-            title: asset.title
-          },
-          sourceRefs: storyboardSourceRefs,
-          shots: draft.shots || [],
-          taskType: 'adventure.trigger.storyboard',
-          parameters: {
-            chapterId: draft.chapterId || '',
-            sessionId: this.currentSessionId || '',
-            sourcePlotId: draft.sourcePlotId || ''
-          }
-        })
-
-        const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
-          ...draft,
-          status: 'accepted',
-          assetId: asset.id,
-          storyboardDocumentId: storyboard.document.id,
-          storyboardVersionId: storyboard.version.versionId,
-          acceptedAt: Date.now(),
-          updatedAt: Date.now()
-        })
-        return {
-          type: triggerType,
-          draft: acceptedDraft,
-          asset,
-          storyboard
-        }
-      }
-
-      const persistedAsset = addNarrativeAssetDurable({
-        title: draft.title || this.buildAdventureTriggerTitle('prose', plotEntry),
-        content: draft.content || '',
-        kind: 'draft-prose',
-        projectId,
-        status: 'inbox',
-          source: {
-            type: 'experience-session',
-            id: this.currentSessionId || '',
-            messageIds: sourceMessageIds
-          },
-          sourceRefs: creativeSourceRefs
-        })
-      if (!persistedAsset.ok) throw new Error('素材保存失败，未采纳这份正文草稿')
-      const asset = persistedAsset.asset
-
-      const acceptedDraft = this.setAdventureTriggerDraft(triggerType, {
-        ...draft,
-        status: 'accepted',
-        assetId: asset.id,
-        acceptedAt: Date.now(),
-        updatedAt: Date.now()
-      })
-      return {
-        type: triggerType,
-        draft: acceptedDraft,
-        asset
-      }
-    },
-
-    dismissAdventureTriggerDraft(type) {
-      this.clearAdventureTriggerDraft(type)
-    },
+    ...adventureTriggerActions,
 
     buildPlotJournalEntry() {
       return buildJournalEntry({
@@ -1840,69 +1120,7 @@ export const useGameStore = defineStore('game', {
       this.saveCurrentSession()
     },
 
-    // P1：删除后清理完全不可达的 turn record（无 assistantMessageIds/userMessageIds、
-    // 无 baseMessageId 引用、无其他 turn 把它当 parent）。仍被分支链引用的拓扑保留。
-    gcUnreachableTurns() {
-      // GC 判定归 branch-turn 图模块（B11）：store 只保留保留条件里的游标
-      this.turnRecords = gcBranchTurns(this.turnRecords, {
-        lastCommittedTurnId: this.lastCommittedTurnId,
-        pendingBranchParentTurnId: this.pendingBranchParentTurnId
-      })
-    },
-
-    // --- 新增：核心”执行”功能 ---
-    // 点击某条消息的”执行”按钮时调用
-    // R1a：根据消息 id 反查所属的 turnRecord。
-    // 优先精确匹配 assistantMessageIds；其次匹配 userMessageIds（用于从 user 消息 regenerate）。
-    findTurnByMessageId(messageId) {
-      if (!messageId) return null
-      // C4/P0-2：只认 committed 且在当前分支祖先链上的回合，避免选中 failed/撤销回合或其它分支的 extension。
-      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
-      return Object.values(this.turnRecords || {})
-        .filter((record) => (
-          record.status === 'committed'
-          && chain.has(record.id)
-          && (
-            record.assistantMessageIds?.includes(String(messageId))
-            || record.baseMessageId === String(messageId)
-            || record.userMessageIds?.includes(String(messageId))
-          )
-        ))
-        .sort((a, b) => (b.committedAt || 0) - (a.committedAt || 0))[0] || null
-    },
-
-    // C4：当前分支最后一条可见、已提交的 assistant 消息（extend 目标）。
-    findLastVisibleAssistantMessage() {
-      const visibleIds = this.currentBranchVisibleMessageIds()
-      return [...(this.messages || [])].reverse().find((message) => (
-        message?.role === 'assistant'
-        && !message.superseded
-        && (!message.branchId || visibleIds.has(message.id))
-      )) || null
-    },
-
-    // P0-1：当前分支可见消息 id 集合 —— 基于 turn 祖先链。
-    // 从当前分支最新 committed turn 沿 parentTurnId 回溯，收集链上每个 turn 的
-    // user/assistant 消息 id。嵌套分叉时，只有祖先链上的消息可见，
-    // 子分支独有历史不会被误提升为共享。
-    collectBranchTurnChain(branchId) {
-      return collectTurnChain(this.turnRecords, {
-        branchId,
-        pendingBranchParentTurnId: this.pendingBranchParentTurnId,
-        lastCommittedTurnId: this.lastCommittedTurnId
-      })
-    },
-
-    // P0-1：当前分支可见消息 id 集合（含祖先链 turn 的消息 + 无 branchId 的共享历史）。
-    currentBranchVisibleMessageIds() {
-      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
-      return collectChainMessageIds(this.turnRecords, chain)
-    },
-
-    // P1-4：当前分支链上的 turn id 集合（记忆候选分支隔离用）。
-    currentBranchTurnIds() {
-      return this.collectBranchTurnChain(this.activeBranchId || 'main')
-    },
+    ...gameBranchWorkflowActions,
 
     // P1-5：从 lastNarrativeKernel 的 cast block 构建 名字→speakerId 映射。
     // 供 dialogue block 解析时覆盖 speakerId（与 SceneCast 对齐，改名不漂移）。
@@ -1934,119 +1152,6 @@ export const useGameStore = defineStore('game', {
       })
     },
 
-
-    // P1-4：构建记忆候选分支过滤函数。
-    // 候选 id 若出现在"非当前分支链"的 turn.memoryCandidateIds 里 → 排除（分支 A 的记忆不污染 B）。
-    // 手动/共享候选（不在任何 turn 记录里）→ 保留。
-    buildBranchMemoryFilter() {
-      const chain = this.collectBranchTurnChain(this.activeBranchId || 'main')
-      // 反向映射：候选 id → 所属 turn id
-      const candidateToTurn = {}
-      for (const turn of Object.values(this.turnRecords || {})) {
-        for (const candidateId of turn.memoryCandidateIds || []) {
-          if (!candidateToTurn[candidateId]) candidateToTurn[candidateId] = []
-          candidateToTurn[candidateId].push(turn.id)
-        }
-      }
-      return (memory) => {
-        const turnIds = candidateToTurn[memory?.id]
-        if (!turnIds || turnIds.length === 0) return true  // 共享/手动候选保留
-        // 候选属于当前分支链上的 turn → 保留；否则排除
-        return turnIds.some((turnId) => chain.has(turnId))
-      }
-    },
-
-    async regenerateFrom(index) {
-      debugLog('[regenerateFrom] START, messages count before slice:', this.messages.length, 'index:', index)
-      // 未启用 AI 时“重新生成”没有可执行的后续动作；必须保持为严格 no-op，
-      // 不能先回滚 runtime、创建临时分支或改写 superseded 标记。
-      if (!this.useAI) return false
-
-      // 1. 确保游戏在播放状态
-      this.isPlaying = true
-
-      // R1a：非破坏性重试。
-      // 1a. 找到目标消息所属的回合，回滚到该回合开始前的 runtime state。
-      const targetMessage = this.messages[index]
-      const parentTurn = targetMessage?.id ? this.findTurnByMessageId(targetMessage.id) : null
-      if (parentTurn?.preRuntimeSnapshot) {
-        debugLog('[regenerateFrom] rollback runtime state to pre-turn snapshot:', parentTurn.id)
-        this.applyRuntimeSnapshot(parentTurn.preRuntimeSnapshot)
-      } else {
-        debugLog('[regenerateFrom] no matching turn record; skip state rollback')
-      }
-
-      // R1b：不再截断 messages —— 旧消息保留在数组。
-      // P0-3 修正：**不再清除任何 branchId** —— 可见性由 turn 链决定
-      // （见 rebuildChatHistory / currentBranchVisibleMessageIds），
-      // 避免嵌套分叉时把子分支独有历史误提升为全局共享。
-      const oldBranchId = this.activeBranchId || 'main'
-      const newBranchId = `branch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
-      this.activeBranchId = newBranchId
-      // P1-3：记录分叉父 turn —— 新分支尚无 committed turn 时，collectBranchTurnChain
-      // 从它建链（而非依赖可能丢失的全局 lastCommittedTurnId）。
-      this.pendingBranchParentTurnId = parentTurn?.id || null
-      // 标记被重写部分为 superseded（保留标记，供切换按钮定位）
-      for (let i = index + 1; i < this.messages.length; i++) {
-        const m = this.messages[i]
-        if (m && typeof m === 'object') m.superseded = true
-      }
-      // 旧分支的最后一条 assistant 消息记入 parentTurn（切换按钮定位用）
-      const lastOldAssistant = [...this.messages].reverse().find((m) => (
-        m?.role === 'assistant' && (m.branchId || 'main') === oldBranchId
-      ))
-      if (parentTurn && lastOldAssistant?.id) {
-        parentTurn.oldBranchAssistantId = lastOldAssistant.id
-      }
-      debugLog('[regenerateFrom] switch branch to:', newBranchId, 'oldBranch:', oldBranchId)
-
-      // 2. 重新构建 AI 记忆
-      this.rebuildChatHistory();
-      debugLog('[regenerateFrom] chatHistory after rebuild:', this.chatHistory.map(m => m.role + ':' + m.content?.slice(0, 30)))
-
-      // 3. 立即触发重新生成（useAI 已在入口守卫）
-      {
-        // 标记为重写后续，避免触发初始化逻辑
-        this._isRegenerating = true
-        // P0-3：新 turn 作为旧 turn 的 sibling（同父级），并传入源用户消息 id，
-        // 让生成出的 turnRecord 正确关联到触发重生成的 user 消息。
-        // P0-2：新 turn 是旧 turn 的 sibling —— parentTurnId 取旧 turn 的父 turn。
-        // 首回合（parentTurn.parentTurnId 为 null）时新候选也是根 sibling（null），
-        // 不能 fallback 到旧 turn.id（那会变成子回合）。
-        const branchParentTurnId = parentTurn?.parentTurnId ?? null
-        const sourceUserMessageId = targetMessage?.id || ''
-        debugLog('[regenerateFrom] Starting, _isRegenerating:', this._isRegenerating)
-        const outcome = await this.generateAIResponse({ parentTurnId: branchParentTurnId, userMessageId: sourceUserMessageId })
-        // P0-1：生成失败/取消时恢复原分支 —— 复用 switchBranch 的完整恢复逻辑
-        // （恢复该分支 postRuntimeSnapshot + 重算 superseded + 同步游标 + 重建 chatHistory），
-        // 保证旧回复重新可见的同时，地点/时间/角色状态也回到旧分支的提交后状态。
-        if (outcome !== 'success' && this.activeBranchId === newBranchId) {
-          debugLog('[regenerateFrom] generation failed, restore branch:', oldBranchId)
-          this.switchBranch(oldBranchId)
-        }
-        this._isRegenerating = false
-        debugLog('[regenerateFrom] Done, _isRegenerating:', this._isRegenerating)
-      }
-      return true
-    },
-
-    // R1b：切换候选/分支。恢复该分支的 post snapshot + 重建 chatHistory。
-    switchBranch(branchId) {
-      if (!branchId || branchId === this.activeBranchId) return
-      // 最新回合选择与 superseded 标记判定归 branch-turn 图模块（B11）
-      const turn = latestCommittedBranchTurn(this.turnRecords, branchId)
-      // P0-2：同步提交游标到目标分支最新 turn —— 否则切分支后继续生成，
-      // 新 turn 会以其它分支的回合作父节点，重新造成跨分支污染。
-      if (turn?.id) this.lastCommittedTurnId = turn.id
-      if (turn?.postRuntimeSnapshot) {
-        this.applyRuntimeSnapshot(turn.postRuntimeSnapshot)
-      }
-      markSupersededMessages(this.messages, branchId)
-      this.activeBranchId = branchId
-      this.rebuildChatHistory()
-      // 最终一致态提交点（B-R2）
-      this.commitCurrentSessionNow()
-    },
 
     // R6：统一动作 dispatcher —— 按钮/快捷键/命令走同一入口。
     // 首批动作映射到现有 store 方法；返回 { ok, result? } 供调用方判断。
@@ -2097,7 +1202,7 @@ export const useGameStore = defineStore('game', {
           case 'continue':
             // C1.4：继续上一回复 —— 走 extend intent（不新增 user turn，从最后一句直接续接）
             {
-              const last = this.messages[this.messages.length - 1]
+
               if (this.isLoading) return { ok: false, error: 'BUSY' }
               await this.generateAIResponse({ intent: 'extend' })
               return { ok: true }
@@ -2182,53 +1287,6 @@ export const useGameStore = defineStore('game', {
       }
     },
 
-    // R1b：检查 index 之后是否还有其它分支的 assistant 消息（切换按钮显示条件）。
-    hasCandidateAfter(index) {
-      const after = this.messages.slice(index + 1)
-      const currentBranch = this.activeBranchId || 'main'
-      return after.some((m) => m?.role === 'assistant' && (m.branchId || 'main') !== currentBranch)
-    },
-
-    // R1b：列出当前 user 消息之后的所有分支 id（切换按钮在候选间循环）。
-    candidateBranchesAfter(index) {
-      const after = this.messages.slice(index + 1)
-      const seen = new Set()
-      for (const m of after) {
-        if (m?.role === 'assistant' && m?.branchId) seen.add(m.branchId)
-      }
-      return [...seen]
-    },
-
-    // --- 新增：辅助方法，确保界面和 AI 记忆完全一致 ---
-    rebuildChatHistory() {
-      // 从当前的 messages 完整重建 chatHistory
-      // 保留 user 和 assistant 消息（不包括 system）
-      // P0-1：可见性由 turn 链决定 —— 当前分支祖先链上的消息 + 无 branchId 的共享历史。
-      // 不使用"清除 branchId"或简单分支过滤（嵌套分叉会污染）。
-      const visibleIds = this.currentBranchVisibleMessageIds()
-      const history = this.messages
-        .filter((m) => m && !m.superseded && (!m.branchId || visibleIds.has(m.id)))
-        .map(m => {
-          if (m.role === 'system' || m.type === 'system') return null
-          return {
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content
-          }
-        })
-        .filter(Boolean)
-
-      // 添加默认系统提示词
-      const systemPrompt = {
-        role: 'system',
-        content: [
-          '你是一个小说叙述者，请用生动的语言描述场景并与玩家互动。',
-          buildNarrativeFormatInstructions()
-        ].join('\n\n')
-      };
-
-      this.chatHistory = [systemPrompt, ...history];
-    },
-
     cancelNarrativeGeneration(reason = 'user-cancelled') {
       cancelExperienceTurn(this, reason)
     },
@@ -2268,12 +1326,12 @@ export const useGameStore = defineStore('game', {
         // 只在完整回复完成并提取状态后收集候选，不在流式文本期间弹出事件。
         ['emergence', () => this.refreshEmergenceCandidates()]
       ]
-      for (const [stage, run] of stages) {
+      for (const [, run] of stages) {
         try {
           run()
-        } catch (error) {
+        } catch {
           // 单级失败必须生产可观测（console.warn），不能用仅 dev 的 debugLog 静默
-          console.warn(`[extractAndUpdateState] ${stage} 阶段解析失败（已跳过，不影响其他阶段）:`, error?.message)
+
         }
       }
     },
@@ -2345,299 +1403,7 @@ export const useGameStore = defineStore('game', {
       this.extractFactionRelations(text)
     },
 
-    // Authoring runtime：惰性创建正文→观察器 bridge（模块级单例，非持久化）。
-    ensureAuthoringObserverRuntime() {
-      if (authoringObserverBridge) return authoringObserverBridge
-      authoringObserverScheduler = createAuthoringObserverScheduler({
-        // 每次重算先让同一稳定 writing unit 的旧派生失效。只处理 unit
-        // 来源；chapter/turn 等宽来源不能因改一段正文而整批作废。
-        invalidate: async (delta) => {
-          const unitRefs = [...new Set((delta.sourceRefs || []).filter((ref) => (
-            String(ref || '').startsWith('unit:')
-          )))]
-          for (const sourceRef of unitRefs) {
-            invalidateMemoryBySource({
-              sourceRef,
-              currentRevision: delta.sourceDocumentRevision || delta.documentRevision || '',
-              reason: 'prose-unit-revised'
-            })
-          }
-        },
-        // 真实派生：编辑空闲后对文档 delta 执行五个 observer derive workflow；
-        // 常规结果写入 derived-state，typed exception 分离进入审阅队列。
-        run: async (delta, execution) => {
-          const runner = createAuthoringObserverRunner({
-            // 候选项目归属优先用 delta 携带的 memoryProjectId（Authoring 书 ID），
-            // 否则回退 active worldbook，保证写入口径与召回口径一致。
-            memoryTarget: (delta) => ({
-              projectId: String(delta?.memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId() || resolveActiveWorldbookId() || ''
-            }),
-            applyDerived: async (routine, meta) => {
-              const provenance = meta?.provenance || {}
-              for (const observation of routine) {
-                const observationRefs = Array.isArray(observation.sourceRefs) ? observation.sourceRefs : []
-                const sourceRefs = observationRefs.length && observationRefs[0] !== 'document-delta'
-                  ? observationRefs
-                  : (Array.isArray(provenance.sourceRefs) ? provenance.sourceRefs : [])
-                const finalProvenance = normalizeAuthoringObserverProvenance({
-                  ...provenance,
-                  sourceRefs,
-                  target: meta?.target || provenance.target
-                }, meta?.target || provenance.target)
-                authoringObserverHub.pushDerived({
-                  ...observation,
-                  schemaVersion: finalProvenance.schemaVersion,
-                  derivedAt: finalProvenance.derivedAt,
-                  documentId: finalProvenance.documentId,
-                  target: finalProvenance.target,
-                  provenance: finalProvenance,
-                  baseRevision: String(meta?.baseRevision || ''),
-                  projectId: finalProvenance.projectId,
-                  chapterId: finalProvenance.chapterId,
-                  unitId: finalProvenance.unitId,
-                  unitRevision: finalProvenance.unitRevision,
-                  documentRevision: finalProvenance.documentRevision,
-                  sourceRefs,
-                  status: observation.status === 'candidate' ? 'candidate' : 'applied'
-                })
-              }
-              return { count: routine.length }
-            },
-            onException: null
-          })
-          return runner.run(delta, execution)
-        },
-        onSettled: (settled) => {
-          authoringObserverHub.recordResult(settled)
-          authoringObserverHub.dispatch(settled)
-        }
-      })
-      authoringObserverBridge = createLegacyExperienceStateBridge({
-        insertText: async ({ text, observerContext }) => {
-          // 正文已由回合事务提交；此处只生成确定性 document receipt 供观察器对齐版本。
-          const documentSequence = authoringObserverHub.nextDocumentSequence()
-          return {
-            revision: `${observerContext?.documentId || this.currentSessionId || 'session'}:doc-r${documentSequence}`,
-            chars: String(text || '').length
-          }
-        },
-        scheduleObservers: (delta) => {
-          authoringObserverHub.recordEvent(delta)
-          // Agent-off gate：关闭后不做自动派生调度。
-          if (!authoringObserverHub.isAgentEnabled()) return { accepted: false, reason: 'agent-disabled' }
-          authoringObserverHub.pushTriggerEvent({
-            type: 'prose-commit',
-            projectId: String(delta.memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId(),
-            sessionId: this.currentSessionId || '',
-            sourceRefs: delta.sourceRefs || [],
-            revision: delta.documentRevision || '',
-            emittedAt: Date.now()
-          })
-          return authoringObserverScheduler.scheduleObservers({
-            ...delta,
-            // 同章不同单元各自排队；同一单元的新 revision 则替换旧任务，
-            // 让空闲观察只派生最终文本，而不是按键过程中每版都写候选。
-            scheduleKey: delta.unitId
-              ? `${delta.documentId || this.currentSessionId || 'session'}:unit:${delta.unitId}`
-              : String(delta.documentId || this.currentSessionId || 'session')
-          })
-        }
-      })
-      return authoringObserverBridge
-    },
-
-    // 受控记忆触发边界：prose-commit 只在正文持久化成功后发射；undo 发射失效。
-    ensureAuthoringMemoryTriggers() {
-      if (authoringMemoryTriggers) return authoringMemoryTriggers
-      authoringMemoryTriggers = createMemoryTriggers({
-        // derive 真正生成候选：经 observer scheduler → runner(memoryTarget) 队列化。
-        derive: async (payload) => {
-          authoringObserverHub.pushTriggerEvent({ ...payload, emittedAt: Date.now() })
-          if (!authoringObserverScheduler || !payload.text) {
-            return { accepted: false, reason: !payload.text ? 'empty-text' : 'observer-unavailable' }
-          }
-          // boundary 使用独立调度键：避免与紧随其后的 prose-commit 因同 key 合并而互相取消。
-          const documentId = payload.type === 'boundary'
-            ? `${payload.sessionId || 'authoring'}:boundary:${payload.scopeKey || 'unknown'}`
-            : (payload.sessionId || 'authoring')
-          return authoringObserverScheduler.scheduleObservers({
-            documentId,
-            scheduleKey: documentId,
-            documentRevision: payload.revision,
-            text: payload.text,
-            changedText: payload.changedText,
-            changedRanges: payload.changedRanges,
-            sourceRefs: payload.sourceRefs,
-            memoryProjectId: payload.projectId,
-            chapterId: payload.chapterId,
-            unitId: payload.unitId,
-            unitRevision: payload.unitRevision,
-            sourceDocumentRevision: payload.sourceDocumentRevision
-          })
-        },
-        invalidate: async (payload) => {
-          for (const sourceRef of payload.sourceRefs || []) {
-            invalidateMemoryBySource({ sourceRef, currentRevision: payload.revision, reason: payload.reason })
-          }
-          authoringObserverHub.pushTriggerEvent({ ...payload, type: 'invalidation', emittedAt: Date.now() })
-        },
-        isAgentEnabled: () => authoringObserverHub.isAgentEnabled()
-      })
-      return authoringMemoryTriggers
-    },
-
-    setAuthoringProjectId(projectId) {
-      const next = String(projectId || '').trim()
-      if (authoringObserverHub.getActiveProjectId() === next) return
-      authoringObserverHub.setActiveProjectId(next)
-      // B13：换书即换作用域——取消旧项目作用域的待执行派生并清空观察器
-      // 缓冲/来源镜像，与页面 dismissAuxiliary 的失效合同一致；订阅保留
-      //（页面仍挂载）。bridge 未创建时无可取消任务。
-      authoringObserverScheduler?.cancelAll()
-      authoringObserverHub.clearBuffers()
-    },
-
-    setAuthoringMemoryAgentEnabled(value) {
-      authoringObserverHub.setAgentEnabled(value !== false)
-    },
-
-    resolveAuthoringMemoryProjectId() {
-      return authoringObserverHub.getActiveProjectId() || resolveActiveWorldbookId() || ''
-    },
-
-    // 显式“记住”：provider 不可用也创建本地 pending 候选。
-    async rememberAuthoringSelection({ content = '', sourceRefs = [], sourceRevision = '', confirm = false, projectId = '' } = {}) {
-      const trimmed = String(content || '').trim()
-      if (!trimmed) return { success: false, skipped: true, reason: 'empty-content' }
-      const triggers = this.ensureAuthoringMemoryTriggers()
-      const result = await triggers.rememberExplicitly({
-        content: trimmed,
-        projectId: String(projectId || '').trim() || this.resolveAuthoringMemoryProjectId(),
-        sessionId: this.currentSessionId || '',
-        sourceRefs: Array.isArray(sourceRefs) && sourceRefs.length ? sourceRefs : [`user-action:remember:${Date.now()}`],
-        sourceRevision,
-        confirm
-      })
-      return result
-    },
-
-    // Authoring 页面正文事务提交：调度一次有界观察派生（真正产出记忆候选）并记录 prose-commit 事件。
-    noteAuthoringTextCommit({ text = '', changedText = undefined, changedRanges = undefined, sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '' } = {}) {
-      const contentText = String(text || '')
-      if (!contentText.trim()) return { accepted: false, reason: 'empty-text' }
-      // Agent-off gate：关闭后不做自动记忆派生（显式“记住”仍可本地建候选）。
-      if (!authoringObserverHub.isAgentEnabled()) {
-        return { accepted: false, reason: 'agent-disabled' }
-      }
-      const contentTextTrimmed = contentText
-      // 仅显式传入项目时同步；空值不得触发换书取消/清缓冲语义（B13）
-      if (String(memoryProjectId || '').trim()) this.setAuthoringProjectId(memoryProjectId)
-      this.ensureAuthoringObserverRuntime()
-      const memoryProjectIdResolved = String(memoryProjectId || '').trim() || this.resolveAuthoringMemoryProjectId()
-      const result = authoringObserverScheduler.scheduleObservers({
-        documentId: sessionId || this.currentSessionId || 'authoring',
-        documentRevision: revision,
-        text: contentTextTrimmed,
-        changedText,
-        changedRanges,
-        sourceRefs,
-        memoryProjectId: memoryProjectIdResolved
-      })
-      authoringObserverHub.pushTriggerEvent({
-        type: 'prose-commit',
-        projectId: memoryProjectIdResolved,
-        sessionId: sessionId || this.currentSessionId || '',
-        sourceRefs,
-        revision,
-        emittedAt: Date.now()
-      })
-      return result
-    },
-
-    // 章节/会话边界：对上一范围做一次去重后的有界派生，不重扫整个项目。
-    async noteAuthoringBoundary({ scopeKey = '', text = '', changedText = undefined, changedRanges = undefined, sourceRefs = [], revision = '', memoryProjectId = '', sessionId = '', chapterId = '', unitId = '', unitRevision = 0, sourceDocumentRevision = '' } = {}) {
-      this.ensureAuthoringObserverRuntime()
-      const triggers = this.ensureAuthoringMemoryTriggers()
-      return triggers.handle({
-        type: 'boundary',
-        projectId: String(memoryProjectId || '').trim() || this.resolveAuthoringMemoryProjectId(),
-        sessionId: sessionId || this.currentSessionId || '',
-        scopeKey,
-        text,
-        changedText,
-        changedRanges,
-        sourceRefs,
-        revision,
-        chapterId,
-        unitId,
-        unitRevision,
-        sourceDocumentRevision
-      })
-    },
-
-    getAuthoringMemoryTriggerEvents() {
-      return authoringObserverHub.getTriggerEvents()
-    },
-
-    // 每次可见正文提交后调用一次：先落正文 receipt，再调度派生观察器（顺序由 bridge 保证）。
-    async commitAuthoringProseResult({ text, sourceRefs = [], memoryProjectId = '', documentId = '', chapterId = '', unitId = '', unitRevision = 0, sourceDocumentRevision = '' } = {}) {
-      const contentText = String(text || '')
-      if (!contentText.trim()) return null
-      try {
-        if (String(memoryProjectId || '').trim()) this.setAuthoringProjectId(memoryProjectId)
-        const bridge = this.ensureAuthoringObserverRuntime()
-        const observerDocumentId = String(documentId || chapterId || this.currentSessionId || 'authoring')
-        const receipt = await bridge.commitNarrativeResult({
-          text: contentText,
-          baseRevision: authoringObserverHub.getLastDocumentRevision(observerDocumentId),
-          sourceRefs,
-          // 派生候选的项目归属与召回口径保持一致。
-          memoryProjectId: String(memoryProjectId || '').trim() || authoringObserverHub.getActiveProjectId(),
-          observerContext: {
-            documentId: observerDocumentId,
-            chapterId: String(chapterId || ''),
-            unitId: String(unitId || ''),
-            unitRevision: Number(unitRevision || 0),
-            sourceDocumentRevision: String(sourceDocumentRevision || '')
-          }
-        })
-        authoringObserverHub.setLastDocumentRevision(observerDocumentId, receipt.revision)
-        return receipt
-      } catch {
-        // 观察器调度失败绝不影响已提交的可见正文。
-        return null
-      }
-    },
-
-    async handleAuthoringProseUndo({ sourceRefs = [], revision = '', reason = 'prose-undo' } = {}) {
-      await this.ensureAuthoringMemoryTriggers().invalidate({
-        sourceRefs,
-        revision,
-        reason
-      })
-    },
-
-    getAuthoringObserverEvents() {
-      return authoringObserverHub.getEvents()
-    },
-
-    getAuthoringObserverExceptions() {
-      return authoringObserverHub.getExceptions()
-    },
-
-    getAuthoringDerivedState() {
-      return authoringObserverHub.getDerived()
-    },
-
-    subscribeAuthoringObserverResults(listener) {
-      return authoringObserverHub.subscribe(listener)
-    },
-
-    resetAuthoringObserverRuntime() {
-      // 取消全部待执行派生（含 boundary 独立键），避免切换/重置会话后旧任务继续执行。
-      authoringObserverScheduler?.cancelAll()
-      authoringObserverHub.clearBuffers()
-    },
+    ...gameAuthoringObserverActions,
 
     extractGoalState(content) {
       // 解析在 gameStateExtraction（B12 第二刀）；store 只保留应用
@@ -2759,9 +1525,9 @@ export const useGameStore = defineStore('game', {
         this.gameId = response.gameId
         this.worldId = worldId
         this.isPlaying = true
-        
+
         const welcomeText = `欢迎来到${response.world?.config?.name || '这个世界'}！游戏开始。`
-        
+
         this.messages = [{
           type: 'system',
           content: welcomeText,

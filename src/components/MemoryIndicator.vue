@@ -258,8 +258,8 @@ import {
   replaceMemoryCandidateConflicts,
   restoreMemoryCandidate,
   updateMemoryCandidate
-} from '../services/memoryCandidates'
-import { describeMem0SyncResult, syncConfirmedMemoryCandidateToMem0 } from '../services/memorySync'
+} from '../services/memory/memoryCandidates'
+import { describeMem0SyncResult, syncConfirmedMemoryCandidateToMem0 } from '../services/memory/memorySync'
 import { useTransientLayer } from '../composables/useTransientLayer'
 
 const showIndicator = ref(false)

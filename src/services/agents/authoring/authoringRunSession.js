@@ -6,6 +6,7 @@ import {
   captureAuthoringRunTarget,
   dedupeAuthoringRunCandidates,
   readAuthoringRunMemoryCandidates,
+  readAuthoringHistoryCandidates,
   readAuthoringOutlineCandidates,
   readAuthoringRunReferenceCandidates,
   readAuthoringSceneIntentCandidates,
@@ -363,6 +364,11 @@ export async function createAuthoringRunSession(input = {}) {
       entries: frozenSnapshot(list(source.matchedWorldbookEntries)),
       repository: source.worldbookRepository
     }),
+    invokeReader('history', readAuthoringHistoryCandidates, {
+      ...sharedReaderInput,
+      worldbookId: text(projection?.worldbookId),
+      repository: source.worldbookRepository
+    }),
     invokeReader('references', readAuthoringRunReferenceCandidates, {
       references: frozenSnapshot(list(source.references)),
       projectId: target.projectId,
@@ -394,13 +400,13 @@ export async function createAuthoringRunSession(input = {}) {
   const rejectedReader = readerCalls.find((call) => !call.ok)
   if (rejectedReader) return rejectedReader
 
-  const [manuscript, scene, worldbook, references, memory, outline, sceneIntents] = readerCalls
+  const [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents] = readerCalls
     .map((call) => call.result)
-  const discoveryExclusions = [manuscript, scene, worldbook, references, memory, outline, sceneIntents]
+  const discoveryExclusions = [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents]
     .flatMap((result) => list(result.exclusions))
     .map(sanitizeExclusion)
     .filter(Boolean)
-  const discoveredCandidates = [manuscript, scene, worldbook, references, memory, outline, sceneIntents]
+  const discoveredCandidates = [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents]
     .flatMap((result) => list(result.candidates))
     .map((candidate) => normalizeRunCandidateDependencies(candidate, projection))
 

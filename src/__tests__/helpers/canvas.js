@@ -6,11 +6,6 @@
  * 注入一个 stub ctx —— 包含 renderer.ts 实际调用的方法（其它方法
  * 静默成功），足以测试"不抛错"。
  */
-import { JSDOM } from 'jsdom'
-
-const dom = new JSDOM('<!DOCTYPE html>')
-const document = dom.window.document
-
 /** 构造一个 stub 2d context：所有方法都返回有意义的值（如 measureText 返回 {width:0}） */
 function makeStubCtx() {
   const noop = () => {}

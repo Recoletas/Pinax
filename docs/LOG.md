@@ -2003,7 +2003,7 @@
 - Notes 素材行移除 button 嵌套；漫画页 schema 升到 3，页级目的、翻页钩子、连续性和视觉圣经引用贯通脚本解析、编辑和存储。
 - 集成审查同步修复连续性文本未落盘、空白视觉引用新增后立即消失，以及旧媒体测试仍断言 schema 2 的问题；测试数量未增加。
 
-执行记录：[Round 2 任务板](./agent-runs/2026-07-16-round2-integration/README.md)。
+执行记录：[历史任务板](./agent-runs/current.md)。
 
 验证：`npm run verify:full`，核心 188 + 视觉 12，Vite/VitePress build 和 `git diff --check`。
 
@@ -2019,7 +2019,7 @@
 - 修复画布卡片拖入牌堆后立即被移出的合并缺陷，并消除组合式函数在纯函数测试中的 Vue 生命周期警告。
 - 新增契约通过合并同域测试保持断言而不膨胀用例数；核心 188 + 视觉 12，总量继续为 200。
 
-执行记录：[F 集成结果](./agent-runs/2026-07-16-online-agents-canvas-video/result-f-integration.md)。
+执行记录：[历史任务板中的 F 集成项](./agent-runs/current.md)。
 
 验证：`npm run verify:full` exit 0；核心段 23 files / 188 tests、视觉段 1 file / 12 tests，Vite build、VitePress docs build 和 `git diff --check` 均通过；未启动 dev server。
 
@@ -2034,7 +2034,7 @@
 - 将视频接入拆为 GenerationJob 网关窗口和后置分镜接线，首版覆盖 MiniMax 与受约束的通用异步 HTTP adapter，密钥仅留服务端。
 - A-E 可在独立 worktree 并行，F 串行完成 Experience/分镜接线、测试等量替换和文档收口；最终测试硬上限仍为 200。
 
-执行入口：[并行执行包](./agent-runs/2026-07-16-online-agents-canvas-video/README.md)。
+执行入口：[历史任务板](./agent-runs/current.md)。
 
 ## 2026-07-16 - 漫画制作字段直接接入
 
@@ -2434,7 +2434,7 @@ Deferred（按重要性排序，不在本 commit）：
 
 结果摘要：
 - `src/services/api.js` 的普通模式 context 注入不再只依赖 legacy 的 `character / time / location / scene / activities`；当会话里只有 `goals`、`encounteredCharacters`、`factionRelations`、`keyChoices`、`plotJournal` 这类轻 runtime 状态时，也会生成系统上下文，并把这些字段完整写进背景信息。
-- `src/services/worldbookContextBuilder.js` 的扫描文本开始消费阵营名和 `plotJournal` 的 `participants / locations / keyChoices / unresolvedHooks`，让 Stage 3a / 3b 写下来的剧情日志能更直接驱动世界书命中，而不是只吃 `summary`。
+- `src/services/worldbook/worldbookContextBuilder.js` 的扫描文本开始消费阵营名和 `plotJournal` 的 `participants / locations / keyChoices / unresolvedHooks`，让 Stage 3a / 3b 写下来的剧情日志能更直接驱动世界书命中，而不是只吃 `summary`。
 - 定向回归补到 `src/__tests__/contextMessage.test.js` 和 `src/__tests__/worldbookContextBuilder.test.js`，同时保留一条 `generationService` smoke，确保这轮 Thread B 只收口 runtime 主链，没有顺手碰 A 持有的 `WelcomeView / AppShell / gm-persona / QuestLog` UI 面。
 
 验证：
@@ -2503,7 +2503,7 @@ Deferred（按重要性排序，不在本 commit）：
 结果摘要：
 - `src/stores/gameStore.js` 补齐轻状态骨架：`goals`、`encounteredCharacters`、`factionRelations`、`keyChoices`、`plotJournal` 进入 runtime state、session persistence 和恢复链路。
 - runtime 现在会从生成文本里做最小启发式提取，并在累计约 8 个 assistant turn 后自动写入一条压缩剧情日志，保留 `chapterId`、摘要、参与者、地点、关键选择、未决钩子和来源 message index。
-- `src/services/worldbookContextBuilder.js` 开始消费这些轻状态辅助匹配世界书条目；`src/components/QuestLog.vue` 追加轻量冒险摘要，先露出“当前目标 / 最近选择 / 已遇角色”，不顺手扩成新壳层。
+- `src/services/worldbook/worldbookContextBuilder.js` 开始消费这些轻状态辅助匹配世界书条目；`src/components/QuestLog.vue` 追加轻量冒险摘要，先露出“当前目标 / 最近选择 / 已遇角色”，不顺手扩成新壳层。
 - 对应回归测试补到 `gameStoreSession`、`worldbookContextBuilder`、`contextMessage`、`questLog`，确保轻状态既能持久化，也能参与上下文构建和 UI 摘要。
 
 验证：

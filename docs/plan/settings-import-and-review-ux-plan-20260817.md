@@ -289,12 +289,12 @@ File
 
 当前代码边界已收敛为：
 
-- `src/services/worldbookSourceArchive.js`：IndexedDB creation workspace、artifacts、chunks 与 archiveRef；不保存世界书正式字段。
-- `src/services/worldbookSourceAdapters.js`：TXT/MD、PDF、DOCX adapter、校验、归一和 typed error。
+- `src/services/worldbook/worldbookSourceArchive.js`：IndexedDB creation workspace、artifacts、chunks 与 archiveRef；不保存世界书正式字段。
+- `src/services/worldbook/worldbookSourceAdapters.js`：TXT/MD、PDF、DOCX adapter、校验、归一和 typed error。
 - `src/services/worldbookSourceParser.js`、`src/services/worldbookSourceParser.worker.js`：解析、取消、超时和逐文件进度。
 - `src/services/worldbookSourceSelection.js`：按 source IDs、locator 和预算给现有生成链返回 chunks，并在上下文层做精确去重。
 - `src/pages/WorldbookCreationWorkspace.vue`：拖放、文件选择、粘贴、来源队列、基础基调和 JSON 确认流程；没有再拆出一套平行 SourceImportPanel/Queue。
-- `src/services/settingFieldGeneration.js`：结构化字段/分区请求前按 archive refs 恢复完整 chunks。
+- `src/services/worldbook/settingFieldGeneration.js`：结构化字段/分区请求前按 archive refs 恢复完整 chunks。
 
 ### 6.3 去重、检索与压缩的边界
 

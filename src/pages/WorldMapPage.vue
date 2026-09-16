@@ -34,7 +34,7 @@ const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
 // 与另两个设定页共用同一项目上下文解析（bookId -> book.worldbookId，竞态令牌内聚）。
-const { context, worldbook, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook, loadError } = useSettingsProjectContext({ worldStore })
 const mapContextReady = computed(() => {
   if (context.value?.mode === 'global') return Boolean(worldStore.activeWorldbook)
   return Boolean(worldbook.value)

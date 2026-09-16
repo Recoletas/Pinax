@@ -9,7 +9,7 @@
  */
 
 import { ref, computed, onUnmounted, getCurrentInstance } from 'vue'
-import { getItem, setItem, STORAGE_KEYS } from './useStorage'
+import { getItem, setItem } from './useStorage'
 
 // 配置常量
 const DEFAULT_API_URL = 'https://api.mem0.ai/v1'
@@ -163,7 +163,7 @@ export function useMem0(config = {}) {
 
       return { success: true, data: result.data }
     } catch (err) {
-      console.error('mem0 storeMemory error:', err)
+
       return { success: false, error: err.message }
     }
   }
@@ -235,8 +235,8 @@ export function useMem0(config = {}) {
       setCachedSearch(cacheKey, results)
 
       return results
-    } catch (err) {
-      console.error('mem0 searchMemories error:', err)
+    } catch {
+
       return []
     }
   }
@@ -268,8 +268,8 @@ export function useMem0(config = {}) {
       clearCacheForMemory(memoryId)
 
       return true
-    } catch (err) {
-      console.error('mem0 deleteMemory error:', err)
+    } catch {
+
       return false
     }
   }

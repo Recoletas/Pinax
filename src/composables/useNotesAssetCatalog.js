@@ -9,7 +9,7 @@ import {
   mergeNarrativeAssetsDurable,
   setNarrativeAssetsStatusDurable,
   updateNarrativeAssetDurable
-} from '../services/narrativeAssets'
+} from '../services/media/narrativeAssets'
 import { hydrateNarrativeImageAssets } from '../services/media/narrativeImageAssetBridge'
 import {
   deleteAssetCanvasReferences,
@@ -17,7 +17,7 @@ import {
   ensureAssetCanvasCards,
   ensureAssetCanvasCardWithExtra,
   findAssetCanvasCard
-} from '../services/relationCanvas'
+} from '../services/canvas/relationCanvas'
 import { generateProfessionalInfoForAsset } from '../services/professionalInfoGenerator'
 
 /**
@@ -385,8 +385,8 @@ export function useNotesAssetCatalog({
       } else {
         canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已生成并送入画布`
       }
-    } catch (err) {
-      console.error('生成专业信息失败:', err)
+    } catch {
+
       if (listNarrativeAssets({ status: null }).some((item) => item.id === sourceAssetId)) {
         ensureAssetCanvasCardWithExtra(asset, null)
         if (selectedChapterId.value === sourceAssetId) {

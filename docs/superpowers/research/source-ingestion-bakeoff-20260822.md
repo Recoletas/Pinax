@@ -7,9 +7,9 @@ status: done — 编码评分 + 章节优先切块 + 5 层 ID + 可解释报告�
 
 # 来源摄取内核 bake-off（编码 / 章节 / 5 层 ID / 报告）
 
-> 配套代码：`src/services/encodingDetector.js`、`src/services/chapterDetector.js`、
+> 配套代码：`src/services/writing/encodingDetector.js`、`src/services/writing/chapterDetector.js`、
 > `shared/chapterContract.js`、`src/services/contentHash.js`（SHA-256）、
-> `src/services/epubAdapter.js`、`shared/importReportContract.js`，
+> `src/services/writing/epubAdapter.js`、`shared/importReportContract.js`，
 > 以及 `worldbookSourceArchive.js` / `worldbookSourceAdapters.js` /
 > `worldbookSourceSelection.js` 的改造。
 >

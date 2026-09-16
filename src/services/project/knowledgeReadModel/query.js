@@ -43,7 +43,7 @@ import {
   toTimePoint,
   validateTimeline
 } from './time.js'
-import { RUNTIME_EVENT_LIMIT } from '../../runtimeEvents.js'
+import { RUNTIME_EVENT_LIMIT } from '../../experience/runtimeEvents.js'
 import {
   adaptCanonicalFacts,
   adaptGeoHistory,

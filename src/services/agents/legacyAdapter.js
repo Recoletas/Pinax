@@ -1,5 +1,5 @@
 import { buildContextEnvelope } from './agentContextEnvelope'
-import { createPendingResult, markCompleted, RESULT_STATUSES } from './agentResultLifecycle'
+import { createPendingResult, markCompleted } from './agentResultLifecycle'
 import { resolveTaskType, isLegacyAlias } from './agentTaskRegistry'
 
 function safeStr(value, fallback = '') {

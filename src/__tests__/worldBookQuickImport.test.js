@@ -15,7 +15,7 @@ import {
   createSourceDocument,
   createWorldbookFromPayload,
   normalizeGeneratedEntry
-} from '@/services/worldbookQuickImportHelpers'
+} from '@/services/worldbook/worldbookQuickImportHelpers'
 import {
   buildWorldbookImportPreview,
   normalizeWorldbookAiResult,
@@ -55,7 +55,7 @@ import {
   hasSettingGenerationBasis,
   isSettingDraftValid,
   isStructuredSettingRevisionCurrent
-} from '@/services/settingFieldGeneration'
+} from '@/services/worldbook/settingFieldGeneration'
 import { parseCharacterCards } from '@/services/characterCard'
 import {
   buildWorldbookMaintenanceMessages,
@@ -76,7 +76,7 @@ import {
   saveCreationWorkspace,
   saveSourceArchiveBundle,
   SOURCE_ARCHIVE_CAPACITY_BYTES
-} from '@/services/worldbookSourceArchive'
+} from '@/services/worldbook/worldbookSourceArchive'
 import {
   getCreationGenerationFailure,
   getCreationGenerationLabel,
@@ -92,7 +92,7 @@ import {
   detectSourceKind,
   parseSourceFile,
   parseSourceFiles
-} from '@/services/worldbookSourceAdapters'
+} from '@/services/worldbook/worldbookSourceAdapters'
 import { parseSourceFilesWithWorker } from '@/services/worldbook/worldbookSourceParser'
 
 function createFixturePdf(text) {
@@ -127,7 +127,7 @@ import {
   buildSettingPlacesRequest,
   classifyPlaceDrafts,
   generatePlacesFromOverview
-} from '@/services/settingPlaceGeneration'
+} from '@/services/worldbook/settingPlaceGeneration'
 import { extractTextContent } from '../../server/routes/chat'
 
 const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }))
@@ -288,7 +288,7 @@ const worldStore = mockWorldStoreLifecycle()
     worldStore.setActiveWorldbook = vi.fn().mockResolvedValue(undefined)
     worldStore.loadWorldbooksIndex = vi.fn().mockResolvedValue(undefined)
     const preset = { id: 'preset-border', name: '边境王国', entries: [], groups: [] }
-    const { enterPresetWorld } = await import('@/services/worldbookQuickImportHelpers')
+    const { enterPresetWorld } = await import('@/services/worldbook/worldbookQuickImportHelpers')
     const created = await enterPresetWorld(worldStore, { push: vi.fn() }, preset)
     expect(created?.id).toBe('wb-existing')
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
@@ -309,7 +309,7 @@ const worldStore = mockWorldStoreLifecycle()
       entries: [{ name: 'c2' }, { name: 'c1' }],
       groups: []
     }
-    const { presetSignature, enterPresetWorld } = await import('@/services/worldbookQuickImportHelpers')
+    const { presetSignature, enterPresetWorld } = await import('@/services/worldbook/worldbookQuickImportHelpers')
     const sig = presetSignature(preset)
     // 旧版本产生的副本：没有 sourcePresetId，只有 presetSignature
     worldStore.worldbooksIndex = [

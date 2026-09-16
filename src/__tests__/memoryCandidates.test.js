@@ -25,16 +25,16 @@ import {
   restoreMemoryCandidate,
   supersedeMemoryCandidates,
   updateMemoryCandidate
-} from '@/services/memoryCandidates'
-import { deriveMemoryImportance } from '@/services/memoryImportance'
-import { rankMemoryCandidates } from '@/services/memoryRetrieval'
+} from '@/services/memory/memoryCandidates'
+import { deriveMemoryImportance } from '@/services/memory/memoryImportance'
+import { rankMemoryCandidates } from '@/services/memory/memoryRetrieval'
 import {
   isMemorySourceCurrent,
   memorySourceKey
-} from '@/services/memoryProvenance'
+} from '@/services/memory/memoryProvenance'
 import {
   invalidateMemoryBySource
-} from '@/services/memoryCandidates'
+} from '@/services/memory/memoryCandidates'
 import { createMemoryRecallReceipt, inspectMemoryCapacity } from '@/services/experimental/memoryReceipt'
 import {
   deriveMemoryFromDelta,

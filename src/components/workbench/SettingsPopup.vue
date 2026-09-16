@@ -315,8 +315,8 @@ function handleExportBackup() {
     backupFeedback.value = `备份文件已生成：包含 ${result.keyCount} 项本地作品数据，模型密钥未包含。请妥善保存。`
     restoreSucceeded.value = false
     restoredTarget.value = null
-  } catch (e) {
-    console.error('[SettingsPopup] backup export failed:', e)
+  } catch {
+
     backupFeedback.value = '备份导出失败，请稍后重试；如持续失败，请用“导出诊断信息”反馈。'
   }
 }
@@ -325,8 +325,8 @@ async function handleExportDiagnostic() {
   try {
     await exportBetaDiagnosticReport()
     backupFeedback.value = '诊断信息已导出；发送前仍可用文本编辑器打开检查。'
-  } catch (error) {
-    console.error('[SettingsPopup] diagnostic export failed:', error)
+  } catch {
+
     backupFeedback.value = '诊断信息导出失败，请直接描述你看到的问题。'
   }
 }

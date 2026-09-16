@@ -4,7 +4,7 @@
 **Status**: Draft v1 — pending user review
 **Owner**: Pinax / text-game-framework
 **Scope (in)**: `src/pages/Writing.vue`, `src/styles/themes/kao.css`, `src/__tests__/uiPolish.test.js`, `docs/STATUS.md`, `docs/LOG.md`
-**Scope (out — preserved from v2 ship)**: `src/stores/gameStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`, `src/composables/useCharacterArt.js`, `src/components/folio/*`. Also explicitly out: Tiptap v3 migration, Codex 右侧栏 (Tier 2 #15), 5B v0.2 real art, Notes.vue / ProseEssay.vue Phase 1C rollout, CharacterPortrait `compact` size.
+**Scope (out — preserved from v2 ship)**: `src/stores/gameStore.js`, `src/services/worldbook/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`, `src/composables/useCharacterArt.js`, `src/components/folio/*`. Also explicitly out: Tiptap v3 migration, Codex 右侧栏 (Tier 2 #15), 5B v0.2 real art, Notes.vue / ProseEssay.vue Phase 1C rollout, CharacterPortrait `compact` size.
 
 ## 1. Goal
 

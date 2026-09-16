@@ -3,7 +3,7 @@ import {
   normalizeContextCandidate,
   resolveContextCandidatePrimarySourceRef
 } from './contextCandidateContract.js'
-import { rankMemoryCandidates } from '../../memoryRetrieval.js'
+import { rankMemoryCandidates } from '../../memory/memoryRetrieval.js'
 import { worldbookEntryRef } from '../../writing/writingSourceRefs.js'
 
 export const AUTHORING_RUN_REFERENCE_KINDS = Object.freeze(['narrative-asset', 'exploration-doc'])
@@ -616,6 +616,72 @@ export async function readAuthoringWorldbookCandidates({
       estimatedChars: content.length,
       claimKey: text(entry.claimKey),
       claimType: text(entry.claimType) || 'unknown'
+    })
+  }
+  return { candidates, exclusions }
+}
+
+// 历史节点与普通世界书条目分开进入 manifest。这样试演只能查询本次
+// 冻结快照中实际入选的节点，不能借由绑定世界书句柄扩成全库搜索。
+export async function readAuthoringHistoryCandidates({
+  projectId = '', worldbookId = '', repository = null
+} = {}) {
+  const candidates = []
+  const exclusions = []
+  if (!text(projectId) || !text(worldbookId) || typeof repository?.getBoundWorldbook !== 'function') {
+    return { candidates, exclusions }
+  }
+  let binding
+  try {
+    binding = await repository.getBoundWorldbook(text(projectId), text(worldbookId))
+  } catch {
+    return { candidates, exclusions }
+  }
+  const worldbook = binding?.worldbook
+  if (text(binding?.projectId) !== text(projectId)
+    || text(binding?.worldbookId) !== text(worldbookId)
+    || text(worldbook?.id) !== text(worldbookId)) return { candidates, exclusions }
+
+  const history = worldbook?.geoHistory || {}
+  const nodes = [
+    ...(Array.isArray(history.nodes) ? history.nodes : []).map((node) => ({ node, kind: text(node?.kind) || 'world-history' })),
+    ...(Array.isArray(history.playerNodes) ? history.playerNodes : []).map((node) => ({ node, kind: 'player-history' }))
+  ]
+  for (const { node, kind } of nodes) {
+    const nodeId = text(node?.id || node?.nodeId)
+    const sourceRef = nodeId ? `history-node:${nodeId}` : ''
+    const content = text(node?.summary || node?.description || node?.content)
+    const source = {
+      id: sourceRef || 'history-node:invalid',
+      kind: 'history-node', sourceKind: 'history-node', sourceId: nodeId,
+      label: text(node?.title || node?.name || '历史节点'),
+      primarySourceRef: sourceRef, sourceRefs: sourceRef ? [sourceRef] : []
+    }
+    if (!nodeId || !content) {
+      exclusions.push(safeExclusion(source, !nodeId ? 'history-node-id-missing' : 'history-node-empty'))
+      continue
+    }
+    const revision = text(node?.revision || node?.updatedAt || worldbook?.updatedAt)
+    if (!revision) {
+      exclusions.push(safeExclusion(source, 'revision-missing-fail-closed'))
+      continue
+    }
+    candidates.push({
+      ...source,
+      projectId: text(projectId),
+      usageRole: 'fact',
+      sourceAuthority: kind === 'player-history' ? 'accepted-derived' : 'author-adopted',
+      narrativeStatus: 'fact',
+      temporalRelation: 'before-target',
+      scope: 'project',
+      reason: '绑定世界书历史',
+      revision: `history-r${revision}`,
+      attentionPriority: 72,
+      dependencyRevisions: { [sourceRef]: `history-r${revision}` },
+      representations: { full: content, summary: content.slice(0, 360) },
+      estimatedChars: content.length,
+      claimKey: `history:${nodeId}`,
+      claimType: 'temporal-event'
     })
   }
   return { candidates, exclusions }

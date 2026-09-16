@@ -4,7 +4,7 @@
 // 迁移前后必须得到等价结果；旧值默认与未知字段策略保持原合同。
 import { buildHeuristicContextSummary } from '../contextCompression.js'
 import { parseCharacterCards } from '../characterCard.js'
-import { validateStateDelta } from '../runtimeEvents.js'
+import { validateStateDelta } from './runtimeEvents.js'
 
 
 // B10：仅本模块消费的 helper 不再导出（PLOT_JOURNAL_MAX_SUMMARY_CHARS、

@@ -221,7 +221,7 @@ GM 最低应做到：
 
 ### 本轮评审状态
 
-- 已核对 `src/services/seedWorldbookPresets.js`、`src/services/playableWorldEntry.js` 和本 demo 文档。
+- 已核对 `src/services/worldbook/seedWorldbookPresets.js`、`src/services/playableWorldEntry.js` 和本 demo 文档。
 - 已确认本机前端 `127.0.0.1:5176` 与后端 `127.0.0.1:3001` 可达，但 shell 无法复用浏览器 `localStorage` 里的 `apiSettings`。
 - 额外尝试了免本地配置的公开上游链路，`https://gen.pollinations.ai/v1/chat/completions` 当前要求有效 key，`https://text.pollinations.ai` 本轮返回 `429 Queue full`。
 - 所以这次不是完整的”10-15 分钟真实 AI 冒险实录”，而是”真实链路排障 + 静态内容审查”。下面的补点都以当前代码里的实际种子内容和入口拼装逻辑为准。
@@ -283,7 +283,7 @@ GM 最低应做到：
   - ✅ 第三条 action title 改为灰墙现场，落 `灰墙难民营`。
   - ✅ 第一条和第三条 detail 再具体一点，把”证据”和”代价”写得更可执行。
 
-- `src/services/seedWorldbookPresets.js`
+- `src/services/worldbook/seedWorldbookPresets.js`
   - ✅ 为 `边境王国 · 雾潮暮湾` 增补 2 个微地点：`暮湾钟楼`、`灰墙难民营`。
   - ✅ 增补 1 个码头/行会阻力人物 `索德码头夜班头目`。
   - ✅ 增补 1 条直接桥接 `钟楼停摆 -> 学院观测仪 -> 灰墙/沉钟` 的证据描述 `观测曲线停摆对应`。

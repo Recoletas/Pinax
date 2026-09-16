@@ -90,8 +90,8 @@
 
 - `shared/narrativeTurnContract.js`
 - `src/stores/gameStore.js`
-- `src/services/memoryCandidates.js`
-- `src/services/runtimeEvents.js`
+- `src/services/memory/memoryCandidates.js`
+- `src/services/experience/runtimeEvents.js`
 - session normalize / backup owner
 
 任务：

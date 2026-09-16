@@ -1,7 +1,7 @@
 /* global process */
 import { performance } from 'node:perf_hooks'
-import { createNarrativeAsset } from '../src/services/narrativeAssets.js'
-import { findAssetsByContentRefs } from '../src/services/narrativeAssetRetrieval.js'
+import { createNarrativeAsset } from '../src/services/media/narrativeAssets.js'
+import { findAssetsByContentRefs } from '../src/services/media/narrativeAssetRetrieval.js'
 
 const SCALES = [20, 100, 500]
 const WARMUP_RUNS = 100

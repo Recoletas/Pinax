@@ -22,7 +22,7 @@ export const CONTEXT_SCOPE = Object.freeze([
 
 export const CANDIDATE_KINDS = Object.freeze([
   'manuscript-unit', 'chapter-continuity', 'scene-projection', 'outline-node',
-  'exploration-doc', 'worldbook-entry', 'narrative-asset', 'memory', 'author-note', 'pinned'
+  'exploration-doc', 'worldbook-entry', 'history-node', 'narrative-asset', 'memory', 'author-note', 'pinned'
 ])
 
 export const CLAIM_TYPES = Object.freeze([
@@ -38,6 +38,7 @@ const PRIMARY_SOURCE_PREFIXES = Object.freeze({
   'outline-node': ['outline-node:'],
   'exploration-doc': ['exploration:'],
   'worldbook-entry': ['worldbook-entry:'],
+  'history-node': ['history-node:'],
   'narrative-asset': ['narrative-asset:'],
   memory: ['memory:'],
   'author-note': ['author-override:', 'scene-intent:', 'author-note:'],

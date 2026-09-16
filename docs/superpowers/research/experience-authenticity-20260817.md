@@ -219,7 +219,7 @@ Optionally add `samples?: string[]` (cap 2 / 100 chars each, speaker-only, never
 **Pinax internal**
 - `src/services/agents/narrativeKernel.js:11-22, 95-224, 253-449, 446-448`
 - `src/services/agents/narrativeAgentOrchestrator.js:33-50, 705-995`
-- `src/services/worldbookContextBuilder.js:93-111, 119-249, 283-455, 540-604`
+- `src/services/worldbook/worldbookContextBuilder.js:93-111, 119-249, 283-455, 540-604`
 - `src/services/worldHistory/placeEntity.js:135-200`
 - `shared/narrativeAgentContract.js:23-42, 111-169, 235-247, 249-268`
 - `src/components/characterCard.js:11` (existing `speechStyle` parser)

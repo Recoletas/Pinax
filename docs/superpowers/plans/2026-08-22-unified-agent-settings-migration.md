@@ -165,7 +165,7 @@ git commit -m "refactor(settings): route source import workflows"
 
 **Files:**
 - Create: `src/services/agents/settings/settingsGenerationWorkflow.js`
-- Modify: `src/services/settingFieldGeneration.js`
+- Modify: `src/services/worldbook/settingFieldGeneration.js`
 - Modify: `src/components/worldbook/StructuredSettingsPanel.vue`
 - Modify: `src/pages/WorldbookCreationWorkspace.vue`
 - Modify: `src/__tests__/settingsAgentWorkflows.test.js`
@@ -234,7 +234,7 @@ Run: `npm run test:run -- src/__tests__/settingsAgentWorkflows.test.js src/__tes
 Expected: PASS; section partial success and stale rejection remain covered.
 
 ```bash
-git add src/services/agents/settings/settingsGenerationWorkflow.js src/services/settingFieldGeneration.js src/components/worldbook/StructuredSettingsPanel.vue src/pages/WorldbookCreationWorkspace.vue src/__tests__/settingsAgentWorkflows.test.js src/__tests__/integration.test.js
+git add src/services/agents/settings/settingsGenerationWorkflow.js src/services/worldbook/settingFieldGeneration.js src/components/worldbook/StructuredSettingsPanel.vue src/pages/WorldbookCreationWorkspace.vue src/__tests__/settingsAgentWorkflows.test.js src/__tests__/integration.test.js
 git commit -m "refactor(settings): unify structured generation tasks"
 ```
 
@@ -242,7 +242,7 @@ git commit -m "refactor(settings): unify structured generation tasks"
 
 **Files:**
 - Create: `src/services/agents/settings/settingsPlaceWorkflow.js`
-- Modify: `src/services/settingPlaceGeneration.js`
+- Modify: `src/services/worldbook/settingPlaceGeneration.js`
 - Modify: `src/components/worldbook/PlaceCatalog.vue`
 - Modify: `src/__tests__/settingsAgentWorkflows.test.js`
 
@@ -303,7 +303,7 @@ Run: `npm run test:run -- src/__tests__/settingsAgentWorkflows.test.js src/__tes
 Expected: PASS; place adoption remains explicit.
 
 ```bash
-git add src/services/agents/settings/settingsPlaceWorkflow.js src/services/settingPlaceGeneration.js src/components/worldbook/PlaceCatalog.vue src/__tests__/settingsAgentWorkflows.test.js
+git add src/services/agents/settings/settingsPlaceWorkflow.js src/services/worldbook/settingPlaceGeneration.js src/components/worldbook/PlaceCatalog.vue src/__tests__/settingsAgentWorkflows.test.js
 git commit -m "refactor(settings): unify place generation workflows"
 ```
 

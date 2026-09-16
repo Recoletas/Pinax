@@ -6,7 +6,7 @@
 **Extends**: [2026-06-10-ui-redesign-design.md](./2026-06-10-ui-redesign-design.md) (Phase A-C 已落地,见 STATUS.md Recently done 2026-06-10 22:15)
 **Related**: [docs/src/known-issues.md](../../src/known-issues.md) (本轮新发现 R6/R7/R8 待加入 known-issues 若 mitigation 失效)
 **Scope (in)**: `src/views/WelcomeView.vue`, `src/pages/Experience.vue`, `src/styles/main.css` (新增 z-index tokens + 新 utility), `src/components/folio/PosterStage.vue` (追加 1 个 feGaussianBlur)
-**Scope (out — do not touch per `docs/STATUS.md:25-27`)**: `src/stores/gameStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`
+**Scope (out — do not touch per `docs/STATUS.md:25-27`)**: `src/stores/gameStore.js`, `src/services/worldbook/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`
 
 ## 1. Goal
 

@@ -9,11 +9,8 @@
 import { computed, ref, watch } from 'vue'
 import {
   createIfExperiment,
-  validateIfSemanticIdentity,
   advanceIfBranchGeneration,
-  staleIfExperiment,
-  selectIfProposal,
-  recordIfProposals
+  staleIfExperiment
 } from '../services/project/characterIf/contract.js'
 
 export function useCharacterIfExperiment({ projectId }) {

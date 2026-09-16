@@ -160,12 +160,12 @@ import {
   getSettingField,
   getSettingSection,
   normalizeStructuredSettings
-} from '../../services/settingPanelSchema'
+} from '../../services/worldbook/settingPanelSchema'
 import {
   buildSettingPromptPreview,
   createSettingGenerationServices,
   isStructuredSettingRevisionCurrent
-} from '../../services/settingFieldGeneration'
+} from '../../services/worldbook/settingFieldGeneration'
 import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsGenerationWorkflow } from '../../services/agents/settings/settingsGenerationWorkflow'
 import { hashSettingDraftContent } from '../../../shared/settingDraftRevisionContract'
@@ -332,11 +332,7 @@ async function generateField({ sectionKey, fieldKey }) {
   }
 }
 
-function updateDraftContent(content) {
-  if (focusedDraftKey.value) {
-    updateDraftContentInternal(focusedDraftKey.value, content)
-  }
-}
+
 
 function updateDraftContentInternal(fieldKey, content) {
   const sectionMap = multiDrafts.value.get(activeSectionKey.value)
@@ -373,7 +369,6 @@ const sectionGenFailedFields = ref([])
 const sectionBrief = ref('')
 const showBriefBar = ref(false)
 let sectionAbortController = null
-let sectionGenStartedAt = 0
 let revisionAbortController = null
 let fieldAbortController = null
 let fieldRunSequence = 0
@@ -498,7 +493,6 @@ async function runSectionGen({ fieldKeys = null } = {}) {
   abortSectionGen()
   const ac = new AbortController()
   sectionAbortController = ac
-  sectionGenStartedAt = Date.now()
   sectionGenState.value = 'pending'
   sectionGenPhase.value = '准备请求'
   sectionGenError.value = ''

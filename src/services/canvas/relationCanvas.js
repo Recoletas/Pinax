@@ -1,4 +1,4 @@
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
 
 export function listRelationCanvasCards() {
   const stored = getItem(STORAGE_KEYS.PROSE_CARDS_V1)

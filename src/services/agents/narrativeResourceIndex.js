@@ -6,8 +6,8 @@ import {
 } from '../../../shared/narrativeAgentContract'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
 // P1-5：与 worldbookContextBuilder 共用同一关键词匹配原语
-import { keyMatches } from '../worldbookContextBuilder'
-import { rankMemoryCandidates } from '../memoryRetrieval'
+import { keyMatches } from '../worldbook/worldbookContextBuilder'
+import { rankMemoryCandidates } from '../memory/memoryRetrieval'
 
 const CACHE_LIMIT = 4
 const indexCache = new Map()
@@ -786,7 +786,7 @@ export function getCurrentNarrativePolitics(index, filters = {}, options = {}, c
   return selected
 }
 
-export function traceNarrativePolitics(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems, options = {}) {
+export function traceNarrativePolitics(index, ids = [], filters = {}, limit = NARRATIVE_TOOL_LIMITS.maxItems) {
   const queue = ids.map((id) => ({ id, depth: 0 }))
   const seen = new Set()
   const result = []

@@ -1,4 +1,4 @@
-import { normalizeSourceRefs } from '../narrativeAssets'
+import { normalizeSourceRefs } from './narrativeAssets'
 import { getMediaAssetDataUrl, saveMediaAsset } from './mediaAssetStore'
 
 const INLINE_IMAGE_PATTERN = /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+(?:;[^,\s)]+)*,[^)]+)\)/g

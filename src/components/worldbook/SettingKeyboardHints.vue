@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-const props = defineProps({
+defineProps({
   open: { type: Boolean, default: false }
 })
 const emit = defineEmits(['close'])

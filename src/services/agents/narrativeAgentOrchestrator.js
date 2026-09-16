@@ -395,7 +395,7 @@ export function serializeKernelWithinTextPartBudget(kernel, staticOverheadChars 
 
 // 两个 transcript 的静态指令前缀长度（不含 payload 与其前连接符）。
 // 供序列化方在调用模型前预留预算；prose 前缀包含 formatInstructions。
-export function narrativeTranscriptStaticOverheadChars({ phase = 'prose', formatInstructions = '' } = {}) {
+export function narrativeTranscriptStaticOverheadChars({  formatInstructions = '' } = {}) {
   const planning = [
     '你负责为当前小说回合制定一个可执行的局部场景方案。',
     '必须调用 submit_narrative_beat_plan，并只提交工具 schema 要求的结构化参数；不要输出故事正文或解释。',
@@ -784,7 +784,7 @@ function reachedEndCondition(content, endCondition) {
   return false
 }
 
-function shouldBoundedComplete(response = {}, turnInput = '', minTargetChars = 0, endCondition = '') {
+function shouldBoundedComplete(response = {}, turnInput = '', endCondition = '') {
   const finishReason = text(response.finishReason).toLowerCase()
   if (BOUNDED_LENGTH_FINISH_REASONS.has(finishReason)) return true
   // 拒绝/内容过滤等结束原因不补全。

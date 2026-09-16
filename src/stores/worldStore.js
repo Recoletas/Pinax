@@ -4,7 +4,7 @@ import {
   SETTING_SECTIONS,
   getSettingField,
   normalizeStructuredSettings
-} from '../services/settingPanelSchema'
+} from '../services/worldbook/settingPanelSchema'
 import {
   characterProfileFromCard,
   parseCharacterCards,
@@ -25,7 +25,7 @@ import {
   listPlaceEntries,
   preparePlaceForWrite
 } from '../services/worldbook/worldbookPlaceCatalog'
-import { archiveSourceDocuments } from '../services/worldbookSourceArchive'
+import { archiveSourceDocuments } from '../services/worldbook/worldbookSourceArchive'
 import { mutationFailure, mutationSuccess } from '../services/storage/durableMutationResult.js'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
@@ -1219,7 +1219,7 @@ export const useWorldStore = defineStore('world', {
       try {
         const raw = decodeStored(getItem(STORAGE_KEYS.CHARACTERS || 'characters'), [])
         this.characters = ensureArray(raw)
-      } catch (e) {
+      } catch {
         this.characters = []
       }
     },
@@ -1256,7 +1256,7 @@ export const useWorldStore = defineStore('world', {
       try {
         const raw = decodeStored(getItem(STORAGE_KEYS.WRITING_ACTIVITIES || 'writing_activities'), [])
         this.activities = ensureArray(raw)
-      } catch (e) {
+      } catch {
         this.activities = []
       }
     },

@@ -9,7 +9,7 @@
 
 | 事实 | 依据 |
 | --- | --- |
-| 素材页新建/编辑的是「素材」（narrative asset），存于 localStorage `narrative_assets_v1`，不是书稿章节；历史上 UI 内部叫 chapters 是遗留命名 | `src/services/narrativeAssets.js`、C0 地图 |
+| 素材页新建/编辑的是「素材」（narrative asset），存于 localStorage `narrative_assets_v1`，不是书稿章节；历史上 UI 内部叫 chapters 是遗留命名 | `src/services/media/narrativeAssets.js`、C0 地图 |
 | 书稿 TXT/Markdown 导入在写作/欢迎入口（自动识别 GB18030/UTF-8）；设定来源 DOCX/PDF 导入在世界书入口；素材页不承担这两类导入 | `src/services/writing/writingManuscriptImport.js`、`src/pages/Notes.vue`（无导入文件入口） |
 | 作品 JSON 备份**包含素材正文/标题**（`narrative_assets_v1` 在备份键清单中），因此素材会随书稿备份走 | `src/utils/backupExport.js` 备份键清单 |
 | 素材/画布的**图片二进制在 IndexedDB**（mediaAssetStore），JSON 备份不含二进制原件；含图素材恢复后图片引用可能失效，需要重新生成或重新关联 | `src/services/media/mediaAssetStore.js`、current-architecture §3 |

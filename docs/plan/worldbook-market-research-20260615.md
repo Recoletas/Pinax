@@ -328,7 +328,7 @@ These are the gotchas in the broader ecosystem; Pinax should be deliberate about
 - **Character Card V3 Spec (repo, low-confidence — spec file not directly fetchable this session)** — <https://github.com/malfoyslastname/character-card-spec-v3>
 - **Agnai `common/memory.ts`** (real implementation of V2 `character_book` with `createRegexForKeyword` glob compilation and `getMatchesWithinBudget` sort) — <https://raw.githubusercontent.com/agnaistic/agnai/main/common/memory.ts>
 - **RisuAI README** (mentions Lorebook + Regex Script + SupaMemory + HypaMemoryV2/V3 + Emotion Images as first-class features) — <https://github.com/kwaroran/RisuAI>
-- **Pinax `worldbookContextBuilder.js`** (current local implementation, read directly from `/home/recoletas/jiuguan/text-game-framework/src/services/worldbookContextBuilder.js`)
+- **Pinax `worldbookContextBuilder.js`** (current local implementation, read directly from `/home/recoletas/jiuguan/text-game-framework/src/services/worldbook/worldbookContextBuilder.js`)
 - **Pinax `worldbook-workflow` skill** (canonical workflow guardrail) — `/home/recoletas/jiuguan/text-game-framework/agent-skills/worldbook-workflow/SKILL.md`
 - **Pinax `docs/guides/worldbook-workflow.md`** (canonical user-facing workflow)
 

@@ -317,7 +317,7 @@ const files = [
       'src/components/worldbook/StructuredSettingsPanel.vue',
       'src/components/worldbook/PlaceCatalog.vue',
       'src/pages/WorldBookEditor.vue',
-      'src/services/worldbookQuickImportHelpers.js'
+      'src/services/worldbook/worldbookQuickImportHelpers.js'
     ]
     for (const file of files) {
       const source = await readSource(file)
@@ -331,7 +331,7 @@ const source = await readSource('src/pages/WorldBookEditor.vue')
     expect(source).toMatch(/createSettingsMaintenanceWorkflow/)
 }
 {
-const source = await readSource('src/services/worldbookQuickImportHelpers.js')
+const source = await readSource('src/services/worldbook/worldbookQuickImportHelpers.js')
     expect(source).toMatch(/'settings\.import\.extract'/)
     expect(source).toMatch(/createSettingsImportWorkflow/)
 }

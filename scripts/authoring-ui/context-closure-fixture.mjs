@@ -56,8 +56,8 @@ try {
   const schema = await import('/src/services/writing/writingDocumentSchema.js')
   const docRepo = await import('/src/services/writing/authoringDocumentRepository.js')
   const anchors = await import('/src/services/agents/authoring/authoringSceneAnchors.js')
-  const assets = await import('/src/services/narrativeAssets.js')
-  const memories = await import('/src/services/memoryCandidates.js')
+  const assets = await import('/src/services/media/narrativeAssets.js')
+  const memories = await import('/src/services/memory/memoryCandidates.js')
   const { useWorldStore } = await import('/src/stores/worldStore.js')
 
   const worldStore = useWorldStore()

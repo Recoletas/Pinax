@@ -2016,7 +2016,7 @@ describe('agentContracts', function () {
     }, {
       cache: createNarrativeCapabilityCache(),
       timeoutMs: 1000,
-      fetchImpl: async function (_, options) {
+      fetchImpl: async function (_) {
         var next = degradedProbeResponses.shift()
         return new Response(JSON.stringify(next), {
           status: next.error ? 400 : 200,

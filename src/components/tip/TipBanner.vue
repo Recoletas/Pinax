@@ -16,9 +16,7 @@ function handleCtaClick() {
   // CTA 点击即视为用户消化了这条 tip, 写入 seen 防复弹
   try {
     cta.action()
-  } catch (e) {
-    console.warn('[TipBanner] cta action failed:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
   tip.dismissTip()
 }
 

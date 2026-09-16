@@ -42,7 +42,7 @@ body 中透传 `apiKey` 和 `host`（供服务端回退使用），实际凭据�
 ### 不改的部分
 
 - `server/services/memoryService.js` — SDK 客户端不变
-- `src/services/memorySync.js` — 调用层不变
+- `src/services/memory/memorySync.js` — 调用层不变
 - `src/components/Settings.vue` — 测试连接已通过服务端
 - `src/components/MemoryIndicator.vue` — 调用层不变
 

@@ -1,0 +1,6 @@
+export { default as AdvisorPanel } from '../AdvisorPanel.vue'
+export { default as GmPersonaLauncher } from '../gm-persona/GmPersonaLauncher.vue'
+export { default as FolioSurface } from '../folio/FolioSurface.vue'
+export { default as ImageGenerationWorkbench } from '../media/ImageGenerationWorkbench.vue'
+export { default as WorkspacePaneSwitch } from '../workbench/WorkspacePaneSwitch.vue'
+export { default as NotesEditorWorkspace } from './NotesEditorWorkspace.vue'

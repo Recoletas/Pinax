@@ -44,7 +44,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { seedWorldbookPresets, enterPresetWorld as helperEnterPresetWorld } from '../services/worldbookQuickImportHelpers'
+import { seedWorldbookPresets, enterPresetWorld as helperEnterPresetWorld } from '../services/worldbook/worldbookQuickImportHelpers'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import WorldbookHeroCard from '../components/workbench/WorldbookHeroCard.vue'
 import MyWorldbooksNav from '../components/workbench/MyWorldbooksNav.vue'
@@ -76,8 +76,6 @@ const heroUsesActiveWorldbook = computed(() => Boolean(activeWorldbook.value?.id
 function activeWorldbookToPreset(worldbook) {
   const entries = Array.isArray(worldbook?.entries) ? worldbook.entries : []
   const orgs = entries.filter(e => e?.type === 'organization').map(e => e?.name)
-  const locations = entries.filter(e => e?.type === 'location').map(e => e?.name)
-  const items = entries.filter(e => e?.type === 'item').map(e => e?.name)
   const description = String(worldbook?.worldDescription || worldbook?.description || '')
   const firstEntryContent = String(entries[0]?.content || '')
   const openingHook = description.slice(0, 80) || firstEntryContent.slice(0, 80)
@@ -109,8 +107,8 @@ async function enterDefaultWorld(preset) {
     })
     return
   }
-  helperEnterPresetWorld(worldStore, router, preset).catch((err) => {
-    console.error('[世界书·主页] 导入 preset 失败:', err)
+  helperEnterPresetWorld(worldStore, router, preset).catch(() => {
+
   })
 }
 
@@ -139,9 +137,7 @@ onMounted(async () => {
     if (typeof worldStore.ensureActiveWorldbook === 'function') {
       await worldStore.ensureActiveWorldbook()
     }
-  } catch (e) {
-    console.error('[世界书·主页] 初始化失败:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 })
 </script>
 

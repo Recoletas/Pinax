@@ -7,14 +7,14 @@ import {
   detectEncodingFromBytes,
   normalizeEncodingDetection,
   scoreDecodedText
-} from '@/services/encodingDetector'
+} from '@/services/writing/encodingDetector'
 import {
   CHINESE_CHAPTER_RE,
   ENGLISH_CHAPTER_RE,
   VOLUME_CHAPTER_RE,
   detectChapters,
   findChapterMarks
-} from '@/services/chapterDetector'
+} from '@/services/writing/chapterDetector'
 import { computeUnmatchedRanges } from '../../shared/chapterContract'
 import {
   buildSourceChunks,
@@ -22,10 +22,10 @@ import {
   createFileInstanceId,
   hashSourceTextSha256,
   normalizeSourceArtifact
-} from '@/services/worldbookSourceArchive'
-import { detectSourceKind, parseSourceFiles } from '@/services/worldbookSourceAdapters'
+} from '@/services/worldbook/worldbookSourceArchive'
+import { detectSourceKind, parseSourceFiles } from '@/services/worldbook/worldbookSourceAdapters'
 import { selectSourceChunks } from '@/services/worldbook/worldbookSourceSelection'
-import { extractEpub } from '@/services/epubAdapter'
+import { extractEpub } from '@/services/writing/epubAdapter'
 
 // ---------- 编码 fixture 构造（无新依赖，纯手工字节表） ----------
 

@@ -2,7 +2,7 @@
 // 输入是只读字段视图 + 显式回退，输出保持 id / sourceRefs / 顺序与未知字段
 // 策略不变；本模块不读 store、不写存储。
 
-import { mergeSourceRefs, normalizeContentRef } from '../narrativeAssets.js'
+import { mergeSourceRefs, normalizeContentRef } from '../media/narrativeAssets.js'
 import {
   compactPlotJournalSummary,
   normalizeEncounteredCharacters,

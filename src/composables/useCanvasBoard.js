@@ -114,7 +114,7 @@ export function useCanvasBoard(options) {
       e.dataTransfer.effectAllowed = 'move'
       try {
         e.dataTransfer.setData('text/plain', item.id)
-      } catch (err) {
+      } catch {
         // some browsers throw on empty setData in certain contexts; safe to ignore
       }
     }

@@ -122,6 +122,8 @@ export function createNarrativeKernelExecutor({
       historyNode: _excludedHistoryNode,
       ...sanitizedRuntimeState
     } = (runtimeState && typeof runtimeState === 'object' ? runtimeState : {})
+    void _excludedSceneThread
+    void _excludedHistoryNode
 
     // —— provider 前上下文门禁（Task 6 Step 5）——
     if (!projectId || !projection || (requiresChapter && !projection.chapterId)) {

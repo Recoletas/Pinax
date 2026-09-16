@@ -60,7 +60,7 @@ function readPersisted() {
   try {
     const raw = localStorage.getItem(LS_WRITING_TYPOGRAPHY)
     return raw ? JSON.parse(raw) : null
-  } catch (_) {
+  } catch {
     return null
   }
 }
@@ -177,7 +177,7 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
           focusParagraph: this.focusParagraph,
           zen: this.zen
         }))
-      } catch (_) {
+      } catch {
         // storage disabled — 内存状态仍然生效
       }
     }

@@ -72,7 +72,7 @@ function isValidProfessionalParsed(parsed) {
  *   attempts: array
  * }>}
  */
-export async function generateProfessionalInfoForAsset({ asset, settings, assetKind }) {
+export async function generateProfessionalInfoForAsset({ asset, settings }) {
   const content = asset?.content || asset?.title || ''
   if (!content.trim()) {
     return { success: false, extraFields: null, attempts: [] }
@@ -112,8 +112,8 @@ export async function generateProfessionalInfoForAsset({ asset, settings, assetK
     }
 
     return { success: false, extraFields: null, attempts: result?.attempts || [] }
-  } catch (err) {
-    console.error('generateProfessionalInfoForAsset error:', err)
+  } catch {
+
     return { success: false, extraFields: null, attempts: [] }
   }
 }

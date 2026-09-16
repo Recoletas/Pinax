@@ -265,17 +265,17 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+
 import { MoreHorizontal, Send, Square } from 'lucide-vue-next'
 import { useGameStore } from '../stores/gameStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
-import { describeWorldbookWarning } from '../services/worldbookContextBuilder'
+import { describeWorldbookWarning } from '../services/worldbook/worldbookContextBuilder'
 import { estimateTokens } from '../composables/useTokenEstimate'
 import { buildNarrativeFormatInstructions } from '../services/narrativePresentation'
 
 const emit = defineEmits(['send', 'manual-input', 'toggle-auto-advance'])
-const props = defineProps({
+defineProps({
   autoAdvance: { type: Boolean, default: false },
   autoAdvanceAvailable: { type: Boolean, default: false },
   autoAdvancePending: { type: Boolean, default: false }
@@ -407,7 +407,7 @@ async function runCommand(match) {
     commandError.value = ''
     if (match.action.type === 'export' && result.result) {
       // 导出结果在 console 可查看（最小实现，不新增下载 UI）
-      console.info('[export-session]', JSON.stringify(result.result, null, 2))
+
     }
   } else {
     // 命令失败保留输入，显示错误原因
@@ -440,31 +440,9 @@ function resizeInput() {
   element.style.height = `${Math.min(element.scrollHeight, 132)}px`
 }
 
-async function handleCompress() {
-  // P1-5：压缩走统一 dispatcher
-  const actionResult = await gameStore.executeExperienceAction({ type: 'compress', source: 'compress-btn' })
-  const result = actionResult.ok ? { compressed: true } : { compressed: false }
-  if (result.compressed) {
-    gameStore.messages.push({
-      role: 'system',
-      content: '【压缩完成】上下文已压缩完成',
-      timestamp: Date.now()
-    })
-  } else {
-    gameStore.messages.push({
-      role: 'system',
-      content: `【压缩失败】${result.reason}`,
-      timestamp: Date.now()
-    })
-  }
-}
 
-function toggleDialoguePanel() {
-  showDialoguePanel.value = !showDialoguePanel.value
-  if (showDialoguePanel.value) {
-    gameStore.loadDialogueCharacters()
-  }
-}
+
+
 
 function handleDialogueToggle() {
   // 已有角色：直接退出对话模式
@@ -537,26 +515,6 @@ const historyTokens = computed(() => {
 const inputTokens = computed(() => estimateTokens(inputText.value))
 
 const totalTokens = computed(() => contextTokens.value + historyTokens.value + inputTokens.value)
-
-// 上下文用量圆弧
-const contextArc = computed(() => {
-  const percent = Math.min((totalTokens.value / 8000) * 100, 100) // 假设上限 8000 tokens
-  const angle = (percent / 100) * 360
-  const rad = (angle - 90) * (Math.PI / 180)
-  const x = 7 + 5 * Math.cos(rad)
-  const y = 7 + 5 * Math.sin(rad)
-  const large = angle > 180 ? 1 : 0
-  if (percent === 0) return 'M7 2 A5 5 0 0 1 7 12'
-  if (percent >= 100) return 'M7 2 A5 5 0 1 1 7 12 A5 5 0 1 1 7 2'
-  return `M7 2 A5 5 0 ${large} 1 ${x.toFixed(2)} ${y.toFixed(2)}`
-})
-
-const contextColor = computed(() => {
-  const percent = (totalTokens.value / 8000) * 100
-  if (percent < 50) return 'var(--success, #34d399)'
-  if (percent < 80) return 'var(--warning, #fbbf24)'
-  return 'var(--danger, #f87171)'
-})
 
 const contextPercent = computed(() => {
   const total = totalTokens.value || 1

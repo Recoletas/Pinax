@@ -4,7 +4,7 @@ import {
   normalizeImagePresentation,
   normalizeSourceRefs,
   updateNarrativeAssetDurable
-} from '../narrativeAssets'
+} from './narrativeAssets'
 import {
   deleteMediaAsset,
   getMediaAssetDataUrl,

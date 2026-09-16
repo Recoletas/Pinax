@@ -126,7 +126,7 @@ function loadState() {
     ) {
       return parsed
     }
-  } catch (e) { /* ignore parse errors */ }
+  } catch { /* ignore parse errors */ }
   return { sceneIndex: 0, eventIndex: 0 }
 }
 
@@ -141,7 +141,7 @@ watch([sceneIndex, eventIndex], () => {
       sceneIndex: sceneIndex.value,
       eventIndex: eventIndex.value
     }))
-  } catch (e) { /* ignore quota errors */ }
+  } catch { /* ignore quota errors */ }
 })
 
 export function useLocalDemo() {

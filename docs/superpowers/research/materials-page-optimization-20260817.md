@@ -46,14 +46,14 @@
 
 - **页面**：`src/pages/Notes.vue`（5539 行，3 列 grid：260px drawer + 1fr reading-deck + 340px sidekick）
 - **数据**：
-  - `services/narrativeAssets.js` —— ASSET_SCHEMA_VERSION=1 / 7 kind / 4 status / `ContentRef` 14 类型 / `image.presentation` 8 字段 / `embeddedImagePresentations` by string key
+  - `services/media/narrativeAssets.js` —— ASSET_SCHEMA_VERSION=1 / 7 kind / 4 status / `ContentRef` 14 类型 / `image.presentation` 8 字段 / `embeddedImagePresentations` by string key
   - `services/media/mediaAssetStore.js` —— 图像资产 IndexedDB 桥
   - `services/media/narrativeImageAssetBridge.js` —— 图像 + 文字 asset 桥
   - `services/agents/creativeGraphAgentContext.js` —— 素材 advisor 上下文
 - **AI**：`useAdvisor` + `materialAdvisorActions`（精简当前素材 / 分类建议 / 拆分建议）+ `generateProfessionalInfoForAsset`
 - **画布集成**：
   - `useCanvasBoard` composable —— 6 个 drag/drop handler + `bringToFront` + `focusedZId` + 持久化 positions
-  - `services/relationCanvas.js` —— 素材 → 画布卡同步
+  - `services/canvas/relationCanvas.js` —— 素材 → 画布卡同步
   - `goToComics()` —— 素材路由到漫画制作
 - **副阅读台（notes-sidekick）**：
   - 双 workspace：`materials`（静态 4 张 related）+ `illustration`（ImageGenerationWorkbench）

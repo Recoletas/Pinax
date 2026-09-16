@@ -12,7 +12,6 @@ export function getLiveMarkdownPrefix(node = {}) {
 
 export function resolveMarkdownHeadingShortcut({
   nodeType = 'paragraph',
-  currentLevel = 0,
   textBefore = '',
   insertedText = ''
 } = {}) {

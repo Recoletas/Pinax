@@ -1,4 +1,4 @@
-import { detectEncodingFromBytes, SOURCE_ENCODING_CANDIDATES } from '../encodingDetector.js'
+import { detectEncodingFromBytes, SOURCE_ENCODING_CANDIDATES } from './encodingDetector.js'
 
 const MAX_MANUSCRIPT_BYTES = 5 * 1024 * 1024
 const MAX_MANUSCRIPT_CHARS = 1_000_000

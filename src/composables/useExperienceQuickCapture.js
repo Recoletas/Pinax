@@ -3,7 +3,7 @@
 // 不与其他 Experience composable 互相 import。
 import { computed, ref, watch } from 'vue'
 import { getTextItem, setTextItem, removeItem, STORAGE_KEYS } from './useStorage'
-import { ASSET_KINDS, addNarrativeAssetDurable, getAssetKindLabel } from '../services/narrativeAssets'
+import { ASSET_KINDS, addNarrativeAssetDurable, getAssetKindLabel } from '../services/media/narrativeAssets'
 import { loadWritingBooks, saveWritingBooksDurable } from '../services/writing/writingBooksRepository'
 import { appendExperienceTurnToChapter } from '../services/writing/writingExperienceImport.js'
 import { trapFocusWithin, useTransientLayer } from './useTransientLayer'

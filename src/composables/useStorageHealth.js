@@ -41,10 +41,10 @@ export function safeSetItem(key, value) {
     return { ok: true }
   } catch (e) {
     if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
-      console.error('[useStorageHealth] QuotaExceededError on setItem:', key, e)
+
       return { ok: false, reason: 'quota', error: e }
     }
-    console.warn('[useStorageHealth] setItem error:', e)
+
     return { ok: false, reason: 'unknown', error: e }
   }
 }

@@ -1,4 +1,4 @@
-import { getResolvedApiSettings, sendStructuredGeneration } from './api'
+import { getResolvedApiSettings, sendStructuredGeneration } from '../api'
 import {
   getFieldMeta,
   getSettingField,
@@ -10,13 +10,13 @@ import { matchWorldbookEntries } from './worldbookContextBuilder'
 import {
   buildSettingRevisionContext,
   hashSettingDraftContent
-} from '../../shared/settingDraftRevisionContract'
+} from '../../../shared/settingDraftRevisionContract'
 import {
   STRUCTURED_GENERATION_SCHEMA_IDS,
   STRUCTURED_GENERATION_TIMEOUTS
-} from '../../shared/structuredSettingContract'
-import { normalizeSettingCandidates } from '../../shared/structuredSettingCandidateContract'
-import { selectSourceChunks } from './worldbook/worldbookSourceSelection'
+} from '../../../shared/structuredSettingContract'
+import { normalizeSettingCandidates } from '../../../shared/structuredSettingCandidateContract'
+import { selectSourceChunks } from './worldbookSourceSelection'
 import { loadSourceArtifacts, loadSourceChunks } from './worldbookSourceArchive'
 
 const MAX_CONSTRAINT_ENTRIES = 12

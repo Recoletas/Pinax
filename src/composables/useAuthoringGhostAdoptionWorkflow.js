@@ -173,6 +173,11 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
 
     const shouldFenceRewrite = adoption.operation === 'rewrite-unit'
     const otherIfBranch = host.consumeCharacterIfBranch()
+    host.captureRehearsalAdoption?.({
+      adoption,
+      committedReceipt,
+      draftSource: host.rehearsalDraftSource.value
+    })
     host.clearAdoptedDraft()
     const committedReceipt = Object.freeze({
       ...adoption.receipt,

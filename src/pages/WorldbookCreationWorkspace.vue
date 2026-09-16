@@ -8,7 +8,7 @@ import {
   buildPendingPayload,
   createWorldbookFromPayload,
   tryAiGenerateFromBrief
-} from '../services/worldbookQuickImportHelpers'
+} from '../services/worldbook/worldbookQuickImportHelpers'
 import { buildWorldbookImportPreview } from '../services/worldbook/worldbookImportGeneration'
 import {
   buildSourceArchiveBundle,
@@ -22,8 +22,8 @@ import {
   loadSourceChunks,
   saveCreationWorkspace,
   saveSourceArchiveBundle
-} from '../services/worldbookSourceArchive'
-import { detectSourceKind } from '../services/worldbookSourceAdapters'
+} from '../services/worldbook/worldbookSourceArchive'
+import { detectSourceKind } from '../services/worldbook/worldbookSourceAdapters'
 import { parseSourceFilesWithWorker } from '../services/worldbook/worldbookSourceParser'
 import { selectSourceChunks } from '../services/worldbook/worldbookSourceSelection'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'

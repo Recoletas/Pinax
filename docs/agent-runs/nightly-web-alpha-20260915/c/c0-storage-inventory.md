@@ -11,7 +11,7 @@
   补偿回滚（quota/storage-error/rolledBack/rollbackFailed）。
 - `MEDIA_ASSETS`（媒体元数据 JSON）已是备份键之一。
 
-## 2. 来源归档 IndexedDB（`src/services/worldbookSourceArchive.js`）
+## 2. 来源归档 IndexedDB（`src/services/worldbook/worldbookSourceArchive.js`）
 
 - DB `pinax-source-archive` v1；3 个 store：`artifacts` / `chunks` / `workspaces`，
   keyPath `'id'`；容量上限 64MB（48MB 警告）。

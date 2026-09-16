@@ -6,14 +6,14 @@ import {
   hashSourceTextSha256,
   SOURCE_PARSE_SLOW_THRESHOLD_MS
 } from './worldbookSourceArchive'
-import { detectEncodingFromBytes } from './encodingDetector'
-import { detectChapters, planChaptersFromMarks } from './chapterDetector'
-import { extractEpub } from './epubAdapter'
+import { detectEncodingFromBytes } from '../writing/encodingDetector'
+import { detectChapters, planChaptersFromMarks } from '../writing/chapterDetector'
+import { extractEpub } from '../writing/epubAdapter'
 import {
   buildReportSectionsFromArtifact,
   normalizeImportReport,
   suggestRecoveryActions
-} from '../../shared/importReportContract'
+} from '../../../shared/importReportContract'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
 
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024

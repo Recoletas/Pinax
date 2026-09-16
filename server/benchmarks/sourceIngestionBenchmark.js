@@ -9,14 +9,14 @@
  * 仓库），带章节标题 ground truth，可复现（固定种子 LCG）。
  */
 
-import { detectEncodingFromBytes } from '../../src/services/encodingDetector'
-import { detectChapters } from '../../src/services/chapterDetector'
+import { detectEncodingFromBytes } from '../../src/services/writing/encodingDetector'
+import { detectChapters } from '../../src/services/writing/chapterDetector'
 import {
   buildSourceChunks,
   hashSourceTextSha256,
   normalizeSourceText
-} from '../../src/services/worldbookSourceArchive'
-import { parseSourceFiles } from '../../src/services/worldbookSourceAdapters'
+} from '../../src/services/worldbook/worldbookSourceArchive'
+import { parseSourceFiles } from '../../src/services/worldbook/worldbookSourceAdapters'
 
 void parseSourceFiles // 格式维度 fixture 通过 adapter 路径运行（见下）
 

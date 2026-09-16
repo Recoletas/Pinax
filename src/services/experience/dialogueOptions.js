@@ -19,7 +19,6 @@ export async function generateDialogueOptions({
   context = null,
   playerCharacter = null,
   recentMessages = [],
-  worldId = '',
   settings = null
 } = {}) {
   const baseMessages = buildDialogueOptionMessages({

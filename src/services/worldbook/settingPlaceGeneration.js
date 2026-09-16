@@ -1,11 +1,11 @@
-import { getResolvedApiSettings, sendStructuredGeneration } from './api'
+import { getResolvedApiSettings, sendStructuredGeneration } from '../api'
 import {
   getPlaceOverviewText,
   hashPlaceSource,
   normalizePlacePayload
-} from '../../shared/placeEntryContract.js'
-import { normalizeStructuredPlaceGenerationPayload } from '../../shared/structuredPlaceGenerationContract.js'
-import { listPlaceEntries } from './worldbook/worldbookPlaceCatalog'
+} from '../../../shared/placeEntryContract.js'
+import { normalizeStructuredPlaceGenerationPayload } from '../../../shared/structuredPlaceGenerationContract.js'
+import { listPlaceEntries } from './worldbookPlaceCatalog'
 
 const PLACE_NAME_RE = /(?=(?:^|[、，,：:\s]|除了|包括|例如|诸如|以及|另有|还有|有|位于|坐落于|连接|通往|隶属|属于|地处|包含于|与|和|及|从|至)([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9·]{0,18}?(?:城|镇|村|港|关|寨|都|京|郡|县|岛|要塞|堡|学院|基地|前哨|营地|遗迹|废墟|盆地|山|岭|峰|谷|湖|河|江|溪|川)))/g
 const QUOTED_NAME_RE = /[‘'“"「『]([^’'”"」』\n]{2,24})[’'”"」』]/g

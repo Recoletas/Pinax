@@ -16,7 +16,7 @@ import {
   inspectWorkspaceBackup,
   restoreWorkspaceBackupBundle
 } from '../services/storage/workspaceBackupBundle.js'
-import { restoreSourceArchiveRecords } from '../services/worldbookSourceArchive'
+import { restoreSourceArchiveRecords } from '../services/worldbook/worldbookSourceArchive'
 
 // 测试用二进制 store（Map 兜底，替代 jsdom 缺失的 IndexedDB）
 function createFakeBinaryStore() {

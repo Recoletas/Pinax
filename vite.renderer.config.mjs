@@ -34,7 +34,7 @@ export default defineConfig({
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
           markdown: ['marked', 'turndown'],
-          'ai-services': ['./src/services/shotExporter.js']
+          'ai-services': ['./src/services/media/shotExporter.js']
         }
       }
     }

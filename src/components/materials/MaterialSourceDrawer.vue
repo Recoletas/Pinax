@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { getAssetKindLabel } from '../../services/narrativeAssets'
+import { getAssetKindLabel } from '../../services/media/narrativeAssets'
 
 const props = defineProps({
   assets: { type: Array, default: () => [] },

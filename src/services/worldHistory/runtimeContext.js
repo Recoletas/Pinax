@@ -1,4 +1,4 @@
-import { buildPlayerHistoryContext } from '../playerHistory'
+import { buildPlayerHistoryContext } from '../experience/playerHistory'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from './placeEntity'
 
 const MAX_HISTORY_NODES = 4

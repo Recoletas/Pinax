@@ -1,5 +1,5 @@
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
-import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../types/director'
+import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { CAMERA_MOVEMENTS, SHOT_TYPES } from '../../types/director'
 import { normalizeSourceRefs } from './narrativeAssets'
 
 export const STORYBOARD_SCHEMA_VERSION = 1

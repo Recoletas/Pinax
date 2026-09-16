@@ -1,7 +1,7 @@
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../../utils/sanitize'
-import { buildNarrativeAssetContentHash } from '../narrativeAssets'
+import { buildNarrativeAssetContentHash } from '../media/narrativeAssets'
 
 /**
  * Notes 素材正文的纯格式转换（C2 抽取，无 Vue/DOM 依赖，可单测）。

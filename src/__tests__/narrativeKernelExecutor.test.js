@@ -366,8 +366,10 @@ import {
 import { authoringRunReferenceRevision } from '../services/agents/context/authoringRunContextReaders.js'
 import { collectAuthoringRunDependencyRevisions } from '../services/agents/context/authoringRunContextDependencies.js'
 import { createManifestAuthorizedNarrativeIndex } from '../services/agents/context/manifestToolAuthorization.js'
-import { createNarrativeAsset } from '../services/narrativeAssets.js'
-import { createMemoryCandidate } from '../services/memoryCandidates.js'
+import { createNarrativeAsset } from '../services/media/narrativeAssets.js'
+import { createMemoryCandidate } from '../services/memory/memoryCandidates.js'
+import { runAuthoringRehearsalToolStep } from '../services/agents/authoring/authoringRehearsalToolRun.js'
+import { buildAdoptedRehearsalMemoryProposal } from '../services/agents/authoring/authoringRehearsalMemoryProposal.js'
 
 // 文本工作台 v3 Phase 4：Context ownership closure 合同。
 // 0/6 实验六项失败的单元级回归：资格先于评分、时间隔离、冲突集、
@@ -1741,6 +1743,51 @@ describe('C1-1A authoring run session gate', () => {
     expect(Object.isFrozen(indexed.index.resources)).toBe(true)
     expect(() => indexed.index.byId.set('rogue-world', { id: 'rogue-world' })).toThrow()
     expect(() => indexed.index.resources.push({ id: 'rogue-world' })).toThrow()
+
+    const historyManifest = compileWritingContext({
+      candidates: [{
+        id: 'history-node:old-oath', kind: 'history-node', projectId: 'book-1',
+        sourceKind: 'history-node', sourceId: 'old-oath', label: '旧约',
+        primarySourceRef: 'history-node:old-oath', sourceRefs: ['history-node:old-oath'],
+        sourceAuthority: 'author-adopted', narrativeStatus: 'fact', temporalRelation: 'before-target',
+        scope: 'project', revision: 'history-r1', representations: { full: '旧约规定守门人不得在钟响前离岗。' }
+      }],
+      target: { projectId: 'book-1', chapterId: 'ch-1', documentRevision: 'doc-r1' },
+      profile: 'narrative-long'
+    })
+    const requestModel = vi.fn()
+      .mockResolvedValueOnce({ kind: 'tool_calls', calls: [{ id: 'call-1', name: 'history_lookup', arguments: { action: 'search', query: '守门人', ids: [], filters: {}, limit: 3, cursor: '' } }] })
+      .mockResolvedValueOnce({ kind: 'final_ready', calls: [], text: '{"response":"他没有离岗。"}' })
+    const toolRun = await runAuthoringRehearsalToolStep({
+      manifest: historyManifest, envelope: { blocks: [] }, question: '试演', settingsSnapshot: {},
+      requestModel, requestFallback: vi.fn(), parseFinal: JSON.parse
+    })
+    expect(toolRun.toolReceipt).toMatchObject({
+      status: 'completed', calls: [{ toolCallId: 'call-1', toolName: 'history_lookup', resultCount: 1 }]
+    })
+    expect(toolRun.toolReceipt.calls[0].resultRefs).toEqual(['history-node:old-oath'])
+
+    const deniedModel = vi.fn()
+      .mockResolvedValueOnce({ kind: 'tool_calls', calls: [{ id: 'call-denied', name: 'history_lookup', arguments: { action: 'get', ids: ['not-authorized'], query: '', filters: {}, limit: 1, cursor: '' } }] })
+      .mockResolvedValueOnce({ kind: 'final_ready', calls: [], text: '{"response":"他停了一下。"}' })
+    const deniedRun = await runAuthoringRehearsalToolStep({
+      manifest: historyManifest, envelope: { blocks: [] }, question: '试演', settingsSnapshot: {},
+      requestModel: deniedModel, requestFallback: vi.fn(), parseFinal: JSON.parse
+    })
+    expect(deniedRun.toolReceipt.status).toBe('denied')
+    expect(deniedRun.toolReceipt.calls[0].resultRefs).toEqual([])
+
+    const proposalInput = {
+      adoptionReceipt: { adoptedText: '守门人直到钟响才离岗。', afterDocumentRevision: 'doc-r2', candidateId: 'draft-1', insertedUnitId: 'unit-1' },
+      locator: { bookId: 'book-1', chapterId: 'ch-1', writingUnitId: 'unit-1', revision: 'doc-r2', text: '守门人直到钟响才离岗。' },
+      consequence: { kind: 'commitment', content: '直到钟响才离岗' },
+      content: '守门人答应直到钟响才离岗', supportText: '直到钟响才离岗'
+    }
+    const proposal = buildAdoptedRehearsalMemoryProposal(proposalInput)
+    expect(proposal).toMatchObject({ ok: true, proposal: { status: 'pending', scopeId: 'book-1', sourceRevision: 'doc-r2' } })
+    expect(buildAdoptedRehearsalMemoryProposal(proposalInput).proposal.id).toBe(proposal.proposal.id)
+    expect(buildAdoptedRehearsalMemoryProposal({ ...proposalInput, supportText: '稿中不存在' }))
+      .toEqual({ ok: false, reason: 'unsupported-by-adopted-text' })
 
     expect(createManifestAuthorizedNarrativeIndex({
       manifest: prepared.session.manifest,

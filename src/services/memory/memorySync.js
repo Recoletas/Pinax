@@ -1,6 +1,6 @@
-import { getOrCreatePreferenceUserId } from './api'
-import useMem0 from '../composables/useMem0'
-import { getItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getOrCreatePreferenceUserId } from '../api'
+import useMem0 from '../../composables/useMem0'
+import { getItem, STORAGE_KEYS } from '../../composables/useStorage'
 
 const DEFAULT_MEM0_API_URL = 'https://api.mem0.ai/v1'
 
@@ -145,9 +145,7 @@ export async function buildMem0MemoryContext({
       if (context) {
         sections.push(`【${item.label}】\n${context}`)
       }
-    } catch (error) {
-      console.warn('[memorySync] failed to build mem0 memory context:', error)
-    }
+    } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
   }
 
   return sections.join('\n\n')
@@ -178,8 +176,8 @@ async function findRemoteDuplicateMemory(client, candidate) {
 
     return (Array.isArray(results) ? results : [])
       .find((item) => normalizeMemoryContent(extractRemoteContent(item)) === normalizedContent) || null
-  } catch (error) {
-    console.warn('[memorySync] failed to check remote duplicate:', error)
+  } catch {
+
     return null
   }
 }

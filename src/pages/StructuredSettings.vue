@@ -151,9 +151,7 @@ onMounted(async () => {
     if (activeWorldbook.value?.id) {
       selectedWorldbookId.value = activeWorldbook.value.id
     }
-  } catch (e) {
-    console.error('[结构化设定] 初始化失败:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 })
 </script>
 

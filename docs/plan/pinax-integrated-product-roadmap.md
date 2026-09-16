@@ -675,7 +675,7 @@ UI 原则：
 
 主要文件：
 
-- `src/services/settingFieldGeneration.js`：改为上下文编译、请求构造、字段级语义校验；删除 XML 抽取和普通生成重试主链；
+- `src/services/worldbook/settingFieldGeneration.js`：改为上下文编译、请求构造、字段级语义校验；删除 XML 抽取和普通生成重试主链；
 - `src/services/api.js`：增加 `sendStructuredGeneration`，透传 AbortSignal 和 typed error；
 - `src/components/worldbook/StructuredSettingsPanel.vue`、`StructuredSettingsWorkspace.vue`：使用真实阶段状态、取消、部分成功和 revision 防覆盖；
 - `src/components/worldbook/SettingDraftReview.vue`：展示字段级失败，不展示模型思考和原始 provider payload；
@@ -785,7 +785,7 @@ G4.6.13 后续若引入 AI SDK，可让 `structuredGenerationRunner` 内部改�
 实现拆分：
 
 - S8-A 契约：扩展 `shared/structuredSettingContract.js` 与 `shared/structuredGenerationContract.js` 的 schema、上下文和错误边界；新增可复用的修订请求构造/哈希函数，保持 `setting-field.v1` 与 `setting-section.v1` 兼容。
-- S8-B 服务：在 `src/services/settingFieldGeneration.js` 新增 `generateSettingDraftRevision()`，沿用 `/api/generate/structured`、能力缓存、最多两次请求和 revision guard；修订 prompt 必须给出正式字段、当前草稿、意见和锁定事实的优先级，不允许复用快速导入 Agent 的整库写入逻辑。
+- S8-B 服务：在 `src/services/worldbook/settingFieldGeneration.js` 新增 `generateSettingDraftRevision()`，沿用 `/api/generate/structured`、能力缓存、最多两次请求和 revision guard；修订 prompt 必须给出正式字段、当前草稿、意见和锁定事实的优先级，不允许复用快速导入 Agent 的整库写入逻辑。
 - S8-C UI：在 `src/components/worldbook/SettingDraftReview.vue` 增加意见输入、按意见修订、版本导航、撤销当前修订和状态反馈；在 `StructuredSettingsPanel.vue` 管理修订 AbortController、版本链、草稿恢复和 stale 判断。`WorldBookEditor.vue` 不增加 AI 修订入口，只继续提供条目人工维护。
 - S8-D 验证与文档：在既有 `agentContracts` / `worldBookQuickImport` 用例中加入契约、保留/反对意见和修订上下文断言，不增加测试 item；已完成 1440/390 主题2审阅区 smoke、真实浏览器修订/回退 smoke、`verify:full` 和脱敏检查。
 

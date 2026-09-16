@@ -8,7 +8,7 @@ import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useWorldStore } from '../stores/worldStore'
-import { listActiveNarrativeAssets, normalizeImagePresentation } from '../services/narrativeAssets'
+import { listActiveNarrativeAssets, normalizeImagePresentation } from '../services/media/narrativeAssets'
 import {
   buildComicPagesFromAdaptation,
   buildComicReferenceCatalog,

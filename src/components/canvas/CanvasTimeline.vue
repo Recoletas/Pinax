@@ -1,5 +1,5 @@
 <script setup>
-const props = defineProps({
+defineProps({
   timelineItems: { type: Array, required: true },
   outlineLength: { type: Number, default: 0 },
   selectedCardId: { type: String, default: '' },

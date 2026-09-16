@@ -1,0 +1,22 @@
+// Route-level component manifest for the Experience workspace. Keeping the
+// visual inventory here lets the page focus on session assembly while each
+// component retains its own lifecycle and rendering owner.
+export { default as GmPersonaLauncher } from '../gm-persona/GmPersonaLauncher.vue'
+export { default as AdvisorPanel } from '../AdvisorPanel.vue'
+export { default as GamePanel } from '../GamePanel.vue'
+export { default as InputArea } from '../InputArea.vue'
+export { default as NarrativeAgentStatus } from './NarrativeAgentStatus.vue'
+export { default as SceneIndexSection } from '../scene/SceneIndexSection.vue'
+export { default as StatusBar } from '../StatusBar.vue'
+export { default as QuestLog } from '../QuestLog.vue'
+export { default as GeographyPanel } from '../geography/GeographyPanel.vue'
+export { default as Character } from '../Character.vue'
+export { default as TimeSettings } from '../TimeSettings.vue'
+export { default as TimeQuickRail } from '../TimeQuickRail.vue'
+export { default as FolioSurface } from '../folio/FolioSurface.vue'
+export { default as ContourField } from '../workbench/ContourField.vue'
+export { default as WorkbenchIcon } from '../workbench/WorkbenchIcon.vue'
+export { default as MechanismPanel } from '../MechanismPanel.vue'
+export { default as MilestoneModal } from '../MilestoneModal.vue'
+export { default as SessionPicker } from '../SessionPicker.vue'
+export { default as ExperienceSessionHeader } from './ExperienceSessionHeader.vue'

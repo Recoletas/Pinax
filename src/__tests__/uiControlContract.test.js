@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { trapFocusWithin } from '../composables/useTransientLayer'
 import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
-import { generateWritingNames } from '../services/writingNameGenerator.js'
+import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
 import {
   createWritingDocument,
   editorContentToWritingDocument,
@@ -38,14 +38,18 @@ const experience = [
   __dirname,
   file.startsWith('useExperience') ? `../composables/${file}` : `../pages/${file}`
 ), 'utf8')).join('\n')
+const experienceSessionHeader = readFileSync(resolve(__dirname, '../components/experience/ExperienceSessionHeader.vue'), 'utf8')
 const appShell = readFileSync(resolve(__dirname, '../layouts/AppShell.vue'), 'utf8')
 const inputArea = readFileSync(resolve(__dirname, '../components/InputArea.vue'), 'utf8')
 const uiAudit = readFileSync(resolve(__dirname, '../../scripts/ui-audit.mjs'), 'utf8')
 const proseEssay = readFileSync(resolve(__dirname, '../pages/ProseEssay.vue'), 'utf8')
+const proseEssayComponents = readFileSync(resolve(__dirname, '../components/canvas/proseEssayComponents.js'), 'utf8')
 const notes = readFileSync(resolve(__dirname, '../pages/Notes.vue'), 'utf8')
 // C1 后批量画布/送画布实现迁入 useNotesAssetCatalog；断言跟随真实模块接线
 const notesCatalog = readFileSync(resolve(__dirname, '../composables/useNotesAssetCatalog.js'), 'utf8')
 const writing = readFileSync(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
+const authoringHistoryPanel = readFileSync(resolve(__dirname, '../components/authoring/AuthoringHistoryPanel.vue'), 'utf8')
+const authoringHistoryWorkflow = readFileSync(resolve(__dirname, '../composables/useAuthoringHistoryWorkflow.js'), 'utf8')
 const writingGlobalCss = readFileSync(resolve(__dirname, '../pages/Writing.global.css'), 'utf8')
 const authoringBlockCss = readFileSync(resolve(__dirname, '../pages/Authoring.block-native.css'), 'utf8')
 const notebookEditor = readFileSync(resolve(__dirname, '../components/writing/WritingNotebookEditor.vue'), 'utf8')
@@ -307,15 +311,16 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringSearchComposable).toContain('applyAuthoringReplacePlan')
     expect(source).toContain('saveWritingBooksDurable(nextBooks).ok')
     expect(source).not.toContain('showFindReplace')
-    expect(source).toContain(':checked="writingHistoryPreferences.enabled"')
-    expect(source).toContain('planWritingMilestoneSnapshot')
-    expect(source).toContain('recordWritingProtectionSnapshot')
+    expect(source).toContain('<AuthoringHistoryPanel')
+    expect(authoringHistoryPanel).toContain(':checked="history.preferences.value.enabled"')
+    expect(authoringHistoryWorkflow).toContain('planWritingMilestoneSnapshot')
+    expect(authoringHistoryWorkflow).toContain('recordWritingProtectionSnapshot')
     expect(source).toContain(':before-destructive-edit="protectMainDestructiveEdit"')
     expect(source).toContain(':protect-destructive-edit="protectDualDestructiveEdit"')
     expect(source).toContain('dualPaneRef.value?.prepareClose?.() === false')
     expect(source).toContain('dualPaneRef.value?.reloadSearchSource?.({')
-    expect(source).toMatch(/document\.revision = Math\.max\([\s\S]*?Number\(document\.revision \|\| 0\)[\s\S]*?\) \+ 1/)
-    expect(source).toContain('historyRestoreEpoch: `restore-${Date.now().toString(36)}-')
+    expect(authoringHistoryWorkflow).toMatch(/document\.revision = Math\.max\([\s\S]*?Number\(document\.revision \|\| 0\)[\s\S]*?\) \+ 1/)
+    expect(authoringHistoryWorkflow).toContain('historyRestoreEpoch: `restore-${Date.now().toString(36)}-')
     expect(source).toContain("historyRestoreEpoch: String(source?.meta?.historyRestoreEpoch || '')")
     expect(authoringDualPane).toContain("historyRestoreEpoch: String(documentState.value?.meta?.historyRestoreEpoch || '')")
     expect(source).not.toContain('<AuthoringAiReference')
@@ -361,7 +366,7 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringWorldbookPanel).toContain(':aria-expanded="(!collapsedFolders.has(group.name)).toString()"')
     expect(writing).toContain("activeInspectorTool === 'history' || (activeInspectorTool === 'annotations' && inspectorTab === 'version')")
     expect(writing).toContain(':focus-entry-id="inspectorCharacterEntryId"')
-    expect(writing).toContain('visualReferenceCandidates')
+    expect(authoringIllustratorComposable).toContain('visualReferenceCandidates')
     expect(authoringIllustratorComposable).toContain('inlineCandidates')
     for (const label of ['文本模式', '历史版本', '总纲', '章纲']) expect(authoringOutlinePanel).toContain(label)
     expect(authoringOutlinePanel).toContain("emit('insert', selectedItem)")
@@ -598,9 +603,10 @@ const shellTemplate = appShell.split('<style scoped>')[0]
 
     expect(experienceTemplate).not.toContain('ws-topstrip__settings-link')
     expect(experienceTemplate).not.toContain('ws-topstrip__session-chip')
-    expect(experienceTemplate).toContain('ws-session-trigger')
-    expect(experienceTemplate).toContain('ws-more-menu')
-    expect(experienceTemplate).toContain('ws-topstrip__codex-toggle')
+    expect(experienceTemplate).toContain('<ExperienceSessionHeader')
+    expect(experienceSessionHeader).toContain('ws-session-trigger')
+    expect(experienceSessionHeader).toContain('ws-more-menu')
+    expect(experienceSessionHeader).toContain('ws-topstrip__codex-toggle')
 }
 {
 expect(inputArea).toContain('<textarea')
@@ -755,9 +761,10 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(notebookEditor).not.toMatch(/运行单元|执行序号|输出区|command mode/i)
     expect(writing).toMatch(/从此处分开|与上一单元合并/)
     expect(writing).not.toContain('>来自体验</button>')
-    expect(writing).toContain('class="writing-block-history"')
-    expect(writing).toContain('v-for="entry in recentWritingBlockHistory"')
-    expect(writing).toContain('@click="restoreWritingBlockHistory(entry)"')
+    expect(writing).toContain('<AuthoringHistoryPanel')
+    expect(authoringHistoryPanel).toContain('class="writing-block-history"')
+    expect(authoringHistoryPanel).toContain('v-for="entry in history.recentBlockHistory.value"')
+    expect(authoringHistoryPanel).toContain('@click="history.restoreBlock(entry)"')
     const writingAgentContextStart = writing.indexOf('function getWritingAgentPageContext(')
     const writingAgentContextEnd = writing.indexOf('function buildLiveContextDependencyRevisions', writingAgentContextStart)
     expect(writingAgentContextStart).toBeGreaterThanOrEqual(0)
@@ -788,7 +795,7 @@ expect(writing).toContain('const scrollState = captureWritingScrollState()')
 {
 const notesTemplate = notes.split('<script setup>')[0]
 
-    expect(notes).toContain("import { findAssetsByContentRefs } from '../services/narrativeAssetRetrieval'")
+    expect(notes).toContain("import { findAssetsByContentRefs } from '../services/media/narrativeAssetRetrieval'")
     expect(notes).toContain('const exactRelatedAssets = computed')
     expect(notes).toContain('result.exactMatches')
     expect(notes).toContain('explicitPinnedSlipAssets')
@@ -850,7 +857,8 @@ const proseTemplate = proseEssay.split('<script setup>')[0]
       proseEssay.indexOf('// Director mode edge types')
     )
 
-    expect(proseEssay).toContain("import SceneMaterialBoard from '../components/canvas/SceneMaterialBoard.vue'")
+    expect(proseEssay).toContain('SceneMaterialBoard,')
+    expect(proseEssayComponents).toContain("SceneMaterialBoard } from './SceneMaterialBoard.vue'")
     for (const helper of [
       'buildSceneMaterialBoard',
       'addCardToOutline',
@@ -879,7 +887,7 @@ const proseTemplate = proseEssay.split('<script setup>')[0]
     expect(mobilePanes).not.toContain("value: 'free'")
     expect(proseTemplate).toContain('<CanvasTimeline')
     expect(proseTemplate).toContain('directorExportStatus')
-    expect(proseTemplate).toContain('openStoryboardVideoPanel')
+    expect(proseTemplate).toContain('directorExportController.handoff')
     expect(proseTemplate).toContain('openCardMaterial')
     expect(proseEssay).not.toContain('MATERIAL_BEATS_V1')
 }

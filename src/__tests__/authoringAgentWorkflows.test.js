@@ -13,13 +13,13 @@ import { createLegacyExperienceStateBridge } from '../services/agents/authoring/
 import { normalizeObservation } from '../services/agents/observers/authoringObservationContract.js'
 import { createAuthoringObserverWorkflow } from '../services/agents/observers/authoringObserverWorkflow.js'
 import { createAuthoringObserverScheduler } from '../services/agents/observers/authoringObserverScheduler.js'
-import { createMemoryTriggers } from '../services/memoryTriggers.js'
+import { createMemoryTriggers } from '../services/memory/memoryTriggers.js'
 import {
   createAuthoringObserverRunner,
   deriveRelationsFromDelta,
   runObserverMemoryDerivation
 } from '../services/agents/observers/authoringObserverDerivation.js'
-import { listMemoryCandidates } from '../services/memoryCandidates.js'
+import { listMemoryCandidates } from '../services/memory/memoryCandidates.js'
 import { shouldTriggerWritingAgent, useWritingAgent } from '../composables/useWritingAgent.js'
 import { useInlineWritingAgentHost } from '../composables/useInlineWritingAgentHost.js'
 import { useAuthoringReferenceSource } from '../composables/useAuthoringReferenceSource.js'
@@ -492,10 +492,7 @@ describe('authoring project adapter', () => {
     const answeredRefs = seamStopAssistant.messages.value
       .filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
     const targetRef = answeredRefs.find((ref) => ref.startsWith('node:'))
-    console.log('DEBUG2:', JSON.stringify({
-      answeredRefs,
-      msgTypes: seamStopAssistant.messages.value.map((m) => [m.role, Boolean(m.answer), (m.answer?.evidence || []).length, m.answer?.answer?.slice(0, 30)])
-    }))
+
     recordKnowledgeSeamFocus(targetRef)
     const providerCallsBeforeStop = seamStopExecute.mock.calls.length
     const originalGetBook = queryRepositories.getBook
@@ -601,7 +598,7 @@ describe('authoring project adapter', () => {
     const cancelController = new AbortController()
     cancelController.abort()
     const cancellingSession = createAuthoringKnowledgeQuerySession({ repositories: queryRepositories, maxEvidence: 12 })
-    const cancellingAssistant = useAuthoringKnowledgeAssistant({
+    useAuthoringKnowledgeAssistant({
       projectId: 'book-query',
       querySession: cancellingSession,
       executeQuery: cancelProbeExecute
@@ -1887,7 +1884,7 @@ describe('inline writing agent page host', () => {
     {
       const signals = ref({ modalOpen: false })
       const agent = createAgentStub()
-      const host = useInlineWritingAgentHost({
+      useInlineWritingAgentHost({
         agent,
         readCursorSnapshot: () => ({ end: 0, text: '' }),
         readInteractionSignals: () => signals.value

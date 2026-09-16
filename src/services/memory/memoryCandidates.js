@@ -1,8 +1,8 @@
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
 import { compactMemoryText, MEMORY_TEXT_LIMIT } from './memoryCompaction'
 import { deriveMemoryImportance } from './memoryImportance'
 import { rankMemoryCandidates } from './memoryRetrieval'
-import { isMemorySourceCurrent } from './memoryProvenance'
+
 import {
   MEMORY_SCHEMA_VERSION,
   MEMORY_AUTHORITIES,
@@ -10,7 +10,7 @@ import {
   MEMORY_RETRIEVAL_POLICY,
   normalizeStringList,
   defaultMemoryAuthority
-} from '../../shared/memoryContract'
+} from '../../../shared/memoryContract'
 
 export const MEMORY_KINDS = [
   { value: 'author-preference', label: '作者偏好' },
@@ -1118,11 +1118,7 @@ function normalizeTimestamp(value) {
   return Math.max(0, Math.floor(num))
 }
 
-function truncateText(value, maxChars) {
-  const text = normalizeText(value).replace(/\s+/g, ' ')
-  if (text.length <= maxChars) return text
-  return `${text.slice(0, maxChars)}...`
-}
+
 
 function normalizeMetadata(metadata) {
   return metadata && typeof metadata === 'object' ? metadata : {}
@@ -1210,7 +1206,5 @@ function emitMemoryCandidateEvent(candidate) {
         text: candidate.content.slice(0, 60)
       }
     }))
-  } catch (error) {
-    console.warn('[memoryCandidates] failed to dispatch event', error)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 }

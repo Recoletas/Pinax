@@ -3,7 +3,7 @@
 // provider 返回后再走同一组 reader 收集 live revision，禁止页面把 frozen 值
 // 回填成“当前值”掩盖 stale。
 
-import { matchWorldbookEntries } from '../../worldbookContextBuilder.js'
+import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
 import {
   authoringRunReferenceRevision,
   captureAuthoringRunTarget,

@@ -4,8 +4,8 @@ import {
   getNarrativeToolCatalog,
   resolveNarrativeActiveToolNames
 } from '../../../shared/narrativeAgentContract'
-import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
-import { matchWorldbookEntries } from '../worldbookContextBuilder'
+import { buildRuntimeCausalityContext } from '../experience/runtimeEventCausality'
+import { matchWorldbookEntries } from '../worldbook/worldbookContextBuilder'
 import { speakerIdOf } from '../narrativePresentation'
 import { toKernelVoiceProfile } from '../narrativeVoiceProfile'
 import { NARRATIVE_BEAT_PLAN_TOOL } from '../../../shared/narrativeBeatPlanContract'
@@ -216,7 +216,7 @@ function buildSceneCast(worldbook, runtimeState, messages = []) {
 
   return members.map((member) => {
     const isSpeaker = member === selected
-    const { entry, userMentioned, goalRelated, ...publicMember } = member
+    const { entry, ...publicMember } = member
     const voice = isSpeaker ? toKernelVoiceProfile(entry, publicMember.name) : null
     return {
       ...publicMember,

@@ -18,6 +18,10 @@ const AUTHORIZED_BLOCKS = Object.freeze({
     domain: 'world',
     refPrefix: 'worldbook-entry:'
   }),
+  'history-node': Object.freeze({
+    domain: 'history',
+    refPrefix: 'history-node:'
+  }),
   memory: Object.freeze({
     domain: 'memory',
     refPrefix: 'memory:'
@@ -286,6 +290,9 @@ export function deriveManifestToolAuthorization(manifest, { projectId } = {}) {
   const memoryRefs = bindings
     .filter((binding) => binding.domain === 'memory')
     .map((binding) => binding.sourceRef)
+  const historyRefs = bindings
+    .filter((binding) => binding.domain === 'history')
+    .map((binding) => binding.sourceRef)
   const authorization = {
     schemaVersion: AUTHORIZATION_SCHEMA_VERSION,
     kind: 'manifest-tool-authorization',
@@ -302,6 +309,7 @@ export function deriveManifestToolAuthorization(manifest, { projectId } = {}) {
       }))
     }),
     worldbookRefs,
+    historyRefs,
     memoryRefs,
     bindings
   }
@@ -312,6 +320,7 @@ export function deriveManifestToolAuthorization(manifest, { projectId } = {}) {
 function buildAuthorizedSnapshot(authorization) {
   const worldBindings = authorization.bindings.filter((binding) => binding.domain === 'world')
   const memoryBindings = authorization.bindings.filter((binding) => binding.domain === 'memory')
+  const historyBindings = authorization.bindings.filter((binding) => binding.domain === 'history')
   return {
     projectId: authorization.projectId,
     sessionId: '',
@@ -344,6 +353,15 @@ function buildAuthorizedSnapshot(authorization) {
       sourceRevision: binding.revision,
       metadata: { title: binding.label }
     })),
+    additionalResources: historyBindings.map((binding) => ({
+      id: binding.sourceId,
+      domain: 'history',
+      type: 'world-history',
+      title: binding.label,
+      summary: binding.text,
+      sourceRefs: [binding.sourceRef],
+      trust: 'canonical'
+    })),
     runtimeState: {}
   }
 }
@@ -359,7 +377,7 @@ function validateAuthorizedIndex(index, authorization) {
   }
 
   for (const item of resources) {
-    if (!['world', 'memory'].includes(item?.domain)) {
+    if (!['world', 'history', 'memory'].includes(item?.domain)) {
       return failure('authorized-index-domain-leak', { domain: String(item?.domain || '') })
     }
     if (!Array.isArray(item.sourceRefs) || item.sourceRefs.length !== 1) {
@@ -374,7 +392,7 @@ function validateAuthorizedIndex(index, authorization) {
     }
   }
 
-  for (const domain of ['geo', 'history', 'politics']) {
+  for (const domain of ['geo', 'politics']) {
     if ((index?.byDomain?.get(domain) || []).length > 0 || Number(index?.counts?.[domain] || 0) > 0) {
       return failure('authorized-index-domain-leak', { domain })
     }

@@ -17,13 +17,6 @@ function record(meta) {
   if (!DEBUG_PERF) return
   if (!meta || !Array.isArray(meta.timings)) return
   history.value.push(meta)
-  if (typeof console !== 'undefined') {
-    const label = `%c[MapEngine] ${meta.seed}`
-    console.groupCollapsed(label, 'color:#888')
-    console.table(meta.timings)
-    console.log('Total:', meta.totalMs, 'ms')
-    console.groupEnd()
-  }
 }
 
 function clear() {

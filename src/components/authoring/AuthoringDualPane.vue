@@ -247,8 +247,6 @@ const selectedChapter = computed(() => props.chapters.find((chapter) => String(c
 const selectedExploration = computed(() => props.explorations.find((doc) => String(doc?.id) === selectedExplorationId.value) || null)
 const selectedOutlineNode = computed(() => props.outlineNodes.find((node) => String(node?.id) === selectedOutlineNodeId.value) || null)
 const worldbookEntries = computed(() => Array.isArray(props.worldbook?.entries) ? props.worldbook.entries : [])
-const characterEntries = computed(() => worldbookEntries.value.filter((entry) => entry?.type === 'character'))
-const settingEntries = computed(() => worldbookEntries.value.filter((entry) => entry?.type !== 'character'))
 const switchOptions = computed(() => [
   { id: 'chapter', label: '章节' },
   { id: 'outline', label: '大纲' },

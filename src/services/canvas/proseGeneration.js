@@ -1,15 +1,5 @@
 import { runGenerationTask } from '../generationService'
 
-function logAttempts(label, generationResult) {
-  for (const attempt of generationResult?.attempts || []) {
-    const attemptLabel = attempt.index === 0 ? label : `${label} retry`
-    console.info(`[ProseEssay ${attemptLabel}]`, String(attempt.content || '').slice(0, 500))
-    if (attempt.parseError) {
-      console.error(`[ProseEssay ${attemptLabel}] parse error:`, attempt.parseError)
-    }
-  }
-}
-
 export function extractCardBlock(text) {
   const raw = String(text || '')
 
@@ -176,7 +166,6 @@ export async function generateProseCardExtensions({ cardContent, settings }) {
     ]
   })
 
-  logAttempts('expand', generationResult)
   return generationResult
 }
 
@@ -216,7 +205,6 @@ export async function generateProseEmotionExtensions({ content, emotionLabel, se
     ]
   })
 
-  logAttempts('expandByEmotion', generationResult)
   return generationResult
 }
 
@@ -282,6 +270,5 @@ export async function generateProseCardsFromTopic({ topic, mode = 'writing', set
     ]
   })
 
-  logAttempts('LLM', generationResult)
   return generationResult
 }

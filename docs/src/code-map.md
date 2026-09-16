@@ -26,10 +26,10 @@
 | 用户链路 | 主要入口 | 关键支撑 |
 | --- | --- | --- |
 | 统一创作 | `src/pages/Authoring.vue`, `src/components/writing/WritingNotebookEditor.vue` | `src/components/authoring/`, `src/services/agents/authoring/`, `src/services/writing/` |
-| 进入世界 / 开始冒险 | `src/pages/Experience.vue`, `src/components/GamePanel.vue` | `src/composables/useAdvisor.js`, `src/services/generationService.js`, `src/services/memorySync.js` |
-| 世界书 / 设定 | `src/pages/WorldBookQuickImport.vue`, `src/pages/WorldBookEditor.vue`, `src/pages/StructuredSettings.vue` | `src/stores/worldStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/settingFieldGeneration.js`, `src/services/settingPanelSchema.js` |
-| 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/narrativeAssets.js`, `src/services/professionalInfoGenerator.js`, `src/services/media/imageProviderService.js` |
-| 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/relationCanvas.js`, `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
+| 进入世界 / 开始冒险 | `src/pages/Experience.vue`, `src/components/GamePanel.vue` | `src/composables/useAdvisor.js`, `src/services/generationService.js`, `src/services/memory/memorySync.js` |
+| 世界书 / 设定 | `src/pages/WorldBookQuickImport.vue`, `src/pages/WorldBookEditor.vue`, `src/pages/StructuredSettings.vue` | `src/stores/worldStore.js`, `src/services/worldbook/worldbookContextBuilder.js`, `src/services/worldbook/settingFieldGeneration.js`, `src/services/worldbook/settingPanelSchema.js` |
+| 素材收集 / 编辑 | `src/pages/Notes.vue` | `src/services/media/narrativeAssets.js`, `src/services/professionalInfoGenerator.js`, `src/services/media/imageProviderService.js` |
+| 关系画布 / 分镜 | `src/pages/ProseEssay.vue`, `src/components/canvas/CanvasTimeline.vue` | `src/services/canvas/relationCanvas.js`, `src/services/media/storyboardStore.js`, `src/services/media/shotExporter.js` |
 
 `/writing` 已由 router 重定向到 `/authoring`，旧 `Writing.vue` wrapper 已删除；`/opening` 重定向到 `/experience`。`/experience` 保留兼容，不能因入口收敛直接删除其会话和运行时。实际注册入口以 `src/router/index.js` 为准。
 
@@ -54,15 +54,15 @@
 | 职责 | 关键文件 |
 | --- | --- |
 | 世界书存储 | `src/stores/worldStore.js` |
-| 上下文构建 | `src/services/worldbookContextBuilder.js` |
+| 上下文构建 | `src/services/worldbook/worldbookContextBuilder.js` |
 | 快速导入 / 生成 | `src/services/worldbookImportGeneration.js`, `src/services/worldbookDraftAssets.js` |
-| 结构化设定 | `src/services/settingPanelSchema.js`, `src/services/settingFieldGeneration.js`, `src/components/worldbook/` |
+| 结构化设定 | `src/services/worldbook/settingPanelSchema.js`, `src/services/worldbook/settingFieldGeneration.js`, `src/components/worldbook/` |
 
 ### 记忆 / 顾问 / 生成
 
 | 职责 | 关键文件 |
 | --- | --- |
-| 记忆 | `src/services/memorySync.js`, `src/services/memoryCandidates.js`, `src/composables/useMem0.js` |
+| 记忆 | `src/services/memory/memorySync.js`, `src/services/memory/memoryCandidates.js`, `src/composables/useMem0.js` |
 | 顾问 | `src/services/advisorTaskService.js`, `src/composables/useAdvisor.js` |
 | 通用生成 | `src/services/generationService.js`, `src/services/generationRetry.js` |
 
@@ -72,13 +72,13 @@ Authoring的方向规划、上下文冻结、Ghost采用与因果排演归 `src/
 
 | 职责 | 关键文件 |
 | --- | --- |
-| 素材真源 | `src/services/narrativeAssets.js` |
+| 素材真源 | `src/services/media/narrativeAssets.js` |
 | 图片 Provider / 配置 | `src/services/media/imageProviderService.js`, `src/services/media/imageProviderConfigStore.js` |
 | 媒体资产 / Blob | `src/services/media/mediaAssetStore.js` |
 | 素材图片桥接 / 迁移 | `src/services/media/narrativeImageAssetBridge.js` |
 | 画布附件桥接 / 迁移 | `src/services/media/canvasImageAssetBridge.js` |
-| 关系画布 | `src/services/relationCanvas.js` |
-| 分镜状态 / 导出 | `src/services/storyboardStore.js`, `src/services/shotExporter.js` |
+| 关系画布 | `src/services/canvas/relationCanvas.js` |
+| 分镜状态 / 导出 | `src/services/media/storyboardStore.js`, `src/services/media/shotExporter.js` |
 
 ## 服务端
 

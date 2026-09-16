@@ -147,7 +147,7 @@ Plottr 是典型：左侧是 "Plot Cards"（每张卡是一个 scene/beat），�
 
 ### 3.5 Pinax 现状
 
-根据 `docs/STATUS.md` 和 `src/services/worldbookContextBuilder.js`，Pinax 的 worldbook 走的是**类型化 wiki 范式**——每个 entry 有 `type / keys / content`，UI 可能是表格式 + Markdown 预览。`OpeningPage.vue` 的 archive-folio 视觉、`Experience.vue` 的开场书签，提示 Pinax 偏好**纸质 / 文档 / 档案册**的视觉语言。
+根据 `docs/STATUS.md` 和 `src/services/worldbook/worldbookContextBuilder.js`，Pinax 的 worldbook 走的是**类型化 wiki 范式**——每个 entry 有 `type / keys / content`，UI 可能是表格式 + Markdown 预览。`OpeningPage.vue` 的 archive-folio 视觉、`Experience.vue` 的开场书签，提示 Pinax 偏好**纸质 / 文档 / 档案册**的视觉语言。
 
 **建议**：Pinax 现有范式（类型化 wiki + 上下文预算匹配）与 World Anvil / Kanka 最接近，不必迁移。**唯一缺的是时间线视图**——Plottr / Aeon Timeline 的卡片看板是值得引入的"时间线单独模块"。
 
@@ -204,7 +204,7 @@ Plottr 是典型：左侧是 "Plot Cards"（每张卡是一个 scene/beat），�
 
 ### 5.3 Pinax 现状
 
-`src/services/worldbookContextBuilder.js` 已经实现 `matchWorldbookEntries({ chatHistory, runtimeState, scanDepth })` + `buildWorldbookContext({ tokenBudget, entries, priorities })`——这是行业"上下文拼接"模式的典型实现，且 Pinax 已有 mem0ai 依赖（来自 `package.json`，按 AGENTS.md），未来可做 entity-level memory。
+`src/services/worldbook/worldbookContextBuilder.js` 已经实现 `matchWorldbookEntries({ chatHistory, runtimeState, scanDepth })` + `buildWorldbookContext({ tokenBudget, entries, priorities })`——这是行业"上下文拼接"模式的典型实现，且 Pinax 已有 mem0ai 依赖（来自 `package.json`，按 AGENTS.md），未来可做 entity-level memory。
 
 **建议**（不立即动）：
 - BYOK 是 Pinax 的正确方向（用户已经能配置上游 API key，见 `docs/STATUS.md` 中 `gen.pollinations.ai` 的排查记录）。
@@ -354,7 +354,7 @@ Obsidian 是唯一 mobile 好的；其他都依赖云。**Pinax 的 localStorage
 - [The Novel Factory Reviews](https://www.novel-software.com/)
 
 ### 9.4 Pinax 内部文件（已在 §6 引用）
-- `/home/recoletas/jiuguan/text-game-framework/src/services/worldbookContextBuilder.js`
+- `/home/recoletas/jiuguan/text-game-framework/src/services/worldbook/worldbookContextBuilder.js`
 - `/home/recoletas/jiuguan/text-game-framework/AGENTS.md`
 - `/home/recoletas/jiuguan/text-game-framework/docs/STATUS.md`
 

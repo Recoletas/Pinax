@@ -3,17 +3,17 @@ import {
   isCreationGenerationActive,
   normalizeCreationGenerationAction,
   normalizeCreationGenerationState
-} from './worldbook/worldbookCreationState'
-import { sha256HexOfText } from './contentHash'
-import { normalizeEncodingDetection } from './encodingDetector'
+} from './worldbookCreationState'
+import { sha256HexOfText } from '../contentHash'
+import { normalizeEncodingDetection } from '../writing/encodingDetector'
 import {
   aggregateChapterDetectionConfidence,
   CHAPTER_DETECTION_BASIS,
   CHAPTER_CONFIDENCES,
   computeUnmatchedRanges,
   normalizeChapterList
-} from '../../shared/chapterContract'
-import { detectChapters } from './chapterDetector'
+} from '../../../shared/chapterContract'
+import { detectChapters } from '../writing/chapterDetector'
 
 export { CHAPTER_CONFIDENCES, CHAPTER_DETECTION_BASIS }
 

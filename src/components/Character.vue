@@ -118,7 +118,7 @@ function handleImport() {
     characters.value.push(newChar)
     importText.value = ''
     activeTab.value = 'list'
-  } catch (e) {
+  } catch {
     alert('JSON 格式错误')
   }
 }

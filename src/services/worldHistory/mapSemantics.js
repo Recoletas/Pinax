@@ -100,29 +100,7 @@ function bfsCluster(cells, startId, predicate, maxSize = MAX_CLUSTER_CELLS) {
  * 计算一组 cells 的"连通性带" — 用 cells.c 邻接 BFS 扩展, 但允许
  * 簇外最多 1 层 grace(以合并相邻的破碎子簇)。用于 fertile/hostile 大区。
  */
-function expandWithGrace(cells, seedIds, predicate, maxSize = MAX_CLUSTER_CELLS) {
-  if (seedIds.length === 0) return []
-  const seen = new Set(seedIds)
-  const queue = [...seedIds]
-  const out = []
-  let grace = Math.floor(maxSize * 0.1) // 10% 配额用于 grace
-  while (queue.length > 0 && out.length < maxSize) {
-    const cur = queue.shift()
-    if (predicate(cur)) out.push(cur)
-    const neighbors = cells.c?.[cur] || []
-    for (const n of neighbors) {
-      if (seen.has(n)) continue
-      seen.add(n)
-      // grace 配额用于跨 predicate 边界 1 次, 让相邻子簇不孤立
-      const allow = predicate(n) || (grace > 0 && isLandCell(cells, n))
-      if (allow) {
-        queue.push(n)
-        if (!predicate(n)) grace--
-      }
-    }
-  }
-  return out
-}
+
 
 // ── 路径 1: tradeHubs / riverMouths / isolatedSites ──────
 
@@ -157,7 +135,7 @@ function scoreTradeHub(cells, burg) {
 }
 
 function extractTradeHubs(mapData, precomputed) {
-  const { cells, burgs, maxPop } = precomputed
+  const { cells, burgs } = precomputed
   if (!burgs || burgs.length === 0) return []
   const result = []
   for (const burg of burgs) {
@@ -367,12 +345,10 @@ function extractFrontierZones(mapData, precomputed) {
     const reasons = []
     const stateSet = new Set()
     let lowPopCount = 0
-    let totalPop = 0
     for (const c of cluster) {
       const s = readTyped(cells.state, c, 0)
       if (s > 0) stateSet.add(s)
       const p = readTyped(cells.pop, c, 0)
-      totalPop += p
       if (p < 0.5) lowPopCount++
     }
     score += Math.min(30, (stateSet.size - 1) * 15)
@@ -688,7 +664,7 @@ function extractHostileRegions(mapData, precomputed) {
 // ── 路径 7: strategicRoutes ──────────────────────────────
 
 function extractStrategicRoutes(mapData, precomputed) {
-  const { cells, burgs, states, roads } = precomputed
+  const { cells, burgs, roads } = precomputed
   if (!roads || roads.length === 0) return []
   if (!burgs || burgs.length === 0) return []
   const cellToBurg = new Map()

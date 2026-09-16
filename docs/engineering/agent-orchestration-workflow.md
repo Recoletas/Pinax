@@ -49,7 +49,7 @@
 
 Do not touch:
 - src/stores/gameStore.js
-- src/services/worldbookContextBuilder.js
+- src/services/worldbook/worldbookContextBuilder.js
 - unrelated docs/specs
 
 ## Current Constraints

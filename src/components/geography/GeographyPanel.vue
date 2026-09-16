@@ -399,9 +399,7 @@ async function generateConceptMap() {
         .replace(/\n?```$/i, '')
         .trim()
     )
-  } catch (e) {
-    console.error('Concept map generation failed:', e)
-  } finally {
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ } finally {
     streaming.value = false
   }
 }

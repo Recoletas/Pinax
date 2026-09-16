@@ -689,7 +689,7 @@ src/services/writing/**
 src/router/index.js
 src/stores/workspaceTabsStore.js
 src/stores/worldStore.js
-src/services/worldbookContextBuilder.js
+src/services/worldbook/worldbookContextBuilder.js
 ```
 
 `package.json/package-lock.json/docs/STATUS.md/docs/PLAN.md` 仍为共享文件，只有明确预约的单一 owner 修改。当前 `ol` 已锁定，不需要再次触碰依赖文件。P6 前先同步主分支并重新审计共享接口。

@@ -33,7 +33,7 @@ const props = defineProps({
   presets: { type: Array, required: true }
 })
 
-const emit = defineEmits(['select'])
+defineEmits(['select'])
 
 const capped = computed(() => (Array.isArray(props.presets) ? props.presets.slice(0, 5) : []))
 

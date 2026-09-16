@@ -35,9 +35,9 @@
 | 改条件后的排演 | [authoringInterventionRehearsalProvider.js](../../src/services/agents/authoring/authoringInterventionRehearsalProvider.js) 的 `buildAuthoringInterventionRehearsalEnvelope` 冻结目标与证据，输出 `drafts[{targetRef,text}]` | 是已写后文的替换草稿链，不是完整世界分支模拟 |
 | 旧体验分支 | [gameStore.js](../../src/stores/gameStore.js) 的 `collectBranchTurnChain`、`regenerateFrom`、`switchBranch` 管理回合祖先链和前后快照 | 可借鉴实现，不能直接与 Authoring 的排演草稿等同 |
 | 分支记忆 | 同文件 `buildBranchMemoryFilter` 排除非当前回合链候选，未绑定回合的共享/手动候选保留 | 不足以实现“只允许甲带回一段上一轮经历” |
-| 人物知识 | [runtimeEvents.js](../../src/services/runtimeEvents.js) 的 `CHARACTER_STATE_KEYS` 和 `hasValidEntityStateRecord` 允许并校验知识引用；kernel 将引用放入人物上下文 | 有字段不等于逐角色输入授权，观察、信念、说法与循环归属尚缺完整隔离链 |
+| 人物知识 | [runtimeEvents.js](../../src/services/experience/runtimeEvents.js) 的 `CHARACTER_STATE_KEYS` 和 `hasValidEntityStateRecord` 允许并校验知识引用；kernel 将引用放入人物上下文 | 有字段不等于逐角色输入授权，观察、信念、说法与循环归属尚缺完整隔离链 |
 | 时间 | `gameStore.getRuntimeSnapshot/applyRuntimeSnapshot` 保留 `writingTime`；回合另有提交时刻，正文另有 revision | 尚未形成故事时间、作者时间、跨循环经历顺序的统一合同 |
-| 状态变更与回滚 | [runtimeEvents.js](../../src/services/runtimeEvents.js) 限制状态修改字段；[runtimeEventCausality.js](../../src/services/runtimeEventCausality.js) 的 `describeRuntimeStateTransitions`、`detectRuntimeEventConflicts` 支持部分变化及冲突检查 | 不等于能力触发、有效期、规则冲突优先级的通用裁决器 |
+| 状态变更与回滚 | [runtimeEvents.js](../../src/services/experience/runtimeEvents.js) 限制状态修改字段；[runtimeEventCausality.js](../../src/services/experience/runtimeEventCausality.js) 的 `describeRuntimeStateTransitions`、`detectRuntimeEventConflicts` 支持部分变化及冲突检查 | 不等于能力触发、有效期、规则冲突优先级的通用裁决器 |
 | 取消与迟到结果 | [authoringInterventionRehearsalRun.js](../../src/services/agents/authoring/authoringInterventionRehearsalRun.js) 在请求前后检查取消与 stale；[Authoring.vue](../../src/pages/Authoring.vue) 的 `closeInterventionComposer` 配合请求版本与 abort | 生成任务保护可复用；不是世界内延迟效果调度 |
 | 快照恢复范围 | `gameStore.applyRuntimeSnapshot` 恢复部分触发器、冷却、摘要、场景线程等，并清除 `adventureTriggerPendingType` | 该方法本身不是统一任务取消入口；不能保证外部在途任务、缓存和未来计划全部正确回溯 |
 | 采用与撤销 | [authoringInterventionAdoption.js](../../src/services/agents/authoring/authoringInterventionAdoption.js) 的 `prepareAuthoringInterventionAdoption`、`prepareAuthoringInterventionUmbrella`、`prepareAuthoringInterventionUmbrellaUndo` 校验目标并保护已修改内容 | 正文采用不自动确认世界事实、人物关系或经历 |

@@ -67,8 +67,8 @@
 
 ### 产品整合收口
 
-- 🔴 页面级组件仍然过大：`Authoring.vue` 12,823 行/143 imports，`Notes.vue` 5,583 行，`Experience.vue` 4,429 行，`ProseEssay.vue` 4,571 行；`gameStore.js` 4,854 行。Authoring 定向 ESLint 已无 warning，Block、Ghost adoption、章节 review 与搜索/替换已各有完整 workflow owner；写作 Agent/inline suggestion 编排仍在页面。下一轮按完整请求生命周期收口，不再拆百行状态碎片。
-- 🟡 `src/services/` 当前 312 个文件，其中 72 个仍位于根层。新模块不得继续堆根层；旧文件先盘点生产消费者和 owner，再做不改行为的纯路径迁移。当前事实入口统一为 [PLAN.md](../PLAN.md) 与 [Pinax 产品整合与演进主计划](../plan/pinax-integrated-product-roadmap.md)。
+- 🟢 2026-09-16 结构预算已进入 CI：`Authoring.vue` 10,832/111、`Notes.vue` 1,530/18、`Experience.vue` 3,547/21、`ProseEssay.vue` 2,785/18、`gameStore.js` 1,636/29；均低于夜间计划硬上限。数字格式为行数/import-from 边数。
+- 🟢 `src/services/` 根层 JS 已由计划基线 42 降为 14；生产相对 import 图 0 cycle、production→experimental 0 边、旧根路径 0 引用。后续新增服务仍必须进入明确 domain。当前事实入口为[当前架构](../engineering/current-architecture.md)与 [PLAN.md](../PLAN.md)。
 
 ### 漫画生产工作台仍未形成闭环
 

@@ -33,7 +33,7 @@ The accepted decisions are:
 
 ### Create
 
-- `src/services/narrativeAssetRetrieval.js` — deterministic exact-ref lookup, project isolation, and active/archived result grouping, with injectable assets for pure tests.
+- `src/services/media/narrativeAssetRetrieval.js` — deterministic exact-ref lookup, project isolation, and active/archived result grouping, with injectable assets for pure tests.
 - `src/services/sceneMaterialBoard.js` — pure projection and mutations for candidate cards, relationships, source state, and outline ordering.
 - `src/components/canvas/SceneMaterialBoard.vue` — bounded desktop/mobile scene-board UI over existing canvas state.
 - `src/__tests__/narrativeAssetRetrieval.test.js` — executable 20/100/500 fixtures and lookup contract tests.
@@ -42,7 +42,7 @@ The accepted decisions are:
 
 ### Modify
 
-- `src/services/relationCanvas.js` — idempotent ordered batch import into existing canvas cards.
+- `src/services/canvas/relationCanvas.js` — idempotent ordered batch import into existing canvas cards.
 - `src/pages/Notes.vue` — “送入画布” action for the current checked selection and clear post-action feedback.
 - `src/pages/ProseEssay.vue` — make the bounded scene board the default organization surface, while preserving the existing free canvas and director/video workflow.
 - `src/__tests__/narrativeAssets.test.js` — batch import persistence and deduplication coverage.
@@ -57,9 +57,9 @@ The accepted decisions are:
 
 **Files:**
 
-- Create: `src/services/narrativeAssetRetrieval.js`
+- Create: `src/services/media/narrativeAssetRetrieval.js`
 - Create: `src/__tests__/narrativeAssetRetrieval.test.js`
-- Reuse: `src/services/narrativeAssets.js`
+- Reuse: `src/services/media/narrativeAssets.js`
 
 - [ ] **Step 1: Write failing tests for exact matches and result grouping**
 
@@ -198,7 +198,7 @@ Expected: PASS with exact lookup, archived grouping, old-source compatibility, a
 - [ ] **Step 6: Commit the retrieval contract**
 
 ```bash
-git add src/services/narrativeAssetRetrieval.js src/__tests__/narrativeAssetRetrieval.test.js
+git add src/services/media/narrativeAssetRetrieval.js src/__tests__/narrativeAssetRetrieval.test.js
 git commit -m "feat(materials): add exact source reference lookup"
 ```
 
@@ -282,7 +282,7 @@ git commit -m "test(materials): execute retrieval scale fixtures"
 
 **Files:**
 
-- Modify: `src/services/relationCanvas.js`
+- Modify: `src/services/canvas/relationCanvas.js`
 - Modify: `src/__tests__/narrativeAssets.test.js`
 - Modify: `src/pages/Notes.vue`
 - Modify: `src/__tests__/uiControlContract.test.js`
@@ -398,7 +398,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit the retrieval and transfer slice**
 
 ```bash
-git add src/services/relationCanvas.js src/pages/Notes.vue src/__tests__/narrativeAssets.test.js src/__tests__/uiControlContract.test.js
+git add src/services/canvas/relationCanvas.js src/pages/Notes.vue src/__tests__/narrativeAssets.test.js src/__tests__/uiControlContract.test.js
 git commit -m "feat(materials): send selected assets to canvas"
 ```
 

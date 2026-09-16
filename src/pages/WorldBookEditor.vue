@@ -654,7 +654,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { formatWorldbookStatus } from '../services/worldbook/worldbookFeedback'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
@@ -671,7 +671,6 @@ import { useSettingsProjectContext } from '../composables/useSettingsProjectCont
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
-const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
 
@@ -1221,14 +1220,7 @@ function toggleMaintenance() {
   maintenanceCompleted.value = false
 }
 
-function resetMaintenanceResults() {
-  maintenanceError.value = ''
-  maintenanceSummary.value = ''
-  maintenanceCandidates.value = []
-  maintenanceRevision.value = ''
-  maintenanceTouchedEntryIds.value = new Set()
-  maintenanceCompleted.value = false
-}
+
 
 function maintenanceActionLabelFor(action) {
   return {
@@ -1994,9 +1986,7 @@ onMounted(async () => {
         await worldStore.setActiveWorldbook(worldbooksIndex.value[0].id)
       }
     }
-  } catch (e) {
-    console.error('[世界书·高级设置] 初始化失败:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 })
 
 </script>

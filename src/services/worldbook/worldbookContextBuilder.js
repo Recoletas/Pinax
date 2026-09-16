@@ -1,5 +1,5 @@
-import { estimateTokens } from '../composables/useTokenEstimate.js'
-import { appendContextLedgerPart, createContextLedger } from './contextLedger.js'
+import { estimateTokens } from '../../composables/useTokenEstimate.js'
+import { appendContextLedgerPart, createContextLedger } from '../contextLedger.js'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3

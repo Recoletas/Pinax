@@ -1,78 +1,17 @@
 <template>
   <div class="game-page" :class="`reading-profile--${readingProfile}`" :style="readingProfileVars">
-    <!-- K3 (2026-06-27): drop the 3-region workstation grid. It
-         crammed 260px + 1fr + 300px into one row and forced every
-         element to fight for width. Replace with a 2-region layout:
-         a slim topstrip (not sticky, not 80px) + a single working
-         column (dialogue + input) + a right dossier column. The
-         narrator hero portrait moves into the dossier header so the
-         left rail is gone entirely; the working column breathes. -->
+    <!-- Two-region reading workspace: record flow plus on-demand dossier. -->
     <div class="ws-layout">
-      <section
+      <ExperienceSessionHeader
         v-if="!showSessionPicker"
-        class="ws-topstrip"
-        aria-label="当前体验会话"
-        @keydown.escape="experienceMoreOpen = false"
-      >
-        <div class="ws-topstrip__main">
-          <button
-            class="ws-session-trigger control-quiet"
-            type="button"
-            :title="sessionTitleTooltip"
-            aria-label="切换会话"
-            @click="showSessionPicker = true"
-          >
-            <span class="ws-session-trigger__eyebrow">体验</span>
-            <span class="ws-session-trigger__label">{{ currentSessionLabel }}</span>
-          </button>
-        </div>
-        <div class="ws-topstrip__actions">
-          <button
-            ref="codexTriggerRef"
-            class="ws-topstrip__codex-toggle control-quiet"
-            type="button"
-            aria-controls="experience-codex"
-            :aria-expanded="codexSheetOpen.toString()"
-            @click="openCodexSheet"
-          >索引</button>
-          <button
-            class="ws-more-trigger control-icon"
-            type="button"
-            aria-label="更多体验设置"
-            :aria-expanded="experienceMoreOpen.toString()"
-            @click="experienceMoreOpen = !experienceMoreOpen"
-          >
-            <WorkbenchIcon name="more" :size="18" />
-          </button>
-          <div v-if="experienceMoreOpen" class="ws-more-menu" role="menu" aria-label="体验设置">
-            <button class="ws-more-menu__session" type="button" role="menuitem" @click="showSessionPicker = true">
-              <span>当前会话</span>
-              <strong>{{ currentSessionLabel }}</strong>
-            </button>
-            <label class="ws-more-menu__select" role="menuitem">
-              <span>阅读节奏</span>
-              <select v-model="readingProfile" aria-label="阅读节奏">
-                <option value="compact">紧凑</option>
-                <option value="standard">标准</option>
-                <option value="relaxed">舒展</option>
-              </select>
-            </label>
-            <button
-              class="ws-more-menu__item"
-              type="button"
-              role="menuitem"
-              :disabled="!hasSelectedWorldbook"
-              @click="router.push({ name: 'settings-structured' }); experienceMoreOpen = false"
-            >设定</button>
-            <button
-              class="ws-more-menu__item"
-              type="button"
-              role="menuitem"
-              @click="router.push({ name: 'online-experience' }); experienceMoreOpen = false"
-            >联机</button>
-          </div>
-        </div>
-      </section>
+        v-model:reading-profile="readingProfile"
+        :current-session-label="currentSessionLabel"
+        :session-title-tooltip="sessionTitleTooltip"
+        :codex-open="codexSheetOpen"
+        :has-selected-worldbook="hasSelectedWorldbook"
+        @open-session="showSessionPicker = true"
+        @open-codex="openCodexFromHeader"
+      />
       <main
         v-if="!showSessionPicker"
         class="ws-center-stage"
@@ -515,29 +454,31 @@ import { useRoute, useRouter } from 'vue-router'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
 import { useGeographyStore } from '../stores/geographyStore'
-import GmPersonaLauncher from '../components/gm-persona/GmPersonaLauncher.vue'
 import { useAdvisor } from '../composables/useAdvisor'
-import AdvisorPanel from '../components/AdvisorPanel.vue'
-import GamePanel from '../components/GamePanel.vue'
-import InputArea from '../components/InputArea.vue'
-import NarrativeAgentStatus from '../components/experience/NarrativeAgentStatus.vue'
-import SceneIndexSection from '../components/scene/SceneIndexSection.vue'
-import StatusBar from '../components/StatusBar.vue'
-import QuestLog from '../components/QuestLog.vue'
-import GeographyPanel from '../components/geography/GeographyPanel.vue'
-import Character from '../components/Character.vue'
-import TimeSettings from '../components/TimeSettings.vue'
-import TimeQuickRail from '../components/TimeQuickRail.vue'
-import FolioSurface from '@/components/folio/FolioSurface.vue'
-import ContourField from '@/components/workbench/ContourField.vue'
-import WorkbenchIcon from '@/components/workbench/WorkbenchIcon.vue'
-import MechanismPanel from '../components/MechanismPanel.vue'
-import MilestoneModal from '../components/MilestoneModal.vue'
-import SessionPicker from '../components/SessionPicker.vue'
+import {
+  AdvisorPanel,
+  Character,
+  ContourField,
+  FolioSurface,
+  GamePanel,
+  GeographyPanel,
+  GmPersonaLauncher,
+  InputArea,
+  MechanismPanel,
+  MilestoneModal,
+  NarrativeAgentStatus,
+  QuestLog,
+  SceneIndexSection,
+  SessionPicker,
+  StatusBar,
+  TimeQuickRail,
+  TimeSettings,
+  ExperienceSessionHeader
+} from '../components/experience/experiencePageComponents.js'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useTipState } from '../composables/useTipState'
 import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
-import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
+import { buildScopedMemoryRecallContext } from '../services/memory/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
 import { createAuthoringTaskDispatcher } from '../services/agents/authoring/authoringTaskDispatcher'
@@ -648,7 +589,6 @@ function installFirstMessageWatch() {
 // UI-E10-CLEAN: sceneStageIndicator + sceneIndicatorVisible computeds deleted
 // 2026-06-22 — sticky indicator above the ledger is gone (template + CSS);
 // UI-E11 (workstation) replaces with an always-on topstrip section anchor.
-const experienceMoreOpen = ref(false)
 
   async function retryNarrativeGeneration() {
     if (props.onlineSession || gameStore.isLoading) return
@@ -699,6 +639,10 @@ const {
   codexDetailLabel, codexSections, openCodexSheet, closeCodexSheet, handleCodexKeydown,
   openCodexDetail, openPlaceContext, closeCodexDetail, handleRailAddLocation, toggleCodexSection
 } = codexWorkspace
+function openCodexFromHeader(event) {
+  codexTriggerRef.value = event?.currentTarget || null
+  openCodexSheet()
+}
 const quickCapture = useExperienceQuickCapture({ gameStore, advisorOpen, closeAdvisor, selectedWorldbookId })
 const {
   quickNoteOpen, quickNoteDraft, quickNoteStatus, quickNoteImportOpen,
@@ -715,7 +659,6 @@ const {
 } = quickCapture
 
 watch(showSessionPicker, (open) => {
-  if (open) experienceMoreOpen.value = false
   if (open && codexSheetOpen.value) closeCodexSheet({ restoreFocus: false })
   if (open) stopAutoAdvance()
   if (open) {
@@ -802,7 +745,7 @@ function handleLocalDemoEvent(action) {
     // Persist via the existing saveCurrentSession if it exists,
     // otherwise rely on the next user action to trigger a save.
     if (typeof gameStore.saveCurrentSession === 'function') {
-      try { gameStore.saveCurrentSession() } catch (e) { /* ignore */ }
+      try { gameStore.saveCurrentSession() } catch { /* ignore */ }
     }
   }
   return true
@@ -980,7 +923,7 @@ function openMechanismFromNotice() {
 }
 
 async function handleMechanismAction(action) {
-  console.log('Mechanism action:', action)
+
 
   const actionDescriptions = {
     combat: {

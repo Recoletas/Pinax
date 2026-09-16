@@ -17,24 +17,22 @@ import {
   restoreStoryboardVersion,
   saveStoryboardVersion,
   validateStoryboardShots
-} from '../services/storyboardStore'
+} from '../services/media/storyboardStore'
 import {
   extractShotsFromRelationCanvas,
   extractShotsFromProseEssay,
   toJianyingDraft,
   toFCPXML,
   toMarkdown
-} from '../services/shotExporter'
+} from '../services/media/shotExporter'
 import {
   CAMERA_MOVEMENTS,
   SHOT_TYPES,
   getShotTypes,
   getCameraMovements,
-  getTransitionTypes,
-  inferShotTypeFromEmotion,
-  inferToneFromEmotion
+  getTransitionTypes
 } from '../types/director'
-import { mergeSourceRefs } from '../services/narrativeAssets'
+import { mergeSourceRefs } from '../services/media/narrativeAssets'
 
 const VIDEO_PROMPT_LIMIT = 2000
 const CAMERA_PROMPT_TEXT = Object.freeze({

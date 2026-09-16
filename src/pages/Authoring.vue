@@ -909,6 +909,7 @@
             :preparing="rehearsalPreparing || (sceneLaboratory.open && ['preparing-context', 'planning-directions'].includes(sceneLaboratory.phase))"
             :drafting="rehearsalDrafting" :draft-state="rehearsalDraftState" :notice="rehearsalNotice || (!rehearsal.run.value ? sceneLaboratory.notice : '')"
             :first-run-hint="firstRunPanelHint"
+            :memory-workflow="rehearsalMemoryWorkflow"
             :title="rehearsalOriginTitle" @start="startRehearsal" @draft="writeRehearsalDraft"
             @locate="locateRehearsalOrigin" @view-draft="showRehearsalDraft" @if="openRehearsalIf"
             @check-connection="openRehearsalConnectionSettings" />
@@ -1190,100 +1191,14 @@
           </div>
         </div>
 
-        <div v-else-if="activeInspectorTool === 'history' || (activeInspectorTool === 'annotations' && inspectorTab === 'version')" class="writing-inspector__body writing-version-panel" data-authoring-inspector="history">
-          <div class="writing-version-panel__current">
-            <div>
-              <span>当前章节</span>
-              <strong>{{ currentChapterTitle || '未命名章节' }}</strong>
-            </div>
-            <div class="writing-version-panel__revision" aria-label="当前修订">
-              <small>修订</small>
-              <b>{{ writingDocument?.revision || 0 }}</b>
-            </div>
-          </div>
-          <section class="writing-version-panel__automatic" aria-label="自动历史设置">
-            <label>
-              <span><strong>自动历史</strong><small>正文落盘并跨过字数节点时保存</small></span>
-              <input
-                type="checkbox"
-                :checked="writingHistoryPreferences.enabled"
-                @change="updateWritingHistoryPreference({ enabled: $event.target.checked })"
-              >
-            </label>
-            <label>
-              <span>保存间隔</span>
-              <select
-                :value="writingHistoryPreferences.intervalWords"
-                :disabled="!writingHistoryPreferences.enabled"
-                @change="updateWritingHistoryPreference({ intervalWords: Number($event.target.value) })"
-              >
-                <option v-for="interval in writingHistoryIntervalOptions" :key="interval" :value="interval">每 {{ interval.toLocaleString() }} 字</option>
-              </select>
-            </label>
-          </section>
-          <div class="writing-version-panel__create">
-            <input v-model="snapshotLabel" type="text" maxlength="80" placeholder="给这次快照命名" @keydown.enter.prevent="createCurrentWritingSnapshot()">
-            <button type="button" :disabled="!selectedChapterId" @click="createCurrentWritingSnapshot()">保存快照</button>
-          </div>
-          <p v-if="snapshotStatus" class="writing-version-panel__status" role="status">{{ snapshotStatus }}</p>
-          <section v-if="writingRecoveryDraft" class="writing-recovery-entry" aria-label="未保存草稿">
-            <header>
-              <div>
-                <strong>发现未保存草稿</strong>
-                <small>修订 {{ writingRecoveryDraft.documentRevision }} · {{ formatWritingSnapshotTime(writingRecoveryDraft.createdAt) }}</small>
-              </div>
-              <span>未写入章节</span>
-            </header>
-            <p>这份草稿是在正文保存前留下的恢复副本，恢复会先保留当前正文。</p>
-            <footer>
-              <button type="button" @click="restoreWritingRecoveryDraft">恢复草稿</button>
-              <button type="button" class="is-quiet" @click="discardWritingRecoveryDraft">丢弃</button>
-            </footer>
-          </section>
-          <section v-if="recentWritingBlockHistory.length" class="writing-block-history" aria-label="最近片段历史">
-            <header class="writing-block-history__head">
-              <strong>片段历史</strong>
-              <small>独立于章节快照</small>
-            </header>
-            <article v-for="entry in recentWritingBlockHistory" :key="entry.id" class="writing-block-history__entry">
-              <header>
-                <div>
-                  <strong>正文片段</strong>
-                  <small>修订 {{ entry.fromDocumentRevision }} → {{ entry.toDocumentRevision }}</small>
-                </div>
-                <span>{{ formatWritingSnapshotTime(entry.createdAt) }}</span>
-              </header>
-              <p>{{ formatWritingHistoryPreview(entry.previousText) }}</p>
-              <button
-                type="button"
-                :disabled="!canRestoreWritingBlockHistory(entry)"
-                @click="restoreWritingBlockHistory(entry)"
-              >恢复此片段</button>
-            </article>
-          </section>
-          <div v-if="recentWritingSnapshots.length" class="writing-version-panel__list" aria-label="最近章节快照">
-            <article v-for="snapshot in recentWritingSnapshots" :key="snapshot.id" class="writing-version-entry">
-              <header>
-                <div>
-                  <strong>{{ snapshot.label }}</strong>
-                  <small>{{ getWritingSnapshotReasonLabel(snapshot.reason) }} · 修订 {{ snapshot.documentRevision }}</small>
-                </div>
-                <time :datetime="snapshot.createdAt">{{ formatWritingSnapshotTime(snapshot.createdAt) }}</time>
-              </header>
-              <p>{{ snapshot.wordCount.toLocaleString() }} 字 · {{ snapshot.chapterTitle || '未命名章节' }}</p>
-              <footer>
-                <button type="button" @click="restoreWritingSnapshot(snapshot)">恢复到这里</button>
-                <button type="button" class="is-quiet" @click="removeWritingSnapshot(snapshot)">删除</button>
-              </footer>
-            </article>
-          </div>
-          <div v-else class="writing-version-panel__empty">
-            当前章节还没有快照。
-          </div>
-          <p v-if="writingSnapshots.length > recentWritingSnapshots.length" class="writing-version-panel__more">
-            另有 {{ writingSnapshots.length - recentWritingSnapshots.length }} 个较早检查点保留在本地。
-          </p>
-        </div>
+        <AuthoringHistoryPanel
+          v-else-if="activeInspectorTool === 'history' || (activeInspectorTool === 'annotations' && inspectorTab === 'version')"
+          class="writing-inspector__body"
+          :history="authoringHistory"
+          :chapter-title="currentChapterTitle"
+          :document-revision="writingDocument?.revision || 0"
+          :chapter-selected="Boolean(selectedChapterId)"
+        />
         <div v-else-if="activeInspectorTool === 'scene' && sceneInspectorMode === 'story'" class="writing-inspector__body" data-authoring-inspector="living-story">
           <AuthoringLivingStoryProjection
             :projection="livingStoryProjection"
@@ -1621,70 +1536,46 @@ import { marked } from 'marked'
 import TurndownService from 'turndown'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
-import { useTheme } from '../composables/useTheme'
 import { extractWritingSuggestionWindow } from '../services/agents/authoring/writingSuggestion'
-import { useWritingAgent } from '../composables/useWritingAgent'
-import { useInlineWritingAgentHost } from '../composables/useInlineWritingAgentHost'
-import { useAuthoringReferenceSource } from '../composables/useAuthoringReferenceSource'
 import { readWorldbookSnapshot, useWorldStore } from '../stores/worldStore'
 import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
-import { useAuthoringWorkspaceNavigation } from '../composables/useAuthoringWorkspaceNavigation.js'
-import { useAuthoringPersistence } from '../composables/useAuthoringPersistence.js'
-import { useAuthoringInspectorState } from '../composables/useAuthoringInspectorState.js'
 import { useWritingTypographyStore, WRITING_FONT_OPTIONS, MIN_FONT_SIZE, MAX_FONT_SIZE } from '../stores/writingTypographyStore'
 import { useGameStore } from '../stores/gameStore'
-import { useEditorHistory } from '../composables/useEditorHistory'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
 import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLivingStoryProjection.vue'
-import AuthoringSceneLaboratory from '../components/authoring/AuthoringSceneLaboratory.vue'
-import AuthoringRehearsalPanel from '../components/authoring/AuthoringRehearsalPanel.vue'
-import { useAuthoringRehearsal } from '../composables/useAuthoringRehearsal.js'
-import { useAuthoringRehearsalWorkflow } from '../composables/useAuthoringRehearsalWorkflow.js'
-import { useAuthoringInterventionState } from '../composables/useAuthoringInterventionState.js'
-import { useAuthoringInterventionWorkflow } from '../composables/useAuthoringInterventionWorkflow.js'
-import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
-import { useSettingsPopup } from '../composables/useSettingsPopup.js'
+const AuthoringSceneLaboratory = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneLaboratory.vue'))
+const AuthoringRehearsalPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringRehearsalPanel.vue'))
 import { reconcileManifestDependencies } from '../services/agents/context/contextManifestLifecycle.js'
-import AuthoringSceneCurationPreview from '../components/authoring/AuthoringSceneCurationPreview.vue'
-import AuthoringInterventionComposer from '../components/authoring/AuthoringInterventionComposer.vue'
-import AuthoringInterventionGhost from '../components/authoring/AuthoringInterventionGhost.vue'
-import AuthoringBlockComposer from '../components/authoring/AuthoringBlockComposer.vue'
-import AuthoringBlockDraft from '../components/authoring/AuthoringBlockDraft.vue'
-import AuthoringAdoptionImpact from '../components/authoring/AuthoringAdoptionImpact.vue'
+const AuthoringSceneCurationPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneCurationPreview.vue'))
+const AuthoringInterventionComposer = defineAsyncComponent(() => import('../components/authoring/AuthoringInterventionComposer.vue'))
+const AuthoringInterventionGhost = defineAsyncComponent(() => import('../components/authoring/AuthoringInterventionGhost.vue'))
+const AuthoringBlockComposer = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockComposer.vue'))
+const AuthoringBlockDraft = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockDraft.vue'))
+const AuthoringAdoptionImpact = defineAsyncComponent(() => import('../components/authoring/AuthoringAdoptionImpact.vue'))
 import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
-import AuthoringDualPane from '../components/authoring/AuthoringDualPane.vue'
-import AuthoringQuickWords from '../components/authoring/AuthoringQuickWords.vue'
-import AuthoringKnowledgeAssistant from '../components/authoring/AuthoringKnowledgeAssistant.vue'
-import AuthoringIllustratorDrawer from '../components/authoring/AuthoringIllustratorDrawer.vue'
-import AuthoringReviewPanel from '../components/authoring/AuthoringReviewPanel.vue'
-import AuthoringSearchPanel from '../components/authoring/AuthoringSearchPanel.vue'
+const AuthoringDualPane = defineAsyncComponent(() => import('../components/authoring/AuthoringDualPane.vue'))
+const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
+const AuthoringKnowledgeAssistant = defineAsyncComponent(() => import('../components/authoring/AuthoringKnowledgeAssistant.vue'))
+const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
+const AuthoringReviewPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringReviewPanel.vue'))
+const AuthoringSearchPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringSearchPanel.vue'))
 import AuthoringIdeaShelf from '../components/authoring/AuthoringIdeaShelf.vue'
-import { useAuthoringCharacterIfWorkflow } from '../composables/useAuthoringCharacterIfWorkflow.js'
-import { useAuthoringSceneLaboratoryWorkflow } from '../composables/useAuthoringSceneLaboratoryWorkflow.js'
-import { useAuthoringBlockWorkflow } from '../composables/useAuthoringBlockWorkflow.js'
-import { useAuthoringGhostAdoptionWorkflow } from '../composables/useAuthoringGhostAdoptionWorkflow.js'
-import { useAuthoringReviewWorkflow } from '../composables/useAuthoringReviewWorkflow.js'
-import { useAuthoringSearchWorkflow } from '../composables/useAuthoringSearchWorkflow.js'
-import { useAuthoringRewriteWorkflow } from '../composables/useAuthoringRewriteWorkflow.js'
-import { useAuthoringAnnotationSession } from '../composables/useAuthoringAnnotationSession.js'
-import { useAuthoringAnnotationSelection } from '../composables/useAuthoringAnnotationSelection.js'
-import { useAuthoringAnnotationLayout } from '../composables/useAuthoringAnnotationLayout.js'
-import { useAuthoringBookActivation } from '../composables/useAuthoringBookActivation.js'
-import AuthoringNotesExtractionPreview from '../components/authoring/AuthoringNotesExtractionPreview.vue'
-import AuthoringInspectorDetail from '../components/authoring/AuthoringInspectorDetail.vue'
-import AuthoringOutlinePanel from '../components/authoring/AuthoringOutlinePanel.vue'
-import AuthoringManuscriptImport from '../components/authoring/AuthoringManuscriptImport.vue'
-import AuthoringFirstRunPath from '../components/authoring/AuthoringFirstRunPath.vue'
-import AuthoringCharacterPanel from '../components/authoring/AuthoringCharacterPanel.vue'
-import AuthoringWorldbookPanel from '../components/authoring/AuthoringWorldbookPanel.vue'
+const AuthoringNotesExtractionPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringNotesExtractionPreview.vue'))
+const AuthoringInspectorDetail = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorDetail.vue'))
+const AuthoringOutlinePanel = defineAsyncComponent(() => import('../components/authoring/AuthoringOutlinePanel.vue'))
+const AuthoringManuscriptImport = defineAsyncComponent(() => import('../components/authoring/AuthoringManuscriptImport.vue'))
+const AuthoringFirstRunPath = defineAsyncComponent(() => import('../components/authoring/AuthoringFirstRunPath.vue'))
+const AuthoringCharacterPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringCharacterPanel.vue'))
+const AuthoringWorldbookPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringWorldbookPanel.vue'))
 import { buildWritingContextCandidates } from '../services/agents/context/writingContextReaders.js'
 import { collectWritingContextDependencyRevisions, discoverCrossChapterContext } from '../services/agents/context/crossChapterContext.js'
 import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPositionIndex.js'
 import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { createAuthoringKnowledgeReaderHost } from '../services/agents/authoring/authoringKnowledgeReaderHost.js'
 import { sourceRefForAuthoringEvidenceLocator } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { createAuthoringInterventionSession } from '../services/agents/authoring/authoringInterventionSession.js'
 import { readAuthoringOutlineCausalLinks } from '../services/agents/authoring/authoringCausalLinkReader.js'
@@ -1707,7 +1598,7 @@ import {
   createAuthoringSceneRunIntent,
   readAuthoringSceneRunIntentsForTarget
 } from '../services/agents/authoring/authoringSceneRunIntents.js'
-import { matchWorldbookEntries } from '../services/worldbookContextBuilder.js'
+import { matchWorldbookEntries } from '../services/worldbook/worldbookContextBuilder.js'
 import { buildAuthoringCaretContext } from '../services/authoring/authoringSettingContext.js'
 import { buildWritingWorldbookMentions } from '../services/writing/writingWorldbookMentions.js'
 import {
@@ -1726,17 +1617,9 @@ import { buildAuthoringSceneProjection, resolveAuthoringEmergenceDetailModel } f
 import { buildAuthoringLivingStoryProjection } from '../services/agents/authoring/authoringLivingStoryProjection.js'
 import { buildAuthoringSceneLocationProjection } from '../services/agents/authoring/authoringSceneLocationProjection.js'
 import AuthoringTransientNotice from '../components/authoring/AuthoringTransientNotice.vue'
-import AuthoringMemoryReview from '../components/authoring/AuthoringMemoryReview.vue'
-import { useAuthoringKnowledgeAssistant } from '../composables/useAuthoringKnowledgeAssistant.js'
-import { useAuthoringIllustrator } from '../composables/useAuthoringIllustrator.js'
-import {
-  saveAuthoringIllustrationAsMaterial,
-  validateAuthoringIllustrationInsert
-} from '../services/agents/authoring/authoringIllustrationActions.js'
-import { assessAuthoringVisualBriefFreshness } from '../services/agents/authoring/authoringVisualBrief.js'
-import { updateMediaAsset } from '../services/media/mediaAssetStore.js'
-import { listMemoryCandidates, updateMemoryCandidate, confirmMemoryCandidate, rejectMemoryCandidate, mergeMemoryCandidateConflicts, replaceMemoryCandidateConflicts } from '../services/memoryCandidates'
-import { createProjectMemoryReader } from '../services/project/projectMemoryReader'
+const AuthoringMemoryReview = defineAsyncComponent(() => import('../components/authoring/AuthoringMemoryReview.vue'))
+const AuthoringHistoryPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringHistoryPanel.vue'))
+import { listMemoryCandidates, queueMemoryCandidate, updateMemoryCandidate, confirmMemoryCandidate, rejectMemoryCandidate, mergeMemoryCandidateConflicts, replaceMemoryCandidateConflicts } from '../services/memory/memoryCandidates'
 import {
   loadWritingBooks,
   saveWritingBooksDurable,
@@ -1753,7 +1636,7 @@ import {
   normalizeContentRef,
   sourceRefsToEvidenceRefs,
   setNarrativeAssetsStatusDurable
-} from '../services/narrativeAssets'
+} from '../services/media/narrativeAssets'
 import {
   buildWorldbookEntryFromAsset,
   canConvertAssetToWorldbookEntry
@@ -1768,10 +1651,9 @@ import {
   createChapterOutlineItem,
   normalizeChapterOutlineItems,
   removeChapterOutlineItem
-} from '../services/chapterOutline'
+} from '../services/writing/chapterOutline'
 import { requestAdvisorTask } from '../services/advisorTaskService'
 import { getResolvedApiSettings } from '../services/api'
-import { createProjectKnowledgeFacade } from '../services/project/projectKnowledgeFacade'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor'
@@ -1794,8 +1676,8 @@ import { createAuthoringCommandRuntime } from '../services/agents/authoring/auth
 import { buildDocumentRevision } from '../services/agents/authoring/authoringTextTransaction'
 import { buildAuthoringTurnOriginRef } from '../services/writing/writingAuthoringTurnImport'
 import { applyWritingAgentTransaction } from '../services/agents/writingAgentTransaction'
-import { saveValidatedStoryboardVersion } from '../services/storyboardStore'
-import { extractShotsFromChapter, toMarkdown } from '../services/shotExporter'
+import { saveValidatedStoryboardVersion } from '../services/media/storyboardStore'
+import { extractShotsFromChapter, toMarkdown } from '../services/media/shotExporter'
 import { formatWorldbookStatus } from '../services/worldbook/worldbookFeedback'
 import {
   createAssetFromSelection,
@@ -1804,9 +1686,7 @@ import {
   resolveInsertOffset,
   spliceTextAt
 } from '../services/agents/authoring/writingSelectionCapture'
-import { useBodyScrollLock } from '../composables/useBodyScrollLock'
 import { STORAGE_KEYS } from '../composables/useStorage'
-import { useWritingDocument } from '../composables/useWritingDocument'
 import {
   deleteWritingAnnotation,
   getWritingAnnotationLabel,
@@ -1821,36 +1701,6 @@ import {
   buildChapterManuscriptExport
 } from '../services/writing/writingManuscriptExport.js'
 import { downloadTextFile } from '../utils/download.js'
-import {
-  createWritingSnapshot,
-  getWritingSnapshotReasonLabel,
-  getWritingSnapshotRestoreGuard
-} from '../../shared/writingSnapshotContract.js'
-import {
-  cloneWritingSnapshotDocument,
-  deleteWritingSnapshot,
-  deleteWritingSnapshotsForChapter,
-  listWritingSnapshots,
-  saveWritingSnapshot
-} from '../services/writing/writingSnapshots.js'
-import {
-  WRITING_HISTORY_INTERVAL_OPTIONS,
-  loadWritingHistoryPreferences,
-  planWritingMilestoneSnapshot,
-  recordWritingMilestoneSnapshot,
-  recordWritingProtectionSnapshot,
-  saveWritingHistoryPreferences
-} from '../services/writing/writingAutomaticHistory.js'
-import {
-  appendWritingBlockHistory,
-  deleteWritingBlockHistoryForChapter,
-  listWritingBlockHistory
-} from '../services/writing/writingBlockHistory.js'
-import {
-  clearWritingRecoveryDraft,
-  listWritingRecoveryDrafts,
-  saveWritingRecoveryDraft
-} from '../services/writing/writingRecovery.js'
 import {
   buildWritingBlockHistoryEntries,
   getWritingBlockText
@@ -1878,7 +1728,7 @@ import { buildChineseQuoteInsertion } from '../services/writing/writingChineseIn
 import {
   blocksPassiveInlineSuggestion
 } from '../services/writing/writingInteractionPolicy.js'
-import { explainWritingName, generateWritingNames } from '../services/writingNameGenerator.js'
+import { explainWritingName, generateWritingNames } from '../services/writing/writingNameGenerator.js'
 import {
   normalizeBookWorldbookBinding,
   resolveBookWorldbookStatus,
@@ -1895,14 +1745,45 @@ import {
   fingerprintSceneAnchors
 } from '../services/agents/authoring/authoringSceneAnchors.js'
 import { normalizeAuthoringFailure } from '../services/agents/authoring/authoringExecutionResult.js'
-import { useAuthoringTask } from '../composables/useAuthoringTask'
-import { useAuthoringObservers } from '../composables/useAuthoringObservers.js'
-import { useAuthoringSceneWorkflow } from '../composables/useAuthoringSceneWorkflow.js'
-
+import {
+  useTheme,
+  useWritingAgent,
+  useInlineWritingAgentHost,
+  useAuthoringReferenceSource,
+  useAuthoringWorkspaceNavigation,
+  useAuthoringPersistence,
+  useAuthoringInspectorState,
+  useEditorHistory,
+  useAuthoringRehearsal,
+  useAuthoringRehearsalWorkflow,
+  useAuthoringRehearsalMemoryWorkflow,
+  useAuthoringHistoryWorkflow,
+  useAuthoringCollaborationWorkflow,
+  useAuthoringInterventionState,
+  useAuthoringInterventionWorkflow,
+  useAuthoringFirstRun,
+  useSettingsPopup,
+  useAuthoringCharacterIfWorkflow,
+  useAuthoringSceneLaboratoryWorkflow,
+  useAuthoringBlockWorkflow,
+  useAuthoringGhostAdoptionWorkflow,
+  useAuthoringReviewWorkflow,
+  useAuthoringSearchWorkflow,
+  useAuthoringRewriteWorkflow,
+  useAuthoringAnnotationSession,
+  useAuthoringAnnotationSelection,
+  useAuthoringAnnotationLayout,
+  useAuthoringBookActivation,
+  useAuthoringKnowledgeAssistant,
+  useAuthoringIllustrator,
+  useBodyScrollLock,
+  useWritingDocument,
+  useAuthoringTask,
+  useAuthoringObservers,
+  useAuthoringSceneWorkflow
+} from '../composables/useAuthoringWorkspaceOwners.js'
 const router = useRouter()
 const route = useRoute()
-
-
 const { isDark, toggleTheme } = useTheme()
 const {
   clear: clearWritingDocument,
@@ -1918,13 +1799,10 @@ const gameStore = useGameStore()
 // 工作台标签会话：页面只回报上下文（章、dirty、恢复锚点），不拥有标签状态。
 const workspaceTabsStore = useWorkspaceTabsStore()
 let workspaceNavigationController = null
-
 function openProjectSettingsSurface(...args) {
   return workspaceNavigationController?.openProjectSettingsSurface(...args) || false
 }
-
 const copilotCursorPos = ref(0)
-
 const books = ref([])
 const selectedBookId = ref('')
 const chapters = ref([])
@@ -2000,7 +1878,6 @@ const authoringSettingCaretContext = computed(() => buildAuthoringCaretContext(w
 const writingWorldbookMentions = computed(() => buildWritingWorldbookMentions(writingDocument.value, boundWorldbook.value))
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
-
 // —— 文本工作台 v3 正式文档树 ——
 // Phase 0 的 URL 原型门控已退役；构思/速记必须在正常 /authoring 可见。
 const wt3ExplorationDocs = ref([])
@@ -2018,7 +1895,6 @@ const notebookHistoryEpoch = ref(0)
 // ProseMirror history 必须以书 + 文档作用域为硬边界。切章或在正文/构思间切换时
 // 重建 Notebook；否则旧章 undo step 会被映射到新文档并造成跨章串写。
 const notebookDocumentKey = computed(() => `${selectedBookId.value || 'none'}:${wt3ActiveDocId.value ? `exploration:${wt3ActiveDocId.value}` : `chapter:${selectedChapterId.value || 'none'}`}:${notebookHistoryEpoch.value}`)
-
 function fenceNotebookHistory() {
   notebookHistoryEpoch.value += 1
 }
@@ -2029,14 +1905,12 @@ const wt3OutlineFilter = ref('all')
 const wt3MigratedBookIds = new Set()
 const wt3MigrationTasks = new Map()
 const wt3OutlineConflictsByBook = new Map()
-
 // Phase 3：每本书只迁移一次；动态 import 与仓库写入始终绑定捕获的 bookId。
 // 切书期间完成的旧请求只更新对应书的缓存，不得把节点/冲突串到当前书。
 async function wt3EnsureOutlineMigrated() {
   const bookId = String(selectedBookId.value || '')
   if (!bookId || wt3MigratedBookIds.has(bookId)) return true
   if (wt3MigrationTasks.has(bookId)) return wt3MigrationTasks.get(bookId)
-
   const task = (async () => {
     try {
       const migration = await import('../services/writing/projectOutlineMigration.js')
@@ -2044,7 +1918,6 @@ async function wt3EnsureOutlineMigrated() {
       if (!book) return false
       const plan = migration.planChapterOutlineMigration(book)
       let conflicts = plan.conflicts
-
       if (plan.create.length || plan.skipped.length) {
         const working = JSON.parse(JSON.stringify(book))
         const result = migration.applyChapterOutlineMigration(working, plan)
@@ -2054,7 +1927,6 @@ async function wt3EnsureOutlineMigrated() {
           if (!persisted?.ok) throw new Error('outline-migration-persist-failed')
         }
       }
-
       wt3MigratedBookIds.add(bookId)
       wt3OutlineConflictsByBook.set(bookId, conflicts)
       wt3RefreshDocs(bookId)
@@ -2068,7 +1940,6 @@ async function wt3EnsureOutlineMigrated() {
       wt3MigrationTasks.delete(bookId)
     }
   })()
-
   wt3MigrationTasks.set(bookId, task)
   return task
 }
@@ -2084,7 +1955,6 @@ function activeAnnotationScopeKey() {
       })
     : selectedChapterId.value
 }
-
 function reconcileActiveEditorAnnotations(document, previousDocument = null, transition = null) {
   const reconciled = reconcileWritingAnnotations(
     activeEditorAnnotations.value,
@@ -2122,7 +1992,6 @@ function chineseChapterNumber(value) {
   if (number < 100) return `${digits[Math.floor(number / 10)]}十${digits[number % 10]}`
   return String(number)
 }
-
 // 章行只拥有一个序号来源。作者若把“第一章”也写进标题，先去掉标题里的
 // 序号再按目录位置呈现，避免“第一章 第一章 上元夜”；空标题就朴素显示“第一章”。
 function chapterRowLabel(index, title) {
@@ -2181,7 +2050,6 @@ function wt3RefreshDocs(bookId = selectedBookId.value) {
     }
   }
 }
-
 // 离开探索文档前的持久化：内容 + 批注写回探索文档，清除恢复草稿与 dirty。
 function wt3PersistActiveDoc() {
   clearPendingDocumentSaveTimers()
@@ -2197,7 +2065,7 @@ function wt3PersistActiveDoc() {
   })
   if (result.ok) {
     cancelRecoveryDraftSchedule()
-    clearWritingRecoveryDraft(authoringDocumentKey({ role: 'exploration', bookId: doc.bookId || selectedBookId.value, documentId: doc.id }))
+    authoringHistory.clearRecovery(authoringDocumentKey({ role: 'exploration', bookId: doc.bookId || selectedBookId.value, documentId: doc.id }))
     const key = `project:${selectedBookId.value}:authoring`
     workspaceTabsStore.updateContextByKey(key, { dirty: false })
     saveStatus.value = 'saved'
@@ -2206,7 +2074,6 @@ function wt3PersistActiveDoc() {
   }
   return result
 }
-
 // 任何离开探索文档的路径（切章/切书/关闭）统一走这里；正文路径不受影响。
 function wt3PersistBeforeLeaving() {
   if (pendingGhostAdoption.value) {
@@ -2235,7 +2102,6 @@ function wt3PersistBeforeLeaving() {
   wt3PreviousChapterId.value = null
   return result
 }
-
 function openExplorationDoc(docId) {
   if (wt3ActiveDocId.value === docId) return
   if (pendingGhostAdoption.value) {
@@ -2277,8 +2143,7 @@ function openExplorationDoc(docId) {
   })
   // 恢复草稿比存储内容新时优先恢复未保存稿。
   const key = authoringDocumentKey({ role: 'exploration', bookId, documentId: doc.id })
-  const drafts = listWritingRecoveryDrafts(key)
-  const draft = drafts.length ? drafts[drafts.length - 1] : null
+  const draft = authoringHistory.readRecovery(key)
   markdownContent.value = draft?.markdown || String(doc.content || '')
   wt3Annotations.value = Array.isArray(doc.annotations) ? doc.annotations : []
   // 记住离开正文时的稿面滚动位置：返回正文后恢复，版心不跳（V2 Gate）。
@@ -2391,7 +2256,6 @@ function wt3LinkDocToCurrentChapter(docId) {
   return true
 }
 const notebookEditorActive = computed(() => editorMode.value === 'wysiwyg')
-
 // Scene projection is watched during setup, so this dependency must exist
 // before the projection computed is declared below.
 const activeWritingUnitId = computed(() => {
@@ -2400,7 +2264,6 @@ const activeWritingUnitId = computed(() => {
   const units = Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : []
   return units.at(-1)?.attrs?.unitId || null
 })
-
 const notebookEditorStyle = computed(() => ({
   '--notebook-font-family': editorFont.value,
   '--notebook-font-size': editorFontSize.value,
@@ -2412,18 +2275,41 @@ const notebookEditorStyle = computed(() => ({
   '--notebook-first-line-indent': writingTypography.firstLineIndent ? '2em' : '0',
   '--notebook-paragraph-gap': String(writingTypography.paragraphGap) + 'em'
 }))
-
 const selectedText = ref('')
 const notebookCommandMenuOpen = ref(false)
 const writingCompositionActive = ref(false)
 const chapterAnnotations = ref([])
-const writingSnapshots = ref([])
-const writingBlockHistory = ref([])
-const writingRecoveryDraft = ref(null)
-const snapshotLabel = ref('')
-const snapshotStatus = ref('')
-const writingHistoryPreferences = ref(loadWritingHistoryPreferences())
-const writingHistoryIntervalOptions = WRITING_HISTORY_INTERVAL_OPTIONS
+const authoringHistory = useAuthoringHistoryWorkflow({
+  chapterId: () => selectedChapterId.value,
+  chapterTitle: () => currentChapterTitle.value,
+  document: () => writingDocument.value,
+  markdown: () => markdownContent.value,
+  annotations: () => chapterAnnotations.value,
+  persistCurrent: () => saveCurrentChapter({ automaticHistory: false }),
+  historyVisible: () => activeInspectorTool.value === 'history',
+  rejectMutation: () => rejectLockedNotebookMutation(),
+  dualSource: () => dualPaneRef.value?.getActiveSource?.(),
+  prepareDualClose: () => dualPaneRef.value?.prepareClose?.(),
+  confirmRestore: () => typeof window === 'undefined' || window.confirm('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？'),
+  findChapter: (chapterId) => chapters.value.find((item) => item.id === chapterId),
+  persistChapters: () => saveChapters(),
+  selectChapter: (chapterId) => selectChapter(chapterId),
+  reloadDual: (payload) => dualPaneRef.value?.reloadSearchSource?.(payload),
+  markSaved: () => { saveStatus.value = 'saved' },
+  unitByNode: (nodeId) => getWritingUnitByNodeId(nodeId),
+  editorActive: () => notebookEditorActive.value,
+  editor: () => notebookEditorRef.value,
+  confirmDelete: (snapshot) => typeof window === 'undefined' || window.confirm(`删除「${snapshot.label}」？正文不会改变。`)
+})
+const {
+  snapshots: writingSnapshots,
+  blockHistory: writingBlockHistory,
+  recoveryDraft: writingRecoveryDraft,
+  status: snapshotStatus,
+  recordAutomatic: recordAutomaticHistoryAfterPersist,
+  load: loadChapterSnapshots,
+  formatTime: formatWritingSnapshotTime,
+} = authoringHistory
 let previousNotebookDocument = null
 let previousNotebookAnnotations = null
 const {
@@ -2526,13 +2412,11 @@ const {
     syncCursorAndSelection()
   }
 })
-
 function resetAnnotationWorkspaceScope() {
   resetAnnotationSession()
   resetRewriteState()
   scheduleAnnotationLayout()
 }
-
 const sceneDetailNotice = ref('')
 const sceneInspectorMode = ref('current')
 const dualPaneRef = ref(null)
@@ -2599,8 +2483,39 @@ const {
   getAnchorMetrics: (annotation) => notebookEditorRef.value?.getAnnotationAnchorMetrics?.(annotation)
 })
 const illustratorTriggerRef = ref(null)
-const illustratorMinimized = ref(false)
-const illustratorController = useAuthoringIllustrator()
+const illustratorController = useAuthoringIllustrator({
+  isCompositionEvent: isWritingCompositionKey,
+  compositionActive: () => writingCompositionActive.value || dualCompositionActive.value,
+  draftBlocksOpen: () => blockComposer.open || blockPreview.value || pendingGhostAdoption.value,
+  mobileToolsActive: () => chapterShelfSheetMode.value,
+  notify: (message) => authoringTask.notify(message),
+  captureSource: () => captureCurrentIllustratorSource(),
+  captureLiveSource: () => captureLiveIllustratorSource(),
+  captureSurface: () => captureCurrentWritingSurface(),
+  prepareOpen: () => {
+    showFontPanel.value = false
+    showQuickWords.value = false
+    showNameGen.value = false
+    closeSearchPanel({ restore: false })
+    closeReviewPanel({ restore: false })
+    notebookCommandMenuOpen.value = false
+    selectionActionsVisible.value = false
+    contextMenu.value.show = false
+  },
+  closeMobileTools: () => { moreMenuOpen.value = false },
+  projectId: () => selectedBookId.value,
+  insertMediaReference: (payload, pane) => pane === 'dual'
+    ? dualPaneRef.value?.insertMediaReference?.(payload)
+    : notebookEditorRef.value?.insertMediaReference?.(payload),
+  restoreSurface: async (surface) => {
+    if (surface?.pane === 'dual' && dualSurfaceTargetMatches(surface)) {
+      activeWritingPane.value = 'dual'
+      if (await dualPaneRef.value?.restoreSurfaceState?.(surface)) return true
+    }
+    return surface?.pane === 'main' && restoreMainWritingSurface(surface)
+  },
+  focusFallback: () => (chapterShelfSheetMode.value ? moreToolsTriggerRef.value : illustratorTriggerRef.value)?.focus?.()
+})
 const {
   open: illustratorOpen,
   brief: illustratorBrief,
@@ -2608,13 +2523,24 @@ const {
   referenceCandidates: illustratorReferenceCandidates,
   notice: illustratorNotice,
   generationBrief: illustratorGenerationBrief,
-  freshness: illustratorFreshness
+  freshness: illustratorFreshness,
+  minimized: illustratorMinimized,
+  blocking: illustratorBlocking,
+  freezeSource: freezeIllustratorSource,
+  freezeMobileSource: freezeMobileToolSource,
+  openIllustrator,
+  openForCharacter: openIllustratorForCharacter,
+  openFromMobileTools: openIllustratorFromMobileTools,
+  releaseMobileSource: releaseIllustratorMobileSource,
+  reconcileSource: reconcileIllustratorSource,
+  closeAndRestore: closeIllustrator,
+  saveMaterial: handleIllustratorSaveMaterial,
+  insertImage: handleIllustratorInsertImage,
+  generationStart: handleIllustratorGenerationStart,
+  generationComplete: handleIllustratorGenerationComplete,
+  generationError: handleIllustratorGenerationError,
+  generationCancel: handleIllustratorGenerationCancel
 } = illustratorController
-const illustratorBlocking = computed(() => illustratorOpen.value && !illustratorMinimized.value)
-let preparedIllustratorSource = null
-let preparedMobileToolSource = null
-let illustratorActiveJob = null
-
 function activeMainSurfaceIdentity() {
   const sourceKind = wt3ActiveDoc.value ? 'exploration' : 'chapter'
   const sourceId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
@@ -2628,7 +2554,6 @@ function activeMainSurfaceIdentity() {
     documentSchemaRevision: String(writingDocument.value?.revision ?? '')
   }
 }
-
 function captureMainWritingSurface() {
   if (!notebookEditorRef.value || !selectedBookId.value) return null
   const identity = activeMainSurfaceIdentity()
@@ -2640,7 +2565,6 @@ function captureMainWritingSurface() {
     editorFocused: notebookEditorRef.value.hasEditorFocus?.() === true
   })
 }
-
 function captureCurrentWritingSurface() {
   if (activeWritingPane.value === 'dual') {
     const dualSurface = dualPaneRef.value?.captureSurfaceState?.()
@@ -2648,7 +2572,6 @@ function captureCurrentWritingSurface() {
   }
   return captureMainWritingSurface()
 }
-
 function captureMainDocumentSource() {
   if (!writingDocument.value || !selectedBookId.value) return null
   const exploration = wt3ActiveDoc.value
@@ -2673,21 +2596,18 @@ function captureMainDocumentSource() {
     worldbookEntries: cloneAuthoringRunValue(boundWorldbook.value?.entries || [])
   })
 }
-
 function captureActiveDocumentSource() {
   if (activeWritingPane.value === 'dual') {
     return dualPaneRef.value?.captureSearchSource?.() || null
   }
   return captureMainDocumentSource()
 }
-
 function captureActiveReviewSource() {
   if (activeWritingPane.value === 'dual') {
     return dualPaneRef.value?.captureReviewSource?.() || null
   }
   return captureMainDocumentSource()
 }
-
 function captureMainKnowledgeAssistantInvocation() {
   const projectId = String(selectedBookId.value || '')
   const role = wt3ActiveDoc.value ? 'exploration' : 'manuscript'
@@ -2729,7 +2649,6 @@ function captureMainKnowledgeAssistantInvocation() {
     })
   })
 }
-
 function captureKnowledgeAssistantInvocation() {
   if (activeWritingPane.value !== 'dual') return captureMainKnowledgeAssistantInvocation()
   const source = dualPaneRef.value?.getActiveSource?.() || null
@@ -2769,7 +2688,6 @@ function captureKnowledgeAssistantInvocation() {
     liveSource
   })
 }
-
 function writingUnitVisualText(unit) {
   return (unit?.content || []).map((node) => {
     if (node?.type === 'mediaReference') return String(node?.attrs?.alt || '')
@@ -2780,7 +2698,6 @@ function writingUnitVisualText(unit) {
     return readNode(node)
   }).filter(Boolean).join('\n\n').trim()
 }
-
 function captureMainIllustratorSource() {
   if (!notebookEditorRef.value || writingCompositionActive.value) return null
   const projectId = String(selectedBookId.value || '')
@@ -2815,7 +2732,6 @@ function captureMainIllustratorSource() {
     worldbook: cloneAuthoringRunValue(boundWorldbook.value)
   })
 }
-
 function captureCurrentIllustratorSource() {
   if (activeWritingPane.value !== 'dual') return captureMainIllustratorSource()
   const source = dualPaneRef.value?.captureVisualSource?.()
@@ -2826,7 +2742,6 @@ function captureCurrentIllustratorSource() {
     worldbook: cloneAuthoringRunValue(boundWorldbook.value)
   })
 }
-
 function captureLiveIllustratorSource() {
   const expectedPane = illustratorBrief.value?.pane
   if (!expectedPane) return null
@@ -2840,95 +2755,10 @@ function captureLiveIllustratorSource() {
       })()
     : captureMainIllustratorSource()
 }
-
-function freezeIllustratorSource(event) {
-  if (event?.button != null && event.button !== 0) return
-  if (isWritingCompositionKey(event)) {
-    preparedIllustratorSource = null
-    return
-  }
-  const invocation = captureCurrentIllustratorSource()
-  const surface = captureCurrentWritingSurface()
-  preparedIllustratorSource = invocation && surface
-    ? { invocation, surface, createdAt: Date.now() }
-    : null
-}
-
-function freezeMobileToolSource(event) {
-  if (!chapterShelfSheetMode.value || isWritingCompositionKey(event)) {
-    preparedMobileToolSource = null
-    return
-  }
-  const invocation = captureCurrentIllustratorSource()
-  const surface = captureCurrentWritingSurface()
-  preparedMobileToolSource = invocation && surface
-    ? { invocation, surface, createdAt: Date.now() }
-    : null
-}
-
-function consumePreparedIllustratorSource(preferred = null) {
-  const candidate = preferred || preparedIllustratorSource
-  preparedIllustratorSource = null
-  if (candidate && Date.now() - Number(candidate.createdAt || 0) < 30000) return candidate
-  const invocation = captureCurrentIllustratorSource()
-  const surface = captureCurrentWritingSurface()
-  return invocation && surface ? { invocation, surface, createdAt: Date.now() } : null
-}
-
-function openIllustratorWithPrepared(prepared = null) {
-  if (writingCompositionActive.value || dualCompositionActive.value) {
-    authoringTask.notify('请先完成当前中文输入，再打开画师')
-    return false
-  }
-  if (blockComposer.open || blockPreview.value || pendingGhostAdoption.value) {
-    authoringTask.notify('请先处理当前推演草稿，再打开画师')
-    return false
-  }
-  // Closing the drawer does not cancel an in-flight provider request. Reopen
-  // that frozen session instead of silently rebinding the late result to a new
-  // chapter or selection.
-  if (illustratorActiveJob && illustratorBrief.value) {
-    illustratorController.reconcile(captureLiveIllustratorSource())
-    illustratorMinimized.value = false
-    illustratorOpen.value = true
-    return true
-  }
-  const source = consumePreparedIllustratorSource(prepared)
-  if (!source) {
-    authoringTask.notify('请先把光标放在正文或速记的文本块中')
-    return false
-  }
-  showFontPanel.value = false
-  showQuickWords.value = false
-  showNameGen.value = false
-  closeSearchPanel({ restore: false })
-  closeReviewPanel({ restore: false })
-  notebookCommandMenuOpen.value = false
-  selectionActionsVisible.value = false
-  contextMenu.value.show = false
-  const started = illustratorController.start({
-    ...source.invocation,
-    sessionId: `visual-session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  }, source.surface)
-  if (!started.ok) {
-    authoringTask.notify('当前落笔处无法建立画面任务，请重新选择正文')
-    return false
-  }
-  illustratorController.reconcile(source.invocation)
-  illustratorMinimized.value = false
-  illustratorActiveJob = null
-  return true
-}
-
-function openIllustrator() {
-  return openIllustratorWithPrepared()
-}
-
 async function refreshBoundWorldbookAfterCharacterChange() {
   if (!currentBook.value?.id) return null
   return syncBookWorldbook(currentBook.value, selectedBookId.value)
 }
-
 async function ensureBookWorldbookForAuthoring() {
   if (boundWorldbook.value?.id) return boundWorldbook.value
   const book = currentBook.value
@@ -2941,7 +2771,6 @@ async function ensureBookWorldbookForAuthoring() {
   if (!binding.ok) throw new Error('资料库已建立，但未能关联到当前书稿')
   return binding.worldbook || created
 }
-
 async function createAuthoringCharacter(payload) {
   try {
     const worldbook = await ensureBookWorldbookForAuthoring()
@@ -2954,13 +2783,10 @@ async function createAuthoringCharacter(payload) {
     authoringTask.notify(error?.message || '角色创建失败')
   }
 }
-
 let authoringCharacterSaveQueue = Promise.resolve()
-
 function entryRevisionOf(entry) {
   return String(entry?.metadata?.updatedAt ?? entry?.updatedAt ?? '')
 }
-
 function updateAuthoringCharacter(entryId, payload, options = {}) {
   if (!boundWorldbook.value?.id || !entryId) return false
   // L5 冲突防护：设定页改过同一条目时，本地旧快照不得覆盖新值。
@@ -2990,7 +2816,6 @@ function updateAuthoringCharacter(entryId, payload, options = {}) {
   })
   return authoringCharacterSaveQueue
 }
-
 async function removeAuthoringCharacter(entryId) {
   if (!boundWorldbook.value?.id || !entryId) return false
   try {
@@ -3004,7 +2829,6 @@ async function removeAuthoringCharacter(entryId) {
     return false
   }
 }
-
 async function createAuthoringSetting(payload) {
   try {
     const worldbook = await ensureBookWorldbookForAuthoring()
@@ -3017,11 +2841,9 @@ async function createAuthoringSetting(payload) {
     authoringTask.notify(error?.message || '设定创建失败')
   }
 }
-
 function updateAuthoringSetting(entryId, payload, options = {}) {
   return updateAuthoringCharacter(entryId, payload, { ...options, label: '设定' })
 }
-
 async function removeAuthoringSetting(entryId) {
   if (!boundWorldbook.value?.id || !entryId) return false
   try {
@@ -3035,159 +2857,6 @@ async function removeAuthoringSetting(entryId) {
     return false
   }
 }
-
-function openIllustratorForCharacter({ entry, prompt, referenceImage } = {}) {
-  const invocation = captureCurrentIllustratorSource()
-  const surface = captureCurrentWritingSurface()
-  if (!invocation || !surface || !prompt) {
-    authoringTask.notify('请先把光标放在当前正文的文本块中')
-    return false
-  }
-  const selection = {
-    ...(invocation.selection || {}),
-    text: prompt,
-    selectedText: prompt,
-    empty: false,
-    markdownFrom: undefined,
-    markdownTo: undefined
-  }
-  const visualReferenceCandidates = referenceImage ? [{
-    id: `character-avatar:${entry?.id || entry?.name || 'draft'}`,
-    data: referenceImage,
-    title: `${entry?.name || '角色'}参考图`,
-    prompt,
-    sourceRefs: entry?.id ? [{ refType: 'worldbook-entry', refId: String(entry.id) }] : [],
-    mediaPurpose: 'storyboard-reference',
-    autoSelected: true
-  }] : []
-  return openIllustratorWithPrepared({
-    invocation: { ...invocation, selection, visualReferenceCandidates },
-    surface,
-    createdAt: Date.now()
-  })
-}
-
-function openIllustratorFromMobileTools() {
-  const prepared = preparedMobileToolSource
-  preparedMobileToolSource = null
-  moreMenuOpen.value = false
-  return openIllustratorWithPrepared(prepared)
-}
-
-function reconcileIllustratorSource() {
-  return illustratorController.reconcile(captureLiveIllustratorSource())
-}
-
-function closeIllustrator() {
-  illustratorMinimized.value = false
-  const surface = illustratorController.close()
-  reconcileIllustratorSource()
-  nextTick(async () => {
-    // Scene/worldbook staleness blocks result adoption, but it must not discard
-    // a still-valid editor bookmark. Surface identity owns focus/scroll restore.
-    if (surface?.pane === 'dual' && dualSurfaceTargetMatches(surface)) {
-      activeWritingPane.value = 'dual'
-      if (await dualPaneRef.value?.restoreSurfaceState?.(surface)) return
-    } else if (surface?.pane === 'main' && restoreMainWritingSurface(surface)) {
-      return
-    }
-    const fallbackTrigger = chapterShelfSheetMode.value
-      ? moreToolsTriggerRef.value
-      : illustratorTriggerRef.value
-    fallbackTrigger?.focus?.()
-  })
-}
-
-function illustrationEntryBrief(image = {}) {
-  return image?.generationContext?.authoringVisualBrief
-    || image?.authoringVisualBrief
-    || image?.generationParams?.authoringVisualBrief
-    || null
-}
-
-async function handleIllustratorSaveMaterial(image) {
-  const result = await saveAuthoringIllustrationAsMaterial({
-    image,
-    brief: illustrationEntryBrief(image) || illustratorGenerationBrief.value,
-    projectId: illustratorBrief.value?.projectId || illustratorBrief.value?.source?.projectId
-  })
-  if (!result.ok) {
-    illustratorNotice.value = '素材保存失败；图片候选仍保留，可直接重试保存。'
-    return
-  }
-  illustratorNotice.value = result.reused ? '这张图片已经在素材库中。' : '已保存到素材库。'
-}
-
-function handleIllustratorInsertImage(image) {
-  const entryBrief = illustrationEntryBrief(image)
-  const live = captureLiveIllustratorSource()
-  const entryFreshness = assessAuthoringVisualBriefFreshness(entryBrief, live || {})
-  const source = entryBrief?.source || {}
-  if (source.role !== 'manuscript') {
-    illustratorNotice.value = '当前来源是速记；可保存为素材，不能写入正文。'
-    return
-  }
-  const validation = validateAuthoringIllustrationInsert({
-    image,
-    brief: entryBrief,
-    freshness: entryFreshness,
-    projectId: selectedBookId.value,
-    documentId: source.documentId
-  })
-  if (!validation.ok) {
-    illustratorNotice.value = validation.reason === 'media-asset-missing'
-      ? '图片资产已缺失，不能插入正文。'
-      : '原正文或当前场已经变化，这张候选不能再插入。'
-    reconcileIllustratorSource()
-    return
-  }
-  const payload = {
-    projectId: source.projectId,
-    documentId: source.documentId,
-    mediaAssetId: validation.mediaAssetId,
-    alt: String(image?.prompt || entryBrief?.prompt || '正文插画').replace(/\s+/g, ' ').slice(0, 120),
-    sourceRefs: validation.sourceRefs,
-    afterUnitId: source.unitId,
-    expectedUnitRevision: source.unitRevision,
-    expectedDocumentRevision: source.documentSchemaRevision
-  }
-  const result = entryBrief.pane === 'dual'
-    ? dualPaneRef.value?.insertMediaReference?.(payload)
-    : notebookEditorRef.value?.insertMediaReference?.(payload)
-  if (!result?.ok) {
-    illustratorNotice.value = '正文位置已变化，未写入图片引用。'
-    reconcileIllustratorSource()
-    return
-  }
-  updateMediaAsset(validation.mediaAssetId, { status: 'accepted' })
-  illustratorNotice.value = '已插入正文；正文中只保存媒体引用。'
-  nextTick(reconcileIllustratorSource)
-}
-
-function handleIllustratorGenerationStart(payload = {}) {
-  illustratorActiveJob = payload.job || payload
-  illustratorNotice.value = '正在生成；你可以取消，当前正文不会变化。'
-}
-
-function handleIllustratorGenerationComplete(payload = {}) {
-  if (illustratorActiveJob?.jobId && payload?.job?.jobId && illustratorActiveJob.jobId !== payload.job.jobId) return
-  illustratorActiveJob = null
-  const freshness = reconcileIllustratorSource()
-  illustratorNotice.value = freshness?.fresh
-    ? '候选已生成。选择后可保存为素材或插入正文。'
-    : '候选已生成，但来源已经更新；已禁止插入原正文。'
-}
-
-function handleIllustratorGenerationError() {
-  illustratorActiveJob = null
-  illustratorNotice.value = '生成失败；画面描述和参考图仍保留。'
-}
-
-function handleIllustratorGenerationCancel() {
-  illustratorActiveJob = null
-  illustratorNotice.value = '已取消生成；正文和素材均未写入。'
-}
-
 function mainWritingSurfaceMatches(snapshot = {}) {
   const live = activeMainSurfaceIdentity()
   return Boolean(
@@ -3200,7 +2869,6 @@ function mainWritingSurfaceMatches(snapshot = {}) {
     && String(snapshot.documentSchemaRevision ?? '') === live.documentSchemaRevision
   )
 }
-
 function restoreMainWritingSurface(snapshot) {
   if (!snapshot || !mainWritingSurfaceMatches(snapshot) || !notebookEditorRef.value) return false
   const restored = snapshot.selectionBookmark
@@ -3211,14 +2879,12 @@ function restoreMainWritingSurface(snapshot) {
   if (!snapshot.selectionBookmark) notebookEditorRef.value.focus?.({ scrollIntoView: false })
   return true
 }
-
 function waitForWritingPaint() {
   return new Promise((resolve) => {
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve())
     else setTimeout(resolve, 0)
   })
 }
-
 async function restoreMainWritingSurfaceWhenReady(snapshot, { attempts = 6, previousEditor = null } = {}) {
   const retryCount = Math.max(1, Number(attempts) || 1)
   for (let attempt = 0; attempt < retryCount; attempt += 1) {
@@ -3243,7 +2909,6 @@ async function restoreMainWritingSurfaceWhenReady(snapshot, { attempts = 6, prev
   }
   return false
 }
-
 function dualSurfaceTargetMatches(snapshot = {}) {
   if (snapshot?.pane !== 'dual' || String(snapshot.projectId || '') !== String(selectedBookId.value || '')) return false
   const liveId = ({
@@ -3254,7 +2919,6 @@ function dualSurfaceTargetMatches(snapshot = {}) {
   })[snapshot.sourceKind]
   return String(snapshot.sourceId || '') === String(liveId || '')
 }
-
 function restoreWritingSurfaceAfterInspector(snapshot) {
   if (!snapshot) return false
   if (snapshot.pane === 'dual') {
@@ -3280,12 +2944,10 @@ function restoreWritingSurfaceAfterInspector(snapshot) {
     })
     return true
   }
-
   clearInspectorReturnSurface()
   nextTick(() => restoreMainWritingSurface(snapshot))
   return true
 }
-
 function activateMainPane() {
   activeWritingPane.value = 'main'
   nextTick(refreshNotebookCommandAvailability)
@@ -3565,8 +3227,7 @@ function toggleMoreMenu(event) {
   }
 }
 function closeMoreMenu({ restorePrepared = true } = {}) {
-  const prepared = preparedMobileToolSource
-  preparedMobileToolSource = null
+  const prepared = releaseIllustratorMobileSource()
   moreMenuOpen.value = false
   if (restorePrepared && prepared?.surface) {
     nextTick(async () => {
@@ -3710,14 +3371,28 @@ const referenceSource = useAuthoringReferenceSource()
 function readCurrentCopilotReference() {
   return referenceSource.readForScope(activeDocumentSaveScopeKey())
 }
+function writeCurrentWritingRecoveryDraft() {
+  // Persistence owns the recovery timer/write path; history only reads and adopts it.
+  if (wt3ActiveDoc.value) {
+    if (!writingDocument.value) return null
+    const key = authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
+    return authoringHistory.writeRecovery({
+      chapterId: key, chapterTitle: wt3ActiveDoc.value.title, label: '未保存草稿', reason: 'crash-recovery',
+      document: writingDocument.value, markdown: markdownContent.value, annotations: wt3Annotations.value
+    })
+  }
+  if (!selectedChapterId.value || !writingDocument.value) return null
+  return authoringHistory.writeRecovery({
+    chapterId: selectedChapterId.value, chapterTitle: currentChapterTitle.value, label: '未保存草稿', reason: 'crash-recovery',
+    document: writingDocument.value, markdown: markdownContent.value, annotations: chapterAnnotations.value
+  })
+}
 // —— 书与世界书绑定（Task 2）——
 // currentBook / selectedBookWorldbookId 必须先于 sceneProjection 声明：
 // watch(sceneProjection) 在 setup 期间就会求值，晚声明会触发 TDZ ReferenceError。
 const currentBook = computed(() => books.value.find((item) => item.id === selectedBookId.value) || null)
 const selectedBookWorldbookId = computed(() => normalizeBookWorldbookBinding(currentBook.value))
-
 const chapterOutlineItems = ref([])
-
 // Plan Task 1.3：共享现场投影 —— 左栏现场条与右侧详情（Task 1.4）读取同一份只读投影。
 // 只挑选必要字段，避免 getRuntimeSnapshot 的全量克隆进入每次重算。
 const sceneActiveActorId = ref('')
@@ -3761,7 +3436,6 @@ const sceneProjection = computed(() => buildAuthoringSceneProjection({
   acceptedObservations: authoringObservations.value,
   outlineItems: chapterOutlineItems.value
 }))
-
 // UX-03：检查器“现场”页的只读概览文案（左栏索引才是定位入口）。
 const sceneOverviewPresentNames = computed(() => (
   (sceneProjection.value.presentCharacters || []).map((person) => person.name).filter(Boolean).join('、')
@@ -3776,7 +3450,6 @@ const livingStoryProjection = computed(() => buildAuthoringLivingStoryProjection
   outlineNodes: wt3OutlineNodes.value,
   outlineEdges: wt3OutlineEdges.value
 }))
-
 const knowledgeAssistantRevisionSignal = computed(() => [
   selectedBookId.value,
   selectedChapterId.value,
@@ -3808,7 +3481,6 @@ const knowledgeAssistantTarget = computed(() => {
     ...(nodeId ? { nodeId } : {})
   }
 })
-
 function resolveKnowledgeAssistantLiveSource({ phase = 'prepare' } = {}) {
   const invocation = knowledgeAssistantInvocation.value
   if (!invocation || String(invocation.projectId || '') !== String(selectedBookId.value || '')) return null
@@ -3834,7 +3506,6 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   sceneProjection: knowledgeAssistantSceneProjection,
   revisionSignal: knowledgeAssistantRevisionSignal
 })
-
 function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
   if (!document || !Array.isArray(document.content)) return null
   const chapter = kind === 'chapter'
@@ -3914,7 +3585,6 @@ function handleSceneAdvanceWith(eventId) {
     : '结合当前场的人物、地点、时间与正文进度，推演本场自然发生的下一步。'
   void openSceneLaboratory({ target: notebookSelection.value, instruction })
 }
-
 // —— 右侧临时详情（Task 1.4）：数据从同一 projection + worldbook 运行时读取。 ——
 const sceneDetailModel = computed(() => resolveSceneDetailModel(inspectorDetailState.value))
 const reviewWorkflow = useAuthoringReviewWorkflow({
@@ -3958,7 +3628,7 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
   },
   protectBatch: (invocation, live, transaction) => {
     if (invocation.documentRole !== 'manuscript' || transaction.patches.length <= 1) return true
-    const protection = recordWritingProtectionSnapshot({
+    const protection = authoringHistory.recordProtection({
       chapterId: invocation.chapterId,
       chapterTitle: invocation.title,
       reason: 'before-rewrite',
@@ -3969,7 +3639,7 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
       transactionId: transaction.receipt.id
     })
     if (protection.ok && String(invocation.chapterId) === String(selectedChapterId.value)) {
-      writingSnapshots.value = listWritingSnapshots(invocation.chapterId)
+      writingSnapshots.value = authoringHistory.refreshSnapshots(invocation.chapterId)
     }
     return protection.ok
   },
@@ -4005,7 +3675,6 @@ const {
   ignore: ignoreReviewFinding,
   undo: undoReviewApplication
 } = reviewWorkflow
-
 const sceneLocationBridge = computed(() => buildAuthoringSceneLocationProjection({
   projectId: selectedBookId.value,
   chapterId: selectedChapterId.value,
@@ -4013,7 +3682,6 @@ const sceneLocationBridge = computed(() => buildAuthoringSceneLocationProjection
   worldbook: boundWorldbook.value,
   location: sceneProjection.value?.location
 }))
-
 function scenePersonRoles(personId) {
   const projection = sceneProjection.value
   const roles = []
@@ -4024,7 +3692,6 @@ function scenePersonRoles(personId) {
   if ((projection.presentCharacters || []).some((item) => item.id === personId)) roles.push('在场')
   return roles
 }
-
 function resolveSceneDetailModel(detail) {
   if (!detail?.kind || !detail.id) return null
   const projection = sceneProjection.value
@@ -4116,11 +3783,9 @@ function resolveSceneDetailModel(detail) {
   }
   return null
 }
-
 function livingStoryUsesSheet() {
   return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(max-width: 720px)')?.matches)
 }
-
 function locateLivingStoryBeat(beat) {
   const target = beat?.target
   if (!target || String(target.projectId || '') !== String(selectedBookId.value || '')
@@ -4143,7 +3808,6 @@ function locateLivingStoryBeat(beat) {
   } else focus()
   return true
 }
-
 function openLivingStorySource(source) {
   const sourceRef = String(source?.sourceRef || '')
   if (sourceRef.startsWith('worldbook-entry:')) {
@@ -4163,7 +3827,6 @@ function openLivingStorySource(source) {
   }
   return false
 }
-
 function interveneFromLivingStory(beat) {
   if (!beat?.target) return false
   clearInspectorReturnSurface()
@@ -4174,7 +3837,6 @@ function interveneFromLivingStory(beat) {
   }
   return openInterventionComposer(beat.target)
 }
-
 function openSceneDetail(payload) {
   if (!payload?.kind || !payload.id) return
   // 左栏是现场简报，人物/地点/事件点击后都先进入“现场”详情；
@@ -4188,7 +3850,6 @@ function openSceneDetail(payload) {
   sceneDetailNotice.value = ''
   inspectorReturnFocusRef.value = `${payload.kind}:${payload.id}`
 }
-
 async function closeSceneDetail() {
   const returnRef = inspectorReturnFocusRef.value
   const closingSceneEditor = inspectorDetailState.value?.kind === 'scene-edit'
@@ -4203,7 +3864,6 @@ async function closeSceneDetail() {
     chapterShelfRef.value.querySelector(`[data-scene-rail-item="${CSS.escape(returnRef)}"]`)?.focus?.()
   }
 }
-
 // 详情对象失效（被删除/来源消失）时安全返回默认批注并提示一次。
 watch([inspectorDetailState, sceneProjection], () => {
   if (!inspectorDetailState.value) return
@@ -4214,7 +3874,6 @@ watch([inspectorDetailState, sceneProjection], () => {
     sceneDetailNotice.value = '详情对象已失效，已返回当前场。'
   })
 })
-
 // —— 现场调整（worldbook scene closure Task 10）——
 // 草稿只存在于内存；保存走 commitSceneAnchorDraft 的原子事务（revision 守卫 +
 // 单次章节持久化）；取消零写入；撤销先做锚点指纹校验。
@@ -4261,13 +3920,16 @@ const {
 })
 const authoringSceneRunIntents = shallowRef([])
 const activeSceneLaboratoryIntent = computed(() => authoringSceneRunIntents.value[0] || null)
-
 const rehearsal = useAuthoringRehearsal({
   getSettings: getResolvedApiSettings,
   validate: async (run) => {
     const live = await getAuthoringRunSessionAdapter().collectLiveDependencies(run.runSession)
     return reconcileManifestDependencies(run.runSession.manifest, live).length === 0
   }
+})
+const rehearsalMemoryWorkflow = useAuthoringRehearsalMemoryWorkflow({
+  queue: queueMemoryCandidate,
+  openReview: () => { memoryReviewOpen.value = true }
 })
 const sceneLaboratoryWorkflow = useAuthoringSceneLaboratoryWorkflow({
   boundWorldbook,
@@ -4394,7 +4056,10 @@ const {
   dismissDraft: () => dismissBlockPreview(),
   revealDraft: () => revealRehearsalDraft()
 })
-watch([selectedBookId, selectedChapterId, wt3ActiveDocId], resetRehearsalWorkflow)
+watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
+  resetRehearsalWorkflow()
+  rehearsalMemoryWorkflow.reset()
+})
 onBeforeUnmount(() => rehearsal.clear())
 const ifEntryOpen = ref(false)
 const ifEntryActor = ref('')
@@ -4419,7 +4084,6 @@ function openSceneLaboratoryEvidence(evidence = {}) {
   if (!['character', 'location'].includes(evidence.kind) || !evidence.entityId) return
   openSceneDetail({ kind: evidence.kind, id: evidence.entityId })
 }
-
 function openOrdinaryTurnFromSceneLaboratory() {
   const target = sceneLaboratory.target
   const preserveSceneIntents = authoringSceneRunIntents.value.length > 0
@@ -4427,16 +4091,13 @@ function openOrdinaryTurnFromSceneLaboratory() {
   blockComposer.initialInstruction = '结合当前场与正文进度，推演自然发生的下一步。'
   openBlockComposer(target, { preserveInstruction: true, preserveSceneIntents })
 }
-
 function supplementSceneFromSceneLaboratory() {
   closeSceneLaboratory({ restoreSelection: true })
   nextTick(() => handleSceneEditRequest())
 }
-
 function clearAuthoringSceneRunIntents() {
   authoringSceneRunIntents.value = []
 }
-
 function handleSceneEditRequest(options = {}) {
   const unitId = activeWritingUnitId.value
   if (!unitId) return
@@ -4494,14 +4155,12 @@ function handleSceneEditRequest(options = {}) {
   }[options?.axis]
   if (focusSelector) nextTick(() => document.querySelector(focusSelector)?.focus())
 }
-
 // 临时意图跟随书 / 文档 / 世界书绑定，不跟随失焦时会回退到末单元的
 // activeWritingUnitId。具体 writingUnit 的切换由 frozen composer target 处理。
 watch([selectedBookId, selectedChapterId, wt3ActiveDocId, selectedBookWorldbookId], () => {
   if (authoringSceneRunIntents.value.length) clearAuthoringSceneRunIntents()
   if (sceneLaboratory.open) closeSceneLaboratory({ restoreSelection: false })
 })
-
 function handleDetailSetActor(id) {
   sceneActiveActorId.value = id
   sceneDialogueTargetId.value = ''
@@ -4589,12 +4248,10 @@ function handleDetailAddToOutline(id) {
   syncChapterOutlineToCurrentChapter()
   sceneDetailNotice.value = '已加入章节纲要。'
 }
-
 // —— 涌现候选审阅闭环（plan Phase 3 任务 5 / spec §8.3）——
 function currentEmergenceCandidate(id) {
   return (sceneProjection.value.emergenceCandidates || []).find((item) => item?.id === id) || null
 }
-
 // 确认：只走派生状态路径（runtime event + 移出待审），不自动成为 locked 事实。
 function handleDetailConfirmEmergence(id) {
   const candidate = currentEmergenceCandidate(id)
@@ -4605,7 +4262,6 @@ function handleDetailConfirmEmergence(id) {
     sceneDetailNotice.value = '已确认候选，可在纲要与正文中显式使用。'
   })
 }
-
 // 忽略：走既有 dismissal 路径（dismissedIds 防止重复涌现）。
 function handleDetailDismissEmergence(id) {
   if (!currentEmergenceCandidate(id)) return
@@ -4614,7 +4270,6 @@ function handleDetailDismissEmergence(id) {
     sceneDetailNotice.value = '已忽略该候选。'
   })
 }
-
 // 加入纲要：复用章节纲要派生写入路径，不动正文。
 function handleDetailEmergenceOutline(id) {
   const candidate = currentEmergenceCandidate(id)
@@ -4636,7 +4291,6 @@ function handleDetailEmergenceOutline(id) {
   syncChapterOutlineToCurrentChapter()
   sceneDetailNotice.value = '已加入章节纲要。'
 }
-
 // 打开来源：按 typed 来源映射到对应设置页；不修改任何状态。
 function handleDetailOpenEmergenceSource(id) {
   const candidate = currentEmergenceCandidate(id)
@@ -4656,7 +4310,6 @@ function handleDetailOpenFull(detail) {
   inspectorWorldbookEntryId.value = String(detail?.id || '')
   openInspectorTool('worldbook', { detailState: null })
 }
-
 async function handleDetailOpenMap(detail) {
   if (detail?.kind !== 'location') return false
   const bridge = sceneLocationBridge.value
@@ -4676,13 +4329,11 @@ const pendingGhostAdoption = shallowRef(null)
 const blockDraftRef = ref(null)
 const adoptionImpact = shallowRef(null)
 let adoptionImpactTimer = null
-
 function clearAdoptionImpact() {
   adoptionImpact.value = null
   if (adoptionImpactTimer) clearTimeout(adoptionImpactTimer)
   adoptionImpactTimer = null
 }
-
 function showAdoptionImpact(projection, target) {
   clearAdoptionImpact()
   if (!projection?.headline || !target?.unitId) return
@@ -4706,7 +4357,6 @@ const lastStructureRedoReceipt = computed(() => lastNotebookAtomicRedoReceipt.va
   ? lastNotebookAtomicRedoReceipt.value : null)
 const atomicHistoryBusy = ref(false)
 let applyingAtomicNotebookHistory = false
-
 function currentGhostTarget(overrides = {}) {
   const exploration = wt3ActiveDoc.value
   const selection = notebookSelection.value || {}
@@ -4723,7 +4373,6 @@ function currentGhostTarget(overrides = {}) {
     documentRevision: String(overrides.documentRevision ?? currentDocumentRevision())
   }
 }
-
 function ghostReceiptMatchesCurrentScope(receipt) {
   const target = currentGhostTarget()
   return Boolean(receipt
@@ -4731,19 +4380,16 @@ function ghostReceiptMatchesCurrentScope(receipt) {
     && receipt.documentId === target.documentId
     && receipt.documentRole === target.role)
 }
-
 function currentDocumentContainsGhostUnit(receipt) {
   const ids = receipt?.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt?.insertedUnitId]
   const currentIds = new Set((writingDocument.value?.content || []).map((unit) => unit?.attrs?.unitId))
   return Boolean(ids.length && ids.every((unitId) => unitId && currentIds.has(unitId)))
 }
-
 function currentDocumentContainsNoGhostUnits(receipt) {
   const ids = receipt?.insertedUnitIds?.length ? receipt.insertedUnitIds : [receipt?.insertedUnitId]
   const currentIds = new Set((writingDocument.value?.content || []).map((unit) => unit?.attrs?.unitId))
   return Boolean(ids.length && ids.every((unitId) => unitId && !currentIds.has(unitId)))
 }
-
 function currentDocumentMatchesGhostUnitSnapshot(receipt, direction) {
   const snapshot = direction === 'redo' ? receipt?.afterUnitSnapshot : receipt?.beforeUnitSnapshot
   const current = (writingDocument.value?.content || [])
@@ -4752,7 +4398,6 @@ function currentDocumentMatchesGhostUnitSnapshot(receipt, direction) {
   return getWritingDocumentMarkdown({ content: [current], meta: {} })
     === getWritingDocumentMarkdown({ content: [snapshot], meta: {} })
 }
-
 const hasGhostAdoptionUndoBoundary = computed(() => ghostReceiptMatchesCurrentScope(lastGhostAdoptionReceipt.value)
   && (lastGhostAdoptionReceipt.value.operation === 'rewrite-unit'
     ? currentDocumentMatchesGhostUnitSnapshot(lastGhostAdoptionReceipt.value, 'redo')
@@ -4765,7 +4410,6 @@ const hasGhostAdoptionRedoBoundary = computed(() => ghostReceiptMatchesCurrentSc
   && (lastGhostUndoReceipt.value.operation === 'rewrite-unit'
     ? currentDocumentContainsGhostUnit(lastGhostUndoReceipt.value)
     : currentDocumentContainsNoGhostUnits(lastGhostUndoReceipt.value)))
-
 const canUndoGhostAdoption = computed(() => !atomicHistoryBusy.value
   && hasGhostAdoptionUndoBoundary.value
   && canUndoWritingAdoptionDeltas(lastGhostAdoptionReceipt.value, {
@@ -4773,7 +4417,6 @@ const canUndoGhostAdoption = computed(() => !atomicHistoryBusy.value
     outlineNodes: wt3OutlineNodes.value,
     outlineEdges: wt3OutlineEdges.value
   }))
-
 const canRedoGhostAdoption = computed(() => !atomicHistoryBusy.value
   && hasGhostAdoptionRedoBoundary.value
   && canRedoWritingAdoptionDeltas(lastGhostUndoReceipt.value, {
@@ -4781,7 +4424,6 @@ const canRedoGhostAdoption = computed(() => !atomicHistoryBusy.value
     outlineNodes: wt3OutlineNodes.value,
     outlineEdges: wt3OutlineEdges.value
   }))
-
 function structureReceiptMatchesCurrentScope(receipt) {
   const target = currentGhostTarget()
   return Boolean(receipt
@@ -4789,7 +4431,6 @@ function structureReceiptMatchesCurrentScope(receipt) {
     && receipt.documentId === target.documentId
     && receipt.documentRole === target.role)
 }
-
 const hasStructureUndoBoundary = computed(() => structureReceiptMatchesCurrentScope(lastStructureUndoReceipt.value)
   && lastStructureUndoReceipt.value.afterBodyRevision === currentDocumentBodyRevision())
 const hasStructureRedoBoundary = computed(() => structureReceiptMatchesCurrentScope(lastStructureRedoReceipt.value)
@@ -4802,16 +4443,13 @@ const canRedoStructureTransition = computed(() => !atomicHistoryBusy.value
   && hasStructureRedoBoundary.value
   && fingerprintSceneAnchors(sceneAnchors.value) === lastStructureRedoReceipt.value.beforeAnchorFingerprint
   && fingerprintWritingAnnotationState(activeEditorAnnotations.value) === lastStructureRedoReceipt.value.beforeAnnotationFingerprint)
-
 function invalidateNotebookAtomicHistory() {
   notebookAtomicUndoReceipts.value = []
   notebookAtomicRedoReceipts.value = []
 }
-
 function clearNotebookAtomicRedoHistory() {
   if (notebookAtomicRedoReceipts.value.length) notebookAtomicRedoReceipts.value = []
 }
-
 function pushNotebookAtomicUndoReceipt(receipt) {
   notebookAtomicUndoReceipts.value = [
     ...notebookAtomicUndoReceipts.value.slice(-79),
@@ -4819,14 +4457,12 @@ function pushNotebookAtomicUndoReceipt(receipt) {
   ]
   notebookAtomicRedoReceipts.value = []
 }
-
 function canRunInlineWritingAgent() {
   return !pendingGhostAdoption.value
     && !blockPreview.value
     && !blockComposer.open
     && !blocksPassiveInlineSuggestion(writingInteractionOwner.value)
 }
-
 const {
   enabled: copilotEnabled,
   setEnabled: setWritingAgentEnabled,
@@ -4908,7 +4544,6 @@ const {
   }
 })
 const inlineSuggestionEnabled = copilotEnabled
-
 // 创作命令运行时：一个意图 = 一次 AI 请求 + 一个可撤销的正文事务。
 // 全部命令走统一链：canonical TaskRequest → resolveAgentContext（真实 facade + profile ledger）
 // → dispatcher workflow（叙事经 NarrativeKernel 适配器；文本走写作工作流；辅助只出候选）
@@ -4924,23 +4559,19 @@ const AUTHORING_COMMAND_QUESTIONS = {
   'authoring.dialogue-options': '给出当前情境下人物可以说的几条对话选项。',
   'authoring.emergence': '从当前正文中提炼可能浮现的新设定、关系或伏笔。'
 }
-
 function currentChapterDocumentText() {
   return String(markdownContent.value || '')
 }
-
 function activeDocumentRevisionKey() {
   return wt3ActiveDoc.value
     ? `exploration:${selectedBookId.value}:${wt3ActiveDoc.value.id}`
     : `chapter:${selectedChapterId.value || 'none'}`
 }
-
 function activeDocumentSourceRef() {
   return wt3ActiveDoc.value
     ? `exploration:${wt3ActiveDoc.value.id}`
     : `chapter:${selectedChapterId.value || 'none'}`
 }
-
 // Markdown 相同不代表编辑器状态相同：split/merge/move 会改变 writingUnit
 // 拓扑，却可能一个字都不改。body 签名保留 unit/node 身份，供 PM 原子历史
 // 对齐；上下文 revision 再叠加标题，供 AI stale 检查。标题编辑不产生 PM step，
@@ -4962,158 +4593,46 @@ function writingDocumentBodyStateSignature(document = writingDocument.value) {
     }))
   })
 }
-
 function writingDocumentStateSignature(document = writingDocument.value) {
   return JSON.stringify({
     title: wt3ActiveDoc.value?.title || currentChapterTitle.value || '',
     body: writingDocumentBodyStateSignature(document)
   })
 }
-
 function documentStateRevision(document = writingDocument.value) {
   return buildDocumentRevision(activeDocumentRevisionKey(), writingDocumentStateSignature(document))
 }
-
 function currentDocumentRevision() {
   return documentStateRevision(writingDocument.value)
 }
-
 function documentBodyStateRevision(document = writingDocument.value) {
   return buildDocumentRevision(activeDocumentRevisionKey(), writingDocumentBodyStateSignature(document))
 }
-
 function currentDocumentBodyRevision() {
   return documentBodyStateRevision(writingDocument.value)
 }
-
-function resolveAuthoringReaderSnapshot(request = {}) {
-  const target = request?.intent?.invocationTarget || null
-  const projectId = String(target?.projectId || selectedBookId.value || '')
-  const chapterId = String(target?.chapterId || selectedChapterId.value || '')
-  const book = books.value.find((item) => String(item.id || '') === projectId)
-  const chapter = book?.chapters?.find((item) => String(item.id || '') === chapterId) || null
-  const text = typeof target?.documentText === 'string'
-    ? target.documentText
-    : currentChapterDocumentText()
-  const documentRole = String(target?.documentRole || (wt3ActiveDoc.value ? 'exploration' : 'manuscript'))
-  const documentId = String(target?.documentId || (wt3ActiveDoc.value?.id || chapterId))
-  return {
-    target,
-    projectId,
-    chapterId,
-    chapter,
-    text,
-    documentRole,
-    documentId,
-    revision: String(target?.documentRevision || currentDocumentRevision()),
-    sourceRef: documentRole === 'exploration'
-      ? `exploration:${documentId}`
-      : `chapter:${chapterId}`
-  }
-}
-
-// 低敏感 facade readers：缓存的是 reader 函数，不是章/正文快照。每个 reader
-// 都从本次 request 的冻结 invocationTarget（长推演）或实时稿面重新解析，避免
-// 同一本书第一次调用后永久给后续章节返回旧正文。
-function buildAuthoringKnowledgeReaders() {
-  const requestSelection = (request = {}, snapshot = resolveAuthoringReaderSnapshot(request)) => {
-    const target = snapshot.target
-    if (target) {
-      const rawStart = target.markdownFrom ?? target.caret
-      const rawEnd = target.markdownTo ?? rawStart
-      const start = Math.max(0, Math.min(snapshot.text.length, Number(rawStart) || 0))
-      const end = Math.max(start, Math.min(snapshot.text.length, Number(rawEnd) || start))
-      return { start, end, text: snapshot.text.slice(start, end), hasSelection: end > start }
-    }
-    return readLiveWritingSelectionSnapshot()
-  }
-  return {
-    rules: () => ([{
-      text: '保持既有叙事声音与节奏；不引入未确认设定；不输出解释性元话语。',
-      sourceRefs: ['rules:authoring']
-    }]),
-    style: (request) => {
-      const snapshot = resolveAuthoringReaderSnapshot(request)
-      return snapshot.chapter?.styleNote
-        ? [{ text: String(snapshot.chapter.styleNote), sourceRefs: [snapshot.sourceRef] }]
-        : []
-    },
-    selection: (request) => {
-      const snapshot = resolveAuthoringReaderSnapshot(request)
-      if (!snapshot.text) return []
-      const selection = requestSelection(request, snapshot)
-      const start = Math.max(0, (selection.start ?? snapshot.text.length) - 520)
-      const end = Math.min(snapshot.text.length, (selection.end ?? snapshot.text.length) + 240)
-      return [{ text: snapshot.text.slice(start, end), sourceRefs: [snapshot.sourceRef] }]
-    },
-    scene: (request) => {
-      const snapshot = resolveAuthoringReaderSnapshot(request)
-      if (!snapshot.text) return []
-      const caret = requestSelection(request, snapshot).end ?? snapshot.text.length
-      return [{
-        text: snapshot.text.slice(Math.max(0, caret - 1200), Math.min(snapshot.text.length, caret + 240)),
-        sourceRefs: [snapshot.sourceRef]
-      }]
-    },
-    outline: () => chapterOutlineItems.value.slice(0, 8).map((item) => ({
-      text: String(item.preview || item.title || ''),
-      sourceRefs: [`asset:${item.assetId || item.id}`]
-    })),
-    worldbook: () => boundWorldbook.value
-      ? [{ text: `${boundWorldbook.value.name || ''}`, sourceRefs: [`worldbook:${boundWorldbook.value.id || ''}`] }]
-      : [],
-    character: () => (gameStore.writingCharacters || []).slice(0, 6).map((char) => ({
-      text: `${char.name || ''}${char.role ? `·${char.role}` : ''}`,
-      sourceRefs: [`character:${char.id || char.name || ''}`]
-    })),
-    location: () => gameStore.worldMapState?.currentScene
-      ? [{ text: String(gameStore.worldMapState.currentScene), sourceRefs: ['map:current-scene'] }]
-      : [],
-    history: () => (gameStore.activities || []).slice(-4).map((activity) => ({
-      text: `${activity.title || ''}`,
-      sourceRefs: [`activity:${activity.id || ''}`]
-    })),
-    memory: createProjectMemoryReader({
-      list: ({ status } = {}) => listMemoryCandidates({ status }),
-      context: (request) => {
-        const snapshot = resolveAuthoringReaderSnapshot(request)
-        return ({
-        // 项目标识与写入侧统一：都使用当前书 ID，而不是 worldbook ID。
-        projectId: snapshot.projectId,
-        sessionId: gameStore.currentSessionId || '',
-        currentRevisions: {
-          [snapshot.sourceRef]: snapshot.revision
-        }
-        })
-      }
-    }),
-    references: () => {
-      const reference = readCurrentCopilotReference()
-      return reference
-        ? [{ text: String(reference.content || '').slice(0, 1200), sourceRefs: [`asset:${reference.id}`] }]
-        : []
-    }
-  }
-}
-
-let authoringFacadeCache = null
-function getAuthoringFacade() {
-  const projectId = selectedBookId.value || ''
-  if (!projectId || !selectedChapterId.value) return null
-  const cacheKey = projectId
-  if (!authoringFacadeCache || authoringFacadeCache.projectId !== cacheKey) {
-    authoringFacadeCache = {
-      projectId,
-      facade: createProjectKnowledgeFacade({
-        projectId,
-        projectRevision: `project:${projectId}`,
-        readers: buildAuthoringKnowledgeReaders()
-      })
-    }
-  }
-  return authoringFacadeCache.facade
-}
-
+const authoringKnowledgeReaderHost = createAuthoringKnowledgeReaderHost({
+  readLiveDocument: () => ({
+    projectId: selectedBookId.value || '',
+    chapterId: selectedChapterId.value || '',
+    documentRole: wt3ActiveDoc.value ? 'exploration' : 'manuscript',
+    documentId: wt3ActiveDoc.value?.id || selectedChapterId.value || '',
+    text: currentChapterDocumentText(),
+    revision: currentDocumentRevision()
+  }),
+  readSelection: () => readLiveWritingSelectionSnapshot(),
+  findChapter: (projectId, chapterId) => books.value
+    .find((book) => String(book.id || '') === String(projectId || ''))
+    ?.chapters?.find((chapter) => String(chapter.id || '') === String(chapterId || '')) || null,
+  outline: () => chapterOutlineItems.value,
+  worldbook: () => boundWorldbook.value,
+  characters: () => gameStore.writingCharacters || [],
+  location: () => gameStore.worldMapState?.currentScene || '',
+  history: () => gameStore.activities || [],
+  sessionId: () => gameStore.currentSessionId || '',
+  reference: () => readCurrentCopilotReference()
+})
+const getAuthoringFacade = () => authoringKnowledgeReaderHost.getFacade()
 // 模型步骤：文本/辅助任务经既有 advisor 端点作为 provider 传输层，
 // 但命令链本身已全部走 dispatcher/workflow/事务。
 async function runAuthoringModelStep({ taskId, envelope, question, signal }) {
@@ -5131,7 +4650,6 @@ async function runAuthoringModelStep({ taskId, envelope, question, signal }) {
     || String(result.advice || '').trim()
   return { text, payload, advice: String(result.advice || '') }
 }
-
 function parseOptionsFromAdvice(rawAdvice) {
   const raw = String(rawAdvice || '').trim()
   try {
@@ -5148,30 +4666,25 @@ function parseOptionsFromAdvice(rawAdvice) {
     .filter((line) => line.length >= 2)
     .slice(0, 4)
 }
-
 function questionFromIntent(request, fallbackKey) {
   return String(request?.intent?.instruction || '').trim() || AUTHORING_COMMAND_QUESTIONS[fallbackKey]
 }
-
 // 真实 NarrativeKernel 执行器（spec §9）：模块级能力，页面只注入运行时快照。
 let narrativeKernelExecutor = null
 function getNarrativeKernelExecutor() {
   if (!narrativeKernelExecutor) narrativeKernelExecutor = createNarrativeKernelExecutor()
   return narrativeKernelExecutor
 }
-
 let authoringRunSessionAdapter = null
 let authoringRunSessionProjectId = ''
 let authoringNarrativeRun = null
 let authoringNarrativeRunProjectId = ''
 let authoringSceneLaboratoryRunner = null
 let authoringSceneLaboratoryProjectId = ''
-
 function cloneAuthoringRunValue(value) {
   if (value == null) return value
   return JSON.parse(JSON.stringify(value))
 }
-
 // 页面只实现“当前编辑器内存稿”的严格读取边界。adapter 会再次核对全部
 // scope ID；不匹配时返回 null，绝不把切章后的新页面状态冒充旧目标。
 function readLiveAuthoringRunTarget(expected = {}) {
@@ -5210,11 +4723,9 @@ function readLiveAuthoringRunTarget(expected = {}) {
     sceneProjection: cloneAuthoringRunValue(sceneProjection.value)
   }
 }
-
 function selectedAuthoringRunReferences() {
   return toAuthoringRunReferences(authoringRunReferenceSelections.value)
 }
-
 function getAuthoringRunSessionAdapter() {
   const projectId = String(selectedBookId.value || '')
   if (!authoringRunSessionAdapter || authoringRunSessionProjectId !== projectId) {
@@ -5238,7 +4749,6 @@ function getAuthoringRunSessionAdapter() {
   }
   return authoringRunSessionAdapter
 }
-
 function getAuthoringNarrativeRun() {
   const projectId = String(selectedBookId.value || '')
   if (!authoringNarrativeRun || authoringNarrativeRunProjectId !== projectId) {
@@ -5261,7 +4771,6 @@ function getAuthoringNarrativeRun() {
   }
   return authoringNarrativeRun
 }
-
 function getAuthoringSceneLaboratoryRunner() {
   const projectId = String(selectedBookId.value || '')
   if (!authoringSceneLaboratoryRunner || authoringSceneLaboratoryProjectId !== projectId) {
@@ -5273,7 +4782,6 @@ function getAuthoringSceneLaboratoryRunner() {
   }
   return authoringSceneLaboratoryRunner
 }
-
 const authoringWorkflows = {
   text: createAuthoringTextWorkflow({
     insert: ({ request, envelope, signal }) => runAuthoringModelStep({ taskId: 'authoring.insert', envelope, question: questionFromIntent(request, 'authoring.insert'), signal }),
@@ -5322,7 +4830,6 @@ const authoringWorkflows = {
     }
   })
 }
-
 let authoringRuntime = null
 let authoringRuntimeProjectId = ''
 function getAuthoringRuntime() {
@@ -5346,7 +4853,6 @@ function getAuthoringRuntime() {
   }
   return authoringRuntime
 }
-
 // 最近一次真实 resolveAgentContext ledger：AI 辅助只展示它，不用字数猜测拼装。
 const lastExecutionLedger = shallowRef(null)
 const lastCompiledContextManifest = shallowRef(null)
@@ -5364,7 +4870,6 @@ const authoringContextPreflightError = ref('')
 const authoringContextPreflightDraft = shallowRef(null)
 let authoringContextPreflightVersion = 0
 let authoringContextPreflightTimer = null
-
 const authoringRunReferenceCatalog = computed(() => {
   // epoch 由素材写入/手动刷新推进；computed 仍以当前项目和探索文档为作用域。
   void authoringRunReferenceCatalogEpoch.value
@@ -5379,7 +4884,6 @@ const reconciledAuthoringRunReferences = computed(() => reconcileAuthoringRunRef
   authoringRunReferenceCatalog.value,
   selectedBookId.value
 ))
-
 function scheduleAuthoringContextPreflight(draft = authoringContextPreflightDraft.value) {
   if (draft) authoringContextPreflightDraft.value = draft
   if (authoringContextPreflightTimer) clearTimeout(authoringContextPreflightTimer)
@@ -5414,7 +4918,6 @@ function scheduleAuthoringContextPreflight(draft = authoringContextPreflightDraf
     authoringContextPreflightManifest.value = prepared.session.manifest
   }, 180)
 }
-
 function addAuthoringRunReference(item) {
   const referenceTarget = blockComposer.target || resolveBlockComposerTarget(notebookSelection.value || {})
   const targetKey = authoringRunReferenceScopeKey(referenceTarget)
@@ -5434,13 +4937,11 @@ function addAuthoringRunReference(item) {
   scheduleAuthoringContextPreflight()
   return true
 }
-
 function removeAuthoringRunReference(id) {
   authoringRunReferenceSelections.value = removeAuthoringRunReferenceSelection(authoringRunReferenceSelections.value, id)
   authoringRunReferenceNotice.value = ''
   scheduleAuthoringContextPreflight()
 }
-
 function refreshAuthoringRunReference(id) {
   authoringRunReferenceCatalogEpoch.value += 1
   authoringRunReferenceSelections.value = refreshAuthoringRunReferenceSelection(
@@ -5451,7 +4952,6 @@ function refreshAuthoringRunReference(id) {
   authoringRunReferenceNotice.value = '已确认使用来源的最新版本'
   scheduleAuthoringContextPreflight()
 }
-
 function clearAuthoringRunReferences() {
   authoringRunReferenceSelections.value = []
   authoringRunReferenceTargetKey.value = ''
@@ -5602,7 +5102,6 @@ const {
   retryPersist: handleRetryAuthoringPersist,
   saveAsExploration: saveBlockDraftAsExploration
 } = blockWorkflow
-
 watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
   clearAuthoringRunReferences()
   contextRunPinnedIds.value = []
@@ -5620,7 +5119,6 @@ watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
   invalidateNotebookAtomicHistory()
   notebookCopilotCanUndo.value = false
 })
-
 const authoringTask = useAuthoringTask({
   replaceSelectionTaskIds: ['authoring.rewrite'],
   resolveTarget: (commandId, invocationTarget = null) => {
@@ -5869,7 +5367,6 @@ onBeforeUnmount(() => {
   authoringTask.cancel()
   sceneLaboratoryWorkflow.cancelRequest()
 })
-
 // —— 块间输入区：composer 发标准 turn request，页面负责契约校验与执行链。 ——
 const characterIfWorkflow = useAuthoringCharacterIfWorkflow({
   projectId: selectedBookId,
@@ -5928,40 +5425,11 @@ const {
 } = useAuthoringInterventionState({ selectedChapterId })
 let authoringInterventionRunner = null
 let authoringInterventionRehearsalRunner = null
-const authoringCollaborationEnabled = import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true'
-const RehearsalReviewSurface = authoringCollaborationEnabled
-  ? defineAsyncComponent(() => import('../components/collaboration/RehearsalReviewSurface.vue'))
-  : null
-const authoringRehearsalState = shallowRef({
-  enabled: authoringCollaborationEnabled,
-  role: null,
-  connectionState: authoringCollaborationEnabled ? 'idle' : 'disabled',
-  stale: false,
-  error: null,
-  room: null,
-  members: [],
-  invite: null,
-  artifacts: {},
-  proposals: [],
-  votes: {},
-  generation: { requests: {} },
-  promotions: {}
-})
-const authoringRehearsalBusy = ref('')
-const authoringRehearsalError = ref('')
-const authoringRehearsalPromotion = shallowRef(null)
-const authoringRehearsalActive = computed(() => Boolean(authoringRehearsalState.value.room?.roomId))
-let authoringRehearsalController = null
-let authoringRehearsalUnsubscribe = null
-let authoringRehearsalReturnFocus = null
-let authoringRehearsalBridgeModule = null
-let authoringRehearsalRoomModule = null
 const historyInteractionLocked = computed(() => blockAdoptionBusy.value || Boolean(pendingGhostAdoption.value) || atomicHistoryBusy.value)
 const activeWritingMutationLocked = computed(() => (
   historyInteractionLocked.value && (activeWritingPane.value === 'main' || dualSharesMainDocument())
 ))
 const isEmptyChapter = computed(() => !String(markdownContent.value || '').trim())
-
 const firstRunCharacterCount = computed(() => (
   (boundWorldbook.value?.entries || []).filter((entry) => entry?.type === 'character').length
 ))
@@ -5993,36 +5461,30 @@ const firstRunGuideVisible = computed(() => Boolean(
   && selectedChapterId.value
   && !wt3ActiveDoc.value
 ))
-
 function clearFirstRunGuideQuery() {
   if (String(route.query.guide || '') !== 'first-run') return
   const query = { ...route.query }
   delete query.guide
   void router.replace({ name: 'authoring', query })
 }
-
 function dismissFirstRunGuide() {
   dismissFirstRunForBook()
   clearFirstRunGuideQuery()
 }
-
 function reopenFirstRunGuidance() {
   if (reopenFirstRun() !== 'need-book') return
   void router.push('/')
 }
-
 // 更多/帮助里的“备份与恢复”:AppShell 已挂载全局设置,直达存储分区。
 const appSettings = useSettingsPopup()
 function openBackupSettings() {
   appSettings.open('storage')
 }
-
 // 推演失败就地回程:打开模型连接检查,关闭设置后焦点回到“检查模型连接”,
 // 草拟行动保持不动,可继续重试。
 function openRehearsalConnectionSettings() {
   appSettings.open('ai')
 }
-
 function advanceFirstRunGuide(stage) {
   if (stage === 1) {
     notebookEditorRef.value?.focus?.({ scrollIntoView: false })
@@ -6039,26 +5501,20 @@ function advanceFirstRunGuide(stage) {
   }
   selectInspectorTool('rehearsal')
 }
-
 // query 与当前书哪个先就绪都激活一次;已关闭/已完成的书由 composable 拒绝。
 watch([selectedBookId, () => String(route.query.guide || '')], ([bookIdValue, guide]) => {
   if (bookIdValue && guide === 'first-run') activateFirstRun(bookIdValue)
 }, { immediate: true })
-
 watch(blockDraftText, () => {
   if (!blockPreview.value || pendingGhostAdoption.value) return
   blockComposer.failure = null
   blockComposer.staleResult = null
 })
-
-
 function authoringRunReferenceScopeKey(target = {}) {
   return [target.projectId, target.documentRole, target.documentId, target.unitId, target.nodeId]
     .map((value) => String(value || ''))
     .join(':')
 }
-
-
 function buildInterventionPositionIndex() {
   const index = buildCurrentAuthoringSearchIndex()
   if (!index?.ok) return null
@@ -6078,7 +5534,6 @@ function buildInterventionPositionIndex() {
     }))
   })
 }
-
 function getAuthoringInterventionRunner() {
   if (authoringInterventionRunner) return authoringInterventionRunner
   const evidenceReader = createAuthoringKnowledgeQuerySession()
@@ -6103,7 +5558,6 @@ function getAuthoringInterventionRunner() {
   })
   return authoringInterventionRunner
 }
-
 function getAuthoringInterventionRehearsalRunner() {
   if (authoringInterventionRehearsalRunner) return authoringInterventionRehearsalRunner
   authoringInterventionRehearsalRunner = createAuthoringInterventionRehearsalRun({
@@ -6112,7 +5566,6 @@ function getAuthoringInterventionRehearsalRunner() {
   })
   return authoringInterventionRehearsalRunner
 }
-
 function readCurrentRehearsalTarget(locator = {}) {
   const position = buildInterventionPositionIndex()?.entries?.find((entry) => (
     String(entry.documentId || '') === String(locator.documentId || '')
@@ -6127,206 +5580,54 @@ function readCurrentRehearsalTarget(locator = {}) {
     nodeRevision: position.nodeRevision
   }
 }
-
-async function readCurrentRehearsalEvidence(session, locator = {}) {
-  const sourceRef = sourceRefForAuthoringEvidenceLocator(locator)
-  if (!sourceRef) return null
-  const reconciled = await getAuthoringInterventionRunner().reconcile(session)
-  return authoringRehearsalBridgeModule?.resolveAuthoringRehearsalEvidenceAfterReconciliation({ reconciled, locator, sourceRef }) || null
-}
-
-function openAuthoringRehearsalInspector(payload = {}) {
-  if (typeof payload?.returnFocus?.focus === 'function') authoringRehearsalReturnFocus = payload.returnFocus
-  openInspectorTool('collaboration', { pinned: true })
-}
-
-function closeActiveWritingInspector() {
-  const restoreCollaborationFocus = activeInspectorTool.value === 'collaboration'
-  closeWritingInspector()
-  if (!restoreCollaborationFocus) return
-  const target = authoringRehearsalReturnFocus
-  nextTick(() => target?.isConnected && target.focus({ preventScroll: true }))
-}
-
-function disposeAuthoringRehearsalController() {
-  authoringRehearsalUnsubscribe?.()
-  authoringRehearsalUnsubscribe = null
-  authoringRehearsalController?.destroy()
-  authoringRehearsalController = null
-}
-
-async function startAuthoringRehearsalRoom(payload = {}) {
-  if (!authoringCollaborationEnabled || authoringRehearsalBusy.value || interventionComposer.phase !== 'ready'
-    || !interventionComposer.session || !interventionRehearsalScopeResult.value?.ok) return false
-  if (authoringRehearsalActive.value) {
-    openAuthoringRehearsalInspector(payload)
-    return true
+const collaborationWorkflow = useAuthoringCollaborationWorkflow({
+  enabled: import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true',
+  canStart: () => interventionComposer.phase === 'ready' && Boolean(interventionComposer.session) && Boolean(interventionRehearsalScopeResult.value?.ok),
+  session: () => interventionComposer.session,
+  scope: () => interventionRehearsalScopeResult.value,
+  runRehearsal: () => getAuthoringInterventionRehearsalRunner(),
+  readTarget: readCurrentRehearsalTarget,
+  sourceRef: sourceRefForAuthoringEvidenceLocator,
+  reconcileEvidence: (session) => getAuthoringInterventionRunner().reconcile(session),
+  openInspector: () => openInspectorTool('collaboration', { pinned: true }),
+  isInspectorActive: () => activeInspectorTool.value === 'collaboration',
+  closeInspector: () => closeWritingInspector(),
+  leaveInspector: () => {
+    closeWritingInspector({ restoreSurface: false })
+    activeInspectorTool.value = 'annotations'
+  },
+  notify: (message) => authoringTask.notify(message),
+  applyPromotion: async (prepared) => {
+    interventionComposer.open = true
+    interventionComposer.target = prepared.session.target
+    interventionComposer.originalText = prepared.session.intervention?.before || ''
+    interventionComposer.session = prepared.session
+    interventionComposer.rehearsalSelection = prepared.selection
+    interventionComposer.rehearsalResult = prepared.result
+    interventionComposer.phase = 'ghosts'
+    interventionComposer.activeGhostId = prepared.ghostIds?.[0] || ''
+    if (interventionComposer.activeGhostId) await selectInterventionGhost(interventionComposer.activeGhostId)
   }
-  if (typeof payload?.returnFocus?.focus === 'function') authoringRehearsalReturnFocus = payload.returnFocus
-  authoringRehearsalBusy.value = 'create-room'
-  authoringRehearsalError.value = ''
-  try {
-    [authoringRehearsalBridgeModule, authoringRehearsalRoomModule] = await Promise.all([
-      import('../services/collaboration/authoringRehearsalBridge.js'),
-      import('../services/collaboration/authoringRehearsalRoom.js')
-    ])
-  } catch {
-    authoringRehearsalBusy.value = ''
-    authoringRehearsalError.value = '共同排演模块加载失败，请重试。'
-    return false
-  }
-  const session = interventionComposer.session
-  const liveReader = authoringRehearsalBridgeModule.createAuthoringRehearsalLiveReader({
-    readTarget: readCurrentRehearsalTarget,
-    readEvidence: locator => readCurrentRehearsalEvidence(session, locator)
-  })
-  const registry = authoringRehearsalBridgeModule.createAuthoringRehearsalHostRegistry({
-    runRehearsal: getAuthoringInterventionRehearsalRunner(),
-    liveReader
-  })
-  const registered = registry.registerSource({ session, scope: interventionRehearsalScopeResult.value.scope })
-  if (!registered.ok) {
-    authoringRehearsalBusy.value = ''
-    authoringRehearsalError.value = '当前排演范围无法安全分享，请重新核对。'
-    return false
-  }
-  disposeAuthoringRehearsalController()
-  authoringRehearsalController = authoringRehearsalRoomModule.createAuthoringRehearsalRoomController({ enabled: true, registry })
-  authoringRehearsalState.value = { ...authoringRehearsalController.state }
-  authoringRehearsalUnsubscribe = authoringRehearsalController.subscribe(value => {
-    authoringRehearsalState.value = value
-    if (value.connectionState === 'connected') flushAuthoringRehearsalPromotionReceipt()
-  })
-  const result = await authoringRehearsalController.createHostRoom({
-    sourceHandle: registered.sourceHandle,
-    roomSlug: `rehearsal-${Date.now().toString(36)}`,
-    displayName: '作者'
-  })
-  authoringRehearsalBusy.value = ''
-  if (!result.ok) {
-    authoringRehearsalError.value = result.reason || '共同排演房间创建失败'
-    disposeAuthoringRehearsalController()
-    return false
-  }
-  openAuthoringRehearsalInspector(payload)
-  return true
-}
-
-async function runAuthoringRehearsalAction(action, task) {
-  if (!authoringRehearsalController || authoringRehearsalBusy.value) return null
-  authoringRehearsalBusy.value = action
-  authoringRehearsalError.value = ''
-  const result = await task()
-  authoringRehearsalBusy.value = ''
-  if (!result?.ok) authoringRehearsalError.value = result?.reason || '协作操作未完成'
-  return result
-}
-
-function proposeAuthoringRehearsalDirection(payload) {
-  return runAuthoringRehearsalAction('proposal', () => authoringRehearsalController.proposeDirection(payload))
-}
-
-function voteAuthoringRehearsalProposal(payload) {
-  return runAuthoringRehearsalAction(`vote:${payload.proposalId}`, () => authoringRehearsalController.castVote(payload))
-}
-
-function generateAuthoringRehearsalProposal(proposalId) {
-  return runAuthoringRehearsalAction(`generation:${proposalId}`, () => authoringRehearsalController.selectAndGenerate({ proposalId }))
-}
-
-async function promoteAuthoringRehearsalBranch({ proposalId, generationRequestId } = {}) {
-  const prepared = await runAuthoringRehearsalAction(`promotion:${proposalId}`, () => (
-    authoringRehearsalController.preparePromotion({ proposalId, generationRequestId })
-  ))
-  if (!prepared?.ok) return false
-  const request = authoringRehearsalState.value.promotions?.[proposalId]
-  const artifact = authoringRehearsalState.value.generation?.requests?.[generationRequestId]?.artifact
-  authoringRehearsalPromotion.value = {
-    proposalId,
-    artifactFingerprint: request?.artifactFingerprint || artifact?.fingerprint || '',
-    pendingReceipt: null,
-    reported: false
-  }
-  interventionComposer.open = true
-  interventionComposer.target = prepared.session.target
-  interventionComposer.originalText = prepared.session.intervention?.before || ''
-  interventionComposer.session = prepared.session
-  interventionComposer.rehearsalSelection = prepared.selection
-  interventionComposer.rehearsalResult = prepared.result
-  interventionComposer.phase = 'ghosts'
-  interventionComposer.activeGhostId = prepared.ghostIds?.[0] || ''
-  if (interventionComposer.activeGhostId) await selectInterventionGhost(interventionComposer.activeGhostId)
-  return true
-}
-
-async function flushAuthoringRehearsalPromotionReceipt() {
-  const promotion = authoringRehearsalPromotion.value
-  if (!promotion?.pendingReceipt || promotion.reported || !authoringRehearsalController
-    || authoringRehearsalState.value.connectionState !== 'connected') return false
-  const result = await authoringRehearsalController.reportPromotionStatus({
-    proposalId: promotion.proposalId,
-    artifactFingerprint: promotion.artifactFingerprint,
-    status: 'adopted',
-    receipt: promotion.pendingReceipt
-  })
-  if (!result?.ok) return false
-  const settled = authoringRehearsalRoomModule?.settleAuthoringRehearsalPromotionReceipt({
-    current: authoringRehearsalPromotion.value,
-    owner: promotion,
-    result
-  })
-  if (settled === authoringRehearsalPromotion.value) return false
-  authoringRehearsalPromotion.value = settled
-  return true
-}
-
-function queueAuthoringRehearsalAdoptionReceipt(targetCount = 1) {
-  const promotion = authoringRehearsalPromotion.value
-  if (!promotion || promotion.reported || promotion.pendingReceipt) return
-  authoringRehearsalPromotion.value = {
-    ...promotion,
-    pendingReceipt: { code: 'adopted', targetCount: Math.max(1, Number(targetCount) || 1) }
-  }
-  flushAuthoringRehearsalPromotionReceipt()
-}
-
-async function copyAuthoringRehearsalInvite() {
-  const url = authoringRehearsalState.value.invite?.url
-  if (!url) return false
-  try {
-    await navigator.clipboard.writeText(url)
-    authoringTask.notify('共同排演邀请已复制')
-    return true
-  } catch {
-    authoringRehearsalError.value = '浏览器未授权复制，请选中页面中的邀请链接复制。'
-    return false
-  }
-}
-
-function leaveAuthoringRehearsalRoom() {
-  authoringRehearsalController?.disconnect()
-  disposeAuthoringRehearsalController()
-  authoringRehearsalState.value = {
-    ...authoringRehearsalState.value,
-    role: null,
-    connectionState: 'closed',
-    room: null,
-    members: [],
-    invite: null,
-    artifacts: {},
-    proposals: [],
-    votes: {},
-    generation: { requests: {} },
-    promotions: {}
-  }
-  authoringRehearsalPromotion.value = null
-  closeWritingInspector({ restoreSurface: false })
-  activeInspectorTool.value = 'annotations'
-  const target = authoringRehearsalReturnFocus
-  authoringRehearsalReturnFocus = null
-  nextTick(() => target?.isConnected && target.focus({ preventScroll: true }))
-}
-
+})
+const {
+  enabled: authoringCollaborationEnabled,
+  ReviewSurface: RehearsalReviewSurface,
+  state: authoringRehearsalState,
+  busy: authoringRehearsalBusy,
+  error: authoringRehearsalError,
+  active: authoringRehearsalActive,
+  open: openAuthoringRehearsalInspector,
+  closeInspector: closeActiveWritingInspector,
+  start: startAuthoringRehearsalRoom,
+  propose: proposeAuthoringRehearsalDirection,
+  vote: voteAuthoringRehearsalProposal,
+  generate: generateAuthoringRehearsalProposal,
+  promote: promoteAuthoringRehearsalBranch,
+  queueAdoptionReceipt: queueAuthoringRehearsalAdoptionReceipt,
+  copyInvite: copyAuthoringRehearsalInvite,
+  leave: leaveAuthoringRehearsalRoom,
+  dispose: disposeAuthoringRehearsalController
+} = collaborationWorkflow
 const interventionWorkflow = useAuthoringInterventionWorkflow({
   state: interventionComposer,
   scopeResult: interventionRehearsalScopeResult,
@@ -6347,7 +5648,6 @@ const {
   retryGhost: retryInterventionGhost,
   discardGhost: discardInterventionGhost
 } = interventionWorkflow
-
 function openInterventionComposer(target = notebookSelection.value) {
   if (authoringTaskBusy.value || wt3ActiveDoc.value) return false
   const frozenTarget = resolveBlockComposerTarget(target || {})
@@ -6371,7 +5671,6 @@ function openInterventionComposer(target = notebookSelection.value) {
   notebookEditorRef.value?.blur?.()
   return true
 }
-
 function closeInterventionComposer({ restoreSelection = true } = {}) {
   if (!interventionComposer.open) return false
   if (interventionComposer.pendingAdoption) {
@@ -6393,7 +5692,6 @@ function closeInterventionComposer({ restoreSelection = true } = {}) {
   if (restoreSelection) nextTick(() => restoreBlockSelection(bookmark))
   return true
 }
-
 async function selectInterventionGhost(ghostId = '') {
   if (interventionComposer.pendingAdoption && interventionComposer.pendingAdoption.ghostId !== ghostId) return false
   const ghost = interventionGhosts.value.find((item) => item.id === ghostId)
@@ -6422,7 +5720,6 @@ async function selectInterventionGhost(ghostId = '') {
   }
   return true
 }
-
 function readMainInterventionTarget(expected = {}) {
   if (String(expected.documentId || '') !== String(selectedChapterId.value || '')) return null
   const unit = (writingDocument.value?.content || []).find((item) => (
@@ -6448,7 +5745,6 @@ function readMainInterventionTarget(expected = {}) {
     title: String(currentChapterTitle.value || '')
   }
 }
-
 function readLiveInterventionAdoptionTarget(ghost) {
   const expected = ghost?.target || {}
   const surface = String(expected.documentId || '') === String(selectedChapterId.value || '')
@@ -6471,7 +5767,6 @@ function readLiveInterventionAdoptionTarget(ghost) {
     nodeText: position.text
   }
 }
-
 async function persistPendingInterventionAdoption() {
   const pending = interventionComposer.pendingAdoption
   if (!pending || interventionComposer.adoptingGhostId) return false
@@ -6534,7 +5829,6 @@ async function persistPendingInterventionAdoption() {
   authoringTask.notify('这一处已采用并保存；其他排演草稿未改变', { canUndo: true })
   return true
 }
-
 async function adoptInterventionGhost(ghostId = '') {
   if (interventionComposer.phase !== 'ghosts' || interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return false
   const ghost = interventionGhosts.value.find((item) => item.id === ghostId)
@@ -6566,7 +5860,7 @@ async function adoptInterventionGhost(ghostId = '') {
     interventionComposer.persistError = '目标正文已经变化，请重新核对后再排演。'
     return false
   }
-  const protection = recordWritingProtectionSnapshot({
+  const protection = authoringHistory.recordProtection({
     chapterId: prepared.adoption.target.chapterId,
     chapterTitle: live.title,
     reason: 'before-adoption',
@@ -6582,7 +5876,7 @@ async function adoptInterventionGhost(ghostId = '') {
     return false
   }
   if (prepared.adoption.target.documentId === String(selectedChapterId.value || '')) {
-    writingSnapshots.value = listWritingSnapshots(prepared.adoption.target.chapterId)
+    writingSnapshots.value = authoringHistory.refreshSnapshots(prepared.adoption.target.chapterId)
   }
   const changed = prepared.adoption.target.documentId === String(selectedChapterId.value || '')
     ? notebookEditorRef.value?.replaceNodeRanges?.([prepared.adoption.patch], { origin: 'writing-agent' }) === true
@@ -6597,13 +5891,12 @@ async function adoptInterventionGhost(ghostId = '') {
   interventionComposer.adoptingGhostId = ''
   return persistPendingInterventionAdoption()
 }
-
 function protectInterventionUmbrella(receipt, book) {
   const chapterIds = [...new Set((receipt?.groups || []).map((group) => group.target?.chapterId).filter(Boolean))]
   for (const chapterId of chapterIds) {
     const chapter = (book?.chapters || []).find((item) => String(item?.id || '') === String(chapterId))
     if (!chapter?.editorDocument) return false
-    const protection = recordWritingProtectionSnapshot({
+    const protection = authoringHistory.recordProtection({
       chapterId: chapter.id,
       chapterTitle: chapter.title,
       reason: 'before-adoption',
@@ -6617,7 +5910,6 @@ function protectInterventionUmbrella(receipt, book) {
   }
   return true
 }
-
 function reloadInterventionBookSurfaces(nextBooks) {
   books.value = nextBooks
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
@@ -6640,10 +5932,9 @@ function reloadInterventionBookSurfaces(nextBooks) {
       })
     }
   }
-  writingBlockHistory.value = selectedChapterId.value ? listWritingBlockHistory(selectedChapterId.value) : []
-  writingSnapshots.value = selectedChapterId.value ? listWritingSnapshots(selectedChapterId.value) : []
+  writingBlockHistory.value = selectedChapterId.value ? authoringHistory.refreshBlockHistory(selectedChapterId.value) : []
+  writingSnapshots.value = selectedChapterId.value ? authoringHistory.refreshSnapshots(selectedChapterId.value) : []
 }
-
 function recordInterventionBlockHistory(beforeBook, afterBook, receipt, source) {
   for (const chapterId of [...new Set((receipt?.groups || []).map((group) => group.target?.chapterId).filter(Boolean))]) {
     const before = (beforeBook?.chapters || []).find((chapter) => String(chapter.id) === String(chapterId))
@@ -6656,10 +5947,9 @@ function recordInterventionBlockHistory(beforeBook, afterBook, receipt, source) 
       nextDocument: after.editorDocument,
       source
     })
-    if (entries.length) appendWritingBlockHistory(entries)
+    if (entries.length) authoringHistory.appendBlockEntries(entries)
   }
 }
-
 async function adoptAllInterventionGhosts() {
   const ghosts = interventionBatchGhosts.value
   if (interventionComposer.phase !== 'ghosts' || ghosts.length < 2
@@ -6743,7 +6033,6 @@ async function adoptAllInterventionGhosts() {
   authoringTask.notify(`已采用 ${changedCount} 处 · ${chapterCount} 章；未修改现场、大纲或世界事实`, { canUndo: true })
   return true
 }
-
 async function undoInterventionUmbrella() {
   const receipt = lastInterventionUmbrellaReceipt.value
   if (!receipt || String(receipt.projectId) !== String(selectedBookId.value)) return false
@@ -6787,29 +6076,23 @@ async function undoInterventionUmbrella() {
     : `已撤销本次介入的 ${undo.undoneGroups.length} 处正文修改`)
   return true
 }
-
 watch(() => currentDocumentRevision(), (revision) => {
   if (!interventionComposer.open || !interventionComposer.session) return
   if (interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return
   if (String(interventionComposer.target?.documentRevision || '') === String(revision || '')) return
   interventionWorkflow.markDocumentStale()
 })
-
 watch(knowledgeAssistantRevisionSignal, () => interventionWorkflow.reconcileKnowledgeChange())
-
 onBeforeUnmount(() => {
   interventionWorkflow.cancel()
   disposeAuthoringRehearsalController()
 })
-
 function restoreBlockSelection(bookmark) {
   notebookEditorRef.value?.restoreSelectionBookmark?.(bookmark)
 }
-
 function abandonBlockComposer({ restoreSelection = false } = {}) {
   return abandonBlockComposerWorkflow({ shouldRestoreSelection: restoreSelection })
 }
-
 const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkflow({
   preview: blockPreview,
   draftText: blockDraftText,
@@ -6828,7 +6111,7 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
   },
   cancelContentSave: () => cancelContentSave(),
   persistProtectionBase: () => saveCurrentChapter({ automaticHistory: false }),
-  recordProtection: ({ reason, operation, transactionId }) => recordWritingProtectionSnapshot({
+  recordProtection: ({ reason, operation, transactionId }) => authoringHistory.recordProtection({
     chapterId: selectedChapterId.value,
     chapterTitle: currentChapterTitle.value,
     reason,
@@ -6839,7 +6122,7 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
     transactionId
   }),
   refreshSnapshots: () => {
-    writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
+    writingSnapshots.value = authoringHistory.refreshSnapshots(selectedChapterId.value)
   },
   currentBodyRevision: () => currentDocumentBodyRevision(),
   currentDocumentRevision: () => currentDocumentRevision(),
@@ -6932,6 +6215,19 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
     pendingGhostAdoption.value = null
     clearAuthoringSceneRunIntents()
   },
+  captureRehearsalAdoption: ({ committedReceipt, draftSource }) => {
+    rehearsalMemoryWorkflow.capture({
+      adoptionReceipt: committedReceipt,
+      draftSource,
+      formalLocator: {
+        bookId: selectedBookId.value,
+        chapterId: selectedChapterId.value,
+        writingUnitId: committedReceipt.insertedUnitIds?.at(-1) || committedReceipt.insertedUnitId,
+        revision: committedReceipt.afterDocumentRevision,
+        text: committedReceipt.adoptedText
+      }
+    })
+  },
   commitUndoReceipt: (receipt) => pushNotebookAtomicUndoReceipt({ kind: 'ghost-adoption', ...receipt }),
   fenceEditorHistory: () => fenceNotebookHistory(),
   finishComposer: () => {
@@ -6951,7 +6247,6 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
 })
 // 复验修复 3：行动者/对象优先从共享投影解析（世界书角色的名字不依赖旧 encountered 列表）。
 // Task 9：现场人物名单（投影在场 + 视角），供 Composer 行动者/对象选择。
-
 // 本次 AI 参考：低敏感度 ledger，只描述采用/截断，不含任何原文。
 const contextLedger = computed(() => {
   const ledger = lastExecutionLedger.value
@@ -6970,12 +6265,10 @@ const contextLedger = computed(() => {
   }
   return { parts }
 })
-
 // 派生观察器 UI 状态：常规观察保持安静，只有 typed exception 需要用户裁决。
 const authoringExceptions = ref([])
 // 观察器刷新失败警告：出现在现场条/检查器状态里，绝不要求用户重新生成正文。
 const authoringObserverWarning = shallowRef(null)
-
 function refreshAuthoringObserverState() {
   const derived = gameStore.getAuthoringDerivedState?.() || []
   // 保留观察的正文摘要、来源与 revision 证据（Task 5 Step 5）：
@@ -7010,7 +6303,6 @@ function refreshAuthoringObserverState() {
     }))
   if (pending.length) authoringExceptions.value.push(...pending)
 }
-
 function resolveObserverCharacterId(value) {
   const label = String(value || '').trim()
   if (!label) return ''
@@ -7021,7 +6313,6 @@ function resolveObserverCharacterId(value) {
   ))
   return String(entry?.id || '')
 }
-
 function currentAuthoringObserverTarget(unitId = activeWritingUnitId.value) {
   const unit = (writingDocument.value?.content || [])
     .find((candidate) => String(candidate?.attrs?.unitId || '') === String(unitId || ''))
@@ -7034,7 +6325,6 @@ function currentAuthoringObserverTarget(unitId = activeWritingUnitId.value) {
     sourceDocumentRevision: currentDocumentRevision()
   }
 }
-
 let stopAuthoringObserverResultSubscription = null
 onMounted(() => {
   stopAuthoringObserverResultSubscription = gameStore.subscribeAuthoringObserverResults?.(() => {
@@ -7045,7 +6335,6 @@ onBeforeUnmount(() => {
   stopAuthoringObserverResultSubscription?.()
   stopAuthoringObserverResultSubscription = null
 })
-
 const {
   visibleExceptions: authoringVisibleExceptions,
   resolveException: resolveAuthoringException
@@ -7056,18 +6345,15 @@ const {
     authoringExceptions.value = authoringExceptions.value.filter((item) => item.id !== exceptionId)
   }
 })
-
 function cancelAuthoringTask() {
   invalidateBlockRequest()
   authoringTask.cancel()
 }
-
 // —— 受控记忆投影：普通候选静默提示，异常才进审阅面板 ——
 const authoringMemoryNotice = ref(null)
 const memoryReviewOpen = ref(false)
 const authoringMemoryCandidates = ref([])
 let memoryNoticeTimer = null
-
 // 行内写作助手的页面编排 owner:光标/组合态/触发调度/互斥仲裁收口在
 // host;agent(composable)只保留请求身份、timer 与候选内核。
 const writingAgentHost = useInlineWritingAgentHost({
@@ -7107,7 +6393,6 @@ const writingAgentHost = useInlineWritingAgentHost({
   })
 })
 const writingInteractionOwner = writingAgentHost.interactionOwner
-
 function showMemoryNotice(text, count = 0, reviewable = false) {
   authoringMemoryNotice.value = { text, count, reviewable }
   if (memoryNoticeTimer) clearTimeout(memoryNoticeTimer)
@@ -7116,7 +6401,6 @@ function showMemoryNotice(text, count = 0, reviewable = false) {
     memoryNoticeTimer = null
   }, 4000)
 }
-
 function refreshAuthoringMemoryCandidates() {
   const currentProjectId = String(selectedBookId.value || '')
   const belongsToCurrentProject = (item) => (
@@ -7139,7 +6423,6 @@ function refreshAuthoringMemoryCandidates() {
     || item.metadata?.migrationWarning === 'identity-ambiguity'
   ))
 }
-
 async function rememberSelectionFromMenu() {
   selectionActionsVisible.value = false
   const selectionText = window.getSelection?.()?.toString?.() || ''
@@ -7162,7 +6445,6 @@ async function rememberSelectionFromMenu() {
     showMemoryNotice('记忆保存失败，请重试')
   }
 }
-
 async function confirmAuthoringMemoryCandidate(candidateId) {
   // 确认 = 显式升级为 accepted 权威；缺来源 revision 的 derived 记录会被拒绝。
   const confirmed = confirmMemoryCandidate(candidateId)
@@ -7172,21 +6454,17 @@ async function confirmAuthoringMemoryCandidate(candidateId) {
   refreshAuthoringMemoryCandidates()
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
 }
-
 async function rejectAuthoringMemoryCandidate(candidateId) {
   rejectMemoryCandidate(candidateId)
   refreshAuthoringMemoryCandidates()
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
 }
-
 function pinAuthoringMemoryCandidate(candidateId) {
   updateMemoryCandidate(candidateId, { importanceOverride: 1 })
 }
-
 function demoteAuthoringMemoryCandidate(candidateId) {
   updateMemoryCandidate(candidateId, { importanceOverride: 0.25 })
 }
-
 // append-only 替换：新 revision 带 supersedes[]，旧条目统一 stale。
 function supersedeAuthoringMemoryCandidate(candidateId) {
   const result = replaceMemoryCandidateConflicts(candidateId)
@@ -7197,7 +6475,6 @@ function supersedeAuthoringMemoryCandidate(candidateId) {
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
   return result
 }
-
 // append-only 合并：合并内容成为新 revision，旧条目统一 stale。
 function mergeAuthoringMemoryCandidate(candidateId) {
   const result = mergeMemoryCandidateConflicts(candidateId)
@@ -7208,7 +6485,6 @@ function mergeAuthoringMemoryCandidate(candidateId) {
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
   return result
 }
-
 function parseMemorySourceRef(value) {
   if (typeof value !== 'string') return { type: '', id: '' }
   const separator = value.indexOf(':')
@@ -7216,11 +6492,9 @@ function parseMemorySourceRef(value) {
     ? { type: value.slice(0, separator), id: value.slice(separator + 1) }
     : { type: '', id: '' }
 }
-
 function canJumpToMemorySource(value) {
   return ['chapter', 'unit', 'exploration'].includes(parseMemorySourceRef(value).type)
 }
-
 function findMemoryUnitLocation(unitId) {
   const currentUnit = (writingDocument.value?.content || []).find((unit) => (
     String(unit?.attrs?.unitId || '') === String(unitId || '')
@@ -7237,7 +6511,6 @@ function findMemoryUnitLocation(unitId) {
   }
   return null
 }
-
 function openMemoryChapterSource(chapterId) {
   const found = findChapterAcrossBooks(chapterId)
   if (!found) return false
@@ -7248,7 +6521,6 @@ function openMemoryChapterSource(chapterId) {
   nextTick(() => notebookEditorRef.value?.focus?.())
   return true
 }
-
 function jumpToMemorySource(item) {
   const refs = (item?.sourceRefs || []).map(parseMemorySourceRef)
   const source = ['unit', 'exploration', 'chapter']
@@ -7269,7 +6541,6 @@ function jumpToMemorySource(item) {
   nextTick(() => nextTick(() => notebookEditorRef.value?.focusWritingUnit?.(location.unitId)))
   return true
 }
-
 function openAuthoringKnowledgeEvidence(evidence) {
   const locator = evidence?.locator
   if (!locator || String(evidence?.projectId || '') !== String(selectedBookId.value || '')) {
@@ -7294,11 +6565,9 @@ function openAuthoringKnowledgeEvidence(evidence) {
   }
   return navigateAuthoringKnowledgeEvidence(evidence)
 }
-
 function navigateAuthoringKnowledgeEvidence(evidence) {
   const locator = evidence?.locator
   if (!locator) return false
-
   if (locator.kind === 'manuscript' || locator.kind === 'scene') {
     activeWritingPane.value = 'main'
     const chapterId = String(locator.chapterId || '')
@@ -7319,7 +6588,6 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     }))
     return true
   }
-
   if (locator.kind === 'worldbook-entry') {
     if (String(locator.worldbookId || '') !== String(boundWorldbook.value?.id || '')) {
       authoringTask.notify('设定已删除或与当前作品解绑')
@@ -7328,7 +6596,6 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     openWorldbookMentionDetail(locator.entryId)
     return true
   }
-
   if (locator.kind === 'outline-node') {
     const exists = wt3OutlineNodes.value.some((node) => String(node?.id || '') === String(locator.nodeId || ''))
     if (!exists) {
@@ -7340,7 +6607,6 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     nextTick(() => { inspectorOutlineNodeId.value = String(locator.nodeId) })
     return true
   }
-
   if (locator.kind === 'exploration') {
     if (!openExplorationDoc(locator.documentId)) {
       authoringTask.notify('速记已删除或暂时无法打开')
@@ -7348,7 +6614,6 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     }
     return true
   }
-
   if (locator.kind === 'memory-source') {
     const memory = listMemoryCandidates({ status: null }).find((item) => String(item?.id || '') === String(locator.memoryId || ''))
     if (!memory || !jumpToMemorySource(memory)) {
@@ -7357,21 +6622,17 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     }
     return true
   }
-
   if (locator.kind === 'history') {
     const historyNodeId = String(locator.historyNodeId || locator.historyId || '')
     if (openProjectSettingsSurface('map', { historyNodeId })) return true
     router.push({ name: 'settings-world-map', query: { historyNodeId } })
     return true
   }
-
   return false
 }
-
 function closeMemoryReview() {
   memoryReviewOpen.value = false
 }
-
 onMounted(() => {
   window.addEventListener('memory-candidate-created', handleMemoryCandidateCreated)
   refreshAuthoringMemoryCandidates()
@@ -7381,7 +6642,6 @@ onBeforeUnmount(() => {
   if (memoryNoticeTimer) clearTimeout(memoryNoticeTimer)
   clearAdoptionImpact()
 })
-
 function handleMemoryCandidateCreated(event) {
   const detail = event?.detail || {}
   if (detail.scope !== 'project' || String(detail.scopeId || '') !== String(selectedBookId.value || '')) return
@@ -7392,7 +6652,6 @@ function handleMemoryCandidateCreated(event) {
   const count = authoringMemoryCandidates.value.length
   showMemoryNotice(`有 ${count} 条记忆冲突待确认`, count, true)
 }
-
 watch(selectedBookId, () => {
   lastInterventionUmbrellaReceipt.value = null
   refreshAuthoringMemoryCandidates()
@@ -7405,7 +6664,6 @@ watch(selectedBookId, () => {
     memoryNoticeTimer = null
   }
 })
-
 function applyGhostAdoptionDeltaState(receipt, direction) {
   const redo = direction === 'redo'
   sceneAnchors.value = normalizeSceneAnchors(redo ? receipt.appliedAnchors : receipt.previousAnchors)
@@ -7413,13 +6671,11 @@ function applyGhostAdoptionDeltaState(receipt, direction) {
   const book = books.value.find((item) => String(item.id) === String(selectedBookId.value))
   if (book) book.outlineNodes = wt3OutlineNodes.value
 }
-
 function persistGhostAdoptionHistory(receipt) {
   return receipt.documentRole === 'exploration'
     ? wt3PersistActiveDoc()?.ok === true
     : saveCurrentChapter({ preservePageOutline: true })
 }
-
 function ghostDocumentMatchesReceipt(receipt, direction) {
   const redo = direction === 'redo'
   if (receipt.operation === 'rewrite-unit') {
@@ -7428,7 +6684,6 @@ function ghostDocumentMatchesReceipt(receipt, direction) {
   return currentDocumentBodyRevision() === (redo ? receipt.afterBodyRevision : receipt.beforeBodyRevision)
     && (redo ? currentDocumentContainsGhostUnit(receipt) : currentDocumentContainsNoGhostUnits(receipt))
 }
-
 async function undoGhostAdoption() {
   const receipt = lastGhostAdoptionReceipt.value
   if (!hasGhostAdoptionUndoBoundary.value) return false
@@ -7505,7 +6760,6 @@ async function undoGhostAdoption() {
     atomicHistoryBusy.value = false
   }
 }
-
 async function redoGhostAdoption() {
   const receipt = lastGhostUndoReceipt.value
   if (!hasGhostAdoptionRedoBoundary.value) return false
@@ -7592,7 +6846,6 @@ async function redoGhostAdoption() {
     atomicHistoryBusy.value = false
   }
 }
-
 function snapshotWritingAnnotationState(annotations = activeEditorAnnotations.value) {
   return normalizeWritingAnnotations(annotations, activeAnnotationScopeKey()).map((annotation) => ({
     ...annotation,
@@ -7600,13 +6853,11 @@ function snapshotWritingAnnotationState(annotations = activeEditorAnnotations.va
     selector: annotation.selector ? { ...annotation.selector } : null
   }))
 }
-
 function fingerprintWritingAnnotationState(annotations = activeEditorAnnotations.value) {
   const stable = snapshotWritingAnnotationState(annotations)
     .sort((left, right) => String(left.id || '').localeCompare(String(right.id || '')))
   return buildDocumentRevision('annotations', JSON.stringify(stable))
 }
-
 function applyStructureSideState(receipt, direction) {
   const redo = direction === 'redo'
   sceneAnchors.value = normalizeSceneAnchors(redo ? receipt.afterSceneAnchors : receipt.beforeSceneAnchors)
@@ -7616,12 +6867,10 @@ function applyStructureSideState(receipt, direction) {
   lastSceneAnchorUndoReceipt.value = null
   scheduleAnnotationLayout()
 }
-
 function structureDocumentMatchesReceipt(receipt, direction) {
   const redo = direction === 'redo'
   return currentDocumentBodyRevision() === (redo ? receipt.afterBodyRevision : receipt.beforeBodyRevision)
 }
-
 async function undoStructureTransition() {
   const receipt = lastStructureUndoReceipt.value
   if (!hasStructureUndoBoundary.value) return false
@@ -7657,7 +6906,6 @@ async function undoStructureTransition() {
     atomicHistoryBusy.value = false
   }
 }
-
 async function redoStructureTransition() {
   const receipt = lastStructureRedoReceipt.value
   if (!hasStructureRedoBoundary.value) return false
@@ -7693,11 +6941,9 @@ async function redoStructureTransition() {
     atomicHistoryBusy.value = false
   }
 }
-
 function handleNotebookHistoryCommand(direction) {
   return direction === 'redo' ? redoNotebookEdit() : undoNotebookEdit()
 }
-
 function undoAuthoringTask() {
   if (lastInterventionUmbrellaReceipt.value) return undoInterventionUmbrella()
   if (hasStructureUndoBoundary.value) return undoStructureTransition()
@@ -7712,19 +6958,16 @@ function undoAuthoringTask() {
     })
   }
 }
-
 // 初始状态也要同步：页面加载时全局 Agent 已关闭的话，记忆派生同样默认关闭。
 watch(copilotEnabled, (value) => {
   gameStore.setAuthoringMemoryAgentEnabled(Boolean(value))
 }, { immediate: true })
-
 const chapterDrawerOpen = ref(false)
 const chapterShelfSheetMode = ref(false)
 const chapterDrawerTriggerRef = ref(null)
 const moreToolsTriggerRef = ref(null)
 const chapterShelfRef = ref(null)
 let chapterShelfViewportCleanup = null
-
 const {
   activeDocumentSaveScopeKey,
   cancelContentSave,
@@ -7755,7 +6998,7 @@ const {
   persistChapter: (options) => saveCurrentChapter(options),
   persistActiveDocument: () => wt3PersistActiveDoc(),
   writeRecoveryDraft: () => writeCurrentWritingRecoveryDraft(),
-  clearRecoveryDraft: (key) => clearWritingRecoveryDraft(key),
+  clearRecoveryDraft: (key) => authoringHistory.clearRecovery(key),
   getActiveRecoveryKey: () => wt3ActiveDoc.value
     ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
     : selectedChapterId.value,
@@ -7772,7 +7015,6 @@ const {
     workspaceTabsStore.updateContextByKey(`project:${selectedBookId.value}:authoring`, { dirty: true })
   }
 })
-
 watch(() => activeDocumentSaveScopeKey(), (nextScope, previousScope) => {
   if (!previousScope || nextScope === previousScope) return
   referenceSource.clearIfScopeChanged(nextScope)
@@ -7785,7 +7027,6 @@ watch(() => activeDocumentSaveScopeKey(), (nextScope, previousScope) => {
     abandonBlockComposer({ restoreSelection: false })
   }
 })
-
 watch([
   selectedBookId,
   selectedChapterId,
@@ -7799,13 +7040,10 @@ watch([
 ], () => {
   if (illustratorBrief.value) reconcileIllustratorSource()
 })
-
 const shouldLockPageScroll = computed(() => {
   return assetInboxOpen.value || showNewBookModal.value || showManuscriptImport.value || illustratorBlocking.value
 })
-
 useBodyScrollLock(shouldLockPageScroll)
-
 // U33：键盘 undo/redo 后 PM 事务副作用可能使编辑器丢失焦点（DOM 重渲染
 // 替换含 caret 的节点），导致后续 redo 键盘事件落在 BODY 上。当选区仍在
 // 编辑器内但焦点不在时，转发 undo/redo 到编辑器。
@@ -7826,7 +7064,6 @@ function handleEditorHistoryKeyForward(event) {
     else undoNotebookEdit()
   })
 }
-
 onMounted(() => {
   document.addEventListener('keydown', handleEditorHistoryKeyForward)
   const syncChapterShelfMode = () => {
@@ -7867,7 +7104,6 @@ onMounted(() => {
   window.visualViewport?.addEventListener('resize', handleContextMenuViewportChange, { passive: true })
   window.visualViewport?.addEventListener('scroll', handleContextMenuViewportChange, { passive: true })
 })
-
 onBeforeUnmount(() => {
   if (authoringContextPreflightTimer) clearTimeout(authoringContextPreflightTimer)
   chapterShelfViewportCleanup?.()
@@ -7883,29 +7119,24 @@ onBeforeUnmount(() => {
   window.visualViewport?.removeEventListener('resize', handleContextMenuViewportChange)
   window.visualViewport?.removeEventListener('scroll', handleContextMenuViewportChange)
 })
-
 function openChapterDrawer() {
   chapterDrawerOpen.value = true
   nextTick(() => chapterShelfRef.value?.focus())
 }
-
 function closeChapterDrawer({ restoreFocus = true } = {}) {
   const wasOpen = chapterDrawerOpen.value
   chapterDrawerOpen.value = false
   if (restoreFocus && wasOpen) nextTick(() => chapterDrawerTriggerRef.value?.focus())
 }
-
 function isWritingCompositionKey(event) {
   return Boolean(event?.isComposing || event?.keyCode === 229 || writingCompositionActive.value || dualCompositionActive.value)
 }
-
 function handleChapterDrawerKeydown(event) {
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (event.key !== 'Escape' || !chapterDrawerOpen.value) return
   event.preventDefault()
   closeChapterDrawer()
 }
-
 function handleWritingInspectorKeydown(event) {
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (event.key !== 'Escape' || !inspectorOpen.value) return
@@ -7918,7 +7149,6 @@ function handleWritingInspectorKeydown(event) {
   }
   closeActiveWritingInspector()
 }
-
 const activeWritingBlock = computed(() => {
   const selection = notebookSelection.value
   if (notebookEditorActive.value && selection?.nodeId) {
@@ -7932,9 +7162,6 @@ const activeWritingUnit = computed(() => {
   const nodeId = notebookSelection.value?.nodeId
   return nodeId ? getWritingUnitByNodeId(nodeId) : null
 })
-const recentWritingSnapshots = computed(() => writingSnapshots.value.slice(0, 3))
-const recentWritingBlockHistory = computed(() => writingBlockHistory.value.slice(0, 4))
-
 const turndownService = new TurndownService({
   headingStyle: 'atx',
   bulletListMarker: '-',
@@ -7949,14 +7176,11 @@ turndownService.addRule('underline', {
     return `<u>${content}</u>`
   }
 })
-
 marked.setOptions({
   gfm: true,
   breaks: true
 })
-
 const charCount = computed(() => getEditorText().length)
-
 const wordCount = computed(() => {
   const text = getEditorText().trim()
   if (!text) return 0
@@ -7964,14 +7188,12 @@ const wordCount = computed(() => {
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
   return chineseChars + englishWords
 })
-
 const revisionLabel = computed(() => {
   const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
   const stamp = Date.parse(chapter?.updatedAt || chapter?.createdAt || '')
   if (!Number.isFinite(stamp)) return '--:--'
   return new Date(stamp).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 })
-
 function goToAdventure() {
   if (pendingGhostAdoption.value) {
     authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
@@ -7997,23 +7219,19 @@ function goToAdventure() {
   }
   return true
 }
-
 // 打开带 sessionId 的旧体验会话链接时，把已提交的助手回合幂等投影进当前章节。
 // 每个页面实例只跑一次；重复导入由 writing-unit 指纹去重兜底。
 const projectedSessionIds = new Set()
-
 function projectLinkedLegacySession() {
   const sessionId = String(route.query.sessionId || '')
   if (!sessionId || projectedSessionIds.has(sessionId)) return
   const session = gameStore.sessions.find((item) => item?.id === sessionId)
   if (!session) return
   projectedSessionIds.add(sessionId)
-
   const bookId = String(route.query.bookId || selectedBookId.value || books.value[0]?.id || '')
   const book = books.value.find((item) => item.id === bookId)
   const chapterId = String(route.query.chapterId || selectedChapterId.value || book?.chapters?.[0]?.id || '')
   if (!book || !chapterId) return
-
   const result = projectExperienceSession({
     session,
     books: books.value,
@@ -8023,20 +7241,17 @@ function projectLinkedLegacySession() {
     // 不传 confirmWorldbookBinding：绑定必须显式确认，绝不隐式改书的世界书。
   })
   if (!result.importedCount) return
-
   // 绑定提案（Task 7）：目标书未绑定且会话带世界书时，给 typed 提示，
   // 由用户通过书架上的“关联世界书”动作显式确认。
   if (result.bindingProposal) {
     authoringTask.notify(`来源会话使用世界书 ${result.bindingProposal.worldbookId}；如需绑定请用左侧“关联世界书”`)
   }
-
   books.value = result.books
   saveBooks()
   if (selectedChapterId.value === chapterId) {
     selectChapter(chapterId)
   }
 }
-
 function goBack() {
   if (pendingGhostAdoption.value) {
     authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
@@ -8056,7 +7271,6 @@ function goBack() {
   router.push('/')
   return true
 }
-
 function readLiveWritingSelectionSnapshot() {
   if (notebookEditorActive.value && notebookSelection.value) {
     const selection = notebookSelection.value
@@ -8100,7 +7314,6 @@ function readLiveWritingSelectionSnapshot() {
       editorTo: Number(selection.to || selection.from || 1)
     }
   }
-
   const editor = notebookEditorActive.value
     ? notebookEditorRef.value?.getRootElement?.()
     : editorRef.value
@@ -8111,7 +7324,6 @@ function readLiveWritingSelectionSnapshot() {
   const start = Math.max(0, Math.min(text.length, Math.min(rawStart, rawEnd)))
   const end = Math.max(0, Math.min(text.length, Math.max(rawStart, rawEnd)))
   const selectionText = text.slice(start, end)
-
   return {
     start,
     end,
@@ -8119,11 +7331,9 @@ function readLiveWritingSelectionSnapshot() {
     hasSelection: end > start
   }
 }
-
 function getWritingSelectionSnapshot() {
   return readLiveWritingSelectionSnapshot()
 }
-
 function getWritingParagraphSnapshot(position = null) {
   const text = markdownContent.value || ''
   const fallbackPosition = Math.max(0, Math.min(text.length, copilotCursorPos.value || 0))
@@ -8137,7 +7347,6 @@ function getWritingParagraphSnapshot(position = null) {
   const end = endBoundary === -1 ? text.length : cursor + endBoundary
   const rawText = text.slice(start, end)
   const paragraphText = rawText.trim()
-
   return {
     start,
     end,
@@ -8146,7 +7355,6 @@ function getWritingParagraphSnapshot(position = null) {
     hasParagraph: Boolean(paragraphText)
   }
 }
-
 function collectWritingContext() {
   const selectedBook = books.value.find(b => b.id === selectedBookId.value)
   const currentChapter = selectedBook?.chapters?.find(c => c.id === selectedChapterId.value)
@@ -8175,7 +7383,6 @@ function collectWritingContext() {
     totalChapters: selectedBook?.chapters?.length || 0
   }
 }
-
 function buildWritingTaskContext(task = {}, selectionOverride = null) {
   const selection = selectionOverride || getWritingSelectionSnapshot()
   const paragraph = getWritingParagraphSnapshot(selection.start)
@@ -8183,7 +7390,6 @@ function buildWritingTaskContext(task = {}, selectionOverride = null) {
     upstream: 520,
     downstream: 240
   })
-
   return {
     ...collectWritingContext(),
     writingTask: {
@@ -8199,7 +7405,6 @@ function buildWritingTaskContext(task = {}, selectionOverride = null) {
     referenceAsset: buildCopilotAssetContext(readCurrentCopilotReference())
   }
 }
-
 function readCurrentEditorCursor(content) {
   if (notebookEditorActive.value && notebookSelection.value) {
     const snapshot = readLiveWritingSelectionSnapshot()
@@ -8210,7 +7415,6 @@ function readCurrentEditorCursor(content) {
   if (!Number.isFinite(start)) return String(content || '').length
   return Math.max(0, Math.min(String(content || '').length, start))
 }
-
 function openAssetInbox() {
   assetInboxOpen.value = true
   refreshAssetInbox()
@@ -8220,12 +7424,10 @@ function openAssetInbox() {
     }
   })
 }
-
 function openInboxAssetFromInspector(asset) {
   assetInboxActiveId.value = String(asset?.id || '')
   openAssetInbox()
 }
-
 function openMaterialsPage() {
   if (pendingGhostAdoption.value) {
     authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
@@ -8245,11 +7447,9 @@ function openMaterialsPage() {
   router.push({ name: 'materials' })
   return true
 }
-
 function closeAssetInbox() {
   assetInboxOpen.value = false
 }
-
 function refreshAssetInbox() {
   const filters = { status: 'inbox' }
   if (assetInboxScope.value === 'current-book') {
@@ -8267,7 +7467,6 @@ function refreshAssetInbox() {
     assetInboxActiveId.value = inboxAssets.value[0]?.id || ''
   }
 }
-
 function toggleInboxAssetSelection(assetId) {
   const nextIds = [...selectedInboxAssetIds.value]
   const idx = nextIds.indexOf(assetId)
@@ -8275,24 +7474,19 @@ function toggleInboxAssetSelection(assetId) {
   else nextIds.push(assetId)
   selectedInboxAssetIds.value = nextIds
 }
-
 function selectAllInboxAssets() {
   selectedInboxAssetIds.value = inboxAssets.value.map((asset) => asset.id)
 }
-
 function clearInboxAssetSelection() {
   selectedInboxAssetIds.value = []
 }
-
 function focusInboxAsset(assetId) {
   assetInboxActiveId.value = assetId
 }
-
 function getSelectedInboxAssets() {
   const picked = new Set(selectedInboxAssetIds.value)
   return inboxAssets.value.filter((asset) => picked.has(asset.id))
 }
-
 // 素材状态是独立持久域：只有真正写盘后才刷新收件箱。
 // 若正文/大纲/世界书事务已先完成，失败文案明示部分成功，不伪装原子跨域写入。
 function persistInboxAssetStatus(assetIds, status, completedAction = '') {
@@ -8303,20 +7497,16 @@ function persistInboxAssetStatus(assetIds, status, completedAction = '') {
     : '素材状态未保存，请重试'
   return false
 }
-
 function getSelectedWorldbookDraftAssets() {
   return getSelectedInboxAssets().filter((asset) => canConvertAssetToWorldbookEntry(asset))
 }
-
 const activeInboxAsset = computed(() => {
   if (!inboxAssets.value.length) return null
   return inboxAssets.value.find((asset) => asset.id === assetInboxActiveId.value) || inboxAssets.value[0] || null
 })
-
 function buildCopilotAssetContext(asset) {
   const content = String(asset?.content || '').trim()
   if (!content) return ''
-
   const parts = [
     asset.title ? `标题：${asset.title}` : '',
     `类型：${getAssetKindLabel(asset.kind)}`,
@@ -8324,10 +7514,8 @@ function buildCopilotAssetContext(asset) {
     '',
     content
   ]
-
   return parts.filter((part) => part !== '').join('\n')
 }
-
 function getWritingAgentPageContext(invocationTarget = null) {
   const contextProjectId = String(invocationTarget?.projectId || selectedBookId.value || '')
   const contextChapterId = String(invocationTarget?.chapterId || selectedChapterId.value || '')
@@ -8426,7 +7614,6 @@ function getWritingAgentPageContext(invocationTarget = null) {
     contextDependencyRevisions
   }
 }
-
 function buildLiveContextDependencyRevisions() {
   const selectedBook = books.value.find((book) => book.id === selectedBookId.value)
   return {
@@ -8443,7 +7630,6 @@ function buildLiveContextDependencyRevisions() {
     outline: fingerprintOutline(wt3OutlineNodes.value, wt3OutlineEdges.value)
   }
 }
-
 function selectedCopilotReferenceAssets() {
   const byId = new Map()
   for (const asset of [
@@ -8454,7 +7640,6 @@ function selectedCopilotReferenceAssets() {
   }
   return [...byId.values()]
 }
-
 function clearCopilotReference(options = {}) {
   const { silent = false } = options
   if (!referenceSource.clear()) return
@@ -8463,7 +7648,6 @@ function clearCopilotReference(options = {}) {
     quickNoteStatus.value = '已清除续写参考'
   }
 }
-
 function useAssetAsCopilotContext(asset) {
   // 收件箱弹层本身令 interaction owner 变为 modal;“续写参考”是作者从
   // 收件箱发起的显式意图,确认后弹层即关闭并交还所有权,不能被自己的
@@ -8477,11 +7661,9 @@ function useAssetAsCopilotContext(asset) {
     quickNoteStatus.value = '素材内容为空'
     return
   }
-
   referenceSource.select(asset, { scopeKey: activeDocumentSaveScopeKey() })
   assetInboxOpen.value = false
   quickNoteStatus.value = `已设为续写参考：${asset.title || '未命名素材'}`
-
   nextTick(() => {
     editorRef.value?.focus()
     syncCursorAndSelection()
@@ -8490,65 +7672,54 @@ function useAssetAsCopilotContext(asset) {
     }
   })
 }
-
 function syncChapterOutlineToCurrentChapter() {
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   if (!chapter) return
   chapter.outlineItems = normalizeChapterOutlineItems(chapterOutlineItems.value)
   saveChapters()
 }
-
 function addInboxAssetsToChapterOutline(assets = []) {
   if (!selectedChapterId.value) {
     quickNoteStatus.value = '先选择章节'
     return null
   }
-
   const result = addAssetsToChapterOutline(chapterOutlineItems.value, assets)
   if (!result.addedItems.length) {
     quickNoteStatus.value = result.skippedCount ? '所选素材已在纲要中或内容为空' : '先选择素材'
     return result
   }
-
   chapterOutlineItems.value = result.items
   const addedIds = new Set(result.addedItems.map((item) => item.assetId).filter(Boolean))
   recordChapterAssetSources(assets.filter((asset) => addedIds.has(asset.id)))
   syncChapterOutlineToCurrentChapter()
   return result
 }
-
 function addAssetToChapterOutline(asset) {
   const result = addInboxAssetsToChapterOutline([asset])
   if (!result?.addedItems.length) return
-
   if (!persistInboxAssetStatus([asset.id], 'accepted', '章节纲要已更新')) return
   refreshAssetInbox()
   quickNoteStatus.value = `已加入章节纲要：${result.addedItems[0].title}，会参与续写和章节分镜`
 }
-
 function addSelectedAssetsToChapterOutline() {
   const selectedAssets = getSelectedInboxAssets()
   if (!selectedAssets.length) {
     quickNoteStatus.value = '先选择素材'
     return
   }
-
   const result = addInboxAssetsToChapterOutline(selectedAssets)
   if (!result?.addedItems.length) return
-
   const acceptedIds = result.addedItems.map((item) => item.assetId).filter(Boolean)
   if (!persistInboxAssetStatus(acceptedIds, 'accepted', '章节纲要已更新')) return
   selectedInboxAssetIds.value = []
   refreshAssetInbox()
   quickNoteStatus.value = `已加入 ${result.addedItems.length} 条章节纲要，会参与续写和章节分镜`
 }
-
 function removeChapterOutlineItemFromChapter(itemId) {
   chapterOutlineItems.value = removeChapterOutlineItem(chapterOutlineItems.value, itemId)
   syncChapterOutlineToCurrentChapter()
   quickNoteStatus.value = '已移出章节纲要'
 }
-
 function addManualChapterOutlineItem(payload = {}) {
   const content = String(payload.content || '').trim()
   if (!selectedChapterId.value || !content) return
@@ -8560,7 +7731,6 @@ function addManualChapterOutlineItem(payload = {}) {
   syncChapterOutlineToCurrentChapter()
   quickNoteStatus.value = '已添加章纲节点'
 }
-
 function updateChapterOutlineItem(itemId, updates = {}) {
   chapterOutlineItems.value = chapterOutlineItems.value.map((item) => (
     item.id === itemId
@@ -8570,7 +7740,6 @@ function updateChapterOutlineItem(itemId, updates = {}) {
   syncChapterOutlineToCurrentChapter()
   quickNoteStatus.value = '章纲已更新'
 }
-
 function moveChapterOutlineItem(index, direction) {
   const target = index + direction
   if (index < 0 || target < 0 || target >= chapterOutlineItems.value.length) return
@@ -8580,19 +7749,16 @@ function moveChapterOutlineItem(index, direction) {
   chapterOutlineItems.value = next
   syncChapterOutlineToCurrentChapter()
 }
-
 function insertChapterOutlineItem(item) {
   if (!insertAssetsIntoChapter([{ content: item?.content }])) return
   quickNoteStatus.value = '已插入纲要内容'
 }
-
 function insertAssetsIntoChapter(assets = []) {
   const usable = assets.filter((asset) => String(asset?.content || '').trim())
   if (!usable.length) {
     quickNoteStatus.value = '素材内容为空'
     return false
   }
-
   const snippet = usable.map((asset) => asset.content.trim()).join('\n\n')
   markdownContent.value = markdownContent.value
     ? `${markdownContent.value.trimEnd()}\n\n${snippet}\n`
@@ -8602,21 +7768,18 @@ function insertAssetsIntoChapter(assets = []) {
   onContentChange()
   return true
 }
-
 function insertAssetIntoChapter(asset) {
   if (!insertAssetsIntoChapter([asset])) return
   if (!persistInboxAssetStatus([asset.id], 'accepted', '正文已插入')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已插入章节'
 }
-
 function saveAssetAsMaterial(asset) {
   const content = String(asset?.content || '').trim()
   if (!content) {
     quickNoteStatus.value = '素材内容为空'
     return false
   }
-
   try {
     const note = prependWritingNote({
       ...createWritingNoteFromAsset(asset, { fallbackLabel: '素材' }),
@@ -8631,12 +7794,10 @@ function saveAssetAsMaterial(asset) {
     return false
   }
 }
-
 async function ensureWorldbookTarget() {
   // 有显式绑定时优先写入绑定世界书，不再隐式借用全局 active 世界书。
   if (boundWorldbook.value?.id) return boundWorldbook.value
   if (worldStore.activeWorldbook?.id) return worldStore.activeWorldbook
-
   await worldStore.loadWorldbooksIndex()
   if (worldStore.worldbooksIndex.length === 0) {
     return worldStore.createWorldbook({
@@ -8644,23 +7805,19 @@ async function ensureWorldbookTarget() {
       description: '从写作素材收件箱创建的世界书'
     })
   }
-
   return worldStore.ensureActiveWorldbook()
 }
-
 async function acceptWorldbookDraftAsset(asset) {
   if (!canConvertAssetToWorldbookEntry(asset)) {
     quickNoteStatus.value = formatWorldbookStatus('仅支持将世界书草稿写入世界书。')
     return
   }
-
   try {
     const worldbook = await ensureWorldbookTarget()
     if (!worldbook?.id) {
       quickNoteStatus.value = formatWorldbookStatus('没有可写入的目标世界书。')
       return
     }
-
     const entry = buildWorldbookEntryFromAsset(asset)
     await worldStore.addEntry(worldbook.id, entry)
     if (!persistInboxAssetStatus([asset.id], 'accepted', '世界书条目已写入')) return
@@ -8670,28 +7827,24 @@ async function acceptWorldbookDraftAsset(asset) {
     quickNoteStatus.value = formatWorldbookStatus(`写入失败：${error?.message || '未知错误'}`)
   }
 }
-
 async function acceptSelectedWorldbookDraftAssets() {
   const selectedAssets = getSelectedWorldbookDraftAssets()
   if (!selectedAssets.length) {
     quickNoteStatus.value = formatWorldbookStatus('请先选择世界书草稿素材。')
     return
   }
-
   try {
     const worldbook = await ensureWorldbookTarget()
     if (!worldbook?.id) {
       quickNoteStatus.value = formatWorldbookStatus('没有可写入的目标世界书。')
       return
     }
-
     const acceptedIds = []
     for (const asset of selectedAssets) {
       const entry = buildWorldbookEntryFromAsset(asset)
       await worldStore.addEntry(worldbook.id, entry)
       acceptedIds.push(asset.id)
     }
-
     if (!persistInboxAssetStatus(acceptedIds, 'accepted', '世界书条目已批量写入')) return
     selectedInboxAssetIds.value = selectedInboxAssetIds.value.filter((id) => !acceptedIds.includes(id))
     refreshAssetInbox()
@@ -8700,7 +7853,6 @@ async function acceptSelectedWorldbookDraftAssets() {
     quickNoteStatus.value = formatWorldbookStatus(`批量写入失败：${error?.message || '未知错误'}`)
   }
 }
-
 function insertSelectedAssetsIntoChapter() {
   const selectedAssets = getSelectedInboxAssets()
   if (!selectedAssets.length) {
@@ -8713,7 +7865,6 @@ function insertSelectedAssetsIntoChapter() {
   refreshAssetInbox()
   quickNoteStatus.value = `已插入 ${selectedAssets.length} 条素材`
 }
-
 function buildChapterStoryboardExcerpt(shots = []) {
   return shots
     .slice(0, 4)
@@ -8722,7 +7873,6 @@ function buildChapterStoryboardExcerpt(shots = []) {
     .join(' / ')
     .slice(0, 240)
 }
-
 function recordChapterAssetSources(assets = [], chapter = null) {
   const target = chapter || chapters.value.find((item) => item.id === selectedChapterId.value)
   if (!target) return []
@@ -8733,7 +7883,6 @@ function recordChapterAssetSources(assets = [], chapter = null) {
   target.sourceRefs = mergeSourceRefs(target.sourceRefs, refs)
   return target.sourceRefs
 }
-
 function exportCurrentChapterManuscript() {
   if (!selectedChapterId.value) {
     quickNoteStatus.value = '先选择章节'
@@ -8753,7 +7902,6 @@ function exportCurrentChapterManuscript() {
     quickNoteStatus.value = error?.message || '章节导出失败'
   }
 }
-
 function exportCurrentBookManuscript() {
   if (!selectedBookId.value) {
     quickNoteStatus.value = '先选择书籍'
@@ -8772,13 +7920,11 @@ function exportCurrentBookManuscript() {
     quickNoteStatus.value = error?.message || '整书导出失败'
   }
 }
-
 function exportChapterStoryboardDraft() {
   if (!selectedChapterId.value) {
     quickNoteStatus.value = '先选择章节'
     return
   }
-
   if (!saveCurrentChapter()) {
     quickNoteStatus.value = '当前章节保存失败，已取消导出'
     return
@@ -8790,12 +7936,10 @@ function exportChapterStoryboardDraft() {
     chapterTitle,
     outlineItems: chapterOutlineItems.value
   })
-
   if (!shots.length) {
     quickNoteStatus.value = '当前章节没有可生成分镜的内容'
     return
   }
-
   try {
     const result = saveValidatedStoryboardVersion({
       source: {
@@ -8823,7 +7967,6 @@ function exportChapterStoryboardDraft() {
         wordCount: wordCount.value
       }
     })
-
     const markdown = toMarkdown(result.shots, {
       title: '章节分镜草稿',
       topic: chapterTitle
@@ -8834,13 +7977,11 @@ function exportChapterStoryboardDraft() {
     quickNoteStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
   }
 }
-
 function archiveAsset(asset) {
   if (!persistInboxAssetStatus([asset.id], 'archived')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已归档素材'
 }
-
 function archiveSelectedAssets() {
   const selectedAssets = getSelectedInboxAssets()
   if (!selectedAssets.length) {
@@ -8852,13 +7993,11 @@ function archiveSelectedAssets() {
   refreshAssetInbox()
   quickNoteStatus.value = `已归档 ${selectedAssets.length} 条素材`
 }
-
 function rejectAsset(asset) {
   if (!persistInboxAssetStatus([asset.id], 'rejected')) return
   refreshAssetInbox()
   quickNoteStatus.value = '已拒绝素材'
 }
-
 function rejectSelectedAssets() {
   const selectedAssets = getSelectedInboxAssets()
   if (!selectedAssets.length) {
@@ -8870,7 +8009,6 @@ function rejectSelectedAssets() {
   refreshAssetInbox()
   quickNoteStatus.value = `已拒绝 ${selectedAssets.length} 条素材`
 }
-
 watch(assetInboxOpen, (open) => {
   if (open) {
     refreshAssetInbox()
@@ -8883,7 +8021,6 @@ watch(assetInboxOpen, (open) => {
   }
   selectedInboxAssetIds.value = []
 })
-
 function quickNoteWordCount(text) {
   const normalized = String(text || '').trim()
   if (!normalized) return 0
@@ -8891,54 +8028,6 @@ function quickNoteWordCount(text) {
   const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
   return chineseChars + englishWords
 }
-
-function updateWritingHistoryPreference(patch = {}) {
-  const result = saveWritingHistoryPreferences({
-    ...writingHistoryPreferences.value,
-    ...patch
-  })
-  writingHistoryPreferences.value = result.preferences
-  snapshotStatus.value = result.ok
-    ? (result.preferences.enabled
-        ? `自动历史已开启 · 每 ${result.preferences.intervalWords.toLocaleString()} 字`
-        : '自动历史已关闭；手动与保护快照仍会保留。')
-    : '自动历史设置保存失败，已保留原设置。'
-  if (!result.ok) writingHistoryPreferences.value = loadWritingHistoryPreferences()
-  return result.ok
-}
-
-function recordAutomaticHistoryAfterPersist({
-  chapterId,
-  chapterTitle,
-  previousDocument,
-  previousMarkdown,
-  persistedDocument,
-  persistedMarkdown,
-  annotations
-} = {}) {
-  const plan = planWritingMilestoneSnapshot({
-    persisted: true,
-    chapterId,
-    chapterTitle,
-    previousDocument,
-    previousMarkdown,
-    persistedDocument,
-    persistedMarkdown,
-    annotations,
-    preferences: writingHistoryPreferences.value,
-    snapshots: listWritingSnapshots(chapterId)
-  })
-  if (!plan.shouldRecord) return plan
-  const result = recordWritingMilestoneSnapshot(plan)
-  if (result.recorded && String(chapterId) === String(selectedChapterId.value)) {
-    writingSnapshots.value = listWritingSnapshots(chapterId)
-  }
-  if (!result.ok && activeInspectorTool.value === 'history') {
-    snapshotStatus.value = '正文已保存，但自动历史空间不足；请清理较旧版本。'
-  }
-  return result
-}
-
 function recordDestructiveWritingProtection(payload = {}) {
   const documentRole = payload.documentRole === 'exploration' ? 'exploration' : 'manuscript'
   const documentId = String(payload.documentId || payload.chapterId || '')
@@ -8954,7 +8043,7 @@ function recordDestructiveWritingProtection(payload = {}) {
   const exploration = documentRole === 'exploration'
     ? wt3ExplorationDocs.value.find((item) => String(item?.id || '') === documentId)
     : null
-  const result = recordWritingProtectionSnapshot({
+  const result = authoringHistory.recordProtection({
     chapterId: snapshotKey,
     chapterTitle: String(payload.title || chapter?.title || exploration?.title || ''),
     label: `删除前 · 修订 ${Number(document.revision || 0)}`,
@@ -8973,11 +8062,10 @@ function recordDestructiveWritingProtection(payload = {}) {
     return false
   }
   if (documentRole === 'manuscript' && documentId === String(selectedChapterId.value || '')) {
-    writingSnapshots.value = listWritingSnapshots(documentId)
+    writingSnapshots.value = authoringHistory.refreshSnapshots(documentId)
   }
   return true
 }
-
 function protectMainDestructiveEdit(payload = {}) {
   const exploration = wt3ActiveDoc.value
   return recordDestructiveWritingProtection({
@@ -8991,11 +8079,9 @@ function protectMainDestructiveEdit(payload = {}) {
     annotations: exploration ? wt3Annotations.value : chapterAnnotations.value
   })
 }
-
 function protectDualDestructiveEdit(payload = {}) {
   return recordDestructiveWritingProtection(payload)
 }
-
 function protectCurrentRewrite(candidate) {
   const exploration = wt3ActiveDoc.value
   const persisted = exploration
@@ -9006,7 +8092,7 @@ function protectCurrentRewrite(candidate) {
   const snapshotKey = exploration
     ? authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId })
     : documentId
-  const protection = recordWritingProtectionSnapshot({
+  const protection = authoringHistory.recordProtection({
     chapterId: snapshotKey,
     chapterTitle: String(exploration?.title || currentChapterTitle.value || ''),
     reason: 'before-rewrite',
@@ -9016,263 +8102,14 @@ function protectCurrentRewrite(candidate) {
     operation: String(candidate?.kind || 'rewrite'),
     transactionId: String(candidate?.id || '')
   })
-  if (protection.ok && !exploration) writingSnapshots.value = listWritingSnapshots(documentId)
+  if (protection.ok && !exploration) writingSnapshots.value = authoringHistory.refreshSnapshots(documentId)
   return protection.ok
 }
-
-function loadChapterSnapshots(chapterId) {
-  writingSnapshots.value = chapterId ? listWritingSnapshots(chapterId) : []
-  writingBlockHistory.value = chapterId ? listWritingBlockHistory(chapterId) : []
-  const recoveryDraft = chapterId ? listWritingRecoveryDrafts(chapterId)[0] : null
-  if (recoveryDraft) {
-    const recoveryGuard = getWritingSnapshotRestoreGuard(recoveryDraft, {
-      chapterId,
-      documentRevision: writingDocument.value?.revision || 0,
-      markdown: markdownContent.value
-    })
-    if (!recoveryGuard) {
-      clearWritingRecoveryDraft(chapterId)
-      writingRecoveryDraft.value = null
-    } else {
-      writingRecoveryDraft.value = recoveryDraft
-    }
-  } else {
-    writingRecoveryDraft.value = null
-  }
-  snapshotStatus.value = ''
-}
-
-function formatWritingSnapshotTime(value) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '未知时间'
-  return date.toLocaleString('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-function formatWritingHistoryPreview(value) {
-  const preview = String(value || '').replace(/\s+/g, ' ').trim()
-  if (!preview) return '空片段'
-  return preview.length > 96 ? `${preview.slice(0, 96)}…` : preview
-}
-
-function createCurrentWritingSnapshot({ label = snapshotLabel.value, reason = 'manual', quiet = false } = {}) {
-  if (!selectedChapterId.value) return null
-  if (!saveCurrentChapter({ automaticHistory: false })) {
-    snapshotStatus.value = '当前正文保存失败，未创建快照。'
-    return null
-  }
-  const snapshot = createWritingSnapshot({
-    chapterId: selectedChapterId.value,
-    chapterTitle: currentChapterTitle.value,
-    label: label || (reason === 'manual' ? `修订 ${writingDocument.value?.revision || 0}` : ''),
-    reason,
-    document: writingDocument.value,
-    markdown: markdownContent.value,
-    annotations: chapterAnnotations.value
-  })
-  if (!snapshot) {
-    snapshotStatus.value = '当前章节过大或结构无效，未能创建快照。'
-    return null
-  }
-
-  const result = saveWritingSnapshot(snapshot)
-  if (!result.ok) {
-    snapshotStatus.value = result.reason === 'storage-budget-exceeded'
-      ? '快照空间已达到上限，请删除旧版本后重试。'
-      : '快照保存失败，当前正文未受影响。'
-    return null
-  }
-
-  writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
-  snapshotLabel.value = ''
-  if (!quiet) snapshotStatus.value = `已保存「${snapshot.label}」`
-  return snapshot
-}
-
-function restoreWritingSnapshot(snapshot) {
-  if (rejectLockedNotebookMutation()) return false
-  if (!snapshot || !selectedChapterId.value) return false
-  const dualSource = dualPaneRef.value?.getActiveSource?.()
-  const dualShowsCurrentChapter = dualSource?.kind === 'chapter'
-    && String(dualSource.id || '') === String(selectedChapterId.value || '')
-  // 同章双栏共享一个 canonical document handle。先收口副栏尚未保存的
-  // 事务，再计算 restore guard；否则副栏的延迟 autosave 会复活旧稿并覆盖恢复。
-  if (dualShowsCurrentChapter && dualPaneRef.value?.prepareClose?.() === false) {
-    snapshotStatus.value = '恢复已停止：副栏正文尚未保存。'
-    return false
-  }
-  const guard = getWritingSnapshotRestoreGuard(snapshot, {
-    chapterId: selectedChapterId.value,
-    documentRevision: writingDocument.value?.revision || 0,
-    markdown: markdownContent.value
-  })
-  if (guard === 'chapter-mismatch') {
-    snapshotStatus.value = '这个快照不属于当前章节，未执行恢复。'
-    return false
-  }
-  if (guard && typeof window !== 'undefined' && !window.confirm('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？')) {
-    return false
-  }
-
-  const checkpoint = createCurrentWritingSnapshot({
-    label: `恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
-    reason: 'before-restore',
-    quiet: true
-  })
-  if (!checkpoint) {
-    snapshotStatus.value = '恢复已停止：无法先保存当前正文的恢复前检查点。'
-    return false
-  }
-
-  const document = cloneWritingSnapshotDocument(snapshot)
-  const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
-  if (!document || !chapter) {
-    snapshotStatus.value = '快照结构无效，未执行恢复。'
-    return false
-  }
-
-  // 恢复旧正文不能复活旧 AI/校对/search session。正文内容即使与历史版本
-  // 完全相同，也以新的 revision/epoch 进入当前时间线。
-  document.revision = Math.max(
-    Number(writingDocument.value?.revision || 0),
-    Number(document.revision || 0)
-  ) + 1
-  document.meta = {
-    ...(document.meta || {}),
-    historyRestoreEpoch: `restore-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  }
-
-  chapter.editorDocument = document
-  chapter.editorDocumentSchemaVersion = document.schemaVersion
-  chapter.content = snapshot.markdown
-  chapter.contentFormat = 'md'
-  chapter.annotations = normalizeWritingAnnotations(snapshot.annotations, chapter.id)
-  if (!saveChapters()) {
-    snapshotStatus.value = '恢复失败：章节正文无法写入，原正文仍保留在当前页面。'
-    return false
-  }
-  selectChapter(selectedChapterId.value)
-  if (dualShowsCurrentChapter) {
-    dualPaneRef.value?.reloadSearchSource?.({
-      sourceKind: 'chapter',
-      sourceId: chapter.id,
-      title: chapter.title,
-      document,
-      markdown: snapshot.markdown
-    })
-  }
-  snapshotStatus.value = `已恢复「${snapshot.label}」 · 当前修订 ${document.revision}`
-  saveStatus.value = 'saved'
-  return true
-}
-
-function restoreWritingRecoveryDraft() {
-  if (!writingRecoveryDraft.value) return
-  if (!restoreWritingSnapshot(writingRecoveryDraft.value)) return
-  clearWritingRecoveryDraft(selectedChapterId.value)
-  writingRecoveryDraft.value = null
-  snapshotStatus.value = '已恢复未保存草稿，并保留恢复前检查点。'
-}
-
-function discardWritingRecoveryDraft() {
-  if (!selectedChapterId.value) return
-  clearWritingRecoveryDraft(selectedChapterId.value)
-  writingRecoveryDraft.value = null
-  snapshotStatus.value = '已丢弃未保存草稿，当前正文未改变。'
-}
-
-function canRestoreWritingBlockHistory(entry) {
-  if (!entry?.nodeId) return false
-  const unit = getWritingUnitByNodeId(entry.nodeId)
-  return Boolean(unit && (!entry.unitId || unit.attrs?.unitId === entry.unitId))
-}
-
-function restoreWritingBlockHistory(entry) {
-  if (rejectLockedNotebookMutation()) {
-    snapshotStatus.value = '正文事务正在提交，暂不能恢复片段历史。'
-    return false
-  }
-  if (!canRestoreWritingBlockHistory(entry)) {
-    snapshotStatus.value = '这个片段已经不存在或已移到其他写作单元，无法单独恢复。'
-    return
-  }
-  if (!notebookEditorActive.value || !notebookEditorRef.value) {
-    snapshotStatus.value = '片段恢复请先切回所见即所得编辑面。'
-    return
-  }
-  const checkpoint = createCurrentWritingSnapshot({
-    label: `片段恢复前 · 修订 ${writingDocument.value?.revision || 0}`,
-    reason: 'before-restore',
-    quiet: true
-  })
-  if (!checkpoint) {
-    snapshotStatus.value = '恢复已停止：无法保存片段恢复前检查点。'
-    return
-  }
-  if (!notebookEditorRef.value.replaceNodeText(entry.nodeId, entry.previousText)) {
-    snapshotStatus.value = '编辑器未接受这次片段恢复。'
-    return
-  }
-  snapshotStatus.value = `已恢复片段历史 · 修订 ${entry.fromDocumentRevision}`
-}
-
-function writeCurrentWritingRecoveryDraft() {
-  // Phase 1：探索文档以稳定文档 key 写恢复草稿（复用同一 store，兼容旧 chapter key）。
-  if (wt3ActiveDoc.value) {
-    if (!writingDocument.value) return null
-    const key = authoringDocumentKey({ role: 'exploration', bookId: selectedBookId.value, documentId: wt3ActiveDoc.value.id })
-    const draft = createWritingSnapshot({
-      chapterId: key,
-      chapterTitle: wt3ActiveDoc.value.title,
-      label: '未保存草稿',
-      reason: 'crash-recovery',
-      document: writingDocument.value,
-      markdown: markdownContent.value,
-      annotations: wt3Annotations.value
-    })
-    if (!draft) return null
-    const result = saveWritingRecoveryDraft(draft)
-    if (result.ok) writingRecoveryDraft.value = draft
-    return result.ok ? draft : null
-  }
-  if (!selectedChapterId.value || !writingDocument.value) return null
-  const draft = createWritingSnapshot({
-    chapterId: selectedChapterId.value,
-    chapterTitle: currentChapterTitle.value,
-    label: '未保存草稿',
-    reason: 'crash-recovery',
-    document: writingDocument.value,
-    markdown: markdownContent.value,
-    annotations: chapterAnnotations.value
-  })
-  if (!draft) return null
-  const result = saveWritingRecoveryDraft(draft)
-  if (result.ok) writingRecoveryDraft.value = draft
-  return result.ok ? draft : null
-}
-
-function removeWritingSnapshot(snapshot) {
-  if (!snapshot?.id) return
-  if (typeof window !== 'undefined' && !window.confirm(`删除「${snapshot.label}」？正文不会改变。`)) return
-  const result = deleteWritingSnapshot(snapshot.id)
-  if (!result.ok) {
-    snapshotStatus.value = '删除快照失败。'
-    return
-  }
-  writingSnapshots.value = listWritingSnapshots(selectedChapterId.value)
-  snapshotStatus.value = `已删除「${snapshot.label}」`
-}
-
 // —— 书与世界书绑定（Task 2）——
 const bookWorldbookStatus = computed(() => resolveBookWorldbookStatus({
   book: currentBook.value,
   worldbooks: worldStore.worldbooksIndex
 }))
-
 const {
   loadBooks,
   saveBooks,
@@ -9326,7 +8163,6 @@ const {
   markSaved: () => { saveStatus.value = 'saved' },
   notify: (message) => authoringTask.notify(message)
 })
-
 function selectChapter(chapterId) {
   if (pendingGhostAdoption.value) {
     authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
@@ -9389,8 +8225,6 @@ function selectChapter(chapterId) {
   closeChapterDrawer()
   return true
 }
-
-
 function createNewBook({ clearRouteIntent = false } = {}) {
   showNewBookModal.value = true
   newBookTitle.value = ''
@@ -9403,7 +8237,6 @@ function createNewBook({ clearRouteIntent = false } = {}) {
   delete query.start
   void router.replace({ name: 'authoring', query })
 }
-
 function openManuscriptImport({ clearRouteIntent = false } = {}) {
   if (!showManuscriptImport.value) manuscriptImportReturnFocus.value = document.activeElement
   showManuscriptImport.value = true
@@ -9412,7 +8245,6 @@ function openManuscriptImport({ clearRouteIntent = false } = {}) {
   delete query.start
   void router.replace({ name: 'authoring', query })
 }
-
 function closeManuscriptImport() {
   showManuscriptImport.value = false
   const returnTarget = manuscriptImportReturnFocus.value
@@ -9421,7 +8253,6 @@ function closeManuscriptImport() {
     if (returnTarget?.isConnected) returnTarget.focus()
   })
 }
-
 function confirmManuscriptImport(book, respond = null) {
   if (!book?.id || !Array.isArray(book.chapters) || !book.chapters.length) {
     authoringTask.notify('书稿结构无效，未执行导入')
@@ -9443,10 +8274,8 @@ function confirmManuscriptImport(book, respond = null) {
   respond?.(true)
   return true
 }
-
 function confirmCreateBook() {
   if (!newBookTitle.value.trim()) return
-
   const createdAt = new Date().toISOString()
   const newBook = createWritingBookRecord({
     title: newBookTitle.value.trim(),
@@ -9463,7 +8292,6 @@ function confirmCreateBook() {
     createdAt,
     updatedAt: createdAt
   }]
-
   const previousBooks = books.value
   books.value = [...books.value, newBook]
   if (!saveBooks()) {
@@ -9475,7 +8303,6 @@ function confirmCreateBook() {
   showNewBookModal.value = false
   nextTick(() => requestAnimationFrame(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false })))
 }
-
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；
 // 写入 book.worldbookId 后精确加载该世界书并刷新现场。
 async function bindSelectedBookWorldbook(nextId, { confirmed = false } = {}) {
@@ -9527,17 +8354,14 @@ async function bindSelectedBookWorldbook(nextId, { confirmed = false } = {}) {
     clearedReferenceCount: migration.clearedReferenceCount || 0
   }
 }
-
 // 绑定选择的内联交互（一行文字 + 文字动作，无卡片）。
 const bindingSelectOpen = ref(false)
 const bindingDraftWorldbookId = ref('')
-
 async function openBindingSelect() {
   void worldStore.loadWorldbooksIndex()
   bindingDraftWorldbookId.value = selectedBookWorldbookId.value
   bindingSelectOpen.value = true
 }
-
 async function confirmBindingSelect() {
   const nextId = String(bindingDraftWorldbookId.value || '')
   let result = await bindSelectedBookWorldbook(nextId)
@@ -9556,10 +8380,8 @@ async function confirmBindingSelect() {
   }
   bindingSelectOpen.value = false
 }
-
 function createNewChapter() {
   if (!selectedBookId.value || pendingGhostAdoption.value || wt3ActiveDoc.value) return false
-
   const newChapter = {
     id: Date.now().toString(),
     title: '',
@@ -9569,7 +8391,6 @@ function createNewChapter() {
     wordCount: 0,
     createdAt: new Date().toISOString()
   }
-
   chapters.value.push(newChapter)
   if (!saveChapters()) {
     chapters.value.pop()
@@ -9578,7 +8399,6 @@ function createNewChapter() {
   }
   return selectChapter(newChapter.id)
 }
-
 function deleteChapter(chapterId) {
   if (pendingGhostAdoption.value || wt3ActiveDoc.value) return false
   const previous = chapters.value
@@ -9590,9 +8410,7 @@ function deleteChapter(chapterId) {
     authoringTask.notify('删除章节失败，正文未变更')
     return false
   }
-  deleteWritingSnapshotsForChapter(chapterId)
-  deleteWritingBlockHistoryForChapter(chapterId)
-  clearWritingRecoveryDraft(chapterId)
+  authoringHistory.removeChapter(chapterId)
   if (selectedChapterId.value === chapterId) {
     selectedChapterId.value = null
     if (next[0]) selectChapter(next[0].id)
@@ -9607,7 +8425,6 @@ function deleteChapter(chapterId) {
   }
   return true
 }
-
 function saveChapters() {
   const book = books.value.find(b => b.id === selectedBookId.value)
   if (book) {
@@ -9617,7 +8434,6 @@ function saveChapters() {
   }
   return false
 }
-
 function saveDualChapter({ chapterId = '', title = '', markdown = '', document = null, wordCount: nextWordCount = 0, automaticHistory = true } = {}) {
   const chapter = chapters.value.find((item) => String(item?.id) === String(chapterId))
   if (!chapter || !document) return false
@@ -9662,7 +8478,6 @@ function saveDualChapter({ chapterId = '', title = '', markdown = '', document =
   }
   return true
 }
-
 function saveDualExploration({ documentId = '', title = '', markdown = '', document = null } = {}) {
   const target = wt3ExplorationDocs.value.find((doc) => String(doc?.id) === String(documentId))
   if (!target || !document) return false
@@ -9679,17 +8494,14 @@ function saveDualExploration({ documentId = '', title = '', markdown = '', docum
   }
   return true
 }
-
 // 自动保存只负责落盘。语义观察器在章节/页面边界消费这段时间真正改过的
 // 稳定文本节点；同一节点连续修改只保留最后版本，避免每秒重扫整章。
 const pendingObserverNodesByChapter = new Map()
-
 function observerScheduleAcknowledged(receipt) {
   const schedule = receipt?.observerSchedule
   return Boolean(schedule?.accepted
     || ['duplicate-pending', 'duplicate-executed'].includes(schedule?.reason))
 }
-
 // 直接观察与章节边界共享一份 changed-node backlog。这里只确认本次确实
 // 已进入观察器队列的 unit/revision；同章其他单元、以及等待期间又编辑出的
 // 同单元新 revision 必须继续留给 boundary，不能整章清空。
@@ -9712,7 +8524,6 @@ function acknowledgePendingObserverUnit({ chapterId = '', unitId = '', unitRevis
   if (!pending.size) pendingObserverNodesByChapter.delete(chapterKey)
   return removed
 }
-
 async function commitDirectAuthoringObservation(payload = {}) {
   // 捕获调用时目标，避免 await provider/bridge 期间移动光标后确认错 unit。
   const target = Object.freeze({
@@ -9728,7 +8539,6 @@ async function commitDirectAuthoringObservation(payload = {}) {
   }
   return receipt
 }
-
 function collectChangedWritingNodes(previousDocument, nextDocument) {
   const previousById = new Map()
   for (const unit of previousDocument?.content || []) {
@@ -9759,7 +8569,6 @@ function collectChangedWritingNodes(previousDocument, nextDocument) {
   }
   return changed
 }
-
 // 清空节点、删除节点/单元、或把节点迁到另一单元时都没有可供 observer
 // 重算的正文，但旧候选仍需按原 unit 失效。文本改写本身由调度器在重算前
 // 统一失效，避免这里与正常 derive 重复做两次。
@@ -9789,7 +8598,6 @@ function collectInvalidatedWritingUnits(previousDocument, nextDocument) {
   }
   return [...invalidated]
 }
-
 function rememberPendingObserverNodes(chapterId, changedNodes) {
   const key = String(chapterId || '')
   if (!key || !changedNodes.length) return
@@ -9802,7 +8610,6 @@ function rememberPendingObserverNodes(chapterId, changedNodes) {
   while (pending.size > 24) pending.delete(pending.keys().next().value)
   pendingObserverNodesByChapter.set(key, pending)
 }
-
 function listPendingObserverDeltas(chapterId, maxCharsPerUnit = 5000) {
   const pending = pendingObserverNodesByChapter.get(String(chapterId || ''))
   if (!pending?.size) return []
@@ -9835,7 +8642,6 @@ function listPendingObserverDeltas(chapterId, maxCharsPerUnit = 5000) {
     }
   }).filter((delta) => delta.changedText)
 }
-
 function acknowledgePendingObserverNodes(chapterId, pendingNodes = []) {
   const chapterKey = String(chapterId || '')
   const pending = pendingObserverNodesByChapter.get(chapterKey)
@@ -9850,7 +8656,6 @@ function acknowledgePendingObserverNodes(chapterId, pendingNodes = []) {
   if (!pending.size) pendingObserverNodesByChapter.delete(chapterKey)
   return removed
 }
-
 function dispatchChapterBoundary(payload) {
   if (!payload) return null
   const chapterId = String(payload.scopeKey || '').replace(/^chapter:/, '')
@@ -9879,7 +8684,6 @@ function dispatchChapterBoundary(payload) {
   }))
   return Promise.allSettled(dispatches)
 }
-
 function buildCurrentChapterObserverBoundary() {
   return buildChapterBoundaryPayload({
     previousChapterId: selectedChapterId.value,
@@ -9888,17 +8692,14 @@ function buildCurrentChapterObserverBoundary() {
     revision: currentDocumentRevision()
   })
 }
-
 function saveCurrentChapter({ preservePageOutline = false, automaticHistory = true } = {}) {
   clearPendingDocumentSaveTimers()
   // Phase 1 防御：探索文档激活期间正文保存管线必须离场；
   // 正常离开路径已由 wt3PersistBeforeLeaving 先清 handle 并恢复章内容。
   if (wt3ActiveDoc.value) return false
   if (!selectedChapterId.value) return false
-
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   if (!chapter) return false
-
   const chapterBeforeSave = {
     title: chapter.title,
     editorDocument: chapter.editorDocument,
@@ -9981,17 +8782,16 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
       source: 'manual-save'
     })
     if (historyEntries.length) {
-      appendWritingBlockHistory(historyEntries)
-      writingBlockHistory.value = listWritingBlockHistory(chapter.id)
+      authoringHistory.appendBlockEntries(historyEntries)
+      writingBlockHistory.value = authoringHistory.refreshBlockHistory(chapter.id)
     }
   }
   cancelRecoveryDraftSchedule()
-  clearWritingRecoveryDraft(chapter.id)
+  authoringHistory.clearRecovery(chapter.id)
   writingRecoveryDraft.value = null
   saveStatus.value = 'saved'
   return true
 }
-
 // 插入分隔线
 function insertSeparator() {
   if (activeWritingPane.value === 'dual') {
@@ -10004,7 +8804,6 @@ function insertSeparator() {
     notebookEditorRef.value.insertDivider()
     return
   }
-
   const editor = editorRef.value
   if (!editor) return
   const start = editor.selectionStart ?? markdownContent.value.length
@@ -10019,13 +8818,11 @@ function insertSeparator() {
   syncMarkdownToEditor()
   onContentChange()
 }
-
 const generatedNameBatches = new Map()
 function currentNameBatchKey() {
   if (nameCategory.value !== 'person') return nameCategory.value
   return [nameCategory.value, nameStyle.value, nameLength.value, nameGender.value, fixedSurname.value.trim()].join(':')
 }
-
 function doGenerateName() {
   if (nameEntityBusy.value) return
   activeNameEntityMenu.value = ''
@@ -10064,7 +8861,6 @@ function doGenerateName() {
     note: explainWritingName({ category: nameCategory.value, value, index })
   }))
 }
-
 function openNameGenerator() {
   showFontPanel.value = false
   closeSearchPanel({ restore: false })
@@ -10073,7 +8869,6 @@ function openNameGenerator() {
   showNameGen.value = true
   doGenerateName()
 }
-
 function toggleQuickWords() {
   showFontPanel.value = false
   closeSearchPanel({ restore: false })
@@ -10081,7 +8876,6 @@ function toggleQuickWords() {
   showNameGen.value = false
   showQuickWords.value = !showQuickWords.value
 }
-
 function toggleQuickWord(id) {
   const key = String(id || '')
   if (!quickWordCatalog.value.some((item) => item.id === key)) return false
@@ -10090,7 +8884,6 @@ function toggleQuickWord(id) {
     : [...quickWordEnabledIds.value, key]
   return true
 }
-
 function insertQuickWord(value) {
   const insertion = String(value || '')
   if (!insertion || writingCompositionActive.value || dualCompositionActive.value) return false
@@ -10099,7 +8892,6 @@ function insertQuickWord(value) {
   if (!notebookEditorActive.value || !notebookEditorRef.value) return false
   return Boolean(notebookEditorRef.value.insertText(insertion))
 }
-
 function recordQuickWordUse(item) {
   const id = String(item?.id || '')
   const bookId = String(selectedBookId.value || '')
@@ -10107,7 +8899,6 @@ function recordQuickWordUse(item) {
   const current = quickWordRecentIdsByBook.get(bookId) || []
   quickWordRecentIdsByBook.set(bookId, [id, ...current.filter((candidate) => candidate !== id)].slice(0, 24))
 }
-
 function completeQuickWord(item) {
   const value = String(item?.text || '')
   const prefix = quickWordPrefix.value
@@ -10116,7 +8907,6 @@ function completeQuickWord(item) {
   if (inserted) recordQuickWordUse(item)
   return inserted
 }
-
 function closeNameGenerator({ force = false } = {}) {
   if (nameEntityBusy.value && !force) return
   showNameGen.value = false
@@ -10126,11 +8916,9 @@ function closeNameGenerator({ force = false } = {}) {
   nameEntityNotice.value = ''
   nameEntityNoticeKind.value = ''
 }
-
 function nameEntityCategoryLabel(category) {
   return nameCategoryOptions.find((item) => item.value === category)?.label || '设定'
 }
-
 function createNameEntitySelection(item) {
   const value = typeof item === 'object' ? item?.value : item
   const rationale = typeof item === 'object' ? item?.note : ''
@@ -10141,7 +8929,6 @@ function createNameEntitySelection(item) {
     rationale
   })
 }
-
 function insertNameEntitySelection(selection) {
   if (!selection || String(selection.projectId || '') !== String(selectedBookId.value || '')) return false
   if (activeWritingPane.value === 'dual') {
@@ -10158,7 +8945,6 @@ function insertNameEntitySelection(selection) {
     generatedNames.value = []
     return true
   }
-
   const editor = editorRef.value
   if (!editor) return false
   const name = selection.text
@@ -10176,11 +8962,9 @@ function insertNameEntitySelection(selection) {
   generatedNames.value = []
   return true
 }
-
 function selectName(item) {
   return insertNameEntitySelection(createNameEntitySelection(item))
 }
-
 function toggleNameEntityMenu(item) {
   if (nameEntityBusy.value) return
   const key = String(item?.value || '')
@@ -10191,7 +8975,6 @@ function toggleNameEntityMenu(item) {
   nameEntityNoticeKind.value = ''
   lastNameEntityReceipt.value = null
 }
-
 function currentNameEntityTarget() {
   const projectId = String(selectedBookId.value || '')
   const worldbookId = String(selectedBookWorldbookId.value || '')
@@ -10206,7 +8989,6 @@ function currentNameEntityTarget() {
   ) return null
   return { projectId, worldbookId, book: currentBook.value, worldbook: boundWorldbook.value }
 }
-
 async function requestNameEntityCreation(item) {
   if (nameEntityBusy.value) return false
   const selection = createNameEntitySelection(item)
@@ -10235,7 +9017,6 @@ async function requestNameEntityCreation(item) {
   }
   return persistNameEntityCommand(command)
 }
-
 async function persistNameEntityCommand(command) {
   if (nameEntityBusy.value || command?.kind !== 'create-worldbook-entry') return false
   const target = currentNameEntityTarget()
@@ -10277,13 +9058,11 @@ async function persistNameEntityCommand(command) {
       return false
     }
   }
-
   const receipt = createAuthoringEntitySelectionReceipt(command, { entry })
   lastNameEntityReceipt.value = receipt
   pendingNameEntityCommand.value = null
   nameEntityConflicts.value = []
   activeNameEntityMenu.value = ''
-
   const stillCurrent = (
     String(selectedBookId.value || '') === command.projectId
     && String(selectedBookWorldbookId.value || '') === command.worldbookId
@@ -10305,12 +9084,10 @@ async function persistNameEntityCommand(command) {
   nameEntityBusy.value = false
   return true
 }
-
 function cancelNameEntityConflict() {
   pendingNameEntityCommand.value = null
   nameEntityConflicts.value = []
 }
-
 function confirmDuplicateNameEntity() {
   const pending = pendingNameEntityCommand.value
   if (!pending) return false
@@ -10321,7 +9098,6 @@ function confirmDuplicateNameEntity() {
   })
   return persistNameEntityCommand(command)
 }
-
 function reuseNameEntityConflict(conflict) {
   const command = pendingNameEntityCommand.value
   if (!command || !conflict?.entryId) return false
@@ -10333,24 +9109,20 @@ function reuseNameEntityConflict(conflict) {
   nextTick(() => openWorldbookMentionDetail(conflict.entryId))
   return true
 }
-
 function openCreatedNameEntityEntry() {
   const entryId = lastNameEntityReceipt.value?.entryId
   if (!entryId) return
   closeNameGenerator({ force: true })
   nextTick(() => openWorldbookMentionDetail(entryId))
 }
-
 function openNameWorldbookBinding() {
   closeNameGenerator({ force: true })
   nextTick(openBindingSelect)
 }
-
 function adjustFontSize(delta) {
   writingTypography.adjustFontSize(delta)
   onContentChange()
 }
-
 function rejectLockedNotebookMutation() {
   if (!historyInteractionLocked.value) return false
   authoringTask.notify(pendingGhostAdoption.value
@@ -10358,7 +9130,6 @@ function rejectLockedNotebookMutation() {
     : '正在提交推演正文，请稍候')
   return true
 }
-
 function rejectActiveWritingMutation() {
   if (!activeWritingMutationLocked.value) return false
   authoringTask.notify(pendingGhostAdoption.value
@@ -10366,7 +9137,6 @@ function rejectActiveWritingMutation() {
     : '当前文档正在提交推演正文，请稍候')
   return true
 }
-
 function undoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
   if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('undo'))
@@ -10379,7 +9149,6 @@ function undoNotebookEdit() {
   if (result) nextTick(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false }))
   return result
 }
-
 function redoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
   if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('redo'))
@@ -10388,7 +9157,6 @@ function redoNotebookEdit() {
   if (hasGhostAdoptionRedoBoundary.value) return redoGhostAdoption()
   return Boolean(notebookEditorRef.value?.redo?.())
 }
-
 function toggleNotebookMark(mark) {
   if (rejectActiveWritingMutation()) return
   if (activeWritingPane.value === 'dual') {
@@ -10398,17 +9166,14 @@ function toggleNotebookMark(mark) {
   if (!notebookEditorRef.value?.toggleMark?.(mark)) return
   nextTick(refreshNotebookCommandAvailability)
 }
-
 // 沉浸三件套（P0c）：打字机滚动 / 段落聚焦 / 专注全屏。
 // Zen 态联动 AppShell 全局 chrome（body 级类，离开页面时清理）。
 watch(() => writingTypography.zen, (zen) => {
   document.body.classList.toggle('is-writing-zen', Boolean(zen))
 }, { immediate: true })
-
 function toggleWritingZen() {
   writingTypography.toggleZen()
 }
-
 function handleQuickWordDigitKey(event) {
   if (
     event.repeat
@@ -10430,7 +9195,6 @@ function handleQuickWordDigitKey(event) {
   event.preventDefault()
   return true
 }
-
 // Zen 下隐藏顶栏/书架/检查器；Esc 或快捷键退出。
 function handleWritingFocusKeydown(event) {
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
@@ -10469,13 +9233,10 @@ function handleWritingFocusKeydown(event) {
     toggleWritingZen()
   }
 }
-
 function captureSelectionAsAsset() {
   if (!canCaptureSelection.value) return
-
   const snapshot = getWritingSelectionSnapshot()
   if (!snapshot.hasSelection || !selectedChapterId.value) return
-
   const result = createAssetFromSelection({
     chapterId: selectedChapterId.value,
     content: snapshot.text,
@@ -10484,12 +9245,10 @@ function captureSelectionAsAsset() {
     snippet: snapshot.text,
     projectId: selectedBookId.value || null
   })
-
   if (!result.ok) {
     quickNoteStatus.value = result.message || '收为素材失败'
     return
   }
-
   quickNoteStatus.value = '已收为素材 · 跳转素材页'
   router.push({
     name: 'materials',
@@ -10502,7 +9261,6 @@ function captureSelectionAsAsset() {
     }
   })
 }
-
 function applyBackJumpToTextarea(jump) {
   if (notebookEditorActive.value && notebookEditorRef.value) {
     const offset = Math.max(0, Number(jump.offset) || 0)
@@ -10536,7 +9294,6 @@ function applyBackJumpToTextarea(jump) {
   selectedText.value = text.slice(start, end)
   syncCursorAndSelection()
 }
-
 // 一次性 query（selector/insert/session）消费后清空，但保留 bookId/chapterId
 // canonical 定位——工作台标签与刷新/深链都依赖这两个键。
 function clearTransientQuery() {
@@ -10545,7 +9302,6 @@ function clearTransientQuery() {
   if (selectedChapterId.value) nextQuery.chapterId = String(selectedChapterId.value)
   router.replace({ query: nextQuery })
 }
-
 function tryApplyPendingBackJump() {
   const jump = pendingBackJump.value
   if (!jump) return
@@ -10569,7 +9325,6 @@ function tryApplyPendingBackJump() {
     clearTransientQuery()
   })
 }
-
 watch(
   () => chapters.value.length,
   () => {
@@ -10577,7 +9332,6 @@ watch(
     if (pendingInsertBack.value) tryApplyPendingInsertBack()
   }
 )
-
 // Look up a chapter across every book in localStorage so the insert-back
 // query can target a chapter that lives outside the currently selected book
 // (the user may have left Writing on book B, opened Notes, then jumped back
@@ -10592,7 +9346,6 @@ function findChapterAcrossBooks(chapterId) {
   }
   return null
 }
-
 // Switch the active book to the one containing the given chapter. Used by
 // insert-back when the target chapter is not in the currently selected book.
 // Mirrors openBook's behavior (saves the current chapter first) but jumps to
@@ -10608,7 +9361,6 @@ function openBookAtChapter(bookId, chapterId) {
   }
   return true
 }
-
 // Workspace navigation owns URL ↔ selection sync and volatile return state.
 // The page retains the actual book/chapter/editor actions passed into it.
 workspaceNavigationController = useAuthoringWorkspaceNavigation({
@@ -10633,7 +9385,6 @@ workspaceNavigationController = useAuthoringWorkspaceNavigation({
   captureScrollState: captureWritingScrollState,
   restoreScrollState: restoreWritingScrollState
 })
-
 // W1 (2026-06-27) editor source round-trip: handle ?chapterId=...&insertAssetId=...
 // fired by Notes.vue's `insertAssetBackToSource`. Loads the asset, finds the
 // chapter (potentially across books), inserts the asset's content at the
@@ -10654,7 +9405,6 @@ function performInsertAtChapter(chapter, asset) {
     && !/\n\n$/.test(currentText)
   const insertion = (needsSeparator ? '\n\n' : '') + content + (needsSeparator ? '\n' : '')
   const result = spliceTextAt(currentText, insertion, offset)
-
   markdownContent.value = result.text
   recordChapterAssetSources([asset], chapter)
   syncMarkdownToEditor()
@@ -10663,7 +9413,6 @@ function performInsertAtChapter(chapter, asset) {
     quickNoteStatus.value = '素材已插入稿面但保存失败，请先重试保存'
     return false
   }
-
   if (editorRef.value) {
     nextTick(() => {
       const ta = editorRef.value
@@ -10683,16 +9432,13 @@ function performInsertAtChapter(chapter, asset) {
       syncCursorAndSelection()
     })
   }
-
   const where = offset === currentText.length ? '章节末尾' : `偏移 ${offset}`
   quickNoteStatus.value = `已插入素材 · ${asset.title || '未命名'} (${where})`
   return true
 }
-
 function tryApplyPendingInsertBack() {
   const ins = pendingInsertBack.value
   if (!ins) return
-
   const found = findChapterAcrossBooks(ins.chapterId)
   if (!found) {
     // Silently ignore — spec: missing chapter is a no-op, not an error.
@@ -10701,7 +9447,6 @@ function tryApplyPendingInsertBack() {
     return
   }
   const { book, chapter } = found
-
   // Load the asset by id regardless of status; listNarrativeAssets with
   // status=null returns all assets (no status filter applied).
   const asset = listNarrativeAssets({ status: null })
@@ -10712,7 +9457,6 @@ function tryApplyPendingInsertBack() {
     quickNoteStatus.value = '素材已被删除,已取消插入'
     return
   }
-
   const run = () => {
     nextTick(() => nextTick(() => {
       const ok = performInsertAtChapter(chapter, asset)
@@ -10721,22 +9465,18 @@ function tryApplyPendingInsertBack() {
       return ok
     }))
   }
-
   if (selectedBookId.value !== book.id) {
     openBookAtChapter(book.id, chapter.id)
     run()
     return
   }
-
   if (selectedChapterId.value !== chapter.id) {
     selectChapter(chapter.id)
     run()
     return
   }
-
   run()
 }
-
 function captureWritingScrollState() {
   const scrollElement = notebookEditorRef.value?.getScrollElement?.()
   return {
@@ -10744,7 +9484,6 @@ function captureWritingScrollState() {
     left: scrollElement?.scrollLeft || 0
   }
 }
-
 function restoreWritingScrollState(snapshot) {
   if (!snapshot) return
   nextTick(() => requestAnimationFrame(() => {
@@ -10755,11 +9494,9 @@ function restoreWritingScrollState(snapshot) {
     }
   }))
 }
-
 function onWritingCompositionEnd() {
   writingAgentHost.notifyCompositionEnd()
 }
-
 function onWritingBeforeInput(event) {
   // Teleport 的推演草稿/输入区实际挂在编辑器 widget 内，beforeinput 会沿
   // Editor 根的 capture 监听器经过。中文引号转换只能接管 ProseMirror 正文，
@@ -10797,17 +9534,14 @@ function onWritingBeforeInput(event) {
   if (insertion.text && !editor.insertPlainText(insertion.text)) return
   editor.setSelection(insertion.caret, insertion.caret)
 }
-
 function onWritingPaste() {
   writingAgentHost.notifyPaste()
 }
-
 function handleNotebookScrollOwner(event = {}) {
   // 光标越过视口边缘时浏览器会自动跟随滚动；这仍属于 cursor dwell，
   // 不能把刚排入的联想取消。只有 wheel/touch/滚动条这类显式浏览动作才暂停。
   if (event.source === 'user') writingAgentHost.notifyUserScroll()
 }
-
 function onNotebookCompositionChange(active, meta = {}) {
   if (active) {
     writingAgentHost.notifyCompositionStart()
@@ -10819,16 +9553,13 @@ function onNotebookCompositionChange(active, meta = {}) {
   }
   onWritingCompositionEnd()
 }
-
 function onNotebookCommandMenuChange(open) {
   notebookCommandMenuOpen.value = Boolean(open)
   writingAgentHost.notifyCommandMenu(open)
 }
-
 function handleBlockedStructureEdit() {
   authoringTask.notify('文本块边界受当前场与批注保护；请用右键菜单显式拆分、合并或移动文本块')
 }
-
 // 行内助手的主来源窄接口:落笔处身份(ghost target)、书与光标只在此读一次,
 // 调度 payload 与请求快照(getSnapshot)共用,不再各自读 markdownContent/target。
 function readWritingAgentSource(cursorPos = copilotCursorPos.value) {
@@ -10836,7 +9567,6 @@ function readWritingAgentSource(cursorPos = copilotCursorPos.value) {
   const book = books.value.find((item) => String(item.id) === String(target.projectId))
   return { cursorPos, target, book }
 }
-
 function buildPassiveAgentInput(cursorPos) {
   const { target, book } = readWritingAgentSource(cursorPos)
   const currentNodeText = notebookEditorActive.value
@@ -10861,7 +9591,6 @@ function buildPassiveAgentInput(cursorPos) {
     currentNodeEmpty: !currentNodeText.trim()
   }
 }
-
 function readLiveWritingCursorSnapshot() {
   if (notebookEditorActive.value) {
     const snapshot = readLiveWritingSelectionSnapshot()
@@ -10880,14 +9609,12 @@ function readLiveWritingCursorSnapshot() {
     text: selectionEnd > selectionStart ? text.slice(selectionStart, selectionEnd) : ''
   }
 }
-
 // 光标同步与工具栏选区状态的页面耦合点;调度/取消决策不再进页面。
 function syncCursorAndSelection(options = {}) {
   const snapshot = writingAgentHost.syncCursor(options)
   selectedText.value = snapshot.text
   return snapshot
 }
-
 function acceptWritingSuggestion(mode = 'all') {
   if (notebookEditorActive.value && notebookEditorRef.value) {
     const inserted = writingAgentPeek(mode)
@@ -10944,7 +9671,6 @@ function acceptWritingSuggestion(mode = 'all') {
     }
   })
 }
-
 function retryCopilotSuggestion() {
   syncCursorAndSelection()
   if (copilotManualTrigger() === false) return
@@ -10953,11 +9679,9 @@ function retryCopilotSuggestion() {
     else editorRef.value?.focus()
   })
 }
-
 function clipboardReadAvailable() {
   return typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function'
 }
-
 function refreshNotebookCommandAvailability() {
   const resolved = notebookEditorRef.value?.getCommandAvailability?.() || {}
   notebookCommandAvailability.value = {
@@ -10967,12 +9691,10 @@ function refreshNotebookCommandAvailability() {
   }
   return notebookCommandAvailability.value
 }
-
 function onNotebookReady() {
   scheduleAnnotationLayout()
   nextTick(refreshNotebookCommandAvailability)
 }
-
 function clampContextMenuPosition() {
   const element = contextMenuRef.value
   if (!element || !contextMenu.value.show) return
@@ -11008,15 +9730,12 @@ function clampContextMenuPosition() {
   contextMenu.value.x = Math.round(clampedVisualX / scale)
   contextMenu.value.y = Math.round(clampedVisualY / scale)
 }
-
 function handleContextMenuViewportChange() {
   if (contextMenu.value.show) nextTick(clampContextMenuPosition)
 }
-
 function contextMenuKeyboardItems() {
   return Array.from(contextMenuRef.value?.querySelectorAll?.('.ctx-item:not(:disabled)') || [])
 }
-
 function focusContextMenuItem(index = 0) {
   const items = contextMenuKeyboardItems()
   if (!items.length) {
@@ -11027,7 +9746,6 @@ function focusContextMenuItem(index = 0) {
   items[safeIndex]?.focus?.({ preventScroll: true })
   return true
 }
-
 function closeContextMenuFromKeyboard() {
   if (!contextMenu.value.show) return
   const snapshot = { ...contextMenu.value }
@@ -11038,19 +9756,16 @@ function closeContextMenuFromKeyboard() {
   if (!restoreContextMenuTarget(snapshot)) return
   notebookEditorRef.value?.focus?.({ scrollIntoView: false })
 }
-
 function handleContextMenuKeydown(event) {
   if (!contextMenu.value.show || isWritingCompositionKey(event)) return
   const items = contextMenuKeyboardItems()
   const currentIndex = items.indexOf(document.activeElement)
-
   if (event.key === 'Escape') {
     event.preventDefault()
     event.stopPropagation()
     closeContextMenuFromKeyboard()
     return
   }
-
   if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) {
     event.preventDefault()
     event.stopPropagation()
@@ -11061,7 +9776,6 @@ function handleContextMenuKeydown(event) {
     focusContextMenuItem((currentIndex < 0 ? (direction > 0 ? -1 : 0) : currentIndex) + direction)
     return
   }
-
   // 菜单显示时键盘 owner 必须是菜单。即使浏览器/测试环境没有及时把
   // focus 移到按钮，也不能让 Backspace、正文字符或 Ctrl/Cmd+Z 穿透到
   // 仍保存着旧 selection 的 ProseMirror。
@@ -11071,14 +9785,12 @@ function handleContextMenuKeydown(event) {
     focusContextMenuItem(0)
     return
   }
-
   const commandKey = (event.ctrlKey || event.metaKey) && ['z', 'y', 'x', 'v'].includes(event.key.toLowerCase())
   if (commandKey || ['Backspace', 'Delete'].includes(event.key)) {
     event.preventDefault()
     event.stopPropagation()
   }
 }
-
 async function writeClipboardText(value) {
   const text = String(value || '')
   if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
@@ -11101,12 +9813,10 @@ async function writeClipboardText(value) {
   if (!copied) throw new Error('clipboard-write-unavailable')
   return true
 }
-
 async function readClipboardText() {
   if (!clipboardReadAvailable()) throw new Error('clipboard-read-unavailable')
   return navigator.clipboard.readText()
 }
-
 function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scrollIntoView = false } = {}) {
   const revisionStale = requireCurrentDocument
     && String(snapshot?.documentRevision || '') !== String(currentDocumentRevision())
@@ -11129,13 +9839,11 @@ function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scr
   }
   return true
 }
-
 function restoreEditorAfterContextMenu(snapshot) {
   const restored = restoreContextMenuTarget(snapshot, { scrollIntoView: false })
   nextTick(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false }))
   return restored
 }
-
 function showContextMenu(e, meta = {}) {
   if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return
   writingAgentHost.notifyContextMenuOpen()
@@ -11171,7 +9879,6 @@ function showContextMenu(e, meta = {}) {
     focusContextMenuItem(0)
   })
 }
-
 async function ctxAction(action) {
   if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return false
   const snapshot = { ...contextMenu.value }
@@ -11181,7 +9888,6 @@ async function ctxAction(action) {
     restoreEditorAfterContextMenu(snapshot)
     return false
   }
-
   const availabilityKey = action === 'delete' ? 'deleteSelection' : action
   if (
     ['cut', 'copy', 'paste', 'delete'].includes(action)
@@ -11190,7 +9896,6 @@ async function ctxAction(action) {
     restoreEditorAfterContextMenu(snapshot)
     return false
   }
-
   try {
     if (action === 'copy') {
       await writeClipboardText(snapshot.selectedText)
@@ -11218,7 +9923,6 @@ async function ctxAction(action) {
     restoreEditorAfterContextMenu(snapshot)
     return false
   }
-
   if (action === 'undo') return undoNotebookEdit()
   if (action === 'redo') return redoNotebookEdit()
   if (action === 'selectAll') return Boolean(notebookEditorRef.value.selectAll?.())
@@ -11230,17 +9934,14 @@ async function ctxAction(action) {
   if (action === 'moveUnitDown') return Boolean(notebookEditorRef.value.moveWritingUnit?.('down'))
   return false
 }
-
 function getEditorText() {
   return markdownToPlainText(markdownContent.value || '')
 }
-
 function onNotebookMarkdown(markdown) {
   markdownContent.value = String(markdown || '')
   editorContent.value = markdownToHtml(markdownContent.value)
   onContentChange()
 }
-
 function onNotebookDocumentUpdate(document, transition = null) {
   const previousDocument = writingDocument.value
   previousNotebookDocument = previousDocument
@@ -11253,7 +9954,6 @@ function onNotebookDocumentUpdate(document, transition = null) {
   scheduleAnnotationLayout()
   nextTick(refreshNotebookCommandAvailability)
 }
-
 function onNotebookUnitTransition(transition) {
   const structural = ['split', 'merge', 'move', 'delete', 'clear', 'replace-all'].includes(String(transition?.type || ''))
   const beforeDocument = previousNotebookDocument
@@ -11303,14 +10003,12 @@ function onNotebookUnitTransition(transition) {
   markRewriteCandidatesStale()
   scheduleAnnotationLayout()
 }
-
 // 文档单元顺序（投影锚点解析用）。
 function documentUnitOrder() {
   return (Array.isArray(writingDocument.value?.content) ? writingDocument.value.content : [])
     .map((unit) => unit?.attrs?.unitId)
     .filter(Boolean)
 }
-
 function onNotebookSelectionChange(selection) {
   const transactionOwned = writingAgentHost.isAdoptionInFlight() || applyingAtomicNotebookHistory
   notebookSelection.value = selection
@@ -11337,7 +10035,6 @@ function onNotebookSelectionChange(selection) {
     ))?.id || null
   }
 }
-
 function positionSelectionActions(selection) {
   // 画师是覆盖整个写作工作台的 modal owner。编辑器在失焦和图片加载时
   // 仍可能补发 selectionchange；这些迟到事件不能让正文浮条穿透到画师上层。
@@ -11387,7 +10084,6 @@ function positionSelectionActions(selection) {
     hideSelectionActions()
   }
 }
-
 function handleWritingWorkspaceScroll(event) {
   const scrollTarget = event?.target instanceof Element ? event.target : null
   if (scrollTarget && contextMenuRef.value?.contains?.(scrollTarget)) return
@@ -11397,11 +10093,9 @@ function handleWritingWorkspaceScroll(event) {
   positionSelectionActions(notebookEditorRef.value?.getSelection?.())
   scheduleAnnotationLayout()
 }
-
 function hideSelectionActions() {
   selectionActionsVisible.value = false
 }
-
 function dismissSelectionActions(event) {
   const target = event.target instanceof Element ? event.target : null
   // U03：搜索面板内的点击（含关闭）不视为"放弃选区"——面板关闭后如果
@@ -11409,35 +10103,29 @@ function dismissSelectionActions(event) {
   if (target?.closest('.writing-selection-actions, .writing-notebook-editor__surface, [data-test="authoring-search-panel"]')) return
   hideSelectionActions()
 }
-
 function openAnnotationFromSelectionMenu() {
   hideSelectionActions()
   openAnnotationInspector()
 }
-
 function captureSelectionFromMenu() {
   hideSelectionActions()
   captureSelectionAsAsset()
 }
-
 const quickAiRewriteInstructions = {
   'ai-rewrite-previous': '改写上一段，保持事实、视角和人物语气不变，改善句式、节奏与上下文衔接。',
   'ai-expand-previous': '扩写上一段，补足必要动作、感官和因果信息，不添加无依据的新设定，不重复已有描写。',
   'ai-shorten-previous': '精简上一段，删除重复解释、弱信息和拖沓动作，保留关键事实、人物语气与必要意象。'
 }
-
 async function handleNotebookWritingCommand(command = {}) {
   if (command.id === 'ai-continue') {
     openBlockComposer({ ...notebookSelection.value, ...command })
     return
   }
-
   if (command.id === 'ai-review-chapter') {
     freezeReviewSource()
     openReviewPanel()
     return
   }
-
   const instruction = quickAiRewriteInstructions[command.id]
   const previousNode = command.previousNode
   const previousNodeId = previousNode?.nodeId
@@ -11445,13 +10133,11 @@ async function handleNotebookWritingCommand(command = {}) {
     quickNoteStatus.value = '上一段没有可交给 AI 修改的正文。'
     return
   }
-
   const target = getNodeRewriteTarget(previousNodeId)
   if (!target?.text?.trim()) {
     quickNoteStatus.value = '无法定位上一段，请把光标放回正文后重试。'
     return
   }
-
   resetRewriteState()
   const context = buildFullNodeAnnotationContext(target)
   const annotation = addAnnotation({
@@ -11468,7 +10154,6 @@ async function handleNotebookWritingCommand(command = {}) {
   scheduleAnnotationLayout()
   await generateRewriteCandidates(rewriteTarget.value)
 }
-
 function openAnnotationInspector() {
   const context = getAnnotationSelectionContext()
   const scrollState = captureWritingScrollState()
@@ -11487,12 +10172,10 @@ function openAnnotationInspector() {
     restoreWritingScrollState(scrollState)
   }))
 }
-
 function handleInlineAnnotationClick(annotationId) {
   const annotation = activeEditorAnnotations.value.find((item) => item.id === annotationId)
   if (annotation) locateAnnotation(annotation)
 }
-
 function openWorldbookMentionDetail(payload) {
   const entryId = typeof payload === 'object' ? payload?.entryId : payload
   const entryIds = typeof payload === 'object' && Array.isArray(payload?.entryIds)
@@ -11508,29 +10191,24 @@ function openWorldbookMentionDetail(payload) {
   if (!openInspectorTool('worldbook')) return
   if (entryIds.length === 1) nextTick(() => { inspectorWorldbookEntryId.value = entryIds[0] })
 }
-
 function getWritingNodeText(node) {
   return (node?.content || []).map((item) => item?.text || '').join('')
 }
-
 function getWritingNodeById(nodeId) {
   if (!nodeId) return null
   return (writingDocument.value?.content || [])
     .flatMap((unit) => unit?.content || [])
     .find((node) => node?.attrs?.nodeId === nodeId) || null
 }
-
 function getWritingUnitByNodeId(nodeId) {
   return (writingDocument.value?.content || [])
     .find((unit) => (unit.content || []).some((node) => node?.attrs?.nodeId === nodeId)) || null
 }
-
 function buildRewriteSelectionNodes(startNodeId, endNodeId, selection) {
   const descriptors = getCurrentWritingNodeDescriptors()
   const startIndex = descriptors.findIndex((node) => node.nodeId === startNodeId)
   const endIndex = descriptors.findIndex((node) => node.nodeId === endNodeId)
   if (startIndex < 0 || endIndex < startIndex) return []
-
   const notebook = notebookEditorActive.value && notebookSelection.value === selection
   const startEditorNode = notebookEditorRef.value?.findNodeRange?.(startNodeId)
   const endEditorNode = notebookEditorRef.value?.findNodeRange?.(endNodeId)
@@ -11542,7 +10220,6 @@ function buildRewriteSelectionNodes(startNodeId, endNodeId, selection) {
   const endOffset = notebook
     ? Math.max(0, Number(selection.to || endEditorNode?.from || 0) - Number(endEditorNode?.from || 0))
     : Math.max(0, Number(selection.end || 0) - last.start)
-
   return descriptors.slice(startIndex, endIndex + 1).map((node, index, selectedNodes) => {
     const isFirst = index === 0
     const isLast = index === selectedNodes.length - 1
@@ -11576,13 +10253,11 @@ function buildRewriteSelectionNodes(startNodeId, endNodeId, selection) {
     }
   })
 }
-
 function getCurrentRewriteTarget() {
   if (!selectedChapterId.value) return null
   const selection = readLiveWritingSelectionSnapshot()
   const block = getWritingBlockAtPosition(selection.start, markdownContent.value)
   if (!block?.nodeId) return null
-
   if (selection.hasSelection && selection.text.trim()) {
     const notebookRange = notebookEditorActive.value ? notebookSelection.value : null
     const startNodeId = notebookRange?.startNodeId || selection.nodeId || block.nodeId
@@ -11631,7 +10306,6 @@ function getCurrentRewriteTarget() {
       documentRevision: Number(writingDocument.value?.revision || 0)
     }
   }
-
   return {
     kind: 'block',
     chapterId: selectedChapterId.value,
@@ -11645,7 +10319,6 @@ function getCurrentRewriteTarget() {
     documentRevision: currentDocumentRevision()
   }
 }
-
 function getNodeRewriteTarget(nodeId) {
   if (!selectedChapterId.value || !nodeId) return null
   const node = getCurrentWritingNodeDescriptors().find((item) => item.nodeId === nodeId)
@@ -11663,29 +10336,24 @@ function getNodeRewriteTarget(nodeId) {
     documentRevision: Number(writingDocument.value?.revision || 0)
   }
 }
-
 function getRewriteTargetFromAnnotation(annotation) {
   if (!annotation || !selectedChapterId.value) return null
   const resolved = resolveWritingAnnotation(annotation, writingDocument.value)
   if (!resolved || resolved.status === 'orphaned') return null
-
   const startNodeId = resolved.range?.start?.nodeId || resolved.target?.nodeId
   const endNodeId = resolved.range?.end?.nodeId || startNodeId
   if (!startNodeId || startNodeId !== endNodeId) return null
-
   const node = getWritingNodeById(startNodeId)
   const unit = getWritingUnitByNodeId(startNodeId)
   const nodeText = getWritingNodeText(node)
   const rawStart = resolved.range?.start?.offset ?? resolved.selector?.start
   const rawEnd = resolved.range?.end?.offset ?? resolved.selector?.end
   if (!Number.isFinite(Number(rawStart)) || !Number.isFinite(Number(rawEnd))) return null
-
   const startOffset = Math.max(0, Math.min(nodeText.length, Number(rawStart)))
   const endOffset = Math.max(startOffset, Math.min(nodeText.length, Number(rawEnd)))
   if (startOffset === 0 && endOffset === nodeText.length) {
     return getNodeRewriteTarget(startNodeId)
   }
-
   const start = getWritingMarkdownPosition(writingDocument.value, startNodeId, startOffset)
   const end = getWritingMarkdownPosition(writingDocument.value, startNodeId, endOffset)
   const editorNode = notebookEditorRef.value?.findNodeRange?.(startNodeId)
@@ -11708,7 +10376,6 @@ function getRewriteTargetFromAnnotation(annotation) {
     documentRevision: Number(writingDocument.value?.revision || 0)
   }
 }
-
 function getCurrentRewriteComparison(targetOverride = null) {
   const target = targetOverride || rewriteTarget.value
   if (!target) return null
@@ -11771,13 +10438,11 @@ function getCurrentRewriteComparison(targetOverride = null) {
     text
   }
 }
-
 function commitRewriteCandidate(candidate, target) {
   if (rejectLockedNotebookMutation()) return { ok: false, silent: true }
   if (!protectCurrentRewrite(candidate)) {
     return { ok: false, message: '无法保存改写前版本，正文没有变化。' }
   }
-
   const before = markdownContent.value
   let applied = false
   if (notebookEditorActive.value && candidate.kind === 'multi-selection') {
@@ -11827,16 +10492,13 @@ function commitRewriteCandidate(candidate, target) {
     onContentChange()
     applied = true
   }
-
   return applied
     ? { ok: true }
     : { ok: false, message: '编辑器没有接受这次改写，请重新生成。' }
 }
-
 function freezeReviewSource() {
   freezeReviewWorkflow(captureActiveReviewSource(), captureCurrentWritingSurface())
 }
-
 function captureAuthoringSearchLiveSources() {
   const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]
     .filter((source) => source?.document && String(source.projectId || '') === String(selectedBookId.value || ''))
@@ -11850,7 +10512,6 @@ function captureAuthoringSearchLiveSources() {
     }))
   return sources
 }
-
 async function selectMainSearchTarget(finding) {
   const target = finding?.target || {}
   if (target.sourceKind === 'manuscript') {
@@ -11877,7 +10538,6 @@ async function selectMainSearchTarget(finding) {
   if (selected) notebookEditorRef.value?.focus?.()
   return Boolean(selected)
 }
-
 function persistSearchEditorsBeforeReplace(setError) {
   if (historyInteractionLocked.value || writingCompositionActive.value || dualCompositionActive.value) {
     setError('正文正在输入或提交，请完成当前操作后再替换。')
@@ -11893,13 +10553,12 @@ function persistSearchEditorsBeforeReplace(setError) {
   }
   return true
 }
-
 function createSearchProtectionSnapshots(plan, book, index) {
   for (const chapterPlan of plan.chapters || []) {
     const chapter = (book.chapters || []).find((item) => String(item?.id || '') === String(chapterPlan.chapterId || ''))
     const source = index?.manuscripts?.find((item) => String(item?.chapterId || '') === String(chapterPlan.chapterId || ''))
     if (!chapter || !source?.document) return false
-    const protection = recordWritingProtectionSnapshot({
+    const protection = authoringHistory.recordProtection({
       chapterId: chapter.id,
       chapterTitle: chapter.title,
       reason: 'before-rewrite',
@@ -11913,7 +10572,6 @@ function createSearchProtectionSnapshots(plan, book, index) {
   }
   return true
 }
-
 function reloadMainChapterAfterSearchReplace(chapter) {
   if (!chapter || wt3ActiveDoc.value) return
   currentChapterTitle.value = chapter.title || ''
@@ -11927,7 +10585,6 @@ function reloadMainChapterAfterSearchReplace(chapter) {
   loadChapterSnapshots(chapter.id)
   fenceNotebookHistory()
 }
-
 function afterSearchReplace({ applied, latestBook, nextBooks }) {
   for (const chapterReceipt of applied.receipt.chapters || []) {
     const beforeChapter = (latestBook.chapters || []).find((item) => String(item.id) === String(chapterReceipt.chapterId))
@@ -11940,7 +10597,7 @@ function afterSearchReplace({ applied, latestBook, nextBooks }) {
       nextDocument: afterChapter.editorDocument,
       source: 'search-replace'
     })
-    if (entries.length) appendWritingBlockHistory(entries)
+    if (entries.length) authoringHistory.appendBlockEntries(entries)
     rememberPendingObserverNodes(chapterReceipt.chapterId, (chapterReceipt.changedNodes || []).map((node) => ({
       nodeId: node.nodeId,
       text: node.afterText,
@@ -11948,7 +10605,6 @@ function afterSearchReplace({ applied, latestBook, nextBooks }) {
       unitRevision: Number(afterChapter.editorDocument.content.find((unit) => unit?.attrs?.unitId === node.unitId)?.attrs?.unitRevision || 0)
     })))
   }
-
   books.value = nextBooks
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
   chapters.value = nextBook?.chapters || []
@@ -11968,15 +10624,14 @@ function afterSearchReplace({ applied, latestBook, nextBooks }) {
       })
     }
   }
-  writingBlockHistory.value = selectedChapterId.value ? listWritingBlockHistory(selectedChapterId.value) : []
-  writingSnapshots.value = selectedChapterId.value ? listWritingSnapshots(selectedChapterId.value) : []
+  writingBlockHistory.value = selectedChapterId.value ? authoringHistory.refreshBlockHistory(selectedChapterId.value) : []
+  writingSnapshots.value = selectedChapterId.value ? authoringHistory.refreshSnapshots(selectedChapterId.value) : []
   void gameStore.handleAuthoringProseUndo({
     sourceRefs: applied.receipt.affectedUnitRefs || [],
     revision: currentDocumentRevision(),
     reason: 'search-replace'
   }).catch(() => {})
 }
-
 async function restoreSearchSurface(surface) {
   if (surface?.pane === 'dual') return Boolean(await dualPaneRef.value?.restoreSurfaceState?.(surface))
   let previousEditor = null
@@ -11989,7 +10644,6 @@ async function restoreSearchSurface(surface) {
   }
   return restoreMainWritingSurfaceWhenReady(surface, { previousEditor })
 }
-
 function createAuthoringSearchWorkflow() {
   return useAuthoringSearchWorkflow({
     getSelectedBookId: () => selectedBookId.value,
@@ -12027,7 +10681,6 @@ function createAuthoringSearchWorkflow() {
     afterReplace: (result) => afterSearchReplace(result)
   })
 }
-
 function startRewriteFromAnnotation(annotation) {
   if (!annotation || annotation.status === 'orphaned') return
   const anchoredTarget = getRewriteTargetFromAnnotation(annotation)
@@ -12045,19 +10698,16 @@ function startRewriteFromAnnotation(annotation) {
     scheduleAnnotationLayout()
   }))
 }
-
 function closeAnnotationRewrite() {
   resetRewriteState()
   scheduleAnnotationLayout()
 }
-
 function locateAnnotation(annotation, { tab = 'comments' } = {}) {
   if (!annotation) return
   closeAnnotationComposer({ restoreFocus: false })
   activeAnnotationId.value = annotation.id
   if (!openInspectorTool('annotations', { baseView: tab })) return
   if (annotation.status === 'orphaned') return
-
   const exact = annotation.selector?.exact
   const range = annotation.range
   if (!exact && !range?.exact) return
@@ -12087,14 +10737,12 @@ function locateAnnotation(annotation, { tab = 'comments' } = {}) {
     notebookEditorRef.value?.focus?.()
   })
 }
-
 function handleAnnotationKeydown(event, annotation, index) {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
     locateAnnotation(annotation)
     return
   }
-
   const annotations = marginAnnotations.value
   if (!annotations.length) return
   let nextIndex = index
@@ -12103,13 +10751,11 @@ function handleAnnotationKeydown(event, annotation, index) {
   if (event.key === 'Home') nextIndex = 0
   if (event.key === 'End') nextIndex = annotations.length - 1
   if (nextIndex === index) return
-
   event.preventDefault()
   const cards = Array.from(event.currentTarget?.parentElement?.querySelectorAll('.writing-annotation') || [])
   cards[nextIndex]?.focus()
   activeAnnotationId.value = annotations[nextIndex].id
 }
-
 function onNotebookInput(payload = {}) {
   // Ghost 采纳窗口内：编辑器插入及其 focus 事务都会以普通 'input' 冒出，
   // 这里只同步光标；任何清候选/失效回执/新联想都会把刚要 consume 的建议清空，
@@ -12128,7 +10774,6 @@ function onNotebookInput(payload = {}) {
   }
   writingAgentHost.notifyEditorInput(payload)
 }
-
 function syncMarkdownToEditor({ fenceHistory = true } = {}) {
   editorContent.value = markdownToHtml(markdownContent.value || '')
   if (notebookEditorActive.value) {
@@ -12142,7 +10787,6 @@ function syncMarkdownToEditor({ fenceHistory = true } = {}) {
     }
   }
 }
-
 function syncFromCurrentEditor() {
   if (notebookEditorActive.value) {
     editorContent.value = markdownToHtml(markdownContent.value || '')
@@ -12152,17 +10796,14 @@ function syncFromCurrentEditor() {
     editorContent.value = markdownToHtml(markdownContent.value || '')
   }
 }
-
 function markdownToHtml(md) {
   if (!md) return ''
   return sanitizeHtml(marked.parse(md))
 }
-
 function htmlToMarkdown(html) {
   if (!html) return ''
   return turndownService.turndown(html).replace(/\n{3,}/g, '\n\n')
 }
-
 function markdownToPlainText(md) {
   if (!md) return ''
   if (typeof document === 'undefined') return md
@@ -12170,7 +10811,6 @@ function markdownToPlainText(md) {
   div.innerHTML = markdownToHtml(md)
   return div.innerText || ''
 }
-
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {
   contextMenu.value.show = false
@@ -12181,8 +10821,6 @@ function onGlobalClick() {
   closeShelfContextMenu()
   hasSelection.value = false
 }
-
-
 </script>
 
 <style scoped src="./Writing.scoped.css">

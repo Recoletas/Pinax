@@ -153,7 +153,7 @@ export function generateWritingNames({ category = 'person', language = 'chinese'
   return result
 }
 
-export function explainWritingName({ category = 'person', value = '', index = 0 } = {}) {
+export function explainWritingName({ category = 'person', index = 0 } = {}) {
   const reasons = CATEGORY_REASONS[category] || CATEGORY_REASONS.person
   return reasons[Math.max(0, Number(index) || 0) % reasons.length]
 }

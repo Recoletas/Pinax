@@ -4,7 +4,7 @@
 **Status**: Draft v1 — pending user review
 **Stage**: 方案
 **Research source**: `https://github.com/alfredxw/nova` cloned read-only at `/tmp/nova-research`
-**Scope (in)**: `src/services/{contextLedger,runtimeEvents,memoryCandidates}.js`, `src/services/worldbookContextBuilder.js`, `src/stores/gameStore.js`, focused tests under `src/__tests__/`
+**Scope (in)**: `src/services/{contextLedger,runtimeEvents,memoryCandidates}.js`, `src/services/worldbook/worldbookContextBuilder.js`, `src/stores/gameStore.js`, focused tests under `src/__tests__/`
 **Scope (out)**: `/opening` visual layout, `/experience` opening-route split, React/Tailwind UI patterns from Nova, Go backend rewrite, filesystem workspace migration, full branch timeline UI.
 
 ## 重点
@@ -104,7 +104,7 @@ Hard constraints:
 
 ### B. Worldbook ledger integration
 
-Modify `src/services/worldbookContextBuilder.js`.
+Modify `src/services/worldbook/worldbookContextBuilder.js`.
 
 `buildWorldbookContext()` returns one new field:
 
@@ -149,7 +149,7 @@ Store it on `this.lastContextLedger`. Do not write ledger history to localStorag
 
 ### D. Runtime event envelope
 
-Create `src/services/runtimeEvents.js`.
+Create `src/services/experience/runtimeEvents.js`.
 
 Event envelope:
 
@@ -201,7 +201,7 @@ No branch-switch UI, no projection-driven rendering, and no rewrite/regenerate b
 
 ### E. Memory recall ranking
 
-Modify `src/services/memoryCandidates.js`.
+Modify `src/services/memory/memoryCandidates.js`.
 
 Add:
 

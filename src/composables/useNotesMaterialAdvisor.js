@@ -4,7 +4,7 @@ import {
   deleteNarrativeAssetDurable,
   listNarrativeAssets,
   updateNarrativeAssetDurable
-} from '../services/narrativeAssets'
+} from '../services/media/narrativeAssets'
 import {
   buildMaterialsAgentContext,
   createContentRevision

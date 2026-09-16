@@ -57,8 +57,8 @@ AI request
 | 世界书、条目、结构化设定 | `src/stores/worldStore.js` 的 durable mutation owner | `worldbook_*` + index keys | 项目模式必须由 bookId 解析绑定 worldbookId；本体/索引/active 指针失败时回滚 |
 | 工作台标签 | `src/stores/workspaceTabsStore.js` + `workspaceRouteAdapter` | 安全导航快照 | URL 是导航真源；selection/scroll 只存内存 ledger |
 | 当前场、推演、干预 | `src/services/agents/authoring/` 中的 session/projection/transaction | 正式现场有限持久化；Ghost/session 多为内存 | provider 前后都要核对 revision |
-| 素材 | `src/services/narrativeAssets.js` | localStorage | AI 输出先是候选，不直接成为正文/世界事实 |
-| 来源文档、媒体二进制 | 对应 source archive / `src/services/media/mediaAssetStore.js` | IndexedDB | JSON 书稿备份目前不包含这些二进制 |
+| 素材 | `src/services/media/narrativeAssets.js` | localStorage | AI 输出先是候选，不直接成为正文/世界事实 |
+| 来源文档、媒体二进制 | `src/services/worldbook/worldbookSourceArchive.js` / `src/services/media/mediaAssetStore.js` | IndexedDB | 轻量 JSON 不含二进制；完整工作区 ZIP 会连同来源归档和已落盘媒体导出 |
 | 体验运行时 | `src/stores/gameStore.js` | localStorage | 兼容能力；不能反向成为 Authoring 的稿件真源 |
 | 地图 | `src/stores/geographyStore.js` + `src/services/world-map/` | localStorage / worldbook projection | 地图生成事实与作者确认的世界事实分开 |
 | UI 主题与排版 | `themeStore` / `writingTypographyStore` | localStorage | 当前只有一套 Pinax 视觉，保留亮暗与缩放 |
@@ -101,16 +101,16 @@ AI request
 
 ## 6. 当前结构健康度
 
-静态生产 import 图（2026-09-14）没有发现循环依赖，这是当前架构仍可演进的重要基础。真正的问题是体量和所有权可见性：
+静态生产 import 图（2026-09-16）没有发现循环依赖。结构预算由 `scripts/architecture/structure-budget-check.mjs` 在 CI 中强制执行：
 
 | 热点 | 当前规模 | 判断 |
 | --- | ---: | --- |
-| `Authoring.vue` | 12,192 行 | 仍是最大组合根；初载/换书事务和右栏打开顺序已有 owner，剩余主要是编辑器 DOM 适配、模板与跨能力接线 |
-| `Notes.vue` | 4,263 行 | catalog/editor 与插画 pointer/selection/context-menu 会话已拆开；DOM 渲染和 sidekick 仍在页面 |
-| `Experience.vue` | 4,439 行 | 兼容运行时仍重，不能继续承接新写作功能 |
-| `ProseEssay.vue` | 4,395 行 | 交互状态仍在页面；七类持久键、序列化和失败回滚已归 `canvas/proseCanvasRepository` |
-| `gameStore.js` | 2,990 行 | store 保留 action/state 应用；完整 turn 的准备、流式、提交和回滚归 `experienceTurnCoordinator` |
-| `src/services/` 根层 | 42 个文件 | 低 fan-in canvas/experience/worldbook 文件已归域；根层只继续处理高 fan-in 或跨域历史文件 |
+| `Authoring.vue` | 10,832 行 / 111 imports | 历史恢复、插画 host、知识 reader 和共同排演 controller 已迁出；页面保留编辑器 DOM 与路由级装配 |
+| `Notes.vue` | 1,530 行 / 18 imports | 编辑工作区是真实组件边界；插画 workspace 统一现有交互 owner 的清理与生命周期 |
+| `Experience.vue` | 3,547 行 / 21 imports | auto advance、Codex、session、quick capture 会话均有独立 owner |
+| `ProseEssay.vue` | 2,785 行 / 18 imports | pointer/edge 会话与导演导出交接分别由 composable 管理 |
+| `gameStore.js` | 1,636 行 / 29 imports | 涌现、冒险触发、分支事务、观察器和机制投影下沉到 experience coordinator/workflow |
+| `src/services/` 根层 | 14 个 JS 文件 | memory/writing/worldbook/media/canvas/experience 已归域；旧根路径零引用 |
 
 本轮已经删除生产图完全不可达的旧 Writing wrapper、旧 Settings modal、旧 SidePanel、Kao/folio 残壳、旧 Authoring reference picker 和无人消费的体验素材 summarizer。仍只被测试引用的旧纯合同不在本轮硬删：它们需要先判断是迁移合同、未来能力还是废弃测试，不能用“没有页面 import”一刀切。
 
@@ -139,11 +139,13 @@ AI request
 17. ✅ durable mutation result：书稿、历史、素材、世界书与散文画布已有可判定结果。世界书本体先写而索引失败时恢复本体、索引、active 快照；旧 API 只做兼容解包，不再形成第二条写路径。
 18. ✅ `useAuthoringBookActivation`：首载 query、旧章保存/boundary、换书作用域清理、世界书同步和首章选择成为一个事务 owner；章节内容 hydration 仍由编辑器 adapter 负责。
 19. ✅ inspector open ordering：深链接、双栏、现场、推演、批注、设定和共同排演统一经 `openInspectorTool`；离开双栏先 `prepareClose`，离开现场草稿先 discard，不再由各 open helper 自行排列关闭语句。
+20. ✅ 历史与恢复：`AuthoringHistoryPanel` 持有完整可见交互，`useAuthoringHistoryWorkflow` 持有加载、快照、恢复计划、偏好与状态；autosave/recovery timer 仍只属于 persistence owner。
+21. ✅ 插画、知识与共同排演：`useAuthoringIllustrator` 持有冻结来源、生成回执、素材/正文采用和焦点恢复；`authoringKnowledgeReaderHost` 纯组装 reader/facade；`useAuthoringCollaborationWorkflow` 持有 feature gate、订阅、房间动作、迟到回执与 dispose。
 每片要求：减少页面自有状态/过渡逻辑与总行数，不以新增一个显式 composable import 伪装成退步；不得新增第二套 reactive snapshot；既有浏览器 Gate 保持同等行为覆盖。
 
-### B. 根层 services 归域（v1 完成）
+### B. 根层 services 归域（完成并受预算约束）
 
-canvas、Experience 与低 fan-in worldbook 服务已完成纯路径归域，根文件从 67 个降至 42 个。`api.js`、`narrativeAssets.js`、`worldbookContextBuilder.js` 等高 fan-in 文件保留，避免为了目录外观制造跨域反向依赖。生命周期清单见 `src/services/README.md`。
+memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯路径归域，根层 JS 从计划基线 42 个降至 14 个；生产相对 import 图保持 0 cycle，production 对 experimental 保持 0 边。生命周期清单见 `src/services/README.md`。
 
 ### C. 兼容/试验合同设退出条件（v1 完成）
 

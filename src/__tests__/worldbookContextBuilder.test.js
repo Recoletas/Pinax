@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildWorldbookContext, describeWorldbookWarning } from '../services/worldbookContextBuilder'
-import { seedWorldbookPresets } from '../services/seedWorldbookPresets'
+import { buildWorldbookContext, describeWorldbookWarning } from '../services/worldbook/worldbookContextBuilder'
+import { seedWorldbookPresets } from '../services/worldbook/seedWorldbookPresets'
 
 describe('worldbookContextBuilder', () => {
   it("builds worldbook context with matched entries and budget report（合并4例）", async () => {

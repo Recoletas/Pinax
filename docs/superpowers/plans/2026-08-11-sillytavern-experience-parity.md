@@ -145,8 +145,8 @@ Agent 按需查世界书、地理、历史、记忆
 
 - `shared/narrativeTurnContract.js`（新增）
 - `src/stores/gameStore.js`
-- `src/services/runtimeEvents.js`
-- `src/services/runtimeEventCausality.js`
+- `src/services/experience/runtimeEvents.js`
+- `src/services/experience/runtimeEventCausality.js`
 - `src/components/experience/NarrativeTurn.vue`
 - `src/components/GamePanel.vue`
 
@@ -244,7 +244,7 @@ NarrativeTurnRecord
 
 候选文件：
 
-- `src/services/worldbookContextBuilder.js`
+- `src/services/worldbook/worldbookContextBuilder.js`
 - `src/services/agents/narrativeResourceIndex.js`
 - `src/services/agents/tools/worldLookup.js`
 - `src/stores/worldStore.js`

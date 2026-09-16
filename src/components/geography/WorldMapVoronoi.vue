@@ -352,7 +352,7 @@ const configCompactSummary = computed(() => {
 })
 
 function withoutSeed(cfg) {
-  const { seed: _seed, ...rest } = cfg
+  const {  ...rest } = cfg
   return rest
 }
 
@@ -495,7 +495,7 @@ async function doGenerate(cfg, options = {}) {
     }
     commitRenderedMap({ data, meta, config: requestConfig, canvas, scaleOverlay, renderScale, commitOnSuccess: request.commitOnSuccess })
   } catch (e) {
-    console.error('[WorldMapVoronoi] Generation failed:', e)
+
     error.value = e instanceof Error ? e.message : String(e)
     lastFailedRequest = request
   } finally {
@@ -595,10 +595,10 @@ async function rerender() {
     offscreen = canvas
     scaleBarOverlay = overlay
     schedulePaint()
-  } catch (renderError) {
+  } catch {
     releaseCanvas(canvas)
     releaseCanvas(overlay)
-    console.error('[WorldMapVoronoi] Re-render failed:', renderError)
+
   }
 }
 
@@ -1002,10 +1002,7 @@ function formatNumber(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1)
 }
 
-function formatSigned(value) {
-  const n = Number(value) || 0
-  return n > 0 ? `+${n}` : String(n)
-}
+
 
 function templateLabel(value) {
   return HEIGHTMAP_TEMPLATE_OPTIONS.find(option => option.value === (value || ''))?.label || value || '自动'

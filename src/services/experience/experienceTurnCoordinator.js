@@ -8,7 +8,7 @@ import {
 import {
   archiveMemoryCandidate,
   listScopedActiveMemoryCandidates
-} from '../memoryCandidates'
+} from '../memory/memoryCandidates'
 import { buildNarrativeKernel } from '../agents/narrativeKernel'
 import { buildNarrativeContinuityFrame } from '../agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../agents/narrativeResourceIndex'

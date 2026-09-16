@@ -1,4 +1,4 @@
-import { normalizeStringList } from '../../shared/memoryContract'
+import { normalizeStringList } from '../../../shared/memoryContract'
 
 export function memorySourceKey(sourceRef, revision = '') {
   const ref = String(sourceRef || '').trim()

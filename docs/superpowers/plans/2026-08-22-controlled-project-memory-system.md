@@ -77,7 +77,7 @@ Do not patch memory around a broken page path. Finish the Authoring integration 
 
 **Files:**
 - Create: `shared/memoryContract.js`
-- Modify: `src/services/memoryCandidates.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/__tests__/memoryCandidates.test.js`
 
 - [ ] **Step 1: Write failing schema normalization tests**
@@ -154,15 +154,15 @@ Run: `npm run test:run -- src/__tests__/memoryCandidates.test.js src/__tests__/b
 Expected: PASS; existing v1 fixtures remain readable and backup export does not lose memory revision information.
 
 ```bash
-git add shared/memoryContract.js src/services/memoryCandidates.js src/__tests__/memoryCandidates.test.js src/__tests__/backupExport.test.js
+git add shared/memoryContract.js src/services/memory/memoryCandidates.js src/__tests__/memoryCandidates.test.js src/__tests__/backupExport.test.js
 git commit -m "feat(memory): define controlled memory contract"
 ```
 
 ### Task 2: Add deterministic importance and append-only supersession
 
 **Files:**
-- Create: `src/services/memoryImportance.js`
-- Modify: `src/services/memoryCandidates.js`
+- Create: `src/services/memory/memoryImportance.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/__tests__/memoryCandidates.test.js`
 
 - [ ] **Step 1: Write failing importance and supersession tests**
@@ -239,15 +239,15 @@ Run: `npm run test:run -- src/__tests__/memoryCandidates.test.js`
 Expected: PASS, including rollback when one superseded ID belongs to another project.
 
 ```bash
-git add src/services/memoryImportance.js src/services/memoryCandidates.js src/__tests__/memoryCandidates.test.js
+git add src/services/memory/memoryImportance.js src/services/memory/memoryCandidates.js src/__tests__/memoryCandidates.test.js
 git commit -m "feat(memory): add deterministic importance and supersession"
 ```
 
 ### Task 3: Replace ad-hoc recall order with explainable lexical retrieval
 
 **Files:**
-- Create: `src/services/memoryRetrieval.js`
-- Modify: `src/services/memoryCandidates.js`
+- Create: `src/services/memory/memoryRetrieval.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/services/agents/narrativeResourceIndex.js`
 - Modify: `src/__tests__/memoryCandidates.test.js`
 - Modify: `src/__tests__/narrativeAssetRetrieval.test.js`
@@ -334,15 +334,15 @@ npm run test:run -- src/__tests__/memoryCandidates.test.js src/__tests__/narrati
 Expected: PASS; existing scoped recall text remains compatible while metadata gains explanations.
 
 ```bash
-git add src/services/memoryRetrieval.js src/services/memoryCandidates.js src/services/agents/narrativeResourceIndex.js src/__tests__/memoryCandidates.test.js src/__tests__/narrativeAssetRetrieval.test.js src/__tests__/gameStoreSession.test.js
+git add src/services/memory/memoryRetrieval.js src/services/memory/memoryCandidates.js src/services/agents/narrativeResourceIndex.js src/__tests__/memoryCandidates.test.js src/__tests__/narrativeAssetRetrieval.test.js src/__tests__/gameStoreSession.test.js
 git commit -m "feat(memory): rank recall with explainable lexical policy"
 ```
 
 ### Task 4: Invalidate derived memory from source revisions
 
 **Files:**
-- Create: `src/services/memoryProvenance.js`
-- Modify: `src/services/memoryCandidates.js`
+- Create: `src/services/memory/memoryProvenance.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/services/agents/observers/authoringObserverScheduler.js`
 - Modify: `src/__tests__/memoryCandidates.test.js`
 - Modify: `src/__tests__/authoringAgentWorkflows.test.js`
@@ -406,7 +406,7 @@ Run: `npm run test:run -- src/__tests__/memoryCandidates.test.js src/__tests__/a
 Expected: PASS; stale observer output is still dropped and prose commit never waits for derivation.
 
 ```bash
-git add src/services/memoryProvenance.js src/services/memoryCandidates.js src/services/agents/observers/authoringObserverScheduler.js src/__tests__/memoryCandidates.test.js src/__tests__/authoringAgentWorkflows.test.js
+git add src/services/memory/memoryProvenance.js src/services/memory/memoryCandidates.js src/services/agents/observers/authoringObserverScheduler.js src/__tests__/memoryCandidates.test.js src/__tests__/authoringAgentWorkflows.test.js
 git commit -m "feat(memory): invalidate memories by source revision"
 ```
 
@@ -415,7 +415,7 @@ git commit -m "feat(memory): invalidate memories by source revision"
 **Files:**
 - Create: `src/services/memoryReceipt.js`
 - Modify: `src/services/contextLedger.js`
-- Modify: `src/services/memoryCandidates.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/__tests__/memoryCandidates.test.js`
 - Modify: `src/__tests__/agentContracts.test.js`
 
@@ -460,14 +460,14 @@ Run: `npm run test:run -- src/__tests__/memoryCandidates.test.js src/__tests__/a
 Expected: PASS; serialized ledger and receipt contain no full memory/source content.
 
 ```bash
-git add src/services/memoryReceipt.js src/services/contextLedger.js src/services/memoryCandidates.js src/__tests__/memoryCandidates.test.js src/__tests__/agentContracts.test.js src/__tests__/gameStoreSession.test.js
+git add src/services/memoryReceipt.js src/services/contextLedger.js src/services/memory/memoryCandidates.js src/__tests__/memoryCandidates.test.js src/__tests__/agentContracts.test.js src/__tests__/gameStoreSession.test.js
 git commit -m "feat(memory): record bounded recall receipts"
 ```
 
 ### Task 6: Implement the four trigger boundaries
 
 **Files:**
-- Create: `src/services/memoryTriggers.js`
+- Create: `src/services/memory/memoryTriggers.js`
 - Modify: `src/services/agents/observers/authoringObserverDerivation.js`
 - Modify: `src/stores/gameStore.js`
 - Modify: `src/__tests__/authoringAgentWorkflows.test.js`
@@ -524,7 +524,7 @@ Run: `npm run test:run -- src/__tests__/authoringAgentWorkflows.test.js src/__te
 Expected: PASS; failed prose persistence schedules nothing and disabled Agent produces no automatic model request.
 
 ```bash
-git add src/services/memoryTriggers.js src/services/agents/observers/authoringObserverDerivation.js src/stores/gameStore.js src/__tests__/authoringAgentWorkflows.test.js src/__tests__/gameStoreSession.test.js
+git add src/services/memory/memoryTriggers.js src/services/agents/observers/authoringObserverDerivation.js src/stores/gameStore.js src/__tests__/authoringAgentWorkflows.test.js src/__tests__/gameStoreSession.test.js
 git commit -m "feat(memory): trigger derivation at durable boundaries"
 ```
 
@@ -534,7 +534,7 @@ git commit -m "feat(memory): trigger derivation at durable boundaries"
 - Modify: `src/services/agents/observers/authoringObservationContract.js`
 - Modify: `src/services/agents/observers/authoringObserverWorkflow.js`
 - Modify: `src/services/agents/observers/authoringObserverDerivation.js`
-- Modify: `src/services/memoryCandidates.js`
+- Modify: `src/services/memory/memoryCandidates.js`
 - Modify: `src/__tests__/authoringAgentWorkflows.test.js`
 - Modify: `src/__tests__/authoringUnifiedRuntimeWiring.test.js`
 
@@ -578,7 +578,7 @@ Run: `npm run test:run -- src/__tests__/authoringAgentWorkflows.test.js src/__te
 Expected: PASS; observer timeout and invalid output never affect prose or active canon.
 
 ```bash
-git add src/services/agents/observers/authoringObservationContract.js src/services/agents/observers/authoringObserverWorkflow.js src/services/agents/observers/authoringObserverDerivation.js src/services/memoryCandidates.js src/__tests__/authoringAgentWorkflows.test.js src/__tests__/authoringUnifiedRuntimeWiring.test.js
+git add src/services/agents/observers/authoringObservationContract.js src/services/agents/observers/authoringObserverWorkflow.js src/services/agents/observers/authoringObserverDerivation.js src/services/memory/memoryCandidates.js src/__tests__/authoringAgentWorkflows.test.js src/__tests__/authoringUnifiedRuntimeWiring.test.js
 git commit -m "feat(memory): queue observer-derived memory candidates"
 ```
 

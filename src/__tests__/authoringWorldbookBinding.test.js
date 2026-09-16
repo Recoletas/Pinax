@@ -1098,8 +1098,8 @@ describe('authoring document repository (text workbench v3 Phase 1)', () => {
       .toBe(worldbookRunRevision(firstStructuredSnapshot.entries[0]))
     expect(storage.getItem('worldbook_wb-structured')).toBe(structuredBeforeRead)
 
-    const { createNarrativeAsset } = await import('../services/narrativeAssets.js')
-    const { createMemoryCandidate } = await import('../services/memoryCandidates.js')
+    const { createNarrativeAsset } = await import('../services/media/narrativeAssets.js')
+    const { createMemoryCandidate } = await import('../services/memory/memoryCandidates.js')
     storage.setItem(STORAGE_KEYS.NARRATIVE_ASSETS, JSON.stringify([
       createNarrativeAsset({
         id: 'asset-w', projectId: 'book-w', title: '北门盐税', content: '北门的盐税刚刚提高。',

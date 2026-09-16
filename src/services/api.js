@@ -1,14 +1,14 @@
 import axios from 'axios'
 import { getItem, getTextItem, setTextItem, STORAGE_KEYS } from '../composables/useStorage'
-import { getMemoryKindLabel, queueMemoryCandidate } from './memoryCandidates'
+import { getMemoryKindLabel, queueMemoryCandidate } from './memory/memoryCandidates'
 import {
   buildMemoryCompactionMessages,
   compactMemoryText,
   needsLlmMemoryCompaction,
   parseMemoryCompactionResult
-} from './memoryCompaction'
+} from './memory/memoryCompaction'
 import {
-  GENERATION_AGENT_LIMITS,
+
   validateGenerationAgentTurnRequest
 } from '../../shared/generationToolContract'
 import {
@@ -27,7 +27,7 @@ const api = axios.create({
 })
 
 export default api
-export { compactMemoryText } from './memoryCompaction'
+export { compactMemoryText } from './memory/memoryCompaction'
 
 function createPreferenceUserId() {
   return `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
@@ -125,28 +125,12 @@ export async function getState(gameId) {
 export async function getResolvedApiSettings() {
   const settings = toResolvedTextApiSettings(resolveSelectedTextProviderConfig())
 
-  console.info('[API] Resolved text settings:', {
-    provider: settings.provider,
-    baseUrl: settings.baseUrl,
-    model: settings.model,
-    serverKey: settings.serverKey,
-    hasClientKey: Boolean(settings.apiKey && !settings.serverKey)
-  })
+
 
   return settings
 }
 
-function createNarrativeAgentError(error) {
-  const payload = error?.response?.data || {}
-  const normalized = new Error(
-    payload.error || payload.message || error?.message || '叙事工具请求失败'
-  )
-  normalized.code = payload.code || error?.code || 'NARRATIVE_PROVIDER_REQUEST_FAILED'
-  normalized.retryable = Boolean(payload.retryable)
-  normalized.requestId = payload.requestId || ''
-  normalized.status = Number(error?.response?.status || 0) || null
-  return normalized
-}
+
 
 /**
  * Execute one provider step over the normalized SSE protocol. The stream is
@@ -341,9 +325,7 @@ function notifyGenerationMeta(meta) {
   if (typeof window === 'undefined' || !meta || typeof meta !== 'object') return
   try {
     window.dispatchEvent(new CustomEvent('ai-generation-meta', { detail: meta }))
-  } catch (e) {
-    console.warn('[API] failed to dispatch ai-generation-meta event:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 }
 
 /**
@@ -610,8 +592,8 @@ export async function recordPreference({ userId, action, card }) {
       mem0Host: mem0.host
     })
     return response.data
-  } catch (error) {
-    console.warn('[API] recordPreference failed:', error.response?.data || error.message)
+  } catch {
+
     return { success: false, recorded: false }
   }
 }
@@ -649,8 +631,8 @@ async function compactMemoryTextWithLlm({ source, type, metadata, heuristic }) {
       }
     )
     return parseMemoryCompactionResult(response?.content || response?.text || '')
-  } catch (error) {
-    console.warn('[Memory] LLM compaction failed, using heuristic:', error?.message || error)
+  } catch {
+
     return ''
   }
 }
@@ -750,8 +732,8 @@ export async function fetchAvailableModels(apiSettings) {
       provider: apiSettings.provider
     })
     return response.data.models || []
-  } catch (error) {
-    console.error('[API] fetchAvailableModels failed:', error)
+  } catch {
+
     return []
   }
 }
@@ -1352,7 +1334,7 @@ export async function getEvents(category) {
  */
 function handleApiError(error) {
   const errorData = error.response?.data
-  console.error('API Error:', errorData || error.message)
+
 
   // 抛出一个友好的错误，包含后端返回的细节
   const timeoutMessage = error?.code === 'ECONNABORTED' ? 'AI 请求超时，请缩短输入或稍后重试' : ''

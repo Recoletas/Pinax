@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { parseControlValue, serializeControlValue } from '../services/settingPanelSchema'
+import { parseControlValue, serializeControlValue } from '../services/worldbook/settingPanelSchema'
 
 // chips / tags / list / forbidden 共用的 token-list 状态机
 // 内部维护 Array；外部只看见 String（emit update:modelValue）

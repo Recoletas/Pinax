@@ -8,7 +8,7 @@
  * - 命名风格检测 / 内容摘要 / cellId 推断一律不做(LLM 在 prompt L179 已处理)
  */
 
-import { ENTRY_TYPE_ALIASES, ENTRY_TYPE_PRIORITY } from '../worldbookContextBuilder'
+import { ENTRY_TYPE_ALIASES, ENTRY_TYPE_PRIORITY } from '../worldbook/worldbookContextBuilder'
 import { isPlaceOverviewEntry } from '../../../shared/placeEntryContract.js'
 import { BIOMES } from '../world-map/engine/climate'
 
@@ -24,12 +24,10 @@ const TYPE_TO_NAME_POOL = {
 
 const STATE_HINT_RE = /国家|王国|帝国|公国|联盟|部落|氏族|宗门|门派|教团|商会|军团|组织|势力|kingdom|empire|duchy|clan|tribe|guild|order|faction|organization/i
 const LOCATION_HINT_RE = /城|镇|村|港|关|寨|都|京|郡|县|岛|要塞|堡|学院|基地|前哨|营地|遗迹|废墟|city|town|village|port|fort|fortress|academy|base|outpost|ruin/i
-const RIVER_HINT_RE = /河|江|溪|川|水|瀑|湖|river|stream|brook|falls|waterfall|lake/i
 const MOUNTAIN_HINT_RE = /山|岭|峰|脊|崖|谷|火山|山脉|mountain|range|peak|ridge|volcano|valley|cliff/i
 const VOLCANO_HINT_RE = /火山|volcano/i
 const RIDGE_HINT_RE = /脊|洋中脊|ridge/i
 const LOCATION_TYPE_RE = /location|place|landmark|city|town|village|port|fortress|ruin/i
-const GENERIC_LOCATION_ENTRY_RE = /^(地理环境|地理概述|地理总述|地理|地形与区域|geography|geography overview)$/i
 // Zero-width lookahead keeps overlapping candidates. This matters for prose
 // such as “除了教廷城、学城……还有许多大小城镇”: a consuming regexp would
 // swallow the first real name with the surrounding sentence and never revisit
@@ -1045,7 +1043,7 @@ function distanceSquared(ax, ay, bx, by) {
   return dx * dx + dy * dy
 }
 
-function resolveNamePool(type, haystack) {
+function resolveNamePool(type) {
   if (type === 'location') return null
   if (TYPE_TO_NAME_POOL[type]) return TYPE_TO_NAME_POOL[type]
   return null

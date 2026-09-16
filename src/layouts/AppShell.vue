@@ -7,14 +7,12 @@ import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
-import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
 
 const route = useRoute()
 const router = useRouter()
-const workspaceTabsStore = useWorkspaceTabsStore()
 
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)

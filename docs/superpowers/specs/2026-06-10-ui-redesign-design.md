@@ -4,7 +4,7 @@
 **Status**: Approved v1 — 2026-06-10 (Q1=b / Q2=b / Q3=a per user)
 **Owner**: Pinax / text-game-framework
 **Scope (in)**: `src/views/WelcomeView.vue`, `src/layouts/AppShell.vue`, `src/pages/Experience.vue` (3-file proof per `kao-ui-direction.md:228-229, 236-238` §11)
-**Scope (out — do not touch per `docs/STATUS.md:25-27`)**: `src/stores/gameStore.js`, `src/services/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`
+**Scope (out — do not touch per `docs/STATUS.md:25-27`)**: `src/stores/gameStore.js`, `src/services/worldbook/worldbookContextBuilder.js`, `src/services/generation*`, `src/components/StatusBar.vue`
 
 ## 1. Goal
 

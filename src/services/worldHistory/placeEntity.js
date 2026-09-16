@@ -93,7 +93,7 @@ function createEntity(ref) {
 }
 
 function finalizeEntity(entity, entriesById) {
-  const { aliasesSeen, entryIdsSeen, ...publicEntity } = entity
+  const {  ...publicEntity } = entity
   publicEntity.entries = publicEntity.entryIds
     .map((entryId) => entriesById.get(entryId))
     .filter(Boolean)

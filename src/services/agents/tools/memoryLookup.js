@@ -2,7 +2,7 @@ import {
   getNarrativeResources,
   searchNarrativeResources
 } from '../narrativeResourceIndex'
-import { isMemorySourceCurrent } from '../../memoryProvenance'
+import { isMemorySourceCurrent } from '../../memory/memoryProvenance'
 
 function authorizedFilters(input, context) {
   const requestedScopes = input.filters.scopes || []

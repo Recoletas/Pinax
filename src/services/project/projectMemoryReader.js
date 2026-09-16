@@ -1,4 +1,4 @@
-import { rankMemoryCandidates } from '../memoryRetrieval'
+import { rankMemoryCandidates } from '../memory/memoryRetrieval'
 
 function text(value) {
   return String(value ?? '').trim()

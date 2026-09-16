@@ -6,7 +6,7 @@
 
 import { normalizeNarrativeSceneSummary } from '../agents/narrativeSceneSummary.js'
 import { normalizeNarrativeSceneThread } from '../../../shared/narrativeSceneThreadContract.js'
-import { capRuntimeEvents, RUNTIME_EVENT_LIMIT } from '../runtimeEvents.js'
+import { capRuntimeEvents, RUNTIME_EVENT_LIMIT } from './runtimeEvents.js'
 import {
   cloneState,
   normalizeAdventureState,

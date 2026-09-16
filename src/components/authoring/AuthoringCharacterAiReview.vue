@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsGenerationWorkflow } from '../../services/agents/settings/settingsGenerationWorkflow'
-import { createSettingGenerationServices } from '../../services/settingFieldGeneration'
+import { createSettingGenerationServices } from '../../services/worldbook/settingFieldGeneration'
 
 const props = defineProps({
   worldbook: { type: Object, required: true },

@@ -3,8 +3,8 @@ import {
   normalizeAuthoringObserverProvenance,
   normalizeAuthoringObserverTarget
 } from './authoringObservationContract.js'
-import { queueMemoryCandidate } from '../../memoryCandidates.js'
-import { MEMORY_TEXT_LIMIT } from '../../memoryCompaction.js'
+import { queueMemoryCandidate } from '../../memory/memoryCandidates.js'
+import { MEMORY_TEXT_LIMIT } from '../../memory/memoryCompaction.js'
 
 export const OBSERVER_MEMORY_KIND_MAP = Object.freeze({
   memory: 'project-fact',

@@ -1,5 +1,5 @@
 import { STORAGE_KEYS } from '../../composables/useStorage'
-import { normalizeSourceRefs } from '../narrativeAssets'
+import { normalizeSourceRefs } from './narrativeAssets'
 import {
   getMediaAssetDataUrl,
   listMediaAssets,

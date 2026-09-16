@@ -271,7 +271,8 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
             targetRefs: intent.targetRefs.length ? [...intent.targetRefs] : resolved.targets.map(person => person.ref),
             enteringRefs: [...enteringRefs],
             response: result.response, change: result.change,
-            choices: [...result.choices], evidenceRefs: [...result.evidenceRefs]
+            choices: [...result.choices], evidenceRefs: [...result.evidenceRefs],
+            toolReceipt: result.toolReceipt || null
           })
         })
         error.value = '这次回应的后果登记没有通过核对：' + (result.consequenceIssues || []).join('；') + '。可重试、只保留回应，或弃掉本次结果。'
@@ -285,6 +286,7 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
         enteringRefs,
         response: result.response, change: result.change,
         choices: [...result.choices], evidenceRefs: [...result.evidenceRefs],
+        toolReceipt: result.toolReceipt || null,
         consequences: (result.consequences || []).map(item => ({ ...item })),
         consequenceStatus: 'committed'
       })]

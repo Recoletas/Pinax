@@ -176,9 +176,7 @@ watch(
 )
 
 // 关闭移动端侧栏
-function closeSidebarOnNavigate() {
-  sidebarOpen.value = false
-}
+
 
 // 章节切换时同步 document.title（App.vue 只管 AppShell 内路由）
 function syncTitle() {

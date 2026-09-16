@@ -58,7 +58,7 @@
 
 <script setup>
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import { getFieldMeta } from '../../services/settingPanelSchema'
+import { getFieldMeta } from '../../services/worldbook/settingPanelSchema'
 import { useFieldDirty } from '../../composables/useFieldDirty'
 import { useFieldUndo } from '../../composables/useFieldUndo'
 import SettingFieldActions from './SettingFieldActions.vue'

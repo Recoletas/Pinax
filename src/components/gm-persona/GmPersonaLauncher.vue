@@ -56,7 +56,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTransientLayer } from '../../composables/useTransientLayer'
 
-const props = defineProps({
+defineProps({
   kicker: {
     type: String,
     default: '顾问'

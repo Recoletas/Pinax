@@ -1,7 +1,7 @@
 import { buildContextEnvelope, clipContextEnvelope } from './agentContextEnvelope'
 import { createContentRevision } from './creativeGraphAgentContext'
 import { buildGeoHistoryRuntimeContext } from '../worldHistory/runtimeContext'
-import { buildRuntimeCausalityContext } from '../runtimeEventCausality'
+import { buildRuntimeCausalityContext } from '../experience/runtimeEventCausality'
 
 const RECENT_MESSAGE_LIMIT = 8
 const MESSAGE_CHAR_LIMIT = 520

@@ -236,7 +236,7 @@ const cancelEdit = () => {
 }
 
 // R1b：切换回复版本 —— 在当前 user 消息后的所有候选分支间循环。
-const onSwitchCandidate = (index, msg) => {
+const onSwitchCandidate = (index) => {
   const branches = gameStore.candidateBranchesAfter(index)
   const current = gameStore.activeBranchId
   if (branches.length === 0) return

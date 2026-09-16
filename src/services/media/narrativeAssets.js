@@ -1,9 +1,9 @@
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
 import {
   mutationFailure,
   mutationSuccess,
   storageWriteFailure
-} from './storage/durableMutationResult'
+} from '../storage/durableMutationResult'
 
 export const ASSET_SCHEMA_VERSION = 1
 

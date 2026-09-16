@@ -84,7 +84,7 @@ export function createSettingsWorldbookLoader(loader) {
     let loaded = null
     try {
       loaded = await loader(wanted)
-    } catch (error) {
+    } catch {
       if (ticket !== sequence) return { ok: false, reason: 'superseded', worldbook: null }
       return { ok: false, reason: 'worldbook-load-failed', worldbook: null }
     }

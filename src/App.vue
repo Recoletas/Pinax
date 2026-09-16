@@ -102,9 +102,7 @@ onMounted(() => {
   // Phase D: 首次启动时幂等插入 MiniMax 默认图片配置
   try {
     ensureDefaultImageConfig()
-  } catch (e) {
-    console.warn('[App] ensureDefaultImageConfig failed:', e)
-  }
+  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
 })
 
 onBeforeUnmount(() => {

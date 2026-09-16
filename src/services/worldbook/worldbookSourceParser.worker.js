@@ -1,4 +1,4 @@
-import { parseSourceFiles } from '../worldbookSourceAdapters'
+import { parseSourceFiles } from './worldbookSourceAdapters'
 
 self.addEventListener('message', async (event) => {
   const requestId = event.data?.requestId

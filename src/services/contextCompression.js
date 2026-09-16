@@ -264,8 +264,8 @@ async function buildLlmSummary({
       isValidParsed: null
     })
     return normalizeSummaryText(result?.content || '', maxSummaryChars)
-  } catch (error) {
-    console.warn('[ContextCompression] LLM compression failed, using heuristic:', error?.message || error)
+  } catch {
+
     return ''
   }
 }

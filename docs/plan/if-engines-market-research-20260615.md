@@ -301,7 +301,7 @@ Latitude has `.promptl`; Ink has `.ink`; ChoiceScript has `.txt` with `*choice`.
 - **Adventure Creator homepage** — Drupal site, main domain confirmed active — <https://www.adventurecreator.org/>
 - **IFComp** — official IF competition — <https://ifcomp.org/>
 - **IFDB** — Interactive Fiction Database community catalog — <https://ifdb.org/>
-- **Pinax `gameStore.js` and `worldbookContextBuilder.js`** — read directly from `/home/recoletas/jiuguan/text-game-framework/src/stores/gameStore.js` and `/home/recoletas/jiuguan/text-game-framework/src/services/worldbookContextBuilder.js`
+- **Pinax `gameStore.js` and `worldbookContextBuilder.js`** — read directly from `/home/recoletas/jiuguan/text-game-framework/src/stores/gameStore.js` and `/home/recoletas/jiuguan/text-game-framework/src/services/worldbook/worldbookContextBuilder.js`
 - **Pinax `worldbook-workflow` skill** — canonical workflow guardrail — `/home/recoletas/jiuguan/text-game-framework/agent-skills/worldbook-workflow/SKILL.md`
 - **Pinax `docs/PLAN.md` / `docs/STATUS.md`** — current architecture and recent design history (notably Pass 4 1-click resume, 2026-06-12 10:30)
 

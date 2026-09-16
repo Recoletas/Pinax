@@ -1425,7 +1425,7 @@ function warnBlockedStructureEdit(reason = 'implicit-topology-change') {
 // 点击稿件面空白区域（段落下方/行尾之外的留白）：把 caret 放到离点击
 // 最近的文本块末尾，而不是让 DOM 选区落在根容器上与 PM state 脱节。
 // 右键菜单书签、后续输入都依赖两者一致。
-function placeCaretFromClick(view, event) {
+function placeCaretFromClick(view) {
   try {
     // 点空白 = 想在正文末尾继续写：caret 落到最后一个文本块的末尾。
     // posAtCoords 在留白处的返回值不可靠，不采用。
