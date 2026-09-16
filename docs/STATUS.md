@@ -6,9 +6,9 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-16 三线夜间研究 | `text-game-framework` | `main` | 整理提交既有 UI/记忆历史改动；并行研究 Utopia 历史/记忆、Storyforge 漫画与跑团，编写独立任务书及集成合同。当前仅计划，不启动实现或自动调度。 |
-| Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 组合验证通过：Dexie 记忆修订历史、迁移基线、设置/作品助手入口与 ZIP 备份补偿；未提交/未推送。209 次真实 IndexedDB 修订与恢复 smoke、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）通过。尚非完整 Utopia 事实/认知时间引擎，见 memory-history 架构。 |
-| Codex / 2026-09-16 Web Alpha completion | `/home/recoletas/jiuguan/text-game-framework` | `main` | 夜间硬任务书剩余项已完成确定性验收并合入本地 main；真实外部 provider 与实体设备仍是外部门禁，未推送远端。 |
+| Codex / 2026-09-16 三线夜间研究 | `text-game-framework` | `main` | 计划编制完成：四份任务书约6.35万字符，91工作包、98分线场景+18组合场景。最终 verify:full exit 0（20/200、lint0 warnings、双build/架构/diff），本地链接/围栏检查通过。A Utopia 历史/记忆、B StoryForge 漫画、C StoryForge 跑团；[总计划](./plan/nightly-20260916-three-track.md)。未启动实现或自动调度。 |
+| Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 已随工作区 UI 收口提交推送 `f74545b`。209 次真实 IndexedDB 修订与恢复 smoke exit 0、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）。尚非完整 Utopia 事实/认知时间引擎，下一步以本次 A 线任务书为准。 |
+| Codex / 2026-09-16 Web Alpha completion | `/home/recoletas/jiuguan/text-game-framework` | `main` | 夜间硬任务书剩余项已完成确定性验收并合入 main，已随本轮 main 推送远端；真实外部 provider 与实体设备仍是外部门禁。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
@@ -94,15 +94,15 @@
 
 ## Recently done
 
-- **2026-09-16 工作区一致性（main，组合验证通过，待视觉验收）**：设定解除 1140px 最大宽度，消除右空区；标签固定尺寸、活动项在切换/缩放后完整可见；AppShell 直接替换页面，移除旧方向/out-in 动画。统一创作工作条尺度，素材移除胶带/横线/厚影/斜纹，漫画放宽，手机场景板填满、素材正文换行。`workspace-consistency-smoke`、`settings-polish-smoke`、`welcome-library-smoke` 均 exit 0；`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warnings、双 build、结构/diff）。1440/900/390、明暗、正文保存/后台关闭/文档往返/标签几何已验；截图 `/tmp/pinax-settings-polished-1440.png`、`/tmp/pinax-materials-unified.png`、`/tmp/pinax-comics-unified.png` 和窄屏已查看。地图/体验/联机内部面板未整体重构；未提交/推送。
+- **2026-09-16 工作区一致性（main，组合验证通过，待视觉验收）**：设定解除 1140px 最大宽度，消除右空区；标签固定尺寸、活动项在切换/缩放后完整可见；AppShell 直接替换页面，移除旧方向/out-in 动画。统一创作工作条尺度，素材移除胶带/横线/厚影/斜纹，漫画放宽，手机场景板填满、素材正文换行。`workspace-consistency-smoke`、`settings-polish-smoke`、`welcome-library-smoke` 均 exit 0；`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warnings、双 build、结构/diff）。1440/900/390、明暗、正文保存/后台关闭/文档往返/标签几何已验；截图 `/tmp/pinax-settings-polished-1440.png`、`/tmp/pinax-materials-unified.png`、`/tmp/pinax-comics-unified.png` 和窄屏已查看。地图/体验/联机内部面板未整体重构；已随 `f74545b` 提交推送。
 
-- **2026-09-16 设定精修（main，组合验证通过，待用户视觉验收）**：用户否定上一轮的空旷感后，调研 Dabble / Novelcrafter；正文靠近目录、收紧空字段，批量操作移到标题区，单项按钮统一，状态/字数同行，短属性横排。目录增加图标、实际非空计数和跨分区只读查找。先看密度切片，再查看 1440/900/390、四分区和暗色截图。`settings-polish-smoke`、`workspace-consistency-smoke`、`settings-linkage`（20/20）均 exit 0；`verify:full` exit 0（20 文件/200 测试、lint 0 warnings、双 build、结构预算与 diff）。截图 `/tmp/pinax-settings-polished-1440.png`、`/tmp/pinax-settings-polished-创作规则.png`。原保存/撤销/AI/数据库未改；未提交、未推送。下述历史轮次未获用户视觉认可。
+- **2026-09-16 设定精修（main，组合验证通过，待用户视觉验收）**：用户否定上一轮的空旷感后，调研 Dabble / Novelcrafter；正文靠近目录、收紧空字段，批量操作移到标题区，单项按钮统一，状态/字数同行，短属性横排。目录增加图标、实际非空计数和跨分区只读查找。先看密度切片，再查看 1440/900/390、四分区和暗色截图。`settings-polish-smoke`、`workspace-consistency-smoke`、`settings-linkage`（20/20）均 exit 0；`verify:full` exit 0（20 文件/200 测试、lint 0 warnings、双 build、结构预算与 diff）。截图 `/tmp/pinax-settings-polished-1440.png`、`/tmp/pinax-settings-polished-创作规则.png`。原保存/撤销/AI/数据库未改；已随 `f74545b` 提交推送。下述历史轮次未获用户视觉认可。
 
-- **2026-09-16 设定长文与文档标签（main，组合验证通过，视觉待用户验收）**：用户否定下述上一轮设定卡片后，改为无外框单列正文、Autosize 自动高度和本节直达目录；文档路由进入 AppShell，章节在同一标签更新，首页往返与刷新保持。`workspace-consistency-smoke` exit 0（50 行长文、无内滚、整页滚轮、目录聚焦、1440/900/390、真实暗色）；`settings-linkage` exit 0（20/20）；`verify:full` exit 0（20/20 文件、200/200 用例、lint、双 build、结构/diff）。截图 `/tmp/pinax-settings-document-1440.png`、`/tmp/pinax-docs-tabs-1440.png` 及手机/暗色已查看。未提交/推送；未改数据库与世界书写入合同。
+- **2026-09-16 设定长文与文档标签（main，组合验证通过，视觉待用户验收）**：用户否定下述上一轮设定卡片后，改为无外框单列正文、Autosize 自动高度和本节直达目录；文档路由进入 AppShell，章节在同一标签更新，首页往返与刷新保持。`workspace-consistency-smoke` exit 0（50 行长文、无内滚、整页滚轮、目录聚焦、1440/900/390、真实暗色）；`settings-linkage` exit 0（20/20）；`verify:full` exit 0（20/20 文件、200/200 用例、lint、双 build、结构/diff）。截图 `/tmp/pinax-settings-document-1440.png`、`/tmp/pinax-docs-tabs-1440.png` 及手机/暗色已查看。已随 `f74545b` 提交推送；未改数据库与世界书写入合同。
 
-- **2026-09-16 跨页 UI 统一（main，组合验证通过）**：首页获用户认可后，去除全局 Pinax/模块 mast 和 Authoring 全部书稿重复标签，导航/设置/存储异常并入顶层标签末端。结构化设定改为目录+分区标题+清晰输入字段，资料栏/分区导航与媒体公共工具/索引统一；项目绑定、保存和 AI 协议未改。`workspace-consistency-smoke` exit 0（字段保存刷新、4 分区、390/900/1440、目录与媒体页面），`settings-linkage` exit 0（20/20），`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warning、双 build/结构/diff）。截图 `/tmp/pinax-settings-unified-1440.png`、`/tmp/pinax-authoring-unified.png` 及手机/暗色已查看。媒体深层编辑器未整页重做；未提交/推送，详细数据库仍延后。
+- **2026-09-16 跨页 UI 统一（main，组合验证通过）**：首页获用户认可后，去除全局 Pinax/模块 mast 和 Authoring 全部书稿重复标签，导航/设置/存储异常并入顶层标签末端。结构化设定改为目录+分区标题+清晰输入字段，资料栏/分区导航与媒体公共工具/索引统一；项目绑定、保存和 AI 协议未改。`workspace-consistency-smoke` exit 0（字段保存刷新、4 分区、390/900/1440、目录与媒体页面），`settings-linkage` exit 0（20/20），`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warning、双 build/结构/diff）。截图 `/tmp/pinax-settings-unified-1440.png`、`/tmp/pinax-authoring-unified.png` 及手机/暗色已查看。媒体深层编辑器未整页重做；已随 `f74545b` 提交推送，详细数据库仍延后。
 
-- **2026-09-16 首页工作台第二轮（main，组合验证通过，视觉待用户确认）**：按作家助手截图接常驻首页/作品标签、分组侧栏、显式项目工具作用域、图标快捷操作/菜单和 imagegen 原创折页封面。复用标签 store、离页保存与 Lucide，不复制商业素材。`welcome-library-smoke` exit 0，覆盖即时编辑后标签往返保存、后台关闭不离首页、刷新标签、选择作品工具、搜索/排序/列表、菜单 Escape 与手机导航；`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warning、Vite/VitePress、架构/diff）。1440/900/390 与暗色截图已查看，最终图 `/tmp/pinax-home-v2-desktop.png`；[设计与资产记录](./engineering/home-workspace-design.md)。未提交/未推送，详细数据库仍延后。
+- **2026-09-16 首页工作台第二轮（main，组合验证通过，视觉待用户确认）**：按作家助手截图接常驻首页/作品标签、分组侧栏、显式项目工具作用域、图标快捷操作/菜单和 imagegen 原创折页封面。复用标签 store、离页保存与 Lucide，不复制商业素材。`welcome-library-smoke` exit 0，覆盖即时编辑后标签往返保存、后台关闭不离首页、刷新标签、选择作品工具、搜索/排序/列表、菜单 Escape 与手机导航；`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 warning、Vite/VitePress、架构/diff）。1440/900/390 与暗色截图已查看，最终图 `/tmp/pinax-home-v2-desktop.png`；[设计与资产记录](./engineering/home-workspace-design.md)。已随 `f74545b` 提交推送，详细数据库仍延后。
 
 - **2026-09-15 旧工作区安全清理**：移除 14 棵旧 Pinax worktree；其中 9 棵原本干净，另外 5 棵连同旧根工作区的未提交内容先冻结为 6 个 `archive/*-wip-20260915` stash-shaped 本地引用。`pinax-integration-20260906` 通过 `--no-hardlinks` 复制为独立 `.git` 仓库，Git 对象无 alternates、`fsck --full` 通过，远端仍为 `git@github.com:Recoletas/Pinax.git`。旧 `text-game-framework` 已送入系统回收站，`~/Pinax` 移动仓库未触碰。
 
@@ -247,6 +247,8 @@
 - 2026-08-11：写作页移除独立顾问入口，Notebook 成为默认实时 Markdown 编辑面；正文拖选后在光标收束端显示“批注 / 素材”浮条并使用主题蓝色选区。批注草稿改为选区旁就地输入，范围筛选与解决/恢复入口删除；批注可原位编辑、按批注改写或直接删除，版本页收敛为最近检查点。
 
 ## Next up
+
+- **2026-09-16 新三线夜间计划，待用户启动**：[A 历史/记忆](./plan/nightly-20260916-memory.md)、[B 漫画](./plan/nightly-20260916-comics.md)、[C 跑团](./plan/nightly-20260916-roleplay.md)，以[总任务书](./plan/nightly-20260916-three-track.md)冻结身份/回执/备份/文件归属。未安排定时执行，未扩大为联机或生产部署。
 
 下一轮不再重开[Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)；其代码与确定性门禁已于 2026-09-16 收口。后续只保留真实外部 provider、真机中文输入耐久和作者作品体验等外部门禁，并以当前结构预算防止 owner 回流。
 

@@ -1,5 +1,17 @@
 # Agent Runs
 
+## 2026-09-16 三线夜间调研与计划（仅计划）
+
+入口：[总任务书](../plan/nightly-20260916-three-track.md)。既有运行时已提交推送 `f74545b`；本次并行只写任务书，未启动夜间实现。旧 C2 状态不因本轮更新而改变。
+
+| ID | Owner | Worktree | Scope | Status | Output |
+|---|---|---|---|---|---|
+| NIGHT-PLAN-A/O | Codex 主控 | 当前 main | Utopia 固定源码研究、提交推送、记忆任务书与共享集成合同 | 计划完成；最终 verify:full exit 0，20/200、双build、lint/架构/diff及链接检查通过 | [A](../plan/nightly-20260916-memory.md)、[O](../plan/nightly-20260916-three-track.md) |
+| NIGHT-PLAN-B | comic_plan / Averroes | 共享树，仅独占漫画任务书 | StoryForge 漫画源码、许可、现状差距与验收 | 调研完成，无运行时代码写入 | [B](../plan/nightly-20260916-comics.md) |
+| NIGHT-PLAN-C | rpg_plan / James | 共享树，仅独占跑团任务书 | StoryForge 跑团源码、许可、回合恢复与验收 | 调研完成，无运行时代码写入 | [C](../plan/nightly-20260916-roleplay.md) |
+
+后续 A/B/C 实现 worker、worktree、进程、开始时间均尚未分配；不得将以上研究 agent 视作正在夜间施工。
+
 ## 2026-09-15 夜间架构成果修正
 
 独立初验入口：[O 修改与集成指导](./architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)。三线已按指导修正，并按 B → C → A 压缩合入 main；组合验收见[最终回执](./architecture-night-20260914/integration-acceptance-20260915.md)。
