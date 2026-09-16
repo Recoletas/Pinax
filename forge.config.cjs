@@ -5,6 +5,7 @@ const { MakerSquirrel } = require('@electron-forge/maker-squirrel')
 const { MakerZIP } = require('@electron-forge/maker-zip')
 const { FuseV1Options, FuseVersion } = require('@electron/fuses')
 const { installDesktopNativePrebuild } = require('./scripts/install-desktop-native-prebuild.cjs')
+const path = require('node:path')
 
 const packagedRuntimePaths = [
   '/node_modules/better-sqlite3',
@@ -27,6 +28,7 @@ module.exports = {
   },
   packagerConfig: {
     asar: true,
+    icon: path.join(__dirname, 'assets', 'icons', 'pinax'),
     ignore: ignoreUnbundledFiles
   },
   makers: [

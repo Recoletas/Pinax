@@ -30,6 +30,7 @@
     "architecture:report": "node scripts/architecture/structure-budget-check.mjs --report",
     "architecture:check": "node scripts/architecture/structure-budget-check.mjs --enforce",
     "architecture:build-size": "node scripts/architecture/authoring-build-size-check.mjs",
+    "brand:icons": "node scripts/brand/build-icons.mjs",
     "verify:browser": "node scripts/ui-audit.mjs && node scripts/online-narrative-smoke.mjs",
     "ci:authoring-smoke": "node scripts/ci/authoring-smoke.mjs",
     "ci:workspace-backup-smoke": "node scripts/ci/workspace-backup-smoke.mjs",

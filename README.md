@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/assets/readme/pinax-mark.svg" width="92" height="92" alt="Pinax 标志">
+  <img src="docs/assets/readme/pinax-icon.png" width="92" height="92" alt="Pinax 标志">
   <h1>Pinax</h1>
   <p><strong>把故事留在作者手里。</strong></p>
   <p>本地优先、作者主导的长篇创作工作台</p>
