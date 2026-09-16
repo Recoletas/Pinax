@@ -26,7 +26,18 @@ import {
 // 断言核心 class、:focus-visible、coarse pointer 命中区，并防止 transition: all 回潮。
 const css = readFileSync(resolve(__dirname, '../../src/styles/workbench-controls.css'), 'utf8')
 const mainEntry = readFileSync(resolve(__dirname, '../main.js'), 'utf8')
-const experience = readFileSync(resolve(__dirname, '../pages/Experience.vue'), 'utf8')
+// R-X1 后 Experience 的接线面 = 页面 + 四个会话 owner（O 复核点：
+// 断言从单文件改为实际模块接线的并集，行为断言不变）
+const experience = [
+  'Experience.vue',
+  'useExperienceAutoAdvance.js',
+  'useExperienceCodexWorkspace.js',
+  'useExperienceSessionWorkflow.js',
+  'useExperienceQuickCapture.js'
+].map((file) => readFileSync(resolve(
+  __dirname,
+  file.startsWith('useExperience') ? `../composables/${file}` : `../pages/${file}`
+), 'utf8')).join('\n')
 const appShell = readFileSync(resolve(__dirname, '../layouts/AppShell.vue'), 'utf8')
 const inputArea = readFileSync(resolve(__dirname, '../components/InputArea.vue'), 'utf8')
 const uiAudit = readFileSync(resolve(__dirname, '../../scripts/ui-audit.mjs'), 'utf8')
@@ -562,7 +573,7 @@ expect(experience).toContain('if (writingCollectOpen.value) {')
     expect(experience).toContain('writingCollectOpen.value || quickNoteOpen.value')
     expect(experience).toContain("if (inlineDetail.value) {")
     expect(experience).toContain("if (codexDetailSection.value) {")
-    expect(experience).toContain("if (quickNoteOpen.value) {")
+    expect(experience).toContain("if (isQuickNoteOpen()) {")
     expect(experience).toContain('closeCodexSheet()')
 
     const dialog = document.createElement('div')

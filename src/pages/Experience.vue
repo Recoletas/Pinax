@@ -534,113 +534,35 @@ import WorkbenchIcon from '@/components/workbench/WorkbenchIcon.vue'
 import MechanismPanel from '../components/MechanismPanel.vue'
 import MilestoneModal from '../components/MilestoneModal.vue'
 import SessionPicker from '../components/SessionPicker.vue'
-import { getTextItem, getItem, setTextItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
-import { loadWritingBooks, saveWritingBooksDurable } from '../services/writing/writingBooksRepository'
+import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useTipState } from '../composables/useTipState'
 import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
-import { ASSET_KINDS, addNarrativeAssetDurable, getAssetKindLabel } from '../services/narrativeAssets'
 import { buildScopedMemoryRecallContext } from '../services/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'
 import { createAuthoringTaskDispatcher } from '../services/agents/authoring/authoringTaskDispatcher'
 import { useBodyScrollLock } from '../composables/useBodyScrollLock'
-import { trapFocusWithin, useTransientLayer } from '../composables/useTransientLayer'
 import { useWorkstationMeta } from '@/composables/useWorkstationMeta'
 import {
   applyOnlineNarrativeCompletion,
   applyOnlineRuntimePatch,
   buildOnlineRuntimePatch
 } from '../services/experience/onlineExperienceBridge'
-import { appendExperienceTurnToChapter } from '../services/writing/writingExperienceImport.js'
+import { useExperienceAutoAdvance } from '../composables/useExperienceAutoAdvance.js'
+import { useExperienceCodexWorkspace } from '../composables/useExperienceCodexWorkspace.js'
+import { useExperienceSessionWorkflow } from '../composables/useExperienceSessionWorkflow.js'
+import { useExperienceQuickCapture } from '../composables/useExperienceQuickCapture.js'
 
 const props = defineProps({
   onlineSession: { type: Object, default: null }
 })
 
 const gameStore = useGameStore()
+const experienceSourceStatus = ref('')
 const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
 const router = useRouter()
 const route = useRoute()
-const writingCollectOpen = ref(false)
-const writingCollectDialogRef = ref(null)
-const writingCollectCloseRef = ref(null)
-const writingCollectMessage = ref(null)
-const writingCollectTurn = ref(null)
-const writingCollectBooks = ref([])
-const writingCollectBookId = ref('')
-const writingCollectChapterId = ref('')
-const writingCollectStatus = ref('')
-const writingCollectSucceeded = ref(false)
-const experienceSourceStatus = ref('')
-const writingCollectChapters = computed(() => (
-  writingCollectBooks.value.find((book) => String(book.id) === String(writingCollectBookId.value))?.chapters || []
-))
-
-function selectFirstWritingChapter() {
-  writingCollectChapterId.value = writingCollectChapters.value[0]?.id || ''
-}
-
-function openWritingCollectDialog({ message, turn }) {
-  writingCollectMessage.value = message
-  writingCollectTurn.value = turn
-  writingCollectBooks.value = loadWritingBooks()
-  writingCollectBookId.value = writingCollectBooks.value[0]?.id || ''
-  selectFirstWritingChapter()
-  writingCollectStatus.value = ''
-  writingCollectSucceeded.value = false
-  writingCollectOpen.value = true
-}
-
-function closeWritingCollectDialog() {
-  writingCollectOpen.value = false
-  writingCollectMessage.value = null
-  writingCollectTurn.value = null
-  writingCollectBooks.value = []
-  writingCollectBookId.value = ''
-  writingCollectChapterId.value = ''
-  writingCollectStatus.value = ''
-  writingCollectSucceeded.value = false
-}
-
-function trapWritingCollectFocus(event) {
-  trapFocusWithin(event, writingCollectDialogRef.value)
-}
-
-useTransientLayer({
-  id: 'experience-writing-collect',
-  isOpen: writingCollectOpen,
-  onClose: closeWritingCollectDialog,
-  initialFocus: () => writingCollectCloseRef.value
-})
-
-function confirmWritingCollect() {
-  const books = loadWritingBooks()
-  const result = appendExperienceTurnToChapter({
-    books,
-    bookId: writingCollectBookId.value,
-    chapterId: writingCollectChapterId.value,
-    sessionId: gameStore.currentSessionId,
-    branchId: writingCollectMessage.value?.branchId || writingCollectTurn.value?.branchId || gameStore.activeBranchId || 'main',
-    worldbookId: selectedWorldbookId.value || gameStore.worldId || '',
-    activeTurnIds: gameStore.currentBranchTurnIds(),
-    turn: writingCollectTurn.value,
-    message: writingCollectMessage.value
-  })
-  if (!result.ok) {
-    writingCollectStatus.value = result.reason === 'already-imported' ? '这段体验已经收进稿件。' : '写入失败，原稿件未改变'
-    return
-  }
-  if (!saveWritingBooksDurable(result.books).ok) {
-    writingCollectStatus.value = '写入失败，原稿件未改变'
-    return
-  }
-  writingCollectBooks.value = result.books
-  const book = result.books.find((item) => String(item.id) === String(writingCollectBookId.value))
-  const chapter = book?.chapters?.find((item) => String(item.id) === String(writingCollectChapterId.value))
-  writingCollectStatus.value = `已收进「${book?.title || book?.name || '未命名作品'} / ${chapter?.title || chapter?.name || '未命名章节'}」`
-  writingCollectSucceeded.value = true
-}
 const tip = useTipState()
 // G1.4.10 R1: reading profile / measure / zoom reverse-compensation moved to
 // a single composable. The composable reads uiZoom from themeStore so the
@@ -675,66 +597,8 @@ const {
     })
   }
 })
-const onlineRequestIds = new Set()
-const activeOnlineNarrativeRequestId = ref('')
-const onlineNarrativeStatus = ref(null)
-let onlineUnsubscribers = []
-let lastSubmittedOnlineStatusKey = ''
-
-const visibleNarrativeAgentStatus = computed(() => {
-  if (!props.onlineSession) return gameStore.narrativeAgentStatus
-  return props.onlineSession.isHost?.value
-    ? gameStore.narrativeAgentStatus
-    : onlineNarrativeStatus.value
-})
-
-watch(() => gameStore.narrativeAgentStatus, (status) => {
-  const requestId = activeOnlineNarrativeRequestId.value
-  const adapter = props.onlineSession?.adapter
-  if (!requestId || !props.onlineSession?.isHost?.value || !status || !adapter) return
-  const outbound = {
-    requestId,
-    phase: String(status.phase || '').trim(),
-    code: String(status.code || '').trim(),
-    message: String(status.message || '').replace(/\s+/g, ' ').trim().slice(0, 180),
-    toolRounds: Math.max(0, Number(status.toolRounds) || 0),
-    totalCalls: Math.max(0, Number(status.totalCalls ?? status.callCount) || 0),
-    stepIndex: Math.max(0, Number(status.stepIndex) || 0),
-    terminalMode: String(status.terminalMode || '').trim().slice(0, 80),
-    protocol: String(status.protocol || '').trim().slice(0, 40),
-    groundingPolicy: String(status.groundingPolicy || '').trim().slice(0, 40),
-    at: Number(status.at) || Date.now()
-  }
-  const statusKey = [
-    outbound.requestId,
-    outbound.phase,
-    outbound.code,
-    outbound.toolRounds,
-    outbound.totalCalls
-  ].join(':')
-  if (!outbound.phase || statusKey === lastSubmittedOnlineStatusKey) return
-  lastSubmittedOnlineStatusKey = statusKey
-  adapter.submitHostStatus?.(outbound)
-}, { deep: true, flush: 'sync' })
-
-watch([
-  () => props.onlineSession?.isHost?.value,
-  () => props.onlineSession?.isConnected?.value
-], ([isHost, isConnected]) => {
-  if (!activeOnlineNarrativeRequestId.value || (isHost !== false && isConnected !== false)) return
-  gameStore.cancelNarrativeGeneration?.('online-host-authority-lost')
-  activeOnlineNarrativeRequestId.value = ''
-  lastSubmittedOnlineStatusKey = ''
-})
-
-const selectedWorldbookId = ref('')
-const sessionPickerWorldbookId = ref('')
 const activeWorldbook = computed(() => worldStore.activeWorldbook || null)
 const hasSelectedWorldbook = computed(() => Boolean(selectedWorldbookId.value && activeWorldbook.value))
-const playableWorldTitle = computed(() => {
-  if (!hasSelectedWorldbook.value) return ''
-  return activeWorldbook.value?.name || '未命名世界'
-})
 const showExperienceWorkChrome = computed(() => hasUserActionMessages.value)
 const hasUserActionMessages = computed(() => {
   return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
@@ -784,144 +648,71 @@ function installFirstMessageWatch() {
 // UI-E10-CLEAN: sceneStageIndicator + sceneIndicatorVisible computeds deleted
 // 2026-06-22 — sticky indicator above the ledger is gone (template + CSS);
 // UI-E11 (workstation) replaces with an always-on topstrip section anchor.
-const sidebarCollapsed = ref(false)
-const showSessionPicker = ref(false)
 const experienceMoreOpen = ref(false)
-const isStarting = ref(false)
-const autoAdvanceEnabled = ref(false)
-const autoAdvancePending = ref(false)
-const autoAdvanceRequestActive = ref(false)
-let autoAdvanceTimer = null
-// C6：半自动节奏 —— 一次自动会话最多推进 N 个完整 beat，间隔阅读友好。
-const autoAdvanceBeatCount = ref(0)
-const AUTO_ADVANCE_MAX_BEATS = 3
-const AUTO_ADVANCE_INTERVAL_MS = 1500
-const activeCodexSection = ref('events')
-const codexSheetOpen = ref(false)
-const codexTriggerRef = ref(null)
-const codexSheetRef = ref(null)
-const canUseAutoAdvance = computed(() => !props.onlineSession && Boolean(gameStore.currentSessionId) && !isStarting.value)
 
-async function retryNarrativeGeneration() {
-  if (props.onlineSession || gameStore.isLoading) return
-  // P1-4：重试消费 pendingDirectorNote（失败保留的导演注），不再丢失
-  const pendingNote = gameStore.pendingDirectorNote || ''
-  if (pendingNote) gameStore.pendingDirectorNote = null
-  await gameStore.generateAIResponse({ directorNote: pendingNote })
-}
+  async function retryNarrativeGeneration() {
+    if (props.onlineSession || gameStore.isLoading) return
+    // P1-4：重试消费 pendingDirectorNote（失败保留的导演注），不再丢失
+    const pendingNote = gameStore.pendingDirectorNote || ''
+    if (pendingNote) gameStore.pendingDirectorNote = null
+    await gameStore.generateAIResponse({ directorNote: pendingNote })
+  }
 const isLocalDemoSequence = computed(() => {
   const messages = gameStore.messages || []
   return messages.length === 0 || messages.every((message) => message?.source === 'local-demo')
 })
 
-function clearAutoAdvanceTimer() {
-  if (autoAdvanceTimer !== null) {
-    clearTimeout(autoAdvanceTimer)
-    autoAdvanceTimer = null
-  }
-}
-
-function stopAutoAdvance({ abortRunning = false } = {}) {
-  clearAutoAdvanceTimer()
-  autoAdvancePending.value = false
-  autoAdvanceEnabled.value = false
-  autoAdvanceBeatCount.value = 0
-  if (abortRunning && autoAdvanceRequestActive.value && gameStore.isLoading) {
-    gameStore.cancelNarrativeGeneration?.('auto-advance-stopped')
-  }
-}
-
-// C6：半自动暂停条件 —— 决策点/场景转折/机制触发时停下，不无限推进。
-function shouldPauseAutoAdvance(content, placeIdBefore) {
-  const text = String(content || '').trim()
-  if (!text) return false
-  // 直接向玩家提问（问句结尾）
-  if (/[？?]$/.test(text)) return true
-  // 地点切换
-  if (placeIdBefore && gameStore.worldMapState?.placeId
-    && placeIdBefore !== gameStore.worldMapState.placeId) {
-    return true
-  }
-  // 机制触发（战斗/交易/任务/对话面板）
-  const latestAssistant = [...(gameStore.messages || [])].reverse()
-    .find((message) => message?.role === 'assistant')
-  if (latestAssistant?.mechanismTrigger) return true
-  return false
-}
-
-function scheduleAutoAdvance(delay = 1300) {
-  clearAutoAdvanceTimer()
-  if (!autoAdvanceEnabled.value || !canUseAutoAdvance.value) return
-  autoAdvancePending.value = true
-  autoAdvanceTimer = setTimeout(() => {
-    autoAdvanceTimer = null
-    void runAutoAdvance()
-  }, delay)
-}
-
-async function runAutoAdvance() {
-  autoAdvancePending.value = false
-  if (!autoAdvanceEnabled.value || !canUseAutoAdvance.value) return
-  if (gameStore.isLoading) {
-    return
-  }
-
-  if (isLocalDemoSequence.value) {
-    if (handleLocalDemoEvent('continue')) scheduleAutoAdvance(900)
-    else stopAutoAdvance()
-    return
-  }
-
-  autoAdvanceRequestActive.value = true
-  autoAdvanceBeatCount.value += 1
-  const messageCount = gameStore.messages.length
-  const placeIdBefore = gameStore.worldMapState?.placeId || ''
-  try {
-    await handleSend('自动续写：只承接最后一个可见动作或台词。', {
-      hidden: true,
-      source: 'auto-advance',
-      narrativeMode: 'auto-advance'
-    })
-    const generated = gameStore.messages.slice(messageCount)
-      .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    const latestAssistant = [...gameStore.messages].reverse()
-      .find((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    // C6：达到连续上限，或出现决策点/场景转折/机制触发 → 停止，不再排下一拍。
-    const shouldPause = autoAdvanceBeatCount.value >= AUTO_ADVANCE_MAX_BEATS
-      || shouldPauseAutoAdvance(latestAssistant?.content || '', placeIdBefore)
-    if (generated && autoAdvanceEnabled.value && !shouldPause) {
-      scheduleAutoAdvance(AUTO_ADVANCE_INTERVAL_MS)
-    } else {
-      stopAutoAdvance()
-    }
-  } catch {
-    // 生成函数会记录具体错误；半自动只负责收回本次待续状态。
-    stopAutoAdvance()
-  } finally {
-    autoAdvanceRequestActive.value = false
-  }
-}
-
-function toggleAutoAdvance() {
-  if (autoAdvanceEnabled.value) {
-    stopAutoAdvance({ abortRunning: true })
-    return
-  }
-  if (!canUseAutoAdvance.value) return
-  autoAdvanceEnabled.value = true
-  autoAdvanceBeatCount.value = 0
-  // 半自动立即起步；自动轮次只接住最近正文的结尾，而不是把隐藏命令
-  // 作为普通用户意图扩展到整段历史。
-  scheduleAutoAdvance(300)
-}
-
-function handleManualInput() {
-  // 已经开始倒计时或自动请求时，输入意味着用户接管；仅“已准备”时
-  // 不取消，避免用户写完行动后还得重新开启半自动。
-  if (autoAdvancePending.value || autoAdvanceRequestActive.value) {
-    stopAutoAdvance({ abortRunning: true })
-  }
-}
+// R-X1：四个会话域 owner（状态/动作/清理一起迁出；页面只装配注入）
+const experienceWorkflow = useExperienceSessionWorkflow({
+  gameStore, worldStore, route, router,
+  onlineSession: props.onlineSession,
+  notifySourceStatus: (message) => { experienceSourceStatus.value = message },
+  buildOnlineRuntimePatch,
+  applyOnlineRuntimePatch,
+  applyOnlineNarrativeCompletion
+})
+const {
+  showSessionPicker, isStarting, selectedWorldbookId, sessionPickerWorldbookId,
+  handleSessionSelect, handleSessionCreate, handleSessionDelete,
+  visibleNarrativeAgentStatus,
+  bindOnlineSession, disposeOnlineSession
+} = experienceWorkflow
+const autoAdvance = useExperienceAutoAdvance({ gameStore, onlineSession: props.onlineSession, isStarting, isLocalDemoSequence, handleSend, handleLocalDemoEvent })
+const {
+  autoAdvanceEnabled, autoAdvancePending, canUseAutoAdvance,
+  toggleAutoAdvance, handleManualInput, stopAutoAdvance
+} = autoAdvance
+const codexWorkspace = useExperienceCodexWorkspace({
+  gameStore, geographyStore, meta, router,
+  overlayEscape: () => {
+    if (writingCollectOpen.value) { closeWritingCollectDialog(); return true }
+    if (inlineDetail.value) { closeInlineDetail(); return true }
+    return false
+  },
+  closeQuickNoteImport: () => quickCapture.closeQuickNoteImport(),
+  closeAdvisor,
+  isQuickNoteOpen: () => quickCapture.isQuickNoteOpen(),
+  closeQuickNote: () => quickCapture.closeQuickNote()
+})
+const {
+  codexSheetOpen, codexTriggerRef, codexSheetRef, activeCodexSection, codexDetailSection,
+  codexDetailLabel, codexSections, openCodexSheet, closeCodexSheet, handleCodexKeydown,
+  openCodexDetail, openPlaceContext, closeCodexDetail, handleRailAddLocation, toggleCodexSection
+} = codexWorkspace
+const quickCapture = useExperienceQuickCapture({ gameStore, advisorOpen, closeAdvisor, selectedWorldbookId })
+const {
+  quickNoteOpen, quickNoteDraft, quickNoteStatus, quickNoteImportOpen,
+  narrativeAssetKind, narrativeAssetKinds, dialogueImportStats,
+  handleQuickNoteInput, toggleQuickNoteImport,
+  importSelectedDialogueSegments, saveQuickNoteAsAsset, saveSelectedDialogueSegmentsAsAsset,
+  clearQuickNoteDraft,
+  writingCollectOpen, writingCollectDialogRef, writingCollectCloseRef,
+  writingCollectMessage, writingCollectBooks,
+  writingCollectBookId, writingCollectChapterId, writingCollectStatus,
+  writingCollectSucceeded, writingCollectChapters,
+  openWritingCollectDialog, closeWritingCollectDialog,
+  trapWritingCollectFocus, confirmWritingCollect
+} = quickCapture
 
 watch(showSessionPicker, (open) => {
   if (open) experienceMoreOpen.value = false
@@ -931,81 +722,6 @@ watch(showSessionPicker, (open) => {
     sessionPickerWorldbookId.value = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
   }
 })
-const codexUpdates = ref({
-  time: 0,
-  characters: 0,
-  locations: 0,
-  events: 0
-})
-const codexDetailSection = ref(null)
-const lastAddedLocationId = ref('')
-const codexDetailLabels = {
-  time: '时间设定',
-  characters: '在场人物',
-  locations: '地点卷',
-  events: '事件卷'
-}
-const codexDetailLabel = computed(() => codexDetailLabels[codexDetailSection.value] || '详情')
-
-function openCodexSheet() {
-  codexSheetOpen.value = true
-  nextTick(() => codexSheetRef.value?.focus())
-}
-
-function closeCodexSheet({ restoreFocus = true } = {}) {
-  codexSheetOpen.value = false
-  if (restoreFocus) nextTick(() => codexTriggerRef.value?.focus())
-}
-
-function handleCodexKeydown(event) {
-  if (event.key !== 'Escape') return
-  if (writingCollectOpen.value) {
-    closeWritingCollectDialog()
-    return
-  }
-  if (inlineDetail.value) {
-    closeInlineDetail()
-    return
-  }
-  if (codexDetailSection.value) {
-    closeCodexDetail()
-    return
-  }
-  if (quickNoteOpen.value) {
-    quickNoteOpen.value = false
-    return
-  }
-  if (codexSheetOpen.value) closeCodexSheet()
-}
-
-function openCodexDetail(sectionKey) {
-  if (!sectionKey) return
-  codexDetailSection.value = sectionKey
-  if (typeof gameStore.setQuickNoteImportMode === 'function') {
-    gameStore.setQuickNoteImportMode(false)
-  }
-  quickNoteImportOpen.value = false
-  closeAdvisor()
-}
-
-function openPlaceContext({ placeId, target } = {}) {
-  if (!placeId) return
-  const routeName = target === 'settings' ? 'settings-structured' : 'settings-world-map'
-  router.push({ name: routeName, query: { placeId } })
-}
-
-function closeCodexDetail() {
-  codexDetailSection.value = null
-  lastAddedLocationId.value = ''
-}
-
-function handleRailAddLocation(newId) {
-  // UI-E18-B round 3: codex rail 添加 button emitted a fresh location id.
-  // Stash it + open the locations detail drawer so the new card auto-expands
-  // and the description textarea is immediately editable.
-  lastAddedLocationId.value = newId
-  openCodexDetail('locations')
-}
 const currentSessionLabel = computed(() => {
   const sid = gameStore.currentSessionId
   if (!sid) return '无会话'
@@ -1017,10 +733,6 @@ const sessionTitleTooltip = computed(() => {
   if (!s) return '切换或新建会话'
   const count = gameStore.sessions.length
   return `${s.title || '未命名会话'} · 共 ${count} 个会话`
-})
-const recordProgressLabel = computed(() => {
-  if (meta.isEmpty) return '暂无记录'
-  return `第 ${meta.currentSection} / 共 ${meta.totalCount} 条`
 })
 const demoSceneTitle = computed(() => {
   return meta.demoScene?.title || meta.demoScene?.location || '本地演示'
@@ -1037,119 +749,6 @@ const demoBannerHint = computed(() => {
   return '未配置可用的 AI 模型, 当前使用本地手动推进。下方按钮不依赖网络, 仅改写 localStorage 与当前会话。'
 })
 
-const codexCharacterCount = computed(() => (gameStore.encounteredCharacters || []).length)
-const codexLocationCount = computed(() => (geographyStore.locations || []).length)
-const codexEventCount = computed(() => {
-  return (gameStore.activities || []).length + (gameStore.plotJournal || []).length
-})
-
-const latestCharacterLabel = computed(() => {
-  const list = gameStore.encounteredCharacters || []
-  const latest = list[list.length - 1]
-  return latest?.name || latest?.displayName || gameStore.playerName || '未登记角色'
-})
-
-const latestLocationLabel = computed(() => {
-  const locations = geographyStore.locations || []
-  const latest = locations[locations.length - 1]
-  return latest?.name || gameStore.worldMapState?.currentScene || meta.demoScene?.title || '暂无地点'
-})
-
-const latestEventLabel = computed(() => {
-  const latestActivity = (gameStore.activities || [])[0]
-  const latestPlot = (gameStore.plotJournal || [])[0]
-  return latestActivity?.title || latestPlot?.title || latestPlot?.summary || '暂无事件'
-})
-
-const codexTimeCount = computed(() => {
-  const t = gameStore.writingTime || {}
-  return (t.eraName || t.year || t.month || t.day) ? 1 : 0
-})
-
-const codexTimeLatest = computed(() => {
-  const t = gameStore.writingTime || {}
-  const era = t.eraName || t.eraId || ''
-  if (!t.year && !t.month && !t.day) return '未登记'
-  const eraStr = era ? `${era} ` : ''
-  return `${eraStr}${t.year || '?'}年${t.month || '?'}月${t.day || '?'}日`
-})
-
-const codexSections = computed(() => [
-  {
-    key: 'time',
-    label: '时间',
-    count: codexTimeCount.value,
-    latest: codexTimeLatest.value,
-    update: codexUpdates.value.time
-  },
-  {
-    key: 'characters',
-    label: '人物',
-    count: codexCharacterCount.value,
-    latest: latestCharacterLabel.value,
-    update: codexUpdates.value.characters
-  },
-  {
-    key: 'locations',
-    label: '地点',
-    count: codexLocationCount.value,
-    latest: latestLocationLabel.value,
-    update: codexUpdates.value.locations
-  },
-  {
-    key: 'events',
-    label: '事件',
-    count: codexEventCount.value,
-    latest: latestEventLabel.value,
-    update: codexUpdates.value.events
-  }
-])
-
-function toggleCodexSection(section) {
-  activeCodexSection.value = activeCodexSection.value === section ? '' : section
-  if (section && codexUpdates.value[section]) {
-    codexUpdates.value = { ...codexUpdates.value, [section]: 0 }
-  }
-}
-
-function trackCodexCount(key, count) {
-  watch(
-    () => count.value,
-    (next, previous) => {
-      if (typeof previous !== 'number') return
-      if (next > previous && activeCodexSection.value !== key) {
-        codexUpdates.value = {
-          ...codexUpdates.value,
-          [key]: codexUpdates.value[key] + (next - previous)
-        }
-      }
-    }
-  )
-}
-
-trackCodexCount('time', codexTimeCount)
-trackCodexCount('characters', codexCharacterCount)
-trackCodexCount('locations', codexLocationCount)
-trackCodexCount('events', codexEventCount)
-
-// Record-folio 6-field header REMOVED 2026-06-23 (UI-E11-A):
-//   recordCaseNo / recordVolume / recordTime / recordCharacters /
-//   recordLocation / recordObjective computeds were the empty-state
-//   surface for the deleted 6-cell record-folio band. The 5 derived
-//   values they exposed are now provided by useWorkstationMeta
-//   (currentVolume / caseNo / currentTask / currentSection / totalCount).
-//   No store mutation — useWorkstationMeta reads gameStore fields only.
-
-// UI-E11-A + UI-E12-W1: handle quick-action CTA emits from GamePanel
-// 0-state hero (续写 / 速记 / 切场景). v0 wired only 'note' to the
-// existing quickNoteOpen flow (per E11-A PLAN-QA Fix #2). UI-E12-W1
-// wires 'continue' (focus the workstation input) and 'scene' (scroll
-// chat to top so the user can review earlier scene context).
-// UI-E13-BIG1: when isDemoMode, 'continue' / 'scene' now drive
-// useLocalDemo.applyLocalAction (local progression, no AI needed);
-// when real messages exist, fall back to the input-focus / scroll
-// behavior. This is the per-brief "≥1 button has real local
-// behavior" — both 继续 and 切场景 are real local.
 function handleQuickAction(action) {
   stopAutoAdvance()
   if (action === 'note') {
@@ -1213,89 +812,7 @@ onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
   window.addEventListener('keydown', handleCodexKeydown)
 
-  await worldStore.loadWorldbooksIndex()
-  gameStore.loadSessions()
-
-  const requestedWorldbookId = typeof route.query.worldbookId === 'string'
-    ? route.query.worldbookId.trim()
-    : ''
-  const requestedSessionId = typeof route.query.sessionId === 'string'
-    ? route.query.sessionId.trim()
-    : ''
-  const requestedSession = requestedSessionId
-    ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId) || null
-    : null
-  if (requestedSessionId && !requestedSession) experienceSourceStatus.value = '来源会话已不可用'
-  const hasRequestedWorldbook = Boolean(requestedWorldbookId
-    && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
-  const activeSession = !requestedSession && !hasRequestedWorldbook
-    ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
-    : null
-  const targetWorldbookId = hasRequestedWorldbook ? requestedWorldbookId : (worldStore.activeWorldbookId || '')
-  const allLatestSession = !activeSession && Array.isArray(gameStore.sessions) && gameStore.sessions.length
-    ? [...gameStore.sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
-    : null
-  const worldbookLatestSession = !activeSession && targetWorldbookId
-    ? gameStore.getLatestSessionForWorldbook(targetWorldbookId)
-    : null
-  const latestStoredSession = worldbookLatestSession || allLatestSession
-  let loadedExistingSession = false
-
-  if (requestedSession) {
-    gameStore.loadSession(requestedSession.id)
-    selectedWorldbookId.value = requestedSession.worldbookId || requestedSession.worldId || ''
-    sessionPickerWorldbookId.value = selectedWorldbookId.value
-    if (selectedWorldbookId.value) await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-    showSessionPicker.value = false
-    loadedExistingSession = true
-  } else if (hasRequestedWorldbook) {
-    const requestedWorldbookSession = gameStore.getLatestSessionForWorldbook(targetWorldbookId)
-    if (requestedWorldbookSession) {
-      gameStore.loadSession(requestedWorldbookSession.id)
-      loadedExistingSession = true
-    } else {
-      await worldStore.setActiveWorldbook(targetWorldbookId)
-      gameStore.createSession({
-        worldbookId: targetWorldbookId,
-        inheritRuntimeState: false
-      })
-    }
-    selectedWorldbookId.value = targetWorldbookId
-    sessionPickerWorldbookId.value = targetWorldbookId
-    await worldStore.setActiveWorldbook(targetWorldbookId)
-    showSessionPicker.value = false
-  } else if (activeSession) {
-    gameStore.loadSession(activeSession.id)
-    selectedWorldbookId.value = activeSession.worldbookId || activeSession.worldId || ''
-    sessionPickerWorldbookId.value = selectedWorldbookId.value
-    if (selectedWorldbookId.value) {
-      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-    }
-    loadedExistingSession = true
-  } else if (latestStoredSession) {
-    gameStore.loadSession(latestStoredSession.id)
-    selectedWorldbookId.value = latestStoredSession.worldbookId || latestStoredSession.worldId || ''
-    sessionPickerWorldbookId.value = selectedWorldbookId.value
-    if (selectedWorldbookId.value) {
-      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-    }
-    showSessionPicker.value = false
-    loadedExistingSession = true
-  } else {
-    gameStore.resetRuntimeState()
-    if (worldStore.worldbooksIndex.length) {
-      const defaultWorldbook = await worldStore.ensureActiveWorldbook()
-      selectedWorldbookId.value = defaultWorldbook?.id || worldStore.activeWorldbookId || ''
-    } else {
-      selectedWorldbookId.value = worldStore.activeWorldbookId || ''
-    }
-    sessionPickerWorldbookId.value = selectedWorldbookId.value
-    showSessionPicker.value = false
-  }
-
-  if (!props.onlineSession && loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
-    await gameStore.initGame()
-  }
+  const { requestedSession, requestedMessageId } = await experienceWorkflow.bootstrapSessions()
 
   if (typeof gameStore.loadDialogueCharacters === 'function') {
     gameStore.loadDialogueCharacters()
@@ -1307,7 +824,6 @@ onMounted(async () => {
   markFirstVisitIfNeeded()
   installFirstMessageWatch()
 
-  const requestedMessageId = typeof route.query.messageId === 'string' ? route.query.messageId.trim() : ''
   if (requestedSession && requestedMessageId) {
     await nextTick()
     const target = [...document.querySelectorAll('[data-message-id]')]
@@ -1322,8 +838,7 @@ onUnmounted(() => {
   window.removeEventListener('story-mechanism-ready', handleMechanismReady)
   window.removeEventListener('keydown', handleCodexKeydown)
   clearMechanismNotice()
-  onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
-  onlineUnsubscribers = []
+  disposeOnlineSession()
 })
 
 watch(() => worldStore.activeWorldbookId, (nextId) => {
@@ -1333,9 +848,6 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
   }
 })
 
-function openWorldbookQuickImport() {
-  router.push({ name: 'settings-worldbook' })
-}
 
 const authoringTaskDispatcher = createAuthoringTaskDispatcher()
 
@@ -1532,82 +1044,6 @@ function handleMilestoneClose() {
 }
 
 // 会话选择处理
-async function handleSessionSelect(session) {
-  if (isStarting.value) return
-  try {
-    isStarting.value = true
-    gameStore.loadSession(session.id)
-    // 设置世界书选择
-    selectedWorldbookId.value = session.worldbookId || session.worldId || ''
-    if (selectedWorldbookId.value) {
-      await worldStore.setActiveWorldbook(selectedWorldbookId.value)
-    }
-    showSessionPicker.value = false
-    if (!props.onlineSession && (!gameStore.messages || gameStore.messages.length === 0)) {
-      await gameStore.initGame()
-    }
-  } finally {
-    isStarting.value = false
-  }
-}
-
-async function handleSessionCreate() {
-  if (isStarting.value) return
-  try {
-    isStarting.value = true
-    const worldbookId = sessionPickerWorldbookId.value || selectedWorldbookId.value || ''
-    if (!worldbookId) {
-      openWorldbookQuickImport()
-      return
-    }
-    gameStore.createSession({
-      worldbookId,
-      inheritRuntimeState: false
-    })
-    if (worldbookId) {
-      await worldStore.setActiveWorldbook(worldbookId)
-    }
-    selectedWorldbookId.value = worldbookId
-    sessionPickerWorldbookId.value = worldbookId
-    showSessionPicker.value = false
-    if (!props.onlineSession) {
-      await gameStore.initGame()
-    }
-  } finally {
-    isStarting.value = false
-  }
-}
-
-async function handleSessionDelete(session) {
-  if (isStarting.value) return
-  try {
-    isStarting.value = true
-    gameStore.deleteSession(session.id)
-    // 如果删除后没有会话了，自动创建一个新会话
-    if (gameStore.sessions.length === 0) {
-      const worldbookId = selectedWorldbookId.value || worldStore.activeWorldbookId || ''
-      gameStore.createSession({
-        worldbookId,
-        inheritRuntimeState: false
-      })
-      if (worldbookId) {
-        await worldStore.setActiveWorldbook(worldbookId)
-      }
-      selectedWorldbookId.value = worldbookId
-      showSessionPicker.value = false
-      if (!props.onlineSession) {
-        await gameStore.initGame()
-      }
-      return
-    }
-    if (gameStore.currentSessionId === null) {
-      showSessionPicker.value = true
-    }
-  } finally {
-    isStarting.value = false
-  }
-}
-
 // 内联事件详情
 const inlineDetail = ref(null)
 
@@ -1631,32 +1067,12 @@ function collectItem(itemName) {
   closeInlineDetail()
 }
 
-const QUICK_NOTE_DRAFT_KEY = STORAGE_KEYS.QUICK_NOTE_DRAFT
-const quickNoteOpen = ref(false)
-const quickNoteDraft = ref(loadQuickNoteDraft())
-const quickNoteStatus = ref('')
-const quickNoteImportOpen = ref(false)
-const narrativeAssetKind = ref('draft-prose')
-const narrativeAssetKinds = ASSET_KINDS
-
 const shouldLockPageScroll = computed(() => {
   return writingCollectOpen.value || quickNoteOpen.value || advisorOpen.value || Boolean(inlineDetail.value) || Boolean(codexDetailSection.value)
 })
 
 useBodyScrollLock(shouldLockPageScroll)
 
-const dialogueImportStats = computed(() => {
-  const list = (gameStore.messages || []).filter((message) => {
-    const role = message.role || message.type || 'assistant'
-    return role !== 'system' && String(message.content || '').trim()
-  })
-  const selected = gameStore.selectedQuickNoteMessages()
-  const totalCount = list.length
-  const selectedCount = selected.length
-  const totalWords = list.reduce((sum, item) => sum + quickNoteWordCount(item.content), 0)
-  const selectedWords = selected.reduce((sum, item) => sum + quickNoteWordCount(item), 0)
-  return { totalCount, selectedCount, totalWords, selectedWords }
-})
 
 const dialoguePanelMessages = computed(() => {
   return (gameStore.messages || [])
@@ -1677,7 +1093,6 @@ const dialoguePanelMessages = computed(() => {
 async function handleSend(text, options = {}) {
   const source = options?.source || 'manual-input'
   const isAutoAdvance = source === 'auto-advance'
-  const shouldAutoFollow = !isAutoAdvance && autoAdvanceEnabled.value && canUseAutoAdvance.value
   if (props.onlineSession) {
     if (!props.onlineSession.isConnected?.value) return
     props.onlineSession.proposeAction?.(text)
@@ -1685,263 +1100,12 @@ async function handleSend(text, options = {}) {
   }
   const messageCount = gameStore.messages.length
   await gameStore.sendAction(text, options)
-  if (!isAutoAdvance && shouldAutoFollow && autoAdvanceEnabled.value) {
-    // C6：用户手动输入开启新一轮自动会话，重置 beat 计数；间隔阅读友好。
-    autoAdvanceBeatCount.value = 0
-    const generated = gameStore.messages.slice(messageCount)
-      .some((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    if (generated) scheduleAutoAdvance(AUTO_ADVANCE_INTERVAL_MS)
-    else stopAutoAdvance()
-  }
+  // C6：send 后续接归 auto-advance owner（消除页面与 owner 的循环依赖）
+  autoAdvance.handleFollowUpAfterSend({ messageCount, isAutoAdvance })
 }
 
-function bindOnlineSession() {
-  const adapter = props.onlineSession?.adapter
-  if (!adapter) return
-  onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
-  onlineUnsubscribers = [
-    adapter.onNarrativeRequested(handleOnlineNarrativeRequested),
-    adapter.onNarrativeStatus((payload) => {
-      const requestId = String(payload?.requestId || '').trim()
-      if (!requestId || props.onlineSession?.isHost?.value) return
-      onlineNarrativeStatus.value = { ...payload, requestId }
-    }),
-    adapter.onNarrativeCompleted((payload) => {
-      applyOnlineNarrativeCompletion(gameStore, payload)
-      const requestId = String(payload?.requestId || payload?.requestEventId || '').trim()
-      if (!requestId || onlineNarrativeStatus.value?.requestId === requestId) {
-        onlineNarrativeStatus.value = null
-      }
-      if (activeOnlineNarrativeRequestId.value === requestId) {
-        activeOnlineNarrativeRequestId.value = ''
-        lastSubmittedOnlineStatusKey = ''
-      }
-    }),
-    adapter.onRuntimePatchAccepted((payload) => {
-      applyOnlineRuntimePatch(gameStore, payload)
-    })
-  ]
-}
 
-async function handleOnlineNarrativeRequested(payload = {}, event = {}) {
-  const requestId = String(payload.requestId || event.commandId || event.id || '').trim()
-  const requestEventId = String(event.id || payload.requestEventId || '').trim()
-  const actionText = String(payload.text || '').trim()
-  if (requestId && !props.onlineSession?.isHost?.value) {
-    onlineNarrativeStatus.value = {
-      requestId,
-      phase: 'deciding',
-      at: Date.now()
-    }
-  }
-  if (!props.onlineSession?.isHost?.value) return
-  if (!requestId || !requestEventId || !actionText || onlineRequestIds.has(requestId)) return
-  if (gameStore.messages.some((message) => (
-    message?.onlineRequestId === requestId
-    || message?.onlineRequestEventId === requestEventId
-  ))) return
-  onlineRequestIds.add(requestId)
-  activeOnlineNarrativeRequestId.value = requestId
-  lastSubmittedOnlineStatusKey = ''
 
-  try {
-    const messageStart = gameStore.messages.length
-    await gameStore.sendAction(actionText)
-    const generated = gameStore.messages
-      .slice(messageStart)
-      .findLast((message) => message?.role === 'assistant' && String(message?.content || '').trim())
-    if (!generated) {
-      const message = String(gameStore.lastError || '模型没有返回可用正文').trim()
-      if (gameStore.narrativeAgentStatus?.phase !== 'error') {
-        props.onlineSession.adapter.submitHostStatus?.({
-          requestId,
-          phase: 'error',
-          code: 'NARRATIVE_STREAM_EMPTY',
-          message,
-          at: Date.now()
-        })
-      }
-      activeOnlineNarrativeRequestId.value = ''
-      return
-    }
-
-    for (const message of gameStore.messages.slice(messageStart)) {
-      message.onlineRequestId = requestId
-      message.onlineRequestEventId = requestEventId
-    }
-    gameStore.saveCurrentSession?.()
-    const runtimePatch = buildOnlineRuntimePatch(gameStore.getRuntimeSnapshot?.() || {})
-    props.onlineSession.adapter.submitHostCompletion({
-      requestId,
-      requestEventId,
-      actionText,
-      assistantMessage: {
-        role: 'assistant',
-        name: generated.name || '',
-        content: generated.content,
-        timestamp: generated.timestamp || Date.now()
-      },
-      createdAt: Date.now()
-    })
-    props.onlineSession.adapter.submitAcceptedRuntimePatch(runtimePatch, { requestId })
-    activeOnlineNarrativeRequestId.value = ''
-    lastSubmittedOnlineStatusKey = ''
-  } catch (error) {
-    const message = String(error?.message || '联机叙事生成失败').trim()
-    props.onlineSession.adapter.submitHostStatus?.({
-      requestId,
-      phase: 'error',
-      code: String(error?.code || 'NARRATIVE_AGENT_FAILED'),
-      message,
-      at: Date.now()
-    })
-    onlineRequestIds.delete(requestId)
-    activeOnlineNarrativeRequestId.value = ''
-    lastSubmittedOnlineStatusKey = ''
-  }
-}
-
-function loadQuickNoteDraft() {
-  return getTextItem(QUICK_NOTE_DRAFT_KEY)
-}
-
-function persistQuickNoteDraft() {
-  setTextItem(QUICK_NOTE_DRAFT_KEY, quickNoteDraft.value)
-}
-
-function handleQuickNoteInput() {
-  persistQuickNoteDraft()
-}
-
-function toggleQuickNoteImport() {
-  if (!dialogueImportStats.value.totalCount) {
-    quickNoteStatus.value = '当前没有可导入的对话段'
-    return
-  }
-  quickNoteImportOpen.value = !quickNoteImportOpen.value
-  gameStore.setQuickNoteImportMode(quickNoteImportOpen.value)
-}
-
-function toggleQuickNoteWorkspace() {
-  const nextOpen = !quickNoteOpen.value
-  if (nextOpen && advisorOpen.value) {
-    closeAdvisor()
-  }
-  quickNoteOpen.value = nextOpen
-}
-
-function importSelectedDialogueSegments() {
-  const picked = gameStore.selectedQuickNoteMessages()
-  if (!picked.length) {
-    quickNoteStatus.value = '先选对话段再导入'
-    return
-  }
-  const text = picked.join('\n\n')
-  quickNoteDraft.value = quickNoteDraft.value ? `${quickNoteDraft.value}\n\n${text}` : text
-  persistQuickNoteDraft()
-  quickNoteImportOpen.value = false
-  gameStore.setQuickNoteImportMode(false)
-  quickNoteStatus.value = `已导入 ${picked.length} 段对话`
-}
-
-function getSelectedDialogueMessageRefs() {
-  const pickedIndexes = new Set(gameStore.quickNoteSelectedMessageIndexes || [])
-  return (gameStore.messages || [])
-    .map((message, index) => ({ message, index }))
-    .filter(({ message, index }) => {
-      const role = message.role || message.type || 'assistant'
-      return pickedIndexes.has(index) && role !== 'system' && String(message.content || '').trim()
-    })
-}
-
-function saveQuickNoteAsAsset() {
-  const content = quickNoteDraft.value.trim()
-  if (!content) {
-    quickNoteStatus.value = '先写点内容再存素材'
-    return false
-  }
-
-  const persisted = addNarrativeAssetDurable({
-    content,
-    kind: narrativeAssetKind.value,
-    projectId: gameStore.worldId || null,
-    source: {
-      type: 'experience-session',
-      id: gameStore.currentSessionId || '',
-      messageIds: []
-    },
-    sourceRefs: gameStore.getCurrentCreativeSourceRefs([])
-  })
-
-  if (!persisted.ok) {
-    quickNoteStatus.value = '素材保存失败，草稿已保留'
-    return false
-  }
-  const asset = persisted.asset
-  clearQuickNoteDraft()
-  quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
-  return true
-}
-
-function saveSelectedDialogueSegmentsAsAsset() {
-  const refs = getSelectedDialogueMessageRefs()
-  if (!refs.length) {
-    quickNoteStatus.value = '先选对话段再存素材'
-    return false
-  }
-
-  const content = refs.map(({ message }) => String(message.content || '').trim()).join('\n\n')
-  const persisted = addNarrativeAssetDurable({
-    content,
-    kind: narrativeAssetKind.value,
-    projectId: gameStore.worldId || null,
-    source: {
-      type: 'experience-session',
-      id: gameStore.currentSessionId || '',
-      messageIds: refs.map(({ message, index }) => message.id || `message_${index}`)
-    },
-    sourceRefs: gameStore.getCurrentCreativeSourceRefs(
-      refs.map(({ message, index }) => message.id || `message_${index}`)
-    )
-  })
-
-  if (!persisted.ok) {
-    quickNoteStatus.value = '素材保存失败，已选对话保持不变'
-    return false
-  }
-  const asset = persisted.asset
-  quickNoteImportOpen.value = false
-  gameStore.setQuickNoteImportMode(false)
-  quickNoteStatus.value = `已存入素材：${getAssetKindLabel(asset.kind)}`
-  return true
-}
-
-function clearQuickNoteDraft() {
-  quickNoteDraft.value = ''
-  removeItem(QUICK_NOTE_DRAFT_KEY)
-}
-
-watch(quickNoteOpen, (open) => {
-  if (!open) {
-    quickNoteImportOpen.value = false
-    gameStore.setQuickNoteImportMode(false)
-  }
-})
-
-watch(advisorOpen, (open) => {
-  if (!open) return
-  quickNoteOpen.value = false
-  quickNoteImportOpen.value = false
-  gameStore.setQuickNoteImportMode(false)
-})
-
-function quickNoteWordCount(text) {
-  const normalized = String(text || '').trim()
-  if (!normalized) return 0
-  const chineseChars = (normalized.match(/[一-龥]/g) || []).length
-  const englishWords = (normalized.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-}
 
 </script>
 
