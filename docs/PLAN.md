@@ -4,6 +4,8 @@
 
 ## 当前主线
 
+2026-09-16 [Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)完成首轮验收与部分集成：C 线完整工作区 ZIP 已实现并经组合修复，覆盖 localStorage、来源归档、媒体二进制、预览、SHA-256、schema/path 校验、补偿回滚和幂等恢复；64 MB 上限附近来源 + 20 MB 媒体 + 100 章压力样本通过。R-X 只合入 Experience 四类页面会话与机制投影，页面 4,439→3,603 行；`gameStore` 涌现/冒险/分支 owner、页面最终行数/import 指标仍未达。A/B 试演工具与记忆 UI、Authoring/Notes/Prose 深拆、services 归域、异步分包和全仓 lint 清零没有交付，继续按任务书标为 partial/not-started，不把本次部分合入写成整夜完成。组合回执见 [integration summary](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
+
 2026-09-15 架构收口已经完成当前可安全一次落地的主体：世界书写入统一经过 durable mutation owner，Experience 完整回合编排迁出 store，Authoring 首载/换书与右栏打开顺序各有唯一协调器，Notes 插画交互和 ProseEssay 七键持久化迁出页面；低 fan-in services 完成归域，迁移、试验、兼容与退役代码有显式生命周期。当前不再以继续拆大文件作为独立目标；下一阶段只在真实功能改动经过这些边界时继续瘦身。架构真源见[当前架构与代码边界](./engineering/current-architecture.md)，本轮回执见 `docs/agent-runs/architecture-closure-20260915.md`。
 
 此前三线架构修正已按[修改与集成指导](./agent-runs/architecture-night-20260914/O-MODIFICATION-AND-INTEGRATION-GUIDE.md)完成并按 B → C → A 压缩合入 main；本轮承接并关闭其中明确留下的 B12、A12、世界书异常型写入、Experience turn coordinator 与页面能力边界。组合基线证据见[三线验收回执](./agent-runs/architecture-night-20260914/integration-acceptance-20260915.md)。

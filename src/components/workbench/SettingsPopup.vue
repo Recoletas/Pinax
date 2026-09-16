@@ -97,14 +97,23 @@
           </div>
           <p class="storage-lead">作品和创作记录保存在当前浏览器。换设备或清理浏览器之前，先导出一份备份。</p>
           <div class="storage-actions storage-actions--lead">
-            <button class="settings-btn settings-btn--primary" type="button" data-test="backup-export-button" @click="handleExportBackup">导出本地作品备份</button>
-            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">导入备份</button>
+            <button
+              class="settings-btn settings-btn--primary"
+              type="button"
+              data-test="backup-export-workspace-button"
+              :disabled="workspaceBusy"
+              @click="handleExportWorkspaceBackup"
+            >
+              {{ workspaceBusy ? '正在导出完整工作区...' : '导出完整工作区（ZIP）' }}
+            </button>
+            <button class="settings-btn" type="button" data-test="backup-export-button" @click="handleExportBackup">导出轻量备份（JSON）</button>
+            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">恢复备份</button>
             <input
               ref="backupInputRef"
               class="backup-import-input"
               data-test="backup-import-input"
               type="file"
-              accept="application/json,.json"
+              accept="application/zip,.zip,application/json,.json"
               @change="handleBackupFile"
             >
           </div>
@@ -128,7 +137,39 @@
               <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
             </div>
           </div>
-          <p class="storage-boundary-note">备份包含书稿、设定与本地创作记录；不包含模型密钥，也不包含来源文件和媒体的 IndexedDB 原件。备份文件请妥善保存。</p>
+          <div v-if="workspaceBundle" class="backup-review" data-test="workspace-backup-review" role="status">
+            <strong>完整工作区备份已读取，确认后才会写入</strong>
+            <span v-if="workspaceBundle.inspection.createdAt">备份生成于 {{ workspaceBundle.inspection.createdAt }}</span>
+            <span>恢复将：新增 {{ workspaceBundle.inspection.counts.add }} 项 · 覆盖 {{ workspaceBundle.inspection.counts.overwrite }} 项 · 内容相同跳过 {{ workspaceBundle.inspection.counts.skip }} 项</span>
+            <span v-if="workspaceBundle.inspection.counts.missingBinary" class="backup-review__error">缺少媒体原件 {{ workspaceBundle.inspection.counts.missingBinary }} 项（仅恢复元数据）</span>
+            <span v-if="workspaceBundle.inspection.counts.unrestoreable" class="backup-review__error">无法恢复 {{ workspaceBundle.inspection.counts.unrestoreable }} 项（schema 版本不符）</span>
+            <span v-if="workspaceBundle.inspection.rejectedSecretKeys.length">已排除 {{ workspaceBundle.inspection.rejectedSecretKeys.length }} 个模型配置密钥键</span>
+            <span v-for="warning in workspaceBundle.inspection.warnings" :key="warning">{{ warning }}</span>
+            <span>恢复会覆盖来源归档、媒体与本地数据中与备份不同的内容</span>
+            <div v-if="workspaceBundle.inspection.requiresRiskConfirmation" class="backup-review__warnings" role="alert">
+              <label class="backup-review__consent">
+                <input v-model="backupRiskAccepted" type="checkbox">
+                <span>我了解恢复会替换这些较新的数据</span>
+              </label>
+            </div>
+            <div class="backup-review__actions">
+              <button
+                class="settings-btn settings-btn--primary"
+                type="button"
+                data-test="workspace-backup-restore-confirm"
+                :disabled="workspaceBusy || (workspaceBundle.inspection.requiresRiskConfirmation && !backupRiskAccepted)"
+                @click="confirmWorkspaceRestore"
+              >
+                {{ workspaceBusy ? '写入中...' : '确认导入完整工作区' }}
+              </button>
+              <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
+            </div>
+          </div>
+          <p class="storage-boundary-note">
+            完整工作区（ZIP）包含书稿、设定、来源归档与已落盘媒体；轻量备份（JSON）只含本地创作记录。
+            模型密钥始终不进入任何备份；外部链接引用、尚未落盘的媒体与浏览器缓存不保证包含。
+            恢复会覆盖所选备份中的对应数据，确认前会先显示预览。备份文件请妥善保存。
+          </p>
           <p v-if="backupFeedback" class="backup-feedback" role="status" data-test="backup-feedback">
             {{ backupFeedback }}
             <router-link v-if="restoredTarget" :to="{ name: 'authoring', query: { bookId: restoredTarget.bookId } }">继续《{{ restoredTarget.bookTitle }}》</router-link>
@@ -171,6 +212,11 @@ import { computed, ref, nextTick } from 'vue'
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
+import {
+  exportWorkspaceBackupBundle,
+  inspectWorkspaceBackup,
+  restoreWorkspaceBackupBundle
+} from '../../services/storage/workspaceBackupBundle.js'
 import { useSettingsPopup } from '../../composables/useSettingsPopup'
 import { useTransientLayer, trapFocusWithin } from '../../composables/useTransientLayer'
 import { useExperienceNarrativeExpansion } from '../../composables/useExperienceNarrativeExpansion'
@@ -196,6 +242,8 @@ const backupBusy = ref(false)
 const backupRiskAccepted = ref(false)
 const restoredTarget = ref(null)
 const restoreSucceeded = ref(false)
+const workspaceBusy = ref(false)
+const workspaceBundle = ref(null)   // 待确认恢复的完整工作区预览 { file, inspection }
 
 // 备份里的书数只在能真实解析时展示;解析不了就说"本地创作数据",不把键数换名成书数。
 const backupExportedAt = computed(() => {
@@ -239,6 +287,28 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
+async function handleExportWorkspaceBackup() {
+  if (workspaceBusy.value) return
+  workspaceBusy.value = true
+  backupFeedback.value = ''
+  try {
+    const result = await exportWorkspaceBackupBundle({ storage: localStorage })
+    const missing = result.manifest.domains.media.missingBinaryIds.length
+    const domains = result.manifest.domains
+    const sizeLine = formatBytes(result.stats.zipBytes)
+    const missingLine = missing > 0 ? `；${missing} 个媒体缺少本地原件未包含` : ''
+    backupFeedback.value = `完整工作区已导出（${sizeLine}）：书稿 ${domains.localStorage.keyCount} 项 · 来源 ${domains.sourceArchive.artifactCount + domains.sourceArchive.chunkCount} 条 · 媒体 ${domains.media.binaryCount} 份${missingLine}。模型密钥未包含。`
+    restoreSucceeded.value = false
+    restoredTarget.value = null
+  } catch (error) {
+    backupFeedback.value = error?.name === 'WorkspaceBackupCancelled'
+      ? '完整工作区导出已取消，原有数据未变。'
+      : '完整工作区导出失败，原有数据未变；可改用“导出轻量备份（JSON）”。'
+  } finally {
+    workspaceBusy.value = false
+  }
+}
+
 function handleExportBackup() {
   try {
     const result = exportAllBackup()
@@ -278,22 +348,91 @@ async function handleBackupFile(event) {
   backupFeedback.value = ''
   restoredTarget.value = null
   restoreSucceeded.value = false
+  const looksLikeZip = /\.zip$/i.test(file.name || '') || file.type === 'application/zip'
+  if (looksLikeZip) {
+    void handleWorkspaceBackupFile(file)
+    return
+  }
   try {
     backupText.value = await file.text()
     backupPlan.value = createRestorePlan(backupText.value)
     backupRiskAccepted.value = false
     if (!backupPlan.value.valid) {
-      backupFeedback.value = `${backupPlan.value.incompatible.join('；') || '备份不可导入'}。请确认这是本应用“导出本地作品备份”生成的文件，再重新选择。`
+      backupFeedback.value = `${backupPlan.value.incompatible.join('；') || '备份不可导入'}。请确认这是本应用“导出轻量备份（JSON）”生成的文件，或使用完整工作区 ZIP 恢复，再重新选择。`
       backupPlan.value = null
     }
   } catch (error) {
     backupPlan.value = null
-    backupFeedback.value = `${error?.message || '备份读取失败'}。请重新选择备份文件；文件应是 .json 格式。`
+    backupFeedback.value = `${error?.message || '备份读取失败'}。请重新选择备份文件；文件应是 .json 或 .zip 格式。`
+  }
+}
+
+// 完整工作区（ZIP）：先完整校验并生成预览，确认后才写入
+async function handleWorkspaceBackupFile(file) {
+  workspaceBusy.value = true
+  try {
+    const inspection = await inspectWorkspaceBackup(file, { storage: localStorage })
+    if (!inspection.valid) {
+      workspaceBundle.value = null
+      backupFeedback.value = `这份完整工作区备份无法使用：${inspection.errors.join('；')}`
+      return
+    }
+    workspaceBundle.value = { file, inspection }
+    backupRiskAccepted.value = false
+    const counts = inspection.counts
+    backupFeedback.value = `完整工作区备份已读取（${formatBytes(file.size)}）：新增 ${counts.add} 项 · 覆盖 ${counts.overwrite} 项 · 相同跳过 ${counts.skip} 项` +
+      (counts.missingBinary ? ` · 缺少媒体原件 ${counts.missingBinary} 项` : '') +
+      (counts.unrestoreable ? ` · 无法恢复 ${counts.unrestoreable} 项` : '') +
+      '。确认后才会写入。'
+  } catch (error) {
+    workspaceBundle.value = null
+    backupFeedback.value = `${error?.message || '完整工作区备份读取失败'}。请重新选择备份文件。`
+  } finally {
+    workspaceBusy.value = false
+  }
+}
+
+async function confirmWorkspaceRestore() {
+  const bundle = workspaceBundle.value
+  if (!bundle || workspaceBusy.value) return
+  workspaceBusy.value = true
+  backupFeedback.value = '正在恢复完整工作区...'
+  try {
+    const result = await restoreWorkspaceBackupBundle(bundle.file, {
+      storage: localStorage,
+      acceptRestoreRisk: backupRiskAccepted.value
+    })
+    if (result.success) {
+      workspaceBundle.value = null
+      restoredTarget.value = resolveRestoredTarget()
+      restoreSucceeded.value = true
+      const domains = result.domains
+      backupFeedback.value = `完整工作区已恢复：来源 ${domains.sourceArchive.written} 条 · 媒体 ${domains.media.written} 份 · 本地数据 ${domains.localStorage.written} 项。刷新后完全生效。`
+      cancelBackupRestore()
+      storageHealth.refresh()
+      // 只在持久化全部确认后刷新应用
+      setTimeout(() => window.location.reload(), 1200)
+    } else if (result.reason === 'restore-risk-not-accepted') {
+      backupFeedback.value = '这份备份会替换较新的数据，需要先勾选确认后才能导入。'
+    } else {
+      const domainLines = result.domains
+        ? Object.entries(result.domains)
+          .filter(([, d]) => !d.ok)
+          .map(([name, d]) => `${name}：${d.reason}${d.rollbackFailed ? '（回滚也失败，请勿关闭页面）' : d.rolledBack ? '（已回滚）' : ''}`)
+          .join('；')
+        : result.reason
+      backupFeedback.value = `完整工作区恢复未完成：${domainLines}。原有数据已尽量保留，请勿关闭页面，可先“导出轻量备份（JSON）”留底后重试。`
+    }
+  } catch (error) {
+    backupFeedback.value = `${error?.message || '完整工作区恢复失败'}。原有数据已尽量保留。`
+  } finally {
+    workspaceBusy.value = false
   }
 }
 
 function cancelBackupRestore() {
   backupPlan.value = null
+  workspaceBundle.value = null
   backupText.value = ''
   backupRiskAccepted.value = false
 }

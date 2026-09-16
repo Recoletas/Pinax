@@ -10,6 +10,8 @@
 
 ## 当前事实
 
+- **2026-09-16 Web Alpha 夜间计划部分验收并集成**：完整工作区 ZIP 备份/预览/恢复已接入设置页，包含 localStorage、来源归档和已落盘媒体；独立验收补上 ZIP 路径穿越、manifest 域 schema、真实删除式媒体回滚、异常路径反向补偿与来源计数错误。组合浏览器旅程、失败注入、重复恢复和 100 章 + 约 63 MB 来源 + 20 MB 媒体压力样本通过。Experience 的 auto advance、Codex、session、quick capture 四会话及机制投影迁出页面，API surface 保持 73 state keys / 137 actions；但 `Experience.vue` 仍为 3,603 行，`gameStore.js` 仍为 2,869 行，R-X 按 partial。其余 A/B、Authoring、Notes、Prose、R-S/H0/H2 未交付，不计完成。见[组合回执](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
+
 - **2026-09-15 当前架构主体完成收口**：世界书 create/update/delete/entry/import 已统一经过 durable mutation owner，本体成功而索引失败会恢复本体、索引与 active 快照；ProseEssay 七类画布键由单一 repository 原子提交并失败回滚。Experience 完整回合的准备、流式、提交、取消与失败恢复迁入 `experienceTurnCoordinator`，`gameStore.js` 从 3,656 行降至 2,990 行。Authoring 首载/换书事务和 inspector 非 toggle 打开顺序各有唯一 composable；Notes 插画拖放/缩放/选择会话迁出页面。`Authoring.vue` 12,192 行、Notes 4,263 行、ProseEssay 4,395 行。低 fan-in services 完成 canvas/experience/worldbook 归域，根层 67→42；生命周期分为 production/migration/experimental/compatibility/retire，生产 import 图 505 文件/1,318 边/0 循环，experimental 无正式消费者。完整证据见[架构收口回执](./agent-runs/architecture-closure-20260915.md)。
 
 - **2026-09-15 Authoring 批注/改写工作区与 durable 基础已完成**：`useAuthoringRewriteWorkflow`、annotation session/selection/layout 已承担请求、CRUD、选区和 DOM lane；书稿、历史、素材与 Notes 写入使用共享 `{ ok, reason, retryable }`，素材批删和选区收藏不再分步假成功。这些边界是本轮激活协调器、世界书和 Prose 事务继续收口的前置，不另保留平行写路径。
@@ -231,7 +233,7 @@
 
 ## Next up
 
-下一轮从[StoryForge 借鉴与 Public Alpha 三线夜间任务书](./plan/pinax-nightly-storyforge-public-alpha-20260913.md)进入O00；目前只完成计划编制，尚未开始8h运行。09-05旧体验任务按09-06至09-12的实际交付视为已接管，不重做已完成首访/推演右栏/设定往返。以下联机、桌面等保留各自后续边界，不作为本夜前置。
+下一轮继续[Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)未交付部分：优先完成 A/B 的 `history_lookup` 单工具回执与采用后 pending memory 接缝；随后按独立 owner 完成 Authoring、Notes、Prose 与 `gameStore` 的剩余迁移。C 线与 Experience 四会话不重复实现。全仓 lint 仍未清零，五个热点文件、Authoring chunk 和 services 根层指标仍按任务书验收；任何未达项继续标 partial。
 
 1. 执行 C2-3 pilot Gate：在开启 `VITE_COLLABORATION_V2_ENABLED` 的 TLS/WSS 环境完成至少 5 次真实双人共同排演，记录低敏 join/reconnect、proposal→selected→promoted→adopted 漏斗和失败原因；同时验证 1440/1024/390、深浅主题与 packaged Electron。Gate 通过前不进入 C2-4。
 2. 桌面方向进入 P3：把 Authoring 正文与桌面项目真源适配到 plain-text manuscript editor；并在 Windows clean-machine 验证 portable 包、v2/v3 迁移、原生 SQLite、锁与原子 rename。

@@ -501,7 +501,7 @@ function replaceRecords(records, updates, removals) {
   return [...next.values()]
 }
 
-async function assertArchiveCapacity({ artifacts = [], chunks = [], workspaces = [] } = {}) {
+export async function assertArchiveCapacity({ artifacts = [], chunks = [], workspaces = [] } = {}) {
   const current = {
     artifacts: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts),
     chunks: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks),
@@ -779,6 +779,89 @@ export async function findSourceArtifactByContentHash(contentHash) {
   if (!hash) return null
   const artifacts = await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts)
   return artifacts.find((artifact) => artifact.contentHash === hash) || null
+}
+
+/**
+ * C2 · 工作区备份 adapter：枚举三个 store 的全部记录（导出用）。
+ * 无 IndexedDB 时回落 memoryArchive，与既有加载语义一致。
+ */
+export async function loadAllSourceArchiveRecords() {
+  return {
+    artifacts: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.artifacts),
+    chunks: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.chunks),
+    workspaces: await loadAllStoreRecords(SOURCE_ARCHIVE_STORES.workspaces)
+  }
+}
+
+/**
+ * C2 · 工作区备份恢复 adapter：按记录 upsert 回三个 store。
+ * 先做容量校验（复用既有 64MB 上限合同）；无 IndexedDB 时写入 memoryArchive。
+ * 调用方（workspaceBackupBundle）负责捕获旧值并在失败时补偿回滚。
+ */
+export async function restoreSourceArchiveRecords({ artifacts = [], chunks = [], workspaces = [] } = {}, options = {}) {
+  if (options.signal?.aborted) {
+    const error = new Error('恢复已取消')
+    error.name = 'AbortError'
+    throw error
+  }
+  const current = await loadAllSourceArchiveRecords()
+  await assertArchiveCapacity({
+    artifacts: [...current.artifacts, ...artifacts],
+    chunks: [...current.chunks, ...chunks],
+    workspaces: [...current.workspaces, ...workspaces]
+  })
+
+  const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
+  const applyStore = async (storeName, records) => {
+    if (!records.length) return
+    if (!archive) {
+      for (const record of records) memoryArchive[storeName].set(String(record.id), record)
+      return
+    }
+    const tx = archive.transaction(storeName, 'readwrite')
+    const store = tx.objectStore(storeName)
+    for (const record of records) store.put(record)
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error || new Error('来源归档恢复事务失败'))
+      tx.onabort = () => reject(tx.error || new Error('来源归档恢复事务中止'))
+    })
+  }
+
+  await applyStore(SOURCE_ARCHIVE_STORES.artifacts, artifacts)
+  // 部分写入（artifacts 已落、chunks/workspaces 失败）由 bundle 层用恢复前快照补偿
+  await applyStore(SOURCE_ARCHIVE_STORES.chunks, chunks)
+  await applyStore(SOURCE_ARCHIVE_STORES.workspaces, workspaces)
+  return { ok: true, written: { artifacts: artifacts.length, chunks: chunks.length, workspaces: workspaces.length } }
+}
+
+/**
+ * C4 · 整库替换（仅用于恢复失败的补偿回滚）：每个 store 先 clear 再写入快照。
+ * 无 IndexedDB 时重置 memoryArchive 后写入。
+ */
+export async function replaceAllSourceArchiveRecords(snapshot = {}) {
+  const artifacts = Array.isArray(snapshot.artifacts) ? snapshot.artifacts : []
+  const chunks = Array.isArray(snapshot.chunks) ? snapshot.chunks : []
+  const workspaces = Array.isArray(snapshot.workspaces) ? snapshot.workspaces : []
+  const archive = hasIndexedDb() ? await openSourceArchiveDb() : null
+  const rewriteStore = async (storeName, records) => {
+    if (!archive) {
+      memoryArchive[storeName] = new Map(records.map((record) => [String(record.id), record]))
+      return
+    }
+    const tx = archive.transaction(storeName, 'readwrite')
+    tx.objectStore(storeName).clear()
+    for (const record of records) tx.objectStore(storeName).put(record)
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error || new Error('来源归档回滚事务失败'))
+      tx.onabort = () => reject(tx.error || new Error('来源归档回滚事务中止'))
+    })
+  }
+  await rewriteStore(SOURCE_ARCHIVE_STORES.artifacts, artifacts)
+  await rewriteStore(SOURCE_ARCHIVE_STORES.chunks, chunks)
+  await rewriteStore(SOURCE_ARCHIVE_STORES.workspaces, workspaces)
+  return { ok: true }
 }
 
 export async function estimateSourceArchiveUsage() {

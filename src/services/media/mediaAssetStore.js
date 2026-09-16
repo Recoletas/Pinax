@@ -404,8 +404,30 @@ export function createIndexedDbBinaryStore(options = {}) {
   return {
     put: (id, blob) => runIndexedDbRequest(indexedDBImpl, 'readwrite', (store) => store.put(blob, id)),
     get: (id) => runIndexedDbRequest(indexedDBImpl, 'readonly', (store) => store.get(id)),
-    delete: (id) => runIndexedDbRequest(indexedDBImpl, 'readwrite', (store) => store.delete(id))
+    delete: (id) => runIndexedDbRequest(indexedDBImpl, 'readwrite', (store) => store.delete(id)),
+    keys: () => runIndexedDbRequest(indexedDBImpl, 'readonly', (store) => store.getAllKeys())
   }
+}
+
+// C2 · 工作区备份导出/恢复 adapter（批量枚举与逐个读写，不改变既有单资产 API）
+export function listMediaBinaryIds(options = {}) {
+  const store = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
+  return store.keys()
+}
+
+export function getMediaBinaryById(id, options = {}) {
+  const store = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
+  return store.get(id)
+}
+
+export function putMediaBinaryById(id, blob, options = {}) {
+  const store = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
+  return store.put(id, blob)
+}
+
+export function deleteMediaBinaryById(id, options = {}) {
+  const store = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
+  return store.delete(id)
 }
 
 function readMetadata(storage) {
