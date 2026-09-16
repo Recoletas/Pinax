@@ -4,6 +4,18 @@
 
 ## 当前主线
 
+2026-09-16 工作区一致性修订：用户继续否定各页协调度与切换。解除设定固定最大宽度；移除 AppShell 旧侧栏方向/out-in 动画；标签固定宽度并滚入活动项；统一当前创作页工具栏与素材/漫画表面。地图、体验、联机的内部专业面板未在本轮整体重构，视觉验收仍待用户。
+
+2026-09-16 设定密度精修：用户否定连续正文首版的空旷感。调研 Dabble 导航/操作分工与 Novelcrafter 长短属性排布后，收拢正文、统一动作层级、增加只读目录搜索与非空计数；短属性横排、长文自动高度。数据库、AI 协议与保存 owner 不改，外观仍以用户验收为准。
+
+2026-09-16 用户否定上轮设定表单的框感与长文滚动。本轮改为连续正文与本节直达目录，复用 Autosize；使用指南纳入同一工作区标签。原有世界书绑定与保存链不变，视觉仍待用户验收，不能把自动化通过视为外观认可。
+
+2026-09-16 首页第二轮已获用户认可，跨页统一已实施并通过组合验证：顶层标签成为唯一作品/页面导航，清理旧 mast 和写作页重复书签；重点重整结构化设定，媒体工作区先统一公共工具条与目录。内部专业编辑器不在本轮整体重写，详见[设计合同](./engineering/home-workspace-design.md)。
+
+2026-09-16 用户调整优先级：详细数据库演进延后至后续夜间任务。首页首版被用户否定后，第二轮已接常驻首页/作品标签、分组侧栏、带图标的操作菜单与原创折页封面，保留全部书稿、搜索/排序、书架/列表。复用 workspaceTabsStore 与 Lucide；不增加云同步或改变书稿存储合同。设计及参考边界见[首页工作台设计](./engineering/home-workspace-design.md)，视觉仍待用户确认。
+
+2026-09-16 开始并实施记忆历史 H0/H1 的 Web 首切：数据库采用 Dexie，保留现有候选 owner，以原子本地恢复队列归档不可变修订；入口移入设置与作品助手，ZIP 备份纳入历史。实现和未完成边界见[记忆历史架构](./engineering/memory-history.md)。实体事实表、双时态查询、角色知情传播、永久运行事件及 SQLite adapter 仍是后续工作，不因本轮历史归档完成而自动结项。
+
 2026-09-16 [Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)的未交付项已完成组合：普通试演接入受 manifest 限定的单次 `history_lookup` 与作者可读回执，采用稿后果可进入既有 pending memory 审核；完整工作区 ZIP 覆盖 localStorage、来源归档和已落盘媒体并具备预览、校验、回滚和幂等恢复。Authoring/Notes/Prose/Experience/gameStore 与根层 services 全部达到结构预算，Authoring 重面板按需分包，全仓 ESLint 为 0 warning。确定性 provider/浏览器与 64 MB 来源 + 20 MB 媒体 + 100 章压力样本已验收；真实外部 provider 未运行。组合回执见 [integration summary](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
 
 2026-09-15 架构收口已经完成当前可安全一次落地的主体：世界书写入统一经过 durable mutation owner，Experience 完整回合编排迁出 store，Authoring 首载/换书与右栏打开顺序各有唯一协调器，Notes 插画交互和 ProseEssay 七键持久化迁出页面；低 fan-in services 完成归域，迁移、试验、兼容与退役代码有显式生命周期。当前不再以继续拆大文件作为独立目标；下一阶段只在真实功能改动经过这些边界时继续瘦身。架构真源见[当前架构与代码边界](./engineering/current-architecture.md)，本轮回执见 `docs/agent-runs/architecture-closure-20260915.md`。

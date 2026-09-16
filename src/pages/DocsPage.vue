@@ -5,7 +5,7 @@ import { marked } from 'marked'
 import { sanitizeHtml } from '../utils/sanitize'
 
 // 独立全页文档界面（对标 platform.minimaxi.com/docs 的阅读体验）：
-// 顶部返回栏 + 左侧分组章节导航 + 主内容区。不套 AppShell，自成一个页面。
+// 工作区文档标签：保留章节深链接，复用 AppShell 的导航与标签。
 // 章节清单来自 /docs/user-manual/manifest.json（带 group 分组字段），
 // 正文按章节拉取同名 .md，经 marked → sanitizeHtml 渲染。
 
@@ -209,14 +209,14 @@ onBeforeUnmount(() => {
           data-test="docs-back"
           @click="goBack"
         >
-          ← <span>返回应用</span>
+          ← <span>返回工作区</span>
         </button>
 
         <button
           type="button"
           class="docs-page__menu-toggle"
           aria-label="切换章节目录"
-          aria-expanded="sidebarOpen ? 'true' : 'false'"
+          :aria-expanded="sidebarOpen ? 'true' : 'false'"
           data-test="docs-menu-toggle"
           @click="sidebarOpen = !sidebarOpen"
         >
@@ -224,8 +224,6 @@ onBeforeUnmount(() => {
         </button>
 
         <div class="docs-page__brand">
-          <strong>Pinax</strong>
-          <span class="docs-page__brand-sep">/</span>
           <span>使用指南</span>
         </div>
 
@@ -304,7 +302,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .docs-page {
-  min-height: var(--app-viewport-height, 100vh);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -463,6 +463,7 @@ onBeforeUnmount(() => {
 .docs-page__main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
 }
 
@@ -503,13 +504,11 @@ onBeforeUnmount(() => {
 }
 
 .docs-page__content {
-  font-size: 14px;
-  line-height: 1.75;
-  color: var(--text-primary);
-  /* 铺满视口下 880px 左对齐会留出 ~440px 右空区; 放宽阅读列并居中,
-     空区对称分布, 视觉上不再「右半边是空的」。超宽屏仍有舒适行长上限。 */
-  max-width: 1180px;
+  max-width: 860px;
   margin-inline: auto;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--text-primary);
 }
 
 .docs-page__content :deep(h1),

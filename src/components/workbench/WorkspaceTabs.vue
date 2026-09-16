@@ -1,6 +1,6 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import WorkspaceTabOverflow from './WorkspaceTabOverflow.vue'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
@@ -10,6 +10,7 @@ import { activateWorkspaceTab, closeWorkspaceTab } from '../../services/workspac
 // 视觉规范：活动态靠底边短色条，不用厚卡片；同书标签用相同项目短色条关联；
 // dirty 用信号点；移动端只显示当前标签，其余进入“全部标签”菜单。
 const router = useRouter()
+const route = useRoute()
 const workspaceTabs = useWorkspaceTabsStore()
 
 const scrollRef = ref(null)
@@ -31,10 +32,19 @@ const SURFACE_ICONS = {
   'collaboration-review': 'users'
 }
 
-const tabs = computed(() => workspaceTabs.tabs)
-const activeTabId = computed(() => workspaceTabs.activeTabId)
+const HOME_TAB_ID = 'pinax-home'
+const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
+const tabs = computed(() => [homeTab, ...workspaceTabs.tabs])
+const activeTabId = computed(() => route.name === 'welcome' ? HOME_TAB_ID : workspaceTabs.activeTabId)
+async function revealActiveTab() {
+  await nextTick()
+  const selected = scrollRef.value?.querySelector('[aria-selected="true"]')
+  selected?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
+}
+watch(activeTabId, revealActiveTab, { immediate: true })
 
 function surfaceIcon(surface) {
+  if (surface === 'home') return 'book'
   return SURFACE_ICONS[surface] || 'archive'
 }
 
@@ -59,10 +69,12 @@ function shortTitle(tab) {
 }
 
 function activateTab(tabId) {
+  if (tabId === HOME_TAB_ID) { void router.push({ name: 'welcome' }); return }
   void activateWorkspaceTab(workspaceTabs, router, tabId)
 }
 
 function closeTab(tabId) {
+  if (tabId === HOME_TAB_ID) return
   void closeWorkspaceTab(workspaceTabs, router, tabId).then(() => {
     focusActiveTab()
   })
@@ -70,7 +82,7 @@ function closeTab(tabId) {
 
 function focusActiveTab() {
   nextTick(() => {
-    const el = scrollRef.value?.querySelector(`[data-tab-id="${workspaceTabs.activeTabId}"]`)
+    const el = scrollRef.value?.querySelector(`[data-tab-id="${activeTabId.value}"]`)
     if (el) el.focus({ preventScroll: false })
   })
 }
@@ -132,9 +144,11 @@ function onGlobalKeydown(event) {
 
 onMounted(() => {
   document.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('resize', revealActiveTab)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', revealActiveTab)
   document.removeEventListener('keydown', onGlobalKeydown)
 })
 </script>
@@ -162,6 +176,8 @@ onBeforeUnmount(() => {
         :title="tab.title"
         :style="projectInkStyle(tab)"
         @click="activateTab(tab.id)"
+        @keydown.enter.prevent="activateTab(tab.id)"
+        @keydown.space.prevent="activateTab(tab.id)"
         @mousedown="onTabMiddleClick($event, tab.id)"
       >
         <span class="ws-tab__project-bar" aria-hidden="true"></span>
@@ -172,6 +188,7 @@ onBeforeUnmount(() => {
         </span>
         <span v-if="tab.dirty" class="ws-tab__dirty" title="有未保存更改" aria-label="有未保存更改"></span>
         <button
+          v-if="!tab.pinned"
           class="ws-tab__close"
           type="button"
           :aria-label="`关闭 ${tab.title}`"
@@ -184,11 +201,13 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <WorkspaceTabOverflow
+      v-if="tabs.length > 1"
       :tabs="tabs"
       :active-tab-id="activeTabId"
       @activate="activateTab"
       @close="closeTab"
     />
+    <slot />
   </div>
 </template>
 
@@ -364,5 +383,25 @@ onBeforeUnmount(() => {
   .ws-tab__close {
     transition: none;
   }
+}
+
+/* 浏览器式工作标签：常驻首页与作品使用同一导航 owner。 */
+.ws-tabs { min-height: 52px; padding: 8px 12px 0; background: color-mix(in srgb, var(--archive-paper-strong) 55%, var(--archive-paper)); gap: 8px; align-items: center; }
+.ws-tabs__scroll { align-self: stretch; scrollbar-width: none; }
+.ws-tabs__scroll::-webkit-scrollbar { display: none; }
+.ws-tab { height: 44px; flex: 0 0 218px; min-width: 0; max-width: 218px; padding: 0 10px 0 14px; gap: 8px; font-size: 14px; border-radius: 7px 7px 0 0; border: 1px solid transparent; border-bottom: 0; }
+.ws-tab[data-tab-key="home"] { flex-basis: 96px; }
+.ws-tab:not(.is-active):not(:hover)::before { content: ''; position: absolute; right: 0; height: 18px; width: 1px; background: var(--archive-paper-strong); }
+.ws-tab__label-full { display: inline; }
+.ws-tab__label-short { display: none; }
+.ws-tab.is-active { background: var(--archive-paper-soft); border-color: color-mix(in srgb, var(--archive-ink) 12%, transparent); }
+.ws-tab.is-active::after, .ws-tab__project-bar { display: none; }
+.ws-tab__label { flex: 1; }
+.ws-tab__close { width: 26px; height: 26px; }
+.ws-tab__icon { width: 17px; height: 17px; }
+@media (max-width: 759px) {
+  .ws-tab[data-tab-key="home"] { display: inline-flex; flex: 0 0 96px; min-width: 96px; }
+  .ws-tab { min-width: 0; max-width: 210px; font-size: 14px; }
+  .ws-tab.is-active { min-width: 0; }
 }
 </style>

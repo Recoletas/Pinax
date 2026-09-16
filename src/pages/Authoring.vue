@@ -8,27 +8,8 @@
       title="退出专注全屏（Esc）"
       @click="toggleWritingZen"
     >退出全屏</button>
-    <!-- 软木顶栏 — 单行 64-80px 功能薄条: 书选择 / 保存状态 / 4 个功能 tab + 返回 + 主题 -->
-    <!-- 软木顶栏 — 单行功能薄条：编辑器工具 / 保存状态 / 章节抽屉 / 更多。
-         书页签只在多书时出现：单书与 AppShell 页签信息重复，先视觉降重。 -->
+    <!-- 页面内只保留编辑工具、保存反馈与章节目录；作品切换由全局标签和首页负责。 -->
     <div class="wall__cork" :inert="illustratorBlocking ? '' : undefined">
-      <div v-if="books.length > 1" class="authoring-book-tabs" role="tablist" aria-label="打开的书稿">
-        <button
-          v-for="book in books"
-          :key="book.id"
-          class="authoring-book-tab"
-          :class="{ 'is-active': selectedBookId === book.id }"
-          type="button"
-          role="tab"
-          :aria-selected="selectedBookId === book.id"
-          :title="book.title"
-          @click="openBook(book.id)"
-        >
-          <WorkbenchIcon name="book" :size="14" />
-          <span>{{ book.title }}</span>
-        </button>
-        <button class="authoring-book-tab__new" type="button" title="新建书稿" aria-label="新建书稿" @click="createNewBook">＋</button>
-      </div>
 
       <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
 
@@ -45,7 +26,7 @@
         @click.stop="openChapterDrawer"
       >
         <WorkbenchIcon name="panel-left" :size="15" />
-        <span>{{ currentChapterTitle || '章节' }}</span>
+        <span>章节目录</span>
       </button>
 
       <div class="wall__tabs">
@@ -75,6 +56,7 @@
               <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">画师</button>
             </div>
             <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">继续创作指引</button>
+            <button type="button" role="menuitem" @click="moreAction(createNewBook)">新建书稿</button>
             <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">备份与恢复</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">导出当前章节</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">导出整本书</button>
@@ -924,6 +906,7 @@
         </nav>
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
+          <button type="button" class="control-button" @click="appSettings.open('memory')">本书记忆与历史</button>
           <AuthoringKnowledgeAssistant
             v-model:draft="knowledgeAssistant.draft.value"
             :project-title="currentBook?.title || ''"

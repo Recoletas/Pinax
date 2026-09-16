@@ -822,7 +822,8 @@ describe('route adapter install ordering — data-loss race regression', () => {
     const storedRaw = JSON.parse(storage.getItem(STORAGE_KEYS.WORKSPACE_TABS))
     expect(storedRaw.tabs.map((tab) => tab.id)).toEqual(['t1'])
     expect(store.tabs.map((tab) => tab.id)).toEqual(['t1'])
-    expect(store.activeTabId).toBe('t1')
+    // 会话仍在，但当前 URL 是首页，不能把恢复的作品误标为活动页。
+    expect(store.activeTabId).toBe('')
   })
 
   it('a late initial-navigation sync runs on the hydrated store, never on an empty one', () => {
@@ -860,6 +861,7 @@ describe('route adapter install ordering — data-loss race regression', () => {
 
     const fakeRouter = makeTabsFakeRouter()
     handleRouteChangeForTest(store, fakeRouter, { name: 'welcome', query: {} })
+    expect(store.activeTabId).toBe('')
     handleRouteChangeForTest(store, fakeRouter, { name: 'unknown-route', query: {} })
 
     expect(store.tabs).toHaveLength(1)

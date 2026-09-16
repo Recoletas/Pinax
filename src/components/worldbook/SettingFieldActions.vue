@@ -7,7 +7,7 @@
       :aria-label="generateAriaLabel"
       @click="$emit('generate')"
     >
-      <WorkbenchIcon name="sparkles" :size="13" />
+      <WorkbenchIcon name="sparkles" :size="15" />
       <span>{{ working ? '生成中…' : '生成草稿' }}</span>
     </button>
   </div>
@@ -43,26 +43,25 @@ const generateAriaLabel = computed(() => `为设定项「${props.fieldLabel}」�
 }
 
 .action-btn {
-  min-height: 28px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 3px;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--archive-paper-strong);
+  border-radius: 6px;
+  background: var(--archive-paper-soft);
   color: var(--archive-ink-soft);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
 
 .action-btn:hover {
-  border-bottom-color: color-mix(in srgb, var(--accent) 52%, transparent);
-  background: transparent;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--archive-paper-strong));
+  background: color-mix(in srgb, var(--accent) 6%, var(--archive-paper-soft));
   color: var(--accent);
 }
 

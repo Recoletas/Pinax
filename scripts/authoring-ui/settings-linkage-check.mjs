@@ -125,6 +125,7 @@ async function contextInfo(page) {
     const bar = document.querySelector('[data-test="settings-context-bar"]')
     return {
       kicker: bar?.querySelector('.context-kicker')?.textContent.trim() || '',
+      projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
       selected: bar?.querySelector('.context-worldbook-select')?.selectedOptions?.[0]?.textContent.trim()
         || bar?.querySelector('.context-worldbook-empty')?.textContent.trim() || '',
       mismatch: bar?.querySelector('.context-mismatch')?.textContent.trim() || '',
@@ -151,7 +152,7 @@ try {
       hasJiaKu: [...document.querySelectorAll('textarea, input[type="text"]')].some((node) => (node.value || '').includes('【甲库版本】')),
       listHit: [...document.querySelectorAll('[data-entry-id]')].some((node) => node.dataset.entryId === 'char-wa-lin' && node.offsetTop >= 0)
     })) }
-    check('J1a A 书打开条目显示甲库上下文与内容', j1a.kicker.includes('雾港纪事·甲') && j1a.selected === '雾港世界（甲）'
+    check('J1a A 书打开条目显示甲库上下文与内容', j1a.projectTitle.includes('雾港纪事·甲') && j1a.selected === '雾港世界（甲）'
       && j1a.hasJiaKu && !j1a.missing, JSON.stringify(j1a))
     check('J1a 项目模式选择器锁定', j1a.selectDisabled === true, j1a.selectDisabled)
     check('J1a 提供回到正文', j1a.returnBtn === true, j1a.returnBtn)
@@ -163,7 +164,7 @@ try {
       missing: Boolean(document.querySelector('[data-test="entry-missing"]')),
       bodyHasYiKu: document.body.innerText.includes('【乙库版本】') || [...document.querySelectorAll('textarea')].some((node) => (node.value || '').includes('【乙库版本】'))
     })) }
-    check('J1b 跨库 entryId 明确缺失且不串库', j1b.kicker.includes('北地手记·乙') && j1b.missing === true && !j1b.bodyHasJiaKu, JSON.stringify(j1b))
+    check('J1b 跨库 entryId 明确缺失且不串库', j1b.projectTitle.includes('北地手记·乙') && j1b.missing === true && !j1b.bodyHasJiaKu, JSON.stringify(j1b))
 
     // J6：路由快照与绑定不一致 → 提示并按当前绑定打开。
     await page.goto(`${BASE}/settings/structured?bookId=book-a&worldbookId=wb`, { waitUntil: 'domcontentloaded' })
@@ -177,7 +178,7 @@ try {
     await page.locator('[data-test="settings-section-tab-structured"]').click()
     await page.waitForTimeout(700)
     const j2a = { url: page.url(), ...(await contextInfo(page)) }
-    check('J2 条目→设定保留项目上下文', /[?&]bookId=book-a/.test(j2a.url) && /[?&]worldbookId=wa/.test(j2a.url) && j2a.kicker.includes('雾港纪事·甲'), JSON.stringify({ url: j2a.url, kicker: j2a.kicker }))
+    check('J2 条目→设定保留项目上下文', /[?&]bookId=book-a/.test(j2a.url) && /[?&]worldbookId=wa/.test(j2a.url) && j2a.projectTitle.includes('雾港纪事·甲'), JSON.stringify({ url: j2a.url, kicker: j2a.kicker }))
     await page.locator('[data-test="settings-section-tab-map"]').click()
     await page.waitForTimeout(900)
     const j2b = { url: page.url(), ...(await contextInfo(page)) }
@@ -215,18 +216,19 @@ try {
     await page.waitForTimeout(800)
     const j5 = await page.evaluate(() => ({
       kicker: document.querySelector('[data-test="settings-context-bar"] .context-kicker')?.textContent.trim() || '',
+      projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
       selectValue: document.querySelector('[data-test="settings-context-bar"] .context-worldbook-select')?.value || '',
       anyTextAreaHasYiKu: [...document.querySelectorAll('textarea')].some((node) => (node.value || '').includes('【乙库版本】')),
       anyTextAreaHasJiaKu: [...document.querySelectorAll('textarea')].some((node) => (node.value || '').includes('【甲库版本】')),
       listNames: [...document.querySelectorAll('[data-entry-id]')].slice(0, 4).map((node) => node.textContent.trim().slice(0, 24))
     }))
-    check('J5 B 书条目页绑定乙库且无甲库内容', j5.kicker.includes('北地手记·乙') && j5.selectValue === 'wb' && j5.anyTextAreaHasYiKu && !j5.anyTextAreaHasJiaKu, JSON.stringify(j5))
+    check('J5 B 书条目页绑定乙库且无甲库内容', j5.projectTitle.includes('北地手记·乙') && j5.selectValue === 'wb' && j5.anyTextAreaHasYiKu && !j5.anyTextAreaHasJiaKu, JSON.stringify(j5))
 
     // J5b：无 bookId 的高级页仍是全局模式，但显式 worldbookId 必须生效。
     await page.goto(`${BASE}/settings/worldbook/advanced?worldbookId=wb&entryId=char-wb-lin`, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(800)
     const j5b = { ...(await contextInfo(page)), hasYiKu: await page.locator('.entry-editor textarea').first().inputValue().then((value) => value.includes('【乙库版本】')).catch(() => false) }
-    check('J5b 全局条目页遵从显式世界书定位', j5b.kicker === 'ACTIVE WORLD' && j5b.selected === '北地世界（乙）' && j5b.hasYiKu, JSON.stringify(j5b))
+    check('J5b 全局条目页遵从显式世界书定位', j5b.kicker === '世界书' && j5b.selectDisabled === false && j5b.selected === '北地世界（乙）' && j5b.hasYiKu, JSON.stringify(j5b))
 
     // J3：回到正文 → 聚焦既有/新建 Authoring 标签，落在同一本书。
     await page.goto(`${BASE}/settings/worldbook/advanced?bookId=book-a&worldbookId=wa`, { waitUntil: 'domcontentloaded' })
@@ -362,6 +364,7 @@ try {
       const box = back?.getBoundingClientRect()
       return {
         kicker: bar?.querySelector('.context-kicker')?.textContent.trim() || '',
+      projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
         overflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
       overflowBy: (() => {
         const cw = document.documentElement.clientWidth
@@ -373,7 +376,7 @@ try {
         backVisible: Boolean(back && box && box.top >= 0 && box.bottom <= window.innerHeight)
       }
     })
-    check('J8 390 上下文条、回程可达、无横向溢出', mobile.kicker.includes('雾港纪事·甲') && mobile.overflow && mobile.backH >= 40 && mobile.backVisible, JSON.stringify(mobile))
+    check('J8 390 上下文条、回程可达、无横向溢出', mobile.projectTitle.includes('雾港纪事·甲') && mobile.overflow && mobile.backH >= 40 && mobile.backVisible, JSON.stringify(mobile))
     await page.screenshot({ path: path.join(OUT_DIR, 'linkage-390.png') })
     await context.close()
   }

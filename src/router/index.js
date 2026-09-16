@@ -21,6 +21,12 @@ const DocsPage = () => import('../pages/DocsPage.vue')
 
 const workbenchChildren = [
   {
+    path: 'docs/:chapterId?',
+    name: 'docs',
+    component: DocsPage,
+    meta: { hideGlobalMemory: true, title: '使用指南' }
+  },
+  {
     path: '',
     name: 'welcome',
     component: AuthoringWelcomeView,
@@ -172,17 +178,6 @@ const routes = [
     path: '/',
     component: AppShell,
     children: workbenchChildren
-  },
-  {
-    // 独立全页文档界面 —— 不套 AppShell, 对标 platform.minimaxi.com/docs。
-    // :chapterId 对应 manifest.json 里的章节 id, 缺省落到 README。
-    path: '/docs/:chapterId?',
-    name: 'docs',
-    component: DocsPage,
-    meta: {
-      hideGlobalMemory: true,
-      title: '使用指南'
-    }
   },
   { path: '/writing', redirect: { name: 'authoring' } },
   { path: '/materials', redirect: { name: 'materials' } },

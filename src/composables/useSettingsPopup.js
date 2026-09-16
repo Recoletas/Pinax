@@ -12,7 +12,7 @@ import { ref } from 'vue'
 const isOpen = ref(false)
 const activeSection = ref('ai')
 
-const VALID_SECTIONS = new Set(['ai', 'storage'])
+const VALID_SECTIONS = new Set(['ai', 'storage', 'experience', 'memory'])
 
 function open(section = 'ai') {
   activeSection.value = VALID_SECTIONS.has(section) ? section : 'ai'

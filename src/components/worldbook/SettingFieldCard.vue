@@ -28,7 +28,7 @@
       :is="FieldComponent"
       :model-value="modelValue"
       :input-id="inputId"
-      :rows="meta.controlType === 'textarea' ? (meta.entryType === 'character' ? 10 : rows) : undefined"
+      :rows="meta.controlType === 'textarea' ? rows : undefined"
       :placeholder="meta.placeholder"
       :max-length="meta.maxLength"
       :delimiter="meta.delimiter"
@@ -38,6 +38,7 @@
       @update:model-value="onUserInput"
     />
 
+    <div v-if="dirty.state.value !== 'pristine' || hasDraft || (meta.controlType === 'textarea' && meta.maxLength)" class="field-footer">
     <div v-if="dirty.state.value !== 'pristine'" class="field-status" :class="`is-${dirty.state.value}`">
       <span class="status-dot" aria-hidden="true"></span>
       <span class="status-text">{{ statusText }}</span>
@@ -53,6 +54,7 @@
     <p v-if="meta.controlType === 'textarea' && meta.maxLength" class="field-hint">
       {{ modelValue.length }} / {{ meta.maxLength }}
     </p>
+    </div>
   </article>
 </template>
 

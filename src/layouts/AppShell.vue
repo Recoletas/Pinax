@@ -4,12 +4,12 @@ import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
-import ContourField from '../components/workbench/ContourField.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
+import '../styles/workspace-surfaces.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -29,53 +29,7 @@ const currentRouteCaption = computed(() => {
   return String(route.meta?.title || activity?.label || '工作区')
 })
 
-/* V4 (2026-06-26): direction-aware page-route transition. We resolve
-   the previous activity key before the route swap, then on the new
-   tick compute the horizontal sign from the ACTIVITY_ITEMS index
-   delta. Direction defaults to +1 (rightward enter) so the very
-   first navigation never reads as a leftward slide-in. The same
-   value feeds both before-enter (positive: page slides in from
-   right) and before-leave (negative of the same value: page slides
-   out toward the opposite side, so enter and leave mirror each
-   other instead of both moving the same way). Same-activity
-   navigation resets direction to 0 — only the vertical settle
-   plays, no horizontal displacement (sub-route swaps like
-   /experience → /opening should not pretend to be cross-section
-   moves). */
-const prevActivityKey = ref(currentActivityKey.value)
-const transitionDirection = ref(1)
-const routeTransitionName = computed(() => transitionDirection.value === 0 ? 'page-layer' : 'page-route')
-
-watch(() => route.fullPath, () => {
-  const nextKey = currentActivityKey.value
-  const previousKey = prevActivityKey.value
-  if (nextKey === previousKey) {
-    transitionDirection.value = 0
-    return
-  }
-  const nextIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === nextKey)
-  const prevIndex = ACTIVITY_ITEMS.findIndex((item) => item.key === previousKey)
-  const safeNext = nextIndex >= 0 ? nextIndex : 0
-  const safePrev = prevIndex >= 0 ? prevIndex : safeNext
-  if (safeNext === safePrev) {
-    transitionDirection.value = 0
-  } else {
-    transitionDirection.value = safeNext > safePrev ? 1 : -1
-  }
-  prevActivityKey.value = nextKey
-})
-
-function onPageBeforeEnter(el) {
-  if (el && el.style) {
-    el.style.setProperty('--page-direction', String(transitionDirection.value))
-  }
-}
-
-function onPageBeforeLeave(el) {
-  if (el && el.style) {
-    el.style.setProperty('--page-direction', String(-transitionDirection.value))
-  }
-}
+// Workspace tabs replace the page directly; exit animations delay editor ownership.
 
 const storageHealth = useStorageHealth()
 const settingsPopup = useSettingsPopup()
@@ -176,41 +130,14 @@ function handleSelectPanel(routeName) {
       'nav-hidden': hideActivityBar
     }"
   >
+    <WorkspaceTabs>
+      <div v-if="!hideActivityBar" class="shell-tab-actions">
+        <button ref="drawerTriggerRef" type="button" :aria-expanded="drawerOpen" aria-label="打开工作区导航" @click="toggleDrawer"><WorkbenchIcon name="menu" :size="19" /></button>
+        <button type="button" aria-label="打开设置" @click="openSettings('ai')"><WorkbenchIcon name="settings" :size="18" /></button>
+        <button v-if="storageHealth.showChip.value" class="shell-storage-status" :class="storageHealth.level.value" type="button" aria-label="存储偏高，打开存储详情" data-test="shell-storage-status" @click="openSettings('storage')"><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
+      </div>
+    </WorkspaceTabs>
     <template v-if="!hideActivityBar">
-      <header class="shell-mast">
-        <ContourField density="narrative" entry="right" />
-        <div class="shell-mast__brand">
-          <button
-            ref="drawerTriggerRef"
-            class="shell-menu-btn"
-            type="button"
-            :aria-expanded="drawerOpen ? 'true' : 'false'"
-            aria-label="打开工作区导航"
-            @click="toggleDrawer"
-          >
-            <WorkbenchIcon name="menu" :size="19" />
-          </button>
-          <div class="shell-brand-route">
-            <span class="shell-brand-mark">Pinax</span>
-            <Transition name="caption-fade" mode="out-in">
-              <strong :key="currentRouteCaption">{{ currentRouteCaption }}</strong>
-            </Transition>
-          </div>
-        </div>
-
-        <div class="shell-mast__meta">
-          <button
-            v-if="storageHealth.showChip.value"
-            class="shell-storage-status control-icon"
-            :class="storageHealth.level.value"
-            type="button"
-            :aria-label="storageHealth.isCritical.value ? '存储超限，打开存储详情' : '存储偏高，打开存储详情'"
-            :title="storageHealth.isCritical.value ? '存储超限' : '存储偏高'"
-            data-test="shell-storage-status"
-            @click="openSettings('storage')"
-          ><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
-        </div>
-      </header>
 
       <Transition name="modal-fade">
         <SettingsPopup v-if="settingsPopup.isOpen.value" />
@@ -277,30 +204,25 @@ function handleSelectPanel(routeName) {
         </div>
       </FolioSurface>
 
-      <!-- 第二层工作台标签：位于顶栏之下、路由内容之上；标签状态归 workspaceTabsStore，导航真源仍是 URL。 -->
-      <WorkspaceTabs />
     </template>
 
     <main class="shell-content">
       <RouterView v-slot="{ Component, route: routeInfo }">
-        <transition
-          :name="routeTransitionName"
-          mode="out-in"
-          @before-enter="onPageBeforeEnter"
-          @before-leave="onPageBeforeLeave"
-        >
           <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
           <div v-else class="route-loading">
             <span class="route-loading-spinner"></span>
             <span>加载中…</span>
           </div>
-        </transition>
       </RouterView>
     </main>
   </div>
 </template>
 
 <style scoped>
+.shell-tab-actions { display: flex; align-items: center; gap: 4px; padding: 0 4px 5px 8px; }
+.shell-tab-actions > button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
+.shell-tab-actions > button:hover { background: var(--archive-paper-soft); color: var(--archive-ink); }
+.shell-tab-actions > button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: -2px; }
 .app-shell {
   --shell-drawer-width: 360px;
   position: relative;

@@ -2,30 +2,48 @@
   <section class="structured-settings-panel is-continuous">
     <div class="section-workbench">
       <aside class="section-rail">
-        <div class="panel-lead">
-          <div>
-            <span class="panel-kicker">CURRENT SECTION</span>
-            <h2>{{ activeSection.label }}</h2>
-            <p>{{ activeSection.description }}</p>
-          </div>
-          <div class="panel-summary" aria-label="当前分区状态">
-            <span>{{ activeSection.fields.length }} 项</span>
-            <span v-if="readyDraftCount > 0" class="draft-summary">{{ readyDraftCount }} 待审</span>
-          </div>
-        </div>
+        <span class="section-index-label">设定目录</span>
+        <label class="setting-directory-search">
+          <WorkbenchIcon name="search" :size="15" />
+          <input v-model="directoryQuery" type="search" aria-label="查找设定" placeholder="查找设定…" />
+        </label>
 
         <nav class="section-tabs" aria-label="结构化设定分区">
           <button
             v-for="section in sections"
             :key="section.key"
             :class="['section-tab', { active: activeSectionKey === section.key }]"
+            :aria-label="section.label"
+            :aria-current="activeSectionKey === section.key ? 'page' : undefined"
             @click="activeSectionKey = section.key"
           >
+            <WorkbenchIcon :name="sectionIcons[section.key] || 'book'" :size="17" />
             <span>{{ section.label }}</span>
+            <small :title="`已填写 ${populatedCount(section)} 项，共 ${section.fields.length} 项`">{{ populatedCount(section) }}/{{ section.fields.length }}</small>
             <i aria-hidden="true"></i>
           </button>
         </nav>
 
+        <nav v-if="!directoryQuery.trim()" class="field-directory" aria-label="本节内容">
+          <span class="field-directory-label">本节内容</span>
+          <button v-for="field in activeSection.fields" :key="field.key" type="button" @click="jumpToField(field)">
+            <span class="field-presence" :class="{ filled: form[activeSectionKey]?.[field.key]?.trim() }" aria-hidden="true"></span>
+            <span>{{ field.label }}</span>
+          </button>
+        </nav>
+        <nav v-else class="field-directory field-search-results" aria-label="设定查找结果">
+          <span class="field-directory-label" role="status">{{ directoryMatches.length }} 项匹配</span>
+          <button v-for="item in directoryMatches" :key="`${item.section.key}.${item.field.key}`" type="button" @click="openDirectoryMatch(item)">
+            <span>{{ item.field.label }}<small>{{ item.section.label }}</small></span>
+          </button>
+          <p v-if="!directoryMatches.length" class="directory-empty">没有匹配的设定，试试名称或正文关键词。</p>
+        </nav>
+
+      </aside>
+
+      <div class="section-canvas">
+        <header class="section-content-heading">
+          <div class="section-heading-copy"><h1>{{ activeSection.label }}</h1><p>{{ activeSection.description }}</p></div>
         <div class="section-actions">
           <button
             type="button"
@@ -48,9 +66,8 @@
             <span>{{ showBriefBar ? '收起要求' : '补充要求' }}</span>
           </button>
         </div>
-      </aside>
-
-      <div class="section-canvas">
+          <span v-if="readyDraftCount > 0" class="draft-summary">{{ readyDraftCount }} 项草稿待审</span>
+        </header>
         <div v-if="showBriefBar" class="brief-bar-wrapper">
           <GenerationBriefBar
             :model-value="sectionBrief"
@@ -108,6 +125,7 @@
               :worldbook-id="props.worldbook.id"
               :section="activeSection"
               :field="field"
+              :rows="2"
               v-model="form[activeSectionKey][field.key]"
               :working="workingKey === `${activeSectionKey}.${field.key}`"
               :has-draft="hasDraftForField(field.key)"
@@ -213,6 +231,23 @@ const dirtyRegistry = new Set()
 provide('dirtyRegistry', dirtyRegistry)
 
 const activeSection = computed(() => getSettingSection(activeSectionKey.value) || sections[0])
+const sectionIcons = { world: 'compass', story: 'book', characters: 'users', creativeRules: 'list' }
+const directoryQuery = ref('')
+const directoryMatches = computed(() => {
+  const query = directoryQuery.value.trim().toLocaleLowerCase()
+  if (!query) return []
+  return sections.flatMap(section => section.fields
+    .filter(field => `${field.label} ${section.label} ${form[section.key]?.[field.key] || ''}`.toLocaleLowerCase().includes(query))
+    .map(field => ({ section, field })))
+})
+async function openDirectoryMatch(item) {
+  activeSectionKey.value = item.section.key
+  await nextTick()
+  jumpToField(item.field)
+}
+function populatedCount(section) {
+  return section.fields.filter(field => String(form[section.key]?.[field.key] || '').trim()).length
+}
 
 const fieldRefs = new Map()
 function hashStructuredRevision(value) {
@@ -763,6 +798,12 @@ function onReviewViewportResize() {
 
 function hasDraftForField(fieldKey) {
   return getSectionDrafts(activeSectionKey.value).has(fieldKey)
+}
+
+function jumpToField(field) {
+  const input = document.getElementById(`setting-field-${activeSectionKey.value}-${field.key}`)
+  input?.closest('.setting-field-card')?.scrollIntoView({ block: 'start', behavior: 'auto' })
+  input?.focus({ preventScroll: true })
 }
 
 function focusDraft(fieldKey) {
@@ -1760,361 +1801,106 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   }
 }
 
-/* Theme 2 redesign: section index on the left, editable dossier on the right. */
-.structured-settings-panel.is-continuous {
-  padding-top: 22px;
+/* Continuous document: headings own hierarchy; fields never become scroll boxes. */
+.structured-settings-panel.is-continuous { padding: 0; }
+.structured-settings-panel.is-continuous .section-workbench { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.structured-settings-panel.is-continuous .section-rail { position: sticky; top: 0; align-self: start; min-height: 520px; display: flex; flex-direction: column; gap: 24px; padding: 28px 18px; border-right: 1px solid var(--archive-paper-strong); background: var(--archive-paper); }
+.section-index-label { font-size: 13px; color: var(--archive-ink-soft); padding: 0 14px; }
+.structured-settings-panel.is-continuous .section-tabs { display: grid; gap: 6px; padding: 0; border: 0; }
+.structured-settings-panel.is-continuous .section-tab { width: 100%; min-height: 46px; padding: 10px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--archive-ink-soft); text-align: left; font-size: 16px; font-weight: 500; }
+.structured-settings-panel.is-continuous .section-tab.active { background: color-mix(in srgb, var(--archive-olive) 10%, transparent); color: var(--archive-olive); }
+.structured-settings-panel.is-continuous .section-tab i, .structured-settings-panel.is-continuous .section-tab::before, .structured-settings-panel.is-continuous .section-tab::after { display: none; }
+.structured-settings-panel.is-continuous .section-actions { display: grid; gap: 10px; border-top: 1px solid var(--archive-paper-strong); padding-top: 22px; }
+.structured-settings-panel.is-continuous .section-actions button { min-height: 42px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); color: var(--archive-ink); font-size: 14px; justify-content: center; padding: 8px 12px; }
+.structured-settings-panel.is-continuous .section-actions .section-ai-btn { color: var(--archive-olive); width: 100%; justify-self: stretch; gap: 8px; }
+.structured-settings-panel.is-continuous .section-canvas { min-width: 0; padding: 28px 40px 48px; background: var(--archive-paper-soft); }
+.structured-settings-panel.is-continuous .section-canvas::before, .structured-settings-panel.is-continuous .section-canvas::after { display: none; }
+.section-content-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--archive-paper-strong); }
+.section-heading-copy { flex: 1 1 280px; }
+.section-content-heading h1 { margin: 0 0 10px; font-family: inherit; font-size: 30px; font-weight: 650; color: var(--archive-ink); }
+.section-content-heading p { margin: 0; color: var(--archive-ink-soft); font-size: 15px; line-height: 1.7; }
+.structured-settings-panel.is-continuous .settings-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.structured-settings-panel.is-continuous .fields-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; border: 0; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) { min-width: 0; min-height: 0; gap: 6px; padding: 0 0 18px; border: 0; border-bottom: 1px solid var(--archive-paper-strong); border-radius: 0; background: transparent; box-shadow: none; scroll-margin-top: 24px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-head) { margin-bottom: 4px; align-items: center; min-height: 34px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) { font-family: inherit; font-size: 17px; font-weight: 600; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-type-pill) { display: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea) { min-height: 60px; max-height: none; padding: 6px 0; border: 0; border-radius: 0; background: transparent; color: var(--archive-ink); font: inherit; font-size: 16px; line-height: 1.85; resize: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) { outline: none; background: transparent; box-shadow: inset 0 -1px var(--archive-olive); }
+.structured-settings-panel.is-continuous .section-content-heading, .structured-settings-panel.is-continuous .settings-editor-layout { width: 100%; max-width: none; margin-inline: 0; }
+.field-directory { display: grid; gap: 4px; padding: 0 14px; }
+.field-directory button { padding: 7px 0; border: 0; background: transparent; color: var(--archive-ink-soft); text-align: left; font: inherit; font-size: 14px; }
+.field-directory button:hover, .field-directory button:focus-visible { color: var(--archive-olive); text-decoration: underline; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea), .structured-settings-panel.is-continuous .fields-grid :deep(textarea::placeholder) { font-weight: 400; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn) { min-height: 32px; font-size: 13px; border-radius: 4px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint), .structured-settings-panel.is-continuous .fields-grid :deep(.field-status) { font-size: 12px; }
+.structured-settings-panel.is-continuous .brief-bar-wrapper, .structured-settings-panel.is-continuous .feedback-line { margin-bottom: 20px; }
+@media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-workbench { grid-template-columns: 210px minmax(0, 1fr); } .structured-settings-panel.is-continuous .fields-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .structured-settings-panel.is-continuous .section-workbench { grid-template-columns: 1fr; }
+  .structured-settings-panel.is-continuous .section-rail { position: static; min-height: 0; padding: 16px; gap: 14px; border-right: 0; border-bottom: 1px solid var(--archive-paper-strong); }
+  .section-index-label { display: none; }
+  .structured-settings-panel.is-continuous .section-tabs { display: flex; overflow-x: auto; gap: 4px; }
+  .structured-settings-panel.is-continuous .section-tab { width: auto; flex-shrink: 0; font-size: 14px; padding: 8px 12px; }
+  .structured-settings-panel.is-continuous .section-actions { display: flex; border: 0; padding: 0; }
+  .structured-settings-panel.is-continuous .section-actions button { font-size: 13px; white-space: nowrap; flex: 1 1 0; }
+  .structured-settings-panel.is-continuous .section-actions .section-ai-btn { width: auto; }
+  .structured-settings-panel.is-continuous .section-canvas { padding: 24px 16px; }
+  .section-content-heading h1 { font-size: 26px; }
+  .structured-settings-panel.is-continuous .fields-grid { gap: 18px; }
+  .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) { padding: 0 0 18px; }
+  .field-directory { display: none; }
 }
-
-.structured-settings-panel.is-continuous .section-workbench {
-  display: grid;
-  grid-template-columns: minmax(180px, 214px) minmax(0, 1fr);
-  gap: clamp(22px, 3vw, 38px);
-  align-items: start;
-}
-
-.structured-settings-panel.is-continuous .section-rail {
-  position: sticky;
-  top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-width: 0;
-  padding: 4px 22px 18px 0;
-  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 15%, var(--border));
-}
-
-.structured-settings-panel.is-continuous .panel-lead {
-  display: grid;
-  gap: 13px;
-  padding: 0 0 16px;
-  border-bottom-color: color-mix(in srgb, var(--archive-olive) 15%, var(--border));
-}
-
-.structured-settings-panel.is-continuous .panel-kicker {
-  margin-bottom: 7px;
-  color: var(--archive-ink-soft);
-  font: 600 8px/1 var(--font-mono);
-  letter-spacing: .16em;
-}
-
-.structured-settings-panel.is-continuous .panel-lead h2 {
-  color: var(--archive-ink);
-  font-family: var(--font-display);
-  font-size: 30px;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-.structured-settings-panel.is-continuous .panel-lead p {
-  margin-top: 8px;
-  color: var(--archive-ink-soft);
-  font-size: 11px;
-  line-height: 1.65;
-}
-
-.structured-settings-panel.is-continuous .panel-summary {
-  justify-content: flex-start;
-}
-
-.structured-settings-panel.is-continuous .panel-summary > span {
-  padding: 0 8px 0 0;
-  border: 0;
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 38%, transparent);
-}
-
-.structured-settings-panel.is-continuous .section-tabs {
-  display: grid;
-  gap: 2px;
-  padding: 0;
-  border: 0;
-}
-
-.structured-settings-panel.is-continuous .section-tab {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 18px;
-  align-items: center;
-  width: 100%;
-  min-height: 38px;
-  padding: 0 8px;
-  border: 0;
-  border-left: 2px solid transparent;
-  background: transparent;
-  color: var(--archive-ink-soft);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
-}
-
-.structured-settings-panel.is-continuous .section-tab i {
-  justify-self: end;
-  width: 10px;
-  height: 1px;
-  background: color-mix(in srgb, var(--archive-gold) 56%, transparent);
-  transition: width var(--motion-fast) ease, background var(--motion-fast) ease;
-}
-
-.structured-settings-panel.is-continuous .section-tab:hover {
-  background: color-mix(in srgb, var(--archive-olive) 4%, transparent);
-  color: var(--archive-ink);
-}
-
-.structured-settings-panel.is-continuous .section-tab.active {
-  border-left-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  color: var(--archive-ink);
-}
-
-.structured-settings-panel.is-continuous .section-tab.active i {
-  width: 16px;
-  background: var(--archive-rose);
-}
-
-.section-actions {
-  display: grid;
-  gap: 5px;
-}
-
-.structured-settings-panel.is-continuous .section-ai-btn,
-.structured-settings-panel.is-continuous .brief-toggle-btn {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  min-height: 36px;
-  margin: 0;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 3px;
-  font-size: 12px;
-  text-align: left;
-}
-
-.structured-settings-panel.is-continuous .section-ai-btn {
-  border-left: 2px solid var(--accent);
-  background: transparent;
-  color: var(--accent);
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .section-ai-btn:hover {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.structured-settings-panel.is-continuous .brief-toggle-btn {
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  color: var(--archive-ink-soft);
-}
-
-.structured-settings-panel.is-continuous .brief-toggle-btn:hover,
-.structured-settings-panel.is-continuous .brief-toggle-btn[aria-pressed="true"] {
-  border-bottom-color: color-mix(in srgb, var(--accent) 46%, transparent);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
-  color: var(--accent);
-}
-
-.structured-settings-panel.is-continuous .section-canvas {
-  position: relative;
-  min-width: 0;
-}
-
-.structured-settings-panel.is-continuous .section-canvas::before {
-  content: '';
-  position: absolute;
-  top: 4px;
-  right: 0;
-  width: 160px;
-  height: 72px;
-  opacity: .24;
-  background-image: radial-gradient(circle, color-mix(in srgb, var(--archive-gold) 56%, transparent) 0 1px, transparent 1.2px);
-  background-size: 12px 12px;
-  mask-image: linear-gradient(90deg, transparent, #000 40%, transparent);
-  pointer-events: none;
-}
-
-.structured-settings-panel.is-continuous .brief-bar-wrapper,
-.structured-settings-panel.is-continuous .feedback-line,
-.structured-settings-panel.is-continuous .generation-failed-fields {
-  margin-bottom: 14px;
-}
-
-.structured-settings-panel.is-continuous .fields-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  border: 0;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
-  min-height: 0;
-  padding: 15px 0 18px;
-  border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--archive-olive) 16%, var(--border));
-  border-left: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(4n + 2)) {
-  border-left-color: color-mix(in srgb, var(--archive-gold) 78%, transparent);
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:nth-child(4n + 3)) {
-  border-left-color: color-mix(in srgb, var(--archive-rose) 54%, transparent);
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) {
-  border-top-color: color-mix(in srgb, var(--accent) 48%, var(--border));
-  border-left-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 2.5%, transparent);
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-  min-height: 128px;
-  padding: 9px 0 8px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
-  border-radius: 0;
-  background: transparent;
-  font-size: 14px;
-  line-height: 1.72;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) {
-  border-bottom-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 2%, transparent);
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn),
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint),
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
-  font-size: 11px;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
-  align-self: flex-start;
-  padding: 3px 0 0 8px;
-  border: 0;
-  border-left: 1px solid color-mix(in srgb, var(--success) 58%, var(--border));
-  border-radius: 0;
-  background: transparent;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status.is-dirty) {
-  border-left-color: color-mix(in srgb, var(--accent-amber, var(--accent)) 72%, var(--border));
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status.is-error) {
-  border-left-color: var(--danger);
-  background: transparent;
-}
-
-@media (max-width: 980px) {
-  .structured-settings-panel.is-continuous .section-workbench {
-    grid-template-columns: 1fr;
-    gap: 18px;
-  }
-
-  .structured-settings-panel.is-continuous .section-rail {
-    position: static;
-    display: grid;
-    grid-template-columns: minmax(170px, .8fr) minmax(320px, 1.4fr) auto;
-    align-items: end;
-    gap: 14px;
-    padding: 0 0 16px;
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 15%, var(--border));
-  }
-
-  .structured-settings-panel.is-continuous .panel-lead {
-    padding: 0;
-    border: 0;
-  }
-
-  .structured-settings-panel.is-continuous .panel-lead p {
-    display: none;
-  }
-
-  .structured-settings-panel.is-continuous .section-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .structured-settings-panel.is-continuous .section-tab {
-    display: flex;
-    justify-content: center;
-    padding-inline: 8px;
-    border-left: 0;
-    border-bottom: 2px solid transparent;
-    text-align: center;
-  }
-
-  .structured-settings-panel.is-continuous .section-tab i {
-    display: none;
-  }
-
-  .structured-settings-panel.is-continuous .section-tab.active {
-    border-bottom-color: var(--accent);
-  }
-
-  .section-actions {
-    min-width: 150px;
-  }
-}
-
-@media (max-width: 720px) {
-  .structured-settings-panel.is-continuous {
-    padding: 14px 0 0;
-  }
-
-  .structured-settings-panel.is-continuous .section-rail {
-    display: flex;
-    gap: 12px;
-  }
-
-  .structured-settings-panel.is-continuous .panel-lead {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-  }
-
-  .structured-settings-panel.is-continuous .panel-lead h2 {
-    font-size: 25px;
-  }
-
-  .structured-settings-panel.is-continuous .section-tabs {
-    display: flex;
-    overflow-x: auto;
-  }
-
-  .structured-settings-panel.is-continuous .section-tab {
-    flex: 1 0 auto;
-    min-height: 36px;
-  }
-
-  .section-actions {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .structured-settings-panel.is-continuous .fields-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
-    min-height: 0;
-    padding: 14px;
-  }
-
-  .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-    min-height: 116px;
-  }
+/* Navigation, actions and metadata share the home workspace control scale. */
+.structured-settings-panel.is-continuous .section-rail { gap: 20px; padding: 24px 16px; }
+.structured-settings-panel.is-continuous .section-tab { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; font-size: 15px; }
+.structured-settings-panel.is-continuous .section-tab small { margin-left: auto; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: .8; }
+.structured-settings-panel.is-continuous .section-tab:hover { background: color-mix(in srgb, var(--archive-olive) 6%, transparent); }
+.field-directory { padding: 20px 0 0; gap: 2px; border-top: 1px solid var(--archive-paper-strong); }
+.field-directory-label { padding: 0 12px 10px; font-size: 12px; color: var(--archive-ink-soft); }
+.setting-directory-search { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); color: var(--archive-ink-soft); }
+.setting-directory-search:focus-within { border-color: var(--archive-olive); }
+.setting-directory-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--archive-ink); font: inherit; font-size: 14px; }
+.field-search-results small { display: block; margin-top: 3px; font-size: 11px; color: var(--archive-ink-soft); }
+.directory-empty { padding: 0 12px; font-size: 13px; line-height: 1.7; color: var(--archive-ink-soft); }
+.field-directory button { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; border-radius: 5px; }
+.field-directory button:hover, .field-directory button:focus-visible { background: color-mix(in srgb, var(--archive-olive) 7%, transparent); text-decoration: none; }
+.field-presence { width: 6px; height: 6px; border: 1px solid var(--archive-ink-soft); border-radius: 50%; flex: 0 0 auto; opacity: .55; }
+.field-presence.filled { background: var(--archive-olive); border-color: var(--archive-olive); opacity: 1; }
+.structured-settings-panel.is-continuous .section-actions { display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; border: 0; }
+.structured-settings-panel.is-continuous .section-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 7px 12px; margin: 0; font-size: 14px; line-height: 1.4; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s; }
+.structured-settings-panel.is-continuous .section-actions .section-ai-btn { width: auto; background: var(--archive-olive); color: var(--archive-paper-soft); border-color: var(--archive-olive); }
+.structured-settings-panel.is-continuous .section-actions button:hover { border-color: var(--archive-olive); filter: brightness(.96); }
+.structured-settings-panel.is-continuous button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: 2px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-footer) { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint) { margin: 0 0 0 auto; font-size: 11px; line-height: 1.5; font-weight: 400; font-variant-numeric: tabular-nums; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) { margin: 0; padding: 0; border: 0; background: transparent; font-size: 12px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.draft-ready-dot) { position: static; width: 6px; height: 6px; box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea::placeholder) { color: var(--archive-ink-soft); opacity: .72; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; align-items: center; column-gap: 18px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: contents; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-title-group) { grid-column: 1; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .setting-field-actions) { grid-column: 3; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { grid-column: 2; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-footer) { grid-column: 2 / -1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-list), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list) { border-radius: 5px; border-color: var(--archive-paper-strong); background: var(--archive-paper-soft); box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-list:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list:focus-within) { border-color: var(--archive-olive); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-pending) { font-size: 15px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag) { border-radius: 4px; font-size: 13px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-remove) { min-width: 26px; min-height: 26px; }
+@media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-canvas { padding: 24px 28px 40px; } }
+@media (max-width: 760px) {
+  .structured-settings-panel.is-continuous .section-rail { padding: 10px 12px; gap: 10px; }
+  .field-search-results { display: grid; }
+  .structured-settings-panel.is-continuous .section-tab { flex: 1 0 auto; justify-content: center; font-size: 14px; padding: 8px; }
+  .structured-settings-panel.is-continuous .section-tab small, .structured-settings-panel.is-continuous .section-tab svg { display: none; }
+  .structured-settings-panel.is-continuous .section-canvas { padding: 20px 18px 32px; }
+  .section-content-heading { gap: 16px; padding-bottom: 18px; margin-bottom: 18px; }
+  .structured-settings-panel.is-continuous .section-actions { flex-wrap: wrap; }
+  .structured-settings-panel.is-continuous .section-actions button { min-height: 40px; }
+  .structured-settings-panel.is-continuous .fields-grid :deep(.action-btn) { min-height: 38px; }
+  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: flex; }
+  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: flex; width: 100%; }
+  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { width: 100%; }
 }
 </style>

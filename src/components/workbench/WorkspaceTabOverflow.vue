@@ -68,7 +68,7 @@ onBeforeUnmount(() => {
       data-test="workspace-tabs-overflow"
       @click="toggle"
     >
-      <WorkbenchIcon name="more" :size="15" />
+      <WorkbenchIcon name="chevron-down" :size="16" />
       <span class="ws-overflow__count">{{ hiddenCount }}</span>
     </button>
     <div
@@ -92,6 +92,7 @@ onBeforeUnmount(() => {
         <span class="ws-overflow__item-title">{{ tab.title }}</span>
         <span v-if="tab.dirty" class="ws-overflow__item-dirty" aria-label="有未保存更改"></span>
         <span
+          v-if="!tab.pinned"
           class="ws-overflow__item-close"
           role="button"
           aria-label="关闭"
@@ -115,9 +116,10 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 24px;
-  padding: 0 6px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 20%, transparent);
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   background: transparent;
   color: var(--archive-ink-soft, #4a637d);
   cursor: pointer;

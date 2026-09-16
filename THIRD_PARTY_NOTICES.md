@@ -8,6 +8,8 @@ Algorithm reference / Visual reference only 四级）。
 
 | 组件 | 版本 | 许可证 | 用途 | 上游 |
 |---|---|---|---|---|
+| Autosize (`autosize`) | 6.0.1 | MIT | 设定正文自适应高度，保留原生文本选择与输入；许可证随 npm 包分发 | https://github.com/jackmoore/autosize |
+| Dexie (`dexie`) | 以 package-lock.json 为准 | Apache-2.0 | 记忆历史 IndexedDB schema、查询、批量操作及事务；复用上游数据库封装 | https://github.com/dexie/Dexie.js |
 | OpenLayers (`ol`) | 10.10.0（锁定） | BSD-2-Clause | 地图视口、矢量图层、标签 declutter、选择/绘制/修改/吸附。只进入地图懒加载 chunk | https://github.com/openlayers/openlayers |
 
 BSD-2-Clause 原文（摘要）：允许使用、复制、修改、分发与商用，须保留版权声明与免责声明。
@@ -38,6 +40,10 @@ NOTICE 与许可证副本；若实际移植 `riverGeometry` / `terrainPainting`�
 provenance 登记同步更新。当前阶段（P0–P1）未复制其任何代码。
 
 ## Algorithm reference（按思想重写，不复制表达）
+
+- Utopia（Apache-2.0），`deeplethe/utopia` commit `e879b7a1694c9e4eb78d2f048da361fe03905330`：
+  `migrations/0003_graph.sql` 与 `0018_a_fact_awaiting_a_nod.sql` 的事实版本、记录时间与有效时间分离、未知时间、候选隔离及来源语义。
+  本轮没有复制 Rust/PostgreSQL 服务或 SQL；数据库实现直接依赖 Dexie。Pinax 的小说纪年与同步旧接口恢复队列为本地适配。
 
 - Hinterland（MIT，commit `63f5825bc068882d8af13dcfc01202d121a6fd23`）：stable
   geology stream、provenance/派生历史分层思想。
@@ -91,6 +97,7 @@ provenance 登记同步更新。当前阶段（P0–P1）未复制其任何代�
 
 | 资产 | 位置 | 分类 | 状态 |
 |---|---|---|---|
+| pinax-cover-fold.png | `public/` | 默认封面美术 | 2026-09-16 使用内置 imagegen 生成；非商业参考截图提取，提示词与用途见 `docs/engineering/home-workspace-design.md` |
 | LXGW WenKai（霞鹜文楷）子集 woff2 | `src/assets/fonts/LXGWWenKai-Regular.woff2` | 字体 | 已登记：SIL OFL 1.1，`src/assets/fonts/OFL.txt` 为完整许可文本 |
 | authoring-image-style-presets.webp | `src/assets/media/` | 美术（随应用分发） | **unknown**：AI 生成图，生成工具与可授权性未登记 |
 | docs/demo/border-kingdom-adventure.md | `docs/demo/` | 演示手测稿 | 原创合成内容；含内部流程用语，公开前可做一次措辞清理（非阻断） |

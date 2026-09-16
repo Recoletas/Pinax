@@ -1,4 +1,5 @@
-import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { getItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { commitMemorySnapshot, publicMemoryCandidate } from './memoryHistoryStore'
 import { compactMemoryText, MEMORY_TEXT_LIMIT } from './memoryCompaction'
 import { deriveMemoryImportance } from './memoryImportance'
 import { rankMemoryCandidates } from './memoryRetrieval'
@@ -94,7 +95,7 @@ export function listMemoryCandidates({ scope = null, scopeId = null, status = nu
   // 压缩与迁移都可能改动存储：各自一次性写回。
   list = compactStoredPendingCandidates(list)
   if (migrated) {
-    setItem(STORAGE_KEYS.MEMORY_CANDIDATES, list)
+    commitMemorySnapshot(list)
   }
 
   return list
@@ -102,6 +103,7 @@ export function listMemoryCandidates({ scope = null, scopeId = null, status = nu
     .filter((item) => !scopeId || item.scopeId === scopeId)
     .filter((item) => !status || item.status === status)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+    .map(publicMemoryCandidate)
 }
 
 export function createMemoryCandidate(input = {}) {
@@ -221,7 +223,7 @@ function compactStoredPendingCandidates(list = []) {
   })
 
   if (changed) {
-    setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+    commitMemorySnapshot(next)
   }
   return next
 }
@@ -263,7 +265,7 @@ export function queueMemoryCandidate(input = {}) {
     candidate.conflictsWith = findConflictingMemoryCandidates(candidate, current, { excludeId: candidate.id })
   }
   const next = [candidate, ...current]
-  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+  if (!commitMemorySnapshot(next)) {
     return { success: false, queued: false, skipped: true, reason: 'storage-failed' }
   }
   emitMemoryCandidateEvent(candidate)
@@ -318,7 +320,7 @@ export function invalidateMemoryBySource({ sourceRef = '', currentRevision = '',
   if (!staledIds.length) {
     return { success: true, staledIds, untouchedIds, reason: 'nothing-to-stale' }
   }
-  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  if (!commitMemorySnapshot(next)) return { success: false, reason: 'storage-failed', staledIds: [], untouchedIds }
   return { success: true, staledIds, untouchedIds, reason: normalizeText(reason) || 'source-revision-changed' }
 }
 
@@ -365,7 +367,7 @@ export function supersedeMemoryCandidates(input = {}) {
       updatedAt: now
     }
   })]
-  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+  if (!commitMemorySnapshot(next)) {
     return { success: false, skipped: true, reason: 'storage-failed' }
   }
   emitMemoryCandidateEvent(candidate)
@@ -414,7 +416,7 @@ export function updateMemoryCandidate(candidateId, patch = {}) {
   })
 
   if (!updated) return null
-  setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)
+  if (!commitMemorySnapshot(next)) return null
   return updated
 }
 
@@ -559,7 +561,7 @@ function commitSupersedeTransaction({ target, conflictTargets = [], content, not
     })
   ]
   // 持久化失败必须如实报告，不能发事件假装成功。
-  if (!setItem(STORAGE_KEYS.MEMORY_CANDIDATES, next)) {
+  if (!commitMemorySnapshot(next)) {
     return { error: 'storage-failed' }
   }
   emitMemoryCandidateEvent(candidate)

@@ -1,0 +1,104 @@
+/* Shared chrome only. Editors, canvas coordinates, and saved content retain their owners. */
+.theme-legacy .app-shell {
+  --workspace-toolbar-height: 54px;
+  --workspace-control-height: 34px;
+  --workspace-radius: 6px;
+}
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .docs-page__head, .settings-topbar) {
+  min-height: var(--workspace-toolbar-height);
+  background: var(--archive-paper-soft);
+  border-bottom: 1px solid var(--archive-paper-strong);
+  box-shadow: none;
+}
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) { padding-inline: 20px; gap: 12px; }
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) button {
+  min-height: var(--workspace-control-height);
+  border-radius: var(--workspace-radius);
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.theme-legacy .app-shell .shell-content :is(.notes-content-area, .reading-deck, .comic-studio__workspace, .comic-studio__canvas-stage) {
+  background: var(--archive-paper);
+  background-image: none;
+}
+.theme-legacy .app-shell .shell-content :is(.notes-content-area, .reading-deck)::before,
+.theme-legacy .app-shell .shell-content :is(.notes-content-area, .reading-deck)::after,
+.theme-legacy .app-shell .shell-content .active-card::before,
+.theme-legacy .app-shell .shell-content .active-card::after,
+.theme-legacy .app-shell .shell-content :is(.active-card__tape, .active-card__ruled-lines) { display: none; }
+.theme-legacy .app-shell .shell-content .active-card {
+  width: 100%; max-width: none; margin: 0; padding: 28px 32px 20px;
+  border: 1px solid var(--archive-paper-strong); border-radius: var(--workspace-radius);
+  background: var(--archive-paper-soft); box-shadow: 0 2px 8px color-mix(in srgb, var(--archive-ink) 4%, transparent);
+}
+.theme-legacy .app-shell .shell-content .active-card .chapter-title-input { font-family: inherit; font-size: 24px; font-weight: 600; }
+.theme-legacy .app-shell .shell-content .reading-deck { padding: 24px; }
+.theme-legacy .app-shell .shell-content .comic-planner { width: 100%; max-width: none; margin: 0; padding: 28px 32px; }
+.theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface { background: var(--archive-paper); border: 0; }
+.theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::before,
+.theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::after { display: none; }
+.theme-legacy .app-shell .shell-content .comic-planner__header h2 { font-family: inherit; font-size: 26px; font-weight: 600; }
+.theme-legacy .app-shell .shell-content :is(.comic-planner__header p, .comic-planner__empty p) { font-size: 14px; line-height: 1.7; }
+.theme-legacy .app-shell .shell-content :is(.comic-planner__primary, .active-card button) { min-height: 34px; border-radius: 6px; font-size: 14px; }
+.theme-legacy .app-shell .shell-content .docs-page__head-inner { min-height: 54px; padding-block: 0; }
+.theme-legacy .app-shell .shell-content .docs-page__sidebar { background: var(--archive-paper); }
+.theme-legacy .app-shell .shell-content .authoring-editor-toolbar-host { min-height: var(--workspace-toolbar-height); background: var(--archive-paper-soft); border-color: var(--archive-paper-strong); }
+.theme-legacy .app-shell .shell-content .scene-board-host > .scene-material-board { flex: 1; width: 100%; background: var(--archive-paper); }
+.theme-legacy .app-shell .shell-content .active-card .prose-rich-editor { width: 100%; min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) { padding-inline: 12px; gap: 8px; }
+  .theme-legacy .app-shell .shell-content :is(.active-card, .comic-planner) { padding: 20px 16px; }
+  .theme-legacy .app-shell .shell-content .reading-deck { padding: 12px; }
+}
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) {
+  background: var(--archive-paper-soft);
+  border-color: var(--archive-paper-strong);
+  min-height: var(--workspace-toolbar-height);
+  box-shadow: none;
+}
+.theme-legacy .app-shell .shell-content :is(.manuscript-top__tab, .prose-top__chip, .comic-studio__mode-btn) {
+  min-height: 36px;
+  border-radius: 5px;
+  font-size: 14px;
+  font-style: normal;
+}
+.theme-legacy .app-shell .shell-content :is(.manuscript-top__chapter, .manuscript-top__chip, .prose-top__id-count, .comic-studio__source-title) {
+  font-size: 13px;
+  font-style: normal;
+  color: var(--archive-ink-soft);
+}
+.theme-legacy .app-shell .shell-content .material-drawer {
+  background: var(--archive-paper);
+  border-right: 1px solid var(--archive-paper-strong);
+  box-shadow: none;
+}
+.theme-legacy .app-shell .shell-content .drawer-handle {
+  min-height: 40px;
+  background: transparent;
+  box-shadow: none;
+  border-color: var(--archive-paper-strong);
+}
+.theme-legacy .app-shell .shell-content .drawer-handle__title { font-size: 14px; }
+.theme-legacy .app-shell .shell-content .index-card {
+  border: 1px solid var(--archive-paper-strong);
+  border-radius: 5px;
+  box-shadow: none;
+  transform: none;
+  background: var(--archive-paper-soft);
+}
+.theme-legacy .app-shell .shell-content .index-card.is-selected {
+  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
+  border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--archive-paper-strong));
+}
+.theme-legacy .app-shell .shell-content .index-card::before,
+.theme-legacy .app-shell .shell-content .index-card::after { display: none; }
+.theme-legacy .app-shell .shell-content .index-card__title { font-size: 14px; }
+.theme-legacy .app-shell .shell-content .notes-sidekick { background: var(--archive-paper); border-color: var(--archive-paper-strong); }
+.theme-legacy .app-shell .shell-content .notes-sidekick__title { font-size: 15px; }
+.theme-legacy .app-shell .shell-content .writing-page .authoring-editor-toolbar-host .tool-btn { font-size: 14px; border-radius: 5px; }
+.theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row { height: 36px; border-radius: 5px; }
+.theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row__title { font-size: 14px; }
+@media (max-width: 760px) {
+  .theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row { min-height: 42px; }
+}

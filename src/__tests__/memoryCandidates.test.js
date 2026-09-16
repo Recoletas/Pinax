@@ -27,6 +27,7 @@ import {
   updateMemoryCandidate
 } from '@/services/memory/memoryCandidates'
 import { deriveMemoryImportance } from '@/services/memory/memoryImportance'
+import { historicalCandidatePatch, validateMemoryHistory } from '@/services/memory/memoryHistoryStore'
 import { rankMemoryCandidates } from '@/services/memory/memoryRetrieval'
 import {
   isMemorySourceCurrent,
@@ -1613,6 +1614,16 @@ localStorage.setItem(STORAGE_KEYS.MEMORY_CANDIDATES, JSON.stringify([
       ]))
       const confirmed = confirmMemoryCandidate('pending-sourced')
       expect(confirmed).toMatchObject({ status: 'active', authority: 'accepted' })
+      const stored = JSON.parse(localStorage.getItem(STORAGE_KEYS.MEMORY_CANDIDATES))[0]
+      expect(stored._historyPending.map(row => row.operation)).toEqual(['legacy-baseline', 'revision'])
+      expect(stored._historyPending[1].before.status).toBe('pending')
+      expect(stored._historyPending[1].after.status).toBe('active')
+      expect(stored._historyPending[1].parentId).toBe(stored._historyPending[0].id)
+      expect(stored._historyPending[1].storyTime).toEqual({ precision: 'unknown' })
+      expect(validateMemoryHistory(stored._historyPending)).toHaveLength(2)
+      expect(listMemoryCandidates()[0]).not.toHaveProperty('_historyPending')
+      expect(historicalCandidatePatch(stored._historyPending[1])).toMatchObject({ status: 'pending', authority: 'derived' })
+      expect(() => validateMemoryHistory([...stored._historyPending, stored._historyPending[0]])).toThrow()
 }
 {
 

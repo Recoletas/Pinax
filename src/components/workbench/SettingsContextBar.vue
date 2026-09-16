@@ -1,7 +1,7 @@
 <template>
   <header class="settings-context-bar" data-test="settings-context-bar">
     <div class="context-main">
-      <span class="context-kicker">{{ projectLabel ? 'PROJECT · ' + projectLabel : 'ACTIVE WORLD' }}</span>
+      <span class="context-kicker">{{ projectLocked ? '关联资料' : '世界书' }}</span>
       <select
         v-if="worldbooksIndex.length"
         class="context-worldbook-select"
@@ -39,7 +39,7 @@ const props = defineProps({
   metaLabel: { type: String, default: '' },
   saveLabel: { type: String, default: '自动保存' },
   emptyLabel: { type: String, default: '尚未选择世界书' },
-  showMeta: { type: Boolean, default: true },
+  showMeta: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   // 项目模式：世界书由书稿关联决定，选择器只读；显示所属书稿名。
   projectLabel: { type: String, default: '' },
@@ -178,4 +178,11 @@ function onChange(event) {
     font-size: 14px;
   }
 }
+.settings-context-bar { min-height: 62px; gap: 18px; padding: 10px 28px; border-right: 0; }
+.context-main { flex: 1; gap: 14px; }
+.context-kicker { white-space: nowrap; font: inherit; font-size: 13px; letter-spacing: 0; }
+.context-worldbook-select { min-width: 0; max-width: min(42vw, 360px); padding: 8px 26px 8px 10px; font-family: inherit; font-size: 15px; font-weight: 500; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper); }
+.context-worldbook-select:disabled { opacity: 1; border-color: transparent; background: transparent; }
+.context-mismatch { font-size: 13px; }
+@media (max-width: 760px) { .settings-context-bar { padding: 10px 16px; flex-wrap: wrap; gap: 8px; } .context-main { flex: 1; width: auto; } .context-kicker { display: none; } .context-worldbook-select { max-width: 56vw; font-size: 14px; } }
 </style>

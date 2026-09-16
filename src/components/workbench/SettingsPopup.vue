@@ -30,6 +30,9 @@
       </nav>
 
       <div class="settings-modal__body">
+        <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" aria-label="记忆与历史">
+          <MemoryHistoryWorkspace />
+        </section>
         <!-- 全局锁定主题2亮色：外观（主题/明暗/缩放）配置区已移除（用户要求） -->
         <section
           v-show="activeSection === 'ai'"
@@ -141,6 +144,7 @@
             <strong>完整工作区备份已读取，确认后才会写入</strong>
             <span v-if="workspaceBundle.inspection.createdAt">备份生成于 {{ workspaceBundle.inspection.createdAt }}</span>
             <span>恢复将：新增 {{ workspaceBundle.inspection.counts.add }} 项 · 覆盖 {{ workspaceBundle.inspection.counts.overwrite }} 项 · 内容相同跳过 {{ workspaceBundle.inspection.counts.skip }} 项</span>
+            <span v-if="workspaceBundle.inspection.memoryHistoryCount">记忆历史 {{ workspaceBundle.inspection.memoryHistoryCount }} 条；同版本不重复导入，冲突版本拒绝覆盖</span>
             <span v-if="workspaceBundle.inspection.counts.missingBinary" class="backup-review__error">缺少媒体原件 {{ workspaceBundle.inspection.counts.missingBinary }} 项（仅恢复元数据）</span>
             <span v-if="workspaceBundle.inspection.counts.unrestoreable" class="backup-review__error">无法恢复 {{ workspaceBundle.inspection.counts.unrestoreable }} 项（schema 版本不符）</span>
             <span v-if="workspaceBundle.inspection.rejectedSecretKeys.length">已排除 {{ workspaceBundle.inspection.rejectedSecretKeys.length }} 个模型配置密钥键</span>
@@ -166,7 +170,7 @@
             </div>
           </div>
           <p class="storage-boundary-note">
-            完整工作区（ZIP）包含书稿、设定、来源归档与已落盘媒体；轻量备份（JSON）只含本地创作记录。
+            完整工作区（ZIP）包含书稿、设定、来源归档、已落盘媒体与记忆历史；轻量备份（JSON）不含已归档的记忆历史。
             模型密钥始终不进入任何备份；外部链接引用、尚未落盘的媒体与浏览器缓存不保证包含。
             恢复会覆盖所选备份中的对应数据，确认前会先显示预览。备份文件请妥善保存。
           </p>
@@ -208,7 +212,8 @@
 </template>
 
 <script setup>
-import { computed, ref, nextTick } from 'vue'
+import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
+const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
@@ -278,6 +283,7 @@ function readBackupBooksSafe() {
 const tabs = [
   { key: 'ai', label: 'AI 配置' },
   { key: 'experience', label: '体验' },
+  { key: 'memory', label: '记忆与历史' },
   { key: 'storage', label: '存储' }
 ]
 
@@ -297,7 +303,7 @@ async function handleExportWorkspaceBackup() {
     const domains = result.manifest.domains
     const sizeLine = formatBytes(result.stats.zipBytes)
     const missingLine = missing > 0 ? `；${missing} 个媒体缺少本地原件未包含` : ''
-    backupFeedback.value = `完整工作区已导出（${sizeLine}）：书稿 ${domains.localStorage.keyCount} 项 · 来源 ${domains.sourceArchive.artifactCount + domains.sourceArchive.chunkCount} 条 · 媒体 ${domains.media.binaryCount} 份${missingLine}。模型密钥未包含。`
+    backupFeedback.value = `完整工作区已导出（${sizeLine}）：书稿 ${domains.localStorage.keyCount} 项 · 来源 ${domains.sourceArchive.artifactCount + domains.sourceArchive.chunkCount} 条 · 媒体 ${domains.media.binaryCount} 份 · 记忆修订 ${domains.memoryHistory.revisionCount} 条${missingLine}。模型密钥未包含。`
     restoreSucceeded.value = false
     restoredTarget.value = null
   } catch (error) {

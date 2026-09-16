@@ -54,6 +54,11 @@ export function resolveDefaultBookId(store) {
 }
 
 function processRouteChange(store, router, to) {
+  // 首页是常驻导航标签，不占持久化作品标签；回首页时只清焦点，保留全部工作页。
+  if (to.name === 'welcome') {
+    store.clearActiveTab()
+    return
+  }
   // 双模式路由（高级条目）不带 bookId 是合法的全局访问，不能被补默认书后吞进项目标签。
   if (PROJECT_ROUTE_NAMES.has(to.name) && !DUAL_MODE_ROUTE_NAMES.has(to.name) && !to.query?.bookId) {
     const bookId = resolveDefaultBookId(store)

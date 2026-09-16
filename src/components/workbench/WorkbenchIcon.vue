@@ -5,6 +5,9 @@ import {
   BookmarkPlus,
   BookOpen,
   Clapperboard,
+  ChevronDown,
+  LayoutGrid,
+  List,
   Compass,
   Download,
   Film,
@@ -30,6 +33,9 @@ import {
 } from 'lucide-vue-next'
 
 const icons = {
+  'chevron-down': ChevronDown,
+  grid: LayoutGrid,
+  list: List,
   archive: Archive,
   'arrow-right': ArrowRight,
   'bookmark-plus': BookmarkPlus,

@@ -1,10 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useViewportHeight } from './composables/useViewportHeight'
-import MemoryIndicator from './components/MemoryIndicator.vue'
 import TipBanner from './components/tip/TipBanner.vue'
-import { useGameStore } from './stores/gameStore'
+import { listMemoryCandidates } from './services/memory/memoryCandidates'
+import { commitMemorySnapshot } from './services/memory/memoryHistoryStore'
 import { useThemeStore } from './stores/themeStore.js'
 import { useTipState } from './composables/useTipState'
 import { ensureDefaultImageConfig } from './services/media/imageProviderConfigStore'
@@ -14,14 +14,8 @@ const themeStore = useThemeStore()
 themeStore.initTheme()
 const route = useRoute()
 const router = useRouter()
-const gameStore = useGameStore()
 const tip = useTipState()
 const generationMetaNotice = ref('')
-const hasUserActionMessages = computed(() => {
-  return (gameStore.messages || []).some((message) => (message.role || message.type) === 'user')
-})
-const isExperienceEntryTransition = computed(() => route.name === 'experience' && !hasUserActionMessages.value)
-const showGlobalMemoryIndicator = computed(() => !route.meta?.hideGlobalMemory && !isExperienceEntryTransition.value)
 let noticeTimer = null
 
 useViewportHeight()
@@ -99,6 +93,8 @@ onMounted(() => {
   syncDocumentTitle()
   // Tip 系统绑定 router (category=nav 的 tip 在路由切换时自动 dismiss)
   tip.bindRouter(router)
+  // Keep existing candidates; archive a baseline without confirming anything.
+  commitMemorySnapshot(listMemoryCandidates())
   // Phase D: 首次启动时幂等插入 MiniMax 默认图片配置
   try {
     ensureDefaultImageConfig()
@@ -133,7 +129,6 @@ watch(
           {{ generationMetaNotice }}
         </div>
       </transition>
-      <MemoryIndicator v-if="showGlobalMemoryIndicator" />
       <TipBanner />
     </DesktopProjectGate>
   </div>

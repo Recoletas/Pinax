@@ -1,6 +1,5 @@
 <template>
   <div class="settings-page" @click="onGlobalClick">
-    <ContourField class="settings-page__contour" density="relation" entry="right" />
     <div class="settings-topbar">
       <SettingsContextBar
         v-model="selectedWorldbookId"
@@ -100,7 +99,6 @@ import StructuredSettingsWorkspace from '../components/worldbook/StructuredSetti
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
-import ContourField from '../components/workbench/ContourField.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -157,10 +155,11 @@ onMounted(async () => {
 
 <style scoped>
 .settings-page {
-  min-height: var(--app-viewport-height, 100vh);
+  min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--archive-paper-soft);
   color: var(--text-primary);
   position: relative;
   overflow: hidden;
@@ -180,10 +179,10 @@ onMounted(async () => {
 
 .settings-topbar {
   display: grid;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 48px;
   border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 16%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-strong) 44%, var(--archive-paper-soft));
+  background: var(--archive-paper-soft);
 }
 
 .settings-topbar :deep(.settings-section-nav) {
@@ -198,9 +197,9 @@ onMounted(async () => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  width: min(1320px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 0 clamp(14px, 3vw, 42px) 34px;
+  padding: 0;
 }
 
 .place-context-strip {

@@ -24,6 +24,7 @@ import {
   putMediaBinaryById
 } from '../media/mediaAssetStore'
 import { sha256HexOfBytes, utf8Bytes } from './backupHash'
+import { collectMemoryHistory, importMemoryHistory, rollbackImportedMemoryHistory, validateMemoryHistory } from '../memory/memoryHistoryStore'
 
 /**
  * C1–C4 · 完整工作区备份 v3（ZIP）。
@@ -48,6 +49,7 @@ export const WORKSPACE_BACKUP_FORMAT = 'pinax-workspace-backup'
 export const WORKSPACE_BACKUP_VERSION = 3
 
 const LOCAL_STORAGE_PATH = 'local-storage.json'
+const MEMORY_HISTORY_PATH = 'memory-history/revisions.json'
 const SOURCE_ARCHIVE_PATHS = {
   artifacts: 'source-archive/artifacts.json',
   chunks: 'source-archive/chunks.json',
@@ -58,6 +60,7 @@ const MEDIA_BINARY_PREFIX = 'media/binaries/'
 const ZIP_ENTRY_WHITELIST = new Set([
   'manifest.json',
   LOCAL_STORAGE_PATH,
+  MEMORY_HISTORY_PATH,
   ...Object.values(SOURCE_ARCHIVE_PATHS),
   MEDIA_METADATA_PATH
 ])
@@ -196,6 +199,7 @@ export async function buildWorkspaceBackupBundle({
 } = {}) {
   assertLive(signal)
   const localStorageBackup = buildBackup({ storage, includeSecrets })
+  const memoryHistory = await collectMemoryHistory(storage)
   const sourceRecords = await loadAllSourceArchiveRecords()
   assertLive(signal)
 
@@ -237,6 +241,7 @@ export async function buildWorkspaceBackupBundle({
     createdAt: new Date().toISOString(),
     app: 'Pinax',
     domains: {
+      memoryHistory: { schemaVersion: 1, revisionCount: memoryHistory.length },
       localStorage: {
         schemaVersion: BACKUP_VERSION,
         keyCount: localStorageBackup.keyCount,
@@ -271,6 +276,7 @@ export async function buildWorkspaceBackupBundle({
     manifest.files[path] = sha256HexOfBytes(bytes)
   }
   addTextFile(LOCAL_STORAGE_PATH, JSON.stringify(localStorageBackup))
+  addTextFile(MEMORY_HISTORY_PATH, JSON.stringify(memoryHistory))
   addTextFile(SOURCE_ARCHIVE_PATHS.artifacts, JSON.stringify(sourceRecords.artifacts))
   addTextFile(SOURCE_ARCHIVE_PATHS.chunks, JSON.stringify(sourceRecords.chunks))
   addTextFile(SOURCE_ARCHIVE_PATHS.workspaces, JSON.stringify(sourceRecords.workspaces))
@@ -406,6 +412,15 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
   }
 
   // localStorage 域：先剥离 secret/未知键（默认拒绝导入），再走 v2 计划
+  let memoryHistoryCount = 0
+  if (manifest.domains?.memoryHistory || entries.has(MEMORY_HISTORY_PATH)) {
+    const history = await readJsonEntry(entries, MEMORY_HISTORY_PATH)
+    try {
+      if (manifest.domains?.memoryHistory?.schemaVersion !== 1 || history.error || history.missing) throw new Error('记忆历史文件或版本缺失')
+      memoryHistoryCount = validateMemoryHistory(history.value).length
+      if (memoryHistoryCount !== manifest.domains.memoryHistory.revisionCount) throw new Error('记忆历史数量校验失败')
+    } catch (error) { return invalidInspection([error.message]) }
+  }
   const lsEntry = await readJsonEntry(entries, LOCAL_STORAGE_PATH)
   if (lsEntry.error) return invalidInspection([lsEntry.error])
   const lsBackup = lsEntry.value
@@ -508,6 +523,7 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
     rejectedSecretKeys,
     unknownKeys,
     sourceArchive: source,
+    memoryHistoryCount,
     media,
     counts,
     requiresRiskConfirmation: localStoragePlan.requiresRiskConfirmation
@@ -541,6 +557,7 @@ export async function restoreWorkspaceBackupBundle(input, {
   assertLive(signal)
 
   const domains = {
+    memoryHistory: domainResult(true),
     sourceArchive: domainResult(false, { reason: 'pending' }),
     media: domainResult(false, { reason: 'pending' }),
     localStorage: domainResult(false, { reason: 'pending' })
@@ -668,11 +685,28 @@ export async function restoreWorkspaceBackupBundle(input, {
   }
 
   // ---- 3. localStorage（v2 owner 最后写，自带键级补偿回滚） ----
+  let importedHistoryIds = []
+  try {
+    assertLive(signal)
+    const history = zip.files[MEMORY_HISTORY_PATH]
+      ? JSON.parse(await zip.files[MEMORY_HISTORY_PATH].async('string')) : []
+    importedHistoryIds = await importMemoryHistory(history)
+    domains.memoryHistory = domainResult(true, { written: importedHistoryIds.length, skipped: history.length - importedHistoryIds.length })
+  } catch (error) {
+    let rollbackFailed = false
+    try { await rollbackMedia(); await replaceAllSourceArchiveRecords(sourcePrior) } catch { rollbackFailed = true }
+    domains.memoryHistory = domainResult(false, { reason: error.message, rollbackFailed })
+    domains.media.rolledBack = !rollbackFailed
+    domains.sourceArchive.rolledBack = !rollbackFailed
+    return { success: false, reason: 'memory-history-restore-failed', inspection, domains }
+  }
   try {
     assertLive(signal)
     const lsJson = await zip.files[LOCAL_STORAGE_PATH].async('string')
     const lsResult = restoreBackup(lsJson, { storage, overwrite, acceptRestoreRisk: true })
     if (!lsResult.success) {
+      try { await rollbackImportedMemoryHistory(importedHistoryIds); domains.memoryHistory.rolledBack = true }
+      catch { domains.memoryHistory.rollbackFailed = true }
       domains.localStorage = domainResult(false, {
         reason: lsResult.reason === 'quota' ? 'localStorage 配额不足' : 'localStorage 恢复失败',
         rolledBack: Boolean(lsResult.rolledBack),
@@ -694,6 +728,8 @@ export async function restoreWorkspaceBackupBundle(input, {
       skipped: lsResult.skipped.length
     })
   } catch (error) {
+    try { await rollbackImportedMemoryHistory(importedHistoryIds); domains.memoryHistory.rolledBack = true }
+    catch { domains.memoryHistory.rollbackFailed = true }
     let rollbackFailed = false
     try {
       await rollbackMedia()
