@@ -21,6 +21,7 @@ import {
 } from '../services/writing/writingAutomaticHistory.js'
 import {
   appendWritingBlockHistory,
+  closeWritingBlockHistorySessions,
   deleteWritingBlockHistoryForChapter,
   listWritingBlockHistory
 } from '../services/writing/writingBlockHistory.js'
@@ -265,6 +266,11 @@ export function useAuthoringHistoryWorkflow(host) {
     return entries.length
   }
 
+  // NC03：离章/换书等边界封组微改会话，下一条 manual-save 另起新历史。
+  function closeBlockHistorySessions(options = {}) {
+    return closeWritingBlockHistorySessions(options)
+  }
+
   function refreshBlockHistory(chapterId = host.chapterId()) {
     blockHistory.value = chapterId ? listWritingBlockHistory(chapterId) : []
     return blockHistory.value
@@ -307,7 +313,7 @@ export function useAuthoringHistoryWorkflow(host) {
     recentSnapshots, recentBlockHistory, reasonLabel: getWritingSnapshotReasonLabel,
     setLabel, updatePreference, recordAutomatic, refreshSnapshots, load, formatTime, formatPreview,
     create, restore, restoreRecovery, discardRecovery, canRestoreBlock, restoreBlock, remove,
-    recordProtection, recordBlockChanges, appendBlockEntries, refreshBlockHistory, readRecovery, writeRecovery,
+    recordProtection, recordBlockChanges, appendBlockEntries, closeBlockHistorySessions, refreshBlockHistory, readRecovery, writeRecovery,
     clearRecovery, removeChapter
   }
 }

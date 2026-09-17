@@ -5,6 +5,7 @@ import {
 } from './authoringObservationContract.js'
 import { queueMemoryCandidate } from '../../memory/memoryCandidates.js'
 import { MEMORY_TEXT_LIMIT } from '../../memory/memoryCompaction.js'
+import { evaluateMemoryEligibility } from '../../memory/extractionEligibility.js'
 
 export const OBSERVER_MEMORY_KIND_MAP = Object.freeze({
   memory: 'project-fact',
@@ -31,6 +32,28 @@ let sequence = 0
 function nextObservationId(kind) {
   sequence += 1
   return `${kind}-${sequence}`
+}
+
+// NC04：会话内已处理内容指纹（来源 revision + 文本），防止同一块反复摘句。
+// 有界：超出上限丢弃最旧的一半，只影响去重记忆，不影响数据。
+const processedEligibilityFingerprints = new Set()
+const PROCESSED_FINGERPRINT_LIMIT = 500
+
+function rememberProcessedFingerprint(fingerprint) {
+  if (!fingerprint) return
+  if (processedEligibilityFingerprints.size >= PROCESSED_FINGERPRINT_LIMIT) {
+    let removed = 0
+    for (const key of processedEligibilityFingerprints) {
+      processedEligibilityFingerprints.delete(key)
+      removed += 1
+      if (removed >= PROCESSED_FINGERPRINT_LIMIT / 2) break
+    }
+  }
+  processedEligibilityFingerprints.add(fingerprint)
+}
+
+export function resetProcessedEligibilityFingerprintsForTest() {
+  processedEligibilityFingerprints.clear()
 }
 
 function normalizeFactText(value) {
@@ -296,6 +319,23 @@ export async function runObserverMemoryDerivation({
     .map((ref) => String(ref || '').trim())
     .filter(Boolean)
 
+  // NC04：准入判定。无意义输入（asdfgh/aaaaaa/纯符号）零候选；
+  // 同一来源 revision + 相同文本的重复摘句不再入队。
+  const eligibility = evaluateMemoryEligibility({
+    text,
+    sourceRefs,
+    revision,
+    processedFingerprints: processedEligibilityFingerprints
+  })
+  if (!eligibility.eligible) {
+    return {
+      status: 'completed',
+      queued: [],
+      skipped: [{ observationId: 'delta', reason: eligibility.reason }],
+      exceptions: []
+    }
+  }
+
   const observations = deriveMemoryFromDelta({
     ...delta,
     text,
@@ -334,8 +374,11 @@ export async function runObserverMemoryDerivation({
       authority: 'derived',
       derivedBy,
       sourceRefs,
-      sourceRevision: revision
+      sourceRevision: revision,
+      // NC04：本地摘句不再冒充事实——诚实标注派生方式，审阅与 reader 可区分。
+      metadata: { derivation: 'local-excerpt', extractionFingerprint: eligibility.fingerprint }
     })
+    if (result?.success) rememberProcessedFingerprint(eligibility.fingerprint)
     const candidate = result?.candidate
     if (result?.skipped) {
       skipped.push({

@@ -152,6 +152,9 @@ try {
   const page = await context.newPage()
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
+  page.on('console', (message) => {
+    if (String(message.text()).includes('[memq-debug]')) console.log('BROWSER', message.text())
+  })
   await page.route('**/api/**', async (route) => {
     providerRequests.count += 1
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
