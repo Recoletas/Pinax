@@ -43,6 +43,8 @@ workspace-consistency-smoke                           → FAIL，但基线 c445d
 1. **Experience 既有 a11y 违规（S1，非本夜引入）**：hero folio 案号对比度、codex 区块嵌套交互——本夜已修（NB04）。
 2. **workspace-consistency-smoke 基线失败**：`打开工作区导航` 按钮缺失，基线即失败——需要产品侧确认 welcome 门预期形态（白天）。
 3. **createSession 同毫秒 id 碰撞**（上夜 V04 发现）：Date.now() 基 id，同毫秒连建两会话重叠——既有 owner 行为，建议白天评估。
+4. **tabs 重构回归由交互冒烟抓出并修复**（`3f135d6`）：绝对定位的关闭钮被激活标签 `z-index:1` 压住不可点——普查（DOM 语义）无法发现此类问题，印证分册「交互检查与看图不可替代」；冒烟固化为 `scripts/workspace-tabs-interaction-smoke.mjs`（5/5）。
+5. **Experience.vue 行数预算**：NB04 规则初版 +11 行触发 3550 上限，控件家族规则按职责移入 `workbench-controls.css`（全局样式为 N-B 写区），预算回落 3546/3550。
 4. **Apple HIG / Material 3 / Notion / Linear**：页面 JS 渲染无法静态取文，NB02 如实记「未完成深核」；白天可人工浏览器核对。
 5. **NB05–NB07**：控件家族（图标语义、状态矩阵、密度）的全面收口按分册需逐家族实页证据，本夜完成合同与代表片，剩余按清单推进。
 
