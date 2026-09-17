@@ -345,6 +345,23 @@ export async function runObserverMemoryDerivation({
     }
   }
 
+  // NC07：先登记结构化提取任务（预算内自动排队），摘录候选携带任务 ID。
+  let extractionJobId = ''
+  try {
+    const enqueued = enqueueExtractionJob({
+      projectId: String(projectId || ''),
+      sourceRefs,
+      sourceRevision: revision,
+      revisionSeq: extractRevisionSeq(revision),
+      fingerprint: eligibility.fingerprint,
+      text
+    })
+    if (enqueued.ok && !enqueued.duplicate && enqueued.job?.id) {
+      extractionJobId = enqueued.job.id
+    }
+  } catch {
+    // 任务登记失败只影响模型提取，不影响摘录候选。
+  }
   const observations = deriveMemoryFromDelta({
     ...delta,
     text,
@@ -385,27 +402,10 @@ export async function runObserverMemoryDerivation({
       sourceRefs,
       sourceRevision: revision,
       // NC04：本地摘句不再冒充事实——诚实标注派生方式，审阅与 reader 可区分。
-      metadata: { derivation: 'local-excerpt', extractionFingerprint: eligibility.fingerprint }
+      metadata: { derivation: 'local-excerpt', extractionFingerprint: eligibility.fingerprint, extractionJobId }
     })
     if (result?.success) {
       rememberProcessedFingerprint(eligibility.fingerprint)
-      // NC07：摘录候选之外登记结构化提取任务（预算内自动排队）。
-      // 失败不影响已入队的候选，也不阻塞正文。
-      try {
-        const enqueued = enqueueExtractionJob({
-          projectId: String(projectId || ''),
-          sourceRefs,
-          sourceRevision: revision,
-          revisionSeq: extractRevisionSeq(revision),
-          fingerprint: eligibility.fingerprint,
-          text
-        })
-        if (enqueued.ok && !enqueued.duplicate) {
-          void drainExtractionQueue({ max: 1, auto: true }).catch(() => {})
-        }
-      } catch {
-        // 任务登记失败只影响模型提取，不影响摘录候选。
-      }
     }
     const candidate = result?.candidate
     if (result?.skipped) {
@@ -431,6 +431,9 @@ export async function runObserverMemoryDerivation({
     }
   }
 
+  if (extractionJobId) {
+    void drainExtractionQueue({ max: 1, auto: true }).catch(() => {})
+  }
   return { status: 'completed', queued, skipped, exceptions }
 }
 

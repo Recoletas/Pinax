@@ -10,6 +10,7 @@ import {
   reconcileInterruptedJobs,
   consumeAutoSessionBudget
 } from './extractionJobStore'
+import { listMemoryCandidates, updateMemoryCandidate } from '../memoryCandidates'
 import { runMemoryExtraction, validateMemoryExtractionResponse } from './structuredExtraction'
 
 const BACKOFF_BASE_MS = 30_000
@@ -118,6 +119,7 @@ export async function runSingleExtractionJob(job, { knownIdentities = [], signal
     const validation = validateMemoryExtractionResponse(parsed, { sourceText, knownIdentities })
     if (!validation.proposals.length && !validation.rejected.length) {
       const reason = textOrEmpty(parsed?.unextractable?.reason)
+      markLinkedCandidates(job.id, 'no-fact')
       return updateExtractionJob(job.id, {
         status: 'no-fact',
         unextractableReason: reason.slice(0, 160),
@@ -133,6 +135,7 @@ export async function runSingleExtractionJob(job, { knownIdentities = [], signal
     }
     const okCount = persisted.created.filter((item) => item.ok).length
     const rejected = validation.rejected.map((item) => ({ reason: item.reason, detail: item.subject || item.quote || '' }))
+    markLinkedCandidates(job.id, okCount > 0 ? 'proposed' : 'no-fact')
     return updateExtractionJob(job.id, {
       status: okCount > 0 ? 'completed' : 'no-fact',
       proposalIds: persisted.created.filter((item) => item.ok && item.proposalId).map((item) => item.proposalId),
@@ -178,6 +181,25 @@ export async function runSingleExtractionJob(job, { knownIdentities = [], signal
 
 function textOrEmpty(value) {
   return String(value ?? '')
+}
+
+// NC09：任务到达终态后回写关联摘录候选的状态标记，审阅界面据此消歧，
+// 避免同一结果出现「账本提案 + 摘录候选」两个真值按钮。
+function markLinkedCandidates(jobId, extractionState) {
+  try {
+    for (const candidate of listMemoryCandidates({})) {
+      if (candidate.metadata?.extractionJobId !== jobId) continue
+      if (candidate.metadata?.extractionState === extractionState) continue
+      updateMemoryCandidate(candidate.id, {
+        metadata: {
+          ...(candidate.metadata || {}),
+          extractionState
+        }
+      })
+    }
+  } catch {
+    // 回写失败不影响任务与提案；候选仍带任务 ID 可追溯。
+  }
 }
 
 /**

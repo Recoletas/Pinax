@@ -573,7 +573,7 @@ onMounted(initialize)
     <template v-if="view === 'candidates'">
     <p v-if="!filtered.length && !busy">此范围内没有{{ statuses[mode] }}记忆。</p>
     <article v-for="item in filtered.slice(0, limit)" :key="item.id" class="memory-workspace__item">
-      <p>{{ item.content }}</p>
+      <p>{{ item.content }}<template v-if="item.metadata?.derivation === 'local-excerpt'"> <small class="memory-workspace__tag">本地摘录</small></template><template v-if="item.metadata?.extractionState === 'proposed'"> <small class="memory-workspace__tag">已提炼为提案，请在事实账本审阅</small></template><template v-else-if="item.metadata?.extractionState === 'no-fact'"> <small class="memory-workspace__tag">提取未产出事实</small></template></p>
       <small v-if="!item.sourceRefs?.length">缺少原文来源，不能作为作品事实确认。</small>
       <div class="memory-workspace__controls">
         <button :disabled="busy" @click="inspect(item)">查看来源与修订</button>
@@ -767,6 +767,16 @@ onMounted(initialize)
   font-weight: 600;
 }
 .memory-ledger__decision-group ol { margin: 0; padding-inline: 28px 12px; }
+.memory-workspace__tag {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink, #1f2630) 22%, transparent);
+  border-radius: 999px;
+  color: var(--archive-ink-soft, #5d6470);
+  font-size: 10px;
+  white-space: nowrap;
+}
 .memory-ledger__filters { display: grid; gap: 8px; }
 .memory-ledger__filters label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .memory-workspace { font-size: 14px; }
