@@ -1673,7 +1673,7 @@ function safeFilename(value) {
         </div>
         <label class="comic-editor__draft-style">
           <span>画风基调</span>
-          <textarea v-model="draftStyleBible" rows="3" placeholder="角色、线条、光影与色彩基调"></textarea>
+          <textarea v-model="draftStyleBible" rows="3" placeholder="角色、线条、光影与色彩基调" aria-label="视觉圣经草稿"></textarea>
         </label>
       </div>
       <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>

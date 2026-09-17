@@ -180,3 +180,13 @@
   background: color-mix(in srgb, var(--control-danger) 18%, transparent);
   color: var(--control-danger);
 }
+
+/* NB04（nightly-20260917-track-b）：跑团记录流控件对比度收口。
+   主行动卡 small 提示与 dark 下 codex 主按钮（深底白字）达 4.5:1。 */
+.game-page .chat-container__hero-slip.is-primary small {
+  color: var(--text-primary);
+}
+html.theme-dark .game-page.game-page .ws-codex-section__body :is(.mini-btn.primary, .toolbar-text-btn.primary, .status-rail-detail-btn.primary) {
+  background: color-mix(in srgb, var(--archive-olive-strong) 62%, #000);
+  color: #fff;
+}

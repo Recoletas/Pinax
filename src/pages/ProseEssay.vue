@@ -34,6 +34,7 @@
             v-model="currentTopic"
             ref="topicInputRef"
             class="prose-top__input"
+            aria-label="画布主题"
             :class="{ 'is-overtlong': currentTopic.length > 500 }"
             placeholder="输入场景线索… (建议 ≤ 500 字 · 上限 2000)"
             maxlength="2000"

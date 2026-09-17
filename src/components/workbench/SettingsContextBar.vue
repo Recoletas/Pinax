@@ -108,7 +108,7 @@ function onChange(event) {
 }
 
 .context-kicker {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 9px;
   letter-spacing: 0.1em;
   line-height: 1;

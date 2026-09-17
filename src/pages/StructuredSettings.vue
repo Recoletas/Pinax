@@ -300,7 +300,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -328,5 +328,10 @@ onMounted(async () => {
     justify-content: flex-start;
     max-width: 100%;
   }
+}
+
+/* NB04：说明文字达到 4.5:1 */
+.empty-state__hint {
+  color: var(--text-secondary);
 }
 </style>

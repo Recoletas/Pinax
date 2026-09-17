@@ -611,7 +611,7 @@ summary .arrow {
   font-family: var(--font-sans);
   font-size: 10px;
   letter-spacing: 0.14em;
-  color: color-mix(in srgb, var(--archive-ink) 48%, transparent);
+  color: color-mix(in srgb, var(--archive-ink) 74%, transparent);
   pointer-events: none;
 }
 

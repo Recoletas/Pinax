@@ -33,22 +33,21 @@ const emit = defineEmits(['toggle', 'open-detail'])
       </span>
       <span class="ws-codex-section__quick-detail" aria-hidden="true">›</span>
     </button>
-    <div
-      v-else
-      class="ws-codex-section__trigger"
-      role="button"
-      tabindex="0"
-      :aria-expanded="open.toString()"
-      @click="emit('toggle', section.key)"
-      @keydown.enter.prevent="emit('toggle', section.key)"
-      @keydown.space.prevent="emit('toggle', section.key)"
-    >
-      <span class="ws-codex-section__summary">
-        <strong class="ws-codex-section__label">{{ section.label }}</strong>
-        <span class="ws-codex-section__latest" :class="{ 'is-empty': section.empty }">{{ section.latest }}</span>
-        <span class="ws-codex-section__count" :class="{ 'is-single': section.count <= 1 }">{{ section.count }}</span>
-        <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
-      </span>
+    <!-- NB03：切换为真实 button，「查看详情」为兄弟 button（禁止交互嵌套） -->
+    <div v-else class="ws-codex-section__trigger-wrap">
+      <button
+        type="button"
+        class="ws-codex-section__trigger"
+        :aria-expanded="open.toString()"
+        @click="emit('toggle', section.key)"
+      >
+        <span class="ws-codex-section__summary">
+          <strong class="ws-codex-section__label">{{ section.label }}</strong>
+          <span class="ws-codex-section__latest" :class="{ 'is-empty': section.empty }">{{ section.latest }}</span>
+          <span class="ws-codex-section__count" :class="{ 'is-single': section.count <= 1 }">{{ section.count }}</span>
+          <span v-if="section.update > 0" class="ws-codex-section__new">+{{ section.update }}</span>
+        </span>
+      </button>
       <button
         type="button"
         class="ws-codex-section__quick-detail"
@@ -64,6 +63,9 @@ const emit = defineEmits(['toggle', 'open-detail'])
 .ws-codex-section {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
+.ws-codex-section__trigger-wrap {
+  position: relative;
+}
 .ws-codex-section__trigger {
   appearance: none;
   display: grid;
@@ -71,7 +73,7 @@ const emit = defineEmits(['toggle', 'open-detail'])
   align-items: center;
   gap: 4px;
   min-height: 32px;
-  padding: 0 4px;
+  padding: 0 24px 0 4px;
   width: 100%;
   border: 0;
   border-radius: 3px;
@@ -111,6 +113,10 @@ const emit = defineEmits(['toggle', 'open-detail'])
   white-space: nowrap;
 }
 .ws-codex-section__quick-detail {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
   display: grid;
   place-items: center;
   width: 20px;

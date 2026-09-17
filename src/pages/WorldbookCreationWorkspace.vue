@@ -867,6 +867,7 @@ onBeforeUnmount(() => {
             class="visually-hidden"
             type="file"
             multiple
+            aria-label="导入多文件资料"
             accept=".txt,.text,.md,.markdown,.pdf,.docx, text/plain, text/markdown, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             @change="onFileChange"
           />
@@ -882,7 +883,7 @@ onBeforeUnmount(() => {
             v-model="pastedText"
             rows="3"
             placeholder="也可以把正文、章节摘要或设定片段粘贴到这里……"
-          ></textarea>
+           aria-label="粘贴资料文本"></textarea>
           <button type="button" class="quiet-action" :disabled="!pastedText.trim() || busy" @click="addPastedSource">
             暂存片段
           </button>
@@ -936,7 +937,7 @@ onBeforeUnmount(() => {
         <p v-else class="source-empty">尚未添加资料。也可以直接从一句构思开始。</p>
 
         <div class="json-import-line">
-          <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" @change="onJsonChange" />
+          <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" aria-label="导入设定 JSON" @change="onJsonChange" />
           <button type="button" class="text-action" :disabled="busy" @click="openJsonPicker">导入 SillyTavern / Pinax JSON</button>
           <span v-if="jsonPreview">已读取：{{ jsonPreview.name }} · {{ jsonPreview.entryCount }} 条目</span>
         </div>
@@ -988,11 +989,11 @@ onBeforeUnmount(() => {
 
         <label class="field-label">
           世界书名称
-          <input v-model.trim="workspace.name" type="text" placeholder="例如：风雪港调查案" />
+          <input v-model.trim="workspace.name" type="text" placeholder="例如：风雪港调查案" aria-label="作品名" />
         </label>
         <label class="field-label">
           一句构思或提炼方向
-          <textarea v-model="brief" rows="6" placeholder="例如：蒸汽港城在每次退潮后会露出一段被抹去的历史……"></textarea>
+          <textarea v-model="brief" rows="6" placeholder="例如：蒸汽港城在每次退潮后会露出一段被抹去的历史……" aria-label="资料简介"></textarea>
         </label>
 
         <div class="foundation-actions">

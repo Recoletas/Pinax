@@ -221,6 +221,7 @@
         ref="inputRef"
         v-model="inputText"
         class="input"
+        aria-label="行动输入"
         rows="1"
         :placeholder="rulesMode ? '写下行动；需要检定点右侧骰子确认规则' : '写下行动或续写方向'"
         @keydown.meta.enter.prevent="handleSend"

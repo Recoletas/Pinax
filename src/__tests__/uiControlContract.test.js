@@ -105,7 +105,9 @@ describe('workbench control contract (U1)', () => {
     const tabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(tabs).toContain("title: '首页'")
     expect(tabs).toContain('v-if="!tab.pinned"')
-    expect(tabs).toContain('@keydown.enter.prevent="activateTab(tab.id)"')
+    // N-B（nightly-20260917）：标签重构为真实 button，原生 Enter/Space 激活。
+    expect(tabs).toContain('@click="activateTab(tab.id)"')
+    expect(tabs).toContain(':aria-current="tab.id === activeTabId ? \'true\' : undefined"')
     expect(appShell).not.toContain('<header class="shell-mast">')
     const authoringPage = readFileSync(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
     expect(authoringPage).not.toContain('class="authoring-book-tabs"')
@@ -177,7 +179,9 @@ describe('workbench control contract (U1)', () => {
     expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
     expect(workspaceTabs).toContain('height: 34px;')
     expect(workspaceTabs).toContain('box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);')
-    expect(workspaceTabs).toContain('.ws-tab:is(:hover, :focus-within, .is-active) .ws-tab__close')
+    // N-B：关闭钮为兄弟 button（消除交互嵌套），hover/聚焦/激活时可见。
+    expect(workspaceTabs).toContain('.ws-tab-slot:is(:hover, :focus-within) .ws-tab__close')
+    expect(workspaceTabs).toContain('.ws-tab.is-active + .ws-tab__close')
     expect(writing).toContain(':to="rehearsalComposerHostRef || \'#authoring-block-gap\'"')
     expect(writing).toContain('ref="rehearsalComposerHostRef" v-show=')
     expect(writing).toContain('@click="revealRehearsalComposer"')

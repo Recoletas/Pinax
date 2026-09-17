@@ -7,6 +7,7 @@
     </div>
     <select
       class="my-worldbooks__select"
+      aria-label="我的世界书"
       :value="selectedId"
       data-test="my-worldbooks-select"
       @change="onSelect"
