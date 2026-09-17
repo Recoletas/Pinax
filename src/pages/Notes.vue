@@ -195,7 +195,7 @@
           </button>
         </nav>
         <template v-if="sidekickWorkspace === 'materials'">
-        <div class="notes-sidekick__list" role="list" aria-label="相关素材列表">
+        <div class="notes-sidekick__list" :role="sidekickItems.length ? 'list' : null" :aria-label="sidekickItems.length ? '相关素材列表' : null">
           <button
             v-for="asset in sidekickItems"
             :key="asset.id"

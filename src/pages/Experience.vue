@@ -794,7 +794,6 @@ watch(() => worldStore.activeWorldbookId, (nextId) => {
   }
 })
 
-
 const authoringTaskDispatcher = createAuthoringTaskDispatcher()
 
 const experienceAdvisorActions = computed(() => [
@@ -927,7 +926,6 @@ function openMechanismFromNotice() {
 
 async function handleMechanismAction(action) {
 
-
   const actionDescriptions = {
     combat: {
       attack: '发起攻击',
@@ -1019,7 +1017,6 @@ const shouldLockPageScroll = computed(() => {
 
 useBodyScrollLock(shouldLockPageScroll)
 
-
 const dialoguePanelMessages = computed(() => {
   return (gameStore.messages || [])
     .map((message, index) => {
@@ -1049,7 +1046,6 @@ async function handleSend(text, options = {}) {
   // C6：send 后续接归 auto-advance owner（消除页面与 owner 的循环依赖）
   autoAdvance.handleFollowUpAfterSend({ messageCount, isAutoAdvance })
 }
-
 
 
 
@@ -1153,7 +1149,6 @@ async function handleSend(text, options = {}) {
 .quick-notes-rail > * {
   pointer-events: auto;
 }
-
 
 .quick-notes-rail:hover,
 .quick-notes-rail:focus-within {
@@ -3546,4 +3541,5 @@ async function handleSend(text, options = {}) {
     max-width: max(24px, calc(100vw - 150px));
   }
 }
+
 </style>

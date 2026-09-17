@@ -36,7 +36,7 @@ const tabs = computed(() => [homeTab, ...workspaceTabs.tabs])
 const activeTabId = computed(() => route.name === 'welcome' ? HOME_TAB_ID : workspaceTabs.activeTabId)
 async function revealActiveTab() {
   await nextTick()
-  const selected = scrollRef.value?.querySelector('[aria-selected="true"]')
+  const selected = scrollRef.value?.querySelector('[aria-current="true"]')
   selected?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
 }
 watch(activeTabId, revealActiveTab, { immediate: true })
@@ -161,43 +161,52 @@ onBeforeUnmount(() => {
   <div
     v-if="tabs.length > 0"
     class="ws-tabs"
-    role="tablist"
+    role="group"
     aria-label="工作台标签"
     data-test="workspace-tabs"
     @keydown="onTablistKeydown"
   >
-    <div ref="scrollRef" class="ws-tabs__scroll">
+    <!-- NB03：标签 = 真实 button + 关闭为兄弟 button（禁止交互嵌套）；
+         滚动容器可聚焦（scrollable-region-focusable）；激活态用 aria-current。 -->
+    <div
+      ref="scrollRef"
+      class="ws-tabs__scroll"
+      role="group"
+      aria-label="标签（可左右滚动）"
+      tabindex="0"
+    >
       <div
         v-for="tab in tabs"
         :key="tab.id"
-        :data-tab-id="tab.id"
-        :data-tab-key="tab.key"
-        class="ws-tab"
-        :class="{ 'is-active': tab.id === activeTabId }"
-        role="tab"
-        :aria-selected="tab.id === activeTabId ? 'true' : 'false'"
-        :tabindex="tab.id === activeTabId ? 0 : -1"
-        :title="tab.title"
+        :data-tab-slot-id="tab.id"
+        class="ws-tab-slot"
         :style="projectInkStyle(tab)"
-        @click="activateTab(tab.id)"
-        @keydown.enter.prevent="activateTab(tab.id)"
-        @keydown.space.prevent="activateTab(tab.id)"
         @mousedown="onTabMiddleClick($event, tab.id)"
       >
-        <span class="ws-tab__project-bar" aria-hidden="true"></span>
-        <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
-        <WorkbenchIcon v-else class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
-        <span class="ws-tab__label">
-          <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
-          <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
-        </span>
-        <span v-if="tab.dirty" class="ws-tab__dirty" title="有未保存更改" aria-label="有未保存更改"></span>
+        <button
+          type="button"
+          class="ws-tab"
+          :class="{ 'is-active': tab.id === activeTabId, 'is-pinned': tab.pinned }"
+          :data-tab-id="tab.id"
+          :data-tab-key="tab.key"
+          :aria-current="tab.id === activeTabId ? 'true' : undefined"
+          :title="tab.title"
+          @click="activateTab(tab.id)"
+        >
+          <span class="ws-tab__project-bar" aria-hidden="true"></span>
+          <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
+          <WorkbenchIcon v-else class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
+          <span class="ws-tab__label">
+            <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
+            <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
+          </span>
+          <span v-if="tab.dirty" class="ws-tab__dirty" title="有未保存更改" aria-label="有未保存更改"></span>
+        </button>
         <button
           v-if="!tab.pinned"
           class="ws-tab__close"
           type="button"
           :aria-label="`关闭 ${tab.title}`"
-          :tabindex="tab.id === activeTabId ? 0 : -1"
           @click.stop="closeTab(tab.id)"
           @keydown.stop
         >
@@ -234,12 +243,22 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
 }
 .ws-tabs__scroll::-webkit-scrollbar { display: none; }
+.ws-tabs__scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.ws-tab-slot {
+  position: relative;
+  display: inline-flex;
+  align-self: stretch;
+}
 
 .ws-tab {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px 0 12px;
+  padding: 0 30px 0 12px;
   height: 34px;
   flex: 0 0 176px;
   min-width: 88px;
@@ -326,6 +345,11 @@ onBeforeUnmount(() => {
 }
 
 .ws-tab__close {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -341,7 +365,8 @@ onBeforeUnmount(() => {
   opacity: 0;
   transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
 }
-.ws-tab:is(:hover, :focus-within, .is-active) .ws-tab__close { opacity: 1; }
+.ws-tab-slot:is(:hover, :focus-within) .ws-tab__close,
+.ws-tab.is-active + .ws-tab__close { opacity: 1; }
 
 .ws-tab__close:hover {
   color: var(--archive-ink);
@@ -354,6 +379,7 @@ onBeforeUnmount(() => {
 }
 
 .ws-tab[data-tab-key="home"] { flex: 0 0 82px; }
+.ws-tab.is-pinned { padding-right: 8px; }
 
 @media (max-width: 1179px) {
   .ws-tab { flex-basis: 158px; max-width: 176px; }

@@ -1435,7 +1435,7 @@
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   gap: 12px;
 }
 
@@ -1445,7 +1445,7 @@
 
 .no-selection p {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* Icons & Utils */

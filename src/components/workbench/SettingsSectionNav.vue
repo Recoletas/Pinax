@@ -219,4 +219,9 @@ function sectionRoute(tab) {
 .settings-section-nav .settings-section-tab::before { display: none; }
 .settings-section-tab__icon { width: 18px; height: 18px; }
 @media (max-width: 760px) { .settings-section-nav { padding: 8px 12px; } .settings-section-nav .settings-section-tab { font-size: 14px; } }
+
+/* NB04：激活标签文字用主文字色（4.5:1） */
+.router-link-active > .settings-section-tab__label {
+  color: var(--text-primary);
+}
 </style>

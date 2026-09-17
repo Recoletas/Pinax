@@ -234,7 +234,7 @@
             <section class="group-manager-block" v-if="groupStats.length">
               <h3>重命名分组</h3>
               <div class="group-form-row">
-                <select v-model="groupRenameSource" class="select-input">
+                <select v-model="groupRenameSource" class="select-input" aria-label="选择要重命名的分组">
                   <option v-for="group in groupStats" :key="`rename-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
@@ -255,7 +255,7 @@
             <section class="group-manager-block" v-if="groupStats.length">
               <h3>迁移条目</h3>
               <div class="group-form-row">
-                <select v-model="groupMoveSource" class="select-input">
+                <select v-model="groupMoveSource" class="select-input" aria-label="选择要移动的分组">
                   <option v-for="group in groupStats" :key="`move-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
@@ -280,7 +280,7 @@
             <section class="group-manager-block danger" v-if="groupStats.length">
               <h3>删除分组</h3>
               <div class="group-form-row">
-                <select v-model="groupDeleteSource" class="select-input">
+                <select v-model="groupDeleteSource" class="select-input" aria-label="选择要删除的分组">
                   <option v-for="group in groupStats" :key="`delete-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
@@ -3283,7 +3283,7 @@ label {
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
   background: transparent;
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 55%, var(--archive-ink));
   font: inherit;
   font-size: 12px;
   cursor: pointer;
