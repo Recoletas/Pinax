@@ -73,6 +73,8 @@ try {
   assert.equal(await page.locator('.memory-indicator').count(), 0)
   await page.getByRole('button', { name: '备份与恢复 为作品留一份副本', exact: true }).click()
   await page.getByRole('tab', { name: '记忆与历史' }).click()
+  // c445dd4 起工作区按视图分页签；来源与修订入口在「AI 候选」视图。
+  await page.getByRole('button', { name: 'AI 候选' }).click()
   await page.getByRole('button', { name: '查看来源与修订' }).click()
   await page.getByRole('list', { name: '修订历史' }).waitFor()
   assert.equal(await page.getByRole('list', { name: '修订历史' }).locator('li').count(), 209)
