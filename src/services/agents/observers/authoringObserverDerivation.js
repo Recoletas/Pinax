@@ -6,6 +6,8 @@ import {
 import { queueMemoryCandidate } from '../../memory/memoryCandidates.js'
 import { MEMORY_TEXT_LIMIT } from '../../memory/memoryCompaction.js'
 import { evaluateMemoryEligibility } from '../../memory/extractionEligibility.js'
+import { enqueueExtractionJob } from '../../memory/extraction/extractionJobStore.js'
+import { drainExtractionQueue } from '../../memory/extraction/extractionRunner.js'
 
 export const OBSERVER_MEMORY_KIND_MAP = Object.freeze({
   memory: 'project-fact',
@@ -54,6 +56,13 @@ function rememberProcessedFingerprint(fingerprint) {
 
 export function resetProcessedEligibilityFingerprintsForTest() {
   processedEligibilityFingerprints.clear()
+}
+
+// NC07：revision 字符串尾部的单调序号（如 doc-r29 → 29），用于任务级来源
+// 新旧比较；取不到数字时为 0（不可比较，不做 superseded 判定）。
+function extractRevisionSeq(revision) {
+  const match = String(revision || '').match(/(\d+)\D*$/)
+  return match ? Number(match[1]) : 0
 }
 
 function normalizeFactText(value) {
@@ -378,7 +387,26 @@ export async function runObserverMemoryDerivation({
       // NC04：本地摘句不再冒充事实——诚实标注派生方式，审阅与 reader 可区分。
       metadata: { derivation: 'local-excerpt', extractionFingerprint: eligibility.fingerprint }
     })
-    if (result?.success) rememberProcessedFingerprint(eligibility.fingerprint)
+    if (result?.success) {
+      rememberProcessedFingerprint(eligibility.fingerprint)
+      // NC07：摘录候选之外登记结构化提取任务（预算内自动排队）。
+      // 失败不影响已入队的候选，也不阻塞正文。
+      try {
+        const enqueued = enqueueExtractionJob({
+          projectId: String(projectId || ''),
+          sourceRefs,
+          sourceRevision: revision,
+          revisionSeq: extractRevisionSeq(revision),
+          fingerprint: eligibility.fingerprint,
+          text
+        })
+        if (enqueued.ok && !enqueued.duplicate) {
+          void drainExtractionQueue({ max: 1, auto: true }).catch(() => {})
+        }
+      } catch {
+        // 任务登记失败只影响模型提取，不影响摘录候选。
+      }
+    }
     const candidate = result?.candidate
     if (result?.skipped) {
       skipped.push({
