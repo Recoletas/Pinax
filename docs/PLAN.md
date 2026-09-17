@@ -4,6 +4,8 @@
 
 ## 当前主线
 
+2026-09-17 用户要求A/C显著扩量，取消夜间O、白天由Codex统一ABC。核查A `aa17b47` / C `0f0eea2` 首批，不能把接口就绪或含partial的回执当整线完成。新增[A续跑48项](./plan/nightly-20260917-memory-continuation.md)、[C续跑48项](./plan/nightly-20260917-roleplay-continuation.md)与[ABC调度修订](./plan/nightly-20260917-ac-dispatch.md)：A持reader/ledger/全域ZIP，C持session/coordinator/outbox，B持media/Shell/package/许可，夜间各线完成生产接线，白天独立审查合并。新增计划尚未执行，本轮只改文档；真实模型/用户数据迁移/部署仍需相应授权。
+
 2026-09-16 用户要求先提交推送，再充分调研并制定三条夜间任务。既有工作区 UI 与记忆修订首切已在 `f74545b` 推送 main；新的[三线总计划](./plan/nightly-20260916-three-track.md)拆为 [A 历史/记忆](./plan/nightly-20260916-memory.md)、[B 漫画](./plan/nightly-20260916-comics.md)、[C 跑团](./plan/nightly-20260916-roleplay.md)。固定 Utopia/StoryForge 源码，列明复用、P0/储备、数据兼容、共享接缝和验收。当前仅计划，尚未启动实现或定时调度；不把完整事实引擎、AI KP、远程联机或真实图片质量纳入一夜全完成承诺。
 
 2026-09-16 工作区一致性修订：用户继续否定各页协调度与切换。解除设定固定最大宽度；移除 AppShell 旧侧栏方向/out-in 动画；标签固定宽度并滚入活动项；统一当前创作页工具栏与素材/漫画表面。地图、体验、联机的内部专业面板未在本轮整体重构，视觉验收仍待用户。

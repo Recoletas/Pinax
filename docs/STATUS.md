@@ -6,7 +6,9 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-16 三线夜间研究 | `text-game-framework` | `main` | 计划编制完成：四份任务书约6.35万字符，91工作包、98分线场景+18组合场景。最终 verify:full exit 0（20/200、lint0 warnings、双build/架构/diff），本地链接/围栏检查通过。A Utopia 历史/记忆、B StoryForge 漫画、C StoryForge 跑团；[总计划](./plan/nightly-20260916-three-track.md)。未启动实现或自动调度。 |
+| Codex / 2026-09-17 ABC统一审查 | `text-game-framework` | `main` | 开始审查A `81aa3f9`、B `c00c59b`、C `0dbca43`；保留上一轮计划WIP，逐线合并并做生产接线/备份/分支隔离/界面组合回归。不推送部署，不把分线回执等同完整验收。 |
+| Codex / 2026-09-17 A/C 续跑计划 | `text-game-framework` | `main` | 计划完成：A/C各48项、36/40专项场景；B另接12项公共工作。verify:full exit0（20/200、lint、双build、架构/diff），8本地链接/编号/围栏检查通过。取消夜间O，A持reader/ledger/ZIP，C持session/coordinator，B持media/Shell/package，白天Codex统一ABC；[当前调度](./plan/nightly-20260917-ac-dispatch.md)。仅改文档，未启动续跑、未提交推送。 |
+| A/C首批运行时（其他session） | `pinax-night-memory-20260916` / `night-rpg-c-20260916` | `night/memory-20260916` / `night/roleplay-20260916` | 已核查首批tip A `aa17b47`、C `0f0eea2`，两线有首批交付但未组合验收/合main，不能标整线完成；原9月16日调研计划的“未启动”已不代表现状。B本轮未审进度，不猜测未启动。 |
 | Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 已随工作区 UI 收口提交推送 `f74545b`。209 次真实 IndexedDB 修订与恢复 smoke exit 0、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）。尚非完整 Utopia 事实/认知时间引擎，下一步以本次 A 线任务书为准。 |
 | Codex / 2026-09-16 Web Alpha completion | `/home/recoletas/jiuguan/text-game-framework` | `main` | 夜间硬任务书剩余项已完成确定性验收并合入 main，已随本轮 main 推送远端；真实外部 provider 与实体设备仍是外部门禁。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
@@ -248,7 +250,7 @@
 
 ## Next up
 
-- **2026-09-16 新三线夜间计划，待用户启动**：[A 历史/记忆](./plan/nightly-20260916-memory.md)、[B 漫画](./plan/nightly-20260916-comics.md)、[C 跑团](./plan/nightly-20260916-roleplay.md)，以[总任务书](./plan/nightly-20260916-three-track.md)冻结身份/回执/备份/文件归属。未安排定时执行，未扩大为联机或生产部署。
+- **2026-09-17 ABC续跑**：A/C首批已提交但未组合验收；按[A48项](./plan/nightly-20260917-memory-continuation.md)、[C48项](./plan/nightly-20260917-roleplay-continuation.md)继续补齐并深化，B按原任务和新公共接线职责推进。[调度修订](./plan/nightly-20260917-ac-dispatch.md)取消夜间O，白天Codex统一ABC。本轮只扩写任务，未启动续跑worker/定时调度，未扩大为联机/生产部署。
 
 下一轮不再重开[Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)；其代码与确定性门禁已于 2026-09-16 收口。后续只保留真实外部 provider、真机中文输入耐久和作者作品体验等外部门禁，并以当前结构预算防止 owner 回流。
 

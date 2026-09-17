@@ -1,5 +1,19 @@
 # Agent Runs
 
+## 2026-09-17 ABC续跑修订（夜间无O）
+
+当前入口：[ABC调度与写锁](../plan/nightly-20260917-ac-dispatch.md)。A/C首批提交不是整线完成。用户指定夜间共享工作下放ABC，白天Codex统一审查合并；本轮尚未启动续跑worker。
+
+本轮计划交付验证：`verify:full` exit0，20文件/200用例、lint、Vite/VitePress、架构/diff；三份新文档8本地链接、围栏与AX48/CX48/BX12/XA-G36/XC-G40编号检查通过。仅证明计划与当前main文档兼容，不代表首批或续跑功能已独立验收。
+
+| ID | 当前已核查分支/基线 | 夜间写集与职责 | 状态 | 任务书 |
+|---|---|---|---|---|
+| A-CONT | `night/memory-20260916@aa17b47` | memory/knowledge、生产reader、历史bridge、统一ZIP | 首批待验收；48项续跑计划编制，未由本轮启动 | [A](../plan/nightly-20260917-memory-continuation.md) |
+| B-CONT | 既有 `night/comics-20260916`，实际tip/WIP执行前查 | 漫画/media、Shell/router、package/lock/许可 | 本轮未审B实际进度；旧B任务+BX01–12公共接线 | [B与共享分工](../plan/nightly-20260917-ac-dispatch.md) |
+| C-CONT | `night/roleplay-20260916@0f0eea2` | roleplay、session/coordinator/gameStore、体验入口与公共UI断言 | 首批待验收；48项续跑计划编制，未由本轮启动 | [C](../plan/nightly-20260917-roleplay-continuation.md) |
+
+不创建夜间O工作树/worker，不留默认白天补生产接线。各线夜间更新专属回执，白天Codex汇总全局状态；旧看板以下保留历史证据，冲突时以本节及当前调度为准。
+
 ## 2026-09-16 三线夜间调研与计划（仅计划）
 
 入口：[总任务书](../plan/nightly-20260916-three-track.md)。既有运行时已提交推送 `f74545b`；本次并行只写任务书，未启动夜间实现。旧 C2 状态不因本轮更新而改变。
