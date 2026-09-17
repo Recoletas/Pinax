@@ -5,7 +5,7 @@ import { loadWritingBooks } from '../../services/writing/writingBooksRepository'
 import { listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
 import { commitMemorySnapshot, flushMemoryHistory, readMemoryHistory, memoryHistoryHealth, historicalCandidatePatch } from '../../services/memory/memoryHistoryStore'
 import { openLedgerDb, readLedgerHealth, closeLedgerDb } from '../../services/memory/ledger/ledgerDb'
-import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisions, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
+import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisionsPaged, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
 import { queryFacts } from '../../services/memory/ledger/queryFacts'
 import { describeInterval } from '../../services/memory/ledger/storyInterval'
 import { payloadHash } from '../../services/memory/ledger/ledgerContract'
@@ -76,9 +76,56 @@ const ledger = ref({
   correctingFactKey: '',
   correctedObject: '',
   correctionReason: '',
+  decisionsCursor: null,
+  decisionsLoadingMore: false,
   migrationOpen: false,
   migration: null
 })
+
+// NC05：审计决定按对象（factKey）分组汇总。组内保留全部决定（不隐藏、
+// 不丢原不可变历史），分组只改变阅读顺序。
+const decisionGroups = computed(() => {
+  const groups = new Map()
+  for (const decision of ledger.value.decisions) {
+    const key = String(decision.result?.factKey || decision.afterIds?.[0] || decision.id)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(decision)
+  }
+  return [...groups.entries()].map(([key, items]) => {
+    const counts = {}
+    for (const item of items) {
+      const label = decisionLabels[item.operation] || item.operation
+      counts[label] = (counts[label] || 0) + 1
+    }
+    const summary = Object.entries(counts).map(([label, count]) => `${label}×${count}`).join(' · ')
+    const latest = items.reduce((acc, item) => (Number(item.recordedSeq || 0) > Number(acc.recordedSeq || 0) ? item : acc), items[0])
+    return {
+      key,
+      title: String(key).startsWith('fact:') ? `对象 ${String(key).replace(/^fact:/, '').slice(0, 40)}` : `关联 ${key.slice(0, 24)}`,
+      summary,
+      latestSeq: Number(latest.recordedSeq || 0),
+      items
+    }
+  }).sort((left, right) => right.latestSeq - left.latestSeq)
+})
+
+async function loadMoreDecisions() {
+  if (!ledger.value.decisionsCursor || ledger.value.decisionsLoadingMore) return
+  ledger.value.decisionsLoadingMore = true
+  const opened = await openLedgerDb({ openTimeoutMs: 1500 })
+  if (opened.ok) {
+    const page = await listDecisionsPaged(opened.db, {
+      scope: ledgerScope.value,
+      cursor: ledger.value.decisionsCursor,
+      limit: 50
+    })
+    if (page.ok) {
+      ledger.value.decisions = [...ledger.value.decisions, ...page.items]
+      ledger.value.decisionsCursor = page.nextCursor || null
+    }
+  }
+  ledger.value.decisionsLoadingMore = false
+}
 const decisionLabels = {
   'adopt-proposal': '接受为事实',
   'correct-fact': '更正',
@@ -147,9 +194,9 @@ async function loadLedger() {
       ledger.value.decisions = []
       return
     }
-    const [pendingProposals, decisions, marks] = await Promise.all([
+    const [pendingProposals, decisionPage, marks] = await Promise.all([
       listProposals(db, { scope, status: 'pending' }),
-      listDecisions(db, { scope, limit: 100 }),
+      listDecisionsPaged(db, { scope, limit: 50 }),
       listRejectionMarks(db, { scope })
     ])
     const query = await queryFacts(db, {
@@ -169,7 +216,8 @@ async function loadLedger() {
     ledger.value.ready = true
     ledger.value.unavailable = ''
     ledger.value.proposals = pendingProposals
-    ledger.value.decisions = decisions
+    ledger.value.decisions = decisionPage.items || []
+    ledger.value.decisionsCursor = decisionPage.nextCursor || null
     ledger.value.rejections = marks
     ledger.value.evidenceById = evidenceById
     if (query.ok) {
@@ -606,13 +654,22 @@ onMounted(initialize)
         </template>
 
         <template v-else-if="ledger.view === 'decisions' && ledgerScope">
+          <p class="memory-workspace__hint">状态对照：接受=事实生效 · 更正=作废旧值并立新值（旧值仍可追溯）· 撤回=事实失效但审计保留 · 迁入=旧记忆显式确认。所有决定不可改写，只按对象分组便于阅读。</p>
           <p v-if="!ledger.decisions.length" class="memory-workspace__hint">还没有决定记录。</p>
-          <ol aria-label="决定记录">
-            <li v-for="decision in ledger.decisions" :key="decision.id">
-              <strong>{{ decisionLabels[decision.operation] || decision.operation }}</strong>
-              <small> · {{ new Date(decision.recordedAt).toLocaleString() }} · 序号 {{ decision.recordedSeq }}<template v-if="decision.reason"> · {{ decision.reason }}</template></small>
-            </li>
-          </ol>
+          <section aria-label="按对象分组的决定汇总">
+            <details open v-for="group in decisionGroups" :key="group.key" class="memory-ledger__decision-group">
+              <summary>{{ group.title }} — {{ group.summary }}</summary>
+              <ol>
+                <li v-for="decision in group.items" :key="decision.id">
+                  <strong>{{ decisionLabels[decision.operation] || decision.operation }}</strong>
+                  <small> · {{ new Date(decision.recordedAt).toLocaleString() }} · 序号 {{ decision.recordedSeq }}<template v-if="decision.reason"> · {{ decision.reason }}</template></small>
+                </li>
+              </ol>
+            </details>
+          </section>
+          <button v-if="ledger.decisionsCursor" :disabled="ledger.decisionsLoadingMore" @click="loadMoreDecisions">
+            {{ ledger.decisionsLoadingMore ? '加载中…' : '加载更早的决定' }}
+          </button>
         </template>
 
         <section class="memory-ledger__migration">
@@ -657,6 +714,22 @@ onMounted(initialize)
 .memory-ledger__evidence blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--border); color: var(--text-secondary); white-space: pre-wrap; }
 .memory-ledger__form { display: grid; gap: 8px; padding: 8px 0; }
 .memory-ledger__form label { display: grid; gap: 4px; }
+.memory-ledger__decision-group {
+  margin-block: 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink, #1f2630) 14%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft, #f7f4ed) 92%, transparent);
+}
+.memory-ledger__decision-group summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--archive-ink, #1f2630);
+  font-weight: 600;
+}
+.memory-ledger__decision-group ol { margin: 0; padding-inline: 28px 12px; }
 .memory-ledger__filters { display: grid; gap: 8px; }
 .memory-ledger__filters label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .memory-workspace { font-size: 14px; }
