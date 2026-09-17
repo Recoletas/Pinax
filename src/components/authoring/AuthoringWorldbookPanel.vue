@@ -4,14 +4,31 @@ import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
 import { buildAuthoringSettingContext } from '../../services/authoring/authoringSettingContext.js'
 
+import { useRouter } from 'vue-router'
+
 const props = defineProps({
   worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' },
+  bookId: { type: String, default: '' },
   sceneProjection: { type: Object, default: null }, contextLedger: { type: [Array, Object], default: null },
   annotations: { type: Array, default: () => [] }, document: { type: Object, default: null },
   caretContext: { type: Object, default: null }, focusEntryId: { type: String, default: '' },
   candidateEntryIds: { type: Array, default: () => [] }
 })
 const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'toggle-pin', 'close'])
+const router = useRouter()
+// N-A：本书资料概况与入口（NA04 右栏片）。资料数量来自绑定世界书的 sourceDocuments。
+const sourceCount = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments.length : 0))
+const sourceChars = computed(() => (props.worldbook?.sourceDocuments || []).reduce((total, source) => (
+  total + Number(source?.originalLength || source?.normalizedLength || String(source?.contentPreview || '').length)
+), 0))
+function openSourcesPanel() {
+  if (!props.bookId) return
+  router.push({ name: 'settings-structured', query: { bookId: props.bookId, sources: '1' } })
+}
+function openAddSources() {
+  if (!props.bookId) return
+  router.push({ name: 'settings-worldbook-create', query: { bookId: props.bookId, mode: 'sources' } })
+}
 const ENTRY_TYPES = [
   ['general', '通用'], ['lore', '背景'], ['location', '地点'], ['organization', '组织'],
   ['event', '事件'], ['item', '物品'], ['quest', '任务'], ['rule', '规则'], ['style', '文风'], ['forbidden', '禁则']
@@ -150,6 +167,13 @@ onBeforeUnmount(flushSave)
 <template>
   <section class="authoring-setting-workbench">
     <main class="setting-sheet">
+      <div class="setting-sources" data-test="authoring-sources-line">
+        <span class="setting-sources__label">
+          资料 <strong>{{ sourceCount }}</strong> 份<template v-if="sourceChars"> · {{ sourceChars.toLocaleString('zh-CN') }} 字</template>
+        </span>
+        <button type="button" class="setting-sources__action" :disabled="!bookId" @click="openAddSources">添加资料</button>
+        <button type="button" class="setting-sources__action setting-sources__action--quiet" :disabled="!bookId || !sourceCount" @click="openSourcesPanel">查看与管理</button>
+      </div>
       <template v-if="worldbook && selectedEntry">
         <header class="setting-sheet__head">
           <input v-model="draft.name" aria-label="设定名称" @blur="flushSave" />
@@ -214,4 +238,10 @@ button{border:0;background:transparent;color:var(--text-secondary);font:inherit;
 .setting-directory__group>button small{overflow:hidden;color:var(--text-secondary);font-size:var(--authoring-catalog-meta-size,10px);font-weight:400;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:720px){.authoring-setting-workbench{grid-template-columns:1fr;grid-template-rows:minmax(0,42%) minmax(0,58%)}.setting-directory{order:-1;border-bottom:1px solid var(--border-subtle)}.setting-sheet{border-right:0}}
 @media(pointer:coarse){.catalog-window-controls button,.setting-delete,.setting-create{min-width:44px;min-height:44px}.setting-directory__group>button{min-height:44px}.setting-directory__search-row{grid-template-columns:minmax(0,1fr) 44px}}
+.setting-sources { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.setting-sources__label { font-size: 13px; color: var(--text-secondary); }
+.setting-sources__label strong { color: var(--text-primary); }
+.setting-sources__action { font: inherit; font-size: 12px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-primary); color: var(--text-primary); cursor: pointer; }
+.setting-sources__action:disabled { opacity: .5; cursor: default; }
+.setting-sources__action--quiet { color: var(--text-secondary); }
 </style>

@@ -991,6 +991,7 @@
         <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
           <AuthoringWorldbookPanel
             :worldbook="boundWorldbook"
+            :book-id="selectedBookId"
             :selected-text="selectedText"
             :document="writingDocument"
             :caret-context="authoringSettingCaretContext"

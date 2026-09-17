@@ -69,7 +69,15 @@
       <template v-else-if="projectContextStatus === 'unbound'">
         <div class="empty-state" data-test="settings-unbound">
           <p>这本书还没有关联世界书。</p>
-          <p class="empty-state__hint">回写作工作台右栏「关联世界书」完成关联后，这里会打开它的设定。</p>
+          <p class="empty-state__hint">可以直接添加资料：确认时自动建立随书资料库并关联；也可以回写作工作台右栏手动关联。</p>
+          <button
+            type="button"
+            class="empty-state__action"
+            data-test="unbound-add-sources"
+            @click="router.push({ name: 'settings-worldbook-create', query: { bookId: context?.bookId || '', mode: 'sources' } })"
+          >
+            添加资料并建立随书资料库
+          </button>
         </div>
       </template>
       <div v-else-if="projectContextStatus === 'missing-book'" class="empty-state">
@@ -78,10 +86,16 @@
       <div v-else-if="loadError" class="empty-state">
         <p>{{ loadError }}</p>
       </div>
-      <StructuredSettingsWorkspace
-        v-else-if="activeWorldbook"
-        :worldbook="activeWorldbook"
-      />
+      <template v-else-if="activeWorldbook">
+        <WorldbookSourcesPanel
+          :worldbook="activeWorldbook"
+          :book-id="context?.bookId || ''"
+          :initial-open="sourcesOpen"
+        />
+        <StructuredSettingsWorkspace
+          :worldbook="activeWorldbook"
+        />
+      </template>
       <div v-else class="empty-state">
         <p>请选择一个世界书开始编辑结构化设定</p>
       </div>
@@ -96,6 +110,7 @@ import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
+import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel.vue'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
@@ -104,6 +119,8 @@ const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
 const selectedWorldbookId = ref('')
+// N-A：资料面板默认在带 ?sources=1 或尚无资料时展开；有资料时收起为摘要行。
+const sourcesOpen = ref(String(route.query.sources || '') === '1')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook)
@@ -154,6 +171,18 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.empty-state__action {
+  margin-top: 8px;
+  font: inherit;
+  padding: 8px 14px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
 .settings-page {
   min-height: 0;
   flex: 1;

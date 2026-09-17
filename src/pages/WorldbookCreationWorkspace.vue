@@ -10,6 +10,7 @@ import {
   tryAiGenerateFromBrief
 } from '../services/worldbook/worldbookQuickImportHelpers'
 import { buildWorldbookImportPreview } from '../services/worldbook/worldbookImportGeneration'
+import { mergeWorldbookJsonImport } from '../services/worldbook/worldbookImportMerge'
 import {
   buildSourceArchiveBundle,
   cleanupUnreferencedSourceArtifacts,
@@ -24,6 +25,11 @@ import {
   saveSourceArchiveBundle
 } from '../services/worldbook/worldbookSourceArchive'
 import { detectSourceKind } from '../services/worldbook/worldbookSourceAdapters'
+import {
+  appendSourcesToWorldbook,
+  bindBookWorldbook,
+  resolveBookSourceContext
+} from '../services/worldbook/worldbookProjectSources'
 import { parseSourceFilesWithWorker } from '../services/worldbook/worldbookSourceParser'
 import { selectSourceChunks } from '../services/worldbook/worldbookSourceSelection'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
@@ -38,6 +44,46 @@ import {
 const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
+// N-A：项目书上下文。携带 bookId 进入时，确认动作按"未绑定建库绑定 /
+// 已绑定追加"处理，不再只切全局 active（NA05）。
+const projectBookId = ref(String(route.query.bookId || ''))
+const bookContext = ref(null)
+
+function refreshBookContext() {
+  projectBookId.value = String(route.query.bookId || '')
+  bookContext.value = projectBookId.value
+    ? resolveBookSourceContext(projectBookId.value)
+    : null
+  return bookContext.value
+}
+
+const projectReturnQuery = computed(() => (
+  projectBookId.value ? { bookId: projectBookId.value } : {}
+))
+const projectBindingLabel = computed(() => {
+  const context = bookContext.value
+  if (!context?.ok) return ''
+  if (context.mode === 'project') return `本书资料库：${context.book.title || '未命名书稿'}（已关联）`
+  return `本书资料库：${context.book.title || '未命名书稿'}（尚未关联，确认时将自动建立并关联）`
+})
+// 已绑定书时 JSON/基调确认为"新建为独立世界书"，是否更换本书关联是显式选择。
+const rebindAfterCreate = ref(false)
+// 同名冲突时的导入方式：默认新建独立世界书；更新 = 按名称+类型并入同名库。
+const jsonImportMode = ref('create')
+// 确认按钮文案三分：未绑定（建库绑定）/ 已绑定（独立新建）/ 全局（原语义）。
+const jsonConfirmLabel = computed(() => {
+  if (!bookContext.value?.ok) return '确认导入世界书'
+  return bookContext.value.mode === 'unbound' ? '导入并建立本书资料库' : '新建为独立世界书'
+})
+const foundationConfirmLabel = computed(() => {
+  if (!bookContext.value?.ok) return '确认并进入详细设定'
+  return bookContext.value.mode === 'unbound' ? '以此基调建立本书资料库' : '新建为独立世界书'
+})
+const jsonNameConflict = computed(() => {
+  const name = String(jsonPreview.value?.name || '').trim()
+  if (!name) return null
+  return (worldStore.worldbooksIndex || []).find(entry => String(entry.name || '').trim() === name) || null
+})
 const fileInput = ref(null)
 const jsonInput = ref(null)
 const dragging = ref(false)
@@ -586,6 +632,56 @@ function exportSourceText(item) {
   infoMessage.value = `已导出 ${item.title} 的文字内容。`
 }
 
+// 已绑定书：把选中的资料（完整正文）追加进当前资料库，不新建世界书。
+function selectedFullSourceDocuments() {
+  return sourceQueue.value
+    .filter((item) => isSourceUsable(item) && item.selected)
+    .map((item) => ({
+      id: item.artifact.id,
+      title: item.artifact.title,
+      kind: item.artifact.kind,
+      content: item.chunks.map((chunk) => chunk.text).join('\n\n'),
+      sourceLabel: item.artifact.sourceLabel,
+      originalLength: item.artifact.originalLength,
+      normalizedLength: item.artifact.normalizedLength,
+      archiveRef: item.artifact.id,
+      chunkIds: item.artifact.chunkIds,
+      contentHash: item.artifact.contentHash,
+      createdAt: item.artifact.createdAt,
+      warnings: item.artifact.warnings
+    }))
+    .filter((source) => source.content)
+}
+
+async function confirmAppendSources() {
+  const context = bookContext.value
+  if (!context?.ok || context.mode !== 'project' || busy.value) return
+  if (!selectedSourceCount.value) {
+    errorMessage.value = '请先选择要加入本书资料库的资料。'
+    return
+  }
+  clearMessages()
+  busy.value = true
+  setGenerationState('preparing', { action: 'append-sources', startedAt: Date.now(), message: '正在把资料写入本书资料库。' })
+  try {
+    await persistMemoryOnlySources()
+    const result = await appendSourcesToWorldbook({
+      worldbookId: context.worldbookId,
+      documents: selectedFullSourceDocuments(),
+      worldStore
+    })
+    if (!result.ok) throw new Error(`资料写入失败（${result.reason}）；已选资料保留在本页，可重试。`)
+    await worldStore.loadWorldbooksIndex()
+    await deleteCreationWorkspace(workspace.id)
+    infoMessage.value = `已加入本书资料库：新增 ${result.added} 份${result.skipped ? `，跳过重复 ${result.skipped} 份` : ''}。`
+    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+  } catch (error) {
+    setGenerationFailure(error, 'append-sources')
+  } finally {
+    busy.value = false
+  }
+}
+
 async function generateFoundation() {
   if (!canGenerate.value || busy.value) return
   clearMessages()
@@ -690,12 +786,69 @@ async function confirmJsonImport() {
     message: '正在写入正式世界书。'
   })
   try {
+    if (jsonImportMode.value === 'update' && jsonNameConflict.value) {
+      // NA07：条目级并入同名世界书（新增/更新/跳过逐条判定，默认不覆盖语义见 UI）。
+      const merged = await mergeWorldbookJsonImport({
+        worldStore,
+        targetId: jsonNameConflict.value.id,
+        rawData: jsonPreview.value.rawData
+      })
+      if (!merged.ok) throw new Error(`并入同名世界书失败（${merged.reason || '未知原因'}）`)
+      const context = bookContext.value
+      let bindingNote = `已并入同名世界书：新增 ${merged.added}、更新 ${merged.updated}、相同跳过 ${merged.skipped}。`
+      if (context?.ok && context.mode === 'unbound') {
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: jsonNameConflict.value.id })
+        if (!bound.ok) throw new Error(`世界书已更新，但关联本书失败（${bound.reason}）；可稍后手动关联。`)
+        bindingNote += ' 已关联为本书资料库。'
+      } else if (context?.ok && context.mode === 'project' && rebindAfterCreate.value) {
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: jsonNameConflict.value.id })
+        if (!bound.ok) throw new Error(`更换本书关联失败（${bound.reason}）。`)
+        bindingNote += ' 本书关联已更换为该世界书。'
+      }
+      await worldStore.loadWorldbooksIndex()
+      await deleteCreationWorkspace(workspace.id)
+      jsonPreview.value = null
+      infoMessage.value = bindingNote
+      await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+      return
+    }
     const created = await worldStore.importFromSillyTavern(jsonPreview.value.rawData)
     await worldStore.loadWorldbooksIndex()
     if (created?.id) await worldStore.setActiveWorldbook(created.id)
+    // 项目上下文：未绑定的书在此建立关联（写 book.worldbookId，不再只切全局）。
+    let bindingNote = ''
+    const context = bookContext.value
+    if (created?.id && context?.ok) {
+      if (context.mode === 'unbound') {
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: created.id })
+        if (!bound.ok) throw new Error(`世界书已建立，但关联本书失败（${bound.reason}）；可稍后在写作页右栏手动关联。`)
+        bindingNote = '已关联为本书资料库。'
+        // 未绑定流：本页选中的资料随新资料库入册，正文留在归档。
+        const selected = selectedFullSourceDocuments()
+        if (selected.length) {
+          const appended = await appendSourcesToWorldbook({ worldbookId: created.id, documents: selected, worldStore })
+          if (!appended.ok) throw new Error(`资料写入资料库失败（${appended.reason || '未知原因'}）`)
+          bindingNote += ` 已一并加入 ${appended.added} 份资料。`
+        }
+      } else if (rebindAfterCreate.value) {
+        // 显式更换关联：默认关闭；开启时按计划仍不静默替换。
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: created.id })
+        if (!bound.ok) throw new Error(`更换本书关联失败（${bound.reason}）；新世界书保持独立，本书仍关联原资料库。`)
+        bindingNote = '本书关联已更换为新世界书。'
+        const selectedRebind = selectedFullSourceDocuments()
+        if (selectedRebind.length) {
+          const appendedRebind = await appendSourcesToWorldbook({ worldbookId: created.id, documents: selectedRebind, worldStore })
+          if (!appendedRebind.ok) throw new Error(`资料写入资料库失败（${appendedRebind.reason || '未知原因'}）`)
+          bindingNote += ` 已一并加入 ${appendedRebind.added} 份资料。`
+        }
+      } else {
+        bindingNote = '新世界书保持独立；本书仍关联原资料库。'
+      }
+    }
     await deleteCreationWorkspace(workspace.id)
     jsonPreview.value = null
-    await router.push({ name: 'settings-structured' })
+    infoMessage.value = bindingNote
+    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
   } catch (error) {
     setGenerationFailure(error, 'json-import')
     errorMessage.value = `导入失败：${errorMessage.value}`
@@ -721,8 +874,24 @@ async function confirmFoundation() {
       archivedSourceDocuments: sources
     })
     if (created?.id) await worldStore.setActiveWorldbook(created.id)
+    let bindingNote = ''
+    const context = bookContext.value
+    if (created?.id && context?.ok) {
+      if (context.mode === 'unbound') {
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: created.id })
+        if (!bound.ok) throw new Error(`世界书已建立，但关联本书失败（${bound.reason}）；可稍后在写作页右栏手动关联。`)
+        bindingNote = '已关联为本书资料库。'
+      } else if (rebindAfterCreate.value) {
+        const bound = await bindBookWorldbook({ bookId: projectBookId.value, worldbookId: created.id })
+        if (!bound.ok) throw new Error(`更换本书关联失败（${bound.reason}）；新世界书保持独立，本书仍关联原资料库。`)
+        bindingNote = '本书关联已更换为新世界书。'
+      } else {
+        bindingNote = '新世界书保持独立；本书仍关联原资料库。'
+      }
+    }
     await deleteCreationWorkspace(workspace.id)
-    await router.push({ name: 'settings-structured' })
+    infoMessage.value = bindingNote
+    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
   } catch (error) {
     setGenerationFailure(error, 'foundation-confirm')
     errorMessage.value = `创建失败：${errorMessage.value}`
@@ -734,6 +903,14 @@ async function confirmFoundation() {
 function goBack() {
   router.push({ name: 'settings-worldbook' })
 }
+
+watch(
+  () => String(route.query.bookId || ''),
+  () => {
+    refreshBookContext()
+    rebindAfterCreate.value = false
+  }
+)
 
 watch(
   () => ({
@@ -762,6 +939,7 @@ watch(
 )
 
 onMounted(async () => {
+  refreshBookContext()
   refreshArchiveUsage()
   try {
     const restored = await loadCreationWorkspace(workspace.id)
@@ -835,8 +1013,9 @@ onBeforeUnmount(() => {
       </button>
       <div>
         <span class="creation-kicker">WORLD BOOK / CREATE</span>
-        <h1>建立一册世界书</h1>
+        <h1>{{ bookContext?.ok ? '本书资料导入' : '建立一册世界书' }}</h1>
         <p>先收集资料，再建立基础基调。正式条目会在后续设定工作台中逐项审阅。</p>
+        <p v-if="projectBindingLabel" class="creation-binding" data-test="creation-binding-label">{{ projectBindingLabel }}</p>
       </div>
       <div class="creation-state" :class="`is-${generationState}`" aria-live="polite">
         <strong>{{ statusLabel }}</strong>
@@ -894,6 +1073,18 @@ onBeforeUnmount(() => {
             <button type="button" class="text-action" @click="toggleAllSources">
               {{ selectedSourceCount === readySourceCount ? '取消全选' : '全选可用资料' }}
             </button>
+          </div>
+          <div v-if="bookContext?.ok && bookContext.mode === 'project'" class="append-sources-line">
+            <button
+              type="button"
+              class="primary-action"
+              data-test="append-sources-confirm"
+              :disabled="busy || !selectedSourceCount"
+              @click="confirmAppendSources"
+            >
+              把选中的 {{ selectedSourceCount }} 份资料加入本书资料库
+            </button>
+            <small>不新建世界书；重复内容自动跳过。</small>
           </div>
           <div v-for="item in sourceQueue" :key="item.id" class="source-row">
             <input
@@ -968,11 +1159,20 @@ onBeforeUnmount(() => {
             </li>
           </ol>
           <p v-else class="json-preview__empty">没有识别到可导入条目，无法确认导入。</p>
+          <div v-if="jsonNameConflict" class="json-conflict" data-test="json-name-conflict" role="status">
+            <p class="json-conflict-note">已存在同名世界书「{{ jsonNameConflict.name }}」。选择处理方式：</p>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> 新建为独立世界书（默认）</label>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="update" /> 并入同名世界书（按名称+类型逐条：新增/更新/跳过）</label>
+          </div>
           <div v-if="jsonPreview.entryCount" class="json-preview__actions">
             <button type="button" class="primary-action" :disabled="busy" @click="confirmJsonImport">
-              确认导入世界书
+              {{ jsonImportMode === 'update' && jsonNameConflict ? '并入同名世界书' : jsonConfirmLabel }}
             </button>
-            <span>确认后会写入当前世界书，并进入详细设定。</span>
+            <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
+              <input v-model="rebindAfterCreate" type="checkbox" />
+              新建后更换本书关联
+            </label>
+            <span>确认后进入详细设定。</span>
           </div>
         </section>
       </section>
@@ -1016,8 +1216,14 @@ onBeforeUnmount(() => {
             <div><dt>禁写</dt><dd>{{ pendingPayload.forbidden || '未填写' }}</dd></div>
           </dl>
           <div class="preview-actions">
-            <button type="button" class="primary-action" :disabled="busy" @click="confirmFoundation">确认并进入详细设定</button>
+            <button type="button" class="primary-action" :disabled="busy" @click="confirmFoundation">
+              {{ foundationConfirmLabel }}
+            </button>
             <button type="button" class="quiet-action" :disabled="busy" @click="pendingPayload = null">重新生成</button>
+            <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
+              <input v-model="rebindAfterCreate" type="checkbox" />
+              新建后更换本书关联
+            </label>
           </div>
         </div>
       </section>
@@ -1050,6 +1256,13 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.creation-binding { margin-top: 4px; font-size: 13px; color: var(--text-secondary); }
+.append-sources-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 0; }
+.append-sources-line small { color: var(--text-secondary); }
+.rebind-choice { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-secondary); }
+.json-conflict { display: grid; gap: 6px; }
+.json-conflict-note { padding: 8px 10px; border-left: 3px solid var(--warning, #d97706); background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent); font-size: 14px; }
+
 .creation-page {
   min-height: var(--app-viewport-height, 100vh);
   padding: 18px clamp(14px, 3vw, 42px) 42px;
