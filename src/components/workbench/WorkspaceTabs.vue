@@ -349,6 +349,7 @@ onBeforeUnmount(() => {
   right: 5px;
   top: 50%;
   transform: translateY(-50%);
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
