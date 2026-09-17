@@ -10,6 +10,7 @@ import { chromium } from 'playwright'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { CORPUS } from './memory-quality-corpus.mjs'
 
 const BASE = process.env.BASE || ''
 const PORT = Number(process.env.MEMQ_PORT || 5319)
@@ -91,6 +92,58 @@ async function main() {
     const page = await context.newPage()
     const pageErrors = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
+
+    await page.goto(`${URL_BASE}/comics`, { waitUntil: 'domcontentloaded' })
+
+    // ---- A0 标注语料（≥24 片段：准入 + 响应逐项校验的冻结期望） ----
+    const corpusResult = await page.evaluate(async (corpus) => {
+      const eligibilityMod = await import('/src/services/memory/extractionEligibility.js')
+      const validationMod = await import('/src/services/memory/extraction/structuredExtraction.js')
+      const failures = []
+      let checked = 0
+      for (const fragment of corpus) {
+        if (fragment.text && fragment.expect?.eligibility) {
+          checked += 1
+          const actual = eligibilityMod.evaluateMemoryEligibility({ text: fragment.text, sourceRefs: ['unit:x'], revision: 'r1' }).reason
+          if (actual !== fragment.expect.eligibility) {
+            failures.push({ id: fragment.id, kind: 'eligibility', expected: fragment.expect.eligibility, actual })
+          }
+          continue
+        }
+        if (fragment.modelResponse && fragment.expect) {
+          checked += 1
+          const validation = validationMod.validateMemoryExtractionResponse(fragment.modelResponse, {
+            sourceText: fragment.sourceText,
+            knownIdentities: fragment.knownIdentities || []
+          })
+          if (validation.proposals.length !== fragment.expect.kept) {
+            failures.push({ id: fragment.id, kind: 'kept-count', expected: fragment.expect.kept, actual: validation.proposals.length })
+            continue
+          }
+          if (fragment.expect.keptPredicates) {
+            const predicates = validation.proposals.map((proposal) => proposal.predicate)
+            for (const predicate of fragment.expect.keptPredicates) {
+              if (!predicates.includes(predicate)) failures.push({ id: fragment.id, kind: 'missing-predicate', predicate })
+            }
+          }
+          for (const reason of fragment.expect.rejectedReasons || []) {
+            if (!validation.rejected.some((item) => item.reason === reason)) {
+              failures.push({ id: fragment.id, kind: 'missing-rejection', reason })
+            }
+          }
+          if (fragment.expect.entityStatus) {
+            const match = validation.proposals.find((proposal) => fragment.expect.keptPredicates.includes(proposal.predicate))
+            if (match && match.entityStatus !== fragment.expect.entityStatus) {
+              failures.push({ id: fragment.id, kind: 'entity-status', expected: fragment.expect.entityStatus, actual: match.entityStatus })
+            }
+          }
+        }
+      }
+      return { checked, failures }
+    }, CORPUS)
+    check('A0 标注语料全量通过（准入 + 引文/实体校验冻结期望）',
+      corpusResult.failures.length === 0 && corpusResult.checked >= 20,
+      JSON.stringify({ checked: corpusResult.checked, failures: corpusResult.failures.slice(0, 6) }))
 
     // ---- A1 准入矩阵（纯服务） ----
     await page.goto(`${URL_BASE}/comics`, { waitUntil: 'domcontentloaded' })
