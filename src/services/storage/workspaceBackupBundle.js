@@ -25,6 +25,11 @@ import {
 } from '../media/mediaAssetStore'
 import { sha256HexOfBytes, utf8Bytes } from './backupHash'
 import { collectMemoryHistory, importMemoryHistory, rollbackImportedMemoryHistory, validateMemoryHistory } from '../memory/memoryHistoryStore'
+// AX11/AX12: the fact
+// ledger domain joins the complete workspace ZIP. Implementation lives in
+// src/services/memory/ledger/ledgerBackup.js; this patch only assembles it.
+import { collectLedgerDomain, importLedgerDomain, rollbackImportedLedgerDomain, validateLedgerDomain } from '../memory/ledger/ledgerBackup'
+import { openLedgerDb, closeLedgerDb } from '../memory/ledger/ledgerDb'
 
 /**
  * C1–C4 · 完整工作区备份 v3（ZIP）。
@@ -50,6 +55,7 @@ export const WORKSPACE_BACKUP_VERSION = 3
 
 const LOCAL_STORAGE_PATH = 'local-storage.json'
 const MEMORY_HISTORY_PATH = 'memory-history/revisions.json'
+const FACT_LEDGER_PATH = 'ledger/fact-ledger.json'
 const SOURCE_ARCHIVE_PATHS = {
   artifacts: 'source-archive/artifacts.json',
   chunks: 'source-archive/chunks.json',
@@ -61,6 +67,7 @@ const ZIP_ENTRY_WHITELIST = new Set([
   'manifest.json',
   LOCAL_STORAGE_PATH,
   MEMORY_HISTORY_PATH,
+  FACT_LEDGER_PATH,
   ...Object.values(SOURCE_ARCHIVE_PATHS),
   MEDIA_METADATA_PATH
 ])
@@ -191,6 +198,23 @@ function mediaExternalOnly(asset) {
 
 // ---------- C1/C2 · 导出 ----------
 
+// A-line patch: a complete backup carries the fact ledger domain. If the
+// ledger cannot be opened at export time the bundle records it as
+// UNAVAILABLE instead of silently shipping an incomplete "complete" backup;
+// inspection later refuses such a package.
+async function collectFactLedgerForBackup(signal) {
+  const opened = await openLedgerDb({ openTimeoutMs: 1500 })
+  if (!opened.ok) {
+    throw new Error(`事实账本不可用，完整备份未生成：${opened.detail || opened.reason}`)
+  }
+  try {
+    assertLive(signal)
+    return await collectLedgerDomain(opened.db)
+  } finally {
+    closeLedgerDb(opened.db)
+  }
+}
+
 export async function buildWorkspaceBackupBundle({
   storage = localStorage,
   includeSecrets = false,
@@ -201,6 +225,7 @@ export async function buildWorkspaceBackupBundle({
   const localStorageBackup = buildBackup({ storage, includeSecrets })
   const memoryHistory = await collectMemoryHistory(storage)
   const sourceRecords = await loadAllSourceArchiveRecords()
+  const factLedger = await collectFactLedgerForBackup(signal)
   assertLive(signal)
 
   const mediaAssets = readMediaAssets(storage)
@@ -242,6 +267,11 @@ export async function buildWorkspaceBackupBundle({
     app: 'Pinax',
     domains: {
       memoryHistory: { schemaVersion: 1, revisionCount: memoryHistory.length },
+      factLedger: {
+        schemaVersion: factLedger.schemaVersion,
+        counts: factLedger.counts,
+        ...(factLedger.unavailable ? { unavailable: factLedger.unavailable } : {})
+      },
       localStorage: {
         schemaVersion: BACKUP_VERSION,
         keyCount: localStorageBackup.keyCount,
@@ -277,6 +307,9 @@ export async function buildWorkspaceBackupBundle({
   }
   addTextFile(LOCAL_STORAGE_PATH, JSON.stringify(localStorageBackup))
   addTextFile(MEMORY_HISTORY_PATH, JSON.stringify(memoryHistory))
+  if (!factLedger.unavailable) {
+    addTextFile(FACT_LEDGER_PATH, JSON.stringify(factLedger))
+  }
   addTextFile(SOURCE_ARCHIVE_PATHS.artifacts, JSON.stringify(sourceRecords.artifacts))
   addTextFile(SOURCE_ARCHIVE_PATHS.chunks, JSON.stringify(sourceRecords.chunks))
   addTextFile(SOURCE_ARCHIVE_PATHS.workspaces, JSON.stringify(sourceRecords.workspaces))
@@ -284,6 +317,9 @@ export async function buildWorkspaceBackupBundle({
   for (const binary of binaries) {
     assertLive(signal)
     addBinaryFile(binary.path, binary.bytes)
+  }
+  if (factLedger.unavailable) {
+    manifest.warnings.push(`事实账本未能导出：${factLedger.unavailable}；本包不是完整备份`)
   }
   if (missingBinaryIds.length > 0) {
     manifest.warnings.push(`${missingBinaryIds.length} 个媒体缺少本地二进制，未包含在备份中`)
@@ -421,6 +457,21 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
       if (memoryHistoryCount !== manifest.domains.memoryHistory.revisionCount) throw new Error('记忆历史数量校验失败')
     } catch (error) { return invalidInspection([error.message]) }
   }
+  // A-line patch: fact ledger domain. Declared-but-unavailable packages are
+  // NOT valid complete backups; declared domains must match their counts.
+  let factLedgerCount = 0
+  if (manifest.domains?.factLedger || entries.has(FACT_LEDGER_PATH)) {
+    if (manifest.domains?.factLedger?.schemaVersion !== 2) return invalidInspection(['事实账本域声明缺失或版本不受支持'])
+    if (manifest.domains.factLedger.unavailable) {
+      return invalidInspection(['此包导出时事实账本不可用，不是完整备份；请修复后重新导出'])
+    }
+    const ledgerEntry = await readJsonEntry(entries, FACT_LEDGER_PATH)
+    try {
+      if (ledgerEntry.error || ledgerEntry.missing) throw new Error('事实账本文件缺失')
+      const validated = validateLedgerDomain(ledgerEntry.value, { counts: manifest.domains.factLedger.counts })
+      factLedgerCount = validated.total
+    } catch (error) { return invalidInspection([error.message]) }
+  }
   const lsEntry = await readJsonEntry(entries, LOCAL_STORAGE_PATH)
   if (lsEntry.error) return invalidInspection([lsEntry.error])
   const lsBackup = lsEntry.value
@@ -524,6 +575,8 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
     unknownKeys,
     sourceArchive: source,
     memoryHistoryCount,
+    factLedgerCount,
+    missingDomains: manifest.domains?.factLedger ? [] : ['factLedger'],
     media,
     counts,
     requiresRiskConfirmation: localStoragePlan.requiresRiskConfirmation
@@ -558,12 +611,14 @@ export async function restoreWorkspaceBackupBundle(input, {
 
   const domains = {
     memoryHistory: domainResult(true),
+    factLedger: domainResult(true),
     sourceArchive: domainResult(false, { reason: 'pending' }),
     media: domainResult(false, { reason: 'pending' }),
     localStorage: domainResult(false, { reason: 'pending' })
   }
 
   // ---- 捕获恢复前状态（补偿回滚依据） ----
+  const ledgerRestore = { db: null, written: null }
   const sourcePrior = await loadAllSourceArchiveRecords()
   const mediaAssets = JSON.parse(await zip.files[MEDIA_METADATA_PATH].async('string'))
   const mediaPriorBlobs = new Map()
@@ -684,6 +739,51 @@ export async function restoreWorkspaceBackupBundle(input, {
     return { success: false, reason: 'media-restore-failed', inspection, domains }
   }
 
+  // ---- 2.5 事实账本（A 线新域；同库事务导入，失败补偿仅删本次写入） ----
+  const rollbackLedger = async () => {
+    if (!ledgerRestore.db || !ledgerRestore.written) return
+    await rollbackImportedLedgerDomain(ledgerRestore.db, ledgerRestore.written)
+    ledgerRestore.written = null
+  }
+  // Independent compensation: failure in one store must not skip the others.
+  const compensate = async (names) => {
+    const operations = {
+      factLedger: rollbackLedger,
+      media: rollbackMedia,
+      sourceArchive: () => replaceAllSourceArchiveRecords(sourcePrior)
+    }
+    for (const name of names) {
+      try { await operations[name](); domains[name].rolledBack = true }
+      catch { domains[name].rollbackFailed = true }
+    }
+  }
+  try {
+  try {
+    assertLive(signal)
+    // inspection already refused declared-but-unavailable packages, so file
+    // presence is the only remaining question (same pattern as memoryHistory).
+    const wantsLedger = Boolean(zip.files[FACT_LEDGER_PATH])
+    if (wantsLedger) {
+      const opened = await openLedgerDb({ openTimeoutMs: 1500 })
+      if (!opened.ok) throw new Error(opened.detail || opened.reason)
+      ledgerRestore.db = opened.db
+      const ledgerValue = JSON.parse(await zip.files[FACT_LEDGER_PATH].async('string'))
+      const importResult = await importLedgerDomain(ledgerRestore.db, ledgerValue)
+      if (!importResult.ok) throw new Error(importResult.reason)
+      ledgerRestore.written = importResult.written
+      const written = Object.values(importResult.written).reduce((n, ids) => n + ids.length, 0)
+      const skipped = Object.values(importResult.skipped).reduce((n, ids) => n + ids.length, 0)
+      domains.factLedger = domainResult(true, { written, skipped })
+    } else {
+      domains.factLedger = domainResult(true, { written: 0, skipped: 0, absent: true })
+    }
+  } catch (error) {
+    domains.factLedger = domainResult(false, { reason: error.message })
+    await compensate(['factLedger', 'media', 'sourceArchive'])
+    if (error.name === 'WorkspaceBackupCancelled') throw error
+    return { success: false, reason: 'fact-ledger-restore-failed', inspection, domains }
+  }
+
   // ---- 3. localStorage（v2 owner 最后写，自带键级补偿回滚） ----
   let importedHistoryIds = []
   try {
@@ -693,11 +793,9 @@ export async function restoreWorkspaceBackupBundle(input, {
     importedHistoryIds = await importMemoryHistory(history)
     domains.memoryHistory = domainResult(true, { written: importedHistoryIds.length, skipped: history.length - importedHistoryIds.length })
   } catch (error) {
-    let rollbackFailed = false
-    try { await rollbackMedia(); await replaceAllSourceArchiveRecords(sourcePrior) } catch { rollbackFailed = true }
-    domains.memoryHistory = domainResult(false, { reason: error.message, rollbackFailed })
-    domains.media.rolledBack = !rollbackFailed
-    domains.sourceArchive.rolledBack = !rollbackFailed
+    domains.memoryHistory = domainResult(false, { reason: error.message })
+    await compensate(['factLedger', 'media', 'sourceArchive'])
+    if (error.name === 'WorkspaceBackupCancelled') throw error
     return { success: false, reason: 'memory-history-restore-failed', inspection, domains }
   }
   try {
@@ -712,15 +810,7 @@ export async function restoreWorkspaceBackupBundle(input, {
         rolledBack: Boolean(lsResult.rolledBack),
         rollbackFailed: Boolean(lsResult.rollbackFailed)
       })
-      try {
-        await rollbackMedia()
-        await replaceAllSourceArchiveRecords(sourcePrior)
-        domains.media.rolledBack = true
-        domains.sourceArchive.rolledBack = true
-      } catch {
-        domains.media.rollbackFailed = true
-        domains.sourceArchive.rollbackFailed = true
-      }
+      await compensate(['factLedger', 'media', 'sourceArchive'])
       return { success: false, reason: 'local-storage-restore-failed', inspection, domains }
     }
     domains.localStorage = domainResult(true, {
@@ -730,17 +820,8 @@ export async function restoreWorkspaceBackupBundle(input, {
   } catch (error) {
     try { await rollbackImportedMemoryHistory(importedHistoryIds); domains.memoryHistory.rolledBack = true }
     catch { domains.memoryHistory.rollbackFailed = true }
-    let rollbackFailed = false
-    try {
-      await rollbackMedia()
-      await replaceAllSourceArchiveRecords(sourcePrior)
-      domains.media.rolledBack = true
-      domains.sourceArchive.rolledBack = true
-    } catch {
-      rollbackFailed = true
-      domains.media.rollbackFailed = true
-      domains.sourceArchive.rollbackFailed = true
-    }
+    await compensate(['factLedger', 'media', 'sourceArchive'])
+    const rollbackFailed = ['factLedger', 'media', 'sourceArchive'].some(name => domains[name].rollbackFailed)
     if (error.name === 'WorkspaceBackupCancelled') throw error
     domains.localStorage = domainResult(false, {
       reason: error?.message || 'localStorage 恢复失败',
@@ -754,5 +835,8 @@ export async function restoreWorkspaceBackupBundle(input, {
     inspection,
     domains,
     counts: inspection.counts
+  }
+  } finally {
+    if (ledgerRestore.db) await closeLedgerDb(ledgerRestore.db)
   }
 }

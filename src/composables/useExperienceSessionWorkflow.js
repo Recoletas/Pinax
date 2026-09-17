@@ -1,6 +1,7 @@
 // Experience 会话工作流（R-X1）：会话选择/创建/删除、加载期状态、启动
 // 引导（bootstrap）与选择器弹层状态的全部逻辑在同一个组合式函数中，通过参数注入 store/router/路由，不 import 页面，不直接读取路由单例。
 import { computed, ref, watch } from 'vue'
+import { installLedgerRoleplayHistoryPort } from '../services/experience/roleplay/roleplayLedgerPort.js'
 
 export function useExperienceSessionWorkflow({
   gameStore,
@@ -26,6 +27,9 @@ export function useExperienceSessionWorkflow({
   // 启动引导：按 来源会话 → 来源世界书最新会话 → 当前会话 → 全库最新 →
   // 默认新建 的顺序恢复；返回供页面滚动定位的请求信息。
   async function bootstrapSessions() {
+    // CX08：接入 A factLedger 生产归档端口（幂等；安装失败保持不可用，
+    // UI 如实显示"历史归档待重试"，不阻塞游戏）。
+    installLedgerRoleplayHistoryPort()
     await worldStore.loadWorldbooksIndex()
     gameStore.loadSessions()
 
@@ -39,6 +43,22 @@ export function useExperienceSessionWorkflow({
       ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId) || null
       : null
     if (requestedSessionId && !requestedSession) notifySourceStatus('来源会话已不可用')
+    // C 线跑团（V03）：显式指定的存档不存在、又没有显式世界书可归位时，
+    // 如实停住让用户选择，不静默回退到全库最近会话、不自动生成。
+    if (requestedSessionId && !requestedSession && !hasRequestedWorldbook) {
+      gameStore.resetRuntimeState()
+      showSessionPicker.value = true
+      if (worldStore.worldbooksIndex.length) {
+        const defaultWorldbook = await worldStore.ensureActiveWorldbook()
+        rememberSelection(defaultWorldbook?.id || worldStore.activeWorldbookId || '')
+      } else {
+        rememberSelection(worldStore.activeWorldbookId || '')
+      }
+      return {
+        requestedSession: null,
+        requestedMessageId: typeof route.query.messageId === 'string' ? route.query.messageId.trim() : ''
+      }
+    }
     const hasRequestedWorldbook = Boolean(requestedWorldbookId
       && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
     const activeSession = !requestedSession && !hasRequestedWorldbook

@@ -67,6 +67,9 @@ export function buildRuntimeResetPatch() {
     lastError: null,
     quickNoteImportMode: false,
     quickNoteSelectedMessageIndexes: [],
+    // C 线跑团：runtime reset 归零会话级轻规则状态（新建/重置会话回到未选择模式）。
+    roleplaySession: null,
+    roleplayFutureRaw: null,
     runtimeEvents: Array.isArray(runtime.runtimeEvents) ? runtime.runtimeEvents : []
     // 显式不在补丁内（保留）：sessions、currentSessionId、apiSettings、
     // narrativeExpansion、useAI、pendingTurnRecord、turnRecords、

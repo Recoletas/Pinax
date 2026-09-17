@@ -87,6 +87,10 @@ import {
   extractDialogueSpeaker
 } from '../services/experience/experienceMechanismProjection.js'
 import { cancelExperienceTurn, runExperienceTurn } from '../services/experience/experienceTurnCoordinator.js'
+// C 线跑团（nightly-20260916）：会话级轻规则状态归一化与发送门禁。
+// 域逻辑在 src/services/experience/roleplay/，这里只保留三个窄接缝。
+// （normalizeRoleplaySessionState 由 roleplayWorkflow 再导出，控制 import 行数预算。）
+import { assertRoleplaySendAllowed, loadRoleplayStateForSession } from '../services/experience/roleplay/roleplayWorkflow.js'
 import {
   buildAdventureCreativeSourceRefs as buildCreativeSourceRefs,
   buildPlotJournalEntry as buildJournalEntry
@@ -230,6 +234,12 @@ export const useGameStore = defineStore('game', {
     pendingDirectorNote: null,
     // P1-5：最近一次已提交回合的回执（低敏摘要，体验页渲染用）
     lastTurnReceipt: null,
+
+    // C 线跑团：会话级轻规则状态（null = 旧会话自由叙事，不迁移、不弹窗）。
+    // pending 检定、回执热窗口与归档 outbox 挂在这里，随会话同一次 durable 写入落盘。
+    roleplaySession: null,
+    // CX05：未知/未来版本的 roleplay 原始数据（只读透传）；当前版本数据存在时为 null。
+    roleplayFutureRaw: null,
 
     // 会话管理
     sessions: [],               // 保存的会话列表
@@ -530,6 +540,8 @@ export const useGameStore = defineStore('game', {
         lastCommittedTurnId: this.lastCommittedTurnId,
         activeBranchId: this.activeBranchId,
         worldbookId,
+        roleplaySession: this.roleplaySession,
+        roleplayFutureRaw: this.roleplayFutureRaw,
         previousSchemaVersion: this.sessions[idx].schemaVersion
       })
       Object.assign(this.sessions[idx], fields)
@@ -609,6 +621,13 @@ export const useGameStore = defineStore('game', {
       this.lastCommittedTurnId = session.lastCommittedTurnId || null
       this.activeBranchId = session.activeBranchId || 'main'  // P0-4：恢复活动分支
       this.pendingTurnRecord = null
+      // C 线跑团：恢复已结算等待回应的检定；未知/未来版本原样保留为只读
+      // futureRaw（CX05），写回路径不 normalize，避免有损覆盖。
+      {
+        const loaded = loadRoleplayStateForSession(session.roleplay ?? null)
+        this.roleplaySession = loaded.current
+        this.roleplayFutureRaw = loaded.futureRaw
+      }
       this.worldId = session.worldbookId || session.worldId || this.worldId || ''
       this.isPlaying = true
       this.saveSessions()
@@ -656,6 +675,7 @@ export const useGameStore = defineStore('game', {
     getRuntimeSnapshot({ forSession = true } = {}) {
       // 快照构建归 projection 模块：store 只提供只读字段视图
       return buildRuntimeSnapshot({
+        roleplaySession: this.roleplaySession,
         messages: this.messages,
         chatHistory: this.chatHistory,
         time: this.time,
@@ -706,6 +726,7 @@ export const useGameStore = defineStore('game', {
       // 恢复补丁由 projection 模块归一化；缺失字段回退当前状态（与迁出前一致）。
       // 本层只计算并应用投影；是否以及何时落盘由外层完整事务决定。
       const patch = projectRuntimeSnapshot(snapshot, {
+        roleplaySession: this.roleplaySession,
         player: this.player,
         inventory: this.inventory,
         quests: this.quests,
@@ -989,6 +1010,9 @@ export const useGameStore = defineStore('game', {
     async sendAction(text, options = {}) {
       if (!text.trim()) return
 
+      // C 线跑团：存在可叙述 pending 时只放行它的叙述请求，防止正文绕过已冻结骰点。
+      assertRoleplaySendAllowed(this, options)
+
       const { hidden = false, narrativeMode = '', directorNote = '' } = options
       // P1-5：导演注消费 —— options 显式传入优先，否则消费 pendingDirectorNote（dispatcher 设置）
       const effectiveDirectorNote = directorNote || this.pendingDirectorNote || ''
@@ -1030,7 +1054,13 @@ export const useGameStore = defineStore('game', {
         const intent = hidden
           ? normalizeNarrativeIntent(options.intent || (options.source === 'auto-advance' ? 'advance' : 'extend'))
           : (this.chatHistory.filter((m) => m.role === 'assistant').length === 0 ? 'open' : 'respond')
-        await this.generateAIResponse({ narrativeMode, directorNote: effectiveDirectorNote, userMessageId, intent })
+        await this.generateAIResponse({
+          narrativeMode,
+          directorNote: effectiveDirectorNote,
+          userMessageId,
+          intent,
+          roleplayActionId: options.roleplayActionId || ''
+        })
       } else {
         this.isLoading = true
         try {

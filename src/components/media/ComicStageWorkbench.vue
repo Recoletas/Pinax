@@ -10,6 +10,7 @@ import {
 } from 'lucide-vue-next'
 import {
   approveComicPanelStageArtifact,
+  clearComicStagePendingRequest,
   listComicPages,
   selectComicPanelStageArtifact,
   updateComicPanel
@@ -21,6 +22,7 @@ import {
   getComicReferenceCapabilityWarnings,
   getComicStageGate,
   getComicStageInputRevision,
+  retryComicStagePersist,
   runComicStageGeneration
 } from '../../services/media/comicProductionService'
 import { getImageProviderCapabilities } from '../../services/media/imageProviderService'
@@ -59,6 +61,10 @@ const stageOptions = computed(() => props.page.colorMode === 'monochrome'
   ? ['rough', 'line', 'tones', 'effects']
   : ['rough', 'line', 'flats', 'render', 'effects'])
 const stageEntry = computed(() => props.panel.production?.[activeStage.value] || {})
+// B 夜：本会话没有在途请求（busy=false）而阶段仍挂着 pendingRequest，
+// 说明是刷新前遗留的未知结果——不自动重发，交给作者核查或显式再生成。
+const stageUnknown = computed(() => !busy.value && Boolean(stageEntry.value.pendingRequest))
+const persistRetryId = ref('')
 const selectedArtifact = computed(() => artifactPreviews.value
   .find((artifact) => artifact.id === stageEntry.value.selectedArtifactId) || null)
 const selectedLineage = computed(() => stageEntry.value.artifactLineage
@@ -141,6 +147,11 @@ async function loadArtifacts() {
 
 async function generateStage(mode = 'generate') {
   if (busy.value || !props.modelConfig) return
+  const pending = stageEntry.value.pendingRequest
+  if (pending) {
+    error.value = '上一请求结果未知，请先核查结果或明确选择“重新生成”，避免重复请求'
+    return
+  }
   const gate = mode === 'inpaint' ? inpaintGate.value : generateGate.value
   if (!gate.allowed) {
     error.value = gate.reason
@@ -153,6 +164,7 @@ async function generateStage(mode = 'generate') {
   busy.value = true
   error.value = ''
   status.value = ''
+  persistRetryId.value = ''
   try {
     const saved = await runComicStageGeneration({
       page: props.page,
@@ -171,11 +183,58 @@ async function generateStage(mode = 'generate') {
     })
     refreshReferenceAssets()
     emit('page-saved', saved)
-    status.value = mode === 'inpaint' ? '局部修订候选已加入' : `${COMIC_STAGE_LABELS[activeStage.value]}候选已加入`
+    const latestStage = listComicPages({}).find((item) => item.id === props.page.id)?.panels
+      .find((item) => item.id === props.panel.id)?.production?.[activeStage.value]
+    status.value = latestStage?.staleReason
+      ? `候选已加入；${latestStage.staleReason}`
+      : mode === 'inpaint' ? '局部修订候选已加入' : `${COMIC_STAGE_LABELS[activeStage.value]}候选已加入`
     if (mode === 'inpaint') maskImage.value = ''
   } catch (generationError) {
-    error.value = generationError?.message || '阶段生成失败'
+    if (generationError?.code === 'media-persist-failed' && generationError.requestId) {
+      persistRetryId.value = generationError.requestId
+      error.value = '图片已生成但保存失败；可只重试保存，不会再次调用模型。'
+    } else {
+      error.value = generationError?.message || '阶段生成失败'
+    }
     emitLatestPage()
+  } finally {
+    busy.value = false
+  }
+}
+
+function resolveUnknownRequest(action) {
+  const pending = stageEntry.value.pendingRequest
+  if (!pending) return
+  if (action === 'regenerate') {
+    clearComicStagePendingRequest(props.page.id, props.panel.id, activeStage.value, pending.requestId)
+    emitLatestPage()
+    void generateStage()
+    return
+  }
+  // 核查：只重新读取本格与候选列表；没有新候选就保持未知状态。
+  void loadArtifacts().then(() => {
+    const latest = listComicPages({}).find((item) => item.id === props.page.id)?.panels
+      .find((item) => item.id === props.panel.id)?.production?.[activeStage.value]
+    if (latest?.artifactIds.length && !latest.pendingRequest) {
+      status.value = '已找到请求结果，候选已更新'
+    } else {
+      status.value = '未发现新候选；请求仍按结果未知处理，可明确再生成'
+    }
+    emitLatestPage()
+  })
+}
+
+async function retryPersist() {
+  if (!persistRetryId.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const retry = await retryComicStagePersist(persistRetryId.value)
+    persistRetryId.value = ''
+    status.value = '图片保存完成，候选已加入'
+    if (retry.page) emit('page-saved', retry.page)
+  } catch (retryError) {
+    error.value = retryError?.message || '图片保存仍然失败'
   } finally {
     busy.value = false
   }
@@ -427,8 +486,16 @@ function readImageDimensions(data) {
       </figcaption>
     </figure>
 
+    <div v-if="stageUnknown" class="comic-stage-workbench__unknown" role="alert" data-test="comic-stage-unknown">
+      <span>上次{{ COMIC_STAGE_LABELS[activeStage] }}请求结果未知（可能在刷新前已发出）。</span>
+      <div>
+        <button type="button" @click="resolveUnknownRequest('verify')">核查结果</button>
+        <button type="button" @click="resolveUnknownRequest('regenerate')">明确再生成</button>
+      </div>
+    </div>
+
     <div class="comic-stage-workbench__actions">
-      <button type="button" :disabled="busy || !generateGate.allowed" :title="generateGate.reason" @click="generateStage()">
+      <button type="button" :disabled="busy || stageUnknown || !generateGate.allowed" :title="stageUnknown ? '上一请求结果未知，请先核查或明确再生成' : generateGate.reason" @click="generateStage()">
         <RefreshCw :size="13" aria-hidden="true" />
         {{ activeStage === 'rough' ? '生成草稿' : `生成${COMIC_STAGE_LABELS[activeStage]}` }}
       </button>
@@ -500,6 +567,11 @@ function readImageDimensions(data) {
       </div>
       <p v-for="warning in referenceWarnings" :key="warning">{{ warning }}</p>
     </details>
+
+    <div v-if="persistRetryId" class="comic-stage-workbench__unknown" data-test="comic-persist-retry">
+      <span>图片保存失败，结果已暂存在本会话内存中。</span>
+      <button type="button" :disabled="busy" @click="retryPersist">只重试保存</button>
+    </div>
 
     <p v-if="error" class="comic-stage-workbench__message is-error" role="alert">{{ error }}</p>
     <p v-else-if="status" class="comic-stage-workbench__message" role="status">{{ status }}</p>
@@ -808,4 +880,28 @@ function readImageDimensions(data) {
 
 .comic-stage-workbench__message { color: var(--archive-olive-strong, var(--accent)); }
 .comic-stage-workbench__message.is-error { color: var(--danger, var(--signal-warm)); }
+
+.comic-stage-workbench__unknown {
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold-strong, #8a6a2a) 52%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-gold, #c9a44a) 12%, transparent);
+  color: var(--archive-ink);
+  font-size: 10px;
+}
+.comic-stage-workbench__unknown > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.comic-stage-workbench__unknown button {
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 24%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
+  color: var(--archive-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+.comic-stage-workbench__unknown button:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>

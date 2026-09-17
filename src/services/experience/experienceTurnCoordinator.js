@@ -37,7 +37,17 @@ import {
   intentToOrchestratorMode,
   narrativeExpansionFactor
 } from '../../../shared/narrativeGenerationIntentContract.js'
-import { combineExtensionContent } from './gameSessionNormalization.js'
+import { cloneState, combineExtensionContent } from './gameSessionNormalization.js'
+// C 线跑团（nightly-20260916）：已检定行动的叙述绑定/落账回调。
+// 事务边界不变：绑定在 provider 调用前，落账在回合 committed 后、统一落盘前。
+import {
+  bindRoleplayNarration,
+  commitRoleplayNarration,
+  commitRoleplayRenarration,
+  archiveDurableRoleplayTurns,
+  failRoleplayNarration
+} from './roleplay/roleplayWorkflow.js'
+import { buildDirectiveFromCheckRow } from './roleplay/roleplayProjection.js'
 
 // A turn has exactly one in-flight controller per store instance. Keeping this
 // here makes cancellation part of the turn lifecycle instead of a store-global
@@ -58,7 +68,7 @@ export function cancelExperienceTurn(store, reason = 'user-cancelled') {
 // Preparation, streaming, runtime projection, durable commit and rollback must
 // not be split into independently callable half-turn helpers.
 
-export async function runExperienceTurn(store, { narrativeMode: _narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null, intent = null } = {}) {
+export async function runExperienceTurn(store, { narrativeMode: _narrativeMode = '', directorNote = '', userMessageId = '', parentTurnId = null, intent = null, roleplayActionId = '' } = {}) {
       store.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -79,6 +89,11 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
       let extensionBase = null
       // R1a：回合事务。在 provider 调用前抓取 preRuntimeSnapshot，失败时回滚。
       let turnRecord = null
+      // C 线跑团：叙述绑定（pending 叙述 或 重叙述），失败/提交路径都要用。
+      let roleplayBinding = null
+      let roleplayBeforeCommit
+      const originSessionId = store.currentSessionId
+      const previousCommittedTurnId = store.lastCommittedTurnId
       try {
         store.loadApiSettings()
 
@@ -95,6 +110,9 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         const baseTurnId = extensionTarget
           ? (store.findTurnByMessageId(extensionTarget.id)?.id || null)
           : null
+
+        // C 线跑团：本回合若是已检定行动的叙述，先绑定（校验身份、挂检定行投影）。
+        roleplayBinding = bindRoleplayNarration(store, { roleplayActionId, userMessageId })
 
         // R1a：生成前快照 —— 覆盖当前位置/时间/角色/关系/事实/目标/事件/记忆游标。
         // 必须在本回合所有 state 修改（extractAndUpdateState 等）之前抓取。
@@ -152,6 +170,10 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
             historyNode: store.historyNode
           }
         })
+        // C 线跑团：重叙述的约束来自消息上的检定行（pending 叙述已并入 directorNote）。
+        const roleplayDirective = roleplayBinding && !roleplayBinding.pending
+          ? buildDirectiveFromCheckRow(roleplayBinding.checkRow)
+          : ''
         const narrativeKernel = buildNarrativeKernel({
           worldbook,
           runtimeState: {
@@ -174,7 +196,7 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           sceneSummary: store.narrativeSceneSummary,
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
-          authorNote: directorNote,  // R2：本轮导演注
+          authorNote: [directorNote, roleplayDirective].filter(Boolean).join(' '),  // R2：本轮导演注；跑团重叙述追加结算约束
           continuityFrame,
           sceneThread: store.sceneThread
         })
@@ -547,18 +569,28 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           store.pendingBranchParentTurnId = null  // P1-3：新分支已 committed，清理回退游标
         }
 
+        // C 线跑团：回合 committed 后落账 receipt / 刷新检定行。
+        // 在统一落盘（commitCurrentSessionNow）之前，同一事务内生效。
+        if (roleplayBinding?.pending) {
+          roleplayBeforeCommit = cloneState(store.roleplaySession, null)
+          commitRoleplayNarration(store, { action: roleplayBinding.action, turnRecord })
+        } else if (roleplayBinding) {
+          commitRoleplayRenarration(store, { binding: roleplayBinding, turnRecord })
+        }
+
         // P0-2：回合事务提交后统一保存会话 —— 正文、turnRecords、状态作为
         // 一个事务落盘（B-R2：成功出口的唯一最终一致态提交点，带立即 flush）
         if (store.currentSessionId) {
           store.commitCurrentSessionNow()
         }
+        if (roleplayBinding) void archiveDurableRoleplayTurns(store)
 
         // Authoring runtime：可见正文提交后，经统一 bridge 调度一次后台派生观察器。
         // 观察器不阻塞、不改正文；保存/回滚顺序保持不变（此调用在事务与落盘之后）。
         await store.commitAuthoringProseResult({
           text: finalParsed.content,
           sourceRefs: turnRecord?.id ? [`turn:${turnRecord.id}`] : []
-        })
+        }).catch(() => { /* derived observer failure cannot undo a durable turn */ })
 
         productionOutcome = 'success'
       } catch (e) {
@@ -592,6 +624,21 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
             try { archiveMemoryCandidate(candidateId, { note: 'turn-failed' }) } catch { /* 尽力而为 */ }
           }
           store.pendingTurnRecord = null
+          if (store.currentSessionId === originSessionId) {
+            delete store.turnRecords[turnRecord.id]
+            store.lastCommittedTurnId = previousCommittedTurnId
+            if (roleplayBeforeCommit !== undefined) store.roleplaySession = roleplayBeforeCommit
+            const pending = store.roleplaySession?.pendingByBranch?.[turnRecord.branchId]
+            const message = store.messages.find(item => item.id === userMessageId)
+            if (pending && message?.roleplayCheck) message.roleplayCheck.status = 'resolved'
+          }
+        }
+        // C 线跑团：叙述失败/取消——pending 保持 resolved（骰点不变），记录诊断等待显式重试。
+        if (roleplayBinding?.pending) {
+          failRoleplayNarration(store, {
+            action: roleplayBinding.action,
+            errorCode: productionOutcome === 'cancelled' ? 'NARRATIVE_AGENT_ABORTED' : (e?.code || 'NARRATIVE_AGENT_FAILED')
+          })
         }
         // P1-5：导演注失败保留 —— 本回合的导演注未消费，恢复到 pending 供重试
         if (directorNote && !store.pendingDirectorNote) {

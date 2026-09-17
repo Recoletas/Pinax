@@ -24,12 +24,22 @@
 
 完整工作区 ZIP v3 增加可选 `memory-history/revisions.json` 与域版本/数量，文件仍受 SHA-256 和路径白名单校验；旧 v3 包保持可读。恢复事务追加历史，后续本地存储失败会补偿删除本次新增版本，不清空已有历史。轻量 JSON 只包含当前列表及未归档恢复队列，不包含已归档历史。
 
+## 事实账本（2026-09-16 A 线新增）
+
+同一 Dexie 数据库升级到 v2，新增与候选隔离的事实账本：证据快照、提案、事实版本、决定、拒绝指纹、账本元数据与回合回执七张表。设计决定、ScopeRef 合同与已知边界见[事实账本 ADR](./memory-fact-ledger.md)；上游参照升级为 Utopia `60df635d6924127c9a57e98acbd99e43bdd92d08`，原 `e879b7a1` 首切登记不变。
+
+- 候选确认≠事实：确认过的候选仍需在"事实账本"里显式"接受为事实"；接受、更正、撤回、拒绝、迁入全部留下带 commandId 的决定记录，同命令同载荷重放幂等，同命令异载荷拒绝。
+- 双时间查询：`storyAt`（故事内时刻，复用 knowledgeReadModel 时间轴语义）与 `recordedAsOf`（作者记录轴 seq/墙钟）是两个独立参数；未知故事区间计入排除原因，不当作"一直成立"。
+- 旧"已确认"候选不会自动变成事实；迁入需逐条显式确认并保留 legacyCandidateId/来源，会话候选缺分支归属暂不能迁入。legacy 同步候选 owner 的真源本夜未切换。
+- 新域提供 collect/validate/import/rollback 备份接口；**ZIP 整包接线、projectMemoryReader 正式事实投影接线、回合 coordinator 回执接线均归 O**，本夜未接线，三线组合门禁相应保持未通过。
+- 验证入口：`node scripts/memory-ledger-smoke.mjs`（隔离 dev server，默认 127.0.0.1:5179）。
+
 ## 尚未完成
 
 - 当前候选主存储尚未全面迁移至 Dexie；跨标签同时编辑仍受既有同步 localStorage 的并发限制，不能宣称全域 ACID。
 - 小说纪年目前是明确填写的标签，不支持任意纪年的有效区间查询，也没有自动推断角色知情时间。
-- Utopia 式实体/关系/事实与证据表、冲突裁决、按过去时点查询、角色认知传播和永久运行事件账本仍需后续纵切。
+- 实体/关系宽图谱、冲突裁决队列、乱序状态区间自动对账与角色认知传播仍需后续纵切；事实/证据表与按记录时点查询已由事实账本承担，但回合回执的 coordinator 接线未完成前，三线永久历史组合门禁保持未通过。
 - 桌面 SQLite 历史 adapter 尚未实施。清理全站数据/删除项目时的历史保留与显式删除政策需要后续产品接线；数据库不会因当前记忆条目不可见就静默删掉其历史。
 - 真实作者的旧库与长期模型收益尚待内测；本轮只在隔离浏览器使用合成资料验收，不接触作者当前浏览器存档。
 
-验证入口：`node scripts/memory-history-smoke.mjs`（已运行的开发服务，默认 5173）；完整回归 `npm run verify:full`。
+验证入口：`node scripts/memory-history-smoke.mjs`（已运行的开发服务，默认 5173）与 `node scripts/memory-ledger-smoke.mjs`（事实账本，默认 127.0.0.1:5179）；完整回归 `npm run verify:full`。

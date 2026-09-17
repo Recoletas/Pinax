@@ -6,6 +6,76 @@ import { getMediaAssetDataUrl, listMediaAssets } from './mediaAssetStore'
 export const COMIC_PAGE_SCHEMA_VERSION = 5
 export const COMIC_PRODUCTION_STAGES = Object.freeze(['rough', 'line', 'flats', 'tones', 'render', 'effects'])
 
+// B 夜：请求登记（防重/结果未知恢复）。仅向后兼容的可空附加字段，schema 仍为 5。
+export function setComicStagePendingRequest(pageId, panelId, stage, pending = null, options = {}) {
+  return updateComicPanelStage(pageId, panelId, stage, {
+    pendingRequest: pending ? normalizePendingRequest(pending) : null
+  }, options)
+}
+
+export function clearComicStagePendingRequest(pageId, panelId, stage, requestId, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  const current = page?.panels.find((item) => item.id === panelId)?.production?.[stage]
+  if (!current?.pendingRequest) return null
+  if (requestId && current.pendingRequest.requestId !== requestId) return null
+  return updateComicPanelStage(pageId, panelId, stage, { pendingRequest: null }, options)
+}
+
+export function setComicPanelPendingGeneration(pageId, panelId, pending = null, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  if (!page || !page.panels.some((item) => item.id === panelId)) return null
+  return updateComicPanel(pageId, panelId, {
+    pendingGeneration: pending ? normalizePendingRequest(pending) : null
+  }, options)
+}
+
+export function clearComicPanelPendingGeneration(pageId, panelId, requestId, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  const current = page?.panels.find((item) => item.id === panelId)
+  if (!current?.pendingGeneration) return null
+  if (requestId && current.pendingGeneration.requestId !== requestId) return null
+  return updateComicPanel(pageId, panelId, { pendingGeneration: null }, options)
+}
+
+// B 夜：稳定页序目录（G-B05）。按序列分组、序列内按 pageNumber、
+// 无序列按 createdAt；标题变化不影响顺序，编辑旧页不重排列表。
+export function listComicPagesInOrder(options = {}) {
+  return readComicPages(resolveStorage(options.storage))
+    .map(createComicPage)
+    .sort((left, right) => {
+      const sequenceLeft = left.sequenceId || ''
+      const sequenceRight = right.sequenceId || ''
+      if (sequenceLeft !== sequenceRight) {
+        if (!sequenceLeft) return 1
+        if (!sequenceRight) return -1
+        return sequenceLeft < sequenceRight ? -1 : 1
+      }
+      if (sequenceLeft) {
+        if (left.pageNumber !== right.pageNumber) return left.pageNumber - right.pageNumber
+      }
+      if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0
+    })
+}
+
+// B 夜：未归属旧页显式迁移（G-B03）。只改归属字段，不动内容与 lineage。
+export function adoptComicPageProject(pageId, projectId, options = {}) {
+  const page = listComicPages({}, options).find((item) => item.id === pageId)
+  if (!page) return null
+  return saveComicPage({ ...page, projectId: normalizeNullableText(projectId) }, options)
+}
+
+function normalizePendingRequest(input = {}) {
+  return {
+    requestId: normalizeText(input.requestId),
+    intentHash: normalizeText(input.intentHash),
+    inputRevision: normalizeText(input.inputRevision),
+    stage: normalizeText(input.stage) || null,
+    mode: input.mode === 'inpaint' ? 'inpaint' : 'generate',
+    sentAt: normalizeTimestamp(input.sentAt, Date.now())
+  }
+}
+
 const VALID_LAYOUTS = new Set(['strip-4', 'feature-4', 'page-6', 'feature-6', 'free'])
 const VALID_STATUSES = new Set(['draft', 'accepted'])
 const VALID_GENERATION_STATUSES = new Set(['idle', 'generating', 'ready', 'error'])
@@ -447,6 +517,7 @@ function normalizePanel(input = {}, fallbackOrder, context) {
     selectedTakeId,
     production: normalizeProduction(input.production, imageTakeIds, selectedTakeId, context.colorMode),
     letteringObjects: normalizeLetteringObjects(input.letteringObjects),
+    pendingGeneration: normalizePendingRequestOrNull(input.pendingGeneration),
     generationStatus: VALID_GENERATION_STATUSES.has(input.generationStatus)
       ? input.generationStatus
       : imageTakeIds.length ? 'ready' : 'idle',
@@ -565,8 +636,14 @@ function normalizeStageState(input = {}) {
       code: normalizeText(input.error.code) || 'unknown',
       message: normalizeText(input.error.message),
       retryable: Boolean(input.error.retryable)
-    } : null
+    } : null,
+    pendingRequest: normalizePendingRequestOrNull(input.pendingRequest)
   }
+}
+
+function normalizePendingRequestOrNull(input) {
+  if (!input?.requestId) return null
+  return normalizePendingRequest(input)
 }
 
 function normalizeArtifactLineage(input, fallbackIds = []) {

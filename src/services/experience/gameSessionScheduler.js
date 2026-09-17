@@ -6,6 +6,7 @@
 import { debounce, flushPending } from '../../composables/useDebounce'
 import { setItem, STORAGE_KEYS } from '../../composables/useStorage'
 import { normalizeTurnRecords } from '../../../shared/narrativeTurnContract.js'
+import { resolveRoleplayPersistence } from './roleplay/roleplayState.js'
 import {
   cloneState,
   DEFAULT_WORLD_MAP_STATE,
@@ -94,6 +95,8 @@ export function buildCurrentSessionFields({
   lastCommittedTurnId,
   activeBranchId,
   worldbookId,
+  roleplaySession = null,
+  roleplayFutureRaw = null,
   previousSchemaVersion = 0,
   now = Date.now()
 }) {
@@ -112,6 +115,9 @@ export function buildCurrentSessionFields({
     turnRecords: normalizeTurnRecords(turnRecords),
     lastCommittedTurnId: lastCommittedTurnId || null,
     activeBranchId: activeBranchId || 'main', // P0-4：活动分支持久化
+    // C 线跑团：pending 检定/回执/outbox 与会话同一次 durable 写入。
+    // CX05：写回决策归 roleplayState（v1 归一化 / 未来版本原样透传）。
+    roleplay: cloneState(resolveRoleplayPersistence(roleplaySession, roleplayFutureRaw).value, null),
     worldId: worldbookId,
     worldbookId,
     updatedAt: now

@@ -18,6 +18,16 @@ import {
 } from '../services/storage/workspaceBackupBundle.js'
 import { restoreSourceArchiveRecords } from '../services/worldbook/worldbookSourceArchive'
 
+// jsdom has no IndexedDB. These ZIP contract fixtures carry an empty ledger;
+// real Dexie transactions/failures are exercised by abc-integration-smoke.mjs.
+vi.mock('../services/memory/ledger/ledgerDb', () => ({
+  openLedgerDb: async () => ({ ok: true, db: {
+    transaction: async (_mode, _tables, fn) => fn(),
+    table: () => ({ toArray: async () => [], get: async () => undefined, add: async () => {}, bulkDelete: async () => {} })
+  } }),
+  closeLedgerDb: async () => {}
+}))
+
 // 测试用二进制 store（Map 兜底，替代 jsdom 缺失的 IndexedDB）
 function createFakeBinaryStore() {
   const store = new Map()

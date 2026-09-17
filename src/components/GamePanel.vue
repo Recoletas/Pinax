@@ -83,6 +83,9 @@
              (b) 段首缩进 2em on every paragraph (canonical CJK),
              (c) per-role color tint on the speaker label only.
            The text is the UI; everything else is chrome. -->
+      <!-- C 线跑团：检定行以轻量行嵌在发起动作的用户条目上方；
+           投影随消息持久化，分支可见性由 displayMessages 天然过滤。 -->
+      <RoleplayCheckRow v-if="msg.roleplayCheck" :check="msg.roleplayCheck" />
       <NarrativeTurn
         :message="msg"
         :index="index"
@@ -118,6 +121,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useGameStore } from '../stores/gameStore'
 import { renderRPText } from '../services/rpTextRenderer'
 import NarrativeTurn from './experience/NarrativeTurn.vue'
+import RoleplayCheckRow from './experience/roleplay/RoleplayCheckRow.vue'
 import { getExperienceTurnImportEligibility } from '../services/writing/writingExperienceImport.js'
 
 const gameStore = useGameStore()

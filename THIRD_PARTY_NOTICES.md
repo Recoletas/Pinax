@@ -17,6 +17,16 @@ BSD-2-Clause 原文（摘要）：允许使用、复制、修改、分发与商�
 
 ## Adapted source（复制并改写，逐文件登记）
 
+### StoryForge 跑团与漫画（2026-09-17）
+
+固定上游 [yuanbw2025/storyforge](https://github.com/yuanbw2025/storyforge/tree/cd1236cfa5c7cbd307ed0dfac5487f9fe5c98aed)，MIT，Copyright (c) 2026 yuanbw2025。
+
+- `src/services/experience/roleplay/third-party/storyforgeDice.js` 从 `src/lib/ttrpg/dice.ts` 移植闭合骰式解析、范围检查与 uint32 拒绝采样；去 TypeScript 类型及 SHA-256 V2 变体，保留来源。
+- `src/services/media/comicRequestGuard.js` 参考 `src/lib/comic/image-request-guard.ts` 的请求登记/未知结果策略，按 Pinax owner 重写；不是逐行复制。其余漫画与场景代码按设计语义本地实现，未导入上游媒体或规则全文。
+- [完整 MIT 文本](./public/third-party/storyforge-LICENSE.txt) 随 public 目录进入构建产物，不依赖压缩后可能被删除的源码注释。本仓库根许可证不替代该许可。
+
+### Azgaar（原计划登记）
+
 来源：Azgaar Fantasy Map Generator `1.122.12`，commit
 `fa5016a6982167f1ae169f0cdb203e281498bee7`，MIT，
 本地镜像 `/home/recoletas/jiuguan/azgaar/Fantasy-Map-Generator`。
@@ -44,6 +54,7 @@ provenance 登记同步更新。当前阶段（P0–P1）未复制其任何代�
 - Utopia（Apache-2.0），`deeplethe/utopia` commit `e879b7a1694c9e4eb78d2f048da361fe03905330`：
   `migrations/0003_graph.sql` 与 `0018_a_fact_awaiting_a_nod.sql` 的事实版本、记录时间与有效时间分离、未知时间、候选隔离及来源语义。
   本轮没有复制 Rust/PostgreSQL 服务或 SQL；数据库实现直接依赖 Dexie。Pinax 的小说纪年与同步旧接口恢复队列为本地适配。
+  2026-09-17 事实账本新增参考 `60df635d6924127c9a57e98acbd99e43bdd92d08` 的集中记录轴与分表设计，仍无源码复制；见 `docs/engineering/memory-fact-ledger.md`。
 
 - Hinterland（MIT，commit `63f5825bc068882d8af13dcfc01202d121a6fd23`）：stable
   geology stream、provenance/派生历史分层思想。

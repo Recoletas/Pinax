@@ -1,0 +1,1095 @@
+#!/usr/bin/env node
+/**
+ * Experience 跑团线离线验收矩阵（plain node，不占 Vitest 20 文件/200 用例预算）。
+ *
+ * 覆盖任务书 §10 的可离线项：骰式（V05–V07）、规则边界（V08）、
+ * 行动合同与幂等（V09–V12，store 级）、持久化/归一化往返（V14/V23/V31 形状级）、
+ * 失败保持（V15/V16 store 级）、作用域拒绝（V25/V26）、归档幂等（V29）、
+ * 热窗口容量（V31）、投影与约束重建（R08/R19）。
+ * 浏览器旅程（V17–V22、V32–V36）走 scripts/experience-roleplay-smoke.mjs。
+ *
+ * 运行：node scripts/experience-roleplay-eval.mjs   （exit 0 = 全部通过）
+ */
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const fixture = JSON.parse(readFileSync(path.join(root, 'scripts/fixtures/roleplay/roleplay-scenes.fixture.json'), 'utf8'))
+
+const dice = await import(path.join(root, 'src/services/experience/roleplay/third-party/storyforgeDice.js'))
+const rules = await import(path.join(root, 'src/services/experience/roleplay/roleplayRules.js'))
+const contract = await import(path.join(root, 'src/services/experience/roleplay/roleplayActionContract.js'))
+const stateMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayState.js'))
+const projection = await import(path.join(root, 'src/services/experience/roleplay/roleplayProjection.js'))
+const adapter = await import(path.join(root, 'src/services/experience/roleplay/roleplayHistoryAdapter.js'))
+const workflow = await import(path.join(root, 'src/services/experience/roleplay/roleplayWorkflow.js'))
+const scenarioMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayScenario.js'))
+
+let passed = 0
+let failed = 0
+const failures = []
+
+function check(name, condition, detail = '') {
+  if (condition) {
+    passed += 1
+  } else {
+    failed += 1
+    failures.push({ name, detail })
+  }
+}
+
+function throwsWithCode(fn, code) {
+  try {
+    fn()
+    return false
+  } catch (error) {
+    return error?.code === code || String(error?.code || '').startsWith(code)
+  }
+}
+
+// ── V05：骰式归一化（空格/大小写） ──
+{
+  const a = dice.parseDiceExpression(' 2D6 + 1 ')
+  const b = dice.parseDiceExpression('2d6+1')
+  check('V05 骰式空格/大小写归一化一致', JSON.stringify(a) === JSON.stringify(b))
+  check('V05 规范形式', a.normalized === '2d6+1')
+}
+
+// ── V06：注入/超大/NaN 本地拒绝，无 eval ──
+{
+  check('V06 注入表达式拒绝', throwsWithCode(() => dice.parseDiceExpression('2d6; require("fs")'), 'ROLEPLAY_DICE_INVALID'))
+  check('V06 非骰式字符串拒绝', throwsWithCode(() => dice.parseDiceExpression('2*6+1'), 'ROLEPLAY_DICE_INVALID'))
+  check('V06 超大骰面拒绝', throwsWithCode(() => dice.parseDiceExpression('4d101'), 'ROLEPLAY_DICE_INVALID'))
+  check('V06 超大数量拒绝', throwsWithCode(() => dice.parseDiceExpression('101d6'), 'ROLEPLAY_DICE_INVALID'))
+  check('V06 超大修正拒绝', throwsWithCode(() => dice.parseDiceExpression('2d6+10001'), 'ROLEPLAY_DICE_INVALID'))
+  check('V06 NaN 修正被合同拒绝', throwsWithCode(() => contract.createConfirmedRoleplayAction({
+    sessionId: 's1', branchId: 'main', rawInput: '开门', attribute: 'wits', modifier: Number.NaN
+  }), 'ROLEPLAY_MODIFIER_INVALID'))
+  check('V06 无穷修正被合同拒绝', throwsWithCode(() => contract.createConfirmedRoleplayAction({
+    sessionId: 's1', branchId: 'main', rawInput: '开门', attribute: 'wits', modifier: Number.POSITIVE_INFINITY
+  }), 'ROLEPLAY_MODIFIER_INVALID'))
+  check('V06 非法属性拒绝', throwsWithCode(() => contract.createConfirmedRoleplayAction({
+    sessionId: 's1', branchId: 'main', rawInput: '开门', attribute: 'luck'
+  }), 'ROLEPLAY_ATTRIBUTE_INVALID'))
+}
+
+// ── V07：拒绝区 uint32 重采样 + trace 计数 ──
+{
+  // d6 接受区 = floor(2^32/6)*6 = 4294967292；前两个样本落在拒绝区 [4294967292, 4294967295]。
+  const samples = [4294967295, 4294967292, 8, 4]
+  let call = 0
+  const rolled = dice.sampleDiceFromUint32({ count: 2, sides: 6, nextUint32: () => samples[call++] })
+  check('V07 重采样后得到两颗合法骰', rolled.dice.length === 2 && rolled.dice.every((v) => v >= 1 && v <= 6))
+  check('V07 trace 计数一致（消耗 4 / 拒绝 2）', rolled.trace.consumedSamples === 4 && rolled.trace.rejectedSamples === 2)
+  check('V07 trace 结构校验通过', (() => { try { dice.assertDiceRollTrace(rolled.trace); return true } catch { return false } })())
+  check('V07 非法 trace 拒绝', throwsWithCode(() => dice.assertDiceRollTrace({ ...rolled.trace, consumedSamples: 99 }), 'ROLEPLAY_DICE_INVALID'))
+}
+
+// ── V08：三档边界 6/7/9/10 ──
+{
+  check('V08 总分 6 → 失败前进', rules.resolveOutcomeByTotal(6) === 'failure')
+  check('V08 总分 7 → 部分成功', rules.resolveOutcomeByTotal(7) === 'partial')
+  check('V08 总分 9 → 部分成功', rules.resolveOutcomeByTotal(9) === 'partial')
+  check('V08 总分 10 → 成功', rules.resolveOutcomeByTotal(10) === 'success')
+  check('V08 规则明文含三档', rules.describeRuleText({ modifier: 1 }).includes('10+') && rules.describeRuleText({ modifier: 1 }).includes('7–9') && rules.describeRuleText({ modifier: 1 }).includes('6-'))
+}
+
+// ── R03：夹具三场景一次性走完 确认→结算→待叙述（不调模型；提交归 coordinator，另行验证） ──
+{
+  for (const scene of fixture.scenes) {
+    let sampleIndex = 0
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: scene.goal })
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: scene.action,
+      attribute: scene.attribute,
+      modifier: scene.modifier,
+      nextUint32: () => scene.fixedDiceSamples[sampleIndex++]
+    })
+    const pending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    check(`R03/${scene.key} 已结算等待叙述`, pending && pending.status === 'resolved' && store.sent.length === 1)
+    check(`R03/${scene.key} 期望骰点/结果`, pending
+      && JSON.stringify(pending.resolution.dice) === JSON.stringify(scene.expected.dice)
+      && pending.resolution.total === scene.expected.total
+      && pending.resolution.outcome === scene.expected.outcome)
+    check(`R03/${scene.key} 叙述请求携带行动身份与约束`, store.sent[0]
+      && store.sent[0].options.roleplayActionId === pending.actionId
+      && String(store.sent[0].options.directorNote || '').includes('跑团结算'))
+  }
+}
+
+// ── V09/V10/V11/V12：确认幂等与冲突（store 级） ──
+{
+  const store = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '测试' })
+  // V09：确认前取消——只有一个 pending，零骰点零回执。
+  {
+    let sampleIndex = 0
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: '推门', attribute: 'physique', modifier: 0,
+      nextUint32: () => [3, 4][sampleIndex++ % 2]
+    }).catch(() => {})
+    const pending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    check('V09 未提交前存在 pending', Boolean(pending))
+    check('V09 放弃后零骰点零回执', (() => {
+      workflow.cancelRoleplayPending(store)
+      const after = store.roleplaySession
+      return !stateMod.getRoleplayPendingForBranch(after, 'main') && after.receipts.length === 0
+    })())
+  }
+  // V10/V11：相同 payload 重复确认 → 同一 actionId，一次骰点。
+  {
+    const fixed = [6, 5]
+    let sampleIndex = 0
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: '撬锁', attribute: 'agility', modifier: 1,
+      nextUint32: () => fixed[sampleIndex++ % fixed.length]
+    })
+    const firstPending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    const firstSendCount = store.sent.length
+    const firstTotal = firstPending.resolution.total
+    // 已 resolved 且 durable：同 payload 再确认走 requestRoleplayNarration（不重掷）。
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: '撬锁', attribute: 'agility', modifier: 1,
+      nextUint32: () => 1
+    })
+    const secondPending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    check('V11 同 payload 重发不重掷（同 actionId、骰点不变）', secondPending
+      && secondPending.actionId === firstPending.actionId
+      && secondPending.resolution.total === firstTotal)
+    check('V11 重发只追加一次叙述请求', store.sent.length === firstSendCount + 1)
+  }
+  // V12：同 ID 异 payload 冲突拒绝（走合同比较 + receipt 冲突检测）。
+  {
+    const actionA = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '撬柜', attribute: 'wits', modifier: 0 })
+    const actionB = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '撬柜', attribute: 'agility', modifier: 0 })
+    check('V12 同槽位异 payload → conflict', contract.compareRoleplayActionPayload(actionA, actionB) === 'conflict')
+    const resolutionA = { dice: [3, 4], modifier: 0, total: 7, outcome: 'partial', rngTrace: {}, resolvedAt: 1 }
+    const resolutionB = { dice: [5, 5], modifier: 0, total: 10, outcome: 'success', rngTrace: {}, resolvedAt: 2 }
+    const receiptA = projection.buildTurnReceiptV1({ ...actionA, resolution: resolutionA }, { turnId: 't1', parentTurnId: null, store })
+    // 同一 actionId、不同内容（模拟重放冲突）。
+    const receiptB = projection.buildTurnReceiptV1({ ...actionB, actionId: actionA.actionId, resolution: resolutionB }, { turnId: 't1', parentTurnId: null, store })
+    check('V12 同 ID 异内容回执被识别为冲突', Boolean(projection.findConflictingReceipt([receiptA], receiptB)))
+    check('V11 同 ID 同内容回执幂等复用', !projection.findConflictingReceipt([receiptA], { ...receiptA, committedAt: receiptA.committedAt + 5 }))
+  }
+  // V20（store 级）：pending 存在时普通发送被拒。
+  {
+    const blocked = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(blocked, { mode: 'rules', goal: '' })
+    let sampleIndex = 0
+    await workflow.confirmRoleplayAction(blocked, {
+      rawInput: '试探栅栏', attribute: 'will', modifier: 0,
+      nextUint32: () => [2, 2][sampleIndex++ % 2]
+    }).catch(() => {})
+    check('V20 pending 阻断普通发送', throwsWithCode(() => workflow.assertRoleplaySendAllowed(blocked, {}), 'ROLEPLAY_PENDING_BLOCKS_SEND'))
+    check('V20 放行带正确身份的叙述请求', !throwsWithCode(() => workflow.assertRoleplaySendAllowed(blocked, { roleplayActionId: stateMod.getRoleplayPendingForBranch(blocked.roleplaySession, 'main').actionId }), 'ROLEPLAY_PENDING_BLOCKS_SEND'))
+  }
+}
+
+// ── V13/V18/V15/V16：持久化门禁与失败保持（store 级） ──
+{
+  // V13：确认保存抛失败（quota）→ 不掷骰、pending 未登记、输入不进任何已存会话。
+  {
+    const store = createMockStore({ flushOk: false })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+    let rolled = false
+    let error = null
+    try {
+      await workflow.confirmRoleplayAction(store, {
+        rawInput: '翻墙', attribute: 'physique', modifier: 0,
+        nextUint32: () => { rolled = true; return 1 }
+      })
+    } catch (e) { error = e }
+    check('V13 持久化失败不掷骰', !rolled && error?.code === 'ROLEPLAY_PERSIST_FAILED')
+    check('V13 失败后无残留 pending', !stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main'))
+  }
+  // V15/V16：叙述失败/取消 → pending 保持 resolved、骰点不变、retryCount 累计。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+    let sampleIndex = 0
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: '搜抽屉', attribute: 'wits', modifier: 0,
+      nextUint32: () => [6, 6][sampleIndex++ % 2]
+    }).catch(() => {})
+    const pending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    const totalBefore = pending.resolution.total
+    workflow.failRoleplayNarration(store, { action: pending, errorCode: 'NARRATIVE_PROVIDER_TIMEOUT' })
+    workflow.failRoleplayNarration(store, { action: pending, errorCode: 'NARRATIVE_AGENT_ABORTED' })
+    const after = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    check('V15/V16 失败后骰点不变', after.resolution.total === totalBefore && after.status === 'resolved')
+    check('V15/V16 诊断累计', after.retryCount === 2 && after.lastErrorCode === 'NARRATIVE_AGENT_ABORTED')
+  }
+}
+
+// ── V14/V31：归一化往返与热窗口容量 ──
+{
+  const state = stateMod.createEmptyRoleplaySessionState()
+  state.mode = 'rules'
+  state.goal = '往返测试'
+  const action = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '查看账本', attribute: 'wits', modifier: 1 })
+  contract.applyResolution(action, { dice: [5, 4], rngTrace: { algorithm: 'uint32-rejection-v2', sides: 6, requestedDice: 2, consumedSamples: 2, rejectedSamples: 0 } })
+  state.pendingByBranch.main = action
+  const roundTrip = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(state)))
+  const pending = stateMod.getRoleplayPendingForBranch(roundTrip, 'main')
+  check('V14 已结算 pending 刷新可恢复（骰点一致）', pending && pending.resolution.total === 10 && pending.status === 'resolved')
+
+  // V31/CX04：receipts 热窗口 LRU ≤200；pending/outbox 归一化不再静默裁剪。
+  const big = stateMod.createEmptyRoleplaySessionState()
+  big.mode = 'rules'
+  for (let i = 0; i < 10; i += 1) {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: `b${i}`, rawInput: `行动${i}`, attribute: 'wits', modifier: 0 })
+    a.status = 'resolved'
+    a.resolution = { dice: [3, 4], modifier: 0, total: 7, outcome: 'partial', rngTrace: {}, resolvedAt: i }
+    big.pendingByBranch[`b${i}`] = a
+  }
+  const capped = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(big)))
+  // V31：receipts 热窗口 LRU ≤200；pending/outbox 归一化不再裁剪（CX02/CX04）。
+  const manyReceipts = { ...big, receipts: Array.from({ length: 260 }, (_, i) => ({ receiptId: `r${i}`, payloadHash: 'x', committedAt: i })) }
+  check('V31 receipts 上限 200（热窗口）', stateMod.normalizeRoleplaySessionState(manyReceipts).receipts.length === 200)
+  check('CX04 归一化不再静默裁剪 pending（10 分支全保留）', Object.keys(capped.pendingByBranch).length === 10)
+  const manyOutbox = { ...big, archiveOutbox: Array.from({ length: 60 }, (_, i) => ({ actionId: `o${i}`, receiptId: `r${i}`, turnId: `t${i}`, attempts: 0, lastError: '', queuedAt: i })) }
+  check('CX02 归一化不再裁剪 outbox（60 条全保留）', stateMod.normalizeRoleplaySessionState(manyOutbox).archiveOutbox.length === 60)
+
+  // 旧数据兼容（V02 形状级）：缺 roleplay 字段 → null；坏字段 → null。
+  check('V02 旧会话无 roleplay 字段 → null（自由叙事）', stateMod.normalizeRoleplaySessionState(null) === null)
+  check('R23 非法 roleplay 字段 → null', stateMod.normalizeRoleplaySessionState({ version: 99, mode: 'rules' }) === null)
+  check('R23 非法 action 归一化为丢弃', stateMod.normalizeRoleplaySessionState({ version: 1, mode: 'rules', pendingByBranch: { main: { actionId: 'x', status: 'weird' } } })?.pendingByBranch?.main === undefined)
+}
+
+// ── R19/V17 支撑：从检定行重建约束 == 原约束 ──
+{
+  const action = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', worldbookId: 'wb1', rawInput: '辨认日志字迹', attribute: 'wits', modifier: 1 })
+  contract.applyResolution(action, { dice: [5, 4], rngTrace: { algorithm: 'uint32-rejection-v2', sides: 6, requestedDice: 2, consumedSamples: 2, rejectedSamples: 0 } })
+  const row = projection.buildCheckRowProjection(action)
+  check('R08 检定行投影字段白名单', Object.keys(row).every((key) => ['version', 'actionId', 'branchId', 'sessionId', 'ruleId', 'rulesVersion', 'expression', 'attribute', 'attributeLabel', 'modifier', 'dice', 'total', 'outcome', 'outcomeLabel', 'ruleText', 'rawInputDigest', 'status', 'detail'].includes(key)))
+  check('R08 投影不含 envelope 全文', !('rawInput' in row) && !('intentHint' in row))
+  check('R19 重建约束与原约束一致', projection.buildDirectiveFromCheckRow(row) === projection.buildResolutionDirective(action))
+  check('R08 约束长度 ≤380', projection.buildResolutionDirective(action).length <= 380)
+  check('K1 ScopeRef 形状', (() => {
+    const scope = projection.buildScopeRef({ sessionId: 's1', branchId: 'b2' })
+    return scope.domain === 'session' && scope.bookId === null && scope.sessionId === 's1' && scope.branchId === 'b2'
+  })())
+}
+
+// ── V25/V26/V29：历史端口合同与 outbox 幂等 ──
+{
+  // V26：端口不可用 ≠ 空记录。
+  {
+    const port = adapter.createRoleplayHistoryPort()
+    check('V26 端口不可用如实标记', port.available === false)
+    const read = await port.readRoleplayHistory({ scope: { domain: 'session', sessionId: 's1' } })
+    check('V26 读取返回不可用而非空历史', read.ok === false && read.reason === adapter.ROLEPLAY_ARCHIVE_REASON.UNAVAILABLE)
+  }
+  // V25：作用域不符拒绝，不进 provider payload。
+  {
+    const port = adapter.createRoleplayHistoryPort({
+      read: async (request) => ({ ok: true, records: [{ id: 'x', sessionId: request.scope.sessionId }] }),
+      record: async () => ({ ok: true, eventId: 'e1' })
+    })
+    adapter.installRoleplayHistoryPort(port)
+    const rejected = await adapter.readRoleplayHistorySafely({ scope: { domain: 'session', sessionId: 's1' }, sessionId: 'other-session' })
+    check('V25 跨会话读取被拒', rejected.ok === false && rejected.reason === adapter.ROLEPLAY_ARCHIVE_REASON.REJECTED_SCOPE)
+    const okRead = await adapter.readRoleplayHistorySafely({ scope: { domain: 'session', sessionId: 's1' }, sessionId: 's1' })
+    check('V25 同会话读取放行', okRead.ok === true)
+  }
+  // V29：失败/取消不归档；重复 drain 幂等；成功后 outbox 清空。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+    const committedAction = contract.createConfirmedRoleplayAction({ sessionId: store.currentSessionId, branchId: 'main', rawInput: '已提交行动', attribute: 'wits', modifier: 0 })
+    contract.applyResolution(committedAction, { dice: [2, 2], rngTrace: {} })
+    contract.markRoleplayActionCommitted(committedAction, { narrationTurnId: 'turn_1' })
+    const receipt = projection.buildTurnReceiptV1(committedAction, { turnId: 'turn_1', parentTurnId: null, store })
+    const failedAction = contract.createConfirmedRoleplayAction({ sessionId: store.currentSessionId, branchId: 'main', rawInput: '失败行动', attribute: 'wits', modifier: 0 })
+    contract.cancelRoleplayAction(failedAction)
+    const state = store.roleplaySession
+    const scope = projection.buildScopeRef({ sessionId: store.currentSessionId, branchId: 'main' })
+    check('V29 失败/取消回合不入队', adapter.queueRoleplayArchive(state, { action: failedAction, receipt, scope }).ok === false)
+    check('V29 已提交回合入队（自包含载荷）', (() => {
+      const queued = adapter.queueRoleplayArchive(state, { action: committedAction, receipt, scope })
+      return queued.ok === true && state.archiveOutbox[0]?.payload?.scope?.sessionId === store.currentSessionId
+    })())
+    check('V29 同 action 重复入队幂等', adapter.queueRoleplayArchive(state, { action: committedAction, receipt, scope }).duplicate === true)
+
+    let recordCalls = 0
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+      read: async () => ({ ok: true, records: [] }),
+      record: async () => { recordCalls += 1; if (recordCalls === 1) return { ok: false, reason: 'db-down', retryable: true }; return { ok: true, eventId: 'e1' } }
+    }))
+    const first = await adapter.drainRoleplayArchiveOutbox(state)
+    check('V29 首次 drain 失败保留 outbox', first.accepted === 0 && first.remaining === 1 && state.archiveOutbox[0].attempts === 1)
+    const second = await adapter.drainRoleplayArchiveOutbox(state)
+    check('V29 重试成功清空 outbox', second.accepted === 1 && state.archiveOutbox.length === 0)
+    const third = await adapter.drainRoleplayArchiveOutbox(state)
+    check('V29 重复 drain 幂等（不重复投递）', third.attempted === 0)
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort())
+  }
+}
+
+// ── coordinator 回调级：绑定→提交落账→重叙述（V10/V14/V21 store 级） ──
+{
+  const store = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '回调测试' })
+  let sampleIndex = 0
+  await workflow.confirmRoleplayAction(store, {
+    rawInput: '推门而入', attribute: 'physique', modifier: 1,
+    nextUint32: () => [4, 5][sampleIndex++ % 2]
+  })
+  const action = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+  const userMessage = { id: 'msg_user_1', role: 'user', content: action.rawInput, branchId: 'main' }
+  store.messages.push(userMessage)
+
+  // 叙述开始绑定：身份一致 → 挂检定行；身份不一致 → 抛错。
+  const binding = workflow.bindRoleplayNarration(store, { roleplayActionId: action.actionId, userMessageId: userMessage.id })
+  check('R15 绑定返回 pending 行动', binding?.pending === true && binding.action.actionId === action.actionId)
+  check('R15 检定行已挂到 user 消息', userMessage.roleplayCheck?.actionId === action.actionId && userMessage.roleplayCheck.total === 12)
+  check('R15 身份不一致被事务内拒绝', throwsWithCode(() => workflow.bindRoleplayNarration(store, { roleplayActionId: 'act_other', userMessageId: userMessage.id }), 'ROLEPLAY_PENDING_BLOCKS_SEND'))
+
+  // 提交落账：pending 移除、receipt 入账、outbox 入队（端口不可用 → 保留）。
+  const turnRecord = { id: 'turn_9', parentTurnId: null, userMessageIds: ['msg_user_1'] }
+  const receipt = workflow.commitRoleplayNarration(store, { action: binding.action, turnRecord })
+  check('R15 落账生成 receipt（同 actionId）', receipt && receipt.receiptId === action.actionId && receipt.turnId === 'turn_9')
+  check('R15 pending 已移除', !stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main'))
+  check('R15 outbox 入队（端口不可用待重试）', store.roleplaySession.archiveOutbox.length === 1)
+  check('R15 检定行状态刷新为 committed', userMessage.roleplayCheck.status === 'committed')
+
+  // 重叙述绑定（重生成）：无 pending，但 user 消息带 committed 检定行。
+  const rebinding = workflow.bindRoleplayNarration(store, { roleplayActionId: '', userMessageId: userMessage.id })
+  check('R19 重叙述从检定行恢复绑定', rebinding && !rebinding.pending && rebinding.actionId === action.actionId)
+  const receipt2 = workflow.commitRoleplayRenarration(store, { binding: rebinding, turnRecord: { id: 'turn_10', userMessageIds: ['msg_user_1'] } })
+  check('R19 重叙述保留不可变原结算回执', receipt2 && receipt2.turnId === 'turn_9' && store.roleplaySession.receipts.length === 1)
+  check('R19 outbox 不重复入队', store.roleplaySession.archiveOutbox.length === 1)
+
+  // 迟到提交守卫（V18/V19 形状级）：会话已切换时丢弃。
+  const otherSessionStore = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(otherSessionStore, { mode: 'rules', goal: '' })
+  let idx = 0
+  await workflow.confirmRoleplayAction(otherSessionStore, {
+    rawInput: '别的会话行动', attribute: 'wits', modifier: 0,
+    nextUint32: () => [1, 2][idx++ % 2]
+  }).catch(() => {})
+  const otherAction = stateMod.getRoleplayPendingForBranch(otherSessionStore.roleplaySession, 'main')
+  otherSessionStore.currentSessionId = 'sess_moved_on'
+  const lateBinding = (() => {
+    try {
+      return workflow.bindRoleplayNarration(otherSessionStore, { roleplayActionId: otherAction.actionId, userMessageId: '' })
+    } catch (error) {
+      return { threw: error.code }
+    }
+  })()
+  check('V18 会话身份失效的检定被拒绝（不写入新会话）', lateBinding?.threw === 'ROLEPLAY_SCOPE_MISMATCH')
+}
+
+// ── CX02/CX03：outbox 容量背压与自包含载荷（XC-G01/XC-G02） ──
+{
+  const state = stateMod.createEmptyRoleplaySessionState()
+  state.mode = 'rules'
+  const makeAction = (i) => {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: `b${i % 20}`, rawInput: `行动${i}`, attribute: 'wits', modifier: 0 })
+    contract.applyResolution(a, { dice: [5, 5], rngTrace: {} })
+    contract.markRoleplayActionCommitted(a, { narrationTurnId: `turn_${i}` })
+    return a
+  }
+  let lastResult = null
+  for (let i = 0; i < 1001; i += 1) {
+    const a = makeAction(i)
+    const receipt = projection.buildTurnReceiptV1(a, { turnId: `turn_${i}`, parentTurnId: null, store: { currentSessionId: 's1', activeBranchId: `b${i % 20}`, worldId: 'wb1' } })
+    lastResult = adapter.queueRoleplayArchive(state, { action: a, receipt, scope: receipt.scope })
+  }
+  check('XC-G01 1001 条达到容量背压（不再入队）', lastResult.ok === false && lastResult.reason === 'ROLEPLAY_OUTBOX_CAPACITY')
+  check('XC-G01 已入队 1000 条一条不丢（最旧仍在）', state.archiveOutbox.length === stateMod.ROLEPLAY_OUTBOX_CAPACITY
+    && state.archiveOutbox[0].turnId === 'turn_0' && state.archiveOutbox.at(-1).turnId === 'turn_999')
+  // XC-G02：receipts 热窗口清空后，outbox 载荷仍自包含完整 receipt+scope。
+  state.receipts = []
+  const trimmed = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(state)))
+  check('XC-G02 热窗口裁剪后载荷完整（receipt+scope 自包含）', trimmed.archiveOutbox.length === 1000
+    && Boolean(trimmed.archiveOutbox[0].payload?.receipt?.receiptId)
+    && trimmed.archiveOutbox[0].payload.scope.domain === 'session'
+    && Boolean(trimmed.archiveOutbox[0].payload.scope.branchId))
+}
+
+// ── CX03/XC-G07：冻结 scope；legacy 无载荷不假装归档 ──
+{
+  const state = stateMod.createEmptyRoleplaySessionState()
+  const a = contract.createConfirmedRoleplayAction({ sessionId: 'sess_A', branchId: 'br_A', rawInput: '冻结scope行动', attribute: 'wits', modifier: 0 })
+  contract.applyResolution(a, { dice: [4, 4], rngTrace: {} })
+  contract.markRoleplayActionCommitted(a, { narrationTurnId: 'turn_A' })
+  const receipt = projection.buildTurnReceiptV1(a, { turnId: 'turn_A', parentTurnId: null, store: { currentSessionId: 'sess_A', activeBranchId: 'br_A', worldId: 'wb_A' } })
+  const frozenScope = { domain: 'session', bookId: null, worldbookId: 'wb_A', sessionId: 'sess_A', branchId: 'br_A' }
+  adapter.queueRoleplayArchive(state, { action: a, receipt, scope: frozenScope })
+  // drain 时"当前会话"已是别处：scope 必须仍来自冻结回执（不传当前会话信息）。
+  let seen = null
+  adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+    read: async () => ({ ok: true, records: [] }),
+    record: async (request) => { seen = request; return { ok: true, eventId: 'e' } }
+  }))
+  const summary = await adapter.drainRoleplayArchiveOutbox(state)
+  check('XC-G07 scope 来自冻结回执（session/branch 不猜当前）', seen
+    && seen.scope.sessionId === 'sess_A'
+    && seen.scope.branchId === 'br_A'
+    && seen.scope.worldbookId === 'wb_A'
+    && summary.accepted === 1)
+  // legacy 无载荷条目：不补猜、不丢弃、如实标记。
+  const legacyState = stateMod.createEmptyRoleplaySessionState()
+  legacyState.archiveOutbox = [{ actionId: 'legacy_1', receiptId: 'legacy_1', turnId: 'turn_L', attempts: 0, lastError: '', queuedAt: 1 }]
+  const legacySummary = await adapter.drainRoleplayArchiveOutbox(legacyState)
+  check('CX03 legacy 无载荷条目保留并标记受限', legacyState.archiveOutbox.length === 1
+    && legacyState.archiveOutbox[0].lastError === adapter.ROLEPLAY_ARCHIVE_REASON.LEGACY_NO_PAYLOAD
+    && legacySummary.accepted === 0)
+  adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort())
+}
+
+// ── CX04/XC-G03：pending 第 7 分支创建时背压，旧 pending 不丢 ──
+{
+  const store = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+  const state = store.roleplaySession
+  for (let i = 0; i < 6; i += 1) {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: store.currentSessionId, branchId: `b${i}`, rawInput: `分支行动${i}`, attribute: 'wits', modifier: 0 })
+    a.status = 'resolved'
+    a.resolution = { dice: [3, 3], modifier: 0, total: 6, outcome: 'failure', rngTrace: {}, resolvedAt: i }
+    state.pendingByBranch[`b${i}`] = a
+  }
+  const capacity = stateMod.checkRoleplayPendingCapacity(state, 'b_new')
+  check('XC-G03 第 7 分支容量判定拒绝', capacity.ok === false && capacity.reason === 'ROLEPLAY_PENDING_CAPACITY')
+  check('XC-G03 既有 6 分支 pending 全部保留', Object.keys(state.pendingByBranch).length === 6)
+  const before = JSON.stringify(Object.keys(state.pendingByBranch).sort())
+  let blockedCode = ''
+  try {
+    await workflow.confirmRoleplayAction({ ...store, activeBranchId: 'b_new' }, {
+      rawInput: '新分支行动', attribute: 'wits', modifier: 0, nextUint32: () => 1
+    })
+  } catch (error) {
+    blockedCode = error.code || ''
+  }
+  check('XC-G03 第 7 分支确认被阻断（类型化背压）', blockedCode === 'ROLEPLAY_PENDING_CAPACITY')
+  check('XC-G03 阻断后旧 pending 不变', JSON.stringify(Object.keys(state.pendingByBranch).sort()) === before)
+}
+
+// ── CX05/XC-G04：未来 schema 安全加载与无损写回 ──
+{
+  const futureRaw = {
+    version: 2,
+    mode: 'rules',
+    futureOnlyField: { clueStates: { c1: 'discovered' } },
+    pendingByBranch: { main: { schemaVersion: 2, actionId: 'fut_1' } }
+  }
+  const loaded = stateMod.loadRoleplayStateForSession(JSON.parse(JSON.stringify(futureRaw)))
+  check('XC-G04 未来版本加载：current=null + futureRaw 保留', loaded.current === null && loaded.futureRaw?.version === 2)
+  const writtenBack = stateMod.resolveRoleplayPersistence(loaded.current, loaded.futureRaw)
+  check('XC-G04 写回走 future-raw 透传', writtenBack.kind === 'future-raw' && writtenBack.value.futureOnlyField.clueStates.c1 === 'discovered')
+  check('XC-G04 原始扩展字段不变（无损往返）', JSON.stringify(JSON.parse(JSON.stringify(writtenBack.value))) === JSON.stringify(futureRaw))
+  check('XC-G04 当前版本写回归一化', stateMod.resolveRoleplayPersistence({ version: 1, mode: 'rules' }, null).kind === 'v1')
+  check('CX05 未来版本会话不可改模式（只读守卫）', throwsWithCode(() => workflow.setRoleplaySessionSetup({ roleplayFutureRaw: futureRaw, roleplaySession: null, saveCurrentSession() {}, flushSaveSessions() { return true } }, { mode: 'rules' }), 'ROLEPLAY_FUTURE_STATE_READONLY'))
+}
+
+// ── CX02/XC-G05/XC-G06：drain 中新增、两 drain 并发、逐 ID 移除 ──
+{
+  // XC-G05：drain 处理第 1 条时新入队第 2 条 → 新条目不被旧数组覆盖。
+  {
+    const state = stateMod.createEmptyRoleplaySessionState()
+    const scope = { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' }
+    const mkEntry = (id) => ({ actionId: id, receiptId: id, turnId: `t_${id}`, attempts: 0, lastError: '', queuedAt: 1, payload: { receipt: { receiptId: id, commandId: id, turnId: `t_${id}`, parentTurnId: null, branchId: 'main', rulesVersion: 'r@1', resolutionRef: 'x', stateDeltaRefs: [], evidenceRefs: [], committedAt: 1 }, scope, sessionId: 's1', worldbookId: null, branchId: 'main' } })
+    state.archiveOutbox.push(mkEntry('a1'))
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+      read: async () => ({ ok: true, records: [] }),
+      record: async () => {
+        // drain 快照已取；模拟处理期间新回执入队。
+        if (!state.archiveOutbox.some((e) => e.actionId === 'a2')) state.archiveOutbox.push(mkEntry('a2'))
+        return { ok: true, eventId: 'e' }
+      }
+    }))
+    const summary = await adapter.drainRoleplayArchiveOutbox(state)
+    check('XC-G05 drain 中新增条目仍在队列', summary.accepted === 1 && state.archiveOutbox.some((e) => e.actionId === 'a2'))
+    const second = await adapter.drainRoleplayArchiveOutbox(state)
+    check('XC-G05 二次 drain 排空新增项', second.accepted === 1 && state.archiveOutbox.length === 0)
+  }
+  // XC-G06：两 drain 并发 → 同条目可能重复投递，由 ledger 幂等吸收；清理幂等。
+  {
+    const state = stateMod.createEmptyRoleplaySessionState()
+    const scope = { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' }
+    state.archiveOutbox.push({ actionId: 'a1', receiptId: 'a1', turnId: 't_a1', attempts: 0, lastError: '', queuedAt: 1, payload: { receipt: { receiptId: 'a1', commandId: 'a1', turnId: 't_a1', parentTurnId: null, branchId: 'main', rulesVersion: 'r@1', resolutionRef: 'x', stateDeltaRefs: [], evidenceRefs: [], committedAt: 1 }, scope, sessionId: 's1', worldbookId: null, branchId: 'main' } })
+    let recordCalls = 0
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+      read: async () => ({ ok: true, records: [] }),
+      record: async () => { recordCalls += 1; return { ok: true, replay: recordCalls > 1, eventId: 'a1' } }
+    }))
+    const [d1, d2] = await Promise.all([adapter.drainRoleplayArchiveOutbox(state), adapter.drainRoleplayArchiveOutbox(state)])
+    check('XC-G06 并发 drain 双双成功（重复投递被幂等吸收）', d1.accepted + d2.accepted >= 2 && recordCalls >= 2)
+    check('XC-G06 队列清理幂等（账本一份、无残留）', state.archiveOutbox.length === 0)
+  }
+  // XC-G10：receipt-conflict 保留队列不覆盖。
+  {
+    const state = stateMod.createEmptyRoleplaySessionState()
+    const scope = { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' }
+    state.archiveOutbox.push({ actionId: 'a1', receiptId: 'a1', turnId: 't_a1', attempts: 0, lastError: '', queuedAt: 1, payload: { receipt: { receiptId: 'a1' }, scope, sessionId: 's1', worldbookId: null, branchId: 'main' } })
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+      read: async () => ({ ok: true, records: [] }),
+      record: async () => ({ ok: false, reason: 'receipt-conflict', retryable: false })
+    }))
+    await adapter.drainRoleplayArchiveOutbox(state)
+    check('XC-G10 同 ID 异内容保留队列并可见诊断', state.archiveOutbox.length === 1
+      && state.archiveOutbox[0].lastError === 'receipt-conflict')
+    adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort())
+  }
+}
+
+// ── CX07：TurnReceiptV1 生产序列化形态（A 合同对齐） ──
+{
+  const action = contract.createConfirmedRoleplayAction({ sessionId: 'sess_demo_001', branchId: 'main', worldbookId: 'wb_demo_001', rawInput: '样例行动', attribute: 'wits', modifier: 1 })
+  contract.applyResolution(action, { dice: [5, 4], rngTrace: { algorithm: 'uint32-rejection-v2', sides: 6, requestedDice: 2, consumedSamples: 2, rejectedSamples: 0 } })
+  const receipt = projection.buildTurnReceiptV1(action, { turnId: 'narrative_x', parentTurnId: null, store: { currentSessionId: 'sess_demo_001', activeBranchId: 'main', worldId: 'wb_demo_001' } })
+  const serialized = projection.serializeRoleplayReceipt(receipt)
+  const fixture = JSON.parse(readFileSync(path.join(root, 'scripts/fixtures/roleplay/roleplay-receipt-sample.fixture.json'), 'utf8'))
+  check('CX07 序列化字段集合与 A 合同样例一致', JSON.stringify(Object.keys(serialized).sort()) === JSON.stringify(Object.keys(fixture.serializedReceipt).sort()))
+  check('CX07 序列化不含本地专属字段', !('schemaVersion' in serialized) && !('payloadHash' in serialized) && !('scope' in serialized))
+  check('CX07 branchId 必填（A 合同）', serialized.branchId === 'main')
+  check('CX07 缺 branchId 拒绝', throwsWithCode(() => projection.serializeRoleplayReceipt({ ...serialized, branchId: null }), 'ROLEPLAY_RECEIPT_INVALID'))
+}
+
+// ── CX09/XC-G09：只读历史返回值再验证（跨会话/别分支/viewer） ──
+{
+  const goodRecord = { receiptId: 'g1', scope: { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' } }
+  adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort({
+    read: async () => ({ ok: true, records: [
+      goodRecord,
+      { receiptId: 'bad1', scope: { domain: 'session', bookId: null, worldbookId: null, sessionId: 'other-book-session', branchId: 'main' } },
+      { receiptId: 'bad2', scope: { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'other-branch' } },
+      { receiptId: 'bad3', visibleTo: 'player-b', scope: { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' } }
+    ] }),
+    record: async () => ({ ok: true, eventId: 'e' })
+  }))
+  const filtered = await adapter.readRoleplayHistorySafely({ scope: { domain: 'session', bookId: null, worldbookId: null, sessionId: 's1', branchId: 'main' }, sessionId: 's1', branchId: 'main', viewerRef: 'player-a' })
+  check('XC-G09 别书记录被拒', !filtered.records.some((r) => r.receiptId === 'bad1'))
+  check('XC-G09 别分支记录被拒', !filtered.records.some((r) => r.receiptId === 'bad2'))
+  check('XC-G09 viewer 不符记录被拒', !filtered.records.some((r) => r.receiptId === 'bad3'))
+  check('XC-G09 合法记录保留 + 排除数可观测', filtered.records.length === 1 && filtered.excludedCount === 3)
+  adapter.installRoleplayHistoryPort(adapter.createRoleplayHistoryPort())
+}
+
+// ── CX13–CX18：场景/线索/结局（XC-G16/G17/G18/G19/G20/G33） ──
+{
+  const scenarioJson = JSON.parse(readFileSync(path.join(root, 'src/services/experience/roleplay/fixtures/lampkeeper-scenario.json'), 'utf8'))
+  const scenario = scenarioMod.normalizeScenario(scenarioJson.scenario)
+  check('CX13 场景定义合法（5 场景 5 线索 2 结局）', Boolean(scenario)
+    && scenario.scenes.length === 5 && scenario.clues.length === 5 && scenario.endings.length === 2)
+
+  // G16：主线/支路/返回路径三条路线可走通。
+  {
+    const run = scenarioMod.createScenarioRun(scenario)
+    check('CX13 初始场景为值房且 clue_log 可用', run.currentSceneId === 'scene_desk' && run.clues.clue_log === 'available')
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    check('G16 主线：值房→梯井', run.currentSceneId === 'scene_stairs' && run.clues.clue_scuff === 'available')
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_lamp_room' })
+    check('G16 主线：梯井→灯室（clue_mechanism 提级可用）', run.currentSceneId === 'scene_lamp_room' && run.clues.clue_mechanism === 'available')
+    // 返回路径：灯室→梯井→值房→…→值房（结局 end_return 需要 clue_boot + 值房）。
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_desk' })
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_reef' })
+    check('G16 支路：值房→礁石滩', run.currentSceneId === 'scene_reef')
+  }
+  // G17：重复进入场景不重复发奖励（线索只提级一次，发现态不被重置）。
+  {
+    const run = scenarioMod.createScenarioRun(scenario)
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    scenarioMod.applyScenarioOutcome(run, scenario, { actionId: 'act_1', clueId: 'clue_scuff', outcome: 'success' })
+    check('G17 线索已发现', run.clues.clue_scuff === 'discovered')
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_desk' })
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    check('G17 重复进入不重置发现态、不重复计数奖励', run.clues.clue_scuff === 'discovered' && run.sceneVisits.scene_stairs === 2)
+    const repeat = scenarioMod.applyScenarioOutcome(run, scenario, { actionId: 'act_1', clueId: 'clue_scuff', outcome: 'success' })
+    check('G17 同 actionId 幂等（不重复应用）', repeat.applied === false && run.publicEvents.filter((e) => e.clueId === 'clue_scuff').length === 1)
+  }
+  // G18：唯一关键线索检定失败 → 失败前进开替代路线，不改失败为成功。
+  {
+    const run = scenarioMod.createScenarioRun(scenario)
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    const result = scenarioMod.applyScenarioOutcome(run, scenario, { actionId: 'act_fail', clueId: 'clue_scuff', outcome: 'failure' })
+    check('G18 失败不解锁原线索', run.clues.clue_scuff !== 'discovered' && run.clues.clue_scuff !== 'success')
+    check('G18 失败前进开启替代线索（字条）', result.applied === true && run.clues.clue_guard_note === 'available')
+    check('G18 受挫事件可见', run.publicEvents.some((event) => event.type === 'setback'))
+  }
+  // G19：公开投影不含未发现线索（名称/摘要/数量全部缺席）。
+  {
+    const run = scenarioMod.createScenarioRun(scenario)
+    const view = scenarioMod.buildScenarioPublicProjection(run, scenario)
+    check('G19 投影只含 discovered 线索', view.discoveredClues.length === 0)
+    const serialized = JSON.stringify(view)
+    check('G19 未发现线索名称/摘要不泄漏', !serialized.includes('刮痕') && !serialized.includes('靴子') && !serialized.includes('字条'))
+    check('G19 可用行动只出现在当前场景且状态 available', view.availableSceneClueActions.every((action) => action.clueId === 'clue_log'))
+  }
+  // G20：结局后停行；确定性结局判定不由叙述宣称。
+  {
+    const run = scenarioMod.createScenarioRun(scenario)
+    scenarioMod.applyScenarioOutcome(run, scenario, { actionId: 'act_m', clueId: 'clue_mechanism', outcome: 'success' })
+    scenarioMod.applyScenarioOutcome(run, scenario, { actionId: 'act_g', clueId: 'clue_guard_note', outcome: 'success' })
+    const ending = scenarioMod.maybeApplyEnding(run, scenario)
+    check('G20 双线索未到小屋：结局不触发', ending === null && run.status === 'active')
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_cottage' })
+    check('G20 抵达小屋即达成结局（确定性条件）', run.status === 'ended' && run.endingId === 'end_truth')
+    let blocked = ''
+    try {
+      scenarioMod.moveScenarioRun(run, scenario, { toSceneId: 'scene_stairs' })
+    } catch (error) { blocked = error.code }
+    check('G20 结局后移动被拒（交还真人）', blocked === 'ROLEPLAY_SCENARIO_NOT_ACTIVE')
+  }
+  // G33：运行源冻结——运行体 revision 与外部定义变更解耦。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+    workflow.startRoleplayScenario(store, { scenario: scenarioJson.scenario })
+    const frozenRevision = store.roleplaySession.scenario.revision
+    workflow.moveRoleplayScene(store, { toSceneId: 'scene_stairs' })
+    // 外部定义被"编辑"（改名/换 revision）：运行实例不静默变更。
+    const edited = { ...scenarioJson.scenario, title: '被改掉的场景', revision: 'rev_new_editor_change' }
+    let startError = ''
+    try { workflow.startRoleplayScenario(store, { scenario: edited }) } catch (error) { startError = error.code }
+    check('G33 已有进行中冒险时拒绝另起（不静默换运行源）', startError === 'ROLEPLAY_SCENARIO_ACTIVE')
+    check('G33 运行中的场景体保持冻结（标题/revision 不变）', store.roleplaySession.scenario.title !== '被改掉的场景'
+      && store.roleplaySession.scenario.revision === frozenRevision
+      && store.roleplaySession.scenarioRun.scenarioRevision === frozenRevision)
+    // 归一化往返：场景+运行体无损。
+    const roundTrip = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(store.roleplaySession)))
+    check('CX13 场景与运行体随会话无损往返', roundTrip.scenario?.scenarioId === 'scn_lampkeeper'
+      && roundTrip.scenarioRun?.currentSceneId === 'scene_stairs'
+      && roundTrip.scenarioRun.scenarioRevision === frozenRevision)
+  }
+}
+
+
+// ── CX19–CX24：确定性资源账（XC-G21/G22/G24） ──
+{
+  const resourcesMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+  const state = resourcesMod.createResourceState()
+  // 基线可读（CX19 最小：身份之外的当前状态投影）。
+  const view0 = resourcesMod.buildResourceProjection(state)
+  check('CX21 资源基线（活力100/灯油10）', view0.values.vitality.value === 100 && view0.values.lampOil.value === 10)
+  // G21：白名单外/非整数/越界/revision 冲突全部本地拒绝。
+  check('XC-G21 白名单外资源拒绝', resourcesMod.applyResourceDelta(state, { deltaId: 'd1', resource: 'mana', amount: 5 }).ok === false)
+  check('XC-G21 非整数金额拒绝', resourcesMod.applyResourceDelta(state, { deltaId: 'd2', resource: 'vitality', amount: 1.5 }).ok === false)
+  check('XC-G21 越界结果拒绝（活力 -2 下限以下不减）', (() => {
+    const s2 = resourcesMod.createResourceState()
+    for (let i = 0; i < 60; i += 1) resourcesMod.applyResourceDelta(s2, { deltaId: `d_${i}`, resource: 'vitality', amount: -2 })
+    return s2.deltas.length === 50 && resourcesMod.computeResourceValues(s2).vitality === 0
+  })())
+  const okApply = resourcesMod.applyResourceDelta(state, { deltaId: 'd3', resource: 'lampOil', amount: -1 })
+  check('XC-G21 合法 delta 生效且 revision 递增', okApply.ok === true && okApply.revision === 1)
+  check('XC-G21 expectedRevision CAS 冲突拒绝', resourcesMod.applyResourceDelta(state, { deltaId: 'd4', resource: 'vitality', amount: -1, expectedRevision: 0 }).reason === 'ROLEPLAY_RESOURCE_REVISION_CONFLICT')
+  check('XC-G21 同 deltaId 幂等', (() => {
+    const first = resourcesMod.applyResourceDelta(state, { deltaId: 'd5', resource: 'lampOil', amount: -1 })
+    const again = resourcesMod.applyResourceDelta(state, { deltaId: 'd5', resource: 'lampOil', amount: -1 })
+    return first.ok === true && again.duplicate === true && resourcesMod.getResourceRevision(state) === 2
+  })())
+  // G22：同 actionId 结算后果只应用一次（重试叙述不再扣）。
+  {
+    const s3 = resourcesMod.createResourceState()
+    const first = resourcesMod.applyOutcomeResourceCost(s3, { actionId: 'act_x', outcome: 'failure' })
+    const again = resourcesMod.applyOutcomeResourceCost(s3, { actionId: 'act_x', outcome: 'failure' })
+    check('XC-G22 失败前进固定代价（活力-2）一次生效', first.applied === true && first.changes.some((c) => c.resource === 'vitality' && c.amount === -2))
+    check('XC-G22 重复结算不重复扣', again.applied === false && s3.deltas.filter((d) => d.sourceRef === 'outcome:failure').length === 1)
+    const successCost = resourcesMod.applyOutcomeResourceCost(resourcesMod.createResourceState(), { actionId: 'act_y', outcome: 'success' })
+    check('CX22 成功无消耗', successCost.applied === true && successCost.changes.length === 0)
+  }
+  // G23：消耗品一次性（获取幂等/使用失效/重复使用拒绝）。
+  {
+    const s4 = resourcesMod.createResourceState()
+    check('CX23 首次获取灯油壶', resourcesMod.grantItem(s4, { itemId: 'lampOilFlask', sourceActionId: 'act_z' }).ok === true)
+    check('CX23 同来源重复获取幂等（不加数量）', resourcesMod.grantItem(s4, { itemId: 'lampOilFlask', sourceActionId: 'act_z' }).duplicate === true && s4.items.lampOilFlask.count === 1)
+    const oilBefore = resourcesMod.computeResourceValues(s4).lampOil
+    check('CX23 使用生效（灯油+3，壶消耗）', resourcesMod.useItem(s4, { itemId: 'lampOilFlask' }).ok === true && resourcesMod.computeResourceValues(s4).lampOil === oilBefore + 3 && s4.items.lampOilFlask.count === 0)
+    check('CX23 无库存重复使用拒绝', resourcesMod.useItem(s4, { itemId: 'lampOilFlask' }).ok === false && resourcesMod.computeResourceValues(s4).lampOil === oilBefore + 3)
+  }
+  // CX24：对账。
+  {
+    const s5 = resourcesMod.createResourceState()
+    resourcesMod.applyResourceDelta(s5, { deltaId: 'r1', resource: 'lampOil', amount: -3 })
+    const values = resourcesMod.computeResourceValues(s5)
+    check('CX24 对账一致', resourcesMod.reconcileResources(s5, values).consistent === true)
+    check('CX24 对账发现篡改', resourcesMod.reconcileResources(s5, { ...values, lampOil: 99 }).consistent === false)
+  }
+  // 资源账随会话无损往返。
+  {
+    const s6 = resourcesMod.createResourceState()
+    resourcesMod.applyOutcomeResourceCost(s6, { actionId: 'act_w', outcome: 'partial' })
+    resourcesMod.grantItem(s6, { itemId: 'lampOilFlask', sourceActionId: 'act_v' })
+    const round = resourcesMod.normalizeResourceState(JSON.parse(JSON.stringify(s6)))
+    check('CX21 资源账归一化无损往返（值/物品/幂等键一致）', round
+      && resourcesMod.computeResourceValues(round).lampOil === resourcesMod.computeResourceValues(s6).lampOil
+      && round.items.lampOilFlask.count === 1
+      && round.appliedActionIds.includes('act_w'))
+  }
+}
+
+
+// ── CX25/CX28/CX29：有界主持预算（XC-G24/G25 形状级） ──
+{
+  const host = await import(path.join(root, 'src/services/experience/roleplay/roleplayHost.js'))
+  // 预算 0：立即耗尽。
+  {
+    const plan = host.createHostPlan({ maxSteps: 0 })
+    let code = ''
+    try { host.beginHostStep(plan, { stepId: 's1' }) } catch (error) { code = error.code }
+    check('XC-G24 预算 0 → 首步即拒绝', code === 'ROLEPLAY_HOST_BUDGET_EXHAUSTED')
+  }
+  // 预算 1：一步后耗尽；预扣语义（begin 即计数）。
+  {
+    const plan = host.createHostPlan({ maxSteps: 1 })
+    host.beginHostStep(plan, { stepId: 's1' })
+    check('XC-G24 begin 预扣（进行中）', plan.status === 'advancing' && plan.stepsUsed === 1)
+    let code = ''
+    try { host.beginHostStep(plan, { stepId: 's2' }) } catch (error) { code = error.code }
+    check('XC-G24 进行中并发 begin 拒绝', code === 'ROLEPLAY_HOST_STEP_IN_FLIGHT')
+    host.completeHostStep(plan, { stepId: 's1' })
+    check('CX28 完成后 awaiting，预算已尽', plan.status === 'awaiting-player' && plan.stepsUsed === plan.maxSteps)
+    code = ''
+    try { host.beginHostStep(plan, { stepId: 's2' }) } catch (error) { code = error.code }
+    check('XC-G24 预算耗尽拒绝（交还真人）', code === 'ROLEPLAY_HOST_BUDGET_EXHAUSTED')
+  }
+  // 多步 + 同 stepId 幂等 + 暂停/恢复 + 归一化往返。
+  {
+    const plan = host.createHostPlan({ maxSteps: 3 })
+    host.beginHostStep(plan, { stepId: 'a' })
+    check('CX28 同 stepId 重复 begin 幂等', host.beginHostStep(plan, { stepId: 'a' }).duplicate === true && plan.stepsUsed === 1)
+    host.completeHostStep(plan, { stepId: 'a' })
+    host.beginHostStep(plan, { stepId: 'b' })
+    host.completeHostStep(plan, { stepId: 'b' })
+    check('CX28 多步累计（2/3）', plan.stepsUsed === 2)
+    host.pauseHostPlan(plan)
+    check('CX29 暂停后 begin 拒绝', (() => { try { host.beginHostStep(plan, { stepId: 'c' }); return false } catch (error) { return error.code === 'ROLEPLAY_HOST_PAUSED' } })())
+    host.resumeHostPlan(plan)
+    host.beginHostStep(plan, { stepId: 'c' })
+    host.completeHostStep(plan, { stepId: 'c' })
+    check('CX29 恢复后可用剩余预算', plan.stepsUsed === 3)
+    // 刷新往返：预算/状态无损。
+    const round = host.normalizeHostPlan(JSON.parse(JSON.stringify(plan)))
+    check('CX29 主持计划归一化往返无损', round.stepsUsed === 3 && round.maxSteps === 3 && round.status === 'awaiting-player')
+    host.endHostPlan(plan)
+    check('CX29 显式结束后不再推进', (() => { try { host.beginHostStep(plan, { stepId: 'd' }); return false } catch (error) { return error.code === 'ROLEPLAY_HOST_ENDED' } })())
+  }
+  // workflow 级：pending 未决时主持步被发送门禁拦截（主持不代替玩家）。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+    let idx = 0
+    await workflow.confirmRoleplayAction(store, {
+      rawInput: '检定行动', attribute: 'wits', modifier: 0,
+      nextUint32: () => [5, 5][idx++ % 2]
+    }).catch(() => {})
+    let blocked = ''
+    try {
+      await workflow.advanceRoleplayHostStep({ ...store, isLoading: false })
+    } catch (error) { blocked = error.code }
+    check('XC-G25 pending 未决时主持步被拒（停在真人边界）', blocked === 'ROLEPLAY_PENDING_BLOCKS_SEND')
+    check('XC-G25 预算未被非法消耗', store.roleplaySession.hostPlan === null || store.roleplaySession.hostPlan.stepsUsed === 0)
+  }
+}
+
+
+// ── CX43/XC-G37：500 回合 / 20 分支长程稳定性（离线形状级） ──
+{
+  const state = stateMod.createEmptyRoleplaySessionState()
+  state.mode = 'rules'
+  // 20 个分支各有 pending：创建时容量背压只放行 6 个，第 7 起明确拒绝——
+  // 已放行的 6 个 pending 一条不丢（背压而非静默淘汰）。
+  for (let b = 0; b < 20; b += 1) {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: `br_${b}`, rawInput: `分支${b}`, attribute: 'wits', modifier: 0 })
+    a.status = 'resolved'
+    a.resolution = { dice: [3, 3], modifier: 0, total: 6, outcome: 'failure', rngTrace: {}, resolvedAt: b }
+    const capacity = stateMod.checkRoleplayPendingCapacity(state, `br_${b}`)
+    if (capacity.ok) state.pendingByBranch[`br_${b}`] = a
+  }
+  // 500 回合：receipts 热窗 200 + outbox 自包含全量。
+  for (let i = 0; i < 500; i += 1) {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: `回合${i}`, attribute: 'wits', modifier: 0 })
+    contract.applyResolution(a, { dice: [5, 5], rngTrace: {} })
+    contract.markRoleplayActionCommitted(a, { narrationTurnId: `turn_${i}` })
+    const receipt = projection.buildTurnReceiptV1(a, { turnId: `turn_${i}`, parentTurnId: null, store: { currentSessionId: 's1', activeBranchId: 'main', worldId: 'wb1' } })
+    const q = adapter.queueRoleplayArchive(state, { action: a, receipt, scope: receipt.scope })
+    if (!q.ok && q.reason !== 'ROLEPLAY_OUTBOX_CAPACITY') throw new Error('unexpected queue failure')
+    state.receipts.push(receipt)
+  }
+  const stable = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(state)))
+  check('XC-G37 20 分支：6 个放行 pending 全保留（其余被可见背压）', Object.keys(stable.pendingByBranch).length === 6)
+  check('XC-G37 500 回合：outbox 容量背压在 1000 内不丢（500 全保留）', stable.archiveOutbox.length === 500
+    && stable.archiveOutbox[0].turnId === 'turn_0'
+    && Boolean(stable.archiveOutbox.at(-1).payload?.receipt?.receiptId))
+  check('XC-G37 receipts 热窗保持 200（归档真源在 outbox）', stable.receipts.length === 200)
+}
+
+
+// ── CX39/CX42：场次记录、回退失效与手动导出（XC-G34/G39） ──
+{
+  const records = await import(path.join(root, 'src/services/experience/roleplay/roleplayRecords.js'))
+  const scenarioJson2 = JSON.parse(readFileSync(path.join(root, 'src/services/experience/roleplay/fixtures/lampkeeper-scenario.json'), 'utf8'))
+  const scen = scenarioMod.normalizeScenario(scenarioJson2.scenario)
+  const run2 = scenarioMod.createScenarioRun(scen)
+  scenarioMod.moveScenarioRun(run2, scen, { toSceneId: 'scene_stairs' })
+  scenarioMod.applyScenarioOutcome(run2, scen, { actionId: 'act_r1', clueId: 'clue_scuff', outcome: 'success', turnId: 'turn_A' })
+  const record = records.buildScenarioRecord(run2, scen, { sourceRef: records.buildRecordSourceRef({ sessionId: 'sess_x', branchId: 'main', turnId: 'turn_A' }) })
+  check('CX39 摘要锚定来源回合', record.sourceTurnIds.includes('turn_A') && record.events.every((event) => !event.invalidated))
+  // XC-G34：回退使事件失效（保留本体，标记可观测），不覆盖正文。
+  const invalidated = records.invalidateRecordsFrom(record, 'turn_A')
+  check('XC-G34 回退失效标记可观测', invalidated.invalidated >= 1 && record.events.some((event) => event.invalidated))
+  check('XC-G34 摘要不冒称仍有效', record.sourceTurnIds.includes('turn_A') === false)
+  // XC-G39：公开/作者两档导出；白名单构造，无密钥混入。
+  const receiptsForExport = [{ receiptId: 'act_r1', turnId: 'turn_A', committedAt: 1, payloadHash: 'h', scope: { branchId: 'main' } }]
+  const pub = records.exportAdventureRecord({ run: run2, scenario: scen, receipts: receiptsForExport, mode: 'public', sourceRef: records.buildRecordSourceRef({ sessionId: 'sess_x', branchId: 'main' }) })
+  const auth = records.exportAdventureRecord({ run: run2, scenario: scen, receipts: receiptsForExport, mode: 'author', sourceRef: records.buildRecordSourceRef({ sessionId: 'sess_x', branchId: 'main' }) })
+  check('XC-G39 公开档不含失效事件与回执引用', !JSON.stringify(pub).includes('sourceActionId') && !('receiptRefs' in pub))
+  check('XC-G39 作者档含来源与回执引用', JSON.stringify(auth).includes('sourceActionId') && auth.receiptRefs?.length === 1)
+  check('XC-G39 导出白名单构造（无 settings/apiKey 字段）', !JSON.stringify(pub).includes('apiKey') && !JSON.stringify(auth).includes('baseUrl'))
+  check('CX42 导出范围非法拒绝', throwsWithCode(() => records.exportAdventureRecord({ run: run2, scenario: scen, mode: 'everything' }), 'ROLEPLAY_EXPORT_SCOPE_INVALID'))
+}
+
+
+// ── CX31–CX36：单一 AI 同伴（XC-G28/G29/G31 形状级） ──
+{
+  const comp = await import(path.join(root, 'src/services/experience/roleplay/roleplayCompanion.js'))
+  const scenarioJson3 = JSON.parse(readFileSync(path.join(root, 'src/services/experience/roleplay/fixtures/lampkeeper-scenario.json'), 'utf8'))
+  const store3 = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(store3, { mode: 'rules', goal: '' })
+  // CX31：默认未启用；开启后身份明确非玩家、可停用。
+  check('CX31 同伴默认未启用', workflow.getRoleplayCompanionProposal(store3) === null)
+  workflow.setRoleplayCompanionEnabled(store3, { enabled: true })
+  check('CX31 同伴身份非玩家分身且可停用', store3.roleplaySession.companion?.isPlayer === false)
+  workflow.startRoleplayScenario(store3, { scenario: scenarioJson3.scenario })
+  // CX33：确定性提案（值房首条可用线索），白名单来源。
+  const proposal = workflow.getRoleplayCompanionProposal(store3)
+  check('CX33 每轮至多一个提案（确定性）', proposal?.kind === 'check' && proposal.clueId === 'clue_log')
+  // CX36/G31：白名单外提案被硬拒（注入伪造的移动/未知目标）。
+  const view3 = workflow.getRoleplayScenarioView(store3)
+  check('CX36 伪造目标提案被拒', comp.validateProposalAgainstProjection({ kind: 'move', toSceneId: 'scene_vault' }, view3) === false)
+  check('CX36 未知 kind 提案被拒', comp.validateProposalAgainstProjection({ kind: 'spend', resource: 'vitality', amount: -99 }, view3) === false)
+  check('CX31 消耗资源/不可逆动作不在提案白名单', proposal.kind !== 'spend')
+  // CX34：check 提案采纳必须回到玩家确认（不跳过确认面板）。
+  const adopted = workflow.adoptRoleplayCompanionProposal(store3, { proposal })
+  check('CX34 检定提案采纳需玩家确认', adopted.ok === true && adopted.requiresConfirm === true && adopted.clueId === 'clue_log')
+  // 移动提案可执行，但也是显式玩家动作。
+  const moveProposal = { kind: 'move', toSceneId: 'scene_stairs', label: 'x' }
+  check('CX34 移动提案合法目标放行', workflow.adoptRoleplayCompanionProposal(store3, { proposal: moveProposal }).executed === 'move')
+  // CX32：知识上下文降级（不回退全库）。
+  const ctx = comp.buildCompanionContext(view3)
+  check('XC-G29 知识未接线时缩小到公开投影（不回退全库）', ctx.ok === true && ctx.scope === 'scenario-public-only' && ctx.facts.length === 0)
+  // 停用后不再产生提案。
+  workflow.setRoleplayCompanionEnabled(store3, { enabled: false })
+  check('CX31 停用后无提案', workflow.getRoleplayCompanionProposal(store3) === null)
+}
+
+
+// ── CX19：稳定 actorRef 与属性来源区分 ──
+{
+  const actorMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayActor.js'))
+  const actor = actorMod.createActor({ sessionId: 'sess_actor_1', name: '林舟' })
+  check('CX19 actorRef 稳定绑定会话', actor.actorRef === 'actor:player:sess_actor_1')
+  actorMod.setActorOverride(actor, { attribute: 'wits', modifier: 1 })
+  const eff = actorMod.effectiveModifier(actor, 'wits')
+  check('CX19 override 生效且来源=actor', eff.modifier === 1 && eff.source === 'actor')
+  check('CX19 无 override 属性来源=manual-adjust', actorMod.effectiveModifier(actor, 'agility').source === 'manual-adjust')
+  check('CX19 越界 override 拒绝', throwsWithCode(() => actorMod.setActorOverride(actor, { attribute: 'wits', modifier: 9 }), 'ROLEPLAY_MODIFIER_INVALID'))
+  check('CX19 非法属性拒绝', throwsWithCode(() => actorMod.setActorOverride(actor, { attribute: 'luck', modifier: 1 }), 'ROLEPLAY_ATTRIBUTE_INVALID'))
+  const card = actorMod.buildActorCardProjection(actor)
+  check('CX19 角色卡投影五属性带来源', card.attributes.length === 5 && card.attributes.find((a) => a.key === 'wits').source === 'actor')
+  const actorRound = actorMod.normalizeActor(JSON.parse(JSON.stringify(actor)))
+  check('CX19 actor 归一化无损', actorRound.actorRef === actor.actorRef && actorRound.attributeOverrides.wits === 1)
+  // 会话级往返：roleplayState 携带 actor。
+  const stateWithActor = { version: 1, mode: 'rules', actor: JSON.parse(JSON.stringify(actor)) }
+  const st = stateMod.normalizeRoleplaySessionState(stateWithActor)
+  check('CX19 actor 随会话状态往返', st?.actor?.actorRef === 'actor:player:sess_actor_1')
+  // modifierSource 进入 ruleSnapshot。
+  const action = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '带来源行动', attribute: 'wits', modifier: 1, modifierSource: 'actor' })
+  check('CX19 ruleSnapshot 记录 modifierSource=actor', action.ruleSnapshot.modifierSource === 'actor')
+  const manual = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '手动来源行动', attribute: 'wits', modifier: 2 })
+  check('CX19 默认来源=manual-adjust', manual.ruleSnapshot.modifierSource === 'manual-adjust')
+}
+// eslint-disable-next-line no-console
+
+// ── CX32：同伴知识上下文深度路径（A queryFacts 会话域 + 降级） ──
+{
+  const comp = await import(path.join(root, 'src/services/experience/roleplay/roleplayCompanion.js'))
+  const scenarioJson4 = JSON.parse(readFileSync(path.join(root, 'src/services/experience/roleplay/fixtures/lampkeeper-scenario.json'), 'utf8'))
+  const scen4 = scenarioMod.normalizeScenario(scenarioJson4.scenario)
+  const view4 = scenarioMod.buildScenarioPublicProjection(scenarioMod.createScenarioRun(scen4), scen4)
+  // provider 抛异常 → 降级公开投影，不抛出。
+  const degraded = await comp.buildCompanionKnowledgeContext({
+    projection: view4, sessionId: 's1', branchId: 'main',
+    queryFactsFn: async () => { throw new Error('db-down') }, db: {}
+  })
+  check('XC-G29 知识读取故障降级公开投影（不扩大上下文）', degraded.ok === true && degraded.facts.length === 0 && String(degraded.knowledgeScope).startsWith('unavailable:'))
+  // provider 失败返回 → 同样降级。
+  const failed = await comp.buildCompanionKnowledgeContext({
+    projection: view4, sessionId: 's1', branchId: 'main',
+    queryFactsFn: async () => ({ ok: false, reason: 'scope-invalid' }), db: {}
+  })
+  check('CX32 provider 失败如实标记', failed.ok === true && String(failed.knowledgeScope).startsWith('unavailable:'))
+  // 成功路径：只保留同会话事实的白名单字段。
+  const fakeDb = {}
+  const fakeQuery = async (db, input) => ({
+    ok: true,
+    items: [
+      { factKey: 'f1', subjectId: 'npc_guard', predicate: 'motive', value: '欠债', recordedAt: 1, scope: { sessionId: 's1' } },
+      { factKey: 'f2', subjectId: 'npc_other', predicate: 'secret', value: '别书事实', recordedAt: 2, scope: { sessionId: 'other' } },
+      { factKey: 'f3', subjectId: 'npc_guard', predicate: 'leak', value: '字段外内容', recordedAt: 3, scope: { sessionId: 's1' } }
+    ]
+  })
+  const knowledge = await comp.buildCompanionKnowledgeContext({ projection: view4, sessionId: 's1', branchId: 'main', queryFactsFn: fakeQuery, db: fakeDb })
+  check('CX32 作者事实不能冒充角色已知信息', knowledge.scope === 'scenario-public-only' && knowledge.facts.length === 0)
+  check('CX32 别书事实被过滤', !knowledge.facts.some((f) => f.value === '别书事实'))
+}
+
+
+// ── CX38/XC-G23：分支口径资源视图（本分支+共享 delta） ──
+{
+  const resourcesMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+  const state = resourcesMod.createResourceState()
+  resourcesMod.applyResourceDelta(state, { deltaId: 'b_main', resource: 'lampOil', amount: -2, branchId: 'main' })
+  resourcesMod.applyResourceDelta(state, { deltaId: 'b_a', resource: 'vitality', amount: -2, branchId: 'branch_a' })
+  const mainView = resourcesMod.computeResourceValuesForBranch(state, 'main')
+  const aView = resourcesMod.computeResourceValuesForBranch(state, 'branch_a')
+  check('XC-G23 主分支视图不含他分支 delta（灯油-2 计入、活力不计入）', mainView.lampOil === 8 && mainView.vitality === 100)
+  check('XC-G23 分支 A 视图含自身与本干 delta', aView.lampOil === 8 && aView.vitality === 98)
+  const noBranch = resourcesMod.computeResourceValuesForBranch(state, 'branch_b')
+  check('XC-G23 无关分支只见共享 delta', noBranch.vitality === 100 && noBranch.lampOil === 8)
+}
+
+
+// ── CX45：规则版本升级语义（未来规则阈值自洽，不被 v1 引擎静默改写） ──
+{
+  const futureRuleAction = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: 'main', rawInput: '未来规则行动', attribute: 'wits', modifier: 0 })
+  // 模拟未来规则包：阈值不同（9+ 成功），归一化保留其阈值与版本。
+  futureRuleAction.ruleSnapshot.version = 2
+  futureRuleAction.ruleSnapshot.thresholds = { success: 9, partialSuccess: 6 }
+  const normalized = contract.normalizeRoleplayAction(JSON.parse(JSON.stringify(futureRuleAction)))
+  check('CX45 未来规则版本与阈值原样保留', normalized?.ruleSnapshot?.version === 2
+    && normalized.ruleSnapshot.thresholds.success === 9
+    && normalized.ruleSnapshot.thresholds.partialSuccess === 6)
+  const resolved = contract.applyResolution(normalized, { dice: [4, 4], rngTrace: {} })
+  check('CX45 结算按该行动自己的阈值判定（总 8 → 按 v2 阈值=部分成功）', resolved.resolution.total === 8 && resolved.resolution.outcome === 'partial')
+}
+
+
+// ── CX44：混沌补例——叙述请求同步失败/中止后预算与 pending 一致 ──
+{
+  const store = createMockStore({ flushOk: true })
+  workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '' })
+  // sendAction 同步抛错（模拟中止/身份失效）：预算已预扣但 pending 保持 resolved，
+  // 重试路径不被破坏。
+  store.sendAction = async () => { throw Object.assign(new Error('aborted'), { code: 'NARRATIVE_AGENT_ABORTED' }) }
+  let idx = 0
+  await workflow.confirmRoleplayAction(store, {
+    rawInput: '混沌行动', attribute: 'wits', modifier: 0,
+    nextUint32: () => [5, 2][idx++ % 2]
+  }).catch((error) => { store.caughtCode = error.code })
+  const pending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+  check('CX44 叙述中止后 pending 保持 resolved（错误向 UI 传播）', pending?.status === 'resolved' && store.caughtCode === 'NARRATIVE_AGENT_ABORTED')
+  // 恢复正常 sendAction：重试走同一骰点。
+  const sent = []
+  store.sendAction = async (text, options = {}) => { sent.push({ text, options }); return 'success' }
+  await workflow.retryRoleplayNarration(store)
+  check('CX44 重试复用同一骰点与身份', sent.length === 1
+    && sent[0].options.roleplayActionId === pending.actionId
+    && String(sent[0].options.directorNote || '').includes('部分成功'))
+  // 结算后果只应用一次（中止失败 + 成功重试合计只扣一轮）。
+  const costDeltas = store.roleplaySession.resources.deltas.filter((d) => d.sourceRef === 'outcome:partial')
+  check('CX22/CX44 资源代价不因重试重复', costDeltas.length === 1)
+}
+
+
+// ── CX30：12 组固定动作/结果组合（离线确定性部分：机械一致性零容忍） ──
+{
+  const outcomes = ['success', 'partial', 'failure']
+  const actions = [
+    { label: '调查', rawInput: '调查书架后的暗格', attribute: 'wits' },
+    { label: '行动', rawInput: '强行推开石门', attribute: 'physique' },
+    { label: '交涉', rawInput: '向守陵人打听碑文来历', attribute: 'presence' }
+  ]
+  let combo = 0
+  let allFrozen = true
+  let allCostOnce = true
+  let allNoReverse = true
+  for (const action of actions) {
+    for (const outcome of outcomes) {
+      for (const repeat of [false, true]) {
+        combo += 1
+        const store = createMockStore({ flushOk: true })
+        workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: 'CX30' })
+        let idx = 0
+        const samples = outcome === 'success' ? [5, 5] : outcome === 'partial' ? [4, 3] : [1, 1]
+        try {
+          await workflow.confirmRoleplayAction(store, {
+            rawInput: action.rawInput, attribute: action.attribute, modifier: 0,
+            nextUint32: () => samples[idx++ % samples.length]
+          })
+        } catch { /* 失败前进也是合法结算，pending 仍 resolved */ }
+        const pending = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+        if (!pending || pending.resolution.outcome !== outcome) { allFrozen = false; continue }
+        const directive = projection.buildResolutionDirective(pending)
+        // 机械结果不被反转：directive 必须包含该结果的判定与骰点。
+        const expectedLabel = { success: '成功', partial: '部分成功', failure: '失败前进' }[outcome]
+        if (!directive.includes(expectedLabel) || !directive.includes(String(pending.resolution.total))) allNoReverse = false
+        // 重试叙述不改骰点/不改结果；重复结算拒绝。
+        if (repeat) {
+          let conflict = ''
+          try { contract.applyResolution(pending, { dice: [6, 6], rngTrace: {} }) } catch (error) { conflict = error.code }
+          if (conflict !== 'ROLEPLAY_RESOLVE_INVALID_STATE' || pending.resolution.total !== samples.map((v) => (v % 6) + 1).reduce((s, v) => s + v, 0)) allCostOnce = false
+        }
+      }
+    }
+  }
+  check('CX30 12 组合机械结果全部冻结不被反转', allNoReverse)
+  check('CX30 12 组合重复结算全部拒绝（代价/骰点只发生一次）', allCostOnce)
+}
+
+
+// ── CX43 附：长程处理实测耗时（记录真实规模数据，不编造指标） ──
+{
+  const t0 = Date.now()
+  const state = stateMod.createEmptyRoleplaySessionState()
+  for (let i = 0; i < 500; i += 1) {
+    const a = contract.createConfirmedRoleplayAction({ sessionId: 's1', branchId: `br_${i % 10}`, rawInput: `规模行动${i}`, attribute: 'wits', modifier: 0 })
+    contract.applyResolution(a, { dice: [5, 5], rngTrace: {} })
+    contract.markRoleplayActionCommitted(a, { narrationTurnId: `turn_${i}` })
+    const receipt = projection.buildTurnReceiptV1(a, { turnId: `turn_${i}`, parentTurnId: null, store: { currentSessionId: 's1', activeBranchId: `br_${i % 10}`, worldId: 'wb1' } })
+    adapter.queueRoleplayArchive(state, { action: a, receipt, scope: receipt.scope })
+  }
+  const queueMs = Date.now() - t0
+  const t1 = Date.now()
+  const normalized = stateMod.normalizeRoleplaySessionState(JSON.parse(JSON.stringify(state)))
+  const normMs = Date.now() - t1
+  // eslint-disable-next-line no-console
+  console.log(`[cx43-measure] 500 条入队=${queueMs}ms，500 条归一化=${normMs}ms，容量=${normalized.archiveOutbox.length}`)
+  check('CX43 实测：500 条全保留（低于容量上限无背压丢弃）', normalized.archiveOutbox.length === 500)
+}
+
+console.log(`\n=== experience-roleplay-eval: ${passed} passed, ${failed} failed ===`)
+if (failed) {
+  for (const failure of failures) {
+    // eslint-disable-next-line no-console
+    console.error(`FAIL ${failure.name}${failure.detail ? ` :: ${failure.detail}` : ''}`)
+  }
+  process.exit(1)
+}
+
+// ── 测试辅助：轻量 mock store（只暴露 roleplayWorkflow 消费的成员） ──
+function createMockStore({ flushOk }) {
+  return {
+    currentSessionId: 'sess_eval_1',
+    activeBranchId: 'main',
+    worldId: 'wb_eval_1',
+    isLoading: false,
+    lastError: null,
+    pendingDirectorNote: '',
+    roleplaySession: null,
+    roleplayFutureRaw: null,
+    messages: [],
+    sent: [],
+    saveCurrentSession() {},
+    flushSaveSessions() { return flushOk },
+    async sendAction(text, options = {}) {
+      this.sent.push({ text, options })
+      return 'success'
+    }
+  }
+}

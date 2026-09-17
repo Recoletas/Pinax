@@ -713,7 +713,7 @@ export const RUNTIME_SNAPSHOT_KEYS = Object.freeze([
   'writingCharacter', 'writingTime', 'placeStates', 'characterStates',
   'characterRelations', 'canonicalFacts', 'worldMapState', 'historyNode',
   'narrativeSceneSummary', 'sceneThread', 'activeMechanism', 'mechanismContext',
-  'milestoneEvent', 'dialogueMode', 'dialogueCharacter', 'runtimeEvents'
+  'milestoneEvent', 'dialogueMode', 'dialogueCharacter', 'runtimeEvents', 'roleplayRuntime'
 ])
 
 export function normalizeRuntimeSnapshot(snapshot, { forSession = false } = {}) {

@@ -6,16 +6,15 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-17 ABC统一审查 | `text-game-framework` | `main` | 开始审查A `81aa3f9`、B `c00c59b`、C `0dbca43`；保留上一轮计划WIP，逐线合并并做生产接线/备份/分支隔离/界面组合回归。不推送部署，不把分线回执等同完整验收。 |
-| Codex / 2026-09-17 A/C 续跑计划 | `text-game-framework` | `main` | 计划完成：A/C各48项、36/40专项场景；B另接12项公共工作。verify:full exit0（20/200、lint、双build、架构/diff），8本地链接/编号/围栏检查通过。取消夜间O，A持reader/ledger/ZIP，C持session/coordinator，B持media/Shell/package，白天Codex统一ABC；[当前调度](./plan/nightly-20260917-ac-dispatch.md)。仅改文档，未启动续跑、未提交推送。 |
-| A/C首批运行时（其他session） | `pinax-night-memory-20260916` / `night-rpg-c-20260916` | `night/memory-20260916` / `night/roleplay-20260916` | 已核查首批tip A `aa17b47`、C `0f0eea2`，两线有首批交付但未组合验收/合main，不能标整线完成；原9月16日调研计划的“未启动”已不代表现状。B本轮未审进度，不猜测未启动。 |
+| Codex / 2026-09-17 ABC统一审查 | `text-game-framework` | `main` | A `81aa3f9`、B `c00c59b`、C `0dbca43` 交付切片已统一审查、修复并组合回归；主线本地集成提交包含生产reader/ZIP、保存前归档/回执/知识隔离和未知请求修复。verify:full 20/200、漫画30、跑团196+46、记忆及真实coordinator/ZIP故障回归通过。计划保存 `daa2524`；不push/部署，源分支保留。见[组合回执](./agent-runs/nightly-20260917/integration-summary.md)。 |
+| ABC后续 | 原 A/B/C 工作树保留 | `night/memory-20260916` / `night/comics-20260916` / `night/roleplay-20260916` | AX48/CX48/BX12 未全部完成；继续施工前以集成后的新main为基线。无夜间O，不把旧worker回执或测试数当整线完成；[职责与剩余任务](./plan/nightly-20260917-ac-dispatch.md)。 |
 | Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 已随工作区 UI 收口提交推送 `f74545b`。209 次真实 IndexedDB 修订与恢复 smoke exit 0、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）。尚非完整 Utopia 事实/认知时间引擎，下一步以本次 A 线任务书为准。 |
 | Codex / 2026-09-16 Web Alpha completion | `/home/recoletas/jiuguan/text-game-framework` | `main` | 夜间硬任务书剩余项已完成确定性验收并合入 main，已随本轮 main 推送远端；真实外部 provider 与实体设备仍是外部门禁。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
 
-- **2026-09-16 记忆历史 Web 首切已实施并组合验证**：按用户要求直接采用 Dexie 4.4.6，替换首稿的手写 IndexedDB 驱动；候选当前值仍由原同步 owner 写入，原子恢复队列将不可变修订送入数据库。旧数据只建立迁移基线，恢复旧内容产生待确认新修订。移除全局悬浮记忆按钮，设置和作品助手提供按归属查看/审阅/修订入口；完整 ZIP 包含历史并支持冲突拒绝、幂等和恢复失败补偿。隔离浏览器 209 次修订、刷新、跨作品、数据库冲突批次、ZIP 往返/重复恢复、配额失败通过；1440/390 截图已查看。`verify:full` exit 0，20/20 文件、200/200 用例、lint 0 warning、Vite/VitePress、架构与 diff 通过。完整事实图谱、双时态查询、角色认知传播、永久运行事件及桌面 SQLite 尚未完成，见[架构与边界](./engineering/memory-history.md)。
+- **2026-09-17 ABC 当前能力与边界**：在既有 Dexie 修订历史上加入正式事实/证据/决定与双时间查询，实际接入本书创作读取和完整 ZIP；漫画按书页目录、生成结果围栏与仅重试保存；跑团显式 2d6、待回应恢复、持久归档及原创场景/资源。白天组合审查修复了跨域补偿假成功、保存前归档、不可变回执被改写、作者事实冒充角色知识等问题。完整角色知情/历史产品页、漫画跨刷新失败结果恢复、自主模型主持/战役、旧分支历史重建与远程联机仍未完成。当前只对实际交付切片验收，详见[完整证据和剩余项](./agent-runs/nightly-20260917/integration-summary.md)。
 
 - **2026-09-16 Web Alpha 夜间计划未交付项已完成验收**：普通试演可在冻结 manifest 内执行一次 `history_lookup`，路线保存最小 tool receipt，右栏只展示作者可读来源；Ghost 成功采用后可把仍受采用文本支持的一项后果送入既有 pending memory 审核。完整工作区 ZIP 的预览、hash/schema/path 校验、失败补偿、重复恢复和 100 章 + 约 63 MB 来源 + 20 MB 媒体压力样本通过。Authoring 历史/插画/知识/共同排演，Notes 编辑/插画，Prose 交互/导演导出，Experience 会话与 gameStore coordinator 均迁出；五个热点、services 根层、chunk、cycle 和 lint 预算全绿。确定性试演 Gate 207/207；真实外部 provider 未运行。见[组合回执](./agent-runs/nightly-web-alpha-20260915/integration-summary.md)。
 

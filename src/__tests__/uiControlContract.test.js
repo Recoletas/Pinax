@@ -644,7 +644,9 @@ const shellTemplate = appShell.split('<style scoped>')[0]
 }
 {
 expect(inputArea).toContain('<textarea')
-    expect(inputArea).toContain('placeholder="写下行动或续写方向"')
+    // C 线跑团（nightly-20260916）：placeholder 改为动态绑定（轻规则模式提示检定入口），
+    // 默认文案保持不变。共享测试最小补丁，O 复核点。
+    expect(inputArea).toContain('写下行动或续写方向')
     expect(inputArea).toContain('aria-label="发送"')
     expect(inputArea).toContain('aria-label="停止生成"')
     expect(inputArea).toContain('composer-menu')

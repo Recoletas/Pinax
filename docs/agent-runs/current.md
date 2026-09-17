@@ -1,18 +1,18 @@
 # Agent Runs
 
-## 2026-09-17 ABC续跑修订（夜间无O）
+## 2026-09-17 ABC白天统一验收（夜间无O）
 
-当前入口：[ABC调度与写锁](../plan/nightly-20260917-ac-dispatch.md)。A/C首批提交不是整线完成。用户指定夜间共享工作下放ABC，白天Codex统一审查合并；本轮尚未启动续跑worker。
+当前入口：[组合审查回执](./nightly-20260917/integration-summary.md)与[ABC后续职责](../plan/nightly-20260917-ac-dispatch.md)。本轮未新起worker；核对既有交付后由Codex统一集成。计划文档先保存为 `daa2524`，运行时组合回归后本地提交，不push/部署。
 
-本轮计划交付验证：`verify:full` exit0，20文件/200用例、lint、Vite/VitePress、架构/diff；三份新文档8本地链接、围栏与AX48/CX48/BX12/XA-G36/XC-G40编号检查通过。仅证明计划与当前main文档兼容，不代表首批或续跑功能已独立验收。
+本轮新增真实reader/ZIP/会话最终保存故障组合测试；A/B/C原脚本、备份UI与全量门禁在主线重跑。完整角色知识、自主主持、跨刷新图片恢复仍未交付，不按worker自报的completed全量结项。
 
 | ID | 当前已核查分支/基线 | 夜间写集与职责 | 状态 | 任务书 |
 |---|---|---|---|---|
-| A-CONT | `night/memory-20260916@aa17b47` | memory/knowledge、生产reader、历史bridge、统一ZIP | 首批待验收；48项续跑计划编制，未由本轮启动 | [A](../plan/nightly-20260917-memory-continuation.md) |
-| B-CONT | 既有 `night/comics-20260916`，实际tip/WIP执行前查 | 漫画/media、Shell/router、package/lock/许可 | 本轮未审B实际进度；旧B任务+BX01–12公共接线 | [B与共享分工](../plan/nightly-20260917-ac-dispatch.md) |
-| C-CONT | `night/roleplay-20260916@0f0eea2` | roleplay、session/coordinator/gameStore、体验入口与公共UI断言 | 首批待验收；48项续跑计划编制，未由本轮启动 | [C](../plan/nightly-20260917-roleplay-continuation.md) |
+| A-CONT | `night/memory-20260916@81aa3f9` | memory/knowledge、生产reader、历史bridge、统一ZIP | 实际交付已集成并补生产接线；AX18及后续知识/来源工作未完成 | [A](../plan/nightly-20260917-memory-continuation.md) |
+| B-CONT | `night/comics-20260916@c00c59b` | 漫画/media、Shell/router、package/lock/许可 | 实际交付已集成；30项组合门禁；跨刷新保存恢复和部分BX待续 | [B与共享分工](../plan/nightly-20260917-ac-dispatch.md) |
+| C-CONT | `night/roleplay-20260916@0dbca43` | roleplay、session/coordinator/gameStore、体验入口与公共UI断言 | 实际交付已集成并修复归档/回执/知识边界；完整主持/战役待续 | [C](../plan/nightly-20260917-roleplay-continuation.md) |
 
-不创建夜间O工作树/worker，不留默认白天补生产接线。各线夜间更新专属回执，白天Codex汇总全局状态；旧看板以下保留历史证据，冲突时以本节及当前调度为准。
+不创建夜间O工作树/worker。后续施工先以集成后的main为基线，保持ABC领域责任。**以下均为历史回执**，包括早期O交接和“仅计划/未启动”等表述；冲突时以本节与组合回执为准。
 
 ## 2026-09-16 三线夜间调研与计划（仅计划）
 
@@ -25,6 +25,22 @@
 | NIGHT-PLAN-C | rpg_plan / James | 共享树，仅独占跑团任务书 | StoryForge 跑团源码、许可、回合恢复与验收 | 调研完成，无运行时代码写入 | [C](../plan/nightly-20260916-roleplay.md) |
 
 后续 A/B/C 实现 worker、worktree、进程、开始时间均尚未分配；不得将以上研究 agent 视作正在夜间施工。
+
+## 2026-09-17 A 线续跑（AX01–AX18 生产与永久历史；阶段四至八未启动）
+
+用户指派按[续跑任务书](../plan/nightly-20260917-memory-continuation.md)继续同一 worktree；不重建首批。base `aa17b47`；本批 tip 见 git log。O 集成窗口仍未开启；两份 O 锁定文件窄补丁已交并验证。
+
+| ID | Owner | Worktree / Branch | Scope | Status | Output |
+|---|---|---|---|---|---|
+| NIGHT-A-X | Claude worker | `/home/recoletas/jiuguan/pinax-night-memory-20260916` / `night/memory-20260916` | AX01–AX17 completed（AX07/08/11/12 补丁态 partial）、AX18 not-started、AX19–46 not-started、AX45/47 partial | 续跑 smoke exit 0（双页竞态/故障注入/10k+90k 压测/阻塞生命周期）；首批 smoke + 旧 smoke + verify:full 全 exit 0（20/200 保持） | [memory-continuation-summary.md](./nightly-20260917/memory-continuation-summary.md)、patches/*.patch |
+
+## 2026-09-16 三线夜间 A 线执行（仅 A 线；用户直接指派，O 未启动）
+
+用户指派执行 A 线（历史/记忆账本）；B/C 未启动，O 集成窗口未开启。base 冻结 `b5b2b56`，分支 `night/memory-20260916`，未 push，合并等 O 或用户验收。
+
+| ID | Owner | Worktree | Branch | Scope | Status | Output |
+|---|---|---|---|---|---|---|
+| NIGHT-A | Claude worker | `/home/recoletas/jiuguan/pinax-night-memory-20260916` | `night/memory-20260916` | A01–A18 P0 纵向闭环 + A19 存储侧；A 归属写集 | completed（G-A16、A15/A16/A19 接线侧 partial，详见回执）；ledger smoke exit 0、旧 smoke 209 回归 exit 0、vitest 20/200 | [memory-summary.md](./nightly-20260916/memory-summary.md)、ADR [memory-fact-ledger.md](../engineering/memory-fact-ledger.md) |
 
 ## 2026-09-15 夜间架构成果修正
 

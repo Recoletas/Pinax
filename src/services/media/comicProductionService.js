@@ -2,8 +2,11 @@ import { buildComicPanelImageRequest } from './comicImagePrompt'
 import { getComicPanelImageSize } from './comicLayout'
 import {
   addComicPanelStageArtifact,
+  clearComicStagePendingRequest,
+  listComicPages,
   updateComicPanelStage
 } from './comicPageStore'
+import { canSendComicRequest, comicRequestIntentHash, createComicRequestId } from './comicRequestGuard'
 import {
   generateImage,
   getImageProviderCapabilities
@@ -141,11 +144,31 @@ export async function runComicStageGeneration({
   maskImage = '',
   revisionPrompt = '',
   fetchImpl,
-  mediaOptions = {}
+  mediaOptions = {},
+  // B 夜：显式再生成时由调用方传入被批准清除的旧请求 ID；
+  // 未提供而同格仍有未决请求时拒绝发送，不自动重试。
+  approvedClearRequestId = ''
 } = {}) {
   const gate = getComicStageGate({ page, panel, stage, config, mode })
   if (!gate.allowed) throw new Error(gate.reason)
+  // 防重守卫优先读持久化实时状态，调用方快照可能已过期。
+  const livePending = listComicPages({}).find((item) => item.id === page.id)?.panels
+    .find((item) => item.id === panel.id)?.production?.[stage]?.pendingRequest || null
+  const existingPending = livePending || panel.production?.[stage]?.pendingRequest || null
   const inputRevision = getComicStageInputRevision(page, panel, stage)
+  const intentHash = comicRequestIntentHash({
+    pageId: page.id,
+    panelId: panel.id,
+    stage,
+    mode,
+    inputRevision,
+    mask: mode === 'inpaint' ? maskImage : ''
+  })
+  const sendCheck = canSendComicRequest(existingPending, { intentHash })
+  if (!sendCheck.allowed && existingPending.requestId !== approvedClearRequestId) {
+    throw new Error('上一请求结果未知，请先核查或明确选择“重新生成”，避免重复请求')
+  }
+  const requestId = createComicRequestId()
   const selectedStageArtifact = panel.production?.[stage]?.selectedArtifactId || null
   const parentAssetId = mode === 'inpaint'
     ? selectedStageArtifact
@@ -153,7 +176,15 @@ export async function runComicStageGeneration({
   updateComicPanelStage(page.id, panel.id, stage, {
     status: 'working',
     error: null,
-    staleReason: ''
+    staleReason: '',
+    pendingRequest: {
+      requestId,
+      intentHash,
+      inputRevision,
+      stage,
+      mode,
+      sentAt: Date.now()
+    }
   })
   try {
     const imageSize = getComicPanelImageSize(page, panel.order)
@@ -194,7 +225,8 @@ export async function runComicStageGeneration({
       maskImage: mode === 'inpaint' ? maskImage : '',
       fetchImpl
     })
-    const entry = await archiveComicStageArtifact({
+    const archiveResult = await archiveStageArtifactWithRecovery({
+      requestId,
       page,
       panel,
       stage,
@@ -211,17 +243,139 @@ export async function runComicStageGeneration({
       origin: mode === 'inpaint' ? 'edited' : 'generated',
       mediaOptions
     })
-    return entry.page
+    if (archiveResult.retryable) {
+      // 生成成功、媒资保存失败：保留内存结果等待“只重试保存”，不再调用模型。
+      markStageFailure(page.id, panel.id, stage, {
+        code: 'media-persist-failed',
+        message: archiveResult.error?.message || '图片保存失败，可只重试保存',
+        retryable: true
+      })
+      clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
+      const persistError = new Error(archiveResult.error?.message || '图片保存失败，可只重试保存')
+      persistError.code = 'media-persist-failed'
+      persistError.requestId = requestId
+      throw persistError
+    }
+    clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
+    return archiveResult.page
   } catch (error) {
-    updateComicPanelStage(page.id, panel.id, stage, {
-      status: 'failed',
-      error: {
-        code: 'stage_generation_failed',
+    if (error?.code !== 'media-persist-failed') {
+      const rejected = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408
+      markStageFailure(page.id, panel.id, stage, {
+        code: rejected ? 'stage_generation_failed' : 'outcome-unknown',
         message: error?.message || '阶段生成失败',
         retryable: true
-      }
-    })
+      })
+      // Network failure/timeout/5xx can occur AFTER the provider accepted the
+      // image job. Keep its durable identity until explicit user clearance.
+      if (rejected) clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
+    }
     throw error
+  }
+}
+
+// B 夜：媒资保存失败的会话内恢复区。只保存生成结果本身，
+// 不重调模型；刷新后数据 URL 丢失，只能显式重新生成。
+const persistRetryQueue = new Map()
+const PERSIST_RETRY_LIMIT = 3
+
+export function getComicPersistRetry(requestId) {
+  return persistRetryQueue.get(requestId) || null
+}
+
+export function listComicPersistRetries(pageId = '', panelId = '', stage = '') {
+  return [...persistRetryQueue.values()].filter((entry) => (
+    (!pageId || entry.pageId === pageId)
+    && (!panelId || entry.panelId === panelId)
+    && (!stage || entry.stage === stage)
+  ))
+}
+
+export async function retryComicStagePersist(requestId) {
+  const entry = persistRetryQueue.get(requestId)
+  if (!entry) throw new Error('没有待恢复的图片保存任务')
+  const retry = await archiveStageArtifactWithRecovery({ ...entry.payload, requestId })
+  if (retry.retryable) throw retry.error || new Error('图片保存仍然失败')
+  persistRetryQueue.delete(requestId)
+  if (retry.page) clearComicStagePendingRequest(entry.pageId, entry.panelId, entry.stage, requestId)
+  return retry
+}
+
+async function archiveStageArtifactWithRecovery(params) {
+  const { requestId, page, panel, stage, inputRevision, parentAssetId, origin } = params
+  try {
+    const entry = await addGeneratedImageToLibrary(params.storageKey, {
+      prompt: params.prompt,
+      negativePrompt: params.negativePrompt,
+      modelName: params.config.name,
+      modelId: params.config.defaultModel,
+      modelType: params.config.type || 'manual',
+      width: params.width,
+      height: params.height,
+      data: params.data,
+      parentAssetId,
+      createdAt: new Date().toISOString()
+    }, {
+      projectId: params.projectId,
+      purpose: 'comic-panel',
+      parentAssetId,
+      sourceRefs: [
+        ...(page.sourceRefs || []),
+        ...(panel.continuityRefs || []),
+        { refType: 'comic-page', refId: page.id, projectId: params.projectId },
+        { refType: 'comic-panel', refId: panel.id, projectId: params.projectId }
+      ],
+      ...params.mediaOptions
+    })
+    const livePage = listComicPages({}).find((item) => item.id === page.id) || null
+    const livePanel = livePage?.panels.find((item) => item.id === panel.id) || null
+    if (!livePanel) {
+      // 原格在请求期间被删除：媒资留在素材库（sourceRefs 可反查），不复活对象。
+      persistRetryQueue.delete(requestId)
+      return { entry, page: null, retryable: false, targetMissing: true }
+    }
+    const liveInputRevision = getComicStageInputRevision(livePage, livePanel, stage)
+    const inputChanged = liveInputRevision !== inputRevision
+    const saved = addComicPanelStageArtifact(page.id, panel.id, stage, {
+      id: entry.mediaAssetId,
+      parentAssetId,
+      inputRevision,
+      origin,
+      createdAt: Date.now()
+    }, { select: !inputChanged })
+    if (saved && inputChanged) {
+      // 请求发出后作者修改了格内容：候选进入原格候选区，不自动替换现选对象。
+      updateComicPanelStage(page.id, panel.id, stage, {
+        staleReason: '生成请求后格内容已修改，候选未自动选用'
+      })
+    }
+    persistRetryQueue.delete(requestId)
+    return { entry, page: saved, retryable: false, targetMissing: false, staleAttach: inputChanged }
+  } catch (error) {
+    while (persistRetryQueue.size >= PERSIST_RETRY_LIMIT) {
+      const oldest = [...persistRetryQueue.values()].sort((left, right) => left.storedAt - right.storedAt)[0]
+      if (oldest) persistRetryQueue.delete(oldest.requestId)
+    }
+    persistRetryQueue.set(requestId, {
+      requestId,
+      pageId: page.id,
+      panelId: panel.id,
+      stage,
+      payload: { ...params },
+      storedAt: Date.now()
+    })
+    return { entry: null, page: null, retryable: true, error }
+  }
+}
+
+function markStageFailure(pageId, panelId, stage, error) {
+  try {
+    updateComicPanelStage(pageId, panelId, stage, {
+      status: 'failed',
+      error
+    })
+  } catch {
+    // 目标页/格已被删除时不复活它；媒资保留在素材库。
   }
 }
 
@@ -381,10 +535,13 @@ export default {
   archiveUploadedComicStage,
   buildComicStagePrompt,
   getComicBatchEligiblePanels,
+  getComicPersistRetry,
   getComicProductionRoute,
   getComicReferenceCapabilityWarnings,
   getComicStageGate,
   getComicStageInputArtifact,
   getComicStageInputRevision,
+  listComicPersistRetries,
+  retryComicStagePersist,
   runComicStageGeneration
 }

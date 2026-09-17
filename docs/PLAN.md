@@ -4,9 +4,9 @@
 
 ## 当前主线
 
-2026-09-17 用户要求A/C显著扩量，取消夜间O、白天由Codex统一ABC。核查A `aa17b47` / C `0f0eea2` 首批，不能把接口就绪或含partial的回执当整线完成。新增[A续跑48项](./plan/nightly-20260917-memory-continuation.md)、[C续跑48项](./plan/nightly-20260917-roleplay-continuation.md)与[ABC调度修订](./plan/nightly-20260917-ac-dispatch.md)：A持reader/ledger/全域ZIP，C持session/coordinator/outbox，B持media/Shell/package/许可，夜间各线完成生产接线，白天独立审查合并。新增计划尚未执行，本轮只改文档；真实模型/用户数据迁移/部署仍需相应授权。
+2026-09-17 白天按用户要求统一审查实际交付 A `81aa3f9` / B `c00c59b` / C `0dbca43`，集成事实账本/生产读取/完整ZIP、按书漫画工作区与跑团轻规则切片，并修正事务、作用域、不可变回执和未知请求边界。当前结论见[组合验收](./agent-runs/nightly-20260917/integration-summary.md)，不把功能切片等同整份夜间计划完成。[A续跑48项](./plan/nightly-20260917-memory-continuation.md)、[C续跑48项](./plan/nightly-20260917-roleplay-continuation.md)与[ABC调度修订](./plan/nightly-20260917-ac-dispatch.md)继续承接未完成工作：A重点历史UI/角色知识/来源冲突，B重点跨刷新失败结果恢复及制作闭环，C重点旧分支历史与自主主持/战役。夜间无O，白天Codex统一；后续worker基于新main续作。未启动真实模型、用户数据迁移或部署。
 
-2026-09-16 用户要求先提交推送，再充分调研并制定三条夜间任务。既有工作区 UI 与记忆修订首切已在 `f74545b` 推送 main；新的[三线总计划](./plan/nightly-20260916-three-track.md)拆为 [A 历史/记忆](./plan/nightly-20260916-memory.md)、[B 漫画](./plan/nightly-20260916-comics.md)、[C 跑团](./plan/nightly-20260916-roleplay.md)。固定 Utopia/StoryForge 源码，列明复用、P0/储备、数据兼容、共享接缝和验收。当前仅计划，尚未启动实现或定时调度；不把完整事实引擎、AI KP、远程联机或真实图片质量纳入一夜全完成承诺。
+历史依据：2026-09-16 工作区 UI 与记忆修订首切在 `f74545b` 推送 main；固定 Utopia/StoryForge 源码制定[三线总计划](./plan/nightly-20260916-three-track.md)及 A/B/C 分册。当时为调研计划，目前实际实施状态以上方 9月17日组合验收为准，旧计划中的“未启动”不是当前结论。
 
 2026-09-16 工作区一致性修订：用户继续否定各页协调度与切换。解除设定固定最大宽度；移除 AppShell 旧侧栏方向/out-in 动画；标签固定宽度并滚入活动项；统一当前创作页工具栏与素材/漫画表面。地图、体验、联机的内部专业面板未在本轮整体重构，视觉验收仍待用户。
 

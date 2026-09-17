@@ -7,6 +7,7 @@
 import { normalizeNarrativeSceneSummary } from '../agents/narrativeSceneSummary.js'
 import { normalizeNarrativeSceneThread } from '../../../shared/narrativeSceneThreadContract.js'
 import { capRuntimeEvents, RUNTIME_EVENT_LIMIT } from './runtimeEvents.js'
+import { captureRoleplayRuntime, restoreRoleplayRuntime } from './roleplay/roleplayRuntime.js'
 import {
   cloneState,
   normalizeAdventureState,
@@ -38,6 +39,7 @@ const DEFAULT_PLAYER_STATE = Object.freeze({
 // 收敛（forSession 时附加 playerCharacter/aiCharacter，供 loadSession 使用）。
 export function buildRuntimeSnapshot(state, { forSession = true } = {}) {
   const snapshot = {
+    roleplayRuntime: captureRoleplayRuntime(state.roleplaySession),
     messages: cloneState(state.messages, []),
     chatHistory: cloneState(state.chatHistory, []),
     time: cloneState(state.time, { day: 1, period: '早晨' }),
@@ -93,6 +95,7 @@ export function projectRuntimeSnapshot(snapshot, fallbacks = {}) {
   const s = snapshot
   const adventureState = normalizeAdventureState(s)
   return {
+    roleplaySession: restoreRoleplayRuntime(s.roleplayRuntime, fallbacks.roleplaySession),
     placeStates: normalizePlaceStates(s.placeStates),
     characterStates: normalizeCharacterStates(s.characterStates),
     characterRelations: normalizeCharacterRelations(s.characterRelations),

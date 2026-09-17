@@ -503,7 +503,7 @@ async function readJsonResponse(response, providerLabel, signal) {
   if (!response.ok) {
     const details = await readResponseError(response)
     throwIfAborted(signal)
-    throw new Error(`${providerLabel} error: ${response.status}${details ? ` ${details}` : ''}`)
+    throw Object.assign(new Error(`${providerLabel} error: ${response.status}${details ? ` ${details}` : ''}`), { status: response.status })
   }
   const payload = await response.json()
   throwIfAborted(signal)

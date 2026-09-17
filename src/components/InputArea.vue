@@ -208,19 +208,40 @@
       </button>
     </div>
     <div v-if="commandError" class="command-error">{{ commandError }}</div>
+    <!-- C 线跑团：检定确认切片（轻规则模式 + 玩家显式要求检定时展开） -->
+    <RoleplayConfirmPanel
+      :open="roleplayConfirmOpen"
+      :draft-text="inputText"
+      @confirmed="handleRoleplayConfirmed"
+      @dismiss="roleplayConfirmOpen = false"
+      @focus-input="inputRef?.focus()"
+    />
     <div class="input-row">
       <textarea
         ref="inputRef"
         v-model="inputText"
         class="input"
         rows="1"
-        placeholder="写下行动或续写方向"
+        :placeholder="rulesMode ? '写下行动；需要检定点右侧骰子确认规则' : '写下行动或续写方向'"
         @keydown.meta.enter.prevent="handleSend"
         @keydown.ctrl.enter.prevent="handleSend"
         @keydown.escape="inputText = ''"
         @input="handleInput"
         :disabled="gameStore.isLoading"
       />
+      <!-- C 线跑团：轻规则模式下提供显式检定入口（toggle），普通发送不受影响 -->
+      <button
+        v-if="rulesMode && !gameStore.isLoading"
+        class="info-btn control-icon"
+        type="button"
+        :aria-pressed="roleplayConfirmOpen.toString()"
+        :title="roleplayConfirmOpen ? '收起检定确认' : '本次行动需要检定（2d6）'"
+        aria-label="检定"
+        data-testid="rp-dice-toggle"
+        @click="roleplayConfirmOpen = !roleplayConfirmOpen"
+      >
+        <Dices :size="17" stroke-width="1.8" aria-hidden="true" />
+      </button>
       <!-- U3：发送是输入区唯一实色主动作；停止在同一位置替换（无布局跳动） -->
       <button
         v-if="gameStore.isLoading"
@@ -238,7 +259,8 @@
         type="button"
         aria-label="发送"
         @click="handleSend"
-        :disabled="!inputText.trim()"
+        :disabled="!inputText.trim() || Boolean(roleplaySendBlocked)"
+        :title="roleplaySendBlocked || ''"
       >
         <Send :size="16" stroke-width="1.8" aria-hidden="true" />
       </button>
@@ -266,13 +288,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
-import { MoreHorizontal, Send, Square } from 'lucide-vue-next'
+import { MoreHorizontal, Send, Square, Dices } from 'lucide-vue-next'
 import { useGameStore } from '../stores/gameStore'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { buildContextMessage } from '../services/api'
 import { describeWorldbookWarning } from '../services/worldbook/worldbookContextBuilder'
 import { estimateTokens } from '../composables/useTokenEstimate'
 import { buildNarrativeFormatInstructions } from '../services/narrativePresentation'
+import RoleplayConfirmPanel from './experience/roleplay/RoleplayConfirmPanel.vue'
 
 const emit = defineEmits(['send', 'manual-input', 'toggle-auto-advance'])
 defineProps({
@@ -299,6 +322,25 @@ const inputText = ref('')
 const inputRef = ref(null)
 const showPromptInfo = ref(false)
 const composerMenuOpen = ref(false)
+// C 线跑团：检定确认切片开合与模式派生（状态真源在 gameStore.roleplaySession）。
+const roleplayConfirmOpen = ref(false)
+const rulesMode = computed(() => gameStore.roleplaySession?.mode === 'rules')
+// 存在可推进 pending 时阻断普通发送（pending 条给出重试/放弃入口）。
+const roleplaySendBlocked = computed(() => {
+  if (!rulesMode.value) return ''
+  const state = gameStore.roleplaySession
+  const pending = state?.pendingByBranch?.[gameStore.activeBranchId || 'main']
+  if (!pending) return ''
+  return pending.status === 'resolved'
+    ? '已检定、等待回应：请先请求回应或放弃本次检定'
+    : '检定已确认，请先完成掷骰或放弃'
+})
+
+function handleRoleplayConfirmed() {
+  // 确认→骰点→保存→叙述由服务层完成；这里只清空输入并收起确认切片。
+  roleplayConfirmOpen.value = false
+  inputText.value = ''
+}
 // R2：本轮导演注（仅下一轮生效）
 const directorNote = ref('')
 const showDirectorNote = ref(false)

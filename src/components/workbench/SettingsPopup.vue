@@ -145,6 +145,8 @@
             <span v-if="workspaceBundle.inspection.createdAt">备份生成于 {{ workspaceBundle.inspection.createdAt }}</span>
             <span>恢复将：新增 {{ workspaceBundle.inspection.counts.add }} 项 · 覆盖 {{ workspaceBundle.inspection.counts.overwrite }} 项 · 内容相同跳过 {{ workspaceBundle.inspection.counts.skip }} 项</span>
             <span v-if="workspaceBundle.inspection.memoryHistoryCount">记忆历史 {{ workspaceBundle.inspection.memoryHistoryCount }} 条；同版本不重复导入，冲突版本拒绝覆盖</span>
+            <span v-if="workspaceBundle.inspection.factLedgerCount">事实账本 {{ workspaceBundle.inspection.factLedgerCount }} 条；包含证据、决定与跑团回执</span>
+            <span v-if="workspaceBundle.inspection.missingDomains?.includes('factLedger')">旧备份不含事实账本，现有账本不会被清空</span>
             <span v-if="workspaceBundle.inspection.counts.missingBinary" class="backup-review__error">缺少媒体原件 {{ workspaceBundle.inspection.counts.missingBinary }} 项（仅恢复元数据）</span>
             <span v-if="workspaceBundle.inspection.counts.unrestoreable" class="backup-review__error">无法恢复 {{ workspaceBundle.inspection.counts.unrestoreable }} 项（schema 版本不符）</span>
             <span v-if="workspaceBundle.inspection.rejectedSecretKeys.length">已排除 {{ workspaceBundle.inspection.rejectedSecretKeys.length }} 个模型配置密钥键</span>

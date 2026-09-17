@@ -1,0 +1,133 @@
+{
+  "description": "Pinax 跑团线原创场景夹具（CX13）：5 场景、主线/支路/返回路径、两个结局。内容为本仓库原创合成，不复制上游模组；仅学习『目标/检定/线索/结局如何连接』的结构。",
+  "scenario": {
+    "schemaVersion": 1,
+    "scenarioId": "scn_lampkeeper",
+    "revision": "rev_fixture_lampkeeper_1",
+    "title": "雾塔来客",
+    "scenes": [
+      {
+        "id": "scene_desk",
+        "title": "灯塔值房",
+        "description": "暴雨夜的值房，炉火将熄。值班日志摊在桌上，通向梯井的门半开着。",
+        "exits": [
+          { "toSceneId": "scene_stairs", "label": "登上螺旋梯" },
+          { "toSceneId": "scene_reef", "label": "去礁石滩查看" }
+        ],
+        "clueIds": ["clue_log"]
+      },
+      {
+        "id": "scene_stairs",
+        "title": "螺旋梯井",
+        "description": "梯井在黑暗中向上盘旋，海风从破损的窗缝灌入，台阶上似有新鲜的刮痕。",
+        "exits": [
+          { "toSceneId": "scene_lamp_room", "label": "抵达灯室" },
+          { "toSceneId": "scene_desk", "label": "回到值房" },
+          { "toSceneId": "scene_cottage", "label": "从后门去看守小屋" }
+        ],
+        "clueIds": ["clue_scuff"]
+      },
+      {
+        "id": "scene_lamp_room",
+        "title": "灯室",
+        "description": "巨大的透镜蒙着盐雾，灯油几乎见底，机关面板上少了一枚手柄。",
+        "exits": [
+          { "toSceneId": "scene_stairs", "label": "沿梯井下去" }
+        ],
+        "clueIds": ["clue_mechanism"]
+      },
+      {
+        "id": "scene_reef",
+        "title": "礁石滩",
+        "description": "搁浅的小船随浪起伏，雾墙外偶有汽笛声，方向难以分辨。",
+        "exits": [
+          { "toSceneId": "scene_desk", "label": "返回值房" },
+          { "toSceneId": "scene_cottage", "label": "沿海岸去小屋" }
+        ],
+        "clueIds": ["clue_boot"]
+      },
+      {
+        "id": "scene_cottage",
+        "title": "看守小屋",
+        "description": "半山腰的小屋门窗紧闭，烟囱却还有余温——有人刚离开，或仍在里面。",
+        "exits": [
+          { "toSceneId": "scene_stairs", "label": "从后门回梯井" },
+          { "toSceneId": "scene_reef", "label": "回礁石滩" }
+        ],
+        "clueIds": ["clue_guard_note"]
+      }
+    ],
+    "clues": [
+      {
+        "id": "clue_log",
+        "name": "值班日志的字迹",
+        "summary": "最后一页记录了『灯下的第三个人』，墨迹被雨水洇开。",
+        "actionText": "凑近炉火，辨认值班日志最后一页的字迹",
+        "visibility": "available",
+        "attribute": "wits",
+        "modifier": 1,
+        "locationSceneId": "scene_desk"
+      },
+      {
+        "id": "clue_scuff",
+        "name": "梯井的新鲜刮痕",
+        "summary": "刮痕方向朝上，边缘附着灯油——有人提着重物上楼。",
+        "actionText": "借提灯细看台阶上的刮痕",
+        "visibility": "locked",
+        "attribute": "agility",
+        "modifier": 0,
+        "locationSceneId": "scene_stairs",
+        "failForward": {
+          "unlockClueId": "clue_guard_note",
+          "eventText": "脚下一滑撞响了铁栏，小屋方向传来一声门响——有人在家。"
+        }
+      },
+      {
+        "id": "clue_mechanism",
+        "name": "灯室机关的缺失手柄",
+        "summary": "手柄被人卸下带走，灯室无法点亮——这就是灯塔熄灭的原因。",
+        "actionText": "检查机关面板，确认缺失的手柄",
+        "visibility": "locked",
+        "attribute": "wits",
+        "modifier": 0,
+        "requiresClueIds": ["clue_log"],
+        "locationSceneId": "scene_lamp_room"
+      },
+      {
+        "id": "clue_boot",
+        "name": "小船里的成人靴子",
+        "summary": "靴子型号与看守平日所穿不符，船舱有近日使用的水渍。",
+        "actionText": "翻看小船里留下的靴子与水渍",
+        "visibility": "locked",
+        "attribute": "presence",
+        "modifier": 0,
+        "locationSceneId": "scene_reef",
+        "grantsItem": "lampOilFlask"
+      },
+      {
+        "id": "clue_guard_note",
+        "name": "门口的字条",
+        "summary": "字条写着『灯我点上了，别找我』——落款是看守自己的笔迹。",
+        "actionText": "拾起门口压着的字条",
+        "visibility": "locked",
+        "attribute": "presence",
+        "modifier": 0,
+        "locationSceneId": "scene_cottage"
+      }
+    ],
+    "endings": [
+      {
+        "id": "end_truth",
+        "label": "真相大白：看守自己卸下了手柄，把灯搬去了小屋",
+        "requireClueIds": ["clue_mechanism", "clue_guard_note"],
+        "requireSceneId": "scene_cottage"
+      },
+      {
+        "id": "end_return",
+        "label": "折返而归：证据不足，只能在雾散前先行撤离",
+        "requireClueIds": ["clue_boot"],
+        "requireSceneId": "scene_desk"
+      }
+    ]
+  }
+}

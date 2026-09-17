@@ -1,0 +1,29 @@
+{
+  "description": "A/C 协议 §5.1 交接样例：TurnReceiptV1 生产序列化形态。C 生成（roleplayProjection.serializeRoleplayReceipt），A 消费（factLedger.appendCommittedTurnReceipt）。scope 与 receipt 分开传递；branchId 不可为 null；bookId 独立跑团可为 null。同 receiptId 重复投递由 A 幂等吸收；同 ID 异内容 A 返回 receipt-conflict。",
+  "schemaMarker": "pinax.roleplay.turn-receipt-v1",
+  "serializedReceipt": {
+    "receiptId": "act_mabcd01_x7k2p9",
+    "commandId": "act_mabcd01_x7k2p9",
+    "turnId": "narrative_mabcd02_q3m8v0",
+    "parentTurnId": "narrative_mabcd01_a1b2c3",
+    "branchId": "main",
+    "rulesVersion": "pinax-roleplay-2d6@1",
+    "resolutionRef": "9f2c1a4e5b6d7c8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e",
+    "stateDeltaRefs": [],
+    "evidenceRefs": ["session:sess_demo_001:turn:narrative_mabcd02_q3m8v0"],
+    "committedAt": 1758067200000
+  },
+  "scope": {
+    "domain": "session",
+    "bookId": null,
+    "worldbookId": "wb_demo_001",
+    "sessionId": "sess_demo_001",
+    "branchId": "main"
+  },
+  "localOnlyFieldsNotSerialized": ["schemaVersion", "actionId", "scope", "payloadHash"],
+  "duplicateDeliverySemantics": {
+    "sameReceiptIdSameContent": "{ ok:true, replay:true }（A 侧幂等，队列可安全清理）",
+    "sameReceiptIdDifferentContent": "{ ok:false, reason:'receipt-conflict' }（C 侧保留 outbox，不覆盖不丢弃）",
+    "dbUnavailable": "{ ok:false, reason:LEDGER_FAILURE_REASONS.dbUnavailable, retryable:true }"
+  }
+}

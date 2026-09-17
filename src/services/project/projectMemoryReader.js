@@ -1,4 +1,8 @@
 import { rankMemoryCandidates } from '../memory/memoryRetrieval'
+// AX07/AX08: optional
+// repository.ledgerFacts serves author-confirmed facts through the SAME read
+// path; migrated legacy candidates are suppressed from ranking (no double
+// recall). Implementation: src/services/memory/ledger/ledgerProductionAdapter.js
 
 function text(value) {
   return String(value ?? '').trim()
@@ -23,8 +27,16 @@ export function createProjectMemoryReader(repository) {
     const selectedText = text(request?.intent?.selectedText)
     const query = instruction || selectedText
 
+    // Facts enter the same ranking path; suppression removes migrated legacy
+    // candidates so a memory never reaches the context twice.
+    const ledger = typeof repository.ledgerFacts === 'function'
+      ? await repository.ledgerFacts({ instruction, query, context })
+      : null
+    const suppressLegacy = ledger?.suppressLegacyCandidateIds || new Set()
     const result = rankMemoryCandidates({
-      candidates,
+      candidates: suppressLegacy.size
+        ? candidates.filter((item) => !suppressLegacy.has(item.id))
+        : candidates,
       query,
       authorId: text(context.authorId),
       projectId: text(context.projectId),
@@ -48,6 +60,10 @@ export function createProjectMemoryReader(repository) {
         reason: 'relevance-above-threshold'
       }
     })
+
+    if (ledger?.blocks?.length) {
+      blocks.push(...ledger.blocks.filter((block) => block && typeof block === 'object'))
+    }
 
     if (result.excluded.length) {
       const byReason = {}

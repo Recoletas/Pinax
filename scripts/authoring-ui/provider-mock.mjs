@@ -142,6 +142,7 @@ export async function installDeterministicProviderMock(page, {
   sceneDirections = null,
   expectedSelectedDirection = '',
   excludedDirectionTexts = [],
+  primaryRequestPrefixes = ['authoring:'],
 } = {}) {
   const requests = []
   await page.addInitScript(({ configId, passive }) => {
@@ -235,7 +236,7 @@ export async function installDeterministicProviderMock(page, {
     const toolNames = Array.isArray(payload.tools)
       ? payload.tools.map((tool) => String(tool?.name || ''))
       : []
-    const primaryRequest = requestId.startsWith('authoring:')
+    const primaryRequest = primaryRequestPrefixes.some(prefix => requestId.startsWith(prefix))
     let phase = 'unknown'
     if (requestId.startsWith('critic-')) phase = 'critic'
     else if (primaryRequest && toolNames.length === 1 && toolNames[0] === 'submit_narrative_beat_plan') phase = 'plan'

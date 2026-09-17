@@ -55,6 +55,8 @@
         />
         <p v-if="experienceSourceStatus" class="experience-source-status" role="status">{{ experienceSourceStatus }}</p>
         <NarrativeAgentStatus :status="visibleNarrativeAgentStatus" @retry="retryNarrativeGeneration" />
+        <!-- C 线跑团：归档状态/已检定待回应/起团模式单挂载点 -->
+        <RoleplayWorkspaceBar />
         <InputArea
           :auto-advance="autoAdvanceEnabled"
           :auto-advance-available="canUseAutoAdvance"
@@ -478,6 +480,7 @@ import {
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
 import { useTipState } from '../composables/useTipState'
 import { useExperienceReadingPreferences } from '../composables/useExperienceReadingPreferences'
+import RoleplayWorkspaceBar from '../components/experience/roleplay/RoleplayWorkspaceBar.vue'
 import { buildScopedMemoryRecallContext } from '../services/memory/memoryCandidates'
 import { buildExperienceAgentContext } from '../services/agents/experienceAgentContext'
 import { validateExperienceAgentResult } from '../services/agents/experienceAgentResults'

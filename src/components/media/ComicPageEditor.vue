@@ -1,10 +1,12 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import autosize from 'autosize'
 import ComicPagePreview from './ComicPagePreview.vue'
 import ComicStageWorkbench from './ComicStageWorkbench.vue'
 import ImageModelPicker from './ImageModelPicker.vue'
 import { generateImage } from '../../services/media/imageProviderService'
 import { buildComicPanelImageRequest } from '../../services/media/comicImagePrompt'
+import { canSendComicRequest, comicRequestIntentHash, createComicRequestId } from '../../services/media/comicRequestGuard'
 import {
   getComicCanvasSize,
   getComicImageStyle,
@@ -21,12 +23,14 @@ import { addGeneratedImageToLibrary, getMediaAssetDataUrl } from '../../services
 import {
   addComicPanelTake,
   buildComicPageManifest,
+  clearComicPanelPendingGeneration,
   createComicPage,
   canBatchGenerateComicPage,
   findComicPageBySources,
   hydrateComicPageTakes,
   listComicPages,
   saveComicPage,
+  setComicPanelPendingGeneration,
   updateComicPageColorMode,
   updateComicPageComposition,
   updateComicPageStyleBible,
@@ -54,7 +58,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:selectedModelId', 'save-to-material', 'configs-updated', 'page-preview', 'page-saved', 'active-panel-source-change', 'active-panel-change'])
+const editorRoot = ref(null)
 const comicPage = ref(null)
+const panelRequestNotice = ref('')
+const highlightedObjectId = ref('')
+let highlightTimer = null
 const panelCount = ref(4)
 const draftFormat = ref('page-ltr')
 const draftLayout = ref('strip-4')
@@ -119,7 +127,14 @@ watch([() => props.pageId, () => props.standalone ? '' : sourceSignature(props.s
 }, { immediate: true })
 watch(comicPage, (page) => {
   emit('page-preview', page)
+  refreshAutosize()
 }, { deep: true })
+watch([() => compactWorkspace.value, () => props.compact], () => refreshAutosize())
+onMounted(refreshAutosize)
+onBeforeUnmount(() => {
+  clearTimeout(highlightTimer)
+  destroyAutosize()
+})
 watch(activePanelSourceId, (sourceId) => {
   emit('active-panel-source-change', sourceId)
 }, { immediate: true })
@@ -261,13 +276,39 @@ async function handleProductionPageSaved(saved) {
   emit('page-saved', saved)
 }
 
+function panelIntentSignature(panel) {
+  return JSON.stringify({
+    visual: panel?.visual || '',
+    beat: panel?.beat || null,
+    dialogue: panel?.dialogue || [],
+    caption: panel?.caption || '',
+    continuityRefs: panel?.continuityRefs || [],
+    direction: panel?.direction || null,
+    referenceBindings: panel?.referenceBindings || []
+  })
+}
+
 async function generatePanel(panel) {
   const config = props.modelConfigs.find((item) => item.id === props.selectedModelId)
   if (!config || (props.standalone && !panelSourceId(panel))) return
   const pageId = comicPage.value.id
+  const livePanel = comicPage.value.panels.find((item) => item.id === panel.id)
+  if (!livePanel) return
+  const pendingGuard = canSendComicRequest(livePanel.pendingGeneration, {})
+  if (!pendingGuard.allowed) {
+    panelRequestNotice.value = '上一请求结果未知（可能在刷新前已发出）。请先“清除未知记录”或明确点击“重新生成”。'
+    return
+  }
+  const requestId = createComicRequestId()
   const pageSourceRefs = [...comicPage.value.sourceRefs]
   const projectId = props.projectId
   const panelId = panel.id
+  const intentHash = comicRequestIntentHash({
+    pageId,
+    panelId,
+    signature: panelIntentSignature(livePanel),
+    providerType: config.type
+  })
   const orderedPanels = [...comicPage.value.panels].sort((a, b) => a.order - b.order)
   const panelIndex = orderedPanels.findIndex((item) => item.id === panelId)
   const previousPanel = panelIndex > 0 ? orderedPanels[panelIndex - 1] : null
@@ -284,7 +325,10 @@ async function generatePanel(panel) {
     previousImageData,
     targetAspect: `${imageSize.width}:${imageSize.height}`
   })
-  patchRuntimePanel(panel.id, { generationStatus: 'generating', generationError: '' })
+  panelRequestNotice.value = ''
+  const pendingMark = { requestId, intentHash, sentAt: Date.now() }
+  patchRuntimePanel(panel.id, { generationStatus: 'generating', generationError: '', pendingGeneration: pendingMark })
+  setComicPanelPendingGeneration(pageId, panelId, pendingMark)
   updateComicPanel(pageId, panelId, { generationStatus: 'generating', generationError: '' })
   try {
     const data = await generateImage(config, {
@@ -313,16 +357,27 @@ async function generatePanel(panel) {
         { refType: 'comic-panel', refId: panelId, projectId }
       ]
     })
-    const saved = addComicPanelTake(pageId, panelId, entry.mediaAssetId, { select: true })
+    clearComicPanelPendingGeneration(pageId, panelId, requestId)
+    // 晚返回围栏：请求期间作者改过本格内容，新图只进候选区，不替换现选画面。
+    const liveAtReturn = listComicPages({}).find((item) => item.id === pageId)?.panels
+      .find((item) => item.id === panelId) || null
+    const changedDuringFlight = liveAtReturn
+      ? comicRequestIntentHash({ pageId, panelId, signature: panelIntentSignature(liveAtReturn), providerType: config.type }) !== intentHash
+      : true
+    const saved = addComicPanelTake(pageId, panelId, entry.mediaAssetId, { select: !changedDuringFlight })
     if (saved && comicPage.value?.id === pageId) {
       comicPage.value = await hydrateComicPageTakes(saved)
+      panelRequestNotice.value = changedDuringFlight
+        ? '生成完成，但请求期间本格已修改：新图已进入候选区，未替换现选画面'
+        : '生成完成：新图已进入候选区'
       emit('page-saved', comicPage.value)
     }
   } catch (error) {
     const message = error?.message || '本格图片生成失败'
+    clearComicPanelPendingGeneration(pageId, panelId, requestId)
     updateComicPanel(pageId, panelId, { generationStatus: 'error', generationError: message })
     if (comicPage.value?.id === pageId) {
-      patchRuntimePanel(panelId, { generationStatus: 'error', generationError: message })
+      patchRuntimePanel(panelId, { generationStatus: 'error', generationError: message, pendingGeneration: null })
     }
   }
 }
@@ -566,7 +621,17 @@ function updateLetteringTail(panelId, objectId, tailTarget) {
   return true
 }
 
-defineExpose({ reloadPage: loadStoredPage, updateLetteringBox, updateLetteringTail })
+defineExpose({
+  reloadPage: loadStoredPage,
+  updateLetteringBox,
+  updateLetteringTail,
+  flushPendingEdits: () => {
+    const element = typeof document !== 'undefined' ? document.activeElement : null
+    if (element && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') && typeof element.blur === 'function') {
+      element.blur()
+    }
+  }
+})
 
 let letteringDrag = null
 let imagePan = null
@@ -934,31 +999,79 @@ function exportManifest() {
   URL.revokeObjectURL(url)
 }
 
-async function exportPageImage(format = 'png') {
-  const canvas = await renderPublicationCanvas()
+// B16：导出一次捕获当前页快照并预解析全部媒体；导出过程中切换候选/编辑
+// 不会混入本次成品（G-B26）。缺最终画面的格阻断成品导出，只允许显式的
+// 「分镜草稿」导出并打上水印（G-B27）。
+const exportBlockReason = ref('')
+
+async function buildExportSnapshot() {
+  if (!comicPage.value || typeof document === 'undefined') return null
+  const source = JSON.parse(JSON.stringify(comicPage.value))
+  const route = getComicProductionRoute(source)
+  const finalStage = route[route.length - 1]
+  const dataById = new Map()
+  const missingPanels = []
+  for (const panel of source.panels) {
+    const artifactId = panel.production?.[finalStage]?.selectedArtifactId
+    const takeId = artifactId || panel.selectedTakeId
+    let data = ''
+    if (takeId) {
+      data = dataById.get(takeId) || ''
+      if (!data) {
+        try {
+          data = await getMediaAssetDataUrl(takeId)
+        } catch {
+          data = ''
+        }
+        if (data) dataById.set(takeId, data)
+      }
+    }
+    panel.exportData = data || ''
+    panel.exportImage = null
+    if (data) {
+      try {
+        panel.exportImage = await loadCanvasImage(data)
+      } catch {
+        panel.exportImage = null
+      }
+    }
+    if (!panel.exportImage) missingPanels.push(panel)
+  }
+  return { page: source, missingPanels, draft: false }
+}
+
+async function exportPageImage(format = 'png', { draft = false } = {}) {
+  const snapshot = await prepareExport(draft)
+  if (!snapshot) return
+  const canvas = renderSnapshotCanvas(snapshot, draft)
   if (!canvas) return
   const mime = format === 'webp' ? 'image/webp' : 'image/png'
   const extension = format === 'webp' ? 'webp' : 'png'
-  downloadDataUrl(canvas.toDataURL(mime, 0.92), `${safeFilename(comicPage.value.title)}.${extension}`)
+  downloadDataUrl(canvas.toDataURL(mime, 0.92), `${safeFilename(snapshot.page.title)}${draft ? '.分镜草稿' : ''}.${extension}`)
 }
 
-async function exportPagePdf() {
-  const canvas = await renderPublicationCanvas()
+async function exportPagePdf({ draft = false } = {}) {
+  const snapshot = await prepareExport(draft)
+  if (!snapshot) return
+  const canvas = renderSnapshotCanvas(snapshot, draft)
   if (!canvas) return
-  downloadBlob(canvasToPdfBlob(canvas), `${safeFilename(comicPage.value.title)}.pdf`)
+  downloadBlob(canvasToPdfBlob(canvas), `${safeFilename(snapshot.page.title)}${draft ? '.分镜草稿' : ''}.pdf`)
 }
 
-async function exportWebtoonSlices() {
-  const canvas = await renderPublicationCanvas()
-  if (!canvas || comicPage.value?.format !== 'webtoon') return
+async function exportWebtoonSlices({ draft = false } = {}) {
+  const snapshot = await prepareExport(draft)
+  if (!snapshot) return
+  if (snapshot.page.format !== 'webtoon') return
+  const canvas = renderSnapshotCanvas(snapshot, draft)
+  if (!canvas) return
   const maxSliceHeight = 1600
   let startY = 0
   let index = 1
   while (startY < canvas.height) {
     let endY = Math.min(canvas.height, startY + maxSliceHeight)
     if (endY < canvas.height) {
-      const nextPanelEnd = comicPage.value.panels
-        .map((panel) => getComicPanelRect(comicPage.value, panel.order))
+      const nextPanelEnd = snapshot.page.panels
+        .map((panel) => getComicPanelRect(snapshot.page, panel.order))
         .map((rect) => rect.y + rect.height)
         .filter((value) => value > startY && value <= endY)
         .sort((left, right) => right - left)[0]
@@ -968,15 +1081,26 @@ async function exportWebtoonSlices() {
     slice.width = canvas.width
     slice.height = Math.max(1, endY - startY)
     slice.getContext('2d')?.drawImage(canvas, 0, startY, canvas.width, slice.height, 0, 0, canvas.width, slice.height)
-    downloadDataUrl(slice.toDataURL('image/png'), `${safeFilename(comicPage.value.title)}-${String(index).padStart(2, '0')}.png`)
+    downloadDataUrl(slice.toDataURL('image/png'), `${safeFilename(snapshot.page.title)}${draft ? '.分镜草稿' : ''}-${String(index).padStart(2, '0')}.png`)
     startY = endY
     index += 1
   }
 }
 
-async function renderPublicationCanvas() {
-  if (!comicPage.value || typeof document === 'undefined') return
-  const { width, height } = getComicCanvasSize(comicPage.value.canvas)
+async function prepareExport(draft) {
+  const snapshot = await buildExportSnapshot()
+  if (!snapshot) return null
+  if (snapshot.missingPanels.length && !draft) {
+    exportBlockReason.value = `第 ${snapshot.missingPanels.map((panel) => panel.order).join('、')} 格缺少最终画面，已阻断成品导出；可先补齐画面，或导出带水印的分镜草稿。`
+    return null
+  }
+  exportBlockReason.value = ''
+  return snapshot
+}
+
+function renderSnapshotCanvas(snapshot, draft) {
+  const page = snapshot.page
+  const { width, height } = getComicCanvasSize(page.canvas)
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -985,24 +1109,18 @@ async function renderPublicationCanvas() {
 
   context.fillStyle = '#f7f4ed'
   context.fillRect(0, 0, width, height)
-  for (let index = 0; index < comicPage.value.panels.length; index += 1) {
-    const panel = comicPage.value.panels[index]
-    const rect = getComicPanelRect(comicPage.value, panel.order)
+  for (const panel of page.panels) {
+    const rect = getComicPanelRect(page, panel.order)
     if (!rect) continue
-    const take = await publicationTake(panel)
     context.save()
     context.beginPath()
     context.rect(rect.x, rect.y, rect.width, rect.height)
     context.clip()
     context.fillStyle = '#e9e5dc'
     context.fillRect(rect.x, rect.y, rect.width, rect.height)
-    if (take?.data) {
-      try {
-        const image = await loadCanvasImage(take.data)
-        drawCoverImage(context, image, rect, panel.direction?.focalPoint, panel.direction?.zoom)
-      } catch {
-        drawPanelPlaceholder(context, panel, rect)
-      }
+    const image = panel.exportImage
+    if (image) {
+      drawCoverImage(context, image, rect, panel.direction?.focalPoint, panel.direction?.zoom)
     } else {
       drawPanelPlaceholder(context, panel, rect)
     }
@@ -1013,22 +1131,21 @@ async function renderPublicationCanvas() {
     context.strokeRect(rect.x, rect.y, rect.width, rect.height)
   }
 
+  if (draft) drawDraftWatermark(context, width, height)
   return canvas
 }
 
-async function publicationTake(panel) {
-  const route = getComicProductionRoute(comicPage.value || {})
-  const finalStage = route[route.length - 1]
-  const artifactId = panel.production?.[finalStage]?.selectedArtifactId
-  if (artifactId) {
-    try {
-      const data = await getMediaAssetDataUrl(artifactId)
-      if (data) return { id: artifactId, data }
-    } catch {
-      // Fall back to the legacy take when a binary artifact was removed.
-    }
-  }
-  return selectedTake(panel)
+function drawDraftWatermark(context, width, height) {
+  context.save()
+  context.globalAlpha = 0.16
+  context.fillStyle = '#1f2630'
+  context.font = `600 ${Math.round(width / 14)}px sans-serif`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.translate(width / 2, height / 2)
+  context.rotate(-Math.PI / 9)
+  context.fillText('分镜草稿 · 非成品', 0, 0)
+  context.restore()
 }
 
 function downloadDataUrl(url, filename) {
@@ -1127,6 +1244,71 @@ function panelStateLabel(panel) {
   if (panel.generationStatus === 'error') return '失败'
   if (panel.selectedTakeId) return `${panel.imageTakeIds.length} 个候选`
   return '待生成'
+}
+
+function acknowledgePanelRequest(panel, action) {
+  const pending = panel.pendingGeneration
+  if (!pending || !comicPage.value) return
+  clearComicPanelPendingGeneration(comicPage.value.id, panel.id, pending.requestId)
+  if (action === 'regenerate') {
+    patchRuntimePanel(panel.id, { pendingGeneration: null, generationStatus: 'idle', generationError: '' })
+    void generatePanel(panel)
+    return
+  }
+  patchRuntimePanel(panel.id, {
+    pendingGeneration: null,
+    generationStatus: panel.imageTakeIds.length ? 'ready' : 'idle',
+    generationError: '已按作者操作关闭未知请求记录；若图片实际已生成，可在素材库按漫画格来源查找。'
+  })
+  persistPage()
+}
+
+// B09：长文本自动增高。autosize 已是项目依赖（世界书字段在用）。
+const autosizedElements = new WeakSet()
+
+function refreshAutosize() {
+  if (typeof document === 'undefined') return
+  void nextTick(() => {
+    const root = editorRoot.value
+    if (!root) return
+    for (const element of root.querySelectorAll('textarea')) {
+      // 阶段工作台的修订说明保持手动两行高度，不参与自动增高。
+      if (element.closest('.comic-stage-workbench')) continue
+      if (autosizedElements.has(element)) {
+        autosize.update(element)
+        continue
+      }
+      const style = window.getComputedStyle(element)
+      if (style.fieldSizing === 'content') continue
+      autosize(element)
+      autosizedElements.add(element)
+    }
+  })
+}
+
+function destroyAutosize() {
+  const root = editorRoot.value
+  if (!root) return
+  for (const element of root.querySelectorAll('textarea')) {
+    if (autosizedElements.has(element)) {
+      autosize.destroy(element)
+      autosizedElements.delete(element)
+    }
+  }
+}
+
+function locateIssue(issue) {
+  if (!issue?.panelId || !comicPage.value?.panels.some((panel) => panel.id === issue.panelId)) return
+  activePanelId.value = issue.panelId
+  if (issue.objectId) {
+    highlightedObjectId.value = issue.objectId
+    clearTimeout(highlightTimer)
+    highlightTimer = setTimeout(() => { highlightedObjectId.value = '' }, 2600)
+    void nextTick(() => {
+      const target = editorRoot.value?.querySelector(`[data-lettering-id="${issue.objectId}"]`)
+      target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+  }
 }
 
 function loadCanvasImage(source) {
@@ -1428,7 +1610,7 @@ function safeFilename(value) {
 </script>
 
 <template>
-  <section class="comic-editor" :class="{ 'is-compact': compact, 'is-standalone': standalone }" aria-label="漫画页编辑器">
+  <section ref="editorRoot" class="comic-editor" :class="{ 'is-compact': compact, 'is-standalone': standalone }" aria-label="漫画页编辑器">
     <template v-if="!comicPage">
       <header class="comic-editor__draft-heading">
         <span>{{ standalone ? '新建独立漫画页' : '新建漫画页' }}</span>
@@ -1682,7 +1864,9 @@ function safeFilename(value) {
           </div>
           <ul v-if="publicationReport.issues.length">
             <li v-for="issue in publicationReport.issues.slice(0, 8)" :key="issue.id" :class="`is-${issue.severity}`">
-              {{ issue.message }}
+              <button type="button" class="comic-editor__issue-locate" :title="issue.panelId ? '定位到问题所在格' : ''" :disabled="!issue.panelId" @click="locateIssue(issue)">
+                {{ issue.message }}
+              </button>
             </li>
           </ul>
           <p v-else>文字层、最终画面和安全区未发现阻断项。</p>
@@ -1731,7 +1915,8 @@ function safeFilename(value) {
                 :key="object.id"
                 type="button"
                 class="comic-lettering-overlay"
-                :class="`is-${object.type}`"
+                :class="[`is-${object.type}`, { 'is-flagged': highlightedObjectId === object.id }]"
+                :data-lettering-id="object.id"
                 :style="letteringObjectStyle(object)"
                 :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
                 @pointerdown="startLetteringDrag($event, activePanel, object)"
@@ -1849,12 +2034,22 @@ function safeFilename(value) {
             <button
               class="comic-action comic-action--primary comic-panel__generate-btn"
               type="button"
-              :disabled="batchGenerating || panel.generationStatus === 'generating' || !canGeneratePanel(panel)"
+              :disabled="batchGenerating || panel.generationStatus === 'generating' || Boolean(panel.pendingGeneration) || !canGeneratePanel(panel)"
               @click="generatePanel(panel)"
             >
-              {{ panel.imageTakeIds.length ? '重生成' : '生成画面' }}
+              {{ panel.pendingGeneration ? '结果未知' : panel.imageTakeIds.length ? '重生成' : '生成画面' }}
             </button>
           </header>
+
+          <div v-if="panel.pendingGeneration" class="comic-editor__unknown-request" role="alert" :data-test="`comic-unknown-${panel.order}`">
+            <span>上次生成请求结果未知（可能在刷新前已发出，不会自动重发）。</span>
+            <div>
+              <button type="button" @click="acknowledgePanelRequest(panel, 'regenerate')">明确重新生成</button>
+              <button type="button" @click="acknowledgePanelRequest(panel, 'discard')">清除未知记录</button>
+            </div>
+          </div>
+          <p v-else-if="panel.generationError && panel.id === activePanelId" class="comic-editor__panel-notice is-error" role="alert">{{ panel.generationError }}</p>
+          <p v-else-if="panelRequestNotice && panel.id === activePanelId" class="comic-editor__panel-notice" role="status">{{ panelRequestNotice }}</p>
 
           <div
             v-if="!compact && (selectedTake(panel) || panel.letteringObjects?.length)"
@@ -1883,7 +2078,8 @@ function safeFilename(value) {
               :key="object.id"
               type="button"
               class="comic-lettering-overlay"
-              :class="`is-${object.type}`"
+              :class="[`is-${object.type}`, { 'is-flagged': highlightedObjectId === object.id }]"
+              :data-lettering-id="object.id"
               :style="letteringObjectStyle(object)"
               :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
               @pointerdown="startLetteringDrag($event, panel, object)"
@@ -2123,12 +2319,14 @@ function safeFilename(value) {
             <button class="comic-action" type="button" @click="exportManifest">JSON</button>
             <button class="comic-action" type="button" @click="exportPageImage">PNG</button>
             <button class="comic-action" type="button" @click="exportPageImage('webp')">WebP</button>
-            <button class="comic-action" type="button" @click="exportPagePdf">PDF</button>
-            <button v-if="comicPage.format === 'webtoon'" class="comic-action" type="button" @click="exportWebtoonSlices">条漫切片</button>
+            <button class="comic-action" type="button" @click="exportPagePdf()">PDF</button>
+            <button v-if="comicPage.format === 'webtoon'" class="comic-action" type="button" @click="exportWebtoonSlices()">条漫切片</button>
+            <button class="comic-action" type="button" data-test="comic-export-draft" @click="exportPageImage('png', { draft: true })">分镜草稿</button>
             <button class="comic-action comic-action--primary" type="button" :disabled="comicPage.status === 'accepted'" @click="acceptPage">
               {{ comicPage.status === 'accepted' ? '已采纳' : '采纳本页' }}
             </button>
           </div>
+          <p v-if="exportBlockReason" class="comic-editor__export-block" role="alert" data-test="comic-export-blocked">{{ exportBlockReason }}</p>
         </footer>
       </template>
     </template>
@@ -3369,4 +3567,60 @@ function safeFilename(value) {
   .comic-panel__direction-grid { grid-template-columns: 1fr; }
   .comic-editor__footer-actions { width: 100%; margin-left: 0; }
 }
+
+.comic-editor__unknown-request {
+  display: grid;
+  gap: 6px;
+  margin-block: 4px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-gold-strong, #8a6a2a) 52%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-gold, #c9a44a) 12%, transparent);
+  color: var(--archive-ink, var(--text-primary));
+  font-size: 11px;
+}
+.comic-editor__unknown-request > div { display: flex; gap: 6px; flex-wrap: wrap; }
+.comic-editor__unknown-request button {
+  min-height: 26px;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink) 24%, var(--border));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper) 90%, transparent);
+  color: var(--archive-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.comic-editor__panel-notice { margin-block: 4px; color: var(--archive-olive-strong, var(--accent)); font-size: 11px; }
+.comic-editor__panel-notice.is-error { color: var(--archive-red, var(--danger, #9a4b4b)); }
+.comic-editor__issue-locate {
+  width: 100%;
+  min-height: 22px;
+  padding: 1px 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.comic-editor__issue-locate:hover:not(:disabled) { text-decoration: underline; }
+.comic-editor__issue-locate:disabled { cursor: default; }
+.comic-editor__export-block {
+  width: 100%;
+  margin: 6px 0 0;
+  color: var(--archive-red, #9a4b4b);
+  font-size: 11px;
+}
+.comic-lettering-overlay.is-flagged { outline: 2px solid var(--archive-gold-strong, #8a6a2a); outline-offset: 2px; }
+
+
+/* B09：长文本自动增高（autosize 接管高度，禁止内滚与手工拉伸）。 */
+.comic-editor textarea {
+  width: 100%;
+  min-height: 44px;
+  resize: none;
+  overflow: hidden;
+}
+
 </style>

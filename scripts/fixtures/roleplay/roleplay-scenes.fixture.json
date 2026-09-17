@@ -1,0 +1,41 @@
+{
+  "description": "Pinax 跑团线原创调查夹具（3 场景）。内容为本仓库原创，不复制上游模组/规则媒体。用于不调用模型的『动作→已结算→待叙述』状态演示与离线验收。",
+  "scenes": [
+    {
+      "key": "lampkeeper-desk",
+      "title": "灯塔值房",
+      "scene": "暴雨夜的灯塔值房，炉火将熄。桌上一本摊开的值班日志，最后一页的墨迹被雨水洇开。",
+      "goal": "查明灯塔看守失踪的真相",
+      "action": "凑近炉火，仔细辨认日志最后一页的字迹",
+      "attribute": "wits",
+      "modifier": 1,
+      "fixedDiceSamples": [4, 3],
+      "expected": { "dice": [5, 4], "modifier": 1, "total": 10, "outcome": "success" },
+      "narrationDirection": "成功：字迹可辨，发现看守记录了『灯下的第三个人』。"
+    },
+    {
+      "key": "lampkeeper-stairs",
+      "title": "螺旋梯井",
+      "scene": "通往灯室的螺旋梯在黑暗中向上盘旋，海风从破损的窗缝里灌进来，吹得提灯忽明忽暗。",
+      "goal": "查明灯塔看守失踪的真相",
+      "action": "顶着风快步登上螺旋梯，赶在提灯熄灭前到达灯室",
+      "attribute": "agility",
+      "modifier": 0,
+      "fixedDiceSamples": [3, 2],
+      "expected": { "dice": [4, 3], "modifier": 0, "total": 7, "outcome": "partial" },
+      "narrationDirection": "部分成功：赶到了灯室，但提灯熄灭、火柴盒掉进了梯井——代价在身。"
+    },
+    {
+      "key": "lampkeeper-signal",
+      "title": "雾中信号",
+      "scene": "礁石滩上搁浅的小船随浪起伏，雾墙外的航道传来模糊的汽笛声，方向难以分辨。",
+      "goal": "查明灯塔看守失踪的真相",
+      "action": "迎着雾墙高声呼喊，试图唤来航道上的船只求援",
+      "attribute": "presence",
+      "modifier": -1,
+      "fixedDiceSamples": [2, 2],
+      "expected": { "dice": [3, 3], "modifier": -1, "total": 5, "outcome": "failure" },
+      "narrationDirection": "失败前进：呼喊被雾吞没，却惊起了礁石后藏着的一个人影——局面推进，目标未达。"
+    }
+  ]
+}

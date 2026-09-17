@@ -1,0 +1,103 @@
+{
+  "description": "Pinax 跑团线原创场景夹具（CX37 战役目录第三场）：3 场景、双结局。原创合成内容。",
+  "scenario": {
+    "schemaVersion": 1,
+    "scenarioId": "scn_ink_tomb",
+    "revision": "rev_fixture_ink_tomb_1",
+    "title": "墨冢",
+    "scenes": [
+      {
+        "id": "it_gate",
+        "title": "碑门",
+        "description": "无字碑立在墓门之前，门缝里渗出淡淡墨香，守陵人的梆子声停在半途。",
+        "exits": [
+          { "toSceneId": "it_corridor", "label": "推门入甬道" },
+          { "toSceneId": "it_hut", "label": "先去守陵人窝棚" }
+        ],
+        "clueIds": ["it_clue_stele"]
+      },
+      {
+        "id": "it_corridor",
+        "title": "墨痕甬道",
+        "description": "甬道两壁满是未干的墨字，层层叠叠写的是同一句话，越往深处字迹越潦草。",
+        "exits": [
+          { "toSceneId": "it_chamber", "label": "深入主墓室" },
+          { "toSceneId": "it_gate", "label": "退回碑门" }
+        ],
+        "clueIds": ["it_clue_walls"]
+      },
+      {
+        "id": "it_chamber",
+        "title": "主墓室",
+        "description": "棺椁之上没有陪葬，只有一方干裂的砚台与一支笔——墓主人生前是写字的人。",
+        "exits": [
+          { "toSceneId": "it_corridor", "label": "沿甬道退出" }
+        ],
+        "clueIds": ["it_clue_inkstone"]
+      },
+      {
+        "id": "it_hut",
+        "title": "守陵人窝棚",
+        "description": "窝棚里堆着数不清的废纸，全部写满同一句话，墨迹有新有旧。",
+        "exits": [
+          { "toSceneId": "it_gate", "label": "回碑门" }
+        ],
+        "clueIds": ["it_clue_drafts"]
+      }
+    ],
+    "clues": [
+      {
+        "id": "it_clue_stele",
+        "name": "无字碑的刻痕",
+        "summary": "碑面并非无字，而是被人逐字凿去——凿痕新旧不一，持续了很多年。",
+        "actionText": "以指腹辨认无字碑上的凿痕",
+        "visibility": "available",
+        "attribute": "wits",
+        "modifier": 0,
+        "locationSceneId": "it_gate"
+      },
+      {
+        "id": "it_clue_walls",
+        "name": "甬道的重复墨字",
+        "summary": "同一句话被写了千遍：『吾无憾，唯憾墨未干。』",
+        "actionText": "凑近甬道两壁读墨字",
+        "visibility": "locked",
+        "attribute": "wits",
+        "modifier": 0,
+        "locationSceneId": "it_corridor"
+      },
+      {
+        "id": "it_clue_inkstone",
+        "name": "棺上的干砚",
+        "summary": "砚台里残墨犹新——墓室最近被人使用过，死者或许从未安息于闭墓之日。",
+        "actionText": "检查棺椁上干裂的砚台",
+        "visibility": "locked",
+        "attribute": "presence",
+        "modifier": 0,
+        "locationSceneId": "it_chamber"
+      },
+      {
+        "id": "it_clue_drafts",
+        "name": "窝棚的废纸",
+        "summary": "废纸上的字与甬道壁书同出一手——守陵人就是写字的人。",
+        "actionText": "翻检窝棚里成堆的废纸",
+        "visibility": "locked",
+        "attribute": "agility",
+        "modifier": 0,
+        "locationSceneId": "it_hut",
+        "failForward": {
+          "unlockClueId": "it_clue_inkstone",
+          "eventText": "翻检时碰翻了油灯引燃纸堆，火光照出棚后直通主墓室的窄缝。"
+        }
+      }
+    ],
+    "endings": [
+      {
+        "id": "ink_end_legacy",
+        "label": "墨迹之谜：守陵人代死者续写未竟之书，你读到了最后一页",
+        "requireClueIds": ["it_clue_walls", "it_clue_inkstone"],
+        "requireSceneId": "it_chamber"
+      }
+    ]
+  }
+}

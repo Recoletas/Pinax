@@ -1,0 +1,81 @@
+{
+  "description": "Pinax 跑团线原创场景夹具（CX37 战役目录第二场）：3 场景、单线加折返、单结局。原创合成内容。",
+  "scenario": {
+    "schemaVersion": 1,
+    "scenarioId": "scn_night_market",
+    "revision": "rev_fixture_night_market_1",
+    "title": "夜市断签",
+    "scenes": [
+      {
+        "id": "nm_stall",
+        "title": "解签摊",
+        "description": "庙会尽头的解签摊无人排队，签筒里的签全都断成了两截。",
+        "exits": [
+          { "toSceneId": "nm_alley", "label": "跟进入暗巷" },
+          { "toSceneId": "nm_shrine", "label": "回庙里问香火匠" }
+        ],
+        "clueIds": ["nm_clue_split"]
+      },
+      {
+        "id": "nm_alley",
+        "title": "暗巷",
+        "description": "摊主收摊的背影拐进了没有灯的巷子，地上落了一只竹签的断口。",
+        "exits": [
+          { "toSceneId": "nm_stall", "label": "回到摊前" },
+          { "toSceneId": "nm_shrine", "label": "穿巷回庙" }
+        ],
+        "clueIds": ["nm_clue_snap"]
+      },
+      {
+        "id": "nm_shrine",
+        "title": "偏殿",
+        "description": "香火匠正在给签筒上漆，案上摆着一筒崭新的、完好无损的签。",
+        "exits": [
+          { "toSceneId": "nm_stall", "label": "回解签摊" }
+        ],
+        "clueIds": ["nm_clue_fresh"]
+      }
+    ],
+    "clues": [
+      {
+        "id": "nm_clue_split",
+        "name": "全断的签",
+        "summary": "每一支签都在同一位置断开——不是意外，是有人逐一折断的。",
+        "actionText": "翻看签筒里全断的签",
+        "visibility": "available",
+        "attribute": "wits",
+        "modifier": 0,
+        "locationSceneId": "nm_stall"
+      },
+      {
+        "id": "nm_clue_snap",
+        "name": "地上的断口",
+        "summary": "断口很新，且有一支断签上的卦文与解签摊招牌上的『改运』二字相合。",
+        "actionText": "拾起地上那只竹签断口细看",
+        "visibility": "locked",
+        "attribute": "agility",
+        "modifier": 0,
+        "locationSceneId": "nm_alley"
+      },
+      {
+        "id": "nm_clue_fresh",
+        "name": "崭新的签筒",
+        "summary": "新签筒是给隔壁摊备货的——断签的摊主在为换签做准备，而非行骗。",
+        "actionText": "向香火匠打听新签筒的来历",
+        "visibility": "locked",
+        "attribute": "presence",
+        "modifier": 1,
+        "requiresClueIds": ["nm_clue_split"],
+        "locationSceneId": "nm_shrine"
+      }
+    ],
+    "endings": [
+      {
+        "id": "nm_end_truth",
+        "label": "水落石出：摊主断的是旧签，换签是为守住一桩旧诺言",
+        "requireClueIds": ["nm_clue_split", "nm_clue_fresh"],
+        "requireSceneId": "nm_shrine"
+      }
+    ]
+  }
+}

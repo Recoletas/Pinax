@@ -69,6 +69,10 @@ export function createAuthoringKnowledgeReaderHost(host) {
       history: () => host.history().slice(-4).map((activity) => ({ text: String(activity.title || ''), sourceRefs: [`activity:${activity.id || ''}`] })),
       memory: createProjectMemoryReader({
         list: ({ status } = {}) => listMemoryCandidates({ status }),
+        ledgerFacts: async (request) => {
+          const { readProductionLedgerFacts } = await import('../../memory/ledger/ledgerProductionAdapter.js')
+          return readProductionLedgerFacts(request)
+        },
         context: (request) => {
           const current = snapshot(request)
           return { projectId: current.projectId, sessionId: host.sessionId(), currentRevisions: { [current.sourceRef]: current.revision } }
