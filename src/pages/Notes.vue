@@ -57,14 +57,14 @@
            副阅读台承担了原 archive-pin 浮卡的位置 + 角色 (列而非角落小标),
            老的 archive-pin 浮卡被新列吞并 (类名沿用以满足既有 UI-N2 契约). -->
       <!-- 左：档案抽屉 (Archive Drawer) -->
-      <aside class="material-drawer">
+      <aside class="material-drawer workspace-sidebar">
         <!-- 7 类抽屉盒 -->
         <div class="drawer-units">
           <section v-for="(group, idx) in groupedChapters" :key="group.kind" class="drawer-unit" :class="{ 'is-collapsed': isAssetKindCollapsed(group.kind) }">
-            <button class="drawer-handle" type="button" @click="toggleAssetKindGroup(group.kind)" :aria-expanded="!isAssetKindCollapsed(group.kind)">
+            <button class="drawer-handle workspace-nav-item" type="button" @click="toggleAssetKindGroup(group.kind)" :aria-expanded="!isAssetKindCollapsed(group.kind)">
               <span class="drawer-handle__spine" :style="{ background: group.color }" aria-hidden="true"></span>
               <span class="drawer-handle__roman">{{ groupIndexLabel(idx) }}</span>
-              <span class="drawer-handle__title">{{ group.label }}</span>
+              <span class="drawer-handle__title workspace-nav-label">{{ group.label }}</span>
               <span class="drawer-handle__count">{{ group.items.length }}</span>
               <span class="drawer-handle__chevron" aria-hidden="true">
                 <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
@@ -75,7 +75,7 @@
             </button>
             <div v-show="!isAssetKindCollapsed(group.kind)" class="drawer-body">
               <!--
-                R2-D.2: replace outer <button class="index-card"> with a div
+                R2-D.2: replace outer <button class="index-card workspace-nav-item"> with a div
                 to remove the nested-button Vite warning. Inner <input>
                 (checkbox) + <button class="index-card__delete"> stay
                 independently focusable. The card-level click keeps the
@@ -111,8 +111,8 @@
                   @change="toggleCheckedAsset(note.id)"
                 />
                 <div class="index-card__body">
-                  <span class="index-card__title">{{ note.title || '无标题素材' }}</span>
-                  <span class="index-card__meta">{{ getAssetStatusLabel(note.status) }}</span>
+                  <span class="index-card__title workspace-nav-label">{{ note.title || '无标题素材' }}</span>
+                  <span class="index-card__meta workspace-nav-meta">{{ getAssetStatusLabel(note.status) }}</span>
                 </div>
                 <span v-if="isAssetOnCanvas(note.id)" class="index-card__canvas-mark" title="已入画布">✓</span>
                 <button class="index-card__delete" @click.stop="deleteChapter(note.id)" title="删除素材">×</button>

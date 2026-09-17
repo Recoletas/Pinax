@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import SceneIndexSection from '../scene/SceneIndexSection.vue'
 
 // worldbook scene closure Task 8：左侧“当前场”索引。
@@ -19,6 +19,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open-detail', 'advance-with', 'edit', 'bind-worldbook'])
+const expanded = ref(false)
 
 const UNSPECIFIED = '未指定'
 
@@ -159,6 +160,10 @@ function openDetail(kind, id) {
 
 <template>
   <section class="scene-rail" aria-label="当前场">
+    <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" aria-label="展开或收起当前场">
+      <span>当前场</span><span>{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span><span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
+    </button>
+    <div v-show="expanded" class="scene-rail__expanded">
     <header class="scene-rail__head">
       <span class="scene-rail__title">当前场</span>
       <span v-if="unread > 0" class="scene-rail__unread" aria-label="未查看变化">+{{ unread }}</span>
@@ -203,6 +208,7 @@ function openDetail(kind, id) {
         @toggle="openSection"
         @open-detail="openSection"
       />
+    </div>
     </div>
   </section>
 </template>
@@ -343,4 +349,10 @@ function openDetail(kind, id) {
   width: 17px;
   height: 24px;
 }
+.scene-rail { padding: 0; gap: 0; }
+.scene-rail__toggle { display: flex; width: 100%; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); cursor: pointer; text-align: left; }
+.scene-rail__toggle span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-rail__toggle:hover { background: var(--nav-hover); }
+.scene-rail__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.scene-rail__expanded { padding: 0 12px 10px; }
 </style>

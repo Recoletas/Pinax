@@ -2,14 +2,14 @@
   <section class="authoring-knowledge" aria-label="作品资料助手">
     <header class="authoring-knowledge__toolbar">
       <div class="authoring-knowledge__model">
-        <strong>项目资料</strong>
-        <small>{{ projectTitle || '未命名作品' }}</small>
+        <strong>{{ projectTitle || '未命名作品' }}</strong>
+        <small>基于本书资料回答</small>
       </div>
       <div class="authoring-knowledge__toolbar-actions">
-        <button type="button" :class="{ active: searchOpen }" aria-label="搜索当前问答" title="搜索当前问答" @click="toggleSearch">
+        <button type="button" class="control-icon" :class="{ active: searchOpen }" :aria-pressed="searchOpen" aria-label="搜索当前问答" title="搜索当前问答" @click="toggleSearch">
           <WorkbenchIcon name="search" :size="18" />
         </button>
-        <button type="button" :class="{ active: historyOpen }" aria-label="查看问答历史" title="查看问答历史" @click="historyOpen = !historyOpen">
+        <button type="button" class="control-icon" :class="{ active: historyOpen }" :aria-pressed="historyOpen" aria-label="查看问答历史" title="查看问答历史" @click="historyOpen = !historyOpen">
           <WorkbenchIcon name="undo-extension" :size="18" />
         </button>
       </div>
@@ -31,12 +31,14 @@
 
     <div ref="threadRef" class="authoring-knowledge__thread" aria-live="polite">
       <div v-if="!messages.length" class="authoring-knowledge__welcome">
-        <p>在底部输入想问的问题，或试试：</p>
-        <div class="authoring-knowledge__suggestions" aria-label="提问建议">
+        <h3>一起梳理这个故事</h3>
+        <p>查设定、找伏笔，或讨论下一步。</p>
+        <details class="authoring-knowledge__suggestions" aria-label="提问建议">
+          <summary>提问示例</summary>
           <button v-for="task in suggestedTasks" :key="task.id" type="button" @click="chooseSuggestion(task)">
             <span>{{ task.suggestion }}</span><span aria-hidden="true">›</span>
           </button>
-        </div>
+        </details>
       </div>
 
       <template v-for="message in visibleMessages" :key="message.id">
@@ -100,11 +102,12 @@
       <div class="authoring-knowledge__primary-tools" role="group" aria-label="妙笔工具">
         <button type="button" class="active">问答</button>
         <button type="button" @click="chooseTask(primaryTasks[0])">提取</button>
-        <button type="button" @click="$emit('open-illustrator')">画师</button>
+        <button type="button" @click="$emit('open-illustrator')">生图</button>
       </div>
       <div class="authoring-knowledge__tasks" aria-label="问答范围">
-        <button v-for="task in allTasks" :key="task.id" type="button"
-          :class="{ active: selectedIntent === task.id }" @click="chooseTask(task)">{{ task.label }}</button>
+        <select aria-label="问答范围" :value="selectedIntent" @change="chooseTask(allTasks.find(task => task.id === $event.target.value))">
+          <option v-for="task in allTasks" :key="task.id" :value="task.id">{{ task.label }}</option>
+        </select>
       </div>
       <div class="authoring-knowledge__input-row">
         <textarea :value="draft" rows="2" :placeholder="placeholder" aria-label="向助手提问"
@@ -265,9 +268,10 @@ watch(() => [props.messages.length, props.busy], () => nextTick(() => {
 .authoring-knowledge__history > div button { width: auto; border: 0; color: var(--accent-primary, var(--accent)); }
 .authoring-knowledge__history p { margin: 18px 0; color: var(--text-secondary); font-size: 13px; text-align: center; }
 .authoring-knowledge__thread { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 20px 16px 24px; }
-.authoring-knowledge__welcome { max-width: 320px; margin: 8vh auto 0; }
+.authoring-knowledge__welcome { max-width: 340px; margin: 28px auto 0; }
+.authoring-knowledge__welcome h3 { margin: 0 0 8px; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
 .authoring-knowledge__welcome > p { margin: 0 0 12px; color: var(--text-secondary); font-size: 14px; line-height: 1.7; }
-.authoring-knowledge__suggestions { display: grid; }
+.authoring-knowledge__suggestions { display: grid; gap: 4px; margin-top: 20px; }
 .authoring-knowledge__suggestions button { display: flex; min-height: 42px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 2px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.55; text-align: start; cursor: pointer; }
 .authoring-knowledge__suggestions button span:last-child { color: var(--text-secondary); font-size: 20px; }
 .authoring-knowledge__suggestions button:hover { color: var(--accent-primary, var(--accent)); }
@@ -309,13 +313,13 @@ watch(() => [props.messages.length, props.busy], () => nextTick(() => {
 .authoring-knowledge__no-results { margin-top: 20vh; color: var(--text-secondary); text-align: center; }
 .authoring-knowledge__composer { position: relative; z-index: 1; flex: none; padding: 8px 10px 10px; border-top: 1px solid var(--border-subtle); background: var(--surface-primary); }
 .authoring-knowledge__primary-tools { display: flex; align-items: center; gap: 2px; margin-bottom: 5px; }
-.authoring-knowledge__primary-tools button { min-height: 30px; padding: 4px 9px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.authoring-knowledge__primary-tools button { min-height: 30px; padding: 4px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
 .authoring-knowledge__primary-tools button:hover, .authoring-knowledge__primary-tools button.active { border-bottom-color: var(--accent-primary, var(--accent)); color: var(--text-primary); }
 .authoring-knowledge__tasks { display: flex; gap: 3px; margin-bottom: 6px; overflow-x: auto; scrollbar-width: none; }
 .authoring-knowledge__tasks::-webkit-scrollbar { display: none; }
 .authoring-knowledge__tasks button { min-height: 28px; flex: 0 0 auto; padding: 3px 7px; border: 0; border-radius: 3px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .authoring-knowledge__tasks button:hover, .authoring-knowledge__tasks button.active { background: var(--surface-hover); color: var(--accent-primary, var(--accent)); }
-.authoring-knowledge__input-row { display: grid; grid-template-columns: 1fr 34px; align-items: end; gap: 7px; padding: 7px 7px 7px 10px; border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--surface-secondary); }
+.authoring-knowledge__input-row { display: grid; grid-template-columns: 1fr 34px; align-items: end; gap: 7px; padding: 10px; border: 1px solid var(--archive-paper-strong); border-radius: 8px; background: var(--archive-paper); }
 .authoring-knowledge__input-row:focus-within { border-color: var(--accent-primary, var(--accent)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary, var(--accent)) 8%, transparent); }
 .authoring-knowledge__input-row textarea { box-sizing: border-box; min-height: 44px; max-height: 116px; resize: none; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.65; }
 .authoring-knowledge__send { width: 32px; height: 32px; border: 0; border-radius: 4px; background: var(--accent-primary, var(--accent)); color: var(--accent-text, #fff); cursor: pointer; }

@@ -107,7 +107,7 @@ current = { id: 'SH-02', checks: [] }
 const corkRect = await rectOf(page, '.wall__cork')
 check('工具条单行且高度受控（≤46px）', corkRect && corkRect.h <= 46, JSON.stringify(corkRect))
 const order = await page.evaluate(() => [...document.querySelectorAll('#authoring-editor-toolbar-host .tool-btn')].map((el) => el.textContent.trim()).join('|'))
-check('工具顺序＝撤销/重做|排版/快捷词/取名/画师/专注/校对/查找（F2 后的实用工具序）', order === '撤销|重做|排版|快捷词|取名|画师|专注|校对|查找', order)
+check('工具顺序＝撤销/重做|排版/快捷词/取名/生图/专注/校对/查找（F2 后的实用工具序）', order === '撤销|重做|排版|快捷词|取名|生图|专注|校对|查找', order)
 check('收件箱/素材库不在常驻工具条', !order.includes('收件箱') && !order.includes('素材库'), order)
 await page.click('button[aria-label="更多写作操作"]')
 await page.waitForTimeout(400)

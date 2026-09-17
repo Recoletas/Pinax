@@ -1,7 +1,7 @@
 <template>
   <ul class="forbidden-list" @click="focusInput">
     <li v-for="(token, i) in tokens" :key="`${token}-${i}`" class="forbidden-item">
-      <span class="forbidden-icon" aria-hidden="true">⛔</span>
+      <span class="forbidden-icon" aria-hidden="true">−</span>
       <span class="forbidden-text">{{ token }}</span>
       <button
         type="button"

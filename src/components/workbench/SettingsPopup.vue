@@ -12,7 +12,7 @@
         >×</button>
       </header>
 
-      <nav class="settings-tabs" role="tablist" aria-label="设置分区" @keydown="onTablistKeydown">
+      <nav class="settings-tabs settings-navigation" role="tablist" aria-label="设置分区" @keydown="onTablistKeydown">
         <button
           v-for="tab in tabs"
           :id="`settings-tab-${tab.key}`"
@@ -30,10 +30,16 @@
       </nav>
 
       <div class="settings-modal__body">
+        <section v-if="activeSection === 'writing'" id="settings-panel-writing" class="settings-section" role="tabpanel" aria-label="写作偏好"><WritingPreferences /></section>
+        <section v-if="activeSection === 'appearance'" id="settings-panel-appearance" class="settings-section appearance-preferences" role="tabpanel" aria-label="外观">
+          <h2>外观</h2>
+          <label>配色<select :value="theme.colorScheme" @change="theme.setColorScheme($event.target.value)"><option value="light">日间</option><option value="dark">夜间</option></select></label>
+          <label>界面缩放<select :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
+          <p class="settings-field-hint">只改变显示，不修改正文。夜间模式也可在右上角直接切换。</p>
+        </section>
         <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" aria-label="记忆与历史">
           <MemoryHistoryWorkspace />
         </section>
-        <!-- 全局锁定主题2亮色：外观（主题/明暗/缩放）配置区已移除（用户要求） -->
         <section
           v-show="activeSection === 'ai'"
           id="settings-panel-ai"
@@ -182,6 +188,7 @@
             <router-link v-else-if="restoreSucceeded" to="/">打开作品列表</router-link>
           </p>
 
+          <StorageCleanup @cleaned="storageHealth.refresh()" />
           <details class="storage-technical">
             <summary>技术详情：各部分占用</summary>
             <table class="storage-table">
@@ -217,6 +224,9 @@
 import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
+import WritingPreferences from './WritingPreferences.vue'
+import StorageCleanup from './StorageCleanup.vue'
+import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
 import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import {
@@ -233,6 +243,7 @@ import { useRouter } from 'vue-router'
 
 const { close, activeSection, isOpen } = useSettingsPopup()
 const router = useRouter()
+const theme = useThemeStore()
 const expansion = useExperienceNarrativeExpansion()
 const { profileName: readingProfile, setProfile: setReadingProfile, profiles: readingProfileObjects } = useExperienceReadingPreferences()
 const readingProfileOptions = Object.values(readingProfileObjects)
@@ -281,8 +292,9 @@ function readBackupBooksSafe() {
   try { return readBackupBooks() } catch { return null }
 }
 
-// 全局锁定主题2亮色：外观 tab（主题/明暗/缩放）已移除（用户要求）
 const tabs = [
+  { key: 'writing', label: '写作' },
+  { key: 'appearance', label: '外观' },
   { key: 'ai', label: 'AI 配置' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
@@ -497,11 +509,11 @@ function onModalKeydown(event) {
 }
 
 function onTablistKeydown(event) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
   const index = tabs.findIndex((tab) => tab.key === activeSection.value)
   let next = index
-  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
-  if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
   if (event.key === 'Home') next = 0
   if (event.key === 'End') next = tabs.length - 1
   if (next === index) return
@@ -515,8 +527,8 @@ function onTablistKeydown(event) {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 96;
-  background: color-mix(in srgb, var(--ink) 50%, transparent);
+  z-index: var(--z-modal);
+  background: rgb(0 0 0 / 24%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -856,4 +868,17 @@ function onTablistKeydown(event) {
 .settings-btn--primary:hover {
   filter: brightness(1.08);
 }
+/* Preference categories are a stable left index, independent of inner option groups. */
+.settings-modal { width: min(960px, 94vw); height: min(720px, 88vh); max-height: 88vh; display: grid; grid-template-columns: 168px minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }
+.settings-modal__head { grid-column: 1 / -1; padding: 12px 20px; }
+.settings-navigation { flex-direction: column; grid-column: 1; gap: 4px; padding: 16px 10px; border: 0; border-right: 1px solid var(--border); background: var(--archive-paper); overflow-y: auto; }
+.settings-navigation .settings-tab { min-height: 36px; text-align: left; font: 500 14px/1.4 var(--font-sans); letter-spacing: normal; border: 0; padding: 8px 12px; }
+.settings-navigation .settings-tab.active { background: var(--bg-hover); color: var(--text-primary); }
+.settings-modal__body { min-width: 0; min-height: 0; padding: 24px 28px; font-size: 14px; }
+.appearance-preferences { display: grid; gap: 22px; align-content: start; }
+.appearance-preferences h2 { margin: 0; font-size: 22px; }
+.appearance-preferences label { display: flex; gap: 20px; align-items: center; justify-content: space-between; }
+.appearance-preferences select { min-width: 140px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg-primary); color: var(--text-primary); }
+.settings-tab:focus-visible, .appearance-preferences select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 640px) { .settings-modal { grid-template-columns: minmax(0, 1fr); grid-template-rows: 50px auto minmax(0, 1fr); height: 92vh; max-height: 92vh; } .settings-navigation { flex-direction: row; flex-wrap: wrap; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); } .settings-navigation .settings-tab { min-height: 40px; } .settings-modal__body { padding: 18px 16px; } }
 </style>

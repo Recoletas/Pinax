@@ -1,0 +1,245 @@
+/* eslint-disable no-console */
+// Isolated UI contract, no real providers or user browser storage.
+import { chromium } from 'playwright'
+import fs from 'node:fs/promises'
+import assert from 'node:assert/strict'
+const BASE = process.env.BASE || 'http://127.0.0.1:5307'
+const OUT = process.env.OUT_DIR || '/tmp/pinax-workspace-refinement'
+const snapshot = JSON.parse(await fs.readFile('tmp/authoring-context-closure/fixture-localstorage.json', 'utf8'))
+const fixture = JSON.parse(await fs.readFile('tmp/authoring-context-closure/fixture-state.json', 'utf8'))
+await fs.mkdir(OUT, { recursive: true })
+const browser = await chromium.launch()
+const failures = []
+try {
+  for (const [width, theme] of [[1440, 'light'], [900, 'light'], [390, 'light'], [1440, 'dark']]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width === 390 })
+    const page = await context.newPage()
+    page.on('pageerror', error => failures.push(error.message))
+    await context.addInitScript(({ snapshot, theme }) => {
+      if (!sessionStorage.getItem('refinement-seeded')) {
+        for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
+        localStorage.setItem('app_theme', theme)
+        localStorage.setItem('app_ui_zoom', '1')
+        sessionStorage.setItem('refinement-seeded', '1')
+      }
+    }, { snapshot, theme })
+    await context.route('**/*', route => {
+      const url = new URL(route.request().url())
+      if (url.origin !== new URL(BASE).origin) return route.abort()
+      if (url.pathname.startsWith('/api/')) return route.fulfill({ status: 503, json: { error: 'Offline visual fixture' } })
+      return route.continue()
+    })
+    const shot = async name => {
+      await page.screenshot({ path: `${OUT}/${name}-${width}-${theme}.png` })
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name}: page overflow at ${width}`)
+    }
+    const navigationStyles = []
+    const checkNavigation = async (sidebarSelector, labelSelector) => {
+      if (width < 1181) return // drawers retain their own responsive geometry
+      const sidebar = page.locator(sidebarSelector).first()
+      const style = await sidebar.evaluate(el => ({ width: el.getBoundingClientRect().width, background: getComputedStyle(el).backgroundColor }))
+      assert(Math.abs(style.width - 240) <= 1, `${sidebarSelector}: width ${style.width}`)
+      const label = sidebar.locator(labelSelector).first()
+      assert.equal(await label.evaluate(el => getComputedStyle(el).fontSize), '14px', `${sidebarSelector}: label size`)
+      navigationStyles.push(style.background)
+      const selected = sidebar.locator('.workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current="page"])').first()
+      if (await selected.count()) {
+        await page.evaluate(() => document.activeElement?.blur())
+        const unfocused = await selected.evaluate(el => getComputedStyle(el).backgroundColor)
+        const focusTarget = selected.locator('button').first()
+        if (await focusTarget.count()) await focusTarget.focus()
+        else await selected.focus()
+        await page.waitForTimeout(160)
+        assert.notEqual(await selected.evaluate(el => getComputedStyle(el).backgroundColor), unfocused, `${sidebarSelector}: focused selection`)
+        await page.evaluate(() => document.activeElement?.blur())
+      }
+      const row = sidebar.locator('.workspace-nav-item').first()
+      const before = await row.boundingBox()
+      await row.hover()
+      await page.waitForTimeout(160)
+      assert.deepEqual(await row.boundingBox(), before, `${sidebarSelector}: hover geometry`)
+      await page.mouse.move(width - 2, 2)
+    }
+    await page.goto(BASE)
+    await page.locator('.ws-tab__brand').waitFor()
+    assert(await page.locator('.ws-tab__brand').evaluate(el => el.complete && el.naturalWidth > 0))
+    const tabs = await page.locator('.ws-tabs').boundingBox()
+    assert(tabs.height <= (width < 760 ? 45 : 41), `tab height ${tabs.height}`)
+    assert.equal(await page.locator('.ws-tabs').evaluate(el => getComputedStyle(el).borderBottomWidth), '0px')
+    await checkNavigation('.library-sidebar', '.workspace-nav-item span')
+    const menu = page.locator('.library-quick-actions details')
+    await menu.locator('summary').click()
+    assert(await menu.evaluate(el => el.open))
+    await page.keyboard.press('Escape')
+    assert.equal(await menu.evaluate(el => el.open), false)
+    assert(await menu.locator('summary').evaluate(el => el === document.activeElement))
+    await shot('home')
+    assert.equal(await page.getByRole('button', { name: '打开工作区导航', exact: true }).count(), 0)
+    assert.equal(await page.locator('.ws-tabs .ws-overflow').count(), 0)
+    await page.getByRole('button', { name: '打开设置', exact: true }).click()
+    await page.locator('#settings-panel-writing').waitFor()
+    await shot('preferences-writing')
+    await page.locator('[data-test="settings-tab-appearance"]').click()
+    await page.locator('#settings-panel-appearance select').first().selectOption(theme === 'dark' ? 'light' : 'dark')
+    assert.equal(await page.evaluate(() => localStorage.getItem('app_theme')), theme === 'dark' ? 'light' : 'dark')
+    await shot('preferences-appearance')
+    await page.locator('#settings-panel-appearance select').first().selectOption(theme)
+    await page.locator('[data-test="settings-tab-memory"]').click()
+    await page.locator('[aria-label="自动记录的记忆修订"]').waitFor()
+    await shot('preferences-memory')
+    await page.locator('[data-test="settings-tab-storage"]').click()
+    await page.getByRole('button', { name: '扫描可清理版本', exact: true }).click()
+    await page.getByText('没有符合条件的旧版本。', { exact: true }).waitFor()
+    await shot('preferences-storage')
+    await page.locator('.settings-modal__close').click()
+    await page.goto(`${BASE}/authoring?bookId=${fixture.bookId}&chapterId=${fixture.targetChapterId}`)
+    await page.locator('.ProseMirror').first().waitFor()
+    await page.locator('.ProseMirror').first().click()
+    await page.keyboard.type('临')
+    await page.waitForTimeout(350)
+    assert.equal(await page.locator('[data-test="save-rescue"]').count(), 0, 'normal typing does not announce its in-session crash draft as recovered work')
+    await page.waitForTimeout(900)
+    assert.equal(await page.locator('.wall__save-chip-state').innerText(), '已保存')
+    await checkNavigation('.wall__shelf', '.authoring-chapter-row__title')
+    await page.locator('.writing-unit-gap__action.is-primary').first().click()
+    await page.locator('.writing-inspector__compose-host [data-test="block-composer"]').waitFor()
+    assert.equal(await page.locator('.authoring-block-composer__starters').count(), 0)
+    assert.equal(await page.locator('.authoring-block-composer textarea:visible').count(), 1)
+    await page.locator('.authoring-block-composer__more summary').click()
+    const extra = await page.locator('.authoring-block-composer__more-body textarea').boundingBox()
+    const mainInput = await page.locator('.authoring-block-composer__instruction textarea').boundingBox()
+    assert(extra.width >= mainInput.width - 4, 'extra constraint uses full width, not a squeezed inline textarea')
+    await page.locator('.authoring-block-composer__more summary').click()
+    assert.equal(await page.locator('#authoring-block-gap [data-test="block-composer"]').count(), 0)
+    const input = page.locator('.authoring-block-composer__instruction textarea')
+    await input.fill('保留当前行动者，让他先检查缺页。')
+    // Switching tools must not remount the composer and erase local input.
+    await page.locator('[data-authoring-tool="ai"]').click()
+    await page.locator('.authoring-knowledge').waitFor()
+    await shot('assistant')
+    await page.locator('[data-authoring-tool="rehearsal"]').click()
+    assert.equal(await input.inputValue(), '保留当前行动者，让他先检查缺页。')
+    await page.locator('.authoring-rehearsal-anchor').click()
+    if (width <= 1180) {
+      const header = await page.locator('.writing-inspector__head').boundingBox()
+      await page.screenshot({ path: `${OUT}/compact-anchor-${width}.png` })
+      const action = await page.locator('[data-test="block-primary"]').boundingBox()
+      // Short panels may reach the scroll container's end before their header
+      // reaches the top. Test usable controls, not an arbitrary top offset.
+      assert(header.y >= 0 && header.y < 450 && action.y >= header.y && action.y + action.height <= 900 - (width < 720 ? 44 : 0), `compact anchor reveals controls: ${JSON.stringify({ header, action })}`)
+    }
+    await shot('composer')
+    await page.getByRole('button', { name: '收起推演', exact: true }).click()
+    await page.locator('[data-authoring-tool="scene"]').click()
+    await page.locator('.writing-scene-overview').waitFor()
+    await shot('scene')
+    await page.locator('[data-authoring-tool="worldbook"]').click()
+    await page.locator('[data-authoring-inspector="worldbook"]').waitFor()
+    if (width >= 1181) {
+      const catalogInspector = await page.locator('[data-authoring-inspector="worldbook"]').boundingBox()
+      const catalogDirectory = await page.locator('.setting-directory').boundingBox()
+      const createSetting = page.locator('.setting-create')
+      assert(catalogInspector.width >= 520 && catalogInspector.width <= 601, `catalog inspector width ${catalogInspector.width}`)
+      assert(catalogDirectory.width >= 210, `catalog directory width ${catalogDirectory.width}`)
+      assert.equal((await createSetting.innerText()).trim(), '新建')
+      assert((await createSetting.boundingBox()).width >= 72, 'catalog create action has a readable target')
+    }
+    await shot('worldbook-catalog')
+    if (width >= 900) {
+      await page.locator('[data-test="authoring-illustrator-trigger"]').click()
+      const imageDialog = page.getByRole('dialog', { name: '生图', exact: true })
+      await imageDialog.waitFor()
+      const stylePreview = imageDialog.locator('[data-test="image-style-preview"]')
+      await stylePreview.waitFor()
+      assert((await stylePreview.evaluate(el => getComputedStyle(el).backgroundImage)).includes('authoring-image-style-presets'), 'selected style preview uses the real reference sprite')
+      if (width >= 1181) {
+        const dialogBox = await imageDialog.boundingBox()
+        const controlsBox = await imageDialog.locator('.image-gen-controls').boundingBox()
+        assert(dialogBox.width <= 1200, `image dialog width ${dialogBox.width}`)
+        assert(controlsBox.width >= 440 && controlsBox.width <= 480, `image controls width ${controlsBox.width}`)
+      }
+      await shot('image-generation')
+      await page.getByRole('button', { name: '关闭生图工作台', exact: true }).click()
+    }
+    if (width >= 1181) {
+      await page.locator('[data-authoring-tool="history"]').click()
+      await page.locator('#settings-panel-memory [aria-label="自动记录的记忆修订"]').waitFor()
+      await page.locator('.settings-modal__close').click()
+    }
+    await page.goto(`${BASE}/settings/structured?bookId=${fixture.bookId}`)
+    const field = page.locator('.field-textarea').first()
+    await field.fill('港口的潮汐决定每日通行的时间。记录尚未得到证实，不能作为人物已知的事实。\n\n'.repeat(18))
+    await field.evaluate(el => el.dispatchEvent(new Event('input', { bubbles: true })))
+    await page.waitForTimeout(200)
+    const fieldStyle = await field.evaluate(el => ({ shadow: getComputedStyle(el).boxShadow, border: getComputedStyle(el).borderBottomWidth, client: el.clientHeight, scroll: el.scrollHeight }))
+    assert.equal(fieldStyle.shadow, 'none', 'editor does not draw an extra focus underline')
+    assert.equal(fieldStyle.border, '0px')
+    assert(fieldStyle.scroll <= fieldStyle.client + 2, 'long settings text expands without inner scrolling')
+    await shot('settings-editing')
+    await page.getByRole('button', { name: /创作规则/ }).first().click()
+    await checkNavigation('.section-rail', '.section-tab')
+    // Probe the real primary button's disabled CSS without invoking a provider.
+    const primary = page.locator('.section-ai-btn')
+    await primary.evaluate(el => { el.disabled = true })
+    await page.mouse.move(0, 0)
+    await page.waitForTimeout(160)
+    const disabledBg = await primary.evaluate(el => getComputedStyle(el).backgroundColor)
+    await primary.hover({ force: true })
+    await page.waitForTimeout(160)
+    assert.equal(await primary.evaluate(el => getComputedStyle(el).backgroundColor), disabledBg, 'disabled primary does not highlight')
+    await primary.evaluate(el => { el.disabled = false })
+    const ruleText = '叙述只描写当前视角角色能够观察到的行为，不能直接写出其他角色的内心秘密；尚未传播的线索不能成为其行动依据。'
+    await page.locator('.rule-pending').fill(ruleText)
+    await page.locator('.rule-pending').press('Enter')
+    assert.equal(await page.locator('.rule-text').last().innerText(), ruleText)
+    await page.waitForTimeout(250)
+    await shot('rules')
+    await page.goto(`${BASE}/settings/world-map?bookId=${fixture.bookId}`)
+    await page.locator('.world-map-page').waitFor()
+    await page.waitForTimeout(400)
+    await checkNavigation('.sidebar-expanded', '.node-name')
+    if (width >= 1181) {
+      const node = page.locator('.tree-row .node-name').first()
+      await node.focus()
+      await page.keyboard.press('Enter')
+      assert.equal(await node.getAttribute('aria-pressed'), 'true')
+      assert.equal(await page.locator('.tree-row').first().locator('.row-actions').evaluate(el => getComputedStyle(el).opacity), '1')
+      await page.locator('.tree-row').first().getByTitle('重命名', { exact: true }).click()
+      const originalName = await page.locator('.tree-row .edit-input').inputValue()
+      await page.locator('.tree-row .edit-input').fill('取消后不应写入的新名称')
+      await page.locator('.tree-row .edit-input').press('Escape')
+      assert.equal(await page.locator('.tree-row .edit-input').count(), 0)
+      assert.equal(await node.innerText(), originalName)
+      assert(await node.evaluate(el => el === document.activeElement))
+    }
+    await shot('map')
+    await page.goto(`${BASE}/docs`)
+    await page.locator('[data-test="docs-content"]').waitFor()
+    await checkNavigation('.docs-page__sidebar', '.docs-page__nav-title')
+    await shot('docs')
+    if (width === 390) {
+      await page.locator('[data-test="docs-menu-toggle"]').click()
+      await page.locator('[data-test="docs-nav-01-quickstart"]').click()
+      assert.equal(await page.locator('.docs-page__sidebar.open').count(), 0)
+    }
+    if (width >= 1181) assert.equal(new Set(navigationStyles).size, 1, `sidebar surfaces: ${navigationStyles.join(', ')}`)
+    for (const [route, ready] of [['materials', '.material-drawer'], ['comics', '.comic-studio__catalog']]) {
+      await page.goto(`${BASE}/${route}?bookId=${fixture.bookId}`)
+      await page.locator(ready).waitFor({ state: 'attached' })
+      if (route === 'comics') {
+        await page.locator('[data-test="comic-empty-create"]').click()
+        await page.locator('.comic-studio__catalog-item').first().waitFor({ state: 'attached' })
+      }
+      await checkNavigation(ready, route === 'materials' ? '.index-card__title' : '.workspace-nav-label')
+      await shot(route)
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    assert.equal(await page.locator('.comic-studio__catalog-item').first().evaluate(el => getComputedStyle(el).transitionDuration), '0s')
+    if (width >= 1181) assert.equal(new Set(navigationStyles).size, 1, 'all seven sidebar surfaces')
+    console.log(`PASS ${width}/${theme}: navigation geometry/states, menu keyboard, disabled primary, map keyboard, composer continuity, scene, rules, docs, materials, comics`)
+    await context.close()
+  }
+  assert.deepEqual(failures, [], 'Browser runtime errors')
+} finally {
+  await browser.close()
+}

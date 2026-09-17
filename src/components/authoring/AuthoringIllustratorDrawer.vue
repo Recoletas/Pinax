@@ -7,9 +7,9 @@
       data-test="authoring-illustrator-layer"
       @pointerdown.self="!minimized && requestClose()"
     >
-      <button v-if="minimized" type="button" class="authoring-illustrator__minibar" aria-label="恢复妙笔画师" @click="restore">
-        <WorkbenchIcon name="palette" :size="17" />
-        <span>妙笔画师</span>
+      <button v-if="minimized" type="button" class="authoring-illustrator__minibar" aria-label="恢复生图工作台" @click="restore">
+        <WorkbenchIcon name="image" :size="17" />
+        <span>生图</span>
         <small>恢复</small>
       </button>
       <section
@@ -23,18 +23,18 @@
       >
       <header class="authoring-illustrator__head">
         <div class="authoring-illustrator__identity">
-          <WorkbenchIcon name="palette" :size="18" />
+          <WorkbenchIcon name="image" :size="18" />
           <div>
-            <h2 id="authoring-illustrator-title">妙笔画师</h2>
+            <h2 id="authoring-illustrator-title">生图</h2>
             <p>{{ sourceLabel }}</p>
           </div>
         </div>
         <div class="authoring-illustrator__head-actions">
           <span v-if="freshness?.stale" class="authoring-illustrator__stale" role="status">来源已更新</span>
-          <button v-if="!compact" type="button" aria-label="最小化妙笔画师" title="最小化" @click="requestMinimize">
+          <button v-if="!compact" type="button" aria-label="最小化生图工作台" title="最小化" @click="requestMinimize">
             <span aria-hidden="true">−</span>
           </button>
-          <button ref="closeButtonRef" type="button" aria-label="关闭画师" title="关闭画师" @click="requestClose">
+          <button ref="closeButtonRef" type="button" aria-label="关闭生图工作台" title="关闭" @click="requestClose">
             <WorkbenchIcon name="close" :size="18" />
           </button>
         </div>
@@ -45,7 +45,7 @@
         v-model="mobilePane"
         class="authoring-illustrator__switch"
         :items="mobilePaneItems"
-        label="画师工作区"
+        label="生图工作区"
         :breakpoint="1100"
       />
 
@@ -316,9 +316,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: color-mix(in srgb, var(--text-primary) 22%, transparent);
-  backdrop-filter: blur(1.5px);
+  padding: 40px;
+  background: rgb(0 0 0 / 34%);
+  backdrop-filter: blur(3px);
 }
 
 .authoring-illustrator-layer.is-minimized { align-items: flex-end; justify-content: flex-end; background: transparent; backdrop-filter: none; pointer-events: none; }
@@ -328,13 +328,13 @@ onBeforeUnmount(() => {
 
 .authoring-illustrator {
   display: flex;
-  width: min(1440px, calc(100vw - 32px));
+  width: min(1180px, calc(100vw - 80px));
   min-width: 0;
-  height: min(900px, calc(100vh - 32px));
+  height: min(780px, calc(100vh - 80px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--authoring-hairline, var(--border-subtle));
-  border-radius: 6px;
+  border-radius: 10px;
   background: var(--surface-workbench-raised, var(--bg-primary));
   box-shadow: var(--shadow-workbench);
   color: var(--text-primary);

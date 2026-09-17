@@ -14,22 +14,23 @@
 .theme-legacy {
   --control-fg: var(--archive-ink-soft);
   --control-fg-strong: var(--archive-ink);
-  --control-accent: var(--archive-olive-strong);
-  --control-accent-bg: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-ink));
-  --control-hover: color-mix(in srgb, var(--archive-olive) 8%, transparent);
-  --control-active: color-mix(in srgb, var(--archive-olive) 12%, var(--archive-paper-soft));
-  --control-danger: color-mix(in srgb, var(--archive-rose) 72%, var(--archive-ink));
-  --control-focus: color-mix(in srgb, var(--archive-olive) 70%, transparent);
+  --control-accent: var(--accent);
+  --control-accent-bg: var(--accent);
+  --control-hover: color-mix(in srgb, var(--archive-ink) 6%, transparent);
+  --control-active: color-mix(in srgb, var(--accent) 13%, var(--archive-paper));
+  --control-danger: var(--danger, #c94040);
+  --control-focus: var(--accent);
   --control-hit-min: 32px;
 }
 
-/* —— 基座：所有 control 共享的 reset / disabled / focus / 命中区 —— */
-.theme-legacy [class*='control-'] {
+/* Explicit interactive elements only: control-group and field containers are not buttons.
+   :where keeps reset specificity equal to variants; shell scope wins old page chrome. */
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
   font-family: var(--font-sans, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.2;
-  letter-spacing: 0.01em;
+  letter-spacing: normal;
   border: 0;
   background: transparent;
   color: var(--control-fg);
@@ -38,115 +39,115 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.theme-legacy [class*='control-']:disabled,
-.theme-legacy [class*='control-'][aria-disabled='true'] {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-']:disabled,
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'][aria-disabled='true'] {
   opacity: 0.42;
   cursor: not-allowed;
 }
 
-.theme-legacy [class*='control-']:focus-visible {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-']:focus-visible {
   outline: 2px solid var(--control-focus);
   outline-offset: 1px;
 }
 
 @media (pointer: coarse) {
-  .theme-legacy [class*='control-'] {
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
     min-height: var(--control-hit-min);
   }
-  .theme-legacy .control-icon,
-  .theme-legacy .control-toggle {
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon,
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle {
     min-height: 44px;
     min-width: 44px;
   }
 }
 
 /* —— primary：区域唯一主动作（小面积实色） —— */
-.theme-legacy .control-primary {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary {
   min-height: 34px;
   padding: 7px 18px;
-  border-radius: 3px;
+  border-radius: 6px;
   background: var(--control-accent-bg);
-  color: var(--archive-paper-soft, #f5f7f4);
-  font-weight: 650;
+  color: var(--accent-text);
+  font-weight: 600;
 }
-.theme-legacy .control-primary:hover:not(:disabled) {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary:hover:not(:disabled):not([aria-disabled='true']) {
   background: color-mix(in srgb, var(--control-accent-bg) 88%, var(--archive-ink));
 }
-.theme-legacy .control-primary:active:not(:disabled) {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary:active:not(:disabled):not([aria-disabled='true']) {
   background: color-mix(in srgb, var(--control-accent-bg) 82%, var(--archive-ink));
 }
 
 /* —— secondary：次级确认（淡背景，无闭合框） —— */
-.theme-legacy .control-secondary {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-secondary {
   min-height: 34px;
   padding: 7px 14px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--archive-olive) 9%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-ink) 5%, transparent);
   color: var(--control-fg-strong);
 }
-.theme-legacy .control-secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--archive-olive) 14%, transparent);
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-secondary:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--control-hover);
 }
 
 /* —— quiet：普通命令（透明，文字/淡底变化） —— */
-.theme-legacy .control-quiet {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-quiet {
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 3px;
+  border-radius: 6px;
 }
-.theme-legacy .control-quiet:hover:not(:disabled) {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-quiet:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--control-hover);
   color: var(--control-fg-strong);
 }
 
 /* —— icon：工具命令（只有图标；命中区 32-44px） —— */
-.theme-legacy .control-icon {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: var(--control-hit-min);
   height: var(--control-hit-min);
-  border-radius: 3px;
+  border-radius: 6px;
   color: var(--control-fg);
 }
-.theme-legacy .control-icon:hover:not(:disabled) {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--control-hover);
   color: var(--control-fg-strong);
 }
 
-/* —— toggle：模式开关（aria-pressed；激活 = 2px 色标 + 淡背景） —— */
-.theme-legacy .control-toggle {
+/* —— toggle：模式开关（aria-pressed；激活 = 淡背景） —— */
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 3px;
+  border-radius: 6px;
   box-shadow: inset 2px 0 0 0 transparent;
 }
-.theme-legacy .control-toggle:hover:not(:disabled) {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--control-hover);
 }
-.theme-legacy .control-toggle[aria-pressed='true'] {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle[aria-pressed='true'] {
   background: var(--control-active);
   color: var(--control-fg-strong);
-  box-shadow: inset 2px 0 0 0 var(--control-accent);
+  box-shadow: none;
 }
 
 /* —— danger：破坏性动作（收进菜单；聚焦后低饱和危险色） —— */
-.theme-legacy .control-danger {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger {
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 3px;
+  border-radius: 6px;
 }
-.theme-legacy .control-danger:hover:not(:disabled),
-.theme-legacy .control-danger:focus-visible {
-  background: color-mix(in srgb, var(--archive-rose) 10%, transparent);
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger:hover:not(:disabled):not([aria-disabled='true']),
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger:focus-visible:not(:disabled):not([aria-disabled='true']) {
+  background: color-mix(in srgb, var(--control-danger) 10%, transparent);
   color: var(--control-danger);
 }
 
 /* —— control-group：组保留一条 hairline 或底边，子按钮不逐个带框 —— */
-.theme-legacy .control-group {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-group {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -155,13 +156,27 @@
   border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
   border-radius: 0;
 }
-.theme-legacy .control-group > [class*='control-'] {
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-group > [class*='control-'] {
   border: 0;
   box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-legacy [class*='control-'] {
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
     transition: none;
   }
+}
+
+/* Press feedback without geometry changes; disabled controls never light up. */
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :is(.control-quiet[aria-expanded='true'], .control-icon[aria-pressed='true']) {
+  background: var(--control-active);
+  color: var(--control-fg-strong);
+}
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) :is(.control-secondary, .control-quiet, .control-icon, .control-toggle):active:not(:disabled):not([aria-disabled='true']) {
+  background: var(--control-active);
+  color: var(--control-fg-strong);
+}
+:is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger:active:not(:disabled):not([aria-disabled='true']) {
+  background: color-mix(in srgb, var(--control-danger) 18%, transparent);
+  color: var(--control-danger);
 }

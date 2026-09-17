@@ -160,6 +160,29 @@ export function deleteWritingSnapshot(snapshotId) {
   return writeSnapshots(readSnapshots().filter((snapshot) => snapshot.id !== id))
 }
 
+// Explicit maintenance only. Preserve manual/pre-operation snapshots and the
+// newest three versions per chapter; never touch manuscripts or recovery drafts.
+export function previewWritingSnapshotCleanup(now = Date.now()) {
+  const counts = new Map()
+  return readSnapshots().filter(snapshot => {
+    const count = (counts.get(snapshot.chapterId) || 0) + 1
+    counts.set(snapshot.chapterId, count)
+    return count > 3 && snapshot.reason === 'word-milestone'
+      && new Date(snapshot.createdAt).getTime() < now - 30 * 24 * 60 * 60 * 1000
+  })
+}
+
+export function cleanWritingSnapshotPreview(preview) {
+  if (!Array.isArray(preview) || !preview.length) return mutationFailure('empty-cleanup')
+  const eligible = new Map(previewWritingSnapshotCleanup().map(row => [row.id, row]))
+  if (preview.some(row => !eligible.has(row.id) || JSON.stringify(eligible.get(row.id)) !== JSON.stringify(row))) {
+    return mutationFailure('cleanup-preview-stale')
+  }
+  const ids = new Set(preview.map(row => row.id))
+  const result = writeSnapshots(readSnapshots().filter(row => !ids.has(row.id)))
+  return result.ok ? mutationSuccess({ removed: ids.size, snapshots: result.snapshots }) : result
+}
+
 export function deleteWritingSnapshotsForChapter(chapterId) {
   const id = String(chapterId || '')
   if (!id) return mutationFailure('missing-chapter-id')

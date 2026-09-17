@@ -1,7 +1,7 @@
 <template>
   <div>
     <div
-      class="tree-row"
+      class="tree-row workspace-nav-item workspace-nav-item--tree"
       :class="{ active: activeId === node.id }"
       :style="{ paddingLeft: (depth * 12 + 4) + 'px' }"
       @click="$emit('select', node.id)"
@@ -9,6 +9,8 @@
       <button
         v-if="hasChildren"
         class="expand-btn"
+        :aria-expanded="expanded"
+        :aria-label="`${expanded ? '折叠' : '展开'} ${node.name}`"
         @click.stop="expanded = !expanded"
       >
         <svg v-if="expanded" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
@@ -24,11 +26,11 @@
         class="edit-input"
         v-model="editName"
         @blur="commitRename"
-        @keydown.enter="commitRename"
-        @keydown.escape="editing = false"
+        @keydown.enter.prevent="commitRename(); restoreSelectionFocus()"
+        @keydown.escape.stop.prevent="cancelRename"
         @click.stop
       />
-      <span v-else class="node-name">{{ node.name }}</span>
+      <button v-else class="node-name workspace-nav-label" ref="nodeButton" type="button" :aria-pressed="activeId === node.id" :title="node.name" @click.stop="$emit('select', node.id)">{{ node.name }}</button>
 
       <div class="row-actions">
         <button class="icon-btn-xxs" @click.stop="startEdit" title="重命名">
@@ -74,6 +76,7 @@ const expanded = ref(true)
 const editing = ref(false)
 const editName = ref('')
 const editInput = ref(null)
+const nodeButton = ref(null)
 
 const hasChildren = computed(() => props.node.children && props.node.children.length > 0)
 
@@ -84,10 +87,21 @@ function startEdit() {
 }
 
 function commitRename() {
+  if (!editing.value) return
+  editing.value = false
   if (editName.value.trim() && editName.value !== props.node.name) {
     emit('rename', props.node.id, editName.value.trim())
   }
+}
+
+function restoreSelectionFocus() {
+  nextTick(() => nodeButton.value?.focus())
+}
+
+function cancelRename() {
   editing.value = false
+  editName.value = props.node.name
+  restoreSelectionFocus()
 }
 </script>
 
@@ -109,12 +123,11 @@ function commitRename() {
 .tree-row.active {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
-  border-right: 2px solid var(--accent);
 }
 
 .expand-btn {
-  width: 14px;
-  height: 14px;
+  width: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,7 +144,7 @@ function commitRename() {
 }
 
 .expand-spacer {
-  width: 14px;
+  width: 24px;
   flex-shrink: 0;
 }
 
@@ -143,7 +156,14 @@ function commitRename() {
 .node-name {
   flex: 1;
   min-width: 0;
-  font-size: 10px;
+  font-size: 14px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -154,7 +174,7 @@ function commitRename() {
   min-width: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 10px;
+  font-size: 14px;
   padding: 2px 4px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 3px;
@@ -162,19 +182,23 @@ function commitRename() {
 }
 
 .row-actions {
-  display: none;
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
   align-items: center;
   gap: 1px;
   flex-shrink: 0;
 }
 
-.tree-row:hover .row-actions {
-  display: flex;
+.tree-row:hover .row-actions,
+.tree-row:focus-within .row-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .icon-btn-xxs {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,7 +207,7 @@ function commitRename() {
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 3px;
-  transition: all 0.15s;
+  transition: color 120ms, background-color 120ms;
 }
 
 .icon-btn-xxs:hover {
@@ -193,5 +217,16 @@ function commitRename() {
 
 .icon-btn-xxs.danger:hover {
   color: var(--danger);
+}
+
+.tree-row button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-row button:active { background: var(--nav-focused); }
+.node-icon { width: 16px; height: 16px; }
+@media (pointer: coarse) {
+  .row-actions { opacity: 1; pointer-events: auto; }
+  .tree-row button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-row, .icon-btn-xxs { transition: none; }
 }
 </style>

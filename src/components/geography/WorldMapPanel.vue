@@ -31,7 +31,7 @@
           </button>
         </div>
 
-        <button class="generate-btn" @click="handleGenerate" :disabled="streaming || Boolean(pendingMapReplacement)">
+        <button class="generate-btn control-primary" @click="handleGenerate" :disabled="streaming || Boolean(pendingMapReplacement)">
           <svg v-if="streaming" class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
           <template v-else-if="voronoiConfig">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -1241,7 +1241,10 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--archive-paper-strong);
+  background: var(--archive-paper-soft);
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -1250,7 +1253,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -2055,13 +2058,20 @@ watch(
 }
 
 :global(.theme-legacy) .main-content {
-  border-color: color-mix(in srgb, var(--archive-ink) 18%, var(--border));
+  border: 0;
+  border-radius: 0;
   background: var(--archive-paper-soft);
   box-shadow: none;
 }
 
 :global(.theme-legacy) .map-area {
+  padding: 0;
   background: var(--archive-paper-soft);
+}
+.map-area :deep(.voronoi-container) { border: 0; border-radius: 0; }
+.main-content :deep(.sidebar-expanded) { background: var(--archive-paper); border-right: 1px solid var(--archive-paper-strong); }
+@media (min-width: 1181px) {
+  .main-content :deep(.sidebar-expanded) { width: var(--workspace-sidebar-width, 240px); flex-basis: var(--workspace-sidebar-width, 240px); }
 }
 
 @media (max-width: 760px) {

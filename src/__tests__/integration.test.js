@@ -175,7 +175,9 @@ import { createWritingSnapshot } from '../../shared/writingSnapshotContract.js'
 import {
   listWritingSnapshots,
   normalizeStoredWritingSnapshot,
-  saveWritingSnapshot
+  saveWritingSnapshot,
+  previewWritingSnapshotCleanup,
+  cleanWritingSnapshotPreview
 } from '../services/writing/writingSnapshots.js'
 import {
   listWritingRecoveryDrafts,
@@ -1420,6 +1422,24 @@ describe('PromptBuilder', () => {
     expect(listWritingSnapshots('chapter-1').map((item) => item.id)).toEqual([snapshot.id])
     expect(listWritingRecoveryDrafts('chapter-1').map((item) => item.id)).toEqual(['recovery-chapter-1'])
     expect(historyEntries).toHaveLength(1)
+    for (let index = 0; index < 5; index += 1) {
+      const old = createWritingSnapshot({ id: `cleanup-${index}`, chapterId: 'cleanup-chapter', label: '旧自动版本', reason: 'word-milestone', document: historyAfter, markdown: getWritingDocumentMarkdown(historyAfter), milestone: { intervalWords: 100, fromWordCount: 0, toWordCount: 100, crossedBoundaries: [100] } })
+      old.createdAt = new Date(Date.now() - (40 + index) * 86400000).toISOString()
+      expect(saveWritingSnapshot(old).ok).toBe(true)
+    }
+    const cleanup = previewWritingSnapshotCleanup()
+    expect(cleanup.map(row => row.id)).toEqual(['cleanup-3', 'cleanup-4'])
+    const beforeCleanup = localStorage.getItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+    expect(cleanWritingSnapshotPreview([{ ...cleanup[0], label: 'stale' }]).reason).toBe('cleanup-preview-stale')
+    expect(localStorage.getItem(STORAGE_KEYS.WRITING_SNAPSHOTS)).toBe(beforeCleanup)
+    const deniedCleanupWrite = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError') })
+    expect(cleanWritingSnapshotPreview(cleanup).ok).toBe(false)
+    deniedCleanupWrite.mockRestore()
+    expect(localStorage.getItem(STORAGE_KEYS.WRITING_SNAPSHOTS)).toBe(beforeCleanup)
+    expect(cleanWritingSnapshotPreview(cleanup)).toMatchObject({ ok: true, removed: 2 })
+    expect(listWritingSnapshots('cleanup-chapter')).toHaveLength(3)
+    expect(listWritingSnapshots('chapter-1').map(row => row.id)).toEqual([snapshot.id])
+    expect(listWritingRecoveryDrafts('chapter-1').map(row => row.id)).toEqual(['recovery-chapter-1'])
     localStorage.removeItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
     localStorage.removeItem(STORAGE_KEYS.WRITING_RECOVERY_DRAFTS)
 

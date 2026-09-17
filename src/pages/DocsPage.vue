@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../utils/sanitize'
+import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 // 独立全页文档界面（对标 platform.minimaxi.com/docs 的阅读体验）：
 // 工作区文档标签：保留章节深链接，复用 AppShell 的导航与标签。
@@ -101,6 +102,7 @@ async function loadChapter(chapterId) {
 }
 
 function selectChapter(chapterId) {
+  sidebarOpen.value = false
   if (chapterId === currentChapterId.value) return
   router.push({ name: 'docs', params: { chapterId } })
 }
@@ -209,7 +211,7 @@ onBeforeUnmount(() => {
           data-test="docs-back"
           @click="goBack"
         >
-          ← <span>返回工作区</span>
+          <WorkbenchIcon name="arrow-left" :size="16" /><span>返回工作区</span>
         </button>
 
         <button
@@ -220,7 +222,7 @@ onBeforeUnmount(() => {
           data-test="docs-menu-toggle"
           @click="sidebarOpen = !sidebarOpen"
         >
-          ☰
+          <WorkbenchIcon name="panel-left" :size="16" />
         </button>
 
         <div class="docs-page__brand">
@@ -235,7 +237,7 @@ onBeforeUnmount(() => {
 
     <div class="docs-page__layout">
       <aside
-        class="docs-page__sidebar"
+        class="docs-page__sidebar workspace-sidebar"
         :class="{ open: sidebarOpen }"
         aria-label="章节目录"
       >
@@ -249,19 +251,19 @@ onBeforeUnmount(() => {
             :key="group.name"
             class="docs-page__group"
           >
-            <h3 class="docs-page__group-title">{{ group.name }}</h3>
+            <h3 class="docs-page__group-title workspace-nav-section">{{ group.name }}</h3>
             <ul class="docs-page__list">
               <li v-for="ch in group.chapters" :key="ch.id">
                 <button
                   type="button"
-                  class="docs-page__nav-item"
+                  class="docs-page__nav-item workspace-nav-item"
                   :class="{ 'is-active': ch.id === currentChapter?.id }"
                   :aria-current="ch.id === currentChapter?.id ? 'page' : 'false'"
                   :data-test="`docs-nav-${ch.id}`"
                   @click="selectChapter(ch.id)"
                 >
-                  <span class="docs-page__nav-title">{{ ch.title }}</span>
-                  <span class="docs-page__nav-summary">{{ ch.summary }}</span>
+                  <span class="docs-page__nav-title workspace-nav-label">{{ ch.title }}</span>
+                  <span class="docs-page__nav-summary workspace-nav-meta">{{ ch.summary }}</span>
                 </button>
               </li>
             </ul>
@@ -391,8 +393,8 @@ onBeforeUnmount(() => {
 }
 
 .docs-page__sidebar {
-  width: 248px;
-  flex: 0 0 248px;
+  width: var(--workspace-sidebar-width, 240px);
+  flex: 0 0 var(--workspace-sidebar-width, 240px);
   border-right: 1px solid var(--hairline-soft);
   padding: 18px 14px 32px;
   overflow-y: auto;
@@ -433,7 +435,7 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
-  border-radius: 3px;
+  border-radius: 6px;
   transition: background var(--motion-fast, 140ms), color var(--motion-fast, 140ms);
 }
 
@@ -451,11 +453,11 @@ onBeforeUnmount(() => {
 
 .docs-page__nav-title {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .docs-page__nav-summary {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   line-height: 1.45;
 }
@@ -504,7 +506,7 @@ onBeforeUnmount(() => {
 }
 
 .docs-page__content {
-  max-width: 860px;
+  max-width: 760px;
   margin-inline: auto;
   font-size: 16px;
   line-height: 1.9;
@@ -519,11 +521,11 @@ onBeforeUnmount(() => {
 }
 
 .docs-page__content :deep(h1) {
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 700;
   margin: 0 0 1em;
   padding-bottom: 0.5em;
-  border-bottom: 1px solid var(--hairline-soft);
+  border-bottom: 0;
 }
 
 .docs-page__content :deep(h2) {

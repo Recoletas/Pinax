@@ -1,8 +1,8 @@
 .theme-legacy .writing-page {
-  --surface-workbench-muted: #eef1f5;
-  --surface-workbench-raised: #fafbfd;
-  --authoring-chrome-surface: #fbfcfd;
-  --authoring-hairline: #e8ebef;
+  --surface-workbench-muted: var(--archive-paper);
+  --surface-workbench-raised: var(--archive-paper-soft);
+  --authoring-chrome-surface: var(--archive-paper-soft);
+  --authoring-hairline: var(--archive-paper-strong);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -15,10 +15,10 @@
 }
 
 .theme-legacy.theme-dark .writing-page {
-  --surface-workbench-muted: #0f1720;
-  --surface-workbench-raised: #182430;
-  --authoring-chrome-surface: #121b25;
-  --authoring-hairline: #2a3948;
+  --surface-workbench-muted: var(--archive-paper);
+  --surface-workbench-raised: var(--archive-paper-soft);
+  --authoring-chrome-surface: var(--surface-workbench);
+  --authoring-hairline: var(--border);
 }
 
 .theme-legacy .writing-page .wall__cork {
@@ -557,7 +557,7 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: clamp(220px, 18vw, 276px) minmax(0, 1fr) 52px;
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr) 52px;
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -565,11 +565,16 @@
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector {
-  grid-template-columns: clamp(210px, 16vw, 250px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-  grid-template-columns: clamp(210px, 16vw, 250px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;
+}
+
+/* 设定是“详情 + 索引”的双列工具，索引不应被压成按钮窄条。 */
+.theme-legacy .writing-page .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench) {
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(520px, 38vw, 600px) 52px;
 }
 
 .theme-legacy .writing-page .writing-tool-rail {
@@ -615,6 +620,77 @@
 
 .writing-inspector__rehearsal { display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden; }
 .writing-inspector__rehearsal > .authoring-scene-lab { overflow:auto; }
+
+/* The composer owns the right workbench, not a second editor-sized insert. */
+.theme-legacy .writing-page .writing-inspector__compose-host {
+  min-height: 0; overflow: auto; flex: 1; padding: 18px;
+  background: var(--archive-paper-soft); overscroll-behavior: contain;
+}
+.theme-legacy .writing-page .writing-inspector__compose-host > :is(.authoring-block-composer, .authoring-intervention) {
+  position: relative; inset: auto; width: 100%; max-height: none;
+  padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+.theme-legacy .writing-page .writing-inspector__compose-host > :is(.authoring-block-composer, .authoring-intervention)::before { display: none; }
+.theme-legacy .writing-page .writing-inspector__compose-host :is(.authoring-block-composer__head strong, .authoring-intervention__head strong) { font-family: var(--font-sans); font-size: 16px; }
+.theme-legacy .writing-page .writing-inspector__compose-host :is(textarea, select) {
+  max-width: 100%; border: 1px solid var(--authoring-hairline); border-radius: 6px;
+  padding: 10px; background: var(--archive-paper); font-family: var(--font-sans);
+}
+.theme-legacy .writing-page .writing-inspector__compose-host :is(textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.theme-legacy .writing-page .authoring-block-composer__more-body { width: 100%; }
+.theme-legacy .writing-page .authoring-rehearsal-anchor {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
+  padding: 6px 10px; border: 0; border-radius: 5px; background: var(--archive-paper);
+  color: var(--archive-ink-soft); font: 12px/1.5 var(--font-sans); text-align: left; cursor: pointer;
+}
+.theme-legacy .writing-page .authoring-rehearsal-anchor span:last-child { margin-left: auto; color: var(--accent); }
+.theme-legacy .writing-page .writing-inspector__head {
+  min-height: 44px; padding: 8px 16px; background: var(--archive-paper-soft);
+  border-bottom: 1px solid var(--authoring-hairline); box-shadow: none;
+}
+.theme-legacy .writing-page .writing-inspector__head strong { font: 600 13px/1.5 var(--font-sans); }
+.theme-legacy .writing-page .writing-inspector__memory-link { min-height: 28px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); cursor: pointer; }
+.theme-legacy .writing-page .writing-inspector__memory-link:hover { color: var(--accent); }
+.theme-legacy .writing-page .writing-inspector__compose-host .authoring-block-composer__operations { display: flex; gap: 2px; padding: 3px; margin: 16px 0 10px; border: 0; border-radius: 6px; background: var(--archive-paper); }
+.theme-legacy .writing-page .writing-inspector__compose-host .authoring-block-composer__operations button { flex: 1; padding: 4px 8px; border: 0; border-radius: 4px; font-size: 13px; }
+.theme-legacy .writing-page .writing-inspector__compose-host .authoring-block-composer__operations [aria-checked="true"] { background: var(--archive-paper-soft); box-shadow: 0 1px 3px color-mix(in srgb, var(--archive-ink) 10%, transparent); }
+.theme-legacy .writing-page .writing-inspector__compose-host .authoring-block-composer__kinds { gap: 4px 12px; font-size: 13px; }
+.theme-legacy .writing-page .writing-inspector__compose-host .authoring-block-composer__starters { margin-block: 12px; }
+.theme-legacy .writing-page .writing-inspector__icon-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; }
+
+.theme-legacy .writing-page .writing-annotation__edit {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  padding: 10px 11px;
+  border: 1px solid var(--authoring-hairline);
+  border-radius: 7px;
+  background: var(--archive-paper);
+  box-shadow: none;
+  font: 13px/1.65 var(--font-sans);
+  resize: vertical;
+}
+.theme-legacy .writing-page .writing-annotation__edit:focus {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+  box-shadow: none;
+}
+.theme-legacy .writing-page .writing-annotation__edit-actions { justify-content: flex-end; gap: 6px; margin-top: 2px; }
+.theme-legacy .writing-page .writing-annotation__edit-actions button { min-height: 30px; padding: 5px 10px; border: 0; border-radius: 5px; }
+.theme-legacy .writing-page .writing-annotation__edit-actions button:first-child { background: var(--accent); color: var(--accent-text); }
+.theme-legacy .writing-page .writing-annotation__edit-actions button:hover:not(:disabled) { border: 0; background: color-mix(in srgb, var(--archive-ink) 7%, transparent); color: var(--archive-ink); }
+.theme-legacy .writing-page .writing-annotation__edit-actions button:first-child:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+.theme-legacy .writing-page .writing-inspector__tabs { padding: 6px 12px; gap: 4px; border-bottom: 1px solid var(--authoring-hairline); }
+.theme-legacy .writing-page .writing-inspector__tabs button { border: 0; border-radius: 5px; padding: 6px 10px; font-size: 12px; }
+.theme-legacy .writing-page .writing-inspector__tabs button.active { background: var(--archive-paper); color: var(--archive-ink); }
+.theme-legacy .writing-page .writing-scene-overview { padding: 20px; }
+.theme-legacy .writing-page .writing-scene-overview__summary > div { padding-block: 10px; border-bottom: 1px solid var(--authoring-hairline); }
+.theme-legacy .writing-page .writing-scene-overview__events { display: grid; gap: 8px; padding-block: 16px; }
+.theme-legacy .writing-page .writing-scene-overview__events strong { font-size: 12px; color: var(--text-secondary); }
+.theme-legacy .writing-page .writing-scene-overview__events button { padding: 8px 0; border: 0; background: transparent; color: var(--archive-ink); text-align: left; font: 14px/1.7 var(--font-sans); }
+.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions button { min-height: 34px; border: 1px solid var(--authoring-hairline); border-radius: 6px; background: var(--archive-paper-soft); padding: 6px 12px; font: 13px/1.5 var(--font-sans); }
 
 .theme-legacy .writing-page .writing-inspector__body--assistant {
   min-height: 0;
@@ -682,6 +758,11 @@
   font: 13px/1.4 var(--font-sans, sans-serif);
 }
 
+.theme-legacy .writing-page .authoring-chapter-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .theme-legacy .writing-page .authoring-chapter-create {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -691,19 +772,7 @@
 }
 
 .theme-legacy .writing-page .authoring-chapter-create button {
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--archive-paper-soft);
-  color: var(--text-primary);
-  font: 400 13px/1 var(--font-sans, sans-serif);
-  cursor: pointer;
-}
-
-.theme-legacy .writing-page .authoring-chapter-create button.is-primary {
-  border-color: var(--accent, #1677ff);
-  background: var(--accent, #1677ff);
-  color: var(--text-on-accent, #fff);
+  width: 100%;
 }
 
 .theme-legacy .writing-page .authoring-chapter-create button:disabled {
@@ -763,16 +832,7 @@
   color: var(--text-primary);
 }
 
-/* 当前章单一左刻度：不用整条强调边，只给 2px 位置信号。 */
-.theme-legacy .writing-page .authoring-chapter-row.is-active::before {
-  position: absolute;
-  inset-block: 6px;
-  inset-inline-start: 22px;
-  width: 2px;
-  content: '';
-  border-radius: 1px;
-  background: var(--accent, #1677ff);
-}
+/* Selection/focus colors are owned by workspace-navigation.css. */
 
 .theme-legacy .writing-page .authoring-chapter-row__title {
   display: flex;

@@ -178,10 +178,10 @@ function onChange(event) {
     font-size: 14px;
   }
 }
-.settings-context-bar { min-height: 62px; gap: 18px; padding: 10px 28px; border-right: 0; }
+.settings-context-bar { min-height: var(--workspace-toolbar-height, 46px); gap: 16px; padding: 4px 20px; border-right: 0; }
 .context-main { flex: 1; gap: 14px; }
 .context-kicker { white-space: nowrap; font: inherit; font-size: 13px; letter-spacing: 0; }
-.context-worldbook-select { min-width: 0; max-width: min(42vw, 360px); padding: 8px 26px 8px 10px; font-family: inherit; font-size: 15px; font-weight: 500; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper); }
+.context-worldbook-select { min-width: 0; max-width: min(42vw, 360px); padding: 6px 24px 6px 8px; font-family: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper); }
 .context-worldbook-select:disabled { opacity: 1; border-color: transparent; background: transparent; }
 .context-mismatch { font-size: 13px; }
 @media (max-width: 760px) { .settings-context-bar { padding: 10px 16px; flex-wrap: wrap; gap: 8px; } .context-main { flex: 1; width: auto; } .context-kicker { display: none; } .context-worldbook-select { max-width: 56vw; font-size: 14px; } }

@@ -17,9 +17,9 @@
     </button>
   </div>
 
-  <div v-else class="sidebar-expanded">
+  <div v-else class="sidebar-expanded workspace-sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">世界树</span>
+      <span class="sidebar-title workspace-nav-section">世界树</span>
       <div class="header-actions">
         <button class="icon-btn-xs" @click="addChild(null)" title="新建根世界">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -99,7 +99,7 @@ function handleRename(id, name) {
 }
 
 .sidebar-expanded {
-  width: 160px;
+  width: var(--workspace-sidebar-width, 240px);
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -178,7 +178,7 @@ function handleRename(id, name) {
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 4px;
-  transition: all 0.15s;
+  transition: background-color 120ms, color 120ms;
 }
 
 .icon-btn-xs:hover {
@@ -188,6 +188,12 @@ function handleRename(id, name) {
 
 .icon-btn-xs.accent:hover {
   color: var(--accent);
+}
+
+.icon-btn-xs:focus-visible, .icon-node:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.icon-btn-xs:active, .icon-node:active { background: var(--nav-focused); }
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn-xs, .icon-node { transition: none; }
 }
 
 @media (max-width: 760px) {

@@ -1,6 +1,20 @@
 /* Shared chrome only. Editors, canvas coordinates, and saved content retain their owners. */
+/* Writing inputs: one boundary and one focus owner, no nested highlighted boxes. */
+.theme-legacy .app-shell .writing-inspector :is(.authoring-block-composer__instruction textarea, .authoring-block-composer__more-body textarea, .writing-annotation-composer textarea, .writing-rewrite-panel__input) {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 96px; padding: 12px;
+  border: 1px solid var(--archive-paper-strong); border-radius: 8px;
+  background: var(--archive-paper-soft); color: var(--archive-ink); box-shadow: none;
+  font: 14px/1.65 var(--font-sans); resize: vertical;
+}
+.theme-legacy .app-shell .writing-inspector :is(.authoring-block-composer__instruction textarea, .authoring-block-composer__more-body textarea, .writing-annotation-composer textarea, .writing-rewrite-panel__input):focus {
+  outline: 1px solid var(--accent); outline-offset: 0; border-color: var(--accent); box-shadow: none;
+}
+.theme-legacy .app-shell .writing-inspector .authoring-knowledge__input-row { background: var(--archive-paper-soft); box-shadow: none; padding: 12px; }
+.theme-legacy .app-shell .writing-inspector .authoring-knowledge__input-row:focus-within { outline: 1px solid var(--accent); outline-offset: 0; box-shadow: none; }
+.theme-legacy .app-shell .authoring-knowledge__tasks select { max-width: 100%; padding: 6px 10px; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper-soft); color: var(--archive-ink); font: 13px/1.4 var(--font-sans); }
+.theme-legacy .app-shell .authoring-knowledge__suggestions summary { color: var(--archive-ink-soft); font-size: 13px; cursor: pointer; padding: 10px 0; }
 .theme-legacy .app-shell {
-  --workspace-toolbar-height: 54px;
+  --workspace-toolbar-height: 46px;
   --workspace-control-height: 34px;
   --workspace-radius: 6px;
 }
@@ -41,7 +55,7 @@
 .theme-legacy .app-shell .shell-content .comic-planner__header h2 { font-family: inherit; font-size: 26px; font-weight: 600; }
 .theme-legacy .app-shell .shell-content :is(.comic-planner__header p, .comic-planner__empty p) { font-size: 14px; line-height: 1.7; }
 .theme-legacy .app-shell .shell-content :is(.comic-planner__primary, .active-card button) { min-height: 34px; border-radius: 6px; font-size: 14px; }
-.theme-legacy .app-shell .shell-content .docs-page__head-inner { min-height: 54px; padding-block: 0; }
+.theme-legacy .app-shell .shell-content .docs-page__head-inner { min-height: var(--workspace-toolbar-height); padding-block: 0; }
 .theme-legacy .app-shell .shell-content .docs-page__sidebar { background: var(--archive-paper); }
 .theme-legacy .app-shell .shell-content .authoring-editor-toolbar-host { min-height: var(--workspace-toolbar-height); background: var(--archive-paper-soft); border-color: var(--archive-paper-strong); }
 .theme-legacy .app-shell .shell-content .scene-board-host > .scene-material-board { flex: 1; width: 100%; background: var(--archive-paper); }
@@ -81,24 +95,22 @@
 }
 .theme-legacy .app-shell .shell-content .drawer-handle__title { font-size: 14px; }
 .theme-legacy .app-shell .shell-content .index-card {
-  border: 1px solid var(--archive-paper-strong);
+  border: 0;
   border-radius: 5px;
   box-shadow: none;
   transform: none;
-  background: var(--archive-paper-soft);
+  background: transparent;
 }
 .theme-legacy .app-shell .shell-content .index-card.is-selected {
-  background: color-mix(in srgb, var(--archive-olive) 7%, var(--archive-paper-soft));
-  border-color: color-mix(in srgb, var(--archive-olive) 30%, var(--archive-paper-strong));
+  background: var(--nav-selected);
+  box-shadow: none;
 }
+.theme-legacy .app-shell .shell-content .material-drawer:focus-within .index-card.is-selected { background: var(--nav-focused); }
+.theme-legacy .app-shell .shell-content .index-card:hover { background: var(--nav-hover); box-shadow: none; transform: none; }
+.theme-legacy .app-shell .shell-content .index-card:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .theme-legacy .app-shell .shell-content .index-card::before,
 .theme-legacy .app-shell .shell-content .index-card::after { display: none; }
 .theme-legacy .app-shell .shell-content .index-card__title { font-size: 14px; }
 .theme-legacy .app-shell .shell-content .notes-sidekick { background: var(--archive-paper); border-color: var(--archive-paper-strong); }
 .theme-legacy .app-shell .shell-content .notes-sidekick__title { font-size: 15px; }
 .theme-legacy .app-shell .shell-content .writing-page .authoring-editor-toolbar-host .tool-btn { font-size: 14px; border-radius: 5px; }
-.theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row { height: 36px; border-radius: 5px; }
-.theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row__title { font-size: 14px; }
-@media (max-width: 760px) {
-  .theme-legacy .app-shell .shell-content .writing-page .authoring-chapter-row { min-height: 42px; }
-}

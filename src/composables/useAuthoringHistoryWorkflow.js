@@ -280,7 +280,8 @@ export function useAuthoringHistoryWorkflow(host) {
     if (!draft) return null
     const result = saveWritingRecoveryDraft(draft)
     if (!result.ok) return null
-    recoveryDraft.value = draft
+    // 本次会话的防崩溃写入不是“发现旧恢复稿”。保持入口安静；只有 load()
+    // 在打开文稿时读到与已保存正文不同的旧副本，才设置 recoveryDraft。
     return draft
   }
 

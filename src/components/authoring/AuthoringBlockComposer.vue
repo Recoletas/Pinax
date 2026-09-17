@@ -2,8 +2,7 @@
   <section class="authoring-block-composer" data-test="block-composer" aria-label="长篇推演">
     <header class="authoring-block-composer__head">
       <div>
-        <strong>{{ heading }}</strong>
-        <span>{{ operation === 'rewrite-unit' ? '保留原文直到你采用修改稿' : '先确定下一步，再生成可编辑正文' }}</span>
+        <strong>{{ emptyChapter ? '写下开场' : '推演草稿' }}</strong>
       </div>
       <button type="button" class="authoring-block-composer__close" aria-label="收起推演" @click="cancel">收起</button>
     </header>
@@ -15,21 +14,12 @@
       <button type="button" role="radio" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">推演下一段</button>
       <button type="button" role="radio" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">重写当前块</button>
     </div>
-    <div v-if="operation === 'next-passage'" class="authoring-block-composer__kinds" role="radiogroup" aria-label="推进类型">
-      <button v-for="option in kindOptions" :key="option.id" type="button" role="radio"
-        :aria-checked="kind === option.id" @click="kind = option.id">{{ option.label }}</button>
-    </div>
-    <div class="authoring-block-composer__starters" aria-label="写作起点">
-      <span>可以从这里开始</span>
-      <button v-for="starter in promptStarters" :key="starter" type="button" @click="useStarter(starter)">{{ starter }}</button>
-    </div>
     <div v-if="operation === 'next-passage' && (kind === 'dialogue' || kind === 'thought')" class="authoring-block-composer__people">
       <label>{{ kind === 'thought' ? '视角人物' : '说话人' }}<select v-model="actorId"><option value="">请选择</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
       <label v-if="kind === 'dialogue'">对象<select v-model="targetId"><option value="">请选择</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
     </div>
     <label class="authoring-block-composer__instruction">
-      <span>{{ operation === 'rewrite-unit' ? '希望怎样重写' : '接下来想写什么' }}</span>
-      <textarea ref="instructionInput" v-model="instruction" :placeholder="instructionPlaceholder" @keydown="handleInstructionKeydown" />
+      <textarea ref="instructionInput" v-model="instruction" aria-label="推演要求" :placeholder="instructionPlaceholder" @keydown="handleInstructionKeydown" />
     </label>
     <p v-if="validationMessage" role="alert">{{ validationMessage }}</p>
     <p v-else-if="failure" role="alert">{{ failure.message || '生成失败，请重试' }}</p>
@@ -45,13 +35,16 @@
         spellcheck="false"
       ></textarea>
     </label>
-    <div class="authoring-block-composer__footer">
       <details class="authoring-block-composer__more">
-        <summary>高级设置</summary>
+        <summary>推演选项<span v-if="kind !== 'action' || authorNote.trim()"> · 已设置</span></summary>
         <div class="authoring-block-composer__more-body">
-          <label>导演注<textarea v-model="authorNote" placeholder="只约束这次推演" /></label>
+          <div v-if="operation === 'next-passage'" class="authoring-block-composer__kinds" role="radiogroup" aria-label="推进类型">
+            <button v-for="option in kindOptions" :key="option.id" type="button" role="radio" :aria-checked="kind === option.id" @click="kind = option.id">{{ option.label }}</button>
+          </div>
+          <label>额外约束<textarea v-model="authorNote" placeholder="仅用于本次，不写入正文" /></label>
         </div>
       </details>
+    <div class="authoring-block-composer__footer">
       <div class="authoring-block-composer__actions">
         <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">再次保存</button>
         <button type="button" class="control-primary" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ primaryLabel }}</button>
@@ -109,33 +102,11 @@ const sceneContextSummary = computed(() => {
     peopleNames.slice(0, 3).join('、')
   ].filter(Boolean).join(' · ')
 })
-const heading = computed(() => props.emptyChapter
-  ? '这一章从哪里开始？'
-  : operation.value === 'rewrite-unit' ? '这段文字想改成什么？' : '接下来会发生什么？')
 const instructionPlaceholder = computed(() => {
   if (props.emptyChapter) return '例如：从雨夜的码头开场（可留空）'
   if (operation.value === 'rewrite-unit') return '例如：收紧节奏，保留人物的迟疑（可留空）'
   return '例如：她推开门，却先听见屋内的对话（可留空）'
 })
-const promptStarters = computed(() => {
-  if (operation.value === 'rewrite-unit') return ['收紧节奏，保留关键信息', '减少解释，强化人物反应', '换一个更自然的表达']
-  const projection = props.projection || {}
-  const lead = projection.viewpointCharacter?.name || props.people[0]?.name || '人物'
-  const other = props.people.find((person) => person?.name && person.name !== lead)?.name || '另一人'
-  const location = projection.location?.name || '当前地点'
-  if (kind.value === 'dialogue') return [`让${lead}主动开口`, `让${other}提出质疑`, '用一句话打破沉默']
-  if (kind.value === 'thought') return [`写出${lead}真正担心的事`, `让${lead}想起一个关键细节`, '让判断和情绪发生冲突']
-  if (kind.value === 'scene') return [`让${location}出现新的变化`, '把镜头移到更有压力的位置', '用环境变化推动下一步']
-  return [`让${lead}立刻采取行动`, '让当前阻力产生后果', '让一个未决问题浮到眼前']
-})
-
-function useStarter(starter) {
-  instruction.value = starter
-  nextTick(() => {
-    instructionInput.value?.focus?.({ preventScroll: true })
-    instructionInput.value?.setSelectionRange?.(starter.length, starter.length)
-  })
-}
 watch(() => props.initialInstruction, (value) => {
   // 只在 composer 可见时预填；每次新指令覆盖旧输入（来源是显式的“以此推进”动作）。
   if (!props.generating && value) instruction.value = String(value)
@@ -310,6 +281,12 @@ defineExpose({ focusInstruction })
   .authoring-block-composer__starters { gap: 2px 10px; }
   .authoring-block-composer__starters button { min-height: 40px; }
 }
+.authoring-block-composer__instruction { margin-top: 14px; }
+.authoring-block-composer__more { margin-top: 10px; width: 100%; }
+.authoring-block-composer__more-body { width: 100%; box-sizing: border-box; }
+.authoring-block-composer__more-body label:last-child { display: grid; align-items: stretch; }
+.authoring-block-composer__more-body textarea { box-sizing: border-box; width: 100%; font-family: var(--font-sans); }
+.authoring-block-composer__footer { margin-top: 12px; justify-content: flex-end; }
 </style>
 <style scoped>
 .authoring-block-composer__adjust{border-top:1px dashed var(--border-subtle);margin-top:4px;padding-top:2px}

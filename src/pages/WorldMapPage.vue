@@ -81,13 +81,14 @@ function openWorldbookImport() {
   /* W4c.5: bounded height + overflow:hidden so the .world-map-page__body
      below becomes a real scroll container (otherwise the inner overflow:auto
      is dead and sticky descendants bind to <html> instead of the page). */
-  height: var(--app-viewport-height, 100vh);
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding: 12px;
+  padding: 0;
 }
 
 .world-map-page__topbar {
@@ -96,7 +97,13 @@ function openWorldbookImport() {
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
+  min-height: var(--workspace-toolbar-height, 46px);
+  padding: 0 20px;
+  border-bottom: 1px solid var(--archive-paper-strong);
+  background: var(--archive-paper-soft);
 }
+
+.world-map-page__topbar :deep(.settings-section-nav) { padding: 0; border: 0; }
 
 .world-map-page__body {
   /* Mirror W4b + StructuredSettings .settings-body so the map panel
@@ -105,8 +112,11 @@ function openWorldbookImport() {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   overflow: auto;
+}
+@media (max-width: 760px) {
+  .world-map-page__topbar { padding-inline: 12px; flex-wrap: wrap; gap: 4px; }
 }
 
 .world-map-page__loading {

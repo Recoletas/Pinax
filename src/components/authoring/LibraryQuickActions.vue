@@ -36,9 +36,15 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 .library-quick-actions summary { display: grid; place-items: center; width: 32px; height: 44px; cursor: pointer; list-style: none; }
 .library-quick-actions summary::-webkit-details-marker { display: none; }
 .library-quick-actions__menu { position: absolute; z-index: 5; right: 0; top: 100%; width: 210px; padding: 6px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); box-shadow: 0 8px 24px color-mix(in srgb, var(--archive-ink) 14%, transparent); }
-.library-quick-actions__menu a { display: block; padding: 12px; color: var(--archive-ink); text-decoration: none; font-size: 15px; border-radius: 4px; }
+.library-quick-actions__menu a { display: block; padding: 8px 10px; min-height: 36px; color: var(--archive-ink); text-decoration: none; font-size: 14px; border-radius: 4px; }
 .library-quick-actions__menu a:hover { background: var(--archive-paper); }
-.library-quick-actions > a:hover, .library-quick-actions > button:hover, .library-quick-actions__new:hover { border-color: var(--archive-olive); }
+.library-quick-actions > a:hover, .library-quick-actions > button:hover, .library-quick-actions__new:hover { background: var(--nav-hover); }
+.library-quick-actions :is(a, button, summary) { transition: background-color 120ms ease; }
+.library-quick-actions :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.library-quick-actions :is(a, button, summary):active { background: var(--nav-selected); }
+.library-quick-actions summary:hover { background: var(--nav-hover); border-radius: 5px; }
+@media (pointer: coarse) { .library-quick-actions__menu a { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .library-quick-actions :is(a, button, summary) { transition: none; } }
 @media (max-width: 1179px) { .library-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .library-quick-actions { gap: 10px; margin: 22px 0; } .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new > a { padding: 12px; gap: 10px; } .library-quick-actions strong { font-size: 16px; } .library-quick-actions small { font-size: 12px; line-height: 1.5; } .library-quick-actions__new > a { padding-right: 0; } .library-quick-actions details { margin-right: 0; } }
 </style>

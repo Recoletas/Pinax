@@ -131,11 +131,11 @@ export async function saveAuthoringIllustrationAsMaterial({
       kind: 'reference-image',
       status: 'accepted',
       title: sourceLabel ? `${sourceLabel} · 插画` : '正文插画',
-      content: prompt || '正文画师生成的插画候选',
+      content: prompt || '正文生图生成的插画候选',
       source: {
         type: 'image',
         id: mediaAssetId,
-        label: '正文画师'
+        label: '正文生图'
       },
       sourceRefs: getAuthoringIllustrationSourceRefs(resolvedBrief || {}, image),
       image: {

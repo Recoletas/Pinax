@@ -178,11 +178,11 @@ export function useAuthoringIllustrator(host = null) {
   function openWithPrepared(prepared = null) {
     if (!host) return false
     if (host.compositionActive?.()) {
-      host.notify?.('请先完成当前中文输入，再打开画师')
+      host.notify?.('请先完成当前中文输入，再打开生图')
       return false
     }
     if (host.draftBlocksOpen?.()) {
-      host.notify?.('请先处理当前推演草稿，再打开画师')
+      host.notify?.('请先处理当前推演草稿，再打开生图')
       return false
     }
     if (activeJob && brief.value) {

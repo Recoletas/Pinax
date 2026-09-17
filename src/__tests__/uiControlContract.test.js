@@ -173,6 +173,15 @@ describe('workbench control contract (U1)', () => {
   })
 
   it("keeps the authoring shell structural and one authoring destination（合并5例）", async () => {
+    const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
+    expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
+    expect(workspaceTabs).toContain('height: 34px;')
+    expect(workspaceTabs).toContain('box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);')
+    expect(workspaceTabs).toContain('.ws-tab:is(:hover, :focus-within, .is-active) .ws-tab__close')
+    expect(writing).toContain(':to="rehearsalComposerHostRef || \'#authoring-block-gap\'"')
+    expect(writing).toContain('ref="rehearsalComposerHostRef" v-show=')
+    expect(writing).toContain('@click="revealRehearsalComposer"')
+    expect(authoringBlockCss).toContain('.writing-inspector__compose-host')
     const routes = readFileSync(resolve(__dirname, '../router/index.js'), 'utf8')
     expect(routes.split('const routes =')[0]).toContain("path: 'docs/:chapterId?'")
     const textarea = readFileSync(resolve(__dirname, '../components/worldbook/fields/FieldTextarea.vue'), 'utf8')
@@ -192,6 +201,13 @@ describe('workbench control contract (U1)', () => {
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__main \{[\s\S]*display: grid;[\s\S]*grid-template-columns:/)
+      expect(authoringBlockCss).toContain('.writing-annotation__edit')
+      expect(authoringBlockCss).toMatch(/\.writing-annotation__edit \{[\s\S]*border: 1px solid var\(--authoring-hairline\);[\s\S]*box-shadow: none;/)
+      expect(authoringBlockCss).toContain(':has(> .writing-inspector.is-catalog-workbench)')
+      expect(authoringWorldbookPanel).toContain('class="setting-create" aria-label="新建设定"')
+      expect(authoringWorldbookPanel).toContain('<span>新建</span>')
+      expect(imageWorkbench).toContain('data-test="image-style-preview"')
+      expect(imageWorkbench).toContain("url('../../assets/media/authoring-image-style-presets.webp')")
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__dossier \{[\s\S]*display: flex;[\s\S]*flex-direction: column;/)
       const regularPhoneChrome = authoringBlockCss.slice(
@@ -598,6 +614,14 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
     // 输入安全 token
     expect(css).toContain('--control-focus')
     expect(css).toContain('--control-danger')
+    expect(css).toContain(":not([aria-disabled='true'])")
+    expect(css).toContain(':where(button, a, summary, input)')
+    const navigation = readFileSync(resolve(__dirname, '../styles/workspace-navigation.css'), 'utf8')
+    for (const token of ['--workspace-sidebar-width: 240px', '--nav-focused', '--nav-selected', '.workspace-nav-item:focus-visible', 'prefers-reduced-motion']) expect(navigation).toContain(token)
+    const mapTree = readFileSync(resolve(__dirname, '../components/geography/WorldTreeItem.vue'), 'utf8')
+    expect(mapTree).toContain('<button v-else class="node-name workspace-nav-label"')
+    expect(mapTree).toContain('.tree-row:focus-within .row-actions')
+    expect(writing).toContain('@keydown.space.prevent="selectChapter(entry.chapter.id)"')
     // 单一产品主题在入口静态加载控件层，不再保留运行时主题分叉。
     expect(mainEntry).toContain("import './styles/workbench-controls.css'")
 }
@@ -783,7 +807,7 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(authoringBlockCss).toContain('padding-inline: 0;\n  padding-bottom: 0;\n  overflow: hidden;')
     expect(authoringBlockCss).toContain('padding-inline: var(--authoring-manuscript-gutter);\n  overflow-y: auto;')
     expect(authoringBlockCss).toContain('z-index: var(--z-workbench-sheet);')
-    expect(authoringBlockCss).toContain('grid-template-columns: clamp(210px, 16vw, 250px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;')
+    expect(authoringBlockCss).toContain('grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) 52px;')
     for (const token of ['--authoring-catalog-title-size: 17px', '--authoring-catalog-control-size: 14px', '--authoring-catalog-folder-size: 13px', '--authoring-catalog-entry-size: 13px', '--authoring-catalog-label-size: 12px', '--authoring-catalog-body-size: 14px']) expect(authoringBlockCss).toContain(token)
     expect(authoringBlockCss).toContain('inset-inline-end: 52px;\n    width: min(440px, calc(100% - 264px));')
     expect(authoringBlockCss).toContain('width: min(440px, calc(100% - 52px));')

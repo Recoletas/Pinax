@@ -2,13 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
-import WorkspaceTabOverflow from './WorkspaceTabOverflow.vue'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
 import { activateWorkspaceTab, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
 
-// 顶部工作台标签（计划 Task 4）：第二层可横向滚动的工作标签。
-// 视觉规范：活动态靠底边短色条，不用厚卡片；同书标签用相同项目短色条关联；
-// dirty 用信号点；移动端只显示当前标签，其余进入“全部标签”菜单。
+// 顶部工作台标签：浏览器式连续标签带。活动标签与内容面连通；
+// dirty 用信号点；窄屏通过横向滚动访问全部标签。
 const router = useRouter()
 const route = useRoute()
 const workspaceTabs = useWorkspaceTabsStore()
@@ -66,6 +64,12 @@ function shortTitle(tab) {
   return tab.surface === 'authoring'
     ? tab.title
     : tab.title.split(' · ').slice(1).join(' · ') || tab.title
+}
+
+function displayTitle(tab) {
+  if (tab.scope !== 'project' || tab.surface === 'authoring') return tab.title
+  const [project, ...surface] = tab.title.split(' · ')
+  return surface.length ? `${surface.join(' · ')} · ${project}` : tab.title
 }
 
 function activateTab(tabId) {
@@ -181,9 +185,10 @@ onBeforeUnmount(() => {
         @mousedown="onTabMiddleClick($event, tab.id)"
       >
         <span class="ws-tab__project-bar" aria-hidden="true"></span>
-        <WorkbenchIcon class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
+        <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
+        <WorkbenchIcon v-else class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
         <span class="ws-tab__label">
-          <span class="ws-tab__label-full">{{ tab.title }}</span>
+          <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
           <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
         </span>
         <span v-if="tab.dirty" class="ws-tab__dirty" title="有未保存更改" aria-label="有未保存更改"></span>
@@ -200,13 +205,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </div>
-    <WorkspaceTabOverflow
-      v-if="tabs.length > 1"
-      :tabs="tabs"
-      :active-tab-id="activeTabId"
-      @activate="activateTab"
-      @close="closeTab"
-    />
     <slot />
   </div>
 </template>
@@ -214,88 +212,102 @@ onBeforeUnmount(() => {
 <style scoped>
 .ws-tabs {
   display: flex;
-  align-items: stretch;
-  min-height: 34px;
+  align-items: flex-end;
+  min-height: 38px;
   flex: 0 0 auto;
-  padding: 0 10px 0 12px;
-  gap: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft, #fbfdfe) 78%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 16%, transparent);
+  padding: 4px 6px 0;
+  gap: 0;
+  background: var(--surface-workbench-muted);
+  box-shadow: inset 0 -1px var(--hairline-soft);
   position: relative;
   z-index: var(--z-workbench-chrome, 90);
 }
 
 .ws-tabs__scroll {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
+  align-self: stretch;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   min-width: 0;
   flex: 1 1 auto;
 }
+.ws-tabs__scroll::-webkit-scrollbar { display: none; }
 
 .ws-tab {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 6px 0 9px;
+  gap: 8px;
+  padding: 0 8px 0 12px;
   height: 34px;
-  flex: 0 0 auto;
-  max-width: 250px;
-  min-width: 0;
-  border: none;
+  flex: 0 0 176px;
+  min-width: 88px;
+  max-width: 204px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
   background: transparent;
-  color: var(--archive-ink-soft, #4a637d);
-  font-size: 12.5px;
+  color: var(--archive-ink-soft);
+  font-size: 13px;
   line-height: 1;
-  font-family: var(--font-body, inherit);
+  font-family: var(--font-sans, inherit);
   cursor: pointer;
   position: relative;
   white-space: nowrap;
-  transition: color var(--motion-fast, 140ms) ease, background-color var(--motion-fast, 140ms) ease;
+  isolation: isolate;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
 .ws-tab:hover {
-  color: var(--archive-ink, #0f2236);
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 6%, transparent);
+  color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-paper-soft) 54%, transparent);
 }
 
 .ws-tab:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 70%, transparent);
-  outline-offset: -2px;
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
 }
 
 .ws-tab.is-active {
-  color: var(--archive-ink, #0f2236);
-  font-weight: 600;
-  background: color-mix(in srgb, var(--archive-paper-soft, #fbfdfe) 94%, white 6%);
+  color: var(--archive-ink);
+  font-weight: 500;
+  background: var(--archive-paper-soft);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  z-index: 1;
 }
 
 .ws-tab.is-active::after {
   content: '';
   position: absolute;
-  left: 7px;
-  right: 7px;
+  left: 0;
+  right: 0;
   bottom: -1px;
   height: 2px;
-  background: var(--archive-olive, #1f4d7a);
+  background: var(--archive-paper-soft);
 }
 
-.ws-tab__project-bar {
-  width: 3px;
-  height: 13px;
-  flex: 0 0 auto;
-  background: var(--ws-project-ink, var(--archive-gold, #7d97b0));
-  opacity: 0.9;
+.ws-tab:not(.is-active):not(:last-child)::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  width: 1px;
+  height: 16px;
+  background: var(--hairline-soft);
 }
+.ws-tab:not(.is-active):hover::before { opacity: 0; }
+
+.ws-tab__project-bar { display: none; }
 
 .ws-tab__icon {
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
-  opacity: 0.85;
+  opacity: 0.78;
 }
+.ws-tab__brand { flex: none; border-radius: 4px; object-fit: contain; }
 
 .ws-tab__label {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -317,21 +329,23 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   border: none;
   padding: 0;
   background: transparent;
-  color: var(--archive-ink-soft, #4a637d);
-  border-radius: 50%;
+  color: var(--archive-ink-soft);
+  border-radius: 5px;
   cursor: pointer;
-  transition: color var(--motion-fast, 140ms) ease, background-color var(--motion-fast, 140ms) ease;
+  opacity: 0;
+  transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
 }
+.ws-tab:is(:hover, :focus-within, .is-active) .ws-tab__close { opacity: 1; }
 
 .ws-tab__close:hover {
-  color: var(--archive-ink, #0f2236);
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 14%, transparent);
+  color: var(--archive-ink);
+  background: color-mix(in srgb, var(--archive-ink) 9%, transparent);
 }
 
 .ws-tab__close:focus-visible {
@@ -339,43 +353,21 @@ onBeforeUnmount(() => {
   outline-offset: 1px;
 }
 
-/* 760-1179：缩短为书名或 surface 名。 */
+.ws-tab[data-tab-key="home"] { flex: 0 0 82px; }
+
 @media (max-width: 1179px) {
-  .ws-tab {
-    max-width: 172px;
-  }
-
-  .ws-tab__label-full {
-    display: none;
-  }
-
-  .ws-tab__label-short {
-    display: inline;
-  }
+  .ws-tab { flex-basis: 158px; max-width: 176px; }
+  .ws-tab__label-full { display: none; }
+  .ws-tab__label-short { display: inline; }
 }
 
-/* <760：只显示当前标签，其余进入“全部标签”菜单。 */
 @media (max-width: 759px) {
-  .ws-tabs {
-    padding: 0 8px;
-  }
-
-  .ws-tab:not(.is-active) {
-    display: none;
-  }
-
-  .ws-tab.is-active {
-    max-width: none;
-    flex: 1 1 auto;
-  }
-
-  .ws-tab__label-full {
-    display: inline;
-  }
-
-  .ws-tab__label-short {
-    display: none;
-  }
+  .ws-tabs { min-height: 42px; padding-inline: 4px; }
+  .ws-tab { height: 38px; flex-basis: 166px; max-width: 190px; font-size: 14px; }
+  .ws-tab[data-tab-key="home"] { flex-basis: 82px; min-width: 82px; }
+  .ws-tab__label-full { display: inline; }
+  .ws-tab__label-short { display: none; }
+  .ws-tab__close { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -385,23 +377,4 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 浏览器式工作标签：常驻首页与作品使用同一导航 owner。 */
-.ws-tabs { min-height: 52px; padding: 8px 12px 0; background: color-mix(in srgb, var(--archive-paper-strong) 55%, var(--archive-paper)); gap: 8px; align-items: center; }
-.ws-tabs__scroll { align-self: stretch; scrollbar-width: none; }
-.ws-tabs__scroll::-webkit-scrollbar { display: none; }
-.ws-tab { height: 44px; flex: 0 0 218px; min-width: 0; max-width: 218px; padding: 0 10px 0 14px; gap: 8px; font-size: 14px; border-radius: 7px 7px 0 0; border: 1px solid transparent; border-bottom: 0; }
-.ws-tab[data-tab-key="home"] { flex-basis: 96px; }
-.ws-tab:not(.is-active):not(:hover)::before { content: ''; position: absolute; right: 0; height: 18px; width: 1px; background: var(--archive-paper-strong); }
-.ws-tab__label-full { display: inline; }
-.ws-tab__label-short { display: none; }
-.ws-tab.is-active { background: var(--archive-paper-soft); border-color: color-mix(in srgb, var(--archive-ink) 12%, transparent); }
-.ws-tab.is-active::after, .ws-tab__project-bar { display: none; }
-.ws-tab__label { flex: 1; }
-.ws-tab__close { width: 26px; height: 26px; }
-.ws-tab__icon { width: 17px; height: 17px; }
-@media (max-width: 759px) {
-  .ws-tab[data-tab-key="home"] { display: inline-flex; flex: 0 0 96px; min-width: 96px; }
-  .ws-tab { min-width: 0; max-width: 210px; font-size: 14px; }
-  .ws-tab.is-active { min-width: 0; }
-}
 </style>

@@ -1,0 +1,76 @@
+/* Opt-in navigation chrome; page owners retain layout and content semantics. */
+.theme-legacy .app-shell {
+  --workspace-sidebar-width: 240px;
+  --nav-surface: var(--archive-paper);
+  --nav-fg: var(--archive-ink-soft);
+  --nav-fg-selected: var(--archive-ink);
+  --nav-hover: color-mix(in srgb, var(--archive-ink) 5%, var(--nav-surface));
+  --nav-selected: color-mix(in srgb, var(--archive-ink) 9%, var(--nav-surface));
+  --nav-focused: color-mix(in srgb, var(--accent) 13%, var(--nav-surface));
+  --nav-row-height: 36px;
+}
+.theme-legacy .app-shell .shell-content .workspace-sidebar {
+  background: var(--nav-surface);
+  color: var(--nav-fg);
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item {
+  box-sizing: border-box;
+  min-height: var(--nav-row-height);
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--nav-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: normal;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item--tree {
+  --nav-row-height: 32px;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--nav-hover);
+  color: var(--nav-fg-selected);
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current='page']) {
+  background: var(--nav-selected);
+  color: var(--nav-fg-selected);
+}
+.theme-legacy .app-shell .workspace-sidebar:focus-within .workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current='page']) {
+  background: var(--nav-focused);
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:active:not(:disabled):not([aria-disabled='true']) {
+  background: var(--nav-focused);
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-label {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: inherit;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-meta,
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-section {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: normal;
+  color: var(--nav-fg);
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-icon { width: 16px; height: 16px; flex-shrink: 0; }
+@media (pointer: coarse) {
+  .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item { transition: none; }
+}

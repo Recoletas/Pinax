@@ -841,12 +841,12 @@ async function deleteSelectedImage() {
   if (!entry) return
   const asset = listMediaAssets({ kind: 'image' }).find((item) => item.id === entry.mediaAssetId)
   if (asset?.status === 'accepted') {
-    generationStatus.value = { kind: 'error', message: '这张图片已保存为素材或插入正文，不能从画师删除。' }
+    generationStatus.value = { kind: 'error', message: '这张图片已保存为素材或插入正文，不能从生图历史删除。' }
     return
   }
   const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
     ? true
-    : window.confirm('删除这张候选？此操作会同时移除画师历史和对应媒体文件。')
+    : window.confirm('删除这张候选？此操作会同时移除生图历史和对应媒体文件。')
   if (!confirmed) return
   const currentIndex = imagePreviewIndex.value
   try {
@@ -922,6 +922,29 @@ async function deleteSelectedImage() {
                 </div>
               </div>
 
+              <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
+                <div class="image-gen-label-row">
+                  <span class="image-gen-label">画面风格</span>
+                  <small>参考 · {{ selectedStylePreset.label }}</small>
+                </div>
+                <div class="image-gen-style-grid" role="radiogroup" aria-label="画面风格">
+                  <button
+                    v-for="preset in authoringStylePresets"
+                    :key="preset.id"
+                    type="button"
+                    class="image-gen-style-option"
+                    :class="{ active: imageStylePreset === preset.id }"
+                    role="radio"
+                    :aria-checked="imageStylePreset === preset.id"
+                    :title="preset.prompt"
+                    @click="imageStylePreset = preset.id"
+                  >
+                    <span aria-hidden="true" :style="{ backgroundPosition: preset.position }"></span>
+                    <strong>{{ preset.label }}</strong>
+                  </button>
+                </div>
+              </div>
+
               <div v-if="$slots.brief && presentation === 'authoring'" class="image-gen-brief image-gen-brief--authoring">
                 <slot name="brief"></slot>
               </div>
@@ -929,7 +952,7 @@ async function deleteSelectedImage() {
 
             <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
               <div class="image-gen-label-row">
-                <label class="image-gen-label">{{ presentation === 'authoring' ? '导入底图' : '参考图库' }}</label>
+                <label class="image-gen-label">{{ presentation === 'authoring' ? '参考图' : '参考图库' }}</label>
                 <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
               </div>
               <div class="image-gen-reference-strip">
@@ -983,29 +1006,6 @@ async function deleteSelectedImage() {
                   :configs="modelConfigs"
                   @configs-updated="handleConfigsUpdated"
                 />
-              </div>
-
-              <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
-                <div class="image-gen-label-row">
-                  <span class="image-gen-label">画面风格</span>
-                  <small>{{ selectedStylePreset.label }}</small>
-                </div>
-                <div class="image-gen-style-grid" role="radiogroup" aria-label="画面风格">
-                  <button
-                    v-for="preset in authoringStylePresets"
-                    :key="preset.id"
-                    type="button"
-                    class="image-gen-style-option"
-                    :class="{ active: imageStylePreset === preset.id }"
-                    role="radio"
-                    :aria-checked="imageStylePreset === preset.id"
-                    :title="preset.prompt"
-                    @click="imageStylePreset = preset.id"
-                  >
-                    <span aria-hidden="true" :style="{ backgroundPosition: preset.position }"></span>
-                    <strong>{{ preset.label }}</strong>
-                  </button>
-                </div>
               </div>
 
               <button
@@ -1090,7 +1090,15 @@ async function deleteSelectedImage() {
           </div>
 
           <div v-else class="image-gen-empty" role="status">
-            <strong>{{ presentation === 'authoring' ? '快去左侧输入画面描述开始创作吧～' : '还没有候选' }}</strong>
+            <div
+              v-if="presentation === 'authoring'"
+              class="image-gen-empty__style-preview"
+              data-test="image-style-preview"
+              :style="{ '--style-position': selectedStylePreset.position }"
+              role="img"
+              :aria-label="`${selectedStylePreset.label}画面风格参考`"
+            ></div>
+            <strong>{{ presentation === 'authoring' ? '输入画面描述后生成候选' : '还没有候选' }}</strong>
             <span>{{ emptyResultHint }}</span>
           </div>
 
@@ -1665,7 +1673,7 @@ async function deleteSelectedImage() {
 
 /* Authoring 画师只复用生成与媒体合同，可见编排对齐作家助手的左参数 / 右画布工作台。 */
 .media-generation-inline--authoring .image-gen-workspace {
-  grid-template-columns: minmax(360px, 400px) minmax(0, 1fr);
+  grid-template-columns: minmax(440px, 480px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
 }
@@ -1728,11 +1736,12 @@ async function deleteSelectedImage() {
 .image-gen-reference-prompt textarea { min-height: 58px; resize: vertical; padding: 7px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); font: inherit; font-size: 13px; line-height: 1.5; }
 
 .image-gen-style-section small { color: var(--text-secondary); font-size: 12px; }
-.image-gen-style-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.image-gen-style-option { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; }
-.image-gen-style-option > span { display: block; height: 58px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; }
+.image-gen-style-grid { display: grid; grid-template-columns: repeat(5, minmax(70px, 1fr)); gap: 7px; }
+.image-gen-style-option { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; transition: border-color 120ms ease, background-color 120ms ease; }
+.image-gen-style-option > span { display: block; height: 64px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; }
 .image-gen-style-option strong { display: block; overflow: hidden; padding: 6px 7px; font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
-.image-gen-style-option.active { border-color: var(--accent-primary, var(--accent)); box-shadow: 0 0 0 1px var(--accent-primary, var(--accent)); }
+.image-gen-style-option:hover { border-color: color-mix(in srgb, var(--accent-primary, var(--accent)) 48%, var(--border-subtle)); }
+.image-gen-style-option.active { border-color: var(--accent-primary, var(--accent)); box-shadow: inset 0 -2px var(--accent-primary, var(--accent)); }
 
 .media-generation-inline--authoring .image-gen-brief--authoring { margin: 0 0 16px; }
 .media-generation-inline--authoring .image-gen-reference-strip { display: flex; flex-wrap: wrap; grid-template-columns: none; }
@@ -1753,6 +1762,7 @@ async function deleteSelectedImage() {
 .media-generation-inline--authoring .image-gen-status,
 .media-generation-inline--authoring .image-gen-action-reason { font-size: 12px; }
 .media-generation-inline--authoring .image-gen-empty { min-height: 100%; flex: 1 1 auto; border: 0; border-radius: 0; background: transparent; }
+.media-generation-inline--authoring .image-gen-empty__style-preview { width: min(420px, 76%); aspect-ratio: 16 / 9; margin-bottom: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background-color: var(--surface-workbench-muted, var(--surface-secondary)); background-image: linear-gradient(to bottom, transparent 64%, rgb(0 0 0 / 12%)), url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-position: center, var(--style-position); background-size: 100% 100%, 500% 100%; box-shadow: 0 12px 32px rgb(0 0 0 / 8%); }
 .media-generation-inline--authoring .image-gen-empty strong { max-width: 28em; color: var(--text-primary); font-size: 15px; font-weight: 450; }
 .media-generation-inline--authoring .image-gen-empty span { color: var(--text-secondary); font-size: 13px; }
 .media-generation-inline--authoring .image-gen-current-preview { flex: 1 1 auto; place-content: center; border: 0; border-radius: 0; background: var(--surface-primary); }
@@ -1821,6 +1831,11 @@ async function deleteSelectedImage() {
     height: min(46vh, 420px);
     min-height: 220px;
   }
+}
+
+@media (min-width: 721px) and (max-width: 1100px) {
+  .media-generation-inline--authoring .image-gen-workspace { grid-template-columns: minmax(400px, 46%) minmax(0, 1fr); }
+  .image-gen-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 520px) {

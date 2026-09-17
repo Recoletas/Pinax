@@ -213,8 +213,8 @@ function sectionRoute(tab) {
     padding-inline: 11px;
   }
 }
-.settings-section-nav { align-items: center; gap: 6px; padding: 8px 24px; background: var(--archive-paper-soft); }
-.settings-section-nav .settings-section-tab { min-height: 40px; padding: 0 16px; border: 0; border-radius: 5px; font-size: 15px; color: var(--archive-ink-soft); }
+.settings-section-nav { align-items: center; gap: 4px; padding: 5px 20px; background: var(--archive-paper-soft); }
+.settings-section-nav .settings-section-tab { min-height: 34px; padding: 0 12px; border: 0; border-radius: 5px; font-size: 13px; color: var(--archive-ink-soft); }
 .settings-section-nav .settings-section-tab.active { background: color-mix(in srgb, var(--archive-olive) 9%, transparent); color: var(--archive-olive); }
 .settings-section-nav .settings-section-tab::before { display: none; }
 .settings-section-tab__icon { width: 18px; height: 18px; }

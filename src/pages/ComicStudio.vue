@@ -615,7 +615,7 @@ watch(() => route.query.bookId, () => {
       />
       <aside
         v-else
-        class="comic-studio__catalog archive-pin"
+        class="comic-studio__catalog archive-pin workspace-sidebar"
         aria-label="漫画页目录"
         data-test="comic-catalog"
       >
@@ -634,8 +634,9 @@ watch(() => route.query.bookId, () => {
             v-for="item in catalog"
             :key="item.page.id"
             type="button"
-            class="comic-studio__catalog-item"
+            class="comic-studio__catalog-item workspace-nav-item"
             :class="{ active: item.page.id === activePageId }"
+            :aria-current="item.page.id === activePageId ? 'page' : undefined"
             :data-comic-thumb-id="item.page.id"
             :data-comic-thumb-take="thumbnails.coverPanel(item.page)?.selectedTakeId || ''"
             :data-test="`comic-catalog-item-${item.label}`"
@@ -653,8 +654,8 @@ watch(() => route.query.bookId, () => {
               </template>
             </span>
             <span class="comic-studio__catalog-meta">
-              <strong>{{ item.label }} · {{ item.title }}</strong>
-              <small>{{ item.panelCount }} 格{{ item.page.sequenceId ? ` · ${sequences.find((sequence) => sequence.id === item.page.sequenceId)?.title || '序列'}` : ' · 单页' }}</small>
+              <strong class="workspace-nav-label">{{ item.label }} · {{ item.title }}</strong>
+              <small class="workspace-nav-meta">{{ item.panelCount }} 格{{ item.page.sequenceId ? ` · ${sequences.find((sequence) => sequence.id === item.page.sequenceId)?.title || '序列'}` : ' · 单页' }}</small>
             </span>
           </button>
           <p v-if="!catalog.length && canCreatePage" class="comic-studio__catalog-empty">
@@ -997,11 +998,11 @@ watch(() => route.query.bookId, () => {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 200px minmax(460px, 1fr) 320px;
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(460px, 1fr) 320px;
   overflow: hidden;
 }
-.comic-studio__workspace.is-planning { grid-template-columns: 210px minmax(0, 1fr); }
-.comic-studio__workspace.inspector-collapsed { grid-template-columns: 200px minmax(0, 1fr); }
+.comic-studio__workspace.is-planning { grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr); }
+.comic-studio__workspace.inspector-collapsed { grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr); }
 .comic-studio__workspace > :deep(.material-source-drawer) { width: 100%; }
 
 .comic-studio__catalog {
@@ -1011,7 +1012,7 @@ watch(() => route.query.bookId, () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 28%, transparent);
+  border-right: 1px solid var(--archive-paper-strong);
   background: linear-gradient(180deg, color-mix(in srgb, var(--archive-paper) 88%, transparent) 0%, color-mix(in srgb, var(--archive-paper-soft) 94%, transparent) 100%);
 }
 .comic-studio__catalog-head {
@@ -1019,11 +1020,12 @@ watch(() => route.query.bookId, () => {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 16px 12px 8px 30px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 45%, transparent);
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--archive-paper-strong);
 }
-.comic-studio__catalog-head strong { color: var(--archive-ink); font-family: var(--font-display); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; }
-.comic-studio__catalog-head span { color: var(--archive-ink-soft); font-size: 10px; }
+.comic-studio__catalog-head strong { color: var(--archive-ink-soft); font-family: var(--font-sans); font-size: 12px; font-weight: 500; }
+.comic-studio__catalog-head span { color: var(--archive-ink-soft); font-size: 12px; }
+.comic-studio__catalog > .archive-pin__nail, .comic-studio__catalog::before, .comic-studio__catalog::after { display: none; }
 .comic-studio__catalog-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px; overflow-y: auto; scrollbar-width: thin; }
 .comic-studio__catalog-item {
   display: grid;

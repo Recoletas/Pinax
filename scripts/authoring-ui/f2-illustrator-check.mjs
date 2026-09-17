@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5173'
-const FIXTURE_DIR = path.resolve('tmp/authoring-rollout')
+const FIXTURE_DIR = path.resolve(process.env.FIXTURE_DIR || 'tmp/authoring-rollout')
 const OUT_DIR = path.resolve('/tmp/pinax-f2-illustrator')
 const FINAL_DIR = path.resolve('/tmp/pinax-f2-final')
 const IMAGE_FIXTURES = [
@@ -244,7 +244,7 @@ async function openMobileIllustrator(page) {
 }
 
 async function closeIllustrator(page) {
-  await drawer(page).getByRole('button', { name: '关闭画师' }).click()
+  await drawer(page).getByRole('button', { name: '关闭生图工作台' }).click()
   await drawer(page).waitFor({ state: 'hidden' })
   await page.waitForTimeout(120)
 }
@@ -360,14 +360,14 @@ try {
       await openDesktopIllustrator(page)
       check(results, '选区优先成为冻结画面描述', await promptInput(page).inputValue() === phrase, await promptInput(page).inputValue())
       check(results, '选区来源对作者标为选中文字', await drawer(page).getByText('选中文字', { exact: false }).count() >= 1)
-      await drawer(page).getByRole('button', { name: '最小化妙笔画师' }).click()
+      await drawer(page).getByRole('button', { name: '最小化生图工作台' }).click()
       const minimized = await page.evaluate(() => ({
         minibar: Boolean(document.querySelector('.authoring-illustrator__minibar')?.offsetParent),
         mainInert: document.querySelector('.wall__main')?.inert === true,
         appInert: document.getElementById('app')?.inert === true
       }))
       check(results, '画师可最小化且编辑区恢复交互', minimized.minibar && !minimized.mainInert && !minimized.appInert, JSON.stringify(minimized))
-      await page.getByRole('button', { name: '恢复妙笔画师' }).click()
+      await page.getByRole('button', { name: '恢复生图工作台' }).click()
       await closeIllustrator(page)
       const afterClose = await surfaceState(page)
       check(results, '关闭画师恢复 selection、scroll 与正文 focus', beforeOpen.scrollTop > 0 && afterClose.selection === beforeOpen.selection && afterClose.scrollTop === beforeOpen.scrollTop && afterClose.editorFocused, JSON.stringify({ beforeOpen, afterClose }))
@@ -384,7 +384,7 @@ try {
       const selectedSceneCount = await selectAllSceneSources(page)
       check(results, '人物、地点、时间均需作者显式勾选', selectedSceneCount === 3, selectedSceneCount)
       const desktopGeometry = await geometry(page)
-      check(results, '1440 画师为接近全宽的独立工作台', (desktopGeometry.dialog?.width || 0) >= 1360 && (desktopGeometry.controls?.width || 0) >= 360 && (desktopGeometry.controls?.width || 0) <= 400, JSON.stringify(desktopGeometry))
+      check(results, '1440 生图为中等宽度工作台', (desktopGeometry.dialog?.width || 0) >= 1120 && (desktopGeometry.dialog?.width || 0) <= 1200 && (desktopGeometry.controls?.width || 0) >= 440 && (desktopGeometry.controls?.width || 0) <= 480, JSON.stringify(desktopGeometry))
       check(results, '桌面参数与结果为同层 split 且没有空白占栏', desktopGeometry.split && (desktopGeometry.controls?.width || 0) >= 280 && (desktopGeometry.results?.width || 0) >= 300, JSON.stringify(desktopGeometry))
       const authoringLayout = await page.evaluate(() => {
         const root = document.querySelector('.authoring-illustrator')
@@ -402,7 +402,8 @@ try {
       })
       check(results, '画面描述优先于当前场参考', authoringLayout.promptBeforeScene, JSON.stringify(authoringLayout))
       check(results, '空结果在右画布居中且生成动作贴左栏底部', authoringLayout.emptyCentered && authoringLayout.generateAtBottom, JSON.stringify(authoringLayout))
-      check(results, '质量词与画面风格直接可选', await drawer(page).getByRole('button', { name: '最高质量的' }).isVisible() && await drawer(page).getByRole('radio', { name: '人物写真' }).isVisible())
+      const styleReference = drawer(page).getByRole('radio', { name: '人物写真' })
+      check(results, '质量词与真实画面风格参考直接可选', await drawer(page).getByRole('button', { name: '最高质量的' }).isVisible() && await styleReference.isVisible() && (await styleReference.locator('span').evaluate((node) => getComputedStyle(node).backgroundImage)).includes('authoring-image-style-presets'), await styleReference.locator('span').evaluate((node) => getComputedStyle(node).backgroundImage))
 
       await drawer(page).locator('.image-gen-reference-input').setInputFiles({
         name: '人物参考.png',
@@ -476,7 +477,7 @@ try {
       const afterSecondInsertAttempt = await storageState(page)
       check(results, '二次插入尝试不重复写正文', afterSecondInsertAttempt.chapters.find((chapter) => chapter.id === run.fixture.chapterId)?.mediaNodeCount === insertedChapter?.mediaNodeCount)
       await drawer(page).getByRole('button', { name: '删除候选' }).click()
-      await drawer(page).getByText('这张图片已保存为素材或插入正文，不能从画师删除。', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
+      await drawer(page).getByText('这张图片已保存为素材或插入正文，不能从生图历史删除。', { exact: true }).waitFor({ state: 'visible', timeout: 10000 })
       const afterProtectedDelete = await storageState(page)
       check(results, '已保存或插入的媒体资产拒绝破坏性删除', afterProtectedDelete.mediaCount === afterSecondInsertAttempt.mediaCount && afterProtectedDelete.libraryCount === afterSecondInsertAttempt.libraryCount)
       check(results, '1440 无横向滚动和控制台错误', desktopGeometry.overflow === 0 && run.errors.length === 0, run.errors.join(' | '))
@@ -493,7 +494,7 @@ try {
       await collapseInFirstParagraph(run.page)
       await openDesktopIllustrator(run.page)
       const tabletGeometry = await geometry(run.page)
-      check(results, '1024 画师保持宽工作台与 400px 左参数列', (tabletGeometry.dialog?.width || 0) >= 990 && Math.abs((tabletGeometry.controls?.width || 0) - 400) <= 2, JSON.stringify(tabletGeometry))
+      check(results, '1024 生图保持双栏且参数区不拥挤', (tabletGeometry.dialog?.width || 0) >= 990 && (tabletGeometry.controls?.width || 0) >= 440 && (tabletGeometry.controls?.width || 0) <= 480, JSON.stringify(tabletGeometry))
       check(results, '1024 参数/结果仍并列且无水平滚动', tabletGeometry.split && tabletGeometry.overflow === 0 && tabletGeometry.drawerOverflow === 0, JSON.stringify(tabletGeometry))
       await run.page.screenshot({ path: screenshotPaths.tablet, fullPage: false })
       check(results, '1024 旅程无控制台错误', run.errors.length === 0, run.errors.join(' | '))
@@ -577,7 +578,7 @@ try {
       check(results, '390 通过 More→画师进入', await drawer(run.page).isVisible() && await promptInput(run.page).inputValue() === phrase)
       const mobileGeometry = await geometry(run.page)
       check(results, '390 画师为完整 viewport sheet 且无横滚', Math.abs((mobileGeometry.dialog?.width || 0) - 390) <= 1 && Math.abs((mobileGeometry.dialog?.height || 0) - 844) <= 1 && mobileGeometry.overflow === 0 && mobileGeometry.drawerOverflow === 0, JSON.stringify(mobileGeometry))
-      const switcher = drawer(run.page).getByRole('radiogroup', { name: '画师工作区' })
+      const switcher = drawer(run.page).getByRole('radiogroup', { name: '生图工作区' })
       const parameters = switcher.getByRole('radio', { name: '画面与参数' })
       const resultsPane = switcher.getByRole('radio', { name: '候选与历史' })
       check(results, '390 内部参数/结果使用双态 switch', await parameters.getAttribute('aria-checked') === 'true' && await resultsPane.getAttribute('aria-checked') === 'false')

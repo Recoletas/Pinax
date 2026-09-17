@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { loadWritingBooks } from '../../services/writing/writingBooksRepository'
 import { listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
@@ -15,6 +15,22 @@ const route = useRoute()
 const books = loadWritingBooks()
 const items = ref([])
 const selectedScope = ref('')
+const view = ref('activity')
+const activity = ref([])
+const activityError = ref('')
+let activityGeneration = 0
+async function refreshActivity() {
+  const generation = ++activityGeneration
+  activity.value = []
+  activityError.value = ''
+  if (!selectedScope.value) return
+  try {
+    const [scope, scopeId] = JSON.parse(selectedScope.value)
+    const rows = await readMemoryHistory({ scope, scopeId })
+    if (generation === activityGeneration) activity.value = rows
+  } catch (cause) { if (generation === activityGeneration) activityError.value = cause.message }
+}
+watch([selectedScope, items], refreshActivity)
 const mode = ref('pending')
 const limit = ref(30)
 const history = ref([])
@@ -455,15 +471,30 @@ onMounted(initialize)
 
 <template>
   <div class="memory-workspace" aria-label="记忆与历史">
-    <p>按作品审阅记忆。AI 提炼先保留为候选，确认后才参与记忆召回；修改或恢复旧版本后需要重新确认。确认过的候选可进一步接受为<strong>正式事实</strong>，接受、更正与撤回都会留下可回看的决定记录。</p>
-    <p class="memory-workspace__hint">历史从此次升级开始记录。旧记录仅保留迁移时快照，故事中发生的时间不由电脑时间推断。完整工作区 ZIP 包含历史数据库。</p>
+    <h2>记忆与历史</h2>
+    <p class="memory-workspace__hint">记忆变更自动记录，无需逐条审阅。只有 AI 提炼的候选需要确认，才会作为可信记忆使用。</p>
+    <nav class="memory-workspace__views" aria-label="记忆视图">
+      <button v-for="tab in [{ key: 'activity', label: '修改记录' }, { key: 'candidates', label: 'AI 候选' }, { key: 'facts', label: '事实账本' }]" :key="tab.key" :aria-pressed="view === tab.key" @click="view = tab.key">{{ tab.label }}</button>
+    </nav>
     <p v-if="error" role="alert">{{ error }} <button :disabled="busy" @click="initialize">重试归档</button></p>
     <p v-else-if="health.pending" role="status">{{ health.pending }} 次修订尚在本地恢复队列。</p>
     <p v-if="feedback" role="status">{{ feedback }}</p>
     <div class="memory-workspace__controls">
       <label>归属 <select v-model="selectedScope" :disabled="busy" @change="changeScope"><option v-for="scope in scopes" :key="scope.key" :value="scope.key">{{ scope.label }}</option></select></label>
-      <label>状态 <select v-model="mode" :disabled="busy" @change="changeScope"><option v-for="(label, key) in statuses" :key="key" :value="key">{{ label }}</option></select></label>
+      <label v-if="view === 'candidates'">状态 <select v-model="mode" :disabled="busy" @change="changeScope"><option v-for="(label, key) in statuses" :key="key" :value="key">{{ label }}</option></select></label>
     </div>
+    <section v-if="view === 'activity'" aria-label="自动记录的记忆修订">
+      <p class="memory-workspace__hint">这里记录记忆的创建与修改，不是正文版本。正文修订在工作台「批注 → 版本」中。旧数据只能保留迁移时快照，不重建不存在的历史。</p>
+      <p v-if="activityError" role="alert">{{ activityError }} <button @click="refreshActivity">重试</button></p>
+      <p v-else-if="!activity.length">当前作品尚无已归档的记忆变更。</p>
+      <article v-for="row in activity.slice(0, limit)" :key="row.id" class="memory-workspace__item">
+        <small>{{ new Date(row.recordedAt).toLocaleString() }} · {{ row.operation === 'created' ? '创建' : row.operation === 'legacy-baseline' ? '迁移快照' : '修改' }}</small>
+        <p>{{ row.after.content }}</p>
+        <details v-if="row.before"><summary>查看修改前</summary><p>{{ row.before.content }}</p></details>
+      </article>
+      <button v-if="activity.length > limit" @click="limit += 30">显示更多</button>
+    </section>
+    <template v-if="view === 'candidates'">
     <p v-if="!filtered.length && !busy">此范围内没有{{ statuses[mode] }}记忆。</p>
     <article v-for="item in filtered.slice(0, limit)" :key="item.id" class="memory-workspace__item">
       <p>{{ item.content }}</p>
@@ -489,8 +520,9 @@ onMounted(initialize)
       </section>
     </article>
     <button v-if="filtered.length > limit" @click="limit += 30">显示更多</button>
+    </template>
 
-    <section class="memory-ledger" aria-label="事实账本">
+    <section v-if="view === 'facts'" class="memory-ledger" aria-label="事实账本">
       <h2>事实账本</h2>
       <p class="memory-workspace__hint">正式事实与候选分开存放：这里只显示作者显式接受的世界/作品事实。每次接受、更正、撤回都有决定记录；“故事时间”是故事内时刻，“记录截至”是作者当时的认知，两者互不代表。</p>
       <p v-if="ledger.unavailable" role="alert">事实账本暂不可用：{{ ledger.unavailable }}。<button :disabled="busy" @click="loadLedger">重试</button>（数据未被改动或删除）</p>
@@ -627,4 +659,11 @@ onMounted(initialize)
 .memory-ledger__form label { display: grid; gap: 4px; }
 .memory-ledger__filters { display: grid; gap: 8px; }
 .memory-ledger__filters label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.memory-workspace { font-size: 14px; }
+.memory-workspace h2 { margin: 0 0 12px; font-size: 22px; }
+.memory-workspace__views { display: flex; gap: 4px; margin: 18px 0; border-bottom: 1px solid var(--border); }
+.memory-workspace__views button { border: 0; border-radius: 5px 5px 0 0; background: transparent; min-height: 36px; }
+.memory-workspace__views button[aria-pressed='true'] { background: var(--bg-hover); color: var(--text-primary); }
+.memory-workspace button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.memory-workspace .memory-ledger { margin-top: 20px; border-top: 0; padding-top: 0; }
 </style>

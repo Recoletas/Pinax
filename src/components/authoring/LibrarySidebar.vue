@@ -20,32 +20,32 @@ const projectQuery = computed(() => ({ bookId: selectedBookId.value }))
 </script>
 
 <template>
-  <aside class="library-sidebar" :class="{ 'is-expanded': expanded }" aria-label="首页导航">
+  <aside class="library-sidebar workspace-sidebar" :class="{ 'is-expanded': expanded }" aria-label="首页导航">
     <div class="library-sidebar__brand"><img :src="`${baseUrl}pinax-icon-192.png`" alt=""><div><strong>Pinax</strong><span>让故事成为作品</span></div><button type="button" class="library-sidebar__toggle" :aria-expanded="expanded" aria-label="展开功能导航" @click="expanded = !expanded"><WorkbenchIcon name="menu" :size="20" /></button></div>
     <nav class="library-sidebar__nav">
-      <router-link class="library-sidebar__current" to="/" aria-current="page"><WorkbenchIcon name="book" :size="21" /><span>我的作品</span><small>{{ books.length }}</small></router-link>
+      <router-link class="workspace-nav-item library-sidebar__current" to="/" aria-current="page"><WorkbenchIcon name="book" :size="21" /><span>我的作品</span><small>{{ books.length }}</small></router-link>
       <div class="library-sidebar__group">
         <h2>创作工具</h2>
         <label class="library-sidebar__project"><span>当前作品</span><select v-model="selectedBookId" aria-label="工具所属作品" :disabled="!books.length"><option v-if="!books.length" value="">请先新建一本书</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title || '未命名书稿' }}</option></select></label>
-        <template v-for="item in projectTools" :key="item.name"><router-link v-if="selectedBookId" :to="{ name: item.name, query: projectQuery }"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></router-link><button v-else type="button" disabled title="新建作品后可使用"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></button></template>
+        <template v-for="item in projectTools" :key="item.name"><router-link class="workspace-nav-item" v-if="selectedBookId" :to="{ name: item.name, query: projectQuery }"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></router-link><button class="workspace-nav-item" v-else type="button" disabled title="新建作品后可使用"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></button></template>
       </div>
-      <div class="library-sidebar__group"><h2>故事体验</h2><router-link :to="{ name: 'experience' }"><WorkbenchIcon name="message-square" :size="20" /><span>跑团与冒险</span></router-link><router-link :to="{ name: 'online-experience' }"><WorkbenchIcon name="users" :size="20" /><span>联机房间</span><small>试验</small></router-link></div>
-      <div class="library-sidebar__bottom"><button type="button" @click="$emit('settings', 'memory')"><WorkbenchIcon name="archive" :size="20" /><span>记忆与历史</span></button><button type="button" @click="$emit('settings', 'storage')"><WorkbenchIcon name="download" :size="20" /><span>备份与恢复</span></button><router-link to="/docs/README"><WorkbenchIcon name="book" :size="20" /><span>帮助中心</span></router-link><button type="button" @click="$emit('settings', 'ai')"><WorkbenchIcon name="settings" :size="20" /><span>偏好与模型</span></button></div>
+      <div class="library-sidebar__group"><h2>故事体验</h2><router-link class="workspace-nav-item" :to="{ name: 'experience' }"><WorkbenchIcon name="message-square" :size="20" /><span>跑团与冒险</span></router-link><router-link class="workspace-nav-item" :to="{ name: 'online-experience' }"><WorkbenchIcon name="users" :size="20" /><span>联机房间</span><small>试验</small></router-link></div>
+      <div class="library-sidebar__bottom"><button class="workspace-nav-item" type="button" @click="$emit('settings', 'memory')"><WorkbenchIcon name="archive" :size="20" /><span>记忆与历史</span></button><button class="workspace-nav-item" type="button" @click="$emit('settings', 'storage')"><WorkbenchIcon name="download" :size="20" /><span>备份与恢复</span></button><router-link class="workspace-nav-item" to="/docs/README"><WorkbenchIcon name="book" :size="20" /><span>帮助中心</span></router-link><button class="workspace-nav-item" type="button" @click="$emit('settings', 'ai')"><WorkbenchIcon name="settings" :size="20" /><span>偏好与模型</span></button></div>
     </nav>
     <p class="library-sidebar__local">本地工作区 <span>Web 内测</span></p>
   </aside>
 </template>
 
 <style scoped>
-.library-sidebar { width: 244px; flex: 0 0 244px; background: var(--archive-paper); border-right: 1px solid var(--archive-paper-strong); display: flex; flex-direction: column; padding: 32px 16px 18px; }
+.library-sidebar { width: var(--workspace-sidebar-width, 240px); flex: 0 0 var(--workspace-sidebar-width, 240px); background: var(--archive-paper); border-right: 1px solid var(--archive-paper-strong); display: flex; flex-direction: column; padding: 24px 12px 18px; }
 .library-sidebar__brand { display: flex; align-items: center; gap: 12px; padding: 0 14px 30px; }
 .library-sidebar__brand img { width: 42px; height: 42px; border-radius: 10px; }
 .library-sidebar__brand strong { font-size: 27px; letter-spacing: -.04em; }
 .library-sidebar__brand span { display: block; color: var(--archive-ink-soft); font-size: 12px; margin-top: 3px; }
 .library-sidebar__nav { display: flex; flex-direction: column; gap: 18px; flex: 1; }
-.library-sidebar__nav a, .library-sidebar__nav button { display: flex; align-items: center; gap: 13px; min-height: 46px; width: 100%; padding: 9px 14px; border: 0; border-radius: 6px; background: none; text-decoration: none; color: var(--archive-ink-soft); font: inherit; font-size: 16px; text-align: left; cursor: pointer; }
-.library-sidebar__nav svg { flex-shrink: 0; }
-.library-sidebar__nav small { margin-left: auto; font-size: 11px; }
+.library-sidebar__nav a, .library-sidebar__nav button { display: flex; align-items: center; gap: 10px; min-height: 36px; width: 100%; padding: 7px 12px; border: 0; border-radius: 5px; background: none; text-decoration: none; color: var(--nav-fg); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.library-sidebar__nav svg { flex-shrink: 0; width: 16px; height: 16px; }
+.library-sidebar__nav small { margin-left: auto; font-size: 12px; }
 .library-sidebar__nav .library-sidebar__current { background: color-mix(in srgb, var(--archive-olive) 10%, transparent); color: var(--archive-olive); font-weight: 650; }
 .library-sidebar__nav a:hover, .library-sidebar__nav button:not(:disabled):hover { background: var(--archive-paper-strong); color: var(--archive-ink); }
 .library-sidebar__nav button:disabled { opacity: .45; cursor: not-allowed; }

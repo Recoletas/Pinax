@@ -6,6 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
+| Codex / 2026-09-17 UI精修与续作交接 | `text-game-framework` | `main` | 已完成17:01复验切片：批注输入改为单边界；“画师”改名“生图”，中等尺寸工作台同时展示风格缩略图与当前大幅参考；设定目录加宽并将纯加号改为“新建”；暗色改为中性石墨、标签轮廓继续降噪。1440/900/390亮色与1440暗色组合回归均通过；最终工程门禁见[回执](./agent-runs/workspace-ui-20260917.md)。未提交推送。 |
 | Codex / 2026-09-17 ABC统一审查 | `text-game-framework` | `main` | A `81aa3f9`、B `c00c59b`、C `0dbca43` 交付切片已统一审查、修复并组合回归；主线本地集成提交包含生产reader/ZIP、保存前归档/回执/知识隔离和未知请求修复。verify:full 20/200、漫画30、跑团196+46、记忆及真实coordinator/ZIP故障回归通过。计划保存 `daa2524`；不push/部署，源分支保留。见[组合回执](./agent-runs/nightly-20260917/integration-summary.md)。 |
 | ABC后续 | 原 A/B/C 工作树保留 | `night/memory-20260916` / `night/comics-20260916` / `night/roleplay-20260916` | AX48/CX48/BX12 未全部完成；继续施工前以集成后的新main为基线。无夜间O，不把旧worker回执或测试数当整线完成；[职责与剩余任务](./plan/nightly-20260917-ac-dispatch.md)。 |
 | Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 已随工作区 UI 收口提交推送 `f74545b`。209 次真实 IndexedDB 修订与恢复 smoke exit 0、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）。尚非完整 Utopia 事实/认知时间引擎，下一步以本次 A 线任务书为准。 |

@@ -1300,7 +1300,7 @@
   display: grid;
   /* K3 (2026-06-27): 3-col grid — drawer 260px / reading-deck 1fr /
      副阅读台 340px. 副阅读台 替代原 archive-pin 浮卡, 升为正式列. */
-  grid-template-columns: 224px minmax(0, 1fr) 300px;
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr) 300px;
   flex: 1;
   overflow: hidden;
   /* UI-N3 unified paper wall — drawer / deck / sidekick all sit on
@@ -1378,7 +1378,7 @@
 }
 
 .material-drawer {
-  width: 224px;
+  width: var(--workspace-sidebar-width, 240px);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2549,4 +2549,3 @@
     display: none;
   }
 }
-

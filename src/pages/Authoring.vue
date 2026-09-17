@@ -53,7 +53,7 @@
               <button type="button" role="menuitem" @click="moreAction(toggleQuickWords)">快捷词</button>
               <button type="button" role="menuitem" @click="moreAction(openNameGenerator)">取名</button>
               <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">双栏</button>
-              <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">画师</button>
+              <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">生图</button>
             </div>
             <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">继续创作指引</button>
             <button type="button" role="menuitem" @click="moreAction(createNewBook)">新建书稿</button>
@@ -138,7 +138,7 @@
       <aside
         id="writing-chapter-shelf"
         ref="chapterShelfRef"
-        class="wall__shelf"
+        class="wall__shelf workspace-sidebar"
         :class="{ 'is-mobile-open': chapterDrawerOpen }"
         :tabindex="chapterDrawerOpen ? -1 : undefined"
         :inert="chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
@@ -152,8 +152,8 @@
           </div>
 
           <div class="authoring-chapter-create">
-            <button class="is-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">新建章</button>
-            <button type="button" @click="createNewBook">新建书</button>
+            <button class="is-primary control-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">新建章</button>
+            <button class="control-secondary" type="button" @click="createNewBook">新建书</button>
           </div>
 
           <div v-if="selectedBookId" class="authoring-chapter-tree">
@@ -195,7 +195,7 @@
             <div
               v-for="entry in visibleChapterEntries"
               :key="entry.chapter.id"
-              class="authoring-chapter-row"
+              class="authoring-chapter-row workspace-nav-item workspace-nav-item--tree"
               :class="{
                 'is-active': selectedChapterId === entry.chapter.id,
                 'is-dragging': dragIndex === entry.index,
@@ -203,6 +203,10 @@
               }"
               draggable="true"
               role="button"
+              tabindex="0"
+              :aria-pressed="selectedChapterId === entry.chapter.id"
+              @keydown.enter.prevent="selectChapter(entry.chapter.id)"
+              @keydown.space.prevent="selectChapter(entry.chapter.id)"
               :aria-label="`${chapterRowLabel(entry.index, entry.chapter.title)} · 拖拽排序`"
               :aria-grabbed="dragIndex === entry.index ? 'true' : 'false'"
               :aria-dropeffect="dropTargetIndex === entry.index ? 'move' : 'none'"
@@ -214,11 +218,11 @@
               @drop="onChapterDrop($event, entry.index, selectedBookId)"
               @dragend="onChapterDragEnd"
             >
-              <span class="authoring-chapter-row__title">
+              <span class="authoring-chapter-row__title workspace-nav-label">
                 <span class="authoring-chapter-row__ordinal">{{ chapterRowParts(entry.index, entry.chapter.title).ordinal }}</span>
                 <span class="authoring-chapter-row__name">{{ chapterRowParts(entry.index, entry.chapter.title).name }}</span>
               </span>
-              <span class="authoring-chapter-row__count">{{ (entry.chapter.wordCount || 0).toLocaleString() }}</span>
+              <span class="authoring-chapter-row__count workspace-nav-meta">{{ (entry.chapter.wordCount || 0).toLocaleString() }}</span>
             </div>
             <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">没有匹配的章节</p>
           </div>
@@ -300,13 +304,13 @@
             <Teleport to="#authoring-editor-toolbar-host">
             <div class="editor-toolbar">
               <div class="toolbar-group">
-                <button class="tool-btn" type="button" title="撤销当前活动窗（Ctrl/Cmd+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">撤销</button>
-                <button class="tool-btn" type="button" title="重做当前活动窗（Ctrl/Cmd+Shift+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">重做</button>
+                <button class="control-quiet tool-btn" type="button" title="撤销当前活动窗（Ctrl/Cmd+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">撤销</button>
+                <button class="control-quiet tool-btn" type="button" title="重做当前活动窗（Ctrl/Cmd+Shift+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">重做</button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <div class="toolbar-popover-anchor">
-                <button class="tool-btn" :class="{ active: showFontPanel }" type="button" :aria-expanded="showFontPanel.toString()" @click.stop="toggleFontPanel" title="正文排版设置">排版</button>
+                <button class="control-quiet tool-btn" :class="{ active: showFontPanel }" type="button" :aria-expanded="showFontPanel.toString()" @click.stop="toggleFontPanel" title="正文排版设置">排版</button>
                 <div class="font-panel" v-if="showFontPanel" :style="fontPanelStyle" @click.stop>
                   <div class="fp-row"><span class="fp-label">字体</span>
                     <select class="fp-select" :value="writingTypography.fontKey" @change="writingTypography.setFontKey($event.target.value)">
@@ -349,11 +353,11 @@
                   </div>
                 </div>
                 </div>
-                <button class="tool-btn" :class="{ active: showQuickWords }" type="button" :aria-expanded="showQuickWords.toString()" @click.stop="toggleQuickWords" title="管理写作快捷词">快捷词</button>
-                <button class="tool-btn" :class="{ active: showNameGen }" type="button" :aria-expanded="showNameGen.toString()" @click.stop="openNameGenerator" title="快速取名">取名</button>
+                <button class="control-quiet tool-btn" :class="{ active: showQuickWords }" type="button" :aria-expanded="showQuickWords.toString()" @click.stop="toggleQuickWords" title="管理写作快捷词">快捷词</button>
+                <button class="control-quiet tool-btn" :class="{ active: showNameGen }" type="button" :aria-expanded="showNameGen.toString()" @click.stop="openNameGenerator" title="快速取名">取名</button>
                 <button
                   ref="illustratorTriggerRef"
-                  class="tool-btn authoring-illustrator-trigger"
+                  class="control-quiet tool-btn authoring-illustrator-trigger"
                   :class="{ active: illustratorOpen }"
                   type="button"
                   :aria-expanded="illustratorOpen.toString()"
@@ -361,12 +365,12 @@
                   data-test="authoring-illustrator-trigger"
                   @pointerdown="freezeIllustratorSource"
                   @click.stop="openIllustrator"
-                ><WorkbenchIcon name="palette" :size="15" /><span>画师</span></button>
+                ><WorkbenchIcon name="image" :size="15" /><span>生图</span></button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <button
-                  class="tool-btn"
+                  class="control-quiet tool-btn"
                   :class="{ active: writingTypography.zen }"
                   :aria-pressed="writingTypography.zen.toString()"
                   type="button"
@@ -377,7 +381,7 @@
               <div class="toolbar-sep"></div>
               <div v-if="editorMode === 'markdown'" class="toolbar-group">
                 <button
-                  class="tool-btn capture-selection-btn"
+                  class="control-quiet tool-btn capture-selection-btn"
                   type="button"
                   :disabled="!canCaptureSelection"
                   title="把选中的文字收为素材"
@@ -385,7 +389,7 @@
                   @click="captureSelectionAsAsset"
                 >收为素材</button>
                 <button
-                  class="tool-btn annotation-toolbar-btn"
+                  class="control-quiet tool-btn annotation-toolbar-btn"
                   :class="{ active: inspectorOpen && inspectorTab === 'comments' }"
                   type="button"
                   :disabled="!selectedText"
@@ -398,7 +402,7 @@
               <div v-if="editorMode === 'markdown'" class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <button
-                  class="tool-btn"
+                  class="control-quiet tool-btn"
                   :class="{ active: reviewPanelOpen }"
                   type="button"
                   title="校对当前文稿"
@@ -406,7 +410,7 @@
                   @click.stop="openReviewPanel"
                 >校对</button>
                 <button
-                  class="tool-btn"
+                  class="control-quiet tool-btn"
                   :class="{ active: searchPanelOpen }"
                   type="button"
                   title="查找当前章、全书、构思或设定"
@@ -423,7 +427,7 @@
               <template v-if="wt3ActiveDoc">
                 <span class="wt3-badge">构思</span>
                 <strong class="wall__dossier-title wt3-doc-title">{{ wt3ActiveDoc.title }}</strong>
-                <button type="button" class="tool-btn sm wt3-back-btn" @click="closeExplorationDoc">返回正文</button>
+                <button type="button" class="control-quiet tool-btn sm wt3-back-btn" @click="closeExplorationDoc">返回正文</button>
               </template>
               <template v-else>
                 <span v-if="selectedChapterOrdinalLabel" class="wall__chapter-ordinal" aria-hidden="true">{{ selectedChapterOrdinalLabel }}</span>
@@ -529,7 +533,7 @@
                 :error="sceneCurationError"
               />
             </Teleport>
-            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase !== 'ghosts'" :to="chapterShelfSheetMode ? 'body' : '#authoring-block-gap'">
+            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase !== 'ghosts'" :to="rehearsalComposerHostRef || '#authoring-block-gap'">
               <AuthoringInterventionComposer
                 :target="interventionComposer.target"
                 :original-text="interventionComposer.originalText"
@@ -574,7 +578,7 @@
                 @close="closeInterventionComposer"
               />
             </Teleport>
-            <Teleport v-else-if="blockComposer.open && !blockPreview && !sceneLaboratory.open" to="#authoring-block-gap">
+            <Teleport v-else-if="blockComposer.open && !blockPreview && !sceneLaboratory.open" :to="rehearsalComposerHostRef || '#authoring-block-gap'">
               <AuthoringBlockComposer ref="blockComposerRef" :target="blockComposer.target" :empty-chapter="isEmptyChapter"
                 :projection="sceneProjection" :people="composerPeople" :generating="authoringTaskBusy"
                 :failure="blockComposer.failure" :stale-result="blockComposer.staleResult"
@@ -611,7 +615,13 @@
                 @save-as-exploration="saveBlockDraftAsExploration"
               />
             </Teleport>
-            <Teleport v-else-if="adoptionImpact" to="#authoring-block-gap">
+            <Teleport v-if="rehearsalComposerHostRef && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" to="#authoring-block-gap">
+              <button type="button" class="authoring-rehearsal-anchor" @click="revealRehearsalComposer">
+                <WorkbenchIcon name="network" :size="15" />
+                <span>从这里推演</span><span>继续推演 →</span>
+              </button>
+            </Teleport>
+            <Teleport v-if="!blockPreview && adoptionImpact" to="#authoring-block-gap">
               <AuthoringAdoptionImpact :impact="adoptionImpact.projection" />
             </Teleport>
             <Teleport to="body">
@@ -819,7 +829,7 @@
         :dual="inspectorDualColumn"
         :collaboration-visible="authoringRehearsalActive"
         @before-select="freezeWritingSurfaceBeforeToolSelect"
-        @select="selectInspectorTool"
+        @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
       />
 
       <aside
@@ -835,6 +845,7 @@
             <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
           </div>
           <div class="writing-inspector__head-actions">
+            <button v-if="activeInspectorTool === 'ai'" type="button" class="writing-inspector__memory-link" @click="appSettings.open('memory')">记忆与历史</button>
             <!-- 顺序展开（≤1180）时推演排在正文之后：回程入口必须常驻 sticky 标题栏，
                  不能放在会随内容滚走的出处行里。宽屏由 CSS 隐藏。 -->
             <button
@@ -852,12 +863,13 @@
               :aria-pressed="inspectorPinned.toString()"
               title="固定检查器"
               @click="inspectorPinned = !inspectorPinned"
-            >⌖</button>
-            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeActiveWritingInspector">×</button>
+            ><WorkbenchIcon name="pin" :size="15" /></button>
+            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeActiveWritingInspector"><WorkbenchIcon name="close" :size="15" /></button>
           </div>
         </header>
 
-        <div v-if="activeInspectorTool === 'rehearsal'" class="writing-inspector__rehearsal">
+        <div ref="rehearsalComposerHostRef" v-show="activeInspectorTool === 'rehearsal' && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__compose-host" />
+        <div v-if="activeInspectorTool === 'rehearsal' && !((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__rehearsal">
           <AuthoringSceneLaboratory v-if="ifEntryOpen && sceneLaboratory.open"
                 :entry-intent="activeSceneLaboratoryIntent"
                 :pressure="sceneLaboratoryPressure"
@@ -906,7 +918,6 @@
         </nav>
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
-          <button type="button" class="control-button" @click="appSettings.open('memory')">本书记忆与历史</button>
           <AuthoringKnowledgeAssistant
             v-model:draft="knowledgeAssistant.draft.value"
             :project-title="currentBook?.title || ''"
@@ -1212,7 +1223,7 @@
               </dd>
             </div>
           </dl>
-          <section v-if="sceneProjection.unresolvedEvents?.length > 1" class="writing-scene-overview__events" aria-label="本场未决事件">
+          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" aria-label="本场未决事件">
             <strong>全部未决事件</strong>
             <button
               v-for="event in sceneProjection.unresolvedEvents"
@@ -2401,6 +2412,7 @@ function resetAnnotationWorkspaceScope() {
   scheduleAnnotationLayout()
 }
 const sceneDetailNotice = ref('')
+const rehearsalComposerHostRef = ref(null)
 const sceneInspectorMode = ref('current')
 const dualPaneRef = ref(null)
 const dualNotebookSelection = ref(null)
@@ -5406,6 +5418,16 @@ const {
   displayTarget: interventionDisplayTarget,
   clearRehearsalResult: clearInterventionRehearsalResult
 } = useAuthoringInterventionState({ selectedChapterId })
+// Keep the original composers and their drafts alive; only their display host
+// moves. The manuscript keeps its anchor and the existing adoption owner.
+async function revealRehearsalComposer() {
+  openInspectorTool('rehearsal')
+  await nextTick()
+  if (window.matchMedia('(max-width: 1180px)').matches) writingInspectorRef.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+}
+watch([() => blockComposer.open, () => interventionComposer.open], ([blockOpen, interventionOpen], previous = []) => {
+  if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()
+})
 let authoringInterventionRunner = null
 let authoringInterventionRehearsalRunner = null
 const historyInteractionLocked = computed(() => blockAdoptionBusy.value || Boolean(pendingGhostAdoption.value) || atomicHistoryBusy.value)

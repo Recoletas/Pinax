@@ -91,7 +91,7 @@ try {
       JSON.stringify({ ticks: await ticks.count(), ghostParagraphCount }))
     check(`F1-4 ${viewport.width} 多人对白未逐段切碎且明确转场切开`,
       await draft.locator('.authoring-block-draft__boundary-tick.is-split').count() === 1
-        && (await draft.innerText()).includes('2 个单元将原子纳入'),
+        && (await draft.innerText()).includes('调整结构（2 个写作单元）'),
       await draft.innerText())
     check(`F1-4 ${viewport.width} 派生轴不泄漏到作者界面`,
       !/(environment|dialogue|changes|projectionFingerprint)/.test(await draft.innerText()), await draft.innerText())
@@ -101,14 +101,16 @@ try {
     const caret = await draft.locator('textarea').evaluate((element) => element.selectionStart)
     check(`F1-4 ${viewport.width} 选择刻度会定位对应草稿位置`, caret > 0, String(caret))
     const actions = draft.locator('.authoring-block-draft__boundary-action')
-    check(`F1-4 ${viewport.width} 只在选中后显示拆分/合并`,
+    check(`F1-4 ${viewport.width} 结构操作默认折叠`, !await actions.isVisible())
+    await draft.locator('.authoring-block-draft__structure > summary').first().click()
+    check(`F1-4 ${viewport.width} 选中边界并展开结构后显示拆分/合并`,
       await actions.isVisible()
         && (await actions.innerText()).includes('拆分')
         && (await actions.innerText()).includes('合并'))
     await actions.getByRole('button', { name: '拆分', exact: true }).click()
     check(`F1-4 ${viewport.width} 作者修正优先并立即更新预览`,
       await draft.locator('.authoring-block-draft__boundary-tick.is-split').count() === 2
-        && (await draft.innerText()).includes('3 个单元将原子纳入'))
+        && (await draft.innerText()).includes('调整结构（3 个写作单元）'))
 
     const after = formalStorage(await page.evaluate(() => ({ ...localStorage })))
     check(`F1-4 ${viewport.width} 边界调整正式数据零写入`, JSON.stringify(before) === JSON.stringify(after))

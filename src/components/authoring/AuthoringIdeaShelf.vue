@@ -74,12 +74,12 @@
       <div
         v-for="doc in activeDocs"
         :key="doc.id"
-        class="authoring-idea-row"
+        class="authoring-idea-row workspace-nav-item workspace-nav-item--tree"
         :class="{ 'is-active': activeDocId === doc.id, 'has-association': doc.associationLabel }"
         :data-wt3-doc="doc.id"
       >
         <button type="button" class="authoring-idea-row__open" @click="$emit('open', doc.id)">
-          <span>{{ doc.title }}</span>
+          <span class="workspace-nav-label">{{ doc.title }}</span>
           <small v-if="doc.associationLabel">{{ doc.associationLabel }}</small>
         </button>
         <span class="authoring-idea-row__actions">
@@ -237,6 +237,9 @@ function stateLabel(item) {
 .authoring-idea-row__menu button:hover { background: var(--surface-hover); color: var(--text-primary); }
 .authoring-idea-row__menu button:disabled { opacity: .45; cursor: default; }
 .authoring-idea-row__menu button.is-danger:hover { color: var(--archive-rose); }
+
+.authoring-idea-shelf :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.authoring-idea-shelf :is(button, summary):active:not(:disabled) { background: var(--nav-focused); }
 .authoring-idea-shelf__parked { margin: 3px 0 0; color: var(--text-secondary); font-size: 10px; }
 .authoring-idea-shelf__parked > summary { margin: 0 8px; padding: 5px 0; cursor: pointer; list-style-position: inside; }
 .authoring-idea-row.is-parked { opacity: .66; }

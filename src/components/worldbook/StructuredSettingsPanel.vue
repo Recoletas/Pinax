@@ -1,7 +1,7 @@
 <template>
   <section class="structured-settings-panel is-continuous">
     <div class="section-workbench">
-      <aside class="section-rail">
+      <aside class="section-rail workspace-sidebar">
         <span class="section-index-label">设定目录</span>
         <label class="setting-directory-search">
           <WorkbenchIcon name="search" :size="15" />
@@ -12,12 +12,12 @@
           <button
             v-for="section in sections"
             :key="section.key"
-            :class="['section-tab', { active: activeSectionKey === section.key }]"
+            :class="['section-tab workspace-nav-item', { active: activeSectionKey === section.key }]"
             :aria-label="section.label"
             :aria-current="activeSectionKey === section.key ? 'page' : undefined"
             @click="activeSectionKey = section.key"
           >
-            <WorkbenchIcon :name="sectionIcons[section.key] || 'book'" :size="17" />
+            <WorkbenchIcon class="workspace-nav-icon" :name="sectionIcons[section.key] || 'book'" :size="16" />
             <span>{{ section.label }}</span>
             <small :title="`已填写 ${populatedCount(section)} 项，共 ${section.fields.length} 项`">{{ populatedCount(section) }}/{{ section.fields.length }}</small>
             <i aria-hidden="true"></i>
@@ -26,14 +26,14 @@
 
         <nav v-if="!directoryQuery.trim()" class="field-directory" aria-label="本节内容">
           <span class="field-directory-label">本节内容</span>
-          <button v-for="field in activeSection.fields" :key="field.key" type="button" @click="jumpToField(field)">
+          <button v-for="field in activeSection.fields" :key="field.key" class="workspace-nav-item workspace-nav-item--tree" type="button" @click="jumpToField(field)">
             <span class="field-presence" :class="{ filled: form[activeSectionKey]?.[field.key]?.trim() }" aria-hidden="true"></span>
             <span>{{ field.label }}</span>
           </button>
         </nav>
         <nav v-else class="field-directory field-search-results" aria-label="设定查找结果">
           <span class="field-directory-label" role="status">{{ directoryMatches.length }} 项匹配</span>
-          <button v-for="item in directoryMatches" :key="`${item.section.key}.${item.field.key}`" type="button" @click="openDirectoryMatch(item)">
+          <button v-for="item in directoryMatches" :key="`${item.section.key}.${item.field.key}`" class="workspace-nav-item" type="button" @click="openDirectoryMatch(item)">
             <span>{{ item.field.label }}<small>{{ item.section.label }}</small></span>
           </button>
           <p v-if="!directoryMatches.length" class="directory-empty">没有匹配的设定，试试名称或正文关键词。</p>
@@ -47,7 +47,7 @@
         <div class="section-actions">
           <button
             type="button"
-            class="section-ai-btn"
+            class="section-ai-btn control-primary"
             :class="`is-${sectionGenState}`"
             :aria-label="`为「${activeSection.label}」批量生成 AI 草稿`"
             @click="onSectionAiClick"
@@ -57,7 +57,7 @@
           </button>
           <button
             type="button"
-            class="brief-toggle-btn"
+            class="brief-toggle-btn control-secondary"
             :aria-pressed="showBriefBar"
             :aria-label="showBriefBar ? '收起生成要求' : '补充生成要求'"
             @click="showBriefBar = !showBriefBar"
@@ -1803,7 +1803,7 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 
 /* Continuous document: headings own hierarchy; fields never become scroll boxes. */
 .structured-settings-panel.is-continuous { padding: 0; }
-.structured-settings-panel.is-continuous .section-workbench { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.structured-settings-panel.is-continuous .section-workbench { display: grid; grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr); gap: 0; align-items: stretch; }
 .structured-settings-panel.is-continuous .section-rail { position: sticky; top: 0; align-self: start; min-height: 520px; display: flex; flex-direction: column; gap: 24px; padding: 28px 18px; border-right: 1px solid var(--archive-paper-strong); background: var(--archive-paper); }
 .section-index-label { font-size: 13px; color: var(--archive-ink-soft); padding: 0 14px; }
 .structured-settings-panel.is-continuous .section-tabs { display: grid; gap: 6px; padding: 0; border: 0; }
@@ -1852,8 +1852,8 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   .field-directory { display: none; }
 }
 /* Navigation, actions and metadata share the home workspace control scale. */
-.structured-settings-panel.is-continuous .section-rail { gap: 20px; padding: 24px 16px; }
-.structured-settings-panel.is-continuous .section-tab { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 9px 12px; font-size: 15px; }
+.structured-settings-panel.is-continuous .section-rail { gap: 20px; padding: 24px 16px; height: calc(var(--app-viewport-height, 100vh) - 86px); min-height: 0; overflow-y: auto; box-sizing: border-box; }
+.structured-settings-panel.is-continuous .section-tab { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 7px 12px; font-size: 14px; }
 .structured-settings-panel.is-continuous .section-tab small { margin-left: auto; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: .8; }
 .structured-settings-panel.is-continuous .section-tab:hover { background: color-mix(in srgb, var(--archive-olive) 6%, transparent); }
 .field-directory { padding: 20px 0 0; gap: 2px; border-top: 1px solid var(--archive-paper-strong); }
@@ -1870,7 +1870,6 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel.is-continuous .section-actions { display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; border: 0; }
 .structured-settings-panel.is-continuous .section-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 7px 12px; margin: 0; font-size: 14px; line-height: 1.4; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s; }
 .structured-settings-panel.is-continuous .section-actions .section-ai-btn { width: auto; background: var(--archive-olive); color: var(--archive-paper-soft); border-color: var(--archive-olive); }
-.structured-settings-panel.is-continuous .section-actions button:hover { border-color: var(--archive-olive); filter: brightness(.96); }
 .structured-settings-panel.is-continuous button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: 2px; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-footer) { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-hint) { margin: 0 0 0 auto; font-size: 11px; line-height: 1.5; font-weight: 400; font-variant-numeric: tabular-nums; }
@@ -1883,14 +1882,23 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .setting-field-actions) { grid-column: 3; grid-row: 1; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { grid-column: 2; grid-row: 1; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-footer) { grid-column: 2 / -1; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-list), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list) { border-radius: 5px; border-color: var(--archive-paper-strong); background: var(--archive-paper-soft); box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input) { border-radius: 5px; border-color: var(--archive-paper-strong); background: var(--archive-paper-soft); box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-list), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list) { padding: 0; gap: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-item), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-item) { padding: 12px 0; gap: 12px; border: 0; border-bottom: 1px solid var(--archive-paper-strong); border-radius: 0; background: transparent; font-size: 15px; line-height: 1.85; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-text) { color: var(--archive-ink); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-text), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-text) { font-weight: 400; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-icon) { margin-top: 4px; background: transparent; border: 1px solid var(--archive-paper-strong); border-radius: 4px; color: var(--archive-ink-soft); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-index) { font-size: 12px; font-weight: 500; padding-top: 4px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-input-row), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-input-row) { margin-top: 10px; padding: 8px 12px; border-radius: 6px; background: var(--archive-paper); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-list:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list:focus-within) { box-shadow: none; outline: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-input-row:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-input-row:focus-within) { outline: 2px solid var(--accent); outline-offset: 1px; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.tag-input:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-list:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list:focus-within) { border-color: var(--archive-olive); }
 .structured-settings-panel.is-continuous .fields-grid :deep(.tag-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-pending) { font-size: 15px; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.tag) { border-radius: 4px; font-size: 13px; }
 .structured-settings-panel.is-continuous .fields-grid :deep(.tag-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-remove) { min-width: 26px; min-height: 26px; }
 @media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-canvas { padding: 24px 28px 40px; } }
 @media (max-width: 760px) {
-  .structured-settings-panel.is-continuous .section-rail { padding: 10px 12px; gap: 10px; }
+  .structured-settings-panel.is-continuous .section-rail { padding: 10px 12px; gap: 10px; height: auto; overflow: visible; }
   .field-search-results { display: grid; }
   .structured-settings-panel.is-continuous .section-tab { flex: 1 0 auto; justify-content: center; font-size: 14px; padding: 8px; }
   .structured-settings-panel.is-continuous .section-tab small, .structured-settings-panel.is-continuous .section-tab svg { display: none; }
@@ -1903,4 +1911,8 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: flex; width: 100%; }
   .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { width: 100%; }
 }
+/* Only the editor owns focus feedback; the section separator stays neutral. */
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) { border-bottom-color: var(--archive-paper-strong); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-textarea:focus) { box-shadow: none; border: 0; outline: none; background: color-mix(in srgb, var(--archive-ink) 2%, transparent); }
 </style>

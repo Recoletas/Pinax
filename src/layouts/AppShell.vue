@@ -9,7 +9,9 @@ import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useStorageHealth } from '../composables/useStorageHealth'
+import { useTheme } from '../composables/useTheme'
 import '../styles/workspace-surfaces.css'
+import '../styles/workspace-navigation.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +35,7 @@ const currentRouteCaption = computed(() => {
 
 const storageHealth = useStorageHealth()
 const settingsPopup = useSettingsPopup()
+const { isDark, toggleTheme } = useTheme()
 function openSettings(section) {
   settingsPopup.open(section)
 }
@@ -85,10 +88,6 @@ function handleGlobalKeydown(e) {
   }
 }
 
-function toggleDrawer() {
-  drawerOpen.value = !drawerOpen.value
-}
-
 function closeDrawer() {
   drawerOpen.value = false
 }
@@ -131,9 +130,9 @@ function handleSelectPanel(routeName) {
     }"
   >
     <WorkspaceTabs>
-      <div v-if="!hideActivityBar" class="shell-tab-actions">
-        <button ref="drawerTriggerRef" type="button" :aria-expanded="drawerOpen" aria-label="打开工作区导航" @click="toggleDrawer"><WorkbenchIcon name="menu" :size="19" /></button>
-        <button type="button" aria-label="打开设置" @click="openSettings('ai')"><WorkbenchIcon name="settings" :size="18" /></button>
+      <div class="shell-tab-actions">
+        <button type="button" :aria-label="isDark ? '切换日间模式' : '切换夜间模式'" :title="isDark ? '日间模式' : '夜间模式'" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
+        <button type="button" aria-label="打开设置" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
         <button v-if="storageHealth.showChip.value" class="shell-storage-status" :class="storageHealth.level.value" type="button" aria-label="存储偏高，打开存储详情" data-test="shell-storage-status" @click="openSettings('storage')"><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
       </div>
     </WorkspaceTabs>
@@ -219,8 +218,8 @@ function handleSelectPanel(routeName) {
 </template>
 
 <style scoped>
-.shell-tab-actions { display: flex; align-items: center; gap: 4px; padding: 0 4px 5px 8px; }
-.shell-tab-actions > button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
+.shell-tab-actions { display: flex; align-items: center; gap: 4px; padding: 0 4px 4px 8px; }
+.shell-tab-actions > button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
 .shell-tab-actions > button:hover { background: var(--archive-paper-soft); color: var(--archive-ink); }
 .shell-tab-actions > button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: -2px; }
 .app-shell {

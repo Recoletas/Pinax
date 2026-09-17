@@ -265,6 +265,7 @@ try {
     await page.waitForTimeout(300)
     let deletedLocationEntry = false
     // 地点详情 → 在地图查看（既有桥接，出程带 volatile 恢复状态）。
+    await page.getByRole('button', { name: '展开或收起当前场' }).click()
     const detailButton = page.locator('.wall__shelf-scene [aria-label="查看地点详情"]')
     if (await detailButton.count()) {
       await detailButton.click()
@@ -320,6 +321,7 @@ try {
       if (backState.targetUnit && deletedLocationEntry) {
         await page.locator(`[data-writing-unit][data-unit-id="${state.targetUnitId}"] p`).first().click({ position: { x: 60, y: 10 } })
         const invalid = page.locator('[data-test="scene-bind"]')
+        await page.getByRole('button', { name: '展开或收起当前场' }).click()
         await invalid.waitFor({ timeout: 15000 })
         const invalidText = (await invalid.innerText()).trim()
         check('J7 删除当前场地点后显示引用失效', invalidText.includes('现场引用已失效'), invalidText)
