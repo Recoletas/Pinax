@@ -8,6 +8,7 @@ import { openLedgerDb, readLedgerHealth, closeLedgerDb } from '../../services/me
 import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisionsPaged, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
 import { queryFacts } from '../../services/memory/ledger/queryFacts'
 import { describeInterval } from '../../services/memory/ledger/storyInterval'
+import { listExtractionJobs } from '../../services/memory/extraction/extractionJobStore'
 import { payloadHash } from '../../services/memory/ledger/ledgerContract'
 import { previewLegacyMigration, migrateLegacyCandidate } from '../../services/memory/ledger/legacyMigration'
 
@@ -78,6 +79,7 @@ const ledger = ref({
   correctionReason: '',
   decisionsCursor: null,
   decisionsLoadingMore: false,
+  extractionJobs: [],
   migrationOpen: false,
   migration: null
 })
@@ -135,6 +137,19 @@ const decisionLabels = {
   'migrate-legacy': '迁入旧记忆'
 }
 const originLabels = { author: '作者录入', ai: 'AI 提炼', 'legacy-migration': '旧记忆迁入' }
+const extractionStatusLabels = {
+  queued: '排队中',
+  running: '处理中',
+  completed: '已完成',
+  partial: '部分完成',
+  'no-fact': '没有可提取事实',
+  failed: '失败',
+  cancelled: '已取消',
+  'source-changed': '来源已变化'
+}
+function jobStatusLabel(status) {
+  return extractionStatusLabels[status] || status
+}
 
 const ledgerScope = computed(() => {
   let parsed
@@ -186,6 +201,19 @@ async function loadLedger() {
     const health = await readLedgerHealth(db)
     if (generation !== ledgerLoadGeneration) return
     ledger.value.health = health
+    const extractionScopeBook = ledgerScope.value && ledgerScope.value.domain === 'book' ? ledgerScope.value.bookId : ''
+    ledger.value.extractionJobs = listExtractionJobs({ projectId: extractionScopeBook })
+      .slice(0, 8)
+      .map(job => ({
+        id: job.id,
+        status: job.status,
+        blocks: job.blocks.length,
+        attempts: job.attempts || 0,
+        rejected: job.rejected || [],
+        error: job.lastError ? `${job.lastError.code}: ${job.lastError.message}` : '',
+        proposalCount: job.proposalIds?.length || 0,
+        unextractableReason: job.unextractableReason || ''
+      }))
     if (!scope) {
       ledger.value.ready = true
       ledger.value.unavailable = ''
@@ -633,6 +661,15 @@ onMounted(initialize)
           </div>
           <p class="memory-workspace__hint">故事时间筛选需要事实带有明确纪年；没有纪年或纪元未声明的事实会计入“时间未知”，不会被当作“一直成立”。</p>
           <p v-if="Object.keys(ledger.audit).length" class="memory-workspace__hint">本次查询排除：{{ Object.entries(ledger.audit).map(([reason, count]) => `${reason === 'storyTimeUnknown' ? '故事时间未知' : '不在该故事时间'} ${count} 条`).join('；') }}。</p>
+          <details v-if="ledger.extractionJobs.length" class="memory-ledger__decision-group" aria-label="提取任务">
+            <summary>提取任务（{{ ledger.extractionJobs.length }}）— 排队/处理中/部分失败都会留痕，不自动重复提取</summary>
+            <ul class="memory-ledger__job-list">
+              <li v-for="job in ledger.extractionJobs" :key="job.id">
+                <strong>{{ jobStatusLabel(job.status) }}</strong>
+                <small> · {{ job.blocks }} 段 · 尝试 {{ job.attempts }} 次<template v-if="job.proposalCount"> · 产出提案 {{ job.proposalCount }} 条</template><template v-if="job.rejected.length"> · 校验拒绝 {{ job.rejected.length }} 条（{{ job.rejected.map(r => r.reason).join('、') }}）</template><template v-if="job.unextractableReason"> · 没有可提取事实：{{ job.unextractableReason }}</template><template v-if="job.error"> · {{ job.error }}</template></small>
+              </li>
+            </ul>
+          </details>
           <p v-if="!ledger.facts.length" class="memory-workspace__hint">{{ ledger.recordedAsOf ? '该记录时点之前没有已登记的事实。' : '还没有正式事实。' }}</p>
           <article v-for="fact in ledger.facts" :key="fact.factVersionId" class="memory-ledger__card">
             <p><strong>{{ fact.subjectLabel || fact.subjectKey }}</strong> · {{ fact.predicate }} · {{ fact.object }}</p>
