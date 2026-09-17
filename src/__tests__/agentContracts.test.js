@@ -524,7 +524,9 @@ describe('agentContracts', function () {
       actions: [{ type: 'text-insert', content: '不能写入' }], replacement: '不能写入'
     }) })
     expect(rehearsalResponse.result).toMatchObject({ rehearsal: { response: '他收回伸向信封的手。' }, typedActions: [], action: [], replacement: '' })
-    expect(getTasksBySurface('observer').length).toBe(6)
+    // NC07：memory.extraction 追加入目录（结构化记忆提取，review-draft）。
+    expect(getTasksBySurface('observer').length).toBe(7)
+    expect(getTask('memory.extraction')).toMatchObject({ owner: 'observer', resultSchema: 'memory-extraction-proposals.v1', effectPolicy: 'review-draft' })
     expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(
       expect.arrayContaining(['materials.refine', 'materials.classify', 'materials.split', 'materials.relate'])
     )
