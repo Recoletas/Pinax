@@ -19,3 +19,7 @@
 - CI YAML 解析及 `git diff --check origin/main` exit 0。
 
 UI 与资料页整合提交 `f79d2fe`；CI 修复独立提交；文档计划与历史回执单独提交。此次推送会包含 main 之前已验收但尚未推送的 21 个提交，不重写或 squash 既有合并历史。远端 CI 结果以推送后的 GitHub run 为准，本地通过不冒充远端成功；无部署、无真实模型调用。
+
+## 推送后复验与追加修复
+
+`4ce5652` 已推送，run `35360932829` 的 test/build/authoring 成功，单独启用的 workspace-backup 约 62 秒失败且无附件。匿名日志 API 返回 403，不能把推断写成已读到的远端报错。源码确认其探测 IPv4、Vite 未显式绑定 host，存在 localhost 地址族差异；追加固定 `--host 127.0.0.1`，并对齐 CI Chromium 启动参数、补齐启动与旅程失败日志。`CI=true npm run ci:workspace-backup-smoke` 本地完整旅程 exit 0。追加提交后继续监看远端，不重写已推送历史。

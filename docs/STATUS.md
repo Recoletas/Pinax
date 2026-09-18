@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | 今日 UI/资料整合 `f79d2fe`；修复过期 CI 旅程选择器并拆独立浏览器 matrix，补测试预算/docs gate/空树 diff。verify:full 20/200、两条 CI smoke、资料 9/9 均 exit 0。今天上述工作从未提交状态收口，保留用户视觉确认边界；按授权推送中，远端结果待确认。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
+| Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | 今日 UI/资料 `f79d2fe`、CI `f0bf2df`、文档 `4ce5652` 已推送。verify:full 20/200、两条 CI smoke、资料 9/9 均 exit 0；远端首轮 test/build/authoring 通过，独立 backup 启动失败待复验。追加固定 IPv4/CI Chromium 参数及启动诊断，本地 CI=true 备份旅程通过；未重写推送历史，用户视觉确认边界保留。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
 | Codex / 2026-09-18 成熟度调研与计划扩量 | `text-game-framework` | `main` | 已核对 Utopia `ca467808`、StoryForge `1935dab9`；[调研](./engineering/maturity-research-20260918.md)及[夜间计划](./plan/nightly-20260918-runtime-maturity.md)完成。按用户纠偏改为 G 首批后连续推进 M/R/T 36 项，取消最小闭环收工/超时降级，明确依赖、替补与停止条件。修订后 verify:full exit 0（20/20 文件、200/200 用例、双 build、lint/结构/diff），36 项依赖无缺失/循环。实施待启动，优先复用上游代码；未合并旧分支、未启动 worker/真实模型，保留 UI WIP。 |
 | Codex / 2026-09-18 设定顶部统一 | `text-game-framework` | `main` | 四页共用顶部容器：当前作品/回正文首行、分区导航次行，清除各页独立覆盖。四页×三尺寸位置/高度精确比对、联动20/20、verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/settings-header-unification-20260918.md)。 |
 | Codex / 2026-09-18 条目管理精修 | `text-game-framework` | `main` | 条目目录/编辑分栏、按需批量工具、顶部保存、参数折叠及键盘选择已实施；浏览器功能/三尺寸/暗色、设定联动20/20与 verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/entries-polish-20260918.md)。 |

@@ -26,6 +26,7 @@ const BASE_URL = `http://127.0.0.1:${FRONT_PORT}`
 const nodeBin = process.execPath
 
 const children = []
+const processDiagnostics = []
 let failed = false
 
 function log(message) {
@@ -69,8 +70,14 @@ function startProcess(name, command, args, env) {
     detached: true
   })
   children.push({ name, child })
-  child.stdout.on('data', (d) => process.stdout.write(`[${name}] ${d}`))
-  child.stderr.on('data', (d) => process.stderr.write(`[${name}] ${d}`))
+  const record = (stream, data) => {
+    processDiagnostics.push(`[${name}:${stream}] ${data}`)
+    if (processDiagnostics.length > 200) processDiagnostics.shift()
+    process[stream].write(`[${name}] ${data}`)
+  }
+  child.stdout.on('data', (d) => record('stdout', d))
+  child.stderr.on('data', (d) => record('stderr', d))
+  child.on('error', (error) => processDiagnostics.push(`[${name}:error] ${error.message}`))
   log(`${name} started pid=${child.pid}`)
 }
 
@@ -388,12 +395,14 @@ async function main() {
 
   startProcess('server', nodeBin, ['server/index.js'], { PORT: String(BACK_PORT) })
   await waitUntil(() => httpReachable(`http://127.0.0.1:${BACK_PORT}/api/rooms`), `backend :${BACK_PORT}`)
-  startProcess('vite', nodeBin, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), '--port', String(FRONT_PORT), '--strictPort'], {
+  startProcess('vite', nodeBin, [join(root, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '127.0.0.1', '--port', String(FRONT_PORT), '--strictPort'], {
     PINAX_DEV_BACKEND_ORIGIN: `http://127.0.0.1:${BACK_PORT}`
   })
   await waitUntil(() => httpReachable(BASE_URL), `frontend :${FRONT_PORT}`)
 
-  const browser = await chromium.launch()
+  const browser = await chromium.launch({
+    args: process.env.CI ? ['--disable-dev-shm-usage', '--no-sandbox'] : []
+  })
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })
     const blocked = []
@@ -416,6 +425,7 @@ async function main() {
     } catch (error) {
       failed = true
       console.error('[workspace-backup-check] FAILED:', error?.message || error)
+      await writeFile(join(OUT_DIR, 'failure.log'), [String(error?.stack || error), ...processDiagnostics].join('\n'))
       await page.screenshot({ path: join(OUT_DIR, 'backup-check-failure.png'), fullPage: true }).catch(() => {})
     }
     if (pageErrors.length > 0) {
@@ -441,6 +451,11 @@ async function main() {
 
 try {
   await main()
+} catch (error) {
+  await mkdir(OUT_DIR, { recursive: true })
+  await writeFile(join(OUT_DIR, 'failure.log'), [String(error?.stack || error), ...processDiagnostics].join('\n'))
+  console.error('[workspace-backup-check] startup FAILED:', error?.stack || error)
+  process.exitCode = 1
 } finally {
   await stopAll()
 }
