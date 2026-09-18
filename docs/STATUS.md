@@ -6,10 +6,15 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Claude / 2026-09-17 夜 N-C 记忆与历史 | `/home/recoletas/jiuguan/pinax-night-memq-20260917` | `night/memory-quality-20260917` | 字母噪声链已修（微改会话合并+准入门+变更切片）；有证据的结构化提取管线（`memory.extraction` 任务→账本提案→生产 reader）；决定分组/任务状态 UI；30 片段语料与 15/15 门禁。verify:full exit 0；真实模型抽样 not-run；NC15 页面装配 blocked-external（等 N-A）。回执：[c-summary](./agent-runs/nightly-20260917-quality/c-summary.md)。 |
+| Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | 今日 UI/资料整合 `f79d2fe`；修复过期 CI 旅程选择器并拆独立浏览器 matrix，补测试预算/docs gate/空树 diff。verify:full 20/200、两条 CI smoke、资料 9/9 均 exit 0。今天上述工作从未提交状态收口，保留用户视觉确认边界；按授权推送中，远端结果待确认。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
+| Codex / 2026-09-18 成熟度调研与计划扩量 | `text-game-framework` | `main` | 已核对 Utopia `ca467808`、StoryForge `1935dab9`；[调研](./engineering/maturity-research-20260918.md)及[夜间计划](./plan/nightly-20260918-runtime-maturity.md)完成。按用户纠偏改为 G 首批后连续推进 M/R/T 36 项，取消最小闭环收工/超时降级，明确依赖、替补与停止条件。修订后 verify:full exit 0（20/20 文件、200/200 用例、双 build、lint/结构/diff），36 项依赖无缺失/循环。实施待启动，优先复用上游代码；未合并旧分支、未启动 worker/真实模型，保留 UI WIP。 |
+| Codex / 2026-09-18 设定顶部统一 | `text-game-framework` | `main` | 四页共用顶部容器：当前作品/回正文首行、分区导航次行，清除各页独立覆盖。四页×三尺寸位置/高度精确比对、联动20/20、verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/settings-header-unification-20260918.md)。 |
+| Codex / 2026-09-18 条目管理精修 | `text-game-framework` | `main` | 条目目录/编辑分栏、按需批量工具、顶部保存、参数折叠及键盘选择已实施；浏览器功能/三尺寸/暗色、设定联动20/20与 verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/entries-polish-20260918.md)。 |
+| Codex / 2026-09-18 公共导航与首页资料精修 | `text-game-framework` | `main` | 用户否定前轮视觉后重新调研并修正：首页操作层级/语义图标、资料常驻入口与单标题文档列表，接入资料页功能修正。首页旅程、资料 9/9、共享设定 20/20、三尺寸/深色检查与 verify:full（20/200、双 build、lint/结构/diff）均 exit 0；已提交 `f79d2fe`，待用户视觉确认。见[本轮回执](./agent-runs/library-sources-polish-20260918.md)。 |
+| Codex / 2026-09-18 N-A/N-B/N-C 组合验收 | `text-game-framework` | `main` | 资料接入、全局 UI、记忆提取三线已独立复验并以 `c7ca33b` 合入 main。`verify:full` exit 0（20/20 文件、200/200 用例、lint、双 build、结构与 diff）；资料导入/绑定/冲突/ZIP、记忆质量 15/15、账本与 1 万级分页、209 修订/恢复、设定联动 20/20、标签交互 5/5、12 路由双尺寸明暗审计均通过。真实 LLM、真机 IME、ZIP 中途失败注入仍未运行；见[组合回执](./agent-runs/nightly-20260917-quality/combination-check.md)。 |
 | Codex / 2026-09-17 UI精修与续作交接 | `text-game-framework` | `main` | 已完成17:01复验切片：批注输入改为单边界；“画师”改名“生图”，中等尺寸工作台同时展示风格缩略图与当前大幅参考；设定目录加宽并将纯加号改为“新建”；暗色改为中性石墨、标签轮廓继续降噪。1440/900/390亮色与1440暗色组合回归均通过；最终工程门禁见[回执](./agent-runs/workspace-ui-20260917.md)。未提交推送。 |
 | Codex / 2026-09-17 ABC统一审查 | `text-game-framework` | `main` | A `81aa3f9`、B `c00c59b`、C `0dbca43` 交付切片已统一审查、修复并组合回归；主线本地集成提交包含生产reader/ZIP、保存前归档/回执/知识隔离和未知请求修复。verify:full 20/200、漫画30、跑团196+46、记忆及真实coordinator/ZIP故障回归通过。计划保存 `daa2524`；不push/部署，源分支保留。见[组合回执](./agent-runs/nightly-20260917/integration-summary.md)。 |
-| ABC后续 | 原 A/B/C 工作树保留 | `night/memory-20260916` / `night/comics-20260916` / `night/roleplay-20260916` | AX48/CX48/BX12 未全部完成；继续施工前以集成后的新main为基线。无夜间O，不把旧worker回执或测试数当整线完成；[职责与剩余任务](./plan/nightly-20260917-ac-dispatch.md)。 |
+| 上一轮 ABC backlog | 原 A/B/C 工作树保留 | `night/memory-20260916` / `night/comics-20260916` / `night/roleplay-20260916` | AX48/CX48/BX12 未全部完成；白天交付切片已组合验收。今晚改按 N-A/N-B/N-C 新计划，新工作树从当前 main 建立；原漫画/跑团扩展不自动续跑，记忆未完项由 N-C 按新优先级承接。[原剩余项](./plan/abc-remaining-20260917.md)仅作 backlog，旧树/WIP 保留。 |
 | Codex / 2026-09-16 memory history | `text-game-framework` | `main` | 已随工作区 UI 收口提交推送 `f74545b`。209 次真实 IndexedDB 修订与恢复 smoke exit 0、verify:full exit 0（20/200、lint 0 warning、双 build、结构预算、diff）。尚非完整 Utopia 事实/认知时间引擎，下一步以本次 A 线任务书为准。 |
 | Codex / 2026-09-16 Web Alpha completion | `/home/recoletas/jiuguan/text-game-framework` | `main` | 夜间硬任务书剩余项已完成确定性验收并合入 main，已随本轮 main 推送远端；真实外部 provider 与实体设备仍是外部门禁。 |
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
@@ -251,7 +256,9 @@
 
 ## Next up
 
-- **2026-09-17 ABC续跑**：A/C首批已提交但未组合验收；按[A48项](./plan/nightly-20260917-memory-continuation.md)、[C48项](./plan/nightly-20260917-roleplay-continuation.md)继续补齐并深化，B按原任务和新公共接线职责推进。[调度修订](./plan/nightly-20260917-ac-dispatch.md)取消夜间O，白天Codex统一ABC。本轮只扩写任务，未启动续跑worker/定时调度，未扩大为联机/生产部署。
+- **2026-09-18 新夜间计划（待执行）**：按[成熟度计划](./plan/nightly-20260918-runtime-maturity.md)完成 G 首批后自动连续推进 M/R/T 共 36 项，时序/角色知识/自主 KP/战役/工具治理都在本轮队列。阶段全绿不是停止条件，单项受阻转做独立任务；优先复用成熟开源代码。未开始实施，不预记任何新功能完成。
+
+- **2026-09-18 三线验收后续**：N-A/N-B/N-C 已组合验收并合入 main；不再按“待启动”重跑整份计划。后续只补真实 LLM 提取质量、真机 IME、ZIP 中途失败注入，以及任务书中明确标为 partial/not-run 的版本链、角色知情和资料批量管理；上一轮漫画/跑团扩展仍保留 backlog。
 
 下一轮不再重开[Web Alpha 夜间硬任务书](./plan/pinax-nightly-web-alpha-hard-tasks-20260915.md)；其代码与确定性门禁已于 2026-09-16 收口。后续只保留真实外部 provider、真机中文输入耐久和作者作品体验等外部门禁，并以当前结构预算防止 owner 回流。
 
