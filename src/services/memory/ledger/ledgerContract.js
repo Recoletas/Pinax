@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../../shared/randomId.js'
 import { sha256HexOfText } from '../../contentHash'
 import { stableStringify } from '../../project/knowledgeReadModel/contract'
 
@@ -144,7 +145,7 @@ export function payloadHash(payload) {
 }
 
 export function ledgerId(prefix) {
-  return `${prefix}_${globalThis.crypto.randomUUID()}`
+  return `${prefix}_${randomUUID()}`
 }
 
 export function normalizeStoryIntervalInput(input) {

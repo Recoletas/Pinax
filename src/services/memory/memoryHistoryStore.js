@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/randomId.js'
 import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
 import Dexie from 'dexie'
 
@@ -29,7 +30,7 @@ function semantic(item) {
 function revision(item, previous, operation, parentId = null) {
   return {
     schemaVersion: 1,
-    id: globalThis.crypto.randomUUID(),
+    id: randomUUID(),
     candidateId: String(item.id),
     parentId,
     recordedAt: Date.now(),

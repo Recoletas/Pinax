@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/randomId.js'
 import { canonicalJson, fingerprintJson } from '../../../shared/collaboration/canonicalJson.js'
 import { validateStableLocator } from '../../../shared/collaboration/contracts.js'
 import {
@@ -148,7 +149,7 @@ export function createAuthoringRehearsalRoomController ({
   storage = browserSession,
   windowLike = globalThis.window,
   cryptoImpl = globalThis.crypto,
-  id = prefix => `${prefix}-${cryptoImpl.randomUUID()}`,
+  id = prefix => `${prefix}-${randomUUID(cryptoImpl)}`,
   endpointResolver = resolveRendererCollaborationEndpoints,
   transportFactory = options => new RemoteWebSocketTransport(options),
   protocolClientFactory = options => new CollaborationProtocolClient(options),

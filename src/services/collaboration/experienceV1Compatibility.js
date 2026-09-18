@@ -1,3 +1,4 @@
+import { randomUUID } from '../../../shared/randomId.js'
 import { computed, reactive, ref } from 'vue'
 import { CollaborationProtocolClient } from './CollaborationProtocolClient.js'
 import { createCollaborationDomainProjection } from './domainProjection.js'
@@ -42,10 +43,10 @@ export function createExperienceV1CompatibilityRoom ({ endpointOverride = import
   const sendCommand = (type, payload = {}) => {
     if (!client) { error.value = '协作连接尚未就绪'; return '' }
     const body = payload.payload || payload
-    const map = { 'chat.send': ['chat.send', { body: payload.text, target }], 'action.propose': ['proposal.create', { proposal: { id: crypto.randomUUID(), kind: 'direction', target, baseRevision: 1, body: payload.text } }], 'action.select': ['proposal.status', { proposalId: payload.proposalId, status: 'selected' }], 'vote.cast': ['vote.cast', { proposalId: payload.proposalId, value: 'up' }], 'narrative.request': ['generation.request', { ...body, target, actionText: body.text, shareSessionId: room.value?.shareSessionId, manifestFingerprint: room.value?.manifestFingerprint }], 'narrative.status': ['generation.status', body], 'narrative.completed': ['generation.complete', body], 'runtime.patch.accept': ['experience.runtime.patch.accept', body] }
+    const map = { 'chat.send': ['chat.send', { body: payload.text, target }], 'action.propose': ['proposal.create', { proposal: { id: randomUUID(), kind: 'direction', target, baseRevision: 1, body: payload.text } }], 'action.select': ['proposal.status', { proposalId: payload.proposalId, status: 'selected' }], 'vote.cast': ['vote.cast', { proposalId: payload.proposalId, value: 'up' }], 'narrative.request': ['generation.request', { ...body, target, actionText: body.text, shareSessionId: room.value?.shareSessionId, manifestFingerprint: room.value?.manifestFingerprint }], 'narrative.status': ['generation.status', body], 'narrative.completed': ['generation.complete', body], 'runtime.patch.accept': ['experience.runtime.patch.accept', body] }
     if (map['narrative.request']) delete map['narrative.request'][1].text
     const mapped = map[type] || [type, payload]; const hostEpoch = ['proposal.status', 'generation.request', 'generation.status', 'generation.complete', 'experience.runtime.patch.accept'].includes(mapped[0]) ? room.value?.hostEpoch : undefined
-    const commandId = crypto.randomUUID(); client.sendCommand(mapped[0], mapped[1], { commandId, hostEpoch }).catch(value => { error.value = value.message }); return commandId
+    const commandId = randomUUID(); client.sendCommand(mapped[0], mapped[1], { commandId, hostEpoch }).catch(value => { error.value = value.message }); return commandId
   }
   const joinRoom = (slug, nick) => {
     roomSlug.value = slug; nickname.value = nick; storage.setItem('pinax.online.nickname', nick)

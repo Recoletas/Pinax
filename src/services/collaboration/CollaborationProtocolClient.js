@@ -1,10 +1,11 @@
+import { randomUUID } from '../../../shared/randomId.js'
 import { COLLABORATION_PROTOCOL_VERSION } from '../../../shared/collaboration/constants.js'
 
 const memoryStorage = () => { const data = new Map(); return { getItem: key => data.get(key) || null, setItem: (key, value) => data.set(key, String(value)), removeItem: key => data.delete(key) } }
 const TERMINAL_CODES = new Set(['expired', 'room-not-found', 'not-found', 'invite-revoked', 'invite-expired', 'invite-invalid', 'resume-invalid', 'unauthorized'])
 
 export class CollaborationProtocolClient {
-  constructor ({ transport, storage = memoryStorage(), timers = globalThis, clock = () => Date.now(), commandId = () => crypto.randomUUID(), clientBuild = 'web', features = [], ackTimeoutMs = 5_000, maxRetries = 2, heartbeatIntervalMs = 20_000, heartbeatTimeoutMs = 8_000 } = {}) {
+  constructor ({ transport, storage = memoryStorage(), timers = globalThis, clock = () => Date.now(), commandId = () => randomUUID(), clientBuild = 'web', features = [], ackTimeoutMs = 5_000, maxRetries = 2, heartbeatIntervalMs = 20_000, heartbeatTimeoutMs = 8_000 } = {}) {
     if (!transport) throw new TypeError('transport-required')
     Object.assign(this, { transport, storage, timers, clock, commandId, clientBuild, features, ackTimeoutMs, maxRetries, heartbeatIntervalMs, heartbeatTimeoutMs })
     this.state = 'idle'; this.roomId = ''; this.roomSlug = ''; this.memberId = ''; this.resumeToken = ''; this.lastSeq = 0; this.connectionEpoch = 0; this.pending = new Map(); this.listeners = new Map(); this.unsubscribers = []; this.heartbeatTimer = null; this.pongTimer = null; this.pendingPing = null

@@ -1,9 +1,11 @@
+import { randomUUID } from './randomId.js'
+
 export const AGENT_TASK_REQUEST_VERSION = 1
 
 export function createTaskRequest({ taskId, project, target, intent, surface, options = {} }) {
   return Object.freeze({
     version: AGENT_TASK_REQUEST_VERSION,
-    requestId: crypto.randomUUID(),
+    requestId: randomUUID(),
     taskId: String(taskId || '').trim(),
     project: { id: String(project?.id || ''), revision: String(project?.revision || '') },
     target: {

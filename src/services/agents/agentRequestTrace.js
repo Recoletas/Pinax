@@ -1,3 +1,5 @@
+import { randomUUID } from '../../../shared/randomId.js'
+
 const STORAGE_KEY = 'pinax_agent_request_trace_v1'
 const TRACE_LIMIT = 20
 
@@ -12,8 +14,7 @@ function readTraces() {
 }
 
 export function createAgentRequestId() {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  return `agent-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  return randomUUID()
 }
 
 export function summarizeAgentEnvelope(envelope) {
