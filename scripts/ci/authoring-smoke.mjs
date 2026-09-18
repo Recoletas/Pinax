@@ -150,10 +150,10 @@ async function runJourney() {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })
     await page.evaluate(() => localStorage.clear())
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: /从一句话开始/ }).waitFor({ timeout: 30_000 })
+    await page.locator('[data-test="welcome-start-authoring"]').waitFor({ timeout: 30_000 })
 
     log('step 2: 打开备份/诊断面板，导出低敏诊断并验证隐私合同')
-    await page.getByRole('button', { name: '备份', exact: true }).click()
+    await page.getByRole('complementary', { name: '首页导航' }).getByRole('button', { name: '备份与恢复', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     await settings.getByText('内测遇到问题？').waitFor({ timeout: 30_000 })
     const downloadPromise = page.waitForEvent('download')
