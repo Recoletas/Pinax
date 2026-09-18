@@ -5,6 +5,9 @@ import {
 } from './authoringObservationContract.js'
 import { queueMemoryCandidate } from '../../memory/memoryCandidates.js'
 import { MEMORY_TEXT_LIMIT } from '../../memory/memoryCompaction.js'
+import { evaluateMemoryEligibility } from '../../memory/extractionEligibility.js'
+import { enqueueExtractionJob } from '../../memory/extraction/extractionJobStore.js'
+import { drainExtractionQueue } from '../../memory/extraction/extractionRunner.js'
 
 export const OBSERVER_MEMORY_KIND_MAP = Object.freeze({
   memory: 'project-fact',
@@ -31,6 +34,35 @@ let sequence = 0
 function nextObservationId(kind) {
   sequence += 1
   return `${kind}-${sequence}`
+}
+
+// NC04：会话内已处理内容指纹（来源 revision + 文本），防止同一块反复摘句。
+// 有界：超出上限丢弃最旧的一半，只影响去重记忆，不影响数据。
+const processedEligibilityFingerprints = new Set()
+const PROCESSED_FINGERPRINT_LIMIT = 500
+
+function rememberProcessedFingerprint(fingerprint) {
+  if (!fingerprint) return
+  if (processedEligibilityFingerprints.size >= PROCESSED_FINGERPRINT_LIMIT) {
+    let removed = 0
+    for (const key of processedEligibilityFingerprints) {
+      processedEligibilityFingerprints.delete(key)
+      removed += 1
+      if (removed >= PROCESSED_FINGERPRINT_LIMIT / 2) break
+    }
+  }
+  processedEligibilityFingerprints.add(fingerprint)
+}
+
+export function resetProcessedEligibilityFingerprintsForTest() {
+  processedEligibilityFingerprints.clear()
+}
+
+// NC07：revision 字符串尾部的单调序号（如 doc-r29 → 29），用于任务级来源
+// 新旧比较；取不到数字时为 0（不可比较，不做 superseded 判定）。
+function extractRevisionSeq(revision) {
+  const match = String(revision || '').match(/(\d+)\D*$/)
+  return match ? Number(match[1]) : 0
 }
 
 function normalizeFactText(value) {
@@ -296,6 +328,40 @@ export async function runObserverMemoryDerivation({
     .map((ref) => String(ref || '').trim())
     .filter(Boolean)
 
+  // NC04：准入判定。无意义输入（asdfgh/aaaaaa/纯符号）零候选；
+  // 同一来源 revision + 相同文本的重复摘句不再入队。
+  const eligibility = evaluateMemoryEligibility({
+    text,
+    sourceRefs,
+    revision,
+    processedFingerprints: processedEligibilityFingerprints
+  })
+  if (!eligibility.eligible) {
+    return {
+      status: 'completed',
+      queued: [],
+      skipped: [{ observationId: 'delta', reason: eligibility.reason }],
+      exceptions: []
+    }
+  }
+
+  // NC07：先登记结构化提取任务（预算内自动排队），摘录候选携带任务 ID。
+  let extractionJobId = ''
+  try {
+    const enqueued = enqueueExtractionJob({
+      projectId: String(projectId || ''),
+      sourceRefs,
+      sourceRevision: revision,
+      revisionSeq: extractRevisionSeq(revision),
+      fingerprint: eligibility.fingerprint,
+      text
+    })
+    if (enqueued.ok && !enqueued.duplicate && enqueued.job?.id) {
+      extractionJobId = enqueued.job.id
+    }
+  } catch {
+    // 任务登记失败只影响模型提取，不影响摘录候选。
+  }
   const observations = deriveMemoryFromDelta({
     ...delta,
     text,
@@ -334,8 +400,13 @@ export async function runObserverMemoryDerivation({
       authority: 'derived',
       derivedBy,
       sourceRefs,
-      sourceRevision: revision
+      sourceRevision: revision,
+      // NC04：本地摘句不再冒充事实——诚实标注派生方式，审阅与 reader 可区分。
+      metadata: { derivation: 'local-excerpt', extractionFingerprint: eligibility.fingerprint, extractionJobId }
     })
+    if (result?.success) {
+      rememberProcessedFingerprint(eligibility.fingerprint)
+    }
     const candidate = result?.candidate
     if (result?.skipped) {
       skipped.push({
@@ -360,6 +431,9 @@ export async function runObserverMemoryDerivation({
     }
   }
 
+  if (extractionJobId) {
+    void drainExtractionQueue({ max: 1, auto: true }).catch(() => {})
+  }
   return { status: 'completed', queued, skipped, exceptions }
 }
 

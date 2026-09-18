@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
 .docs-page__chapter-caption {
   margin-left: auto;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .docs-page__layout {

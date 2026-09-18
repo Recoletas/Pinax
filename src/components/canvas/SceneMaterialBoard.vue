@@ -272,7 +272,7 @@ function openSource(item) {
 .scene-material-board__eyebrow,
 .scene-board-region__header p {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -333,7 +333,7 @@ function openSource(item) {
 }
 
 .scene-board-region__header > span {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -452,7 +452,7 @@ function openSource(item) {
 
 .scene-board-empty {
   margin: 12px 0 0;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.5;
 }

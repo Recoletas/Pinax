@@ -530,7 +530,7 @@ function readImageDimensions(data) {
         <input ref="maskInput" type="file" accept="image/*" hidden @change="uploadMask" />
         <span v-if="maskImage">遮罩已就绪</span>
       </div>
-      <textarea v-model="revisionPrompt" rows="2" placeholder="只描述遮罩区域要修正的内容"></textarea>
+      <textarea v-model="revisionPrompt" rows="2" placeholder="只描述遮罩区域要修正的内容" aria-label="局部修正提示"></textarea>
       <button type="button" :disabled="busy || !maskImage || !inpaintGate.allowed" @click="generateStage('inpaint')">
         <Sparkles :size="13" aria-hidden="true" />
         生成修订候选

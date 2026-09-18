@@ -48,6 +48,9 @@ const rows = [
   ['observer.events.derive', 'observer', 'background-derive', 'observer-manuscript', 'document-delta.v1', 'derived-events.v1', 'derived-state'],
   ['observer.timeline.derive', 'observer', 'background-derive', 'observer-manuscript', 'document-delta.v1', 'derived-timeline.v1', 'derived-state'],
   ['observer.memory.derive', 'observer', 'background-derive', 'observer-manuscript', 'document-delta.v1', 'memory-candidates.v1', 'derived-state'],
+  // NC07（20260917 夜 C 线）：有证据的结构化记忆提取。只追加；输入/输出
+  // schema 见 src/services/memory/extraction/structuredExtraction.js。
+  ['memory.extraction', 'observer', 'structured-one-shot', 'observer-manuscript', 'memory-extraction-input.v1', 'memory-extraction-proposals.v1', 'review-draft'],
   ['observer.quality.inspect', 'observer', 'shadow-observer', 'observer-quality', 'prose-segment.v1', 'quality-metrics.v1', 'metrics-only'],
   ['materials.refine', 'materials', 'structured-one-shot', 'materials-selection', 'asset-selection.v1', 'text-patch.v1', 'review-draft'],
   ['materials.classify', 'materials', 'structured-one-shot', 'materials-selection', 'asset-selection.v1', 'material-actions.v1', 'review-draft'],

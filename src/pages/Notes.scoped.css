@@ -2237,8 +2237,8 @@
   text-align: center;
   font-size: 12px;
   font-style: italic;
-  color: var(--archive-ink-soft);
-  opacity: 0.7;
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 /* K3: 单张素材摘要 — 复刻 pinned-slip 双行 + status-dot 视觉,
@@ -2548,4 +2548,10 @@
   :global(html.theme-legacy .material-top .manuscript-top__right .manuscript-top__tab:nth-of-type(-n + 2)) {
     display: none;
   }
+
+}
+
+/* NB04：激活模式文字加深保持 4.5:1 */
+.notes-sidekick__modes .active[type="button"] {
+  color: var(--archive-ink) !important;
 }

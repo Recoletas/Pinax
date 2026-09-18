@@ -173,7 +173,7 @@ import { ref } from 'vue'
 
 .timeline-summary {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
@@ -489,7 +489,7 @@ import { ref } from 'vue'
   text-align: center;
   padding: 18px 10px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   width: 100%;
   border: 1px dashed color-mix(in srgb, var(--border) 88%, transparent);
   border-radius: 6px;

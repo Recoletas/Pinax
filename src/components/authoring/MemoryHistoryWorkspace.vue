@@ -5,9 +5,10 @@ import { loadWritingBooks } from '../../services/writing/writingBooksRepository'
 import { listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
 import { commitMemorySnapshot, flushMemoryHistory, readMemoryHistory, memoryHistoryHealth, historicalCandidatePatch } from '../../services/memory/memoryHistoryStore'
 import { openLedgerDb, readLedgerHealth, closeLedgerDb } from '../../services/memory/ledger/ledgerDb'
-import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisions, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
+import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisionsPaged, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
 import { queryFacts } from '../../services/memory/ledger/queryFacts'
 import { describeInterval } from '../../services/memory/ledger/storyInterval'
+import { listExtractionJobs } from '../../services/memory/extraction/extractionJobStore'
 import { payloadHash } from '../../services/memory/ledger/ledgerContract'
 import { previewLegacyMigration, migrateLegacyCandidate } from '../../services/memory/ledger/legacyMigration'
 
@@ -76,9 +77,57 @@ const ledger = ref({
   correctingFactKey: '',
   correctedObject: '',
   correctionReason: '',
+  decisionsCursor: null,
+  decisionsLoadingMore: false,
+  extractionJobs: [],
   migrationOpen: false,
   migration: null
 })
+
+// NC05：审计决定按对象（factKey）分组汇总。组内保留全部决定（不隐藏、
+// 不丢原不可变历史），分组只改变阅读顺序。
+const decisionGroups = computed(() => {
+  const groups = new Map()
+  for (const decision of ledger.value.decisions) {
+    const key = String(decision.result?.factKey || decision.afterIds?.[0] || decision.id)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(decision)
+  }
+  return [...groups.entries()].map(([key, items]) => {
+    const counts = {}
+    for (const item of items) {
+      const label = decisionLabels[item.operation] || item.operation
+      counts[label] = (counts[label] || 0) + 1
+    }
+    const summary = Object.entries(counts).map(([label, count]) => `${label}×${count}`).join(' · ')
+    const latest = items.reduce((acc, item) => (Number(item.recordedSeq || 0) > Number(acc.recordedSeq || 0) ? item : acc), items[0])
+    return {
+      key,
+      title: String(key).startsWith('fact:') ? `对象 ${String(key).replace(/^fact:/, '').slice(0, 40)}` : `关联 ${key.slice(0, 24)}`,
+      summary,
+      latestSeq: Number(latest.recordedSeq || 0),
+      items
+    }
+  }).sort((left, right) => right.latestSeq - left.latestSeq)
+})
+
+async function loadMoreDecisions() {
+  if (!ledger.value.decisionsCursor || ledger.value.decisionsLoadingMore) return
+  ledger.value.decisionsLoadingMore = true
+  const opened = await openLedgerDb({ openTimeoutMs: 1500 })
+  if (opened.ok) {
+    const page = await listDecisionsPaged(opened.db, {
+      scope: ledgerScope.value,
+      cursor: ledger.value.decisionsCursor,
+      limit: 50
+    })
+    if (page.ok) {
+      ledger.value.decisions = [...ledger.value.decisions, ...page.items]
+      ledger.value.decisionsCursor = page.nextCursor || null
+    }
+  }
+  ledger.value.decisionsLoadingMore = false
+}
 const decisionLabels = {
   'adopt-proposal': '接受为事实',
   'correct-fact': '更正',
@@ -88,6 +137,19 @@ const decisionLabels = {
   'migrate-legacy': '迁入旧记忆'
 }
 const originLabels = { author: '作者录入', ai: 'AI 提炼', 'legacy-migration': '旧记忆迁入' }
+const extractionStatusLabels = {
+  queued: '排队中',
+  running: '处理中',
+  completed: '已完成',
+  partial: '部分完成',
+  'no-fact': '没有可提取事实',
+  failed: '失败',
+  cancelled: '已取消',
+  'source-changed': '来源已变化'
+}
+function jobStatusLabel(status) {
+  return extractionStatusLabels[status] || status
+}
 
 const ledgerScope = computed(() => {
   let parsed
@@ -139,6 +201,19 @@ async function loadLedger() {
     const health = await readLedgerHealth(db)
     if (generation !== ledgerLoadGeneration) return
     ledger.value.health = health
+    const extractionScopeBook = ledgerScope.value && ledgerScope.value.domain === 'book' ? ledgerScope.value.bookId : ''
+    ledger.value.extractionJobs = listExtractionJobs({ projectId: extractionScopeBook })
+      .slice(0, 8)
+      .map(job => ({
+        id: job.id,
+        status: job.status,
+        blocks: job.blocks.length,
+        attempts: job.attempts || 0,
+        rejected: job.rejected || [],
+        error: job.lastError ? `${job.lastError.code}: ${job.lastError.message}` : '',
+        proposalCount: job.proposalIds?.length || 0,
+        unextractableReason: job.unextractableReason || ''
+      }))
     if (!scope) {
       ledger.value.ready = true
       ledger.value.unavailable = ''
@@ -147,9 +222,9 @@ async function loadLedger() {
       ledger.value.decisions = []
       return
     }
-    const [pendingProposals, decisions, marks] = await Promise.all([
+    const [pendingProposals, decisionPage, marks] = await Promise.all([
       listProposals(db, { scope, status: 'pending' }),
-      listDecisions(db, { scope, limit: 100 }),
+      listDecisionsPaged(db, { scope, limit: 50 }),
       listRejectionMarks(db, { scope })
     ])
     const query = await queryFacts(db, {
@@ -169,7 +244,8 @@ async function loadLedger() {
     ledger.value.ready = true
     ledger.value.unavailable = ''
     ledger.value.proposals = pendingProposals
-    ledger.value.decisions = decisions
+    ledger.value.decisions = decisionPage.items || []
+    ledger.value.decisionsCursor = decisionPage.nextCursor || null
     ledger.value.rejections = marks
     ledger.value.evidenceById = evidenceById
     if (query.ok) {
@@ -497,7 +573,7 @@ onMounted(initialize)
     <template v-if="view === 'candidates'">
     <p v-if="!filtered.length && !busy">此范围内没有{{ statuses[mode] }}记忆。</p>
     <article v-for="item in filtered.slice(0, limit)" :key="item.id" class="memory-workspace__item">
-      <p>{{ item.content }}</p>
+      <p>{{ item.content }}<template v-if="item.metadata?.derivation === 'local-excerpt'"> <small class="memory-workspace__tag">本地摘录</small></template><template v-if="item.metadata?.extractionState === 'proposed'"> <small class="memory-workspace__tag">已提炼为提案，请在事实账本审阅</small></template><template v-else-if="item.metadata?.extractionState === 'no-fact'"> <small class="memory-workspace__tag">提取未产出事实</small></template></p>
       <small v-if="!item.sourceRefs?.length">缺少原文来源，不能作为作品事实确认。</small>
       <div class="memory-workspace__controls">
         <button :disabled="busy" @click="inspect(item)">查看来源与修订</button>
@@ -585,6 +661,15 @@ onMounted(initialize)
           </div>
           <p class="memory-workspace__hint">故事时间筛选需要事实带有明确纪年；没有纪年或纪元未声明的事实会计入“时间未知”，不会被当作“一直成立”。</p>
           <p v-if="Object.keys(ledger.audit).length" class="memory-workspace__hint">本次查询排除：{{ Object.entries(ledger.audit).map(([reason, count]) => `${reason === 'storyTimeUnknown' ? '故事时间未知' : '不在该故事时间'} ${count} 条`).join('；') }}。</p>
+          <details v-if="ledger.extractionJobs.length" class="memory-ledger__decision-group" aria-label="提取任务">
+            <summary>提取任务（{{ ledger.extractionJobs.length }}）— 排队/处理中/部分失败都会留痕，不自动重复提取</summary>
+            <ul class="memory-ledger__job-list">
+              <li v-for="job in ledger.extractionJobs" :key="job.id">
+                <strong>{{ jobStatusLabel(job.status) }}</strong>
+                <small> · {{ job.blocks }} 段 · 尝试 {{ job.attempts }} 次<template v-if="job.proposalCount"> · 产出提案 {{ job.proposalCount }} 条</template><template v-if="job.rejected.length"> · 校验拒绝 {{ job.rejected.length }} 条（{{ job.rejected.map(r => r.reason).join('、') }}）</template><template v-if="job.unextractableReason"> · 没有可提取事实：{{ job.unextractableReason }}</template><template v-if="job.error"> · {{ job.error }}</template></small>
+              </li>
+            </ul>
+          </details>
           <p v-if="!ledger.facts.length" class="memory-workspace__hint">{{ ledger.recordedAsOf ? '该记录时点之前没有已登记的事实。' : '还没有正式事实。' }}</p>
           <article v-for="fact in ledger.facts" :key="fact.factVersionId" class="memory-ledger__card">
             <p><strong>{{ fact.subjectLabel || fact.subjectKey }}</strong> · {{ fact.predicate }} · {{ fact.object }}</p>
@@ -606,13 +691,22 @@ onMounted(initialize)
         </template>
 
         <template v-else-if="ledger.view === 'decisions' && ledgerScope">
+          <p class="memory-workspace__hint">状态对照：接受=事实生效 · 更正=作废旧值并立新值（旧值仍可追溯）· 撤回=事实失效但审计保留 · 迁入=旧记忆显式确认。所有决定不可改写，只按对象分组便于阅读。</p>
           <p v-if="!ledger.decisions.length" class="memory-workspace__hint">还没有决定记录。</p>
-          <ol aria-label="决定记录">
-            <li v-for="decision in ledger.decisions" :key="decision.id">
-              <strong>{{ decisionLabels[decision.operation] || decision.operation }}</strong>
-              <small> · {{ new Date(decision.recordedAt).toLocaleString() }} · 序号 {{ decision.recordedSeq }}<template v-if="decision.reason"> · {{ decision.reason }}</template></small>
-            </li>
-          </ol>
+          <section aria-label="按对象分组的决定汇总">
+            <details open v-for="group in decisionGroups" :key="group.key" class="memory-ledger__decision-group">
+              <summary>{{ group.title }} — {{ group.summary }}</summary>
+              <ol>
+                <li v-for="decision in group.items" :key="decision.id">
+                  <strong>{{ decisionLabels[decision.operation] || decision.operation }}</strong>
+                  <small> · {{ new Date(decision.recordedAt).toLocaleString() }} · 序号 {{ decision.recordedSeq }}<template v-if="decision.reason"> · {{ decision.reason }}</template></small>
+                </li>
+              </ol>
+            </details>
+          </section>
+          <button v-if="ledger.decisionsCursor" :disabled="ledger.decisionsLoadingMore" @click="loadMoreDecisions">
+            {{ ledger.decisionsLoadingMore ? '加载中…' : '加载更早的决定' }}
+          </button>
         </template>
 
         <section class="memory-ledger__migration">
@@ -657,6 +751,32 @@ onMounted(initialize)
 .memory-ledger__evidence blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--border); color: var(--text-secondary); white-space: pre-wrap; }
 .memory-ledger__form { display: grid; gap: 8px; padding: 8px 0; }
 .memory-ledger__form label { display: grid; gap: 4px; }
+.memory-ledger__decision-group {
+  margin-block: 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink, #1f2630) 14%, transparent);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--archive-paper-soft, #f7f4ed) 92%, transparent);
+}
+.memory-ledger__decision-group summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--archive-ink, #1f2630);
+  font-weight: 600;
+}
+.memory-ledger__decision-group ol { margin: 0; padding-inline: 28px 12px; }
+.memory-workspace__tag {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--archive-ink, #1f2630) 22%, transparent);
+  border-radius: 999px;
+  color: var(--archive-ink-soft, #5d6470);
+  font-size: 10px;
+  white-space: nowrap;
+}
 .memory-ledger__filters { display: grid; gap: 8px; }
 .memory-ledger__filters label { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .memory-workspace { font-size: 14px; }

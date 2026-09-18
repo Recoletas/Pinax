@@ -991,6 +991,7 @@
         <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
           <AuthoringWorldbookPanel
             :worldbook="boundWorldbook"
+            :book-id="selectedBookId"
             :selected-text="selectedText"
             :document="writingDocument"
             :caret-context="authoringSettingCaretContext"
@@ -8198,6 +8199,7 @@ function selectChapter(chapterId) {
       authoringTask.notify('当前章节保存失败，未切换章节')
       return false
     }
+    authoringHistory.closeBlockHistorySessions({ chapterId: selectedChapterId.value })
     dispatchChapterBoundary(outgoingBoundary)
   }
   cancelChapterReview()
@@ -8567,6 +8569,8 @@ function collectChangedWritingNodes(previousDocument, nextDocument) {
       changed.push({
         nodeId,
         text,
+        // NC04：携带改前文本，供 pending delta 裁剪出真实变更切片。
+        previousText: previous?.text || '',
         unitId,
         unitRevision: Number(unit?.attrs?.unitRevision || 0)
       })
@@ -8603,6 +8607,23 @@ function collectInvalidatedWritingUnits(previousDocument, nextDocument) {
   }
   return [...invalidated]
 }
+// NC04：取前后文本的最长公共前后缀，中间切片即真实变更；
+// 全新内容（无改前文本）退化为整段 after。
+function trimToChangedSlice(before, after) {
+  const beforeText = String(before || '')
+  const afterText = String(after || '')
+  if (!beforeText) return afterText.trim()
+  if (beforeText === afterText) return ''
+  let prefix = 0
+  const maxPrefix = Math.min(beforeText.length, afterText.length)
+  while (prefix < maxPrefix && beforeText[prefix] === afterText[prefix]) prefix += 1
+  let suffix = 0
+  const maxSuffix = Math.min(beforeText.length - prefix, afterText.length - prefix)
+  while (suffix < maxSuffix && beforeText[beforeText.length - 1 - suffix] === afterText[afterText.length - 1 - suffix]) suffix += 1
+  const slice = afterText.slice(prefix, afterText.length - suffix)
+  return slice.trim()
+}
+
 function rememberPendingObserverNodes(chapterId, changedNodes) {
   const key = String(chapterId || '')
   if (!key || !changedNodes.length) return
@@ -8627,18 +8648,28 @@ function listPendingObserverDeltas(chapterId, maxCharsPerUnit = 5000) {
     grouped.set(unitId, items)
   }
   return [...grouped.entries()].map(([unitId, items]) => {
-    const selected = []
+    // NC04：逐节点裁剪出真实变更切片。有改前文本的节点是真实编辑，
+    // 优先派生；新节点（无改前文本，段落拆分等）的整段文本只在没有
+    // 真实编辑切片时兜底，避免与本次改动无关的块开头被反复摘成“记忆”。
+    const editedSlices = []
+    const createdSlices = []
     let used = 0
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
-      const value = String(item.text || '').trim()
+      const afterText = String(item.text || '').trim()
+      const beforeText = String(item.previousText || '').trim()
       const remaining = Math.max(0, maxCharsPerUnit - used)
       if (!remaining) break
-      selected.unshift(value.length > remaining ? value.slice(value.length - remaining) : value)
-      used += Math.min(value.length, remaining) + 2
+      const slice = trimToChangedSlice(beforeText, afterText)
+      if (!slice) continue
+      const bounded = slice.length > remaining ? slice.slice(slice.length - remaining) : slice
+      if (beforeText) editedSlices.unshift(bounded)
+      else createdSlices.unshift(bounded)
+      used += Math.min(slice.length, remaining) + 2
     }
+    const chosen = editedSlices.length ? editedSlices : createdSlices
     return {
-      changedText: selected.join('\n\n').trim(),
+      changedText: chosen.join('\n\n').trim(),
       unitId,
       unitRevision: Math.max(0, ...items.map((item) => Number(item?.unitRevision || 0))),
       // 保存对象快照而不只保存 nodeId：等待异步 boundary 回执期间同一节点
