@@ -6,8 +6,9 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | 今日 UI/资料 `f79d2fe`、CI `f0bf2df`、文档 `4ce5652` 已推送。verify:full 20/200、两条 CI smoke、资料 9/9 均 exit 0；远端首轮 test/build/authoring 通过，独立 backup 启动失败待复验。追加固定 IPv4/CI Chromium 参数及启动诊断，本地 CI=true 备份旅程通过；未重写推送历史，用户视觉确认边界保留。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
-| Codex / 2026-09-18 成熟度调研与计划扩量 | `text-game-framework` | `main` | 已核对 Utopia `ca467808`、StoryForge `1935dab9`；[调研](./engineering/maturity-research-20260918.md)及[夜间计划](./plan/nightly-20260918-runtime-maturity.md)完成。按用户纠偏改为 G 首批后连续推进 M/R/T 36 项，取消最小闭环收工/超时降级，明确依赖、替补与停止条件。修订后 verify:full exit 0（20/20 文件、200/200 用例、双 build、lint/结构/diff），36 项依赖无缺失/循环。实施待启动，优先复用上游代码；未合并旧分支、未启动 worker/真实模型，保留 UI WIP。 |
+| Codex / 2026-09-19 HTTP UUID 兼容 | `text-game-framework` | `main` | 已提交 `868a25b`，按用户授权推送；shared UUID 优先原生、缺失时通过 getRandomValues + uuid 库生成，修复请求/轨迹/历史/账本/协作直接调用。真实非安全 HTTP 与 localhost 回归通过，verify:full exit 0（20/200、双 build、lint/结构/diff）。未部署，非 HTTPS 加密协作仍有独立限制；见[回执](./agent-runs/http-uuid-fix-20260919.md)。 |
+| Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | UI/资料 `f79d2fe`、CI `f0bf2df`/`2a156ac`、文档 `4ce5652` 已推送；追加固定 IPv4 后远端 run `35361451641` test/build/authoring/workspace-backup 全部 success。本地 verify:full 20/200、两条 CI smoke、资料 9/9 exit 0；用户视觉确认边界保留。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
+| 夜间 A/B/C / 2026-09-19 进度核对 | 三个独立工作树 | `night/runtime-a-20260918` / `night/roleplay-b-20260918` / `night/runtime-c-20260918` | 已执行：A `41465f0` G0/G1；C `2218d17` 跑团 run/恢复；B `57b268e` KP/停机、R03离线与R06部分。分线证据未等同组合验收，均未合入main。计划已标出分工冲突、未跟踪run依赖和B/C重复KP，按实际owner续作，见[统一进度](./agent-runs/nightly-20260918/current.md)。 |
 | Codex / 2026-09-18 设定顶部统一 | `text-game-framework` | `main` | 四页共用顶部容器：当前作品/回正文首行、分区导航次行，清除各页独立覆盖。四页×三尺寸位置/高度精确比对、联动20/20、verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/settings-header-unification-20260918.md)。 |
 | Codex / 2026-09-18 条目管理精修 | `text-game-framework` | `main` | 条目目录/编辑分栏、按需批量工具、顶部保存、参数折叠及键盘选择已实施；浏览器功能/三尺寸/暗色、设定联动20/20与 verify:full（20/200、双build、lint/结构/diff）exit 0。已提交 `f79d2fe`，待视觉确认，见[回执](./agent-runs/entries-polish-20260918.md)。 |
 | Codex / 2026-09-18 公共导航与首页资料精修 | `text-game-framework` | `main` | 用户否定前轮视觉后重新调研并修正：首页操作层级/语义图标、资料常驻入口与单标题文档列表，接入资料页功能修正。首页旅程、资料 9/9、共享设定 20/20、三尺寸/深色检查与 verify:full（20/200、双 build、lint/结构/diff）均 exit 0；已提交 `f79d2fe`，待用户视觉确认。见[本轮回执](./agent-runs/library-sources-polish-20260918.md)。 |
@@ -256,7 +257,7 @@
 
 ## Next up
 
-- **2026-09-18 新夜间计划（待执行）**：按[成熟度计划](./plan/nightly-20260918-runtime-maturity.md)完成 G 首批后自动连续推进 M/R/T 共 36 项，时序/角色知识/自主 KP/战役/工具治理都在本轮队列。阶段全绿不是停止条件，单项受阻转做独立任务；优先复用成熟开源代码。未开始实施，不预记任何新功能完成。
+- **2026-09-19 夜间计划（执行中）**：按[更新进度与领取顺序](./plan/nightly-20260918-runtime-maturity.md)继续：A收口T02/T03后回M，B推进R，C持run与后续T；先解决未跟踪依赖和重复KP，组合时C基础→A检索→B跑团→G4。36项队列继续，不重复开发已交付切片；本轮未执行合并。
 
 - **2026-09-18 三线验收后续**：N-A/N-B/N-C 已组合验收并合入 main；不再按“待启动”重跑整份计划。后续只补真实 LLM 提取质量、真机 IME、ZIP 中途失败注入，以及任务书中明确标为 partial/not-run 的版本链、角色知情和资料批量管理；上一轮漫画/跑团扩展仍保留 backlog。
 

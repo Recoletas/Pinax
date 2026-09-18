@@ -1,5 +1,9 @@
 # 开发日志
 
+- 2026-09-19 00:20 夜间进度修正与 UUID 推送准备：核对 A `41465f0`、B `57b268e`、C `2218d17` 的提交、回执与 dirty 写集，将“待执行”改为执行中并区分分线交付/部分实现/组合未验收。修订重复 KP owner、B 未跟踪 run 依赖、C 旧基线和 nextReady；未修改其他 agent 工作树或合并代码。[进度快照](./agent-runs/nightly-20260918/current.md)。
+
+- 2026-09-19 HTTP UUID 崩溃修复：新增共享入口并显式依赖现有 uuid 11.1.1，保留原生优先、使用 getRandomValues 降级，替换推演请求/轨迹、记忆历史/账本、协作直接调用。真实非安全 HTTP（randomUUID undefined）与 localhost 下 ID/持久记忆修订回归通过；verify:full exit 0，20文件/200用例、双build、lint/架构/diff通过。未部署、未调用真实模型，详见[回执](./agent-runs/http-uuid-fix-20260919.md)。
+
 - 2026-09-18 今日整合提交：按用户要求收口设定统一顶栏、条目/首页/图标与常驻资料页（`f79d2fe`），并保存研究及连续夜间计划。定位旧 CI 作者旅程使用过期标题/备份入口，本地复现后修复；拆分浏览器 matrix，补测试预算和 docs gate，修正空树 diff。完整工程门禁 20/200、两条 CI 浏览器旅程、资料 9/9 均 exit 0；见[回执](./agent-runs/day-integration-ci-20260918.md)。按用户授权推送 main，不部署、不合其他工作分支。
 
 - 2026-09-18 成熟度调研与下一夜计划：固定 Utopia `ca467808` / StoryForge `1935dab9`，核查记忆时序写入、查询有界性、角色知识降级、KP 与持久 run 的实际差距；识别记忆旧分支仍有 2 个服务文件补丁待复验。按用户要求把直接/适配代码复用、许可和上游反例列为实施前置。用户指出首版过于保守后，取消首夜小闭环收工及超时降级条款，扩为 G 首批后连续领取 M/R/T 共 36 项；新增依赖、反例、替补任务、nextReady 与明确停止条件。见[研究](./engineering/maturity-research-20260918.md)与[计划](./plan/nightly-20260918-runtime-maturity.md)；本轮修订计划，未启动实现/worker/真实模型，文档门禁结果见 STATUS。
