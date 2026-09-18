@@ -1,7 +1,9 @@
-# 三线组合验证记录（夜间预演，非正式 O 验收）
+# 三线组合验收记录
 
 时间：2026-09-18 01:00。执行者：N-B 会话（在 N-A/N-C 回执完成后主动补位 §6「组合后再跑一次」）。
 性质：**验证运行**，不构成第四条集成线——分支仅供白天参考，正式合并按依赖拓扑由 Codex 执行。
+
+2026-09-18 白天由 Codex 独立复验；结果通过，并以 merge commit `c7ca33b` 合入 `main`。以下夜间预演结果保留，新增结果以白天复验为准。
 
 ## 组合树
 
@@ -17,7 +19,19 @@
 | ui-controls-audit（12 路由 × 1440/390 × 亮暗） | serious/critical = 0 |
 | workspace-tabs-interaction-smoke | 5/5 |
 
+## 白天独立验收
+
+| 门禁 | 结果 |
+| --- | --- |
+| `npm run verify:full` | exit 0；20/20 文件、200/200 用例，lint、生产 build、结构/构建预算、diff、VitePress 全通过 |
+| `node scripts/memory-quality-check.mjs` | exit 0；15/15，含噪声准入、会话合并、引文校验、来源更新和 UI→任务→提案旅程 |
+| `node scripts/sources-journey-smoke.mjs` | exit 0；按书绑定、好坏文件分批、冲突处理、软移除、ZIP 往返与 390px 溢出检查通过 |
+| `memory-ledger-smoke` / `memory-ledger-continuation-smoke` | exit 0；UI/响应式/控制台、1 万事实与回执、5 千旁路记录、双页竞争通过 |
+| `memory-history-smoke` / `settings-linkage-check` | exit 0；209 修订与恢复、ZIP/配额/作用域，以及设定联动 20/20 通过 |
+| `workspace-tabs-interaction-smoke` / `ui-controls-audit` | exit 0；5/5；12 路由 × 1440/390 × 亮暗无 serious/critical 问题 |
+
 ## 遗留（白天）
 
-- §6 八步组合旅程的交互深查（真实 LLM 提取样本、ZIP 中途失败注入、IME）未在本预演中执行。
-- N-C 回执自记 combination blocked-external 的部分（A 侧装配）——合并后可复跑其 gate。
+- A 侧装配阻塞已由组合后的资料旅程与记忆质量门禁解除。
+- 真实 LLM 提取样本、ZIP 中途失败注入、真机 IME 未执行，不计入本次通过范围。
+- 结构余量偏紧：`Authoring.vue` 10868/10900，`Experience.vue` 3546/3550；本次均未越线。
