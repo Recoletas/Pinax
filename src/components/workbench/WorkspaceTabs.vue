@@ -14,20 +14,21 @@ const workspaceTabs = useWorkspaceTabsStore()
 const scrollRef = ref(null)
 
 const SURFACE_ICONS = {
-  authoring: 'pencil',
+  authoring: 'writing',
   materials: 'folder',
-  canvas: 'storyboard',
-  settings: 'settings',
-  map: 'compass',
-  comics: 'film',
-  experience: 'message-square',
-  docs: 'book',
-  'settings-worldbook': 'settings',
-  'settings-worldbook-create': 'bookmark-plus',
-  'settings-worldbook-advanced': 'settings',
+  canvas: 'canvas',
+  settings: 'worldbook',
+  sources: 'sources',
+  map: 'map',
+  comics: 'comics',
+  experience: 'adventure',
+  docs: 'guide',
+  'settings-worldbook': 'worldbook',
+  'settings-worldbook-create': 'sources',
+  'settings-worldbook-advanced': 'list',
   'settings-world-map': 'compass',
-  'online-experience': 'users',
-  'collaboration-review': 'users'
+  'online-experience': 'collaboration',
+  'collaboration-review': 'collaboration'
 }
 
 const HOME_TAB_ID = 'pinax-home'
@@ -252,6 +253,8 @@ onBeforeUnmount(() => {
   position: relative;
   display: inline-flex;
   align-self: stretch;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .ws-tab {
@@ -260,7 +263,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 0 30px 0 12px;
   height: 34px;
-  flex: 0 0 176px;
+  width: 176px;
+  flex: 1 1 auto;
   min-width: 88px;
   max-width: 204px;
   border: 0;
@@ -305,7 +309,7 @@ onBeforeUnmount(() => {
   background: var(--archive-paper-soft);
 }
 
-.ws-tab:not(.is-active):not(:last-child)::before {
+.ws-tab-slot:not(:last-child) .ws-tab:not(.is-active)::before {
   content: '';
   position: absolute;
   right: 0;
@@ -378,18 +382,18 @@ onBeforeUnmount(() => {
   outline-offset: 1px;
 }
 
-.ws-tab[data-tab-key="home"] { flex: 0 0 82px; }
+.ws-tab[data-tab-key="home"] { width: 82px; min-width: 82px; }
 .ws-tab.is-pinned { padding-right: 8px; }
 
 @media (max-width: 1179px) {
-  .ws-tab { flex-basis: 158px; max-width: 176px; }
+  .ws-tab { width: 158px; max-width: 176px; }
   .ws-tab__label-full { display: none; }
   .ws-tab__label-short { display: inline; }
 }
 
 @media (max-width: 759px) {
   .ws-tabs { min-height: 42px; padding-inline: 4px; }
-  .ws-tab { height: 38px; flex-basis: 166px; max-width: 190px; font-size: 14px; }
+  .ws-tab { height: 38px; width: 166px; max-width: 190px; font-size: 14px; }
   .ws-tab[data-tab-key="home"] { flex-basis: 82px; min-width: 82px; }
   .ws-tab__label-full { display: inline; }
   .ws-tab__label-short { display: none; }

@@ -56,17 +56,17 @@ onBeforeUnmount(() => { stopBooks(); settings.close() })
 
 <style scoped>
 .authoring-welcome { display: flex; min-height: calc(var(--app-viewport-height, 100vh) - 49px); color: var(--archive-ink); background: var(--archive-paper-soft); font-size: 17px; }
-.library-main { flex: 1; min-width: 0; padding: 44px clamp(28px, 3.5vw, 64px) 28px; }
+.library-main { flex: 1; min-width: 0; padding: 32px clamp(28px, 3.5vw, 64px) 28px; }
 .library-heading { display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .library-kicker { color: var(--archive-ink-soft); font-size: 13px; letter-spacing: .12em; }
-.library-heading h1 { margin: 10px 0 12px; font-size: 34px; font-weight: 650; letter-spacing: -.03em; }
+.library-heading h1 { margin: 8px 0 10px; font-size: 30px; font-weight: 600; letter-spacing: -.03em; }
 .library-heading p { color: var(--archive-ink-soft); font-size: 16px; margin: 0; line-height: 1.7; }
 .library-return { display: flex; align-items: center; gap: 16px; max-width: 340px; padding: 14px 0 14px 26px; border-left: 1px solid var(--archive-paper-strong); color: var(--archive-ink); text-decoration: none; }
 .library-return > span { min-width: 0; }
 .library-return svg { flex-shrink: 0; color: var(--archive-olive); }
 .library-return small { display: block; font-size: 13px; color: var(--archive-ink-soft); margin-bottom: 7px; }
 .library-return strong { display: block; font-size: 18px; max-width: 230px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.library-toolbar { display: flex; align-items: center; gap: 16px; margin: 0 0 28px; padding-top: 24px; border-top: 1px solid var(--archive-paper-strong); }
+.library-toolbar { display: flex; align-items: center; gap: 16px; margin: 0 0 24px; padding-top: 20px; border-top: 1px solid var(--archive-paper-strong); }
 .library-section-title { margin: 0 auto 0 0; font-size: 19px; font-weight: 600; white-space: nowrap; }
 .library-section-title span { font-size: 14px; font-weight: 400; color: var(--archive-ink-soft); margin-left: 8px; }
 .library-search { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--archive-paper-strong); border-radius: 5px; color: var(--archive-ink-soft); }

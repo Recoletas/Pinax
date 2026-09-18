@@ -28,6 +28,7 @@ import { detectSourceKind } from '../services/worldbook/worldbookSourceAdapters'
 import {
   appendSourcesToWorldbook,
   bindBookWorldbook,
+  ensureBookWorldbook,
   resolveBookSourceContext
 } from '../services/worldbook/worldbookProjectSources'
 import { parseSourceFilesWithWorker } from '../services/worldbook/worldbookSourceParser'
@@ -60,6 +61,7 @@ function refreshBookContext() {
 const projectReturnQuery = computed(() => (
   projectBookId.value ? { bookId: projectBookId.value } : {}
 ))
+const projectReturnRoute = computed(() => projectBookId.value && route.query.mode === 'sources' ? 'settings-sources' : 'settings-structured')
 const projectBindingLabel = computed(() => {
   const context = bookContext.value
   if (!context?.ok) return ''
@@ -655,7 +657,7 @@ function selectedFullSourceDocuments() {
 
 async function confirmAppendSources() {
   const context = bookContext.value
-  if (!context?.ok || context.mode !== 'project' || busy.value) return
+  if (!context?.ok || busy.value) return
   if (!selectedSourceCount.value) {
     errorMessage.value = '请先选择要加入本书资料库的资料。'
     return
@@ -665,16 +667,18 @@ async function confirmAppendSources() {
   setGenerationState('preparing', { action: 'append-sources', startedAt: Date.now(), message: '正在把资料写入本书资料库。' })
   try {
     await persistMemoryOnlySources()
+    const target = await ensureBookWorldbook({ bookId: context.book.id, worldStore })
+    if (!target.ok) throw new Error(`资料库准备失败（${target.reason}）`)
     const result = await appendSourcesToWorldbook({
-      worldbookId: context.worldbookId,
+      worldbookId: target.worldbookId,
       documents: selectedFullSourceDocuments(),
       worldStore
     })
-    if (!result.ok) throw new Error(`资料写入失败（${result.reason}）；已选资料保留在本页，可重试。`)
+    if (!result.ok) throw new Error(`资料写入失败（${result.detail || result.reason}）；已选资料保留在本页，可重试。`)
     await worldStore.loadWorldbooksIndex()
     await deleteCreationWorkspace(workspace.id)
     infoMessage.value = `已加入本书资料库：新增 ${result.added} 份${result.skipped ? `，跳过重复 ${result.skipped} 份` : ''}。`
-    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
   } catch (error) {
     setGenerationFailure(error, 'append-sources')
   } finally {
@@ -809,7 +813,7 @@ async function confirmJsonImport() {
       await deleteCreationWorkspace(workspace.id)
       jsonPreview.value = null
       infoMessage.value = bindingNote
-      await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+      await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
       return
     }
     const created = await worldStore.importFromSillyTavern(jsonPreview.value.rawData)
@@ -848,7 +852,7 @@ async function confirmJsonImport() {
     await deleteCreationWorkspace(workspace.id)
     jsonPreview.value = null
     infoMessage.value = bindingNote
-    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
   } catch (error) {
     setGenerationFailure(error, 'json-import')
     errorMessage.value = `导入失败：${errorMessage.value}`
@@ -891,7 +895,7 @@ async function confirmFoundation() {
     }
     await deleteCreationWorkspace(workspace.id)
     infoMessage.value = bindingNote
-    await router.push({ name: 'settings-structured', query: projectReturnQuery.value })
+    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
   } catch (error) {
     setGenerationFailure(error, 'foundation-confirm')
     errorMessage.value = `创建失败：${errorMessage.value}`
@@ -1075,7 +1079,7 @@ onBeforeUnmount(() => {
               {{ selectedSourceCount === readySourceCount ? '取消全选' : '全选可用资料' }}
             </button>
           </div>
-          <div v-if="bookContext?.ok && bookContext.mode === 'project'" class="append-sources-line">
+          <div v-if="bookContext?.ok" class="append-sources-line">
             <button
               type="button"
               class="primary-action"
@@ -1085,7 +1089,7 @@ onBeforeUnmount(() => {
             >
               把选中的 {{ selectedSourceCount }} 份资料加入本书资料库
             </button>
-            <small>不新建世界书；重复内容自动跳过。</small>
+            <small>{{ bookContext.mode === 'unbound' ? '确认时建立随书资料库。' : '追加到当前资料库。' }}重复内容自动跳过。</small>
           </div>
           <div v-for="item in sourceQueue" :key="item.id" class="source-row">
             <input

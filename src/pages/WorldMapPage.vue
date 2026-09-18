@@ -1,9 +1,18 @@
 <template>
   <div class="world-map-page">
-    <div class="world-map-page__topbar">
-      <SettingsSectionNav />
-      <SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" />
-    </div>
+    <SettingsWorkspaceHeader>
+      <SettingsContextBar
+        :model-value="context?.worldbookId || ''"
+        :worldbooks-index="worldStore.worldbooksIndex"
+        :active-worldbook="worldbook"
+        :project-label="context?.book?.title || ''"
+        :project-locked="context?.mode === 'project'"
+        :route-mismatch-notice="context?.notice || ''"
+        @change="id => router.push({ name: 'settings-world-map', query: { worldbookId: String(id) } })"
+      >
+        <template #actions><SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" /></template>
+      </SettingsContextBar>
+    </SettingsWorkspaceHeader>
     <div class="world-map-page__body">
       <WorldMapPanel
         v-if="mapContextReady"
@@ -27,7 +36,8 @@ import { useWorldStore } from '../stores/worldStore'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import WorldMapPanel from '../components/geography/WorldMapPanel.vue'
 import PerfOverlay from '../components/debug/PerfOverlay.vue'
-import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
+import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
 const route = useRoute()
@@ -91,19 +101,9 @@ function openWorldbookImport() {
   padding: 0;
 }
 
-.world-map-page__topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-shrink: 0;
-  min-height: var(--workspace-toolbar-height, 46px);
-  padding: 0 20px;
-  border-bottom: 1px solid var(--archive-paper-strong);
-  background: var(--archive-paper-soft);
-}
 
-.world-map-page__topbar :deep(.settings-section-nav) { padding: 0; border: 0; }
+
+
 
 .world-map-page__body {
   /* Mirror W4b + StructuredSettings .settings-body so the map panel
@@ -115,9 +115,7 @@ function openWorldbookImport() {
   gap: 0;
   overflow: auto;
 }
-@media (max-width: 760px) {
-  .world-map-page__topbar { padding-inline: 12px; flex-wrap: wrap; gap: 4px; }
-}
+
 
 .world-map-page__loading {
   margin: 18px 4px;

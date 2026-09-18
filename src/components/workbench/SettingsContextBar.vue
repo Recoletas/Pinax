@@ -1,9 +1,10 @@
 <template>
-  <header class="settings-context-bar" data-test="settings-context-bar">
+  <header class="settings-context-bar" data-test="settings-context-bar" :data-worldbook-id="selectedId" :data-worldbook-name="activeWorldbook?.name || ''" :data-project-locked="projectLocked">
     <div class="context-main">
-      <span class="context-kicker">{{ projectLocked ? '关联资料' : '世界书' }}</span>
+      <span class="context-kicker">{{ projectLocked ? (projectIdentity ? '当前作品' : '关联资料') : '世界书' }}</span>
+      <strong v-if="projectLocked && projectIdentity" class="context-project-name" :title="projectLabel">{{ projectLabel || '当前作品' }}</strong>
       <select
-        v-if="worldbooksIndex.length"
+        v-else-if="worldbooksIndex.length"
         class="context-worldbook-select"
         :value="selectedId"
         :disabled="disabled || projectLocked"
@@ -44,6 +45,7 @@ const props = defineProps({
   // 项目模式：世界书由书稿关联决定，选择器只读；显示所属书稿名。
   projectLabel: { type: String, default: '' },
   projectLocked: { type: Boolean, default: false },
+  projectIdentity: { type: Boolean, default: true },
   routeMismatchNotice: { type: String, default: '' }
 })
 
@@ -180,6 +182,7 @@ function onChange(event) {
 }
 .settings-context-bar { min-height: var(--workspace-toolbar-height, 46px); gap: 16px; padding: 4px 20px; border-right: 0; }
 .context-main { flex: 1; gap: 14px; }
+.context-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; color: var(--text-primary); max-width: min(45vw, 420px); }
 .context-kicker { white-space: nowrap; font: inherit; font-size: 13px; letter-spacing: 0; }
 .context-worldbook-select { min-width: 0; max-width: min(42vw, 360px); padding: 6px 24px 6px 8px; font-family: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper); }
 .context-worldbook-select:disabled { opacity: 1; border-color: transparent; background: transparent; }

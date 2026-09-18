@@ -1,5 +1,33 @@
 <script setup>
 import {
+  FilePlus2,
+  FileUp,
+  FileText,
+  FileType,
+  BookOpenCheck,
+  DatabaseBackup,
+  HardDrive,
+  Map,
+  LayoutPanelTop,
+  Dices,
+  HelpCircle,
+  Plus,
+  Unlink,
+  BookMarked,
+  Files,
+  FileQuestion,
+  GitBranch,
+  History,
+  ListTree,
+  PanelsTopLeft,
+  Columns2,
+  ScanEye,
+  SquarePen,
+  UserRound,
+  UsersRound,
+  MessageCircleQuestion,
+  NotebookPen,
+  LibraryBig,
   Archive,
   ArrowLeft,
   ArrowRight,
@@ -37,6 +65,33 @@ import {
 } from 'lucide-vue-next'
 
 const icons = {
+  'new-manuscript': FilePlus2,
+  'import-manuscript': FileUp,
+  document: FileText,
+  markdown: FileType,
+  guide: BookOpenCheck,
+  backup: DatabaseBackup,
+  storage: HardDrive,
+  map: Map,
+  comics: LayoutPanelTop,
+  adventure: Dices,
+  help: HelpCircle,
+  plus: Plus,
+  unlink: Unlink,
+  writing: NotebookPen,
+  worldbook: BookMarked,
+  sources: Files,
+  outline: ListTree,
+  character: UserRound,
+  collaboration: UsersRound,
+  annotation: SquarePen,
+  rehearsal: GitBranch,
+  scene: ScanEye,
+  assistant: MessageCircleQuestion,
+  history: History,
+  columns: Columns2,
+  canvas: PanelsTopLeft,
+  library: LibraryBig,
   'chevron-down': ChevronDown,
   grid: LayoutGrid,
   list: List,
@@ -82,9 +137,15 @@ defineProps({
 
 <template>
   <component
-    :is="icons[name] || Sparkles"
+    :is="icons[name] || FileQuestion"
+    class="workbench-icon"
     :size="size"
     :stroke-width="strokeWidth"
     aria-hidden="true"
+    focusable="false"
   />
 </template>
+
+<style scoped>
+.workbench-icon { display: block; flex-shrink: 0; }
+</style>

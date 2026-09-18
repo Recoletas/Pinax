@@ -150,6 +150,7 @@ const router = createRouter({
     { path: '/settings/worldbook', name: 'settings-worldbook', component: WorldBookQuickImport },
     { path: '/settings/worldbook/advanced', name: 'settings-worldbook-advanced', component: { template: '<div />' } },
     { path: '/settings/structured', name: 'settings-structured', component: { template: '<div />' } },
+    { path: '/settings/sources', name: 'settings-sources', component: { template: '<div />' } },
     { path: '/settings/world-map', name: 'settings-world-map', component: { template: '<div />' } }
   ]
 })
@@ -184,7 +185,7 @@ mockWorldStoreLifecycle()
     expect(wrapper.find('.my-worldbooks').exists()).toBe(true)
     expect(wrapper.find('.preset-grid').exists()).toBe(true)
     expect(wrapper.find('.quick-extra').exists()).toBe(true)
-    expect(wrapper.findAll('.settings-section-tab')).toHaveLength(3)
+    expect(wrapper.findAll('.settings-section-tab')).toHaveLength(4)
     expect(wrapper.find('[data-test="settings-section-tab-worldbook"]').exists()).toBe(false)
     wrapper.unmount()
 

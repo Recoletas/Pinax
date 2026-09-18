@@ -29,7 +29,8 @@ import WorkbenchIcon from './WorkbenchIcon.vue'
    世界书首页作为设定入口保留路由，但不再占用一个重复 tab。 */
 const tabs = [
   { key: 'structured', icon: 'network', label: '设定', routeNames: ['settings-structured', 'settings-worldbook'], routeName: 'settings-structured' },
-  { key: 'map', icon: 'compass', label: '地图', routeNames: ['settings-world-map'], routeName: 'settings-world-map' },
+  { key: 'sources', icon: 'sources', label: '资料', routeNames: ['settings-sources'], routeName: 'settings-sources' },
+  { key: 'map', icon: 'map', label: '地图', routeNames: ['settings-world-map'], routeName: 'settings-world-map' },
   { key: 'advanced', icon: 'settings', label: '条目', routeNames: ['settings-worldbook-advanced'], routeName: 'settings-worldbook-advanced' }
 ]
 
@@ -42,6 +43,7 @@ const currentTabKey = computed(() => tabs.find((tab) => tab.routeNames.includes(
 // 正文回程不依赖这里的 query（存在 Authoring 标签的 volatile ledger），不会被覆盖。
 const QUERY_WHITELIST_BY_TAB = {
   structured: ['bookId', 'worldbookId', 'placeId'],
+  sources: ['bookId', 'worldbookId'],
   map: ['bookId', 'worldbookId', 'placeId', 'historyNodeId', 'entryId'],
   advanced: ['bookId', 'worldbookId', 'entryId']
 }

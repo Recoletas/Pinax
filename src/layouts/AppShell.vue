@@ -132,7 +132,7 @@ function handleSelectPanel(routeName) {
     <WorkspaceTabs>
       <div class="shell-tab-actions">
         <button type="button" :aria-label="isDark ? '切换日间模式' : '切换夜间模式'" :title="isDark ? '日间模式' : '夜间模式'" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
-        <button type="button" aria-label="打开设置" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
+        <button type="button" aria-label="打开设置" title="设置" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
         <button v-if="storageHealth.showChip.value" class="shell-storage-status" :class="storageHealth.level.value" type="button" aria-label="存储偏高，打开存储详情" data-test="shell-storage-status" @click="openSettings('storage')"><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
       </div>
     </WorkspaceTabs>
@@ -218,10 +218,11 @@ function handleSelectPanel(routeName) {
 </template>
 
 <style scoped>
-.shell-tab-actions { display: flex; align-items: center; gap: 4px; padding: 0 4px 4px 8px; }
+.shell-tab-actions { display: flex; flex: 0 0 auto; align-self: stretch; align-items: center; gap: 4px; padding: 0 4px 4px 8px; margin-left: 6px; border-left: 1px solid var(--hairline-soft); }
 .shell-tab-actions > button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
 .shell-tab-actions > button:hover { background: var(--archive-paper-soft); color: var(--archive-ink); }
 .shell-tab-actions > button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: -2px; }
+@media (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
 .app-shell {
   --shell-drawer-width: 360px;
   position: relative;

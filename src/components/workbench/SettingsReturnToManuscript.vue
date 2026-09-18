@@ -2,10 +2,10 @@
   <button
     v-if="visible"
     type="button"
-    class="settings-return-authoring"
+    class="settings-return-authoring control-quiet"
     data-test="settings-return-authoring"
     @click="returnToManuscript"
-  >回到正文</button>
+  ><WorkbenchIcon name="arrow-left" :size="15" />回到正文</button>
 </template>
 
 <script setup>
@@ -13,6 +13,7 @@
 // 不重复创建页面实例；原章/选区/滚动的恢复由 Authoring 的 volatile ledger
 // watcher 消费（fail-closed），这里不复制恢复逻辑。
 import { computed } from 'vue'
+import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
 import { activateWorkspaceTab, openOrFocusWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter.js'
@@ -52,6 +53,9 @@ async function returnToManuscript() {
 
 <style scoped>
 .settings-return-authoring {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 30px;
   padding: 4px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
@@ -70,6 +74,7 @@ async function returnToManuscript() {
 
 @media (max-width: 720px) {
   .settings-return-authoring {
+    --control-hit-min: 48px;
     min-height: 44px;
   }
 }

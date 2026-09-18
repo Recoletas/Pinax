@@ -10,6 +10,7 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
   materials: 'materials',
   canvas: 'prose-essay',
   settings: 'settings-structured',
+  sources: 'settings-sources',
   map: 'settings-world-map',
   comics: 'comics',
   // 项目高级条目（联动闭环 L2）：带 bookId 是项目 surface；不带时回落全局模式。
@@ -35,6 +36,7 @@ export const SURFACE_LABELS = Object.freeze({
   materials: '素材',
   canvas: '画布',
   settings: '设定',
+  sources: '资料',
   map: '地图',
   comics: '漫画',
   experience: '体验',

@@ -127,9 +127,9 @@ async function contextInfo(page) {
       kicker: bar?.querySelector('.context-kicker')?.textContent.trim() || '',
       projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
       selected: bar?.querySelector('.context-worldbook-select')?.selectedOptions?.[0]?.textContent.trim()
-        || bar?.querySelector('.context-worldbook-empty')?.textContent.trim() || '',
+        || bar?.dataset.worldbookName || bar?.querySelector('.context-worldbook-empty')?.textContent.trim() || '',
       mismatch: bar?.querySelector('.context-mismatch')?.textContent.trim() || '',
-      selectDisabled: bar?.querySelector('.context-worldbook-select')?.disabled ?? null,
+      selectDisabled: bar?.querySelector('.context-worldbook-select')?.disabled ?? (bar?.dataset.projectLocked === 'true' && !bar?.querySelector('select')),
       returnBtn: Boolean(document.querySelector('[data-test="settings-return-authoring"]'))
     }
   })
@@ -217,7 +217,7 @@ try {
     const j5 = await page.evaluate(() => ({
       kicker: document.querySelector('[data-test="settings-context-bar"] .context-kicker')?.textContent.trim() || '',
       projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
-      selectValue: document.querySelector('[data-test="settings-context-bar"] .context-worldbook-select')?.value || '',
+      selectValue: document.querySelector('[data-test="settings-context-bar"]')?.dataset.worldbookId || '',
       anyTextAreaHasYiKu: [...document.querySelectorAll('textarea')].some((node) => (node.value || '').includes('【乙库版本】')),
       anyTextAreaHasJiaKu: [...document.querySelectorAll('textarea')].some((node) => (node.value || '').includes('【甲库版本】')),
       listNames: [...document.querySelectorAll('[data-entry-id]')].slice(0, 4).map((node) => node.textContent.trim().slice(0, 24))

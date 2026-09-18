@@ -5,28 +5,28 @@ export const ACTIVITY_ITEMS = [
     key: 'authoring',
     label: '创作',
     description: '正文创作与叙事推演',
-    icon: 'book',
+    icon: 'writing',
     defaultRouteName: 'authoring'
   },
   {
     key: 'worldbook',
     label: '设定',
     description: '结构化设定与世界书管理',
-    icon: 'settings',
+    icon: 'worldbook',
     defaultRouteName: 'settings-structured'
   },
   {
     key: 'materials',
     label: '素材',
     description: '灵感收集与素材整理',
-    icon: 'archive',
+    icon: 'library',
     defaultRouteName: 'materials'
   },
   {
     key: 'storyboard',
     label: '画布',
     description: '关系编排与分镜规划',
-    icon: 'film',
+    icon: 'canvas',
     defaultRouteName: 'prose-essay'
   }
 ]

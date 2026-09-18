@@ -1,6 +1,6 @@
 <template>
   <div class="worldbook-page">
-    <div class="editor-topbar">
+    <SettingsWorkspaceHeader>
       <SettingsContextBar
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
@@ -26,8 +26,7 @@
           </button>
         </template>
       </SettingsContextBar>
-      <SettingsSectionNav />
-    </div>
+    </SettingsWorkspaceHeader>
 
     <div v-if="requestedEntryMissing" class="entry-missing-strip" data-test="entry-missing" role="status">
       <p>要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。</p>
@@ -299,37 +298,39 @@
 
         <section v-if="editorTab === 'entries'" class="card entry-workspace-card">
           <div class="card-head split">
-            <h2>条目管理</h2>
+            <div><h2>条目管理 <span class="entry-total">{{ entries.length }}</span></h2><p class="entry-workspace-caption">维护人物、地点与故事规则，供写作时引用。</p></div>
             <div class="entry-tools">
               <input
                 v-model.trim="entrySearch"
                 class="search-input"
                 placeholder="搜索条目..."
                 type="text"
+                aria-label="搜索条目"
               />
-              <select v-model="entryTypeFilter" class="select-input">
+              <select v-model="entryTypeFilter" class="select-input" aria-label="按条目类型筛选">
                 <option value="all">全部类型</option>
                 <option v-for="type in entryTypes" :key="type.value" :value="type.value">
                   {{ type.label }}
                 </option>
               </select>
-              <select v-model="injectionModeFilter" class="select-input">
+              <select v-model="injectionModeFilter" class="select-input" aria-label="按注入模式筛选">
                 <option value="all">全部注入模式</option>
                 <option v-for="mode in injectionModes" :key="mode.value" :value="mode.value">
                   {{ mode.label }}
                 </option>
               </select>
-              <select v-model="entryGroupFilter" class="select-input">
+              <select v-model="entryGroupFilter" class="select-input" aria-label="按分组筛选">
                 <option value="all">全部分组</option>
                 <option value="__none">未分组</option>
                 <option v-for="group in availableGroups" :key="group" :value="group">
                   {{ group }}
                 </option>
               </select>
-              <button class="ghost-btn" :class="{ active: maintenanceOpen }" @click="toggleMaintenance">
+              <button class="ghost-btn" :class="{ active: maintenanceOpen }" :aria-expanded="maintenanceOpen" @click="toggleMaintenance">
+                <WorkbenchIcon name="assistant" :size="16" />
                 AI 处理世界书
               </button>
-              <button class="primary-btn" @click="createEntry">新增条目</button>
+              <button class="ghost-btn" @click="createEntry"><WorkbenchIcon name="plus" :size="16" />新增条目</button>
             </div>
           </div>
 
@@ -433,7 +434,7 @@
             <div v-else-if="maintenanceCompleted" class="maintenance-empty">没有需要处理的候选。</div>
           </section>
 
-          <div class="bulk-tools" v-if="filteredEntries.length">
+          <div class="bulk-tools" v-if="selectedEntryIds.length">
             <span class="bulk-label">已选 {{ selectedEntryIds.length }} 条</span>
             <button class="ghost-btn small" @click="selectAllFilteredEntries">全选筛选结果</button>
             <button class="ghost-btn small" @click="invertFilteredSelection">反选</button>
@@ -461,7 +462,8 @@
           </div>
 
           <div class="entry-layout">
-            <aside class="entry-list">
+            <aside class="entry-list" aria-label="条目目录">
+              <div class="entry-directory-head"><span>{{ filteredEntries.length }} 条条目</span><button v-if="filteredEntries.length" class="ghost-btn small" @click="selectAllFilteredEntries">全选</button></div>
               <div
                 v-for="entry in filteredEntries"
                 :key="entry.id"
@@ -472,23 +474,25 @@
                 <input
                   type="checkbox"
                   class="entry-checkbox"
+                  :aria-label="`选择 ${entry.name || '未命名条目'}`"
                   :checked="isEntrySelected(entry.id)"
                   @click.stop
                   @change="toggleEntrySelection(entry.id, $event.target.checked)"
                 />
-                <div class="entry-main">
+                <button type="button" class="entry-main" :aria-current="entry.id === selectedEntryId ? 'true' : undefined" @click.stop="pickEntry(entry.id)">
                   <span class="entry-title">{{ entry.name || '未命名条目' }}</span>
-                  <div class="entry-badges">
+                  <span class="entry-badges">
                     <span class="entry-type">{{ entryTypeLabel(entry.type) }}</span>
                     <span class="entry-mode">{{ entryModeLabel(entry.injection?.mode) }}</span>
                     <span v-if="entry.injection?.group" class="entry-group">{{ entry.injection.group }}</span>
-                  </div>
-                </div>
+                  </span>
+                </button>
               </div>
               <div v-if="!filteredEntries.length" class="empty-hint">暂无匹配条目</div>
             </aside>
 
             <div class="entry-editor" v-if="selectedEntry">
+              <header class="entry-editor-heading"><div><span class="entry-editor-kicker">{{ entryTypeLabel(entryForm.type) }}</span><h3>{{ selectedEntry.name || '未命名条目' }}</h3></div><button class="primary-btn" :disabled="savingEntry" @click="saveEntry">{{ savingEntry ? '保存中...' : '保存条目' }}</button></header>
               <label>
                 条目名称
                 <input v-model.trim="entryForm.name" class="text-input" type="text" placeholder="条目名称" />
@@ -566,8 +570,8 @@
                 </button>
               </section>
 
-              <section class="injection-panel">
-                <h3>注入参数</h3>
+              <details class="injection-panel">
+                <summary>高级引用设置 <span>注入模式、触发与分组</span><WorkbenchIcon name="chevron-down" :size="16" /></summary>
                 <div class="injection-grid">
                   <label>
                     注入模式
@@ -627,13 +631,11 @@
                     </button>
                   </div>
                 </div>
-              </section>
+              </details>
 
               <div class="card-actions">
-                <button class="primary-btn" :disabled="savingEntry" @click="saveEntry">
-                  {{ savingEntry ? '保存中...' : '保存条目' }}
-                </button>
-                <button class="danger-btn" @click="deleteEntry">删除条目</button>
+                <span class="entry-save-note">修改后点击「保存条目」生效</span>
+                <button class="danger-btn" @click="deleteEntry"><WorkbenchIcon name="trash" :size="15" />删除条目</button>
               </div>
             </div>
 
@@ -665,7 +667,7 @@ import {
 } from '../services/worldbook/worldbookMaintenance'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
-import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
@@ -737,12 +739,12 @@ const maintenanceModes = [
   }
 ]
 
-const editorTab = ref('base')
+const editorTab = ref('entries')
 const editorTabs = [
+  { key: 'entries', label: '条目管理', icon: 'list' },
   { key: 'base', label: '基础设定', icon: 'book' },
   { key: 'transfer', label: '导入导出', icon: 'download' },
   { key: 'groups', label: '分组管理', icon: 'archive' },
-  { key: 'entries', label: '条目管理', icon: 'bookmark-plus' }
 ]
 
 const selectedWorldbookId = ref('')
@@ -2000,15 +2002,9 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
-.editor-topbar {
-  flex: 0 0 auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  background: color-mix(in srgb, var(--bg-primary) 96%, var(--accent));
-}
 
-.editor-topbar :deep(.settings-section-nav) {
-  border-bottom: 0;
-}
+
+
 
 .editor-layout {
   flex: 1;
@@ -3295,9 +3291,7 @@ label {
 }
 
 @media (max-width: 760px) {
-  .editor-topbar :deep(.context-meta) {
-    display: none;
-  }
+
 
   .editor-create-action {
     width: 32px;
@@ -3615,5 +3609,62 @@ label {
   .entry-voice-editor__sample .ghost-btn {
     align-self: flex-start;
   }
+}
+/* Entry management: a quiet directory and a single editing surface. */
+.worldbook-page { background: var(--archive-paper-soft); }
+.entry-workspace-card .entry-checkbox { margin-top: 16px; accent-color: var(--accent); }
+.entry-workspace-card .entry-editor-heading .primary-btn { background: var(--accent); color: var(--accent-text); border: 0; padding: 9px 16px; }
+.entry-workspace-card .entry-editor-heading .primary-btn:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text-primary)); }
+.entry-workspace-card .entry-list .entry-item { flex-shrink: 0; }
+.entry-workspace-card .injection-panel .checkbox-line { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 36px; }
+.entry-workspace-card .injection-panel input[type='checkbox'] { width: 16px; height: 16px; margin: 0; flex: 0 0 16px; accent-color: var(--accent); }
+.entry-workspace-card > .card-head { display: block; margin-bottom: 20px; }
+.entry-workspace-card > .card-head h2 { padding: 0; font-size: 24px; font-weight: 600; }
+.entry-total { margin-left: 8px; font-size: 14px; color: var(--text-secondary); font-weight: 400; }
+.entry-workspace-caption { margin: 8px 0 20px; color: var(--text-secondary); font-size: 14px; }
+.entry-workspace-card .entry-tools { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
+.entry-workspace-card .entry-tools .search-input { flex: 1 1 200px; max-width: 360px; }
+.entry-workspace-card .entry-tools .select-input { width: auto; flex: 0 1 150px; }
+.entry-workspace-card .entry-tools :is(.search-input, .select-input) { height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding: 6px 10px; background: var(--bg-primary); font-size: 13px; }
+.entry-workspace-card .entry-tools .ghost-btn { display: inline-flex; gap: 6px; align-items: center; height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding-inline: 12px; }
+.entry-workspace-card .entry-layout { grid-template-columns: minmax(240px, 28%) minmax(0, 1fr); gap: 28px; align-items: start; }
+.entry-workspace-card .entry-list { max-height: calc(var(--app-viewport-height, 100vh) - 280px); min-height: 320px; padding-right: 18px; border-color: var(--archive-paper-strong); }
+.entry-directory-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 10px; color: var(--text-secondary); font-size: 12px; }
+.entry-workspace-card .entry-item { padding: 0 10px; gap: 10px; margin-bottom: 4px; border: 0; border-radius: 6px; }
+.entry-workspace-card .entry-item::before { display: none; }
+.entry-workspace-card .entry-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; align-items: stretch; border: 0; background: transparent; color: var(--text-primary); padding: 12px 0; text-align: left; font: inherit; cursor: pointer; }
+.entry-workspace-card .entry-title { font-size: 14px; font-weight: 550; white-space: normal; overflow-wrap: anywhere; }
+.entry-workspace-card .entry-badges { display: flex; flex-wrap: wrap; gap: 5px 10px; }
+.entry-workspace-card :is(.entry-type, .entry-mode, .entry-group) { padding: 0; border: 0; color: var(--text-secondary); background: transparent; font-size: 12px; }
+.entry-workspace-card .entry-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 18px; padding: 0 0 24px; background: transparent; }
+.entry-editor-heading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--archive-paper-strong); }
+.entry-editor-heading h3 { margin: 6px 0 0; font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+.entry-editor-kicker { font-size: 12px; color: var(--text-secondary); }
+.entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 6px; min-height: 36px; }
+.entry-workspace-card .entry-editor > label { gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.entry-voice-editor, .injection-panel, .card-actions) { grid-column: 1 / -1; }
+.entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); padding: 10px 12px; color: var(--text-primary); font-size: 14px; }
+.entry-workspace-card .entry-editor > label .text-area { min-height: 260px; line-height: 1.85; resize: vertical; background-image: none; }
+.entry-workspace-card .injection-panel { margin: 0; padding: 0; background: transparent; }
+.injection-panel > summary { display: flex; align-items: center; gap: 12px; padding: 16px 0; cursor: pointer; font-size: 14px; color: var(--text-primary); list-style: none; }
+.injection-panel > summary::-webkit-details-marker { display: none; }
+.injection-panel > summary span { font-size: 12px; color: var(--text-secondary); }
+.injection-panel > summary svg { margin-left: auto; }
+.injection-panel[open] > summary svg { transform: rotate(180deg); }
+.entry-save-note { margin-right: auto; font-size: 12px; color: var(--text-secondary); }
+.entry-workspace-card .card-actions { align-items: center; margin: 0; }
+.entry-workspace-card .card-actions .danger-btn { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; border-radius: 6px; color: var(--text-secondary); }
+.entry-workspace-card .card-actions .danger-btn:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.entry-workspace-card .bulk-tools { background: var(--archive-paper); border: 0; border-radius: 6px; padding: 12px; gap: 8px; }
+.entry-workspace-card :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+ .entry-workspace-card .entry-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+ .entry-workspace-card .entry-list { min-height: 0; max-height: 230px; padding: 0 0 12px; }
+ .entry-workspace-card .entry-tools .search-input { flex-basis: 100%; max-width: none; }
+ .entry-workspace-card .entry-tools .select-input { flex: 1 1 100px; }
+ .entry-workspace-card .entry-editor { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+ .entry-workspace-card .entry-tools .ghost-btn { height: 40px; }
+ .injection-panel > summary { flex-wrap: wrap; gap: 8px; }
+ .entry-editor-heading h3 { font-size: 19px; }
 }
 </style>

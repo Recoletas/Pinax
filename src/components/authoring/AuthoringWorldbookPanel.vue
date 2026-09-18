@@ -23,7 +23,7 @@ const sourceChars = computed(() => (props.worldbook?.sourceDocuments || []).redu
 ), 0))
 function openSourcesPanel() {
   if (!props.bookId) return
-  router.push({ name: 'settings-structured', query: { bookId: props.bookId, sources: '1' } })
+  router.push({ name: 'settings-sources', query: { bookId: props.bookId } })
 }
 function openAddSources() {
   if (!props.bookId) return

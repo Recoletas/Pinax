@@ -1901,7 +1901,8 @@
   }
 
   .writing-page .wall__chapter-trigger {
-    min-width: 0;
+    min-width: 96px;
+    flex-shrink: 0;
     max-width: 150px;
     min-height: var(--control-height-md);
     display: inline-flex;

@@ -9,7 +9,7 @@
         @click="$emit('select', item.key)"
       >
         <span class="activity-icon" aria-hidden="true">
-          <WorkbenchIcon :name="item.icon" :size="17" />
+          <WorkbenchIcon :name="item.icon" :size="19" />
         </span>
         <span class="activity-label">{{ item.label }}</span>
       </button>
@@ -79,7 +79,8 @@ defineEmits(['select', 'select-route'])
   padding: 0 12px;
   border-left: 2px solid transparent;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 500;
+  border-radius: 6px;
 }
 
 .activity-btn:hover,
@@ -98,7 +99,7 @@ defineEmits(['select', 'select-route'])
   display: inline-grid;
   place-items: center;
   flex: 0 0 22px;
-  color: color-mix(in srgb, var(--archive-olive) 72%, var(--archive-ink-soft));
+  color: inherit;
 }
 
 .activity-label {

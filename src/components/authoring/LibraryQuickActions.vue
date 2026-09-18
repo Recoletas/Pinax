@@ -17,34 +17,39 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 
 <template>
   <div class="library-quick-actions">
-    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="bookmark-plus" :size="25" /><span><strong>新建作品</strong><small>从一份空白书稿开始</small></span></router-link><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary aria-label="新建作品选项"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&guide=first-run">空白小说</router-link><router-link to="/authoring?start=import&guide=first-run">从已有书稿创建</router-link></div></details></div>
-    <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="download" :size="25" /><span><strong>导入书稿</strong><small>TXT / Markdown</small></span></router-link>
-    <button type="button" @click="$emit('backup')"><WorkbenchIcon name="archive" :size="25" /><span><strong>备份与恢复</strong><small>为作品留一份副本</small></span></button>
-    <router-link to="/docs/10-beta-guide"><WorkbenchIcon name="book" :size="25" /><span><strong>创作指南</strong><small>了解工作台与创作工具</small></span></router-link>
+    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>新建作品</strong></span></router-link><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary aria-label="新建作品选项"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&guide=first-run">空白小说</router-link><router-link to="/authoring?start=import&guide=first-run">从已有书稿创建</router-link></div></details></div>
+    <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>导入书稿</strong></span></router-link>
+    <button type="button" @click="$emit('backup')"><WorkbenchIcon name="backup" :size="18" /><span><strong>备份与恢复</strong></span></button>
+    <router-link to="/docs/10-beta-guide"><WorkbenchIcon name="guide" :size="18" /><span><strong>创作指南</strong></span></router-link>
   </div>
 </template>
 
 <style scoped>
-.library-quick-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 28px 0 38px; }
-.library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: flex; align-items: center; gap: 16px; min-height: 94px; padding: 18px; border: 1px solid var(--archive-paper-strong); border-radius: 8px; background: var(--archive-paper-soft); color: var(--archive-ink); text-decoration: none; font: inherit; text-align: left; cursor: pointer; }
-.library-quick-actions__new { padding: 0; gap: 0; background: color-mix(in srgb, var(--archive-olive) 4%, var(--archive-paper-soft)); }
-.library-quick-actions__new > a { padding: 18px; flex: 1; display: flex; gap: 16px; align-items: center; min-width: 0; text-decoration: none; color: inherit; }
-.library-quick-actions svg { flex-shrink: 0; color: var(--archive-olive); }
-.library-quick-actions strong { display: block; font-size: 18px; font-weight: 550; white-space: nowrap; }
-.library-quick-actions small { display: block; font-size: 13px; color: var(--archive-ink-soft); margin-top: 7px; }
-.library-quick-actions details { position: relative; margin-right: 8px; }
-.library-quick-actions summary { display: grid; place-items: center; width: 32px; height: 44px; cursor: pointer; list-style: none; }
+.library-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 24px 0 32px; }
+.library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 14px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: transparent; color: var(--text-primary); text-decoration: none; font: inherit; text-align: left; cursor: pointer; }
+.library-quick-actions__new { padding: 0; gap: 0; color: var(--accent-text); background: var(--accent); border-color: transparent; }
+.library-quick-actions__new > a { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 0 12px; color: inherit; text-decoration: none; }
+.library-quick-actions > button, .library-quick-actions > a:last-child { border-color: transparent; color: var(--text-secondary); }
+.library-quick-actions svg { flex-shrink: 0; }
+.library-quick-actions strong { font-size: 14px; font-weight: 550; white-space: nowrap; }
+.library-quick-actions details { position: relative; }
+.library-quick-actions summary { display: grid; place-items: center; width: 32px; height: 30px; border-left: 1px solid color-mix(in srgb, var(--accent-text) 28%, transparent); cursor: pointer; list-style: none; }
 .library-quick-actions summary::-webkit-details-marker { display: none; }
-.library-quick-actions__menu { position: absolute; z-index: 5; right: 0; top: 100%; width: 210px; padding: 6px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); box-shadow: 0 8px 24px color-mix(in srgb, var(--archive-ink) 14%, transparent); }
-.library-quick-actions__menu a { display: block; padding: 8px 10px; min-height: 36px; color: var(--archive-ink); text-decoration: none; font-size: 14px; border-radius: 4px; }
-.library-quick-actions__menu a:hover { background: var(--archive-paper); }
-.library-quick-actions > a:hover, .library-quick-actions > button:hover, .library-quick-actions__new:hover { background: var(--nav-hover); }
-.library-quick-actions :is(a, button, summary) { transition: background-color 120ms ease; }
-.library-quick-actions :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-.library-quick-actions :is(a, button, summary):active { background: var(--nav-selected); }
-.library-quick-actions summary:hover { background: var(--nav-hover); border-radius: 5px; }
-@media (pointer: coarse) { .library-quick-actions__menu a { min-height: 44px; } }
-@media (prefers-reduced-motion: reduce) { .library-quick-actions :is(a, button, summary) { transition: none; } }
-@media (max-width: 1179px) { .library-quick-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 520px) { .library-quick-actions { gap: 10px; margin: 22px 0; } .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new > a { padding: 12px; gap: 10px; } .library-quick-actions strong { font-size: 16px; } .library-quick-actions small { font-size: 12px; line-height: 1.5; } .library-quick-actions__new > a { padding-right: 0; } .library-quick-actions details { margin-right: 0; } }
+.library-quick-actions__menu { position: absolute; z-index: 5; left: 0; top: calc(100% + 9px); width: 210px; padding: 6px; border: 1px solid var(--archive-paper-strong); border-radius: 8px; background: var(--archive-paper-soft); box-shadow: 0 8px 24px color-mix(in srgb, var(--archive-ink) 12%, transparent); }
+.library-quick-actions__menu a { display: flex; align-items: center; padding: 8px 10px; min-height: 36px; color: var(--text-primary); text-decoration: none; font-size: 14px; border-radius: 4px; }
+.library-quick-actions__menu a:hover, .library-quick-actions > a:hover, .library-quick-actions > button:hover { background: var(--nav-hover); color: var(--text-primary); }
+.library-quick-actions__new > a:hover, .library-quick-actions summary:hover { background: color-mix(in srgb, var(--accent-text) 12%, transparent); }
+.library-quick-actions :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.library-quick-actions__new :is(a, summary):focus-visible { outline-color: var(--text-primary); }
+.library-quick-actions :is(a, button, summary):active { filter: brightness(.94); }
+@media (max-width: 520px) {
+ .library-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 22px 0 26px; }
+ .library-quick-actions__new > a { flex: 1; }
+ .library-quick-actions > a, .library-quick-actions > button { min-height: 40px; padding-inline: 10px; }
+ .library-quick-actions__new, .library-quick-actions__new > a { min-height: 40px; }
+}
+@media (pointer: coarse) {
+ .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new > a, .library-quick-actions summary { min-height: 44px; }
+ .library-quick-actions summary { width: 40px; }
+}
 </style>

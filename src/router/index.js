@@ -10,6 +10,7 @@ const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorkspace.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
+const SettingsSources = () => import('../pages/SettingsSources.vue')
 const WorldMapPage = () => import('../pages/WorldMapPage.vue')
 const Authoring = () => import('../pages/Authoring.vue')
 const Notes = () => import('../pages/Notes.vue')
@@ -72,6 +73,12 @@ const workbenchChildren = [
     path: 'settings/worldbook/create',
     name: 'settings-worldbook-create',
     component: WorldbookCreationWorkspace,
+    beforeEnter: (to) => {
+      // 旧入口兼容：mode=sources + bookId → 重定向到资料一级页
+      if (to.query?.mode === 'sources' && to.query?.bookId && to.query?.action !== 'add') {
+        return { name: 'settings-sources', query: { bookId: to.query.bookId } }
+      }
+    },
     meta: {
       hideGlobalMemory: true,
       activityKey: 'worldbook',
@@ -94,6 +101,15 @@ const workbenchChildren = [
     meta: {
       activityKey: 'worldbook',
       title: '设定 · 结构化设定'
+    }
+  },
+  {
+    path: 'settings/sources',
+    name: 'settings-sources',
+    component: SettingsSources,
+    meta: {
+      activityKey: 'worldbook',
+      title: '设定 · 资料'
     }
   },
   {

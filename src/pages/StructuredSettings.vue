@@ -1,6 +1,6 @@
 <template>
   <div class="settings-page" @click="onGlobalClick">
-    <div class="settings-topbar">
+    <SettingsWorkspaceHeader>
       <SettingsContextBar
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
@@ -14,9 +14,7 @@
           <SettingsReturnToManuscript :worldbook-id="context?.worldbookId || ''" />
         </template>
       </SettingsContextBar>
-
-      <SettingsSectionNav />
-    </div>
+    </SettingsWorkspaceHeader>
 
     <section
       v-if="focusedPlace"
@@ -111,7 +109,7 @@ import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHist
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
 import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel.vue'
-import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
+import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
@@ -206,21 +204,9 @@ onMounted(async () => {
   opacity: .64;
 }
 
-.settings-topbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 48px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 16%, transparent);
-  background: var(--archive-paper-soft);
-}
 
-.settings-topbar :deep(.settings-section-nav) {
-  align-self: stretch;
-  min-width: 0;
-  padding-inline: 12px clamp(16px, 3vw, 42px);
-  border-bottom: 0;
-  background: transparent;
-}
+
+
 
 .settings-body {
   flex: 1;
@@ -334,13 +320,9 @@ onMounted(async () => {
 }
 
 @media (max-width: 760px) {
-  .settings-topbar {
-    grid-template-columns: 1fr;
-  }
 
-  .settings-topbar :deep(.settings-section-nav) {
-    padding-inline: 6px;
-  }
+
+
 
   .settings-page__contour {
     width: 100%;

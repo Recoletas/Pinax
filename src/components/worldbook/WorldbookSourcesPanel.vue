@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorldStore } from '../../stores/worldStore'
 import { loadSourceChunks } from '../../services/worldbook/worldbookSourceArchive'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
 // N-A：设定区可持续管理的资料面板（NA03/NA04/NA09 基础片）。
 // 列表 + 按块加载的全文预览 + 搜索/类型筛选 + 软移除 + 添加入口。
@@ -11,7 +12,8 @@ import { loadSourceChunks } from '../../services/worldbook/worldbookSourceArchiv
 const props = defineProps({
   worldbook: { type: Object, default: null },
   bookId: { type: String, default: '' },
-  initialOpen: { type: Boolean, default: false }
+  initialOpen: { type: Boolean, default: false },
+  standalone: { type: Boolean, default: false }
 })
 const emit = defineEmits(['sources-changed'])
 
@@ -52,7 +54,7 @@ function addLabel() {
 
 function openAdd() {
   if (!props.bookId) return
-  router.push({ name: 'settings-worldbook-create', query: { bookId: props.bookId, mode: 'sources' } })
+  router.push({ name: 'settings-worldbook-create', query: { bookId: props.bookId, mode: 'sources', action: 'add' } })
 }
 
 async function togglePreview(source) {
@@ -113,8 +115,9 @@ async function removeSource(source) {
 </script>
 
 <template>
-  <section class="sources-panel" aria-label="本书资料">
+  <section class="sources-panel" :class="{ 'is-standalone': standalone }" aria-label="本书资料">
     <button
+      v-if="!standalone"
       type="button"
       class="sources-panel__toggle"
       data-test="sources-panel-toggle"
@@ -126,48 +129,60 @@ async function removeSource(source) {
       <span class="sources-panel__hint">{{ open ? '收起' : '展开管理与预览' }}</span>
     </button>
 
-    <div v-if="open" class="sources-panel__body">
+    <div v-if="standalone || open" class="sources-panel__body">
       <div class="sources-panel__controls">
+        <label class="sources-panel__search-field">
+        <WorkbenchIcon name="search" :size="17" />
         <input
           v-model="search"
           class="sources-panel__search"
           type="search"
-          placeholder="按标题或预览正文搜索"
+          placeholder="搜索资料名称或内容"
           aria-label="搜索资料"
         />
+        </label>
         <select v-model="kindFilter" aria-label="按类型筛选">
           <option value="all">全部类型</option>
           <option v-for="kind in kindOptions" :key="kind" :value="kind">{{ KIND_LABELS[kind] || kind }}</option>
         </select>
-        <button type="button" class="sources-panel__add" data-test="sources-panel-add" :disabled="!bookId" @click="openAdd">
+        <button v-if="!standalone" type="button" class="sources-panel__add control-secondary" data-test="sources-panel-add" :disabled="!bookId" @click="openAdd">
+          <WorkbenchIcon name="plus" :size="16" />
           {{ addLabel() }}
         </button>
       </div>
 
-      <p v-if="!sources.length" class="sources-panel__empty" data-test="sources-panel-empty">
-        本书还没有资料。添加 TXT / Markdown / PDF / DOCX 或粘贴片段后，可在这里预览并按分区提取设定。
-      </p>
+      <div v-if="!sources.length" class="sources-panel__empty" data-test="sources-panel-empty">
+        <WorkbenchIcon name="sources" :size="30" />
+        <h3>把故事需要的资料放在这里</h3>
+        <p>添加参考文档或文字片段，随时查阅原文。</p>
+        <small>支持 TXT、Markdown、PDF、DOCX 与 EPUB</small>
+      </div>
       <p v-else-if="!filtered.length" class="sources-panel__empty">没有匹配的资料；调整搜索或类型筛选。</p>
 
       <ul v-else class="sources-panel__list">
-        <li v-for="source in filtered" :key="source.id" class="sources-panel__item">
+        <li v-for="source in filtered" :key="source.id" class="sources-panel__item" :class="{ 'is-expanded': expandedId === String(source.id) }">
           <div class="sources-panel__row">
+            <span class="sources-panel__file-icon"><WorkbenchIcon :name="source.kind === 'markdown' ? 'markdown' : source.kind === 'epub' ? 'book' : 'document'" :size="23" /></span>
+            <div class="sources-panel__identity">
             <button type="button" class="sources-panel__title" :aria-expanded="expandedId === String(source.id)" @click="togglePreview(source)">
               {{ source.title || source.id }}
+              <WorkbenchIcon name="chevron-down" :size="15" />
             </button>
+            <p class="sources-panel__excerpt">{{ source.contentPreview || source.content || '点击名称查看原文' }}</p>
+            </div>
             <span class="sources-panel__meta">
-              {{ KIND_LABELS[source.kind] || source.kind || 'TXT' }}
-              · {{ Number(source.originalLength || source.normalizedLength || String(source.contentPreview || '').length).toLocaleString('zh-CN') }} 字
-              <template v-if="source.archiveRef"> · 已归档</template>
-              <template v-else> · 未归档</template>
+              <span class="sources-panel__kind">{{ KIND_LABELS[source.kind] || source.kind || 'TXT' }}</span>
+              <span>{{ Number(source.originalLength || source.normalizedLength || String(source.contentPreview || source.content || '').length).toLocaleString('zh-CN') }} 字</span>
+              <span>{{ source.archiveRef ? '已归档' : '未归档' }}</span>
             </span>
             <button
               type="button"
-              class="sources-panel__remove"
+              class="sources-panel__remove control-quiet"
               :disabled="busyRemoveId === String(source.id)"
               :aria-label="`移出 ${source.title || source.id}`"
               @click="removeSource(source)"
             >
+              <WorkbenchIcon name="unlink" :size="15" />
               移出
             </button>
           </div>
@@ -187,24 +202,55 @@ async function removeSource(source) {
 </template>
 
 <style scoped>
-.sources-panel { border: 1px solid var(--border, #d4d4d8); border-radius: 6px; margin-bottom: 14px; background: var(--bg-secondary, #fafafa); }
-.sources-panel__toggle { display: flex; width: 100%; gap: 10px; align-items: center; padding: 10px 12px; background: transparent; border: 0; cursor: pointer; font: inherit; color: var(--text-primary, #18181b); }
-.sources-panel__toggle span { color: var(--text-secondary, #52525b); font-size: 13px; }
+
+.sources-panel { min-width: 0; margin-bottom: 16px; color: var(--text-primary); border: 1px solid var(--archive-paper-strong); border-radius: 8px; }
+.sources-panel.is-standalone { border: 0; border-radius: 0; }
+.sources-panel__toggle { display: flex; width: 100%; gap: 10px; align-items: center; padding: 12px 16px; background: transparent; border: 0; cursor: pointer; font: inherit; color: inherit; }
+.sources-panel__toggle span { color: var(--text-secondary); font-size: 13px; }
 .sources-panel__hint { margin-left: auto; }
-.sources-panel__body { padding: 0 12px 12px; display: grid; gap: 10px; }
-.sources-panel__controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.sources-panel__search { flex: 1 1 180px; min-width: 140px; }
-.sources-panel__controls input, .sources-panel__controls select, .sources-panel__add { font: inherit; padding: 6px 8px; border: 1px solid var(--border, #d4d4d8); border-radius: 4px; background: var(--bg-primary, #fff); color: var(--text-primary, #18181b); min-height: 36px; }
-.sources-panel__add { cursor: pointer; }
-.sources-panel__add:disabled { opacity: .5; cursor: default; }
-.sources-panel__empty { margin: 0; color: var(--text-secondary, #52525b); font-size: 14px; }
-.sources-panel__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.sources-panel__row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.sources-panel__title { font: inherit; color: var(--text-primary, #18181b); background: transparent; border: 0; padding: 4px 0; cursor: pointer; text-align: left; text-decoration: underline dotted; }
-.sources-panel__meta { color: var(--text-secondary, #52525b); font-size: 12px; }
-.sources-panel__remove { margin-left: auto; font: inherit; font-size: 12px; padding: 4px 8px; min-height: 28px; border: 1px solid var(--border, #d4d4d8); border-radius: 4px; background: var(--bg-primary, #fff); color: var(--text-secondary, #52525b); cursor: pointer; }
-.sources-panel__preview { padding: 8px 10px; border-left: 3px solid var(--border, #d4d4d8); background: var(--bg-primary, #fff); }
-.sources-panel__preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto; font-size: 13px; line-height: 1.6; }
-.sources-panel__warn { margin: 0 0 6px; color: var(--text-secondary, #52525b); font-size: 12px; }
-.sources-panel__status { margin: 0; font-size: 13px; color: var(--text-secondary, #52525b); }
+.sources-panel__body { padding: 0 16px 16px; }
+.is-standalone .sources-panel__body { padding: 0; }
+.sources-panel__controls { display: flex; gap: 12px; align-items: center; padding-bottom: 20px; }
+.sources-panel__search-field { display: flex; align-items: center; gap: 9px; flex: 1; max-width: 440px; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); }
+.sources-panel__search { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; padding: 7px 0; }
+.sources-panel__search-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sources-panel__controls select { font: inherit; font-size: 13px; height: 38px; padding: 0 10px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); color: var(--text-secondary); }
+.sources-panel__add { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; }
+.sources-panel__empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 20px; margin: 0; text-align: center; color: var(--text-secondary); font-size: 14px; }
+.sources-panel__empty h3 { margin: 4px 0 0; font-size: 17px; font-weight: 550; color: var(--text-primary); }
+.sources-panel__empty p { margin: 0; line-height: 1.8; }
+.sources-panel__empty small { font-size: 12px; }
+.sources-panel__list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--archive-paper-strong); }
+.sources-panel__item { border-bottom: 1px solid var(--archive-paper-strong); }
+.sources-panel__row { display: flex; gap: 16px; align-items: center; padding: 18px 8px; }
+.sources-panel__file-icon { color: var(--text-secondary); display: grid; place-items: center; width: 38px; height: 44px; flex-shrink: 0; background: var(--archive-paper); border-radius: 5px; }
+.sources-panel__identity { flex: 1; min-width: 0; }
+.sources-panel__title { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font: inherit; font-size: 15px; font-weight: 550; line-height: 1.6; color: var(--text-primary); background: transparent; border: 0; padding: 2px 0; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.sources-panel__title svg { color: var(--text-secondary); }
+.is-expanded .sources-panel__title svg { transform: rotate(180deg); }
+.sources-panel__title:hover { color: var(--accent); }
+.sources-panel__excerpt { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sources-panel__meta { display: flex; align-items: center; gap: 20px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sources-panel__kind { min-width: 42px; font-size: 11px; letter-spacing: .03em; }
+.sources-panel__meta > span:nth-child(2) { min-width: 65px; text-align: right; }
+.sources-panel__remove { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 12px; font-size: 12px; }
+.sources-panel__preview { margin: 0 8px 20px 62px; padding: 22px 24px; background: var(--archive-paper); border-radius: 6px; }
+.sources-panel__preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 440px; overflow-y: auto; font-family: inherit; font-size: 15px; line-height: 1.9; color: var(--text-primary); }
+.sources-panel__warn, .sources-panel__status { margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.sources-panel__status { margin-top: 16px; }
+.sources-panel :is(button, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+ .sources-panel__controls { gap: 8px; flex-wrap: wrap; }
+ .sources-panel__search-field { max-width: none; }
+ .sources-panel__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; }
+ .sources-panel__file-icon { width: 32px; grid-row: 1 / 3; align-self: start; }
+ .sources-panel__identity { grid-column: 2; }
+ .sources-panel__meta { grid-column: 2; gap: 12px; flex-wrap: wrap; }
+ .sources-panel__meta > span:nth-child(2) { min-width: 0; text-align: left; }
+ .sources-panel__kind { min-width: 0; }
+ .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }
+ .sources-panel__remove svg { display: none; }
+ .sources-panel__preview { margin: 0 0 16px; padding: 16px; }
+}
+
 </style>
