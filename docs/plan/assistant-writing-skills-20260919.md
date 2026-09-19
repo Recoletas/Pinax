@@ -1,6 +1,6 @@
 # 助手写作 Skills 接入：调研、设计与实施任务书
 
-日期：2026-09-19。状态：**实施中**——S01–S03 已交付（见[回执](../agent-runs/writing-skills-s01-s03-20260919.md)：旅程基线 46/46、33/33、29/29，Oh Story 适配 fixture 对照 7/7，方法合同 eval 26/26，verify:full exit 0）；真实 provider/稿件质量 Gate 仍未运行，S04 起按队列继续。代码核查基线 `e48d011`，承接[产品主计划](./pinax-integrated-product-roadmap.md)、[F2 助手工作台](../superpowers/plans/2026-09-01-authoring-writer-assistant-parity-f2.md)与[夜间运行时计划](./nightly-20260918-runtime-maturity.md)，不另立产品主线。
+日期：2026-09-19。状态：**实施中**——S01–S05 已交付（见[回执](../agent-runs/writing-skills-s01-s05-20260919.md)：旅程基线 46/46、33/33、29/29，eval 7/7、26/26、24/24、13/13，verify:full exit 0）；真实 provider/稿件质量 Gate 仍未运行，S06 起按队列继续。代码核查基线 `e48d011`，承接[产品主计划](./pinax-integrated-product-roadmap.md)、[F2 助手工作台](../superpowers/plans/2026-09-01-authoring-writer-assistant-parity-f2.md)与[夜间运行时计划](./nightly-20260918-runtime-maturity.md)，不另立产品主线。
 
 ## 1. 决策与完成定义
 

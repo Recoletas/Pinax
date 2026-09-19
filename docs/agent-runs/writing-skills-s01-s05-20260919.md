@@ -1,8 +1,8 @@
-# 助手写作 Skills S01–S03 实施回执
+# 助手写作 Skills S01–S05 实施回执
 
 日期：2026-09-19。计划：[assistant-writing-skills-20260919](../plan/assistant-writing-skills-20260919.md)。
 分支 `night/writing-skills-20260919`（worktree `pinax-writing-skills-20260919`，基 main@5e85379）。
-本批交付 §7 队列的 S01、S02、S03 三个实施包；S04+ 未开工，见文末剩余队列。
+本批交付 §7 队列的 S01–S05 五个实施包；S06 起未开工，见文末剩余队列。
 
 ## 交付内容
 
@@ -55,27 +55,55 @@
 - eval `scripts/writing-skills-method-contract-eval.mjs` 26/26：合同层 22 项 +
   真实 server 起进程验证未知版本/未知字段 typed 400、旧问答请求不受影响。
 
+### S04 review session 目标/scope/风格/coverage（`authoringReviewSession.js`）
+
+- `createAuthoringReviewSession` 增加可选输入：`goal`（作者目标+技能精确
+  解析，未知 skillId/skillVersion 拒绝建 session）、`scopeNodeIds`（显式选区
+  scope，只收窄读窗口，完整 index 仍供新鲜度对账）、`styleInputs`（风格消解：
+  显式约束 > 本书规则 > 方法默认，同维度先到先得并记录被覆盖来源）。
+- session 新增 `goal/scope/styleDirectives/coverage`；coverage 计划以窗口为
+  「完整正文逐批读」的可核查单位；`markAuthoringReviewBatchStatus`（未知窗口/
+  非法状态 fail closed）、`resetAuthoringReviewCoverage`、
+  `buildAuthoringReviewCoverageReport`（evidence 明示 top-k 检索来源，点名未
+  授权来源列入 missing）、`summarizeAuthoringReviewCoverage`（空结果区分
+  clean-complete 与 partial-insufficient-coverage，§6.A）。
+- 批次上下文携带 goal/styleDirectives/coverageWindow 供后续 prompt 组装。
+- eval `scripts/writing-skills-goal-review-session-eval.mjs` 24/24。
+
+### S05 方法组合与检查器整合（`writingSkillMethods/` + `writingSkillChecks/`）
+
+- `writingSkillMethods/writingSkillMethods.js`：三个方法文本（动机/行动因果、
+  铺垫/兑现、节奏/冗余，含输出要求与禁则）注册对齐 shared 表并通过描述
+  校验；`composeWritingSkillReviewPrompt` 只组合当前方法 + 目标 + 公共
+  「引用/文风/信息边界」片段 + 已消解风格指令，其他方法文本不进入。
+- `writingSkillChecks/runWritingSkillChecks.js`：批次级检查入口——本地校对
+  原样复用 `collectLocalAuthoringProofingFindings`（不重复造轮子），退化检测
+  按 S02 适配模块逐块扫描、保留 locator 并标注 checker 来源。
+- 对照样本 eval `scripts/writing-skills-method-composition-eval.mjs` 13/13
+  （正例命中复读/截断/占位与引号规则，干净样本零命中）。
+
 ## 门禁与真实旅程
 
-- `npm run verify:full` exit 0：20/20 测试文件、200/200 用例（预算顶格，本批
-  新增验证全部走 scripts/eval，未占 Vitest 预算）、lint 增量干净、双 build、
-  结构预算与 docs build 通过。
-- 三条旅程 Gate：46/46、33/33、29/29；两条 eval：7/7、26/26。
+- `npm run verify:full` exit 0（S01–S03 后与 S05 后各跑一轮）：20/20 测试文件、
+  200/200 用例（预算顶格，本批新增验证全部走 scripts/eval，未占 Vitest 预算）、
+  lint 增量干净、双 build、结构预算与 docs build 通过。
+- 三条旅程 Gate：46/46、33/33、29/29（29/29 在 S05 后终态复跑）；四条 eval：
+  degeneration 7/7、method contract 26/26、goal-review session 24/24、
+  method composition 13/13。
 - 运行方式：worktree 内 `npx vite --port 5219`，`BASE=http://127.0.0.1:5219
   node scripts/authoring-ui/<check>.mjs`；eval 直接 `node scripts/writing-skills-*.mjs`。
 
 ## 未做与边界
 
-- 未合并前 main 在本分支创建后有新提交则需重放（当前 main 与分支基点一致，fast-forward 可并）。
 - 真实 provider/真实稿件未跑：S12 的质量 Gate 保留未运行，本批不宣称方法有效。
 - S02 只适配了 `check-degeneration.js`；`check-ai-patterns.js` 等仍未复制（见 SOURCES.md）。
-- 客户端发送侧（`requestAdvisorTask` 携带 `options.writingSkill`）未接线——
-  属 S04 review session 接入范围。
+- 客户端发送侧（`requestAdvisorTask` 携带 `options.writingSkill`）仍未接线——
+  S04/S05 只交付 session 与方法/检查器域层；进 composable 与 UI 在 S06/S08。
+- 方法有效性未经真实模型验证：S12 的质量 Gate 保留未运行。
 
 ## 剩余队列（下一步）
 
-- S04：review session 增加作者目标、scope、style resolution、coverage（依赖 S03 ✅）。
-- S05：三个目标方法最小组合与检查器整合（依赖 S02 ✅ + S04）。
-- S06：审稿窗口分批、预算/取消/失败批次/开放项（依赖 S04）。
-- S07–S12：finding 引文/locator、助手任务选择薄协调器、意见→rewrite target、
-  锁定区间 patch 校验、采纳持久化链路、S12 完整流程 Gate。
+- S06：既有 review 窗口分批、预算/取消/失败批次/开放项接入 run 循环（依赖 S04 ✅）。
+- S07：finding 引文/locator/依赖校验、去重和级别区分（依赖 S05 ✅ + S06）。
+- S08–S12：助手任务选择薄协调器、意见→rewrite target、锁定区间 patch 校验、
+  采纳持久化链路、S12 完整流程 Gate。
