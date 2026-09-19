@@ -328,11 +328,11 @@ watch(() => [props.messages.length, props.busy], () => nextTick(() => {
 .authoring-knowledge__composer > small { display: block; margin-top: 6px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
 @keyframes knowledge-pulse { to { opacity: .28; transform: scale(.72); } }
 @media (pointer: coarse) {
-  .authoring-knowledge__toolbar-actions button, .authoring-knowledge__suggestions button, .authoring-knowledge__tasks button, .authoring-knowledge__primary-tools button, .authoring-knowledge__evidence-list > button, .authoring-knowledge__send { min-height: 44px; }
+  .authoring-knowledge__toolbar-actions button, .authoring-knowledge__suggestions button, .authoring-knowledge__tasks button, .authoring-knowledge__tasks select, .authoring-knowledge__primary-tools button, .authoring-knowledge__evidence-list > button, .authoring-knowledge__send { min-height: 44px; }
 }
 @media (max-width: 720px) {
   .authoring-knowledge__welcome { margin-top: 5vh; }
-  .authoring-knowledge__toolbar-actions button, .authoring-knowledge__suggestions button, .authoring-knowledge__tasks button, .authoring-knowledge__primary-tools button, .authoring-knowledge__evidence-list > button, .authoring-knowledge__send { min-height: 44px; }
+  .authoring-knowledge__toolbar-actions button, .authoring-knowledge__suggestions button, .authoring-knowledge__tasks button, .authoring-knowledge__tasks select, .authoring-knowledge__primary-tools button, .authoring-knowledge__evidence-list > button, .authoring-knowledge__send { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .authoring-knowledge__thinking span { animation: none; }
