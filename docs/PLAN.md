@@ -6,6 +6,8 @@
 
 ## 当前主线
 
+2026-09-19 助手下一阶段采用[写作 Skills 接入详细方案](./plan/assistant-writing-skills-20260919.md)：复用现有问答、校对、局部改写与采纳，分三批贯通“目标审稿→意见定位→局部候选→显式采纳”、修改影响检查、真实稿件校准。已核查 Oh Story 固定 MIT 源码及 Novelcrafter/Sudowrite/Lex 一手资料；22 个实施包与证据/知情/锁定/版本门禁均已列出。当前仅调研与计划，未实施；不另建 Agent 系统或事实数据库，NovelAI 文档与真实模型质量仍未验证。
+
 2026-09-19 组合验收：[记忆/跑团/Agent 夜间计划](./plan/nightly-20260918-runtime-maturity.md)的已交付切片按 A `19f5386`、B `d21f793`、C `48e2fcf`整合，保留主线 HTTP UUID 修复。A 记忆与 C 跑团生产链、B 工具授权组成唯一实现；B/C 重复 KP 不并存。详细回归见[组合回执](./agent-runs/nightly-20260918/integration-summary.md)。下一批优先接真实同伴 provider 与角色知识、真实来源 revision 审计，再推进 T09–T12 与全 Agent 恢复；36 项原队列继续有效，不能把基础合同/注入端口视为全部成熟能力。仅本地合并，未推送部署。
 
 2026-09-18 [资料接入 / 全局 UI / 记忆提取三线计划](./plan/nightly-20260917-sources-ui-memory.md)已完成实际交付切片并组合验收：N-A 的按书资料导入管理与设定入口、N-B 的跨页控件收口、N-C 的历史降噪与有证据提取链已以 `c7ca33b` 合入 main。完整工程门禁、资料/记忆/历史/账本/设定联动及全路由 UI 审计通过；真实 LLM、真机 IME、ZIP 中途失败注入和各分册 partial/not-run 项仍待后续，不把本次切片写成整份储备包完成。漫画和自主跑团剩余项继续保留 backlog；见[组合验收](./agent-runs/nightly-20260917-quality/combination-check.md)。
