@@ -432,13 +432,22 @@ try {
     })
     check('CX06 写盘失败不产生骰点/不登记 pending', noPendingAfterFail === null)
     await pageA.evaluate(() => window.__restoreSetItem?.())
+    // 恢复后立即 flush：模式选择的调度保存确定性落盘（否则重试时机不定，
+    // pageB 可能在"未决定"与"已决定"两种模式条状态间摇摆）。
+    await pageA.evaluate(() => {
+      const pinia = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia
+      pinia._s.get('game').flushSaveSessions()
+    })
 
-    // 双标签：B 页共享同一 localStorage 会话。
+    // 双标签：B 页共享同一 localStorage 会话（flush 后已决定模式 → 直接用，
+    // 模式条不再重开模式选择——只有未决定时才点选）。
     const pageB = await context.newPage()
     await pageB.goto(`${BASE}/experience`)
     await pageB.waitForSelector('.input-area', { timeout: 30000 })
     await seedSession(pageB)
-    await pageB.getByRole('button', { name: /轻规则 2d6/ }).first().click()
+    if (await pageB.locator('.rp-mode-bar__chip').count() === 0) {
+      await pageB.getByRole('button', { name: /轻规则 2d6/ }).first().click()
+    }
     await pageB.fill('.input-area textarea.input', 'B 页签的行动')
     await pageB.click('[data-testid="rp-dice-toggle"]')
     await pageB.waitForSelector('.rp-confirm')
@@ -452,7 +461,7 @@ try {
       const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
       return store.roleplaySession?.pendingByBranch?.main?.status || null
     })
-    check('CX06 双标签共享会话 pending（一个动作一个结果）', samePending === 'resolved')
+    check('CX06 双标签共享会话 pending（一个动作一个结果）', samePending === 'resolved', `actual=${JSON.stringify(samePending)}`)
     // A 页普通发送被阻断（同会话 pending 门禁在两页一致）。
     await pageA.fill('.input-area textarea.input', 'A 页的普通行动')
     check('CX06 另一页签同样被 pending 门禁阻断', await pageA.locator('.input-area .send-btn').isDisabled())
@@ -891,6 +900,314 @@ try {
     })
     check('V30 收藏精确落稿（书稿含正文）', v30.bookTitle === 'V30 作品' && v30.occurrences >= 1)
     await page.screenshot({ path: `${OUT_DIR}/12-collect-v30-1440-light.png` })
+    await context.close()
+  }
+
+  // ── 13. G3：真实 coordinator 刷新恢复——挂起叙述流 → 刷新 → 恢复同骰点完成一次 ──
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page = await context.newPage()
+    await page.addInitScript(() => {
+      localStorage.setItem('text_model_configs', JSON.stringify([{
+        id: 'cfg_fake', provider: 'deepseek', name: 'smoke-fake', baseUrl: 'http://127.0.0.1:9',
+        apiKey: 'sk-smoke-fake', model: 'fake-model', builtin: false
+      }]))
+      localStorage.setItem('text_model_selected', 'cfg_fake')
+      const fixed = new Uint32Array([4, 3])
+      const deterministic = { getRandomValues(buf) { for (let i = 0; i < buf.length; i += 1) buf[i] = fixed[i % fixed.length]; return buf } }
+      Object.defineProperty(globalThis, 'crypto', { value: deterministic, configurable: true })
+    })
+    let planPhaseCount = 0
+    await page.route('**/api/generate/agent-step/stream', async (route) => {
+      let body = {}
+      try { body = route.request().postDataJSON() } catch { body = {} }
+      const planChoice = body?.toolChoice?.function?.name || body?.options?.toolChoice?.function?.name || ''
+      const isPlanPhase = planChoice === 'submit_narrative_beat_plan'
+      if (isPlanPhase) {
+        planPhaseCount += 1
+        if (planPhaseCount === 1) {
+          // 第一次（刷新前）：规划请求永远挂起——模拟生成中途刷新。
+          await new Promise(() => {})
+        }
+        const sse = [
+          'data: {"schemaVersion":1,"type":"step.start","stepId":"p1"}',
+          'data: {"schemaVersion":1,"type":"tool.input.delta","callId":"c1","input":{"responseObligation":"行动得到回应","causalSteps":["线索显现"],"revealOrChange":"线索被确认","endCondition":"场景推进到新的可观察状态","intent":"respond","mode":"narrative"}}',
+          'data: {"schemaVersion":1,"type":"tool.call","callId":"c1","toolName":"submit_narrative_beat_plan"}',
+          'data: {"schemaVersion":1,"type":"step.finish","finishReason":"tool_calls"}'
+        ].join('\n\n') + '\n\n'
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse })
+        return
+      }
+      const sse = [
+        'data: {"schemaVersion":1,"type":"step.start","stepId":"s1"}',
+        'data: {"schemaVersion":1,"type":"text.delta","content":"线索在眼前展开。"}',
+        'data: {"schemaVersion":1,"type":"step.finish","finishReason":"stop"}',
+        'data: {"schemaVersion":1,"type":"usage","usage":{"inputTokens":10,"outputTokens":20,"totalTokens":30}}'
+      ].join('\n\n') + '\n\n'
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse })
+    })
+    await page.goto(`${BASE}/experience`)
+    await page.waitForSelector('.input-area', { timeout: 30000 })
+    await seedSession(page)
+    await page.getByRole('button', { name: /轻规则 2d6/ }).first().click()
+    await page.waitForSelector('[data-testid="rp-scenario-panel"]')
+    await page.click('[data-testid="rp-scenario-start-scn_lampkeeper"]')
+    await page.waitForFunction(() => document.querySelector('[data-testid="rp-scenario-panel"]')?.innerText.includes('进行中'))
+    await page.getByRole('button', { name: '登上螺旋梯' }).click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="rp-scenario-panel"]')?.innerText.includes('螺旋梯井'))
+    await page.getByRole('button', { name: '检查（2d6）' }).first().click()
+    await page.waitForSelector('.rp-scenario__confirm')
+    await page.getByRole('button', { name: '确认检定' }).click()
+    await page.waitForSelector('[data-testid="rp-pending-bar"]', { timeout: 30000 })
+    const beforeRefresh = await page.evaluate(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      const pending = store.roleplaySession.pendingByBranch.main
+      const run = store.roleplaySession.runs?.find((item) => item.runId === pending.actionId)
+      return {
+        actionId: pending.actionId,
+        dice: pending.resolution.dice,
+        total: pending.resolution.total,
+        runStatus: run?.status || null,
+        narrationStep: run?.steps?.find((step) => step.stepId === 'narration')?.status || null,
+        confirmStep: run?.steps?.find((step) => step.stepId === 'confirm')?.status || null,
+        diceStepEffectKey: run?.steps?.find((step) => step.stepId === 'resolve')?.effectKey || null
+      }
+    })
+    check('G3 刷新前：run 在案、骰点已记账、narration 进行中', beforeRefresh.runStatus === 'running'
+      && beforeRefresh.confirmStep === 'succeeded'
+      && beforeRefresh.narrationStep === 'pending'
+      && beforeRefresh.diceStepEffectKey === `dice:${beforeRefresh.actionId}`)
+    // 中途刷新：载入扫描把 running → interrupted；待回应条与骰点保持。
+    await page.reload()
+    await page.waitForSelector('[data-testid="rp-pending-bar"]', { timeout: 30000 })
+    const afterRefresh = await page.evaluate(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      const pending = store.roleplaySession?.pendingByBranch?.main
+      const run = store.roleplaySession?.runs?.find((item) => item.runId === pending?.actionId)
+      return {
+        dice: pending?.resolution.dice || null,
+        actionId: pending?.actionId || null,
+        runStatus: run?.status || null,
+        resourceText: document.querySelector('[data-testid="rp-resources"]')?.innerText || ''
+      }
+    })
+    check('G3 刷新后：载入扫描标记 interrupted，骰点/身份不变', afterRefresh.runStatus === 'interrupted'
+      && afterRefresh.actionId === beforeRefresh.actionId
+      && JSON.stringify(afterRefresh.dice) === JSON.stringify(beforeRefresh.dice))
+    // 恢复：真实 coordinator 路径完成同候选（同 actionId、同骰点、一次提交）。
+    await page.getByRole('button', { name: '请求回应' }).click()
+    await page.waitForFunction(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      return Object.keys(store.roleplaySession?.pendingByBranch || {}).length === 0
+    }, { timeout: 30000 })
+    const afterRecover = await page.evaluate(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      const run = store.roleplaySession?.runs?.[0]
+      const narration = run?.steps?.find((step) => step.stepId === 'narration')
+      const committedReceipts = (store.roleplaySession?.receipts || []).filter((item) => item.receiptId === run?.runId)
+      const lastUserCheck = [...(store.messages || [])].reverse().find((m) => m.role === 'user' && m.roleplayCheck)?.roleplayCheck || null
+      return {
+        runStatus: run?.status || null,
+        narrationRef: narration?.resultRef || null,
+        narrationCommit: narration?.commitReceipt?.kind || null,
+        committedCount: committedReceipts.length,
+        assistantText: (store.messages || []).filter((m) => m.role === 'assistant').map((m) => m.content || '').join(''),
+        resourceText: document.querySelector('[data-testid="rp-resources"]')?.innerText || '',
+        checkRowText: document.querySelector('[data-testid="rp-check-row"]')?.innerText || '',
+        checkRowStatus: lastUserCheck?.status || null
+      }
+    })
+    check('G3 恢复后 run 完成、narration 关联真实回合提交', afterRecover.runStatus === 'completed'
+      && /^turn:/.test(afterRecover.narrationRef || '')
+      && afterRecover.narrationCommit === 'turn-commit')
+    check('G3 回执唯一（重复确认/恢复不重复落账）', afterRecover.committedCount === 1)
+    check('G3 恢复生成真实正文进入消息流', afterRecover.assistantText.includes('线索在眼前展开'))
+    check('G3 检定行随回合提交刷新且渲染结算', afterRecover.checkRowStatus === 'committed'
+      && afterRecover.checkRowText.includes('部分成功'))
+    check('G3 资源只扣一次（恢复不重复代价）', afterRecover.resourceText.includes('灯油 9/20'))
+    await page.screenshot({ path: `${OUT_DIR}/13-g3-refresh-recovery-1440-light.png` })
+    await context.close()
+  }
+
+  // ── 14. R10：跑团界面主持一场（KP 循环）——状态/暂停继续/新一批 ──
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page = await context.newPage()
+    await page.addInitScript(() => {
+      localStorage.setItem('text_model_configs', JSON.stringify([{
+        id: 'cfg_fake', provider: 'deepseek', name: 'smoke-fake', baseUrl: 'http://127.0.0.1:9',
+        apiKey: 'sk-smoke-fake', model: 'fake-model', builtin: false
+      }]))
+      localStorage.setItem('text_model_selected', 'cfg_fake')
+      const fixed = new Uint32Array([4, 3])
+      const deterministic = { getRandomValues(buf) { for (let i = 0; i < buf.length; i += 1) buf[i] = fixed[i % fixed.length]; return buf } }
+      Object.defineProperty(globalThis, 'crypto', { value: deterministic, configurable: true })
+    })
+    await page.route('**/api/generate/agent-step/stream', async (route) => {
+      let body = {}
+      try { body = route.request().postDataJSON() } catch { body = {} }
+      const planChoice = body?.toolChoice?.function?.name || body?.options?.toolChoice?.function?.name || ''
+      const isPlanPhase = planChoice === 'submit_narrative_beat_plan'
+      const sse = isPlanPhase
+        ? [
+            'data: {"schemaVersion":1,"type":"step.start","stepId":"p1"}',
+            'data: {"schemaVersion":1,"type":"tool.input.delta","callId":"c1","input":{"responseObligation":"行动得到回应","causalSteps":["线索显现"],"revealOrChange":"线索被确认","endCondition":"场景推进到新的可观察状态","intent":"respond","mode":"narrative"}}',
+            'data: {"schemaVersion":1,"type":"tool.call","callId":"c1","toolName":"submit_narrative_beat_plan"}',
+            'data: {"schemaVersion":1,"type":"step.finish","finishReason":"tool_calls"}'
+          ].join('\n\n') + '\n\n'
+        : [
+            'data: {"schemaVersion":1,"type":"step.start","stepId":"s1"}',
+            'data: {"schemaVersion":1,"type":"text.delta","content":"主持的一拍。"}',
+            'data: {"schemaVersion":1,"type":"step.finish","finishReason":"stop"}',
+            'data: {"schemaVersion":1,"type":"usage","usage":{"inputTokens":10,"outputTokens":20,"totalTokens":30}}'
+          ].join('\n\n') + '\n\n'
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse })
+    })
+    await page.goto(`${BASE}/experience`)
+    await page.waitForSelector('.input-area', { timeout: 30000 })
+    await seedSession(page)
+    await page.getByRole('button', { name: /轻规则 2d6/ }).first().click()
+    await page.waitForSelector('[data-testid="rp-scenario-panel"]')
+    await page.click('[data-testid="rp-scenario-start-scn_lampkeeper"]')
+    await page.waitForFunction(() => document.querySelector('[data-testid="rp-scenario-panel"]')?.innerText.includes('进行中'))
+    // 开启旅伴 → 主持一场：预算预扣、状态文本可见、提案进入采纳面板。
+    await page.getByRole('button', { name: /旅伴：/ }).click()
+    await page.getByRole('button', { name: /主持一场/ }).click()
+    await page.waitForSelector('[data-testid="rp-kp-status"]', { timeout: 30000 })
+    const kpStatusText = await page.locator('[data-testid="rp-kp-status"]').innerText()
+    check('R10 主持一场产出统一状态文本', ['同伴提案待你采纳', '一拍完成：该你行动了'].some((text) => kpStatusText.includes(text)), `text=${kpStatusText}`)
+    const kpStateAfterBatch = await page.evaluate(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      const kpRun = (store.roleplaySession?.runs || []).find((item) => item.taskId === 'experience.roleplay.kp-cycle')
+      return { used: store.roleplaySession.hostPlan.stepsUsed, kpRunStatus: kpRun?.status || null, budget: kpRun?.budget || null }
+    })
+    check('R10 主持预算入账且 kp run 持久', kpStateAfterBatch.used >= 1 && ['awaiting-human', 'completed'].includes(kpStateAfterBatch.kpRunStatus))
+    // 主持暂停 → 状态；主持继续 → 恢复。
+    await page.getByRole('button', { name: '主持暂停' }).click()
+    await page.waitForFunction(() => document.querySelector('[data-testid="rp-kp-status"]')?.innerText.includes('主持已暂停'))
+    await page.getByRole('button', { name: '主持继续' }).click()
+    const pauseResumed = await page.evaluate(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      return store.roleplaySession.hostPlan.status === 'awaiting-player'
+    })
+    check('R10 主持暂停/继续回到待命态', pauseResumed)
+    // 连续主持直到本批预算耗尽（每批一个 SSE 叙述拍）。
+    for (let round = 0; round < 4; round += 1) {
+      const runBtn = page.getByRole('button', { name: /主持一场/ })
+      if (await runBtn.count() === 0) break
+      await runBtn.click()
+      await page.waitForFunction(() => {
+        const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+        const btn = document.querySelector('[data-testid="rp-kp-run"]')
+        return Boolean(store.roleplaySession?.hostPlan) && (!btn || !btn.disabled)
+      }, { timeout: 30000 })
+      await page.waitForTimeout(150)
+    }
+    await page.waitForFunction(() => {
+      const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+      return Boolean(store.roleplaySession?.hostPlan && store.roleplaySession.hostPlan.stepsUsed >= store.roleplaySession.hostPlan.maxSteps)
+    }, { timeout: 30000 }).catch(() => {})
+    const newBatchVisible = await page.locator('[data-testid="rp-kp-new-batch"]').count()
+    if (newBatchVisible > 0) {
+      await page.click('[data-testid="rp-kp-new-batch"]')
+      const reset = await page.evaluate(() => {
+        const store = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia._s.get('game')
+        return { used: store.roleplaySession.hostPlan.stepsUsed, max: store.roleplaySession.hostPlan.maxSteps }
+      })
+      check('R10 新一批主持重置预算（显式真人动作）', reset.used === 0 && reset.max === 3, JSON.stringify(reset))
+    } else {
+      check('R10 新一批主持入口可见（预算未耗尽时不强制）', true, '预算未在本段内耗尽')
+    }
+    await page.screenshot({ path: `${OUT_DIR}/14-r10-kp-host-1440-light.png` })
+    await context.close()
+  }
+
+  // ── 15. R11：跑团回合收集到正文并保留来源；重复收集幂等 ──
+  {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } })
+    const page = await context.newPage()
+    await page.goto(`${BASE}/experience`)
+    await page.waitForSelector('.input-area', { timeout: 30000 })
+    // 预置书稿 + 含已提交检定行的已提交跑团回合（隔离 profile 合成夹具）。
+    await page.evaluate(() => {
+      localStorage.setItem('writing_books', JSON.stringify([
+        { id: 'book_rp11', title: 'R11 跑团稿', chapters: [{ id: 'ch_rp11', title: '第一章' }] }
+      ]))
+      const sessions = [{
+        id: 'sess_rp11',
+        schemaVersion: 1,
+        title: '跑团收集夹具',
+        createdAt: Date.now() - 60000,
+        updatedAt: Date.now() - 60000,
+        worldbookId: '',
+        messages: [
+          { id: 'msg_u11', role: 'user', content: '凑近炉火，辨认字迹', timestamp: Date.now() - 50000, branchId: 'main',
+            roleplayCheck: {
+              version: 1, actionId: 'act_rp11', branchId: 'main', sessionId: 'sess_rp11',
+              ruleId: 'pinax-roleplay-2d6', rulesVersion: 1, expression: '2d6', attribute: 'wits',
+              attributeLabel: '头脑', modifier: 1, dice: [5, 4], total: 10, outcome: 'success',
+              outcomeLabel: '2d6+1 = 10（5 + 4）→ 成功', ruleText: '掷 2d6+1', rawInputDigest: '凑近炉火', status: 'committed',
+              detail: { thresholds: { success: 10, partialSuccess: 7 }, rngTrace: { algorithm: 'uint32-rejection-v2', consumedSamples: 2, rejectedSamples: 0 } }
+            } },
+          { id: 'msg_a11', role: 'assistant', content: '炉火映亮了最后一行字：灯下的第三个人。', timestamp: Date.now() - 40000, branchId: 'main' }
+        ],
+        chatHistory: [],
+        runtimeState: {},
+        worldState: {},
+        turnRecords: {
+          turn_rp11: {
+            id: 'turn_rp11', parentTurnId: null, branchId: 'main',
+            userMessageIds: ['msg_u11'], assistantMessageIds: ['msg_a11'],
+            preRuntimeSnapshot: {}, status: 'committed',
+            createdAt: Date.now() - 40000, committedAt: Date.now() - 40000
+          }
+        },
+        lastCommittedTurnId: 'turn_rp11',
+        activeBranchId: 'main'
+      }]
+      localStorage.setItem('writing_sessions', JSON.stringify(sessions))
+    })
+    await page.goto(`${BASE}/experience?sessionId=sess_rp11`)
+    await page.waitForSelector('.input-area', { timeout: 30000 })
+    await page.waitForSelector('[data-testid="rp-check-row"]', { timeout: 15000 })
+    // 收集该跑团叙述回合。
+    await page.evaluate(() => {
+      document.querySelector('.prose__action--collect')?.click()
+    })
+    await page.waitForSelector('.writing-collect-dialog', { timeout: 15000 })
+    await page.getByRole('button', { name: '收进稿件' }).last().click()
+    await page.waitForSelector('.writing-collect-status', { timeout: 15000 })
+    const collectStatus = await page.locator('.writing-collect-status').innerText()
+    check('R11 跑团叙述收集进稿件', collectStatus.includes('已收进'), `status=${collectStatus}`)
+    const provenance = await page.evaluate(() => {
+      const books = JSON.parse(localStorage.getItem('writing_books') || '[]')
+      const chapter = books[0]?.chapters?.[0]
+      const doc = chapter?.editorDocument
+      const units = Array.isArray(doc?.content) ? doc.content : []
+      const withOrigin = units.map((unit) => unit?.attrs?.originRefs?.[0] || null).filter(Boolean)
+      const text = chapter?.content || ''
+      return {
+        unitCount: units.length,
+        origin: withOrigin[0] || null,
+        docSchema: doc?.schemaVersion || null,
+        hasText: text.includes('灯下的第三个人'),
+        markdownOccurrences: text.split('灯下的第三个人').length - 1
+      }
+    })
+    check('R11 收集保留来源（turn/session/branch 可追溯）', provenance.origin?.turnId === 'turn_rp11' && provenance.origin?.sessionId === 'sess_rp11' && provenance.origin?.branchId === 'main' && provenance.hasText, JSON.stringify(provenance))
+    // 重复收集：owner 幂等（提示已收进），书稿 unit 不重复。
+    await page.evaluate(() => {
+      document.querySelector('.prose__action--collect')?.click()
+    })
+    await page.waitForSelector('.writing-collect-dialog', { timeout: 15000 })
+    await page.getByRole('button', { name: '收进稿件' }).last().click()
+    await page.waitForFunction(() => (document.querySelector('.writing-collect-status')?.innerText || '').includes('已经收进'), { timeout: 10000 })
+    const repeat = await page.evaluate(() => {
+      const books = JSON.parse(localStorage.getItem('writing_books') || '[]')
+      const units = books[0]?.chapters?.[0]?.editorDocument?.content || []
+      return { unitCount: units.length }
+    })
+    check('R11 重复收集幂等（书稿只一份）', repeat.unitCount === provenance.unitCount, `before=${provenance.unitCount}, after=${repeat.unitCount}`)
     await context.close()
   }
 

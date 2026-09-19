@@ -14,7 +14,8 @@ export const LEDGER_DOMAIN_FILES = {
   factDecisions: 'ledger/fact-decisions.json',
   rejectionMarks: 'ledger/rejection-marks.json',
   ledgerMeta: 'ledger/meta.json',
-  turnReceipts: 'ledger/turn-receipts.json'
+  turnReceipts: 'ledger/turn-receipts.json',
+  knowledgeEvents: 'ledger/knowledge-events.json'
 }
 
 const LEDGER_TABLE_KEYS = Object.keys(LEDGER_DOMAIN_FILES)
@@ -53,7 +54,7 @@ function validateRows(key, rows) {
       if (!normalized.ok || encodeScopeKey(normalized.scope) !== row.scopeKey) throw new Error(`事实账本 ${key} 作用域不一致`)
     }
     if (key === 'factVersions' && row.schemaVersion !== 2) throw new Error('事实版本 schema 不受支持')
-    if (['factDecisions', 'factVersions'].includes(key) && (!Number.isSafeInteger(row.recordedSeq) || row.recordedSeq < 1)) throw new Error('事实或决定缺少有效记录序号')
+    if (['factDecisions', 'factVersions', 'knowledgeEvents'].includes(key) && (!Number.isSafeInteger(row.recordedSeq) || row.recordedSeq < 1)) throw new Error('事实或决定缺少有效记录序号')
     if (key === 'factVersions' && (typeof row.object !== 'string' || typeof row.subjectKey !== 'string' || typeof row.predicate !== 'string')) throw new Error('事实主张字段无效')
   }
 }
@@ -67,8 +68,15 @@ export function validateLedgerDomain(value, manifest) {
   if (!value.tables || typeof value.tables !== 'object') throw new Error('事实账本域缺少表数据')
   let total = 0
   for (const key of LEDGER_TABLE_KEYS) {
+    // knowledgeEvents 后于既有包加入：旧包没有该表时按空表处理（只增不改的
+    // 兼容策略）；其余表缺失仍然是损坏。
+    if (key === 'knowledgeEvents' && value.tables[key] === undefined) continue
     validateRows(key, value.tables[key])
     const expected = manifest?.counts?.[key]
+    if (key === 'knowledgeEvents' && !Number.isSafeInteger(expected)) {
+      total += value.tables[key].length
+      continue
+    }
     if (!Number.isSafeInteger(expected) || expected !== value.tables[key].length || value.counts?.[key] !== expected) {
       throw new Error(`事实账本 ${key} 数量校验失败：包清单 ${expected}，文件 ${value.tables[key].length}`)
     }
@@ -84,12 +92,12 @@ export function validateLedgerDomain(value, manifest) {
       if (!prior || prior.scopeKey !== row.scopeKey || prior.factKey !== row.factKey || prior.recordedSeq >= row.recordedSeq) throw new Error('事实账本更正链无效')
     }
   }
-  for (const row of [...value.tables.factVersions, ...value.tables.factDecisions, ...value.tables.turnReceipts]) {
+  for (const row of [...value.tables.factVersions, ...value.tables.factDecisions, ...value.tables.turnReceipts, ...(value.tables.knowledgeEvents || [])]) {
     const seq = row.recordedSeq ?? row.archivedSeq
     const counter = meta.get(`seq:${row.scopeKey}`)?.seq
     if (!Number.isSafeInteger(seq) || seq < 1 || !Number.isSafeInteger(counter) || counter < seq) throw new Error('事实账本序号超出作用域计数器')
   }
-  return { total, counts: Object.fromEntries(LEDGER_TABLE_KEYS.map(key => [key, value.tables[key].length])) }
+  return { total, counts: Object.fromEntries(LEDGER_TABLE_KEYS.map(key => [key, value.tables[key]?.length || 0])) }
 }
 
 // Idempotent restore. Same id + same content → skipped; same id + different
@@ -107,7 +115,7 @@ export async function importLedgerDomain(db, value) {
         const pk = LEDGER_TABLE_PK[key]
         written[key] = []
         skipped[key] = []
-        for (const row of value.tables[key]) {
+        for (const row of (value.tables[key] || [])) {
           const rowKey = row[pk]
           // The 'schema' meta row is environment metadata regenerated at open;
           // the seq:* rows are DATA (record-axis ordering depends on them) and

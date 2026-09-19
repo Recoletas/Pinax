@@ -56,6 +56,16 @@ import {
 import { beginHostStep, completeHostStep, createHostPlan, pauseHostPlan, resumeHostPlan } from './roleplayHost.js'
 import { buildRecordSourceRef, exportAdventureRecord } from './roleplayRecords.js'
 import {
+  buildRoleplayRunRecoveryViews,
+  cancelTurnRun,
+  checkCompanionProposalFresh,
+  completeTurnRunNarration,
+  createTurnRun,
+  failTurnRunNarration,
+  prepareTurnRunForNarration,
+  recordTurnRunResolution
+} from './roleplayRuns.js'
+import {
   buildCompanionKnowledgeContext,
   createCompanion,
   createCompanionProposal,
@@ -237,9 +247,15 @@ export async function confirmRoleplayAction(store, {
   const persisted = persistRoleplayState(store, { requireDurable: true })
   if (!persisted.ok) {
     delete state.pendingByBranch[branchId]
+    // saveCurrentSession 已把带 pending 的会话记录暂存进 store.sessions；
+    // 回滚后必须重新暂存，否则后续任何一次保存都会让“僵尸确认”复活
+    // （CX06 双标签反例：另一页签载入幽灵 pending，新检定被冲突拒绝）。
+    store.saveCurrentSession()
     store.lastError = '确认保存失败（存储可能已满），检定未开始，输入已保留'
     throw roleplayError('ROLEPLAY_PERSIST_FAILED', '确认保存失败（存储可能已满），检定未开始，输入已保留')
   }
+  // G2b：确认已 durable → 登记 run 账目（'confirm' 步骤即已提交副作用）。
+  createTurnRun(store, state, action)
 
   return resolvePendingAction(store, { actionId: action.actionId, nextUint32 })
 }
@@ -291,6 +307,10 @@ export async function resolvePendingAction(store, { actionId, nextUint32 = null 
     branchId: currentBranchId(store)
   })
 
+  // G2b：骰点/场景/资源步骤记账（幂等，effectKey 同既有 actionId 幂等键），
+  // 并开始 narration 步骤——刷新后恢复视图据此展示真实进度。
+  recordTurnRunResolution(state, action)
+
   return requestRoleplayNarration(store, { actionId })
 }
 
@@ -321,6 +341,9 @@ export async function requestRoleplayNarration(store, { actionId } = {}) {
     ? `${directive} 导演注：${userNote}`.slice(0, 395)
     : directive
 
+  // G2b：叙述请求唯一入口——interrupted run 拉回 running、narration 步骤推进。
+  prepareTurnRunForNarration(store, state, action)
+
   return store.sendAction(action.rawInput, {
     source: 'roleplay',
     roleplayActionId: action.actionId,
@@ -347,6 +370,7 @@ export function cancelRoleplayPending(store) {
   if (!action) return false
   cancelRoleplayAction(action)
   delete state.pendingByBranch[branchId]
+  cancelTurnRun(state, action.actionId)
   persistRoleplayState(store)
   return true
 }
@@ -443,6 +467,9 @@ export function commitRoleplayNarration(store, { action, turnRecord }) {
 
   delete state.pendingByBranch[branchId]
 
+  // G2b：narration 步骤 succeeded + run 完成（与回执同一事务内生效）。
+  completeTurnRunNarration(state, action, { turnId: turnRecord.id })
+
   // 刷新消息上的检定行（status → committed），与回合同一次落盘。
   const userMessageId = turnRecord.userMessageIds?.[0]
   const userMessage = userMessageId
@@ -482,6 +509,7 @@ export function failRoleplayNarration(store, { action, errorCode }) {
   if (!action || action.status !== 'resolved') return
   action.retryCount = Math.min(99, action.retryCount + 1)
   action.lastErrorCode = String(errorCode || 'NARRATIVE_FAILED').slice(0, 80)
+  failTurnRunNarration(store.roleplaySession, action, errorCode)
   persistRoleplayState(store)
 }
 
@@ -521,6 +549,11 @@ export async function resumeRoleplayPending(store, { actionId, nextUint32 = null
 /** 供组件读取的确认行规则明文（单一来源）。 */
 export function roleplayRuleSummary(modifier = 0) {
   return describeRuleText({ modifier })
+}
+
+/** G2b 恢复视图：当前会话非终态 run（跨分支），附真实恢复语义与 stale 标记。 */
+export function getRoleplayRunRecoveryViews(store) {
+  return buildRoleplayRunRecoveryViews(store.roleplaySession)
 }
 
 export { createRoleplayActionId, normalizeRoleplaySessionState, loadRoleplayStateForSession }
@@ -708,6 +741,20 @@ export function pauseRoleplayHost(store) {
   return state.hostPlan
 }
 
+/**
+ * 开始新的一批主持（R07/R12）：显式真人动作——重置已用预算并解除暂停。
+ * 预算从不清零的语义只针对进行中的批；新批是玩家决定，不是系统自动续命。
+ */
+export function resetRoleplayHostBudget(store, { maxSteps } = {}) {
+  const state = ensureRoleplaySessionState(store)
+  if (store.roleplayFutureRaw) {
+    throw roleplayError('ROLEPLAY_FUTURE_STATE_READONLY', '本会话包含更新版本的跑团数据，只读展示，不能重置主持预算')
+  }
+  state.hostPlan = createHostPlan(maxSteps === undefined ? {} : { maxSteps })
+  persistRoleplayState(store)
+  return state.hostPlan
+}
+
 export function resumeRoleplayHost(store) {
   const state = ensureRoleplaySessionState(store)
   if (!state.hostPlan) state.hostPlan = createHostPlan()
@@ -772,28 +819,47 @@ export function getRoleplayCompanionProposal(store) {
  * { requiresConfirm: true, clueId } 交回既有确认面板，不跳过确认。
  */
 export function adoptRoleplayCompanionProposal(store, { proposal } = {}) {
+  const state = ensureRoleplaySessionState(store)
+  // T08：过期候选禁止采用——KP 确认停冻结的提案，若资源/场景 revision 已变，
+  // 硬拒绝并给出具体变化（玩家可让同伴重新提案；不偷偷改成其它动作）。
+  const freshness = checkCompanionProposalFresh(state, proposal)
+  if (!freshness.fresh) {
+    throw roleplayError(
+      'ROLEPLAY_PROPOSAL_STALE',
+      `提案已过期：${freshness.reason}（冻结 ${freshness.frozenRevision}，当前 ${freshness.currentRevision}）；请忽略旧提案，让同伴基于当前局面重新提案`
+    )
+  }
   const view = getRoleplayScenarioView(store)
   if (!validateProposalAgainstProjection(proposal, view)) {
     throw roleplayError('ROLEPLAY_COMPANION_PROPOSAL_INVALID', '提案不在当前可行动集合内，已拒绝')
   }
   if (proposal.kind === 'move') {
     moveRoleplayScene(store, { toSceneId: proposal.toSceneId })
+    if (state.companion) state.companion.lastProposal = null
+    persistRoleplayState(store)
     return { ok: true, executed: 'move' }
   }
+  if (state.companion) state.companion.lastProposal = null
+  persistRoleplayState(store)
   return { ok: true, requiresConfirm: true, clueId: proposal.clueId }
 }
 
 /**
- * 同伴知识上下文（CX32 深度路径）：公开投影 + A 账本会话域已确认事实。
+ * 同伴知识上下文（CX32 深度路径）：公开投影 + 角色知识读模型（M10 接缝）。
+ * knowledgeReader 未接线 → 维持公开投影降级；接线后由读模型按角色/作用域/
+ * 获知时刻收口，本函数透传 actorKey（同伴名）供读模型定位角色视界。
  * 账本不可用/读取失败 → 如实降级为公开投影（knowledgeScope 标注），
  * 绝不回退全库；事实字段白名单收口。
  */
-export async function getRoleplayCompanionKnowledge(store) {
+export async function getRoleplayCompanionKnowledge(store, { knowledgeReader = null, expectedScopeKey = null } = {}) {
   const state = store.roleplaySession
   if (!state?.companion?.enabled || state.scenarioRun?.status !== 'active') return null
   const view = getRoleplayScenarioView(store)
   if (!view) return null
   return buildCompanionKnowledgeContext({
-    projection: view
+    projection: view,
+    knowledgeReader,
+    expectedScopeKey,
+    actorKey: state.companion?.name ? String(state.companion.name).slice(0, 120) : null
   })
 }

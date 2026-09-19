@@ -51,7 +51,11 @@ export function createLedgerFactProjection(db) {
       subjectKeys: Array.isArray(request.subjectKeys) ? request.subjectKeys.slice(0, 8) : undefined,
       storyAt: request.storyAt ?? null,
       timeline: request.timeline ?? null,
-      recordedAsOf: request.recordedAsOf ?? null
+      recordedAsOf: request.recordedAsOf ?? null,
+      // G1: term matching happens INSIDE the bounded walk, so the projection
+      // page is filled with matches — newer unrelated facts cannot squeeze an
+      // older relevant one out by filling the newest-first window first.
+      textTerms: Array.isArray(request.textTerms) ? request.textTerms : undefined
     })
     if (!query.ok) {
       return {

@@ -25,6 +25,7 @@ import { normalizeResourceState } from './roleplayResources.js'
 import { normalizeHostPlan } from './roleplayHost.js'
 import { normalizeCompanion } from './roleplayCompanion.js'
 import { normalizeActor } from './roleplayActor.js'
+import { markRoleplayRunsInterruptedOnLoad, normalizeRoleplayRunRecords } from './roleplayRuns.js'
 
 export const ROLEPLAY_SESSION_STATE_VERSION = 1
 export const ROLEPLAY_PENDING_CAPACITY = 6
@@ -48,17 +49,22 @@ export function createEmptyRoleplaySessionState() {
     resources: null,       // CX21：确定性资源账（null=尚未初始化）
     hostPlan: null,        // CX25：有界主持计划（null=未启用）
     companion: null,       // CX31：单一 AI 同伴（null=未启用）
-    actor: null            // CX19：玩家行动者身份与属性 override
+    actor: null,           // CX19：玩家行动者身份与属性 override
+    runs: []               // G2b：持久 run 账目（StepReceipt 步骤/副作用回执）
   }
 }
 
 /**
  * 载入路径的统一入口：当前版本 → normalized；未知/未来版本 → { current:null,
- * futureRaw } 原样保留。
+ * futureRaw } 原样保留。载入时刻不可能有 in-flight 生成——非终态 running
+ * run 在这里扫描为 interrupted（G2b 恢复语义），保存路径不做该扫描。
  */
 export function loadRoleplayStateForSession(raw) {
   const normalized = normalizeRoleplaySessionState(raw)
-  if (normalized || raw == null) return { current: normalized, futureRaw: null }
+  if (normalized || raw == null) {
+    if (normalized) markRoleplayRunsInterruptedOnLoad(normalized)
+    return { current: normalized, futureRaw: null }
+  }
   return { current: null, futureRaw: raw }
 }
 
@@ -136,6 +142,10 @@ export function normalizeRoleplaySessionState(raw) {
 
   // CX19：玩家行动者身份（actorRef 稳定）与属性 override。
   state.actor = normalizeActor(raw.actor)
+
+  // G2b：持久 run 账目（未知版本记录被丢弃并按 future-raw 语义保护会话级
+  // 命名空间；run 级未知版本条目直接不收，非终态记录绝不静默裁剪）。
+  state.runs = normalizeRoleplayRunRecords(raw.runs)
 
   return state
 }

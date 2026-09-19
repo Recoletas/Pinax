@@ -55,12 +55,14 @@ function resolveInterval(interval, timeline) {
 }
 
 // UI-facing description; never renders an unknown interval as definite.
+// M11 文案合同（先判 unknown）：「未知日期不是开放终点」（0022）——
+// endSemantic 'unknown' 且无端点时必须报「终点未知」，不得落进「此后仍成立」。
 export function describeInterval(interval) {
   if (!interval) return '故事时间未知'
   const parts = []
   parts.push(interval.start ? `自 ${interval.start.eraId}${interval.start.ordinal !== null ? ` 第 ${interval.start.ordinal} 年` : ''}` : '开始未知')
-  if (interval.endSemantic === 'open' || !interval.end) parts.push('此后仍成立（无记录终点）')
-  else if (interval.endSemantic === 'unknown') parts.push('终点未知')
+  if (interval.endSemantic === 'unknown') parts.push('终点未知')
+  else if (interval.endSemantic === 'open' || !interval.end) parts.push('此后仍成立（无记录终点）')
   else parts.push(`至 ${interval.end.eraId}${interval.end.ordinal !== null ? ` 第 ${interval.end.ordinal} 年前` : ''}`)
   return parts.join('，')
 }

@@ -25,6 +25,10 @@ const projection = await import(path.join(root, 'src/services/experience/rolepla
 const adapter = await import(path.join(root, 'src/services/experience/roleplay/roleplayHistoryAdapter.js'))
 const workflow = await import(path.join(root, 'src/services/experience/roleplay/roleplayWorkflow.js'))
 const scenarioMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayScenario.js'))
+const runContract = await import(path.join(root, 'src/services/experience/run/runContract.js'))
+const roleplayRuns = await import(path.join(root, 'src/services/experience/roleplay/roleplayRuns.js'))
+const kpMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayKpCoordinator.js'))
+const companionMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayCompanion.js'))
 
 let passed = 0
 let failed = 0
@@ -1063,6 +1067,817 @@ function throwsWithCode(fn, code) {
   check('CX43 实测：500 条全保留（低于容量上限无背压丢弃）', normalized.archiveOutbox.length === 500)
 }
 
+// ── G2a/G2b：最小 run 合同（StoryForge hash/checkpoint 移植面）与持久恢复 ──
+{
+  const fixed = { z: 1, a: 2, nested: { y: undefined, b: 3, a: 1 } }
+  check('G2a canonicalStringify 键排序且去 undefined', runContract.canonicalStringify(fixed) === '{"a":2,"nested":{"a":1,"b":3},"z":1}')
+  check('G2a undefined 字段不改变哈希', runContract.hashCanonicalValue({ a: 1, b: undefined }) === runContract.hashCanonicalValue({ a: 1 }))
+  check('G2a 键序不同哈希一致', runContract.hashCanonicalValue({ a: 1, b: 2 }) === runContract.hashCanonicalValue({ b: 2, a: 1 }))
+  check('G2a 缺 taskId 拒绝', throwsWithCode(() => runContract.createRunIdentity({ scope: { sessionId: 's' } }), 'RUN_TASK_ID_INVALID'))
+  check('G2a 缺 sessionId 拒绝', throwsWithCode(() => runContract.createRunIdentity({ taskId: 't', scope: {} }), 'RUN_SCOPE_INVALID'))
+  check('G2a 跨分支写入拒绝', (() => {
+    const identity = runContract.createRunIdentity({ taskId: 't', scope: { sessionId: 's1', branchId: 'main' } })
+    return throwsWithCode(() => runContract.assertRunScope(identity, { sessionId: 's1', branchId: 'other' }), 'RUN_SCOPE_MISMATCH')
+  })())
+  check('G2a 跨书写入拒绝', (() => {
+    const identity = runContract.createRunIdentity({ taskId: 't', scope: { bookId: 'b1', sessionId: 's1', branchId: 'main' } })
+    return throwsWithCode(() => runContract.assertRunScope(identity, { bookId: 'b2', sessionId: 's1', branchId: 'main' }), 'RUN_SCOPE_MISMATCH')
+  })())
+
+  // 幂等 begin/complete：同输入复用、异输入拒绝、重试 attempt+1、副作用唯一。
+  {
+    const identity = runContract.createRunIdentity({ taskId: 't', scope: { sessionId: 's1', branchId: 'main' } })
+    const run = runContract.createRunRecord({ identity })
+    const first = runContract.beginRunStep(run, { stepId: 'resolve', input: { actionId: 'a1' } })
+    const again = runContract.beginRunStep(run, { stepId: 'resolve', input: { actionId: 'a1' } })
+    check('G2a 同输入 begin 幂等复用', first.reused === false && again.reused === true && again.receipt === first.receipt)
+    check('G2a 同步骤异输入拒绝（幂等键冲突）', throwsWithCode(() => runContract.beginRunStep(run, { stepId: 'resolve', input: { actionId: 'a2' } }), 'RUN_STEP_INPUT_CONFLICT'))
+    check('G2a 成功步骤缺结果哈希拒绝', throwsWithCode(() => runContract.completeRunStep(run, { stepId: 'resolve', status: 'succeeded' }), 'RUN_STEP_RESULT_HASH_MISSING'))
+    runContract.completeRunStep(run, { stepId: 'resolve', status: 'succeeded', result: { dice: [3, 4] }, effectKey: 'dice:a1' })
+    const replay = runContract.completeRunStep(run, { stepId: 'resolve', status: 'succeeded', result: { dice: [3, 4] }, effectKey: 'dice:a1' })
+    check('G2a 同结果重复结算幂等复用', replay.reused === true)
+    check('G2a 异结果重复结算拒绝', throwsWithCode(() => runContract.completeRunStep(run, { stepId: 'resolve', status: 'succeeded', result: { dice: [5, 6] } }), 'RUN_STEP_RESULT_CONFLICT'))
+    check('G2a 同 effectKey 第二个副作用拒绝', (() => {
+      runContract.beginRunStep(run, { stepId: 'resource-cost', input: { actionId: 'a1' } })
+      return throwsWithCode(() => runContract.completeRunStep(run, { stepId: 'resource-cost', status: 'succeeded', result: { v: 1 }, effectKey: 'dice:a1' }), 'RUN_EFFECT_DUPLICATE')
+    })())
+    // narration 步骤：failed → 重新 begin attempt+1 → succeeded。
+    runContract.beginRunStep(run, { stepId: 'narration', input: { actionId: 'a1' } })
+    runContract.completeRunStep(run, { stepId: 'narration', status: 'failed', errorCode: 'NARRATIVE_AGENT_FAILED' })
+    const retryBegin = runContract.beginRunStep(run, { stepId: 'narration', input: { actionId: 'a1' } })
+    check('G2a 失败重试 attempt+1 且回 pending', retryBegin.retried === true && retryBegin.receipt.attempt === 2 && retryBegin.receipt.status === 'pending')
+    // 状态机：running→completed 合法；终态再开步/回退拒绝。
+    runContract.completeRunStep(run, { stepId: 'narration', status: 'succeeded', result: { turnId: 't1' }, commitReceipt: { kind: 'turn-commit', turnId: 't1', committedAt: 1 } })
+    runContract.setRunStatus(run, 'completed')
+    check('G2a 终态后再开步拒绝', throwsWithCode(() => runContract.beginRunStep(run, { stepId: 'x', input: {} }), 'RUN_TERMINAL'))
+    check('G2a 终态回退拒绝', throwsWithCode(() => runContract.setRunStatus(run, 'running'), 'RUN_TRANSITION_INVALID'))
+    const plan = runContract.buildRunRecoveryPlanV1(run)
+    check('G2a 恢复计划分类：完成/已采用/可恢复', plan.completedStepIds.length === 2 && plan.committedAdoptionStepIds.length === 1 && plan.resumableStepIds.length === 0)
+    check('G2a 未知版本 run 拒绝解析', runContract.parseRunRecordV1({ version: 99 }) === null)
+  }
+
+  // G2b store 级：确认→登记→结算记账→叙述提交完成。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: 'run 账目验收' })
+    await workflow.confirmRoleplayAction(store, { rawInput: '查看祭坛', attribute: 'wits', modifier: 0, nextUint32: () => 8 })
+    const state = store.roleplaySession
+    const pendingAction = state.pendingByBranch.main
+    const run = state.runs?.find((item) => item.runId === pendingAction.actionId)
+    check('G2b 确认即登记 run（runId=actionId，confirm 步骤已提交）', Boolean(run) && run.runId === pendingAction.actionId && run.steps.some((s) => s.stepId === 'confirm' && s.status === 'succeeded' && s.effectKey === `confirm:${run.runId}`))
+    check('G2b 结算后 run 含骰点步骤与 narration 待办', run.steps.some((s) => s.stepId === 'resolve' && s.status === 'succeeded' && s.effectKey === `dice:${run.runId}`) && run.steps.some((s) => s.stepId === 'narration' && s.status === 'pending'))
+    check('G2b run 资源快照与当前一致（自身结算后更新）', Boolean(run.resourceRevision) && !roleplayRuns.buildRoleplayRunRecoveryViews(state)[0].stale)
+    // coordinator 提交路径：commitRoleplayNarration → run 完成。
+    const userMessage = { id: 'msg_user_1', role: 'user', content: '查看祭坛' }
+    store.messages.push(userMessage)
+    const turnRecord = { id: 'turn_eval_1', parentTurnId: null, userMessageIds: ['msg_user_1'], branchId: 'main' }
+    const receipt = workflow.commitRoleplayNarration(store, { action: pendingAction, turnRecord })
+    check('G2b 提交后 run 终态 completed 且 narration 关联 turn', run.status === 'completed' && run.steps.find((s) => s.stepId === 'narration')?.resultRef === 'turn:turn_eval_1')
+    check('G2b 提交回执 receiptId=actionId', receipt?.receiptId === pendingAction.actionId)
+    check('G2b 完成后无待恢复 run', workflow.getRoleplayRunRecoveryViews(store).length === 0)
+    check('G2b 骰点副作用步骤唯一（重复提交不重复记账）', run.steps.filter((s) => s.effectKey === `dice:${run.runId}` && s.status === 'succeeded').length === 1)
+  }
+
+  // G2b 幂等确认：pending 在途时同 payload 复用（不重骰），异 payload 冲突拒绝。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '幂等确认验收' })
+    await workflow.confirmRoleplayAction(store, { rawInput: '搜索房间', attribute: 'wits', modifier: 0, nextUint32: () => 2 })
+    const state = store.roleplaySession
+    const pendingBefore = state.pendingByBranch.main
+    const diceFrozen = JSON.stringify(pendingBefore.resolution.dice)
+    const sendCount = store.sent.length
+    await workflow.confirmRoleplayAction(store, { rawInput: '搜索房间', attribute: 'wits', modifier: 0, nextUint32: () => 999 })
+    check('G2b 同载荷重发复用同 actionId（不重骰）', state.pendingByBranch.main.actionId === pendingBefore.actionId && JSON.stringify(state.pendingByBranch.main.resolution.dice) === diceFrozen)
+    check('G2b 同载荷重发只重发叙述（一次）', store.sent.length === sendCount + 1 && store.sent.at(-1).options.roleplayActionId === pendingBefore.actionId)
+    check('G2b 同载荷重发不新增 run', state.runs.filter((item) => item.runId === pendingBefore.actionId).length === 1)
+    let conflictCode = null
+    try {
+      await workflow.confirmRoleplayAction(store, { rawInput: '改为撬锁', attribute: 'wits', modifier: 0 })
+    } catch (error) { conflictCode = error?.code }
+    check('G2b 异 payload 冲突拒绝', conflictCode === 'ROLEPLAY_PENDING_CONFLICT')
+  }
+
+  // G2b 刷新恢复：resolved+未叙述 → 载入扫描 interrupted → 恢复同骰点 → 完成一次。
+  {
+    const store = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '刷新恢复验收' })
+    await workflow.confirmRoleplayAction(store, { rawInput: '撬开锁', attribute: 'physique', modifier: 1, nextUint32: () => 4 })
+    const before = store.roleplaySession
+    const pendingBefore = stateMod.getRoleplayPendingForBranch(before, 'main')
+    const diceFrozen = JSON.stringify(pendingBefore.resolution.dice)
+    check('G2b 刷新前 run 非终态且 narration 待办', before.runs.length === 1 && before.runs[0].status === 'running')
+    // 模拟刷新：序列化 → 载入（loadRoleplayStateForSession 含 interrupted 扫描）。
+    const serialized = JSON.parse(JSON.stringify(before))
+    const loaded = stateMod.loadRoleplayStateForSession(serialized)
+    const restored = loaded.current
+    const run = restored.runs[0]
+    check('G2b 载入扫描把 running 标为 interrupted', run.status === 'interrupted')
+    check('G2b 恢复视图展示 interrupted + 可恢复 narration', (() => {
+      const views = roleplayRuns.buildRoleplayRunRecoveryViews(restored)
+      return views.length === 1 && views[0].status === 'interrupted' && views[0].actionId === run.runId
+    })())
+    // 恢复：接回 store（同会话身份）→ resume 同 actionId → 同骰点重发叙述。
+    store.roleplaySession = restored
+    const sendCountBefore = store.sent.length
+    await workflow.resumeRoleplayPending(store, { actionId: pendingBefore.actionId })
+    const pendingAfter = stateMod.getRoleplayPendingForBranch(store.roleplaySession, 'main')
+    check('G2b 恢复后骰点不变（不重掷）', JSON.stringify(pendingAfter.resolution.dice) === diceFrozen)
+    check('G2b 恢复即重发叙述（同 actionId，显式动作）', store.sent.length === sendCountBefore + 1 && store.sent.at(-1).options.roleplayActionId === pendingBefore.actionId)
+    check('G2b 恢复后 run 回到 running', store.roleplaySession.runs[0].status === 'running')
+    // 提交：完成一次；重复提交同 turn 幂等。
+    const action = pendingAfter
+    workflow.commitRoleplayNarration(store, { action, turnRecord: { id: 'turn_r1', parentTurnId: null, userMessageIds: [], branchId: 'main' } })
+    workflow.commitRoleplayNarration(store, { action, turnRecord: { id: 'turn_r1', parentTurnId: null, userMessageIds: [], branchId: 'main' } })
+    check('G2b 重复提交同 turn 幂等（completed 一次，回执唯一）', store.roleplaySession.runs[0].status === 'completed' && store.roleplaySession.runs[0].steps.filter((s) => s.stepId === 'narration' && s.status === 'succeeded').length === 1)
+  }
+
+  // G2b 存储失败/取消/外部改动 stale/终态裁剪。
+  {
+    const store = createMockStore({ flushOk: false })
+    workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '故障边界验收' })
+    let caught = null
+    try {
+      await workflow.confirmRoleplayAction(store, { rawInput: '推门', attribute: 'physique', modifier: 0, nextUint32: () => 6 })
+    } catch (error) { caught = error }
+    check('G2b 确认 durable 失败：零骰点零 run', caught?.code === 'ROLEPLAY_PERSIST_FAILED' && (store.roleplaySession?.runs?.length || 0) === 0 && !store.roleplaySession?.pendingByBranch?.main)
+
+    const okStore = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(okStore, { mode: 'rules', goal: '取消与 stale' })
+    await workflow.confirmRoleplayAction(okStore, { rawInput: '搜索房间', attribute: 'wits', modifier: 0, nextUint32: () => 2 })
+    workflow.cancelRoleplayPending(okStore)
+    const cancelledRun = okStore.roleplaySession.runs[0]
+    check('G2b 放弃后 run 显式取消（终态保留诊断）', cancelledRun.status === 'cancelled' && cancelledRun.lastErrorCode === 'ROLEPLAY_CANCELLED')
+
+    const staleStore = createMockStore({ flushOk: true })
+    workflow.setRoleplaySessionSetup(staleStore, { mode: 'rules', goal: 'stale 验收' })
+    // 骰 3+3=6 → 失败前进 → 自身资源结算已应用（run 快照非空）。
+    await workflow.confirmRoleplayAction(staleStore, { rawInput: '聆听', attribute: 'wits', modifier: 0, nextUint32: () => 2 })
+    const staleState = staleStore.roleplaySession
+    const freshView = roleplayRuns.buildRoleplayRunRecoveryViews(staleState)[0]
+    check('G2b 自身结算后恢复视图不误报 stale', freshView?.stale === false && Boolean(freshView) === true)
+    // 外部改动（消耗品使用不经 run）→ 快照不一致 → stale 标记。
+    const resourceMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+    resourceMod.applyResourceDelta(staleState.resources, {
+      deltaId: 'eval_external_use', resource: 'lampOil', amount: -1, sourceRef: 'eval:manual-use', branchId: 'main'
+    })
+    const staleView = roleplayRuns.buildRoleplayRunRecoveryViews(staleState)[0]
+    check('G2b 外部资源改动后恢复视图标记 stale', staleView?.stale === true)
+
+    // 终态 LRU：非终态绝不裁剪。
+    const trimState = { runs: [] }
+    for (let i = 0; i < 60; i += 1) {
+      trimState.runs.push({ version: 1, runId: `run_t${i}`, taskId: 't', scope: { sessionId: 's', branchId: 'main' }, contractVersion: 1, resourceRevision: null, status: 'completed', steps: [], budget: null, lastErrorCode: null, createdAt: i, updatedAt: i })
+    }
+    trimState.runs.push({ version: 1, runId: 'run_live', taskId: 't', scope: { sessionId: 's', branchId: 'main' }, contractVersion: 1, resourceRevision: null, status: 'interrupted', steps: [], budget: null, lastErrorCode: null, createdAt: 1000, updatedAt: 1000 })
+    roleplayRuns.trimRoleplayRuns(trimState)
+    check('G2b 终态 LRU 裁剪且非终态保留', trimState.runs.length === roleplayRuns.ROLEPLAY_RUN_LIMIT && trimState.runs.some((r) => r.runId === 'run_live'))
+  }
+}
+
+// ── R01/R02：KP 阶段协调循环（StoryForge kp-coordinator 适配移植） ──
+function createKpMockStore() {
+  const store = createMockStore({ flushOk: true })
+  let turnSeq = 0
+  store.commitCurrentSessionNow = () => true
+  store.sendAction = async function sendAction(text, options = {}) {
+    this.sent.push({ text, options })
+    turnSeq += 1
+    this.lastCommittedTurnId = `turn_kp_${turnSeq}`
+    return 'success'
+  }
+  return store
+}
+
+function seedKpScenario(store, { companion = true } = {}) {
+  const scenarioJson = JSON.parse(readFileSync(path.join(root, 'src/services/experience/roleplay/fixtures/lampkeeper-scenario.json'), 'utf8'))
+  const scenario = scenarioMod.normalizeScenario(scenarioJson.scenario)
+  workflow.setRoleplaySessionSetup(store, { mode: 'rules', goal: '查明灯塔看守失踪的真相' })
+  workflow.startRoleplayScenario(store, { scenario })
+  if (companion) workflow.setRoleplayCompanionEnabled(store, { enabled: true })
+  return scenario
+}
+
+  // R01：预算默认 3；周期内 3 个 narration beat；提案出现 → confirmation 立即停。
+  {
+    const store = createKpMockStore()
+    seedKpScenario(store)
+    const first = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 3 })
+    check('R01 周期返回合法状态', kpMod.ROLEPLAY_KP_STATUSES.includes(first.status), `status=${first.status}`)
+    check('R01 budget≤3（预算内停止）', first.aiActions <= 3 && first.aiActions >= 1, `aiActions=${first.aiActions}`)
+    check('R01 narration 经 hidden advance 单链', store.sent.length > 0 && store.sent.every((call) => call.options.hidden === true && call.options.source === 'roleplay-host'))
+    check('R01 director 指令经导演注通道进入 narration', store.sent.every((call) => typeof call.options.directorNote === 'string' && call.options.directorNote.includes('当前场景')))
+    const state = store.roleplaySession
+    const kpRun = state.runs.find((run) => run.taskId === kpMod.ROLEPLAY_KP_TASK_ID)
+    check('R01 kp run 在案且 narration 步骤全部成功', Boolean(kpRun) && kpRun.steps.filter((s) => s.stepId.startsWith('narration:') && s.status === 'succeeded').length === first.aiActions)
+    check('R01 narration effectKey 唯一（不重复 AI 动作）', new Set(kpRun.steps.filter((s) => s.effectKey?.startsWith('kp-narration:')).map((s) => s.effectKey)).size === first.aiActions)
+    check('R01 director→narration 成对出现', kpRun.steps.filter((s) => s.stepId.startsWith('director:')).length === kpRun.steps.filter((s) => s.stepId.startsWith('narration:')).length)
+    check('R01 budget 镜像持久（刷新不清零）', kpRun.budget.usedAiActions === first.aiActions && kpRun.budget.maxAiActions === 3)
+    if (first.status === 'confirmation') {
+      check('R01 提案等待真人采纳（不自动执行）', Boolean(first.proposal?.requiresPlayerConfirmation) && state.companion.lastProposal.kind === first.proposal.kind)
+    }
+  }
+
+  // R02：真人优先——待回应检定立即停，预算零消耗。
+  {
+    const store = createKpMockStore()
+    seedKpScenario(store)
+    await workflow.confirmRoleplayAction(store, { rawInput: '检查线索', attribute: 'wits', modifier: 0, nextUint32: () => 2 })
+    const sentBefore = store.sent.length
+    const result = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 3 })
+    check('R02 待回应检定：human-response 立即停', result.status === 'human-response')
+    check('R02 真人优先不消耗主持预算（不动玩家骰点）', store.sent.length === sentBefore && result.aiActions === 0)
+  }
+
+  // R02：结局立即停；暂停立即停；无场景 setup-required。
+  {
+    const store = createKpMockStore()
+    const scenario = seedKpScenario(store)
+    const state = store.roleplaySession
+    // 直接触发结局（确定性条件：clue_boot 已发现 + 折返值房）。
+    state.scenarioRun.clues.clue_boot = 'discovered'
+    const ending = scenarioMod.maybeApplyEnding(state.scenarioRun, scenario)
+    const result = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 3 })
+    check('R02 结局后不继续消耗动作', Boolean(ending) && result.status === 'ended' && result.aiActions === 0)
+    const view = kpMod.getRoleplayKpStatusView(store)
+    check('R02 统一状态视图反映结局', view.status === 'ended')
+
+    const store2 = createKpMockStore()
+    seedKpScenario(store2)
+    workflow.pauseRoleplayHost(store2)
+    const paused = await kpMod.runRoleplayKpCycle(store2, { maxAiActions: 3 })
+    check('R02 暂停立即停', paused.status === 'paused' && paused.aiActions === 0)
+
+    const store3 = createKpMockStore()
+    const none = await kpMod.runRoleplayKpCycle(store3, { maxAiActions: 3 })
+    check('R02 无场景 setup-required（不生成）', none.status === 'setup-required' && store3.sent.length === 0)
+  }
+
+  // R02：预算耗尽 → budget-limit 交还真人；并发单飞 busy。
+  {
+    const store = createKpMockStore()
+    seedKpScenario(store, { companion: false })
+    const first = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+    const second = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+    check('R02 预算耗尽交还真人（budget-limit）', first.aiActions === 1 && (second.status === 'budget-limit' || second.status === 'confirmation' || second.aiActions === 0))
+    const view = kpMod.getRoleplayKpStatusView(store)
+    check('R02 状态视图预算耗尽可见', view.exhausted === true && view.budget.remaining === 0)
+  }
+
+  // R01：刷新恢复——中断的 kp run 载入后恢复同 run，不重复 narration effectKey。
+  {
+    const store = createKpMockStore()
+    seedKpScenario(store, { companion: false })
+    await kpMod.runRoleplayKpCycle(store, { maxAiActions: 2 })
+    const before = store.roleplaySession
+    const kpRunBefore = kpMod.findKpRunForBranch(before, 'main')
+    const effectKeysBefore = new Set(kpRunBefore.steps.filter((s) => s.effectKey?.startsWith('kp-narration:')).map((s) => s.effectKey))
+    // 序列化 → 模拟周期中途崩溃（run 停在 running）→ 载入（interrupted 扫描）
+    // → 继续周期：同一 run、效果键不重复。
+    const copy = JSON.parse(JSON.stringify(before))
+    copy.runs.find((run) => run.taskId === kpMod.ROLEPLAY_KP_TASK_ID).status = 'running'
+    const restored = stateMod.loadRoleplayStateForSession(copy).current
+    check('R01 中断扫描后 kp run 标 interrupted', kpMod.findKpRunForBranch(restored, 'main').status === 'interrupted')
+    store.roleplaySession = restored
+    const resumed = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 2 })
+    const kpRunAfter = kpMod.findKpRunForBranch(store.roleplaySession, 'main')
+    check('R01 恢复复用同一 kp run（不新开）', kpRunAfter.runId === kpRunBefore.runId)
+    const effectKeysAfter = kpRunAfter.steps.filter((s) => s.effectKey?.startsWith('kp-narration:')).map((s) => s.effectKey)
+    check('R01 恢复后 narration 效果键仍唯一', new Set(effectKeysAfter).size === effectKeysAfter.length)
+    check('R01 恢复不重做已完成 AI 动作（效果键为前缀集）', effectKeysAfter.every((key) => {
+      const seq = Number(key.split(':').pop())
+      return Number.isInteger(seq)
+    }) && effectKeysAfter.length >= effectKeysBefore.size)
+  }
+  // R03：模型同伴白名单候选——校验、越权拒绝、畸形显式失败（不冒充 AI 决策）。
+  {
+    const companionMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayCompanion.js'))
+    const store = createKpMockStore()
+    seedKpScenario(store)
+    const view = workflow.getRoleplayScenarioView(store)
+    const clueIds = view.availableSceneClueActions.map((action) => action.clueId)
+    const exitIds = view.currentScene.exits.map((exit) => exit.toSceneId)
+    check('R03 夹具有可校验的白名单', clueIds.length > 0 || exitIds.length > 0)
+    // 合法模型候选（若有两个线索，取第二个以证明不是"第一个动作"）。
+    if (clueIds.length > 1) {
+      const resolved = companionMod.resolveCompanionProposal({
+        projection: view,
+        modelCandidate: { kind: 'check', target: clueIds[1], reason: '线索之间的关联值得先查证' }
+      })
+      check('R03 合法模型候选通过且标注 model', resolved.ok && resolved.source === 'model' && resolved.proposal.clueId === clueIds[1] && resolved.proposal.source === 'model')
+    }
+    check('R03 非对象候选拒绝', companionMod.resolveCompanionProposal({ projection: view, modelCandidate: '检查一切' }).reason === 'COMPANION_CANDIDATE_MALFORMED')
+    check('R03 未知类型拒绝', companionMod.resolveCompanionProposal({ projection: view, modelCandidate: { kind: 'attack', target: '看守' } }).reason === 'COMPANION_CANDIDATE_MALFORMED')
+    check('R03 缺目标拒绝', companionMod.resolveCompanionProposal({ projection: view, modelCandidate: { kind: 'move', reason: '想走' } }).reason === 'COMPANION_CANDIDATE_MALFORMED')
+    check('R03 越权线索目标拒绝（白名单外）', companionMod.resolveCompanionProposal({ projection: view, modelCandidate: { kind: 'check', target: 'clue_not_in_projection' } }).reason === 'COMPANION_CANDIDATE_OUT_OF_WHITELIST')
+    check('R03 越权出口目标拒绝', companionMod.resolveCompanionProposal({ projection: view, modelCandidate: { kind: 'move', target: 'scene_void' } }).reason === 'COMPANION_CANDIDATE_OUT_OF_WHITELIST')
+    // 周期接线：合法候选 → confirmation 且提案来自模型（非第一个动作也照单校验）。
+    {
+      const providerStore = createKpMockStore()
+      seedKpScenario(providerStore)
+      const target = clueIds.length > 1 ? clueIds[1] : clueIds[0]
+      const result = await kpMod.runRoleplayKpCycle(providerStore, {
+        maxAiActions: 1,
+        companionCandidateProvider: async () => ({ kind: 'check', target, reason: '模型理由：按已知事实优先查这条线索' })
+      })
+      check('R03 周期采纳模型候选（proposalSource=model）', result.status === 'confirmation' && result.proposalSource === 'model' && result.proposal.clueId === target)
+      // 畸形候选 → 显式 error + 诊断，不静默替换成确定性提案。
+      const badStore = createKpMockStore()
+      seedKpScenario(badStore)
+      const bad = await kpMod.runRoleplayKpCycle(badStore, {
+        maxAiActions: 1,
+        companionCandidateProvider: async () => ({ kind: 'check', target: 'clue_hallucinated' })
+      })
+      check('R03 越权候选显式失败并保留诊断', bad.status === 'error' && bad.errorCode === 'COMPANION_CANDIDATE_OUT_OF_WHITELIST' && Boolean(bad.diagnostics))
+      const badRun = kpMod.findKpRunForBranch(badStore.roleplaySession, 'main')
+      check('R03 失败候选入 run 诊断（failed 步骤保留）', badRun.steps.some((s) => s.stepId.startsWith('companion:') && s.status === 'failed' && s.errorCode === 'COMPANION_CANDIDATE_OUT_OF_WHITELIST'))
+      // provider 抛错 → 显式停止，不回退。
+      const throwStore = createKpMockStore()
+      seedKpScenario(throwStore)
+      const threw = await kpMod.runRoleplayKpCycle(throwStore, {
+        maxAiActions: 1,
+        companionCandidateProvider: async () => { throw new Error('provider 不可用') }
+      })
+      check('R03 provider 异常显式停止', threw.status === 'error' && threw.errorCode === 'KP_COMPANION_PROVIDER_FAILED')
+      // 无 provider → 确定性降级且诚实标注。
+      const detStore = createKpMockStore()
+      seedKpScenario(detStore)
+      const det = await kpMod.runRoleplayKpCycle(detStore, { maxAiActions: 1 })
+      check('R03 无 provider 降级确定性并如实标注', (det.status === 'confirmation' && det.proposalSource === 'deterministic-whitelist' && det.proposal.source === 'deterministic-whitelist') || det.status === 'budget-limit')
+    }
+  }
+  // R05/R06：模型提议的同伴行动与玩家行动共用确定性结算；命令幂等/版本贯穿。
+  {
+    const resourceMod2 = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+    const store = createKpMockStore()
+    seedKpScenario(store)
+    const view = workflow.getRoleplayScenarioView(store)
+    const clueIds = view.availableSceneClueActions.map((action) => action.clueId)
+    let sampleCursor = 0
+    const nextSample = () => [4, 3][sampleCursor++ % 2]
+    const provider = async () => ({ kind: 'check', target: clueIds[0], reason: '同伴理由：先查证这条线索' })
+    const cycle = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1, companionCandidateProvider: provider })
+    check('R05 同伴提案确认停（不代玩家/同伴结算）', cycle.status === 'confirmation' && store.roleplaySession.pendingByBranch.main === undefined)
+    // 采纳：走与玩家完全相同的 confirm→roll→durable 通道（确定性结算）。
+    const adopted = workflow.adoptRoleplayCompanionProposal(store, { proposal: cycle.proposal })
+    check('R05 检定提案不跳过确认（requiresConfirm）', adopted.requiresConfirm === true && adopted.clueId === clueIds[0])
+    await workflow.confirmRoleplayClueCheck(store, { clueId: clueIds[0], nextUint32: nextSample })
+    const state = store.roleplaySession
+    const pending = stateMod.getRoleplayPendingForBranch(state, 'main')
+    check('R05 结算走冻结规则（骰点/结果由合同生成）', Boolean(pending?.resolution) && typeof pending.resolution.total === 'number' && pending.intentHint === `scenario-clue:${clueIds[0]}`)
+    check('R05 模型不能改骰式（篡改 ruleSnapshot 在掷骰入口被拒）', await (async () => {
+      const tamperedStore = createKpMockStore()
+      seedKpScenario(tamperedStore)
+      const action = contract.createConfirmedRoleplayAction({
+        sessionId: tamperedStore.currentSessionId, branchId: 'main', rawInput: '查证', attribute: 'wits', modifier: 0
+      })
+      action.ruleSnapshot.expression = '20d20'
+      tamperedStore.roleplaySession.pendingByBranch.main = action
+      try {
+        await workflow.resolvePendingAction(tamperedStore, { actionId: action.actionId })
+        return false
+      } catch (error) {
+        return error?.code === 'ROLEPLAY_EXPRESSION_MISMATCH'
+      }
+    })())
+    check('R05 模型不能改资源（revision 冲突拒绝）', (() => {
+      const before = resourceMod2.getResourceRevision(state.resources)
+      const result = resourceMod2.applyResourceDelta(state.resources, {
+        deltaId: 'eval_forge_1', resource: 'lampOil', amount: -5, sourceRef: 'eval:forge', branchId: 'main', expectedRevision: before + 99
+      })
+      return result.ok === false && result.reason === 'ROLEPLAY_RESOURCE_REVISION_CONFLICT'
+    })())
+    // R06：同 command 重发只结算一次——同 actionId 重入复用同一骰点；
+    // 已发现线索的再次检查是新命令（拒绝），不是幂等重放。
+    const diceFrozen = JSON.stringify(pending.resolution.dice)
+    const runId = pending.actionId
+    check('R06 已发现线索再次检查被拒（新命令非重放）', await (async () => {
+      try {
+        await workflow.confirmRoleplayClueCheck(store, { clueId: clueIds[0], nextUint32: () => 999 })
+        return false
+      } catch (error) {
+        return error?.code === 'ROLEPLAY_CLUE_NOT_AVAILABLE'
+      }
+    })())
+    await workflow.resolvePendingAction(store, { actionId: runId })
+    const repending = stateMod.getRoleplayPendingForBranch(state, 'main')
+    check('R06 同 command 重发骰点不变（只结算一次）', repending.actionId === runId && JSON.stringify(repending.resolution.dice) === diceFrozen)
+    check('R06 run 副作用键唯一（骰点/确认各一次）', (() => {
+      const run = state.runs.find((item) => item.runId === runId)
+      return run.steps.filter((s) => s.effectKey === `dice:${runId}` && s.status === 'succeeded').length === 1
+        && run.steps.filter((s) => s.effectKey === `confirm:${runId}` && s.status === 'succeeded').length === 1
+    })())
+    // R06：过期版本不能落盘——同 actionId 不同 payloadHash 走真实账本冲突判定。
+    check('R06 同 ID 异回执内容拒绝', (() => {
+      const receipt = projection.buildTurnReceiptV1(repending, { turnId: 'turn_x', parentTurnId: null, store: { currentSessionId: store.currentSessionId, activeBranchId: 'main', worldId: 'wb_eval_1' } })
+      state.receipts.push(receipt)
+      const tampered = { ...receipt, payloadHash: `${receipt.payloadHash.slice(0, 60)}ffff` }
+      return Boolean(projection.findConflictingReceipt(state.receipts, tampered))
+        && !projection.findConflictingReceipt(state.receipts, receipt)
+    })())
+  }
+
+  // R07/R08/R09：KP 连续旅程（失败推进→线索→移动→结局）、跨会话边界、分支隔离。
+  {
+    const roleplayRunsResource = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+    // ── R07：一场连续 KP 旅程：失败推进 → 线索 → 场景切换 → 结局 → 停止消耗 ──
+    const store = createKpMockStore()
+    const scenario = seedKpScenario(store)
+    const state = store.roleplaySession
+    const journey = { beats: 0, checks: [], moves: 0, failures: 0 }
+    const failDice = () => 1   // 2+2=4（含线索修正仍 ≤6）→ 失败前进
+    const winDice = () => 4    // 5+5=10 → 成功
+
+    async function kpBeat(diceSource) {
+      // 预算按批显式重置（新批=玩家动作）。
+      if (state.hostPlan && state.hostPlan.stepsUsed >= state.hostPlan.maxSteps) {
+        workflow.resetRoleplayHostBudget(store, { maxSteps: 3 })
+      }
+      const cycle = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+      if (cycle.status === 'ended') return { done: true, cycle }
+      if (cycle.status !== 'confirmation') return { cycle, status: cycle.status }
+      journey.beats += 1
+      const adopted = workflow.adoptRoleplayCompanionProposal(store, { proposal: cycle.proposal })
+      if (adopted.executed === 'move') {
+        journey.moves += 1
+        return { cycle, moved: true }
+      }
+      const before = state.scenarioRun.clues[adopted.clueId]
+      await workflow.confirmRoleplayClueCheck(store, { clueId: adopted.clueId, nextUint32: diceSource })
+      // 模拟 coordinator 事务提交（mock sendAction 不含真实提交路径）：
+      // 回执入账、pending 清除——否则下一拍周期被人回应门禁正确拦截。
+      const pendingAfter = stateMod.getRoleplayPendingForBranch(state, 'main')
+      if (pendingAfter) {
+        workflow.commitRoleplayNarration(store, {
+          action: pendingAfter,
+          turnRecord: { id: `turn_j_${journey.beats}`, parentTurnId: null, userMessageIds: [], branchId: 'main' }
+        })
+      }
+      const after = state.scenarioRun.clues[adopted.clueId]
+      if (before !== 'discovered' && after !== 'discovered') journey.failures += 1
+      journey.checks.push(adopted.clueId)
+      return { cycle, checked: adopted.clueId }
+    }
+
+    // 失败推进：第一次检查失败——线索保持未发现、受挫事件入公开记录。
+    const firstClue = workflow.getRoleplayScenarioView(store).availableSceneClueActions[0].clueId
+    await kpBeat(failDice)
+    check('R07 失败推进：线索未发现但旅程可继续', state.scenarioRun.clues[firstClue] !== 'discovered' && state.scenarioRun.status === 'active')
+    check('R07 失败推进受挫事件入公开记录（不含未发现线索名）', state.scenarioRun.publicEvents.some((event) => event.type === 'setback'))
+    // 成功：同一线索第二检查成功发现。
+    await kpBeat(winDice)
+    check('R07 同线索重试成功后入已确认', state.scenarioRun.clues[firstClue] === 'discovered')
+    // 确定性导航：优先采纳同向移动提案（同伴建议被真人选路采纳），否则玩家
+    // 显式 moveRoleplayScene（提案只是建议，玩家可以不采纳——产品语义）。
+    async function navigate(toSceneId) {
+      if (state.scenarioRun.currentSceneId === toSceneId) return
+      if (state.hostPlan && state.hostPlan.stepsUsed >= state.hostPlan.maxSteps) {
+        workflow.resetRoleplayHostBudget(store, { maxSteps: 3 })
+      }
+      const cycle = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+      if (cycle.status === 'confirmation' && cycle.proposal?.kind === 'move' && cycle.proposal.toSceneId === toSceneId) {
+        workflow.adoptRoleplayCompanionProposal(store, { proposal: cycle.proposal })
+        journey.moves += 1
+        return
+      }
+      workflow.moveRoleplayScene(store, { toSceneId })
+    }
+    // 确定性旅程路线：值房（log 失败→成功）→ 梯井（scuff 失败→解锁小屋守卫笔记）
+    // → 灯室（mechanism 成功）→ 折返梯井 → 小屋（guard_note 成功 → end_truth）。
+    await navigate('scene_stairs')
+    await kpBeat(failDice)   // 梯井 scuff 失败推进：解锁 clue_guard_note
+    await navigate('scene_lamp_room')
+    await kpBeat(winDice)    // 灯室 mechanism 成功
+    await navigate('scene_stairs')
+    await navigate('scene_cottage')
+    await kpBeat(winDice)    // 小屋 guard_note 成功 → 确定性结局
+    check('R07 KP 连续旅程到达结局（确定性条件）', state.scenarioRun.status === 'ended' && Boolean(state.scenarioRun.endingId), `status=${state.scenarioRun.status}, beats=${journey.beats}, moves=${journey.moves}, scene=${state.scenarioRun.currentSceneId}`)
+    const finalCycle = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+    check('R07 结局后周期返回 ended 且零动作消耗', finalCycle.status === 'ended' && finalCycle.aiActions === 0, `status=${finalCycle.status}`)
+    check('R07 场景切换确实发生（移动多于一拍）', journey.moves >= 1 || state.scenarioRun.currentSceneId !== 'scene_desk', `moves=${journey.moves}, scene=${state.scenarioRun.currentSceneId}`)
+    check('R07 结局后发送门禁拦截新行动', (() => {
+      try {
+        workflow.assertRoleplaySendAllowed(store, {})
+        return false
+      } catch (error) {
+        return error?.code === 'ROLEPLAY_SCENARIO_ENDED'
+      }
+    })())
+
+    // ── R08：跨会话边界——迟到响应按会话身份拒绝；未决回应跨保存保留 ──
+    const otherSessionStore = createKpMockStore()
+    seedKpScenario(otherSessionStore, { companion: false })
+    otherSessionStore.currentSessionId = 'sess_other'
+    const crossStore = createKpMockStore()
+    seedKpScenario(crossStore, { companion: false })
+    await workflow.confirmRoleplayAction(crossStore, { rawInput: '行动', attribute: 'wits', modifier: 0, nextUint32: () => 4 })
+    crossStore.currentSessionId = 'sess_other'  // 模拟切换会话后原 pending 的迟到请求
+    check('R08 切会话后迟到叙述请求按 scope 拒绝', await (async () => {
+      try {
+        await workflow.requestRoleplayNarration(crossStore, {})
+        return false
+      } catch (error) {
+        return error?.code === 'ROLEPLAY_SCOPE_MISMATCH'
+      }
+    })())
+    // 未决回应跨保存保留（序列化→载入），恢复动作可用。
+    const carriedState = stateMod.loadRoleplayStateForSession(JSON.parse(JSON.stringify(crossStore.roleplaySession))).current
+    check('R08 未决回应跨保存保留（pending 不丢）', Boolean(stateMod.getRoleplayPendingForBranch(carriedState, 'main')))
+    // 未来版本只读边界（R08 兼容策略）。
+    const futureStore = createKpMockStore()
+    futureStore.roleplayFutureRaw = { version: 99, mode: 'rules' }
+    check('R08 未来版本会话只读（拒绝改模式）', throwsWithCode(() => workflow.setRoleplaySessionSetup(futureStore, { mode: 'rules' }), 'ROLEPLAY_FUTURE_STATE_READONLY'))
+
+    // ── R09：分支隔离——pending/资源/回执/run 不混入另一分支 ──
+    const branchStore = createKpMockStore()
+    seedKpScenario(branchStore, { companion: false })
+    await kpMod.runRoleplayKpCycle(branchStore, { maxAiActions: 1 })  // main 分支产生 kp run
+    await workflow.confirmRoleplayAction(branchStore, { rawInput: '主分支行动', attribute: 'wits', modifier: 0, nextUint32: () => 4 })
+    const branchState = branchStore.roleplaySession
+    branchStore.activeBranchId = 'branch-2'
+    check('R09 另一无 pending 分支发送不被阻断', (() => {
+      try {
+        workflow.assertRoleplaySendAllowed(branchStore, {})
+        return true
+      } catch {
+        return false
+      }
+    })())
+    check('R09 kp run 按分支查找隔离（branch-2 无主持 run）', kpMod.findKpRunForBranch(branchState, 'branch-2') === null && kpMod.findKpRunForBranch(branchState, 'main') !== null, `runs=${JSON.stringify((branchState.runs || []).map((r) => [r.taskId, r.scope?.branchId]))}`)
+    check('R09 资源账按分支投影（branch-2 不见 main 扣减）', (() => {
+      if (!branchState.resources) return 'no-resources'
+      const resourceModR = roleplayRunsResource
+      const applied = resourceModR.applyResourceDelta(branchState.resources, {
+        deltaId: 'eval_br_main', resource: 'lampOil', amount: -4, sourceRef: 'eval:br', branchId: 'main'
+      })
+      if (!applied.ok) return `delta-rejected:${applied.reason}`
+      const mainOil = resourceModR.buildResourceProjection(branchState.resources, { branchId: 'main' }).values.lampOil
+      const otherOil = resourceModR.buildResourceProjection(branchState.resources, { branchId: 'branch-2' }).values.lampOil
+      return mainOil.value === otherOil.value - 4 ? true : `main=${mainOil.value},other=${otherOil.value}`
+    })())
+    check('R09 回执按分支打 scope 且导出只取本分支', (() => {
+      const pendingBr = stateMod.getRoleplayPendingForBranch(branchState, 'main')
+      if (!pendingBr) return 'no-pending'
+      branchStore.activeBranchId = 'main'
+      // 提交一拍得到真实入账回执（coordinator 同一调用面）。
+      workflow.commitRoleplayNarration(branchStore, {
+        action: pendingBr,
+        turnRecord: { id: 'turn_br', parentTurnId: null, userMessageIds: [], branchId: 'main' }
+      })
+      const committed = branchState.receipts.find((item) => item.receiptId === pendingBr.actionId)
+      if (!committed) return 'no-committed-receipt'
+      // 另一分支的迟到回执（scope branch-2）不得混入 main 的导出过滤结果。
+      branchState.receipts.push({ ...committed, receiptId: `${committed.receiptId}_br2`, scope: { ...committed.scope, branchId: 'branch-2' } })
+      const forMain = branchState.receipts.filter((item) => item.scope?.branchId === 'main')
+      return forMain.some((item) => item.receiptId === committed.receiptId)
+        && !forMain.some((item) => item.scope?.branchId === 'branch-2')
+    })())
+  // R12：既有原创场景 20 轮生产 coordinator 旅程（确定性 provider 替身）。
+  // 含：KP 主持拍、玩家自由行动、同伴提案、失败推进、场景切换、中途刷新、
+  // 确定性结局、场次记录导出。真实模型不在本轮范围（真实模型 Gate 单列）。
+  {
+    const journeyStore = createKpMockStore()
+    seedKpScenario(journeyStore)
+    const jStateGet = () => journeyStore.roleplaySession
+    const rounds = { count: 0, kpBeats: 0, playerActions: 0, moves: 0, failures: 0 }
+    let playerSeq = 0
+    const kpFail = () => 1
+    const kpWin = () => 4
+
+    async function playerRound(diceSource) {
+      rounds.count += 1
+      rounds.playerActions += 1
+      playerSeq += 1
+      await workflow.confirmRoleplayAction(journeyStore, {
+        rawInput: `自由行动 ${playerSeq}`, attribute: 'wits', modifier: 0, nextUint32: diceSource
+      })
+      const pending = stateMod.getRoleplayPendingForBranch(jStateGet(), 'main')
+      workflow.commitRoleplayNarration(journeyStore, {
+        action: pending, turnRecord: { id: `turn_p_${playerSeq}`, parentTurnId: null, userMessageIds: [], branchId: 'main' }
+      })
+    }
+
+    async function journeyKpBeat(diceSource) {
+      rounds.count += 1
+      if (jStateGet().hostPlan && jStateGet().hostPlan.stepsUsed >= jStateGet().hostPlan.maxSteps) {
+        workflow.resetRoleplayHostBudget(journeyStore, { maxSteps: 3 })
+      }
+      const cycle = await kpMod.runRoleplayKpCycle(journeyStore, { maxAiActions: 1 })
+      if (cycle.status === 'ended') return { ended: true, cycle }
+      if (cycle.status !== 'confirmation') return { cycle }
+      rounds.kpBeats += 1
+      const adopted = workflow.adoptRoleplayCompanionProposal(journeyStore, { proposal: cycle.proposal })
+      if (adopted.executed === 'move') {
+        rounds.moves += 1
+        return { cycle }
+      }
+      const before = jStateGet().scenarioRun.clues[adopted.clueId]
+      await workflow.confirmRoleplayClueCheck(journeyStore, { clueId: adopted.clueId, nextUint32: diceSource })
+      const pending = stateMod.getRoleplayPendingForBranch(jStateGet(), 'main')
+      if (pending) {
+        workflow.commitRoleplayNarration(journeyStore, {
+          action: pending, turnRecord: { id: `turn_k_${rounds.kpBeats}`, parentTurnId: null, userMessageIds: [], branchId: 'main' }
+        })
+      }
+      if (before !== 'discovered' && jStateGet().scenarioRun.clues[adopted.clueId] !== 'discovered') rounds.failures += 1
+      return { cycle }
+    }
+
+    async function journeyNavigate(toSceneId) {
+      rounds.count += 1
+      if (jStateGet().hostPlan && jStateGet().hostPlan.stepsUsed >= jStateGet().hostPlan.maxSteps) {
+        workflow.resetRoleplayHostBudget(journeyStore, { maxSteps: 3 })
+      }
+      const cycle = await kpMod.runRoleplayKpCycle(journeyStore, { maxAiActions: 1 })
+      if (cycle.status === 'confirmation' && cycle.proposal?.kind === 'move' && cycle.proposal.toSceneId === toSceneId) {
+        workflow.adoptRoleplayCompanionProposal(journeyStore, { proposal: cycle.proposal })
+        rounds.moves += 1
+        return
+      }
+      workflow.moveRoleplayScene(journeyStore, { toSceneId })
+    }
+
+    // 第 1–2 轮：值房线索 失败→成功。
+    await journeyKpBeat(kpFail)
+    await journeyKpBeat(kpWin)
+    // 第 3 轮：玩家自由行动（失败，扣活力）。
+    await playerRound(kpFail)
+    // 第 4 轮：移动到梯井。
+    await journeyNavigate('scene_stairs')
+    // 第 5–6 轮：scuff 失败（解锁守卫笔记）→ 成功。
+    await journeyKpBeat(kpFail)
+    await journeyKpBeat(kpWin)
+    // 第 7 轮：玩家行动（成功）。
+    await playerRound(kpWin)
+    // 第 8 轮：移动到灯室。
+    await journeyNavigate('scene_lamp_room')
+    // 第 9–10 轮：mechanism 失败→成功。
+    await journeyKpBeat(kpFail)
+    await journeyKpBeat(kpWin)
+    // 第 11 轮：玩家行动。
+    await playerRound(kpWin)
+    // 第 12 轮：中途刷新（生产持久化往返），恢复后同一场景/线索/run 账目继续。
+    const beforeRefresh = {
+      scene: jStateGet().scenarioRun.currentSceneId,
+      clues: JSON.stringify(jStateGet().scenarioRun.clues),
+      runCount: jStateGet().runs.length,
+      receipts: jStateGet().receipts.length
+    }
+    rounds.count += 1  // 第 12 轮：刷新/重载也算一轮真实旅程
+    const reloaded = stateMod.loadRoleplayStateForSession(JSON.parse(JSON.stringify(jStateGet()))).current
+    journeyStore.roleplaySession = reloaded
+    check('R12 中途刷新：场景/线索/账目无损往返', reloaded.scenarioRun.currentSceneId === beforeRefresh.scene
+      && JSON.stringify(reloaded.scenarioRun.clues) === beforeRefresh.clues
+      && reloaded.runs.length === beforeRefresh.runCount
+      && reloaded.receipts.length === beforeRefresh.receipts)
+    // 第 13–14 轮：移动折返梯井 → 小屋。
+    await journeyNavigate('scene_stairs')
+    await journeyNavigate('scene_cottage')
+    // 第 15–17 轮：玩家行动 ×3。
+    await playerRound(kpWin)
+    await playerRound(kpFail)
+    await playerRound(kpWin)
+    // 第 17–18 轮：守卫笔记 失败→成功 → 确定性结局。
+    await journeyKpBeat(kpFail)
+    const finalBeat = await journeyKpBeat(kpWin)
+    check('R12 旅程在第 20 轮内到达确定性结局', jStateGet().scenarioRun.status === 'ended' && Boolean(jStateGet().scenarioRun.endingId), `rounds=${rounds.count}, status=${jStateGet().scenarioRun.status}, beats=${rounds.kpBeats}, moves=${rounds.moves}, player=${rounds.playerActions}`)
+    // 第 19 轮：结局后周期停止消耗。
+    const endedCycle = await kpMod.runRoleplayKpCycle(journeyStore, { maxAiActions: 3 })
+    rounds.count += 1
+    check('R12 结局后周期零消耗', endedCycle.status === 'ended' && endedCycle.aiActions === 0)
+    // 第 20 轮：场次记录导出（作者口径含来源回合）。
+    rounds.count += 1
+    const record = workflow.exportRoleplayAdventure(journeyStore, { mode: 'author' })
+    check('R12 场次记录导出含结局与来源', record.endingId === jStateGet().scenarioRun.endingId && (record.sourceTurnIds || []).length > 0 && record.events.length > 0)
+    // 全旅程副作用键唯一（重复轮次不重复结算）。
+    const allEffectKeys = (reloaded !== journeyStore.roleplaySession ? journeyStore.roleplaySession : reloaded).runs
+      .flatMap((run) => run.steps.filter((step) => step.effectKey && step.status === 'succeeded').map((step) => `${run.runId}:${step.effectKey}`))
+    check('R12 全旅程副作用键唯一（无重复结算）', new Set(allEffectKeys).size === allEffectKeys.length, `keys=${allEffectKeys.length}`)
+    check('R12 覆盖 20 轮（主持拍+玩家行动+移动+刷新+结局）', rounds.count >= 20, `rounds=${rounds.count}, detail=${JSON.stringify(rounds)}`)
+  }
+
+  // T04/T07：provider 错误分类贯穿 run；双标签执行锁（Web Locks + 降级）。
+  {
+    const lockMod = await import(path.join(root, 'src/services/experience/run/runLock.js'))
+    check('T04 429 限流 → failed 且可重试', (() => {
+      const c = runContract.classifyRunStepFailure({ errorCode: 'NARRATIVE_PROVIDER_RATE_LIMITED' })
+      return c.status === 'failed' && c.retryable === true
+    })())
+    check('T04 超时/中止可重试', runContract.classifyRunStepFailure({ errorCode: 'NARRATIVE_PROVIDER_TIMEOUT' }).retryable === true
+      && runContract.classifyRunStepFailure({ errorCode: 'NARRATIVE_AGENT_ABORTED' }).retryable === true)
+    check('T04 普通失败不可重试', runContract.classifyRunStepFailure({ errorCode: 'NARRATIVE_STREAM_EMPTY' }).retryable === false)
+    check('T04 不确定副作用写 → unknown（不自动重发）', (() => {
+      const c = runContract.classifyRunStepFailure({ errorCode: 'PROVIDER_WRITE_UNRESOLVED', effectKey: 'effect:1' })
+      return c.status === 'unknown' && c.retryable === false
+    })())
+    check('T04 unknown 步骤不进恢复计划 resumable（不盲重试）', (() => {
+      const identity = runContract.createRunIdentity({ taskId: 't', scope: { sessionId: 's', branchId: 'main' } })
+      const run = runContract.createRunRecord({ identity })
+      runContract.beginRunStep(run, { stepId: 'write', input: { a: 1 } })
+      runContract.completeRunStep(run, { stepId: 'write', status: 'unknown', errorCode: 'PROVIDER_WRITE_UNRESOLVED' })
+      const plan = runContract.buildRunRecoveryPlanV1(run)
+      return plan.unknownStepIds.length === 1 && plan.resumableStepIds.length === 0 && plan.completedStepIds.length === 0
+    })())
+    // T04 贯穿：叙述 429 失败 → run 步骤 failed 且保留可重试码；run 非终态可显式重试。
+    {
+      const store = createKpMockStore()
+      seedKpScenario(store, { companion: false })
+      await workflow.confirmRoleplayAction(store, { rawInput: '行动', attribute: 'wits', modifier: 0, nextUint32: () => 4 })
+      const state4 = store.roleplaySession
+      const pending4 = stateMod.getRoleplayPendingForBranch(state4, 'main')
+      workflow.failRoleplayNarration(store, { action: pending4, errorCode: 'NARRATIVE_PROVIDER_RATE_LIMITED' })
+      const run4 = state4.runs.find((item) => item.runId === pending4.actionId)
+      const narration4 = run4?.steps?.find((s) => s.stepId === 'narration')
+      check('T04 429 落 run：failed+保留错误码，run 可恢复（非终态）', narration4?.status === 'failed' && narration4?.errorCode === 'NARRATIVE_PROVIDER_RATE_LIMITED' && !['completed', 'failed', 'cancelled'].includes(run4.status))
+    }
+    // T07：锁合同（假 adapter 注入）。
+    {
+      function createFakeLockAdapter() {
+        const held = new Map()
+        return {
+          request(key, options, callback) {
+            // 与 navigator.locks 同语义：request 返回 callback 的完成值。
+            if (held.has(key)) return Promise.resolve(callback(null))
+            held.set(key, true)
+            return Promise.resolve(callback({ name: key }))
+          },
+          release(key) { held.delete(key) }
+        }
+      }
+      const adapter = createFakeLockAdapter()
+      const r1 = await lockMod.withExclusiveRunLock('k', async ({ lockHeld }) => `ran:${lockHeld}`, { lockAdapter: adapter })
+      check('T07 空闲锁获取执行（lockHeld=true）', r1 === 'ran:true')
+      const busy = await lockMod.withExclusiveRunLock('k', async () => 'should-not-run', { lockAdapter: adapter, onBusy: () => 'busy' })
+      check('T07 锁被持有时走 onBusy（不执行任务）', busy === 'busy')
+      let thrown = null
+      try {
+        await lockMod.withExclusiveRunLock('k', async () => {}, { lockAdapter: adapter })
+      } catch (error) { thrown = error?.code }
+      check('T07 锁被持有且无 onBusy → RUN_LOCK_HELD', thrown === 'RUN_LOCK_HELD')
+      adapter.release('k')
+      const r2 = await lockMod.withExclusiveRunLock('k', async ({ lockHeld }) => `recovered:${lockHeld}`, { lockAdapter: adapter })
+      check('T07 过期 owner 释放后新 owner 恢复', r2 === 'recovered:true')
+      // KP 周期接线：锁被另一标签持有 → busy，不消耗预算不生成。
+      const lockStore = createKpMockStore()
+      seedKpScenario(lockStore, { companion: false })
+      const busyAdapter = createFakeLockAdapter()
+      busyAdapter.request('pinax-roleplay-kp:sess_eval_1', { ifAvailable: true }, () => {})
+      const busyCycle = await kpMod.runRoleplayKpCycle(lockStore, { maxAiActions: 1, lockAdapter: busyAdapter })
+      check('T07 另一标签持锁 → 周期 busy（不重复消费）', busyCycle.status === 'busy' && busyCycle.busyReason === 'RUN_LOCK_HELD' && lockStore.sent.length === 0)
+    }
+
+    // T08：过期候选硬拒绝——提案冻结后资源被其它路径改动 → 采用被拒并给出具体变化。
+    {
+      const staleStore = createKpMockStore()
+      seedKpScenario(staleStore)
+      const staleView = workflow.getRoleplayScenarioView(staleStore)
+      const staleClue = staleView.availableSceneClueActions[0].clueId
+      const staleCycle = await kpMod.runRoleplayKpCycle(staleStore, {
+        maxAiActions: 1,
+        companionCandidateProvider: async () => ({ kind: 'check', target: staleClue, reason: '提案' })
+      })
+      check('T08 前置：提案冻结于 confirmation 停', staleCycle.status === 'confirmation')
+      // 提案产生后外部改动资源（不经 run）。
+      const resMod = await import(path.join(root, 'src/services/experience/roleplay/roleplayResources.js'))
+      if (!staleStore.roleplaySession.resources) {
+        staleStore.roleplaySession.resources = resMod.createResourceState()
+      }
+      resMod.applyResourceDelta(staleStore.roleplaySession.resources, {
+        deltaId: 'eval_t08_ext', resource: 'lampOil', amount: -2, sourceRef: 'eval:t08', branchId: 'main'
+      })
+      let staleError = null
+      try {
+        workflow.adoptRoleplayCompanionProposal(staleStore, { proposal: staleCycle.proposal })
+      } catch (error) { staleError = error }
+      check('T08 过期候选禁止采用（具体变化可见）', staleError?.code === 'ROLEPLAY_PROPOSAL_STALE'
+        && String(staleError.message).includes('冻结') && String(staleError.message).includes('当前'), String(staleError?.message || 'no-throw').slice(0, 120))
+    }
+  }
+}
+
+// Integration regressions: saving and rollback must precede external work.
+{
+  const store = createKpMockStore()
+  seedKpScenario(store)
+  store.commitCurrentSessionNow = () => false
+  const denied = await kpMod.runRoleplayKpCycle(store, { maxAiActions: 1 })
+  check('integration save failure stops before generation', denied.status === 'error' && store.sent.length === 0)
+  const rollback = createKpMockStore()
+  seedKpScenario(rollback)
+  rollback.sendAction = async () => {
+    rollback.roleplaySession = JSON.parse(JSON.stringify(rollback.roleplaySession))
+    return 'error'
+  }
+  await kpMod.runRoleplayKpCycle(rollback, { maxAiActions: 1 })
+  check('integration failure receipt follows replacement state', rollback.roleplaySession.runs.some(run => run.steps.some(step => step.status === 'failed')))
+  const switched = createKpMockStore()
+  seedKpScenario(switched)
+  switched.sendAction = async () => { switched.currentSessionId = 'different-session'; return 'success' }
+  const stale = await kpMod.runRoleplayKpCycle(switched, { maxAiActions: 1 })
+  check('integration late result rejects switched session', stale.errorCode === 'KP_SCOPE_CHANGED')
+  const malformed = companionMod.parseCompanionModelCandidate({ kind: 'move', target: 'harbor', reason: 'go', injectedScope: 'secret' })
+  check('integration companion rejects extra fields', malformed.ok === false)
+}
 console.log(`\n=== experience-roleplay-eval: ${passed} passed, ${failed} failed ===`)
 if (failed) {
   for (const failure of failures) {

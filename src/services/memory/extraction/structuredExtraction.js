@@ -5,6 +5,7 @@
 // 字段缺失、关系方向可疑、实体歧义的提案不进入待审（逐项校验，部分失败可见）。
 import { requestAdvisorTask } from '../../advisorTaskService.js'
 import { buildContextEnvelope, clipContextEnvelope } from '../../agents/agentContextEnvelope.js'
+import { extractionCacheKey, readCachedExtraction, writeCachedExtraction } from './extractionResultCache'
 
 export const MEMORY_EXTRACTION_TASK_ID = 'memory.extraction'
 
@@ -182,13 +183,28 @@ export function parseMemoryExtractionResponse(raw) {
  * 通过现有 advisor dispatcher 调一次结构化提取（toolChoice=none）。
  * 返回原始解析结果（未校验）；校验由 validateMemoryExtractionResponse 负责。
  */
-export async function runMemoryExtraction(request = {}, { signal = null } = {}) {
+export async function runMemoryExtraction(request = {}, { signal = null, cache = true } = {}) {
   const envelope = request.envelope || buildMemoryExtractionEnvelope(request)
   if (!envelope) {
     const error = new Error('缺少冻结原文或来源引用，不能提取')
     error.code = 'MEMORY_EXTRACTION_REQUEST_INVALID'
     error.retryable = false
     throw error
+  }
+  // M07：缓存键绑定冻结请求（来源引用+修订+原文）。命中即不付出模型调用；
+  // 校验仍在调用方每次执行，knownIdentities 变化不受缓存影响。
+  const cacheKey = cache
+    ? extractionCacheKey({
+      sourceRef: request.sourceRef || '',
+      sourceRevision: request.sourceRevision || '',
+      sourceText: typeof request.sourceText === 'string' ? request.sourceText : JSON.stringify(envelope.blocks || '')
+    })
+    : null
+  if (cacheKey) {
+    const cached = readCachedExtraction(cacheKey)
+    if (cached) {
+      return { parsed: cached.parsed, meta: { provider: 'extraction-cache', requestId: cacheKey }, cached: true }
+    }
   }
   const result = await requestAdvisorTask({
     envelope,
@@ -211,5 +227,6 @@ export async function runMemoryExtraction(request = {}, { signal = null } = {}) 
     error.parseFailed = true
     throw error
   }
-  return { parsed, meta: { provider: result?.meta?.provider || '', requestId: result?.meta?.requestId || '' } }
+  if (cacheKey) writeCachedExtraction(cacheKey, parsed)
+  return { parsed, meta: { provider: result?.meta?.provider || '', requestId: result?.meta?.requestId || '' }, cached: false }
 }

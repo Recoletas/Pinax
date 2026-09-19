@@ -29,6 +29,7 @@ export const STORAGE_KEYS = {
   WRITING_RECOVERY_DRAFTS: 'writing_recovery_drafts_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
   MEMORY_CANDIDATES: 'memory_candidates_v1',
+  MEMORY_EXTRACTION_JOBS: 'memory_extraction_jobs_v1',
   STORYBOARD_DOCUMENTS: 'storyboard_documents_v1',
   STORYBOARD_SNAPSHOTS: 'storyboard_snapshots_v1',
 

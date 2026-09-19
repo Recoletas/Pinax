@@ -103,12 +103,44 @@
           :disabled="hostBusy"
           @click="advanceHost"
         >推进一拍（{{ hostPlan.stepsUsed }}/{{ hostPlan.maxSteps }}）</button>
+        <!-- R10：有界主持一场（KP 循环，预算≤3 拍；真人优先/暂停/结局立即停） -->
+        <button
+          v-if="view.status === 'active' && (!hostPlan || (hostPlan.status !== 'paused' && hostPlan.status !== 'ended' && hostPlan.stepsUsed < hostPlan.maxSteps))"
+          class="control-primary"
+          type="button"
+          data-testid="rp-kp-run"
+          :disabled="hostBusy || kpBusy"
+          @click="runKpBatch"
+        >{{ kpBusy ? '主持中…' : '主持一场（≤3 拍）' }}</button>
+        <span v-if="kpStatusText" class="rp-scenario__kp-status" data-testid="rp-kp-status" role="status">{{ kpStatusText }}</span>
+        <button
+          v-if="view.status === 'active' && hostPlan && hostPlan.status === 'paused'"
+          class="control-quiet"
+          type="button"
+          data-testid="rp-kp-resume"
+          @click="resumeHost"
+        >主持继续</button>
+        <button
+          v-if="view.status === 'active' && (!hostPlan || hostPlan.status !== 'paused')"
+          class="control-quiet"
+          type="button"
+          data-testid="rp-kp-pause"
+          @click="pauseHost"
+        >主持暂停</button>
+        <button
+          v-if="hostPlan && hostPlan.stepsUsed >= hostPlan.maxSteps && view.status === 'active'"
+          class="control-quiet"
+          type="button"
+          data-testid="rp-kp-new-batch"
+          @click="newHostBatch"
+        >新一批主持</button>
         <span v-if="hostPlan && hostPlan.stepsUsed >= hostPlan.maxSteps" class="rp-scenario__host-done">本批主持预算已用完</span>
         <button v-if="view.status === 'active'" class="control-quiet" type="button" @click="pause">暂停</button>
         <button v-if="view.status === 'paused'" class="control-primary" type="button" @click="resume">继续冒险</button>
         <button class="control-quiet" type="button" @click="exportRecord('public')">导出记录（公开）</button>
         <button class="control-quiet" type="button" @click="exportRecord('author')">导出记录（作者）</button>
         <button class="control-quiet" type="button" @click="abandon">放弃本场</button>
+        <p v-if="kpErrorText" class="rp-scenario__error" role="alert" data-testid="rp-kp-error">{{ kpErrorText }}</p>
       </div>
     </template>
     <template v-else>
@@ -148,13 +180,17 @@ import {
   getRoleplayResourceView,
   getRoleplayScenarioView,
   moveRoleplayScene,
+  pauseRoleplayHost,
   pauseRoleplayScenario,
+  resetRoleplayHostBudget,
+  resumeRoleplayHost,
   resumeRoleplayScenario,
   setRoleplayActorOverride,
   setRoleplayCompanionEnabled,
   startRoleplayScenario,
   useRoleplayItem
 } from '../../../services/experience/roleplay/roleplayWorkflow.js'
+import { runRoleplayKpCycle } from '../../../services/experience/roleplay/roleplayKpCoordinator.js'
 
 // CX37 战役目录（本夜范围）：原创场景夹具清单；运行实例仍逐场冻结。
 const scenarioCatalog = [
@@ -246,6 +282,67 @@ async function advanceHost() {
     await advanceRoleplayHostStep(gameStore)
   } catch (error) {
     errorText.value = String(error?.message || '推进失败')
+  }
+}
+
+// ── R10：有界主持一场（KP 循环）——统一状态、暂停/继续、失败恢复入口 ──
+const kpBusy = ref(false)
+const kpStatusText = ref('')
+const kpErrorText = ref('')
+
+const KP_STATUS_TEXT = {
+  'human-turn': '一拍完成：该你行动了',
+  'human-response': '有待回应的检定：请先重试或放弃',
+  'confirmation': '同伴提案待你采纳',
+  'paused': '主持已暂停',
+  'ended': '本场已结局',
+  'setup-required': '先选择开场场景',
+  'budget-limit': '本批预算用完：可开始新一批',
+  'busy': '上一拍还在生成',
+  'error': '主持停止：可查看检定条恢复'
+}
+
+async function runKpBatch() {
+  if (kpBusy.value) return
+  kpErrorText.value = ''
+  kpStatusText.value = ''
+  kpBusy.value = true
+  try {
+    const result = await runRoleplayKpCycle(gameStore, { maxAiActions: 3 })
+    kpStatusText.value = KP_STATUS_TEXT[result.status] || result.status
+    if (result.status === 'error') {
+      kpErrorText.value = `主持停止（${result.errorCode || 'KP_ERROR'}）${result.diagnostics ? `：${result.diagnostics}` : ''}；骰点与已提交内容不受影响`
+    }
+    if (result.status === 'confirmation' && result.proposal) {
+      // 提案进入既有采纳面板（ CX34：采纳=玩家显式点击）。
+      dismissedClueIds.value = []
+    }
+  } catch (error) {
+    kpErrorText.value = String(error?.message || '主持失败')
+  } finally {
+    kpBusy.value = false
+  }
+}
+
+function pauseHost() {
+  kpErrorText.value = ''
+  pauseRoleplayHost(gameStore)
+  kpStatusText.value = KP_STATUS_TEXT.paused
+}
+
+function resumeHost() {
+  kpErrorText.value = ''
+  resumeRoleplayHost(gameStore)
+  kpStatusText.value = ''
+}
+
+function newHostBatch() {
+  kpErrorText.value = ''
+  try {
+    resetRoleplayHostBudget(gameStore, { maxSteps: 3 })
+    kpStatusText.value = ''
+  } catch (error) {
+    kpErrorText.value = String(error?.message || '无法开始新一批')
   }
 }
 
@@ -424,6 +521,11 @@ function abandon() {
   margin: 0;
   flex-basis: 100%;
   color: var(--control-danger, var(--danger, #a33c2e));
+}
+
+.rp-scenario__kp-status {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--archive-ink) 68%, transparent);
 }
 
 .rp-scenario__discovered {

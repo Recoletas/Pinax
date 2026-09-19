@@ -19,13 +19,32 @@ export const LEDGER_V2_TABLES = {
   turnReceipts: 'receiptId, scopeKey, commandId, turnId, [scopeKey+archivedSeq]'
 }
 
+// G1: index-only upgrade. The extra compound index powers bounded newest-
+// first per-subject walks; row shapes, LEDGER_SCHEMA_VERSION and backup
+// packages are unchanged, so old exports import unchanged and no data is
+// rewritten (Dexie only reindexes). An OLDER app build opening this database
+// fails open typed (VersionError) instead of mis-reading it.
+export const LEDGER_V3_TABLES = {
+  ...LEDGER_V2_TABLES,
+  factVersions: 'id, scopeKey, factKey, [scopeKey+factKey], [scopeKey+subjectKey], [scopeKey+recordedSeq], [scopeKey+subjectKey+recordedSeq]'
+}
+
+// M08: knowledge events (角色获知) as an APPEND-ONLY table — 获知与信念状态
+// 转移（M09）都是事件，绝不原地改。加表不加列：旧备份包不受影响（账本域
+// 导出表清单在 ledgerBackup 的 LEDGER_TABLE_KEYS 中另行登记）。
+export const LEDGER_V4_TABLES = {
+  ...LEDGER_V3_TABLES,
+  knowledgeEvents: 'id, scopeKey, actorKey, factVersionId, recordedSeq, [scopeKey+actorKey], [scopeKey+actorKey+recordedSeq], [scopeKey+factVersionId]'
+}
+
 export const LEDGER_TX_TABLES = [
   'evidenceSnapshots',
   'factProposals',
   'factVersions',
   'factDecisions',
   'rejectionMarks',
-  'ledgerMeta'
+  'ledgerMeta',
+  'knowledgeEvents'
 ]
 
 const SCHEMA_META_ID = 'schema'
@@ -35,6 +54,8 @@ export function createLedgerDb(name = MEMORY_HISTORY_DB) {
   const db = new Dexie(name)
   db.version(1).stores(LEDGER_V1_TABLES)
   db.version(2).stores(LEDGER_V2_TABLES)
+  db.version(3).stores(LEDGER_V3_TABLES)
+  db.version(4).stores(LEDGER_V4_TABLES)
   return { ok: true, db }
 }
 

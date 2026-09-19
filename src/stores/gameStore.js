@@ -1054,7 +1054,9 @@ export const useGameStore = defineStore('game', {
         const intent = hidden
           ? normalizeNarrativeIntent(options.intent || (options.source === 'auto-advance' ? 'advance' : 'extend'))
           : (this.chatHistory.filter((m) => m.role === 'assistant').length === 0 ? 'open' : 'respond')
-        await this.generateAIResponse({
+        // R01：回传回合事务结果（'success'|'error'|'cancelled'），主持循环据此
+        // 决定推进/停止，而不是盲目续跑。
+        return await this.generateAIResponse({
           narrativeMode,
           directorNote: effectiveDirectorNote,
           userMessageId,

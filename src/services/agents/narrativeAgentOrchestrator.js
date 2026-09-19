@@ -588,7 +588,8 @@ async function executeToolWithTimeout(
   registry,
   call,
   signal,
-  timeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.toolTimeoutMs
+  timeoutMs = NARRATIVE_AGENT_RUNTIME_LIMITS.toolTimeoutMs,
+  executeOptions = {}
 ) {
   if (signal?.aborted) {
     throw signal.reason || runtimeError('NARRATIVE_AGENT_ABORTED', '叙事生成已取消')
@@ -607,7 +608,7 @@ async function executeToolWithTimeout(
     controller.abort(runtimeError('NARRATIVE_LOCAL_LOOKUP_TIMEOUT', '本地资料查询超时，已使用现有资料继续', true))
   }, timeoutMs)
   try {
-    const execution = Promise.resolve().then(() => registry.execute(call, { signal: controller.signal }))
+    const execution = Promise.resolve().then(() => registry.execute(call, { signal: controller.signal, ...executeOptions }))
     return await Promise.race([
       execution,
       new Promise((resolve) => {
@@ -1088,7 +1089,7 @@ export async function runNarrativeAgentLoop({
           )
         }
         const call = calls[0]
-        const result = await executeToolWithTimeout(registry, call, linkedAbort.signal)
+        const result = await executeToolWithTimeout(registry, call, linkedAbort.signal, undefined, { phase: 'plan' })
         if (result?.ok === false || !result?.plan) {
           throw runtimeError(
             result?.error?.code || 'NARRATIVE_BEAT_PLAN_INVALID',
@@ -1457,10 +1458,13 @@ export async function runNarrativeAgentLoop({
         ...entry,
         result: entry.result || await (async () => {
           const revisionBefore = text(registry.revision)
+          // T02：正文轮在执行处声明阶段 —— 规划工具即使被模型伪造也在执行前拒绝。
           const result = await executeToolWithTimeout(
             registry,
             entry.call,
-            linkedAbort.signal
+            linkedAbort.signal,
+            undefined,
+            { phase: 'write' }
           )
           if (revisionBefore !== text(registry.revision)) {
             staleResourceObserved = true

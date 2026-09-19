@@ -19,6 +19,10 @@ BSD-2-Clause 原文（摘要）：允许使用、复制、修改、分发与商�
 
 ### StoryForge 跑团与漫画（2026-09-17）
 
+2026-09-19 追加移植：固定 `1935dab9670069f1336be0b09c096c1444bbada6` 的 run/hash、checkpoint 恢复分类与 KP 循环适配到 `src/services/experience/run/` 和 `roleplayKpCoordinator.js`；工具授权结构适配到 `toolExecutionAuthorization.js`。保留同一 MIT 许可与版权，数据库、同步摘要、预算和副作用 owner 按 Pinax 调整。
+
+Utopia `ca4678084da46311c1d24cb65d05f340d8903e54` 的 `crates/utopia-store/src/temporal.rs` 算法适配到 `src/services/memory/ledger/temporalCoordinator.js`，Rust/Postgres 改为 JS 纯规划及 Dexie 确认事务，修改范围在源码头说明。Apache-2.0 许可随 [utopia-LICENSE.txt](./public/third-party/utopia-LICENSE.txt) 分发，上游该版本无 NOTICE 文件。
+
 固定上游 [yuanbw2025/storyforge](https://github.com/yuanbw2025/storyforge/tree/cd1236cfa5c7cbd307ed0dfac5487f9fe5c98aed)，MIT，Copyright (c) 2026 yuanbw2025。
 
 - `src/services/experience/roleplay/third-party/storyforgeDice.js` 从 `src/lib/ttrpg/dice.ts` 移植闭合骰式解析、范围检查与 uint32 拒绝采样；去 TypeScript 类型及 SHA-256 V2 变体，保留来源。

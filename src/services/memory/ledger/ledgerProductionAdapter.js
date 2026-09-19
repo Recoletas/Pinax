@@ -33,18 +33,21 @@ export function createLedgerFactsMethod({ db } = {}) {
       .filter(term => term.length >= 2)
       .slice(0, 32)
 
+    // G1: the query terms go INTO the bounded walk (filter before truncate).
+    // The old shape projected the newest page first and keyword-filtered
+    // afterwards, so a flood of newer unrelated facts could leave the page
+    // empty while an older relevant fact sat one scan-chunk below the fold.
     const projection = await project({
       scope: { domain: 'book', bookId: projectId },
       limit: Math.min(12, Math.max(1, Math.floor(Number(limit) || 6))),
-      maxItemChars: Math.min(240, Math.max(60, Math.floor(Number(maxItemChars) || 180)))
+      maxItemChars: Math.min(240, Math.max(60, Math.floor(Number(maxItemChars) || 180))),
+      textTerms: terms
     })
     if (!projection.ok) return { blocks: projection.blocks, suppressLegacyCandidateIds: new Set() }
 
-    // Query-term prefilter over the frozen manifest only; no hit ever
-    // widens what the manifest froze.
-    const blocks = terms.length
-      ? projection.blocks.filter(block => !block.included || terms.some(term => block.text.toLowerCase().includes(term)))
-      : projection.blocks
+    // The walk already applied the term filter; blocks pass through as
+    // returned (including the zero-content audit block, which stays).
+    const blocks = projection.blocks
 
     const map = await listLegacyMigrationMap(db, { scope: { domain: 'book', bookId: projectId } })
     return {

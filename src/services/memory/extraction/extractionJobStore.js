@@ -16,7 +16,9 @@ export const EXTRACTION_JOB_STATUSES = Object.freeze([
 export const EXTRACTION_JOB_LIMIT = 200
 export const EXTRACTION_MAX_ATTEMPTS = 3
 export const EXTRACTION_MAX_FORMAT_REPAIRS = 1
-const STORAGE_KEY = 'memory_extraction_jobs_v1'
+import { STORAGE_KEYS } from '../../../composables/useStorage'
+
+const STORAGE_KEY = STORAGE_KEYS.MEMORY_EXTRACTION_JOBS
 
 function readJobs() {
   try {
@@ -176,4 +178,16 @@ export function peekAutoSessionBudget({ limit = 20 } = {}) {
   } catch {
     return { used: 0, limit, allowed: true }
   }
+}
+
+// M11：失败/取消任务的显式重排队。只复位任务状态（attempts 归零、清错误），
+// 不承诺提取成功；观察器下一轮 drain 或作者手动消费会再次尝试。
+export function requeueExtractionJob(jobId) {
+  const jobs = readJobs()
+  const job = jobs.find(row => row.id === jobId)
+  if (!job) return { ok: false, reason: 'job-not-found' }
+  if (job.status === 'running') return { ok: false, reason: 'job-running' }
+  if (job.status === 'queued') return { ok: true, replay: true, job }
+  updateExtractionJob(jobId, { status: 'queued', attempts: 0, lastError: null })
+  return { ok: true, replay: false, job: readJobs().find(row => row.id === jobId) }
 }

@@ -71,7 +71,8 @@ try {
   })
   await page.reload()
   assert.equal(await page.locator('.memory-indicator').count(), 0)
-  await page.getByRole('button', { name: '备份与恢复 为作品留一份副本', exact: true }).click()
+  // 20260918 白日 UI polish 后欢迎页按钮只保留主文案；快捷操作与侧栏同名，限定容器。
+  await page.locator('.library-quick-actions').getByRole('button', { name: '备份与恢复' }).click()
   await page.getByRole('tab', { name: '记忆与历史' }).click()
   // c445dd4 起工作区按视图分页签；来源与修订入口在「AI 候选」视图。
   await page.getByRole('button', { name: 'AI 候选' }).click()

@@ -4,7 +4,7 @@
 
 ## 当前主线
 
-2026-09-19 00:20 核对：[记忆/跑团/Agent 夜间计划](./plan/nightly-20260918-runtime-maturity.md)已经执行，A `41465f0` 交付 G0/G1，C `2218d17` 交付跑团 run/刷新恢复切片，B `57b268e` 交付 KP/停机与离线同伴候选。均未合入 main，G4 组合验收未完成；R03 provider、角色知识等仍待推进。已修正三份任务板分工冲突，标出 B 未跟踪依赖和 B/C 重复 KP 写集，详见[统一快照](./agent-runs/nightly-20260918/current.md)。36 项连续队列与复用优先要求继续有效，本轮只推送 UUID 修复和计划修订，不操作其他工作树。
+2026-09-19 组合验收：[记忆/跑团/Agent 夜间计划](./plan/nightly-20260918-runtime-maturity.md)的已交付切片按 A `19f5386`、B `d21f793`、C `48e2fcf`整合，保留主线 HTTP UUID 修复。A 记忆与 C 跑团生产链、B 工具授权组成唯一实现；B/C 重复 KP 不并存。详细回归见[组合回执](./agent-runs/nightly-20260918/integration-summary.md)。下一批优先接真实同伴 provider 与角色知识、真实来源 revision 审计，再推进 T09–T12 与全 Agent 恢复；36 项原队列继续有效，不能把基础合同/注入端口视为全部成熟能力。仅本地合并，未推送部署。
 
 2026-09-18 [资料接入 / 全局 UI / 记忆提取三线计划](./plan/nightly-20260917-sources-ui-memory.md)已完成实际交付切片并组合验收：N-A 的按书资料导入管理与设定入口、N-B 的跨页控件收口、N-C 的历史降噪与有证据提取链已以 `c7ca33b` 合入 main。完整工程门禁、资料/记忆/历史/账本/设定联动及全路由 UI 审计通过；真实 LLM、真机 IME、ZIP 中途失败注入和各分册 partial/not-run 项仍待后续，不把本次切片写成整份储备包完成。漫画和自主跑团剩余项继续保留 backlog；见[组合验收](./agent-runs/nightly-20260917-quality/combination-check.md)。
 

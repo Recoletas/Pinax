@@ -309,7 +309,9 @@ try {
   })
   await page.reload()
   await page.waitForSelector('.authoring-welcome')
-  await page.getByRole('button', { name: '备份与恢复 为作品留一份副本', exact: true }).click()
+  // 20260918 白日 UI polish 后欢迎页按钮只保留主文案（原副标题「为作品留一份副本」移除）；
+  // 快捷操作与侧栏导航同名，限定快捷操作容器。
+  await page.locator('.library-quick-actions').getByRole('button', { name: '备份与恢复' }).click()
   await page.getByRole('tab', { name: '记忆与历史' }).click()
   const workspace = page.locator('.memory-workspace')
   await workspace.getByLabel('归属').selectOption({ value: JSON.stringify(['project', 'book-ledger']) })

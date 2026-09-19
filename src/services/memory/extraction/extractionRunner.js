@@ -206,7 +206,21 @@ function markLinkedCandidates(jobId, extractionState) {
  * 消费队列。auto=true 时受会话预算约束并只跑 queued+到期任务；
  * manual=true 由作者显式触发，绕过会话预算但仍然 FIFO、并发 1。
  */
+// 单飞守卫：并发 drain（观察器自动 + 作者手动同时到达）只让一个进入，
+// 另一个立即返回 skipped；数据层本有提案幂等兜底，这里避免重复模型消耗。
+let drainInFlight = false
+
 export async function drainExtractionQueue({ max = 1, auto = true, knownIdentities = [], signal = null } = {}) {
+  if (drainInFlight) return { interrupted: 0, results: [{ skipped: 'drain-in-flight' }] }
+  drainInFlight = true
+  try {
+    return await drainExtractionQueueInner({ max, auto, knownIdentities, signal })
+  } finally {
+    drainInFlight = false
+  }
+}
+
+async function drainExtractionQueueInner({ max = 1, auto = true, knownIdentities = [], signal = null } = {}) {
   const reconciliation = reconcileInterruptedJobs()
   const results = []
   for (let index = 0; index < Math.max(1, max); index += 1) {

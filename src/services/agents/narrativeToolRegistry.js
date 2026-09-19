@@ -1,3 +1,4 @@
+import { assertToolExecutionAuthorization } from './toolExecutionAuthorization.js'
 import {
   NARRATIVE_AGENT_SCHEMA_VERSION,
   createNarrativeToolError,
@@ -66,6 +67,11 @@ export function createNarrativeToolRegistry({
   const names = Object.freeze(availableToolNames(index, allowedToolNames))
 
   async function execute(rawCall, options = {}) {
+    try {
+      assertToolExecutionAuthorization({ call: rawCall, phase: options.phase === 'write' ? 'narrate' : options.phase })
+    } catch (error) {
+      return createNarrativeToolError(rawCall, error.code === 'TOOL_PHASE_FORBIDDEN' ? 'NARRATIVE_TOOL_PHASE_FORBIDDEN' : error.code, error.message)
+    }
     const validation = validateNarrativeToolCall(rawCall)
     if (!validation.valid) {
       return createNarrativeToolError(rawCall, validation.error.code, validation.error.message, {
@@ -75,6 +81,17 @@ export function createNarrativeToolRegistry({
     const call = validation.call
     if (options.signal?.aborted) {
       return createNarrativeToolError(call, 'NARRATIVE_TOOL_ABORTED', '工具调用已取消')
+    }
+    // T02（runtime-maturity）：执行处阶段核验 —— 权限边界必须落在实际执行
+    // 入口，而不是只靠 prompt 目录隐藏工具。规划工具是控制面调用，只存在于
+    // 独立 planner 轮；正文/evidence 轮即使模型伪造该调用，也在任何执行器、
+    // 缓存或索引读取之前 typed 拒绝。options.phase 缺省 = legacy 合同（不过
+    // 门），存量调用方（experience/rehearsal）不受影响。
+    if (options.phase === 'plan' && call.name !== NARRATIVE_BEAT_PLAN_TOOL) {
+      return createNarrativeToolError(call, 'NARRATIVE_TOOL_PHASE_FORBIDDEN', '规划阶段只允许提交场景方案工具调用')
+    }
+    if (options.phase && options.phase !== 'plan' && call.name === NARRATIVE_BEAT_PLAN_TOOL) {
+      return createNarrativeToolError(call, 'NARRATIVE_TOOL_PHASE_FORBIDDEN', '规划工具只允许在规划阶段调用')
     }
     // Q3：BeatPlan 是内部控制调用 —— 不查询资源索引，不计入 grounding evidence。
     if (call.name === NARRATIVE_BEAT_PLAN_TOOL) {

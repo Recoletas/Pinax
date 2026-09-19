@@ -28,6 +28,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
   WRITING_RECOVERY_DRAFTS: 'project',
   NARRATIVE_ASSETS: 'project',
   MEMORY_CANDIDATES: 'project',
+  MEMORY_EXTRACTION_JOBS: 'project',
   STORYBOARD_DOCUMENTS: 'project',
   STORYBOARD_SNAPSHOTS: 'project',
 

@@ -134,6 +134,21 @@ export function deriveFactKey(claim) {
   return `fact:${claim.subjectKey}:${claim.predicate}`
 }
 
+// M02 分类合同（nightly-20260918）：谓词的时序种类。默认按单值状态处理——
+// 只有单值状态允许时序协调（自动收口提案）；多值关系与事件在此登记覆盖，
+// 多值不得误关闭旧事实，事件区间只接受显式更正。值域对齐
+// temporalCoordinator 的 TEMPORAL_KINDS。
+export const LEDGER_TEMPORAL_PREDICATE_KINDS = Object.freeze({
+  // 示例（当前书目无登记项，留空为纯默认合同）：
+  // '所属势力': 'multi-value-relation',
+  // '加冕': 'event'
+})
+
+export function resolvePredicateTemporalKind(predicate) {
+  const key = String(predicate ?? '')
+  return LEDGER_TEMPORAL_PREDICATE_KINDS[key] || 'single-value-state'
+}
+
 // Literal objects normalize through the same path, so a rejected literal
 // claim suppresses re-proposing the same literal (G-A06).
 export function claimFingerprint(scopeKey, claim) {

@@ -10,9 +10,11 @@ import {
   claimFingerprint,
   payloadHash,
   sameInterval,
+  resolvePredicateTemporalKind,
   ledgerId
 } from './ledgerContract'
 import { currentHeadOf } from './recordAxis'
+import { planSingleValueTimeline } from './temporalCoordinator'
 import { LEDGER_TX_TABLES as TX_TABLES } from './ledgerDb'
 
 // The single business owner of canonical facts. UI, model tools and backup
@@ -136,7 +138,7 @@ export async function createProposal(db, input) {
   const evidenceIds = Array.isArray(input?.evidenceIds) ? [...new Set(input.evidenceIds.filter(id => typeof id === 'string' && id))] : []
   const fingerprint = claimFingerprint(resolved.scopeKey, claim.claim)
   try {
-    const tables = { proposals: db.table('factProposals'), evidence: db.table('evidenceSnapshots'), rejections: db.table('rejectionMarks') }
+    const tables = { proposals: db.table('factProposals'), evidence: db.table('evidenceSnapshots'), rejections: db.table('rejectionMarks'), versions: db.table('factVersions') }
     for (const evidenceId of evidenceIds) {
       const evidence = await tables.evidence.get(evidenceId)
       if (!evidence || evidence.scopeKey !== resolved.scopeKey) return fail(LEDGER_FAILURE_REASONS.evidenceMissing, { evidenceId })
@@ -169,6 +171,16 @@ export async function createProposal(db, input) {
       fingerprint,
       createdAt: Date.now()
     }
+    // M03：单值状态谓词在提案阶段计算时序协调计划，随提案进入真实确认
+    // 入口——作者看到将收口哪些旧版本、有哪些需要人工裁决的对子，然后才
+    // 决定是否接受。
+    proposal.temporalPlanV1 = await buildTemporalPlan(tables, {
+      scopeKey: resolved.scopeKey,
+      factKey: proposal.factKey,
+      claim: claim.claim,
+      interval: interval.interval,
+      timeline: normalizeTimelineConfig(input?.timeline)
+    })
     await tables.proposals.add(proposal)
     return { ok: true, replay: false, proposal }
   } catch (error) {
@@ -180,6 +192,206 @@ function invalidation(now, seq) {
   return { invalidatedAt: now, invalidatedSeq: seq }
 }
 
+// 收口后继不是 succession：head 查找必须跳过它们，否则旧值的收口行会被
+// 误认为当前事实。
+function successionHead(versions) {
+  return currentHeadOf(versions.filter(row => !row.supersedesKind))
+}
+
+// ── M03（nightly-20260918）：时序协调接线 ─────────────────────────────
+// 提案创建时对单值状态谓词计算协调计划（纯算法见 temporalCoordinator），
+// 计划随提案走真实确认入口；采纳在同一 Dexie 事务里原子写入故事轴收口
+// （失败无半提交）。作者不点接受，任何收口都不发生。
+
+const TEMPORAL_PLAN_LIMITS = Object.freeze({ maxCloses: 8, maxConflicts: 8 })
+
+// era 序 + ordinal → 同 timeline 下可整体比较的瞬间；era 未配置视为未知时间。
+function temporalInstant(point, timeline) {
+  if (!point || typeof point.eraId !== 'string' || !point.eraId) return null
+  const ordinal = Number.isFinite(Number(point.ordinal)) ? Math.floor(Number(point.ordinal)) : null
+  if (ordinal === null) return null
+  const order = timeline?.eras?.get(point.eraId)
+  if (!Number.isFinite(order)) return null
+  return order * 1e9 + ordinal
+}
+
+// 可选 timeline 配置：{ id, eras: [{ id, order }] }。
+function normalizeTimelineConfig(input) {
+  if (!input || typeof input !== 'object' || !Array.isArray(input.eras)) return null
+  const eras = new Map()
+  for (const era of input.eras) {
+    if (!era || typeof era.id !== 'string' || !era.id.trim()) continue
+    eras.set(era.id.trim(), Number.isFinite(Number(era.order)) ? Math.floor(Number(era.order)) : 0)
+  }
+  return { id: typeof input.id === 'string' ? input.id.trim() : null, eras }
+}
+
+// 版本 → 协调行。open = 无终点记录（endSemantic 'open' 或无 interval）；
+// exclusive end 是作者写明的终点（引擎不得改写）；unknown 是"结束了，不知
+// 哪天"（0022：未知日期不是开放终点）；引擎收口过的行带 endDerived 标记，
+// 之后仍可被更好的后任重算。
+function temporalRowFromVersion(version, timeline) {
+  const interval = version.validInterval
+  const hasExplicitEnd = interval?.endSemantic === 'exclusive' && interval?.end
+  return {
+    id: version.id,
+    objectKey: String(version.object ?? ''),
+    from: temporalInstant(interval?.start, timeline),
+    to: hasExplicitEnd ? temporalInstant(interval.end, timeline) : null,
+    endUnknown: interval?.endSemantic === 'unknown',
+    anchorAt: null,
+    endDerived: interval?.endDerived === true,
+    authority: version.authority === 'author-confirmed' ? 'author' : 'derived'
+  }
+}
+
+function temporalRowFromClaim(claim, interval, timeline) {
+  return {
+    id: 'incoming',
+    objectKey: String(claim.object ?? ''),
+    from: temporalInstant(interval?.start, timeline),
+    to: interval?.endSemantic === 'exclusive' && interval?.end ? temporalInstant(interval.end, timeline) : null,
+    endUnknown: interval?.endSemantic === 'unknown',
+    anchorAt: null,
+    endDerived: false,
+    authority: 'author'
+  }
+}
+
+// 提案落库前计算协调计划：只对单值状态谓词；多值/事件由分类合同排除。
+async function buildTemporalPlan(tables, { scopeKey, factKey, claim, interval, timeline }) {
+  if (resolvePredicateTemporalKind(claim.predicate) !== 'single-value-state') return null
+  const versions = (await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, factKey]).toArray())
+    .filter(row => !row.invalidatedAt)
+  // M04：与 head 完全一致的主张（同宾语、同故事区间）采纳时必被 no-change
+  // 拒绝——不为它生成永远不会被执行的收口计划。
+  const head = successionHead(versions)
+  if (head && head.object === claim.object && sameInterval(head.validInterval, interval)) return null
+  const plan = planSingleValueTimeline({
+    rows: versions.map(row => temporalRowFromVersion(row, timeline)),
+    incoming: temporalRowFromClaim(claim, interval, timeline)
+  })
+  // 有界存储：超出上限的收口/冲突不静默丢弃语义——标记 truncated。
+  const closes = plan.closes.slice(0, TEMPORAL_PLAN_LIMITS.maxCloses).map(close => ({
+    id: close.id,
+    from: close.from,
+    currentEnd: close.currentEnd,
+    proposedEnd: close.proposedEnd,
+    reason: close.reason,
+    // 采纳前防并发：计划时的区间指纹；采纳时不一致则该收口按过期跳过
+    snapshotHash: (() => {
+      const target = versions.find(row => row.id === close.id)
+      return target ? payloadHash({ interval: target.validInterval }) : null
+    })()
+  }))
+  const conflicts = plan.conflicts.slice(0, TEMPORAL_PLAN_LIMITS.maxConflicts)
+  if (!closes.length && !conflicts.length) return null
+  return {
+    version: 1,
+    kind: plan.kind,
+    closes,
+    conflicts,
+    truncated: plan.closes.length > closes.length || plan.conflicts.length > conflicts.length
+  }
+}
+
+// 采纳事务内应用收口：故事轴终点写到新版本的起点（exclusive），并保留
+// endDerived 标记；计划时指纹不符（来源已被并发更正/作废）的收口按过期
+// 跳过并如实回报，绝不猜。
+// M05 写形状（对齐上游"作废+改写"而非原地改）：每个收口目标保留原行
+// （原样开着，被作废——as-of 收口之前回放看到的是开放形状），另铸一行
+// "收口后继"（闭区间 + endDerived 标记，supersedes 指回目标）。撤销收口
+// = 作废后继、复活目标，两个方向的双轴回放都成立。
+async function applyTemporalCloses(tables, { plan, newVersion, scopeKey, currentHeadId, allocateCloseSeq, now }) {
+  const applied = []
+  const skipped = []
+  for (const close of plan?.closes || []) {
+    const target = await tables.versions.get(close.id)
+    if (!target || target.scopeKey !== scopeKey) {
+      skipped.push({ id: close.id, reason: 'target-missing' })
+      continue
+    }
+    // 本次采纳对 head 的 succession 作废（同事务）不阻断其收口；只有更早
+    // 命令里已作废的目标才按过期跳过。
+    if (target.invalidatedAt && target.id !== currentHeadId) {
+      skipped.push({ id: close.id, reason: 'target-invalidated' })
+      continue
+    }
+    if (close.snapshotHash && payloadHash({ interval: target.validInterval }) !== close.snapshotHash) {
+      skipped.push({ id: close.id, reason: 'target-changed-since-plan' })
+      continue
+    }
+    const proposed = close.proposedEnd || {}
+    const endSemantic = proposed.kind === 'unknown-end' ? 'unknown' : 'exclusive'
+    const end = proposed.kind === 'unknown-end'
+      ? (target.validInterval?.end || null)
+      : (newVersion.validInterval?.start || null)
+    const closedInterval = {
+      ...(target.validInterval || { timelineId: newVersion.validInterval?.timelineId || 'default' }),
+      end,
+      endSemantic: end ? endSemantic : 'unknown',
+      endDerived: true
+    }
+    const closeSeq = await allocateCloseSeq()
+    // 目标作废（收口 caused）；原区间不动地留在行上供 as-of 回放。
+    await tables.versions.update(target.id, { invalidatedAt: now, invalidatedSeq: closeSeq })
+    const closureRow = {
+      id: ledgerId('fv'),
+      schemaVersion: 2,
+      factKey: target.factKey,
+      scopeKey: target.scopeKey,
+      scope: target.scope,
+      subjectKey: target.subjectKey,
+      subjectLabel: target.subjectLabel,
+      predicate: target.predicate,
+      object: target.object,
+      evidenceIds: [...(target.evidenceIds || [])],
+      validInterval: closedInterval,
+      recordedAt: now,
+      recordedSeq: closeSeq,
+      supersedes: target.id,
+      // head 目标的收口与 head 交接纠缠（目标作废来自 succession），撤销
+      // 须经既有更正/撤回流程；只有纯时序收口（'temporal-closure'）可撤销。
+      supersedesKind: target.id === currentHeadId ? 'temporal-closure-head' : 'temporal-closure',
+      authority: target.authority,
+      origin: target.origin,
+      legacyRefs: null
+    }
+    await tables.versions.add(closureRow)
+    applied.push({ id: closureRow.id, ofVersion: target.id, endSemantic: closedInterval.endSemantic })
+  }
+  return { applied, skipped }
+}
+
+// M05：撤销一次引擎收口（作者显式命令）。收口行是引擎**派生**的区间
+// 断言——撤销只作废这一行，不动作者的采纳（succession）与目标行：任何
+// 时点的回放都不会出现双重取值。作者若想改的是收口**点**，走对收口行的
+// 既有更正流程（人工更正会去掉 endDerived 标记）。
+export async function revertTemporalClosure(db, input) {
+  const payload = {
+    scope: input?.scope, closureVersionId: input?.closureVersionId,
+    actorRef: input?.actorRef ?? '', reason: input?.reason ?? ''
+  }
+  return runCommand(db, payload.scope, input?.commandId, payload, async ({ tables, seq, scopeKey }) => {
+    const closure = await tables.versions.get(payload.closureVersionId)
+    if (!closure || closure.scopeKey !== scopeKey) return fail(LEDGER_FAILURE_REASONS.factNotFound, { closureVersionId: payload.closureVersionId })
+    if (!closure.supersedesKind || !closure.supersedesKind.startsWith('temporal-closure')) {
+      return fail('not-temporal-closure', { closureVersionId: closure.id })
+    }
+    if (closure.invalidatedAt) return fail('closure-already-reverted', { closureVersionId: closure.id })
+    const now = Date.now()
+    await tables.versions.update(closure.id, { invalidatedAt: now, invalidatedSeq: seq })
+    return {
+      operation: 'revert-temporal-closure',
+      actorRef: payload.actorRef,
+      reason: payload.reason,
+      beforeIds: [closure.id],
+      afterIds: [],
+      result: { revertedClosureId: closure.id, ofVersion: closure.supersedes, factKey: closure.factKey }
+    }
+  })
+}
+
 // Adopt a pending proposal as a canonical fact version. Concurrent adopts of
 // the same proposal resolve to one fact: the second transaction reads the
 // already-adopted status and refuses (or replays under the same commandId).
@@ -188,7 +400,14 @@ export async function adoptProposal(db, input) {
     scope: input?.scope, proposalId: input?.proposalId,
     object: input?.object ?? null, storyInterval: input?.storyInterval ?? null,
     evidenceIds: input?.evidenceIds ?? [], manualAssertion: Boolean(input?.manualAssertion),
-    expectedHead: input?.expectedHead ?? null, actorRef: input?.actorRef ?? '', reason: input?.reason ?? ''
+    expectedHead: input?.expectedHead ?? null, actorRef: input?.actorRef ?? '', reason: input?.reason ?? '',
+    // M06：调用方（事实审核入口）提供的来源现时性（evidenceId → 'current' |
+    // 'revision-changed' | 'source-deleted'）。给出且存在非 current 时，必须
+    // 显式 allowStaleEvidence 才能接受——旧引用不再静默当有效证据。
+    evidenceCurrentness: (input?.evidenceCurrentness && typeof input.evidenceCurrentness === 'object')
+      ? input.evidenceCurrentness
+      : null,
+    allowStaleEvidence: input?.allowStaleEvidence === true
   }
   return runCommand(db, payload.scope, input?.commandId, payload, async ({ tables, seq, scopeKey, scope }) => {
     const proposal = await tables.proposals.get(input?.proposalId)
@@ -232,6 +451,16 @@ export async function adoptProposal(db, input) {
       effectiveEvidenceIds = [assertion.id]
     }
 
+    // M06：来源现时性防线——审核入口给了现时性且证据已过期/删除时，
+    // 未经作者显式确认（allowStaleEvidence）拒绝接受。
+    if (payload.evidenceCurrentness) {
+      const stale = effectiveEvidenceIds
+        .filter(id => ['revision-changed', 'source-deleted'].includes(payload.evidenceCurrentness[id]))
+      if (stale.length && !payload.allowStaleEvidence) {
+        return fail('evidence-source-stale', { evidenceIds: stale, statuses: stale.map(id => payload.evidenceCurrentness[id]) })
+      }
+    }
+
     const fingerprint = claimFingerprint(scopeKey, claim.claim)
     const marks = await tables.rejections.where('[scopeKey+fingerprint]').equals([scopeKey, fingerprint]).toArray()
     const primaryEvidence = await tables.evidence.get(effectiveEvidenceIds[0])
@@ -243,9 +472,18 @@ export async function adoptProposal(db, input) {
     const interval = normalizeStoryIntervalInput(intervalInput)
     if (!interval.ok) return fail(interval.reason)
 
-    const head = currentHeadOf(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, factKey]).toArray())
+    const head = successionHead(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, factKey]).toArray())
     if (payload.expectedHead !== null && payload.expectedHead !== (head?.id || null)) {
       return fail(LEDGER_FAILURE_REASONS.headConflict, { expectedHead: payload.expectedHead, actualHead: head?.id || null })
+    }
+
+    // M04：重复结束证据不重复生成版本。同一主张（同主语/谓词/宾语）且
+    // 故事区间形状一致时，接受只会再铸一个内容相同的版本——拒绝而不是
+    // 制造冗余修订；来源修订变化后提案本就会重新进入审阅（A09）。
+    if (head
+      && head.object === claim.claim.object
+      && sameInterval(head.validInterval, interval.interval)) {
+      return fail(LEDGER_FAILURE_REASONS.noChange, { headVersionId: head.id })
     }
 
     const now = Date.now()
@@ -267,14 +505,37 @@ export async function adoptProposal(db, input) {
       legacyRefs: proposal.baseRevision ? { legacyCandidateId: proposal.baseRevision } : null
     }
     await tables.versions.add(version)
+    // M03：同一事务内应用协调收口——旧版本作废（head 已在上面按记录轴
+    // 处理）与故事轴区间收口、新版本写入、提案状态翻转要么全成要么全滚，
+    // 失败无半提交。
+    let temporalApplied = []
+    let temporalSkipped = []
+    if (proposal.temporalPlanV1?.version === 1) {
+      const outcome = await applyTemporalCloses(tables, {
+        plan: proposal.temporalPlanV1,
+        newVersion: version,
+        scopeKey,
+        currentHeadId: head?.id || null,
+        allocateCloseSeq: () => allocateSeq(tables.meta, scopeKey),
+        now
+      })
+      temporalApplied = outcome.applied
+      temporalSkipped = outcome.skipped
+    }
     await tables.proposals.update(proposal.id, { status: 'adopted', adoptedVersionId: version.id })
     return {
       operation: 'adopt-proposal',
       actorRef: payload.actorRef,
       reason: payload.reason,
       beforeIds: head ? [head.id] : [],
-      afterIds: [version.id],
-      result: { factVersionId: version.id, factKey, proposalId: proposal.id }
+      afterIds: [version.id, ...temporalApplied.map(entry => entry.id)],
+      result: {
+        factVersionId: version.id,
+        factKey,
+        proposalId: proposal.id,
+        temporalCloses: { applied: temporalApplied, skipped: temporalSkipped },
+        temporalConflicts: proposal.temporalPlanV1?.conflicts || []
+      }
     }
   })
 }
@@ -286,7 +547,7 @@ export async function correctFact(db, input) {
     expectedHead: input?.expectedHead ?? null, actorRef: input?.actorRef ?? '', reason: input?.reason ?? ''
   }
   return runCommand(db, payload.scope, input?.commandId, payload, async ({ tables, seq, scopeKey }) => {
-    const head = currentHeadOf(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, payload.factKey]).toArray())
+    const head = successionHead(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, payload.factKey]).toArray())
     if (!head) return fail(LEDGER_FAILURE_REASONS.factNotFound, { factKey: payload.factKey })
     if (payload.expectedHead !== null && payload.expectedHead !== head.id) {
       return fail(LEDGER_FAILURE_REASONS.headConflict, { expectedHead: payload.expectedHead, actualHead: head.id })
@@ -345,7 +606,7 @@ export async function correctFact(db, input) {
 export async function retractFact(db, input) {
   const payload = { scope: input?.scope, factKey: input?.factKey, expectedHead: input?.expectedHead ?? null, actorRef: input?.actorRef ?? '', reason: input?.reason ?? '' }
   return runCommand(db, payload.scope, input?.commandId, payload, async ({ tables, seq, scopeKey }) => {
-    const head = currentHeadOf(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, payload.factKey]).toArray())
+    const head = successionHead(await tables.versions.where('[scopeKey+factKey]').equals([scopeKey, payload.factKey]).toArray())
     if (!head) return fail(LEDGER_FAILURE_REASONS.factNotFound, { factKey: payload.factKey })
     if (payload.expectedHead !== null && payload.expectedHead !== head.id) {
       return fail(LEDGER_FAILURE_REASONS.headConflict, { expectedHead: payload.expectedHead, actualHead: head.id })
@@ -533,7 +794,7 @@ export async function getFactHead(db, { scope, factKey }) {
   const resolved = resolveScope(scope)
   if (!resolved.ok) return null
   const versions = await db.table('factVersions').where('[scopeKey+factKey]').equals([resolved.scopeKey, factKey]).toArray()
-  return currentHeadOf(versions)
+  return successionHead(versions)
 }
 
 export async function listRejectionMarks(db, { scope } = {}) {

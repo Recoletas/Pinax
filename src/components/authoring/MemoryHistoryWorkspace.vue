@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { loadWritingBooks } from '../../services/writing/writingBooksRepository'
 import { listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
@@ -8,9 +8,10 @@ import { openLedgerDb, readLedgerHealth, closeLedgerDb } from '../../services/me
 import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisionsPaged, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
 import { queryFacts } from '../../services/memory/ledger/queryFacts'
 import { describeInterval } from '../../services/memory/ledger/storyInterval'
-import { listExtractionJobs } from '../../services/memory/extraction/extractionJobStore'
+import { listExtractionJobs, requeueExtractionJob } from '../../services/memory/extraction/extractionJobStore'
 import { payloadHash } from '../../services/memory/ledger/ledgerContract'
 import { previewLegacyMigration, migrateLegacyCandidate } from '../../services/memory/ledger/legacyMigration'
+import { auditEvidenceCurrentness } from '../../services/memory/ledger/evidenceAudit'
 
 const route = useRoute()
 const books = loadWritingBooks()
@@ -56,6 +57,42 @@ const selected = computed(() => items.value.find(item => item.id === selectedId.
 const health = ref({ pending: 0, error: '' })
 
 // ---- 事实账本（A 线 P0 纵向闭环）----
+// M06：来源现时性。父级可通过 provide('memorySourceRevisionsProvider') 注入
+// async (scope) => ({ currentRevisions, sourceDeleted })；未注入时不裁决、
+// 不拦截（与既有行为一致），审计不会假装知道来源状态。
+const sourceRevisionsProvider = inject('memorySourceRevisionsProvider', null)
+  || (typeof globalThis !== 'undefined' ? globalThis.__pinaxMemorySourceRevisionsProvider : null)
+  || null
+const evidenceCurrentnessById = ref(null)
+const staleConfirmProposalId = ref('')
+function proposalStaleEvidenceIds(p) {
+  const map = evidenceCurrentnessById.value
+  if (!map) return []
+  return (p.evidenceIds || []).filter(id => map[id])
+}
+async function refreshEvidenceCurrentness() {
+  evidenceCurrentnessById.value = null
+  staleConfirmProposalId.value = ''
+  if (typeof sourceRevisionsProvider !== 'function' || !ledgerScope.value) return
+  try {
+    const state = await sourceRevisionsProvider(ledgerScope.value)
+    if (!state || typeof state !== 'object') return
+    const opened = await openLedgerDb()
+    if (!opened.ok) return
+    const audit = await auditEvidenceCurrentness(opened.db, {
+      scope: ledgerScope.value,
+      currentRevisions: state.currentRevisions || {},
+      sourceDeleted: state.sourceDeleted || []
+    })
+    closeLedgerDb(opened.db)
+    if (!audit.ok) return
+    const map = {}
+    for (const item of audit.items) map[item.evidenceId] = item.status
+    evidenceCurrentnessById.value = map
+  } catch {
+    evidenceCurrentnessById.value = null
+  }
+}
 const ledger = ref({
   ready: false,
   unavailable: '',
@@ -151,6 +188,21 @@ function jobStatusLabel(status) {
   return extractionStatusLabels[status] || status
 }
 
+// M11：失败/取消的提取任务显式重排队（attempts 归零、清错误）；只承诺
+// 重新排队，不承诺成功。
+async function retryExtractionJob(job) {
+  if (busy.value) return
+  busy.value = true
+  feedback.value = ''
+  try {
+    const result = requeueExtractionJob(job.id)
+    feedback.value = result.ok ? '已重新排队，等待下一轮提取。' : `重试失败：${result.reason}`
+    await loadLedger()
+  } finally {
+    busy.value = false
+  }
+}
+
 const ledgerScope = computed(() => {
   let parsed
   try { parsed = JSON.parse(selectedScope.value || '[]') } catch { return null }
@@ -207,6 +259,7 @@ async function loadLedger() {
       .map(job => ({
         id: job.id,
         status: job.status,
+        retryable: ['failed', 'cancelled', 'source-changed', 'no-fact'].includes(job.status),
         blocks: job.blocks.length,
         attempts: job.attempts || 0,
         rejected: job.rejected || [],
@@ -236,7 +289,12 @@ async function loadLedger() {
         eras: [{ id: storyAtFromInput.value.eraId, order: 1 }]
       } : null
     })
-    const evidenceIds = [...new Set(pendingProposals.flatMap(p => p.evidenceIds))]
+    // M11：事实卡也要展示来源——证据集合并入本轮查询到的正式事实引用的证据。
+    const factItems = query.ok ? query.items : []
+    const evidenceIds = [...new Set([
+      ...pendingProposals.flatMap(p => p.evidenceIds),
+      ...factItems.flatMap(f => f.evidenceIds || [])
+    ])]
     const evidenceRows = evidenceIds.length ? await db.table('evidenceSnapshots').bulkGet(evidenceIds) : []
     if (generation !== ledgerLoadGeneration) return
     const evidenceById = new Map()
@@ -245,6 +303,7 @@ async function loadLedger() {
     ledger.value.unavailable = ''
     ledger.value.proposals = pendingProposals
     ledger.value.decisions = decisionPage.items || []
+    void refreshEvidenceCurrentness()
     ledger.value.decisionsCursor = decisionPage.nextCursor || null
     ledger.value.rejections = marks
     ledger.value.evidenceById = evidenceById
@@ -282,8 +341,15 @@ function cancelEditProposal() {
   ledger.value.editedObject = ''
 }
 
-async function acceptProposal(p, { manualAssertion = false } = {}) {
+async function acceptProposal(p, { manualAssertion = false, forceStaleEvidence = false } = {}) {
   if (!ledgerScope.value || busy.value) return
+  // M06：证据来源已变化且未显式确认 → 先停在警告，不放行。
+  if (!forceStaleEvidence && proposalStaleEvidenceIds(p).length) {
+    staleConfirmProposalId.value = p.id
+    feedback.value = '该提案引用的来源已修订或删除；请核对后选择「仍要接受」或先更新来源。'
+    return
+  }
+  staleConfirmProposalId.value = ''
   busy.value = true
   feedback.value = ''
   try {
@@ -296,13 +362,17 @@ async function acceptProposal(p, { manualAssertion = false } = {}) {
       commandId: `ui-adopt:${p.id}:${payloadHash({ object })}`,
       object: object || null,
       actorRef: 'memory-workspace',
-      manualAssertion
+      manualAssertion,
+      // M06：来源现时性由外部接线（资料区状态）时透传；显式确认才放行旧引用。
+      evidenceCurrentness: evidenceCurrentnessById.value,
+      allowStaleEvidence: forceStaleEvidence === true
     })
     closeLedgerDb(opened.db)
     if (!result.ok) {
       if (result.reason === 'rejection-active') feedback.value = '该主张此前被拒绝且来源未变；请先在“被拒绝的主张”中显式重新开启。'
       else if (result.reason === 'evidence-missing') feedback.value = '缺少来源证据：AI 提炼不能直接提升为事实；可先补章节引文，或经“修改后接受”以手动断言明确记录为作者录入。'
       else if (result.reason === 'proposal-already-adopted') feedback.value = '该提案已被接受为事实。'
+      else if (result.reason === 'no-change') feedback.value = '该主张与当前事实一致（含故事区间），未生成重复版本。'
       else error.value = `接受失败：${result.reason}`
     } else {
       feedback.value = result.replay ? '该操作此前已完成，未产生重复事实。' : '已接受为正式事实；旧版本保留在更正链中。'
@@ -619,6 +689,15 @@ onMounted(initialize)
           <article v-for="p in ledger.proposals" :key="p.id" class="memory-ledger__card">
             <p><strong>{{ p.subjectLabel || p.subjectKey }}</strong> · {{ p.predicate }} · {{ p.object }}</p>
             <small>{{ originLabels[p.origin] || p.origin }} · 提案来源版本：{{ p.sourceRevision || '无' }} · {{ describeInterval(p.storyInterval) }}</small>
+            <div v-if="p.temporalPlanV1 && (p.temporalPlanV1.closes.length || p.temporalPlanV1.conflicts.length)" class="memory-ledger__evidence" data-test="temporal-plan">
+              <p v-if="p.temporalPlanV1.closes.length" class="memory-workspace__hint">
+                接受后将收口 {{ p.temporalPlanV1.closes.length }} 个旧版本（故事轴：<span v-for="close in p.temporalPlanV1.closes" :key="close.id">{{ close.proposedEnd.kind === 'unknown-end' ? '终点未知' : '止于新起点' }}；</span>）
+              </p>
+              <p v-if="p.temporalPlanV1.conflicts.length" class="memory-workspace__hint">
+                需人工注意 {{ p.temporalPlanV1.conflicts.length }} 项：<span v-for="conflict in p.temporalPlanV1.conflicts" :key="conflict.oldId + conflict.reason">{{ conflict.reason === 'simultaneous' ? '同一时刻开始' : conflict.reason === 'no-time' ? '缺时间证据' : '接替者证据不足' }}；</span>
+              </p>
+              <small v-if="p.temporalPlanV1.truncated">收口/冲突清单超出上限，已截断显示。</small>
+            </div>
             <div v-if="p.evidenceIds.length" class="memory-ledger__evidence">
               <details v-for="evidenceId in p.evidenceIds" :key="evidenceId">
                 <summary>来源引文（{{ ledger.evidenceById.get(evidenceId)?.sourceKind === 'manual-assertion' ? '手动断言' : '章节原句' }} · 版本 {{ ledger.evidenceById.get(evidenceId)?.sourceRevision || '无' }}）</summary>
@@ -626,10 +705,19 @@ onMounted(initialize)
               </details>
             </div>
             <small v-else-if="p.origin === 'ai'">缺少来源证据，不能直接提升为事实。</small>
+            <div v-if="proposalStaleEvidenceIds(p).length" class="memory-ledger__evidence" data-test="evidence-stale-warning">
+              <small>来源已修订/删除：{{ proposalStaleEvidenceIds(p).length }} 条证据引用不再是现时版本。</small>
+            </div>
             <div class="memory-workspace__controls">
-              <button :disabled="busy || (p.origin === 'ai' && !p.evidenceIds.length)" @click="acceptProposal(p)">接受为事实</button>
-              <button :disabled="busy" @click="beginEditProposal(p)">修改后接受</button>
-              <button :disabled="busy" @click="dismissProposal(p)">拒绝</button>
+              <template v-if="staleConfirmProposalId === p.id">
+                <button :disabled="busy || (p.origin === 'ai' && !p.evidenceIds.length)" data-test="accept-stale" @click="acceptProposal(p, { forceStaleEvidence: true })">仍要接受（来源已变化）</button>
+                <button :disabled="busy" @click="staleConfirmProposalId = ''">取消</button>
+              </template>
+              <template v-else>
+                <button :disabled="busy || (p.origin === 'ai' && !p.evidenceIds.length)" @click="acceptProposal(p)">接受为事实</button>
+                <button :disabled="busy" @click="beginEditProposal(p)">修改后接受</button>
+                <button :disabled="busy" @click="dismissProposal(p)">拒绝</button>
+              </template>
             </div>
             <div v-if="ledger.editingProposalId === p.id" class="memory-ledger__form">
               <label>修改后的内容<textarea v-model="ledger.editedObject" rows="2" /></label>
@@ -667,13 +755,20 @@ onMounted(initialize)
               <li v-for="job in ledger.extractionJobs" :key="job.id">
                 <strong>{{ jobStatusLabel(job.status) }}</strong>
                 <small> · {{ job.blocks }} 段 · 尝试 {{ job.attempts }} 次<template v-if="job.proposalCount"> · 产出提案 {{ job.proposalCount }} 条</template><template v-if="job.rejected.length"> · 校验拒绝 {{ job.rejected.length }} 条（{{ job.rejected.map(r => r.reason).join('、') }}）</template><template v-if="job.unextractableReason"> · 没有可提取事实：{{ job.unextractableReason }}</template><template v-if="job.error"> · {{ job.error }}</template></small>
+                <button v-if="job.retryable" class="control-quiet" :disabled="busy" @click="retryExtractionJob(job)">重新排队</button>
               </li>
             </ul>
           </details>
           <p v-if="!ledger.facts.length" class="memory-workspace__hint">{{ ledger.recordedAsOf ? '该记录时点之前没有已登记的事实。' : '还没有正式事实。' }}</p>
           <article v-for="fact in ledger.facts" :key="fact.factVersionId" class="memory-ledger__card">
             <p><strong>{{ fact.subjectLabel || fact.subjectKey }}</strong> · {{ fact.predicate }} · {{ fact.object }}</p>
-            <small>故事时间：{{ describeInterval(fact.validInterval) }} · 记录于 {{ new Date(fact.recordedAt).toLocaleString() }} · 版本 {{ fact.factVersionId.slice(-8) }}<template v-if="fact.supersedes"> · 更正自 {{ fact.supersedes.slice(-8) }}</template></small>
+            <small>故事时间：{{ describeInterval(fact.validInterval) }} · 记录于 {{ new Date(fact.recordedAt).toLocaleString() }} · 版本 {{ fact.factVersionId.slice(-8) }}<template v-if="fact.supersedes"> · 更正自 {{ fact.supersedes.slice(-8) }}</template><template v-if="fact.supersedesKind"> · 引擎收口</template></small>
+            <div v-if="fact.evidenceIds && fact.evidenceIds.length" class="memory-ledger__evidence" data-test="fact-evidence">
+              <details v-for="evidenceId in fact.evidenceIds" :key="evidenceId">
+                <summary>来源（{{ ledger.evidenceById.get(evidenceId)?.sourceKind === 'manual-assertion' ? '手动断言' : '章节原句' }} · 来源版本 {{ ledger.evidenceById.get(evidenceId)?.sourceRevision || '无' }}）</summary>
+                <blockquote>{{ ledger.evidenceById.get(evidenceId)?.quote || '（无冻结引文）' }}</blockquote>
+              </details>
+            </div>
             <div class="memory-workspace__controls">
               <button :disabled="busy" @click="beginCorrect(fact)">更正</button>
               <button :disabled="busy" @click="submitRetract(fact)">撤回</button>
