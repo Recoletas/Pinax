@@ -10,6 +10,7 @@ import {
   resolveAuthoringPosition
 } from '../../writing/authoringPositionIndex.js'
 import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
+import { resolveWritingSkillMethod } from '../../../../shared/writingSkillMethodContract.js'
 
 export const AUTHORING_REVIEW_SESSION_SCHEMA_VERSION = 1
 export const AUTHORING_LOCAL_REVIEW_FINDING_LIMIT = 64
@@ -248,6 +249,70 @@ function sourceFromInput(input = {}) {
   }
 }
 
+// S04（助手写作 Skills 计划 §6.A/§2.2）：作者目标、显式 scope、风格消解与
+// coverage 计划。全部为可选增量输入；不传时 session 行为与原先一致。
+export const AUTHORING_STYLE_DIRECTIVE_SOURCES = Object.freeze([
+  'invocation',
+  'book-rule',
+  'method-default'
+])
+
+// 风格消解：显式作者约束 > 本书既有规则 > 方法默认，同维度先到先得；
+// 不扫描目录、不自动学习偏好。输出冻结的已消解指令数组。
+export function resolveAuthoringReviewStyleDirectives({
+  invocationConstraints = [],
+  bookRules = [],
+  methodDefaults = []
+} = {}) {
+  const byDimension = new Map()
+  const resolved = []
+  for (const [source, rules] of [
+    ['invocation', invocationConstraints],
+    ['book-rule', bookRules],
+    ['method-default', methodDefaults]
+  ]) {
+    for (const rule of Array.isArray(rules) ? rules : []) {
+      const dimension = text(rule?.dimension).trim().slice(0, 60)
+      const directive = text(rule?.directive ?? rule?.text).trim().slice(0, 400)
+      if (!dimension || !directive) continue
+      const existing = byDimension.get(dimension)
+      if (existing) {
+        existing.supersededSources.push(source)
+        continue
+      }
+      const entry = { dimension, directive, source, supersededSources: [] }
+      byDimension.set(dimension, entry)
+      resolved.push(entry)
+    }
+  }
+  return deepFreeze(resolved)
+}
+
+function normalizeGoalReviewInput(goal) {
+  if (!goal || typeof goal !== 'object') return { goal: null, failure: null }
+  const goalText = text(goal.text ?? goal.description).trim()
+  if (!goalText) return { goal: null, failure: 'goal-text-missing' }
+  const skillId = text(goal.skillId).trim()
+  let skill = null
+  if (skillId) {
+    const resolved = resolveWritingSkillMethod(skillId, goal.skillVersion)
+    if (!resolved.ok) return { goal: null, failure: resolved.reason }
+    skill = Object.freeze({
+      skillId: resolved.method.id,
+      skillVersion: resolved.method.version,
+      outputSchema: resolved.method.outputSchema
+    })
+  }
+  return {
+    goal: Object.freeze({
+      text: goalText.slice(0, 400),
+      invocationId: text(goal.invocationId).trim().slice(0, 120),
+      skill
+    }),
+    failure: null
+  }
+}
+
 export function createAuthoringReviewSession(input = {}) {
   const source = sourceFromInput(input)
   if (!source.projectId || !source.documentId || !source.document || !Array.isArray(source.document.content)) return null
@@ -263,7 +328,22 @@ export function createAuthoringReviewSession(input = {}) {
   if (!positionIndex || positionIndex.projectId !== source.projectId) return null
   const documentEntry = positionIndex.documents?.find((entry) => entry.documentId === source.documentId)
   if (!documentEntry) return null
-  const windows = getAuthoringReviewWindows(positionIndex, {
+  const goalReview = normalizeGoalReviewInput(input.goal)
+  if (goalReview.failure) return null
+  const scopeNodeIds = new Set(unique(input.scopeNodeIds || []))
+  // 显式 scope（§4：默认当前选区）只收窄读窗口；完整 index 仍用于
+  // 新鲜度对账与定位，不会被缩小。
+  const scopedIndex = scopeNodeIds.size
+    ? {
+        ...positionIndex,
+        entries: positionIndex.entries.filter((entry) => (
+          entry.documentId === source.documentId
+          && scopeNodeIds.has(entry.nodeId)
+          && text(entry.text).trim()
+        ))
+      }
+    : positionIndex
+  const windows = getAuthoringReviewWindows(scopedIndex, {
     documentId: source.documentId,
     maxNodes: input.maxNodesPerWindow ?? 6,
     overlap: input.windowOverlap ?? 1,
@@ -308,6 +388,8 @@ export function createAuthoringReviewSession(input = {}) {
     sourceRevisions
   })
   const fingerprint = `review-session-${fnv1a(fingerprintSeed)}`
+  const styleDirectives = resolveAuthoringReviewStyleDirectives(input.styleInputs || {})
+  const coverage = buildAuthoringReviewCoveragePlan(positionIndex, windows, source, scopeNodeIds)
 
   return deepFreeze({
     schemaVersion: AUTHORING_REVIEW_SESSION_SCHEMA_VERSION,
@@ -329,8 +411,114 @@ export function createAuthoringReviewSession(input = {}) {
     evidence,
     allowedEvidenceRefs,
     sourceRevisions,
+    goal: goalReview.goal,
+    scope: Object.freeze({ kind: scopeNodeIds.size ? 'selection' : 'chapter' }),
+    styleDirectives,
+    coverage,
     findings: []
   })
+}
+
+// coverage 计划：窗口即「完整正文逐批读」的可核查单位（§6.A）。evidence
+// 的 Top-K 检索单独呈报，不与已读正文混同（§8.1：不把 Top-K 当全量）。
+function buildAuthoringReviewCoveragePlan(positionIndex, windows, source, scopeNodeIds) {
+  const documentChars = positionIndex.entries
+    .filter((entry) => entry.documentId === source.documentId && text(entry.text).trim())
+    .reduce((sum, entry) => sum + text(entry.text).length, 0)
+  return Object.freeze({
+    scopeKind: scopeNodeIds.size ? 'selection' : 'chapter',
+    totalChars: windows.reduce((sum, window) => sum + window.usedChars, 0),
+    documentChars,
+    windows: Object.freeze(windows.map((window) => Object.freeze({
+      windowId: window.id,
+      status: 'planned',
+      nodeIds: window.blocks.map((block) => block.nodeId),
+      charCount: window.usedChars
+    })))
+  })
+}
+
+const AUTHORING_REVIEW_BATCH_STATUSES = Object.freeze(['completed', 'failed', 'skipped'])
+
+// 批次状态推进：未知窗口或非法状态返回 null（fail closed），由调用方处理。
+export function markAuthoringReviewBatchStatus(session, windowId, status) {
+  const id = text(windowId).trim()
+  if (!session?.coverage || !id || !AUTHORING_REVIEW_BATCH_STATUSES.includes(status)) return null
+  if (!session.coverage.windows.some((window) => window.windowId === id)) return null
+  return deepFreeze({
+    ...session,
+    coverage: {
+      ...session.coverage,
+      windows: session.coverage.windows.map((window) => (
+        window.windowId === id ? { ...window, status } : window
+      ))
+    }
+  })
+}
+
+// 重跑同一 session（例如失败批次重试前）把全部窗口复位为 planned。
+export function resetAuthoringReviewCoverage(session) {
+  if (!session?.coverage) return session || null
+  return deepFreeze({
+    ...session,
+    coverage: {
+      ...session.coverage,
+      windows: session.coverage.windows.map((window) => ({ ...window, status: 'planned' }))
+    }
+  })
+}
+
+// 已读范围报告：正文覆盖按窗口逐一批次呈报；evidence 明示 Top-K 检索来源，
+// 作者点名的来源若不在授权清单里如实列为 missing，不冒充已读取。
+export function buildAuthoringReviewCoverageReport(session, { requestedSourceRefs = [] } = {}) {
+  if (!session?.coverage) return null
+  const windows = session.coverage.windows
+  const countBy = (status) => windows.filter((window) => window.status === status).length
+  const readChars = windows
+    .filter((window) => window.status === 'completed')
+    .reduce((sum, window) => sum + window.charCount, 0)
+  const allowedRefs = new Set(session.allowedEvidenceRefs || [])
+  return deepFreeze({
+    scopeKind: session.coverage.scopeKind,
+    prose: {
+      total: windows.length,
+      planned: countBy('planned'),
+      completed: countBy('completed'),
+      failed: countBy('failed'),
+      skipped: countBy('skipped'),
+      totalChars: session.coverage.totalChars,
+      documentChars: session.coverage.documentChars,
+      readChars,
+      ratio: session.coverage.totalChars
+        ? Number((readChars / session.coverage.totalChars).toFixed(4))
+        : 1,
+      windows: windows.map(({ windowId, status, nodeIds, charCount }) => (
+        { windowId, status, nodeIds, charCount }
+      ))
+    },
+    evidence: {
+      selectionBasis: 'top-k-retrieval',
+      sourceRefs: (session.evidence || []).map((entry) => entry.sourceRef),
+      missingRequested: unique(requestedSourceRefs).filter((ref) => !allowedRefs.has(ref))
+    }
+  })
+}
+
+// 空结果语义区分（§6.A）：完成零 finding ≠ 材料不足/请求失败。
+export function summarizeAuthoringReviewCoverage(session, { findingsCount = 0 } = {}) {
+  const report = buildAuthoringReviewCoverageReport(session)
+  if (!report) return null
+  const { total, completed, failed, skipped } = report.prose
+  const processed = completed + failed + skipped
+  const status = processed === 0
+    ? 'not-started'
+    : (completed === total ? 'complete' : (processed === total ? 'partial' : 'in-progress'))
+  const outcome = status === 'complete'
+    ? (findingsCount > 0 ? 'complete-with-findings' : 'clean-complete')
+    : status === 'partial'
+      ? (findingsCount > 0 ? 'partial-with-findings' : 'partial-insufficient-coverage')
+      : status
+  return deepFreeze({ ...report, status, outcome })
 }
 
 export function getAuthoringReviewWindow(session, windowId) {
@@ -355,7 +543,14 @@ export function createAuthoringReviewBatchContext(session, windowId) {
     target: { ...session.target, nodeIds: window.blocks.map((block) => block.nodeId) },
     reviewBlocks: window.blocks.map((block) => ({ ...block })),
     evidence: evidence.map((entry) => ({ ...entry })),
-    allowedEvidenceRefs
+    allowedEvidenceRefs,
+    goal: session.goal || null,
+    styleDirectives: session.styleDirectives || [],
+    coverageWindow: {
+      index: session.windows.findIndex((candidate) => candidate.id === window.id),
+      total: session.windows.length,
+      charCount: window.usedChars
+    }
   })
 }
 
