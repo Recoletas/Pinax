@@ -294,11 +294,16 @@ async function openCrossChapterResultAndReturn(page, panel, origin) {
   return surfaceState(page)
 }
 
+// 20260917 UI 线（c445dd4）起，rail“历史”改开设置的记忆页；写作检查器的
+// 版本面板从批注工具的“版本”页签进入。本 Gate 校对的是版本面板本体旅程。
 async function inspectHistory(page) {
-  await page.locator('[data-authoring-tool="history"]').click({ force: true })
-  const inspector = page.locator('.writing-inspector.is-open [data-authoring-inspector="history"]')
+  await page.locator('[data-authoring-tool="annotations"]').click({ force: true })
+  const inspector = page.locator('.writing-inspector.is-open')
   await inspector.waitFor({ state: 'visible', timeout: 10000 })
-  const settings = inspector.locator('.writing-version-panel__automatic')
+  await inspector.locator('.writing-inspector__tabs button', { hasText: '版本' }).click()
+  const panel = inspector.locator('.writing-version-panel')
+  await panel.waitFor({ state: 'visible', timeout: 10000 })
+  const settings = panel.locator('.writing-version-panel__automatic')
   const checkbox = settings.locator('input[type="checkbox"]')
   const select = settings.locator('select')
   const options = await select.locator('option').allTextContents()

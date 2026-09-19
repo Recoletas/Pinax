@@ -196,7 +196,9 @@ try {
   const assistant = page.locator('.authoring-knowledge')
   await assistant.waitFor({ state: 'visible' })
   check(results, '右 rail 入口命名为助手', await page.locator('[data-authoring-tool="ai"]').getAttribute('aria-label') === '助手')
-  check(results, '助手首页只呈现成熟快捷任务', await assistant.getByRole('button', { name: /查设定|找伏笔|理线索|挖角色|算数值|问全书|自由问/ }).count() === 7)
+  // 20260917 UI 线起快捷任务从按钮组改为 composer 的“问答范围”下拉。
+  const intentOptions = await assistant.locator('.authoring-knowledge__tasks select option').allTextContents()
+  check(results, '助手首页只呈现成熟快捷任务', intentOptions.join('|') === '查设定|找伏笔|理线索|挖角色|算数值|问全书|自由问', intentOptions.join('|'))
   check(results, '助手首页不暴露诊断内部术语', !/manifest|receipt|candidate ID|token budget|上下文数量/i.test(await assistant.innerText()))
   await page.locator('.writing-inspector__icon-btn[title="关闭检查器"]').click()
   await page.waitForTimeout(120)
@@ -229,7 +231,7 @@ try {
   await assistant.getByText('当前资料中没有找到足够依据。', { exact: true }).last().waitFor({ timeout: 10000 })
   check(results, '不存在的设定直接承认无资料且不调用模型', desktop.requests.length === providerCountBeforeMissing)
 
-  await assistant.getByRole('button', { name: '自由问', exact: true }).last().click()
+  await assistant.locator('.authoring-knowledge__tasks select').selectOption('free')
   await fillAndAsk(page, '这一场的选择写得太散，应该怎么收束？')
   await assistant.getByText('自由建议', { exact: true }).last().waitFor({ timeout: 10000 })
   check(results, '自由问明确标为自由建议且不伪造证据', await assistant.locator('.authoring-knowledge__answer').last().locator('.authoring-knowledge__evidence').count() === 0)
@@ -286,7 +288,7 @@ try {
   await dualPage.locator('[data-authoring-tool="ai"]').click()
   const dualAssistant = dualPage.locator('.authoring-knowledge')
   await dualAssistant.waitFor({ state: 'visible' })
-  await dualAssistant.getByRole('button', { name: '挖角色', exact: true }).click()
+  await dualAssistant.locator('.authoring-knowledge__tasks select').selectOption('character')
   await fillAndAsk(dualPage, '艾德加此前做过什么？')
   const dualRequest = dualTarget.requests[0]
   const dualManuscriptRefs = (dualRequest?.refs || []).filter((ref) => ref.startsWith('node:'))
@@ -302,11 +304,12 @@ try {
   const mobileGeometry = await mobile.page.evaluate(() => {
     const assistantNode = document.querySelector('.authoring-knowledge')
     const inspector = document.querySelector('.writing-inspector')
-    const taskButtons = [...document.querySelectorAll('.authoring-knowledge__tasks button, .authoring-knowledge__whole-book')]
+    // 快捷任务自 20260917 起是 composer 内的下拉选择，命中区与发送键一起量。
+    const controls = [...document.querySelectorAll('.authoring-knowledge__tasks select, .authoring-knowledge__tasks button, .authoring-knowledge__whole-book, .authoring-knowledge__send')]
     return {
       assistantHeight: assistantNode?.getBoundingClientRect().height || 0,
       inspectorWidth: inspector?.getBoundingClientRect().width || 0,
-      minTaskHeight: Math.min(...taskButtons.map((node) => node.getBoundingClientRect().height)),
+      minTaskHeight: Math.min(...controls.map((node) => node.getBoundingClientRect().height)),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     }
   })
