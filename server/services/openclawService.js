@@ -485,6 +485,9 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
     // rehearsal 的后果校验原文（行动原文/授权 ref/factKey/承诺 key）只用于
     // 服务端归一化，不进入 provider prompt；后果清单由任务指令与问题承载。
     rehearsalVerification: _rehearsalVerification,
+    // 写作 Skills 冻结输入只允许以组合后的方法指令进入 provider prompt
+    // （经 writingSkillEnforcement）；原始/未归一化载荷一律不序列化。
+    writingSkill: _writingSkill,
     ...promptOptions
   } = taskMeta.options || {}
   const optionsText = serializeContext(promptOptions)

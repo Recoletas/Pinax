@@ -83,6 +83,15 @@ for (const name of readdirSync(fixturesDir).filter((file) => file.endsWith('.txt
     fail(`${name}: 正例没有产出 finding`)
     continue
   }
+  // 引号前置复读的定位必须落在句子本身（阻断 4 反例）：exact 不得前移到引号。
+  if (name === 'positive-quoted-repeat.txt') {
+    const sentence = '守卫沿着湿滑的石阶向上奔跑，灯笼在风里摇晃'
+    const repeat = adapted.find((finding) => finding.type === 'verbatim-repeat')
+    if (!repeat || repeat.locator.exact !== sentence || repeat.locator.startOffset === 0) {
+      fail(`${name}: 复读定位语义偏移 exact=${JSON.stringify(repeat?.locator?.exact)}`)
+      continue
+    }
+  }
   console.log(`PASS ${name}（${adapted.length} 条 finding，与上游一致，locator 逐字核验通过）`)
 }
 

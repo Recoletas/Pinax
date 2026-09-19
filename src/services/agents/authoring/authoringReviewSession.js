@@ -425,10 +425,20 @@ function buildAuthoringReviewCoveragePlan(positionIndex, windows, source, scopeN
   const documentChars = positionIndex.entries
     .filter((entry) => entry.documentId === source.documentId && text(entry.text).trim())
     .reduce((sum, entry) => sum + text(entry.text).length, 0)
+  // 验收返工（阻断 3）：相邻窗口有重叠节点，字符覆盖必须按唯一节点计，
+  // 否则 readChars 会超过全文。窗口自身的 usedChars 保留为批次预算口径。
+  const nodeChars = new Map()
+  for (const window of windows) {
+    for (const block of window.blocks) {
+      if (!nodeChars.has(block.nodeId)) nodeChars.set(block.nodeId, text(block.text).length)
+    }
+  }
   return Object.freeze({
     scopeKind: scopeNodeIds.size ? 'selection' : 'chapter',
-    totalChars: windows.reduce((sum, window) => sum + window.usedChars, 0),
+    totalChars: [...nodeChars.values()].reduce((sum, length) => sum + length, 0),
     documentChars,
+    uniqueNodeCount: nodeChars.size,
+    nodeChars: Object.freeze(Object.fromEntries(nodeChars)),
     windows: Object.freeze(windows.map((window) => Object.freeze({
       windowId: window.id,
       status: 'planned',
@@ -474,9 +484,11 @@ export function buildAuthoringReviewCoverageReport(session, { requestedSourceRef
   if (!session?.coverage) return null
   const windows = session.coverage.windows
   const countBy = (status) => windows.filter((window) => window.status === status).length
-  const readChars = windows
+  const nodeChars = session.coverage.nodeChars || {}
+  const readNodeIds = new Set(windows
     .filter((window) => window.status === 'completed')
-    .reduce((sum, window) => sum + window.charCount, 0)
+    .flatMap((window) => window.nodeIds))
+  const readChars = [...readNodeIds].reduce((sum, nodeId) => sum + (nodeChars[nodeId] || 0), 0)
   const allowedRefs = new Set(session.allowedEvidenceRefs || [])
   return deepFreeze({
     scopeKind: session.coverage.scopeKind,
@@ -488,9 +500,14 @@ export function buildAuthoringReviewCoverageReport(session, { requestedSourceRef
       skipped: countBy('skipped'),
       totalChars: session.coverage.totalChars,
       documentChars: session.coverage.documentChars,
+      uniqueNodeCount: session.coverage.uniqueNodeCount || Object.keys(nodeChars).length,
+      uniqueNodeRead: readNodeIds.size,
       readChars,
       ratio: session.coverage.totalChars
         ? Number((readChars / session.coverage.totalChars).toFixed(4))
+        : 1,
+      documentRatio: session.coverage.documentChars
+        ? Number((readChars / session.coverage.documentChars).toFixed(4))
         : 1,
       windows: windows.map(({ windowId, status, nodeIds, charCount }) => (
         { windowId, status, nodeIds, charCount }
@@ -702,8 +719,14 @@ export function collectLocalAuthoringProofingFindings(session, {
     AUTHORING_LOCAL_REVIEW_FINDING_LIMIT,
     Number.isFinite(Number(maxFindings)) ? Math.floor(Number(maxFindings)) : AUTHORING_LOCAL_REVIEW_FINDING_LIMIT
   ))
+  // 验收返工（阻断 2）：显式选区 scope 时本地校对只看冻结窗口内的节点，
+  // 完整 positionIndex 仍保留给新鲜度对账，不用于越界扫描。
+  const scopedNodeIds = session.coverage?.scopeKind === 'selection'
+    ? new Set(session.coverage.windows.flatMap((window) => window.nodeIds))
+    : null
   const blocks = session.positionIndex.entries
     .filter((entry) => entry.documentId === session.target.documentId && entry.text.trim())
+    .filter((entry) => !scopedNodeIds || scopedNodeIds.has(entry.nodeId))
     .map((entry) => ({
       projectId: entry.projectId,
       documentRole: entry.documentRole,

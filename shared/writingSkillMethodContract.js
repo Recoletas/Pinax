@@ -179,12 +179,50 @@ function rejectUnknownFields(raw, allowed, prefix, failures) {
   }
 }
 
-function clampBudgetValue(raw, limit) {
-  const value = Number(raw)
-  if (!Number.isFinite(value) || value <= 0) return limit
-  return Math.min(Math.floor(value), limit)
+const MAX_TEXT_FIELD = 400
+const MAX_ID_FIELD = 120
+const MAX_REF_LIST = 64
+
+// 严格字符串字段：必须是 string/number，收成 trim 后的字符串并限长；
+// 对象/数组/布尔一律拒绝（fail closed，不做隐式转换）。
+function normalizeTextField(value, failures, label, maxLength = MAX_TEXT_FIELD) {
+  if (value == null || typeof value === 'boolean' || typeof value === 'object') {
+    failures.push(label)
+    return ''
+  }
+  const normalized = String(value).trim()
+  if (!normalized || normalized.length > maxLength) failures.push(label)
+  return normalized.slice(0, maxLength)
 }
 
+function normalizeRefList(value, failures, label, maxLength = MAX_ID_FIELD) {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) {
+    failures.push(label)
+    return undefined
+  }
+  if (value.length > MAX_REF_LIST) {
+    failures.push(label)
+    return undefined
+  }
+  const refs = []
+  for (const item of value) {
+    if (item == null || typeof item === 'boolean' || typeof item === 'object') {
+      failures.push(label)
+      return undefined
+    }
+    const ref = String(item).trim()
+    if (!ref || ref.length > maxLength) {
+      failures.push(label)
+      return undefined
+    }
+    refs.push(ref)
+  }
+  return refs
+}
+
+// 预算字段：只接受有限正数（typeof number）。NaN/Infinity/字符串/对象/
+// 布尔一律 typed 拒绝，不静默回落最大预算。
 function normalizeBudget(raw, failures) {
   const budget = {}
   for (const key of BUDGET_FIELDS) {
@@ -193,28 +231,188 @@ function normalizeBudget(raw, failures) {
       budget[key] = WRITING_SKILL_BUDGET_LIMITS[key]
       continue
     }
-    if (supplied === null || typeof supplied === 'boolean' || Number(supplied) <= 0) {
+    if (typeof supplied !== 'number' || !Number.isFinite(supplied) || supplied <= 0) {
       failures.push(`budget.${key}`)
-      budget[key] = WRITING_SKILL_BUDGET_LIMITS[key]
       continue
     }
-    budget[key] = clampBudgetValue(supplied, WRITING_SKILL_BUDGET_LIMITS[key])
+    budget[key] = Math.min(Math.floor(supplied), WRITING_SKILL_BUDGET_LIMITS[key])
   }
   return budget
 }
 
 function validRange(range) {
-  return Boolean(range)
+  return Boolean(range) && typeof range === 'object' && !Array.isArray(range)
     && Number.isFinite(Number(range.startOffset))
     && Number.isFinite(Number(range.endOffset))
-    && Number(range.endOffset) > Number(range.startOffset)
     && Number(range.startOffset) >= 0
+    && Number(range.endOffset) > Number(range.startOffset)
+    && Number.isInteger(Number(range.startOffset))
+    && Number.isInteger(Number(range.endOffset))
+}
+
+function normalizeScope(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('scope')
+    return undefined
+  }
+  rejectUnknownFields(raw, SCOPE_FIELDS, 'scope.', failures)
+  const scope = {}
+  for (const key of ['projectId', 'documentRole', 'documentId', 'branchId']) {
+    if (raw[key] === undefined) continue
+    scope[key] = normalizeTextField(raw[key], failures, `scope.${key}`, MAX_ID_FIELD)
+  }
+  if (raw.chapterIds !== undefined) scope.chapterIds = normalizeRefList(raw.chapterIds, failures, 'scope.chapterIds')
+  if (scope.projectId === '') failures.push('scope.projectId')
+  return scope
+}
+
+function normalizeTarget(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('target')
+    return undefined
+  }
+  rejectUnknownFields(raw, TARGET_FIELDS, 'target.', failures)
+  const target = {}
+  for (const key of ['unitId', 'nodeId']) {
+    if (raw[key] === undefined) continue
+    target[key] = normalizeTextField(raw[key], failures, `target.${key}`, MAX_ID_FIELD)
+  }
+  for (const key of ['exactQuote', 'prefix', 'suffix']) {
+    if (raw[key] === undefined) continue
+    target[key] = normalizeTextField(raw[key], failures, `target.${key}`)
+  }
+  if (raw.range !== undefined) {
+    if (!validRange(raw.range)) failures.push('target.range')
+    else target.range = { startOffset: Number(raw.range.startOffset), endOffset: Number(raw.range.endOffset) }
+  }
+  return target
+}
+
+function normalizeRevisions(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('revisions')
+    return undefined
+  }
+  rejectUnknownFields(raw, REVISION_FIELDS, 'revisions.', failures)
+  const revisions = {}
+  for (const key of ['document', 'node', 'unit', 'style']) {
+    if (raw[key] === undefined) continue
+    revisions[key] = normalizeTextField(raw[key], failures, `revisions.${key}`, MAX_ID_FIELD)
+  }
+  if (raw.evidence !== undefined) {
+    if (!raw.evidence || typeof raw.evidence !== 'object' || Array.isArray(raw.evidence)) {
+      failures.push('revisions.evidence')
+    } else {
+      const entries = Object.entries(raw.evidence)
+      if (entries.length > MAX_REF_LIST) {
+        failures.push('revisions.evidence')
+      } else {
+        const evidence = {}
+        for (const [ref, revision] of entries) {
+          const normalizedRef = normalizeTextField(ref, failures, 'revisions.evidence', MAX_ID_FIELD)
+          const normalizedRevision = normalizeTextField(revision, failures, 'revisions.evidence', MAX_ID_FIELD)
+          if (!normalizedRef || !normalizedRevision) break
+          evidence[normalizedRef] = normalizedRevision
+        }
+        if (!failures.some((item) => item.startsWith('revisions.evidence'))) revisions.evidence = evidence
+      }
+    }
+  }
+  return revisions
+}
+
+function normalizeConstraints(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('constraints')
+    return undefined
+  }
+  rejectUnknownFields(raw, CONSTRAINT_FIELDS, 'constraints.', failures)
+  const constraints = {}
+  if (raw.lockedRanges !== undefined) {
+    if (!Array.isArray(raw.lockedRanges) || raw.lockedRanges.length > MAX_REF_LIST) {
+      failures.push('constraints.lockedRanges')
+    } else {
+      const lockedRanges = []
+      let invalid = false
+      for (const range of raw.lockedRanges) {
+        if (!range || typeof range !== 'object' || Array.isArray(range) || !validRange(range)) {
+          invalid = true
+          break
+        }
+        const nodeId = normalizeTextField(range.nodeId, failures, 'constraints.lockedRanges', MAX_ID_FIELD)
+        if (!nodeId) {
+          invalid = true
+          break
+        }
+        lockedRanges.push({
+          nodeId,
+          startOffset: Number(range.startOffset),
+          endOffset: Number(range.endOffset),
+          ...(range.exact != null && typeof range.exact === 'string' && range.exact.trim()
+            ? { exact: range.exact.trim().slice(0, MAX_TEXT_FIELD) }
+            : {})
+        })
+      }
+      if (invalid) failures.push('constraints.lockedRanges')
+      else constraints.lockedRanges = lockedRanges
+    }
+  }
+  if (raw.forbiddenChanges !== undefined) constraints.forbiddenChanges = normalizeRefList(raw.forbiddenChanges, failures, 'constraints.forbiddenChanges', MAX_TEXT_FIELD)
+  for (const key of ['viewpointActorRef', 'storyCutoff']) {
+    if (raw[key] === undefined) continue
+    constraints[key] = normalizeTextField(raw[key], failures, `constraints.${key}`, MAX_ID_FIELD)
+  }
+  return constraints
+}
+
+// 资料清单与覆盖请求是闭合形状：manifest 只许 sourceRefs；coverage 只许
+// sourceRefs/wholeBook。任何额外内容（如 instructions 之类的自由文本）都
+// 会被 typed 拒绝，不可能搭车进入模型提示词。
+function normalizeMaterialManifest(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('materialManifest')
+    return undefined
+  }
+  rejectUnknownFields(raw, ['sourceRefs'], 'materialManifest.', failures)
+  const sourceRefs = normalizeRefList(raw.sourceRefs, failures, 'materialManifest.sourceRefs')
+  if (sourceRefs === undefined) return undefined
+  return { sourceRefs }
+}
+
+function normalizeRequestedCoverage(raw, failures) {
+  if (raw === undefined) return undefined
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    failures.push('requestedCoverage')
+    return undefined
+  }
+  rejectUnknownFields(raw, ['sourceRefs', 'wholeBook'], 'requestedCoverage.', failures)
+  const coverage = {}
+  if (raw.sourceRefs !== undefined) {
+    const sourceRefs = normalizeRefList(raw.sourceRefs, failures, 'requestedCoverage.sourceRefs')
+    if (sourceRefs === undefined) return undefined
+    coverage.sourceRefs = sourceRefs
+  }
+  if (raw.wholeBook !== undefined) {
+    if (typeof raw.wholeBook !== 'boolean') {
+      failures.push('requestedCoverage.wholeBook')
+      return undefined
+    }
+    coverage.wholeBook = raw.wholeBook
+  }
+  return coverage
 }
 
 /**
  * 冻结输入（§5.2）白名单校验：未知顶层/嵌套字段、未知 taskKind/skill、
- * 超出方法白名单的只读能力、非法锁定区间一律拒绝，fail closed。
- * 通过时返回 normalized invocation（budget 已顶格收敛），原样幂等。
+ * 超出方法白名单的只读能力、非法锁定区间、非数值预算一律拒绝，fail
+ * closed。通过时返回的 invocation 是逐字段归一化的闭包对象——上游原始
+ * 载荷的任何未列字段/自由内容都不会原样透传（服务端只把该归一化对象
+ * 传给模型链）。
  */
 export function validateWritingSkillInvocation(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -223,14 +421,11 @@ export function validateWritingSkillInvocation(raw) {
   const failures = []
   rejectUnknownFields(raw, INVOCATION_TOP_FIELDS, '', failures)
 
-  const invocationId = String(raw.invocationId ?? '').trim()
-  if (!invocationId || invocationId.length > 120) failures.push('invocationId')
-
-  const taskKind = String(raw.taskKind ?? '').trim()
+  const invocationId = normalizeTextField(raw.invocationId, failures, 'invocationId', MAX_ID_FIELD)
+  const taskKind = typeof raw.taskKind === 'string' ? raw.taskKind.trim() : ''
   if (!WRITING_SKILL_TASK_KINDS.includes(taskKind)) failures.push('taskKind')
-
-  const goal = String(raw.goal ?? '').trim()
-  if (goal.length > 400) failures.push('goal')
+  const goal = typeof raw.goal === 'string' ? raw.goal.trim() : (raw.goal == null ? '' : '')
+  if (typeof raw.goal !== 'string' || goal.length > 400) failures.push('goal')
 
   const resolved = resolveWritingSkillMethod(raw.skillId, raw.skillVersion)
   if (!resolved.ok) failures.push(`skill:${resolved.reason}`)
@@ -242,38 +437,13 @@ export function validateWritingSkillInvocation(raw) {
     }
   }
 
-  for (const [field, allowed] of [
-    ['scope', SCOPE_FIELDS],
-    ['target', TARGET_FIELDS],
-    ['revisions', REVISION_FIELDS],
-    ['constraints', CONSTRAINT_FIELDS]
-  ]) {
-    if (raw[field] === undefined) continue
-    if (!raw[field] || typeof raw[field] !== 'object' || Array.isArray(raw[field])) {
-      failures.push(field)
-      continue
-    }
-    rejectUnknownFields(raw[field], allowed, `${field}.`, failures)
-  }
+  const scope = normalizeScope(raw.scope, failures)
+  const target = normalizeTarget(raw.target, failures)
+  const revisions = normalizeRevisions(raw.revisions, failures)
+  const constraints = normalizeConstraints(raw.constraints, failures)
 
-  const scope = raw.scope && typeof raw.scope === 'object' ? raw.scope : {}
-  if (taskKind && taskKind !== 'knowledge-query' && !String(scope.projectId ?? '').trim()) {
+  if (taskKind && taskKind !== 'knowledge-query' && scope && !scope.projectId) {
     failures.push('scope.projectId')
-  }
-  if (Array.isArray(scope.chapterIds) && scope.chapterIds.some((id) => !String(id ?? '').trim())) {
-    failures.push('scope.chapterIds')
-  }
-
-  const target = raw.target && typeof raw.target === 'object' ? raw.target : null
-  if (target?.range != null && !validRange(target.range)) failures.push('target.range')
-  if (target?.exactQuote != null && !String(target.exactQuote).trim()) failures.push('target.exactQuote')
-
-  const constraints = raw.constraints && typeof raw.constraints === 'object' ? raw.constraints : {}
-  if (constraints.lockedRanges !== undefined) {
-    if (!Array.isArray(constraints.lockedRanges)) failures.push('constraints.lockedRanges')
-    else if (constraints.lockedRanges.some((range) => (
-      !range || !String(range.nodeId ?? '').trim() || !validRange(range)
-    ))) failures.push('constraints.lockedRanges')
   }
 
   const requested = raw.requestedReadonlyCapabilities
@@ -288,6 +458,8 @@ export function validateWritingSkillInvocation(raw) {
   }
 
   const budget = normalizeBudget(raw.budget, failures)
+  const materialManifest = normalizeMaterialManifest(raw.materialManifest, failures)
+  const requestedCoverage = normalizeRequestedCoverage(raw.requestedCoverage, failures)
 
   if (failures.length) {
     return { valid: false, reason: failures[0], failures: failures.slice(0, 12) }
@@ -298,16 +470,16 @@ export function validateWritingSkillInvocation(raw) {
     invocation: Object.freeze({
       invocationId,
       taskKind,
-      skillId: String(raw.skillId).trim(),
+      skillId: resolved.method.id,
       skillVersion: resolved.method.version,
-      goal,
-      scope: clonePlain(raw.scope),
-      target: clonePlain(raw.target),
-      revisions: clonePlain(raw.revisions),
-      constraints: clonePlain(constraints),
-      materialManifest: clonePlain(raw.materialManifest) ?? null,
+      goal: goal.slice(0, 400),
+      scope: scope ?? undefined,
+      target: target ?? undefined,
+      revisions: revisions ?? undefined,
+      constraints: constraints ?? undefined,
+      materialManifest: materialManifest ?? undefined,
       budget,
-      requestedCoverage: clonePlain(raw.requestedCoverage) ?? null,
+      requestedCoverage: requestedCoverage ?? undefined,
       requestedReadonlyCapabilities: Array.isArray(requested)
         ? Object.freeze(requested.map((capability) => String(capability)))
         : Object.freeze([])
@@ -320,22 +492,31 @@ function methodSupportsTaskKind(method, taskKind) {
   return method.taskKind === taskKind
 }
 
-function clonePlain(value) {
-  if (value == null) return undefined
-  return JSON.parse(JSON.stringify(value))
-}
-
 /**
  * 版本协商回执：服务端在响应 meta 里回带已接受的方法与 schema 版本，
  * 客户端据此发现静默降级或版本漂移（§5.1：前后端同一版本标识）。
  */
-export function writingSkillAck(invocation) {
+export const WRITING_SKILL_ENFORCEMENT_STATES = Object.freeze({
+  APPLIED: 'applied',
+  VALIDATED_ONLY: 'validated-only'
+})
+
+/**
+ * 版本协商回执：服务端在响应 meta 里回带已接受的方法与 schema 版本。
+ * enforcement 明示本次请求里方法到底有没有真正执行——'applied' 只在
+ * 组合器/检查器真实进入该次模型链时回带（见 server/services/
+ * writingSkillEnforcement.js），仅通过校验时是 'validated-only'，
+ * 不允许出现「已确认、实际没执行」的静默降级。
+ */
+export function writingSkillAck(invocation, enforcement = WRITING_SKILL_ENFORCEMENT_STATES.VALIDATED_ONLY) {
   if (!invocation?.skillId) return null
+  if (!Object.values(WRITING_SKILL_ENFORCEMENT_STATES).includes(enforcement)) return null
   return Object.freeze({
     schemaVersion: WRITING_SKILL_SCHEMA_VERSION,
     skillId: invocation.skillId,
     skillVersion: invocation.skillVersion,
     outputSchema: resolveWritingSkillMethod(invocation.skillId, invocation.skillVersion).method?.outputSchema ?? null,
-    budget: invocation.budget ? Object.freeze({ ...invocation.budget }) : null
+    budget: invocation.budget ? Object.freeze({ ...invocation.budget }) : null,
+    enforcement
   })
 }

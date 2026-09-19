@@ -1,4 +1,4 @@
-# 助手写作 Skills S01–S05 实施回执
+# 助手写作 Skills S01–S05 实施回执（含验收返工）
 
 日期：2026-09-19。计划：[assistant-writing-skills-20260919](../plan/assistant-writing-skills-20260919.md)。
 分支 `night/writing-skills-20260919`（worktree `pinax-writing-skills-20260919`，基 main@5e85379）。
@@ -82,14 +82,51 @@
 - 对照样本 eval `scripts/writing-skills-method-composition-eval.mjs` 13/13
   （正例命中复读/截断/占位与引号规则，干净样本零命中）。
 
+## 验收返工（2026-09-19 二轮，评审反例驱动的修复）
+
+首轮 S01–S05 在 93daf8c 验收为「S03/S04/S05 不通过、S02 有条件通过」，
+4 个阻断问题已修复并新增对应反例测试：
+
+1. **方法契约真 fail-closed，未校验内容不再进入提示词**：
+   `validateWritingSkillInvocation` 改为逐字段归一化——scope/target/
+   revisions/constraints 的值域严格校验（对象/数组/布尔出现在字符串位
+   即拒绝，全部限长）；`materialManifest` 收紧为闭合形状 `{sourceRefs[]}`、
+   `requestedCoverage` 收紧为 `{sourceRefs[],wholeBook:boolean}`，评审构造的
+   `materialManifest.instructions` 注入现在 typed 拒绝。服务端只把归一化
+   后的对象传给模型链（`sanitizedOptions`），openclaw prompt 序列化处剥离
+   `writingSkill` 兜底。
+2. **ack 不再冒充已执行**：新增 `server/services/writingSkillEnforcement.js`
+   ——goal-review × `authoring.review.chapter` 时方法组合器真实执行（组合
+   指令并入模型问题文本）、退化检查按请求携带的审查目标块真实运行并附在
+   `result.writingSkillChecks`，此时 ack `enforcement:'applied'`；其余任务
+   一律 `enforcement:'validated-only'` 且不改问题文本、零检查，杜绝
+   「已确认、实际没执行」的静默降级。
+3. **选区审阅不再越界**：`collectLocalAuthoringProofingFindings` 按
+   `coverage.scopeKind==='selection'` 冻结窗口节点过滤（merge 链路同享），
+   选第一段时第二段的本地错误不再上报。
+4. **coverage 去重叠唯一计数**：coverage 计划按唯一 nodeId 统计
+   `totalChars/uniqueNodeCount`，报告新增 `uniqueNodeRead/uniqueNodeRead`、
+   `documentRatio`；重叠窗口不再把 readChars 累计到超过全文（评审反例
+   830/949 现在反例断言固化在 eval）。
+5. **退化定位语义偏移**：`stripQuotedWithIndexMap` 在剥离引号时记录
+   剥离后下标→原文 UTF-16 下标映射，长句复读定位换算回原文坐标；新增
+   `positive-quoted-repeat.txt` fixture（引号前置复读）断言 exact 落在
+   句子本身，上游行/列判定对照保持逐条一致。
+6. **预算严格拒绝**：非 number/NaN/Infinity/负数/零一律 typed 拒绝，
+   不再静默回落最大预算（`'abc'`/`{}` 反例固化在 eval）。
+
+返工后 eval 规模：degeneration 8/8（新增引号前置反例）、method contract
+41/41（新增注入/预算/enforcement 反例）、goal-review session 31/31（新增
+重叠唯一计数与 scope 外不上报反例）、method composition 13/13。
+
 ## 门禁与真实旅程
 
 - `npm run verify:full` exit 0（S01–S03 后与 S05 后各跑一轮）：20/20 测试文件、
   200/200 用例（预算顶格，本批新增验证全部走 scripts/eval，未占 Vitest 预算）、
   lint 增量干净、双 build、结构预算与 docs build 通过。
-- 三条旅程 Gate：46/46、33/33、29/29（29/29 在 S05 后终态复跑）；四条 eval：
-  degeneration 7/7、method contract 26/26、goal-review session 24/24、
-  method composition 13/13。
+- 三条旅程 Gate（返工后终态复跑）：46/46、33/33、29/29；四条 eval：
+  degeneration 8/8、method contract 41/41、goal-review session 31/31、
+  method composition 13/13。verify:full 在返工后 exit 0。
 - 运行方式：worktree 内 `npx vite --port 5219`，`BASE=http://127.0.0.1:5219
   node scripts/authoring-ui/<check>.mjs`；eval 直接 `node scripts/writing-skills-*.mjs`。
 
@@ -100,6 +137,9 @@
 - 客户端发送侧（`requestAdvisorTask` 携带 `options.writingSkill`）仍未接线——
   S04/S05 只交付 session 与方法/检查器域层；进 composable 与 UI 在 S06/S08。
 - 方法有效性未经真实模型验证：S12 的质量 Gate 保留未运行。
+- enforcement 目前只覆盖 goal-review × `authoring.review.chapter`；其余任务
+  kind（finding-rewrite/change-impact）在 S09/S13 接入各自 owner 时从
+  validated-only 翻转为 applied，翻转会带反例测试。
 
 ## 剩余队列（下一步）
 

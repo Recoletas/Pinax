@@ -12,7 +12,8 @@ import {
   resetAuthoringReviewCoverage,
   buildAuthoringReviewCoverageReport,
   summarizeAuthoringReviewCoverage,
-  resolveAuthoringReviewStyleDirectives
+  resolveAuthoringReviewStyleDirectives,
+  collectLocalAuthoringProofingFindings
 } from '../src/services/agents/authoring/authoringReviewSession.js'
 import { createWritingDocument } from '../src/services/writing/writingDocumentSchema.js'
 
@@ -141,7 +142,69 @@ check('同维度取高优先级并记录被覆盖来源',
   && JSON.stringify(directives.find((item) => item.dimension === 'pacing')?.supersededSources) === JSON.stringify(['book-rule', 'method-default']))
 check('低优先级新维度仍进入结果', directives.some((item) => item.dimension === 'pov' && item.source === 'invocation'))
 
-// 7) 批次上下文携带目标/风格/覆盖位置
+// 7) 重叠窗口的字符覆盖必须按唯一节点计（验收反例：文档 830、旧算法读出 949）
+const overlapped = createAuthoringReviewSession({ source, maxNodesPerWindow: 3, windowOverlap: 1 })
+const overlappedWindowNodeEntries = new Map()
+for (const window of overlapped.windows) {
+  for (const block of window.blocks) {
+    if (!overlappedWindowNodeEntries.has(block.nodeId)) overlappedWindowNodeEntries.set(block.nodeId, block.text.length)
+  }
+}
+const uniqueChars = [...overlappedWindowNodeEntries.values()].reduce((sum, length) => sum + length, 0)
+const naiveWindowChars = overlapped.windows.reduce((sum, window) => sum + window.usedChars, 0)
+check('重叠窗口的 totalChars 按唯一节点计且不超过全文',
+  overlapped.coverage.totalChars === uniqueChars
+  && overlapped.coverage.totalChars < naiveWindowChars
+  && overlapped.coverage.totalChars <= overlapped.coverage.documentChars,
+  JSON.stringify({ total: overlapped.coverage.totalChars, uniqueChars, naive: naiveWindowChars, doc: overlapped.coverage.documentChars }))
+check('uniqueNodeCount 与窗口节点一致', overlapped.coverage.uniqueNodeCount === overlappedWindowNodeEntries.size)
+let overlappedWorking = overlapped
+for (const window of overlapped.coverage.windows) {
+  overlappedWorking = markAuthoringReviewBatchStatus(overlappedWorking, window.windowId, 'completed')
+}
+const overlappedReport = summarizeAuthoringReviewCoverage(overlappedWorking)
+check('全部完成后 readChars 等于唯一字符总量且 documentRatio 不超过 1',
+  overlappedReport.prose.readChars === uniqueChars
+  && overlappedReport.prose.documentRatio <= 1
+  && overlappedReport.prose.uniqueNodeRead === overlappedReport.prose.uniqueNodeCount,
+  JSON.stringify(overlappedReport.prose))
+check('部分完成时 readChars 只计已完成窗口的唯一节点', (() => {
+  let half = overlapped
+  half = markAuthoringReviewBatchStatus(half, overlapped.coverage.windows[0].windowId, 'completed')
+  const report = buildAuthoringReviewCoverageReport(half)
+  const firstWindowNodes = new Set(overlapped.coverage.windows[0].nodeIds)
+  const expected = [...firstWindowNodes].reduce((sum, nodeId) => sum + (overlapped.coverage.nodeChars[nodeId] || 0), 0)
+  return report.prose.readChars === expected && report.prose.documentRatio < 1
+})())
+
+// 8) 本地校对受冻结 scope 约束（验收反例：选第一段，第二段的错误不得上报）
+const scopedProofDoc = createWritingDocument([
+  '第一段完全干净，只有雾和灯光，没有任何本地可查的问题。',
+  '她说：‘这话我只告诉你一个人。”然后收起册子。'
+].join('\n\n'))
+const scopedProofSource = { ...source, document: scopedProofDoc, documentId: 'eval-ch-scope', chapterId: 'eval-ch-scope' }
+const proofNodes = (() => {
+  const session = createAuthoringReviewSession({ source: scopedProofSource, maxNodesPerWindow: 3, windowOverlap: 0 })
+  return session.windows.flatMap((window) => window.blocks.map((block) => block.nodeId))
+})()
+const unscopedProofSession = createAuthoringReviewSession({ source: scopedProofSource, maxNodesPerWindow: 3, windowOverlap: 0 })
+const unscopedFindings = collectLocalAuthoringProofingFindings(unscopedProofSession)
+check('不设 scope 时第二段引号错误如实上报', unscopedFindings.length >= 1)
+const scopedProofSession = createAuthoringReviewSession({
+  source: scopedProofSource, maxNodesPerWindow: 3, windowOverlap: 0,
+  scopeNodeIds: [proofNodes[0]]
+})
+const scopedFindings = collectLocalAuthoringProofingFindings(scopedProofSession)
+check('选区 scope 外的本地错误不上报', scopedFindings.length === 0, JSON.stringify(scopedFindings.map((f) => f.target.exact)))
+check('scope 内正确定位仍然可用', (() => {
+  const inner = createAuthoringReviewSession({
+    source: scopedProofSource, maxNodesPerWindow: 3, windowOverlap: 0,
+    scopeNodeIds: [proofNodes[1]]
+  })
+  return collectLocalAuthoringProofingFindings(inner).length >= 1
+})())
+
+// 9) 批次上下文携带目标/风格/覆盖位置
 const batch = createAuthoringReviewBatchContext(goalSession, goalSession.windows[0].id)
 check('批次上下文携带目标与风格', batch.goal?.skill?.skillId === 'motivation-causality'
   && Array.isArray(batch.styleDirectives))

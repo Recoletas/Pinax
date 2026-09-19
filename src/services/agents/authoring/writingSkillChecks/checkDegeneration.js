@@ -127,11 +127,38 @@ function maskQuotedSpans(text) {
 }
 
 function stripQuoted(text) {
-  let stripped = text;
+  return stripQuotedWithIndexMap(text).stripped;
+}
+
+// 验收返工（阻断 4）：剥离引号内容时同步记录「剥离后下标 → 原文 UTF-16
+// 下标」映射。检测语义仍在上游同款剥离文本上进行，但定位必须换算回
+// 原文坐标，否则 exact 切片会整体前移、指到别的句子。
+function stripQuotedWithIndexMap(textValue) {
+  let current = String(textValue);
+  let indexMap = Array.from(current, (_, index) => index);
   for (const pattern of QUOTED_SPAN_PATTERNS) {
-    stripped = stripped.replace(pattern, '');
+    pattern.lastIndex = 0;
+    let match = pattern.exec(current);
+    if (!match) continue;
+    const kept = [];
+    const keptMap = [];
+    let cursor = 0;
+    while (match) {
+      for (let index = cursor; index < match.index; index += 1) {
+        kept.push(current[index]);
+        keptMap.push(indexMap[index]);
+      }
+      cursor = match.index + match[0].length;
+      match = pattern.exec(current);
+    }
+    for (let index = cursor; index < current.length; index += 1) {
+      kept.push(current[index]);
+      keptMap.push(indexMap[index]);
+    }
+    current = kept.join('');
+    indexMap = keptMap;
   }
-  return stripped;
+  return { stripped: current, indexMap };
 }
 
 function visibleLength(text) {
@@ -208,16 +235,17 @@ function findRepetition(content) {
 function locateSentence(body, lineNo, sentence) {
   const lineEntry = body.find((entry) => entry.lineNo === lineNo);
   const text = lineEntry?.text || '';
-  const stripped = stripQuoted(text);
+  const { stripped, indexMap } = stripQuotedWithIndexMap(text);
   const relative = stripped.indexOf(sentence);
-  if (relative >= 0) {
-    // 引号剥离只删除片段，前方字符保留原位：stripped 的下标即原行下标。
-    const start = leadingWhitespaceLength(text) + relative;
+  if (relative >= 0 && relative < indexMap.length) {
+    const start = indexMap[relative];
+    const lastIndex = relative + sentence.length - 1;
+    const end = lastIndex < indexMap.length ? indexMap[lastIndex] + 1 : text.length;
     return {
       startLine: lineNo,
       startColumn: start + 1,
       endLine: lineNo,
-      endColumn: start + sentence.length + 1,
+      endColumn: end + 1,
     };
   }
   const fallbackStart = leadingWhitespaceLength(text);

@@ -17,10 +17,8 @@ import {
   validateAgentContextEnvelope
 } from '../../shared/agentContextContract.js'
 import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
-import {
-  validateWritingSkillInvocation,
-  writingSkillAck
-} from '../../shared/writingSkillMethodContract.js'
+import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
+import { applyWritingSkillEnforcement } from '../services/writingSkillEnforcement.js'
 
 const router = express.Router()
 
@@ -77,6 +75,17 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     }
     skillInvocation = skillValidation.invocation
   }
+  // 阻断 1 返工：模型链与结果归一化只接触逐字段归一化后的冻结输入，
+  // 原始 options 里的任何未校验内容都不再透传；方法组合器与检查器在
+  // 能真实执行的任务上就地执行，回执如实标注 enforcement。
+  const sanitizedOptions = skillInvocation ? { ...options, writingSkill: skillInvocation } : options
+  const skillEnforcement = applyWritingSkillEnforcement({
+    taskType: normalizedTaskType,
+    question,
+    invocation: skillInvocation,
+    reviewBlocks: Array.isArray(options?.reviewBlocks) ? options.reviewBlocks : null
+  })
+  const enforcedQuestion = skillEnforcement.question || question
   const requestEnvelope = envelope || {
     version: 1,
     surface: 'writing',
@@ -144,17 +153,17 @@ async function handleAdvisorTask(req, res, defaults = {}) {
       taskMeta: {
         taskType: normalizedTaskType,
         target: clippedEnvelope.target,
-        options,
+        options: sanitizedOptions,
         mode
       }
     })
-    let run = await runOnce(question)
+    let run = await runOnce(enforcedQuestion)
     let semanticRepairCount = 0
     const buildResponse = () => createAdvisorTaskResponse({
       taskType: normalizedTaskType,
       advice: run.advice,
       target: clippedEnvelope.target,
-      options,
+      options: sanitizedOptions,
       meta: {
         requestId,
         provider: run.provider,
@@ -163,7 +172,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         budget: clippedEnvelope.budget,
         ledger,
         semanticRepairCount,
-        ...(skillInvocation ? { writingSkill: writingSkillAck(skillInvocation) } : {})
+        ...(skillEnforcement.ack ? { writingSkill: skillEnforcement.ack } : {})
       }
     })
     let response
@@ -172,8 +181,11 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     } catch (error) {
       if (error.code !== 'AGENT_CANDIDATES_UNCHANGED') throw error
       semanticRepairCount = 1
-      run = await runOnce(`${question}\n\n上一次候选与目标原文相同。请严格按批注要求产生实际文字改动，且候选之间不得重复。`)
+      run = await runOnce(`${enforcedQuestion}\n\n上一次候选与目标原文相同。请严格按批注要求产生实际文字改动，且候选之间不得重复。`)
       response = buildResponse()
+    }
+    if (skillEnforcement.writingSkillChecks) {
+      response.result = { ...response.result, writingSkillChecks: skillEnforcement.writingSkillChecks }
     }
     res.json(response)
   } catch (error) {
