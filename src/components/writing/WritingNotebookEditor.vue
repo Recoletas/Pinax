@@ -2,6 +2,7 @@
   <section
     ref="notebookRoot"
     class="writing-notebook-editor"
+    :data-block-boundaries="writingPreferences.zen ? 'hidden' : writingPreferences.blockBoundaries"
     :class="{ 'is-focus-paragraph': focusParagraph, 'is-composing': interactionComposing || compositionSettling }"
     aria-label="实时 Markdown 写作编辑器"
     @compositionstart.capture="handleCompositionStart"
@@ -128,6 +129,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
+import { useWritingTypographyStore } from '../../stores/writingTypographyStore.js'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import { Extension, getMarkRange } from '@tiptap/core'
@@ -176,7 +178,11 @@ import {
   blocksPassiveInlineSuggestion
 } from '../../services/writing/writingInteractionPolicy.js'
 
+const writingPreferences = useWritingTypographyStore()
+writingPreferences.init()
 const props = defineProps({
+  taskUnitId: { type: String, default: '' },
+  blockMenuEnabled: Boolean,
   modelValue: { type: String, default: '' },
   document: { type: Object, default: null },
   editable: { type: Boolean, default: true },
@@ -633,8 +639,23 @@ function createLiveMarkdownDecorations(state) {
     decorations.push(Decoration.node(from, from + node.nodeSize, {
       class: 'is-current-writing-unit'
     }))
+    if (props.blockMenuEnabled) decorations.push(Decoration.widget(from + 1, () => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'writing-unit-menu'
+      button.contentEditable = 'false'
+      button.textContent = '⋯'
+      button.setAttribute('aria-label', '当前文本块操作')
+      button.title = '当前文本块操作（也可右键或 Shift+F10）'
+      button.addEventListener('pointerdown', (event) => event.preventDefault())
+      button.addEventListener('click', (event) => { event.stopPropagation(); emit('context-menu', event, { keyboardTriggered: true, anchorRect: button.getBoundingClientRect() }) })
+      return button
+    }, { side: -1, key: `unit-menu:${node.attrs.unitId}`, stopEvent: () => true }))
     break
   }
+  if (props.taskUnitId) state.doc.descendants((node, pos) => {
+    if (node.type.name === 'writingUnit' && node.attrs.unitId === props.taskUnitId) decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: 'is-task-writing-unit' }))
+  })
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth)
     if (!node.isTextblock) continue
@@ -2201,6 +2222,9 @@ function bindScrollOwner() {
 watch(() => props.editable, (editable) => {
   editor.value?.setEditable(editable)
 })
+watch(() => props.taskUnitId, () => {
+  if (editor.value) editor.value.view.dispatch(editor.value.state.tr.setMeta(liveMarkdownPluginKey, true))
+})
 
 function applyExternalWritingDocument(nextDocument) {
   const currentEditor = editor.value
@@ -3197,6 +3221,7 @@ function getCommandAvailability() {
       selectAll: false,
       splitUnit: false,
       mergePreviousUnit: false,
+      mergeNextUnit: false,
       moveUnitUp: false,
       moveUnitDown: false,
       bold: false,
@@ -3245,6 +3270,7 @@ function getCommandAvailability() {
     selectAll: currentEditor.state.doc.content.size > 0,
     splitUnit: Boolean(commands.splitWritingUnit?.()),
     mergePreviousUnit: Boolean(commands.mergeWritingUnit?.('previous')),
+    mergeNextUnit: Boolean(commands.mergeWritingUnit?.('next')),
     moveUnitUp: Boolean(commands.moveWritingUnit?.('up')),
     moveUnitDown: Boolean(commands.moveWritingUnit?.('down')),
     bold: currentEditor.isActive('bold'),
@@ -3375,6 +3401,12 @@ defineExpose({
   margin: 0;
   padding: 0;
 }
+.writing-unit-menu { position: absolute; inset-inline-start: -42px; top: 0; width: 24px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: 20px/1 var(--font-sans); cursor: pointer; opacity: 0; }
+.is-current-writing-unit:hover > .writing-unit-menu, .writing-unit-menu:focus-visible { opacity: 1; }
+.writing-unit-menu:hover { background: var(--surface-secondary); }
+.writing-unit-menu:focus-visible { outline: 2px solid var(--accent-primary); }
+.writing-notebook-editor:not([data-block-boundaries="hidden"]) .ProseMirror > section.is-task-writing-unit::before { opacity: .4; border-inline-start-style: dashed; }
+@media (pointer: coarse) { .writing-unit-menu { width: 44px; height: 44px; inset-inline-start: -30px; opacity: .6; } }
 
 .writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]:not(:first-child) {
   margin-top: 0.62em;
@@ -3500,7 +3532,7 @@ defineExpose({
   .writing-unit-gap__action small { display: none; }
 }
 
-.writing-notebook-editor__surface section[data-writing-unit] > * {
+.writing-notebook-editor__surface section[data-writing-unit] > :not(.writing-unit-menu) {
   position: relative;
   margin: 0 0 var(--notebook-paragraph-gap, 1.05em);
   padding-inline-start: 12px;
@@ -3543,15 +3575,30 @@ defineExpose({
   pointer-events: none;
 }
 
-.writing-notebook-editor__surface .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
+.writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]::before {
   position: absolute;
   inset-inline-start: -14px;
-  top: 0.42em;
-  bottom: auto;
-  width: 1px;
-  height: 1em;
+  top: 0;
+  bottom: 0;
+  width: 5px;
   content: '';
-  background: color-mix(in srgb, var(--archive-olive, #1f4d7a) 34%, transparent);
+  border-inline-start: 1px solid var(--text-secondary);
+  border-block: 1px solid var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+}
+.writing-notebook-editor[data-block-boundaries="all"] .ProseMirror > section[data-writing-unit]::before {
+  opacity: .18;
+}
+.writing-notebook-editor:not([data-block-boundaries="hidden"]) .ProseMirror > section[data-writing-unit]:hover::before {
+  opacity: .28;
+}
+.writing-notebook-editor:not([data-block-boundaries="hidden"]) .ProseMirror > section[data-writing-unit].is-current-writing-unit::before {
+  opacity: .55;
+  border-color: var(--accent-primary);
+}
+.writing-notebook-editor[data-block-boundaries] .ProseMirror > section[data-writing-unit]::after {
+  display: none;
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-live-markdown-active::before {
@@ -3572,8 +3619,9 @@ defineExpose({
 }
 
 @media (max-width: 520px) {
-  .writing-notebook-editor__surface .ProseMirror-focused section[data-writing-unit].is-current-writing-unit::before {
-    inset-inline-start: 2px;
+  .writing-unit-menu { inset-inline-start: -28px; width: 28px; opacity: .6; }
+  .writing-notebook-editor__surface .ProseMirror > section[data-writing-unit]::before {
+    inset-inline-start: -8px;
   }
 }
 

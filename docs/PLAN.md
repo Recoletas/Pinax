@@ -6,7 +6,7 @@
 
 ## 当前主线
 
-2026-09-19 助手[写作 Skills 方案](./plan/assistant-writing-skills-20260919.md)已交付并验收 S01–S05 底层能力，前端发送与作者操作闭环仍待 S06–S12。新增[文本块显示、助手前端与生图实施计划](./plan/authoring-block-assistant-image-20260919.md)：恢复完整当前块边界和菜单，接通“目标审稿→定位→候选→采用/撤销”，重排生图工作台并完善参考能力、分图成果保留与保存重试。新计划为调研设计，未实施、未做用户视觉确认；助手 S06–S12 沿用原编号，S13–S22 和真实模型质量继续原队列，不另建 Agent 或事实数据库。
+2026-09-19 助手[写作 Skills 方案](./plan/assistant-writing-skills-20260919.md)已交付并验收 S01–S05 底层能力。[文本块显示、助手前端与生图实施计划](./plan/authoring-block-assistant-image-20260919.md)的当前切片已在 `night/block-assistant-image-20260919` 完成：完整块边界、精确选区/块/文稿审稿、主副栏“意见→改写→采用/撤销”、最小中断恢复，以及生图逐张保存/只重试保存/已存成果恢复。确定性全量门禁 20/200 与三尺寸浏览器主流程通过；未合并、未部署、未做真实模型质量和用户最终视觉确认。逐包证据见[续作回执](./agent-runs/block-assistant-image-20260919/continuation.md)。S13–S22 继续原队列。
 
 2026-09-19 组合验收：[记忆/跑团/Agent 夜间计划](./plan/nightly-20260918-runtime-maturity.md)的已交付切片按 A `19f5386`、B `d21f793`、C `48e2fcf`整合，保留主线 HTTP UUID 修复。A 记忆与 C 跑团生产链、B 工具授权组成唯一实现；B/C 重复 KP 不并存。详细回归见[组合回执](./agent-runs/nightly-20260918/integration-summary.md)。下一批优先接真实同伴 provider 与角色知识、真实来源 revision 审计，再推进 T09–T12 与全 Agent 恢复；36 项原队列继续有效，不能把基础合同/注入端口视为全部成熟能力。仅本地合并，未推送部署。
 

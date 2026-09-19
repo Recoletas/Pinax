@@ -6,6 +6,7 @@
         <small>基于本书资料回答</small>
       </div>
       <div class="authoring-knowledge__toolbar-actions">
+        <button v-if="reviewWorkflow" type="button" :aria-pressed="reviewOpen" aria-label="目标审稿" title="目标审稿" @click="openReview"><WorkbenchIcon name="guide" :size="18" /></button>
         <button type="button" class="control-icon" :class="{ active: searchOpen }" :aria-pressed="searchOpen" aria-label="搜索当前问答" title="搜索当前问答" @click="toggleSearch">
           <WorkbenchIcon name="search" :size="18" />
         </button>
@@ -14,7 +15,8 @@
         </button>
       </div>
     </header>
-
+    <AuthoringGoalReview v-if="reviewOpen" :workflow="reviewWorkflow" @close="reviewOpen = false" />
+    <template v-else>
     <div v-if="searchOpen" class="authoring-knowledge__search">
       <WorkbenchIcon name="search" :size="15" />
       <input ref="searchInputRef" v-model="searchTerm" type="search" placeholder="搜索问题或回答" aria-label="搜索问题或回答" />
@@ -101,6 +103,7 @@
     <footer class="authoring-knowledge__composer">
       <div class="authoring-knowledge__primary-tools" role="group" aria-label="妙笔工具">
         <button type="button" class="active">问答</button>
+        <button v-if="reviewWorkflow" type="button" @click="openReview">审稿</button>
         <button type="button" @click="chooseTask(primaryTasks[0])">提取</button>
         <button type="button" @click="$emit('open-illustrator')">生图</button>
       </div>
@@ -118,16 +121,19 @@
       </div>
       <small>项目问答会附原文依据；自由建议不会冒充作品事实。</small>
     </footer>
+    </template>
   </section>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
 
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
 
 const props = defineProps({
+  reviewWorkflow: { type: Object, default: null },
   projectTitle: { type: String, default: '' },
   messages: { type: Array, default: () => [] },
   draft: { type: String, default: '' },
@@ -137,6 +143,12 @@ const props = defineProps({
   notice: { type: Object, default: null }
 })
 const emit = defineEmits(['update:draft', 'select-intent', 'ask', 'cancel', 'retry', 'clear', 'open-evidence', 'review-notice', 'open-illustrator'])
+const reviewOpen = ref(props.reviewWorkflow?.goalMode.value && props.reviewWorkflow?.panelOpen.value)
+watch(() => [props.reviewWorkflow?.goalMode.value, props.reviewWorkflow?.panelOpen.value], ([goalMode, open]) => { reviewOpen.value = Boolean(goalMode && open) })
+function openReview() {
+  if (props.busy) return
+  if (props.reviewWorkflow?.open({ goalMode: true })) reviewOpen.value = true
+}
 // 点证据既回原文；对 K 可映射的来源（世界设定/历史/相关记忆）同时登记
 // 为下一次提问的可信点名来源（受限 I0，默认关）。正文/大纲/现场等不可
 // 映射来源不登记——不制造注定失败的接缝请求。

@@ -472,6 +472,8 @@
               :atomic-undo-available="hasGhostAdoptionUndoBoundary || hasStructureUndoBoundary"
               :atomic-redo-available="hasGhostAdoptionRedoBoundary || hasStructureRedoBoundary"
               :history-locked="historyInteractionLocked"
+              block-menu-enabled
+              :task-unit-id="reviewPanelOpen && reviewWorkflow.invocation.value?.pane === 'main' ? reviewWorkflow.invocation.value.unitId || '' : ''"
               :before-destructive-edit="protectMainDestructiveEdit"
               :interaction-owner="writingInteractionOwner"
               :data-document-role="wt3ActiveDoc ? 'exploration' : 'manuscript'"
@@ -754,6 +756,9 @@
             <div class="ctx-divider"></div>
             <button class="ctx-item" role="menuitem" @click="ctxAction('splitUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.splitUnit">从此处分开</button>
             <button class="ctx-item" role="menuitem" @click="ctxAction('mergePreviousUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergePreviousUnit">与上一单元合并</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('mergeNextUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergeNextUnit">与下一单元合并</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('reviewBlock')">审阅此块</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('imageBlock')">从此处生图</button>
             <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitUp')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitUp">上移当前单元</button>
             <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitDown')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitDown">下移当前单元</button>
           </div>
@@ -761,7 +766,8 @@
       </section>
 
       <AuthoringDualPane
-        v-if="inspectorOpen && activeInspectorTool === 'dual'"
+        v-if="inspectorOpen && (activeInspectorTool === 'dual' || (activeInspectorTool === 'ai' && knowledgeAssistantInvocation?.pane === 'dual'))"
+        v-show="activeInspectorTool === 'dual'"
         ref="dualPaneRef"
         :book-id="selectedBookId"
         :chapters="chapters"
@@ -828,7 +834,7 @@
         :active-tool="activeInspectorTool"
         :dual="inspectorDualColumn"
         :collaboration-visible="authoringRehearsalActive"
-        @before-select="freezeWritingSurfaceBeforeToolSelect"
+        @before-select="beforeInspectorToolSelect"
         @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
       />
 
@@ -919,6 +925,7 @@
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
           <AuthoringKnowledgeAssistant
+            :review-workflow="reviewWorkflow"
             v-model:draft="knowledgeAssistant.draft.value"
             :project-title="currentBook?.title || ''"
             :messages="knowledgeAssistant.messages.value"
@@ -1301,7 +1308,7 @@
     />
 
     <AuthoringReviewPanel
-      :open="reviewPanelOpen"
+      :open="reviewPanelOpen && !reviewWorkflow.goalMode.value"
       :document-title="reviewDocumentTitle"
       :findings="reviewFindings"
       :busy="reviewLoading"
@@ -1539,6 +1546,7 @@ import { useGameStore } from '../stores/gameStore'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
+import { buildWritingSelectionRanges } from '../services/writing/writingSelectionRanges.js'
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
 import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLivingStoryProjection.vue'
 const AuthoringSceneLaboratory = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneLaboratory.vue'))
@@ -1571,6 +1579,7 @@ import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPosi
 import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
 import { createAuthoringKnowledgeReaderHost } from '../services/agents/authoring/authoringKnowledgeReaderHost.js'
+import { buildAuthoringReviewRewriteTarget, compareAuthoringReviewRewriteTarget, compareWritingRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
 import { sourceRefForAuthoringEvidenceLocator } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { createAuthoringInterventionSession } from '../services/agents/authoring/authoringInterventionSession.js'
 import { readAuthoringOutlineCausalLinks } from '../services/agents/authoring/authoringCausalLinkReader.js'
@@ -2386,11 +2395,15 @@ const {
   dismissRewriteCandidate
 } = useAuthoringRewriteWorkflow({
   getCurrentTarget: () => getCurrentRewriteTarget(),
-  getCurrentComparison: (target) => getCurrentRewriteComparison(target),
-  getChapterId: () => selectedChapterId.value,
+  getCurrentComparison: (target) => target?.pane === 'dual' ? getDualRewriteComparison(target) : getCurrentRewriteComparison(target),
+  getChapterId: (target) => target?.chapterId || target?.documentId || selectedChapterId.value,
   getEditorMode: () => editorMode.value,
-  buildTaskContext: (options) => buildWritingTaskContext(options),
-  commitCandidate: (candidate, target) => commitRewriteCandidate(candidate, target),
+  buildTaskContext: (options, target) => target?.pane === 'dual'
+    ? { writingTask: { ...options }, selection: { text: target.text }, paragraph: { text: target.text }, contextWindow: target.text }
+    : buildWritingTaskContext(options),
+  commitCandidate: (candidate, target) => target?.pane === 'dual'
+    ? commitDualRewriteCandidate(candidate, target)
+    : commitRewriteCandidate(candidate, target),
   onCandidateApplied: ({ target }) => {
     if (!target?.annotationId) return
     if (wt3ActiveDoc.value) {
@@ -2413,6 +2426,7 @@ function resetAnnotationWorkspaceScope() {
   scheduleAnnotationLayout()
 }
 const sceneDetailNotice = ref('')
+const reviewRewriteSavePending = ref(false)
 const rehearsalComposerHostRef = ref(null)
 const sceneInspectorMode = ref('current')
 const dualPaneRef = ref(null)
@@ -2574,6 +2588,7 @@ function captureMainDocumentSource() {
   const documentRole = exploration ? 'exploration' : 'manuscript'
   const documentId = String(exploration?.id || selectedChapterId.value || '')
   if (!documentId) return null
+  const selection = notebookEditorRef.value?.getSelectionSnapshot?.() || notebookSelection.value
   return Object.freeze({
     pane: 'main',
     projectId: String(selectedBookId.value),
@@ -2583,6 +2598,7 @@ function captureMainDocumentSource() {
     documentId,
     chapterId: exploration ? '' : String(selectedChapterId.value || ''),
     unitId: String(notebookSelection.value?.unitId || activeWritingUnitId.value || ''),
+    selectionRanges: buildWritingSelectionRanges(writingDocument.value, selection),
     title: String(exploration?.title || currentChapterTitle.value || ''),
     document: cloneAuthoringRunValue(writingDocument.value),
     markdown: String(markdownContent.value || ''),
@@ -3584,6 +3600,24 @@ function handleSceneAdvanceWith(eventId) {
 // —— 右侧临时详情（Task 1.4）：数据从同一 projection + worldbook 运行时读取。 ——
 const sceneDetailModel = computed(() => resolveSceneDetailModel(inspectorDetailState.value))
 const reviewWorkflow = useAuthoringReviewWorkflow({
+  rewrite: {
+    candidates: rewriteCandidates, loading: rewriteLoading, error: rewriteError, cancel: cancelRewriteGeneration,
+    apply: applyRewriteCandidate, savePending: reviewRewriteSavePending,
+    retrySave: () => {
+      const saved = dualPaneRef.value?.prepareClose?.() !== false
+      if (saved) reviewRewriteSavePending.value = false
+      return saved
+    },
+    begin: async (finding, options) => {
+      resetRewriteState(); reviewRewriteSavePending.value = false
+      if (!await jumpToReviewFinding(finding)) return false
+      await nextTick(); rewriteInstruction.value = finding.reason || finding.body || ''
+      const target = reviewWorkflow.invocation.value?.pane === 'dual'
+        ? buildDualReviewRewriteTarget(reviewWorkflow.invocation.value, finding)
+        : { ...getCurrentRewriteTarget(), pane: 'main' }
+      return generateRewriteCandidates(target, options)
+    }
+  },
   currentTitle: () => currentChapterTitle.value || '',
   captureSource: () => captureActiveReviewSource(),
   captureLiveSource: (invocation) => invocation.pane === 'dual'
@@ -9922,7 +9956,7 @@ async function ctxAction(action) {
   if (editorMode.value !== 'wysiwyg' || !notebookEditorRef.value) return false
   const snapshot = { ...contextMenu.value }
   contextMenu.value.show = false
-  const mutatesDocument = ['undo', 'redo', 'delete', 'cut', 'paste', 'splitUnit', 'mergePreviousUnit', 'moveUnitUp', 'moveUnitDown'].includes(action)
+  const mutatesDocument = ['undo', 'redo', 'delete', 'cut', 'paste', 'splitUnit', 'mergePreviousUnit', 'mergeNextUnit', 'moveUnitUp', 'moveUnitDown'].includes(action)
   if (mutatesDocument && rejectLockedNotebookMutation()) {
     restoreEditorAfterContextMenu(snapshot)
     return false
@@ -9966,9 +10000,12 @@ async function ctxAction(action) {
   if (action === 'redo') return redoNotebookEdit()
   if (action === 'selectAll') return Boolean(notebookEditorRef.value.selectAll?.())
   if (!restoreContextMenuTarget(snapshot)) return false
+  if (action === 'reviewBlock') { freezeReviewSource(); openReviewPanel({ goalMode: true }); return openInspectorTool('ai') }
+  if (action === 'imageBlock') return openIllustrator()
   if (action === 'delete') return Boolean(notebookEditorRef.value.deleteSelection?.())
   if (action === 'splitUnit') return Boolean(notebookEditorRef.value.splitWritingUnit?.())
   if (action === 'mergePreviousUnit') return Boolean(notebookEditorRef.value.mergeWritingUnit?.('previous'))
+  if (action === 'mergeNextUnit') return Boolean(notebookEditorRef.value.mergeWritingUnit?.('next'))
   if (action === 'moveUnitUp') return Boolean(notebookEditorRef.value.moveWritingUnit?.('up'))
   if (action === 'moveUnitDown') return Boolean(notebookEditorRef.value.moveWritingUnit?.('down'))
   return false
@@ -10419,65 +10456,34 @@ function getRewriteTargetFromAnnotation(annotation) {
 }
 function getCurrentRewriteComparison(targetOverride = null) {
   const target = targetOverride || rewriteTarget.value
-  if (!target) return null
-  if (target.kind === 'multi-selection') {
-    const nodes = (target.nodes || []).map((targetNode) => {
-      const nodeId = targetNode.nodeId
-      const node = getWritingNodeById(nodeId)
-      const unit = getWritingUnitByNodeId(nodeId)
-      const fullText = getWritingNodeText(node)
-      const text = fullText.slice(
-        Math.max(0, Number(targetNode.startOffset || 0)),
-        Math.max(Number(targetNode.startOffset || 0), Number(targetNode.endOffset ?? fullText.length))
-      )
-      return {
-        unitId: unit?.attrs?.unitId || targetNode.unitId || null,
-        unitRevision: Number(unit?.attrs?.unitRevision ?? targetNode.unitRevision ?? 0),
-        nodeId,
-        nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
-        text
-      }
-    })
-    return {
-      chapterId: selectedChapterId.value,
-      documentRevision: Number(writingDocument.value?.revision || 0),
-      nodes
-    }
+  return compareWritingRewriteTarget({ document: writingDocument.value, target, chapterId: selectedChapterId.value, markdown: markdownContent.value })
+}
+function buildDualReviewRewriteTarget(invocation, finding) {
+  const source = dualPaneRef.value?.captureReviewSource?.()
+  if (!source || String(source.documentId) !== String(invocation?.documentId)) return null
+  return buildAuthoringReviewRewriteTarget(source, finding)
+}
+function getDualRewriteComparison(target) {
+  const source = dualPaneRef.value?.captureReviewSource?.()
+  return compareAuthoringReviewRewriteTarget(source, target)
+}
+function commitDualRewriteCandidate(candidate, target) {
+  if (dualPaneRef.value?.prepareClose?.() === false) return { ok: false, message: '副栏原文保存失败，尚未采用候选。' }
+  const source = dualPaneRef.value?.captureReviewSource?.()
+  if (!source || String(source.documentId) !== String(target.documentId)) return { ok: false, stale: true, message: '副栏原文已经变化，请重新审稿。' }
+  if (!recordDestructiveWritingProtection({ ...source, operation: 'review-rewrite', transactionId: candidate.id })) {
+    return { ok: false, message: '无法保存改写前版本，正文没有变化。' }
   }
-  const nodeId = target.nodeId
-  const node = getWritingNodeById(nodeId)
-  const unit = getWritingUnitByNodeId(nodeId)
-  const nodeText = getWritingNodeText(node)
-  const hasLocalOffsets = target.startOffset != null
-    && target.endOffset != null
-    && Number.isFinite(Number(target.startOffset))
-    && Number.isFinite(Number(target.endOffset))
-  const text = target.kind !== 'selection'
-    ? nodeText
-    : hasLocalOffsets
-      ? nodeText.slice(
-          Math.max(0, Number(target.startOffset)),
-          Math.max(Number(target.startOffset), Number(target.endOffset))
-        )
-      : target.range
-        ? markdownContent.value.slice(target.range.start, target.range.end)
-        : ''
-  return {
-    chapterId: selectedChapterId.value,
-    documentRevision: Number(writingDocument.value?.revision || 0),
-    nodes: [{
-      unitId: unit?.attrs?.unitId || target.unitId || null,
-      unitRevision: Number(unit?.attrs?.unitRevision ?? target.unitRevision ?? 0),
-      nodeId,
-      nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
-      text
-    }],
-    unitId: unit?.attrs?.unitId || target.unitId || null,
-    unitRevision: Number(unit?.attrs?.unitRevision ?? target.unitRevision ?? 0),
-    nodeId,
-    nodeRevision: Number(node?.attrs?.nodeRevision ?? 0),
-    text
-  }
+  const patches = candidate.patches || [{
+    nodeId: target.nodeId,
+    range: { startOffset: target.startOffset, endOffset: target.endOffset },
+    baseText: target.text,
+    replacement: candidate.text
+  }]
+  if (dualPaneRef.value?.replaceReviewRanges?.(patches) !== true) return { ok: false, stale: true, message: '副栏没有接受这次修改，请重新审稿。' }
+  reviewRewriteSavePending.value = dualPaneRef.value?.prepareClose?.() === false
+  if (reviewRewriteSavePending.value) authoringTask.notify('改写已进入副栏，但保存失败；请在审稿结果中重试保存')
+  return { ok: true }
 }
 function commitRewriteCandidate(candidate, target) {
   if (rejectLockedNotebookMutation()) return { ok: false, silent: true }
@@ -10539,6 +10545,10 @@ function commitRewriteCandidate(candidate, target) {
 }
 function freezeReviewSource() {
   freezeReviewWorkflow(captureActiveReviewSource(), captureCurrentWritingSurface())
+}
+function beforeInspectorToolSelect(tool) {
+  if (tool === 'ai') freezeReviewSource()
+  freezeWritingSurfaceBeforeToolSelect(tool)
 }
 function captureAuthoringSearchLiveSources() {
   const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]

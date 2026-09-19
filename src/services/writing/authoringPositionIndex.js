@@ -265,6 +265,8 @@ function reviewBlock(entry) {
     nodeRevision: entry.nodeRevision,
     kind: entry.kind,
     text: entry.text,
+    fullText: entry.fullText || entry.text,
+    reviewStartOffset: Math.max(0, Number(entry.reviewStartOffset) || 0),
     order: entry.documentNodeOrder,
     sourceRefs: entry.sourceRefs
   })

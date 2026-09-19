@@ -27,6 +27,8 @@ export const STORAGE_KEYS = {
   WRITING_HISTORY_PREFERENCES: 'writing_history_preferences_v1',
   WRITING_BLOCK_HISTORY: 'writing_block_history_v1',
   WRITING_RECOVERY_DRAFTS: 'writing_recovery_drafts_v1',
+  WRITING_TYPOGRAPHY: 'writing_typography',
+  AUTHORING_REVIEW_RUNS: 'authoring_review_runs_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
   MEMORY_CANDIDATES: 'memory_candidates_v1',
   MEMORY_EXTRACTION_JOBS: 'memory_extraction_jobs_v1',
@@ -57,6 +59,7 @@ export const STORAGE_KEYS = {
   VIDEO_MODEL_CONFIGS: 'video_model_configs',
   VIDEO_MODEL_SELECTED: 'video_model_selected',
   MEDIA_ASSETS: 'media_assets_v1',
+  IMAGE_GENERATION_RUNS: 'image_generation_runs_v1',
   COMIC_PAGES: 'comic_pages_v1',
 
   // 文本模型配置 (配置列表 + 新增模式, 同图片/视频)

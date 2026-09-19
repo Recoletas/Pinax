@@ -6,7 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-19 文本块、助手前端与生图计划 | `text-game-framework` | `main` | 已形成[实施计划](./plan/authoring-block-assistant-image-20260919.md)：当前块完整范围、助手 S06–S12 前端闭环、生图参考用途与分图恢复，共 24 包。承接已验收的 Skills S01–S05；本次仅计划，未实施 UI、未确认视觉、未运行真实模型。 |
+| Codex / 2026-09-19 文本块、助手前端与生图续作 | `pinax-block-assistant-img-20260919` | `night/block-assistant-image-20260919` | 接续 P00 `c045dc6`，当前切片已完成并通过 verify:full（20/200、build、lint/结构/diff/docs）；精确选区、主副栏审稿改写、最小中断恢复、生图逐张保存与只重试保存已接。三尺寸主流程 30 项、18 张明暗首屏通过。待提交推送；未合并/部署/用户最终视觉确认/真实模型测试。见[逐包回执](./agent-runs/block-assistant-image-20260919/continuation.md)。 |
 | Codex / 2026-09-19 助手 Skills S01–S05 | `pinax-writing-skills-20260919` → `text-game-framework` | `night/writing-skills-20260919` / `main` | S01–S05 底层能力已交付，返工提交 `c030793` 已在本地 main 验收；客户端发送与 UI 闭环待 S06–S12。历史验证与限制见[回执](./agent-runs/writing-skills-s01-s05-20260919.md)，真实 provider/稿件未跑；不可把底层验收表述为完整助手上线。 |
 | Codex / 2026-09-19 推演交互修复 | `text-game-framework` | `main` | 已实施并待完整门禁：生成阅读起点、采纳后清理、光标锚点、生成状态与空格/斜杠菜单；定向 47/47、C1 31/31、浏览器交互 26 项通过，完整门禁待跑，不部署。 |
 | Codex / 2026-09-19 HTTP UUID 兼容 | `text-game-framework` | `main` | 已提交 `868a25b`，按用户授权推送；shared UUID 优先原生、缺失时通过 getRandomValues + uuid 库生成，修复请求/轨迹/历史/账本/协作直接调用。真实非安全 HTTP 与 localhost 回归通过，verify:full exit 0（20/200、双 build、lint/结构/diff）。未部署，非 HTTPS 加密协作仍有独立限制；见[回执](./agent-runs/http-uuid-fix-20260919.md)。 |

@@ -1,5 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService'
+import { collectWritingDialogueLocks, validateWritingLockedSegments } from '../../shared/writingCandidateContract.js'
+import { validateWritingReplacement } from '../../shared/writingReplacementContract.js'
 import {
   buildWritingCandidateDiff,
   createWritingCandidateRequest,
@@ -92,7 +94,7 @@ export function useAuthoringRewriteWorkflow({
     return !getWritingCandidateStaleReason(candidate, current)
   }
 
-  async function generateRewriteCandidates(targetOverride = null) {
+  async function generateRewriteCandidates(targetOverride = null, { preserveDialogue = false } = {}) {
     if (targetOverride && !isRewriteTargetStillCurrent(targetOverride)) {
       rewriteError.value = '原改写目标已经变化，请重新选中正文后再生成。'
       return false
@@ -103,6 +105,10 @@ export function useAuthoringRewriteWorkflow({
       rewriteError.value = '先把光标放入正文块，或选中需要改写的文字。'
       return false
     }
+    if (preserveDialogue) rewriteLockedSegments.value = target.kind === 'multi-selection'
+      ? (target.nodes || []).flatMap((node) => collectWritingDialogueLocks(node.text, node.nodeId))
+      : collectWritingDialogueLocks(target.text, target.nodeId)
+    const frozenLocks = rewriteLockedSegments.value.map((segment) => ({ ...segment }))
 
     abortController?.abort()
     const controller = new AbortController()
@@ -119,7 +125,7 @@ export function useAuthoringRewriteWorkflow({
     const question = rewriteInstruction.value.trim() || (target.kind === 'block'
       ? '请修正当前正文块，处理重复、语病和衔接，但不要无依据扩写。'
       : '请改写当前选区，保持原意、视角和人物语气，减少重复并改善节奏。')
-    const chapterId = getChapterId()
+    const chapterId = getChapterId(target)
     const request = createWritingCandidateRequest({
       target,
       documentRevision: target.documentRevision,
@@ -128,7 +134,7 @@ export function useAuthoringRewriteWorkflow({
     })
 
     try {
-      const context = buildTaskContext({ scope, question, taskType })
+      const context = buildTaskContext({ scope, question, taskType }, target)
       const taskResult = await requestAdvisorTask({
         context,
         question,
@@ -139,7 +145,7 @@ export function useAuthoringRewriteWorkflow({
           editorMode: getEditorMode(),
           chapterId,
           candidateCount: 3,
-          lockedSegments: rewriteLockedSegments.value,
+          lockedSegments: frozenLocks,
           multiBlock: target.kind === 'multi-selection',
           targetBlocks: target.nodes || []
         },
@@ -171,7 +177,7 @@ export function useAuthoringRewriteWorkflow({
           nodeId: target.nodeId,
           nodeRevision: target.nodeRevision,
           targetRange: target.range,
-          lockedSegments: rewriteLockedSegments.value,
+          lockedSegments: frozenLocks,
           patches,
           status: 'ready',
           diff: target.kind === 'multi-selection'
@@ -221,8 +227,11 @@ export function useAuthoringRewriteWorkflow({
       rewriteError.value = '正文或目标块已经变化，这条候选已过期，请重新生成。'
       return false
     }
-    if (!candidate.patches && (candidate.lockedSegments || []).some((segment) => !candidate.text.includes(segment.text))) {
-      rewriteError.value = '候选没有保留全部锁定片段，不能采用。'
+    const locks = candidate.lockedSegments || []
+    const replacements = candidate.patches || [{ nodeId: candidate.nodeId, baseText: candidate.baseText, replacement: candidate.text }]
+    if (locks.some((lock) => lock.nodeId && !replacements.some((patch) => patch.nodeId === lock.nodeId)) || replacements.some((patch) =>
+      !validateWritingReplacement(patch.replacement).valid || !validateWritingLockedSegments(patch.baseText, patch.replacement, locks.filter((lock) => !lock.nodeId || lock.nodeId === patch.nodeId)))) {
+      rewriteError.value = '候选为空、无效或改动了锁定位置；请保留原句的位置后再采用。'
       return false
     }
 

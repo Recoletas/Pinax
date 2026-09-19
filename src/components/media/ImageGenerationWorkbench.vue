@@ -10,6 +10,8 @@ import {
   removeGeneratedImageFromLibrary
 } from '../../services/media/mediaAssetStore'
 import { COMIC_IMAGE_NEGATIVE_PROMPT } from '../../services/media/comicImagePrompt'
+import { draftImageDescription } from '../../services/media/imageDescriptionService.js'
+import { loadImageGenerationRun, removeImageGenerationRun, saveImageGenerationRun } from '../../services/media/imageGenerationRunStore.js'
 
 const props = defineProps({
   storageKey: {
@@ -136,6 +138,21 @@ const referenceStrength = ref(0.65)
 const referenceUploadMessage = ref('')
 const generationStatus = ref({ kind: 'idle', message: '' })
 const activeJob = ref(null)
+const imageJobItems = ref([])
+const interruptedRun = ref(null)
+const imageJobStateLabels = { queued: '等待', generating: '生成中', generated: '已生成', persisting: '保存中', saved: '已保存', 'persist-failed': '待保存', failed: '失败', cancelled: '已停止' }
+// Unsaved pixels stay in memory only. Retrying storage never calls the provider.
+const unsavedImages = ref([])
+const savingImages = ref(false)
+const retryGeneration = ref(null)
+const allowTextOnlyReference = ref(false)
+const comparisonImageId = ref('')
+const descriptionDraft = ref('')
+const descriptionBusy = ref(false)
+const descriptionError = ref('')
+const previousDescription = ref(null)
+let descriptionController = null
+let descriptionSourceKey = ''
 let activeGeneration = null
 let libraryLoadRevision = 0
 let latestGeneration = null
@@ -185,10 +202,13 @@ const activeMediaPurpose = computed(() => (
 ))
 const selectedSizeKey = computed(() => `${imageWidth.value}x${imageHeight.value}`)
 const selectedPreviewImage = computed(() => imageLibrary.value[imagePreviewIndex.value] || null)
+const comparisonImage = computed(() => imageLibrary.value.find((image) => image.id === comparisonImageId.value && image.id !== selectedPreviewImage.value?.id) || null)
 const selectedModelConfig = computed(() => modelConfigs.value.find((item) => item.id === imageSelectedModel.value) || null)
 const selectedModelSupportsReference = computed(() => (
   getImageProviderCapabilities(selectedModelConfig.value || {}).identityReference === true
 ))
+const selectedModelSupportsStrength = computed(() => ['sd_webui', 'stability'].includes(selectedModelConfig.value?.type)
+  || (selectedModelConfig.value?.type === 'http' && String(selectedModelConfig.value?.requestTemplate || '').includes('{{reference_strength}}')))
 const selectedStylePreset = computed(() => (
   authoringStylePresets.find((preset) => preset.id === imageStylePreset.value)
     || authoringStylePresets[0]
@@ -206,6 +226,7 @@ const selectedReferenceImages = computed(() => selectedReferenceIds.value
   .map((id) => allReferenceCandidates.value.find((candidate) => candidate.id === id))
   .filter(Boolean)
   .slice(0, 3))
+watch(() => [imageSelectedModel.value, selectedReferenceIds.value.join('|')], () => { allowTextOnlyReference.value = false })
 const effectiveLibrarySourceRefs = computed(() => (
   Array.isArray(props.librarySourceRefs) ? props.librarySourceRefs : props.sourceRefs
 ))
@@ -254,6 +275,8 @@ const emptyResultHint = computed(() => {
 onMounted(async () => {
   loadModelConfigs()
   await reloadLibraries()
+  interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
+  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: `上次任务在刷新前未结束；已恢复 ${interruptedRun.value.items.filter((item) => item.state === 'saved').length} 张已保存成果，未完成项不会自动重发。` }
 })
 
 watch(availableModes, (modes) => {
@@ -263,6 +286,11 @@ watch(availableModes, (modes) => {
 }, { immediate: true })
 watch(libraryScopeKey, () => {
   imagePreviewIndex.value = -1
+  imageJobItems.value = []
+  comparisonImageId.value = ''
+  generationStatus.value = { kind: 'idle', message: '' }
+  interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
+  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: `上次任务在刷新前未结束；已恢复 ${interruptedRun.value.items.filter((item) => item.state === 'saved').length} 张已保存成果，未完成项不会自动重发。` }
   void reloadLibraries()
 })
 watch(allReferenceCandidates, (candidates) => {
@@ -373,7 +401,7 @@ function selectSizePreset(value) {
   imageHeight.value = preset.height
 }
 
-async function generateImages() {
+async function generateImages({ retry = false } = {}) {
   if (!imagePrompt.value.trim()) {
     generationStatus.value = { kind: 'error', message: '请先写下画面描述。' }
     return
@@ -383,17 +411,23 @@ async function generateImages() {
     return
   }
 
-  const cfg = modelConfigs.value.find((item) => item.id === imageSelectedModel.value)
+  const previous = retry ? retryGeneration.value : null
+  if (previous && previous.job.libraryScopeKey !== libraryScopeKey.value) return
+  const cfg = previous?.providerConfig || modelConfigs.value.find((item) => item.id === imageSelectedModel.value)
   if (!cfg) {
     generationStatus.value = { kind: 'error', message: '未找到选中的图片模型配置。' }
     return
   }
 
   if (activeGeneration) return
+  if (!previous && selectedReferenceImages.value.length && !selectedModelSupportsReference.value && !allowTextOnlyReference.value) {
+    generationStatus.value = { kind: 'error', message: '当前模型不支持图片参考。请选择其他模型，或明确选择仅用文字生成。' }
+    return
+  }
   const controller = new AbortController()
-  const frozen = createFrozenGenerationJob(cfg)
+  const frozen = previous?.job || createFrozenGenerationJob(cfg)
   const providerConfig = deepFreeze(cloneSerializable(cfg, {}))
-  const referenceImages = deepFreeze((frozen.referenceSubmissionSupported ? selectedReferenceImages.value : []).map((reference) => ({
+  const referenceImages = previous?.referenceImages || deepFreeze((frozen.referenceSubmissionSupported ? selectedReferenceImages.value : []).map((reference) => ({
     id: String(reference.mediaAssetId || reference.id || ''),
     title: referenceLabel(reference),
     data: String(reference.data || '')
@@ -407,6 +441,11 @@ async function generateImages() {
     cancelEmitted: false,
     archiveStarted: false
   }
+  running.generatedIndices = previous?.generatedIndices || []
+  running.entries = previous?.entries || []
+  imageJobItems.value = previous?.items || Array.from({ length: frozen.count }, (_, index) => ({ id: `${frozen.runId}-${index + 1}`, state: 'queued' }))
+  running.items = imageJobItems.value
+  retryGeneration.value = null
   activeGeneration = running
   latestGeneration = running
   activeJob.value = frozen
@@ -416,12 +455,14 @@ async function generateImages() {
     message: frozen.count > 1 ? `正在生成 ${frozen.count} 张候选…` : '正在生成候选…'
   }
   emit('generation-start', { job: frozen })
+  persistImageRun(running, 'running')
 
-  const archivedEntries = []
+  const archivedEntries = running.entries
   try {
-    const results = []
     for (let index = 0; index < frozen.count; index += 1) {
+      if (running.generatedIndices.includes(index)) continue
       assertActiveGeneration(running, frozen)
+      running.items[index].state = 'generating'
       const data = await generateImage(providerConfig, {
         prompt: frozen.providerPrompt,
         negativePrompt: frozen.negativePrompt,
@@ -433,14 +474,12 @@ async function generateImages() {
         signal: controller.signal
       })
       assertActiveGeneration(running, frozen)
-      results.push(data)
-    }
-
-    running.archiveStarted = true
-    for (const data of results) {
-      assertActiveGeneration(running, frozen)
-      const entry = await addGeneratedImageToLibrary(frozen.storageKey, {
-        id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      running.items[index].state = 'generated'
+      persistImageRun(running, 'running')
+      running.archiveStarted = true
+      running.generatedIndices.push(index)
+      const candidate = {
+        id: running.items[index].id,
         prompt: frozen.prompt,
         negativePrompt: frozen.negativePrompt,
         modelName: frozen.model.name,
@@ -452,6 +491,7 @@ async function generateImages() {
         referenceCount: frozen.referenceImageIds.length,
         referenceStrength: frozen.referenceStrength,
         generationParams: {
+          runId: frozen.runId, itemIndex: index, itemCount: frozen.count,
           stylePreset: frozen.stylePreset,
           stylePrompt: frozen.stylePrompt,
           referencePrompt: frozen.referencePrompt,
@@ -469,13 +509,31 @@ async function generateImages() {
         contextKey: frozen.contextKey,
         data,
         createdAt: new Date().toISOString()
-      }, {
+      }
+      const storageOptions = {
         projectId: frozen.projectId,
         purpose: frozen.mediaPurpose,
-        sourceRefs: frozen.sourceRefs,
-        signal: controller.signal
-      })
+        sourceRefs: frozen.sourceRefs
+      }
+      let entry
+      try {
+        running.items[index].state = 'persisting'
+        entry = await addGeneratedImageToLibrary(frozen.storageKey, candidate, storageOptions)
+      } catch (saveError) {
+        running.items[index].state = 'persist-failed'
+        persistImageRun(running, 'partial')
+        unsavedImages.value.push({ item: running.items[index], entries: archivedEntries, candidate, storageOptions, storageKey: frozen.storageKey, scopeKey: frozen.libraryScopeKey, error: saveError.message })
+        continue
+      }
+      running.items[index].state = 'saved'
+      running.items[index].mediaAssetId = entry.mediaAssetId || entry.id
+      persistImageRun(running, 'running')
       archivedEntries.push(entry)
+      if (libraryScopeKey.value === frozen.libraryScopeKey) {
+        imageLibrary.value = [entry, ...imageLibrary.value.filter((item) => item.id !== entry.id)].slice(0, 20)
+        imagePreviewIndex.value = 0
+        emit('image-preview', entry)
+      }
       assertActiveGeneration(running, frozen)
     }
     assertActiveGeneration(running, frozen)
@@ -499,35 +557,29 @@ async function generateImages() {
     }
     generationStatus.value = {
       kind: 'success',
-      message: `已生成 ${archivedEntries.length} 张候选。`
+      message: `已保存 ${archivedEntries.length} 张候选。${unsavedImages.value.length ? '有图片尚未保存，可重试保存或先下载。' : ''}`
     }
     emit('generation-complete', {
       job: frozen,
       entries: archivedEntries.map((entry) => ({ ...entry })),
       count: archivedEntries.length
     })
+    const hasUnsaved = unsavedImages.value.some((item) => item.candidate?.generationParams?.runId === frozen.runId)
+    if (hasUnsaved) persistImageRun(running, 'partial')
+    else removeImageGenerationRun(frozen.runId)
   } catch (error) {
-    const cleanupFailures = []
-    if (archivedEntries.length) {
-      for (const entry of [...archivedEntries].reverse()) {
-        try {
-          await removeGeneratedImageFromLibrary(frozen.storageKey, entry, { projectId: frozen.projectId })
-        } catch (cleanupError) {
-          cleanupFailures.push({ entryId: entry.id, error: cleanupError })
-        }
-      }
-      if (libraryScopeKey.value === frozen.libraryScopeKey) {
-        const archivedIds = new Set(archivedEntries.map((entry) => entry.id))
-        imageLibrary.value = imageLibrary.value.filter((entry) => !archivedIds.has(entry.id))
-        imagePreviewIndex.value = imageLibrary.value.length ? 0 : -1
-      }
+    for (const item of running.items) {
+      if (item.state === 'generating') item.state = controller.signal.aborted ? 'cancelled' : 'failed'
+      else if (item.state === 'queued' && controller.signal.aborted) item.state = 'cancelled'
     }
+    const cleanupFailures = []
     const cancelled = controller.signal.aborted || running.discarded || isAbortError(error)
     if (cancelled) {
+      removeImageGenerationRun(frozen.runId)
       if (latestGeneration === running) {
         generationStatus.value = cleanupFailures.length
           ? { kind: 'error', message: `已取消，但有 ${cleanupFailures.length} 张候选未能清理，请刷新历史后重试。` }
-          : { kind: 'cancelled', message: '已取消，本次结果未归档。' }
+          : { kind: 'cancelled', message: `已停止，保留 ${archivedEntries.length} 张已保存候选。` }
       }
       if (!running.cancelEmitted) {
         running.cancelEmitted = true
@@ -543,12 +595,14 @@ async function generateImages() {
         kind: 'error',
         message: cleanupFailures.length
           ? `生成失败，且有 ${cleanupFailures.length} 张候选未能清理。`
-          : (error?.message ? `生成失败：${error.message}` : '生成失败，请稍后重试。')
+          : `已保留 ${archivedEntries.length} 张候选。${error?.message || '后续生成失败。'}`
       }
       if (latestGeneration === running) generationStatus.value = errorStatus
       emit('generation-error', { job: frozen, error, message: errorStatus.message, cleanupFailures })
+      persistImageRun(running, 'partial')
     }
   } finally {
+    if (latestGeneration === running && running.generatedIndices.length < frozen.count) retryGeneration.value = running
     if (activeGeneration === running) {
       activeGeneration = null
       if (activeJob.value?.jobId === frozen.jobId) activeJob.value = null
@@ -556,6 +610,91 @@ async function generateImages() {
       flushPendingPromptSync()
     }
   }
+}
+
+async function retryImageStorage(item) {
+  if (savingImages.value) return
+  savingImages.value = true
+  try {
+    item.item.state = 'persisting'
+    const entry = await addGeneratedImageToLibrary(item.storageKey, item.candidate, item.storageOptions)
+    item.item.state = 'saved'
+    item.item.mediaAssetId = entry.mediaAssetId || entry.id
+    if (!item.entries.some((image) => image.id === entry.id)) item.entries.push(entry)
+    unsavedImages.value = unsavedImages.value.filter((pending) => pending !== item)
+    if (imageJobItems.value.length && imageJobItems.value.every((candidate) => candidate.state === 'saved')) removeImageGenerationRun(item.candidate.generationParams?.runId)
+    if (item.scopeKey === libraryScopeKey.value) {
+      imageLibrary.value = [entry, ...imageLibrary.value.filter((image) => image.id !== entry.id)].slice(0, 20)
+      imagePreviewIndex.value = 0
+      emit('image-preview', entry)
+    }
+  } catch (error) {
+    item.item.state = 'persist-failed'
+    item.error = error.message || '保存失败'
+  } finally {
+    savingImages.value = false
+  }
+}
+
+function persistImageRun(running, status) {
+  saveImageGenerationRun({
+    runId: running.job.runId, jobId: running.job.jobId, scopeKey: running.job.libraryScopeKey,
+    contextKey: running.job.contextKey, projectId: running.job.projectId, prompt: running.job.prompt,
+    itemCount: running.job.count, items: running.items, status
+  })
+}
+function dismissInterruptedRun() {
+  if (interruptedRun.value) removeImageGenerationRun(interruptedRun.value.runId)
+  interruptedRun.value = null
+  generationStatus.value = { kind: 'idle', message: '' }
+}
+
+async function prepareImageDescription() {
+  if (descriptionBusy.value) return
+  const controller = new AbortController()
+  descriptionController = controller
+  descriptionBusy.value = true
+  descriptionError.value = ''
+  descriptionDraft.value = ''
+  descriptionSourceKey = props.contextKey
+  try {
+    const draft = await draftImageDescription({ sourceText: selectedTextText.value, signal: controller.signal })
+    if (!controller.signal.aborted && descriptionSourceKey === props.contextKey) descriptionDraft.value = draft
+    else descriptionError.value = '来源已变化，请在当前来源重新整理。'
+  } catch (error) {
+    descriptionError.value = controller.signal.aborted ? '已停止整理。' : error.message
+  } finally {
+    descriptionBusy.value = false
+    if (descriptionController === controller) descriptionController = null
+  }
+}
+function useDescriptionDraft() {
+  if (descriptionSourceKey !== props.contextKey || imageGenerating.value) return
+  previousDescription.value = { text: imagePrompt.value, contextKey: props.contextKey }
+  imagePrompt.value = descriptionDraft.value
+  descriptionDraft.value = ''
+}
+watch(() => props.contextKey, () => {
+  descriptionController?.abort()
+  descriptionDraft.value = ''
+  previousDescription.value = null
+})
+onBeforeUnmount(() => descriptionController?.abort())
+
+function reuseImageParameters(image) {
+  if (!image || imageGenerating.value) return
+  imagePrompt.value = image.prompt || ''
+  imageNegativePrompt.value = image.negativePrompt || ''
+  imageStylePreset.value = image.generationParams?.stylePreset || 'none'
+  imageReferencePrompt.value = image.generationParams?.referencePrompt || ''
+  imageWidth.value = image.width || 1024
+  imageHeight.value = image.height || 1024
+  const config = modelConfigs.value.find((config) => config.type === image.modelType && config.defaultModel === image.modelId)
+  imageSelectedModel.value = config?.id || ''
+  const ids = new Set(image.referenceImageIds || [])
+  selectedReferenceIds.value = allReferenceCandidates.value.filter((item) => ids.has(item.mediaAssetId || item.id)).map((item) => item.id)
+  referenceStrength.value = image.referenceStrength || .65
+  generationStatus.value = { kind: 'idle', message: config ? '已载入候选参数，请检查参考图后再生成。' : '原图片模型不可用，请重新选择；未发起生成。' }
 }
 
 function cancelGeneration(reason = 'user') {
@@ -568,7 +707,7 @@ function cancelGeneration(reason = 'user') {
   if (activeJob.value?.jobId === running.job.jobId) activeJob.value = null
   imageGenerating.value = false
   flushPendingPromptSync()
-  generationStatus.value = { kind: 'cancelled', message: '正在取消，本次结果不会归档…' }
+  generationStatus.value = { kind: 'cancelled', message: '已停止后续生成，已完成的图片会保留。' }
   if (!running.archiveStarted) {
     running.cancelEmitted = true
     emit('generation-cancel', { job: running.job, reason, cleanupFailed: false, cleanupFailures: [] })
@@ -608,6 +747,7 @@ function createFrozenGenerationJob(config) {
   )
   return deepFreeze({
     jobId,
+    runId: createRuntimeId('image-run'),
     sessionId,
     submittedAt: new Date().toISOString(),
     contextKey: String(props.contextKey || ''),
@@ -638,8 +778,8 @@ function createFrozenGenerationJob(config) {
     mediaPurpose,
     width: Number(imageWidth.value),
     height: Number(imageHeight.value),
-    count: Math.min(4, Math.max(1, Number(imageCount.value) || 1)),
-    referenceImageIds: selectedReferenceImages.value.map((reference) => String(reference.mediaAssetId || reference.id || '')).filter(Boolean),
+    count: Math.min(4, Math.max(1, Math.floor(Number(imageCount.value) || 1))),
+    referenceImageIds: (getImageProviderCapabilities(config).imageToImage ? selectedReferenceImages.value : []).map((reference) => String(reference.mediaAssetId || reference.id || '')).filter(Boolean),
     referenceStrength: Number(referenceStrength.value),
     model: {
       configId: String(config.id || ''),
@@ -735,6 +875,7 @@ function referenceLabel(candidate) {
 
 async function handleReferenceUpload(event) {
   if (imageGenerating.value) return
+  const scope = { storageKey: props.storageKey, projectId: props.projectId, sourceRefs: cloneSerializable(props.sourceRefs, []), key: libraryScopeKey.value }
   const files = [...(event.target?.files || [])]
     .filter(isSupportedLocalImage)
     .slice(0, 3)
@@ -746,8 +887,12 @@ async function handleReferenceUpload(event) {
       continue
     }
     try {
-      const data = await fileToDataUrl(file)
-      const entry = await addGeneratedImageToLibrary(props.storageKey, {
+      let data = await fileToDataUrl(file)
+      const mime = await verifyReferenceImage(data, file)
+      data = data.replace(/^data:[^;]*;/, `data:${mime};`)
+      if (scope.key !== libraryScopeKey.value) break
+      if ([...allReferenceCandidates.value, ...uploaded].some((image) => image.data === data)) continue
+      const entry = await addGeneratedImageToLibrary(scope.storageKey, {
         id: `reference_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         prompt: file.name,
         modelName: '本地上传',
@@ -758,15 +903,16 @@ async function handleReferenceUpload(event) {
         data,
         createdAt: new Date().toISOString()
       }, {
-        projectId: props.projectId,
+        projectId: scope.projectId,
         purpose: 'storyboard-reference',
-        sourceRefs: props.sourceRefs
+        sourceRefs: scope.sourceRefs
       })
       uploaded.push({ ...entry, title: file.name, uploaded: true })
     } catch (error) {
       referenceUploadMessage.value = error?.message || `${file.name} 导入失败`
     }
   }
+  if (scope.key !== libraryScopeKey.value) return
   storedReferenceImages.value = [...uploaded, ...storedReferenceImages.value]
     .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
     .slice(0, 20)
@@ -784,8 +930,26 @@ async function handleReferenceUpload(event) {
 }
 
 function isSupportedLocalImage(file) {
-  if (String(file?.type || '').startsWith('image/')) return true
-  return /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|webp)$/i.test(String(file?.name || ''))
+  if (file?.type) return ['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
+  return /\.(?:jpe?g|png|webp)$/i.test(String(file?.name || ''))
+}
+
+async function verifyReferenceImage(data, file) {
+  const bytes = atob(String(data).split(',')[1] || '')
+  const type = bytes.startsWith('\x89PNG\r\n\x1a\n') ? 'image/png' : bytes.startsWith('\xff\xd8\xff') ? 'image/jpeg' : bytes.startsWith('RIFF') && bytes.slice(8, 12) === 'WEBP' ? 'image/webp' : ''
+  if (!type || (file.type && file.type !== type)) throw new Error(`${file.name} 的图片格式与内容不符`)
+  await new Promise((resolve, reject) => {
+    const image = new Image()
+    const timer = setTimeout(() => reject(new Error('图片解码超时')), 10000)
+    image.onload = () => {
+      clearTimeout(timer)
+      if (!image.naturalWidth || image.naturalWidth * image.naturalHeight > 20000000) reject(new Error('参考图超过 2000 万像素，未导入'))
+      else resolve()
+    }
+    image.onerror = () => { clearTimeout(timer); reject(new Error('图片已损坏或无法解码')) }
+    image.src = data
+  })
+  return type
 }
 
 function fileToDataUrl(file) {
@@ -913,19 +1077,30 @@ async function deleteSelectedImage() {
                   maxlength="600"
                 ></textarea>
                 <small v-if="presentation === 'authoring'" class="image-gen-prompt-count">{{ imagePrompt.length }} / 600</small>
+                <div v-if="presentation === 'authoring' && selectedTextText" class="image-gen-description-actions">
+                  <button v-if="!descriptionBusy" type="button" class="image-gen-inline-link" @click="prepareImageDescription">从原文整理画面</button>
+                  <button v-else type="button" class="image-gen-inline-link" @click="descriptionController?.abort()">停止整理</button>
+                  <button v-if="previousDescription?.contextKey === contextKey" type="button" class="image-gen-inline-link" @click="imagePrompt = previousDescription.text; previousDescription = null">恢复原描述</button>
+                </div>
+                <p v-if="descriptionError" class="image-gen-reference-message" role="alert">{{ descriptionError }}</p>
+                <section v-if="descriptionDraft" class="image-gen-description-draft" aria-label="画面描述草稿">
+                  <textarea v-model="descriptionDraft" aria-label="编辑画面描述草稿" rows="5" maxlength="600" class="image-gen-prompt-input" />
+                  <button type="button" class="image-preview-action-btn" @click="useDescriptionDraft">使用这份描述</button>
+                  <button type="button" class="image-preview-action-btn" @click="descriptionDraft = ''">放弃</button>
+                </section>
               </div>
 
-              <div v-if="presentation === 'authoring'" class="image-gen-quality-terms">
-                <span>常用质量词</span>
+              <details v-if="presentation === 'authoring'" class="image-gen-quality-terms">
+                <summary>常用质量词</summary>
                 <div aria-label="常用质量词">
                   <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(term)">{{ term }}</button>
                 </div>
-              </div>
+              </details>
 
               <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
                 <div class="image-gen-label-row">
                   <span class="image-gen-label">画面风格</span>
-                  <small>参考 · {{ selectedStylePreset.label }}</small>
+                  <small>文字预设 · {{ selectedStylePreset.label }}</small>
                 </div>
                 <div class="image-gen-style-grid" role="radiogroup" aria-label="画面风格">
                   <button
@@ -976,16 +1151,18 @@ async function deleteSelectedImage() {
                   <span>{{ presentation === 'authoring' ? '添加图片' : '上传' }}</span>
                 </button>
               </div>
-              <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/*" multiple @change="handleReferenceUpload" />
+              <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="handleReferenceUpload" />
               <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
-              <label v-if="selectedReferenceImages.length" class="image-gen-reference-strength">
+              <label v-if="selectedReferenceImages.length && selectedModelSupportsStrength" class="image-gen-reference-strength">
                 <span>参考强度</span>
                 <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" :disabled="!selectedModelSupportsReference" />
                 <strong>{{ Math.round(referenceStrength * 100) }}%</strong>
               </label>
               <p v-if="selectedReferenceImages.length && !selectedModelSupportsReference" class="image-gen-reference-message" role="status">
                 当前模型不提交本地底图；参考提示仍会作为文字约束加入生成。
+                <label><input v-model="allowTextOnlyReference" type="checkbox" />仅用文字生成，不发送参考图片</label>
               </p>
+              <p v-else-if="selectedReferenceImages.length" class="image-gen-reference-message">图片将作为普通图像参考提交；不保证人物身份、风格或构图一致。</p>
               <label v-if="selectedReferenceImages.length && presentation === 'authoring'" class="image-gen-reference-prompt">
                 <span>参考提示词</span>
                 <textarea
@@ -1037,7 +1214,8 @@ async function deleteSelectedImage() {
                 </label>
               </div>
 
-              <div class="image-gen-section">
+              <details class="image-gen-section image-gen-advanced">
+                <summary>高级设置</summary>
                 <div class="image-gen-label-row">
                   <label class="image-gen-label">负面提示词（可选）</label>
                   <button v-if="presentation === 'authoring'" class="image-gen-inline-link" type="button" @click="useComicSafetyPrompt">使用漫画纯画面约束</button>
@@ -1048,7 +1226,7 @@ async function deleteSelectedImage() {
                   placeholder="不想出现的内容..."
                   rows="2"
                 ></textarea>
-              </div>
+              </details>
             </template>
           </fieldset>
 
@@ -1073,15 +1251,25 @@ async function deleteSelectedImage() {
             :class="`is-${generationStatus.kind}`"
             :role="generationMessageRole"
           >{{ generationStatus.message }}</p>
+          <button v-if="interruptedRun" type="button" class="image-preview-action-btn" @click="dismissInterruptedRun">清除中断记录</button>
+          <button v-if="retryGeneration && retryGeneration.job.libraryScopeKey === libraryScopeKey && !imageGenerating" type="button" class="image-preview-action-btn" @click="generateImages({ retry: true })">继续未完成图片（沿用原参数）</button>
         </section>
 
         <section v-if="!referenceWorkspaceActive" class="image-gen-results" aria-label="插画候选">
+          <div v-if="imageJobItems.length" class="image-gen-item-states" aria-label="本次图片进度" aria-live="polite"><span v-for="(item, index) in imageJobItems" :key="item.id">{{ index + 1 }} · {{ imageJobStateLabels[item.state] }}</span></div>
+          <section v-for="item in unsavedImages.filter(item => item.scopeKey === libraryScopeKey)" :key="item.candidate.id" class="image-gen-unsaved" aria-label="待保存图片">
+            <img :src="item.candidate.data" alt="生成成功但尚未保存的候选" />
+            <p role="alert">图片已生成，保存失败。关闭或刷新会丢失此图。{{ item.error }}</p>
+            <button type="button" :disabled="savingImages" @click="retryImageStorage(item)">重试保存（不重新生成）</button>
+            <a :href="item.candidate.data" download="pinax-candidate.png">下载图片</a>
+          </section>
           <div class="image-gen-results-title">
             <span>候选与历史</span>
             <small v-if="imageLibrary.length">{{ imageLibrary.length }} 张</small>
           </div>
 
-          <div v-if="selectedPreviewImage" class="image-gen-current-preview">
+          <div v-if="selectedPreviewImage" class="image-gen-current-preview" :class="{ 'is-comparing': comparisonImage }">
+            <img v-if="comparisonImage" :src="comparisonImage.data" :alt="`对照：${comparisonImage.prompt || '已固定候选'}`" />
             <img :src="selectedPreviewImage.data" :alt="selectedPreviewImage.prompt || sourceTitle || '当前插画候选'" />
             <div class="image-gen-current-caption">
               <strong>{{ selectedPreviewImage.prompt || sourceTitle || '当前插画候选' }}</strong>
@@ -1125,6 +1313,9 @@ async function deleteSelectedImage() {
               :disabled="selectedActionGuard.insertDisabled"
               @click="emitInsertImage(selectedPreviewImage)"
             >插入正文</button>
+            <button class="image-preview-action-btn" type="button" :disabled="imageGenerating" @click="reuseImageParameters(selectedPreviewImage)">复用参数</button>
+            <a class="image-preview-action-btn" :href="selectedPreviewImage.data" download="pinax-image.png">下载图片</a>
+            <button class="image-preview-action-btn" type="button" :aria-pressed="Boolean(comparisonImageId)" @click="comparisonImageId = comparisonImageId ? '' : selectedPreviewImage.id">{{ comparisonImageId ? '取消对照' : '固定作对照' }}</button>
             <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
             <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" @click="deleteSelectedImage">删除候选</button>
             <button
@@ -1142,6 +1333,14 @@ async function deleteSelectedImage() {
 </template>
 
 <style scoped>
+.image-gen-item-states { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
+.media-generation-inline--authoring .image-gen-empty [data-test="image-style-preview"] { aspect-ratio: 2 / 3; width: min(180px, 45%); }
+.image-gen-current-preview.is-comparing { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.image-gen-current-preview.is-comparing .image-gen-current-caption { grid-column: 1 / -1; }
+.image-gen-advanced summary, .image-gen-quality-terms summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; padding-block: 8px; }
+.image-gen-unsaved { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
+.image-gen-unsaved img { width: 100%; max-height: 320px; object-fit: contain; }
+.image-gen-unsaved button, .image-gen-unsaved a { color: var(--accent-primary); background: transparent; border: 0; padding: 8px; text-align: start; cursor: pointer; }
 .media-generation-inline {
   position: relative;
   display: block;
@@ -1673,7 +1872,7 @@ async function deleteSelectedImage() {
 
 /* Authoring 画师只复用生成与媒体合同，可见编排对齐作家助手的左参数 / 右画布工作台。 */
 .media-generation-inline--authoring .image-gen-workspace {
-  grid-template-columns: minmax(440px, 480px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
 }
@@ -1834,7 +2033,7 @@ async function deleteSelectedImage() {
 }
 
 @media (min-width: 721px) and (max-width: 1100px) {
-  .media-generation-inline--authoring .image-gen-workspace { grid-template-columns: minmax(400px, 46%) minmax(0, 1fr); }
+  .media-generation-inline--authoring .image-gen-workspace { grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); }
   .image-gen-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 

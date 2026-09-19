@@ -35,6 +35,9 @@ const DEFAULT_IMAGE_OPTIONS = {
 
 export function getImageProviderCapabilities(config = {}) {
   const type = String(config.type || '')
+  // This adapter's multipart contract is verified for these models only.
+  // A configured legacy/unknown model must never be silently replaced.
+  const openAIReference = ['gpt-image-1', 'gpt-image-1.5'].includes(String(config.defaultModel || 'gpt-image-1'))
   const template = String(config.requestTemplate || '')
   const hasTemplateToken = (token) => template.includes(`{{${token}}}`)
   if (type === 'http') {
@@ -44,10 +47,11 @@ export function getImageProviderCapabilities(config = {}) {
       imageToImage,
       inpaint: imageToImage && hasTemplateToken('mask_image'),
       identityReference: imageToImage,
+      maxReferenceImages: hasTemplateToken('reference_images_json') ? 3 : imageToImage ? 1 : 0,
       controlImages: hasTemplateToken('control_images_json')
     }
   }
-  return {
+  const capabilities = {
     minimax_image: {
       textToImage: true,
       imageToImage: false,
@@ -57,9 +61,9 @@ export function getImageProviderCapabilities(config = {}) {
     },
     openai_dalle: {
       textToImage: true,
-      imageToImage: true,
-      inpaint: true,
-      identityReference: true,
+      imageToImage: openAIReference,
+      inpaint: openAIReference,
+      identityReference: openAIReference,
       controlImages: false
     },
     stability: {
@@ -90,6 +94,7 @@ export function getImageProviderCapabilities(config = {}) {
     identityReference: false,
     controlImages: false
   }
+  return { ...capabilities, maxReferenceImages: capabilities.imageToImage ? (type === 'stability' ? 1 : 3) : 0 }
 }
 
 export function createImageModelConfigDraft(type = 'sd_webui') {
@@ -155,6 +160,10 @@ export async function generateImage(config = {}, input = {}) {
   if (options.controlImages.length && !capabilities.controlImages) {
     throw new Error('当前图片模型不支持独立 pose/edge/depth 控制图')
   }
+  if (options.referenceImages.length && !capabilities.imageToImage) {
+    throw new Error('当前适配器未验证此模型的参考图输入，请更换模型或仅用文字生成')
+  }
+  if (options.referenceImages.length > capabilities.maxReferenceImages) throw new Error(`当前适配器最多提交 ${capabilities.maxReferenceImages} 张参考图`)
 
   switch (config.type) {
     case 'sd_webui':
@@ -314,12 +323,12 @@ async function generateWithOpenAI(config, options, fetchImpl) {
   const request = hasReferences
     ? buildOpenAIEditRequest(config, options)
     : {
-        url: 'https://api.openai.com/v1/images/generations',
+        url: resolveOpenAIImageEndpoint(config, 'generations'),
         init: {
           method: 'POST',
           headers: buildHeaders(config),
           body: JSON.stringify({
-            model: config.defaultModel || 'dall-e-3',
+            model: config.defaultModel || 'gpt-image-1',
             prompt: options.prompt,
             n: 1,
             size: normalizeOpenAIImageSize(options.width, options.height)
@@ -593,10 +602,14 @@ function normalizeImageData(value) {
   return data.startsWith('data:image/') ? data : ''
 }
 
+function resolveOpenAIImageEndpoint(config, action) {
+  const base = normalizeBaseUrl(config.baseUrl || 'https://api.openai.com/v1')
+  return /\/images\/(?:edits|generations)$/.test(base) ? base.replace(/(?:edits|generations)$/, action) : `${base}/images/${action}`
+}
+
 function buildOpenAIEditRequest(config, options) {
   const form = new FormData()
-  const configuredModel = String(config.defaultModel || '')
-  const editModel = configuredModel.startsWith('gpt-image-') ? configuredModel : 'gpt-image-1'
+  const editModel = String(config.defaultModel || 'gpt-image-1')
   form.append('model', editModel)
   form.append('prompt', options.prompt)
   form.append('n', '1')
@@ -607,7 +620,7 @@ function buildOpenAIEditRequest(config, options) {
   })
   if (options.maskImage) form.append('mask', dataUrlToBlob(options.maskImage), 'mask.png')
   return {
-    url: 'https://api.openai.com/v1/images/edits',
+    url: resolveOpenAIImageEndpoint(config, 'edits'),
     init: { method: 'POST', headers: buildAuthHeaders(config), body: form }
   }
 }

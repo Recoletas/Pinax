@@ -4,6 +4,36 @@ export const WRITING_CANDIDATE_SCHEMA_VERSION = 3
 export const MAX_WRITING_CANDIDATES = 3
 export const MAX_WRITING_CANDIDATE_PATCHES = 12
 
+// Conservative anchored protection: an identical quote elsewhere is not proof
+// that the original occurrence survived. Ambiguous/interior edits fail closed.
+export function validateWritingLockedSegments(before, after, segments = []) {
+  const source = String(before || '')
+  const target = String(after || '')
+  let prefix = 0
+  while (prefix < source.length && prefix < target.length && source[prefix] === target[prefix]) prefix += 1
+  let suffix = 0
+  while (suffix < source.length - prefix && suffix < target.length - prefix && source[source.length - 1 - suffix] === target[target.length - 1 - suffix]) suffix += 1
+  for (const segment of segments) {
+    const exact = String(segment?.text || '')
+    let start = segment?.start
+    let end = segment?.end
+    if (!Number.isInteger(start) || !Number.isInteger(end)) {
+      start = source.indexOf(exact)
+      if (!exact || start < 0 || source.indexOf(exact, start + 1) >= 0) return false
+      end = start + exact.length
+    }
+    if (!exact || start < 0 || end <= start || source.slice(start, end) !== exact) return false
+    if (end > prefix && start < source.length - suffix) return false
+  }
+  return true
+}
+
+export function collectWritingDialogueLocks(text, nodeId) {
+  return [...String(text || '').matchAll(/“[^”]*”|「[^」]*」|『[^』]*』/gu)].map((match) => ({
+    text: match[0], start: match.index, end: match.index + match[0].length, ...(nodeId ? { nodeId } : {})
+  }))
+}
+
 function safeString(value, fallback = '') {
   if (value == null) return fallback
   return String(value)
@@ -38,6 +68,7 @@ function normalizeLockedSegments(segments) {
     if (!text) return null
     return {
       text,
+      ...(segment.nodeId ? { nodeId: safeString(segment.nodeId) } : {}),
       start: Number.isFinite(Number(segment?.start)) ? Math.max(0, Math.floor(Number(segment.start))) : null,
       end: Number.isFinite(Number(segment?.end)) ? Math.max(0, Math.floor(Number(segment.end))) : null
     }
@@ -176,7 +207,15 @@ export function normalizeWritingCandidates(rawCandidates, fallback = {}) {
       lockedSegments: normalizeLockedSegments(fallback.lockedSegments)
     })
   }
-  return candidates.slice(0, MAX_WRITING_CANDIDATES)
+  return candidates.filter((candidate) => {
+    // Request-owned locks cannot be erased by an empty model-owned list.
+    const locks = normalizeLockedSegments(fallback.lockedSegments ?? candidate.lockedSegments)
+    candidate.lockedSegments = locks
+    if (!locks.length) return true
+    const patches = candidate.patches || [{ nodeId: candidate.nodeId, baseText: fallback.baseText ?? candidate.baseText, replacement: candidate.text }]
+    return !locks.some((lock) => lock.nodeId && !patches.some((patch) => patch.nodeId === lock.nodeId))
+      && patches.every((patch) => validateWritingLockedSegments(patch.baseText, patch.replacement, locks.filter((lock) => !lock.nodeId || lock.nodeId === patch.nodeId)))
+  }).slice(0, MAX_WRITING_CANDIDATES)
 }
 
 export function buildWritingCandidateDiff(before, after) {

@@ -177,6 +177,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../writing/WritingNotebookEditor.vue'
+import { buildWritingSelectionRanges } from '../../services/writing/writingSelectionRanges.js'
 import AuthoringSettingDetail from './AuthoringSettingDetail.vue'
 import { useWritingDocument } from '../../composables/useWritingDocument.js'
 import { buildAuthoringSettingDetail } from '../../services/authoring/authoringSettingContext.js'
@@ -807,6 +808,7 @@ function captureReviewSource() {
   return Object.freeze({
     ...source,
     unitId: activeUnitId,
+    selectionRanges: buildWritingSelectionRanges(documentState.value, selection),
     sceneProjection: cloneRunValue(sceneProjection),
     worldbookEntries: cloneRunValue(worldbookEntries.value)
   })
