@@ -10,6 +10,8 @@
       <span>当前场</span>{{ sceneContextSummary }}
     </p>
     <slot name="context" />
+    <AuthoringGenerationStatus v-if="generating" />
+    <p v-else-if="contextLoading" role="status">正在核对本次参考资料…</p>
     <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" aria-label="写作任务">
       <button type="button" role="radio" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">推演下一段</button>
       <button type="button" role="radio" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">重写当前块</button>
@@ -56,6 +58,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { buildAuthoringTurnIntent } from '../../services/agents/authoring/authoringTurnContract.js'
+import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
 
 const props = defineProps({
   target: { type: Object, required: true },

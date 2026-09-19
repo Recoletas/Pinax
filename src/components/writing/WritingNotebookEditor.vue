@@ -397,7 +397,8 @@ function createBlockGapDecorations(state) {
       if (unit || candidate.type.name !== 'writingUnit' || candidate.attrs?.unitId !== fixedUnitId) return
       unit = candidate
       position = offset + candidate.nodeSize
-      candidate.descendants((node) => {
+      candidate.descendants((node, nodeOffset) => {
+        if (node.isTextblock && node.attrs?.nodeId === anchorNodeId) position = offset + 1 + nodeOffset + node.nodeSize
         if (!props.blockPreview?.afterNodeId && !props.blockComposerTarget?.nodeId && node.isTextblock) {
           anchorNodeId = node.attrs?.nodeId || anchorNodeId
         }
@@ -410,6 +411,7 @@ function createBlockGapDecorations(state) {
     if (candidate.type.name !== 'writingUnit') continue
     unit = candidate
     position = $from.after(depth)
+    if ($from.parent.isTextblock) position = $from.after($from.depth)
     break
   }
   if (!unit && !fixedUnitId) {
@@ -479,7 +481,9 @@ function createBlockGapDecorations(state) {
     side: -1,
     // key 必须包含“锚定单元是否有正文”：ProseMirror 对同 key widget 复用旧
     // DOM、不重跑工厂，标签（推演本章开场/下一段）会停留在首次创建的状态。
-    key: `writing-gap-${unit?.attrs.unitId || 'empty'}-${unit?.textContent.trim() ? 'text' : 'empty'}-${props.blockPreview?.text ? `preview:${props.blockPreview.candidateId || 'pending'}` : props.blockComposerOpen ? 'open' : 'closed'}`,
+    key: props.blockPreview?.text ? `writing-gap-preview:${props.blockPreview.candidateId || 'pending'}`
+      : props.blockComposerOpen ? 'writing-gap-open'
+        : `writing-gap-${unit?.attrs.unitId || 'empty'}-${anchorNodeId || 'none'}-${unit?.textContent.trim() ? 'text' : 'empty'}`,
     // Composer / editable draft are real form controls mounted inside a ProseMirror
     // widget. Their keyboard, paste, input and selection events belong to the form,
     // never to the canonical document view.
@@ -955,9 +959,8 @@ function openCommandMenu(view) {
   if (
     interactionComposing.value
     || compositionSettling.value
-    || props.blockComposerOpen
     || props.blockPreview?.text
-    || blocksPassiveInlineSuggestion(props.interactionOwner)
+    || [WRITING_INTERACTION_OWNER.IME, WRITING_INTERACTION_OWNER.MODAL, WRITING_INTERACTION_OWNER.QUICK_WORD].includes(props.interactionOwner)
   ) return false
   const { from, to } = view.state.selection
   const directParagraph = view.state.selection.$from
@@ -1012,7 +1015,8 @@ function handleWritingCommandBeforeInput(view, event) {
     selectionEmpty: view.state.selection.empty,
     nodeType: $from.parent.type.name,
     parentOffset: $from.parentOffset,
-    contentSize: $from.parent.content.size
+    contentSize: $from.parent.content.size,
+    textContent: $from.parent.textContent
   })) return false
   if (!openCommandMenu(view)) return false
   event.preventDefault()
@@ -1183,7 +1187,8 @@ const WritingCommandMenu = Extension.create({
             selectionEmpty: view.state.selection.empty,
             nodeType: $from.parent.type.name,
             parentOffset: $from.parentOffset,
-            contentSize: $from.parent.content.size
+            contentSize: $from.parent.content.size,
+            textContent: $from.parent.textContent
           })
           if (canOpen && (event.key === ' ' || event.key === '/')) {
             if (!openCommandMenu(view)) return false

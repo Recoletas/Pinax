@@ -22,6 +22,12 @@ describe('authoring block composer', () => {
     expect(wrapper.find('[data-test="block-composer"]').exists()).toBe(true)
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(6)
     expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成推演稿')
+    await wrapper.setProps({ generating: true })
+    expect(wrapper.find('[role="status"]').text()).toContain('正在生成推演稿')
+    expect(wrapper.find('[role="status"]').text()).toContain('已等待 0 秒')
+    expect(wrapper.find('[data-test="block-primary"]').text()).toBe('停止')
+    await wrapper.setProps({ generating: false })
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('生成后先预览，确认才写入正文')
     expect(wrapper.find('.authoring-block-composer__starters').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('接下来想写什么')
@@ -528,6 +534,8 @@ describe('block composer initial instruction', () => {
         sessionFingerprint: 'manifest-1'
       }
     })
+    expect(ghost.find('textarea').element.selectionStart).toBe(0)
+    expect(ghost.find('textarea').element.scrollTop).toBe(0)
     const boundaryTicks = ghost.findAll('.authoring-block-draft__boundary-tick')
     await ghost.setProps({ previousDraft: '上一稿\n第二段', ifBranch: 'A' })
     expect(ghost.find('.authoring-block-draft__previous-text').text()).toBe('上一稿\n第二段')

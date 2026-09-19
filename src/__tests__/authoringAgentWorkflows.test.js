@@ -1990,6 +1990,30 @@ describe('inline writing agent page host', () => {
 
 describe('ghost adoption consume after editor insert', () => {
   it('trusted consume survives the snapshot advance caused by the insert itself（合并2例）', async () => {
+    const { useAuthoringGhostAdoptionWorkflow } = await import('../composables/useAuthoringGhostAdoptionWorkflow.js')
+    const pending = { value: { documentRole: 'manuscript', adoptedText: '已写入正文', receipt: { id: 'receipt' }, editorResult: { unitId: 'new-unit' } } }
+    const host = {
+      preview: { value: { candidateId: 'candidate' } }, rehearsalDraftSource: { value: null },
+      pendingAdoption: pending, composer: {}, draftText: { value: '已写入正文' },
+      persistAdoption: vi.fn(() => false), observeAdoption: vi.fn(), reportObserverFailure: vi.fn(),
+      consumeCharacterIfBranch: vi.fn(), captureRehearsalAdoption: vi.fn(() => { throw new Error('memory unavailable') }),
+      clearAdoptedDraft: vi.fn(() => { pending.value = null }), commitUndoReceipt: vi.fn(),
+      finishComposer: vi.fn(), showImpact: vi.fn(), notifySuccess: vi.fn()
+    }
+    const workflow = useAuthoringGhostAdoptionWorkflow(host)
+    expect(await workflow.perform()).toBe(false)
+    expect(host.composer.failure.code).toBe('AUTHORING_PERSIST_FAILED')
+    expect(pending.value).not.toBeNull()
+    expect(host.clearAdoptedDraft).not.toHaveBeenCalled()
+    host.persistAdoption.mockReturnValue(true)
+    expect(await workflow.perform()).toBe(true)
+    expect(host.captureRehearsalAdoption).toHaveBeenCalledWith(expect.objectContaining({
+      committedReceipt: expect.objectContaining({ id: 'receipt', adoptedText: '已写入正文' })
+    }))
+    expect(pending.value).toBeNull()
+    expect(host.reportObserverFailure).toHaveBeenCalledOnce()
+    expect(host.finishComposer).toHaveBeenCalledOnce()
+    expect(host.commitUndoReceipt).toHaveBeenCalledOnce()
     const { requestAdvisorTask } = await import('../services/advisorTaskService')
     {
       // 复现：编辑器插入同步推进快照正文后，consume 的二次 revision 校验

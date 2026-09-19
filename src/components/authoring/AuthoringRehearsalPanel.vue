@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
 const props = defineProps({
   rehearsal: { type: Object, required: true },
   preparing: Boolean,
@@ -332,7 +333,7 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             </div>
           </li>
         </ol>
-        <div v-if="rehearsal.busy.value" class="rehearsal-wait" role="status">正在回应…</div>
+        <AuthoringGenerationStatus v-if="rehearsal.busy.value || drafting" :label="drafting ? '正在写成试稿…' : '正在推演人物回应…'" />
         <button v-if="hasNew" type="button" class="rehearsal-new" @click="revealStep(steps[steps.length - 1].id)">有新回应<WorkbenchIcon name="arrow-right" :size="13" class="is-down" /></button>
         <template v-if="!stale && !atLimit">
           <div v-if="suggestions.length" class="rehearsal-options" aria-label="可试行动">

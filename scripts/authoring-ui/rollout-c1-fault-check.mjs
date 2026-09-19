@@ -32,12 +32,14 @@ async function createContext({ storageFault = false } = {}) {
       remaining: 0,
       attempted: 0,
       successful: 0,
+      skip: 0,
     }
     Object.defineProperty(window, '__c1StorageFault', { value: control, configurable: false })
     Storage.prototype.setItem = function patchedSetItem(key, value) {
       if (String(key) === control.key) {
         control.attempted += 1
-        if (control.enabled && control.remaining > 0) {
+        if (control.enabled && control.skip > 0) control.skip -= 1
+        else if (control.enabled && control.remaining > 0) {
           control.remaining -= 1
           throw new DOMException('C1 deterministic writing_books failure', 'QuotaExceededError')
         }
@@ -197,12 +199,17 @@ try {
     await target.locator('p').first().click()
     await page.keyboard.press('End')
     await page.keyboard.type('（作者已改）')
-    const liveEditedText = await target.innerText()
+    const readProse = () => target.evaluate((element) => {
+      const clone = element.cloneNode(true)
+      clone.querySelectorAll('.writing-unit-gap').forEach((gap) => gap.remove())
+      return clone.textContent
+    })
+    const liveEditedText = await readProse()
     await draft.getByRole('button', { name: '采用编辑稿' }).click()
     await draft.getByRole('alert').waitFor({ state: 'visible', timeout: 10000 })
     check('依赖 revision 变化后 Ghost 保留且不可采纳', await draft.count() === 1)
     check('stale 采纳不插入或替换正文',
-      await page.locator('[data-writing-unit]').count() === unitCount && (await target.innerText()) === liveEditedText)
+      await page.locator('[data-writing-unit]').count() === unitCount && (await readProse()) === liveEditedText)
     check('stale 检查不重发模型', provider.summary().narrativeCount === narrativeCount)
     await context.close()
   }
@@ -220,6 +227,9 @@ try {
     await page.evaluate(() => {
       window.__c1StorageFault.enabled = true
       window.__c1StorageFault.remaining = 1
+      // The pre-adoption protection save must succeed; fail the following
+      // save after the editor transaction, not the safety snapshot itself.
+      window.__c1StorageFault.skip = 1
     })
     await draft.getByRole('button', { name: '采用编辑稿' }).click()
     await page.getByRole('button', { name: '再次保存' }).waitFor({ state: 'visible', timeout: 10000 })

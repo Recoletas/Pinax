@@ -96,21 +96,22 @@ export function useAuthoringBlockWorkflow({
   function resolveTarget(target = {}) {
     const context = getTargetContext()
     const fallbackUnit = context.document?.content?.at(-1)
-    const requestedUnitId = target.unitId || fallbackUnit?.attrs?.unitId || null
+    const requestedUnitId = target.unitId || context.selection?.unitId || fallbackUnit?.attrs?.unitId || null
     const unit = (context.document?.content || [])
       .find((item) => String(item?.attrs?.unitId || '') === String(requestedUnitId || '')) || fallbackUnit || null
     const unitId = unit?.attrs?.unitId || null
     const node = (unit?.content || [])
-      .find((item) => String(item?.attrs?.nodeId || '') === String(target.nodeId || '')) || unit?.content?.at(-1) || null
+      .find((item) => String(item?.attrs?.nodeId || '') === String(target.nodeId || context.selection?.nodeId || '')) || unit?.content?.at(-1) || null
     const nodeId = node?.attrs?.nodeId || null
-    const sameLiveNode = Boolean(nodeId && String(context.selection.nodeId || '') === String(nodeId))
+    const sameLiveNode = Boolean(nodeId && String(context.selection?.nodeId || '') === String(nodeId))
     const nodeText = node ? getWritingBlockText(node) : ''
     const nodeEnd = nodeId ? getWritingMarkdownPosition(context.document, nodeId, nodeText.length) : null
-    const caret = sameLiveNode && Number.isFinite(context.selection.end)
+    const caret = sameLiveNode && Number.isFinite(context.selection?.end)
       ? context.selection.end
       : Number.isFinite(nodeEnd) ? nodeEnd : context.documentTextLength
-    const cursorLocalOffset = sameLiveNode && Number.isFinite(Number(target.cursorLocalOffset))
-      ? Math.max(0, Math.min(nodeText.length, Number(target.cursorLocalOffset)))
+    const localOffset = target.cursorLocalOffset ?? context.selection.cursorLocalOffset
+    const cursorLocalOffset = sameLiveNode && Number.isFinite(Number(localOffset))
+      ? Math.max(0, Math.min(nodeText.length, Number(localOffset)))
       : nodeText.length
     return Object.freeze({
       projectId: context.projectId,
@@ -188,6 +189,7 @@ export function useAuthoringBlockWorkflow({
   }
 
   function open(target = defaultTarget(), options = {}) {
+    if (hasPendingAdoption()) return false
     const frozenTarget = resolveTarget(target || {})
     if (!frozenTarget.unitId && !isEmptyDocument()) return false
     const nextReferenceKey = targetScopeKey(frozenTarget)
@@ -207,6 +209,20 @@ export function useAuthoringBlockWorkflow({
     blurEditor()
     focusInstruction()
     return true
+  }
+
+  function followSelection(target) {
+    if (!composer.open || preview.value || hasPendingAdoption()) return
+    const next = resolveTarget(target)
+    if (next.unitId === composer.target?.unitId && next.nodeId === composer.target?.nodeId
+      && next.cursorLocalOffset === composer.target?.cursorLocalOffset) return
+    clearRunReferences()
+    clearSceneIntents()
+    setReferenceTargetKey(targetScopeKey(next))
+    composer.target = next
+    composer.failure = null
+    composer.staleResult = null
+    scheduleContextPreflight()
   }
 
   function abandon({ shouldRestoreSelection = false } = {}) {
@@ -434,6 +450,7 @@ export function useAuthoringBlockWorkflow({
     clearDraft,
     resetScope,
     open,
+    followSelection,
     abandon,
     close,
     dismiss: close,

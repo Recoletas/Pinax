@@ -173,12 +173,6 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
 
     const shouldFenceRewrite = adoption.operation === 'rewrite-unit'
     const otherIfBranch = host.consumeCharacterIfBranch()
-    host.captureRehearsalAdoption?.({
-      adoption,
-      committedReceipt,
-      draftSource: host.rehearsalDraftSource.value
-    })
-    host.clearAdoptedDraft()
     const committedReceipt = Object.freeze({
       ...adoption.receipt,
       adoptedText: adoption.adoptedText,
@@ -192,6 +186,17 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
       beforeBodyRevision: adoption.beforeBodyRevision,
       afterBodyRevision: adoption.afterBodyRevision
     })
+    try {
+      host.captureRehearsalAdoption?.({
+        adoption,
+        committedReceipt,
+        draftSource: host.rehearsalDraftSource.value
+      })
+    } catch {
+      // Memory proposal bookkeeping must not strand an already saved draft.
+      host.reportObserverFailure()
+    }
+    host.clearAdoptedDraft()
     host.commitUndoReceipt(committedReceipt)
     if (shouldFenceRewrite) {
       await nextTick()

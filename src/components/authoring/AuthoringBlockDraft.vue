@@ -228,9 +228,10 @@ onMounted(() => {
   mapResponseBoundaryHints()
   resizeInput()
   if (props.locked) return
-  draftInput.value?.focus()
-  const end = String(props.modelValue || '').length
-  draftInput.value?.setSelectionRange(end, end)
+  draftInput.value?.focus({ preventScroll: true })
+  draftInput.value?.setSelectionRange(0, 0)
+  if (draftInput.value) draftInput.value.scrollTop = 0
+  draftInput.value?.closest('section')?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' })
 })
 
 defineExpose({ getSceneBeatDraft: () => beatDraft.value })

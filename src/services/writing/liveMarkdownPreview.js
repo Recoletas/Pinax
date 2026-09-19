@@ -45,13 +45,14 @@ export function canOpenWritingCommandMenu({
   nodeType = '',
   parentOffset = -1,
   contentSize = -1,
+  textContent = null,
   trigger = 'slash'
 } = {}) {
   const editableTarget = Boolean(selectionEmpty) && String(nodeType) === 'paragraph'
   if (trigger === 'shortcut') return editableTarget
   return editableTarget
-    && Number(parentOffset) === 0
-    && Number(contentSize) === 0
+    && (Number(contentSize) === 0 && Number(parentOffset) === 0
+      || typeof textContent === 'string' && /^[\s\u200b]*$/u.test(textContent))
 }
 
 export function resolveWritingCommandMenuPosition({

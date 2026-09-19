@@ -956,6 +956,16 @@ describe('PromptBuilder', () => {
     expect(repeatedShortcut.defaultPrevented).toBe(true)
     expect(shortcutNotebook.emitted('command-menu-change')?.filter(([open]) => open === true)).toHaveLength(1)
     expect(shortcutNotebook.emitted('command-menu-change')?.filter(([open]) => open === false) || []).toHaveLength(0)
+    shortcutNotebook.vm.closeCommandMenu()
+    await shortcutNotebook.setProps({ blockComposerOpen: true, interactionOwner: 'block-composer' })
+    shortcutNotebook.vm.editor.commands.insertContent('　 ')
+    shortcutSurface.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: '/' }))
+    expect(shortcutNotebook.emitted('command-menu-change')?.at(-1)?.[0]).toBe(true)
+    expect(shortcutNotebook.vm.editor.state.doc.textContent).toBe('　 ')
+    shortcutNotebook.vm.closeCommandMenu()
+    await shortcutNotebook.setProps({ interactionOwner: 'modal' })
+    shortcutSurface.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: '/' }))
+    expect(shortcutNotebook.emitted('command-menu-change')?.at(-1)?.[0]).toBe(false)
     shortcutNotebook.unmount()
 
     // 文档作用域必须通过 Vue key 重建整个 ProseMirror 实例。仅 setContent

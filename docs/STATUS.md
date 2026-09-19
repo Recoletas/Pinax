@@ -6,6 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
+| Codex / 2026-09-19 推演交互修复 | `text-game-framework` | `main` | 已实施并待完整门禁：生成阅读起点、采纳后清理、光标锚点、生成状态与空格/斜杠菜单；定向 47/47、C1 31/31、浏览器交互 26 项通过，完整门禁待跑，不部署。 |
 | Codex / 2026-09-19 HTTP UUID 兼容 | `text-game-framework` | `main` | 已提交 `868a25b`，按用户授权推送；shared UUID 优先原生、缺失时通过 getRandomValues + uuid 库生成，修复请求/轨迹/历史/账本/协作直接调用。真实非安全 HTTP 与 localhost 回归通过，verify:full exit 0（20/200、双 build、lint/结构/diff）。未部署，非 HTTPS 加密协作仍有独立限制；见[回执](./agent-runs/http-uuid-fix-20260919.md)。 |
 | Codex / 2026-09-18 今日提交与 CI 修复 | `text-game-framework` | `main` | UI/资料 `f79d2fe`、CI `f0bf2df`/`2a156ac`、文档 `4ce5652` 已推送；追加固定 IPv4 后远端 run `35361451641` test/build/authoring/workspace-backup 全部 success。本地 verify:full 20/200、两条 CI smoke、资料 9/9 exit 0；用户视觉确认边界保留。见[回执](./agent-runs/day-integration-ci-20260918.md)。 |
 | 夜间 A/B/C / 2026-09-19 组合验收 | `pinax-integration-20260919` → `text-game-framework` | `integration/nightly-20260919` → `main` | 冻结 A `19f5386`、B `d21f793`、C `48e2fcf`，择取 A 记忆、C 跑团/run、B 授权，修复保存失败和回滚旧状态；组合证据与未完成项见[验收回执](./agent-runs/nightly-20260918/integration-summary.md)。源树/WIP 保留，真实 provider、全 Agent 持久化与 HTTP 跨标签锁不计完成；本轮只本地合并，不部署。 |

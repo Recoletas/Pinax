@@ -6238,6 +6238,9 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
   fenceEditorHistory: () => fenceNotebookHistory(),
   finishComposer: () => {
     blockComposer.open = false
+    blockComposer.target = null
+    blockComposer.failure = null
+    blockComposer.staleResult = null
     blockComposer.initialInstruction = ''
     clearAuthoringRunReferences()
   },
@@ -10048,6 +10051,8 @@ function documentUnitOrder() {
 function onNotebookSelectionChange(selection) {
   const transactionOwned = writingAgentHost.isAdoptionInFlight() || applyingAtomicNotebookHistory
   notebookSelection.value = selection
+  if (!transactionOwned && !blockAdoptionBusy.value) clearAdoptionImpact()
+  if (!transactionOwned && !authoringTaskBusy.value && !sceneLaboratory.open && !interventionComposer.open) blockWorkflow.followSelection(selection)
   if (inspectorOpen.value && activeInspectorTool.value === 'ai' && activeWritingPane.value === 'main') {
     const currentInvocation = captureMainKnowledgeAssistantInvocation()
     if (currentInvocation) knowledgeAssistantInvocation.value = currentInvocation
