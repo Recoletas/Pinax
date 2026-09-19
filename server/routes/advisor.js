@@ -17,6 +17,10 @@ import {
   validateAgentContextEnvelope
 } from '../../shared/agentContextContract.js'
 import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
+import {
+  validateWritingSkillInvocation,
+  writingSkillAck
+} from '../../shared/writingSkillMethodContract.js'
 
 const router = express.Router()
 
@@ -55,6 +59,24 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     })
   }
   const normalizedTaskType = normalizeAdvisorTaskType(taskValidation.taskType)
+  // 写作 Skills 冻结输入（shared/writingSkillMethodContract.js）：只在请求
+  // 携带 options.writingSkill 时启用。未知 skillId/skillVersion/字段/只读
+  // 能力一律 typed 拒绝；旧请求不含该字段，行为完全不变。
+  let skillInvocation = null
+  if (options?.writingSkill !== undefined) {
+    const skillValidation = validateWritingSkillInvocation(options.writingSkill)
+    if (!skillValidation.valid) {
+      return res.status(400).json({
+        code: 'WRITING_SKILL_REJECTED',
+        reason: skillValidation.reason,
+        failures: skillValidation.failures || [skillValidation.reason],
+        error: '写作技能请求被拒绝：未知的技能版本、字段或能力。',
+        taskType: normalizedTaskType,
+        retryable: false
+      })
+    }
+    skillInvocation = skillValidation.invocation
+  }
   const requestEnvelope = envelope || {
     version: 1,
     surface: 'writing',
@@ -140,7 +162,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         sourceRefs: collectAgentEnvelopeSourceRefs(clippedEnvelope),
         budget: clippedEnvelope.budget,
         ledger,
-        semanticRepairCount
+        semanticRepairCount,
+        ...(skillInvocation ? { writingSkill: writingSkillAck(skillInvocation) } : {})
       }
     })
     let response
