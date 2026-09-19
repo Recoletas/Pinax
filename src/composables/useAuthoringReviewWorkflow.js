@@ -1,8 +1,12 @@
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
-import {
+import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
+import { loadAuthoringReviewRun, removeAuthoringReviewRun, saveAuthoringReviewRun } from '../services/agents/authoring/authoringReviewRunStore.js'
+let {
   createAuthoringReviewBatchContext,
   createAuthoringReviewSession,
+  buildAuthoringReviewCoverageReport,
+  markAuthoringReviewBatchStatus,
   getAuthoringReviewWorldbookRevision,
   ignoreAuthoringReviewFinding,
   markAuthoringReviewFindingsApplied,
@@ -10,9 +14,20 @@ import {
   prepareAuthoringReviewTransaction,
   rebaseAuthoringReviewSessionAfterTransaction,
   reconcileAuthoringReviewSession
-} from '../services/agents/authoring/authoringReviewSession.js'
+} = {}
+let reviewEnginePromise
+async function loadReviewEngine() {
+  const engine = await (reviewEnginePromise ||= import('../services/agents/authoring/authoringReviewSession.js').catch((error) => { reviewEnginePromise = null; throw error }))
+  ;({ createAuthoringReviewBatchContext, createAuthoringReviewSession, buildAuthoringReviewCoverageReport, markAuthoringReviewBatchStatus, getAuthoringReviewWorldbookRevision, ignoreAuthoringReviewFinding, markAuthoringReviewFindingsApplied, mergeAuthoringReviewFindings, prepareAuthoringReviewTransaction, rebaseAuthoringReviewSessionAfterTransaction, reconcileAuthoringReviewSession } = engine)
+}
 
 export function useAuthoringReviewWorkflow(host) {
+  const goalMode = ref(false)
+  const retryAvailable = ref(false)
+  const saveRetryAvailable = ref(false)
+  const resumeRecord = shallowRef(null)
+  let retainedBatches = []
+  let retainedInitial = null
   const loading = ref(false)
   const error = ref('')
   const status = ref('')
@@ -25,6 +40,7 @@ export function useAuthoringReviewWorkflow(host) {
   const documentTitle = computed(() => invocation.value?.title || host.currentTitle())
   const findings = computed(() => Array.isArray(session.value?.findings) ? session.value.findings : [])
   const undoAvailable = computed(() => Boolean(undoReceipt.value))
+  const coverage = computed(() => session.value ? buildAuthoringReviewCoverageReport(session.value) : null)
   let abortController = null
   let preparedSource = null
   let returnSurface = null
@@ -43,7 +59,7 @@ export function useAuthoringReviewWorkflow(host) {
       .join('|')
   }
 
-  function open() {
+  function open(options = {}) {
     const source = preparedSource || host.captureSource()
     preparedSource = null
     if (!source?.document || !['manuscript', 'exploration'].includes(source.documentRole)) {
@@ -53,16 +69,23 @@ export function useAuthoringReviewWorkflow(host) {
     host.closeOtherPanel()
     host.hideTransientTools()
     if (!returnSurface) returnSurface = host.captureSurface()
-    const changedTarget = sourceIdentity(invocation.value) !== sourceIdentity(source)
+    const changedTarget = sourceIdentity(invocation.value) !== sourceIdentity(source) || goalMode.value !== (options.goalMode === true)
     invocation.value = source
+    goalMode.value = options.goalMode === true
     panelOpen.value = true
     if (changedTarget) {
+      cancel()
       session.value = null
       undoReceipt.value = null
       error.value = ''
       status.value = ''
+      retainedInitial = null
+      retainedBatches = []
+      retryAvailable.value = false
+      saveRetryAvailable.value = false
+      resumeRecord.value = goalMode.value ? loadAuthoringReviewRun(source) : null
     }
-    if (!session.value && !loading.value) nextTick(run)
+    if (!session.value && !loading.value && !goalMode.value) nextTick(run)
     return true
   }
 
@@ -95,26 +118,61 @@ export function useAuthoringReviewWorkflow(host) {
   }
 
   function reconcile() {
+    if (!session.value) return
     const live = liveSource()
     const next = reconcileAuthoringReviewSession(session.value, live ? { source: live, sourceRevisions: live.sourceRevisions } : {})
     if (!next) return
     session.value = next
     if (next.status === 'stale' || next.status === 'detached') {
-      undoReceipt.value = null
+      if (!undoReceipt.value || String(live?.documentRevision || '') !== String(undoReceipt.value.afterDocumentRevision || '')) undoReceipt.value = null
       status.value = '正文或引用资料已变化；旧结果保留查看，但不能采用。'
     }
   }
 
-  async function run() {
+  async function run(options = {}) {
     if (loading.value) return
-    const source = invocation.value || host.captureSource()
+    const requestedSource = invocation.value
+    try { await loadReviewEngine() } catch { error.value = '审稿组件加载失败，请重试。'; return }
+    if (loading.value || !panelOpen.value || invocation.value !== requestedSource) return
+    let source = invocation.value || host.captureSource()
+    if (options.retry !== true && source) {
+      const refreshed = host.captureLiveSource(source)
+      if (refreshed && [refreshed.projectId, refreshed.documentId, refreshed.pane].join('|') === [source.projectId, source.documentId, source.pane].join('|')) source = refreshed
+    }
     if (!source?.document) {
       error.value = '当前活动窗口没有可校对的正文。'
       return
     }
     invocation.value = source
-    const initial = createAuthoringReviewSession({
+    const retry = options.retry === true && retainedInitial && retryAvailable.value
+    const scopedNodeIds = []
+    const scopedRanges = goalMode.value && options.scope === 'selection' ? (source.selectionRanges || []) : []
+    if (goalMode.value && options.scope === 'selection' && !scopedRanges.length) {
+      error.value = '原文字选区已失效，请重新选择后再打开审稿。'
+      return
+    }
+    if (goalMode.value && options.scope === 'block') {
+      const unit = source.document.content?.find((item) => item.attrs?.unitId === source.unitId)
+      const collect = (node) => {
+        if (node.attrs?.nodeId) scopedNodeIds.push(node.attrs.nodeId)
+        node.content?.forEach(collect)
+      }
+      if (!unit) { error.value = '当前块已失效，请回正文重新选择。'; return }
+      collect(unit)
+      if (!scopedNodeIds.length) { error.value = '当前块没有可审阅的文字。'; return }
+    }
+    if (goalMode.value && !retry && !String(options.goal || '').trim()) {
+      error.value = '请写下这次希望检查的问题。'
+      return
+    }
+    const initial = retry ? retainedInitial : createAuthoringReviewSession({
       source,
+      ...(goalMode.value ? {
+        goal: { text: options.goal, skillId: options.skillId, skillVersion: 1 },
+        scopeNodeIds: scopedRanges.length ? scopedRanges.map((range) => range.nodeId) : scopedNodeIds,
+        scopeRanges: scopedRanges,
+        maxCharsPerWindow: 6000
+      } : {}),
       sceneProjection: source.sceneProjection || host.sceneProjection(),
       worldbookEntries: source.worldbookEntries || host.worldbookEntries(),
       maxNodesPerWindow: 6,
@@ -123,6 +181,12 @@ export function useAuthoringReviewWorkflow(host) {
     if (!initial) {
       error.value = '当前文稿没有可校对的正文片段。'
       status.value = ''
+      return
+    }
+    const current = host.captureLiveSource(source)
+    if (sourceIdentity(current) !== sourceIdentity(source)) {
+      error.value = '原文已变化，请重新打开审稿。'
+      retryAvailable.value = false
       return
     }
     abortController?.abort()
@@ -134,22 +198,54 @@ export function useAuthoringReviewWorkflow(host) {
     completedBatches.value = 0
     totalBatches.value = initial.windows.length
     undoReceipt.value = null
-    const completed = []
+    const completed = retry ? [...retainedBatches] : []
+    const handledFindings = new Map((retry ? findings.value : []).filter((finding) => finding.status !== 'open').map((finding) => [finding.id, finding.status]))
+    const mergeProgress = () => {
+      const merged = mergeAuthoringReviewFindings(progressSession, completed)
+      return merged ? { ...merged, findings: merged.findings.map((finding) => handledFindings.has(finding.id) ? { ...finding, status: handledFindings.get(finding.id) } : finding) } : merged
+    }
+    retainedInitial = initial
+    retainedBatches = completed
+    completedBatches.value = completed.length
+    let progressSession = initial
+    for (const batch of completed) progressSession = markAuthoringReviewBatchStatus(progressSession, batch.windowId, 'completed') || progressSession
+    retryAvailable.value = false
+    if (initial.goal) saveAuthoringReviewRun({
+      id: initial.sessionId, status: 'running', ...initial.target, pane: source.pane,
+      goal: initial.goal.text, skillId: initial.goal.skill?.skillId,
+      scope: initial.scope.kind === 'text-selection' ? 'selection' : initial.scope.kind === 'selection' ? 'block' : 'chapter',
+      scopeRanges: initial.scope.ranges, batches: completed, totalBatches: initial.windows.length
+    })
     let failed = 0
+    let attempted = 0
     let stale = false
-    session.value = mergeAuthoringReviewFindings(initial, completed)
+    session.value = mergeProgress()
     try {
       for (let index = 0; index < initial.windows.length; index += 1) {
         if (controller.signal.aborted) break
         const window = initial.windows[index]
+        if (completed.some((batch) => batch.windowId === window.id)) continue
+        if (initial.goal && attempted >= 8) break
         const batch = createAuthoringReviewBatchContext(initial, window.id)
         if (!batch) continue
+        attempted += 1
         try {
+          const writingSkill = initial.goal ? validateWritingSkillInvocation({
+            invocationId: `${initial.sessionId}:${window.id}`,
+            taskKind: 'goal-review', skillId: initial.goal.skill?.skillId, skillVersion: 1,
+            goal: initial.goal.text,
+            scope: { projectId: source.projectId, documentRole: source.documentRole, documentId: source.documentId },
+            revisions: { document: String(source.documentRevision) },
+            materialManifest: { sourceRefs: batch.allowedEvidenceRefs },
+            requestedCoverage: { wholeBook: false }
+          }) : null
+          if (writingSkill && !writingSkill.valid) throw new Error(`审稿请求无效：${writingSkill.reason}`)
           const taskResult = await requestAdvisorTask({
             context: {
               chapterTitle: source.title,
               reviewBlocks: batch.reviewBlocks,
               evidence: batch.evidence,
+              styleDirectives: batch.styleDirectives,
               allowedEvidenceRefs: batch.allowedEvidenceRefs
             },
             question: '校对这批正文，只返回能精确定位的问题。确定且唯一的修法给出 replacement；不确定时只说明问题。检查错别字、标点与引号、重复、病句、称谓、时间、数值和当前场冲突，不做发布审核。',
@@ -163,13 +259,32 @@ export function useAuthoringReviewWorkflow(host) {
               documentRole: source.documentRole,
               documentRevision: source.documentRevision,
               chapterReview: true,
+              ...(writingSkill ? { writingSkill: writingSkill.invocation } : {}),
               reviewBlocks: batch.reviewBlocks,
               allowedEvidenceRefs: batch.allowedEvidenceRefs
             },
             signal: controller.signal
           })
-          completed.push({ windowId: window.id, findings: taskResult.result?.findings || [] })
-          session.value = mergeAuthoringReviewFindings(initial, completed)
+          if (controller.signal.aborted) break
+          if (writingSkill) {
+            const ack = taskResult.meta?.writingSkill
+            if (ack?.schemaVersion !== 1 || ack?.skillId !== initial.goal.skill?.skillId || ack?.skillVersion !== 1 || ack?.outputSchema !== 'writing-skill-findings.v1' || ack?.enforcement !== 'applied') {
+              throw new Error('服务端尚未执行所选审稿方法，未将本批标记完成。')
+            }
+          }
+          const checks = (taskResult.result?.writingSkillChecks?.findings || []).map((finding) => ({
+            kind: 'proofing', issueType: finding.type === 'verbatim-repeat' ? 'repetition' : 'grammar', source: 'local', severity: 'low', reason: finding.message,
+            start: { nodeId: finding.nodeId, offset: finding.locator?.startOffset }, end: { nodeId: finding.nodeId, offset: finding.locator?.endOffset }, exact: finding.locator?.exact
+          }))
+          completed.push({ windowId: window.id, findings: [...(taskResult.result?.findings || []), ...checks] })
+          if (initial.goal) saveAuthoringReviewRun({
+            id: initial.sessionId, status: 'running', ...initial.target, pane: source.pane,
+            goal: initial.goal.text, skillId: initial.goal.skill?.skillId,
+            scope: initial.scope.kind === 'text-selection' ? 'selection' : initial.scope.kind === 'selection' ? 'block' : 'chapter',
+            scopeRanges: initial.scope.ranges, batches: completed, totalBatches: initial.windows.length
+          })
+          progressSession = markAuthoringReviewBatchStatus(progressSession, window.id, 'completed') || progressSession
+          session.value = mergeProgress()
           const current = liveSource()
           const checked = reconcileAuthoringReviewSession(session.value, current ? { source: current, sourceRevisions: current.sourceRevisions } : {})
           if (checked?.status === 'stale' || checked?.status === 'detached') {
@@ -181,18 +296,21 @@ export function useAuthoringReviewWorkflow(host) {
         } catch (taskError) {
           if (controller.signal.aborted || taskError?.code === 'AGENT_REQUEST_ABORTED') break
           failed += 1
+          progressSession = markAuthoringReviewBatchStatus(progressSession, window.id, 'failed') || progressSession
+          session.value = mergeProgress()
+          error.value = taskError.message || '本批审稿失败'
         } finally {
-          completedBatches.value = index + 1
+          completedBatches.value = completed.length
         }
       }
       const count = session.value?.findings?.length || 0
       if (stale) error.value = '校对期间文稿或引用资料发生变化；结果已保留为过期建议，不能采用。'
       else if (controller.signal.aborted) status.value = count ? `已停止，保留 ${count} 条只读结果。` : '校对已停止。'
-      else if (failed) error.value = count
-        ? `已完成 ${initial.windows.length - failed}/${initial.windows.length} 批，保留 ${count} 条结果。`
-        : `${failed} 批校对失败，没有写入正文。`
-      else status.value = count ? `校对完成 · ${count} 条结果` : '校对完成，没有发现明确问题。'
+      else if (failed || completed.length < initial.windows.length) error.value = `已完成 ${completed.length}/${initial.windows.length} 批，保留 ${count} 条结果。${error.value || '达到本次 8 批上限；未覆盖部分不作结论。'}`
+      else status.value = count ? `${goalMode.value ? '审稿' : '校对'}完成 · ${count} 条结果` : `${goalMode.value ? '审稿' : '校对'}完成，没有发现明确问题。`
+      if (!stale && !controller.signal.aborted && completed.length === initial.windows.length) removeAuthoringReviewRun(initial.sessionId)
     } finally {
+      retryAvailable.value = !stale && completed.length < initial.windows.length
       loading.value = false
       if (abortController === controller) abortController = null
     }
@@ -200,6 +318,41 @@ export function useAuthoringReviewWorkflow(host) {
 
   function cancel() {
     abortController?.abort()
+  }
+
+  async function resume() {
+    const record = resumeRecord.value
+    const source = invocation.value
+    if (!record || !source) return false
+    resumeRecord.value = null
+    if (String(record.documentRevision) !== String(source.documentRevision)) {
+      removeAuthoringReviewRun(record.id)
+      error.value = '中断任务对应的原文已变化，不能继续；请开始新的审稿。'
+      return false
+    }
+    await loadReviewEngine()
+    const scopeNodeIds = record.scope === 'block'
+      ? (source.document.content || []).find((unit) => unit.attrs?.unitId === source.unitId)?.content?.map((node) => node.attrs?.nodeId).filter(Boolean) || []
+      : record.scopeRanges.map((range) => range.nodeId)
+    retainedInitial = createAuthoringReviewSession({
+      source, goal: { text: record.goal, skillId: record.skillId, skillVersion: 1 },
+      scopeNodeIds, scopeRanges: record.scopeRanges, sceneProjection: source.sceneProjection || host.sceneProjection(),
+      worldbookEntries: source.worldbookEntries || host.worldbookEntries(), maxNodesPerWindow: 6, windowOverlap: 1, maxCharsPerWindow: 6000
+    })
+    if (!retainedInitial) return false
+    const validIds = new Set(retainedInitial.windows.map((window) => window.id))
+    retainedBatches = record.batches.filter((batch) => validIds.has(batch.windowId))
+    session.value = mergeAuthoringReviewFindings(retainedInitial, retainedBatches)
+    completedBatches.value = retainedBatches.length
+    totalBatches.value = retainedInitial.windows.length
+    retryAvailable.value = retainedBatches.length < retainedInitial.windows.length
+    status.value = `已恢复中断任务 · ${retainedBatches.length}/${retainedInitial.windows.length} 批；继续前已重新核对原文版本。`
+    return true
+  }
+
+  function discardResume() {
+    if (resumeRecord.value) removeAuthoringReviewRun(resumeRecord.value.id)
+    resumeRecord.value = null
   }
 
   async function jump(finding) {
@@ -257,6 +410,43 @@ export function useAuthoringReviewWorkflow(host) {
     if (finding?.id && session.value) session.value = ignoreAuthoringReviewFinding(session.value, finding.id)
   }
 
+  async function rewriteFinding(finding, options = {}) {
+    reconcile()
+    const current = findings.value.find((item) => item.id === finding?.id)
+    if (!current || current.status !== 'open' || loading.value) return false
+    return host.rewrite?.begin(current, options)
+  }
+
+  function applyFindingRewrite(candidate, findingId) {
+    reconcile()
+    const finding = findings.value.find((item) => item.id === findingId)
+    if (!finding || finding.status !== 'open' || host.historyLocked()) {
+      error.value = '原文或资料已经变化，请重新审稿。'
+      return false
+    }
+    const before = session.value
+    if (!host.rewrite?.apply(candidate)) return false
+    changedSurface = true
+    session.value = { ...before, findings: before.findings.map((item) => item.id === findingId ? { ...item, status: 'modified' } : item) }
+    undoReceipt.value = Object.freeze({ pane: invocation.value.pane, afterDocumentRevision: liveSource()?.documentRevision || '', sessionBefore: before })
+    saveRetryAvailable.value = host.rewrite?.savePending?.value === true
+    status.value = saveRetryAvailable.value
+      ? '已修改，但保存失败；候选与修改仍保留，可只重试保存。'
+      : '已修改，待复核；可撤销本次修改。'
+    return true
+  }
+
+  function retrySave() {
+    if (!saveRetryAvailable.value || !host.rewrite?.retrySave) return false
+    const saved = host.rewrite.retrySave()
+    if (saved) {
+      saveRetryAvailable.value = false
+      status.value = '修改已保存；可撤销本次修改。'
+      error.value = ''
+    } else error.value = '保存仍然失败；修改保留在编辑器中，可稍后重试。'
+    return saved
+  }
+
   function undo() {
     const receipt = undoReceipt.value
     const live = liveSource()
@@ -269,6 +459,7 @@ export function useAuthoringReviewWorkflow(host) {
     if (!host.undoPatches(receipt)) return false
     session.value = receipt.sessionBefore
     undoReceipt.value = null
+    saveRetryAvailable.value = false
     nextTick(reconcile)
     status.value = '已撤销本次采用。'
     return true
@@ -280,8 +471,9 @@ export function useAuthoringReviewWorkflow(host) {
   }, { flush: 'post' })
 
   return {
-    loading, error, status, completedBatches, totalBatches, panelOpen, session,
+    coverage, rewrite: host.rewrite, rewriteFinding, applyFindingRewrite,
+    goalMode, retryAvailable, saveRetryAvailable, resumeRecord, loading, error, status, completedBatches, totalBatches, panelOpen, session,
     invocation, undoReceipt, documentTitle, findings, undoAvailable,
-    freeze, open, close, run, cancel, jump, applyOne, applySelected, ignore, undo, reconcile
+    freeze, open, close, run, resume, discardResume, retrySave, cancel, jump, applyOne, applySelected, ignore, undo, reconcile
   }
 }

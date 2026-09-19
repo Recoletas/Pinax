@@ -14,6 +14,7 @@ writing.init()
     <label>段落间距<select :value="writing.paragraphGap" @change="writing.setParagraphGap($event.target.value)"><option :value="0.65">紧凑</option><option :value="1.05">标准</option><option :value="1.45">宽松</option></select></label>
     <label class="preference-check"><input type="checkbox" :checked="writing.firstLineIndent" @change="writing.toggleFirstLineIndent()">首行缩进两字</label>
     <h3>阅读与专注</h3>
+    <label>文本块边界<select :value="writing.blockBoundaries" @change="writing.setBlockBoundaries($event.target.value)"><option value="current">当前块</option><option value="all">全部边界</option><option value="hidden">隐藏</option></select></label>
     <label class="preference-check"><input type="checkbox" :checked="writing.typewriter" @change="writing.toggleTypewriter()">打字机滚动<span>让当前行保持在中央</span></label>
     <label class="preference-check"><input type="checkbox" :checked="writing.focusParagraph" @change="writing.toggleFocusParagraph()">段落聚焦<span>淡化非当前段落</span></label>
     <p class="preference-note">正文自动保存已开启。Ctrl / Cmd + Z 撤销，Ctrl / Cmd + Shift + Z 重做；专注模式可从正文工具栏切换。</p>

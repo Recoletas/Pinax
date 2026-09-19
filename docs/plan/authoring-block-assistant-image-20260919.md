@@ -1,6 +1,6 @@
 # 文本块显示、助手前端与生图工作台：调研及实施计划
 
-日期：2026-09-19。状态：**计划，未实施，视觉方案待小切片验证**。核查基线：`c030793`。承接[产品主计划](./pinax-integrated-product-roadmap.md)和[助手写作 Skills 计划](./assistant-writing-skills-20260919.md)。本文细化作者看得见、操作得了的交付；助手 S06–S12 沿用原编号，不另算一份实现。S13–S22 保留原队列。
+日期：2026-09-19。状态：**当前实现切片已完成并通过确定性门禁，待合入 main**。核查基线：`c030793`，续作起点为 P00 `c045dc6`。逐项实现、证据与外部门禁见[续作回执](../agent-runs/block-assistant-image-20260919/continuation.md)。承接[产品主计划](./pinax-integrated-product-roadmap.md)和[助手写作 Skills 计划](./assistant-writing-skills-20260919.md)。S13–S22 与真实模型质量保留原队列。
 
 ## 1. 本次交付目标
 

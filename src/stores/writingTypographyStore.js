@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
+import { STORAGE_KEYS } from '../composables/useStorage.js'
 
 // 写作面排版设置（P0a）：对齐作家助手 fontStyle 思路 —— 排版参数持久化到
 // localStorage，改动即时生效且跨会话保留；字体选项全部保证 Windows/macOS/
 // Linux 三端有合格 fallback，禁止落到系统默认宋体（见
 // docs/superpowers/research/writing-ui-typography-keyboard-research-20260822.md §7-A0）。
 
-export const LS_WRITING_TYPOGRAPHY = 'writing_typography'
+export const LS_WRITING_TYPOGRAPHY = STORAGE_KEYS.WRITING_TYPOGRAPHY
 
 // 字体选项：key → CSS font-family 栈。每条栈的 CJK 兜底都是苹方/雅黑级黑体。
 export const WRITING_FONT_OPTIONS = Object.freeze([
@@ -75,6 +76,7 @@ export function normalizeWritingTypography(input = {}) {
     // 文本工作台 v3 Phase 2：“小说标准”预设的唯一排版变量。
     firstLineIndent: source.firstLineIndent === false ? false : true,
     paragraphGap: normalizeParagraphGap(source.paragraphGap),
+    blockBoundaries: ['current', 'all', 'hidden'].includes(source.blockBoundaries) ? source.blockBoundaries : 'current',
     typewriter: Boolean(source.typewriter),
     focusParagraph: Boolean(source.focusParagraph),
     zen: Boolean(source.zen)
@@ -93,6 +95,7 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
     lineHeight: DEFAULT_LINE_HEIGHT,
     firstLineIndent: true,
     paragraphGap: 1.05,
+    blockBoundaries: 'current',
     // 沉浸三件套（P0c）：打字机滚动 / 段落聚焦 / 专注全屏
     typewriter: false,
     focusParagraph: false,
@@ -112,6 +115,7 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
       this.lineHeight = persisted.lineHeight
       this.firstLineIndent = persisted.firstLineIndent
       this.paragraphGap = persisted.paragraphGap
+      this.blockBoundaries = persisted.blockBoundaries
       this.typewriter = persisted.typewriter
       this.focusParagraph = persisted.focusParagraph
       this.zen = persisted.zen
@@ -150,6 +154,12 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
       this.paragraphGap = normalizeParagraphGap(value)
       this.persist()
     },
+    setBlockBoundaries(value) {
+      this.init()
+      if (!['current', 'all', 'hidden'].includes(value)) return
+      this.blockBoundaries = value
+      this.persist()
+    },
     toggleTypewriter() {
       this.init()
       this.typewriter = !this.typewriter
@@ -173,6 +183,7 @@ export const useWritingTypographyStore = defineStore('writingTypography', {
           lineHeight: this.lineHeight,
           firstLineIndent: this.firstLineIndent,
           paragraphGap: this.paragraphGap,
+          blockBoundaries: this.blockBoundaries,
           typewriter: this.typewriter,
           focusParagraph: this.focusParagraph,
           zen: this.zen

@@ -9,7 +9,7 @@ import path from 'node:path'
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5173'
 const FIXTURE_DIR = path.resolve('tmp/authoring-rollout')
-const OUT_DIR = path.resolve('docs/agent-runs/block-assistant-image-20260919/screenshots/baseline')
+const OUT_DIR = path.resolve(process.env.OUT_DIR || 'docs/agent-runs/block-assistant-image-20260919/screenshots/baseline')
 const state = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-state.json'), 'utf8'))
 const baseStorage = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-localstorage.json'), 'utf8'))
 fs.mkdirSync(OUT_DIR, { recursive: true })

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { effectScope, ref } from 'vue'
 import { createAuthoringProjectAdapter } from '../services/agents/authoring/authoringProjectAdapter.js'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow.js'
 import {
@@ -883,6 +883,43 @@ it('maps %s to %s with %s policy' + '（参数组合并）', async () => {
 }
 
   it('keeps review and ephemeral results as suggestions without direct text actions', async () => {
+    const { useAuthoringReviewWorkflow } = await import('../composables/useAuthoringReviewWorkflow.js')
+    const { requestAdvisorTask } = await import('../services/advisorTaskService.js')
+    const previousAdvisorImplementation = requestAdvisorTask.getMockImplementation()
+    const source = { pane: 'main', projectId: 'review-book', documentRole: 'manuscript', documentId: 'review-chapter', chapterId: 'review-chapter', documentRevision: '1', title: '审稿样本', document: createWritingDocument(Array.from({ length: 9 }, (_, i) => `第${i}段，小舟停在岸边，船夫回头看了看远处的灯。`).join('\n\n')) }
+    const scope = effectScope()
+    const owner = scope.run(() => useAuthoringReviewWorkflow({ captureSource: () => source, captureLiveSource: () => source, currentTitle: () => source.title, worldbookEntries: () => [], sceneProjection: () => null, captureSurface: () => null, closeOtherPanel: () => {}, hideTransientTools: () => {}, reconcileSources: ref(0) }))
+    owner.open({ goalMode: true })
+    const ack = { schemaVersion: 1, skillId: 'motivation-causality', skillVersion: 1, outputSchema: 'writing-skill-findings.v1', enforcement: 'applied' }
+    requestAdvisorTask.mockReset()
+    requestAdvisorTask.mockResolvedValueOnce({ meta: { writingSkill: ack }, result: { findings: [] } })
+      .mockResolvedValue({ meta: { writingSkill: { ...ack, enforcement: 'validated-only' } }, result: { findings: [] } })
+    await owner.run({ goal: '检查动机', skillId: 'motivation-causality', scope: 'chapter' })
+    expect(owner.completedBatches.value).toBe(1)
+    expect(owner.retryAvailable.value).toBe(true)
+    expect(owner.error.value).toContain('尚未执行')
+    const calls = requestAdvisorTask.mock.calls.length
+    const failedCount = owner.totalBatches.value - 1
+    expect(requestAdvisorTask.mock.calls[0][0].options.writingSkill.taskKind).toBe('goal-review')
+    requestAdvisorTask.mockResolvedValue({ meta: { writingSkill: ack }, result: { findings: [] } })
+    await owner.run({ retry: true })
+    expect(requestAdvisorTask.mock.calls.length - calls).toBe(failedCount)
+    expect(owner.completedBatches.value).toBe(owner.totalBatches.value)
+    expect(owner.retryAvailable.value).toBe(false)
+    source.document = createWritingDocument(Array.from({ length: 60 }, (_, i) => `第${i}段，小舟停在岸边，船夫回头看了看远处的灯。`).join('\n\n'))
+    source.documentRevision = '2'
+    await owner.run({ goal: '检查动机', skillId: 'motivation-causality', scope: 'chapter' })
+    expect(owner.completedBatches.value).toBe(8)
+    expect(owner.totalBatches.value).toBeGreaterThan(8)
+    expect(owner.retryAvailable.value).toBe(true)
+    const beforeContinue = requestAdvisorTask.mock.calls.length
+    const remaining = owner.totalBatches.value - 8
+    await owner.run({ retry: true })
+    expect(requestAdvisorTask.mock.calls.length - beforeContinue).toBe(remaining)
+    expect(owner.completedBatches.value).toBe(owner.totalBatches.value)
+    expect(owner.retryAvailable.value).toBe(false)
+    scope.stop()
+    requestAdvisorTask.mockReset().mockImplementation(previousAdvisorImplementation)
     const services = Object.fromEntries(['insert', 'rewrite', 'completeInline', 'reviewChapter'].map((name) => [name, vi.fn(async () => ({ text: `${name}-正文` }))]))
     const workflow = createAuthoringTextWorkflow(services)
     const review = await workflow.run({ task: { id: 'authoring.review.chapter', effectPolicy: 'review-only' }, request: { target: { revision: 'r1' }, intent: {} }, context: { envelope: {} } })

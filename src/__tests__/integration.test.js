@@ -199,6 +199,9 @@ import {
   prepareAuthoringReviewTransaction,
   rebaseAuthoringReviewSessionAfterTransaction
 } from '../services/agents/authoring/authoringReviewSession.js'
+import { loadAuthoringReviewRun, removeAuthoringReviewRun, saveAuthoringReviewRun } from '../services/agents/authoring/authoringReviewRunStore.js'
+import { buildAuthoringReviewRewriteTarget, compareAuthoringReviewRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
+import { loadImageGenerationRun, removeImageGenerationRun, saveImageGenerationRun } from '../services/media/imageGenerationRunStore.js'
 import {
   applyWritingDocumentTextPatches,
   applyAuthoringReplacePlan,
@@ -1606,6 +1609,28 @@ describe('PromptBuilder', () => {
     const scopedReviewBatches = scopedReviewSession.windows.map((window) => (
       createAuthoringReviewBatchContext(scopedReviewSession, window.id)
     ))
+    const selectionNode = scopedReviewDocument.content[0].content[0]
+    const selectionText = selectionNode.content?.map((item) => item.text || '').join('') || ''
+    const selectionStart = selectionText.indexOf('港区')
+    const exactSelectionSession = createAuthoringReviewSession({
+      projectId: 'review-book', documentRole: 'manuscript', documentId: 'scoped-review-chapter', chapterId: 'scoped-review-chapter',
+      documentRevision: scopedReviewDocument.revision, document: scopedReviewDocument,
+      scopeNodeIds: [selectionNode.attrs.nodeId], scopeRanges: [{ nodeId: selectionNode.attrs.nodeId, startOffset: selectionStart, endOffset: selectionStart + 5 }]
+    })
+    const exactBatch = createAuthoringReviewBatchContext(exactSelectionSession, exactSelectionSession.windows[0].id)
+    expect(exactBatch.reviewBlocks[0]).toMatchObject({ text: '港区通行令', reviewStartOffset: selectionStart })
+    const exactMerged = mergeAuthoringReviewFindings(exactSelectionSession, [{ windowId: exactSelectionSession.windows[0].id, findings: [{
+      kind: 'proofing', issueType: 'grammar', reason: '选区内意见', start: { nodeId: selectionNode.attrs.nodeId, offset: 0 }, end: { nodeId: selectionNode.attrs.nodeId, offset: 2 }, exact: '港区'
+    }] }])
+    expect(exactMerged.findings.find((finding) => finding.reason === '选区内意见')?.target).toMatchObject({ startOffset: selectionStart, endOffset: selectionStart + 2, exact: '港区' })
+    const dualReviewSource = { documentId: 'scoped-review-chapter', documentRole: 'manuscript', documentRevision: scopedReviewDocument.revision, document: scopedReviewDocument }
+    const dualRewriteTarget = buildAuthoringReviewRewriteTarget(dualReviewSource, exactMerged.findings.find((finding) => finding.reason === '选区内意见'))
+    expect(dualRewriteTarget).toMatchObject({ pane: 'dual', kind: 'selection', text: '港区', startOffset: selectionStart, endOffset: selectionStart + 2 })
+    expect(compareAuthoringReviewRewriteTarget(dualReviewSource, dualRewriteTarget)).toMatchObject({ text: '港区', documentRevision: scopedReviewDocument.revision })
+    saveAuthoringReviewRun({ id: 'review-resume-fixture', status: 'running', projectId: 'review-book', pane: 'main', documentRole: 'manuscript', documentId: 'scoped-review-chapter', documentRevision: 'r1', goal: '检查选区', skillId: 'motivation-causality', scope: 'selection', scopeRanges: [{ nodeId: selectionNode.attrs.nodeId, startOffset: selectionStart, endOffset: selectionStart + 5 }], batches: [{ windowId: 'window-1', findings: [] }], totalBatches: 2 })
+    expect(loadAuthoringReviewRun({ projectId: 'review-book', pane: 'main', documentRole: 'manuscript', documentId: 'scoped-review-chapter' })).toMatchObject({ status: 'interrupted', goal: '检查选区', totalBatches: 2 })
+    removeAuthoringReviewRun('review-resume-fixture')
+    expect(loadAuthoringReviewRun({ projectId: 'review-book', pane: 'main', documentRole: 'manuscript', documentId: 'scoped-review-chapter' })).toBeNull()
     expect(scopedReviewBatches.some((batch) => (
       !batch.reviewBlocks.some((block) => block.unitId === scopedReviewUnitId)
     ))).toBe(true)
@@ -2697,6 +2722,33 @@ describe('Media services', () => {
       strength: 0.7
     })
     expect(image).toBe('data:image/png;base64,abc')
+    saveImageGenerationRun({ runId: 'image-run-fixture', jobId: 'job-fixture', scopeKey: 'scope-fixture', status: 'running', itemCount: 2, items: [{ id: 'one', state: 'saved', mediaAssetId: 'asset-one' }, { id: 'two', state: 'generating' }] })
+    expect(loadImageGenerationRun('scope-fixture')).toMatchObject({ status: 'interrupted', itemCount: 2, items: [{ state: 'saved', mediaAssetId: 'asset-one' }, { state: 'generating' }] })
+    removeImageGenerationRun('image-run-fixture')
+    expect(loadImageGenerationRun('scope-fixture')).toBeNull()
+    const noImplicitUpgrade = vi.fn()
+    await expect(generateImage({ type: 'openai_dalle', defaultModel: 'dall-e-3' }, {
+      referenceImages: [{ data: 'data:image/png;base64,YWJj' }], fetchImpl: noImplicitUpgrade
+    })).rejects.toThrow('参考')
+    expect(noImplicitUpgrade).not.toHaveBeenCalled()
+    expect(getImageProviderCapabilities({ type: 'http', requestTemplate: '{{reference_image}}' }).maxReferenceImages).toBe(1)
+    await expect(generateImage({ ...config, requestTemplate: '{"image":"{{reference_image}}"}' }, {
+      referenceImages: [{ data: 'data:image/png;base64,YWJj' }, { data: 'data:image/png;base64,YWJk' }], fetchImpl: noImplicitUpgrade
+    })).rejects.toThrow()
+    expect(noImplicitUpgrade).not.toHaveBeenCalled()
+    for (const model of ['gpt-image-1', 'gpt-image-1.5']) {
+      const editFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ b64_json: 'YWJj' }] }) })
+      await generateImage({ type: 'openai_dalle', defaultModel: model, baseUrl: 'https://images.example/v1/images/generations', apiKey: 'fixture-only' }, {
+        prompt: '码头', referenceImages: [{ data: 'data:image/png;base64,YWJj' }], fetchImpl: editFetch
+      })
+      expect(editFetch.mock.calls[0][0]).toBe('https://images.example/v1/images/edits')
+      expect(editFetch.mock.calls[0][1].body.get('model')).toBe(model)
+      expect(editFetch.mock.calls[0][1].body.getAll('image[]')).toHaveLength(1)
+    }
+    const { buildImageDescriptionMessages, draftImageDescription } = await import('../services/media/imageDescriptionService.js')
+    expect(buildImageDescriptionMessages('场景'.repeat(4000))[1].content).toHaveLength(6000)
+    expect(buildImageDescriptionMessages('码头')[0].content).toContain('不新增人物外貌')
+    await expect(draftImageDescription({ sourceText: '码头', settings: {} })).rejects.toThrow('配置文本模型')
 
     const alreadyCancelled = new AbortController()
     const cancelledFetch = vi.fn()
@@ -3101,9 +3153,44 @@ describe('Media services', () => {
     expect(workbench.emitted('generation-cancel')).toHaveLength(1)
     expect(lateWorkbenchFetch.mock.calls[0][1].signal.aborted).toBe(true)
     resolveLateWorkbenchFetch()
-    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('未归档'))
+    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('保留 0 张'))
     expect(workbench.emitted('generation-complete')).toBeUndefined()
     expect(localStorage.getItem(STORAGE_KEYS.MEDIA_ASSETS)).not.toContain(frozenWorkbenchJob.jobId)
+    // A late failure must not roll back an earlier successful image; retry only
+    // the missing image with the original frozen parameters.
+    const mediaModule = await import('../services/media/mediaAssetStore')
+    const beforeWorkbenchAssetIds = new Set(listMediaAssets().map((asset) => asset.id))
+    const realAddGenerated = mediaModule.addGeneratedImageToLibrary
+    const addSpy = vi.spyOn(mediaModule, 'addGeneratedImageToLibrary').mockImplementation((key, entry, options) => realAddGenerated(key, entry, { ...options, binaryStore }))
+    const partialFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, image: 'data:image/png;base64,cGFydGlhbC1vbmU=' }) })
+      .mockRejectedValueOnce(new Error('第二张失败'))
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true, image: 'data:image/png;base64,cGFydGlhbC10d28=' }) })
+    globalThis.fetch = partialFetch
+    await workbench.findAll('.image-gen-parameter-grid select')[1].setValue('2')
+    await workbench.get('.image-gen-generate-btn').trigger('click')
+    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('第二张失败'))
+    expect(workbench.get('.image-gen-status').text()).toContain('保留 1 张')
+    const retained = workbench.findAll('.image-gen-thumb').length
+    const retryButton = workbench.findAll('button').find((button) => button.text().includes('继续未完成图片'))
+    expect(retryButton).toBeTruthy()
+    await retryButton.trigger('click')
+    await vi.waitFor(() => expect(workbench.emitted('generation-complete')).toHaveLength(1))
+    expect(partialFetch).toHaveBeenCalledTimes(3)
+    expect(workbench.findAll('.image-gen-thumb')).toHaveLength(retained + 1)
+    addSpy.mockRejectedValueOnce(new Error('存储已满'))
+    await workbench.findAll('.image-gen-parameter-grid select')[1].setValue('1')
+    await workbench.get('.image-gen-generate-btn').trigger('click')
+    await vi.waitFor(() => expect(workbench.find('.image-gen-unsaved').exists()).toBe(true))
+    const providerCallsBeforeSaveRetry = partialFetch.mock.calls.length
+    expect(workbench.get('.image-gen-unsaved').text()).toContain('关闭或刷新会丢失')
+    await workbench.get('.image-gen-unsaved button').trigger('click')
+    await vi.waitFor(() => expect(workbench.find('.image-gen-unsaved').exists()).toBe(false))
+    expect(partialFetch).toHaveBeenCalledTimes(providerCallsBeforeSaveRetry)
+    addSpy.mockRestore()
+    for (const asset of listMediaAssets()) {
+      if (!beforeWorkbenchAssetIds.has(asset.id)) await deleteMediaAsset(asset.id, { binaryStore })
+    }
     globalThis.fetch = originalFetch
     workbench.unmount()
 

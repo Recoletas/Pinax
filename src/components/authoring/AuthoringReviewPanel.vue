@@ -1,10 +1,11 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="embedded">
     <Transition name="authoring-review-panel">
       <section
         v-if="open"
         ref="panelRef"
         class="authoring-review-panel"
+        :class="{ 'is-embedded': embedded }"
         role="dialog"
         aria-modal="false"
         aria-labelledby="authoring-review-title"
@@ -14,15 +15,17 @@
         <header class="authoring-review-panel__head">
           <div>
             <span>当前文稿</span>
-            <h2 id="authoring-review-title">校对</h2>
+            <h2 id="authoring-review-title">{{ embedded ? '审稿' : '校对' }}</h2>
             <p>{{ documentTitle || '未命名文稿' }}</p>
           </div>
           <button ref="closeRef" type="button" aria-label="关闭校对" title="关闭校对" @click="emit('close')">×</button>
         </header>
 
+        <slot name="controls" />
         <div class="authoring-review-panel__toolbar">
           <button v-if="busy" class="is-primary" type="button" @click="emit('cancel')">停止</button>
-          <button v-else class="is-primary" type="button" @click="emit('scan')">{{ findings.length ? '重新校对' : '开始校对' }}</button>
+          <button v-else class="is-primary" type="button" @click="emit('scan')">{{ embedded ? '开始审稿' : findings.length ? '重新校对' : '开始校对' }}</button>
+          <button v-if="retryAvailable && !busy" type="button" @click="emit('retry')">继续未完成批次</button>
           <span v-if="busy">正在检查 {{ progress.completed }}/{{ progress.total }}</span>
           <span v-else-if="findings.length">{{ openCount }} 条待处理</span>
           <button v-if="undoAvailable" class="is-quiet" type="button" @click="emit('undo')">撤销采用</button>
@@ -71,6 +74,7 @@
             </div>
             <footer>
               <button type="button" @click="emit('jump', finding)">跳到</button>
+              <button v-if="embedded && finding.status === 'open'" type="button" :disabled="busy" @click="emit('rewrite', finding)">按此意见改写</button>
               <button
                 v-if="finding.replacement"
                 type="button"
@@ -95,6 +99,7 @@
           <span>已选 {{ selectedIds.size }} / {{ selectableCount }}</span>
           <button type="button" :disabled="!selectedIds.size" @click="applySelected">采用所选</button>
         </footer>
+        <slot name="rewrite" />
       </section>
     </Transition>
   </Teleport>
@@ -106,6 +111,8 @@ import AuthoringExceptionReview from './AuthoringExceptionReview.vue'
 
 const props = defineProps({
   open: Boolean,
+  embedded: Boolean,
+  retryAvailable: Boolean,
   documentTitle: { type: String, default: '' },
   findings: { type: Array, default: () => [] },
   busy: Boolean,
@@ -116,7 +123,7 @@ const props = defineProps({
   undoAvailable: Boolean
 })
 
-const emit = defineEmits(['close', 'scan', 'cancel', 'jump', 'apply', 'ignore', 'apply-selected', 'undo', 'resolve-attention'])
+const emit = defineEmits(['close', 'scan', 'retry', 'cancel', 'jump', 'rewrite', 'apply', 'ignore', 'apply-selected', 'undo', 'resolve-attention'])
 const panelRef = ref(null)
 const closeRef = ref(null)
 const selectedIds = ref(new Set())
@@ -149,7 +156,7 @@ function issueLabel(value) {
 }
 
 function statusLabel(value) {
-  return ({ open: '待处理', ignored: '已忽略', applied: '已采用', stale: '正文已变化', detached: '位置已失效' })[value || 'open'] || '待处理'
+  return ({ open: '待处理', ignored: '已忽略', applied: '已采用', modified: '已修改，待复核', stale: '正文已变化', detached: '位置已失效' })[value || 'open'] || '待处理'
 }
 
 watch(() => props.findings, (findings) => {
@@ -164,6 +171,8 @@ watch(() => props.open, (open) => {
 </script>
 
 <style scoped>
+.authoring-review-panel.is-embedded { position: relative; inset: auto; width: 100%; height: 100%; flex: 1; border: 0; box-shadow: none; z-index: auto; }
+.authoring-review-panel.is-embedded .authoring-review-panel__toolbar { flex-wrap: wrap; }
 .authoring-review-panel { position: fixed; z-index: var(--z-popover, 400); inset-block: 54px 18px; inset-inline-end: 58px; display: flex; width: min(430px, calc(100vw - 76px)); min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--border-subtle); background: var(--surface-workbench-raised, var(--surface-primary)); color: var(--text-primary); box-shadow: 0 18px 46px color-mix(in srgb, #000 17%, transparent); }
 .authoring-review-panel__head { display: flex; min-height: 70px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 14px 10px 18px; border-bottom: 1px solid var(--border-subtle); }
 .authoring-review-panel__head>div { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; column-gap: 8px; }

@@ -51,6 +51,8 @@ function reviewWindowBlock(entry) {
     nodeRevision: entry.nodeRevision,
     kind: entry.kind,
     text: entry.text,
+    fullText: entry.fullText || entry.text,
+    reviewStartOffset: Math.max(0, Number(entry.reviewStartOffset) || 0),
     order: entry.documentNodeOrder,
     sourceRefs: entry.sourceRefs
   })
@@ -331,6 +333,10 @@ export function createAuthoringReviewSession(input = {}) {
   const goalReview = normalizeGoalReviewInput(input.goal)
   if (goalReview.failure) return null
   const scopeNodeIds = new Set(unique(input.scopeNodeIds || []))
+  const scopeRanges = new Map((Array.isArray(input.scopeRanges) ? input.scopeRanges : []).map((range) => [text(range?.nodeId).trim(), {
+    startOffset: Math.max(0, Number(range?.startOffset) || 0),
+    endOffset: Math.max(0, Number(range?.endOffset) || 0)
+  }]).filter(([nodeId, range]) => nodeId && range.endOffset > range.startOffset))
   // 显式 scope（§4：默认当前选区）只收窄读窗口；完整 index 仍用于
   // 新鲜度对账与定位，不会被缩小。
   const scopedIndex = scopeNodeIds.size
@@ -340,7 +346,14 @@ export function createAuthoringReviewSession(input = {}) {
           entry.documentId === source.documentId
           && scopeNodeIds.has(entry.nodeId)
           && text(entry.text).trim()
-        ))
+        )).map((entry) => {
+          const range = scopeRanges.get(entry.nodeId)
+          if (!range) return entry
+          const fullText = text(entry.text)
+          const startOffset = Math.min(fullText.length, range.startOffset)
+          const endOffset = Math.max(startOffset, Math.min(fullText.length, range.endOffset))
+          return { ...entry, fullText, text: fullText.slice(startOffset, endOffset), reviewStartOffset: startOffset }
+        }).filter((entry) => text(entry.text).trim())
       }
     : positionIndex
   const windows = getAuthoringReviewWindows(scopedIndex, {
@@ -412,7 +425,10 @@ export function createAuthoringReviewSession(input = {}) {
     allowedEvidenceRefs,
     sourceRevisions,
     goal: goalReview.goal,
-    scope: Object.freeze({ kind: scopeNodeIds.size ? 'selection' : 'chapter' }),
+    scope: Object.freeze({
+      kind: scopeRanges.size ? 'text-selection' : scopeNodeIds.size ? 'selection' : 'chapter',
+      ranges: [...scopeRanges.entries()].map(([nodeId, range]) => ({ nodeId, ...range }))
+    }),
     styleDirectives,
     coverage,
     findings: []
@@ -577,6 +593,7 @@ function batchWindow(session, batch, index) {
 }
 
 function localFinding(issueType, reason, block, startOffset, endOffset, replacement = null) {
+  const base = Math.max(0, Number(block.reviewStartOffset) || 0)
   return {
     kind: issueType === 'naming' || issueType === 'time' || issueType === 'number' || issueType === 'scene-conflict'
       ? 'consistency'
@@ -585,8 +602,8 @@ function localFinding(issueType, reason, block, startOffset, endOffset, replacem
     reason,
     target: {
       nodeId: block.nodeId,
-      startOffset,
-      endOffset,
+      startOffset: startOffset + base,
+      endOffset: endOffset + base,
       exact: block.text.slice(startOffset, endOffset)
     },
     replacement,
@@ -721,26 +738,12 @@ export function collectLocalAuthoringProofingFindings(session, {
   ))
   // 验收返工（阻断 2）：显式选区 scope 时本地校对只看冻结窗口内的节点，
   // 完整 positionIndex 仍保留给新鲜度对账，不用于越界扫描。
-  const scopedNodeIds = session.coverage?.scopeKind === 'selection'
+  const scopedNodeIds = ['selection', 'text-selection'].includes(session.scope?.kind)
     ? new Set(session.coverage.windows.flatMap((window) => window.nodeIds))
     : null
-  const blocks = session.positionIndex.entries
-    .filter((entry) => entry.documentId === session.target.documentId && entry.text.trim())
-    .filter((entry) => !scopedNodeIds || scopedNodeIds.has(entry.nodeId))
-    .map((entry) => ({
-      projectId: entry.projectId,
-      documentRole: entry.documentRole,
-      documentId: entry.documentId,
-      chapterId: entry.chapterId,
-      documentRevision: entry.documentRevision,
-      unitId: entry.unitId,
-      unitRevision: entry.unitRevision,
-      nodeId: entry.nodeId,
-      nodeRevision: entry.nodeRevision,
-      text: entry.text,
-      order: entry.documentNodeOrder,
-      sourceRefs: entry.sourceRefs
-    }))
+  const blocks = (scopedNodeIds
+    ? session.windows.flatMap((window) => window.blocks).filter((block, index, values) => values.findIndex((item) => item.nodeId === block.nodeId) === index)
+    : session.positionIndex.entries.filter((entry) => entry.documentId === session.target.documentId && entry.text.trim()).map(reviewWindowBlock))
   const rawFindings = []
   for (const block of blocks) {
     const remaining = findingLimit - rawFindings.length
@@ -752,7 +755,7 @@ export function collectLocalAuthoringProofingFindings(session, {
     rawFindings.push(...collectRepeatedWordFindings(block, findingLimit - rawFindings.length))
   }
   return normalizeAuthoringReviewFindings(rawFindings, {
-    blocks,
+    blocks: blocks.map((block) => ({ ...block, text: block.fullText || block.text })),
     maxFindings: findingLimit,
     projectId: session.target.projectId,
     documentRole: session.target.documentRole,
@@ -773,9 +776,23 @@ export function mergeAuthoringReviewFindings(session, batches = [], { maxFinding
   sourceBatches.forEach((batch, index) => {
     const window = batchWindow(session, batch, index)
     if (!window) return
-    const rawFindings = Array.isArray(batch) ? batch : batch?.findings
+    const rawFindings = (Array.isArray(batch) ? batch : batch?.findings)?.map((finding) => {
+      const target = finding?.target || {}
+      const nodeId = text(finding?.start?.nodeId || target.nodeId || finding?.nodeId).trim()
+      const block = window.blocks.find((item) => item.nodeId === nodeId)
+      const base = Math.max(0, Number(block?.reviewStartOffset) || 0)
+      if (!base) return finding
+      const add = (value) => Number.isFinite(Number(value)) ? Number(value) + base : value
+      return {
+        ...finding,
+        ...(finding.start ? { start: { ...finding.start, offset: add(finding.start.offset) } } : {}),
+        ...(finding.end ? { end: { ...finding.end, offset: add(finding.end.offset) } } : {}),
+        target: { ...target, startOffset: add(target.startOffset ?? finding.startOffset), endOffset: add(target.endOffset ?? finding.endOffset) },
+        startOffset: add(finding.startOffset), endOffset: add(finding.endOffset)
+      }
+    })
     const findings = normalizeAuthoringReviewFindings(rawFindings, {
-      blocks: window.blocks,
+      blocks: window.blocks.map((block) => ({ ...block, text: block.fullText || block.text })),
       maxFindings: maxFindingsPerWindow,
       projectId: session.target.projectId,
       documentRole: session.target.documentRole,

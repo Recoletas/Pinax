@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { trapFocusWithin } from '../composables/useTransientLayer'
+import { validateWritingLockedSegments, normalizeWritingCandidates } from '../../shared/writingCandidateContract.js'
+import { normalizeWritingTypography } from '../stores/writingTypographyStore.js'
 import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
 import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
 import {
@@ -763,7 +765,8 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(writing).toContain('getRewriteTargetFromAnnotation(annotation)')
     expect(writing).toContain('target.startOffset')
     expect(writing).toContain('useAuthoringRewriteWorkflow({')
-    expect(writing).toContain('commitCandidate: (candidate, target) => commitRewriteCandidate(candidate, target)')
+    expect(writing).toContain("target?.pane === 'dual'")
+    expect(writing).toContain('commitDualRewriteCandidate(candidate, target)')
     expect(authoringRewriteComposable).toContain('return !getWritingCandidateStaleReason(candidate, current)')
     expect(writing).toContain('useAuthoringAnnotationSession({')
     expect(authoringAnnotationComposable).toContain('function createAnnotationFromSelection()')
@@ -784,6 +787,13 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(experience).toContain('aria-label="目标作品"')
     expect(experience).toContain('aria-label="目标章节"')
     expect(notebookEditor).toContain('data-writing-unit')
+    expect(normalizeWritingTypography({ blockBoundaries: 'all' }).blockBoundaries).toBe('all')
+    expect(normalizeWritingTypography({ blockBoundaries: 'broken' }).blockBoundaries).toBe('current')
+    const lock = { text: '别动', start: 0, end: 2 }
+    expect(validateWritingLockedSegments('别动，再说别动', '改掉，再说别动', [lock])).toBe(false)
+    expect(validateWritingLockedSegments('别动，再说别动', '别动，再说一句', [lock])).toBe(true)
+    expect(validateWritingLockedSegments('😀别动，结束', '😀别动，再说', [{ text: '别动', start: 2, end: 4 }])).toBe(true)
+    expect(normalizeWritingCandidates([{ text: '改掉，再说别动', lockedSegments: [] }], { baseText: '别动，再说别动', lockedSegments: [lock] })).toHaveLength(0)
     expect(notebookEditor).toContain('splitWritingUnit')
     expect(notebookEditor).toContain('mergeWritingUnit')
     expect(notebookEditor).toContain('nodeId: anchorNodeId')
@@ -793,8 +803,12 @@ expect(notebookEditor).toContain('markdown: getWritingDocumentMarkdown(currentDo
     expect(notebookEditor).toContain("event.key === 'Enter'")
     expect(notebookEditor).toContain('focusParagraphPluginKey')
     expect(notebookEditor).toContain("section[data-writing-unit]:not(:first-child)::after")
-    expect(notebookEditor).toContain('bottom: auto;')
-    expect(notebookEditor).toContain('height: 1em;')
+    expect(notebookEditor).toContain('bottom: 0;')
+    expect(notebookEditor).toContain('data-block-boundaries')
+    expect(notebookEditor).toContain('writingPreferences.zen')
+    expect(authoringKnowledgeAssistant).toContain('AuthoringGoalReview')
+    expect(imageWorkbench).toContain('retryImageStorage')
+    expect(imageWorkbench).not.toContain('for (const entry of [...archivedEntries].reverse())')
     expect(writingGlobalCss).toContain('.writing-notebook-editor__surface .ProseMirror > section > p {')
     expect(writingGlobalCss).toContain('text-indent: var(--notebook-first-line-indent, 2em)')
     expect(writingGlobalCss).not.toContain('.wt3-prototype .writing-notebook-editor__surface .ProseMirror > section > p {')
