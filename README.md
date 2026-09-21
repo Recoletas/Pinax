@@ -2,186 +2,125 @@
   <img src="docs/assets/readme/pinax-icon.png" width="92" height="92" alt="Pinax 标志">
   <h1>Pinax</h1>
   <p><strong>把故事留在作者手里。</strong></p>
-  <p>本地优先、作者主导的长篇创作工作台</p>
+  <p>Pinax 把正文、人物和世界设定放在同一个长篇创作工作台。</p>
 
   <p>
     <a href="https://github.com/Recoletas/Pinax/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Recoletas/Pinax/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI 状态"></a>
     <img src="https://img.shields.io/badge/status-Public_Alpha-2563eb?style=flat-square" alt="Public Alpha">
-    <img src="https://img.shields.io/badge/Node.js-22-339933?style=flat-square&amp;logo=nodedotjs&amp;logoColor=white" alt="Node.js 22">
-    <img src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square&amp;logo=vuedotjs&amp;logoColor=white" alt="Vue 3">
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm_Noncommercial-475569?style=flat-square" alt="PolyForm Noncommercial 许可证"></a>
   </p>
 
   <p>
-    <a href="#核心体验">核心体验</a> ·
-    <a href="#快速开始">快速开始</a> ·
-    <a href="#ai-如何进入作品">AI 工作流</a> ·
-    <a href="#数据与隐私">数据与隐私</a> ·
-    <a href="docs/user-manual/README.md">使用手册</a>
+    <a href="#当前如何使用">当前如何使用</a> ·
+    <a href="#可以怎样创作">创作场景</a> ·
+    <a href="docs/user-manual/01-quickstart.md">快速开始</a> ·
+    <a href="#保存隐私与-ai">保存与隐私</a> ·
+    <a href="#开发者本地运行">本地运行</a>
   </p>
 </div>
 
-![Pinax 写作工作台：正文、可编辑候选与实际参考](docs/engineering/authoring-c1-assets/c1-ghost-context-1440.png)
+![Pinax 欢迎页：继续已有作品、开始新书或导入书稿](docs/screenshots/welcome-1440.png)
 
-Pinax 把正文、章节结构、人物与世界设定、作品资料和 AI 辅助放在同一个写作现场。作者可以从一句话直接开始；需要帮助时，再让 AI 在明确选择的作品范围内查询、推演或起草。模型产出始终是候选，只有作者确认后才会进入作品。
+核心工作台提供基础写作和通用 AI 辅助：组织章节、编辑正文、批注、改写、续写和助手问答。关联世界书后，AI 可以进一步参考本书人物、地点、规则和历史，支持围绕作品设定的查询、人物回应与情节推演。生成的试稿先供作者查看和修改，确认采用后才进入正文。
 
-> Pinax 不是 AI 聊天套壳，也不是自动写完整本小说的流水线。没有账号、没有 API Key，仍然可以写作、管理资料、导入书稿并导出备份。
+**写作本身不需要 AI、账号或 API Key。** 章节、资料、正文保存和备份都可以独立使用。
 
-## 核心体验
+## 当前如何使用
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>01 · 专注写作</h3>
-      <p>正文占据主位。作品、卷章、构思和大纲围绕稿面组织，搜索、历史、排版与恢复不依赖模型。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>02 · 资料随写随用</h3>
-      <p>人物、地点、设定和来源资料可以边写边补。从正文进入资料、修改后返回，作品、章节与落笔位置保持连续。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h3>03 · AI 只交付候选</h3>
-      <p>查询、改写、续写和推演都受本次范围与版本约束。候选可编辑、可放弃，采用前再次核对资料变化。</p>
-    </td>
-  </tr>
-</table>
+Pinax 当前处于 **Public Alpha**：公开仓库可供本地运行和小范围试用，但这不表示已有面向所有人的托管服务，也不等同于商业生产级成熟度。
 
-### 写作现场，而不是功能大厅
+- **受邀体验**：使用邀请方提供的网址；首次进入先查看[快速开始](docs/user-manual/01-quickstart.md)。仓库目前没有可核实的统一公开体验地址。
+- **自行运行**：开发者可按下方[本地运行步骤](#开发者本地运行)启动 Web 版；AI 和部分媒体功能还需要启动服务端并配置渠道。
+- **只想了解**：先看[作者使用指南](docs/user-manual/README.md)；工程状态、路线和测试证据在[工程文档](docs/README.md)。
 
-- **长篇写作**：作品与章节组织、正文/构思/大纲、双栏参照、查找替换、历史与恢复。
-- **人物与世界**：人物、地点、结构化设定、世界书条目、来源资料，以及正文与资料的精确往返。
-- **作品知识**：按作品、章节、选区和作者指定范围查询，保留来源与版本信息。
-- **创作辅助**：选文改写、续写、候选审阅、故事推演、路线对照和试稿采用。
-- **导入与取回**：TXT / Markdown 中文编码识别与拆章预览、DOCX / PDF 导入、作品 JSON 备份。
+访问地址会影响浏览器中的作品归属。**从临时地址切换到正式域名之前，请先在旧网址导出备份。** 新网址看不到作品不代表原稿已删除，应先回原来的网址和浏览器检查。
 
-地图、人物 IF、媒体生成、漫画、协作和 Electron 已有实现或接口，但仍属于实验工作面。它们不应成为作品的唯一保存路径；准确状态见[测试与能力状态](docs/src/test-status.md)。
+## 可以怎样创作
 
-## AI 如何进入作品
+### 写一部长篇
 
-Pinax 的差异不在于多一个生成按钮，而在于生成结果如何安全地接近正文。
+新建书稿或导入 TXT / Markdown，按卷章整理正文、构思与大纲。正文自动保存在当前浏览器；查找、历史、排版和恢复不依赖模型。
 
-```mermaid
-flowchart LR
-    A[作者选择作品位置、任务与范围] --> B[冻结有来源、有版本的上下文]
-    B --> C[模型与受权工具执行]
-    C --> D[生成可编辑候选]
-    D --> E{采用前资料仍匹配?}
-    E -->|是，作者确认| F[写入正式作品]
-    E -->|否| G[提示资料变化，重新确认]
-    D -->|放弃| H[正文保持原样]
-```
+### 关联世界书，增强 AI 创作
 
-这条链路保留五个边界：明确目标、资料范围、工具授权、版本复核和作者确认。页面不会自行拼接整本作品交给模型，模型回复也不会绕过采用事务直接覆盖正文。
+世界书承载本书的资料和设定。可以从资料导入开始，再整理各项设定；需要精细控制时进入高级条目，地图用于补充地理关系。关联到书稿后，工作台里的 AI 可以使用这些作品背景；不必为使用通用 AI 先建完整世界书。
 
-## 快速开始
+### 需要时再请 AI 帮忙
 
-### 环境
+针对选中的文字或当前场查询资料、比较路线、改写或生成试稿。Pinax 会显示本次参考的章节和资料；建议可以放弃或修改，采用前仍由作者决定。
 
-- Node.js `>=22.13.0 <23`（仓库提供 `.nvmrc`）
-- npm
-- 完整安装可能需要本机构建工具链来编译原生依赖
+<details>
+<summary><strong>查看带参考资料的写作工作台</strong></summary>
+<br>
 
-### 运行
+![Pinax 写作工作台：正文、试稿与实际参考资料](docs/engineering/authoring-c1-assets/c1-ghost-context-1440.png)
+
+</details>
+
+## 创作流程
+
+**基础流程**：新建或导入书稿 → 在核心工作台写作，按需使用通用 AI → 修改、保存与导出。
+
+**世界书增强流程**：导入或添加资料 → 整理人物、世界观和创作规则 → 关联书稿 → 在工作台使用基于本书设定的 AI 查询、人物回应和推演。高级条目供精细管理，地图尚未完全融入这条流程。
+
+**其他去向**：跑团在独立的体验页中进行；漫画和视频是按需探索的边缘扩展，不是写作的必经步骤。
+
+书稿导入支持 TXT / Markdown；DOCX / PDF 属于资料页的来源导入。具体按钮和操作见[快速开始](docs/user-manual/01-quickstart.md)与[世界书与设定](docs/user-manual/03-worldbook.md)。
+
+## 保存、隐私与 AI
+
+Pinax 当前是本地优先的 Web 应用，不是云同步服务。
+
+| 内容 | 当前边界 |
+| --- | --- |
+| 书稿与常用配置 | 主要保存在当前网址、当前浏览器的本地存储中 |
+| 来源归档与媒体 | 主要保存在当前浏览器的 IndexedDB 中 |
+| 完整工作区备份 | ZIP；包含书稿、设定、来源归档、已落盘媒体、记忆历史和事实账本；外部链接和未落盘内容可能不含在内 |
+| 轻量备份 | JSON；适合快速留底，不包含来源原件、媒体原件和已归档的记忆历史 |
+| 模型密钥 | 不进入 ZIP 或 JSON 备份；自定义配置需另行保管 |
+| AI 请求 | 只有主动使用相关功能时，本次任务所需正文和资料才会发送到所选模型渠道 |
+| 账号与同步 | 核心写作不要求账号；当前没有完整的多设备云同步 |
+
+协议、主机名或端口变化都可能让浏览器把网页视为不同来源。换网址、换浏览器、换设备、清站点数据或使用无痕窗口前，请先导出备份。恢复可能覆盖当前内容，Pinax 会先显示新增、覆盖和跳过项目，确认范围后再继续。
+
+AI 是可选项。应用里可见的内置 MiniMax 只有在部署者配置服务端密钥并且网络可用时才能调用；自定义渠道由用户自行配置。不要把密钥写入源码、`VITE_*`、日志或提交记录。
+
+## 当前范围
+
+核心 Web 写作闭环适合本地试用和小范围作者反馈。作品知识、受控生成和推演仍需持续验证真实模型质量；跑团、地图、漫画、视频、协作与 Electron 等属于扩展或实验工作面，不应成为作品唯一的保存路径。
+
+准确状态以[项目状态](docs/STATUS.md)和[测试状态](docs/src/test-status.md)为准。自动化测试证明相应合同和流程能够运行，不替代真实作品、真机中文输入、长期数据可靠性或生成内容质量验收。
+
+## 开发者本地运行
+
+需要 Node.js `>=22.13.0 <23`（仓库提供 `.nvmrc`）和 npm。完整安装可能需要本机构建工具链来编译原生依赖。
 
 ```bash
 git clone https://github.com/Recoletas/Pinax.git
 cd Pinax
 nvm use
 npm ci
-
-# 只读环境检查
 npm run doctor
 
 # 终端 1：前端，默认 http://localhost:5173
 npm run dev
 
-# 终端 2：可选后端；AI 与部分媒体能力需要
+# 终端 2：可选；AI 与部分媒体能力需要
 npm run server
 ```
 
-打开 `http://localhost:5173`，选择**开始写作**或**导入已有书稿**。写作、浏览器本地保存和作品备份不需要 API Key。
-
-<details>
-<summary><strong>查看首次进入界面</strong></summary>
-<br>
-
-![Pinax 欢迎页：从一句话开始](docs/screenshots/welcome-1440.png)
-
-</details>
-
-### 启用 AI
-
-在应用的**设置**中配置自己的模型渠道，或由部署者参考 [server/.env.example](server/.env.example) 配置服务端渠道。
-
-- 不要把私密 Key 写入 `VITE_*`、源码、日志或提交记录。
-- 使用 AI 时，本次任务所需的正文和资料会发送到所选模型渠道。
-- 自动化 fixture 验证协议和边界，不代表真实模型的内容质量。
-
-## 数据与隐私
-
-Pinax 当前是本地优先的 Web 应用，不是云同步服务。
-
-| 数据 | 当前边界 |
-| --- | --- |
-| 书稿与常用配置 | 主要保存在当前浏览器的 `localStorage` |
-| 来源归档与媒体 | 主要保存在 IndexedDB |
-| 作品备份 | 可导出 JSON；默认不包含自定义模型 API Key |
-| AI 请求 | 仅在主动使用相关功能时，向所选渠道发送本次任务所需上下文 |
-| 账号与同步 | 核心写作不要求账号；当前没有完整的多设备云同步 |
-
-浏览器清理数据、隐私模式、存储配额或设备故障都可能影响本地内容。请定期导出作品备份；作品 JSON 也不等同于来源和媒体原件的完整归档。恢复顺序和风险见[用户手册](docs/user-manual/README.md)与[已知问题](docs/src/known-issues.md)。
-
-## 项目状态
-
-Pinax 当前处于 **Public Alpha**。核心 Web 写作闭环与无密钥首访已有自动化覆盖，适合本地试用和小范围反馈，但尚不等同于商业生产级服务。
-
-| 分级 | 范围 |
-| --- | --- |
-| **核心可用** | 写作、章节与资料管理、导入、本地保存、备份、设定与正文往返 |
-| **Alpha** | 作品知识、受控生成、推演与候选采用；真实模型质量仍需持续验证 |
-| **实验** | 人物 IF、地图、媒体、漫画、协作与 Electron；设备或真实多人验收不完整 |
-
-测试通过只证明对应合同和旅程成立，不替代真实作品、真机中文输入或长期数据可靠性验证。当前证据见[项目状态](docs/STATUS.md)和[测试状态](docs/src/test-status.md)。
-
-## 技术架构
-
-| 层 | 技术与职责 |
-| --- | --- |
-| 前端 | Vue 3、Pinia、Tiptap / ProseMirror、Vite |
-| 领域层 | composable 与领域工作流，负责会话、候选、采用和恢复 |
-| 数据层 | 唯一数据 owner；浏览器存储为主，可选 Electron 项目适配 |
-| 服务端 | 可选 Express 模型/媒体代理与协作接口 |
-| 共享合同 | 前后端共用的生成、工具调用、授权与流式事件协议 |
-
-新代码遵循“界面 → 工作流 → 唯一 owner → 持久化/平台适配”的方向，不在页面或移动宿主里建立第二份业务数据。详细边界见[当前架构](docs/engineering/current-architecture.md)、[代码地图](docs/src/code-map.md)与[src 服务指南](src/services/README.md)。
-
-## 开发与验证
-
-```bash
-# 完整门禁：核心测试、预算、lint 差分、Web/文档构建、diff 检查
-npm run verify:full
-
-# GitHub Actions 中的无密钥作者主链
-npm run ci:authoring-smoke
-
-# 单独构建
-npm run build
-npm run docs:dev
-```
-
-核心 Vitest 套件有 20 个文件 / 200 个用例的硬预算；浏览器旅程、离线评测和真实渠道样本分别运行。完整命令以 [package.json](package.json) 和[验证说明](docs/src/test-status.md)为准。
+服务端渠道配置见 [server/.env.example](server/.env.example)。完整验证、架构边界和贡献流程分别见[测试说明](docs/src/test-status.md)、[当前架构](docs/engineering/current-architecture.md)和[贡献指南](CONTRIBUTING.md)。
 
 ## 文档与参与
 
-- [使用手册](docs/user-manual/README.md) · [15 分钟快速开始](docs/user-manual/01-quickstart.md)
-- [当前架构](docs/engineering/current-architecture.md) · [代码地图](docs/src/code-map.md)
-- [当前状态](docs/STATUS.md) · [产品计划](docs/PLAN.md) · [开发日志](docs/LOG.md)
-- [贡献指南](CONTRIBUTING.md) · [安全说明](SECURITY.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
+- 作者：[使用指南](docs/user-manual/README.md) · [快速开始](docs/user-manual/01-quickstart.md) · [常见问题](docs/user-manual/08-faq.md)
+- 部署与维护：[工程文档入口](docs/README.md) · [运维排障](docs/operations/troubleshooting.md)
+- 开发：[当前架构](docs/engineering/current-architecture.md) · [代码地图](docs/src/code-map.md) · [贡献指南](CONTRIBUTING.md)
 
-欢迎通过 Issue 和 Pull Request 参与改进。安全问题不要在公开 Issue 中披露；项目尚未公布独立私密渠道时，请以 [SECURITY.md](SECURITY.md) 的当前说明为准。
+欢迎通过 Issue 和 Pull Request 参与改进。安全问题不要在公开 Issue 中披露；项目尚未公布独立私密渠道时，以 [SECURITY.md](SECURITY.md) 的当前说明为准。
 
 ## 许可证
 
 Pinax 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：允许查看、修改和非商业使用，但它是 **source-available** 许可证，不是 OSI 定义下的开源许可证。商业销售、商业 SaaS、付费托管、商业集成或其他商业用途需要单独授权。
 
-第三方依赖、字体、图片、演示素材、模型服务，以及用户自己的作品和生成内容，仍分别受其原始许可证、服务条款或权利归属约束。许可选型说明见[公开 Alpha 许可证说明](docs/engineering/public-alpha-license-notes.md)。
+第三方依赖、字体、图片、演示素材、模型服务，以及用户自己的作品和生成内容，仍分别受其原始许可证、服务条款或权利归属约束。许可说明见[公开 Alpha 许可证说明](docs/engineering/public-alpha-license-notes.md)。

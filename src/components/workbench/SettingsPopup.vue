@@ -93,18 +93,10 @@
           id="settings-panel-storage"
           class="settings-section"
           role="tabpanel"
-          aria-label="存储"
+          aria-label="备份与恢复"
         >
-          <div class="storage-summary" :class="storageHealth.level.value">
-            <span class="storage-summary__pct">{{ storageHealth.percent.value }}%</span>
-            <span class="storage-summary__bar">
-              <span class="storage-summary__fill" :style="{ width: `${Math.min(storageHealth.percent.value, 100)}%` }"></span>
-            </span>
-            <span class="storage-summary__hint">
-              {{ storageHealth.isCritical.value ? '请立即导出备份并清理' : storageHealth.isWarning.value ? '建议导出备份' : '存储充足' }}
-            </span>
-          </div>
-          <p class="storage-lead">作品和创作记录保存在当前浏览器。换设备或清理浏览器之前，先导出一份备份。</p>
+          <h2>备份与恢复</h2>
+          <p class="storage-lead">备份用于保留副本或迁移设备，导出本身不会释放空间。</p>
           <div class="storage-actions storage-actions--lead">
             <button
               class="settings-btn settings-btn--primary"
@@ -188,29 +180,13 @@
             <router-link v-else-if="restoreSucceeded" to="/">打开作品列表</router-link>
           </p>
 
-          <StorageCleanup @cleaned="storageHealth.refresh()" />
-          <details class="storage-technical">
-            <summary>技术详情：各部分占用</summary>
-            <table class="storage-table">
-              <thead>
-                <tr><th scope="col">存储项</th><th scope="col">大小</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in storageTopKeys" :key="row.key">
-                  <td><code>{{ row.key }}</code></td>
-                  <td>{{ formatBytes(row.bytes) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
-
           <div class="beta-support">
             <div>
-              <strong>内测遇到问题？</strong>
+              <strong>使用中遇到问题？</strong>
               <span>诊断文件只含浏览器环境、存储用量和书稿数量，不含正文、标题、ID、模型密钥或生成内容。</span>
             </div>
             <div class="beta-support__actions">
-              <button class="settings-btn" type="button" @click="openBetaGuide">查看内测说明</button>
+              <button class="settings-btn" type="button" @click="openBetaGuide">查看快速开始</button>
               <button class="settings-btn" type="button" data-test="beta-diagnostic-export" @click="handleExportDiagnostic">导出诊断信息</button>
             </div>
           </div>
@@ -225,9 +201,7 @@ import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
-import StorageCleanup from './StorageCleanup.vue'
 import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
-import { useStorageHealth } from '../../composables/useStorageHealth'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import {
   exportWorkspaceBackupBundle,
@@ -247,9 +221,6 @@ const theme = useThemeStore()
 const expansion = useExperienceNarrativeExpansion()
 const { profileName: readingProfile, setProfile: setReadingProfile, profiles: readingProfileObjects } = useExperienceReadingPreferences()
 const readingProfileOptions = Object.values(readingProfileObjects)
-
-const storageHealth = useStorageHealth()
-const storageTopKeys = computed(() => storageHealth.getTopKeys(10))
 
 const closeBtnRef = ref(null)
 const backupInputRef = ref(null)
@@ -298,7 +269,7 @@ const tabs = [
   { key: 'ai', label: 'AI 配置' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
-  { key: 'storage', label: '存储' }
+  { key: 'storage', label: '备份与恢复' }
 ]
 
 function formatBytes(bytes) {
@@ -353,7 +324,7 @@ async function handleExportDiagnostic() {
 
 function openBetaGuide() {
   close()
-  void router.push('/docs/10-beta-guide')
+  void router.push('/docs/01-quickstart')
 }
 
 function pickBackupFile() {
@@ -429,7 +400,6 @@ async function confirmWorkspaceRestore() {
       const domains = result.domains
       backupFeedback.value = `完整工作区已恢复：来源 ${domains.sourceArchive.written} 条 · 媒体 ${domains.media.written} 份 · 本地数据 ${domains.localStorage.written} 项。刷新后完全生效。`
       cancelBackupRestore()
-      storageHealth.refresh()
       // 只在持久化全部确认后刷新应用
       setTimeout(() => window.location.reload(), 1200)
     } else if (result.reason === 'restore-risk-not-accepted') {
@@ -479,9 +449,8 @@ function confirmBackupRestore() {
       restoreSucceeded.value = true
       backupFeedback.value = '备份已恢复，数据已写回当前浏览器。'
       cancelBackupRestore()
-      storageHealth.refresh()
     } else if (result.reason === 'quota') {
-      backupFeedback.value = '存储空间不足，已撤销本次导入，原有数据未变。可先“导出本地作品备份”留底，再清理浏览器存储后重试。'
+      backupFeedback.value = '浏览器拒绝写入，已撤销本次导入。请保留备份文件，可在另一浏览器或设备中尝试恢复；请勿清除当前网站数据。'
     } else if (result.reason === 'restore-risk-not-accepted') {
       backupFeedback.value = '这份备份会替换较新的数据，需要先勾选确认后才能导入。'
     } else {
@@ -645,70 +614,6 @@ function onTablistKeydown(event) {
   background: color-mix(in srgb, var(--border) 50%, transparent);
 }
 
-.storage-summary {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.storage-summary__pct {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.storage-summary__bar {
-  height: 8px;
-  background: color-mix(in srgb, var(--border) 50%, transparent);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.storage-summary__fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-.storage-summary.warning .storage-summary__fill,
-.storage-summary.critical .storage-summary__fill {
-  background: var(--danger);
-}
-
-.storage-summary__hint {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.storage-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.storage-table th,
-.storage-table td {
-  text-align: left;
-  padding: 4px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-}
-
-.storage-table th {
-  color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.storage-table code {
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 11px;
-  word-break: break-all;
-}
 
 .storage-actions {
   display: flex;
@@ -727,22 +632,6 @@ function onTablistKeydown(event) {
 
 .storage-actions--lead { justify-content: flex-start; padding-top: 0; }
 
-.storage-technical {
-  border-block: 1px solid var(--border);
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.storage-technical summary {
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.storage-technical summary:hover { color: var(--text-primary); }
-
-.storage-technical .storage-table { margin-top: 4px; }
 
 .backup-feedback { display: grid; gap: 4px; justify-items: start; }
 .backup-feedback a { color: var(--accent); font-weight: 650; }

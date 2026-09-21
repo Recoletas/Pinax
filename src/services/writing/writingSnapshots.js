@@ -162,25 +162,31 @@ export function deleteWritingSnapshot(snapshotId) {
 
 // Explicit maintenance only. Preserve manual/pre-operation snapshots and the
 // newest three versions per chapter; never touch manuscripts or recovery drafts.
-export function previewWritingSnapshotCleanup(now = Date.now()) {
+export function previewWritingSnapshotCleanup(now = Date.now(), { olderThanDays = 30 } = {}) {
+  if (![0, 7, 30].includes(olderThanDays)) return []
   const counts = new Map()
   return readSnapshots().filter(snapshot => {
     const count = (counts.get(snapshot.chapterId) || 0) + 1
     counts.set(snapshot.chapterId, count)
     return count > 3 && snapshot.reason === 'word-milestone'
-      && new Date(snapshot.createdAt).getTime() < now - 30 * 24 * 60 * 60 * 1000
+      && new Date(snapshot.createdAt).getTime() < now - olderThanDays * 24 * 60 * 60 * 1000
   })
 }
 
-export function cleanWritingSnapshotPreview(preview) {
+export function cleanWritingSnapshotPreview(preview, { olderThanDays = 30 } = {}) {
   if (!Array.isArray(preview) || !preview.length) return mutationFailure('empty-cleanup')
-  const eligible = new Map(previewWritingSnapshotCleanup().map(row => [row.id, row]))
+  const eligible = new Map(previewWritingSnapshotCleanup(Date.now(), { olderThanDays }).map(row => [row.id, row]))
   if (preview.some(row => !eligible.has(row.id) || JSON.stringify(eligible.get(row.id)) !== JSON.stringify(row))) {
     return mutationFailure('cleanup-preview-stale')
   }
   const ids = new Set(preview.map(row => row.id))
-  const result = writeSnapshots(readSnapshots().filter(row => !ids.has(row.id)))
-  return result.ok ? mutationSuccess({ removed: ids.size, snapshots: result.snapshots }) : result
+  // 清理只删除预览确认的记录，不经过常规保存的预算淘汰，避免附带删除其他版本。
+  const stored = getItem(STORAGE_KEYS.WRITING_SNAPSHOTS)
+  if (!Array.isArray(stored)) return mutationFailure('cleanup-preview-stale')
+  const remaining = stored.filter(row => !ids.has(row?.id))
+  if (stored.length - remaining.length !== ids.size) return mutationFailure('cleanup-preview-stale')
+  if (!setItem(STORAGE_KEYS.WRITING_SNAPSHOTS, remaining)) return storageWriteFailure({ resource: 'writing-snapshots' })
+  return mutationSuccess({ removed: ids.size, snapshots: remaining })
 }
 
 export function deleteWritingSnapshotsForChapter(chapterId) {

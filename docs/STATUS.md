@@ -6,7 +6,10 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
-| Codex / 2026-09-19 文本块、助手前端与生图续作 | `pinax-block-assistant-img-20260919` | `night/block-assistant-image-20260919` | 接续 P00 `c045dc6`，当前切片已完成并通过 verify:full（20/200、build、lint/结构/diff/docs）；精确选区、主副栏审稿改写、最小中断恢复、生图逐张保存与只重试保存已接。三尺寸主流程 30 项、18 张明暗首屏通过。待提交推送；未合并/部署/用户最终视觉确认/真实模型测试。见[逐包回执](./agent-runs/block-assistant-image-20260919/continuation.md)。 |
+| Codex / 2026-09-21 撤下存储管理 | `text-game-framework` | `main` | 用户否定清理方案后已撤下：删除容量估算/告警、清理组件及无使用方的健康监控，保留备份与恢复、真实保存失败处理；同步手册和入口。组合验证：JSON 下载/恢复预览、桌面/手机/暗色截图检查通过；完整 ZIP 导出恢复、幂等与写失败保护 smoke exit 0；verify:full exit 0（20/20 文件、200/200 用例、双 build、lint/架构/diff），日志 `/tmp/pinax-remove-storage-final-20260921.log`。未删除用户数据、未提交推送，尚未获用户最终确认。 |
+| Codex / 2026-09-20 对外文档整理 | `text-game-framework` | `main` | 已按 `main@04ed7c8` 当前代码重写 README、工程入口和作者手册：写作优先导航、普通用户/部署者分流、AI 启用条件、亮暗/缩放、JSON/ZIP 备份范围、网址来源迁移与保稿优先排障；章节 ID/文件名保留。本轮变更 Markdown 的 248 个本地链接无缺失；应用内手册五组导航及快速开始切换 smoke 通过；独立 `docs:build` 与 `verify:full` exit 0（20/200、lint、Web/VitePress build、架构/diff）。未改业务、远端 About 或部署；公开体验网址与目标站点实际密钥状态未确认，沿用真实仓库截图但未重拍发布站。见[回执](./agent-runs/readme-user-docs-20260920.md)。 |
+| 2026-09-19 夜间 A/B/C/D 计划（未启动） | 待建：`pinax-night-roleplay-20260919` / `pinax-night-collaboration-20260919` / `pinax-night-comics-20260919` / `pinax-night-product-audit-20260919` | 待建：`night/roleplay-maturity-20260919` / `night/collaboration-pilot-20260919` / `night/comics-continuity-20260919` / `night/product-audit-20260919` | 已完成固定上游、本地能力和测试方法调研，形成[总计划](./plan/nightly-20260919-roleplay-online-comics.md)，A/B/C 各 48 项，D [全产品巡检 64 项 + 12 个生成质量 Gate](./plan/nightly-20260919-track-d-product-audit.md)；基线 `main@04ed7c8`，A=跑团、B=联机 C2-3 pilot、C=漫画 M7/样张、D=5,000 persona/百万动作/240 浏览器 session/至少 500 张产品截图/240 次文本/60 次生图/100 张截图图文审查，不设 O。MiniMax 图文模型已获用户授权并要求实际评估生成质量；当前未启动 agent、工作树、服务、负载、代码、模型调用、合并、推送或部署。 |
+| Codex / 2026-09-19 文本块、助手前端与生图续作 | `pinax-block-assistant-img-20260919` → `text-game-framework` | `night/block-assistant-image-20260919` → `main` | 接续 P00 `c045dc6` 的切片已通过 verify:full（20/200、build、lint/结构/diff/docs）并以合并提交 `04ed7c8` 进入本地 main；精确选区、主副栏审稿改写、最小中断恢复、生图逐张保存与只重试保存已接。未部署/用户最终视觉确认/真实模型测试。见[逐包回执](./agent-runs/block-assistant-image-20260919/continuation.md)。 |
 | Codex / 2026-09-19 助手 Skills S01–S05 | `pinax-writing-skills-20260919` → `text-game-framework` | `night/writing-skills-20260919` / `main` | S01–S05 底层能力已交付，返工提交 `c030793` 已在本地 main 验收；客户端发送与 UI 闭环待 S06–S12。历史验证与限制见[回执](./agent-runs/writing-skills-s01-s05-20260919.md)，真实 provider/稿件未跑；不可把底层验收表述为完整助手上线。 |
 | Codex / 2026-09-19 推演交互修复 | `text-game-framework` | `main` | 已实施并待完整门禁：生成阅读起点、采纳后清理、光标锚点、生成状态与空格/斜杠菜单；定向 47/47、C1 31/31、浏览器交互 26 项通过，完整门禁待跑，不部署。 |
 | Codex / 2026-09-19 HTTP UUID 兼容 | `text-game-framework` | `main` | 已提交 `868a25b`，按用户授权推送；shared UUID 优先原生、缺失时通过 getRandomValues + uuid 库生成，修复请求/轨迹/历史/账本/协作直接调用。真实非安全 HTTP 与 localhost 回归通过，verify:full exit 0（20/200、双 build、lint/结构/diff）。未部署，非 HTTPS 加密协作仍有独立限制；见[回执](./agent-runs/http-uuid-fix-20260919.md)。 |
@@ -24,6 +27,10 @@
 | Sol medium C2 workers / Codex integration | `/tmp/pinax-c2-foundation`, `/tmp/pinax-c2-transport` | `feature/collaboration-v2-foundation`, `feature/collaboration-v2-transport` | C2-0～C2-2 已从干净 base `e8b9df1` 完成并冻结：foundation `5f97714`，transport `12b9596`。Codex 独立复验 foundation 28/28、transport 43/43、`verify:full` 20/20 文件 / 200/200 用例及双 build/diff 全绿。分支尚未合入当前 F3 WIP；现已满足开启单一 C2-3 integration window 的前置条件。任务板见 `docs/agent-runs/current.md`。 |
 
 ## 当前事实
+
+- **2026-09-21 快速开始与记忆/视频文档续修已验证**：快速开始改为工作台、通用 AI、世界书增强创作的功能导览；独立内测导航撤下，首页和设置帮助入口及旧文档地址转入快速开始。记忆明确为参考 Utopia 的本地 Dexie/IndexedDB 事实与修订实现；视频章节改为“视频与编导助手”。76 个文档链接、新旧地址浏览器检查和视频页截图通过；`verify:full` exit 0（20/20 文件、200/200 用例、lint、双 build、架构/diff）。仅帮助入口与文档更新，未部署/推送，详见[同轮回执](./agent-runs/readme-user-docs-20260920.md)。
+
+- **2026-09-21 作者确认的文档定位已修正**：核心工作台提供基础写作和通用 AI；关联世界书后增强基于本书人物、规则和历史的特色 AI。设定按资料页、各项设定、高级条目、地图介绍；体验页用于跑团，漫画和视频为边缘扩展。README、手册、manifest 和内测说明已改为流程概览，取消字数/体验任务要求。当前仅修改文档，代码中的设定默认入口与旧 `/writing` 跳转未调整。此修订优先于 9 月 20 日文档定位，验证见同一[回执](./agent-runs/readme-user-docs-20260920.md)。
 
 - **2026-09-17 ABC 当前能力与边界**：在既有 Dexie 修订历史上加入正式事实/证据/决定与双时间查询，实际接入本书创作读取和完整 ZIP；漫画按书页目录、生成结果围栏与仅重试保存；跑团显式 2d6、待回应恢复、持久归档及原创场景/资源。白天组合审查修复了跨域补偿假成功、保存前归档、不可变回执被改写、作者事实冒充角色知识等问题。完整角色知情/历史产品页、漫画跨刷新失败结果恢复、自主模型主持/战役、旧分支历史重建与远程联机仍未完成。当前只对实际交付切片验收，详见[完整证据和剩余项](./agent-runs/nightly-20260917/integration-summary.md)。
 
@@ -94,7 +101,7 @@
 - **写作 Notebook**：WNB-6A 已完成。schema v3 采用 `段落节点 -> writingUnit -> scene` 三层，Enter 只新建单元内段落；显式 split/merge/move、批注迁移、候选/版本/恢复和 v2 一次转换均以 `unitId + nodeId` 工作。当前导入仍按固定至多三段一次装箱、一次 AI 多段结果仍默认一个来源单元，这是身份底座而非最终语义边界。F1 后续保持 schema v3，先把完整性上移到 beat，并以非持久的 function/subject/effect 侧写与可调整 Ghost 边界验证一个节拍原子采纳多个轻量单元；验证后再决定是否持久 sidecar。常用 Markdown、批注 `targets[]` 与查找同类仍在后续。
 - **地理、历史与地图**：PlaceEntity、地点逐项审阅、地理到历史草案、冒险运行时和因果回滚已贯通；地图平台 v2 的 P0/P1 已整支集成：`MapDocumentV2`/`MapBindingV2`/稳定地点身份与 migration/generator 合同冻结，`ol@10.10.0` 只进入地图 lazy surface，世界档地理优先底图、标签预算、写作语义覆盖和用户视觉 Gate 已通过。P1.7 region/local LOD、P2 资产持久化及 Authoring 地图接线全部暂停，先完成 C1。
 - **素材与多模态**：素材来源可追溯到体验、写作、分镜和视频任务；素材页现按当前项目的精确 `sourceRefs` 反查同源素材，可将勾选素材幂等送入现有关系画布。画布默认为有界 C3 场景素材板，支持关系、节拍顺序和未放置素材；桌面保留自由画布，移动端只提供查看、选择、关联和线性排序。插画支持内置 MiniMax，漫画 M2-M6 已形成视觉圣经、阶段产物、文字排版和出版导出，画布保留导演导出与视频生成。剩余漫画 M7、真实图像/视频 smoke、跨资产 revision/tag 收口，以及场景板 live browser 验收。
-- **联机 / 创作协作**：C2-0～C2-2 已在隔离分支冻结协议 v2、SQLite repository/materializer、稳定身份与 host epoch、ACK/幂等、恢复、权限/配额、客户端密文、Web/Electron transport 和真实 fragment-only 邀请入口。跨层矩阵覆盖 Origin、撤销、resume 丢包、maintenance/TTL、heartbeat、过期终态、parser scope 与 limiter GC；尚未合入整合树，也未触碰 Authoring/F3。C2-3 首个可见纵切仍是“一个 intervention 的共同排演”，必须等 F3-5 释放页面 owner 后进入单一 integration window；公共 TLS/WSS、packaged Electron 与真实双浏览器是外部门禁。
+- **联机 / 创作协作**：C2-0～C2-2 协议 v2、SQLite repository/materializer、稳定身份与 host epoch、ACK/幂等、恢复、权限/配额、客户端密文及 Web/Electron transport 已进入当前主线；C2-3 “一个 intervention 的共同排演”代码纵切也已完成：房主可从 fresh intervention 建加密房间，受邀者在 allowlist 内提议/投票，房主设备生成 branch，promotion 形成既有本地 Ghost，采用后返回低敏 receipt。当前缺的是开启 flag 后的 TLS/WSS、真实双浏览器/packaged Electron 和至少 5 次双人 pilot；通过前不展开 C2-4 通用改稿、助手、生图或 CRDT。
 - **UI**：主题2仍是默认视觉语言，设置页已恢复亮/暗模式、主题版本与界面缩放入口，legacy 暗色 token 也已补齐；U5-R C0-C6 的顶部、drawer、体验上下文、composer、角色选择器及桌面/移动 audit 已完成。角色选择器仍需真实设备人工复验，部分页面级深色细节仍是后续审计项。
 - **设定页 U6 补充**：结构化设定字段已进一步收为连续稿面，去掉字段完整外框和输入框底色，改用稿面分隔线、少量信号色条和下划线输入；分区 AI 主动作降为轻量信号线按钮，字段保存/错误状态不再使用胶囊容器。桌面、平板和 390px 审计保持 0 console error、0 a11y failure。
 - **设定页旧链清理补充**：高级世界书页不再挂载重复的结构化设定工作台，只保留基础设定、导入导出、分组和条目管理；200% 有效视口下高级页改为单列，条目导航与按钮允许换行，避免正文输入区被压缩或裁切。高级页已纳入 UI audit。
@@ -260,7 +267,7 @@
 
 ## Next up
 
-- **2026-09-19 夜间计划（执行中）**：按[更新进度与领取顺序](./plan/nightly-20260918-runtime-maturity.md)继续：A收口T02/T03后回M，B推进R，C持run与后续T；先解决未跟踪依赖和重复KP，组合时C基础→A检索→B跑团→G4。36项队列继续，不重复开发已交付切片；本轮未执行合并。
+- **2026-09-19 跑团 / 联机 / 漫画 / 全产品巡检夜间计划（未启动）**：按[总计划](./plan/nightly-20260919-roleplay-online-comics.md)建立四棵独立工作树；A 执行[跑团 48 项](./plan/nightly-20260919-track-a-roleplay.md)，B 执行[联机 48 项](./plan/nightly-20260919-track-b-collaboration.md)，C 执行[漫画 48 项](./plan/nightly-20260919-track-c-comics.md)，D 执行[全产品巡检 64 项 + 12 个生成质量 Gate](./plan/nightly-20260919-track-d-product-audit.md)。不设 O 线；D 分层模拟至少 5,000 persona/百万动作、240 次浏览器 session、至少 500 张产品截图，并用 MiniMax 完成至少 240 次文本、60 次生图和 100 张截图图文审查；生成质量与工程成功分开评分，截图滚动清理，小问题有界自修、大问题简洁汇报。当前只完成调研与计划，尚未启动 agent、工作树、服务、负载、代码、模型调用、合并、推送或部署。
 
 - **2026-09-18 三线验收后续**：N-A/N-B/N-C 已组合验收并合入 main；不再按“待启动”重跑整份计划。后续只补真实 LLM 提取质量、真机 IME、ZIP 中途失败注入，以及任务书中明确标为 partial/not-run 的版本链、角色知情和资料批量管理；上一轮漫画/跑团扩展仍保留 backlog。
 

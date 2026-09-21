@@ -32,7 +32,8 @@ const currentChapterId = computed(() => {
 // 统一解析到真实章节；同时兜底 URL 里残留的 .md 形式（旧整页跳转留下的地址/书签/历史）。
 function resolveChapter(rawId) {
   if (!manifest.value || !rawId) return null
-  const plain = String(rawId).split(/[?#]/)[0]
+  const requested = String(rawId).split(/[?#]/)[0]
+  const plain = /^10-beta-guide(?:\.md)?$/.test(requested) ? '01-quickstart' : requested
   return (
     manifest.value.chapters.find((c) => c.id === plain) ||
     manifest.value.chapters.find((c) => c.file === plain) ||

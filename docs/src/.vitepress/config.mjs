@@ -3,8 +3,8 @@ import { defineConfig } from 'vitepress'
 // 本地开发走 :5174，不和前端 Vite (:5173) 抢端口
 // base 留 '/'; 真要部署到 GitHub Pages (recoletas.github.io/Pinax) 时改为 '/Pinax/'
 export default defineConfig({
-  title: 'Pinax 内文档',
-  description: '项目内文档框架 — 高信号、agent 友好',
+  title: 'Pinax 工程文档',
+  description: 'Pinax 的开发、架构、验证与维护记录',
   cleanUrls: true,
   lastUpdated: true,
   ignoreDeadLinks: true,
@@ -16,12 +16,14 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
-      { text: '首页', link: '/' },
+      { text: '工程首页', link: '/' },
+      { text: '使用 Pinax', link: 'https://github.com/Recoletas/Pinax/tree/main/docs/user-manual' },
+      { text: '自行部署', link: 'https://github.com/Recoletas/Pinax#开发者本地运行' },
       {
-        text: '外部',
+        text: '仓库',
         items: [
           { text: 'GitHub', link: 'https://github.com/Recoletas/Pinax' },
-          { text: '用户手册 (GitHub)', link: 'https://github.com/Recoletas/Pinax/tree/main/docs/user-manual' },
+          { text: '贡献指南', link: 'https://github.com/Recoletas/Pinax/blob/main/CONTRIBUTING.md' },
         ],
       },
     ],
@@ -76,7 +78,7 @@ export default defineConfig({
     ],
 
     footer: {
-      message: 'docs/src 是项目内文档框架 — 高信号、agent 友好',
+      message: '工程站记录开发事实；作者操作请查看使用指南',
       copyright: ' ',
     },
   },

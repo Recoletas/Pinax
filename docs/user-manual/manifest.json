@@ -1,15 +1,14 @@
 {
   "chapters": [
-    { "id": "README", "title": "导言", "file": "README.md", "summary": "Pinax 是什么、能做什么、从哪开始", "group": "入门" },
-    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "空白开始、导入旧稿和第一次备份", "group": "入门" },
-    { "id": "02-experience", "title": "体验模式", "file": "02-experience.md", "summary": "聊天、状态栏、机制按钮、里程碑、换世界", "group": "核心玩法" },
-    { "id": "03-worldbook", "title": "世界书与设定", "file": "03-worldbook.md", "summary": "结构化设定、世界书导入、地图", "group": "核心玩法" },
-    { "id": "04-materials", "title": "素材", "file": "04-materials.md", "summary": "收集金句与事件，一键送入画布", "group": "创作工作台" },
-    { "id": "05-writing", "title": "写作", "file": "05-writing.md", "summary": "书稿导入、正文、资料、推演与保存", "group": "创作工作台" },
-    { "id": "06-storyboard", "title": "卡片画布", "file": "06-storyboard.md", "summary": "节点、时间轴、生图生视频、导出", "group": "创作工作台" },
-    { "id": "09-comics", "title": "漫画", "file": "09-comics.md", "summary": "素材/分镜改编多页漫画，逐格构图、上色、导出", "group": "创作工作台" },
-    { "id": "07-settings", "title": "设置详解", "file": "07-settings.md", "summary": "外观、AI 配置、存储与备份", "group": "参考" },
-    { "id": "08-faq", "title": "常见问题", "file": "08-faq.md", "summary": "配好 key 还是报错？数据丢了怎么找回？", "group": "参考" },
-    { "id": "10-beta-guide", "title": "Web 内测说明", "file": "10-beta-guide.md", "summary": "15 分钟体验任务、反馈与数据自救", "group": "参考" }
+    { "id": "README", "title": "指南首页", "file": "README.md", "summary": "Pinax 是什么、从哪里开始", "group": "开始使用" },
+    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "工作台、通用 AI、世界书增强创作与扩展流程", "group": "开始使用" },
+    { "id": "05-writing", "title": "创作与写作", "file": "05-writing.md", "summary": "正文、章节、批注、资料、试稿与历史", "group": "写作与资料" },
+    { "id": "03-worldbook", "title": "世界书与设定", "file": "03-worldbook.md", "summary": "资料导入、各项设定、高级条目与地图", "group": "写作与资料" },
+    { "id": "04-materials", "title": "素材", "file": "04-materials.md", "summary": "收集金句与事件，继续整理或送入画布", "group": "写作与资料" },
+    { "id": "07-settings", "title": "设置详解", "file": "07-settings.md", "summary": "写作、外观、AI、备份与恢复", "group": "设置与帮助" },
+    { "id": "08-faq", "title": "常见问题", "file": "08-faq.md", "summary": "保存、作品位置、换网址、备份与连接排障", "group": "设置与帮助" },
+    { "id": "02-experience", "title": "跑团", "file": "02-experience.md", "summary": "体验页中的角色行动、回合与会话", "group": "跑团" },
+    { "id": "06-storyboard", "title": "视频与编导助手", "file": "06-storyboard.md", "summary": "分镜设计、编导建议与视频生成", "group": "视听扩展" },
+    { "id": "09-comics", "title": "漫画", "file": "09-comics.md", "summary": "从素材或分镜制作漫画的扩展功能", "group": "视听扩展" }
   ]
 }

@@ -8,7 +8,6 @@ import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
-import { useStorageHealth } from '../composables/useStorageHealth'
 import { useTheme } from '../composables/useTheme'
 import '../styles/workspace-surfaces.css'
 import '../styles/workspace-navigation.css'
@@ -33,7 +32,6 @@ const currentRouteCaption = computed(() => {
 
 // Workspace tabs replace the page directly; exit animations delay editor ownership.
 
-const storageHealth = useStorageHealth()
 const settingsPopup = useSettingsPopup()
 const { isDark, toggleTheme } = useTheme()
 function openSettings(section) {
@@ -133,7 +131,6 @@ function handleSelectPanel(routeName) {
       <div class="shell-tab-actions">
         <button type="button" :aria-label="isDark ? '切换日间模式' : '切换夜间模式'" :title="isDark ? '日间模式' : '夜间模式'" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
         <button type="button" aria-label="打开设置" title="设置" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
-        <button v-if="storageHealth.showChip.value" class="shell-storage-status" :class="storageHealth.level.value" type="button" aria-label="存储偏高，打开存储详情" data-test="shell-storage-status" @click="openSettings('storage')"><span class="shell-storage-status__dot" aria-hidden="true"></span></button>
       </div>
     </WorkspaceTabs>
     <template v-if="!hideActivityBar">
@@ -190,14 +187,8 @@ function handleSelectPanel(routeName) {
               <WorkbenchIcon name="settings" :size="16" />
               <span>设置</span>
             </button>
-            <button
-              v-if="storageHealth.showChip.value"
-              class="shell-drawer__utility-btn shell-drawer__utility-btn--warning"
-              type="button"
-              @click="openSettings('storage')"
-            >
-              <span class="shell-storage-status__dot" aria-hidden="true"></span>
-              <span>{{ storageHealth.isCritical.value ? '存储超限' : '存储偏高' }}</span>
+            <button class="shell-drawer__utility-btn" type="button" @click="openSettings('storage')">
+              <WorkbenchIcon name="backup" :size="16" /><span>备份与恢复</span>
             </button>
           </div>
         </div>
@@ -1013,29 +1004,6 @@ function handleSelectPanel(routeName) {
   align-items: center;
 }
 
-.shell-storage-status {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.shell-storage-status__dot {
-  width: 8px;
-  height: 8px;
-  display: inline-block;
-  border-radius: 50%;
-  background: var(--archive-gold);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--archive-gold) 12%, transparent);
-}
-
-.shell-storage-status.critical .shell-storage-status__dot,
-.shell-drawer__utility-btn--warning .shell-storage-status__dot {
-  background: var(--danger, #a34b4b);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger, #a34b4b) 12%, transparent);
-}
 
 .shell-drawer {
   width: min(304px, calc(100vw - 20px));
@@ -1112,14 +1080,10 @@ function handleSelectPanel(routeName) {
   color: var(--archive-ink);
 }
 
-.shell-drawer__utility-btn--warning {
-  color: var(--danger, #a34b4b);
-}
 
 .shell-drawer__utility-btn:focus-visible,
 .shell-menu-btn:focus-visible,
-.shell-drawer__close:focus-visible,
-.shell-storage-status:focus-visible {
+.shell-drawer__close:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--archive-olive) 70%, transparent);
   outline-offset: 2px;
 }
