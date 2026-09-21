@@ -6,6 +6,8 @@
 
 ## 当前主线
 
+2026-09-19 已编制[跑团 / 联机 / 漫画成熟化夜间总计划](./plan/nightly-20260919-roleplay-online-comics.md)及 [A 跑团 48 项](./plan/nightly-20260919-track-a-roleplay.md)、[B 联机 48 项](./plan/nightly-20260919-track-b-collaboration.md)、[C 漫画 48 项](./plan/nightly-20260919-track-c-comics.md)、[D 全产品长期/视觉巡检 64 项 + 12 个生成质量 Gate](./plan/nightly-20260919-track-d-product-audit.md)。四线从当前 `main@04ed7c8` 独立建树，不设 O 线；阶段完成后继续领取，缺真人、公共 TLS、Electron 或 MiniMax 临时故障时转入本线替补队列，不把外部 Gate 变成整线停工理由。A 聚焦真实同伴/角色知情、崩溃窗、战役与正文出口；B 只封板 C2-3 pilot、恢复、安全和双浏览器，不在 5 次真人 pilot 前扩 C2-4/CRDT；C 聚焦 M7 连续性、正文到分镜、跨刷新生产、QA 和可发布两页样张；D 分层模拟至少 5,000 个长期用户、百万动作和 240 次浏览器 session，捕获至少 500 张产品截图，并用 MiniMax 跑至少 240 次文本、60 次生图和 100 张截图图文审查，实际评估生成文本/图像质量。截图滚动清理，小问题有界自修、大问题短句汇报。当前仅完成计划与调研，未启动 agent、分支、服务、负载、代码、模型调用、合并、推送或部署。
+
 2026-09-19 助手[写作 Skills 方案](./plan/assistant-writing-skills-20260919.md)已交付并验收 S01–S05 底层能力。[文本块显示、助手前端与生图实施计划](./plan/authoring-block-assistant-image-20260919.md)的当前切片已在 `night/block-assistant-image-20260919` 完成：完整块边界、精确选区/块/文稿审稿、主副栏“意见→改写→采用/撤销”、最小中断恢复，以及生图逐张保存/只重试保存/已存成果恢复。确定性全量门禁 20/200 与三尺寸浏览器主流程通过；未合并、未部署、未做真实模型质量和用户最终视觉确认。逐包证据见[续作回执](./agent-runs/block-assistant-image-20260919/continuation.md)。S13–S22 继续原队列。
 
 2026-09-19 组合验收：[记忆/跑团/Agent 夜间计划](./plan/nightly-20260918-runtime-maturity.md)的已交付切片按 A `19f5386`、B `d21f793`、C `48e2fcf`整合，保留主线 HTTP UUID 修复。A 记忆与 C 跑团生产链、B 工具授权组成唯一实现；B/C 重复 KP 不并存。详细回归见[组合回执](./agent-runs/nightly-20260918/integration-summary.md)。下一批优先接真实同伴 provider 与角色知识、真实来源 revision 审计，再推进 T09–T12 与全 Agent 恢复；36 项原队列继续有效，不能把基础合同/注入端口视为全部成熟能力。仅本地合并，未推送部署。
