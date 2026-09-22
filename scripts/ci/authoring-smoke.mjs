@@ -126,7 +126,10 @@ async function runJourney() {
     args: process.env.CI ? ['--disable-dev-shm-usage', '--no-sandbox'] : []
   })
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+    // 这条基准旅程的定位文案是中文。显式固定浏览器语言，避免 CI runner
+    // 的默认 en-US 触发产品自动英文界面，使测试在第一步误报超时。
+    // 英文界面由独立 english-support smoke 覆盖。
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1440, height: 900 }, acceptDownloads: true })
 
     // 网络守卫：跨 origin 的 http(s) 请求一律 abort 并记录（模型 provider 必然落在其中）
     await context.route('**/*', (route) => {
@@ -155,9 +158,11 @@ async function runJourney() {
     log('step 2: 打开备份/诊断面板，导出低敏诊断并验证隐私合同')
     await page.getByRole('complementary', { name: '首页导航' }).getByRole('button', { name: '备份与恢复', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
-    await settings.getByText('内测遇到问题？').waitFor({ timeout: 30_000 })
+    // 用稳定的功能标记等待诊断区，不再绑定会随产品文案调整的标题。
+    const diagnosticExport = settings.locator('[data-test="beta-diagnostic-export"]')
+    await diagnosticExport.waitFor({ timeout: 30_000 })
     const downloadPromise = page.waitForEvent('download')
-    await settings.locator('[data-test="beta-diagnostic-export"]').click()
+    await diagnosticExport.click()
     const download = await downloadPromise
     const stream = await download.createReadStream()
     const chunks = []
