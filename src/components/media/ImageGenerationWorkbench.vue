@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ImageModelPicker from './ImageModelPicker.vue'
 import { generateImage, getImageProviderCapabilities } from '../../services/media/imageProviderService'
@@ -183,7 +184,7 @@ const modeLabels = {
 }
 
 const selectedTextText = computed(() => String(props.selectedText || '').trim())
-const importButtonLabel = computed(() => `导入${props.selectedPromptLabel || '当前选中'}`)
+const importButtonLabel = computed(() => tr('导入{source}', { source: tr(props.selectedPromptLabel || '当前选中') }))
 const availableModes = computed(() => {
   const requested = props.modes.filter((mode) => modeLabels[mode])
   return requested.length ? [...new Set(requested)] : ['reference']
@@ -268,7 +269,7 @@ const selectedActionGuard = computed(() => {
 })
 const emptyResultHint = computed(() => {
   const prompt = String(imagePrompt.value || props.initialPrompt || selectedTextText.value).trim()
-  if (prompt) return `准备生成：${prompt.slice(0, 72)}${prompt.length > 72 ? '…' : ''}`
+  if (prompt) return tr('准备生成：{prompt}', { prompt: `${prompt.slice(0, 72)}${prompt.length > 72 ? '…' : ''}` })
   return '写下画面描述后，生成的候选会在这里并排比较。'
 })
 
@@ -276,7 +277,7 @@ onMounted(async () => {
   loadModelConfigs()
   await reloadLibraries()
   interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
-  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: `上次任务在刷新前未结束；已恢复 ${interruptedRun.value.items.filter((item) => item.state === 'saved').length} 张已保存成果，未完成项不会自动重发。` }
+  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: tr('上次任务在刷新前未结束；已恢复 {count} 张已保存成果，未完成项不会自动重发。', { count: interruptedRun.value.items.filter((item) => item.state === 'saved').length }) }
 })
 
 watch(availableModes, (modes) => {
@@ -290,7 +291,7 @@ watch(libraryScopeKey, () => {
   comparisonImageId.value = ''
   generationStatus.value = { kind: 'idle', message: '' }
   interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
-  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: `上次任务在刷新前未结束；已恢复 ${interruptedRun.value.items.filter((item) => item.state === 'saved').length} 张已保存成果，未完成项不会自动重发。` }
+  if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: tr('上次任务在刷新前未结束；已恢复 {count} 张已保存成果，未完成项不会自动重发。', { count: interruptedRun.value.items.filter((item) => item.state === 'saved').length }) }
   void reloadLibraries()
 })
 watch(allReferenceCandidates, (candidates) => {
@@ -452,7 +453,7 @@ async function generateImages({ retry = false } = {}) {
   imageGenerating.value = true
   generationStatus.value = {
     kind: 'running',
-    message: frozen.count > 1 ? `正在生成 ${frozen.count} 张候选…` : '正在生成候选…'
+    message: frozen.count > 1 ? tr('正在生成 {count} 张候选…', { count: frozen.count }) : '正在生成候选…'
   }
   emit('generation-start', { job: frozen })
   persistImageRun(running, 'running')
@@ -557,7 +558,7 @@ async function generateImages({ retry = false } = {}) {
     }
     generationStatus.value = {
       kind: 'success',
-      message: `已保存 ${archivedEntries.length} 张候选。${unsavedImages.value.length ? '有图片尚未保存，可重试保存或先下载。' : ''}`
+      message: `${tr('已保存 {count} 张候选。', { count: archivedEntries.length })} ${unsavedImages.value.length ? tr('有图片尚未保存，可重试保存或先下载。') : ''}`
     }
     emit('generation-complete', {
       job: frozen,
@@ -578,8 +579,8 @@ async function generateImages({ retry = false } = {}) {
       removeImageGenerationRun(frozen.runId)
       if (latestGeneration === running) {
         generationStatus.value = cleanupFailures.length
-          ? { kind: 'error', message: `已取消，但有 ${cleanupFailures.length} 张候选未能清理，请刷新历史后重试。` }
-          : { kind: 'cancelled', message: `已停止，保留 ${archivedEntries.length} 张已保存候选。` }
+          ? { kind: 'error', message: tr('已取消，但有 {count} 张候选未能清理，请刷新历史后重试。', { count: cleanupFailures.length }) }
+          : { kind: 'cancelled', message: tr('已停止，保留 {count} 张已保存候选。', { count: archivedEntries.length }) }
       }
       if (!running.cancelEmitted) {
         running.cancelEmitted = true
@@ -594,8 +595,8 @@ async function generateImages({ retry = false } = {}) {
       const errorStatus = {
         kind: 'error',
         message: cleanupFailures.length
-          ? `生成失败，且有 ${cleanupFailures.length} 张候选未能清理。`
-          : `已保留 ${archivedEntries.length} 张候选。${error?.message || '后续生成失败。'}`
+          ? tr('生成失败，且有 {count} 张候选未能清理。', { count: cleanupFailures.length })
+          : `${tr('已保留 {count} 张候选。', { count: archivedEntries.length })} ${error?.message || tr('后续生成失败。')}`
       }
       if (latestGeneration === running) generationStatus.value = errorStatus
       emit('generation-error', { job: frozen, error, message: errorStatus.message, cleanupFailures })
@@ -883,7 +884,7 @@ async function handleReferenceUpload(event) {
   referenceUploadMessage.value = ''
   for (const file of files) {
     if (file.size > 12 * 1024 * 1024) {
-      referenceUploadMessage.value = `${file.name} 超过 12 MB，未导入`
+      referenceUploadMessage.value = tr('{name} 超过 12 MB，未导入', { name: file.name })
       continue
     }
     try {
@@ -909,7 +910,7 @@ async function handleReferenceUpload(event) {
       })
       uploaded.push({ ...entry, title: file.name, uploaded: true })
     } catch (error) {
-      referenceUploadMessage.value = error?.message || `${file.name} 导入失败`
+      referenceUploadMessage.value = error?.message || tr('{name} 导入失败', { name: file.name })
     }
   }
   if (scope.key !== libraryScopeKey.value) return
@@ -918,7 +919,7 @@ async function handleReferenceUpload(event) {
     .slice(0, 20)
   selectedReferenceIds.value = [...selectedReferenceIds.value, ...uploaded.map((item) => item.id)].slice(-3)
   if (uploaded[0]) {
-    referenceUploadMessage.value = `已导入 ${uploaded.length} 张本地参考图`
+    referenceUploadMessage.value = tr('已导入 {count} 张本地参考图', { count: uploaded.length })
     emit('image-preview', {
       ...uploaded[0],
       prompt: uploaded[0].title,
@@ -937,7 +938,7 @@ function isSupportedLocalImage(file) {
 async function verifyReferenceImage(data, file) {
   const bytes = atob(String(data).split(',')[1] || '')
   const type = bytes.startsWith('\x89PNG\r\n\x1a\n') ? 'image/png' : bytes.startsWith('\xff\xd8\xff') ? 'image/jpeg' : bytes.startsWith('RIFF') && bytes.slice(8, 12) === 'WEBP' ? 'image/webp' : ''
-  if (!type || (file.type && file.type !== type)) throw new Error(`${file.name} 的图片格式与内容不符`)
+  if (!type || (file.type && file.type !== type)) throw new Error(tr('{name} 的图片格式与内容不符', { name: file.name }))
   await new Promise((resolve, reject) => {
     const image = new Image()
     const timer = setTimeout(() => reject(new Error('图片解码超时')), 10000)
@@ -1010,7 +1011,7 @@ async function deleteSelectedImage() {
   }
   const confirmed = typeof window === 'undefined' || typeof window.confirm !== 'function'
     ? true
-    : window.confirm('删除这张候选？此操作会同时移除生图历史和对应媒体文件。')
+    : window.confirm(tr('删除这张候选？此操作会同时移除生图历史和对应媒体文件。'))
   if (!confirmed) return
   const currentIndex = imagePreviewIndex.value
   try {
@@ -1033,7 +1034,7 @@ async function deleteSelectedImage() {
     class="media-generation-inline"
     :class="[`media-generation-inline--${layout}`, `media-generation-inline--${presentation}`]"
     :data-mobile-pane="mobilePane"
-    aria-label="插画生成"
+    :aria-label="tr('插画生成')"
   >
     <div class="image-generation-workbench">
       <div v-if="showHeader" class="image-gen-header">
@@ -1041,13 +1042,13 @@ async function deleteSelectedImage() {
       </div>
 
       <div class="image-gen-workspace">
-        <section class="image-gen-controls" aria-label="插画参数">
+        <section class="image-gen-controls" :aria-label="tr('插画参数')">
           <fieldset class="image-gen-control-fields" :disabled="imageGenerating">
             <div v-if="$slots.brief && presentation !== 'authoring'" class="image-gen-brief">
               <slot name="brief"></slot>
             </div>
 
-            <div v-if="availableModes.length > 1" class="image-gen-modes" role="group" aria-label="图片用途">
+            <div v-if="availableModes.length > 1" class="image-gen-modes" role="group" :aria-label="tr('图片用途')">
               <button
                 v-for="mode in availableModes"
                 :key="mode"
@@ -1057,52 +1058,52 @@ async function deleteSelectedImage() {
                 :aria-pressed="activeMode === mode"
                 @click="activeMode = mode"
               >
-                {{ modeLabels[mode] }}
+                {{ tr(modeLabels[mode]) }}
               </button>
             </div>
 
             <template v-if="!referenceWorkspaceActive">
               <div class="image-gen-section">
                 <div class="image-gen-label-row">
-                  <label class="image-gen-label">画面描述</label>
+                  <label class="image-gen-label">{{ tr("画面描述") }}</label>
                   <button v-if="selectedTextText" class="image-gen-inline-link" type="button" @click="useSelectedTextAsPrompt">
-                    {{ importButtonLabel }}
+                    {{ presentation === 'authoring' ? tr('使用原文') : importButtonLabel }}
                   </button>
                 </div>
                 <textarea
                   v-model="imagePrompt"
                   class="image-gen-prompt-input"
-                  placeholder="描述你想生成的插画..."
+                  :placeholder="tr('描述你想生成的插画...')"
                   rows="4"
                   maxlength="600"
                 ></textarea>
                 <small v-if="presentation === 'authoring'" class="image-gen-prompt-count">{{ imagePrompt.length }} / 600</small>
                 <div v-if="presentation === 'authoring' && selectedTextText" class="image-gen-description-actions">
-                  <button v-if="!descriptionBusy" type="button" class="image-gen-inline-link" @click="prepareImageDescription">从原文整理画面</button>
-                  <button v-else type="button" class="image-gen-inline-link" @click="descriptionController?.abort()">停止整理</button>
-                  <button v-if="previousDescription?.contextKey === contextKey" type="button" class="image-gen-inline-link" @click="imagePrompt = previousDescription.text; previousDescription = null">恢复原描述</button>
+                  <button v-if="!descriptionBusy" type="button" class="image-gen-inline-link" @click="prepareImageDescription">{{ tr("从原文整理画面") }}</button>
+                  <button v-else type="button" class="image-gen-inline-link" @click="descriptionController?.abort()">{{ tr("停止整理") }}</button>
+                  <button v-if="previousDescription?.contextKey === contextKey" type="button" class="image-gen-inline-link" @click="imagePrompt = previousDescription.text; previousDescription = null">{{ tr("恢复原描述") }}</button>
                 </div>
-                <p v-if="descriptionError" class="image-gen-reference-message" role="alert">{{ descriptionError }}</p>
-                <section v-if="descriptionDraft" class="image-gen-description-draft" aria-label="画面描述草稿">
-                  <textarea v-model="descriptionDraft" aria-label="编辑画面描述草稿" rows="5" maxlength="600" class="image-gen-prompt-input" />
-                  <button type="button" class="image-preview-action-btn" @click="useDescriptionDraft">使用这份描述</button>
-                  <button type="button" class="image-preview-action-btn" @click="descriptionDraft = ''">放弃</button>
+                <p v-if="descriptionError" class="image-gen-reference-message" role="alert">{{ tr(descriptionError) }}</p>
+                <section v-if="descriptionDraft" class="image-gen-description-draft" :aria-label="tr('画面描述草稿')">
+                  <textarea v-model="descriptionDraft" :aria-label="tr('编辑画面描述草稿')" rows="5" maxlength="600" class="image-gen-prompt-input" />
+                  <button type="button" class="image-preview-action-btn" @click="useDescriptionDraft">{{ tr("使用这份描述") }}</button>
+                  <button type="button" class="image-preview-action-btn" @click="descriptionDraft = ''">{{ tr("放弃") }}</button>
                 </section>
               </div>
 
               <details v-if="presentation === 'authoring'" class="image-gen-quality-terms">
-                <summary>常用质量词</summary>
-                <div aria-label="常用质量词">
-                  <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(term)">{{ term }}</button>
+                <summary>{{ tr("常用质量词") }}</summary>
+                <div :aria-label="tr('常用质量词')">
+                  <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(tr(term))">{{ tr(term) }}</button>
                 </div>
               </details>
 
               <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
                 <div class="image-gen-label-row">
-                  <span class="image-gen-label">画面风格</span>
-                  <small>文字预设 · {{ selectedStylePreset.label }}</small>
+                  <span class="image-gen-label">{{ tr("画面风格") }}</span>
+                  <small>{{ tr("文字预设 ·") }} {{ tr(selectedStylePreset.label) }}</small>
                 </div>
-                <div class="image-gen-style-grid" role="radiogroup" aria-label="画面风格">
+                <div class="image-gen-style-grid" role="radiogroup" :aria-label="tr('画面风格')">
                   <button
                     v-for="preset in authoringStylePresets"
                     :key="preset.id"
@@ -1111,11 +1112,11 @@ async function deleteSelectedImage() {
                     :class="{ active: imageStylePreset === preset.id }"
                     role="radio"
                     :aria-checked="imageStylePreset === preset.id"
-                    :title="preset.prompt"
+                    :title="tr(preset.prompt)"
                     @click="imageStylePreset = preset.id"
                   >
-                    <span aria-hidden="true" :style="{ backgroundPosition: preset.position }"></span>
-                    <strong>{{ preset.label }}</strong>
+                    <span aria-hidden="true" :style="{ '--style-position': preset.position }"></span>
+                    <strong>{{ tr(preset.label) }}</strong>
                   </button>
                 </div>
               </div>
@@ -1127,7 +1128,7 @@ async function deleteSelectedImage() {
 
             <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
               <div class="image-gen-label-row">
-                <label class="image-gen-label">{{ presentation === 'authoring' ? '参考图' : '参考图库' }}</label>
+                <label class="image-gen-label">{{ presentation === 'authoring' ? tr("参考图") : tr("参考图库") }}</label>
                 <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
               </div>
               <div class="image-gen-reference-strip">
@@ -1144,35 +1145,35 @@ async function deleteSelectedImage() {
                   <img :src="candidate.data" :alt="referenceLabel(candidate)" />
                   <span v-if="selectedReferenceIds.includes(candidate.id)" aria-hidden="true">✓</span>
                 </button>
-                <button class="image-gen-reference-upload" type="button" title="上传参考图" @click="referenceInput?.click()">
+                <button class="image-gen-reference-upload" type="button" :title="tr('上传参考图')" @click="referenceInput?.click()">
                   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                     <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v5h14v-5"/>
                   </svg>
-                  <span>{{ presentation === 'authoring' ? '添加图片' : '上传' }}</span>
+                  <span>{{ presentation === 'authoring' ? tr("添加图片") : tr("上传") }}</span>
                 </button>
               </div>
               <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="handleReferenceUpload" />
-              <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ referenceUploadMessage }}</p>
+              <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ tr(referenceUploadMessage) }}</p>
               <label v-if="selectedReferenceImages.length && selectedModelSupportsStrength" class="image-gen-reference-strength">
-                <span>参考强度</span>
+                <span>{{ tr("参考强度") }}</span>
                 <input v-model.number="referenceStrength" type="range" min="0.2" max="0.9" step="0.05" :disabled="!selectedModelSupportsReference" />
                 <strong>{{ Math.round(referenceStrength * 100) }}%</strong>
               </label>
               <p v-if="selectedReferenceImages.length && !selectedModelSupportsReference" class="image-gen-reference-message" role="status">
-                当前模型不提交本地底图；参考提示仍会作为文字约束加入生成。
-                <label><input v-model="allowTextOnlyReference" type="checkbox" />仅用文字生成，不发送参考图片</label>
+                {{ tr("当前模型不提交本地底图；参考提示仍会作为文字约束加入生成。") }}
+                <label><input v-model="allowTextOnlyReference" type="checkbox" />{{ tr("仅用文字生成，不发送参考图片") }}</label>
               </p>
-              <p v-else-if="selectedReferenceImages.length" class="image-gen-reference-message">图片将作为普通图像参考提交；不保证人物身份、风格或构图一致。</p>
+              <p v-else-if="selectedReferenceImages.length" class="image-gen-reference-message">{{ tr("图片将作为普通图像参考提交；不保证人物身份、风格或构图一致。") }}</p>
               <label v-if="selectedReferenceImages.length && presentation === 'authoring'" class="image-gen-reference-prompt">
-                <span>参考提示词</span>
+                <span>{{ tr("参考提示词") }}</span>
                 <textarea
                   v-model="imageReferencePrompt"
                   rows="2"
                   maxlength="240"
-                  placeholder="例如：保持人物脸型和发色，只参考服装，不照搬构图"
+                  :placeholder="tr('例如：保持人物脸型和发色，只参考服装，不照搬构图')"
                 ></textarea>
               </label>
-              <p v-if="!selectedReferenceImages.length" class="image-gen-reference-hint">可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。</p>
+              <p v-if="!selectedReferenceImages.length" class="image-gen-reference-hint">{{ tr("可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。") }}</p>
             </div>
 
             <template v-if="!referenceWorkspaceActive">
@@ -1193,37 +1194,37 @@ async function deleteSelectedImage() {
               >
                 <span class="image-gen-reference-summary__thumbs" aria-hidden="true">
                   <img v-for="reference in selectedReferenceImages" :key="reference.id" :src="reference.data" alt="" />
-                  <span v-if="selectedReferenceImages.length === 0">无</span>
+                  <span v-if="selectedReferenceImages.length === 0">{{ tr("无") }}</span>
                 </span>
-                <span>{{ selectedReferenceImages.length ? `已选 ${selectedReferenceImages.length} 张参考图` : '未选择参考图' }}</span>
+                <span>{{ selectedReferenceImages.length ? tr('已选 {count} 张参考图', { count: selectedReferenceImages.length }) : tr('未选择参考图') }}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
               </button>
 
               <div class="image-gen-parameter-grid">
                 <label class="image-gen-compact-field">
-                  <span>{{ presentation === 'authoring' ? '比例尺寸' : '画幅' }}</span>
+                  <span>{{ presentation === 'authoring' ? tr("比例尺寸") : tr("画幅") }}</span>
                   <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
-                    <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ preset.label }}</option>
+                    <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ tr(preset.label) }}</option>
                   </select>
                 </label>
                 <label class="image-gen-compact-field">
-                  <span>数量</span>
+                  <span>{{ tr("数量") }}</span>
                   <select v-model.number="imageCount">
-                    <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ count }} 张</option>
+                    <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ tr('图片数量：{count}', { count }) }}</option>
                   </select>
                 </label>
               </div>
 
               <details class="image-gen-section image-gen-advanced">
-                <summary>高级设置</summary>
+                <summary>{{ tr("高级设置") }}</summary>
                 <div class="image-gen-label-row">
-                  <label class="image-gen-label">负面提示词（可选）</label>
-                  <button v-if="presentation === 'authoring'" class="image-gen-inline-link" type="button" @click="useComicSafetyPrompt">使用漫画纯画面约束</button>
+                  <label class="image-gen-label">{{ tr("负面提示词（可选）") }}</label>
+                  <button v-if="presentation === 'authoring'" class="image-gen-inline-link" type="button" @click="useComicSafetyPrompt">{{ tr("使用漫画纯画面约束") }}</button>
                 </div>
                 <textarea
                   v-model="imageNegativePrompt"
                   class="image-gen-prompt-input small"
-                  placeholder="不想出现的内容..."
+                  :placeholder="tr('不想出现的内容...')"
                   rows="2"
                 ></textarea>
               </details>
@@ -1238,11 +1239,11 @@ async function deleteSelectedImage() {
               @click="generateImages"
               :disabled="!imagePrompt.trim() || !imageSelectedModel"
             >
-              生成插画
+              {{ tr("生成插画") }}
             </button>
             <button v-else class="image-gen-cancel-btn" type="button" @click="cancelGeneration('user')">
               <span class="spin-icon" aria-hidden="true"></span>
-              取消生成
+              {{ tr("取消生成") }}
             </button>
           </div>
           <p
@@ -1250,29 +1251,29 @@ async function deleteSelectedImage() {
             class="image-gen-status"
             :class="`is-${generationStatus.kind}`"
             :role="generationMessageRole"
-          >{{ generationStatus.message }}</p>
-          <button v-if="interruptedRun" type="button" class="image-preview-action-btn" @click="dismissInterruptedRun">清除中断记录</button>
-          <button v-if="retryGeneration && retryGeneration.job.libraryScopeKey === libraryScopeKey && !imageGenerating" type="button" class="image-preview-action-btn" @click="generateImages({ retry: true })">继续未完成图片（沿用原参数）</button>
+          >{{ tr(generationStatus.message) }}</p>
+          <button v-if="interruptedRun" type="button" class="image-preview-action-btn" @click="dismissInterruptedRun">{{ tr("清除中断记录") }}</button>
+          <button v-if="retryGeneration && retryGeneration.job.libraryScopeKey === libraryScopeKey && !imageGenerating" type="button" class="image-preview-action-btn" @click="generateImages({ retry: true })">{{ tr("继续未完成图片（沿用原参数）") }}</button>
         </section>
 
-        <section v-if="!referenceWorkspaceActive" class="image-gen-results" aria-label="插画候选">
-          <div v-if="imageJobItems.length" class="image-gen-item-states" aria-label="本次图片进度" aria-live="polite"><span v-for="(item, index) in imageJobItems" :key="item.id">{{ index + 1 }} · {{ imageJobStateLabels[item.state] }}</span></div>
-          <section v-for="item in unsavedImages.filter(item => item.scopeKey === libraryScopeKey)" :key="item.candidate.id" class="image-gen-unsaved" aria-label="待保存图片">
-            <img :src="item.candidate.data" alt="生成成功但尚未保存的候选" />
-            <p role="alert">图片已生成，保存失败。关闭或刷新会丢失此图。{{ item.error }}</p>
-            <button type="button" :disabled="savingImages" @click="retryImageStorage(item)">重试保存（不重新生成）</button>
-            <a :href="item.candidate.data" download="pinax-candidate.png">下载图片</a>
+        <section v-if="!referenceWorkspaceActive" class="image-gen-results" :aria-label="tr('插画候选')">
+          <div v-if="imageJobItems.length" class="image-gen-item-states" :aria-label="tr('本次图片进度')" aria-live="polite"><span v-for="(item, index) in imageJobItems" :key="item.id">{{ index + 1 }} · {{ tr(imageJobStateLabels[item.state]) }}</span></div>
+          <section v-for="item in unsavedImages.filter(item => item.scopeKey === libraryScopeKey)" :key="item.candidate.id" class="image-gen-unsaved" :aria-label="tr('待保存图片')">
+            <img :src="item.candidate.data" :alt="tr('生成成功但尚未保存的候选')" />
+            <p role="alert">{{ tr("图片已生成，保存失败。关闭或刷新会丢失此图。") }}{{ tr(item.error) }}</p>
+            <button type="button" :disabled="savingImages" @click="retryImageStorage(item)">{{ tr("重试保存（不重新生成）") }}</button>
+            <a :href="item.candidate.data" download="pinax-candidate.png">{{ tr("下载图片") }}</a>
           </section>
           <div class="image-gen-results-title">
-            <span>候选与历史</span>
-            <small v-if="imageLibrary.length">{{ imageLibrary.length }} 张</small>
+            <span>{{ tr("候选与历史") }}</span>
+            <small v-if="imageLibrary.length">{{ tr('图片数量：{count}', { count: imageLibrary.length }) }}</small>
           </div>
 
           <div v-if="selectedPreviewImage" class="image-gen-current-preview" :class="{ 'is-comparing': comparisonImage }">
-            <img v-if="comparisonImage" :src="comparisonImage.data" :alt="`对照：${comparisonImage.prompt || '已固定候选'}`" />
-            <img :src="selectedPreviewImage.data" :alt="selectedPreviewImage.prompt || sourceTitle || '当前插画候选'" />
+            <img v-if="comparisonImage" :src="comparisonImage.data" :alt="tr('对照：{prompt}', { prompt: comparisonImage.prompt || tr('已固定候选') })" />
+            <img :src="selectedPreviewImage.data" :alt="selectedPreviewImage.prompt || sourceTitle || tr('当前插画候选')" />
             <div class="image-gen-current-caption">
-              <strong>{{ selectedPreviewImage.prompt || sourceTitle || '当前插画候选' }}</strong>
+              <strong>{{ selectedPreviewImage.prompt || sourceTitle || tr("当前插画候选") }}</strong>
               <span v-if="selectedPreviewImage.width && selectedPreviewImage.height">{{ selectedPreviewImage.width }}×{{ selectedPreviewImage.height }}</span>
             </div>
           </div>
@@ -1284,13 +1285,13 @@ async function deleteSelectedImage() {
               data-test="image-style-preview"
               :style="{ '--style-position': selectedStylePreset.position }"
               role="img"
-              :aria-label="`${selectedStylePreset.label}画面风格参考`"
+              :aria-label="tr('{style}画面风格参考', { style: tr(selectedStylePreset.label) })"
             ></div>
-            <strong>{{ presentation === 'authoring' ? '输入画面描述后生成候选' : '还没有候选' }}</strong>
-            <span>{{ emptyResultHint }}</span>
+            <strong>{{ presentation === 'authoring' ? tr("输入画面描述后生成候选") : tr("还没有候选") }}</strong>
+            <span>{{ tr(emptyResultHint) }}</span>
           </div>
 
-          <div v-if="imageLibrary.length" class="image-gen-grid" role="group" aria-label="生成历史">
+          <div v-if="imageLibrary.length" class="image-gen-grid" role="group" :aria-label="tr('生成历史')">
             <button
               v-for="(img, idx) in imageLibrary"
               :key="img.id"
@@ -1298,7 +1299,7 @@ async function deleteSelectedImage() {
               class="image-gen-thumb"
               :class="{ active: imagePreviewIndex === idx }"
               :aria-pressed="imagePreviewIndex === idx"
-              :aria-label="`查看候选 ${idx + 1}${img.prompt ? `：${img.prompt}` : ''}`"
+              :aria-label="tr('查看候选 {index}：{prompt}', { index: idx + 1, prompt: img.prompt || '' })"
               @click="previewImage(idx)"
             >
               <img :src="img.data" alt="" />
@@ -1312,20 +1313,20 @@ async function deleteSelectedImage() {
               type="button"
               :disabled="selectedActionGuard.insertDisabled"
               @click="emitInsertImage(selectedPreviewImage)"
-            >插入正文</button>
-            <button class="image-preview-action-btn" type="button" :disabled="imageGenerating" @click="reuseImageParameters(selectedPreviewImage)">复用参数</button>
-            <a class="image-preview-action-btn" :href="selectedPreviewImage.data" download="pinax-image.png">下载图片</a>
-            <button class="image-preview-action-btn" type="button" :aria-pressed="Boolean(comparisonImageId)" @click="comparisonImageId = comparisonImageId ? '' : selectedPreviewImage.id">{{ comparisonImageId ? '取消对照' : '固定作对照' }}</button>
-            <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">复制提示词</button>
-            <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" @click="deleteSelectedImage">删除候选</button>
+            >{{ tr("插入正文") }}</button>
+            <button class="image-preview-action-btn" type="button" :disabled="imageGenerating" @click="reuseImageParameters(selectedPreviewImage)">{{ tr("复用参数") }}</button>
+            <a class="image-preview-action-btn" :href="selectedPreviewImage.data" download="pinax-image.png">{{ tr("下载图片") }}</a>
+            <button class="image-preview-action-btn" type="button" :aria-pressed="Boolean(comparisonImageId)" @click="comparisonImageId = comparisonImageId ? '' : selectedPreviewImage.id">{{ comparisonImageId ? tr("取消对照") : tr("固定作对照") }}</button>
+            <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">{{ tr("复制提示词") }}</button>
+            <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" @click="deleteSelectedImage">{{ tr("删除候选") }}</button>
             <button
               class="image-preview-action-btn"
               type="button"
               :disabled="selectedActionGuard.saveDisabled"
               @click="saveToMaterialLib"
-            >保存为素材</button>
+            >{{ tr("保存为素材") }}</button>
           </div>
-          <p v-if="selectedActionGuard.reason" class="image-gen-action-reason" role="status">{{ selectedActionGuard.reason }}</p>
+          <p v-if="selectedActionGuard.reason" class="image-gen-action-reason" role="status">{{ tr(selectedActionGuard.reason) }}</p>
         </section>
       </div>
     </div>
@@ -1937,10 +1938,18 @@ async function deleteSelectedImage() {
 .image-gen-style-section small { color: var(--text-secondary); font-size: 12px; }
 .image-gen-style-grid { display: grid; grid-template-columns: repeat(5, minmax(70px, 1fr)); gap: 7px; }
 .image-gen-style-option { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; transition: border-color 120ms ease, background-color 120ms ease; }
-.image-gen-style-option > span { display: block; height: 64px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; }
+.image-gen-style-option > span { display: block; height: 64px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; background-position: var(--style-position); }
 .image-gen-style-option strong { display: block; overflow: hidden; padding: 6px 7px; font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
 .image-gen-style-option:hover { border-color: color-mix(in srgb, var(--accent-primary, var(--accent)) 48%, var(--border-subtle)); }
 .image-gen-style-option.active { border-color: var(--accent-primary, var(--accent)); box-shadow: inset 0 -2px var(--accent-primary, var(--accent)); }
+.media-generation-inline:lang(en) .image-gen-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.media-generation-inline:lang(en) .image-gen-style-option > span { background-size: 500% auto; background-position-y: 20%; }
+.media-generation-inline:lang(en) .image-gen-style-option strong { min-height: 3.4em; white-space: normal; overflow-wrap: normal; line-height: 1.4; text-overflow: clip; }
+.media-generation-inline:lang(en) .image-gen-prompt-input { font-family: var(--font-sans); }
+.media-generation-inline:lang(en) .image-gen-label-row { flex-wrap: wrap; gap: 6px 12px; }
+@media (min-width: 721px) {
+  .media-generation-inline--authoring:lang(en) .image-gen-workspace { grid-template-columns: minmax(340px, 36%) minmax(0, 1fr); }
+}
 
 .media-generation-inline--authoring .image-gen-brief--authoring { margin: 0 0 16px; }
 .media-generation-inline--authoring .image-gen-reference-strip { display: flex; flex-wrap: wrap; grid-template-columns: none; }

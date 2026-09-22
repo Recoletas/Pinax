@@ -1,18 +1,18 @@
 <template>
   <div class="settings-overlay" @click.self="close">
-    <div ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" aria-label="设置" @keydown="onModalKeydown">
+    <div ref="modalRef" class="settings-modal" role="dialog" aria-modal="true" :aria-label="tr(&quot;设置&quot;)" @keydown="onModalKeydown">
       <header class="settings-modal__head">
-        <h2>设置</h2>
+        <h2>{{ tr('设置') }}</h2>
         <button
           ref="closeBtnRef"
           class="settings-modal__close"
           type="button"
-          aria-label="关闭"
+          :aria-label="tr(&quot;关闭&quot;)"
           @click="close"
         >×</button>
       </header>
 
-      <nav class="settings-tabs settings-navigation" role="tablist" aria-label="设置分区" @keydown="onTablistKeydown">
+      <nav class="settings-tabs settings-navigation" role="tablist" :aria-label="tr(&quot;设置分区&quot;)" @keydown="onTablistKeydown">
         <button
           v-for="tab in tabs"
           :id="`settings-tab-${tab.key}`"
@@ -26,18 +26,22 @@
           :tabindex="activeSection === tab.key ? 0 : -1"
           type="button"
           @click="activeSection = tab.key"
-        >{{ tab.label }}</button>
+        >{{ tr(tab.label) }}</button>
       </nav>
 
       <div class="settings-modal__body">
-        <section v-if="activeSection === 'writing'" id="settings-panel-writing" class="settings-section" role="tabpanel" aria-label="写作偏好"><WritingPreferences /></section>
-        <section v-if="activeSection === 'appearance'" id="settings-panel-appearance" class="settings-section appearance-preferences" role="tabpanel" aria-label="外观">
-          <h2>外观</h2>
-          <label>配色<select :value="theme.colorScheme" @change="theme.setColorScheme($event.target.value)"><option value="light">日间</option><option value="dark">夜间</option></select></label>
-          <label>界面缩放<select :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
-          <p class="settings-field-hint">只改变显示，不修改正文。夜间模式也可在右上角直接切换。</p>
+        <section v-if="activeSection === 'writing'" id="settings-panel-writing" class="settings-section" role="tabpanel" :aria-label="tr(&quot;写作偏好&quot;)"><WritingPreferences /></section>
+        <section v-if="activeSection === 'appearance'" id="settings-panel-appearance" class="settings-section appearance-preferences" role="tabpanel" :aria-label="tr(&quot;外观&quot;)">
+          <h2>{{ tr('外观') }}</h2>
+          <label>{{ tr('界面语言') }}<select :aria-label="tr('界面语言')" data-test="ui-language" :value="uiLocale" @change="changeLanguage($event.target.value)"><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
+          <label>{{ tr('助手解释语言') }}<select :aria-label="tr('助手解释语言')" data-test="assistant-language" :value="assistantLanguage" @change="changeLanguage(uiLocale, $event.target.value)"><option value="">{{ tr('跟随界面') }}</option><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
+          <p class="settings-field-hint">{{ tr('语言偏好仅保存在此设备，不随书稿备份恢复；切换界面不会翻译正文。') }}</p>
+          <p v-if="languageSaveError" role="alert">{{ tr('语言偏好保存失败，请重试。') }}</p>
+          <label>{{ tr('配色') }}<select :aria-label="tr('配色')" :value="theme.colorScheme" @change="theme.setColorScheme($event.target.value)"><option value="light">{{ tr('日间') }}</option><option value="dark">{{ tr('夜间') }}</option></select></label>
+          <label>{{ tr('界面缩放') }}<select :aria-label="tr('界面缩放')" :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
+          <p class="settings-field-hint">{{ tr('只改变显示，不修改正文。夜间模式也可在右上角直接切换。') }}</p>
         </section>
-        <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" aria-label="记忆与历史">
+        <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" :aria-label="tr(&quot;记忆与历史&quot;)">
           <MemoryHistoryWorkspace />
         </section>
         <section
@@ -45,7 +49,7 @@
           id="settings-panel-ai"
           class="settings-section"
           role="tabpanel"
-          aria-label="AI 配置"
+          :aria-label="tr(&quot;AI 配置&quot;)"
         >
           <ApiSettingsPanel />
         </section>
@@ -55,10 +59,10 @@
           id="settings-panel-experience"
           class="settings-section"
           role="tabpanel"
-          aria-label="体验"
+          :aria-label="tr(&quot;体验&quot;)"
         >
-          <label class="settings-field-label" id="narrative-expansion-label">单次续写篇幅</label>
-          <p class="settings-field-hint">仅影响之后的 AI 生成长度，不会改写已显示的正文。</p>
+          <label class="settings-field-label" id="narrative-expansion-label">{{ tr('单次续写篇幅') }}</label>
+          <p class="settings-field-hint">{{ tr('仅影响之后的 AI 生成长度，不会改写已显示的正文。') }}</p>
           <nav class="settings-tabs" role="group" aria-labelledby="narrative-expansion-label">
             <button
               v-for="level in expansion.levels"
@@ -68,13 +72,13 @@
               :aria-pressed="(expansion.levelName === level.key).toString()"
               type="button"
               @click="expansion.setLevel(level.key)"
-            >{{ level.label }}</button>
+            >{{ tr(level.label) }}</button>
           </nav>
 
           <div class="settings-field-divider"></div>
 
-          <label class="settings-field-label" id="reading-density-label">阅读密度</label>
-          <p class="settings-field-hint">立即改变当前页面的字号、行高和段落间距。</p>
+          <label class="settings-field-label" id="reading-density-label">{{ tr('阅读密度') }}</label>
+          <p class="settings-field-hint">{{ tr('立即改变当前页面的字号、行高和段落间距。') }}</p>
           <nav class="settings-tabs" role="group" aria-labelledby="reading-density-label">
             <button
               v-for="profile in readingProfileOptions"
@@ -84,7 +88,7 @@
               :aria-pressed="(readingProfile === profile.key).toString()"
               type="button"
               @click="setReadingProfile(profile.key)"
-            >{{ profile.label }}</button>
+            >{{ tr(profile.label) }}</button>
           </nav>
         </section>
 
@@ -93,10 +97,10 @@
           id="settings-panel-storage"
           class="settings-section"
           role="tabpanel"
-          aria-label="备份与恢复"
+          :aria-label="tr(&quot;备份与恢复&quot;)"
         >
-          <h2>备份与恢复</h2>
-          <p class="storage-lead">备份用于保留副本或迁移设备，导出本身不会释放空间。</p>
+          <h2>{{ tr('备份与恢复') }}</h2>
+          <p class="storage-lead">{{ tr('备份用于保留副本或迁移设备，导出本身不会释放空间。') }}</p>
           <div class="storage-actions storage-actions--lead">
             <button
               class="settings-btn settings-btn--primary"
@@ -105,10 +109,10 @@
               :disabled="workspaceBusy"
               @click="handleExportWorkspaceBackup"
             >
-              {{ workspaceBusy ? '正在导出完整工作区...' : '导出完整工作区（ZIP）' }}
+              {{ workspaceBusy ? tr('正在导出完整工作区...') : tr('导出完整工作区（ZIP）') }}
             </button>
-            <button class="settings-btn" type="button" data-test="backup-export-button" @click="handleExportBackup">导出轻量备份（JSON）</button>
-            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">恢复备份</button>
+            <button class="settings-btn" type="button" data-test="backup-export-button" @click="handleExportBackup">{{ tr('导出轻量备份（JSON）') }}</button>
+            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">{{ tr('恢复备份') }}</button>
             <input
               ref="backupInputRef"
               class="backup-import-input"
@@ -119,41 +123,42 @@
             >
           </div>
           <div v-if="backupPlan" class="backup-review" data-test="backup-review" role="status">
-            <strong>备份已读取，确认后才会写入</strong>
-            <span v-if="backupExportedAt">备份生成于 {{ backupExportedAt }}</span>
+            <strong>{{ tr('备份已读取，确认后才会写入') }}</strong>
+            <span v-if="backupExportedAt">{{ tr('备份生成于 {backupExportedAt}', { backupExportedAt: backupExportedAt }) }}</span>
             <span v-if="backupWorksLine">{{ backupWorksLine }}</span>
-            <span>恢复将：新增 {{ backupPlan.add.length }} 项 · 覆盖 {{ backupPlan.overwrite.length }} 项 · 内容相同跳过 {{ backupPlan.skip.length }} 项</span>
-            <span v-if="backupPlan.incompatible.length" class="backup-review__error">{{ backupPlan.incompatible.join('；') }}</span>
+            <span>{{ tr('恢复将：新增 {length} 项 · 覆盖 {length1} 项 · 内容相同跳过 {length2} 项', { length: backupPlan.add.length, length1: backupPlan.overwrite.length, length2: backupPlan.skip.length }) }}</span>
+            <span v-if="backupPlan.incompatible.length" class="backup-review__error">{{ backupPlan.incompatible.map(backupMessage).join('; ') }}</span>
             <div v-if="backupPlan.restoreWarnings?.length" class="backup-review__warnings" role="alert">
-              <span v-for="warning in backupPlan.restoreWarnings" :key="warning">{{ warning }}</span>
+              <span v-for="warning in backupPlan.restoreWarnings" :key="warning">{{ backupMessage(warning) }}</span>
               <label class="backup-review__consent">
                 <input v-model="backupRiskAccepted" type="checkbox">
-                <span>我了解恢复会替换这些较新的数据</span>
+                <span>{{ tr('我了解恢复会替换这些较新的数据') }}</span>
               </label>
             </div>
             <div class="backup-review__actions">
               <button class="settings-btn settings-btn--primary" type="button" data-test="backup-restore-confirm" :disabled="backupBusy || !backupPlan.valid || (backupPlan.requiresRiskConfirmation && !backupRiskAccepted)" @click="confirmBackupRestore">
-                {{ backupBusy ? '写入中...' : '确认导入' }}
+                {{ backupBusy ? tr('写入中...') : tr('确认导入') }}
               </button>
-              <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
+              <button class="settings-btn" type="button" @click="cancelBackupRestore">{{ tr('取消') }}</button>
             </div>
           </div>
           <div v-if="workspaceBundle" class="backup-review" data-test="workspace-backup-review" role="status">
-            <strong>完整工作区备份已读取，确认后才会写入</strong>
-            <span v-if="workspaceBundle.inspection.createdAt">备份生成于 {{ workspaceBundle.inspection.createdAt }}</span>
-            <span>恢复将：新增 {{ workspaceBundle.inspection.counts.add }} 项 · 覆盖 {{ workspaceBundle.inspection.counts.overwrite }} 项 · 内容相同跳过 {{ workspaceBundle.inspection.counts.skip }} 项</span>
-            <span v-if="workspaceBundle.inspection.memoryHistoryCount">记忆历史 {{ workspaceBundle.inspection.memoryHistoryCount }} 条；同版本不重复导入，冲突版本拒绝覆盖</span>
-            <span v-if="workspaceBundle.inspection.factLedgerCount">事实账本 {{ workspaceBundle.inspection.factLedgerCount }} 条；包含证据、决定与跑团回执</span>
-            <span v-if="workspaceBundle.inspection.missingDomains?.includes('factLedger')">旧备份不含事实账本，现有账本不会被清空</span>
-            <span v-if="workspaceBundle.inspection.counts.missingBinary" class="backup-review__error">缺少媒体原件 {{ workspaceBundle.inspection.counts.missingBinary }} 项（仅恢复元数据）</span>
-            <span v-if="workspaceBundle.inspection.counts.unrestoreable" class="backup-review__error">无法恢复 {{ workspaceBundle.inspection.counts.unrestoreable }} 项（schema 版本不符）</span>
-            <span v-if="workspaceBundle.inspection.rejectedSecretKeys.length">已排除 {{ workspaceBundle.inspection.rejectedSecretKeys.length }} 个模型配置密钥键</span>
-            <span v-for="warning in workspaceBundle.inspection.warnings" :key="warning">{{ warning }}</span>
-            <span>恢复会覆盖来源归档、媒体与本地数据中与备份不同的内容</span>
+            <strong>{{ tr('完整工作区备份已读取，确认后才会写入') }}</strong>
+            <span v-if="workspaceBundle.inspection.createdAt">{{ tr('备份生成于 {createdAt}', { createdAt: workspaceBundle.inspection.createdAt }) }}</span>
+            <span>{{ tr('恢复将：新增 {add} 项 · 覆盖 {overwrite} 项 · 内容相同跳过 {skip} 项', { add: workspaceBundle.inspection.counts.add, overwrite: workspaceBundle.inspection.counts.overwrite, skip: workspaceBundle.inspection.counts.skip }) }}</span>
+            <span v-if="workspaceBundle.inspection.memoryHistoryCount">{{ tr('记忆历史 {memoryHistoryCount} 条；同版本不重复导入，冲突版本拒绝覆盖', { memoryHistoryCount: workspaceBundle.inspection.memoryHistoryCount }) }}</span>
+            <span v-if="workspaceBundle.inspection.factLedgerCount">{{ tr('事实账本 {factLedgerCount} 条；包含证据、决定与跑团回执', { factLedgerCount: workspaceBundle.inspection.factLedgerCount }) }}</span>
+            <span v-if="workspaceBundle.inspection.missingDomains?.includes('factLedger')">{{ tr('旧备份不含事实账本，现有账本不会被清空') }}</span>
+            <span v-if="workspaceBundle.inspection.counts.missingBinary" class="backup-review__error">{{ tr('缺少媒体原件 {missingBinary} 项（仅恢复元数据）', { missingBinary: workspaceBundle.inspection.counts.missingBinary }) }}</span>
+            <span v-if="workspaceBundle.inspection.counts.unrestoreable" class="backup-review__error">{{ tr('无法恢复 {unrestoreable} 项（schema 版本不符）', { unrestoreable: workspaceBundle.inspection.counts.unrestoreable }) }}</span>
+            <span v-if="workspaceBundle.inspection.rejectedSecretKeys.length">{{ tr('已排除 {length} 个模型配置密钥键', { length: workspaceBundle.inspection.rejectedSecretKeys.length }) }}</span>
+            <span v-for="warning in workspaceBundle.inspection.warnings" :key="warning">{{ backupMessage(warning) }}</span>
+            <span>{{ tr('恢复会覆盖来源归档、媒体与本地数据中与备份不同的内容') }}</span>
             <div v-if="workspaceBundle.inspection.requiresRiskConfirmation" class="backup-review__warnings" role="alert">
+              <span v-for="warning in workspaceBundle.inspection.localStoragePlan?.restoreWarnings || []" :key="warning">{{ backupMessage(warning) }}</span>
               <label class="backup-review__consent">
                 <input v-model="backupRiskAccepted" type="checkbox">
-                <span>我了解恢复会替换这些较新的数据</span>
+                <span>{{ tr('我了解恢复会替换这些较新的数据') }}</span>
               </label>
             </div>
             <div class="backup-review__actions">
@@ -164,30 +169,26 @@
                 :disabled="workspaceBusy || (workspaceBundle.inspection.requiresRiskConfirmation && !backupRiskAccepted)"
                 @click="confirmWorkspaceRestore"
               >
-                {{ workspaceBusy ? '写入中...' : '确认导入完整工作区' }}
+                {{ workspaceBusy ? tr('写入中...') : tr('确认导入完整工作区') }}
               </button>
-              <button class="settings-btn" type="button" @click="cancelBackupRestore">取消</button>
+              <button class="settings-btn" type="button" @click="cancelBackupRestore">{{ tr('取消') }}</button>
             </div>
           </div>
-          <p class="storage-boundary-note">
-            完整工作区（ZIP）包含书稿、设定、来源归档、已落盘媒体与记忆历史；轻量备份（JSON）不含已归档的记忆历史。
-            模型密钥始终不进入任何备份；外部链接引用、尚未落盘的媒体与浏览器缓存不保证包含。
-            恢复会覆盖所选备份中的对应数据，确认前会先显示预览。备份文件请妥善保存。
-          </p>
+          <p class="storage-boundary-note">{{ tr('完整工作区（ZIP）包含书稿、设定、来源归档、已落盘媒体与记忆历史；轻量备份（JSON）不含已归档的记忆历史。 模型密钥始终不进入任何备份；外部链接引用、尚未落盘的媒体与浏览器缓存不保证包含。 恢复会覆盖所选备份中的对应数据，确认前会先显示预览。备份文件请妥善保存。') }}</p>
           <p v-if="backupFeedback" class="backup-feedback" role="status" data-test="backup-feedback">
             {{ backupFeedback }}
-            <router-link v-if="restoredTarget" :to="{ name: 'authoring', query: { bookId: restoredTarget.bookId } }">继续《{{ restoredTarget.bookTitle }}》</router-link>
-            <router-link v-else-if="restoreSucceeded" to="/">打开作品列表</router-link>
+            <router-link v-if="restoredTarget" :to="{ name: 'authoring', query: { bookId: restoredTarget.bookId } }">{{ tr('继续《{bookTitle}》', { bookTitle: restoredTarget.bookTitle }) }}</router-link>
+            <router-link v-else-if="restoreSucceeded" to="/">{{ tr('打开作品列表') }}</router-link>
           </p>
 
           <div class="beta-support">
             <div>
-              <strong>使用中遇到问题？</strong>
-              <span>诊断文件只含浏览器环境、存储用量和书稿数量，不含正文、标题、ID、模型密钥或生成内容。</span>
+              <strong>{{ tr('使用中遇到问题？') }}</strong>
+              <span>{{ tr('诊断文件只含浏览器环境、存储用量和书稿数量，不含正文、标题、ID、模型密钥或生成内容。') }}</span>
             </div>
             <div class="beta-support__actions">
-              <button class="settings-btn" type="button" @click="openBetaGuide">查看快速开始</button>
-              <button class="settings-btn" type="button" data-test="beta-diagnostic-export" @click="handleExportDiagnostic">导出诊断信息</button>
+              <button class="settings-btn" type="button" @click="openBetaGuide">{{ tr('查看快速开始') }}</button>
+              <button class="settings-btn" type="button" data-test="beta-diagnostic-export" @click="handleExportDiagnostic">{{ tr('导出诊断信息') }}</button>
             </div>
           </div>
         </section>
@@ -197,6 +198,11 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
+import { backupMessage } from '../../i18n/backupMessages.js'
+import { uiLocale, assistantLanguage, setLanguagePreferences } from '../../i18n/index.js'
+const languageSaveError = ref(false)
+function changeLanguage(locale, assistant = assistantLanguage.value) { languageSaveError.value = !setLanguagePreferences(locale, assistant) }
 import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
@@ -254,9 +260,9 @@ function readBackupBooks() {
 const backupWorksLine = computed(() => {
   const list = readBackupBooksSafe()
   if (!list) return ''
-  if (list.length === 1) return `包含 1 本书稿：《${String(list[0]?.title || '未命名书稿')}》`
-  if (list.length > 1) return `包含 ${list.length} 本书稿`
-  return '这份备份里没有书稿数据'
+  if (list.length === 1) return tr('包含书稿：{title}', { title: String(list[0]?.title || tr('未命名书稿')) })
+  if (list.length > 1) return tr('包含 {count} 本书稿', { count: list.length })
+  return tr('这份备份里没有书稿数据')
 })
 
 function readBackupBooksSafe() {
@@ -287,14 +293,14 @@ async function handleExportWorkspaceBackup() {
     const missing = result.manifest.domains.media.missingBinaryIds.length
     const domains = result.manifest.domains
     const sizeLine = formatBytes(result.stats.zipBytes)
-    const missingLine = missing > 0 ? `；${missing} 个媒体缺少本地原件未包含` : ''
-    backupFeedback.value = `完整工作区已导出（${sizeLine}）：书稿 ${domains.localStorage.keyCount} 项 · 来源 ${domains.sourceArchive.artifactCount + domains.sourceArchive.chunkCount} 条 · 媒体 ${domains.media.binaryCount} 份 · 记忆修订 ${domains.memoryHistory.revisionCount} 条${missingLine}。模型密钥未包含。`
+    const missingLine = missing > 0 ? tr('；{value0} 个媒体缺少本地原件未包含', { value0: missing }) : ''
+    backupFeedback.value = tr('完整工作区已导出（{value0}）：书稿 {value1} 项 · 来源 {value2} 条 · 媒体 {value3} 份 · 记忆修订 {value4} 条{value5}。模型密钥未包含。', { value0: sizeLine, value1: domains.localStorage.keyCount, value2: domains.sourceArchive.artifactCount + domains.sourceArchive.chunkCount, value3: domains.media.binaryCount, value4: domains.memoryHistory.revisionCount, value5: missingLine })
     restoreSucceeded.value = false
     restoredTarget.value = null
   } catch (error) {
     backupFeedback.value = error?.name === 'WorkspaceBackupCancelled'
-      ? '完整工作区导出已取消，原有数据未变。'
-      : '完整工作区导出失败，原有数据未变；可改用“导出轻量备份（JSON）”。'
+      ? tr('完整工作区导出已取消，原有数据未变。')
+      : tr('完整工作区导出失败，原有数据未变；可改用“导出轻量备份（JSON）”。')
   } finally {
     workspaceBusy.value = false
   }
@@ -303,22 +309,22 @@ async function handleExportWorkspaceBackup() {
 function handleExportBackup() {
   try {
     const result = exportAllBackup()
-    backupFeedback.value = `备份文件已生成：包含 ${result.keyCount} 项本地作品数据，模型密钥未包含。请妥善保存。`
+    backupFeedback.value = tr('备份文件已生成：包含 {value0} 项本地作品数据，模型密钥未包含。请妥善保存。', { value0: result.keyCount })
     restoreSucceeded.value = false
     restoredTarget.value = null
   } catch {
 
-    backupFeedback.value = '备份导出失败，请稍后重试；如持续失败，请用“导出诊断信息”反馈。'
+    backupFeedback.value = tr('备份导出失败，请稍后重试；如持续失败，请用“导出诊断信息”反馈。')
   }
 }
 
 async function handleExportDiagnostic() {
   try {
     await exportBetaDiagnosticReport()
-    backupFeedback.value = '诊断信息已导出；发送前仍可用文本编辑器打开检查。'
+    backupFeedback.value = tr('诊断信息已导出；发送前仍可用文本编辑器打开检查。')
   } catch {
 
-    backupFeedback.value = '诊断信息导出失败，请直接描述你看到的问题。'
+    backupFeedback.value = tr('诊断信息导出失败，请直接描述你看到的问题。')
   }
 }
 
@@ -349,12 +355,12 @@ async function handleBackupFile(event) {
     backupPlan.value = createRestorePlan(backupText.value)
     backupRiskAccepted.value = false
     if (!backupPlan.value.valid) {
-      backupFeedback.value = `${backupPlan.value.incompatible.join('；') || '备份不可导入'}。请确认这是本应用“导出轻量备份（JSON）”生成的文件，或使用完整工作区 ZIP 恢复，再重新选择。`
+      backupFeedback.value = tr('{value0}。请确认这是本应用“导出轻量备份（JSON）”生成的文件，或使用完整工作区 ZIP 恢复，再重新选择。', { value0: backupPlan.value.incompatible.map(backupMessage).join('; ') || '备份不可导入' })
       backupPlan.value = null
     }
   } catch (error) {
     backupPlan.value = null
-    backupFeedback.value = `${error?.message || '备份读取失败'}。请重新选择备份文件；文件应是 .json 或 .zip 格式。`
+    backupFeedback.value = tr('{value0}。请重新选择备份文件；文件应是 .json 或 .zip 格式。', { value0: error?.message || '备份读取失败' })
   }
 }
 
@@ -365,19 +371,15 @@ async function handleWorkspaceBackupFile(file) {
     const inspection = await inspectWorkspaceBackup(file, { storage: localStorage })
     if (!inspection.valid) {
       workspaceBundle.value = null
-      backupFeedback.value = `这份完整工作区备份无法使用：${inspection.errors.join('；')}`
+      backupFeedback.value = tr('这份完整工作区备份无法使用：{value0}', { value0: inspection.errors.map(backupMessage).join('; ') })
       return
     }
     workspaceBundle.value = { file, inspection }
     backupRiskAccepted.value = false
-    const counts = inspection.counts
-    backupFeedback.value = `完整工作区备份已读取（${formatBytes(file.size)}）：新增 ${counts.add} 项 · 覆盖 ${counts.overwrite} 项 · 相同跳过 ${counts.skip} 项` +
-      (counts.missingBinary ? ` · 缺少媒体原件 ${counts.missingBinary} 项` : '') +
-      (counts.unrestoreable ? ` · 无法恢复 ${counts.unrestoreable} 项` : '') +
-      '。确认后才会写入。'
+    backupFeedback.value = tr('完整工作区备份已读取。确认后才会写入。')
   } catch (error) {
     workspaceBundle.value = null
-    backupFeedback.value = `${error?.message || '完整工作区备份读取失败'}。请重新选择备份文件。`
+    backupFeedback.value = tr('{value0}。请重新选择备份文件。', { value0: error?.message || '完整工作区备份读取失败' })
   } finally {
     workspaceBusy.value = false
   }
@@ -387,7 +389,7 @@ async function confirmWorkspaceRestore() {
   const bundle = workspaceBundle.value
   if (!bundle || workspaceBusy.value) return
   workspaceBusy.value = true
-  backupFeedback.value = '正在恢复完整工作区...'
+  backupFeedback.value = tr('正在恢复完整工作区...')
   try {
     const result = await restoreWorkspaceBackupBundle(bundle.file, {
       storage: localStorage,
@@ -398,23 +400,23 @@ async function confirmWorkspaceRestore() {
       restoredTarget.value = resolveRestoredTarget()
       restoreSucceeded.value = true
       const domains = result.domains
-      backupFeedback.value = `完整工作区已恢复：来源 ${domains.sourceArchive.written} 条 · 媒体 ${domains.media.written} 份 · 本地数据 ${domains.localStorage.written} 项。刷新后完全生效。`
+      backupFeedback.value = tr('完整工作区已恢复：来源 {value0} 条 · 媒体 {value1} 份 · 本地数据 {value2} 项。刷新后完全生效。', { value0: domains.sourceArchive.written, value1: domains.media.written, value2: domains.localStorage.written })
       cancelBackupRestore()
       // 只在持久化全部确认后刷新应用
       setTimeout(() => window.location.reload(), 1200)
     } else if (result.reason === 'restore-risk-not-accepted') {
-      backupFeedback.value = '这份备份会替换较新的数据，需要先勾选确认后才能导入。'
+      backupFeedback.value = tr('这份备份会替换较新的数据，需要先勾选确认后才能导入。')
     } else {
       const domainLines = result.domains
         ? Object.entries(result.domains)
           .filter(([, d]) => !d.ok)
-          .map(([name, d]) => `${name}：${d.reason}${d.rollbackFailed ? '（回滚也失败，请勿关闭页面）' : d.rolledBack ? '（已回滚）' : ''}`)
+          .map(([name, d]) => `${name}：${d.reason}${d.rollbackFailed ? tr('（回滚也失败，请勿关闭页面）') : d.rolledBack ? tr('（已回滚）') : ''}`)
           .join('；')
         : result.reason
-      backupFeedback.value = `完整工作区恢复未完成：${domainLines}。原有数据已尽量保留，请勿关闭页面，可先“导出轻量备份（JSON）”留底后重试。`
+      backupFeedback.value = tr('完整工作区恢复未完成：{value0}。原有数据已尽量保留，请勿关闭页面，可先“导出轻量备份（JSON）”留底后重试。', { value0: domainLines })
     }
   } catch (error) {
-    backupFeedback.value = `${error?.message || '完整工作区恢复失败'}。原有数据已尽量保留。`
+    backupFeedback.value = tr('{value0}。原有数据已尽量保留。', { value0: error?.message || '完整工作区恢复失败' })
   } finally {
     workspaceBusy.value = false
   }
@@ -447,14 +449,14 @@ function confirmBackupRestore() {
     if (result.success) {
       restoredTarget.value = resolveRestoredTarget()
       restoreSucceeded.value = true
-      backupFeedback.value = '备份已恢复，数据已写回当前浏览器。'
+      backupFeedback.value = tr('备份已恢复，数据已写回当前浏览器。')
       cancelBackupRestore()
     } else if (result.reason === 'quota') {
-      backupFeedback.value = '浏览器拒绝写入，已撤销本次导入。请保留备份文件，可在另一浏览器或设备中尝试恢复；请勿清除当前网站数据。'
+      backupFeedback.value = tr('浏览器拒绝写入，已撤销本次导入。请保留备份文件，可在另一浏览器或设备中尝试恢复；请勿清除当前网站数据。')
     } else if (result.reason === 'restore-risk-not-accepted') {
-      backupFeedback.value = '这份备份会替换较新的数据，需要先勾选确认后才能导入。'
+      backupFeedback.value = tr('这份备份会替换较新的数据，需要先勾选确认后才能导入。')
     } else {
-      backupFeedback.value = `${result.error || '备份写入失败，未完成导入'}。原有数据未变，可重新选择备份文件再试。`
+      backupFeedback.value = tr('{value0}。原有数据未变，可重新选择备份文件再试。', { value0: result.error || '备份写入失败，未完成导入' })
     }
   } finally {
     backupBusy.value = false

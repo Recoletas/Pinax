@@ -1,3 +1,5 @@
+import { defaultWritingTitle, normalizeManuscriptLanguage } from '../../../shared/writingLanguage.js'
+import { countWritingText } from '../../../shared/writingTextMetrics.js'
 import { detectEncodingFromBytes, SOURCE_ENCODING_CANDIDATES } from './encodingDetector.js'
 
 const MAX_MANUSCRIPT_BYTES = 5 * 1024 * 1024
@@ -5,6 +7,7 @@ const MAX_MANUSCRIPT_CHARS = 1_000_000
 const MAX_MANUSCRIPT_CHAPTERS = 500
 
 const PLAIN_CHAPTER_HEADING = /^(第.{1,18}[章回卷部篇]|序章|楔子|引子|前言|后记|尾声|终章|番外(?:[一二三四五六七八九十百千0-9]+)?)\s*(.*)$/u
+const ENGLISH_CHAPTER_HEADING = /^(?:chapter[ \t]+(?:[0-9]+|[IVXLCDM]+)(?:[ \t]*[:.\-–—][ \t]+[^\r\n]+)?|prologue|epilogue)$/iu
 const MARKDOWN_HEADING = /^(#{1,2})[ \t]+(.+?)\s*#*\s*$/u
 const DIVIDER = /^\s*(?:---+|\*\s*\*\s*\*)\s*$/u
 
@@ -46,6 +49,7 @@ function collectMarkers(lines) {
       return
     }
     const chapter = line.trim().match(PLAIN_CHAPTER_HEADING)
+    if (ENGLISH_CHAPTER_HEADING.test(line.trim())) plain.push({ index, level: 0, title: cleanHeading(line.trim()) })
     if (chapter) plain.push({ index, level: 0, title: cleanHeading(`${chapter[1]}${chapter[2] ? ` ${chapter[2].trim()}` : ''}`) })
   })
 
@@ -61,11 +65,11 @@ function collectMarkers(lines) {
   return { markers: [], documentTitle: '', documentHeadingIndex: -1 }
 }
 
-function splitByMarkers(lines, markers) {
+function splitByMarkers(lines, markers, language) {
   if (!markers.length) return []
   const chapters = []
   const preface = meaningfulBody(lines.slice(0, markers[0].index))
-  if (preface) chapters.push({ title: '卷首', content: preface })
+  if (preface) chapters.push({ title: defaultWritingTitle('preface', language), content: preface })
 
   markers.forEach((marker, markerIndex) => {
     const nextIndex = markers[markerIndex + 1]?.index ?? lines.length
@@ -77,7 +81,7 @@ function splitByMarkers(lines, markers) {
   return chapters
 }
 
-export function parseManuscriptText({ text, filename = '' } = {}) {
+export function parseManuscriptText({ text, filename = '', manuscriptLanguage = '' } = {}) {
   const normalized = normalizeText(text)
   if (!normalized.trim()) return { ok: false, reason: 'empty', message: '文件里没有可导入的正文。' }
   if (normalized.length > MAX_MANUSCRIPT_CHARS) {
@@ -89,11 +93,11 @@ export function parseManuscriptText({ text, filename = '' } = {}) {
   const chapterLines = documentHeadingIndex >= 0
     ? lines.map((line, index) => index === documentHeadingIndex ? '' : line)
     : lines
-  const fallbackTitle = filenameStem(filename) || documentTitle || '导入书稿'
-  const autoChapters = splitByMarkers(chapterLines, markers)
+  const fallbackTitle = filenameStem(filename) || documentTitle || defaultWritingTitle('imported', manuscriptLanguage)
+  const autoChapters = splitByMarkers(chapterLines, markers, manuscriptLanguage)
   const chapters = autoChapters.length
     ? autoChapters
-    : [{ title: '正文', content: meaningfulBody(lines) }]
+    : [{ title: defaultWritingTitle('body', manuscriptLanguage), content: meaningfulBody(lines) }]
 
   if (chapters.length > MAX_MANUSCRIPT_CHAPTERS) {
     return { ok: false, reason: 'too-many-chapters', message: `识别到 ${chapters.length} 章，超过单次导入上限 ${MAX_MANUSCRIPT_CHAPTERS} 章。` }
@@ -101,7 +105,7 @@ export function parseManuscriptText({ text, filename = '' } = {}) {
 
   return {
     ok: true,
-    title: cleanHeading(documentTitle || fallbackTitle, '导入书稿'),
+    title: cleanHeading(documentTitle || fallbackTitle, defaultWritingTitle('imported', manuscriptLanguage)),
     filename: String(filename || ''),
     text: normalized,
     charCount: normalized.length,
@@ -110,16 +114,16 @@ export function parseManuscriptText({ text, filename = '' } = {}) {
   }
 }
 
-export function buildSingleChapterPreview(parsed) {
+export function buildSingleChapterPreview(parsed, manuscriptLanguage = '') {
   if (!parsed?.ok) return []
-  return [{ title: '正文', content: String(parsed.text || '').trim() }]
+  return [{ title: defaultWritingTitle('body', manuscriptLanguage), content: String(parsed.text || '').trim() }]
 }
 
-export function createImportedWritingBook({ title, chapters, now = () => new Date(), idFactory = null } = {}) {
+export function createImportedWritingBook({ title, chapters, manuscriptLanguage = '', now = () => new Date(), idFactory = null } = {}) {
   const normalizedTitle = cleanHeading(title, '')
   const normalizedChapters = (Array.isArray(chapters) ? chapters : [])
     .map((chapter, index) => ({
-      title: cleanHeading(chapter?.title, `第 ${index + 1} 章`),
+      title: cleanHeading(chapter?.title, defaultWritingTitle('chapter', manuscriptLanguage, index + 1)),
       content: normalizeText(chapter?.content).trim()
     }))
     .filter((chapter) => chapter.title || chapter.content)
@@ -140,7 +144,8 @@ export function createImportedWritingBook({ title, chapters, now = () => new Dat
     book: {
       id: String(makeId('book', 0)),
       title: normalizedTitle,
-      description: '由本地 TXT / Markdown 书稿导入',
+      ...(normalizeManuscriptLanguage(manuscriptLanguage) ? { manuscriptLanguage: normalizeManuscriptLanguage(manuscriptLanguage) } : {}),
+      description: manuscriptLanguage === 'en' ? 'Imported from a local TXT / Markdown manuscript' : '由本地 TXT / Markdown 书稿导入',
       worldbookId: '',
       createdAt: iso,
       updatedAt: iso,
@@ -150,7 +155,7 @@ export function createImportedWritingBook({ title, chapters, now = () => new Dat
         content: chapter.content,
         contentFormat: 'md',
         outlineItems: [],
-        wordCount: chapter.content.replace(/\s/gu, '').length,
+        wordCount: countWritingText(chapter.content, manuscriptLanguage),
         createdAt: iso,
         updatedAt: iso
       }))
@@ -177,6 +182,13 @@ export function decodeManuscriptBytes(bytes, encoding = 'auto') {
   if (!source.length) return { ok: false, message: '文件里没有可导入的正文。' }
 
   if (encoding === 'auto') {
+    // Valid UTF-8 is authoritative before legacy-encoding heuristics. Those
+    // heuristics can otherwise turn café / O’Neill into plausible CJK text.
+    try {
+      const utf8 = new TextDecoder('utf-8', { fatal: true }).decode(source)
+      if (!utf8.includes('\0')) return { ok: true, encoding: 'utf-8', confidence: 'high', text: utf8, candidates: [], warnings: [] }
+    } catch { /* Not UTF-8: retain the existing BOM/legacy encoding detector. */ }
+
     const detected = detectEncodingFromBytes(source)
     if (!detected.text) return { ok: false, message: detected.warnings[0] || '无法读取文件编码。' }
     return { ok: true, ...detected }

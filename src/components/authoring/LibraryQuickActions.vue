@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 defineEmits(['backup'])
@@ -17,10 +18,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 
 <template>
   <div class="library-quick-actions">
-    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>新建作品</strong></span></router-link><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary aria-label="新建作品选项"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&guide=first-run">空白小说</router-link><router-link to="/authoring?start=import&guide=first-run">从已有书稿创建</router-link></div></details></div>
-    <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>导入书稿</strong></span></router-link>
-    <button type="button" @click="$emit('backup')"><WorkbenchIcon name="backup" :size="18" /><span><strong>备份与恢复</strong></span></button>
-    <router-link to="/docs/01-quickstart"><WorkbenchIcon name="guide" :size="18" /><span><strong>创作指南</strong></span></router-link>
+    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>{{ tr('新建作品') }}</strong></span></router-link><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary :aria-label="tr(&quot;新建作品选项&quot;)"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&guide=first-run">{{ tr('空白小说') }}</router-link><router-link to="/authoring?start=import&guide=first-run">{{ tr('从已有书稿创建') }}</router-link></div></details></div>
+    <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>{{ tr('导入书稿') }}</strong></span></router-link>
+    <button type="button" @click="$emit('backup')"><WorkbenchIcon name="backup" :size="18" /><span><strong>{{ tr('备份与恢复') }}</strong></span></button>
+    <router-link to="/docs/01-quickstart"><WorkbenchIcon name="guide" :size="18" /><span><strong>{{ tr('创作指南') }}</strong></span></router-link>
   </div>
 </template>
 

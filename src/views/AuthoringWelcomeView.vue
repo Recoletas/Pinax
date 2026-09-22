@@ -3,28 +3,29 @@
     <LibrarySidebar :books="books" @settings="settings.open" />
     <main class="library-main">
       <section class="library-heading" aria-labelledby="library-title">
-        <div><span class="library-kicker">创作空间</span><h1 id="library-title">我的作品</h1><p>{{ books.length ? '每一个故事，都值得认真写下去。' : '从第一本书开始，把想法写成故事。' }}</p></div>
-        <router-link v-if="recentBook" class="library-return" data-test="welcome-continue-book" :to="{ name: 'authoring', query: { bookId: recentBook.id } }"><WorkbenchIcon name="pencil" :size="21" /><span><small>继续最近的书稿</small><strong>{{ recentBook.title || '未命名书稿' }}</strong></span><WorkbenchIcon name="arrow-right" :size="20" /></router-link>
+        <div><h1 id="library-title">{{ tr('我的作品') }}</h1><p v-if="!books.length">{{ tr('从第一本书开始，把想法写成故事。') }}</p></div>
+        <router-link v-if="recentBook" class="library-return" data-test="welcome-continue-book" :to="{ name: 'authoring', query: { bookId: recentBook.id } }"><WorkbenchIcon name="pencil" :size="21" /><span><small>{{ tr('继续最近的书稿') }}</small><strong>{{ recentBook.title || tr('未命名书稿') }}</strong></span><WorkbenchIcon name="arrow-right" :size="20" /></router-link>
       </section>
       <LibraryQuickActions @backup="settings.open('storage')" />
       <template v-if="books.length">
         <div class="library-toolbar">
-          <h2 class="library-section-title">全部作品 <span>{{ books.length }}</span></h2>
-          <label class="library-search"><WorkbenchIcon name="search" :size="18" /><input ref="searchInput" v-model="search" type="search" placeholder="搜索书名" aria-label="搜索书名"></label>
-          <div class="library-view-controls"><select v-model="sort" aria-label="书稿排序"><option value="updated">最近修改</option><option value="title">书名排序</option><option value="created">最近创建</option></select><div class="library-view-toggle" role="group" aria-label="书库视图"><button type="button" :aria-pressed="view === 'grid'" @click="view = 'grid'"><WorkbenchIcon name="grid" :size="16" />书架</button><button type="button" :aria-pressed="view === 'list'" @click="view = 'list'"><WorkbenchIcon name="list" :size="16" />列表</button></div></div>
+          <h2 class="library-section-title">{{ tr('全部作品') }}<span>{{ books.length }}</span></h2>
+          <label class="library-search"><WorkbenchIcon name="search" :size="18" /><input ref="searchInput" v-model="search" type="search" :placeholder="tr(&quot;搜索书名&quot;)" :aria-label="tr(&quot;搜索书名&quot;)"></label>
+          <div class="library-view-controls"><select v-model="sort" :aria-label="tr(&quot;书稿排序&quot;)"><option value="updated">{{ tr('最近修改') }}</option><option value="title">{{ tr('书名排序') }}</option><option value="created">{{ tr('最近创建') }}</option></select><div class="library-view-toggle" role="group" :aria-label="tr(&quot;书库视图&quot;)"><button type="button" :aria-pressed="view === 'grid'" @click="view = 'grid'"><WorkbenchIcon name="grid" :size="16" />{{ tr('书架') }}</button><button type="button" :aria-pressed="view === 'list'" @click="view = 'list'"><WorkbenchIcon name="list" :size="16" />{{ tr('列表') }}</button></div></div>
         </div>
-        <p v-if="search.trim()" class="library-results" role="status">找到 {{ visibleBooks.length }} 本书稿</p>
-        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" aria-label="书稿"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" /></section>
-        <div v-else class="library-no-results"><h2>没有找到这本书</h2><p>试试其他书名，或清除搜索查看全部作品。</p><button type="button" class="library-button" @click="clearSearch">清除搜索</button></div>
+        <p v-if="search.trim()" class="library-results" role="status">{{ tr('找到 {length} 本书稿', { length: visibleBooks.length }) }}</p>
+        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" /></section>
+        <div v-else class="library-no-results"><h2>{{ tr('没有找到这本书') }}</h2><p>{{ tr('试试其他书名，或清除搜索查看全部作品。') }}</p><button type="button" class="library-button" @click="clearSearch">{{ tr('清除搜索') }}</button></div>
       </template>
-      <section v-else class="library-empty" aria-labelledby="library-empty-title"><span class="library-empty__label">你的第一份书稿</span><h2 id="library-empty-title">空白的一页，<br>是故事的开始。</h2><p>新建一本书直接写正文，或导入已有的 TXT / Markdown。<br>不必先搭建世界，也不用先配置 AI。</p><ol><li><strong>写下第一场</strong><span>从眼前正在发生的事开始。</span></li><li><strong>放入人物</strong><span>需要时，再补充角色和设定。</span></li><li><strong>试一条岔路</strong><span>推演另一种走法，决定是否写回。</span></li></ol></section>
-      <footer class="library-footer"><WorkbenchIcon name="archive" :size="16" /><p>作品保存在当前浏览器，暂不跨设备同步。<button type="button" @click="settings.open('storage')">导出备份</button></p></footer>
+      <section v-else class="library-empty" aria-labelledby="library-empty-title"><span class="library-empty__label">{{ tr('你的第一份书稿') }}</span><h2 id="library-empty-title">{{ tr('空白的一页，') }}<br>{{ tr('是故事的开始。') }}</h2><p>{{ tr('新建一本书直接写正文，或导入已有的 TXT / Markdown。') }}<br>{{ tr('不必先搭建世界，也不用先配置 AI。') }}</p><ol><li><strong>{{ tr('写下第一场') }}</strong><span>{{ tr('从眼前正在发生的事开始。') }}</span></li><li><strong>{{ tr('放入人物') }}</strong><span>{{ tr('需要时，再补充角色和设定。') }}</span></li><li><strong>{{ tr('试一条岔路') }}</strong><span>{{ tr('推演另一种走法，决定是否写回。') }}</span></li></ol></section>
+      <footer class="library-footer"><WorkbenchIcon name="archive" :size="16" /><p>{{ tr('作品保存在当前浏览器，暂不跨设备同步。') }}<button type="button" @click="settings.open('storage')">{{ tr('导出备份') }}</button></p></footer>
     </main>
     <SettingsPopup v-if="settings.isOpen.value" />
   </div>
 </template>
 
 <script setup>
+import { tr, uiLocale } from '../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useSettingsPopup } from '../composables/useSettingsPopup.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
@@ -42,9 +43,9 @@ const view = ref('grid')
 const timestamp = (book, field) => Date.parse(book[field] || book.createdAt) || 0
 const recentBook = computed(() => [...books.value].sort((a, b) => timestamp(b, 'updatedAt') - timestamp(a, 'updatedAt'))[0])
 const visibleBooks = computed(() => {
-  const term = search.value.trim().toLocaleLowerCase('zh-CN')
-  return books.value.filter(book => (book.title || '未命名书稿').toLocaleLowerCase('zh-CN').includes(term)).sort((a, b) => {
-    if (sort.value === 'title') return (a.title || '').localeCompare(b.title || '', 'zh-CN', { numeric: true })
+  const term = search.value.trim().toLocaleLowerCase(uiLocale.value)
+  return books.value.filter(book => (book.title || tr('未命名书稿')).toLocaleLowerCase(uiLocale.value).includes(term)).sort((a, b) => {
+    if (sort.value === 'title') return (a.title || '').localeCompare(b.title || '', uiLocale.value, { numeric: true })
     const field = sort.value === 'created' ? 'createdAt' : 'updatedAt'
     return timestamp(b, field) - timestamp(a, field)
   })
@@ -58,7 +59,6 @@ onBeforeUnmount(() => { stopBooks(); settings.close() })
 .authoring-welcome { display: flex; min-height: calc(var(--app-viewport-height, 100vh) - 49px); color: var(--archive-ink); background: var(--archive-paper-soft); font-size: 17px; }
 .library-main { flex: 1; min-width: 0; padding: 32px clamp(28px, 3.5vw, 64px) 28px; }
 .library-heading { display: flex; align-items: center; justify-content: space-between; gap: 30px; }
-.library-kicker { color: var(--archive-ink-soft); font-size: 13px; letter-spacing: .12em; }
 .library-heading h1 { margin: 8px 0 10px; font-size: 30px; font-weight: 600; letter-spacing: -.03em; }
 .library-heading p { color: var(--archive-ink-soft); font-size: 16px; margin: 0; line-height: 1.7; }
 .library-return { display: flex; align-items: center; gap: 16px; max-width: 340px; padding: 14px 0 14px 26px; border-left: 1px solid var(--archive-paper-strong); color: var(--archive-ink); text-decoration: none; }

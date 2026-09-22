@@ -17,6 +17,10 @@ import SettingsSectionNav from './SettingsSectionNav.vue'
 .settings-workspace-header :deep(.settings-section-nav) { display: flex; flex-wrap: nowrap; align-items: center; min-height: 44px; padding: 4px 20px 6px; gap: 4px; border: 0; background: transparent; }
 .settings-workspace-header :deep(.settings-section-tab) { min-height: 34px; padding: 0 12px; border: 0; border-radius: 5px; font-size: 13px; }
 .settings-workspace-header :deep(.settings-return-authoring) { flex-shrink: 0; }
+.settings-workspace-header:lang(en) { --font-display: var(--font-sans); }
+.settings-workspace-header:lang(en) :deep(.context-kicker) { letter-spacing: normal; }
+.settings-workspace-header:lang(en) :deep(.settings-section-nav) { overflow-x: auto; }
+.settings-workspace-header:lang(en) :deep(.settings-section-tab) { flex-shrink: 0; }
 @media (max-width: 760px) {
  .settings-workspace-header :deep(.settings-context-bar) { min-height: 56px; padding: 4px 16px; gap: 10px; }
  .settings-workspace-header :deep(.context-kicker) { display: inline; font-size: 12px; }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 // Real IndexedDB/Dexie, isolated browser profile; never touches the author's data.
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
   await page.goto(process.env.PINAX_SMOKE_URL || 'http://127.0.0.1:5173')
   await page.waitForSelector('.authoring-welcome')
   const result = await page.evaluate(async () => {

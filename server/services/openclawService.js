@@ -1,3 +1,4 @@
+import { writingLanguageInstruction } from '../../shared/writingLanguage.js'
 import WebSocket from 'ws'
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'fs'
 import { dirname, join } from 'path'
@@ -215,7 +216,7 @@ replacement 只能包含一句正文，不得包含 summary、issues、建议、
   "issues": []
 }
 只校对上下文列出的目标节点，结果按正文顺序返回。每条 finding 必须有真实 nodeId、有效局部 offset 和 exact 原文；无法精确定位就不要返回。proofing 只处理错别字、标点、异常引号、重复词、病句和明显语病；consistency 只处理有证据支持的称谓、时间、数值或当前场冲突。不得扩展成节奏、文风、情节结构评价，也不得冒充任何发布平台的审核规则。
-规范中文引号必须保持外层“……”、嵌套‘……’，不要把正确的“外层‘内层’”当成错误。首行缩进是编辑器排版，不得在 replacement 前增删空格、制表符或全角空格。replacement 只能替换 exact，不能包含换行、标题、Markdown、解释或思考；没有唯一且确定的替换时返回 null。事实一致性 finding 的 evidenceRefs 必须来自上下文授权来源；不得返回 action 或直接修改正文。最多返回 8 条。`
+${options.languagePolicy?.outputLanguage === 'en' || options.languagePolicy?.outputLanguage === 'mixed' ? 'Preserve valid original quotation conventions, including straight or curly English quotes and US/UK styles; do not apply Chinese punctuation rules.' : '规范中文引号必须保持外层“……”、嵌套‘……’，不要把正确的“外层‘内层’”当成错误。'}首行缩进是编辑器排版，不得在 replacement 前增删空格、制表符或全角空格。replacement 只能替换 exact，不能包含换行、标题、Markdown、解释或思考；没有唯一且确定的替换时返回 null。事实一致性 finding 的 evidenceRefs 必须来自上下文授权来源；不得返回 action 或直接修改正文。最多返回 8 条。`
   }
 
   if (taskType === 'materials.classify') {
@@ -500,6 +501,7 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
     `任务类型：${taskType}`,
     getTaskInstruction(taskType),
     getTaskOutputInstruction(taskType, promptOptions),
+    writingLanguageInstruction(promptOptions.languagePolicy),
     targetText ? `目标文本/范围：\n${targetText}` : '',
     optionsText ? `任务选项：\n${optionsText}` : '',
     `当前创作上下文：\n${contextText}`,

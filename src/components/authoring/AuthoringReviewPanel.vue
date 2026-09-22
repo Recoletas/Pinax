@@ -14,21 +14,21 @@
       >
         <header class="authoring-review-panel__head">
           <div>
-            <span>当前文稿</span>
-            <h2 id="authoring-review-title">{{ embedded ? '审稿' : '校对' }}</h2>
-            <p>{{ documentTitle || '未命名文稿' }}</p>
+            <span>{{ tr('当前文稿') }}</span>
+            <h2 id="authoring-review-title">{{ embedded ? tr('审稿') : tr('校对') }}</h2>
+            <p>{{ documentTitle || tr('未命名文稿') }}</p>
           </div>
-          <button ref="closeRef" type="button" aria-label="关闭校对" title="关闭校对" @click="emit('close')">×</button>
+          <button ref="closeRef" type="button" :aria-label="tr(&quot;关闭校对&quot;)" :title="tr(&quot;关闭校对&quot;)" @click="emit('close')">×</button>
         </header>
 
         <slot name="controls" />
         <div class="authoring-review-panel__toolbar">
-          <button v-if="busy" class="is-primary" type="button" @click="emit('cancel')">停止</button>
-          <button v-else class="is-primary" type="button" @click="emit('scan')">{{ embedded ? '开始审稿' : findings.length ? '重新校对' : '开始校对' }}</button>
-          <button v-if="retryAvailable && !busy" type="button" @click="emit('retry')">继续未完成批次</button>
-          <span v-if="busy">正在检查 {{ progress.completed }}/{{ progress.total }}</span>
-          <span v-else-if="findings.length">{{ openCount }} 条待处理</span>
-          <button v-if="undoAvailable" class="is-quiet" type="button" @click="emit('undo')">撤销采用</button>
+          <button v-if="busy" class="is-primary" type="button" @click="emit('cancel')">{{ tr('停止') }}</button>
+          <button v-else class="is-primary" type="button" @click="emit('scan')">{{ embedded ? tr('开始审稿') : findings.length ? tr('重新校对') : tr('开始校对') }}</button>
+          <button v-if="retryAvailable && !busy" type="button" @click="emit('retry')">{{ tr('继续未完成批次') }}</button>
+          <span v-if="busy">{{ tr('正在检查 {completed}/{total}', { completed: progress.completed, total: progress.total }) }}</span>
+          <span v-else-if="findings.length">{{ tr('{openCount} 条待处理', { openCount: openCount }) }}</span>
+          <button v-if="undoAvailable" class="is-quiet" type="button" @click="emit('undo')">{{ tr('撤销采用') }}</button>
         </div>
 
         <p v-if="error" class="authoring-review-panel__notice is-error" role="alert">{{ error }}</p>
@@ -42,7 +42,7 @@
           @resolve="(id, action) => emit('resolve-attention', id, action)"
         />
 
-        <div v-if="findings.length" class="authoring-review-panel__results" aria-label="校对结果">
+        <div v-if="findings.length" class="authoring-review-panel__results" :aria-label="tr(&quot;校对结果&quot;)">
           <article
             v-for="finding in findings"
             :key="finding.id"
@@ -51,53 +51,53 @@
             :data-finding-id="finding.id"
           >
             <header>
-              <label v-if="canApply(finding)" :title="finding.status === 'open' ? '加入批量采用' : '这条建议已不可采用'">
+              <label v-if="canApply(finding)" :title="finding.status === 'open' ? tr('加入批量采用') : tr('这条建议已不可采用')">
                 <input
                   type="checkbox"
                   :checked="selectedIds.has(finding.id)"
                   :disabled="finding.status !== 'open'"
                   @change="toggleFinding(finding.id)"
                 >
-                <span>{{ issueLabel(finding.issueType || finding.kind) }}</span>
+                <span>{{ tr(issueLabel(finding.issueType || finding.kind)) }}</span>
               </label>
-              <strong v-else>{{ issueLabel(finding.issueType || finding.kind) }}</strong>
-              <small>{{ statusLabel(finding.status) }}</small>
+              <strong v-else>{{ tr(issueLabel(finding.issueType || finding.kind)) }}</strong>
+              <small>{{ tr(statusLabel(finding.status)) }}</small>
             </header>
             <button class="authoring-review-finding__excerpt" type="button" @click="emit('jump', finding)">
-              <span>{{ finding.target?.exact || finding.exact || '原文位置' }}</span>
-              <small>{{ finding.positionLabel || '跳到原文' }}</small>
+              <span :lang="contentLanguage === 'mixed' ? undefined : contentLanguage || undefined">{{ finding.target?.exact || finding.exact || tr('原文位置') }}</span>
+              <small>{{ finding.positionLabel || tr('跳到原文') }}</small>
             </button>
-            <p>{{ finding.reason || finding.body }}</p>
+            <p :lang="explanationLanguage || undefined">{{ finding.reason || finding.body }}</p>
             <div v-if="finding.replacement" class="authoring-review-finding__replacement">
-              <span>建议</span>
-              <p>{{ finding.replacement }}</p>
+              <span>{{ tr('建议') }}</span>
+              <p :lang="contentLanguage === 'mixed' ? undefined : contentLanguage || undefined">{{ finding.replacement }}</p>
             </div>
             <footer>
-              <button type="button" @click="emit('jump', finding)">跳到</button>
-              <button v-if="embedded && finding.status === 'open'" type="button" :disabled="busy" @click="emit('rewrite', finding)">按此意见改写</button>
+              <button type="button" @click="emit('jump', finding)">{{ tr('跳到') }}</button>
+              <button v-if="embedded && finding.status === 'open'" type="button" :disabled="busy" @click="emit('rewrite', finding)">{{ tr('按此意见改写') }}</button>
               <button
                 v-if="finding.replacement"
                 type="button"
                 :disabled="finding.status !== 'open'"
                 @click="emit('apply', finding)"
-              >采用</button>
+              >{{ tr('采用') }}</button>
               <button
                 type="button"
                 :disabled="finding.status !== 'open'"
                 @click="emit('ignore', finding)"
-              >忽略</button>
+              >{{ tr('忽略') }}</button>
             </footer>
           </article>
         </div>
 
         <div v-else-if="!busy" class="authoring-review-panel__empty">
-          <strong>检查正文，不替你改稿</strong>
-          <p>校对只生成可定位的建议。只有你点“采用”后，正文才会发生变化。</p>
+          <strong>{{ tr('检查正文，不替你改稿') }}</strong>
+          <p>{{ tr('校对只生成可定位的建议。只有你点“采用”后，正文才会发生变化。') }}</p>
         </div>
 
         <footer v-if="selectableCount" class="authoring-review-panel__batch">
-          <span>已选 {{ selectedIds.size }} / {{ selectableCount }}</span>
-          <button type="button" :disabled="!selectedIds.size" @click="applySelected">采用所选</button>
+          <span>{{ tr('已选 {size} / {selectableCount}', { size: selectedIds.size, selectableCount: selectableCount }) }}</span>
+          <button type="button" :disabled="!selectedIds.size" @click="applySelected">{{ tr('采用所选') }}</button>
         </footer>
         <slot name="rewrite" />
       </section>
@@ -106,6 +106,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, nextTick, ref, watch } from 'vue'
 import AuthoringExceptionReview from './AuthoringExceptionReview.vue'
 
@@ -115,6 +116,8 @@ const props = defineProps({
   retryAvailable: Boolean,
   documentTitle: { type: String, default: '' },
   findings: { type: Array, default: () => [] },
+  explanationLanguage: { type: String, default: '' },
+  contentLanguage: { type: String, default: '' },
   busy: Boolean,
   progress: { type: Object, default: () => ({ completed: 0, total: 0 }) },
   error: { type: String, default: '' },

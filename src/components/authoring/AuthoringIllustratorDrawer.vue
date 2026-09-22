@@ -7,10 +7,10 @@
       data-test="authoring-illustrator-layer"
       @pointerdown.self="!minimized && requestClose()"
     >
-      <button v-if="minimized" type="button" class="authoring-illustrator__minibar" aria-label="恢复生图工作台" @click="restore">
+      <button v-if="minimized" type="button" class="authoring-illustrator__minibar" :aria-label="tr('恢复生图工作台')" @click="restore">
         <WorkbenchIcon name="image" :size="17" />
-        <span>生图</span>
-        <small>恢复</small>
+        <span>{{ tr("生图") }}</span>
+        <small>{{ tr("恢复") }}</small>
       </button>
       <section
         v-else
@@ -25,16 +25,16 @@
         <div class="authoring-illustrator__identity">
           <WorkbenchIcon name="image" :size="18" />
           <div>
-            <h2 id="authoring-illustrator-title">生图</h2>
+            <h2 id="authoring-illustrator-title">{{ tr("生图") }}</h2>
             <p>{{ sourceLabel }}</p>
           </div>
         </div>
         <div class="authoring-illustrator__head-actions">
-          <span v-if="freshness?.stale" class="authoring-illustrator__stale" role="status">来源已更新</span>
-          <button v-if="!compact" type="button" aria-label="最小化生图工作台" title="最小化" @click="requestMinimize">
+          <span v-if="freshness?.stale" class="authoring-illustrator__stale" role="status">{{ tr("来源已更新") }}</span>
+          <button v-if="!compact" type="button" :aria-label="tr('最小化生图工作台')" :title="tr('最小化')" @click="requestMinimize">
             <span aria-hidden="true">−</span>
           </button>
-          <button ref="closeButtonRef" type="button" aria-label="关闭生图工作台" title="关闭" @click="requestClose">
+          <button ref="closeButtonRef" type="button" :aria-label="tr('关闭生图工作台')" :title="tr('关闭')" @click="requestClose">
             <WorkbenchIcon name="close" :size="18" />
           </button>
         </div>
@@ -44,8 +44,8 @@
         v-if="compact"
         v-model="mobilePane"
         class="authoring-illustrator__switch"
-        :items="mobilePaneItems"
-        label="生图工作区"
+        :items="mobilePaneItems.map(item => ({ ...item, label: tr(item.label) }))"
+        :label="tr('生图工作区')"
         :breakpoint="1100"
       />
 
@@ -58,7 +58,7 @@
           :initial-prompt="initialPrompt"
           :prompt-supplement="generationPromptSupplement"
           :selected-text="initialPrompt"
-          :selected-prompt-label="brief?.promptSource?.kind === 'selection' ? '选中文字' : '当前文本块'"
+          :selected-prompt-label="brief?.promptSource?.kind === 'selection' ? tr('选中文字') : tr('当前文本块')"
           :source-title="sourceLabel"
           :show-header="false"
           :allow-insert-image-to-editor="true"
@@ -81,15 +81,15 @@
           @generation-cancel="emit('generation-cancel', $event)"
         >
           <template #brief>
-            <details class="authoring-illustrator__brief" aria-label="画面来源">
-              <summary><span>画面来源 · {{ promptSourceLabel }}</span><small>已冻结</small></summary>
+            <details class="authoring-illustrator__brief" :aria-label="tr('画面来源')">
+              <summary><span>{{ tr("画面来源 ·") }} {{ tr(promptSourceLabel) }}</span><small>{{ tr("已冻结") }}</small></summary>
               <p class="authoring-illustrator__excerpt">{{ sourceExcerpt }}</p>
             </details>
 
-            <details v-if="sceneSources.length" class="authoring-illustrator__scene" aria-label="当前场参考">
+            <details v-if="sceneSources.length" class="authoring-illustrator__scene" :aria-label="tr('当前场参考')">
               <summary class="authoring-illustrator__section-title">
-                <span>当前场</span>
-                <small>已选 {{ selectedSceneSourceIds.length }} 项</small>
+                <span>{{ tr("当前场") }}</span>
+                <small>{{ tr('已选 {count} 项', { count: selectedSceneSourceIds.length }) }}</small>
               </summary>
               <label v-for="source in sceneSources" :key="source.id" class="authoring-illustrator__scene-row">
                 <input
@@ -98,13 +98,13 @@
                   :checked="selectedSceneSourceIds.includes(source.id)"
                   @change="toggleSceneSource(source.id)"
                 />
-                <span><strong>{{ source.label }}</strong><small>{{ source.available === false ? '设定来源未绑定' : (source.summary || source.kindLabel) }}</small></span>
+                <span><strong>{{ source.label }}</strong><small>{{ source.available === false ? tr("设定来源未绑定") : (source.summary || tr(source.kindLabel)) }}</small></span>
               </label>
             </details>
 
             <p v-if="notice" class="authoring-illustrator__notice" role="status">{{ notice }}</p>
             <p v-if="freshness?.stale" class="authoring-illustrator__notice is-warning" role="alert">
-              正文或设定已更新。候选仍可查看和保存为素材，但不能插入原章节。
+              {{ tr("正文或设定已更新。候选仍可查看和保存为素材，但不能插入原章节。") }}
             </p>
           </template>
         </ImageGenerationWorkbench>
@@ -115,6 +115,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WorkspacePaneSwitch from '../workbench/WorkspacePaneSwitch.vue'
@@ -167,19 +168,19 @@ const initialPrompt = computed(() => String(
 ).trim())
 const sourceExcerpt = computed(() => {
   const value = initialPrompt.value.replace(/\s+/g, ' ')
-  if (!value) return '当前落笔处没有可用文字，请在画面描述中补充。'
+  if (!value) return tr('当前落笔处没有可用文字，请在画面描述中补充。')
   return value.length > 180 ? `${value.slice(0, 180)}…` : value
 })
 const sourceLabel = computed(() => String(
   props.brief?.source?.title
     || props.brief?.target?.title
     || props.brief?.title
-    || '当前落笔处'
+    || tr('当前落笔处')
 ))
 const sceneSources = computed(() => (Array.isArray(props.brief?.scene?.sources) ? props.brief.scene.sources : []).map((source) => ({
   ...source,
   id: String(source?.id || source?.sourceRef || ''),
-  label: String(source?.label || source?.name || '未命名参考'),
+  label: String(source?.label || source?.name || tr('未命名参考')),
   summary: String(source?.summary || source?.excerpt || ''),
   kindLabel: ({ character: '人物', location: '地点', time: '时间' })[source?.kind] || '场景'
 })).filter((source) => source.id))

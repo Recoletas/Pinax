@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../i18n/index.js'
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import ActivityBar from '../components/workbench/ActivityBar.vue'
@@ -129,8 +130,8 @@ function handleSelectPanel(routeName) {
   >
     <WorkspaceTabs>
       <div class="shell-tab-actions">
-        <button type="button" :aria-label="isDark ? '切换日间模式' : '切换夜间模式'" :title="isDark ? '日间模式' : '夜间模式'" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
-        <button type="button" aria-label="打开设置" title="设置" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
+        <button type="button" :aria-label="isDark ? tr('切换日间模式') : tr('切换夜间模式')" :title="isDark ? tr('日间模式') : tr('夜间模式')" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
+        <button type="button" :aria-label="tr(&quot;打开设置&quot;)" :title="tr(&quot;设置&quot;)" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
       </div>
     </WorkspaceTabs>
     <template v-if="!hideActivityBar">
@@ -144,7 +145,7 @@ function handleSelectPanel(routeName) {
           v-if="drawerOpen"
           class="shell-overlay"
           type="button"
-          aria-label="关闭工作区导航"
+          :aria-label="tr(&quot;关闭工作区导航&quot;)"
           @click="closeDrawer"
         />
       </Transition>
@@ -166,7 +167,7 @@ function handleSelectPanel(routeName) {
             <span>Pinax</span>
             <strong>{{ currentRouteCaption }}</strong>
           </div>
-          <button ref="drawerCloseRef" class="shell-drawer__close" type="button" aria-label="关闭导航" @click="closeDrawer">×</button>
+          <button ref="drawerCloseRef" class="shell-drawer__close" type="button" :aria-label="tr(&quot;关闭导航&quot;)" @click="closeDrawer">×</button>
         </div>
 
         <div class="shell-drawer__body">
@@ -178,17 +179,17 @@ function handleSelectPanel(routeName) {
             @select="handleSelectActivity"
             @select-route="handleSelectPanel"
           />
-          <div class="shell-drawer__utility" aria-label="工具">
+          <div class="shell-drawer__utility" :aria-label="tr(&quot;工具&quot;)">
             <button class="shell-drawer__utility-btn" type="button" @click="openDocs">
               <WorkbenchIcon name="book" :size="16" />
-              <span>文档</span>
+              <span>{{ tr('文档') }}</span>
             </button>
             <button class="shell-drawer__utility-btn" type="button" @click="openSettings('ai')">
               <WorkbenchIcon name="settings" :size="16" />
-              <span>设置</span>
+              <span>{{ tr('设置') }}</span>
             </button>
             <button class="shell-drawer__utility-btn" type="button" @click="openSettings('storage')">
-              <WorkbenchIcon name="backup" :size="16" /><span>备份与恢复</span>
+              <WorkbenchIcon name="backup" :size="16" /><span>{{ tr('备份与恢复') }}</span>
             </button>
           </div>
         </div>
@@ -201,7 +202,7 @@ function handleSelectPanel(routeName) {
           <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
           <div v-else class="route-loading">
             <span class="route-loading-spinner"></span>
-            <span>加载中…</span>
+            <span>{{ tr('加载中…') }}</span>
           </div>
       </RouterView>
     </main>

@@ -1,3 +1,5 @@
+[English](README.en.md)
+
 <div align="center">
   <img src="docs/assets/readme/pinax-icon.png" width="92" height="92" alt="Pinax 标志">
   <h1>Pinax</h1>
@@ -19,7 +21,9 @@
   </p>
 </div>
 
-![Pinax 欢迎页：继续已有作品、开始新书或导入书稿](docs/screenshots/welcome-1440.png)
+![Pinax 当前写作工作台：标签页、章节目录和正文文本块](docs/screenshots/readme-20260922/writing.png)
+
+截图拍摄于 2026-09-22，基于 `main@0b5c60f`，内容为演示书稿，不是生成的界面示意图。
 
 核心工作台提供基础写作和通用 AI 辅助：组织章节、编辑正文、批注、改写、续写和助手问答。关联世界书后，AI 可以进一步参考本书人物、地点、规则和历史，支持围绕作品设定的查询、人物回应与情节推演。生成的试稿先供作者查看和修改，确认采用后才进入正文。
 
@@ -50,10 +54,12 @@ Pinax 当前处于 **Public Alpha**：公开仓库可供本地运行和小范围
 针对选中的文字或当前场查询资料、比较路线、改写或生成试稿。Pinax 会显示本次参考的章节和资料；建议可以放弃或修改，采用前仍由作者决定。
 
 <details>
-<summary><strong>查看带参考资料的写作工作台</strong></summary>
+<summary><strong>查看当前书架与人物资料</strong></summary>
 <br>
 
-![Pinax 写作工作台：正文、试稿与实际参考资料](docs/engineering/authoring-c1-assets/c1-ghost-context-1440.png)
+![Pinax 当前书架：按作品浏览与继续写作](docs/screenshots/readme-20260922/library.png)
+
+![Pinax 当前人物栏：写作时查看与编辑人物资料](docs/screenshots/readme-20260922/characters.png)
 
 </details>
 

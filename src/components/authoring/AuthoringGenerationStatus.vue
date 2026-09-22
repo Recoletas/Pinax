@@ -1,12 +1,13 @@
 <template>
   <div class="authoring-generation-status" role="status" aria-live="polite">
-    <span>{{ label }}</span>
-    <span aria-hidden="true">已等待 {{ elapsed }} 秒</span>
-    <small v-if="elapsed >= 15">暂未完成，仍在等待模型返回；可以随时停止。</small>
+    <span>{{ tr(label) }}</span>
+    <span aria-hidden="true">{{ tr('已等待 {seconds} 秒', { seconds: elapsed }) }}</span>
+    <small v-if="elapsed >= 15">{{ tr("暂未完成，仍在等待模型返回；可以随时停止。") }}</small>
   </div>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { onBeforeUnmount, ref } from 'vue'
 
 defineProps({ label: { type: String, default: '正在生成推演稿…' } })

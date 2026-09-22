@@ -1,3 +1,4 @@
+import { normalizeManuscriptLanguage } from '../../../shared/writingLanguage.js'
 // 书籍 repository（工作台标签计划 Task 1）：`writing_books` 的唯一读写边界。
 // Authoring、Experience 写回和工作台标签解析器都通过这里访问书数据；
 // 首期持久化真源仍是 localStorage 的 writing_books，repository 为后续桌面 adapter 留边界。
@@ -63,11 +64,12 @@ export function findWritingBook(books, bookId) {
   return books.find((book) => String(book.id) === wanted) || null
 }
 
-export function createWritingBookRecord({ title, description = '', worldbookId = '' } = {}) {
+export function createWritingBookRecord({ title, description = '', worldbookId = '', manuscriptLanguage = '' } = {}) {
   const now = new Date().toISOString()
   return {
     id: Date.now().toString(),
     title: String(title || '').trim(),
+    ...(normalizeManuscriptLanguage(manuscriptLanguage) ? { manuscriptLanguage: normalizeManuscriptLanguage(manuscriptLanguage) } : {}),
     description: String(description || '').trim(),
     worldbookId: String(worldbookId || '').trim(),
     createdAt: now,

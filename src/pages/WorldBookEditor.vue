@@ -5,7 +5,6 @@
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
         :active-worldbook="activeWorldbook"
-        :meta-label="`${worldbooksIndex.length} 本世界书 · ${entries.length} 条目`"
         :project-label="projectContextLabel"
         :project-locked="isProjectMode"
         :route-mismatch-notice="contextNotice"
@@ -17,35 +16,35 @@
             v-if="!isProjectMode"
             class="editor-create-action"
             type="button"
-            aria-label="新建世界书"
-            title="新建世界书"
+            :aria-label="tr('新建世界书')"
+            :title="tr('新建世界书')"
             @click="createWorldbook"
           >
             <WorkbenchIcon name="bookmark-plus" :size="15" />
-            <span>新建世界书</span>
+            <span>{{ tr("新建世界书") }}</span>
           </button>
         </template>
       </SettingsContextBar>
     </SettingsWorkspaceHeader>
 
     <div v-if="requestedEntryMissing" class="entry-missing-strip" data-test="entry-missing" role="status">
-      <p>要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。</p>
+      <p>{{ tr("要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。") }}</p>
     </div>
 
     <div class="editor-layout">
-      <div v-if="contextLoading" class="editor-empty" role="status">正在打开这本书的条目…</div>
+      <div v-if="contextLoading" class="editor-empty" role="status">{{ tr("正在打开这本书的条目…") }}</div>
       <div v-else-if="projectContextStatus === 'unbound'" class="editor-empty" data-test="entries-unbound">
-        <p>这本书还没有关联世界书。</p>
-        <p>回写作工作台右栏「关联世界书」完成关联后，这里会打开它的条目。</p>
+        <p>{{ tr("这本书还没有关联世界书。") }}</p>
+        <p>{{ tr("回写作工作台右栏「关联世界书」完成关联后，这里会打开它的条目。") }}</p>
       </div>
       <div v-else-if="projectContextStatus === 'missing-book'" class="editor-empty">
-        <p>这本书已不存在。</p>
+        <p>{{ tr("这本书已不存在。") }}</p>
       </div>
       <div v-else-if="loadError" class="editor-empty">
-        <p>{{ loadError }}</p>
+        <p>{{ tr(loadError) }}</p>
       </div>
       <section class="editor-main" v-else-if="activeWorldbook">
-        <nav class="editor-tabs" aria-label="世界书编辑分区">
+        <nav class="editor-tabs" :aria-label="tr('世界书编辑分区')">
           <button
             v-for="tab in editorTabs"
             :key="tab.key"
@@ -53,71 +52,71 @@
             @click="editorTab = tab.key"
           >
             <WorkbenchIcon :name="tab.icon" :size="15" />
-            {{ tab.label }}
+            {{ tr(tab.label) }}
           </button>
         </nav>
 
         <section v-if="editorTab === 'base'" class="card">
           <div class="card-head">
-            <h2>世界书基础设定</h2>
+            <h2>{{ tr("世界书基础设定") }}</h2>
           </div>
           <div class="worldbook-form">
             <label>
-              名称
-              <input v-model.trim="worldbookForm.name" class="text-input" type="text" placeholder="世界书名称" />
+              {{ tr("名称") }}
+              <input v-model.trim="worldbookForm.name" class="text-input" type="text" :placeholder="tr('世界书名称')" />
             </label>
             <label>
-              作者
-              <input v-model.trim="worldbookForm.author" class="text-input" type="text" placeholder="作者（可选）" />
+              {{ tr("作者") }}
+              <input v-model.trim="worldbookForm.author" class="text-input" type="text" :placeholder="tr('作者（可选）')" />
             </label>
             <label class="full-width">
-              世界设定描述
+              {{ tr("世界设定描述") }}
               <textarea
                 v-model.trim="worldbookForm.worldDescription"
                 class="text-area"
                 rows="4"
-                placeholder="描述世界观的基本设定、背景故事、核心概念等。这是 AI 生成内容时必须遵循的基础设定。"
+                :placeholder="tr('描述世界观的基本设定、背景故事、核心概念等。这是 AI 生成内容时必须遵循的基础设定。')"
               ></textarea>
             </label>
             <label class="full-width">
-              写作风格
+              {{ tr("写作风格") }}
               <textarea
                 v-model.trim="worldbookForm.writingStyle"
                 class="text-area"
                 rows="3"
-                placeholder="定义叙事风格、语言风格、情感基调等。例如：采用第三人称叙事，语言简洁有力，注重心理描写..."
+                :placeholder="tr('定义叙事风格、语言风格、情感基调等。例如：采用第三人称叙事，语言简洁有力，注重心理描写...')"
               ></textarea>
             </label>
             <label class="full-width">
-              示例文本
+              {{ tr("示例文本") }}
               <textarea
                 v-model.trim="worldbookForm.examples"
                 class="text-area"
                 rows="4"
-                placeholder="提供示例供 AI 参考，帮助理解预期的输出风格和格式。可以是优秀的叙事片段示例。"
+                :placeholder="tr('提供示例供 AI 参考，帮助理解预期的输出风格和格式。可以是优秀的叙事片段示例。')"
               ></textarea>
             </label>
             <label class="full-width">
-              禁止内容
+              {{ tr("禁止内容") }}
               <textarea
                 v-model.trim="worldbookForm.forbidden"
                 class="text-area"
                 rows="3"
-                placeholder="定义 AI 不应该生成的内容类型、风格或元素。例如：避免过于现代的口语、不出现某些敏感话题..."
+                :placeholder="tr('定义 AI 不应该生成的内容类型、风格或元素。例如：避免过于现代的口语、不出现某些敏感话题...')"
               ></textarea>
             </label>
           </div>
           <div class="card-actions">
             <button class="primary-btn" :disabled="savingWorldbook" @click="saveWorldbook">
-              {{ savingWorldbook ? '保存中...' : '保存世界书' }}
+              {{ tr(savingWorldbook ? '保存中...' : '保存世界书') }}
             </button>
-            <button class="danger-btn" @click="deleteWorldbook">删除世界书</button>
+            <button class="danger-btn" @click="deleteWorldbook">{{ tr("删除世界书") }}</button>
           </div>
         </section>
 
         <section v-if="editorTab === 'transfer'" class="card">
           <div class="card-head split">
-            <h2>导入导出</h2>
+            <h2>{{ tr("导入导出") }}</h2>
             <div class="entry-tools">
               <input
                 ref="importFileInputRef"
@@ -127,16 +126,16 @@
                 @change="handleImportFileChange"
               />
               <button class="ghost-btn" :disabled="importing" @click="openImportFilePicker">
-                {{ importing ? '读取中...' : '导入 SillyTavern JSON' }}
+                {{ tr(importing ? '读取中...' : '导入 SillyTavern JSON') }}
               </button>
               <button class="ghost-btn" :disabled="exporting || !activeWorldbook?.id" @click="exportActiveWorldbook">
-                {{ exporting ? '导出中...' : '导出当前世界书' }}
+                {{ tr(exporting ? '导出中...' : '导出当前世界书') }}
               </button>
             </div>
           </div>
 
-          <div v-if="importError" class="import-error">{{ importError }}</div>
-          <div v-if="transferMessage" class="import-success">{{ transferMessage }}</div>
+          <div v-if="importError" class="import-error">{{ displayStatus(importError) }}</div>
+          <div v-if="transferMessage" class="import-success">{{ displayStatus(transferMessage) }}</div>
 
           <div v-if="importPreview" class="import-preview">
             <div class="import-preview-head">
@@ -146,22 +145,22 @@
 
             <div class="import-meta-grid">
               <div class="meta-item">
-                <span>条目数</span>
+                <span>{{ tr("条目数") }}</span>
                 <strong>{{ importPreview.entryCount }}</strong>
               </div>
               <div class="meta-item">
-                <span>分组数</span>
+                <span>{{ tr("分组数") }}</span>
                 <strong>{{ importPreview.groupCount }}</strong>
               </div>
               <div class="meta-item">
-                <span>作者</span>
-                <strong>{{ importPreview.author || '未知' }}</strong>
+                <span>{{ tr("作者") }}</span>
+                <strong>{{ importPreview.author || tr('未知') }}</strong>
               </div>
             </div>
 
             <div v-if="importPreview.typeStats.length" class="import-type-list">
               <span v-for="stat in importPreview.typeStats" :key="stat.type" class="type-chip">
-                {{ stat.label }} {{ stat.count }}
+                {{ entryTypeLabel(stat.type) }} {{ stat.count }}
               </span>
             </div>
 
@@ -178,27 +177,27 @@
 
             <div class="card-actions">
               <button class="primary-btn" :disabled="importing" @click="confirmImportFromPreview">
-                {{ importing ? '导入中...' : '确认导入为新世界书' }}
+                {{ tr(importing ? '导入中...' : '确认导入为新世界书') }}
               </button>
-              <button class="ghost-btn" @click="clearImportPreview">取消预览</button>
+              <button class="ghost-btn" @click="clearImportPreview">{{ tr("取消预览") }}</button>
             </div>
           </div>
 
           <div v-else class="empty-hint">
-            导入前会先显示摘要预览，确认后再创建新世界书。
+            {{ tr("导入前会先显示摘要预览，确认后再创建新世界书。") }}
           </div>
         </section>
 
         <section v-if="editorTab === 'groups'" class="card">
           <div class="card-head split">
-            <h2>分组管理</h2>
+            <h2>{{ tr("分组管理") }}</h2>
             <button class="ghost-btn small" :disabled="groupWorking" @click="pruneEmptyGroups">
-              清理空分组
+              {{ tr("清理空分组") }}
             </button>
           </div>
 
-          <div v-if="groupError" class="import-error">{{ groupError }}</div>
-          <div v-if="groupSuccess" class="import-success">{{ groupSuccess }}</div>
+          <div v-if="groupError" class="import-error">{{ displayStatus(groupError) }}</div>
+          <div v-if="groupSuccess" class="import-success">{{ displayStatus(groupSuccess) }}</div>
 
           <div v-if="groupStats.length" class="group-overview">
             <div
@@ -208,32 +207,32 @@
               :class="{ empty: group.entryCount === 0 }"
             >
               <span>{{ group.name }}</span>
-              <strong>{{ group.entryCount }} 条</strong>
+              <strong>{{ tr('条目：{count}', { count: group.entryCount }) }}</strong>
             </div>
           </div>
-          <div v-else class="empty-hint">当前没有分组，可先创建。</div>
+          <div v-else class="empty-hint">{{ tr("当前没有分组，可先创建。") }}</div>
 
           <div class="group-manager-grid">
             <section class="group-manager-block">
-              <h3>创建分组</h3>
+              <h3>{{ tr("创建分组") }}</h3>
               <div class="group-form-row">
                 <input
                   v-model.trim="groupDraftName"
                   class="text-input"
                   type="text"
                   list="worldbook-group-options"
-                  placeholder="输入新分组名称"
+                  :placeholder="tr('输入新分组名称')"
                 />
                 <button class="ghost-btn" :disabled="groupWorking" @click="createGroup">
-                  创建
+                  {{ tr("创建") }}
                 </button>
               </div>
             </section>
 
             <section class="group-manager-block" v-if="groupStats.length">
-              <h3>重命名分组</h3>
+              <h3>{{ tr("重命名分组") }}</h3>
               <div class="group-form-row">
-                <select v-model="groupRenameSource" class="select-input" aria-label="选择要重命名的分组">
+                <select v-model="groupRenameSource" class="select-input" :aria-label="tr('选择要重命名的分组')">
                   <option v-for="group in groupStats" :key="`rename-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
@@ -243,18 +242,18 @@
                   class="text-input"
                   type="text"
                   list="worldbook-group-options"
-                  placeholder="新分组名称"
+                  :placeholder="tr('新分组名称')"
                 />
                 <button class="ghost-btn" :disabled="groupWorking" @click="renameGroup">
-                  重命名
+                  {{ tr("重命名") }}
                 </button>
               </div>
             </section>
 
             <section class="group-manager-block" v-if="groupStats.length">
-              <h3>迁移条目</h3>
+              <h3>{{ tr("迁移条目") }}</h3>
               <div class="group-form-row">
-                <select v-model="groupMoveSource" class="select-input" aria-label="选择要移动的分组">
+                <select v-model="groupMoveSource" class="select-input" :aria-label="tr('选择要移动的分组')">
                   <option v-for="group in groupStats" :key="`move-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
@@ -264,28 +263,28 @@
                   class="text-input"
                   type="text"
                   list="worldbook-group-options"
-                  placeholder="迁移到分组"
+                  :placeholder="tr('迁移到分组')"
                 />
                 <label class="checkbox-line inline">
                   <input v-model="groupDropSourceAfterMove" type="checkbox" />
-                  <span>迁移后删除源分组</span>
+                  <span>{{ tr("迁移后删除源分组") }}</span>
                 </label>
                 <button class="ghost-btn" :disabled="groupWorking" @click="migrateGroupEntries">
-                  迁移
+                  {{ tr("迁移") }}
                 </button>
               </div>
             </section>
 
             <section class="group-manager-block danger" v-if="groupStats.length">
-              <h3>删除分组</h3>
+              <h3>{{ tr("删除分组") }}</h3>
               <div class="group-form-row">
-                <select v-model="groupDeleteSource" class="select-input" aria-label="选择要删除的分组">
+                <select v-model="groupDeleteSource" class="select-input" :aria-label="tr('选择要删除的分组')">
                   <option v-for="group in groupStats" :key="`delete-${group.name}`" :value="group.name">
                     {{ group.name }}
                   </option>
                 </select>
                 <button class="danger-btn" :disabled="groupWorking" @click="deleteGroup">
-                  删除并清空条目分组
+                  {{ tr("删除并清空条目分组") }}
                 </button>
               </div>
             </section>
@@ -298,52 +297,50 @@
 
         <section v-if="editorTab === 'entries'" class="card entry-workspace-card">
           <div class="card-head split">
-            <div><h2>条目管理 <span class="entry-total">{{ entries.length }}</span></h2><p class="entry-workspace-caption">维护人物、地点与故事规则，供写作时引用。</p></div>
+            <div><h2>{{ tr("条目管理") }}</h2></div>
             <div class="entry-tools">
               <input
                 v-model.trim="entrySearch"
                 class="search-input"
-                placeholder="搜索条目..."
+                :placeholder="tr('搜索条目...')"
                 type="text"
-                aria-label="搜索条目"
+                :aria-label="tr('搜索条目')"
               />
-              <select v-model="entryTypeFilter" class="select-input" aria-label="按条目类型筛选">
-                <option value="all">全部类型</option>
+              <select v-model="entryTypeFilter" class="select-input" :aria-label="tr('按条目类型筛选')">
+                <option value="all">{{ tr("全部类型") }}</option>
                 <option v-for="type in entryTypes" :key="type.value" :value="type.value">
-                  {{ type.label }}
+                  {{ tr(type.label) }}
                 </option>
               </select>
-              <select v-model="injectionModeFilter" class="select-input" aria-label="按注入模式筛选">
-                <option value="all">全部注入模式</option>
+              <select v-model="injectionModeFilter" class="select-input" :aria-label="tr('按注入模式筛选')">
+                <option value="all">{{ tr("全部注入模式") }}</option>
                 <option v-for="mode in injectionModes" :key="mode.value" :value="mode.value">
-                  {{ mode.label }}
+                  {{ tr(mode.label) }}
                 </option>
               </select>
-              <select v-model="entryGroupFilter" class="select-input" aria-label="按分组筛选">
-                <option value="all">全部分组</option>
-                <option value="__none">未分组</option>
+              <select v-model="entryGroupFilter" class="select-input" :aria-label="tr('按分组筛选')">
+                <option value="all">{{ tr("全部分组") }}</option>
+                <option value="__none">{{ tr("未分组") }}</option>
                 <option v-for="group in availableGroups" :key="group" :value="group">
                   {{ group }}
                 </option>
               </select>
               <button class="ghost-btn" :class="{ active: maintenanceOpen }" :aria-expanded="maintenanceOpen" @click="toggleMaintenance">
                 <WorkbenchIcon name="assistant" :size="16" />
-                AI 处理世界书
+                {{ tr("AI 处理世界书") }}
               </button>
-              <button class="ghost-btn" @click="createEntry"><WorkbenchIcon name="plus" :size="16" />新增条目</button>
+              <button class="ghost-btn" @click="createEntry"><WorkbenchIcon name="plus" :size="16" />{{ tr("新增条目") }}</button>
             </div>
           </div>
 
           <section v-if="maintenanceOpen" class="worldbook-maintenance" aria-labelledby="worldbook-maintenance-title">
             <div class="maintenance-head">
               <div>
-                <span class="panel-kicker">维护工作台</span>
-                <h3 id="worldbook-maintenance-title">用自然语言维护世界书</h3>
-                <p>模型只提出候选，确认后才会写入条目。</p>
+                <h3 id="worldbook-maintenance-title">{{ tr("用自然语言维护世界书") }}</h3>
+                <p>{{ tr("模型只提出候选，确认后才会写入条目。") }}</p>
               </div>
-              <span class="maintenance-revision" v-if="maintenanceRevision">基于当前版本</span>
             </div>
-            <div class="maintenance-modes" role="tablist" aria-label="世界书处理模式">
+            <div class="maintenance-modes" role="tablist" :aria-label="tr('世界书处理模式')">
               <button
                 v-for="mode in maintenanceModes"
                 :key="mode.value"
@@ -351,24 +348,24 @@
                 :class="['maintenance-mode', { active: maintenanceMode === mode.value }]"
                 @click="maintenanceMode = mode.value"
               >
-                <strong>{{ mode.label }}</strong>
-                <span>{{ mode.description }}</span>
+                <strong>{{ tr(mode.label) }}</strong>
+                <span>{{ tr(mode.description) }}</span>
               </button>
             </div>
             <textarea
               v-model.trim="maintenanceBrief"
               class="text-area maintenance-brief"
               rows="3"
-              :placeholder="maintenancePlaceholder"
+              :placeholder="tr(maintenancePlaceholder)"
               :disabled="maintenanceWorking"
             ></textarea>
             <div class="maintenance-actions">
               <span class="maintenance-scope">
                 {{ maintenanceMode === 'audit'
-                  ? `本地预筛 ${maintenanceCandidateCount} 个审查目标`
+                  ? tr('本地预筛 {count} 个审查目标', { count: maintenanceCandidateCount })
                   : maintenanceMode === 'refine'
-                    ? `已选 ${selectedEntryIds.length} 条`
-                    : '读取当前世界书相关条目' }}
+                    ? tr('已选 {count} 条', { count: selectedEntryIds.length })
+                    : tr('读取当前世界书相关条目') }}
               </span>
               <button
                 type="button"
@@ -376,14 +373,14 @@
                 :disabled="maintenanceWorking || !maintenanceCanRun"
                 @click="runMaintenance"
               >
-                {{ maintenanceWorking ? '模型审阅中...' : maintenanceActionLabel }}
+                {{ tr(maintenanceWorking ? '模型审阅中...' : maintenanceActionLabel) }}
               </button>
             </div>
-            <div v-if="maintenanceError" class="maintenance-error" role="alert">{{ maintenanceError }}</div>
+            <div v-if="maintenanceError" class="maintenance-error" role="alert">{{ tr(maintenanceError) }}</div>
             <div v-if="maintenanceStale" class="maintenance-stale" role="status">
-              世界书已在生成后发生变化，这批建议已过期。请重新运行审查，避免覆盖新的设定。
+              {{ tr("世界书已在生成后发生变化，这批建议已过期。请重新运行审查，避免覆盖新的设定。") }}
             </div>
-            <div v-if="maintenanceSummary" class="maintenance-summary">{{ maintenanceSummary }}</div>
+            <div v-if="maintenanceSummary || maintenanceCompleted" class="maintenance-summary">{{ maintenanceSummary || tr('已生成候选，请逐项审阅。') }}</div>
             <div v-if="maintenanceCandidates.length" class="maintenance-candidates">
               <article
                 v-for="candidate in maintenanceCandidates"
@@ -391,79 +388,79 @@
                 :class="['maintenance-candidate', `is-${candidate.status}`]"
               >
                 <div class="candidate-head">
-                  <span class="candidate-action">{{ maintenanceActionLabelFor(candidate.action) }}</span>
+                  <span class="candidate-action">{{ tr(maintenanceActionLabelFor(candidate.action)) }}</span>
                   <span :class="['candidate-confidence', `is-${candidate.confidence}`]">{{ candidate.confidence }}</span>
-                  <span v-if="candidate.status === 'applied'" class="candidate-status">已采纳</span>
-                  <span v-else-if="candidate.status === 'ignored'" class="candidate-status">已忽略</span>
+                  <span v-if="candidate.status === 'applied'" class="candidate-status">{{ tr("已采纳") }}</span>
+                  <span v-else-if="candidate.status === 'ignored'" class="candidate-status">{{ tr("已忽略") }}</span>
                   <button
                     v-if="candidate.proposedEntry && candidate.status === 'pending'"
                     type="button"
                     class="ghost-btn small"
                     @click="toggleMaintenanceCandidateEdit(candidate)"
                   >
-                    {{ candidate.editing ? '收起编辑' : '编辑建议' }}
+                    {{ tr(candidate.editing ? '收起编辑' : '编辑建议') }}
                   </button>
                 </div>
-                <p class="candidate-reason">{{ candidate.reason || '模型未提供额外说明。' }}</p>
+                <p class="candidate-reason">{{ candidate.reason || tr('模型未提供额外说明。') }}</p>
                 <div v-if="candidate.proposedEntry && !candidate.editing" class="candidate-proposal">
                   <strong>{{ candidate.proposedEntry.name }}</strong>
-                  <span>{{ entryTypeLabel(candidate.proposedEntry.type) }} · {{ candidate.proposedEntry.group || '未分组' }}</span>
+                  <span>{{ entryTypeLabel(candidate.proposedEntry.type) }} · {{ candidate.proposedEntry.group || tr('未分组') }}</span>
                   <p>{{ candidate.proposedEntry.content }}</p>
                 </div>
                 <div v-if="candidate.editor && candidate.editing" class="candidate-edit-form">
-                  <input v-model.trim="candidate.editor.name" class="text-input" type="text" placeholder="条目名称" />
+                  <input v-model.trim="candidate.editor.name" class="text-input" type="text" :placeholder="tr('条目名称')" />
                   <select v-model="candidate.editor.type" class="select-input">
-                    <option v-for="type in entryTypes" :key="type.value" :value="type.value">{{ type.label }}</option>
+                    <option v-for="type in entryTypes" :key="type.value" :value="type.value">{{ tr(type.label) }}</option>
                   </select>
-                  <input v-model.trim="candidate.editor.keysText" class="text-input" type="text" placeholder="主触发词，逗号分隔" />
-                  <input v-model.trim="candidate.editor.keysSecondaryText" class="text-input" type="text" placeholder="次级触发词，逗号分隔" />
-                  <input v-model.trim="candidate.editor.group" class="text-input" type="text" placeholder="分组" />
-                  <textarea v-model.trim="candidate.editor.content" class="text-area" rows="5" placeholder="条目正文"></textarea>
+                  <input v-model.trim="candidate.editor.keysText" class="text-input" type="text" :placeholder="tr('主触发词，逗号分隔')" />
+                  <input v-model.trim="candidate.editor.keysSecondaryText" class="text-input" type="text" :placeholder="tr('次级触发词，逗号分隔')" />
+                  <input v-model.trim="candidate.editor.group" class="text-input" type="text" :placeholder="tr('分组')" />
+                  <textarea v-model.trim="candidate.editor.content" class="text-area" rows="5" :placeholder="tr('条目正文')"></textarea>
                 </div>
                 <div v-if="candidate.entryIds.length" class="candidate-links">
-                  涉及：{{ candidate.entryIds.map(entryName).join('、') }}
+                {{ tr('涉及：{names}', { names: candidate.entryIds.map(entryName).join(uiLocale === 'en' ? ', ' : '、') }) }}
                 </div>
                 <div v-if="candidate.status === 'pending'" class="candidate-actions">
                   <button type="button" class="primary-btn small" :disabled="maintenanceApplying || maintenanceStale" @click="applyMaintenanceCandidate(candidate)">
-                    {{ candidate.action === 'ignore' || candidate.action === 'conflict' ? '标记已处理' : '采纳建议' }}
+                    {{ tr(candidate.action === 'ignore' || candidate.action === 'conflict' ? '标记已处理' : '采纳建议') }}
                   </button>
-                  <button type="button" class="ghost-btn small" :disabled="maintenanceApplying" @click="ignoreMaintenanceCandidate(candidate)">忽略</button>
+                  <button type="button" class="ghost-btn small" :disabled="maintenanceApplying" @click="ignoreMaintenanceCandidate(candidate)">{{ tr("忽略") }}</button>
                 </div>
               </article>
             </div>
-            <div v-else-if="maintenanceCompleted" class="maintenance-empty">没有需要处理的候选。</div>
+            <div v-else-if="maintenanceCompleted" class="maintenance-empty">{{ tr("没有需要处理的候选。") }}</div>
           </section>
 
           <div class="bulk-tools" v-if="selectedEntryIds.length">
-            <span class="bulk-label">已选 {{ selectedEntryIds.length }} 条</span>
-            <button class="ghost-btn small" @click="selectAllFilteredEntries">全选筛选结果</button>
-            <button class="ghost-btn small" @click="invertFilteredSelection">反选</button>
-            <button class="ghost-btn small" @click="clearEntrySelection">清空选择</button>
+            <span class="bulk-label">{{ tr('已选 {count} 条', { count: selectedEntryIds.length }) }}</span>
+            <button class="ghost-btn small" @click="selectAllFilteredEntries">{{ tr("全选筛选结果") }}</button>
+            <button class="ghost-btn small" @click="invertFilteredSelection">{{ tr("反选") }}</button>
+            <button class="ghost-btn small" @click="clearEntrySelection">{{ tr("清空选择") }}</button>
             <select v-model="bulkModeTarget" class="select-input compact">
               <option v-for="mode in injectionModes" :key="mode.value" :value="mode.value">
-                {{ mode.label }}
+                {{ tr(mode.label) }}
               </option>
             </select>
             <button class="ghost-btn small" :disabled="!selectedEntryIds.length" @click="applyBulkMode">
-              批量改模式
+              {{ tr("批量改模式") }}
             </button>
             <input
               v-model.trim="bulkGroupValue"
               class="text-input compact"
               type="text"
-              placeholder="批量分组"
+              :placeholder="tr('批量分组')"
             />
             <button class="ghost-btn small" :disabled="!selectedEntryIds.length" @click="applyBulkGroup">
-              批量改分组
+              {{ tr("批量改分组") }}
             </button>
             <button class="danger-btn small" :disabled="!selectedEntryIds.length" @click="bulkDeleteEntries">
-              批量删除
+              {{ tr("批量删除") }}
             </button>
           </div>
 
           <div class="entry-layout">
-            <aside class="entry-list" aria-label="条目目录">
-              <div class="entry-directory-head"><span>{{ filteredEntries.length }} 条条目</span><button v-if="filteredEntries.length" class="ghost-btn small" @click="selectAllFilteredEntries">全选</button></div>
+            <aside class="entry-list" :aria-label="tr('条目目录')">
+              <div class="entry-directory-head"><span>{{ tr('条目：{count}', { count: filteredEntries.length }) }}</span><button v-if="filteredEntries.length" class="ghost-btn small" @click="selectAllFilteredEntries">{{ tr("全选") }}</button></div>
               <div
                 v-for="entry in filteredEntries"
                 :key="entry.id"
@@ -474,13 +471,13 @@
                 <input
                   type="checkbox"
                   class="entry-checkbox"
-                  :aria-label="`选择 ${entry.name || '未命名条目'}`"
+                  :aria-label="tr('选择 {name}', { name: entry.name || tr('未命名条目') })"
                   :checked="isEntrySelected(entry.id)"
                   @click.stop
                   @change="toggleEntrySelection(entry.id, $event.target.checked)"
                 />
                 <button type="button" class="entry-main" :aria-current="entry.id === selectedEntryId ? 'true' : undefined" @click.stop="pickEntry(entry.id)">
-                  <span class="entry-title">{{ entry.name || '未命名条目' }}</span>
+                  <span class="entry-title">{{ entry.name || tr('未命名条目') }}</span>
                   <span class="entry-badges">
                     <span class="entry-type">{{ entryTypeLabel(entry.type) }}</span>
                     <span class="entry-mode">{{ entryModeLabel(entry.injection?.mode) }}</span>
@@ -488,76 +485,76 @@
                   </span>
                 </button>
               </div>
-              <div v-if="!filteredEntries.length" class="empty-hint">暂无匹配条目</div>
+              <div v-if="!filteredEntries.length" class="empty-hint">{{ tr("暂无匹配条目") }}</div>
             </aside>
 
             <div class="entry-editor" v-if="selectedEntry">
-              <header class="entry-editor-heading"><div><span class="entry-editor-kicker">{{ entryTypeLabel(entryForm.type) }}</span><h3>{{ selectedEntry.name || '未命名条目' }}</h3></div><button class="primary-btn" :disabled="savingEntry" @click="saveEntry">{{ savingEntry ? '保存中...' : '保存条目' }}</button></header>
+              <header class="entry-editor-heading"><div><h3>{{ selectedEntry.name || tr('未命名条目') }}</h3></div><button class="primary-btn" :disabled="savingEntry" @click="saveEntry">{{ tr(savingEntry ? '保存中...' : '保存条目') }}</button></header>
               <label>
-                条目名称
-                <input v-model.trim="entryForm.name" class="text-input" type="text" placeholder="条目名称" />
+                {{ tr("条目名称") }}
+                <input v-model.trim="entryForm.name" class="text-input" type="text" :placeholder="tr('条目名称')" />
               </label>
               <label>
-                条目类型
+                {{ tr("条目类型") }}
                 <select v-model="entryForm.type" class="select-input">
                   <option v-for="type in entryTypes" :key="type.value" :value="type.value">
-                    {{ type.label }}
+                    {{ tr(type.label) }}
                   </option>
                 </select>
               </label>
               <label>
-                触发词（逗号分隔）
+                {{ tr("触发词（逗号分隔）") }}
                 <input
                   v-model.trim="entryForm.keys"
                   class="text-input"
                   type="text"
-                  placeholder="例如：公爵领, 埃利奥诺"
+                  :placeholder="tr('例如：公爵领, 埃利奥诺')"
                 />
               </label>
               <label>
-                次级触发词（逗号分隔）
+                {{ tr("次级触发词（逗号分隔）") }}
                 <input
                   v-model.trim="entryForm.keysSecondary"
                   class="text-input"
                   type="text"
-                  placeholder="例如：边境领地"
+                  :placeholder="tr('例如：边境领地')"
                 />
               </label>
               <label>
-                内容
+                {{ tr("内容") }}
                 <textarea
                   v-model.trim="entryForm.content"
                   class="text-area"
                   rows="8"
-                  placeholder="输入条目内容"
+                  :placeholder="tr('输入条目内容')"
                 ></textarea>
               </label>
 
               <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
                 <header class="entry-voice-editor__head">
                   <div>
-                    <span class="panel-kicker">角色声口</span>
-                    <h3 id="entry-voice-title">说话方式与示例</h3>
+                    <span class="panel-kicker">{{ tr("角色声口") }}</span>
+                    <h3 id="entry-voice-title">{{ tr("说话方式与示例") }}</h3>
                   </div>
                   <span class="entry-voice-editor__count">{{ entryForm.samples.length }}/6</span>
                 </header>
                 <p class="entry-voice-editor__hint">
-                  只锚定当前说话角色；生成时最多使用前 3 条，空白与重复样例会在保存时清理。
+                  {{ tr("只锚定当前说话角色；生成时最多使用前 3 条，空白与重复样例会在保存时清理。") }}
                 </p>
                 <label>
-                  说话方式
+                  {{ tr("说话方式") }}
                   <textarea
                     v-model="entryForm.speechStyle"
                     rows="3"
                     maxlength="240"
-                    placeholder="句长、措辞、回避或强调习惯"
+                    :placeholder="tr('句长、措辞、回避或强调习惯')"
                   ></textarea>
                 </label>
                 <label v-for="(_sample, index) in entryForm.samples" :key="index">
-                  示例台词 {{ index + 1 }}
+                  {{ tr('示例台词 {number}', { number: index + 1 }) }}
                   <span class="entry-voice-editor__sample">
                     <textarea v-model="entryForm.samples[index]" rows="2" maxlength="240"></textarea>
-                    <button type="button" class="ghost-btn small" @click="removeVoiceSample(index)">移除</button>
+                    <button type="button" class="ghost-btn small" @click="removeVoiceSample(index)">{{ tr("移除") }}</button>
                   </span>
                 </label>
                 <button
@@ -566,59 +563,59 @@
                   class="ghost-btn small entry-voice-editor__add"
                   @click="addVoiceSample"
                 >
-                  添加示例台词
+                  {{ tr("添加示例台词") }}
                 </button>
               </section>
 
               <details class="injection-panel">
-                <summary>高级引用设置 <span>注入模式、触发与分组</span><WorkbenchIcon name="chevron-down" :size="16" /></summary>
+                <summary>{{ tr("高级引用设置") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
                 <div class="injection-grid">
                   <label>
-                    注入模式
+                    {{ tr("注入模式") }}
                     <select v-model="entryForm.injectionMode" class="select-input">
                       <option v-for="mode in injectionModes" :key="mode.value" :value="mode.value">
-                        {{ mode.label }}
+                        {{ tr(mode.label) }}
                       </option>
                     </select>
                   </label>
                   <label>
-                    概率（0-100）
+                    {{ tr("概率（0-100）") }}
                     <input v-model.number="entryForm.injectionProbability" class="text-input" type="number" min="0" max="100" />
                   </label>
                   <label>
-                    深度
+                    {{ tr("深度") }}
                     <input v-model.number="entryForm.injectionDepth" class="text-input" type="number" min="1" />
                   </label>
                   <label>
-                    冷却轮次
+                    {{ tr("冷却轮次") }}
                     <input v-model.number="entryForm.injectionCooldown" class="text-input" type="number" min="0" />
                   </label>
                   <label class="full-row">
-                    分组
-                    <input v-model.trim="entryForm.injectionGroup" class="text-input" type="text" placeholder="例如：地理设定" />
+                    {{ tr("分组") }}
+                    <input v-model.trim="entryForm.injectionGroup" class="text-input" type="text" :placeholder="tr('例如：地理设定')" />
                   </label>
                   <label>
-                    次级词判定
+                    {{ tr("次级词判定") }}
                     <select v-model="entryForm.injectionSecondaryMode" class="select-input">
-                      <option value="any">任一命中（any）</option>
-                      <option value="all">全部命中（all）</option>
+                      <option value="any">{{ tr("任一命中（any）") }}</option>
+                      <option value="all">{{ tr("全部命中（all）") }}</option>
                     </select>
                   </label>
-                  <label class="checkbox-line" title="拉丁文本要求词边界匹配（中文默认短语匹配）">
+                  <label class="checkbox-line" :title="tr('拉丁文本要求词边界匹配（中文默认短语匹配）')">
                     <input v-model="entryForm.injectionWholeWord" type="checkbox" />
-                    <span>整词匹配</span>
+                    <span>{{ tr("整词匹配") }}</span>
                   </label>
-                  <label class="checkbox-line" title="区分大小写（拉丁文本）">
+                  <label class="checkbox-line" :title="tr('区分大小写（拉丁文本）')">
                     <input v-model="entryForm.injectionCaseSensitive" type="checkbox" />
-                    <span>区分大小写</span>
+                    <span>{{ tr("区分大小写") }}</span>
                   </label>
                 </div>
                 <label class="checkbox-line">
                   <input v-model="entryForm.excludeRecursion" type="checkbox" />
-                  <span>排除递归注入</span>
+                  <span>{{ tr("排除递归注入") }}</span>
                 </label>
                 <div class="group-quick" v-if="availableGroups.length">
-                  <span class="group-quick-label">常用分组</span>
+                  <span class="group-quick-label">{{ tr("常用分组") }}</span>
                   <div class="group-chip-list">
                     <button
                       v-for="group in availableGroups"
@@ -634,13 +631,13 @@
               </details>
 
               <div class="card-actions">
-                <span class="entry-save-note">修改后点击「保存条目」生效</span>
-                <button class="danger-btn" @click="deleteEntry"><WorkbenchIcon name="trash" :size="15" />删除条目</button>
+                <span class="entry-save-note">{{ tr("修改后点击「保存条目」生效") }}</span>
+                <button class="danger-btn" @click="deleteEntry"><WorkbenchIcon name="trash" :size="15" />{{ tr("删除条目") }}</button>
               </div>
             </div>
 
             <div class="entry-editor empty" v-else>
-              请选择一个条目进行编辑，或点击“新增条目”。
+              {{ tr("请选择一个条目进行编辑，或点击“新增条目”。") }}
             </div>
           </div>
         </section>
@@ -648,7 +645,7 @@
       </section>
 
       <section class="editor-main empty" v-else>
-        尚无可编辑世界书，点击上方“新建世界书”开始。
+        {{ tr("尚无可编辑世界书，点击上方“新建世界书”开始。") }}
       </section>
     </div>
   </div>
@@ -656,9 +653,9 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { tr, uiLocale } from '../i18n/index.js'
 import { useRoute } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
-import { formatWorldbookStatus } from '../services/worldbook/worldbookFeedback'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
   createWorldbookMaintenanceServices,
@@ -1031,7 +1028,7 @@ function normalizePreview(rawData, fileName) {
 
     return {
       uid,
-      name: String(entry?.comment || keys[0] || uid || '未命名条目'),
+      name: String(entry?.comment || keys[0] || uid || tr('未命名条目')),
       type,
       mode,
       group,
@@ -1062,7 +1059,7 @@ function normalizePreview(rawData, fileName) {
 
   return {
     fileName,
-    name: String(rawData.name || rawData.world_name || '导入世界书'),
+    name: String(rawData.name || rawData.world_name || tr('导入世界书')),
     author: String(rawData.creator || rawData.author || ''),
     entryCount: previewEntries.length,
     groupCount: groupSet.size,
@@ -1118,23 +1115,27 @@ function clearGroupMessages() {
   groupSuccess.value = ''
 }
 
-function setGroupError(message) {
-  groupError.value = formatWorldbookStatus(message)
+function displayStatus(status) {
+  return typeof status === 'string' ? tr(status) : tr(status.message, status.values)
+}
+
+function setGroupError(message, values = {}) {
+  groupError.value = { message, values }
   groupSuccess.value = ''
 }
 
-function setGroupSuccess(message) {
-  groupSuccess.value = formatWorldbookStatus(message)
+function setGroupSuccess(message, values = {}) {
+  groupSuccess.value = { message, values }
   groupError.value = ''
 }
 
-function setTransferError(message) {
-  importError.value = formatWorldbookStatus(message)
+function setTransferError(message, values = {}) {
+  importError.value = { message, values }
   transferMessage.value = ''
 }
 
-function setTransferSuccess(message) {
-  transferMessage.value = formatWorldbookStatus(message)
+function setTransferSuccess(message, values = {}) {
+  transferMessage.value = { message, values }
   importError.value = ''
 }
 
@@ -1153,13 +1154,13 @@ function getEntryIdsByGroup(groupName) {
 
 function entryTypeLabel(typeValue) {
   const matched = entryTypes.find(t => t.value === typeValue)
-  return matched?.label || typeValue || '通用'
+  return tr(matched?.label || typeValue || '通用')
 }
 
 function entryModeLabel(modeValue) {
   const mode = normalizeInjection({ mode: modeValue }).mode
   const matched = injectionModes.find(item => item.value === mode)
-  return matched?.label || '选择触发'
+  return tr(matched?.label || '选择触发')
 }
 
 function syncWorldbookForm(worldbook) {
@@ -1296,7 +1297,7 @@ async function runMaintenance() {
     }
     const auditResult = dispatched.suggestions?.[0] || {}
     maintenanceRevision.value = String(auditResult.sourceRevision || sourceWorldbook.updatedAt || '')
-    maintenanceSummary.value = auditResult.summary || '已生成候选，请逐项审阅。'
+    maintenanceSummary.value = auditResult.summary || ''
     maintenanceCandidates.value = (auditResult.candidates || []).map(prepareMaintenanceCandidate)
     maintenanceCompleted.value = true
   } catch (error) {
@@ -1403,7 +1404,7 @@ async function onWorldbookChange(worldbookId) {
 }
 
 async function createWorldbook() {
-  const nextName = `世界书 ${worldbooksIndex.value.length + 1}`
+  const nextName = tr('世界书 {number}', { number: worldbooksIndex.value.length + 1 })
   const created = await worldStore.createWorldbook({ name: nextName })
   await worldStore.loadWorldbooksIndex()
   if (created?.id) {
@@ -1432,7 +1433,7 @@ async function saveWorldbook() {
 
 async function deleteWorldbook() {
   if (!activeWorldbook.value?.id) return
-  const ok = window.confirm(`确认删除世界书「${activeWorldbook.value.name || '未命名'}」？`)
+  const ok = window.confirm(tr('确认删除世界书「{name}」？', { name: activeWorldbook.value.name || tr('未命名') }))
   if (!ok) return
 
   await worldStore.deleteWorldbook(activeWorldbook.value.id)
@@ -1448,7 +1449,7 @@ async function createEntry() {
     ? entryGroupFilter.value
     : null
   const created = await worldStore.addEntry(activeWorldbook.value.id, {
-    name: '新条目',
+    name: tr('新条目'),
     type: 'general',
     keys: [],
     keysSecondary: [],
@@ -1486,7 +1487,7 @@ async function saveEntry() {
     })
 
     await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
-      name: entryForm.name.trim() || '未命名条目',
+      name: entryForm.name.trim() || tr('未命名条目'),
       type: entryForm.type,
       keys: splitKeywords(entryForm.keys),
       keysSecondary: splitKeywords(entryForm.keysSecondary),
@@ -1508,7 +1509,7 @@ async function saveEntry() {
 
 async function deleteEntry() {
   if (!activeWorldbook.value?.id || !selectedEntry.value?.id) return
-  const ok = window.confirm(`确认删除条目「${selectedEntry.value.name || '未命名条目'}」？`)
+  const ok = window.confirm(tr('确认删除条目「{name}」？', { name: selectedEntry.value.name || tr('未命名条目') }))
   if (!ok) return
 
   await worldStore.deleteEntry(activeWorldbook.value.id, selectedEntry.value.id)
@@ -1607,7 +1608,7 @@ async function applyBulkGroup() {
 
 async function bulkDeleteEntries() {
   if (!activeWorldbook.value?.id || !selectedEntryIds.value.length) return
-  const ok = window.confirm(`确认批量删除 ${selectedEntryIds.value.length} 条条目？`)
+  const ok = window.confirm(tr('确认批量删除 {count} 条条目？', { count: selectedEntryIds.value.length }))
   if (!ok) return
 
   savingEntry.value = true
@@ -1656,7 +1657,7 @@ async function createGroup() {
 
   const exists = groupStats.value.some(group => group.name === nextGroup)
   if (exists) {
-    setGroupError(`分组「${nextGroup}」已存在。`)
+    setGroupError('分组「{name}」已存在。', { name: nextGroup })
     return
   }
 
@@ -1669,9 +1670,9 @@ async function createGroup() {
     groupRenameSource.value = nextGroup
     groupMoveSource.value = nextGroup
     groupDeleteSource.value = nextGroup
-    setGroupSuccess(`已创建分组「${nextGroup}」。`)
+    setGroupSuccess('已创建分组「{name}」。', { name: nextGroup })
   } catch (error) {
-    setGroupError(`创建分组失败：${error?.message || '未知错误'}`)
+    setGroupError('创建分组失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     groupWorking.value = false
   }
@@ -1698,8 +1699,8 @@ async function renameGroup() {
 
   const targetExists = groupStats.value.some(group => group.name === target)
   const confirmText = targetExists
-    ? `目标分组「${target}」已存在，重命名将合并条目，是否继续？`
-    : `确认将分组「${source}」重命名为「${target}」？`
+    ? tr('目标分组「{target}」已存在，重命名将合并条目，是否继续？', { target })
+    : tr('确认将分组「{source}」重命名为「{target}」？', { source, target })
 
   if (!window.confirm(confirmText)) return
 
@@ -1733,9 +1734,9 @@ async function renameGroup() {
     groupDeleteSource.value = target
     groupRenameTarget.value = ''
 
-    setGroupSuccess(`已重命名分组「${source}」为「${target}」，同步更新 ${sourceEntryIds.length} 条条目。`)
+    setGroupSuccess('已重命名分组「{source}」为「{target}」，同步更新 {count} 条条目。', { source, target, count: sourceEntryIds.length })
   } catch (error) {
-    setGroupError(`重命名分组失败：${error?.message || '未知错误'}`)
+    setGroupError('重命名分组失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     groupWorking.value = false
   }
@@ -1762,8 +1763,8 @@ async function migrateGroupEntries() {
 
   const dropSource = groupDropSourceAfterMove.value
   const confirmText = dropSource
-    ? `确认将「${source}」的条目迁移到「${target}」，并删除源分组？`
-    : `确认将「${source}」的条目迁移到「${target}」并保留源分组？`
+    ? tr('确认将「{source}」的条目迁移到「{target}」，并删除源分组？', { source, target })
+    : tr('确认将「{source}」的条目迁移到「{target}」并保留源分组？', { source, target })
   if (!window.confirm(confirmText)) return
 
   groupWorking.value = true
@@ -1794,10 +1795,9 @@ async function migrateGroupEntries() {
     groupMoveSource.value = target
     groupDeleteSource.value = dropSource ? target : groupDeleteSource.value
 
-    const suffix = dropSource ? '，并删除了源分组。' : '。'
-    setGroupSuccess(`已迁移 ${sourceEntryIds.length} 条条目到「${target}」${suffix}`)
+    setGroupSuccess(dropSource ? '已迁移 {count} 条条目到「{target}」，并删除了源分组。' : '已迁移 {count} 条条目到「{target}」。', { count: sourceEntryIds.length, target })
   } catch (error) {
-    setGroupError(`迁移分组失败：${error?.message || '未知错误'}`)
+    setGroupError('迁移分组失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     groupWorking.value = false
   }
@@ -1812,8 +1812,8 @@ async function deleteGroup() {
 
   const sourceEntryIds = getEntryIdsByGroup(source)
   const confirmText = sourceEntryIds.length
-    ? `确认删除分组「${source}」？其中 ${sourceEntryIds.length} 条条目的分组将被清空。`
-    : `确认删除空分组「${source}」？`
+    ? tr('确认删除分组「{source}」？其中 {count} 条条目的分组将被清空。', { source, count: sourceEntryIds.length })
+    : tr('确认删除空分组「{source}」？', { source })
   if (!window.confirm(confirmText)) return
 
   groupWorking.value = true
@@ -1837,9 +1837,9 @@ async function deleteGroup() {
     if (entryGroupFilter.value === source) {
       entryGroupFilter.value = 'all'
     }
-    setGroupSuccess(`已删除分组「${source}」，并清空 ${sourceEntryIds.length} 条条目的分组。`)
+    setGroupSuccess('已删除分组「{source}」，并清空 {count} 条条目的分组。', { source, count: sourceEntryIds.length })
   } catch (error) {
-    setGroupError(`删除分组失败：${error?.message || '未知错误'}`)
+    setGroupError('删除分组失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     groupWorking.value = false
   }
@@ -1855,7 +1855,7 @@ async function pruneEmptyGroups() {
     return
   }
 
-  const ok = window.confirm(`确认清理 ${emptyGroups.length} 个空分组？`)
+  const ok = window.confirm(tr('确认清理 {count} 个空分组？', { count: emptyGroups.length }))
   if (!ok) return
 
   groupWorking.value = true
@@ -1866,9 +1866,9 @@ async function pruneEmptyGroups() {
       .filter(group => group.entryCount > 0)
       .map(group => group.name)
     await replaceWorldbookGroups(keepGroups)
-    setGroupSuccess(`已清理 ${emptyGroups.length} 个空分组。`)
+    setGroupSuccess('已清理 {count} 个空分组。', { count: emptyGroups.length })
   } catch (error) {
-    setGroupError(`清理空分组失败：${error?.message || '未知错误'}`)
+    setGroupError('清理空分组失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     groupWorking.value = false
   }
@@ -1910,7 +1910,7 @@ async function handleImportFileChange(event) {
     importPreview.value = normalizePreview(parsed, file.name)
   } catch (error) {
     importPreview.value = null
-    setTransferError(`导入预览失败：${error?.message || '未知错误'}`)
+    setTransferError('导入预览失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     importing.value = false
   }
@@ -1935,9 +1935,9 @@ async function confirmImportFromPreview() {
       await worldStore.setActiveWorldbook(created.id)
     }
     importPreview.value = null
-    setTransferSuccess(`导入完成：${created?.name || '新世界书'}`)
+    setTransferSuccess('导入完成：{name}', { name: created?.name || tr('新建世界书') })
   } catch (error) {
-    setTransferError(`导入失败：${error?.message || '未知错误'}`)
+    setTransferError('导入失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     importing.value = false
   }
@@ -1969,9 +1969,9 @@ async function exportActiveWorldbook() {
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(objectUrl)
-    setTransferSuccess(`导出完成：${filename}`)
+    setTransferSuccess('导出完成：{name}', { name: filename })
   } catch (error) {
-    setTransferError(`导出失败：${error?.message || '未知错误'}`)
+    setTransferError('导出失败：{error}', { error: tr(error?.message || '未知错误') })
   } finally {
     exporting.value = false
   }
@@ -3167,6 +3167,7 @@ label {
 
 .editor-tabs {
   flex-wrap: nowrap;
+  flex-shrink: 0;
   gap: 3px;
   margin: 0 0 20px;
   overflow-x: auto;

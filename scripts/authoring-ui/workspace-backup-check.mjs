@@ -98,6 +98,7 @@ async function seedWorkspaceData(page) {
     const books = [{
       id: 'bk-alpha-1',
       title: '备份核验书',
+      manuscriptLanguage: 'mixed',
       worldbookId: 'wb-alpha-1',
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -261,6 +262,7 @@ async function readPersistedState(page) {
     })
     return {
       bookId: books[0]?.id || null,
+      manuscriptLanguage: books[0]?.manuscriptLanguage,
       chapterTitles: (books[0]?.chapters || []).map((c) => c.title),
       characterCount: (JSON.parse(localStorage.getItem('writing_characters') || '[]')).length,
       worldbookPresent: Boolean(worldbook),
@@ -404,7 +406,7 @@ async function main() {
     args: process.env.CI ? ['--disable-dev-shm-usage', '--no-sandbox'] : []
   })
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true })
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1440, height: 900 }, acceptDownloads: true })
     const blocked = []
     await context.route('**/*', (route) => {
       const url = new URL(route.request().url())

@@ -1,5 +1,5 @@
 <template>
-  <nav class="activity-bar" aria-label="工作区导航">
+  <nav class="activity-bar" :aria-label="tr(&quot;工作区导航&quot;)">
     <div v-for="item in items" :key="item.key" class="activity-group">
       <button
         class="activity-btn"
@@ -11,10 +11,10 @@
         <span class="activity-icon" aria-hidden="true">
           <WorkbenchIcon :name="item.icon" :size="19" />
         </span>
-        <span class="activity-label">{{ item.label }}</span>
+        <span class="activity-label">{{ tr(item.label) }}</span>
       </button>
 
-      <div v-if="item.key === activeKey && activePanel.items?.length" class="activity-subnav" :aria-label="`${item.label}子导航`">
+      <div v-if="item.key === activeKey && activePanel.items?.length" class="activity-subnav" :aria-label="tr('{value0}子导航', { value0: item.label })">
         <button
           v-for="child in activePanel.items"
           :key="child.routeName"
@@ -25,7 +25,7 @@
           @click="$emit('select-route', child.routeName)"
         >
           <span class="activity-subnav__mark" aria-hidden="true"></span>
-          <span>{{ child.label }}</span>
+          <span>{{ tr(child.label) }}</span>
         </button>
       </div>
     </div>
@@ -33,6 +33,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
 defineProps({

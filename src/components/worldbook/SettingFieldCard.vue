@@ -13,8 +13,8 @@
   >
     <div class="field-head">
       <div class="field-title-group">
-        <label :for="inputId" class="field-label">{{ field.label }}</label>
-        <span class="field-type-pill">{{ controlLabel }}</span>
+        <label :for="inputId" class="field-label">{{ tr(field.label) }}</label>
+        <span class="field-type-pill">{{ tr(controlLabel) }}</span>
       </div>
       <SettingFieldActions
         :field-label="field.label"
@@ -29,7 +29,7 @@
       :model-value="modelValue"
       :input-id="inputId"
       :rows="meta.controlType === 'textarea' ? rows : undefined"
-      :placeholder="meta.placeholder"
+      :placeholder="tr(meta.placeholder)"
       :max-length="meta.maxLength"
       :delimiter="meta.delimiter"
       :parse-mode="meta.parseMode"
@@ -47,7 +47,7 @@
     <span
       v-if="hasDraft"
       class="draft-ready-dot"
-      :aria-label="`设定项「${field.label}」有 AI 草稿待采纳`"
+      :aria-label="tr('设定项「{field}」有 AI 草稿待采纳', { field: tr(field.label) })"
       role="img"
     ></span>
 
@@ -60,6 +60,7 @@
 
 <script setup>
 import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
+import { tr } from '../../i18n/index.js'
 import { getFieldMeta } from '../../services/worldbook/settingPanelSchema'
 import { useFieldDirty } from '../../composables/useFieldDirty'
 import { useFieldUndo } from '../../composables/useFieldUndo'
@@ -166,10 +167,10 @@ function applyHistoryValue(value) {
 
 const statusText = computed(() => {
   switch (dirty.state.value) {
-    case 'dirty': return '未保存'
-    case 'saving': return '保存中…'
-    case 'saved': return '已保存'
-    case 'error': return `保存失败${dirty.error.value ? `：${dirty.error.value}` : ''}`
+    case 'dirty': return tr('未保存')
+    case 'saving': return tr('保存中…')
+    case 'saved': return tr('已保存')
+    case 'error': return dirty.error.value ? tr('保存失败：{error}', { error: tr(dirty.error.value) }) : tr('保存失败')
     default: return ''
   }
 })

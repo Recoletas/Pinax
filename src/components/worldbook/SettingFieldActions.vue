@@ -8,12 +8,13 @@
       @click="$emit('generate')"
     >
       <WorkbenchIcon name="sparkles" :size="15" />
-      <span>{{ working ? '生成中…' : '生成草稿' }}</span>
+      <span>{{ working ? tr('生成中…') : tr('生成草稿') }}</span>
     </button>
   </div>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
@@ -25,7 +26,7 @@ const props = defineProps({
 
 defineEmits(['generate'])
 
-const generateAriaLabel = computed(() => `为设定项「${props.fieldLabel}」生成 AI 草稿`)
+const generateAriaLabel = computed(() => tr('为设定项「{field}」生成 AI 草稿', { field: tr(props.fieldLabel) }))
 </script>
 
 <style scoped>

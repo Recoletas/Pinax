@@ -13,11 +13,12 @@
       type="button"
       class="status-retry"
       @click="$emit('retry')"
-    >{{ retryLabel }}</button>
+    >{{ tr(retryLabel) }}</button>
   </div>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -34,12 +35,12 @@ const canRetry = computed(() => ['partial', 'error', 'stale'].includes(props.sta
 
 const message = computed(() => {
   switch (props.state) {
-    case 'pending': return `${props.phase || '生成中'}…${props.progress ? ` ${props.progress}` : ''}`
-    case 'success': return '已生成'
-    case 'partial': return `部分完成${props.error ? `：${props.error}` : '，失败项仍保留在草稿中'}`
-    case 'error': return `生成失败${props.error ? `：${props.error}` : ''}`
-    case 'aborted': return '已中止'
-    case 'stale': return `结果已过期${props.error ? `：${props.error}` : '，请重新生成'}`
+    case 'pending': return `${tr(props.phase || '生成中')}…${props.progress ? ` ${props.progress}` : ''}`
+    case 'success': return tr('已生成')
+    case 'partial': return props.error ? tr('部分完成：{error}', { error: tr(props.error) }) : tr('部分完成，已生成的草稿仍保留')
+    case 'error': return props.error ? tr('生成失败：{error}', { error: tr(props.error) }) : tr('生成失败')
+    case 'aborted': return tr('已中止')
+    case 'stale': return props.error ? tr('结果已过期：{error}', { error: tr(props.error) }) : tr('结果已过期，请重新生成')
     default: return ''
   }
 })

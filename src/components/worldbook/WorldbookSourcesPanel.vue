@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { tr, formatUiNumber } from '../../i18n'
 import { useWorldStore } from '../../stores/worldStore'
 import { loadSourceChunks } from '../../services/worldbook/worldbookSourceArchive'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
@@ -79,11 +80,11 @@ async function togglePreview(source) {
     }
     if (!previewText.value) {
       previewText.value = String(source.contentPreview || source.content || '').trim()
-      if (previewText.value) previewError.value = '归档块缺失，当前显示导入时预览。'
+      if (previewText.value) previewError.value = tr("归档块缺失，当前显示导入时预览。")
     }
-    if (!previewText.value) previewError.value = '全文不可用：归档已缺失，重新导入可恢复。'
+    if (!previewText.value) previewError.value = tr("全文不可用：归档已缺失，重新导入可恢复。")
   } catch (error) {
-    previewError.value = `全文读取失败：${error?.message || '未知错误'}`
+    previewError.value = tr('全文读取失败：{reason}', { reason: error?.message || tr('未知错误') })
   } finally {
     previewLoading.value = false
   }
@@ -99,15 +100,15 @@ async function removeSource(source) {
     const remaining = sources.value.filter(source_ => String(source_.id || '') !== id)
     // updateWorldbook resolves to the updated worldbook; failures throw.
     const updated = await worldStore.updateWorldbook(props.worldbook.id, { sourceDocuments: remaining })
-    if (!updated?.id) throw new Error('移除失败，请重试')
+    if (!updated?.id) throw new Error(tr("移除失败，请重试"))
     if (expandedId.value === id) {
       expandedId.value = ''
       previewText.value = ''
     }
-    actionMessage.value = `已移出本书资料库：${source.title || id}（归档原件保留，仍可重新添加）。`
+    actionMessage.value = tr('已移出本书资料库：{title}（归档原件保留，仍可重新添加）。', { title: source.title || id })
     emit('sources-changed', { removedId: id, remaining: remaining.length })
   } catch (error) {
-    actionMessage.value = error?.message || '移除失败，请重试'
+    actionMessage.value = error?.message || tr("移除失败，请重试")
   } finally {
     busyRemoveId.value = ''
   }
@@ -115,7 +116,7 @@ async function removeSource(source) {
 </script>
 
 <template>
-  <section class="sources-panel" :class="{ 'is-standalone': standalone }" aria-label="本书资料">
+  <section class="sources-panel" :class="{ 'is-standalone': standalone }" :aria-label="tr(&quot;本书资料&quot;)">
     <button
       v-if="!standalone"
       type="button"
@@ -124,9 +125,9 @@ async function removeSource(source) {
       :aria-expanded="open"
       @click="toggleOpen"
     >
-      <strong>资料</strong>
-      <span>{{ sources.length }} 份 · {{ totalChars.toLocaleString('zh-CN') }} 字</span>
-      <span class="sources-panel__hint">{{ open ? '收起' : '展开管理与预览' }}</span>
+      <strong>{{ tr("资料") }}</strong>
+      <span>{{ tr('{count} 份 · {chars} 字', { count: sources.length, chars: formatUiNumber(totalChars) }) }}</span>
+      <span class="sources-panel__hint">{{ open ? tr("收起") : tr("展开管理与预览") }}</span>
     </button>
 
     <div v-if="standalone || open" class="sources-panel__body">
@@ -137,27 +138,27 @@ async function removeSource(source) {
           v-model="search"
           class="sources-panel__search"
           type="search"
-          placeholder="搜索资料名称或内容"
-          aria-label="搜索资料"
+          :placeholder="tr(&quot;搜索资料名称或内容&quot;)"
+          :aria-label="tr(&quot;搜索资料&quot;)"
         />
         </label>
-        <select v-model="kindFilter" aria-label="按类型筛选">
-          <option value="all">全部类型</option>
-          <option v-for="kind in kindOptions" :key="kind" :value="kind">{{ KIND_LABELS[kind] || kind }}</option>
+        <select v-model="kindFilter" :aria-label="tr(&quot;按类型筛选&quot;)">
+          <option value="all">{{ tr("全部类型") }}</option>
+          <option v-for="kind in kindOptions" :key="kind" :value="kind">{{ KIND_LABELS[kind] ? tr(KIND_LABELS[kind]) : kind }}</option>
         </select>
         <button v-if="!standalone" type="button" class="sources-panel__add control-secondary" data-test="sources-panel-add" :disabled="!bookId" @click="openAdd">
           <WorkbenchIcon name="plus" :size="16" />
-          {{ addLabel() }}
+          {{ tr(addLabel()) }}
         </button>
       </div>
 
       <div v-if="!sources.length" class="sources-panel__empty" data-test="sources-panel-empty">
         <WorkbenchIcon name="sources" :size="30" />
-        <h3>把故事需要的资料放在这里</h3>
-        <p>添加参考文档或文字片段，随时查阅原文。</p>
-        <small>支持 TXT、Markdown、PDF、DOCX 与 EPUB</small>
+        <h3>{{ tr("还没有参考资料") }}</h3>
+        <p>{{ tr("添加参考文档或文字片段，随时查阅原文。") }}</p>
+        <small>{{ tr("支持 TXT、Markdown、PDF、DOCX 与 EPUB") }}</small>
       </div>
-      <p v-else-if="!filtered.length" class="sources-panel__empty">没有匹配的资料；调整搜索或类型筛选。</p>
+      <p v-else-if="!filtered.length" class="sources-panel__empty">{{ tr("没有匹配的资料；调整搜索或类型筛选。") }}</p>
 
       <ul v-else class="sources-panel__list">
         <li v-for="source in filtered" :key="source.id" class="sources-panel__item" :class="{ 'is-expanded': expandedId === String(source.id) }">
@@ -168,29 +169,29 @@ async function removeSource(source) {
               {{ source.title || source.id }}
               <WorkbenchIcon name="chevron-down" :size="15" />
             </button>
-            <p class="sources-panel__excerpt">{{ source.contentPreview || source.content || '点击名称查看原文' }}</p>
+            <p class="sources-panel__excerpt">{{ source.contentPreview || source.content || tr("点击名称查看原文") }}</p>
             </div>
             <span class="sources-panel__meta">
-              <span class="sources-panel__kind">{{ KIND_LABELS[source.kind] || source.kind || 'TXT' }}</span>
-              <span>{{ Number(source.originalLength || source.normalizedLength || String(source.contentPreview || source.content || '').length).toLocaleString('zh-CN') }} 字</span>
-              <span>{{ source.archiveRef ? '已归档' : '未归档' }}</span>
+              <span class="sources-panel__kind">{{ KIND_LABELS[source.kind] ? tr(KIND_LABELS[source.kind]) : source.kind || 'TXT' }}</span>
+              <span>{{ tr('{count} 字', { count: formatUiNumber(source.originalLength || source.normalizedLength || String(source.contentPreview || source.content || '').length) }) }}</span>
+              <span>{{ source.archiveRef ? tr("已归档") : tr("未归档") }}</span>
             </span>
             <button
               type="button"
               class="sources-panel__remove control-quiet"
               :disabled="busyRemoveId === String(source.id)"
-              :aria-label="`移出 ${source.title || source.id}`"
+              :aria-label="tr('移出 {title}', { title: source.title || source.id })"
               @click="removeSource(source)"
             >
               <WorkbenchIcon name="unlink" :size="15" />
-              移出
+              {{ tr("移出") }}
             </button>
           </div>
-          <div v-if="expandedId === String(source.id)" class="sources-panel__preview" aria-label="资料全文预览">
-            <p v-if="previewLoading" role="status">全文读取中……</p>
+          <div v-if="expandedId === String(source.id)" class="sources-panel__preview" :aria-label="tr(&quot;资料全文预览&quot;)">
+            <p v-if="previewLoading" role="status">{{ tr("全文读取中……") }}</p>
             <template v-else>
               <p v-if="previewError" class="sources-panel__warn" role="status">{{ previewError }}</p>
-              <pre>{{ previewText || '（无可显示内容）' }}</pre>
+              <pre>{{ previewText || tr("（无可显示内容）") }}</pre>
             </template>
           </div>
         </li>
@@ -205,7 +206,7 @@ async function removeSource(source) {
 
 .sources-panel { min-width: 0; margin-bottom: 16px; color: var(--text-primary); border: 1px solid var(--archive-paper-strong); border-radius: 8px; }
 .sources-panel.is-standalone { border: 0; border-radius: 0; }
-.sources-panel__toggle { display: flex; width: 100%; gap: 10px; align-items: center; padding: 12px 16px; background: transparent; border: 0; cursor: pointer; font: inherit; color: inherit; }
+.sources-panel__toggle { display: flex; flex-wrap: wrap; width: 100%; gap: 10px; align-items: center; padding: 12px 16px; background: transparent; border: 0; cursor: pointer; font: inherit; color: inherit; }
 .sources-panel__toggle span { color: var(--text-secondary); font-size: 13px; }
 .sources-panel__hint { margin-left: auto; }
 .sources-panel__body { padding: 0 16px 16px; }
@@ -215,7 +216,7 @@ async function removeSource(source) {
 .sources-panel__search { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; padding: 7px 0; }
 .sources-panel__search-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sources-panel__controls select { font: inherit; font-size: 13px; height: 38px; padding: 0 10px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); color: var(--text-secondary); }
-.sources-panel__add { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: nowrap; }
+.sources-panel__add { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: normal; }
 .sources-panel__empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 20px; margin: 0; text-align: center; color: var(--text-secondary); font-size: 14px; }
 .sources-panel__empty h3 { margin: 4px 0 0; font-size: 17px; font-weight: 550; color: var(--text-primary); }
 .sources-panel__empty p { margin: 0; line-height: 1.8; }
@@ -230,7 +231,7 @@ async function removeSource(source) {
 .is-expanded .sources-panel__title svg { transform: rotate(180deg); }
 .sources-panel__title:hover { color: var(--accent); }
 .sources-panel__excerpt { margin: 5px 0 0; color: var(--text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sources-panel__meta { display: flex; align-items: center; gap: 20px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sources-panel__meta { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 12px; max-width: 40%; color: var(--text-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sources-panel__kind { min-width: 42px; font-size: 11px; letter-spacing: .03em; }
 .sources-panel__meta > span:nth-child(2) { min-width: 65px; text-align: right; }
 .sources-panel__remove { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 12px; font-size: 12px; }
@@ -245,7 +246,7 @@ async function removeSource(source) {
  .sources-panel__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; }
  .sources-panel__file-icon { width: 32px; grid-row: 1 / 3; align-self: start; }
  .sources-panel__identity { grid-column: 2; }
- .sources-panel__meta { grid-column: 2; gap: 12px; flex-wrap: wrap; }
+ .sources-panel__meta { grid-column: 2; gap: 6px 12px; max-width: none; justify-content: flex-start; }
  .sources-panel__meta > span:nth-child(2) { min-width: 0; text-align: left; }
  .sources-panel__kind { min-width: 0; }
  .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }

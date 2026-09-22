@@ -1,3 +1,4 @@
+import { inferWritingLanguage } from '../../../../shared/writingLanguage.js'
 import {
   normalizeAuthoringReviewFindings,
   validateWritingReviewReplacement
@@ -748,7 +749,7 @@ export function collectLocalAuthoringProofingFindings(session, {
   for (const block of blocks) {
     const remaining = findingLimit - rawFindings.length
     if (remaining <= 0) break
-    rawFindings.push(...collectQuoteFindings(block, remaining))
+    if (inferWritingLanguage(block.text) !== 'en') rawFindings.push(...collectQuoteFindings(block, remaining))
     if (rawFindings.length >= findingLimit) break
     rawFindings.push(...collectRepeatedPunctuationFindings(block, findingLimit - rawFindings.length))
     if (rawFindings.length >= findingLimit) break

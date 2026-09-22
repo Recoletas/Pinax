@@ -1,3 +1,4 @@
+import { tr } from '../i18n/index.js'
 import { computed, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 
@@ -42,17 +43,17 @@ export function useAuthoringPersistence({
 
   const saveFeedbackVisible = ref(false)
   const stampStateText = computed(() => {
-    if (saveStatus.value === 'saving') return '保存中'
-    if (saveStatus.value === 'unsaved') return '未保存'
-    if (saveStatus.value === 'error') return '保存失败'
-    return '已保存'
+    if (saveStatus.value === 'saving') return tr('保存中')
+    if (saveStatus.value === 'unsaved') return tr('未保存')
+    if (saveStatus.value === 'error') return tr('保存失败')
+    return tr('已保存')
   })
   const saveRescueVisible = computed(() => saveStatus.value === 'error' || Boolean(valueOf(writingRecoveryDraft)))
   const saveRescueText = computed(() => {
-    if (saveStatus.value === 'error') return '正文保存失败，你的输入仍保留在稿面。'
+    if (saveStatus.value === 'error') return tr('正文保存失败，你的输入仍保留在稿面。')
     const draft = valueOf(writingRecoveryDraft)
     const time = draft ? formatRecoveryTime?.(draft.createdAt) : ''
-    return time ? `发现一份未保存的恢复稿 · ${time}` : '发现一份未保存的恢复稿。'
+    return time ? tr('发现一份未保存的恢复稿 · {time}', { time }) : tr('发现一份未保存的恢复稿。')
   })
 
   function activeDocumentSaveScopeKey() {
@@ -168,15 +169,15 @@ export function useAuthoringPersistence({
     if (!valueOf(selectedChapterId)) return
     const liveText = String(getEditorText?.() || '')
     if (!liveText.trim()) {
-      notify?.('当前正文是空的，没有可导出的内容')
+      notify?.(tr('当前正文是空的，没有可导出的内容'))
       return
     }
-    const chapterTitle = valueOf(currentChapterTitle) || '未命名章节'
+    const chapterTitle = valueOf(currentChapterTitle) || tr('未命名章节')
     try {
       downloadText?.(liveText, `${chapterTitle}-${Date.now()}.md`, 'text/markdown;charset=utf-8')
-      notify?.('已导出当前正文，包含尚未保存的修改')
+      notify?.(tr('已导出当前正文，包含尚未保存的修改'))
     } catch (error) {
-      notify?.(error?.message || '导出失败，请重试')
+      notify?.(error?.message || tr('导出失败，请重试'))
     }
   }
 
@@ -216,11 +217,11 @@ export function useAuthoringPersistence({
 
   onBeforeRouteLeave(() => {
     if (valueOf(pendingGhostAdoption)) {
-      notify?.('推演正文尚未保存，请先重试保存或留在当前文档')
+      notify?.(tr('推演正文尚未保存，请先重试保存或留在当前文档'))
       return false
     }
     if (valueOf(blockPreview)) {
-      notify?.('推演草稿尚未处理，请先采用或丢弃')
+      notify?.(tr('推演草稿尚未处理，请先采用或丢弃'))
       return false
     }
     const outgoingBoundary = !valueOf(activeDocument) ? buildOutgoingBoundary?.() : null
@@ -229,7 +230,7 @@ export function useAuthoringPersistence({
         ? persistActiveDocument?.()?.ok === true
         : (!valueOf(selectedChapterId) || persistChapter?.() === true)
       if (!persisted) {
-        notify?.('文档保存失败，已留在当前工作台')
+        notify?.(tr('文档保存失败，已留在当前工作台'))
         return false
       }
     }

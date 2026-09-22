@@ -1,4 +1,5 @@
 <script setup>
+import { tr, uiLocale } from './i18n/index.js'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useViewportHeight } from './composables/useViewportHeight'
@@ -21,10 +22,12 @@ let noticeTimer = null
 useViewportHeight()
 
 function syncDocumentTitle() {
-  const fallbackTitle = route.name === 'welcome' ? '工作台' : String(route.name || 'Pinax')
+  const fallbackTitle = route.name === 'welcome' ? tr('工作台') : String(route.name || 'Pinax')
   const title = String(route.meta?.title || fallbackTitle || 'Pinax').trim()
-  document.title = title ? `${title} - Pinax` : ''
+  document.title = title ? `${tr(title)} - Pinax` : ''
 }
+
+watch(uiLocale, syncDocumentTitle)
 
 function hideNotice() {
   if (noticeTimer) {

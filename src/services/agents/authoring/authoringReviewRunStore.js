@@ -1,3 +1,4 @@
+import { validateWritingLanguagePolicy } from '../../../../shared/writingLanguage.js'
 import { getItem, setItem, STORAGE_KEYS } from '../../../composables/useStorage.js'
 
 const VERSION = 1
@@ -16,6 +17,7 @@ function safeBatch(batch = {}) {
 function normalize(raw = {}) {
   if (Number(raw.schemaVersion) !== VERSION || !raw.id || !raw.documentId) return null
   return {
+    ...(validateWritingLanguagePolicy(raw.languagePolicy).valid ? { languagePolicy: { ...raw.languagePolicy } } : {}),
     schemaVersion: VERSION, id: text(raw.id), status: text(raw.status || 'interrupted'),
     projectId: text(raw.projectId), pane: raw.pane === 'dual' ? 'dual' : 'main',
     documentRole: raw.documentRole === 'exploration' ? 'exploration' : 'manuscript',

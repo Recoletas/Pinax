@@ -1,0 +1,16 @@
+{
+  "report": [
+    "English import: 4 chapters, optional manuscript language persisted",
+    "UI switch preserves live editor instance, text, stored manuscript and undo/redo",
+    "Settings language selection and character profile creation/edit/persistence",
+    "English exploration, character AI, image workspace/model configuration and mobile panes; drafts survive language switches",
+    "Outline, rehearsal, memory history and responsive settings; 85%/100% layouts and unchanged manuscript typography",
+    "Simulated model: Chinese explanations + English replacement, exact straight-quote lock, review/rewrite/apply/save",
+    "Readable Markdown export preserves Unicode and protected dialogue",
+    "JSON backup restores manuscript language in clean browser; device locale excluded",
+    "Desktop dark mode and restored mobile manuscript rendered",
+    "English help deep link and rapid language switch"
+  ],
+  "errors": [],
+  "missingTranslations": []
+}

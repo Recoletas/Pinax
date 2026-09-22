@@ -2,7 +2,7 @@
   <nav
     class="settings-section-nav"
     role="tablist"
-    aria-label="设定分区"
+    :aria-label="tr('设定分区')"
   >
     <router-link
       v-for="tab in tabs"
@@ -15,13 +15,14 @@
       :to="sectionRoute(tab)"
     >
       <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="14" />
-      <span class="settings-section-tab__label">{{ tab.label }}</span>
+      <span class="settings-section-tab__label">{{ tr(tab.label) }}</span>
     </router-link>
   </nav>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { tr } from '../../i18n/index.js'
 import { useRoute } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 

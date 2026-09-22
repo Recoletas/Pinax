@@ -1,0 +1,19 @@
+{
+  "关联资料": "Linked sources",
+  "当前书稿关联的世界书（回工作台更换关联）": "Linked story bible. Change it in the writing workspace.",
+  "选择当前世界书": "Choose a story bible",
+  "世界书由《{book}》的关联决定；回工作台可更换关联": "Linked to “{book}”. Change the link in the writing workspace.",
+  "设定页信息": "Story bible information",
+  "世界书 {count} 本": "Story bibles: {count}",
+  "尚未选择世界书": "No story bible selected",
+  "设定分区": "Story bible sections",
+  "这本书关联的世界书已不存在。": "This book’s linked story bible no longer exists.",
+  "要打开的世界书已不存在。": "This story bible no longer exists.",
+  "世界书加载失败，请重试。": "Could not load the story bible. Try again.",
+  "条目": "Entries",
+  "高级设定": "Entries",
+  "创建世界书": "New story bible",
+  "协作审阅": "Shared review",
+  "工作区": "Workspace",
+  "这本书关联的世界书已变化，已按当前关联打开。": "Opened this book’s current story bible; its link has changed."
+}

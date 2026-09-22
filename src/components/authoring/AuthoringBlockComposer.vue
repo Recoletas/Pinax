@@ -1,61 +1,62 @@
 <template>
-  <section class="authoring-block-composer" data-test="block-composer" aria-label="长篇推演">
+  <section class="authoring-block-composer" data-test="block-composer" :aria-label="tr('长篇推演')">
     <header class="authoring-block-composer__head">
       <div>
-        <strong>{{ emptyChapter ? '写下开场' : '推演草稿' }}</strong>
+        <strong>{{ emptyChapter ? tr("写下开场") : tr("推演草稿") }}</strong>
       </div>
-      <button type="button" class="authoring-block-composer__close" aria-label="收起推演" @click="cancel">收起</button>
+      <button type="button" class="authoring-block-composer__close" :aria-label="tr('收起推演')" @click="cancel">{{ tr("收起") }}</button>
     </header>
     <p v-if="sceneContextSummary" class="authoring-block-composer__scene-context">
-      <span>当前场</span>{{ sceneContextSummary }}
+      <span>{{ tr("当前场") }}</span>{{ sceneContextSummary }}
     </p>
     <slot name="context" />
     <AuthoringGenerationStatus v-if="generating" />
-    <p v-else-if="contextLoading" role="status">正在核对本次参考资料…</p>
-    <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" aria-label="写作任务">
-      <button type="button" role="radio" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">推演下一段</button>
-      <button type="button" role="radio" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">重写当前块</button>
+    <p v-else-if="contextLoading" role="status">{{ tr("正在核对本次参考资料…") }}</p>
+    <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" :aria-label="tr('写作任务')">
+      <button type="button" role="radio" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">{{ tr("推演下一段") }}</button>
+      <button type="button" role="radio" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">{{ tr("重写当前块") }}</button>
     </div>
     <div v-if="operation === 'next-passage' && (kind === 'dialogue' || kind === 'thought')" class="authoring-block-composer__people">
-      <label>{{ kind === 'thought' ? '视角人物' : '说话人' }}<select v-model="actorId"><option value="">请选择</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
-      <label v-if="kind === 'dialogue'">对象<select v-model="targetId"><option value="">请选择</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+      <label>{{ kind === 'thought' ? tr("视角人物") : tr("说话人") }}<select v-model="actorId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+      <label v-if="kind === 'dialogue'">{{ tr("对象") }}<select v-model="targetId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
     </div>
     <label class="authoring-block-composer__instruction">
-      <textarea ref="instructionInput" v-model="instruction" aria-label="推演要求" :placeholder="instructionPlaceholder" @keydown="handleInstructionKeydown" />
+      <textarea ref="instructionInput" v-model="instruction" :aria-label="tr('推演要求')" :placeholder="tr(instructionPlaceholder)" @keydown="handleInstructionKeydown" />
     </label>
-    <p v-if="validationMessage" role="alert">{{ validationMessage }}</p>
-    <p v-else-if="failure" role="alert">{{ failure.message || '生成失败，请重试' }}</p>
-    <p v-if="staleResult" role="alert">目标文本已变化，请重新选择插入位置；生成结果已保留。</p>
+    <p v-if="validationMessage" role="alert">{{ tr(validationMessage) }}</p>
+    <p v-else-if="failure" role="alert">{{ failure.message || tr("生成失败，请重试") }}</p>
+    <p v-if="staleResult" role="alert">{{ tr("目标文本已变化，请重新选择插入位置；生成结果已保留。") }}</p>
     <label v-if="staleText" class="authoring-block-composer__stale-preview">
-      <span>生成正文 · 只读，未写入正文</span>
+      <span>{{ tr("生成正文 · 只读，未写入正文") }}</span>
       <textarea
         data-test="block-stale-preview"
         :value="staleText"
         readonly
         wrap="soft"
-        aria-label="过期生成正文，只读"
+        :aria-label="tr('过期生成正文，只读')"
         spellcheck="false"
       ></textarea>
     </label>
       <details class="authoring-block-composer__more">
-        <summary>推演选项<span v-if="kind !== 'action' || authorNote.trim()"> · 已设置</span></summary>
+        <summary>{{ tr("推演选项") }}<span v-if="kind !== 'action' || authorNote.trim()"> {{ tr("· 已设置") }}</span></summary>
         <div class="authoring-block-composer__more-body">
-          <div v-if="operation === 'next-passage'" class="authoring-block-composer__kinds" role="radiogroup" aria-label="推进类型">
-            <button v-for="option in kindOptions" :key="option.id" type="button" role="radio" :aria-checked="kind === option.id" @click="kind = option.id">{{ option.label }}</button>
+          <div v-if="operation === 'next-passage'" class="authoring-block-composer__kinds" role="radiogroup" :aria-label="tr('推进类型')">
+            <button v-for="option in kindOptions" :key="option.id" type="button" role="radio" :aria-checked="kind === option.id" @click="kind = option.id">{{ tr(option.label) }}</button>
           </div>
-          <label>额外约束<textarea v-model="authorNote" placeholder="仅用于本次，不写入正文" /></label>
+          <label>{{ tr("额外约束") }}<textarea v-model="authorNote" :placeholder="tr('仅用于本次，不写入正文')" /></label>
         </div>
       </details>
     <div class="authoring-block-composer__footer">
       <div class="authoring-block-composer__actions">
-        <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">再次保存</button>
-        <button type="button" class="control-primary" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ primaryLabel }}</button>
+        <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">{{ tr("再次保存") }}</button>
+        <button type="button" class="control-primary" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ tr(primaryLabel) }}</button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { buildAuthoringTurnIntent } from '../../services/agents/authoring/authoringTurnContract.js'
 import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'

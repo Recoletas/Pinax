@@ -3,7 +3,7 @@
     <header class="authoring-idea-shelf__head">
       <span class="authoring-idea-shelf__title">
         <WorkbenchIcon name="pencil" :size="14" />
-        <span>构思</span>
+        <span>{{ tr('构思') }}</span>
         <small>{{ docs.length }}</small>
       </span>
       <span class="authoring-idea-shelf__head-actions">
@@ -126,6 +126,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, ref } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 

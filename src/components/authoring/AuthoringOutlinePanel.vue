@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { tr, uiLocale } from '../../i18n/index.js'
 
 const props = defineProps({
   projectNodes: { type: Array, default: () => [] }, projectEdges: { type: Array, default: () => [] },
@@ -49,7 +50,7 @@ const selectedRelations = computed(() => {
 })
 const editorCount = computed(() => content.value.length)
 
-function statusLabel(status) { return STATUS_LABELS[status] || '未标记' }
+function statusLabel(status) { return tr(STATUS_LABELS[status] || '未标记') }
 function selectProject(node) { selectedKind.value = 'project'; selectedId.value = String(node.id); creating.value = false; editing.value = false; title.value = node.title || ''; content.value = node.intent || '' }
 function selectItem(item) { selectedKind.value = 'chapter'; selectedId.value = String(item.id); creating.value = false; editing.value = false; title.value = item.title || ''; content.value = item.content || '' }
 function startCreate(fromSelection = false) { selectedKind.value = 'chapter'; selectedId.value = ''; creating.value = true; editing.value = true; title.value = ''; content.value = fromSelection ? props.selectedText.trim() : '' }
@@ -57,16 +58,17 @@ function toggleGroup(name) { const next = new Set(collapsedGroups.value); if (ne
 function beginEdit() { if (selectedItem.value) { title.value = selectedItem.value.title || ''; content.value = selectedItem.value.content || ''; editing.value = true } }
 function save() { if (!content.value.trim()) return; if (creating.value) emit('add', { title: title.value.trim(), content: content.value.trim() }); else if (selectedItem.value) emit('update', selectedItem.value.id, { title: title.value.trim(), content: content.value.trim() }); creating.value = false; editing.value = false }
 function removeSelected() { if (!selectedItem.value) return; if (confirmDeleteId.value !== selectedItem.value.id) { confirmDeleteId.value = selectedItem.value.id; return }; emit('remove', selectedItem.value.id); selectedId.value = ''; selectedKind.value = ''; confirmDeleteId.value = '' }
-function relationLabel(edge) { return EDGE_LABELS[edge.kind] || '关联' }
+function relationLabel(edge) { return tr(EDGE_LABELS[edge.kind] || '关联') }
 function chapterById(id) { return props.chapters.find((chapter) => String(chapter.id) === String(id)) || null }
 function explorationById(id) { return props.explorations.find((document) => String(document.id) === String(id)) || null }
 function chapterLabel(id) {
   const chapter = chapterById(id)
-  if (!chapter) return '已移除章节'
+  if (!chapter) return tr('已移除章节')
   const index = props.chapters.indexOf(chapter) + 1
-  return `第${index === 1 ? '一' : index === 2 ? '二' : index}章${chapter.title ? ` ${chapter.title}` : ''}`
+  const number = uiLocale.value === 'en' ? index : index === 1 ? '一' : index === 2 ? '二' : index
+  return `${tr('第{number}章', { number })}${chapter.title ? ` ${chapter.title}` : ''}`
 }
-function directoryExcerpt(value) { return String(value || '').replace(/\s+/g, ' ').trim() || '暂无内容' }
+function directoryExcerpt(value) { return String(value || '').replace(/\s+/g, ' ').trim() || tr('暂无内容') }
 function selectInitial() { const project = props.projectNodes[0]; const item = props.items[0]; if (project) selectProject(project); else if (item) selectItem(item) }
 
 watch(() => props.focusProjectNodeId, (id) => { const node = projectNodeById.value.get(String(id || '')); if (node) selectProject(node) }, { immediate: true })
@@ -80,35 +82,35 @@ watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.ma
   <section class="outline-workbench">
     <main class="outline-editor">
       <header class="outline-editor__head">
-        <input v-if="editing" v-model="title" aria-label="大纲标题" placeholder="大纲标题" />
-        <h2 v-else>{{ selectedProjectNode?.title || selectedItem?.title || (creating ? '新章纲' : '总纲') }}</h2>
-        <div><span class="outline-mode" title="当前为文本模式">文本模式⌄</span><button type="button" title="历史版本" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
+        <input v-if="editing" v-model="title" :aria-label="tr('大纲标题')" :placeholder="tr('大纲标题')" />
+        <h2 v-else>{{ selectedProjectNode?.title || selectedItem?.title || (creating ? tr('新章纲') : tr('总纲')) }}</h2>
+        <div><span class="outline-mode" :title="tr('当前为文本模式')">{{ tr('文本模式⌄') }}</span><button type="button" :title="tr('历史版本')" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
       </header>
       <div v-if="creating || selectedItem || selectedProjectNode" class="outline-editor__body authoring-outline-detail" :class="{ 'is-project-detail': selectedProjectNode }">
         <div class="outline-editor__toolbar">
-          <span>{{ selectedProjectNode ? `总纲 · ${statusLabel(selectedProjectNode.status)}` : `${chapterTitle || '当前章节'} · 章纲` }}</span>
-          <div class="authoring-outline-detail__primary"><button v-if="selectedItem && !editing" type="button" @click="emit('insert', selectedItem)">插入正文</button><button v-if="selectedItem && !editing" type="button" @click="beginEdit">编辑</button><button v-if="editing" type="button" class="primary" @click="save">保存</button><button v-if="selectedItem && !editing" type="button" class="danger" @click="removeSelected">{{ confirmDeleteId === selectedItem.id ? '确认删除' : '删除' }}</button></div>
+          <span>{{ selectedProjectNode ? `${tr('总纲')} · ${statusLabel(selectedProjectNode.status)}` : `${chapterTitle || tr('当前章节')} · ${tr('章纲')}` }}</span>
+          <div class="authoring-outline-detail__primary"><button v-if="selectedItem && !editing" type="button" @click="emit('insert', selectedItem)">{{ tr('插入正文') }}</button><button v-if="selectedItem && !editing" type="button" @click="beginEdit">{{ tr('编辑') }}</button><button v-if="editing" type="button" class="primary" @click="save">{{ tr('保存') }}</button><button v-if="selectedItem && !editing" type="button" class="danger" @click="removeSelected">{{ confirmDeleteId === selectedItem.id ? tr('确认删除') : tr('删除') }}</button></div>
         </div>
-        <textarea v-if="editing" v-model="content" autofocus placeholder="写下关键动作、转折和必须兑现的信息"></textarea>
-        <article v-else class="outline-prose">{{ content || '还没有写下这个节点的内容。' }}</article>
-        <section v-if="selectedProjectNode && selectedRelations.length" class="outline-relations"><h3>叙事关系</h3><button v-for="edge in selectedRelations" :key="edge.id" type="button" @click="edge.peer && selectProject(edge.peer)"><small>{{ relationLabel(edge) }}</small><span>{{ edge.peer?.title || '已移除节点' }}</span></button></section>
-        <section v-if="selectedProjectNode?.chapterRefs?.length" class="outline-relations authoring-outline-project-links"><h3>关联章节</h3><button v-for="chapterId in selectedProjectNode.chapterRefs" :key="chapterId" type="button" :disabled="!chapterById(chapterId)" @click="emit('open-project-chapter', chapterId)"><span>{{ chapterLabel(chapterId) }}</span><small>{{ chapterById(chapterId) ? '打开 ›' : '引用已失效' }}</small></button></section>
-        <section v-if="selectedProjectNode?.explorationRefs?.length" class="outline-relations authoring-outline-project-links"><h3>推演草稿</h3><button v-for="reference in selectedProjectNode.explorationRefs" :key="reference.documentId" type="button" :disabled="!explorationById(reference.documentId)" @click="emit('open-project-exploration', reference.documentId)"><span>{{ explorationById(reference.documentId)?.title || '推演草稿已移除' }}</span><small>{{ explorationById(reference.documentId) ? '打开 ›' : '引用已失效' }}</small></button></section>
-        <div v-if="selectedItem && !editing" class="outline-order"><button type="button" :disabled="selectedItemIndex === 0" @click="emit('move', selectedItemIndex, -1)">上移</button><button type="button" :disabled="selectedItemIndex === items.length - 1" @click="emit('move', selectedItemIndex, 1)">下移</button></div>
+        <textarea v-if="editing" v-model="content" autofocus :placeholder="tr('写下关键动作、转折和必须兑现的信息')"></textarea>
+        <article v-else class="outline-prose">{{ content || tr('还没有写下这个节点的内容。') }}</article>
+        <section v-if="selectedProjectNode && selectedRelations.length" class="outline-relations"><h3>{{ tr('叙事关系') }}</h3><button v-for="edge in selectedRelations" :key="edge.id" type="button" @click="edge.peer && selectProject(edge.peer)"><small>{{ relationLabel(edge) }}</small><span>{{ edge.peer?.title || tr('已移除节点') }}</span></button></section>
+        <section v-if="selectedProjectNode?.chapterRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('关联章节') }}</h3><button v-for="chapterId in selectedProjectNode.chapterRefs" :key="chapterId" type="button" :disabled="!chapterById(chapterId)" @click="emit('open-project-chapter', chapterId)"><span>{{ chapterLabel(chapterId) }}</span><small>{{ chapterById(chapterId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>
+        <section v-if="selectedProjectNode?.explorationRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('推演草稿') }}</h3><button v-for="reference in selectedProjectNode.explorationRefs" :key="reference.documentId" type="button" :disabled="!explorationById(reference.documentId)" @click="emit('open-project-exploration', reference.documentId)"><span>{{ explorationById(reference.documentId)?.title || tr('推演草稿已移除') }}</span><small>{{ explorationById(reference.documentId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>
+        <div v-if="selectedItem && !editing" class="outline-order"><button type="button" :disabled="selectedItemIndex === 0" @click="emit('move', selectedItemIndex, -1)">{{ tr('上移') }}</button><button type="button" :disabled="selectedItemIndex === items.length - 1" @click="emit('move', selectedItemIndex, 1)">{{ tr('下移') }}</button></div>
         <footer>{{ editorCount }}/20000</footer>
       </div>
-      <div v-else class="outline-empty"><h2>使用说明</h2><p>新建总纲或章纲，梳理故事目标、转折和需要兑现的信息。</p><button type="button" @click="startCreate(false)">建立第一个章纲</button></div>
+      <div v-else class="outline-empty"><h2>{{ tr('使用说明') }}</h2><p>{{ tr('新建总纲或章纲，梳理故事目标、转折和需要兑现的信息。') }}</p><button type="button" @click="startCreate(false)">{{ tr('建立第一个章纲') }}</button></div>
     </main>
     <aside class="outline-directory">
-      <div class="outline-window-controls"><button type="button" title="固定大纲工作台" @click="emit('toggle-pin')">⌖</button><button type="button" title="关闭大纲工作台" @click="emit('close')">×</button></div>
-      <div class="outline-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" placeholder="大纲" aria-label="搜索大纲" /></div>
-      <div class="outline-actions"><button type="button" class="primary" @click="startCreate(false)">新建</button><button type="button" @click="startCreate(true)">提取</button></div>
-      <header><strong>目录</strong><button type="button" title="筛选大纲" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">筛选</button></header>
-      <div v-if="filterOpen" class="outline-filters"><button v-for="filter in FILTERS" :key="filter.key" type="button" :class="{ active: projectFilter === filter.key }" @click="emit('filter', filter.key)">{{ filter.label }}</button></div>
-      <section v-if="projectConflicts.length" class="outline-conflicts"><strong>待整理</strong><div v-for="conflict in projectConflicts" :key="conflict.fingerprint" class="authoring-outline-conflict-chapters"><span>{{ conflict.title || '同名旧章纲' }}</span><button v-for="occurrence in conflict.occurrences || []" :key="occurrence.chapterId" type="button" :disabled="!chapterById(occurrence.chapterId)" @click="emit('open-project-chapter', occurrence.chapterId)">{{ chapterLabel(occurrence.chapterId) }}</button></div></section>
-      <section class="outline-directory__group"><h3><button type="button" :aria-expanded="(!collapsedGroups.has('project')).toString()" @click="toggleGroup('project')"><span class="catalog-folder-caret" :class="{ open: !collapsedGroups.has('project') }">›</span><WorkbenchIcon name="folder" :size="17" /><span>总纲</span></button></h3><template v-if="!collapsedGroups.has('project')"><button v-for="node in filteredProjectNodes" :key="node.id" type="button" class="authoring-outline-row is-project" :class="{ active: selectedKind === 'project' && selectedId === String(node.id) }" @click="selectProject(node)"><strong>{{ node.title || '总纲' }}</strong><small>{{ directoryExcerpt(node.intent) }}</small></button></template></section>
-      <section class="outline-directory__group"><h3><button type="button" :aria-expanded="(!collapsedGroups.has('chapter')).toString()" @click="toggleGroup('chapter')"><span class="catalog-folder-caret" :class="{ open: !collapsedGroups.has('chapter') }">›</span><WorkbenchIcon name="folder" :size="17" /><span>章纲</span></button></h3><template v-if="!collapsedGroups.has('chapter')"><button v-for="item in filteredItems" :key="item.id" type="button" class="authoring-outline-row" :class="{ active: selectedKind === 'chapter' && selectedId === String(item.id) }" @click="selectItem(item)"><strong>{{ item.title || '未命名章纲' }}</strong><small>{{ directoryExcerpt(item.content) }}</small></button></template></section>
-      <p v-if="!filteredProjectNodes.length && !filteredItems.length" class="outline-directory__empty">没有匹配的大纲。</p>
+      <div class="outline-window-controls"><button type="button" :title="tr('固定大纲工作台')" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr('关闭大纲工作台')" @click="emit('close')">×</button></div>
+      <div class="outline-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('大纲')" :aria-label="tr('搜索大纲')" /></div>
+      <div class="outline-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
+      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr('筛选大纲')" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">{{ tr('筛选') }}</button></header>
+      <div v-if="filterOpen" class="outline-filters"><button v-for="filter in FILTERS" :key="filter.key" type="button" :class="{ active: projectFilter === filter.key }" @click="emit('filter', filter.key)">{{ tr(filter.label) }}</button></div>
+      <section v-if="projectConflicts.length" class="outline-conflicts"><strong>{{ tr('待整理') }}</strong><div v-for="conflict in projectConflicts" :key="conflict.fingerprint" class="authoring-outline-conflict-chapters"><span>{{ conflict.title || tr('同名旧章纲') }}</span><button v-for="occurrence in conflict.occurrences || []" :key="occurrence.chapterId" type="button" :disabled="!chapterById(occurrence.chapterId)" @click="emit('open-project-chapter', occurrence.chapterId)">{{ chapterLabel(occurrence.chapterId) }}</button></div></section>
+      <section class="outline-directory__group"><h3><button type="button" :aria-expanded="(!collapsedGroups.has('project')).toString()" @click="toggleGroup('project')"><span class="catalog-folder-caret" :class="{ open: !collapsedGroups.has('project') }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ tr('总纲') }}</span></button></h3><template v-if="!collapsedGroups.has('project')"><button v-for="node in filteredProjectNodes" :key="node.id" type="button" class="authoring-outline-row is-project" :class="{ active: selectedKind === 'project' && selectedId === String(node.id) }" @click="selectProject(node)"><strong>{{ node.title || tr('总纲') }}</strong><small>{{ directoryExcerpt(node.intent) }}</small></button></template></section>
+      <section class="outline-directory__group"><h3><button type="button" :aria-expanded="(!collapsedGroups.has('chapter')).toString()" @click="toggleGroup('chapter')"><span class="catalog-folder-caret" :class="{ open: !collapsedGroups.has('chapter') }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ tr('章纲') }}</span></button></h3><template v-if="!collapsedGroups.has('chapter')"><button v-for="item in filteredItems" :key="item.id" type="button" class="authoring-outline-row" :class="{ active: selectedKind === 'chapter' && selectedId === String(item.id) }" @click="selectItem(item)"><strong>{{ item.title || tr('未命名章纲') }}</strong><small>{{ directoryExcerpt(item.content) }}</small></button></template></section>
+      <p v-if="!filteredProjectNodes.length && !filteredItems.length" class="outline-directory__empty">{{ tr('没有匹配的大纲。') }}</p>
     </aside>
   </section>
 </template>
@@ -124,6 +126,16 @@ watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.ma
 .outline-directory__group>button{display:grid;min-height:40px;grid-template-columns:minmax(0,1fr) minmax(0,44%);align-items:center;gap:7px;padding:0 10px 0 36px;font-size:var(--authoring-catalog-entry-size,13px)}
 .outline-directory__group strong{display:block;font:inherit}
 .outline-directory__group small{display:block;overflow:hidden;color:var(--text-secondary);font-size:var(--authoring-catalog-meta-size,10px);font-weight:400;text-overflow:ellipsis;white-space:nowrap}
+.outline-editor__head{flex-wrap:wrap;gap:6px 12px}
+.outline-editor__head h2{min-width:0;flex:1;overflow-wrap:break-word}
+.outline-editor__head>div{flex:0 0 auto}
+.outline-editor__toolbar{flex-wrap:wrap;gap:6px 10px;padding-block:6px}
+.outline-editor__toolbar>span{min-width:0;overflow-wrap:break-word}
+.outline-editor__toolbar div{flex-wrap:wrap}
+.outline-filters{flex-wrap:wrap;overflow:visible;gap:6px 12px}
+.outline-actions button{height:auto;min-height:36px;padding:6px 8px}
+.outline-relations button{grid-template-columns:auto minmax(0,1fr)}
+.outline-relations span{min-width:0;overflow-wrap:break-word}
 @media(max-width:720px){.outline-workbench{grid-template-columns:1fr;grid-template-rows:minmax(0,42%) minmax(0,58%)}.outline-directory{order:-1;max-height:none;border-bottom:1px solid var(--border-subtle)}.outline-editor{border-right:0}}
 .outline-conflicts{margin:8px 0;padding:8px;border-left:2px solid var(--signal-warning,#b1812c);background:var(--surface-workbench-muted);font-size:10px}.outline-conflicts>div{display:grid;gap:2px;margin-top:5px}.outline-conflicts span{color:var(--text-primary)}.outline-conflicts button{text-align:left;font-size:10px}
 </style>

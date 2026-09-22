@@ -1,3 +1,7 @@
+import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
+import { collectWritingDialogueLocks, validateWritingLockedSegments, getWritingCandidateStaleReason } from '../../shared/writingCandidateContract.js'
+import { resolveWritingLanguagePolicy, validateWritingLanguagePolicy } from '../../shared/writingLanguage.js'
+import { scanDegenerationFindings } from '../services/agents/authoring/writingSkillChecks/checkDegeneration.js'
 import { describe, expect, it } from 'vitest'
 import { beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
@@ -263,6 +267,31 @@ localStorage.clear()
     }
 }
 {
+    // English manuscript regression matrix: same source, metrics and exact offsets.
+    for (const [text, count] of [["Hello, world!", 2], ["Don't stop.", 2], ['naïve café', 2], ['你好，Pinax。', 3], ["O’Neill's well-known café 2026 👋", 5], ['cafe\u0301', 1]]) {
+      expect(countWritingText(text, 'en')).toBe(count)
+      expect(writingTextMetrics(text).utf16Length).toBe(text.length)
+      expect(createImportedWritingBook({ title: 'Test', manuscriptLanguage: 'en', chapters: [{ title: 'One', content: text }] }).book.chapters[0].wordCount).toBe(count)
+    }
+    const utf8English = 'Chapter 1\nO’Neill went to the café.'
+    expect(decodeManuscriptBytes(new TextEncoder().encode(utf8English))).toMatchObject({ ok: true, encoding: 'utf-8', text: utf8English })
+    const english = parseManuscriptText({ manuscriptLanguage: 'en', text: 'Prologue\nHello.\nChapter 1\nIn Chapter 2, she waited.\nCHAPTER IV: The Door\nWorld.\nEpilogue\nGoodbye.' })
+    expect(english.chapters.map(chapter => chapter.title)).toEqual(['Prologue', 'Chapter 1', 'CHAPTER IV: The Door', 'Epilogue'])
+    expect(english.chapters[1].content).toBe('In Chapter 2, she waited.')
+    for (const source of ['"Stay," she said.', '“Stay,” she said.', '‘Don’t go,’ she said.', '「别走。」她说。', '👋 cafe\u0301 "Stay."\r\nAfter.']) {
+      const locks = collectWritingDialogueLocks(source)
+      expect(locks).toHaveLength(1)
+      expect(source.slice(locks[0].start, locks[0].end)).toBe(locks[0].text)
+      expect(validateWritingLockedSegments(source, source + ' Later.', locks)).toBe(true)
+      expect(validateWritingLockedSegments(source, source.replace(locks[0].text, 'Changed'), locks)).toBe(false)
+    }
+    for (const source of ["don't O'Neill", '"Unclosed', '“Across\nparagraphs”']) expect(collectWritingDialogueLocks(source)).toEqual([])
+    for (const source of ['Surely she knew the road.', '"Sure," she said.', 'Sure, the road was long.']) expect(scanDegenerationFindings(source)).toEqual([])
+    const policy = resolveWritingLanguagePolicy({ manuscriptLanguage: 'en', assistantLanguage: 'zh-CN', text: 'Hello.' })
+    expect(policy).toEqual({ manuscriptLanguage: 'en', assistantLanguage: 'zh-CN', outputLanguage: 'en' })
+    expect(validateWritingLanguagePolicy({ ...policy, unknown: true }).valid).toBe(false)
+    expect(getWritingCandidateStaleReason({ languagePolicy: policy }, { manuscriptLanguage: 'zh-CN' })).toBe('language-policy-changed')
+    expect(getWritingCandidateStaleReason({ languagePolicy: policy }, { manuscriptLanguage: 'en' })).toBe('')
     // Web beta 首访：Markdown 标题拆章、纯文本章节识别和整篇回退均不丢正文。
     const markdown = parseManuscriptText({
       filename: '潮汐档案.md',

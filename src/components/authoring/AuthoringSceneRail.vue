@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, ref } from 'vue'
 import SceneIndexSection from '../scene/SceneIndexSection.vue'
 
@@ -51,7 +52,7 @@ const STATUS_LABELS = {
   'worldbook-missing': '世界书已缺失'
 }
 
-const statusLabel = computed(() => STATUS_LABELS[status.value] || STATUS_LABELS['current-scene'])
+const statusLabel = computed(() => tr(STATUS_LABELS[status.value] || STATUS_LABELS['current-scene']))
 
 // 人物行：合并视角/行动者/对象/在场去重。
 const people = computed(() => {
@@ -161,7 +162,7 @@ function openDetail(kind, id) {
 <template>
   <section class="scene-rail" aria-label="当前场">
     <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" aria-label="展开或收起当前场">
-      <span>当前场</span><span>{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span><span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
+      <span>{{ tr('当前场') }}</span><span>{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span><span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
     </button>
     <div v-show="expanded" class="scene-rail__expanded">
     <header class="scene-rail__head">

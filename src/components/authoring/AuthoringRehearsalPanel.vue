@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
+import { tr } from '../../i18n/index.js'
 const props = defineProps({
   rehearsal: { type: Object, required: true },
   preparing: Boolean,
@@ -24,8 +25,8 @@ const rejected = computed(() => props.rehearsal.lastRejected.value)
 // 草拟行动、行动者与对象不动,重试直接重发同一意图。
 const failureHeadline = computed(() => {
   const raw = String(props.rehearsal.error.value || '')
-  if (/network|fetch|timeout|ECONN|ERR_|status code \d{3}/i.test(raw)) return '推演没有完成：暂时连不上推演服务。'
-  return '推演没有完成。'
+  if (/network|fetch|timeout|ECONN|ERR_|status code \d{3}/i.test(raw)) return tr('推演没有完成：暂时连不上推演服务。')
+  return tr('推演没有完成。')
 })
 const flow = ref(null)
 const input = ref(null)
@@ -164,7 +165,7 @@ function divergenceOf(their, mine) {
 const otherRoutes = computed(() => props.rehearsal.otherRoutes.value)
 function routeName(path) {
   const part = divergenceOf(path.steps, steps.value)
-  return part.step?.action || part.latest?.action || '起点'
+  return part.step?.action || part.latest?.action || tr('起点')
 }
 const compareId = ref('')
 const compareSection = ref(null)
@@ -235,16 +236,16 @@ function saveCondition() {
   }
   conditionIssue.value = ''
 }
-function personName(ref) { return participants.value.find(person => person.ref === ref)?.name || '未指名人物' }
+function personName(ref) { return participants.value.find(person => person.ref === ref)?.name || tr('未指名人物') }
 function consequenceLines(item) {
   return (item.consequences || []).map((entry) => {
-    if (entry.kind === 'knowledge') return `${personName(entry.knowerRef)}得知了本次条件中的事实`
+    if (entry.kind === 'knowledge') return tr('{person}得知了本次条件中的事实', { person: personName(entry.knowerRef) })
     if (entry.kind === 'commitment') {
       const states = { promised: '答应', conditioned: '有条件答应', refused: '拒绝', withdrawn: '收回承诺' }
-      return `${personName(entry.promisorRef)}${states[entry.state] || '回应'}：${entry.content}${entry.condition ? `（条件：${entry.condition}）` : ''}`
+      return tr('{person}{state}：{content}{condition}', { person: personName(entry.promisorRef), state: tr(states[entry.state] || '回应'), content: entry.content, condition: entry.condition ? tr('（条件：{condition}）', { condition: entry.condition }) : '' })
     }
-    if (entry.kind === 'item') return entry.state === 'delivered' ? `${entry.name || '物品'}交到${personName(entry.toRef)}手中` : `${personName(entry.toRef)}没有接下${entry.name || '物品'}`
-    if (entry.kind === 'location') return `${personName(entry.moverRef)}${entry.state === 'left' ? '离开了现场' : '回到了现场'}`
+    if (entry.kind === 'item') return tr(entry.state === 'delivered' ? '{item}交到{person}手中' : '{person}没有接下{item}', { item: entry.name || tr('物品'), person: personName(entry.toRef) })
+    if (entry.kind === 'location') return tr(entry.state === 'left' ? '{person}离开了现场' : '{person}回到了现场', { person: personName(entry.moverRef) })
     return ''
   }).filter(Boolean)
 }
@@ -253,13 +254,18 @@ function receiptSources(item) {
   return (props.rehearsal.run.value?.runSession?.manifest?.blocks || [])
     .filter(block => refs.has(block.primarySourceRef) || (block.sourceRefs || []).some(ref => refs.has(ref)))
     .map(block => ({
-      title: block.label || '历史资料',
-      type: block.kind === 'history-node' ? '历史' : '参考',
+      title: block.label || tr('历史资料'),
+      type: tr(block.kind === 'history-node' ? '历史' : '参考'),
       summary: String(block.text || '').replace(/\s+/g, ' ').trim().slice(0, 120)
     }))
 }
 function receiptCount(item) {
   return (item.toolReceipt?.calls || []).reduce((total, call) => total + Number(call.resultCount || 0), 0)
+}
+function differenceStatus(side) {
+  return side.status === 'held'
+    ? tr('持有者：{name}', { name: side.holderName })
+    : tr(side.statusLabel)
 }
 const compareDifferences = computed(() => (props.rehearsal.compareRoutes(compareId.value)?.differences || []).slice(0, 3))
 // 展开对照时把它带进视野：作者不该为一屏之外的比较内容再滚一次。
@@ -277,36 +283,36 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
 </script>
 
 <template>
-  <section class="rehearsal-panel" aria-label="故事试演" data-test="rehearsal-panel" :data-current-route="rehearsal.route.value">
+  <section class="rehearsal-panel" :aria-label="tr('故事试演')" data-test="rehearsal-panel" :data-current-route="rehearsal.route.value">
     <header v-if="rehearsal.run.value" class="rehearsal-origin">
-      <button class="rehearsal-source" type="button" :title="title || '当前段落'" @click="emit('locate')"><span>{{ title || '当前段落' }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
+      <button class="rehearsal-source" type="button" :title="title || tr('当前段落')" @click="emit('locate')"><span>{{ title || tr('当前段落') }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
       <details ref="more" class="rehearsal-more" @focusout="closeMenuOnBlur" @keydown.esc.stop.prevent="closeMenu">
-        <summary aria-label="更多试演操作"><WorkbenchIcon name="more" :size="18" /></summary>
+        <summary :aria-label="tr('更多试演操作')"><WorkbenchIcon name="more" :size="18" /></summary>
         <div class="rehearsal-menu">
-          <button type="button" :disabled="locked" @click="menuAction('if')">人物信念对照</button>
-          <button type="button" :disabled="locked" @click="menuAction('start')">重新确定起点</button>
-          <p>仅为假想，不改正文或设定。刷新后不保留。</p>
+          <button type="button" :disabled="locked" @click="menuAction('if')">{{ tr('人物信念对照') }}</button>
+          <button type="button" :disabled="locked" @click="menuAction('start')">{{ tr('重新确定起点') }}</button>
+          <p>{{ tr('仅为假想，不改正文或设定。刷新后不保留。') }}</p>
         </div>
       </details>
     </header>
-    <p v-if="firstRunHint" class="rehearsal-first-run-hint" data-test="rehearsal-first-run-hint">{{ firstRunHint }}</p>
+    <p v-if="firstRunHint" class="rehearsal-first-run-hint" data-test="rehearsal-first-run-hint">{{ tr(firstRunHint) }}</p>
     <div ref="flow" class="rehearsal-flow" @scroll.passive="onFlowScroll">
       <template v-if="!rehearsal.run.value">
-        <p class="rehearsal-intro">试一个行动，看看人物如何回应。</p>
-        <button type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">{{ preparing ? '正在核对现场…' : '从当前段落开始' }}</button>
-        <p class="rehearsal-limit">暂不写入正文 · 刷新后不保留</p>
+        <p class="rehearsal-intro">{{ tr('试一个行动，看看人物如何回应。') }}</p>
+        <button type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">{{ preparing ? tr('正在核对现场…') : tr('从当前段落开始') }}</button>
+        <p class="rehearsal-limit">{{ tr('暂不写入正文 · 刷新后不保留') }}</p>
       </template>
       <template v-else>
         <details v-if="!steps.length" class="rehearsal-conditions" data-test="rehearsal-conditions">
-          <summary>{{ rehearsal.conditions.value?.facts?.length ? '本次条件已补充' : '补充本次条件' }}</summary>
+          <summary>{{ rehearsal.conditions.value?.facts?.length ? tr('本次条件已补充') : tr('补充本次条件') }}</summary>
           <div class="rehearsal-condition-form">
-            <label>只在这次推演成立的事实<input v-model="conditionText" maxlength="120" placeholder="例如：艾德加已经看过那封信" :disabled="locked" /></label>
+            <label>{{ tr('只在这次推演成立的事实') }}<input v-model="conditionText" maxlength="120" :placeholder="tr('例如：艾德加已经看过那封信')" :disabled="locked" /></label>
             <div v-if="participants.length" class="rehearsal-condition-people">
-              <label>谁知道<select v-model="conditionKnowerRef" :disabled="locked"><option value="">不指定</option><option v-for="person in participants" :key="'knows-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
-              <label>谁还不知道<select v-model="conditionUnawareRef" :disabled="locked"><option value="">不指定</option><option v-for="person in participants" :key="'unaware-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+              <label>{{ tr('谁知道') }}<select v-model="conditionKnowerRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'knows-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+              <label>{{ tr('谁还不知道') }}<select v-model="conditionUnawareRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'unaware-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
             </div>
-            <p v-if="conditionIssue" class="rehearsal-ambiguous" role="status">{{ conditionIssue }}</p>
-            <button type="button" class="rehearsal-condition-save" :disabled="locked || !conditionText.trim()" @click="saveCondition">用于本次推演</button>
+            <p v-if="conditionIssue" class="rehearsal-ambiguous" role="status">{{ tr(conditionIssue) }}</p>
+            <button type="button" class="rehearsal-condition-save" :disabled="locked || !conditionText.trim()" @click="saveCondition">{{ tr('用于本次推演') }}</button>
           </div>
         </details>
         <p v-if="!steps.length && rehearsal.run.value.directionSet?.pressure?.statement" class="rehearsal-question">{{ rehearsal.run.value.directionSet.pressure.statement }}</p>
@@ -320,110 +326,110 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             <div v-show="!folded(item.id)" class="rehearsal-step-body">
               <div class="rehearsal-response"><p v-for="(paragraph, paragraphIndex) in paragraphs(item.response)" :key="paragraphIndex">{{ paragraph }}</p></div>
               <div class="rehearsal-step-tools">
-                <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">从这里换路</button>
-                <details class="rehearsal-consequence"><summary>局面变化</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
+                <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">{{ tr('从这里换路') }}</button>
+                <details class="rehearsal-consequence"><summary>{{ tr('局面变化') }}</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
                 <details v-if="item.toolReceipt?.status === 'completed'" class="rehearsal-evidence" data-test="rehearsal-evidence">
-                  <summary>查阅 {{ receiptCount(item) }} 项 · 查看</summary>
+                  <summary>{{ tr('查阅 {count} 项 · 查看', { count: receiptCount(item) }) }}</summary>
                   <ul><li v-for="source in receiptSources(item)" :key="source.title"><strong>{{ source.title }}</strong><small>{{ source.type }} · {{ source.summary }}</small></li></ul>
                 </details>
-                <p v-else-if="item.toolReceipt?.status === 'unavailable'" class="rehearsal-evidence-status">本次未能查阅资料，可用下方原行动重试。</p>
-                <p v-else-if="item.toolReceipt?.status === 'denied'" class="rehearsal-evidence-status">请求的资料不在本次参考范围。<button type="button" @click="emit('locate')">查看本次参考</button></p>
-                <p v-else-if="item.toolReceipt?.status === 'failed'" class="rehearsal-evidence-status">资料查询失败，回应未采用查询结果。</p>
+                <p v-else-if="item.toolReceipt?.status === 'unavailable'" class="rehearsal-evidence-status">{{ tr('本次未能查阅资料，可用下方原行动重试。') }}</p>
+                <p v-else-if="item.toolReceipt?.status === 'denied'" class="rehearsal-evidence-status">{{ tr('请求的资料不在本次参考范围。') }}<button type="button" @click="emit('locate')">{{ tr('查看本次参考') }}</button></p>
+                <p v-else-if="item.toolReceipt?.status === 'failed'" class="rehearsal-evidence-status">{{ tr('资料查询失败，回应未采用查询结果。') }}</p>
               </div>
             </div>
           </li>
         </ol>
-        <AuthoringGenerationStatus v-if="rehearsal.busy.value || drafting" :label="drafting ? '正在写成试稿…' : '正在推演人物回应…'" />
-        <button v-if="hasNew" type="button" class="rehearsal-new" @click="revealStep(steps[steps.length - 1].id)">有新回应<WorkbenchIcon name="arrow-right" :size="13" class="is-down" /></button>
+        <AuthoringGenerationStatus v-if="rehearsal.busy.value || drafting" :label="drafting ? tr('正在写成试稿…') : tr('正在推演人物回应…')" />
+        <button v-if="hasNew" type="button" class="rehearsal-new" @click="revealStep(steps[steps.length - 1].id)">{{ tr('有新回应') }}<WorkbenchIcon name="arrow-right" :size="13" class="is-down" /></button>
         <template v-if="!stale && !atLimit">
-          <div v-if="suggestions.length" class="rehearsal-options" aria-label="可试行动">
+          <div v-if="suggestions.length" class="rehearsal-options" :aria-label="tr('可试行动')">
             <button v-for="choice in suggestions" :key="choice" type="button" :disabled="locked" :aria-pressed="rehearsal.action.value === choice" @click="chooseAction(choice)"><span>{{ choice }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
           </div>
         </template>
-        <p v-else-if="!stale" class="rehearsal-limit">已试演四步：可以从这里换路，或把这条路写成试稿。</p>
-        <p v-if="stale" class="rehearsal-stale" role="status">正文或参考已变化：这条路仍可回看和留作构思，需要重新确定起点才能继续。</p>
-        <div v-if="otherRoutes.length || steps.length" class="rehearsal-routes" aria-label="试演走法">
+        <p v-else-if="!stale" class="rehearsal-limit">{{ tr('已试演四步：可以从这里换路，或把这条路写成试稿。') }}</p>
+        <p v-if="stale" class="rehearsal-stale" role="status">{{ tr('正文或参考已变化：这条路仍可回看和留作构思，需要重新确定起点才能继续。') }}</p>
+        <div v-if="otherRoutes.length || steps.length" class="rehearsal-routes" :aria-label="tr('试演走法')">
           <button v-if="steps.length" type="button" class="rehearsal-route" data-route-root :disabled="locked" @click="rehearsal.rewind(0)">
-            <span>回到起点</span><small>第 0 步</small>
+            <span>{{ tr('回到起点') }}</span><small>{{ tr('第 {count} 步', { count: 0 }) }}</small>
           </button>
           <button v-for="path in otherRoutes.slice(-1)" :key="path.id" type="button" class="rehearsal-route" :data-route="path.id" :disabled="locked" @click="rehearsal.restore(path.id)">
-            <span>{{ routeName(path) }}</span><small>第 {{ path.steps.length }} 步</small>
+            <span>{{ routeName(path) }}</span><small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small>
           </button>
           <details v-if="otherRoutes.length > 1" class="rehearsal-routes-more">
-            <summary>更多走法 · {{ otherRoutes.length - 1 }}</summary>
+            <summary>{{ tr('更多走法 · {count}', { count: otherRoutes.length - 1 }) }}</summary>
             <button v-for="path in otherRoutes.slice(0, -1).reverse()" :key="path.id" type="button" class="rehearsal-route" :data-route="path.id" :disabled="locked" @click="rehearsal.restore(path.id)">
-              <span>{{ routeName(path) }}</span><small>第 {{ path.steps.length }} 步</small>
+              <span>{{ routeName(path) }}</span><small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small>
             </button>
           </details>
           <details v-if="compareSide" ref="compareSection" class="rehearsal-compare" @toggle="onCompareToggle">
-            <summary>对照两条走法</summary>
-            <nav v-if="otherRoutes.length > 1" class="rehearsal-compare-pick" aria-label="选择要比较的走法">
-              <button v-for="path in otherRoutes" :key="path.id" type="button" :data-route="path.id" :aria-pressed="path.id === compareId" @click="compareId = path.id">{{ routeName(path) }}<small>第 {{ path.steps.length }} 步</small></button>
+            <summary>{{ tr('对照两条走法') }}</summary>
+            <nav v-if="otherRoutes.length > 1" class="rehearsal-compare-pick" :aria-label="tr('选择要比较的走法')">
+              <button v-for="path in otherRoutes" :key="path.id" type="button" :data-route="path.id" :aria-pressed="path.id === compareId" @click="compareId = path.id">{{ routeName(path) }}<small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small></button>
             </nav>
             <div v-if="compareDifferences.length" class="rehearsal-compare-differences" data-test="rehearsal-compare-differences">
-              <h4>真正不同的后果</h4>
-              <p v-for="difference in compareDifferences" :key="difference.key"><span>{{ difference.label }}</span><small>当前路：{{ difference.a.statusLabel }} · 另一路：{{ difference.b.statusLabel }}</small></p>
+              <h4>{{ tr('真正不同的后果') }}</h4>
+              <p v-for="difference in compareDifferences" :key="difference.key"><span>{{ difference.label }}</span><small>{{ tr('当前路：{current} · 另一路：{other}', { current: differenceStatus(difference.a), other: differenceStatus(difference.b) }) }}</small></p>
             </div>
             <article v-for="side in [compareSide.mine, compareSide.theirs]" :key="side.depth + '-' + side.index" class="rehearsal-compare-side">
-              <h4>{{ side === compareSide.mine ? '当前路' : '另一路' }} · 第 {{ side.depth }} 步</h4>
-              <p v-if="side.depth === 0" class="rehearsal-compare-empty">还没有这一步。</p>
+              <h4>{{ tr(side === compareSide.mine ? '当前路' : '另一路') }} · {{ tr('第 {count} 步', { count: side.depth }) }}</h4>
+              <p v-if="side.depth === 0" class="rehearsal-compare-empty">{{ tr('还没有这一步。') }}</p>
               <template v-else>
-                <p v-if="side.common.length" class="rehearsal-compare-common">共同前缀 {{ side.common.length }} 步：{{ side.common.join(' → ') }}</p>
-                <p v-else class="rehearsal-compare-common">与另一条从一开始就不同。</p>
-                <p class="rehearsal-compare-action">{{ side.step?.action || '不再继续' }}</p>
+                <p v-if="side.common.length" class="rehearsal-compare-common">{{ tr('共同前缀 {count} 步：{actions}', { count: side.common.length, actions: side.common.join(' → ') }) }}</p>
+                <p v-else class="rehearsal-compare-common">{{ tr('与另一条从一开始就不同。') }}</p>
+                <p class="rehearsal-compare-action">{{ side.step?.action || tr('不再继续') }}</p>
                 <div v-if="side.step" class="rehearsal-response is-compare"><p v-for="(paragraph, paragraphIndex) in paragraphs(side.step.response)" :key="paragraphIndex">{{ paragraph }}</p></div>
-                <p v-if="side.latest && side.step && side.latest.id !== side.step.id" class="rehearsal-compare-latest">最新一步「{{ side.latest.action }}」：{{ side.latest.change }}</p>
+                <p v-if="side.latest && side.step && side.latest.id !== side.step.id" class="rehearsal-compare-latest">{{ tr('最新一步「{action}」：{change}', { action: side.latest.action, change: side.latest.change }) }}</p>
               </template>
             </article>
           </details>
         </div>
         <section v-if="memoryWorkflow?.available.value" class="rehearsal-memory" data-test="rehearsal-memory">
-          <button v-if="!memoryWorkflow.open.value" type="button" class="rehearsal-memory-open" @click="memoryWorkflow.begin">记住一项变化</button>
+          <button v-if="!memoryWorkflow.open.value" type="button" class="rehearsal-memory-open" @click="memoryWorkflow.begin">{{ tr('记住一项变化') }}</button>
           <form v-else @submit.prevent="memoryWorkflow.submit">
-            <p>采用稿已经保存。选择一项变化，加入现有记忆审核：</p>
-            <div class="rehearsal-memory-options" role="radiogroup" aria-label="选择要记住的变化">
+            <p>{{ tr('采用稿已经保存。选择一项变化，加入现有记忆审核：') }}</p>
+            <div class="rehearsal-memory-options" role="radiogroup" :aria-label="tr('选择要记住的变化')">
               <button v-for="(consequence, consequenceIndex) in memoryWorkflow.consequences.value" :key="consequence.stepId + consequenceIndex" type="button" role="radio" :aria-checked="memoryWorkflow.selectedIndex.value === consequenceIndex" @click="memoryWorkflow.select(consequenceIndex)">{{ consequence.content || consequence.name || consequence.stepAction }}</button>
             </div>
-            <label>记忆文字<input :value="memoryWorkflow.draft.value" maxlength="180" @input="memoryWorkflow.setDraft($event.target.value)" /></label>
-            <p v-if="memoryWorkflow.error.value" class="rehearsal-memory-error" role="alert">{{ memoryWorkflow.error.value }}</p>
-            <div class="rehearsal-memory-actions"><button type="button" @click="memoryWorkflow.cancel">取消</button><button type="submit">加入待审核</button></div>
+            <label>{{ tr('记忆文字') }}<input :value="memoryWorkflow.draft.value" maxlength="180" @input="memoryWorkflow.setDraft($event.target.value)" /></label>
+            <p v-if="memoryWorkflow.error.value" class="rehearsal-memory-error" role="alert">{{ tr(memoryWorkflow.error.value) }}</p>
+            <div class="rehearsal-memory-actions"><button type="button" @click="memoryWorkflow.cancel">{{ tr('取消') }}</button><button type="submit">{{ tr('加入待审核') }}</button></div>
           </form>
         </section>
       </template>
       <div v-if="rehearsal.error.value" class="rehearsal-failure" role="alert" data-test="rehearsal-failure">
-        <p class="rehearsal-failure__text">{{ failureHeadline }}行动草稿和已有走法都还在。</p>
+        <p class="rehearsal-failure__text">{{ failureHeadline }} {{ tr('行动草稿和已有走法都还在。') }}</p>
         <div v-if="rejected" class="rehearsal-rejected">
-          <p>这次人物回应可以先读，但它登记的后果没有通过核对，所以还没有接到当前走法上。</p>
+          <p>{{ tr('这次人物回应可以先读，但它登记的后果没有通过核对，所以还没有接到当前走法上。') }}</p>
           <blockquote>{{ rejected.response }}</blockquote>
         </div>
-        <details class="rehearsal-failure__technical"><summary>技术信息</summary><p class="rehearsal-failure__detail">{{ rehearsal.error.value }}</p></details>
+        <details class="rehearsal-failure__technical"><summary>{{ tr('技术信息') }}</summary><p class="rehearsal-failure__detail">{{ rehearsal.error.value }}</p></details>
         <div class="rehearsal-failure__actions">
-          <button type="button" :disabled="rehearsal.busy.value" data-test="rehearsal-failure-retry" @click="submit">{{ rehearsal.busy.value ? '正在重试…' : '重试' }}</button>
-          <button v-if="rejected" type="button" data-test="rehearsal-failure-keep" @click="rehearsal.acceptRejectedWithoutConsequences">保留回应，不登记后果</button>
-          <button v-if="rejected" type="button" data-test="rehearsal-failure-discard" @click="rehearsal.discardRejected">弃掉这次回应</button>
-          <button type="button" data-test="rehearsal-failure-connect" @click="emit('check-connection')">检查模型连接</button>
+          <button type="button" :disabled="rehearsal.busy.value" data-test="rehearsal-failure-retry" @click="submit">{{ rehearsal.busy.value ? tr('正在重试…') : tr('重试') }}</button>
+          <button v-if="rejected" type="button" data-test="rehearsal-failure-keep" @click="rehearsal.acceptRejectedWithoutConsequences">{{ tr('保留回应，不登记后果') }}</button>
+          <button v-if="rejected" type="button" data-test="rehearsal-failure-discard" @click="rehearsal.discardRejected">{{ tr('弃掉这次回应') }}</button>
+          <button type="button" data-test="rehearsal-failure-connect" @click="emit('check-connection')">{{ tr('检查模型连接') }}</button>
         </div>
       </div>
-      <p v-else-if="notice" class="rehearsal-error" role="status">{{ notice }}</p>
+      <p v-else-if="notice" class="rehearsal-error" role="status">{{ tr(notice) }}</p>
     </div>
     <footer v-if="rehearsal.run.value" class="rehearsal-footer">
       <form class="rehearsal-compose" :class="{ 'is-comparing': compareOpen }" @submit.prevent="submit">
-        <div v-if="!stale && !atLimit && participants.length > 1" class="rehearsal-cast" aria-label="行动者">
-          <span class="rehearsal-cast-label">行动者</span>
+        <div v-if="!stale && !atLimit && participants.length > 1" class="rehearsal-cast" :aria-label="tr('行动者')">
+          <span class="rehearsal-cast-label">{{ tr('行动者') }}</span>
           <button v-for="person in participants.filter(item => item.status !== 'planned')" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="person.ref === activeActor?.ref ? 'true' : 'false'" :disabled="locked" @click="pickActor(person.ref)">{{ person.name }}</button>
         </div>
-        <textarea v-if="!stale && !atLimit" ref="input" :value="rehearsal.action.value" maxlength="300" rows="2" aria-label="试演行动" :placeholder="last ? '接下来，让人物…' : '让人物…'" :readonly="locked" @input="rehearsal.setAction($event.target.value)" @keydown="submitFromKeyboard" />
-        <p v-if="!stale && !atLimit && ambiguousTarget && !targetRef" class="rehearsal-ambiguous" role="status">{{ ambiguousTarget.length > 1 ? '这句话里的「他/她」指向谁？点名或选一个，不自动猜。' : '这句话要交给谁回应？点名或选一个，不自动猜。' }}</p>
-        <div v-if="!stale && !atLimit && ambiguousTarget" class="rehearsal-cast is-target" aria-label="动作对象">
+        <textarea v-if="!stale && !atLimit" ref="input" :value="rehearsal.action.value" maxlength="300" rows="2" :aria-label="tr('试演行动')" :placeholder="last ? tr('接下来，让人物…') : tr('让人物…')" :readonly="locked" @input="rehearsal.setAction($event.target.value)" @keydown="submitFromKeyboard" />
+        <p v-if="!stale && !atLimit && ambiguousTarget && !targetRef" class="rehearsal-ambiguous" role="status">{{ ambiguousTarget.length > 1 ? tr('这句话里的「他/她」指向谁？点名或选一个，不自动猜。') : tr('这句话要交给谁回应？点名或选一个，不自动猜。') }}</p>
+        <div v-if="!stale && !atLimit && ambiguousTarget" class="rehearsal-cast is-target" :aria-label="tr('动作对象')">
           <button v-for="person in ambiguousTarget" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="targetRef === person.ref ? 'true' : 'false'" :disabled="locked" @click="targetRef = person.ref">{{ person.name }}</button>
         </div>
         <div class="rehearsal-dock-actions">
-          <button v-if="draftState === 'same-route'" type="button" class="rehearsal-export" @click="emit('view-draft')">查看试稿<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="draftState !== 'none'" type="button" class="rehearsal-export" @click="emit('view-draft')">正文已有{{ draftState === 'other-route' ? '另一条走法' : '其他来源' }}的待处理试稿<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="steps.length" type="button" class="rehearsal-export" :disabled="locked || stale" @click="emit('draft')">{{ drafting ? '正在写成试稿…' : '写成试稿' }}</button>
-          <button v-if="rehearsal.busy.value" type="button" class="rehearsal-primary" @click="rehearsal.cancel">停止</button>
-          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked || !rehearsal.action.value.trim() || Boolean(ambiguousTarget && !targetRef)" title="Ctrl / ⌘ + Enter">试演<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="stale" type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">重新确定起点</button>
+          <button v-if="draftState === 'same-route'" type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr('查看试稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else-if="draftState !== 'none'" type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr(draftState === 'other-route' ? '正文已有另一条走法的待处理试稿' : '正文已有其他来源的待处理试稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else-if="steps.length" type="button" class="rehearsal-export" :disabled="locked || stale" @click="emit('draft')">{{ drafting ? tr('正在写成试稿…') : tr('写成试稿') }}</button>
+          <button v-if="rehearsal.busy.value" type="button" class="rehearsal-primary" @click="rehearsal.cancel">{{ tr('停止') }}</button>
+          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked || !rehearsal.action.value.trim() || Boolean(ambiguousTarget && !targetRef)" title="Ctrl / ⌘ + Enter">{{ tr('试演') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else-if="stale" type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">{{ tr('重新确定起点') }}</button>
         </div>
       </form>
     </footer>
@@ -541,9 +547,9 @@ svg { flex-shrink:0; }
 .rehearsal-primary { background:var(--accent); color:var(--accent-text); border-radius:3px; padding:8px 14px; font-size:13px; flex-shrink:0; }
 .rehearsal-primary:not(:disabled):hover { color:var(--accent-text); filter:brightness(.95); }
 .rehearsal-footer { flex-shrink:0; padding:12px 18px; border-top:1px solid var(--hairline-soft); background:var(--archive-paper); }
-.rehearsal-dock-actions { display:flex; justify-content:flex-end; align-items:center; gap:12px; }
+.rehearsal-dock-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px 12px; }
 .rehearsal-dock-actions button { display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; text-align:left; }
-.rehearsal-export { margin-right:auto; color:var(--text-secondary); padding:0 4px; }
+.rehearsal-export { min-width:0; margin-right:auto; color:var(--text-secondary); padding:0 4px; }
 .rehearsal-error, .rehearsal-limit, .rehearsal-wait { color:var(--text-secondary); font-size:12px; line-height:1.8; }
 .rehearsal-failure { margin:12px 0 0; padding:10px 12px; border:1px solid color-mix(in srgb, var(--danger, #a04b3c) 34%, transparent); border-radius:6px; background:color-mix(in srgb, var(--danger, #a04b3c) 6%, transparent); }
 .rehearsal-failure__text { margin:0; color:var(--danger, #a04b3c); font-size:12px; font-weight:650; line-height:1.55; }

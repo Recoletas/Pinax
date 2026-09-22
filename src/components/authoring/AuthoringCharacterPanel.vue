@@ -1,10 +1,12 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringCharacterAiReview from './AuthoringCharacterAiReview.vue'
 import { parseCharacterEntryProfile, serializeCharacterEntryProfile } from '../../services/characterCard'
 
 const props = defineProps({
+  manuscriptLanguage: { type: String, default: '' },
   worldbook: { type: Object, default: null },
   chapters: { type: Array, default: () => [] },
   currentChapterId: { type: [String, Number], default: '' },
@@ -139,8 +141,8 @@ function scheduleSave() {
 function startCreate(fromSelection = false) {
   flushSave()
   emit('create', {
-    name: (fromSelection ? props.selectedText.trim().slice(0, 24) : '') || '新角色', type: 'character', content: '',
-    injection: { mode: 'selective', probability: 100, cooldown: 0, depth: 1, excludeRecursion: false, group: '角色' },
+    name: (fromSelection ? props.selectedText.trim().slice(0, 24) : '') || (props.manuscriptLanguage === 'en' ? 'New character' : '新角色'), type: 'character', content: '',
+    injection: { mode: 'selective', probability: 100, cooldown: 0, depth: 1, excludeRecursion: false, group: props.manuscriptLanguage === 'en' ? 'Characters' : '角色' },
     metadata: { characterProfile: { background: '', personality: '', appearance: '', other: '', avatar: '' } }
   })
 }
@@ -153,7 +155,7 @@ function toggleFolder(name) {
 }
 
 function requestRemove() {
-  if (!selectedCharacter.value || !window.confirm(`确定删除角色「${selectedCharacter.value.name || '未命名角色'}」？`)) return
+  if (!selectedCharacter.value || !window.confirm(tr('确定删除角色「{value0}」？', { value0: selectedCharacter.value.name || '未命名角色' }))) return
   clearTimeout(saveTimer)
   saveTimer = null
   emit('remove', selectedCharacter.value.id)
@@ -216,50 +218,50 @@ onBeforeUnmount(flushSave)
     <main class="character-sheet">
       <template v-if="worldbook">
         <header class="character-sheet__head">
-          <input v-model="draft.name" class="character-name-input" aria-label="角色名称" @blur="flushSave" />
-          <button v-if="selectedCharacter" type="button" class="character-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">AI 补全</button>
-          <button v-if="selectedCharacter" type="button" class="character-delete" title="删除角色" aria-label="删除角色" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
+          <input v-model="draft.name" class="character-name-input" :aria-label="tr(&quot;角色名称&quot;)" @blur="flushSave" />
+          <button v-if="selectedCharacter" type="button" class="character-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
+          <button v-if="selectedCharacter" type="button" class="character-delete" :title="tr(&quot;删除角色&quot;)" :aria-label="tr(&quot;删除角色&quot;)" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
         </header>
-        <nav class="character-sheet__tabs" aria-label="角色资料视图">
-          <button type="button" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">角色</button>
-          <button type="button" :class="{ active: tab === 'mentions' }" @click="tab = 'mentions'">提及章节 <small>{{ mentions.length }}</small></button>
+        <nav class="character-sheet__tabs" :aria-label="tr(&quot;角色资料视图&quot;)">
+          <button type="button" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">{{ tr('角色') }}</button>
+          <button type="button" :class="{ active: tab === 'mentions' }" @click="tab = 'mentions'">{{ tr('提及章节') }}<small>{{ mentions.length }}</small></button>
         </nav>
         <AuthoringCharacterAiReview v-if="selectedCharacter" v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedCharacter" :profile="draft" @apply="applyAiProfile" />
-        <span class="character-upload-tooltip" :class="{ 'is-visible': uploadHintVisible }" role="tooltip">支持 jpg、jpeg、png 格式，单张不大于 5MB</span>
+        <span class="character-upload-tooltip" :class="{ 'is-visible': uploadHintVisible }" role="tooltip">{{ tr('支持 jpg、jpeg、png 格式，单张不大于 5MB') }}</span>
         <div v-if="tab === 'profile'" ref="profileScroll" class="character-sheet__scroll">
           <section class="character-portrait">
-            <img v-if="draft.avatar" :src="draft.avatar" alt="角色参考图" />
-            <div v-else class="character-portrait__idle"><WorkbenchIcon name="image" :size="18" /><span>生图/上传</span></div>
+            <img v-if="draft.avatar" :src="draft.avatar" :alt="tr(&quot;角色参考图&quot;)" />
+            <div v-else class="character-portrait__idle"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生图/上传') }}</span></div>
             <span class="character-portrait__buttons">
-              <button type="button" @click="generateCharacterImage">生成角色图</button>
-              <button type="button" @mouseenter="uploadHintVisible = true" @mouseleave="uploadHintVisible = false" @focus="uploadHintVisible = true" @blur="uploadHintVisible = false" @click="chooseImage">上传角色图</button>
+              <button type="button" @click="generateCharacterImage">{{ tr('生成角色图') }}</button>
+              <button type="button" @mouseenter="uploadHintVisible = true" @mouseleave="uploadHintVisible = false" @focus="uploadHintVisible = true" @blur="uploadHintVisible = false" @click="chooseImage">{{ tr('上传角色图') }}</button>
             </span>
             <input ref="fileInput" class="visually-hidden" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" @change="uploadImage" />
           </section>
           <label v-for="field in [['background', '背景'], ['personality', '性格'], ['appearance', '外貌'], ['other', '其他']]" :key="field[0]" class="character-profile-field">
-            <span>{{ field[1] }}</span><textarea :ref="(element) => setProfileFieldInput(field[0], element)" v-model="draft[field[0]]" @input="resizeProfileField($event.currentTarget)" @blur="flushSave"></textarea>
+            <span>{{ tr(field[1]) }}</span><textarea :ref="(element) => setProfileFieldInput(field[0], element)" v-model="draft[field[0]]" @input="resizeProfileField($event.currentTarget)" @blur="flushSave"></textarea>
           </label>
           <footer class="character-count">{{ totalCount }}/20000</footer>
         </div>
         <div v-else class="character-mentions">
-          <button v-for="chapter in mentions" :key="chapter.id" type="button" @click="emit('open-chapter', chapter.id)"><WorkbenchIcon name="book" :size="15" /><span>{{ chapter.title || '未命名章节' }}</span><small>打开 ›</small></button>
+          <button v-for="chapter in mentions" :key="chapter.id" type="button" @click="emit('open-chapter', chapter.id)"><WorkbenchIcon name="book" :size="15" /><span>{{ chapter.title || tr('未命名章节') }}</span><small>{{ tr('打开 ›') }}</small></button>
         </div>
       </template>
       <div v-else class="character-empty">
-        <strong>从第一个人物开始</strong>
-        <p>新建时会自动为这本书建立资料库，之后的人物与设定都归在这里。</p>
-        <button type="button" class="character-empty__primary" @click="startCreate(false)">新建人物</button>
-        <button type="button" @click="emit('bind')">关联已有资料库</button>
+        <strong>{{ tr('从第一个人物开始') }}</strong>
+        <p>{{ tr('新建时会自动为这本书建立资料库，之后的人物与设定都归在这里。') }}</p>
+        <button type="button" class="character-empty__primary" @click="startCreate(false)">{{ tr('新建人物') }}</button>
+        <button type="button" @click="emit('bind')">{{ tr('关联已有资料库') }}</button>
       </div>
     </main>
     <aside class="character-directory">
-      <div class="catalog-window-controls"><button type="button" title="固定角色工作台" @click="emit('toggle-pin')">⌖</button><button type="button" title="关闭角色工作台" @click="emit('close')">×</button></div>
-      <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" placeholder="角色" aria-label="搜索角色" /></div>
-      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate(false)">新建</button><button type="button" @click="startCreate(true)">提取</button></div>
-      <header><strong>目录</strong><button type="button" title="在世界书中打开当前角色" @click="emit('open-full', selectedCharacter?.id)">世界书</button></header>
+      <div class="catalog-window-controls"><button type="button" :title="tr(&quot;固定角色工作台&quot;)" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr(&quot;关闭角色工作台&quot;)" @click="emit('close')">×</button></div>
+      <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr(&quot;角色&quot;)" :aria-label="tr(&quot;搜索角色&quot;)" /></div>
+      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
+      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr(&quot;在世界书中打开当前角色&quot;)" @click="emit('open-full', selectedCharacter?.id)">{{ tr('世界书') }}</button></header>
       <section v-for="group in characterFolders" :key="group.name" class="character-directory__group">
         <h3><button type="button" :aria-expanded="(!collapsedFolders.has(group.name)).toString()" @click="toggleFolder(group.name)"><span class="catalog-folder-caret" :class="{ open: !collapsedFolders.has(group.name) }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ group.name }}</span></button></h3>
-        <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.items" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" @click="selectCharacter(entry)">{{ entry.name || '未命名角色' }}</button></template>
+        <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.items" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" @click="selectCharacter(entry)">{{ entry.name || tr('未命名角色') }}</button></template>
       </section>
     </aside>
   </section>

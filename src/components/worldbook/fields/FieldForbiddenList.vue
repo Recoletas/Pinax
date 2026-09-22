@@ -6,7 +6,7 @@
       <button
         type="button"
         class="forbidden-remove"
-        :aria-label="`移除 ${token}`"
+        :aria-label="tr('移除 {name}', { name: token })"
         @click.stop="remove(i)"
       >×</button>
     </li>
@@ -30,6 +30,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../../i18n/index.js'
 import { ref } from 'vue'
 import { useChipInput } from '../../../composables/useChipInput'
 

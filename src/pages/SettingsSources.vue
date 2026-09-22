@@ -9,6 +9,7 @@
  */
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { tr } from '../i18n'
 import { useWorldStore } from '../stores/worldStore'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel.vue'
@@ -63,29 +64,29 @@ const router = useRouter()
       </SettingsContextBar>
     </SettingsWorkspaceHeader>
 
-    <div v-if="contextLoading" class="settings-sources-loading" role="status">正在加载资料…</div>
+    <div v-if="contextLoading" class="settings-sources-loading" role="status">{{ tr("正在加载资料…") }}</div>
 
     <div v-else-if="context?.status === 'missing-book' || loadError" class="settings-sources-empty" role="alert">
-      <p>{{ loadError || '这本书已不存在。' }}</p>
-      <button type="button" class="control-secondary" @click="refresh">重新加载</button>
+      <p>{{ loadError ? tr(loadError) : tr("这本书已不存在。") }}</p>
+      <button type="button" class="control-secondary" @click="refresh">{{ tr("重新加载") }}</button>
     </div>
 
     <div v-else-if="!bookId" class="settings-sources-empty" role="status">
-      <p>请先从首页或写作页打开一本书。</p>
-      <button type="button" class="control-primary" @click="router.push({ name: 'settings-structured' })">回到设定</button>
+      <p>{{ tr("请先从首页或写作页打开一本书。") }}</p>
+      <button type="button" class="control-primary" @click="router.push({ name: 'settings-structured' })">{{ tr("回到设定") }}</button>
     </div>
 
     <div v-else-if="!activeWorldbook" class="settings-sources-empty" role="status">
       <WorkbenchIcon name="sources" :size="32" />
-      <h1>本书的参考资料</h1>
-      <p>添加文档或文字片段，写作时随时回来查阅。</p>
-      <button type="button" class="control-primary" @click="goCreate"><WorkbenchIcon name="plus" :size="16" />添加资料</button>
+      <h1>{{ tr("本书的参考资料") }}</h1>
+      <p>{{ tr("添加文档或文字片段，写作时随时回来查阅。") }}</p>
+      <button type="button" class="control-primary" @click="goCreate"><WorkbenchIcon name="plus" :size="16" />{{ tr("添加资料") }}</button>
     </div>
 
     <template v-else>
       <header class="settings-sources-head">
-        <div class="settings-sources-heading"><h1>参考资料 <span class="settings-sources-count">{{ sourceCount }}</span></h1><p>收集本书的参考文档，随时查阅原文。</p></div>
-        <button type="button" class="control-primary settings-sources-add" data-test="sources-add" @click="goCreate"><WorkbenchIcon name="plus" :size="17" />添加资料</button>
+        <div class="settings-sources-heading"><h1>{{ tr("参考资料") }} <span class="settings-sources-count">{{ sourceCount }}</span></h1><p>{{ tr("收集本书的参考文档，随时查阅原文。") }}</p></div>
+        <button type="button" class="control-primary settings-sources-add" data-test="sources-add" @click="goCreate"><WorkbenchIcon name="plus" :size="17" />{{ tr("添加资料") }}</button>
       </header>
       <div class="settings-sources-body">
         <WorldbookSourcesPanel

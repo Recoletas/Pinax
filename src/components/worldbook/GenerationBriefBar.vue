@@ -1,15 +1,15 @@
 <template>
   <div class="generation-brief-bar">
     <label :for="inputId" class="brief-label">
-      <span>本节生成要求</span>
-      <span class="brief-hint">（可选，用于补充题材、边界和重点）</span>
+      <span>{{ tr('本节生成要求') }}</span>
+      <span class="brief-hint">{{ tr('（可选，用于补充题材、边界和重点）') }}</span>
     </label>
     <textarea
       :id="inputId"
       class="brief-input"
       rows="2"
       :value="modelValue"
-      :placeholder="placeholder"
+      :placeholder="tr(placeholder)"
       :aria-label="ariaLabel"
       @input="$emit('update:modelValue', $event.target.value)"
     ></textarea>
@@ -17,7 +17,9 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
+import { getSettingField, getSettingSection } from '../../services/worldbook/settingPanelSchema'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -30,8 +32,8 @@ defineEmits(['update:modelValue'])
 
 const inputId = computed(() => `brief-${props.sectionKey}${props.fieldKey ? `-${props.fieldKey}` : ''}`)
 const ariaLabel = computed(() => props.fieldKey
-  ? `设定项「${props.fieldKey}」的补充生成要求`
-  : `「${props.sectionKey}」的补充生成要求`
+  ? tr('设定项「{field}」的补充生成要求', { field: tr(getSettingField(props.sectionKey, props.fieldKey)?.label || props.fieldKey) })
+  : tr('「{section}」的补充生成要求', { section: tr(getSettingSection(props.sectionKey)?.label || props.sectionKey) })
 )
 </script>
 
@@ -49,6 +51,7 @@ const ariaLabel = computed(() => props.fieldKey
 
 .brief-label {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: baseline;
   font-size: 11px;

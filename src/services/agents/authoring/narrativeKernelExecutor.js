@@ -1,3 +1,5 @@
+import { freezeWritingLanguage } from '../../writing/writingLanguagePolicy.js'
+import { writingLanguageInstruction } from '../../../../shared/writingLanguage.js'
 // NarrativeKernel 真实执行链（验收修复 1 / spec §9）：
 // Authoring 下一拍不再走裸 provider step，而是像体验页一样
 // buildNarrativeKernel（消费共享现场投影）→ 资料索引 + 工具注册表
@@ -111,6 +113,8 @@ export function createNarrativeKernelExecutor({
     resolveLiveContextDependencies = null
   } = {}) {
     const projectId = String(explicitProjectId || projection?.projectId || worldbook?.id || '')
+    const languagePolicy = freezeWritingLanguage({ projectId })
+    const languageFormatInstructions = `${formatInstructions}\n${writingLanguageInstruction(languagePolicy)}`
     const manifestMode = Boolean(contextManifest)
     const targetRole = String(contextManifest?.target?.documentRole || contextManifest?.target?.role || 'manuscript')
     const requiresChapter = targetRole !== 'exploration'
@@ -222,7 +226,7 @@ export function createNarrativeKernelExecutor({
     // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。
     const kernelSerialization = serializeKernelWithinTextPartBudget(
       kernel,
-      narrativeTranscriptStaticOverheadChars({ phase: 'prose', formatInstructions })
+      narrativeTranscriptStaticOverheadChars({ phase: 'prose', formatInstructions: languageFormatInstructions })
     )
     const index = manifestMode
       ? manifestAccess.index
@@ -249,7 +253,7 @@ export function createNarrativeKernelExecutor({
         registry,
         mode: orchestratorMode(intentMode),
         intent: instruction ? 'respond' : intentMode,
-        formatInstructions,
+        formatInstructions: languageFormatInstructions,
         worldId: projectId,
         settings,
         requestId: `authoring:${Date.now().toString(36)}`,

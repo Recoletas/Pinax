@@ -1,3 +1,4 @@
+import { defaultWritingTitle } from '../../../shared/writingLanguage.js'
 import { getChapterMarkdown } from './writingDocumentSchema.js'
 
 const MARKDOWN_MIME = 'text/markdown;charset=utf-8'
@@ -16,20 +17,20 @@ function chapterContent(chapter) {
   return String(getChapterMarkdown(chapter) || '').trim()
 }
 
-function renderChapter(chapter, index = 0) {
-  const title = String(chapter?.title || `第 ${index + 1} 章`).trim()
+function renderChapter(chapter, index = 0, language = '') {
+  const title = String(chapter?.title || defaultWritingTitle('chapter', language, index + 1)).trim()
   const body = chapterContent(chapter)
   return `# ${title}${body ? `\n\n${body}` : ''}`
 }
 
 export function buildChapterManuscriptExport({ book = null, chapter = null } = {}) {
   if (!chapter) throw new Error('请选择要导出的章节')
-  const bookName = safeFilename(book?.title, '未命名作品')
-  const chapterName = safeFilename(chapter?.title, '未命名章节')
+  const bookName = safeFilename(book?.title, defaultWritingTitle('book', book?.manuscriptLanguage))
+  const chapterName = safeFilename(chapter?.title, defaultWritingTitle('chapter', book?.manuscriptLanguage))
   return {
     filename: `${bookName}-${chapterName}.md`,
     mimeType: MARKDOWN_MIME,
-    content: `${renderChapter(chapter)}\n`
+    content: `${renderChapter(chapter, 0, book?.manuscriptLanguage)}\n`
   }
 }
 
@@ -37,10 +38,10 @@ export function buildBookManuscriptExport({ book = null } = {}) {
   if (!book) throw new Error('请选择要导出的书籍')
   const chapters = Array.isArray(book.chapters) ? book.chapters : []
   const content = chapters.length
-    ? chapters.map((chapter, index) => renderChapter(chapter, index)).join('\n\n---\n\n')
-    : `# ${String(book.title || '未命名作品').trim()}`
+    ? chapters.map((chapter, index) => renderChapter(chapter, index, book.manuscriptLanguage)).join('\n\n---\n\n')
+    : `# ${String(book.title || defaultWritingTitle('book', book.manuscriptLanguage)).trim()}`
   return {
-    filename: `${safeFilename(book.title, '未命名作品')}.md`,
+    filename: `${safeFilename(book.title, defaultWritingTitle('book', book.manuscriptLanguage))}.md`,
     mimeType: MARKDOWN_MIME,
     content: `${content}\n`
   }

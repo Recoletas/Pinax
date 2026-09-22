@@ -29,9 +29,26 @@ export function validateWritingLockedSegments(before, after, segments = []) {
 }
 
 export function collectWritingDialogueLocks(text, nodeId) {
-  return [...String(text || '').matchAll(/“[^”]*”|「[^」]*」|『[^』]*』/gu)].map((match) => ({
-    text: match[0], start: match.index, end: match.index + match[0].length, ...(nodeId ? { nodeId } : {})
-  }))
+  const source = String(text || '')
+  const pairs = { '“': '”', '「': '」', '『': '』', '"': '"', '‘': '’' }
+  const locks = []
+  const word = value => Boolean(value && /[\p{L}\p{M}\p{N}]/u.test(value))
+  for (let start = 0; start < source.length; start += 1) {
+    const open = source[start]
+    const close = pairs[open]
+    if (!close || (open === '‘' && word(source[start - 1])) || source[start - 1] === '\\') continue
+    for (let end = start + 1; end < source.length; end += 1) {
+      // Auto-locks are intentionally single-paragraph. Unclosed/multiline
+      // dialogue remains available for explicit manual selection.
+      if (source[end] === '\n' || source[end] === '\r') break
+      if (source[end] !== close || source[end - 1] === '\\') continue
+      if (close === '’' && word(source[end - 1]) && word(source[end + 1])) continue
+      locks.push({ text: source.slice(start, end + 1), start, end: end + 1, ...(nodeId ? { nodeId } : {}) })
+      start = end
+      break
+    }
+  }
+  return locks
 }
 
 function safeString(value, fallback = '') {
@@ -259,6 +276,7 @@ function staleForPatch(patch, nodes) {
 
 export function getWritingCandidateStaleReason(candidate, current = {}) {
   if (!candidate) return 'candidate-missing'
+  if (candidate.languagePolicy && current.manuscriptLanguage !== undefined && candidate.languagePolicy.manuscriptLanguage !== current.manuscriptLanguage) return 'language-policy-changed'
   if (candidate.chapterId && current.chapterId && candidate.chapterId !== current.chapterId) return 'chapter-changed'
   const nodes = currentNodes(current)
   if (Array.isArray(candidate.patches)) {

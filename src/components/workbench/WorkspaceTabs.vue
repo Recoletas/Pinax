@@ -1,9 +1,11 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
 import { activateWorkspaceTab, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
+import { SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
 
 // 顶部工作台标签：浏览器式连续标签带。活动标签与内容面连通；
 // dirty 用信号点；窄屏通过横向滚动访问全部标签。
@@ -61,16 +63,19 @@ function projectInkStyle(tab) {
 
 // 760-1179 的缩短标题：项目子 surface 只显示 surface 名，写作标签显示书名。
 function shortTitle(tab) {
-  if (tab.scope !== 'project') return tab.title
-  return tab.surface === 'authoring'
-    ? tab.title
-    : tab.title.split(' · ').slice(1).join(' · ') || tab.title
+  if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
+  return tab.scope === 'project' && tab.surface === 'authoring' ? tab.title : tr(SURFACE_LABELS[tab.surface] || tab.title)
 }
 
 function displayTitle(tab) {
-  if (tab.scope !== 'project' || tab.surface === 'authoring') return tab.title
-  const [project, ...surface] = tab.title.split(' · ')
-  return surface.length ? `${surface.join(' · ')} · ${project}` : tab.title
+  if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
+  if (tab.scope !== 'project') return tab.instanceId ? `${shortTitle(tab)} · ${tab.instanceId}` : shortTitle(tab)
+  if (tab.surface === 'authoring') return tab.title
+  const label = SURFACE_LABELS[tab.surface]
+  // Book titles are author data, including any “ · ” they contain.
+  const suffix = label ? ` · ${label}` : ''
+  const project = workspaceTabs.bookIndex?.[tab.projectId]?.title || (suffix && tab.title.endsWith(suffix) ? tab.title.slice(0, -suffix.length) : tab.title)
+  return label ? `${tr(label)} · ${project}` : tab.title
 }
 
 function activateTab(tabId) {
@@ -163,7 +168,7 @@ onBeforeUnmount(() => {
     v-if="tabs.length > 0"
     class="ws-tabs"
     role="group"
-    aria-label="工作台标签"
+    :aria-label="tr(&quot;工作台标签&quot;)"
     data-test="workspace-tabs"
     @keydown="onTablistKeydown"
   >
@@ -173,7 +178,7 @@ onBeforeUnmount(() => {
       ref="scrollRef"
       class="ws-tabs__scroll"
       role="group"
-      aria-label="标签（可左右滚动）"
+      :aria-label="tr(&quot;标签（可左右滚动）&quot;)"
       tabindex="0"
     >
       <div
@@ -191,7 +196,7 @@ onBeforeUnmount(() => {
           :data-tab-id="tab.id"
           :data-tab-key="tab.key"
           :aria-current="tab.id === activeTabId ? 'true' : undefined"
-          :title="tab.title"
+          :title="displayTitle(tab)"
           @click="activateTab(tab.id)"
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
@@ -201,13 +206,13 @@ onBeforeUnmount(() => {
             <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
             <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
           </span>
-          <span v-if="tab.dirty" class="ws-tab__dirty" title="有未保存更改" aria-label="有未保存更改"></span>
+          <span v-if="tab.dirty" class="ws-tab__dirty" :title="tr(&quot;有未保存更改&quot;)" :aria-label="tr(&quot;有未保存更改&quot;)"></span>
         </button>
         <button
           v-if="!tab.pinned"
           class="ws-tab__close"
           type="button"
-          :aria-label="`关闭 ${tab.title}`"
+          :aria-label="tr('关闭 {value0}', { value0: displayTitle(tab) })"
           @click.stop="closeTab(tab.id)"
           @keydown.stop
         >
@@ -383,6 +388,7 @@ onBeforeUnmount(() => {
 }
 
 .ws-tab[data-tab-key="home"] { width: 82px; min-width: 82px; }
+.ws-tab:lang(en)[data-tab-key="home"] { width: 100px; min-width: 100px; flex-basis: 100px; }
 .ws-tab.is-pinned { padding-right: 8px; }
 
 @media (max-width: 1179px) {

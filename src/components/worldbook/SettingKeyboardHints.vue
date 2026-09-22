@@ -1,22 +1,23 @@
 <template>
   <div v-if="open" class="kbd-hints-backdrop" @click.self="close">
-    <div class="kbd-hints" role="dialog" aria-modal="true" aria-label="结构化设定快捷键">
+    <div class="kbd-hints" role="dialog" aria-modal="true" :aria-label="tr('结构化设定快捷键')">
       <div class="kbd-hints-head">
-        <h2>快捷键</h2>
-        <button class="icon-btn" aria-label="关闭" @click="close">×</button>
+        <h2>{{ tr('快捷键') }}</h2>
+        <button class="icon-btn" :aria-label="tr('关闭')" @click="close">×</button>
       </div>
       <ul class="kbd-hints-list">
-        <li><kbd>?</kbd> 显示 / 隐藏本面板</li>
-        <li><kbd>Esc</kbd> 关闭</li>
-        <li><kbd>Ctrl/⌘</kbd> + <kbd>S</kbd> 立即保存（flush 全部待保存字段）</li>
-        <li><kbd>Ctrl/⌘</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> 字段内撤销（在字段内时）</li>
-        <li><kbd>Ctrl/⌘</kbd> + <kbd>Shift</kbd> + <kbd>Y</kbd> 字段内重做（在字段内时）</li>
+        <li><kbd>?</kbd> {{ tr('显示 / 隐藏本面板') }}</li>
+        <li><kbd>Esc</kbd> {{ tr('关闭') }}</li>
+        <li><kbd>Ctrl/⌘</kbd> + <kbd>S</kbd> {{ tr('立即保存（flush 全部待保存字段）') }}</li>
+        <li><kbd>Ctrl/⌘</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> {{ tr('字段内撤销（在字段内时）') }}</li>
+        <li><kbd>Ctrl/⌘</kbd> + <kbd>Shift</kbd> + <kbd>Y</kbd> {{ tr('字段内重做（在字段内时）') }}</li>
       </ul>
     </div>
   </div>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 defineProps({
   open: { type: Boolean, default: false }
 })

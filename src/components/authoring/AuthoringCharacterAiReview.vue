@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { createSettingsPageDispatcher } from '../../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsGenerationWorkflow } from '../../services/agents/settings/settingsGenerationWorkflow'
@@ -92,19 +93,19 @@ onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
-  <section v-if="open" class="character-ai-review" aria-label="AI 补全角色资料">
-    <header><strong>AI 补全</strong><button type="button" aria-label="关闭 AI 补全" @click="close">×</button></header>
-    <textarea v-if="!hasCandidate" v-model="brief" rows="2" placeholder="补充要求（可选）" :disabled="busy"></textarea>
+  <section v-if="open" class="character-ai-review" :aria-label="tr('AI 补全角色资料')">
+    <header><strong>{{ tr("AI 补全") }}</strong><button type="button" :aria-label="tr('关闭 AI 补全')" @click="close">×</button></header>
+    <textarea v-if="!hasCandidate" v-model="brief" rows="2" :placeholder="tr('补充要求（可选）')" :disabled="busy"></textarea>
     <template v-else>
       <label v-for="field in [['background', '背景'], ['personality', '性格'], ['appearance', '外貌'], ['other', '其他']]" :key="field[0]">
-        <span>{{ field[1] }}</span><textarea v-model="candidate[field[0]]" rows="2"></textarea>
+        <span>{{ tr(field[1]) }}</span><textarea v-model="candidate[field[0]]" rows="2"></textarea>
       </label>
     </template>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-else-if="stale" role="status">人物资料已变化，请重新生成。</p>
+    <p v-if="error" role="alert">{{ tr(error) }}</p>
+    <p v-else-if="stale" role="status">{{ tr("人物资料已变化，请重新生成。") }}</p>
     <footer>
-      <button v-if="hasCandidate" type="button" @click="resetCandidate">放弃</button>
-      <button type="button" class="primary" :disabled="busy || stale" @click="hasCandidate ? apply() : generate()">{{ busy ? '补全中…' : hasCandidate ? '采用' : '生成候选' }}</button>
+      <button v-if="hasCandidate" type="button" @click="resetCandidate">{{ tr("放弃") }}</button>
+      <button type="button" class="primary" :disabled="busy || stale" @click="hasCandidate ? apply() : generate()">{{ busy ? tr("补全中…") : hasCandidate ? tr("采用") : tr("生成候选") }}</button>
     </footer>
   </section>
 </template>

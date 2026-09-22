@@ -10,7 +10,7 @@ import { chromium } from 'playwright'
 const BASE_URL = process.env.PINAX_HISTORY_UI_EVAL_URL || 'http://127.0.0.1:5179'
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto(BASE_URL)

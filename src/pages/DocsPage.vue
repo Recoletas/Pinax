@@ -1,4 +1,5 @@
 <script setup>
+import { tr, uiLocale } from '../i18n/index.js'
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -16,6 +17,8 @@ const router = useRouter()
 const DEFAULT_CHAPTER = 'README'
 
 const manifest = ref(null)
+let manifestToken = 0
+const chapterLanguage = ref(uiLocale.value)
 const manifestError = ref(null)
 const chapterBody = ref('')
 const chapterError = ref(null)
@@ -71,14 +74,20 @@ const sanitizedHtml = computed(() => {
 })
 
 async function loadManifest() {
-  if (manifest.value) return
+  const token = ++manifestToken
+  const locale = uiLocale.value
   try {
-    const res = await fetch('/docs/user-manual/manifest.json')
+    const res = await fetch(`/docs/user-manual/${locale === 'en' ? 'en/' : ''}manifest.json`)
     if (!res.ok) throw new Error(`manifest ${res.status}`)
-    manifest.value = await res.json()
+    const data = await res.json()
+    if (token !== manifestToken || locale !== uiLocale.value) return false
+    manifest.value = data
     manifestError.value = null
+    return true
   } catch (e) {
+    if (token !== manifestToken) return false
     manifestError.value = e?.message || String(e)
+    return false
   }
 }
 
@@ -86,13 +95,17 @@ async function loadChapter(chapterId) {
   const meta = resolveChapter(chapterId)
   if (!meta) return
   const token = ++fetchToken.value
+  const locale = uiLocale.value
+  const contentLanguage = locale === 'en' && !meta.chineseOnly ? 'en' : 'zh-CN'
+  chapterBody.value = ''
   chapterLoading.value = true
   chapterError.value = null
   try {
-    const res = await fetch(`/docs/user-manual/${meta.file}`)
+    const res = await fetch(`/docs/user-manual/${contentLanguage === 'en' ? 'en/' : ''}${meta.file}`)
     if (!res.ok) throw new Error(`${meta.file} ${res.status}`)
     const text = await res.text()
     if (token !== fetchToken.value) return
+    chapterLanguage.value = contentLanguage
     chapterBody.value = text
   } catch (e) {
     if (token !== fetchToken.value) return
@@ -142,7 +155,7 @@ function retryChapter() {
 function retryManifest() {
   manifest.value = null
   manifestError.value = null
-  loadManifest()
+  void loadManifest().then(ok => { if (ok) return loadChapter(currentChapterId.value) })
 }
 
 function goBack() {
@@ -184,7 +197,7 @@ watch(
 // 章节切换时同步 document.title（App.vue 只管 AppShell 内路由）
 function syncTitle() {
   const title = currentChapter.value?.title || '使用指南'
-  document.title = `${title} - Pinax 文档`
+  document.title = `${tr(title)} - Pinax ${tr('文档')}`
 }
 
 watch([currentChapterId, currentChapter], () => {
@@ -192,18 +205,28 @@ watch([currentChapterId, currentChapter], () => {
 })
 
 onMounted(async () => {
-  await loadManifest()
-  await loadChapter(currentChapterId.value)
+  if (await loadManifest()) await loadChapter(currentChapterId.value)
+  syncTitle()
+})
+
+watch(uiLocale, async () => {
+  fetchToken.value++
+  manifest.value = null
+  chapterBody.value = ''
+  chapterError.value = null
+  if (await loadManifest()) await loadChapter(currentChapterId.value)
   syncTitle()
 })
 
 onBeforeUnmount(() => {
+  manifestToken++
   fetchToken.value++
 })
 </script>
 
 <template>
   <div class="docs-page" data-test="docs-page">
+    <p v-if="currentChapter?.chineseOnly" role="status">{{ tr('本章目前仅有中文版本。') }}</p>
     <header class="docs-page__head">
       <div class="docs-page__head-inner">
         <button
@@ -212,13 +235,13 @@ onBeforeUnmount(() => {
           data-test="docs-back"
           @click="goBack"
         >
-          <WorkbenchIcon name="arrow-left" :size="16" /><span>返回工作区</span>
+          <WorkbenchIcon name="arrow-left" :size="16" /><span>{{ tr('返回工作区') }}</span>
         </button>
 
         <button
           type="button"
           class="docs-page__menu-toggle"
-          aria-label="切换章节目录"
+          :aria-label="tr(&quot;切换章节目录&quot;)"
           :aria-expanded="sidebarOpen ? 'true' : 'false'"
           data-test="docs-menu-toggle"
           @click="sidebarOpen = !sidebarOpen"
@@ -227,7 +250,7 @@ onBeforeUnmount(() => {
         </button>
 
         <div class="docs-page__brand">
-          <span>使用指南</span>
+          <span>{{ tr('使用指南') }}</span>
         </div>
 
         <span class="docs-page__chapter-caption">
@@ -240,11 +263,9 @@ onBeforeUnmount(() => {
       <aside
         class="docs-page__sidebar workspace-sidebar"
         :class="{ open: sidebarOpen }"
-        aria-label="章节目录"
+        :aria-label="tr(&quot;章节目录&quot;)"
       >
-        <p v-if="manifestError" class="docs-page__hint" role="alert">
-          章节列表加载失败
-          <button type="button" class="docs-page__retry" @click="retryManifest">重试</button>
+        <p v-if="manifestError" class="docs-page__hint" role="alert">{{ tr('章节列表加载失败') }}<button type="button" class="docs-page__retry" @click="retryManifest">{{ tr('重试') }}</button>
         </p>
         <template v-else-if="manifest">
           <nav
@@ -270,7 +291,7 @@ onBeforeUnmount(() => {
             </ul>
           </nav>
         </template>
-        <p v-else class="docs-page__hint">章节加载中…</p>
+        <p v-else class="docs-page__hint">{{ tr('章节加载中…') }}</p>
       </aside>
 
       <!-- 移动端遮罩 -->
@@ -278,25 +299,24 @@ onBeforeUnmount(() => {
         v-if="sidebarOpen"
         type="button"
         class="docs-page__scrim"
-        aria-label="关闭章节目录"
+        :aria-label="tr(&quot;关闭章节目录&quot;)"
         @click="sidebarOpen = false"
       />
 
       <main class="docs-page__main">
         <article class="docs-page__body" data-test="docs-body">
-          <p v-if="chapterLoading" class="docs-page__hint" role="status">章节加载中…</p>
-          <p v-else-if="chapterError" class="docs-page__hint docs-page__error" role="alert">
-            加载失败：{{ chapterError }}
-            <button type="button" class="docs-page__retry" @click="retryChapter">重试</button>
+          <p v-if="chapterLoading" class="docs-page__hint" role="status">{{ tr('章节加载中…') }}</p>
+          <p v-else-if="chapterError" class="docs-page__hint docs-page__error" role="alert">{{ tr('加载失败：{chapterError}', { chapterError: chapterError }) }}<button type="button" class="docs-page__retry" @click="retryChapter">{{ tr('重试') }}</button>
           </p>
           <div
             v-else-if="chapterBody"
             class="docs-page__content"
             data-test="docs-content"
+            :lang="chapterLanguage"
             v-html="sanitizedHtml"
             @click="onContentClick"
           />
-          <p v-else class="docs-page__hint">无内容</p>
+          <p v-else class="docs-page__hint">{{ tr('无内容') }}</p>
         </article>
       </main>
     </div>

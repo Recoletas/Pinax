@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { testApiConnection } from '../../services/api'
 import {
@@ -111,7 +112,7 @@ async function testConnection() {
       format: null
     })
     connectionState.kind = result?.ok ? 'success' : 'error'
-    connectionState.message = result?.ok ? '连接成功' : (result?.message || '渠道不可用')
+    connectionState.message = result?.ok ? tr('连接成功') : (result?.message || tr('渠道不可用'))
   } catch (error) {
     connectionState.kind = 'error'
     connectionState.message = error?.message || '连接测试失败'
@@ -124,7 +125,7 @@ function removeConfig() {
   const id = editingConfig.value?.id
   if (!id || editingIsBuiltin.value) return
   const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm('确定删除这个文本模型配置？')
+    ? window.confirm(tr('确定删除这个文本模型配置？'))
     : false
   if (!confirmed) return
   const configs = deleteTextProviderConfig(id)
@@ -178,18 +179,18 @@ useTransientLayer({
       @click="openPicker"
     >
       <span>
-        <small>文本模型</small>
-        <strong>{{ selectedConfig?.name || '选择或配置模型' }}</strong>
+        <small>{{ tr('文本模型') }}</small>
+        <strong>{{ selectedConfig?.name || tr('选择或配置模型') }}</strong>
       </span>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
     </button>
 
     <Teleport to="body">
       <div v-if="showPicker" class="text-model-overlay" @click.self="showPicker = false">
-        <section class="text-model-dialog" role="dialog" aria-modal="true" aria-label="选择文本模型">
+        <section class="text-model-dialog" role="dialog" aria-modal="true" :aria-label="tr(&quot;选择文本模型&quot;)">
           <header>
-            <div><strong>选择文本模型</strong><small>{{ localConfigs.length }} 个配置</small></div>
-            <button type="button" class="is-icon" title="关闭" aria-label="关闭" @click="showPicker = false">×</button>
+            <div><strong>{{ tr('选择文本模型') }}</strong><small>{{ tr('{length} 个配置', { length: localConfigs.length }) }}</small></div>
+            <button type="button" class="is-icon" :title="tr(&quot;关闭&quot;)" :aria-label="tr(&quot;关闭&quot;)" @click="showPicker = false">×</button>
           </header>
           <div v-if="localConfigs.length" class="text-model-list">
             <div
@@ -207,17 +208,17 @@ useTransientLayer({
               <span>
                 <strong>
                   {{ config.name }}
-                  <em v-if="config.builtin" class="text-model-badge">内置</em>
+                  <em v-if="config.builtin" class="text-model-badge">{{ tr('内置') }}</em>
                 </strong>
                 <small>{{ providerLabel(config.providerId) }} · {{ config.model }}</small>
-                <small v-if="config.serverKey" class="text-model-server-note">已由服务器配置</small>
+                <small v-if="config.serverKey" class="text-model-server-note">{{ tr('已由服务器配置') }}</small>
               </span>
               <button
                 v-if="!config.builtin"
                 type="button"
                 class="is-icon"
-                title="编辑模型配置"
-                aria-label="编辑模型配置"
+                :title="tr(&quot;编辑模型配置&quot;)"
+                :aria-label="tr(&quot;编辑模型配置&quot;)"
                 @click.stop="editConfig(config)"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
@@ -226,68 +227,66 @@ useTransientLayer({
                 v-else
                 type="button"
                 class="is-icon"
-                title="查看内置 MiniMax"
-                aria-label="查看内置 MiniMax"
+                :title="tr(&quot;查看内置 MiniMax&quot;)"
+                :aria-label="tr(&quot;查看内置 MiniMax&quot;)"
                 @click.stop="editConfig(config)"
               >…</button>
             </div>
           </div>
-          <p v-else class="text-model-empty">还没有文本模型配置。</p>
-          <footer><button type="button" class="is-primary" @click="addConfig">添加模型配置</button></footer>
+          <p v-else class="text-model-empty">{{ tr('还没有文本模型配置。') }}</p>
+          <footer><button type="button" class="is-primary" @click="addConfig">{{ tr('添加模型配置') }}</button></footer>
         </section>
       </div>
 
       <div v-if="showConfig && editingConfig" class="text-model-overlay" @click.self="closeConfig">
-        <section class="text-model-dialog text-model-dialog--config" role="dialog" aria-modal="true" aria-label="文本模型配置">
+        <section class="text-model-dialog text-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr(&quot;文本模型配置&quot;)">
           <header>
             <div>
-              <strong>{{ editingIsBuiltin ? '内置 MiniMax' : (editingConfig.id ? '编辑文本配置' : '添加文本配置') }}</strong>
+              <strong>{{ editingIsBuiltin ? tr('内置 MiniMax') : (editingConfig.id ? tr('编辑文本配置') : tr('添加文本配置')) }}</strong>
               <small>{{ providerLabel(editingConfig.providerId) }}</small>
             </div>
-            <button type="button" class="is-icon" title="关闭" aria-label="关闭" @click="closeConfig">×</button>
+            <button type="button" class="is-icon" :title="tr(&quot;关闭&quot;)" :aria-label="tr(&quot;关闭&quot;)" @click="closeConfig">×</button>
           </header>
 
           <!-- 内置: 只读详情 -->
           <div v-if="editingIsBuiltin" class="text-model-form text-model-form--readonly">
-            <div class="text-model-static-row"><span>名称</span><strong>{{ editingConfig.name }}</strong></div>
-            <div class="text-model-static-row"><span>渠道</span><strong>{{ providerLabel(editingConfig.providerId) }}</strong></div>
-            <div class="text-model-static-row"><span>API 地址</span><strong>{{ editingConfig.baseUrl }}</strong></div>
-            <div class="text-model-static-row"><span>模型</span><strong>{{ editingConfig.model }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('名称') }}</span><strong>{{ editingConfig.name }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('渠道') }}</span><strong>{{ providerLabel(editingConfig.providerId) }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('API 地址') }}</span><strong>{{ editingConfig.baseUrl }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('模型') }}</span><strong>{{ editingConfig.model }}</strong></div>
             <div class="text-model-server-key">
               <span>API Key</span>
-              <strong>已由服务器配置，无需填写</strong>
-              <p>使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置
-                <code>MINIMAX_API_KEY</code>，请求时会有明确报错。</p>
+              <strong>{{ tr('已由服务器配置，无需填写') }}</strong>
+              <p>{{ tr('使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置') }}<code>MINIMAX_API_KEY</code>{{ tr('，请求时会有明确报错。') }}</p>
             </div>
           </div>
 
           <!-- 用户配置 / 新增: 可编辑表单 -->
           <div v-else class="text-model-form">
-            <label><span>名称</span><input v-model="editingConfig.name" placeholder="例如：我的 DeepSeek" /></label>
+            <label><span>{{ tr('名称') }}</span><input v-model="editingConfig.name" :placeholder="tr(&quot;例如：我的 DeepSeek&quot;)" /></label>
             <label>
-              <span>渠道</span>
+              <span>{{ tr('渠道') }}</span>
               <select :value="editingConfig.providerId" @change="changeProvider">
                 <option v-for="item in TEXT_PROVIDER_TYPES" :key="item.id" :value="item.id">{{ item.name }}</option>
               </select>
             </label>
-            <label><span>API 地址</span><input v-model="editingConfig.baseUrl" placeholder="渠道默认地址或自定义地址" /></label>
-            <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" autocomplete="off" placeholder="填你自己的 Key" /></label>
-            <label><span>模型</span><input v-model="editingConfig.model" placeholder="模型名称" /></label>
-            <p v-if="editingIsMinimax" class="text-model-hint">未填 Key 将使用服务器内置密钥（服务器配置了
-              <code>MINIMAX_API_KEY</code> 时生效）。</p>
+            <label><span>{{ tr('API 地址') }}</span><input v-model="editingConfig.baseUrl" :placeholder="tr(&quot;渠道默认地址或自定义地址&quot;)" /></label>
+            <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" autocomplete="off" :placeholder="tr(&quot;填你自己的 Key&quot;)" /></label>
+            <label><span>{{ tr('模型') }}</span><input v-model="editingConfig.model" :placeholder="tr(&quot;模型名称&quot;)" /></label>
+            <p v-if="editingIsMinimax" class="text-model-hint">{{ tr('未填 Key 将使用服务器内置密钥（服务器配置了') }}<code>MINIMAX_API_KEY</code>{{ tr('时生效）。') }}</p>
           </div>
           <p v-if="connectionState.message" class="text-model-message text-model-message--result" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
 
           <footer>
             <template v-if="editingIsBuiltin">
-              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
-              <button type="button" class="is-primary" @click="useBuiltin">使用此模型</button>
-              <button type="button" @click="closeConfig">关闭</button>
+              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? tr('测试中...') : tr('测试连通性') }}</button>
+              <button type="button" class="is-primary" @click="useBuiltin">{{ tr('使用此模型') }}</button>
+              <button type="button" @click="closeConfig">{{ tr('关闭') }}</button>
             </template>
             <template v-else>
-              <button v-if="editingConfig.id" type="button" class="is-danger" @click="removeConfig">删除</button>
-              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
-              <button type="button" class="is-primary" :disabled="!canSaveConfig" @click="saveConfig">保存</button>
+              <button v-if="editingConfig.id" type="button" class="is-danger" @click="removeConfig">{{ tr('删除') }}</button>
+              <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? tr('测试中...') : tr('测试连通性') }}</button>
+              <button type="button" class="is-primary" :disabled="!canSaveConfig" @click="saveConfig">{{ tr('保存') }}</button>
             </template>
           </footer>
         </section>

@@ -2,54 +2,54 @@
   <section class="structured-settings-panel is-continuous">
     <div class="section-workbench">
       <aside class="section-rail workspace-sidebar">
-        <span class="section-index-label">设定目录</span>
+        <span class="section-index-label">{{ tr('设定目录') }}</span>
         <label class="setting-directory-search">
           <WorkbenchIcon name="search" :size="15" />
-          <input v-model="directoryQuery" type="search" aria-label="查找设定" placeholder="查找设定…" />
+          <input v-model="directoryQuery" type="search" :aria-label="tr('查找设定')" :placeholder="tr('查找设定…')" />
         </label>
 
-        <nav class="section-tabs" aria-label="结构化设定分区">
+        <nav class="section-tabs" :aria-label="tr('结构化设定分区')">
           <button
             v-for="section in sections"
             :key="section.key"
             :class="['section-tab workspace-nav-item', { active: activeSectionKey === section.key }]"
-            :aria-label="section.label"
+            :aria-label="tr(section.label)"
             :aria-current="activeSectionKey === section.key ? 'page' : undefined"
             @click="activeSectionKey = section.key"
           >
             <WorkbenchIcon class="workspace-nav-icon" :name="sectionIcons[section.key] || 'book'" :size="16" />
-            <span>{{ section.label }}</span>
-            <small :title="`已填写 ${populatedCount(section)} 项，共 ${section.fields.length} 项`">{{ populatedCount(section) }}/{{ section.fields.length }}</small>
+            <span>{{ tr(section.label) }}</span>
+            <small :title="tr('已填写 {filled} 项，共 {total} 项', { filled: populatedCount(section), total: section.fields.length })">{{ populatedCount(section) }}/{{ section.fields.length }}</small>
             <i aria-hidden="true"></i>
           </button>
         </nav>
 
-        <nav v-if="!directoryQuery.trim()" class="field-directory" aria-label="本节内容">
-          <span class="field-directory-label">本节内容</span>
+        <nav v-if="!directoryQuery.trim()" class="field-directory" :aria-label="tr('本节内容')">
+          <span class="field-directory-label">{{ tr('本节内容') }}</span>
           <button v-for="field in activeSection.fields" :key="field.key" class="workspace-nav-item workspace-nav-item--tree" type="button" @click="jumpToField(field)">
             <span class="field-presence" :class="{ filled: form[activeSectionKey]?.[field.key]?.trim() }" aria-hidden="true"></span>
-            <span>{{ field.label }}</span>
+            <span>{{ tr(field.label) }}</span>
           </button>
         </nav>
-        <nav v-else class="field-directory field-search-results" aria-label="设定查找结果">
-          <span class="field-directory-label" role="status">{{ directoryMatches.length }} 项匹配</span>
+        <nav v-else class="field-directory field-search-results" :aria-label="tr('设定查找结果')">
+          <span class="field-directory-label" role="status">{{ tr('{count} 项匹配', { count: directoryMatches.length }) }}</span>
           <button v-for="item in directoryMatches" :key="`${item.section.key}.${item.field.key}`" class="workspace-nav-item" type="button" @click="openDirectoryMatch(item)">
-            <span>{{ item.field.label }}<small>{{ item.section.label }}</small></span>
+            <span>{{ tr(item.field.label) }}<small>{{ tr(item.section.label) }}</small></span>
           </button>
-          <p v-if="!directoryMatches.length" class="directory-empty">没有匹配的设定，试试名称或正文关键词。</p>
+          <p v-if="!directoryMatches.length" class="directory-empty">{{ tr('没有匹配的设定，试试名称或正文关键词。') }}</p>
         </nav>
 
       </aside>
 
       <div class="section-canvas">
         <header class="section-content-heading">
-          <div class="section-heading-copy"><h1>{{ activeSection.label }}</h1><p>{{ activeSection.description }}</p></div>
+          <div class="section-heading-copy"><h1>{{ tr(activeSection.label) }}</h1><p>{{ tr(activeSection.description) }}</p></div>
         <div class="section-actions">
           <button
             type="button"
             class="section-ai-btn control-primary"
             :class="`is-${sectionGenState}`"
-            :aria-label="`为「${activeSection.label}」批量生成 AI 草稿`"
+            :aria-label="tr('为「{section}」批量生成 AI 草稿', { section: tr(activeSection.label) })"
             @click="onSectionAiClick"
           >
             <WorkbenchIcon name="sparkles" :size="15" />
@@ -59,14 +59,14 @@
             type="button"
             class="brief-toggle-btn control-secondary"
             :aria-pressed="showBriefBar"
-            :aria-label="showBriefBar ? '收起生成要求' : '补充生成要求'"
+            :aria-label="showBriefBar ? tr('收起生成要求') : tr('补充生成要求')"
             @click="showBriefBar = !showBriefBar"
           >
             <WorkbenchIcon name="pencil" :size="14" />
-            <span>{{ showBriefBar ? '收起要求' : '补充要求' }}</span>
+            <span>{{ showBriefBar ? tr('收起要求') : tr('补充要求') }}</span>
           </button>
         </div>
-          <span v-if="readyDraftCount > 0" class="draft-summary">{{ readyDraftCount }} 项草稿待审</span>
+          <span v-if="readyDraftCount > 0" class="draft-summary">{{ tr('{count} 项草稿待审', { count: readyDraftCount }) }}</span>
         </header>
         <div v-if="showBriefBar" class="brief-bar-wrapper">
           <GenerationBriefBar
@@ -80,8 +80,8 @@
           v-if="sectionGenState !== 'idle'"
           :state="sectionGenState"
           :progress="sectionGenProgress"
-          :phase="sectionGenPhase"
-          :error="sectionGenError"
+          :phase="tr(sectionGenPhase)"
+          :error="displayFeedback(sectionGenError)"
           :retry-label="sectionRetryLabel"
           @retry="retrySectionGen"
         />
@@ -90,14 +90,14 @@
           class="generation-failed-fields"
           role="status"
         >
-          未通过校验：{{ failedFieldLabels }}。已生成内容仍保留在草稿中。
+          {{ tr('未通过校验：{fields}。已生成内容仍保留在草稿中。', { fields: failedFieldLabels }) }}
         </div>
 
-        <div v-if="feedback" class="feedback-line">{{ feedback }}</div>
+        <div v-if="feedback" class="feedback-line">{{ displayFeedback(feedback) }}</div>
 
-        <nav v-if="readyDraftEntries.length" class="draft-queue" aria-label="待审 AI 草稿">
+        <nav v-if="readyDraftEntries.length" class="draft-queue" :aria-label="tr('待审 AI 草稿')">
           <div class="draft-queue__lead">
-            <span>待审草稿</span>
+            <span>{{ tr('待审草稿') }}</span>
             <strong>{{ readyDraftCount }}</strong>
           </div>
           <div class="draft-queue__items" role="list">
@@ -110,7 +110,7 @@
               :aria-current="focusedDraftKey === draft.fieldKey ? 'true' : undefined"
               @click="focusDraft(draft.fieldKey)"
             >
-              <span>{{ draft.fieldLabel }}</span>
+              <span>{{ tr(getSettingField(activeSectionKey, draft.fieldKey)?.label || draft.fieldLabel) }}</span>
               <small>{{ draft.snippet }}</small>
             </button>
           </div>
@@ -147,10 +147,10 @@
             :status="focusedDraftStatus"
             :revision-instruction="focusedDraft.revisionInstruction || ''"
             :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
-            :revision-error="focusedRevisionError"
+            :revision-error="displayFeedback(focusedRevisionError)"
             :revision-history="focusedDraft.revisionHistory || []"
             :revision-index="focusedDraft.revisionIndex || 0"
-            :source-candidate-error="focusedDraft.sourceCandidateError || ''"
+            :source-candidate-error="displayFeedback(focusedDraft.sourceCandidateError || '')"
             :can-import-to-experience="canImportFocusedDraftToExperience"
             @close="closeFocusedDraft"
             @discard="discardFocusedDraft"
@@ -172,6 +172,7 @@
 
 <script setup>
 import { computed, provide, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { tr, uiLocale } from '../../i18n/index.js'
 import { useWorldStore } from '../../stores/worldStore'
 import {
   SETTING_SECTIONS,
@@ -237,7 +238,7 @@ const directoryMatches = computed(() => {
   const query = directoryQuery.value.trim().toLocaleLowerCase()
   if (!query) return []
   return sections.flatMap(section => section.fields
-    .filter(field => `${field.label} ${section.label} ${form[section.key]?.[field.key] || ''}`.toLocaleLowerCase().includes(query))
+    .filter(field => `${field.label} ${section.label} ${tr(field.label)} ${tr(section.label)} ${form[section.key]?.[field.key] || ''}`.toLocaleLowerCase().includes(query))
     .map(field => ({ section, field })))
 })
 async function openDirectoryMatch(item) {
@@ -413,22 +414,34 @@ const revisionDraftKey = ref('')
 
 const sectionAiButtonText = computed(() => {
   switch (sectionGenState.value) {
-    case 'pending': return `中止${sectionGenPhase.value ? ` · ${sectionGenPhase.value}` : ''}`
-    case 'success': return '已生成'
-    case 'partial': return `重试失败项（${sectionGenFailedFields.value.length}）`
-    case 'error': return sectionGenFailedFields.value.length ? `重试失败项（${sectionGenFailedFields.value.length}）` : '重试整节'
-    case 'aborted': return '已中止'
-    case 'stale': return '重新生成（内容已过期）'
-    default: return 'AI 补全本节'
+    case 'pending': return tr('停止生成')
+    case 'success': return tr('已生成')
+    case 'partial': return tr('重试失败项（{count}）', { count: sectionGenFailedFields.value.length })
+    case 'error': return sectionGenFailedFields.value.length ? tr('重试失败项（{count}）', { count: sectionGenFailedFields.value.length }) : tr('重试整节')
+    case 'aborted': return tr('已中止')
+    case 'stale': return tr('重新生成（内容已过期）')
+    default: return tr('AI 补全本节')
   }
 })
 
 const sectionRetryLabel = computed(() => sectionGenFailedFields.value.length
-  ? `重试失败项（${sectionGenFailedFields.value.length}）`
-  : '重试')
+  ? tr('重试失败项（{count}）', { count: sectionGenFailedFields.value.length })
+  : tr('重试'))
 const failedFieldLabels = computed(() => sectionGenFailedFields.value
-  .map((fieldKey) => getSettingField(activeSectionKey.value, fieldKey)?.label || fieldKey)
-  .join('、'))
+  .map((fieldKey) => tr(getSettingField(activeSectionKey.value, fieldKey)?.label || fieldKey))
+  .join(uiLocale.value === 'en' ? ', ' : '、'))
+
+function displayFeedback(message) {
+  const value = String(message || '')
+  const importedCharacter = /^已将「(.+)」导入体验页主角档案$/.exec(value)
+  if (importedCharacter) return tr('已将「{name}」导入体验页主角档案', { name: importedCharacter[1] })
+  const importedCards = /^已将 (\d+) 张角色卡导入体验页人物索引$/.exec(value)
+  if (importedCards) return tr('已将 {count} 张角色卡导入体验页人物索引', { count: importedCards[1] })
+  for (const field of sections.flatMap(section => section.fields)) {
+    if (value.startsWith(`${field.label}：`)) return `${tr(field.label)}: ${tr(value.slice(field.label.length + 1))}`
+  }
+  return tr(value)
+}
 
 const BRIEF_LS_PREFIX = 'worldbook:brief:'
 function loadBrief() {
@@ -758,7 +771,7 @@ const focusedDraftStatus = computed(() => {
     return { state: 'pending', progress: sectionGenProgress.value, error: '' }
   }
   if (['partial', 'error', 'stale'].includes(sectionGenState.value)) {
-    return { state: sectionGenState.value, progress: '', error: sectionGenError.value }
+    return { state: sectionGenState.value, progress: '', error: displayFeedback(sectionGenError.value) }
   }
   return null
 })
@@ -1915,4 +1928,8 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
 .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) { border-bottom-color: var(--archive-paper-strong); }
 .structured-settings-panel.is-continuous .fields-grid :deep(.field-textarea:focus) { box-shadow: none; border: 0; outline: none; background: color-mix(in srgb, var(--archive-ink) 2%, transparent); }
+.structured-settings-panel.is-continuous .section-actions { flex-wrap: wrap; }
+.structured-settings-panel.is-continuous .section-tab > span,
+.field-directory button > span { min-width: 0; overflow-wrap: break-word; }
+.structured-settings-panel.is-continuous .section-tab small { flex-shrink: 0; }
 </style>

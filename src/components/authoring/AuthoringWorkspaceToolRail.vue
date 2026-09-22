@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const props = defineProps({ activeTool: { type: String, default: 'annotations' }, dual: Boolean, collaborationVisible: Boolean })
@@ -35,25 +36,25 @@ const tools = computed(() => props.collaborationVisible
 </script>
 
 <template>
-  <nav class="writing-tool-rail" aria-label="写作工具">
+  <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
     <button v-for="tool in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id"
-      :aria-label="tool.label" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tool.label"
+      :aria-label="tr(tool.label)" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tr(tool.label)"
       @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
-      <span class="writing-tool-rail__label">{{ tool.label }}</span>
+      <span class="writing-tool-rail__label">{{ tr(tool.label) }}</span>
     </button>
   </nav>
 </template>
 
 <style scoped>
-.writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; width: 52px; min-width: 52px; padding-block: 6px; border-inline: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--surface-primary) 94%, transparent); }
-.writing-tool-rail button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 51px; min-height: 46px; padding: 0; border: 0; background: transparent; color: color-mix(in srgb, var(--text-secondary) 84%, transparent); cursor: pointer; }
-.writing-tool-rail__label { font-family: var(--font-sans); font-size: 11px; line-height: 1.3; white-space: nowrap; }
+.writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; width: var(--writing-tool-rail-width, 52px); min-width: var(--writing-tool-rail-width, 52px); padding-block: 6px; border-inline: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--surface-primary) 94%, transparent); }
+.writing-tool-rail button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 100%; min-height: 46px; padding: 0; border: 0; background: transparent; color: color-mix(in srgb, var(--text-secondary) 84%, transparent); cursor: pointer; }
+.writing-tool-rail__label { font-family: var(--font-sans); font-size: 11px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: center; }
 .writing-tool-rail button::before { position: absolute; inset-block: 8px; inset-inline-start: -1px; width: 3px; content: ''; background: transparent; }
 .writing-tool-rail button[aria-pressed="true"] { color: var(--text-primary); background: color-mix(in srgb, var(--accent-primary) 7%, transparent); }
 .writing-tool-rail button[aria-pressed="true"]::before { background: var(--accent-primary); }
 .writing-tool-rail button:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); color: var(--text-primary); }
 .writing-tool-rail button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -4px; color: var(--text-primary); }
 /* 与 Authoring 的全宽 sheet 同时切为底部工具带，避免 641–720px 留下被稿面遮住的竖栏。 */
-@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; width: auto; flex-direction: row; padding-block: 0 env(safe-area-inset-bottom, 0px); overflow-x: auto; border-top: 1px solid var(--border); } .writing-tool-rail button { flex: 1 0 48px; min-height: 48px; } }
+@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; width: auto; flex-direction: row; padding-block: 0 env(safe-area-inset-bottom, 0px); overflow-x: auto; border-top: 1px solid var(--border); } .writing-tool-rail button { flex: 1 0 var(--writing-tool-rail-width, 48px); min-height: 48px; } }
 </style>

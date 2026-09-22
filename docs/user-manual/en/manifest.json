@@ -1,0 +1,78 @@
+{
+  "chapters": [
+    {
+      "id": "README",
+      "title": "Guide home",
+      "file": "README.md",
+      "summary": "What Pinax does and where to begin",
+      "group": "Getting started"
+    },
+    {
+      "id": "01-quickstart",
+      "title": "Quick start",
+      "file": "01-quickstart.md",
+      "summary": "Create, import, write and keep a backup",
+      "group": "Getting started"
+    },
+    {
+      "id": "05-writing",
+      "title": "Writing and review",
+      "file": "05-writing.md",
+      "summary": "Chapters, characters, proofreading and rewrites",
+      "group": "Writing"
+    },
+    {
+      "id": "03-worldbook",
+      "title": "Story bible and characters",
+      "file": "03-worldbook.md",
+      "summary": "Organize character profiles and worldbuilding",
+      "group": "Writing"
+    },
+    {
+      "id": "04-materials",
+      "title": "References",
+      "file": "04-materials.md",
+      "summary": "Collect and organize writing material",
+      "group": "Writing",
+      "chineseOnly": true
+    },
+    {
+      "id": "07-settings",
+      "title": "Settings and backups",
+      "file": "07-settings.md",
+      "summary": "Languages, models, saving and restoring",
+      "group": "Help"
+    },
+    {
+      "id": "08-faq",
+      "title": "Troubleshooting",
+      "file": "08-faq.md",
+      "summary": "Storage, restore and model connection issues",
+      "group": "Help"
+    },
+    {
+      "id": "02-experience",
+      "title": "Roleplay",
+      "file": "02-experience.md",
+      "summary": "Character actions, turns and sessions",
+      "group": "Experiments",
+      "chineseOnly": true
+    },
+    {
+      "id": "06-storyboard",
+      "title": "Video and directing",
+      "file": "06-storyboard.md",
+      "summary": "Storyboards and video generation",
+      "group": "Experiments",
+      "chineseOnly": true
+    },
+    {
+      "id": "09-comics",
+      "title": "Comics",
+      "file": "09-comics.md",
+      "summary": "Comic creation tools",
+      "group": "Experiments",
+      "chineseOnly": true
+    }
+  ]
+}

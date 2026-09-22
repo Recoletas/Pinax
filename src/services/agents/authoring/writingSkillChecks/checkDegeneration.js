@@ -21,7 +21,7 @@ const ADJACENT_MIN_LEN = 8;
 const PLACEHOLDER_PATTERNS = [
   { re: /作为(一个)?(AI|人工智能|大?语言模型|智能助手|聊天助手)(?:语言模型|大?模型|助手|机器人)?(?=[，,。、；;：:！!？?\s）)」』"】]|我|无法|不能|没法|$)/, label: '元信息泄漏（AI 自指）', hard: false },
   { re: /�/, label: '乱码（替换字符 �）', hard: true },
-  { re: /^(Sure|Certainly|Here'?s|As an AI|I (?:cannot|can't|am unable|apologize))/, label: '元信息泄漏（英文 AI 腔）', hard: true },
+  { re: /^(?:Sure|Certainly)[,!:]?[ \t]+(?:here(?:'s| is| are)|I (?:can|will))\b|^(?:As an AI|I (?:cannot|can't|am unable|apologize))\b/, label: '元信息泄漏（英文 AI 腔）', hard: true },
   { re: /[（(](此处|以下|这里|下文|后续)?\s*(省略|略)(去|过)?[^）)]{0,10}[）)]/, label: '占位符（括号省略）', hard: true },
   { re: /(未完待续|TODO|占位符|placeholder)/, label: '占位符', hard: true },
   { re: /我(无法|不能)(继续(写|创作|生成|下去)|生成(内容|文本|正文)?|创作|续写|完成(这个|本)?(章|篇|创作|请求))/, label: '元信息泄漏（生成拒绝语）', hard: false },
@@ -261,7 +261,7 @@ function findTruncation(content) {
   const body = content.filter((c) => isContent(c.trimmed));
   if (body.length === 0) return [];
   const last = body[body.length - 1];
-  if (/[。！？!?…”"』」）)】]$/.test(last.trimmed)) return [];
+  if (/[。！？.!?…”’'"』」）)】]$/.test(last.trimmed)) return [];
   const indent = leadingWhitespaceLength(last.text);
   const tailStart = Math.max(indent, last.text.length - 24);
   return [{

@@ -1,10 +1,10 @@
 <template>
   <div class="settings-workspace">
-    <section v-if="sourceDocuments.length" class="source-rail" aria-label="来源资料">
+    <section v-if="sourceDocuments.length" class="source-rail" :aria-label="tr('来源资料')">
       <div class="source-rail__lead">
-        <span class="source-rail__mark">来源</span>
-        <strong>{{ sourceDocuments.length }} 份资料</strong>
-        <small>{{ sourceCharacterCount.toLocaleString('zh-CN') }} 字 · 生成时按分区筛选</small>
+        <span class="source-rail__mark">{{ tr('来源') }}</span>
+        <strong :aria-label="tr('{count} 份资料', { count: sourceDocuments.length })">{{ sourceDocuments.length }}</strong>
+        <small>{{ tr('{count} 字 · 生成时按分区筛选', { count: formatUiNumber(sourceCharacterCount) }) }}</small>
       </div>
       <div class="source-rail__items" role="list">
         <button
@@ -18,16 +18,16 @@
         >
           <span class="source-chip__kind">{{ sourceKindLabel(document.sourceLabel) }}</span>
           <span class="source-chip__title">{{ document.title }}</span>
-          <span v-if="document.truncated" class="source-chip__mark">截取</span>
+          <span v-if="document.truncated" class="source-chip__mark">{{ tr('截取') }}</span>
         </button>
       </div>
       <div v-if="activeSource" class="source-preview">
         <div class="source-preview__head">
           <div>
             <strong>{{ activeSource.title }}</strong>
-            <span>{{ activeSource.sourceLabel || '导入资料' }} · {{ sourceLength(activeSource).toLocaleString('zh-CN') }} 字{{ activeSource.truncated ? ' · 当前为预览' : '' }}</span>
+            <span>{{ tr(activeSource.sourceLabel || '导入资料') }} · {{ tr('{count} 字', { count: formatUiNumber(sourceLength(activeSource)) }) }}{{ activeSource.truncated ? tr(' · 当前为预览') : '' }}</span>
           </div>
-          <button type="button" class="source-preview__close" aria-label="关闭资料预览" title="关闭资料预览" @click="activeSourceId = ''">×</button>
+          <button type="button" class="source-preview__close" :aria-label="tr('关闭资料预览')" :title="tr('关闭资料预览')" @click="activeSourceId = ''">×</button>
         </div>
         <pre>{{ sourcePreview(activeSource) }}</pre>
       </div>
@@ -38,7 +38,7 @@
       :worldbook="worldbook"
     />
     <div v-else class="empty-state">
-      <p>请选择一个世界书开始编辑结构化设定</p>
+      <p>{{ tr('请选择一个世界书开始编辑结构化设定') }}</p>
     </div>
 
     <SettingKeyboardHints :open="hintsOpen" @close="hintsOpen = false" />
@@ -47,6 +47,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { tr, formatUiNumber } from '../../i18n/index.js'
 import { useSettingKeyboardShortcuts } from '../../composables/useSettingKeyboardShortcuts'
 import StructuredSettingsPanel from './StructuredSettingsPanel.vue'
 import SettingKeyboardHints from './SettingKeyboardHints.vue'
@@ -92,8 +93,8 @@ function sourceKindLabel(label) {
   const value = String(label || '').toLowerCase()
   if (value.includes('pdf')) return 'PDF'
   if (value.includes('doc')) return 'DOC'
-  if (value.includes('粘贴')) return '文本'
-  return '资料'
+  if (value.includes('粘贴') || value.includes('paste')) return tr('文本')
+  return tr('资料')
 }
 </script>
 
@@ -221,6 +222,7 @@ function sourceKindLabel(label) {
 
 .source-preview__head > div {
   display: grid;
+  min-width: 0;
   gap: 2px;
 }
 
@@ -233,6 +235,10 @@ function sourceKindLabel(label) {
   color: var(--text-muted);
   font-size: 10px;
 }
+
+.source-rail__lead:lang(en) { min-width: 0; max-width: 260px; }
+.source-rail__mark:lang(en) { writing-mode: horizontal-tb; letter-spacing: 0; grid-row: auto; }
+.source-rail__lead:lang(en) small { grid-column: 1 / -1; line-height: 1.5; }
 
 .source-preview__close {
   width: 24px;

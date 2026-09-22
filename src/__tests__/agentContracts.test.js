@@ -3437,6 +3437,16 @@ describe('agentContracts', function () {
         options: reviewProviderPayload.options
       }
     )
+    var englishPolicy = { manuscriptLanguage: 'en', assistantLanguage: 'zh-CN', outputLanguage: 'en' }
+    var englishPrompt = buildOpenClawUserMessage(reviewProviderPayload.envelope, reviewProviderPayload.question, {
+      taskType: reviewProviderPayload.taskType,
+      target: reviewProviderPayload.target,
+      options: { ...reviewProviderPayload.options, languagePolicy: englishPolicy }
+    })
+    expect(englishPrompt).toContain('explanations, answer, reason and rationale must use Simplified Chinese')
+    expect(englishPrompt).toContain('Replacement and new manuscript text use English')
+    expect(englishPrompt).not.toContain('规范中文引号必须保持')
+    expect(englishPrompt).toContain('Copy exact/quote and names verbatim')
     expect(reviewProviderPrompt).toContain('worldbook-entry:review-edgar')
     expect(reviewProviderPrompt).toContain('AUTHORIZED WORLDBOOK REVIEW EVIDENCE')
     expect(reviewProviderPrompt.match(/AUTHORIZED WORLDBOOK REVIEW EVIDENCE/g)).toHaveLength(1)

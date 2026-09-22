@@ -1,16 +1,16 @@
 <template>
-  <section class="authoring-knowledge" aria-label="作品资料助手">
+  <section class="authoring-knowledge" :aria-label="tr('作品资料助手')">
     <header class="authoring-knowledge__toolbar">
       <div class="authoring-knowledge__model">
-        <strong>{{ projectTitle || '未命名作品' }}</strong>
-        <small>基于本书资料回答</small>
+        <strong>{{ projectTitle || tr('未命名作品') }}</strong>
+        <small>{{ tr('基于本书资料回答') }}</small>
       </div>
       <div class="authoring-knowledge__toolbar-actions">
-        <button v-if="reviewWorkflow" type="button" :aria-pressed="reviewOpen" aria-label="目标审稿" title="目标审稿" @click="openReview"><WorkbenchIcon name="guide" :size="18" /></button>
-        <button type="button" class="control-icon" :class="{ active: searchOpen }" :aria-pressed="searchOpen" aria-label="搜索当前问答" title="搜索当前问答" @click="toggleSearch">
+        <button v-if="reviewWorkflow" type="button" :aria-pressed="reviewOpen" :aria-label="tr('目标审稿')" :title="tr('目标审稿')" @click="openReview"><WorkbenchIcon name="guide" :size="18" /></button>
+        <button type="button" class="control-icon" :class="{ active: searchOpen }" :aria-pressed="searchOpen" :aria-label="tr('搜索当前问答')" :title="tr('搜索当前问答')" @click="toggleSearch">
           <WorkbenchIcon name="search" :size="18" />
         </button>
-        <button type="button" class="control-icon" :class="{ active: historyOpen }" :aria-pressed="historyOpen" aria-label="查看问答历史" title="查看问答历史" @click="historyOpen = !historyOpen">
+        <button type="button" class="control-icon" :class="{ active: historyOpen }" :aria-pressed="historyOpen" :aria-label="tr('查看问答历史')" :title="tr('查看问答历史')" @click="historyOpen = !historyOpen">
           <WorkbenchIcon name="undo-extension" :size="18" />
         </button>
       </div>
@@ -19,48 +19,48 @@
     <template v-else>
     <div v-if="searchOpen" class="authoring-knowledge__search">
       <WorkbenchIcon name="search" :size="15" />
-      <input ref="searchInputRef" v-model="searchTerm" type="search" placeholder="搜索问题或回答" aria-label="搜索问题或回答" />
-      <button type="button" aria-label="关闭搜索" @click="closeSearch">×</button>
+      <input ref="searchInputRef" v-model="searchTerm" type="search" :placeholder="tr('搜索问题或回答')" :aria-label="tr('搜索问题或回答')" />
+      <button type="button" :aria-label="tr('关闭搜索')" @click="closeSearch">×</button>
     </div>
 
-    <div v-if="historyOpen" class="authoring-knowledge__history" aria-label="当前问答历史">
-      <div><strong>当前会话</strong><button v-if="messages.length" type="button" @click="$emit('clear')">清空</button></div>
+    <div v-if="historyOpen" class="authoring-knowledge__history" :aria-label="tr('当前问答历史')">
+      <div><strong>{{ tr('当前会话') }}</strong><button v-if="messages.length" type="button" @click="$emit('clear')">{{ tr('清空') }}</button></div>
       <button v-for="question in historyQuestions" :key="question.id" type="button" @click="reuseQuestion(question.question)">
         {{ question.question }}
       </button>
-      <p v-if="!historyQuestions.length">还没有提问记录</p>
+      <p v-if="!historyQuestions.length">{{ tr('还没有提问记录') }}</p>
     </div>
 
     <div ref="threadRef" class="authoring-knowledge__thread" aria-live="polite">
       <div v-if="!messages.length" class="authoring-knowledge__welcome">
-        <h3>一起梳理这个故事</h3>
-        <p>查设定、找伏笔，或讨论下一步。</p>
-        <details class="authoring-knowledge__suggestions" aria-label="提问建议">
-          <summary>提问示例</summary>
+        <h3>{{ tr('一起梳理这个故事') }}</h3>
+        <p>{{ tr('查设定、找伏笔，或讨论下一步。') }}</p>
+        <details class="authoring-knowledge__suggestions" :aria-label="tr('提问建议')">
+          <summary>{{ tr('提问示例') }}</summary>
           <button v-for="task in suggestedTasks" :key="task.id" type="button" @click="chooseSuggestion(task)">
-            <span>{{ task.suggestion }}</span><span aria-hidden="true">›</span>
+            <span>{{ tr(task.suggestion) }}</span><span aria-hidden="true">›</span>
           </button>
         </details>
       </div>
 
       <template v-for="message in visibleMessages" :key="message.id">
         <div v-if="message.role === 'user'" class="authoring-knowledge__question">
-          <small>{{ intentLabel(message.intent) }}</small>
+          <small>{{ tr(intentLabel(message.intent)) }}</small>
           <p>{{ message.question }}</p>
         </div>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
             <span :class="message.answer.answerKind === 'free-advice' ? 'is-free' : 'is-grounded'">
-              {{ message.answer.answerKind === 'free-advice' ? '自由建议' : '依据作品资料' }}
+              {{ message.answer.answerKind === 'free-advice' ? tr('自由建议') : tr('依据作品资料') }}
             </span>
             <time>{{ formatTime(message.answer.createdAt) }}</time>
           </div>
           <p v-if="message.answer.stale" class="authoring-knowledge__stale" role="status">
-            资料已更新，这份回答保留供回看；请重新查询后再据此继续创作。
+            {{ tr('资料已更新，这份回答保留供回看；请重新查询后再据此继续创作。') }}
           </p>
           <p class="authoring-knowledge__answer-text">{{ message.answer.answer }}</p>
 
-          <section v-if="message.answer.calculations.length" class="authoring-knowledge__calculations" aria-label="计算过程">
+          <section v-if="message.answer.calculations.length" class="authoring-knowledge__calculations" :aria-label="tr('计算过程')">
             <div v-for="calculation in message.answer.calculations" :key="calculation.label">
               <strong>{{ calculation.label }}</strong>
               <p>{{ calculation.inputs.map(formatCalculationInput).join('；') }}</p>
@@ -73,59 +73,60 @@
           </ul>
 
           <details v-if="message.answer.evidence.length" class="authoring-knowledge__evidence">
-            <summary>查看依据 <span>{{ message.answer.evidence.length }}</span></summary>
+            <summary>{{ tr('查看依据') }}<span>{{ message.answer.evidence.length }}</span></summary>
             <div class="authoring-knowledge__evidence-list">
               <button v-for="evidence in message.answer.evidence" :key="evidence.sourceRef" type="button"
                 :class="{ 'is-stale': staleSource(message.answer, evidence.sourceRef) }"
                 @click="onEvidenceClick(evidence)">
-                <span><strong>{{ evidence.label }}</strong><small>{{ authorityLabel(evidence.authority) }}</small></span>
+                <span><strong>{{ evidence.label }}</strong><small>{{ tr(authorityLabel(evidence.authority)) }}</small></span>
                 <span class="authoring-knowledge__evidence-excerpt">{{ evidence.excerpt }}</span>
-                <span class="authoring-knowledge__evidence-open">回到原文 <span aria-hidden="true">→</span></span>
+                <span class="authoring-knowledge__evidence-open">{{ tr('回到原文') }}<span aria-hidden="true">→</span></span>
               </button>
             </div>
           </details>
         </article>
       </template>
 
-      <p v-if="messages.length && !visibleMessages.length" class="authoring-knowledge__no-results">没有找到相关问答</p>
+      <p v-if="messages.length && !visibleMessages.length" class="authoring-knowledge__no-results">{{ tr('没有找到相关问答') }}</p>
 
       <div v-if="busy" class="authoring-knowledge__thinking" role="status">
         <span aria-hidden="true"></span>正在核对项目资料…
       </div>
       <button v-if="notice?.text" type="button" class="authoring-knowledge__notice" @click="$emit('review-notice')">
-        <span>{{ notice.text }}</span><small v-if="notice.reviewable">查看</small>
+        <span>{{ notice.text }}</span><small v-if="notice.reviewable">{{ tr('查看') }}</small>
       </button>
       <div v-if="error" class="authoring-knowledge__error" role="alert">
-        <span>{{ error }}</span><button type="button" @click="$emit('retry')">重试</button>
+        <span>{{ error }}</span><button type="button" @click="$emit('retry')">{{ tr('重试') }}</button>
       </div>
     </div>
 
     <footer class="authoring-knowledge__composer">
-      <div class="authoring-knowledge__primary-tools" role="group" aria-label="妙笔工具">
-        <button type="button" class="active">问答</button>
-        <button v-if="reviewWorkflow" type="button" @click="openReview">审稿</button>
-        <button type="button" @click="chooseTask(primaryTasks[0])">提取</button>
-        <button type="button" @click="$emit('open-illustrator')">生图</button>
+      <div class="authoring-knowledge__primary-tools" role="group" :aria-label="tr('妙笔工具')">
+        <button type="button" class="active">{{ tr('问答') }}</button>
+        <button v-if="reviewWorkflow" type="button" @click="openReview">{{ tr('审稿') }}</button>
+        <button type="button" @click="chooseTask(primaryTasks[0])">{{ tr('提取') }}</button>
+        <button type="button" @click="$emit('open-illustrator')">{{ tr('生图') }}</button>
       </div>
-      <div class="authoring-knowledge__tasks" aria-label="问答范围">
-        <select aria-label="问答范围" :value="selectedIntent" @change="chooseTask(allTasks.find(task => task.id === $event.target.value))">
-          <option v-for="task in allTasks" :key="task.id" :value="task.id">{{ task.label }}</option>
+      <div class="authoring-knowledge__tasks" :aria-label="tr('问答范围')">
+        <select :aria-label="tr('问答范围')" :value="selectedIntent" @change="chooseTask(allTasks.find(task => task.id === $event.target.value))">
+          <option v-for="task in allTasks" :key="task.id" :value="task.id">{{ tr(task.label) }}</option>
         </select>
       </div>
       <div class="authoring-knowledge__input-row">
-        <textarea :value="draft" rows="2" :placeholder="placeholder" aria-label="向助手提问"
+        <textarea :value="draft" rows="2" :placeholder="tr(placeholder)" :aria-label="tr('向助手提问')"
           @input="$emit('update:draft', $event.target.value)" @compositionstart="composing = true"
           @compositionend="composing = false" @keydown.enter="submitOnEnter"></textarea>
-        <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" aria-label="停止查询" @click="$emit('cancel')">■</button>
-        <button v-else type="button" class="authoring-knowledge__send" aria-label="发送问题" :disabled="!draft.trim()" @click="submit">↑</button>
+        <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" @click="$emit('cancel')">■</button>
+        <button v-else type="button" class="authoring-knowledge__send" :aria-label="tr('发送问题')" :disabled="!draft.trim()" @click="submit">↑</button>
       </div>
-      <small>项目问答会附原文依据；自由建议不会冒充作品事实。</small>
+      <small>{{ tr('项目问答会附原文依据；自由建议不会冒充作品事实。') }}</small>
     </footer>
     </template>
   </section>
 </template>
 
 <script setup>
+import { tr, uiLocale } from '../../i18n/index.js'
 import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
@@ -201,7 +202,7 @@ function authorityLabel(authority) {
 
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function staleSource(answer, sourceRef) {
@@ -223,7 +224,7 @@ function chooseTask(task) {
 
 function chooseSuggestion(task) {
   emit('select-intent', task.id)
-  emit('update:draft', task.suggestion)
+  emit('update:draft', tr(task.suggestion))
   nextTick(() => document.querySelector('.authoring-knowledge__composer textarea')?.focus({ preventScroll: true }))
 }
 

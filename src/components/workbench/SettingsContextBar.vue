@@ -1,29 +1,29 @@
 <template>
   <header class="settings-context-bar" data-test="settings-context-bar" :data-worldbook-id="selectedId" :data-worldbook-name="activeWorldbook?.name || ''" :data-project-locked="projectLocked">
     <div class="context-main">
-      <span class="context-kicker">{{ projectLocked ? (projectIdentity ? '当前作品' : '关联资料') : '世界书' }}</span>
-      <strong v-if="projectLocked && projectIdentity" class="context-project-name" :title="projectLabel">{{ projectLabel || '当前作品' }}</strong>
+      <span class="context-kicker">{{ tr(projectLocked ? (projectIdentity ? '当前作品' : '关联资料') : '世界书') }}</span>
+      <strong v-if="projectLocked && projectIdentity" class="context-project-name" :title="projectLabel">{{ projectLabel || tr('当前作品') }}</strong>
       <select
         v-else-if="worldbooksIndex.length"
         class="context-worldbook-select"
         :value="selectedId"
         :disabled="disabled || projectLocked"
-        :aria-label="projectLocked ? '当前书稿关联的世界书（回工作台更换关联）' : '选择当前世界书'"
-        :title="projectLocked ? '世界书由《' + projectLabel + '》的关联决定；回工作台可更换关联' : ''"
+        :aria-label="tr(projectLocked ? '当前书稿关联的世界书（回工作台更换关联）' : '选择当前世界书')"
+        :title="projectLocked ? tr('世界书由《{book}》的关联决定；回工作台可更换关联', { book: projectLabel }) : ''"
         @change="onChange"
       >
         <option v-for="worldbook in worldbooksIndex" :key="worldbook.id" :value="worldbook.id">
           {{ worldbook.name }}
         </option>
       </select>
-      <strong v-else class="context-worldbook-empty">{{ activeWorldbook?.name || emptyLabel }}</strong>
-      <span v-if="routeMismatchNotice" class="context-mismatch" role="status">{{ routeMismatchNotice }}</span>
+      <strong v-else class="context-worldbook-empty">{{ activeWorldbook?.name || tr(emptyLabel) }}</strong>
+      <span v-if="routeMismatchNotice" class="context-mismatch" role="status" :title="tr(routeMismatchNotice)">{{ tr(routeMismatchNotice) }}</span>
     </div>
 
-    <div v-if="showMeta" class="context-meta" aria-label="设定页信息">
+    <div v-if="showMeta" class="context-meta" :aria-label="tr('设定页信息')">
       <span class="context-meta-item"><i aria-hidden="true"></i>{{ metaLabel }}</span>
       <span class="context-meta-divider" aria-hidden="true"></span>
-      <span class="context-meta-item">{{ saveLabel }}</span>
+      <span class="context-meta-item">{{ tr(saveLabel) }}</span>
     </div>
 
     <slot name="actions" />
@@ -32,6 +32,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { tr } from '../../i18n/index.js'
 
 const props = defineProps({
   worldbooksIndex: { type: Array, default: () => [] },
@@ -52,7 +53,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'change'])
 
 const selectedId = computed(() => String(props.modelValue || props.activeWorldbook?.id || ''))
-const metaLabel = computed(() => props.metaLabel || `${props.worldbooksIndex.length} 本世界书`)
+const metaLabel = computed(() => props.metaLabel || tr('世界书 {count} 本', { count: props.worldbooksIndex.length }))
 
 function onChange(event) {
   const value = event.target.value

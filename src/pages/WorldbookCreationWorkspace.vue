@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { tr, formatUiNumber } from '../i18n'
 import SettingsSectionNav from '../components/workbench/SettingsSectionNav.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { useWorldStore } from '../stores/worldStore'
@@ -65,8 +66,8 @@ const projectReturnRoute = computed(() => projectBookId.value && route.query.mod
 const projectBindingLabel = computed(() => {
   const context = bookContext.value
   if (!context?.ok) return ''
-  if (context.mode === 'project') return `本书资料库：${context.book.title || '未命名书稿'}（已关联）`
-  return `本书资料库：${context.book.title || '未命名书稿'}（尚未关联，确认时将自动建立并关联）`
+  if (context.mode === 'project') return tr('本书资料库：{title}（已关联）', { title: context.book.title || tr('未命名书稿') })
+  return tr('本书资料库：{title}（确认时建立并关联）', { title: context.book.title || tr('未命名书稿') })
 })
 // 已绑定书时 JSON/基调确认为"新建为独立世界书"，是否更换本书关联是显式选择。
 const rebindAfterCreate = ref(false)
@@ -151,24 +152,66 @@ const selectedCharacterCount = computed(() => sourceQueue.value
 const previewSource = computed(() => sourceQueue.value.find((item) => item.id === previewSourceId.value) || null)
 const canGenerate = computed(() => Boolean(brief.value.trim()) || selectedSourceCount.value > 0)
 const generationState = computed(() => workspace.generationState || 'idle')
-const generationLabel = computed(() => getCreationGenerationLabel(generationState.value))
+const generationLabel = computed(() => tr(getCreationGenerationLabel(generationState.value)))
 const generationMessage = computed(() => workspace.generationMessage || '')
 const statusLabel = computed(() => {
   if (['preparing', 'generating', 'validating', 'partial', 'error', 'cancelled', 'stale'].includes(generationState.value)) {
     return generationLabel.value
   }
-  if (pendingPayload.value || jsonPreview.value) return '待确认'
-  if (readySourceCount.value) return `${readySourceCount.value} 份资料已暂存`
+  if (pendingPayload.value || jsonPreview.value) return tr('待确认')
+  if (readySourceCount.value) return tr('{count} 份资料已暂存', { count: readySourceCount.value })
   if (generationState.value === 'ready') return generationLabel.value
-  return '空工作区'
+  return tr('空工作区')
 })
 const archiveUsageLabel = computed(() => {
   const bytes = Number(archiveUsage.value?.usedBytes || 0)
   const limit = Number(archiveUsage.value?.limitBytes || 0)
-  if (!limit) return '归档空间读取中'
+  if (!limit) return tr('归档空间读取中')
   return `${(bytes / 1024 / 1024).toFixed(1)} / ${(limit / 1024 / 1024).toFixed(0)} MB`
 })
 const archiveUsageWarning = computed(() => Number(archiveUsage.value?.usedBytes || 0) >= Number(archiveUsage.value?.warningBytes || Infinity))
+
+// Workspace notices are persisted by the import owner. Localize only their
+// presentation, leaving stored messages and error classification unchanged.
+const NOTICE_PATTERNS = [
+  [/^暂不支持导入 (?<title>.+)。$/s, '暂不支持导入 {title}。'],
+  [/^(?<title>.+)超过 (?<size>\d+)MB 限制。$/s, '{title} 超过 {size} MB 限制。'],
+  [/^(?<title>.+)读取超过 (?<seconds>\d+) 秒，已停止本次解析。$/s, '{title} 读取超过 {seconds} 秒，已停止。'],
+  [/^(?<title>.+)没有可提取的文字。$/s, '{title} 没有可提取的文字。'],
+  [/^(?<title>.+) 受密码保护，暂时无法读取。请先解除密码后重试。$/s, '{title} 受密码保护，请解除密码后重试。'],
+  [/^(?<title>.+) 无法解析，(?:文件)?可能已损坏或格式不受支持。$/s, '{title} 无法解析，可能已损坏或格式不受支持。'],
+  [/^准备读取 (?<count>\d+) 份资料。$/, '准备读取 {count} 份资料。'],
+  [/^正在读取资料（(?<done>\d+)\/(?<total>\d+)）$/, '正在读取资料（{done}/{total}）'],
+  [/^(?<ready>\d+) 份资料已暂存，(?<failed>\d+) 份失败；可移除失败项后继续。$/, '{ready} 份已暂存，{failed} 份失败；移除失败项后可继续。'],
+  [/^(?<count>\d+) 份资料已完成本地提取。$/, '{count} 份资料已完成本地提取。'],
+  [/^(?<count>\d+) 份资料已完成本地提取，其中 (?<temporary>\d+) 份暂存于本页。$/, '{count} 份已提取，{temporary} 份仅保留在本页。'],
+  [/^(?<count>\d+) 份资料仍可用；本次读取失败的资料已保留错误状态。$/, '{count} 份资料仍可用；失败项已保留，可重试。'],
+  [/^(?<title>.+) 与已有资料正文相同，已跳过重复保存。$/s, '{title} 与已有资料相同，已跳过重复保存。'],
+  [/^(?<title>.+) 已复用已有本地归档。$/s, '{title} 已复用本地归档。'],
+  [/^已导出 (?<title>.+) 的文字内容。$/s, '已导出 {title} 的文字内容。'],
+  [/^已清理 (?<count>\d+) 份未引用资料归档，释放 (?<size>[\d.]+) MB。$/, '已清理 {count} 份未引用资料，释放 {size} MB。'],
+  [/^已加入本书资料库：新增 (?<added>\d+) 份。$/, '已加入本书：新增 {added} 份资料。'],
+  [/^已加入本书资料库：新增 (?<added>\d+) 份，跳过重复 (?<skipped>\d+) 份。$/, '已加入本书：新增 {added} 份，跳过重复 {skipped} 份。'],
+  [/^资料库准备失败（(?<reason>.+)）$/s, '资料库准备失败：{reason}'],
+  [/^资料写入失败（(?<reason>.+)）；已选资料保留在本页，可重试。$/s, '资料写入失败：{reason}。已选资料保留在本页，可重试。'],
+  [/^暂存片段失败：(?<reason>.+)$/s, '暂存片段失败：{reason}'],
+  [/^JSON 预览失败：(?<reason>.+)$/s, 'JSON 预览失败：{reason}'],
+  [/^导入失败：(?<reason>.+)$/s, '导入失败：{reason}'],
+  [/^创建失败：(?<reason>.+)$/s, '创建失败：{reason}'],
+  [/^并入同名世界书失败（(?<reason>.+)）$/s, '并入同名世界书失败：{reason}'],
+  [/^世界书已更新，但关联本书失败（(?<reason>.+)）；可稍后手动关联。$/s, '世界书已更新，但关联失败：{reason}。可稍后手动关联。'],
+  [/^世界书已建立，但关联本书失败（(?<reason>.+)）；可稍后在写作页右栏手动关联。$/s, '世界书已建立，但关联失败：{reason}。可在工作台右栏手动关联。'],
+  [/^更换本书关联失败（(?<reason>.+)）。$/s, '更换本书关联失败：{reason}'],
+  [/^更换本书关联失败（(?<reason>.+)）；新世界书保持独立，本书仍关联原资料库。$/s, '更换关联失败：{reason}。新世界书保持独立，原关联不变。'],
+  [/^资料写入资料库失败（(?<reason>.+)）$/s, '资料写入失败：{reason}']
+]
+function displayNotice(message = '') {
+  for (const [pattern, key] of NOTICE_PATTERNS) {
+    const match = String(message).match(pattern)
+    if (match) return tr(key, { ...match.groups, ...(match.groups.reason ? { reason: displayNotice(match.groups.reason) } : {}) })
+  }
+  return tr(message)
+}
 
 function setGenerationState(state, options = {}) {
   const nextState = state || 'idle'
@@ -290,7 +333,8 @@ function sourceKindMark(kind) {
 }
 
 function sourceStatusLabel(status) {
-  return { ready: '已暂存', 'memory-only': '仅本页', processing: '读取中', error: '失败', 'needs-ocr': '需 OCR' }[status] || status
+  const label = { ready: '已暂存', 'memory-only': '仅本页', processing: '读取中', error: '失败', 'needs-ocr': '需 OCR' }[status]
+  return label ? tr(label) : status
 }
 
 function normalizeQueueItem(result) {
@@ -1011,19 +1055,18 @@ onBeforeUnmount(() => {
     <SettingsSectionNav />
 
     <header class="creation-header">
-      <button type="button" class="creation-back" aria-label="返回世界书" title="返回世界书" @click="goBack">
+      <button type="button" class="creation-back" :aria-label="tr(&quot;返回世界书&quot;)" :title="tr(&quot;返回世界书&quot;)" @click="goBack">
         <span aria-hidden="true">‹</span>
-        <span>返回世界书</span>
+        <span>{{ tr("返回世界书") }}</span>
       </button>
       <div>
-        <span class="creation-kicker">WORLD BOOK / CREATE</span>
-        <h1>{{ bookContext?.ok ? '本书资料导入' : '建立一册世界书' }}</h1>
-        <p>先收集资料，再建立基础基调。正式条目会在后续设定工作台中逐项审阅。</p>
+        <h1>{{ bookContext?.ok ? tr("本书资料导入") : tr("建立一册世界书") }}</h1>
+        <p>{{ tr("添加资料后可直接回书稿；需要时再用 AI 建立基调。") }}</p>
         <p v-if="projectBindingLabel" class="creation-binding" data-test="creation-binding-label">{{ projectBindingLabel }}</p>
       </div>
       <div class="creation-state" :class="`is-${generationState}`" aria-live="polite">
         <strong>{{ statusLabel }}</strong>
-        <small v-if="generationMessage">{{ generationMessage }}</small>
+        <small v-if="generationMessage">{{ displayNotice(generationMessage) }}</small>
       </div>
     </header>
 
@@ -1032,8 +1075,8 @@ onBeforeUnmount(() => {
         <div class="section-heading">
           <span class="section-mark" aria-hidden="true"><WorkbenchIcon name="archive" :size="17" /></span>
           <div>
-            <h2 id="source-title">资料</h2>
-            <p>支持多份 TXT、Markdown、PDF、DOCX，也可以直接粘贴片段。</p>
+            <h2 id="source-title">{{ tr("资料") }}</h2>
+            <p>{{ tr("支持多份 TXT、Markdown、PDF、DOCX，也可以直接粘贴片段。") }}</p>
           </div>
         </div>
 
@@ -1050,33 +1093,33 @@ onBeforeUnmount(() => {
             class="visually-hidden"
             type="file"
             multiple
-            aria-label="导入多文件资料"
+            :aria-label="tr(&quot;导入多文件资料&quot;)"
             accept=".txt,.text,.md,.markdown,.pdf,.docx, text/plain, text/markdown, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             @change="onFileChange"
           />
           <span class="dropzone-mark" aria-hidden="true">＋</span>
-          <strong>拖入资料，或选择多个文件</strong>
-          <small>文件在本地提取文字；扫描 PDF 会标记为需要 OCR。</small>
-          <button type="button" class="text-action" @click="openFilePicker">选择文件</button>
-          <button v-if="busy && workspace.generationAction === 'sources'" type="button" class="quiet-action" @click="cancelActiveTask">停止读取</button>
+          <strong>{{ tr("拖入资料，或选择多个文件") }}</strong>
+          <small>{{ tr("文件在本地提取文字；扫描 PDF 会标记为需要 OCR。") }}</small>
+          <button type="button" class="text-action" @click="openFilePicker">{{ tr("选择文件") }}</button>
+          <button v-if="busy && workspace.generationAction === 'sources'" type="button" class="quiet-action" @click="cancelActiveTask">{{ tr("停止读取") }}</button>
         </div>
 
         <div class="paste-row">
           <textarea
             v-model="pastedText"
             rows="3"
-            placeholder="也可以把正文、章节摘要或设定片段粘贴到这里……"
-           aria-label="粘贴资料文本"></textarea>
+            :placeholder="tr(&quot;也可以把正文、章节摘要或设定片段粘贴到这里……&quot;)"
+           :aria-label="tr(&quot;粘贴资料文本&quot;)"></textarea>
           <button type="button" class="quiet-action" :disabled="!pastedText.trim() || busy" @click="addPastedSource">
-            暂存片段
+            {{ tr("暂存片段") }}
           </button>
         </div>
 
-        <div v-if="sourceQueue.length" class="source-queue" aria-label="已添加资料">
+        <div v-if="sourceQueue.length" class="source-queue" :aria-label="tr(&quot;已添加资料&quot;)">
           <div class="source-queue__head">
-            <span>{{ selectedSourceCount }} 份参与基调 · {{ selectedCharacterCount.toLocaleString('zh-CN') }} 字</span>
+            <span>{{ tr('已选 {count} 份 · {chars} 字', { count: selectedSourceCount, chars: formatUiNumber(selectedCharacterCount) }) }}</span>
             <button type="button" class="text-action" @click="toggleAllSources">
-              {{ selectedSourceCount === readySourceCount ? '取消全选' : '全选可用资料' }}
+              {{ selectedSourceCount === readySourceCount ? tr("取消全选") : tr("全选可用资料") }}
             </button>
           </div>
           <div v-if="bookContext?.ok" class="append-sources-line">
@@ -1087,9 +1130,9 @@ onBeforeUnmount(() => {
               :disabled="busy || !selectedSourceCount"
               @click="confirmAppendSources"
             >
-              把选中的 {{ selectedSourceCount }} 份资料加入本书资料库
+              {{ tr('加入本书（{count}）', { count: selectedSourceCount }) }}
             </button>
-            <small>{{ bookContext.mode === 'unbound' ? '确认时建立随书资料库。' : '追加到当前资料库。' }}重复内容自动跳过。</small>
+            <small>{{ bookContext.mode === 'unbound' ? tr("确认时建立随书资料库。") : tr("追加到当前资料库。") }}{{ tr("重复内容自动跳过。") }}</small>
           </div>
           <div v-for="item in sourceQueue" :key="item.id" class="source-row">
             <input
@@ -1097,7 +1140,7 @@ onBeforeUnmount(() => {
               class="source-select"
               type="checkbox"
               :checked="item.selected"
-              :aria-label="`让 ${item.title} 参与基础基调`"
+              :aria-label="tr('选用资料 {title}', { title: item.title })"
               @change="toggleSource(item.id)"
             />
             <span v-else class="source-select-placeholder" aria-hidden="true"></span>
@@ -1107,77 +1150,77 @@ onBeforeUnmount(() => {
                 {{ item.title }}
               </button>
               <button v-if="item.status === 'memory-only'" type="button" class="source-export" @click.stop="exportSourceText(item)">
-                导出文字
+                {{ tr("导出文字") }}
               </button>
-              <small v-if="item.status === 'error'" class="is-error">{{ item.error?.message }}</small>
-              <small v-else-if="item.status === 'needs-ocr'" class="is-warning">可能是扫描件，需要 OCR</small>
-              <small v-else-if="item.status === 'memory-only'" class="is-warning">{{ item.error?.message }}</small>
+              <small v-if="item.status === 'error'" class="is-error">{{ displayNotice(item.error?.message) }}</small>
+              <small v-else-if="item.status === 'needs-ocr'" class="is-warning">{{ tr("可能是扫描件，需要 OCR") }}</small>
+              <small v-else-if="item.status === 'memory-only'" class="is-warning">{{ displayNotice(item.error?.message) }}</small>
               <small v-else-if="item.status === 'processing'" class="is-processing">
-                {{ item.parseStatus === 'error' ? (item.error?.message || '读取失败，正在整理结果……') : `${item.parseProgress}% · 正在读取` }}
+                {{ item.parseStatus === 'error' ? displayNotice(item.error?.message || tr("读取失败，正在整理结果……")) : tr('{progress}% · 正在读取', { progress: item.parseProgress }) }}
               </small>
-              <small v-else>{{ item.charCount.toLocaleString('zh-CN') }} 字 · {{ item.chunkCount }} 个片段</small>
+              <small v-else>{{ tr('{chars} 字 · {chunks} 个片段', { chars: formatUiNumber(item.charCount), chunks: item.chunkCount }) }}</small>
             </div>
             <span class="source-status" :class="`is-${item.status}`">{{ sourceStatusLabel(item.status) }}</span>
-            <button type="button" class="icon-action" :aria-label="`移除 ${item.title}`" @click="removeSource(item.id)">×</button>
+            <button type="button" class="icon-action" :aria-label="tr('移除 {title}', { title: item.title })" @click="removeSource(item.id)">×</button>
           </div>
           <div v-if="previewSource" class="source-preview">
             <div class="source-preview__head">
               <strong>{{ previewSource.title }}</strong>
-              <span>{{ previewSource.charCount.toLocaleString('zh-CN') }} 字 · 本地抽取预览</span>
-              <button type="button" class="text-action" @click="toggleSourcePreview(previewSource.id)">收起</button>
+              <span>{{ tr('{count} 字 · 本地抽取预览', { count: formatUiNumber(previewSource.charCount) }) }}</span>
+              <button type="button" class="text-action" @click="toggleSourcePreview(previewSource.id)">{{ tr("收起") }}</button>
             </div>
             <pre>{{ previewSource.chunks.map((chunk) => chunk.text).join('\n\n') }}</pre>
           </div>
         </div>
-        <p v-else class="source-empty">尚未添加资料。也可以直接从一句构思开始。</p>
+        <p v-else class="source-empty">{{ tr("尚未添加资料。也可以直接从一句构思开始。") }}</p>
 
         <div class="json-import-line">
-          <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" aria-label="导入设定 JSON" @change="onJsonChange" />
-          <button type="button" class="text-action" :disabled="busy" @click="openJsonPicker">导入 SillyTavern / Pinax JSON</button>
-          <span v-if="jsonPreview">已读取：{{ jsonPreview.name }} · {{ jsonPreview.entryCount }} 条目</span>
+          <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" :aria-label="tr(&quot;导入设定 JSON&quot;)" @change="onJsonChange" />
+          <button type="button" class="text-action" :disabled="busy" @click="openJsonPicker">{{ tr("导入 SillyTavern / Pinax JSON") }}</button>
+          <span v-if="jsonPreview">{{ tr('已读取：{name} · {count} 条目', { name: jsonPreview.name, count: jsonPreview.entryCount }) }}</span>
         </div>
 
-        <section v-if="jsonPreview" class="json-preview" aria-label="JSON 结构化预览">
+        <section v-if="jsonPreview" class="json-preview" :aria-label="tr(&quot;JSON 结构化预览&quot;)">
           <div class="json-preview__heading">
             <div>
               <span class="preview-kicker">STRUCTURED IMPORT</span>
               <h3>{{ jsonPreview.name }}</h3>
             </div>
-            <span>{{ jsonPreview.entryCount }} 条目</span>
+            <span>{{ tr('{count} 条目', { count: jsonPreview.entryCount }) }}</span>
           </div>
           <div class="json-preview__stats">
-            <span>{{ jsonPreview.groupCount }} 个分组</span>
-            <span>{{ jsonPreview.keyedEntryCount }} 条有触发词</span>
-            <span v-if="jsonPreview.configuredEntryCount">{{ jsonPreview.configuredEntryCount }} 条含注入参数</span>
+            <span>{{ tr('{count} 个分组', { count: jsonPreview.groupCount }) }}</span>
+            <span>{{ tr('{count} 条有触发词', { count: jsonPreview.keyedEntryCount }) }}</span>
+            <span v-if="jsonPreview.configuredEntryCount">{{ tr('{count} 条含注入参数', { count: jsonPreview.configuredEntryCount }) }}</span>
           </div>
           <div v-if="jsonPreview.typeSummary.length" class="json-preview__types">
-            <span v-for="item in jsonPreview.typeSummary" :key="item.type">{{ item.label }} {{ item.count }}</span>
+            <span v-for="item in jsonPreview.typeSummary" :key="item.type">{{ tr(item.label) }} {{ item.count }}</span>
           </div>
           <ol v-if="jsonPreview.previewEntries.length" class="json-preview__entries">
             <li v-for="entry in jsonPreview.previewEntries" :key="entry.id">
               <div>
                 <strong>{{ entry.name }}</strong>
-                <small>{{ entry.typeLabel }}<template v-if="entry.group"> · {{ entry.group }}</template></small>
+                <small>{{ tr(entry.typeLabel) }}<template v-if="entry.group"> · {{ entry.group }}</template></small>
               </div>
-              <p>{{ entry.content || '未提供正文预览' }}</p>
-              <small v-if="entry.keys.length">触发：{{ entry.keys.join('、') }}</small>
+              <p>{{ entry.content || tr("未提供正文预览") }}</p>
+              <small v-if="entry.keys.length">{{ tr("触发：") }}{{ entry.keys.join('、') }}</small>
             </li>
           </ol>
-          <p v-else class="json-preview__empty">没有识别到可导入条目，无法确认导入。</p>
+          <p v-else class="json-preview__empty">{{ tr("没有识别到可导入条目，无法确认导入。") }}</p>
           <div v-if="jsonNameConflict" class="json-conflict" data-test="json-name-conflict" role="status">
-            <p class="json-conflict-note">已存在同名世界书「{{ jsonNameConflict.name }}」。选择处理方式：</p>
-            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> 新建为独立世界书（默认）</label>
-            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="update" /> 并入同名世界书（按名称+类型逐条：新增/更新/跳过）</label>
+            <p class="json-conflict-note">{{ tr('已存在同名世界书「{name}」。选择处理方式：', { name: jsonNameConflict.name }) }}</p>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> {{ tr("新建为独立世界书（默认）") }}</label>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="update" /> {{ tr("并入同名世界书（按名称+类型逐条：新增/更新/跳过）") }}</label>
           </div>
           <div v-if="jsonPreview.entryCount" class="json-preview__actions">
             <button type="button" class="primary-action" :disabled="busy" @click="confirmJsonImport">
-              {{ jsonImportMode === 'update' && jsonNameConflict ? '并入同名世界书' : jsonConfirmLabel }}
+              {{ tr(jsonImportMode === 'update' && jsonNameConflict ? '并入同名世界书' : jsonConfirmLabel) }}
             </button>
             <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
               <input v-model="rebindAfterCreate" type="checkbox" />
-              新建后更换本书关联
+              {{ tr("新建后更换本书关联") }}
             </label>
-            <span>确认后进入详细设定。</span>
+            <span>{{ tr("确认后进入详细设定。") }}</span>
           </div>
         </section>
       </section>
@@ -1186,25 +1229,25 @@ onBeforeUnmount(() => {
         <div class="section-heading">
           <span class="section-mark" aria-hidden="true"><WorkbenchIcon name="sparkles" :size="17" /></span>
           <div>
-            <h2 id="foundation-title">基础基调</h2>
-            <p>这里只建立世界骨架、文风和一致性边界，不一次生成整本世界书。</p>
+            <h2 id="foundation-title">{{ tr("基础基调") }}</h2>
+            <p>{{ tr("这里只建立世界骨架、文风和一致性边界，不一次生成整本世界书。") }}</p>
           </div>
         </div>
 
         <label class="field-label">
-          世界书名称
-          <input v-model.trim="workspace.name" type="text" placeholder="例如：风雪港调查案" aria-label="作品名" />
+          {{ tr("世界书名称") }}
+          <input v-model.trim="workspace.name" type="text" :placeholder="tr(&quot;例如：风雪港调查案&quot;)" :aria-label="tr(&quot;作品名&quot;)" />
         </label>
         <label class="field-label">
-          一句构思或提炼方向
-          <textarea v-model="brief" rows="6" placeholder="例如：蒸汽港城在每次退潮后会露出一段被抹去的历史……" aria-label="资料简介"></textarea>
+          {{ tr("一句构思或提炼方向") }}
+          <textarea v-model="brief" rows="6" :placeholder="tr(&quot;例如：蒸汽港城在每次退潮后会露出一段被抹去的历史……&quot;)" :aria-label="tr(&quot;资料简介&quot;)"></textarea>
         </label>
 
         <div class="foundation-actions">
           <button type="button" class="primary-action" :disabled="!canGenerate || (busy && !cancelAvailable)" @click="cancelAvailable ? cancelActiveTask() : generateFoundation()">
-            {{ cancelAvailable ? '停止生成' : (busy ? '正在整理……' : '生成基础基调') }}
+            {{ cancelAvailable ? tr("停止生成") : (busy ? tr("正在整理……") : tr("生成基础基调")) }}
           </button>
-          <span>仅发送选中的资料；长文会取开头、中段和结尾代表片段。</span>
+          <span>{{ tr("仅发送选中的资料；长文会取开头、中段和结尾代表片段。") }}</span>
         </div>
 
         <div v-if="pendingPayload" class="foundation-preview" aria-live="polite">
@@ -1213,50 +1256,49 @@ onBeforeUnmount(() => {
               <span class="preview-kicker">DRAFT / FOUNDATION</span>
               <h3>{{ pendingPayload.name }}</h3>
             </div>
-            <span>待确认</span>
+            <span>{{ tr("待确认") }}</span>
           </div>
           <p>{{ pendingPayload.worldDescription }}</p>
           <dl>
-            <div><dt>文风</dt><dd>{{ pendingPayload.writingStyle || '未填写' }}</dd></div>
-            <div><dt>禁写</dt><dd>{{ pendingPayload.forbidden || '未填写' }}</dd></div>
+            <div><dt>{{ tr("文风") }}</dt><dd>{{ pendingPayload.writingStyle || tr("未填写") }}</dd></div>
+            <div><dt>{{ tr("禁写") }}</dt><dd>{{ pendingPayload.forbidden || tr("未填写") }}</dd></div>
           </dl>
           <div class="preview-actions">
             <button type="button" class="primary-action" :disabled="busy" @click="confirmFoundation">
-              {{ foundationConfirmLabel }}
+              {{ tr(foundationConfirmLabel) }}
             </button>
-            <button type="button" class="quiet-action" :disabled="busy" @click="pendingPayload = null">重新生成</button>
+            <button type="button" class="quiet-action" :disabled="busy" @click="pendingPayload = null">{{ tr("重新生成") }}</button>
             <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
               <input v-model="rebindAfterCreate" type="checkbox" />
-              新建后更换本书关联
+              {{ tr("新建后更换本书关联") }}
             </label>
           </div>
         </div>
       </section>
 
-      <aside class="creation-summary" aria-label="创建进度">
-        <span class="summary-kicker">WORKSPACE</span>
-        <h2>{{ workspace.name || '未命名世界书' }}</h2>
+      <aside class="creation-summary" :aria-label="tr(&quot;创建进度&quot;)">
+        <h2>{{ workspace.name || tr("未命名世界书") }}</h2>
         <dl>
-          <div><dt>资料</dt><dd>{{ selectedSourceCount }} / {{ readySourceCount }} 份参与</dd></div>
-          <div><dt>文字</dt><dd>{{ selectedCharacterCount.toLocaleString('zh-CN') }} / {{ sourceCharacterCount.toLocaleString('zh-CN') }} 字</dd></div>
-          <div><dt>状态</dt><dd>{{ statusLabel }}</dd></div>
+          <div><dt>{{ tr("资料") }}</dt><dd>{{ tr('{selected} / {total} 份参与', { selected: selectedSourceCount, total: readySourceCount }) }}</dd></div>
+          <div><dt>{{ tr("文字") }}</dt><dd>{{ tr('{selected} / {total} 字', { selected: formatUiNumber(selectedCharacterCount), total: formatUiNumber(sourceCharacterCount) }) }}</dd></div>
+          <div><dt>{{ tr("状态") }}</dt><dd>{{ statusLabel }}</dd></div>
         </dl>
         <div class="summary-storage" :class="{ 'is-warning': archiveUsageWarning }">
           <div class="summary-storage__line">
-            <span>本地归档</span>
+            <span>{{ tr("本地归档") }}</span>
             <strong>{{ archiveUsageLabel }}</strong>
           </div>
-          <small>只保存抽取文字与定位信息，原始文件不会上传。</small>
+          <small>{{ tr("只保存抽取文字与定位信息，原始文件不会上传。") }}</small>
           <button type="button" class="text-action" :disabled="archiveCleaning" @click="cleanupArchive">
-            {{ archiveCleaning ? '清理中……' : '清理未引用资料' }}
+            {{ archiveCleaning ? tr("清理中……") : tr("清理未引用资料") }}
           </button>
         </div>
-        <p class="summary-note">刷新或离开页面后，已暂存的创建工作区仍可恢复。</p>
+        <p class="summary-note">{{ tr("刷新或离开页面后，已暂存的创建工作区仍可恢复。") }}</p>
       </aside>
     </main>
 
-    <p v-if="errorMessage" class="creation-message is-error" role="alert">{{ errorMessage }}</p>
-    <p v-if="infoMessage" class="creation-message" aria-live="polite">{{ infoMessage }}</p>
+    <p v-if="errorMessage" class="creation-message is-error" role="alert">{{ displayNotice(errorMessage) }}</p>
+    <p v-if="infoMessage" class="creation-message" aria-live="polite">{{ displayNotice(infoMessage) }}</p>
   </div>
 </template>
 
@@ -1285,7 +1327,7 @@ onBeforeUnmount(() => {
 
 .creation-header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 20px;
   align-items: start;
   padding: 24px 0 20px;
@@ -1456,6 +1498,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin-top: 14px;
 }
+.paste-row .quiet-action { align-self: end; }
 
 textarea,
 input[type='text'] {
@@ -1481,6 +1524,7 @@ input[type='text']:focus {
 .source-queue__head,
 .source-preview__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   color: var(--text-muted);
@@ -1693,6 +1737,9 @@ input[type='text']:focus {
   border-radius: 2px;
   cursor: pointer;
   font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 .primary-action {
@@ -1761,7 +1808,7 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
 
 @media (max-width: 560px) {
   .creation-page { padding-inline: 14px; }
-  .creation-header { padding-top: 18px; }
+  .creation-header { padding-top: 18px; grid-template-columns: minmax(0, 1fr); }
   .creation-header h1 { font-size: 29px; }
   .creation-state { justify-items: start; text-align: left; font-size: 11px; }
   .creation-state small { max-width: min(260px, 70vw); }
@@ -1779,6 +1826,7 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
 
   .creation-summary {
     display: grid;
+    order: initial;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 9px 16px;
     padding: 12px 0 14px;
@@ -1814,9 +1862,10 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
   }
 
   .creation-summary dt,
-  .creation-summary dd {
-    white-space: nowrap;
-  }
+  .creation-summary dd { white-space: normal; overflow-wrap: anywhere; }
+
+  .creation-summary dl { flex-wrap: wrap; }
+  .creation-summary { grid-template-columns: minmax(0, 1fr); }
 
   .creation-summary dd {
     font-size: 12px;

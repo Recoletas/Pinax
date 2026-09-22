@@ -20,40 +20,40 @@
       v-if="focusedPlace"
       class="place-context-strip"
       data-test="settings-place-context"
-      aria-label="当前地点上下文"
+      :aria-label="tr('当前地点上下文')"
     >
       <div class="place-context-copy">
-        <span class="place-context-kicker">地点上下文</span>
+        <span class="place-context-kicker">{{ tr('地点上下文') }}</span>
         <strong>{{ focusedPlace.name || focusedPlace.placeId }}</strong>
-        <span>历史 {{ focusedPlace.historyNodeIds?.length || 0 }} · 条目 {{ focusedPlace.entryIds?.length || 0 }}</span>
+        <span>{{ tr('历史 {history} · 条目 {entries}', { history: focusedPlace.historyNodeIds?.length || 0, entries: focusedPlace.entryIds?.length || 0 }) }}</span>
       </div>
       <div class="place-context-actions">
         <button type="button" class="place-context-map-btn" @click="openFocusedPlaceMap()">
-          在地图查看
+          {{ tr('在地图查看') }}
         </button>
         <div v-if="focusedPlace.historyNodes?.length" class="place-context-links">
-          <span class="place-context-links-label">历史节点</span>
+          <span class="place-context-links-label">{{ tr('历史节点') }}</span>
           <button
             v-for="item in focusedPlace.historyNodes"
             :key="`history-${item.id}`"
             type="button"
             class="place-context-link"
             data-test="place-history-map-link"
-            :title="`在地图查看：${item.title || item.id}`"
+            :title="tr('在地图查看：{name}', { name: item.title || item.id })"
             @click="openFocusedPlaceMap('history', item.id)"
           >
             {{ item.title || item.id }}
           </button>
         </div>
         <div v-if="focusedPlace.entries?.length" class="place-context-links">
-          <span class="place-context-links-label">设定条目</span>
+          <span class="place-context-links-label">{{ tr('设定条目') }}</span>
           <button
             v-for="item in focusedPlace.entries"
             :key="`entry-${item.id}`"
             type="button"
             class="place-context-link"
             data-test="place-entry-map-link"
-            :title="`在地图查看：${item.name || item.id}`"
+            :title="tr('在地图查看：{name}', { name: item.name || item.id })"
             @click="openFocusedPlaceMap('entry', item.id)"
           >
             {{ item.name || item.id }}
@@ -63,39 +63,34 @@
     </section>
 
     <div class="settings-body">
-      <div v-if="contextLoading" class="empty-state" role="status">正在打开这本书的设定…</div>
+      <div v-if="contextLoading" class="empty-state" role="status">{{ tr('正在打开这本书的设定…') }}</div>
       <template v-else-if="projectContextStatus === 'unbound'">
         <div class="empty-state" data-test="settings-unbound">
-          <p>这本书还没有关联世界书。</p>
-          <p class="empty-state__hint">可以直接添加资料：确认时自动建立随书资料库并关联；也可以回写作工作台右栏手动关联。</p>
+          <p>{{ tr('这本书还没有关联世界书。') }}</p>
+          <p class="empty-state__hint">{{ tr('添加资料后会建立并关联资料库；也可在工作台关联已有世界书。') }}</p>
           <button
             type="button"
             class="empty-state__action"
             data-test="unbound-add-sources"
             @click="router.push({ name: 'settings-worldbook-create', query: { bookId: context?.bookId || '', mode: 'sources' } })"
           >
-            添加资料并建立随书资料库
+            {{ tr('添加资料') }}
           </button>
         </div>
       </template>
       <div v-else-if="projectContextStatus === 'missing-book'" class="empty-state">
-        <p>这本书已不存在。</p>
+        <p>{{ tr('这本书已不存在。') }}</p>
       </div>
       <div v-else-if="loadError" class="empty-state">
-        <p>{{ loadError }}</p>
+        <p>{{ tr(loadError) }}</p>
       </div>
       <template v-else-if="activeWorldbook">
-        <WorldbookSourcesPanel
-          :worldbook="activeWorldbook"
-          :book-id="context?.bookId || ''"
-          :initial-open="sourcesOpen"
-        />
         <StructuredSettingsWorkspace
           :worldbook="activeWorldbook"
         />
       </template>
       <div v-else class="empty-state">
-        <p>请选择一个世界书开始编辑结构化设定</p>
+        <p>{{ tr('请选择一个世界书开始编辑结构化设定') }}</p>
       </div>
     </div>
   </div>
@@ -103,12 +98,12 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { tr } from '../i18n/index.js'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
-import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
@@ -117,8 +112,6 @@ const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
 const selectedWorldbookId = ref('')
-// N-A：资料面板默认在带 ?sources=1 或尚无资料时展开；有资料时收起为摘要行。
-const sourcesOpen = ref(String(route.query.sources || '') === '1')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 const activeWorldbook = computed(() => worldStore.activeWorldbook)

@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -35,14 +36,14 @@ const current = computed(() => steps[safeStage.value - 1])
 </script>
 
 <template>
-  <section class="first-run-path" aria-label="首次创作指引" data-test="authoring-first-run-path">
+  <section class="first-run-path" :aria-label="tr('首次创作指引')" data-test="authoring-first-run-path">
     <span class="first-run-path__index" aria-hidden="true">{{ String(safeStage).padStart(2, '0') }} / 04</span>
     <span class="first-run-path__copy">
-      <strong>{{ current.title }}</strong>
-      <small>{{ current.description }}</small>
+      <strong>{{ tr(current.title) }}</strong>
+      <small>{{ tr(current.description) }}</small>
     </span>
-    <button class="first-run-path__advance" type="button" @click="emit('advance', safeStage)">{{ current.action }} →</button>
-    <button class="first-run-path__dismiss" type="button" aria-label="关闭首次创作指引" title="关闭指引" @click="emit('dismiss')">×</button>
+    <button class="first-run-path__advance" type="button" @click="emit('advance', safeStage)">{{ tr(current.action) }} →</button>
+    <button class="first-run-path__dismiss" type="button" :aria-label="tr('关闭首次创作指引')" :title="tr('关闭指引')" @click="emit('dismiss')">×</button>
   </section>
 </template>
 

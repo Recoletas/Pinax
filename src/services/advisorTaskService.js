@@ -1,3 +1,6 @@
+import { freezeWritingLanguage } from './writing/writingLanguagePolicy.js'
+import { validateWritingLanguagePolicy } from '../../shared/writingLanguage.js'
+import { tr, uiLocale } from '../i18n/index.js'
 import api, { getResolvedApiSettings } from './api'
 import { adaptLegacyContextToEnvelope } from './agents/legacyAdapter'
 import { clipContextEnvelope, toPromptText } from './agents/agentContextEnvelope'
@@ -35,8 +38,19 @@ function hasContext(context) {
 
 function normalizeAdvisorError(error) {
   const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || '获取建议失败'
-  const normalized = new Error(message)
-  normalized.code = error?.response?.data?.code || error?.code || 'AGENT_REQUEST_FAILED'
+  const code = error?.response?.data?.code || error?.code || 'AGENT_REQUEST_FAILED'
+  const labels = {
+    AGENT_REPLACEMENT_INVALID: '替换正文不符合要求，请重新生成。',
+    AGENT_CANDIDATES_UNCHANGED: '候选与原文相同，请调整要求后重试。',
+    AGENT_PROVIDER_OUTPUT_TRUNCATED: '模型输出被截断，请缩小范围后重试。',
+    AGENT_PROVIDER_CONFIG_INVALID: '模型配置无效，请检查 AI 设置。',
+    AGENT_PROVIDER_EMPTY_CONTENT: '模型未返回正文，请重试。',
+    AGENT_PROVIDER_REASONING_ONLY: '模型仅返回思考内容，请重试。',
+    AGENT_PROVIDER_REFUSAL: '模型未能完成此请求，请检查要求后重试。'
+  }
+  const normalized = new Error(labels[code] ? tr(labels[code]) : uiLocale.value === 'en' ? tr('助手请求失败，请检查模型配置或稍后重试。') : message)
+  normalized.code = code
+  normalized.diagnostic = message
   normalized.retryable = Boolean(error?.response?.data?.retryable ?? error?.retryable)
   return normalized
 }
@@ -158,6 +172,12 @@ export async function requestAdvisorTask({
     options,
     mode
   })
+  const languagePolicy = options.languagePolicy || freezeWritingLanguage({
+    projectId: options.projectId || built.envelope.projectId,
+    text: target?.text || context?.selection?.text || context?.paragraph?.text || (options.reviewBlocks || []).map(block => block.text).join('\n')
+  })
+  if (!validateWritingLanguagePolicy(languagePolicy).valid) throw Object.assign(new Error('Invalid writing language policy'), { code: 'WRITING_LANGUAGE_REJECTED' })
+  const frozenOptions = { ...options, languagePolicy }
   const requestId = createAgentRequestId()
   const traceBase = {
     requestId,
@@ -170,7 +190,7 @@ export async function requestAdvisorTask({
 
   try {
     const apiSettings = settingsSnapshot || await getResolvedApiSettings()
-    const providerOptions = buildAdvisorProviderOptions(apiSettings, options)
+    const providerOptions = buildAdvisorProviderOptions(apiSettings, frozenOptions)
     const response = await api.post('/advisor/task', buildAdvisorRequestPayload({
       envelope: built.envelope,
       question: normalizedQuestion,

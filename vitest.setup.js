@@ -1,3 +1,4 @@
+import { uiLocale } from './src/i18n/index.js'
 import { toHaveNoViolations } from 'vitest-axe/matchers'
 import { expect, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
@@ -18,5 +19,6 @@ for (const method of ['getClientRects', 'getBoundingClientRect']) {
 }
 
 beforeEach(() => {
+  uiLocale.value = 'zh-CN'
   setActivePinia(createPinia())
 })

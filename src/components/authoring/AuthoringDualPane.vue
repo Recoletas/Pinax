@@ -1,5 +1,5 @@
 <template>
-  <section class="authoring-dual-pane" :class="{ 'has-intervention-ghost': interventionGhostOpen, 'is-directory-closed': !directoryOpen }" :data-active-pane="active.toString()" :data-intervention-ghost-open="interventionGhostOpen.toString()" :data-intervention-ghost-unit="interventionGhostTarget?.unitId || ''" data-test="authoring-dual-pane" aria-label="双栏编辑" @focusin="emit('activate', { kind: selectedKind, id: selectedSourceId })">
+  <section class="authoring-dual-pane" :class="{ 'has-intervention-ghost': interventionGhostOpen, 'is-directory-closed': !directoryOpen }" :data-active-pane="active.toString()" :data-intervention-ghost-open="interventionGhostOpen.toString()" :data-intervention-ghost-unit="interventionGhostTarget?.unitId || ''" data-test="authoring-dual-pane" :aria-label="tr(&quot;双栏编辑&quot;)" @focusin="emit('activate', { kind: selectedKind, id: selectedSourceId })">
     <div class="authoring-dual-pane__editor">
       <header ref="headerRef" class="authoring-dual-pane__head">
         <div class="authoring-dual-pane__title">
@@ -8,11 +8,11 @@
         </div>
         <div class="authoring-dual-pane__actions">
           <span v-if="isDocumentSource && selectedSource && saveState !== 'saved'" class="authoring-dual-pane__save" :class="`is-${saveState}`" role="status">{{ saveLabel }}</span>
-          <button v-if="isDocumentSource && commandAvailability.undo" type="button" title="撤销副窗修改" aria-label="撤销副窗修改" @click="runHistory('undo')">↶</button>
-          <button v-if="isDocumentSource && commandAvailability.redo" type="button" title="重做副窗修改" aria-label="重做副窗修改" @click="runHistory('redo')">↷</button>
-          <button v-if="selectedKind === 'chapter' && selectedChapterId !== String(mainChapterId)" type="button" title="交换主副章" aria-label="交换主副章" @click="swapPane">⇄</button>
-          <button type="button" :title="directoryOpen ? '收起副窗目录' : '展开副窗目录'" aria-label="切换副窗内容" :disabled="interventionGhostOpen" :aria-pressed="directoryOpen.toString()" :aria-expanded="directoryOpen && !interventionGhostOpen" @click="toggleDirectory"><WorkbenchIcon name="panel-left" :size="16" /></button>
-          <button type="button" title="关闭双栏" aria-label="关闭双栏" @click="closePane">×</button>
+          <button v-if="isDocumentSource && commandAvailability.undo" type="button" :title="tr(&quot;撤销副窗修改&quot;)" :aria-label="tr(&quot;撤销副窗修改&quot;)" @click="runHistory('undo')">↶</button>
+          <button v-if="isDocumentSource && commandAvailability.redo" type="button" :title="tr(&quot;重做副窗修改&quot;)" :aria-label="tr(&quot;重做副窗修改&quot;)" @click="runHistory('redo')">↷</button>
+          <button v-if="selectedKind === 'chapter' && selectedChapterId !== String(mainChapterId)" type="button" :title="tr(&quot;交换主副章&quot;)" :aria-label="tr(&quot;交换主副章&quot;)" @click="swapPane">⇄</button>
+          <button type="button" :title="directoryOpen ? tr('收起副窗目录') : tr('展开副窗目录')" :aria-label="tr(&quot;切换副窗内容&quot;)" :disabled="interventionGhostOpen" :aria-pressed="directoryOpen.toString()" :aria-expanded="directoryOpen && !interventionGhostOpen" @click="toggleDirectory"><WorkbenchIcon name="panel-left" :size="16" /></button>
+          <button type="button" :title="tr(&quot;关闭双栏&quot;)" :aria-label="tr(&quot;关闭双栏&quot;)" @click="closePane">×</button>
         </div>
       </header>
 
@@ -22,11 +22,11 @@
 
       <div v-if="sourceMissing" class="authoring-dual-pane__empty is-missing" role="status">
         <strong>{{ missingLabel }}</strong>
-        <p>原位置仍保留在副窗中，请从切换面板选择其他内容。</p>
+        <p>{{ tr('原位置仍保留在副窗中，请从切换面板选择其他内容。') }}</p>
       </div>
       <div v-else-if="!selectedSource" class="authoring-dual-pane__empty">
-        <strong>选择副窗内容</strong>
-        <p>可以并排写章节、速记，也可以查看大纲和世界设定。</p>
+        <strong>{{ tr('选择副窗内容') }}</strong>
+        <p>{{ tr('可以并排写章节、速记，也可以查看大纲和世界设定。') }}</p>
       </div>
       <div v-else-if="isDocumentSource" ref="scrollRef" class="authoring-dual-pane__scroll">
         <WritingNotebookEditor
@@ -57,11 +57,11 @@
       <div v-else-if="selectedKind === 'outline'" class="authoring-dual-pane__reference-scroll" data-document-role="dual-outline">
         <article class="authoring-dual-pane__reference">
           <header><span>{{ outlineStatusLabel }}</span><h3>{{ selectedOutlineNode.title }}</h3></header>
-          <p class="authoring-dual-pane__reference-copy">{{ selectedOutlineNode.intent || '这个大纲节点还没有补充意图。' }}</p>
-          <section v-if="outlineChapterLabels.length"><strong>关联章节</strong><p>{{ outlineChapterLabels.join(' · ') }}</p></section>
-          <section v-if="selectedOutlineRelations.length"><strong>叙事关系</strong><ul><li v-for="relation in selectedOutlineRelations" :key="relation.id">{{ relation.label }}</li></ul></section>
-          <section v-if="selectedOutlineNode.sourceRefs?.length"><strong>来源</strong><p>{{ selectedOutlineNode.sourceRefs.join(' · ') }}</p></section>
-          <footer><button type="button" @click="emit('open-outline', selectedOutlineNode.id)">在大纲中打开</button></footer>
+          <p class="authoring-dual-pane__reference-copy">{{ selectedOutlineNode.intent || tr('这个大纲节点还没有补充意图。') }}</p>
+          <section v-if="outlineChapterLabels.length"><strong>{{ tr('关联章节') }}</strong><p>{{ outlineChapterLabels.join(' · ') }}</p></section>
+          <section v-if="selectedOutlineRelations.length"><strong>{{ tr('叙事关系') }}</strong><ul><li v-for="relation in selectedOutlineRelations" :key="relation.id">{{ relation.label }}</li></ul></section>
+          <section v-if="selectedOutlineNode.sourceRefs?.length"><strong>{{ tr('来源') }}</strong><p>{{ selectedOutlineNode.sourceRefs.join(' · ') }}</p></section>
+          <footer><button type="button" @click="emit('open-outline', selectedOutlineNode.id)">{{ tr('在大纲中打开') }}</button></footer>
         </article>
       </div>
       <div v-else class="authoring-dual-pane__reference-scroll" data-document-role="dual-worldbook-entry">
@@ -75,7 +75,7 @@
         v-if="active && isDocumentSource && quickWordSuggestions.length"
         class="authoring-quick-word-strip is-dual"
         role="listbox"
-        aria-label="副栏快捷词建议"
+        :aria-label="tr(&quot;副栏快捷词建议&quot;)"
         @click.stop
       >
         <span>{{ quickWordPrefix }}</span>
@@ -91,17 +91,17 @@
       </div>
     </div>
 
-    <aside v-if="directoryOpen && !interventionGhostOpen" class="authoring-dual-pane__directory" data-test="authoring-dual-directory" aria-label="切换副窗内容">
+    <aside v-if="directoryOpen && !interventionGhostOpen" class="authoring-dual-pane__directory" data-test="authoring-dual-directory" :aria-label="tr(&quot;切换副窗内容&quot;)">
       <label class="authoring-dual-pane__search">
         <WorkbenchIcon name="search" :size="14" />
-        <input v-model="query" type="search" :placeholder="switchSearchPlaceholder" aria-label="搜索当前项目" />
-        <select :value="activeSwitch" aria-label="副窗内容类型" @change="selectSwitch($event.target.value)">
-          <option v-for="option in switchOptions" :key="option.id" :value="option.id">{{ option.label }}</option>
+        <input v-model="query" type="search" :placeholder="switchSearchPlaceholder" :aria-label="tr(&quot;搜索当前项目&quot;)" />
+        <select :value="activeSwitch" :aria-label="tr(&quot;副窗内容类型&quot;)" @change="selectSwitch($event.target.value)">
+          <option v-for="option in switchOptions" :key="option.id" :value="option.id">{{ tr(option.label) }}</option>
         </select>
       </label>
       <div v-if="activeSwitch === 'chapter'" class="authoring-dual-pane__group">
         <WorkbenchIcon name="folder" :size="14" />
-        <span>第一卷</span>
+        <span>{{ tr('第一卷') }}</span>
       </div>
       <template v-if="activeSwitch === 'chapter'">
       <button
@@ -111,7 +111,7 @@
         class="authoring-dual-pane__chapter"
         :data-chapter-id="entry.chapter.id"
         :class="{ 'is-active': selectedChapterId === entry.chapter.id, 'is-main': mainChapterId === entry.chapter.id }"
-        :title="mainChapterId === entry.chapter.id ? '在双栏查看当前主章的另一处' : `在双栏打开${entry.chapter.title || `第${entry.index + 1}章`}`"
+        :title="mainChapterId === entry.chapter.id ? tr('在双栏查看当前主章的另一处') : tr('在双栏打开{value0}', { value0: entry.chapter.title || `第${entry.index + 1}章` })"
         @click="selectChapter(entry.chapter.id)"
       >
         <span><strong>{{ chapterLabel(entry.index, entry.chapter.title) }}</strong></span>
@@ -120,7 +120,7 @@
       <template v-if="activeSwitch === 'exploration'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="pencil" :size="14" />
-          <span>便签</span>
+          <span>{{ tr('便签') }}</span>
         </div>
         <button
           v-for="doc in filteredExplorations"
@@ -131,13 +131,13 @@
           :data-exploration-id="doc.id"
           @click="selectExploration(doc.id)"
         >
-          <span><strong>{{ doc.title || '未命名便签' }}</strong></span>
+          <span><strong>{{ doc.title || tr('未命名便签') }}</strong></span>
         </button>
       </template>
       <template v-if="activeSwitch === 'outline'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="book" :size="14" />
-          <span>大纲</span>
+          <span>{{ tr('大纲') }}</span>
         </div>
         <button
           v-for="node in filteredOutlineNodes"
@@ -148,13 +148,13 @@
           :data-outline-node-id="node.id"
           @click="selectOutline(node.id)"
         >
-          <span><strong>{{ node.title || '未命名节点' }}</strong></span>
+          <span><strong>{{ node.title || tr('未命名节点') }}</strong></span>
         </button>
       </template>
       <template v-if="activeSwitch === 'character' || activeSwitch === 'setting'">
         <div class="authoring-dual-pane__group">
           <WorkbenchIcon name="archive" :size="14" />
-          <span>{{ activeSwitch === 'character' ? '角色' : '设定' }}</span>
+          <span>{{ activeSwitch === 'character' ? tr('角色') : tr('设定') }}</span>
         </div>
         <button
           v-for="entry in filteredSwitchWorldbookEntries"
@@ -165,15 +165,17 @@
           :data-worldbook-entry-id="entry.id"
           @click="selectWorldbookEntry(entry.id)"
         >
-          <span><strong>{{ entry.name || '未命名设定' }}</strong></span>
+          <span><strong>{{ entry.name || tr('未命名设定') }}</strong></span>
         </button>
       </template>
-      <p v-if="!hasFilteredSources" class="authoring-dual-pane__no-result">没有匹配内容</p>
+      <p v-if="!hasFilteredSources" class="authoring-dual-pane__no-result">{{ tr('没有匹配内容') }}</p>
     </aside>
   </section>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
+import { countWritingText } from '../../../shared/writingTextMetrics.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../writing/WritingNotebookEditor.vue'
@@ -290,7 +292,7 @@ const selectedOrdinal = computed(() => {
   if (selectedKind.value === 'outline') return '大纲'
   if (selectedKind.value === 'worldbook-entry') return '设定'
   const index = props.chapters.findIndex((chapter) => String(chapter?.id) === selectedChapterId.value)
-  return index >= 0 ? `第${chineseNumber(index + 1)}章` : '副章'
+  return index >= 0 ? tr('第{value0}章', { value0: chineseNumber(index + 1) }) : tr('副章')
 })
 const editorKey = computed(() => `${props.bookId}:${selectedKind.value}:${selectedSourceId.value}:${editorEpoch.value}`)
 const saveLabel = computed(() => ({ saving: '保存中', error: '保存失败', unsaved: '未保存', saved: '已保存' })[saveState.value] || '')
@@ -326,7 +328,7 @@ const selectedWorldbookDetail = computed(() => buildAuthoringSettingDetail(selec
 const outlineStatusLabel = computed(() => ({ exploring: '推演中', planned: '已计划', drafted: '已成稿', fulfilled: '已兑现', parked: '已搁置' })[selectedOutlineNode.value?.status] || '大纲节点')
 const outlineChapterLabels = computed(() => (selectedOutlineNode.value?.chapterRefs || []).map((chapterId) => {
   const index = props.chapters.findIndex((chapter) => String(chapter?.id) === String(chapterId))
-  return index >= 0 ? chapterLabel(index, props.chapters[index]?.title) : '已移除章节'
+  return index >= 0 ? chapterLabel(index, props.chapters[index]?.title) : tr('已移除章节')
 }))
 const selectedOutlineRelations = computed(() => {
   if (!selectedOutlineNode.value) return []
@@ -337,7 +339,7 @@ const selectedOutlineRelations = computed(() => {
       const outgoing = edge.fromNodeId === selectedOutlineNode.value.id
       const peerId = outgoing ? edge.toNodeId : edge.fromNodeId
       const peer = props.outlineNodes.find((node) => node.id === peerId)
-      return { ...edge, label: `${outgoing ? '指向' : '来自'} · ${labels[edge.kind] || '关联'} · ${peer?.title || '已移除节点'}` }
+      return { ...edge, label: `${outgoing ? tr('指向') : tr('来自')} · ${labels[edge.kind] || tr('关联')} · ${peer?.title || tr('已移除节点')}` }
     })
 })
 
@@ -497,7 +499,7 @@ function persist() {
     title: title.value,
     markdown: draft.content,
     document: nextDocument,
-    wordCount: String(draft.content || '').replace(/\s+/g, '').length,
+    wordCount: countWritingText(draft.content),
     automaticHistory: !interventionAdoptionPending.value
   }
   const ok = (selectedKind.value === 'exploration'

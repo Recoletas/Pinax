@@ -2,8 +2,8 @@
   <section class="place-catalog" data-test="place-catalog">
     <header class="place-catalog-head">
       <div>
-        <span class="place-catalog-kicker">正式地点条目</span>
-        <h3>地点目录</h3>
+        <span class="place-catalog-kicker">{{ tr('正式地点条目') }}</span>
+        <h3>{{ tr('地点目录') }}</h3>
       </div>
       <div class="place-catalog-count">{{ filteredPlaces.length }} / {{ places.length }}</div>
     </header>
@@ -11,19 +11,19 @@
     <div class="place-catalog-toolbar">
       <label class="place-search">
         <Search :size="15" aria-hidden="true" />
-        <span class="sr-only">搜索地点</span>
-        <input v-model.trim="search" type="search" placeholder="搜索名称、别名或描述" />
+        <span class="sr-only">{{ tr('搜索地点') }}</span>
+        <input v-model.trim="search" type="search" :placeholder="tr('搜索名称、别名或描述')" />
       </label>
       <label class="place-filter">
-        <span class="sr-only">按类型筛选</span>
+        <span class="sr-only">{{ tr('按类型筛选') }}</span>
         <select v-model="kindFilter">
-          <option value="">全部类型</option>
+          <option value="">{{ tr('全部类型') }}</option>
           <option v-for="kind in placeKinds" :key="kind" :value="kind">{{ kindLabel(kind) }}</option>
         </select>
       </label>
       <button type="button" class="place-tool-button" data-test="place-new" @click="startCreate">
         <Plus :size="15" aria-hidden="true" />
-        新建地点
+        {{ tr('新建地点') }}
       </button>
       <button
         type="button"
@@ -33,25 +33,25 @@
         @click="generateFromOverview"
       >
         <Sparkles :size="15" aria-hidden="true" />
-        {{ generationState === 'pending' ? '整理中…' : '从概述整理' }}
+        {{ generationState === 'pending' ? tr('整理中…') : tr('从概述整理') }}
       </button>
     </div>
 
     <p v-if="feedback" class="place-feedback" :class="{ 'is-error': feedbackKind === 'error' }" role="status">
-      {{ feedback }}
+      {{ displayPlaceFeedback(feedback) }}
     </p>
 
     <div v-if="generationErrors.length" class="place-generation-errors" role="alert">
-      <strong>部分批次未完成</strong>
+      <strong>{{ tr('部分批次未完成') }}</strong>
       <span v-for="error in generationErrors" :key="`${error.batchIndex}-${error.code}`">
-        第 {{ Number(error.batchIndex) + 1 }} 批：{{ error.message }}
+        {{ tr('第 {batch} 批：{error}', { batch: Number(error.batchIndex) + 1, error: tr(error.message) }) }}
       </span>
     </div>
 
     <div class="place-catalog-layout">
-      <aside class="place-list" aria-label="正式地点列表">
+      <aside class="place-list" :aria-label="tr('正式地点列表')">
         <div class="place-list-head">
-          <span>地点</span>
+          <span>{{ tr('地点') }}</span>
           <span>{{ places.length }}</span>
         </div>
         <button
@@ -63,16 +63,16 @@
           @click="selectPlace(place.entryId)"
         >
           <span class="place-list-name">{{ place.name }}</span>
-          <span class="place-list-meta">{{ kindLabel(place.kind) }} · {{ place.scale }}</span>
+          <span class="place-list-meta">{{ kindLabel(place.kind) }} · {{ scaleLabel(place.scale) }}</span>
         </button>
-        <p v-if="!filteredPlaces.length" class="place-empty">没有匹配的正式地点。</p>
+        <p v-if="!filteredPlaces.length" class="place-empty">{{ tr('没有匹配的正式地点。') }}</p>
       </aside>
 
       <form class="place-editor" data-test="place-editor" @submit.prevent="savePlace">
         <div class="place-editor-head">
           <div>
-            <span class="place-catalog-kicker">{{ isCreating ? '新条目' : '条目编辑' }}</span>
-            <h4>{{ isCreating ? '新建正式地点' : (form.name || '选择一个地点') }}</h4>
+            <span class="place-catalog-kicker">{{ isCreating ? tr('新条目') : tr('条目编辑') }}</span>
+            <h4>{{ isCreating ? tr('新建正式地点') : (form.name || tr('选择一个地点')) }}</h4>
           </div>
           <div class="place-editor-actions">
             <button
@@ -83,7 +83,7 @@
               @click="runPlaceCreate"
             >
               <Sparkles :size="14" aria-hidden="true" />
-              {{ createState === 'pending' ? '生成中…' : 'AI 生成新地点' }}
+              {{ createState === 'pending' ? tr('生成中…') : tr('AI 生成新地点') }}
             </button>
             <button
               type="button"
@@ -92,100 +92,98 @@
               @click="runFleshOut"
             >
               <Sparkles :size="14" aria-hidden="true" />
-              {{ fleshOutState === 'pending' ? '补全中…' : 'AI 补全' }}
+              {{ fleshOutState === 'pending' ? tr('补全中…') : tr('AI 补全') }}
             </button>
             <button type="submit" class="place-action-button is-primary" :disabled="saving || !form.name.trim()">
               <Save :size="14" aria-hidden="true" />
-              {{ saving ? '保存中…' : '保存' }}
+              {{ saving ? tr('保存中…') : tr('保存') }}
             </button>
             <button v-if="!isCreating && selectedId" type="button" class="place-action-button is-danger" @click="requestDelete">
               <Trash2 :size="14" aria-hidden="true" />
-              删除
+              {{ tr('删除') }}
             </button>
           </div>
-          <p v-if="showParentFactionBanner" class="place-editor-banner">该地点已有上级/势力关系，AI 补全不会写入这两项；如需修改请直接编辑。</p>
+          <p v-if="showParentFactionBanner" class="place-editor-banner">{{ tr('该地点已有上级/势力关系，AI 补全不会写入这两项；如需修改请直接编辑。') }}</p>
         </div>
 
         <div v-if="deleteImpact" class="place-delete-confirm" role="alert">
           <span>
-            删除「{{ deleteImpact.name }}」将影响
-            {{ deleteImpact.relationRefs }} 个关系、{{ deleteImpact.historyRefs }} 个历史引用
-            <template v-if="deleteImpact.mapBinding">和地图绑定</template>。
+            {{ tr(deleteImpact.mapBinding ? '删除「{name}」将影响 {relations} 个关系、{history} 个历史引用和地图绑定。' : '删除「{name}」将影响 {relations} 个关系、{history} 个历史引用。', { name: deleteImpact.name, relations: deleteImpact.relationRefs, history: deleteImpact.historyRefs }) }}
           </span>
           <div>
-            <button type="button" class="place-action-button is-danger" @click="confirmDelete">确认删除</button>
-            <button type="button" class="place-action-button" @click="deleteImpact = null">取消</button>
+            <button type="button" class="place-action-button is-danger" @click="confirmDelete">{{ tr('确认删除') }}</button>
+            <button type="button" class="place-action-button" @click="deleteImpact = null">{{ tr('取消') }}</button>
           </div>
         </div>
 
         <fieldset class="place-fields" :disabled="!isCreating && !selectedId">
           <label class="place-field is-wide">
-            <span>名称</span>
+            <span>{{ tr('名称') }}</span>
             <input v-model="form.name" required maxlength="80" />
           </label>
           <label class="place-field">
-            <span>类型</span>
+            <span>{{ tr('类型') }}</span>
             <select v-model="form.kind">
               <option v-for="kind in placeKinds" :key="kind" :value="kind">{{ kindLabel(kind) }}</option>
             </select>
           </label>
           <label class="place-field">
-            <span>尺度</span>
+            <span>{{ tr('尺度') }}</span>
             <select v-model="form.scale">
               <option v-for="scale in placeScales" :key="scale" :value="scale">{{ scaleLabel(scale) }}</option>
             </select>
           </label>
           <label class="place-field is-wide">
-            <span>别名</span>
-            <input v-model="form.aliasesText" placeholder="用逗号分隔" />
+            <span>{{ tr('别名') }}</span>
+            <input v-model="form.aliasesText" :placeholder="tr('用逗号分隔')" />
           </label>
           <label class="place-field">
-            <span>上级地点</span>
-            <input v-model="form.parentText" placeholder="可留空，允许待解析" />
-            <small class="place-field-hint">AI 补全不会写入此项；请通过 relations 或直接编辑</small>
+            <span>{{ tr('上级地点') }}</span>
+            <input v-model="form.parentText" :placeholder="tr('可留空，允许待解析')" />
+            <small class="place-field-hint">{{ tr('AI 补全不会写入此项；请通过 relations 或直接编辑') }}</small>
           </label>
           <label class="place-field">
-            <span>势力 / 国家</span>
-            <input v-model="form.factionText" placeholder="可留空，允许待解析" />
-            <small class="place-field-hint">AI 补全不会写入此项；请直接编辑</small>
+            <span>{{ tr('势力 / 国家') }}</span>
+            <input v-model="form.factionText" :placeholder="tr('可留空，允许待解析')" />
+            <small class="place-field-hint">{{ tr('AI 补全不会写入此项；请直接编辑') }}</small>
           </label>
           <label class="place-field is-wide">
-            <span>地形提示</span>
-            <input v-model="form.terrainText" placeholder="如：沿海、山地" />
+            <span>{{ tr('地形提示') }}</span>
+            <input v-model="form.terrainText" :placeholder="tr('如：沿海、山地')" />
           </label>
           <label class="place-field is-wide">
-            <span>关键词</span>
-            <input v-model="form.keywordsText" placeholder="用于世界书匹配，用逗号分隔" />
+            <span>{{ tr('关键词') }}</span>
+            <input v-model="form.keywordsText" :placeholder="tr('用于世界书匹配，用逗号分隔')" />
           </label>
           <label class="place-field is-wide">
-            <span>描述</span>
+            <span>{{ tr('描述') }}</span>
             <textarea v-model="form.description" rows="5" maxlength="1500" />
-            <p v-if="descriptionWarning" class="place-field-hint">描述已超过 1500 字，补全只会保留前 1500 字。</p>
+            <p v-if="descriptionWarning" class="place-field-hint">{{ tr('描述已超过 1500 字，补全只会保留前 1500 字。') }}</p>
           </label>
           <label class="place-field is-wide">
-            <span>AI 补全补充要求（可选，最多 300 字）</span>
-            <textarea v-model="form.userBrief" rows="2" maxlength="300" placeholder="例如：聚焦寒带气候与学院氛围；避免提及具体历史事件" />
+            <span>{{ tr('AI 补全补充要求（可选，最多 300 字）') }}</span>
+            <textarea v-model="form.userBrief" rows="2" maxlength="300" :placeholder="tr('例如：聚焦寒带气候与学院氛围；避免提及具体历史事件')" />
           </label>
         </fieldset>
 
         <div class="place-relations" :class="{ 'is-disabled': !isCreating && !selectedId }">
           <div class="place-subhead">
-            <span>地点关系</span>
+            <span>{{ tr('地点关系') }}</span>
             <button type="button" class="place-inline-button" :disabled="!isCreating && !selectedId" @click="addRelation">
               <Plus :size="13" aria-hidden="true" />
-              添加关系
+              {{ tr('添加关系') }}
             </button>
           </div>
           <div v-for="(relation, index) in form.relations" :key="relation.localId" class="place-relation-row">
-            <select v-model="relation.type" aria-label="关系类型">
+            <select v-model="relation.type" :aria-label="tr('关系类型')">
               <option v-for="type in relationTypes" :key="type" :value="type">{{ relationLabel(type) }}</option>
             </select>
-            <input v-model="relation.targetName" aria-label="关系目标" placeholder="目标名称" />
-            <button type="button" class="place-icon-button" title="移除关系" aria-label="移除关系" @click="removeRelation(index)">
+            <input v-model="relation.targetName" :aria-label="tr('关系目标')" :placeholder="tr('目标名称')" />
+            <button type="button" class="place-icon-button" :title="tr('移除关系')" :aria-label="tr('移除关系')" @click="removeRelation(index)">
               <X :size="14" aria-hidden="true" />
             </button>
           </div>
-          <p v-if="!form.relations.length" class="place-hint">暂无显式关系。</p>
+          <p v-if="!form.relations.length" class="place-hint">{{ tr('暂无显式关系。') }}</p>
         </div>
       </form>
     </div>
@@ -194,43 +192,43 @@
       <div class="place-review-head">
         <div>
           <span class="place-catalog-kicker">setting-places.v1</span>
-          <h4>概述整理草稿</h4>
+          <h4>{{ tr('概述整理草稿') }}</h4>
         </div>
-        <span class="place-review-count">{{ pendingDraftCount }} 项待审阅</span>
+        <span class="place-review-count">{{ tr('{count} 项待审阅', { count: pendingDraftCount }) }}</span>
       </div>
-      <p v-if="generationState === 'pending'" class="place-hint">正在按原文分批整理，草稿不会自动写入世界书。</p>
+      <p v-if="generationState === 'pending'" class="place-hint">{{ tr('正在按原文分批整理，草稿不会自动写入世界书。') }}</p>
       <article v-for="(draft, index) in drafts" :key="draft.draftId || `${draft.name}-${index}`" class="place-draft-row" :class="`is-${draft.reviewDecision}`">
         <div class="place-draft-status">
-          <span class="place-draft-name">{{ draft.name || '未命名地点' }}</span>
+          <span class="place-draft-name">{{ draft.name || tr('未命名地点') }}</span>
           <span class="place-draft-badge">{{ classificationLabel(draft.classification) }}</span>
-          <span v-if="draft.lowConfidence" class="place-draft-badge is-warning">低置信证据</span>
-          <span v-if="draft.reviewDecision === 'ignored'" class="place-draft-badge">已忽略</span>
-          <span v-if="draft.reviewDecision === 'stale'" class="place-draft-badge is-warning">需要重新整理</span>
+          <span v-if="draft.lowConfidence" class="place-draft-badge is-warning">{{ tr('低置信证据') }}</span>
+          <span v-if="draft.reviewDecision === 'ignored'" class="place-draft-badge">{{ tr('已忽略') }}</span>
+          <span v-if="draft.reviewDecision === 'stale'" class="place-draft-badge is-warning">{{ tr('需要重新整理') }}</span>
         </div>
         <div class="place-draft-fields">
-          <input v-model="draft.name" aria-label="草稿名称" placeholder="名称" />
-          <select v-model="draft.kind" aria-label="草稿类型">
+          <input v-model="draft.name" :aria-label="tr('草稿名称')" :placeholder="tr('名称')" />
+          <select v-model="draft.kind" :aria-label="tr('草稿类型')">
             <option v-for="kind in placeKinds" :key="kind" :value="kind">{{ kindLabel(kind) }}</option>
           </select>
-          <input v-model="draft.aliasesText" aria-label="草稿别名" placeholder="别名" />
-          <input v-model="draft.parentText" aria-label="草稿上级" placeholder="上级地点" />
-          <input v-model="draft.factionText" aria-label="草稿势力" placeholder="势力 / 国家" />
-          <input v-model="draft.terrainText" aria-label="草稿地形" placeholder="地形提示" />
-          <input v-model="draft.keywordsText" aria-label="草稿关键词" placeholder="关键词" />
-          <input v-model="draft.relationsText" aria-label="草稿关系" placeholder="关系：目标，如 route=白石港" />
-          <textarea v-model="draft.description" aria-label="草稿描述" rows="2" placeholder="描述" />
-          <textarea v-model="draft.evidence" aria-label="草稿证据" rows="2" placeholder="原文证据" />
+          <input v-model="draft.aliasesText" :aria-label="tr('草稿别名')" :placeholder="tr('别名')" />
+          <input v-model="draft.parentText" :aria-label="tr('草稿上级')" :placeholder="tr('上级地点')" />
+          <input v-model="draft.factionText" :aria-label="tr('草稿势力')" :placeholder="tr('势力 / 国家')" />
+          <input v-model="draft.terrainText" :aria-label="tr('草稿地形')" :placeholder="tr('地形提示')" />
+          <input v-model="draft.keywordsText" :aria-label="tr('草稿关键词')" :placeholder="tr('关键词')" />
+          <input v-model="draft.relationsText" :aria-label="tr('草稿关系')" :placeholder="tr('关系：目标，如 route=白石港')" />
+          <textarea v-model="draft.description" :aria-label="tr('草稿描述')" rows="2" :placeholder="tr('描述')" />
+          <textarea v-model="draft.evidence" :aria-label="tr('草稿证据')" rows="2" :placeholder="tr('原文证据')" />
         </div>
         <div class="place-draft-foot">
-          <span class="place-draft-meta">{{ draft.invalidReason || (draft.evidenceStatus === 'high' ? '证据命中概述' : '证据未精确命中，请人工核对') }}</span>
+          <span class="place-draft-meta">{{ tr(draft.invalidReason || (draft.evidenceStatus === 'high' ? '证据命中概述' : '证据未精确命中，请人工核对')) }}</span>
           <div class="place-draft-actions">
             <button type="button" class="place-action-button is-primary" :disabled="draft.classification === 'invalid' || draft.reviewDecision === 'accepted' || draft.reviewDecision === 'stale'" @click="adoptDraft(draft, index)">
               <Check :size="14" aria-hidden="true" />
-              采纳
+              {{ tr('采纳') }}
             </button>
             <button type="button" class="place-action-button" :disabled="draft.reviewDecision === 'accepted'" @click="ignoreDraft(draft)">
               <X :size="14" aria-hidden="true" />
-              忽略
+              {{ tr('忽略') }}
             </button>
           </div>
         </div>
@@ -240,6 +238,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, Plus, Save, Search, Sparkles, Trash2, X } from 'lucide-vue-next'
 import { useWorldStore } from '../../stores/worldStore'
@@ -347,19 +346,32 @@ function splitList(value) {
 }
 
 function kindLabel(kind) {
-  return { continent: '大陆', region: '区域', city: '城市', town: '城镇', village: '村落', port: '港口', fortress: '要塞', academy: '学院', site: '地点', river: '河流', route: '路线' }[kind] || kind
+  return tr({ continent: '大陆', region: '区域', city: '城市', town: '城镇', village: '村落', port: '港口', fortress: '要塞', academy: '学院', site: '地点', river: '河流', route: '路线' }[kind] || kind)
 }
 
 function scaleLabel(scale) {
-  return { macro: '宏观', regional: '区域', local: '局部', unknown: '未知' }[scale] || scale
+  return tr({ macro: '宏观', regional: '区域', local: '局部', unknown: '未知' }[scale] || scale)
 }
 
 function relationLabel(type) {
-  return { parent: '上级', state: '国家/势力', adjacent: '相邻', river: '沿河', route: '通路', 'same-state': '同属', 'different-state': '异属' }[type] || type
+  return tr({ parent: '上级', state: '国家/势力', adjacent: '相邻', river: '沿河', route: '通路', 'same-state': '同属', 'different-state': '异属' }[type] || type)
 }
 
 function classificationLabel(classification) {
-  return { new: '新增', duplicate: '重复', update: '更新', 'relation-pending': '关系待解析', invalid: '无效' }[classification] || classification || '待审阅'
+  return tr({ new: '新增', duplicate: '重复', update: '更新', 'relation-pending': '关系待解析', invalid: '无效' }[classification] || classification || '待审阅')
+}
+
+function displayPlaceFeedback(message) {
+  const value = String(message || '')
+  const generated = /^已生成 (\d+) 项草稿，请逐项审阅。$/.exec(value)
+  if (generated) return tr('已生成 {count} 项草稿，请逐项审阅。', { count: generated[1] })
+  const accepted = /^已采纳「(.+)」，其余草稿保持可审阅。$/.exec(value)
+  if (accepted) return tr('已采纳「{name}」，其余草稿保持可审阅。', { name: accepted[1] })
+  const expanded = /^已补全 (\d+) 句(?:\(去重 (\d+) 句\))?$/.exec(value)
+  if (expanded) return tr('已补全 {added} 句（去重 {removed} 句）', { added: expanded[1], removed: expanded[2] || 0 })
+  const duplicated = /^补全内容已包含在原文里\(去重 (\d+) 句\)$/.exec(value)
+  if (duplicated) return tr('补全内容已包含在原文里（去重 {count} 句）', { count: duplicated[1] })
+  return tr(value)
 }
 
 function setForm(place = null) {

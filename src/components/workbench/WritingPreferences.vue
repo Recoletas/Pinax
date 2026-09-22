@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { useWritingTypographyStore, WRITING_FONT_OPTIONS, VALID_LINE_HEIGHTS, MIN_FONT_SIZE, MAX_FONT_SIZE } from '../../stores/writingTypographyStore'
 const writing = useWritingTypographyStore()
 writing.init()
@@ -6,18 +7,18 @@ writing.init()
 
 <template>
   <div class="writing-preferences">
-    <header><h2>写作</h2><p>与正文工具栏共用偏好，立即生效并在本机保留。</p></header>
-    <h3>正文排版</h3>
-    <label>字体<select :value="writing.fontKey" @change="writing.setFontKey($event.target.value)"><option v-for="font in WRITING_FONT_OPTIONS" :key="font.key" :value="font.key">{{ font.label }}</option></select></label>
-    <label>字号<input type="number" :min="MIN_FONT_SIZE" :max="MAX_FONT_SIZE" :value="writing.fontSize" @change="writing.setFontSize($event.target.value)"></label>
-    <label>行距<select :value="writing.lineHeight" @change="writing.setLineHeight($event.target.value)"><option v-for="height in VALID_LINE_HEIGHTS" :key="height" :value="height">{{ height }} 倍</option></select></label>
-    <label>段落间距<select :value="writing.paragraphGap" @change="writing.setParagraphGap($event.target.value)"><option :value="0.65">紧凑</option><option :value="1.05">标准</option><option :value="1.45">宽松</option></select></label>
-    <label class="preference-check"><input type="checkbox" :checked="writing.firstLineIndent" @change="writing.toggleFirstLineIndent()">首行缩进两字</label>
-    <h3>阅读与专注</h3>
-    <label>文本块边界<select :value="writing.blockBoundaries" @change="writing.setBlockBoundaries($event.target.value)"><option value="current">当前块</option><option value="all">全部边界</option><option value="hidden">隐藏</option></select></label>
-    <label class="preference-check"><input type="checkbox" :checked="writing.typewriter" @change="writing.toggleTypewriter()">打字机滚动<span>让当前行保持在中央</span></label>
-    <label class="preference-check"><input type="checkbox" :checked="writing.focusParagraph" @change="writing.toggleFocusParagraph()">段落聚焦<span>淡化非当前段落</span></label>
-    <p class="preference-note">正文自动保存已开启。Ctrl / Cmd + Z 撤销，Ctrl / Cmd + Shift + Z 重做；专注模式可从正文工具栏切换。</p>
+    <header><h2>{{ tr('写作') }}</h2><p>{{ tr('与正文工具栏共用偏好，立即生效并在本机保留。') }}</p></header>
+    <h3>{{ tr('正文排版') }}</h3>
+    <label>{{ tr('字体') }}<select :value="writing.fontKey" @change="writing.setFontKey($event.target.value)"><option v-for="font in WRITING_FONT_OPTIONS" :key="font.key" :value="font.key">{{ tr(font.label) }}</option></select></label>
+    <label>{{ tr('字号') }}<input type="number" :min="MIN_FONT_SIZE" :max="MAX_FONT_SIZE" :value="writing.fontSize" @change="writing.setFontSize($event.target.value)"></label>
+    <label>{{ tr('行距') }}<select :value="writing.lineHeight" @change="writing.setLineHeight($event.target.value)"><option v-for="height in VALID_LINE_HEIGHTS" :key="height" :value="height">{{ tr('{height} 倍', { height: height }) }}</option></select></label>
+    <label>{{ tr('段落间距') }}<select :value="writing.paragraphGap" @change="writing.setParagraphGap($event.target.value)"><option :value="0.65">{{ tr('紧凑') }}</option><option :value="1.05">{{ tr('标准') }}</option><option :value="1.45">{{ tr('宽松') }}</option></select></label>
+    <label class="preference-check"><input type="checkbox" :checked="writing.firstLineIndent" @change="writing.toggleFirstLineIndent()">{{ tr('首行缩进两字') }}</label>
+    <h3>{{ tr('阅读与专注') }}</h3>
+    <label>{{ tr('文本块边界') }}<select :value="writing.blockBoundaries" @change="writing.setBlockBoundaries($event.target.value)"><option value="current">{{ tr('当前块') }}</option><option value="all">{{ tr('全部边界') }}</option><option value="hidden">{{ tr('隐藏') }}</option></select></label>
+    <label class="preference-check"><input type="checkbox" :checked="writing.typewriter" @change="writing.toggleTypewriter()">{{ tr('打字机滚动') }}<span>{{ tr('让当前行保持在中央') }}</span></label>
+    <label class="preference-check"><input type="checkbox" :checked="writing.focusParagraph" @change="writing.toggleFocusParagraph()">{{ tr('段落聚焦') }}<span>{{ tr('淡化非当前段落') }}</span></label>
+    <p class="preference-note">{{ tr('正文自动保存已开启。Ctrl / Cmd + Z 撤销，Ctrl / Cmd + Shift + Z 重做；专注模式可从正文工具栏切换。') }}</p>
   </div>
 </template>
 

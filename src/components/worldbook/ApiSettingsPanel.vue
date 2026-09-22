@@ -1,8 +1,8 @@
 <template>
   <div class="api-settings-panel">
     <div class="ai-settings-head">
-      <strong>AI 文本模型</strong>
-      <p>内置 MiniMax 由部署服务器提供密钥，无需作者填写；首次使用前可打开详情测试连通性。也可添加自己的模型配置。</p>
+      <strong>{{ tr('AI 文本模型') }}</strong>
+      <p>{{ tr('内置 MiniMax 由部署服务器提供密钥，无需作者填写；首次使用前可打开详情测试连通性。也可添加自己的模型配置。') }}</p>
     </div>
 
     <TextModelPicker
@@ -17,6 +17,7 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, onMounted, ref } from 'vue'
 import TextModelPicker from '../text/TextModelPicker.vue'
 import {

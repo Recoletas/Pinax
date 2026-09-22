@@ -3,10 +3,10 @@
     <section ref="dialog" class="manuscript-import" role="dialog" aria-modal="true" aria-labelledby="manuscript-import-title" @keydown="onKeydown">
       <header class="manuscript-import__head">
         <div>
-          <span class="manuscript-import__kicker">带着旧稿开始</span>
-          <h2 id="manuscript-import-title">导入 TXT / Markdown</h2>
+          <span class="manuscript-import__kicker">{{ tr('带着旧稿开始') }}</span>
+          <h2 id="manuscript-import-title">{{ tr('导入 TXT / Markdown') }}</h2>
         </div>
-        <button ref="closeButton" class="manuscript-import__close" type="button" aria-label="关闭导入" @click="emit('close')">×</button>
+        <button ref="closeButton" class="manuscript-import__close" type="button" :aria-label="tr(&quot;关闭导入&quot;)" @click="emit('close')">×</button>
       </header>
 
       <div v-if="!parsed" class="manuscript-import__pick">
@@ -20,51 +20,52 @@
           @drop.prevent="handleDrop"
         >
           <template v-if="reading">
-            <strong>正在读取《{{ readingName }}》…</strong>
-            <span>读取完成后可以继续改名或调整拆章方式。</span>
+            <strong>{{ tr('正在读取《{readingName}》…', { readingName: readingName }) }}</strong>
+            <span>{{ tr('读取完成后可以继续改名或调整拆章方式。') }}</span>
           </template>
           <template v-else>
-            <strong>选择一份书稿</strong>
-            <span>或把 .txt / .md 文件拖到这里</span>
-            <small>支持常见中文编码，最大 5 MB；选择文件不会立即写入。</small>
+            <strong>{{ tr('选择一份书稿') }}</strong>
+            <span>{{ tr('或把 .txt / .md 文件拖到这里') }}</span>
+            <small>{{ tr('支持常见中文编码，最大 5 MB；选择文件不会立即写入。') }}</small>
           </template>
         </button>
         <input ref="fileInput" class="manuscript-import__file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" @change="handleFileInput">
-        <p v-if="error" class="manuscript-import__error" role="alert">{{ error }}</p>
+        <p v-if="error" class="manuscript-import__error" role="alert">{{ tr(error) }}</p>
       </div>
 
       <div v-else class="manuscript-import__review">
         <div class="manuscript-import__field">
-          <label for="manuscript-book-title">书名</label>
+          <label for="manuscript-book-title">{{ tr('书名') }}</label>
           <input id="manuscript-book-title" ref="titleInput" v-model="bookTitle" maxlength="120" type="text" data-test="manuscript-book-title" @input="authorTitleEdited = true">
         </div>
 
+        <ManuscriptLanguageSelect v-model="manuscriptLanguage" />
         <fieldset class="manuscript-import__mode">
-          <legend>怎样建立章节</legend>
+          <legend>{{ tr('怎样建立章节') }}</legend>
           <label>
             <input v-model="mode" type="radio" value="auto">
-            <span><strong>按标题拆章</strong><small>{{ parsed.detected ? `已识别 ${autoChapters.length} 章` : '没有识别到章节标题，将作为一章' }}</small></span>
+            <span><strong>{{ tr('按标题拆章') }}</strong><small>{{ parsed.detected ? tr('已识别 {value0} 章', { value0: autoChapters.length }) : tr('没有识别到章节标题，将作为一章') }}</small></span>
           </label>
           <label>
             <input v-model="mode" type="radio" value="single">
-            <span><strong>整篇作为一章</strong><small>保留原文，不自动拆分</small></span>
+            <span><strong>{{ tr('整篇作为一章') }}</strong><small>{{ tr('保留原文，不自动拆分') }}</small></span>
           </label>
         </fieldset>
 
         <div class="manuscript-import__summary">
           <span>{{ parsed.filename }}</span>
-          <span>{{ parsed.charCount.toLocaleString('zh-CN') }} 字符</span>
-          <span>{{ draftChapters.length }} 章</span>
+          <span>{{ draftChapters.reduce((sum, chapter) => sum + countWritingText(chapter.content, manuscriptLanguage), 0).toLocaleString(uiLocale) }} {{ manuscriptLanguage === 'en' ? tr('词') : tr('字/词') }}</span>
+          <span>{{ tr('{length} 章', { length: draftChapters.length }) }}</span>
           <span>{{ encodingName }}</span>
         </div>
 
         <details ref="encodingTools" class="manuscript-import__encoding-tools" data-test="manuscript-import-encoding-tools" :open="Boolean(encodingWarning)">
-          <summary>识别不对？调整编码</summary>
+          <summary>{{ tr('识别不对？调整编码') }}</summary>
           <div class="manuscript-import__encoding-body">
             <label>
-              <span>改用编码</span>
+              <span>{{ tr('改用编码') }}</span>
               <select v-model="selectedEncoding" @change="reparseEncoding">
-                <option value="auto">自动识别</option>
+                <option value="auto">{{ tr('自动识别') }}</option>
                 <option v-for="candidate in encodingOptions" :key="candidate" :value="candidate">{{ candidate.toUpperCase() }}</option>
               </select>
             </label>
@@ -74,28 +75,28 @@
 
         <div v-if="rebuildNotice" class="manuscript-import__rebuild" role="status" data-test="manuscript-import-rebuild-notice">
           <p>{{ rebuildNotice }}</p>
-          <button type="button" @click="undoRebuild">撤销本次改动</button>
+          <button type="button" @click="undoRebuild">{{ tr('撤销本次改动') }}</button>
         </div>
 
-        <ol class="manuscript-import__chapters" aria-label="待导入章节">
+        <ol class="manuscript-import__chapters" :aria-label="tr(&quot;待导入章节&quot;)">
           <li v-for="(chapter, index) in draftChapters" :key="`${mode}-${index}`">
             <span>{{ String(index + 1).padStart(2, '0') }}</span>
             <div>
-              <input v-model="chapter.title" :aria-label="`第 ${index + 1} 章标题`" maxlength="120" type="text" @input="recordChapterEdit(chapter)">
+              <input v-model="chapter.title" :aria-label="tr('第 {value0} 章标题', { value0: index + 1 })" maxlength="120" type="text" @input="recordChapterEdit(chapter)">
               <p>{{ excerpt(chapter.content) }}</p>
             </div>
           </li>
         </ol>
 
-        <p v-if="error" ref="errorLine" class="manuscript-import__error" role="alert" tabindex="-1" data-test="manuscript-import-error">{{ error }}</p>
+        <p v-if="error" ref="errorLine" class="manuscript-import__error" role="alert" tabindex="-1" data-test="manuscript-import-error">{{ tr(error) }}</p>
       </div>
 
       <footer class="manuscript-import__foot">
-        <p>确认后会新建一本书，不覆盖现有书稿。正文保存在当前浏览器。</p>
+        <p>{{ tr('确认后会新建一本书，不覆盖现有书稿。正文保存在当前浏览器。') }}</p>
         <div>
-          <button v-if="parsed" type="button" class="manuscript-import__secondary" @click="reset">重新选择</button>
-          <button type="button" class="manuscript-import__secondary" @click="emit('close')">取消</button>
-          <button v-if="parsed" type="button" class="manuscript-import__primary" data-test="manuscript-import-confirm" :disabled="!canConfirm || confirming" @click="confirmImport">{{ confirming ? '正在创建…' : '创建书稿' }}</button>
+          <button v-if="parsed" type="button" class="manuscript-import__secondary" @click="reset">{{ tr('重新选择') }}</button>
+          <button type="button" class="manuscript-import__secondary" @click="emit('close')">{{ tr('取消') }}</button>
+          <button v-if="parsed" type="button" class="manuscript-import__primary" data-test="manuscript-import-confirm" :disabled="!canConfirm || confirming" @click="confirmImport">{{ confirming ? tr('正在创建…') : tr('创建书稿') }}</button>
         </div>
       </footer>
     </section>
@@ -103,6 +104,11 @@
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
+import { uiLocale } from '../../i18n/index.js'
+import ManuscriptLanguageSelect from './ManuscriptLanguageSelect.vue'
+import { countWritingText } from '../../../shared/writingTextMetrics.js'
+const manuscriptLanguage = ref(uiLocale.value)
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   buildSingleChapterPreview,
@@ -152,7 +158,7 @@ const canConfirm = computed(() => Boolean(
 const encodingName = computed(() => {
   const name = encodingInfo.value?.encoding
   if (!name) return ''
-  return `${name.toUpperCase()}${['high', 'manual'].includes(encodingInfo.value.confidence) ? '' : ' · 请抽查'}`
+  return `${name.toUpperCase()}${['high', 'manual'].includes(encodingInfo.value.confidence) ? '' : tr(' · 请抽查')}`
 })
 const encodingWarning = computed(() => encodingInfo.value?.warnings?.[0] || '')
 const encodingOptions = computed(() => {
@@ -195,8 +201,8 @@ function rebuildChapters(source, { notify } = { notify: true }) {
   dropped = edits.size - applied
   if (notify && edits.size && dropped > 0) {
     rebuildNotice.value = dropped === edits.size
-      ? `当前拆分方式下没有章节与手改章名对应；切回原方式会自动恢复这 ${dropped} 个章名。`
-      : `有 ${dropped} 个手改章名不再对应识别出的章节内容；其余 ${applied} 个已保留。`
+      ? tr('当前拆分方式下没有章节与手改章名对应；切回原方式会自动恢复这 {value0} 个章名。', { value0: dropped })
+      : tr('有 {value0} 个手改章名不再对应识别出的章节内容；其余 {value1} 个已保留。', { value0: dropped, value1: applied })
     return
   }
   if (!dropped) rebuildNotice.value = ''
@@ -230,7 +236,7 @@ function undoRebuild() {
 watch(mode, (value) => {
   if (!parsed.value) return
   snapshotPreview()
-  rebuildChapters(value === 'single' ? buildSingleChapterPreview(parsed.value) : autoChapters.value)
+  rebuildChapters(value === 'single' ? buildSingleChapterPreview(parsed.value, manuscriptLanguage.value) : autoChapters.value)
 })
 
 function clearAuthorEdits() {
@@ -257,13 +263,13 @@ async function readFile(file) {
     const decoded = decodeManuscriptBytes(bytes)
     if (ticket !== readSequence) return
     if (!decoded.ok) {
-      error.value = decoded.message
+      error.value = tr(decoded.message)
       return
     }
-    const result = parseManuscriptText({ text: decoded.text, filename: file.name })
+    const result = parseManuscriptText({ manuscriptLanguage: manuscriptLanguage.value, text: decoded.text, filename: file.name })
     if (ticket !== readSequence) return
     if (!result.ok) {
-      error.value = result.message
+      error.value = tr(result.message)
       return
     }
     clearAuthorEdits()
@@ -276,7 +282,7 @@ async function readFile(file) {
     titleInput.value?.focus()
     titleInput.value?.select()
   } catch (readError) {
-    if (ticket === readSequence) error.value = readError?.message || '文件读取失败，请重新选择。'
+    if (ticket === readSequence) error.value = readError?.message || tr('文件读取失败，请重新选择。')
   } finally {
     if (ticket === readSequence) {
       reading.value = false
@@ -290,13 +296,13 @@ function reparseEncoding() {
   error.value = ''
   const decoded = decodeManuscriptBytes(fileBytes.value, selectedEncoding.value)
   if (!decoded.ok) {
-    error.value = decoded.message
+    error.value = tr(decoded.message)
     nextTick(() => encodingTools.value?.$el?.querySelector('select')?.focus())
     return
   }
-  const result = parseManuscriptText({ text: decoded.text, filename: parsed.value.filename })
+  const result = parseManuscriptText({ manuscriptLanguage: manuscriptLanguage.value, text: decoded.text, filename: parsed.value.filename })
   if (!result.ok) {
-    error.value = result.message
+    error.value = tr(result.message)
     return
   }
   snapshotPreview()
@@ -319,7 +325,7 @@ function handleDrop(event) {
 
 function excerpt(content) {
   const text = String(content || '').replace(/[#>*_`()~-]+|\[|\]/gu, ' ').replace(/\s+/gu, ' ').trim()
-  return text ? text.slice(0, 88) : '空章节'
+  return text ? text.slice(0, 88) : tr('空章节')
 }
 
 function reset() {
@@ -339,9 +345,9 @@ function reset() {
 
 function confirmImport() {
   if (confirming.value || !canConfirm.value) return
-  const result = createImportedWritingBook({ title: bookTitle.value, chapters: draftChapters.value })
+  const result = createImportedWritingBook({ title: bookTitle.value, chapters: draftChapters.value, manuscriptLanguage: manuscriptLanguage.value })
   if (!result.ok) {
-    error.value = result.reason === 'title-required' ? '请填写书名。' : '没有可以导入的章节。'
+    error.value = result.reason === 'title-required' ? tr('请填写书名。') : tr('没有可以导入的章节。')
     nextTick(() => (result.reason === 'title-required' ? titleInput.value?.focus() : errorLine.value?.focus()))
     return
   }
@@ -351,7 +357,7 @@ function confirmImport() {
     responded = true
     if (ok) return
     confirming.value = false
-    error.value = '导入未能保存：浏览器存储空间不足。预览仍保留，可重试或先清理浏览器存储。'
+    error.value = tr('导入未能保存。请保留原文件，重试或换一个浏览器；不要清除已有作品。')
     nextTick(() => errorLine.value?.focus())
   })
   if (!responded) confirming.value = false

@@ -127,6 +127,7 @@
 </template>
 
 <script setup>
+import { tr, uiLocale } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import { useWritingTypographyStore } from '../../stores/writingTypographyStore.js'
@@ -243,7 +244,7 @@ const blockGapDomId = computed(() => String(props.blockGapId || 'authoring-block
 const blockGapSelector = computed(() => `#${blockGapDomId.value}`)
 
 const writingMenuItems = [
-  { id: 'ai-continue', label: '推演下一段', description: '生成可编辑草稿，确认后成为正文单元', icon: Sparkles, agent: true },
+  { id: 'ai-continue', label: tr('推演下一段'), description: '生成可编辑草稿，确认后成为正文单元', icon: Sparkles, agent: true },
   {
     id: 'revise-previous',
     label: '修改上一段',
@@ -452,9 +453,9 @@ function createBlockGapDecorations(state) {
       button.type = 'button'
       button.className = 'writing-unit-gap__action is-primary'
       const buttonLabel = document.createElement('span')
-      buttonLabel.textContent = unit?.textContent.trim() ? '推演下一段' : '推演本章开场'
+      buttonLabel.textContent = unit?.textContent.trim() ? tr('推演下一段') : tr('推演本章开场')
       const buttonHint = document.createElement('small')
-      buttonHint.textContent = unit?.textContent.trim() ? '看看接下来可能发生什么' : '从当前设定找到开场方向'
+      buttonHint.textContent = unit?.textContent.trim() ? tr('看看接下来可能发生什么') : tr('从当前设定找到开场方向')
       button.append(buttonLabel, buttonHint)
       button.addEventListener('mousedown', (event) => event.preventDefault())
       button.addEventListener('click', () => emit('open-block-composer', {
@@ -468,9 +469,9 @@ function createBlockGapDecorations(state) {
         intervention.type = 'button'
         intervention.className = 'writing-unit-gap__action is-secondary'
         const interventionLabel = document.createElement('span')
-        interventionLabel.textContent = '改变条件'
+        interventionLabel.textContent = tr('改变条件')
         const interventionHint = document.createElement('small')
-        interventionHint.textContent = '先看这项变化会影响哪里'
+        interventionHint.textContent = tr('先看这项变化会影响哪里')
         intervention.append(interventionLabel, interventionHint)
         intervention.addEventListener('mousedown', (event) => event.preventDefault())
         intervention.addEventListener('click', () => emit('open-intervention', {
@@ -489,7 +490,7 @@ function createBlockGapDecorations(state) {
     // DOM、不重跑工厂，标签（推演本章开场/下一段）会停留在首次创建的状态。
     key: props.blockPreview?.text ? `writing-gap-preview:${props.blockPreview.candidateId || 'pending'}`
       : props.blockComposerOpen ? 'writing-gap-open'
-        : `writing-gap-${unit?.attrs.unitId || 'empty'}-${anchorNodeId || 'none'}-${unit?.textContent.trim() ? 'text' : 'empty'}`,
+        : `writing-gap-${uiLocale.value}-${unit?.attrs.unitId || 'empty'}-${anchorNodeId || 'none'}-${unit?.textContent.trim() ? 'text' : 'empty'}`,
     // Composer / editable draft are real form controls mounted inside a ProseMirror
     // widget. Their keyboard, paste, input and selection events belong to the form,
     // never to the canonical document view.
@@ -497,6 +498,10 @@ function createBlockGapDecorations(state) {
     ignoreSelection: true
   })])
 }
+
+watch(uiLocale, () => {
+  if (editor.value && !editor.value.isDestroyed) editor.value.view.dispatch(editor.value.state.tr.setMeta(blockGapPluginKey, true).setMeta('addToHistory', false))
+})
 
 const BlockGapDecorations = Extension.create({
   name: 'writingBlockGap',

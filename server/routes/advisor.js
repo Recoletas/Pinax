@@ -1,3 +1,4 @@
+import { validateWritingLanguagePolicy } from '../../shared/writingLanguage.js'
 import express from 'express'
 import { randomUUID } from 'crypto'
 import {
@@ -60,6 +61,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   // 写作 Skills 冻结输入（shared/writingSkillMethodContract.js）：只在请求
   // 携带 options.writingSkill 时启用。未知 skillId/skillVersion/字段/只读
   // 能力一律 typed 拒绝；旧请求不含该字段，行为完全不变。
+  const languageValidation = options?.languagePolicy === undefined ? null : validateWritingLanguagePolicy(options.languagePolicy)
+  if (languageValidation && !languageValidation.valid) return res.status(400).json({ code: 'WRITING_LANGUAGE_REJECTED', error: 'Invalid writing language policy', retryable: false })
   let skillInvocation = null
   if (options?.writingSkill !== undefined) {
     const skillValidation = validateWritingSkillInvocation(options.writingSkill)
@@ -78,7 +81,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   // 阻断 1 返工：模型链与结果归一化只接触逐字段归一化后的冻结输入，
   // 原始 options 里的任何未校验内容都不再透传；方法组合器与检查器在
   // 能真实执行的任务上就地执行，回执如实标注 enforcement。
-  const sanitizedOptions = skillInvocation ? { ...options, writingSkill: skillInvocation } : options
+  const sanitizedOptions = { ...options, ...(skillInvocation ? { writingSkill: skillInvocation } : {}), ...(languageValidation ? { languagePolicy: languageValidation.policy } : {}) }
   const skillEnforcement = applyWritingSkillEnforcement({
     taskType: normalizedTaskType,
     question,
@@ -166,6 +169,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
       options: sanitizedOptions,
       meta: {
         requestId,
+        ...(languageValidation ? { languagePolicy: languageValidation.policy } : {}),
         provider: run.provider,
         targetRevision: clippedEnvelope.target.revision,
         sourceRefs: collectAgentEnvelopeSourceRefs(clippedEnvelope),

@@ -584,7 +584,7 @@ const { readFileSync } = await import('node:fs')
     expect(source).not.toMatch(/function saveCurrentChapter[\s\S]{0,2200}noteAuthoringTextCommit/)
     expect(activateBody).toContain("notify('当前章节保存失败，未切换书籍')")
     const explorationBoundary = source.slice(source.indexOf('function wt3PersistBeforeLeaving'), source.indexOf('function openExplorationDoc'))
-    expect(explorationBoundary).toContain("authoringTask.notify('构思文档保存失败，已留在当前文档')")
+    expect(explorationBoundary).toContain("authoringTask.notify(tr('构思文档保存失败，已留在当前文档'))")
     expect(explorationBoundary.indexOf('if (!result?.ok)')).toBeLessThan(explorationBoundary.indexOf("wt3ActiveDocId.value = ''"))
     expect(source).not.toContain('watch(markdownContent')
 }

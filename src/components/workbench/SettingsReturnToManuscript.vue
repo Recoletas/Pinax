@@ -5,7 +5,7 @@
     class="settings-return-authoring control-quiet"
     data-test="settings-return-authoring"
     @click="returnToManuscript"
-  ><WorkbenchIcon name="arrow-left" :size="15" />回到正文</button>
+  ><WorkbenchIcon name="arrow-left" :size="15" />{{ tr('回到正文') }}</button>
 </template>
 
 <script setup>
@@ -13,6 +13,7 @@
 // 不重复创建页面实例；原章/选区/滚动的恢复由 Authoring 的 volatile ledger
 // watcher 消费（fail-closed），这里不复制恢复逻辑。
 import { computed } from 'vue'
+import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'

@@ -3,26 +3,26 @@
     v-if="draft"
     class="setting-draft-review"
     role="region"
-    :aria-label="`AI 草稿：${draft.fieldLabel}`"
+    :aria-label="tr('AI 草稿：{field}', { field: tr(draft.fieldLabel) })"
     tabindex="-1"
     @keydown.esc.stop="$emit('close')"
   >
     <div class="draft-head">
       <div>
-        <p class="draft-kicker">AI 草稿</p>
-        <h3>{{ draft.fieldLabel }}</h3>
+        <p class="draft-kicker">{{ tr('AI 草稿') }}</p>
+        <h3>{{ tr(draft.fieldLabel) }}</h3>
       </div>
       <div class="draft-head-actions">
         <button
           type="button"
           class="review-close-btn"
-          aria-label="关闭草稿审阅"
-          title="关闭草稿审阅"
+          :aria-label="tr('关闭草稿审阅')"
+          :title="tr('关闭草稿审阅')"
           @click="$emit('close')"
         >
           <WorkbenchIcon name="close" :size="15" />
         </button>
-        <button type="button" class="ghost-btn small" @click="$emit('discard')">丢弃</button>
+        <button type="button" class="ghost-btn small" @click="$emit('discard')">{{ tr('丢弃') }}</button>
       </div>
     </div>
 
@@ -38,30 +38,31 @@
       class="text-area"
       rows="8"
       :value="draft.content"
+      :aria-label="tr('编辑 AI 草稿')"
       @input="$emit('update:content', $event.target.value)"
     ></textarea>
 
     <details v-if="sourceCandidateGroups.length || sourceCandidateError" class="source-candidate-review">
       <summary>
-        <span>来源候选<span v-if="draft.sourceCandidates?.length"> · {{ draft.sourceCandidates.length }} 条</span></span>
-        <span v-if="sourceCandidateError" class="candidate-summary-mark is-error">提取未完成</span>
+        <span>{{ tr('来源候选') }}<span v-if="draft.sourceCandidates?.length"> · {{ draft.sourceCandidates.length }}</span></span>
+        <span v-if="sourceCandidateError" class="candidate-summary-mark is-error">{{ tr('提取未完成') }}</span>
         <span v-else-if="sourceCandidateGroups.some((group) => group.possibleDuplicate)" class="candidate-summary-mark">
-          有同名提示
+          {{ tr('有同名提示') }}
         </span>
       </summary>
-      <p v-if="sourceCandidateError" class="source-candidate-error">{{ sourceCandidateError }}</p>
-      <p class="source-candidate-note">仅按名称与别名提示可能重复，未自动合并；每条事实仍保留自己的证据和来源。</p>
+      <p v-if="sourceCandidateError" class="source-candidate-error">{{ tr(sourceCandidateError) }}</p>
+      <p class="source-candidate-note">{{ tr('仅按名称与别名提示可能重复，未自动合并；每条事实仍保留自己的证据和来源。') }}</p>
       <div class="source-candidate-list">
         <div v-for="group in sourceCandidateGroups" :key="group.id" class="source-candidate-group">
           <div class="source-candidate-group__head">
             <span class="candidate-type">{{ entryTypeLabel(group.type) }}</span>
             <strong>{{ group.displayName }}</strong>
-            <span v-if="group.possibleDuplicate" class="candidate-duplicate">{{ group.variants.length }} 条待核对</span>
+            <span v-if="group.possibleDuplicate" class="candidate-duplicate">{{ tr('{count} 条待核对', { count: group.variants.length }) }}</span>
           </div>
           <div v-for="(variant, index) in group.variants" :key="`${group.id}-${index}`" class="source-candidate-variant">
             <p>{{ variant.content }}</p>
-            <small>证据：{{ variant.evidence }}</small>
-            <small>来源：{{ variant.sourceIds.join('、') }}</small>
+            <small>{{ tr('证据：{text}', { text: variant.evidence }) }}</small>
+            <small>{{ tr('来源：{sources}', { sources: variant.sourceIds.join(', ') }) }}</small>
           </div>
         </div>
       </div>
@@ -70,8 +71,8 @@
     <div class="revision-editor">
       <div class="revision-editor__head">
         <div>
-          <strong>修改意见</strong>
-          <span>保留、删除或补充的内容都写在这里</span>
+          <strong>{{ tr('修改意见') }}</strong>
+          <span>{{ tr('保留、删除或补充的内容都写在这里') }}</span>
         </div>
         <span v-if="revisionHistory.length > 1" class="revision-index">
           {{ revisionIndex + 1 }} / {{ revisionHistory.length }}
@@ -81,35 +82,35 @@
         class="revision-input"
         rows="3"
         :value="revisionInstruction"
-        placeholder="例如：保留潮汐和旧灯塔，删除神明部分，补充三个关键历史阶段。"
+        :placeholder="tr('例如：保留潮汐和旧灯塔，删除神明部分，补充三个关键历史阶段。')"
         :disabled="revisionWorking"
         @input="$emit('update:revision-instruction', $event.target.value)"
       ></textarea>
-      <div v-if="revisionError" class="revision-error" role="status">{{ revisionError }}</div>
+      <div v-if="revisionError" class="revision-error" role="status">{{ tr(revisionError) }}</div>
       <div class="revision-actions">
         <button
           type="button"
           class="ghost-btn small"
           :disabled="revisionWorking || revisionIndex <= 0"
           @click="$emit('previous-revision')"
-        >上一版</button>
+        >{{ tr('上一版') }}</button>
         <button
           type="button"
           class="ghost-btn small"
           :disabled="revisionWorking || revisionIndex >= revisionHistory.length - 1"
           @click="$emit('next-revision')"
-        >下一版</button>
+        >{{ tr('下一版') }}</button>
         <button
           type="button"
           class="revision-submit primary-btn"
           :disabled="revisionWorking || !revisionInstruction.trim()"
           @click="$emit('revise')"
-        >{{ revisionWorking ? '修订中…' : '按意见修订' }}</button>
+        >{{ revisionWorking ? tr('修订中…') : tr('按意见修订') }}</button>
       </div>
     </div>
 
     <details v-if="hasDiff" class="diff-preview">
-      <summary>查看差异（行级）</summary>
+      <summary>{{ tr('查看差异（行级）') }}</summary>
       <ul class="diff-list">
         <li
           v-for="(op, idx) in diffLines"
@@ -123,24 +124,25 @@
     </details>
 
     <details class="prompt-preview">
-      <summary>查看本次提示词</summary>
+      <summary>{{ tr('查看本次提示词') }}</summary>
       <pre>{{ draft.promptPreview }}</pre>
     </details>
 
     <div class="card-actions">
-      <button class="primary-btn" @click="onAdopt">采纳到世界书</button>
+      <button class="primary-btn" @click="onAdopt">{{ tr('采纳到世界书') }}</button>
       <button
         v-if="canImportToExperience"
         type="button"
         class="ghost-btn"
         @click="$emit('import-to-experience')"
-      >导入体验</button>
-      <button class="ghost-btn" @click="$emit('copy')">复制</button>
+      >{{ tr('导入体验') }}</button>
+      <button class="ghost-btn" @click="$emit('copy')">{{ tr('复制') }}</button>
     </div>
   </section>
 </template>
 
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 import GenerationStatus from './GenerationStatus.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
@@ -173,7 +175,7 @@ const entryTypeLabels = Object.freeze({
 })
 
 function entryTypeLabel(type) {
-  return entryTypeLabels[type] || type || '候选'
+  return tr(entryTypeLabels[type] || type || '候选')
 }
 
 const emit = defineEmits([
@@ -240,7 +242,7 @@ function onAdopt() {
   const current = String(props.currentFieldValue || '').trim()
   const incoming = String(props.draft.content || '').trim()
   if (current && current !== incoming) {
-    const confirmed = window.confirm('当前设定项已有内容，采纳将更新对应世界书条目。继续？')
+    const confirmed = window.confirm(tr('当前设定项已有内容，采纳将更新对应世界书条目。继续？'))
     if (!confirmed) return
   }
   emit('save-field')

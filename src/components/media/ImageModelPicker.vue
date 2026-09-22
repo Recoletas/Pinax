@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   createImageModelConfigDraft,
@@ -25,7 +26,7 @@ const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const modelTypes = IMAGE_MODEL_TYPES
-const templateHelpText = '支持 {{prompt}}、{{negative_prompt}}、{{width}}、{{height}}、{{reference_image}}、{{reference_images_json}}、{{mask_image}}、{{control_images_json}}。'
+const templateHelpText = computed(() => tr('支持以下模板变量：') + ' {{prompt}}, {{negative_prompt}}, {{width}}, {{height}}, {{reference_image}}, {{reference_images_json}}, {{mask_image}}, {{control_images_json}}')
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
@@ -116,18 +117,18 @@ async function testConnection() {
   connectionState.testing = false
   if (result.ok) {
     connectionState.kind = 'success'
-    connectionState.message = `连接成功${result.latencyMs ? ` · ${result.latencyMs}ms` : ''}`
+    connectionState.message = `${tr('连接成功')}${result.latencyMs ? ` · ${result.latencyMs}ms` : ''}`
     return
   }
   connectionState.kind = 'error'
-  connectionState.message = `连接失败${result.status ? ` · ${result.status}` : ''} · ${result.error || result.statusText || '请检查配置'}`
+  connectionState.message = `${tr('连接失败')}${result.status ? ` · ${result.status}` : ''} · ${result.error || result.statusText || tr('请检查配置')}`
 }
 
 function removeConfig() {
   const id = editingConfig.value?.id
   if (!id) return
   const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm('确定删除这个图片模型配置？')
+    ? window.confirm(tr('确定删除这个图片模型配置？'))
     : false
   if (!confirmed) return
   const configs = deleteImageProviderConfig(id)
@@ -138,7 +139,7 @@ function removeConfig() {
 }
 
 function typeLabel(type) {
-  return modelTypes.find((item) => item.value === type)?.label || type
+  return tr(modelTypes.find((item) => item.value === type)?.label || type)
 }
 
 function resetConnectionState() {
@@ -168,8 +169,8 @@ useTransientLayer({
   <div class="image-model-picker">
     <button ref="triggerRef" class="image-model-picker__trigger" type="button" @click="openPicker">
       <span class="image-model-picker__trigger-copy">
-        <span class="image-model-picker__eyebrow">图片模型</span>
-        <strong>{{ selectedConfig?.name || '选择或配置模型' }}</strong>
+        <span class="image-model-picker__eyebrow">{{ tr("图片模型") }}</span>
+        <strong>{{ selectedConfig?.builtin ? tr(selectedConfig.name) : (selectedConfig?.name || tr("选择或配置模型")) }}</strong>
       </span>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
         <path d="m7 10 5 5 5-5" />
@@ -178,13 +179,13 @@ useTransientLayer({
 
     <Teleport to="body">
       <div v-if="showPicker" class="image-model-overlay" @click.self="showPicker = false">
-        <section class="image-model-dialog" role="dialog" aria-modal="true" aria-label="选择图片模型">
+        <section class="image-model-dialog" role="dialog" aria-modal="true" :aria-label="tr('选择图片模型')">
           <header class="image-model-dialog__header">
             <div>
-              <strong>选择图片模型</strong>
-              <span>{{ localConfigs.length }} 个配置</span>
+              <strong>{{ tr("选择图片模型") }}</strong>
+              <span>{{ tr('模型配置：{count}', { count: localConfigs.length }) }}</span>
             </div>
-            <button type="button" class="image-model-icon-btn" title="关闭" aria-label="关闭" @click="showPicker = false">×</button>
+            <button type="button" class="image-model-icon-btn" :title="tr('关闭')" :aria-label="tr('关闭')" @click="showPicker = false">×</button>
           </header>
 
           <div v-if="localConfigs.length" class="image-model-list">
@@ -201,91 +202,91 @@ useTransientLayer({
             >
               <span class="image-model-option__mark" aria-hidden="true"></span>
               <span class="image-model-option__copy">
-                <strong>{{ config.name }}<em v-if="config.builtin" class="image-model-badge">内置</em></strong>
+                <strong>{{ config.builtin ? tr(config.name) : config.name }}<em v-if="config.builtin" class="image-model-badge">{{ tr("内置") }}</em></strong>
                 <span>{{ typeLabel(config.type) }}<template v-if="config.defaultModel"> · {{ config.defaultModel }}</template></span>
-                <small v-if="config.serverKey" class="image-model-server-note">已由服务器配置</small>
+                <small v-if="config.serverKey" class="image-model-server-note">{{ tr("已由服务器配置") }}</small>
               </span>
-              <button v-if="!config.builtin" type="button" class="image-model-option__edit" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
+              <button v-if="!config.builtin" type="button" class="image-model-option__edit" :title="tr('编辑模型配置')" :aria-label="tr('编辑模型配置')" @click.stop="editConfig(config)">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
                   <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>
                 </svg>
               </button>
-              <button v-else type="button" class="image-model-option__edit" title="查看内置 MiniMax" aria-label="查看内置 MiniMax" @click.stop="editConfig(config)">…</button>
+              <button v-else type="button" class="image-model-option__edit" :title="tr('查看内置 MiniMax')" :aria-label="tr('查看内置 MiniMax')" @click.stop="editConfig(config)">…</button>
             </div>
           </div>
-          <p v-else class="image-model-empty">还没有图片模型配置。</p>
+          <p v-else class="image-model-empty">{{ tr("还没有图片模型配置。") }}</p>
 
           <footer class="image-model-dialog__footer">
-            <button type="button" class="image-model-add" @click="addConfig">添加模型配置</button>
+            <button type="button" class="image-model-add" @click="addConfig">{{ tr("添加模型配置") }}</button>
           </footer>
         </section>
       </div>
 
       <div v-if="showConfig && editingConfig" class="image-model-overlay" @click.self="closeConfig">
-        <section class="image-model-dialog image-model-dialog--config" role="dialog" aria-modal="true" aria-label="图片模型配置">
+        <section class="image-model-dialog image-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr('图片模型配置')">
           <header class="image-model-dialog__header">
             <div>
-              <strong>{{ editingIsBuiltin ? '内置 MiniMax' : (editingConfig.id ? '编辑模型配置' : '添加模型配置') }}</strong>
-              <span>配置会供插画与漫画共用</span>
+              <strong>{{ editingIsBuiltin ? tr("内置 MiniMax") : (editingConfig.id ? tr("编辑模型配置") : tr("添加模型配置")) }}</strong>
+              <span>{{ tr("配置会供插画与漫画共用") }}</span>
             </div>
-            <button type="button" class="image-model-icon-btn" title="关闭" aria-label="关闭" @click="closeConfig">×</button>
+            <button type="button" class="image-model-icon-btn" :title="tr('关闭')" :aria-label="tr('关闭')" @click="closeConfig">×</button>
           </header>
 
           <!-- 内置: 只读详情 -->
           <div v-if="editingIsBuiltin" class="image-model-form image-model-form--readonly">
-            <div class="image-model-static-row"><span>名称</span><strong>{{ editingConfig.name }}</strong></div>
-            <div class="image-model-static-row"><span>类型</span><strong>{{ typeLabel(editingConfig.type) }}</strong></div>
-            <div class="image-model-static-row"><span>API 地址</span><strong>{{ editingConfig.baseUrl }}</strong></div>
-            <div class="image-model-static-row"><span>模型 ID</span><strong>{{ editingConfig.defaultModel }}</strong></div>
+            <div class="image-model-static-row"><span>{{ tr("名称") }}</span><strong>{{ tr(editingConfig.name) }}</strong></div>
+            <div class="image-model-static-row"><span>{{ tr("类型") }}</span><strong>{{ typeLabel(editingConfig.type) }}</strong></div>
+            <div class="image-model-static-row"><span>{{ tr("API 地址") }}</span><strong>{{ editingConfig.baseUrl }}</strong></div>
+            <div class="image-model-static-row"><span>{{ tr("模型 ID") }}</span><strong>{{ editingConfig.defaultModel }}</strong></div>
             <div class="image-model-server-key">
               <span>API Key</span>
-              <strong>已由服务器配置，无需填写</strong>
-              <p>使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置
-                <code>MINIMAX_API_KEY</code>，生成时会有明确报错。</p>
+              <strong>{{ tr("已由服务器配置，无需填写") }}</strong>
+              <p>{{ tr('内置 MiniMax 由服务器转发请求，需要部署者配置密钥：') }}
+                <code>MINIMAX_API_KEY</code></p>
             </div>
           </div>
 
           <!-- 用户配置 / 新增: 可编辑表单 -->
           <div v-else class="image-model-form">
-            <label><span>名称</span><input v-model="editingConfig.name" placeholder="例如：本地 SDXL" /></label>
+            <label><span>{{ tr("名称") }}</span><input v-model="editingConfig.name" :placeholder="tr('例如：本地 SDXL')" /></label>
             <label>
-              <span>类型</span>
+              <span>{{ tr("类型") }}</span>
               <select :value="editingConfig.type" @change="changeModelType">
-                <option v-for="item in modelTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
+                <option v-for="item in modelTypes" :key="item.value" :value="item.value">{{ tr(item.label) }}</option>
               </select>
             </label>
-            <label><span>API 地址</span><input v-model="editingConfig.baseUrl" placeholder="http://127.0.0.1:7860" /></label>
-            <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" placeholder="可选" /></label>
+            <label><span>{{ tr("API 地址") }}</span><input v-model="editingConfig.baseUrl" placeholder="http://127.0.0.1:7860" /></label>
+            <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" :placeholder="tr('可选')" /></label>
             <label v-if="editingConfig.type === 'minimax_image'">
-              <span>模型 ID</span>
+              <span>{{ tr("模型 ID") }}</span>
               <select v-model="editingConfig.defaultModel">
                 <option value="image-01">image-01</option>
                 <option value="image-01-live">image-01-live</option>
               </select>
             </label>
-            <label v-else><span>模型 ID</span><input v-model="editingConfig.defaultModel" placeholder="例如：gpt-image-1 或 SDXL checkpoint" /></label>
-            <label><span>响应字段路径</span><input v-model="editingConfig.responsePath" placeholder="通用 HTTP 可选，例如 data.0.url" /></label>
+            <label v-else><span>{{ tr("模型 ID") }}</span><input v-model="editingConfig.defaultModel" :placeholder="tr('例如：gpt-image-1 或 SDXL checkpoint')" /></label>
+            <label><span>{{ tr("响应字段路径") }}</span><input v-model="editingConfig.responsePath" :placeholder="tr('通用 HTTP 可选，例如 data.0.url')" /></label>
             <label v-if="editingConfig.type === 'http'">
-              <span>请求体模板</span>
+              <span>{{ tr("请求体模板") }}</span>
               <textarea v-model="editingConfig.requestTemplate" rows="5" placeholder='{"prompt":"{{prompt}}","reference":"{{reference_image}}"}'></textarea>
               <small v-text="templateHelpText"></small>
             </label>
             <p v-if="connectionState.message" class="image-model-connection" :class="`is-${connectionState.kind}`" role="status">
-              {{ connectionState.message }}
+              {{ tr(connectionState.message) }}
             </p>
           </div>
 
           <footer class="image-model-dialog__footer image-model-dialog__footer--config">
             <template v-if="editingIsBuiltin">
-              <button type="button" class="image-model-add" @click="useBuiltin">使用此模型</button>
-              <button type="button" @click="closeConfig">关闭</button>
+              <button type="button" class="image-model-add" @click="useBuiltin">{{ tr("使用此模型") }}</button>
+              <button type="button" @click="closeConfig">{{ tr("关闭") }}</button>
             </template>
             <template v-else>
-              <button v-if="editingConfig.id" type="button" class="image-model-delete" @click="removeConfig">删除</button>
+              <button v-if="editingConfig.id" type="button" class="image-model-delete" @click="removeConfig">{{ tr("删除") }}</button>
               <button type="button" :disabled="connectionState.testing" @click="testConnection">
-                {{ connectionState.testing ? '测试中...' : '测试连通性' }}
+                {{ connectionState.testing ? tr("测试中...") : tr("测试连通性") }}
               </button>
-              <button type="button" class="image-model-add" :disabled="!editingConfig.name.trim()" @click="saveConfig">保存</button>
+              <button type="button" class="image-model-add" :disabled="!editingConfig.name.trim()" @click="saveConfig">{{ tr("保存") }}</button>
             </template>
           </footer>
         </section>
@@ -321,7 +322,7 @@ useTransientLayer({
 .image-model-overlay {
   position: fixed;
   inset: 0;
-  z-index: var(--z-modal-backdrop, 800);
+  z-index: calc(var(--z-modal, 300) + 10);
   display: grid;
   place-items: center;
   padding: 20px;

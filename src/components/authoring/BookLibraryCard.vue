@@ -1,28 +1,31 @@
 <template>
-  <router-link class="book-card" :to="{ name: 'authoring', query: { bookId: book.id } }" :aria-label="`打开《${book.title || '未命名书稿'}》`">
+  <router-link class="book-card" :to="{ name: 'authoring', query: { bookId: book.id } }" :aria-label="tr('打开《{value0}》', { value0: book.title || '未命名书稿' })">
     <div class="book-card__cover" aria-hidden="true">
-      <strong>{{ book.title || '未命名书稿' }}</strong>
-      <span class="book-card__imprint">PINAX · 原创书稿</span>
+      <strong>{{ book.title || tr('未命名书稿') }}</strong>
+      <span class="book-card__imprint">{{ tr('PINAX · 原创书稿') }}</span>
     </div>
     <div class="book-card__details">
-      <h3 :title="book.title">{{ book.title || '未命名书稿' }}</h3>
-      <p>{{ book.chapters?.length || 0 }} 章 <span aria-hidden="true">·</span> {{ wordCount.toLocaleString('zh-CN') }} 字</p>
+      <h3 :title="book.title">{{ book.title || tr('未命名书稿') }}</h3>
+      <p>{{ tr('{value} 章', { value: book.chapters?.length || 0 }) }}<span aria-hidden="true">·</span>{{ tr('{value} 字', { value: wordCount.toLocaleString(uiLocale) }) }}</p>
       <span class="book-card__date">{{ modifiedLabel }}</span>
     </div>
-    <span class="book-card__open" aria-hidden="true">打开书稿 ↗</span>
+    <span class="book-card__open" aria-hidden="true">{{ tr('打开书稿 ↗') }}</span>
   </router-link>
 </template>
 
 <script setup>
+import { tr, uiLocale } from '../../i18n/index.js'
+import { countWritingText } from '../../../shared/writingTextMetrics.js'
+import { getChapterMarkdown } from '../../services/writing/writingDocumentSchema.js'
 import { computed } from 'vue'
 const props = defineProps({ book: { type: Object, required: true } })
 const wordCount = computed(() => (props.book.chapters || []).reduce((sum, chapter) => {
-  const count = Number(chapter.wordCount)
+  const count = countWritingText(getChapterMarkdown(chapter), props.book.manuscriptLanguage)
   return sum + (Number.isFinite(count) ? Math.max(0, count) : 0)
 }, 0))
 const modifiedLabel = computed(() => {
   const date = new Date(props.book.updatedAt || props.book.createdAt)
-  return Number.isNaN(date.getTime()) ? '修改时间未知' : `${date.toLocaleDateString('zh-CN')} 修改`
+  return Number.isNaN(date.getTime()) ? tr('修改时间未知') : tr('{value0} 修改', { value0: date.toLocaleDateString(uiLocale.value) })
 })
 </script>
 

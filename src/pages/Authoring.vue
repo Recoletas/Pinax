@@ -5,16 +5,16 @@
       v-if="writingTypography.zen"
       class="wall__zen-exit"
       type="button"
-      title="退出专注全屏（Esc）"
+      :title="tr(&quot;退出专注全屏（Esc）&quot;)"
       @click="toggleWritingZen"
-    >退出全屏</button>
+    >{{ tr('退出全屏') }}</button>
     <!-- 页面内只保留编辑工具、保存反馈与章节目录；作品切换由全局标签和首页负责。 -->
     <div class="wall__cork" :inert="illustratorBlocking ? '' : undefined">
 
       <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
 
-      <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="`保存状态`">
-        <span class="wall__save-chip-state">{{ stampStateText }}</span>
+      <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="tr('保存状态')">
+        <span class="wall__save-chip-state">{{ tr(stampStateText) }}</span>
       </div>
 
       <button
@@ -26,7 +26,7 @@
         @click.stop="openChapterDrawer"
       >
         <WorkbenchIcon name="panel-left" :size="15" />
-        <span>章节目录</span>
+        <span>{{ tr('章节目录') }}</span>
       </button>
 
       <div class="wall__tabs">
@@ -35,38 +35,38 @@
           class="wall__tab"
           type="button"
           :aria-expanded="moreMenuOpen.toString()"
-          aria-label="更多写作操作"
-          title="更多写作操作"
+          :aria-label="tr(&quot;更多写作操作&quot;)"
+          :title="tr(&quot;更多写作操作&quot;)"
           @pointerdown="freezeMobileToolSource"
           @click.stop="toggleMoreMenu($event)"
         >
           <WorkbenchIcon name="more" :size="16" />
-          <span>{{ chapterShelfSheetMode ? '工具' : '更多' }}</span>
+          <span>{{ chapterShelfSheetMode ? tr('工具') : tr('更多') }}</span>
         </button>
         <Teleport to="body">
           <!-- 工具条是 42px 单行 + overflow 裁切，absolute 菜单会被整体裁没（死按钮）；
                菜单固定定位到触发按钮下方，点击任意位置或 Esc 关闭。 -->
-          <div v-if="moreMenuOpen" class="wall__more-menu is-fixed-menu" :style="moreMenuStyle" role="menu" aria-label="更多写作操作" @click.stop>
-            <div class="wall__more-tools" aria-label="写作工具">
-              <button type="button" role="menuitem" @pointerdown="freezeReviewSource" @click="moreAction(openReviewPanel)">校对</button>
-              <button type="button" role="menuitem" @pointerdown="freezeSearchSource" @click="moreAction(openSearchPanel)">查找</button>
-              <button type="button" role="menuitem" @click="moreAction(toggleQuickWords)">快捷词</button>
-              <button type="button" role="menuitem" @click="moreAction(openNameGenerator)">取名</button>
-              <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">双栏</button>
-              <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">生图</button>
+          <div v-if="moreMenuOpen" class="wall__more-menu is-fixed-menu" :style="moreMenuStyle" role="menu" :aria-label="tr(&quot;更多写作操作&quot;)" @click.stop>
+            <div class="wall__more-tools" :aria-label="tr(&quot;写作工具&quot;)">
+              <button type="button" role="menuitem" @pointerdown="freezeReviewSource" @click="moreAction(openReviewPanel)">{{ tr('校对') }}</button>
+              <button type="button" role="menuitem" @pointerdown="freezeSearchSource" @click="moreAction(openSearchPanel)">{{ tr('查找') }}</button>
+              <button type="button" role="menuitem" @click="moreAction(toggleQuickWords)">{{ tr('快捷词') }}</button>
+              <button type="button" role="menuitem" @click="moreAction(openNameGenerator)">{{ tr('取名') }}</button>
+              <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">{{ tr('双栏') }}</button>
+              <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">{{ tr('生图') }}</button>
             </div>
-            <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">继续创作指引</button>
-            <button type="button" role="menuitem" @click="moreAction(createNewBook)">新建书稿</button>
-            <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">备份与恢复</button>
-            <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">导出当前章节</button>
-            <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">导出整本书</button>
-            <button type="button" role="menuitem" @click="moreAction(openManuscriptImport)">导入 TXT / Markdown</button>
-            <button type="button" role="menuitem" @click="moreAction(exportChapterStoryboardDraft)" :disabled="!selectedChapterId">导出章节分镜</button>
-            <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">素材收件箱</button>
-            <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">素材库</button>
-            <button type="button" role="menuitem" :aria-pressed="inlineSuggestionEnabled.toString()" @click="moreAction(toggleInlineSuggestion)">{{ inlineSuggestionEnabled ? '自动联想：开' : '自动联想：关' }}</button>
-            <button type="button" role="menuitem" @click="moreAction(goToAdventure)">回到冒险</button>
-            <button type="button" role="menuitem" @click="moreAction(goBack)">返回首页</button>
+            <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">{{ tr('继续创作指引') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(createNewBook)">{{ tr('新建书稿') }}</button>
+            <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">{{ tr('备份与恢复') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">{{ tr('导出当前章节') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">{{ tr('导出整本书') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(openManuscriptImport)">{{ tr('导入 TXT / Markdown') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(exportChapterStoryboardDraft)" :disabled="!selectedChapterId">{{ tr('导出章节分镜') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">{{ tr('素材收件箱') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">{{ tr('素材库') }}</button>
+            <button type="button" role="menuitem" :aria-pressed="inlineSuggestionEnabled.toString()" @click="moreAction(toggleInlineSuggestion)">{{ inlineSuggestionEnabled ? tr('自动联想：开') : tr('自动联想：关') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(goToAdventure)">{{ tr('回到冒险') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(goBack)">{{ tr('返回首页') }}</button>
           </div>
         </Teleport>
         <Teleport to="body">
@@ -76,27 +76,27 @@
             class="shelf-context-menu"
             :style="{ position: 'fixed', top: `${shelfContextMenu.y}px`, left: `${shelfContextMenu.x}px` }"
             role="menu"
-            :aria-label="shelfContextMenu.kind === 'chapter' ? '章节操作' : '卷操作'"
+            :aria-label="shelfContextMenu.kind === 'chapter' ? tr('章节操作') : tr('卷操作')"
             @click.stop
             @contextmenu.prevent.stop
           >
             <template v-if="shelfContextMenu.kind === 'chapter'">
-              <button type="button" role="menuitem" @click="shelfMenuAction((id) => selectChapter(id))">打开章节</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(openChapterInDual)">在双栏打开</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(renameChapterFromShelf)">重命名</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentChapterManuscript())">导出本章</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(() => selectInspectorTool('history'))">历史版本</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction((id) => selectChapter(id))">{{ tr('打开章节') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(openChapterInDual)">{{ tr('在双栏打开') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(renameChapterFromShelf)">{{ tr('重命名') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentChapterManuscript())">{{ tr('导出本章') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => selectInspectorTool('history'))">{{ tr('历史版本') }}</button>
               <div class="shelf-menu-divider"></div>
-              <button type="button" role="menuitem" class="is-danger" @click="shelfMenuAction(deleteChapterFromShelf)">删除本章</button>
+              <button type="button" role="menuitem" class="is-danger" @click="shelfMenuAction(deleteChapterFromShelf)">{{ tr('删除本章') }}</button>
             </template>
             <template v-else>
-              <button type="button" role="menuitem" @click="shelfMenuAction(() => createNewChapter())">新建章节</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentBookManuscript())">导出整本书</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => createNewChapter())">{{ tr('新建章节') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentBookManuscript())">{{ tr('导出整本书') }}</button>
             </template>
           </div>
         </Teleport>
         <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
-        <button v-if="false" class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? '切换亮色' : '切换暗色'" :aria-label="isDark ? '切换亮色' : '切换暗色'">
+        <button v-if="false" class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? tr('切换亮色') : tr('切换暗色')" :aria-label="isDark ? tr('切换亮色') : tr('切换暗色')">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
           </svg>
@@ -116,11 +116,11 @@
       data-test="save-rescue"
       role="status"
     >
-      <span class="wall__save-rescue__text">{{ saveRescueText }}</span>
+      <span class="wall__save-rescue__text">{{ tr(saveRescueText) }}</span>
       <div class="wall__save-rescue__actions">
-        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-retry" @click="retrySaveFromRescue">重试保存</button>
-        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-export" @click="exportUnsavedManuscriptFromRescue">导出当前正文</button>
-        <button v-if="writingRecoveryDraft" type="button" data-test="save-rescue-recovery" @click="openRecoveryFromRescue">查看恢复稿</button>
+        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-retry" @click="retrySaveFromRescue">{{ tr('重试保存') }}</button>
+        <button v-if="saveStatus === 'error'" type="button" data-test="save-rescue-export" @click="exportUnsavedManuscriptFromRescue">{{ tr('导出当前正文') }}</button>
+        <button v-if="writingRecoveryDraft" type="button" data-test="save-rescue-recovery" @click="openRecoveryFromRescue">{{ tr('查看恢复稿') }}</button>
       </div>
     </div>
 
@@ -128,7 +128,7 @@
       v-if="chapterDrawerOpen"
       class="wall__chapter-overlay"
       type="button"
-      aria-label="关闭章节列表"
+      :aria-label="tr(&quot;关闭章节列表&quot;)"
       @click="closeChapterDrawer"
     ></button>
 
@@ -143,19 +143,20 @@
         :tabindex="chapterDrawerOpen ? -1 : undefined"
         :inert="chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
         :aria-hidden="chapterShelfSheetMode && !chapterDrawerOpen ? 'true' : undefined"
-        aria-label="章节书架"
+        :aria-label="tr(&quot;章节书架&quot;)"
       >
         <div class="wall__shelf-manuscript">
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
-            <input v-model="chapterShelfQuery" type="search" placeholder="搜索章节" aria-label="搜索章节" />
+            <input v-model="chapterShelfQuery" type="search" :placeholder="tr(&quot;搜索章节&quot;)" :aria-label="tr(&quot;搜索章节&quot;)" />
           </div>
 
           <div class="authoring-chapter-create">
-            <button class="is-primary control-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">新建章</button>
-            <button class="control-secondary" type="button" @click="createNewBook">新建书</button>
+            <button class="is-primary control-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">{{ tr('新建章') }}</button>
+            <button class="control-secondary" type="button" @click="createNewBook">{{ tr('新建书') }}</button>
           </div>
 
+          <ManuscriptLanguageSelect v-if="currentBook" :model-value="currentBook.manuscriptLanguage || ''" @update:model-value="setManuscriptLanguage" />
           <div v-if="selectedBookId" class="authoring-chapter-tree">
             <!-- 文本工作台 v3 正式文档树：构思/正文共用同一稿面。 -->
             <AuthoringIdeaShelf
@@ -189,8 +190,8 @@
               @close="notesExtractionSource = null" @saved="wt3RefreshDocs()" />
             <div class="authoring-chapter-group is-current" @contextmenu.prevent="openShelfContextMenu($event, 'volume')">
               <WorkbenchIcon name="folder" :size="14" />
-              <span>第一卷</span>
-              <small>{{ chapters.length }} 章</small>
+              <span>{{ tr('第一卷') }}</span>
+              <small>{{ tr('{length} 章', { length: chapters.length }) }}</small>
             </div>
             <div
               v-for="entry in visibleChapterEntries"
@@ -207,7 +208,7 @@
               :aria-pressed="selectedChapterId === entry.chapter.id"
               @keydown.enter.prevent="selectChapter(entry.chapter.id)"
               @keydown.space.prevent="selectChapter(entry.chapter.id)"
-              :aria-label="`${chapterRowLabel(entry.index, entry.chapter.title)} · 拖拽排序`"
+              :aria-label="tr('{value0} · 拖拽排序', { value0: chapterRowLabel(entry.index, entry.chapter.title) })"
               :aria-grabbed="dragIndex === entry.index ? 'true' : 'false'"
               :aria-dropeffect="dropTargetIndex === entry.index ? 'move' : 'none'"
               @click="selectChapter(entry.chapter.id)"
@@ -222,9 +223,9 @@
                 <span class="authoring-chapter-row__ordinal">{{ chapterRowParts(entry.index, entry.chapter.title).ordinal }}</span>
                 <span class="authoring-chapter-row__name">{{ chapterRowParts(entry.index, entry.chapter.title).name }}</span>
               </span>
-              <span class="authoring-chapter-row__count workspace-nav-meta">{{ (entry.chapter.wordCount || 0).toLocaleString() }}</span>
+              <span class="authoring-chapter-row__count workspace-nav-meta">{{ countWritingText(getChapterMarkdown(entry.chapter), currentBook?.manuscriptLanguage).toLocaleString(uiLocale) }}</span>
             </div>
-            <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">没有匹配的章节</p>
+            <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">{{ tr('没有匹配的章节') }}</p>
           </div>
 
           <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
@@ -233,33 +234,33 @@
               <select
                 v-model="bindingDraftWorldbookId"
                 class="wall__binding-select"
-                aria-label="选择要绑定的世界书"
+                :aria-label="tr(&quot;选择要绑定的世界书&quot;)"
               >
-                <option value="">暂不绑定</option>
+                <option value="">{{ tr('暂不绑定') }}</option>
                 <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
               </select>
-              <button class="wall__shelf-pin-btn" type="button" data-test="confirm-binding" @click="confirmBindingSelect">确定</button>
-              <button class="wall__shelf-pin-btn" type="button" @click="bindingSelectOpen = false">取消</button>
+              <button class="wall__shelf-pin-btn" type="button" data-test="confirm-binding" @click="confirmBindingSelect">{{ tr('确定') }}</button>
+              <button class="wall__shelf-pin-btn" type="button" @click="bindingSelectOpen = false">{{ tr('取消') }}</button>
             </template>
             <template v-else>
               <button
                 class="wall__binding-compact"
                 type="button"
                 data-test="bind-worldbook"
-                :title="bookWorldbookStatus.status === 'bound' ? `当前世界书：${boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId}，点击更换` : '关联世界书'"
+                :title="bookWorldbookStatus.status === 'bound' ? tr('当前世界书：{value0}，点击更换', { value0: boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId }) : tr('关联世界书')"
                 @click="openBindingSelect"
               >
                 <WorkbenchIcon name="book" :size="13" />
                 <span v-if="bookWorldbookStatus.status === 'bound'">{{ boundWorldbook?.name || bookWorldbookStatus.worldbook?.name || bookWorldbookStatus.worldbookId }}</span>
-                <span v-else-if="bookWorldbookStatus.status === 'missing'" class="is-missing" data-test="worldbook-missing">世界书已缺失</span>
-                <span v-else>关联世界书</span>
+                <span v-else-if="bookWorldbookStatus.status === 'missing'" class="is-missing" data-test="worldbook-missing">{{ tr('世界书已缺失') }}</span>
+                <span v-else>{{ tr('关联世界书') }}</span>
               </button>
             </template>
           </div>
         </div>
 
         <!-- 本章现场（Task 1.3 挂载现场条）；两行 grid 的 auto 行，不随稿件滚动。 -->
-        <div class="wall__shelf-scene" aria-label="本章现场">
+        <div class="wall__shelf-scene" :aria-label="tr(&quot;本章现场&quot;)">
           <AuthoringSceneRail
             :projection="sceneProjection"
             @open-detail="openSceneDetail"
@@ -273,16 +274,16 @@
       </aside>
 
       <!-- 中：卷宗稿纸（中央主线） -->
-      <section class="wall__dossier" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" aria-label="章节正文卷宗">
+      <section class="wall__dossier" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" :aria-label="tr(&quot;章节正文卷宗&quot;)">
         <template v-if="!selectedBookId">
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
-              <span class="wall__empty-kicker">空白书稿</span>
-              <strong>尚未建立书稿</strong>
+              <span class="wall__empty-kicker">{{ tr('空白书稿') }}</span>
+              <strong>{{ tr('尚未建立书稿') }}</strong>
             </div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewBook">新建书稿</button>
-              <button class="wall__pin-link" type="button" data-test="empty-import-manuscript" @click="openManuscriptImport">导入 TXT / Markdown</button>
+              <button class="wall__pin-cta" type="button" @click="createNewBook">{{ tr('新建书稿') }}</button>
+              <button class="wall__pin-link" type="button" data-test="empty-import-manuscript" @click="openManuscriptImport">{{ tr('导入 TXT / Markdown') }}</button>
             </div>
           </div>
         </template>
@@ -290,11 +291,11 @@
         <template v-else-if="!selectedChapterId">
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
-              <span class="wall__empty-kicker">空白章节</span>
-              <strong>尚未建立章节</strong>
+              <span class="wall__empty-kicker">{{ tr('空白章节') }}</span>
+              <strong>{{ tr('尚未建立章节') }}</strong>
             </div>
             <div class="wall__empty-actions">
-              <button class="wall__pin-cta" type="button" @click="createNewChapter">建立第一章</button>
+              <button class="wall__pin-cta" type="button" @click="createNewChapter">{{ tr('建立第一章') }}</button>
             </div>
           </div>
         </template>
@@ -304,68 +305,68 @@
             <Teleport to="#authoring-editor-toolbar-host">
             <div class="editor-toolbar">
               <div class="toolbar-group">
-                <button class="control-quiet tool-btn" type="button" title="撤销当前活动窗（Ctrl/Cmd+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">撤销</button>
-                <button class="control-quiet tool-btn" type="button" title="重做当前活动窗（Ctrl/Cmd+Shift+Z）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">重做</button>
+                <button class="control-quiet tool-btn" type="button" :title="tr(&quot;撤销当前活动窗（Ctrl/Cmd+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">{{ tr('撤销') }}</button>
+                <button class="control-quiet tool-btn" type="button" :title="tr(&quot;重做当前活动窗（Ctrl/Cmd+Shift+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">{{ tr('重做') }}</button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
                 <div class="toolbar-popover-anchor">
-                <button class="control-quiet tool-btn" :class="{ active: showFontPanel }" type="button" :aria-expanded="showFontPanel.toString()" @click.stop="toggleFontPanel" title="正文排版设置">排版</button>
+                <button class="control-quiet tool-btn" :class="{ active: showFontPanel }" type="button" :aria-expanded="showFontPanel.toString()" @click.stop="toggleFontPanel" :title="tr(&quot;正文排版设置&quot;)">{{ tr('排版') }}</button>
                 <div class="font-panel" v-if="showFontPanel" :style="fontPanelStyle" @click.stop>
-                  <div class="fp-row"><span class="fp-label">字体</span>
+                  <div class="fp-row"><span class="fp-label">{{ tr('字体') }}</span>
                     <select class="fp-select" :value="writingTypography.fontKey" @change="writingTypography.setFontKey($event.target.value)">
-                      <option v-for="option in writingFontOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
+                      <option v-for="option in writingFontOptions" :key="option.key" :value="option.key">{{ tr(option.label) }}</option>
                     </select>
                   </div>
-                  <div class="fp-row"><span class="fp-label">大小</span>
+                  <div class="fp-row"><span class="fp-label">{{ tr('大小') }}</span>
                     <div class="fp-size-btns">
-                      <button class="fp-btn" @click="adjustFontSize(-1)" title="缩小" :disabled="writingTypography.fontSize <= MIN_FONT_SIZE">A-</button>
+                      <button class="fp-btn" @click="adjustFontSize(-1)" :title="tr(&quot;缩小&quot;)" :disabled="writingTypography.fontSize <= MIN_FONT_SIZE">A-</button>
                       <span class="fp-size-val">{{ editorFontSize }}</span>
-                      <button class="fp-btn" @click="adjustFontSize(1)" title="放大" :disabled="writingTypography.fontSize >= MAX_FONT_SIZE">A+</button>
+                      <button class="fp-btn" @click="adjustFontSize(1)" :title="tr(&quot;放大&quot;)" :disabled="writingTypography.fontSize >= MAX_FONT_SIZE">A+</button>
                     </div>
                   </div>
-                  <div class="fp-row"><span class="fp-label">行距</span>
+                  <div class="fp-row"><span class="fp-label">{{ tr('行距') }}</span>
                     <select class="fp-select" :value="writingTypography.lineHeight" @change="writingTypography.setLineHeight($event.target.value)">
                       <option v-for="lh in [1.5, 1.7, 1.8, 1.9, 2.0, 2.2]" :key="lh" :value="lh">{{ lh }}</option>
                     </select>
                   </div>
-                  <div class="fp-row"><span class="fp-label">首行</span>
+                  <div class="fp-row"><span class="fp-label">{{ tr('首行') }}</span>
                     <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.firstLineIndent.toString()" @click="writingTypography.toggleFirstLineIndent()">
-                      {{ writingTypography.firstLineIndent ? '缩进两字' : '不缩进' }}
+                      {{ writingTypography.firstLineIndent ? tr('缩进两字') : tr('不缩进') }}
                     </button>
                   </div>
-                  <div class="fp-row"><span class="fp-label">段距</span>
+                  <div class="fp-row"><span class="fp-label">{{ tr('段距') }}</span>
                     <select class="fp-select" :value="writingTypography.paragraphGap" @change="writingTypography.setParagraphGap($event.target.value)">
-                      <option :value="0.65">紧凑</option>
-                      <option :value="1.05">标准</option>
-                      <option :value="1.45">宽松</option>
+                      <option :value="0.65">{{ tr('紧凑') }}</option>
+                      <option :value="1.05">{{ tr('标准') }}</option>
+                      <option :value="1.45">{{ tr('宽松') }}</option>
                     </select>
                   </div>
-                  <div class="fp-row"><span class="fp-label">打字机</span>
-                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.typewriter.toString()" title="光标行保持屏幕中央（Ctrl/Cmd+Alt+T）" @click="writingTypography.toggleTypewriter()">
-                      {{ writingTypography.typewriter ? '开' : '关' }}
+                  <div class="fp-row"><span class="fp-label">{{ tr('打字机') }}</span>
+                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.typewriter.toString()" :title="tr(&quot;光标行保持屏幕中央（Ctrl/Cmd+Alt+T）&quot;)" @click="writingTypography.toggleTypewriter()">
+                      {{ writingTypography.typewriter ? tr('开') : tr('关') }}
                     </button>
                   </div>
-                  <div class="fp-row"><span class="fp-label">聚焦</span>
-                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.focusParagraph.toString()" title="淡化非当前段落（Ctrl/Cmd+Alt+F）" @click="writingTypography.toggleFocusParagraph()">
-                      {{ writingTypography.focusParagraph ? '开' : '关' }}
+                  <div class="fp-row"><span class="fp-label">{{ tr('聚焦') }}</span>
+                    <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.focusParagraph.toString()" :title="tr(&quot;淡化非当前段落（Ctrl/Cmd+Alt+F）&quot;)" @click="writingTypography.toggleFocusParagraph()">
+                      {{ writingTypography.focusParagraph ? tr('开') : tr('关') }}
                     </button>
                   </div>
                 </div>
                 </div>
-                <button class="control-quiet tool-btn" :class="{ active: showQuickWords }" type="button" :aria-expanded="showQuickWords.toString()" @click.stop="toggleQuickWords" title="管理写作快捷词">快捷词</button>
-                <button class="control-quiet tool-btn" :class="{ active: showNameGen }" type="button" :aria-expanded="showNameGen.toString()" @click.stop="openNameGenerator" title="快速取名">取名</button>
+                <button class="control-quiet tool-btn" :class="{ active: showQuickWords }" type="button" :aria-expanded="showQuickWords.toString()" @click.stop="toggleQuickWords" :title="tr(&quot;管理写作快捷词&quot;)">{{ tr('快捷词') }}</button>
+                <button class="control-quiet tool-btn" :class="{ active: showNameGen }" type="button" :aria-expanded="showNameGen.toString()" @click.stop="openNameGenerator" :title="tr(&quot;快速取名&quot;)">{{ tr('取名') }}</button>
                 <button
                   ref="illustratorTriggerRef"
                   class="control-quiet tool-btn authoring-illustrator-trigger"
                   :class="{ active: illustratorOpen }"
                   type="button"
                   :aria-expanded="illustratorOpen.toString()"
-                  title="根据当前选区或文本块生成插画"
+                  :title="tr(&quot;根据当前选区或文本块生成插画&quot;)"
                   data-test="authoring-illustrator-trigger"
                   @pointerdown="freezeIllustratorSource"
                   @click.stop="openIllustrator"
-                ><WorkbenchIcon name="image" :size="15" /><span>生图</span></button>
+                ><WorkbenchIcon name="image" :size="15" /><span>{{ tr('生图') }}</span></button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
@@ -374,9 +375,9 @@
                   :class="{ active: writingTypography.zen }"
                   :aria-pressed="writingTypography.zen.toString()"
                   type="button"
-                  title="专注全屏：隐藏周边界面，Esc 退出（Ctrl/Cmd+Alt+Z）"
+                  :title="tr(&quot;专注全屏：隐藏周边界面，Esc 退出（Ctrl/Cmd+Alt+Z）&quot;)"
                   @click="toggleWritingZen"
-                >专注</button>
+                >{{ tr('专注') }}</button>
               </div>
               <div class="toolbar-sep"></div>
               <div v-if="editorMode === 'markdown'" class="toolbar-group">
@@ -384,19 +385,18 @@
                   class="control-quiet tool-btn capture-selection-btn"
                   type="button"
                   :disabled="!canCaptureSelection"
-                  title="把选中的文字收为素材"
+                  :title="tr(&quot;把选中的文字收为素材&quot;)"
                   data-test="capture-selection"
                   @click="captureSelectionAsAsset"
-                >收为素材</button>
+                >{{ tr('收为素材') }}</button>
                 <button
                   class="control-quiet tool-btn annotation-toolbar-btn"
                   :class="{ active: inspectorOpen && inspectorTab === 'comments' }"
                   type="button"
                   :disabled="!selectedText"
-                  title="为选中文字添加批注"
+                  :title="tr(&quot;为选中文字添加批注&quot;)"
                   @click="openAnnotationInspector"
-                >
-                  批注<span v-if="openAnnotationCount" class="annotation-toolbar-count">{{ openAnnotationCount }}</span>
+                >{{ tr('批注') }}<span v-if="openAnnotationCount" class="annotation-toolbar-count">{{ openAnnotationCount }}</span>
                 </button>
               </div>
               <div v-if="editorMode === 'markdown'" class="toolbar-sep"></div>
@@ -405,18 +405,18 @@
                   class="control-quiet tool-btn"
                   :class="{ active: reviewPanelOpen }"
                   type="button"
-                  title="校对当前文稿"
+                  :title="tr(&quot;校对当前文稿&quot;)"
                   @pointerdown="freezeReviewSource"
                   @click.stop="openReviewPanel"
-                >校对</button>
+                >{{ tr('校对') }}</button>
                 <button
                   class="control-quiet tool-btn"
                   :class="{ active: searchPanelOpen }"
                   type="button"
-                  title="查找当前章、全书、构思或设定"
+                  :title="tr(&quot;查找当前章、全书、构思或设定&quot;)"
                   @pointerdown="freezeSearchSource"
                   @click.stop="openSearchPanel"
-                >查找</button>
+                >{{ tr('查找') }}</button>
               </div>
               <div class="toolbar-spacer"></div>
             </div>
@@ -425,16 +425,16 @@
             <div class="wall__dossier-scroll">
             <header class="wall__dossier-head wall__chapter-head">
               <template v-if="wt3ActiveDoc">
-                <span class="wt3-badge">构思</span>
+                <span class="wt3-badge">{{ tr('构思') }}</span>
                 <strong class="wall__dossier-title wt3-doc-title">{{ wt3ActiveDoc.title }}</strong>
-                <button type="button" class="control-quiet tool-btn sm wt3-back-btn" @click="closeExplorationDoc">返回正文</button>
+                <button type="button" class="control-quiet tool-btn sm wt3-back-btn" @click="closeExplorationDoc">{{ tr('返回正文') }}</button>
               </template>
               <template v-else>
                 <span v-if="selectedChapterOrdinalLabel" class="wall__chapter-ordinal" aria-hidden="true">{{ selectedChapterOrdinalLabel }}</span>
                 <input v-model="currentChapterTitle" type="text" class="wall__dossier-title"
                   :disabled="historyInteractionLocked" :aria-disabled="historyInteractionLocked.toString()"
                   :title="currentChapterTitle"
-                  :placeholder="selectedChapterOrdinalLabel ? '章名' : '章节标题'" @input="onTitleChange" aria-label="章节标题" />
+                  :placeholder="selectedChapterOrdinalLabel ? tr('章名') : tr('章节标题')" @input="onTitleChange" :aria-label="tr(&quot;章节标题&quot;)" />
               </template>
             </header>
 
@@ -504,6 +504,7 @@
               @history-command="handleNotebookHistoryCommand"
               @ready="onNotebookReady"
               @input="onNotebookInput"
+              :lang="currentBook?.manuscriptLanguage === 'mixed' ? undefined : currentBook?.manuscriptLanguage || undefined"
               @beforeinput.capture="onWritingBeforeInput"
               @context-menu="showContextMenu"
             />
@@ -511,7 +512,7 @@
               v-if="activeWritingPane === 'main' && writingInteractionOwner === 'quick-word' && quickWordSuggestions.length"
               class="authoring-quick-word-strip"
               role="listbox"
-              aria-label="快捷词建议"
+              :aria-label="tr(&quot;快捷词建议&quot;)"
               @click.stop
             >
               <span>{{ quickWordPrefix }}</span>
@@ -620,7 +621,7 @@
             <Teleport v-if="rehearsalComposerHostRef && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" to="#authoring-block-gap">
               <button type="button" class="authoring-rehearsal-anchor" @click="revealRehearsalComposer">
                 <WorkbenchIcon name="network" :size="15" />
-                <span>从这里推演</span><span>继续推演 →</span>
+                <span>{{ tr('从这里推演') }}</span><span>{{ tr('继续推演 →') }}</span>
               </button>
             </Teleport>
             <Teleport v-if="!blockPreview && adoptionImpact" to="#authoring-block-gap">
@@ -632,33 +633,33 @@
                 class="writing-selection-actions"
                 :style="selectionToolbarStyle"
                 role="toolbar"
-                aria-label="选中文字操作"
+                :aria-label="tr(&quot;选中文字操作&quot;)"
                 @mousedown.prevent
                 @click.stop
               >
-                <button type="button" title="粗体（Ctrl/Cmd+B）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('bold')">
+                <button type="button" :title="tr(&quot;粗体（Ctrl/Cmd+B）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('bold')">
                   <strong>B</strong>
                 </button>
-                <button type="button" title="斜体（Ctrl/Cmd+I）" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('italic')">
+                <button type="button" :title="tr(&quot;斜体（Ctrl/Cmd+I）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.editable" @click="toggleNotebookMark('italic')">
                   <em>I</em>
                 </button>
-                <button type="button" title="插入分隔线" :disabled="historyInteractionLocked" @click="insertSeparator">
+                <button type="button" :title="tr(&quot;插入分隔线&quot;)" :disabled="historyInteractionLocked" @click="insertSeparator">
                   <WorkbenchIcon name="minus" :size="14" />
                 </button>
                 <span aria-hidden="true"></span>
-                <button type="button" title="为选中文字添加批注" @click="openAnnotationFromSelectionMenu">
+                <button type="button" :title="tr(&quot;为选中文字添加批注&quot;)" @click="openAnnotationFromSelectionMenu">
                   <WorkbenchIcon name="message-square" :size="14" />
-                  <span>批注</span>
+                  <span>{{ tr('批注') }}</span>
                 </button>
                 <span aria-hidden="true"></span>
-                <button type="button" title="把选中文字收为素材" @click="captureSelectionFromMenu">
+                <button type="button" :title="tr(&quot;把选中文字收为素材&quot;)" @click="captureSelectionFromMenu">
                   <WorkbenchIcon name="bookmark-plus" :size="14" />
-                  <span>素材</span>
+                  <span>{{ tr('素材') }}</span>
                 </button>
                 <span aria-hidden="true"></span>
-                <button type="button" title="将选中文字提取为待确认的项目事实" data-action="remember-selection" @click="rememberSelectionFromMenu">
+                <button type="button" :title="tr(&quot;将选中文字提取为待确认的项目事实&quot;)" data-action="remember-selection" @click="rememberSelectionFromMenu">
                   <WorkbenchIcon name="sparkles" :size="14" />
-                  <span>事实</span>
+                  <span>{{ tr('事实') }}</span>
                 </button>
               </div>
             </Teleport>
@@ -679,50 +680,50 @@
               <div v-if="showNameGen" class="quick-name-backdrop" @mousedown.self="closeNameGenerator">
                 <section class="quick-name-workbench" :class="{ 'is-compact': nameCategory !== 'person' }" role="dialog" aria-modal="true" aria-labelledby="quick-name-title" @click.stop>
                   <header class="quick-name-head">
-                    <div><h2 id="quick-name-title">快速取名</h2><p>点名称只插入正文；建为条目需要单独确认。</p></div>
-                    <button type="button" class="quick-name-close" aria-label="关闭快速取名" :disabled="nameEntityBusy" @click="closeNameGenerator">×</button>
+                    <div><h2 id="quick-name-title">{{ tr('快速取名') }}</h2><p>{{ tr('点名称只插入正文；建为条目需要单独确认。') }}</p></div>
+                    <button type="button" class="quick-name-close" :aria-label="tr(&quot;关闭快速取名&quot;)" :disabled="nameEntityBusy" @click="closeNameGenerator">×</button>
                   </header>
                   <div class="quick-name-body">
                     <div class="quick-name-filters">
-                      <div class="quick-name-filter quick-name-filter--category"><span>类型</span><div role="group" aria-label="名称类型"><button v-for="item in nameCategoryOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameCategory === item.value }" @click="nameCategory = item.value; doGenerateName()">{{ item.label }}</button></div></div>
+                      <div class="quick-name-filter quick-name-filter--category"><span>{{ tr('类型') }}</span><div role="group" :aria-label="tr(&quot;名称类型&quot;)"><button v-for="item in nameCategoryOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameCategory === item.value }" @click="nameCategory = item.value; doGenerateName()">{{ tr(item.label) }}</button></div></div>
                       <template v-if="nameCategory === 'person'">
-                        <div class="quick-name-filter"><span>语言</span><div role="group" aria-label="名字语言"><button v-for="item in nameLanguageOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameStyle === item.value }" @click="nameStyle = item.value; doGenerateName()">{{ item.label }}</button></div></div>
-                        <div class="quick-name-filter"><span>字数</span><div role="group" aria-label="名字字数"><button v-for="item in nameLengthOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameLength === item.value }" @click="nameLength = item.value; doGenerateName()">{{ item.label }}</button></div></div>
-                        <div class="quick-name-filter"><span>性别</span><div role="group" aria-label="名字性别"><button v-for="item in nameGenderOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameGender === item.value }" @click="nameGender = item.value; doGenerateName()">{{ item.label }}</button></div></div>
-                        <div v-if="nameStyle === 'chinese'" class="quick-name-filter quick-name-filter--surname"><label for="quick-name-surname">指定姓氏</label><input id="quick-name-surname" v-model.trim="fixedSurname" maxlength="2" placeholder="可不填" :disabled="nameEntityBusy" @input="doGenerateName" /></div>
+                        <div class="quick-name-filter"><span>{{ tr('语言') }}</span><div role="group" :aria-label="tr(&quot;名字语言&quot;)"><button v-for="item in nameLanguageOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameStyle === item.value }" @click="nameStyle = item.value; doGenerateName()">{{ tr(item.label) }}</button></div></div>
+                        <div class="quick-name-filter"><span>{{ tr('字数') }}</span><div role="group" :aria-label="tr(&quot;名字字数&quot;)"><button v-for="item in nameLengthOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameLength === item.value }" @click="nameLength = item.value; doGenerateName()">{{ tr(item.label) }}</button></div></div>
+                        <div class="quick-name-filter"><span>{{ tr('性别') }}</span><div role="group" :aria-label="tr(&quot;名字性别&quot;)"><button v-for="item in nameGenderOptions" :key="item.value" type="button" :disabled="nameEntityBusy" :class="{ active: nameGender === item.value }" @click="nameGender = item.value; doGenerateName()">{{ tr(item.label) }}</button></div></div>
+                        <div v-if="nameStyle === 'chinese'" class="quick-name-filter quick-name-filter--surname"><label for="quick-name-surname">{{ tr('指定姓氏') }}</label><input id="quick-name-surname" v-model.trim="fixedSurname" maxlength="2" :placeholder="tr(&quot;可不填&quot;)" :disabled="nameEntityBusy" @input="doGenerateName" /></div>
                       </template>
                     </div>
                     <div class="quick-name-results" aria-live="polite">
                       <div v-for="item in generatedNames" :key="item.value" class="quick-name-result" :class="{ 'is-menu-open': activeNameEntityMenu === item.value }">
-                        <button class="quick-name-result__insert" type="button" :aria-label="`插入${item.value}`" @click="selectName(item)">
+                        <button class="quick-name-result__insert" type="button" :aria-label="tr('插入{value0}', { value0: item.value })" @click="selectName(item)">
                           <strong>{{ item.value }}</strong><span>{{ item.note }}</span>
                         </button>
                         <button
                           class="quick-name-result__more"
                           type="button"
-                          :aria-label="`${item.value}更多操作`"
+                          :aria-label="tr('{value0}更多操作', { value0: item.value })"
                           :aria-expanded="(activeNameEntityMenu === item.value).toString()"
                           @click.stop="toggleNameEntityMenu(item)"
                         >···</button>
                         <div v-if="activeNameEntityMenu === item.value" class="quick-name-result__menu" role="menu" @click.stop>
-                          <button type="button" role="menuitem" data-test="create-name-entity" :aria-label="`建为${activeNameCategoryLabel}条目`" @click="requestNameEntityCreation(item)"><span aria-hidden="true">＋</span>建为{{ activeNameCategoryLabel }}条目</button>
+                          <button type="button" role="menuitem" data-test="create-name-entity" :aria-label="tr('建为{value0}条目', { value0: activeNameCategoryLabel })" @click="requestNameEntityCreation(item)"><span aria-hidden="true">＋</span>{{ tr('建为{activeNameCategoryLabel}条目', { activeNameCategoryLabel: activeNameCategoryLabel }) }}</button>
                         </div>
                       </div>
                     </div>
-                    <section v-if="pendingNameEntityCommand && nameEntityConflicts.length" class="quick-name-conflict" aria-label="同名条目处理">
-                      <div><strong>“{{ pendingNameEntityCommand.selection.text }}”已有同名条目</strong><span>请选择查看已有，或明确仍然新建。</span></div>
+                    <section v-if="pendingNameEntityCommand && nameEntityConflicts.length" class="quick-name-conflict" :aria-label="tr(&quot;同名条目处理&quot;)">
+                      <div><strong>{{ tr('“{text}”已有同名条目', { text: pendingNameEntityCommand.selection.text }) }}</strong><span>{{ tr('请选择查看已有，或明确仍然新建。') }}</span></div>
                       <div class="quick-name-conflict__matches">
-                        <button v-for="conflict in nameEntityConflicts" :key="conflict.entryId" type="button" @click="reuseNameEntityConflict(conflict)">查看已有 · {{ conflict.name }}</button>
+                        <button v-for="conflict in nameEntityConflicts" :key="conflict.entryId" type="button" @click="reuseNameEntityConflict(conflict)">{{ tr('查看已有 · {name}', { name: conflict.name }) }}</button>
                       </div>
-                      <div class="quick-name-conflict__actions"><button type="button" @click="cancelNameEntityConflict">取消</button><button type="button" class="is-primary" :disabled="nameEntityBusy" @click="confirmDuplicateNameEntity">仍然新建</button></div>
+                      <div class="quick-name-conflict__actions"><button type="button" @click="cancelNameEntityConflict">{{ tr('取消') }}</button><button type="button" class="is-primary" :disabled="nameEntityBusy" @click="confirmDuplicateNameEntity">{{ tr('仍然新建') }}</button></div>
                     </section>
                     <div v-if="nameEntityNotice" class="quick-name-notice" :class="`is-${nameEntityNoticeKind}`" role="status">
                       <span>{{ nameEntityNotice }}</span>
-                      <button v-if="nameEntityNoticeKind === 'needs-binding'" type="button" @click="openNameWorldbookBinding">去关联</button>
-                      <button v-else-if="lastNameEntityReceipt" type="button" @click="openCreatedNameEntityEntry">查看条目</button>
+                      <button v-if="nameEntityNoticeKind === 'needs-binding'" type="button" @click="openNameWorldbookBinding">{{ tr('去关联') }}</button>
+                      <button v-else-if="lastNameEntityReceipt" type="button" @click="openCreatedNameEntityEntry">{{ tr('查看条目') }}</button>
                     </div>
                   </div>
-                  <footer class="quick-name-foot"><span>{{ nameEntityBusy ? '正在创建条目…' : `${activeNameCategoryLabel} · ${generatedNames.length} 个候选` }}</span><button type="button" :disabled="nameEntityBusy" @click="doGenerateName">换一批</button></footer>
+                  <footer class="quick-name-foot"><span>{{ nameEntityBusy ? tr('正在创建条目…') : tr('{value0} · {value1} 个候选', { value0: activeNameCategoryLabel, value1: generatedNames.length }) }}</span><button type="button" :disabled="nameEntityBusy" @click="doGenerateName">{{ tr('换一批') }}</button></footer>
                 </section>
               </div>
             </Teleport>
@@ -731,36 +732,36 @@
 
             <div class="dossier-footer">
               <template v-if="saveFeedbackVisible">
-                <span class="dossier-footer-stat dossier-footer-stat--save" :class="`is-${saveStatus}`">{{ stampStateText }}</span>
+                <span class="dossier-footer-stat dossier-footer-stat--save" :class="`is-${saveStatus}`">{{ tr(stampStateText) }}</span>
                 <span class="dossier-footer-stat-divider">·</span>
               </template>
-              <span class="dossier-footer-stat">{{ wordCount.toLocaleString() }} 字</span>
+              <span class="dossier-footer-stat">{{ tr(writingTextMetrics(getEditorText(), currentBook?.manuscriptLanguage).unit === 'words' ? '词数：{count}' : '字/词：{count}', { count: wordCount.toLocaleString(uiLocale) }) }}</span>
               <span class="dossier-footer-stat-divider">·</span>
-              <span class="dossier-footer-stat">{{ charCount.toLocaleString() }} 字符</span>
+              <span class="dossier-footer-stat">{{ tr('{value} 字符', { value: charCount.toLocaleString() }) }}</span>
               <span class="dossier-footer-stat-divider">·</span>
-              <span class="dossier-footer-stat">修订 {{ revisionLabel }}</span>
+              <span class="dossier-footer-stat">{{ tr('修订 {revisionLabel}', { revisionLabel: revisionLabel }) }}</span>
             </div>
           </div>
 
           <!-- 右键菜单 -->
-          <div v-if="contextMenu.show" ref="contextMenuRef" class="context-menu" role="menu" aria-label="正文操作" tabindex="-1" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px', maxHeight: contextMenu.maxHeight + 'px' }" @pointerdown.prevent @click.stop>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('undo')" :disabled="historyInteractionLocked || !contextMenu.availability.undo">撤销</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('redo')" :disabled="historyInteractionLocked || !contextMenu.availability.redo">重做</button>
+          <div v-if="contextMenu.show" ref="contextMenuRef" class="context-menu" role="menu" :aria-label="tr(&quot;正文操作&quot;)" tabindex="-1" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px', maxHeight: contextMenu.maxHeight + 'px' }" @pointerdown.prevent @click.stop>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('undo')" :disabled="historyInteractionLocked || !contextMenu.availability.undo">{{ tr('撤销') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('redo')" :disabled="historyInteractionLocked || !contextMenu.availability.redo">{{ tr('重做') }}</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('cut')" :disabled="historyInteractionLocked || !contextMenu.availability.cut">剪切</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('copy')" :disabled="!contextMenu.availability.copy">复制</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('paste')" :disabled="historyInteractionLocked || !contextMenu.availability.paste" :title="contextMenu.availability.paste ? '' : '浏览器未授权读取剪贴板'">粘贴</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('delete')" :disabled="historyInteractionLocked || !contextMenu.availability.deleteSelection">删除</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('cut')" :disabled="historyInteractionLocked || !contextMenu.availability.cut">{{ tr('剪切') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('copy')" :disabled="!contextMenu.availability.copy">{{ tr('复制') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('paste')" :disabled="historyInteractionLocked || !contextMenu.availability.paste" :title="contextMenu.availability.paste ? '' : tr('浏览器未授权读取剪贴板')">{{ tr('粘贴') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('delete')" :disabled="historyInteractionLocked || !contextMenu.availability.deleteSelection">{{ tr('删除') }}</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('selectAll')" :disabled="!contextMenu.availability.selectAll">全选</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('selectAll')" :disabled="!contextMenu.availability.selectAll">{{ tr('全选') }}</button>
             <div class="ctx-divider"></div>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('splitUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.splitUnit">从此处分开</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('mergePreviousUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergePreviousUnit">与上一单元合并</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('mergeNextUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergeNextUnit">与下一单元合并</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('reviewBlock')">审阅此块</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('imageBlock')">从此处生图</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitUp')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitUp">上移当前单元</button>
-            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitDown')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitDown">下移当前单元</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('splitUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.splitUnit">{{ tr('从此处分开') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('mergePreviousUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergePreviousUnit">{{ tr('与上一单元合并') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('mergeNextUnit')" :disabled="historyInteractionLocked || !contextMenu.availability.mergeNextUnit">{{ tr('与下一单元合并') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('reviewBlock')">{{ tr('审阅此块') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('imageBlock')">{{ tr('从此处生图') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitUp')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitUp">{{ tr('上移当前单元') }}</button>
+            <button class="ctx-item" role="menuitem" @click="ctxAction('moveUnitDown')" :disabled="historyInteractionLocked || !contextMenu.availability.moveUnitDown">{{ tr('下移当前单元') }}</button>
           </div>
         </template>
       </section>
@@ -843,34 +844,35 @@
         class="writing-inspector"
         ref="writingInspectorRef"
         :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
-        aria-label="写作检查器"
+        :aria-label="tr(&quot;写作检查器&quot;)"
       >
         <header class="writing-inspector__head">
           <div>
-            <strong>{{ activeInspectorLabel }}</strong>
-            <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ openAnnotationCount }} 条待处理</span>
+            <strong>{{ tr(activeInspectorLabel) }}</strong>
+            <small v-if="uiLocale === 'en' && ['worldbook', 'scene', 'collaboration'].includes(activeInspectorTool)" class="writing-inspector__locale-note" :title="tr('此工具部分界面目前仅中文')">{{ tr('部分翻译') }}</small>
+            <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ tr('{openAnnotationCount} 条待处理', { openAnnotationCount: openAnnotationCount }) }}</span>
           </div>
           <div class="writing-inspector__head-actions">
-            <button v-if="activeInspectorTool === 'ai'" type="button" class="writing-inspector__memory-link" @click="appSettings.open('memory')">记忆与历史</button>
+            <button v-if="activeInspectorTool === 'ai'" type="button" class="writing-inspector__memory-link" @click="appSettings.open('memory')">{{ tr('记忆与历史') }}</button>
             <!-- 顺序展开（≤1180）时推演排在正文之后：回程入口必须常驻 sticky 标题栏，
                  不能放在会随内容滚走的出处行里。宽屏由 CSS 隐藏。 -->
             <button
               v-if="activeInspectorTool === 'rehearsal'"
               class="writing-inspector__manuscript-btn"
               type="button"
-              aria-label="回到正文"
-              title="回到正文"
+              :aria-label="tr(&quot;回到正文&quot;)"
+              :title="tr(&quot;回到正文&quot;)"
               @click="scrollRehearsalBackToManuscript"
-            >正文</button>
+            >{{ tr('正文') }}</button>
             <button
               class="writing-inspector__icon-btn"
               type="button"
               :class="{ active: inspectorPinned }"
               :aria-pressed="inspectorPinned.toString()"
-              title="固定检查器"
+              :title="tr(&quot;固定检查器&quot;)"
               @click="inspectorPinned = !inspectorPinned"
             ><WorkbenchIcon name="pin" :size="15" /></button>
-            <button class="writing-inspector__icon-btn" type="button" title="关闭检查器" @click="closeActiveWritingInspector"><WorkbenchIcon name="close" :size="15" /></button>
+            <button class="writing-inspector__icon-btn" type="button" :title="tr(&quot;关闭检查器&quot;)" @click="closeActiveWritingInspector"><WorkbenchIcon name="close" :size="15" /></button>
           </div>
         </header>
 
@@ -914,13 +916,13 @@
             @locate="locateRehearsalOrigin" @view-draft="showRehearsalDraft" @if="openRehearsalIf"
             @check-connection="openRehearsalConnectionSettings" />
         </div>
-        <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" aria-label="检查器视图">
-          <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">批注</button>
-          <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">版本</button>
+        <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" :aria-label="tr(&quot;检查器视图&quot;)">
+          <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">{{ tr('批注') }}</button>
+          <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">{{ tr('版本') }}</button>
         </nav>
-        <nav v-else-if="activeInspectorTool === 'scene' && inspectorTab !== 'detail'" class="writing-inspector__tabs" aria-label="现场与因果视图">
-          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">当前场</button>
-          <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">场景与因果</button>
+        <nav v-else-if="activeInspectorTool === 'scene' && inspectorTab !== 'detail'" class="writing-inspector__tabs" :aria-label="tr(&quot;现场与因果视图&quot;)">
+          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">{{ tr('当前场') }}</button>
+          <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
         </nav>
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
@@ -1056,9 +1058,7 @@
 
         <div v-else-if="activeInspectorTool === 'annotations' && inspectorTab === 'comments'" class="writing-inspector__body" data-authoring-inspector="annotations">
           <div class="writing-inspector__density">
-            <button type="button" class="writing-review-trigger" :disabled="!selectedChapterId" @pointerdown="freezeReviewSource" @click="openReviewPanel">
-              打开校对
-            </button>
+            <button type="button" class="writing-review-trigger" :disabled="!selectedChapterId" @pointerdown="freezeReviewSource" @click="openReviewPanel">{{ tr('打开校对') }}</button>
           </div>
 
           <div
@@ -1088,51 +1088,51 @@
                   v-model="annotationEditDraft"
                   class="writing-annotation__edit"
                   rows="3"
-                  aria-label="编辑批注"
+                  :aria-label="tr(&quot;编辑批注&quot;)"
                   @click.stop
                   @keydown.meta.enter.prevent="saveAnnotationEdit(annotation)"
                   @keydown.ctrl.enter.prevent="saveAnnotationEdit(annotation)"
                   @keydown.esc.prevent="cancelAnnotationEdit"
                 ></textarea>
                 <div class="writing-annotation__edit-actions" @click.stop>
-                  <button type="button" :disabled="!annotationEditDraft.trim()" @click="saveAnnotationEdit(annotation)">保存</button>
-                  <button type="button" @click="cancelAnnotationEdit">取消</button>
+                  <button type="button" :disabled="!annotationEditDraft.trim()" @click="saveAnnotationEdit(annotation)">{{ tr('保存') }}</button>
+                  <button type="button" @click="cancelAnnotationEdit">{{ tr('取消') }}</button>
                 </div>
               </template>
               <p v-else>{{ annotation.body }}</p>
               <div v-if="getAnnotationSupplements(annotation).length" class="writing-annotation__supplements">
-                <p v-for="item in getAnnotationSupplements(annotation)" :key="item.id"><span>补充</span>{{ item.body }}</p>
+                <p v-for="item in getAnnotationSupplements(annotation)" :key="item.id"><span>{{ tr('补充') }}</span>{{ item.body }}</p>
               </div>
               <footer>
-                <button type="button" @click.stop="startAnnotationEdit(annotation)">编辑</button>
-                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">按批注改写</button>
-                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)">删除</button>
+                <button type="button" @click.stop="startAnnotationEdit(annotation)">{{ tr('编辑') }}</button>
+                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">{{ tr('按批注改写') }}</button>
+                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)">{{ tr('删除') }}</button>
               </footer>
 
               <section
                 v-if="rewriteTarget?.annotationId === annotation.id"
                 class="writing-annotation-rewrite"
-                aria-label="按当前批注改写"
+                :aria-label="tr(&quot;按当前批注改写&quot;)"
                 @click.stop
               >
                 <textarea
                   v-model="rewriteInstruction"
                   class="writing-rewrite-panel__input"
                   rows="2"
-                  aria-label="改写要求"
+                  :aria-label="tr(&quot;改写要求&quot;)"
                   @keydown.meta.enter.prevent="generateRewriteCandidates(rewriteTarget)"
                   @keydown.ctrl.enter.prevent="generateRewriteCandidates(rewriteTarget)"
                 ></textarea>
                 <div class="writing-rewrite-panel__actions">
                   <button type="button" :disabled="rewriteLoading || !rewriteTarget?.text" @click="generateRewriteCandidates(rewriteTarget)">
-                    {{ rewriteLoading ? '生成中…' : rewriteCandidates.length ? '重新生成' : '生成改写' }}
+                    {{ rewriteLoading ? tr('生成中…') : rewriteCandidates.length ? tr('重新生成') : tr('生成改写') }}
                   </button>
-                  <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">停止</button>
-                  <button v-if="rewriteError && !rewriteLoading" type="button" class="is-quiet" @click="retryRewriteCandidates">重试</button>
-                  <button type="button" class="is-quiet" @click="closeAnnotationRewrite">收起</button>
+                  <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">{{ tr('停止') }}</button>
+                  <button v-if="rewriteError && !rewriteLoading" type="button" class="is-quiet" @click="retryRewriteCandidates">{{ tr('重试') }}</button>
+                  <button type="button" class="is-quiet" @click="closeAnnotationRewrite">{{ tr('收起') }}</button>
                 </div>
                 <p v-if="rewriteError" class="writing-rewrite-panel__error" role="alert">{{ rewriteError }}</p>
-                <div v-if="rewriteCandidates.length > 1" class="writing-annotation-rewrite__choices" aria-label="改写候选">
+                <div v-if="rewriteCandidates.length > 1" class="writing-annotation-rewrite__choices" :aria-label="tr(&quot;改写候选&quot;)">
                   <button
                     v-for="(candidate, candidateIndex) in rewriteCandidates"
                     :key="candidate.id"
@@ -1143,22 +1143,22 @@
                 </div>
                 <article v-if="selectedRewriteCandidate" class="writing-rewrite-candidate is-selected">
                   <p v-if="selectedRewriteCandidate.rationale">{{ selectedRewriteCandidate.rationale }}</p>
-                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" aria-label="跨片段改写差异">
+                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" :aria-label="tr(&quot;跨片段改写差异&quot;)">
                     <section v-for="(patch, patchIndex) in selectedRewriteCandidate.patches" :key="patch.nodeId" class="writing-rewrite-patch">
-                      <small>片段 {{ patchIndex + 1 }}</small>
+                      <small>{{ tr('片段 {value}', { value: patchIndex + 1 }) }}</small>
                       <div class="writing-rewrite-diff">
-                        <div><small>原文</small><span v-for="(part, index) in patch.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                        <div><small>候选</small><span v-for="(part, index) in patch.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                        <div><small>{{ tr('原文') }}</small><span v-for="(part, index) in patch.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                        <div><small>{{ tr('候选') }}</small><span v-for="(part, index) in patch.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
                       </div>
                     </section>
                   </div>
-                  <div v-else class="writing-rewrite-diff" aria-label="改写差异">
-                    <div><small>原文</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                    <div><small>候选</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                  <div v-else class="writing-rewrite-diff" :aria-label="tr(&quot;改写差异&quot;)">
+                    <div><small>{{ tr('原文') }}</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
+                    <div><small>{{ tr('候选') }}</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
                   </div>
                   <footer>
-                    <button type="button" :disabled="selectedRewriteCandidate.status !== 'ready'" @click="applyRewriteCandidate(selectedRewriteCandidate)">{{ selectedRewriteCandidate.patches?.length ? '整批采用' : '采用' }}</button>
-                    <button type="button" class="is-quiet" @click="dismissRewriteCandidate(selectedRewriteCandidate)">忽略</button>
+                    <button type="button" :disabled="selectedRewriteCandidate.status !== 'ready'" @click="applyRewriteCandidate(selectedRewriteCandidate)">{{ selectedRewriteCandidate.patches?.length ? tr('整批采用') : tr('采用') }}</button>
+                    <button type="button" class="is-quiet" @click="dismissRewriteCandidate(selectedRewriteCandidate)">{{ tr('忽略') }}</button>
                   </footer>
                 </article>
               </section>
@@ -1171,25 +1171,25 @@
               @submit.prevent="createAnnotationFromSelection"
             >
               <header>
-                <span>新批注</span>
-                <button type="button" title="取消批注" aria-label="取消批注" @click="closeAnnotationComposer">×</button>
+                <span>{{ tr('新批注') }}</span>
+                <button type="button" :title="tr(&quot;取消批注&quot;)" :aria-label="tr(&quot;取消批注&quot;)" @click="closeAnnotationComposer">×</button>
               </header>
               <p>“{{ selectedText.slice(0, 72) }}{{ selectedText.length > 72 ? '…' : '' }}”</p>
               <textarea
                 v-model="annotationDraft"
                 rows="3"
-                placeholder="写下批注或修改要求"
-                aria-label="批注内容"
+                :placeholder="tr(&quot;写下批注或修改要求&quot;)"
+                :aria-label="tr(&quot;批注内容&quot;)"
                 @keydown.meta.enter.prevent="createAnnotationFromSelection"
                 @keydown.ctrl.enter.prevent="createAnnotationFromSelection"
                 @keydown.esc.prevent="closeAnnotationComposer"
               ></textarea>
               <footer>
-                <button type="submit" :disabled="!canCreateAnnotation">添加</button>
-                <button type="button" @click="closeAnnotationComposer">取消</button>
+                <button type="submit" :disabled="!canCreateAnnotation">{{ tr('添加') }}</button>
+                <button type="button" @click="closeAnnotationComposer">{{ tr('取消') }}</button>
               </footer>
             </form>
-            <div v-if="!marginAnnotations.length && !annotationComposerOpen" class="writing-inspector__empty">选中正文后即可添加边注。</div>
+            <div v-if="!marginAnnotations.length && !annotationComposerOpen" class="writing-inspector__empty">{{ tr('选中正文后即可添加边注。') }}</div>
           </div>
         </div>
 
@@ -1215,24 +1215,24 @@
           <!-- UX-03：桌面由左栏索引负责定位；右侧只放紧凑概览与主动作。
                窄屏左栏收入抽屉，当前地点文字可直达详情，但不恢复整套交互索引。 -->
           <dl class="writing-scene-overview__summary">
-            <div><dt>时间</dt><dd>{{ sceneProjection.time?.label || '未设置' }}</dd></div>
-            <div><dt>人物</dt><dd>{{ sceneOverviewPresentNames || '未设置' }}</dd></div>
+            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
+            <div><dt>{{ tr('人物') }}</dt><dd>{{ sceneOverviewPresentNames || tr('未设置') }}</dd></div>
             <div>
-              <dt>地点</dt>
+              <dt>{{ tr('地点') }}</dt>
               <dd>
                 <button
                   v-if="chapterShelfSheetMode && sceneProjection.location?.id"
                   class="writing-scene-overview__fact-link"
                   type="button"
-                  aria-label="查看地点详情"
+                  :aria-label="tr(&quot;查看地点详情&quot;)"
                   @click="openSceneDetail({ kind: 'location', id: sceneProjection.location.id })"
                 >{{ sceneProjection.location.name }}</button>
-                <template v-else>{{ sceneProjection.location?.name || '未设置' }}</template>
+                <template v-else>{{ sceneProjection.location?.name || tr('未设置') }}</template>
               </dd>
             </div>
           </dl>
-          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" aria-label="本场未决事件">
-            <strong>全部未决事件</strong>
+          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" :aria-label="tr(&quot;本场未决事件&quot;)">
+            <strong>{{ tr('全部未决事件') }}</strong>
             <button
               v-for="event in sceneProjection.unresolvedEvents"
               :key="event.id"
@@ -1241,13 +1241,13 @@
             >{{ event.label }}</button>
           </section>
           <div class="writing-inspector__actions">
-            <button type="button" data-test="scene-overview-edit" @click="handleSceneEditRequest">调整当前场</button>
-            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">人物 IF 试验</button>
-            <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">推演本章开场</button>
+            <button type="button" data-test="scene-overview-edit" @click="handleSceneEditRequest">{{ tr('调整当前场') }}</button>
+            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
+            <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
           </div>
         </div>
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
-          <AuthoringCharacterPanel
+          <AuthoringCharacterPanel :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
             :chapters="chapters"
             :current-chapter-id="selectedChapterId"
@@ -1266,26 +1266,26 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'materials'" class="writing-inspector__body" data-authoring-inspector="materials">
-          <p class="writing-inspector__context"><strong>写作素材</strong><span>这里只显示可直接用于当前稿面的收件箱内容</span></p>
+          <p class="writing-inspector__context"><strong>{{ tr('写作素材') }}</strong><span>{{ tr('这里只显示可直接用于当前稿面的收件箱内容') }}</span></p>
           <div v-if="inboxAssets.length" class="writing-inspector-simple-list">
             <button
               v-for="asset in inboxAssets.slice(0, 12)"
               :key="asset.id"
               type="button"
               @click="openInboxAssetFromInspector(asset)"
-            ><strong>{{ asset.title || '未命名素材' }}</strong><span>{{ getAssetKindLabel(asset.kind) }}</span></button>
+            ><strong>{{ asset.title || tr('未命名素材') }}</strong><span>{{ getAssetKindLabel(asset.kind) }}</span></button>
           </div>
           <div v-else class="writing-inspector__actions">
-            <span>当前收件箱没有素材。</span>
-            <button type="button" @click="openAssetInbox">打开收件箱</button>
+            <span>{{ tr('当前收件箱没有素材。') }}</span>
+            <button type="button" @click="openAssetInbox">{{ tr('打开收件箱') }}</button>
           </div>
           <div class="writing-inspector__actions">
-            <button type="button" @click="openMaterialsPage">打开完整素材库</button>
+            <button type="button" @click="openMaterialsPage">{{ tr('打开完整素材库') }}</button>
           </div>
         </div>
       </aside>
 
-      <button v-if="!inspectorOpen" class="writing-inspector__reopen" type="button" title="打开检查器" @click="inspectorOpen = true">批注 <span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
+      <button v-if="!inspectorOpen" class="writing-inspector__reopen" type="button" :title="tr(&quot;打开检查器&quot;)" @click="inspectorOpen = true">{{ tr('批注') }}<span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
     </main>
 
     <AuthoringIllustratorDrawer
@@ -1307,7 +1307,7 @@
       @generation-cancel="handleIllustratorGenerationCancel"
     />
 
-    <AuthoringReviewPanel
+    <AuthoringReviewPanel :explanation-language="reviewWorkflow.languagePolicy.value?.assistantLanguage" :content-language="reviewWorkflow.languagePolicy.value?.outputLanguage"
       :open="reviewPanelOpen && !reviewWorkflow.goalMode.value"
       :document-title="reviewDocumentTitle"
       :findings="reviewFindings"
@@ -1364,10 +1364,10 @@
           <FolioSurface as="article" variant="paper" :decorated="true" class="asset-inbox-modal writing-asset-inbox">
             <header class="asset-inbox-modal-header">
               <div>
-                <div class="asset-inbox-modal-kicker">写作素材</div>
-                <h3 class="asset-inbox-modal-title">素材收件箱</h3>
+                <div class="asset-inbox-modal-kicker">{{ tr('写作素材') }}</div>
+                <h3 class="asset-inbox-modal-title">{{ tr('素材收件箱') }}</h3>
               </div>
-              <button class="modal-close asset-inbox-close" type="button" @click="closeAssetInbox" aria-label="关闭素材面板">
+              <button class="modal-close asset-inbox-close" type="button" @click="closeAssetInbox" :aria-label="tr(&quot;关闭素材面板&quot;)">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                   <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
                 </svg>
@@ -1376,31 +1376,31 @@
 
             <div class="asset-inbox-modal-toolbar">
               <div class="asset-inbox-toolbar-group">
-                <span class="asset-inbox-modal-stat">{{ inboxAssets.length }} 条待处理</span>
-                <span class="asset-inbox-modal-stat">已选 {{ selectedInboxAssetIds.length }} 条</span>
+                <span class="asset-inbox-modal-stat">{{ tr('{length} 条待处理', { length: inboxAssets.length }) }}</span>
+                <span class="asset-inbox-modal-stat">{{ tr('已选 {length} 条', { length: selectedInboxAssetIds.length }) }}</span>
               </div>
               <div class="asset-inbox-toolbar-group">
                 <select v-model="assetInboxScope" class="asset-inbox-filter" @change="refreshAssetInbox">
-                  <option value="all">全部素材</option>
-                  <option value="current-book" :disabled="!selectedBookId">当前书</option>
-                  <option value="unbound">未绑定</option>
+                  <option value="all">{{ tr('全部素材') }}</option>
+                  <option value="current-book" :disabled="!selectedBookId">{{ tr('当前书') }}</option>
+                  <option value="unbound">{{ tr('未绑定') }}</option>
                 </select>
                 <select v-model="assetInboxKind" class="asset-inbox-filter" @change="refreshAssetInbox">
-                  <option value="">全部类型</option>
+                  <option value="">{{ tr('全部类型') }}</option>
                   <option v-for="kind in assetKindOptions" :key="kind.value" :value="kind.value">
                     {{ kind.label }} · {{ kind.explanation }}
                   </option>
                 </select>
-                <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">刷新</button>
+                <button class="quick-note-mini-btn" type="button" @click="refreshAssetInbox">{{ tr('刷新') }}</button>
               </div>
               <div class="asset-inbox-toolbar-group">
-                <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">全选</button>
-                <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">清空</button>
-                <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">插入正文</button>
-                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">加入纲要</button>
-                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">入世界书</button>
-                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">归档</button>
-                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">拒绝</button>
+                <button class="quick-note-mini-btn" type="button" @click="selectAllInboxAssets">{{ tr('全选') }}</button>
+                <button class="quick-note-mini-btn" type="button" @click="clearInboxAssetSelection">{{ tr('清空') }}</button>
+                <button class="quick-note-mini-btn primary" type="button" :disabled="!selectedInboxAssetIds.length" @click="insertSelectedAssetsIntoChapter">{{ tr('插入正文') }}</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="addSelectedAssetsToChapterOutline">{{ tr('加入纲要') }}</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="acceptSelectedWorldbookDraftAssets">{{ tr('入世界书') }}</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="archiveSelectedAssets">{{ tr('归档') }}</button>
+                <button class="quick-note-mini-btn" type="button" :disabled="!selectedInboxAssetIds.length" @click="rejectSelectedAssets">{{ tr('拒绝') }}</button>
               </div>
             </div>
             <div v-if="quickNoteStatus" class="asset-inbox-status">{{ quickNoteStatus }}</div>
@@ -1424,7 +1424,7 @@
                   />
                   <div class="asset-inbox-row-copy">
                     <div class="asset-inbox-row-head">
-                      <span class="asset-inbox-title">{{ asset.title || '未命名素材' }}</span>
+                      <span class="asset-inbox-title">{{ asset.title || tr('未命名素材') }}</span>
                       <span class="asset-inbox-kind">{{ getAssetKindLabel(asset.kind) }}</span>
                     </div>
                     <div class="asset-inbox-source">{{ getAssetSourceDetail(asset.source) }}</div>
@@ -1432,43 +1432,39 @@
                     <p class="asset-inbox-preview">{{ asset.content }}</p>
                   </div>
                 </button>
-                <div v-if="!inboxAssets.length" class="asset-inbox-empty-state">
-                  当前没有待处理素材
-                </div>
+                <div v-if="!inboxAssets.length" class="asset-inbox-empty-state">{{ tr('当前没有待处理素材') }}</div>
               </div>
 
               <aside class="asset-inbox-detail-panel">
                 <template v-if="activeInboxAsset">
                   <div class="asset-inbox-detail-kicker">{{ getAssetKindLabel(activeInboxAsset.kind) }}</div>
                   <div class="asset-inbox-detail-explanation">{{ getAssetKindExplanation(activeInboxAsset.kind) }}</div>
-                  <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || '未命名素材' }}</h4>
+                  <h4 class="asset-inbox-detail-title">{{ activeInboxAsset.title || tr('未命名素材') }}</h4>
                   <div class="asset-inbox-detail-meta">{{ getAssetSourceDetail(activeInboxAsset.source) }}</div>
                   <div class="asset-inbox-detail-content">{{ activeInboxAsset.content }}</div>
                   <div class="asset-inbox-detail-actions">
-                    <button class="quick-note-mini-btn primary" type="button" :title="assetActionHelpMap.insert" @click="insertAssetIntoChapter(activeInboxAsset)">插入正文</button>
-                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reference" @click="useAssetAsCopilotContext(activeInboxAsset)">续写参考</button>
-                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.outline" @click="addAssetToChapterOutline(activeInboxAsset)">加入纲要</button>
-                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.material" @click="saveAssetAsMaterial(activeInboxAsset)">转成素材</button>
+                    <button class="quick-note-mini-btn primary" type="button" :title="assetActionHelpMap.insert" @click="insertAssetIntoChapter(activeInboxAsset)">{{ tr('插入正文') }}</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reference" @click="useAssetAsCopilotContext(activeInboxAsset)">{{ tr('续写参考') }}</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.outline" @click="addAssetToChapterOutline(activeInboxAsset)">{{ tr('加入纲要') }}</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.material" @click="saveAssetAsMaterial(activeInboxAsset)">{{ tr('转成素材') }}</button>
                     <button
                       v-if="canConvertAssetToWorldbookEntry(activeInboxAsset)"
                       class="quick-note-mini-btn"
                       type="button"
                       :title="assetActionHelpMap.worldbook"
                       @click="acceptWorldbookDraftAsset(activeInboxAsset)"
-                    >入世界书</button>
-                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.archive" @click="archiveAsset(activeInboxAsset)">归档</button>
-                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reject" @click="rejectAsset(activeInboxAsset)">拒绝</button>
+                    >{{ tr('入世界书') }}</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.archive" @click="archiveAsset(activeInboxAsset)">{{ tr('归档') }}</button>
+                    <button class="quick-note-mini-btn" type="button" :title="assetActionHelpMap.reject" @click="rejectAsset(activeInboxAsset)">{{ tr('拒绝') }}</button>
                   </div>
                   <div class="asset-action-help-grid">
                     <div v-for="item in assetActionHelpEntries" :key="item.key" class="asset-action-help-item">
-                      <strong>{{ item.label }}</strong>
+                      <strong>{{ tr(item.label) }}</strong>
                       <span>{{ item.description }}</span>
                     </div>
                   </div>
                 </template>
-                <div v-else class="asset-inbox-empty-state">
-                  选择一条素材查看详情
-                </div>
+                <div v-else class="asset-inbox-empty-state">{{ tr('选择一条素材查看详情') }}</div>
               </aside>
             </div>
           </FolioSurface>
@@ -1482,41 +1478,41 @@
         <Transition name="modal-scale" appear>
           <form class="modal" role="dialog" aria-modal="true" aria-labelledby="new-book-title" @submit.prevent="confirmCreateBook">
             <div class="modal-header">
-              <h3 id="new-book-title">新建书稿</h3>
-              <button class="modal-close" type="button" aria-label="关闭新建书稿" @click="showNewBookModal = false">
+              <h3 id="new-book-title">{{ tr('新建书稿') }}</h3>
+              <button class="modal-close" type="button" :aria-label="tr(&quot;关闭新建书稿&quot;)" @click="showNewBookModal = false">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
                   <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
                 </svg>
               </button>
             </div>
             <div class="modal-body">
-              <label class="input-label">书名</label>
+              <label class="input-label">{{ tr('书名') }}</label>
               <input
                 v-model="newBookTitle"
                 type="text"
                 class="input"
-                placeholder="输入书籍名称"
+                :placeholder="tr(&quot;输入书籍名称&quot;)"
                 ref="newBookInput"
               />
-              <p class="modal-hint">创建后会自动建立“第一章”，可以立即写正文。</p>
+              <ManuscriptLanguageSelect v-model="newBookLanguage" /><p class="modal-hint">{{ tr('创建后会建立第一个章节，可以立即写正文。') }}</p>
               <details class="modal-options">
-                <summary>可选：简介与世界书</summary>
-                <label class="input-label">简介</label>
+                <summary>{{ tr('可选：简介与世界书') }}</summary>
+                <label class="input-label">{{ tr('简介') }}</label>
                 <textarea
                   v-model="newBookDesc"
                   class="input textarea"
-                  placeholder="一句话记下这本书想写什么"
+                  :placeholder="tr(&quot;一句话记下这本书想写什么&quot;)"
                 ></textarea>
-                <label class="input-label">世界书</label>
-                <select v-model="newBookWorldbookId" class="input" aria-label="新建书籍绑定世界书">
-                  <option value="">暂不绑定</option>
+                <label class="input-label">{{ tr('世界书') }}</label>
+                <select v-model="newBookWorldbookId" class="input" :aria-label="tr(&quot;新建书籍绑定世界书&quot;)">
+                  <option value="">{{ tr('暂不绑定') }}</option>
                   <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
                 </select>
               </details>
             </div>
             <div class="modal-footer">
-              <button class="btn" type="button" @click="showNewBookModal = false">取消</button>
-              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim()">创建并开始写</button>
+              <button class="btn" type="button" @click="showNewBookModal = false">{{ tr('取消') }}</button>
+              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim()">{{ tr('创建并开始写') }}</button>
             </div>
           </form>
         </Transition>
@@ -1533,6 +1529,12 @@
 </template>
 
 <script setup>
+import { chineseChapterNumber } from '../services/writing/writingChapterLabels.js'
+import { tr, uiLocale } from '../i18n/index.js'
+import ManuscriptLanguageSelect from '../components/authoring/ManuscriptLanguageSelect.vue'
+import { normalizeManuscriptLanguage, inferWritingLanguage } from '../../shared/writingLanguage.js'
+import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
+import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
@@ -1548,7 +1550,7 @@ import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import { buildWritingSelectionRanges } from '../services/writing/writingSelectionRanges.js'
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
-import AuthoringLivingStoryProjection from '../components/authoring/AuthoringLivingStoryProjection.vue'
+const AuthoringLivingStoryProjection = defineAsyncComponent(() => import('../components/authoring/AuthoringLivingStoryProjection.vue'))
 const AuthoringSceneLaboratory = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneLaboratory.vue'))
 const AuthoringRehearsalPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringRehearsalPanel.vue'))
 import { reconcileManifestDependencies } from '../services/agents/context/contextManifestLifecycle.js'
@@ -1836,7 +1838,7 @@ async function refreshBoundWorldbookIfChanged({ notify = false } = {}) {
   if (current && String(current.id || '') === String(snapshot.id || '')
     && String(current.updatedAt || '') === String(snapshot.updatedAt || '')) return false
   const loaded = await syncBookWorldbook(currentBook.value, selectedBookId.value)
-  if (loaded && notify) authoringTask.notify('设定资料已更新：当前场与后续推演将使用新资料')
+  if (loaded && notify) authoringTask.notify(tr('设定资料已更新：当前场与后续推演将使用新资料'))
   return Boolean(loaded)
 }
 function handleExternalWorldbookStorageChange(event) {
@@ -1867,6 +1869,7 @@ const showNewBookModal = ref(false)
 const showManuscriptImport = ref(false)
 const manuscriptImportReturnFocus = shallowRef(null)
 const newBookTitle = ref('')
+const newBookLanguage = ref('')
 const newBookDesc = ref('')
 const newBookInput = ref(null)
 const editorRef = ref(null)
@@ -1937,7 +1940,7 @@ async function wt3EnsureOutlineMigrated() {
       return true
     } catch {
       if (String(selectedBookId.value || '') === bookId) {
-        authoringTask.notify('旧章纲迁移失败，原章节内容仍保留，可稍后重试')
+        authoringTask.notify(tr('旧章纲迁移失败，原章节内容仍保留，可稍后重试'))
       }
       return false
     } finally {
@@ -1984,18 +1987,9 @@ const wt3IdeaShelfDocs = computed(() => wt3ExplorationDocs.value.map((doc) => {
   return {
     ...doc,
     associatedChapterIds: [...chapterIds],
-    associationLabel: associationLabels.length ? `关联 ${associationLabels.join('、')}` : ''
+    associationLabel: associationLabels.length ? tr('关联 {value0}', { value0: associationLabels.join('、') }) : ''
   }
 }))
-function chineseChapterNumber(value) {
-  const number = Math.max(1, Number(value) || 1)
-  const digits = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九']
-  if (number < 10) return digits[number]
-  if (number === 10) return '十'
-  if (number < 20) return `十${digits[number % 10]}`
-  if (number < 100) return `${digits[Math.floor(number / 10)]}十${digits[number % 10]}`
-  return String(number)
-}
 // 章行只拥有一个序号来源。作者若把“第一章”也写进标题，先去掉标题里的
 // 序号再按目录位置呈现，避免“第一章 第一章 上元夜”；空标题就朴素显示“第一章”。
 function chapterRowLabel(index, title) {
@@ -2005,7 +1999,8 @@ function chapterRowLabel(index, title) {
 // 章行模板用分体式：序号与章名各占一个 span，间隔由排版控制，
 // 不依赖半角空格（不同字重/字体下空格宽度不稳定）。
 function chapterRowParts(index, title) {
-  const ordinal = `第${chineseChapterNumber(index + 1)}章`
+  if (/^(?:chapter\s+(?:\d+|[ivxlcdm]+)\b|prologue$|epilogue$)/i.test(String(title || '').trim())) return { ordinal: '', name: String(title).trim() }
+  const ordinal = uiLocale.value === 'en' ? `Chapter ${index + 1}` : `第${chineseChapterNumber(index + 1)}章`
   const name = String(title || '')
     .trim()
     .replace(/^第\s*(?:[零〇一二三四五六七八九十百千万两]+|\d+)\s*章(?:\s*[-—:：·、.]?\s*)?/u, '')
@@ -2017,8 +2012,9 @@ function chapterRowParts(index, title) {
 const selectedChapterOrdinalLabel = computed(() => {
   const index = chapters.value.findIndex((chapter) => String(chapter.id) === String(selectedChapterId.value))
   if (index < 0) return ''
+  if (/^(?:chapter\s+(?:\d+|[ivxlcdm]+)\b|prologue$|epilogue$)/i.test(String(currentChapterTitle.value || '').trim())) return ''
   if (/^第\s*[零〇一二三四五六七八九十百千万两0-9]+\s*章/u.test(String(currentChapterTitle.value || '').trim())) return ''
-  return `第${chineseChapterNumber(index + 1)}章`
+  return uiLocale.value === 'en' ? `Chapter ${index + 1}` : `第${chineseChapterNumber(index + 1)}章`
 })
 watch([selectedBookId, books], () => {
   const bookId = String(selectedBookId.value || '')
@@ -2081,13 +2077,13 @@ function wt3PersistActiveDoc() {
 // 任何离开探索文档的路径（切章/切书/关闭）统一走这里；正文路径不受影响。
 function wt3PersistBeforeLeaving() {
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前文档')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前文档'))
     return { ok: false, reason: 'pending-adoption' }
   }
   if (!wt3ActiveDoc.value) return { ok: true }
   const result = wt3PersistActiveDoc()
   if (!result?.ok) {
-    authoringTask.notify('构思文档保存失败，已留在当前文档')
+    authoringTask.notify(tr('构思文档保存失败，已留在当前文档'))
     return result || { ok: false, reason: 'persist-failed' }
   }
   resetAnnotationWorkspaceScope()
@@ -2109,11 +2105,11 @@ function wt3PersistBeforeLeaving() {
 function openExplorationDoc(docId) {
   if (wt3ActiveDocId.value === docId) return
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
   }
   if (blockPreview.value) {
-    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    authoringTask.notify(tr('推演草稿尚未处理，请先采用或丢弃'))
     return false
   }
   writingAgentHost.cancelForScopeChange()
@@ -2128,11 +2124,11 @@ function openExplorationDoc(docId) {
   if (wt3ActiveDoc.value) {
     const result = wt3PersistActiveDoc()
     if (!result?.ok) {
-      authoringTask.notify('当前构思保存失败，未切换文档')
+      authoringTask.notify(tr('当前构思保存失败，未切换文档'))
       return false
     }
   } else if (selectedChapterId.value && !saveCurrentChapter()) {
-    authoringTask.notify('当前章节保存失败，未打开构思')
+    authoringTask.notify(tr('当前章节保存失败，未打开构思'))
     return false
   }
   resetAnnotationWorkspaceScope()
@@ -2159,7 +2155,7 @@ function openExplorationDoc(docId) {
 }
 function closeExplorationDoc() {
   if (blockPreview.value) {
-    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    authoringTask.notify(tr('推演草稿尚未处理，请先采用或丢弃'))
     return false
   }
   writingAgentHost.cancelForScopeChange()
@@ -2195,11 +2191,11 @@ function wt3QuickCapture() {
 function wt3MigrateLegacyNotes() {
   const result = migrateWritingNotesToExplorations(selectedBookId.value, listWritingNotes())
   if (!result.ok) {
-    authoringTask.notify('旧速记迁移失败，请检查存储空间')
+    authoringTask.notify(tr('旧速记迁移失败，请检查存储空间'))
     return false
   }
   wt3RefreshDocs()
-  authoringTask.notify(result.created.length ? `已迁移 ${result.created.length} 条旧速记到构思` : '旧速记均已迁移')
+  authoringTask.notify(result.created.length ? tr('已迁移 {value0} 条旧速记到构思', { value0: result.created.length }) : tr('旧速记均已迁移'))
 }
 // 删除探索文档：绝不触碰正文；正在编辑时先回到上一章。
 function wt3DeleteDoc(docId) {
@@ -2208,7 +2204,7 @@ function wt3DeleteDoc(docId) {
   }
   const result = deleteExplorationDocument(selectedBookId.value, docId)
   if (!result?.ok) {
-    authoringTask.notify('删除构思失败，请检查存储空间')
+    authoringTask.notify(tr('删除构思失败，请检查存储空间'))
     return false
   }
   const selectedReference = reconciledAuthoringRunReferences.value
@@ -2221,12 +2217,12 @@ function wt3SetDocStatus(docId, status) {
   const doc = wt3ExplorationDocs.value.find((item) => item.id === docId)
   if (!doc || !['active', 'parked'].includes(status)) return false
   if (wt3ActiveDocId.value === docId && !wt3PersistBeforeLeaving()?.ok) {
-    authoringTask.notify('速记保存失败，未改变状态')
+    authoringTask.notify(tr('速记保存失败，未改变状态'))
     return false
   }
   const result = saveExplorationDocument(selectedBookId.value, docId, { status })
   if (!result?.ok) {
-    authoringTask.notify(status === 'parked' ? '速记搁置失败' : '速记移回失败')
+    authoringTask.notify(status === 'parked' ? tr('速记搁置失败') : tr('速记移回失败'))
     return false
   }
   if (status === 'parked') {
@@ -2253,7 +2249,7 @@ function wt3LinkDocToCurrentChapter(docId) {
     explorationRefs: [{ documentId: doc.id, role: 'alternative', state: 'proposed' }]
   })
   if (!result?.ok) {
-    authoringTask.notify('速记关联章节失败')
+    authoringTask.notify(tr('速记关联章节失败'))
     return false
   }
   wt3RefreshDocs()
@@ -2294,7 +2290,7 @@ const authoringHistory = useAuthoringHistoryWorkflow({
   rejectMutation: () => rejectLockedNotebookMutation(),
   dualSource: () => dualPaneRef.value?.getActiveSource?.(),
   prepareDualClose: () => dualPaneRef.value?.prepareClose?.(),
-  confirmRestore: () => typeof window === 'undefined' || window.confirm('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？'),
+  confirmRestore: () => typeof window === 'undefined' || window.confirm(tr('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？')),
   findChapter: (chapterId) => chapters.value.find((item) => item.id === chapterId),
   persistChapters: () => saveChapters(),
   selectChapter: (chapterId) => selectChapter(chapterId),
@@ -2303,7 +2299,7 @@ const authoringHistory = useAuthoringHistoryWorkflow({
   unitByNode: (nodeId) => getWritingUnitByNodeId(nodeId),
   editorActive: () => notebookEditorActive.value,
   editor: () => notebookEditorRef.value,
-  confirmDelete: (snapshot) => typeof window === 'undefined' || window.confirm(`删除「${snapshot.label}」？正文不会改变。`)
+  confirmDelete: (snapshot) => typeof window === 'undefined' || window.confirm(tr('删除「{value0}」？正文不会改变。', { value0: snapshot.label }))
 })
 const {
   snapshots: writingSnapshots,
@@ -2383,6 +2379,7 @@ const {
   rewriteTarget,
   rewriteCandidates,
   selectedRewriteCandidateId,
+  rewriteLockedSegments,
   selectedRewriteCandidate,
   rewriteLoading,
   rewriteError,
@@ -2394,6 +2391,7 @@ const {
   applyRewriteCandidate,
   dismissRewriteCandidate
 } = useAuthoringRewriteWorkflow({
+  getManuscriptLanguage: () => currentBook.value?.manuscriptLanguage || '',
   getCurrentTarget: () => getCurrentRewriteTarget(),
   getCurrentComparison: (target) => target?.pane === 'dual' ? getDualRewriteComparison(target) : getCurrentRewriteComparison(target),
   getChapterId: (target) => target?.chapterId || target?.documentId || selectedChapterId.value,
@@ -2776,23 +2774,23 @@ async function ensureBookWorldbookForAuthoring() {
   const book = currentBook.value
   if (!book?.id) return null
   const created = await worldStore.createWorldbook({
-    name: `${String(book.title || '未命名书稿').trim()} · 资料库`,
-    description: '随书稿建立的人物与设定资料库'
+    name: `${String(book.title || (book.manuscriptLanguage === 'en' ? 'Untitled manuscript' : '未命名书稿')).trim()} · ${book.manuscriptLanguage === 'en' ? 'Story Bible' : '资料库'}`,
+    description: book.manuscriptLanguage === 'en' ? 'Characters and worldbuilding for this manuscript' : '随书稿建立的人物与设定资料库'
   })
   const binding = await bindSelectedBookWorldbook(created.id)
-  if (!binding.ok) throw new Error('资料库已建立，但未能关联到当前书稿')
+  if (!binding.ok) throw new Error(tr('资料库已建立，但未能关联到当前书稿'))
   return binding.worldbook || created
 }
 async function createAuthoringCharacter(payload) {
   try {
     const worldbook = await ensureBookWorldbookForAuthoring()
-    if (!worldbook?.id) throw new Error('请先打开一本书稿')
+    if (!worldbook?.id) throw new Error(tr('请先打开一本书稿'))
     const entry = await worldStore.addEntry(worldbook.id, payload)
     await refreshBoundWorldbookAfterCharacterChange()
     inspectorCharacterEntryId.value = String(entry?.id || '')
-    authoringTask.notify(`已新建角色「${payload.name}」`)
+    authoringTask.notify(tr('已新建角色「{value0}」', { value0: payload.name }))
   } catch (error) {
-    authoringTask.notify(error?.message || '角色创建失败')
+    authoringTask.notify(error?.message || tr('角色创建失败'))
   }
 }
 let authoringCharacterSaveQueue = Promise.resolve()
@@ -2819,10 +2817,10 @@ function updateAuthoringCharacter(entryId, payload, options = {}) {
         const entries = (boundWorldbook.value.entries || []).map((entry) => String(entry.id) === String(entryId) ? updated : entry)
         boundWorldbook.value = { ...boundWorldbook.value, entries, entriesMap: { ...(boundWorldbook.value.entriesMap || {}), [entryId]: updated }, updatedAt: Date.now() }
       }
-      if (!options.silent) authoringTask.notify(`已保存${options.label || '角色'}「${payload.name}」`)
+      if (!options.silent) authoringTask.notify(tr('已保存{value0}「{value1}」', { value0: options.label || '角色', value1: payload.name }))
       return true
     } catch (error) {
-      authoringTask.notify(error?.message || `${options.label || '角色'}保存失败`)
+      authoringTask.notify(error?.message || tr('{value0}保存失败', { value0: options.label || '角色' }))
       return false
     }
   })
@@ -2834,23 +2832,23 @@ async function removeAuthoringCharacter(entryId) {
     await authoringCharacterSaveQueue.catch(() => false)
     await worldStore.deleteEntry(boundWorldbook.value.id, entryId)
     await refreshBoundWorldbookAfterCharacterChange()
-    authoringTask.notify('角色已删除')
+    authoringTask.notify(tr('角色已删除'))
     return true
   } catch (error) {
-    authoringTask.notify(error?.message || '角色删除失败')
+    authoringTask.notify(error?.message || tr('角色删除失败'))
     return false
   }
 }
 async function createAuthoringSetting(payload) {
   try {
     const worldbook = await ensureBookWorldbookForAuthoring()
-    if (!worldbook?.id) throw new Error('请先打开一本书稿')
+    if (!worldbook?.id) throw new Error(tr('请先打开一本书稿'))
     const entry = await worldStore.addEntry(worldbook.id, payload)
     await refreshBoundWorldbookAfterCharacterChange()
     inspectorWorldbookEntryId.value = String(entry?.id || '')
-    authoringTask.notify(`已新建设定「${payload.name}」`)
+    authoringTask.notify(tr('已新建设定「{value0}」', { value0: payload.name }))
   } catch (error) {
-    authoringTask.notify(error?.message || '设定创建失败')
+    authoringTask.notify(error?.message || tr('设定创建失败'))
   }
 }
 function updateAuthoringSetting(entryId, payload, options = {}) {
@@ -2862,10 +2860,10 @@ async function removeAuthoringSetting(entryId) {
     await authoringCharacterSaveQueue.catch(() => false)
     await worldStore.deleteEntry(boundWorldbook.value.id, entryId)
     await refreshBoundWorldbookAfterCharacterChange()
-    authoringTask.notify('设定已删除')
+    authoringTask.notify(tr('设定已删除'))
     return true
   } catch (error) {
-    authoringTask.notify(error?.message || '设定删除失败')
+    authoringTask.notify(error?.message || tr('设定删除失败'))
     return false
   }
 }
@@ -3084,7 +3082,7 @@ function reorderChapter(fromIdx, toIdx) {
   chapters.value = list
   if (!saveChapters()) {
     chapters.value = previous
-    authoringTask.notify('章节排序保存失败，已恢复原顺序')
+    authoringTask.notify(tr('章节排序保存失败，已恢复原顺序'))
   }
 }
 function onChapterDragStart(e, idx, bookId = null) {
@@ -3344,8 +3342,8 @@ async function renameChapterFromShelf(chapterId) {
 }
 function deleteChapterFromShelf(chapterId) {
   const chapter = chapters.value.find((item) => String(item.id) === String(chapterId))
-  const label = chapter?.title ? `「${chapter.title}」` : '这一章'
-  if (typeof window !== 'undefined' && !window.confirm(`确定删除${label}？其快照与历史会一并删除。`)) return
+  const label = chapter?.title ? `「${chapter.title}」` : tr('这一章')
+  if (typeof window !== 'undefined' && !window.confirm(tr('确定删除{value0}？其快照与历史会一并删除。', { value0: label }))) return
   deleteChapter(chapterId)
 }
 const hasSelection = ref(false)
@@ -3593,15 +3591,15 @@ function handleSceneAdvanceWith(eventId) {
   const event = (sceneProjection.value.unresolvedEvents || []).find((item) => item.id === eventId)
   if (authoringTaskBusy.value) return
   const instruction = event
-    ? `以此事件推进：${event.label}`
-    : '结合当前场的人物、地点、时间与正文进度，推演本场自然发生的下一步。'
+    ? tr('以此事件推进：{value0}', { value0: event.label })
+    : tr('结合当前场的人物、地点、时间与正文进度，推演本场自然发生的下一步。')
   void openSceneLaboratory({ target: notebookSelection.value, instruction })
 }
 // —— 右侧临时详情（Task 1.4）：数据从同一 projection + worldbook 运行时读取。 ——
 const sceneDetailModel = computed(() => resolveSceneDetailModel(inspectorDetailState.value))
 const reviewWorkflow = useAuthoringReviewWorkflow({
   rewrite: {
-    candidates: rewriteCandidates, loading: rewriteLoading, error: rewriteError, cancel: cancelRewriteGeneration,
+    candidates: rewriteCandidates, lockedSegments: rewriteLockedSegments, loading: rewriteLoading, error: rewriteError, cancel: cancelRewriteGeneration,
     apply: applyRewriteCandidate, savePending: reviewRewriteSavePending,
     retrySave: () => {
       const saved = dualPaneRef.value?.prepareClose?.() !== false
@@ -3751,7 +3749,7 @@ function resolveSceneDetailModel(detail) {
       name: person.name,
       sections: [
         { label: '当前目标', value: (fromWorldbook ? person.goal : '') || (profile?.goal ? String(profile.goal).slice(0, 120) : '') },
-        { label: '当前心境', value: (fromWorldbook && person.mood) ? `心境 ${person.mood}` : (profile?.mood != null ? `心境 ${profile.mood}` : '') },
+        { label: '当前心境', value: (fromWorldbook && person.mood) ? tr('心境 {value0}', { value0: person.mood }) : (profile?.mood != null ? tr('心境 {value0}', { value0: profile.mood }) : '') },
         { label: '本场身份', value: scenePersonRoles(detail.id).join(' · ') },
         { label: '本场关系', value: relations.join('；') },
         { label: '最近行动', value: person.lastAction || '' },
@@ -3769,7 +3767,7 @@ function resolveSceneDetailModel(detail) {
       sections: [
         { label: '当前地点', value: projection.location.name },
         { label: '上级区域', value: projection.location.region },
-        { label: '世界书来源', value: bridge.availability === 'ready' ? `${bridge.worldbookName || '当前世界书'} · ${bridge.name}` : '设定已删除或解绑' },
+        { label: '世界书来源', value: bridge.availability === 'ready' ? `${bridge.worldbookName || tr('当前世界书')} · ${bridge.name}` : tr('设定已删除或解绑') },
         { label: '本场环境事实', value: '' },
         { label: '当前控制势力', value: '' }
       ],
@@ -3824,7 +3822,7 @@ function locateLivingStoryBeat(beat) {
     String(item?.attrs?.unitId || '') === String(target.unitId || '')
   ))
   if (!unit || !(unit.content || []).some((node) => String(node?.attrs?.nodeId || '') === String(target.nodeId || ''))) {
-    authoringTask.notify('这个故事节点已不在当前正文中')
+    authoringTask.notify(tr('这个故事节点已不在当前正文中'))
     return false
   }
   clearInspectorReturnSurface()
@@ -3847,7 +3845,7 @@ function openLivingStorySource(source) {
   if (sourceRef.startsWith('outline-node:')) {
     const nodeId = sourceRef.slice('outline-node:'.length)
     if (!wt3OutlineNodes.value.some((node) => String(node?.id || '') === nodeId)) {
-      authoringTask.notify('这条线索已从项目大纲移除')
+      authoringTask.notify(tr('这条线索已从项目大纲移除'))
       return false
     }
     inspectorOutlineNodeId.value = ''
@@ -3901,7 +3899,7 @@ watch([inspectorDetailState, sceneProjection], () => {
   if (inspectorDetailState.value.kind === 'scene-edit') return
   if (resolveSceneDetailModel(inspectorDetailState.value)) return
   void closeSceneDetail().then(() => {
-    sceneDetailNotice.value = '详情对象已失效，已返回当前场。'
+    sceneDetailNotice.value = tr('详情对象已失效，已返回当前场。')
   })
 })
 // —— 现场调整（worldbook scene closure Task 10）——
@@ -3946,7 +3944,7 @@ const {
   getSceneAnchorStatus: () => sceneProjection.value?.anchorStatus,
   setSceneDetailNotice: (message) => { sceneDetailNotice.value = message },
   notify: (message) => authoringTask.notify(message),
-  onScopeInvalidated: () => authoringTask.notify('当前场作用域已变化，请在新的落笔处重新打开')
+  onScopeInvalidated: () => authoringTask.notify(tr('当前场作用域已变化，请在新的落笔处重新打开'))
 })
 const authoringSceneRunIntents = shallowRef([])
 const activeSceneLaboratoryIntent = computed(() => authoringSceneRunIntents.value[0] || null)
@@ -3964,7 +3962,7 @@ const rehearsalMemoryWorkflow = useAuthoringRehearsalMemoryWorkflow({
 const sceneLaboratoryWorkflow = useAuthoringSceneLaboratoryWorkflow({
   boundWorldbook,
   rehearsal,
-  notifyPendingDraft: () => { rehearsalNotice.value = '请先处理正文中已有的试稿，再开始新的试演。' },
+  notifyPendingDraft: () => { rehearsalNotice.value = tr('请先处理正文中已有的试稿，再开始新的试演。') },
   isBusy: () => Boolean(authoringTaskBusy.value || rehearsal.busy.value || ifBusy.value),
   hasPendingDrafts: () => Boolean(blockPreview.value || Object.values(ifBranchDrafts.value).some(Boolean)),
   resolveTarget: (target) => resolveBlockComposerTarget(target),
@@ -4068,7 +4066,7 @@ const {
   getDraftPreview: () => blockPreview.value,
   hasAlternativeDraft: () => Object.values(ifBranchDrafts.value).some(Boolean),
   isAuthoringTaskBusy: () => authoringTaskBusy.value,
-  confirmRestart: () => window.confirm('重新确定起点会清除本次试演。继续吗？'),
+  confirmRestart: () => window.confirm(tr('重新确定起点会清除本次试演。继续吗？')),
   prepareStart: () => openSceneLaboratory(),
   readStartFailure: () => sceneLaboratory.notice,
   closeComparison: () => {
@@ -4208,7 +4206,7 @@ async function handleSceneRunIntent(payload = {}) {
   if (sceneCurationHasUnsavedChanges.value) {
     sceneCurationError.value = {
       phase: 'unsaved-current-scene',
-      message: '当前场还有未保存的纠正；请先保存当前场或取消改动，再选择临时推演意图。'
+      message: tr('当前场还有未保存的纠正；请先保存当前场或取消改动，再选择临时推演意图。')
     }
     return false
   }
@@ -4230,7 +4228,7 @@ async function handleSceneRunIntent(payload = {}) {
     presentCharacterIds: (sceneProjection.value.presentCharacters || []).map((character) => character.id)
   })
   if (!intent) {
-    sceneCurationError.value = { phase: 'invalid-run-intent', message: '这条设定已变化，请重新选择。' }
+    sceneCurationError.value = { phase: 'invalid-run-intent', message: tr('这条设定已变化，请重新选择。') }
     return false
   }
   authoringSceneRunIntents.value = [intent]
@@ -4276,7 +4274,7 @@ function handleDetailAddToOutline(id) {
     }
   })]
   syncChapterOutlineToCurrentChapter()
-  sceneDetailNotice.value = '已加入章节纲要。'
+  sceneDetailNotice.value = tr('已加入章节纲要。')
 }
 // —— 涌现候选审阅闭环（plan Phase 3 任务 5 / spec §8.3）——
 function currentEmergenceCandidate(id) {
@@ -4289,7 +4287,7 @@ function handleDetailConfirmEmergence(id) {
   const result = gameStore.acknowledgeEmergenceCandidate(id)
   if (!result?.ok) return
   void closeSceneDetail().then(() => {
-    sceneDetailNotice.value = '已确认候选，可在纲要与正文中显式使用。'
+    sceneDetailNotice.value = tr('已确认候选，可在纲要与正文中显式使用。')
   })
 }
 // 忽略：走既有 dismissal 路径（dismissedIds 防止重复涌现）。
@@ -4297,7 +4295,7 @@ function handleDetailDismissEmergence(id) {
   if (!currentEmergenceCandidate(id)) return
   gameStore.dismissEmergenceCandidate(id)
   void closeSceneDetail().then(() => {
-    sceneDetailNotice.value = '已忽略该候选。'
+    sceneDetailNotice.value = tr('已忽略该候选。')
   })
 }
 // 加入纲要：复用章节纲要派生写入路径，不动正文。
@@ -4319,7 +4317,7 @@ function handleDetailEmergenceOutline(id) {
     }
   })]
   syncChapterOutlineToCurrentChapter()
-  sceneDetailNotice.value = '已加入章节纲要。'
+  sceneDetailNotice.value = tr('已加入章节纲要。')
 }
 // 打开来源：按 typed 来源映射到对应设置页；不修改任何状态。
 function handleDetailOpenEmergenceSource(id) {
@@ -4957,8 +4955,8 @@ function addAuthoringRunReference(item) {
   const result = addAuthoringRunReferenceSelection(authoringRunReferenceSelections.value, item)
   if (!result.ok) {
     authoringRunReferenceNotice.value = result.reason === 'limit'
-      ? '本次最多选择三条参考'
-      : result.reason === 'duplicate' ? '这条参考已经选过' : '这条参考当前不可用'
+      ? tr('本次最多选择三条参考')
+      : result.reason === 'duplicate' ? tr('这条参考已经选过') : tr('这条参考当前不可用')
     return false
   }
   authoringRunReferenceSelections.value = result.selections
@@ -4979,7 +4977,7 @@ function refreshAuthoringRunReference(id) {
     id,
     authoringRunReferenceCatalog.value
   )
-  authoringRunReferenceNotice.value = '已确认使用来源的最新版本'
+  authoringRunReferenceNotice.value = tr('已确认使用来源的最新版本')
   scheduleAuthoringContextPreflight()
 }
 function clearAuthoringRunReferences() {
@@ -5059,7 +5057,7 @@ const blockWorkflow = useAuthoringBlockWorkflow({
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer',
       code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
-      message: '正文已保存，现场状态将在稍后刷新',
+      message: tr('正文已保存，现场状态将在稍后刷新'),
       retryable: true
     })
     refreshAuthoringObserverState()
@@ -5093,8 +5091,8 @@ const blockWorkflow = useAuthoringBlockWorkflow({
     return {
       ifExperiment: experiment,
       note: [
-        experiment ? `人物 IF · ${characterIfActiveBranch.value} 条件：${experiment.branches[characterIfActiveBranch.value].belief}（作者假设）` : '',
-        manifest ? `来源版本：${JSON.stringify(manifest.dependencies || {})}` : ''
+        experiment ? tr('人物 IF · {value0} 条件：{value1}（作者假设）', { value0: characterIfActiveBranch.value, value1: experiment.branches[characterIfActiveBranch.value].belief }) : '',
+        manifest ? tr('来源版本：{value0}', { value0: JSON.stringify(manifest.dependencies || {}) }) : ''
       ].filter(Boolean).join('\n')
     }
   },
@@ -5200,7 +5198,7 @@ const authoringTask = useAuthoringTask({
   },
   execute: async ({ taskId, request, signal }) => {
     const runtime = getAuthoringRuntime()
-    if (!getAuthoringFacade()) throw Object.assign(new Error('请先选择章节'), { code: 'AGENT_NO_TARGET' })
+    if (!getAuthoringFacade()) throw Object.assign(new Error(tr('请先选择章节')), { code: 'AGENT_NO_TARGET' })
     const intent = {
       instruction: request.question,
       hasSelection: Boolean(request.hasSelection),
@@ -5236,7 +5234,7 @@ const authoringTask = useAuthoringTask({
         outcome.result?.contextReceipt || null,
         dependencyIssues
       )
-      throw Object.assign(new Error('文档已更新，本次结果未写入；可重新执行该命令'), {
+      throw Object.assign(new Error(tr('文档已更新，本次结果未写入；可重新执行该命令')), {
         code: 'AGENT_RESULT_STALE',
         adoptable: false,
         generatedText: String(generatedAction?.content || ''),
@@ -5714,7 +5712,7 @@ function openInterventionComposer(target = notebookSelection.value) {
 function closeInterventionComposer({ restoreSelection = true } = {}) {
   if (!interventionComposer.open) return false
   if (interventionComposer.pendingAdoption) {
-    interventionComposer.persistError = interventionComposer.persistError || '正文修改尚未保存，请先重试保存。'
+    interventionComposer.persistError = interventionComposer.persistError || tr('正文修改尚未保存，请先重试保存。')
     return false
   }
   const bookmark = interventionComposer.target?.selectionBookmark
@@ -5823,7 +5821,7 @@ async function persistPendingInterventionAdoption() {
   }
   if (!persisted) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '保存失败，草稿与正文修改仍保留；不会再次生成。'
+    interventionComposer.persistError = tr('保存失败，草稿与正文修改仍保留；不会再次生成。')
     return false
   }
   await nextTick()
@@ -5831,7 +5829,7 @@ async function persistPendingInterventionAdoption() {
   const finalized = markAuthoringInterventionAdoptionPersisted(pending.adoption, live)
   if (!finalized.ok) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '保存后无法核对目标修订，请保留当前页面并重试核对。'
+    interventionComposer.persistError = tr('保存后无法核对目标修订，请保留当前页面并重试核对。')
     return false
   }
   lastInterventionUmbrellaReceipt.value = createAuthoringInterventionSingleReceipt(finalized.receipt)
@@ -5851,7 +5849,7 @@ async function persistPendingInterventionAdoption() {
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer',
       code: 'AUTHORING_INTERVENTION_OBSERVER_FAILED',
-      message: '正文已保存，相关记忆将在稍后刷新',
+      message: tr('正文已保存，相关记忆将在稍后刷新'),
       retryable: true
     })
   }
@@ -5866,7 +5864,7 @@ async function persistPendingInterventionAdoption() {
     interventionComposer.rehearsalResult = discarded.result
     await selectInterventionGhost(discarded.result.drafts[0].id)
   }
-  authoringTask.notify('这一处已采用并保存；其他排演草稿未改变', { canUndo: true })
+  authoringTask.notify(tr('这一处已采用并保存；其他排演草稿未改变'), { canUndo: true })
   return true
 }
 async function adoptInterventionGhost(ghostId = '') {
@@ -5878,7 +5876,7 @@ async function adoptInterventionGhost(ghostId = '') {
   const reconciled = await getAuthoringInterventionRunner().reconcile(interventionComposer.session)
   if (!reconciled?.ok || reconciled.stale) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.notice = '原文或依据已经变化；已有草稿可查看，但不能采用。'
+    interventionComposer.notice = tr('原文或依据已经变化；已有草稿可查看，但不能采用。')
     interventionComposer.rehearsalResult = Object.freeze({
       ...interventionComposer.rehearsalResult,
       status: 'stale',
@@ -5896,8 +5894,8 @@ async function adoptInterventionGhost(ghostId = '') {
   })
   if (!prepared.ok) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.notice = '目标正文已经变化，请重新核对后再排演。'
-    interventionComposer.persistError = '目标正文已经变化，请重新核对后再排演。'
+    interventionComposer.notice = tr('目标正文已经变化，请重新核对后再排演。')
+    interventionComposer.persistError = tr('目标正文已经变化，请重新核对后再排演。')
     return false
   }
   const protection = authoringHistory.recordProtection({
@@ -5912,7 +5910,7 @@ async function adoptInterventionGhost(ghostId = '') {
   })
   if (!protection.ok) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '无法保存采用前版本，正文没有变化。'
+    interventionComposer.persistError = tr('无法保存采用前版本，正文没有变化。')
     return false
   }
   if (prepared.adoption.target.documentId === String(selectedChapterId.value || '')) {
@@ -5923,7 +5921,7 @@ async function adoptInterventionGhost(ghostId = '') {
     : dualPaneRef.value?.applyInterventionAdoption?.(prepared.adoption.patch) === true
   if (!changed) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '编辑器没有接受这次修改，正文未变化。'
+    interventionComposer.persistError = tr('编辑器没有接受这次修改，正文未变化。')
     return false
   }
   cancelContentSave()
@@ -5998,13 +5996,13 @@ async function adoptAllInterventionGhosts() {
   interventionComposer.persistError = ''
   if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '当前正文无法保存，批量采用尚未执行。'
+    interventionComposer.persistError = tr('当前正文无法保存，批量采用尚未执行。')
     return false
   }
   const reconciled = await getAuthoringInterventionRunner().reconcile(interventionComposer.session)
   if (!reconciled?.ok || reconciled.stale) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.notice = '原文或依据已经变化；已有草稿可查看，但不能批量采用。'
+    interventionComposer.notice = tr('原文或依据已经变化；已有草稿可查看，但不能批量采用。')
     interventionComposer.rehearsalResult = Object.freeze({
       ...interventionComposer.rehearsalResult,
       status: 'stale',
@@ -6025,13 +6023,13 @@ async function adoptAllInterventionGhosts() {
   if (!prepared.ok) {
     interventionComposer.adoptingGhostId = ''
     interventionComposer.persistError = prepared.reason === 'intervention-umbrella-target-conflict'
-      ? '多个草稿指向同一位置，请逐一选择后采用。'
-      : '部分目标已经变化，批量采用没有写入正文。'
+      ? tr('多个草稿指向同一位置，请逐一选择后采用。')
+      : tr('部分目标已经变化，批量采用没有写入正文。')
     return false
   }
   if (!protectInterventionUmbrella(prepared.receipt, latestBook)) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '无法保存采用前版本，批量采用没有写入正文。'
+    interventionComposer.persistError = tr('无法保存采用前版本，批量采用没有写入正文。')
     return false
   }
   const nextBooks = latestBooks.map((book) => (
@@ -6039,7 +6037,7 @@ async function adoptAllInterventionGhosts() {
   ))
   if (!saveWritingBooksDurable(nextBooks).ok) {
     interventionComposer.adoptingGhostId = ''
-    interventionComposer.persistError = '保存失败，批量采用没有写入正文；草稿仍已保留。'
+    interventionComposer.persistError = tr('保存失败，批量采用没有写入正文；草稿仍已保留。')
     return false
   }
   recordInterventionBlockHistory(latestBook, prepared.nextBook, prepared.receipt, 'intervention-umbrella')
@@ -6062,7 +6060,7 @@ async function adoptAllInterventionGhosts() {
   } catch {
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer', code: 'AUTHORING_INTERVENTION_OBSERVER_FAILED',
-      message: '正文已保存，相关记忆将在稍后刷新', retryable: true
+      message: tr('正文已保存，相关记忆将在稍后刷新'), retryable: true
     })
   }
   queueAuthoringRehearsalAdoptionReceipt(prepared.receipt.groupCount)
@@ -6070,14 +6068,14 @@ async function adoptAllInterventionGhosts() {
   const changedCount = prepared.receipt.groupCount
   const chapterCount = prepared.receipt.chapterCount
   closeInterventionComposer({ restoreSelection: false })
-  authoringTask.notify(`已采用 ${changedCount} 处 · ${chapterCount} 章；未修改现场、大纲或世界事实`, { canUndo: true })
+  authoringTask.notify(tr('已采用 {value0} 处 · {value1} 章；未修改现场、大纲或世界事实', { value0: changedCount, value1: chapterCount }), { canUndo: true })
   return true
 }
 async function undoInterventionUmbrella() {
   const receipt = lastInterventionUmbrellaReceipt.value
   if (!receipt || String(receipt.projectId) !== String(selectedBookId.value)) return false
   if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
-    authoringTask.notify('当前正文保存失败，尚未撤销这次介入')
+    authoringTask.notify(tr('当前正文保存失败，尚未撤销这次介入'))
     return false
   }
   const latestBooks = loadWritingBooks()
@@ -6085,14 +6083,14 @@ async function undoInterventionUmbrella() {
   const undo = prepareAuthoringInterventionUmbrellaUndo({ receipt, book: latestBook })
   if (!undo.ok) {
     lastInterventionUmbrellaReceipt.value = null
-    authoringTask.notify('采用后的目标又被修改，不能越过新修改撤销')
+    authoringTask.notify(tr('采用后的目标又被修改，不能越过新修改撤销'))
     return false
   }
   const nextBooks = latestBooks.map((book) => (
     String(book.id) === String(receipt.projectId) ? undo.nextBook : book
   ))
   if (!saveWritingBooksDurable(nextBooks).ok) {
-    authoringTask.notify('撤销保存失败，正文仍保持采用后的状态')
+    authoringTask.notify(tr('撤销保存失败，正文仍保持采用后的状态'))
     return false
   }
   const undoneReceipt = { ...receipt, groups: undo.undoneGroups }
@@ -6108,12 +6106,12 @@ async function undoInterventionUmbrella() {
   } catch {
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer', code: 'AUTHORING_INTERVENTION_UNDO_OBSERVER_FAILED',
-      message: '正文已撤销，记忆状态将在稍后刷新', retryable: true
+      message: tr('正文已撤销，记忆状态将在稍后刷新'), retryable: true
     })
   }
   authoringTask.notify(undo.unsafeGroups.length
-    ? `已撤销 ${undo.undoneGroups.length} 处；${undo.unsafeGroups.length} 处有后续修改，未覆盖`
-    : `已撤销本次介入的 ${undo.undoneGroups.length} 处正文修改`)
+    ? tr('已撤销 {value0} 处；{value1} 处有后续修改，未覆盖', { value0: undo.undoneGroups.length, value1: undo.unsafeGroups.length })
+    : tr('已撤销本次介入的 {value0} 处正文修改', { value0: undo.undoneGroups.length }))
   return true
 }
 watch(() => currentDocumentRevision(), (revision) => {
@@ -6235,7 +6233,7 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
   reportObserverFailure: () => {
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer', code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
-      message: '正文已保存，现场状态将在稍后刷新', retryable: true
+      message: tr('正文已保存，现场状态将在稍后刷新'), retryable: true
     })
   },
   consumeCharacterIfBranch: () => {
@@ -6243,7 +6241,7 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
     if (!otherBranch) return null
     ifBranchDrafts.value = { ...ifBranchDrafts.value, [characterIfActiveBranch.value]: null }
     characterIfExperiment.stale('adopted-other-branch')
-    sceneLaboratory.notice = '正文已变化。另一支仅保留供阅读或留作构思，重新对照需重新核对现场。'
+    sceneLaboratory.notice = tr('正文已变化。另一支仅保留供阅读或留作构思，重新对照需重新核对现场。')
     return otherBranch
   },
   clearAdoptedDraft: () => {
@@ -6281,8 +6279,8 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
   showImpact: (impact, focus) => showAdoptionImpact(impact, focus),
   notifySuccess: ({ adoption, exploration }) => {
     authoringTask.notify(exploration
-      ? (adoption.operation === 'rewrite-unit' ? '当前探索文本块已替换' : '推演已纳入探索稿')
-      : (adoption.operation === 'rewrite-unit' ? '当前文本块已替换' : '推演已纳入正文'), { canUndo: true })
+      ? (adoption.operation === 'rewrite-unit' ? tr('当前探索文本块已替换') : tr('推演已纳入探索稿'))
+      : (adoption.operation === 'rewrite-unit' ? tr('当前文本块已替换') : tr('推演已纳入正文')), { canUndo: true })
   },
   restoreOtherIfBranch: (branch) => {
     if (!blockAdoptionBusy.value && ifBranchDrafts.value[branch]) switchIfDraft(branch)
@@ -6482,17 +6480,17 @@ async function rememberSelectionFromMenu() {
       sourceRefs: [documentSourceRef, unitSourceRef].filter(Boolean),
       sourceRevision: currentDocumentRevision()
     })
-    showMemoryNotice(result?.candidate ? '已加入待确认事实' : '没有可提取的事实', result?.candidate ? 0 : 0)
+    showMemoryNotice(result?.candidate ? tr('已加入待确认事实') : tr('没有可提取的事实'), result?.candidate ? 0 : 0)
     refreshAuthoringMemoryCandidates()
   } catch {
-    showMemoryNotice('记忆保存失败，请重试')
+    showMemoryNotice(tr('记忆保存失败，请重试'))
   }
 }
 async function confirmAuthoringMemoryCandidate(candidateId) {
   // 确认 = 显式升级为 accepted 权威；缺来源 revision 的 derived 记录会被拒绝。
   const confirmed = confirmMemoryCandidate(candidateId)
   if (!confirmed) {
-    showMemoryNotice('该候选缺少来源引用或来源版本，无法确认为记忆')
+    showMemoryNotice(tr('该候选缺少来源引用或来源版本，无法确认为记忆'))
   }
   refreshAuthoringMemoryCandidates()
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
@@ -6512,7 +6510,7 @@ function demoteAuthoringMemoryCandidate(candidateId) {
 function supersedeAuthoringMemoryCandidate(candidateId) {
   const result = replaceMemoryCandidateConflicts(candidateId)
   if (!result?.success) {
-    showMemoryNotice('没有可替换的冲突记忆')
+    showMemoryNotice(tr('没有可替换的冲突记忆'))
   }
   refreshAuthoringMemoryCandidates()
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
@@ -6522,7 +6520,7 @@ function supersedeAuthoringMemoryCandidate(candidateId) {
 function mergeAuthoringMemoryCandidate(candidateId) {
   const result = mergeMemoryCandidateConflicts(candidateId)
   if (!result?.success) {
-    showMemoryNotice(result?.reason === 'no-conflicts' ? '没有可合并的冲突记忆' : '合并失败')
+    showMemoryNotice(result?.reason === 'no-conflicts' ? tr('没有可合并的冲突记忆') : tr('合并失败'))
   }
   refreshAuthoringMemoryCandidates()
   if (!authoringMemoryCandidates.value.length) memoryReviewOpen.value = false
@@ -6587,7 +6585,7 @@ function jumpToMemorySource(item) {
 function openAuthoringKnowledgeEvidence(evidence) {
   const locator = evidence?.locator
   if (!locator || String(evidence?.projectId || '') !== String(selectedBookId.value || '')) {
-    authoringTask.notify('这条依据不属于当前作品，未打开')
+    authoringTask.notify(tr('这条依据不属于当前作品，未打开'))
     return false
   }
   // 点击依据是作者主动改变阅读位置，不是临时 inspector 的焦点借用。
@@ -6615,7 +6613,7 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     activeWritingPane.value = 'main'
     const chapterId = String(locator.chapterId || '')
     if (!chapterId || (chapterId !== String(selectedChapterId.value || '') && !selectChapter(chapterId))) {
-      authoringTask.notify('原文章节已删除或暂时无法打开')
+      authoringTask.notify(tr('原文章节已删除或暂时无法打开'))
       return false
     }
     nextTick(() => nextTick(() => {
@@ -6633,7 +6631,7 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
   }
   if (locator.kind === 'worldbook-entry') {
     if (String(locator.worldbookId || '') !== String(boundWorldbook.value?.id || '')) {
-      authoringTask.notify('设定已删除或与当前作品解绑')
+      authoringTask.notify(tr('设定已删除或与当前作品解绑'))
       return false
     }
     openWorldbookMentionDetail(locator.entryId)
@@ -6642,7 +6640,7 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
   if (locator.kind === 'outline-node') {
     const exists = wt3OutlineNodes.value.some((node) => String(node?.id || '') === String(locator.nodeId || ''))
     if (!exists) {
-      authoringTask.notify('大纲节点已删除')
+      authoringTask.notify(tr('大纲节点已删除'))
       return false
     }
     inspectorOutlineNodeId.value = ''
@@ -6652,7 +6650,7 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
   }
   if (locator.kind === 'exploration') {
     if (!openExplorationDoc(locator.documentId)) {
-      authoringTask.notify('速记已删除或暂时无法打开')
+      authoringTask.notify(tr('速记已删除或暂时无法打开'))
       return false
     }
     return true
@@ -6660,7 +6658,7 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
   if (locator.kind === 'memory-source') {
     const memory = listMemoryCandidates({ status: null }).find((item) => String(item?.id || '') === String(locator.memoryId || ''))
     if (!memory || !jumpToMemorySource(memory)) {
-      authoringTask.notify('记忆的原始来源已不可用')
+      authoringTask.notify(tr('记忆的原始来源已不可用'))
       return false
     }
     return true
@@ -6693,7 +6691,7 @@ function handleMemoryCandidateCreated(event) {
   // 才在当前书的 AI 检查器里给出一次可打开的聚合提示。
   if (!detail.attention || !authoringMemoryCandidates.value.length) return
   const count = authoringMemoryCandidates.value.length
-  showMemoryNotice(`有 ${count} 条记忆冲突待确认`, count, true)
+  showMemoryNotice(tr('有 {count} 条记忆冲突待确认', { count }), count, true)
 }
 watch(selectedBookId, () => {
   lastInterventionUmbrellaReceipt.value = null
@@ -6731,7 +6729,7 @@ async function undoGhostAdoption() {
   const receipt = lastGhostAdoptionReceipt.value
   if (!hasGhostAdoptionUndoBoundary.value) return false
   if (!canUndoGhostAdoption.value) {
-    authoringTask.notify('当前场或大纲已变化，无法只撤正文；请先处理这些变更')
+    authoringTask.notify(tr('当前场或大纲已变化，无法只撤正文；请先处理这些变更'))
     return false
   }
   writingAgentHost.notifyHistory('historyUndo')
@@ -6746,8 +6744,8 @@ async function undoGhostAdoption() {
       : notebookEditorRef.value?.undo?.()
     if (receipt.operation === 'rewrite-unit' ? !restored?.ok : !restored) {
       authoringTask.notify(receipt.operation === 'rewrite-unit'
-        ? `无法恢复重写前文本块：${restored?.reason || 'editor-unavailable'}`
-        : '当前编辑历史不可用，未执行撤销')
+        ? tr('无法恢复重写前文本块：{value0}', { value0: restored?.reason || 'editor-unavailable' })
+        : tr('当前编辑历史不可用，未执行撤销'))
       return false
     }
     if (!ghostDocumentMatchesReceipt(receipt, 'undo')) {
@@ -6755,7 +6753,7 @@ async function undoGhostAdoption() {
         notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.afterUnitSnapshot })
       } else notebookEditorRef.value?.redo?.()
       fenceNotebookHistory()
-      authoringTask.notify('撤销历史与推演事务不一致，已恢复正文并隔离旧历史')
+      authoringTask.notify(tr('撤销历史与推演事务不一致，已恢复正文并隔离旧历史'))
       return false
     }
     applyGhostAdoptionDeltaState(receipt, 'undo')
@@ -6764,7 +6762,7 @@ async function undoGhostAdoption() {
         notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.afterUnitSnapshot })
       } else notebookEditorRef.value?.redo?.()
       applyGhostAdoptionDeltaState(receipt, 'redo')
-      authoringTask.notify('撤销保存失败，正文与当前场已恢复到撤销前')
+      authoringTask.notify(tr('撤销保存失败，正文与当前场已恢复到撤销前'))
       return false
     }
     if (receipt.documentRole !== 'exploration') {
@@ -6780,7 +6778,7 @@ async function undoGhostAdoption() {
       } catch {
         authoringObserverWarning.value = normalizeAuthoringFailure({
           phase: 'observer', code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
-          message: '正文已撤销，记忆状态将在稍后刷新', retryable: true
+          message: tr('正文已撤销，记忆状态将在稍后刷新'), retryable: true
         })
       }
     }
@@ -6795,8 +6793,8 @@ async function undoGhostAdoption() {
     notebookAtomicRedoReceipts.value = [...notebookAtomicRedoReceipts.value, historyReceipt]
     if (receipt.operation === 'rewrite-unit') fenceNotebookHistory()
     authoringTask.notify(receipt.operation === 'rewrite-unit'
-      ? '已恢复重写前的文本块'
-      : '已同时撤销推演正文、当前场与大纲变更')
+      ? tr('已恢复重写前的文本块')
+      : tr('已同时撤销推演正文、当前场与大纲变更'))
     return true
   } finally {
     applyingAtomicNotebookHistory = false
@@ -6807,7 +6805,7 @@ async function redoGhostAdoption() {
   const receipt = lastGhostUndoReceipt.value
   if (!hasGhostAdoptionRedoBoundary.value) return false
   if (!canRedoGhostAdoption.value) {
-    authoringTask.notify('当前场或大纲已变化，无法安全重做这次推演')
+    authoringTask.notify(tr('当前场或大纲已变化，无法安全重做这次推演'))
     return false
   }
   writingAgentHost.notifyHistory('historyRedo')
@@ -6822,8 +6820,8 @@ async function redoGhostAdoption() {
       : notebookEditorRef.value?.redo?.()
     if (receipt.operation === 'rewrite-unit' ? !restored?.ok : !restored) {
       authoringTask.notify(receipt.operation === 'rewrite-unit'
-        ? `无法重新应用文本块重写：${restored?.reason || 'editor-unavailable'}`
-        : '当前编辑历史不可用，未执行重做')
+        ? tr('无法重新应用文本块重写：{value0}', { value0: restored?.reason || 'editor-unavailable' })
+        : tr('当前编辑历史不可用，未执行重做'))
       return false
     }
     if (!ghostDocumentMatchesReceipt(receipt, 'redo')) {
@@ -6831,7 +6829,7 @@ async function redoGhostAdoption() {
         notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.beforeUnitSnapshot })
       } else notebookEditorRef.value?.undo?.()
       fenceNotebookHistory()
-      authoringTask.notify('重做历史与推演事务不一致，已保持撤销状态并隔离旧历史')
+      authoringTask.notify(tr('重做历史与推演事务不一致，已保持撤销状态并隔离旧历史'))
       return false
     }
     applyGhostAdoptionDeltaState(receipt, 'redo')
@@ -6840,7 +6838,7 @@ async function redoGhostAdoption() {
         notebookEditorRef.value?.restoreWritingUnitSnapshot?.({ unitId: receipt.insertedUnitId, snapshot: receipt.beforeUnitSnapshot })
       } else notebookEditorRef.value?.undo?.()
       applyGhostAdoptionDeltaState(receipt, 'undo')
-      authoringTask.notify('重做保存失败，正文与当前场仍保持撤销状态')
+      authoringTask.notify(tr('重做保存失败，正文与当前场仍保持撤销状态'))
       return false
     }
     if (receipt.documentRole !== 'exploration') {
@@ -6865,7 +6863,7 @@ async function redoGhostAdoption() {
         authoringObserverWarning.value = normalizeAuthoringFailure({
           phase: 'observer',
           code: 'AUTHORING_OBSERVER_REFRESH_FAILED',
-          message: '正文已重做，现场状态将在稍后刷新',
+          message: tr('正文已重做，现场状态将在稍后刷新'),
           retryable: true
         })
       }
@@ -6881,8 +6879,8 @@ async function redoGhostAdoption() {
     notebookAtomicUndoReceipts.value = [...notebookAtomicUndoReceipts.value, historyReceipt]
     if (receipt.operation === 'rewrite-unit') fenceNotebookHistory()
     authoringTask.notify(receipt.operation === 'rewrite-unit'
-      ? '已重新应用文本块重写'
-      : '已同时重做推演正文、当前场与大纲变更', { canUndo: true })
+      ? tr('已重新应用文本块重写')
+      : tr('已同时重做推演正文、当前场与大纲变更'), { canUndo: true })
     return true
   } finally {
     applyingAtomicNotebookHistory = false
@@ -6918,7 +6916,7 @@ async function undoStructureTransition() {
   const receipt = lastStructureUndoReceipt.value
   if (!hasStructureUndoBoundary.value) return false
   if (!canUndoStructureTransition.value) {
-    authoringTask.notify('当前场或批注已变化，无法安全撤销这次文本块调整')
+    authoringTask.notify(tr('当前场或批注已变化，无法安全撤销这次文本块调整'))
     return false
   }
   writingAgentHost.notifyHistory('historyUndo')
@@ -6930,19 +6928,19 @@ async function undoStructureTransition() {
       notebookEditorRef.value?.redo?.()
       invalidateNotebookAtomicHistory()
       fenceNotebookHistory()
-      authoringTask.notify('文本块历史与正文不一致，已恢复并隔离旧历史')
+      authoringTask.notify(tr('文本块历史与正文不一致，已恢复并隔离旧历史'))
       return false
     }
     applyStructureSideState(receipt, 'undo')
     if (!persistGhostAdoptionHistory(receipt)) {
       notebookEditorRef.value?.redo?.()
       applyStructureSideState(receipt, 'redo')
-      authoringTask.notify('文本块撤销保存失败，已恢复到撤销前')
+      authoringTask.notify(tr('文本块撤销保存失败，已恢复到撤销前'))
       return false
     }
     notebookAtomicUndoReceipts.value = notebookAtomicUndoReceipts.value.slice(0, -1)
     notebookAtomicRedoReceipts.value = [...notebookAtomicRedoReceipts.value, receipt]
-    authoringTask.notify('已撤销文本块调整及其当前场、批注迁移')
+    authoringTask.notify(tr('已撤销文本块调整及其当前场、批注迁移'))
     return true
   } finally {
     applyingAtomicNotebookHistory = false
@@ -6953,7 +6951,7 @@ async function redoStructureTransition() {
   const receipt = lastStructureRedoReceipt.value
   if (!hasStructureRedoBoundary.value) return false
   if (!canRedoStructureTransition.value) {
-    authoringTask.notify('当前场或批注已变化，无法安全重做这次文本块调整')
+    authoringTask.notify(tr('当前场或批注已变化，无法安全重做这次文本块调整'))
     return false
   }
   writingAgentHost.notifyHistory('historyRedo')
@@ -6965,19 +6963,19 @@ async function redoStructureTransition() {
       notebookEditorRef.value?.undo?.()
       invalidateNotebookAtomicHistory()
       fenceNotebookHistory()
-      authoringTask.notify('文本块重做历史与正文不一致，已保持撤销状态')
+      authoringTask.notify(tr('文本块重做历史与正文不一致，已保持撤销状态'))
       return false
     }
     applyStructureSideState(receipt, 'redo')
     if (!persistGhostAdoptionHistory(receipt)) {
       notebookEditorRef.value?.undo?.()
       applyStructureSideState(receipt, 'undo')
-      authoringTask.notify('文本块重做保存失败，仍保持撤销状态')
+      authoringTask.notify(tr('文本块重做保存失败，仍保持撤销状态'))
       return false
     }
     notebookAtomicRedoReceipts.value = notebookAtomicRedoReceipts.value.slice(0, -1)
     notebookAtomicUndoReceipts.value = [...notebookAtomicUndoReceipts.value, receipt]
-    authoringTask.notify('已重做文本块调整及其当前场、批注迁移')
+    authoringTask.notify(tr('已重做文本块调整及其当前场、批注迁移'))
     return true
   } finally {
     applyingAtomicNotebookHistory = false
@@ -7224,22 +7222,17 @@ marked.setOptions({
   breaks: true
 })
 const charCount = computed(() => getEditorText().length)
-const wordCount = computed(() => {
-  const text = getEditorText().trim()
-  if (!text) return 0
-  const chineseChars = (text.match(/[一-龥]/g) || []).length
-  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
-  return chineseChars + englishWords
-})
+const wordCount = computed(() => countWritingText(getEditorText(), currentBook.value?.manuscriptLanguage))
+
 const revisionLabel = computed(() => {
   const chapter = chapters.value.find((item) => item.id === selectedChapterId.value)
   const stamp = Date.parse(chapter?.updatedAt || chapter?.createdAt || '')
   if (!Number.isFinite(stamp)) return '--:--'
-  return new Date(stamp).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return new Date(stamp).toLocaleString(uiLocale.value, { hour: '2-digit', minute: '2-digit' })
 })
 function goToAdventure() {
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
   }
   const outgoingChapterBoundary = !wt3ActiveDoc.value
@@ -7249,7 +7242,7 @@ function goToAdventure() {
     ? wt3PersistBeforeLeaving()?.ok === true
     : (!selectedChapterId.value || saveCurrentChapter())
   if (!saved) {
-    authoringTask.notify('文档保存失败，已留在创作页')
+    authoringTask.notify(tr('文档保存失败，已留在创作页'))
     return false
   }
   if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
@@ -7287,7 +7280,7 @@ function projectLinkedLegacySession() {
   // 绑定提案（Task 7）：目标书未绑定且会话带世界书时，给 typed 提示，
   // 由用户通过书架上的“关联世界书”动作显式确认。
   if (result.bindingProposal) {
-    authoringTask.notify(`来源会话使用世界书 ${result.bindingProposal.worldbookId}；如需绑定请用左侧“关联世界书”`)
+    authoringTask.notify(tr('来源会话使用世界书 {value0}；如需绑定请用左侧“关联世界书”', { value0: result.bindingProposal.worldbookId }))
   }
   books.value = result.books
   saveBooks()
@@ -7297,7 +7290,7 @@ function projectLinkedLegacySession() {
 }
 function goBack() {
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
   }
   const outgoingChapterBoundary = !wt3ActiveDoc.value
@@ -7307,7 +7300,7 @@ function goBack() {
     ? wt3PersistBeforeLeaving()?.ok === true
     : (!selectedChapterId.value || saveCurrentChapter())
   if (!saved) {
-    authoringTask.notify('文档保存失败，已留在创作页')
+    authoringTask.notify(tr('文档保存失败，已留在创作页'))
     return false
   }
   if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
@@ -7412,7 +7405,7 @@ function collectWritingContext() {
     bookTitle: selectedBook?.title || '',
     chapterId: selectedChapterId.value,
     chapterTitle: currentChapterTitle.value || currentChapter?.title || '',
-    wordCount: editorContent.value.replace(/\s/g, '').length,
+    wordCount: countWritingText(editorContent.value, currentBook.value?.manuscriptLanguage),
     selectedText: selection.text || selectedText.value || '',
     selectionStart: selection.start,
     selectionEnd: selection.end,
@@ -7473,7 +7466,7 @@ function openInboxAssetFromInspector(asset) {
 }
 function openMaterialsPage() {
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
   }
   const outgoingChapterBoundary = !wt3ActiveDoc.value
@@ -7483,7 +7476,7 @@ function openMaterialsPage() {
     ? wt3PersistBeforeLeaving()?.ok === true
     : (!selectedChapterId.value || saveCurrentChapter())
   if (!saved) {
-    authoringTask.notify('文档保存失败，未打开素材页')
+    authoringTask.notify(tr('文档保存失败，未打开素材页'))
     return false
   }
   if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
@@ -7536,8 +7529,8 @@ function persistInboxAssetStatus(assetIds, status, completedAction = '') {
   const result = setNarrativeAssetsStatusDurable(assetIds, status)
   if (result.ok) return true
   quickNoteStatus.value = completedAction
-    ? `${completedAction}，但素材状态未保存，请重试`
-    : '素材状态未保存，请重试'
+    ? tr('{value0}，但素材状态未保存，请重试', { value0: completedAction })
+    : tr('素材状态未保存，请重试')
   return false
 }
 function getSelectedWorldbookDraftAssets() {
@@ -7551,9 +7544,9 @@ function buildCopilotAssetContext(asset) {
   const content = String(asset?.content || '').trim()
   if (!content) return ''
   const parts = [
-    asset.title ? `标题：${asset.title}` : '',
+    asset.title ? tr('标题：{value0}', { value0: asset.title }) : '',
     `类型：${getAssetKindLabel(asset.kind)}`,
-    asset.source ? `来源：${getAssetSourceDetail(asset.source)}` : '',
+    asset.source ? tr('来源：{value0}', { value0: getAssetSourceDetail(asset.source) }) : '',
     '',
     content
   ]
@@ -7728,7 +7721,7 @@ function addInboxAssetsToChapterOutline(assets = []) {
   }
   const result = addAssetsToChapterOutline(chapterOutlineItems.value, assets)
   if (!result.addedItems.length) {
-    quickNoteStatus.value = result.skippedCount ? '所选素材已在纲要中或内容为空' : '先选择素材'
+    quickNoteStatus.value = result.skippedCount ? tr('所选素材已在纲要中或内容为空') : tr('先选择素材')
     return result
   }
   chapterOutlineItems.value = result.items
@@ -8089,7 +8082,7 @@ function recordDestructiveWritingProtection(payload = {}) {
   const result = authoringHistory.recordProtection({
     chapterId: snapshotKey,
     chapterTitle: String(payload.title || chapter?.title || exploration?.title || ''),
-    label: `删除前 · 修订 ${Number(document.revision || 0)}`,
+    label: tr('删除前 · 修订 {value0}', { value0: Number(document.revision || 0) }),
     reason: 'before-rewrite',
     document,
     markdown: String(payload.markdown ?? getWritingDocumentMarkdown(document)),
@@ -8101,7 +8094,7 @@ function recordDestructiveWritingProtection(payload = {}) {
   })
   if (!result.ok) {
     snapshotStatus.value = '无法保存删除前版本，本次删除已取消。'
-    authoringTask.notify('无法保存删除前版本，本次删除已取消')
+    authoringTask.notify(tr('无法保存删除前版本，本次删除已取消'))
     return false
   }
   if (documentRole === 'manuscript' && documentId === String(selectedChapterId.value || '')) {
@@ -8208,11 +8201,11 @@ const {
 })
 function selectChapter(chapterId) {
   if (pendingGhostAdoption.value) {
-    authoringTask.notify('推演正文尚未保存，请先重试保存或留在当前章节')
+    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
   }
   if (blockPreview.value) {
-    authoringTask.notify('推演草稿尚未处理，请先采用或丢弃')
+    authoringTask.notify(tr('推演草稿尚未处理，请先采用或丢弃'))
     return false
   }
   // Phase 1：离开探索文档先持久化（含批注），再进入章节管线。
@@ -8233,7 +8226,7 @@ function selectChapter(chapterId) {
       memoryProjectId: selectedBookId.value || ''
     }
     if (!saveCurrentChapter()) {
-      authoringTask.notify('当前章节保存失败，未切换章节')
+      authoringTask.notify(tr('当前章节保存失败，未切换章节'))
       return false
     }
     authoringHistory.closeBlockHistorySessions({ chapterId: selectedChapterId.value })
@@ -8272,6 +8265,7 @@ function selectChapter(chapterId) {
 function createNewBook({ clearRouteIntent = false } = {}) {
   showNewBookModal.value = true
   newBookTitle.value = ''
+  newBookLanguage.value = uiLocale.value
   newBookDesc.value = ''
   newBookWorldbookId.value = ''
   void worldStore.loadWorldbooksIndex()
@@ -8299,7 +8293,7 @@ function closeManuscriptImport() {
 }
 function confirmManuscriptImport(book, respond = null) {
   if (!book?.id || !Array.isArray(book.chapters) || !book.chapters.length) {
-    authoringTask.notify('书稿结构无效，未执行导入')
+    authoringTask.notify(tr('书稿结构无效，未执行导入'))
     respond?.(false)
     return false
   }
@@ -8307,16 +8301,32 @@ function confirmManuscriptImport(book, respond = null) {
   books.value = [...books.value, book]
   if (!saveBooks()) {
     books.value = previousBooks
-    authoringTask.notify('导入未能保存，请检查浏览器存储空间')
+    authoringTask.notify(tr('导入未能保存，请检查浏览器存储空间'))
     respond?.(false)
     return false
   }
   showManuscriptImport.value = false
   manuscriptImportReturnFocus.value = null
   selectBook(book.id)
-  authoringTask.notify(`已导入《${book.title}》· ${book.chapters.length} 章`)
+  authoringTask.notify(tr('已导入《{value0}》· {value1} 章', { value0: book.title, value1: book.chapters.length }))
   respond?.(true)
   return true
+}
+function setManuscriptLanguage(value) {
+  const book = currentBook.value
+  if (!book) return
+  const previous = book.manuscriptLanguage
+  const next = normalizeManuscriptLanguage(value)
+  if (next) book.manuscriptLanguage = next
+  else delete book.manuscriptLanguage
+  if (!saveBooks()) {
+    if (previous === undefined) delete book.manuscriptLanguage
+    else book.manuscriptLanguage = previous
+    authoringTask.notify(tr('作品语言未能保存，请重试。'))
+  } else {
+    markRewriteCandidatesStale()
+    reviewWorkflow.reconcile()
+  }
 }
 function confirmCreateBook() {
   if (!newBookTitle.value.trim()) return
@@ -8324,11 +8334,12 @@ function confirmCreateBook() {
   const newBook = createWritingBookRecord({
     title: newBookTitle.value.trim(),
     description: newBookDesc.value.trim(),
+    manuscriptLanguage: newBookLanguage.value,
     worldbookId: String(newBookWorldbookId.value || '')
   })
   newBook.chapters = [{
     id: `${Date.now()}-chapter-1`,
-    title: '第一章',
+    title: newBookLanguage.value === 'en' ? 'Chapter 1' : '第一章',
     content: '',
     contentFormat: 'md',
     outlineItems: [],
@@ -8340,7 +8351,7 @@ function confirmCreateBook() {
   books.value = [...books.value, newBook]
   if (!saveBooks()) {
     books.value = previousBooks
-    authoringTask.notify('书稿未能保存，请检查浏览器存储空间')
+    authoringTask.notify(tr('书稿未能保存，请检查浏览器存储空间'))
     return
   }
   selectBook(newBook.id)
@@ -8411,15 +8422,15 @@ async function confirmBindingSelect() {
   let result = await bindSelectedBookWorldbook(nextId)
   if (result.reason === 'confirmation-required') {
     const confirmed = window.confirm(nextId
-      ? `换绑世界书将使 ${result.preview.affectedAnchorCount} 个旧现场需要重新确认，继续？`
-      : `解除关联将保留时间，但移除 ${result.preview.affectedAnchorCount} 个现场中的人物与地点引用，继续？`)
+      ? tr('换绑世界书将使 {value0} 个旧现场需要重新确认，继续？', { value0: result.preview.affectedAnchorCount })
+      : tr('解除关联将保留时间，但移除 {value0} 个现场中的人物与地点引用，继续？', { value0: result.preview.affectedAnchorCount }))
     if (!confirmed) return
     result = await bindSelectedBookWorldbook(nextId, { confirmed: true })
   }
   if (!result.ok) {
     authoringTask.notify(result.reason === 'stale'
-      ? '书稿已切换，本次关联未写入'
-      : nextId ? '世界书不可用，已保留原关联' : '解除关联失败，已保留原关联')
+      ? tr('书稿已切换，本次关联未写入')
+      : nextId ? tr('世界书不可用，已保留原关联') : tr('解除关联失败，已保留原关联'))
     return
   }
   bindingSelectOpen.value = false
@@ -8438,7 +8449,7 @@ function createNewChapter() {
   chapters.value.push(newChapter)
   if (!saveChapters()) {
     chapters.value.pop()
-    authoringTask.notify('新章节保存失败，请检查存储空间')
+    authoringTask.notify(tr('新章节保存失败，请检查存储空间'))
     return false
   }
   return selectChapter(newChapter.id)
@@ -8451,7 +8462,7 @@ function deleteChapter(chapterId) {
   chapters.value = next
   if (!saveChapters()) {
     chapters.value = previous
-    authoringTask.notify('删除章节失败，正文未变更')
+    authoringTask.notify(tr('删除章节失败，正文未变更'))
     return false
   }
   authoringHistory.removeChapter(chapterId)
@@ -8750,7 +8761,7 @@ function dispatchChapterBoundary(payload) {
     authoringObserverWarning.value = normalizeAuthoringFailure({
       phase: 'observer',
       code: 'AUTHORING_OBSERVER_BOUNDARY_FAILED',
-      message: '章节已保存，部分记忆观察将在下次离开章节时重试',
+      message: tr('章节已保存，部分记忆观察将在下次离开章节时重试'),
       retryable: true
     })
     return null
@@ -8829,7 +8840,7 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
         authoringObserverWarning.value = normalizeAuthoringFailure({
           phase: 'observer',
           code: 'AUTHORING_OBSERVER_INVALIDATION_FAILED',
-          message: '正文已保存，旧记忆来源将在稍后刷新',
+          message: tr('正文已保存，旧记忆来源将在稍后刷新'),
           retryable: true
         })
       })
@@ -9069,13 +9080,13 @@ async function requestNameEntityCreation(item) {
   if (!selection || !target) {
     activeNameEntityMenu.value = ''
     nameEntityNoticeKind.value = 'needs-binding'
-    nameEntityNotice.value = boundWorldbookSyncing.value ? '正在读取当前书的世界书，请稍后再试' : '请先为当前书关联世界书'
+    nameEntityNotice.value = boundWorldbookSyncing.value ? tr('正在读取当前书的世界书，请稍后再试') : tr('请先为当前书关联世界书')
     return false
   }
   const command = createAuthoringEntityEntryCommand(selection, target)
   if (!command) {
     nameEntityNoticeKind.value = 'error'
-    nameEntityNotice.value = '当前书或世界书已经变化，请重新选择名称'
+    nameEntityNotice.value = tr('当前书或世界书已经变化，请重新选择名称')
     return false
   }
   const conflicts = findAuthoringEntitySelectionConflicts(selection, target.worldbook)
@@ -9095,7 +9106,7 @@ async function persistNameEntityCommand(command) {
   const target = currentNameEntityTarget()
   if (!target || target.projectId !== command.projectId || target.worldbookId !== command.worldbookId) {
     nameEntityNoticeKind.value = 'error'
-    nameEntityNotice.value = '当前书或世界书已经变化，本次没有写入'
+    nameEntityNotice.value = tr('当前书或世界书已经变化，本次没有写入')
     return false
   }
   if (!command.allowDuplicate) {
@@ -9126,7 +9137,7 @@ async function persistNameEntityCommand(command) {
     recovered = Boolean(entry)
     if (!entry) {
       nameEntityNoticeKind.value = 'error'
-      nameEntityNotice.value = error?.message || '世界书条目创建失败，请稍后重试'
+      nameEntityNotice.value = error?.message || tr('世界书条目创建失败，请稍后重试')
       nameEntityBusy.value = false
       return false
     }
@@ -9152,8 +9163,8 @@ async function persistNameEntityCommand(command) {
   }
   nameEntityNoticeKind.value = 'success'
   nameEntityNotice.value = refreshed
-    ? `已建为${nameEntityCategoryLabel(command.selection.entityKind)}条目${recovered ? '，写入已恢复' : ''}`
-    : `条目已创建，将在重新打开世界书后显示`
+    ? tr('已建为{value0}条目{value1}', { value0: nameEntityCategoryLabel(command.selection.entityKind), value1: recovered ? '，写入已恢复' : '' })
+    : tr('条目已创建，将在重新打开世界书后显示')
   nameEntityBusy.value = false
   return true
 }
@@ -9199,15 +9210,15 @@ function adjustFontSize(delta) {
 function rejectLockedNotebookMutation() {
   if (!historyInteractionLocked.value) return false
   authoringTask.notify(pendingGhostAdoption.value
-    ? '推演正文正在提交或等待重试，暂不能改动稿面'
-    : '正在提交推演正文，请稍候')
+    ? tr('推演正文正在提交或等待重试，暂不能改动稿面')
+    : tr('正在提交推演正文，请稍候'))
   return true
 }
 function rejectActiveWritingMutation() {
   if (!activeWritingMutationLocked.value) return false
   authoringTask.notify(pendingGhostAdoption.value
-    ? '当前文档正在提交推演正文或等待重试，暂不能改动'
-    : '当前文档正在提交推演正文，请稍候')
+    ? tr('当前文档正在提交推演正文或等待重试，暂不能改动')
+    : tr('当前文档正在提交推演正文，请稍候'))
   return true
 }
 function undoNotebookEdit() {
@@ -9505,7 +9516,7 @@ function performInsertAtChapter(chapter, asset) {
       syncCursorAndSelection()
     })
   }
-  const where = offset === currentText.length ? '章节末尾' : `偏移 ${offset}`
+  const where = offset === currentText.length ? tr('章节末尾') : tr('偏移 {value0}', { value0: offset })
   quickNoteStatus.value = `已插入素材 · ${asset.title || '未命名'} (${where})`
   return true
 }
@@ -9588,6 +9599,7 @@ function onWritingBeforeInput(event) {
     }
     return
   }
+  if (currentBook.value?.manuscriptLanguage === 'en' || (!currentBook.value?.manuscriptLanguage && inferWritingLanguage(getEditorText()) === 'en')) return
   const editor = notebookEditorRef.value
   const selection = editor?.getSelection?.()
   const insertion = buildChineseQuoteInsertion({
@@ -9631,7 +9643,7 @@ function onNotebookCommandMenuChange(open) {
   writingAgentHost.notifyCommandMenu(open)
 }
 function handleBlockedStructureEdit() {
-  authoringTask.notify('文本块边界受当前场与批注保护；请用右键菜单显式拆分、合并或移动文本块')
+  authoringTask.notify(tr('文本块边界受当前场与批注保护；请用右键菜单显式拆分、合并或移动文本块'))
 }
 // 行内助手的主来源窄接口:落笔处身份(ghost target)、书与光标只在此读一次,
 // 调度 payload 与请求快照(getSnapshot)共用,不再各自读 markdownContent/target。
@@ -9710,7 +9722,7 @@ function acceptWritingSuggestion(mode = 'all') {
       }
     })
     if (outcome === 'uncertain') {
-      authoringTask.notify('采纳结果未确认，请检查正文；可用撤销核对')
+      authoringTask.notify(tr('采纳结果未确认，请检查正文；可用撤销核对'))
     }
     return
   }
@@ -9895,7 +9907,7 @@ function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scr
     && String(snapshot?.documentRevision || '') !== String(currentDocumentRevision())
   if (revisionStale) {
     notebookEditorRef.value?.focus?.({ scrollIntoView: false })
-    authoringTask.notify('正文已变化，请在目标位置重新打开菜单')
+    authoringTask.notify(tr('正文已变化，请在目标位置重新打开菜单'))
     return false
   }
   if (!snapshot?.selectionBookmark) {
@@ -9907,7 +9919,7 @@ function restoreContextMenuTarget(snapshot, { requireCurrentDocument = true, scr
   if (!restored) {
     // 书签 resolve 失败（文档结构变了）也归还焦点。
     notebookEditorRef.value?.focus?.({ scrollIntoView: false })
-    authoringTask.notify('原选区已失效，请重新选择后操作')
+    authoringTask.notify(tr('原选区已失效，请重新选择后操作'))
     return false
   }
   return true
@@ -9982,7 +9994,7 @@ async function ctxAction(action) {
     if (action === 'paste') {
       const clipboardText = await readClipboardText()
       if (!clipboardText) {
-        authoringTask.notify('剪贴板里没有可粘贴的文本')
+        authoringTask.notify(tr('剪贴板里没有可粘贴的文本'))
         restoreEditorAfterContextMenu(snapshot)
         return false
       }
@@ -9991,8 +10003,8 @@ async function ctxAction(action) {
     }
   } catch {
     authoringTask.notify(action === 'paste'
-      ? '浏览器未允许读取剪贴板，请使用系统粘贴快捷键'
-      : '复制到剪贴板失败，请使用系统快捷键')
+      ? tr('浏览器未允许读取剪贴板，请使用系统粘贴快捷键')
+      : tr('复制到剪贴板失败，请使用系统快捷键'))
     restoreEditorAfterContextMenu(snapshot)
     return false
   }
@@ -10468,11 +10480,11 @@ function getDualRewriteComparison(target) {
   return compareAuthoringReviewRewriteTarget(source, target)
 }
 function commitDualRewriteCandidate(candidate, target) {
-  if (dualPaneRef.value?.prepareClose?.() === false) return { ok: false, message: '副栏原文保存失败，尚未采用候选。' }
+  if (dualPaneRef.value?.prepareClose?.() === false) return { ok: false, message: tr('副栏原文保存失败，尚未采用候选。') }
   const source = dualPaneRef.value?.captureReviewSource?.()
-  if (!source || String(source.documentId) !== String(target.documentId)) return { ok: false, stale: true, message: '副栏原文已经变化，请重新审稿。' }
+  if (!source || String(source.documentId) !== String(target.documentId)) return { ok: false, stale: true, message: tr('副栏原文已经变化，请重新审稿。') }
   if (!recordDestructiveWritingProtection({ ...source, operation: 'review-rewrite', transactionId: candidate.id })) {
-    return { ok: false, message: '无法保存改写前版本，正文没有变化。' }
+    return { ok: false, message: tr('无法保存改写前版本，正文没有变化。') }
   }
   const patches = candidate.patches || [{
     nodeId: target.nodeId,
@@ -10480,15 +10492,15 @@ function commitDualRewriteCandidate(candidate, target) {
     baseText: target.text,
     replacement: candidate.text
   }]
-  if (dualPaneRef.value?.replaceReviewRanges?.(patches) !== true) return { ok: false, stale: true, message: '副栏没有接受这次修改，请重新审稿。' }
+  if (dualPaneRef.value?.replaceReviewRanges?.(patches) !== true) return { ok: false, stale: true, message: tr('副栏没有接受这次修改，请重新审稿。') }
   reviewRewriteSavePending.value = dualPaneRef.value?.prepareClose?.() === false
-  if (reviewRewriteSavePending.value) authoringTask.notify('改写已进入副栏，但保存失败；请在审稿结果中重试保存')
+  if (reviewRewriteSavePending.value) authoringTask.notify(tr('改写已进入副栏，但保存失败；请在审稿结果中重试保存'))
   return { ok: true }
 }
 function commitRewriteCandidate(candidate, target) {
   if (rejectLockedNotebookMutation()) return { ok: false, silent: true }
   if (!protectCurrentRewrite(candidate)) {
-    return { ok: false, message: '无法保存改写前版本，正文没有变化。' }
+    return { ok: false, message: tr('无法保存改写前版本，正文没有变化。') }
   }
   const before = markdownContent.value
   let applied = false
@@ -10518,7 +10530,7 @@ function commitRewriteCandidate(candidate, target) {
         baseText: candidate.baseText
       }]
     if (actions.some((action) => !action.range)) {
-      return { ok: false, message: '候选缺少可应用的正文范围，请重新生成。' }
+      return { ok: false, message: tr('候选缺少可应用的正文范围，请重新生成。') }
     }
     const transactionDocumentId = wt3ActiveDoc.value?.id || selectedChapterId.value
     const transaction = applyWritingAgentTransaction(before, actions, {
@@ -10531,7 +10543,7 @@ function commitRewriteCandidate(candidate, target) {
         ok: false,
         stale: true,
         reason: transaction.reason,
-        message: '正文已变化，候选没有应用。'
+        message: tr('正文已变化，候选没有应用。')
       }
     }
     markdownContent.value = transaction.content
@@ -10541,7 +10553,7 @@ function commitRewriteCandidate(candidate, target) {
   }
   return applied
     ? { ok: true }
-    : { ok: false, message: '编辑器没有接受这次改写，请重新生成。' }
+    : { ok: false, message: tr('编辑器没有接受这次改写，请重新生成。') }
 }
 function freezeReviewSource() {
   freezeReviewWorkflow(captureActiveReviewSource(), captureCurrentWritingSurface())
@@ -10740,7 +10752,7 @@ function startRewriteFromAnnotation(annotation) {
   nextTick(() => nextTick(() => {
     const target = anchoredTarget || getCurrentRewriteTarget()
     if (!target?.text?.trim()) {
-      rewriteError.value = '这条批注已无法定位到可改写正文。'
+      rewriteError.value = tr('这条批注已无法定位到可改写正文。')
       rewriteTarget.value = { annotationId: annotation.id, text: '' }
       return
     }

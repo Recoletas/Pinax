@@ -1,4 +1,5 @@
 <script setup>
+import { tr } from '../../i18n/index.js'
 import { computed, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const props = defineProps({ books: { type: Array, default: () => [] } })
@@ -14,26 +15,26 @@ const projectTools = [
   { name: 'settings-sources', label: '参考资料', icon: 'sources' },
   { name: 'settings-world-map', label: '世界地图', icon: 'map' },
   { name: 'materials', label: '灵感素材', icon: 'pin' },
-  { name: 'prose-essay', label: '画布与分镜', icon: 'canvas' },
+  { name: 'prose-essay', label: '视频与编导', icon: 'canvas' },
   { name: 'comics', label: '漫画制作', icon: 'comics' }
 ]
 const projectQuery = computed(() => ({ bookId: selectedBookId.value }))
 </script>
 
 <template>
-  <aside class="library-sidebar workspace-sidebar" :class="{ 'is-expanded': expanded }" aria-label="首页导航">
-    <div class="library-sidebar__brand"><img :src="`${baseUrl}pinax-icon-192.png`" alt=""><div><strong>Pinax</strong><span>让故事成为作品</span></div><button type="button" class="library-sidebar__toggle" :aria-expanded="expanded" aria-label="展开功能导航" @click="expanded = !expanded"><WorkbenchIcon name="menu" :size="20" /></button></div>
+  <aside class="library-sidebar workspace-sidebar" :class="{ 'is-expanded': expanded }" :aria-label="tr(&quot;首页导航&quot;)">
+    <div class="library-sidebar__brand"><img :src="`${baseUrl}pinax-icon-192.png`" alt=""><div><strong>Pinax</strong><span>{{ tr('让故事成为作品') }}</span></div><button type="button" class="library-sidebar__toggle" :aria-expanded="expanded" :aria-label="tr(&quot;展开功能导航&quot;)" @click="expanded = !expanded"><WorkbenchIcon name="menu" :size="20" /></button></div>
     <nav class="library-sidebar__nav">
-      <router-link class="workspace-nav-item library-sidebar__current" to="/" aria-current="page"><WorkbenchIcon name="library" :size="21" /><span>我的作品</span><small>{{ books.length }}</small></router-link>
+      <router-link class="workspace-nav-item library-sidebar__current" to="/" aria-current="page"><WorkbenchIcon name="library" :size="21" /><span>{{ tr('我的作品') }}</span><small>{{ books.length }}</small></router-link>
       <div class="library-sidebar__group">
-        <h2>创作工具</h2>
-        <label class="library-sidebar__project"><span>当前作品</span><select v-model="selectedBookId" aria-label="工具所属作品" :disabled="!books.length"><option v-if="!books.length" value="">请先新建一本书</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title || '未命名书稿' }}</option></select></label>
-        <template v-for="item in projectTools" :key="item.name"><router-link class="workspace-nav-item" v-if="selectedBookId" :to="{ name: item.name, query: projectQuery }"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></router-link><button class="workspace-nav-item" v-else type="button" disabled title="新建作品后可使用"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ item.label }}</span></button></template>
+        <h2>{{ tr('创作工具') }}</h2>
+        <label class="library-sidebar__project"><span>{{ tr('当前作品') }}</span><select v-model="selectedBookId" :aria-label="tr(&quot;工具所属作品&quot;)" :disabled="!books.length"><option v-if="!books.length" value="">{{ tr('请先新建一本书') }}</option><option v-for="book in books" :key="book.id" :value="book.id">{{ book.title || tr('未命名书稿') }}</option></select></label>
+        <template v-for="item in projectTools" :key="item.name"><router-link class="workspace-nav-item" v-if="selectedBookId" :to="{ name: item.name, query: projectQuery }"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ tr(item.label) }}</span></router-link><button class="workspace-nav-item" v-else type="button" disabled :title="tr(&quot;新建作品后可使用&quot;)"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ tr(item.label) }}</span></button></template>
       </div>
-      <div class="library-sidebar__group"><h2>故事体验</h2><router-link class="workspace-nav-item" :to="{ name: 'experience' }"><WorkbenchIcon name="adventure" :size="20" /><span>跑团与冒险</span></router-link><router-link class="workspace-nav-item" :to="{ name: 'online-experience' }"><WorkbenchIcon name="collaboration" :size="20" /><span>联机房间</span><small>试验</small></router-link></div>
-      <div class="library-sidebar__bottom"><button class="workspace-nav-item" type="button" @click="$emit('settings', 'memory')"><WorkbenchIcon name="history" :size="20" /><span>记忆与历史</span></button><button class="workspace-nav-item" type="button" @click="$emit('settings', 'storage')"><WorkbenchIcon name="backup" :size="20" /><span>备份与恢复</span></button><router-link class="workspace-nav-item" to="/docs/README"><WorkbenchIcon name="help" :size="20" /><span>帮助中心</span></router-link><button class="workspace-nav-item" type="button" @click="$emit('settings', 'ai')"><WorkbenchIcon name="settings" :size="20" /><span>偏好与模型</span></button></div>
+      <div class="library-sidebar__group"><h2>{{ tr('故事体验') }}</h2><router-link class="workspace-nav-item" :to="{ name: 'experience' }"><WorkbenchIcon name="adventure" :size="20" /><span>{{ tr('跑团与冒险') }}</span></router-link><router-link class="workspace-nav-item" :to="{ name: 'online-experience' }"><WorkbenchIcon name="collaboration" :size="20" /><span>{{ tr('联机房间') }}</span><small>{{ tr('试验') }}</small></router-link></div>
+      <div class="library-sidebar__bottom"><button class="workspace-nav-item" type="button" @click="$emit('settings', 'memory')"><WorkbenchIcon name="history" :size="20" /><span>{{ tr('记忆与历史') }}</span></button><button class="workspace-nav-item" type="button" @click="$emit('settings', 'storage')"><WorkbenchIcon name="backup" :size="20" /><span>{{ tr('备份与恢复') }}</span></button><router-link class="workspace-nav-item" to="/docs/README"><WorkbenchIcon name="help" :size="20" /><span>{{ tr('帮助中心') }}</span></router-link><button class="workspace-nav-item" type="button" @click="$emit('settings', 'ai')"><WorkbenchIcon name="settings" :size="20" /><span>{{ tr('偏好与模型') }}</span></button></div>
     </nav>
-    <p class="library-sidebar__local">本地工作区 <span>Web 内测</span></p>
+    <p class="library-sidebar__local">{{ tr('本地工作区') }}<span>{{ tr('Web 内测') }}</span></p>
   </aside>
 </template>
 
