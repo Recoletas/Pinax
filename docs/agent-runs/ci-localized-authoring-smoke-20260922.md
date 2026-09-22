@@ -11,3 +11,5 @@
 - `npm run verify:full`：exit 0；20/20 文件、200/200 用例、lint 0 error、Web/VitePress build、Authoring 体积与结构、diff check 通过。
 
 测试仅使用合成稿件和隔离浏览器，不读取用户数据、不调用模型。GitHub 的 Node 20/runner 迁移注解是警告，不是本次失败原因。
+
+推送 `ee73a39`、`888c3c0` 后，[CI #132](https://github.com/Recoletas/Pinax/actions/runs/35749453486) 终态 success：test、build、`authoring-smoke (workspace-backup)`、`authoring-smoke (authoring)` 四个 job 全部通过。
