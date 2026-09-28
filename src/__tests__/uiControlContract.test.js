@@ -186,7 +186,16 @@ describe('workbench control contract (U1)', () => {
     expect(workspaceTabs).toContain('.ws-tab.is-active + .ws-tab__close')
     expect(writing).toContain(':to="rehearsalComposerHostRef || \'#authoring-block-gap\'"')
     expect(writing).toContain('ref="rehearsalComposerHostRef" v-show=')
-    expect(writing).toContain('@click="revealRehearsalComposer"')
+    // C11 / AT-00a：手动锚点按钮已移除，改为断言两段真实行为接线。
+    // ① composer 由关转开即自动 reveal 推演面板。
+    expect(writing).toContain('if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()')
+    // ② 关闭右栏时 abandon/close 未提交 composer，不留失效入口。
+    expect(writing).toContain("if (!wasOpen || previousTool !== 'rehearsal' || (open && tool === 'rehearsal')) return")
+    // ②b 保护条件必须整条锁定：已有 blockPreview 候选、ghosts 阶段不得被误清理。
+    expect(writing).toContain('if (blockComposer.open && !blockPreview.value) abandonBlockComposer({ restoreSelection: false })')
+    expect(writing).toContain("if (interventionComposer.open && interventionComposer.phase !== 'ghosts') {")
+    // ③ 已移除的锚点按钮不得回潮。
+    expect(writing).not.toContain('authoring-rehearsal-anchor')
     expect(authoringBlockCss).toContain('.writing-inspector__compose-host')
     const routes = readFileSync(resolve(__dirname, '../router/index.js'), 'utf8')
     expect(routes.split('const routes =')[0]).toContain("path: 'docs/:chapterId?'")

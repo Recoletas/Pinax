@@ -638,12 +638,6 @@
 }
 .theme-legacy .writing-page .writing-inspector__compose-host :is(textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .theme-legacy .writing-page .authoring-block-composer__more-body { width: 100%; }
-.theme-legacy .writing-page .authoring-rehearsal-anchor {
-  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px;
-  padding: 6px 10px; border: 0; border-radius: 5px; background: var(--archive-paper);
-  color: var(--archive-ink-soft); font: 12px/1.5 var(--font-sans); text-align: left; cursor: pointer;
-}
-.theme-legacy .writing-page .authoring-rehearsal-anchor span:last-child { margin-left: auto; color: var(--accent); }
 .theme-legacy .writing-page .writing-inspector__head {
   min-height: 44px; padding: 8px 16px; background: var(--archive-paper-soft);
   border-bottom: 1px solid var(--authoring-hairline); box-shadow: none;

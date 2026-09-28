@@ -22,6 +22,18 @@ export {
   resolveActionParticipants
 } from '../../../../shared/authoringRehearsalConsequenceContract.js'
 
+function repeatsCommittedPassage(response, steps) {
+  const current = String(response || '').replace(/\s+/g, '')
+  if (current.length < 32) return false
+  return steps.some((step) => {
+    const previous = String(step?.response || '').replace(/\s+/g, '')
+    for (let index = 0; index + 32 <= previous.length; index += 16) {
+      if (current.includes(previous.slice(index, index + 32))) return true
+    }
+    return false
+  })
+}
+
 export async function requestRehearsalStep({ run, steps, action, signal, settingsSnapshot, conditions: _conditions = null, routeState = null }) {
   if (!run?.runSession) throw new Error('本次试演已到四步，或行动过长；请从较早一步换路。')
   const envelope = buildAuthoringSceneDirectionEnvelope({
@@ -50,8 +62,12 @@ export async function requestRehearsalStep({ run, steps, action, signal, setting
     requestFallback,
     parseFinal: (output) => parseRehearsalResponse(output, refs, planned.verification)
   })
+  const parsed = parseRehearsalResponse(executed.output, refs, planned.verification)
+  if (repeatsCommittedPassage(parsed.response, steps)) {
+    throw new Error('新回应复述了已有试演片段，未接入当前走法；请重试这一步。')
+  }
   return {
-    ...parseRehearsalResponse(executed.output, refs, planned.verification),
+    ...parsed,
     toolReceipt: executed.toolReceipt
   }
 }

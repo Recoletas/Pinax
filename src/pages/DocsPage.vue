@@ -70,6 +70,10 @@ const groups = computed(() => {
 const sanitizedHtml = computed(() => {
   if (!chapterBody.value) return ''
   const html = marked.parse(chapterBody.value, { async: false })
+    // Manual Markdown is fetched from /docs/user-manual/<chapter>, but rendered
+    // inside /docs/<chapter>; resolve repository-relative screenshot assets
+    // against the app's public /docs/screenshots mount instead of the SPA URL.
+    .replace(/(src=["'])(?:\.\.\/)+screenshots\//g, '$1/docs/screenshots/')
   return sanitizeHtml(html)
 })
 
@@ -565,6 +569,15 @@ onBeforeUnmount(() => {
 
 .docs-page__content :deep(p) {
   margin: 0.7em 0;
+}
+
+.docs-page__content :deep(img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.1em auto;
+  border: 1px solid var(--hairline-soft);
+  border-radius: 6px;
 }
 
 .docs-page__content :deep(ul),

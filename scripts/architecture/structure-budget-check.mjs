@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, extname, join, relative, resolve } from 'node:path'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -17,6 +17,13 @@ function filesUnder(directory) {
     const path = join(directory, name)
     return statSync(path).isDirectory() ? filesUnder(path) : [path]
   })
+}
+
+// readdirSync + join 在 Windows 上产出反斜杠路径，路径片段判断必须先归一化，
+// 否则 src\__tests__ 匹配不到 '/__tests__/'，测试文件会被当成 production file
+// 混进依赖图与 experimental edge / page-owner 统计。
+function posixPath(path) {
+  return sep === '/' ? path : path.split(sep).join('/')
 }
 
 function source(path) {
@@ -39,7 +46,7 @@ function resolveRelative(from, specifier) {
   return ''
 }
 
-const productionFiles = filesUnder(srcRoot).filter((path) => ['.js', '.vue'].includes(extname(path)) && !path.includes('/__tests__/'))
+const productionFiles = filesUnder(srcRoot).filter((path) => ['.js', '.vue'].includes(extname(path)) && !posixPath(path).includes('/__tests__/'))
 const graph = new Map(productionFiles.map((path) => [path, moduleEdges(readFileSync(path, 'utf8'))
   .map((edge) => resolveRelative(path, edge)).filter(Boolean)]))
 const cycles = []
@@ -66,7 +73,7 @@ const rows = [...limits].map(([path, [lineLimit, importLimit]]) => {
 const serviceRootCount = readdirSync(join(srcRoot, 'services')).filter((name) => name.endsWith('.js')).length
 const experimentalEdges = productionFiles.flatMap((path) => moduleEdges(readFileSync(path, 'utf8'))
   .filter((edge) => edge.includes('experimental/')).map((edge) => `${relative(root, path)} -> ${edge}`))
-const repositoryEdges = productionFiles.filter((path) => path.includes('/pages/')).flatMap((path) => moduleEdges(readFileSync(path, 'utf8'))
+const repositoryEdges = productionFiles.filter((path) => posixPath(path).includes('/pages/')).flatMap((path) => moduleEdges(readFileSync(path, 'utf8'))
   .filter((edge) => /Repository|Storage|Store/.test(edge)).map((edge) => `${relative(root, path)} -> ${edge}`))
 
 console.log('file/root\tlines/imports\tlimit')

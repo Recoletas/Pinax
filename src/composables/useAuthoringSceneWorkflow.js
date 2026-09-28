@@ -2,6 +2,7 @@ import { computed, ref, shallowRef, watch } from 'vue'
 import {
   fingerprintSceneAnchors,
   normalizeSceneAnchors,
+  resolveActiveSceneAnchor,
   removeSceneAnchor,
   upsertSceneAnchor
 } from '../services/agents/authoring/authoringSceneAnchors.js'
@@ -38,6 +39,46 @@ export function useAuthoringSceneWorkflow({
   notify,
   onScopeInvalidated = () => {}
 }) {
+  function prepareSceneCurationDraft({ unitOrder, projection = {} }) {
+    const unitId = activeWritingUnitId.value
+    const resolution = resolveActiveSceneAnchor({
+      anchors: sceneAnchors.value,
+      unitOrder: unitOrder,
+      activeUnitId: unitId,
+      worldbookId: selectedBookWorldbookId.value
+    })
+    const base = resolution.anchor || resolution.conflictingAnchor || {}
+    const projectedCharacterIds = [
+      projection.viewpointCharacter?.id,
+      projection.activeActor?.id,
+      projection.dialogueTarget?.id,
+      ...(projection.presentCharacters || []).map((person) => person?.id)
+    ].filter((id, index, values) => id && values.indexOf(id) === index)
+    // 有显式/继承锚点时保持锚点值；没有锚点时用当前可见投影预填。
+    // 这里只建立可取消的本地草稿，用户点“保存现场”后才升级为手动锚点。
+    const draft = {
+      unitId,
+      projectId: selectedBookId.value,
+      chapterId: selectedChapterId.value,
+      worldbookId: selectedBookWorldbookId.value,
+      sourceWorldbookId: String(base.worldbookId || ''),
+      originAxis: resolution.status,
+      anchorFingerprint: fingerprintSceneAnchors(sceneAnchors.value),
+      documentRevision: getDocumentRevision(),
+      presentCharacterIds: [...((resolution.anchor || resolution.conflictingAnchor) ? (base.presentCharacterIds || []) : projectedCharacterIds)],
+      // 旧版持久化的 plannedCharacterIds 不再继续写回；C1-2 的安排只存在于
+      // 当前 AuthoringRunSession，采纳 Ghost 后才产生新的现场锚点。
+      plannedCharacterIds: [],
+      locationId: (resolution.anchor || resolution.conflictingAnchor) ? (base.locationId || '') : (projection.location?.id || ''),
+      viewpointCharacterId: (resolution.anchor || resolution.conflictingAnchor) ? (base.viewpointCharacterId || '') : (projection.viewpointCharacter?.id || ''),
+      time: {
+        label: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.label || '') : (projection.time?.label || ''),
+        period: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.period || '') : (projection.time?.period || '')
+      }
+    }
+    beginSceneCuration(draft)
+  }
+
   const sceneCurationDraft = ref(null)
   const sceneCurationBaseline = shallowRef(null)
   const sceneCurationBusy = ref(false)
@@ -304,6 +345,7 @@ export function useAuthoringSceneWorkflow({
 
   return {
     beginSceneCuration,
+    prepareSceneCurationDraft,
     curationCharacterCandidates,
     curationLocationCandidates,
     curationMissingCharacterIds,

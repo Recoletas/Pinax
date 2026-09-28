@@ -767,7 +767,11 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
     sceneLocationRef: run?.pressureProjection?.location?.ref || '',
     absentRefs: [...absentRefs]
   }
-  const question = `这是未写入作品的隔离试演，不是批注改写。冻结现场是出发点，以下只包含当前路径，承接已发生的假想回应；不要回到起点或引入其他路径。\n${rehearsalPathText(steps) || '尚未试演。'}\n\n在场人物（仅限这些人物获得台词、名字或关键行动）：${cast || '（无）'}\n${plannedLine}${plannedLine && enteringLine ? '\n' : ''}${enteringLine}${absentLine ? `\n${absentLine}` : ''}\n${actorLine}\n${targetLine}\n${responderLine}${priorityLine ? `\n${priorityLine}` : ''}${knowledgeBlock}${commitmentBlock}${consequenceDirective}\n本次作者行动：${intent.text}\n\n写作规则：\n1. 从行动完成后的那一瞬间接写。不要重演、描述或解释行动本身，直接写他人与环境对已完成行动的反应。\n2. 只演行动者之外的人物与环境：他们的动作、台词、态度、条件。不替行动者对白，不写行动者的内心独白。若有动作对象，由动作对象先作出直接回应；其他允许回应者只在现场关系确实需要时参与。\n3. 名单之外的人物不得出现台词、名字或关键行动；未入场与已离场人物同样不得获得台词或关键行动；可以写门响、灯灭、沉默等环境反应，但环境异动必须来自冻结现场或已发生的行为，不用凭空的脚步声、陌生人制造紧张。\n4. 每个回应人物至少表现一个自己的目标、条件、保留或拒绝，不总是顺从行动者。\n5. change 用一两句写可继续使用的事实——位置、持有物、承诺、拒绝、暴露的信息、关系中的明确条件；不要只写「更加警觉」「信任加深」这类态度总结。若是路径第二步，必须继承前一步假想变化中已发生的具体事实。\n6. response 用具体动作与台词，中文引号。\n7. choices 每条以执行者名字开头（如「艾德加……」「莉娜……」），直接给动作原文，不加任何前缀或引号包裹，不预告结果。\n在作者继续介入之前暂停。`
+  const latest = steps.at(-1)
+  const continuation = latest
+    ? `\n已发生且不得重演的路径事件：\n${steps.map((step, index) => `${index + 1}. ${step.action}；结果：${step.change}`).join('\n')}\n当前接续点（紧贴此处继续，不重写其中动作、对白或环境描写）：${latest.response}\n当前局面：${latest.change}\n`
+    : ''
+  const question = `这是未写入作品的隔离试演，不是批注改写。冻结现场仅是起点背景，不代表每一步的当前局面。以下只包含当前路径，承接已发生的假想回应；不要回到起点或引入其他路径。\n${rehearsalPathText(steps) || '尚未试演。'}${continuation}\n\n在场人物（仅限这些人物获得台词、名字或关键行动）：${cast || '（无）'}\n${plannedLine}${plannedLine && enteringLine ? '\n' : ''}${enteringLine}${absentLine ? `\n${absentLine}` : ''}\n${actorLine}\n${targetLine}\n${responderLine}${priorityLine ? `\n${priorityLine}` : ''}${knowledgeBlock}${commitmentBlock}${consequenceDirective}\n本次作者行动：${intent.text}\n\n写作规则：\n1. 从行动完成后的那一瞬间接写。不要重演、描述或解释行动本身，直接写他人与环境对已完成行动的反应。\n2. 只演行动者之外的人物与环境：他们的动作、台词、态度、条件。不替行动者对白，不写行动者的内心独白。若有动作对象，由动作对象先作出直接回应；其他允许回应者只在现场关系确实需要时参与。\n3. 名单之外的人物不得出现台词、名字或关键行动；未入场与已离场人物同样不得获得台词或关键行动；只写本次行动新造成的环境变化，不重述冻结现场或前一步已有的天气、光线、声响；环境异动必须来自已发生的行为，不用凭空的脚步声、陌生人制造紧张。\n4. 每个回应人物至少表现一个自己的目标、条件、保留或拒绝，不总是顺从行动者。\n5. change 用一两句写可继续使用的事实——位置、持有物、承诺、拒绝、暴露的信息、关系中的明确条件；不要只写「更加警觉」「信任加深」这类态度总结。第二步及以后必须继承整条路径已经发生的具体事实；已经完成的事件不能再发生一遍。\n6. response 用具体动作与台词，中文引号。\n7. choices 每条以执行者名字开头（如「艾德加……」「莉娜……」），直接给动作原文，不加任何前缀或引号包裹，不预告结果。\n在作者继续介入之前暂停。`
   return {
     intent, participants, actor, targets: resolved.targets, responders, entering,
     question, verification

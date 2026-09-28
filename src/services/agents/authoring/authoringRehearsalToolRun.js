@@ -74,7 +74,7 @@ function initialMessages({ envelope, question }) {
     content: '你是作者的故事试演助手。只在确有必要时调用 history_lookup，最多一次；否则直接输出试演 JSON。最终只输出 JSON，不要 markdown。'
   }, {
     role: 'user',
-    content: `${question}\n\n冻结现场：${JSON.stringify(context)}`
+    content: `冻结现场（仅作起点背景，当前进度以路径为准）：${JSON.stringify(context)}\n\n${question}`
   }]
 }
 

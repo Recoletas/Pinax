@@ -436,7 +436,7 @@ function createBlockGapDecorations(state) {
     gap.id = blockGapDomId.value
     gap.className = 'writing-unit-gap'
     gap.contentEditable = 'false'
-    // 54px 的 gap 块会盖住空章节的首行：容器必须放行指针事件，
+    // 零高度的 gap 浮层也必须放行指针事件，
     // 否则点击落不到 ProseMirror 上，caret 进不去、打字失效。
     gap.style.pointerEvents = 'none'
     if (props.blockPreview?.text) {
@@ -452,11 +452,10 @@ function createBlockGapDecorations(state) {
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'writing-unit-gap__action is-primary'
-      const buttonLabel = document.createElement('span')
-      buttonLabel.textContent = unit?.textContent.trim() ? tr('推演下一段') : tr('推演本章开场')
-      const buttonHint = document.createElement('small')
-      buttonHint.textContent = unit?.textContent.trim() ? tr('看看接下来可能发生什么') : tr('从当前设定找到开场方向')
-      button.append(buttonLabel, buttonHint)
+      const buttonLabel = unit?.textContent.trim() ? tr('推演下一段') : tr('推演本章开场')
+      button.setAttribute('aria-label', buttonLabel)
+      button.dataset.tooltip = buttonLabel
+      button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>'
       button.addEventListener('mousedown', (event) => event.preventDefault())
       button.addEventListener('click', () => emit('open-block-composer', {
           unitId: unit?.attrs.unitId || null,
@@ -468,11 +467,10 @@ function createBlockGapDecorations(state) {
         const intervention = document.createElement('button')
         intervention.type = 'button'
         intervention.className = 'writing-unit-gap__action is-secondary'
-        const interventionLabel = document.createElement('span')
-        interventionLabel.textContent = tr('改变条件')
-        const interventionHint = document.createElement('small')
-        interventionHint.textContent = tr('先看这项变化会影响哪里')
-        intervention.append(interventionLabel, interventionHint)
+        const interventionLabel = tr('改变条件')
+        intervention.setAttribute('aria-label', interventionLabel)
+        intervention.dataset.tooltip = interventionLabel
+        intervention.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--notebook-paper)"/><circle cx="15" cy="17" r="2" fill="var(--notebook-paper)"/></svg>'
         intervention.addEventListener('mousedown', (event) => event.preventDefault())
         intervention.addEventListener('click', () => emit('open-intervention', {
           unitId: unit?.attrs.unitId || null,
@@ -3438,9 +3436,8 @@ defineExpose({
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  height: 54px;
-  margin: 2px 0 6px;
+  height: 0;
+  margin: 0;
   z-index: 4;
 }
 
@@ -3457,48 +3454,57 @@ defineExpose({
 }
 
 .writing-unit-gap__actions {
-  position: relative;
+  position: absolute;
+  top: 0;
+  right: -27px;
+  transform: translateY(-100%);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  width: min(100%, 500px);
-}
-
-.writing-unit-gap__actions::before {
-  height: 1px;
-  flex: 1 1 48px;
-  min-width: 28px;
-  content: '';
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--notebook-muted) 20%, transparent));
+  gap: 1px;
 }
 
 .writing-unit-gap__action {
-  display: grid;
-  gap: 1px;
-  min-height: 42px;
-  padding: 5px 10px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: 5px;
   background: transparent;
-  color: color-mix(in srgb, var(--notebook-muted) 76%, transparent);
-  font: 500 12px/1.2 var(--font-sans, sans-serif);
-  letter-spacing: 0.02em;
-  text-align: left;
-  opacity: 0.82;
+  color: color-mix(in srgb, var(--notebook-muted) 80%, transparent);
   cursor: pointer;
-  transition: color 120ms ease, opacity 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
 
 .writing-unit-gap__action.is-secondary {
-  color: color-mix(in srgb, var(--notebook-muted) 62%, transparent);
+  color: color-mix(in srgb, var(--notebook-muted) 68%, transparent);
 }
 .writing-unit-gap__action.is-primary {
-  color: color-mix(in srgb, var(--accent-primary) 86%, var(--text-primary));
-  border-bottom-color: color-mix(in srgb, var(--accent-primary) 54%, transparent);
+  color: color-mix(in srgb, var(--accent-primary) 72%, var(--notebook-muted));
 }
-.writing-unit-gap__action span { font-size: 12px; font-weight: 650; }
-.writing-unit-gap__action small { color: var(--notebook-muted); font-size: 10px; font-weight: 400; }
+.writing-unit-gap__action svg { display: block; width: 18px; height: 18px; }
+.writing-unit-gap__action::after {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--notebook-ink);
+  color: var(--surface-workbench-raised, var(--archive-paper-soft, #fff));
+  content: attr(data-tooltip);
+  font: 500 12px/1.4 var(--font-sans, sans-serif);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.writing-unit-gap__action:hover::after,
+.writing-unit-gap__action:focus-visible::after { opacity: 1; }
 
 .writing-unit-gap.has-preview {
   height: auto;
@@ -3512,35 +3518,46 @@ defineExpose({
   margin: 10px 0 18px;
 }
 
+.writing-unit-gap.has-composer:empty {
+  height: 0;
+  margin: 0;
+}
+
 .writing-unit-gap__action:hover,
 .writing-unit-gap__action:focus-visible {
-  background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
+  background: color-mix(in srgb, var(--notebook-paper) 86%, var(--accent-primary));
   color: var(--accent-primary);
-  opacity: 1;
-  outline: none;
 }
 
 .writing-unit-gap__action:focus-visible {
-  text-decoration: underline;
-  text-underline-offset: 4px;
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 @media (max-width: 640px) {
-  .writing-unit-gap { height: 62px; }
   .writing-unit-gap__action {
-    min-height: 48px;
-    padding-inline: 8px;
+    width: 26px;
+    height: 26px;
   }
-
-  .writing-unit-gap__actions { gap: 0; }
-  .writing-unit-gap__actions::before { min-width: 12px; }
-  .writing-unit-gap__action small { display: none; }
 }
 
 .writing-notebook-editor__surface section[data-writing-unit] > :not(.writing-unit-menu) {
   position: relative;
   margin: 0 0 var(--notebook-paragraph-gap, 1.05em);
   padding-inline-start: 12px;
+}
+
+/* The ProseMirror widget is a direct child of the writing unit, so the prose
+   paragraph rule above must not give its idle controls a paragraph margin. */
+.writing-notebook-editor__surface section[data-writing-unit] > .writing-unit-gap {
+  margin: 0;
+  padding: 0;
+}
+.writing-notebook-editor__surface section[data-writing-unit] > .writing-unit-gap:is(.has-preview, .has-composer) {
+  margin: 10px 0 18px;
+}
+.writing-notebook-editor__surface section[data-writing-unit] > .writing-unit-gap.has-composer:empty {
+  margin: 0;
 }
 
 .writing-notebook-editor__surface .ProseMirror-focused .is-current-writing-line {
@@ -3563,7 +3580,7 @@ defineExpose({
   transition: opacity 0.18s ease;
 }
 
-.writing-notebook-editor.is-focus-paragraph .ProseMirror-focused section[data-writing-unit] > *:not(.is-focus-current-block) {
+.writing-notebook-editor.is-focus-paragraph .ProseMirror-focused section[data-writing-unit] > *:not(.is-focus-current-block, .writing-unit-gap) {
   opacity: 0.35;
 }
 

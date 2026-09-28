@@ -12,6 +12,8 @@ const props = defineProps({
   worldbookStatus: { type: String, required: true },
   characterCandidates: { type: Array, default: () => [] },
   locationCandidates: { type: Array, default: () => [] },
+  recognitionSuggestions: { type: Array, default: () => [] },
+  recognitionPending: { type: Boolean, default: false },
   missingCharacterIds: { type: Array, default: () => [] },
   missingLocationId: { type: String, default: '' },
   busy: { type: Boolean, default: false },
@@ -20,7 +22,7 @@ const props = defineProps({
   canRestoreInheritance: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['update-draft', 'save', 'cancel', 'undo', 'restore-inheritance', 'bind-worldbook', 'open-worldbook', 'search', 'run-intent', 'if-experiment'])
+const emit = defineEmits(['update-draft', 'save', 'cancel', 'undo', 'restore-inheritance', 'bind-worldbook', 'open-worldbook', 'search', 'run-intent', 'if-experiment', 'recognize', 'accept-recognition', 'skip-recognition'])
 
 const locationQuery = ref('')
 const peopleQuery = ref('')
@@ -115,6 +117,19 @@ function chooseCurrentLocation(candidate) {
 
 <template>
   <section class="scene-curation" aria-label="现场调整表单">
+
+    <section class="scene-curation__recognition" aria-label="正文现场识别">
+      <div class="scene-curation__group-head"><strong>从正文识别</strong><button type="button" :disabled="busy" @click="emit('recognize')">重新识别</button></div>
+      <p>只根据落笔处附近的正文提出候选；选入草稿并保存后才成为当前场。</p>
+      <ul v-if="recognitionSuggestions.length">
+        <li v-for="candidate in recognitionSuggestions" :key="candidate.kind + candidate.id">
+          <span><strong>{{ candidate.name }}</strong> · {{ candidate.kind === 'character' ? '人物' : '地点' }}<small>{{ candidate.excerpt }}</small></span>
+          <button type="button" :disabled="busy" @click="emit('accept-recognition', candidate)">{{ candidate.kind === 'character' ? '选入在场人物' : '设为当前地点' }}</button>
+        </li>
+      </ul>
+      <p v-else>附近没有待确认的人物或地点。</p>
+      <button v-if="recognitionPending" type="button" :disabled="busy" @click="emit('skip-recognition')">暂不调整，直接推演</button>
+    </section>
 
     <div v-if="draft.originAxis === 'worldbook-mismatch'" class="scene-curation__warning is-conflict" role="status">
       <span>这份现场来自旧世界书。时间已保留；失效的人物与地点需要移除或改选后才能保存。</span>
@@ -274,6 +289,14 @@ function chooseCurrentLocation(candidate) {
 
 <style scoped>
 /* 外层标题与返回动作由 AuthoringInspectorDetail 唯一拥有。 */
+.scene-curation__recognition { padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.scene-curation__recognition p { margin: 6px 0; color: var(--text-secondary); line-height: 1.5; }
+.scene-curation__recognition ul { list-style: none; margin: 8px 0; padding: 0; }
+.scene-curation__recognition li { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border-subtle); }
+.scene-curation__recognition li span { min-width: 0; }
+.scene-curation__recognition li small { display: block; margin-top: 3px; color: var(--text-secondary); line-height: 1.4; }
+.scene-curation__recognition button { color: var(--accent-primary); flex-shrink: 0; }
+@media (max-width: 480px) { .scene-curation__recognition li { flex-direction: column; } }
 .scene-curation {
   display: flex;
   flex-direction: column;

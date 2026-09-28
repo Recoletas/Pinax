@@ -426,7 +426,11 @@
             <header class="wall__dossier-head wall__chapter-head">
               <template v-if="wt3ActiveDoc">
                 <span class="wt3-badge">{{ tr('构思') }}</span>
-                <strong class="wall__dossier-title wt3-doc-title">{{ wt3ActiveDoc.title }}</strong>
+                <input :key="wt3ActiveDoc.id" class="wall__dossier-title wt3-doc-title" type="text"
+                  :value="wt3ActiveDoc.title" :title="wt3ActiveDoc.title" :aria-label="tr('速记标题')"
+                  @change="wt3RenameDoc(wt3ActiveDoc.id, $event.target)"
+                  @keydown.enter.prevent="$event.target.blur()"
+                  @keydown.esc.prevent="cancelExplorationTitleEdit($event)" />
                 <button type="button" class="control-quiet tool-btn sm wt3-back-btn" @click="closeExplorationDoc">{{ tr('返回正文') }}</button>
               </template>
               <template v-else>
@@ -617,12 +621,6 @@
                 @restore="restoreBlockDraft"
                 @save-as-exploration="saveBlockDraftAsExploration"
               />
-            </Teleport>
-            <Teleport v-if="rehearsalComposerHostRef && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" to="#authoring-block-gap">
-              <button type="button" class="authoring-rehearsal-anchor" @click="revealRehearsalComposer">
-                <WorkbenchIcon name="network" :size="15" />
-                <span>{{ tr('从这里推演') }}</span><span>{{ tr('继续推演 →') }}</span>
-              </button>
             </Teleport>
             <Teleport v-if="!blockPreview && adoptionImpact" to="#authoring-block-gap">
               <AuthoringAdoptionImpact :impact="adoptionImpact.projection" />
@@ -968,7 +966,7 @@
             @select-generate="generateAuthoringRehearsalProposal"
             @promote="promoteAuthoringRehearsalBranch"
             @leave="leaveAuthoringRehearsalRoom"
-            @close="closeActiveWritingInspector"
+            @close="closeAuthoringCollaborationInspector"
           />
         </div>
         <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="outline">
@@ -1028,6 +1026,8 @@
             :worldbook-status="bookWorldbookStatus.status"
             :character-candidates="curationCharacterCandidates"
             :location-candidates="curationLocationCandidates"
+            :recognition-suggestions="sceneRecognitionSuggestions"
+            :recognition-pending="sceneRecognitionPending"
             :missing-character-ids="curationMissingCharacterIds"
             :missing-location-id="curationMissingLocationId"
             :busy="sceneCurationBusy"
@@ -1044,8 +1044,11 @@
             @open-source="handleDetailOpenEmergenceSource"
             @open-map="handleDetailOpenMap"
             @update-draft="handleCurationDraftUpdate"
-            @save="handleCurationSave"
-            @cancel="handleCurationCancel"
+            @recognize="scanCurrentSceneMentions"
+            @accept-recognition="acceptSceneRecognitionSuggestion"
+            @skip-recognition="skipSceneRecognition"
+            @save="saveSceneRecognitionReview"
+            @cancel="cancelSceneRecognitionReview"
             @undo="handleCurationUndo"
             @restore-inheritance="handleCurationRestoreInheritance"
             @bind-worldbook="openBindingSelect"
@@ -1536,9 +1539,7 @@ import { normalizeManuscriptLanguage, inferWritingLanguage } from '../../shared/
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
 import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
-import { marked } from 'marked'
-import TurndownService from 'turndown'
-import { sanitizeHtml } from '../utils/sanitize'
+import { markdownToHtml, htmlToMarkdown, markdownToPlainText } from '../services/writing/writingHtmlConversion.js'
 import { useRoute, useRouter } from 'vue-router'
 import { extractWritingSuggestionWindow } from '../services/agents/authoring/writingSuggestion'
 import { readWorldbookSnapshot, useWorldStore } from '../stores/worldStore'
@@ -1567,7 +1568,7 @@ const AuthoringKnowledgeAssistant = defineAsyncComponent(() => import('../compon
 const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
 const AuthoringReviewPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringReviewPanel.vue'))
 const AuthoringSearchPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringSearchPanel.vue'))
-import AuthoringIdeaShelf from '../components/authoring/AuthoringIdeaShelf.vue'
+const AuthoringIdeaShelf = defineAsyncComponent(() => import('../components/authoring/AuthoringIdeaShelf.vue'))
 const AuthoringNotesExtractionPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringNotesExtractionPreview.vue'))
 const AuthoringInspectorDetail = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorDetail.vue'))
 const AuthoringOutlinePanel = defineAsyncComponent(() => import('../components/authoring/AuthoringOutlinePanel.vue'))
@@ -1786,7 +1787,8 @@ import {
   useWritingDocument,
   useAuthoringTask,
   useAuthoringObservers,
-  useAuthoringSceneWorkflow
+  useAuthoringSceneWorkflow,
+  useAuthoringSceneRecognition
 } from '../composables/useAuthoringWorkspaceOwners.js'
 const router = useRouter()
 const route = useRoute()
@@ -2188,6 +2190,33 @@ function wt3QuickCapture() {
   wt3RefreshDocs()
   openExplorationDoc(created.document.id)
 }
+function wt3RenameDoc(docId, input) {
+  const doc = wt3ExplorationDocs.value.find((item) => item.id === docId)
+  if (!doc || !input) return false
+  const title = String(input.value || '').trim()
+  if (!title) {
+    input.value = doc.title
+    authoringTask.notify(tr('速记标题不能为空'))
+    return false
+  }
+  if (title === doc.title) {
+    input.value = doc.title
+    return true
+  }
+  const result = saveExplorationDocument(selectedBookId.value, docId, { title })
+  if (!result?.ok) {
+    input.value = doc.title
+    authoringTask.notify(tr('速记标题保存失败'))
+    return false
+  }
+  input.value = result.document.title
+  wt3RefreshDocs()
+  return true
+}
+function cancelExplorationTitleEdit(event) {
+  event.target.value = wt3ActiveDoc.value?.title || ''
+  event.target.blur()
+}
 function wt3MigrateLegacyNotes() {
   const result = migrateWritingNotesToExplorations(selectedBookId.value, listWritingNotes())
   if (!result.ok) {
@@ -2470,6 +2499,9 @@ const {
   discardSceneDraft: () => discardSceneCurationDraft(),
   restoreWritingSurface: restoreWritingSurfaceAfterInspector
 })
+function closeActiveWritingInspector() {
+  closeWritingInspector()
+}
 const {
   annotationLaneRef,
   annotationLaneStyle,
@@ -3906,7 +3938,7 @@ watch([inspectorDetailState, sceneProjection], () => {
 // 草稿只存在于内存；保存走 commitSceneAnchorDraft 的原子事务（revision 守卫 +
 // 单次章节持久化）；取消零写入；撤销先做锚点指纹校验。
 const {
-  beginSceneCuration,
+  prepareSceneCurationDraft,
   curationCharacterCandidates,
   curationLocationCandidates,
   curationMissingCharacterIds,
@@ -4067,7 +4099,7 @@ const {
   hasAlternativeDraft: () => Object.values(ifBranchDrafts.value).some(Boolean),
   isAuthoringTaskBusy: () => authoringTaskBusy.value,
   confirmRestart: () => window.confirm(tr('重新确定起点会清除本次试演。继续吗？')),
-  prepareStart: () => openSceneLaboratory(),
+  prepareStart: () => prepareRehearsalSceneReview(),
   readStartFailure: () => sceneLaboratory.notice,
   closeComparison: () => {
     if (characterIfActive.value) closeSceneLaboratory({ restoreSelection: false, clearIntents: false })
@@ -4083,6 +4115,26 @@ const {
   readDraftFailure: () => blockComposer.failure?.message,
   dismissDraft: () => dismissBlockPreview(),
   revealDraft: () => revealRehearsalDraft()
+})
+const {
+  sceneRecognitionSuggestions,
+  sceneRecognitionPending,
+  scanCurrentSceneMentions,
+  prepareRehearsalSceneReview,
+  acceptSceneRecognitionSuggestion,
+  saveSceneRecognitionReview,
+  cancelSceneRecognitionReview,
+  skipSceneRecognition,
+  resetSceneRecognition
+} = useAuthoringSceneRecognition({
+  selectedBookId, selectedChapterId, activeWritingUnitId, selectedBookWorldbookId,
+  boundWorldbook, notebookSelection, writingDocument, sceneProjection,
+  sceneCurationPreviewOpen, sceneCurationDraft, sceneCurationHasUnsavedChanges,
+  getDocumentRevision: () => currentDocumentRevision(),
+  getBookWorldbookStatus: () => bookWorldbookStatus.value,
+  readLiveSelection: readLiveWritingSelectionSnapshot,
+  handleSceneEditRequest, handleCurationDraftUpdate, handleCurationSave, handleCurationCancel,
+  openSceneLaboratory, startRehearsal
 })
 watch([selectedBookId, selectedChapterId, wt3ActiveDocId], () => {
   resetRehearsalWorkflow()
@@ -4133,43 +4185,8 @@ function handleSceneEditRequest(options = {}) {
     sceneLaboratory.returnScrollTop = notebookSelectionScrollTop
   }
   if (!openInspectorTool('scene')) return false
-  const resolution = resolveActiveSceneAnchor({
-    anchors: sceneAnchors.value,
-    unitOrder: documentUnitOrder(),
-    activeUnitId: unitId,
-    worldbookId: selectedBookWorldbookId.value
-  })
-  const base = resolution.anchor || resolution.conflictingAnchor || {}
-  const projection = sceneProjection.value || {}
-  const projectedCharacterIds = [
-    projection.viewpointCharacter?.id,
-    projection.activeActor?.id,
-    projection.dialogueTarget?.id,
-    ...(projection.presentCharacters || []).map((person) => person?.id)
-  ].filter((id, index, values) => id && values.indexOf(id) === index)
-  // 有显式/继承锚点时保持锚点值；没有锚点时用当前可见投影预填。
-  // 这里只建立可取消的本地草稿，用户点“保存现场”后才升级为手动锚点。
-  const draft = {
-    unitId,
-    projectId: selectedBookId.value,
-    chapterId: selectedChapterId.value,
-    worldbookId: selectedBookWorldbookId.value,
-    sourceWorldbookId: String(base.worldbookId || ''),
-    originAxis: resolution.status,
-    anchorFingerprint: fingerprintSceneAnchors(sceneAnchors.value),
-    documentRevision: currentDocumentRevision(),
-    presentCharacterIds: [...((resolution.anchor || resolution.conflictingAnchor) ? (base.presentCharacterIds || []) : projectedCharacterIds)],
-    // 旧版持久化的 plannedCharacterIds 不再继续写回；C1-2 的安排只存在于
-    // 当前 AuthoringRunSession，采纳 Ghost 后才产生新的现场锚点。
-    plannedCharacterIds: [],
-    locationId: (resolution.anchor || resolution.conflictingAnchor) ? (base.locationId || '') : (projection.location?.id || ''),
-    viewpointCharacterId: (resolution.anchor || resolution.conflictingAnchor) ? (base.viewpointCharacterId || '') : (projection.viewpointCharacter?.id || ''),
-    time: {
-      label: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.label || '') : (projection.time?.label || ''),
-      period: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.period || '') : (projection.time?.period || '')
-    }
-  }
-  beginSceneCuration(draft)
+  prepareSceneCurationDraft({ unitOrder: documentUnitOrder(), projection: sceneProjection.value || {} })
+  if (options?.scan !== false) scanCurrentSceneMentions()
   if (!inspectorDetailState.value) {
     captureAnnotationLaneScroll()
   }
@@ -4182,12 +4199,14 @@ function handleSceneEditRequest(options = {}) {
     people: '[data-test="curation-people-query"]'
   }[options?.axis]
   if (focusSelector) nextTick(() => document.querySelector(focusSelector)?.focus())
+  return true
 }
 // 临时意图跟随书 / 文档 / 世界书绑定，不跟随失焦时会回退到末单元的
 // activeWritingUnitId。具体 writingUnit 的切换由 frozen composer target 处理。
 watch([selectedBookId, selectedChapterId, wt3ActiveDocId, selectedBookWorldbookId], () => {
   if (authoringSceneRunIntents.value.length) clearAuthoringSceneRunIntents()
   if (sceneLaboratory.open) closeSceneLaboratory({ restoreSelection: false })
+  resetSceneRecognition()
 })
 function handleDetailSetActor(id) {
   sceneActiveActorId.value = id
@@ -5461,6 +5480,14 @@ async function revealRehearsalComposer() {
 watch([() => blockComposer.open, () => interventionComposer.open], ([blockOpen, interventionOpen], previous = []) => {
   if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()
 })
+watch([inspectorOpen, activeInspectorTool], ([open, tool], previous = []) => {
+  const [wasOpen, previousTool] = previous
+  if (!wasOpen || previousTool !== 'rehearsal' || (open && tool === 'rehearsal')) return
+  if (blockComposer.open && !blockPreview.value) abandonBlockComposer({ restoreSelection: false })
+  if (interventionComposer.open && interventionComposer.phase !== 'ghosts') {
+    closeInterventionComposer({ restoreSelection: false })
+  }
+})
 let authoringInterventionRunner = null
 let authoringInterventionRehearsalRunner = null
 const historyInteractionLocked = computed(() => blockAdoptionBusy.value || Boolean(pendingGhostAdoption.value) || atomicHistoryBusy.value)
@@ -5655,7 +5682,7 @@ const {
   error: authoringRehearsalError,
   active: authoringRehearsalActive,
   open: openAuthoringRehearsalInspector,
-  closeInspector: closeActiveWritingInspector,
+  closeInspector: closeAuthoringCollaborationInspector,
   start: startAuthoringRehearsalRoom,
   propose: proposeAuthoringRehearsalDirection,
   vote: voteAuthoringRehearsalProposal,
@@ -7202,24 +7229,6 @@ const activeWritingUnit = computed(() => {
   if (unitId) return (writingDocument.value?.content || []).find((unit) => unit?.attrs?.unitId === unitId) || null
   const nodeId = notebookSelection.value?.nodeId
   return nodeId ? getWritingUnitByNodeId(nodeId) : null
-})
-const turndownService = new TurndownService({
-  headingStyle: 'atx',
-  bulletListMarker: '-',
-  codeBlockStyle: 'fenced',
-  emDelimiter: '*',
-  strongDelimiter: '**',
-  br: '  '
-})
-turndownService.addRule('underline', {
-  filter: ['u'],
-  replacement(content) {
-    return `<u>${content}</u>`
-  }
-})
-marked.setOptions({
-  gfm: true,
-  breaks: true
 })
 const charCount = computed(() => getEditorText().length)
 const wordCount = computed(() => countWritingText(getEditorText(), currentBook.value?.manuscriptLanguage))
@@ -10101,7 +10110,16 @@ function onNotebookSelectionChange(selection) {
   const transactionOwned = writingAgentHost.isAdoptionInFlight() || applyingAtomicNotebookHistory
   notebookSelection.value = selection
   if (!transactionOwned && !blockAdoptionBusy.value) clearAdoptionImpact()
-  if (!transactionOwned && !authoringTaskBusy.value && !sceneLaboratory.open && !interventionComposer.open) blockWorkflow.followSelection(selection)
+  if (!transactionOwned && !authoringTaskBusy.value && !sceneLaboratory.open && !interventionComposer.open) {
+    const target = blockComposer.target
+    const movedFromUnsubmittedComposer = blockComposer.open && target && selection?.unitId && (
+      String(selection.unitId) !== String(target.unitId)
+      || String(selection.nodeId) !== String(target.nodeId)
+      || Number(selection.cursorLocalOffset) !== Number(target.cursorLocalOffset)
+    )
+    if (movedFromUnsubmittedComposer) abandonBlockComposer({ restoreSelection: false })
+    else blockWorkflow.followSelection(selection)
+  }
   if (inspectorOpen.value && activeInspectorTool.value === 'ai' && activeWritingPane.value === 'main') {
     const currentInvocation = captureMainKnowledgeAssistantInvocation()
     if (currentInvocation) knowledgeAssistantInvocation.value = currentInvocation
@@ -10858,21 +10876,6 @@ function syncFromCurrentEditor() {
   if (editorMode.value === 'markdown') {
     editorContent.value = markdownToHtml(markdownContent.value || '')
   }
-}
-function markdownToHtml(md) {
-  if (!md) return ''
-  return sanitizeHtml(marked.parse(md))
-}
-function htmlToMarkdown(html) {
-  if (!html) return ''
-  return turndownService.turndown(html).replace(/\n{3,}/g, '\n\n')
-}
-function markdownToPlainText(md) {
-  if (!md) return ''
-  if (typeof document === 'undefined') return md
-  const div = document.createElement('div')
-  div.innerHTML = markdownToHtml(md)
-  return div.innerText || ''
 }
 // 点击其他区域关闭右键菜单
 function onGlobalClick() {

@@ -20,6 +20,8 @@ const props = defineProps({
   worldbookStatus: { type: String, default: 'unbound' },
   characterCandidates: { type: Array, default: () => [] },
   locationCandidates: { type: Array, default: () => [] },
+  recognitionSuggestions: { type: Array, default: () => [] },
+  recognitionPending: { type: Boolean, default: false },
   missingCharacterIds: { type: Array, default: () => [] },
   missingLocationId: { type: String, default: '' },
   busy: { type: Boolean, default: false },
@@ -39,6 +41,7 @@ const emit = defineEmits(['if-experiment',
   'open-source',
   'open-map',
   'update-draft',
+  'recognize', 'accept-recognition', 'skip-recognition',
   'save',
   'cancel',
   'undo',
@@ -111,6 +114,8 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
       :worldbook-status="worldbookStatus"
       :character-candidates="characterCandidates"
       :location-candidates="locationCandidates"
+      :recognition-suggestions="recognitionSuggestions"
+      :recognition-pending="recognitionPending"
       :missing-character-ids="missingCharacterIds"
       :missing-location-id="missingLocationId"
       :busy="busy"
@@ -118,6 +123,9 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
       :can-undo="canUndo"
       :can-restore-inheritance="canRestoreInheritance"
       @update-draft="(draft) => emit('update-draft', draft)"
+      @recognize="emit('recognize')"
+      @accept-recognition="(candidate) => emit('accept-recognition', candidate)"
+      @skip-recognition="emit('skip-recognition')"
       @save="emit('save')"
       @cancel="emit('cancel')"
       @undo="emit('undo')"
