@@ -4,11 +4,15 @@
 
 **A writing workspace that keeps you in control.**
 
-Write your manuscript, organize characters and worldbuilding, and use AI when you need it. Writing, import, export and backups work without an AI key or account.
+Pinax is for people with stories to tell who may have limited time, energy or writing experience. AI can help with organizing sources, checking continuity and handling repetitive revisions, so authors can focus on the story decisions only they can make. The aim is to help more people turn ideas into stronger work—not to write in their place.
+
+The product centers on text and the manuscript workspace. Characters, settings and sources support the manuscript; roleplay, comics, image generation and video are extensions around it. Writing, import, export and backups work without an AI key or account.
 
 Pinax is a **Public Alpha**. Use the address provided by your invitation or run it yourself; this repository does not promise a universally available hosted service. English covers the main writing path; advanced worldbuilding, experiments and some auxiliary tools still have Chinese UI. Real-model literary quality and physical-device input remain separate acceptance checks.
 
-![English manuscript workspace](docs/screenshots/english-support/editor-en.png)
+![English writing workspace with chapters, manuscript text and on-demand tools](public/docs/screenshots/user-guide-20260924/13-workbench-en.png)
+
+Captured from the local frontend on 2026-09-24 with a fictional sample manuscript; the hosted deployment may differ.
 
 <details>
 <summary>Image workspace in English</summary>

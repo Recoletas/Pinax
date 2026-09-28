@@ -1,31 +1,84 @@
-# Writing and review
+# Writing workspace
 
-Use **Chapters** to create, select and rename chapters. **Split view** lets you view or edit another chapter alongside the current one. Font, size, paragraph spacing and focus settings are display preferences; changing the interface language does not reset them.
+Chapters and notes are on the left, the manuscript is in the center, and tool buttons open panels on the right. Hover over an icon to see its name. Some rehearsal and scene controls still use Chinese labels; these are included below where needed.
 
-## Explore and illustrate
+![Chapter list, manuscript and tool rail](../../screenshots/user-guide-20260924/13-workbench-en.png)
 
-Use **Explore** to draft the next passage or rewrite the current block. Enter optional instructions; **Options** lets you choose action, dialogue, inner thoughts or a scene transition. Dialogue needs a speaker and an addressee. Switching the interface language keeps your instructions; it does not translate existing drafts.
+## Chapters and notes
 
-Use **Images** to describe an illustration, choose a visual style and select an image model. You can add up to three reference images when the model supports them. Review the output before inserting it. If an image was generated but could not be saved, use **Retry saving without regenerating** or download it before closing. On a phone, switch between **Prompt & settings** and **Results & history**.
+Select a chapter to edit it. The chapter menu offers renaming and **Version history**. New chapters belong to the current manuscript; a new manuscript is a separate work.
 
-In the character panel, **Complete with AI** opens an editable suggestion. Check it before applying it; changed character details require a new suggestion. English controls do not guarantee the quality or language of a model's output.
+Use **Notes** for passages you have not assigned to a chapter. Open a note and click its title at the top of the editor to rename it. Enter or clicking outside saves; Esc cancels the title edit. An empty title is rejected. Renaming a note does not rename its linked chapter.
 
-## Manuscript language and length
+The outline describes what a chapter should contain. Writing in an outline or note does not insert the text into a chapter.
 
-Choose the manuscript language in the chapter sidebar. It is optional, and applies only to this manuscript. Mixed-language work is allowed. Changing it does not translate text or rename chapters. Review earlier suggestions again after changing the language.
+## Editing and saving
 
-The length display counts Han characters and Unicode words. Internal apostrophes stay in a word (`don't`, `O’Neill`); hyphens split words; numbers count; punctuation and emoji do not. Mixed text counts Han characters plus other words. Technical import limits count UTF-16 characters or bytes, and AI token limits are separate. Counts may differ from other writing software.
+The manuscript autosaves in this browser. If saving fails, copy or export the visible text before refreshing.
 
-## Characters
+Formatting changes font, spacing, indentation and block-boundary display. These display settings do not add characters to the manuscript. Focus mode hides surrounding controls; Esc returns. Search locates text in the selected scope. Proofreading provides suggestions for you to check.
 
-Open **Characters** to create and edit profiles. If the manuscript has no story bible, creating its first character establishes one. Character names and profile text remain in the language you write them. You can also link an existing story bible. See [Story bible and characters](./03-worldbook.md).
+## Comments and rewriting
 
-## Optional AI review
+![A comment attached to selected manuscript text](../../screenshots/user-guide-20260924/14-annotations-en.png)
 
-Configure a text model in **Settings → AI settings**. Open **Proofread** or **Review**, choose the available scope and enter a goal, such as “Check whether the character's decision follows from what they know.” Review covers the selected material, not necessarily the whole manuscript.
+1. Select text in the editable manuscript and choose **Comments**.
+2. Describe the change and what must remain, then add the comment.
+3. Use **Rewrite from comment** when ready. This step needs a text model.
+4. Compare the candidate with the original, then apply or discard it.
 
-Use **Locate** to inspect the quoted passage. **Rewrite from suggestion** produces text to review before applying. **Replace with this version** changes the targeted passage. You can undo an applied change. If the original text or language policy changed, generate a fresh review instead of applying an outdated result.
+Editing or deleting a comment does not change the source passage. If that passage changes, an older candidate may no longer be applicable. Select the updated text and generate again.
 
-**Keep dialogue unchanged** protects detected quoted ranges. Automatic recognition covers paired straight/curly double quotes, curly single quotes and Japanese quotes within one paragraph. Apostrophes inside words are not dialogue. Unclosed quotes, multiline dialogue and straight single quotes need manual selection; zero detected ranges does not mean dialogue is protected. Always inspect the displayed ranges and original text.
+If the selection toolbar is missing, close active search/proofreading overlays and select text again in the manuscript, rather than a panel answer or preview.
 
-Assistant explanations default to the interface language. In Settings you can choose Chinese explanations for an English manuscript, or English explanations for a Chinese one. Quotes retain the original spelling; rewrite text follows the target passage unless you explicitly request translation. Model quality varies: suggestions need author review.
+## Assistant questions
+
+![A question entered in the assistant before sending](../../screenshots/user-guide-20260924/17-assistant-en.png)
+
+Choose the task and question scope before sending. Ask for something you can check, such as “Where does she first say that she knows about the key? Give the supporting passage.” Use free advice for possible writing choices rather than claims about established story facts.
+
+Read the cited evidence as well as the answer. A whole-book question does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Do not rely on this question interface as a web search tool.
+
+Review produces editing suggestions; a rewrite still needs to be applied. Image generation needs its own supported image configuration, even if the text-model connection works.
+
+## Rehearsal: action, response, draft
+
+![Rehearsal panel before an action is submitted](../../screenshots/user-guide-20260924/15-rehearsal-en.png)
+
+1. Place the cursor at the intended continuation point. Open **Rehearsal** and start from the current paragraph (**从当前段落开始**).
+2. If scene confirmation opens first, check the proposed characters and place. Save the changes, or choose **暂不调整，直接推演** to continue with the existing scene.
+3. Enter a specific action. Select the actor and target if the panel asks. Optional conditions apply to this rehearsal; they do not edit the story bible.
+4. Submit the action and read the response. You can stop generation from the panel.
+5. Continue from the latest response or branch from an earlier step. A route allows up to four steps.
+
+After a response, choose **写成试稿** to generate a manuscript draft from the route. This is another model request. The draft appears at the writing position and still needs review and adoption. If a draft already exists, use **查看试稿** and deal with it first.
+
+If the starting context is stale, use **重新确定起点** to start from the current context. Do not apply a response that repeats an already completed action. Keep a copy of useful unadopted text before leaving or refreshing.
+
+## Current scene
+
+![Time and other context in the current-scene panel](../../screenshots/user-guide-20260924/16-current-scene-en.png)
+
+Open the current-scene panel and choose **Edit current scene**. Set the time, place and characters present.
+
+The recognition section suggests matches from nearby manuscript text and the linked story bible. Choose the candidates to add, then press **保存当前场** to save the scene. Merely selecting a candidate changes the form, not the saved scene; cancelling discards the edits.
+
+Recognition matches known names and keywords. A mention in a memory, quotation or negative statement may not mean the character is present. A new name without a story-bible entry will not automatically become a character record. No new suggestions does not mean the scene is empty. Normal typing does not update the cast on every keystroke; you can open the scene form and run recognition again when needed.
+
+## Finding earlier text and story facts
+
+| What you need | Where to look |
+| --- | --- |
+| Earlier manuscript text | **Comments → Versions**, or the chapter menu's **Version history** |
+| Extracted facts, pending memory proposals and revisions | **Settings → Memory & history** |
+| Character, place and rule definitions | Character/settings panels and the linked story bible |
+
+Compare an older manuscript version before restoring it, and keep a copy of your current text.
+
+## Language and backup
+
+Book language is set in the manuscript sidebar. It affects supported future AI tasks and does not translate existing text. Interface language is a separate setting.
+
+Length counts Han characters plus Unicode words. Apostrophes inside words stay within a word; hyphens split words. This differs from model-token counts.
+
+Before moving to a different browser, device or URL, export a full workspace ZIP. Text export and lightweight JSON have smaller scopes. See [Settings](./07-settings.md).

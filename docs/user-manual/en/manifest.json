@@ -4,28 +4,28 @@
       "id": "README",
       "title": "Guide home",
       "file": "README.md",
-      "summary": "What Pinax does and where to begin",
+      "summary": "Find tasks and distinguish manuscript, scene and history",
       "group": "Getting started"
     },
     {
       "id": "01-quickstart",
       "title": "Quick start",
       "file": "01-quickstart.md",
-      "summary": "Create, import, write and keep a backup",
+      "summary": "Create or import, write, add comments and save a backup",
       "group": "Getting started"
     },
     {
       "id": "05-writing",
       "title": "Writing and review",
       "file": "05-writing.md",
-      "summary": "Chapters, characters, proofreading and rewrites",
+      "summary": "Chapters, notes, comments, assistant, rehearsal drafts and versions",
       "group": "Writing"
     },
     {
       "id": "03-worldbook",
       "title": "Story bible and characters",
       "file": "03-worldbook.md",
-      "summary": "Organize character profiles and worldbuilding",
+      "summary": "Sources, structured settings, writing links and memory",
       "group": "Writing"
     },
     {
@@ -47,7 +47,7 @@
       "id": "08-faq",
       "title": "Troubleshooting",
       "file": "08-faq.md",
-      "summary": "Storage, restore and model connection issues",
+      "summary": "Saving, selection tools, rehearsal, scene recognition and AI",
       "group": "Help"
     },
     {

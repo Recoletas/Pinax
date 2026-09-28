@@ -1,14 +1,14 @@
 {
   "chapters": [
-    { "id": "README", "title": "指南首页", "file": "README.md", "summary": "Pinax 是什么、从哪里开始", "group": "开始使用" },
-    { "id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "工作台、通用 AI、世界书增强创作与扩展流程", "group": "开始使用" },
-    { "id": "05-writing", "title": "创作与写作", "file": "05-writing.md", "summary": "正文、章节、批注、资料、试稿与历史", "group": "写作与资料" },
-    { "id": "03-worldbook", "title": "世界书与设定", "file": "03-worldbook.md", "summary": "资料导入、各项设定、高级条目与地图", "group": "写作与资料" },
-    { "id": "04-materials", "title": "素材", "file": "04-materials.md", "summary": "收集金句与事件，继续整理或送入画布", "group": "写作与资料" },
-    { "id": "07-settings", "title": "设置详解", "file": "07-settings.md", "summary": "写作、外观、AI、备份与恢复", "group": "设置与帮助" },
-    { "id": "08-faq", "title": "常见问题", "file": "08-faq.md", "summary": "保存、作品位置、换网址、备份与连接排障", "group": "设置与帮助" },
-    { "id": "02-experience", "title": "跑团", "file": "02-experience.md", "summary": "体验页中的角色行动、回合与会话", "group": "跑团" },
-    { "id": "06-storyboard", "title": "视频与编导助手", "file": "06-storyboard.md", "summary": "分镜设计、编导建议与视频生成", "group": "视听扩展" },
-    { "id": "09-comics", "title": "漫画", "file": "09-comics.md", "summary": "从素材或分镜制作漫画的扩展功能", "group": "视听扩展" }
+    {"id": "README", "title": "指南首页", "file": "README.md", "summary": "按任务查入口，区分正文、设定、当前场和历史", "group": "开始使用"},
+    {"id": "01-quickstart", "title": "快速开始", "file": "01-quickstart.md", "summary": "新建或导入、输入正文、添加批注、改写与备份", "group": "开始使用"},
+    {"id": "05-writing", "title": "创作与写作", "file": "05-writing.md", "summary": "章节与速记、批注改写、助手、推演试稿、现场和版本", "group": "写作与资料"},
+    {"id": "03-worldbook", "title": "世界书与设定", "file": "03-worldbook.md", "summary": "资料来源、结构化设定、写作联动与记忆账本", "group": "写作与资料"},
+    {"id": "04-materials", "title": "素材", "file": "04-materials.md", "summary": "收集金句与事件，继续整理或送入画布", "group": "写作与资料"},
+    {"id": "07-settings", "title": "设置详解", "file": "07-settings.md", "summary": "写作、外观、AI、备份与恢复", "group": "设置与帮助"},
+    {"id": "08-faq", "title": "常见问题", "file": "08-faq.md", "summary": "保存、选区菜单、推演、现场识别、速记和模型连接", "group": "设置与帮助"},
+    {"id": "02-experience", "title": "跑团", "file": "02-experience.md", "summary": "从演示场景到角色行动、检定和会话", "group": "跑团"},
+    {"id": "06-storyboard", "title": "视频与编导助手", "file": "06-storyboard.md", "summary": "分镜设计、编导建议与视频生成", "group": "视听扩展"},
+    {"id": "09-comics", "title": "漫画", "file": "09-comics.md", "summary": "从素材或分镜制作漫画的扩展功能", "group": "视听扩展"}
   ]
 }
