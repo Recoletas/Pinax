@@ -23,4 +23,23 @@ API 3001 仍监听现有地址，以兼容该主机的 Nginx 网络环境；通�
 
 ## 验证与部署
 
-实施中；最终命令、线上结果和回滚位置在完成后补记。
+- main 代码提交 `f7fe6b8`，生产提交 `5035f79`，均已推送；服务器检出 `release-20260929-guard`。本机构建后上传，服务器没有构建。
+- `node scripts/public-access-smoke.mjs`：60 项通过，exit 0，使用合成密钥，没有模型网络调用。
+- `npm run verify:full`：exit 0，20/20 files、200/200 tests，lint 无 error（2 个既有 warning），Web/VitePress 构建、结构/体积与 diff 通过。日志 `/tmp/pinax-public-guard-final-verify.log`。
+- 生产构建 exit 0；上传 bundle SHA256 `cd7d232ce90f55e278d50832bde6942fb893ffdf859aa9c608916f1448933ac1`，dist 包 SHA256 `a8757e62ae136c979c7d1d072e7eee8a2bb6fe12f1f0a033feecf882376f6b51`，服务端一致。
+- Nginx 配置语法检查通过，reload 成功，PM2 后端 online、开发前端 stopped。
+- 公网来源检查：本站 Origin/Referer 的空请求穿过防护，到达业务参数校验（400）；外站、无来源、null Origin、cross-site 均 403。
+- 隔离浏览器首页、文档、写作页正常加载，无 pageerror；浏览器同站 POST 到达业务参数校验。
+- 40 次连续空请求（逐次伪造不同 X-Forwarded-For）得到 32 次 400、8 次 429。空请求不会调用模型。公网脚本 `/tmp/pinax-public-live-check.mjs` exit 0，日志同名 `.log`。
+- 主机内直连 `172.18.0.12:3001` 且无私有令牌返回 403；外网直连 `8.148.28.156:3001` 本次超时，不能据此推断所有网络路径都已关闭。
+- 公网首页 SHA256 与生产 dist 一致。此次未执行真实模型生成，不能把入口检查当成生成质量验证。
+
+## 运维与回滚
+
+备份 `/root/pinax-backups/20260929-guard/` 保存部署前 server/.env（私有，勿上传）、Nginx 配置、旧 commit 与 dist。新令牌在服务器生成，只存于私有环境文件及 `/etc/aa_nginx/pinax-proxy-secret.conf`，没有写入 Git 或浏览器。
+
+静态入口 `/var/www/pinax` 指向 `/var/www/pinax-releases/5035f79/dist`。上一版本目录 `/var/www/pinax-releases/3ed6dd0/dist` 保留。
+
+回滚时恢复备份的 Nginx 配置和 server/.env，检出 `release-20260928`，恢复旧 dist/静态链接，检查 Nginx 语法后 reload，并重启 `pinax-backend`。不要覆盖其他服务、用户数据库或媒体目录。回滚也会撤销本次安全修复，应只用于紧急恢复。
+
+主机名核对参考：[MiniMax 官方 API 文档](https://platform.minimax.io/docs/api-reference/api-overview)与[官方 MCP 配置示例](https://github.com/MiniMax-AI/MiniMax-MCP-JS/blob/main/.env.example)。
