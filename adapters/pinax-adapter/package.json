@@ -1,0 +1,21 @@
+{
+  "name": "pinax-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StoryFlow/StoryHarness × Pinax 适配层：任务级 pi-agent 运行时，SSE 对齐 Pinax narrativeAgentStreamContract，工具桥映射 Pinax 五 lookup，任务状态/取消/恢复。",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
