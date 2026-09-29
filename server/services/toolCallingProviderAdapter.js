@@ -223,6 +223,7 @@ export async function runToolCallingProviderTurn(rawRequest, options = {}) {
   const abort = createAbortContext(options.signal, request.options.timeoutMs)
   try {
     const response = await fetchImpl(resolved.url, {
+      redirect: 'error',
       method: 'POST',
       headers: providerHeaders(request, resolved),
       body: JSON.stringify(requestBody(request, resolved.protocol)),
