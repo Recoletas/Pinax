@@ -233,9 +233,16 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         opts.resumeMessages?.length ? agent.continue() : agent.prompt(buildUserPrompt(req)),
         abortGate,
       ]);
+      if (!finalText.trim()) {
+        // 守卫：provider 无 key/端点异常曾被静默吞成「空成功」——这里显式落 failed（实验抓到的缺陷）
+        const err = { code: "PINAX_ADAPTER_EMPTY_COMPLETION", message: "回合结束但未产出正文（多为 provider 鉴权失败或端点异常）", retryable: false };
+        emit("error", { code: err.code, message: err.message, retryable: err.retryable });
+        emitTask("failed", { status: "failed", taskId: req.taskId || base.taskId, error: err });
+        return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+      }
       emit("usage", { usage: counters.usage });
       emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls, textChars: finalText.length });
-      return { ...base, status: "completed", finalText, messages: agent.state.messages as unknown[] };
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "completed", finalText, messages: agent.state.messages as unknown[] };
     } catch (e) {
       const aborted = ac.signal.aborted;
       const msg = String((e as Error)?.message || e);
@@ -244,7 +251,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         : { code: "PINAX_AGENT_RUN_FAILED", message: msg.slice(0, 240), retryable: /terminated|fetch|ECONN|network|timed out/i.test(msg) };
       emit("error", { code: err.code, message: err.message, retryable: err.retryable });
       emitTask("failed", { status: aborted ? "cancelled" : "failed", taskId: req.taskId || base.taskId, error: err });
-      return { ...base, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
     } finally {
       clearTimeout(timer);
     }
