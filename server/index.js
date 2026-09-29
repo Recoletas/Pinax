@@ -1,6 +1,7 @@
 import './loadEnv.js' // 最先执行: 加载 server/.env 到 process.env
 import express from 'express'
 import cors from 'cors'
+import { createPublicAccessGuard } from './publicAccessGuard.js'
 import { createServer } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { fileURLToPath } from 'url'
@@ -50,7 +51,9 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Server] unhandledRejection:', reason)
 })
 
-app.use(cors())
+app.use('/api', createPublicAccessGuard())
+const publicOrigins = String(process.env.PINAX_PUBLIC_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
+app.use(cors(publicOrigins.length ? { origin: publicOrigins } : undefined))
 if (collaborationRepository) app.use('/api/collaboration', createCollaborationRouter({
   repository: collaborationRepository,
   allowedOrigins: collaborationAllowedOrigins,

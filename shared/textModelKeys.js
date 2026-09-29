@@ -4,8 +4,8 @@
  * - MINIMAX_SERVER_KEY_SENTINEL: 客户端在「已由服务器配置密钥」时使用的占位 key。
  *   它让所有现存 `Boolean(apiKey)` 守卫通过; 请求到达服务器后由 resolveTextApiKey
  *   替换为真实 env key。真实 key 永不进入浏览器 localStorage / 请求日志。
- * - resolveTextApiKey: 服务器在转发上游前调用。命中 MiniMax (provider 或 baseUrl)
- *   且 key 为空或为哨兵时, 注入 process.env.MINIMAX_API_KEY。
+ * - resolveTextApiKey: 服务器在转发上游前调用。命中官方 MiniMax HTTPS 主机
+ *   且 URL 无凭据/查询参数、key 为空或为哨兵时, 注入 process.env.MINIMAX_API_KEY。
  */
 
 export const MINIMAX_SERVER_KEY_SENTINEL = 'minimax-server-key'
@@ -17,19 +17,22 @@ export const MINIMAX_SERVER_KEY_SENTINEL = 'minimax-server-key'
  * 图片/视频适配器 (server/media、server/routes/image.js) 与文本共用这一处解析。
  */
 export function resolveMiniMaxApiKey({ baseUrl = '', apiKey = '' } = {}) {
-  const isMiniMax = /minimaxi?\.com/i.test(String(baseUrl))
+  let isMiniMax = false
+  try {
+    const url = new URL(String(baseUrl))
+    isMiniMax = url.protocol === 'https:'
+      && ['api.minimaxi.com', 'api.minimax.io', 'api.minimax.chat'].includes(url.hostname)
+      && !url.username && !url.password && !url.port && !url.search && !url.hash
+  } catch { /* Invalid or relative URLs must never receive the server credential. */ }
   const serverKey =
     (typeof process !== 'undefined' && process.env && process.env.MINIMAX_API_KEY) || ''
   const key = String(apiKey || '')
   if ((!key || key === MINIMAX_SERVER_KEY_SENTINEL) && isMiniMax) {
     return serverKey || ''
   }
-  return key
+  return key === MINIMAX_SERVER_KEY_SENTINEL ? '' : key
 }
 
-export function resolveTextApiKey({ provider = '', baseUrl = '', apiKey = '' } = {}) {
-  const isMiniMax =
-    /minimax/i.test(String(provider)) || /minimaxi?\.com/i.test(String(baseUrl))
-  if (!isMiniMax) return String(apiKey || '')
+export function resolveTextApiKey({ baseUrl = '', apiKey = '' } = {}) {
   return resolveMiniMaxApiKey({ baseUrl, apiKey })
 }

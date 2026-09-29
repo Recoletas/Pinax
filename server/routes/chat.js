@@ -601,7 +601,7 @@ export async function handleGenerateRequest(req, res) {
       }
     }
 
-    const response = await fetch(chatUrl, {
+    const response = await fetch(chatUrl, { redirect: 'error',
       method: 'POST',
       headers,
       body: JSON.stringify(requestBody)
@@ -907,7 +907,7 @@ router.post('/stream', async (req, res) => {
       }
     }
 
-    const response = await fetch(chatUrl, {
+    const response = await fetch(chatUrl, { redirect: 'error',
       method: 'POST',
       headers,
       body: JSON.stringify(requestBody),
@@ -997,7 +997,7 @@ router.post('/models', async (req, res) => {
 
     if (provider === 'ollama') {
       modelsUrl = `${baseUrl}/api/tags`
-      const response = await fetch(modelsUrl, { headers })
+      const response = await fetch(modelsUrl, { redirect: 'error', headers })
       if (response.ok) {
         const data = await response.json()
         const models = (data.models || []).map(m => m.name || m.model)
@@ -1005,7 +1005,7 @@ router.post('/models', async (req, res) => {
       }
     } else if (provider === 'lmstudio') {
       modelsUrl = `${baseUrl}/models`
-      const response = await fetch(modelsUrl, { headers })
+      const response = await fetch(modelsUrl, { redirect: 'error', headers })
       if (response.ok) {
         const data = await response.json()
         const models = (data.data || []).map(m => m.id)
@@ -1016,7 +1016,7 @@ router.post('/models', async (req, res) => {
       if (!modelsUrl.endsWith('/models')) {
         modelsUrl = `${modelsUrl.replace(/\/$/, '')}/models`
       }
-      const response = await fetch(modelsUrl, { headers })
+      const response = await fetch(modelsUrl, { redirect: 'error', headers })
 
       if (response.ok) {
         const data = await response.json()
@@ -1034,7 +1034,7 @@ router.post('/models', async (req, res) => {
 
     for (const url of altUrls) {
       try {
-        const response = await fetch(url, { headers })
+        const response = await fetch(url, { redirect: 'error', headers })
         if (response.ok) {
           const data = await response.json()
           let models = []
@@ -1137,7 +1137,7 @@ router.post('/mem0/test', async (req, res) => {
       user_id: testUserId,
       limit: '1'
     })
-    const response = await fetch(`${apiUrl}/memories?${params}`, {
+    const response = await fetch(`${apiUrl}/memories?${params}`, { redirect: 'error',
       headers: {
         Authorization: `Token ${effectiveApiKey}`
       }
@@ -1173,7 +1173,7 @@ router.post('/mem0/memories', async (req, res) => {
 
   const apiUrl = normalizeMem0ApiUrl(effectiveHost)
   try {
-    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/add/`, {
+    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/add/`, { redirect: 'error',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1215,7 +1215,7 @@ router.post('/mem0/search', async (req, res) => {
       body.filters = metadataFilter
     }
 
-    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/search/`, {
+    const response = await fetch(`${apiUrl.replace('/v1', '/v3')}/memories/search/`, { redirect: 'error',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1250,7 +1250,7 @@ router.post('/mem0/delete', async (req, res) => {
 
   const apiUrl = normalizeMem0ApiUrl(effectiveHost)
   try {
-    const response = await fetch(`${apiUrl}/memories/${encodeURIComponent(memoryId)}/`, {
+    const response = await fetch(`${apiUrl}/memories/${encodeURIComponent(memoryId)}/`, { redirect: 'error',
       method: 'DELETE',
       headers: { Authorization: `Token ${effectiveApiKey}` }
     })

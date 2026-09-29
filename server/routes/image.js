@@ -45,6 +45,7 @@ export function createImageRouter(options = {}) {
       }
       const root = baseUrl.endsWith('/v1') ? baseUrl.slice(0, -3) : baseUrl
       const response = await fetchImpl(`${root}/v1/image_generation`, {
+      redirect: 'error',
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
         body: JSON.stringify({

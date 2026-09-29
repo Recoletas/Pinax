@@ -55,7 +55,7 @@ export function createMinimaxVideoAdapter(options = {}) {
   }
 
   async function requestJson(transport, url, init, fallback) {
-    const response = await transport(url, init)
+    const response = await transport(url, { ...init, redirect: 'error' })
     const payload = await readPayload(response)
     if (!response.ok) {
       throw makeHttpError(response.status, providerMessage(payload), fallback)
@@ -147,6 +147,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     const url = `${buildBaseUrl(config.baseUrl || baseUrl)}/v1/query/video_generation?task_id=pinax_connection_probe`
     try {
       const response = await transport(url, {
+        redirect: 'error',
         method: 'GET',
         headers: { Accept: 'application/json', ...authHeaders(config) }
       })

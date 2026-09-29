@@ -181,6 +181,7 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
     const body = buildTextModelRequestBody(config, prompt, taskMeta, attempt)
 
     const response = await fetch(url, {
+      redirect: 'error',
       method: 'POST',
       headers,
       body: JSON.stringify(body),

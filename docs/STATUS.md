@@ -6,6 +6,7 @@
 
 | Owner/session | Worktree | Branch | Scope |
 |---|---|---|---|
+| Codex / 2026-09-29 公测防滥用 | `text-game-framework` | `main` → `server-version` | 按作者要求保持免登录；检查并修复内置密钥目标域名校验，增加本站来源与可信反代入口限制、Nginx 单 IP 轻量限流。实施中，验证与部署待完成。 |
 | Codex / 2026-09-28 发布 | `text-game-framework` | `main` → `server-version` | 合并待发布的写作修复与最新手册；抽离 Markdown 转换和现场草稿构造、构思面板按需加载。verify:full exit 0：20 文件/200 用例、双构建、lint、结构/体积与 diff 通过；Authoring 10,898 行、1,444,910 bytes。已推送 main `5347c43`，生产 `3ed6dd0` 本机构建并部署；服务器未构建。公网首页/中英文手册/截图哈希匹配，API 200，浏览器首页/文档/写作页无 pageerror；见[发布回执](./agent-runs/release-20260928.md)。 |
 | Codex / 2026-09-28 使用指南续修 | `text-game-framework` | `main` | 按作者反馈修订手册文案与细节：快速开始五步、批注/版本入口、推演到试稿采用、现场候选确认、速记标题、备份与 FAQ；核心英文同步。docs:build、80 项运行时链接/截图、双 manifest、17 篇 Markdown 解析、diff check 均通过；未运行自动测试/verify:full、浏览器走查或部署。仅手册内容，见[回执](./agent-runs/user-docs-copy-20260928.md)。 |
 | Codex / 2026-09-28 Agent 工具调用施工修订 | `text-game-framework` | `main` | [上位计划](./plan/agent-tool-calling-20260927.md)与[施工任务卡](./plan/agent-tool-calling-execution-20260928.md)已按执行者需求修订：AT-00 已有部分代码但结构/体积及 UI 验收未收口，AT-02 起未验收。明确正确调用链、混合 WIP 输入包、AT-00a–d、逐包写集/出口与交回条件。执行者报告测试数字未由本轮复验；本轮仅文档，未启动 worker、提交或部署。文档检查结果见 LOG。 |
