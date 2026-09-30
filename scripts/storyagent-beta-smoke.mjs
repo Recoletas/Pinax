@@ -6,8 +6,16 @@ import * as http from 'node:http'
 import {
   buildKernelPayload,
   buildResourceSnapshot,
-  createPiNarrativeAgentBridge
+  createPiNarrativeAgentBridge,
 } from '../src/services/agents/storyagent/piNarrativeAgentBridge.js'
+import {
+  applyMention,
+  buildKernelBlocks,
+  filterMentions,
+  mentionAtCursor,
+  parseSlashCommand,
+  slashMatches,
+} from '../src/services/agents/storyagent/panelComposer.js'
 import { parseNarrativeAgentSseEvent } from '../shared/narrativeAgentStreamContract.js'
 
 const failures = []
@@ -114,6 +122,24 @@ try {
   console.log('[3] healthz')
   const h = await bridge.healthz()
   check('healthz 可达', h?.ok === true)
+
+  console.log('[4] composer 纯逻辑（@ 提及 / / 命令 / kernel 参考 blocks）')
+  const mm = mentionAtCursor('雨夜。@沈砚', 7)
+  check('@ 在非空白后不触发', mentionAtCursor('abc@沈', 5) === null)
+  check('@ 光标判定（token/start，CJK 标点后可触发）', mm?.token === '沈砚' && mm?.start === 3)
+  const cEntries = [
+    { id: 'c1', title: '沈砚宁', type: '角色', summary: '女医。' },
+    { id: 'k1', title: '引路符', type: '物品', summary: '指向安息之地。' },
+  ]
+  check('@ 候选按标题过滤', filterMentions(cEntries, '沈').length === 1 && filterMentions(cEntries, '').length === 2)
+  const am = applyMention('雨夜。@沈砚 出门', 3, 2, '沈砚宁')
+  check('@ 补全替换并带尾随空格', am.text === '雨夜。@沈砚宁 出门' && am.caret === '雨夜。@沈砚宁 '.length)
+  check('/ 命令解析', parseSlashCommand('/mode continue')?.name === 'mode' && parseSlashCommand('/mode continue')?.args === 'continue' && parseSlashCommand('mode x') === null)
+  check('/ 命令前缀过滤含 help', slashMatches('')[0]?.name === 'mode' && slashMatches('to')[0]?.name === 'tokens')
+  const refBlocks = buildKernelBlocks({ sceneText: '药庐雨夜。', firstEntry: cEntries[0], pinnedRefs: [cEntries[1]] })
+  check('@ 钉住参考进入 kernel reference block', refBlocks.some((b) => b.kind === 'reference' && b.text.includes('@引路符')))
+  const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: refBlocks } })
+  check('预序列化 blocks 被桥件原样透传（含 reference）', passthrough.blocks.length === refBlocks.length && passthrough.blocks.some((b) => b.kind === 'reference'))
 } finally {
   server.closeAllConnections?.()
   server.close()
