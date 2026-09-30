@@ -42,7 +42,7 @@ export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
       id: text(r.id, 120),
       title: text(r.title || r.name || '', 120),
       type: text(r.type || '', 60),
-      summary: text(r.summary || r.description || r.text || '', 520),
+      summary: text(r.summary || r.content || r.description || r.text || '', 520),
       aliases: (r.aliases || []).map((a) => text(a, 60)).filter(Boolean),
       tags: (r.tags || []).map((t) => text(t, 40)).filter(Boolean),
       relations: (r.relations || []).slice(0, 12).map((rel) => ({ type: text(rel.type || 'related', 40), targetId: text(rel.targetId || rel.id || '', 120) })),
@@ -123,6 +123,8 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
         const type = frame?.type || named?.eventName
         if (!frame && named?.eventName?.startsWith('task.')) {
           state.taskEvent = named.data
+          // 任务生命周期外露（PR #4 审阅④）：task.started 携带 taskId，客户端运行中即可取消
+          callbacks.onTask?.(named.data, named.eventName)
           continue
         }
         if (!type) continue
@@ -151,7 +153,7 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       return r
     },
 
-    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', maxTokens = 1600, requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null }) {
+    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', maxTokens = 1600, requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null }) {
       const state = { usage: null, error: null, taskEvent: null }
       const body = {
         requestId: requestId || `pi_${Date.now().toString(36)}`,
@@ -159,6 +161,8 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
         intent,
         formatInstructions,
         maxTokens,
+        // 作品归属（PR #4 审阅②）：任务开始时固定；适配器全程携带并落账
+        ...(bookId ? { bookId } : {}),
         kernel: buildKernelPayload(kernel),
         resources: buildResourceSnapshot(index, { maxItemsPerDomain: budget?.maxItemsPerDomain }),
         ...(budget ? { budget: { agentTimeoutMs: budget.agentTimeoutMs, maxModelSteps: budget.maxModelSteps, maxCallsPerTurn: budget.maxCallsPerTurn } } : {}),
@@ -202,12 +206,14 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       return r.ok ? r.json() : null
     },
 
-    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '' }) {
+    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null }) {
       const state = { usage: null, error: null, taskEvent: null }
       const body = {
         requestId: requestId || `pi_resume_${Date.now().toString(36)}`,
         mode: 'continue',
         intent,
+        // 归属不变式：续跑重发同值；客户端漏发时适配器以快照为准（旧任务永远归旧作品）
+        ...(bookId ? { bookId } : {}),
         kernel: buildKernelPayload(kernel),
         resources: buildResourceSnapshot(index),
       }

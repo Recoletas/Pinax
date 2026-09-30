@@ -41,6 +41,8 @@ const bridge = createPiNarrativeAgentBridge({
 const open = ref(false)
 const health = ref(null)
 const settingsOpen = ref(false)
+// beta 默认关闭（审阅①）：App 层挂载门控为主，此处为面板自身二次门（挂载开关 localStorage sab_enabled）
+const betaEnabled = typeof localStorage !== 'undefined' && localStorage.getItem('sab_enabled') === '1'
 const mode = ref(localStorage.getItem('sab_mode') || 'auto')
 const maxTokens = ref(Number(localStorage.getItem('sab_maxTokens')) || 1200)
 
@@ -51,6 +53,10 @@ const statusLine = ref('待命')
 let activeTaskId = ''
 const hasActiveTask = computed(() => Boolean(activeTaskId))
 let controller = null
+
+// ---- 作品归属（PR #4 审阅②）：归属锚 = 当前作品绑定的世界书 id（面板可达的最细作品锚；
+//      书与世界书经 bookId→worldbookId 一一绑定，字段名待联调确认后统一） ----
+const bookId = computed(() => String(worldStore.activeWorldbookId || ''))
 
 // ---- composer（@ 提及 / / 命令，语义对标 v4 Chat.tsx） ----
 const composerText = ref('')
@@ -69,7 +75,7 @@ const worldEntries = computed(() => {
       id: String(e?.id || ''),
       title: String(e?.title || e?.name || ''),
       type: String(e?.type || ''),
-      summary: String(e?.summary || e?.description || e?.text || ''),
+      summary: String(e?.summary || e?.content || e?.description || e?.text || ''),
       aliases: Array.isArray(e?.aliases) ? e.aliases.map(String) : []
     }))
     .filter((e) => e.title || e.summary)
@@ -173,16 +179,19 @@ async function loadSessions() {
   try {
     const r = await fetch(`${endpoint}/v1/pinax/tasks/list`)
     const j = await r.json()
-    sessions.value = (j?.tasks || []).slice(0, 12)
+    sessions.value = (j?.tasks || []).slice(0, 24)
   } catch {
     sessions.value = []
   }
 }
 
+// 归属过滤（审阅②）：会话列表只呈现当前作品的任务；旧书任务留在旧书，不串视图
+const bookSessions = computed(() => sessions.value.filter((t) => String(t.bookId || '') === bookId.value))
+
 function resumeSession(t) {
   if (running.value) return
   activeTaskId = t.taskId
-  pushTurn('system', `已载入会话 ${t.taskId}（${t.status}）——继续发送消息即续跑该转录`)
+  pushTurn('system', `已载入会话 ${t.taskId}（${t.status}，归属 ${t.bookId || '未归属'}）——继续发送消息即续跑该转录`)
 }
 
 async function checkHealth() {
@@ -248,15 +257,19 @@ function runCommand(name, args) {
   }
 }
 
-function bindStream() {
+function bindStream(bookAtStart = bookId.value) {
+  // 切书守卫（审阅② §三）：旧书任务继续跑，但流不得写进新作品的视图
+  const stale = () => bookId.value !== bookAtStart
   return {
     onChunk: ({ content }) => {
+      if (stale()) return
       if (streamAnchor < 0) streamAnchor = turns.value.length
       const t = turns.value[streamAnchor]
       if (t) t.text += String(content || '')
       scrollBottom()
     },
     onStatus: (s) => {
+      if (stale()) return
       if (s.phase === 'tool') {
         const t = turns.value[streamAnchor]
         if (t) t.tools.push(`${s.tool} · ${s.action || ''}`)
@@ -267,6 +280,17 @@ function bindStream() {
     },
   }
 }
+
+// 切书（审阅② §三）：呈现新书会话；旧书任务继续归属于旧书（服务端照常落账），
+// 本地视图整体让位——activeTaskId 一并清掉，防止在新书视图里误续跑旧书转录
+watch(bookId, (next, prev) => {
+  if (prev === undefined || next === prev) return
+  turns.value = []
+  activeTaskId = ''
+  streamAnchor = -1
+  pinnedRefs.value = []
+  if (!running.value) statusLine.value = bookId.value ? '已切换作品' : '未绑定作品'
+})
 
 async function sendComposer() {
   const text = composerText.value.trim()
@@ -295,6 +319,8 @@ async function runNewTask(text) {
   streamAnchor = turns.value.length - 1
   controller = new AbortController()
   const taskId = `sab_${Date.now().toString(36)}`
+  // 审阅④：taskId 发送前就已知——立即登记，运行中取消才有靶子（此前要等任务结束才赋值）
+  activeTaskId = taskId
   try {
     const run = await bridge.run({
       kernel: buildKernel(text),
@@ -305,8 +331,9 @@ async function runNewTask(text) {
       maxTokens: Number(maxTokens.value) || 1200,
       requestId: `sabreq_${Date.now().toString(36)}`,
       taskId,
+      bookId: bookId.value,
       signal: controller.signal,
-      callbacks: bindStream(),
+      callbacks: bindStream(bookId.value),
     })
     at.meta = {
       ok: run.ok,
@@ -318,12 +345,14 @@ async function runNewTask(text) {
       tokens: run.usage?.totalTokens ?? 0,
     }
     activeTaskId = run.ok ? (run.trace?.taskId || taskId) : ''
-    at.status = run.ok ? '' : '失败'
-    if (!run.ok) pushTurn('system', '任务失败：适配器未产出正文（查看设置 → 适配器状态）')
+    at.status = run.ok ? '' : (controller.signal.aborted ? '已取消' : '失败')
+    if (!run.ok) pushTurn('system', controller.signal.aborted ? '任务已取消（后端执行已停止）' : '任务失败：适配器未产出正文（查看设置 → 适配器状态）')
     loadSessions()
   } catch (e) {
-    at.status = '失败'
-    pushTurn('system', `任务失败：${String(e?.message || e).slice(0, 160)}`)
+    at.status = controller.signal.aborted ? '已取消' : '失败'
+    pushTurn('system', controller.signal.aborted
+      ? '任务已取消（后端执行已停止，状态可在会话列表核对）'
+      : `任务失败：${String(e?.message || e).slice(0, 160)}`)
   } finally {
     running.value = false
     streamAnchor = -1
@@ -348,15 +377,18 @@ async function runFollowUp(text) {
       index: buildIndex(),
       intent: text,
       requestId: `sabq_${Date.now().toString(36)}`,
+      bookId: bookId.value,
       signal: controller.signal,
-      callbacks: bindStream(),
+      callbacks: bindStream(bookId.value),
     })
-    at.status = r.ok ? '' : '失败'
-    if (!r.ok) pushTurn('system', '追问失败：适配器未产出回复')
+    at.status = r.ok ? '' : (controller.signal.aborted ? '已取消' : '失败')
+    if (!r.ok) pushTurn('system', controller.signal.aborted ? '追问已取消（后端执行已停止）' : '追问失败：适配器未产出回复')
     loadSessions()
   } catch (e) {
-    at.status = '失败'
-    pushTurn('system', `追问失败：${String(e?.message || e).slice(0, 160)}`)
+    at.status = controller.signal.aborted ? '已取消' : '失败'
+    pushTurn('system', controller.signal.aborted
+      ? '追问已取消（后端执行已停止）'
+      : `追问失败：${String(e?.message || e).slice(0, 160)}`)
   } finally {
     running.value = false
     streamAnchor = -1
@@ -367,10 +399,11 @@ async function runFollowUp(text) {
 }
 
 async function cancelTask() {
+  // 审阅④：先打后端 /cancel（停止执行），再掐本流——顺序不能反（流断 ≠ 取消）
+  if (activeTaskId) await bridge.cancel(activeTaskId).catch(() => null)
   try {
     controller?.abort(new Error('PINAX_ADAPTER_CANCELLED'))
   } catch { /* already settled */ }
-  if (activeTaskId) await bridge.cancel(activeTaskId).catch(() => null)
   statusLine.value = '已请求取消'
 }
 
@@ -427,7 +460,7 @@ watch(open, (v) => {
 </script>
 
 <template>
-  <div v-if="isAuthoring">
+  <div v-if="isAuthoring && betaEnabled">
     <button v-if="!open" class="sab-tab" type="button" title="StoryAgent-beta 对话坞" @click="open = true">
       StoryAgentβ
     </button>
@@ -465,14 +498,14 @@ watch(open, (v) => {
           </label>
         </div>
         <div class="sab-sessions">
-          <div class="sab-dim">最近会话（{{ sessions.length }}）</div>
+          <div class="sab-dim">当前作品会话（{{ bookSessions.length }}）</div>
           <ul class="sab-session-list">
-            <li v-for="t in sessions" :key="t.taskId" class="sab-session-row">
+            <li v-for="t in bookSessions" :key="t.taskId" class="sab-session-row">
               <span class="sab-dot" :class="`is-${t.status}`" :title="t.status"></span>
               <span class="sab-session-id">{{ t.taskId }}</span>
               <button class="sab-btn sab-mini" type="button" :disabled="running" @click="resumeSession(t)">载入</button>
             </li>
-            <li v-if="!sessions.length" class="sab-dim">（暂无会话）</li>
+            <li v-if="!bookSessions.length" class="sab-dim">（当前作品暂无会话）</li>
           </ul>
         </div>
       </div>

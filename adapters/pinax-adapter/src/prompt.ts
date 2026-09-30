@@ -13,6 +13,8 @@ export interface KernelBlock {
 export interface TurnRequest {
   taskId?: string;
   requestId: string;
+  /** 作品归属（PR #4 审阅②）：任务开始时固定；resume 由客户端重发同值 */
+  bookId?: string;
   mode: "init" | "continue" | "auto" | "respond";
   intent?: string | null;
   formatInstructions?: string;

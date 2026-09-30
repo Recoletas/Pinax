@@ -12,6 +12,8 @@ export interface TaskSnapshot {
   createdAt: number;
   updatedAt: number;
   mode: string;
+  /** 作品归属（PR #4 审阅②）：任务创建时固定的归属锚（面板传当前作品绑定 id）；缺省 = 未归属（历史任务） */
+  bookId?: string;
   steps: number;
   toolCalls: number;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
@@ -52,13 +54,14 @@ export class TaskStore {
     return last;
   }
 
-  list(limit = 50): { taskId: string; status: TaskStatus; updatedAt: number }[] {
-    const out: { taskId: string; status: TaskStatus; updatedAt: number }[] = [];
+  list(limit = 50): { taskId: string; status: TaskStatus; updatedAt: number; bookId?: string }[] {
+    const out: { taskId: string; status: TaskStatus; updatedAt: number; bookId?: string }[] = [];
     for (const name of fs.readdirSync(this.dir)) {
       const m = /^task-(.+)\.jsonl$/.exec(name);
       if (!m) continue;
       const snap = this.load(m[1]);
-      if (snap) out.push({ taskId: snap.taskId, status: snap.status, updatedAt: snap.updatedAt });
+      // bookId 随列表外露（PR #4 审阅②）：面板按作品过滤会话的数据源
+      if (snap) out.push({ taskId: snap.taskId, status: snap.status, updatedAt: snap.updatedAt, ...(snap.bookId ? { bookId: snap.bookId } : {}) });
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
   }

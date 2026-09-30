@@ -15,8 +15,14 @@ export interface BridgeRunArgs {
   formatInstructions?: string;
   maxTokens?: number;
   requestId?: string;
+  /** 作品归属（PR #4 审阅②）：任务开始时固定，适配器全程携带并落账 */
+  bookId?: string | null;
   signal?: AbortSignal | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void };
+  callbacks?: {
+    onChunk?: (chunk: { content: string }) => void;
+    onComplete?: (r: { content: string }) => void;
+    onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
+  };
   onStatus?: ((status: unknown) => void) | null;
   budget?: BridgeBudget | null;
   taskId?: string | null;
@@ -47,7 +53,13 @@ export interface BridgeResumeArgs {
   kernel: any;
   index: any;
   intent?: string | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void };
+  /** 归属不变式：续跑重发同值；漏发时适配器以快照为准（旧任务永远归旧作品） */
+  bookId?: string | null;
+  callbacks?: {
+    onChunk?: (chunk: { content: string }) => void;
+    onComplete?: (r: { content: string }) => void;
+    onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
+  };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;
   requestId?: string;
