@@ -229,3 +229,60 @@ test("取消→快照 cancelled→resume 续跑不重放", async () => {
   // resume 的首个 LLM 请求必须带上被取消回合的既有消息（续跑，不是从零重跑）
   assert.ok(mockCalls[0].length > 1, "resume 未重放既有转录");
 });
+
+test("PR#4审阅④：task.started 帧先于完成帧到达，运行中即知 taskId", async () => {
+  hangNext = true;
+  try {
+    const res = await taskIdFor("e2e_started_1");
+    assert.equal(res.status, 200);
+    const reader = res.body!.getReader();
+    const dec = new TextDecoder();
+    // 首帧必须是 task.started（此前客户端要等任务结束才知道 taskId，运行中取消无从下手）
+    const { value } = await reader.read();
+    const firstChunk = dec.decode(value, { stream: true });
+    assert.match(firstChunk, /event: task\.started/, "首帧应为 task.started");
+    const startedFrame = firstChunk.split("\n\n").find((f) => /^event: task\.started/m.test(f))!;
+    const startedBody = JSON.parse(startedFrame.split("data: ")[1]);
+    assert.ok(startedBody.taskId, "started 帧必须携带 taskId");
+    // 后端真的可停：/cancel 掐断挂起的 provider 流
+    await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/${startedBody.taskId}/cancel`, { method: "POST" });
+    let rest = firstChunk;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      rest += dec.decode(value, { stream: true });
+    }
+    assert.match(rest, /"status":"cancelled"/);
+  } finally {
+    hangNext = false; // 断言失败也不得泄漏给后续用例（否则 mock 挂起引发级联超时）
+  }
+});
+
+test("PR#4审阅②：bookId 作品归属贯穿创建→快照→列表，resume 漏发时回落快照", async () => {
+  const req = turnRequest("e2e_book_1", { taskId: "ptask_book_1", bookId: "wb_alpha" });
+  const res = await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req),
+  });
+  let completed: Record<string, unknown> | undefined;
+  for await (const raw of sseFrames(res)) {
+    if (/^event: task\.completed/m.test(raw)) completed = JSON.parse(raw.split("data: ")[1]);
+  }
+  assert.ok(completed);
+  const snap = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_book_1`)).json() as Record<string, unknown>;
+  assert.equal(snap.bookId, "wb_alpha", "归属应落账到任务快照");
+  const list = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/list`)).json() as { tasks: { taskId: string; bookId?: string }[] };
+  const hit = list.tasks.find((t) => t.taskId === "ptask_book_1");
+  assert.equal(hit?.bookId, "wb_alpha", "归属应随列表外露（面板按作品过滤的数据源）");
+  // resume 漏发 bookId → 以快照为准，归属不变（旧任务永远归旧作品）
+  const rres = await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_book_1/resume`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(turnRequest("e2e_book_1_resume")),
+  });
+  assert.equal(rres.status, 200);
+  for await (const raw of sseFrames(rres)) {
+    if (/^event: task\.completed/m.test(raw)) break;
+  }
+  const snap2 = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_book_1`)).json() as Record<string, unknown>;
+  assert.equal(snap2.bookId, "wb_alpha", "resume 后归属不得漂移");
+});

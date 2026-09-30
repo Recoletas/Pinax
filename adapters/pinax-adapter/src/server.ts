@@ -40,6 +40,11 @@ function validate(reqBody: unknown): { ok: true; value: TurnRequest } | { ok: fa
   if (!["init", "continue", "auto", "respond"].includes(b.mode)) return { ok: false, error: "mode 必须是 init/continue/auto/respond" };
   if (!b.kernel || !Array.isArray(b.kernel.blocks)) return { ok: false, error: "kernel.blocks 必填（Pinax serializeKernelWithinTextPartBudget 产物）" };
   if (!b.resources || typeof b.resources.domains !== "object") return { ok: false, error: "resources.domains 必填（Pinax 资源快照）" };
+  // 作品归属（PR #4 审阅②）：可选；给了就清洗进 TurnRequest，任务全程携带
+  if (b.bookId !== undefined) {
+    const id = String(b.bookId).trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120);
+    b.bookId = id || undefined;
+  }
   return { ok: true, value: b };
 }
 
@@ -71,14 +76,20 @@ export function startServer(overrides = {}) {
         turn.taskId = taskId;
         const snapshot: TaskSnapshot = {
           taskId, requestId: turn.requestId, status: "running", createdAt: Date.now(), updatedAt: Date.now(),
-          mode: turn.mode, steps: 0, toolCalls: 0, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          mode: turn.mode, ...(turn.bookId ? { bookId: turn.bookId } : {}),
+          steps: 0, toolCalls: 0, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
           messages: [], finalText: "",
         };
         store.append(snapshot);
         sseHead(res);
+        // 流断 ≠ 取消（审阅 §三）：客户端断开只停止写帧，任务继续跑完并落账，状态可查
+        res.on("error", () => { /* 客户端断开：写侧静默，执行不受影响 */ });
+        let clientGone = false;
+        res.on("close", () => { clientGone = true; });
+        const writeFrame = (f: string) => { if (!clientGone && !res.writableEnded) res.write(f); };
         const run = createRun(turn, cfg, { revision: turn.resources.revision, currentPlaceId: turn.resources.currentPlaceId, domains: turn.resources.domains as never });
         active.set(taskId, run);
-        const off = run.onFrame((f) => res.write(f));
+        const off = run.onFrame(writeFrame);
         const final = await run.done;
         off();
         store.append({ ...final, taskId, status: final.status });
@@ -116,10 +127,16 @@ export function startServer(overrides = {}) {
           const parsed = validate(JSON.parse(await readBody(req)));
           if (!parsed.ok) return json(res, 400, { error: parsed.error });
           const turn = { ...parsed.value, taskId, requestId: parsed.value.requestId || snap.requestId };
+          // 归属不变式（审阅②）：旧任务续跑永远归旧作品——客户端漏发 bookId 时以快照为准
+          if (!turn.bookId && snap.bookId) turn.bookId = snap.bookId;
           sseHead(res);
+          res.on("error", () => { /* 客户端断开：写侧静默，执行不受影响 */ });
+          let clientGone = false;
+          res.on("close", () => { clientGone = true; });
+          const writeFrame = (f: string) => { if (!clientGone && !res.writableEnded) res.write(f); };
           const run = createRun(turn, cfg, { revision: turn.resources.revision, currentPlaceId: turn.resources.currentPlaceId, domains: turn.resources.domains as never }, { resumeMessages: snap.messages });
           active.set(taskId, run);
-          const off = run.onFrame((f) => res.write(f));
+          const off = run.onFrame(writeFrame);
           const final = await run.done;
           off();
           store.append({ ...final, taskId, status: final.status });

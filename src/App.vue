@@ -20,6 +20,24 @@ const tip = useTipState()
 const generationMetaNotice = ref('')
 let noticeTimer = null
 
+// StoryAgent-beta 默认关闭（PR #4 审阅①）：校验测试通道不进默认体验。
+// 开启路径：URL 带 ?storyagent-beta=1 一次性写入本地开关并从地址栏摘除。
+const storyAgentBetaEnabled = ref(false)
+function resolveStoryAgentBetaFlag() {
+  try {
+    if (new URLSearchParams(window.location.search).get('storyagent-beta') === '1') {
+      localStorage.setItem('sab_enabled', '1')
+      const url = new URL(window.location.href)
+      url.searchParams.delete('storyagent-beta')
+      window.history.replaceState(null, '', url)
+    }
+    storyAgentBetaEnabled.value = localStorage.getItem('sab_enabled') === '1'
+  } catch {
+    storyAgentBetaEnabled.value = false
+  }
+}
+resolveStoryAgentBetaFlag()
+
 useViewportHeight()
 
 function syncDocumentTitle() {
@@ -134,7 +152,7 @@ watch(
         </div>
       </transition>
       <TipBanner />
-      <StoryAgentBetaPanel />
+      <StoryAgentBetaPanel v-if="storyAgentBetaEnabled" />
     </DesktopProjectGate>
   </div>
 </template>

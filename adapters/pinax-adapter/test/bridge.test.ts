@@ -89,6 +89,37 @@ test("快照构造：Map 型 byDomain → 工具域，条数字段齐备", () =>
   assert.deepEqual(snap.domains.world_lookup[0].relations, [{ type: "师徒", targetId: "c_laozhou" }]);
 });
 
+test("PR#4审阅③：世界书正文读取兼容 content 字段（上游 entries 正文键名不统一）", () => {
+  const idx = {
+    revision: "rev_content",
+    byDomain: new Map([
+      ["world", [{ id: "e_1", title: "只带 content 的条目", content: "正文写在这里。" }]],
+    ]),
+  };
+  const snap = buildResourceSnapshot(idx);
+  assert.equal(snap.domains.world_lookup[0].summary, "正文写在这里。");
+});
+
+test("PR#4审阅②：run/resume 透传 bookId，任务快照归属落账", async () => {
+  const bridge = createPiNarrativeAgentBridge({ endpoint: `http://127.0.0.1:${adapterPort}`, parseEvent: parseNarrativeAgentSseEvent });
+  const run = await bridge.run({
+    kernel: fakeKernel,
+    index: fakeIndex,
+    mode: "continue",
+    intent: "归属检查",
+    requestId: "bridge_book_1",
+    taskId: "bridge_book_task",
+    bookId: "wb_beta",
+  });
+  assert.ok(run.trace.taskId);
+  const snap = (await bridge.status("bridge_book_task")) as Record<string, unknown>;
+  assert.equal(snap.bookId, "wb_beta", "归属应随请求贯穿到任务快照");
+  // resume 漏发 bookId → 服务端以快照回落，归属不变
+  await bridge.resume({ taskId: "bridge_book_task", kernel: fakeKernel, index: fakeIndex, intent: "续" });
+  const snap2 = (await bridge.status("bridge_book_task")) as Record<string, unknown>;
+  assert.equal(snap2.bookId, "wb_beta");
+});
+
 test("kernel 载荷：无预序列化时现拼有界块", () => {
   const k = buildKernelPayload(fakeKernel);
   assert.equal(k.revision, "krev_9");

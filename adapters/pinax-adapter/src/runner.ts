@@ -222,9 +222,12 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
   ac.signal.addEventListener("abort", () => { try { agent.abort(); } catch { /* not running */ } });
 
   const start = async (): Promise<TaskSnapshot> => {
+    // PR #4 审阅④：启动即广播 taskId——此前客户端要等任务结束才知道 id，运行中取消无从下手
+    emitTask("started", { status: "running", taskId: req.taskId || "", ...(req.bookId ? { bookId: req.bookId } : {}) });
     const base: Omit<TaskSnapshot, "status" | "finalText" | "messages" | "error"> = {
       taskId: req.taskId || "", requestId: req.requestId, createdAt: Date.now(), updatedAt: Date.now(),
-      mode: req.mode, steps: counters.steps, toolCalls: counters.toolCalls, usage: counters.usage,
+      mode: req.mode, ...(req.bookId ? { bookId: req.bookId } : {}),
+      steps: counters.steps, toolCalls: counters.toolCalls, usage: counters.usage,
     };
     // abort 竞速：provider 侧悬挂时 Promise 可能不 settle，取消必须硬落账（cancellation 可用性）
     const abortGate = new Promise<never>((_, reject) => {
@@ -260,7 +263,9 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
     }
   };
 
-  const run = start();
+  // 启动推迟一个微任务：server 在 createRun 返回后才订阅 onFrame——同步启动会让
+  // task.started 帧发进空监听集（客户端永远收不到 taskId，运行中取消无从下手）
+  const run: Promise<TaskSnapshot> = Promise.resolve().then(start);
   return {
     taskId: req.taskId || "",
     requestId: req.requestId,
