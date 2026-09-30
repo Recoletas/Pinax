@@ -93,6 +93,9 @@ const agentRun = usePiAgent
 
 ## 当前边界（不粉饰）
 
+> 来源对照：`vendor/storyflow-kit/` 是 StoryFlow 内核（skkbsgzf/storyflow@88532b15，MIT）的只读快照，
+> 供审核者核对预算口径 / 工具环 / 超时取消的镜像声明；运行时不依赖它（只依赖 npm 包），见 [VENDOR.md](./vendor/storyflow-kit/VENDOR.md)。
+
 | 项 | 状态 |
 |---|---|
 | experience 正文回合（自动助手） | 已实现并测试（mock LLM 端到端） |
