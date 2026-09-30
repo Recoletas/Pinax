@@ -202,11 +202,12 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       return r.ok ? r.json() : null
     },
 
-    async resume({ taskId, kernel, index, callbacks = {}, onStatus = null, signal = null, requestId = '' }) {
+    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '' }) {
       const state = { usage: null, error: null, taskEvent: null }
       const body = {
         requestId: requestId || `pi_resume_${Date.now().toString(36)}`,
         mode: 'continue',
+        intent,
         kernel: buildKernelPayload(kernel),
         resources: buildResourceSnapshot(index),
       }
