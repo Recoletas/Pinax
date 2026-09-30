@@ -1,5 +1,6 @@
 <!-- StoryAgent-beta：pi-agent 适配层的侧栏测试坞（校验/测试专用，不写入书稿/世界书）。
-     链路：src/services/agents/piAgent/piNarrativeAgentBridge.js → pinax-adapter（默认 127.0.0.1:8451）。
+     链路：src/services/agents/storyagent/piNarrativeAgentBridge.js → pinax-adapter（默认 127.0.0.1:8451）。
+     交互对标 storymasterv4 storyharness Chat.tsx（@ 提及、/ 命令、预设/技法、会话列表续跑）。
      所有 SSE 帧都经上游 parseNarrativeAgentSseEvent 校验；不触碰既有 AI 链路与状态机。 -->
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -7,6 +8,17 @@ import { useRoute } from 'vue-router'
 import { createPiNarrativeAgentBridge } from '../../services/agents/storyagent/piNarrativeAgentBridge.js'
 import { parseNarrativeAgentSseEvent } from '../../../shared/narrativeAgentStreamContract.js'
 import { useWorldStore } from '../../stores/worldStore.js'
+import {
+  applyMention,
+  buildKernelBlocks,
+  filterMentions,
+  INTENT_PRESETS,
+  mentionAtCursor,
+  parseSlashCommand,
+  SKILL_PRESETS,
+  slashMatches,
+  SLASH_COMMANDS,
+} from '../../services/agents/storyagent/panelComposer.js'
 
 const route = useRoute()
 const worldStore = useWorldStore()
@@ -30,8 +42,8 @@ const open = ref(false)
 const health = ref(null)
 const contractCheck = ref('')
 const intent = ref('推进当前场景，写一个短叙事片段')
-const mode = ref('auto')
-const maxTokens = ref(1200)
+const mode = ref(localStorage.getItem('sab_mode') || 'auto')
+const maxTokens = ref(Number(localStorage.getItem('sab_maxTokens')) || 1200)
 const sceneText = ref('')
 const running = ref(false)
 const statusLine = ref('待命')
@@ -45,7 +57,13 @@ const canFollowUp = computed(() => Boolean(result.value?.ok && result.value.task
 let controller = null
 let lastTaskId = ''
 
-const isAuthoring = computed(() => route.name === 'authoring')
+// ---- @ 提及 / / 命令（语义对标 v4 Chat.tsx：↑↓ 选择、Tab/Enter 确认、Esc 关闭） ----
+const mention = ref(null)
+const slash = ref(null)
+const pinnedRefs = ref([])
+const commandEcho = ref('')
+const taRef = ref(null)
+
 const worldEntries = computed(() => {
   const entries = worldStore.activeWorldbook?.entries || []
   return entries
@@ -54,10 +72,135 @@ const worldEntries = computed(() => {
       id: String(e?.id || ''),
       title: String(e?.title || e?.name || ''),
       type: String(e?.type || ''),
-      summary: String(e?.summary || e?.description || e?.text || '')
+      summary: String(e?.summary || e?.description || e?.text || ''),
+      aliases: Array.isArray(e?.aliases) ? e.aliases.map(String) : []
     }))
     .filter((e) => e.title || e.summary)
 })
+
+const isAuthoring = computed(() => route.name === 'authoring')
+
+function refreshPopovers(el) {
+  const value = el.value
+  const caret = el.selectionStart ?? value.length
+  const m = mentionAtCursor(value, caret)
+  const list = m ? filterMentions(worldEntries.value, m.token) : []
+  mention.value = m && list.length ? { ...m, list, idx: 0 } : null
+  if (value.startsWith('/') && !value.includes('\n')) {
+    const candidates = slashMatches(value.slice(1))
+    slash.value = candidates.length ? { token: value.slice(1), list: candidates, idx: 0 } : null
+  } else {
+    slash.value = null
+  }
+}
+
+function pickMention(entry) {
+  const m = mention.value
+  const el = taRef.value
+  if (!m || !el) return
+  const r = applyMention(el.value, m.start, m.token.length, entry.title)
+  el.value = r.text
+  sceneText.value = r.text
+  if (!pinnedRefs.value.some((p) => p.id === entry.id)) pinnedRefs.value.push(entry)
+  mention.value = null
+  requestAnimationFrame(() => { el.focus(); try { el.setSelectionRange(r.caret, r.caret) } catch { /* 老内核不设光标 */ } })
+}
+
+function unpinRef(i) {
+  pinnedRefs.value.splice(i, 1)
+}
+
+function setMode(v) {
+  if (['init', 'continue', 'auto', 'respond'].includes(v)) {
+    mode.value = v
+    localStorage.setItem('sab_mode', v)
+    return `mode=${v}`
+  }
+  return `未知模式：${v}（可选 init/continue/auto/respond）`
+}
+
+function setTokens(n) {
+  const t = Number(n)
+  if (!Number.isFinite(t) || t < 200 || t > 8000) return `maxTokens 需在 200-8000：${n}`
+  maxTokens.value = t
+  localStorage.setItem('sab_maxTokens', String(t))
+  return `maxTokens=${t}`
+}
+
+function applyPreset(nameOrId) {
+  const key = String(nameOrId || '').toLowerCase()
+  const p = INTENT_PRESETS.find((x) => x.id === key || x.label === nameOrId)
+  if (!p) return `未找到预设：${nameOrId || '(空)'}。可用：${INTENT_PRESETS.map((x) => x.id).join(' / ')}`
+  intent.value = p.intent
+  return `已应用预设「${p.label}」`
+}
+
+function applySkill(nameOrId) {
+  const key = String(nameOrId || '').toLowerCase()
+  const s = SKILL_PRESETS.find((x) => x.id === key || x.label === nameOrId)
+  if (!s) return `未找到技法：${nameOrId || '(空)'}。可用：${SKILL_PRESETS.map((x) => x.id).join(' / ')}`
+  intent.value = `${s.instruction}\n${intent.value}`
+  return `已叠加技法「${s.label}」到指令前`
+}
+
+function pickSkillById(id) {
+  const s = SKILL_PRESETS.find((x) => x.id === id)
+  if (s) intent.value = `${s.instruction}\n${intent.value}`
+}
+
+function pickPresetById(id) {
+  const p = INTENT_PRESETS.find((x) => x.id === id)
+  if (p) intent.value = p.intent
+}
+
+async function loadSessions() {
+  try {
+    const r = await fetch(`${endpoint}/v1/pinax/tasks/list`)
+    const j = await r.json()
+    sessions.value = (j?.tasks || []).slice(0, 12)
+  } catch {
+    sessions.value = []
+  }
+}
+
+function resumeSession(t) {
+  if (running.value || following.value) return
+  result.value = { ok: true, taskId: t.taskId, model: '历史会话', usage: null, status: t.status, steps: '-', calls: '-', chars: '-' }
+  lastTaskId = t.taskId
+  commandEcho.value = `已选会话 ${t.taskId}（${t.status}）——可在下方追问续跑`
+}
+
+function runCommand(name, args) {
+  switch (name) {
+    case 'mode': return setMode(args)
+    case 'tokens': return setTokens(args)
+    case 'preset': return applyPreset(args)
+    case 'skill': return applySkill(args)
+    case 'refs': return pinnedRefs.value.length
+      ? `已钉住 ${pinnedRefs.value.length} 条：${pinnedRefs.value.map((e, i) => `#${i + 1} @${e.title}`).join('，')}`
+      : '尚无钉住的 @ 参考（在场景输入里 @ 世界书条目）'
+    case 'unref': {
+      if (args === 'all') { const n = pinnedRefs.value.length; pinnedRefs.value = []; return `已移除全部 ${n} 条参考` }
+      const i = Number(args) - 1
+      if (!Number.isInteger(i) || i < 0 || i >= pinnedRefs.value.length) return `序号无效：${args}（/refs 查看，/unref all 清空）`
+      const [gone] = pinnedRefs.value.splice(i, 1)
+      return `已移除 @${gone.title}`
+    }
+    case 'sessions': loadSessions(); return '会话列表已刷新'
+    case 'cancel': cancelTask(); return '已请求取消'
+    case 'new': {
+      output.value = ''; toolLog.value = []; result.value = null; errorMsg.value = ''
+      lastTaskId = ''
+      return '已清空输出，可开新任务'
+    }
+    case 'help': return SLASH_COMMANDS.map((c) => `/${c.name} ${c.args} — ${c.desc}`).join('\n')
+    default: return `未知命令：/${name}（/help 查看全部）`
+  }
+}
+
+// ---- 会话列表（适配器 tasks/list） ----
+const sessions = ref([])
+const sessionsOpen = ref(false)
 
 async function checkHealth() {
   health.value = await bridge.healthz()
@@ -76,13 +219,9 @@ async function checkContract() {
 }
 
 function buildKernel() {
-  const scene = sceneText.value.trim()
-  const first = worldEntries.value[0] || null
   return {
     revision: `sab_${Date.now().toString(36)}`,
-    scene: { summary: scene ? scene.slice(0, 800) : '（未提供场景文本。依据世界书资料推进一个短叙事片段。）' },
-    ...(first ? { character: { name: first.title, profile: first.summary.slice(0, 600) } } : {}),
-    recentText: scene ? scene.slice(-1200) : ''
+    serialization: { blocks: buildKernelBlocks({ sceneText: sceneText.value, firstEntry: worldEntries.value[0] || null, pinnedRefs: pinnedRefs.value }) },
   }
 }
 
@@ -141,6 +280,7 @@ async function runTask() {
       chars: (run.finalContent || '').length
     }
     statusLine.value = run.ok ? '完成' : '失败'
+    loadSessions()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
     statusLine.value = '失败'
@@ -165,7 +305,6 @@ async function sendFollowUp() {
   following.value = true
   errorMsg.value = ''
   statusLine.value = '追问续跑…'
-  const before = output.value.length
   output.value += `\n\n【追问】${question}\n`
   const head = output.value.length
   try {
@@ -188,6 +327,7 @@ async function sendFollowUp() {
     if (!r.ok) errorMsg.value = '追问失败：适配器未产出回复'
     else statusLine.value = '追问完成'
     followUp.value = ''
+    loadSessions()
   } catch (e) {
     errorMsg.value = String(e?.message || e)
     statusLine.value = '追问失败'
@@ -202,12 +342,57 @@ async function copyOutput() {
   } catch { /* 剪贴板不可用即忽略 */ }
 }
 
+function onComposerKey(e) {
+  const m = mention.value
+  if (m) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const d = e.key === 'ArrowDown' ? 1 : -1
+      mention.value = { ...m, idx: (m.idx + d + m.list.length) % m.list.length }
+      return
+    }
+    if (e.key === 'Escape') { mention.value = null; return }
+    if (e.key === 'Tab' || (e.key === 'Enter' && m.list.length)) { e.preventDefault(); pickMention(m.list[m.idx]); return }
+  }
+  const s = slash.value
+  if (s) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const d = e.key === 'ArrowDown' ? 1 : -1
+      slash.value = { ...s, idx: (s.idx + d + s.list.length) % s.list.length }
+      return
+    }
+    if (e.key === 'Escape') { slash.value = null; return }
+    if (e.key === 'Tab' || e.key === 'Enter') {
+      e.preventDefault()
+      const c = s.list[s.idx]
+      commandEcho.value = runCommand(c.name, parseSlashCommand(sceneText.value)?.args || '')
+      if (c.name !== 'help') sceneText.value = ''
+      else sceneText.value = ''
+      slash.value = null
+      return
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const parsed = parseSlashCommand(sceneText.value)
+    if (parsed) {
+      e.preventDefault()
+      commandEcho.value = runCommand(parsed.name, parsed.args)
+      sceneText.value = ''
+      return
+    }
+    e.preventDefault()
+    runTask()
+  }
+}
+
 onMounted(() => {
   checkHealth()
+  loadSessions()
   worldStore.loadWorldbooksIndex().catch(() => null)
 })
 watch(open, (v) => {
-  if (v) checkHealth()
+  if (v) { checkHealth(); loadSessions() }
 })
 </script>
 
@@ -235,6 +420,23 @@ watch(open, (v) => {
           <span class="sab-dim">{{ contractCheck || `帧校验 ${contractStats.ok}/${contractStats.total}` }}</span>
         </div>
 
+        <div class="sab-row">
+          <label class="sab-field sab-grow">
+            <span>意图预设</span>
+            <select :disabled="running" @change="pickPresetById($event.target.value); $event.target.value = ''">
+              <option value="">— 选择预设 —</option>
+              <option v-for="p in INTENT_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
+            </select>
+          </label>
+          <label class="sab-field sab-grow">
+            <span>写作技法</span>
+            <select :disabled="running" @change="pickSkillById($event.target.value); $event.target.value = ''">
+              <option value="">— 叠加技法 —</option>
+              <option v-for="s in SKILL_PRESETS" :key="s.id" :value="s.id">{{ s.label }}</option>
+            </select>
+          </label>
+        </div>
+
         <label class="sab-field">
           <span>指令</span>
           <input v-model="intent" type="text" :disabled="running" />
@@ -255,15 +457,49 @@ watch(open, (v) => {
           </label>
         </div>
 
-        <label class="sab-field">
-          <span>场景/正文（可选；{{ worldEntries.length }} 条世界书资料随请求上行）</span>
-          <textarea
-            v-model="sceneText"
-            rows="4"
-            :disabled="running"
-            placeholder="可粘贴当前章节正文或场景要点；留空则仅凭世界书资料推进。"
-          ></textarea>
-        </label>
+        <div class="sab-mention-wrap">
+          <div v-if="mention" class="sab-pop" role="listbox">
+            <div
+              v-for="(p, i) in mention.list"
+              :key="p.id"
+              role="option"
+              :aria-selected="i === mention.idx"
+              class="sab-pop-item"
+              :class="{ 'is-on': i === mention.idx }"
+              @mousedown.prevent="pickMention(p)"
+            >@{{ p.title }} <span class="sab-dim">{{ p.type }}</span></div>
+          </div>
+          <div v-if="slash" class="sab-pop" role="listbox">
+            <div
+              v-for="(c, i) in slash.list"
+              :key="c.name"
+              role="option"
+              :aria-selected="i === slash.idx"
+              class="sab-pop-item"
+              :class="{ 'is-on': i === slash.idx }"
+              @mousedown.prevent="commandEcho = runCommand(c.name, ''); sceneText = ''; slash = null"
+            >/{{ c.name }} {{ c.args }} <span class="sab-dim">{{ c.desc }}</span></div>
+          </div>
+          <label class="sab-field">
+            <span>场景/正文（@ 提及世界书条目、/ 命令；Enter 运行，Shift+Enter 换行）</span>
+            <textarea
+              ref="taRef"
+              v-model="sceneText"
+              rows="4"
+              :disabled="running"
+              placeholder="可粘贴正文或场景要点；@ 引资料，/ 用命令（/help）。"
+              @keydown="onComposerKey"
+              @input="refreshPopovers($event.target)"
+              @click="refreshPopovers($event.target)"
+            ></textarea>
+          </label>
+        </div>
+
+        <div v-if="pinnedRefs.length" class="sab-chips">
+          <span v-for="(p, i) in pinnedRefs" :key="p.id" class="sab-chip" :title="p.summary">
+            @{{ p.title }}<button class="sab-chip-x" type="button" :aria-label="`移除 ${p.title}`" @click="unpinRef(i)">×</button>
+          </span>
+        </div>
 
         <div class="sab-row">
           <button class="sab-btn sab-primary" type="button" :disabled="running" @click="runTask">运行任务</button>
@@ -271,6 +507,7 @@ watch(open, (v) => {
           <button class="sab-btn" type="button" :disabled="!output" @click="copyOutput">复制</button>
         </div>
 
+        <p v-if="commandEcho" class="sab-echo">{{ commandEcho }}</p>
         <p class="sab-status">{{ statusLine }}</p>
         <pre v-if="output" class="sab-output">{{ output }}</pre>
         <ul v-if="toolLog.length" class="sab-tools">
@@ -295,6 +532,20 @@ watch(open, (v) => {
           <button class="sab-btn" type="button" :disabled="following || !followUp.trim()" @click="sendFollowUp">
             {{ following ? '续跑中…' : '追问' }}
           </button>
+        </div>
+
+        <div class="sab-sessions">
+          <button class="sab-btn sab-sessions-toggle" type="button" @click="sessionsOpen = !sessionsOpen">
+            {{ sessionsOpen ? '▾' : '▸' }} 最近会话（{{ sessions.length }}）
+          </button>
+          <ul v-if="sessionsOpen" class="sab-session-list">
+            <li v-for="t in sessions" :key="t.taskId" class="sab-session-row">
+              <span class="sab-dot" :class="`is-${t.status}`" :title="t.status"></span>
+              <span class="sab-session-id">{{ t.taskId }}</span>
+              <button class="sab-btn sab-mini" type="button" :disabled="running || following" @click="resumeSession(t)">续跑</button>
+            </li>
+            <li v-if="!sessions.length" class="sab-dim">（暂无会话）</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -394,6 +645,7 @@ watch(open, (v) => {
 
 .sab-grow {
   flex: 1;
+  min-width: 0;
 }
 
 .sab-narrow {
@@ -432,15 +684,85 @@ watch(open, (v) => {
   color: var(--accent-text, #fff);
 }
 
+.sab-mini {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
 .sab-dim {
   color: var(--text-muted, #888);
   font-size: 12px;
+}
+
+.sab-mention-wrap {
+  position: relative;
+}
+
+.sab-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 20;
+  margin-bottom: 4px;
+  background: var(--archive-paper, #faf9f6);
+  border: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  box-shadow: var(--shadow-workbench-float, 0 8px 24px rgba(0, 0, 0, 0.14));
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sab-pop-item {
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sab-pop-item.is-on {
+  background: var(--surface-workbench-muted, rgba(0, 0, 0, 0.04));
+}
+
+.sab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.sab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  border-radius: 999px;
+  padding: 2px 4px 2px 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #555);
+}
+
+.sab-chip-x {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .sab-status {
   margin: 0;
   color: var(--text-muted, #888);
   font-size: 12px;
+}
+
+.sab-echo {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary, #555);
+  font-size: 12px;
+  line-height: 1.5;
+  border-left: 2px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  padding-left: 8px;
 }
 
 .sab-output {
@@ -494,5 +816,61 @@ watch(open, (v) => {
   padding: 6px 8px;
   font: inherit;
   font-size: 12px;
+}
+
+.sab-sessions {
+  border-top: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  padding-top: 8px;
+}
+
+.sab-sessions-toggle {
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+}
+
+.sab-session-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sab-session-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #555);
+}
+
+.sab-session-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted, #888);
+  flex: none;
+}
+
+.sab-dot.is-completed {
+  background: var(--accent, #2563eb);
+}
+
+.sab-dot.is-failed {
+  background: var(--sab-danger, #b42318);
+}
+
+.sab-dot.is-cancelled {
+  background: var(--text-muted, #888);
 }
 </style>
