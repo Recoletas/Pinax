@@ -15,8 +15,10 @@ const endpoint = String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1
 const contractStats = reactive({ total: 0, ok: 0 })
 const bridge = createPiNarrativeAgentBridge({
   endpoint,
-  // 逐帧过上游契约 parser：漂移立刻现形（校验面板的核心职责）
+  // 逐帧过上游契约 parser：漂移立刻现形（校验面板的核心职责）。
+  // task.* 生命周期扩展帧不计入统计——上游 parser 按设计安全忽略。
   parseEvent: (raw) => {
+    if (/^event: task\./m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -37,6 +39,9 @@ const output = ref('')
 const toolLog = ref([])
 const result = ref(null)
 const errorMsg = ref('')
+const followUp = ref('')
+const following = ref(false)
+const canFollowUp = computed(() => Boolean(result.value?.ok && result.value.taskId))
 let controller = null
 let lastTaskId = ''
 
@@ -153,6 +158,44 @@ async function cancelTask() {
   statusLine.value = '已请求取消'
 }
 
+// 追问：不重跑任务，用服务端落盘转录续跑（resume），回复追加在正文之后
+async function sendFollowUp() {
+  const question = followUp.value.trim()
+  if (!question || following.value || !canFollowUp.value) return
+  following.value = true
+  errorMsg.value = ''
+  statusLine.value = '追问续跑…'
+  const before = output.value.length
+  output.value += `\n\n【追问】${question}\n`
+  const head = output.value.length
+  try {
+    const r = await bridge.resume({
+      taskId: result.value.taskId,
+      kernel: buildKernel(),
+      index: buildIndex(),
+      intent: question,
+      requestId: `sabq_${Date.now().toString(36)}`,
+      callbacks: {
+        onChunk: ({ content }) => {
+          if (output.value.length === head) output.value += '\n'
+          output.value += String(content || '')
+        }
+      },
+      onStatus: (s) => {
+        if (s.phase === 'tool') statusLine.value = `追问工具：${s.tool} · ${s.action || ''}`
+      }
+    })
+    if (!r.ok) errorMsg.value = '追问失败：适配器未产出回复'
+    else statusLine.value = '追问完成'
+    followUp.value = ''
+  } catch (e) {
+    errorMsg.value = String(e?.message || e)
+    statusLine.value = '追问失败'
+  } finally {
+    following.value = false
+  }
+}
+
 async function copyOutput() {
   try {
     await navigator.clipboard.writeText(output.value)
@@ -239,6 +282,20 @@ watch(open, (v) => {
           tools {{ result.calls }} · {{ result.chars }} 字 · tokens {{ result.usage?.totalTokens ?? 0 }} ·
           task {{ result.taskId }}
         </p>
+
+        <div v-if="canFollowUp" class="sab-row sab-follow">
+          <input
+            v-model="followUp"
+            type="text"
+            class="sab-follow-input"
+            :disabled="following"
+            placeholder="追问（基于服务端转录续跑，不重跑任务）"
+            @keydown.enter="sendFollowUp"
+          />
+          <button class="sab-btn" type="button" :disabled="following || !followUp.trim()" @click="sendFollowUp">
+            {{ following ? '续跑中…' : '追问' }}
+          </button>
+        </div>
       </div>
     </section>
   </div>
@@ -419,5 +476,23 @@ watch(open, (v) => {
   color: var(--text-secondary, #555);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.sab-follow {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+}
+
+.sab-follow-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
 }
 </style>

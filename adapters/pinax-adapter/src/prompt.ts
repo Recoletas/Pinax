@@ -88,3 +88,12 @@ export function buildUserPrompt(req: TurnRequest): string {
     `目标产出：叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，先查资料后动笔）。`,
   ].filter(Boolean).join("\n");
 }
+
+// 恢复/追问：转录末尾是 assistant 正文时 pi-agent 的 continue() 会拒绝
+// （Cannot continue from message role: assistant），必须以新 user 轮续接转录。
+export function buildResumePrompt(req: TurnRequest): string {
+  return [
+    req.intent ? `作者追问/指令：${req.intent}` : "作者要求继续推进。请接着当前转录产出叙事正文，不重播已发生事件。",
+    `目标产出：叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，可先查资料）。`,
+  ].join("\n");
+}

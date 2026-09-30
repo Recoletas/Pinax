@@ -46,6 +46,7 @@ export interface BridgeResumeArgs {
   taskId: string;
   kernel: any;
   index: any;
+  intent?: string | null;
   callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;

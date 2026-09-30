@@ -9,7 +9,7 @@ import {
   type NarrativeStreamEventType,
 } from "./contract.ts";
 import { buildPinaxTools, type ResourceSnapshot } from "./tools.ts";
-import { buildSystemPrompt, buildUserPrompt, type TurnRequest } from "./prompt.ts";
+import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, type TurnRequest } from "./prompt.ts";
 import type { AdapterConfig } from "./config.ts";
 import type { TaskSnapshot } from "./store.ts";
 
@@ -55,6 +55,9 @@ export function makeModels(cfg: AdapterConfig): Models {
             contextWindow: 128_000,
             maxTokens: 16_384,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            // dots.ai 等国产 OpenAI 兼容端点实测：拒绝 developer 角色（400 provider.client_bad_request），
+            // 不发 reasoning_effort；思维链以 reasoning_content 增量返回（pi-ai 原生解析）。
+            compat: { supportsDeveloperRole: false, supportsStore: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
           },
         ],
         api: openAICompletionsApi(),
@@ -230,7 +233,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
     });
     try {
       await Promise.race([
-        opts.resumeMessages?.length ? agent.continue() : agent.prompt(buildUserPrompt(req)),
+        opts.resumeMessages?.length ? agent.prompt(buildResumePrompt(req)) : agent.prompt(buildUserPrompt(req)),
         abortGate,
       ]);
       if (!finalText.trim()) {

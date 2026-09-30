@@ -42,6 +42,7 @@ const contractStats = { total: 0, ok: 0 }
 const bridge = createPiNarrativeAgentBridge({
   endpoint: 'http://127.0.0.1:8471',
   parseEvent: (raw) => {
+    if (/^event: task\./m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -108,7 +109,7 @@ try {
   check('finalContent 与 totalCalls 正确', run.ok && run.finalContent === chunks && run.totalCalls === 1)
   check('trace 携带 taskId/status（任务生命周期回传）', run.trace.taskId === lastTaskId && run.trace.status === 'completed')
   check('usage 透传', run.usage.totalTokens === 46)
-  check('契约逐帧校验：5/5 契约帧通过，task.completed 被上游 parser 安全忽略', contractStats.total === 6 && contractStats.ok === 5)
+  check('契约逐帧校验：5/5 契约帧通过，task 生命周期帧不计入', contractStats.total === 5 && contractStats.ok === 5)
 
   console.log('[3] healthz')
   const h = await bridge.healthz()
