@@ -12,6 +12,7 @@ import {
 import { buildNarrativeKernel } from '../agents/narrativeKernel'
 import { buildNarrativeContinuityFrame } from '../agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../agents/narrativeResourceIndex'
+import { experiencePiAgentRoute } from '../agents/storyagent/experienceAgentRoute.js'
 import { buildNarrativeContextAudit } from '../agents/narrativeContextAudit'
 import { createNarrativeToolRegistry } from '../agents/narrativeToolRegistry'
 import {
@@ -285,75 +286,116 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         const expansionLevel = store.resolveNarrativeExpansion()
         const baseTokens = isInitGeneration ? 3000 : 2600
         const maxTokens = Math.min(5000, Math.round(baseTokens * narrativeExpansionFactor(expansionLevel)))
-        const agentRun = await runNarrativeAgentGeneration({
-          kernel: narrativeKernel,
-          registry: narrativeRegistry,
-          mode: productionMode,
-          intent: effectiveIntent,  // C1：传 intent 给 orchestrator（供 turn note）
-          formatInstructions: buildNarrativeFormatInstructions(),
-          worldId: store.worldId,
-          settings: { ...store.apiSettings, expansion: expansionLevel },
-          requestId,
-          signal: controller.signal,
-          maxTokens,
-          onStatus: (status) => {
-            productionObserver.observeStatus(status)
-            if (activeTurnControllers.get(store) === controller) {
-              store.setNarrativeAgentStatus({
-                ...status,
-                requestId
-              })
-            }
-          },
-          callbacks: {
-            onChunk: (chunk) => {
-              productionObserver.observeChunk(chunk)
-              if (chunk.content) {
-                fullContent += chunk.content
-                const targetMessage = getPlaceholder()
-                if (!targetMessage) return
-                const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: targetMessage.id,
-                  complete: false,
-                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role,
-                  // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
-                  speakerMap: targetMessage.speakerMap || null,
-                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
-                  speakerRegistry: store.buildSpeakerRegistry()
-                })
-                const combined = combineExtensionContent(extensionBase, parsed)
-                cleanContent = combined.content
-                targetMessage.content = combined.content
-                targetMessage.presentation = combined.presentation
-              }
-            },
-            onComplete: () => {
-              const targetMessage = getPlaceholder()
-              if (targetMessage) {
-                targetMessage.isStreaming = false
-                const parsed = parseNarrativePresentation(fullContent, {
-                  messageId: targetMessage.id,
-                  complete: true,
-                  fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
-                  role: targetMessage.role,
-                  // P1-4：完成解析也带 speakerMap
-                  speakerMap: targetMessage.speakerMap || null,
-                  // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
-                  speakerRegistry: store.buildSpeakerRegistry()
-                })
-                const combined = combineExtensionContent(extensionBase, parsed)
-                cleanContent = combined.content
-                targetMessage.content = combined.content
-                targetMessage.presentation = combined.presentation
-              }
-            },
-            onError: (error) => {
-              // eslint-disable-next-line no-console
-              console.error('Stream error:', error)
-            }
+        const applyStreamChunk = (chunk) => {
+          if (chunk.content) {
+            fullContent += chunk.content
+            const targetMessage = getPlaceholder()
+            if (!targetMessage) return
+            const parsed = parseNarrativePresentation(fullContent, {
+              messageId: targetMessage.id,
+              complete: false,
+              fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
+              role: targetMessage.role,
+              // P1-4：流式解析也带 speakerMap（保持 speakerId 与 cast 对齐）
+              speakerMap: targetMessage.speakerMap || null,
+              // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+              speakerRegistry: store.buildSpeakerRegistry()
+            })
+            const combined = combineExtensionContent(extensionBase, parsed)
+            cleanContent = combined.content
+            targetMessage.content = combined.content
+            targetMessage.presentation = combined.presentation
           }
-        })
+        }
+        const completeStream = () => {
+          const targetMessage = getPlaceholder()
+          if (targetMessage) {
+            targetMessage.isStreaming = false
+            const parsed = parseNarrativePresentation(fullContent, {
+              messageId: targetMessage.id,
+              complete: true,
+              fallbackSpeaker: getTrustedMessageSpeaker(targetMessage),
+              role: targetMessage.role,
+              // P1-4：完成解析也带 speakerMap
+              speakerMap: targetMessage.speakerMap || null,
+              // P4：可信说话者注册表（未知 marker 名称 → 未署名对白）
+              speakerRegistry: store.buildSpeakerRegistry()
+            })
+            const combined = combineExtensionContent(extensionBase, parsed)
+            cleanContent = combined.content
+            targetMessage.content = combined.content
+            targetMessage.presentation = combined.presentation
+          }
+        }
+        const onStreamError = (error) => {
+          // eslint-disable-next-line no-console
+          console.error('Stream error:', error)
+        }
+        const onAgentStatus = (status) => {
+          if (activeTurnControllers.get(store) === controller) {
+            store.setNarrativeAgentStatus({
+              ...status,
+              requestId
+            })
+          }
+        }
+        // 体验侧 pi-agent 开关（默认关，pinax_experience_pi_agent_enabled=1）：
+        // 开启且适配器可达时走 pi-agent 循环；失败/不可达回落 Pinax 本体循环并告警。
+        let agentRun = null
+        if (experiencePiAgentRoute.enabled() && narrativeIndex) {
+          try {
+            agentRun = await experiencePiAgentRoute.run({
+              kernel: narrativeKernel,
+              index: narrativeIndex,
+              mode: productionMode,
+              intent: effectiveIntent,
+              formatInstructions: buildNarrativeFormatInstructions(),
+              maxTokens,
+              requestId,
+              signal: controller.signal,
+              bookId: narrativeProjectId || null,
+              callbacks: {
+                onChunk: applyStreamChunk,
+                onComplete: completeStream,
+                onError: onStreamError
+              },
+              onStatus: onAgentStatus
+            })
+            if (!agentRun) {
+              // eslint-disable-next-line no-console
+              console.warn('[experienceTurnCoordinator] pi-agent 适配器不可达，回落 Pinax 本体循环')
+            }
+          } catch (piError) {
+            // eslint-disable-next-line no-console
+            console.warn('[experienceTurnCoordinator] pi-agent 路径失败，回落 Pinax 本体循环：', piError?.message || piError)
+          }
+        }
+        if (!agentRun) {
+          agentRun = await runNarrativeAgentGeneration({
+            kernel: narrativeKernel,
+            registry: narrativeRegistry,
+            mode: productionMode,
+            intent: effectiveIntent,  // C1：传 intent 给 orchestrator（供 turn note）
+            formatInstructions: buildNarrativeFormatInstructions(),
+            worldId: store.worldId,
+            settings: { ...store.apiSettings, expansion: expansionLevel },
+            requestId,
+            signal: controller.signal,
+            maxTokens,
+            onStatus: (status) => {
+              productionObserver.observeStatus(status)
+              onAgentStatus(status)
+            },
+            callbacks: {
+              onChunk: (chunk) => {
+                productionObserver.observeChunk(chunk)
+                applyStreamChunk(chunk)
+              },
+              onComplete: completeStream,
+              onError: onStreamError
+            }
+          })
+        }
         completedAgentRun = agentRun
         const completedMessage = getPlaceholder()
         messageIndex = store.messages.findIndex((message) => message?.id === placeholderId)
