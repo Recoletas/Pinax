@@ -99,6 +99,9 @@ const slash = ref(null)
 const pinnedRefs = ref([])
 const chatRef = ref(null)
 let streamAnchor = -1
+// 预设/技法弹层（原生 select 在内嵌浏览器弹层错位，改自绘 popover）
+const presetMenu = ref(false)
+const skillMenu = ref(false)
 
 const worldEntries = computed(() => {
   const entries = worldStore.activeWorldbook?.entries || []
@@ -640,18 +643,42 @@ watch(open, (v) => {
           ></textarea>
         </div>
         <div class="sab-composer-bar">
-          <label class="sab-mini-select" title="意图预设">
-            <select :disabled="running" @change="pickPresetById($event.target.value); $event.target.value = ''">
-              <option value="">预设</option>
-              <option v-for="p in INTENT_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
-            </select>
-          </label>
-          <label class="sab-mini-select" title="写作技法">
-            <select :disabled="running" @change="pickSkillById($event.target.value); $event.target.value = ''">
-              <option value="">技法</option>
-              <option v-for="s in SKILL_PRESETS" :key="s.id" :value="s.id">{{ s.label }}</option>
-            </select>
-          </label>
+          <div class="sab-mini-wrap">
+            <button
+              class="sab-btn sab-mini"
+              type="button"
+              :class="{ 'is-on': presetMenu }"
+              :disabled="running"
+              @click="presetMenu = !presetMenu; skillMenu = false"
+            >预设 ▾</button>
+            <button
+              class="sab-btn sab-mini"
+              type="button"
+              :class="{ 'is-on': skillMenu }"
+              :disabled="running"
+              @click="skillMenu = !skillMenu; presetMenu = false"
+            >技法 ▾</button>
+            <div v-if="presetMenu || skillMenu" class="sab-pop sab-pop-up" role="listbox">
+              <template v-if="presetMenu">
+                <div
+                  v-for="p in INTENT_PRESETS"
+                  :key="p.id"
+                  role="option"
+                  class="sab-pop-item"
+                  @mousedown.prevent="pickPresetById(p.id); presetMenu = false"
+                >{{ p.label }} <span class="sab-dim">意图预设</span></div>
+              </template>
+              <template v-if="skillMenu">
+                <div
+                  v-for="s in SKILL_PRESETS"
+                  :key="s.id"
+                  role="option"
+                  class="sab-pop-item"
+                  @mousedown.prevent="pickSkillById(s.id); skillMenu = false"
+                >{{ s.label }} <span class="sab-dim">写作技法</span></div>
+              </template>
+            </div>
+          </div>
           <span class="sab-hint">{{ running ? statusLine : hasActiveTask ? '续跑中 · 发送即追问' : '新对话 · 发送即开任务' }}</span>
           <button v-if="running" class="sab-btn" type="button" @click="cancelTask">取消</button>
           <button v-else class="sab-btn sab-primary" type="button" :disabled="!composerText.trim()" @click="sendComposer">发送</button>
@@ -1006,13 +1033,23 @@ watch(open, (v) => {
   gap: 8px;
 }
 
-.sab-mini-select select {
-  border: 0;
-  background: transparent;
-  color: var(--text-muted, #888);
-  font-size: 11px;
-  cursor: pointer;
-  padding: 2px 0;
+.sab-mini-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sab-pop-up {
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: auto;
+  min-width: 200px;
+}
+
+.sab-btn.is-on {
+  border-color: var(--accent, #2563eb);
+  color: var(--accent, #2563eb);
 }
 
 .sab-hint {
