@@ -56,14 +56,14 @@ export const SKILL_PRESETS = Object.freeze([
   { id: 'close-thread', label: '收束线索', instruction: '收束线索：给当前线索一个明确的收束动作，不引入新人物与新设定。' },
 ])
 
-/** 斜杠命令注册表（面板按此渲染菜单与执行）。 */
+/** 斜杠命令注册表（面板按此渲染菜单与执行）。
+ *  分工口径（对标 pi-web/storyharness）：/ 只管动作与配置；资料引用归 @ 域
+ *  （引用 chip 自带移除，不设 /refs /unref）。 */
 export const SLASH_COMMANDS = Object.freeze([
   { name: 'mode', args: '<init|continue|auto|respond>', desc: '设置任务模式', hasArgs: true },
   { name: 'tokens', args: '<200-8000>', desc: '设置 maxTokens', hasArgs: true },
   { name: 'preset', args: '[名称]', desc: '应用意图预设', hasArgs: true },
   { name: 'skill', args: '[名称]', desc: '应用写作技法', hasArgs: true },
-  { name: 'refs', args: '', desc: '列出已钉住的 @ 参考', hasArgs: false },
-  { name: 'unref', args: '<序号|all>', desc: '移除钉住的参考', hasArgs: true },
   { name: 'sessions', args: '', desc: '刷新最近会话列表', hasArgs: false },
   { name: 'cancel', args: '', desc: '取消运行中任务', hasArgs: false },
   { name: 'new', args: '', desc: '清空当前输出，开新任务', hasArgs: false },
