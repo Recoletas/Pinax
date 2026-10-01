@@ -74,6 +74,8 @@ export function createExperiencePiAgentRoute({ endpoint } = {}) {
         toolRounds: run.toolRounds,
         totalCalls: run.totalCalls,
         finalToolResults: run.finalToolResults || [],
+        // BeatPlan 规划轮（②）：协调器既有消费者（applyBeatPlanToSceneThread）直接可用
+        beatPlan: run.beatPlan || null,
       }
     },
   }

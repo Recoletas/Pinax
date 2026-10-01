@@ -127,6 +127,12 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
           callbacks.onTask?.(named.data, named.eventName)
           continue
         }
+        if (!frame && named?.eventName === 'beat.plan' && named.data) {
+          // BeatPlan 规划轮（②）：受理的节拍计划随扩展帧外露
+          state.beatPlan = named.data.plan || named.data
+          callbacks.onBeatPlan?.(state.beatPlan)
+          continue
+        }
         if (!frame && named?.eventName === 'reasoning.delta' && named.data) {
           // 思维链增量（深度思考模型扩展帧）：不经契约 parser，直通 onReasoning
           state.reasoningChars = (state.reasoningChars || 0) + String(named.data.delta || '').length
@@ -160,7 +166,7 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
     },
 
     async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', maxTokens = 1600, requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null }) {
-      const state = { usage: null, error: null, taskEvent: null }
+      const state = { usage: null, error: null, taskEvent: null, beatPlan: null }
       const body = {
         requestId: requestId || `pi_${Date.now().toString(36)}`,
         mode,
@@ -189,6 +195,7 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
         usage: state.usage || { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
         toolRounds: Math.max(0, steps.length - 1),
         totalCalls: toolCalls.length,
+        beatPlan: state.beatPlan || null,
         trace: {
           engine: 'pi-agent-adapter',
           steps: steps.length,

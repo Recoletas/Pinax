@@ -5,6 +5,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { NARRATIVE_TOOL_LIMITS, NARRATIVE_READ_TOOLS, PINAX_TOOL_NAMES, type PinaxToolName } from "./contract.ts";
+import { NARRATIVE_BEAT_PLAN_TOOL, narrativeBeatPlanRevision, narrativeBeatPlanToolSchema, validateNarrativeBeatPlanInput, type BeatPlan } from "./beatPlan.ts";
 
 const L = NARRATIVE_TOOL_LIMITS;
 
@@ -133,7 +134,7 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: undefined };
 }
 
-export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[]): AgentTool<any>[] {
+export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[], hooks?: { onBeatPlan?: (plan: BeatPlan, revision: string) => void }): AgentTool<any>[] {
   // 只暴露「快照里有资源」的域——镜像上游 registry 的 availableToolNames（无资源域不进目录）
   const present = PINAX_TOOL_NAMES.filter((n) => (snapshot.domains[n]?.length || 0) > 0);
   const names = allowed?.length ? present.filter((n) => allowed.includes(n)) : present;
@@ -214,6 +215,24 @@ export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[]):
   if (names.includes("history_lookup")) traceTool("history_lookup", "历史查询", TraceParams);
   if (names.includes("memory_lookup")) traceTool("memory_lookup", "记忆事实查询", GetSearchParams);
   if (names.includes("politics_lookup")) traceTool("politics_lookup", "政治关系查询", PoliticsParams);
+
+  // BeatPlan 规划轮（②）：计划先行工具——模型提交节拍计划，镜像 Pinax 契约校验受理；
+  // continue 模式不暴露（复用当前计划，镜像上游「extend 复用」语义）。
+  if (hooks?.onBeatPlan) {
+    tools.push({
+      name: NARRATIVE_BEAT_PLAN_TOOL,
+      label: "节拍规划",
+      description: "本轮写正文前先提交节拍计划：回应义务、因果步骤、角色行动（action+result）、最终新增信息与可观察收束条件。计划受理后再产出正文，不得偏离已提交计划。",
+      parameters: narrativeBeatPlanToolSchema(),
+      execute: async (_id, p: any) => {
+        const r = validateNarrativeBeatPlanInput(p);
+        if (!r.valid) return textResult(JSON.stringify({ ok: false, error: r.error }));
+        const revision = narrativeBeatPlanRevision(r.plan);
+        hooks.onBeatPlan?.(r.plan, revision);
+        return textResult(JSON.stringify({ ok: true, revision, note: "计划已受理：按计划产出正文，不得偏离已提交的因果步骤与收束条件。" }));
+      },
+    });
+  }
 
   return tools;
 }

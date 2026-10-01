@@ -37,7 +37,7 @@ export interface TurnRequest {
   resumeFrom?: string;
 }
 
-export function buildSystemPrompt(req: TurnRequest, toolNames: PinaxToolName[]): string {
+export function buildSystemPrompt(req: TurnRequest, toolNames: PinaxToolName[], options: { beatPlanEnabled?: boolean } = {}) {
   const blocks = (req.kernel.blocks || [])
     .map((b) => {
       const t = String(b.text ?? "").trim();
@@ -69,6 +69,9 @@ export function buildSystemPrompt(req: TurnRequest, toolNames: PinaxToolName[]):
     toolsGuide,
     "- 工具返回的 items 是唯一可信资料；引用时保持设定一致，冲突时以资料为准。",
     `- 每轮最多 ${NARRATIVE_TOOL_LIMITS.maxCallsPerRound} 次工具调用，全程最多 ${NARRATIVE_TOOL_LIMITS.maxCallsPerTurn} 次；预算耗尽必须直接产出正文。`,
+    options.beatPlanEnabled
+      ? "- 规划先行：动笔前先调用 submit_narrative_beat_plan 提交本轮节拍计划（回应义务/因果步骤/角色行动带 result/最终新增信息/可观察收束条件）；计划受理后严格按计划产出正文，不得偏离。"
+      : "",
     "",
     req.formatInstructions ? `== 输出格式要求 ==\n${req.formatInstructions}` : "",
   ].filter(Boolean).join("\n");

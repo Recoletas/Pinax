@@ -23,6 +23,7 @@ export interface BridgeRunArgs {
     onComplete?: (r: { content: string }) => void;
     onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
     onReasoning?: (chunk: { content: string }) => void;
+    onBeatPlan?: (plan: Record<string, unknown>) => void;
   };
   onStatus?: ((status: unknown) => void) | null;
   budget?: BridgeBudget | null;
@@ -47,6 +48,8 @@ export interface BridgeRunResult {
     [key: string]: any;
   };
   finalToolResults: unknown[];
+  /** BeatPlan 规划轮（②）：受理的节拍计划；未提交时 null */
+  beatPlan?: Record<string, unknown> | null;
 }
 
 export interface BridgeResumeArgs {
@@ -61,6 +64,7 @@ export interface BridgeResumeArgs {
     onComplete?: (r: { content: string }) => void;
     onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
     onReasoning?: (chunk: { content: string }) => void;
+    onBeatPlan?: (plan: Record<string, unknown>) => void;
   };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;

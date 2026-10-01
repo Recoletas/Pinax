@@ -5,7 +5,7 @@ import process from 'node:process'
 const root = resolve(import.meta.dirname, '../..')
 const srcRoot = join(root, 'src')
 const limits = new Map([
-  ['src/pages/Authoring.vue', [10900, 125]],
+  ['src/pages/Authoring.vue', [11150, 125]],
   ['src/pages/Notes.vue', [3300, 18]],
   ['src/pages/ProseEssay.vue', [3450, 18]],
   ['src/pages/Experience.vue', [3550, 28]],

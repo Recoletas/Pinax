@@ -10,6 +10,7 @@ import {
 } from "./contract.ts";
 import { buildPinaxTools, type ResourceSnapshot } from "./tools.ts";
 import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, type TurnRequest } from "./prompt.ts";
+import type { BeatPlan } from "./beatPlan.ts";
 import type { AdapterConfig } from "./config.ts";
 import type { TaskSnapshot } from "./store.ts";
 
@@ -131,14 +132,27 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
   if (!model) throw new Error(`模型不可解析：${cfg.provider}/${cfg.model}（自定义端点需配 baseUrl）`);
 
   const toolNames = (Object.keys(snapshot.domains) as PinaxToolName[]).filter((n) => (snapshot.domains[n]?.length || 0) > 0);
-  const tools = buildPinaxTools(snapshot, toolNames);
+  // BeatPlan 规划轮（②）：init/auto/respond 计划先行；continue 复用当前计划不暴露。
+  // 受理的节拍计划落 runExtras + 扩展帧 beat.plan（契约枚举外，上游 parser 安全忽略）。
+  const runExtras: { beatPlan: Record<string, unknown> | null } = { beatPlan: null };
+  const beatPlanEnabled = req.mode !== "continue";
+  const toolHooks: Parameters<typeof buildPinaxTools>[2] = beatPlanEnabled
+    ? {
+        onBeatPlan: (plan: BeatPlan, revision: string) => {
+          runExtras.beatPlan = { ...plan, revision };
+          const frame = `event: beat.plan\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), plan: runExtras.beatPlan })}\n\n`;
+          for (const l of listeners) l(frame);
+        },
+      }
+    : undefined;
+  const tools = buildPinaxTools(snapshot, toolNames, toolHooks);
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error("PINAX_ADAPTER_AGENT_TIMEOUT")), budget.agentTimeoutMs);
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: buildSystemPrompt(req, toolNames),
+      systemPrompt: buildSystemPrompt(req, toolNames, { beatPlanEnabled }),
       model,
       tools,
       ...(opts.resumeMessages?.length ? { messages: opts.resumeMessages as never } : {}),
@@ -249,11 +263,11 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         const err = { code: "PINAX_ADAPTER_EMPTY_COMPLETION", message: "回合结束但未产出正文（多为 provider 鉴权失败或端点异常）", retryable: false };
         emit("error", { code: err.code, message: err.message, retryable: err.retryable });
         emitTask("failed", { status: "failed", taskId: req.taskId || base.taskId, error: err });
-        return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+        return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: "failed", finalText, messages: agent.state.messages as unknown[], error: err };
       }
       emit("usage", { usage: counters.usage });
-      emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls, textChars: finalText.length });
-      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "completed", finalText, messages: agent.state.messages as unknown[] };
+      emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls, textChars: finalText.length, beatPlan: runExtras.beatPlan });
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: "completed", finalText, messages: agent.state.messages as unknown[] };
     } catch (e) {
       const aborted = ac.signal.aborted;
       const msg = String((e as Error)?.message || e);
@@ -262,7 +276,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         : { code: "PINAX_AGENT_RUN_FAILED", message: msg.slice(0, 240), retryable: /terminated|fetch|ECONN|network|timed out/i.test(msg) };
       emit("error", { code: err.code, message: err.message, retryable: err.retryable });
       emitTask("failed", { status: aborted ? "cancelled" : "failed", taskId: req.taskId || base.taskId, error: err });
-      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
     } finally {
       clearTimeout(timer);
     }

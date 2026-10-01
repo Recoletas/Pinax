@@ -85,7 +85,14 @@
           <p v-if="message.status" class="authoring-knowledge__agent-status" role="status">{{ message.status }}</p>
           <div v-if="message.agentResult" class="authoring-knowledge__agent-meta">
             <span :class="message.agentResult.ok ? 'is-ok' : 'is-fail'">{{ message.agentResult.ok ? '✓' : '✗' }}</span>
-            {{ message.agentResult.model }} · {{ message.agentResult.status }} · steps {{ message.agentResult.steps }} · tools {{ message.agentResult.calls }} · tokens {{ message.agentResult.tokens }}
+            {{ message.agentResult.metaLine }}
+            <button
+              v-if="message.text"
+              class="authoring-knowledge__agent-adopt"
+              type="button"
+              :disabled="message.adopted"
+              @click="adoptAgentResult(message)"
+            >{{ message.adopted ? tr('已采纳') : tr('采纳到构思') }}</button>
           </div>
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
@@ -198,6 +205,24 @@ import {
   slashMatches
 } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import { createExplorationDocument } from '../../services/writing/authoringDocumentRepository.js'
+import { useRoute } from 'vue-router'
+
+// ④ 采纳链 v1：外围表面不直写正文（编辑器是 owner）——agent 产出经
+// createExplorationDocument 落构思架，由作者在编辑器侧继续采纳进正文。
+const adoptRoute = useRoute()
+function adoptAgentResult(message) {
+  const result = message.agentResult
+  if (!result?.ok || message.adopted || !message.text?.trim()) return
+  const bookId = String(adoptRoute.query.bookId || '')
+  if (!bookId) return
+  const saved = createExplorationDocument(bookId, {
+    title: `StoryAgent · ${message.text.trim().slice(0, 18)}…`,
+    content: message.text,
+    sourceRefs: [`storyagent:${result.taskId || 'agent'}`]
+  })
+  if (saved?.ok) message.adopted = true
+}
 
 const props = defineProps({
   reviewWorkflow: { type: Object, default: null },
@@ -547,6 +572,8 @@ watch(() => [props.messages.length, props.busy], () => nextTick(() => {
 .authoring-knowledge__agent-tools li::before { content: '· '; }
 .authoring-knowledge__agent-status { margin: 8px 0 0; color: var(--text-secondary); font-size: 12px; }
 .authoring-knowledge__agent-meta { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--text-secondary); font-size: 12px; flex-wrap: wrap; }
+.authoring-knowledge__agent-adopt { border: 0; background: transparent; cursor: pointer; color: var(--accent); font-size: 12px; padding: 2px 4px; }
+.authoring-knowledge__agent-adopt:disabled { color: var(--text-secondary); cursor: default; }
 .authoring-knowledge__agent-meta .is-ok { color: var(--accent-primary, var(--accent)); }
 .authoring-knowledge__agent-meta .is-fail { color: var(--signal-warning, #b42318); }
 .authoring-knowledge__system-row { margin: 0 0 16px; padding-inline-start: 10px; border-inline-start: 2px solid var(--border-subtle); color: var(--text-secondary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
