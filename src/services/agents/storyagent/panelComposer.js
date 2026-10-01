@@ -85,6 +85,29 @@ export function slashMatches(token, limit = 8) {
   return SLASH_COMMANDS.filter((c) => !t || c.name.startsWith(t)).slice(0, limit)
 }
 
+// ---- 自动路由（融合决策：不设独立 Agent 按钮，按消息确定性分流 advisor / pi-agent） ----
+// 创作与任务信号词：whole-book 默认意图下命中即倾向 Agent 引擎。
+export const AGENT_ROUTE_HINTS = Object.freeze([
+  '写一段', '续写', '写一下', '帮我写', '写个', '写一篇', '改写', '润色', '扩写', '缩写',
+  '推进', '生成', '开场', '开篇', '构思', '大纲', '情节', '分支', '试写', '代笔',
+  '描写', '铺垫', '补一段', '来一段', '接着写',
+])
+
+/** 确定性引擎路由。
+ *  - 六个特定知识意图与 free → advisor（证据信封/计算复算/stale 对账是对方资产，保留不动）
+ *  - whole-book（默认意图）：有 @ 钉住参考、本线程已触碰 Agent（用过 agent 域命令或有 agent 消息）、
+ *    或消息命中创作/任务词表 → agent；否则 advisor。
+ *  返回 { engine: 'agent'|'advisor', reason }，reason 用于消息标记与 /help 说明。 */
+export function routeAgentIntent({ intent, text, hasPinnedRefs = false, agentTouched = false } = {}) {
+  const KNOWN_KNOWLEDGE_INTENTS = ['setting', 'foreshadowing', 'calculation', 'clues', 'character', 'free']
+  if (KNOWN_KNOWLEDGE_INTENTS.includes(intent)) return { engine: 'advisor', reason: 'knowledge-intent' }
+  if (hasPinnedRefs) return { engine: 'agent', reason: 'pinned-refs' }
+  if (agentTouched) return { engine: 'agent', reason: 'agent-thread-active' }
+  const t = String(text || '')
+  if (AGENT_ROUTE_HINTS.some((hint) => t.includes(hint))) return { engine: 'agent', reason: 'creation-hint' }
+  return { engine: 'advisor', reason: 'default-knowledge' }
+}
+
 /** 把 @ 钉住的参考条目、项目上下文与已加载技能编成 kernel 的 serialization.blocks
  *  （桥件对预序列化 blocks 原样透传）。
  *  project = { bookTitle, chapterTitle, manuscriptTail }；
