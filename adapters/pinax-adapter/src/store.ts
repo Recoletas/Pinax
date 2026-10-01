@@ -20,6 +20,8 @@ export interface TaskSnapshot {
   /** pi-agent 转录（AgentMessage[]），恢复时重放 */
   messages: unknown[];
   finalText: string;
+  /** BeatPlan 规划轮（②）：本回合受理的节拍计划（含 revision）；continue 模式或未提交时缺省 */
+  beatPlan?: Record<string, unknown> | null;
   error?: { code: string; message: string; retryable?: boolean };
 }
 

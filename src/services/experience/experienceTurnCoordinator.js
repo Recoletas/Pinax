@@ -12,7 +12,8 @@ import {
 import { buildNarrativeKernel } from '../agents/narrativeKernel'
 import { buildNarrativeContinuityFrame } from '../agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../agents/narrativeResourceIndex'
-import { experiencePiAgentRoute } from '../agents/storyagent/experienceAgentRoute.js'
+import { validateNarrativeEvidence } from '../agents/narrativeEvidenceValidator'
+import { scheduleNarrativeCriticShadow, shouldSampleNarrativeCritic } from '../agents/narrativeCritic'
 import { buildNarrativeContextAudit } from '../agents/narrativeContextAudit'
 import { createNarrativeToolRegistry } from '../agents/narrativeToolRegistry'
 import {
@@ -341,9 +342,18 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         }
         // 体验侧 pi-agent 开关（默认关，pinax_experience_pi_agent_enabled=1）：
         // 开启且适配器可达时走 pi-agent 循环；失败/不可达回落 Pinax 本体循环并告警。
+        // 路由模块（含桥）懒加载——默认关闭时零包体（Authoring chunk 体积预算）。
         let agentRun = null
-        if (experiencePiAgentRoute.enabled() && narrativeIndex) {
+        const piAgentEnabled = (() => {
           try {
+            return typeof localStorage !== 'undefined' && localStorage.getItem('pinax_experience_pi_agent_enabled') === '1'
+          } catch {
+            return false
+          }
+        })()
+        if (piAgentEnabled && narrativeIndex) {
+          try {
+            const { experiencePiAgentRoute } = await import('../agents/storyagent/experienceAgentRoute.js')
             agentRun = await experiencePiAgentRoute.run({
               kernel: narrativeKernel,
               index: narrativeIndex,
@@ -444,6 +454,38 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
                 }
               : null
           }
+        }
+        // ③ 质量机制对齐（pi-agent 路径）：证据校验报告（只观测不拦截）+ shadow critic
+        // 调度（采样策略同源，评审走 Pinax 自己的 transport——critic 不是第二条生产生成链）。
+        if (agentRun?.trace?.engine === 'pi-agent-adapter' && narrativeKernel) {
+          try {
+            const evidenceReport = validateNarrativeEvidence({
+              finalText: String(agentRun.finalText || ''),
+              kernel: narrativeKernel,
+              toolResults: []
+            })
+            store.lastNarrativeAgentTrace = {
+              ...(store.lastNarrativeAgentTrace || {}),
+              evidenceReport: evidenceReport?.report ?? evidenceReport ?? null
+            }
+          } catch { /* 质量报告失败不阻塞回合 */ }
+          try {
+            const shouldSample = shouldSampleNarrativeCritic(requestId)
+            if (shouldSample) {
+              scheduleNarrativeCriticShadow({
+                runId: requestId,
+                finalText: String(agentRun.finalText || ''),
+                evidenceSummaries: [],
+                beatPlan: agentRun.beatPlan || null,
+                settings: { ...store.apiSettings },
+                provider: store.apiSettings?.provider,
+                model: store.apiSettings?.model
+              })
+              store.lastNarrativeAgentTrace = { ...(store.lastNarrativeAgentTrace || {}), criticShadow: { scheduled: true, engine: 'pi-agent-adapter' } }
+            } else {
+              store.lastNarrativeAgentTrace = { ...(store.lastNarrativeAgentTrace || {}), criticShadow: { scheduled: false, engine: 'pi-agent-adapter' } }
+            }
+          } catch { /* shadow critic 调度失败不阻塞回合 */ }
         }
         cleanContent = combineExtensionContent(extensionBase, finalParsed).content
         if (!cleanContent || messageIndex < 0) {

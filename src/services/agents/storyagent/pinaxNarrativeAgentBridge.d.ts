@@ -16,7 +16,8 @@ export interface BridgeRunArgs {
   maxTokens?: number;
   requestId?: string;
   signal?: AbortSignal | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
+  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void;
+    onBeatPlan?: (plan: Record<string, unknown>) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
   onStatus?: ((status: unknown) => void) | null;
   budget?: BridgeBudget | null;
   taskId?: string | null;
@@ -40,6 +41,8 @@ export interface BridgeRunResult {
     [key: string]: any;
   };
   finalToolResults: unknown[];
+  /** BeatPlan 规划轮（②）：受理的节拍计划；未提交时 null */
+  beatPlan?: Record<string, unknown> | null;
 }
 
 export interface BridgeResumeArgs {
@@ -47,7 +50,8 @@ export interface BridgeResumeArgs {
   kernel: any;
   index: any;
   intent?: string | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
+  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void;
+    onBeatPlan?: (plan: Record<string, unknown>) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;
   requestId?: string;

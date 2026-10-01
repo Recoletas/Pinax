@@ -53,7 +53,7 @@ const contractStats = { total: 0, ok: 0 }
 const bridge = createPiNarrativeAgentBridge({
   endpoint: 'http://127.0.0.1:8471',
   parseEvent: (raw) => {
-    if (/^event: (task\.|reasoning\.)/m.test(raw)) return null
+    if (/^event: (task\.|reasoning\.|beat\.)/m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -86,6 +86,7 @@ const server = http.createServer((req, res) => {
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 3, content: '青梧镇的雨下了整夜。' })}\n\n`,
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 4, content: '药庐的灯还亮着。' })}\n\n`,
         `event: usage\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'usage', requestId: body.requestId, seq: 5, usage: { inputTokens: 12, outputTokens: 34, totalTokens: 46 } })}\n\n`,
+        `event: beat.plan\ndata: ${JSON.stringify({ requestId: body.requestId, at: Date.now(), plan: { revision: 'bp_smoke1', responseObligation: '回应叩门', causalSteps: ['沈砚宁起身开门'], revealOrChange: '门外站着她的旧识', endCondition: '门开着，两人对视' } })}\n\n`,
         `event: task.completed\ndata: ${JSON.stringify({ requestId: body.requestId, status: 'completed', taskId: body.taskId, model: 'mock.mock-model', steps: 2, toolCalls: 1 })}\n\n`
       ])
     })
@@ -127,6 +128,7 @@ try {
   check('finalContent 与 totalCalls 正确', run.ok && run.finalContent === chunks && run.totalCalls === 1)
   check('trace 携带 taskId/status（任务生命周期回传）', run.trace.taskId === lastTaskId && run.trace.status === 'completed')
   check('usage 透传', run.usage.totalTokens === 46)
+  check('BeatPlan 规划轮（②）：beat.plan 扩展帧 → run.beatPlan 外露', run.beatPlan?.revision === 'bp_smoke1' && run.beatPlan.responseObligation === '回应叩门')
   check('契约逐帧校验：5/5 契约帧通过，task/reasoning 扩展帧不计入', contractStats.total === 5 && contractStats.ok === 5)
 
   console.log('[3] healthz')
