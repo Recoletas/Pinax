@@ -85,8 +85,9 @@ export function slashMatches(token, limit = 8) {
   return SLASH_COMMANDS.filter((c) => !t || c.name.startsWith(t)).slice(0, limit)
 }
 
-/** 把 @ 钉住的参考条目编成 kernel 的 serialization.blocks（桥件对预序列化 blocks 原样透传）。 */
-export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRefs = [] } = {}) {
+/** 把 @ 钉住的参考条目与项目上下文编成 kernel 的 serialization.blocks
+ *  （桥件对预序列化 blocks 原样透传）。project = { bookTitle, chapterTitle, manuscriptTail }。 */
+export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRefs = [], project = null } = {}) {
   const blocks = []
   const scene = String(sceneText || '').trim()
   blocks.push({
@@ -96,6 +97,16 @@ export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRef
   })
   if (firstEntry?.title) {
     blocks.push({ kind: 'character', title: firstEntry.title, text: String(firstEntry.summary || '').slice(0, 600) })
+  }
+  const p = project || {}
+  if (p.bookTitle || p.manuscriptTail) {
+    const head = [p.bookTitle ? `书名：《${p.bookTitle}》` : '', p.chapterTitle ? `当前章节：${p.chapterTitle}` : '']
+      .filter(Boolean).join(' · ')
+    blocks.push({
+      kind: 'project',
+      title: '项目上下文（当前作品，正文以此为准）',
+      text: `${head}${head ? '\n\n' : ''}${String(p.manuscriptTail || '').slice(-2400)}`.trim(),
+    })
   }
   const refs = (Array.isArray(pinnedRefs) ? pinnedRefs : []).filter((e) => e?.title)
   if (refs.length) {

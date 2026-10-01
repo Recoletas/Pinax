@@ -127,6 +127,12 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
           callbacks.onTask?.(named.data, named.eventName)
           continue
         }
+        if (!frame && named?.eventName === 'reasoning.delta' && named.data) {
+          // 思维链增量（深度思考模型扩展帧）：不经契约 parser，直通 onReasoning
+          state.reasoningChars = (state.reasoningChars || 0) + String(named.data.delta || '').length
+          callbacks.onReasoning?.({ content: String(named.data.delta || '') })
+          continue
+        }
         if (!type) continue
         events.push({ type, data: frame ?? null, at: Date.now() })
         if (type === 'text.delta') {
@@ -191,6 +197,7 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
           groundingPolicy: { level: toolCalls.length ? 'evidenced' : 'none' },
           taskId: state.taskEvent?.taskId || null,
           status: state.taskEvent?.status || (state.error ? 'failed' : 'completed'),
+          reasoningChars: state.reasoningChars || 0,
         },
         finalToolResults: [],
       }

@@ -22,6 +22,7 @@ export interface BridgeRunArgs {
     onChunk?: (chunk: { content: string }) => void;
     onComplete?: (r: { content: string }) => void;
     onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
+    onReasoning?: (chunk: { content: string }) => void;
   };
   onStatus?: ((status: unknown) => void) | null;
   budget?: BridgeBudget | null;
@@ -59,6 +60,7 @@ export interface BridgeResumeArgs {
     onChunk?: (chunk: { content: string }) => void;
     onComplete?: (r: { content: string }) => void;
     onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
+    onReasoning?: (chunk: { content: string }) => void;
   };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;

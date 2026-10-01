@@ -57,6 +57,11 @@ export function buildSystemPrompt(req: TurnRequest, toolNames: PinaxToolName[]):
     "你是 Pinax 叙事引擎中的场景生成 Agent（由 StoryFlow harness 驱动）。",
     "你的任务：依据下述会话上下文与资料工具，产出连贯、可信、符合格式要求的叙事正文。",
     "",
+    "== 交互纪律 ==",
+    "用户消息分两类：①对话类（问好、提问、讨论、要求澄清、关于任务的元交流）——直接自然回应，禁止强行产出小说正文；",
+    "②写作类（写/续写/推进/改写/开场等明确创作请求）——才产出叙事正文。",
+    "判断不了时先简短确认意图，不要默认倾倒正文。",
+    "",
     "== 会话上下文（Pinax Kernel，按注入预算裁剪，revision: " + (req.kernel.revision || "-") + "）==",
     blocks || "（无注入块）",
     "",
@@ -87,7 +92,7 @@ export function buildUserPrompt(req: TurnRequest): string {
   return [
     `模式：${req.mode}。${modeHint[req.mode] || ""}`,
     req.intent ? `本轮意图：${req.intent}` : "",
-    `目标产出：叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，先查资料后动笔）。`,
+    `目标产出：若本轮是写作类请求，产出叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，先查资料后动笔）；对话类请求直接回应即可。`,
   ].filter(Boolean).join("\n");
 }
 
@@ -96,6 +101,6 @@ export function buildUserPrompt(req: TurnRequest): string {
 export function buildResumePrompt(req: TurnRequest): string {
   return [
     req.intent ? `作者追问/指令：${req.intent}` : "作者要求继续推进。请接着当前转录产出叙事正文，不重播已发生事件。",
-    `目标产出：叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，可先查资料）。`,
+    `目标产出：若本轮是写作类请求，产出叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，可先查资料）；对话类请求直接回应即可。`,
   ].join("\n");
 }
