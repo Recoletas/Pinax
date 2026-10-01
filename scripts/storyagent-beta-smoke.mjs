@@ -139,10 +139,14 @@ try {
     { id: 'k1', title: '引路符', type: '物品', summary: '指向安息之地。' },
   ]
   check('@ 候选按标题过滤', filterMentions(cEntries, '沈').length === 1 && filterMentions(cEntries, '').length === 2)
+  const chapterCandidate = { id: 'ch_1', title: '第一章', type: '章节', summary: '雨夜药庐，三声轻叩。' }
+  check('@ 候选含章节文件且可按类型过滤', filterMentions([...cEntries, chapterCandidate], '第一').length === 1 && filterMentions([...cEntries, chapterCandidate], '', 8).length === 3)
   const am = applyMention('雨夜。@沈砚 出门', 3, 2, '沈砚宁')
   check('@ 补全替换并带尾随空格', am.text === '雨夜。@沈砚宁 出门' && am.caret === '雨夜。@沈砚宁 '.length)
   check('/ 命令解析', parseSlashCommand('/mode continue')?.name === 'mode' && parseSlashCommand('/mode continue')?.args === 'continue' && parseSlashCommand('mode x') === null)
   check('/ 命令前缀过滤含 help', slashMatches('')[0]?.name === 'mode' && slashMatches('to')[0]?.name === 'tokens')
+  check('资料管理命令已移出 / 域（refs/unref 归 @ chips）', slashMatches('refs').length === 0 && slashMatches('unref').length === 0)
+  check('命令表对齐分工口径：/ 只含动作与配置 8 条', slashMatches('').length === 8)
   const refBlocks = buildKernelBlocks({ sceneText: '药庐雨夜。', firstEntry: cEntries[0], pinnedRefs: [cEntries[1]] })
   check('@ 钉住参考进入 kernel reference block', refBlocks.some((b) => b.kind === 'reference' && b.text.includes('@引路符')))
   const projBlocks = buildKernelBlocks({

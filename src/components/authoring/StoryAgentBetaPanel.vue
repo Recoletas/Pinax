@@ -114,6 +114,28 @@ const worldEntries = computed(() => {
     .filter((e) => e.title || e.summary)
 })
 
+// @ 候选 = 世界书条目 + 当前项目章节文件（口径对标 pi-web 的「@ 引项目文件」；
+// 引用管理归 @ 域自身——chips 自带移除，/ 域只管动作与配置）
+const chapterEntries = computed(() => {
+  try {
+    const book = findWritingBook(loadWritingBooks(), routeBookId.value)
+    if (!book) return []
+    return (Array.isArray(book.chapters) ? book.chapters : []).slice(0, 20).map((c) => {
+      const md = String(getChapterMarkdown(c) || '')
+      return {
+        id: `ch_${String(c?.id || '')}`,
+        title: String(c?.title || '未命名章节'),
+        type: '章节',
+        summary: md ? md.slice(-600) : '（空章节）',
+        aliases: [],
+      }
+    }).filter((e) => e.title)
+  } catch {
+    return []
+  }
+})
+const mentionCandidates = computed(() => [...worldEntries.value, ...chapterEntries.value])
+
 const isAuthoring = computed(() => route.name === 'authoring')
 const lastTurn = computed(() => turns.value[turns.value.length - 1] || null)
 
@@ -137,7 +159,7 @@ function refreshPopovers(el) {
   const value = el.value
   const caret = el.selectionStart ?? value.length
   const m = mentionAtCursor(value, caret)
-  const list = m ? filterMentions(worldEntries.value, m.token) : []
+  const list = m ? filterMentions(mentionCandidates.value, m.token) : []
   mention.value = m && list.length ? { ...m, list, idx: 0 } : null
   if (value.startsWith('/') && !value.includes('\n')) {
     const candidates = slashMatches(value.slice(1))
@@ -270,16 +292,6 @@ function runCommand(name, args) {
     case 'tokens': return setTokens(args)
     case 'preset': return applyPreset(args)
     case 'skill': return applySkill(args)
-    case 'refs': return pinnedRefs.value.length
-      ? `已钉住 ${pinnedRefs.value.length} 条：${pinnedRefs.value.map((e, i) => `#${i + 1} @${e.title}`).join('，')}`
-      : '尚无钉住的 @ 参考（输入 @ 世界书条目）'
-    case 'unref': {
-      if (args === 'all') { const n = pinnedRefs.value.length; pinnedRefs.value = []; return `已移除全部 ${n} 条参考` }
-      const i = Number(args) - 1
-      if (!Number.isInteger(i) || i < 0 || i >= pinnedRefs.value.length) return `序号无效：${args}（/refs 查看，/unref all 清空）`
-      const [gone] = pinnedRefs.value.splice(i, 1)
-      return `已移除 @${gone.title}`
-    }
     case 'sessions': loadSessions(); settingsOpen.value = true; return '会话列表已刷新（见设置抽屉）'
     case 'cancel': cancelTask(); return '已请求取消'
     case 'new': {
@@ -555,7 +567,7 @@ watch(open, (v) => {
       <div ref="chatRef" class="sab-chat">
         <p v-if="!turns.length" class="sab-empty">
           直接说话即开任务：发一条指令或场景；<br />
-          @ 引世界书资料，/ 用命令（/help），<br />
+          @ 引资料（世界书/章节），/ 管动作与配置（/help），<br />
           首条回复后继续发送即基于转录追问。
         </p>
         <template v-for="(t, i) in turns" :key="i">
