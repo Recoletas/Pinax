@@ -203,6 +203,11 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       }
     },
 
+    async tasks() {
+      const r = await fetchImpl(`${base}/v1/pinax/tasks/list`)
+      return r.ok ? r.json() : null
+    },
+
     async status(taskId) {
       const r = await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}`)
       return r.ok ? r.json() : null
@@ -224,9 +229,10 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
         kernel: buildKernelPayload(kernel),
         resources: buildResourceSnapshot(index),
       }
-      const { finalText } = await streamTask(`/v1/pinax/tasks/${encodeURIComponent(taskId)}/resume`, body, { signal, callbacks, onStatus, state })
+      const { finalText, events } = await streamTask(`/v1/pinax/tasks/${encodeURIComponent(taskId)}/resume`, body, { signal, callbacks, onStatus, state })
       callbacks.onComplete?.({ content: finalText })
-      return { ok: !state.error, finalContent: finalText, trace: { engine: 'pi-agent-adapter', taskId, resumed: true } }
+      const steps = events.filter((e) => e.type === 'step.start').length
+      return { ok: !state.error, finalContent: finalText, trace: { engine: 'pi-agent-adapter', taskId, resumed: true, status: state.taskEvent?.status || (state.error ? 'failed' : 'completed'), steps, reasoningChars: state.reasoningChars || 0 } }
     },
   }
 }

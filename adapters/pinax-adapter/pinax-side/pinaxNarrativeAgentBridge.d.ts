@@ -73,6 +73,7 @@ export interface PinaxNarrativeAgentBridge {
   status(taskId: string): Promise<Record<string, unknown> | null>;
   cancel(taskId: string): Promise<Record<string, unknown> | null>;
   resume(args: BridgeResumeArgs): Promise<{ ok: boolean; finalContent: string; trace: Record<string, unknown> }>;
+  tasks(): Promise<Record<string, unknown> | null>;
 }
 
 export declare function createPiNarrativeAgentBridge(options?: {
