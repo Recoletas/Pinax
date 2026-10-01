@@ -255,6 +255,26 @@ try {
   await engine.cancel('engtask_1')
   check('engine.cancel 走 /cancel 端点', engineCalls.some((c) => c.url.endsWith('/cancel')))
   check('engine.tasks 走 /tasks/list', await (async () => { await engine.tasks(); return engineCalls.some((c) => c.url.endsWith('/tasks/list')) })())
+
+  console.log('[8] experienceAgentRoute（体验侧开关路由：映射 + 不可达回落）')
+  {
+    const { createExperiencePiAgentRoute, experiencePiAgentEnabled } = await import('../src/services/agents/storyagent/experienceAgentRoute.js')
+    check('localStorage 缺失环境默认关闭', experiencePiAgentEnabled() === false)
+    const deadRoute = createExperiencePiAgentRoute({ endpoint: 'http://127.0.0.1:8499' })
+    check('适配器不可达 → run() 返回 null（协调器回落本体循环）', (await deadRoute.run({ kernel: kernelInput, index: { revision: 'w', byDomain: { world: entries } } })) === null)
+    const liveRoute = createExperiencePiAgentRoute({ endpoint: 'http://127.0.0.1:8471' })
+    lastTaskId = 'sab_route_1'
+    const mapped = await liveRoute.run({ kernel: kernelInput, index: { revision: 'wrev_1', byDomain: { world: entries } }, mode: 'auto', intent: '推进', requestId: 'exp_route_1', taskId: lastTaskId })
+    if (!(mapped && mapped.finalText === '青梧镇的雨下了整夜。药庐的灯还亮着。' && mapped.trace.taskId === lastTaskId && mapped.usage.totalTokens === 46 && Array.isArray(mapped.finalToolResults))) {
+      console.error('[dbg] mapped =', JSON.stringify(mapped)?.slice(0, 400))
+    }
+    check('返回形状对齐 runNarrativeAgentGeneration 消费面（finalText/trace/usage/finalToolResults）', Boolean(
+      mapped && mapped.finalText === '青梧镇的雨下了整夜。药庐的灯还亮着。'
+      && mapped.trace.taskId === lastTaskId
+      && mapped.usage.totalTokens === 46
+      && Array.isArray(mapped.finalToolResults)
+    ))
+  }
 } finally {
   server.closeAllConnections?.()
   server.close()
