@@ -9,7 +9,7 @@
 | assistant_polish | beta 面板、面板状态模块、选书状态与激活接线 | 已实施；四文件 ESLint exit 0 |
 | settings_polish | adapter server.ts / store.ts | 已实施；root 静态审查与类型检查通过 |
 | secondary_polish | 双份 bridge/类型、包版本范围与 CI | 已实施；静态复审后端未发现新增阻断 |
-| Codex | 集成、独立作品选择来源复审、文档、构建、提交与 WIP 衔接 | 本地检查通过，准备推送 main |
+| Codex | 集成、独立作品选择来源复审、文档、构建、提交与 WIP 衔接 | 本地检查通过；merge 提交 `41d4063f` 已推送 main |
 
 ## 修复
 
@@ -49,4 +49,12 @@ Beta 仍默认关闭，保留既有 template/CSS；没有把 beta 作为正式�
 
 原 main 的 110 个 WIP 文件先完整备份到 `/tmp/pinax-pr4-root-wip-20261001`（文件副本、哈希清单与 binary diff），隔离修复期间核对内容未变。接回 main 时只协调 STATUS/LOG 的交接条目，保留助手、整体 UI 和媒体功能的未提交改动；这些 WIP 不随本 PR 提交到远端。
 
+实际 merge 提交：`41d4063f5a3b17474414f78b5fec2fdb5bf4fd81`，双父提交为 main `ebaebc56` 和 PR `4f9bb707`。`git push origin HEAD:main` exit 0，原工作区 main 随后快进到同一提交。
+
 本地构建日志：`/tmp/pinax-pr4-build-20261001.log`。本次授权范围为合并与修复，不部署服务器；生产版本未更新。
+
+## 推送后核对
+
+GitHub 确认 PR #4 已 merged，合并提交为 `41d4063f`；该提交的 [main CI](https://github.com/Recoletas/Pinax/actions/runs/36835335947) 已 completed / success（由 Actions API 实际查询）。本轮没有手动执行测试；既有 CI 自动检查按原工作流运行。
+
+与原 UI WIP 组合后的根工作区 `npm run build` exit 0（13.38s）、`npm run lint:delta` exit 0（0 error / 2 存量 warning）、`npm run architecture:check` exit 0（Authoring 10,900 行 / 119 imports，cycles 0）。原 108 个非交接 WIP 文件字节未变，STATUS/LOG 的原文档改动已保留并协调。组合构建日志：`/tmp/pinax-pr4-combined-build-20261001.log`。未部署。

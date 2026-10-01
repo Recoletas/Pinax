@@ -1,6 +1,6 @@
 # 开发日志
 
-- 2026-10-01 PR #4 接入与修复：作者授权后，在独立 worktree 合入 `4f9bb707`，修复真实作品选择来源、响应式追问、按书运行状态、切书流/终态与取消确认，以及后端归属不变、重复 ID 和恢复互斥。同步双份 bridge/类型并补 adapter CI 类型检查；默认 beta 与正式助手边界保留。build、typecheck、lint、结构/体积、docs 与 diff exit 0；未新增或手动运行测试、模型或服务。原 main UI WIP 备份保留，本轮不部署。写集、证据与边界见[回执](./agent-runs/pr4-integration-20261001.md)。
+- 2026-10-01 PR #4 接入与修复：作者授权后，在独立 worktree 合入 `4f9bb707`，修复真实作品选择来源、响应式追问、按书运行状态、切书流/终态与取消确认，以及后端归属不变、重复 ID 和恢复互斥。同步双份 bridge/类型并补 adapter CI 类型检查；默认 beta 与正式助手边界保留。build、typecheck、lint、结构/体积、docs 与 diff exit 0；未新增或手动运行测试、模型或服务。已以 merge 提交 `41d4063f` 推到 main，PR 已 merged，main CI completed/success；原 UI WIP 已保留，组合 build/lint/结构 exit 0。本轮不部署。写集、证据与边界见[回执](./agent-runs/pr4-integration-20261001.md)。
 
 - 2026-09-28 使用指南续修：按作者“AI 味太浓、细节不清楚”的反馈删重复定位与泛化介绍，首页按任务导航、快速开始缩为五步；补速记改名、批注/版本、助手实际查询边界、推演回应→试稿→采用、现场候选选入/保存、备份迁移与 FAQ，核心英文同步。代码入口只读核对，保留现有截图/布局及其他 WIP。docs:build exit 0、80 项实际挂载链接/截图无缺失、双 manifest 与17篇 Markdown 解析通过、diff check exit 0；未运行自动测试/verify:full、浏览器走查或部署。见[回执](./agent-runs/user-docs-copy-20260928.md)。
 
