@@ -9,6 +9,7 @@ import {
   createAuthoringKnowledgeQuerySession
 } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
 import { createBrowserStorageRepository } from '../services/storage/browserStorageRepository.js'
+import { INTENT_PRESETS, SKILL_PRESETS, SLASH_COMMANDS, routeAgentIntent } from '../services/agents/storyagent/panelComposer.js'
 
 function valueOf(value) {
   return typeof value === 'function' ? value() : unref(value)
@@ -104,7 +105,9 @@ export function useAuthoringKnowledgeAssistant({
   sceneProjection = null,
   revisionSignal = null,
   querySession = createAuthoringKnowledgeQuerySession(),
-  executeQuery = requestAdvisorTask
+  executeQuery = requestAdvisorTask,
+  agentEngine = null,
+  agentSessionStore = null
 } = {}) {
   const messages = ref([])
   const draft = ref('')
@@ -121,6 +124,11 @@ export function useAuthoringKnowledgeAssistant({
   const canSubmit = computed(() => Boolean(activeProjectId.value && draft.value.trim() && !busy.value))
 
   function cancel() {
+    // 融合（B 路线）：agent 任务先停后端再掐流（审阅④顺序），advisor 路径保持原语义
+    if (activeAgentTaskId && agentEngine) {
+      const taskId = activeAgentTaskId
+      void Promise.resolve(agentEngine.cancel(taskId)).catch(() => null)
+    }
     requestToken += 1
     abortController?.abort()
     abortController = null
@@ -184,6 +192,20 @@ export function useAuthoringKnowledgeAssistant({
     const intent = String(typeof payload === 'object' ? payload.intent || selectedIntent.value : selectedIntent.value)
     const project = activeProjectId.value
     if (!project || !question || busy.value) return false
+
+    // 融合（B 路线）自动路由：特定知识意图/free → 既有 advisor 链；whole-book 按
+    // 确定性规则（@ 钉住参考 / 线程已触碰 Agent / 创作词表）分流到 pi-agent 引擎。
+    if (agentEngine) {
+      const decision = routeAgentIntent({
+        intent,
+        text: question,
+        hasPinnedRefs: pinnedRefs.value.length > 0,
+        agentTouched: agentTouched.value
+      })
+      if (decision.engine === 'agent') {
+        return runAgentTurn({ question, refs: pinnedRefs.value.map((item) => ({ ...item })) })
+      }
+    }
 
     cancel()
     const token = ++requestToken
@@ -298,8 +320,299 @@ export function useAuthoringKnowledgeAssistant({
     return ask(lastRequest.value, { appendUser: false })
   }
 
+  // ---- StoryAgent 引擎区（融合 B 路线，增量）：多命名会话 + pi-agent 流式任务 ----
+  const pinnedRefs = ref([])
+  const agentSessions = ref([])
+  const activeAgentSessionId = ref('')
+  const agentTouched = ref(false)
+  const agentMode = ref('auto')
+  const agentMaxTokens = ref(1600)
+  const agentTasks = ref([])
+  const loadedSkills = ref([])
+  let activeAgentTaskId = ''
+
+  function activeAgentSession() {
+    return agentSessions.value.find((s) => s.sessionId === activeAgentSessionId.value) || null
+  }
+
+  function persistActiveAgentSession() {
+    if (!agentSessionStore || !activeProjectId.value) return false
+    let session = activeAgentSession()
+    if (!session) {
+      session = {
+        sessionId: `sas_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        title: '新会话',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+      }
+      agentSessions.value = [session, ...agentSessions.value]
+      activeAgentSessionId.value = session.sessionId
+    }
+    const firstQuestion = session.messages.find((m) => m.role === 'user')?.question
+      ?? messages.value.find((m) => m.role === 'user' && m.kind === 'agent')?.question
+    session.messages = messages.value
+      .filter((m) => m.kind === 'agent')
+      .map((m) => ({ ...m }))
+    if (session.title === '新会话' && firstQuestion) session.title = String(firstQuestion).slice(0, 24)
+    session.updatedAt = Date.now()
+    return agentSessionStore.saveAgentSessions(activeProjectId.value, agentSessions.value.map((s) => ({ ...s })), activeAgentSessionId.value)
+  }
+
+  function restoreAgentThread(bookId) {
+    if (!agentEngine || !agentSessionStore) return
+    const { sessions, activeSessionId } = agentSessionStore.loadAgentSessions(bookId)
+    agentSessions.value = sessions
+    activeAgentSessionId.value = activeSessionId
+    const active = sessions.find((s) => s.sessionId === activeSessionId)
+    messages.value = active ? active.messages.map((m) => ({ ...m })) : []
+  }
+
+  function newAgentSession() {
+    if (busy.value) return false
+    const session = {
+      sessionId: `sas_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      title: '新会话',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+    }
+    agentSessions.value = [session, ...agentSessions.value]
+    activeAgentSessionId.value = session.sessionId
+    messages.value = []
+    agentTouched.value = false
+    pinnedRefs.value = []
+    persistActiveAgentSession()
+    return true
+  }
+
+  function switchAgentSession(sessionId) {
+    if (busy.value) return false
+    const session = agentSessions.value.find((s) => s.sessionId === String(sessionId || ''))
+    if (!session) return false
+    activeAgentSessionId.value = session.sessionId
+    messages.value = session.messages.map((m) => ({ ...m }))
+    return true
+  }
+
+  function deleteAgentSession(sessionId) {
+    if (busy.value) return false
+    agentSessionStore?.deleteAgentSession(activeProjectId.value, sessionId)
+    agentSessions.value = agentSessions.value.filter((s) => s.sessionId !== String(sessionId || ''))
+    if (activeAgentSessionId.value === String(sessionId || '')) {
+      const next = agentSessions.value[0] || null
+      activeAgentSessionId.value = next?.sessionId || ''
+      messages.value = next ? next.messages.map((m) => ({ ...m })) : []
+    }
+    return true
+  }
+
+  function renameAgentSession(sessionId, title) {
+    const session = agentSessions.value.find((s) => s.sessionId === String(sessionId || ''))
+    if (!session) return false
+    session.title = String(title || '').trim().slice(0, 80) || session.title
+    persistActiveAgentSession()
+    return true
+  }
+
+  function pinRef(entry) {
+    const item = entry && entry.title
+      ? { id: String(entry.id || entry.title), title: String(entry.title), type: String(entry.type || '条目'), summary: String(entry.summary || '') }
+      : null
+    if (!item || pinnedRefs.value.some((p) => p.id === item.id)) return false
+    pinnedRefs.value.push(item)
+    agentTouched.value = true
+    return true
+  }
+
+  function unpinRef(index) {
+    const i = Number(index)
+    if (!Number.isInteger(i) || i < 0 || i >= pinnedRefs.value.length) return false
+    pinnedRefs.value.splice(i, 1)
+    return true
+  }
+
+  async function refreshAgentTasks() {
+    if (!agentEngine?.tasks) { agentTasks.value = []; return agentTasks.value }
+    try {
+      const result = await agentEngine.tasks()
+      const all = (result?.tasks || []).map((t) => ({ ...t }))
+      // 归属过滤（审阅②口径）：只呈现当前作品的任务；无归属的历史任务不显示
+      agentTasks.value = all.filter((t) => String(t.bookId || '') === String(activeProjectId.value)).slice(0, 12)
+    } catch {
+      agentTasks.value = []
+    }
+    return agentTasks.value
+  }
+
+  function resumeAgentTask(taskId) {
+    if (busy.value) return false
+    const id = String(taskId || '')
+    if (!id || !agentSessions.value.some((s) => s.sessionId === activeAgentSessionId.value)) newAgentSession()
+    agentTouched.value = true
+    activeAgentTaskId = id
+    pushSystemRow(`已挂接任务 ${id}——下一条消息将以 resume 续跑该转录`)
+    return true
+  }
+
+  function pushSystemRow(text) {
+    messages.value.push({ id: messageId('sys'), role: 'system', kind: 'agent', text: String(text || ''), createdAt: Date.now() })
+  }
+
+  function runAgentCommand(name, args = '') {
+    const command = String(name || '')
+    const a = String(args || '').trim()
+    switch (command) {
+      case 'mode':
+        if (['init', 'continue', 'auto', 'respond'].includes(a)) { agentMode.value = a; agentTouched.value = true; pushSystemRow(`mode=${a}（Agent 引擎）`); return true }
+        pushSystemRow(`未知模式：${a}（可选 init/continue/auto/respond）`)
+        return false
+      case 'tokens': {
+        const t = Number(a)
+        if (Number.isFinite(t) && t >= 200 && t <= 8000) { agentMaxTokens.value = t; agentTouched.value = true; pushSystemRow(`maxTokens=${t}（Agent 引擎）`); return true }
+        pushSystemRow(`maxTokens 需在 200-8000：${a}`)
+        return false
+      }
+      case 'preset': {
+        const key = a.toLowerCase()
+        const preset = INTENT_PRESETS.find((p) => p.id === key || p.label === a)
+        if (!preset) { pushSystemRow(`未找到预设：${a || '(空)'}`); return false }
+        draft.value = preset.intent
+        pushSystemRow(`已填入预设「${preset.label}」`)
+        return true
+      }
+      case 'skill': {
+        const key = a.toLowerCase()
+        const skill = SKILL_PRESETS.find((p) => p.id === key || p.label === a)
+        if (!skill) {
+          pushSystemRow(`未找到技法：${a || '(空)'}。可用：${SKILL_PRESETS.map((p) => p.id).join(' / ')}`)
+          return false
+        }
+        if (loadedSkills.value.some((s) => s.id === skill.id)) {
+          pushSystemRow(`技法「${skill.label}」已装载`)
+          return true
+        }
+        loadedSkills.value = [...loadedSkills.value, { id: skill.id, label: skill.label, instruction: skill.instruction }]
+        agentTouched.value = true
+        pushSystemRow(`已装载技法「${skill.label}」（随下一条消息上行）`)
+        return true
+      }
+      case 'sessions':
+        void refreshAgentTasks()
+        return true
+      case 'cancel':
+        cancel()
+        return true
+      case 'new':
+        newAgentSession()
+        return true
+      case 'help':
+        pushSystemRow(SLASH_COMMANDS.map((c) => `/${c.name} ${c.args} — ${c.desc}`).join('\n'))
+        return true
+      default:
+        pushSystemRow(`未知命令：/${command}（/help 查看全部）`)
+        return false
+    }
+  }
+
+  async function runAgentTurn({ question, refs }) {
+    const project = activeProjectId.value
+    cancel()
+    const token = ++requestToken
+    abortController = new AbortController()
+    busy.value = true
+    error.value = ''
+    agentTouched.value = true
+    messages.value.push({ id: messageId('question'), role: 'user', kind: 'agent', question, intent: 'agent', createdAt: Date.now() })
+    const at = {
+      id: messageId('answer'),
+      role: 'assistant',
+      kind: 'agent',
+      text: '',
+      thinking: '',
+      tools: [],
+      status: '生成中…',
+      agentResult: null,
+      createdAt: Date.now(),
+    }
+    messages.value.push(at)
+    draft.value = ''
+    persistActiveAgentSession()
+    const localTaskId = `sab_${Date.now().toString(36)}`
+    activeAgentTaskId = localTaskId
+    const stale = () => token !== requestToken || project !== activeProjectId.value
+    try {
+      const result = await agentEngine.run({
+        text: question,
+        pinnedRefs: refs,
+        maxTokens: agentMaxTokens.value,
+        mode: agentMode.value,
+        skills: loadedSkills.value.map((s) => ({ ...s })),
+        taskId: localTaskId,
+        signal: abortController.signal,
+        bookId: project,
+        callbacks: {
+          onChunk: ({ content }) => {
+            if (stale()) return
+            at.text += String(content || '')
+          },
+          onReasoning: ({ content }) => {
+            if (stale()) return
+            at.thinking += String(content || '')
+          },
+          onTask: (data) => {
+            if (data?.taskId) activeAgentTaskId = String(data.taskId)
+          },
+        },
+        onStatus: (s) => {
+          if (stale()) return
+          if (s.phase === 'tool') {
+            at.tools.push(`${s.tool} · ${s.action || ''}`)
+            at.status = `工具回合：${s.tool} · ${s.action || ''}`
+          } else if (s.phase === 'step') {
+            at.status = `步骤 ${Number(s.stepIndex || 0) + 1}`
+          }
+        },
+      })
+      if (stale()) return false
+      at.agentResult = {
+        ok: Boolean(result.ok),
+        model: result.model || 'pi-agent',
+        taskId: result.trace?.taskId || activeAgentTaskId,
+        status: result.trace?.status || (result.ok ? 'completed' : 'failed'),
+        steps: result.trace?.steps || 0,
+        calls: result.totalCalls || 0,
+        tokens: result.usage?.totalTokens ?? 0,
+        reasoningChars: result.trace?.reasoningChars || 0,
+      }
+      at.status = result.ok ? '' : (abortController.signal.aborted ? '已取消' : '失败')
+      activeAgentTaskId = result.ok ? (result.trace?.taskId || localTaskId) : ''
+      if (!result.ok) pushSystemRow(abortController.signal.aborted ? '任务已取消（后端执行已停止）' : '任务失败：适配器未产出正文')
+      persistActiveAgentSession()
+      return true
+    } catch (caught) {
+      if (stale()) return false
+      at.status = abortController.signal.aborted ? '已取消' : '失败'
+      const aborted = caught?.code === 'AGENT_REQUEST_ABORTED' || abortController.signal.aborted
+      if (!aborted) {
+        pushSystemRow(`任务失败：${String(caught?.message || caught).slice(0, 160)}`)
+        error.value = String(caught?.message || 'Agent 任务失败，请稍后重试。')
+      }
+      persistActiveAgentSession()
+      return false
+    } finally {
+      if (token === requestToken) {
+        busy.value = false
+        abortController = null
+        activeAgentTaskId = ''
+      }
+    }
+  }
+
   watch(activeProjectId, (next, previous) => {
     if (previous && next !== previous) clear()
+    // 融合：书 id 就绪或切换即恢复该书会话（首挂载从空 → bookId 也要恢复）
+    if (next !== previous && next) restoreAgentThread(next)
   })
   if (revisionSignal != null) {
     watch(() => valueOf(revisionSignal), scheduleStalenessRefresh, { deep: true })
@@ -323,6 +636,24 @@ export function useAuthoringKnowledgeAssistant({
     cancel,
     clear,
     selectIntent,
-    refreshStaleness
+    refreshStaleness,
+    // ---- StoryAgent 融合区（agentEngine 缺省时均为惰性空实现，不影响既有调用方） ----
+    pinnedRefs,
+    agentSessions,
+    activeAgentSessionId,
+    agentTasks,
+    agentMaxTokens,
+    agentMode,
+    loadedSkills,
+    agentEnabled: Boolean(agentEngine),
+    pinRef,
+    unpinRef,
+    newAgentSession,
+    switchAgentSession,
+    deleteAgentSession,
+    renameAgentSession,
+    resumeAgentTask,
+    refreshAgentTasks,
+    runAgentCommand
   })
 }

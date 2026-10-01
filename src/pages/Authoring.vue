@@ -933,6 +933,12 @@
             :busy="knowledgeAssistant.busy.value"
             :error="knowledgeAssistant.error.value"
             :notice="authoringMemoryNotice"
+            :agent-enabled="knowledgeAssistant.agentEnabled"
+            :mention-sources="knowledgeMentionSources"
+            :pinned-refs="knowledgeAssistant.pinnedRefs.value"
+            :agent-sessions="knowledgeAssistant.agentSessions.value"
+            :active-agent-session-id="knowledgeAssistant.activeAgentSessionId.value"
+            :agent-tasks="knowledgeAssistant.agentTasks.value"
             @select-intent="knowledgeAssistant.selectIntent"
             @ask="knowledgeAssistant.ask"
             @cancel="knowledgeAssistant.cancel"
@@ -941,6 +947,15 @@
             @open-evidence="openAuthoringKnowledgeEvidence"
             @review-notice="memoryReviewOpen = true"
             @open-illustrator="openIllustrator"
+            @pin-ref="knowledgeAssistant.pinRef"
+            @unpin-ref="knowledgeAssistant.unpinRef"
+            @agent-command="knowledgeAssistant.runAgentCommand"
+            @session-new="knowledgeAssistant.newAgentSession"
+            @session-switch="knowledgeAssistant.switchAgentSession"
+            @session-delete="knowledgeAssistant.deleteAgentSession"
+            @session-rename="(id, title) => knowledgeAssistant.renameAgentSession(id, title)"
+            @task-resume="knowledgeAssistant.resumeAgentTask"
+            @refresh-tasks="knowledgeAssistant.refreshAgentTasks"
           />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
@@ -1537,6 +1552,10 @@ import { tr, uiLocale } from '../i18n/index.js'
 import ManuscriptLanguageSelect from '../components/authoring/ManuscriptLanguageSelect.vue'
 import { normalizeManuscriptLanguage, inferWritingLanguage } from '../../shared/writingLanguage.js'
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
+import { createStoryAgentEngine } from '../services/agents/storyagent/agentEngine.js'
+import { createAgentSessionStore } from '../services/agents/storyagent/agentSessionStore.js'
+import { createPiNarrativeAgentBridge } from '../services/agents/storyagent/piNarrativeAgentBridge.js'
+import { parseNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
 import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { markdownToHtml, htmlToMarkdown, markdownToPlainText } from '../services/writing/writingHtmlConversion.js'
@@ -3541,12 +3560,54 @@ function resolveKnowledgeAssistantLiveSource({ phase = 'prepare' } = {}) {
 const knowledgeAssistantSceneProjection = computed(() => (
   knowledgeAssistantInvocation.value?.sceneProjection || sceneProjection.value
 ))
+// ---- StoryAgent 融合（B 路线）：pi-agent 引擎 + 会话持久化注入助手 ----
+const knowledgeWorldEntries = computed(() => {
+  const entries = worldStore.activeWorldbook?.entries || []
+  return entries.slice(0, 30).map((e) => ({
+    id: String(e?.id || ''),
+    title: String(e?.title || e?.name || ''),
+    type: String(e?.type || ''),
+    summary: String(e?.summary || e?.content || e?.description || e?.text || ''),
+    aliases: Array.isArray(e?.aliases) ? e.aliases.map(String) : []
+  })).filter((e) => e.title || e.summary)
+})
+const knowledgeChapterEntries = computed(() => {
+  const chapters = Array.isArray(currentBook.value?.chapters) ? currentBook.value.chapters : []
+  return chapters.slice(0, 20).map((c) => {
+    const md = String(getChapterMarkdown(c) || '')
+    return { id: `ch_${String(c?.id || '')}`, title: String(c?.title || '未命名章节'), type: '章节', summary: md ? md.slice(-600) : '（空章节）', aliases: [] }
+  }).filter((e) => e.title)
+})
+const knowledgeMentionSources = computed(() => [...knowledgeWorldEntries.value, ...knowledgeChapterEntries.value])
+const storyAgentContext = () => {
+  const book = currentBook.value
+  const chapters = Array.isArray(book?.chapters) ? book.chapters : []
+  const chapter = chapters.find((c) => String(c?.id || '') === String(selectedChapterId.value || '')) || chapters[0] || null
+  const md = chapter ? String(getChapterMarkdown(chapter) || '') : ''
+  return {
+    bookTitle: String(book?.title || ''),
+    chapterTitle: String(chapter?.title || ''),
+    manuscriptTail: md.slice(-2400),
+    worldEntries: knowledgeWorldEntries.value,
+    chapterEntries: knowledgeChapterEntries.value,
+  }
+}
+const storyAgentEngine = createStoryAgentEngine({
+  bridge: createPiNarrativeAgentBridge({
+    endpoint: String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1:8451'),
+    parseEvent: (raw) => (/^event: (task\.|reasoning\.)/m.test(raw) ? null : parseNarrativeAgentSseEvent(raw)),
+  }),
+  projectId: selectedBookId,
+  resolveContext: storyAgentContext,
+})
 const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
   target: knowledgeAssistantTarget,
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
   sceneProjection: knowledgeAssistantSceneProjection,
-  revisionSignal: knowledgeAssistantRevisionSignal
+  revisionSignal: knowledgeAssistantRevisionSignal,
+  agentEngine: storyAgentEngine,
+  agentSessionStore: createAgentSessionStore()
 })
 function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
   if (!document || !Array.isArray(document.content)) return null
