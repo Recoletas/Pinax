@@ -10,6 +10,7 @@ import { useThemeStore } from './stores/themeStore.js'
 import { useTipState } from './composables/useTipState'
 import { ensureDefaultImageConfig } from './services/media/imageProviderConfigStore'
 import DesktopProjectGate from './components/desktop/DesktopProjectGate.vue'
+import StoryAgentDock from './components/authoring/StoryAgentDock.vue'
 
 const themeStore = useThemeStore()
 themeStore.initTheme()
@@ -133,6 +134,7 @@ watch(
         </div>
       </transition>
       <TipBanner />
+      <StoryAgentDock />
     </DesktopProjectGate>
   </div>
 </template>
