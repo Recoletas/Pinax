@@ -256,6 +256,11 @@ export function useAuthoringKnowledgeAssistant({
       const session = prepared.session
       let modelOutput
       if (intent !== 'free' && session.evidenceEnvelope.evidence.length === 0) {
+        // whole-book 空证据 + agent 可用 → 交给 agent 直接创作：查证类的 fail-closed
+        // 对创作请求毫无价值（advisor 无据可答），pi-agent 不依赖本体证据。
+        if (intent === 'whole-book' && agentEngine) {
+          return runAgentTurn({ question, refs: [], pushUserRow: false })
+        }
         modelOutput = {
           answer: '当前资料中没有找到足够依据。',
           claims: [],
@@ -515,7 +520,7 @@ export function useAuthoringKnowledgeAssistant({
     }
   }
 
-  async function runAgentTurn({ question, refs }) {
+  async function runAgentTurn({ question, refs, pushUserRow = true }) {
     const project = activeProjectId.value
     cancel()
     const token = ++requestToken
@@ -523,7 +528,10 @@ export function useAuthoringKnowledgeAssistant({
     busy.value = true
     error.value = ''
     agentTouched.value = true
-    messages.value.push({ id: messageId('question'), role: 'user', kind: 'agent', question, intent: 'agent', createdAt: Date.now() })
+    // fallback 调用（whole-book 空证据）时用户行已由 ask() 推入，不重复
+    if (pushUserRow) {
+      messages.value.push({ id: messageId('question'), role: 'user', kind: 'agent', question, intent: 'agent', createdAt: Date.now() })
+    }
     const at = {
       id: messageId('answer'),
       role: 'assistant',
@@ -584,6 +592,8 @@ export function useAuthoringKnowledgeAssistant({
         calls: result.totalCalls || 0,
         tokens: result.usage?.totalTokens ?? 0,
         reasoningChars: result.trace?.reasoningChars || 0,
+        // meta 行在 script 组装（UI 合同：模板不得出现内部术语字样）
+        metaLine: `${result.model || 'pi-agent'} · ${result.trace?.status || (result.ok ? 'completed' : 'failed')} · 规划 ${result.trace?.steps || 0} · 工具 ${result.totalCalls || 0} · 词元 ${result.usage?.totalTokens ?? 0}`,
       }
       at.status = result.ok ? '' : (abortController.signal.aborted ? '已取消' : '失败')
       activeAgentTaskId = result.ok ? (result.trace?.taskId || localTaskId) : ''
