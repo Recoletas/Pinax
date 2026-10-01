@@ -10,6 +10,7 @@ import { parseNarrativeAgentSseEvent } from '../../../shared/narrativeAgentStrea
 import { useWorldStore } from '../../stores/worldStore.js'
 import { loadWritingBooks, findWritingBook } from '../../services/writing/writingBooksRepository.js'
 import { getChapterMarkdown } from '../../services/writing/writingDocumentSchema.js'
+import { createExplorationDocument } from '../../services/writing/authoringDocumentRepository.js'
 import {
   applyMention,
   buildKernelBlocks,
@@ -378,6 +379,9 @@ async function sendComposer() {
   composerText.value = ''
   mention.value = null
   slash.value = null
+  // 实时指导（作者要求）：每次发送前重读当前章正文——编辑器自动保存 ~1s 落盘，
+  // 发送时读到的即最新进度，agent 的「写到哪/下一步」判断基于真文本
+  loadProjectContext()
   if (hasActiveTask.value) await runFollowUp(text)
   else await runNewTask(text)
 }
@@ -485,6 +489,28 @@ async function copyTurn(t) {
   try {
     await navigator.clipboard.writeText(t.text)
   } catch { /* 剪贴板不可用即忽略 */ }
+}
+
+// 采纳：外围表面不直写正文（编辑器是 owner，直写会被自动保存覆盖）——
+// 按 Pinax 架构以构思文档落盘，出现在章节书架「构思」架，由作者在编辑器侧采纳
+function adoptTurn(t) {
+  if (t.adopted || !t.text?.trim()) return
+  const bookIdForDoc = routeBookId.value
+  if (!bookIdForDoc) {
+    pushTurn('system', '采纳失败：当前路由没有作品上下文（bookId）')
+    return
+  }
+  const result = createExplorationDocument(bookIdForDoc, {
+    title: `StoryAgent · ${(t.text.trim().slice(0, 18))}…`,
+    content: t.text,
+    sourceRefs: [`storyagent:${t.meta?.taskId || `sab_${Date.now().toString(36)}`}`]
+  })
+  if (result?.ok) {
+    t.adopted = true
+    pushTurn('system', `已采纳到构思：《${t.text.trim().slice(0, 18)}…》——见左侧章节书架「构思」架，可在编辑器侧继续采纳进正文`)
+  } else {
+    pushTurn('system', `采纳失败：${result?.reason || '未知原因'}`)
+  }
 }
 
 function onComposerKey(e) {
@@ -611,6 +637,9 @@ watch(open, (v) => {
               {{ t.meta.ok ? '✓' : '✗' }} {{ t.meta.model }} · {{ t.meta.status }} · steps {{ t.meta.steps }} ·
               tools {{ t.meta.calls }} · tokens {{ t.meta.tokens }} · task {{ t.meta.taskId }}
               <button class="sab-mini sab-copy" type="button" @click="copyTurn(t)">复制</button>
+              <button class="sab-mini sab-adopt" type="button" :disabled="t.adopted" @click="adoptTurn(t)">
+                {{ t.adopted ? '已采纳' : '采纳到构思' }}
+              </button>
             </div>
           </div>
           <div v-else class="sab-msg is-system">{{ t.text }}</div>
@@ -1011,6 +1040,18 @@ watch(open, (v) => {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+.sab-adopt {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--accent, #2563eb);
+}
+
+.sab-adopt:disabled {
+  color: var(--text-muted, #888);
+  cursor: default;
 }
 
 /* ---- composer 沉底 ---- */
