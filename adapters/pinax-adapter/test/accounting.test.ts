@@ -1,0 +1,145 @@
+// 记账与空 completion 守卫：mock LLM（OpenAI 兼容 SSE）+ 真实适配器服务端。
+// 钉住两个实验抓到的缺陷：①回合结束无正文必须落 task.failed（不再静默空成功）；
+// ②落盘任务快照的 steps/toolCalls 必须反映真实计数（曾恒为 0）。
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
+import { startServer } from "../src/server.ts";
+
+let emptyCalls = 0;
+let mockServer: http.Server;
+
+function sseWrite(res: http.ServerResponse, obj: unknown, last = false) {
+  res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  if (last) res.write("data: [DONE]\n\n");
+}
+
+function startMockLlm(): Promise<number> {
+  mockServer = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c as Buffer));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+      const messages = (body.messages || []) as { role: string }[];
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const hasToolResult = messages.some((m) => m.role === "tool");
+      if (!hasToolResult) {
+        // 首回合：一次工具调用
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" } }] });
+        sseWrite(res, {
+          id: "m", object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_w1", type: "function", function: { name: "world_lookup", arguments: '{"action":"search","query":"药庐"}' } }] } }],
+        });
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }, true);
+        res.end();
+        return;
+      }
+      emptyCalls += 1;
+      if (emptyCalls === 1) {
+        // 次回合：正常出正文（供计数断言用）
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" } }] });
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: "青梧镇的雨下了整夜。" } }] });
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }, true);
+      } else {
+        // 之后：finish stop 但零正文 → 必须显式失败而非空成功
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" } }] });
+        sseWrite(res, { id: "m", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }, true);
+      }
+      res.end();
+    });
+  });
+  return new Promise((resolve) => mockServer.listen(0, "127.0.0.1", () => resolve((mockServer.address() as AddressInfo).port)));
+}
+
+const turnRequest = (requestId: string, overrides: Record<string, unknown> = {}) => ({
+  requestId,
+  mode: "continue" as const,
+  intent: "推进药庐线",
+  maxTokens: 1200,
+  kernel: { revision: "krev_1", blocks: [{ kind: "scene", title: "当前场景", text: "青梧镇药庐，雨夜。" }] },
+  resources: { revision: "rev_1", currentPlaceId: "p_wutown", domains: { world_lookup: [{ id: "c1", title: "沈砚宁", type: "角色", summary: "女医。" }] } },
+  budget: { agentTimeoutMs: 15_000, maxModelSteps: 4, maxCallsPerTurn: 4 },
+  ...overrides,
+});
+
+async function* sseFrames(res: Response) {
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const raw = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      if (raw.trim()) yield raw;
+    }
+  }
+}
+
+let adapter: http.Server;
+let adapterPort = 0;
+
+before(async () => {
+  const llmPort = await startMockLlm();
+  adapter = startServer({
+    port: 0,
+    tasksDir: `tasks-test-accounting-${Date.now()}`,
+    provider: "mock",
+    model: "mock-model",
+    baseUrl: `http://127.0.0.1:${llmPort}/v1`,
+    apiKey: "test-key",
+    thinking: "off",
+  });
+  await new Promise((r) => adapter.once("listening", r));
+  adapterPort = (adapter.address() as AddressInfo).port;
+});
+
+after(() => {
+  adapter?.closeAllConnections?.();
+  mockServer?.closeAllConnections?.();
+  adapter?.close();
+  mockServer?.close();
+});
+
+test("快照计数：工具回合+正文的任务，落盘 steps/toolCalls 反映真实值", async () => {
+  const res = await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(turnRequest("acct_counts_1", { taskId: "ptask_acct_counts" })),
+  });
+  let completed: Record<string, unknown> | undefined;
+  for await (const raw of sseFrames(res)) {
+    if (/^event: task\.completed/m.test(raw)) completed = JSON.parse(raw.split("data: ")[1]);
+  }
+  assert.equal(completed?.status, "completed");
+  assert.equal(completed?.steps, 2);
+  assert.equal(completed?.toolCalls, 1);
+  const snap = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_acct_counts`)).json() as Record<string, unknown>;
+  assert.equal(snap.status, "completed");
+  assert.equal(snap.steps, 2, "落盘快照 steps 应为真实计数");
+  assert.equal(snap.toolCalls, 1, "落盘快照 toolCalls 应为真实计数");
+});
+
+test("空 completion：回合结束无正文 → task.failed(PINAX_ADAPTER_EMPTY_COMPLETION)，不再空成功", async () => {
+  const res = await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(turnRequest("acct_empty_1", { taskId: "ptask_acct_empty" })),
+  });
+  let failed: Record<string, unknown> | undefined;
+  const all: string[] = [];
+  for await (const raw of sseFrames(res)) {
+    all.push(raw);
+    if (/^event: task\.failed/m.test(raw)) failed = JSON.parse(raw.split("data: ")[1]);
+  }
+  assert.ok(failed, "空 completion 必须出 task.failed 帧");
+  assert.equal(failed?.status, "failed");
+  assert.equal((failed?.error as Record<string, unknown>)?.code, "PINAX_ADAPTER_EMPTY_COMPLETION");
+  assert.ok(!all.some((f) => /^event: task\.completed/m.test(f)), "不得出现 task.completed 假成功帧");
+  const snap = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_acct_empty`)).json() as Record<string, unknown>;
+  assert.equal(snap.status, "failed");
+});

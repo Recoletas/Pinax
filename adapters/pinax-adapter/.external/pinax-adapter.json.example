@@ -1,0 +1,17 @@
+{
+  "port": 8451,
+  "host": "127.0.0.1",
+  "tasksDir": "tasks",
+  "provider": "zai",
+  "model": "glm-5.3",
+  "baseUrl": "",
+  "apiKey": "",
+  "thinking": "medium",
+  "budget": {
+    "agentTimeoutMs": 240000,
+    "maxModelSteps": 8,
+    "maxCallsPerTurn": 6,
+    "maxToolResultChars": 4200
+  },
+  "allowedOrigins": []
+}

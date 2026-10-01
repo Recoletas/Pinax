@@ -1,4 +1,5 @@
 import { loadWritingBooks, saveWritingBooksDurable } from '../services/writing/writingBooksRepository'
+import { publishAcceptedAuthoringBookId } from '../services/writing/acceptedAuthoringBook.js'
 
 // Owns the book-level activation transaction. Chapter hydration and editor DOM
 // work remain adapters supplied by Authoring because they belong to the editor.
@@ -93,6 +94,7 @@ export function useAuthoringBookActivation({
     }
 
     selectedBookId.value = bookId
+    publishAcceptedAuthoringBookId(bookId)
     dismissAuxiliary()
     clearPendingPersist()
     setAuthoringProjectId(bookId || '')

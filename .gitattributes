@@ -3,3 +3,7 @@
 # 许可证原文保持原样，不做空白检查
 OFL.txt -whitespace
 src/assets/fonts/OFL.txt -whitespace
+
+# 第三方对照源码保留原始 CRLF；CR 是换行的一部分，其余空白规则继续检查
+adapters/pinax-adapter/vendor/storyflow-kit/** whitespace=cr-at-eol
+adapters/pinax-adapter/vendor/storyflow-kit/**/*.md whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
