@@ -168,6 +168,11 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
       case "message_update": {
         const aev = (ev as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
         if (aev?.type === "text_delta" && aev.delta) emit("text.delta", { content: aev.delta });
+        // 思维链增量（dots 等深度思考模型）：契约枚举之外的扩展帧，上游 parser 按设计安全忽略
+        if (aev?.type === "thinking_delta" && aev.delta) {
+          const frame = `event: reasoning.delta\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), delta: String(aev.delta) })}\n\n`;
+          for (const l of listeners) l(frame);
+        }
         break;
       }
       case "message_end": {

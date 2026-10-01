@@ -16,7 +16,7 @@ export interface BridgeRunArgs {
   maxTokens?: number;
   requestId?: string;
   signal?: AbortSignal | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void };
+  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
   onStatus?: ((status: unknown) => void) | null;
   budget?: BridgeBudget | null;
   taskId?: string | null;
@@ -47,7 +47,7 @@ export interface BridgeResumeArgs {
   kernel: any;
   index: any;
   intent?: string | null;
-  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void };
+  callbacks?: { onChunk?: (chunk: { content: string }) => void; onComplete?: (r: { content: string }) => void; onReasoning?: (chunk: { content: string }) => void; onTask?: (data: Record<string, unknown>, eventName: string) => void };
   onStatus?: ((status: unknown) => void) | null;
   signal?: AbortSignal | null;
   requestId?: string;

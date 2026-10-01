@@ -8,6 +8,8 @@ import { useRoute } from 'vue-router'
 import { createPiNarrativeAgentBridge } from '../../services/agents/storyagent/piNarrativeAgentBridge.js'
 import { parseNarrativeAgentSseEvent } from '../../../shared/narrativeAgentStreamContract.js'
 import { useWorldStore } from '../../stores/worldStore.js'
+import { loadWritingBooks, findWritingBook } from '../../services/writing/writingBooksRepository.js'
+import { getChapterMarkdown } from '../../services/writing/writingDocumentSchema.js'
 import {
   applyMention,
   buildKernelBlocks,
@@ -28,9 +30,9 @@ const contractStats = reactive({ total: 0, ok: 0 })
 const bridge = createPiNarrativeAgentBridge({
   endpoint,
   // 逐帧过上游契约 parser：漂移立刻现形（校验面板的核心职责）。
-  // task.* 生命周期扩展帧不计入统计——上游 parser 按设计安全忽略。
+  // task.* / reasoning.* 生命周期与思维链扩展帧不计入统计——上游 parser 按设计安全忽略。
   parseEvent: (raw) => {
-    if (/^event: task\./m.test(raw)) return null
+    if (/^event: (task\.|reasoning\.)/m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -57,6 +59,37 @@ let controller = null
 // ---- 作品归属（PR #4 审阅②）：归属锚 = 当前作品绑定的世界书 id（面板可达的最细作品锚；
 //      书与世界书经 bookId→worldbookId 一一绑定，字段名待联调确认后统一） ----
 const bookId = computed(() => String(worldStore.activeWorldbookId || ''))
+
+// ---- 项目关联（对话不悬空）：从当前路由取书/章，经 canonical 仓储读正文尾部进 kernel ----
+const routeBookId = computed(() => String(route.query.bookId || ''))
+const routeChapterId = computed(() => String(route.query.chapterId || ''))
+const projectContext = ref(null)
+
+function loadProjectContext() {
+  try {
+    const books = loadWritingBooks()
+    const book = findWritingBook(books, routeBookId.value)
+    if (!book) { projectContext.value = null; return }
+    const chapters = Array.isArray(book.chapters) ? book.chapters : []
+    const chapter = chapters.find((c) => String(c?.id || '') === routeChapterId.value) || chapters[0] || null
+    let manuscriptTail = ''
+    let chars = 0
+    if (chapter) {
+      const md = String(getChapterMarkdown(chapter) || '')
+      chars = md.replace(/\s/g, '').length
+      manuscriptTail = md.slice(-2400)
+    }
+    projectContext.value = {
+      bookTitle: String(book.title || ''),
+      chapterTitle: String(chapter?.title || ''),
+      manuscriptTail,
+      chars,
+    }
+  } catch {
+    projectContext.value = null
+  }
+}
+watch([routeBookId, routeChapterId], loadProjectContext)
 
 // ---- composer（@ 提及 / / 命令，语义对标 v4 Chat.tsx） ----
 const composerText = ref('')
@@ -94,7 +127,7 @@ watch(() => turns.value.map((t) => t.text.length).join(','), scrollBottom)
 watch(() => turns.value.length, scrollBottom)
 
 function pushTurn(role, text) {
-  const t = { role, text, status: '', meta: null, tools: [] }
+  const t = { role, text, status: '', meta: null, tools: [], thinking: '' }
   turns.value.push(t)
   scrollBottom()
   return t
@@ -218,6 +251,7 @@ function buildKernel(userText) {
         sceneText: userText,
         firstEntry: worldEntries.value[0] || null,
         pinnedRefs: pinnedRefs.value,
+        project: projectContext.value,
       }),
     },
   }
@@ -266,6 +300,13 @@ function bindStream(bookAtStart = bookId.value) {
       if (streamAnchor < 0) streamAnchor = turns.value.length
       const t = turns.value[streamAnchor]
       if (t) t.text += String(content || '')
+      scrollBottom()
+    },
+    onReasoning: ({ content }) => {
+      if (stale()) return
+      if (streamAnchor < 0) streamAnchor = turns.value.length
+      const t = turns.value[streamAnchor]
+      if (t) t.thinking += String(content || '')
       scrollBottom()
     },
     onStatus: (s) => {
@@ -327,7 +368,7 @@ async function runNewTask(text) {
       index: buildIndex(),
       mode: mode.value,
       intent: text,
-      formatInstructions: '输出纯叙事正文，不要标题。',
+      formatInstructions: '若本轮产出叙事正文：纯正文，不要标题；对话类回应不需要正文格式。',
       maxTokens: Number(maxTokens.value) || 1200,
       requestId: `sabreq_${Date.now().toString(36)}`,
       taskId,
@@ -452,10 +493,11 @@ function onComposerKey(e) {
 onMounted(() => {
   checkHealth()
   loadSessions()
+  loadProjectContext()
   worldStore.loadWorldbooksIndex().catch(() => null)
 })
 watch(open, (v) => {
-  if (v) { checkHealth(); loadSessions(); scrollBottom() }
+  if (v) { checkHealth(); loadSessions(); loadProjectContext(); scrollBottom() }
 })
 </script>
 
@@ -523,6 +565,10 @@ watch(open, (v) => {
           </div>
           <div v-else-if="t.role === 'assistant'" class="sab-msg is-assistant">
             <div class="sab-role">StoryAgent</div>
+            <details v-if="t.thinking" class="sab-think" :open="running && i === turns.length - 1">
+              <summary>思维链 · {{ t.thinking.length }} 字</summary>
+              <div class="sab-think-body">{{ t.thinking }}</div>
+            </details>
             <div v-if="t.text" class="sab-text">{{ t.text }}</div>
             <div v-if="t.status" class="sab-dim">{{ t.status }}{{ running && i === turns.length - 1 && statusLine !== '待命' ? ` · ${statusLine}` : '' }}</div>
             <ul v-if="t.tools.length" class="sab-tools">
@@ -539,6 +585,9 @@ watch(open, (v) => {
       </div>
 
       <div class="sab-composer">
+        <div v-if="projectContext?.bookTitle" class="sab-ctx" title="随每条消息注入 kernel，正文截尾 2400 字">
+          已关联：《{{ projectContext.bookTitle }}》{{ projectContext.chapterTitle ? `· ${projectContext.chapterTitle}` : '' }} · {{ projectContext.chars }} 字
+        </div>
         <div v-if="pinnedRefs.length" class="sab-chips">
           <span v-for="(p, i) in pinnedRefs" :key="p.id" class="sab-chip" :title="p.summary">
             @{{ p.title }}<button class="sab-chip-x" type="button" :aria-label="`移除 ${p.title}`" @click="unpinRef(i)">×</button>
@@ -803,6 +852,35 @@ watch(open, (v) => {
   white-space: pre-wrap;
   border-left: 2px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
   padding-left: 10px;
+}
+
+.sab-think {
+  border-left: 2px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  padding-left: 10px;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+}
+
+.sab-think summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sab-think-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+
+.sab-ctx {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  border-left: 2px solid var(--accent, #2563eb);
+  padding-left: 8px;
 }
 
 .sab-tools {

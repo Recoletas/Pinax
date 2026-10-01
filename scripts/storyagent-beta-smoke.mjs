@@ -50,7 +50,7 @@ const contractStats = { total: 0, ok: 0 }
 const bridge = createPiNarrativeAgentBridge({
   endpoint: 'http://127.0.0.1:8471',
   parseEvent: (raw) => {
-    if (/^event: task\./m.test(raw)) return null
+    if (/^event: (task\.|reasoning\.)/m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -79,6 +79,7 @@ const server = http.createServer((req, res) => {
       sse(res, [
         `event: step.start\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'step.start', requestId: body.requestId, seq: 1, stepIndex: 0, toolChoice: 'auto' })}\n\n`,
         `event: tool.call\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'tool.call', requestId: body.requestId, seq: 2, callId: 'c1', toolName: 'world_lookup', action: 'search' })}\n\n`,
+        `event: reasoning.delta\ndata: ${JSON.stringify({ requestId: body.requestId, at: Date.now(), delta: '推演药庐线：先查资料再动笔。' })}\n\n`,
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 3, content: '青梧镇的雨下了整夜。' })}\n\n`,
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 4, content: '药庐的灯还亮着。' })}\n\n`,
         `event: usage\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'usage', requestId: body.requestId, seq: 5, usage: { inputTokens: 12, outputTokens: 34, totalTokens: 46 } })}\n\n`,
@@ -100,24 +101,30 @@ try {
 
   console.log('[2] bridge.run 全链路（脚本化 SSE 假适配器）')
   let chunks = ''
+  let reasoning = ''
   lastTaskId = 'sab_smoke_1'
   const run = await bridge.run({
     kernel: kernelInput,
     index: { revision: 'wrev_1', byDomain: { world: entries } },
     mode: 'auto',
     intent: '推进药庐线',
-    formatInstructions: '输出纯叙事正文，不要标题。',
+    formatInstructions: '若本轮产出叙事正文：纯正文，不要标题。',
     maxTokens: 1200,
     requestId: 'sab_smoke_req',
     taskId: lastTaskId,
-    callbacks: { onChunk: ({ content }) => { chunks += content } },
+    callbacks: {
+      onChunk: ({ content }) => { chunks += content },
+      onReasoning: ({ content }) => { reasoning += content },
+    },
     onStatus: null
   })
   check('流式正文经 onChunk 完整聚合', chunks === '青梧镇的雨下了整夜。药庐的灯还亮着。')
+  check('思维链增量经 onReasoning 聚合（reasoning.delta 扩展帧）', reasoning === '推演药庐线：先查资料再动笔。')
+  check('trace 携带 reasoningChars', run.trace.reasoningChars === reasoning.length)
   check('finalContent 与 totalCalls 正确', run.ok && run.finalContent === chunks && run.totalCalls === 1)
   check('trace 携带 taskId/status（任务生命周期回传）', run.trace.taskId === lastTaskId && run.trace.status === 'completed')
   check('usage 透传', run.usage.totalTokens === 46)
-  check('契约逐帧校验：5/5 契约帧通过，task 生命周期帧不计入', contractStats.total === 5 && contractStats.ok === 5)
+  check('契约逐帧校验：5/5 契约帧通过，task/reasoning 扩展帧不计入', contractStats.total === 5 && contractStats.ok === 5)
 
   console.log('[3] healthz')
   const h = await bridge.healthz()
@@ -138,8 +145,13 @@ try {
   check('/ 命令前缀过滤含 help', slashMatches('')[0]?.name === 'mode' && slashMatches('to')[0]?.name === 'tokens')
   const refBlocks = buildKernelBlocks({ sceneText: '药庐雨夜。', firstEntry: cEntries[0], pinnedRefs: [cEntries[1]] })
   check('@ 钉住参考进入 kernel reference block', refBlocks.some((b) => b.kind === 'reference' && b.text.includes('@引路符')))
-  const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: refBlocks } })
-  check('预序列化 blocks 被桥件原样透传（含 reference）', passthrough.blocks.length === refBlocks.length && passthrough.blocks.some((b) => b.kind === 'reference'))
+  const projBlocks = buildKernelBlocks({
+    sceneText: '药庐雨夜。',
+    project: { bookTitle: '雾港纪事', chapterTitle: '第一章', manuscriptTail: '沈砚宁听见三声轻叩。' },
+  })
+  check('项目上下文进入 kernel project block（书名/章节/正文尾）', projBlocks.some((b) => b.kind === 'project' && b.text.includes('《雾港纪事》') && b.text.includes('第一章') && b.text.includes('三声轻叩')))
+  const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: projBlocks } })
+  check('预序列化 blocks 被桥件原样透传（含 project/reference）', passthrough.blocks.length === projBlocks.length && passthrough.blocks.some((b) => b.kind === 'project'))
 } finally {
   server.closeAllConnections?.()
   server.close()
