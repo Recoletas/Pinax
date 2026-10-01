@@ -154,6 +154,12 @@ try {
     project: { bookTitle: '雾港纪事', chapterTitle: '第一章', manuscriptTail: '沈砚宁听见三声轻叩。' },
   })
   check('项目上下文进入 kernel project block（书名/章节/正文尾）', projBlocks.some((b) => b.kind === 'project' && b.text.includes('《雾港纪事》') && b.text.includes('第一章') && b.text.includes('三声轻叩')))
+  const skillBlocks = buildKernelBlocks({
+    sceneText: '药庐雨夜。',
+    skills: [{ id: 'dialogue-polish', label: '对白打磨', instruction: '删减解释性台词，让每句话带潜台词。' }],
+  })
+  check('已加载技法以 skills 能力块上行（工具装载语义，不经 composer 文本）', skillBlocks.some((b) => b.kind === 'skills' && b.text.includes('【对白打磨】')))
+  check('未加载技法时无 skills 块', !buildKernelBlocks({ sceneText: 'x' }).some((b) => b.kind === 'skills'))
   const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: projBlocks } })
   check('预序列化 blocks 被桥件原样透传（含 project/reference）', passthrough.blocks.length === projBlocks.length && passthrough.blocks.some((b) => b.kind === 'project'))
 } finally {

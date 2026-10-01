@@ -102,6 +102,8 @@ let streamAnchor = -1
 // 预设/技法弹层（原生 select 在内嵌浏览器弹层错位，改自绘 popover）
 const presetMenu = ref(false)
 const skillMenu = ref(false)
+// 已加载技法（工具装载语义：卡片声明，随请求以 skills 能力块上行）
+const loadedSkills = ref([])
 
 const worldEntries = computed(() => {
   const entries = worldStore.activeWorldbook?.entries || []
@@ -217,13 +219,28 @@ function applySkill(nameOrId) {
   const key = String(nameOrId || '').toLowerCase()
   const s = SKILL_PRESETS.find((x) => x.id === key || x.label === nameOrId)
   if (!s) return `未找到技法：${nameOrId || '(空)'}。可用：${SKILL_PRESETS.map((x) => x.id).join(' / ')}`
-  composerText.value = `${s.instruction}\n${composerText.value}`
-  return `已叠加技法「${s.label}」`
+  return toggleSkill(s)
+}
+
+// 技法 = 工具装载语义：点选即加载为本轮会话能力（卡片声明），不再注入 composer 文本
+function toggleSkill(s) {
+  const i = loadedSkills.value.findIndex((x) => x.id === s.id)
+  if (i >= 0) {
+    loadedSkills.value.splice(i, 1)
+    return `已卸载技法「${s.label}」`
+  }
+  loadedSkills.value.push({ id: s.id, label: s.label, instruction: s.instruction })
+  return `已加载技法「${s.label}」为本轮能力`
+}
+
+function unloadSkill(id) {
+  const i = loadedSkills.value.findIndex((x) => x.id === id)
+  if (i >= 0) loadedSkills.value.splice(i, 1)
 }
 
 function pickSkillById(id) {
   const s = SKILL_PRESETS.find((x) => x.id === id)
-  if (s) composerText.value = `${s.instruction}\n${composerText.value}`
+  if (s) toggleSkill(s)
 }
 
 function pickPresetById(id) {
@@ -277,6 +294,7 @@ function buildKernel(userText) {
         firstEntry: worldEntries.value[0] || null,
         pinnedRefs: pinnedRefs.value,
         project: projectContext.value,
+        skills: loadedSkills.value,
       }),
     },
   }
@@ -298,8 +316,8 @@ function runCommand(name, args) {
     case 'sessions': loadSessions(); settingsOpen.value = true; return '会话列表已刷新（见设置抽屉）'
     case 'cancel': cancelTask(); return '已请求取消'
     case 'new': {
-      turns.value = []; activeTaskId = ''; pinnedRefs.value = []
-      return '已开新对话（@ 参考一并清空）'
+      turns.value = []; activeTaskId = ''; pinnedRefs.value = []; loadedSkills.value = []
+      return '已开新对话（@ 参考与已加载技法一并清空）'
     }
     case 'help': return SLASH_COMMANDS.map((c) => `/${c.name} ${c.args} — ${c.desc}`).join('\n')
     default: return `未知命令：/${name}（/help 查看全部）`
@@ -603,6 +621,16 @@ watch(open, (v) => {
         <div v-if="projectContext?.bookTitle" class="sab-ctx" title="随每条消息注入 kernel，正文截尾 2400 字">
           已关联：《{{ projectContext.bookTitle }}》{{ projectContext.chapterTitle ? `· ${projectContext.chapterTitle}` : '' }} · {{ projectContext.chars }} 字
         </div>
+        <div v-if="loadedSkills.length" class="sab-skill-cards">
+          <div v-for="s in loadedSkills" :key="s.id" class="sab-skill-card">
+            <div class="sab-skill-head">
+              <span class="sab-skill-name">{{ s.label }}</span>
+              <span class="sab-dim">已加载 · 本轮会话</span>
+              <button class="sab-chip-x" type="button" :aria-label="`卸载 ${s.label}`" @click="unloadSkill(s.id)">×</button>
+            </div>
+            <div class="sab-skill-body">{{ s.instruction }}</div>
+          </div>
+        </div>
         <div v-if="pinnedRefs.length" class="sab-chips">
           <span v-for="(p, i) in pinnedRefs" :key="p.id" class="sab-chip" :title="p.summary">
             @{{ p.title }}<button class="sab-chip-x" type="button" :aria-label="`移除 ${p.title}`" @click="unpinRef(i)">×</button>
@@ -675,7 +703,7 @@ watch(open, (v) => {
                   role="option"
                   class="sab-pop-item"
                   @mousedown.prevent="pickSkillById(s.id); skillMenu = false"
-                >{{ s.label }} <span class="sab-dim">写作技法</span></div>
+                >{{ loadedSkills.some((x) => x.id === s.id) ? '✓ ' : '' }}{{ s.label }} <span class="sab-dim">写作技法</span></div>
               </template>
             </div>
           </div>
@@ -920,6 +948,41 @@ watch(open, (v) => {
   color: var(--text-muted, #888);
   border-left: 2px solid var(--accent, #2563eb);
   padding-left: 8px;
+}
+
+.sab-skill-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sab-skill-card {
+  border: 1px solid var(--hairline-soft, rgba(0, 0, 0, 0.12));
+  border-left: 2px solid var(--accent, #2563eb);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.sab-skill-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sab-skill-name {
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+}
+
+.sab-skill-body {
+  margin-top: 3px;
+  color: var(--text-muted, #888);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .sab-tools {

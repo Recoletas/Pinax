@@ -85,9 +85,12 @@ export function slashMatches(token, limit = 8) {
   return SLASH_COMMANDS.filter((c) => !t || c.name.startsWith(t)).slice(0, limit)
 }
 
-/** 把 @ 钉住的参考条目与项目上下文编成 kernel 的 serialization.blocks
- *  （桥件对预序列化 blocks 原样透传）。project = { bookTitle, chapterTitle, manuscriptTail }。 */
-export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRefs = [], project = null } = {}) {
+/** 把 @ 钉住的参考条目、项目上下文与已加载技能编成 kernel 的 serialization.blocks
+ *  （桥件对预序列化 blocks 原样透传）。
+ *  project = { bookTitle, chapterTitle, manuscriptTail }；
+ *  skills = 已加载技法（[{ label, instruction }]）——工具装载语义：不进 composer 文本，
+ *  以结构化能力块随请求上行。 */
+export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRefs = [], project = null, skills = [] } = {}) {
   const blocks = []
   const scene = String(sceneText || '').trim()
   blocks.push({
@@ -106,6 +109,14 @@ export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRef
       kind: 'project',
       title: '项目上下文（当前作品，正文以此为准）',
       text: `${head}${head ? '\n\n' : ''}${String(p.manuscriptTail || '').slice(-2400)}`.trim(),
+    })
+  }
+  const sk = (Array.isArray(skills) ? skills : []).filter((s) => s?.label && s?.instruction)
+  if (sk.length) {
+    blocks.push({
+      kind: 'skills',
+      title: '已加载技能（本轮会话装载的工具能力，产出行为按此约束）',
+      text: sk.map((s) => `【${s.label}】${s.instruction}`).join('\n').slice(0, 2000),
     })
   }
   const refs = (Array.isArray(pinnedRefs) ? pinnedRefs : []).filter((e) => e?.title)
