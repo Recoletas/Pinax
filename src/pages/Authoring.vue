@@ -933,6 +933,12 @@
             :busy="knowledgeAssistant.busy.value"
             :error="knowledgeAssistant.error.value"
             :notice="authoringMemoryNotice"
+            :agent-enabled="knowledgeAssistant.agentEnabled"
+            :mention-sources="knowledgeMentionSources"
+            :pinned-refs="knowledgeAssistant.pinnedRefs.value"
+            :agent-sessions="knowledgeAssistant.agentSessions.value"
+            :active-agent-session-id="knowledgeAssistant.activeAgentSessionId.value"
+            :agent-tasks="knowledgeAssistant.agentTasks.value"
             @select-intent="knowledgeAssistant.selectIntent"
             @ask="knowledgeAssistant.ask"
             @cancel="knowledgeAssistant.cancel"
@@ -941,6 +947,15 @@
             @open-evidence="openAuthoringKnowledgeEvidence"
             @review-notice="memoryReviewOpen = true"
             @open-illustrator="openIllustrator"
+            @pin-ref="knowledgeAssistant.pinRef"
+            @unpin-ref="knowledgeAssistant.unpinRef"
+            @agent-command="knowledgeAssistant.runAgentCommand"
+            @session-new="knowledgeAssistant.newAgentSession"
+            @session-switch="knowledgeAssistant.switchAgentSession"
+            @session-delete="knowledgeAssistant.deleteAgentSession"
+            @session-rename="(id, title) => knowledgeAssistant.renameAgentSession(id, title)"
+            @task-resume="knowledgeAssistant.resumeAgentTask"
+            @refresh-tasks="knowledgeAssistant.refreshAgentTasks"
           />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
@@ -1537,6 +1552,10 @@ import { tr, uiLocale } from '../i18n/index.js'
 import ManuscriptLanguageSelect from '../components/authoring/ManuscriptLanguageSelect.vue'
 import { normalizeManuscriptLanguage, inferWritingLanguage } from '../../shared/writingLanguage.js'
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
+import { createStoryAgentEngine } from '../services/agents/storyagent/agentEngine.js'
+import { createAgentSessionStore } from '../services/agents/storyagent/agentSessionStore.js'
+import { createPiNarrativeAgentBridge } from '../services/agents/storyagent/piNarrativeAgentBridge.js'
+import { parseNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
 import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { markdownToHtml, htmlToMarkdown, markdownToPlainText } from '../services/writing/writingHtmlConversion.js'
@@ -1729,6 +1748,7 @@ import {
   upsertOutlineNode as upsertProjectOutlineNode
 } from '../services/writing/projectOutlineRepository.js'
 import { projectExperienceSession } from '../services/agents/authoring/authoringSessionProjection.js'
+import { adoptStoryAgentTextToChapter } from '../services/agents/storyagent/adoptToChapter.js'
 import { migrateWritingNotesToExplorations } from '../services/writing/authoringPeripheralBridge.js'
 import { listWritingNotes } from '../services/agents/authoring/writingNotes.js'
 import { buildChineseQuoteInsertion } from '../services/writing/writingChineseInput.js'
@@ -1852,12 +1872,42 @@ function handleExternalWorldbookStorageChange(event) {
 function handleAuthoringVisibilityRefresh() {
   if (document.visibilityState === 'visible') refreshBoundWorldbookIfChanged({ notify: true })
 }
+// StoryAgent 采纳链（④）：助手/坞把 agent 产出以事件提交，这里走编辑器事务内追加
+// （appendExperienceTurnToChapter：克隆+指纹去重），随后重载当前章——外围永不直写 localStorage。
+function handleStoryAgentAdopt(event) {
+  const detail = event?.detail || {}
+  const bookId = String(detail.bookId || selectedBookId.value || '')
+  const chapterId = String(detail.chapterId || selectedChapterId.value || '')
+  const text = String(detail.text || '').trim()
+  if (!bookId || !chapterId || !text) return
+  // 采纳前先把编辑器当前内容 persist（否则自动保存的旧内存态会覆盖采纳结果）
+  if (wt3ActiveDoc.value) {
+    const persisted = wt3PersistBeforeLeaving()
+    if (!persisted?.ok) {
+      authoringTask.notify(tr('StoryAgent 采纳失败：编辑器内容尚未保存成功，请重试'))
+      return
+    }
+  } else if (selectedChapterId.value) {
+    saveCurrentChapter()
+  }
+  const result = adoptStoryAgentTextToChapter({ books: books.value, bookId, chapterId, text, sourceId: detail.sourceId })
+  if (!result.ok) {
+    if (result.reason !== 'already-imported') authoringTask.notify(tr('StoryAgent 采纳失败：{reason}', { reason: result.reason || '未知' }))
+    return
+  }
+  books.value = result.books
+  saveBooks()
+  if (selectedChapterId.value === chapterId) selectChapter(chapterId)
+  authoringTask.notify(tr('StoryAgent 片段已采纳到当前章节末尾'))
+}
 onMounted(() => {
   window.addEventListener('storage', handleExternalWorldbookStorageChange)
+  window.addEventListener('sab:adopt-manuscript', handleStoryAgentAdopt)
   document.addEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('storage', handleExternalWorldbookStorageChange)
+  window.removeEventListener('sab:adopt-manuscript', handleStoryAgentAdopt)
   document.removeEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
 })
 // 项目级场景锚点（Task 4）：随章节数据持久化，绑定 unitId + 当前书的世界书。
@@ -3541,12 +3591,73 @@ function resolveKnowledgeAssistantLiveSource({ phase = 'prepare' } = {}) {
 const knowledgeAssistantSceneProjection = computed(() => (
   knowledgeAssistantInvocation.value?.sceneProjection || sceneProjection.value
 ))
+// ---- StoryAgent 融合（B 路线）：pi-agent 引擎 + 会话持久化注入助手 ----
+const knowledgeWorldEntries = computed(() => {
+  const entries = worldStore.activeWorldbook?.entries || []
+  return entries.slice(0, 30).map((e) => ({
+    id: String(e?.id || ''),
+    title: String(e?.title || e?.name || ''),
+    type: String(e?.type || ''),
+    summary: String(e?.summary || e?.content || e?.description || e?.text || ''),
+    aliases: Array.isArray(e?.aliases) ? e.aliases.map(String) : []
+  })).filter((e) => e.title || e.summary)
+})
+const knowledgeChapterEntries = computed(() => {
+  const chapters = Array.isArray(currentBook.value?.chapters) ? currentBook.value.chapters : []
+  return chapters.slice(0, 20).map((c) => {
+    const md = String(getChapterMarkdown(c) || '')
+    return { id: `ch_${String(c?.id || '')}`, title: String(c?.title || '未命名章节'), type: '章节', summary: md ? md.slice(-600) : '（空章节）', aliases: [] }
+  }).filter((e) => e.title)
+})
+const knowledgeMentionSources = computed(() => [...knowledgeWorldEntries.value, ...knowledgeChapterEntries.value])
+const storyAgentContext = () => {
+  const book = currentBook.value
+  const chapters = Array.isArray(book?.chapters) ? book.chapters : []
+  const chapter = chapters.find((c) => String(c?.id || '') === String(selectedChapterId.value || '')) || chapters[0] || null
+  const md = chapter ? String(getChapterMarkdown(chapter) || '') : ''
+  // 原生能力 → agent 工具的数据面：正文/构思/大纲以快照域上行（问全书/找伏笔/理线索在 agent 侧取证）
+  const manuscriptItems = chapters.slice(0, 12).map((c) => {
+    const text = String(getChapterMarkdown(c) || '')
+    return { id: `ch_${String(c?.id || '')}`, title: String(c?.title || '未命名章节'), type: '章节', text: text.slice(-1600), sourceRefs: [`chapter:${String(c?.id || '')}`] }
+  }).filter((item) => item.text)
+  let notesItems = []
+  let outlineItems = []
+  try {
+    notesItems = listExplorationDocuments(selectedBookId.value).slice(0, 20).map((doc) => ({
+      id: String(doc?.id || ''), title: String(doc?.title || '速记'), type: '构思', text: String(doc?.content || '').slice(0, 600), sourceRefs: [`writing-note:${String(doc?.id || '')}`]
+    })).filter((n) => n.text)
+    outlineItems = listProjectOutlineNodes(selectedBookId.value).slice(0, 30).map((node) => ({
+      id: String(node?.id || ''), title: String(node?.title || ''), type: '大纲', text: String(node?.intent || node?.title || ''), sourceRefs: [`outline:${String(node?.id || '')}`]
+    })).filter((o) => o.title)
+  } catch { /* 构思/大纲读取失败不阻塞正文域 */ }
+  return {
+    bookTitle: String(book?.title || ''),
+    chapterTitle: String(chapter?.title || ''),
+    manuscriptTail: md.slice(-2400),
+    worldEntries: knowledgeWorldEntries.value,
+    chapterEntries: knowledgeChapterEntries.value,
+    manuscriptItems,
+    notesItems,
+    outlineItems,
+  }
+}
+const storyAgentEngine = createStoryAgentEngine({
+  bridge: createPiNarrativeAgentBridge({
+    endpoint: String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1:8451'),
+    parseEvent: (raw) => (/^event: (task\.|reasoning\.)/m.test(raw) ? null : parseNarrativeAgentSseEvent(raw)),
+  }),
+  projectId: selectedBookId,
+  resolveContext: storyAgentContext,
+})
 const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
   target: knowledgeAssistantTarget,
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
   sceneProjection: knowledgeAssistantSceneProjection,
-  revisionSignal: knowledgeAssistantRevisionSignal
+  revisionSignal: knowledgeAssistantRevisionSignal,
+  agentEngine: storyAgentEngine,
+  agentSessionStore: createAgentSessionStore(),
+  agentEndpoint: String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1:8451')
 })
 function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
   if (!document || !Array.isArray(document.content)) return null

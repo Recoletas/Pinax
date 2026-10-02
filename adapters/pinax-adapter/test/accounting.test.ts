@@ -143,3 +143,92 @@ test("空 completion：回合结束无正文 → task.failed(PINAX_ADAPTER_EMPTY
   const snap = await (await fetch(`http://127.0.0.1:${adapterPort}/v1/pinax/tasks/ptask_acct_empty`)).json() as Record<string, unknown>;
   assert.equal(snap.status, "failed");
 });
+
+
+// —— BeatPlan 规划轮（②）：独立 mock LLM（round1 提交计划，round2 出正文），不与共享 mock 耦合 ——
+
+let beatMockServer: http.Server;
+
+function startBeatMockLlm(): Promise<number> {
+  beatMockServer = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c) => chunks.push(c as Buffer));
+    req.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+      const messages = (body.messages || []) as { role: string }[];
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const hasToolResult = messages.some((m) => m.role === "tool");
+      sseWrite(res, { id: "b", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" } }] });
+      if (!hasToolResult) {
+        sseWrite(res, {
+          id: "b", object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_bp", type: "function", function: { name: "submit_narrative_beat_plan", arguments: JSON.stringify({ responseObligation: "回应叩门", causalSteps: ["沈砚宁起身开门"], revealOrChange: "门外站着她的旧识", endCondition: "门开着，两人对视" }) } }] } }],
+        });
+        sseWrite(res, { id: "b", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }, true);
+      } else {
+        sseWrite(res, { id: "b", object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: "门开了。" } }] });
+        sseWrite(res, { id: "b", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }, true);
+      }
+      res.end();
+    });
+  });
+  return new Promise((resolve) => beatMockServer.listen(0, "127.0.0.1", () => resolve((beatMockServer.address() as AddressInfo).port)));
+
+  void beatMockServer;
+}
+
+test("BeatPlan 规划轮（②）：mode=init 受理节拍计划 → beat.plan 帧 + 快照/返回携带（含 revision）", async () => {
+  const llmPort = await startBeatMockLlm();
+  const beatAdapter = startServer({
+    port: 0,
+    tasksDir: `tasks-test-accounting-beat-${Date.now()}`,
+    provider: "mock",
+    model: "mock-model",
+    baseUrl: `http://127.0.0.1:${llmPort}/v1`,
+    apiKey: "test-key",
+    thinking: "off",
+  });
+  await new Promise((r) => beatAdapter.once("listening", r));
+  const beatPort = (beatAdapter.address() as AddressInfo).port;
+  try {
+    const res = await fetch(`http://127.0.0.1:${beatPort}/v1/pinax/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(turnRequest("acct_beat_1", { taskId: "ptask_acct_beat", mode: "init" })),
+    });
+    const all: string[] = [];
+    let completed: Record<string, unknown> | undefined;
+    for await (const raw of sseFrames(res)) {
+      all.push(raw);
+      if (/^event: task\.completed/m.test(raw)) completed = JSON.parse(raw.split("data: ")[1]);
+    }
+    const beatFrame = all.find((f) => /^event: beat\.plan/m.test(f));
+    assert.ok(beatFrame, "受理计划应发 beat.plan 扩展帧");
+    const beatPlan = (JSON.parse(beatFrame.split("data: ")[1]) as { plan: Record<string, unknown> }).plan;
+    assert.match(String(beatPlan.revision), /^bp_/);
+    assert.equal(beatPlan.responseObligation, "回应叩门");
+    assert.equal((completed?.beatPlan as Record<string, unknown>)?.revision, beatPlan.revision);
+    const snap = await (await fetch(`http://127.0.0.1:${beatPort}/v1/pinax/tasks/ptask_acct_beat`)).json() as Record<string, unknown>;
+    assert.equal((snap.beatPlan as Record<string, unknown>)?.revision, beatPlan.revision, "落盘快照应含 beatPlan");
+    assert.equal(snap.status, "completed");
+  } finally {
+    beatAdapter.closeAllConnections?.();
+    beatAdapter.close();
+    beatMockServer?.closeAllConnections?.();
+    beatMockServer?.close();
+  }
+});
+
+test("BeatPlan 工具语义：hooks 暴露、无效计划拒绝且不触发受理、有效计划回调 revision", async () => {
+  const { buildPinaxTools } = await import("../src/tools.ts");
+  let accepted = 0;
+  const tools = buildPinaxTools({ revision: "r", domains: {} }, [], { onBeatPlan: () => { accepted += 1; } });
+  const tool = tools.find((t) => t.name === "submit_narrative_beat_plan");
+  assert.ok(tool, "hooks 存在时应暴露规划工具");
+  const invalid = await tool.execute("x", { responseObligation: "" } as never) as unknown as { content: { text: string }[] };
+  assert.match(invalid.content[0].text, /NARRATIVE_BEAT_PLAN_OBLIGATION_REQUIRED/);
+  assert.equal(accepted, 0, "无效计划不触发受理回调");
+  const valid = await tool.execute("x", { responseObligation: "回应叩门", causalSteps: ["沈砚宁开门"], revealOrChange: "门外是旧识", endCondition: "门开着，两人对视" } as never) as unknown as { content: { text: string }[] };
+  assert.match(valid.content[0].text, /"revision":"bp_/);
+  assert.equal(accepted, 1);
+});

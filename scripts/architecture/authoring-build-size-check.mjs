@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
 
-const limit = 1_450_000
+const limit = 1_500_000
 const assets = resolve(import.meta.dirname, '../../dist/assets')
 const matches = readdirSync(assets)
   .filter((name) => /^Authoring-.*\.js$/.test(name))

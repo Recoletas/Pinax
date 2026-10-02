@@ -6,6 +6,7 @@
         <small>{{ tr('基于本书资料回答') }}</small>
       </div>
       <div class="authoring-knowledge__toolbar-actions">
+        <button v-if="agentEnabled" type="button" class="control-icon" :class="{ active: sessionsOpen }" :aria-pressed="sessionsOpen" :aria-label="tr('会话与任务')" :title="tr('会话与任务')" @click="toggleSessions"><span class="authoring-knowledge__sessions-glyph">会话</span></button>
         <button v-if="reviewWorkflow" type="button" :aria-pressed="reviewOpen" :aria-label="tr('目标审稿')" :title="tr('目标审稿')" @click="openReview"><WorkbenchIcon name="guide" :size="18" /></button>
         <button type="button" class="control-icon" :class="{ active: searchOpen }" :aria-pressed="searchOpen" :aria-label="tr('搜索当前问答')" :title="tr('搜索当前问答')" @click="toggleSearch">
           <WorkbenchIcon name="search" :size="18" />
@@ -17,6 +18,29 @@
     </header>
     <AuthoringGoalReview v-if="reviewOpen" :workflow="reviewWorkflow" @close="reviewOpen = false" />
     <template v-else>
+    <div v-if="sessionsOpen" class="authoring-knowledge__sessions" :aria-label="tr('会话与任务')">
+      <div><strong>{{ tr('Agent 会话') }}</strong><button type="button" @click="$emit('session-new')">{{ tr('新建') }}</button></div>
+      <button v-for="session in agentSessions" :key="session.sessionId" type="button" class="authoring-knowledge__session-row"
+        :class="{ 'is-active': session.sessionId === activeAgentSessionId }" @click="$emit('session-switch', session.sessionId)">
+        <span class="authoring-knowledge__session-title">{{ session.title }}</span>
+        <span class="authoring-knowledge__session-actions" @click.stop>
+          <button type="button" :aria-label="tr('重命名会话')" title="重命名" @click="renameSessionInline(session)">✎</button>
+          <button type="button" :aria-label="tr('删除会话')" title="删除" @click="$emit('session-delete', session.sessionId)">×</button>
+        </span>
+      </button>
+      <p v-if="!agentSessions.length" class="authoring-knowledge__sessions-empty">{{ tr('暂无会话；发送首条消息即自动建立。') }}</p>
+      <div class="authoring-knowledge__sessions-tasks"><strong>{{ tr('适配器任务') }}</strong><button type="button" @click="$emit('refresh-tasks')">{{ tr('刷新') }}</button></div>
+      <button v-for="task in agentTasks" :key="task.taskId" type="button" class="authoring-knowledge__session-row" @click="$emit('task-resume', task.taskId)">
+        <span class="authoring-knowledge__session-title">{{ task.taskId }}</span>
+        <small>{{ task.status }}</small>
+      </button>
+      <p v-if="!agentTasks.length" class="authoring-knowledge__sessions-empty">{{ tr('（暂无适配器任务）') }}</p>
+    </div>
+    <div v-if="sessionsOpen && renamingSession" class="authoring-knowledge__rename">
+      <input ref="renameInputRef" v-model="renamingTitle" type="text" :aria-label="tr('会话名称')" @keydown.enter="commitRename" @keydown.esc="renamingSession = ''" />
+      <button type="button" @click="commitRename">{{ tr('确定') }}</button>
+      <button type="button" @click="renamingSession = ''">{{ tr('取消') }}</button>
+    </div>
     <div v-if="searchOpen" class="authoring-knowledge__search">
       <WorkbenchIcon name="search" :size="15" />
       <input ref="searchInputRef" v-model="searchTerm" type="search" :placeholder="tr('搜索问题或回答')" :aria-label="tr('搜索问题或回答')" />
@@ -45,9 +69,39 @@
 
       <template v-for="message in visibleMessages" :key="message.id">
         <div v-if="message.role === 'user'" class="authoring-knowledge__question">
-          <small>{{ tr(intentLabel(message.intent)) }}</small>
-          <p>{{ message.question }}</p>
+          <small>{{ tr(message.kind === 'agent' ? 'StoryAgent' : intentLabel(message.intent)) }}</small>
+          <p>{{ message.kind === 'agent' ? message.question : message.question }}</p>
         </div>
+        <div v-else-if="message.role === 'system'" class="authoring-knowledge__system-row">{{ message.text }}</div>
+        <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__agent">
+          <details v-if="message.thinking" class="authoring-knowledge__agent-think" :open="Boolean(message.status)">
+            <summary>{{ tr('思维链') }}<span>{{ message.thinking.length }}</span></summary>
+            <div class="authoring-knowledge__agent-think-body">{{ message.thinking }}</div>
+          </details>
+          <p v-if="message.text" class="authoring-knowledge__answer-text">{{ message.text }}</p>
+          <ul v-if="message.tools && message.tools.length" class="authoring-knowledge__agent-tools">
+            <li v-for="(tool, toolIndex) in message.tools" :key="toolIndex">{{ tool }}</li>
+          </ul>
+          <p v-if="message.status" class="authoring-knowledge__agent-status" role="status">{{ message.status }}</p>
+          <div v-if="message.agentResult" class="authoring-knowledge__agent-meta">
+            <span :class="message.agentResult.ok ? 'is-ok' : 'is-fail'">{{ message.agentResult.ok ? '✓' : '✗' }}</span>
+            {{ message.agentResult.metaLine }}
+            <button
+              v-if="message.text"
+              class="authoring-knowledge__agent-adopt"
+              type="button"
+              :disabled="message.adopted"
+              @click="adoptAgentResult(message)"
+            >{{ message.adopted ? tr('已采纳') : tr('采纳到构思') }}</button>
+            <button
+              v-if="message.text"
+              class="authoring-knowledge__agent-adopt"
+              type="button"
+              :disabled="message.adoptedChapter"
+              @click="adoptAgentResultToChapter(message)"
+            >{{ message.adoptedChapter ? tr('已入正文') : tr('采纳到章节') }}</button>
+          </div>
+        </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
             <span :class="message.answer.answerKind === 'free-advice' ? 'is-free' : 'is-grounded'">
@@ -112,10 +166,29 @@
           <option v-for="task in allTasks" :key="task.id" :value="task.id">{{ tr(task.label) }}</option>
         </select>
       </div>
+      <div v-if="agentEnabled && pinnedRefs.length" class="authoring-knowledge__chips" :aria-label="tr('已钉住的 @ 参考')">
+        <span v-for="(refItem, refIndex) in pinnedRefs" :key="refItem.id" class="authoring-knowledge__chip" :title="refItem.summary">
+          @{{ refItem.title }}<button type="button" :aria-label="tr('移除引用')" @click="$emit('unpin-ref', refIndex)">×</button>
+        </span>
+      </div>
       <div class="authoring-knowledge__input-row">
-        <textarea :value="draft" rows="2" :placeholder="tr(placeholder)" :aria-label="tr('向助手提问')"
-          @input="$emit('update:draft', $event.target.value)" @compositionstart="composing = true"
-          @compositionend="composing = false" @keydown.enter="submitOnEnter"></textarea>
+        <div class="authoring-knowledge__input-wrap">
+          <div v-if="mention" class="authoring-knowledge__pop" role="listbox">
+            <div v-for="(candidate, candidateIndex) in mention.list" :key="candidate.id" role="option"
+              :aria-selected="candidateIndex === mention.idx" class="authoring-knowledge__pop-item"
+              :class="{ 'is-on': candidateIndex === mention.idx }"
+              @mousedown.prevent="pickMention(candidate)">@{{ candidate.title }} <small>{{ candidate.type }}</small></div>
+          </div>
+          <div v-if="slash" class="authoring-knowledge__pop" role="listbox">
+            <div v-for="(command, commandIndex) in slash.list" :key="command.name" role="option"
+              :aria-selected="commandIndex === slash.idx" class="authoring-knowledge__pop-item"
+              :class="{ 'is-on': commandIndex === slash.idx }"
+              @mousedown.prevent="runSlash(command)">/{{ command.name }} {{ command.args }} <small>{{ command.desc }}</small></div>
+          </div>
+          <textarea ref="composerTextarea" :value="draft" rows="2" :placeholder="tr(placeholder)" :aria-label="tr('向助手提问')"
+            @input="onDraftInput" @compositionstart="composing = true"
+            @compositionend="composing = false" @keydown="onComposerKey" @click="refreshPopovers($event.target)"></textarea>
+        </div>
         <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" @click="$emit('cancel')">■</button>
         <button v-else type="button" class="authoring-knowledge__send" :aria-label="tr('发送问题')" :disabled="!draft.trim()" @click="submit">↑</button>
       </div>
@@ -131,7 +204,45 @@ import { computed, defineAsyncComponent, nextTick, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
 
+import {
+  applyMention,
+  filterMentions,
+  mentionAtCursor,
+  parseSlashCommand,
+  slashMatches
+} from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import { createExplorationDocument } from '../../services/writing/authoringDocumentRepository.js'
+import { useRoute } from 'vue-router'
+
+// ④ 采纳链 v1：外围表面不直写正文（编辑器是 owner）——agent 产出经
+// createExplorationDocument 落构思架，由作者在编辑器侧继续采纳进正文。
+// 采纳链 v2：「采纳到章节」经 sab:adopt-manuscript 事件提交，Authoring 页以
+// appendExperienceTurnToChapter（克隆+指纹去重）在编辑器事务内追加并重载当前章。
+const adoptRoute = useRoute()
+function adoptAgentResult(message) {
+  const result = message.agentResult
+  if (!result?.ok || message.adopted || !message.text?.trim()) return
+  const bookId = String(adoptRoute.query.bookId || '')
+  if (!bookId) return
+  const saved = createExplorationDocument(bookId, {
+    title: `StoryAgent · ${message.text.trim().slice(0, 18)}…`,
+    content: message.text,
+    sourceRefs: [`storyagent:${result.taskId || 'agent'}`]
+  })
+  if (saved?.ok) message.adopted = true
+}
+function adoptAgentResultToChapter(message) {
+  const result = message.agentResult
+  if (message.adoptedChapter || !message.text?.trim()) return
+  const bookId = String(adoptRoute.query.bookId || '')
+  const chapterId = String(adoptRoute.query.chapterId || '')
+  if (!bookId || !chapterId) return
+  window.dispatchEvent(new CustomEvent('sab:adopt-manuscript', {
+    detail: { bookId, chapterId, text: message.text, sourceId: result.taskId || `agent_${Date.now().toString(36)}` }
+  }))
+  message.adoptedChapter = true
+}
 
 const props = defineProps({
   reviewWorkflow: { type: Object, default: null },
@@ -141,9 +252,16 @@ const props = defineProps({
   selectedIntent: { type: String, default: 'whole-book' },
   busy: Boolean,
   error: { type: String, default: '' },
-  notice: { type: Object, default: null }
+  notice: { type: Object, default: null },
+  // ---- StoryAgent 融合区（agentEnabled=false 时全部惰性，既有调用方零感知） ----
+  agentEnabled: { type: Boolean, default: false },
+  mentionSources: { type: Array, default: () => [] },
+  pinnedRefs: { type: Array, default: () => [] },
+  agentSessions: { type: Array, default: () => [] },
+  activeAgentSessionId: { type: String, default: '' },
+  agentTasks: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['update:draft', 'select-intent', 'ask', 'cancel', 'retry', 'clear', 'open-evidence', 'review-notice', 'open-illustrator'])
+const emit = defineEmits(['update:draft', 'select-intent', 'ask', 'cancel', 'retry', 'clear', 'open-evidence', 'review-notice', 'open-illustrator', 'pin-ref', 'unpin-ref', 'agent-command', 'session-new', 'session-switch', 'session-delete', 'session-rename', 'task-resume', 'refresh-tasks'])
 const reviewOpen = ref(props.reviewWorkflow?.goalMode.value && props.reviewWorkflow?.panelOpen.value)
 watch(() => [props.reviewWorkflow?.goalMode.value, props.reviewWorkflow?.panelOpen.value], ([goalMode, open]) => { reviewOpen.value = Boolean(goalMode && open) })
 function openReview() {
@@ -177,6 +295,125 @@ const searchOpen = ref(false)
 const historyOpen = ref(false)
 const searchTerm = ref('')
 const searchInputRef = ref(null)
+
+// ---- StoryAgent 融合区：@ 弹层 / / 菜单 / 会话抽屉 ----
+const mention = ref(null)
+const slash = ref(null)
+const sessionsOpen = ref(false)
+const renamingSession = ref('')
+const renamingTitle = ref('')
+const renameInputRef = ref(null)
+const composerTextarea = ref(null)
+
+function refreshPopovers(target) {
+  if (!props.agentEnabled) return
+  const value = target?.value ?? props.draft
+  const caret = target?.selectionStart ?? value.length
+  const m = mentionAtCursor(value, caret)
+  const candidates = m ? filterMentions(props.mentionSources, m.token) : []
+  mention.value = m && candidates.length ? { ...m, list: candidates, idx: 0 } : null
+  if (value.startsWith('/') && !value.includes('\n')) {
+    const commands = slashMatches(value.slice(1))
+    slash.value = commands.length ? { token: value.slice(1), list: commands, idx: 0 } : null
+  } else {
+    slash.value = null
+  }
+}
+
+function pickMention(candidate) {
+  const m = mention.value
+  if (!m) return
+  const applied = applyMention(props.draft, m.start, m.token.length, candidate.title)
+  emit('update:draft', applied.text)
+  emit('pin-ref', candidate)
+  mention.value = null
+  nextTick(() => {
+    const el = composerTextarea.value
+    el?.focus()
+    try { el?.setSelectionRange(applied.caret, applied.caret) } catch { /* 老内核不设光标 */ }
+  })
+}
+
+function runSlash(command) {
+  const parsed = parseSlashCommand(props.draft) || { name: command.name, args: '' }
+  slash.value = null
+  emit('update:draft', '')
+  if (command.name === 'sessions') sessionsOpen.value = true
+  emit('agent-command', parsed.name || command.name, parsed.args || '')
+}
+
+function toggleSessions() {
+  sessionsOpen.value = !sessionsOpen.value
+  if (sessionsOpen.value) emit('refresh-tasks')
+}
+
+function renameSessionInline(session) {
+  renamingSession.value = session.sessionId
+  renamingTitle.value = session.title
+  nextTick(() => renameInputRef.value?.focus())
+}
+
+function commitRename() {
+  if (renamingSession.value && renamingTitle.value.trim()) {
+    emit('session-rename', renamingSession.value, renamingTitle.value.trim())
+  }
+  renamingSession.value = ''
+}
+
+function onDraftInput(event) {
+  emit('update:draft', event.target.value)
+  refreshPopovers(event.target)
+}
+
+function onComposerKey(event) {
+  if (event.isComposing || composing.value) return
+  const m = mention.value
+  if (m) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const delta = event.key === 'ArrowDown' ? 1 : -1
+      mention.value = { ...m, idx: (m.idx + delta + m.list.length) % m.list.length }
+      return
+    }
+    if (event.key === 'Escape') { mention.value = null; return }
+    if (event.key === 'Tab' || event.key === 'Enter') {
+      event.preventDefault()
+      pickMention(m.list[m.idx])
+      return
+    }
+  }
+  const s = slash.value
+  if (s) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const delta = event.key === 'ArrowDown' ? 1 : -1
+      slash.value = { ...s, idx: (s.idx + delta + s.list.length) % s.list.length }
+      return
+    }
+    if (event.key === 'Escape') { slash.value = null; return }
+    if (event.key === 'Tab' || event.key === 'Enter') {
+      event.preventDefault()
+      runSlash(s.list[s.idx])
+      return
+    }
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
+    const parsed = parseSlashCommand(props.draft)
+    if (parsed && props.agentEnabled) {
+      event.preventDefault()
+      emit('agent-command', parsed.name, parsed.args)
+      emit('update:draft', '')
+      return
+    }
+    submit()
+  }
+}
+
+function submit() {
+  const question = props.draft.trim()
+  if (!question || props.busy) return
+  emit('ask', { intent: props.selectedIntent, question })
+}
 const suggestedTasks = Object.freeze([
   { ...wholeBookTask, suggestion: '前文埋下的伏笔，哪些还没有兑现？' },
   { ...primaryTasks[3], suggestion: '梳理主要角色已有设定与正文行为。' },
@@ -243,18 +480,6 @@ function reuseQuestion(question) {
   emit('update:draft', question)
   historyOpen.value = false
   nextTick(() => document.querySelector('.authoring-knowledge__composer textarea')?.focus({ preventScroll: true }))
-}
-
-function submit() {
-  const question = props.draft.trim()
-  if (!question || props.busy) return
-  emit('ask', { intent: props.selectedIntent, question })
-}
-
-function submitOnEnter(event) {
-  if (event.shiftKey || event.isComposing || composing.value) return
-  event.preventDefault()
-  submit()
 }
 
 watch(() => [props.messages.length, props.busy], () => nextTick(() => {
@@ -339,6 +564,48 @@ watch(() => [props.messages.length, props.busy], () => nextTick(() => {
 .authoring-knowledge__send:disabled { opacity: .38; cursor: default; }
 .authoring-knowledge__send.is-cancel { background: var(--text-secondary); font-size: 11px; }
 .authoring-knowledge__composer > small { display: block; margin-top: 6px; color: var(--text-secondary); font-size: 11px; line-height: 1.45; }
+
+/* ---- StoryAgent 融合区样式（token 与既有面一致） ---- */
+.authoring-knowledge__sessions-glyph { font-size: 11px; letter-spacing: .04em; }
+.authoring-knowledge__sessions { position: absolute; z-index: 4; inset: 102px 10px auto; max-height: min(420px, 56vh); overflow-y: auto; padding: 10px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-workbench-raised, var(--surface-primary)); box-shadow: var(--shadow-workbench, 0 10px 28px color-mix(in srgb, var(--text-primary) 14%, transparent)); }
+.authoring-knowledge__sessions > div { display: flex; align-items: center; justify-content: space-between; margin: 6px 0; }
+.authoring-knowledge__sessions > div strong { font-size: 13px; }
+.authoring-knowledge__sessions > div button { border: 0; background: transparent; color: var(--accent-primary, var(--accent)); font-size: 12px; cursor: pointer; }
+.authoring-knowledge__session-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 6px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; text-align: start; cursor: pointer; }
+.authoring-knowledge__session-row:hover, .authoring-knowledge__session-row.is-active { background: var(--surface-hover); color: var(--text-primary); }
+.authoring-knowledge__session-row.is-active { border-inline-start: 2px solid var(--accent-primary, var(--accent)); }
+.authoring-knowledge__session-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-knowledge__session-actions { display: flex; flex: 0 0 auto; gap: 4px; }
+.authoring-knowledge__session-actions button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 13px; }
+.authoring-knowledge__sessions-empty { margin: 8px 0; color: var(--text-secondary); font-size: 12px; text-align: center; }
+.authoring-knowledge__sessions-tasks { margin-top: 10px; }
+.authoring-knowledge__rename { display: flex; gap: 6px; margin: 8px 10px; }
+.authoring-knowledge__rename input { min-width: 0; flex: 1; padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; }
+.authoring-knowledge__rename button { border: 1px solid var(--border-subtle); border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.authoring-knowledge__agent { margin: 0 0 26px; }
+.authoring-knowledge__agent-think { margin-bottom: 10px; border-inline-start: 2px solid var(--border-subtle); padding-inline-start: 10px; color: var(--text-secondary); font-size: 12px; }
+.authoring-knowledge__agent-think summary { padding: 4px 0; cursor: pointer; list-style: none; }
+.authoring-knowledge__agent-think summary::-webkit-details-marker { display: none; }
+.authoring-knowledge__agent-think summary span { margin-inline-start: 4px; }
+.authoring-knowledge__agent-think-body { max-height: 220px; overflow-y: auto; margin-top: 4px; white-space: pre-wrap; word-break: break-word; line-height: 1.6; opacity: .85; }
+.authoring-knowledge__agent-tools { margin: 10px 0 0; padding-inline-start: 24px; color: var(--text-secondary); font-size: 12px; list-style: none; }
+.authoring-knowledge__agent-tools li::before { content: '· '; }
+.authoring-knowledge__agent-status { margin: 8px 0 0; color: var(--text-secondary); font-size: 12px; }
+.authoring-knowledge__agent-meta { display: flex; align-items: center; gap: 6px; margin-top: 10px; color: var(--text-secondary); font-size: 12px; flex-wrap: wrap; }
+.authoring-knowledge__agent-adopt { border: 0; background: transparent; cursor: pointer; color: var(--accent); font-size: 12px; padding: 2px 4px; }
+.authoring-knowledge__agent-adopt:disabled { color: var(--text-secondary); cursor: default; }
+.authoring-knowledge__agent-meta .is-ok { color: var(--accent-primary, var(--accent)); }
+.authoring-knowledge__agent-meta .is-fail { color: var(--signal-warning, #b42318); }
+.authoring-knowledge__system-row { margin: 0 0 16px; padding-inline-start: 10px; border-inline-start: 2px solid var(--border-subtle); color: var(--text-secondary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+.authoring-knowledge__chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.authoring-knowledge__chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-secondary); font-size: 11px; }
+.authoring-knowledge__chip button { border: 0; background: transparent; color: var(--text-secondary); font-size: 12px; line-height: 1; cursor: pointer; }
+.authoring-knowledge__input-wrap { position: relative; min-width: 0; }
+.authoring-knowledge__input-wrap textarea { width: 100%; box-sizing: border-box; }
+.authoring-knowledge__pop { position: absolute; z-index: 6; inset: auto 0 100%; max-height: 200px; margin-bottom: 4px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-workbench-raised, var(--surface-primary)); box-shadow: var(--shadow-workbench, 0 10px 28px color-mix(in srgb, var(--text-primary) 14%, transparent)); }
+.authoring-knowledge__pop-item { padding: 6px 10px; color: var(--text-primary); font-size: 13px; cursor: pointer; }
+.authoring-knowledge__pop-item small { margin-inline-start: 6px; color: var(--text-secondary); font-size: 11px; }
+.authoring-knowledge__pop-item:hover, .authoring-knowledge__pop-item.is-on { background: var(--surface-hover); }
 @keyframes knowledge-pulse { to { opacity: .28; transform: scale(.72); } }
 @media (pointer: coarse) {
   .authoring-knowledge__toolbar-actions button, .authoring-knowledge__suggestions button, .authoring-knowledge__tasks button, .authoring-knowledge__tasks select, .authoring-knowledge__primary-tools button, .authoring-knowledge__evidence-list > button, .authoring-knowledge__send { min-height: 44px; }

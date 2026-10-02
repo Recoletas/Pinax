@@ -9,7 +9,9 @@ import {
   type NarrativeStreamEventType,
 } from "./contract.ts";
 import { buildPinaxTools, type ResourceSnapshot } from "./tools.ts";
-import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, type TurnRequest } from "./prompt.ts";
+import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, buildBeatPlannerPrompt, buildBeatPlannerUserPrompt, type TurnRequest } from "./prompt.ts";
+import type { BeatPlan } from "./beatPlan.ts";
+import { narrativeBeatPlanRevision, validateNarrativeBeatPlanInput } from "./beatPlan.ts";
 import type { AdapterConfig } from "./config.ts";
 import type { TaskSnapshot } from "./store.ts";
 
@@ -131,14 +133,27 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
   if (!model) throw new Error(`模型不可解析：${cfg.provider}/${cfg.model}（自定义端点需配 baseUrl）`);
 
   const toolNames = (Object.keys(snapshot.domains) as PinaxToolName[]).filter((n) => (snapshot.domains[n]?.length || 0) > 0);
-  const tools = buildPinaxTools(snapshot, toolNames);
+  // BeatPlan 规划轮（②）：init/auto/respond 计划先行；continue 复用当前计划不暴露。
+  // 受理的节拍计划落 runExtras + 扩展帧 beat.plan（契约枚举外，上游 parser 安全忽略）。
+  const runExtras: { beatPlan: Record<string, unknown> | null } = { beatPlan: null };
+  const beatPlanEnabled = req.mode !== "continue";
+  const toolHooks: Parameters<typeof buildPinaxTools>[2] = beatPlanEnabled
+    ? {
+        onBeatPlan: (plan: BeatPlan, revision: string) => {
+          runExtras.beatPlan = { ...plan, revision };
+          const frame = `event: beat.plan\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), plan: runExtras.beatPlan })}\n\n`;
+          for (const l of listeners) l(frame);
+        },
+      }
+    : undefined;
+  const tools = buildPinaxTools(snapshot, toolNames, toolHooks);
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(new Error("PINAX_ADAPTER_AGENT_TIMEOUT")), budget.agentTimeoutMs);
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: buildSystemPrompt(req, toolNames),
+      systemPrompt: buildSystemPrompt(req, toolNames, { beatPlanEnabled }),
       model,
       tools,
       ...(opts.resumeMessages?.length ? { messages: opts.resumeMessages as never } : {}),
@@ -168,6 +183,11 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
       case "message_update": {
         const aev = (ev as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
         if (aev?.type === "text_delta" && aev.delta) emit("text.delta", { content: aev.delta });
+        // 思维链增量（dots 等深度思考模型）：契约枚举之外的扩展帧，上游 parser 按设计安全忽略
+        if (aev?.type === "thinking_delta" && aev.delta) {
+          const frame = `event: reasoning.delta\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), delta: String(aev.delta) })}\n\n`;
+          for (const l of listeners) l(frame);
+        }
         break;
       }
       case "message_end": {
@@ -235,6 +255,47 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
       ac.signal.addEventListener("abort", () => reject(new Error(String((ac.signal.reason as Error)?.message || "PINAX_ADAPTER_ABORTED"))));
     });
     try {
+      // BeatPlan 强制规划轮（②）：计划先行——独立一次模型调用只产规划 JSON，
+      // 校验受理后注入写作轮 system prompt（镜像本体「规划调用不占资料轮次」）。
+      // 失败/超时静默降级：无计划也照常写（快照 beatPlan=null 诚实标记）。
+      if (beatPlanEnabled) {
+        try {
+          let planText = "";
+          const planAgent = new Agent({
+            initialState: { systemPrompt: buildBeatPlannerPrompt(), model, tools: [] },
+            thinkingBudgets: BUDGETS[cfg.thinking] ?? BUDGETS.medium,
+            streamFn: (m, context, options) =>
+              models.streamSimple(m, context as never, { ...(options as Record<string, unknown> | undefined), maxTokens: 900, timeoutMs: Math.min(90_000, budget.agentTimeoutMs) }) as never,
+          });
+          planAgent.subscribe((ev) => {
+            const aev = (ev as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
+            if (aev?.type === "text_delta" && aev.delta) planText += aev.delta;
+            const u = usageOf((ev as { message?: unknown }).message);
+            if (u) {
+              counters.usage.inputTokens += u.inputTokens;
+              counters.usage.outputTokens += u.outputTokens;
+              counters.usage.totalTokens += u.totalTokens;
+            }
+          });
+          await Promise.race([
+            planAgent.prompt(buildBeatPlannerUserPrompt(req)),
+            abortGate,
+          ]);
+          const jsonMatch = /\{[\s\S]*\}/.exec(planText);
+          if (jsonMatch) {
+            const r = validateNarrativeBeatPlanInput(JSON.parse(jsonMatch[0]));
+            if (r.valid) {
+              runExtras.beatPlan = { ...(r.plan as unknown as Record<string, unknown>), revision: narrativeBeatPlanRevision(r.plan) };
+              const frame = `event: beat.plan\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), plan: runExtras.beatPlan })}\n\n`;
+              for (const l of listeners) l(frame);
+            }
+          }
+          if (runExtras.beatPlan) {
+            const plan = runExtras.beatPlan as unknown as BeatPlan & { revision: string };
+            (agent.state as { systemPrompt: string }).systemPrompt = `${agent.state.systemPrompt}\n\n== 已受理节拍计划（revision: ${plan.revision}，必须严格遵守）==\n回应义务：${plan.responseObligation}\n因果步骤：${plan.causalSteps.join("；") || "（无）"}\n角色行动：${plan.characterMoves.map((m) => `${m.character}：${m.action}→${m.result || "?"}`).join("；") || "（无）"}\n最终新增：${plan.revealOrChange}\n收束条件：${plan.endCondition}\n避免重复：${plan.avoidRepeats.join("；") || "（无）"}`;
+          }
+        } catch { /* 规划失败静默降级：无计划照常写 */ }
+      }
       await Promise.race([
         opts.resumeMessages?.length ? agent.prompt(buildResumePrompt(req)) : agent.prompt(buildUserPrompt(req)),
         abortGate,
@@ -244,11 +305,11 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         const err = { code: "PINAX_ADAPTER_EMPTY_COMPLETION", message: "回合结束但未产出正文（多为 provider 鉴权失败或端点异常）", retryable: false };
         emit("error", { code: err.code, message: err.message, retryable: err.retryable });
         emitTask("failed", { status: "failed", taskId: req.taskId || base.taskId, error: err });
-        return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+        return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: "failed", finalText, messages: agent.state.messages as unknown[], error: err };
       }
       emit("usage", { usage: counters.usage });
-      emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls, textChars: finalText.length });
-      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: "completed", finalText, messages: agent.state.messages as unknown[] };
+      emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls, textChars: finalText.length, beatPlan: runExtras.beatPlan });
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: "completed", finalText, messages: agent.state.messages as unknown[] };
     } catch (e) {
       const aborted = ac.signal.aborted;
       const msg = String((e as Error)?.message || e);
@@ -257,7 +318,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
         : { code: "PINAX_AGENT_RUN_FAILED", message: msg.slice(0, 240), retryable: /terminated|fetch|ECONN|network|timed out/i.test(msg) };
       emit("error", { code: err.code, message: err.message, retryable: err.retryable });
       emitTask("failed", { status: aborted ? "cancelled" : "failed", taskId: req.taskId || base.taskId, error: err });
-      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
+      return { ...base, steps: counters.steps, toolCalls: counters.toolCalls, beatPlan: runExtras.beatPlan, status: aborted ? "cancelled" : "failed", finalText, messages: agent.state.messages as unknown[], error: err };
     } finally {
       clearTimeout(timer);
     }
