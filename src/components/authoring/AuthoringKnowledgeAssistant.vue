@@ -93,6 +93,13 @@
               :disabled="message.adopted"
               @click="adoptAgentResult(message)"
             >{{ message.adopted ? tr('已采纳') : tr('采纳到构思') }}</button>
+            <button
+              v-if="message.text"
+              class="authoring-knowledge__agent-adopt"
+              type="button"
+              :disabled="message.adoptedChapter"
+              @click="adoptAgentResultToChapter(message)"
+            >{{ message.adoptedChapter ? tr('已入正文') : tr('采纳到章节') }}</button>
           </div>
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
@@ -210,6 +217,8 @@ import { useRoute } from 'vue-router'
 
 // ④ 采纳链 v1：外围表面不直写正文（编辑器是 owner）——agent 产出经
 // createExplorationDocument 落构思架，由作者在编辑器侧继续采纳进正文。
+// 采纳链 v2：「采纳到章节」经 sab:adopt-manuscript 事件提交，Authoring 页以
+// appendExperienceTurnToChapter（克隆+指纹去重）在编辑器事务内追加并重载当前章。
 const adoptRoute = useRoute()
 function adoptAgentResult(message) {
   const result = message.agentResult
@@ -222,6 +231,17 @@ function adoptAgentResult(message) {
     sourceRefs: [`storyagent:${result.taskId || 'agent'}`]
   })
   if (saved?.ok) message.adopted = true
+}
+function adoptAgentResultToChapter(message) {
+  const result = message.agentResult
+  if (message.adoptedChapter || !message.text?.trim()) return
+  const bookId = String(adoptRoute.query.bookId || '')
+  const chapterId = String(adoptRoute.query.chapterId || '')
+  if (!bookId || !chapterId) return
+  window.dispatchEvent(new CustomEvent('sab:adopt-manuscript', {
+    detail: { bookId, chapterId, text: message.text, sourceId: result.taskId || `agent_${Date.now().toString(36)}` }
+  }))
+  message.adoptedChapter = true
 }
 
 const props = defineProps({
