@@ -3584,12 +3584,30 @@ const storyAgentContext = () => {
   const chapters = Array.isArray(book?.chapters) ? book.chapters : []
   const chapter = chapters.find((c) => String(c?.id || '') === String(selectedChapterId.value || '')) || chapters[0] || null
   const md = chapter ? String(getChapterMarkdown(chapter) || '') : ''
+  // 原生能力 → agent 工具的数据面：正文/构思/大纲以快照域上行（问全书/找伏笔/理线索在 agent 侧取证）
+  const manuscriptItems = chapters.slice(0, 12).map((c) => {
+    const text = String(getChapterMarkdown(c) || '')
+    return { id: `ch_${String(c?.id || '')}`, title: String(c?.title || '未命名章节'), type: '章节', text: text.slice(-1600), sourceRefs: [`chapter:${String(c?.id || '')}`] }
+  }).filter((item) => item.text)
+  let notesItems = []
+  let outlineItems = []
+  try {
+    notesItems = listExplorationDocuments(selectedBookId.value).slice(0, 20).map((doc) => ({
+      id: String(doc?.id || ''), title: String(doc?.title || '速记'), type: '构思', text: String(doc?.content || '').slice(0, 600), sourceRefs: [`writing-note:${String(doc?.id || '')}`]
+    })).filter((n) => n.text)
+    outlineItems = listProjectOutlineNodes(selectedBookId.value).slice(0, 30).map((node) => ({
+      id: String(node?.id || ''), title: String(node?.title || ''), type: '大纲', text: String(node?.intent || node?.title || ''), sourceRefs: [`outline:${String(node?.id || '')}`]
+    })).filter((o) => o.title)
+  } catch { /* 构思/大纲读取失败不阻塞正文域 */ }
   return {
     bookTitle: String(book?.title || ''),
     chapterTitle: String(chapter?.title || ''),
     manuscriptTail: md.slice(-2400),
     worldEntries: knowledgeWorldEntries.value,
     chapterEntries: knowledgeChapterEntries.value,
+    manuscriptItems,
+    notesItems,
+    outlineItems,
   }
 }
 const storyAgentEngine = createStoryAgentEngine({
@@ -3607,7 +3625,8 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   sceneProjection: knowledgeAssistantSceneProjection,
   revisionSignal: knowledgeAssistantRevisionSignal,
   agentEngine: storyAgentEngine,
-  agentSessionStore: createAgentSessionStore()
+  agentSessionStore: createAgentSessionStore(),
+  agentEndpoint: String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1:8451')
 })
 function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
   if (!document || !Array.isArray(document.content)) return null

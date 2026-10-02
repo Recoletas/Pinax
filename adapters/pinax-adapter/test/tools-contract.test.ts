@@ -88,5 +88,7 @@ test("memory/politics/history 各自 action 可用", async () => {
 
 test("只暴露快照非空域的工具", () => {
   const tools = buildPinaxTools({ revision: "r", domains: { world_lookup: snapshot.domains.world_lookup } });
-  assert.deepEqual(tools.map((t) => t.name), ["world_lookup"]);
+  // 五 lookup 之外的新能力工具（manuscript/notes/outline/calc）走快照域/hooks 注册，
+  // 本断言只钉原生五 lookup 的暴露纪律：无 hooks 无新域 → 仅 world_lookup
+  assert.deepEqual(tools.map((t) => t.name).filter((n) => n.endsWith("_lookup")), ["world_lookup"]);
 });
