@@ -107,3 +107,34 @@ export function buildResumePrompt(req: TurnRequest): string {
     `目标产出：若本轮是写作类请求，产出叙事正文（约 ${req.maxTokens || 1600} tokens 预算内，可先查资料）；对话类请求直接回应即可。`,
   ].join("\n");
 }
+
+// BeatPlan 强制规划轮（镜像本体「计划先行，规划调用不占资料轮次」）：
+// 规划是独立的一次模型调用，只输出契约 JSON；受理后注入写作轮 system prompt。
+export function buildBeatPlannerPrompt(): string {
+  return [
+    "你是节拍规划器。只输出一个 JSON 对象——不要 markdown、不要解释、不要多余字段。",
+    "字段契约：",
+    '- responseObligation（必填）：本轮输入必须得到什么回应（≤120字）',
+    "- causalSteps（≤4 个字符串）：带因果的推进步骤",
+    '- characterMoves（≤6 个对象）：{ character, action, result? }，result 是动作的可观察后果',
+    "- revealOrChange（必填）：本轮最终新增的信息/关系/目标/局势变化（≤120字）",
+    "- endCondition（必填）：最后一个可观察场景状态（动作完成/台词落地/事实确认）；禁止「故事结束/等待玩家行动」类元叙事",
+    "- avoidRepeats（≤6）：不得重复的既有桥段",
+    "至少一个 causalStep，或一个带 action+result 的 characterMove。产出必须是合法 JSON。",
+  ].join("\n");
+}
+
+export function buildBeatPlannerUserPrompt(req: TurnRequest): string {
+  const blocks = (req.kernel.blocks || [])
+    .map((b) => `【${b.title || b.kind}】${String(b.text ?? "").trim()}`.slice(0, 400))
+    .filter((t) => t.length > 6)
+    .join("\n");
+  return [
+    `模式：${req.mode}`,
+    req.intent ? `本轮意图：${req.intent}` : "",
+    "== 上下文 ==",
+    blocks || "（无注入块）",
+    "== 任务 ==",
+    "为下一轮叙事产出提交节拍计划 JSON。",
+  ].filter(Boolean).join("\n");
+}
