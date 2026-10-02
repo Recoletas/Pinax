@@ -1748,6 +1748,7 @@ import {
   upsertOutlineNode as upsertProjectOutlineNode
 } from '../services/writing/projectOutlineRepository.js'
 import { projectExperienceSession } from '../services/agents/authoring/authoringSessionProjection.js'
+import { adoptStoryAgentTextToChapter } from '../services/agents/storyagent/adoptToChapter.js'
 import { migrateWritingNotesToExplorations } from '../services/writing/authoringPeripheralBridge.js'
 import { listWritingNotes } from '../services/agents/authoring/writingNotes.js'
 import { buildChineseQuoteInsertion } from '../services/writing/writingChineseInput.js'
@@ -1871,12 +1872,42 @@ function handleExternalWorldbookStorageChange(event) {
 function handleAuthoringVisibilityRefresh() {
   if (document.visibilityState === 'visible') refreshBoundWorldbookIfChanged({ notify: true })
 }
+// StoryAgent 采纳链（④）：助手/坞把 agent 产出以事件提交，这里走编辑器事务内追加
+// （appendExperienceTurnToChapter：克隆+指纹去重），随后重载当前章——外围永不直写 localStorage。
+function handleStoryAgentAdopt(event) {
+  const detail = event?.detail || {}
+  const bookId = String(detail.bookId || selectedBookId.value || '')
+  const chapterId = String(detail.chapterId || selectedChapterId.value || '')
+  const text = String(detail.text || '').trim()
+  if (!bookId || !chapterId || !text) return
+  // 采纳前先把编辑器当前内容 persist（否则自动保存的旧内存态会覆盖采纳结果）
+  if (wt3ActiveDoc.value) {
+    const persisted = wt3PersistBeforeLeaving()
+    if (!persisted?.ok) {
+      authoringTask.notify(tr('StoryAgent 采纳失败：编辑器内容尚未保存成功，请重试'))
+      return
+    }
+  } else if (selectedChapterId.value) {
+    saveCurrentChapter()
+  }
+  const result = adoptStoryAgentTextToChapter({ books: books.value, bookId, chapterId, text, sourceId: detail.sourceId })
+  if (!result.ok) {
+    if (result.reason !== 'already-imported') authoringTask.notify(tr('StoryAgent 采纳失败：{reason}', { reason: result.reason || '未知' }))
+    return
+  }
+  books.value = result.books
+  saveBooks()
+  if (selectedChapterId.value === chapterId) selectChapter(chapterId)
+  authoringTask.notify(tr('StoryAgent 片段已采纳到当前章节末尾'))
+}
 onMounted(() => {
   window.addEventListener('storage', handleExternalWorldbookStorageChange)
+  window.addEventListener('sab:adopt-manuscript', handleStoryAgentAdopt)
   document.addEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('storage', handleExternalWorldbookStorageChange)
+  window.removeEventListener('sab:adopt-manuscript', handleStoryAgentAdopt)
   document.removeEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
 })
 // 项目级场景锚点（Task 4）：随章节数据持久化，绑定 unitId + 当前书的世界书。

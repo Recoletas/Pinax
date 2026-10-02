@@ -281,6 +281,19 @@ try {
     check('notes/outline 域随快照上行', ext.domains.notes?.length === 1 && ext.domains.outline?.length === 1)
   }
 
+    console.log('[7d] adoptToChapter 采纳链（合成 turn 过 eligibility + 指纹去重）')
+  {
+    const { adoptStoryAgentTextToChapter } = await import('../src/services/agents/storyagent/adoptToChapter.js')
+    const books = [{ id: 'b1', title: '测试书', worldbookId: '', chapters: [{ id: 'c1', title: '第一章', content: '', editorDocument: null }] }]
+    const r1 = adoptStoryAgentTextToChapter({ books, bookId: 'b1', chapterId: 'c1', text: '沈砚宁把罗盘揣进围裙，潮水正在回来。', sourceId: 'task_x1' })
+    check('首次采纳：ok + unitId + 正文写入章节', r1.ok === true && JSON.stringify(r1.books).includes('罗盘'))
+    const r2 = adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '沈砚宁把罗盘揣进围裙，潮水正在回来。', sourceId: 'task_x1' })
+    check('重复采纳：指纹去重 already-imported', r2.ok === false && r2.reason === 'already-imported')
+    const r3 = adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '第二段不同的内容，潮水正在回来。', sourceId: 'task_x2' })
+    check('不同来源可再次追加', r3.ok === true)
+    check('空文本拒绝', adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '   ', sourceId: 't' }).ok === false)
+  }
+
     console.log('[8] experienceAgentRoute（体验侧开关路由：映射 + 不可达回落）')
   {
     const { createExperiencePiAgentRoute, experiencePiAgentEnabled } = await import('../src/services/agents/storyagent/experienceAgentRoute.js')
