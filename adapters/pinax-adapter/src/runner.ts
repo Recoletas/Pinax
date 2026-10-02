@@ -9,8 +9,9 @@ import {
   type NarrativeStreamEventType,
 } from "./contract.ts";
 import { buildPinaxTools, type ResourceSnapshot } from "./tools.ts";
-import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, type TurnRequest } from "./prompt.ts";
+import { buildSystemPrompt, buildUserPrompt, buildResumePrompt, buildBeatPlannerPrompt, buildBeatPlannerUserPrompt, type TurnRequest } from "./prompt.ts";
 import type { BeatPlan } from "./beatPlan.ts";
+import { narrativeBeatPlanRevision, validateNarrativeBeatPlanInput } from "./beatPlan.ts";
 import type { AdapterConfig } from "./config.ts";
 import type { TaskSnapshot } from "./store.ts";
 
@@ -254,6 +255,47 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
       ac.signal.addEventListener("abort", () => reject(new Error(String((ac.signal.reason as Error)?.message || "PINAX_ADAPTER_ABORTED"))));
     });
     try {
+      // BeatPlan 强制规划轮（②）：计划先行——独立一次模型调用只产规划 JSON，
+      // 校验受理后注入写作轮 system prompt（镜像本体「规划调用不占资料轮次」）。
+      // 失败/超时静默降级：无计划也照常写（快照 beatPlan=null 诚实标记）。
+      if (beatPlanEnabled) {
+        try {
+          let planText = "";
+          const planAgent = new Agent({
+            initialState: { systemPrompt: buildBeatPlannerPrompt(), model, tools: [] },
+            thinkingBudgets: BUDGETS[cfg.thinking] ?? BUDGETS.medium,
+            streamFn: (m, context, options) =>
+              models.streamSimple(m, context as never, { ...(options as Record<string, unknown> | undefined), maxTokens: 900, timeoutMs: Math.min(90_000, budget.agentTimeoutMs) }) as never,
+          });
+          planAgent.subscribe((ev) => {
+            const aev = (ev as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
+            if (aev?.type === "text_delta" && aev.delta) planText += aev.delta;
+            const u = usageOf((ev as { message?: unknown }).message);
+            if (u) {
+              counters.usage.inputTokens += u.inputTokens;
+              counters.usage.outputTokens += u.outputTokens;
+              counters.usage.totalTokens += u.totalTokens;
+            }
+          });
+          await Promise.race([
+            planAgent.prompt(buildBeatPlannerUserPrompt(req)),
+            abortGate,
+          ]);
+          const jsonMatch = /\{[\s\S]*\}/.exec(planText);
+          if (jsonMatch) {
+            const r = validateNarrativeBeatPlanInput(JSON.parse(jsonMatch[0]));
+            if (r.valid) {
+              runExtras.beatPlan = { ...(r.plan as unknown as Record<string, unknown>), revision: narrativeBeatPlanRevision(r.plan) };
+              const frame = `event: beat.plan\ndata: ${JSON.stringify({ requestId: req.requestId, at: Date.now(), plan: runExtras.beatPlan })}\n\n`;
+              for (const l of listeners) l(frame);
+            }
+          }
+          if (runExtras.beatPlan) {
+            const plan = runExtras.beatPlan as unknown as BeatPlan & { revision: string };
+            (agent.state as { systemPrompt: string }).systemPrompt = `${agent.state.systemPrompt}\n\n== 已受理节拍计划（revision: ${plan.revision}，必须严格遵守）==\n回应义务：${plan.responseObligation}\n因果步骤：${plan.causalSteps.join("；") || "（无）"}\n角色行动：${plan.characterMoves.map((m) => `${m.character}：${m.action}→${m.result || "?"}`).join("；") || "（无）"}\n最终新增：${plan.revealOrChange}\n收束条件：${plan.endCondition}\n避免重复：${plan.avoidRepeats.join("；") || "（无）"}`;
+          }
+        } catch { /* 规划失败静默降级：无计划照常写 */ }
+      }
       await Promise.race([
         opts.resumeMessages?.length ? agent.prompt(buildResumePrompt(req)) : agent.prompt(buildUserPrompt(req)),
         abortGate,
