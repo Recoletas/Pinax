@@ -6,6 +6,32 @@ export interface BridgeBudget {
   maxItemsPerDomain?: number;
 }
 
+export type BridgeTerminalStatus = "completed" | "failed" | "cancelled";
+
+export interface BridgeStatus {
+  phase: "step" | "tool";
+  tool?: string;
+  action?: string;
+  stepIndex?: number;
+  toolChoice?: string;
+}
+
+export interface BridgeTaskEvent {
+  taskId?: string;
+  bookId?: string;
+  status?: "running" | BridgeTerminalStatus;
+  [key: string]: unknown;
+}
+
+export interface BridgeCallbacks {
+  onChunk?: (chunk: { content: string }) => void;
+  /** 只在确认 completed 且无 error 时调用；部分生成或取消不算完成。 */
+  onComplete?: (result: { content: string }) => void;
+  onTask?: (data: BridgeTaskEvent, eventName: "task.started" | "task.completed" | "task.failed") => void;
+  /** 与顶层 onStatus 同时传入时均会通知；同一函数只调用一次。 */
+  onStatus?: ((status: BridgeStatus) => void) | null;
+}
+
 export interface BridgeRunArgs {
   kernel: any;
   index: any;
@@ -15,17 +41,11 @@ export interface BridgeRunArgs {
   formatInstructions?: string;
   maxTokens?: number;
   requestId?: string;
-  /** 作品归属（PR #4 审阅②）：任务开始时固定，适配器全程携带并落账 */
+  /** 真实作品 ID，独立于关联的世界书 ID。 */
   bookId?: string | null;
   signal?: AbortSignal | null;
-  callbacks?: {
-    onChunk?: (chunk: { content: string }) => void;
-    onComplete?: (r: { content: string }) => void;
-    onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
-    onReasoning?: (chunk: { content: string }) => void;
-    onBeatPlan?: (plan: Record<string, unknown>) => void;
-  };
-  onStatus?: ((status: unknown) => void) | null;
+  callbacks?: BridgeCallbacks;
+  onStatus?: ((status: BridgeStatus) => void) | null;
   budget?: BridgeBudget | null;
   taskId?: string | null;
 }
@@ -38,18 +58,19 @@ export interface BridgeRunResult {
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
   toolRounds: number;
   totalCalls: number;
+  error?: { code?: string; message?: string; retryable?: boolean };
   trace: {
     engine: string;
     taskId: string | null;
-    status: string;
+    status: BridgeTerminalStatus;
+    bookId?: string;
+    resumed?: boolean;
     steps?: number;
     toolRounds?: number;
     calls?: { name: string; action?: string }[];
     [key: string]: any;
   };
   finalToolResults: unknown[];
-  /** BeatPlan 规划轮（②）：受理的节拍计划；未提交时 null */
-  beatPlan?: Record<string, unknown> | null;
 }
 
 export interface BridgeResumeArgs {
@@ -57,27 +78,31 @@ export interface BridgeResumeArgs {
   kernel: any;
   index: any;
   intent?: string | null;
-  /** 归属不变式：续跑重发同值；漏发时适配器以快照为准（旧任务永远归旧作品） */
+  /** 必须与已存任务归属一致；缺省时由服务端使用原归属。 */
   bookId?: string | null;
-  callbacks?: {
-    onChunk?: (chunk: { content: string }) => void;
-    onComplete?: (r: { content: string }) => void;
-    onTask?: (data: Record<string, unknown> | null, eventName: string) => void;
-    onReasoning?: (chunk: { content: string }) => void;
-    onBeatPlan?: (plan: Record<string, unknown>) => void;
-  };
-  onStatus?: ((status: unknown) => void) | null;
+  callbacks?: BridgeCallbacks;
+  onStatus?: ((status: BridgeStatus) => void) | null;
   signal?: AbortSignal | null;
   requestId?: string;
+}
+
+export interface BridgeCancelResult {
+  ok: true;
+  stopped: true;
+  taskId: string;
+  status: BridgeTerminalStatus;
+  /** 只有服务端确认 status=cancelled 才为 true；自然完成/失败为 false。 */
+  cancelled: boolean;
+  [key: string]: unknown;
 }
 
 export interface PinaxNarrativeAgentBridge {
   healthz(): Promise<Record<string, unknown> | null>;
   run(args: BridgeRunArgs): Promise<BridgeRunResult>;
   status(taskId: string): Promise<Record<string, unknown> | null>;
-  cancel(taskId: string): Promise<Record<string, unknown> | null>;
-  resume(args: BridgeResumeArgs): Promise<{ ok: boolean; finalContent: string; trace: Record<string, unknown> }>;
-  tasks(): Promise<Record<string, unknown> | null>;
+  /** HTTP/网络/未确认终态时 reject；不会以 null 隐藏失败。 */
+  cancel(taskId: string, options?: { signal?: AbortSignal | null }): Promise<BridgeCancelResult>;
+  resume(args: BridgeResumeArgs): Promise<BridgeRunResult>;
 }
 
 export declare function createPiNarrativeAgentBridge(options?: {
