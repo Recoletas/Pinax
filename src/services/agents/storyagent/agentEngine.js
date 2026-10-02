@@ -25,7 +25,15 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         }),
       },
     }
-    const index = { revision: `saew_${worldEntries.length}`, byDomain: { world: worldEntries } }
+    const index = {
+      revision: `saew_${worldEntries.length}_${(ctx.manuscriptItems || []).length}_${(ctx.notesItems || []).length}`,
+      byDomain: {
+        world: worldEntries,
+        manuscript: Array.isArray(ctx.manuscriptItems) ? ctx.manuscriptItems : [],
+        notes: Array.isArray(ctx.notesItems) ? ctx.notesItems : [],
+        outline: Array.isArray(ctx.outlineItems) ? ctx.outlineItems : [],
+      },
+    }
     return { kernel, index, worldEntries }
   }
 

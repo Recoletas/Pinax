@@ -107,7 +107,8 @@ export function useAuthoringKnowledgeAssistant({
   querySession = createAuthoringKnowledgeQuerySession(),
   executeQuery = requestAdvisorTask,
   agentEngine = null,
-  agentSessionStore = null
+  agentSessionStore = null,
+  agentEndpoint = 'http://127.0.0.1:8451'
 } = {}) {
   const messages = ref([])
   const draft = ref('')
@@ -193,18 +194,17 @@ export function useAuthoringKnowledgeAssistant({
     const project = activeProjectId.value
     if (!project || !question || busy.value) return false
 
-    // 融合（B 路线）自动路由：特定知识意图/free → 既有 advisor 链；whole-book 按
-    // 确定性规则（@ 钉住参考 / 线程已触碰 Agent / 创作词表）分流到 pi-agent 引擎。
+    // 融合（B 路线→工具化）：agent 为单一入口——全部消息交 pi-agent 引擎，
+    // 知识/查证类由 agent 的工具环取证（manuscript/notes/outline/五 lookup/calc），
+    // 不再做消息前词表路由。适配器不可达时回落原生链（知识意图仍可用，
+    // free/创作类需要服务端模型），保证作者不被堵死。
     if (agentEngine) {
-      const decision = routeAgentIntent({
-        intent,
-        text: question,
-        hasPinnedRefs: pinnedRefs.value.length > 0,
-        agentTouched: agentTouched.value
-      })
-      if (decision.engine === 'agent') {
-        return runAgentTurn({ question, refs: pinnedRefs.value.map((item) => ({ ...item })) })
-      }
+      try {
+        const probe = await fetch(`${agentEndpoint}/healthz`, { signal: AbortSignal.timeout(1500) })
+        if (probe.ok) {
+          return runAgentTurn({ question, refs: pinnedRefs.value.map((item) => ({ ...item })) })
+        }
+      } catch { /* 适配器不可达 → 走下方原生链 */ }
     }
 
     cancel()

@@ -21,6 +21,9 @@
 
 const DOMAINS = {
   world: 'world_lookup',
+  manuscript: 'manuscript',
+  notes: 'notes',
+  outline: 'outline',
   geo: 'geo_lookup',
   history: 'history_lookup',
   memory: 'memory_lookup',
@@ -42,7 +45,8 @@ export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
       id: text(r.id, 120),
       title: text(r.title || r.name || '', 120),
       type: text(r.type || '', 60),
-      summary: text(r.summary || r.content || r.description || r.text || '', 520),
+      summary: text(r.summary || r.content || r.description || '', 520),
+      ...(r.text ? { text: text(r.text, 1600) } : {}),
       aliases: (r.aliases || []).map((a) => text(a, 60)).filter(Boolean),
       tags: (r.tags || []).map((t) => text(t, 40)).filter(Boolean),
       relations: (r.relations || []).slice(0, 12).map((rel) => ({ type: text(rel.type || 'related', 40), targetId: text(rel.targetId || rel.id || '', 120) })),

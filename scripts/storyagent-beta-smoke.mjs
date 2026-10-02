@@ -258,7 +258,30 @@ try {
   check('engine.cancel 走 /cancel 端点', engineCalls.some((c) => c.url.endsWith('/cancel')))
   check('engine.tasks 走 /tasks/list', await (async () => { await engine.tasks(); return engineCalls.some((c) => c.url.endsWith('/tasks/list')) })())
 
-  console.log('[8] experienceAgentRoute（体验侧开关路由：映射 + 不可达回落）')
+  console.log('[7b] toolManifest 转换接口 + calc（kit 缺位补齐）')
+  {
+    const { manifestToAgentTool, safeCalcEval } = await import('../adapters/pinax-adapter/src/toolManifest.ts')
+    const tool = manifestToAgentTool({
+      id: 'calc_evaluate', title: '确定性算术', desc: '复算数值', kind: 'query', knowledge: [],
+      execute: async (p) => { try { return JSON.stringify({ ok: true, value: safeCalcEval(String(p.expression)) }) } catch (e) { return JSON.stringify({ ok: false, error: String(e.message || e) }) } },
+    })
+    check('KitOp 形状清单 → agent 工具（name/描述/knowledge 标注）', tool.name === 'calc_evaluate' && tool.label === '确定性算术' && tool.description.includes('复算数值'))
+    const out = JSON.parse((await tool.execute('x', { expression: '1200 * 3 + 450 / 2' })).content[0].text)
+    check('calc 复算确定性求值', out.ok === true && out.value === 3825)
+    const bad = JSON.parse((await tool.execute('x', { expression: '2 + evil()' })).content[0].text)
+    check('白名单外输入拒绝（无 eval）', bad.ok === false)
+    const msTool = manifestToAgentTool({ id: 'manuscript_search', title: '正文检索', desc: 'd', knowledge: ['manuscript'], execute: async () => JSON.stringify({ ok: true, hits: [] }) })
+    check('知识域标注进工具描述', msTool.description.includes('manuscript'))
+  }
+
+  console.log('[7c] 桥快照新域（manuscript/notes/outline）映射')
+  {
+    const ext = buildResourceSnapshot({ revision: 'rev_ext', byDomain: { world: entries, manuscript: [{ id: 'ch_1', title: '第一章', text: '沈砚宁听见三声轻叩。' }], notes: [{ id: 'n1', title: '速记', text: '伏笔：断线的风筝' }], outline: [{ id: 'o1', title: '第一卷', text: '收束于码头对峙' }] } })
+    check('manuscript 域映射为 manuscript 工具数据', ext.domains.manuscript?.length === 1 && ext.domains.manuscript[0].text.includes('轻叩'))
+    check('notes/outline 域随快照上行', ext.domains.notes?.length === 1 && ext.domains.outline?.length === 1)
+  }
+
+    console.log('[8] experienceAgentRoute（体验侧开关路由：映射 + 不可达回落）')
   {
     const { createExperiencePiAgentRoute, experiencePiAgentEnabled } = await import('../src/services/agents/storyagent/experienceAgentRoute.js')
     check('localStorage 缺失环境默认关闭', experiencePiAgentEnabled() === false)
