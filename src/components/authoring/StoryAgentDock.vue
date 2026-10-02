@@ -87,7 +87,8 @@ function fmtTime(ts) {
 }
 
 onMounted(() => {
-  refresh()
+  // 零外发原则：挂载期不发任何网络请求（无密钥旅程的网络守卫会拦截本地探测）；
+  // 引擎探测仅在用户展开面板或手动刷新时进行。
   loadSessions()
 })
 watch(open, (v) => {
