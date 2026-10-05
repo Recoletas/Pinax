@@ -42,13 +42,13 @@ export const CORPUS = Object.freeze([
     modelResponse: {
       proposals: [
         // 反例：把转述升格为作者断言（「旅人见过海怪」positive 无 report 标记）
-        // —— 校验层放行文本本身，polarity 保留在 proposal；断言「升格」由真实模型
-        // 质量门禁人工判定，确定性层只保证 quote 命中与字段完整。
+        // —— 提取器保留完整原句作为 claim，保证没有独立 polarity 列的
+        // 账本与生产 reader 也不会把「说过」丢成「实际见过」。
         { subject: '旅人', predicate: '见过', object: '海怪', quote: '旅人说他见过海怪。', polarity: 'report', confidence: 0.8 }
       ],
       unextractable: { reason: '' }
     },
-    expect: { kept: 1, keptPredicates: ['见过'], rejectedReasons: [] }
+    expect: { kept: 1, keptPredicates: ['原文记载（见过）'], rejectedReasons: [] }
   },
 
   // ---- 引文校验（编造/改写引文必须拒绝） ----

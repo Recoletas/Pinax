@@ -2,6 +2,7 @@
 import { tr } from '../../i18n/index.js'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ImageModelPicker from './ImageModelPicker.vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { generateImage, getImageProviderCapabilities } from '../../services/media/imageProviderService'
 import { listImageProviderConfigs } from '../../services/media/imageProviderConfigStore'
 import {
@@ -12,7 +13,7 @@ import {
 } from '../../services/media/mediaAssetStore'
 import { COMIC_IMAGE_NEGATIVE_PROMPT } from '../../services/media/comicImagePrompt'
 import { draftImageDescription } from '../../services/media/imageDescriptionService.js'
-import { loadImageGenerationRun, removeImageGenerationRun, saveImageGenerationRun } from '../../services/media/imageGenerationRunStore.js'
+import { loadImageGenerationRun, removeImageGenerationRun, saveImageGenerationRun, updateImageGenerationRunItem } from '../../services/media/imageGenerationRunStore.js'
 
 const props = defineProps({
   storageKey: {
@@ -202,11 +203,16 @@ const activeMediaPurpose = computed(() => (
   activeMode.value === 'illustration' ? 'illustration' : props.mediaPurpose
 ))
 const selectedSizeKey = computed(() => `${imageWidth.value}x${imageHeight.value}`)
+const hasCustomSize = computed(() => !sizePresets.some((preset) => `${preset.width}x${preset.height}` === selectedSizeKey.value))
 const selectedPreviewImage = computed(() => imageLibrary.value[imagePreviewIndex.value] || null)
 const comparisonImage = computed(() => imageLibrary.value.find((image) => image.id === comparisonImageId.value && image.id !== selectedPreviewImage.value?.id) || null)
 const selectedModelConfig = computed(() => modelConfigs.value.find((item) => item.id === imageSelectedModel.value) || null)
+const selectedModelCapabilities = computed(() => getImageProviderCapabilities(selectedModelConfig.value || {}))
+const referenceSelectionLimit = computed(() => Math.max(1, Number(selectedModelCapabilities.value.maxReferenceImages) || 1))
+const characterReferenceOnly = computed(() => selectedModelCapabilities.value.referenceKind === 'character')
+const referenceMaxFileSizeMb = computed(() => characterReferenceOnly.value ? 10 : 12)
 const selectedModelSupportsReference = computed(() => (
-  getImageProviderCapabilities(selectedModelConfig.value || {}).identityReference === true
+  selectedModelCapabilities.value.identityReference === true
 ))
 const selectedModelSupportsStrength = computed(() => ['sd_webui', 'stability'].includes(selectedModelConfig.value?.type)
   || (selectedModelConfig.value?.type === 'http' && String(selectedModelConfig.value?.requestTemplate || '').includes('{{reference_strength}}')))
@@ -226,7 +232,10 @@ const allReferenceCandidates = computed(() => {
 const selectedReferenceImages = computed(() => selectedReferenceIds.value
   .map((id) => allReferenceCandidates.value.find((candidate) => candidate.id === id))
   .filter(Boolean)
-  .slice(0, 3))
+  .slice(0, referenceSelectionLimit.value))
+watch(referenceSelectionLimit, (limit) => {
+  selectedReferenceIds.value = selectedReferenceIds.value.slice(-limit)
+})
 watch(() => [imageSelectedModel.value, selectedReferenceIds.value.join('|')], () => { allowTextOnlyReference.value = false })
 const effectiveLibrarySourceRefs = computed(() => (
   Array.isArray(props.librarySourceRefs) ? props.librarySourceRefs : props.sourceRefs
@@ -267,16 +276,14 @@ const selectedActionGuard = computed(() => {
     reason: provenanceReason || String(supplied.reason || supplied.insertReason || supplied.saveReason || '')
   }
 })
-const emptyResultHint = computed(() => {
-  const prompt = String(imagePrompt.value || props.initialPrompt || selectedTextText.value).trim()
-  if (prompt) return tr('准备生成：{prompt}', { prompt: `${prompt.slice(0, 72)}${prompt.length > 72 ? '…' : ''}` })
-  return '写下画面描述后，生成的候选会在这里并排比较。'
-})
+const generationBusyElsewhere = computed(() => imageGenerating.value && activeJob.value?.libraryScopeKey !== libraryScopeKey.value)
+const emptyResultHint = computed(() => '生成的图片会显示在这里，可选用或保存。')
 
 onMounted(async () => {
   loadModelConfigs()
   await reloadLibraries()
-  interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
+  const record = loadImageGenerationRun(libraryScopeKey.value, { activeRunId: activeGeneration?.job?.runId })
+  interruptedRun.value = record?.runId === activeGeneration?.job?.runId ? null : record
   if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: tr('上次任务在刷新前未结束；已恢复 {count} 张已保存成果，未完成项不会自动重发。', { count: interruptedRun.value.items.filter((item) => item.state === 'saved').length }) }
 })
 
@@ -286,11 +293,15 @@ watch(availableModes, (modes) => {
   }
 }, { immediate: true })
 watch(libraryScopeKey, () => {
+  const live = activeGeneration?.job?.libraryScopeKey === libraryScopeKey.value ? activeGeneration : null
   imagePreviewIndex.value = -1
-  imageJobItems.value = []
+  imageJobItems.value = live?.items || []
   comparisonImageId.value = ''
-  generationStatus.value = { kind: 'idle', message: '' }
-  interruptedRun.value = loadImageGenerationRun(libraryScopeKey.value)
+  generationStatus.value = live
+    ? { kind: 'generating', message: tr('正在生成 {count} 张候选…', { count: live.job.count }) }
+    : { kind: 'idle', message: '' }
+  const record = loadImageGenerationRun(libraryScopeKey.value, { activeRunId: activeGeneration?.job?.runId })
+  interruptedRun.value = record?.runId === live?.job?.runId ? null : record
   if (interruptedRun.value) generationStatus.value = { kind: 'cancelled', message: tr('上次任务在刷新前未结束；已恢复 {count} 张已保存成果，未完成项不会自动重发。', { count: interruptedRun.value.items.filter((item) => item.state === 'saved').length }) }
   void reloadLibraries()
 })
@@ -298,7 +309,7 @@ watch(allReferenceCandidates, (candidates) => {
   const availableIds = new Set(candidates.map((candidate) => candidate.id))
   const retained = selectedReferenceIds.value.filter((id) => availableIds.has(id))
   const automatic = candidates.filter((candidate) => candidate.autoSelected === true).map((candidate) => candidate.id)
-  selectedReferenceIds.value = [...new Set([...retained, ...automatic])].slice(-3)
+  selectedReferenceIds.value = [...new Set([...retained, ...automatic])].slice(-referenceSelectionLimit.value)
 })
 watch(
   () => [props.contextKey, props.initialPrompt],
@@ -421,6 +432,11 @@ async function generateImages({ retry = false } = {}) {
   }
 
   if (activeGeneration) return
+  const capabilities = getImageProviderCapabilities(cfg)
+  if (capabilities.textToImage !== true) {
+    generationStatus.value = { kind: 'error', message: capabilities.configurationError || '所选模型暂不可生成，请检查模型配置。' }
+    return
+  }
   if (!previous && selectedReferenceImages.value.length && !selectedModelSupportsReference.value && !allowTextOnlyReference.value) {
     generationStatus.value = { kind: 'error', message: '当前模型不支持图片参考。请选择其他模型，或明确选择仅用文字生成。' }
     return
@@ -451,6 +467,7 @@ async function generateImages({ retry = false } = {}) {
   latestGeneration = running
   activeJob.value = frozen
   imageGenerating.value = true
+  libraryLoadRevision += 1
   generationStatus.value = {
     kind: 'running',
     message: frozen.count > 1 ? tr('正在生成 {count} 张候选…', { count: frozen.count }) : '正在生成候选…'
@@ -556,9 +573,9 @@ async function generateImages({ retry = false } = {}) {
       imagePreviewIndex.value = committedEntries.length ? 0 : imagePreviewIndex.value
       if (committedEntries[0]) emit('image-preview', committedEntries[0])
     }
-    generationStatus.value = {
+    if (libraryScopeKey.value === frozen.libraryScopeKey) generationStatus.value = {
       kind: 'success',
-      message: `${tr('已保存 {count} 张候选。', { count: archivedEntries.length })} ${unsavedImages.value.length ? tr('有图片尚未保存，可重试保存或先下载。') : ''}`
+      message: `${tr('已保存 {count} 张候选。', { count: archivedEntries.length })} ${unsavedImages.value.some((item) => item.scopeKey === frozen.libraryScopeKey) ? tr('有图片尚未保存，可重试保存或先下载。') : ''}`
     }
     emit('generation-complete', {
       job: frozen,
@@ -577,7 +594,7 @@ async function generateImages({ retry = false } = {}) {
     const cancelled = controller.signal.aborted || running.discarded || isAbortError(error)
     if (cancelled) {
       removeImageGenerationRun(frozen.runId)
-      if (latestGeneration === running) {
+      if (latestGeneration === running && libraryScopeKey.value === frozen.libraryScopeKey) {
         generationStatus.value = cleanupFailures.length
           ? { kind: 'error', message: tr('已取消，但有 {count} 张候选未能清理，请刷新历史后重试。', { count: cleanupFailures.length }) }
           : { kind: 'cancelled', message: tr('已停止，保留 {count} 张已保存候选。', { count: archivedEntries.length }) }
@@ -592,13 +609,15 @@ async function generateImages({ retry = false } = {}) {
         })
       }
     } else {
+      const retainedPrefix = archivedEntries.length
+        ? `${tr('已保留 {count} 张候选。', { count: archivedEntries.length })} ` : ''
       const errorStatus = {
         kind: 'error',
         message: cleanupFailures.length
           ? tr('生成失败，且有 {count} 张候选未能清理。', { count: cleanupFailures.length })
-          : `${tr('已保留 {count} 张候选。', { count: archivedEntries.length })} ${error?.message || tr('后续生成失败。')}`
+          : `${retainedPrefix}${tr(error?.message || '后续生成失败。')}`
       }
-      if (latestGeneration === running) generationStatus.value = errorStatus
+      if (latestGeneration === running && libraryScopeKey.value === frozen.libraryScopeKey) generationStatus.value = errorStatus
       emit('generation-error', { job: frozen, error, message: errorStatus.message, cleanupFailures })
       persistImageRun(running, 'partial')
     }
@@ -621,9 +640,9 @@ async function retryImageStorage(item) {
     const entry = await addGeneratedImageToLibrary(item.storageKey, item.candidate, item.storageOptions)
     item.item.state = 'saved'
     item.item.mediaAssetId = entry.mediaAssetId || entry.id
+    updateImageGenerationRunItem(item.candidate.generationParams?.runId, item.item)
     if (!item.entries.some((image) => image.id === entry.id)) item.entries.push(entry)
     unsavedImages.value = unsavedImages.value.filter((pending) => pending !== item)
-    if (imageJobItems.value.length && imageJobItems.value.every((candidate) => candidate.state === 'saved')) removeImageGenerationRun(item.candidate.generationParams?.runId)
     if (item.scopeKey === libraryScopeKey.value) {
       imageLibrary.value = [entry, ...imageLibrary.value.filter((image) => image.id !== entry.id)].slice(0, 20)
       imagePreviewIndex.value = 0
@@ -631,6 +650,7 @@ async function retryImageStorage(item) {
     }
   } catch (error) {
     item.item.state = 'persist-failed'
+    updateImageGenerationRunItem(item.candidate.generationParams?.runId, item.item)
     item.error = error.message || '保存失败'
   } finally {
     savingImages.value = false
@@ -688,8 +708,8 @@ function reuseImageParameters(image) {
   imageNegativePrompt.value = image.negativePrompt || ''
   imageStylePreset.value = image.generationParams?.stylePreset || 'none'
   imageReferencePrompt.value = image.generationParams?.referencePrompt || ''
-  imageWidth.value = image.width || 1024
-  imageHeight.value = image.height || 1024
+  imageWidth.value = image.generationParams?.width || image.width || 1024
+  imageHeight.value = image.generationParams?.height || image.height || 1024
   const config = modelConfigs.value.find((config) => config.type === image.modelType && config.defaultModel === image.modelId)
   imageSelectedModel.value = config?.id || ''
   const ids = new Set(image.referenceImageIds || [])
@@ -708,7 +728,12 @@ function cancelGeneration(reason = 'user') {
   if (activeJob.value?.jobId === running.job.jobId) activeJob.value = null
   imageGenerating.value = false
   flushPendingPromptSync()
-  generationStatus.value = { kind: 'cancelled', message: '已停止后续生成，已完成的图片会保留。' }
+  generationStatus.value = {
+    kind: 'cancelled',
+    message: running.job.libraryScopeKey === libraryScopeKey.value
+      ? '已停止后续生成，已完成的图片会保留。'
+      : '已停止上次生成，可继续当前图片创作。'
+  }
   if (!running.archiveStarted) {
     running.cancelEmitted = true
     emit('generation-cancel', { job: running.job, reason, cleanupFailed: false, cleanupFailures: [] })
@@ -780,7 +805,7 @@ function createFrozenGenerationJob(config) {
     width: Number(imageWidth.value),
     height: Number(imageHeight.value),
     count: Math.min(4, Math.max(1, Math.floor(Number(imageCount.value) || 1))),
-    referenceImageIds: (getImageProviderCapabilities(config).imageToImage ? selectedReferenceImages.value : []).map((reference) => String(reference.mediaAssetId || reference.id || '')).filter(Boolean),
+    referenceImageIds: (getImageProviderCapabilities(config).identityReference ? selectedReferenceImages.value : []).map((reference) => String(reference.mediaAssetId || reference.id || '')).filter(Boolean),
     referenceStrength: Number(referenceStrength.value),
     model: {
       configId: String(config.id || ''),
@@ -862,7 +887,7 @@ function toggleReference(candidate) {
     selectedReferenceIds.value = selectedReferenceIds.value.filter((item) => item !== id)
     return
   }
-  selectedReferenceIds.value = [...selectedReferenceIds.value, id].slice(-3)
+  selectedReferenceIds.value = [...selectedReferenceIds.value, id].slice(-referenceSelectionLimit.value)
   emit('image-preview', {
     ...candidate,
     prompt: referenceLabel(candidate),
@@ -879,17 +904,20 @@ async function handleReferenceUpload(event) {
   const scope = { storageKey: props.storageKey, projectId: props.projectId, sourceRefs: cloneSerializable(props.sourceRefs, []), key: libraryScopeKey.value }
   const files = [...(event.target?.files || [])]
     .filter(isSupportedLocalImage)
-    .slice(0, 3)
+    .slice(0, referenceSelectionLimit.value)
   const uploaded = []
   referenceUploadMessage.value = ''
   for (const file of files) {
-    if (file.size > 12 * 1024 * 1024) {
-      referenceUploadMessage.value = tr('{name} 超过 12 MB，未导入', { name: file.name })
+    if (file.size >= referenceMaxFileSizeMb.value * 1024 * 1024) {
+      referenceUploadMessage.value = tr('{name} 需小于 {size} MB，未导入', { name: file.name, size: referenceMaxFileSizeMb.value })
       continue
     }
     try {
       let data = await fileToDataUrl(file)
       const mime = await verifyReferenceImage(data, file)
+      if (characterReferenceOnly.value && !['image/jpeg', 'image/png'].includes(mime)) {
+        throw new Error(tr('当前模型的人物参考仅支持 JPG 或 PNG。'))
+      }
       data = data.replace(/^data:[^;]*;/, `data:${mime};`)
       if (scope.key !== libraryScopeKey.value) break
       if ([...allReferenceCandidates.value, ...uploaded].some((image) => image.data === data)) continue
@@ -917,7 +945,7 @@ async function handleReferenceUpload(event) {
   storedReferenceImages.value = [...uploaded, ...storedReferenceImages.value]
     .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
     .slice(0, 20)
-  selectedReferenceIds.value = [...selectedReferenceIds.value, ...uploaded.map((item) => item.id)].slice(-3)
+  selectedReferenceIds.value = [...selectedReferenceIds.value, ...uploaded.map((item) => item.id)].slice(-referenceSelectionLimit.value)
   if (uploaded[0]) {
     referenceUploadMessage.value = tr('已导入 {count} 张本地参考图', { count: uploaded.length })
     emit('image-preview', {
@@ -1030,7 +1058,7 @@ async function deleteSelectedImage() {
 </script>
 
 <template>
-  <section
+    <section
     class="media-generation-inline"
     :class="[`media-generation-inline--${layout}`, `media-generation-inline--${presentation}`]"
     :data-mobile-pane="mobilePane"
@@ -1091,12 +1119,30 @@ async function deleteSelectedImage() {
                 </section>
               </div>
 
-              <details v-if="presentation === 'authoring'" class="image-gen-quality-terms">
-                <summary>{{ tr("常用质量词") }}</summary>
-                <div :aria-label="tr('常用质量词')">
-                  <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(tr(term))">{{ tr(term) }}</button>
-                </div>
-              </details>
+              <div class="image-gen-section">
+                <ImageModelPicker
+                  v-model="imageSelectedModel"
+                  :configs="modelConfigs"
+                  @configs-updated="handleConfigsUpdated"
+                />
+                <p v-if="selectedModelCapabilities.configurationError" class="image-gen-reference-message" role="status">{{ tr(selectedModelCapabilities.configurationError) }}</p>
+              </div>
+
+              <div class="image-gen-parameter-grid">
+                <label class="image-gen-compact-field">
+                  <span>{{ tr("画幅") }}</span>
+                  <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
+                    <option v-if="hasCustomSize" :value="selectedSizeKey">{{ imageWidth }}×{{ imageHeight }}</option>
+                    <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ tr(preset.label) }}</option>
+                  </select>
+                </label>
+                <label class="image-gen-compact-field">
+                  <span>{{ tr("数量") }}</span>
+                  <select v-model.number="imageCount">
+                    <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ tr('图片数量：{count}', { count }) }}</option>
+                  </select>
+                </label>
+              </div>
 
               <div v-if="presentation === 'authoring'" class="image-gen-section image-gen-style-section">
                 <div class="image-gen-label-row">
@@ -1115,7 +1161,6 @@ async function deleteSelectedImage() {
                     :title="tr(preset.prompt)"
                     @click="imageStylePreset = preset.id"
                   >
-                    <span aria-hidden="true" :style="{ '--style-position': preset.position }"></span>
                     <strong>{{ tr(preset.label) }}</strong>
                   </button>
                 </div>
@@ -1126,11 +1171,11 @@ async function deleteSelectedImage() {
               </div>
             </template>
 
-            <div v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section">
-              <div class="image-gen-label-row">
-                <label class="image-gen-label">{{ presentation === 'authoring' ? tr("参考图") : tr("参考图库") }}</label>
-                <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / 3</span>
-              </div>
+            <details v-if="showFullReferenceManager" class="image-gen-section image-gen-reference-section" :open="referenceWorkspaceActive">
+              <summary class="image-gen-reference-heading">
+                <span>{{ characterReferenceOnly ? tr('人物参考') : (presentation === 'authoring' ? tr('参考图') : tr('参考图库')) }}</span>
+                <span class="image-gen-reference-count">{{ selectedReferenceImages.length }} / {{ referenceSelectionLimit }}</span>
+              </summary>
               <div class="image-gen-reference-strip">
                 <button
                   v-for="candidate in allReferenceCandidates"
@@ -1152,7 +1197,7 @@ async function deleteSelectedImage() {
                   <span>{{ presentation === 'authoring' ? tr("添加图片") : tr("上传") }}</span>
                 </button>
               </div>
-              <input ref="referenceInput" class="image-gen-reference-input" type="file" accept="image/png,image/jpeg,image/webp" multiple @change="handleReferenceUpload" />
+              <input ref="referenceInput" class="image-gen-reference-input" type="file" :accept="characterReferenceOnly ? 'image/png,image/jpeg' : 'image/png,image/jpeg,image/webp'" :multiple="referenceSelectionLimit > 1" @change="handleReferenceUpload" />
               <p v-if="referenceUploadMessage" class="image-gen-reference-message" role="status">{{ tr(referenceUploadMessage) }}</p>
               <label v-if="selectedReferenceImages.length && selectedModelSupportsStrength" class="image-gen-reference-strength">
                 <span>{{ tr("参考强度") }}</span>
@@ -1163,7 +1208,7 @@ async function deleteSelectedImage() {
                 {{ tr("当前模型不提交本地底图；参考提示仍会作为文字约束加入生成。") }}
                 <label><input v-model="allowTextOnlyReference" type="checkbox" />{{ tr("仅用文字生成，不发送参考图片") }}</label>
               </p>
-              <p v-else-if="selectedReferenceImages.length" class="image-gen-reference-message">{{ tr("图片将作为普通图像参考提交；不保证人物身份、风格或构图一致。") }}</p>
+              <p v-else-if="selectedReferenceImages.length" class="image-gen-reference-message">{{ characterReferenceOnly ? tr('图片仅作为人物主体参考，不用于风格或构图控制。') : tr("图片将作为普通图像参考提交；不保证人物身份、风格或构图一致。") }}</p>
               <label v-if="selectedReferenceImages.length && presentation === 'authoring'" class="image-gen-reference-prompt">
                 <span>{{ tr("参考提示词") }}</span>
                 <textarea
@@ -1173,18 +1218,11 @@ async function deleteSelectedImage() {
                   :placeholder="tr('例如：保持人物脸型和发色，只参考服装，不照搬构图')"
                 ></textarea>
               </label>
-              <p v-if="!selectedReferenceImages.length" class="image-gen-reference-hint">{{ tr("可从已有图片选择，或上传最多 3 张；仅支持参考图的模型会使用它们。") }}</p>
-            </div>
+              <p v-if="!selectedReferenceImages.length" class="image-gen-reference-hint">{{ characterReferenceOnly ? tr('选择一张人物正面图，作为人物主体参考。') : tr('可从已有图片选择或上传，支持数量由当前模型决定。') }}</p>
+            </details>
 
             <template v-if="!referenceWorkspaceActive">
 
-              <div class="image-gen-section">
-                <ImageModelPicker
-                  v-model="imageSelectedModel"
-                  :configs="modelConfigs"
-                  @configs-updated="handleConfigsUpdated"
-                />
-              </div>
 
               <button
                 v-if="hasSeparateReferenceWorkspace"
@@ -1200,23 +1238,15 @@ async function deleteSelectedImage() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
               </button>
 
-              <div class="image-gen-parameter-grid">
-                <label class="image-gen-compact-field">
-                  <span>{{ presentation === 'authoring' ? tr("比例尺寸") : tr("画幅") }}</span>
-                  <select :value="selectedSizeKey" @change="selectSizePreset($event.target.value)">
-                    <option v-for="preset in sizePresets" :key="preset.label" :value="`${preset.width}x${preset.height}`">{{ tr(preset.label) }}</option>
-                  </select>
-                </label>
-                <label class="image-gen-compact-field">
-                  <span>{{ tr("数量") }}</span>
-                  <select v-model.number="imageCount">
-                    <option v-for="count in [1, 2, 3, 4]" :key="count" :value="count">{{ tr('图片数量：{count}', { count }) }}</option>
-                  </select>
-                </label>
-              </div>
-
               <details class="image-gen-section image-gen-advanced">
                 <summary>{{ tr("高级设置") }}</summary>
+              <details v-if="presentation === 'authoring'" class="image-gen-quality-terms">
+                <summary>{{ tr("常用质量词") }}</summary>
+                <div :aria-label="tr('常用质量词')">
+                  <button v-for="term in authoringQualityTerms" :key="term" type="button" @click="appendQualityTerm(tr(term))">{{ tr(term) }}</button>
+                </div>
+              </details>
+
                 <div class="image-gen-label-row">
                   <label class="image-gen-label">{{ tr("负面提示词（可选）") }}</label>
                   <button v-if="presentation === 'authoring'" class="image-gen-inline-link" type="button" @click="useComicSafetyPrompt">{{ tr("使用漫画纯画面约束") }}</button>
@@ -1233,11 +1263,11 @@ async function deleteSelectedImage() {
 
           <div v-if="!referenceWorkspaceActive" class="image-gen-actions">
             <button
-              v-if="!imageGenerating"
+              v-if="!imageGenerating || generationBusyElsewhere"
               class="image-gen-generate-btn"
               type="button"
               @click="generateImages"
-              :disabled="!imagePrompt.trim() || !imageSelectedModel"
+              :disabled="imageGenerating || !imagePrompt.trim() || !imageSelectedModel"
             >
               {{ tr("生成插画") }}
             </button>
@@ -1246,6 +1276,10 @@ async function deleteSelectedImage() {
               {{ tr("取消生成") }}
             </button>
           </div>
+          <p v-if="generationBusyElsewhere" class="image-gen-status" role="status">
+            {{ tr('另一处正在生成图片，完成后可在这里继续。') }}
+            <button type="button" class="image-gen-inline-link" @click="cancelGeneration('user')">{{ tr('停止上次生成') }}</button>
+          </p>
           <p
             v-if="generationStatus.message"
             class="image-gen-status"
@@ -1257,7 +1291,7 @@ async function deleteSelectedImage() {
         </section>
 
         <section v-if="!referenceWorkspaceActive" class="image-gen-results" :aria-label="tr('插画候选')">
-          <div v-if="imageJobItems.length" class="image-gen-item-states" :aria-label="tr('本次图片进度')" aria-live="polite"><span v-for="(item, index) in imageJobItems" :key="item.id">{{ index + 1 }} · {{ tr(imageJobStateLabels[item.state]) }}</span></div>
+          <div v-if="imageJobItems.some(item => item.state !== 'saved')" class="image-gen-item-states" :aria-label="tr('本次图片进度')" aria-live="polite"><span v-for="(item, index) in imageJobItems" :key="item.id">{{ index + 1 }} · {{ tr(imageJobStateLabels[item.state]) }}</span></div>
           <section v-for="item in unsavedImages.filter(item => item.scopeKey === libraryScopeKey)" :key="item.candidate.id" class="image-gen-unsaved" :aria-label="tr('待保存图片')">
             <img :src="item.candidate.data" :alt="tr('生成成功但尚未保存的候选')" />
             <p role="alert">{{ tr("图片已生成，保存失败。关闭或刷新会丢失此图。") }}{{ tr(item.error) }}</p>
@@ -1279,15 +1313,8 @@ async function deleteSelectedImage() {
           </div>
 
           <div v-else class="image-gen-empty" role="status">
-            <div
-              v-if="presentation === 'authoring'"
-              class="image-gen-empty__style-preview"
-              data-test="image-style-preview"
-              :style="{ '--style-position': selectedStylePreset.position }"
-              role="img"
-              :aria-label="tr('{style}画面风格参考', { style: tr(selectedStylePreset.label) })"
-            ></div>
-            <strong>{{ presentation === 'authoring' ? tr("输入画面描述后生成候选") : tr("还没有候选") }}</strong>
+            <WorkbenchIcon name="image" :size="32" class="image-gen-empty__icon" />
+            <strong>{{ tr("还没有候选") }}</strong>
             <span>{{ tr(emptyResultHint) }}</span>
           </div>
 
@@ -1309,22 +1336,27 @@ async function deleteSelectedImage() {
           <div v-if="selectedPreviewImage" class="image-gen-inline-actions">
             <button
               v-if="allowInsertImageToEditor"
-              class="image-preview-action-btn"
+              class="image-preview-action-btn image-preview-action-btn--primary"
               type="button"
               :disabled="selectedActionGuard.insertDisabled"
               @click="emitInsertImage(selectedPreviewImage)"
             >{{ tr("插入正文") }}</button>
-            <button class="image-preview-action-btn" type="button" :disabled="imageGenerating" @click="reuseImageParameters(selectedPreviewImage)">{{ tr("复用参数") }}</button>
-            <a class="image-preview-action-btn" :href="selectedPreviewImage.data" download="pinax-image.png">{{ tr("下载图片") }}</a>
-            <button class="image-preview-action-btn" type="button" :aria-pressed="Boolean(comparisonImageId)" @click="comparisonImageId = comparisonImageId ? '' : selectedPreviewImage.id">{{ comparisonImageId ? tr("取消对照") : tr("固定作对照") }}</button>
-            <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">{{ tr("复制提示词") }}</button>
-            <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" @click="deleteSelectedImage">{{ tr("删除候选") }}</button>
             <button
               class="image-preview-action-btn"
               type="button"
               :disabled="selectedActionGuard.saveDisabled"
               @click="saveToMaterialLib"
             >{{ tr("保存为素材") }}</button>
+            <a class="image-preview-action-btn" :href="selectedPreviewImage.data" download="pinax-image.png"><WorkbenchIcon name="download" :size="16" />{{ tr("下载图片") }}</a>
+            <details class="image-gen-result-more">
+              <summary>{{ tr("更多操作") }}</summary>
+              <div class="image-gen-secondary-actions">
+                <button class="image-preview-action-btn" type="button" :disabled="imageGenerating" @click="reuseImageParameters(selectedPreviewImage)">{{ tr("复用参数") }}</button>
+                <button class="image-preview-action-btn" type="button" :aria-pressed="Boolean(comparisonImageId)" @click="comparisonImageId = comparisonImageId ? '' : selectedPreviewImage.id">{{ comparisonImageId ? tr("取消对照") : tr("固定作对照") }}</button>
+                <button class="image-preview-action-btn" type="button" @click="copyImagePrompt(selectedPreviewImage)">{{ tr("复制提示词") }}</button>
+                <button class="image-preview-action-btn image-preview-action-btn--danger" type="button" :disabled="imageGenerating" @click="deleteSelectedImage">{{ tr("删除候选") }}</button>
+              </div>
+            </details>
           </div>
           <p v-if="selectedActionGuard.reason" class="image-gen-action-reason" role="status">{{ tr(selectedActionGuard.reason) }}</p>
         </section>
@@ -1334,737 +1366,160 @@ async function deleteSelectedImage() {
 </template>
 
 <style scoped>
-.image-gen-item-states { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px 12px; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); }
-.media-generation-inline--authoring .image-gen-empty [data-test="image-style-preview"] { aspect-ratio: 2 / 3; width: min(180px, 45%); }
-.image-gen-current-preview.is-comparing { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.image-gen-current-preview.is-comparing .image-gen-current-caption { grid-column: 1 / -1; }
-.image-gen-advanced summary, .image-gen-quality-terms summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; padding-block: 8px; }
-.image-gen-unsaved { display: grid; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
-.image-gen-unsaved img { width: 100%; max-height: 320px; object-fit: contain; }
-.image-gen-unsaved button, .image-gen-unsaved a { color: var(--accent-primary); background: transparent; border: 0; padding: 8px; text-align: start; cursor: pointer; }
 .media-generation-inline {
   position: relative;
-  display: block;
-  width: 100%;
-  z-index: 2;
-}
-
-.image-generation-workbench {
-  width: 100%;
-}
-
-.image-gen-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.image-gen-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.image-gen-modes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  margin: -2px 0 10px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 52%, transparent);
-}
-
-.image-gen-mode-btn {
-  min-height: 30px;
-  padding: 4px 8px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--archive-ink-soft, var(--text-secondary));
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.image-gen-mode-btn:hover {
-  color: var(--archive-ink, var(--text-primary));
-}
-
-.image-gen-mode-btn.active {
-  border-bottom-color: var(--archive-olive, var(--accent));
-  color: var(--archive-olive-strong, var(--accent));
-  font-weight: 600;
-}
-
-.image-gen-prompt-input {
-  width: 100%;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 58%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 94%, transparent);
-  color: var(--archive-ink, var(--text-primary));
-  padding: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  resize: none;
-}
-
-.image-gen-prompt-input:focus {
-  outline: none;
-  border-color: var(--archive-olive, var(--accent));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--archive-olive) 10%, transparent);
-}
-
-.image-gen-prompt-input.small {
-  min-height: 56px;
-}
-
-.image-gen-section {
-  margin-bottom: 8px;
-}
-
-.image-gen-label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 11px;
-  color: var(--archive-ink-soft, var(--text-secondary));
-}
-
-.image-gen-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 24px;
-}
-
-.image-gen-label-row .image-gen-label {
-  margin-bottom: 0;
-}
-
-.image-gen-reference-count,
-.image-gen-reference-hint {
-  color: var(--archive-ink-soft, var(--text-muted));
-  font-size: 10px;
-}
-
-.image-gen-reference-strip {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.image-gen-reference-thumb,
-.image-gen-reference-upload {
-  position: relative;
-  aspect-ratio: 1;
   min-width: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 56%, var(--border));
-  border-radius: 3px;
-  background: var(--archive-paper-soft, var(--bg-primary));
-  color: var(--archive-ink-soft, var(--text-secondary));
-  cursor: pointer;
-}
-
-.image-gen-reference-thumb.active {
-  border-color: var(--archive-olive, var(--accent));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--archive-olive) 16%, transparent);
-}
-
-.image-gen-reference-thumb img {
   width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
+  color: var(--text-primary);
+  font: 14px/1.5 var(--font-sans);
 }
-
-.image-gen-reference-thumb > span {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--archive-olive, var(--accent));
-  color: var(--archive-paper-soft, var(--accent-text));
-  font-size: 10px;
+.image-generation-workbench, .image-gen-workspace, .image-gen-controls, .image-gen-results { min-width: 0; }
+.image-gen-header, .image-gen-label-row, .image-gen-results-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.image-gen-header { margin-bottom: 16px; }
+.image-gen-title, .image-gen-label { color: var(--text-primary); font-size: 14px; font-weight: 550; }
+.image-gen-label { display: block; margin-bottom: 8px; }
+.image-gen-label-row { min-height: 36px; margin-bottom: 6px; flex-wrap: wrap; }
+.image-gen-label-row .image-gen-label { margin: 0; }
+.image-gen-control-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.image-gen-control-fields:disabled { cursor: wait; }
+.image-gen-section { margin-bottom: 18px; }
+.image-gen-prompt-input, .image-gen-reference-prompt textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 132px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: 12px;
+  background: var(--surface-workbench-raised);
+  color: var(--text-primary);
+  font: 14px/1.65 var(--font-sans);
+  resize: vertical;
 }
-
-.image-gen-reference-upload {
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 4px;
-  border-style: dashed;
-  font-size: 10px;
-}
-
-.image-gen-reference-message {
-  margin: 7px 0 0;
-  color: var(--archive-ink-soft, var(--text-secondary));
-  font-size: 10px;
-  line-height: 1.45;
-}
-
-.image-gen-reference-upload:hover { border-color: var(--archive-olive, var(--accent)); color: var(--archive-olive-strong, var(--accent)); }
+.image-gen-prompt-input::placeholder, .image-gen-reference-prompt textarea::placeholder { color: var(--text-muted); }
+.image-gen-prompt-input.small, .image-gen-reference-prompt textarea { min-height: 78px; }
+.image-gen-prompt-input:focus, .image-gen-reference-prompt textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 42%, transparent); outline-offset: 1px; }
+.image-gen-prompt-count { display: block; margin-top: 5px; color: var(--text-muted); font-size: 12px; text-align: right; }
+.image-gen-description-actions, .image-gen-quality-terms > div { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; }
+.image-gen-inline-link { min-height: 36px; padding: 6px 0; border: 0; border-radius: 10px; background: transparent; color: var(--accent); font: 13px/1.4 var(--font-sans); cursor: pointer; text-align: start; }
+.image-gen-inline-link:hover { color: var(--text-primary); }
+.image-gen-description-draft { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.image-gen-description-draft textarea { flex-basis: 100%; }
+.image-gen-quality-terms { margin-bottom: 16px; }
+.image-gen-quality-terms button { min-height: 36px; padding: 6px 10px; border: 0; border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.image-gen-style-section { margin-bottom: 12px; }
+.image-gen-style-section small { color: var(--text-muted); font-size: 12px; }
+.image-gen-style-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+.image-gen-style-option { min-width: 0; min-height: 36px; padding: 7px 10px; border: 1px solid transparent; border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-secondary); font: 13px/1.4 var(--font-sans); text-align: start; cursor: pointer; }
+.image-gen-style-option strong { font-weight: 450; }
+.image-gen-style-option.active { border-color: color-mix(in srgb, var(--accent) 42%, transparent); background: color-mix(in srgb, var(--accent) 9%, var(--surface-workbench-raised)); color: var(--text-primary); }
+.image-gen-style-option:hover { color: var(--text-primary); }
+.image-gen-brief { margin-bottom: 18px; }
+.image-gen-parameter-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; margin-bottom: 16px; }
+.image-gen-compact-field { display: grid; gap: 7px; min-width: 0; }
+.image-gen-compact-field > span { color: var(--text-secondary); font-size: 13px; }
+.image-gen-compact-field select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-primary); font: 14px/1.4 var(--font-sans); }
+.image-gen-advanced, .image-gen-reference-section { border-top: 1px solid var(--border-subtle, var(--border)); }
+.image-gen-advanced summary, .image-gen-quality-terms summary, .image-gen-reference-heading, .image-gen-result-more summary { min-height: 40px; display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font: 13px/1.4 var(--font-sans); list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+.image-gen-advanced summary::before, .image-gen-quality-terms summary::before, .image-gen-reference-heading::before, .image-gen-result-more summary::before { content: '›'; width: 10px; flex: none; color: var(--text-muted); font-size: 18px; text-align: center; }
+details[open] > summary::before { transform: rotate(90deg); }
+.image-gen-reference-heading > span:first-of-type { flex: 1; }
+.image-gen-reference-count { color: var(--text-muted); font-size: 12px; }
+.image-gen-reference-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.image-gen-reference-thumb { position: relative; width: 56px; height: 56px; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); cursor: pointer; }
+.image-gen-reference-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.image-gen-reference-thumb.active { border-color: var(--accent); }
+.image-gen-reference-thumb > span { position: absolute; right: 3px; bottom: 3px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-size: 12px; }
+.image-gen-reference-upload { display: inline-flex; align-items: center; justify-content: center; align-self: center; gap: 7px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-secondary); font: 13px/1.4 var(--font-sans); cursor: pointer; }
 .image-gen-reference-input { display: none; }
-.image-gen-reference-hint { margin: 6px 0 0; line-height: 1.45; }
-.image-gen-reference-strength { display: grid; grid-template-columns: auto minmax(0, 1fr) 34px; align-items: center; gap: 7px; margin-top: 7px; color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
-.image-gen-reference-strength input { width: 100%; accent-color: var(--archive-olive, var(--accent)); }
-.image-gen-reference-strength strong { color: var(--archive-ink, var(--text-primary)); font-size: 10px; text-align: right; }
-
-.image-gen-inline-link {
-  min-height: 24px;
-  padding: 2px 7px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 56%, var(--border));
-  border-radius: 4px;
-  background: transparent;
-  color: var(--archive-olive-strong, var(--accent));
-  cursor: pointer;
-  font-size: 10px;
-}
-
-.image-gen-reference-summary {
-  width: 100%;
-  min-height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 9px;
-  padding: 5px 7px;
-  border: 0;
-  border-top: 1px dashed color-mix(in srgb, var(--archive-gold) 46%, transparent);
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 46%, transparent);
-  background: transparent;
-  color: var(--archive-ink-soft, var(--text-secondary));
-  cursor: pointer;
-  font-size: 10px;
-  text-align: left;
-}
-
-.image-gen-reference-summary:hover { color: var(--archive-olive-strong, var(--accent)); }
+.image-gen-reference-message, .image-gen-reference-hint { margin: 9px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.image-gen-reference-message label { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.image-gen-reference-strength { display: grid; grid-template-columns: auto minmax(0, 1fr) 36px; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
+.image-gen-reference-strength input { width: 100%; accent-color: var(--accent); }
+.image-gen-reference-strength strong { text-align: end; font-weight: 450; }
+.image-gen-reference-prompt { display: grid; gap: 7px; margin-top: 12px; font-size: 13px; }
+.image-gen-reference-summary { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin-bottom: 16px; padding: 9px 10px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-secondary); font: 13px/1.4 var(--font-sans); text-align: start; cursor: pointer; }
 .image-gen-reference-summary > span:nth-child(2) { flex: 1; }
-.image-gen-reference-summary__thumbs { display: flex; align-items: center; min-width: 30px; }
-.image-gen-reference-summary__thumbs img { width: 26px; height: 26px; margin-right: -7px; border: 1px solid var(--archive-paper-soft, var(--bg-secondary)); border-radius: 50%; object-fit: cover; }
-.image-gen-reference-summary__thumbs > span { color: var(--archive-ink-soft, var(--text-muted)); font-style: italic; }
-
-.image-gen-parameter-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 86px;
-  gap: 8px;
-  margin-bottom: 9px;
-}
-
-.image-gen-compact-field {
-  display: grid;
-  gap: 4px;
-}
-
-.image-gen-compact-field > span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 10px; }
-.image-gen-compact-field select {
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 7px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 58%, var(--border));
-  border-radius: 4px;
-  background: var(--archive-paper-soft, var(--bg-primary));
-  color: var(--archive-ink, var(--text-primary));
-  font-size: 11px;
-}
-
-.image-gen-actions {
-  margin-top: 10px;
-}
-
-.image-gen-generate-btn {
-  width: 100%;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 72%, var(--border));
-  border-radius: 4px;
-  padding: 9px 12px;
-  background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-olive-strong));
-  color: var(--archive-paper-soft, var(--accent-text));
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.image-gen-generate-btn:hover:not(:disabled) {
-  background: var(--archive-olive-strong, var(--accent-hover));
-}
-
-.spin-icon {
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid color-mix(in srgb, currentColor 36%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: image-gen-spin 0.8s linear infinite;
-}
-
+.image-gen-reference-summary__thumbs { display: flex; align-items: center; min-width: 24px; }
+.image-gen-reference-summary__thumbs img { width: 28px; height: 28px; margin-inline-end: -6px; border: 1px solid var(--surface-workbench-raised); border-radius: 8px; object-fit: cover; }
+.image-gen-modes { display: flex; gap: 4px; margin-bottom: 16px; padding: 4px; border-radius: 12px; background: var(--surface-workbench-muted); }
+.image-gen-mode-btn { flex: 1; min-height: 36px; padding: 6px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
+.image-gen-mode-btn.active { background: var(--surface-workbench-raised); color: var(--text-primary); }
+.image-gen-actions { margin-top: 18px; }
+.image-gen-generate-btn, .image-gen-cancel-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; padding: 10px 14px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-text); font: 550 14px/1.4 var(--font-sans); cursor: pointer; }
+.image-gen-generate-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.image-gen-cancel-btn { border: 1px solid var(--border-subtle, var(--border)); background: var(--surface-workbench-raised); color: var(--text-primary); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.spin-icon { width: 14px; height: 14px; border: 1.5px solid color-mix(in srgb, currentColor 36%, transparent); border-top-color: currentColor; border-radius: 50%; animation: image-gen-spin .8s linear infinite; }
 @keyframes image-gen-spin { to { transform: rotate(360deg); } }
-
-.image-gen-generate-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.image-gen-results {
-  margin-top: 12px;
-}
-
-.image-gen-results-title {
-  font-size: 11px;
-  color: var(--archive-ink-soft, var(--text-secondary));
-  margin-bottom: 8px;
-}
-
-.image-gen-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.image-gen-thumb {
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 54%, var(--border));
-  border-radius: 4px;
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--archive-paper-soft, var(--bg-primary));
-}
-
-.image-gen-thumb.active {
-  border-color: var(--archive-olive, var(--accent));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--archive-olive) 32%, transparent);
-}
-
-.image-gen-thumb img {
-  width: 100%;
-  height: 92px;
-  object-fit: cover;
-  display: block;
-}
-
-.image-gen-inline-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  padding-top: 10px;
-  flex-wrap: wrap;
-}
-
-.image-preview-action-btn {
-  padding: 6px 12px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 58%, var(--border));
-  border-radius: 4px;
-  background: var(--archive-paper-soft, var(--bg-primary));
-  color: var(--archive-ink, var(--text-primary));
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.image-preview-action-btn:hover {
-  border-color: var(--archive-olive, var(--accent));
-  color: var(--archive-olive-strong, var(--accent));
-}
-
-.image-gen-workspace,
-.image-gen-controls,
-.image-gen-results {
-  min-width: 0;
-}
-
-.image-gen-control-fields {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.image-gen-control-fields:disabled {
-  cursor: wait;
-}
-
-.image-gen-brief {
-  margin-bottom: 12px;
-}
-
-.media-generation-inline--split .image-gen-workspace {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.media-generation-inline--split,
-.media-generation-inline--split .image-generation-workbench {
-  height: 100%;
-  min-height: 0;
-}
-
-.media-generation-inline--split .image-gen-controls,
-.media-generation-inline--split .image-gen-results {
-  max-height: 100%;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.media-generation-inline--split .image-gen-results {
-  align-self: stretch;
-  margin-top: 0;
-  padding-left: 20px;
-  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 42%, var(--border));
-}
-
-.image-gen-results-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.image-gen-results-title small {
-  color: var(--archive-ink-soft, var(--text-muted));
-  font-size: 10px;
-  font-weight: 400;
-}
-
-.image-gen-current-preview {
-  display: grid;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 48%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary));
-}
-
-.image-gen-current-preview > img {
-  display: block;
-  width: 100%;
-  height: min(42vh, 460px);
-  min-height: 240px;
-  object-fit: contain;
-}
-
-.media-generation-inline--stack .image-gen-current-preview > img {
-  height: min(34vh, 320px);
-  min-height: 180px;
-}
-
-.image-gen-current-caption {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 38%, var(--border));
-  color: var(--archive-ink-soft, var(--text-secondary));
-  font-size: 10px;
-}
-
-.image-gen-current-caption strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--archive-ink, var(--text-primary));
-  font-size: 11px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.image-gen-empty {
-  min-height: 240px;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
-  padding: 28px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
-  color: var(--archive-ink-soft, var(--text-muted));
-  text-align: center;
-}
-
-.image-gen-empty strong {
-  color: var(--archive-ink, var(--text-primary));
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.image-gen-empty span {
-  max-width: 34em;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.media-generation-inline--split .image-gen-grid {
-  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
-  margin-top: 10px;
-}
-
-.image-gen-thumb {
-  min-width: 0;
-  padding: 0;
-}
-
-.image-gen-thumb:focus-visible,
-.image-preview-action-btn:focus-visible,
-.image-gen-generate-btn:focus-visible,
-.image-gen-cancel-btn:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--archive-olive) 72%, transparent);
-  outline-offset: 2px;
-}
-
-.image-gen-cancel-btn {
-  width: 100%;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 9px 12px;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 62%, var(--border));
-  border-radius: 4px;
-  background: var(--archive-paper-soft, var(--bg-primary));
-  color: var(--archive-ink, var(--text-primary));
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.image-gen-status,
-.image-gen-action-reason {
-  margin: 8px 0 0;
-  color: var(--archive-ink-soft, var(--text-secondary));
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.image-gen-status.is-error,
-.image-gen-action-reason {
-  color: var(--danger);
-}
-
-.image-gen-status.is-success {
-  color: var(--archive-olive-strong, var(--accent));
-}
-
-.image-gen-status.is-cancelled {
-  color: var(--archive-ink-soft, var(--text-muted));
-}
-
-.image-preview-action-btn:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-}
-
-.image-preview-action-btn:hover:disabled {
-  border-color: color-mix(in srgb, var(--archive-gold) 58%, var(--border));
-  color: var(--archive-ink, var(--text-primary));
-}
-
-/* Authoring 画师只复用生成与媒体合同，可见编排对齐作家助手的左参数 / 右画布工作台。 */
-.media-generation-inline--authoring .image-gen-workspace {
-  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
-  gap: 0;
-  align-items: stretch;
-}
-
-.media-generation-inline--split.media-generation-inline--authoring .image-gen-controls {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  padding: 16px;
-  border-right: 1px solid var(--border-subtle);
-  background: var(--surface-secondary);
-  overflow: hidden;
-}
-
-.media-generation-inline--authoring .image-gen-control-fields {
-  min-height: 0;
-  flex: 1 1 auto;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-right: 4px;
-}
-
-.media-generation-inline--split.media-generation-inline--authoring .image-gen-results {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: var(--surface-primary);
-}
-
-.media-generation-inline--authoring .image-gen-results-title { display: none; }
-.media-generation-inline--authoring .image-gen-section { margin-bottom: 16px; }
-.media-generation-inline--authoring .image-gen-label { margin-bottom: 7px; color: var(--text-primary); font-size: 14px; font-weight: 520; }
-.media-generation-inline--authoring .image-gen-label-row { min-height: 28px; }
-.media-generation-inline--authoring .image-gen-prompt-input {
-  min-height: 116px;
-  padding: 9px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  background: var(--surface-primary);
-  color: var(--text-primary);
-  font-size: 14px;
-  line-height: 1.65;
-}
-.media-generation-inline--authoring .image-gen-prompt-input.small { min-height: 72px; }
-.media-generation-inline--authoring .image-gen-prompt-input:focus { border-color: var(--accent-primary, var(--accent)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary, var(--accent)) 8%, transparent); }
-.media-generation-inline--authoring .image-gen-inline-link { border-style: solid; border-color: var(--border-subtle); color: var(--accent-primary, var(--accent)); font-size: 12px; }
-
-.image-gen-prompt-count { display: block; margin-top: 4px; color: var(--text-muted); font-size: 12px; text-align: right; }
-.image-gen-quality-terms { display: grid; gap: 7px; margin: -5px 0 18px; }
-.image-gen-quality-terms > span { color: var(--text-primary); font-size: 14px; }
-.image-gen-quality-terms > div { display: flex; flex-wrap: wrap; gap: 7px; }
-.image-gen-quality-terms button { min-height: 30px; padding: 4px 9px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
-.image-gen-quality-terms button:hover { border-color: var(--accent-primary, var(--accent)); color: var(--text-primary); }
-
-.image-gen-reference-prompt { display: grid; gap: 6px; margin-top: 10px; }
-.image-gen-reference-prompt > span { color: var(--text-primary); font-size: 13px; }
-.image-gen-reference-prompt textarea { min-height: 58px; resize: vertical; padding: 7px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); font: inherit; font-size: 13px; line-height: 1.5; }
-
-.image-gen-style-section small { color: var(--text-secondary); font-size: 12px; }
-.image-gen-style-grid { display: grid; grid-template-columns: repeat(5, minmax(70px, 1fr)); gap: 7px; }
-.image-gen-style-option { min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-primary, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; transition: border-color 120ms ease, background-color 120ms ease; }
-.image-gen-style-option > span { display: block; height: 64px; border-bottom: 1px solid var(--border-subtle); background-color: color-mix(in srgb, var(--text-secondary) 16%, var(--surface-primary, var(--bg-primary))); background-image: url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-size: 500% 100%; background-position: var(--style-position); }
-.image-gen-style-option strong { display: block; overflow: hidden; padding: 6px 7px; font-size: 12px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
-.image-gen-style-option:hover { border-color: color-mix(in srgb, var(--accent-primary, var(--accent)) 48%, var(--border-subtle)); }
-.image-gen-style-option.active { border-color: var(--accent-primary, var(--accent)); box-shadow: inset 0 -2px var(--accent-primary, var(--accent)); }
-.media-generation-inline:lang(en) .image-gen-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.media-generation-inline:lang(en) .image-gen-style-option > span { background-size: 500% auto; background-position-y: 20%; }
-.media-generation-inline:lang(en) .image-gen-style-option strong { min-height: 3.4em; white-space: normal; overflow-wrap: normal; line-height: 1.4; text-overflow: clip; }
-.media-generation-inline:lang(en) .image-gen-prompt-input { font-family: var(--font-sans); }
-.media-generation-inline:lang(en) .image-gen-label-row { flex-wrap: wrap; gap: 6px 12px; }
-@media (min-width: 721px) {
-  .media-generation-inline--authoring:lang(en) .image-gen-workspace { grid-template-columns: minmax(340px, 36%) minmax(0, 1fr); }
-}
-
-.media-generation-inline--authoring .image-gen-brief--authoring { margin: 0 0 16px; }
-.media-generation-inline--authoring .image-gen-reference-strip { display: flex; flex-wrap: wrap; grid-template-columns: none; }
-.media-generation-inline--authoring .image-gen-reference-thumb { width: 52px; height: 52px; aspect-ratio: 1; border-color: var(--border-subtle); }
-.media-generation-inline--authoring .image-gen-reference-upload { width: auto; min-width: 80px; height: 32px; min-height: 32px; align-self: center; aspect-ratio: auto; grid-auto-flow: column; padding: 0 10px; border-style: solid; border-color: var(--border-subtle); font-size: 13px; }
-.media-generation-inline--authoring .image-gen-reference-hint,
-.media-generation-inline--authoring .image-gen-reference-message,
-.media-generation-inline--authoring .image-gen-reference-count,
-.media-generation-inline--authoring .image-gen-reference-strength { color: var(--text-secondary); font-size: 12px; }
-.media-generation-inline--authoring .image-gen-reference-summary { border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 13px; }
-.media-generation-inline--authoring .image-gen-parameter-grid { grid-template-columns: minmax(0, 1fr) 96px; gap: 10px; margin-bottom: 16px; }
-.media-generation-inline--authoring .image-gen-compact-field > span { color: var(--text-primary); font-size: 14px; }
-.media-generation-inline--authoring .image-gen-compact-field select { min-height: 38px; border-color: var(--border-subtle); background: var(--surface-primary); color: var(--text-primary); font-size: 14px; }
-.media-generation-inline--authoring .image-gen-actions { position: sticky; bottom: 0; margin-top: auto; padding-top: 14px; background: var(--surface-secondary); }
-.media-generation-inline--authoring .image-gen-generate-btn,
-.media-generation-inline--authoring .image-gen-cancel-btn { min-height: 40px; border: 0; border-radius: 4px; background: var(--accent-primary, var(--accent)); color: var(--accent-text, #fff); font-size: 14px; }
-.media-generation-inline--authoring .image-gen-cancel-btn { background: var(--text-secondary); }
-.media-generation-inline--authoring .image-gen-status,
-.media-generation-inline--authoring .image-gen-action-reason { font-size: 12px; }
-.media-generation-inline--authoring .image-gen-empty { min-height: 100%; flex: 1 1 auto; border: 0; border-radius: 0; background: transparent; }
-.media-generation-inline--authoring .image-gen-empty__style-preview { width: min(420px, 76%); aspect-ratio: 16 / 9; margin-bottom: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background-color: var(--surface-workbench-muted, var(--surface-secondary)); background-image: linear-gradient(to bottom, transparent 64%, rgb(0 0 0 / 12%)), url('../../assets/media/authoring-image-style-presets.webp'); background-repeat: no-repeat; background-position: center, var(--style-position); background-size: 100% 100%, 500% 100%; box-shadow: 0 12px 32px rgb(0 0 0 / 8%); }
-.media-generation-inline--authoring .image-gen-empty strong { max-width: 28em; color: var(--text-primary); font-size: 15px; font-weight: 450; }
-.media-generation-inline--authoring .image-gen-empty span { color: var(--text-secondary); font-size: 13px; }
-.media-generation-inline--authoring .image-gen-current-preview { flex: 1 1 auto; place-content: center; border: 0; border-radius: 0; background: var(--surface-primary); }
-.media-generation-inline--authoring .image-gen-current-preview > img { height: min(68vh, 680px); min-height: 360px; }
-.media-generation-inline--authoring .image-gen-current-caption { border-color: var(--border-subtle); font-size: 12px; }
-.media-generation-inline--authoring .image-gen-current-caption strong { font-size: 13px; }
-.media-generation-inline--authoring .image-gen-grid { padding: 10px 14px 0; }
-.media-generation-inline--authoring .image-gen-thumb { border-color: var(--border-subtle); }
-.media-generation-inline--authoring .image-gen-inline-actions { padding: 10px 14px 14px; }
-.media-generation-inline--authoring .image-preview-action-btn { border-style: solid; border-color: var(--border-subtle); background: var(--surface-primary); color: var(--text-primary); font-size: 13px; }
-.media-generation-inline--authoring .image-preview-action-btn--danger { margin-right: auto; color: var(--danger); }
-
+.image-gen-status, .image-gen-action-reason { margin: 10px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.image-gen-status.is-error, .image-gen-action-reason { color: var(--danger); }
+.image-gen-status.is-success { color: var(--text-secondary); }
+.image-gen-results { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
+.image-gen-results-title { flex: none; color: var(--text-secondary); font-size: 13px; }
+.image-gen-results-title small { color: var(--text-muted); font-size: 12px; }
+.image-gen-current-preview { min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; flex: 1 0 auto; overflow: hidden; border-radius: 12px; background: var(--surface-workbench-muted); }
+.image-gen-current-preview > img { display: block; width: 100%; height: min(48vh, 480px); min-height: 220px; object-fit: contain; padding: 14px; box-sizing: border-box; }
+.image-gen-current-preview.is-comparing { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.image-gen-current-preview.is-comparing .image-gen-current-caption { grid-column: 1 / -1; }
+.image-gen-current-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; padding: 12px 14px; border-top: 1px solid var(--border-subtle, var(--border)); color: var(--text-secondary); font-size: 12px; }
+.image-gen-current-caption strong { min-width: 0; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 13px; font-weight: 450; line-height: 1.5; }
+.image-gen-current-caption > span { flex: none; }
+.image-gen-empty { display: flex; flex: 1 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 260px; padding: 28px; color: var(--text-secondary); text-align: center; }
+.image-gen-empty__icon { margin-bottom: 6px; color: var(--text-muted); }
+.image-gen-empty strong { font-size: 16px; font-weight: 500; color: var(--text-primary); }
+.image-gen-empty span { max-width: 30em; color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+.image-gen-grid { display: flex; gap: 9px; min-width: 0; overflow-x: auto; flex: none; padding: 3px 2px 8px; overscroll-behavior: contain; }
+.image-gen-thumb { flex: 0 0 72px; width: 72px; height: 72px; min-width: 0; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: 10px; background: var(--surface-workbench-muted); cursor: pointer; }
+.image-gen-thumb.active { border-color: var(--accent); }
+.image-gen-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.image-gen-inline-actions, .image-gen-secondary-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.image-preview-action-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 8px 12px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-primary); font: 13px/1.4 var(--font-sans); text-decoration: none; text-align: center; cursor: pointer; }
+.image-preview-action-btn:hover:not(:disabled) { background: var(--surface-hover); }
+.image-preview-action-btn--primary { border-color: transparent; background: var(--accent); color: var(--accent-text); }
+.image-preview-action-btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+.image-preview-action-btn--danger { color: var(--danger); }
+.image-gen-result-more summary { min-height: 36px; }
+.image-gen-secondary-actions { padding-top: 8px; }
+.image-gen-item-states { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--text-secondary); font-size: 12px; }
+.image-gen-unsaved { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 12px; font-size: 13px; }
+.image-gen-unsaved img { width: 100%; max-height: 320px; object-fit: contain; }
+.image-gen-unsaved p { margin: 0; color: var(--danger); }
+.image-gen-unsaved button, .image-gen-unsaved a { min-height: 40px; padding: 8px 0; border: 0; border-radius: 10px; background: transparent; color: var(--accent); font: inherit; text-align: start; cursor: pointer; }
+.media-generation-inline :is(button, summary, select, input, a):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.media-generation-inline--split, .media-generation-inline--split .image-generation-workbench { height: 100%; min-height: 0; }
+.media-generation-inline--split .image-gen-workspace { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); height: 100%; min-height: 0; gap: 24px; }
+.media-generation-inline--split .image-gen-controls, .media-generation-inline--split .image-gen-results { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.media-generation-inline--split .image-gen-results { margin-top: 0; }
+.media-generation-inline--authoring .image-gen-workspace { gap: 0; }
+.media-generation-inline--authoring .image-gen-controls { display: flex; flex-direction: column; padding: 20px; border-inline-end: 1px solid var(--border-subtle, var(--border)); background: var(--surface-workbench-muted); overflow: hidden; }
+.media-generation-inline--authoring .image-gen-control-fields { flex: 1; min-height: 0; padding-inline-end: 3px; overflow-y: auto; overscroll-behavior: contain; }
+.media-generation-inline--authoring .image-gen-results { padding: 22px; background: var(--surface-workbench); }
+.media-generation-inline--authoring .image-gen-actions { flex: none; margin-top: 16px; }
+.media-generation-inline--authoring .image-gen-empty { min-height: 280px; }
+.media-generation-inline--stack .image-gen-current-preview > img { height: min(34vh, 320px); min-height: 180px; }
+@media (max-width: 1100px) and (min-width: 721px) { .media-generation-inline--split .image-gen-workspace { grid-template-columns: minmax(280px, 36%) minmax(0, 1fr); } }
 @media (max-width: 720px), (max-height: 560px) {
-  .media-generation-inline--split .image-gen-workspace {
-    display: block;
-    overflow-y: auto;
-  }
-
-  .media-generation-inline--split .image-gen-results {
-    margin-top: 12px;
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .media-generation-inline--split .image-gen-controls,
-  .media-generation-inline--split .image-gen-results {
-    max-height: none;
-    overflow: visible;
-    scrollbar-gutter: auto;
-  }
-
-  .media-generation-inline[data-mobile-pane="parameters"] .image-gen-results,
-  .media-generation-inline[data-mobile-pane="results"] .image-gen-controls {
-    display: none;
-  }
-
-  .image-gen-mode-btn,
-  .image-gen-inline-link,
-  .image-gen-reference-summary,
-  .image-gen-compact-field select,
-  .image-gen-generate-btn,
-  .image-gen-cancel-btn,
-  .image-preview-action-btn {
-    min-height: 44px;
-  }
-
-  .image-gen-reference-thumb,
-  .image-gen-reference-upload,
-  .image-gen-thumb {
-    min-height: 44px;
-  }
-
-  .image-gen-reference-strength input[type="range"] {
-    min-height: 44px;
-  }
-
-  :global(.image-model-overlay button),
-  :global(.image-model-overlay input),
-  :global(.image-model-overlay select),
-  :global(.image-model-overlay textarea) {
-    min-height: 44px;
-  }
-
-  .image-gen-current-preview > img,
-  .media-generation-inline--stack .image-gen-current-preview > img {
-    height: min(46vh, 420px);
-    min-height: 220px;
-  }
+  .media-generation-inline--split .image-gen-workspace { display: block; overflow-y: auto; }
+  .media-generation-inline--split .image-gen-controls, .media-generation-inline--split .image-gen-results { max-height: none; overflow: visible; scrollbar-gutter: auto; }
+  .media-generation-inline[data-mobile-pane="parameters"] .image-gen-results, .media-generation-inline[data-mobile-pane="results"] .image-gen-controls { display: none; }
+  .media-generation-inline--authoring .image-gen-controls { padding: 18px 16px; border: 0; }
+  .media-generation-inline--authoring .image-gen-workspace { overflow: hidden; }
+  .media-generation-inline--authoring .image-gen-controls { height: 100%; box-sizing: border-box; }
+  .media-generation-inline--authoring .image-gen-control-fields { flex: 1; min-height: 0; overflow-y: auto; padding: 0; }
+  .media-generation-inline--authoring .image-gen-actions { position: sticky; bottom: 0; padding-top: 12px; margin-top: 0; background: var(--surface-workbench-muted); }
+  .media-generation-inline--authoring .image-gen-results { height: 100%; min-height: 0; padding: 20px 16px; box-sizing: border-box; overflow-y: auto; }
+  .image-gen-current-preview { flex: 0 0 auto; }
+  .image-gen-current-preview > img { height: auto; max-height: 43vh; min-height: 0; padding: 10px; }
+  .image-gen-empty { padding: 24px 16px; }
+  .image-gen-label-row { gap: 4px 12px; }
+  .image-gen-style-option, .image-gen-quality-terms button, .image-gen-mode-btn, .image-gen-inline-link, .image-gen-reference-upload, .image-gen-compact-field select, .image-preview-action-btn, .image-gen-unsaved button, .image-gen-unsaved a { min-height: 44px; }
+  .image-gen-advanced summary, .image-gen-quality-terms summary, .image-gen-reference-heading, .image-gen-result-more summary { min-height: 44px; }
+  .image-gen-reference-strength input[type="range"] { min-height: 44px; }
+  .image-gen-current-caption { flex-wrap: wrap; gap: 5px; padding: 10px; }
+  .image-gen-parameter-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 }
-
-@media (min-width: 721px) and (max-width: 1100px) {
-  .media-generation-inline--authoring .image-gen-workspace { grid-template-columns: minmax(300px, 38%) minmax(0, 1fr); }
-  .image-gen-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (max-width: 520px) {
-  .image-gen-parameter-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(104px, 0.46fr);
-  }
-
-  .image-gen-empty {
-    min-height: 220px;
-    padding: 22px 16px;
-  }
-
-  .image-gen-current-caption {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .image-gen-current-caption strong {
-    width: 100%;
-  }
-}
-
+@media (pointer: coarse) { .image-gen-style-option, .image-gen-inline-link, .image-gen-quality-terms button, .image-gen-mode-btn, .image-gen-reference-upload, .image-gen-compact-field select, .image-preview-action-btn { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .spin-icon { animation: none; } }
 </style>

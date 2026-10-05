@@ -26,6 +26,7 @@ function text(value) {
 
 function chooseInitialMode(provider, capabilities) {
   const protocol = resolveStructuredProtocol(provider)
+  if (capabilities.textJson === true) return 'text-json'
   if (capabilities.nativeJsonSchema !== false) return 'native-json-schema'
   if (protocol === 'anthropic' || protocol === 'openai-responses') {
     if (capabilities.specificToolChoice !== false && capabilities.toolCalls !== false) return 'forced-tool'
@@ -92,9 +93,13 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
       if (!parsed.valid) {
         throw new StructuredProviderError(parsed.error.code, parsed.error.message)
       }
+      const resultMode = result.mode || mode
       recordStructuredProviderCapabilities(cache, request.provider, {
-        [mode === 'native-json-schema' ? 'nativeJsonSchema' : mode === 'forced-tool' ? 'toolCalls' : 'jsonObject']: true,
-        ...(mode === 'forced-tool' ? { specificToolChoice: true, strictToolSchema: true } : {}),
+        ...(resultMode === 'text-json'
+          ? { textJson: true, ...(mode === 'native-json-schema' ? { nativeJsonSchema: false } : {}),
+              ...(mode === 'forced-tool' ? { toolCalls: false, specificToolChoice: false, strictToolSchema: false } : {}) }
+          : { [resultMode === 'native-json-schema' ? 'nativeJsonSchema' : resultMode === 'forced-tool' ? 'toolCalls' : 'jsonObject']: true }),
+        ...(resultMode === 'forced-tool' ? { specificToolChoice: true, strictToolSchema: true } : {}),
         protocol: result.protocol,
         reasoningControl: result.reasoningTokens > 0 ? 'split' : 'none',
         source: 'runtime-success'
@@ -103,7 +108,7 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
         schemaVersion: validation.request.schemaVersion,
         requestId: request.requestId,
         schemaId: request.schemaId,
-        mode,
+        mode: resultMode,
         drafts: parsed.drafts,
         fieldErrors: parsed.fieldErrors || {},
         meta: {
@@ -123,6 +128,15 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
     } catch (error) {
       lastError = error
       if (error?.code === STRUCTURED_GENERATION_ERROR_CODES.ABORTED || error?.code === STRUCTURED_GENERATION_ERROR_CODES.TIMEOUT) throw error
+      // Some compatible endpoints accept output_config but ignore its schema.
+      // A complete malformed response needs another supported protocol, not a
+      // larger token budget for the same ineffective request.
+      if (mode === 'native-json-schema' && round === 0
+        && error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID) {
+        downgradeStructuredProviderCapability(cache, request.provider, 'nativeJsonSchema')
+        mode = chooseFallbackMode(request.provider, mode)
+        continue
+      }
       if (
         error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE
         && round === 0

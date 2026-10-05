@@ -19,9 +19,8 @@ import {
   reorderComicPanel,
   setComicCompositionFormat
 } from '../../services/media/comicCompositionService'
-import { addGeneratedImageToLibrary, getMediaAssetDataUrl } from '../../services/media/mediaAssetStore'
+import { getMediaAssetDataUrl } from '../../services/media/mediaAssetStore'
 import {
-  addComicPanelTake,
   buildComicPageManifest,
   clearComicPanelPendingGeneration,
   createComicPage,
@@ -30,6 +29,7 @@ import {
   hydrateComicPageTakes,
   listComicPages,
   saveComicPage,
+  saveComicPageDraft,
   setComicPanelPendingGeneration,
   updateComicPageColorMode,
   updateComicPageComposition,
@@ -37,9 +37,10 @@ import {
   updateComicPanel,
   updateComicVisualBible
 } from '../../services/media/comicPageStore'
-import { buildComicPublicationReport } from '../../services/media/comicLetteringService'
-import { getComicProductionRoute } from '../../services/media/comicProductionService'
+import { buildComicPublicationReport, fitComicLetteringBoxHeight, getComicLetteringTailPoints, getComicLetteringTextMetrics, wrapComicLetteringText } from '../../services/media/comicLetteringService'
+import { getComicPanelDisplayExportBlock, getComicPanelDisplayImage, resolveComicPanelDisplay } from '../../services/media/comicPanelDisplay'
 import { generateComicPageScript } from '../../services/media/comicScriptService'
+import { archiveComicPanelTakeWithRecovery, archiveUploadedComicPanel, getComicPanelInputRevision, getComicPersistRetry, listComicPersistRetries, retryComicStagePersist } from '../../services/media/comicProductionService'
 
 const props = defineProps({
   pageId: { type: String, default: '' },
@@ -73,8 +74,17 @@ const batchGenerating = ref(false)
 const scriptError = ref('')
 const activePanelId = ref('')
 const compactWorkspace = ref('panels')
+const compactPanelTool = ref('image')
+const requestedStage = ref('')
+const saveError = ref('')
+const panelUploadInput = ref(null)
+const uploadingPanelId = ref('')
 const loadedTakeDimensions = reactive({})
+const activePanelRequests = reactive(new Set())
+const panelPersistRetrying = ref(false)
 let loadRevision = 0
+let disposed = false
+let scriptRevision = 0
 const activePanel = computed(() => comicPage.value?.panels.find((panel) => panel.id === activePanelId.value) || null)
 const activePanelSourceId = computed(() => panelSourceId(activePanel.value))
 const visiblePanels = computed(() => {
@@ -103,12 +113,13 @@ const draftLayoutOptions = computed(() => panelCount.value >= 6
       { value: 'strip-4', label: '四格均分' },
       { value: 'feature-4', label: '首格强调' }
     ])
-const unfinishedPanels = computed(() => comicPage.value?.panels.filter((panel) => !panel.selectedTakeId) || [])
+const unfinishedPanels = computed(() => comicPage.value?.panels.filter((panel) => !resolveComicPanelDisplay(panel, comicPage.value)) || [])
 const batchGenerationAllowed = computed(() => canBatchGenerateComicPage(comicPage.value || {}))
 const unconfiguredPanels = computed(() => props.standalone
-  ? unfinishedPanels.value.filter((panel) => !panelSourceId(panel) || !panel.visual.trim())
+  ? unfinishedPanels.value.filter((panel) => !panel.visual.trim())
   : [])
-const completedPanelCount = computed(() => comicPage.value?.panels.filter((panel) => panel.selectedTakeId).length || 0)
+const completedPanelCount = computed(() => comicPage.value?.panels.filter((panel) => !getComicPanelDisplayExportBlock(panel, comicPage.value)).length || 0)
+const availablePanelCount = computed(() => comicPage.value?.panels.filter((panel) => resolveComicPanelDisplay(panel, comicPage.value)).length || 0)
 const publicationReport = computed(() => buildComicPublicationReport(comicPage.value || {}))
 const selectedImageConfig = computed(() => props.modelConfigs
   .find((config) => config.id === props.selectedModelId) || null)
@@ -122,7 +133,12 @@ const letteringFontOptions = Object.freeze([
 ])
 const letteringResizeHandles = Object.freeze(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'])
 
-watch([() => props.pageId, () => props.standalone ? '' : sourceSignature(props.sourceRefs)], () => {
+watch([() => props.pageId, () => props.projectId, () => props.standalone ? '' : sourceSignature(props.sourceRefs)], () => {
+  scriptRevision += 1
+  scriptGenerating.value = false
+  batchGenerating.value = false
+  panelPersistRetrying.value = false
+  uploadingPanelId.value = ''
   void loadStoredPage()
 }, { immediate: true })
 watch(comicPage, (page) => {
@@ -132,6 +148,9 @@ watch(comicPage, (page) => {
 watch([() => compactWorkspace.value, () => props.compact], () => refreshAutosize())
 onMounted(refreshAutosize)
 onBeforeUnmount(() => {
+  disposed = true
+  loadRevision += 1
+  scriptRevision += 1
   clearTimeout(highlightTimer)
   destroyAutosize()
 })
@@ -139,6 +158,7 @@ watch(activePanelSourceId, (sourceId) => {
   emit('active-panel-source-change', sourceId)
 }, { immediate: true })
 watch(activePanelId, (panelId) => {
+  panelRequestNotice.value = ''
   emit('active-panel-change', panelId)
 }, { immediate: true })
 watch(() => props.preferredSourceId, (sourceId) => {
@@ -152,6 +172,11 @@ watch(() => props.preferredPanelId, (panelId) => {
 
 async function loadStoredPage() {
   const revision = ++loadRevision
+  const projectId = props.projectId
+  const pageId = props.pageId
+  comicPage.value = null
+  panelRequestNotice.value = ''
+  saveError.value = ''
   const stored = props.pageId
     ? listComicPages({ projectId: props.projectId }).find((page) => page.id === props.pageId) || null
     : props.standalone
@@ -164,7 +189,7 @@ async function loadStoredPage() {
   }
   panelCount.value = stored.panels.length >= 6 ? 6 : 4
   const hydrated = await hydrateComicPageTakes(stored)
-  if (revision === loadRevision) {
+  if (!disposed && revision === loadRevision && projectId === props.projectId && pageId === props.pageId) {
     comicPage.value = hydrated
     activePanelId.value = hydrated.panels.some((panel) => panel.id === props.preferredPanelId)
       ? props.preferredPanelId
@@ -195,66 +220,109 @@ function createDraftPage() {
 }
 
 async function generateScript() {
-  const requestedSourceSignature = sourceSignature(props.sourceRefs)
+  if (scriptGenerating.value || (props.standalone && !props.projectId)) return
+  const revision = ++scriptRevision
+  const request = JSON.parse(JSON.stringify({
+    projectId: props.projectId, pageId: props.pageId, sourceText: props.sourceText,
+    sourceTitle: props.sourceTitle, sourceRefs: props.sourceRefs, standalone: props.standalone,
+    panelCount: panelCount.value, format: draftFormat.value, layout: draftLayout.value,
+    colorMode: draftColorMode.value, styleBible: draftStyleBible.value
+  }))
+  const ownsRequest = () => !disposed && revision === scriptRevision
+    && request.projectId === props.projectId && request.pageId === props.pageId
+    && request.sourceText === props.sourceText && request.sourceTitle === props.sourceTitle
+    && sourceSignature(request.sourceRefs) === sourceSignature(props.sourceRefs)
+    && request.panelCount === panelCount.value && request.format === draftFormat.value
+    && request.layout === draftLayout.value && request.colorMode === draftColorMode.value
+    && request.styleBible === draftStyleBible.value
   scriptGenerating.value = true
   scriptError.value = ''
   try {
     const result = await generateComicPageScript({
-      sourceText: props.sourceText,
-      sourceTitle: props.sourceTitle,
-      sourceRefs: props.sourceRefs,
-      projectId: props.projectId,
-      panelCount: panelCount.value
+      sourceText: request.sourceText,
+      sourceTitle: request.sourceTitle,
+      sourceRefs: request.sourceRefs,
+      projectId: request.projectId,
+      panelCount: request.panelCount
     })
-    const generatedPage = props.standalone && props.sourceRefs.length
+    if (!ownsRequest()) return
+    const generatedPage = request.standalone && request.sourceRefs.length
       ? {
           ...result.page,
           panels: result.page.panels.map((panel) => ({
             ...panel,
-            continuityRefs: [...props.sourceRefs]
+            continuityRefs: request.sourceRefs
           }))
         }
       : result.page
     const saved = saveComicPage({
       ...generatedPage,
-      format: draftFormat.value,
-      layout: draftLayout.value,
-      colorMode: draftColorMode.value,
-      styleBible: draftStyleBible.value || result.page.styleBible
+      projectId: request.projectId,
+      format: request.format,
+      layout: request.layout,
+      colorMode: request.colorMode,
+      styleBible: request.styleBible || result.page.styleBible
     })
-    if (requestedSourceSignature === sourceSignature(props.sourceRefs)) {
+    if (ownsRequest()) {
       comicPage.value = saved
       activePanelId.value = saved.panels[0]?.id || ''
       compactWorkspace.value = 'panels'
       emit('page-saved', saved)
     }
   } catch (error) {
-    scriptError.value = error?.message || '漫画脚本生成失败'
+    if (ownsRequest()) scriptError.value = error?.message || '漫画脚本生成失败'
   } finally {
-    scriptGenerating.value = false
+    if (!disposed && revision === scriptRevision) scriptGenerating.value = false
   }
 }
 
 function persistPage() {
-  if (!comicPage.value) return
+  if (!comicPage.value) return true
   if (props.standalone) comicPage.value.sourceRefs = collectPanelSourceRefs(comicPage.value.panels)
   const runtimeTakes = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.imageTakes || []]))
-  const saved = saveComicPage(comicPage.value)
-  comicPage.value = {
-    ...saved,
-    panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [] }))
+  const runtimeImages = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.displayImage]))
+  try {
+    const saved = saveComicPageDraft(comicPage.value)
+    comicPage.value = {
+      ...saved,
+      panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [], displayImage: runtimeImages.get(panel.id) || null }))
+    }
+    saveError.value = ''
+    emit('page-saved', saved)
+    return true
+  } catch (error) {
+    saveError.value = `尚未保存：${error?.message || '本地存储写入失败'}。请保留此页并重试。`
+    return false
   }
-  emit('page-saved', saved)
+}
+
+function flushPendingEdits() {
+  const element = typeof document !== 'undefined' ? document.activeElement : null
+  if (element && editorRoot.value?.contains(element) && ['TEXTAREA', 'INPUT', 'SELECT'].includes(element.tagName)) element.blur()
+  return persistPage()
+}
+
+function switchWorkspace(workspace) {
+  if (flushPendingEdits()) compactWorkspace.value = workspace
+}
+
+function openPanelTool(tool, stage = '') {
+  if (!flushPendingEdits()) return
+  compactWorkspace.value = 'panels'
+  compactPanelTool.value = tool
+  requestedStage.value = stage
+  refreshAutosize()
 }
 
 function persistComposition(nextPage) {
   if (!nextPage?.id) return
   const runtimeTakes = new Map(nextPage.panels.map((panel) => [panel.id, panel.imageTakes || []]))
+  const runtimeImages = new Map(nextPage.panels.map((panel) => [panel.id, panel.displayImage]))
   const saved = updateComicPageComposition(nextPage.id, nextPage)
   if (!saved) return
   comicPage.value = {
     ...saved,
-    panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [] }))
+    panels: saved.panels.map((panel) => ({ ...panel, imageTakes: runtimeTakes.get(panel.id) || [], displayImage: runtimeImages.get(panel.id) || null }))
   }
   activePanelId.value = comicPage.value.panels.some((panel) => panel.id === activePanelId.value)
     ? activePanelId.value
@@ -267,119 +335,183 @@ function persistCurrentComposition() {
 }
 
 async function handleProductionPageSaved(saved) {
-  if (!saved || saved.id !== comicPage.value?.id) return
+  if (!saved || saved.id !== comicPage.value?.id || saved.projectId !== props.projectId) return
+  const pageId = saved.id
+  const projectId = props.projectId
+  const revision = loadRevision
   const panelId = activePanelId.value
-  comicPage.value = await hydrateComicPageTakes(saved)
+  const hydrated = await hydrateComicPageTakes(saved)
+  if (disposed || revision !== loadRevision || pageId !== comicPage.value?.id || projectId !== props.projectId) return
+  comicPage.value = hydrated
   activePanelId.value = comicPage.value.panels.some((panel) => panel.id === panelId)
     ? panelId
     : comicPage.value.panels[0]?.id || ''
   emit('page-saved', saved)
 }
 
-function panelIntentSignature(panel) {
-  return JSON.stringify({
-    visual: panel?.visual || '',
-    beat: panel?.beat || null,
-    dialogue: panel?.dialogue || [],
-    caption: panel?.caption || '',
-    continuityRefs: panel?.continuityRefs || [],
-    direction: panel?.direction || null,
-    referenceBindings: panel?.referenceBindings || []
-  })
+function panelPersistRecovery(panel) {
+  return listComicPersistRetries(comicPage.value?.id, panel.id).find((item) => item.payload?.kind === 'take') || null
+}
+
+async function uploadPanelImage(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || uploadingPanelId.value || !activePanel.value || !flushPendingEdits()) return
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 20 * 1024 * 1024) {
+    panelRequestNotice.value = '请选择 20 MB 以内的 PNG、JPEG 或 WebP 图片。'
+    return
+  }
+  const page = JSON.parse(JSON.stringify(comicPage.value))
+  const panel = page.panels.find((item) => item.id === activePanelId.value)
+  if (!panel || panel.pendingGeneration) return
+  const requestId = createComicRequestId()
+  const revision = loadRevision
+  const visible = () => !disposed && revision === loadRevision && comicPage.value?.id === page.id && props.projectId === page.projectId
+  uploadingPanelId.value = panel.id
+  panelRequestNotice.value = ''
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(reader.error || new Error('图片读取失败'))
+      reader.readAsDataURL(file)
+    })
+    const dimensions = await new Promise((resolve, reject) => {
+      const image = new Image()
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      image.onerror = () => reject(new Error('无法读取这张图片，请重新导出后上传。'))
+      image.src = data
+    })
+    const current = listComicPages({}).find((item) => item.id === page.id)
+    const target = current?.panels.find((item) => item.id === panel.id)
+    if (!target || current.projectId !== page.projectId) return
+    if (target.pendingGeneration) throw new Error('当前格还有未完成的生成请求，请先处理结果。')
+    const inputRevision = getComicPanelInputRevision(panel)
+    setComicPanelPendingGeneration(page.id, panel.id, { requestId, inputRevision, sentAt: Date.now(), intentHash: requestId })
+    const result = await archiveUploadedComicPanel({
+      page, panel, requestId, inputRevision, data, ...dimensions,
+      storageKey: props.storageKey, prompt: panel.visual || file.name
+    })
+    if (!visible()) return
+    if (result.retryable) {
+      await loadStoredPage()
+      if (activePanelId.value === panel.id) panelRequestNotice.value = '图片读取成功但保存失败，可只重试保存。'
+      return
+    }
+    await handleProductionPageSaved(result.page)
+    if (visible() && activePanelId.value === panel.id) panelRequestNotice.value = result.staleAttach
+      ? '图片已加入原格候选；画面描述已变化，请手动选用。'
+      : '图片已保存并选用，可继续添加文字或导出。'
+  } catch (error) {
+    if (visible() && activePanelId.value === panel.id) panelRequestNotice.value = error?.message || '上传图片失败，请重试。'
+  } finally {
+    if (!disposed && comicPage.value?.id === page.id) uploadingPanelId.value = ''
+  }
 }
 
 async function generatePanel(panel) {
-  const config = props.modelConfigs.find((item) => item.id === props.selectedModelId)
-  if (!config || (props.standalone && !panelSourceId(panel))) return
-  const pageId = comicPage.value.id
-  const livePanel = comicPage.value.panels.find((item) => item.id === panel.id)
-  if (!livePanel) return
-  const pendingGuard = canSendComicRequest(livePanel.pendingGeneration, {})
-  if (!pendingGuard.allowed) {
-    panelRequestNotice.value = '上一请求结果未知（可能在刷新前已发出）。请先“清除未知记录”或明确点击“重新生成”。'
+  const model = props.modelConfigs.find((item) => item.id === props.selectedModelId)
+  if (!model || !canGeneratePanel(panel)) return
+  const page = JSON.parse(JSON.stringify(comicPage.value))
+  const target = page.panels.find((item) => item.id === panel.id)
+  if (!target) return
+  const current = listComicPages({}).find((item) => item.id === page.id)
+  const live = current?.panels.find((item) => item.id === target.id)
+  if (current?.projectId !== page.projectId || !live) return
+  if (!canSendComicRequest(live.pendingGeneration).allowed) {
+    panelRequestNotice.value = '上一请求结果未知，请先核查或明确重新生成。'
     return
   }
+  const config = JSON.parse(JSON.stringify(model))
   const requestId = createComicRequestId()
-  const pageSourceRefs = [...comicPage.value.sourceRefs]
-  const projectId = props.projectId
-  const panelId = panel.id
-  const intentHash = comicRequestIntentHash({
-    pageId,
-    panelId,
-    signature: panelIntentSignature(livePanel),
-    providerType: config.type
-  })
-  const orderedPanels = [...comicPage.value.panels].sort((a, b) => a.order - b.order)
-  const panelIndex = orderedPanels.findIndex((item) => item.id === panelId)
-  const previousPanel = panelIndex > 0 ? orderedPanels[panelIndex - 1] : null
-  const previousImageData = previousPanel ? selectedTake(previousPanel)?.data || '' : ''
-  const source = panelSourceContext(panel)
-  const imageSize = getComicPanelImageSize(comicPage.value, panel.order)
-  const imageRequest = buildComicPanelImageRequest({
-    page: comicPage.value,
-    panel,
-    previousPanel,
-    sourceTitle: source.title || props.sourceTitle,
-    sourceText: source.content || props.sourceText,
-    providerType: config.type,
-    previousImageData,
-    targetAspect: `${imageSize.width}:${imageSize.height}`
-  })
-  panelRequestNotice.value = ''
-  const pendingMark = { requestId, intentHash, sentAt: Date.now() }
-  patchRuntimePanel(panel.id, { generationStatus: 'generating', generationError: '', pendingGeneration: pendingMark })
-  setComicPanelPendingGeneration(pageId, panelId, pendingMark)
-  updateComicPanel(pageId, panelId, { generationStatus: 'generating', generationError: '' })
-  try {
-    const data = await generateImage(config, {
-      ...imageRequest,
-      width: imageSize.width,
-      height: imageSize.height,
-      count: 1
-    })
-    const entry = await addGeneratedImageToLibrary(props.storageKey, {
-      prompt: imageRequest.prompt,
-      negativePrompt: imageRequest.negativePrompt,
-      modelName: config.name,
-      modelId: config.defaultModel,
-      modelType: config.type,
-      width: imageSize.width,
-      height: imageSize.height,
-      data,
-      createdAt: new Date().toISOString()
-    }, {
-      projectId,
-      purpose: 'comic-panel',
-      sourceRefs: [
-        ...pageSourceRefs,
-        ...(panel.continuityRefs || []),
-        { refType: 'comic-page', refId: pageId, projectId },
-        { refType: 'comic-panel', refId: panelId, projectId }
-      ]
-    })
-    clearComicPanelPendingGeneration(pageId, panelId, requestId)
-    // 晚返回围栏：请求期间作者改过本格内容，新图只进候选区，不替换现选画面。
-    const liveAtReturn = listComicPages({}).find((item) => item.id === pageId)?.panels
-      .find((item) => item.id === panelId) || null
-    const changedDuringFlight = liveAtReturn
-      ? comicRequestIntentHash({ pageId, panelId, signature: panelIntentSignature(liveAtReturn), providerType: config.type }) !== intentHash
-      : true
-    const saved = addComicPanelTake(pageId, panelId, entry.mediaAssetId, { select: !changedDuringFlight })
-    if (saved && comicPage.value?.id === pageId) {
-      comicPage.value = await hydrateComicPageTakes(saved)
-      panelRequestNotice.value = changedDuringFlight
-        ? '生成完成，但请求期间本格已修改：新图已进入候选区，未替换现选画面'
-        : '生成完成：新图已进入候选区'
-      emit('page-saved', comicPage.value)
-    }
-  } catch (error) {
-    const message = error?.message || '本格图片生成失败'
-    clearComicPanelPendingGeneration(pageId, panelId, requestId)
-    updateComicPanel(pageId, panelId, { generationStatus: 'error', generationError: message })
-    if (comicPage.value?.id === pageId) {
-      patchRuntimePanel(panelId, { generationStatus: 'error', generationError: message, pendingGeneration: null })
-    }
+  const projectId = page.projectId
+  const inputRevision = getComicPanelInputRevision(target)
+  const revision = loadRevision
+  const visible = () => !disposed && revision === loadRevision && comicPage.value?.id === page.id && props.projectId === projectId
+  const ownsSlot = () => {
+    const latest = listComicPages({}).find((item) => item.id === page.id)
+    return latest?.projectId === projectId && latest.panels.find((item) => item.id === target.id)?.pendingGeneration?.requestId === requestId
   }
+  const ordered = [...page.panels].sort((a, b) => a.order - b.order)
+  const previousPanel = ordered[ordered.findIndex((item) => item.id === target.id) - 1] || null
+  const source = panelSourceContext(target)
+  const size = getComicPanelImageSize(page, target.order)
+  const imageRequest = buildComicPanelImageRequest({
+    page, panel: target, previousPanel, sourceTitle: source.title || props.sourceTitle,
+    sourceText: source.content || props.sourceText, providerType: config.type,
+    previousImageData: previousPanel ? getComicPanelDisplayImage(previousPanel, page)?.data || '' : '',
+    targetAspect: `${size.width}:${size.height}`
+  })
+  const payload = { requestId, page, panel: target, projectId, config, storageKey: props.storageKey,
+    inputRevision, prompt: imageRequest.prompt, negativePrompt: imageRequest.negativePrompt,
+    width: size.width, height: size.height }
+  const pending = { requestId, inputRevision,
+    intentHash: comicRequestIntentHash({ pageId: page.id, panelId: target.id, inputRevision, model: config.id }), sentAt: Date.now() }
+  let requestSent = false
+  activePanelRequests.add(requestId)
+  try {
+    setComicPanelPendingGeneration(page.id, target.id, pending)
+    updateComicPanel(page.id, target.id, { generationStatus: 'generating', generationError: '' })
+    patchRuntimePanel(target.id, { generationStatus: 'generating', generationError: '', pendingGeneration: pending })
+    panelRequestNotice.value = ''
+    requestSent = true
+    const data = await generateImage(config, { ...imageRequest, width: size.width, height: size.height, count: 1 })
+    const result = await archiveComicPanelTakeWithRecovery({ ...payload, data })
+    if (result.retryable) {
+      const error = new Error('图片已生成但保存失败，可以只重试保存或下载原图。')
+      error.code = 'media-persist-failed'
+      throw error
+    }
+    if (ownsSlot()) clearComicPanelPendingGeneration(page.id, target.id, requestId)
+    if (!visible()) return
+    const stored = listComicPages({}).find((item) => item.id === page.id)
+    if (!stored || stored.projectId !== projectId) return
+    const hydrated = await hydrateComicPageTakes(stored)
+    if (!visible()) return
+    comicPage.value = hydrated
+    if (activePanelId.value === target.id) panelRequestNotice.value = result.staleAttach ? '新图已加入原格候选，当前内容或请求已变化，未替换现选画面。' : '生成完成，已选用新画面。'
+    emit('page-saved', hydrated)
+  } catch (error) {
+    const rejected = !requestSent || (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408)
+    const message = error?.code === 'media-persist-failed' ? error.message
+      : rejected ? error?.message || '图片生成失败' : '请求结果未知，请先核查结果，避免重复生成。'
+    if (ownsSlot()) {
+      if (visible()) patchRuntimePanel(target.id, { generationStatus: 'error', generationError: message, pendingGeneration: rejected ? null : pending })
+      try {
+        if (rejected) clearComicPanelPendingGeneration(page.id, target.id, requestId)
+        updateComicPanel(page.id, target.id, { generationStatus: 'error', generationError: message })
+      } catch {
+        if (visible() && activePanelId.value === target.id) panelRequestNotice.value = message
+      }
+    }
+  } finally {
+    activePanelRequests.delete(requestId)
+  }
+}
+
+async function retryPanelPersist(panel) {
+  const recovery = panelPersistRecovery(panel)
+  if (!recovery || panelPersistRetrying.value) return
+  const pageId = comicPage.value.id
+  const projectId = comicPage.value.projectId
+  const revision = loadRevision
+  panelPersistRetrying.value = true
+  try {
+    const result = await retryComicStagePersist(recovery.requestId)
+    if (disposed || revision !== loadRevision || pageId !== comicPage.value?.id || projectId !== props.projectId) return
+    await handleProductionPageSaved(result.page)
+    if (activePanelId.value === panel.id) panelRequestNotice.value = '图片已保存，没有重新调用模型。'
+  } catch (error) {
+    if (!disposed && revision === loadRevision && pageId === comicPage.value?.id && activePanelId.value === panel.id) panelRequestNotice.value = error?.message || '图片保存仍然失败'
+  } finally {
+    if (!disposed && revision === loadRevision) panelPersistRetrying.value = false
+  }
+}
+
+function downloadPanelRecovery(panel) {
+  const recovery = panelPersistRecovery(panel)
+  const data = recovery && getComicPersistRetry(recovery.requestId)?.payload?.data
+  if (data) downloadDataUrl(data, `${safeFilename(comicPage.value.title)}-${panel.order}.png`)
 }
 
 async function generateUnfinishedPanels() {
@@ -391,21 +523,27 @@ async function generateUnfinishedPanels() {
     || !props.selectedModelId
   ) return
   batchGenerating.value = true
+  const pageId = comicPage.value.id
+  const projectId = comicPage.value.projectId
+  const revision = loadRevision
   const panelIds = unfinishedPanels.value.map((panel) => panel.id)
   try {
     for (const panelId of panelIds) {
+      if (disposed || revision !== loadRevision || comicPage.value?.id !== pageId || props.projectId !== projectId) break
       const panel = comicPage.value?.panels.find((item) => item.id === panelId)
-      if (panel && !panel.selectedTakeId) await generatePanel(panel)
+      if (panel && !resolveComicPanelDisplay(panel, comicPage.value)) await generatePanel(panel)
     }
   } finally {
-    batchGenerating.value = false
+    if (!disposed && revision === loadRevision) batchGenerating.value = false
   }
 }
 
 function selectPanelTake(panel, takeId) {
-  const saved = updateComicPanel(comicPage.value.id, panel.id, { selectedTakeId: takeId })
+  const saved = updateComicPanel(comicPage.value.id, panel.id, {
+    selectedTakeId: takeId, displaySelection: { type: 'take', assetId: takeId }
+  })
   if (!saved) return
-  patchRuntimePanel(panel.id, { selectedTakeId: takeId })
+  patchRuntimePanel(panel.id, { selectedTakeId: takeId, displaySelection: { type: 'take', assetId: takeId } })
 }
 
 function panelSourceId(panel) {
@@ -445,7 +583,7 @@ function collectPanelSourceRefs(panels = []) {
 
 function canGeneratePanel(panel) {
   if (!panel.visual.trim() || !props.selectedModelId) return false
-  return !props.standalone || Boolean(panelSourceId(panel))
+  return !props.standalone || Boolean(props.projectId && comicPage.value?.projectId === props.projectId)
 }
 
 function addDialogue(panel) {
@@ -460,15 +598,18 @@ function removeDialogue(panel, index) {
 function addLetteringObject(panel, type = 'speech', text = '') {
   const objects = Array.isArray(panel.letteringObjects) ? panel.letteringObjects : []
   const index = objects.length
-  const defaults = defaultLetteringBox(type, index)
+  const content = String(text || '').trim() || (type === 'caption' ? '输入旁白' : '输入对白')
+  const defaults = initialLetteringBox(panel, type, index, content)
   panel.letteringObjects = [
     ...objects,
     {
       id: `lettering_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       type,
-      text: String(text || '').trim() || (type === 'caption' ? '输入旁白' : '输入对白'),
+      text: content,
       box: defaults,
-      tailTarget: null,
+      tailTarget: ['speech', 'thought'].includes(type)
+        ? { x: defaults[0] + defaults[2] * 0.35, y: Math.min(0.98, defaults[1] + defaults[3] + 0.12) }
+        : null,
       style: defaultLetteringStyle(type),
       zIndex: index
     }
@@ -493,7 +634,7 @@ function importPanelScriptLettering(panel) {
       id: `lettering_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 6)}`,
       type: item.type,
       text: item.text,
-      box: defaultLetteringBox(item.type, index),
+      box: initialLetteringBox(panel, item.type, index, item.text),
       tailTarget: null,
       style: defaultLetteringStyle(item.type),
       zIndex: index
@@ -513,17 +654,20 @@ function letteringTypeLabel(type) {
   return { speech: '对白', thought: '心声', caption: '旁白', sfx: '拟声' }[type] || '对白'
 }
 
-function letteringObjectStyle(object) {
+function letteringObjectStyle(object, panel) {
   const [x, y, width, height] = normalizeLetteringBox(object.box)
   const style = normalizeLetteringStyle(object.style, object.type)
+  const rect = getComicPanelRect(comicPage.value, panel.order)
+  const { insetX, insetY } = getComicLetteringTextMetrics(object, rect)
   return {
     left: `${x * 100}%`,
     top: `${y * 100}%`,
     width: `${width * 100}%`,
     height: `${height * 100}%`,
+    padding: `${insetY * 100 / rect.height}cqh ${insetX * 100 / rect.height}cqh`,
     zIndex: 10 + (Number(object.zIndex) || 0),
     fontFamily: letteringFontFamily(style.fontFamily),
-    fontSize: `clamp(7px, ${style.fontSize / 3}cqh, 32px)`,
+    fontSize: `${style.fontSize * 100 / getComicPanelRect(comicPage.value, panel.order).height}cqh`,
     fontWeight: style.fontWeight,
     textAlign: style.textAlign,
     writingMode: style.textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
@@ -539,24 +683,14 @@ function letteringTailTarget(object) {
 }
 
 function letteringTailStyle(object) {
-  const target = letteringTailTarget(object)
   const [x, y, width, height] = normalizeLetteringBox(object?.box)
-  if (!target) return { display: 'none' }
+  const target = letteringTailTarget(object) || { x: x + width / 2, y: y + height }
   return { left: `${((target.x - x) / width) * 100}%`, top: `${((target.y - y) / height) * 100}%` }
 }
 
-function letteringTailPoints(object) {
-  const target = letteringTailTarget(object)
-  const [x, y, width, height] = normalizeLetteringBox(object?.box)
-  if (!target) return ''
-  const tx = ((target.x - x) / width) * 100
-  const ty = ((target.y - y) / height) * 100
-  const dx = tx - 50
-  const dy = ty - 50
-  const length = Math.max(1, Math.sqrt(dx * dx + dy * dy))
-  const nx = -dy / length * 7
-  const ny = dx / length * 7
-  return `50,50 ${50 + nx},${50 + ny} ${tx},${ty} ${50 - nx},${50 - ny}`
+function letteringTailPoints(object, panel) {
+  return getComicLetteringTailPoints(object, getComicPanelRect(comicPage.value, panel.order))
+    .map(([x, y]) => `${x * 100},${y * 100}`).join(' ')
 }
 
 function defaultLetteringStyle(type = 'speech') {
@@ -625,12 +759,8 @@ defineExpose({
   reloadPage: loadStoredPage,
   updateLetteringBox,
   updateLetteringTail,
-  flushPendingEdits: () => {
-    const element = typeof document !== 'undefined' ? document.activeElement : null
-    if (element && (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') && typeof element.blur === 'function') {
-      element.blur()
-    }
-  }
+  flushPendingEdits,
+  openPanelTool
 })
 
 let letteringDrag = null
@@ -853,6 +983,12 @@ function defaultLetteringBox(type, index) {
   return [right ? 0.52 : 0.06, 0.1 + (index % 3) * 0.22, 0.42, 0.16]
 }
 
+function initialLetteringBox(panel, type, index, text) {
+  return fitComicLetteringBoxHeight({
+    type, text, box: defaultLetteringBox(type, index), style: defaultLetteringStyle(type)
+  }, getComicPanelRect(comicPage.value, panel.order))
+}
+
 function normalizeLetteringBox(box) {
   const source = Array.isArray(box) && box.length >= 4 ? box : [0.52, 0.1, 0.42, 0.16]
   const width = Math.max(0.12, Math.min(1, Number(source[2]) || 0.42))
@@ -879,6 +1015,7 @@ function moveActivePanel(delta) {
 }
 
 function navigatePanel(delta) {
+  if (!flushPendingEdits()) return
   const panels = comicPage.value?.panels || []
   const index = panels.findIndex((panel) => panel.id === activePanelId.value)
   if (index < 0) return
@@ -927,10 +1064,12 @@ function persistVisualBibleField(field, value) {
 function applyProductionSettingsPage(saved) {
   if (!saved || !comicPage.value) return
   const runtimeTakes = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.imageTakes || []]))
+  const runtimeImages = new Map(comicPage.value.panels.map((panel) => [panel.id, panel.displayImage]))
   comicPage.value = {
     ...saved,
     panels: saved.panels.map((panel) => ({
       ...panel,
+      displayImage: runtimeImages.get(panel.id) || null,
       imageTakes: runtimeTakes.get(panel.id) || []
     }))
   }
@@ -1007,13 +1146,10 @@ const exportBlockReason = ref('')
 async function buildExportSnapshot() {
   if (!comicPage.value || typeof document === 'undefined') return null
   const source = JSON.parse(JSON.stringify(comicPage.value))
-  const route = getComicProductionRoute(source)
-  const finalStage = route[route.length - 1]
   const dataById = new Map()
   const missingPanels = []
   for (const panel of source.panels) {
-    const artifactId = panel.production?.[finalStage]?.selectedArtifactId
-    const takeId = artifactId || panel.selectedTakeId
+    const takeId = resolveComicPanelDisplay(panel, source)?.id
     let data = ''
     if (takeId) {
       data = dataById.get(takeId) || ''
@@ -1090,6 +1226,19 @@ async function exportWebtoonSlices({ draft = false } = {}) {
 async function prepareExport(draft) {
   const snapshot = await buildExportSnapshot()
   if (!snapshot) return null
+  if (!draft) {
+    const blocked = snapshot.page.panels.map((panel) => ({ panel, reason: getComicPanelDisplayExportBlock(panel, snapshot.page) }))
+      .find((item) => item.reason)
+    if (blocked) {
+      exportBlockReason.value = `第 ${blocked.panel.order} 格：${blocked.reason}。成品导出使用当前显示画面，不会替换为其他候选。`
+      return null
+    }
+    const report = buildComicPublicationReport(snapshot.page)
+    if (report.blocking.length) {
+      exportBlockReason.value = `请先处理出版质检：${report.blocking[0].message || report.blocking[0].title || '文字排版超出可读范围'}。`
+      return null
+    }
+  }
   if (snapshot.missingPanels.length && !draft) {
     exportBlockReason.value = `第 ${snapshot.missingPanels.map((panel) => panel.order).join('、')} 格缺少最终画面，已阻断成品导出；可先补齐画面，或导出带水印的分镜草稿。`
     return null
@@ -1124,8 +1273,12 @@ function renderSnapshotCanvas(snapshot, draft) {
     } else {
       drawPanelPlaceholder(context, panel, rect)
     }
-    drawPanelLettering(context, panel, rect)
+    const overflow = drawPanelLettering(context, panel, rect)
     context.restore()
+    if (overflow && !draft) {
+      exportBlockReason.value = `第 ${panel.order} 格文字超出可用空间，请扩大文字框或调整字号。`
+      return null
+    }
     context.strokeStyle = '#1f2630'
     context.lineWidth = 4
     context.strokeRect(rect.x, rect.y, rect.width, rect.height)
@@ -1217,6 +1370,7 @@ function savePanelToMaterial(panel) {
   if (!take) return
   emit('save-to-material', {
     id: take.id,
+    projectId: comicPage.value.projectId,
     mediaAssetId: take.id,
     data: take.data,
     prompt: panel.visual,
@@ -1231,7 +1385,7 @@ function savePanelToMaterial(panel) {
 }
 
 function selectedTake(panel) {
-  return panel.imageTakes?.find((take) => take.id === panel.selectedTakeId) || null
+  return getComicPanelDisplayImage(panel, comicPage.value)
 }
 
 function patchRuntimePanel(panelId, patch) {
@@ -1240,13 +1394,22 @@ function patchRuntimePanel(panelId, patch) {
 }
 
 function panelStateLabel(panel) {
+  if (panelPersistRecovery(panel)) return '保存待恢复'
   if (panel.generationStatus === 'generating') return '生成中'
+  if (panel.pendingGeneration && !activePanelRequests.has(panel.pendingGeneration.requestId)) return '结果未知'
   if (panel.generationStatus === 'error') return '失败'
-  if (panel.selectedTakeId) return `${panel.imageTakeIds.length} 个候选`
+  const display = resolveComicPanelDisplay(panel, comicPage.value)
+  if (display?.type === 'stage') return display.status === 'stale' ? '需重新审阅' : !getComicPanelDisplayExportBlock(panel, comicPage.value) ? '已确认' : '阶段候选'
+  if (display) return `${panel.imageTakeIds.length} 个候选`
   return '待生成'
 }
 
 function acknowledgePanelRequest(panel, action) {
+  if (action === 'verify') {
+    void handleProductionPageSaved(listComicPages({}).find((page) => page.id === comicPage.value?.id))
+    panelRequestNotice.value = '已重新读取当前格和候选；未找到新结果时仍保留未知请求。'
+    return
+  }
   const pending = panel.pendingGeneration
   if (!pending || !comicPage.value) return
   clearComicPanelPendingGeneration(comicPage.value.id, panel.id, pending.requestId)
@@ -1260,7 +1423,10 @@ function acknowledgePanelRequest(panel, action) {
     generationStatus: panel.imageTakeIds.length ? 'ready' : 'idle',
     generationError: '已按作者操作关闭未知请求记录；若图片实际已生成，可在素材库按漫画格来源查找。'
   })
-  persistPage()
+  updateComicPanel(comicPage.value.id, panel.id, {
+    generationStatus: panel.generationStatus,
+    generationError: panel.generationError
+  })
 }
 
 // B09：长文本自动增高。autosize 已是项目依赖（世界书字段在用）。
@@ -1299,6 +1465,9 @@ function destroyAutosize() {
 
 function locateIssue(issue) {
   if (!issue?.panelId || !comicPage.value?.panels.some((panel) => panel.id === issue.panelId)) return
+  if (!flushPendingEdits()) return
+  compactWorkspace.value = 'panels'
+  compactPanelTool.value = issue.objectId ? 'text' : 'image'
   activePanelId.value = issue.panelId
   if (issue.objectId) {
     highlightedObjectId.value = issue.objectId
@@ -1384,6 +1553,7 @@ function drawPanelPlaceholder(context, panel, rect) {
 }
 
 function drawPanelLettering(context, panel, rect) {
+  let overflow = false
   const objects = Array.isArray(panel.letteringObjects) ? panel.letteringObjects : []
   objects.forEach((object) => {
     const [unitX, unitY, unitWidth, unitHeight] = normalizeLetteringBox(object.box)
@@ -1396,39 +1566,41 @@ function drawPanelLettering(context, panel, rect) {
     const isSfx = object.type === 'sfx'
     const isCaption = object.type === 'caption'
     const textStyle = normalizeLetteringStyle(object.style, object.type)
-    const padding = Math.max(8, Math.min(18, box.width * 0.07))
-    const fontSize = Math.max(10, textStyle.fontSize * rect.height / 300)
+    const { insetX, insetY, contentWidth, contentHeight } = getComicLetteringTextMetrics(object, rect)
+    const fontSize = textStyle.fontSize
     const lineHeight = fontSize * 1.3
     const canvasFont = `${textStyle.fontWeight} ${fontSize}px ${letteringCanvasFontFamily(textStyle.fontFamily)}`
-    const maxRows = Math.max(1, Math.floor((box.height - padding * 2) / lineHeight))
+    const maxRows = Math.max(1, Math.floor(contentHeight / lineHeight))
+    const verticalCharacters = Array.from(String(object.text || '').replace(/\n/g, ''))
+    const verticalCapacity = maxRows * Math.max(1, Math.floor(contentWidth / lineHeight))
     const lines = textStyle.textDirection === 'vertical'
-      ? Array.from(String(object.text || '').replace(/\n/g, '')).slice(0, maxRows * Math.max(1, Math.floor((box.width - padding * 2) / lineHeight)))
+      ? verticalCharacters.slice(0, verticalCapacity)
       : wrapCanvasText(
           context,
           object.text,
-          Math.max(20, box.width - padding * 2),
+          contentWidth,
           maxRows,
           canvasFont
         )
     if (!lines.length) return
-
-    if (['speech', 'thought'].includes(object.type) && letteringCanvasTailTarget(object)) {
-      drawLetteringTail(context, object, rect, box)
-    }
+    overflow ||= lines.truncated || (textStyle.textDirection === 'vertical' && verticalCharacters.length > verticalCapacity) || contentHeight < lineHeight
 
     context.save()
     const rotation = (textStyle.rotation + (isSfx ? -7 : 0)) * Math.PI / 180
     context.translate(box.x + box.width / 2, box.y + box.height / 2)
     context.rotate(rotation)
     context.translate(-(box.x + box.width / 2), -(box.y + box.height / 2))
+    if (['speech', 'thought'].includes(object.type) && letteringCanvasTailTarget(object)) {
+      drawLetteringTail(context, object, rect, box)
+    }
     if (!isSfx) {
       context.beginPath()
-      if (object.type === 'thought') {
+      if (['speech', 'thought'].includes(object.type)) {
         context.ellipse(box.x + box.width / 2, box.y + box.height / 2, box.width / 2, box.height / 2, 0, 0, Math.PI * 2)
       } else {
         roundedRectPath(context, box.x, box.y, box.width, box.height, isCaption ? 4 : Math.min(box.height / 2, 34))
       }
-      context.fillStyle = 'rgba(255,255,255,0.94)'
+      context.fillStyle = ['speech', 'thought'].includes(object.type) ? '#ffffff' : 'rgba(255,255,255,0.94)'
       context.fill()
       context.strokeStyle = 'rgba(32,36,42,0.86)'
       context.lineWidth = Math.max(2, rect.width / 280)
@@ -1450,31 +1622,32 @@ function drawPanelLettering(context, panel, rect) {
       for (let index = 0; index < lines.length; index += rows) columns.push(lines.slice(index, index + rows))
       const columnStep = lineHeight
       const firstX = textStyle.textAlign === 'left'
-        ? box.x + padding + (columns.length - 1) * columnStep
+        ? box.x + insetX + (columns.length - 1) * columnStep
         : textStyle.textAlign === 'right'
-          ? box.x + box.width - padding
+          ? box.x + box.width - insetX
           : box.x + box.width / 2 + (columns.length - 1) * columnStep / 2
       columns.forEach((column, columnIndex) => {
         const textX = firstX - columnIndex * columnStep
         column.forEach((character, rowIndex) => {
-          const textY = box.y + padding + fontSize / 2 + rowIndex * lineHeight
+          const textY = box.y + insetY + fontSize / 2 + rowIndex * lineHeight
           drawCanvasLetter(character, textX, textY, isSfx, context, fontSize)
         })
       })
     } else {
       const textX = textStyle.textAlign === 'left'
-        ? box.x + padding
+        ? box.x + insetX
         : textStyle.textAlign === 'right'
-          ? box.x + box.width - padding
+          ? box.x + box.width - insetX
           : box.x + box.width / 2
       const totalHeight = lines.length * lineHeight
       const firstY = box.y + (box.height - totalHeight) / 2 + lineHeight / 2
       lines.forEach((line, index) => {
-        drawCanvasLetter(line, textX, firstY + index * lineHeight, isSfx, context, fontSize, Math.max(20, box.width - padding * 2))
+        drawCanvasLetter(line, textX, firstY + index * lineHeight, isSfx, context, fontSize, contentWidth)
       })
     }
     context.restore()
   })
+  return overflow
 }
 
 function letteringCanvasTailTarget(object) {
@@ -1485,28 +1658,13 @@ function letteringCanvasTailTarget(object) {
 }
 
 function drawLetteringTail(context, object, rect, box) {
-  const target = letteringCanvasTailTarget(object)
-  if (!target) return
-  const tx = rect.x + target.x * rect.width
-  const ty = rect.y + target.y * rect.height
-  const cx = box.x + box.width / 2
-  const cy = box.y + box.height / 2
-  const dx = tx - cx
-  const dy = ty - cy
-  const length = Math.max(1, Math.hypot(dx, dy))
-  const ux = dx / length
-  const uy = dy / length
-  const px = -uy * Math.min(box.width, box.height) * 0.12
-  const py = ux * Math.min(box.width, box.height) * 0.12
-  const baseX = cx + ux * Math.min(length * 0.35, Math.min(box.width, box.height) * 0.34)
-  const baseY = cy + uy * Math.min(length * 0.35, Math.min(box.width, box.height) * 0.34)
+  const points = getComicLetteringTailPoints(object, rect)
+  if (!points.length) return
   context.save()
   context.beginPath()
-  context.moveTo(baseX - px, baseY - py)
-  context.lineTo(tx, ty)
-  context.lineTo(baseX + px, baseY + py)
+  points.forEach(([x, y], index) => context[index ? 'lineTo' : 'moveTo'](box.x + x * box.width, box.y + y * box.height))
   context.closePath()
-  context.fillStyle = 'rgba(255,255,255,0.94)'
+  context.fillStyle = '#ffffff'
   context.fill()
   context.strokeStyle = 'rgba(32,36,42,0.86)'
   context.lineWidth = Math.max(2, rect.width / 280)
@@ -1543,37 +1701,11 @@ function wrapCanvasText(context, value, maxWidth, maxLines, font) {
   if (!text) return []
   context.save()
   context.font = font
-  const lines = []
-  const paragraphs = text.split(/\n/)
-  let truncated = false
-  outer: for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1) {
-    const characters = Array.from(paragraphs[paragraphIndex])
-    let line = ''
-    for (let characterIndex = 0; characterIndex < characters.length; characterIndex += 1) {
-      const character = characters[characterIndex]
-      const candidate = `${line}${character}`
-      if (line && context.measureText(candidate).width > maxWidth) {
-        lines.push(line)
-        line = character
-        if (lines.length >= maxLines) {
-          truncated = true
-          break outer
-        }
-      } else {
-        line = candidate
-      }
-    }
-    if (line) {
-      lines.push(line)
-      if (lines.length >= maxLines && paragraphIndex < paragraphs.length - 1) truncated = true
-    }
-    if (lines.length >= maxLines) break
-  }
+  const wrapped = wrapComicLetteringText(text, maxWidth, (line) => context.measureText(line).width)
   context.restore()
-  if (truncated && lines.length) {
-    lines[maxLines - 1] = `${lines[maxLines - 1].slice(0, -1)}…`
-  }
-  return lines.slice(0, maxLines)
+  const lines = wrapped.slice(0, maxLines)
+  lines.truncated = wrapped.length > maxLines
+  return lines
 }
 
 function roundedRectPath(context, x, y, width, height, radius) {
@@ -1614,7 +1746,7 @@ function safeFilename(value) {
     <template v-if="!comicPage">
       <header class="comic-editor__draft-heading">
         <span>{{ standalone ? '新建独立漫画页' : '新建漫画页' }}</span>
-        <strong>{{ standalone ? '先建立页面，再为每格选择素材' : sourceTitle || '当前素材' }}</strong>
+        <strong>{{ standalone ? '填写每格画面，或引用已有素材' : sourceTitle || '当前素材' }}</strong>
       </header>
       <div class="comic-editor__draft">
         <div class="comic-editor__draft-options">
@@ -1703,16 +1835,20 @@ function safeFilename(value) {
       </header>
 
       <nav v-if="compact" class="comic-editor__workspace-tabs" aria-label="漫画制作工作区">
-        <button type="button" :class="{ active: compactWorkspace === 'page' }" @click="compactWorkspace = 'page'">
-          页面规划
-        </button>
-        <button type="button" :class="{ active: compactWorkspace === 'panels' }" @click="compactWorkspace = 'panels'">
-          当前格制作
+        <button type="button" :class="{ active: compactWorkspace === 'panels' }" @click="switchWorkspace('panels')">
+          当前格
           <span>{{ completedPanelCount }}/{{ comicPage.panels.length }}</span>
+        </button>
+        <button type="button" :class="{ active: compactWorkspace === 'page' }" @click="switchWorkspace('page')">
+          页面与导出
         </button>
       </nav>
 
       <p v-if="scriptError" class="comic-editor__error" role="alert">{{ scriptError }}</p>
+      <div v-if="saveError" class="comic-editor__save-error" role="alert">
+        <span>{{ saveError }}</span>
+        <button class="comic-action" type="button" @click="persistPage">重试保存</button>
+      </div>
 
       <template v-if="!compact || compactWorkspace === 'page'">
         <div class="comic-editor__planning-overview">
@@ -1873,13 +2009,13 @@ function safeFilename(value) {
         </section>
       </template>
 
-      <template v-if="!compact || compactWorkspace === 'panels'">
-        <section class="comic-editor__preview-block" aria-label="分格导航">
+      <div v-show="!compact || compactWorkspace === 'panels'" class="comic-editor__panel-workspace">
+        <section v-if="!compact || (activePanel && (selectedTake(activePanel) || activePanel.letteringObjects?.length))" class="comic-editor__preview-block" aria-label="分格导航">
           <div class="comic-editor__section-heading">
             <strong>分格导航</strong>
-            <span>{{ completedPanelCount }} / {{ comicPage.panels.length }} 格已有画面</span>
+            <span>{{ availablePanelCount }} / {{ comicPage.panels.length }} 格已有画面</span>
           </div>
-          <div v-if="compact" class="comic-editor__composition-previews">
+          <div v-if="compact && activePanel && (selectedTake(activePanel) || activePanel.letteringObjects?.length)" class="comic-editor__composition-previews">
             <ComicPagePreview
               :page="comicPage"
               :active-panel-id="activePanelId"
@@ -1917,7 +2053,7 @@ function safeFilename(value) {
                 class="comic-lettering-overlay"
                 :class="[`is-${object.type}`, { 'is-flagged': highlightedObjectId === object.id }]"
                 :data-lettering-id="object.id"
-                :style="letteringObjectStyle(object)"
+                :style="letteringObjectStyle(object, activePanel)"
                 :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
                 @pointerdown="startLetteringDrag($event, activePanel, object)"
                 @pointermove="moveLetteringDrag"
@@ -1925,13 +2061,14 @@ function safeFilename(value) {
                 @pointercancel="cancelLetteringDrag"
               >
                 <svg
-                  v-if="['speech', 'thought'].includes(object.type) && letteringTailTarget(object)"
+                  v-if="['speech', 'thought'].includes(object.type)"
                   class="comic-lettering-overlay__tail"
                   viewBox="0 0 100 100"
                   preserveAspectRatio="none"
                   aria-hidden="true"
                 >
-                  <polygon :points="letteringTailPoints(object)" />
+                  <polygon v-if="letteringTailTarget(object)" :points="letteringTailPoints(object, activePanel)" />
+                  <ellipse cx="50" cy="50" rx="50" ry="50" />
                 </svg>
                 <i
                   v-if="['speech', 'thought'].includes(object.type)"
@@ -1991,7 +2128,13 @@ function safeFilename(value) {
         </button>
         </div>
 
-        <div class="comic-editor__generation-tools">
+        <nav v-if="compact" class="comic-editor__task-tabs" aria-label="当前格编辑任务">
+          <button type="button" :class="{ active: compactPanelTool === 'image' }" :aria-pressed="compactPanelTool === 'image'" @click="openPanelTool('image')">画面</button>
+          <button type="button" :class="{ active: compactPanelTool === 'text' }" :aria-pressed="compactPanelTool === 'text'" @click="openPanelTool('text')">文字</button>
+          <button type="button" :class="{ active: compactPanelTool === 'production' }" :aria-pressed="compactPanelTool === 'production'" @click="openPanelTool('production')">分阶段精修</button>
+        </nav>
+
+        <div v-show="!compact || compactPanelTool !== 'text'" class="comic-editor__generation-tools">
           <div class="comic-editor__model">
             <ImageModelPicker
               :model-value="selectedModelId"
@@ -2001,6 +2144,7 @@ function safeFilename(value) {
             />
           </div>
           <button
+            v-if="(!compact || compactPanelTool === 'image') && (availablePanelCount || unfinishedPanels.some((panel) => panel.visual.trim()))"
             class="comic-action"
             type="button"
             :disabled="batchGenerating || scriptGenerating || !batchGenerationAllowed || unfinishedPanels.length === 0 || unconfiguredPanels.length > 0 || !selectedModelId"
@@ -2014,36 +2158,50 @@ function safeFilename(value) {
                 ? `还有 ${unconfiguredPanels.length} 格未配置`
                 : unfinishedPanels.length
                   ? `补齐其余 ${unfinishedPanels.length} 格`
-                  : '画面已齐' }}
+                  : completedPanelCount === comicPage.panels.length ? '画面已齐' : '候选已齐' }}
           </button>
         </div>
 
         <div class="comic-editor__panels">
           <section v-for="panel in visiblePanels" :key="panel.id" class="comic-panel">
-          <label v-if="standalone" class="comic-panel__source-select">
-            <span>本格素材</span>
+          <label v-if="standalone && (!compact || compactPanelTool === 'image')" class="comic-panel__source-select">
+            <span>引用素材 <small>可选</small></span>
             <select :value="panelSourceId(panel)" @change="setPanelSource(panel, $event.target.value)">
-              <option value="">选择一条素材</option>
+              <option value="">直接描述画面</option>
               <option v-for="asset in sourceCandidates" :key="asset.id" :value="asset.id">
                 {{ asset.title || '无标题素材' }}
               </option>
             </select>
           </label>
-          <header class="comic-panel__header">
+          <header v-if="!compact || compactPanelTool === 'image'" class="comic-panel__header">
             <span>第 {{ panel.order }} 格 <small>{{ panelStateLabel(panel) }}</small></span>
             <button
               class="comic-action comic-action--primary comic-panel__generate-btn"
               type="button"
-              :disabled="batchGenerating || panel.generationStatus === 'generating' || Boolean(panel.pendingGeneration) || !canGeneratePanel(panel)"
+              :disabled="batchGenerating || Boolean(uploadingPanelId) || panel.generationStatus === 'generating' || Boolean(panel.pendingGeneration) || !canGeneratePanel(panel)"
               @click="generatePanel(panel)"
             >
-              {{ panel.pendingGeneration ? '结果未知' : panel.imageTakeIds.length ? '重生成' : '生成画面' }}
+              {{ activePanelRequests.has(panel.pendingGeneration?.requestId) ? '生成中…' : panel.pendingGeneration ? '结果未知' : panel.imageTakeIds.length ? '重新生成' : '生成画面' }}
             </button>
           </header>
+          <div v-if="!compact || compactPanelTool === 'image'" class="comic-panel__upload-row">
+            <button class="comic-action" type="button" :disabled="Boolean(uploadingPanelId) || Boolean(panel.pendingGeneration)" @click="activePanelId = panel.id; panelUploadInput?.click()">
+              {{ uploadingPanelId === panel.id ? '正在保存图片…' : '上传图片' }}
+            </button>
+            <span>{{ selectedModelId ? '生成或上传后可继续排字' : '也可以直接上传已有画面' }}</span>
+          </div>
 
-          <div v-if="panel.pendingGeneration" class="comic-editor__unknown-request" role="alert" :data-test="`comic-unknown-${panel.order}`">
+          <div v-if="panelPersistRecovery(panel)" class="comic-editor__unknown-request" role="alert">
+            <span>图片已生成但保存失败。可以只重试保存，或先下载原图。</span>
+            <div>
+              <button type="button" :disabled="panelPersistRetrying" @click="retryPanelPersist(panel)">只重试保存</button>
+              <button type="button" @click="downloadPanelRecovery(panel)">下载原图</button>
+            </div>
+          </div>
+          <div v-else-if="panel.pendingGeneration && !activePanelRequests.has(panel.pendingGeneration.requestId)" class="comic-editor__unknown-request" role="alert" :data-test="`comic-unknown-${panel.order}`">
             <span>上次生成请求结果未知（可能在刷新前已发出，不会自动重发）。</span>
             <div>
+              <button type="button" @click="acknowledgePanelRequest(panel, 'verify')">核查结果</button>
               <button type="button" @click="acknowledgePanelRequest(panel, 'regenerate')">明确重新生成</button>
               <button type="button" @click="acknowledgePanelRequest(panel, 'discard')">清除未知记录</button>
             </div>
@@ -2080,7 +2238,7 @@ function safeFilename(value) {
               class="comic-lettering-overlay"
               :class="[`is-${object.type}`, { 'is-flagged': highlightedObjectId === object.id }]"
               :data-lettering-id="object.id"
-              :style="letteringObjectStyle(object)"
+              :style="letteringObjectStyle(object, panel)"
               :title="`${letteringTypeLabel(object.type)}：拖动定位，拖拽边角缩放`"
               @pointerdown="startLetteringDrag($event, panel, object)"
               @pointermove="moveLetteringDrag"
@@ -2088,13 +2246,14 @@ function safeFilename(value) {
               @pointercancel="cancelLetteringDrag"
             >
               <svg
-                v-if="['speech', 'thought'].includes(object.type) && letteringTailTarget(object)"
+                v-if="['speech', 'thought'].includes(object.type)"
                 class="comic-lettering-overlay__tail"
                 viewBox="0 0 100 100"
                 preserveAspectRatio="none"
                 aria-hidden="true"
               >
-                <polygon :points="letteringTailPoints(object)" />
+                <polygon v-if="letteringTailTarget(object)" :points="letteringTailPoints(object, panel)" />
+                <ellipse cx="50" cy="50" rx="50" ry="50" />
               </svg>
               <i
                 v-if="['speech', 'thought'].includes(object.type)"
@@ -2135,7 +2294,7 @@ function safeFilename(value) {
               </svg>
             </span>
           </div>
-          <div v-if="panel.imageTakes?.length > 1" class="comic-panel__takes" aria-label="图片候选">
+          <div v-if="(!compact || compactPanelTool === 'image') && panel.imageTakes?.length > 1" class="comic-panel__takes" aria-label="图片候选">
             <button
               v-for="(take, index) in panel.imageTakes"
               :key="take.id"
@@ -2148,12 +2307,12 @@ function safeFilename(value) {
             </button>
           </div>
 
-          <label class="comic-editor__field">
+          <label v-if="!compact || compactPanelTool === 'image'" class="comic-editor__field">
             <span>画面</span>
-            <textarea v-model="panel.visual" rows="4" placeholder="主体、动作、环境、光线与构图" @change="persistPage"></textarea>
+            <textarea v-model="panel.visual" rows="4" aria-label="当前格画面描述" placeholder="主体、动作、环境、光线与构图" @change="persistPage"></textarea>
           </label>
 
-          <details class="comic-panel__beat">
+          <details v-if="!compact || compactPanelTool === 'image'" class="comic-panel__beat">
             <summary>剧情节拍</summary>
             <div class="comic-panel__beat-grid">
               <label><span>动作</span><input v-model="panel.beat.action" placeholder="这一格发生什么" @change="persistPage" /></label>
@@ -2163,8 +2322,8 @@ function safeFilename(value) {
             </div>
           </details>
 
-          <details class="comic-panel__direction" open>
-            <summary>镜头与制作阶段</summary>
+          <details v-if="!compact || compactPanelTool === 'image'" class="comic-panel__direction">
+            <summary>镜头与构图</summary>
             <div class="comic-panel__direction-grid">
               <label>
                 <span>景别</span>
@@ -2207,9 +2366,12 @@ function safeFilename(value) {
               <span>构图与调度</span>
               <input v-model="panel.direction.notes" placeholder="视线、站位、运动方向、气泡安全区" @change="persistCurrentComposition" />
             </label>
+          </details>
             <ComicStageWorkbench
+              v-show="!compact || compactPanelTool === 'production'"
               :page="comicPage"
               :panel="panel"
+              :preferred-stage="requestedStage"
               :model-config="selectedImageConfig"
               :storage-key="storageKey"
               :project-id="comicPage.projectId ?? projectId"
@@ -2217,11 +2379,10 @@ function safeFilename(value) {
               :source-text="panelSourceContext(panel).content || sourceText"
               @page-saved="handleProductionPageSaved"
             />
-          </details>
 
-          <div class="comic-panel__text-layer">
+          <div v-if="!compact || compactPanelTool === 'text'" class="comic-panel__text-layer">
             <div class="comic-panel__text-heading">
-              <span>脚本文字 <small>不参与生图</small></span>
+              <span>对白与旁白</span>
               <button type="button" @click="addDialogue(panel)">添加</button>
               <button
                 type="button"
@@ -2240,12 +2401,11 @@ function safeFilename(value) {
             </label>
           </div>
 
-          <div class="comic-panel__lettering-tool">
+          <div v-if="!compact || compactPanelTool === 'text'" class="comic-panel__lettering-tool">
             <div class="comic-panel__text-heading">
               <span>画面文字层 <small>{{ panel.letteringObjects?.length || 0 }} 个</small></span>
               <button type="button" @click="addLetteringObject(panel, 'speech')">添加对话框</button>
             </div>
-            <p v-if="!panel.letteringObjects?.length" class="comic-panel__lettering-empty">暂无文字框。可从脚本排入，或手动添加。</p>
             <div v-for="object in panel.letteringObjects || []" :key="object.id" class="comic-panel__lettering-item">
               <div class="comic-panel__lettering-format">
                 <select v-model="object.type" aria-label="文字框类型" @change="persistPage">
@@ -2301,9 +2461,8 @@ function safeFilename(value) {
             </div>
           </div>
 
-          <p v-if="panel.generationError" class="comic-editor__error" role="alert">{{ panel.generationError }}</p>
           <button
-            v-if="selectedTake(panel)"
+            v-if="selectedTake(panel) && (!compact || compactPanelTool === 'image')"
             class="comic-action comic-panel__material-btn"
             type="button"
             @click="savePanelToMaterial(panel)"
@@ -2312,7 +2471,11 @@ function safeFilename(value) {
           </button>
           </section>
         </div>
+        <input ref="panelUploadInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="uploadPanelImage" />
+      </div>
 
+        <details v-if="!compact || compactWorkspace === 'page'" class="comic-editor__export" open>
+          <summary>导出本页 <span>{{ completedPanelCount }}/{{ comicPage.panels.length }} 格完成</span></summary>
         <footer class="comic-editor__footer">
           <span>{{ completedPanelCount }} / {{ comicPage.panels.length }} 格完成</span>
           <div class="comic-editor__footer-actions">
@@ -2328,7 +2491,7 @@ function safeFilename(value) {
           </div>
           <p v-if="exportBlockReason" class="comic-editor__export-block" role="alert" data-test="comic-export-blocked">{{ exportBlockReason }}</p>
         </footer>
-      </template>
+        </details>
     </template>
   </section>
 </template>
@@ -3156,7 +3319,7 @@ function safeFilename(value) {
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
   text-align: center;
   touch-action: none;
 }
@@ -3165,10 +3328,8 @@ function safeFilename(value) {
   cursor: grabbing;
 }
 
-.comic-lettering-overlay.is-thought {
-  border-style: dashed;
-  border-radius: 46%;
-}
+.comic-lettering-overlay:is(.is-speech, .is-thought) { border: 0; background: transparent; box-shadow: none; }
+.comic-lettering-overlay.is-thought ellipse { stroke-dasharray: 4 3; }
 
 .comic-lettering-overlay.is-caption {
   border-radius: 2px;
@@ -3187,17 +3348,20 @@ function safeFilename(value) {
 }
 
 .comic-lettering-overlay > span {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-height: 100%;
-  display: -webkit-box;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  letter-spacing: 0;
 }
 
 .comic-lettering-overlay__tail {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -3205,8 +3369,8 @@ function safeFilename(value) {
   pointer-events: none;
 }
 
-.comic-lettering-overlay__tail polygon {
-  fill: rgb(255 255 255 / 0.94);
+.comic-lettering-overlay__tail :is(polygon, ellipse) {
+  fill: #fff;
   stroke: color-mix(in srgb, var(--archive-ink) 76%, transparent);
   stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
@@ -3624,3 +3788,5 @@ function safeFilename(value) {
 }
 
 </style>
+
+<style scoped src="./ComicPageEditor.chrome.css"></style>

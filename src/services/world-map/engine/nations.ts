@@ -252,6 +252,7 @@ export function generateBurgs(
   cultures?: Culture[],
 ): Burg[] {
   const burgs: Burg[] = [{ i: 0, name: '', cell: 0, x: 0, y: 0, state: 0, capital: false, port: false, population: 0 }]
+  if (stateCount <= 0 && burgDensity <= 0) return burgs
 
   // 候选陆地单元格(海平面之上 + 最低适宜度阈值)
   const candidates: number[] = []

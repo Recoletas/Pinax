@@ -36,7 +36,7 @@ export function normalizeAdapterError(error) {
       && Object.values(ERROR_CODES).includes(error.code)) {
     return {
       code: error.code,
-      message: String(error.message || error.code),
+      message: redactSecrets(error.message || error.code),
       retryable: Boolean(error.retryable),
       providerStatus: error.providerStatus ?? null,
       details: redactSecrets(error.details ?? null)
@@ -110,7 +110,7 @@ function escapeRegex(value) {
 function shape(code, message, retryable, providerStatus, details) {
   return {
     code,
-    message: String(message || code),
+    message: redactSecrets(message || code),
     retryable: Boolean(retryable),
     providerStatus: typeof providerStatus === 'number' ? providerStatus : null,
     details: redactSecrets(details)
@@ -119,7 +119,7 @@ function shape(code, message, retryable, providerStatus, details) {
 
 function extractProviderStatus(error) {
   if (!error || typeof error !== 'object') return null
-  const candidates = ['status', 'statusCode', 'providerStatus', 'response?.status']
+  const candidates = ['status', 'statusCode', 'providerStatus', 'response.status']
   for (const key of candidates) {
     const value = readPath(error, key)
     if (typeof value === 'number') return value

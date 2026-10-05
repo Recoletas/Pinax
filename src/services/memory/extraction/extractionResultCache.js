@@ -26,10 +26,10 @@ function writeEntries(entries) {
   }
 }
 
-// 缓存键：三要素缺一不可（同 ref 不同修订/同修订不同原文都是不同请求）。
+// 缓存键包含提取策略版本；更新语义规则后不能重用旧提示词的模型结果。
 export function extractionCacheKey({ sourceRef = '', sourceRevision = '', sourceText = '' } = {}) {
   // JSON 数组序列化定界，避免字符串拼接歧义；sha256 对确定文本稳定。
-  return `sha256-${sha256HexOfText(JSON.stringify([String(sourceRef || ''), String(sourceRevision || ''), String(sourceText || '')]))}`
+  return `sha256-${sha256HexOfText(JSON.stringify(['semantics-v2', String(sourceRef || ''), String(sourceRevision || ''), String(sourceText || '')]))}`
 }
 
 export function readCachedExtraction(key) {

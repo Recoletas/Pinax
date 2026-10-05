@@ -2,6 +2,7 @@ import { STORAGE_KEYS } from '../../composables/useStorage'
 import { normalizeSourceRefs } from './narrativeAssets'
 import { getDefaultComicPanelFrame } from './comicLayout'
 import { getMediaAssetDataUrl, listMediaAssets } from './mediaAssetStore'
+import { normalizeComicDisplaySelection, resolveComicPanelDisplay } from './comicPanelDisplay'
 
 export const COMIC_PAGE_SCHEMA_VERSION = 5
 export const COMIC_PRODUCTION_STAGES = Object.freeze(['rough', 'line', 'flats', 'tones', 'render', 'effects'])
@@ -159,6 +160,29 @@ export function saveComicPage(input = {}, options = {}) {
   return page
 }
 
+// 文本编辑只提交作者正在编辑的字段；异步生成的候选、选择和在途记录由
+// 各自请求负责写入，不能被较早的编辑器快照覆盖。
+export function saveComicPageDraft(input = {}, options = {}) {
+  const current = listComicPages({}, options).find((page) => page.id === input.id)
+  if (!current || current.projectId !== input.projectId) throw new Error('漫画页或所属作品已变化')
+  const pageKeys = ['title', 'status', 'pagePurpose', 'pageTurnHook', 'continuityNotes', 'visualBibleRefs', 'sourceRefs']
+  const panelKeys = ['visual', 'beat', 'dialogue', 'caption', 'continuityRefs', 'letteringObjects']
+  const pagePatch = Object.fromEntries(pageKeys.filter((key) => key in input).map((key) => [key, input[key]]))
+  const drafts = new Map((input.panels || []).map((panel) => [panel.id, panel]))
+  const panels = current.panels.map((panel) => {
+    const draft = drafts.get(panel.id)
+    if (!draft) return panel
+    const patch = Object.fromEntries(panelKeys.filter((key) => key in draft).map((key) => [key, draft[key]]))
+    const changedInput = ['visual', 'beat', 'continuityRefs'].some((key) => key in patch
+      && compositionSignature(patch[key]) !== compositionSignature(panel[key]))
+    return {
+      ...panel, ...patch,
+      production: changedInput ? markPanelStagesStale(panel.production, '格内容已更新') : panel.production
+    }
+  })
+  return saveComicPage({ ...current, ...pagePatch, panels, revision: current.revision + 1 }, options)
+}
+
 export function saveComicPages(inputs = [], options = {}) {
   const storage = resolveStorage(options.storage)
   const current = readComicPages(storage)
@@ -234,6 +258,9 @@ export function updateComicPanelStage(pageId, panelId, stage, patch = {}, option
     const production = { ...panel.production, [stage]: next }
     return {
       ...panel,
+      displaySelection: patch.selectedArtifactId
+        ? { type: 'stage', stage, assetId: patch.selectedArtifactId }
+        : panel.displaySelection,
       production: patch.selectedArtifactId !== undefined || patch.status !== undefined
         ? markPanelStagesStale(production, `${stage} 已更新`, stage, false)
         : production
@@ -260,6 +287,12 @@ export function addComicPanelStageArtifact(pageId, panelId, stage, artifact = {}
       createdAt: artifact.createdAt
     }
   ])
+  if (options.preserveStageState && options.select === false) {
+    return updateComicPanelStage(pageId, panelId, stage, {
+      artifactIds: [...new Set([...current.artifactIds, artifactId])],
+      artifactLineage: lineage
+    }, options)
+  }
   return updateComicPanelStage(pageId, panelId, stage, {
     artifactIds: [...new Set([...current.artifactIds, artifactId])],
     artifactLineage: lineage,
@@ -379,6 +412,11 @@ export function updateComicPageComposition(pageId, input = {}, options = {}) {
   const panels = (Array.isArray(input.panels) ? input.panels : page.panels).map((panel) => {
     const existing = existingById.get(panel.id)
     if (!existing) return panel
+    // 构图输入也可能早于一个已返回的图片请求；保留最新的媒体与任务槽位。
+    panel = { ...panel, imageTakeIds: existing.imageTakeIds, selectedTakeId: existing.selectedTakeId,
+      displaySelection: existing.displaySelection, production: existing.production,
+      pendingGeneration: existing.pendingGeneration, generationStatus: existing.generationStatus,
+      generationError: existing.generationError }
     const changed = pageGeometryChanged || compositionSignature({
       frame: existing.frame,
       direction: existing.direction
@@ -455,9 +493,13 @@ export function addComicPanelTake(pageId, panelId, mediaAssetId, options = {}) {
   const panel = page.panels.find((item) => item.id === panelId)
   if (!panel) return null
   const imageTakeIds = [...new Set([...panel.imageTakeIds, id])]
+  if (options.preserveStageState && options.select === false) {
+    return updateComicPanel(pageId, panelId, { imageTakeIds }, options)
+  }
   return updateComicPanel(pageId, panelId, {
     imageTakeIds,
     selectedTakeId: options.select === false ? panel.selectedTakeId : id,
+    displaySelection: options.select === false ? panel.displaySelection : { type: 'take', assetId: id },
     generationStatus: 'ready',
     generationError: ''
   }, options)
@@ -467,7 +509,10 @@ export async function hydrateComicPageTakes(input = {}, options = {}) {
   const page = createComicPage(input)
   const dataById = new Map()
   const metadataById = new Map(listMediaAssets({}, options).map((asset) => [asset.id, asset]))
-  const takeIds = [...new Set(page.panels.flatMap((panel) => panel.imageTakeIds))]
+  const takeIds = [...new Set(page.panels.flatMap((panel) => [
+    ...panel.imageTakeIds,
+    resolveComicPanelDisplay(panel, page)?.id
+  ]).filter(Boolean))]
   await Promise.all(takeIds.map(async (takeId) => {
     try {
       const data = await getMediaAssetDataUrl(takeId, options)
@@ -480,6 +525,15 @@ export async function hydrateComicPageTakes(input = {}, options = {}) {
     ...page,
     panels: page.panels.map((panel) => ({
       ...panel,
+      displayImage: (() => {
+        const selected = resolveComicPanelDisplay(panel, page)
+        return selected && dataById.has(selected.id) ? {
+          ...selected,
+          data: dataById.get(selected.id),
+          width: metadataById.get(selected.id)?.width || 0,
+          height: metadataById.get(selected.id)?.height || 0
+        } : null
+      })(),
       imageTakes: panel.imageTakeIds
         .filter((takeId) => dataById.has(takeId))
         .map((takeId) => ({
@@ -515,6 +569,7 @@ function normalizePanel(input = {}, fallbackOrder, context) {
     referenceBindings: normalizeReferenceBindings(input.referenceBindings),
     imageTakeIds,
     selectedTakeId,
+    displaySelection: normalizeComicDisplaySelection(input.displaySelection),
     production: normalizeProduction(input.production, imageTakeIds, selectedTakeId, context.colorMode),
     letteringObjects: normalizeLetteringObjects(input.letteringObjects),
     pendingGeneration: normalizePendingRequestOrNull(input.pendingGeneration),

@@ -6,15 +6,17 @@
 import { requestAdvisorTask } from '../../advisorTaskService.js'
 import { buildContextEnvelope, clipContextEnvelope } from '../../agents/agentContextEnvelope.js'
 import { extractionCacheKey, readCachedExtraction, writeCachedExtraction } from './extractionResultCache'
+import { preserveExtractionSemantics, recoverExtractionEvidence } from './extractionClaimSemantics'
 
 export const MEMORY_EXTRACTION_TASK_ID = 'memory.extraction'
 
 export const CLAIM_POLARITIES = Object.freeze(['positive', 'negative', 'hedged', 'report'])
 
 const EXTRACTION_INSTRUCTION = [
-  '你是小说事实提取器。只依据「原文」块抽取明确的、当前故事内已发生的人物事实三元组。',
+  '你是小说事实提取器。只依据「原文」块抽取人物事实三元组，区分已经发生的动作与说过的承诺、尚未执行的计划。',
   '对每个事实输出：subject（人物名，与原文用字一致）、predicate（动词或关系短语）、object（宾语或结果，保留大小写与单位）、quote（支撑该事实的原句，逐字复制，不得改写）、polarity（positive=确定发生；negative=明确否定；hedged=假设/条件/可能；report=人物转述或梦境谎言等非作者断言）、storyTime（时间未知时 precision 填 unknown，禁止用今天日期补）、confidence（0~1）。',
   '规则：不编造原文没有的人物或关系；两人同名时跳过并在 unextractable 说明；「甲说乙死了」只能输出 polarity=report 且 quote 含该转述句；没有可提取事实时 proposals 为空数组并给出 unextractable.reason。',
+  '承诺、计划、条件和否定必须写进 predicate/object，不能仅依靠 polarity 标记。例：「甲答应明早交信」应提取「甲 / 答应交信 / 明早」，不是「甲 / 交了 / 信」；「甲如果拿到钱就离开」不能记作已经离开。quote 必须复制包含限定词的完整原句，不得只截出其中动作。实际兑现必须有另一句完成证据。',
   '只返回严格 JSON：{"proposals":[{"subject":"...","predicate":"...","object":"...","quote":"...","polarity":"positive","storyTime":{"precision":"unknown"},"confidence":0.8}],"unextractable":{"reason":""}}'
 ].join('\n')
 
@@ -93,16 +95,22 @@ export function validateMemoryExtractionResponse(parsed, { sourceText = '', know
     const subject = text(raw?.subject)
     const predicate = text(raw?.predicate)
     const object = text(raw?.object)
-    const quote = text(raw?.quote)
+    const suppliedQuote = text(raw?.quote)
     if (!subject || !predicate || !object) {
       rejected.push({ reason: 'claim-fields-missing', raw: { subject, predicate, object } })
       continue
     }
-    if (!quoteExistsInSource(quote, sourceText)) {
-      rejected.push({ reason: 'quote-missing-in-source', quote: quote.slice(0, 60) })
+    if (!quoteExistsInSource(suppliedQuote, sourceText)) {
+      rejected.push({ reason: 'quote-missing-in-source', quote: suppliedQuote.slice(0, 60) })
+      continue
+    }
+    const quote = recoverExtractionEvidence(suppliedQuote, sourceText)
+    if (!quote) {
+      rejected.push({ reason: 'quote-context-ambiguous', quote: suppliedQuote.slice(0, 60) })
       continue
     }
     const polarity = CLAIM_POLARITIES.includes(raw?.polarity) ? raw.polarity : 'positive'
+    const qualified = preserveExtractionSemantics({ predicate, object, quote, polarity })
     const confidenceRaw = Number(raw?.confidence)
     const confidence = Number.isFinite(confidenceRaw) ? Math.min(1, Math.max(0, confidenceRaw)) : 0.5
     const entity = resolveEntityStatus(subject, knownIdentities)
@@ -110,7 +118,7 @@ export function validateMemoryExtractionResponse(parsed, { sourceText = '', know
       rejected.push({ reason: 'ambiguous-entity', subject })
       continue
     }
-    const fingerprint = `${subject}\u0000${predicate}\u0000${object}\u0000${polarity}`
+    const fingerprint = JSON.stringify([subject, qualified.predicate, qualified.object, polarity])
     if (seen.has(fingerprint)) {
       rejected.push({ reason: 'duplicate-claim', subject, predicate })
       continue
@@ -119,8 +127,8 @@ export function validateMemoryExtractionResponse(parsed, { sourceText = '', know
     proposals.push({
       subject,
       subjectKey: subject.toLowerCase().replace(/\s+/g, ' '),
-      predicate: predicate.toLowerCase().replace(/\s+/g, ' '),
-      object,
+      predicate: qualified.predicate.toLowerCase().replace(/\s+/g, ' '),
+      object: qualified.object,
       quote,
       polarity,
       storyTime: normalizeStoryTime(raw?.storyTime),

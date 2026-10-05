@@ -1,6 +1,7 @@
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { loadWritingBooks } from '../services/writing/writingBooksRepository.js'
+import { readWorldbookSnapshot } from '../stores/worldStore.js'
 import {
   resolveSettingsProjectContext,
   createSettingsWorldbookLoader
@@ -15,6 +16,7 @@ export function useSettingsProjectContext({ worldStore } = {}) {
   const loading = ref(false)
   const loadError = ref('')
   let sequence = 0
+  let disposed = false
   const loadWorldbook = createSettingsWorldbookLoader(async (id) => {
     const loaded = await worldStore.loadWorldbookForProject(id)
     return loaded || null
@@ -22,6 +24,18 @@ export function useSettingsProjectContext({ worldStore } = {}) {
 
   const routeBookId = computed(() => String(route.query.bookId || ''))
   const routeWorldbookId = computed(() => String(route.query.worldbookId || ''))
+
+  function reloadWorldbookSnapshot() {
+    const id = String(context.value?.worldbookId || '')
+    if (disposed || !id || loading.value) return null
+    const updated = readWorldbookSnapshot(id)
+    if (updated && String(worldbook.value?.id || '') === id
+      && Number(updated.updatedAt || 0) < Number(worldbook.value.updatedAt || 0)) return worldbook.value
+    worldbook.value = updated
+    loadError.value = updated ? '' : (context.value?.mode === 'project'
+      ? '这本书关联的世界书已不存在。' : '要打开的世界书已不存在。')
+    return updated
+  }
 
   async function refresh() {
     const ticket = ++sequence
@@ -47,8 +61,10 @@ export function useSettingsProjectContext({ worldStore } = {}) {
       worldbook.value = worldStore.activeWorldbook
       loading.value = false
       loadError.value = ''
+      if (routeWorldbookId.value) reloadWorldbookSnapshot()
       return resolved
     }
+    worldbook.value = null
     loading.value = true
     loadError.value = ''
     const result = await loadWorldbook(resolved.worldbookId)
@@ -61,11 +77,49 @@ export function useSettingsProjectContext({ worldStore } = {}) {
         : '世界书加载失败，请重试。'
       return resolved
     }
-    worldbook.value = result.worldbook
+    // 加载期间可能有同库的正式保存；返回时保留已落盘的较新 revision。
+    const latest = readWorldbookSnapshot(resolved.worldbookId)
+    if (!latest) {
+      worldbook.value = null
+      loadError.value = resolved.mode === 'project' ? '这本书关联的世界书已不存在。' : '要打开的世界书已不存在。'
+      return resolved
+    }
+    worldbook.value = Number(latest.updatedAt || 0) >= Number(result.worldbook.updatedAt || 0)
+      ? latest : result.worldbook
     return resolved
   }
 
   watch([routeBookId, routeWorldbookId], () => { refresh() }, { immediate: true })
+  watch(
+    [() => worldStore.activeWorldbook, worldbook],
+    ([active, snapshot]) => {
+      const resolved = context.value
+      if (!resolved || loading.value) return
+      // 无显式 ID 的全局管理仍跟随 active；项目与显式全局 ID 不允许换库回退。
+      if (resolved.mode === 'global' && !routeWorldbookId.value) {
+        if (active !== snapshot) worldbook.value = active || null
+        if (String(resolved.worldbookId || '') !== String(active?.id || '')) {
+          context.value = { ...resolved, worldbookId: String(active?.id || ''), status: active ? 'ready' : 'unbound' }
+        }
+        return
+      }
+    }
+  )
+  const writeActions = new Set([
+    'updateWorldbookDurable', 'deleteWorldbookDurable', 'addEntryDurable', 'updateEntryDurable', 'deleteEntryDurable'
+  ])
+  const unsubscribe = worldStore.$onAction?.(({ name, args, after }) => {
+    if (!writeActions.has(name)) return
+    const targetId = String(args[0] || '')
+    after(result => {
+      if (disposed || !result?.ok) return
+      // 写入结束才同步；页面已换作品或仍在加载时，不触碰新 owner 的快照。
+      if (loading.value || String(context.value?.worldbookId || '') !== targetId
+        || String(worldbook.value?.id || '') !== targetId) return
+      reloadWorldbookSnapshot()
+    })
+  })
+  onScopeDispose(() => { disposed = true; sequence += 1; unsubscribe?.() })
 
   return {
     context,
@@ -74,6 +128,7 @@ export function useSettingsProjectContext({ worldStore } = {}) {
     loadError,
     routeBookId,
     routeWorldbookId,
+    reloadWorldbookSnapshot,
     refresh
   }
 }

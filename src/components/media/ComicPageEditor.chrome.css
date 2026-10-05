@@ -1,0 +1,124 @@
+.comic-editor {
+  gap: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.comic-editor :is(.comic-action, .comic-editor__workspace-tabs button, .comic-editor__panel-nav button,
+  .comic-panel__text-heading button, .comic-panel__dialogue button, .comic-panel__lettering-format button,
+  .comic-editor__unknown-request button) {
+  min-width: 36px;
+  min-height: 36px;
+  height: auto;
+  border-radius: var(--workspace-radius, 12px);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.comic-editor :is(.comic-editor__field input, .comic-editor__field textarea,
+  .comic-panel__source-select select, .comic-panel__dialogue input, .comic-panel__lettering-item textarea,
+  .comic-panel__lettering-format input, .comic-panel__lettering-format select,
+  .comic-panel__direction input, .comic-panel__direction select, .comic-panel__beat input) {
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius, 12px);
+  background: var(--surface-workbench-input);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.comic-editor :is(.comic-editor__setup-current strong, .comic-editor__draft-heading strong) {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+}
+.comic-editor :is(.comic-editor__setup-current span, .comic-editor__draft-heading span,
+  .comic-editor__section-heading span, .comic-panel__header small, .comic-panel__text-heading small) {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: normal;
+  letter-spacing: 0;
+}
+.comic-editor :is(.comic-editor__field > span, .comic-panel__source-select > span,
+  .comic-panel__text-heading > span, .comic-panel__header > span, .comic-panel__beat label > span,
+  .comic-panel__direction label > span) { font-size: 13px; font-style: normal; }
+.comic-panel__source-select small { font-size: 12px; color: var(--text-secondary); }
+.comic-panel__source-select { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 0; border: 0; background: transparent; }
+.comic-panel__source-select > span { flex: 0 0 auto; width: auto; white-space: nowrap; }
+.comic-panel__source-select > span small { margin-left: 4px; }
+.comic-editor__setup { padding-bottom: 12px; }
+.comic-editor.is-compact .comic-editor__setup { display: none; }
+.comic-editor.is-compact .comic-editor__workspace-tabs { display: flex; gap: 8px; padding-bottom: 4px; }
+.comic-editor.is-compact .comic-editor__workspace-tabs button { flex: 1; }
+.comic-editor__workspace-tabs { gap: 4px; padding-bottom: 8px; border-color: var(--border); }
+.comic-editor__workspace-tabs button { border-bottom: 0; color: var(--text-secondary); }
+.comic-editor__workspace-tabs button.active { background: var(--nav-selected); color: var(--text-primary); }
+.comic-editor__workspace-tabs button span { background: transparent; color: var(--text-secondary); font-size: 12px; }
+.comic-editor__panel-nav { grid-template-columns: 36px 36px minmax(0, 1fr) 36px 36px; border-color: var(--border); padding-block: 4px; }
+.comic-editor__panel-nav :is(span, strong) { font-size: 13px; }
+.comic-editor__panel-nav button { width: 36px; }
+.comic-editor.is-compact .comic-editor__section-heading { display: none; }
+.comic-editor.is-compact .comic-editor__composition-previews { display: block; min-height: 0; }
+.comic-editor.is-compact .comic-editor__composition-previews :deep(.comic-page-preview) { display: none; }
+.comic-editor__active-framing { margin-inline: auto; }
+.comic-editor__generation-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0; }
+.comic-editor__model { flex: 1 1 130px; }
+.comic-editor__model :deep(.image-model-picker__trigger) { min-height: 36px; width: 100%; border-radius: 12px; font-size: 13px; }
+.comic-panel { padding: 10px 0; border: 0; border-bottom: 1px solid var(--border); background: transparent; }
+.comic-panel__header { margin-block: 10px; }
+.comic-panel__generate-btn { padding-inline: 14px; }
+.comic-panel__text-layer, .comic-panel__lettering-tool { padding: 12px 0 0; border-color: var(--border); border-top-style: solid; }
+.comic-panel__text-heading { gap: 6px; flex-wrap: wrap; }
+.comic-panel__text-heading > span { margin-right: auto; }
+.comic-panel__text-heading button { padding-inline: 9px; background: transparent; }
+.comic-panel__dialogue { grid-template-columns: 68px minmax(0, 1fr) 36px; gap: 6px; }
+.comic-panel__beat, .comic-panel__direction { margin-block: 4px; padding-top: 4px; border-color: var(--hairline-soft); }
+.comic-editor :is(.comic-panel__beat summary, .comic-panel__direction summary) { font-weight: 500; }
+.comic-editor :is(.comic-panel__beat summary, .comic-panel__direction summary, .comic-editor__export summary) {
+  min-height: 36px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 36px;
+  cursor: pointer;
+}
+.comic-editor :is(.comic-panel__beat[open] summary, .comic-panel__direction[open] summary) { color: var(--text-primary); }
+.comic-editor__footer { display: block; padding: 10px 0; border: 0; }
+.comic-editor__footer > span { display: none; }
+.comic-editor__footer-actions { flex-wrap: wrap; gap: 8px; }
+.comic-editor__export { border-top: 1px solid var(--border); }
+.comic-editor__export summary > span { margin-left: 8px; font-size: 12px; }
+.comic-editor :is(.comic-editor__error, .comic-editor__panel-notice, .comic-editor__export-block, .comic-editor__unknown-request) { font-size: 13px; line-height: 1.6; }
+.comic-editor__unknown-request { border: 1px solid var(--border); border-radius: 12px; background: var(--surface-workbench-input); padding: 10px; }
+.comic-editor__unknown-request > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.comic-panel__lettering-format { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 88px 36px; }
+.comic-editor :is(.comic-panel__font-size, .comic-panel__lettering-rotation) span { left: 10px; font-size: 12px; }
+.comic-editor :is(.comic-panel__font-size, .comic-panel__lettering-rotation) input { padding-left: 42px; }
+.comic-editor :is(button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.comic-editor__panel-workspace { min-width: 0; display: grid; gap: 14px; }
+.comic-editor__task-tabs { display: flex; gap: 4px; padding: 3px; border-radius: var(--radius-control); background: var(--surface-workbench-input); }
+.comic-editor__task-tabs button { flex: 1; min-width: 0; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 9px; background: transparent; color: var(--text-secondary); font: 500 13px/1.4 var(--font-sans); white-space: nowrap; cursor: pointer; }
+.comic-editor__task-tabs button.active { background: var(--surface-workbench-raised); color: var(--text-primary); box-shadow: var(--shadow-workbench); }
+.comic-panel__upload-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.comic-panel__upload-row span { flex: 1 1 110px; color: var(--text-secondary); font-size: 12px; line-height: 1.55; }
+.comic-editor__save-error { display: grid; justify-items: start; gap: 8px; padding: 12px; border: 1px solid var(--danger); border-radius: var(--radius-control); color: var(--danger); font-size: 13px; line-height: 1.6; }
+.comic-editor.is-compact .comic-panel__lettering-format { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.comic-editor.is-compact .comic-panel__lettering-format > * { grid-column: auto; grid-row: auto; }
+.comic-editor.is-compact .comic-panel__lettering-format > button { width: 36px; justify-self: end; }
+.comic-editor.is-compact .comic-panel__lettering-item { padding: 12px 0; border-bottom: 1px solid var(--hairline-soft); }
+
+@media (max-width: 640px), (pointer: coarse) {
+  .comic-editor :is(.comic-action, .comic-editor__workspace-tabs button, .comic-editor__panel-nav button,
+    .comic-panel__text-heading button, .comic-panel__dialogue button, .comic-panel__lettering-format button,
+    .comic-editor__unknown-request button, input, select) { min-height: 44px; min-width: 44px; }
+  .comic-editor__panel-nav { grid-template-columns: 44px 44px minmax(0, 1fr) 44px 44px; }
+  .comic-editor__panel-nav button { width: 44px; }
+  .comic-panel__lettering-format { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 88px 44px; }
+  .comic-panel__dialogue { grid-template-columns: 70px minmax(0, 1fr) 44px; }
+  .comic-editor__model :deep(.image-model-picker__trigger) { min-height: 44px; }
+  .comic-editor :is(.comic-panel__beat summary, .comic-panel__direction summary, .comic-editor__export summary) { min-height: 44px; line-height: 44px; }
+  .comic-editor__task-tabs button { min-height: 44px; }
+}

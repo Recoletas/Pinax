@@ -1,3 +1,5 @@
+import { buildMiniMaxImageSize, getMiniMaxAspectRatio, normalizeMiniMaxSubjectReferences, MINIMAX_REFERENCE_LIMIT } from '../../../shared/minimaxImageRequest.js'
+
 export const IMAGE_MODEL_TYPES = [
   { value: 'minimax_image', label: 'MiniMax Image' },
   { value: 'openai_dalle', label: 'OpenAI Images' },
@@ -40,6 +42,7 @@ export function getImageProviderCapabilities(config = {}) {
   const openAIReference = ['gpt-image-1', 'gpt-image-1.5'].includes(String(config.defaultModel || 'gpt-image-1'))
   const template = String(config.requestTemplate || '')
   const hasTemplateToken = (token) => template.includes(`{{${token}}}`)
+  const comfyBinding = type === 'comfyui' ? inspectComfyPromptBinding(template) : null
   if (type === 'http') {
     const imageToImage = hasTemplateToken('reference_image') || hasTemplateToken('reference_images_json')
     return {
@@ -56,7 +59,9 @@ export function getImageProviderCapabilities(config = {}) {
       textToImage: true,
       imageToImage: false,
       inpaint: false,
-      identityReference: false,
+      identityReference: true,
+      referenceKind: 'character',
+      maxReferenceImages: MINIMAX_REFERENCE_LIMIT,
       controlImages: false
     },
     openai_dalle: {
@@ -81,7 +86,8 @@ export function getImageProviderCapabilities(config = {}) {
       controlImages: false
     },
     comfyui: {
-      textToImage: true,
+      textToImage: comfyBinding?.ok === true,
+      configurationError: comfyBinding?.error || '',
       imageToImage: false,
       inpaint: false,
       identityReference: false,
@@ -94,7 +100,7 @@ export function getImageProviderCapabilities(config = {}) {
     identityReference: false,
     controlImages: false
   }
-  return { ...capabilities, maxReferenceImages: capabilities.imageToImage ? (type === 'stability' ? 1 : 3) : 0 }
+  return { ...capabilities, maxReferenceImages: capabilities.maxReferenceImages ?? (capabilities.imageToImage ? (type === 'stability' ? 1 : 3) : 0) }
 }
 
 export function createImageModelConfigDraft(type = 'sd_webui') {
@@ -155,15 +161,15 @@ export async function generateImage(config = {}, input = {}) {
   const baseUrl = normalizeBaseUrl(config.baseUrl)
   const capabilities = getImageProviderCapabilities(config)
   if (options.maskImage && (!capabilities.inpaint || !options.referenceImages.length)) {
-    throw new Error('当前图片模型不支持带原图的局部遮罩修订')
+    throw invalidImageInput('当前图片模型不支持带原图的局部遮罩修订')
   }
   if (options.controlImages.length && !capabilities.controlImages) {
-    throw new Error('当前图片模型不支持独立 pose/edge/depth 控制图')
+    throw invalidImageInput('当前图片模型不支持独立 pose/edge/depth 控制图')
   }
-  if (options.referenceImages.length && !capabilities.imageToImage) {
-    throw new Error('当前适配器未验证此模型的参考图输入，请更换模型或仅用文字生成')
+  if (options.referenceImages.length && !capabilities.imageToImage && !capabilities.identityReference) {
+    throw invalidImageInput('当前适配器未验证此模型的参考图输入，请更换模型或仅用文字生成')
   }
-  if (options.referenceImages.length > capabilities.maxReferenceImages) throw new Error(`当前适配器最多提交 ${capabilities.maxReferenceImages} 张参考图`)
+  if (options.referenceImages.length > capabilities.maxReferenceImages) throw invalidImageInput(`当前适配器最多提交 ${capabilities.maxReferenceImages} 张参考图`)
 
   switch (config.type) {
     case 'sd_webui':
@@ -204,7 +210,7 @@ function buildConnectionRequest(config) {
   const urls = {
     minimax_image: `${buildMinimaxRoot(baseUrl)}/v1/models`,
     sd_webui: `${requireBaseUrl(baseUrl)}/sdapi/v1/progress`,
-    comfyui: `${requireBaseUrl(baseUrl)}/api/system_stats`,
+    comfyui: `${requireBaseUrl(baseUrl)}/system_stats`,
     openai_dalle: 'https://api.openai.com/v1/models',
     stability: 'https://api.stability.ai/v1/account'
   }
@@ -221,22 +227,23 @@ function buildConnectionRequest(config) {
 }
 
 async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
-  if (options.referenceImages.length) {
-    throw new Error('MiniMax 人物参考图需要公网图片 URL，当前本地参考图不能直接提交')
-  }
+  const subjectReferences = normalizeMiniMaxSubjectReferences(options.referenceImages.map((reference) => ({
+    type: 'character', image_file: reference.data
+  })))
   const model = String(config.defaultModel || 'image-01').trim()
   if (!['image-01', 'image-01-live'].includes(model)) {
-    throw new Error(`MiniMax 图片模型无效: ${model}`)
+    throw invalidImageInput(`MiniMax 图片模型无效: ${model}`)
   }
   const prompt = [options.prompt, options.negativePrompt ? `避免出现：${options.negativePrompt}` : '']
     .filter(Boolean)
     .join('\n')
-  if (!prompt) throw new Error('MiniMax 图片提示词不能为空')
-  if (prompt.length > 1500) throw new Error('MiniMax 图片提示词不能超过 1500 字符')
+  if (!prompt) throw invalidImageInput('MiniMax 图片提示词不能为空')
+  if (prompt.length > 1500) throw invalidImageInput('MiniMax 图片提示词不能超过 1500 字符')
+  const imageSize = buildMiniMaxImageSize({ width: options.width, height: options.height, model })
 
   // 内置 MiniMax: key 由服务器持有, 经 /api/media/images 代理注入, 浏览器不接触真实 key
   if (config.builtin === true || config.serverKey === true) {
-    return generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt })
+    return generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt, subjectReferences })
   }
 
   const response = await fetchWithSignal(fetchImpl, `${buildMinimaxRoot(baseUrl)}/v1/image_generation`, {
@@ -245,7 +252,8 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
     body: JSON.stringify({
       model,
       prompt,
-      aspect_ratio: normalizeMinimaxAspectRatio(options.width, options.height, model),
+      ...imageSize,
+      ...(subjectReferences.length ? { subject_reference: subjectReferences } : {}),
       response_format: 'base64',
       n: 1,
       prompt_optimizer: false,
@@ -266,14 +274,32 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
  * 内置 MiniMax: 图片生成经服务器 /api/media/images 代理。
  * 浏览器提交哨兵/空 key + 生成参数, 服务器注入 MINIMAX_API_KEY 后转发 MiniMax。
  */
-async function generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt }) {
+async function generateWithMinimaxViaServer(config, options, fetchImpl, { model, prompt, subjectReferences }) {
+  if (subjectReferences.length) {
+    let capabilities
+    try {
+      const capabilityResponse = await fetchWithSignal(fetchImpl, '/api/media/images/capabilities', { cache: 'no-store' }, options.signal)
+      if (capabilityResponse.ok) capabilities = await capabilityResponse.json()
+    } catch {
+      throwIfAborted(options.signal)
+      throw invalidImageInput('暂时无法确认人物参考功能，请稍后重试')
+    }
+    throwIfAborted(options.signal)
+    if (capabilities?.ok !== true || capabilities?.characterReference !== true
+      || !(Number(capabilities.maxReferenceImages) >= subjectReferences.length)) {
+      throw invalidImageInput('当前内置图片服务不支持人物参考，请移除参考图或切换到已配置的图片模型')
+    }
+  }
   const response = await fetchWithSignal(fetchImpl, '/api/media/images', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       prompt,
-      aspectRatio: normalizeMinimaxAspectRatio(options.width, options.height, model),
+      width: options.width,
+      height: options.height,
+      aspectRatio: getMiniMaxAspectRatio(options.width, options.height, model),
+      subjectReferences,
       providerConfig: { apiKey: config.apiKey, baseUrl: config.baseUrl }
     })
   }, options.signal)
@@ -286,7 +312,7 @@ async function generateWithMinimaxViaServer(config, options, fetchImpl, { model,
     payload = {}
   }
   if (!response.ok || payload?.ok !== true) {
-    throw new Error(payload?.message || `MiniMax Image error: ${response.status || 'unknown'}`)
+    throw Object.assign(new Error(payload?.message || `MiniMax Image error: ${response.status || 'unknown'}`), { status: response.status })
   }
   return resolveImageCandidate(payload.image, fetchImpl, options.signal)
 }
@@ -376,10 +402,11 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
     throw new Error('当前 ComfyUI adapter 需要自定义工作流才能使用参考图，请改用通用 HTTP 模板或 SD WebUI')
   }
   const url = requireBaseUrl(baseUrl)
+  const workflow = parseComfyWorkflow(config.requestTemplate, options)
   const response = await fetchWithSignal(fetchImpl, `${url}/prompt`, {
     method: 'POST',
     headers: buildHeaders(config),
-    body: JSON.stringify({ prompt: options.prompt })
+    body: JSON.stringify({ prompt: workflow })
   }, options.signal)
   const payload = await readJsonResponse(response, 'ComfyUI', options.signal)
   const promptId = payload.prompt_id
@@ -392,9 +419,11 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
     if (!historyResponse.ok) continue
     const history = await historyResponse.json()
     throwIfAborted(options.signal)
+    if (history[promptId]?.status?.status_str === 'error') throw new Error('ComfyUI 工作流执行失败，请检查节点与模型配置')
     const outputs = history[promptId]?.outputs || {}
 
-    for (const node of Object.values(outputs)) {
+    for (const [nodeId, node] of Object.entries(outputs)) {
+      if (!['SaveImage', 'PreviewImage'].includes(workflow[nodeId]?.class_type)) continue
       const image = node?.images?.[0]
       if (!image?.filename) continue
       const params = new URLSearchParams({ filename: image.filename })
@@ -410,6 +439,95 @@ async function generateWithComfyUi(config, options, fetchImpl, baseUrl) {
   }
 
   throw new Error('ComfyUI timeout')
+}
+
+function parseComfyWorkflow(template, options) {
+  const binding = inspectComfyPromptBinding(template)
+  if (!binding.ok) throw invalidImageInput(binding.error)
+  return readComfyWorkflow(template, options)
+}
+
+function readComfyWorkflow(template, options) {
+  let workflow
+  try { workflow = JSON.parse(renderRequestTemplate(template, options)) } catch {
+    throw invalidImageInput('ComfyUI API 工作流 JSON 无效')
+  }
+  if (workflow?.prompt && typeof workflow.prompt === 'object') workflow = workflow.prompt
+  if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow) || !Object.keys(workflow).length
+    || Object.values(workflow).some((node) => !node || typeof node.class_type !== 'string'
+      || !node.inputs || typeof node.inputs !== 'object' || Array.isArray(node.inputs))) {
+    throw invalidImageInput('请使用 ComfyUI 的 API 格式工作流，不是编辑器布局 JSON')
+  }
+  return workflow
+}
+
+// Follow known port contracts only. A token in a disconnected/negative node is
+// not an author prompt binding, and custom nodes cannot be inferred safely.
+function inspectComfyPromptBinding(template) {
+  const failure = (error) => ({ ok: false, error })
+  if (!String(template || '').trim()) return failure('请先配置 ComfyUI 导出的 API 工作流 JSON')
+  let workflow
+  try {
+    // Preserve the text token while replacing numeric template variables with
+    // valid numbers, including unquoted {{width}} / {{height}} / {{seed}}.
+    workflow = readComfyWorkflow(template, { ...DEFAULT_IMAGE_OPTIONS, prompt: '{{prompt}}', seed: 0 })
+  } catch (error) { return failure(error.message) }
+  const outputs = Object.values(workflow).filter((node) => ['SaveImage', 'PreviewImage'].includes(node.class_type))
+  if (!outputs.length) return failure('当前 ComfyUI 适配器仅支持连接到 SaveImage 或 PreviewImage 的工作流')
+  const unsupported = new Set()
+  const routes = {
+    image: {
+      VAEDecode: { samples: 'samples' },
+      VAEDecodeTiled: { samples: 'samples' },
+      ImageScale: { image: 'image' },
+      ImageScaleBy: { image: 'image' }
+    },
+    samples: {
+      KSampler: { positive: 'conditioning' },
+      KSamplerAdvanced: { positive: 'conditioning' },
+      SamplerCustom: { positive: 'conditioning' },
+      SamplerCustomAdvanced: { guider: 'guider' }
+    },
+    guider: {
+      BasicGuider: { conditioning: 'conditioning' },
+      CFGGuider: { positive: 'conditioning' }
+    },
+    conditioning: {
+      FluxGuidance: { conditioning: 'conditioning' },
+      ConditioningSetArea: { conditioning: 'conditioning' },
+      ConditioningSetAreaPercentage: { conditioning: 'conditioning' },
+      ConditioningSetMask: { conditioning: 'conditioning' },
+      ConditioningSetTimestepRange: { conditioning: 'conditioning' },
+      ConditioningCombine: { conditioning_1: 'conditioning', conditioning_2: 'conditioning' },
+      ConditioningConcat: { conditioning_to: 'conditioning', conditioning_from: 'conditioning' },
+      ConditioningAverage: { conditioning_to: 'conditioning', conditioning_from: 'conditioning' },
+      ControlNetApply: { conditioning: 'conditioning' },
+      ControlNetApplyAdvanced: { positive: 'conditioning' }
+    }
+  }
+  const textInputs = {
+    CLIPTextEncode: ['text'],
+    CLIPTextEncodeSDXL: ['text_g', 'text_l'],
+    CLIPTextEncodeSDXLRefiner: ['text'],
+    CLIPTextEncodeFlux: ['clip_l', 't5xxl']
+  }
+  function reachesPrompt(link, kind, visited = new Set()) {
+    if (!Array.isArray(link) || link.length !== 2 || !Number.isInteger(link[1]) || link[1] < 0) return false
+    const id = String(link[0]), slot = link[1], node = workflow[id]
+    const key = `${id}:${slot}:${kind}`
+    if (!node || visited.has(key)) return false
+    const nextVisited = new Set(visited).add(key)
+    // SamplerCustom nodes expose both the sampled and denoised latent result.
+    if (slot !== 0 && !(kind === 'samples' && slot === 1 && ['SamplerCustom', 'SamplerCustomAdvanced'].includes(node.class_type))) return false
+    const fields = kind === 'conditioning' ? textInputs[node.class_type] : null
+    if (fields) return fields.some((field) => typeof node.inputs[field] === 'string' && node.inputs[field].includes('{{prompt}}'))
+    const route = routes[kind]?.[node.class_type]
+    if (!route) { unsupported.add(node.class_type); return false }
+    return Object.entries(route).some(([field, nextKind]) => reachesPrompt(node.inputs[field], nextKind, nextVisited))
+  }
+  if (outputs.every((node) => reachesPrompt(node.inputs.images, 'image'))) return { ok: true, error: '' }
+  if (unsupported.size) return failure(`ComfyUI 正向图片链含未支持节点：${[...unsupported].join('、')}；请使用标准文本编码、采样与图片输出节点`)
+  return failure('请将含 {{prompt}} 的文本编码节点连接到图片输出的正向 conditioning；负向或未连接文本不会用于生成')
 }
 
 async function generateWithGenericHttp(config, options, fetchImpl, baseUrl) {
@@ -432,6 +550,7 @@ function normalizeImageOptions(input) {
     width: normalizePositiveNumber(input.width, DEFAULT_IMAGE_OPTIONS.width),
     height: normalizePositiveNumber(input.height, DEFAULT_IMAGE_OPTIONS.height),
     count: normalizePositiveNumber(input.count, DEFAULT_IMAGE_OPTIONS.count),
+    seed: Number.isSafeInteger(input.seed) && input.seed >= 0 ? input.seed : Math.floor(Math.random() * 2147483647),
     referenceImages: normalizeReferenceImages(input.referenceImages),
     controlImages: normalizeControlImages(input.controlImages),
     maskImage: normalizeImageData(input.maskImage),
@@ -448,6 +567,7 @@ function renderRequestTemplate(template, options) {
     negative_prompt: escapeJsonString(options.negativePrompt),
     width: String(options.width),
     height: String(options.height),
+    seed: String(options.seed ?? 0),
     n: String(options.count),
     aspect_ratio: `${options.width}:${options.height}`,
     reference_image: escapeJsonString(options.referenceImages[0]?.data || ''),
@@ -461,10 +581,7 @@ function renderRequestTemplate(template, options) {
     reference_strength: String(options.referenceStrength)
   }
 
-  return Object.entries(values).reduce(
-    (result, [key, value]) => result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value),
-    source
-  )
+  return source.replace(/\{\{([a-z_]+)\}\}/g, (token, key) => values[key] ?? token)
 }
 
 function findCommonImageCandidate(payload) {
@@ -544,20 +661,8 @@ function buildMinimaxRoot(value) {
   return baseUrl
 }
 
-function normalizeMinimaxAspectRatio(width, height, model) {
-  const ratio = Number(width) / Number(height)
-  const candidates = [
-    ['1:1', 1], ['16:9', 16 / 9], ['4:3', 4 / 3], ['3:2', 3 / 2],
-    ['2:3', 2 / 3], ['3:4', 3 / 4], ['9:16', 9 / 16]
-  ]
-  if (model === 'image-01') candidates.push(['21:9', 21 / 9])
-  return candidates.reduce((best, item) => (
-    Math.abs(item[1] - ratio) < Math.abs(best[1] - ratio) ? item : best
-  ))[0]
-}
-
 function requireBaseUrl(value) {
-  if (!value) throw new Error('请先填写 API 地址')
+  if (!value) throw invalidImageInput('请先填写 API 地址')
   return value
 }
 
@@ -574,9 +679,10 @@ function clampNumber(value, min, max, fallback) {
 
 function normalizeReferenceImages(images) {
   if (!Array.isArray(images)) return []
+  if (images.some((reference) => typeof reference?.data !== 'string' || !reference.data.startsWith('data:image/'))) {
+    throw invalidImageInput('参考图未载入或格式无效，请重新选择')
+  }
   return images
-    .filter((reference) => typeof reference?.data === 'string' && reference.data.startsWith('data:image/'))
-    .slice(0, 3)
     .map((reference) => ({
       id: String(reference.id || ''),
       data: reference.data,
@@ -595,6 +701,10 @@ function normalizeControlImages(images) {
       data: control.data,
       weight: clampNumber(control.weight, 0.1, 1, 1)
     }))
+}
+
+function invalidImageInput(message) {
+  return Object.assign(new Error(message), { code: 'ERR_INVALID_INPUT', status: 400 })
 }
 
 function normalizeImageData(value) {

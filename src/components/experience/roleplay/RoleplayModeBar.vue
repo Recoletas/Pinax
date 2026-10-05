@@ -7,22 +7,25 @@
         {{ state.mode === 'rules' ? '轻规则 2d6' : '自由叙事' }}
       </span>
       <span v-if="state.goal" class="rp-mode-bar__goal" :title="state.goal">本场目标：{{ state.goal }}</span>
-      <button class="control-quiet rp-mode-bar__adjust" type="button" @click="editing = true">调整</button>
+      <button class="control-quiet rp-mode-bar__adjust" type="button" @click="openEditing">调整</button>
     </template>
     <template v-else>
       <span class="rp-mode-bar__label">本场玩法</span>
       <button
         class="control-quiet rp-mode-bar__choice"
         type="button"
+        title="不投骰，直接继续故事"
         @click="choose('free')"
       >自由叙事<span class="rp-mode-bar__hint">不投骰，直接继续故事</span></button>
       <button
         class="control-quiet rp-mode-bar__choice"
         type="button"
+        title="行动可确认检定，规则裁定成败"
         @click="choose('rules')"
       >轻规则 2d6<span class="rp-mode-bar__hint">行动可确认检定，规则裁定成败</span></button>
     </template>
 
+    <p v-if="errorText" role="alert">{{ errorText }}</p>
     <div v-if="editing" class="rp-mode-bar__editor">
       <label class="rp-mode-bar__field">
         <span>本场目标（可选）</span>
@@ -49,21 +52,42 @@ import { setRoleplaySessionSetup } from '../../../services/experience/roleplay/r
 const gameStore = useGameStore()
 const editing = ref(false)
 const draftGoal = ref('')
+const errorText = ref('')
 
 const state = computed(() => gameStore.roleplaySession || {})
 const decided = computed(() => state.value.mode === 'free' || state.value.mode === 'rules')
 
 function choose(mode) {
-  setRoleplaySessionSetup(gameStore, { mode, goal: state.value.goal || '', actorRef: state.value.actorRef || null })
+  try {
+    errorText.value = ''
+    if (!gameStore.currentSessionId) gameStore.createSession({ title: mode === 'rules' ? '轻规则冒险' : '自由叙事', inheritRuntimeState: true })
+    setRoleplaySessionSetup(gameStore, { mode, goal: state.value.goal || '', actorRef: state.value.actorRef || null })
+    if (!gameStore.flushSaveSessions()) {
+      errorText.value = '存档未能保存，请检查浏览器存储后点击保存重试。'
+      openEditing()
+    }
+  } catch (error) { errorText.value = error?.message || '无法保存本场玩法' }
+}
+
+function openEditing() {
+  draftGoal.value = state.value.goal || ''
+  editing.value = true
 }
 
 function saveEditing() {
-  setRoleplaySessionSetup(gameStore, {
-    mode: state.value.mode || 'free',
-    goal: draftGoal.value,
-    actorRef: state.value.actorRef || null
-  })
-  editing.value = false
+  try {
+    setRoleplaySessionSetup(gameStore, {
+      mode: state.value.mode || 'free',
+      goal: draftGoal.value,
+      actorRef: state.value.actorRef || null
+    })
+    if (!gameStore.flushSaveSessions()) {
+      errorText.value = '存档未能保存，请检查浏览器存储后点击保存重试。'
+      return
+    }
+    errorText.value = ''
+    editing.value = false
+  } catch (error) { errorText.value = error?.message || '无法保存本场目标' }
 }
 
 function closeEditing() {
@@ -80,7 +104,7 @@ function closeEditing() {
   padding: 8px 14px;
   margin: 0 0 8px;
   border: 1px solid color-mix(in srgb, var(--archive-ink) 14%, transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--archive-paper-soft) 92%, transparent);
   font-size: 13px;
   color: var(--archive-ink);

@@ -98,9 +98,11 @@ function textParts(context = {}, targets = {}, schemaId = '') {
     return [
       '目标协议：setting-places.v1。请从地理环境原文中整理可被作者审阅的地点草稿。',
       '只返回 places 数组；每项必须有 name、kind、scale、aliases、parentRef、factionRef、terrainHints、description、evidence、relations。',
+      '根对象形状为 {"places":[...] }。kind 只用 continent/region/city/town/village/port/fortress/academy/site/river/route；scale 只用 macro/regional/local/unknown。relations 每项必须是 {"type":"adjacent","targetName":"原文地点名"}，type 只用 parent/state/adjacent/river/route/same-state/different-state；不要用字符串关系。',
       '关系只写关系类型和目标名称；不得返回坐标、cell、地图对象 ID、mapBinding 或最终地图绑定。',
       'evidence 必须是原文中的连续摘录；无法从原文找到证据的名称不要凭空补全。',
-      '过滤泛称、修辞、设施、描述片段和“某个小村”等不稳定称呼。',
+      '过滤泛称、修辞、描述片段和“某个小村”等不稳定称呼。保留原文明确命名、可定位的灯塔、仓库等设施，kind 使用 site；不要只因它是建筑就漏掉。',
+      '每条 description 只整理原文已给出的事实，控制在 160 字以内，不扩写故事。关系只列原文明示的关系，无法判断的上级、势力填空字符串。',
       context.globalConstraints ? `【全局硬约束】\n${serialize(context.globalConstraints)}` : '',
       context.confirmedSettings ? `【已有正式地点紧凑索引】\n${serialize(context.confirmedSettings)}` : '',
       context.sourceExcerpts ? `【地理环境原文片段】\n${serialize(context.sourceExcerpts)}` : '',
@@ -286,6 +288,50 @@ function parseJson(value) {
   try { return JSON.parse(value) } catch { return null }
 }
 
+function parseTextJson(content) {
+  const value = text(content)
+  // Accept a whole JSON document or one complete fence. Never extract a
+  // convenient object from prose, reasoning, multiple documents or a prefix.
+  const fence = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i.exec(value)
+  return { payload: parseJson(fence ? fence[1] : value), fenced: Boolean(fence), hasContent: Boolean(value) }
+}
+
+// Only the bounded schemas returned by getStructuredSettingSchema are used
+// here: objects, arrays, strings, enum, required and size constraints.
+function matchesTextDraftSchema(value, schema) {
+  if (schema.enum && !schema.enum.includes(value)) return false
+  if (schema.type === 'string') return typeof value === 'string'
+    && (schema.minLength == null || [...value].length >= schema.minLength)
+    && (schema.maxLength == null || [...value].length <= schema.maxLength)
+  if (schema.type === 'array') return Array.isArray(value)
+    && (schema.minItems == null || value.length >= schema.minItems)
+    && (schema.maxItems == null || value.length <= schema.maxItems)
+    && value.every(item => matchesTextDraftSchema(item, schema.items))
+  if (schema.type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const properties = schema.properties || {}
+    if ((schema.required || []).some(key => !Object.hasOwn(value, key))) return false
+    return Object.keys(value).every(key => Object.hasOwn(properties, key)
+      ? matchesTextDraftSchema(value[key], properties[key])
+      : schema.additionalProperties !== false)
+  }
+  return false
+}
+
+function providerText(data, protocol) {
+  if (protocol === 'anthropic') return (Array.isArray(data?.content) ? data.content : []).filter(block => block?.type === 'text').map(block => block.text).join('\n')
+  if (protocol === 'openai-responses') return data?.output_text || (Array.isArray(data?.output) ? data.output : [])
+    .flatMap(item => Array.isArray(item?.content) ? item.content : [])
+    .filter(block => block?.type === 'output_text').map(block => block.text).join('\n')
+  return data?.choices?.[0]?.message?.content
+}
+
+function providerFinishReason(data, protocol) {
+  if (protocol === 'anthropic') return text(data?.stop_reason) || 'end_turn'
+  if (protocol === 'openai-responses') return text(data?.status) === 'incomplete' ? 'length' : 'stop'
+  return text(data?.choices?.[0]?.finish_reason) || 'stop'
+}
+
 function parseProviderPayload(data, protocol, mode) {
   if (mode === 'forced-tool') {
     if (protocol === 'anthropic') {
@@ -298,18 +344,13 @@ function parseProviderPayload(data, protocol, mode) {
       const call = data?.choices?.[0]?.message?.tool_calls?.find((item) => item?.function?.name === 'submit_setting_draft')
       if (call) return { payload: parseJson(call.function.arguments), finishReason: text(data?.choices?.[0]?.finish_reason) || 'tool_calls', hasContent: Boolean(String(call.function.arguments || '').trim()) }
     }
-    return { payload: null, finishReason: 'tool_call_missing', hasContent: false }
+    // This tool only submits read-only drafts. Compatible providers sometimes
+    // ignore tool_choice while returning valid JSON; schema validation still
+    // runs in the owner, and the result must not claim a successful tool call.
+    return { ...parseTextJson(providerText(data, protocol)), finishReason: providerFinishReason(data, protocol), mode: 'text-json' }
   }
-  if (protocol === 'openai-responses') {
-    return { payload: parseJson(data?.output_text), finishReason: text(data?.status) === 'incomplete' ? 'length' : 'stop', hasContent: Boolean(String(data?.output_text || '').trim()) }
-  }
-  if (protocol === 'anthropic') {
-    const content = (Array.isArray(data?.content) ? data.content : []).filter((block) => block?.type === 'text').map((block) => block.text).join('\n')
-    return { payload: parseJson(content), finishReason: text(data?.stop_reason) || 'end_turn', hasContent: Boolean(content.trim()) }
-  }
-  const choice = data?.choices?.[0]
-  const content = choice?.message?.content
-  return { payload: parseJson(content), finishReason: text(choice?.finish_reason) || 'stop', hasContent: Boolean(String(content || '').trim()) }
+  const parsed = parseTextJson(providerText(data, protocol))
+  return { ...parsed, finishReason: providerFinishReason(data, protocol), mode: parsed.fenced ? 'text-json' : mode }
 }
 
 function isIncompleteFinishReason(reason) {
@@ -356,6 +397,14 @@ export function buildStructuredProviderRequest(request, mode = 'native-json-sche
   const protocol = resolveStructuredProtocol(request.provider)
   const schemaResult = getStructuredSettingSchema(request.schemaId, request.target)
   if (!schemaResult.valid) throw new StructuredProviderError(schemaResult.error.code, schemaResult.error.message)
+  if (mode === 'text-json') {
+    const prompt = `${textParts(request.context, request.target, request.schemaId)}\n\n输出必须是一个完整 JSON 对象，严格符合以下 JSON Schema，不要输出解释或 Markdown：\n${JSON.stringify(schemaResult.schema)}`
+    const common = { model: request.provider.model, temperature: request.options?.temperature ?? 0.2 }
+    const body = protocol === 'openai-responses'
+      ? { ...common, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], max_output_tokens: request.options?.maxTokens || 1200, store: false }
+      : { ...common, messages: [{ role: 'user', content: prompt }], max_tokens: request.options?.maxTokens || 1200 }
+    return { protocol, url: endpoint(request.provider.baseUrl, protocol), body }
+  }
   if (mode === 'forced-tool') return { protocol, url: endpoint(request.provider.baseUrl, protocol), body: buildToolRequest(request, schemaResult.schema, protocol) }
   if (mode === 'native-json-schema') {
     const body = protocol === 'openai-responses'
@@ -420,17 +469,24 @@ export async function runStructuredProviderRequest(request, mode = 'native-json-
     const parsed = parseProviderPayload(data, built.protocol, mode)
     if (!parsed.payload) {
       throw new StructuredProviderError(
-        isIncompleteFinishReason(parsed.finishReason) || parsed.hasContent
+        isIncompleteFinishReason(parsed.finishReason)
           ? STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE
           : STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID,
-        isIncompleteFinishReason(parsed.finishReason) || parsed.hasContent
+        isIncompleteFinishReason(parsed.finishReason)
           ? '上游在结构化设定生成中途截断'
-          : '上游未返回可解析的结构化设定 payload'
+          : (parsed.hasContent ? '上游返回的设定不符合 JSON 格式，请重试或调整模型' : '上游未返回结构化设定内容'),
+        { retryable: parsed.hasContent }
       )
+    }
+    if (parsed.mode === 'text-json') {
+      const { schema } = getStructuredSettingSchema(request.schemaId, request.target)
+      if (!matchesTextDraftSchema(parsed.payload, schema)) {
+        throw new StructuredProviderError(STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, '上游返回的 JSON 未满足设定字段要求，请调整模型后重试', { retryable: true })
+      }
     }
     return {
       payload: parsed.payload,
-      mode,
+      mode: parsed.mode || mode,
       protocol: built.protocol,
       finishReason: parsed.finishReason,
       latencyMs,

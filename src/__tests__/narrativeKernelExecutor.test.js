@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor.js'
+import { runNarrativeAgentGeneration } from '../services/agents/narrativeAgentOrchestrator.js'
+import { createAuthoringTaskContract, parseTaskQualityVerdict } from '../services/agents/narrativeTaskQuality.js'
+import { getNarrativeToolCatalog } from '../../shared/narrativeAgentContract.js'
 
 // 验收修复 1：Authoring 回合必须真正构建并执行 NarrativeKernel（orchestrator 路径），
 // 且内核消费与 UI 左栏/composer 同一份共享现场投影（spec §9/§10）。
@@ -28,6 +31,75 @@ const PROJECTION = Object.freeze({
 
 describe('narrative kernel executor', () => {
   it("builds a real kernel that consumes the shared projection and runs it through the orchestrator（合并3例）", async () => {
+    {
+      const contract = createAuthoringTaskContract({ instruction: '可以增加一位医生；以列车进站的广播结尾。', operation: 'next-passage' })
+      expect(contract).toMatchObject({ kind: 'authoring', hasStopBoundary: true })
+      expect(createAuthoringTaskContract({ instruction: '接着写', operation: 'next-passage' })).toBeNull()
+      const draft = '广播响了。医生登上列车。'
+      const fixed = '医生核对了车票。列车进站的广播响了。'
+      const verdict = (fail = false) => ({ schemaVersion: 1, checks: [
+        { id: 'request', status: 'pass' },
+        { id: 'stop-boundary', status: fail ? 'fail' : 'pass', quote: fail ? '医生登上列车。' : '列车进站的广播响了。', reason: fail ? '广播后又开始登车动作' : '' },
+        { id: 'continuity', status: 'pass' }
+      ] })
+      const kernel = { revision: 'q1', blocks: [{ kind: 'turn', content: { input: contract.request } }],
+        recentMessages: [], toolCatalog: getNarrativeToolCatalog({ activeTools: ['world_lookup'] }) }
+      const registry = { revision: 'r1', execute: vi.fn() }
+      const visible = []
+      const runner = vi.fn(async ({ messages }, { phase }) => ({ kind: 'final_ready', calls: [], text:
+        phase === 'review' ? JSON.stringify(verdict(messages.at(-1).content.endsWith(draft))) : phase === 'revision' ? fixed : draft,
+        usage: { inputTokens: 10, outputTokens: 10 } }))
+      const result = await runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,
+        decisionRunner: runner, criticSampleRate: 1, callbacks: { onChunk: ({ content }) => visible.push(content) } })
+      expect(result.finalText).toBe(fixed)
+      expect(visible.join('')).toBe(fixed)
+      expect(result.trace.taskQuality).toMatchObject({ required: true, repairs: 1, reviews: [{ pass: false }, { pass: true }] })
+      expect(result.trace.criticShadow.scheduled).toBe(false)
+      expect(result.trace.tokenBudget.calls.map(call => call.phase)).toEqual(['write', 'review', 'revision', 'review'])
+      expect(runner.mock.calls[1][0].messages[1].content).toContain(contract.request)
+      expect(parseTaskQualityVerdict({ ...verdict(), checks: verdict().checks.slice(1) }, { contract, draft })).toBeNull()
+      const contradictory = verdict(true)
+      contradictory.pass = true
+      expect(parseTaskQualityVerdict(contradictory, { contract, draft }).pass).toBe(false)
+      contradictory.checks[1].quote = '不存在的证据'
+      expect(parseTaskQualityVerdict(contradictory, { contract, draft })).toBeNull()
+      const skipped = verdict(); skipped.checks[1].status = 'not-applicable'
+      expect(parseTaskQualityVerdict(skipped, { contract, draft })).toBeNull()
+      const mistakenPass = verdict(); mistakenPass.checks[1].quote = '广播响了。'
+      expect(parseTaskQualityVerdict(mistakenPass, { contract, draft }).pass).toBe(false)
+      expect(parseTaskQualityVerdict(mistakenPass, { contract, draft: '广播响了。广播响了。' })).toBeNull()
+      expect(parseTaskQualityVerdict(verdict(), { contract, draft: `${fixed}\n:::\n` }).pass).toBe(true)
+      expect(parseTaskQualityVerdict(verdict(), { contract, draft: fixed + '\n:::dialogue|医生\n请下车。' }).pass).toBe(false)
+      const fenced = '```json\n' + JSON.stringify({ checks: verdict().checks }) + '\n```'
+      expect(parseTaskQualityVerdict(fenced, { contract, draft: fixed }).pass).toBe(true)
+      expect(parseTaskQualityVerdict({ ...verdict(), schemaVersion: 2 }, { contract, draft: fixed })).toBeNull()
+      const roleplay = { kind: 'roleplay', publicFacts: '档案室无人。旅伴阿禾已经在场。', authorizedAction: '检查记录', playerName: '闻舟' }
+      const roleplayVerdict = { schemaVersion: 1, checks: ['request', 'stop-boundary', 'continuity', 'authorized-facts', 'player-agency'].map(id => ({ id, status: id === 'stop-boundary' ? 'not-applicable' : 'pass' })) }
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: ':::dialogue|陌生守卫\n跟我走。' })).toMatchObject({ pass: false })
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: ':::dialogue|阿禾\n我在这儿。' }).pass).toBe(true)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, authorizedAction: '我请医生进来' }, draft: ':::dialogue|医生\n请伸出手。' }).pass).toBe(true)
+      const inferred = '同一艘船在两港同夜登记。船只不可能在如此短的时间内跨越如此遥远的距离。这显然是一个异常——要么是记录有误，要么是船只的航行轨迹被刻意隐瞒。'
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: inferred }).pass).toBe(false)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: '你意识到这可能是一个阴谋。' }).pass).toBe(false)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, publicFacts: '这证明签章已经失效。' }, draft: '这证明签章已经失效。' }).pass).toBe(true)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, authorizedAction: '我推测可能有人误填日期' }, draft: '你推测可能有人误填日期。' }).pass).toBe(true)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, authorizedAction: '我决定检查记录' }, draft: '你决定检查记录。' }).pass).toBe(true)
+      expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: '闻舟决定现在离开。' }).pass).toBe(false)
+      for (const invalid of ['not-json', JSON.stringify(verdict(true))]) {
+        const onChunk = vi.fn()
+        const failing = vi.fn(async (_args, { phase }) => ({ kind: 'final_ready', calls: [], text: phase === 'review' ? invalid : draft }))
+        await expect(runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,
+          decisionRunner: failing, callbacks: { onChunk } })).rejects.toMatchObject({ code: invalid === 'not-json' ? 'NARRATIVE_TASK_CHECK_INVALID' : 'NARRATIVE_TASK_CONSTRAINT_FAILED' })
+        expect(onChunk).not.toHaveBeenCalled()
+        expect(failing.mock.calls.length).toBe(invalid === 'not-json' ? 2 : 4)
+      }
+      const controller = new AbortController()
+      await expect(runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,
+        signal: controller.signal, decisionRunner: async (_args, { phase }) => {
+          if (phase === 'review') controller.abort(Object.assign(new Error('cancelled'), { code: 'NARRATIVE_AGENT_ABORTED' }))
+          return { kind: 'final_ready', calls: [], text: phase === 'review' ? JSON.stringify(verdict()) : fixed }
+        } })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_ABORTED' })
+    }
 {
 const buildKernel = vi.fn(() => ({ revision: 'nar-1', blocks: [] }))
     const runGeneration = vi.fn(async () => ({ finalText: '守卫在门口停下脚步。' }))
@@ -47,7 +119,7 @@ const buildKernel = vi.fn(() => ({ revision: 'nar-1', blocks: [] }))
     })
     const result = await executor.executeTurn({
       intentMode: 'advance',
-      turn: { kind: 'action', actorId: 'char_lina', instruction: '让莉娜先检查门闩。', directorNote: '节奏放慢', sourceRefs: ['chapter:ch-9'] },
+      turn: { kind: 'action', operation: 'next-passage', actorId: 'char_lina', instruction: '让莉娜先检查门闩。', directorNote: '节奏放慢', sourceRefs: ['chapter:ch-9'] },
       narrativeContext: {
         messages: [{ id: 'node-1', role: 'assistant', content: '潮水已经漫过第二级台阶。' }],
         sceneSummary: { revision: 'scene-r1', summary: '守卫正在盘查来客。' },
@@ -67,12 +139,15 @@ const buildKernel = vi.fn(() => ({ revision: 'nar-1', blocks: [] }))
       projectId: 'book-1',
       messages: [
         { id: 'node-1', role: 'assistant', content: '潮水已经漫过第二级台阶。' },
-        { id: 'authoring-turn:doc-r3', role: 'user', content: '让莉娜先检查门闩。' }
+        { id: 'authoring-turn:doc-r3', role: 'user', content: expect.stringContaining('让莉娜先检查门闩。') }
       ],
       sceneSummary: { revision: 'scene-r1', summary: '守卫正在盘查来客。' },
       turnContext: { kind: 'action', actorId: 'char_lina', targetId: '' }
     })
     expect(kernelArgs.sceneProjection).toBe(PROJECTION)
+    expect(kernelArgs.messages.at(-1).content).toContain('从“当前落笔处”最后一句之后接续，只写新增正文')
+    expect(kernelArgs.messages.at(-1).content).toContain('不重演已完成的动作')
+    expect(kernelArgs.messages.at(-1).content).toContain('在指定的收束处停下')
     // 地点以共享投影为准，不用 store 里的过期快照。
     expect(kernelArgs.runtimeState.worldMapState).toMatchObject({ placeId: 'place_dock', currentScene: '旧港码头' })
     expect(createRegistry).toHaveBeenCalled()

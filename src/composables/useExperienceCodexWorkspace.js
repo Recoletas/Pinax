@@ -107,9 +107,11 @@ export function useExperienceCodexWorkspace({
   })
 
   const latestLocationLabel = computed(() => {
+    const roleplay = gameStore.roleplaySession
+    const scene = roleplay?.scenario?.scenes?.find((item) => item.id === roleplay.scenarioRun?.currentSceneId)
     const locations = geographyStore.locations || []
     const latest = locations[locations.length - 1]
-    return latest?.name || gameStore.worldMapState?.currentScene || meta.demoScene?.title || '暂无地点'
+    return scene?.title || gameStore.worldMapState?.currentScene || latest?.name || (meta.isDemoMode ? meta.demoScene?.title : '') || '暂无地点'
   })
 
   const latestEventLabel = computed(() => {

@@ -20,7 +20,7 @@ export { useAuthoringSceneLaboratoryWorkflow } from './useAuthoringSceneLaborato
 export { useAuthoringBlockWorkflow } from './useAuthoringBlockWorkflow.js'
 export { useAuthoringGhostAdoptionWorkflow } from './useAuthoringGhostAdoptionWorkflow.js'
 export { useAuthoringReviewWorkflow } from './useAuthoringReviewWorkflow.js'
-export { useAuthoringSearchWorkflow } from './useAuthoringSearchWorkflow.js'
+export { useAuthoringSearchWorkflow, applyAuthoringSearchEditorTransaction } from './useAuthoringSearchWorkflow.js'
 export { useAuthoringRewriteWorkflow } from './useAuthoringRewriteWorkflow.js'
 export { useAuthoringAnnotationSession } from './useAuthoringAnnotationSession.js'
 export { useAuthoringAnnotationSelection } from './useAuthoringAnnotationSelection.js'

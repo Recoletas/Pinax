@@ -1,14 +1,12 @@
-import { computed, onBeforeUnmount, ref, unref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, unref, watch } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
 import {
   createAuthoringKnowledgeAnswer,
   reconcileAuthoringKnowledgeAnswer
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
-import {
-  AUTHORING_KNOWLEDGE_TASK_ID,
-  createAuthoringKnowledgeQuerySession
-} from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/lazyAuthoringKnowledgeQuerySession.js'
 import { createBrowserStorageRepository } from '../services/storage/browserStorageRepository.js'
+import { createAuthoringAssistantConversationStore } from '../services/agents/authoring/authoringAssistantConversationStore.js'
 
 function valueOf(value) {
   return typeof value === 'function' ? value() : unref(value)
@@ -23,7 +21,7 @@ function messageId(prefix = 'knowledge') {
 }
 
 function errorMessage(error) {
-  if (error?.code === 'AGENT_REQUEST_ABORTED') return ''
+  if (error?.code === 'AGENT_REQUEST_ABORTED' || error?.code === 'knowledge-read-model-aborted') return ''
   return String(error?.message || '助手暂时没有完成查询，请稍后重试。')
 }
 
@@ -48,11 +46,13 @@ const knowledgeSeamTrace = (typeof window !== 'undefined')
   ? (window.__pinaxKnowledgeSeamTrace = window.__pinaxKnowledgeSeamTrace
     || { seamPrepares: 0, lastSeamRefs: [], lastFocusRef: '' })
   : { seamPrepares: 0, lastSeamRefs: [], lastFocusRef: '' }
-let focusedEvidenceSourceRef = ''
+const focusedEvidenceSources = new Map()
 
-export function recordKnowledgeSeamFocus(sourceRef) {
+export function recordKnowledgeSeamFocus(sourceRef, projectId = '') {
   const ref = String(sourceRef ?? '').trim()
-  focusedEvidenceSourceRef = ref
+  const project = normalizedText(projectId)
+  if (!project) return
+  focusedEvidenceSources.set(project, ref)
   knowledgeSeamTrace.lastFocusRef = ref
 }
 
@@ -67,20 +67,19 @@ function lastAnswerEvidenceRefs(messages) {
 }
 
 /**
- * 焦点来源单次消费且归属本实例：只有当焦点 ref 出现在本实例最近一次回答
- * 的证据里（即作者在本助手内点过它）才生效；用后即清，不再无提示地持续
- * 限制后续无关提问。跨实例/过期焦点直接忽略并留痕。
+ * 焦点来源按作品隔离且单次消费：只有 ref 出现在本作品最近一次回答的
+ * 证据里才生效。切书时清除焦点，避免共享世界书导致引用串入另一作品。
  */
-function knowledgeSeamRequestFor(lastAnswerRefs) {
-  if (!knowledgeReadModelFlagEnabled() || !focusedEvidenceSourceRef) return null
-  if (!lastAnswerRefs.includes(focusedEvidenceSourceRef)) {
+function knowledgeSeamRequestFor(projectId, lastAnswerRefs) {
+  const sourceRef = focusedEvidenceSources.get(projectId)
+  if (!sourceRef) return null
+  focusedEvidenceSources.delete(projectId)
+  if (!knowledgeReadModelFlagEnabled()) return null
+  if (!lastAnswerRefs.includes(sourceRef)) {
     knowledgeSeamTrace.staleFocusIgnored = (knowledgeSeamTrace.staleFocusIgnored ?? 0) + 1
-    focusedEvidenceSourceRef = ''
     return null
   }
-  const request = { enabled: true, sourceRefs: [focusedEvidenceSourceRef] }
-  focusedEvidenceSourceRef = ''
-  return request
+  return { enabled: true, sourceRefs: [sourceRef] }
 }
 
 const KNOWLEDGE_SEAM_STOP_MESSAGES = Object.freeze({
@@ -97,6 +96,39 @@ function knowledgeSeamStopMessage(reason) {
     ?? '聚焦的资料当前无法查询，本次查询已停止；请重新选择来源后再试。'
 }
 
+function cloneQueryInput(value) {
+  function freeze(input) {
+    if (input && typeof input === 'object') {
+      Object.values(input).forEach(freeze)
+      Object.freeze(input)
+    }
+    return input
+  }
+  return value == null ? null : freeze(JSON.parse(JSON.stringify(value)))
+}
+
+function questionWithConversation(question, messages) {
+  const turns = []
+  let remaining = 2400
+  const history = [...messages]
+  const lastMessage = history.at(-1)
+  // 重试或停止后再次发送同一问题时，末尾尚无回答的作者问题只出现一次。
+  if (lastMessage?.role === 'user' && normalizedText(lastMessage.question) === question) history.pop()
+  for (const message of history.reverse()) {
+    const answer = message.role === 'assistant' ? message.answer : null
+    if (answer?.stale) continue
+    const content = message.role === 'user' ? message.question : answer?.answer
+    if (!content) continue
+    const excerpt = String(content).slice(0, Math.min(600, remaining))
+    if (!excerpt) break
+    turns.unshift(`${message.role === 'user' ? '作者' : '助手'}：${excerpt}`)
+    remaining -= excerpt.length
+    if (remaining <= 0 || turns.length >= 6) break
+  }
+  if (!turns.length) return question
+  return `此前对话仅用于理解作者意图，旧回答不是作品事实。作品事实必须以本次授权证据为准，不能把以下对话当作引用来源。\n${turns.join('\n')}\n\n本次作者问题：${question}`
+}
+
 export function useAuthoringKnowledgeAssistant({
   projectId,
   target = null,
@@ -104,225 +136,349 @@ export function useAuthoringKnowledgeAssistant({
   sceneProjection = null,
   revisionSignal = null,
   querySession = createAuthoringKnowledgeQuerySession(),
-  executeQuery = requestAdvisorTask
+  executeQuery = requestAdvisorTask,
+  conversationStore = createAuthoringAssistantConversationStore()
 } = {}) {
-  const messages = ref([])
-  const draft = ref('')
-  const selectedIntent = ref('whole-book')
-  const busy = ref(false)
-  const error = ref('')
-  const lastRequest = ref(null)
-  let requestToken = 0
-  let abortController = null
-  let staleRefreshToken = 0
-  let staleRefreshTimer = null
-
+  const entries = new Map()
+  let disposed = false
   const activeProjectId = computed(() => normalizedText(valueOf(projectId)))
+
+  function getEntry(project) {
+    if (entries.has(project)) return entries.get(project)
+    const loaded = project ? conversationStore.load(project) : { ok: true, conversation: null, draft: '' }
+    const saved = loaded.conversation || {}
+    const interrupted = saved.status === 'running'
+    const conversationReadError = loaded.conversationReadError || (!loaded.ok && !loaded.draftReadError ? loaded.error : '')
+    const draftReadError = loaded.draftReadError || ''
+    const entry = {
+      projectId: project,
+      state: reactive({
+        messages: saved.messages || [],
+        draft: loaded.draft || '',
+        selectedIntent: saved.selectedIntent || 'free',
+        busy: false,
+        error: interrupted ? '上次查询因页面关闭中断；如需继续，请手动重试。' : saved.error || '',
+        lastRequest: saved.lastRequest || null,
+        status: interrupted ? 'interrupted' : saved.status || 'idle',
+        hasUnread: Boolean(saved.hasUnread),
+        persistenceError: loaded.ok ? '' : loaded.error
+      }),
+      runtime: {
+        token: 0, controller: null, staleToken: 0,
+        staleTimer: null, draftTimer: null,
+        draftRevision: 0, requestDraftRevision: null,
+        conversationError: conversationReadError, draftError: draftReadError,
+        canSaveConversation: !conversationReadError, canSaveDraft: !draftReadError
+      }
+    }
+    entries.set(project, entry)
+    return entry
+  }
+
+  const activeEntry = computed(() => getEntry(activeProjectId.value))
+  const messages = computed(() => activeEntry.value.state.messages)
+  const draft = computed({
+    get: () => activeEntry.value.state.draft,
+    set: (value) => {
+      const entry = activeEntry.value
+      entry.state.draft = String(value || '')
+      entry.runtime.draftRevision += 1
+      entry.runtime.canSaveDraft = true
+      scheduleDraftSave(entry)
+    }
+  })
+  const selectedIntent = computed(() => activeEntry.value.state.selectedIntent)
+  const busy = computed(() => activeEntry.value.state.busy)
+  const error = computed(() => activeEntry.value.state.error)
+  const lastRequest = computed(() => activeEntry.value.state.lastRequest)
+  const persistenceError = computed(() => activeEntry.value.state.persistenceError)
+  const hasUnread = computed(() => activeEntry.value.state.hasUnread)
+  const status = computed(() => activeEntry.value.state.status)
   const canSubmit = computed(() => Boolean(activeProjectId.value && draft.value.trim() && !busy.value))
 
+  function updateDraft(value) {
+    draft.value = value
+  }
+
+  function syncPersistenceError(entry) {
+    entry.state.persistenceError = entry.runtime.conversationError || entry.runtime.draftError
+  }
+
+  function persistConversation(entry) {
+    if (!entry.projectId || !entry.runtime.canSaveConversation) return
+    const result = conversationStore.saveConversation(entry.projectId, entry.state)
+    entry.runtime.conversationError = result.ok ? '' : result.error
+    syncPersistenceError(entry)
+  }
+
+  function persistDraft(entry) {
+    if (entry.runtime.draftTimer) clearTimeout(entry.runtime.draftTimer)
+    entry.runtime.draftTimer = null
+    if (!entry.projectId || !entry.runtime.canSaveDraft) return
+    const result = conversationStore.saveDraft(entry.projectId, entry.state.draft)
+    entry.runtime.draftError = result.ok ? '' : result.error
+    syncPersistenceError(entry)
+  }
+
+  function scheduleDraftSave(entry) {
+    if (!entry.projectId) return
+    if (entry.runtime.draftTimer) clearTimeout(entry.runtime.draftTimer)
+    entry.runtime.draftTimer = setTimeout(() => persistDraft(entry), 450)
+  }
+
+  function cancelEntry(entry, { leaving = false, restoreDraft = true } = {}) {
+    const wasBusy = entry.state.busy
+    entry.runtime.token += 1
+    entry.runtime.controller?.abort()
+    entry.runtime.controller = null
+    entry.state.busy = false
+    if (wasBusy) {
+      entry.state.status = leaving ? 'interrupted' : 'cancelled'
+      if (leaving) entry.state.error = '上次查询因离开写作页停止；如需继续，请手动重试。'
+      if (restoreDraft && !entry.state.draft && entry.state.lastRequest
+        && entry.runtime.draftRevision === entry.runtime.requestDraftRevision) {
+        entry.state.draft = entry.state.lastRequest.question
+        persistDraft(entry)
+      }
+      persistConversation(entry)
+    }
+  }
+
   function cancel() {
-    requestToken += 1
-    abortController?.abort()
-    abortController = null
-    busy.value = false
+    cancelEntry(activeEntry.value)
   }
 
   function clear() {
-    cancel()
-    if (staleRefreshTimer) clearTimeout(staleRefreshTimer)
-    staleRefreshTimer = null
-    messages.value = []
-    draft.value = ''
-    error.value = ''
-    lastRequest.value = null
-    // 换项目/清空会话时焦点来源一并失效，防止跨书串写（接缝侧仍有
-    // 授权目录复核兜底）。
-    focusedEvidenceSourceRef = ''
+    const entry = activeEntry.value
+    entry.runtime.canSaveConversation = true
+    entry.runtime.canSaveDraft = true
+    cancelEntry(entry, { restoreDraft: false })
+    entry.runtime.staleToken += 1
+    if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
+    entry.runtime.staleTimer = null
+    entry.state.messages = []
+    entry.state.draft = ''
+    entry.state.error = ''
+    entry.state.lastRequest = null
+    entry.state.status = 'idle'
+    entry.state.hasUnread = false
+    focusedEvidenceSources.delete(entry.projectId)
+    persistConversation(entry)
+    persistDraft(entry)
   }
 
   function selectIntent(intent) {
-    selectedIntent.value = String(intent || 'whole-book')
+    const entry = activeEntry.value
+    entry.state.selectedIntent = String(intent || 'free')
+    persistConversation(entry)
   }
 
-  async function refreshStaleness() {
-    if (!messages.value.some((message) => message.role === 'assistant' && message.answer && message.session)) return false
-    const token = ++staleRefreshToken
-    const project = activeProjectId.value
+  function markRead() {
+    const entry = activeEntry.value
+    if (!entry.state.hasUnread) return
+    entry.state.hasUnread = false
+    persistConversation(entry)
+  }
+
+  function currentReconcileInput(entry, session) {
+    if (entry.projectId !== activeProjectId.value || disposed) {
+      return { sceneProjection: null, liveSource: null }
+    }
+    return {
+      sceneProjection: cloneQueryInput(valueOf(sceneProjection)),
+      liveSource: cloneQueryInput(typeof resolveLiveSource === 'function'
+        ? resolveLiveSource({ phase: 'reconcile', session })
+        : valueOf(resolveLiveSource))
+    }
+  }
+
+  async function refreshEntryStaleness(entry) {
+    const sourceMessages = entry.state.messages
+    const sourceLength = sourceMessages.length
+    if (!sourceMessages.some((message) => message.role === 'assistant' && message.answer && message.session)) return false
+    const token = ++entry.runtime.staleToken
     try {
-      const next = await Promise.all(messages.value.map(async (message) => {
+      let changed = false
+      const next = await Promise.all(sourceMessages.map(async (message) => {
         if (message.role !== 'assistant' || !message.answer || !message.session) return message
-        const revisions = await querySession.collectCurrentRevisions(message.session, {
-          sceneProjection: valueOf(sceneProjection),
-          liveSource: typeof resolveLiveSource === 'function'
-            ? resolveLiveSource({ phase: 'reconcile', session: message.session })
-            : valueOf(resolveLiveSource)
-        })
-        if (token !== staleRefreshToken || project !== activeProjectId.value) return message
-        return { ...message, answer: reconcileAuthoringKnowledgeAnswer(message.answer, revisions) }
+        const revisions = await querySession.collectCurrentRevisions(message.session, currentReconcileInput(entry, message.session))
+        if (token !== entry.runtime.staleToken || disposed) return message
+        const answer = reconcileAuthoringKnowledgeAnswer(message.answer, revisions)
+        if (JSON.stringify(answer) === JSON.stringify(message.answer)) return message
+        changed = true
+        return { ...message, answer }
       }))
-      if (token === staleRefreshToken && project === activeProjectId.value) {
-        messages.value = next
+      if (token === entry.runtime.staleToken && !disposed
+        && entry.state.messages === sourceMessages && entry.state.messages.length === sourceLength) {
+        if (changed) {
+          entry.state.messages = next
+          persistConversation(entry)
+        }
         return true
       }
     } catch {
-      // 只读对账失败时保留原回答；不得把“无法读取 live revision”误报为 fresh。
+      // 对账无法读取时保留原证据状态，不能误报资料仍然有效。
     }
     return false
   }
 
+  function refreshStaleness() {
+    return refreshEntryStaleness(activeEntry.value)
+  }
+
   function scheduleStalenessRefresh() {
-    if (!messages.value.some((message) => message.role === 'assistant' && message.answer && message.session)) return
-    if (staleRefreshTimer) clearTimeout(staleRefreshTimer)
-    staleRefreshTimer = setTimeout(() => {
-      staleRefreshTimer = null
-      void refreshStaleness()
+    const entry = activeEntry.value
+    if (!entry.state.messages.some((message) => message.role === 'assistant' && message.answer && message.session)) return
+    if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
+    entry.runtime.staleTimer = setTimeout(() => {
+      entry.runtime.staleTimer = null
+      void refreshEntryStaleness(entry)
     }, 320)
   }
 
   async function ask(payload = {}, { appendUser = true } = {}) {
-    const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? draft.value)
-    const intent = String(typeof payload === 'object' ? payload.intent || selectedIntent.value : selectedIntent.value)
-    const project = activeProjectId.value
-    if (!project || !question || busy.value) return false
-
-    cancel()
-    const token = ++requestToken
-    abortController = new AbortController()
-    busy.value = true
-    error.value = ''
-    selectedIntent.value = intent
-    lastRequest.value = { question, intent, projectId: project }
+    const entry = activeEntry.value
+    const state = entry.state
+    const runtime = entry.runtime
+    const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
+    const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
+    const project = entry.projectId
+    if (!project || !question || state.busy || disposed) return false
+    if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
+    const providerQuestion = questionWithConversation(question, state.messages)
+    const token = ++runtime.token
+    runtime.staleToken += 1
+    const controller = new AbortController()
+    runtime.controller = controller
+    runtime.requestDraftRevision = runtime.draftRevision
+    runtime.canSaveConversation = true
+    runtime.canSaveDraft = true
+    state.busy = true
+    state.status = 'running'
+    state.error = ''
+    state.selectedIntent = intent
+    state.lastRequest = { question, intent, projectId: project }
     if (appendUser) {
-      messages.value.push({ id: messageId('question'), role: 'user', question, intent, createdAt: Date.now() })
-      draft.value = ''
+      state.messages.push({ id: messageId('question'), role: 'user', question, intent, createdAt: Date.now() })
     }
+    // 只清掉实际发送的草稿；等待期间作者可以继续输入下一问。
+    if (state.draft.trim() === question) state.draft = ''
+    persistConversation(entry)
+    persistDraft(entry)
 
     try {
-      const lastAnswerRefs = lastAnswerEvidenceRefs(messages.value)
-      const knowledgeReadModel = knowledgeSeamRequestFor(lastAnswerRefs)
-      if (knowledgeReadModel && abortController) {
-        // 取消信号真实传入接缝 prepare：停止/超时不只作用于 provider，
-        // reader 返回后同样阻止发布。
-        knowledgeReadModel.signal = abortController.signal
-      }
+      // 所有准备输入在第一次 await 前冻结。后台返回只更新启动时的作品。
+      const capturedTarget = cloneQueryInput(valueOf(target))
+      const capturedSource = cloneQueryInput(typeof resolveLiveSource === 'function'
+        ? resolveLiveSource({ phase: 'prepare', target: capturedTarget })
+        : valueOf(resolveLiveSource))
+      const capturedScene = cloneQueryInput(valueOf(sceneProjection))
+      const knowledgeReadModel = knowledgeSeamRequestFor(project, lastAnswerEvidenceRefs(state.messages))
+      if (knowledgeReadModel) knowledgeReadModel.signal = controller.signal
       const prepared = await querySession.prepare({
-        projectId: project,
-        queryIntent: intent,
-        question,
-        target: valueOf(target),
-        liveSource: typeof resolveLiveSource === 'function'
-          ? resolveLiveSource({ phase: 'prepare', target: valueOf(target) })
-          : valueOf(resolveLiveSource),
-        sceneProjection: valueOf(sceneProjection),
-        knowledgeReadModel
+        projectId: project, queryIntent: intent, question,
+        target: capturedTarget, liveSource: capturedSource,
+        sceneProjection: capturedScene, knowledgeReadModel
       })
-      if (knowledgeReadModel) focusedEvidenceSourceRef = ''
       if (prepared?.ok === false && String(prepared.reason ?? '').startsWith('knowledge-read-model-')) {
-        // 接缝 typed 拒绝是终态：不回退旧检索（否则其他资料会绕过停止
-        // 决定进入模型调用），直接把可理解的停止原因交给作者，草稿保留。
         knowledgeSeamTrace.seamRejections = (knowledgeSeamTrace.seamRejections ?? 0) + 1
         knowledgeSeamTrace.lastSeamRefs = []
         throw Object.assign(new Error(knowledgeSeamStopMessage(prepared.reason)), { code: prepared.reason })
-        // focus 已在上方消费（单次语义），typed 拒绝后不会残留限制后续提问。
       }
       if (!prepared?.ok) throw Object.assign(new Error('当前作品资料尚未准备好。'), { code: prepared?.reason })
       if (prepared.session?.knowledgeReadModel?.enabled === true) {
         knowledgeSeamTrace.seamPrepares += 1
         knowledgeSeamTrace.lastSeamRefs = prepared.session.evidenceEnvelope.evidence.map((item) => item.sourceRef)
       }
-      if (token !== requestToken || project !== activeProjectId.value) return false
+      if (token !== runtime.token || disposed) return false
       const session = prepared.session
       let modelOutput
       if (intent !== 'free' && session.evidenceEnvelope.evidence.length === 0) {
         modelOutput = {
-          answer: '当前资料中没有找到足够依据。',
-          claims: [],
-          missingInformation: session.evidenceEnvelope.missingInformation,
-          calculations: []
+          answer: '当前资料中没有找到足够依据。', claims: [],
+          missingInformation: session.evidenceEnvelope.missingInformation, calculations: []
         }
       } else {
         const result = await executeQuery({
-          envelope: session.contextEnvelope,
-          question,
-          taskType: AUTHORING_KNOWLEDGE_TASK_ID,
-          scope: 'writing',
-          mode: 'review',
-          options: { knowledgeIntent: intent },
-          signal: abortController.signal
+          envelope: session.contextEnvelope, question: providerQuestion,
+          taskType: session.taskId, scope: 'writing', mode: 'review',
+          options: { knowledgeIntent: intent }, signal: controller.signal
         })
         modelOutput = result?.result?.knowledgeAnswer
-          || result?.rawAdvice
-          || result?.advice
-          || result?.result?.summary
+          || result?.rawAdvice || result?.advice || result?.result?.summary
       }
-      if (token !== requestToken || project !== activeProjectId.value) return false
+      if (token !== runtime.token || disposed) return false
       let answer = createAuthoringKnowledgeAnswer({ evidenceEnvelope: session.evidenceEnvelope, modelOutput })
       if (!answer) throw Object.assign(new Error('助手返回了无法核查的回答。'), { code: 'knowledge-answer-invalid' })
-      const revisions = await querySession.collectCurrentRevisions(session, {
-        sceneProjection: valueOf(sceneProjection),
-        liveSource: typeof resolveLiveSource === 'function'
-          ? resolveLiveSource({ phase: 'reconcile', session })
-          : valueOf(resolveLiveSource)
-      })
-      if (token !== requestToken || project !== activeProjectId.value) return false
+      const revisions = await querySession.collectCurrentRevisions(session, currentReconcileInput(entry, session))
+      if (token !== runtime.token || disposed) return false
       answer = reconcileAuthoringKnowledgeAnswer(answer, revisions)
-      messages.value.push({
-        id: messageId('answer'),
-        role: 'assistant',
-        answer,
-        session,
-        createdAt: Date.now()
-      })
-      draft.value = ''
-      lastRequest.value = null
+      state.messages.push({ id: messageId('answer'), role: 'assistant', answer, session, createdAt: Date.now() })
+      state.status = 'completed'
+      state.hasUnread = true
+      state.lastRequest = null
       return true
     } catch (caught) {
-      if (token !== requestToken || project !== activeProjectId.value) return false
+      if (token !== runtime.token || disposed) return false
       const message = errorMessage(caught)
+      state.status = message ? 'failed' : 'cancelled'
       if (message) {
-        error.value = message
-        draft.value = question
+        state.error = message
+        state.hasUnread = true
+        if (!state.draft && runtime.draftRevision === runtime.requestDraftRevision) {
+          state.draft = question
+          persistDraft(entry)
+        }
       }
       return false
     } finally {
-      if (token === requestToken) {
-        busy.value = false
-        abortController = null
+      if (token === runtime.token) {
+        state.busy = false
+        runtime.controller = null
+        persistConversation(entry)
       }
     }
   }
 
   async function retry() {
-    if (!lastRequest.value || busy.value) return false
-    draft.value = lastRequest.value.question
-    return ask(lastRequest.value, { appendUser: false })
+    const request = activeEntry.value.state.lastRequest
+    if (!request || busy.value) return false
+    return ask(request, { appendUser: false })
   }
 
   watch(activeProjectId, (next, previous) => {
-    if (previous && next !== previous) clear()
-  })
+    if (previous && next !== previous) {
+      const entry = entries.get(previous)
+      if (entry) persistDraft(entry)
+      focusedEvidenceSources.delete(previous)
+    }
+    getEntry(next)
+    scheduleStalenessRefresh()
+  }, { immediate: true })
   if (revisionSignal != null) {
     watch(() => valueOf(revisionSignal), scheduleStalenessRefresh, { deep: true })
   }
+  function flushDrafts() {
+    for (const entry of entries.values()) persistDraft(entry)
+  }
+  // 浏览器刷新不会经过 Vue 卸载；在离开文档时冲刷尚未 debounce 落盘的输入。
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', flushDrafts)
   onBeforeUnmount(() => {
-    if (staleRefreshTimer) clearTimeout(staleRefreshTimer)
-    staleRefreshTimer = null
-    cancel()
+    disposed = true
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushDrafts)
+    for (const entry of entries.values()) {
+      if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
+      entry.runtime.staleTimer = null
+      entry.runtime.staleToken += 1
+      cancelEntry(entry, { leaving: true })
+      persistDraft(entry)
+      focusedEvidenceSources.delete(entry.projectId)
+    }
   })
 
   return Object.freeze({
-    messages,
-    draft,
-    selectedIntent,
-    busy,
-    error,
-    lastRequest,
-    canSubmit,
-    ask,
-    retry,
-    cancel,
-    clear,
-    selectIntent,
-    refreshStaleness
+    messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
+    persistenceError, hasUnread, status,
+    ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
   })
 }

@@ -15,6 +15,28 @@ const failureMessage = (reason) => ({
   'live-source-schema-revision-mismatch': '活动窗口正在更新，请稍后重试。'
 })[reason] || '无法建立当前作品的查找索引。'
 
+// 只把活动文稿中的单章替换放进该编辑器的撤销栈。全书替换涉及多个
+// 文稿，仍由各章保护版本恢复，不能让一次 Ctrl+Z 悄悄只撤销其中一章。
+export function applyAuthoringSearchEditorTransaction({ plan, activePane, mainChapterId, mainEditor, dualPane }) {
+  const history = { main: false, dual: false }
+  if (plan?.chapters?.length !== 1) return history
+  const chapter = plan.chapters[0]
+  const patches = chapter.patches.map((patch) => ({
+    nodeId: patch.nodeId,
+    range: { startOffset: patch.start, endOffset: patch.end },
+    replacement: patch.replacement
+  }))
+  if (activePane === 'dual') {
+    const source = dualPane?.getActiveSource?.()
+    if (source?.kind === 'chapter' && String(source.id) === String(chapter.chapterId)) {
+      history.dual = dualPane.replaceReviewRanges?.(patches) === true
+    }
+  } else if (String(mainChapterId) === String(chapter.chapterId)) {
+    history.main = mainEditor?.replaceNodeRanges?.(patches, { origin: 'writing-agent' }) === true
+  }
+  return history
+}
+
 // Owns the complete search/replace session. The page supplies editor and
 // repository adapters; query state, source identity, navigation receipts and
 // the replace transaction no longer live beside the Authoring template.
@@ -265,7 +287,7 @@ export function useAuthoringSearchWorkflow(host) {
       hasNavigated.value = false
       activeFindingId.value = ''
       run()
-      notice.value = `已替换 ${applied.receipt.chapterCount} 章 ${applied.receipt.matchCount} 处；每章均保留替换前版本。`
+      notice.value = `已替换 ${applied.receipt.chapterCount} 章 ${applied.receipt.matchCount} 处；替换前版本保存在「批注 → 版本」。`
       return true
     } finally {
       replaceBusy.value = false

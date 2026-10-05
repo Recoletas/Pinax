@@ -15,7 +15,7 @@
             :class="['section-tab workspace-nav-item', { active: activeSectionKey === section.key }]"
             :aria-label="tr(section.label)"
             :aria-current="activeSectionKey === section.key ? 'page' : undefined"
-            @click="activeSectionKey = section.key"
+            @click="selectSection(section.key)"
           >
             <WorkbenchIcon class="workspace-nav-icon" :name="sectionIcons[section.key] || 'book'" :size="16" />
             <span>{{ tr(section.label) }}</span>
@@ -41,129 +41,133 @@
 
       </aside>
 
-      <div class="section-canvas">
-        <header class="section-content-heading">
-          <div class="section-heading-copy"><h1>{{ tr(activeSection.label) }}</h1><p>{{ tr(activeSection.description) }}</p></div>
-        <div class="section-actions">
-          <button
-            type="button"
-            class="section-ai-btn control-primary"
-            :class="`is-${sectionGenState}`"
-            :aria-label="tr('为「{section}」批量生成 AI 草稿', { section: tr(activeSection.label) })"
-            @click="onSectionAiClick"
-          >
-            <WorkbenchIcon name="sparkles" :size="15" />
-            <span class="ai-btn-text">{{ sectionAiButtonText }}</span>
-          </button>
-          <button
-            type="button"
-            class="brief-toggle-btn control-secondary"
-            :aria-pressed="showBriefBar"
-            :aria-label="showBriefBar ? tr('收起生成要求') : tr('补充生成要求')"
-            @click="showBriefBar = !showBriefBar"
-          >
-            <WorkbenchIcon name="pencil" :size="14" />
-            <span>{{ showBriefBar ? tr('收起要求') : tr('补充要求') }}</span>
-          </button>
-        </div>
-          <span v-if="readyDraftCount > 0" class="draft-summary">{{ tr('{count} 项草稿待审', { count: readyDraftCount }) }}</span>
-        </header>
-        <div v-if="showBriefBar" class="brief-bar-wrapper">
-          <GenerationBriefBar
-            :model-value="sectionBrief"
-            :section-key="activeSectionKey"
-            @update:model-value="onBriefChange"
-          />
-        </div>
-
-        <GenerationStatus
-          v-if="sectionGenState !== 'idle'"
-          :state="sectionGenState"
-          :progress="sectionGenProgress"
-          :phase="tr(sectionGenPhase)"
-          :error="displayFeedback(sectionGenError)"
-          :retry-label="sectionRetryLabel"
-          @retry="retrySectionGen"
-        />
-        <div
-          v-if="['partial', 'error', 'stale'].includes(sectionGenState) && sectionGenFailedFields.length"
-          class="generation-failed-fields"
-          role="status"
-        >
-          {{ tr('未通过校验：{fields}。已生成内容仍保留在草稿中。', { fields: failedFieldLabels }) }}
-        </div>
-
-        <div v-if="feedback" class="feedback-line">{{ displayFeedback(feedback) }}</div>
-
-        <nav v-if="readyDraftEntries.length" class="draft-queue" :aria-label="tr('待审 AI 草稿')">
-          <div class="draft-queue__lead">
-            <span>{{ tr('待审草稿') }}</span>
-            <strong>{{ readyDraftCount }}</strong>
-          </div>
-          <div class="draft-queue__items" role="list">
+      <div class="section-main">
+        <slot name="sources" />
+        <div class="section-canvas">
+          <header class="section-content-heading">
+            <div class="section-heading-copy"><h1>{{ tr(activeSection.label) }}</h1><p>{{ tr(activeSection.description) }}</p></div>
+          <div class="section-actions">
             <button
-              v-for="draft in readyDraftEntries"
-              :key="draft.fieldKey"
               type="button"
-              class="draft-queue__item"
-              :class="{ active: focusedDraftKey === draft.fieldKey }"
-              :aria-current="focusedDraftKey === draft.fieldKey ? 'true' : undefined"
-              @click="focusDraft(draft.fieldKey)"
+              class="section-ai-btn control-primary"
+              :class="`is-${sectionGenState}`"
+              :aria-label="tr('为「{section}」批量生成 AI 草稿', { section: tr(activeSection.label) })"
+              @click="onSectionAiClick"
             >
-              <span>{{ tr(getSettingField(activeSectionKey, draft.fieldKey)?.label || draft.fieldLabel) }}</span>
-              <small>{{ draft.snippet }}</small>
+              <WorkbenchIcon name="sparkles" :size="15" />
+              <span class="ai-btn-text">{{ sectionAiButtonText }}</span>
+            </button>
+            <button
+              type="button"
+              class="brief-toggle-btn control-secondary"
+              :aria-pressed="showBriefBar"
+              :aria-label="showBriefBar ? tr('收起生成要求') : tr('补充生成要求')"
+              @click="showBriefBar = !showBriefBar"
+            >
+              <WorkbenchIcon name="pencil" :size="14" />
+              <span>{{ showBriefBar ? tr('收起要求') : tr('补充要求') }}</span>
             </button>
           </div>
-        </nav>
-
-        <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
-          <div class="fields-grid">
-            <SettingFieldCard
-              v-for="field in activeSection.fields"
-              :ref="(el) => registerFieldRef(field, el)"
-              :key="field.key"
-              :worldbook-id="props.worldbook.id"
-              :section="activeSection"
-              :field="field"
-              :rows="2"
-              v-model="form[activeSectionKey][field.key]"
-              :working="workingKey === `${activeSectionKey}.${field.key}`"
-              :has-draft="hasDraftForField(field.key)"
-              @generate="generateField"
-              @saved="onFieldSaved"
+            <span v-if="readyDraftCount > 0" class="draft-summary">{{ tr('{count} 项草稿待审', { count: readyDraftCount }) }}</span>
+          </header>
+          <div v-if="showBriefBar" class="brief-bar-wrapper">
+            <GenerationBriefBar
+              :model-value="sectionBrief"
+              :section-key="activeSectionKey"
+              @update:model-value="onBriefChange"
             />
           </div>
 
-          <PlaceCatalog
-            v-if="activeSectionKey === 'world'"
-            :worldbook="props.worldbook"
-            @saved="onFieldSaved"
+          <GenerationStatus
+            v-if="sectionGenState !== 'idle'"
+            :state="sectionGenState"
+            :progress="sectionGenProgress"
+            :phase="tr(sectionGenPhase)"
+            :error="displayFeedback(sectionGenError)"
+            :retry-label="sectionRetryLabel"
+            @retry="retrySectionGen"
           />
+          <div
+            v-if="['partial', 'error', 'stale'].includes(sectionGenState) && sectionGenFailedFields.length"
+            class="generation-failed-fields"
+            role="status"
+          >
+            {{ tr('未通过校验：{fields}。已生成内容仍保留在草稿中。', { fields: failedFieldLabels }) }}
+          </div>
 
-          <SettingDraftReview
-            v-if="focusedDraft"
-            :draft="focusedDraft"
-            :current-field-value="focusedDraftCurrentValue"
-            :status="focusedDraftStatus"
-            :revision-instruction="focusedDraft.revisionInstruction || ''"
-            :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
-            :revision-error="displayFeedback(focusedRevisionError)"
-            :revision-history="focusedDraft.revisionHistory || []"
-            :revision-index="focusedDraft.revisionIndex || 0"
-            :source-candidate-error="displayFeedback(focusedDraft.sourceCandidateError || '')"
-            :can-import-to-experience="canImportFocusedDraftToExperience"
-            @close="closeFocusedDraft"
-            @discard="discardFocusedDraft"
-            @update:content="updateFocusedDraftContent"
-            @update:revision-instruction="updateFocusedDraftInstruction"
-            @save-field="saveDraftToField"
-            @copy="copyDraft"
-            @retry="retryFocusedDraft"
-            @revise="reviseFocusedDraft"
-            @previous-revision="previousRevision"
-            @next-revision="nextRevision"
-            @import-to-experience="importFocusedDraftToExperience"
-          />
+          <div v-if="feedback" class="feedback-line">{{ displayFeedback(feedback) }}</div>
+
+          <nav v-if="readyDraftEntries.length" class="draft-queue" :aria-label="tr('待审 AI 草稿')">
+            <div class="draft-queue__lead">
+              <span>{{ tr('待审草稿') }}</span>
+              <strong>{{ readyDraftCount }}</strong>
+            </div>
+            <div class="draft-queue__items" role="list">
+              <button
+                v-for="draft in readyDraftEntries"
+                :key="draft.fieldKey"
+                type="button"
+                class="draft-queue__item"
+                :class="{ active: focusedDraftKey === draft.fieldKey }"
+                :aria-current="focusedDraftKey === draft.fieldKey ? 'true' : undefined"
+                @click="focusDraft(draft.fieldKey)"
+              >
+                <span>{{ tr(getSettingField(activeSectionKey, draft.fieldKey)?.label || draft.fieldLabel) }}</span>
+                <small>{{ draft.snippet }}</small>
+              </button>
+            </div>
+          </nav>
+
+          <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
+            <div class="fields-grid">
+              <SettingFieldCard
+                v-for="field in activeSection.fields"
+                :ref="(el) => registerFieldRef(field, el)"
+                :key="JSON.stringify([props.worldbook.id, activeSectionKey, field.key])"
+                :worldbook-id="props.worldbook.id"
+                :section="activeSection"
+                :field="field"
+                :rows="2"
+                v-model="form[activeSectionKey][field.key]"
+                :working="workingKey === `${activeSectionKey}.${field.key}`"
+                :has-draft="hasDraftForField(field.key)"
+                @generate="generateField"
+                @saved="onFieldSaved"
+              />
+            </div>
+
+            <PlaceCatalog
+              ref="placeCatalogRef"
+              v-if="activeSectionKey === 'world'"
+              :worldbook="props.worldbook"
+              @saved="onFieldSaved"
+            />
+
+            <SettingDraftReview
+              v-if="focusedDraft"
+              :draft="focusedDraft"
+              :current-field-value="focusedDraftCurrentValue"
+              :status="focusedDraftStatus"
+              :revision-instruction="focusedDraft.revisionInstruction || ''"
+              :revision-working="revisionState === 'pending' && revisionDraftKey === focusedDraftKey"
+              :revision-error="displayFeedback(focusedRevisionError)"
+              :revision-history="focusedDraft.revisionHistory || []"
+              :revision-index="focusedDraft.revisionIndex || 0"
+              :source-candidate-error="displayFeedback(focusedDraft.sourceCandidateError || '')"
+              :can-import-to-experience="canImportFocusedDraftToExperience"
+              @close="closeFocusedDraft"
+              @discard="discardFocusedDraft"
+              @update:content="updateFocusedDraftContent"
+              @update:revision-instruction="updateFocusedDraftInstruction"
+              @save-field="saveDraftToField"
+              @copy="copyDraft"
+              @retry="retryFocusedDraft"
+              @revise="reviseFocusedDraft"
+              @previous-revision="previousRevision"
+              @next-revision="nextRevision"
+              @import-to-experience="importFocusedDraftToExperience"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -171,7 +175,8 @@
 </template>
 
 <script setup>
-import { computed, provide, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { computed, provide, reactive, ref, watch, nextTick, onBeforeUnmount, onMounted, unref } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { tr, uiLocale } from '../../i18n/index.js'
 import { useWorldStore } from '../../stores/worldStore'
 import {
@@ -223,6 +228,14 @@ function requireDispatchActions(result, fallbackMessage) {
 
 const sections = SETTING_SECTIONS
 const activeSectionKey = ref('world')
+const placeCatalogRef = ref(null)
+async function selectSection(key) {
+  if (key === activeSectionKey.value) return true
+  if (placeCatalogRef.value?.confirmNavigation?.() === false) return false
+  if (!(await flushAll())) return false
+  activeSectionKey.value = key
+  return true
+}
 const workingKey = ref('')
 const feedback = ref('')
 const form = reactive(normalizeStructuredSettings(props.worldbook?.structuredSettings))
@@ -242,7 +255,7 @@ const directoryMatches = computed(() => {
     .map(field => ({ section, field })))
 })
 async function openDirectoryMatch(item) {
-  activeSectionKey.value = item.section.key
+  if (!(await selectSection(item.section.key))) return
   await nextTick()
   jumpToField(item.field)
 }
@@ -1178,7 +1191,21 @@ async function flushAll() {
   }
   await Promise.all(tasks)
   await nextTick()
+  const pending = [...fieldRefs.values()].some(el => ['dirty', 'saving', 'error'].includes(unref(el?.state)))
+  if (pending) feedback.value = '设定尚未保存，请等保存完成或重试后再切换。'
+  else if (feedback.value === '设定尚未保存，请等保存完成或重试后再切换。') feedback.value = ''
+  return !pending
 }
+
+function guardUnsavedFields(event) {
+  if (![...fieldRefs.values()].some(el => ['dirty', 'saving', 'error'].includes(unref(el?.state)))) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', guardUnsavedFields))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', guardUnsavedFields))
+onBeforeRouteLeave(flushAll)
+onBeforeRouteUpdate(flushAll)
 
 function undoCurrentField() {
   const el = currentFieldElement()
@@ -1207,729 +1234,132 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .structured-settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   min-height: 0;
-  padding: 20px 0 0;
-  background: transparent;
-}
-
-.draft-queue {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 8px 0 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-}
-
-.draft-queue__lead {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 5px 8px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-}
-
-.draft-queue__lead strong {
-  color: var(--accent);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.draft-queue__items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  min-width: 0;
-}
-
-.draft-queue__item {
-  min-width: 0;
-  max-width: 240px;
-  padding: 3px 0;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.draft-queue__item span,
-.draft-queue__item small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.draft-queue__item span {
-  color: inherit;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.draft-queue__item small {
-  max-width: 100%;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.draft-queue__item:hover,
-.draft-queue__item.active {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-}
-
-@media (max-width: 640px) {
-  .draft-queue {
-    display: block;
-  }
-
-  .draft-queue__lead {
-    width: fit-content;
-    padding: 0 0 5px;
-    border-right: 0;
-  }
-
-  .draft-queue__item {
-    max-width: min(240px, 72vw);
-  }
-}
-
-.panel-lead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 0 2px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-}
-
-.panel-kicker {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--text-muted) 82%, var(--accent));
-}
-
-.panel-lead h2 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.15;
+  flex: 1 0 auto;
+  padding: 0;
   color: var(--text-primary);
+  font-family: var(--font-sans);
 }
-
-.panel-lead p {
-  max-width: 620px;
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.panel-summary {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.panel-summary > span {
-  padding: 3px 0 3px 8px;
-  border-left: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  white-space: nowrap;
-}
-
-.panel-summary .draft-summary {
-  border-left-color: color-mix(in srgb, var(--accent) 62%, var(--border));
-  color: var(--success);
-}
-
-.section-tabs {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  align-items: center;
-  padding: 0 2px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  background: transparent;
-}
-
-.section-tab {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 0;
-  padding: 7px 10px 8px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-}
-
-.section-tab:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  color: var(--text-primary);
-}
-
-.section-tab.active {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-  background: transparent;
-}
-
-.section-ai-btn {
-  margin-left: auto;
-  border: 0;
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 66%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  color: var(--accent);
-  border-radius: 2px;
-  padding: 7px 11px 8px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.section-ai-btn:hover {
-  border-bottom-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
-}
-
-.section-ai-btn.is-pending {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-primary));
-  cursor: progress;
-}
-
-.section-ai-btn.is-error {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.section-ai-btn.is-partial {
-  border-color: var(--warning);
-  color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 8%, transparent);
-}
-
-.section-ai-btn.is-stale {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-
-.section-ai-btn.is-aborted {
-  border-color: var(--text-muted);
-  color: var(--text-muted);
-}
-
-.section-ai-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.brief-toggle-btn {
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 0;
-  padding: 7px 8px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.brief-toggle-btn:hover {
-  border-bottom-color: color-mix(in srgb, var(--accent) 52%, transparent);
-  color: var(--accent);
-}
-
-.brief-toggle-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.brief-toggle-btn[aria-pressed="true"] {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-}
-
-.brief-bar-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.brief-bar-toggle {
-  align-self: flex-end;
-  font-size: 11px;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-}
-
-.brief-bar-toggle:hover {
-  color: var(--accent);
-}
-
-.feedback-line {
-  font-size: 12px;
-  color: var(--text-secondary);
-  padding: 7px 10px;
-  border: 1px solid color-mix(in srgb, var(--success) 24%, var(--border));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--success) 7%, transparent);
-}
-
-.generation-failed-fields {
-  padding: 7px 10px;
-  border-left: 2px solid color-mix(in srgb, var(--danger) 68%, var(--border));
-  background: color-mix(in srgb, var(--danger) 6%, transparent);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.fields-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: 12px;
-}
-
-.settings-editor-layout {
-  display: contents;
-}
-
-@media (max-width: 720px) {
-  .fields-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Theme 2 is a continuous setting manuscript, not a dashboard of cards. */
-.structured-settings-panel.is-continuous {
-  gap: 16px;
-  padding: 20px 0 0;
-  background: transparent;
-}
-
-.structured-settings-panel.is-continuous .section-tabs {
-  padding: 0 0 10px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 17%, var(--border));
-  border-radius: 0;
-  background: transparent;
-}
-
-.structured-settings-panel.is-continuous .section-tab {
-  border-radius: 2px;
-  padding: 9px 13px;
-  font-size: 14px;
-}
-
-.structured-settings-panel.is-continuous .section-ai-btn,
-.structured-settings-panel.is-continuous .brief-toggle-btn {
-  min-height: 36px;
-  padding-inline: 14px;
-  font-size: 14px;
-}
-
-.structured-settings-panel.is-continuous .panel-lead h2 {
-  font-size: 24px;
-}
-
-.structured-settings-panel.is-continuous .panel-kicker {
-  font-size: 12px;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-  min-width: 0;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout.has-review {
-  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 0.8fr);
-  grid-template-areas:
-    "fields review"
-    "places review";
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout.has-review > .fields-grid {
-  grid-area: fields;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout.has-review > :deep(.place-catalog) {
-  grid-area: places;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout.has-review > :deep(.setting-draft-review) {
-  grid-area: review;
-}
-
-.structured-settings-panel.is-continuous .fields-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 18px;
-  width: 100%;
-  margin: 0;
-  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 16%, var(--border));
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout.has-review .fields-grid {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) {
-  padding: 13px 6px 14px;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink) 14%, var(--border));
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) {
-  border-bottom-color: color-mix(in srgb, var(--archive-olive) 50%, var(--border));
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-  min-height: 132px;
-  border-inline: 0;
-  border-radius: 0;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 30px,
-    color-mix(in srgb, var(--archive-ink-soft) 9%, transparent) 30px 31px
-  );
-  font-size: 17px;
-  line-height: 34px;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) {
-  font-size: 17px;
-  font-weight: 720;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-type-pill) {
-  display: none;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn),
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint),
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) {
-  font-size: 14px;
-}
-
-.structured-settings-panel.is-continuous .fields-grid :deep(input) {
-  font-size: 16px;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
-  position: sticky;
-  top: 12px;
-  max-height: calc(var(--app-viewport-height, 100vh) - 230px);
-  overflow: auto;
-  border-radius: 0;
-  border: 0;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 48%, var(--border));
-  padding: 2px 0 12px 18px;
-  background: transparent;
-  box-shadow: none;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .draft-head h3) {
-  font-size: 20px;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .text-area) {
-  min-height: 260px;
-  font-size: 17px;
-  line-height: 1.7;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review summary) {
-  font-size: 14px;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .draft-kicker) {
-  font-size: 13px;
-  letter-spacing: 0;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .card-actions) {
-  justify-content: flex-end;
-  padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--archive-ink) 12%, var(--border));
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn),
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn) {
-  min-height: 38px;
-  padding: 0 15px;
-  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  border-radius: 6px;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 680;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn) {
-  border-color: color-mix(in srgb, var(--accent) 62%, var(--border));
-  background: color-mix(in srgb, var(--accent) 12%, var(--archive-paper-soft));
-  color: color-mix(in srgb, var(--accent) 86%, var(--archive-ink));
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn) {
-  background: color-mix(in srgb, var(--archive-paper-soft) 92%, var(--bg-secondary));
-  color: var(--text-secondary);
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn:hover),
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn:hover) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--archive-paper-soft));
-}
-
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .primary-btn:focus-visible),
-.structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review .ghost-btn:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
+.section-workbench { display: grid; grid-template-columns: var(--workspace-sidebar-width, 256px) minmax(0, 1fr); align-items: stretch; min-height: 100%; }
+.section-rail { position: sticky; top: 0; align-self: start; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; height: calc(var(--app-viewport-height, 100vh) - 100px); min-height: 0; padding: 24px 12px; overflow-y: auto; background: var(--surface-workbench-muted); }
+.section-index-label { padding-inline: 12px; color: var(--text-secondary); font-size: 12px; }
+.setting-directory-search { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 40px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench); color: var(--text-secondary); }
+.setting-directory-search:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.setting-directory-search input { width: 100%; min-width: 0; padding: 8px 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 14px/1.5 var(--font-sans); }
+.section-tabs { display: grid; gap: 4px; }
+.section-tab { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text-secondary); text-align: left; font: 500 15px/1.5 var(--font-sans); cursor: pointer; }
+.section-tab:hover { background: var(--nav-hover); color: var(--text-primary); }
+.section-tab.active { background: var(--nav-selected); color: var(--text-primary); }
+.section-tab > span { min-width: 0; overflow-wrap: anywhere; }
+.section-tab small { flex-shrink: 0; margin-left: auto; color: var(--text-secondary); font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.section-tab i { display: none; }
+.field-directory { display: grid; gap: 2px; padding-top: 8px; }
+.field-directory-label { padding: 0 12px 8px; color: var(--text-secondary); font-size: 12px; }
+.field-directory button { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 7px 12px; border: 0; border-radius: 12px; background: transparent; color: var(--text-secondary); text-align: left; font: 14px/1.5 var(--font-sans); cursor: pointer; }
+.field-directory button > span { min-width: 0; overflow-wrap: anywhere; }
+.field-directory button:hover { color: var(--text-primary); background: var(--nav-hover); }
+.field-presence { flex: 0 0 5px; width: 5px; height: 5px; border: 1px solid var(--text-muted); border-radius: 50%; }
+.field-presence.filled { background: var(--text-secondary); border-color: var(--text-secondary); }
+.field-search-results small { display: block; margin-top: 3px; color: var(--text-secondary); font-size: 12px; }
+.directory-empty { padding: 0 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.section-main { min-width: 0; min-height: calc(var(--app-viewport-height, 100vh) - 100px); border-radius: 20px 20px 0 0; background: var(--surface-workbench); }
+.section-canvas { min-width: 0; min-height: 0; box-sizing: border-box; padding: 36px clamp(24px, 3.5vw, 56px) 56px; background: var(--surface-workbench); }
+.section-content-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; max-width: 880px; margin: 0 auto 32px; }
+.section-heading-copy { flex: 1 1 200px; min-width: 0; }
+.section-content-heading h1 { margin: 0; color: var(--text-primary); font: 500 24px/1.4 var(--font-sans); letter-spacing: -.02em; }
+.section-content-heading p { max-width: 560px; margin: 8px 0 0; color: var(--text-secondary); font: 14px/1.7 var(--font-sans); }
+.section-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.section-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; margin: 0; padding: 7px 14px; border: 0; border-radius: 12px; background: transparent; color: var(--text-secondary); font: 500 14px/1.5 var(--font-sans); cursor: pointer; white-space: nowrap; }
+.section-actions .section-ai-btn { background: var(--accent); color: var(--accent-text); border-radius: 20px; }
+.section-actions .section-ai-btn:hover { background: var(--accent-hover); }
+.section-actions .brief-toggle-btn:hover { background: var(--nav-hover); color: var(--text-primary); }
+.section-actions .brief-toggle-btn[aria-pressed='true'] { color: var(--text-primary); background: var(--nav-selected); }
+.section-actions .section-ai-btn.is-pending { cursor: progress; }
+.section-actions .section-ai-btn:is(.is-error, .is-partial, .is-stale, .is-aborted) { background: var(--surface-workbench-muted); color: var(--text-primary); }
+.draft-summary { width: 100%; color: var(--success); font-size: 12px; }
+.brief-bar-wrapper, .feedback-line, .generation-failed-fields { max-width: 880px; margin: 0 auto 20px; }
+.feedback-line, .generation-failed-fields { padding: 12px 16px; border-radius: 12px; color: var(--text-secondary); background: var(--surface-workbench-muted); font: 13px/1.7 var(--font-sans); }
+.generation-failed-fields { color: var(--danger); }
+.draft-queue { display: flex; align-items: flex-start; gap: 16px; max-width: 880px; margin: 0 auto 24px; padding: 12px 16px; border-radius: 12px; background: var(--surface-workbench-muted); }
+.draft-queue__lead { flex-shrink: 0; display: flex; gap: 6px; align-items: baseline; padding-top: 4px; color: var(--text-secondary); font-size: 12px; }
+.draft-queue__lead strong { color: var(--text-primary); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.draft-queue__items { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.draft-queue__item { min-width: 0; max-width: 240px; min-height: 36px; padding: 4px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
+.draft-queue__item:hover, .draft-queue__item.active { color: var(--text-primary); background: var(--nav-selected); }
+.draft-queue__item span, .draft-queue__item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-queue__item span { font-size: 13px; font-weight: 500; }
+.draft-queue__item small { margin-top: 3px; color: var(--text-secondary); font-size: 12px; }
+.settings-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 32px; min-width: 0; max-width: 880px; margin-inline: auto; }
+.fields-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; min-width: 0; }
+.fields-grid :deep(.setting-field-card) { min-width: 0; gap: 8px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; scroll-margin-top: 24px; }
+.fields-grid :deep(.field-head) { min-height: 36px; align-items: center; gap: 12px; }
+.fields-grid :deep(.field-label) { font: 500 15px/1.5 var(--font-sans); }
+.fields-grid :deep(.field-type-pill) { display: none; }
+.fields-grid :deep(textarea) { min-height: 76px; max-height: none; padding: 12px 14px; border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input, var(--surface-workbench-muted)); color: var(--text-primary); font: 15px/1.8 var(--font-sans); resize: none; }
+.fields-grid :deep(textarea::placeholder) { color: var(--text-secondary); opacity: .8; }
+.fields-grid :deep(textarea:focus) { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent); }
+.fields-grid :deep(.action-btn) { min-height: 36px; padding: 6px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--text-secondary); font: 500 14px/1.5 var(--font-sans); }
+.fields-grid :deep(.action-btn:hover) { background: var(--nav-hover); color: var(--text-primary); }
+.fields-grid :deep(.field-footer) { display: flex; align-items: center; gap: 12px; min-height: 20px; }
+.fields-grid :deep(.field-hint) { margin: 0 0 0 auto; color: var(--text-secondary); font: 12px/1.5 var(--font-sans); font-variant-numeric: tabular-nums; }
+.fields-grid :deep(.field-status) { margin: 0; padding: 0; border: 0; background: transparent; font: 12px/1.5 var(--font-sans); }
+.fields-grid :deep(.draft-ready-dot) { position: static; width: 6px; height: 6px; box-shadow: none; }
+.fields-grid :deep(.tag-input), .fields-grid :deep(.chip-input) { border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input, var(--surface-workbench-muted)); box-shadow: none; }
+.fields-grid :deep(.tag-input:focus-within), .fields-grid :deep(.chip-input:focus-within) { border-color: var(--accent); }
+.fields-grid :deep(.rule-list), .fields-grid :deep(.forbidden-list) { padding: 12px 14px; gap: 8px; border: 0; border-radius: 12px; background: var(--surface-workbench-input, var(--surface-workbench-muted)); box-shadow: none; }
+.fields-grid :deep(.rule-item), .fields-grid :deep(.forbidden-item) { padding: 10px 0; gap: 12px; border: 0; border-radius: 0; background: transparent; font: 15px/1.8 var(--font-sans); }
+.fields-grid :deep(.rule-text), .fields-grid :deep(.forbidden-text) { color: var(--text-primary); font-weight: 400; }
+.fields-grid :deep(.forbidden-icon) { background: transparent; border: 0; color: var(--danger); }
+.fields-grid :deep(.rule-index) { font-size: 12px; font-weight: 500; }
+.fields-grid :deep(.rule-input-row), .fields-grid :deep(.forbidden-input-row) { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface-workbench); }
+.fields-grid :deep(.rule-input-row:focus-within), .fields-grid :deep(.forbidden-input-row:focus-within) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fields-grid :deep(.chip-pending), .fields-grid :deep(.tag-pending), .fields-grid :deep(.rule-pending), .fields-grid :deep(.forbidden-pending) { font: 15px/1.6 var(--font-sans); }
+.fields-grid :deep(.tag), .fields-grid :deep(.chip) { border-radius: 8px; font-size: 13px; border-color: var(--hairline-soft); background: var(--nav-selected); color: var(--text-primary); }
+.fields-grid :deep(.chip-remove), .fields-grid :deep(.tag-remove), .fields-grid :deep(.rule-remove), .fields-grid :deep(.forbidden-remove) { min-width: 32px; min-height: 32px; }
+.settings-editor-layout.has-review { max-width: none; grid-template-columns: minmax(0, 1.5fr) minmax(360px, .8fr); grid-template-areas: 'fields review' 'places review'; }
+.settings-editor-layout.has-review > .fields-grid { grid-area: fields; }
+.settings-editor-layout.has-review > :deep(.place-catalog) { grid-area: places; }
+.settings-editor-layout.has-review > :deep(.setting-draft-review) { grid-area: review; position: sticky; top: 12px; max-height: calc(var(--app-viewport-height, 100vh) - 160px); overflow: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--hairline-soft); border-radius: 16px; background: var(--surface-workbench); box-shadow: var(--shadow-workbench); }
+.settings-editor-layout > :deep(.setting-draft-review .draft-head h3) { font: 500 20px/1.4 var(--font-sans); }
+.settings-editor-layout > :deep(.setting-draft-review .text-area) { min-height: 260px; padding: 12px; border-radius: 12px; background: var(--surface-workbench-input, var(--surface-workbench-muted)); font: 15px/1.8 var(--font-sans); }
+.settings-editor-layout > :deep(.setting-draft-review summary) { font-size: 14px; }
+.settings-editor-layout > :deep(.setting-draft-review .draft-kicker) { font: 12px/1.5 var(--font-sans); letter-spacing: 0; }
+.settings-editor-layout > :deep(.setting-draft-review .primary-btn), .settings-editor-layout > :deep(.setting-draft-review .ghost-btn) { min-height: 36px; padding: 6px 12px; border-radius: 12px; font: 500 14px/1.5 var(--font-sans); }
+.structured-settings-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:global(html.settings-review-sheet-open), :global(body.settings-review-sheet-open) { overflow: hidden; }
 @media (max-width: 1100px) {
-  .structured-settings-panel.is-continuous .settings-editor-layout.has-review,
-  .structured-settings-panel.is-continuous .fields-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .structured-settings-panel.is-continuous .settings-editor-layout.has-review {
-    grid-template-areas:
-      "review"
-      "fields"
-      "places";
-  }
-
-  .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
-    position: fixed;
-    z-index: 30;
-    top: calc(54px + env(safe-area-inset-top, 0px));
-    right: 14px;
-    bottom: 14px;
-    width: min(430px, calc(100vw - 28px));
-    box-sizing: border-box;
-    max-height: none;
-    overflow-y: auto;
-    padding: 16px;
-    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
-    border-left: 2px solid color-mix(in srgb, var(--accent) 60%, var(--border));
-    border-radius: 12px;
-    background: var(--bg-primary);
-    box-shadow: 0 18px 46px color-mix(in srgb, #000 18%, transparent);
-  }
+  .settings-editor-layout.has-review { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'review' 'fields' 'places'; }
+  .settings-editor-layout.has-review > :deep(.setting-draft-review) { position: fixed; z-index: 30; top: calc(54px + env(safe-area-inset-top, 0px)); right: 14px; bottom: 14px; width: min(430px, calc(100vw - 28px)); max-height: none; }
+  .section-canvas { padding: 28px 24px 40px; }
 }
-
-@media (max-width: 759px) {
-  .structured-settings-panel.is-continuous .settings-editor-layout > :deep(.setting-draft-review) {
-    top: calc(48px + env(safe-area-inset-top, 0px));
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: auto;
-    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-      calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-}
-
-:global(html.settings-review-sheet-open),
-:global(body.settings-review-sheet-open) {
-  overflow: hidden;
-}
-
-@media (max-width: 720px) {
-  .structured-settings-panel.is-continuous {
-    padding: 16px 0 0;
-  }
-
-  .structured-settings-panel.is-continuous .panel-lead h2 {
-    font-size: 22px;
-  }
-
-  .panel-lead {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .panel-summary {
-    justify-content: flex-start;
-  }
-
-  .section-tabs {
-    gap: 3px;
-  }
-
-  .structured-settings-panel.is-continuous .fields-grid :deep(textarea) {
-    min-height: 124px;
-  }
-}
-
-@media (max-width: 720px) {
-  .structured-settings-panel {
-    padding: 12px;
-    border-radius: 12px;
-  }
-
-  .section-ai-btn {
-    margin-left: 0;
-  }
-
-  .section-ai-btn,
-  .brief-toggle-btn {
-    flex: 1 1 auto;
-  }
-}
-
-/* Continuous document: headings own hierarchy; fields never become scroll boxes. */
-.structured-settings-panel.is-continuous { padding: 0; }
-.structured-settings-panel.is-continuous .section-workbench { display: grid; grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr); gap: 0; align-items: stretch; }
-.structured-settings-panel.is-continuous .section-rail { position: sticky; top: 0; align-self: start; min-height: 520px; display: flex; flex-direction: column; gap: 24px; padding: 28px 18px; border-right: 1px solid var(--archive-paper-strong); background: var(--archive-paper); }
-.section-index-label { font-size: 13px; color: var(--archive-ink-soft); padding: 0 14px; }
-.structured-settings-panel.is-continuous .section-tabs { display: grid; gap: 6px; padding: 0; border: 0; }
-.structured-settings-panel.is-continuous .section-tab { width: 100%; min-height: 46px; padding: 10px 14px; border: 0; border-radius: 6px; background: transparent; color: var(--archive-ink-soft); text-align: left; font-size: 16px; font-weight: 500; }
-.structured-settings-panel.is-continuous .section-tab.active { background: color-mix(in srgb, var(--archive-olive) 10%, transparent); color: var(--archive-olive); }
-.structured-settings-panel.is-continuous .section-tab i, .structured-settings-panel.is-continuous .section-tab::before, .structured-settings-panel.is-continuous .section-tab::after { display: none; }
-.structured-settings-panel.is-continuous .section-actions { display: grid; gap: 10px; border-top: 1px solid var(--archive-paper-strong); padding-top: 22px; }
-.structured-settings-panel.is-continuous .section-actions button { min-height: 42px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); color: var(--archive-ink); font-size: 14px; justify-content: center; padding: 8px 12px; }
-.structured-settings-panel.is-continuous .section-actions .section-ai-btn { color: var(--archive-olive); width: 100%; justify-self: stretch; gap: 8px; }
-.structured-settings-panel.is-continuous .section-canvas { min-width: 0; padding: 28px 40px 48px; background: var(--archive-paper-soft); }
-.structured-settings-panel.is-continuous .section-canvas::before, .structured-settings-panel.is-continuous .section-canvas::after { display: none; }
-.section-content-heading { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--archive-paper-strong); }
-.section-heading-copy { flex: 1 1 280px; }
-.section-content-heading h1 { margin: 0 0 10px; font-family: inherit; font-size: 30px; font-weight: 650; color: var(--archive-ink); }
-.section-content-heading p { margin: 0; color: var(--archive-ink-soft); font-size: 15px; line-height: 1.7; }
-.structured-settings-panel.is-continuous .settings-editor-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
-.structured-settings-panel.is-continuous .fields-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; border: 0; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) { min-width: 0; min-height: 0; gap: 6px; padding: 0 0 18px; border: 0; border-bottom: 1px solid var(--archive-paper-strong); border-radius: 0; background: transparent; box-shadow: none; scroll-margin-top: 24px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-head) { margin-bottom: 4px; align-items: center; min-height: 34px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) { font-family: inherit; font-size: 17px; font-weight: 600; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-type-pill) { display: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea) { min-height: 60px; max-height: none; padding: 6px 0; border: 0; border-radius: 0; background: transparent; color: var(--archive-ink); font: inherit; font-size: 16px; line-height: 1.85; resize: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) { outline: none; background: transparent; box-shadow: inset 0 -1px var(--archive-olive); }
-.structured-settings-panel.is-continuous .section-content-heading, .structured-settings-panel.is-continuous .settings-editor-layout { width: 100%; max-width: none; margin-inline: 0; }
-.field-directory { display: grid; gap: 4px; padding: 0 14px; }
-.field-directory button { padding: 7px 0; border: 0; background: transparent; color: var(--archive-ink-soft); text-align: left; font: inherit; font-size: 14px; }
-.field-directory button:hover, .field-directory button:focus-visible { color: var(--archive-olive); text-decoration: underline; }
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea), .structured-settings-panel.is-continuous .fields-grid :deep(textarea::placeholder) { font-weight: 400; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.action-btn) { min-height: 32px; font-size: 13px; border-radius: 4px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint), .structured-settings-panel.is-continuous .fields-grid :deep(.field-status) { font-size: 12px; }
-.structured-settings-panel.is-continuous .brief-bar-wrapper, .structured-settings-panel.is-continuous .feedback-line { margin-bottom: 20px; }
-@media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-workbench { grid-template-columns: 210px minmax(0, 1fr); } .structured-settings-panel.is-continuous .fields-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) {
-  .structured-settings-panel.is-continuous .section-workbench { grid-template-columns: 1fr; }
-  .structured-settings-panel.is-continuous .section-rail { position: static; min-height: 0; padding: 16px; gap: 14px; border-right: 0; border-bottom: 1px solid var(--archive-paper-strong); }
-  .section-index-label { display: none; }
-  .structured-settings-panel.is-continuous .section-tabs { display: flex; overflow-x: auto; gap: 4px; }
-  .structured-settings-panel.is-continuous .section-tab { width: auto; flex-shrink: 0; font-size: 14px; padding: 8px 12px; }
-  .structured-settings-panel.is-continuous .section-actions { display: flex; border: 0; padding: 0; }
-  .structured-settings-panel.is-continuous .section-actions button { font-size: 13px; white-space: nowrap; flex: 1 1 0; }
-  .structured-settings-panel.is-continuous .section-actions .section-ai-btn { width: auto; }
-  .structured-settings-panel.is-continuous .section-canvas { padding: 24px 16px; }
-  .section-content-heading h1 { font-size: 26px; }
-  .structured-settings-panel.is-continuous .fields-grid { gap: 18px; }
-  .structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) { padding: 0 0 18px; }
-  .field-directory { display: none; }
-}
-/* Navigation, actions and metadata share the home workspace control scale. */
-.structured-settings-panel.is-continuous .section-rail { gap: 20px; padding: 24px 16px; height: calc(var(--app-viewport-height, 100vh) - 86px); min-height: 0; overflow-y: auto; box-sizing: border-box; }
-.structured-settings-panel.is-continuous .section-tab { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 7px 12px; font-size: 14px; }
-.structured-settings-panel.is-continuous .section-tab small { margin-left: auto; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; opacity: .8; }
-.structured-settings-panel.is-continuous .section-tab:hover { background: color-mix(in srgb, var(--archive-olive) 6%, transparent); }
-.field-directory { padding: 20px 0 0; gap: 2px; border-top: 1px solid var(--archive-paper-strong); }
-.field-directory-label { padding: 0 12px 10px; font-size: 12px; color: var(--archive-ink-soft); }
-.setting-directory-search { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--archive-paper-soft); color: var(--archive-ink-soft); }
-.setting-directory-search:focus-within { border-color: var(--archive-olive); }
-.setting-directory-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--archive-ink); font: inherit; font-size: 14px; }
-.field-search-results small { display: block; margin-top: 3px; font-size: 11px; color: var(--archive-ink-soft); }
-.directory-empty { padding: 0 12px; font-size: 13px; line-height: 1.7; color: var(--archive-ink-soft); }
-.field-directory button { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 12px; border-radius: 5px; }
-.field-directory button:hover, .field-directory button:focus-visible { background: color-mix(in srgb, var(--archive-olive) 7%, transparent); text-decoration: none; }
-.field-presence { width: 6px; height: 6px; border: 1px solid var(--archive-ink-soft); border-radius: 50%; flex: 0 0 auto; opacity: .55; }
-.field-presence.filled { background: var(--archive-olive); border-color: var(--archive-olive); opacity: 1; }
-.structured-settings-panel.is-continuous .section-actions { display: flex; align-items: center; gap: 8px; padding: 0; margin: 0; border: 0; }
-.structured-settings-panel.is-continuous .section-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 36px; padding: 7px 12px; margin: 0; font-size: 14px; line-height: 1.4; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s; }
-.structured-settings-panel.is-continuous .section-actions .section-ai-btn { width: auto; background: var(--archive-olive); color: var(--archive-paper-soft); border-color: var(--archive-olive); }
-.structured-settings-panel.is-continuous button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: 2px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-footer) { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-hint) { margin: 0 0 0 auto; font-size: 11px; line-height: 1.5; font-weight: 400; font-variant-numeric: tabular-nums; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-status) { margin: 0; padding: 0; border: 0; background: transparent; font-size: 12px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.draft-ready-dot) { position: static; width: 6px; height: 6px; box-shadow: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(textarea::placeholder) { color: var(--archive-ink-soft); opacity: .72; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; align-items: center; column-gap: 18px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: contents; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-title-group) { grid-column: 1; grid-row: 1; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .setting-field-actions) { grid-column: 3; grid-row: 1; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { grid-column: 2; grid-row: 1; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-footer) { grid-column: 2 / -1; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input) { border-radius: 5px; border-color: var(--archive-paper-strong); background: var(--archive-paper-soft); box-shadow: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-list), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list) { padding: 0; gap: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-item), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-item) { padding: 12px 0; gap: 12px; border: 0; border-bottom: 1px solid var(--archive-paper-strong); border-radius: 0; background: transparent; font-size: 15px; line-height: 1.85; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-text) { color: var(--archive-ink); }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-text), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-text) { font-weight: 400; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-icon) { margin-top: 4px; background: transparent; border: 1px solid var(--archive-paper-strong); border-radius: 4px; color: var(--archive-ink-soft); }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-index) { font-size: 12px; font-weight: 500; padding-top: 4px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-input-row), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-input-row) { margin-top: 10px; padding: 8px 12px; border-radius: 6px; background: var(--archive-paper); }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-list:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list:focus-within) { box-shadow: none; outline: none; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.rule-input-row:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-input-row:focus-within) { outline: 2px solid var(--accent); outline-offset: 1px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-list:focus-within), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list:focus-within) { border-color: var(--archive-olive); }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-pending), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-pending) { font-size: 15px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag) { border-radius: 4px; font-size: 13px; }
-.structured-settings-panel.is-continuous .fields-grid :deep(.tag-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.rule-remove), .structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-remove) { min-width: 26px; min-height: 26px; }
-@media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-canvas { padding: 24px 28px 40px; } }
-@media (max-width: 760px) {
-  .structured-settings-panel.is-continuous .section-rail { padding: 10px 12px; gap: 10px; height: auto; overflow: visible; }
+  .section-workbench { grid-template-columns: minmax(0, 1fr); grid-template-rows: max-content auto; }
+  .section-rail { position: static; gap: 8px; height: auto; padding: 12px; overflow: visible; }
+  .section-index-label, .field-directory { display: none; }
   .field-search-results { display: grid; }
-  .structured-settings-panel.is-continuous .section-tab { flex: 1 0 auto; justify-content: center; font-size: 14px; padding: 8px; }
-  .structured-settings-panel.is-continuous .section-tab small, .structured-settings-panel.is-continuous .section-tab svg { display: none; }
-  .structured-settings-panel.is-continuous .section-canvas { padding: 20px 18px 32px; }
-  .section-content-heading { gap: 16px; padding-bottom: 18px; margin-bottom: 18px; }
-  .structured-settings-panel.is-continuous .section-actions { flex-wrap: wrap; }
-  .structured-settings-panel.is-continuous .section-actions button { min-height: 40px; }
-  .structured-settings-panel.is-continuous .fields-grid :deep(.action-btn) { min-height: 38px; }
-  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: flex; }
-  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: flex; width: 100%; }
-  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { width: 100%; }
+  .setting-directory-search { min-height: 44px; }
+  .section-tabs { display: flex; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+  .section-tab { flex: 1 0 auto; width: auto; justify-content: center; min-height: 44px; padding: 8px 10px; font-size: 14px; }
+  .section-tab svg, .section-tab small { display: none; }
+  .section-main { min-height: 0; }
+  .section-canvas { padding: 24px 16px 40px; }
+  .section-content-heading { margin-bottom: 24px; gap: 18px; }
+  .section-heading-copy { flex-basis: 100%; }
+  .section-content-heading h1 { font-size: 24px; }
+  .section-actions { gap: 8px; }
+  .section-actions button, .fields-grid :deep(.action-btn) { min-height: 44px; }
+  .fields-grid { gap: 24px; }
+  .fields-grid :deep(.field-head) { gap: 8px; }
+  .fields-grid :deep(.field-label) { font-size: 15px; }
+  .fields-grid :deep(.action-btn) { padding-inline: 8px; font-size: 13px; }
+  .draft-queue { flex-wrap: wrap; }
+  .draft-queue__item { max-width: min(240px, 72vw); min-height: 44px; }
+  .settings-editor-layout.has-review > :deep(.setting-draft-review) { top: calc(48px + env(safe-area-inset-top, 0px)); right: 0; bottom: 0; left: 0; width: auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-radius: 0; box-shadow: none; }
 }
-/* Only the editor owns focus feedback; the section separator stays neutral. */
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:hover),
-.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card:focus-within) { border-bottom-color: var(--archive-paper-strong); }
-.structured-settings-panel.is-continuous .fields-grid :deep(.field-textarea:focus) { box-shadow: none; border: 0; outline: none; background: color-mix(in srgb, var(--archive-ink) 2%, transparent); }
-.structured-settings-panel.is-continuous .section-actions { flex-wrap: wrap; }
-.structured-settings-panel.is-continuous .section-tab > span,
-.field-directory button > span { min-width: 0; overflow-wrap: break-word; }
-.structured-settings-panel.is-continuous .section-tab small { flex-shrink: 0; }
+@media (pointer: coarse) {
+  .section-tab, .field-directory button, .section-actions button, .fields-grid :deep(.action-btn) { min-height: 44px; }
+  .fields-grid :deep(.chip-remove), .fields-grid :deep(.tag-remove), .fields-grid :deep(.rule-remove), .fields-grid :deep(.forbidden-remove) { min-width: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .structured-settings-panel :deep(*) { transition: none; animation: none; } }
+@media (forced-colors: active) { .fields-grid :deep(textarea:focus) { outline: 2px solid Highlight; } }
 </style>

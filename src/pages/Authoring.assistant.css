@@ -1,0 +1,73 @@
+.writing-page .authoring-assistant-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: var(--workspace-control-height, 36px);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--workspace-radius, 10px);
+  background: transparent;
+  color: var(--text-secondary);
+  font: 500 14px/1.4 var(--font-interface, var(--font-sans));
+  cursor: pointer;
+}
+.writing-page .authoring-assistant-entry:hover { background: var(--nav-hover); color: var(--text-primary); }
+.writing-page .authoring-assistant-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.authoring-assistant-entry__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.writing-page .authoring-assistant-start {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding-inline: var(--authoring-manuscript-gutter, clamp(28px, 6vw, 96px));
+  flex-wrap: wrap;
+  flex: none;
+  color: var(--text-secondary);
+  font: 13px/1.5 var(--font-interface, var(--font-sans));
+}
+.authoring-assistant-start button { border: 0; background: transparent; padding: 6px 0; color: var(--accent); font: inherit; cursor: pointer; }
+.authoring-assistant-start button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.authoring-new-book-start { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 0; margin: 4px 0; border: 0; color: var(--text-primary); font: 13px/1.5 var(--font-interface, var(--font-sans)); }
+.authoring-new-book-start legend { color: var(--text-secondary); font-size: 12px; }
+.authoring-new-book-start label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.authoring-new-book-start input { accent-color: var(--accent); }
+.writing-page.is-assistant-full > .wall__cork { display: none; }
+.writing-page.is-assistant-full .wall__main,
+.theme-legacy .writing-page.is-assistant-full .wall__main.has-inspector {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-tool-rail, .writing-inspector__reopen) { display: none; }
+.writing-page.is-assistant-full .writing-inspector,
+.theme-legacy .writing-page.is-assistant-full .writing-inspector.is-open {
+  position: relative;
+  inset: auto;
+  display: flex;
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  transform: none;
+  transition: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.writing-page.is-assistant-full .writing-inspector > .writing-inspector__head { display: none; }
+.writing-page.is-assistant-full .writing-inspector__body--assistant,
+.theme-legacy .writing-page.is-assistant-full .writing-inspector__body--assistant {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+}
+@media (max-width: 720px) {
+  .writing-page .authoring-assistant-start { padding-inline: 18px; gap: 0 8px; }
+  .writing-page .authoring-assistant-entry { min-height: 44px; padding-inline: 10px; }
+  .writing-page.is-assistant-full .wall__main { margin: 0; padding: 0; }
+}

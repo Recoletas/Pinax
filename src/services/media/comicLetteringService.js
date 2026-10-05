@@ -1,7 +1,58 @@
+import { getComicPanelRect } from './comicLayout'
+import { getComicPanelDisplayExportBlock } from './comicPanelDisplay'
+
 export const LETTERING_DIRECTIONS = Object.freeze([
   { value: 'horizontal', label: '横排' },
   { value: 'vertical', label: '竖排' }
 ])
+
+export function getComicLetteringTailPoints(object, panelRect) {
+  if (!validPoint(object?.tailTarget)) return []
+  const [x, y, width, height] = normalizeBox(object.box)
+  const boxWidth = width * panelRect.width
+  const boxHeight = height * panelRect.height
+  const dx = (object.tailTarget.x - x - width / 2) * panelRect.width
+  const dy = (object.tailTarget.y - y - height / 2) * panelRect.height
+  const length = Math.max(1, Math.hypot(dx, dy))
+  const ux = dx / length
+  const uy = dy / length
+  const offset = Math.min(length * 0.35, Math.min(boxWidth, boxHeight) * 0.34)
+  const radius = Math.min(boxWidth, boxHeight) * 0.12
+  return [
+    [0.5 + (ux * offset + uy * radius) / boxWidth, 0.5 + (uy * offset - ux * radius) / boxHeight],
+    [0.5 + dx / boxWidth, 0.5 + dy / boxHeight],
+    [0.5 + (ux * offset - uy * radius) / boxWidth, 0.5 + (uy * offset + ux * radius) / boxHeight]
+  ]
+}
+
+export function getComicLetteringTextMetrics(object, panelRect) {
+  const [, , width, height] = normalizeBox(object?.box)
+  const boxWidth = width * panelRect.width
+  const boxHeight = height * panelRect.height
+  const padding = Math.max(8, Math.min(18, boxWidth * 0.07))
+  const insetRatio = ['speech', 'thought'].includes(object?.type) ? (1 - Math.SQRT1_2) / 2 : 0
+  const insetX = boxWidth * insetRatio + padding
+  const insetY = boxHeight * insetRatio + padding
+  return { insetX, insetY,
+    contentWidth: Math.max(1, boxWidth - insetX * 2),
+    contentHeight: Math.max(1, boxHeight - insetY * 2) }
+}
+
+// 只用于新建文字框：按真实格尺寸给短对白足够的初始高度，不改作者已经
+// 排好的框。较长文本最多占格高的 60%，超量仍交出版质检明确阻断。
+export function fitComicLetteringBoxHeight(object, panelRect) {
+  const box = normalizeBox(object?.box)
+  if (!panelRect?.height || !String(object?.text || '').trim()) return box
+  const style = normalizeStyle(object.style, object.type)
+  if (style.textDirection !== 'horizontal') return box
+  const { contentWidth } = getComicLetteringTextMetrics(object, panelRect)
+  const lines = estimateLineCount(object.text, contentWidth, style.fontSize)
+  const padding = Math.max(8, Math.min(18, box[2] * panelRect.width * 0.07))
+  const contentRatio = ['speech', 'thought'].includes(object.type) ? Math.SQRT1_2 : 1
+  const requiredHeight = (lines * style.fontSize * 1.3 + padding * 2 + 2) / (panelRect.height * contentRatio)
+  const maximumHeight = Math.max(box[3], Math.min(0.6, 1 - box[1]))
+  return [box[0], box[1], box[2], Math.min(maximumHeight, Math.max(box[3], requiredHeight))]
+}
 
 export function analyzeComicLettering(page = {}) {
   const canvas = normalizeCanvas(page.canvas)
@@ -9,20 +60,25 @@ export function analyzeComicLettering(page = {}) {
   const panels = Array.isArray(page.panels) ? page.panels : []
 
   panels.forEach((panel) => {
+    const rect = getComicPanelRect(page, panel.order)
     const objects = Array.isArray(panel.letteringObjects) ? panel.letteringObjects : []
     objects.forEach((object, index) => {
       const box = normalizeBox(object.box)
       const style = normalizeStyle(object.style, object.type)
       const label = `${panel.order || index + 1}格 · ${typeLabel(object.type)}`
-      const maxLines = Math.max(1, Math.floor((box[3] * canvas.height - 12) / (style.fontSize * 1.45)))
-      const estimatedLines = estimateLineCount(object.text, box[2] * canvas.width, style.fontSize, style.textDirection)
-      if (estimatedLines > maxLines) {
+      const { contentWidth, contentHeight } = getComicLetteringTextMetrics(object, rect)
+      const maxLines = Math.max(1, Math.floor(contentHeight / (style.fontSize * 1.3)))
+      const estimatedLines = style.textDirection === 'vertical'
+        ? Math.ceil(Array.from(String(object.text || '').replace(/\n/g, '')).length / maxLines)
+        : estimateLineCount(object.text, contentWidth, style.fontSize, style.textDirection)
+      const capacity = style.textDirection === 'vertical' ? Math.max(1, Math.floor(contentWidth / (style.fontSize * 1.3))) : maxLines
+      if (estimatedLines > capacity || contentHeight < style.fontSize * 1.3) {
         issues.push({
           id: `overflow:${panel.id}:${object.id}`,
           severity: 'blocking',
           panelId: panel.id,
           objectId: object.id,
-          message: `${label}文字可能溢出，预计 ${estimatedLines} 行，容纳约 ${maxLines} 行`
+          message: `${label}文字超出可用空间，请扩大文字框或调整字号`
         })
       }
 
@@ -106,17 +162,11 @@ export function analyzeComicLettering(page = {}) {
 
 export function buildComicPublicationReport(page = {}) {
   const lettering = analyzeComicLettering(page)
-  const missingImages = (page.panels || []).filter((panel) => {
-    const route = page.colorMode === 'monochrome'
-      ? ['rough', 'line', 'tones', 'effects']
-      : ['rough', 'line', 'flats', 'render', 'effects']
-    const finalStage = route[route.length - 1]
-    return !panel.production?.[finalStage]?.selectedArtifactId && !panel.selectedTakeId
-  }).map((panel) => ({
+  const missingImages = (page.panels || []).filter((panel) => getComicPanelDisplayExportBlock(panel, page)).map((panel) => ({
     id: `image:${panel.id}`,
     severity: 'blocking',
     panelId: panel.id,
-    message: `${panel.order}格尚未选择最终画面`
+    message: `${panel.order}格：${getComicPanelDisplayExportBlock(panel, page)}`
   }))
   const issues = [...missingImages, ...lettering.issues]
   return {
@@ -127,12 +177,35 @@ export function buildComicPublicationReport(page = {}) {
   }
 }
 
+// Keep closing punctuation with the preceding character and opening punctuation
+// with the following one. Height checks and export share these break points.
+export function wrapComicLetteringText(value, width, measure) {
+  const text = String(value || '').trim()
+  if (!text) return []
+  const forbiddenStart = /^[，。！？；：、）》」』】〕〉”’…,.!?;:)\]}]$/u
+  const forbiddenEnd = /^[（《「『【〔〈“‘([{]$/u
+  const lines = []
+  for (const paragraph of text.split('\n')) {
+    const characters = Array.from(paragraph)
+    if (!characters.length) { lines.push(''); continue }
+    let start = 0
+    while (start < characters.length) {
+      let end = start + 1
+      while (end < characters.length && measure(characters.slice(start, end + 1).join('')) <= width) end += 1
+      while (end > start + 1 && end < characters.length
+        && (forbiddenStart.test(characters[end]) || forbiddenEnd.test(characters[end - 1]))) end -= 1
+      lines.push(characters.slice(start, end).join(''))
+      start = end
+    }
+  }
+  return lines
+}
+
 export function estimateLineCount(value, width, fontSize, direction = 'horizontal') {
   const text = String(value || '').trim()
   if (!text) return 0
   if (direction === 'vertical') return Math.max(1, Math.ceil(Array.from(text.replace(/\n/g, '')).length / Math.max(1, Math.floor(width / fontSize))))
-  const charactersPerLine = Math.max(1, Math.floor(width / (fontSize * 1.05)))
-  return text.split(/\n/).reduce((total, paragraph) => total + Math.max(1, Math.ceil(Array.from(paragraph).length / charactersPerLine)), 0)
+  return wrapComicLetteringText(text, width, (line) => Array.from(line).length * fontSize).length
 }
 
 function normalizeCanvas(input = {}) {

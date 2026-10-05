@@ -71,8 +71,6 @@ const featuredPreset = computed(() => {
   return seedWorldbookPresets[0] || null
 })
 
-const heroUsesActiveWorldbook = computed(() => Boolean(activeWorldbook.value?.id))
-
 function activeWorldbookToPreset(worldbook) {
   const entries = Array.isArray(worldbook?.entries) ? worldbook.entries : []
   const orgs = entries.filter(e => e?.type === 'organization').map(e => e?.name)
@@ -100,10 +98,10 @@ async function onWorldbookChange(id) {
 async function enterDefaultWorld(preset) {
   if (!preset) return
   // hero 展示的是当前世界书本身：直接进入体验，不再重复生成一份。
-  if (heroUsesActiveWorldbook.value || preset.isActiveWorldbook) {
+  if (preset.isActiveWorldbook === true) {
     router.push({
       name: 'experience',
-      query: { worldbookId: activeWorldbook.value?.id || preset.id }
+      query: { worldbookId: preset.id }
     })
     return
   }

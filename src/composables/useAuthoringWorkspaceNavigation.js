@@ -1,7 +1,8 @@
-import { nextTick, unref, watch } from 'vue'
+import { nextTick, onScopeDispose, unref, watch } from 'vue'
 import { openOrFocusWorkspaceTab } from '../services/workspace/workspaceRouteAdapter.js'
 
 const SETTINGS_ROUTES = Object.freeze({
+  sources: 'settings-sources',
   settings: 'settings-structured',
   map: 'settings-world-map',
   entries: 'settings-worldbook-advanced'
@@ -43,6 +44,8 @@ export function useAuthoringWorkspaceNavigation({
 }) {
   let pendingReturnRestore = null
   let pendingReturnKey = ''
+  let disposed = false
+  onScopeDispose(() => { disposed = true })
 
   function captureReturnState() {
     const bookId = text(selectedValue(selectedBookId))
@@ -116,6 +119,9 @@ export function useAuthoringWorkspaceNavigation({
     const key = authoringTabKey(bookId)
     if (!key) return
     const book = selectedValue(books).find((item) => text(item.id) === text(bookId))
+    const sameRouteProject = route.name === 'authoring' && text(route.query.bookId) === text(bookId)
+    if (!book || !sameRouteProject) return
+    const view = route.query.view === 'assistant' ? 'assistant' : ''
     workspaceTabsStore.updateContextByKey(key, {
       chapterId: chapterId ? text(chapterId) : '',
       worldbookId: book ? (book.worldbookId || '') : '',
@@ -125,7 +131,8 @@ export function useAuthoringWorkspaceNavigation({
         name: 'authoring',
         query: {
           bookId: text(bookId),
-          ...(chapterId ? { chapterId: text(chapterId) } : {})
+          ...(chapterId ? { chapterId: text(chapterId) } : {}),
+          ...(view ? { view } : {})
         }
       }
     })
@@ -146,6 +153,9 @@ export function useAuthoringWorkspaceNavigation({
       pendingReturnRestore = null
       if (text(snapshot.documentRevision) !== text(getDocumentRevision?.())) return
       nextTick(() => requestAnimationFrame(() => {
+        if (disposed || route.name !== 'authoring' || text(snapshot.projectId) !== text(selectedValue(selectedBookId))
+          || text(snapshot.chapterId) !== text(selectedValue(selectedChapterId))
+          || text(snapshot.documentRevision) !== text(getDocumentRevision?.())) return
         if (snapshot.selection) {
           selectedValue(notebookEditorRef)?.setSelection?.(snapshot.selection.from, snapshot.selection.to)
         }
@@ -156,13 +166,21 @@ export function useAuthoringWorkspaceNavigation({
   )
 
   watch(
-    [selectedBookId, selectedChapterId],
-    ([bookId, chapterId]) => {
-      reportTabContext(bookId, chapterId)
+    [selectedBookId, selectedChapterId, () => route.query.bookId, () => route.query.view],
+    ([bookId, chapterId, routeBookId], previous = []) => {
       if (!bookId || route.name !== 'authoring') return
+      reportTabContext(bookId, chapterId)
       if (selectedValue(pendingBackJump) || selectedValue(pendingInsertBack)) return
+      if (text(routeBookId) && text(routeBookId) !== text(bookId)) {
+        // URL 已提出另一书的导航时，不能用尚未完成的旧选择反写 URL。
+        // 只有选择自身发生变化、且 URL 的书未变时，才是页内切书的回报。
+        const selectionChanged = text(bookId) !== text(previous[0])
+        const routeChanged = text(routeBookId) !== text(previous[2])
+        if (!selectionChanged || routeChanged) return
+      }
       const nextQuery = { ...route.query, bookId: text(bookId) }
       if (chapterId) nextQuery.chapterId = text(chapterId)
+      else delete nextQuery.chapterId
       const currentQuery = route.query || {}
       const unchanged = text(currentQuery.bookId) === nextQuery.bookId
         && text(currentQuery.chapterId) === (nextQuery.chapterId || '')

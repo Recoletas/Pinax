@@ -24,7 +24,7 @@ const baseTools = Object.freeze([
   { id: 'rehearsal', label: '推演', icon: 'rehearsal' },
   { id: 'dual', label: '双栏', icon: 'columns' },
   { ...assistantTool, icon: 'assistant' },
-  { id: 'history', label: '历史', icon: 'history' }
+  { id: 'history', label: '记忆', icon: 'history' }
 ])
 const tools = computed(() => props.collaborationVisible
   ? [

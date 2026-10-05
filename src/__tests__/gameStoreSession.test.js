@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { buildRoleplayNarrationContext } from '../services/experience/roleplay/roleplayProjection.js'
+import { createScenarioRun, normalizeScenario } from '../services/experience/roleplay/roleplayScenario.js'
+import lampkeeperFixture from '../services/experience/roleplay/fixtures/lampkeeper-scenario.json'
+import RoleplayModeBar from '../components/experience/roleplay/RoleplayModeBar.vue'
+import { useExperienceSessionWorkflow } from '../composables/useExperienceSessionWorkflow'
 import { createPinia, setActivePinia } from 'pinia'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
@@ -75,6 +81,54 @@ describe('gameStore sessions', () => {
   })
 
   it("creates a session with the active worldbook and empty runtime snapshot（合并4例）（合并4例）", async () => {
+    {
+      const scenario = normalizeScenario(lampkeeperFixture.scenario)
+      const scenarioRun = createScenarioRun(scenario)
+      const state = { scenario, scenarioRun }
+      const action = { status: 'resolved', intentHint: 'scenario-clue:clue_log', resolution: { outcome: 'partial' } }
+      const context = buildRoleplayNarrationContext(state, action)
+      expect(context.taskContract).toMatchObject({ kind: 'roleplay', hasStopBoundary: true, outcome: 'partial' })
+      expect(context.taskContract.publicFacts).toContain('灯下的第三个人')
+      expect(context.taskContract.publicFacts).not.toContain('有人提着重物上楼')
+      const failedContext = buildRoleplayNarrationContext(state, { ...action, rawInput: '检查日志', resolution: { outcome: 'failure' } })
+      expect(failedContext.taskContract).toMatchObject({ authorizedAction: '检查日志', outcome: 'failure' })
+      expect(failedContext.taskContract.publicFacts).not.toContain('灯下的第三个人')
+      expect(context.summary).toContain('炉火将熄')
+      expect(context.summary).toContain('灯下的第三个人')
+      expect(context.summary).not.toContain('有人提着重物上楼')
+      expect(buildRoleplayNarrationContext(state, { ...action, resolution: { outcome: 'failure' } }).summary).not.toContain('灯下的第三个人')
+      expect(buildRoleplayNarrationContext(state).summary).not.toContain('灯下的第三个人')
+      expect(state.scenarioRun.clues.clue_log).toBe('available')
+      state.scenarioRun.publicEvents.push({ sourceActionId: 'prior-check', visibleTo: 'player', type: 'setback', text: '小屋方向传来一声门响' }, { sourceActionId: 'other-check', visibleTo: 'player', text: '另一轮后果' })
+      const renarration = buildRoleplayNarrationContext(state, { actionId: 'prior-check', status: 'committed' }).summary
+      expect(renarration).toContain('小屋方向传来一声门响')
+      expect(renarration).not.toContain('另一轮后果')
+      expect(renarration).not.toContain('灯下的第三个人')
+      const game = useGameStore()
+      const diskSave = vi.spyOn(game, 'flushSaveSessions').mockReturnValueOnce(false)
+      const modeBar = mount(RoleplayModeBar)
+      await modeBar.findAll('button').find((button) => button.text().includes('轻规则')).trigger('click')
+      expect(game.currentSessionId).toBeTruthy()
+      expect(modeBar.get('[role=alert]').text()).toContain('点击保存重试')
+      expect(modeBar.find('input').exists()).toBe(true)
+      await modeBar.findAll('button').find((button) => button.text() === '保存').trigger('click')
+      expect(modeBar.find('[role=alert]').exists()).toBe(false)
+      expect(modeBar.find('input').exists()).toBe(false)
+      diskSave.mockRestore()
+      expect(game.sessions[0].roleplay?.mode).toBe('rules')
+      await modeBar.findAll('button').find((button) => button.text() === '调整').trigger('click')
+      await modeBar.get('input').setValue('寻找失踪的看守')
+      await modeBar.findAll('button').find((button) => button.text() === '保存').trigger('click')
+      await modeBar.findAll('button').find((button) => button.text() === '调整').trigger('click')
+      expect(modeBar.get('input').element.value).toBe('寻找失踪的看守')
+      modeBar.unmount()
+      const workflow = useExperienceSessionWorkflow({ gameStore: game,
+        worldStore: { loadWorldbooksIndex: async () => {}, worldbooksIndex: [], activeWorldbookId: '' },
+        route: { query: { sessionId: 'missing-session' } }, router: { push: vi.fn() }, onlineSession: null })
+      await workflow.bootstrapSessions()
+      expect(workflow.showSessionPicker.value).toBe(true)
+    }
+
 {
 
     localStorage.clear()
@@ -1815,7 +1869,7 @@ const worldStore = useWorldStore()
     expect(sentMessages[1].content).toContain('本轮作者注释')
     // 规划与正文隔离后，第三条 system 是场景约束，之后才是真实历史。
     expect(sentMessages[2].role).toBe('system')
-    expect(sentMessages[2].content).toContain('本轮场景约束')
+    expect(sentMessages[2].content).toContain('作者原始要求与冻结行动权限优先')
     expect(sentMessages[3].role).toBe('assistant')
     expect(sentMessages.at(-1).role).toBe('tool')
     expect(sentMessages[0].content).toContain('所有线索必须有代价')

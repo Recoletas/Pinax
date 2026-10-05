@@ -436,6 +436,19 @@ export async function handleGenerateRequest(req, res) {
     maxInputChars
   }
 
+  const generationAbort = new AbortController()
+  let requestTimedOut = false
+  const abortDisconnected = () => {
+    if (!res.writableEnded) generationAbort.abort(new Error('client-disconnected'))
+  }
+  req.once?.('aborted', abortDisconnected)
+  res.once?.('close', abortDisconnected)
+  if (req.aborted || res.destroyed) abortDisconnected()
+  const generationTimeout = setTimeout(() => {
+    requestTimedOut = true
+    generationAbort.abort(new Error('generation-timeout'))
+  }, Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000))))
+  generationTimeout.unref?.()
   try {
     let systemPrompt = `你是一个文字冒险游戏的Narrator（旁白/主持人）。请根据用户的行动生成生动、有趣的剧情描述。
 
@@ -604,7 +617,8 @@ export async function handleGenerateRequest(req, res) {
     const response = await fetch(chatUrl, { redirect: 'error',
       method: 'POST',
       headers,
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: generationAbort.signal
     })
 
     if (!response.ok) {
@@ -661,6 +675,10 @@ export async function handleGenerateRequest(req, res) {
 
     res.json({ content, meta: responseMeta })
   } catch (e) {
+    if (generationAbort.signal.aborted) {
+      if (!requestTimedOut || res.destroyed) return
+      return sendApiError(res, 504, 'GENERATION_TIMEOUT', '生成超时，请稍后重试', null, responseMeta)
+    }
     console.error('Chat error:', e)
     const isUpstreamNetworkError =
       e?.name === 'TypeError' &&
@@ -679,6 +697,10 @@ export async function handleGenerateRequest(req, res) {
       null,
       responseMeta
     )
+  } finally {
+    clearTimeout(generationTimeout)
+    req.off?.('aborted', abortDisconnected)
+    res.off?.('close', abortDisconnected)
   }
 }
 

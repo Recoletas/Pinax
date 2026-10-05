@@ -1,6 +1,6 @@
 /* UI language affects chrome, not manuscript typography or saved preferences. */
 html:lang(en) {
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-interface);
 }
 body:lang(en) { font-family: var(--font-sans); }
 

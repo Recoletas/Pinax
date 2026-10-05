@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { tr } from '../i18n/index.js'
 import { useRoute, useRouter } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
@@ -114,15 +114,15 @@ const worldStore = useWorldStore()
 const selectedWorldbookId = ref('')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
-const activeWorldbook = computed(() => worldStore.activeWorldbook)
 // 项目上下文：bookId -> book.worldbookId 唯一真源；全局模式沿用既有 active 行为。
-const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook: activeWorldbook, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
 const isProjectMode = computed(() => context.value?.mode === 'project')
 const projectContextLabel = computed(() => context.value?.book?.title || '')
 const projectContextStatus = computed(() => context.value?.status || '')
 const placeEntityIndex = computed(() => buildPlaceEntityIndex(activeWorldbook.value || {}))
 const focusedPlace = computed(() => resolvePlaceEntity(placeEntityIndex.value, String(route.query.placeId || '')))
 const contextNotice = computed(() => (context.value?.status === 'route-mismatch' ? context.value.notice : ''))
+watch(() => activeWorldbook.value?.id, id => { selectedWorldbookId.value = id || '' }, { immediate: true })
 
 function openFocusedPlaceMap(kind = '', itemId = '') {
   if (!focusedPlace.value?.placeId) return
@@ -139,11 +139,16 @@ function onGlobalClick() {
   // placeholder for global click handler if needed
 }
 
+let worldbookChangeSequence = 0
 async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
   // 项目模式：世界书由书稿关联决定，选择器已锁定，不在这里静默换库。
   if (isProjectMode.value) return
   if (worldbookId) {
-    await worldStore.setActiveWorldbook(worldbookId)
+    const ticket = ++worldbookChangeSequence
+    const from = route.fullPath
+    const loaded = await worldStore.setActiveWorldbook(worldbookId)
+    if (ticket !== worldbookChangeSequence || route.fullPath !== from || route.query.bookId || String(loaded?.id || '') !== String(worldbookId)) return
+    await router.replace({ name: route.name, query: { worldbookId: String(worldbookId) } })
   }
 }
 
@@ -179,7 +184,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--archive-paper-soft);
+  background: var(--surface-workbench);
   color: var(--text-primary);
   position: relative;
   overflow: hidden;

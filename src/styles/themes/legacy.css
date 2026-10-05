@@ -3,16 +3,18 @@
    it only in a dedicated mechanical migration so saved screenshots and UI
    contracts do not mix with behavior work. */
 :root.theme-legacy {
-  --bg-primary: #f3f3f3;
+  color-scheme: light;
+  --control-select-indicator: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23575b62' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --bg-primary: #f0f3f8;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #f0f1f3;
-  --bg-hover: #e9ebee;
-  --text-primary: #1a1a1a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --accent: #0078d4;
-  --accent-hover: #106ebe;
-  --accent-light: rgba(0, 120, 212, 0.10);
+  --bg-tertiary: #f0f3f8;
+  --bg-hover: #e6e8eb;
+  --text-primary: #202124;
+  --text-secondary: #575b62;
+  --text-muted: #6b7078;
+  --accent: #0b57d0;
+  --accent-hover: #0847af;
+  --accent-light: rgba(11, 87, 208, 0.10);
   --accent-text: #ffffff;
   --accent-purple: #456aa1;
   --accent-purple-light: rgba(69, 106, 161, 0.12);
@@ -24,49 +26,54 @@
   --accent-rose-light: rgba(71, 111, 159, 0.12);
   --accent-emerald: #2b7c78;
   --accent-emerald-light: rgba(43, 124, 120, 0.12);
-  --border: #d9dce1;
-  --border-strong: #94a3b8;
-  --shadow: rgba(15, 23, 42, 0.08);
-  --shadow-md: rgba(15, 23, 42, 0.14);
+  --border: #e1e3e7;
+  --border-strong: #b5bac2;
+  --shadow: rgba(32, 33, 36, 0.06);
+  --shadow-md: rgba(32, 33, 36, 0.12);
 
-  --archive-paper: #f7f7f8;
-  --archive-paper-strong: #e6e7eb;
+  --archive-paper: #ffffff;
+  --archive-paper-strong: #e1e3e7;
   --archive-paper-soft: #ffffff;
-  --archive-ink: #202126;
-  --archive-ink-soft: #60636c;
-  --archive-olive: #2563eb;
-  --archive-olive-strong: #1e3a8a;
+  --archive-ink: #202124;
+  --archive-ink-soft: #575b62;
+  --archive-olive: #0b57d0;
+  --archive-olive-strong: #0847af;
   --archive-gold: #94a3b8;
   --archive-gold-soft: #cbd5e1;
   --archive-rose: #476f9f;
   --archive-photo: #1e3a5f;
   --experience-signal-warm: #d8c84f;
   --experience-signal-cool: #719da8;
-  --hairline-soft: rgba(35, 39, 47, 0.12);
+  --hairline-soft: rgba(32, 33, 36, 0.08);
   --hairline-accent: rgba(100, 116, 139, 0.38);
   --hairline-rose: rgba(37, 99, 235, 0.32);
-  --surface-workbench: #f7f7f8;
+  --surface-assistant: var(--surface-workbench);
+  --surface-assistant-input: var(--surface-workbench-input);
+  --surface-assistant-nav: var(--surface-workbench-muted);
+  --assistant-glow: color-mix(in srgb, var(--archive-olive) 10%, transparent);
+  --surface-workbench: #ffffff;
   --surface-workbench-raised: #ffffff;
-  --surface-workbench-muted: #eff0f2;
-  --signal-primary: #2563eb;
+  --surface-workbench-muted: #f0f3f8;
+  --surface-workbench-canvas: #f0f3f8;
+  --surface-workbench-input: #f2f5fa;
+  --surface-workbench-overlay: #ffffff;
+  --radius-control: 10px;
+  --radius-surface: 24px;
+  --radius-popover: 16px;
+  --signal-primary: #0b57d0;
   --signal-secondary: #2b7c78;
   --signal-warm: #b48a45;
-  --shadow-workbench: 0 12px 30px rgba(15, 23, 42, 0.09);
-  --shadow-workbench-float: 0 18px 44px rgba(15, 23, 42, 0.15);
+  --shadow-workbench: 0 1px 3px rgba(32, 33, 36, 0.04);
+  --shadow-workbench-float: 0 16px 48px rgba(32, 33, 36, 0.12), 0 2px 8px rgba(32, 33, 36, 0.06);
 }
 .theme-legacy .ws-right-rail {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: linear-gradient(
-    110deg,
-    color-mix(in srgb, var(--archive-olive) 2%, var(--archive-paper-soft)),
-    var(--archive-paper-soft) 68%
-  );
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 18%, var(--border));
-  box-shadow:
-    -1px 0 0 color-mix(in srgb, var(--archive-paper-soft) 86%, transparent) inset,
-    0 16px 34px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  background: var(--surface-workbench-muted);
+  border: 0;
+  border-left: 1px solid var(--hairline-soft);
+  box-shadow: none;
   color: var(--archive-ink);
 }
 
@@ -687,17 +694,19 @@
    与 :root.theme-legacy 一一对应，另补齐 main.css .theme-dark 缺失的
    surface-workbench / signal / experience-signal / shadow-workbench 十项。 */
 :root.theme-legacy.theme-dark {
-  --bg-primary: #1e1f21;
-  --bg-secondary: #242629;
-  --bg-tertiary: #2b2d31;
-  --bg-hover: #32353a;
+  color-scheme: dark;
+  --control-select-indicator: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a9adb3' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --bg-primary: #1b1c1e;
+  --bg-secondary: #131314;
+  --bg-tertiary: #202124;
+  --bg-hover: #292b2f;
   --text-primary: #f0f1f2;
   --text-secondary: #a9adb3;
-  --text-muted: #737980;
+  --text-muted: #969ba3;
 
-  --accent: #72a7f7;
-  --accent-hover: #8bb7f8;
-  --accent-light: rgba(114, 167, 247, 0.14);
+  --accent: #a8c7fa;
+  --accent-hover: #bfd7fc;
+  --accent-light: rgba(168, 199, 250, 0.14);
   --accent-text: #101317;
   --accent-purple: #8fa3e8;
   --accent-purple-light: rgba(143, 163, 232, 0.16);
@@ -710,18 +719,18 @@
   --accent-emerald: #5bc9a3;
   --accent-emerald-light: rgba(91, 201, 163, 0.14);
 
-  --border: #2d3034;
-  --border-strong: #42474f;
+  --border: #303236;
+  --border-strong: #45484e;
   --shadow: rgba(0, 0, 0, 0.38);
   --shadow-md: rgba(0, 0, 0, 0.52);
 
-  --archive-paper: #1e2023;
-  --archive-paper-strong: #303338;
-  --archive-paper-soft: #25272b;
+  --archive-paper: #131314;
+  --archive-paper-strong: #303236;
+  --archive-paper-soft: #1e1f20;
   --archive-ink: #edf0f3;
-  --archive-ink-soft: #9ba1a9;
-  --archive-olive: #72a7f7;
-  --archive-olive-strong: #4d82cf;
+  --archive-ink-soft: #b1b5bc;
+  --archive-olive: #a8c7fa;
+  --archive-olive-strong: #8ab4f8;
   --archive-gold: #8a949f;
   --archive-gold-soft: #424a53;
   --archive-rose: #b04a5c;
@@ -732,12 +741,19 @@
   --hairline-accent: rgba(114, 167, 247, 0.36);
   --hairline-rose: rgba(176, 74, 92, 0.40);
 
-  --surface-workbench: #222427;
-  --surface-workbench-raised: #292b2f;
-  --surface-workbench-muted: #191a1c;
-  --signal-primary: #72a7f7;
+  --surface-assistant: var(--surface-workbench);
+  --surface-assistant-input: var(--surface-workbench-input);
+  --surface-assistant-nav: var(--surface-workbench-muted);
+  --assistant-glow: color-mix(in srgb, var(--archive-olive-strong) 34%, transparent);
+  --surface-workbench: #131314;
+  --surface-workbench-raised: #1e1f20;
+  --surface-workbench-muted: #1b1e23;
+  --surface-workbench-canvas: #1b1e23;
+  --surface-workbench-input: #23272e;
+  --surface-workbench-overlay: #292d34;
+  --signal-primary: #a8c7fa;
   --signal-secondary: #38b8c9;
   --signal-warm: #c9a35c;
-  --shadow-workbench: 0 12px 30px rgba(0, 0, 0, 0.38);
-  --shadow-workbench-float: 0 20px 48px rgba(0, 0, 0, 0.54);
+  --shadow-workbench: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-workbench-float: 0 12px 36px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24);
 }

@@ -3,14 +3,12 @@
     <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
       <div class="manuscript-top material-top">
         <div class="manuscript-top__left">
-          <button class="manuscript-top__back" @click="goBack" title="返回" aria-label="返回">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M3 3.5L8 8L3 12.5V3.5Z"/>
-          </svg>
+          <button class="manuscript-top__back" @click="goBack" title="返回首页" aria-label="返回首页">
+            <ArrowLeft :size="18" :stroke-width="1.65" aria-hidden="true" />
         </button>
           <div class="manuscript-top__book">
             <span class="manuscript-top__no">素材</span>
-            <span class="material-top__count">{{ chapters.length }} 卷 · {{ groupedChapters.length }} 类</span>
+            <span class="material-top__count">{{ chapters.length }} 项 · {{ groupedChapters.length }} 类</span>
           </div>
           <span v-if="selectedAssetSummary" class="manuscript-top__chapter">
             {{ selectedAssetSummary }}
@@ -25,8 +23,8 @@
           <button class="manuscript-top__tab" type="button" @click.stop="goToAdventure" title="回到冒险">
             冒险
           </button>
-          <button class="manuscript-top__tab" type="button" @click.stop="goToWriting" title="返回写作">
-            写作
+          <button class="manuscript-top__tab" type="button" @click.stop="goToWriting" :title="workspaceBookId ? '返回正文' : '选择作品'">
+            {{ workspaceBookId ? '正文' : '作品' }}
           </button>
           <button class="manuscript-top__tab" type="button" @click="createNewNote" title="新建素材">
             新素材
@@ -63,7 +61,6 @@
           <section v-for="(group, idx) in groupedChapters" :key="group.kind" class="drawer-unit" :class="{ 'is-collapsed': isAssetKindCollapsed(group.kind) }">
             <button class="drawer-handle workspace-nav-item" type="button" @click="toggleAssetKindGroup(group.kind)" :aria-expanded="!isAssetKindCollapsed(group.kind)">
               <span class="drawer-handle__spine" :style="{ background: group.color }" aria-hidden="true"></span>
-              <span class="drawer-handle__roman">{{ groupIndexLabel(idx) }}</span>
               <span class="drawer-handle__title workspace-nav-label">{{ group.label }}</span>
               <span class="drawer-handle__count">{{ group.items.length }}</span>
               <span class="drawer-handle__chevron" aria-hidden="true">
@@ -120,7 +117,7 @@
             </div>
           </section>
           <div v-if="groupedChapters.length === 0" class="drawer-empty">
-            <span class="drawer-empty__text">抽屉全空 · 等待卷宗</span>
+            <span class="drawer-empty__text">还没有素材</span>
           </div>
         </div>
 
@@ -158,18 +155,10 @@
            非选中态展示 4 张近期, 都可点击切换. 不实现真实拖拽 (如
            N6/N9/N10 multi-canvas 那样), 只做视觉/交互骨架 -->
       <aside class="archive-pin notes-sidekick" aria-label="副阅读台">
-        <span class="archive-pin__nail" aria-hidden="true">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="3" fill="currentColor"/>
-            <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1" stroke-dasharray="2 1.4" opacity="0.55"/>
-          </svg>
-        </span>
         <header class="notes-sidekick__header">
-          <span class="notes-sidekick__title">副阅读台</span>
-          <span class="notes-sidekick__count">
-            {{ sidekickWorkspace === 'illustration'
-              ? '插画生成'
-              : `${sidekickItems.length} 张 · 可点击` }}
+          <span class="notes-sidekick__title">工具</span>
+          <span v-if="sidekickWorkspace === 'materials' && sidekickItems.length" class="notes-sidekick__count">
+            {{ sidekickItems.length }} 张
           </span>
         </header>
         <nav class="notes-sidekick__modes" aria-label="副工作台模式">
@@ -234,7 +223,7 @@
           :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
           :selectedText="selectedAsset?.content || currentChapterTitle"
           :sourceTitle="selectedAsset?.title || currentChapterTitle"
-          :projectId="selectedAsset?.projectId || null"
+          :projectId="selectedAsset ? selectedAsset.projectId ?? null : newAssetProjectId"
           :sourceRefs="selectedAsset ? [{ refType: 'narrative-asset', refId: selectedAsset.id, projectId: selectedAsset.projectId ?? null, excerpt: selectedAsset.content }] : []"
           :referenceCandidates="imageReferenceCandidates"
           :modes="['reference', 'illustration']"
@@ -265,14 +254,17 @@
               </button>
             </div>
             <div class="modal-body">
-              <label class="input-label">素材标题</label>
+              <label class="input-label" for="new-material-title">素材标题</label>
               <input
+                id="new-material-title"
                 v-model="newNoteTitle"
                 type="text"
                 class="input"
                 placeholder="输入素材标题"
                 ref="newNoteInput"
+                @keydown.enter.prevent="confirmCreateNote"
               />
+              <p v-if="newNoteError" class="new-material-error" role="alert">{{ newNoteError }}</p>
             </div>
             <div class="modal-footer">
               <button class="btn" @click="showNewNoteModal = false">取消</button>
@@ -285,12 +277,7 @@
     </Transition>
 
     <GmPersonaLauncher
-      kicker="素材顾问"
-      title="先收一条线索，再决定导向哪里"
-      body="我先看当前素材、状态和画布去向，再帮你判断该采纳、导画布还是继续扩。"
-      avatarLabel="材"
       caption="素材顾问"
-      captionHint="素材入口"
       :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
       @open="openAdvisor"
     />
@@ -315,6 +302,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
+import { ArrowLeft } from 'lucide-vue-next'
 import { sanitizeHtml } from '../utils/sanitize'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
@@ -334,8 +322,7 @@ import {
   NotesEditorWorkspace,
   WorkspacePaneSwitch
 } from '../components/notes/notesPageComponents.js'
-import { STORAGE_KEYS, getItem } from '../composables/useStorage'
-import { useTipState } from '../composables/useTipState'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import { useGameStore } from '../stores/gameStore'
 import { htmlToMarkdown, markdownImageDescriptors, markdownToHtml } from '../services/notes/assetMarkdown'
 import {
@@ -348,7 +335,7 @@ import {
   normalizeImagePresentation,
   updateNarrativeAssetDurable
 } from '../services/media/narrativeAssets'
-import { createExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
+import { findWritingBook, loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { findAssetsByContentRefs } from '../services/media/narrativeAssetRetrieval'
 import {
   addNarrativeImageAsset,
@@ -360,8 +347,9 @@ import {
 import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
 
 const router = useRouter()
-const tip = useTipState()
 const route = useRoute()
+const workspaceBookId = computed(() => catalogApi.resolveWorkspaceBookId(route.query.bookId))
+const newAssetProjectId = computed(() => findWritingBook(loadWritingBooks(), String(route.query.bookId || '').trim())?.id || null)
 const { isDark, toggleTheme } = useTheme()
 const {
   advisorOpen,
@@ -381,6 +369,7 @@ const gameStore = useGameStore()
 
 const showNewNoteModal = ref(false)
 const newNoteTitle = ref('')
+const newNoteError = ref('')
 const newNoteInput = ref(null)
 const editorRef = ref(null)
 const previewRef = ref(null)
@@ -505,8 +494,18 @@ const editorApi = useNotesAssetEditor({
 const catalogApi = useNotesAssetCatalog({
   editor: editorApi,
   onAssetDeselected: resetIllustrationSelection,
-  onSelectionChanged: () => { mobilePane.value = 'content' },
-  navigate: (location) => router.push(location),
+  onSelectionChanged: (assetId) => {
+    mobilePane.value = 'content'
+    if (String(route.query.assetId || '') === String(assetId || '')) return
+    const query = { ...route.query }
+    if (assetId) query.assetId = assetId
+    else delete query.assetId
+    void router.replace({ name: 'materials', query })
+  },
+  navigate: (location) => router.push({
+    ...location,
+    query: { ...location.query, ...(workspaceBookId.value ? { bookId: workspaceBookId.value } : {}) }
+  }),
   colorForKind: getAssetKindColor
 })
 const {
@@ -521,8 +520,6 @@ const {
   canGoPrev,
   canGoNext,
   canvasTransferFeedback,
-  mediaGenerationProjectId,
-  mediaGenerationSourceRefs,
   refreshCatalog,
   replaceEditorFromPersisted,
   selectChapter,
@@ -568,6 +565,8 @@ const {
   selectIllustrationFromEvent,
   showEditorContextMenu,
   chooseImageLayout,
+  resolveGeneratedImageOwner,
+  acceptGeneratedImageForProject,
   resetSelection: resetIllustrationInteraction
 } = useNotesIllustrationWorkspace({
   editorRef,
@@ -612,27 +611,7 @@ onMounted(() => {
   // 这里是 belt-and-suspenders)
   nextTick(() => autoResizeTextarea())
 
-  // Phase C6: 首次进入素材库, 若画布空, 弹 "素材入画布" tip
-  try {
-    const cards = getItem(STORAGE_KEYS.PROSE_CARDS_V1)
-    const hasCanvas = Array.isArray(cards) && cards.length > 0
-    if (!hasCanvas && !tip.isSeen('materials-to-canvas')) {
-      setTimeout(() => {
-        tip.showTip({
-          id: 'materials-to-canvas',
-          title: '素材入画布',
-          body: '右上角 "导当前到画布" 可导入选中素材; 勾选多项后用 "送入画布" 批量入画布。',
-          cta: {
-            label: '去看画布',
-            action: () => router.push('/prose-essay')
-          },
-          variant: 'info',
-          autoHide: false,
-          category: 'nav'
-        })
-      }, 800)
-    }
-  } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
+
 })
 
 function loadSidekickImageModels(configs = null) {
@@ -651,16 +630,15 @@ function setSidekickWorkspace(workspace) {
 }
 
 function goToComics() {
-  router.push({
-    name: 'comics',
-    query: selectedChapterId.value ? { assetId: selectedChapterId.value } : {}
-  })
+  catalogApi.openSelectedAssetInComics(route.query.bookId)
 }
 
 const mainVisualPreview = computed(() => {
   const generated = illustrationPreview.value
   if (generated?.sourceAssetId === selectedChapterId.value && generated.entry?.data) {
     const entry = generated.entry
+    const reference = entry.mediaAssetId ? `pinax-media://${entry.mediaAssetId}` : entry.data
+    if (markdownImageDescriptors(markdownContent.value).some((image) => image.href === reference)) return null
     return {
       data: entry.data,
       alt: entry.prompt || selectedAsset.value?.title || '插画',
@@ -865,7 +843,7 @@ function goBack() {
 
 function goToWriting() {
   if (!catalogApi.saveOrBlock('返回写作')) return
-  router.push({ name: 'writing' })
+  router.push(workspaceBookId.value ? { name: 'authoring', query: { bookId: workspaceBookId.value, view: 'writing' } } : { name: 'welcome' })
 }
 
 function goToAssetSource() {
@@ -875,6 +853,7 @@ function goToAssetSource() {
   if (!catalogApi.saveOrBlock('前往正文来源')) return
   const query = {
     chapterId: src.chapterId,
+    ...(workspaceBookId.value ? { bookId: workspaceBookId.value, view: 'writing' } : {}),
     sourceAssetId: asset.id
   }
   const offset = Number(src.selectorOffset)
@@ -891,6 +870,7 @@ function insertAssetBackToSource() {
   if (!catalogApi.saveOrBlock('回填正文来源')) return
   const query = {
     chapterId: src.chapterId,
+    ...(workspaceBookId.value ? { bookId: workspaceBookId.value, view: 'writing' } : {}),
     insertAssetId: asset.id
   }
   const offset = Number(src.selectorOffset)
@@ -906,45 +886,30 @@ function insertAssetBackToSource() {
 function createNewNote() {
   showNewNoteModal.value = true
   newNoteTitle.value = ''
+  newNoteError.value = ''
   nextTick(() => newNoteInput.value?.focus())
 }
 
 function confirmCreateNote() {
   if (!newNoteTitle.value.trim()) return
-
-  // Phase 11：有明确项目上下文的纯文字试写归 Authoring exploration 所有；
-  // 素材页继续保留图片、音频、文件及已有 narrative asset 的整理能力。
-  const bookId = String(route.query.bookId || '').trim()
-  if (bookId) {
-    const created = createExplorationDocument(bookId, {
-      title: newNoteTitle.value.trim(),
-      content: newNoteTitle.value.trim(),
-      sourceRefs: ['materials:text-capture']
-    })
-    if (created.ok) {
-      showNewNoteModal.value = false
-      router.push({ name: 'authoring', query: { bookId, explorationId: created.document.id, wt3: '1' } })
-      return
-    }
-  }
+  newNoteError.value = ''
 
   const created = createAsset({
     title: newNoteTitle.value.trim(),
     content: newNoteTitle.value.trim(),
     kind: 'inspiration',
     status: 'inbox',
+    projectId: newAssetProjectId.value,
     source: {
       type: 'manual'
     }
   })
   if (!created.ok) {
-    canvasTransferFeedback.value = '新建素材未保存（存储写入失败）'
-    showNewNoteModal.value = false
+    newNoteError.value = created.reason === 'save-blocked'
+      ? '当前素材未能保存。内容仍在编辑器中，请重试后再新建。'
+      : '新建素材未保存，请重试。标题已保留。'
     return
   }
-
-  refreshCatalog()
-  selectChapter(created.asset.id)
   showNewNoteModal.value = false
 }
 
@@ -1070,6 +1035,11 @@ function getAssetKindColor(kind) {
 
 async function saveGeneratedImageAsset(imgEntry) {
   if (!imgEntry?.data) return
+  let owner
+  try { owner = resolveGeneratedImageOwner(imgEntry) } catch (error) {
+    canvasTransferFeedback.value = error?.message || '图片保存失败，请重新选择。'
+    return
+  }
   const previewEntry = illustrationPreview.value?.entry
   const presentation = previewEntry && (
     previewEntry.mediaAssetId === imgEntry.mediaAssetId || previewEntry.id === imgEntry.id
@@ -1082,8 +1052,8 @@ async function saveGeneratedImageAsset(imgEntry) {
     content: imgEntry.prompt || '素材参考图',
     kind: 'reference-image',
     status: 'accepted',
-    projectId: mediaGenerationProjectId.value,
-    sourceRefs: [...mediaGenerationSourceRefs.value, ...(imgEntry.sourceRefs || [])],
+    projectId: owner.projectId,
+    sourceRefs: owner.sourceRefs,
     source: {
       type: 'note-image',
       id: imgEntry.id
@@ -1103,17 +1073,27 @@ async function saveGeneratedImageAsset(imgEntry) {
       height: imgEntry.height,
       presentation: normalizeImagePresentation(presentation)
     }
+  }).catch((error) => {
+    canvasTransferFeedback.value = error?.message || '图片素材保存失败，请重试。'
+    return null
   })
+  if (!asset) return
   refreshCatalog()
   if (imgEntry.mode === 'comic' && currentAssetId) {
     // 保留当前编辑对象，只刷新目录
-  } else {
+  } else if (selectedChapterId.value === currentAssetId && (!currentAssetId || selectedAsset.value?.projectId === owner.projectId)) {
     selectChapter(asset.id)
   }
 }
 
 function insertImageMarkdown(imgEntry) {
   if (!imgEntry?.data && !imgEntry?.mediaAssetId) return
+  if (!selectedAsset.value) return
+  const targetId = selectedAsset.value.id
+  try { acceptGeneratedImageForProject(imgEntry, selectedAsset.value.projectId) } catch (error) {
+    canvasTransferFeedback.value = error?.message || '图片不能插入当前素材。'
+    return
+  }
   const alt = String(imgEntry.prompt || selectedAsset.value?.title || '图片').trim() || '图片'
   const reference = imgEntry.mediaAssetId
     ? createMarkdownMediaReference(alt, imgEntry.mediaAssetId)
@@ -1125,6 +1105,7 @@ function insertImageMarkdown(imgEntry) {
     const end = editor.selectionEnd
     markdownContent.value = `${markdownContent.value.slice(0, start)}${imageMarkdown}${markdownContent.value.slice(end)}`
     nextTick(() => {
+      if (selectedChapterId.value !== targetId) return
       const pos = start + imageMarkdown.length
       editor.focus()
       editor.setSelectionRange(pos, pos)
@@ -1241,10 +1222,23 @@ function getEditorHtmlWithoutIllustration(root) {
     }
     const markdownSrc = image.dataset.markdownSrc
     if (markdownSrc) image.setAttribute('src', markdownSrc)
-    image.removeAttribute('data-markdown-src')
+    if (!/^pinax-media:\/\/[a-zA-Z0-9_-]+$/.test(markdownSrc || '')) {
+      image.removeAttribute('data-markdown-src')
+    }
     element.replaceWith(image)
   })
-  return sanitizeHtml(clone.innerHTML)
+  const clean = document.createElement('div')
+  clean.innerHTML = sanitizeHtml(clone.innerHTML)
+  // Internal media URIs are persistence references, not rendered URLs. Restore
+  // only these validated references after sanitizing, before Turndown reads them.
+  clean.querySelectorAll('img[data-markdown-src]').forEach((image) => {
+    const reference = image.dataset.markdownSrc || ''
+    if (/^pinax-media:\/\/[a-zA-Z0-9_-]+$/.test(reference)) {
+      image.setAttribute('src', reference)
+    }
+    image.removeAttribute('data-markdown-src')
+  })
+  return clean.innerHTML
 }
 
 function refreshIllustrationSurfaces() {

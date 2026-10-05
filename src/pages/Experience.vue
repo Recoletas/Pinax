@@ -11,6 +11,7 @@
         :has-selected-worldbook="hasSelectedWorldbook"
         @open-session="showSessionPicker = true"
         @open-codex="openCodexFromHeader"
+        :advisor-enabled="showExperienceWorkChrome" @open-advisor="openAdvisorFromAction"
       />
       <main
         v-if="!showSessionPicker"
@@ -393,12 +394,7 @@
 
     <GmPersonaLauncher
       v-if="showExperienceWorkChrome"
-      kicker="当场顾问"
-      title="从这里继续推进"
-      body="我先看当前世界、开场现场和最近对话，再给你一个更紧的推进切口。"
-      avatarLabel="场"
       caption="当场顾问"
-      captionHint="继续冒险"
       :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
       @open="openAdvisorFromAction"
     />
@@ -552,7 +548,7 @@ const hasUserActionMessages = computed(() => {
 // 标记写入 STORAGE_KEYS.EXPERIENCE_FIRST_VISIT (避免与 EXPERIENCE_READING_PROFILE 冲突)
 function markFirstVisitIfNeeded() {
   const visited = getItem(STORAGE_KEYS.EXPERIENCE_FIRST_VISIT)
-  if (visited) return
+  if (visited || meta.isDemoMode || !gameStore.messages.length) return
   setItem(STORAGE_KEYS.EXPERIENCE_FIRST_VISIT, { at: Date.now() })
   if (!tip.isSeen('experience-online-features')) {
     // 推迟 600ms, 让页面渲染稳定后再弹
@@ -3543,3 +3539,5 @@ async function handleSend(text, options = {}) {
 }
 
 </style>
+
+<style scoped src="./Experience.chrome.css"></style>

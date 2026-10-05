@@ -171,7 +171,7 @@ export function buildWorldbookLocationMarkers(worldbook, mapData, existingMarker
   const entries = worldbookEntries
   const derivedMarkers = []
   const occupied = currentMarkers
-    .filter(marker => marker?.bindingMethod !== 'fallback')
+    .filter(marker => marker?.bindingStatus === 'confirmed' || (!marker?.worldbookEntryId && !marker?.sourceEntryId))
     .map(marker => ({ x: Number(marker.x), y: Number(marker.y) }))
     .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
 
@@ -298,7 +298,7 @@ export function buildMapNativePlaceInventory(mapData, worldbook, markers = []) {
     .filter((burg) => burg?.i > 0 && String(burg.name || '').trim())
     .map((burg) => {
       const marker = markerByObject.get(`burg:${burg.i}`) || null
-      const formallyLinked = Boolean(marker?.worldbookEntryId)
+      const formallyLinked = Boolean(marker?.worldbookEntryId && marker?.bindingStatus === 'confirmed')
       const population = Math.max(0, Number(burg.population) || 0)
       const kind = burg.capital
         ? 'capital'
@@ -319,7 +319,7 @@ export function buildMapNativePlaceInventory(mapData, worldbook, markers = []) {
         stateName,
         population,
         port: Boolean(burg.port),
-        status: formallyLinked || alreadyAuthored ? 'linked' : marker ? 'previewed' : 'map-only',
+        status: formallyLinked ? 'linked' : marker || alreadyAuthored ? 'previewed' : 'map-only',
         linkedMarkerId: marker?.id || '',
         canPromote: !marker && !alreadyAuthored,
       }
@@ -704,7 +704,7 @@ function resolvePlaceKind(entry) {
   if (/^(?:city|town|village|port|fortress)$/.test(rawType)) return 'burg'
   if (/^(?:ruin|dungeon|cave|mine|landmark)$/.test(rawType)) return 'site'
   if (type === 'organization') return 'state'
-  if (REMOTE_SITE_HINT_RE.test(name)) return 'site'
+  if (REMOTE_SITE_HINT_RE.test(name) || /灯塔|仓库|建筑|lighthouse|warehouse/i.test(name)) return 'site'
   if (LOCATION_HINT_RE.test(name)) return 'burg'
   if (RIVER_TYPE_RE.test(name)) return 'river'
   if (ROUTE_HINT_RE.test(name)) return 'route'
@@ -751,6 +751,9 @@ function resolveMarkerBinding(entry, name, entryId, mapData, existing, point = n
   }
   if (existing?.bindingStatus === 'confirmed') {
     return { status: 'confirmed', method: existing.bindingMethod || 'manual', reason: '地图标记已确认' }
+  }
+  if (existing?.bindingMethod === 'manual-pending' && String(existing.bindingMapSeed || '') === String(mapData?.seed || '') && Number.isFinite(Number(existing.x)) && Number.isFinite(Number(existing.y))) {
+    return { status: 'auto-matched', method: 'manual-pending', reason: '作者手动选择的位置，待确认' }
   }
   if (
     existing?.bindingStatus === 'auto-matched'
@@ -799,7 +802,7 @@ function resolveWorldbookLocationPoint(name, entryId, mapData, existing, entry =
     }
   }
   if (
-    existing?.bindingMethod !== 'fallback'
+    (existing?.bindingStatus === 'confirmed' || (existing?.bindingMethod === 'manual-pending' && String(existing.bindingMapSeed || '') === String(mapData?.seed || '')))
     && Number.isFinite(Number(existing?.x))
     && Number.isFinite(Number(existing?.y))
   ) {
@@ -856,6 +859,14 @@ function resolveBurgCandidate(entry, mapData, occupied, visibleMarkers) {
   const targetStateIds = new Set(states
     .filter((state) => state?.i > 0 && stateTargets.includes(normalizeMapName(state.name)))
     .map((state) => Number(state.i)))
+  // Population and generic suitability cannot establish which authored place a
+  // settlement represents. Keep it unbound until there is concrete evidence.
+  const hasRelatedAnchor = (entry?.__relationRefs || []).some((reference) => (
+    ['parent', 'adjacent', 'same-state', 'different-state'].includes(reference.relation)
+    && visibleMarkers.some((marker) => marker?.bindingStatus === 'confirmed'
+      && normalizeMapName(marker.name) === normalizeMapName(reference.name))
+  ))
+  if (!(wantsCoast || wantsRiver || wantsMountain || wantsForest || wantsDesert || wantsCapital || wantsVillage || targetStateIds.size || hasRelatedAnchor)) return null
   let best = null
   for (const burg of burgs) {
     if (!(burg?.i > 0) || !Number.isInteger(Number(burg.cell))) continue
@@ -894,6 +905,7 @@ function resolveBurgCandidate(entry, mapData, occupied, visibleMarkers) {
   if (wantsForest) reasons.push('森林生境')
   if (wantsDesert) reasons.push('荒漠生境')
   if (targetStateIds.size) reasons.push('所属国家')
+  if (hasRelatedAnchor) reasons.push('已确认地点关系')
   return {
     x: Number(best.burg.x),
     y: Number(best.burg.y),

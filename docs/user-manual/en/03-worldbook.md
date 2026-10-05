@@ -4,6 +4,10 @@ The story bible gathers a work’s source material, structured settings, detaile
 
 ![Create a story bible by importing sources or starting from an idea](../../screenshots/user-guide-20260924/18-worldbook-en.png)
 
+## Switch books in Settings
+
+When Settings is opened for a book, use the book selector at the top to switch works. The current section stays open and loads the selected book's linked worldbook. **Back to manuscript** returns to that book. An unlinked book shows an empty state; books linked to the same worldbook share its settings. Save entry edits before switching, or confirm that you want to discard them.
+
 ## Four kinds of story information
 
 **Sources** are reference files and excerpts. TXT, Markdown, DOCX and PDF can be imported or text can be pasted. Sources preserve where information came from; imported material is not automatically confirmed canon.

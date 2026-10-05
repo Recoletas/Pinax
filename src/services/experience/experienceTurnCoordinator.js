@@ -47,7 +47,7 @@ import {
   archiveDurableRoleplayTurns,
   failRoleplayNarration
 } from './roleplay/roleplayWorkflow.js'
-import { buildDirectiveFromCheckRow } from './roleplay/roleplayProjection.js'
+import { buildDirectiveFromCheckRow, buildRoleplayNarrationContext } from './roleplay/roleplayProjection.js'
 
 // A turn has exactly one in-flight controller per store instance. Keeping this
 // here makes cancellation part of the turn lifecycle instead of a store-global
@@ -174,6 +174,7 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         const roleplayDirective = roleplayBinding && !roleplayBinding.pending
           ? buildDirectiveFromCheckRow(roleplayBinding.checkRow)
           : ''
+        const roleplayContext = buildRoleplayNarrationContext(store.roleplaySession, roleplayBinding?.pending ? roleplayBinding.action : roleplayBinding?.checkRow)
         const narrativeKernel = buildNarrativeKernel({
           worldbook,
           runtimeState: {
@@ -193,7 +194,8 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
             historyNode: store.historyNode
           },
           messages: store.chatHistory,
-          sceneSummary: store.narrativeSceneSummary,
+          sceneSummary: roleplayContext || store.narrativeSceneSummary,
+          sceneProjection: roleplayContext ? { location: roleplayContext.location } : null,
           projectId: narrativeProjectId,
           sessionId: narrativeSessionId,
           authorNote: [directorNote, roleplayDirective].filter(Boolean).join(' '),  // R2：本轮导演注；跑团重叙述追加结算约束
@@ -296,6 +298,10 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           requestId,
           signal: controller.signal,
           maxTokens,
+          taskContract: roleplayContext ? {
+            ...roleplayContext.taskContract,
+            authorizedAction: roleplayContext.taskContract.authorizedAction || String(continuityMessages.at(-1)?.role === 'user' ? continuityMessages.at(-1).content : '')
+          } : null,
           onStatus: (status) => {
             productionObserver.observeStatus(status)
             if (activeTurnControllers.get(store) === controller) {

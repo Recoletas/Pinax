@@ -21,6 +21,7 @@ import {
 import { classifyContextRunOutcome } from '../context/contextRunBudget.js'
 import { reconcileManifestDependencies } from '../context/contextManifestLifecycle.js'
 import { createManifestAuthorizedNarrativeIndex } from '../context/manifestToolAuthorization.js'
+import { createAuthoringTaskContract } from '../narrativeTaskQuality.js'
 
 function emptyResultError() {
   return Object.assign(new Error('叙事内核没有返回正文'), { code: 'AGENT_EMPTY_RESULT' })
@@ -190,7 +191,9 @@ export function createNarrativeKernelExecutor({
       : ''
     const operationInstruction = turn?.operation === 'rewrite-unit'
       ? '重写“待重写文本块”的完整内容：保留已成立的事实、人物关系与叙事视角，改善表达与节奏；只输出可整体替换该文本块的正文，不续写后续情节。'
-      : ''
+      : turn?.operation === 'next-passage'
+        ? '从“当前落笔处”最后一句之后接续，只写新增正文。光标前的叙述与动作已经发生，不重新开场、不重演已完成的动作；回应作者要求后，在指定的收束处停下。'
+        : ''
     const effectiveInstruction = [operationInstruction, directionInstruction, instruction].filter(Boolean).join('\n')
     const messages = effectiveInstruction
       ? [
@@ -258,7 +261,8 @@ export function createNarrativeKernelExecutor({
         settings,
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
-        maxTokens
+        maxTokens,
+        taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
       })
     } catch (error) {
       error.contextOutcome = classifyContextRunOutcome({ error })

@@ -259,12 +259,14 @@ async function main() {
     })
 
     // A3 有效响应
-    await ENQUEUE({ projectId: 'bookA', sourceRefs: ['unit:unit-a'], sourceRevision: 'doc-r30', revisionSeq: 30, fingerprint: 'fp-a', text: '莉娜没有钥匙。掌柜把钥匙收进了柜台。他梦见城破了。' })
+    await ENQUEUE({ projectId: 'bookA', sourceRefs: ['unit:unit-a'], sourceRevision: 'doc-r30', revisionSeq: 30, fingerprint: 'fp-a', text: '莉娜没有钥匙。掌柜把钥匙收进了柜台。他梦见城破了。林岚答应明早把信交给周渡。李舟并未离开港口。' })
     scripted = responseFor({
       proposals: [
         { subject: '莉娜', predicate: '没有', object: '钥匙', quote: '莉娜没有钥匙。', polarity: 'negative', storyTime: { precision: 'unknown' }, confidence: 0.9 },
         { subject: '掌柜', predicate: '收起了', object: '钥匙', quote: '掌柜把钥匙收进了柜台。', polarity: 'positive', storyTime: { precision: 'unknown' }, confidence: 0.8 },
         { subject: '旅人', predicate: '梦见', object: '城破', quote: '他梦见城破了。', polarity: 'report', storyTime: { precision: 'unknown' }, confidence: 0.7 },
+        { subject: '林岚', predicate: '交给', object: '信', quote: '把信交给周渡', polarity: 'positive' },
+        { subject: '李舟', predicate: '离开', object: '港口', quote: '离开港口', polarity: 'negative' },
         { subject: '幽灵', predicate: '站在', object: '门口', quote: '原文中不存在的引文内容。', polarity: 'positive', confidence: 0.9 }
       ],
       unextractable: { reason: '' }
@@ -275,31 +277,37 @@ async function main() {
     // 否定/传闻语义由 claim 文本承载（谓词「没有」「梦见」+ 引文原句），账本无独立 polarity 列。
     check('A3 有效提取：否定/传闻以 claim 文本保留、引文逐字命中、不命中者拒绝且部分失败可见',
       afterA.status === 'completed'
-      && afterA.proposalCount === 3
+      && afterA.proposalCount === 5
       && afterA.rejected.some((item) => item.reason === 'quote-missing-in-source')
       && ledgerA.proposals.some((row) => row.predicate === '没有' && row.object === '钥匙')
       && ledgerA.proposals.some((row) => row.predicate === '梦见' && row.object === '城破')
+      && ledgerA.proposals.some((row) => row.predicate === '原文记载（交给）' && row.object === '林岚答应明早把信交给周渡。')
+      && ledgerA.proposals.some((row) => row.predicate === '原文记载（离开）' && row.object === '李舟并未离开港口。')
       && ledgerA.proposals.every((row) => row.evidenceCount === 1)
       && ledgerA.proposals.every((row) => row.origin === 'ai'),
       JSON.stringify({ job: afterA, ledger: ledgerA.proposals, rejected: afterA.rejected }))
 
     // A4 采纳 → 生产 reader 可见否定事实；未采纳不混入
     const negativeId = ledgerA.proposals.find((row) => row.predicate === '没有')?.id || ''
-    const reader = await page.evaluate(async (proposalId) => {
+    const promiseId = ledgerA.proposals.find((row) => row.predicate === '原文记载（交给）')?.id || ''
+    const reader = await page.evaluate(async ([proposalId, promiseId]) => {
       const ledger = await import('/src/services/memory/ledger/factLedger.js')
       const ledgerDb = await import('/src/services/memory/ledger/ledgerDb.js')
       const query = await import('/src/services/memory/ledger/queryFacts.js')
       const { db } = ledgerDb.createLedgerDb()
       await db.open()
       const adopted = await ledger.adoptProposal(db, { scope: { domain: 'book', bookId: 'bookA' }, proposalId, commandId: `gate-adopt-${proposalId}` })
+      const promise = await ledger.adoptProposal(db, { scope: { domain: 'book', bookId: 'bookA' }, proposalId: promiseId, commandId: `gate-adopt-${promiseId}` })
       const facts = await query.queryFacts(db, { scope: { domain: 'book', bookId: 'bookA' }, limit: 50 })
       const items = (facts.items || [])
       const hasNegative = items.some((item) => (item.predicate === '没有' || item.action === '没有') && (item.object === '钥匙'))
       const hasPendingOnly = items.some((item) => (item.predicate === '收起了'))
-      return { adoptedOk: adopted.ok, adoptedReason: adopted.reason || '', itemCount: items.length, hasNegative, hasPendingOnly }
-    }, negativeId)
+      const hasPromise = items.some(item => item.predicate === '原文记载（交给）' && item.object === '林岚答应明早把信交给周渡。')
+      db.close()
+      return { adoptedOk: adopted.ok && promise.ok, adoptedReason: adopted.reason || '', itemCount: items.length, hasNegative, hasPendingOnly, hasPromise }
+    }, [negativeId, promiseId])
     check('A4 采纳后生产 reader 可见否定事实；未采纳提案不混入',
-      reader.adoptedOk && reader.hasNegative && !reader.hasPendingOnly, JSON.stringify(reader))
+      reader.adoptedOk && reader.hasNegative && reader.hasPromise && !reader.hasPendingOnly, JSON.stringify(reader))
 
     // A5 401 不盲重试
     await ENQUEUE({ projectId: 'bookA', sourceRefs: ['unit:unit-b'], sourceRevision: 'doc-r31', revisionSeq: 31, fingerprint: 'fp-b', text: '另一段原文。' })

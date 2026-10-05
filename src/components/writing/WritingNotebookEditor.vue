@@ -3784,15 +3784,15 @@ defineExpose({
 }
 
 .writing-notebook-editor__surface .ProseMirror figure[data-media-reference] {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
   min-height: 54px;
   margin: 1.4em 0;
-  padding: 10px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
-  background: color-mix(in srgb, var(--notebook-paper) 92%, var(--accent-primary) 8%);
+  padding: 14px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
   color: var(--notebook-muted);
   font: 500 12px/1.5 var(--font-sans, sans-serif);
   white-space: normal;
@@ -3815,10 +3815,23 @@ defineExpose({
 
 .writing-media-reference__caption {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.5;
 }
+
+.writing-media-reference__image {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  max-height: min(70vh, 620px);
+  border-radius: 8px;
+  object-fit: contain;
+}
+.writing-media-reference__image[hidden] { display: none; }
+.writing-media-reference__status { color: var(--notebook-muted); font: 13px/1.5 var(--font-sans, sans-serif); }
 
 .writing-notebook-editor__loading {
   padding: 36px;

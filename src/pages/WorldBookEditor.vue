@@ -7,6 +7,7 @@
         :active-worldbook="activeWorldbook"
         :project-label="projectContextLabel"
         :project-locked="isProjectMode"
+        :disabled="savingWorldbook || savingEntry || importing || groupWorking || maintenanceWorking || maintenanceApplying"
         :route-mismatch-notice="contextNotice"
         @change="onWorldbookChange"
       >
@@ -654,7 +655,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { tr, uiLocale } from '../i18n/index.js'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
@@ -671,6 +672,7 @@ import SettingsReturnToManuscript from '../components/workbench/SettingsReturnTo
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 const route = useRoute()
+const router = useRouter()
 const worldStore = useWorldStore()
 
 // 设定 Agent 调度入口：高级编辑维护统一走 canonical settings.maintenance.audit 任务。
@@ -746,7 +748,7 @@ const editorTabs = [
 
 const selectedWorldbookId = ref('')
 // 项目上下文（联动闭环 L3）：先解析正确的世界书，再处理 entryId 定位。
-const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook: activeWorldbook, loading: contextLoading, loadError, refresh: refreshProjectContext } = useSettingsProjectContext({ worldStore })
 const isProjectMode = computed(() => context.value?.mode === 'project')
 const projectContextLabel = computed(() => context.value?.book?.title || '')
 const projectContextStatus = computed(() => context.value?.status || '')
@@ -811,6 +813,16 @@ const entryForm = reactive({
   injectionCaseSensitive: false
 })
 
+const savedWorldbookForm = ref('')
+const savedEntryForm = ref('')
+onBeforeRouteUpdate((to, from) => {
+  if (String(to.query.bookId || '') === String(from.query.bookId || '')) return true
+  if (savingWorldbook.value || savingEntry.value || importing.value || groupWorking.value || maintenanceWorking.value || maintenanceApplying.value) return false
+  const dirty = (savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value)
+    || (selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value)
+  return !dirty || window.confirm(tr('有尚未保存的设定修改，切换作品会丢弃这些修改。仍要切换吗？'))
+})
+
 const entryTypes = [
   { value: 'general', label: '通用' },
   { value: 'rule', label: '规则' },
@@ -831,7 +843,6 @@ const injectionModes = [
 ]
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
-const activeWorldbook = computed(() => worldStore.activeWorldbook)
 const entries = computed(() => activeWorldbook.value?.entries || [])
 
 const availableGroups = computed(() => {
@@ -893,9 +904,12 @@ const selectedEntry = computed(() => {
   return entries.value.find(e => e.id === selectedEntryId.value) || null
 })
 
-watch(activeWorldbook, (next) => {
+watch(activeWorldbook, (next, previous) => {
   selectedWorldbookId.value = next?.id || ''
-  syncWorldbookForm(next)
+  const sameWorldbook = next?.id && next.id === previous?.id
+  const formDirty = savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value
+  if (!sameWorldbook || !formDirty || savingWorldbook.value) syncWorldbookForm(next)
+  if (sameWorldbook) return
   selectFirstEntry()
   selectedEntryIds.value = []
   groupDraftName.value = ''
@@ -904,8 +918,11 @@ watch(activeWorldbook, (next) => {
   clearGroupMessages()
 }, { immediate: true })
 
-watch(selectedEntry, (entry) => {
-  if (entry) syncEntryForm(entry)
+watch(selectedEntry, (entry, previous) => {
+  const sameEntry = entry?.id && entry.id === previous?.id
+  const formDirty = savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value
+  if (entry && (!sameEntry || !formDirty || savingEntry.value)) syncEntryForm(entry)
+  else if (entry) return
   else resetEntryForm()
 }, { immediate: true })
 
@@ -1171,6 +1188,7 @@ function syncWorldbookForm(worldbook) {
   worldbookForm.examples = worldbook?.examples || ''
   worldbookForm.forbidden = worldbook?.forbidden || ''
   worldbookForm.description = worldbook?.description || ''
+  savedWorldbookForm.value = JSON.stringify(worldbookForm)
 }
 
 function syncEntryForm(entry) {
@@ -1193,6 +1211,7 @@ function syncEntryForm(entry) {
   entryForm.injectionSecondaryMode = injection.secondaryMode || 'any'
   entryForm.injectionWholeWord = Boolean(injection.wholeWord)
   entryForm.injectionCaseSensitive = Boolean(injection.caseSensitive)
+  savedEntryForm.value = JSON.stringify(entryForm)
 }
 
 function resetEntryForm() {
@@ -1397,10 +1416,15 @@ function ignoreMaintenanceCandidate(candidate) {
   candidate.status = 'ignored'
 }
 
+let worldbookChangeSequence = 0
 async function onWorldbookChange(worldbookId) {
   // 项目模式：世界书由书稿关联决定，不在这里静默换库。
   if (isProjectMode.value) return
-  await worldStore.setActiveWorldbook(worldbookId)
+  const ticket = ++worldbookChangeSequence
+  const from = route.fullPath
+  const loaded = await worldStore.setActiveWorldbook(worldbookId)
+  if (ticket !== worldbookChangeSequence || route.fullPath !== from || route.query.bookId || String(loaded?.id || '') !== String(worldbookId)) return
+  await router.replace({ name: route.name, query: { worldbookId: String(worldbookId) } })
 }
 
 async function createWorldbook() {
@@ -1408,7 +1432,7 @@ async function createWorldbook() {
   const created = await worldStore.createWorldbook({ name: nextName })
   await worldStore.loadWorldbooksIndex()
   if (created?.id) {
-    await worldStore.setActiveWorldbook(created.id)
+    await onWorldbookChange(created.id)
   }
 }
 
@@ -1438,7 +1462,9 @@ async function deleteWorldbook() {
 
   await worldStore.deleteWorldbook(activeWorldbook.value.id)
   await worldStore.loadWorldbooksIndex()
-  if (typeof worldStore.ensureActiveWorldbook === 'function') {
+  if (isProjectMode.value || route.query.worldbookId) {
+    await refreshProjectContext()
+  } else if (typeof worldStore.ensureActiveWorldbook === 'function') {
     await worldStore.ensureActiveWorldbook()
   }
 }
@@ -1932,7 +1958,7 @@ async function confirmImportFromPreview() {
     const created = await worldStore.importFromSillyTavern(importPreview.value.rawData)
     await worldStore.loadWorldbooksIndex()
     if (created?.id) {
-      await worldStore.setActiveWorldbook(created.id)
+      if (!isProjectMode.value) await onWorldbookChange(created.id)
     }
     importPreview.value = null
     setTransferSuccess('导入完成：{name}', { name: created?.name || tr('新建世界书') })
@@ -1998,8 +2024,9 @@ onMounted(async () => {
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--surface-workbench-canvas);
   color: var(--text-primary);
+  font-family: var(--font-sans);
 }
 
 
@@ -2069,7 +2096,7 @@ onMounted(async () => {
 }
 
 .card {
-  background: var(--bg-secondary);
+  background: var(--surface-workbench-raised);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
@@ -2927,12 +2954,14 @@ label {
 .text-area,
 .search-input {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-workbench-input);
   color: var(--text-primary);
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font: 14px/1.6 var(--font-sans);
 }
 
 .text-area {
@@ -3157,7 +3186,9 @@ label {
 .editor-layout {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  padding: 18px clamp(14px, 3vw, 42px) 34px;
+  padding: 20px clamp(14px, 3vw, 42px) 34px;
+  background: var(--surface-workbench);
+  border-radius: 20px 20px 0 0;
 }
 
 .editor-main {
@@ -3168,10 +3199,10 @@ label {
 .editor-tabs {
   flex-wrap: nowrap;
   flex-shrink: 0;
-  gap: 3px;
-  margin: 0 0 20px;
+  gap: 4px;
+  margin: 0 0 24px;
   overflow-x: auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-bottom: 0;
   scrollbar-width: thin;
 }
 
@@ -3182,9 +3213,9 @@ label {
   min-height: 36px;
   flex: 0 0 auto;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  padding: 0 10px 8px;
+  border-radius: 12px;
+  padding: 0 12px;
+  font: 500 14px/1.5 var(--font-sans);
   background: transparent;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -3195,18 +3226,17 @@ label {
 }
 
 .editor-tab:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--nav-hover);
   color: var(--text-primary);
 }
 
 .editor-tab.active {
-  border-bottom-color: var(--accent);
-  background: transparent;
-  color: var(--accent);
+  background: var(--nav-selected);
+  color: var(--text-primary);
 }
 
 .editor-tab.active svg {
-  color: var(--accent);
+  color: currentColor;
 }
 
 .editor-main > .card {
@@ -3224,8 +3254,8 @@ label {
 }
 
 .editor-main > .card > .card-head h2 {
-  font-size: 20px;
-  font-weight: 680;
+  font-size: 24px;
+  font-weight: 500;
 }
 
 .editor-main .card-actions {
@@ -3236,34 +3266,33 @@ label {
 .editor-main .primary-btn,
 .editor-main .ghost-btn,
 .editor-main .danger-btn {
-  min-height: 34px;
+  min-height: 36px;
   height: auto;
-  border-radius: 2px;
+  border-radius: 12px;
+  font: 500 14px/1.5 var(--font-sans);
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 
 .editor-main .primary-btn {
   border: 0;
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 72%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  border-radius: 20px;
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 .editor-main .primary-btn:hover {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: var(--accent-hover);
 }
 
 .editor-main .ghost-btn {
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   background: transparent;
   color: var(--text-secondary);
 }
 
 .editor-main .ghost-btn:hover {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--text-primary);
+  background: var(--nav-hover);
 }
 
 .editor-main .danger-btn {
@@ -3321,12 +3350,13 @@ label {
   }
 
   .editor-tabs {
-    flex-wrap: wrap;
-    overflow: visible;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .editor-tab {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: center;
   }
 }
@@ -3612,7 +3642,7 @@ label {
   }
 }
 /* Entry management: a quiet directory and a single editing surface. */
-.worldbook-page { background: var(--archive-paper-soft); }
+.worldbook-page { background: var(--surface-workbench-canvas); }
 .entry-workspace-card .entry-checkbox { margin-top: 16px; accent-color: var(--accent); }
 .entry-workspace-card .entry-editor-heading .primary-btn { background: var(--accent); color: var(--accent-text); border: 0; padding: 9px 16px; }
 .entry-workspace-card .entry-editor-heading .primary-btn:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text-primary)); }
@@ -3620,32 +3650,32 @@ label {
 .entry-workspace-card .injection-panel .checkbox-line { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 36px; }
 .entry-workspace-card .injection-panel input[type='checkbox'] { width: 16px; height: 16px; margin: 0; flex: 0 0 16px; accent-color: var(--accent); }
 .entry-workspace-card > .card-head { display: block; margin-bottom: 20px; }
-.entry-workspace-card > .card-head h2 { padding: 0; font-size: 24px; font-weight: 600; }
+.entry-workspace-card > .card-head h2 { padding: 0; font-size: 24px; font-weight: 500; }
 .entry-total { margin-left: 8px; font-size: 14px; color: var(--text-secondary); font-weight: 400; }
 .entry-workspace-caption { margin: 8px 0 20px; color: var(--text-secondary); font-size: 14px; }
 .entry-workspace-card .entry-tools { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
 .entry-workspace-card .entry-tools .search-input { flex: 1 1 200px; max-width: 360px; }
 .entry-workspace-card .entry-tools .select-input { width: auto; flex: 0 1 150px; }
-.entry-workspace-card .entry-tools :is(.search-input, .select-input) { height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding: 6px 10px; background: var(--bg-primary); font-size: 13px; }
-.entry-workspace-card .entry-tools .ghost-btn { display: inline-flex; gap: 6px; align-items: center; height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding-inline: 12px; }
+.entry-workspace-card .entry-tools :is(.search-input, .select-input) { min-height: 36px; border: 1px solid transparent; border-radius: 12px; padding: 6px 12px; background: var(--surface-workbench-input); font: 14px/1.5 var(--font-sans); }
+.entry-workspace-card .entry-tools .ghost-btn { display: inline-flex; gap: 6px; align-items: center; min-height: 36px; border: 0; border-radius: 12px; padding-inline: 12px; background: var(--surface-workbench-muted); font: 500 14px/1.5 var(--font-sans); }
 .entry-workspace-card .entry-layout { grid-template-columns: minmax(240px, 28%) minmax(0, 1fr); gap: 28px; align-items: start; }
 .entry-workspace-card .entry-list { max-height: calc(var(--app-viewport-height, 100vh) - 280px); min-height: 320px; padding-right: 18px; border-color: var(--archive-paper-strong); }
 .entry-directory-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 10px; color: var(--text-secondary); font-size: 12px; }
-.entry-workspace-card .entry-item { padding: 0 10px; gap: 10px; margin-bottom: 4px; border: 0; border-radius: 6px; }
+.entry-workspace-card .entry-item { padding: 0 10px; gap: 10px; margin-bottom: 4px; border: 0; border-radius: 12px; }
 .entry-workspace-card .entry-item::before { display: none; }
 .entry-workspace-card .entry-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; align-items: stretch; border: 0; background: transparent; color: var(--text-primary); padding: 12px 0; text-align: left; font: inherit; cursor: pointer; }
-.entry-workspace-card .entry-title { font-size: 14px; font-weight: 550; white-space: normal; overflow-wrap: anywhere; }
+.entry-workspace-card .entry-title { font-size: 15px; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
 .entry-workspace-card .entry-badges { display: flex; flex-wrap: wrap; gap: 5px 10px; }
 .entry-workspace-card :is(.entry-type, .entry-mode, .entry-group) { padding: 0; border: 0; color: var(--text-secondary); background: transparent; font-size: 12px; }
 .entry-workspace-card .entry-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 18px; padding: 0 0 24px; background: transparent; }
 .entry-editor-heading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--archive-paper-strong); }
-.entry-editor-heading h3 { margin: 6px 0 0; font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+.entry-editor-heading h3 { margin: 6px 0 0; font-size: 24px; font-weight: 500; overflow-wrap: anywhere; }
 .entry-editor-kicker { font-size: 12px; color: var(--text-secondary); }
-.entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 6px; min-height: 36px; }
-.entry-workspace-card .entry-editor > label { gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 20px; min-height: 36px; }
+.entry-workspace-card .entry-editor > label { gap: 8px; font: 14px/1.5 var(--font-sans); color: var(--text-secondary); }
 .entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.entry-voice-editor, .injection-panel, .card-actions) { grid-column: 1 / -1; }
-.entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); padding: 10px 12px; color: var(--text-primary); font-size: 14px; }
-.entry-workspace-card .entry-editor > label .text-area { min-height: 260px; line-height: 1.85; resize: vertical; background-image: none; }
+.entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { min-height: var(--control-hit-min, 36px); border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input); padding: 6px 12px; color: var(--text-primary); font: 14px/1.5 var(--font-sans); }
+.entry-workspace-card .entry-editor > label .text-area { min-height: 260px; padding: 12px 14px; font-size: 15px; line-height: 1.85; resize: vertical; background-image: none; }
 .entry-workspace-card .injection-panel { margin: 0; padding: 0; background: transparent; }
 .injection-panel > summary { display: flex; align-items: center; gap: 12px; padding: 16px 0; cursor: pointer; font-size: 14px; color: var(--text-primary); list-style: none; }
 .injection-panel > summary::-webkit-details-marker { display: none; }
@@ -3664,8 +3694,16 @@ label {
  .entry-workspace-card .entry-tools .search-input { flex-basis: 100%; max-width: none; }
  .entry-workspace-card .entry-tools .select-input { flex: 1 1 100px; }
  .entry-workspace-card .entry-editor { grid-template-columns: minmax(0, 1fr); gap: 18px; }
- .entry-workspace-card .entry-tools .ghost-btn { height: 40px; }
+ .entry-workspace-card .entry-tools .ghost-btn { min-height: 44px; height: auto; }
  .injection-panel > summary { flex-wrap: wrap; gap: 8px; }
- .entry-editor-heading h3 { font-size: 19px; }
+ .entry-editor-heading h3 { font-size: 24px; }
 }
+/* All author-editable controls retain one visible focus owner. */
+.editor-main :is(.text-input, .select-input, .text-area, .search-input):focus { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none; }
+.entry-workspace-card .entry-item.active { background: var(--nav-selected); }
+@media (max-width: 760px), (pointer: coarse) {
+  .editor-tab, .editor-main :is(.primary-btn, .ghost-btn, .danger-btn, .text-input, .select-input, .search-input, summary), .entry-workspace-card .entry-tools :is(.search-input, .select-input, .ghost-btn) { min-height: 44px; height: auto; }
+}
+@media (max-width: 760px) { .editor-layout { border-radius: 0; } }
+@media (prefers-reduced-motion: reduce) { .editor-main :is(button, input, select, textarea) { animation: none; transition: none; } }
 </style>

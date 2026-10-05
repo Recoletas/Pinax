@@ -9,7 +9,7 @@
         <dl class="empty-params" aria-label="地图生成参数摘要">
           <div><dt>当前世界</dt><dd>{{ mergedConfig.mapName || '主世界' }}</dd></div>
           <div><dt>地形模板</dt><dd>{{ mergedConfig.heightmapTemplate || '自动路由' }}</dd></div>
-          <div><dt>国家</dt><dd>{{ mergedConfig.stateCount || 8 }}</dd></div>
+          <div><dt>{{ mergedConfig.authoredPlacesOnly ? '范围' : '国家' }}</dt><dd>{{ mergedConfig.authoredPlacesOnly ? '局部地形草图' : (mergedConfig.stateCount ?? 8) }}</dd></div>
         </dl>
       </div>
     </div>
@@ -50,10 +50,13 @@
     <div v-if="mapData && !generating" class="info-bar">
       <div class="info-name">{{ mapData.name }}</div>
       <div class="info-stats">
+        <template v-if="mergedConfig.authoredPlacesOnly">局部地形草图 · {{ markerCount }} 个地点标记</template>
+        <template v-else>
         {{ mapData.states.filter(s => s.i > 0).length }} 国 ·
         {{ mapData.burgs.filter(b => b.i > 0).length }} 城 ·
         {{ mapData.rivers.length }} 河 ·
         {{ markerCount }} 标记
+        </template>
       </div>
     </div>
 
@@ -111,14 +114,14 @@
           </div>
           <input class="param-range" type="range" min="2" max="12" step="1" v-model.number="paramDraft.plateCount" />
         </div>
-        <div class="param-field">
+        <div v-if="!mergedConfig.authoredPlacesOnly" class="param-field">
           <div class="param-head">
             <span>国家数量</span>
             <strong>{{ paramDraft.stateCount }}</strong>
           </div>
           <input class="param-range" type="range" min="2" max="15" step="1" v-model.number="paramDraft.stateCount" />
         </div>
-        <div class="param-field">
+        <div v-if="!mergedConfig.authoredPlacesOnly" class="param-field">
           <div class="param-head">
             <span>城市密度</span>
             <strong>{{ formatNumber(paramDraft.burgDensity) }}x</strong>
@@ -153,7 +156,7 @@
     <!-- Bottom: legend + scale -->
     <div v-if="mapData && !generating" class="bottom-bar">
       <div class="bottom-left">
-        <div v-if="addingMarkerMode" class="mode-hint">单击地图放置新标记，Esc 取消</div>
+        <div v-if="addingMarkerMode" class="mode-hint">{{ placementTarget ? `单击地图定位「${placementTarget.name}」，之后确认绑定；Esc 取消` : '单击地图放置新标记，Esc 取消' }}</div>
         <button class="canvas-btn sm" :class="{ active: showLegend }" @click="showLegend = !showLegend">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           图例
@@ -168,6 +171,7 @@
       <div class="scale-bar">
         <span class="scale-label">比例尺</span>
         <select class="scale-select" :value="kmPerPixel" @change="handleKmPerPixelChange(Number($event.target.value))">
+          <option :value="0.005">1px = 5m（示意）</option>
           <option :value="0.1">1px = 100m</option>
           <option :value="0.5">1px = 500m</option>
           <option :value="1">1px = 1km</option>
@@ -292,6 +296,7 @@ const kmPerPixel = shallowRef(1)
 const showLegend = ref(false)
 const showSettings = ref(false)
 const addingMarkerMode = ref(false)
+const placementTarget = shallowRef(null)
 
 const exporting = ref(false)
 
@@ -334,6 +339,9 @@ const mergedConfig = computed(() => ({
   height: 800,
   ...props.config,
 }))
+watch(() => props.config?.kmPerPixel, value => {
+  kmPerPixel.value = Number(value) > 0 ? Number(value) : 1
+}, { immediate: true })
 
 const renderStylePreset = computed(() => {
   const requested = props.config?.stylePreset || 'topographic'
@@ -348,6 +356,7 @@ const paramDraft = ref(createParamDraft(mergedConfig.value))
 
 const configCompactSummary = computed(() => {
   const cfg = mergedConfig.value
+  if (cfg.authoredPlacesOnly) return `局部地形草图 · ${templateLabel(cfg.heightmapTemplate)} · 仅使用设定地点`
   return `${templateLabel(cfg.heightmapTemplate)} · 陆地${formatPercent(cfg.landRatio ?? 0.45)} · ${cfg.stateCount ?? 8}国 · ${cfg.plateCount ?? cfg.continentCount ?? 6}板块`
 })
 
@@ -372,6 +381,7 @@ function toggleSettings() {
 }
 
 function toggleAddMarkerMode() {
+  placementTarget.value = null
   addingMarkerMode.value = !addingMarkerMode.value
   if (addingMarkerMode.value) {
     showSettings.value = false
@@ -379,11 +389,27 @@ function toggleAddMarkerMode() {
   }
 }
 
+function beginPlacePlacement(place) {
+  if (!mapData.value || !place?.entryId) return false
+  placementTarget.value = { entryId: place.entryId, name: place.name, worldbookId: place.worldbookId }
+  addingMarkerMode.value = true
+  showSettings.value = false
+  selectedMarkerId.value = null
+  return true
+}
+
 function applyParamDraft() {
   const nextConfig = {
     ...mergedConfig.value,
     ...normalizeParamDraft(paramDraft.value),
     seed: String(Math.floor(Math.random() * 1e10)),
+  }
+  if (mergedConfig.value.authoredPlacesOnly) {
+    nextConfig.width = 1200
+    nextConfig.height = 800
+    nextConfig.pointCount = 12000
+    nextConfig.stateCount = 0
+    nextConfig.burgDensity = 0
   }
   submitConfig(nextConfig)
 }
@@ -570,7 +596,7 @@ function focusCoordinates(x, y) {
   return true
 }
 
-defineExpose({ acceptReplacement, discardReplacement, loadCommittedConfig, markCommittedConfig, focusCoordinates })
+defineExpose({ acceptReplacement, discardReplacement, loadCommittedConfig, markCommittedConfig, focusCoordinates, beginPlacePlacement })
 
 function retryGeneration() {
   const request = lastFailedRequest || { config: cloneConfig(mergedConfig.value), commitOnSuccess: false }
@@ -716,6 +742,13 @@ function handleExportHD() {
         stylePreset: renderStylePreset.value,
         layers: renderLayers.value,
       })
+      const exportContext = exportCanvas.getContext('2d')
+      if (exportContext && props.markers.length) {
+        exportContext.save()
+        exportContext.setTransform(5, 0, 0, 5, 0, 0)
+        drawMarkers(exportContext, props.markers, null, null, getStyleConfig(renderStylePreset.value))
+        exportContext.restore()
+      }
       exportCanvas.toBlob(blob => {
         if (!blob) { exporting.value = false; return }
         const url = URL.createObjectURL(blob)
@@ -865,6 +898,19 @@ function onDblClick(e) {
 
 // ── 标记事件处理 ──
 function createMarkerAt(x, y) {
+  if (placementTarget.value) {
+    const place = placementTarget.value
+    placementTarget.value = null
+    emit('add-marker', x, y, {
+      id: `worldbook-location:${place.entryId}`, name: place.name,
+      worldbookId: place.worldbookId, worldbookEntryId: place.entryId,
+      source: 'worldbook', sourceEntryId: `worldbook:${place.entryId}`,
+      bindingStatus: 'auto-matched', bindingMethod: 'manual-pending',
+      bindingMapSeed: String(mapData.value?.seed || ''),
+      bindingReason: '作者手动选择的位置，待确认', userAdded: false
+    })
+    return
+  }
   const id = `mk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
   const name = `新标记 ${markerCount.value + 1}`
   pendingSelectedMarkerId = id
@@ -883,6 +929,7 @@ function handleMarkerDelete(id) {
 
 // Watch for config changes
 watch(configKey, () => {
+  placementTarget.value = null
   syncParamDraft()
   selectedMarkerId.value = null
   addingMarkerMode.value = false
@@ -936,6 +983,7 @@ const onResize = () => {
 
 function onKeyDown(e) {
   if (e.key === 'Escape') {
+    placementTarget.value = null
     addingMarkerMode.value = false
     showSettings.value = false
     return

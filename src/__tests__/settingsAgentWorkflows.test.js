@@ -8,7 +8,10 @@ import { createSettingsImportWorkflow } from '../services/agents/settings/settin
 import { createSettingsGenerationWorkflow } from '../services/agents/settings/settingsGenerationWorkflow.js'
 import { createSettingsPlaceWorkflow } from '../services/agents/settings/settingsPlaceWorkflow.js'
 import { createSettingsResearchWorkflow } from '../services/agents/settings/settingsResearchWorkflow.js'
+import { buildWorldbookLocationMarkers, buildMapNativePlaceInventory, buildWorldbookPlaceInventory } from '../services/ai/worldbookMapBridge.js'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow.js'
+import { buildWorldbookMapBasis, constrainMapConfigToWorldbook } from '../services/ai/worldbookMapGeneration.js'
+import { parseVoronoiMapConfig } from '../services/ai/voronoiMapAdapter.js'
 
 describe('settings agent task dispatcher', () => {
   it("builds one canonical request and returns a review draft（合并4例）", async () => {
@@ -207,6 +210,125 @@ const workflow = createSettingsGenerationWorkflow({ generateField: vi.fn() })
 describe('settings place workflow', () => {
   it("keeps extracted and fleshed-out places as review drafts（合并3例）", async () => {
 {
+    const map = {
+      width: 600, height: 400, seed: 'authored-place-audit',
+      cells: { length: 2, p: [100, 100, 400, 250], h: [30, 32], s: [10, 70], state: [1, 1] },
+      burgs: [{ i: 0 }, { i: 1, name: 'Crownhaven', x: 100, y: 100, cell: 0, population: 80, capital: true, state: 1 }],
+      states: [{ i: 0 }, { i: 1, name: 'Aethoria' }]
+    }
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    const panel = readFileSync(resolve(__dirname, '../components/worldbook/StructuredSettingsPanel.vue'), 'utf8')
+    const card = readFileSync(resolve(__dirname, '../components/worldbook/SettingFieldCard.vue'), 'utf8')
+    expect(panel).toContain('if (!(await flushAll())) return false')
+    expect(panel).toContain('onBeforeRouteLeave(flushAll)')
+    expect(panel).toContain('onBeforeRouteUpdate(flushAll)')
+    expect(panel).toContain('if (!(await selectSection(item.section.key))) return')
+    expect(card).toContain("if (dirty.state.value === 'error') dirty.markDirty(props.modelValue, lastCommitted.value)")
+    const generic = { id: 'places', entries: [{ id: 'town', type: 'location', name: '新城', content: '一处待定位的小城。' }] }
+    const oldCandidate = { id: 'old', worldbookId: 'places', worldbookEntryId: 'town', source: 'worldbook', sourceEntryId: 'worldbook:town', name: '新城', x: 100, y: 100, mapObjectId: 'burg:1', bindingStatus: 'auto-matched', bindingMethod: 'relation' }
+    expect(buildWorldbookLocationMarkers(generic, map)).toEqual([])
+    expect(buildWorldbookLocationMarkers(generic, map, [oldCandidate])).toEqual([])
+    expect(buildMapNativePlaceInventory(map, generic, [oldCandidate])[0].status).toBe('previewed')
+    const confirmed = { ...oldCandidate, bindingStatus: 'confirmed' }
+    expect(buildWorldbookLocationMarkers(generic, map, [confirmed])[0].bindingStatus).toBe('confirmed')
+    expect(buildMapNativePlaceInventory(map, generic, [confirmed])[0].status).toBe('linked')
+    const lighthouse = { id: 'places', entries: [{ id: 'light', type: 'location', name: '北岬灯塔', content: '雾港以北两公里的建筑物，并非城市。' }] }
+    expect(buildWorldbookPlaceInventory(lighthouse, { mapData: map })[0].kind).toBe('site')
+    expect(buildWorldbookLocationMarkers(lighthouse, map)).toEqual([])
+    const exact = { id: 'places', entries: [{ id: 'same', type: 'location', name: 'Crownhaven', content: '已命名聚落。' }] }
+    expect(buildWorldbookLocationMarkers(exact, map)[0].bindingMethod).toBe('exact')
+    const manual = { ...oldCandidate, bindingMethod: 'manual-pending', bindingMapSeed: map.seed, x: 180, y: 140 }
+    expect(buildWorldbookLocationMarkers(generic, map, [manual])[0])
+      .toMatchObject({ x: 180, y: 140, bindingStatus: 'auto-matched', bindingMethod: 'manual-pending' })
+    expect(buildWorldbookLocationMarkers(generic, { ...map, seed: 'next-map' }, [manual])).toEqual([])
+    const localBasis = buildWorldbookMapBasis({ id: 'local', structuredSettings: { world: { geography: '雾港是一座小港，只画港口与北侧两公里海岸；北岬灯塔位于岩岬。' } }, entries: [] })
+    expect(localBasis).toMatchObject({ ok: true, scope: 'local', namingStyle: 'chinese', coastal: true })
+    expect(localBasis.overview).toContain('北岬灯塔')
+    const localConfig = constrainMapConfigToWorldbook({ stateCount: 8, burgDensity: 1, namingStyle: 'european', burgNames: ['Crownhaven'] }, localBasis)
+    expect(localConfig).toMatchObject({ geographicScope: 'local', authoredPlacesOnly: true, width: 1200, height: 800, pointCount: 12000, stateCount: 0, burgDensity: 0, namingStyle: 'chinese', heightmapTemplate: 'peninsula', burgNames: [], kmPerPixel: 0.005 })
+    const worldBasis = buildWorldbookMapBasis({ worldDescription: '整张世界地图由三个大陆和八个国家构成，其中有海岸小镇。' })
+    expect(worldBasis.scope).toBe('world')
+    for (const kind of ['port', 'town', 'village', 'site']) {
+      const book = { entries: [{ id: kind, type: 'location', name: 'Northcape', kind, scale: 'unknown', content: '作者确认的地点。' }] }
+      const basis = buildWorldbookMapBasis(book)
+      expect(basis.scope, kind).toBe('local')
+      expect(basis.locations[0].name).toBe('Northcape')
+      expect(buildWorldbookMapBasis(book, { scope: 'world' }).scope).toBe('world')
+    }
+    for (const overview of ['故事在白沙渔村。', '故事发生在一个港湾内。', 'The story takes place in a village.']) {
+      expect(buildWorldbookMapBasis({ structuredSettings: { world: { geography: overview } } }).scope).toBe('local')
+    }
+    expect(buildWorldbookMapBasis({ entries: [{ id: 'region', type: 'location', name: '白沙地区', kind: 'region', content: '范围包括沿海渔村与内陆高原。' }] }).scope).toBe('world')
+    expect(constrainMapConfigToWorldbook({ stateCount: 8, burgDensity: 1 }, worldBasis)).toMatchObject({ stateCount: 8, burgDensity: 1 })
+    expect(buildWorldbookMapBasis({ description: '自动创建的默认世界书' }).ok).toBe(false)
+    expect(() => constrainMapConfigToWorldbook({}, { ok: false, reason: '缺少地理来源' })).toThrow('缺少地理来源')
+    expect(parseVoronoiMapConfig({ stateCount: 0, burgDensity: 0 }).config).toMatchObject({ stateCount: 0, burgDensity: 0 })
+    const { generateMap, generateMapAsync } = await import('../services/world-map/engine/generate.ts')
+    const smallMapConfig = { ...localConfig, width: 400, height: 300, pointCount: 500, seed: 'authored-local-regression' }
+    for (const terrain of [generateMap(smallMapConfig), await generateMapAsync(smallMapConfig)]) {
+      expect(Array.from(terrain.cells.h).filter(height => height >= 20).length).toBeGreaterThan(50)
+      expect(terrain.states.filter(state => state.i > 0)).toHaveLength(0)
+      expect(terrain.burgs.filter(burg => burg.i > 0)).toHaveLength(0)
+      expect(terrain.rivers.filter(river => river.name)).toHaveLength(0)
+    }
+    const fullWorld = generateMap({ width: 400, height: 300, pointCount: 500, seed: 'world-scope-regression', stateCount: 3, burgDensity: 0.7, namingStyle: 'chinese' })
+    expect(fullWorld.states.filter(state => state.i > 0).length).toBeGreaterThan(0)
+    expect(fullWorld.burgs.filter(burg => burg.i > 0).length).toBeGreaterThan(0)
+    const { renderScaleBarLayer } = await import('../services/world-map/engine/renderer.ts')
+    const scaleContext = Object.fromEntries(['clearRect', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'save', 'restore'].map(name => [name, vi.fn()]))
+    const scaleCanvas = { getContext: () => scaleContext }
+    renderScaleBarLayer(scaleCanvas, { width: 1200, height: 800 }, { kmPerPixel: 0.005, stylePreset: 'topographic' })
+    expect(scaleContext.fillText).toHaveBeenCalledWith('1公里', expect.any(Number), expect.any(Number))
+    expect(scaleContext.fillRect.mock.calls[0][2]).toBeLessThan(250)
+    scaleContext.fillText.mockClear()
+    renderScaleBarLayer(scaleCanvas, { width: 1200, height: 800 }, { kmPerPixel: 0.001, stylePreset: 'topographic' })
+    expect(scaleContext.fillText).toHaveBeenCalledWith('200米', expect.any(Number), expect.any(Number))
+    const { runStructuredGeneration } = await import('../../server/services/structuredGenerationRunner.js')
+    const placeDraft = { name: '北岬灯塔', kind: 'site', scale: 'local', description: '雾港以北的海岸灯塔。', evidence: '北岬灯塔位于雾港以北。', aliases: [], parentRef: '', factionRef: '', terrainHints: ['coast'], relations: [] }
+    const toolResponse = { ok: true, status: 200, json: async () => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'submit_setting_draft', input: { places: [placeDraft] } }] }) }
+    const providerFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: '```json\n{"places":\n```' }] }) })
+      .mockResolvedValue(toolResponse)
+    const extractionRequest = {
+      schemaVersion: 1, schemaId: 'setting-places.v1', requestId: 'place-protocol-fallback',
+      provider: { id: 'anthropic', format: 'anthropic', baseUrl: 'https://example.test/anthropic', apiKey: 'test-key', model: 'test-model' },
+      target: { worldbookId: 'places', worldbookRevision: 'r1', sectionKey: 'world', fieldKeys: ['geography'] },
+      context: { sourceExcerpts: placeDraft.evidence }, options: { maxTokens: 3000 }
+    }
+    const protocolCache = new Map()
+    const extractedResult = await runStructuredGeneration(extractionRequest, { fetchImpl: providerFetch, cache: protocolCache })
+    expect(extractedResult).toMatchObject({ mode: 'forced-tool', drafts: { places: [expect.objectContaining({ name: '北岬灯塔' })] } })
+    expect(providerFetch).toHaveBeenCalledTimes(2)
+    const firstBody = JSON.parse(providerFetch.mock.calls[0][1].body)
+    const secondBody = JSON.parse(providerFetch.mock.calls[1][1].body)
+    expect(firstBody.output_config).toBeTruthy()
+    expect(secondBody.tool_choice).toEqual({ type: 'tool', name: 'submit_setting_draft' })
+    expect(secondBody.max_tokens).toBe(firstBody.max_tokens)
+    await runStructuredGeneration({ ...extractionRequest, requestId: 'place-cached-protocol' }, { fetchImpl: providerFetch, cache: protocolCache })
+    expect(JSON.parse(providerFetch.mock.calls[2][1].body).tool_choice).toBeTruthy()
+    const fullDocument = JSON.stringify({ places: [placeDraft] })
+    const textReply = (value, stop_reason = 'end_turn') => ({ ok: true, status: 200, json: async () => ({ stop_reason, content: [{ type: 'text', text: value }] }) })
+    const textCache = new Map()
+    const textFetch = vi.fn().mockResolvedValue(textReply(`\x60\x60\x60json\n${fullDocument}\n\x60\x60\x60`))
+    const textResult = await runStructuredGeneration(extractionRequest, { fetchImpl: textFetch, cache: textCache })
+    expect(textResult).toMatchObject({ mode: 'text-json', drafts: { places: [expect.objectContaining({ name: '北岬灯塔' })] } })
+    expect([...textCache.values()][0]).toMatchObject({ textJson: true, nativeJsonSchema: false, toolCalls: null })
+    await runStructuredGeneration(extractionRequest, { fetchImpl: textFetch, cache: textCache })
+    const textBody = JSON.parse(textFetch.mock.calls[1][1].body)
+    expect(textBody.output_config).toBeUndefined()
+    expect(textBody.tools).toBeUndefined()
+    expect(textBody.messages[0].content).toContain('JSON Schema')
+    const forcedTextCache = new Map(protocolCache)
+    const forcedTextResult = await runStructuredGeneration(extractionRequest, { fetchImpl: textFetch, cache: forcedTextCache })
+    expect(forcedTextResult.mode).toBe('text-json')
+    expect([...forcedTextCache.values()][0]).toMatchObject({ toolCalls: false, specificToolChoice: false, strictToolSchema: false, textJson: true })
+    for (const invalid of [`说明\n${fullDocument}`, `${fullDocument}\n${fullDocument}`, `\x60\x60\x60json\n${fullDocument}`, `\x60\x60\x60json\n${JSON.stringify({ places: [{ ...placeDraft, kind: 'imaginary' }] })}\n\x60\x60\x60`]) {
+      await expect(runStructuredGeneration(extractionRequest, { fetchImpl: vi.fn().mockResolvedValue(textReply(invalid)), cache: new Map() })).rejects.toBeTruthy()
+    }
+}
+
+{
 const workflow = createSettingsPlaceWorkflow({
       extractPlaces: vi.fn(async () => [{ name: '旧码头', evidence: ['source:c1'] }]),
       fleshOutPlace: vi.fn(async () => ({ name: '旧码头', climate: '潮湿' }))
@@ -324,6 +446,12 @@ const files = [
       expect(source, file).not.toMatch(LEGACY_PROVIDER_CALLS)
       expect(source, file).toMatch(/dispatchSettingsTask|settingsDispatcher/)
     }
+    const importWorkspace = await readSource('src/pages/WorldbookCreationWorkspace.vue')
+    expect(importWorkspace).toMatch(/onMounted\(async \(\) => \{[\s\S]*?await worldStore\.loadWorldbooksIndex\(\)/)
+    expect(importWorkspace).toMatch(/const jsonImportMode = ref\(''\)/)
+    expect(importWorkspace).toContain(':disabled="busy || !jsonConflictResolved"')
+    expect(importWorkspace).toMatch(/async function confirmJsonImport\(\) \{[\s\S]*?!jsonConflictResolved\.value[\s\S]*?return/)
+    expect(importWorkspace).toContain('jsonNameConflict.entryCount')
 }
 {
 const source = await readSource('src/pages/WorldBookEditor.vue')

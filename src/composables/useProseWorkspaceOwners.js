@@ -1,3 +1,6 @@
 export { useCanvasViewport } from './useCanvasViewport.js'
 export { useProseCanvasInteraction } from './useProseCanvasInteraction.js'
 export { useProseDirectorExport } from './useProseDirectorExport.js'
+export { resolveCanvasCreationProjectId, resolveCanvasCardProjectId, getDirectorProjectId } from '../services/canvas/canvasProjectOwnership.js'
+export { SHOT_TYPES, CAMERA_MOVEMENTS } from '../types/director.js'
+export { createDirectorExportFingerprint, resolveDirectorExportTitle } from '../services/canvas/canvasDirectorIdentity.js'

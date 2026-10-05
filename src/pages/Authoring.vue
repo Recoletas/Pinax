@@ -1,5 +1,5 @@
 <template>
-  <div class="writing-page wall wt3-prototype" :class="{ 'is-zen': writingTypography.zen }" @click="onGlobalClick">
+  <div class="writing-page wall wt3-prototype" :class="{ 'is-zen': writingTypography.zen, 'is-assistant-full': assistantWorkspace.expanded.value }" @click="onGlobalClick">
     <!-- 专注全屏退出按钮：仅 Zen 态可见 -->
     <button
       v-if="writingTypography.zen"
@@ -10,7 +10,6 @@
     >{{ tr('退出全屏') }}</button>
     <!-- 页面内只保留编辑工具、保存反馈与章节目录；作品切换由全局标签和首页负责。 -->
     <div class="wall__cork" :inert="illustratorBlocking ? '' : undefined">
-
       <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
 
       <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="tr('保存状态')">
@@ -28,6 +27,8 @@
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
       </button>
+
+      <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" @pointerdown="beforeInspectorToolSelect('ai')" @click="assistantWorkspace.enter"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
 
       <div class="wall__tabs">
         <button
@@ -146,6 +147,7 @@
         :aria-label="tr(&quot;章节书架&quot;)"
       >
         <div class="wall__shelf-manuscript">
+          <ProjectWritingNavigation current="writing" compact :blocked="assistantWorkspace.navigationBusy.value" :blocked-title="tr('请先完成或停止当前任务再切换页面')" @select="assistantWorkspace.openSurface" />
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
             <input v-model="chapterShelfQuery" type="search" :placeholder="tr(&quot;搜索章节&quot;)" :aria-label="tr(&quot;搜索章节&quot;)" />
@@ -302,6 +304,7 @@
 
         <template v-else>
           <div class="wall__dossier-body">
+            <div v-if="assistantWorkspace.emptyBook.value && !wt3ActiveDocId" class="authoring-assistant-start"><button type="button" data-test="empty-start-assistant" @click="assistantWorkspace.enter">{{ tr('让助手帮我开始') }}</button><span>{{ tr('也可以直接在下面写作。') }}</span></div>
             <Teleport to="#authoring-editor-toolbar-host">
             <div class="editor-toolbar">
               <div class="toolbar-group">
@@ -924,24 +927,11 @@
         </nav>
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
-          <AuthoringKnowledgeAssistant
-            :review-workflow="reviewWorkflow"
-            v-model:draft="knowledgeAssistant.draft.value"
-            :project-title="currentBook?.title || ''"
-            :messages="knowledgeAssistant.messages.value"
-            :selected-intent="knowledgeAssistant.selectedIntent.value"
-            :busy="knowledgeAssistant.busy.value"
-            :error="knowledgeAssistant.error.value"
-            :notice="authoringMemoryNotice"
-            @select-intent="knowledgeAssistant.selectIntent"
-            @ask="knowledgeAssistant.ask"
-            @cancel="knowledgeAssistant.cancel"
-            @retry="knowledgeAssistant.retry"
-            @clear="knowledgeAssistant.clear"
-            @open-evidence="openAuthoringKnowledgeEvidence"
-            @review-notice="memoryReviewOpen = true"
-            @open-illustrator="openIllustrator"
-          />
+          <AuthoringAssistantWorkspace :assistant="knowledgeAssistant" :review-workflow="reviewWorkflow"
+            :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
+            :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
+            @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
+            @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
             @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
@@ -1497,6 +1487,7 @@
                 :placeholder="tr(&quot;输入书籍名称&quot;)"
                 ref="newBookInput"
               />
+              <fieldset class="authoring-new-book-start"><legend>{{ tr('如何开始') }}</legend><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="false" />{{ tr('直接写作') }}</label><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="true" />{{ tr('和助手构思') }}</label></fieldset>
               <ManuscriptLanguageSelect v-model="newBookLanguage" /><p class="modal-hint">{{ tr('创建后会建立第一个章节，可以立即写正文。') }}</p>
               <details class="modal-options">
                 <summary>{{ tr('可选：简介与世界书') }}</summary>
@@ -1515,19 +1506,17 @@
             </div>
             <div class="modal-footer">
               <button class="btn" type="button" @click="showNewBookModal = false">{{ tr('取消') }}</button>
-              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim()">{{ tr('创建并开始写') }}</button>
+              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim() && !assistantWorkspace.newBookWithAssistant.value">{{ assistantWorkspace.newBookWithAssistant.value ? tr('创建并构思') : tr('创建并开始写') }}</button>
             </div>
           </form>
         </Transition>
       </div>
     </Transition>
-
     <AuthoringManuscriptImport
       v-if="showManuscriptImport"
       @close="closeManuscriptImport"
       @import="confirmManuscriptImport"
     />
-
   </div>
 </template>
 
@@ -1564,7 +1553,9 @@ const AuthoringAdoptionImpact = defineAsyncComponent(() => import('../components
 import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
 const AuthoringDualPane = defineAsyncComponent(() => import('../components/authoring/AuthoringDualPane.vue'))
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
-const AuthoringKnowledgeAssistant = defineAsyncComponent(() => import('../components/authoring/AuthoringKnowledgeAssistant.vue'))
+const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
+import ProjectWritingNavigation from '../components/workbench/ProjectWritingNavigation.vue'
+import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
 const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
 const AuthoringReviewPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringReviewPanel.vue'))
 const AuthoringSearchPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringSearchPanel.vue'))
@@ -1580,7 +1571,7 @@ import { buildWritingContextCandidates } from '../services/agents/context/writin
 import { collectWritingContextDependencyRevisions, discoverCrossChapterContext } from '../services/agents/context/crossChapterContext.js'
 import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPositionIndex.js'
 import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
-import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/lazyAuthoringKnowledgeQuerySession.js'
 import { createAuthoringKnowledgeReaderHost } from '../services/agents/authoring/authoringKnowledgeReaderHost.js'
 import { buildAuthoringReviewRewriteTarget, compareAuthoringReviewRewriteTarget, compareWritingRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
 import { sourceRefForAuthoringEvidenceLocator } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
@@ -1775,7 +1766,7 @@ import {
   useAuthoringBlockWorkflow,
   useAuthoringGhostAdoptionWorkflow,
   useAuthoringReviewWorkflow,
-  useAuthoringSearchWorkflow,
+  useAuthoringSearchWorkflow, applyAuthoringSearchEditorTransaction,
   useAuthoringRewriteWorkflow,
   useAuthoringAnnotationSession,
   useAuthoringAnnotationSelection,
@@ -3547,6 +3538,14 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
   sceneProjection: knowledgeAssistantSceneProjection,
   revisionSignal: knowledgeAssistantRevisionSignal
+})
+const assistantWorkspace = useAuthoringAssistantWorkspace({
+  route, router, projectId: selectedBookId, chapterId: selectedChapterId, chapters, assistant: knowledgeAssistant,
+  writingTypography, openInspector: openInspectorTool, inspectorOpen, activeInspectorTool, closeChapterDrawer,
+  captureScroll: captureWritingScrollState, restoreScroll: restoreWritingScrollState,
+  focusEditor: () => nextTick(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false })),
+  openEvidence: openAuthoringKnowledgeEvidence, createBook: createNewBook,
+  openSources: () => openProjectSettingsSurface('sources'), openSettings: () => openProjectSettingsSurface('settings'), getReviewWorkflow: () => reviewWorkflow, openIllustrator
 })
 function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
   if (!document || !Array.isArray(document.content)) return null
@@ -8272,6 +8271,7 @@ function selectChapter(chapterId) {
   return true
 }
 function createNewBook({ clearRouteIntent = false } = {}) {
+  if (clearRouteIntent) assistantWorkspace.startNewBook()
   showNewBookModal.value = true
   newBookTitle.value = ''
   newBookLanguage.value = uiLocale.value
@@ -8338,10 +8338,10 @@ function setManuscriptLanguage(value) {
   }
 }
 function confirmCreateBook() {
-  if (!newBookTitle.value.trim()) return
+  if (!newBookTitle.value.trim() && !assistantWorkspace.newBookWithAssistant.value) return
   const createdAt = new Date().toISOString()
   const newBook = createWritingBookRecord({
-    title: newBookTitle.value.trim(),
+    title: newBookTitle.value.trim() || tr('未命名作品'),
     description: newBookDesc.value.trim(),
     manuscriptLanguage: newBookLanguage.value,
     worldbookId: String(newBookWorldbookId.value || '')
@@ -8365,7 +8365,7 @@ function confirmCreateBook() {
   }
   selectBook(newBook.id)
   showNewBookModal.value = false
-  nextTick(() => requestAnimationFrame(() => notebookEditorRef.value?.focus?.({ scrollIntoView: false })))
+  assistantWorkspace.afterCreateBook()
 }
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；
 // 写入 book.worldbookId 后精确加载该世界书并刷新现场。
@@ -10653,7 +10653,7 @@ function createSearchProtectionSnapshots(plan, book, index) {
   }
   return true
 }
-function reloadMainChapterAfterSearchReplace(chapter) {
+function reloadMainChapterAfterSearchReplace(chapter, preserveHistory = false) {
   if (!chapter || wt3ActiveDoc.value) return
   currentChapterTitle.value = chapter.title || ''
   const { raw, format } = readChapterSource(chapter)
@@ -10664,9 +10664,9 @@ function reloadMainChapterAfterSearchReplace(chapter) {
   chapterAnnotations.value = reconcileWritingAnnotations(chapter.annotations, writingDocument.value, chapter.id)
   sceneAnchors.value = normalizeSceneAnchors(chapter.sceneAnchors)
   loadChapterSnapshots(chapter.id)
-  fenceNotebookHistory()
+  if (!preserveHistory) fenceNotebookHistory()
 }
-function afterSearchReplace({ applied, latestBook, nextBooks }) {
+function afterSearchReplace({ plan, applied, latestBook, nextBooks }) {
   for (const chapterReceipt of applied.receipt.chapters || []) {
     const beforeChapter = (latestBook.chapters || []).find((item) => String(item.id) === String(chapterReceipt.chapterId))
     const afterChapter = (applied.nextBook.chapters || []).find((item) => String(item.id) === String(chapterReceipt.chapterId))
@@ -10689,8 +10689,9 @@ function afterSearchReplace({ applied, latestBook, nextBooks }) {
   books.value = nextBooks
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
   chapters.value = nextBook?.chapters || []
+  const editorHistory = applyAuthoringSearchEditorTransaction({ plan, activePane: activeWritingPane.value, mainChapterId: selectedChapterId.value, mainEditor: wt3ActiveDoc.value ? null : notebookEditorRef.value, dualPane: dualPaneRef.value })
   if (!wt3ActiveDoc.value) {
-    reloadMainChapterAfterSearchReplace(chapters.value.find((chapter) => String(chapter.id) === String(selectedChapterId.value)))
+    reloadMainChapterAfterSearchReplace(chapters.value.find((chapter) => String(chapter.id) === String(selectedChapterId.value)), editorHistory.main)
   }
   const dualSource = dualPaneRef.value?.getActiveSource?.()
   if (dualSource?.kind === 'chapter') {
@@ -10701,7 +10702,7 @@ function afterSearchReplace({ applied, latestBook, nextBooks }) {
         sourceId: dualChapter.id,
         title: dualChapter.title,
         document: dualChapter.editorDocument,
-        markdown: dualChapter.content
+        markdown: dualChapter.content, preserveHistory: editorHistory.dual
       })
     }
   }
@@ -10895,3 +10896,4 @@ function onGlobalClick() {
 <style src="./Writing.global.css"></style>
 
 <style src="./Authoring.block-native.css"></style>
+<style src="./Authoring.assistant.css"></style>

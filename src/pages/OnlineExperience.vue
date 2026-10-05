@@ -56,6 +56,9 @@ const lobbyNickname = ref(nickname.value || '')
 const lobbyRoomSlug = ref(roomSlug.value || '')
 const lobbyError = ref('')
 const copyError = ref('')
+const copyNotice = ref('')
+const copyFallbackUrl = ref('')
+const roomPanelOpen = ref(false)
 const hasEnteredRoom = ref(false)
 let pendingCreateSlug = ''
 let pendingJoinSlug = ''
@@ -112,21 +115,39 @@ function onRoomSelectAction(proposalId) {
 }
 
 function onRoomLeave() {
+  copyFallbackUrl.value = ''
+  copyNotice.value = ''
+  copyError.value = ''
+  roomPanelOpen.value = false
   leaveRoom()
   hasEnteredRoom.value = false
   router.push({ name: 'online-experience' })
 }
 
-function onCopyRoomLink() {
-  refreshShareInviteState()
-  const url = shareInviteUrl.value
-  if (!url) {
-    copyError.value = '分享邀请已过期或尚未生成，请由房主重新创建邀请'
-    return
-  }
+async function onCopyRoomLink() {
   copyError.value = ''
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).catch(() => {})
+  copyNotice.value = ''
+  copyFallbackUrl.value = ''
+  const sourceRoom = roomSlug.value
+  let url = ''
+  if (import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true') {
+    refreshShareInviteState()
+    url = shareInviteUrl.value
+    if (!url) {
+      copyError.value = '分享邀请已过期或尚未生成，请由房主重新创建邀请'
+      return
+    }
+  } else {
+    url = new URL(router.resolve({ name: 'online-experience', params: { roomSlug: sourceRoom } }).href, window.location.href).href
+  }
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable')
+    await navigator.clipboard.writeText(url)
+    if (roomSlug.value === sourceRoom && hasEnteredRoom.value) copyNotice.value = '房间链接已复制'
+  } catch {
+    if (roomSlug.value !== sourceRoom || !hasEnteredRoom.value) return
+    copyError.value = '浏览器未能复制，请选中下方链接手动复制。'
+    copyFallbackUrl.value = url
   }
 }
 
@@ -202,7 +223,11 @@ watch(() => events.length, () => {
         </div>
       </div>
 
-      <div v-else-if="roomSlug" class="online-page__room">
+      <div v-else-if="roomSlug" class="online-page__room" :class="{ 'is-room-panel-open': roomPanelOpen }">
+        <button type="button" class="online-page__room-toggle control-quiet" :aria-expanded="roomPanelOpen" aria-controls="online-room-panel" @click="roomPanelOpen = !roomPanelOpen">
+          <span>房间 · {{ members.length }} 人<template v-if="proposals.length"> · {{ proposals.length }} 项提议</template></span>
+          <span>{{ roomPanelOpen ? '收起' : '查看' }}</span>
+        </button>
         <div class="online-page__stage">
           <Experience class="online-page__experience" :online-session="onlineSession" />
           <OnlineChatOverlay
@@ -211,9 +236,9 @@ watch(() => events.length, () => {
             @send="onRoomSendChat"
           />
         </div>
+        <div id="online-room-panel" class="online-page__room-panel">
         <OnlineRoomPanel
           compact
-          class="online-page__room-panel"
           :room-slug="roomSlug"
           :connection-state="connectionState"
           :error="copyError || error"
@@ -226,6 +251,9 @@ watch(() => events.length, () => {
           @leave="onRoomLeave"
           @copy-link="onCopyRoomLink"
         />
+        <p v-if="copyNotice" class="online-page__copy-notice" role="status">{{ copyNotice }}</p>
+        <input v-if="copyFallbackUrl" class="online-page__copy-fallback" :value="copyFallbackUrl" readonly aria-label="手动复制房间链接" @focus="$event.target.select()" />
+        </div>
         <div v-if="connectionState === 'connecting'" class="online-page__overlay">
           <span class="online-page__spinner" aria-label="连接中">连接中...</span>
         </div>
@@ -394,6 +422,10 @@ watch(() => events.length, () => {
   overflow: hidden;
 }
 
+.online-page__room-toggle { display: none; }
+.online-page__copy-notice { margin: 0; padding: 8px 12px; color: var(--text-secondary); background: var(--bg-primary); font-size: 12px; }
+.online-page__copy-fallback { width: 100%; box-sizing: border-box; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 18%, transparent)); padding: 10px; font-size: 12px; }
+
 .online-page__room-panel {
   position: absolute;
   top: 54px;
@@ -408,6 +440,14 @@ watch(() => events.length, () => {
     right: 10px;
     width: min(210px, calc(100% - 20px));
   }
+}
+
+@media (max-width: 760px) {
+  .online-page__room { display: flex; flex-direction: column; }
+  .online-page__room-toggle { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; min-height: 44px; width: 100%; padding: 8px 18px; color: var(--text-secondary); background: var(--bg-primary); border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 18%, transparent)); font-size: 12px; }
+  .online-page__room-panel { display: none; position: static; order: 1; flex: 0 0 auto; width: auto; max-height: 38vh; overflow: auto; margin: 0 10px 8px; }
+  .is-room-panel-open .online-page__room-panel { display: block; }
+  .online-page__stage { order: 2; flex: 1 1 0; height: auto; }
 }
 
 .online-page__overlay {

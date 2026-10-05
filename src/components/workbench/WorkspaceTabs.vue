@@ -227,26 +227,27 @@ onBeforeUnmount(() => {
 <style scoped>
 .ws-tabs {
   display: flex;
-  align-items: flex-end;
-  min-height: 38px;
+  align-items: center;
+  min-height: 48px;
+  box-sizing: border-box;
   flex: 0 0 auto;
-  padding: 4px 6px 0;
-  gap: 0;
-  background: var(--surface-workbench-muted);
-  box-shadow: inset 0 -1px var(--hairline-soft);
+  padding: 6px 12px;
+  gap: 6px;
+  background: var(--surface-workbench-canvas);
   position: relative;
   z-index: var(--z-workbench-chrome, 90);
 }
 
 .ws-tabs__scroll {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   align-self: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   min-width: 0;
   flex: 1 1 auto;
+  gap: 4px;
 }
 .ws-tabs__scroll::-webkit-scrollbar { display: none; }
 .ws-tabs__scroll:focus-visible {
@@ -266,17 +267,17 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 30px 0 12px;
-  height: 34px;
+  padding: 0 38px 0 12px;
+  height: 36px;
   width: 176px;
   flex: 1 1 auto;
   min-width: 88px;
   max-width: 204px;
-  border: 0;
-  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--archive-ink-soft);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   font-family: var(--font-sans, inherit);
   cursor: pointer;
@@ -288,7 +289,10 @@ onBeforeUnmount(() => {
 
 .ws-tab:hover {
   color: var(--archive-ink);
-  background: color-mix(in srgb, var(--archive-paper-soft) 54%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 5%, transparent);
+}
+.ws-tab:active {
+  background: var(--nav-focused);
 }
 
 .ws-tab:focus-visible {
@@ -299,30 +303,13 @@ onBeforeUnmount(() => {
 .ws-tab.is-active {
   color: var(--archive-ink);
   font-weight: 500;
-  background: var(--archive-paper-soft);
-  box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  background: var(--surface-workbench);
+  border-color: var(--hairline-soft);
+  box-shadow: var(--shadow-workbench);
   z-index: 1;
 }
-
-.ws-tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--archive-paper-soft);
-}
-
-.ws-tab-slot:not(:last-child) .ws-tab:not(.is-active)::before {
-  content: '';
-  position: absolute;
-  right: 0;
-  width: 1px;
-  height: 16px;
-  background: var(--hairline-soft);
-}
-.ws-tab:not(.is-active):hover::before { opacity: 0; }
+.ws-tab.is-active:active { background: var(--nav-focused); }
+.ws-tab.is-active:not([data-tab-key="home"]) { width: 204px; }
 
 .ws-tab__project-bar { display: none; }
 
@@ -362,14 +349,14 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   border: none;
   padding: 0;
   background: transparent;
   color: var(--archive-ink-soft);
-  border-radius: 5px;
+  border-radius: 10px;
   cursor: pointer;
   opacity: 0;
   transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
@@ -381,10 +368,11 @@ onBeforeUnmount(() => {
   color: var(--archive-ink);
   background: color-mix(in srgb, var(--archive-ink) 9%, transparent);
 }
+.ws-tab__close:active { background: var(--nav-focused); }
 
 .ws-tab__close:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 70%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .ws-tab[data-tab-key="home"] { width: 82px; min-width: 82px; }
@@ -393,17 +381,25 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1179px) {
   .ws-tab { width: 158px; max-width: 176px; }
+  .ws-tab.is-active:not([data-tab-key="home"]) { width: 176px; }
   .ws-tab__label-full { display: none; }
   .ws-tab__label-short { display: inline; }
 }
 
 @media (max-width: 759px) {
-  .ws-tabs { min-height: 42px; padding-inline: 4px; }
-  .ws-tab { height: 38px; width: 166px; max-width: 190px; font-size: 14px; }
+  .ws-tabs { min-height: 52px; padding: 4px; }
+  .ws-tab { height: 44px; width: 166px; max-width: 190px; font-size: 14px; padding-right: 48px; }
+  .ws-tab.is-active:not([data-tab-key="home"]) { width: 190px; }
   .ws-tab[data-tab-key="home"] { flex-basis: 82px; min-width: 82px; }
   .ws-tab__label-full { display: inline; }
   .ws-tab__label-short { display: none; }
-  .ws-tab__close { opacity: 1; }
+  .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
+}
+
+@media (pointer: coarse) {
+  .ws-tab { min-height: 44px; padding-right: 48px; }
+  .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
+  .ws-tab.is-pinned { padding-right: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

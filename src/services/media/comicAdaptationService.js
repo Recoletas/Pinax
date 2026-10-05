@@ -1,8 +1,8 @@
 import { getResolvedApiSettings } from '../api'
 import { mergeSourceRefs, normalizeSourceRefs } from './narrativeAssets'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
-import { runGenerationTask } from '../generationService'
-import { createComicPage } from './comicPageStore'
+import { runGenerationStreamTask } from '../generationService'
+import { createComicPage, listComicPages, saveComicPageDraft } from './comicPageStore'
 
 const VALID_FORMATS = new Set(['page-ltr', 'page-rtl', 'webtoon'])
 const VALID_COLOR_MODES = new Set(['color', 'monochrome'])
@@ -107,6 +107,7 @@ export function buildComicAdaptationMessages({
         '你是漫画改编导演。先做多页叙事节奏与视觉连续性方案，不生成最终图片。',
         '只输出单个 JSON 对象，不要 Markdown，不要解释。',
         `必须输出 ${count} 个差异明显的 candidates；每个方案至少 2 页，每页按叙事需要使用 1-8 格，不得统一套用固定 4/6 格。`,
+        '先给精炼的可编辑初稿：短素材每个方案只需 2 页、每页 1-3 格；visual 不超过 45 字，节拍与连续性各写一句。不要为凑页数扩写新情节。',
         'JSON：{"candidates":[{"id":"stable-id","title":"方案名","rationale":"节奏取舍","format":"page-ltr|page-rtl|webtoon","colorMode":"color|monochrome","pages":[{"title":"页标题","narrativeBeat":"本页剧情任务","pageTurnHook":"页尾钩子","continuityNotes":["连续性"],"panels":[{"visual":"单幅可见画面，不含文字","beat":{"action":"","emotion":"","reveal":"","transition":""},"dialogue":[{"speaker":"","text":""}],"caption":""}]}],"visualBible":{"referenceIds":["目录 ID"],"invariants":[{"referenceId":"目录 ID","notes":["不可改变的外观或空间事实"],"locked":true}],"palette":["颜色"],"lineStyle":"线条规则","renderingNotes":"渲染规则"}}]}。',
         'panel.visual 只描述画面、构图、动作与光线；对白和旁白必须放在独立字段，禁止要求模型在图片中绘制文字。',
         '每页 narrativeBeat 与 pageTurnHook 必须具体；后一页要承接前一页动作、角色位置、服装、地点、时段和关键道具。',
@@ -151,36 +152,29 @@ export async function generateComicAdaptationCandidates({
   sources = [],
   referenceCatalog = [],
   candidateCount = 2,
-  settings = null
+  settings = null,
+  signal = null
 } = {}) {
+  signal?.throwIfAborted()
   if (!(Array.isArray(sources) && sources.some((source) => text(source?.content)))) {
     throw new Error('请先选择至少一条包含正文的素材')
   }
   const apiSettings = settings || await getResolvedApiSettings()
+  signal?.throwIfAborted()
   if (!apiSettings?.baseUrl || !apiSettings?.apiKey || !apiSettings?.model) {
     throw new Error('AI 配置不完整，请先在设置中配置文本模型')
   }
   const baseMessages = buildComicAdaptationMessages({ sources, referenceCatalog, candidateCount })
-  const result = await runGenerationTask({
+  const result = await runGenerationStreamTask({
     taskType: 'media.comic-adaptation',
     baseMessages,
     settings: apiSettings,
-    generationOptions: { max_tokens: 6200, temperature: 0.72 },
-    parseContent: parseComicAdaptationCandidates,
-    isValidParsed: (parsed) => Array.isArray(parsed) && parsed.length >= 2,
-    attempts: [
-      { name: 'comic-adaptation' },
-      {
-        name: 'comic-adaptation-format-retry',
-        appendMessages: [{
-          role: 'user',
-          content: '上一条格式不合规。严格返回 candidates JSON；至少两个方案、每个至少两页、每页 1-8 格。'
-        }]
-      }
-    ]
+    generationOptions: { max_tokens: 3600, temperature: 0.72, timeout_ms: 120000, retryCount: 0 },
+    signal
   })
-  if (!result.success || !result.parsed) throw new Error('漫画分页方案格式校验失败，请重试')
-  return { candidates: result.parsed, attempts: result.attempts || [] }
+  const candidates = parseComicAdaptationCandidates(result.content)
+  if (!candidates) throw new Error('分页方案未完整返回，当前素材已保留。可缩短素材后重新生成。')
+  return { candidates, attempts: [{ name: 'comic-adaptation.stream', success: true }] }
 }
 
 export function buildComicPagesFromAdaptation({
@@ -191,6 +185,8 @@ export function buildComicPagesFromAdaptation({
   projectId = null,
   sequenceId = ''
 } = {}) {
+  const error = validateComicAdaptationPlan(candidate)
+  if (error) throw new Error(error)
   const normalized = normalizeAdaptationCandidate(candidate)
   if (!normalized) throw new Error('分页方案无效')
   const catalogById = new Map((Array.isArray(referenceCatalog) ? referenceCatalog : [])
@@ -255,6 +251,41 @@ export function buildComicPagesFromAdaptation({
     })),
     status: 'draft'
   }))
+}
+
+export function validateComicAdaptationPlan(plan) {
+  if (!Array.isArray(plan?.pages) || plan.pages.length < 2 || plan.pages.length > 12) return '分页方案需要 2–12 页。'
+  for (const [pageIndex, page] of plan.pages.entries()) {
+    if (!Array.isArray(page.panels) || !page.panels.length || page.panels.length > 8) return `第 ${pageIndex + 1} 页需要 1–8 格。`
+    const missing = page.panels.findIndex((panel) => !text(panel?.visual))
+    if (missing !== -1) return `请填写第 ${pageIndex + 1} 页、第 ${missing + 1} 格的画面。`
+  }
+  return ''
+}
+
+// 已建立的页只修改作者字段。候选、阶段、图像归属和在途请求继续由各自
+// owner 写入；版本冲突时保留前端草稿，由作者重新载入后决定怎样合并。
+export function saveComicAdaptationPage({ projectId, sequenceId, pageId, expectedRevision, draft } = {}, options = {}) {
+  const current = listComicPages({}, options).find((page) => page.id === pageId)
+  if (!current || current.projectId !== projectId || current.sequenceId !== sequenceId) throw new Error('这页已不属于当前作品或制作序列，请重新打开。')
+  if (Number(expectedRevision) !== current.revision) throw new Error('这页已在其他位置更新。修改仍保留，请先载入已保存内容再编辑。')
+  if (!Array.isArray(draft?.panels) || draft.panels.length !== current.panels.length
+    || draft.panels.some((panel, index) => panel.id !== current.panels[index].id)) throw new Error('分格已经变化，请重新载入这一页。')
+  const missing = draft.panels.findIndex((panel) => !text(panel.visual))
+  if (missing !== -1) throw new Error(`请先填写第 ${missing + 1} 格的画面。`)
+  return saveComicPageDraft({
+    ...current,
+    title: text(draft.title),
+    pagePurpose: text(draft.narrativeBeat),
+    pageTurnHook: text(draft.pageTurnHook),
+    panels: current.panels.map((panel, index) => ({
+      ...panel,
+      visual: text(draft.panels[index].visual),
+      beat: { ...panel.beat, ...draft.panels[index].beat },
+      dialogue: normalizeDialogue(draft.panels[index].dialogue),
+      caption: text(draft.panels[index].caption)
+    }))
+  }, options)
 }
 
 function normalizeAdaptationCandidate(candidate, index = 0) {

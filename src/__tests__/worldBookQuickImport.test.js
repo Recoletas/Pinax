@@ -275,6 +275,17 @@ const worldStore = mockWorldStoreLifecycle()
     await wrapper.find('[data-test="hero-cta"]').trigger('click')
     await flushPromises()
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
+    worldStore.addEntry = vi.fn().mockResolvedValue(undefined)
+    worldStore.updateWorldbook = vi.fn().mockResolvedValue(undefined)
+    routerPush.mockClear()
+    await wrapper.findAll('[data-test="preset-card"]')[0].trigger('click')
+    await flushPromises()
+    expect(worldStore.createWorldbook).toHaveBeenCalledOnce()
+    expect(worldStore.createWorldbook.mock.calls[0][0].sourcePresetId).toBe('preset-border-kingdom-fogtide')
+    expect(worldStore.addEntry.mock.calls.length).toBeGreaterThan(30)
+    expect(routerPush).toHaveBeenLastCalledWith({ name: 'experience', query: { worldbookId: 'wb-new' } })
+    expect(routerPush).not.toHaveBeenCalledWith({ name: 'experience', query: { worldbookId: 'wb-active' } })
+    wrapper.unmount()
 }
 {
 
@@ -595,6 +606,24 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       speechStyle: '短句，先复述事实再判断',
       samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
     })
+    const collidingEntries = ['0', '0', '1', '__proto__'].map((originalUid, index) => ({
+      ...importedFromPinax.entries[0],
+      id: `entry_export_collision_${index}`,
+      name: `雾港导出条目${index}`,
+      content: `各自独立保留的内容${index}`,
+      metadata: { ...importedFromPinax.entries[0].metadata, originalUid }
+    }))
+    await store.updateWorldbook(importedFromPinax.id, { entries: collidingEntries })
+    const exportedCollisions = await store.exportToSillyTavern(importedFromPinax.id)
+    expect(Object.keys(exportedCollisions.entries)).toHaveLength(4)
+    expect(exportedCollisions.entries['0'].content).toBe('各自独立保留的内容0')
+    expect(exportedCollisions.entries['1'].content).toBe('各自独立保留的内容2')
+    expect(exportedCollisions.entries['2'].content).toBe('各自独立保留的内容1')
+    expect(exportedCollisions.entries.__proto__.content).toBe('各自独立保留的内容3')
+    const collisionRoundtrip = await store.importFromSillyTavern(JSON.parse(JSON.stringify(exportedCollisions)))
+    expect(collisionRoundtrip.entries).toHaveLength(4)
+    expect(collisionRoundtrip.entries.map(entry => entry.content).sort())
+      .toEqual(collidingEntries.map(entry => entry.content).sort())
 
     const ownerCreateCalls = []
     const ownerEntryCalls = []
@@ -912,6 +941,13 @@ const store = useWorldStore()
       mapBinding: { status: 'confirmed', x: 10, y: 20 },
       sourceEvidence: [expect.objectContaining({ excerpt: '白石港位于南部海岸。' })]
     })
+    const clearedPlace = await store.updatePlace(wb.id, storedPlace.id, { mapBinding: null })
+    expect(clearedPlace.mapBinding).toBeNull()
+    expect(clearedPlace.metadata.place.mapBinding).toBeNull()
+    const clearedReload = await store.loadWorldbook(wb.id)
+    expect(getPlacePayloadFromEntry(clearedReload.entries.find(entry => entry.id === storedPlace.id)).mapBinding).toBeNull()
+    const reboundPlace = await store.updatePlace(wb.id, storedPlace.id, { mapBinding: { status: 'confirmed', x: 40, y: 50 } })
+    expect(getPlacePayloadFromEntry(reboundPlace).mapBinding).toMatchObject({ status: 'confirmed', x: 40, y: 50 })
 
     const overview = '高汤盆地北侧有白石港，旧商道连接白石港与灰锤堡。'
     expect(buildSettingPlacesRequest({
@@ -1031,6 +1067,22 @@ const store = useWorldStore()
       previewEntries: [{ name: '旧灯塔', typeLabel: '地点', keys: ['灯塔'] }]
     })
     expect(buildWorldbookImportPreview({}).entryCount).toBe(0)
+    const sillyTavernPreviewSource = {
+      world_name: '雾港灯塔',
+      entries: {
+        0: { comment: '北岬灯塔', key: ['灯塔', '北岬'], content: '九点亮灯。' },
+        1: { comment: '北岬灯塔', key: '灯塔', content: '十点亮灯。' }
+      }
+    }
+    const previewInputSnapshot = JSON.stringify(sillyTavernPreviewSource)
+    expect(buildWorldbookImportPreview(sillyTavernPreviewSource)).toMatchObject({
+      name: '雾港灯塔', entryCount: 2, keyedEntryCount: 2,
+      previewEntries: [
+        { name: '北岬灯塔', keys: ['灯塔', '北岬'], content: '九点亮灯。' },
+        { name: '北岬灯塔', keys: ['灯塔'], content: '十点亮灯。' }
+      ]
+    })
+    expect(JSON.stringify(sillyTavernPreviewSource)).toBe(previewInputSnapshot)
     const foundation = buildFoundationPayloadFromAiResult({
       parsed: {
         name: '雾港',

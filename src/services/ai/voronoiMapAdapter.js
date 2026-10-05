@@ -21,7 +21,7 @@ import { validateMapConfig } from './mapConfigSchema'
  * @param {object|null} worldbookBridge - extractMapSeedsFromWorldbook 的结果
  * @returns {Array} ChatMessage[]
  */
-export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookBridge = null) {
+export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookBridge = null, basis = null) {
   const contextParts = []
 
   const compactText = (value, limit) => {
@@ -56,7 +56,7 @@ export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookB
 
   const worldContext = contextParts.length > 0
     ? contextParts.join('\n')
-    : '（用户未填写世界观描述，请生成一个中文古风奇幻世界）'
+    : '（没有已确认地理依据；不得用预设世界补写。）'
 
   const timingHint = getGenerationTimingHint()
 
@@ -65,7 +65,8 @@ export function buildVoronoiMapPrompt(worldview, overview, locations, worldbookB
 只返回可直接 JSON.parse 的纯 JSON，不要 Markdown、解释或思考内容。可用字段：
 {"seed":"字符串","mapName":"名称","width":1200,"height":800,"pointCount":6000,"landRatio":0.45,"heightmapTemplate":"continents|pangea|archipelago|mediterranean|peninsula|shattered","plateCount":6,"stateCount":8,"burgDensity":0.5,"temperatureShift":0,"precipitationFactor":1,"namingStyle":"chinese|japanese|european|arabic|highFantasy|darkFantasy","stylePreset":"topographic|parchment|watercolor|dark|clean|atlas","generateProvinces":true,"generateRoads":true,"layers":{},"realism":{}}
 
-只根据资料决定宏观形状、板块数、气候、命名风格和密度。“已设定的地点”仅用于判断宏观地理需求，禁止复制到 stateNames、burgNames、riverNames 或 constraints，禁止为它们猜测坐标。作者地点由客户端在真实地图对象中匹配并交给用户确认。`
+只根据资料决定地形、板块数、气候、命名风格和密度。中文资料使用中文命名风格，保留原有专名，不因奇幻题材改成欧洲名称。“已设定的地点”仅用于判断地理需求，禁止复制到 stateNames、burgNames、riverNames 或 constraints，禁止为它们猜测坐标。作者地点由客户端在真实地图对象中匹配并交给用户确认。
+${basis?.scope === 'local' ? '本次是局部地形草图：只覆盖故事中的港镇、街区或邻近地区。不要扩大成多大陆世界，不生成额外国家、城市或道路；stateCount=0、burgDensity=0，generateProvinces=false、generateRoads=false。只设计地形供作者定位已有地点。' : ''}`
 
   const userPrompt = `请根据以下世界观描述，设计地图生成参数 JSON：
 
@@ -87,7 +88,7 @@ ${locationList ? `\n已设定的地点：\n${locationList}` : ''}
  */
 export function parseVoronoiMapConfig(raw) {
   const warnings = []
-  const cleaned = raw
+  const cleaned = (typeof raw === 'string' ? raw : JSON.stringify(raw))
     .replace(/^```(?:json)?\s*\n?/i, '')
     .replace(/\n?\s*```\s*$/i, '')
     .trim()
@@ -125,7 +126,7 @@ export function parseVoronoiMapConfig(raw) {
     2, 12,
   )
 
-  const stateCount = clamp(parsed.stateCount || 8, 2, 15)
+  const stateCount = clamp(parsed.stateCount ?? 8, 0, 15)
   const config = {
     width: clamp(parsed.width || 1200, 400, 4096),
     height: clamp(parsed.height || 800, 400, 4096),
@@ -135,7 +136,7 @@ export function parseVoronoiMapConfig(raw) {
     landRatio: clamp(parsed.landRatio || 0.45, 0.15, 0.8),
     plateCount,
     stateCount,
-    burgDensity: clamp(parsed.burgDensity || 0.5, 0.1, 1.5),
+    burgDensity: clamp(parsed.burgDensity ?? 0.5, 0, 1.5),
     temperatureShift: clamp(parsed.temperatureShift || 0, -20, 20),
     precipitationFactor: clamp(parsed.precipitationFactor || 1.0, 0.2, 3.0),
     plateSpeedFactor: clamp(parsed.plateSpeedFactor || 1, 0.1, 3.0),

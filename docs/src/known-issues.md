@@ -10,11 +10,18 @@
 
 ## 活跃问题
 
+### 真实生成的质量边界
+
+- 2026-10-04 的实际巡检及后续修复见[实际使用记录](../agent-runs/user-journey-20261004.md)。地点提取已取得三条可审阅结果；漫画分页改用单次流式请求后，真实完成审阅、建页、刷新和切页制作。上游网络仍可能失败，失败不会伪装成已生成。
+- 明确收束的写作要求和跑团行动权限已在发布前检查，最多修订一次；检查失败不提交正文。三类写作收束样本和失败检定样本通过；航海记录样本修订后仍有无依据推断，已阻断，不能记作生成质量通过。模型检查也会误判，本地终点与人物/行动断言检查仅覆盖明确规则，不能保证识别所有隐含越界。
+- 记忆提取会保留完整来源句；未来、条件、否定、转述限定丢失时，候选退回带限定的原文记载。真实样本与接受后的账本投影已核对，作者仍需审阅候选；这不代表跨模型质量矩阵完成。
+- 视频已支持自动转存原件、失败重试、本地播放与完整 ZIP 备份。单文件上限 64 MiB；保存失败会保留“仅链接”状态。浏览器数据被清除、旧链接过期且原件未保存时，不能保证找回。
+
 ### 受控项目记忆系统外部门禁
 
 - ✅ 2026-08-22：M0 记忆内核（schema v2、确定性 importance、可解释 lexical 排序、来源 revision 失效、receipt/软上限）与 M1 运行时/UI 接入（四类触发边界、observer 输出进候选 owner、facade memory reader、Authoring 低干扰审阅）代码侧完成；全量 34 文件 / 300 用例与 verify:full 通过。
 - 🟡 **已知缺口**：live browser audit 未对本分支运行——本机仅有服务共享 checkout 旧代码的用户进程，按计划不重启用户服务，1440/1024/390 与 200% zoom 记为 not run。
-- 🟡 **已知缺口**：真实 provider 3×3 矩阵未运行（`server/.env` 缺失）；正文提交产出有界 pending 候选、revision 变化拒绝迟到 observer 输出等六项行为验收留待外部凭据。
+- 🟡 **已知缺口**：真实 provider 3×3 矩阵仍未完成（原验收时未配置渠道）；此前未测的提交/审阅链在 2026-10-04 有代表性实测：新章节切换触发提取 HTTP 200、查看引文、接受、撤回及决定记录通过；跨 provider、所有迟到/并发分支仍不能据此宣称通过。
 - 处理入口：[受控记忆 handoff](../agent-runs/2026-08-22-controlled-project-memory/summary.md)。
 
 ### 统一创作工作区（Authoring）外部门禁
@@ -34,7 +41,7 @@
 ### 体验叙事工具协议兼容
 
 - ✅ 单 transcript 工具运行时已完成：assistant tool call、tool result、调用 ID、provider content block、必要的 reasoning metadata 与最终正文保持在同一会话内；typed repair、超时、空/stale 结果与有界恢复已有确定性覆盖。
-- ✅ 真实性 MVP 的 selected-speaker voice、world→politics 链和 detached shadow critic 已通过确定性合同与 smoke；critic 不改可见正文，也不落原文或内容指纹。
+- ✅ 真实性 MVP 的 selected-speaker voice、world→politics 链和 detached shadow critic 已通过确定性合同与 smoke；普通任务的 shadow critic 不改可见正文，也不落原文或内容指纹。2026-10-04 新增明确要求与跑团权限的发布前检查；该路径不重复执行 shadow 检查。
 - 🟡 尚未运行真实 MiniMax、OpenAI-compatible、Anthropic-compatible 渠道上的 world→politics 与 critic timeout/invalid matrix。这是外部 provider 门禁，不是当前已确认的代码回归。
 - 🟡 Experience voice editor 与“收进稿件”目的地弹窗尚未执行 1440/390 live browser audit；静态响应式合同、构建和键盘焦点合同已通过。
 - 处理入口：[G4.6.13 单 transcript 工具运行时纠偏计划](../plan/pinax-integrated-product-roadmap.md#g4613-单-transcript-工具运行时纠偏计划r0-r8)。
@@ -46,7 +53,7 @@
 - ✅ 2026-07-15：历史开局写入 `historyNode / placeId`；剧情日志形成后会以稳定 ID 写回 `geoHistory.playerNodes`，并保存有限世界状态快照与审计事件；GM 上下文通过 `PlaceEntity` 按当前地点筛选历史节点和玩家经历。
 - ✅ 受限 state delta、确认/拒绝/回滚、因果 v3 与冲突审阅已接通。
 - 🟡 当前地图已把 confirmed 世界书地点及其明确关系编译为有限约束，并完成国家归属、同国/异国、沿河和显式道路的直接求解，以及候选地图、逐地点 remap 审阅、局部 stale guard、最近 5 版轻量快照和恢复。自动 remap 仍只使用名称/别名与约束报告，关系图和空间邻近尚未进入评分；父子区域和相邻关系仍以生成后核验为主。地理历史只接受最多 12 个真实命名、非重复锚点候选，水域约束不会创建陆上聚落；真实导入、定位、确认/解除、拖动、刷新、切换世界书和运行时回滚的完整 smoke 仍待执行。
-- 🟡 地图画面仍允许引擎使用内置名称池和聚落端点组合道路名来保持地图可读；这些名字不是世界书事实，只有与世界书地点匹配或完成绑定后，才会进入历史和正式引用。若产品最终要求地图只显示作者地点，需要在后续 M4/M7 决定“隐藏未绑定预览”还是“保留并加预览标记”，不能把视觉标签直接写入世界书。
+- 🟢 局部地图不再自动生成国家、城市和命名河流；正式地点保留作者命名，定位后还需确认。世界范围仍允许引擎名称池作为预览，这些名字不自动成为世界书事实。范围按当前世界书推断，作者可明确选择局部或世界。
 - 🟢 明确的世界书地点现在可以在没有同名地图聚落时直接进入地理筛选；地图仍必须有有效 cell，且没有地点条目的世界书不会把自动生成城市伪装成历史事实。
 - 计划入口：[G2.4 世界书约束型 Living Atlas](../plan/pinax-integrated-product-roadmap.md#g24-世界书约束型-living-atlas当前地图主计划) 与 [Gate 3](../plan/pinax-integrated-product-roadmap.md#gate-3历史融入与可解释涌现)。
 
@@ -70,10 +77,12 @@
 - 🟢 2026-09-16 结构预算已进入 CI：`Authoring.vue` 10,832/111、`Notes.vue` 1,530/18、`Experience.vue` 3,547/21、`ProseEssay.vue` 2,785/18、`gameStore.js` 1,636/29；均低于夜间计划硬上限。数字格式为行数/import-from 边数。
 - 🟢 `src/services/` 根层 JS 已由计划基线 42 降为 14；生产相对 import 图 0 cycle、production→experimental 0 边、旧根路径 0 引用。后续新增服务仍必须进入明确 domain。当前事实入口为[当前架构](../engineering/current-architecture.md)与 [PLAN.md](../PLAN.md)。
 
-### 漫画生产工作台仍未形成闭环
+### 漫画与插画工作流收口
 
-- 🔴 当前漫画页已经直接具备格框、景别/机位/透视、制作阶段和视觉圣经字段，但用户能操作的仍主要是固定 4/6 格编辑器，尚无多页改编、自由格框画布、真实 rough/line/color 阶段、可编辑气泡和连续性质检工作台。
-- 下一步直接在当前漫画页执行 M2 的改编分页与视觉圣经，再进入 M3 中央分镜画布，不增加单独迁移层。
+- 🟡 当前代码已有多页改编候选、视觉规则、格框画布、阶段图片生成/上传、独立文字气泡、质检定位及单页 PNG/WebP/PDF/条漫切片。此前“尚无这些能力”的描述已过时。
+- 2026-10-01 已本地实施：手写空白格生成不再强制素材；阶段图片与直出候选统一当前图，气泡/字号用于预览与导出，溢出阻止成品导出；修按书资料、迟到请求、图库与媒体引用保护、正文/速记图片刷新显示，并统一 UI。[本轮回执](../agent-runs/visual-media-polish-20261001.md)记录检查证据与未运行项。
+- 2026-10-03 已续修当前格任务、直接上传、换页保护、阶段失效与默认短句排字；桌面/手机实际上传至成品 PNG 路径、视频同任务恢复及全量门禁已核查，见[媒体续修回执](../agent-runs/media-core-20261003.md)。第二轮补了分页脚本编辑/指定页制作、整页缩放、按镜头视频历史以及素材交接保存保护，见[第二轮回执](../agent-runs/media-continuation-20261003.md)。2026-10-04 已实际查看三次漫画格图和两轮短视频，并复验真实分页建页；长序列连续性仍未验证。
+- 序列批量导出、通用插画蒙版编辑和真实模型连续性/画质仍需后续验证与接入；供应商提供编辑能力不代表本地工作台已经接通。
 - 计划入口：[Pinax 产品整合与演进主计划 G4.4](../plan/pinax-integrated-product-roadmap.md#g44-素材插画与漫画工作流)。
 
 ## 已知缺口
@@ -81,15 +90,15 @@
 - 🟡 Windows x64 portable ZIP 已完成压缩完整性、ASAR、PE32+ 及真实 Linux package 激活后路由 smoke。Windows 实测发现的目录 `fsync` `EPERM` 与项目激活后 Web History 白屏均已修复并重建包，但仍需 clean-machine 复验新建、导入、刷新、OS 目录对话框、SQLite、锁与原子替换；host 证据不能替代该门禁。Squirrel installer 仍需 Windows runner，或在 Linux 安装 Wine/Mono 后再生成。
 - 🟡 `desktop-project-empty/error/readonly` 已加入 UI audit mock state 和 1440/390 可运行配置，但当前 5173 服务属于另一 worktree。按“不启动或重启现有服务”约定，本分支 live browser audit 未执行；组件行为、初始焦点、键盘、共享 token 与 768px 合同测试已通过。
 - 🟢 P1 只建立新桌面项目 repository/schema/bridge，不迁移现有 localStorage 项目记录，也不把 legacy key-value 数据伪装为 SQLite rows。迁移归 P2，plain-text editor 归 P3。
-- 🟡 C3 场景素材板已有静态合同、单元测试和审计 fixture，但当前无开发服务，尚未执行 1440/390 live browser audit。此项是视觉/真实交互验收门禁，不是已确认的代码回归。
+- 🟡 C3 场景素材板在 2026-10-03 已以真实构建完成多尺寸截图及画布到视频交接核查；关系编辑全旅程和真实模型连续性仍不是本轮验证范围。
 - 🟡 场景板可确定识别 linked/archived/detached/untracked；通用 stale 状态需要可比较的源 revision 或 content hash 基线，现有旧数据不具备该证据，因此本轮不根据时间或缺失字段猜测 stale。
 - 🟡 `ProseEssay.vue` 仍直接持有画布编排状态；是否抽取 `useCanvasBoard` 留到场景板用户验收后决定，避免在交互边界未稳定时先制造新 owner。
-- 🟡 MiniMax Image 的人物参考接口当前只接受公网图片 URL；Pinax 参考图库以本地/IndexedDB 图片为主，因此 MiniMax 配置当前先支持文生图，选择本地参考图时会明确阻止提交而不是静默忽略。后续需要对象存储或受控图片上传桥接。
-- 🟡 MiniMax `files/retrieve` 返回的下载地址约一小时有效；当前 MediaAsset 会记录 `file_id`、到期时间和临时外链，但尚未把视频二进制自动转存到持久对象存储。真实 provider smoke 时需及时保存结果，后续持久化渠道接入不能把该外链当永久资产。
+- 🟡 MiniMax 官方人像参考已支持 JPG/PNG 的 Base64 Data URL（小于 10 MB）；本轮接入内置代理和自带密钥链。当前适配一次一张人物参考；构图编辑、风格参考、蒙版和漫画后续阶段不能由此视为已支持。部署与真实模型质量验证另行记录。
+- 🟡 视频面板已支持重新查询、刷新恢复、内嵌播放与按镜头查看已保存历史；任务恢复记录限当前浏览器标签页，已保存历史来自本地媒体库，服务器任务仍在内存中，服务重启后不能保证找回。MiniMax V1 的“停止等待”不代表渠道已停止生成。`files/retrieve` 的结果是临时链接，实际期限由渠道决定；新结果会尝试保存原件到当前浏览器，历史结果可重试；只有显示“原件已保存”的结果可脱离临时链接播放并进入完整 ZIP。服务器重启不能找回未保存原件的旧任务。
 - 🟡 `moveCostForEdge` 已有 biome 缺省值兜底，但 caller 仍应避免传未声明 biome。
 - 🟡 states 阶段性能仍有残留问题，见 [states-perf-residual-issue.md](../plan/states-perf-residual-issue.md)。
 - 🟡 地图请求原先会把完整世界观、地点正文和冗长 JSON schema 一起发送，超过服务端通用输入预算后可能截掉 system prompt；当前已对地图上下文分段压缩并设置专用输入预算，真实渠道仍需用长世界书做一次浏览器生成 smoke。
-- 🟢 世界书地点不再使用稳定随机 fallback，也不再作为随机聚落名称池。地图已停止消费地理概述正文，只读取正式地点条目、显式关系和 geo-history；正文解析仅在结构化设定的“从概述整理”中产生待审草稿。正式地点只对同类 burg、river、road、state 或满足明确地形条件的 cell 生成待确认候选。地图原生聚落可由用户逐项纳入世界书，未选择时仍只是地图事实。旧存档中的 fallback 标记会在重新同步世界书后移除。
+- 🟢 世界书地点不再使用稳定随机 fallback，也不再作为随机聚落名称池。自动绑定只读取正式地点条目、显式关系和 geo-history；AI 地图生成可读取当前世界书概述来选择范围与地形，不把概述直接当作正式地点。正文解析仅在结构化设定的“从概述整理”中产生待审草稿。正式地点只对同类 burg、river、road、state 或满足明确地形条件的 cell 生成待确认候选。地图原生聚落可由用户逐项纳入世界书，未选择时仍只是地图事实。旧存档中的 fallback 标记会在重新同步世界书后移除。
 - 🟡 多页面仍有 `height: 100vh + overflow: hidden + fixed 浮层` 的组合风险，移动端和低分辨率下需要继续看遮挡、滚动锁死和热区重叠。
 - 🟡 页面级断点策略仍不完全一致。
 - 🟡 存储安全网已支持动态键发现、带 `schemaVersion` 的导出、无副作用恢复预览与确认后写入；损坏备份不会直接覆盖现有数据。Authoring 在正常刷新、关页和移动后台前会同步尝试保存并先留恢复副本，但浏览器进程被系统强杀时无法保证页面事件执行。当前 JSON 作品备份有意排除模型 API Key，且尚不包含 IndexedDB 中的来源/媒体原件；这些数据需另行迁移。配额耗尽时的恢复提示仍需继续打磨。
