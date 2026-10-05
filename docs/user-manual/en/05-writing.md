@@ -57,6 +57,16 @@ This scope does not mean every chapter was read in full. Retrieval can miss a re
 
 Conversations and input drafts are saved separately for each manuscript in this browser. Switching manuscripts opens the corresponding conversation. Refreshing does not resend a question; it interrupts an active request, which you can retry yourself.
 
+### Write & revise
+
+Choose **Write & revise** in the input task menu. Select references and techniques, or type `@` and use the arrow keys, Enter or Tab to confirm a reference. Confirming a reference does not send a task.
+
+Review the candidate before choosing **Add to the original chapter**. Return to its original chapter if you have switched documents. Incomplete results cannot be adopted. A failed save leaves the candidate available; retry adoption after resolving storage issues. The manuscript before adoption is retained in history.
+
+Follow-up messages continue the task. **Start a new task** keeps the conversation and creates a fresh task. **New conversation** starts another topic; project navigation lets you reopen earlier conversations. Refreshing never runs a task automatically.
+
+These tools require the server runtime. If unavailable, discussion and reference lookup remain available. The optional story exploration switch is off by default and does not bypass strict task checks. Retrieval covers bounded loaded excerpts, not imported original files or an external database.
+
 **Review manuscript** opens the review panel. Choose a scope and describe your goal, then inspect the suggestions or rewrite candidates before applying them. The manuscript stays unchanged until you apply a result; use the review's undo control to reverse an applied change. **Generate illustration** needs its own supported image configuration, even if the text-model connection works.
 
 ## Generate an illustration

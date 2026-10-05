@@ -14,8 +14,12 @@ import {
   filterMentions,
   mentionAtCursor,
   parseSlashCommand,
+  routeAgentIntent,
   slashMatches,
 } from '../src/services/agents/storyagent/panelComposer.js'
+import { createAuthoringAssistantConversationStore } from '../src/services/agents/authoring/authoringAssistantConversationStore.js'
+import { createBrowserStorageRepository } from '../src/services/storage/browserStorageRepository.js'
+import { createStoryAgentEngine } from '../src/services/agents/storyagent/agentEngine.js'
 import { parseNarrativeAgentSseEvent } from '../shared/narrativeAgentStreamContract.js'
 
 const failures = []
@@ -50,7 +54,7 @@ const contractStats = { total: 0, ok: 0 }
 const bridge = createPiNarrativeAgentBridge({
   endpoint: 'http://127.0.0.1:8471',
   parseEvent: (raw) => {
-    if (/^event: task\./m.test(raw)) return null
+    if (/^event: (task\.|reasoning\.|beat\.)/m.test(raw)) return null
     const ev = parseNarrativeAgentSseEvent(raw)
     contractStats.total += 1
     if (ev) contractStats.ok += 1
@@ -79,9 +83,11 @@ const server = http.createServer((req, res) => {
       sse(res, [
         `event: step.start\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'step.start', requestId: body.requestId, seq: 1, stepIndex: 0, toolChoice: 'auto' })}\n\n`,
         `event: tool.call\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'tool.call', requestId: body.requestId, seq: 2, callId: 'c1', toolName: 'world_lookup', action: 'search' })}\n\n`,
+        `event: reasoning.delta\ndata: ${JSON.stringify({ requestId: body.requestId, at: Date.now(), delta: '推演药庐线：先查资料再动笔。' })}\n\n`,
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 3, content: '青梧镇的雨下了整夜。' })}\n\n`,
         `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 4, content: '药庐的灯还亮着。' })}\n\n`,
         `event: usage\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'usage', requestId: body.requestId, seq: 5, usage: { inputTokens: 12, outputTokens: 34, totalTokens: 46 } })}\n\n`,
+        `event: beat.plan\ndata: ${JSON.stringify({ requestId: body.requestId, at: Date.now(), plan: { revision: 'bp_smoke1', responseObligation: '回应叩门', causalSteps: ['沈砚宁起身开门'], revealOrChange: '门外站着她的旧识', endCondition: '门开着，两人对视' } })}\n\n`,
         `event: task.completed\ndata: ${JSON.stringify({ requestId: body.requestId, status: 'completed', taskId: body.taskId, model: 'mock.mock-model', steps: 2, toolCalls: 1 })}\n\n`
       ])
     })
@@ -100,24 +106,31 @@ try {
 
   console.log('[2] bridge.run 全链路（脚本化 SSE 假适配器）')
   let chunks = ''
+  let reasoning = ''
   lastTaskId = 'sab_smoke_1'
   const run = await bridge.run({
     kernel: kernelInput,
     index: { revision: 'wrev_1', byDomain: { world: entries } },
     mode: 'auto',
     intent: '推进药庐线',
-    formatInstructions: '输出纯叙事正文，不要标题。',
+    formatInstructions: '若本轮产出叙事正文：纯正文，不要标题。',
     maxTokens: 1200,
     requestId: 'sab_smoke_req',
     taskId: lastTaskId,
-    callbacks: { onChunk: ({ content }) => { chunks += content } },
+    callbacks: {
+      onChunk: ({ content }) => { chunks += content },
+      onReasoning: ({ content }) => { reasoning += content },
+    },
     onStatus: null
   })
   check('流式正文经 onChunk 完整聚合', chunks === '青梧镇的雨下了整夜。药庐的灯还亮着。')
+  check('思维链增量经 onReasoning 聚合（reasoning.delta 扩展帧）', reasoning === '推演药庐线：先查资料再动笔。')
+  check('trace 携带 reasoningChars', run.trace.reasoningChars === reasoning.length)
   check('finalContent 与 totalCalls 正确', run.ok && run.finalContent === chunks && run.totalCalls === 1)
   check('trace 携带 taskId/status（任务生命周期回传）', run.trace.taskId === lastTaskId && run.trace.status === 'completed')
   check('usage 透传', run.usage.totalTokens === 46)
-  check('契约逐帧校验：5/5 契约帧通过，task 生命周期帧不计入', contractStats.total === 5 && contractStats.ok === 5)
+  check('BeatPlan 规划轮（②）：beat.plan 扩展帧 → run.beatPlan 外露', run.beatPlan?.revision === 'bp_smoke1' && run.beatPlan.responseObligation === '回应叩门')
+  check('契约逐帧校验：5/5 契约帧通过，task/reasoning 扩展帧不计入', contractStats.total === 5 && contractStats.ok === 5)
 
   console.log('[3] healthz')
   const h = await bridge.healthz()
@@ -132,14 +145,182 @@ try {
     { id: 'k1', title: '引路符', type: '物品', summary: '指向安息之地。' },
   ]
   check('@ 候选按标题过滤', filterMentions(cEntries, '沈').length === 1 && filterMentions(cEntries, '').length === 2)
+  const chapterCandidate = { id: 'ch_1', title: '第一章', type: '章节', summary: '雨夜药庐，三声轻叩。' }
+  check('@ 候选含章节文件且可按类型过滤', filterMentions([...cEntries, chapterCandidate], '第一').length === 1 && filterMentions([...cEntries, chapterCandidate], '', 8).length === 3)
   const am = applyMention('雨夜。@沈砚 出门', 3, 2, '沈砚宁')
   check('@ 补全替换并带尾随空格', am.text === '雨夜。@沈砚宁 出门' && am.caret === '雨夜。@沈砚宁 '.length)
   check('/ 命令解析', parseSlashCommand('/mode continue')?.name === 'mode' && parseSlashCommand('/mode continue')?.args === 'continue' && parseSlashCommand('mode x') === null)
   check('/ 命令前缀过滤含 help', slashMatches('')[0]?.name === 'mode' && slashMatches('to')[0]?.name === 'tokens')
+  check('资料管理命令已移出 / 域（refs/unref 归 @ chips）', slashMatches('refs').length === 0 && slashMatches('unref').length === 0)
+  check('命令表对齐分工口径：/ 只含动作与配置 8 条', slashMatches('').length === 8)
   const refBlocks = buildKernelBlocks({ sceneText: '药庐雨夜。', firstEntry: cEntries[0], pinnedRefs: [cEntries[1]] })
   check('@ 钉住参考进入 kernel reference block', refBlocks.some((b) => b.kind === 'reference' && b.text.includes('@引路符')))
-  const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: refBlocks } })
-  check('预序列化 blocks 被桥件原样透传（含 reference）', passthrough.blocks.length === refBlocks.length && passthrough.blocks.some((b) => b.kind === 'reference'))
+  const projBlocks = buildKernelBlocks({
+    sceneText: '药庐雨夜。',
+    project: { bookTitle: '雾港纪事', chapterTitle: '第一章', manuscriptTail: '沈砚宁听见三声轻叩。' },
+  })
+  check('项目上下文进入 kernel project block（书名/章节/正文尾）', projBlocks.some((b) => b.kind === 'project' && b.text.includes('《雾港纪事》') && b.text.includes('第一章') && b.text.includes('三声轻叩')))
+  const skillBlocks = buildKernelBlocks({
+    sceneText: '药庐雨夜。',
+    skills: [{ id: 'dialogue-polish', label: '对白打磨', instruction: '删减解释性台词，让每句话带潜台词。' }],
+  })
+  check('已加载技法以 skills 能力块上行（工具装载语义，不经 composer 文本）', skillBlocks.some((b) => b.kind === 'skills' && b.text.includes('【对白打磨】')))
+  check('未加载技法时无 skills 块', !buildKernelBlocks({ sceneText: 'x' }).some((b) => b.kind === 'skills'))
+  const passthrough = buildKernelPayload({ revision: 'kr', serialization: { blocks: projBlocks } })
+  check('预序列化 blocks 被桥件原样透传（含 project/reference）', passthrough.blocks.length === projBlocks.length && passthrough.blocks.some((b) => b.kind === 'project'))
+
+  console.log('[5] 自动路由 routeAgentIntent（真值表）')
+  const A = 'agent'
+  const D = 'advisor'
+  check('六个特定知识意图 → advisor', ['setting', 'foreshadowing', 'calculation', 'clues', 'character', 'free']
+    .every((i) => routeAgentIntent({ intent: i, text: '写一段雨夜' }).engine === D))
+  check('whole-book + 创作词表 → agent（creation-hint）', routeAgentIntent({ intent: 'whole-book', text: '帮我写一段雨夜开场' }).engine === A)
+  check('whole-book + 无信号 → advisor（default-knowledge）', routeAgentIntent({ intent: 'whole-book', text: '这本书讲了什么' }).engine === D)
+  check('whole-book + @ 钉住参考 → agent（pinned-refs 优先于文本）', routeAgentIntent({ intent: 'whole-book', text: '这本书讲了什么', hasPinnedRefs: true }).engine === A)
+  check('whole-book + 线程已触碰 Agent → agent（agent-thread-active）', routeAgentIntent({ intent: 'whole-book', text: '这本书讲了什么', agentTouched: true }).engine === A)
+  check('knowledge 意图优先级最高（即使有 @ 参考）', routeAgentIntent({ intent: 'setting', text: '写一段', hasPinnedRefs: true, agentTouched: true }).engine === D)
+
+  console.log('[6] 统一 conversation store（注入 fake storage，round-trip + 裁剪）')
+  function createFakeStorage() {
+    const map = new Map()
+    return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) }
+  }
+  const canonicalStore = createAuthoringAssistantConversationStore({ storage: createBrowserStorageRepository(createFakeStorage()) })
+  const store = {
+    saveAgentSessions(bookId, sessions, activeSessionId) {
+      return canonicalStore.saveConversation(bookId, { messages: [], activeSessionId, agentSessions: sessions.map(session => ({ ...session, projectId: bookId, messages: session.messages.map(message => ({ ...message, projectId: bookId, status: message.role === 'assistant' ? 'completed' : '', taskId: message.agentResult?.taskId || '' })) })) }).ok
+    },
+    loadAgentSessions(bookId) { const record = canonicalStore.load(bookId).conversation; return { sessions: record?.agentSessions || [], activeSessionId: record?.activeSessionId || '' } },
+    deleteAgentSession(bookId, sessionId) { const record = canonicalStore.load(bookId).conversation; return canonicalStore.saveConversation(bookId, { ...record, agentSessions: record.agentSessions.filter(session => session.sessionId !== sessionId) }).ok }
+  }
+  const sessionsFixture = [
+    { sessionId: 'sas_a', title: '雨夜线', createdAt: 1, updatedAt: 2, messages: [{ id: 'm1', role: 'user', kind: 'agent', question: '写雨夜', intent: 'agent', createdAt: 1 }, { id: 'm2', role: 'assistant', kind: 'agent', text: '雨声如豆。'.repeat(400), thinking: '思'.repeat(5000), tools: ['world_lookup · search'], agentResult: { ok: true, model: 'm', taskId: 't', status: 'completed', steps: 1, calls: 1, tokens: 9 }, createdAt: 2 }] },
+    { sessionId: 'sas_b', title: '备用', createdAt: 3, updatedAt: 4, messages: [] },
+  ]
+  store.saveAgentSessions('book_1', sessionsFixture, 'sas_a')
+  const loaded = store.loadAgentSessions('book_1')
+  check('round-trip：两会话 + 活动指针', loaded.sessions.length === 2 && loaded.activeSessionId === 'sas_a')
+  check('thinking 持久化裁剪 ≤4000', (loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].thinking || '').length === 4000)
+  check('任务 ID 与完成状态保留', loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].taskId === 't' && loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].status === 'completed')
+  const capped = Array.from({ length: 70 }, (_, i) => ({ id: `m${i}`, role: 'user', kind: 'agent', question: `q${i}`, createdAt: i }))
+  store.saveAgentSessions('book_3', [{ sessionId: 'sas_big', title: '大', createdAt: 1, updatedAt: 1, messages: capped }], 'sas_big')
+  const loadedCapped = store.loadAgentSessions('book_3')
+  check('单会话消息裁剪 ≤60（保留最新）', loadedCapped.sessions[0].messages.length === 60 && loadedCapped.sessions[0].messages[59].question === 'q69')
+  check('书隔离：未写过的书读出空', store.loadAgentSessions('book_2').sessions.length === 0)
+  store.deleteAgentSession('book_3', 'sas_big')
+  check('deleteAgentSession 生效', store.loadAgentSessions('book_3').sessions.length === 0)
+
+  console.log('[7] agentEngine（fetchImpl 假 SSE：kernel 组装 / 流式 / 归属）')
+  const engineCalls = []
+  function sseResponse(frames) {
+    return new Response(frames.join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }
+  const engineBridge = createPiNarrativeAgentBridge({
+    endpoint: 'http://engine.test',
+    // 与 Authoring.vue 生产接线一致：契约帧过 parser，task/reasoning 扩展帧放行为 null
+    parseEvent: (raw) => (/^event: (task\.|reasoning\.)/m.test(raw) ? null : parseNarrativeAgentSseEvent(raw)),
+    fetchImpl: async (url, opts) => {
+      engineCalls.push({ url: String(url), opts })
+      const urlText = String(url)
+      if (urlText.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true, stopped: true, taskId: urlText.split('/').at(-2), status: 'cancelled' }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (urlText.includes('/tasks/list?')) return new Response(JSON.stringify({ tasks: [{ taskId: 't9', status: 'completed' }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (urlText.endsWith('/v1/pinax/tasks') || urlText.endsWith('/resume')) {
+        const body = JSON.parse(opts.body)
+        return sseResponse([
+          `event: reasoning.delta\ndata: ${JSON.stringify({ requestId: body.requestId, delta: '先看正文再动笔。' })}\n\n`,
+          `event: text.delta\ndata: ${JSON.stringify({ schemaVersion: 1, type: 'text.delta', requestId: body.requestId, seq: 1, content: '叩门声停了。' })}\n\n`,
+          `event: task.completed\ndata: ${JSON.stringify({ requestId: body.requestId, status: 'completed', taskId: body.taskId, model: 'dots.dots3-note-prev', steps: 1, toolCalls: 0 })}\n\n`,
+        ])
+      }
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    },
+  })
+  const engine = createStoryAgentEngine({
+    bridge: engineBridge,
+    projectId: 'book_1',
+    resolveContext: () => ({
+      bookTitle: '雾港纪事', chapterTitle: '第一章', manuscriptTail: '沈砚宁听见三声轻叩。',
+      worldEntries: [{ id: 'c1', title: '沈砚宁', type: '角色', summary: '女医。' }],
+      chapterEntries: [chapterCandidate],
+    }),
+  })
+  let engineText = ''
+  let engineThinking = ''
+  const engineRun = await engine.run({
+    text: '写一段雨夜',
+    pinnedRefs: [chapterCandidate],
+    taskId: 'engtask_1',
+    callbacks: { onChunk: ({ content }) => { engineText += content }, onReasoning: ({ content }) => { engineThinking += content } },
+  })
+  const engineBody = JSON.parse(engineCalls[0].opts.body)
+  check('engine kernel 含 project block（书名/正文尾）', engineBody.kernel.blocks.some((b) => b.kind === 'project' && b.text.includes('《雾港纪事》') && b.text.includes('三声轻叩')))
+  check('engine kernel 含 reference block（@ 章节）', engineBody.kernel.blocks.some((b) => b.kind === 'reference' && b.text.includes('@第一章')))
+  check('engine 资源快照映射 world_lookup', engineBody.resources.domains.world_lookup?.length === 1)
+  check('engine 归属 bookId 上行', engineBody.bookId === 'book_1')
+  check('engine 流式正文聚合', engineText === '叩门声停了。' && engineRun.finalContent === engineText)
+  check('engine 思维链聚合 + trace.reasoningChars', engineThinking === '先看正文再动笔。' && engineRun.trace.reasoningChars === engineThinking.length)
+  const engineResume = await engine.resume({ text: '接着写', taskId: 'engtask_1', callbacks: {} })
+  check('engine.resume 走 /resume 且携带归属', engineCalls.some((c) => c.url.endsWith('/resume')) && JSON.parse(engineCalls.find((c) => c.url.endsWith('/resume')).opts.body).bookId === 'book_1')
+  check('engine.resume trace 补全（status/steps/reasoningChars）', engineResume.trace.status === 'completed' && typeof engineResume.trace.steps === 'number' && typeof engineResume.trace.reasoningChars === 'number')
+  await engine.cancel('engtask_1')
+  check('engine.cancel 走 /cancel 端点', engineCalls.some((c) => c.url.endsWith('/cancel')))
+  check('engine.tasks 走 /tasks/list', await (async () => { await engine.tasks(); return engineCalls.some((c) => c.url.includes('/tasks/list?')) })())
+
+  console.log('[7b] toolManifest 转换接口 + calc（kit 缺位补齐）')
+  {
+    const { manifestToAgentTool, safeCalcEval } = await import('../adapters/pinax-adapter/src/toolManifest.ts')
+    const tool = manifestToAgentTool({
+      id: 'calc_evaluate', title: '确定性算术', desc: '复算数值', kind: 'query', knowledge: [],
+      execute: async (p) => { try { return JSON.stringify({ ok: true, value: safeCalcEval(String(p.expression)) }) } catch (e) { return JSON.stringify({ ok: false, error: String(e.message || e) }) } },
+    })
+    check('KitOp 形状清单 → agent 工具（name/描述/knowledge 标注）', tool.name === 'calc_evaluate' && tool.label === '确定性算术' && tool.description.includes('复算数值'))
+    const out = JSON.parse((await tool.execute('x', { expression: '1200 * 3 + 450 / 2' })).content[0].text)
+    check('calc 复算确定性求值', out.ok === true && out.value === 3825)
+    const bad = JSON.parse((await tool.execute('x', { expression: '2 + evil()' })).content[0].text)
+    check('白名单外输入拒绝（无 eval）', bad.ok === false)
+    const msTool = manifestToAgentTool({ id: 'manuscript_search', title: '正文检索', desc: 'd', knowledge: ['manuscript'], execute: async () => JSON.stringify({ ok: true, hits: [] }) })
+    check('知识域标注进工具描述', msTool.description.includes('manuscript'))
+  }
+
+  console.log('[7c] 桥快照新域（manuscript/notes/outline）映射')
+  {
+    const ext = buildResourceSnapshot({ revision: 'rev_ext', byDomain: { world: entries, manuscript: [{ id: 'ch_1', title: '第一章', text: '沈砚宁听见三声轻叩。' }], notes: [{ id: 'n1', title: '速记', text: '伏笔：断线的风筝' }], outline: [{ id: 'o1', title: '第一卷', text: '收束于码头对峙' }] } })
+    check('manuscript 域映射为 manuscript 工具数据', ext.domains.manuscript?.length === 1 && ext.domains.manuscript[0].text.includes('轻叩'))
+    check('notes/outline 域随快照上行', ext.domains.notes?.length === 1 && ext.domains.outline?.length === 1)
+  }
+
+    console.log('[7d] adoptToChapter 采纳链（合成 turn 过 eligibility + 指纹去重）')
+  {
+    const { adoptStoryAgentTextToChapter } = await import('../src/services/agents/storyagent/adoptToChapter.js')
+    const books = [{ id: 'b1', title: '测试书', worldbookId: '', chapters: [{ id: 'c1', title: '第一章', content: '', editorDocument: null }] }]
+    const r1 = adoptStoryAgentTextToChapter({ books, bookId: 'b1', chapterId: 'c1', text: '沈砚宁把罗盘揣进围裙，潮水正在回来。', sourceId: 'task_x1' })
+    check('首次采纳：ok + unitId + 正文写入章节', r1.ok === true && JSON.stringify(r1.books).includes('罗盘'))
+    const r2 = adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '沈砚宁把罗盘揣进围裙，潮水正在回来。', sourceId: 'task_x1' })
+    check('重复采纳：指纹去重 already-imported', r2.ok === false && r2.reason === 'already-imported')
+    const r3 = adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '第二段不同的内容，潮水正在回来。', sourceId: 'task_x2' })
+    check('不同来源可再次追加', r3.ok === true)
+    check('空文本拒绝', adoptStoryAgentTextToChapter({ books: r1.books, bookId: 'b1', chapterId: 'c1', text: '   ', sourceId: 't' }).ok === false)
+  }
+
+    console.log('[8] experienceAgentRoute（体验侧开关路由：映射 + 不可达回落）')
+  {
+    const { createExperiencePiAgentRoute, experiencePiAgentEnabled } = await import('../src/services/agents/storyagent/experienceAgentRoute.js')
+    check('localStorage 缺失环境默认关闭', experiencePiAgentEnabled() === false)
+    const deadRoute = createExperiencePiAgentRoute({ endpoint: 'http://127.0.0.1:8499' })
+    check('适配器不可达 → run() 返回 null（协调器回落本体循环）', (await deadRoute.run({ kernel: kernelInput, index: { revision: 'w', byDomain: { world: entries } } })) === null)
+    const liveRoute = createExperiencePiAgentRoute({ endpoint: 'http://127.0.0.1:8471' })
+    lastTaskId = 'sab_route_1'
+    const mapped = await liveRoute.run({ kernel: kernelInput, index: { revision: 'wrev_1', byDomain: { world: entries } }, mode: 'auto', intent: '推进', requestId: 'exp_route_1', taskId: lastTaskId })
+    if (!(mapped && mapped.finalText === '青梧镇的雨下了整夜。药庐的灯还亮着。' && mapped.trace.taskId === lastTaskId && mapped.usage.totalTokens === 46 && Array.isArray(mapped.finalToolResults))) {
+      console.error('[dbg] mapped =', JSON.stringify(mapped)?.slice(0, 400))
+    }
+    check('返回形状对齐 runNarrativeAgentGeneration 消费面（finalText/trace/usage/finalToolResults）', Boolean(
+      mapped && mapped.finalText === '青梧镇的雨下了整夜。药庐的灯还亮着。'
+      && mapped.trace.taskId === lastTaskId
+      && mapped.usage.totalTokens === 46
+      && Array.isArray(mapped.finalToolResults)
+    ))
+  }
 } finally {
   server.closeAllConnections?.()
   server.close()

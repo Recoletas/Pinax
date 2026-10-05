@@ -34,6 +34,13 @@ function storedMessages(messages, projectId) {
     if (message.role === 'user') {
       return [{ ...common, question: String(message.question || ''), intent: String(message.intent || 'whole-book') }]
     }
+    if (message.role === 'assistant' && message.kind === 'agent' && message.projectId === projectId) {
+      return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),
+        thinking: String(message.thinking || '').slice(-4000), tools: clone((message.tools || []).slice(0, 30)),
+        status: message.status === 'running' ? 'interrupted' : message.status, taskId: String(message.taskId || ''), adopted: Boolean(message.adopted),
+        references: clone((message.references || []).filter(item => item.projectId === projectId).slice(0, 12)),
+        adoptionReceipt: clone(message.adoptionReceipt || null), beatPlan: clone(message.beatPlan || null), toolResults: clone((message.toolResults || []).slice(0, 12)) }]
+    }
     if (message.role !== 'assistant' || !message.answer
       || String(message.answer.projectId || '') !== projectId) return []
     return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId) }]
@@ -46,6 +53,16 @@ function savedConversation(projectId, record) {
     schemaVersion: SCHEMA_VERSION,
     projectId,
     messages: storedMessages(record.messages, projectId),
+    activeSessionId: String(record.activeSessionId || ''),
+    agentSessions: (Array.isArray(record.agentSessions) ? record.agentSessions : []).filter(session => session.projectId === projectId)
+      .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt)).slice(0, 20).map(session => ({
+        sessionId: String(session.sessionId || ''), projectId, title: String(session.title || '新对话').slice(0, 80), updatedAt: Number(session.updatedAt) || 0,
+        messages: storedMessages(session.messages, projectId).slice(-60), draft: String(session.draft || '').slice(0, 12000),
+        selectedIntent: String(session.selectedIntent || 'free'), agentRefs: clone((session.agentRefs || []).slice(0, 8).map(ref => ({ id: String(ref.id), type: String(ref.type), title: String(ref.title || '').slice(0, 120) }))), agentTaskId: String(session.agentTaskId || ''), agentSkills: clone((session.agentSkills || []).slice(0, 3))
+      })),
+    agentRefs: clone((record.agentRefs || []).slice(0, 8).map(ref => ({ id: String(ref.id), type: String(ref.type), title: String(ref.title || '').slice(0, 120) }))),
+    agentTaskId: String(record.agentTaskId || ''),
+    agentSkills: clone((record.agentSkills || []).slice(0, 3)),
     selectedIntent: String(record.selectedIntent || 'whole-book'),
     error: String(record.error || ''),
     lastRequest: request && String(request.projectId || '') === projectId
@@ -65,6 +82,7 @@ function readJson(storage, storageKey) {
 function validStoredMessage(message, projectId) {
   if (!message || typeof message.id !== 'string') return false
   if (message.role === 'user') return typeof message.question === 'string'
+  if (message.kind === 'agent') return message.role === 'assistant' && message.projectId === projectId && typeof message.text === 'string'
   const answer = message.answer
   return message.role === 'assistant'
     && answer?.kind === 'authoring-knowledge-answer'

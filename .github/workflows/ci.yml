@@ -36,6 +36,9 @@ jobs:
       - name: Typecheck adapter
         run: npm run typecheck
 
+      - name: Test adapter lifecycle and tool contracts
+        run: npm test
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -99,6 +102,11 @@ jobs:
 
       - name: Run tests
         run: npm run verify:contract
+
+      - name: StoryAgent integration regression
+        run: |
+          node scripts/storyagent-beta-smoke.mjs
+          node scripts/storyagent-integration-smoke.mjs
 
   build:
     runs-on: ubuntu-latest

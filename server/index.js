@@ -18,6 +18,8 @@ import roomsRouter from './routes/rooms.js'
 import createMediaRouter from './routes/media.js'
 import createImageRouter from './routes/image.js'
 import researchRouter from './routes/research.js'
+import { startStoryAgentRuntime } from './services/storyAgentRuntime.js'
+import { createStoryAgentRouter } from './routes/storyagent.js'
 import { createCollaborationRouter } from './routes/collaboration.js'
 import { setupWebSocket } from './realtime/wsHandler.js'
 import { isCollaborationUpgradeOriginAllowed, setupCollaborationRelay } from './realtime/v2/relayHandler.js'
@@ -30,6 +32,7 @@ import { startCleanupInterval, stopCleanupInterval } from './realtime/RoomRegist
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
+const storyAgentRuntime = await startStoryAgentRuntime()
 const app = express()
 const PORT = process.env.PORT || 3001
 const collaborationEnabled = process.env.COLLABORATION_V2_ENABLED === 'true'
@@ -73,6 +76,7 @@ app.use('/api/preferences', preferencesRouter)
 app.use('/api/advisor', advisorRouter)
 app.use('/api/openclaw', openclawRouter)
 app.use('/api/research', researchRouter)
+app.use('/api/storyagent', createStoryAgentRouter())
 app.use(mediaRouter)
 app.use(imageRouter)
 
@@ -139,6 +143,8 @@ export function startServer(port = PORT) {
 export async function stopServer() {
   stopCleanupInterval()
   collaborationMaintenance?.stop()
+  storyAgentRuntime?.closeAllConnections?.()
+  storyAgentRuntime?.close?.()
   mediaRouter.mediaRuntime?.shutdown?.()
   for (const client of wss.clients) client.terminate()
   collaborationRelay?.close()

@@ -86,7 +86,17 @@ test("memory/politics/history 各自 action 可用", async () => {
   assert.match(h.items.join("|"), /药庐大火/);
 });
 
-test("只暴露快照非空域的工具", () => {
+test("只暴露快照非空域的工具", async () => {
   const tools = buildPinaxTools({ revision: "r", domains: { world_lookup: snapshot.domains.world_lookup } });
-  assert.deepEqual(tools.map((t) => t.name), ["world_lookup"]);
+  // 五 lookup 之外的新能力工具（manuscript/notes/outline/calc）走快照域/hooks 注册，
+  // 本断言只钉原生五 lookup 的暴露纪律：无 hooks 无新域 → 仅 world_lookup
+  assert.deepEqual(tools.map((t) => t.name).filter((n) => n.endsWith("_lookup")), ["world_lookup"]);
+  const extended = buildPinaxTools({ revision: "r", domains: { manuscript: [{ id: "chapter-a", title: "第一章", text: "钥匙落在码头。" }], notes: [{ id: "note-a", title: "计划", text: "下章找钥匙。" }], outline: [{ id: "outline-a", title: "回家", summary: "找到钥匙" }] } });
+  for (const name of ["manuscript_search", "manuscript_get", "notes_search", "outline_lookup", "calc_evaluate"]) assert.ok(extended.some(tool => tool.name === name));
+  const search = extended.find(tool => tool.name === "manuscript_search")!;
+  const result = await search.execute("read", { query: "钥匙" });
+  const payload = JSON.parse((result.content[0] as { text: string }).text);
+  assert.equal(payload.hits[0].id, "chapter-a");
+  assert.ok(JSON.stringify(payload).length <= NARRATIVE_TOOL_LIMITS.maxResultChars);
+
 });

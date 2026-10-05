@@ -23,10 +23,11 @@
     </div>
 
     <div v-if="historyOpen" class="authoring-knowledge__history" :aria-label="tr('当前问答历史')">
-      <div><strong>{{ tr('当前会话') }}</strong><button v-if="messages.length" type="button" @click="$emit('clear')">{{ tr('清空') }}</button></div>
+      <div><strong>{{ tr('当前会话') }}</strong><button v-if="assistant?.newConversation" type="button" :disabled="busy || agentState.adoptionBusy" @click="assistant.newConversation(); historyOpen = false">{{ tr('新对话') }}</button><button v-if="messages.length" type="button" @click="$emit('clear')">{{ tr('清空') }}</button></div>
       <button v-for="question in historyQuestions" :key="question.id" type="button" @click="reuseQuestion(question.question)">
         {{ question.question }}
       </button>
+      <template v-if="assistant?.sessions?.value?.length > 1"><button v-for="session in assistant.sessions.value" :key="session.sessionId" type="button" :disabled="busy || agentState.adoptionBusy" :aria-current="session.active ? 'true' : undefined" @click="assistant.selectSession(session.sessionId); historyOpen = false">{{ session.title }}</button></template>
       <p v-if="!historyQuestions.length">{{ tr('还没有提问记录') }}</p>
     </div>
 
@@ -40,6 +41,17 @@
         <div v-if="message.role === 'user'" class="authoring-knowledge__question" :data-message-id="message.id" tabindex="-1">
           <p>{{ message.question }}</p>
         </div>
+        <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__answer">
+          <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
+          <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
+          <p class="authoring-knowledge__answer-text">{{ message.text }}</p>
+          <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
+            <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
+          </section>
+          <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr('这次回答未完成，保留的文字不能直接采纳。') }}</p>
+          <button v-if="message.status === 'completed' && message.chapterId" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || message.adopted || agentState.adoptionBusy" @click="assistant.adoptAgentAnswer(message.id)">{{ tr(message.adopted ? '已加入正文' : '加入生成时的章节') }}</button>
+        </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
             <span :class="message.answer.answerKind === 'free-advice' ? 'is-free' : 'is-grounded'">
@@ -86,16 +98,20 @@
         <span>{{ notice.text }}</span><small v-if="notice.reviewable">{{ tr('查看') }}</small>
       </button>
       <div v-if="error" class="authoring-knowledge__error" role="alert">
-        <span>{{ tr(error) }}</span><button type="button" @click="$emit('retry')">{{ tr('重试') }}</button>
+        <span>{{ tr(error) }}</span><button v-if="!assistant || unref(assistant.lastRequest)" type="button" @click="$emit('retry')">{{ tr('重试') }}</button>
       </div>
       <p v-if="persistenceError" class="authoring-knowledge__persistence-error" role="alert">{{ tr(persistenceError) }}</p>
     </div>
 
     <footer class="authoring-knowledge__composer">
+      <AuthoringAgentTools v-if="selectedIntent === 'agent' && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
       <div class="authoring-knowledge__input-row">
+        <div v-if="mentionCandidates.length" class="authoring-knowledge__mentions" role="listbox" :aria-label="tr('选择参考资料')">
+          <button v-for="(entry, index) in mentionCandidates" :key="entry.type + ':' + entry.id" type="button" role="option" :aria-selected="index === mentionIndex" @pointerdown.prevent="pickMention(entry)">{{ entry.title }}</button>
+        </div>
         <textarea ref="draftInputRef" :value="draft" rows="1" :placeholder="tr(placeholder)" :aria-label="tr('向助手提问')"
-          @input="$emit('update:draft', $event.target.value)" @compositionstart="composing = true"
-          @compositionend="composing = false" @keydown.enter="submitOnEnter"></textarea>
+          @input="updateMentionDraft" @click="updateMention($event.target)" @keyup="updateMentionCursor" @compositionstart="composing = true"
+          @compositionend="composing = false; updateMention($event.target)" @keydown="draftKeydown"></textarea>
         <div class="authoring-knowledge__composer-actions">
           <details ref="toolsRef" class="authoring-knowledge__tools" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
             <summary :aria-label="tr('写作工具')" :title="tr('写作工具')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="plus" :size="20" /></summary>
@@ -110,10 +126,11 @@
             <span>{{ tr(emptyBook ? '正文还为空' : '当前文稿') }}</span>
           </div>
           <details ref="purposeRef" class="authoring-knowledge__purpose" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
-            <summary :aria-label="tr('助手任务')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon :name="discussing ? 'message-square' : 'search'" :size="15" /><span>{{ tr(discussing ? '讨论故事' : '查阅资料') }}</span><WorkbenchIcon name="chevron-down" :size="14" /></summary>
+            <summary :aria-label="tr('助手任务')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon :name="discussing ? 'message-square' : 'search'" :size="15" /><span>{{ tr(selectedIntent === 'agent' ? '写作与修改' : discussing ? '讨论故事' : '查阅资料') }}</span><WorkbenchIcon name="chevron-down" :size="14" /></summary>
             <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手任务')">
               <button type="button" :aria-pressed="discussing" @click="choosePurpose('free')"><WorkbenchIcon name="message-square" :size="18" /><span>{{ tr('讨论故事') }}<small>{{ tr('一起想情节、人物和写法') }}</small></span></button>
-              <button type="button" :aria-pressed="!discussing" @click="choosePurpose('whole-book')"><WorkbenchIcon name="search" :size="18" /><span>{{ tr('查阅资料') }}<small>{{ tr('查正文和设定，附原文出处') }}</small></span></button>
+              <button v-if="agentState.enabled" type="button" :aria-pressed="selectedIntent === 'agent'" @click="choosePurpose('agent')"><WorkbenchIcon name="assistant" :size="18" /><span>{{ tr('写作与修改') }}<small>{{ tr('查阅参考、运用技法，确认后加入正文') }}</small></span></button>
+              <button type="button" :aria-pressed="!discussing && selectedIntent !== 'agent'" @click="choosePurpose('whole-book')"><WorkbenchIcon name="search" :size="18" /><span>{{ tr('查阅资料') }}<small>{{ tr('查正文和设定，附原文出处') }}</small></span></button>
             </div>
           </details>
           <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" :title="tr('停止查询')" @click="$emit('cancel')"><WorkbenchIcon name="close" :size="20" /></button>
@@ -134,13 +151,17 @@
 
 <script setup>
 import { tr, uiLocale } from '../../i18n/index.js'
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+const AuthoringAgentTools = defineAsyncComponent(() => import('./AuthoringAgentTools.vue'))
 const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
 
+import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
 
 const props = defineProps({
+  assistant: { type: Object, default: null },
+  agentState: { type: Object, default: () => ({}) },
   reviewWorkflow: { type: Object, default: null },
   projectId: { type: String, default: '' },
   projectTitle: { type: String, default: '' },
@@ -331,6 +352,7 @@ function focusFirstMenu(menu) {
   nextTick(() => menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true }))
 }
 function choosePurpose(intent) {
+  mention.value = null
   closeMenu(toolsRef.value)
   closeMenu(purposeRef.value)
   emit('select-intent', intent)
@@ -358,7 +380,7 @@ onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOu
 watch(() => [props.draft, props.expanded, props.projectId, props.selectedIntent], () => nextTick(fitDraft), { immediate: true })
 watch(draftInputRef, () => nextTick(fitDraft))
 const discussing = computed(() => props.selectedIntent === 'free')
-const placeholder = computed(() => discussing.value ? '说说你的故事想法…' : '想查什么？')
+const placeholder = computed(() => props.selectedIntent === 'agent' ? '希望怎样续写、改写或打磨？' : discussing.value ? '说说你的故事想法…' : '想查什么？')
 const suggestedTasks = Object.freeze([
   { id: 'whole-book', label: '理清人物关系', suggestion: '请根据已有正文和设定梳理主要人物的关系，并列出出处。没有依据的关系请不要补全。' },
   { id: 'whole-book', label: '回顾前文', suggestion: '请根据已有正文整理前情，按事件先后列出重要变化，并标注对应原文。' },
@@ -382,11 +404,12 @@ const historyQuestions = computed(() => props.messages.filter((message) => messa
 const visibleMessages = computed(() => {
   const query = searchTerm.value.trim().toLocaleLowerCase('zh-CN')
   if (!query) return props.messages
-  return props.messages.filter((message) => [message.question, message.answer?.answer]
+  return props.messages.filter((message) => [message.question, message.answer?.answer, message.text]
     .filter(Boolean)
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
 
+function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -475,10 +498,47 @@ defineExpose({ focusQuestion, focusDraft: () => {
   input?.focus({ preventScroll: true })
 } })
 
+const mention = ref(null)
+const mentionIndex = ref(0)
+const mentionCandidates = computed(() => {
+  if (props.selectedIntent !== 'agent' || !props.projectId || !mention.value || composing.value) return []
+  const context = props.assistant?.agentContext?.() || {}
+  return filterMentions([...(context.worldEntries || []), ...(context.chapterEntries || [])], mention.value.token)
+})
+function updateMention(input) {
+  if (!input || composing.value || props.selectedIntent !== 'agent') { mention.value = null; return }
+  const next = mentionAtCursor(input.value, input.selectionStart)
+  if (next?.token !== mention.value?.token) mentionIndex.value = 0
+  mention.value = next
+}
+function updateMentionCursor(event) { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) updateMention(event.target) }
+function updateMentionDraft(event) { emit('update:draft', event.target.value); updateMention(event.target) }
+function pickMention(entry) {
+  if (!mention.value || props.busy) return
+  const selected = props.agentState.refs || []
+  if (!selected.some(ref => ref.id === entry.id && ref.type === entry.type)) {
+    if (selected.length >= 8) return
+    props.assistant.setAgentReferences([...selected, entry])
+  }
+  const result = applyMention(props.draft, mention.value.start, mention.value.token.length, entry.title)
+  mention.value = null
+  emit('update:draft', result.text)
+  nextTick(() => { draftInputRef.value?.focus(); draftInputRef.value?.setSelectionRange(result.caret, result.caret) })
+}
+function draftKeydown(event) {
+  if (event.isComposing || composing.value) return
+  if (mentionCandidates.value.length) {
+    if (event.key === 'Escape') { event.preventDefault(); mention.value = null; return }
+    if (['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); mentionIndex.value = (mentionIndex.value + (event.key === 'ArrowDown' ? 1 : -1) + mentionCandidates.value.length) % mentionCandidates.value.length; return }
+    if (['Tab', 'Enter'].includes(event.key) && !event.shiftKey) { event.preventDefault(); pickMention(mentionCandidates.value[mentionIndex.value] || mentionCandidates.value[0]); return }
+  }
+  if (event.key === 'Enter') submitOnEnter(event)
+}
+watch(() => props.projectId, () => { mention.value = null; mentionIndex.value = 0 })
 function submit() {
   const question = props.draft.trim()
   if (!question || props.busy) return
-  emit('ask', { intent: discussing.value ? 'free' : 'whole-book', question })
+  emit('ask', { intent: props.selectedIntent === 'agent' ? 'agent' : discussing.value ? 'free' : 'whole-book', question })
 }
 
 function submitOnEnter(event) {
@@ -648,4 +708,17 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 @media (prefers-reduced-motion: reduce) {
   .authoring-knowledge__thinking span { animation: none; }
 }
+.authoring-knowledge__agent-detail { margin: 10px 0; color: var(--text-muted); font-size: 12px; }
+.authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 5px; }
+.authoring-knowledge__agent-detail[open] summary svg { transform: rotate(180deg); }
+.authoring-knowledge__agent-detail p { white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.authoring-knowledge__agent-adopt { margin-top: 12px; padding: 6px 10px; min-height: 36px; border: 1px solid var(--border-color); border-radius: var(--workspace-radius, 10px); background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer; }
+.authoring-knowledge__agent-adopt:disabled { opacity: .5; cursor: default; }
+.authoring-knowledge__agent-adopt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 720px) { .authoring-knowledge__agent-adopt { min-height: 44px; } }
+.authoring-knowledge__input-row { position: relative; }
+.authoring-knowledge__mentions { position: absolute; z-index: 9; left: 0; bottom: calc(100% + 6px); width: min(300px, 100%); max-height: 260px; overflow: auto; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--radius-surface, 16px); background: var(--bg-secondary); box-shadow: var(--shadow-workbench-float); }
+.authoring-knowledge__mentions button { display: block; width: 100%; min-height: 36px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
+.authoring-knowledge__mentions button[aria-selected="true"] { background: var(--nav-selected); color: var(--text-primary); }
+@media (max-width: 720px) { .authoring-knowledge__mentions button { min-height: 44px; } }
 </style>

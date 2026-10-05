@@ -46,7 +46,8 @@ function sseHead(res: http.ServerResponse) {
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let bytes = 0;
+  for await (const c of req) { bytes += c.length; if (bytes > 2_000_000) throw new Error("request-too-large"); chunks.push(c); }
   return Buffer.concat(chunks).toString("utf-8");
 }
 
@@ -59,10 +60,12 @@ function validate(reqBody: unknown): { ok: true; value: TurnRequest } | { ok: fa
   if (!isRecord(b.kernel) || !Array.isArray(b.kernel.blocks) || b.kernel.blocks.some((block) => !isRecord(block))) return { ok: false, error: "kernel.blocks 必须是对象数组" };
   if (!isRecord(b.resources) || !isRecord(b.resources.domains)) return { ok: false, error: "resources.domains 必须是对象" };
   for (const [name, items] of Object.entries(b.resources.domains)) {
-    if (!PINAX_TOOL_NAMES.some((tool) => tool === name) || !Array.isArray(items) || items.some((item) => !isRecord(item))) {
+    if (![...PINAX_TOOL_NAMES, "manuscript", "notes", "outline"].includes(name) || !Array.isArray(items) || items.some((item) => !isRecord(item))) {
       return { ok: false, error: "resources.domains 仅接受已声明资料域的对象数组" };
     }
   }
+  if (b.taskKind !== undefined && !["assistant", "narrative"].includes(b.taskKind)) return { ok: false, error: "invalid-task-kind" };
+  if (b.maxTokens !== undefined && (!Number.isInteger(b.maxTokens) || b.maxTokens < 200 || b.maxTokens > 8000)) return { ok: false, error: "maxTokens 必须在 200–8000 之间" };
   if (b.bookId === null) delete b.bookId;
   if (b.bookId !== undefined && !isValidBookId(b.bookId)) return { ok: false, error: "bookId 必须是 1–120 字符的非空标识" };
   if (b.budget !== undefined) {
@@ -118,7 +121,7 @@ export function startServer(overrides = {}) {
       // A disconnected SSE client relinquishes only the writer, never the task owner.
       let clientGone = res.destroyed;
       res.on("error", () => { clientGone = true; });
-      res.on("close", () => { clientGone = true; });
+      res.on("close", () => { clientGone = true; if (!res.writableEnded) run.abort("PINAX_ADAPTER_CLIENT_DISCONNECTED"); });
       if (!clientGone) sseHead(res);
       off = run.onFrame((frame) => {
         if (clientGone || res.destroyed || res.writableEnded) return;
@@ -155,6 +158,7 @@ export function startServer(overrides = {}) {
         const taskId = turn.taskId || newTaskId();
         if (active.has(taskId)) return json(res, 409, { ok: false, error: "task-already-running", taskId });
         if (store.has(taskId)) return json(res, 409, { ok: false, error: "task-already-exists", taskId });
+        if (active.size >= 4) return json(res, 429, { ok: false, error: "adapter-busy" });
         turn.taskId = taskId;
         const snapshot: TaskSnapshot = {
           taskId, requestId: turn.requestId, status: "running", createdAt: Date.now(), updatedAt: Date.now(),
@@ -211,6 +215,7 @@ export function startServer(overrides = {}) {
           }
           // Legacy unbound journals can still resume without bookId. They cannot be silently claimed.
           if (!snap.bookId && parsed.value.bookId !== undefined) return json(res, 422, { error: "task-book-unbound", taskId });
+          if (active.size >= 4) return json(res, 429, { ok: false, error: "adapter-busy" });
           const turn = { ...parsed.value, taskId, bookId: snap.bookId };
           const snapshot: TaskSnapshot = {
             ...snap, requestId: turn.requestId, mode: turn.mode, status: "running", error: undefined,

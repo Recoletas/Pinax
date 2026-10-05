@@ -11,6 +11,9 @@
       <aside v-if="expanded && indexOpen" id="assistant-workspace-nav" ref="indexRef" class="authoring-assistant-workspace__index" :aria-label="tr('作品导航')">
         <div class="authoring-assistant-workspace__book"><WorkbenchIcon name="book" :size="20" /><strong :title="projectTitle || tr('未命名作品')">{{ projectTitle || tr('未命名作品') }}</strong></div>
         <ProjectWritingNavigation current="assistant" :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" />
+        <div v-if="state.sessions.length > 1" class="authoring-assistant-workspace__sessions" :aria-label="tr('作品对话')">
+          <button v-for="session in state.sessions" :key="session.sessionId" type="button" :class="{ 'is-selected': session.active }" :aria-current="session.active ? 'true' : undefined" :disabled="state.busy || state.agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="14" /><span>{{ session.title }}</span></button>
+        </div>
         <div class="authoring-assistant-workspace__questions">
           <strong>{{ tr('对话提问') }}</strong>
           <div ref="questionsRef" class="authoring-assistant-workspace__questions-scroll" :aria-label="tr('当前对话索引')">
@@ -30,6 +33,7 @@
           :expanded="expanded"
           :empty-book="emptyBook"
           :review-workflow="reviewWorkflow"
+          :assistant="assistant" :agent-state="state.agentState"
           :messages="state.messages"
           :draft="state.draft"
           :selected-intent="state.selectedIntent"
@@ -156,6 +160,8 @@ async function focusDraft() {
   knowledgeRef.value?.focusDraft()
 }
 const state = computed(() => ({
+  sessions: unref(props.assistant.sessions) || [],
+  agentState: unref(props.assistant.agentState) || {},
   messages: unref(props.assistant.messages) || [],
   draft: unref(props.assistant.draft) || '',
   selectedIntent: unref(props.assistant.selectedIntent) || 'free',
@@ -173,9 +179,10 @@ function updateDraft(value) {
   props.assistant.updateDraft(value)
 }
 
+function selectConversation(id) { closePreview(); props.assistant.selectSession?.(id); activeQuestionId.value = ''; focusDraft() }
 function clearConversation() {
   closePreview()
-  props.assistant.clear()
+  props.assistant.newConversation?.() ?? props.assistant.clear()
 }
 
 function previewEvidence(evidence, trigger) {
@@ -350,4 +357,10 @@ watch(() => state.value.messages, (messages) => {
 @media (prefers-reduced-motion: no-preference) {
   .authoring-assistant-workspace__index button, .authoring-assistant-workspace__inline-actions button { transition: background-color 140ms ease, color 140ms ease; }
 }
+.authoring-assistant-workspace__sessions { flex: none; max-height: 180px; overflow: auto; margin: 16px 0 0; scrollbar-width: thin; }
+.authoring-assistant-workspace__sessions button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; border: 0; border-radius: var(--workspace-radius, 10px); padding: 8px 12px; color: var(--text-secondary); background: transparent; font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
+.authoring-assistant-workspace__sessions button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.authoring-assistant-workspace__sessions button.is-selected { background: var(--nav-selected-secondary, var(--nav-selected)); color: var(--text-primary); }
+.authoring-assistant-workspace__sessions button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 720px) { .authoring-assistant-workspace__sessions button { min-height: 44px; } }
 </style>

@@ -68,15 +68,16 @@ export function loadConfig(explicit?: Partial<AdapterConfig>): AdapterConfig {
   const pick = <T>(envVal: string | undefined, fileVal: T | undefined, def: T): T =>
     (envVal !== undefined ? (envVal as unknown as T) : fileVal !== undefined ? fileVal : def);
 
+  const builtinMiniMax = Boolean(env.MINIMAX_API_KEY && !env.MINIFLOW_AGENT_KEY && !env.ZAI_API_KEY && !fileCfg.apiKey);
   const cfg: AdapterConfig = {
     port: Number(env.PINAX_ADAPTER_PORT ?? fileCfg.port ?? DEFAULTS.port),
     host: pick(env.PINAX_ADAPTER_HOST, fileCfg.host, DEFAULTS.host),
     tasksDir: path.resolve(pkgRoot(), env.PINAX_ADAPTER_TASKS_DIR ?? fileCfg.tasksDir ?? DEFAULTS.tasksDir),
-    provider: pick(env.PINAX_ADAPTER_PROVIDER, fileCfg.provider, DEFAULTS.provider),
-    model: pick(env.PINAX_ADAPTER_MODEL, fileCfg.model, DEFAULTS.model),
-    apiKey: env.MINIFLOW_AGENT_KEY ?? env.ZAI_API_KEY ?? fileCfg.apiKey,
-    baseUrl: env.PINAX_ADAPTER_BASE_URL ?? fileCfg.baseUrl,
-    thinking: pick(env.PINAX_ADAPTER_THINKING, fileCfg.thinking, DEFAULTS.thinking),
+    provider: pick(env.PINAX_ADAPTER_PROVIDER, fileCfg.provider, builtinMiniMax ? "minimax" : DEFAULTS.provider),
+    model: pick(env.PINAX_ADAPTER_MODEL, fileCfg.model, builtinMiniMax ? "MiniMax-Text-01" : DEFAULTS.model),
+    apiKey: env.MINIFLOW_AGENT_KEY ?? env.ZAI_API_KEY ?? fileCfg.apiKey ?? env.MINIMAX_API_KEY,
+    baseUrl: env.PINAX_ADAPTER_BASE_URL ?? fileCfg.baseUrl ?? (builtinMiniMax ? "https://api.minimaxi.com/v1" : undefined),
+    thinking: pick(env.PINAX_ADAPTER_THINKING, fileCfg.thinking, builtinMiniMax ? "off" : DEFAULTS.thinking),
     budget: { ...DEFAULTS.budget, ...(fileCfg.budget || {}), ...(explicit?.budget || {}) },
     allowedOrigins: Array.isArray(fileCfg.allowedOrigins)
       ? fileCfg.allowedOrigins
