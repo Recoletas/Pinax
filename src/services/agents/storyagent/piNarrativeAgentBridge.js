@@ -1,23 +1,5 @@
-// Pinax 侧接入件（放进 Pinax 仓库，例如 src/services/agents/piAgent/piNarrativeAgentBridge.js）。
-// 定位：任务级桥接；当前只由 StoryAgent-beta 面板调用。
-// experienceTurnCoordinator 的正式开关接线未实施，状态机与 adoption/undo 仍归 Pinax。
-//
-// v1 覆盖范围（诚实边界）：
-//   ✅ 桥接支持：资料快照查询 → 流式正文 → 取消/恢复
-//   ❌ Authoring 的 BeatPlan 规划轮（narrativeBeatPlanTool）——未接
-//   ❌ critic shadow、evidence validator、写入采纳/撤销——仍归 Pinax 本体
-//
-// 用法（在 Pinax 侧）：
-//   const bridge = createPiNarrativeAgentBridge({ endpoint: 'http://127.0.0.1:8451' })
-//   const run = await bridge.run({
-//     kernel: narrativeKernel,                 // buildNarrativeKernel 产物
-//     index: narrativeIndex,                   // getNarrativeResourceIndex 产物
-//     registry: narrativeRegistry,             // 仅用于取 revision / 授权工具名单
-//     mode, intent, formatInstructions, maxTokens, requestId, signal,
-//     callbacks: { onChunk, onComplete },
-//     onStatus,
-//   })
-//   // run 形状对齐 orchestrator 返回：{ ok, finalContent, trace, usage, toolRounds, totalCalls }
+import { sha256Hex } from '../../../../shared/collaboration/canonicalJson.js'
+import { createBrowserStorageRepository } from '../../storage/browserStorageRepository.js'
 
 const DOMAINS = {
   world: 'world_lookup',
@@ -25,6 +7,7 @@ const DOMAINS = {
   history: 'history_lookup',
   memory: 'memory_lookup',
   politics: 'politics_lookup',
+  manuscript: 'manuscript', notes: 'notes', outline: 'outline',
 }
 
 function text(value, limit = 520) {
@@ -35,19 +18,24 @@ function text(value, limit = 520) {
 // 浏览器侧 stores 的数据 Node 看不见——随请求带资源快照上行（解决落盘时机不一致）
 export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
   const domains = {}
+  const coverage = {}
+  maxItemsPerDomain = Number.isFinite(maxItemsPerDomain) ? Math.max(1, Math.min(120, Math.floor(maxItemsPerDomain))) : 120
   for (const [domain, toolName] of Object.entries(DOMAINS)) {
     const resources = index?.byDomain?.get?.(domain) || index?.byDomain?.[domain] || []
     if (!Array.isArray(resources) || resources.length === 0) continue
-    domains[toolName] = resources.slice(0, maxItemsPerDomain).map((r) => ({
+    const itemLimit = ['manuscript', 'notes', 'outline'].includes(domain) ? Math.min(60, maxItemsPerDomain) : maxItemsPerDomain
+    coverage[toolName] = { included: Math.min(resources.length, itemLimit), available: resources.length, maxTextCharacters: domain === 'manuscript' ? 8000 : 2400 }
+    domains[toolName] = resources.slice(0, itemLimit).map((r) => ({
       id: text(r.id, 120),
       title: text(r.title || r.name || '', 120),
       type: text(r.type || '', 60),
       summary: text(r.summary || r.content || r.description || r.text || '', 520),
-      aliases: (r.aliases || []).map((a) => text(a, 60)).filter(Boolean),
-      tags: (r.tags || []).map((t) => text(t, 40)).filter(Boolean),
-      relations: (r.relations || []).slice(0, 12).map((rel) => ({ type: text(rel.type || 'related', 40), targetId: text(rel.targetId || rel.id || '', 120) })),
+      text: text(r.text || r.content || r.summary || '', domain === 'manuscript' ? 8000 : 2400),
+      aliases: (Array.isArray(r.aliases) ? r.aliases : []).map((a) => text(a, 60)).filter(Boolean),
+      tags: (Array.isArray(r.tags) ? r.tags : []).map((t) => text(t, 40)).filter(Boolean),
+      relations: (Array.isArray(r.relations) ? r.relations : []).slice(0, 12).map((rel) => ({ type: text(rel.type || 'related', 40), targetId: text(rel.targetId || rel.id || '', 120) })),
       trust: text(r.trust || '', 40),
-      sourceRefs: (r.sourceRefs || []).slice(0, 6).map((s) => text(s, 120)),
+      sourceRefs: (Array.isArray(r.sourceRefs) ? r.sourceRefs : []).slice(0, 6).map((s) => text(s, 120)),
       ...(r.position ? { position: r.position } : {}),
       ...(Array.isArray(r.connectedPlaces) ? { connectedPlaces: r.connectedPlaces.slice(0, 20) } : {}),
       ...(r.faction ? { faction: text(r.faction, 80) } : {}),
@@ -56,7 +44,7 @@ export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
       ...(r.cause ? { cause: text(r.cause, 120) } : {}),
     }))
   }
-  return { revision: text(index?.revision || '', 80), currentPlaceId: text(index?.currentPlaceId || '', 120), domains }
+  return { revision: text(index?.revision || '', 80), currentPlaceId: text(index?.currentPlaceId || '', 120), domains, coverage }
 }
 
 // kernel.blocks 复用 Pinax 已预算化的串行化产物；缺省时从 kernel 现拼一份有界块表
@@ -100,20 +88,32 @@ function abortError(signal) {
 
 async function requestError(response) {
   const payload = await response.json().catch(() => null)
-  const error = new Error(`pinax-adapter 拒绝请求（${response.status}）：${payload?.error || 'request-failed'} ${payload?.message || ''}`.trim())
+  const friendly = ({ 403: '当前浏览器无法续接这项任务，请重新开始任务。', 404: '原任务已不可用，请重新开始任务；现有对话仍保留。', 409: '任务仍在运行，请先停止后再继续。', 422: '这项任务没有可续接的记录，请重新开始任务。', 429: '写作工具正在忙，请稍后重试。', 503: '写作工具暂不可用，请稍后重试。' })[response.status]
+  const error = new Error(friendly || '写作任务请求失败，请稍后重试。')
   error.name = 'PinaxAdapterRequestError'
   error.status = response.status
   error.code = payload?.error || 'request-failed'
   return error
 }
 
-export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451', fetchImpl = fetch, parseEvent = null } = {}) {
+export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fetchImpl = fetch, parseEvent = null } = {}) {
   const base = String(endpoint).replace(/\/$/, '')
+  const repo = createBrowserStorageRepository()
+  let session = ''
+  try { session = repo.getText('pinax_agent_client_capability') || '' } catch { /* transient capability */ }
+  if (!/^[a-f0-9]{64}$/.test(session)) {
+    session = [...crypto.getRandomValues(new Uint8Array(32))].map(v => v.toString(16).padStart(2, '0')).join('')
+    try { repo.setText('pinax_agent_client_capability', session) } catch { /* page-local capability */ }
+  }
+  const headers = { 'content-type': 'application/json', 'x-pinax-agent-session': session }
+  const scope = sha256Hex(session).slice(0, 24)
+  const freshId = () => `${Date.now().toString(36)}_${[...crypto.getRandomValues(new Uint8Array(8))].map(v => v.toString(16).padStart(2, '0')).join('')}`
+  const scopedId = (id) => { const prefix = `pa_${scope}_`; return String(id || '').startsWith(prefix) ? id : `${prefix}${String(id || freshId()).slice(0, 52)}` }
 
   async function streamTask(path, body, { signal, callbacks = {}, onStatus, state }) {
     const response = await fetchImpl(`${base}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
       signal,
     })
@@ -139,9 +139,11 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
     const consumeFrame = (raw) => {
       if (!raw.trim()) return
       const named = parseSseFrame(raw)
+      if (state.terminal && (TASK_EVENT_TYPES.has(named?.eventName) || STREAM_EVENT_TYPES.has(named?.eventName))) throw new Error('pinax-adapter 终态之后仍有任务输出')
       // 生命周期不属于 narrative parser 的事件集，两种接入方式都必须处理。
       if (TASK_EVENT_TYPES.has(named?.eventName)) {
         if (!named.data || typeof named.data !== 'object' || Array.isArray(named.data)) throw new Error('pinax-adapter 任务事件格式错误')
+        if (named.data.taskId && body.taskId && named.data.taskId !== body.taskId) throw new Error('pinax-adapter 任务标识不一致')
         const fallbackStatus = named.eventName === 'task.started' ? 'running' : named.eventName === 'task.completed' ? 'completed' : 'failed'
         state.taskEvent = { ...state.taskEvent, ...named.data, status: named.data.status || fallbackStatus }
         const validStatus = named.eventName === 'task.started' ? state.taskEvent.status === 'running'
@@ -154,7 +156,19 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
             state.error = state.taskEvent.error || state.error || { code: 'PINAX_ADAPTER_TASK_FAILED', message: `任务状态：${state.taskEvent.status}`, retryable: false }
           }
         }
+        if (named.eventName === 'task.completed') {
+          if (typeof named.data.finalText === 'string') finalText = named.data.finalText
+          state.beatPlan = named.data.beatPlan || state.beatPlan || null
+        }
         callbacks.onTask?.(state.taskEvent, named.eventName)
+        return
+      }
+      if (named?.eventName === 'reasoning.delta') { const content = String(named.data?.delta || ''); state.reasoningChars = (state.reasoningChars || 0) + content.length; callbacks.onReasoning?.({ content }); return }
+      if (named?.eventName === 'beat.plan') { state.beatPlan = named.data?.plan || null; callbacks.onBeatPlan?.(state.beatPlan); return }
+      if (named?.eventName === 'tool.result') {
+        if (named.data && typeof named.data.toolName === 'string') {
+          (state.toolResults ||= []).push(named.data); callbacks.onToolResult?.(named.data)
+        }
         return
       }
       // 默认 parser 读取标准 schema；显式 parser 可增加 Pinax 的契约核对。
@@ -199,7 +213,14 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       if (!state.terminal) throw new Error(`pinax-adapter 事件流未确认任务终态${state.error?.message ? `：${state.error.message}` : ''}`)
       return { finalText, events }
     } catch (error) {
-      if (signal?.aborted) throw abortError(signal)
+      if (signal?.aborted) {
+        // A lost reader is not confirmation that the remote model stopped.
+        const taskId = state.taskEvent?.taskId || body.taskId
+        if (taskId) {
+          try { await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', headers, signal: AbortSignal.timeout(5000) }) } catch { /* original abort remains authoritative locally */ }
+        }
+        throw abortError(signal)
+      }
       throw error
     } finally {
       signal?.removeEventListener('abort', cancelReader)
@@ -224,30 +245,42 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       ...(state.error ? { error: state.error } : {}),
       trace: {
         engine: 'pi-agent-adapter',
-        steps: steps.length,
+        steps: Number(state.taskEvent?.steps) || steps.length,
+        reasoningChars: state.reasoningChars || 0,
         terminalMode: toolCalls.length ? 'tool-assisted' : 'direct-text',
         calls: toolCalls.map((e) => ({ name: e.data.toolName, action: e.data.action })),
-        groundingPolicy: { level: toolCalls.length ? 'evidenced' : 'none' },
+        groundingPolicy: { level: (state.toolResults || []).some(result => !result.isError && /lookup|manuscript|notes/.test(result.toolName)) ? 'evidenced' : 'none' },
         taskId: state.taskEvent?.taskId || taskId || null,
         ...(state.taskEvent?.bookId ? { bookId: state.taskEvent.bookId } : {}),
         status,
         ...(resumed ? { resumed: true } : {}),
       },
-      finalToolResults: [],
+      beatPlan: state.beatPlan || null,
+      finalToolResults: state.toolResults || [],
     }
   }
 
   return {
-    async healthz() {
-      const r = await fetchImpl(`${base}/healthz`).then((x) => x.json()).catch(() => null)
-      return r
+    async healthz({ signal = null, timeoutMs = 2500 } = {}) {
+      const controller = new AbortController()
+      const abort = () => controller.abort(signal.reason)
+      if (signal?.aborted) abort()
+      else signal?.addEventListener('abort', abort, { once: true })
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetchImpl(`${base}/healthz`, { signal: controller.signal })
+        return response.ok ? await response.json() : null
+      } catch { if (signal?.aborted) throw abortError(signal); return null }
+      finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
     },
 
-    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', maxTokens = 1600, requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null }) {
+    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', maxTokens = 1600, requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null, taskKind = 'narrative' }) {
+      taskId = base === '/api/storyagent' ? scopedId(taskId) : taskId || freshId()
+      if (signal?.aborted) throw abortError(signal)
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
       const body = {
         requestId: requestId || `pi_${Date.now().toString(36)}`,
-        mode,
+        mode, taskKind,
         intent,
         formatInstructions,
         maxTokens,
@@ -265,13 +298,18 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       return result
     },
 
+    async tasks(bookId = '') {
+      const response = await fetchImpl(`${base}/v1/pinax/tasks/list?bookId=${encodeURIComponent(bookId)}`, { headers })
+      return response.ok ? response.json() : { tasks: [] }
+    },
+
     async status(taskId) {
-      const r = await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}`)
+      const r = await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}`, { headers })
       return r.ok ? r.json() : null
     },
 
     async cancel(taskId, { signal = null } = {}) {
-      const r = await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', signal })
+      const r = await fetchImpl(`${base}/v1/pinax/tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST', signal, headers })
       if (!r.ok) throw await requestError(r)
       const result = await r.json()
       if (result?.ok !== true || result.stopped !== true || result.taskId !== taskId || !TERMINAL_STATUSES.has(result.status)) {
@@ -280,11 +318,11 @@ export function createPiNarrativeAgentBridge({ endpoint = 'http://127.0.0.1:8451
       return { ...result, cancelled: result.status === 'cancelled' }
     },
 
-    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null }) {
+    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null, taskKind = 'assistant', maxTokens = 1600, formatInstructions = '' }) {
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
       const body = {
         requestId: requestId || `pi_resume_${Date.now().toString(36)}`,
-        mode: 'continue',
+        mode: 'continue', taskId, taskKind, maxTokens, formatInstructions,
         intent,
         // 归属不变式：续跑重发同值；客户端漏发时适配器以快照为准（旧任务永远归旧作品）
         ...(bookId ? { bookId } : {}),

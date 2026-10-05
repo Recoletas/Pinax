@@ -1,3 +1,4 @@
+import { runExperienceAgentGeneration } from '../agents/storyagent/experienceAgentRoute.js'
 import { recordMemory } from '../api'
 import {
   buildNarrativeFormatInstructions,
@@ -287,7 +288,8 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         const expansionLevel = store.resolveNarrativeExpansion()
         const baseTokens = isInitGeneration ? 3000 : 2600
         const maxTokens = Math.min(5000, Math.round(baseTokens * narrativeExpansionFactor(expansionLevel)))
-        const agentRun = await runNarrativeAgentGeneration({
+        const agentRun = await runExperienceAgentGeneration({
+          index: narrativeIndex, bookId: `experience:${narrativeSessionId}`,
           kernel: narrativeKernel,
           registry: narrativeRegistry,
           mode: productionMode,
@@ -359,7 +361,7 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
               console.error('Stream error:', error)
             }
           }
-        })
+        }, runNarrativeAgentGeneration)
         completedAgentRun = agentRun
         const completedMessage = getPlaceholder()
         messageIndex = store.messages.findIndex((message) => message?.id === placeholderId)

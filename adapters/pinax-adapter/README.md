@@ -1,133 +1,56 @@
-# pinax-adapter · StoryFlow harness ↔ Pinax 适配层
+# pinax-adapter
 
-把 StoryFlow 的 harness 能力（pi-agent 回合循环 + 工具环 + 任务状态）接到 [Pinax](https://github.com/Recoletas/Pinax) 上，对应 [Issue #3](https://github.com/Recoletas/Pinax/issues/3) 的 Agent 工作流诉求：**持续任务执行、定向检索与追问、任务状态/取消/恢复**。
+Pinax 的可选 Node 工具运行时，使用 pi-agent 管理模型回合、工具、任务记录、取消和续接。世界书、正文和作者确认仍由 Pinax 管理。
 
-## 当前接入位置
+## 已接入的入口
 
-Pinax 原有推演调用链如下。本 PR 通过独立 beta 面板调用适配器，尚未替换这条链路：
+- 现有写作助手的 **写作与修改**：可选正文/设定参考和写作技法；支持 `@` 补全。后续消息续接当前任务，**重新开始任务**保留对话但建立新任务。
+- 全屏与侧栏共用 `useAuthoringKnowledgeAssistant`。对话、命名会话、任务 ID 和草稿按作品保存到既有 conversation store，没有另一份 Agent 对话真源。
+- 完整输出先留在助手，**加入生成时的章节**由 Authoring 保存。切到另一章不能采纳；保存失败不标记成功；采纳前保存保护版本，成功后通知既有现场/记忆观察流程。
+- **参考与技法**中的体验开关默认关闭。开启后普通体验回合可走适配器；适配器不可达时保留原生入口。带严格任务合同的推演始终由原生发布前检查/修订流程处理。
+- **讨论故事**、带出处的**查阅资料**、审稿和正文轻量推演保留各自的既有约束。不会因关键词命中就把一次资料查询改成写作任务。
 
-```
-experienceTurnCoordinator (Vue 前端)
-  └─ runNarrativeAgentGeneration      ← 正式任务级入口，后续接入位置
-       └─ runNarrativeAgentLoop        ← 循环/transcript/工具执行/repair/预算 都在 Pinax 侧
-            └─ decisionRunner          ← 只是「单步模型 transport」(runNarrativeAgentTurn → SSE → provider)
-```
-
-`decisionRunner` 只处理单步模型请求。后续接入正式助手或推演时，应在任务级入口调用此适配器，使 Node 侧管理工具循环和任务状态；正文采用、设定修改与撤销仍由 Pinax 处理。当前 `src/components/authoring/StoryAgentBetaPanel.vue` 是 bridge 的实际调用者。
-
-## 形态
-
-```
-Pinax 前端 ──(fetch + SSE)──▶ pinax-adapter (Node, 默认 127.0.0.1:8451)
-                                   │
-                                   ├─ pi-agent-core Agent 回合循环
-                                   ├─ 工具环 = Pinax 五 lookup 的快照桥
-                                   ├─ 事件翻译 → Pinax narrativeAgentStreamContract
-                                   └─ 任务快照落盘 tasks/task-*.jsonl（状态/取消/恢复）
+```text
+现有助手 → Authoring engine → /api/storyagent → loopback adapter → pi-agent
+普通体验（可选） → 同一 bridge
+严格任务 → 原生 narrative loop → 发布前验收
+正文采纳 → Pinax 保护版本 / durable save / 现场观察
 ```
 
-数据一致性：Pinax 的世界书/记忆/地理活在浏览器 stores，Node 侧 fs 看不见。适配器**不猜落盘时机**——每回合由 Pinax 客户端把资源快照随请求上行（`buildResourceSnapshot`），工具桥只读这份快照。
+原来的独立 beta 面板和全局 Dock 已撤下，不需要 beta URL 开关。
 
 ## 运行
 
-需要 Node.js `>=22.19.0 <23`，仓库 `.nvmrc` 指定 `22.22.3`。依赖独立安装在此包中，不随前端根目录安装。
+使用仓库约定的 Node 22：
 
 ```bash
-# 本包位于 Pinax 仓的 adapters/pinax-adapter/，上游运行时文件一律不改（外挂不内嵌）
-cd adapters/pinax-adapter && npm ci --ignore-scripts
-cp .external/pinax-adapter.json.example .external/pinax-adapter.json   # 填 provider/model/apiKey/baseUrl
-npm start            # 默认 http://127.0.0.1:8451
-npm run typecheck    # 静态类型检查
-npm test             # 手动测试命令；维护者本轮未执行
+npm ci --prefix adapters/pinax-adapter
+npm run server
 ```
 
-配置优先级：环境变量（`PINAX_ADAPTER_PORT|HOST|TASKS_DIR|PROVIDER|MODEL|BASE_URL|THINKING`、`MINIFLOW_AGENT_KEY`/`ZAI_API_KEY`）> `.external/pinax-adapter.json` > 默认。密钥只进 gitignore 的文件或 env。
+主服务载入 `server/.env`。配置了服务器文本凭据后，会在 loopback 启动运行时；`PINAX_STORYAGENT_ENABLED=0` 可关闭。内置 MiniMax 沿用 `MiniMax-Text-01`，密钥只在服务器。独立运行可用包内忽略的 `.external/pinax-adapter.json` 或 `PINAX_ADAPTER_*` 环境变量配置 provider/model/baseUrl。
 
-## 端点
+浏览器使用同站 `/api/storyagent`，不连接访客自己的 `127.0.0.1`。代理受既有公网入口校验约束，只转发服务器配置的 loopback；浏览器随机 capability 的哈希限定任务命名空间，不公开跨访客任务列表。部署须同步安装适配器依赖；只更新前端产物不会启动它。
 
-| 方法 路径 | 作用 |
-|---|---|
-| `POST /v1/pinax/tasks` | 开跑一个叙事任务，响应即 SSE 流 |
-| `POST /v1/pinax/tasks/:id/resume` | 用落盘转录续跑（不是重跑） |
-| `POST /v1/pinax/tasks/:id/cancel` | 请求停止运行中任务，返回后端确认状态 |
-| `GET /v1/pinax/tasks/:id` | 任务快照（状态/步数/用量/正文字数） |
-| `GET /v1/pinax/tasks/list?bookId=...` | 按真实作品 ID 查询近期任务，筛选后取限额 |
-| `GET /v1/pinax/contract` | 自探针：回一帧 SSE，供 Pinax 用 `parseNarrativeAgentSseEvent` 验接线 |
-| `GET /healthz` | 存活 |
+## 工具与预算
 
-请求体（`src/prompt.ts` `TurnRequest`）：`requestId`、`mode(init\|continue\|auto\|respond)`、`intent`、`formatInstructions`、`maxTokens`、`kernel{revision,blocks[]}`（直接复用 Pinax `serializeKernelWithinTextPartBudget` 产物）、`resources{revision,currentPlaceId,domains{world_lookup\|geo_lookup\|…}}`、`budget{agentTimeoutMs,maxModelSteps,maxCallsPerTurn}`、可选 `taskId` 和作品归属 `bookId`。
+- 五个原有 lookup；另有 `manuscript_search/get`、`notes_search`、`outline_lookup`、`calc_evaluate` 和节拍计划。
+- 资料是本轮快照，不是外部 RAG，也不是全文导入系统。新增三域最多各 60 项；正文每项最多前 8,000 字符，其他文本有界。coverage 随请求说明范围；不能据此声称读完全部章节。
+- 规划调用计入模型步数，并随主任务一起取消。有效计划不再要求重复提交；作者要求优先于计划。
+- 请求只能收紧服务器预算；`maxTokens` 为每次正文/工具模型调用的输出上限，200–8,000，规划为 900。工具总调用和任务时限另受限制；最多 4 个任务同时执行。
+- 续接 transcript 按完整 user 回合裁剪，不拆开 tool call/result 配对。任务记录保留在服务器，浏览器对话是作者可见真源。
+- 终态携带最终正文，避免拼入工具调用前言。只打印调用代码时最多修正一次，仍无法执行则失败。
 
-Pinax 新任务发送真实作品 ID，世界书绑定另由作品决定，不能将世界书 ID 当成作品 ID。已归属任务恢复时沿用原作品，传入不同作品会被拒绝。同一 taskId 只允许一次在途执行；新建重复 ID 不覆盖原任务。断开 SSE 只停止向页面写帧，后端仍继续；显式停止需调用取消接口并确认终态。
+## 检查
 
-## 事件契约
-
-`src/contract.ts` 是 Pinax `shared/narrativeAgentStreamContract.js` 与 `shared/narrativeAgentContract.js` 的镜像件——事件集 `step.start / tool.input.delta / tool.call / text.delta / step.finish / usage / error`，schemaVersion 1，超限即拒。上游 `parseNarrativeAgentSseEvent` 原样可解析（有往返测试钉住）。
-
-注意：Pinax 的流里**没有 `tool_result` 事件**（工具结果不流向客户端）。方案草图里写的 `delta/tool_call/tool_result/done` 与盘面契约不符，本实现按盘面为准。
-
-任务生命周期另发扩展帧 `task.started` / `task.completed` / `task.failed`（`event:` 名带点，未知事件被上游 parser 安全忽略），携带 `taskId/status/usage/steps/toolCalls`。
-
-## 预算归属
-
-- **Pinax 守语义预算**：请求里的 `budget.*` 与上游 `NARRATIVE_AGENT_RUNTIME_LIMITS` 同源，适配器逐项执行——达 `maxModelSteps` 且仍在调工具 → 收掉工具，下一回合只能成文（镜像 `evidenceExhausted → toolChoice:'none'`）；单轮超 `maxCallsPerRound` 直接 block 并回理由。
-- **超时/取消硬落账**：`AbortController` + 竞速门，provider 悬挂时 Promise 不 settle 也能落 `cancelled` 快照（有测试覆盖悬挂场景）。
-- 适配器不做质量裁决，只搬运证据与收据。
-
-## Pinax 侧接入（`pinax-side/`）
-
-`pinaxNarrativeAgentBridge.js` 是给 Pinax 的外挂件，返回形状对齐 `runNarrativeAgentGeneration`（`ok/finalContent/trace/usage/toolRounds/totalCalls`），并驱动原有 `callbacks.onChunk/onComplete` 与 `onStatus`：
-
-```js
-import { createPiNarrativeAgentBridge } from './piAgent/piNarrativeAgentBridge'
-import { parseNarrativeAgentSseEvent } from '../../../shared/narrativeAgentStreamContract'
-
-const piBridge = createPiNarrativeAgentBridge({
-  endpoint: import.meta.env.VITE_PI_ADAPTER_URL ?? 'http://127.0.0.1:8451',
-  parseEvent: parseNarrativeAgentSseEvent,   // 复用上游 parser，契约漂移立刻现形
-})
-
-// 后续接入示例；当前正式推演仍走 Pinax 本体循环
-const agentRun = usePiAgent
-  ? await piBridge.run({ kernel: narrativeKernel, index: narrativeIndex, registry: narrativeRegistry,
-      mode: productionMode, intent: effectiveIntent, formatInstructions, maxTokens, requestId, bookId: selectedBookId.value,
-      signal: controller.signal, callbacks, onStatus })
-  : await runNarrativeAgentGeneration({ /* 原参数 */ })
+```bash
+npm run typecheck --prefix adapters/pinax-adapter
+npm test --prefix adapters/pinax-adapter
+node scripts/storyagent-beta-smoke.mjs
+node scripts/storyagent-integration-smoke.mjs
+BASE=http://127.0.0.1:5174 node scripts/storyagent-ui-smoke.mjs
 ```
 
-**必须用 `index`（`getNarrativeResourceIndex` 产物），不是 `registry`**：registry 是执行器闭包，取不出资源；快照要由 index 的 `byDomain` 构造（bridge 已处理）。
+CI 覆盖适配器类型/生命周期测试和两项接入脚本。浏览器脚本使用合成响应，不评价模型质量；截图默认随结束删除。真实 MiniMax 首次调用与续接样本、实际合并检查见 [PR #5 接入记录](../../docs/agent-runs/pr5-integration-20261005.md)。
 
-## 当前边界
-
-> 来源对照：`vendor/storyflow-kit/` 是 StoryFlow 内核（skkbsgzf/storyflow@88532b15，MIT）的只读快照，
-> 供审核者核对预算口径 / 工具环 / 超时取消的镜像声明；运行时不依赖它（只依赖 npm 包），见 [VENDOR.md](./vendor/storyflow-kit/VENDOR.md)。
-
-| 项 | 状态 |
-|---|---|
-| Node 任务执行与 beta 面板 | 已接入独立验证面板，默认关闭；正式助手与推演尚未接入 |
-| 真实模型验证 | 贡献者曾报告真实模型样本；维护者本轮未复验，不能视为全部渠道已验证 |
-| BeatPlan 规划轮（`narrative_beat_plan` 工具、Authoring 分镜流） | 未接，仍走 Pinax 本体 |
-| critic shadow / evidence validator | 未接（Pinax 侧原有，适配器不复刻） |
-| 写入采纳/撤销 | 归 Pinax，适配器只交正文与 trace |
-| Issue #3 的「长文资料导入」（分块提取、跨章聚合、证据可溯、增量复用） | 未做——那是世界书提取链路，与本适配层是两条工单 |
-| 并发执行 | 同 taskId 互斥；不同任务可以并行，尚无跨任务的总并发限额 |
-| 资料查阅 | 使用请求快照；beta 每次最多带 30 条世界书条目，bridge 每条摘要最多 520 字，不提供完整原文/RAG |
-
-## 文件
-
-```
-src/contract.ts   Pinax 流契约 + 读工具目录镜像件
-src/config.ts     运行配置（env > 文件 > 默认）
-src/prompt.ts     上下文注入（kernel.blocks → system prompt）
-src/tools.ts      五 lookup 的快照桥（action 枚举/限额/结果信封）
-src/runner.ts     pi-agent 回合循环 + 预算守护 + 事件翻译
-src/store.ts      任务快照 JSONL（状态/取消/恢复）
-src/server.ts     HTTP/SSE 门面
-pinax-side/       给 Pinax 的接入件 + 类型面
-test/             既有契约、工具桥、端到端流、取消/恢复与 bridge 测试
-```
-
-## Beta 面板与当前检查
-
-默认不挂载 beta。访问 `/authoring?storyagent-beta=1` 可开启该浏览器的本地开关；关闭可清除 localStorage 的 `sab_enabled` 后刷新。面板挂载期间，会话、输入和运行状态按作品分别管理；切书不会把旧书输出交给新书，回到旧书可以继续查看或取消其任务。
-
-2026-10-01 维护者将隔离包安装及 `typecheck` 纳入 CI；现有根项目 CI 保留。本轮未新增或手动执行测试，也未部署适配器。修复和检查证据见仓库 `docs/agent-runs/pr4-integration-20261001.md`。
+StoryFlow 只读来源快照见 [VENDOR.md](./vendor/storyflow-kit/VENDOR.md)，运行时依赖 npm 包。长篇导入、外部检索和自动替换正文/设定未在本 PR 完成。

@@ -5,6 +5,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { NARRATIVE_TOOL_LIMITS, NARRATIVE_READ_TOOLS, PINAX_TOOL_NAMES, type PinaxToolName } from "./contract.ts";
+import { NARRATIVE_BEAT_PLAN_TOOL, narrativeBeatPlanRevision, narrativeBeatPlanToolSchema, validateNarrativeBeatPlanInput, type BeatPlan } from "./beatPlan.ts";
+import { registerCapabilities, safeCalcEval, type CapabilityManifest } from "./toolManifest.ts";
 
 const L = NARRATIVE_TOOL_LIMITS;
 
@@ -34,7 +36,7 @@ export interface SnapshotItem {
 export interface ResourceSnapshot {
   revision?: string;
   currentPlaceId?: string;
-  domains: Partial<Record<PinaxToolName, SnapshotItem[]>>;
+  domains: Partial<Record<PinaxToolName | "manuscript" | "notes" | "outline", SnapshotItem[]>>;
 }
 
 function clip(value: string, limit: number): string {
@@ -133,7 +135,7 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: undefined };
 }
 
-export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[]): AgentTool<any>[] {
+export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[], hooks?: { onBeatPlan?: (plan: BeatPlan, revision: string) => void }): AgentTool<any>[] {
   // 只暴露「快照里有资源」的域——镜像上游 registry 的 availableToolNames（无资源域不进目录）
   const present = PINAX_TOOL_NAMES.filter((n) => (snapshot.domains[n]?.length || 0) > 0);
   const names = allowed?.length ? present.filter((n) => allowed.includes(n)) : present;
@@ -214,6 +216,100 @@ export function buildPinaxTools(snapshot: ResourceSnapshot, allowed?: string[]):
   if (names.includes("history_lookup")) traceTool("history_lookup", "历史查询", TraceParams);
   if (names.includes("memory_lookup")) traceTool("memory_lookup", "记忆事实查询", GetSearchParams);
   if (names.includes("politics_lookup")) traceTool("politics_lookup", "政治关系查询", PoliticsParams);
+
+  // BeatPlan 规划轮（②）：计划先行工具——模型提交节拍计划，镜像 Pinax 契约校验受理；
+  // continue 模式不暴露（复用当前计划，镜像上游「extend 复用」语义）。
+  if (hooks?.onBeatPlan) {
+    tools.push({
+      name: NARRATIVE_BEAT_PLAN_TOOL,
+      label: "节拍规划",
+      description: "本轮写正文前先提交节拍计划：回应义务、因果步骤、角色行动（action+result）、最终新增信息与可观察收束条件。计划受理后再产出正文，不得偏离已提交计划。",
+      parameters: narrativeBeatPlanToolSchema(),
+      execute: async (_id, p: any) => {
+        const r = validateNarrativeBeatPlanInput(p);
+        if (!r.valid) return textResult(JSON.stringify({ ok: false, error: r.error }));
+        const revision = narrativeBeatPlanRevision(r.plan);
+        hooks.onBeatPlan?.(r.plan, revision);
+        return textResult(JSON.stringify({ ok: true, revision, note: "计划已受理：按计划产出正文，不得偏离已提交的因果步骤与收束条件。" }));
+      },
+    });
+  }
+
+  // —— Pinax 原生能力 → 工具（经 toolManifest 转换接口注册；数据走快照新域） ——
+  const domainItems = (domain: string): SnapshotItem[] => {
+    const raw = (snapshot as unknown as Record<string, Record<string, SnapshotItem[]>>).domains[domain];
+    return Array.isArray(raw) ? raw : [];
+  };
+  const clipText = (item: SnapshotItem): string =>
+    [item.title ? `《${item.title}》` : "", item.text || item.summary || ""].filter(Boolean).join("\n").slice(0, 1200);
+
+  const domainPresent = (domain: string) => domainItems(domain).length > 0;
+  const domainCapability = (manifest: CapabilityManifest) => (manifest.domain && domainPresent(manifest.domain) ? registerCapabilities([manifest]) : []);
+  tools.push(...registerCapabilities([{
+    id: "calc_evaluate",
+    title: "确定性算术",
+    desc: "复算数值：只接受数字与 + - * / ( ) 的算式，确定性求值。涉及数值的回答必须经本工具复算，禁止心算后直接报结论。",
+    kind: "query",
+    knowledge: [],
+    parameters: { type: "object", properties: { expression: { type: "string", description: "如：1200 * 3 + 450 / 2" } }, required: ["expression"] },
+    execute: async (p: Record<string, unknown>) => {
+      try {
+        const value = safeCalcEval(String(p.expression || ""));
+        return JSON.stringify({ ok: true, expression: String(p.expression || ""), value });
+      } catch (e) {
+        return JSON.stringify({ ok: false, expression: String(p.expression || ""), error: String((e as Error).message || e) });
+      }
+    },
+  }]));
+  tools.push(...domainCapability({
+    id: "manuscript_search", title: "正文快照检索", kind: "query", domain: "manuscript", knowledge: ["manuscript"],
+    desc: "在本轮已加载的有界章节正文快照中检索关键词，返回命中的章节与上下文。找伏笔或查剧情可先检索，快照可能只覆盖章节前段，不得宣称已通读全书，引用时给出章节。",
+    parameters: { type: "object", properties: { query: { type: "string", description: "检索关键词（人名/物件/情节点）" } }, required: ["query"] },
+    execute: async (p: Record<string, unknown>) => {
+      const q = String(p.query || "").trim().slice(0, L.maxQueryChars).toLowerCase();
+      if (!q) return JSON.stringify({ ok: false, error: "query 必填" });
+      const hits = domainItems("manuscript")
+        .map((item) => {
+          const text = String(item.text || item.summary || "");
+          const at = text.toLowerCase().indexOf(q);
+          return { item, at, text };
+        })
+        .filter((x) => x.at >= 0)
+        .slice(0, L.maxItems)
+        .map((x) => ({ id: x.item.id, title: x.item.title || "", excerpt: x.text.slice(Math.max(0, x.at - 120), x.at + 360), sourceRefs: x.item.sourceRefs || [] }));
+      return JSON.stringify({ ok: true, domain: "manuscript", action: "search", query: q, hits, total: hits.length, revision: snapshot.revision || "" });
+    },
+  }));
+  tools.push(...domainCapability({
+    id: "manuscript_get", title: "章节正文读取", kind: "query", domain: "manuscript", knowledge: ["manuscript"],
+    desc: "按章节 id 读取该章正文（有界截尾）。只返回有界片段，不能声称已通读章节。",
+    parameters: { type: "object", properties: { id: { type: "string", description: "章节条目 id" } }, required: ["id"] },
+    execute: async (p: Record<string, unknown>) => {
+      const item = domainItems("manuscript").find((i) => i.id === String(p.id || "")) || null;
+      return JSON.stringify({ ok: Boolean(item), domain: "manuscript", action: "get", items: item ? [{ id: item.id, title: item.title || "", text: clipText(item), sourceRefs: item.sourceRefs || [] }] : [], revision: snapshot.revision || "" });
+    },
+  }));
+  tools.push(...domainCapability({
+    id: "notes_search", title: "构思与速记检索", kind: "query", domain: "notes", knowledge: ["notes"],
+    desc: "检索当前作品的构思文档与速记。注意：构思/速记只代表作者意图与建议，不得冒充正文已发生的事实。",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    execute: async (p: Record<string, unknown>) => {
+      const q = String(p.query || "").trim().slice(0, L.maxQueryChars).toLowerCase();
+      const hits = domainItems("notes").filter((item) => `${item.title || ""} ${item.text || item.summary || ""}`.toLowerCase().includes(q)).slice(0, L.maxItems);
+      return JSON.stringify({ ok: true, domain: "notes", action: "search", items: hits.map((i) => ({ id: i.id, title: i.title || "", text: clipText(i), sourceRefs: i.sourceRefs || [] })), revision: snapshot.revision || "" });
+    },
+  }));
+  tools.push(...domainCapability({
+    id: "outline_lookup", title: "大纲查询", kind: "query", domain: "outline", knowledge: ["outline"],
+    desc: "查询当前作品大纲节点（标题/意图/状态）。大纲只代表作者意图。",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+    execute: async (p: Record<string, unknown>) => {
+      const q = String(p.query || "").trim().slice(0, L.maxQueryChars).toLowerCase();
+      const all = domainItems("outline");
+      const hits = q ? all.filter((i) => `${i.title || ""} ${i.summary || ""}`.toLowerCase().includes(q)) : all;
+      return JSON.stringify({ ok: true, domain: "outline", action: "search", items: hits.slice(0, L.maxItems).map((i) => ({ id: i.id, title: i.title || "", text: i.summary || "", sourceRefs: i.sourceRefs || [] })), total: all.length, revision: snapshot.revision || "" });
+    },
+  }));
 
   return tools;
 }

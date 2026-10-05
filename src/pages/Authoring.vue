@@ -11,11 +11,9 @@
     <!-- 页面内只保留编辑工具、保存反馈与章节目录；作品切换由全局标签和首页负责。 -->
     <div class="wall__cork" :inert="illustratorBlocking ? '' : undefined">
       <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
-
       <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="tr('保存状态')">
         <span class="wall__save-chip-state">{{ tr(stampStateText) }}</span>
       </div>
-
       <button
         ref="chapterDrawerTriggerRef"
         class="wall__chapter-trigger"
@@ -27,9 +25,7 @@
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
       </button>
-
       <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" @pointerdown="beforeInspectorToolSelect('ai')" @click="assistantWorkspace.enter"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
-
       <div class="wall__tabs">
         <button
           ref="moreToolsTriggerRef"
@@ -107,7 +103,6 @@
         </button>
       </div>
     </div>
-
     <!-- 保存失败/检测到恢复副本时的自救条:唯一自救位置,成功或丢弃后即退场。
          不抢焦点、不弹窗;正文输入保持可继续。 -->
     <div
@@ -124,7 +119,6 @@
         <button v-if="writingRecoveryDraft" type="button" data-test="save-rescue-recovery" @click="openRecoveryFromRescue">{{ tr('查看恢复稿') }}</button>
       </div>
     </div>
-
     <button
       v-if="chapterDrawerOpen"
       class="wall__chapter-overlay"
@@ -132,7 +126,6 @@
       :aria-label="tr(&quot;关闭章节列表&quot;)"
       @click="closeChapterDrawer"
     ></button>
-
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
     <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': inspectorOpen, 'is-dual-inspector': inspectorOpen && inspectorDualColumn, 'has-sequential-inspector': inspectorOpen && activeInspectorTool === 'rehearsal' }">
       <!-- 左：5 层书架 + 章节档案夹 -->
@@ -152,12 +145,10 @@
             <WorkbenchIcon name="search" :size="14" />
             <input v-model="chapterShelfQuery" type="search" :placeholder="tr(&quot;搜索章节&quot;)" :aria-label="tr(&quot;搜索章节&quot;)" />
           </div>
-
           <div class="authoring-chapter-create">
             <button class="is-primary control-primary" type="button" @click="createNewChapter" :disabled="!selectedBookId">{{ tr('新建章') }}</button>
             <button class="control-secondary" type="button" @click="createNewBook">{{ tr('新建书') }}</button>
           </div>
-
           <ManuscriptLanguageSelect v-if="currentBook" :model-value="currentBook.manuscriptLanguage || ''" @update:model-value="setManuscriptLanguage" />
           <div v-if="selectedBookId" class="authoring-chapter-tree">
             <!-- 文本工作台 v3 正式文档树：构思/正文共用同一稿面。 -->
@@ -229,7 +220,6 @@
             </div>
             <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">{{ tr('没有匹配的章节') }}</p>
           </div>
-
           <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
           <div v-if="selectedBookId" class="wall__binding-line" data-test="book-worldbook-binding">
             <template v-if="bindingSelectOpen">
@@ -260,7 +250,6 @@
             </template>
           </div>
         </div>
-
         <!-- 本章现场（Task 1.3 挂载现场条）；两行 grid 的 auto 行，不随稿件滚动。 -->
         <div class="wall__shelf-scene" :aria-label="tr(&quot;本章现场&quot;)">
           <AuthoringSceneRail
@@ -1772,7 +1761,7 @@ import {
   useAuthoringAnnotationSelection,
   useAuthoringAnnotationLayout,
   useAuthoringBookActivation,
-  useAuthoringKnowledgeAssistant,
+  useAuthoringKnowledgeAssistant, createAuthoringStoryAgent,
   useAuthoringIllustrator,
   useBodyScrollLock,
   useWritingDocument,
@@ -3534,6 +3523,16 @@ const knowledgeAssistantSceneProjection = computed(() => (
 ))
 const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
+  agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, getBook: () => currentBook.value,
+    getChapter: () => wt3ActiveDoc.value ? null : chapters.value.find(c => c.id === selectedChapterId.value), getWorldbook: () => boundWorldbook.value,
+    getLiveText: () => wt3ActiveDoc.value ? '' : markdownContent.value, getNotes: () => wt3ExplorationDocs.value.map(doc => doc.id === wt3ActiveDocId.value ? { ...doc, content: markdownContent.value } : doc), getOutline: () => wt3OutlineNodes.value,
+    persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && !wt3ActiveDoc.value && saveCurrentChapter(),
+    protectCurrent: (id) => authoringHistory.recordProtection({ chapterId: selectedChapterId.value, chapterTitle: currentChapterTitle.value, reason: 'before-adoption', document: writingDocument.value, markdown: markdownContent.value, annotations: chapterAnnotations.value, operation: 'append-storyagent', transactionId: id }),
+    observeAdoption: ({ text, unitId, bookId, chapterId }) => commitDirectAuthoringObservation({ text, unitId, memoryProjectId: bookId, documentId: chapterId, chapterId, unitRevision: 0, sourceRefs: [`unit:${chapterId}:${unitId}`], sourceDocumentRevision: currentDocumentRevision() }),
+    readBooks: () => books.value, saveBooks: saveWritingBooksDurable,
+    publishBooks: (next, chapterId) => { books.value = next; chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters;
+      const chapter = chapters.value.find(c => c.id === chapterId); markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value) }
+  }),
   target: knowledgeAssistantTarget,
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
   sceneProjection: knowledgeAssistantSceneProjection,

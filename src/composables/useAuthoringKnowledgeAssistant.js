@@ -1,3 +1,4 @@
+import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
 import { computed, onBeforeUnmount, reactive, unref, watch } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
 import {
@@ -117,7 +118,7 @@ function questionWithConversation(question, messages) {
   for (const message of history.reverse()) {
     const answer = message.role === 'assistant' ? message.answer : null
     if (answer?.stale) continue
-    const content = message.role === 'user' ? message.question : answer?.answer
+    const content = message.role === 'user' ? message.question : answer?.answer || (message.kind === 'agent' ? message.text : '')
     if (!content) continue
     const excerpt = String(content).slice(0, Math.min(600, remaining))
     if (!excerpt) break
@@ -131,6 +132,7 @@ function questionWithConversation(question, messages) {
 
 export function useAuthoringKnowledgeAssistant({
   projectId,
+  agentEngine = null,
   target = null,
   resolveLiveSource = null,
   sceneProjection = null,
@@ -161,7 +163,10 @@ export function useAuthoringKnowledgeAssistant({
         lastRequest: saved.lastRequest || null,
         status: interrupted ? 'interrupted' : saved.status || 'idle',
         hasUnread: Boolean(saved.hasUnread),
-        persistenceError: loaded.ok ? '' : loaded.error
+        persistenceError: loaded.ok ? '' : loaded.error,
+        agentTaskId: saved.agentTaskId || '', agentRefs: saved.agentRefs || [], agentSkills: saved.agentSkills || [],
+        agentAdoptionBusy: false, activeSessionId: saved.activeSessionId || messageId('session'),
+        agentSessions: saved.agentSessions || []
       }),
       runtime: {
         token: 0, controller: null, staleToken: 0,
@@ -204,8 +209,49 @@ export function useAuthoringKnowledgeAssistant({
     entry.state.persistenceError = entry.runtime.conversationError || entry.runtime.draftError
   }
 
+  function syncSession(entry) {
+    const state = entry.state
+    const previous = state.agentSessions.find(session => session.sessionId === state.activeSessionId)
+    const record = { sessionId: state.activeSessionId, projectId: entry.projectId, title: (previous?.title !== '新对话' ? previous?.title : '') || state.messages.find(message => message.question)?.question?.slice(0, 40) || '新对话',
+      updatedAt: Date.now(), messages: state.messages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
+    state.agentSessions = [record, ...state.agentSessions.filter(session => session.sessionId !== state.activeSessionId)].slice(0, 20)
+  }
+  function selectSession(sessionId) {
+    const entry = activeEntry.value
+    if (entry.state.busy || entry.state.agentAdoptionBusy || entry.state.activeSessionId === sessionId) return false
+    persistConversation(entry)
+    const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
+    if (!saved) return false
+    entry.runtime.token += 1
+    entry.runtime.staleToken += 1
+    entry.state.activeSessionId = sessionId
+    entry.state.messages = JSON.parse(JSON.stringify(saved.messages || []))
+    entry.state.draft = saved.draft || ''
+    entry.state.selectedIntent = saved.selectedIntent || 'free'
+    entry.state.agentTaskId = saved.agentTaskId || ''
+    entry.state.agentSkills = saved.agentSkills || []
+    entry.state.agentRefs = saved.agentRefs || []; entry.state.error = ''; entry.state.lastRequest = null; entry.state.status = 'idle'
+    persistConversation(entry); persistDraft(entry); scheduleStalenessRefresh()
+    return true
+  }
+  function newConversation() {
+    const entry = activeEntry.value
+    if (entry.state.busy || entry.state.agentAdoptionBusy) return false
+    persistConversation(entry)
+    const sessionId = messageId('session')
+    entry.state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: '新对话', messages: [], updatedAt: Date.now() })
+    return selectSession(sessionId)
+  }
+  function renameConversation(sessionId, title) {
+    const entry = activeEntry.value
+    const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
+    if (!saved || !normalizedText(title)) return false
+    saved.title = normalizedText(title).slice(0, 80); persistConversation(entry); return true
+  }
+  const sessions = computed(() => activeEntry.value.state.agentSessions.map(session => ({ sessionId: session.sessionId, title: session.title, active: session.sessionId === activeEntry.value.state.activeSessionId })))
   function persistConversation(entry) {
     if (!entry.projectId || !entry.runtime.canSaveConversation) return
+    syncSession(entry)
     const result = conversationStore.saveConversation(entry.projectId, entry.state)
     entry.runtime.conversationError = result.ok ? '' : result.error
     syncPersistenceError(entry)
@@ -229,6 +275,11 @@ export function useAuthoringKnowledgeAssistant({
   function cancelEntry(entry, { leaving = false, restoreDraft = true } = {}) {
     const wasBusy = entry.state.busy
     entry.runtime.token += 1
+    const taskId = entry.state.agentTaskId
+    if (wasBusy && taskId && agentEngine) {
+      entry.runtime.cancellation = agentEngine.cancel(taskId).catch(() => { entry.state.error = '远端停止尚未确认，请稍后重试。'; persistConversation(entry); return false })
+    }
+    for (const message of entry.state.messages) if (message.kind === 'agent' && message.status === 'running') message.status = leaving ? 'interrupted' : 'cancelled'
     entry.runtime.controller?.abort()
     entry.runtime.controller = null
     entry.state.busy = false
@@ -256,6 +307,8 @@ export function useAuthoringKnowledgeAssistant({
     entry.runtime.staleToken += 1
     if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
     entry.runtime.staleTimer = null
+    entry.state.agentTaskId = ''
+    entry.state.agentRefs = []
     entry.state.messages = []
     entry.state.draft = ''
     entry.state.error = ''
@@ -343,7 +396,12 @@ export function useAuthoringKnowledgeAssistant({
     const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
     const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
     const project = entry.projectId
-    if (!project || !question || state.busy || disposed) return false
+    if (!project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
+    if (runtime.cancellation) {
+      const stopped = await runtime.cancellation
+      runtime.cancellation = null
+      if (stopped === false || entry !== activeEntry.value || disposed || state.busy) return false
+    }
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
     const providerQuestion = questionWithConversation(question, state.messages)
     const token = ++runtime.token
@@ -367,6 +425,15 @@ export function useAuthoringKnowledgeAssistant({
     persistDraft(entry)
 
     try {
+      if (intent === 'agent' && agentEngine) {
+        // runAuthoringAgentTurn captures the context before its first await.
+        const pending = runAuthoringAgentTurn({ engine: agentEngine, entry, question, providerQuestion, token, signal: controller.signal,
+          persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
+        const succeeded = await pending
+        if (!succeeded || token !== runtime.token || disposed) return false
+        state.status = 'completed'; state.hasUnread = true; state.lastRequest = null
+        return true
+      }
       // 所有准备输入在第一次 await 前冻结。后台返回只更新启动时的作品。
       const capturedTarget = cloneQueryInput(valueOf(target))
       const capturedSource = cloneQueryInput(typeof resolveLiveSource === 'function'
@@ -449,7 +516,7 @@ export function useAuthoringKnowledgeAssistant({
   watch(activeProjectId, (next, previous) => {
     if (previous && next !== previous) {
       const entry = entries.get(previous)
-      if (entry) persistDraft(entry)
+      if (entry) { cancelEntry(entry, { leaving: true }); persistDraft(entry) }
       focusedEvidenceSources.delete(previous)
     }
     getEntry(next)
@@ -476,7 +543,27 @@ export function useAuthoringKnowledgeAssistant({
     }
   })
 
+  const agentState = computed(() => ({ enabled: Boolean(agentEngine), taskId: activeEntry.value.state.agentTaskId, refs: activeEntry.value.state.agentRefs, skills: activeEntry.value.state.agentSkills, adoptionBusy: activeEntry.value.state.agentAdoptionBusy }))
+  function agentContext() { try { return agentEngine?.context() || {} } catch { return {} } }
+  function setAgentReferences(refs) { activeEntry.value.state.agentRefs = refs.slice(0, 8); persistConversation(activeEntry.value) }
+  function setAgentSkills(skills) { activeEntry.value.state.agentSkills = skills.slice(0, 3); persistConversation(activeEntry.value) }
+  function newAgentTask() { if (busy.value) return; activeEntry.value.state.agentTaskId = ''; persistConversation(activeEntry.value) }
+  async function adoptAgentAnswer(id) {
+    const entry = activeEntry.value
+    const message = entry.state.messages.find(item => item.id === id && item.kind === 'agent')
+    if (!message || message.adopted || entry.state.busy || entry.state.agentAdoptionBusy) return false
+    entry.state.agentAdoptionBusy = true
+    entry.state.error = ''
+    try {
+      const receipt = await agentEngine.adopt(message)
+      if (!receipt.ok) { entry.state.error = receipt.error; return false }
+      message.adopted = true; message.adoptionReceipt = receipt; entry.state.error = receipt.warning || ''
+      return true
+    } catch { entry.state.error = '采纳失败，回答仍在对话中。'; return false }
+    finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
+  }
   return Object.freeze({
+    sessions, selectSession, newConversation, renameConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

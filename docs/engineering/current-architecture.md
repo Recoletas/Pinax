@@ -163,3 +163,9 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 - 新 service 是否进入正确 domain，而不是继续堆到根目录？
 - 兼容代码是否写明入口、数据范围和删除条件？
 - 是否跑了与改动对应的 focused Gate，最后再跑 `npm run verify:full`？
+
+## StoryAgent 接入（2026-10-05）
+
+正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，适配器没有直接写权限。
+
+体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。适配器快照查询不等于资料原件/RAG 接入；运行与限制见 [adapter README](../../adapters/pinax-adapter/README.md)。

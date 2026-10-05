@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { effectScope, ref } from 'vue'
+import { nextTick } from 'vue'
 import { createAuthoringProjectAdapter } from '../services/agents/authoring/authoringProjectAdapter.js'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow.js'
 import {
@@ -679,6 +680,53 @@ describe('authoring project adapter', () => {
     expect(cancelledPrepared).toMatchObject({ ok: false, reason: 'knowledge-read-model-aborted' })
     recordKnowledgeSeamFocus('', 'book-query')
     localStorage.removeItem('pinax_knowledge_read_model_enabled')
+
+    // PR #5: ownership is frozen before health await; stopped tasks never run in another book.
+    let releaseHealth
+    let health = new Promise(resolve => { releaseHealth = resolve })
+    const agentProject = ref('agent-book-a')
+    const agentCalls = []
+    const agentEngine = {
+      prepare: input => JSON.parse(JSON.stringify({ ...input, bookId: agentProject.value })),
+      destination: () => ({ chapterId: 'chapter-a' }),
+      healthz: () => health,
+      cancel: vi.fn(async () => ({ ok: true })),
+      run: vi.fn(async input => { agentCalls.push(input); input.callbacks.onTask({ taskId: 'task-a', bookId: input.prepared.bookId }); return { ok: true, finalContent: '完整候选', trace: { taskId: 'task-a' } } }),
+      resume: vi.fn(async input => { agentCalls.push(input); return { ok: true, finalContent: '续接候选', trace: { taskId: input.taskId } } }),
+      adopt: vi.fn(async () => ({ ok: false, error: '保存失败' }))
+    }
+    const agentAssistant = useAuthoringKnowledgeAssistant({ projectId: agentProject, agentEngine })
+    const pendingAgent = agentAssistant.ask({ intent: 'agent', question: '写一段开场' })
+    expect(agentAssistant.busy.value).toBe(true)
+    agentProject.value = 'agent-book-b'
+    await nextTick()
+    releaseHealth({ ok: true })
+    expect(await pendingAgent).toBe(false)
+    expect(agentEngine.run).not.toHaveBeenCalled()
+    expect(agentAssistant.messages.value).toEqual([])
+    agentProject.value = 'agent-book-a'
+    await nextTick()
+    health = Promise.resolve({ ok: true })
+    expect(await agentAssistant.ask({ intent: 'agent', question: '写一个开场' })).toBe(true)
+    expect(agentCalls[0].prepared.bookId).toBe('agent-book-a')
+    expect(agentAssistant.messages.value.at(-1)).toMatchObject({ kind: 'agent', status: 'completed', projectId: 'agent-book-a' })
+    expect(await agentAssistant.ask({ intent: 'agent', question: '接着推进' })).toBe(true)
+    expect(agentEngine.resume).toHaveBeenCalledTimes(1)
+    const candidateId = agentAssistant.messages.value.at(-1).id
+    expect(await agentAssistant.adoptAgentAnswer(candidateId)).toBe(false)
+    expect(agentAssistant.messages.value.at(-1).adopted).not.toBe(true)
+    agentEngine.adopt.mockResolvedValue({ ok: true, unitId: 'unit-agent' })
+    expect(await agentAssistant.adoptAgentAnswer(candidateId)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+    const restoredAgent = useAuthoringKnowledgeAssistant({ projectId: agentProject, agentEngine })
+    expect(restoredAgent.messages.value.at(-1)).toMatchObject({ kind: 'agent', adopted: true, text: '续接候选' })
+    const existingSession = agentAssistant.sessions.value[0].sessionId
+    expect(agentAssistant.newConversation()).toBe(true)
+    expect(agentAssistant.messages.value).toEqual([])
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+    expect(agentAssistant.agentState.value.taskId).toBe('task-a')
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复
