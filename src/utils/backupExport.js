@@ -93,7 +93,9 @@ export const PINAX_BACKUP_KEYS = [
 
 export const PINAX_BACKUP_DYNAMIC_PREFIXES = Object.freeze([
   'worldbook_',
-  'worldbook:brief:'
+  'worldbook:brief:',
+  'authoring_assistant_conversation:',
+  'authoring_assistant_draft:'
 ])
 
 // P1-5：备份版本 2 —— 新增 experience 摘要节（回合/检查点 + 记忆 revision）。

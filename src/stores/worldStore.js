@@ -975,7 +975,8 @@ export const useWorldStore = defineStore('world', {
       const normalizedEntry = normalizeEntryVoice(updatedBase)
       const updated = normalizedEntry.type === 'location'
         ? createPlaceEntryPatch({
-            ...getPlacePayloadFromEntry(entry),
+            ...getPlacePayloadFromEntry(normalizedEntry),
+            ...(Object.prototype.hasOwnProperty.call(updates, 'mapBinding') ? { mapBinding: updates.mapBinding } : {}),
             name: normalizedEntry.name,
             aliases: (normalizedEntry.keys || []).filter((key) => String(key || '').trim() !== String(normalizedEntry.name || '').trim()),
             description: normalizedEntry.content
@@ -1418,9 +1419,22 @@ export const useWorldStore = defineStore('world', {
         worldbook = normalizeWorldbook(raw)
       }
 
-      const entries = {}
+      // Different imported books may carry the same original UID. Reserve all
+      // original keys first, then allocate collisions without stealing a later
+      // entry's key. A null prototype also preserves keys such as __proto__.
+      const entries = Object.create(null)
+      const preferredUids = worldbook.entries.map(entry => String(entry.metadata?.originalUid ?? '').trim() || entry.id.replace('entry_', ''))
+      const reservedUids = new Set(preferredUids)
+      const usedUids = new Set()
+      let nextUid = 0
+      let entryIndex = 0
       for (const entry of worldbook.entries) {
-        const uid = entry.metadata?.originalUid || entry.id.replace('entry_', '')
+        let uid = preferredUids[entryIndex++]
+        if (usedUids.has(uid)) {
+          while (reservedUids.has(String(nextUid)) || usedUids.has(String(nextUid))) nextUid += 1
+          uid = String(nextUid++)
+        }
+        usedUids.add(uid)
         const place = entry.type === 'location' && !entry.metadata?.structuredSettingRef
           ? getPlacePayloadFromEntry(entry)
           : null

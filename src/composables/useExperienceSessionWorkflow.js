@@ -39,6 +39,8 @@ export function useExperienceSessionWorkflow({
     const requestedSessionId = typeof route.query.sessionId === 'string'
       ? route.query.sessionId.trim()
       : ''
+    const hasRequestedWorldbook = Boolean(requestedWorldbookId
+      && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
     const requestedSession = requestedSessionId
       ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId) || null
       : null
@@ -59,8 +61,6 @@ export function useExperienceSessionWorkflow({
         requestedMessageId: typeof route.query.messageId === 'string' ? route.query.messageId.trim() : ''
       }
     }
-    const hasRequestedWorldbook = Boolean(requestedWorldbookId
-      && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
     const activeSession = !requestedSession && !hasRequestedWorldbook
       ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
       : null
@@ -121,7 +121,7 @@ export function useExperienceSessionWorkflow({
       showSessionPicker.value = false
     }
 
-    if (!onlineSession && loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
+    if (!onlineSession && loadedExistingSession && !gameStore.roleplaySession?.mode && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
       await gameStore.initGame()
     }
 
@@ -139,7 +139,7 @@ export function useExperienceSessionWorkflow({
         await worldStore.setActiveWorldbook(selectedWorldbookId.value)
       }
       showSessionPicker.value = false
-      if (!onlineSession && (!gameStore.messages || gameStore.messages.length === 0)) {
+      if (!onlineSession && !gameStore.roleplaySession?.mode && (!gameStore.messages || gameStore.messages.length === 0)) {
         await gameStore.initGame()
       }
     } finally {

@@ -339,7 +339,7 @@
   overflow-x: clip;
   border: 0;
   box-shadow: none;
-  background: var(--archive-paper-soft);
+  background: var(--surface-workbench);
 }
 .writing-page .wall__dossier::before,
 .writing-page .wall__dossier::after { content: none; }

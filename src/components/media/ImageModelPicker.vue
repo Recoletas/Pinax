@@ -27,6 +27,7 @@ const editingConfig = ref(null)
 const localConfigs = ref([])
 const modelTypes = IMAGE_MODEL_TYPES
 const templateHelpText = computed(() => tr('支持以下模板变量：') + ' {{prompt}}, {{negative_prompt}}, {{width}}, {{height}}, {{reference_image}}, {{reference_images_json}}, {{mask_image}}, {{control_images_json}}')
+const comfyTemplateHelpText = computed(() => tr('从 ComfyUI 导出 API 格式工作流，用以下变量替换节点输入：') + ' {{prompt}}, {{negative_prompt}}, {{width}}, {{height}}, {{seed}}')
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
@@ -241,8 +242,6 @@ useTransientLayer({
             <div class="image-model-server-key">
               <span>API Key</span>
               <strong>{{ tr("已由服务器配置，无需填写") }}</strong>
-              <p>{{ tr('内置 MiniMax 由服务器转发请求，需要部署者配置密钥：') }}
-                <code>MINIMAX_API_KEY</code></p>
             </div>
           </div>
 
@@ -264,15 +263,22 @@ useTransientLayer({
                 <option value="image-01-live">image-01-live</option>
               </select>
             </label>
-            <label v-else><span>{{ tr("模型 ID") }}</span><input v-model="editingConfig.defaultModel" :placeholder="tr('例如：gpt-image-1 或 SDXL checkpoint')" /></label>
-            <label><span>{{ tr("响应字段路径") }}</span><input v-model="editingConfig.responsePath" :placeholder="tr('通用 HTTP 可选，例如 data.0.url')" /></label>
+            <label v-else-if="editingConfig.type !== 'comfyui'"><span>{{ tr("模型 ID") }}</span><input v-model="editingConfig.defaultModel" :placeholder="tr('例如：gpt-image-1 或 SDXL checkpoint')" /></label>
+            <label v-if="editingConfig.type === 'http'"><span>{{ tr("响应字段路径") }}</span><input v-model="editingConfig.responsePath" :placeholder="tr('通用 HTTP 可选，例如 data.0.url')" /></label>
             <label v-if="editingConfig.type === 'http'">
               <span>{{ tr("请求体模板") }}</span>
               <textarea v-model="editingConfig.requestTemplate" rows="5" placeholder='{"prompt":"{{prompt}}","reference":"{{reference_image}}"}'></textarea>
               <small v-text="templateHelpText"></small>
             </label>
+            <label v-else-if="editingConfig.type === 'comfyui'">
+              <span>{{ tr('API 工作流模板') }}</span>
+              <textarea v-model="editingConfig.requestTemplate" rows="7" :placeholder="tr('粘贴 ComfyUI 导出的 API 格式 JSON')"></textarea>
+              <small v-text="comfyTemplateHelpText"></small>
+              <small>{{ tr('支持标准文本编码、正向采样和 SaveImage / PreviewImage 输出；自定义节点需另行适配。') }}</small>
+            </label>
             <p v-if="connectionState.message" class="image-model-connection" :class="`is-${connectionState.kind}`" role="status">
               {{ tr(connectionState.message) }}
+              <span v-if="connectionState.kind === 'success'">{{ tr('连通性检查不代表图片生成已验证。') }}</span>
             </p>
           </div>
 
@@ -296,98 +302,66 @@ useTransientLayer({
 </template>
 
 <style scoped>
-.image-model-picker { width: 100%; }
-
-.image-model-picker__trigger {
-  width: 100%;
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 7px 9px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold) 62%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent);
-  color: var(--archive-ink, var(--text-primary));
-  cursor: pointer;
-  text-align: left;
-}
-
-.image-model-picker__trigger:hover { border-color: var(--archive-olive, var(--accent)); }
-.image-model-picker__trigger-copy { display: grid; gap: 2px; min-width: 0; }
-.image-model-picker__trigger-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.image-model-picker__eyebrow { color: var(--archive-ink-soft, var(--text-muted)); font-size: 10px; }
-
-.image-model-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: calc(var(--z-modal, 300) + 10);
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(12 16 24 / 0.58);
-  backdrop-filter: blur(4px);
-}
-
-.image-model-dialog {
-  width: min(460px, 100%);
-  max-height: min(720px, calc(100vh - 40px));
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 52%, var(--border));
-  border-radius: 6px;
-  background: var(--archive-paper-soft, var(--bg-secondary));
-  color: var(--archive-ink, var(--text-primary));
-  box-shadow: 0 24px 64px rgb(0 0 0 / 0.28);
-}
-
+.image-model-picker { width: 100%; min-width: 0; font: 14px/1.5 var(--font-sans); }
+.image-model-picker__trigger { width: 100%; min-width: 0; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 12px; background: var(--surface-workbench-raised); color: var(--text-primary); cursor: pointer; text-align: start; }
+.image-model-picker__trigger:hover { border-color: var(--border); }
+.image-model-picker__trigger > svg { flex: none; color: var(--text-muted); }
+.image-model-picker__trigger-copy { display: grid; gap: 3px; min-width: 0; }
+.image-model-picker__trigger-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/1.4 var(--font-sans); }
+.image-model-picker__eyebrow { color: var(--text-secondary); font: 12px/1.4 var(--font-sans); }
+.image-model-overlay { position: fixed; inset: 0; z-index: calc(var(--z-modal, 300) + 10); display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / .5); }
+.image-model-dialog { width: min(460px, 100%); max-height: min(760px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-subtle, var(--border)); border-radius: 12px; background: var(--surface-workbench); color: var(--text-primary); font: 14px/1.5 var(--font-sans); box-shadow: var(--shadow-workbench); }
 .image-model-dialog--config { width: min(560px, 100%); }
-.image-model-dialog__header, .image-model-dialog__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 46%, transparent); }
-.image-model-dialog__header > div { display: grid; gap: 3px; }
-.image-model-dialog__header strong { font-size: 14px; }
-.image-model-dialog__header span { color: var(--archive-ink-soft, var(--text-muted)); font-size: 11px; }
-.image-model-dialog__footer { justify-content: flex-end; border-top: 1px solid var(--border); border-bottom: 0; }
-.image-model-dialog__footer--config { flex-wrap: wrap; }
-.image-model-icon-btn { width: 28px; height: 28px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font-size: 20px; }
-
+.image-model-dialog__header, .image-model-dialog__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.image-model-dialog__header > div { display: grid; gap: 3px; min-width: 0; }
+.image-model-dialog__header strong { font-size: 15px; font-weight: 550; }
+.image-model-dialog__header span { color: var(--text-secondary); font-size: 13px; }
+.image-model-dialog__footer { justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border-subtle, var(--border)); border-bottom: 0; }
+.image-model-icon-btn { flex: none; width: 36px; height: 36px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); font: 24px/1 var(--font-sans); cursor: pointer; }
+.image-model-icon-btn:hover, .image-model-option__edit:hover { background: var(--surface-hover); }
 .image-model-list { overflow-y: auto; padding: 8px; }
-.image-model-option { width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) 30px; align-items: center; gap: 10px; min-height: 54px; padding: 7px 6px; border: 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent); background: transparent; color: var(--archive-ink, var(--text-primary)); cursor: pointer; text-align: left; }
-.image-model-option:hover { background: color-mix(in srgb, var(--archive-olive) 6%, transparent); }
+.image-model-option { display: grid; grid-template-columns: 10px minmax(0, 1fr) 36px; align-items: center; gap: 12px; min-height: 70px; padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; text-align: start; }
+.image-model-option:hover { background: var(--surface-hover); }
+.image-model-option.active { background: var(--surface-workbench-muted); }
 .image-model-option__mark { width: 7px; height: 7px; border: 1px solid var(--text-muted); border-radius: 50%; }
-.image-model-option.active .image-model-option__mark { border-color: var(--archive-olive, var(--accent)); background: var(--archive-olive, var(--accent)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--archive-olive) 14%, transparent); }
+.image-model-option.active .image-model-option__mark { border-color: var(--accent); background: var(--accent); }
 .image-model-option__copy { display: grid; gap: 3px; min-width: 0; }
-.image-model-option__copy strong, .image-model-option__copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.image-model-option__copy strong { font-size: 12px; }
-.image-model-option__copy strong em { display: none; }
-.image-model-option__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.image-model-option__copy span { color: var(--text-muted); font-size: 10px; }
-.image-model-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--archive-gold) 55%, var(--border)); border-radius: 3px; color: var(--archive-gold, var(--accent)); font-size: 9px; font-style: normal; vertical-align: 1px; }
-.image-model-server-note { color: var(--archive-gold, var(--accent)); }
-.image-model-option__edit { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.image-model-empty { margin: 0; padding: 32px 16px; color: var(--text-muted); text-align: center; font-size: 12px; }
-
-.image-model-form { display: grid; gap: 11px; overflow-y: auto; padding: 14px 16px; }
+.image-model-option__copy strong { font-size: 14px; font-weight: 500; }
+.image-model-option__copy strong, .image-model-option__copy span, .image-model-option__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.image-model-option__copy span, .image-model-option__copy small { color: var(--text-secondary); font-size: 12px; }
+.image-model-badge { display: none; }
+.image-model-option__edit { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.image-model-empty { margin: 0; padding: 32px 18px; color: var(--text-muted); text-align: center; }
+.image-model-form { display: grid; gap: 15px; overflow-y: auto; padding: 18px; }
 .image-model-form--readonly { gap: 0; }
-.image-model-static-row { display: grid; gap: 4px; padding: 7px 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent); }
-.image-model-static-row span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.image-model-static-row strong { font-size: 12px; font-weight: 600; word-break: break-all; }
-.image-model-server-key { display: grid; gap: 5px; margin-top: 11px; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent); }
-.image-model-server-key span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.image-model-server-key strong { font-size: 12px; color: var(--archive-olive, var(--accent)); }
-.image-model-server-key p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
-.image-model-server-key code { padding: 0 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
-.image-model-form label { display: grid; gap: 5px; }
-.image-model-form label > span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.image-model-form input, .image-model-form select, .image-model-form textarea { width: 100%; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--archive-gold) 54%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); font: inherit; font-size: 12px; }
-.image-model-form textarea { resize: vertical; }
-.image-model-form small { color: var(--text-muted); font-size: 10px; line-height: 1.5; }
-.image-model-dialog__footer button { min-height: 30px; padding: 5px 10px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 58%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); cursor: pointer; }
-.image-model-dialog__footer button:disabled { opacity: 0.5; cursor: not-allowed; }
-.image-model-dialog__footer .image-model-add { border-style: solid; border-color: var(--archive-olive, var(--accent)); background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-olive-strong)); color: var(--archive-paper-soft, var(--accent-text)); }
-.image-model-dialog__footer .image-model-delete { margin-right: auto; border-color: color-mix(in srgb, var(--danger) 48%, var(--border)); color: var(--danger); }
-.image-model-connection { margin: 0; font-size: 11px; line-height: 1.5; }
-.image-model-connection.is-success { color: var(--success, #34805a); }
+.image-model-static-row { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--border-subtle, var(--border)); }
+.image-model-static-row span { color: var(--text-secondary); font-size: 13px; }
+.image-model-static-row strong { font-size: 14px; font-weight: 450; overflow-wrap: anywhere; }
+.image-model-server-key { display: grid; gap: 6px; margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--surface-workbench-muted); }
+.image-model-server-key span { color: var(--text-secondary); font-size: 13px; }
+.image-model-server-key strong { font-size: 14px; font-weight: 450; }
+.image-model-form label { display: grid; gap: 7px; min-width: 0; }
+.image-model-form label > span { color: var(--text-secondary); font-size: 13px; }
+.image-model-form input, .image-model-form select, .image-model-form textarea { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px; padding: 10px 12px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-primary); font: 14px/1.5 var(--font-sans); }
+.image-model-form textarea { resize: vertical; font: 13px/1.6 var(--font-mono, monospace); }
+.image-model-form small { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.image-model-dialog__footer > button { min-height: 40px; padding: 9px 14px; border: 1px solid var(--border-subtle, var(--border)); border-radius: 10px; background: var(--surface-workbench-raised); color: var(--text-primary); font: 14px/1.4 var(--font-sans); cursor: pointer; }
+.image-model-dialog__footer > .image-model-add { border-color: transparent; background: var(--accent); color: var(--accent-text); }
+.image-model-dialog__footer > .image-model-delete { color: var(--danger); }
+.image-model-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.image-model-connection { display: grid; gap: 6px; margin: 0; color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
 .image-model-connection.is-error { color: var(--danger); }
+.image-model-connection span { color: var(--text-muted); font-size: 12px; }
+.image-model-picker__trigger:focus-visible, .image-model-dialog :is(button, [role="button"], input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 720px), (pointer: coarse) {
+  .image-model-icon-btn, .image-model-option__edit { width: 44px; height: 44px; }
+  .image-model-option { grid-template-columns: 8px minmax(0, 1fr) 44px; gap: 10px; padding: 10px; }
+  .image-model-dialog__footer > button, .image-model-form input, .image-model-form select { min-height: 44px; }
+}
+@media (max-width: 520px) {
+  .image-model-overlay { padding: 12px; }
+  .image-model-dialog { max-height: calc(100dvh - 24px); }
+  .image-model-dialog__header, .image-model-dialog__footer { padding: 12px 14px; gap: 8px; }
+  .image-model-form { padding: 14px; }
+}
 </style>

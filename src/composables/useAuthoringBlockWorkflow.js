@@ -122,6 +122,7 @@ export function useAuthoringBlockWorkflow({
       unitRevision: Number(unit?.attrs?.unitRevision || 0),
       nodeId,
       nodeRevision: Number(node?.attrs?.nodeRevision || 0),
+      anchorExcerpt: nodeText.slice(0, cursorLocalOffset).trim().slice(-48),
       cursorLocalOffset,
       caret,
       markdownFrom: caret,

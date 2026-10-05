@@ -1,0 +1,40 @@
+/* Local chrome; experience-reading.css keeps ownership of narrative geometry. */
+.game-page.game-page { background: var(--surface-workbench-canvas); background-image: none; }
+.game-page.game-page :deep(.ws-topstrip) { background: var(--surface-workbench-canvas); border-color: transparent; font-family: var(--font-sans); }
+.game-page.game-page .ws-center-stage { background: var(--surface-workbench); border-color: transparent; border-radius: 20px; }
+.game-page.game-page .ws-right-rail { background: var(--surface-workbench-muted); border-color: transparent; border-radius: 20px; }
+.game-page.game-page .ws-right-rail :deep(.contour-field) { display: none; }
+.game-page.game-page :deep(.input-area) { background: var(--surface-workbench); border-color: transparent; border-radius: 20px; box-shadow: none; }
+.game-page.game-page :deep(.ws-session-trigger__eyebrow) { color: var(--text-primary); font-size: 15px; letter-spacing: normal; white-space: nowrap; flex-shrink: 0; }
+.game-page.game-page :deep(.ws-session-trigger__label) { font-size: 14px; font-weight: 500; }
+.game-page.game-page .ws-demo-banner { margin: 12px; padding: 12px 14px; border: 0; border-radius: 12px; background: var(--surface-workbench-muted); font-family: var(--font-sans); }
+.game-page.game-page .ws-demo-banner__kicker { font-size: 13px; font-weight: 500; letter-spacing: normal; color: var(--text-secondary); }
+.game-page.game-page .ws-demo-banner__scene { font-family: var(--font-sans); font-size: 14px; }
+.game-page.game-page .ws-demo-banner__hint { font-size: 13px; line-height: 1.6; }
+.game-page.game-page :deep(.chat-container__hero) { padding: 24px 28px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.game-page.game-page :deep(.chat-container__hero-prompt) { gap: 12px; }
+.game-page.game-page :deep(.chat-container__hero-greeting) { font: 500 24px/1.35 var(--font-sans); }
+.game-page.game-page :deep(.chat-container__hero-hint) { font-size: 14px; }
+.game-page.game-page :deep(.chat-container__hero-actions) { display: flex; flex-wrap: wrap; max-width: none; gap: 8px; }
+.game-page.game-page :deep(.chat-container__hero-slip) { display: inline-flex; flex: none; align-items: center; justify-content: center; min-height: 36px; padding: 8px 12px; border: 0; border-radius: 999px; background: transparent; box-shadow: none; color: var(--text-secondary); font: 500 14px/1.4 var(--font-sans); }
+.game-page.game-page :deep(.chat-container__hero-slip.is-primary) { width: auto; padding-inline: 20px; background: var(--accent); color: var(--accent-text); }
+.game-page.game-page :deep(.chat-container__hero-slip:hover) { transform: none; background: var(--nav-hover); box-shadow: none; }
+.game-page.game-page :deep(.chat-container__hero-slip:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.game-page.game-page :deep(.rp-mode-bar),
+.game-page.game-page :deep(.rp-scenario) { border: 0; border-top: 1px solid var(--hairline-soft); border-radius: 0; background: transparent; font-family: var(--font-sans); }
+@media (max-width: 720px), (pointer: coarse) {
+  .game-page.game-page .ws-demo-banner { margin: 8px; }
+  .game-page.game-page :deep(.gm-persona-dock) { display: none; }
+  .game-page.game-page .ws-center-stage, .game-page.game-page .ws-right-rail, .game-page.game-page :deep(.input-area) { border-radius: 0; }
+  .game-page.game-page :deep(.chat-container__hero) { padding: 22px 16px; }
+  .game-page.game-page :deep(.chat-container__hero-slip) { min-height: 44px; }
+  .game-page.game-page :deep(.chat-container__hero-greeting) { font-size: 24px; }
+  .game-page.game-page :deep(.rp-mode-bar__hint) { display: none; }
+  .game-page.game-page :deep(.rp-mode-bar),
+  .game-page.game-page :deep(.rp-scenario) { padding: 8px 10px; gap: 4px; }
+  .game-page.game-page :deep(.rp-scenario:has(.rp-scenario__start)) { display: flex; flex-wrap: wrap; align-items: center; }
+  .game-page.game-page :deep(.rp-scenario:has(.rp-scenario__start) .rp-scenario__head) { flex: none; }
+  .game-page.game-page :deep(.rp-scenario__actions) { gap: 0; }
+}
+
+.game-page.game-page :deep(.chat-container__hero-slip.is-primary:hover) { background: var(--accent-hover); color: var(--accent-text); }

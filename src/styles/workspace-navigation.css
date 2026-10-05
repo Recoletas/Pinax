@@ -1,15 +1,18 @@
 /* Opt-in navigation chrome; page owners retain layout and content semantics. */
 .theme-legacy .app-shell {
-  --workspace-sidebar-width: 240px;
-  --nav-surface: var(--archive-paper);
+  --workspace-sidebar-width: 256px;
+  --nav-surface: var(--surface-workbench-muted);
   --nav-fg: var(--archive-ink-soft);
   --nav-fg-selected: var(--archive-ink);
   --nav-hover: color-mix(in srgb, var(--archive-ink) 5%, var(--nav-surface));
-  --nav-selected: color-mix(in srgb, var(--archive-ink) 9%, var(--nav-surface));
+  --nav-selected: color-mix(in srgb, var(--archive-ink) 7%, var(--nav-surface));
+  --nav-primary-selected: color-mix(in srgb, var(--accent) 10%, var(--nav-surface));
+  --nav-selected-secondary: color-mix(in srgb, var(--archive-ink) 5%, var(--nav-surface));
+  --nav-primary-fg: var(--accent);
   --nav-focused: color-mix(in srgb, var(--accent) 13%, var(--nav-surface));
-  --nav-row-height: 36px;
+  --nav-row-height: 42px;
 }
-.theme-legacy .app-shell .shell-content .workspace-sidebar {
+.theme-legacy .app-shell .shell-content aside.workspace-sidebar {
   background: var(--nav-surface);
   color: var(--nav-fg);
   scrollbar-width: thin;
@@ -19,30 +22,29 @@
   box-sizing: border-box;
   min-height: var(--nav-row-height);
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--workspace-radius, 12px);
   background: transparent;
   box-shadow: none;
   color: var(--nav-fg);
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 400;
   line-height: 1.45;
   letter-spacing: normal;
   transition: background-color 120ms ease, color 120ms ease;
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item--tree {
-  --nav-row-height: 32px;
+  --nav-row-height: 36px;
+  font-size: 14px;
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--nav-hover);
   color: var(--nav-fg-selected);
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current='page']) {
-  background: var(--nav-selected);
+  background: var(--nav-selected-secondary);
   color: var(--nav-fg-selected);
-}
-.theme-legacy .app-shell .workspace-sidebar:focus-within .workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current='page']) {
-  background: var(--nav-focused);
+  font-weight: 500;
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:active:not(:disabled):not([aria-disabled='true']) {
   background: var(--nav-focused);
@@ -53,10 +55,13 @@
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-label {
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 400;
   line-height: 1.45;
   color: inherit;
+}
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-item:is(.active, .is-active, .is-selected, [aria-current='page']) .workspace-nav-label {
+  font-weight: 500;
 }
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-meta,
 .theme-legacy .app-shell .workspace-sidebar .workspace-nav-section {
@@ -67,8 +72,8 @@
   letter-spacing: normal;
   color: var(--nav-fg);
 }
-.theme-legacy .app-shell .workspace-sidebar .workspace-nav-icon { width: 16px; height: 16px; flex-shrink: 0; }
-@media (pointer: coarse) {
+.theme-legacy .app-shell .workspace-sidebar .workspace-nav-icon { width: 18px; height: 18px; flex-shrink: 0; stroke-width: 1.7; }
+@media (max-width: 760px), (pointer: coarse) {
   .theme-legacy .app-shell .workspace-sidebar .workspace-nav-item { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {

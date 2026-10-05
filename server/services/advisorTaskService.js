@@ -171,6 +171,17 @@ function buildAdvisorResult(taskType, advice, options = {}) {
     stalePolicy: base.stalePolicy || 'require-same-base-text'
   }
 
+  if (taskType === 'memory.extraction' && Array.isArray(base.proposals)) {
+    // Preserve the extraction contract through the generic advisor envelope.
+    // The client verifies each quote against its frozen source before review.
+    result.proposals = base.proposals.slice(0, 12)
+    result.unextractable = { reason: typeof base.unextractable?.reason === 'string' ? base.unextractable.reason : '' }
+    result.mode = 'review'
+    result.typedActions = []
+    result.action = []
+    result.replacement = ''
+  }
+
   if (taskType === 'authoring.rehearsal.step') {
     // 后果批次用共享合同归一化：quote 对请求时捕获的原文强校验，
     // ref/factKey/commitmentKey 只认授权清单。非法批次整批不提交，

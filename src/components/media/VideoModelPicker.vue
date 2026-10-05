@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { videoJobService } from '../../services/media/videoJobService'
 import {
   BUILTIN_VIDEO_CONFIG_ID,
@@ -26,6 +26,9 @@ const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
+let connectionController = null
+let connectionRevision = 0
+onBeforeUnmount(() => resetConnectionState())
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_VIDEO_CONFIG_ID)
@@ -88,36 +91,47 @@ function changeProvider(event) {
 }
 
 function saveConfig() {
-  if (!canSaveConfig.value) return
-  const saved = saveVideoProviderConfig(editingConfig.value)
-  refreshConfigs()
-  emit('update:modelValue', saved.id)
-  closeConfig()
+  if (!canSaveConfig.value || connectionState.testing) return
+  try {
+    const saved = saveVideoProviderConfig(editingConfig.value)
+    refreshConfigs()
+    emit('update:modelValue', saved.id)
+    closeConfig()
+  } catch (error) {
+    connectionState.kind = 'error'
+    connectionState.message = error?.message || '配置未能保存，请检查浏览器存储后重试。'
+  }
 }
 
 async function testConnection() {
+  if (connectionState.testing || !editingConfig.value) return
   if (editingIsMinimax.value && !editingConfig.value?.apiKey.trim()) {
     connectionState.kind = 'error'
     connectionState.message = '请先填写 API Key。'
     return
   }
+  const revision = ++connectionRevision
+  connectionController = new AbortController()
   connectionState.testing = true
   connectionState.kind = 'idle'
   connectionState.message = ''
   try {
     const result = await videoJobService.testProvider(
       editingConfig.value.providerId,
-      toVideoProviderConfig(editingConfig.value)
+      toVideoProviderConfig(editingConfig.value),
+      { signal: connectionController.signal }
     )
+    if (revision !== connectionRevision) return
     connectionState.kind = result?.ok ? 'success' : 'error'
     connectionState.message = result?.ok
       ? `连接成功${result.latencyMs ? ` · ${result.latencyMs}ms` : ''}`
       : (result?.message || '渠道不可用')
   } catch (error) {
+    if (revision !== connectionRevision) return
     connectionState.kind = 'error'
     connectionState.message = error?.message || '连接测试失败'
   } finally {
-    connectionState.testing = false
+    if (revision === connectionRevision) connectionState.testing = false
   }
 }
 
@@ -136,11 +150,16 @@ function removeConfig() {
     ? window.confirm('确定删除这个视频模型配置？')
     : false
   if (!confirmed) return
-  const configs = deleteVideoProviderConfig(id)
-  localConfigs.value = configs
-  emit('configs-updated', configs)
-  if (props.modelValue === id) emit('update:modelValue', configs[0]?.id || '')
-  closeConfig()
+  try {
+    const configs = deleteVideoProviderConfig(id)
+    localConfigs.value = configs
+    emit('configs-updated', configs)
+    if (props.modelValue === id) emit('update:modelValue', configs[0]?.id || '')
+    closeConfig()
+  } catch (error) {
+    connectionState.kind = 'error'
+    connectionState.message = error?.message || '配置未能删除，请重试。'
+  }
 }
 
 function closeConfig() {
@@ -150,6 +169,9 @@ function closeConfig() {
 }
 
 function resetConnectionState() {
+  connectionRevision += 1
+  connectionController?.abort()
+  connectionController = null
   connectionState.testing = false
   connectionState.kind = 'idle'
   connectionState.message = ''
@@ -172,6 +194,7 @@ useTransientLayer({
   isOpen: layerOpen,
   onClose: closeLayer,
   initialFocus: () => document.querySelector('.video-model-overlay .is-icon'),
+  exclusive: false,
   returnFocus: () => triggerRef.value
 })
 </script>
@@ -184,6 +207,8 @@ useTransientLayer({
       class="video-model-picker__trigger"
       data-testid="video-model-config-trigger"
       :disabled="disabled"
+      aria-haspopup="dialog"
+      :aria-expanded="layerOpen"
       @click="openPicker"
     >
       <span>
@@ -206,18 +231,15 @@ useTransientLayer({
               :key="config.id"
               class="video-model-option"
               :class="{ active: config.id === modelValue }"
-              role="button"
-              tabindex="0"
-              @click="selectConfig(config)"
-              @keydown.enter.prevent="selectConfig(config)"
-              @keydown.space.prevent="selectConfig(config)"
             >
-              <i aria-hidden="true"></i>
-              <span>
-                <strong>{{ config.name }}<em v-if="config.builtin" class="video-model-badge">内置</em></strong>
-                <small>{{ providerLabel(config.providerId) }} · {{ config.model }}</small>
-                <small v-if="config.serverKey" class="video-model-server-note">已由服务器配置</small>
-              </span>
+              <button type="button" class="video-model-option__choose" :aria-pressed="config.id === modelValue" @click="selectConfig(config)">
+                <i aria-hidden="true"></i>
+                <span>
+                  <strong>{{ config.name }}</strong>
+                  <small>{{ config.model }}</small>
+                  <small v-if="config.serverKey" class="video-model-server-note">使用站点提供的渠道</small>
+                </span>
+              </button>
               <button v-if="!config.builtin" type="button" class="is-icon" title="编辑模型配置" aria-label="编辑模型配置" @click.stop="editConfig(config)">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>
               </button>
@@ -244,9 +266,8 @@ useTransientLayer({
             <div class="video-model-static-row"><span>默认分辨率</span><strong>{{ editingConfig.resolution }}</strong></div>
             <div class="video-model-server-key">
               <span>API Key</span>
-              <strong>已由服务器配置，无需填写</strong>
-              <p>使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置
-                <code>MINIMAX_API_KEY</code>，生成时会有明确报错。</p>
+              <strong>使用站点提供的渠道</strong>
+              <p>由站点提供视频渠道，无需填写个人密钥。可在生成面板检查是否可用。</p>
             </div>
           </div>
           <!-- 用户配置 / 新增: 可编辑表单 -->
@@ -295,7 +316,7 @@ useTransientLayer({
             <template v-else>
               <button v-if="editingConfig.id" type="button" class="is-danger" @click="removeConfig">删除</button>
               <button type="button" :disabled="connectionState.testing" @click="testConnection">{{ connectionState.testing ? '测试中...' : '测试连通性' }}</button>
-              <button type="button" class="is-primary" :disabled="!canSaveConfig" @click="saveConfig">保存</button>
+              <button type="button" class="is-primary" :disabled="!canSaveConfig || connectionState.testing" @click="saveConfig">保存</button>
             </template>
           </footer>
         </section>
@@ -306,56 +327,60 @@ useTransientLayer({
 
 <style scoped>
 .video-model-picker { width: 100%; }
-.video-model-picker__trigger { width: 100%; min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 9px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 62%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--archive-paper-soft) 90%, transparent); color: var(--archive-ink, var(--text-primary)); cursor: pointer; text-align: left; }
-.video-model-picker__trigger:disabled { opacity: 0.5; cursor: not-allowed; }
-.video-model-picker__trigger > span:first-child { display: grid; gap: 2px; min-width: 0; }
-.video-model-picker__trigger small { color: var(--archive-ink-soft, var(--text-muted)); font-size: 10px; }
-.video-model-picker__trigger strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.video-model-overlay { position: fixed; inset: 0; z-index: var(--z-modal-backdrop, 800); display: grid; place-items: center; padding: 20px; background: rgb(12 16 24 / 0.58); backdrop-filter: blur(4px); }
-.video-model-dialog { width: min(460px, 100%); max-height: min(720px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid color-mix(in srgb, var(--archive-gold) 52%, var(--border)); border-radius: 6px; background: var(--archive-paper-soft, var(--bg-secondary)); color: var(--archive-ink, var(--text-primary)); box-shadow: 0 24px 64px rgb(0 0 0 / 0.28); }
-.video-model-dialog--config { width: min(560px, 100%); }
-.video-model-dialog header, .video-model-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 46%, transparent); }
-.video-model-dialog header > div { display: grid; gap: 3px; }
-.video-model-dialog header strong { font-size: 14px; }
-.video-model-dialog header small { color: var(--text-muted); font-size: 11px; }
-.video-model-dialog footer { justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--border); border-bottom: 0; }
-.video-model-dialog button { min-height: 30px; padding: 5px 10px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 58%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); cursor: pointer; }
-.video-model-dialog button:disabled { opacity: 0.5; cursor: not-allowed; }
-.video-model-picker__trigger:focus-visible, .video-model-dialog button:focus-visible, .video-model-option:focus-visible, .video-model-form input:focus-visible, .video-model-form select:focus-visible, .video-model-form textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--archive-olive, var(--accent)) 66%, transparent); outline-offset: 2px; }
-.video-model-dialog button.is-icon { width: 28px; height: 28px; min-height: 0; padding: 0; border: 0; background: transparent; font-size: 18px; }
-.video-model-dialog button.is-primary { border-style: solid; border-color: var(--archive-olive, var(--accent)); background: color-mix(in srgb, var(--archive-olive) 88%, var(--archive-olive-strong)); color: var(--archive-paper-soft, var(--accent-text)); }
-.video-model-dialog button.is-danger { margin-right: auto; border-color: color-mix(in srgb, var(--danger) 48%, var(--border)); color: var(--danger); }
+.video-model-picker__trigger { width: 100%; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--hairline-soft, var(--border)); border-radius: var(--radius-control, 10px); background: var(--surface-workbench-input, var(--bg-primary)); color: var(--text-primary); cursor: pointer; text-align: left; font-family: var(--font-interface, var(--font-sans)); }
+.video-model-picker__trigger:hover { border-color: var(--border-strong); }
+.video-model-picker__trigger:disabled { opacity: .5; cursor: not-allowed; }
+.video-model-picker__trigger > span:first-child { display: grid; gap: 3px; min-width: 0; }
+.video-model-picker__trigger small { color: var(--text-muted); font-size: 11px; }
+.video-model-picker__trigger strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; }
+.video-model-overlay { position: fixed; inset: 0; z-index: var(--z-modal-backdrop, 800); display: grid; place-items: center; padding: 20px; background: color-mix(in srgb, var(--text-primary) 28%, transparent); backdrop-filter: blur(6px); }
+.video-model-dialog { width: min(460px, 100%); max-height: min(760px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--hairline-soft, var(--border)); border-radius: var(--radius-surface, 24px); background: var(--surface-workbench-overlay, var(--bg-secondary)); color: var(--text-primary); box-shadow: var(--shadow-workbench-float); font: 13px/1.6 var(--font-interface, var(--font-sans)); }
+.video-model-dialog--config { width: min(520px, 100%); }
+.video-model-dialog header, .video-model-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--hairline-soft); }
+.video-model-dialog header > div { display: grid; gap: 3px; min-width: 0; }
+.video-model-dialog header strong { font-size: 16px; font-weight: 600; }
+.video-model-dialog header small { color: var(--text-muted); font-size: 12px; }
+.video-model-dialog footer { justify-content: flex-end; flex-wrap: wrap; border-top: 1px solid var(--hairline-soft); border-bottom: 0; }
+.video-model-dialog button { min-height: 36px; padding: 8px 12px; border: 0; border-radius: var(--radius-control); background: var(--surface-workbench-input); color: var(--text-primary); cursor: pointer; font: inherit; }
+.video-model-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.video-model-picker__trigger:focus-visible, .video-model-dialog :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.video-model-dialog button.is-icon { width: 36px; height: 36px; flex-shrink: 0; padding: 0; background: transparent; font-size: 22px; }
+.video-model-dialog button.is-icon:hover { background: var(--surface-workbench-input); }
+.video-model-dialog button.is-primary { background: var(--accent); color: var(--accent-text); }
+.video-model-dialog button.is-danger { margin-right: auto; color: var(--danger); background: transparent; }
 .video-model-list { overflow-y: auto; padding: 8px; }
-.video-model-option { display: grid; grid-template-columns: 10px minmax(0, 1fr) 30px; align-items: center; gap: 10px; min-height: 54px; padding: 7px 6px; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent); cursor: pointer; }
-.video-model-option:hover { background: color-mix(in srgb, var(--archive-olive) 6%, transparent); }
-.video-model-option i { width: 7px; height: 7px; border: 1px solid var(--text-muted); border-radius: 50%; }
-.video-model-option.active i { border-color: var(--archive-olive, var(--accent)); background: var(--archive-olive, var(--accent)); }
-.video-model-option > span { display: grid; gap: 3px; min-width: 0; }
+.video-model-option { display: flex; align-items: center; gap: 4px; min-height: 64px; padding: 4px 8px; border-radius: var(--radius-control); }
+.video-model-option:hover, .video-model-option.active { background: var(--surface-workbench-input); }
+.video-model-dialog .video-model-option__choose { display: flex; align-items: center; flex: 1; min-width: 0; gap: 12px; padding: 10px 6px; background: transparent; text-align: left; }
+.video-model-option i { flex-shrink: 0; width: 9px; height: 9px; border: 1px solid var(--text-muted); border-radius: 50%; }
+.video-model-option.active i { border-color: var(--accent); background: var(--accent); }
+.video-model-option__choose > span { display: grid; gap: 3px; min-width: 0; }
 .video-model-option strong, .video-model-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.video-model-option strong { font-size: 12px; }
-.video-model-option strong em { display: none; }
-.video-model-option small { color: var(--text-muted); font-size: 10px; }
-.video-model-badge { display: inline-block; margin-left: 6px; padding: 0 5px; border: 1px solid color-mix(in srgb, var(--archive-gold) 55%, var(--border)); border-radius: 3px; color: var(--archive-gold, var(--accent)); font-size: 9px; font-style: normal; vertical-align: 1px; }
-.video-model-server-note { color: var(--archive-gold, var(--accent)); }
-.video-model-empty { margin: 0; padding: 32px 16px; color: var(--text-muted); text-align: center; font-size: 12px; }
-.video-model-form { display: grid; gap: 11px; overflow-y: auto; padding: 14px 16px; }
-.video-model-form > label { display: grid; gap: 5px; }
-.video-model-form label > span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.video-model-form input, .video-model-form select, .video-model-form textarea { width: 100%; box-sizing: border-box; padding: 8px 9px; border: 1px solid color-mix(in srgb, var(--archive-gold) 54%, var(--border)); border-radius: 4px; background: var(--archive-paper-soft, var(--bg-primary)); color: var(--archive-ink, var(--text-primary)); font: inherit; font-size: 12px; }
-.video-model-form textarea { resize: vertical; }
-.video-model-form--readonly { gap: 0; }
-.video-model-static-row { display: grid; gap: 4px; padding: 7px 0; border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 30%, transparent); }
-.video-model-static-row span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.video-model-static-row strong { font-size: 12px; font-weight: 600; word-break: break-all; }
-.video-model-server-key { display: grid; gap: 5px; margin-top: 11px; padding: 10px 12px; border: 1px dashed color-mix(in srgb, var(--archive-gold) 50%, var(--border)); border-radius: 4px; background: color-mix(in srgb, var(--archive-paper-soft) 96%, transparent); }
-.video-model-server-key span { color: var(--archive-ink-soft, var(--text-secondary)); font-size: 11px; }
-.video-model-server-key strong { font-size: 12px; color: var(--archive-olive, var(--accent)); }
-.video-model-server-key p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.55; }
-.video-model-server-key code { padding: 0 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg-tertiary) 80%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
-.video-model-checks { display: flex; flex-wrap: wrap; gap: 10px 16px; }
-.video-model-checks label { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 11px; }
-.video-model-checks input { width: auto; margin: 0; accent-color: var(--accent); }
-.video-model-message { margin: 0; font-size: 11px; line-height: 1.5; }
-.video-model-message.is-success { color: var(--success, #34805a); }
+.video-model-option strong { font-size: 13px; font-weight: 500; }
+.video-model-option small { color: var(--text-muted); font-size: 11px; }
+.video-model-empty { margin: 0; padding: 32px 20px; color: var(--text-muted); text-align: center; }
+.video-model-form { display: grid; gap: 16px; overflow-y: auto; overscroll-behavior: contain; padding: 20px; }
+.video-model-form > label { display: grid; gap: 6px; }
+.video-model-form label > span { color: var(--text-secondary); font-size: 12px; }
+.video-model-form :is(input, select, textarea) { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--surface-workbench-input); color: var(--text-primary); font: inherit; }
+.video-model-form textarea { resize: vertical; min-height: 110px; }
+.video-model-checks { display: flex; flex-wrap: wrap; gap: 12px; }
+.video-model-checks label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.video-model-checks input { width: auto; accent-color: var(--accent); }
+.video-model-static-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.video-model-static-row span, .video-model-server-key > span { color: var(--text-muted); font-size: 12px; }
+.video-model-static-row strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.video-model-server-key { display: grid; gap: 8px; padding-top: 16px; border-top: 1px solid var(--hairline-soft); }
+.video-model-server-key strong { font-size: 13px; font-weight: 500; }
+.video-model-server-key p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.7; }
+.video-model-message { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .video-model-message.is-error { color: var(--danger); }
+.video-model-message.is-success { color: var(--accent); }
+@media (max-width: 640px) {
+  .video-model-overlay { padding: 8px; align-items: end; }
+  .video-model-dialog { max-height: calc(100dvh - 24px); }
+  .video-model-dialog header, .video-model-dialog footer, .video-model-form { padding: 16px; }
+  .video-model-dialog footer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .video-model-dialog button { min-height: 44px; }
+}
 </style>

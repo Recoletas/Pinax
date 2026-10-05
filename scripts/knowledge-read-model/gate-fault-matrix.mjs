@@ -42,6 +42,10 @@ if (typeof globalThis.localStorage === 'undefined') {
 }
 if (typeof globalThis.window === 'undefined') {
   globalThis.window = globalThis
+  const pageEvents = new EventTarget()
+  window.addEventListener = pageEvents.addEventListener.bind(pageEvents)
+  window.removeEventListener = pageEvents.removeEventListener.bind(pageEvents)
+  window.dispatchEvent = pageEvents.dispatchEvent.bind(pageEvents)
 }
 const { useAuthoringKnowledgeAssistant, recordKnowledgeSeamFocus } = await import(
   new URL('../../src/composables/useAuthoringKnowledgeAssistant.js', `file://${scriptDir}/`).href
@@ -146,7 +150,7 @@ async function runScenario(scenario) {
   }
   localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
   let focusRef = requested.refs[0] ?? null
-  if (focusRef) recordKnowledgeSeamFocus(focusRef)
+  if (focusRef) recordKnowledgeSeamFocus(focusRef, PROJECT)
   let session = null
   let signal = null
   if (cancel.id !== 'none') {
@@ -164,7 +168,7 @@ async function runScenario(scenario) {
     })
     let outcome
     if (cancel.id === 'none') {
-      outcome = await assistant.ask({ question: '钥匙', appendUser: false })
+      outcome = await assistant.ask({ intent: 'whole-book', question: '钥匙', appendUser: false })
     } else {
       // cancel 轴在 session 层注入信号（composable 的停止按钮窗口在毫秒级
       // 接缝上不可确定脚本化；signal 端到端语义由 session 层代表验证）。
@@ -200,7 +204,7 @@ async function runScenario(scenario) {
   } catch (error) {
     return { outcome: false, reason: String(error.message), refs: [], providerCalls: providerCalls.length, success: false }
   } finally {
-    recordKnowledgeSeamFocus('')
+    recordKnowledgeSeamFocus('', PROJECT)
     localStorage.removeItem('pinax_knowledge_read_model_enabled')
     void signal
   }
@@ -301,7 +305,7 @@ async function runLayerB(scenario) {
     executeQuery
   })
   // ask0：旧路径建立回答证据（真实 UI 中作者先有一次回答才能点来源）。
-  const ask0 = await assistant.ask({ question: '钥匙', appendUser: false })
+  const ask0 = await assistant.ask({ intent: 'whole-book', question: '钥匙', appendUser: false })
   if (ask0 !== true) return { klass: 'prep-failed', outcome: false, refs: [], providerCalls: providerCalls.length }
   const evidenceRefs = assistant.messages.value.filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
   const focusable = scenario.requested.refs.filter((ref) => evidenceRefs.includes(ref))
@@ -321,8 +325,8 @@ async function runLayerB(scenario) {
     storage.setText(worldbookKey, JSON.stringify(worldbook))
   }
   localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
-  recordKnowledgeSeamFocus(focusable[0])
-  const ask1 = await assistant.ask({ question: '钥匙', appendUser: false })
+  recordKnowledgeSeamFocus(focusable[0], PROJECT)
+  const ask1 = await assistant.ask({ intent: 'whole-book', question: '钥匙', appendUser: false })
   localStorage.removeItem('pinax_knowledge_read_model_enabled')
   const lastAnswer = assistant.messages.value.filter((m) => m.role === 'assistant').at(-1)
   return {
@@ -410,7 +414,7 @@ for (const spec of layerBScenarios) {
     querySession: sessionModule.createAuthoringKnowledgeQuerySession({ repositories, maxEvidence: 12 }),
     executeQuery
   })
-  const ask0 = await assistant.ask({ question: '钥匙', appendUser: false })
+  const ask0 = await assistant.ask({ intent: 'whole-book', question: '钥匙', appendUser: false })
   if (ask0 !== true) {
     layerBMismatch += 1
     layerBDetails.push({ id: spec.id, error: 'ask0 失败' })
@@ -440,9 +444,9 @@ for (const spec of layerBScenarios) {
   traceState.lastSeamRefs = []
   if (!spec.flagOff && focusable.length > 0) {
     localStorage.setItem('pinax_knowledge_read_model_enabled', '1')
-    recordKnowledgeSeamFocus(focusable[0])
+    recordKnowledgeSeamFocus(focusable[0], PROJECT)
   }
-  const ask1 = await assistant.ask({ question: '钥匙', appendUser: false })
+  const ask1 = await assistant.ask({ intent: 'whole-book', question: '钥匙', appendUser: false })
   const seamEngaged = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace ?? {})).seamPrepares ?? 0
   let ok = false
   let detail = ''
@@ -466,7 +470,7 @@ for (const spec of layerBScenarios) {
   if (!ok) layerBMismatch += 1
   // 清理本场景状态，避免串扰下一场景。
   assistant.clear()
-  recordKnowledgeSeamFocus('')
+  recordKnowledgeSeamFocus('', PROJECT)
   localStorage.removeItem('pinax_knowledge_read_model_enabled')
   void layerBDetails
 }

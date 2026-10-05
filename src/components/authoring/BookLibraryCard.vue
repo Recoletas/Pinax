@@ -34,10 +34,11 @@ const modifiedLabel = computed(() => {
 .book-card__cover { aspect-ratio: 2 / 3; padding: 22px; display: flex; flex-direction: column; background: url('/pinax-cover-fold.png') center / cover; border-radius: 3px 6px 6px 3px; color: #f6f3ea; box-shadow: 0 3px 8px #10223720; }
 .book-card__imprint { font-size: 10px; letter-spacing: .12em; margin-top: 10px; color: inherit; opacity: .75; }
 .book-card__cover strong { flex-shrink: 0; margin: 0; font: 600 25px/1.35 var(--font-serif); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.book-card__details h3 { margin: 18px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 20px; font-weight: 600; }
-.book-card__details p { margin: 0 0 8px; font-size: 16px; color: var(--archive-ink-soft); }
+.book-card__details { font-family: var(--font-sans); }
+.book-card__details h3 { margin: 14px 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 16px/1.5 var(--font-sans); }
+.book-card__details p { margin: 0 0 8px; font: 400 13px/1.5 var(--font-sans); color: var(--archive-ink-soft); }
 .book-card__details p span { padding: 0 6px; }
-.book-card__date { font-size: 14px; color: var(--archive-ink-soft); }
+.book-card__date { font: 400 12px/1.5 var(--font-sans); color: var(--archive-ink-soft); }
 .book-card__open { display: block; margin-top: 14px; color: var(--archive-olive); font-size: 15px; }
 .book-card:hover .book-card__cover { box-shadow: 0 6px 18px #10223735; }
 .book-card:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: 6px; border-radius: 4px; }

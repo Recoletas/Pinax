@@ -31,11 +31,12 @@ const selectedId = ref('')
 const configs = ref([])
 
 const currentNote = computed(() => {
-  const resolved = resolveSelectedTextProviderConfig()
+  const resolved = configs.value.find((config) => config.id === selectedId.value)
+    || resolveSelectedTextProviderConfig()
   if (resolved?.builtin) {
-    return '当前使用内置 MiniMax：能否生成取决于部署服务器状态，可在模型详情中测试。'
+    return tr('当前使用内置 MiniMax：能否生成取决于部署服务器状态，可在模型详情中测试。')
   }
-  return `当前使用「${resolved?.name || '自定义配置'}」，模型 ${resolved?.model || '—'}。`
+  return tr('当前使用「{name}」，模型 {model}。', { name: resolved?.name || tr('自定义配置'), model: resolved?.model || '—' })
 })
 
 onMounted(() => {
@@ -64,7 +65,8 @@ function handleConfigsUpdated(next) {
 .api-settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
+  font: 14px/1.6 var(--font-sans);
 }
 
 .ai-settings-head {
@@ -73,26 +75,31 @@ function handleConfigsUpdated(next) {
 }
 
 .ai-settings-head strong {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .ai-settings-head p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
   color: var(--text-secondary);
 }
 
 .ai-settings-note {
   margin: 0;
-  padding: 8px 10px;
-  border: 1px dashed color-mix(in srgb, var(--archive-gold, var(--accent)) 45%, var(--border));
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-tertiary)) 80%, transparent);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--text-secondary);
 }
+.api-settings-panel :deep(.text-model-picker__trigger) {
+  min-height: 60px;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline-soft, var(--border));
+  border-radius: var(--radius-control);
+  background: var(--surface-workbench-input, var(--bg-secondary));
+}
+.api-settings-panel :deep(.text-model-picker__trigger small) { font-size: 12px; }
+.api-settings-panel :deep(.text-model-picker__trigger strong) { font-size: 14px; font-weight: 500; }
 </style>

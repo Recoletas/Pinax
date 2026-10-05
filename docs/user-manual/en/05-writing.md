@@ -31,15 +31,45 @@ Editing or deleting a comment does not change the source passage. If that passag
 
 If the selection toolbar is missing, close active search/proofreading overlays and select text again in the manuscript, rather than a panel answer or preview.
 
-## Assistant questions
+## Assistant: brainstorming, source lookup and manuscript review
 
-![A question entered in the assistant before sending](../../screenshots/user-guide-20260924/17-assistant-en.png)
+Choose **Assistant** at the top to open the full page, then **Back to workbench** to continue writing. For questions while writing, open the assistant sidebar; **Open assistant** expands the same conversation. Switching views keeps your draft and reading position without resending a question.
 
-Choose the task and question scope before sending. Ask for something you can check, such as “Where does she first say that she knows about the key? Give the supporting passage.” Use free advice for possible writing choices rather than claims about established story facts.
+The chapter sidebar and full assistant share **Manuscript text / Assistant / Story Bible / Sources** for the current book. **Manuscript text** in the assistant shows the current document name. Story Bible and Sources also provide direct returns to the manuscript or assistant. On a phone, open it with the navigation button at the top. The question list scrolls independently and highlights the question being viewed. Select a question to revisit its answer without sending it again. Stop an active review before returning to the conversation. Story Bible and Sources are temporarily disabled during a query, review or rewrite, so leaving cannot interrupt the task.
 
-Read the cited evidence as well as the answer. A whole-book question does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Do not rely on this question interface as a web search tool.
+The sidebar toolbar opens the full assistant or sources. Once there are messages, it also provides search and question history. Search filters the current conversation; choosing a history entry fills the input so you can edit it before sending.
 
-Review produces editing suggestions; a rewrite still needs to be applied. Image generation needs its own supported image configuration, even if the text-model connection works.
+For an empty manuscript, choose **Start with the assistant**, or select **Brainstorm with the assistant** when creating a manuscript. You can name it later. The suggested starting points fill a question draft without sending it. Edit the question before sending, or go straight to writing.
+
+The default is **Discuss the story**, for characters, plot and writing choices. It does not automatically read the manuscript. Include a passage in your question if you want to discuss it. To check established content, switch to **Look up sources** in the input, or select it from **+**, then write and send your question.
+
+The **+** menu also offers **Review manuscript** and **Generate illustration**. Manuscript review is disabled when the manuscript is empty.
+
+| What you need | Suggested entry and question |
+| --- | --- |
+| Discuss plot or writing choices | **Discuss the story**: “I want these two characters to test each other without revealing their intentions. How could the scene develop?” |
+| Check earlier text or story-bible entries | **Look up sources**: “Where does she first explain her background? Give the supporting passages.” |
+| Check manuscript problems | **+ → Review manuscript**: choose a scope and describe the problem, such as repeated description or an awkward transition |
+
+**Look up sources** searches the current book's connected manuscript, story-bible entries and other supported content. When supporting material is found, the answer includes the sources actually cited. Select a source title to preview the passage inside the assistant, then choose **Open original** to go to its source.
+
+This scope does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Original files imported on the materials page are not yet connected to assistant retrieval; open them on that page when you need to check them. This interface does not search the web.
+
+Conversations and input drafts are saved separately for each manuscript in this browser. Switching manuscripts opens the corresponding conversation. Refreshing does not resend a question; it interrupts an active request, which you can retry yourself.
+
+**Review manuscript** opens the review panel. Choose a scope and describe your goal, then inspect the suggestions or rewrite candidates before applying them. The manuscript stays unchanged until you apply a result; use the review's undo control to reverse an applied change. **Generate illustration** needs its own supported image configuration, even if the text-model connection works.
+
+## Generate an illustration
+
+Select a passage or place the cursor inside the text block you want to illustrate, then choose **Generate image**. Check the source, edit the scene description, and choose a model, aspect ratio and image count. You can also draft a description from the original text and review it before using it.
+
+Parameters are on the left; the current image and this book's candidates are on the right. Style presets supplement the description. Each successful image is archived automatically. **Save as material** creates a material entry; **Insert into manuscript** places the chosen image after the original text block. Both require your choice.
+
+Generation keeps the original book, chapter and text position. If the text changes or you switch books, you can still view, download or save the result in its original book, but cannot insert it at the new location. Stopping keeps completed images. If storage fails, use **Retry saving** instead of generating again.
+
+For a custom ComfyUI connection, **Stop** ends the wait and stops accepting results. A job already submitted to ComfyUI may continue there; manage that job in ComfyUI.
+
+The built-in MiniMax adapter accepts one character reference (JPG/PNG, under 10 MB). It does not provide composition editing or masks, and reference input does not guarantee character consistency. Limits vary with other model configurations. An image used in manuscript text, materials or comics cannot have its file deleted from generation history.
 
 ## Rehearsal: action, response, draft
 
@@ -70,7 +100,7 @@ Recognition matches known names and keywords. A mention in a memory, quotation o
 | What you need | Where to look |
 | --- | --- |
 | Earlier manuscript text | **Comments → Versions**, or the chapter menu's **Version history** |
-| Extracted facts, pending memory proposals and revisions | **Settings → Memory & history** |
+| Extracted facts, pending memory proposals and revisions | **Settings → Memory & history**, or **Memory & history** at the top of the assistant sidebar |
 | Character, place and rule definitions | Character/settings panels and the linked story bible |
 
 Compare an older manuscript version before restoring it, and keep a copy of your current text.

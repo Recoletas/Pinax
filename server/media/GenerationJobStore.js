@@ -6,8 +6,10 @@
  *
  * - `cancelled` may also be entered from `queued`, `submitted`, or `running` via cancel.
  * - Any other transition is illegal and raises ERR_JOB_ILLEGAL_TRANSITION.
- * - Cancelled/succeeded/failed are terminal; re-running an attempt resets attempts++ only on submit.
+ * - Cancelled/succeeded/failed are terminal; attempts counts submissions, not status queries.
  */
+
+import { randomUUID } from 'node:crypto'
 
 const STATUSES = Object.freeze({
   QUEUED: 'queued',
@@ -57,12 +59,11 @@ export function createJobStore(options = {}) {
   const ttlNonTerminal = options.ttlMs ?? DEFAULT_TTL_MS
   const ttlSuccess = options.successTtlMs ?? SUCCESS_TTL_MS
   const ttlFailed = options.failedTtlMs ?? FAILED_TTL_MS
-  const rand = options.random || Math.random
   /** @type {Map<string, object>} */
   const jobs = new Map()
 
   function createJob(input) {
-    const id = `job_${Date.now().toString(36)}_${rand().toString(36).slice(2, 8)}`
+    const id = `job_${randomUUID()}`
     const ts = now()
     const job = {
       id,
@@ -72,7 +73,7 @@ export function createJobStore(options = {}) {
       model: input.model || '',
       status: STATUSES.QUEUED,
       progress: 0,
-      input: input.input,
+      input: structuredClone(input.input),
       providerJobId: null,
       outputs: [],
       error: null,
@@ -112,6 +113,7 @@ export function createJobStore(options = {}) {
 
   function patchJob(id, patch = {}) {
     const job = getJob(id)
+    if (TERMINAL.has(job.status)) throw new IllegalTransitionError(job.status, job.status)
     if (patch.progress != null) job.progress = patch.progress
     if (patch.providerJobId != null) job.providerJobId = patch.providerJobId
     if (patch.outputs != null) job.outputs = patch.outputs

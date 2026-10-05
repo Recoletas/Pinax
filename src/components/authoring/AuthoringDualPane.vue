@@ -907,7 +907,7 @@ function reloadSearchSource(source = {}) {
   if (source.title != null) title.value = String(source.title)
   dirty.value = false
   saveState.value = 'saved'
-  editorEpoch.value += 1
+  if (!source.preserveHistory) editorEpoch.value += 1
   emit('document-change', documentState.value)
   nextTick(refreshCommands)
   return true

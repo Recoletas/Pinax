@@ -15,7 +15,7 @@
 
 import { normalizeAdapterError, buildNoOutputError } from '../errorNormalization.js'
 
-const ALLOWED_PLACEHOLDERS = ['prompt', 'duration', 'aspectRatio', 'model', 'referenceImages']
+const ALLOWED_PLACEHOLDERS = new Set(['prompt', 'duration', 'aspectRatio', 'model', 'referenceImages'])
 
 function getFetch(transport) {
   if (typeof transport === 'function') return transport
@@ -42,9 +42,9 @@ export function createGenericAsyncHttpAdapter(options = {}) {
       progressPath: String(config.progressPath || 'progress'),
       statusField: String(config.statusField || 'status'),
       outputUrlPath: String(config.outputUrlPath || 'output_url'),
-      successStatuses: Array.isArray(config.successStatuses) ? config.successStatuses : ['succeeded'],
-      failureStatuses: Array.isArray(config.failureStatuses) ? config.failureStatuses : ['failed'],
-      runningStatuses: Array.isArray(config.runningStatuses) ? config.runningStatuses : ['queued', 'submitted', 'running', 'processing']
+      successStatuses: normalizeStatuses(config.successStatuses, ['succeeded']),
+      failureStatuses: normalizeStatuses(config.failureStatuses, ['failed']),
+      runningStatuses: normalizeStatuses(config.runningStatuses, ['queued', 'submitted', 'running', 'processing'])
     }
   }
 
@@ -53,11 +53,23 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     if (!cfg.submitUrl) return 'submitUrl is required'
     if (!cfg.statusUrl) return 'statusUrl is required'
     if (!cfg.submitBodyTemplate.trim()) return 'submitBodyTemplate is required'
+    for (const field of ['submitUrl', 'statusUrl', 'cancelUrl']) {
+      if (!cfg[field]) continue
+      try {
+        const url = new URL(cfg[field].replaceAll('{{providerJobId}}', 'probe'))
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return `${field} must be an HTTP(S) URL without embedded credentials`
+      } catch { return `${field} is not a valid URL` }
+    }
+    for (const field of ['submitMethod', 'statusMethod', 'cancelMethod']) {
+      if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(cfg[field])) return `${field} is unsupported`
+    }
+    try { JSON.parse(renderTemplate(cfg.submitBodyTemplate, { input: { prompt: 'probe', durationSeconds: 6 } })) }
+    catch { return 'submitBodyTemplate must produce valid JSON using the supported placeholders' }
     return null
   }
 
   function renderTemplate(template, job) {
-    let str = String(template)
+    const str = String(template)
     const values = {
       prompt: escapeJsonString(job.input?.prompt || ''),
       duration: String(job.input?.durationSeconds || 5),
@@ -65,16 +77,13 @@ export function createGenericAsyncHttpAdapter(options = {}) {
       model: escapeJsonString(job.model || ''),
       referenceImages: JSON.stringify((job.input?.referenceImages || []).map((r) => r.data || r.url || ''))
     }
-    for (const key of ALLOWED_PLACEHOLDERS) {
-      str = str.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), values[key])
-    }
-    return str
+    return str.replace(/\{\{([A-Za-z]+)\}\}/g, (match, key) => ALLOWED_PLACEHOLDERS.has(key) ? values[key] : match)
   }
 
   function readPath(obj, path) {
     return String(path || '').split('.').filter(Boolean).reduce((acc, key) => {
       if (acc == null) return undefined
-      const match = key.match(/^([^\[]+)(?:\[(\d+)\])?$/)
+      const match = key.match(/^([^[]+)(?:\[(\d+)\])?$/)
       if (!match) return undefined
       const baseKey = match[1]
       const idx = match[2] != null ? Number(match[2]) : null
@@ -84,7 +93,7 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     }, obj)
   }
 
-  async function submit(job, config) {
+  async function submit(job, config, { signal } = {}) {
     const cfg = configFor(job, config)
     const err = validate(cfg)
     if (err) throw new Error(`genericAsyncHttp: ${err}`)
@@ -93,6 +102,8 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
     const response = await transport(cfg.submitUrl, {
       method: cfg.submitMethod,
+      signal,
+      redirect: 'error',
       headers,
       body: cfg.submitMethod === 'GET' || cfg.submitMethod === 'HEAD'
         ? undefined
@@ -108,7 +119,7 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     return { providerJobId: String(providerJobId), progress: 5 }
   }
 
-  async function poll(job, config) {
+  async function poll(job, config, { signal } = {}) {
     const cfg = configFor(job, config)
     const transport = getFetch(fetchImpl || config.__fetchImpl)
     const providerJobId = job.providerJobId
@@ -117,19 +128,20 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     let url = cfg.statusUrl
     if (url.includes('{{providerJobId}}')) {
       url = url.replace(/\{\{providerJobId\}\}/g, encodeURIComponent(providerJobId))
-    } else if (!url.includes(providerJobId)) {
-      const sep = url.includes('?') ? '&' : '?'
-      url = `${url}${sep}${encodeURIComponent(cfg.statusPath)}=${encodeURIComponent(providerJobId)}`
+    } else {
+      const parsed = new URL(url)
+      parsed.searchParams.set('id', providerJobId)
+      url = parsed.toString()
     }
     const headers = { Accept: 'application/json', ...cfg.statusHeaders }
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
-    const response = await transport(url, { method: cfg.statusMethod, headers })
+    const response = await transport(url, { method: cfg.statusMethod, headers, signal, redirect: 'error' })
     if (!response.ok) {
       const text = await safeText(response)
       throw makeHttpError(response.status, text, 'poll failed')
     }
     const payload = await safeJson(response)
-    const rawStatus = String(readPath(payload, cfg.statusField) || '').toLowerCase()
+    const rawStatus = String(readPath(payload, cfg.statusField) || '').trim().toLowerCase()
     const progress = Number(readPath(payload, cfg.progressPath))
     if (cfg.successStatuses.includes(rawStatus)) {
       const outputUrl = readPath(payload, cfg.outputUrlPath)
@@ -141,13 +153,15 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     if (cfg.failureStatuses.includes(rawStatus)) {
       return { status: 'failed', error: { code: 'ERR_PROVIDER_UPSTREAM', message: payload?.error || payload?.message || 'provider reported failure' } }
     }
+    if (['cancelled', 'canceled'].includes(rawStatus)) return { status: 'cancelled' }
+    if (!cfg.runningStatuses.includes(rawStatus)) throw new Error('genericAsyncHttp: unrecognized task status')
     return {
       status: 'running',
       progress: Number.isFinite(progress) ? progress : 50
     }
   }
 
-  async function cancel(job, config) {
+  async function cancel(job, config, { signal } = {}) {
     const cfg = configFor(job, config)
     const providerJobId = job.providerJobId
     if (!cfg.cancelUrl || !providerJobId) return { cancelled: true, local: true }
@@ -156,7 +170,7 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
     const url = cfg.cancelUrl.replace(/\{\{providerJobId\}\}/g, encodeURIComponent(providerJobId))
     try {
-      const response = await transport(url, { method: cfg.cancelMethod, headers, body: cfg.cancelMethod === 'GET' || cfg.cancelMethod === 'HEAD' ? undefined : '{}' })
+      const response = await transport(url, { method: cfg.cancelMethod, headers, signal, redirect: 'error', body: cfg.cancelMethod === 'GET' || cfg.cancelMethod === 'HEAD' ? undefined : '{}' })
       if (response.status === 404 || response.status === 405) {
         return { cancelled: true, local: true }
       }
@@ -165,13 +179,13 @@ export function createGenericAsyncHttpAdapter(options = {}) {
         throw makeHttpError(response.status, text, 'cancel failed')
       }
       return { cancelled: true, local: false }
-    } catch (err) {
+    } catch {
       // Normalize to local cancel — provider may not support cancel.
       return { cancelled: true, local: true }
     }
   }
 
-  async function testConnection(config) {
+  async function testConnection(config, { signal } = {}) {
     const cfg = configFor({}, config)
     if (!cfg.submitUrl) {
       return { ok: false, reachable: false, authenticated: false, status: 0, latencyMs: 0, message: 'submitUrl is required' }
@@ -181,7 +195,7 @@ export function createGenericAsyncHttpAdapter(options = {}) {
     try {
       const headers = { ...cfg.submitHeaders }
       if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
-      const response = await transport(cfg.submitUrl, { method: 'HEAD', headers })
+      const response = await transport(cfg.submitUrl, { method: 'HEAD', headers, signal, redirect: 'error' })
       return {
         ok: response.ok || response.status === 405,
         reachable: true,
@@ -208,7 +222,7 @@ export function createGenericAsyncHttpAdapter(options = {}) {
       models: [config?.model || 'custom'],
       durationRange: { min: 1, max: 60, default: 5 },
       aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
-      supportsReferenceImages: false,
+      supportsReferenceImages: String(config?.submitBodyTemplate || '').includes('{{referenceImages}}'),
       supportsCancel: Boolean(config?.cancelUrl),
       pollIntervalMs: 3000,
       customTemplate: true
@@ -237,6 +251,10 @@ export function createGenericAsyncHttpAdapter(options = {}) {
       '?cancelUrl', '?cancelMethod', '?cancelHeaders'
     ]
   }
+}
+
+function normalizeStatuses(value, fallback) {
+  return (Array.isArray(value) ? value : fallback).map((item) => String(item).trim().toLowerCase())
 }
 
 function escapeJsonString(value) {

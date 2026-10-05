@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STORAGE_KEYS } from '@/composables/useStorage'
 import {
   addNarrativeAsset,
@@ -39,8 +39,19 @@ import {
 } from '@/services/media/markdownMediaBridge'
 import {
   ensureAssetCanvasCards,
+  ensureAssetCanvasCardWithExtra,
   listRelationCanvasCards
 } from '@/services/canvas/relationCanvas'
+import { useNotesAssetCatalog } from '@/composables/useNotesAssetCatalog'
+import { resolveCanvasCreationProjectId, resolveCanvasCardProjectId, getDirectorProjectId } from '@/services/canvas/canvasProjectOwnership.js'
+import { createDirectorExportFingerprint, resolveDirectorExportTitle } from '@/services/canvas/canvasDirectorIdentity.js'
+import { normalizeStoryboardShot } from '@/services/media/storyboardStore.js'
+import { toMarkdown } from '@/services/media/shotExporter.js'
+import { SHOT_TYPES, CAMERA_MOVEMENTS } from '@/types/director.js'
+import { saveExternalMediaAsset, getMediaAsset, updateMediaAsset } from '@/services/media/mediaAssetStore.js'
+import { saveStoryboardVideoOriginal } from '@/services/media/storyboardVideoArchive.js'
+import * as aiApi from '@/services/api.js'
+import { generateComicAdaptationCandidates } from '@/services/media/comicAdaptationService.js'
 
 describe('narrativeAssets', () => {
   beforeEach(() => {
@@ -50,6 +61,123 @@ describe('narrativeAssets', () => {
   })
 
   it("creates normalized inbox assets（合并4例）", async () => {
+{
+    const previousBooks = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
+    const originalSetItem = Storage.prototype.setItem
+    let saveOk = true
+    let loaded = null
+    const routes = []
+    const catalog = useNotesAssetCatalog({
+      editor: {
+        saveCurrentChapter: () => ({ ok: saveOk }),
+        loadAsset: asset => { loaded = asset },
+        clearAsset: () => { loaded = null }
+      },
+      navigate: location => routes.push(location)
+    })
+    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{ id: 'creation-a' }, { id: 'creation-b' }]))
+    try {
+      const created = catalog.createAsset({ title: '新素材', content: '第一场', kind: 'inspiration', projectId: 'creation-a' })
+      expect(created.ok).toBe(true)
+      expect(loaded).toMatchObject({ id: created.asset.id, projectId: 'creation-a', title: '新素材' })
+      expect(catalog.selectedChapterId.value).toBe(created.asset.id)
+      expect(routes).toEqual([])
+      catalog.refreshCatalog()
+      expect(catalog.selectedAsset.value).toMatchObject({ title: '新素材', content: '第一场', projectId: 'creation-a' })
+      expect(catalog.mediaGenerationProjectId.value).toBe('creation-a')
+      expect(catalog.mediaGenerationSourceRefs.value[0]).toMatchObject({ refId: created.asset.id, projectId: 'creation-a' })
+
+      const beforeFailure = localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)
+      saveOk = false
+      expect(catalog.createAsset({ title: '不得切走' })).toMatchObject({ ok: false, reason: 'save-blocked' })
+      expect(catalog.selectedChapterId.value).toBe(created.asset.id)
+      expect(localStorage.getItem(STORAGE_KEYS.NARRATIVE_ASSETS)).toBe(beforeFailure)
+      saveOk = true
+      Storage.prototype.setItem = function (key, value) {
+        if (key === STORAGE_KEYS.NARRATIVE_ASSETS) throw new DOMException('quota', 'QuotaExceededError')
+        return originalSetItem.call(this, key, value)
+      }
+      expect(catalog.createAsset({ title: '写入失败', content: '待保存', projectId: 'creation-b' })).toMatchObject({ ok: false, reason: 'storage-write-failed' })
+      expect(catalog.selectedChapterId.value).toBe(created.asset.id)
+      expect(loaded.id).toBe(created.asset.id)
+      expect(routes).toEqual([])
+      Storage.prototype.setItem = originalSetItem
+      expect(catalog.createAsset({ title: '未归属', content: '独立素材' }).asset.projectId).toBeNull()
+      expect(catalog.createAsset({ title: '不存在的书', content: '不猜归属', projectId: 'missing-book' }).asset.projectId).toBeNull()
+
+      let activeBook = 'creation-a'
+      const capturedOwner = resolveCanvasCreationProjectId(activeBook)
+      activeBook = 'creation-b'
+      await Promise.resolve()
+      expect(catalog.createAsset({ title: '迟到的分镜', content: '只属于创建时的书', projectId: capturedOwner }).asset.projectId).toBe('creation-a')
+      expect(resolveCanvasCreationProjectId(activeBook)).toBe('creation-b')
+      expect(resolveCanvasCreationProjectId('missing-book')).toBeNull()
+      expect(resolveCanvasCreationProjectId()).toBeNull()
+      expect(resolveCanvasCardProjectId({ projectId: 'creation-a' }, null)).toBe('creation-a')
+      expect(resolveCanvasCardProjectId({}, null)).toBeNull()
+      expect(resolveCanvasCardProjectId({ projectId: 'creation-a' }, { projectId: null })).toBeNull()
+      const cardRef = projectId => ({ refType: 'canvas-card', refId: 'one', projectId })
+      expect(getDirectorProjectId([cardRef('creation-a')])).toBe('creation-a')
+      expect(getDirectorProjectId([cardRef(null)])).toBeNull()
+      expect(getDirectorProjectId([cardRef(null), { refType: 'chapter', refId: 'old', projectId: 'creation-a' }])).toBeNull()
+      expect(() => getDirectorProjectId([cardRef('creation-a'), cardRef('creation-b')])).toThrow('不同作品')
+      expect(() => getDirectorProjectId([cardRef('creation-a'), cardRef(null)])).toThrow('未归属')
+      expect(routes).toEqual([])
+      for (const option of Object.values(SHOT_TYPES)) {
+        const shot = normalizeStoryboardShot({ content: '画面', shotType: option.id })
+        expect(shot.shotType).toBe(option.id)
+        expect(toMarkdown([shot])).toContain(`| 景别 | ${option.label} |`)
+      }
+      for (const option of Object.values(CAMERA_MOVEMENTS)) {
+        const shot = normalizeStoryboardShot({ content: '画面', cameraMovement: option.id })
+        expect(shot.cameraMovement).toBe(option.id)
+        expect(toMarkdown([shot])).toContain(`| 运镜 | ${option.label} |`)
+      }
+      expect(SHOT_TYPES.wide.label).toBe('远景')
+      expect(CAMERA_MOVEMENTS.tilt_up.label).toBe('仰拍')
+      const identityShot = { sequence: 1, content: '仰拍', shotType: 'wide', camera: 'tilt_up' }
+      const identity = createDirectorExportFingerprint([identityShot], '灯塔')
+      expect(createDirectorExportFingerprint([{ ...identityShot }], '灯塔')).toBe(identity)
+      const legacyIdentity = JSON.parse(identity)
+      expect(legacyIdentity.vocabulary[1]).toContain('tilt_up')
+      delete legacyIdentity.vocabulary
+      expect(JSON.stringify(legacyIdentity)).not.toBe(identity)
+      expect(createDirectorExportFingerprint([{ ...identityShot, camera: 'fixed' }], '灯塔')).not.toBe(identity)
+      const ownedTitle = { projectId: 'creation-a', sourceAssets: [{ projectId: 'creation-a', title: '雾港镜头' }] }
+      expect(resolveDirectorExportTitle({ ...ownedTitle, topic: '作者命名' })).toBe('作者命名')
+      expect(resolveDirectorExportTitle({ ...ownedTitle, savedDocument: { projectId: 'creation-a', source: { title: '既有分镜名' } } })).toBe('既有分镜名')
+      expect(resolveDirectorExportTitle({ ...ownedTitle, savedDocument: { projectId: 'creation-b', source: { title: '别书分镜' } } })).toBe('雾港镜头')
+      expect(resolveDirectorExportTitle({ ...ownedTitle, savedDocument: { projectId: 'creation-a', source: { title: '卡片画布' } } })).toBe('雾港镜头')
+      const titleBooks = [{ id: 'creation-a', title: '真实归属书' }]
+      expect(resolveDirectorExportTitle({ projectId: 'creation-a', sourceAssets: [{ projectId: 'creation-b', title: '别书素材' }] }, titleBooks)).toBe('真实归属书')
+      expect(resolveDirectorExportTitle({ projectId: null }, titleBooks)).toBe('卡片画布')
+      expect(resolveDirectorExportTitle({ projectId: null, sourceAssets: [{ projectId: null, title: '独立素材' }] }, titleBooks)).toBe('独立素材')
+      const sendChat = vi.spyOn(aiApi, 'sendChatStream').mockRejectedValue(new Error('request-timeout'))
+      try {
+        const controller = new AbortController()
+        const request = { sources: [{ content: '只有一段简短剧情' }], settings: { baseUrl: 'https://example.test', apiKey: 'unit-test', model: 'unit-test' }, signal: controller.signal }
+        await expect(generateComicAdaptationCandidates(request)).rejects.toThrow('request-timeout')
+        expect(sendChat).toHaveBeenCalledTimes(1)
+        expect(sendChat.mock.calls[0][4]).toMatchObject({ max_tokens: 3600, timeout_ms: 120000, retryCount: 0 })
+        expect(sendChat.mock.calls[0][6].signal).toBe(controller.signal)
+        controller.abort()
+        await expect(generateComicAdaptationCandidates(request)).rejects.toMatchObject({ name: 'AbortError' })
+        expect(sendChat).toHaveBeenCalledTimes(1)
+        const pendingController = new AbortController()
+        sendChat.mockImplementation((...args) => new Promise((resolve, reject) => {
+          args[6].signal.addEventListener('abort', () => reject(new DOMException('stopped', 'AbortError')), { once: true })
+        }))
+        const pending = generateComicAdaptationCandidates({ ...request, signal: pendingController.signal })
+        pendingController.abort()
+        await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+        expect(sendChat).toHaveBeenCalledTimes(2)
+      } finally { sendChat.mockRestore() }
+    } finally {
+      Storage.prototype.setItem = originalSetItem
+      if (previousBooks === null) localStorage.removeItem(STORAGE_KEYS.WRITING_BOOKS)
+      else localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, previousBooks)
+    }
+}
 {
 
     localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
@@ -339,6 +467,90 @@ expect(ensureAssetCanvasCards([])).toEqual({
     expect(listRelationCanvasCards()).toEqual([])
 }
 {
+    // 素材跨工作区必须同时保住编辑输入、书籍归属与真实写盘结果。
+    const previousBooks = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
+    const originalSetItem = Storage.prototype.setItem
+    const assetA = { id: 'handoff-a', projectId: 'book-a', title: '', content: '', kind: 'inspiration', status: 'inbox' }
+    const assetB = { ...assetA, id: 'handoff-b', projectId: 'book-b' }
+    localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([
+      { id: 'book-a', worldbookId: 'world-shared' },
+      { id: 'book-b', worldbookId: 'world-b' },
+      { id: 'book-c', worldbookId: 'world-shared' }
+    ]))
+    localStorage.setItem(STORAGE_KEYS.NARRATIVE_ASSETS, JSON.stringify([assetA, assetB]))
+    const routes = []
+    let saveOk = true
+    const catalog = useNotesAssetCatalog({
+      editor: { saveCurrentChapter: () => ({ ok: saveOk }) },
+      navigate: route => routes.push(route)
+    })
+    catalog.chapters.value = [assetA, assetB]
+    catalog.selectedChapterId.value = assetB.id
+    try {
+      expect(catalog.openSelectedAssetInComics('book-a')).toEqual({ ok: true })
+      expect(routes.pop()).toEqual({ name: 'comics', query: { bookId: 'book-b', assetId: assetB.id } })
+      saveOk = false
+      expect(catalog.openSelectedAssetInComics('book-a')).toMatchObject({ ok: false, reason: 'save-blocked' })
+      expect(routes).toEqual([])
+      expect(catalog.canvasTransferFeedback.value).toContain('保存失败')
+      saveOk = true
+
+      catalog.selectedAsset.value.projectId = 'world-shared'
+      expect(catalog.resolveWorkspaceBookId('book-c')).toBe('book-c')
+      expect(catalog.resolveWorkspaceBookId('book-b')).toBe('')
+      expect(catalog.resolveWorkspaceBookId()).toBe('')
+      catalog.selectedAsset.value.projectId = null
+      expect(catalog.resolveWorkspaceBookId('book-a')).toBe('')
+      catalog.selectedAsset.value.projectId = 'missing-book'
+      expect(catalog.resolveWorkspaceBookId('book-a')).toBe('')
+      catalog.selectedAsset.value.projectId = 'book-b'
+
+      catalog.checkedAssetIds.value = [assetA.id, assetB.id]
+      let failedWrites = 0
+      Storage.prototype.setItem = function (key, value) {
+        if (key === STORAGE_KEYS.PROSE_CARDS_V1) {
+          failedWrites += 1
+          throw new DOMException('quota', 'QuotaExceededError')
+        }
+        return originalSetItem.call(this, key, value)
+      }
+      expect(() => ensureAssetCanvasCards([assetA])).toThrow('画布保存失败')
+      expect(() => ensureAssetCanvasCardWithExtra(assetA, { duration: 5 })).toThrow('画布保存失败')
+      expect(listRelationCanvasCards()).toEqual([])
+      expect(catalog.openSelectedAssetInCanvas()).toMatchObject({ ok: false, reason: 'storage-write-failed' })
+      expect(catalog.sendCheckedAssetsToCanvas()).toMatchObject({ ok: false, reason: 'storage-write-failed' })
+      expect(catalog.checkedAssetIds.value).toEqual([assetA.id, assetB.id])
+      expect(catalog.selectedChapterId.value).toBe(assetB.id)
+      expect(catalog.canvasImportRevision.value).toBe(0)
+      expect(routes).toEqual([])
+      const writesBeforeGeneration = failedWrites
+      // 空文本使真实生成器立即返回，不调用渠道；写盘失败不能触发 fallback 再写。
+      expect(await catalog.generateAndImportToCanvas()).toMatchObject({ ok: false, reason: 'storage-write-failed' })
+      expect(failedWrites).toBe(writesBeforeGeneration + 1)
+      expect(routes).toEqual([])
+      expect(listRelationCanvasCards()).toEqual([])
+
+      Storage.prototype.setItem = originalSetItem
+      expect(catalog.sendCheckedAssetsToCanvas()).toEqual({ ok: true })
+      expect(catalog.checkedAssetIds.value).toEqual([])
+      expect(routes.pop()).toEqual({ name: 'prose-essay', query: { assetId: assetB.id } })
+      expect(listRelationCanvasCards()).toHaveLength(2)
+
+      localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
+      const pending = catalog.generateAndImportToCanvas()
+      catalog.selectedAsset.value.content = '等待期间继续写的内容'
+      saveOk = false
+      expect(await pending).toEqual({ ok: false, reason: 'save-blocked', canvasSaved: true })
+      expect(routes).toEqual([])
+      expect(catalog.selectedAsset.value.content).toBe('等待期间继续写的内容')
+      expect(listRelationCanvasCards()[0]).toMatchObject({ assetId: assetB.id, content: '' })
+    } finally {
+      Storage.prototype.setItem = originalSetItem
+      if (previousBooks === null) localStorage.removeItem(STORAGE_KEYS.WRITING_BOOKS)
+      else localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, previousBooks)
+    }
+}
+{
 
     localStorage.removeItem(STORAGE_KEYS.NARRATIVE_ASSETS)
     localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
@@ -413,6 +625,44 @@ const asset = createNarrativeAsset({
       get: async (id) => blobs.get(id) || null,
       delete: async (id) => blobs.delete(id)
     }
+    // Video originals share the same binary store and backup metadata as images.
+    const remoteVideo = saveExternalMediaAsset({
+      id: 'video-original', projectId: 'book-video', kind: 'video', purpose: 'storyboard-take',
+      generationJobId: 'video-job', externalUrl: 'https://media.example/clip.mp4'
+    })
+    const videoBinary = new Blob(['test-video-binary'], { type: 'video/mp4' })
+    const downloadJobOutput = vi.fn().mockResolvedValue(videoBinary)
+    const videoOptions = { binaryStore, videoJobService: { downloadJobOutput } }
+    const savedVideo = await saveStoryboardVideoOriginal(remoteVideo, videoOptions)
+    expect(savedVideo).toMatchObject({ reused: false, asset: { id: remoteVideo.id, projectId: 'book-video', storageRef: 'idb://pinax-media/assets/video-original' } })
+    expect((await getMediaAsset(remoteVideo.id, { binaryStore })).blob).toBe(videoBinary)
+    expect(await saveStoryboardVideoOriginal(remoteVideo, videoOptions)).toMatchObject({ reused: true, asset: { id: remoteVideo.id } })
+    expect(downloadJobOutput).toHaveBeenCalledTimes(1)
+    await expect(saveStoryboardVideoOriginal({ ...remoteVideo, projectId: 'other-book' }, videoOptions)).rejects.toThrow('归属')
+    const failedVideo = saveExternalMediaAsset({ ...remoteVideo, id: 'failed-video' })
+    downloadJobOutput.mockRejectedValueOnce(new Error('download failed'))
+    await expect(saveStoryboardVideoOriginal(failedVideo, videoOptions)).rejects.toThrow('download failed')
+    expect((await getMediaAsset(failedVideo.id, { binaryStore })).asset.storageRef).toMatch(/^external:/)
+    expect(blobs.has(failedVideo.id)).toBe(false)
+    const originalSetItem = Storage.prototype.setItem
+    Storage.prototype.setItem = () => { throw new Error('metadata full') }
+    try { await expect(saveStoryboardVideoOriginal(failedVideo, videoOptions)).rejects.toThrow('metadata full') }
+    finally { Storage.prototype.setItem = originalSetItem }
+    expect(blobs.has(failedVideo.id)).toBe(false)
+    expect((await getMediaAsset(failedVideo.id, { binaryStore })).asset.storageRef).toMatch(/^external:/)
+    downloadJobOutput.mockImplementationOnce(async () => {
+      updateMediaAsset(failedVideo.id, { projectId: 'moved-book' })
+      return videoBinary
+    })
+    await expect(saveStoryboardVideoOriginal(failedVideo, videoOptions)).rejects.toThrow('记录已改变')
+    expect(blobs.has(failedVideo.id)).toBe(false)
+    updateMediaAsset(failedVideo.id, { projectId: 'book-video' })
+    const cancel = new AbortController()
+    let reads = 0
+    const cancellingStore = { ...binaryStore, get: async (id) => { if (++reads === 2) cancel.abort(); return blobs.get(id) || null } }
+    await expect(saveStoryboardVideoOriginal(failedVideo, { ...videoOptions, binaryStore: cancellingStore, signal: cancel.signal })).rejects.toThrow()
+    expect(blobs.has(failedVideo.id)).toBe(false)
+
     const asset = addNarrativeAsset({
       title: '雨夜街角',
       content: '雨夜街角，冷色调',

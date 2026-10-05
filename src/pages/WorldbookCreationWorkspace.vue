@@ -71,8 +71,8 @@ const projectBindingLabel = computed(() => {
 })
 // 已绑定书时 JSON/基调确认为"新建为独立世界书"，是否更换本书关联是显式选择。
 const rebindAfterCreate = ref(false)
-// 同名冲突时的导入方式：默认新建独立世界书；更新 = 按名称+类型并入同名库。
-const jsonImportMode = ref('create')
+// 同名冲突时必须显式选；更新 = 按名称+类型并入同名库。
+const jsonImportMode = ref('')
 // 确认按钮文案三分：未绑定（建库绑定）/ 已绑定（独立新建）/ 全局（原语义）。
 const jsonConfirmLabel = computed(() => {
   if (!bookContext.value?.ok) return '确认导入世界书'
@@ -87,6 +87,7 @@ const jsonNameConflict = computed(() => {
   if (!name) return null
   return (worldStore.worldbooksIndex || []).find(entry => String(entry.name || '').trim() === name) || null
 })
+const jsonConflictResolved = computed(() => !jsonNameConflict.value || ['create', 'update'].includes(jsonImportMode.value))
 const fileInput = ref(null)
 const jsonInput = ref(null)
 const dragging = ref(false)
@@ -789,6 +790,8 @@ async function onJsonChange(event) {
   event.target.value = ''
   if (!file) return
   clearMessages()
+  jsonImportMode.value = ''
+  jsonPreview.value = null
   busy.value = true
   setGenerationState('preparing', {
     action: 'json-import',
@@ -796,6 +799,7 @@ async function onJsonChange(event) {
     message: '正在读取结构化 JSON。'
   })
   try {
+    await worldStore.loadWorldbooksIndex()
     setGenerationState('validating', {
       action: 'json-import',
       message: '正在检查条目、分组和注入参数。'
@@ -825,7 +829,7 @@ async function onJsonChange(event) {
 }
 
 async function confirmJsonImport() {
-  if (!jsonPreview.value?.rawData || !jsonPreview.value.entryCount || busy.value) return
+  if (!jsonPreview.value?.rawData || !jsonPreview.value.entryCount || !jsonConflictResolved.value || busy.value) return
   clearMessages()
   busy.value = true
   setGenerationState('preparing', {
@@ -990,6 +994,7 @@ onMounted(async () => {
   refreshBookContext()
   refreshArchiveUsage()
   try {
+    await worldStore.loadWorldbooksIndex()
     const restored = await loadCreationWorkspace(workspace.id)
     if (!restored) return
     Object.assign(workspace, restored)
@@ -1209,11 +1214,13 @@ onBeforeUnmount(() => {
           <p v-else class="json-preview__empty">{{ tr("没有识别到可导入条目，无法确认导入。") }}</p>
           <div v-if="jsonNameConflict" class="json-conflict" data-test="json-name-conflict" role="status">
             <p class="json-conflict-note">{{ tr('已存在同名世界书「{name}」。选择处理方式：', { name: jsonNameConflict.name }) }}</p>
-            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> {{ tr("新建为独立世界书（默认）") }}</label>
+            <p class="json-conflict-note">{{ tr("当前条目") }} {{ formatUiNumber(jsonNameConflict.entryCount || 0) }} · {{ tr("导入条目") }} {{ formatUiNumber(jsonPreview.entryCount) }}</p>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> {{ tr("新建为独立世界书，保留现有内容") }}</label>
             <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="update" /> {{ tr("并入同名世界书（按名称+类型逐条：新增/更新/跳过）") }}</label>
+            <p v-if="!jsonConflictResolved" class="json-conflict-note">{{ tr("请选择一种处理方式后再确认。") }}</p>
           </div>
           <div v-if="jsonPreview.entryCount" class="json-preview__actions">
-            <button type="button" class="primary-action" :disabled="busy" @click="confirmJsonImport">
+            <button type="button" class="primary-action" :disabled="busy || !jsonConflictResolved" @click="confirmJsonImport">
               {{ tr(jsonImportMode === 'update' && jsonNameConflict ? '并入同名世界书' : jsonConfirmLabel) }}
             </button>
             <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">

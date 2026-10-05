@@ -184,8 +184,14 @@ const controlLabel = computed(() => {
   return '长文本'
 })
 
+async function flushField() {
+  // A failed save has consumed the debounce payload; retry the visible draft.
+  if (dirty.state.value === 'error') dirty.markDirty(props.modelValue, lastCommitted.value)
+  await dirty.flush()
+}
+
 defineExpose({
-  flush: dirty.flush,
+  flush: flushField,
   cancel: dirty.cancel,
   undo: () => applyHistoryValue(undo.undo()),
   redo: () => applyHistoryValue(undo.redo()),
@@ -202,18 +208,15 @@ defineExpose({
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 98%, var(--bg-primary)), color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary)));
-  box-shadow: 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent) inset;
+  background: var(--surface-workbench);
+  box-shadow: none;
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .setting-field-card:hover,
 .setting-field-card:focus-within {
   border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-  box-shadow:
-    0 1px 0 color-mix(in srgb, #ffffff 12%, transparent) inset,
-    0 10px 22px color-mix(in srgb, #000 6%, transparent);
+  box-shadow: none;
 }
 
 .setting-field-card.is-dirty,
@@ -227,8 +230,7 @@ defineExpose({
 
 .setting-field-card.is-forbidden {
   border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--danger) 5%, var(--bg-secondary)), color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary)));
+  background: var(--surface-workbench);
 }
 
 .field-head {
@@ -247,8 +249,8 @@ defineExpose({
 }
 
 .field-label {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-primary);
   margin: 0;
 }
@@ -280,6 +282,11 @@ defineExpose({
   text-align: right;
 }
 
+/* Keep the footer geometry while reserving counts for the active or filled field. */
+.setting-field-card:has(textarea:placeholder-shown):not(:focus-within) .field-hint {
+  visibility: hidden;
+}
+
 .field-status {
   align-self: flex-start;
   display: flex;
@@ -301,9 +308,7 @@ defineExpose({
   height: 10px;
   border-radius: 50%;
   background: var(--success);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--success) 16%, transparent),
-    0 0 12px color-mix(in srgb, var(--success) 38%, transparent);
+  box-shadow: none;
   cursor: help;
 }
 

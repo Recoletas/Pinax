@@ -175,6 +175,7 @@ import {
 } from '../../shared/narrativeGenerationIntentContract.js'
 import { validateNarrativeBeatPlanInput } from '../../shared/narrativeBeatPlanContract.js'
 import {
+  STRUCTURED_GENERATION_ERROR_CODES,
   STRUCTURED_GENERATION_SCHEMA_IDS,
   STRUCTURED_GENERATION_TIMEOUTS,
   getStructuredSettingSchema,
@@ -527,6 +528,47 @@ describe('agentContracts', function () {
     // NC07：memory.extraction 追加入目录（结构化记忆提取，review-draft）。
     expect(getTasksBySurface('observer').length).toBe(7)
     expect(getTask('memory.extraction')).toMatchObject({ owner: 'observer', resultSchema: 'memory-extraction-proposals.v1', effectPolicy: 'review-draft' })
+    const memoryPrompt = buildOpenClawUserMessage({ sourceText: '林岚把信交给周渡。' }, '提取事实', { taskType: 'memory.extraction' })
+    expect(memoryPrompt).toContain('proposals')
+    expect(memoryPrompt).toContain('不得改写')
+    expect(memoryPrompt).toContain('不得拆成已经完成的事实')
+    const proposals = [{ subject: '林岚', predicate: '交信给', object: '周渡', quote: '林岚把信交给周渡。', polarity: 'positive', confidence: 0.9 }]
+    const memoryResponse = createAdvisorTaskResponse({ taskType: 'memory.extraction', advice: JSON.stringify({ proposals, actions: [{ type: 'write' }], action: ['write'], replacement: '禁止写入' }) })
+    expect(memoryResponse.result).toMatchObject({ proposals, mode: 'review', typedActions: [], action: [], replacement: '', unextractable: { reason: '' } })
+    {
+      const { handleGenerateRequest } = await import('../../server/routes/chat.js')
+      const { EventEmitter } = await import('node:events')
+      const request = Object.assign(new EventEmitter(), { body: { messages: [{ role: 'user', content: '分页' }], provider: 'openai', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', model: 'fixture' } })
+      const response = Object.assign(new EventEmitter(), { json: vi.fn(), status: vi.fn().mockReturnThis() })
+      const fetchBefore = globalThis.fetch
+      let upstreamSignal
+      globalThis.fetch = vi.fn(async (_url, options) => {
+        upstreamSignal = options.signal
+        return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))
+      })
+      try {
+        const pending = handleGenerateRequest(request, response)
+        expect(upstreamSignal).toBeDefined()
+        response.emit('close')
+        await pending
+        expect(upstreamSignal.aborted).toBe(true)
+        expect(response.json).not.toHaveBeenCalled()
+        expect(response.listenerCount('close')).toBe(0)
+        expect(request.listenerCount('aborted')).toBe(0)
+        let completedSignal
+        globalThis.fetch = vi.fn(async (_url, options) => {
+          completedSignal = options.signal
+          return { ok: true, json: async () => ({ choices: [{ message: { content: '完成' } }] }) }
+        })
+        response.json.mockImplementation(() => { response.writableEnded = true; response.emit('close') })
+        await handleGenerateRequest(request, response)
+        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ content: '完成' }))
+        expect(completedSignal.aborted).toBe(false)
+
+      } finally { globalThis.fetch = fetchBefore }
+    }
+
+
     expect(getTasksBySurface('materials').map(function (item) { return item.id })).toEqual(
       expect.arrayContaining(['materials.refine', 'materials.classify', 'materials.split', 'materials.relate'])
     )
@@ -2275,7 +2317,7 @@ describe('agentContracts', function () {
       toolChoice: { type: 'function', function: { name: 'submit_narrative_beat_plan' } }
     })
     expect(transcriptRequests[1].messages.some(function (message) {
-      return message.role === 'system' && message.content.includes('本轮场景约束')
+      return message.role === 'system' && message.content.includes('本轮场景计划')
     })).toBe(true)
     expect(JSON.stringify(transcriptRequests[1])).not.toContain('submit_narrative_beat_plan')
     expect(transcriptRequests[1].tools.every(function (tool) {
@@ -3757,6 +3799,15 @@ describe('agentContracts', function () {
     })
     expect(structuredResult.payload.drafts.origin).toBe('海潮塑造了陆地。')
     expect(structuredFetch.mock.calls[0][1].body).toContain('json_schema')
+    for (const [finishReason, code, message] of [
+      ['stop', STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID, 'JSON 格式'],
+      ['length', STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE, '中途截断']
+    ]) {
+      await expect(runStructuredProviderRequest(structuredRequest, 'native-json-schema', {
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ finish_reason: finishReason, message: { content: '{broken' } }] }) })
+      })).rejects.toMatchObject({ code, message: expect.stringContaining(message) })
+    }
+
 
     var fallbackFetch = vi.fn()
       .mockResolvedValueOnce({

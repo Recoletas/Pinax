@@ -1,6 +1,7 @@
 import { reactive } from 'vue'
 import { getComicCanvasSize, getComicPanelRect } from '../../services/media/comicLayout'
 import { getMediaAssetDataUrl } from '../../services/media/mediaAssetStore'
+import { resolveComicPanelDisplay } from '../../services/media/comicPanelDisplay'
 
 // 页目录缩略图（约束 3）：无图时用真实格框几何拼出可辨轮廓，
 // 有图时懒加载该页第一个已选画面的数据 URL，不在挂载时全量拉取。
@@ -12,9 +13,11 @@ export function useComicPageThumbnails() {
   let sequence = 0
 
   function coverPanel(page) {
-    return (page.panels || []).find((panel) => panel.selectedTakeId && panel.imageTakes?.some((take) => take.id === panel.selectedTakeId))
-      || (page.panels || []).find((panel) => panel.selectedTakeId)
-      || null
+    return (page.panels || []).find((panel) => resolveComicPanelDisplay(panel, page)) || null
+  }
+
+  function coverAssetId(page) {
+    return resolveComicPanelDisplay(coverPanel(page) || {}, page)?.id || ''
   }
 
   function frameGeometry(page) {
@@ -28,7 +31,7 @@ export function useComicPageThumbnails() {
         top: `${(rect.y / canvas.height) * 100}%`,
         width: `${(rect.width / canvas.width) * 100}%`,
         height: `${(rect.height / canvas.height) * 100}%`,
-        filled: Boolean(panel.selectedTakeId)
+        filled: Boolean(resolveComicPanelDisplay(panel, page))
       }
     }).filter(Boolean)
     return { panels, aspect: `${canvas.width} / ${canvas.height}` }
@@ -88,5 +91,5 @@ export function useComicPageThumbnails() {
     watchTargets = new Map()
   }
 
-  return { covers, loading, frameGeometry, coverPanel, observeElement, unobserveElement, reset }
+  return { covers, loading, frameGeometry, coverPanel, coverAssetId, observeElement, unobserveElement, reset }
 }

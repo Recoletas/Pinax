@@ -19,6 +19,13 @@ export function ensureAssetCanvasCard(asset) {
   return ensureAssetCanvasCards([asset]).cards[0] || null
 }
 
+function persistCanvasCards(cards) {
+  if (setItem(STORAGE_KEYS.PROSE_CARDS_V1, cards)) return
+  const error = new Error('画布保存失败')
+  error.code = 'CANVAS_STORAGE_WRITE_FAILED'
+  throw error
+}
+
 export function ensureAssetCanvasCards(assets = []) {
   const uniqueAssets = []
   const seenAssetIds = new Set()
@@ -52,7 +59,7 @@ export function ensureAssetCanvasCards(assets = []) {
   }
 
   if (createdCards.length) {
-    setItem(STORAGE_KEYS.PROSE_CARDS_V1, [...storedCards, ...createdCards])
+    persistCanvasCards([...storedCards, ...createdCards])
   }
 
   return { cards, createdAssetIds, existingAssetIds }
@@ -81,20 +88,20 @@ function createAssetCanvasCard(asset) {
 }
 
 export function ensureAssetCanvasCardWithExtra(asset, extraFields) {
-  if (!asset?.id) return null
+  const assetId = String(asset?.id || '').trim()
+  if (!assetId) return null
+  const cards = listRelationCanvasCards()
+  const index = cards.findIndex((card) => card.assetId === assetId)
+  const existing = cards[index]
+  if (existing && !extraFields) return existing
 
-  const card = ensureAssetCanvasCard(asset)
-  if (!card) return null
-
-  if (extraFields) {
-    const cards = listRelationCanvasCards()
-    const idx = cards.findIndex((c) => c.id === card.id)
-    if (idx >= 0) {
-      cards[idx] = { ...cards[idx], extraFields }
-      setItem(STORAGE_KEYS.PROSE_CARDS_V1, cards)
-      return cards[idx]
-    }
-  }
+  const card = existing
+    ? { ...existing, extraFields }
+    : { ...createAssetCanvasCard({ ...asset, id: assetId }), extraFields: extraFields || null }
+  if (existing) cards[index] = card
+  else cards.push(card)
+  // 卡片和生成的编导信息一起落盘，失败时不留下半成品。
+  persistCanvasCards(cards)
   return card
 }
 

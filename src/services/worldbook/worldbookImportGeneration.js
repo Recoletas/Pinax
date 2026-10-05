@@ -132,7 +132,18 @@ function previewText(value, maxLength = 120) {
  */
 export function buildWorldbookImportPreview(parsed, fallbackName = '') {
   const normalized = normalizeWorldbookAiResult(parsed)
-  const entries = Array.isArray(normalized?.entries) ? normalized.entries : []
+  // Preview aliases are read-only; confirm still receives the untouched import
+  // payload so SillyTavern extensions and duplicate entries remain available.
+  const entries = (Array.isArray(normalized?.entries) ? normalized.entries : []).map((entry) => {
+    const rawKeys = entry?.keys ?? entry?.keywords ?? entry?.key
+    const keys = (Array.isArray(rawKeys) ? rawKeys : [rawKeys])
+      .map((key) => String(key || '').trim()).filter(Boolean)
+    return {
+      ...entry,
+      name: entry?.name || entry?.title || entry?.comment || keys[0],
+      keys
+    }
+  })
   const typeCounts = new Map()
   const groups = new Set((Array.isArray(normalized?.groups) ? normalized.groups : [])
     .map((group) => String(group || '').trim())
@@ -156,7 +167,7 @@ export function buildWorldbookImportPreview(parsed, fallbackName = '') {
   }
 
   return {
-    name: String(normalized?.name || normalized?.title || fallbackName || '未命名世界书').trim(),
+    name: String(normalized?.name || normalized?.world_name || normalized?.title || fallbackName || '未命名世界书').trim(),
     entryCount: entries.length,
     groupCount: groups.size,
     groups: [...groups].slice(0, 24),

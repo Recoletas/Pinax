@@ -38,6 +38,7 @@ import {
   shouldSampleNarrativeCritic
 } from './narrativeCritic'
 import { CONTEXT_RUN_BUDGETS, createContextRunBudget } from './context/contextRunBudget.js'
+import { buildTaskQualityMessages, narrativeTaskControlText, parseTaskQualityVerdict, taskRepairMessage } from './narrativeTaskQuality.js'
 
 export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
   // P1：资料查询轮独立计数（1 正常 + 1 条件恢复）；BeatPlan 控制步骤不占此预算。
@@ -156,7 +157,7 @@ const SCENE_MODE_GUIDANCE = {
 function buildBeatPlanControlMessage(plan = {}) {
   const mode = String(plan.mode || '').trim().toLowerCase()
   return [
-    '【本轮场景约束｜必须执行】',
+    '【本轮场景计划｜作者原始要求与冻结行动权限优先】',
     plan.responseObligation ? `回应义务：${plan.responseObligation}` : '',
     Array.isArray(plan.causalSteps) && plan.causalSteps.length
       ? `因果步骤：${plan.causalSteps.join(' → ')}`
@@ -168,7 +169,7 @@ function buildBeatPlanControlMessage(plan = {}) {
     Array.isArray(plan.functionalDetails) && plan.functionalDetails.length
       ? `有效细节：${plan.functionalDetails.map((item) => [item.detail, item.affects].filter(Boolean).join(' → ')).join('；')}`
       : '',
-    plan.endCondition ? `场景内结束状态：${plan.endCondition}` : '',
+    plan.endCondition ? `建议结束状态（不得越过作者指定收束处）：${plan.endCondition}` : '',
     Array.isArray(plan.avoidRepeats) && plan.avoidRepeats.length
       ? `不要重复：${plan.avoidRepeats.join('、')}`
       : '',
@@ -907,6 +908,7 @@ export async function runNarrativeAgentLoop({
   intent = null,  // C1：intent 传给 turn note
   formatInstructions = '',
   maxTokens = 1600,
+  taskContract = null,
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn
 } = {}) {
@@ -982,8 +984,17 @@ export async function runNarrativeAgentLoop({
     plan: { rounds: 0, durationMs: 0 },
     evidence: { rounds: 0, durationMs: 0 },
     write: { rounds: 0, durationMs: 0 },
-    completion: { rounds: 0, durationMs: 0 }
+    completion: { rounds: 0, durationMs: 0 },
+    review: { rounds: 0, durationMs: 0 },
+    revision: { rounds: 0, durationMs: 0 }
   }
+  // Freeze before the first await. Mutable UI/store input cannot widen permission mid-run.
+  const contract = taskContract ? JSON.parse(JSON.stringify(taskContract)) : null
+  const quality = { required: Boolean(contract), repairs: 0, reviews: [] }
+  const appendTaskControl = (value, suffix) => contract ? appendTranscript(value, {
+    id: `${turnRequestId}:task:${suffix}`, role: 'user',
+    parts: [{ type: 'text', text: narrativeTaskControlText(contract) }]
+  }) : value
 
   const ensureActive = () => {
     if (linkedAbort.signal.aborted) {
@@ -1040,6 +1051,7 @@ export async function runNarrativeAgentLoop({
       requestId: turnRequestId,
       expansion
     })
+    planningTranscript = appendTaskControl(planningTranscript, 'plan')
     let planRepairCount = 0
     let planProviderRetryCount = 0
     while (!beatPlan) {
@@ -1233,7 +1245,66 @@ export async function runNarrativeAgentLoop({
     }
   }
 
-  const finish = (finalText) => {
+  const qualityRequest = async (messages, phase, outputTokens) => {
+    ensureActive()
+    if (runBudget.calls.length >= NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps) {
+      throw runtimeError('NARRATIVE_TOKEN_BUDGET_EXCEEDED', '本轮任务检查已达到调用上限')
+    }
+    const inputChars = assertModelCallBudget(messages, outputTokens)
+    const startedAt = Date.now()
+    status(onStatus, phase === 'review' ? 'checking-task' : 'revising-task', { repairs: quality.repairs })
+    try {
+      const response = await decisionRunner({ messages, tools: requestTools(), settings,
+        requestId: `${turnRequestId}:${phase}:${phaseStats[phase].rounds}`,
+        options: { toolChoice: 'none', temperature: phase === 'review' ? 0 : 0.2,
+          maxTokens: outputTokens, timeoutMs: phase === 'review' ? 30000 : NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs },
+        signal: linkedAbort.signal
+      }, { phase, stepIndex: runBudget.calls.length })
+      recordModelCall({ inputChars, response, phase })
+      ensureActive()
+      if (response?.kind !== 'final_ready' || (response.calls || []).length || !text(response.text)) {
+        throw runtimeError('NARRATIVE_TASK_CHECK_INVALID', '任务检查没有返回有效结果，正文未提交')
+      }
+      return response.text
+    } finally {
+      phaseStats[phase].rounds += 1
+      phaseStats[phase].durationMs += Date.now() - startedAt
+    }
+  }
+
+  const verifyTask = async (draft) => {
+    if (!contract) return draft
+    // Use the actual frozen provider context; no rereads, no planner-defined acceptance.
+    const context = { payload: providerKernelSerialization.payload,
+      history: narrativeHistoryMessages(kernel, `${turnRequestId}:review`).map(transcriptPartsToGenerationMessage) }
+    for (let attempt = 0; attempt <= 1; attempt += 1) {
+      const raw = await qualityRequest(buildTaskQualityMessages({ contract, context, draft }), 'review', 1200)
+      const verdict = parseTaskQualityVerdict(raw, { contract, draft })
+      if (!verdict) throw runtimeError('NARRATIVE_TASK_CHECK_INVALID', '无法核实正文是否符合本次要求，正文未提交')
+      quality.reviews.push(verdict)
+      if (verdict.pass) return draft
+      if (attempt === 1) {
+        const reasons = verdict.checks.filter(item => item.status === 'fail').map(item => item.reason.replace(/[。；;\s]+$/u, '')).join('；')
+        const error = runtimeError('NARRATIVE_TASK_CONSTRAINT_FAILED', `修订后仍未符合本次要求：${reasons}。正文未提交，请重试。`)
+        error.taskQuality = quality
+        throw error
+      }
+      quality.repairs += 1
+      transcript = appendTranscript(transcript, {
+        id: `${turnRequestId}:task:repair`, role: 'user',
+        parts: [{ type: 'text', text: taskRepairMessage({ contract, verdict }) }]
+      })
+      draft = await qualityRequest(transcriptToGenerationMessages(transcript), 'revision', maxTokens)
+      transcript = appendTranscript(transcript, {
+        id: `${turnRequestId}:task:revised`, role: 'assistant', parts: [{ type: 'text', text: draft }]
+      })
+    }
+    return draft
+  }
+
+  const finish = async (finalText) => {
+    finalText = await verifyTask(finalText)
+    ensureActive()
     if (groundingPolicy.required && !hasNarrativeGroundingEvidence(toolResults)) {
       throw runtimeError(
         'NARRATIVE_GROUNDING_REQUIRED',
@@ -1300,6 +1371,7 @@ export async function runNarrativeAgentLoop({
         fallbackReason: '',
         staleResourceObserved,
         evidenceReport,
+        taskQuality: quality,
         // C5：有界补全 —— 记录本回合是否因截断/过短触发过一次补全，以及最终是否仍未自然落点。
         finishReason: text(terminalFinishReason),
         boundedCompletion: boundedCompletionUsed,
@@ -1341,6 +1413,7 @@ export async function runNarrativeAgentLoop({
       expansion,
       beatPlan
     })
+    transcript = appendTaskControl(transcript, 'write')
     while (stepIndex < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps) {
       ensureActive()
       const stepStartedAt = Date.now()
@@ -1369,7 +1442,7 @@ export async function runNarrativeAgentLoop({
         const currentTurnInput = (kernel?.blocks || []).find((block) => block.kind === 'turn')?.content?.input || ''
         const turnIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
         const minTargetChars = intentCharRange(turnIntent, { expansion }).min
-        if (!boundedCompletionUsed
+        if (!contract && !boundedCompletionUsed
           && stepIndex + 1 < NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps
           && shouldBoundedComplete(response, currentTurnInput, minTargetChars, beatPlan?.endCondition || '')) {
           boundedCompletionUsed = true
@@ -1387,7 +1460,7 @@ export async function runNarrativeAgentLoop({
           stepIndex += 1
           continue
         }
-        return finish(terminalText)
+        return await finish(terminalText)
       }
 
       if (response?.kind !== 'tool_calls' || calls.length === 0) {
@@ -1691,6 +1764,7 @@ export async function runNarrativeAgentGeneration({
   formatInstructions = '',
   worldId = '',
   maxTokens = 1600,
+  taskContract = null,
   callbacks = {},
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn,
@@ -1708,6 +1782,7 @@ export async function runNarrativeAgentGeneration({
     intent,
     formatInstructions,
     maxTokens,
+    taskContract,
     onStatus,
     decisionRunner
   })
@@ -1729,7 +1804,7 @@ export async function runNarrativeAgentGeneration({
   const politicsVariant = politicsUsed
     ? 'used'
     : politicsAvailable ? 'available-not-used' : 'unavailable'
-  const shouldSample = shouldSampleNarrativeCritic(requestId, criticSampleRate)
+  const shouldSample = !loop.trace?.taskQuality?.required && shouldSampleNarrativeCritic(requestId, criticSampleRate)
   const speaker = (kernel?.blocks || [])
     .find((block) => block.kind === 'cast')?.content?.members
     ?.find((member) => member.role === 'speaker')
@@ -1748,6 +1823,8 @@ export async function runNarrativeAgentGeneration({
         (result?.items || []).map((item) => `${item.title || item.id}：${item.summary || ''}`)
       )),
       beatPlan: loop.beatPlan,
+      authorRequest: (kernel.blocks || []).find(block => block.kind === 'turn')?.content?.input || '',
+      frozenContext: serializeKernelWithinTextPartBudget(kernel).payload,
       settings,
       provider: settings?.provider,
       model: settings?.model,

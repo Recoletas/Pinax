@@ -42,6 +42,9 @@ import {
   runObserverMemoryDerivation
 } from '@/services/agents/observers/authoringObserverDerivation'
 import { createAuthoringObserverScheduler } from '@/services/agents/observers/authoringObserverScheduler'
+import { isExtractionJobSuperseded, readOrderedExtractionRevision } from '@/services/memory/extraction/extractionRunner'
+import { validateMemoryExtractionResponse } from '@/services/memory/extraction/structuredExtraction'
+import { recoverExtractionEvidence } from '@/services/memory/extraction/extractionClaimSemantics'
 
 describe('memoryCandidates', () => {
   beforeEach(() => {
@@ -512,6 +515,49 @@ const first = queueMemoryCandidate({
       reason: 'exact-duplicate',
       candidateId: 'mem-existing'
     })
+    const extraction = { id: 'new', projectId: 'book-1', sourceRefs: ['chapter:ch-1', 'unit:u-1'], sourceRevision: 'ch-1:doc-r1', revisionSeq: 1, createdAt: 20, status: 'queued' }
+    const priorHash = { ...extraction, id: 'old-hash', sourceRevision: 'chapter:ch-1:gj-1qp81ao', revisionSeq: 81, createdAt: 10 }
+    const newer = { ...extraction, id: 'newer', sourceRevision: 'ch-1:doc-r2', revisionSeq: 2, createdAt: 30 }
+    expect(readOrderedExtractionRevision(priorHash.sourceRevision)).toBeNull()
+    expect(readOrderedExtractionRevision('chapter:ch-1:70-8k5zc4')).toBeNull()
+    expect(readOrderedExtractionRevision('ch-1:doc-r29')).toEqual({ namespace: 'ch-1:doc-r', sequence: 29 })
+    expect(isExtractionJobSuperseded(extraction, [priorHash])).toBe(false)
+    expect(isExtractionJobSuperseded(extraction, [newer])).toBe(true)
+    for (const change of [
+      { projectId: 'book-2' }, { sourceRefs: ['chapter:ch-2', 'unit:u-1'] },
+      { sourceRefs: ['chapter:ch-1', 'unit:u-2'] }, { sourceRefs: ['chapter:ch-1', 'unit:u-1', 'unit:u-2'] },
+      { sourceRefs: ['exploration:ch-1', 'unit:u-1'] }, { sourceRevision: 'ch-1:unit-r2' },
+      { createdAt: 10 }, { status: 'cancelled' }, { status: 'source-changed' }
+    ]) expect(isExtractionJobSuperseded(extraction, [{ ...newer, ...change }])).toBe(false)
+    expect(isExtractionJobSuperseded(priorHash, [newer])).toBe(false)
+    expect(isExtractionJobSuperseded({ ...extraction, sessionTag: 'runtime-1' }, [{ ...newer, createdAt: extraction.createdAt, sessionTag: 'runtime-1' }])).toBe(true)
+    expect(isExtractionJobSuperseded({ ...extraction, sessionTag: 'runtime-1' }, [{ ...newer, createdAt: extraction.createdAt, sessionTag: 'runtime-2' }])).toBe(false)
+    const cases = [
+      ['林岚答应明早把信交给周渡。', '把信交给周渡', '交给', '信', 'positive'],
+      ['周渡计划下周到访旧港。', '到访旧港', '到访', '旧港', 'positive'],
+      ['林岚没有拿走钥匙。', '拿走钥匙', '拿走', '钥匙', 'negative'],
+      ['如果拿到通行证，林岚就离开港口。', '离开港口', '离开', '港口', 'hedged'],
+      ['据说林岚已经抵达北站。', '已经抵达北站', '抵达', '北站', 'report'],
+      ['Lin promised to visit the port tomorrow.', 'visit the port', 'visited', 'port', 'positive'],
+      ['林岚没有迟疑，把信交给周渡。', '把信交给周渡', '交给', '信', 'positive']
+    ]
+    for (const [sourceText, quote, predicate, object, polarity] of cases) {
+      const guarded = validateMemoryExtractionResponse({ proposals: [{ subject: '林岚', predicate, object, quote, polarity }] }, { sourceText })
+      expect(guarded.rejected).toEqual([])
+      expect(guarded.proposals[0]).toMatchObject({ quote: sourceText, object: sourceText, predicate: `原文记载（${predicate}）` })
+    }
+    const sourceText = '林岚答应明早交信。第二天，林岚交信后离开了。'
+    const quotedSource = '林岚说：“明早交信。”周渡离开了旧港。'
+    expect(recoverExtractionEvidence('林岚说：“明早交信。”', quotedSource)).toBe('林岚说：“明早交信。”')
+    expect(recoverExtractionEvidence('离开了旧港', quotedSource)).toBe('周渡离开了旧港。')
+    expect(validateMemoryExtractionResponse({ proposals: [{ subject: '林岚', predicate: '交了', object: '信', quote: '交信' }] }, { sourceText }).rejected[0].reason).toBe('quote-context-ambiguous')
+    for (const item of [
+      { predicate: '答应交信', object: '明早', quote: '林岚答应明早交信。' },
+      { predicate: '交信后离开了', object: '旧港', quote: '第二天，林岚交信后离开了。' }
+    ]) {
+      const kept = validateMemoryExtractionResponse({ proposals: [{ subject: '林岚', ...item }] }, { sourceText })
+      expect(kept.proposals[0]).toMatchObject(item)
+    }
 }
 {
 

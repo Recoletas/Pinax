@@ -8,34 +8,12 @@ export default {
 
 <template>
 <section class="reading-deck">
-  <!-- UI-N4 空档案柜：完整柜面蓝图，7 类 + 5 候补格 + 档案员印章 + 状态 footer -->
   <template v-if="!selectedChapterId">
     <div class="empty-archive">
-      <div class="empty-archive__grid" aria-hidden="true">
-        <!-- 7 类抽屉格 -->
-        <span
-          v-for="(kind, idx) in assetKindOrder"
-          :key="'k-' + kind"
-          class="empty-archive__cell empty-archive__cell--kind"
-          :style="{ '--cell-color': getAssetKindColor(kind) }"
-        >
-          <span class="empty-archive__cell-roman">{{ groupIndexLabel(idx) }}</span>
-          <span class="empty-archive__cell-label">{{ getAssetKindLabel(kind) }}</span>
-        </span>
-        <!-- 5 候补扩展格 -->
-        <span
-          v-for="n in 5"
-          :key="'e-' + n"
-          class="empty-archive__cell empty-archive__cell--empty"
-          aria-hidden="true"
-        ></span>
-      </div>
-
-      <!-- 中央 memo 卡 -->
       <div class="empty-archive__card">
-        <span class="empty-archive__tape" aria-hidden="true"></span>
         <p class="empty-archive__title">尚无素材</p>
-        <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建第一条</button>
+        <p class="empty-archive__description">收下一条灵感，或将正文片段与图片整理到这里。</p>
+        <button class="material-action-btn primary empty-archive__cta" @click="createNewNote">新建素材</button>
       </div>
     </div>
   </template>

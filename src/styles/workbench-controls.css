@@ -20,7 +20,27 @@
   --control-active: color-mix(in srgb, var(--accent) 13%, var(--archive-paper));
   --control-danger: var(--danger, #c94040);
   --control-focus: var(--accent);
-  --control-hit-min: 32px;
+  --control-hit-min: 36px;
+  --control-radius: var(--radius-control, 12px);
+}
+
+/* Retain native pickers and keyboard behavior; only the closed control is styled. */
+.theme-legacy .app-shell select:not([multiple]):not([size]) {
+  appearance: none;
+  background-image: var(--control-select-indicator);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  padding-inline-end: 32px;
+}
+.theme-legacy .app-shell input:is([type='checkbox'], [type='radio']) {
+  accent-color: var(--accent);
+}
+@media (forced-colors: active) {
+  .theme-legacy .app-shell select:not([multiple]):not([size]) {
+    appearance: auto;
+    background-image: none;
+  }
 }
 
 /* Explicit interactive elements only: control-group and field containers are not buttons.
@@ -50,25 +70,14 @@
   outline-offset: 1px;
 }
 
-@media (pointer: coarse) {
-  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
-    min-height: var(--control-hit-min);
-  }
-  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon,
-  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle {
-    min-height: 44px;
-    min-width: 44px;
-  }
-}
-
 /* —— primary：区域唯一主动作（小面积实色） —— */
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary {
-  min-height: 34px;
+  min-height: var(--control-hit-min);
   padding: 7px 18px;
-  border-radius: 6px;
+  border-radius: 999px;
   background: var(--control-accent-bg);
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: 500;
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary:hover:not(:disabled):not([aria-disabled='true']) {
   background: color-mix(in srgb, var(--control-accent-bg) 88%, var(--archive-ink));
@@ -79,9 +88,9 @@
 
 /* —— secondary：次级确认（淡背景，无闭合框） —— */
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-secondary {
-  min-height: 34px;
+  min-height: var(--control-hit-min);
   padding: 7px 14px;
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   background: color-mix(in srgb, var(--archive-ink) 5%, transparent);
   color: var(--control-fg-strong);
 }
@@ -93,7 +102,7 @@
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-quiet {
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--control-radius);
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-quiet:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--control-hover);
@@ -107,7 +116,7 @@
   justify-content: center;
   width: var(--control-hit-min);
   height: var(--control-hit-min);
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   color: var(--control-fg);
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon:hover:not(:disabled):not([aria-disabled='true']) {
@@ -122,7 +131,7 @@
   gap: 6px;
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--control-radius);
   box-shadow: inset 2px 0 0 0 transparent;
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-toggle:hover:not(:disabled):not([aria-disabled='true']) {
@@ -138,7 +147,7 @@
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger {
   min-height: var(--control-hit-min);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--control-radius);
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger:hover:not(:disabled):not([aria-disabled='true']),
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-danger:focus-visible:not(:disabled):not([aria-disabled='true']) {
@@ -146,15 +155,15 @@
   color: var(--control-danger);
 }
 
-/* —— control-group：组保留一条 hairline 或底边，子按钮不逐个带框 —— */
+/* —— control-group：同组命令共享浅色容器，子按钮不逐个带框 —— */
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-group {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
+  padding: 3px;
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-ink-soft) 18%, transparent);
-  border-radius: 0;
+  border-radius: var(--control-radius);
+  background: var(--surface-workbench-muted);
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-group > [class*='control-'] {
   border: 0;
@@ -164,6 +173,18 @@
 @media (prefers-reduced-motion: reduce) {
   :is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
     transition: none;
+  }
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  .theme-legacy { --control-hit-min: 44px; }
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) :where(button, a, summary, input)[class*='control-'] {
+    min-height: 44px;
+  }
+  :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-icon {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
   }
 }
 

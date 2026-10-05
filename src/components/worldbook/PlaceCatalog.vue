@@ -103,8 +103,11 @@
               {{ tr('删除') }}
             </button>
           </div>
-          <p v-if="showParentFactionBanner" class="place-editor-banner">{{ tr('该地点已有上级/势力关系，AI 补全不会写入这两项；如需修改请直接编辑。') }}</p>
         </div>
+        <p v-if="hasUnsavedChanges" class="place-editor-dirty" role="status">{{ tr('有未保存修改，保存后才会用于设定与地图。') }}</p>
+        <p v-if="currentEntry?.mapBinding?.status === 'confirmed'" class="place-editor-banner" data-test="place-map-binding-status">{{ tr('已确认地图位置，可在地图中定位或调整。') }}</p>
+        <p v-else-if="currentEntry?.mapBinding?.status === 'stale'" class="place-editor-banner" data-test="place-map-binding-status">{{ tr('地图已变化，请回地图重新确认位置。') }}</p>
+        <p v-if="showParentFactionBanner" class="place-editor-banner">{{ tr('该地点已有上级/势力关系，AI 补全不会写入这两项；如需修改请直接编辑。') }}</p>
 
         <div v-if="deleteImpact" class="place-delete-confirm" role="alert">
           <span>
@@ -140,7 +143,7 @@
           <label class="place-field">
             <span>{{ tr('上级地点') }}</span>
             <input v-model="form.parentText" :placeholder="tr('可留空，允许待解析')" />
-            <small class="place-field-hint">{{ tr('AI 补全不会写入此项；请通过 relations 或直接编辑') }}</small>
+            <small class="place-field-hint">{{ tr('由作者填写，AI 补全不会修改上级地点。') }}</small>
           </label>
           <label class="place-field">
             <span>{{ tr('势力 / 国家') }}</span>
@@ -191,7 +194,7 @@
     <section v-if="drafts.length || generationState === 'pending'" class="place-review" data-test="place-review">
       <div class="place-review-head">
         <div>
-          <span class="place-catalog-kicker">setting-places.v1</span>
+          <span class="place-catalog-kicker">{{ tr('待确认地点') }}</span>
           <h4>{{ tr('概述整理草稿') }}</h4>
         </div>
         <span class="place-review-count">{{ tr('{count} 项待审阅', { count: pendingDraftCount }) }}</span>
@@ -239,7 +242,8 @@
 
 <script setup>
 import { tr } from '../../i18n/index.js'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { Check, Plus, Save, Search, Sparkles, Trash2, X } from 'lucide-vue-next'
 import { useWorldStore } from '../../stores/worldStore'
 import {
@@ -314,6 +318,31 @@ const blankForm = () => ({
   relations: []
 })
 const form = reactive(blankForm())
+const savedFormSignature = ref(formSignature())
+const hasUnsavedChanges = computed(() => formSignature() !== savedFormSignature.value)
+let formRevision = 0
+let disposed = false
+function formSignature() {
+  return JSON.stringify({ ...form, relations: form.relations.map(({ type, targetName }) => ({ type, targetName })) })
+}
+function confirmNavigation() {
+  if (saving.value) {
+    feedback.value = '地点正在保存，请稍后再切换。'
+    feedbackKind.value = 'error'
+    return false
+  }
+  return !hasUnsavedChanges.value || window.confirm(tr('地点有未保存的修改，离开会丢弃这些修改。仍要继续吗？'))
+}
+function handleBeforeUnload(event) {
+  if (!hasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
+onBeforeUnmount(() => { disposed = true; formRevision += 1; window.removeEventListener('beforeunload', handleBeforeUnload) })
+onBeforeRouteLeave(confirmNavigation)
+onBeforeRouteUpdate(confirmNavigation)
+defineExpose({ confirmNavigation, hasUnsavedChanges: () => hasUnsavedChanges.value })
 
 const places = computed(() => listPlaceEntries(props.worldbook))
 const filteredPlaces = computed(() => {
@@ -393,9 +422,15 @@ function setForm(place = null) {
     }))
   }
   Object.assign(form, next)
+  savedFormSignature.value = formSignature()
+  formRevision += 1
+  fleshOutState.value = 'idle'
+  createState.value = 'idle'
 }
 
 function selectPlace(entryId) {
+  if (entryId === selectedId.value && !isCreating.value) return
+  if (!confirmNavigation()) return
   const place = places.value.find((item) => item.entryId === entryId)
   if (!place) return
   isCreating.value = false
@@ -405,6 +440,7 @@ function selectPlace(entryId) {
 }
 
 function startCreate() {
+  if (!confirmNavigation()) return
   isCreating.value = true
   selectedId.value = ''
   deleteImpact.value = null
@@ -440,6 +476,8 @@ function buildPayload(source = form) {
 
 async function savePlace() {
   if (!form.name.trim() || saving.value) return
+  const ownerId = props.worldbook.id
+  const submittedSignature = formSignature()
   saving.value = true
   feedback.value = ''
   try {
@@ -447,13 +485,19 @@ async function savePlace() {
     const entry = isCreating.value
       ? await worldStore.createPlace(props.worldbook.id, payload)
       : await worldStore.updatePlace(props.worldbook.id, selectedId.value, payload)
+    if (disposed || props.worldbook.id !== ownerId) return
     isCreating.value = false
     selectedId.value = entry.id
-    setForm(listPlaceEntries(props.worldbook).find((place) => place.entryId === entry.id))
+    if (formSignature() === submittedSignature) {
+      setForm(listPlaceEntries(props.worldbook).find((place) => place.entryId === entry.id))
+    } else {
+      savedFormSignature.value = submittedSignature
+    }
     feedback.value = '地点条目已保存。'
     feedbackKind.value = 'success'
     emit('saved', entry?.metadata?.updatedAt || Date.now())
   } catch (error) {
+    if (disposed || props.worldbook.id !== ownerId) return
     feedback.value = error?.message || '地点保存失败。'
     feedbackKind.value = 'error'
   } finally {
@@ -507,11 +551,14 @@ function parseRelations(value) {
 
 async function generateFromOverview() {
   if (generationState.value === 'pending') return
+  const ownerId = props.worldbook.id
+  const ownsWorldbook = () => !disposed && props.worldbook.id === ownerId
   generationState.value = 'pending'
   generationErrors.value = []
   feedback.value = ''
   try {
     const dispatched = await settingsDispatcher.dispatch('settings.places.extract', placeDispatchInput({ worldbook: props.worldbook }), {})
+    if (!ownsWorldbook()) return
     if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '地点整理失败。')
     const result = dispatched.actions[0]?.payload
     drafts.value = (result.drafts || []).map(decorateDraft)
@@ -524,10 +571,11 @@ async function generateFromOverview() {
       feedbackKind.value = 'success'
     }
   } catch (error) {
+    if (!ownsWorldbook()) return
     feedback.value = error?.message || '地点整理失败。'
     feedbackKind.value = 'error'
   } finally {
-    generationState.value = 'idle'
+    if (ownsWorldbook()) generationState.value = 'idle'
   }
 }
 
@@ -583,6 +631,8 @@ function applyFleshOut(place) {
 
 async function runFleshOut() {
   if (fleshOutState.value === 'pending' || !text(form.name)) return
+  const owner = { worldbookId: props.worldbook.id, revision: formRevision, signature: formSignature() }
+  const ownsForm = () => !disposed && props.worldbook.id === owner.worldbookId && formRevision === owner.revision && formSignature() === owner.signature
   fleshOutState.value = 'pending'
   feedback.value = ''
   try {
@@ -607,6 +657,7 @@ async function runFleshOut() {
       excludeName: text(form.name),
       mode: 'expand'
     }), {})
+    if (!ownsForm()) return
     if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '地点补全未返回结果。')
     const result = dispatched.actions[0]?.payload
     if (!result.ok || !result.place) {
@@ -618,10 +669,11 @@ async function runFleshOut() {
       feedbackKind.value = 'success'
     }
   } catch (error) {
+    if (!ownsForm()) return
     feedback.value = error?.message || '地点补全失败。'
     feedbackKind.value = 'error'
   } finally {
-    fleshOutState.value = 'idle'
+    if (!disposed && props.worldbook.id === owner.worldbookId && formRevision === owner.revision) fleshOutState.value = 'idle'
   }
 }
 
@@ -679,6 +731,8 @@ function applyPlaceCreate(place) {
 
 async function runPlaceCreate() {
   if (createState.value === 'pending' || !hasWorldContext.value) return
+  const owner = { worldbookId: props.worldbook.id, revision: formRevision, signature: formSignature() }
+  const ownsForm = () => !disposed && props.worldbook.id === owner.worldbookId && formRevision === owner.revision && formSignature() === owner.signature
   createState.value = 'pending'
   feedback.value = ''
   try {
@@ -688,6 +742,7 @@ async function runPlaceCreate() {
       mode: 'create',
       excludeName: text(form.name)
     }), {})
+    if (!ownsForm()) return
     if (dispatched.status !== 'completed') dispatchPlaceFailure(dispatched, '生成新地点失败，请重试。')
     const result = dispatched.actions[0]?.payload
     if (!result.ok || !result.place) {
@@ -699,10 +754,11 @@ async function runPlaceCreate() {
       feedbackKind.value = 'success'
     }
   } catch (error) {
+    if (!ownsForm()) return
     feedback.value = error?.message || '生成新地点失败。'
     feedbackKind.value = 'error'
   } finally {
-    createState.value = 'idle'
+    if (!disposed && props.worldbook.id === owner.worldbookId && formRevision === owner.revision) createState.value = 'idle'
   }
 }
 
@@ -749,10 +805,15 @@ function ignoreDraft(draft) {
   draft.reviewDecision = draft.reviewDecision === 'ignored' ? 'pending' : 'ignored'
 }
 
-watch(selectedId, (entryId) => {
-  if (!entryId) return
-  const place = places.value.find((item) => item.entryId === entryId)
-  if (place) setForm(place)
+watch(() => props.worldbook.id, () => {
+  isCreating.value = true
+  selectedId.value = ''
+  drafts.value = []
+  generationState.value = 'idle'
+  generationErrors.value = []
+  feedback.value = ''
+  deleteImpact.value = null
+  setForm()
 })
 
 if (!places.value.length) startCreate()
@@ -998,4 +1059,8 @@ if (!places.value.length) startCreate()
   .place-delete-confirm,
   .place-draft-foot { align-items: flex-start; flex-direction: column; }
 }
+.place-editor-dirty { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.place-editor-head > div:first-child { min-width: 0; flex: 1; }
+.place-editor-head h4 { overflow-wrap: anywhere; }
+.place-editor-actions { flex-shrink: 0; }
 </style>

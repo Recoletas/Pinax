@@ -120,6 +120,7 @@ export function useComicWorkspaceSelection({ route } = {}) {
   }
 
   function registerFlush(hook) {
+    if (typeof hook !== 'function' || hook === flushPendingEdits) return () => {}
     flushHooks = [...flushHooks, hook]
     return () => { flushHooks = flushHooks.filter((item) => item !== hook) }
   }
@@ -132,15 +133,17 @@ export function useComicWorkspaceSelection({ route } = {}) {
     }
     for (const hook of flushHooks) {
       try {
-        hook()
+        if (hook() === false) return false
       } catch {
-        // flush 失败不阻断导航；草稿仍在输入框内存中，由调用方提示。
+        // 保存失败时保留当前编辑器，避免换页销毁唯一的未保存草稿。
+        return false
       }
     }
+    return true
   }
 
   function selectPage(pageId, { flush = true } = {}) {
-    if (flush && pageId !== activePageId.value) flushPendingEdits()
+    if (flush && pageId !== activePageId.value && !flushPendingEdits()) return false
     const page = bookPages.value.find((item) => item.id === pageId)
     if (!page) return false
     activePageId.value = page.id
@@ -150,14 +153,16 @@ export function useComicWorkspaceSelection({ route } = {}) {
 
   function selectPanel(panelId) {
     if (!activePage.value?.panels.some((panel) => panel.id === panelId)) return false
+    if (panelId !== activePanelId.value && !flushPendingEdits()) return false
     activePanelId.value = panelId
     return true
   }
 
   function startNewPage() {
-    flushPendingEdits()
+    if (!flushPendingEdits()) return false
     activePageId.value = ''
     activePanelId.value = ''
+    return true
   }
 
   function adoptLegacyPage(pageId, targetBookId) {

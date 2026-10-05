@@ -84,6 +84,7 @@ import { ref } from 'vue'
           class="timeline-video-compact"
           type="button"
           :class="`is-${videoCompact.kind}`"
+          :disabled="directorActionDisabled"
           :title="videoCompact.title"
           :aria-label="videoCompact.title"
           @click="emit('open-video')"
@@ -107,6 +108,9 @@ import { ref } from 'vue'
           class="timeline-card"
           :class="{ active: selectedCardId === item.cardId, dragging: draggingIndex === item.index, 'drop-target': dragOverIndex === item.index }"
           @click="emit('jump', item)"
+          tabindex="0"
+          @keydown.enter.self="emit('jump', item)"
+          @keydown.space.self.prevent="emit('jump', item)"
           draggable="true"
           @dragstart="onDragStart(item.index, $event)"
           @dragover.prevent="onDragOver(item.index)"
@@ -136,55 +140,15 @@ import { ref } from 'vue'
 </template>
 
 <style scoped>
+.timeline-card:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* Outline Section */
-.outline-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-top: 1px solid color-mix(in srgb, var(--archive-gold) 44%, transparent);
-  background: color-mix(in srgb, var(--archive-paper) 76%, var(--surface-panel));
-}
+.outline-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-top: 0; background: var(--surface-workbench-muted); font-family: var(--font-sans); }
 
-.outline-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 42%, transparent);
-  background: transparent;
-  flex-shrink: 0;
-}
-
-.outline-title-stack {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.outline-title {
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.timeline-summary {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.timeline-header-actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-}
+.outline-header { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-bottom: 0; flex: none; font-family: var(--font-sans); }
+.outline-title-stack { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.outline-title { white-space: nowrap; color: var(--text-primary); font-size: 15px; font-weight: 500; }
+.timeline-summary { color: var(--text-secondary); font-size: 13px; white-space: nowrap; }
+.timeline-header-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 
 .timeline-version-chip {
   display: inline-flex;
@@ -350,6 +314,7 @@ import { ref } from 'vue'
 .timeline-view {
   padding: 8px 10px 10px;
   min-height: 0;
+  overflow-y: auto;
   background: transparent;
 }
 
@@ -358,31 +323,14 @@ import { ref } from 'vue'
   gap: 5px;
   overflow-y: auto;
   padding: 2px;
-  max-height: 220px;
+  max-height: none;
 }
 
-.timeline-card {
-  background: color-mix(in srgb, var(--archive-paper-soft) 72%, transparent);
-  border: 1px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
-  border-radius: 1px;
-  padding: 5px 6px;
-  cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-  position: relative;
-  min-width: 0;
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--archive-ink) 8%, transparent);
-}
+.timeline-card { background: transparent; border: 1px solid transparent; border-radius: 12px; padding: 10px; cursor: pointer; transition: background .16s ease, border-color .16s ease; position: relative; min-width: 0; box-shadow: none; font-family: var(--font-sans); }
 
-.timeline-card:hover {
-  background: color-mix(in srgb, var(--archive-paper-soft) 88%, var(--archive-olive) 4%);
-  border-color: color-mix(in srgb, var(--archive-olive) 38%, var(--archive-gold));
-}
+.timeline-card:hover { background: var(--nav-hover); border-color: transparent; }
 
-.timeline-card.active {
-  border-color: color-mix(in srgb, var(--archive-olive) 64%, transparent);
-  background: color-mix(in srgb, var(--archive-olive) 10%, var(--archive-paper-soft));
-  box-shadow: inset 2px 0 0 var(--archive-olive);
-}
+.timeline-card.active { border-color: transparent; background: var(--nav-selected); box-shadow: none; }
 
 .timeline-card.dragging {
   opacity: 0.55;
@@ -392,83 +340,26 @@ import { ref } from 'vue'
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.timeline-card-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 22px;
-}
+.timeline-card-header { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; }
 
-.timeline-index {
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-radius: 1px;
-  border-right: 1px solid color-mix(in srgb, var(--archive-gold) 32%, transparent);
-  background: transparent;
-  flex-shrink: 0;
-}
+.timeline-index { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 400; color: var(--text-secondary); border-radius: 6px; border: 0; background: transparent; flex-shrink: 0; }
 
-.timeline-duration {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
+.timeline-duration { margin-left: auto; font-size: 12px; color: var(--text-secondary); flex-shrink: 0; }
 
-.timeline-card-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
+.timeline-card-title { font-size: 14px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-.timeline-card-meta {
-  margin: 0 46px 0 24px;
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.timeline-card-meta { margin: 4px 0 0 28px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.timeline-card-actions {
-  position: absolute;
-  right: 4px;
-  top: 5px;
-  display: inline-flex;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
+.timeline-card-actions { position: absolute; right: 8px; bottom: 3px; display: flex; justify-content: flex-end; gap: 2px; margin-top: 0; background: var(--surface-workbench-muted); border-radius: var(--radius-control); opacity: 0; pointer-events: none; transition: opacity .16s ease; }
 
 .timeline-card:hover .timeline-card-actions,
-.timeline-card.active .timeline-card-actions {
+.timeline-card.active .timeline-card-actions,
+.timeline-card:focus-within .timeline-card-actions {
   opacity: 1;
   pointer-events: auto;
 }
 
-.timeline-card-actions button {
-  width: 17px;
-  height: 17px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-}
+.timeline-card-actions button { width: 32px; height: 32px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; }
 
 .timeline-card-actions button:hover:not(:disabled) {
   border-color: var(--accent);
@@ -491,8 +382,20 @@ import { ref } from 'vue'
   font-size: 12px;
   color: var(--text-secondary);
   width: 100%;
-  border: 1px dashed color-mix(in srgb, var(--border) 88%, transparent);
+  border: 0;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--surface-soft) 62%, transparent);
+  background: transparent;
+}
+/* Controls stay readable beside the timeline title, including a narrow sidebar. */
+.timeline-header-actions button { min-height: 36px; height: auto; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; font: 500 14px/1.4 var(--font-sans); }
+.timeline-header-actions button:hover:not(:disabled) { background: var(--nav-hover); }
+.timeline-header-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.timeline-version-chip { max-width: 100%; height: auto; padding: 4px 0; border: 0; background: transparent; font-size: 12px; }
+@media (max-width: 760px), (pointer: coarse) {
+  .timeline-header-actions button { min-height: 44px; }
+  .timeline-card-header { padding-right: 0; }
+  .timeline-card-meta { margin-right: 0; }
+  .timeline-card-actions { position: static; opacity: 1; pointer-events: auto; justify-content: flex-end; }
+  .timeline-card-actions button { min-width: 44px; min-height: 44px; }
 }
 </style>

@@ -32,6 +32,7 @@ export const OPENCLAW_PROVIDER = Object.freeze({
 })
 
 const ADVISOR_TASK_INSTRUCTIONS = {
+  'memory.extraction': '任务：只从冻结原文提取有逐字引文支撑的人物事实三元组，作为作者待审候选。保留否定、假设和转述语义，不把人物传闻当作已发生事实；不得补造人物、关系或日期，不修改任何正式记忆。',
   'authoring.rehearsal.step': '任务：在作者隔离的故事试演中，从给定路径最后一刻承接最新行动，只演出一次新的具体回应。冻结现场是起点背景，已发生的事件、人物动作和环境描写不得再次演出。用人物对白与动作呈现，不写评审建议，不生成正式正文，不改设定。人物仅能依据已知信息行动；作者知道的秘密不等于人物知道。不得捏造引用、确定概率或强迫冲突升级。',
   'writing.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
   'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
@@ -130,6 +131,11 @@ function getTaskInstruction(taskType) {
 
 function getTaskOutputInstruction(taskType, options = {}) {
   taskType = resolveTaskTemplateKey(taskType)
+  if (taskType === 'memory.extraction') {
+    return `输出要求：只返回 JSON 对象，不要 Markdown、建议或写入动作。格式：
+{"proposals":[{"subject":"原文人物名","predicate":"关系或动作","object":"宾语或结果","quote":"逐字复制的支撑原句","polarity":"positive","storyTime":{"precision":"unknown"},"confidence":0.8}],"unextractable":{"reason":""}}
+最多 12 项。polarity 只能为 positive、negative、hedged、report；传闻、梦境和转述必须用 report，否定用 negative，假设或不确定用 hedged。时间未知用 unknown，不补今天日期。承诺、计划和未来动作必须保留“答应/计划/将要”等限定词，不得拆成已经完成的事实；可用 predicate 表达“答应到访”，不能改为“到访”。否定、传闻与条件也必须在 predicate/object 中完整表达，不能只放在 polarity。quote 必须是冻结原文中包含全部限定词的连续完整原句，不得改写或只截取动作子串。实际兑现承诺必须另有完成证据；同名歧义或没有可靠事实时 proposals 返回空数组并说明原因。`
+  }
   if (taskType === 'writing.continue.light') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
@@ -371,11 +377,11 @@ directions 只能为 2-3 条；不得只改变语气、文风或氛围；任意�
       clues: '理线索：只排列已有事实、时间与因果；任何推断都明确写“推测”并降为 partial。',
       character: '挖角色：分别说明世界书设定、正文行为和当前场状态，不把速记当作人物事实。',
       'whole-book': '问全书：按章节或来源组织答案，引用每个结论实际依赖的原文。',
-      free: '自由问：只提供一般写作建议，claims、evidenceRefs 和 calculations 必须为空。'
+      free: '自由讨论：依据本次给出的当前文稿讨论，已写事实保持原状，新设想明确标为备选；未提供的内容不要假装读过。claims、evidenceRefs 和 calculations 必须为空。'
     })[knowledgeIntent] || '只回答当前问题，不扩展为正文生成或资料写入。'
     return `输出要求：只输出一个 JSON 对象，不要 Markdown、分析过程或写入动作。格式：
 {
-  "answer": "面向作者的简洁回答；资料不足时明确写当前资料中没有找到",
+  "answer": "面向作者的简洁回答，用书名、章节名或人物名表达；不要展示 sourceRef、node ID 等内部标识，标识只放下方结构化引用字段；资料不足时明确写当前资料中没有找到",
   "claims": [{
     "text": "一个可独立核查的结论",
     "confidence": "supported|partial|unsupported",

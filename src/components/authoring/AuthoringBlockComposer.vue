@@ -9,6 +9,7 @@
     <p v-if="sceneContextSummary" class="authoring-block-composer__scene-context">
       <span>{{ tr("当前场") }}</span>{{ sceneContextSummary }}
     </p>
+    <p v-if="!emptyChapter && target.anchorExcerpt" class="authoring-block-composer__anchor" :title="target.anchorExcerpt">{{ operation === 'rewrite-unit' ? tr('重写此处') : tr('接续此处') }} · {{ target.anchorExcerpt }}</p>
     <slot name="context" />
     <AuthoringGenerationStatus v-if="generating" />
     <p v-else-if="contextLoading" role="status">{{ tr("正在核对本次参考资料…") }}</p>
@@ -223,6 +224,7 @@ defineExpose({ focusInstruction })
 .authoring-block-composer__head strong { color: var(--text-primary); font-family: var(--font-display); font-size: 16px; font-weight: 650; letter-spacing: 0.01em; }
 .authoring-block-composer__head span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__scene-context { margin: -1px 0 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.authoring-block-composer__anchor { margin: -1px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__scene-context span { margin-right: 7px; color: var(--text-primary); font-weight: 600; }
 .authoring-block-composer textarea { width: 100%; min-height: 72px; padding: 9px 0 7px; resize: vertical; background: transparent; color: var(--text-primary); border: 0; border-bottom: 1px solid var(--border-default); font: 14px/1.72 var(--notebook-font-family, var(--font-serif, serif)); outline: none; }
 .authoring-block-composer textarea:focus { border-bottom-color: var(--accent-primary); }

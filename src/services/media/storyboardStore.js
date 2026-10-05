@@ -269,7 +269,7 @@ export function saveStoryboardDocument(input = {}) {
     document,
     ...current.filter((item) => item.id !== document.id)
   ]
-  setItem(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
+  persistStoryboards(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
   return document
 }
 
@@ -306,7 +306,7 @@ export function saveStoryboardVersion({
       parameters
     })
     const next = [document, ...current]
-    setItem(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
+    persistStoryboards(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
     return {
       created: true,
       document,
@@ -323,7 +323,9 @@ export function saveStoryboardVersion({
   const updated = {
     ...target,
     projectId: normalizeNullableText(target.projectId),
-    source: target.source || normalizedSource,
+    source: target.source?.sourceType === normalizedSource.sourceType && target.source?.sourceId === normalizedSource.sourceId
+      ? normalizedSource
+      : target.source || normalizedSource,
     sourceRefs: normalizedSourceRefs.length
       ? normalizedSourceRefs
       : normalizeSourceRefs(target.sourceRefs, { projectId: target.projectId }),
@@ -335,7 +337,7 @@ export function saveStoryboardVersion({
     updated,
     ...current.filter((item) => item.id !== updated.id)
   ]
-  setItem(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
+  persistStoryboards(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
 
   return {
     created: false,
@@ -446,7 +448,7 @@ export function restoreStoryboardVersion(documentId, versionId) {
     updated,
     ...current.filter((item) => item.id !== updated.id)
   ]
-  setItem(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
+  persistStoryboards(STORAGE_KEYS.STORYBOARD_DOCUMENTS, next)
 
   return {
     success: true,
@@ -506,7 +508,7 @@ export function saveStoryboardSnapshot(input = {}) {
   snapshot.versionId = documentResult.version.versionId
   const current = listStoryboardSnapshots()
   const next = [snapshot, ...current]
-  setItem(STORAGE_KEYS.STORYBOARD_SNAPSHOTS, next)
+  persistStoryboards(STORAGE_KEYS.STORYBOARD_SNAPSHOTS, next)
   return snapshot
 }
 
@@ -623,4 +625,8 @@ function truncateText(value, maxChars) {
 
 function normalizeMetadata(metadata) {
   return metadata && typeof metadata === 'object' ? metadata : {}
+}
+
+function persistStoryboards(key, value) {
+  if (!setItem(key, value)) throw new Error('分镜保存失败，请检查浏览器存储后重试')
 }

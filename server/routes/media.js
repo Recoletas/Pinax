@@ -19,6 +19,7 @@ import { createJobRunner } from '../media/jobRunner.js'
 import { createMinimaxVideoAdapter } from '../media/adapters/minimaxVideo.js'
 import { createGenericAsyncHttpAdapter } from '../media/adapters/genericAsyncHttp.js'
 import { redactSecrets } from '../media/errorNormalization.js'
+import { downloadVideoOutput } from '../media/videoOutputDownload.js'
 
 const ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', '3:4'])
 const MIN_DURATION = 1
@@ -34,6 +35,7 @@ export function createMediaRouter(options = {}) {
   const runner = options.runner || createJobRunner({ store, registry, logger })
   const minimaxAdapter = options.minimaxAdapter || createMinimaxVideoAdapter()
   const genericAdapter = options.genericAdapter || createGenericAsyncHttpAdapter()
+  let activeDownloads = 0
 
   // Register default adapters (idempotent — registry dedupes by id).
   if (!registry.get(minimaxAdapter.id)) registry.register(toPublicProvider(minimaxAdapter))
@@ -45,18 +47,28 @@ export function createMediaRouter(options = {}) {
     const body = req.body || {}
     const validation = validateCreateJobBody(body)
     if (!validation.ok) return res.status(400).json(validation.error)
-    const providerConfig = validation.sanitized.providerConfig
+    const configValidation = registry.validateConfig(validation.sanitized.providerId, validation.sanitized.providerConfig)
+    if (!configValidation.ok) return res.status(400).json(configValidation.error)
+    const providerConfig = configValidation.sanitized
+    const adapter = registry.get(validation.sanitized.providerId).adapter
+    const configError = adapter.validate?.(providerConfig)
+    if (configError) return res.status(400).json({ code: 'ERR_PROVIDER_CONFIG_INVALID', message: configError })
+    try {
+      adapter.validateInput?.(validation.sanitized.input, providerConfig, validation.sanitized.model)
+    } catch (err) {
+      return res.status(400).json({ code: 'ERR_INVALID_INPUT', message: redactSecrets(err?.message || '视频参数无效') })
+    }
+    store.sweep?.()
 
     const job = store.createJob({
       projectId: validation.sanitized.projectId,
       providerId: validation.sanitized.providerId,
-      model: validation.sanitized.model,
+      model: String(providerConfig.model || validation.sanitized.model || ''),
       input: validation.sanitized.input
     })
 
-    // Sanitize provider config before logging or storing on job.
-    const safeConfig = registry.redactConfig(providerConfig)
-    logger.info?.(`[media] job created id=${job.id} provider=${job.providerId} config=${JSON.stringify(safeConfig)}`)
+    // Configuration can contain credentials in custom headers and URL queries.
+    logger.info?.(`[media] job created id=${job.id} provider=${job.providerId}`)
 
     runner.submit(job, providerConfig)
     return res.status(201).json(publicJob(job))
@@ -71,6 +83,39 @@ export function createMediaRouter(options = {}) {
         return res.status(404).json({ error: 'ERR_JOB_NOT_FOUND', message: '任务不存在' })
       }
       return res.status(500).json({ error: 'ERR_INTERNAL', message: '查询任务失败' })
+    }
+  })
+
+  // Only a completed job's recorded output can be downloaded. Never accept a
+  // caller-supplied URL or forward provider credentials to the file host.
+  router.get('/api/media/jobs/:id/output', async (req, res) => {
+    let job
+    try { job = store.getJob(req.params.id) } catch {
+      return res.status(404).json({ code: 'ERR_JOB_NOT_FOUND', message: '任务记录已失效，请通过已有原链接下载' })
+    }
+    const output = job.outputs?.find((item) => /^https?:\/\//i.test(item?.url))
+    if (job.status !== 'succeeded' || !output) return res.status(409).json({ code: 'ERR_VIDEO_NOT_READY', message: '视频尚未生成完成' })
+    if (activeDownloads >= 2) return res.status(429).json({ code: 'ERR_VIDEO_DOWNLOAD_BUSY', message: '正在保存其他视频，请稍后重试' })
+    const controller = new AbortController()
+    const stop = () => { if (!res.writableEnded) controller.abort() }
+    req.once('aborted', stop)
+    res.once('close', stop)
+    if (req.aborted || res.destroyed) controller.abort()
+    activeDownloads += 1
+    try {
+      const { binary, mimeType } = await (options.downloadVideoOutput || downloadVideoOutput)(output.url, { signal: controller.signal })
+      if (controller.signal.aborted || res.destroyed) return
+      const extension = mimeType === 'video/webm' ? 'webm' : 'mp4'
+      const filename = `pinax-video-${String(job.id).replace(/[^a-zA-Z0-9_-]/g, '')}.${extension}`
+      res.set({ 'Content-Type': mimeType, 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="${filename}"` })
+      return res.send(binary)
+    } catch (error) {
+      if (controller.signal.aborted || res.destroyed) return
+      return res.status(error.status || 502).json({ code: error.code || 'ERR_VIDEO_DOWNLOAD_FAILED', message: error.message || '视频原件下载失败，请稍后重试' })
+    } finally {
+      activeDownloads -= 1
+      req.off('aborted', stop)
+      res.off('close', stop)
     }
   })
 
@@ -115,8 +160,18 @@ export function createMediaRouter(options = {}) {
     if (!validation.ok) {
       return res.status(400).json(validation.error)
     }
+    const configError = entry.adapter.validate?.(validation.sanitized)
+    if (configError) return res.status(400).json({ code: 'ERR_PROVIDER_CONFIG_INVALID', message: configError })
+    const controller = new AbortController()
+    let timeoutId
     try {
-      const result = await entry.adapter.testConnection(validation.sanitized)
+      const timeout = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => { controller.abort(); reject(new Error('连接检查超时')) }, 15000)
+      })
+      const result = await Promise.race([
+        entry.adapter.testConnection(validation.sanitized, { signal: controller.signal }),
+        timeout
+      ])
       return res.json({
         ok: Boolean(result.ok),
         reachable: Boolean(result.reachable),
@@ -127,6 +182,8 @@ export function createMediaRouter(options = {}) {
       })
     } catch (err) {
       return res.status(500).json({ error: 'ERR_INTERNAL', message: redactSecrets(err?.message || '测试失败') })
+    } finally {
+      clearTimeout(timeoutId)
     }
   })
 
@@ -164,6 +221,9 @@ function validateCreateJobBody(body) {
   if (!providerId || typeof providerId !== 'string') {
     return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'providerId 必填且必须为字符串' } }
   }
+  if (projectId != null && (typeof projectId !== 'string' || !projectId.trim() || projectId.length > 160)) {
+    return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'projectId 必须是有效的作品编号' } }
+  }
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'input 必填且必须为对象' } }
   }
@@ -185,12 +245,15 @@ function validateCreateJobBody(body) {
   const sourceRefs = Array.isArray(input.sourceRefs)
     ? input.sourceRefs.slice(0, 20).map(sanitizeSourceRef).filter(Boolean)
     : []
-  const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages.slice(0, MAX_REFERENCES) : []
+  if (input.referenceImages != null && (!Array.isArray(input.referenceImages) || input.referenceImages.length > MAX_REFERENCES)) {
+    return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: `referenceImages 必须是最多 ${MAX_REFERENCES} 张图片的数组` } }
+  }
+  const referenceImages = Array.isArray(input.referenceImages) ? input.referenceImages : []
   for (const reference of referenceImages) {
     if (!reference || typeof reference !== 'object') {
       return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'referenceImages 项格式无效' } }
     }
-    if (typeof reference.data !== 'string' || !reference.data.startsWith('data:image/')) {
+    if (typeof reference.data !== 'string' || !/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(reference.data)) {
       return { ok: false, error: { code: 'ERR_INVALID_INPUT', message: 'referenceImages 项必须是 data:image/ URL' } }
     }
     if (reference.data.length > MAX_REFERENCE_IMAGE_CHARS) {
@@ -208,7 +271,7 @@ function validateCreateJobBody(body) {
       providerId,
       model: typeof model === 'string' ? model : '',
       projectId: projectId ?? null,
-      input: { prompt, durationSeconds: duration, aspectRatio, sourceRefs, referenceImages },
+      input: { prompt, durationSeconds: duration, aspectRatio, sourceRefs, referenceImages: referenceImages.map((item) => ({ data: item.data })) },
       providerConfig
     }
   }

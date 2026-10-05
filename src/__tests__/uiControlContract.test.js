@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { ref } from 'vue'
+import { useProseDirectorExport } from '../composables/useProseDirectorExport.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -179,8 +180,8 @@ describe('workbench control contract (U1)', () => {
   it("keeps the authoring shell structural and one authoring destination（合并5例）", async () => {
     const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
-    expect(workspaceTabs).toContain('height: 34px;')
-    expect(workspaceTabs).toContain('box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);')
+    expect(workspaceTabs).toContain('height: 36px;')
+    expect(workspaceTabs).toContain('var(--hairline-soft)')
     // N-B：关闭钮为兄弟 button（消除交互嵌套），hover/聚焦/激活时可见。
     expect(workspaceTabs).toContain('.ws-tab-slot:is(:hover, :focus-within) .ws-tab__close')
     expect(workspaceTabs).toContain('.ws-tab.is-active + .ws-tab__close')
@@ -211,7 +212,8 @@ describe('workbench control contract (U1)', () => {
     expect(fieldActions).not.toContain('transition: all')
     expect(appShell).not.toContain('mode="out-in"')
     expect(appShell).not.toContain('transitionDirection')
-    expect(settingsPanel).toContain('max-width: none; margin-inline: 0;')
+    expect(settingsPanel).toMatch(/\.settings-editor-layout \{[^}]*min-width: 0;[^}]*max-width: 880px;[^}]*margin-inline: auto;/)
+    expect(settingsPanel).toContain('.settings-editor-layout.has-review { max-width: none;')
     {
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \{[\s\S]*display: flex;[\s\S]*flex-direction: column;[\s\S]*overflow: hidden;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
@@ -221,8 +223,8 @@ describe('workbench control contract (U1)', () => {
       expect(authoringBlockCss).toContain(':has(> .writing-inspector.is-catalog-workbench)')
       expect(authoringWorldbookPanel).toContain('class="setting-create" :aria-label="tr(\'新建设定\')"')
       expect(authoringWorldbookPanel).toContain("<span>{{ tr('新建') }}</span>")
-      expect(imageWorkbench).toContain('data-test="image-style-preview"')
-      expect(imageWorkbench).toContain("url('../../assets/media/authoring-image-style-presets.webp')")
+      expect(imageWorkbench).toContain('class="image-gen-style-option"')
+      expect(imageWorkbench).toContain('role="radiogroup"')
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__dossier \{[\s\S]*display: flex;[\s\S]*flex-direction: column;/)
       const regularPhoneChrome = authoringBlockCss.slice(
@@ -310,7 +312,10 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain('<AuthoringIdeaShelf')
     expect(source).toContain('<AuthoringDualPane')
     expect(source).toContain('<AuthoringQuickWords')
-    expect(source).toContain('<AuthoringKnowledgeAssistant')
+    expect(source).toContain('<AuthoringAssistantWorkspace')
+    const workspace = await readFile(resolve(__dirname, '../components/authoring/AuthoringAssistantWorkspace.vue'), 'utf8')
+    expect(workspace).toContain('<AuthoringKnowledgeAssistant')
+    expect(workspace).toContain(':notice="notice"')
     expect(source).toContain('<AuthoringInterventionComposer')
     expect(source).toContain('@open-intervention="openInterventionComposer"')
     expect(source).toContain(':intervention-enabled="!wt3ActiveDoc"')
@@ -438,10 +443,16 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringOutlinePanel).toContain("toggleGroup('project')")
     expect(authoringOutlinePanel).toContain("toggleGroup('chapter')")
     const knowledgeTemplate = authoringKnowledgeAssistant.split('<script setup>')[0]
-    for (const task of ['查设定', '找伏笔', '理线索', '挖角色', '算数值', '问全书', '自由问']) {
+    // 助手已收拢为讨论/查阅两种意图；写作起点与真实工具仍须可达。
+    for (const task of ['讨论故事', '查阅资料', '检查文稿', '生成插图', '理清人物关系', '回顾前文', '讨论下一段', '构思人物', '展开情节', '想个开场']) {
       expect(authoringKnowledgeAssistant).toContain(task)
     }
-    expect(knowledgeTemplate).toContain('查看依据')
+    expect(knowledgeTemplate).toContain("choosePurpose('free')")
+    expect(knowledgeTemplate).toContain("choosePurpose('whole-book')")
+    expect(knowledgeTemplate).toContain('参考资料')
+    expect(knowledgeTemplate).toContain('message.answer.calculations.length')
+    expect(knowledgeTemplate).toContain('onEvidenceClick(evidence, $event.currentTarget)')
+    expect(authoringKnowledgeAssistant).toContain('recordKnowledgeSeamFocus(evidence.sourceRef, evidence.projectId)')
     expect(knowledgeTemplate).toContain('资料已更新')
     expect(knowledgeTemplate).not.toMatch(/manifest|receipt|token|candidate ID|上下文数量/i)
     expect(knowledgeTemplate).not.toContain('<q>')
@@ -617,7 +628,7 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
     // 共享基座：disabled / focus-visible / coarse pointer 命中区
     expect(css).toContain("[class*='control-']:focus-visible")
     expect(css).toContain("[class*='control-']:disabled")
-    expect(css).toMatch(/@media \(pointer: coarse\)/)
+    expect(css).toMatch(/@media[^{}]*\(pointer:\s*coarse\)/)
     expect(css.match(/min-height: 44px/g)?.length).toBeGreaterThanOrEqual(1)
     // 禁止 transition: all（只允许 color/background/opacity/transform）
     expect(css).not.toMatch(/transition:\s*all/)
@@ -632,7 +643,7 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
     expect(css).toContain(":not([aria-disabled='true'])")
     expect(css).toContain(':where(button, a, summary, input)')
     const navigation = readFileSync(resolve(__dirname, '../styles/workspace-navigation.css'), 'utf8')
-    for (const token of ['--workspace-sidebar-width: 240px', '--nav-focused', '--nav-selected', '.workspace-nav-item:focus-visible', 'prefers-reduced-motion']) expect(navigation).toContain(token)
+    for (const token of ['--workspace-sidebar-width: 256px', '--nav-focused', '--nav-selected', '.workspace-nav-item:focus-visible', 'prefers-reduced-motion']) expect(navigation).toContain(token)
     const mapTree = readFileSync(resolve(__dirname, '../components/geography/WorldTreeItem.vue'), 'utf8')
     expect(mapTree).toContain('<button v-else class="node-name workspace-nav-label"')
     expect(mapTree).toContain('.tree-row:focus-within .row-actions')
@@ -643,6 +654,23 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
 })
 
   it("closes the topmost experience overlay with Escape before the rail（合并4例）", async () => {
+{
+    const experienceHeader = readFileSync(resolve(__dirname, '../components/experience/ExperienceSessionHeader.vue'), 'utf8')
+    expect(experienceHeader).toContain("emit('open-advisor')")
+    expect(readFileSync(resolve(__dirname, '../pages/Experience.chrome.css'), 'utf8')).toContain(':deep(.gm-persona-dock) { display: none; }')
+    const online = readFileSync(resolve(__dirname, '../pages/OnlineExperience.vue'), 'utf8')
+    expect(online).toContain("if (import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true') {")
+    expect(online).toContain('refreshShareInviteState()')
+    expect(online).toContain("router.resolve({ name: 'online-experience', params: { roomSlug: sourceRoom } })")
+    expect(online).toContain('await navigator.clipboard.writeText(url)')
+    expect(online).toContain('aria-label="手动复制房间链接"')
+    expect(online).toContain(':aria-expanded="roomPanelOpen"')
+    expect(online).toContain('aria-controls="online-room-panel"')
+    expect(online).toContain('const roomPanelOpen = ref(false)')
+    expect(online).toMatch(/@media \(max-width: 760px\)[\s\S]*?online-page__room-panel \{ display: none; position: static;/)
+    expect(online).toContain('.is-room-panel-open .online-page__room-panel { display: block; }')
+}
+
 {
 expect(experience).toContain('if (writingCollectOpen.value) {')
     expect(experience).toContain("id: 'experience-writing-collect'")
@@ -707,6 +735,12 @@ expect(uiAudit).toContain("element.closest('[aria-hidden=\"true\"], [inert]')")
 })
 
   it("keeps image generation in materials and removes the retired canvas drawer（合并4例）", async () => {
+    const composition = readFileSync(resolve(__dirname, '../components/media/ComicCompositionCanvas.vue'), 'utf8')
+    expect(composition).toContain('aria-label="画布视图"')
+    expect(composition).toContain(':aria-pressed="viewMode === \'page\'"')
+    expect(composition).toContain('aria-label="放大画布"')
+    expect(composition).toContain('stageObserver?.disconnect()')
+    expect(composition).toContain('watch(() => [props.page.id, props.page.format]')
 {
 const proseTemplate = proseEssay.split('<script setup>')[0]
     expect(proseEssay).toContain('buildDirectorSourceRefs()')
@@ -913,6 +947,29 @@ const notesTemplate = notes.split('<script setup>')[0]
 })
 
   it("defines a controlled, keyboard-operable scene material board（合并4例）", async () => {
+    // Leaving the canvas must not reopen video or release a newer preparation.
+    const pending = []
+    const opened = []
+    const controller = useProseDirectorExport({
+      prepareVersion: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+      openVideoPanel: version => opened.push(version)
+    })
+    const old = controller.handoff()
+    expect(await controller.handoff()).toBeNull()
+    controller.reset()
+    const current = controller.handoff()
+    pending[0].resolve({ id: 'old' })
+    expect(await old).toBeNull()
+    expect(controller.busy.value).toBe(true)
+    pending[1].resolve({ id: 'current' })
+    await current
+    expect(opened).toEqual([{ id: 'current' }])
+    const abandoned = controller.handoff()
+    controller.dispose()
+    pending[2].reject(new Error('late error'))
+    expect(await abandoned).toBeNull()
+    expect(controller.error.value).toBe('')
+    expect(await controller.handoff()).toBeNull()
 {
 expect(existsSync(sceneMaterialBoardPath)).toBe(true)
     for (const prop of ['model', 'selectedCardId', 'relationTypes', 'directorExportStatus']) {
@@ -1007,7 +1064,10 @@ describe('authoring memory projection contracts', () => {
   it("shows a transient candidate count and reserves review for exceptions（合并3例）", async () => {
 {
 const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
-    expect(source).toContain('<AuthoringKnowledgeAssistant')
+    expect(source).toContain('<AuthoringAssistantWorkspace')
+    const workspace = await readFile(resolve(__dirname, '../components/authoring/AuthoringAssistantWorkspace.vue'), 'utf8')
+    expect(workspace).toContain('<AuthoringKnowledgeAssistant')
+    expect(workspace).toContain(':notice="notice"')
     expect(source).toContain(':notice="authoringMemoryNotice"')
     expect(source).not.toContain('<AuthoringMemoryNotice')
     expect(source).toContain('<AuthoringMemoryReview')

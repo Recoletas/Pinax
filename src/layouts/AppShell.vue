@@ -10,6 +10,7 @@ import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
 import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useTheme } from '../composables/useTheme'
+import { PROJECT_SURFACE_ROUTE_NAMES } from '../services/workspace/workspaceTabContract.js'
 import '../styles/workspace-surfaces.css'
 import '../styles/workspace-navigation.css'
 
@@ -105,7 +106,7 @@ function handleSelectActivity(activityKey) {
   const matched = ACTIVITY_ITEMS.find((item) => item.key === activityKey)
   if (!matched) return
   if (route.name !== matched.defaultRouteName) {
-    router.push({ name: matched.defaultRouteName })
+    router.push(workspaceDestination(matched.defaultRouteName))
   }
   closeDrawer()
 }
@@ -113,9 +114,15 @@ function handleSelectActivity(activityKey) {
 function handleSelectPanel(routeName) {
   if (!routeName) return
   if (route.name !== routeName) {
-    router.push({ name: routeName })
+    router.push(workspaceDestination(routeName))
   }
   closeDrawer()
+}
+
+function workspaceDestination(name) {
+  const bookId = typeof route.query.bookId === 'string' ? route.query.bookId : ''
+  const isProjectSurface = Object.values(PROJECT_SURFACE_ROUTE_NAMES).includes(name)
+  return { name, query: bookId && isProjectSurface ? { bookId } : {} }
 }
 
 </script>
@@ -210,11 +217,12 @@ function handleSelectPanel(routeName) {
 </template>
 
 <style scoped>
-.shell-tab-actions { display: flex; flex: 0 0 auto; align-self: stretch; align-items: center; gap: 4px; padding: 0 4px 4px 8px; margin-left: 6px; border-left: 1px solid var(--hairline-soft); }
-.shell-tab-actions > button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
-.shell-tab-actions > button:hover { background: var(--archive-paper-soft); color: var(--archive-ink); }
-.shell-tab-actions > button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: -2px; }
-@media (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
+.shell-tab-actions { display: flex; flex: 0 0 auto; align-self: stretch; align-items: center; gap: 2px; padding: 0 0 0 8px; margin-left: 6px; }
+.shell-tab-actions > button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
+.shell-tab-actions > button:hover { background: var(--nav-hover); color: var(--archive-ink); }
+.shell-tab-actions > button:active { background: var(--nav-focused); }
+.shell-tab-actions > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 760px), (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
 .app-shell {
   --shell-drawer-width: 360px;
   position: relative;
@@ -230,31 +238,10 @@ function handleSelectPanel(routeName) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent) 220px);
+  background: var(--surface-workbench-canvas);
+  font-family: var(--font-sans);
   color: var(--text-primary);
   isolation: isolate;
-}
-
-.app-shell::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-ink) 5%, transparent), transparent 140px),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 64px,
-      color-mix(in srgb, var(--archive-ink) 4%, transparent) 64px 65px
-    );
-  opacity: 0.55;
-  z-index: -1;
-}
-
-.app-shell.immersive::before,
-.app-shell.nav-hidden::before {
-  opacity: 0.32;
 }
 
 .shell-nav-trigger {

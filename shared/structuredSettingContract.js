@@ -101,7 +101,8 @@ export const STRUCTURED_GENERATION_TIMEOUTS = Object.freeze({
 export const STRUCTURED_GENERATION_MODES = Object.freeze([
   'native-json-schema',
   'forced-tool',
-  'json-object'
+  'json-object',
+  'text-json'
 ])
 
 export const STRUCTURED_GENERATION_ERROR_CODES = Object.freeze({

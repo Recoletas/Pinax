@@ -1,10 +1,14 @@
 <script setup>
-defineProps({
+import { computed, ref, watch } from 'vue'
+const props = defineProps({
   history: { type: Object, required: true },
   chapterTitle: { type: String, default: '' },
   documentRevision: { type: Number, default: 0 },
   chapterSelected: Boolean
 })
+const visibleCount = ref(3)
+const visibleSnapshots = computed(() => props.history.snapshots.value.slice(0, visibleCount.value))
+watch(() => props.history.snapshots.value[0]?.chapterId, () => { visibleCount.value = 3 })
 </script>
 
 <template>
@@ -43,14 +47,14 @@ defineProps({
         <button type="button" :disabled="!history.canRestoreBlock(entry)" @click="history.restoreBlock(entry)">恢复此片段</button>
       </article>
     </section>
-    <div v-if="history.recentSnapshots.value.length" class="writing-version-panel__list" aria-label="最近章节快照">
-      <article v-for="snapshot in history.recentSnapshots.value" :key="snapshot.id" class="writing-version-entry">
+    <div v-if="visibleSnapshots.length" class="writing-version-panel__list" aria-label="章节快照">
+      <article v-for="snapshot in visibleSnapshots" :key="snapshot.id" class="writing-version-entry">
         <header><div><strong>{{ snapshot.label }}</strong><small>{{ history.reasonLabel(snapshot.reason) }} · 修订 {{ snapshot.documentRevision }}</small></div><time :datetime="snapshot.createdAt">{{ history.formatTime(snapshot.createdAt) }}</time></header>
         <p>{{ snapshot.wordCount.toLocaleString() }} 字 · {{ snapshot.chapterTitle || '未命名章节' }}</p>
         <footer><button type="button" @click="history.restore(snapshot)">恢复到这里</button><button type="button" class="is-quiet" @click="history.remove(snapshot)">删除</button></footer>
       </article>
     </div>
     <div v-else class="writing-version-panel__empty">当前章节还没有快照。</div>
-    <p v-if="history.snapshots.value.length > history.recentSnapshots.value.length" class="writing-version-panel__more">另有 {{ history.snapshots.value.length - history.recentSnapshots.value.length }} 个较早检查点保留在本地。</p>
+    <button v-if="history.snapshots.value.length > visibleSnapshots.length" type="button" class="writing-version-panel__more control-quiet" @click="visibleCount += 20">查看较早版本（{{ history.snapshots.value.length - visibleSnapshots.length }}）</button>
   </div>
 </template>

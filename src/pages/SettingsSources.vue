@@ -104,18 +104,18 @@ const router = useRouter()
 
 <style scoped>
 
-.settings-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; background: var(--archive-paper-soft); }
+.settings-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; background: var(--surface-workbench-canvas); font-family: var(--font-sans); }
 
 .settings-sources-loading, .settings-sources-empty { display: grid; justify-items: center; gap: 16px; padding: 80px 24px; color: var(--text-secondary); font-size: 14px; text-align: center; }
 .settings-sources-empty h1 { margin: 0; font-size: 24px; color: var(--text-primary); }
 .settings-sources-empty p { margin: 0; line-height: 1.8; }
-.settings-sources-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 32px clamp(20px, 3vw, 48px) 24px; }
-.settings-sources-heading h1 { display: flex; align-items: center; gap: 12px; margin: 0; font-size: 25px; font-weight: 600; color: var(--text-primary); letter-spacing: -.02em; }
+.settings-sources-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 32px clamp(20px, 3vw, 48px) 24px; background: var(--surface-workbench); border-radius: var(--radius-surface) var(--radius-surface) 0 0; }
+.settings-sources-heading h1 { font-family: var(--font-sans); display: flex; align-items: center; gap: 12px; margin: 0; font-size: 24px; font-weight: 500; color: var(--text-primary); letter-spacing: normal; }
 .settings-sources-heading p { margin: 10px 0 0; font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
 .settings-sources-count { font-size: 14px; font-weight: 400; color: var(--text-secondary); letter-spacing: 0; }
 .settings-sources-add { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; }
-.settings-sources-body { padding: 0 clamp(20px, 3vw, 48px) 32px; }
+.settings-sources-body { flex: 1; padding: 0 clamp(20px, 3vw, 48px) 32px; background: var(--surface-workbench); }
 .settings-sources-empty .control-primary { display: inline-flex; align-items: center; gap: 7px; }
-@media (max-width: 760px) { .settings-sources-head { padding: 24px 20px 22px; gap: 14px; align-items: flex-start; } .settings-sources-heading h1 { font-size: 22px; } .settings-sources-heading p { font-size: 13px; max-width: 24ch; } }
+@media (max-width: 760px) { .settings-sources-head { padding: 24px 20px 22px; gap: 14px; align-items: flex-start; border-radius: 0; } .settings-sources-heading h1 { font-size: 22px; } .settings-sources-heading p { font-size: 13px; max-width: 24ch; } }
 
 </style>

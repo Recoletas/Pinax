@@ -43,7 +43,7 @@ export function createMinimaxVideoAdapter(options = {}) {
   function resolveAuthKey(config) {
     const raw = String(config.apiKey || '').trim()
     if (raw && raw !== MINIMAX_SERVER_KEY_SENTINEL) return raw
-    return resolveMiniMaxApiKey({ baseUrl: config.baseUrl, apiKey: raw })
+    return resolveMiniMaxApiKey({ baseUrl: config.baseUrl || baseUrl, apiKey: raw })
   }
 
   function authHeaders(config) {
@@ -64,7 +64,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     return payload
   }
 
-  async function submit(job, config) {
+  async function submit(job, config, { signal } = {}) {
     const transport = getFetch(fetchImpl || config.__fetchImpl)
     const selectedModel = String(config.model || job.model || defaultModel).trim()
     const generation = normalizeGenerationOptions(job.input || {}, config, selectedModel)
@@ -82,6 +82,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     }
     const payload = await requestJson(transport, url, {
       method: 'POST',
+      signal,
       headers: { 'Content-Type': 'application/json', ...authHeaders(config) },
       body: JSON.stringify(body)
     }, 'submit failed')
@@ -90,7 +91,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     return { providerJobId, progress: 5 }
   }
 
-  async function poll(job, config) {
+  async function poll(job, config, { signal } = {}) {
     const transport = getFetch(fetchImpl || config.__fetchImpl)
     const providerJobId = job.providerJobId
     if (!providerJobId) throw new Error('MiniMax poll called without providerJobId')
@@ -98,9 +99,13 @@ export function createMinimaxVideoAdapter(options = {}) {
     const queryUrl = `${root}/v1/query/video_generation?task_id=${encodeURIComponent(providerJobId)}`
     const payload = await requestJson(transport, queryUrl, {
       method: 'GET',
+      signal,
       headers: { Accept: 'application/json', ...authHeaders(config) }
     }, 'poll failed')
 
+    if (payload?.task_id != null && String(payload.task_id) !== String(providerJobId)) {
+      throw new Error('MiniMax returned a different task_id')
+    }
     const mapped = mapPollResponse(payload)
     if (mapped.status !== 'succeeded') return mapped
 
@@ -109,8 +114,12 @@ export function createMinimaxVideoAdapter(options = {}) {
     const fileUrl = `${root}/v1/files/retrieve?file_id=${encodeURIComponent(fileId)}`
     const filePayload = await requestJson(transport, fileUrl, {
       method: 'GET',
+      signal,
       headers: { Accept: 'application/json', ...authHeaders(config) }
     }, 'file retrieval failed')
+    if (filePayload?.file?.file_id != null && String(filePayload.file.file_id) !== fileId) {
+      throw new Error('MiniMax returned a different file_id')
+    }
     const downloadUrl = filePayload?.file?.download_url
     if (typeof downloadUrl !== 'string' || !/^https?:\/\//i.test(downloadUrl)) {
       throw buildNoOutputError('MiniMax file retrieval returned no download_url')
@@ -137,7 +146,7 @@ export function createMinimaxVideoAdapter(options = {}) {
     return { cancelled: true, local: true }
   }
 
-  async function testConnection(config) {
+  async function testConnection(config, { signal } = {}) {
     const startedAt = Date.now()
     const key = resolveAuthKey(config)
     if (!key) {
@@ -149,14 +158,12 @@ export function createMinimaxVideoAdapter(options = {}) {
       const response = await transport(url, {
         redirect: 'error',
         method: 'GET',
+        signal,
         headers: { Accept: 'application/json', ...authHeaders(config) }
       })
       const payload = await readPayload(response)
       const providerCode = getProviderCode(payload)
-      const authenticated = response.status < 500
-        && response.status !== 401
-        && response.status !== 403
-        && !AUTH_ERROR_CODES.has(providerCode)
+      const authenticated = response.ok && [0, 2013].includes(providerCode)
       return connectionResult(
         authenticated,
         true,
@@ -195,13 +202,14 @@ export function createMinimaxVideoAdapter(options = {}) {
     label: 'MiniMax Video',
     getCapabilities,
     testConnection,
+    validateInput: (input, config, model) => normalizeGenerationOptions(input, config, String(config.model || model || defaultModel).trim()),
     submit,
     poll,
     cancel,
     normalizeError: normalizeAdapterError,
     publicConfigKeys: [
       '?baseUrl',
-      'apiKey',
+      '?apiKey',
       '?model',
       '?resolution',
       '?promptOptimizer',
@@ -212,6 +220,9 @@ export function createMinimaxVideoAdapter(options = {}) {
 }
 
 function normalizeGenerationOptions(input, config, model) {
+  if (!MINIMAX_MODELS.includes(model)) throw makeHttpError(400, 'unsupported MiniMax text-to-video model', 'invalid request')
+  if (input.aspectRatio && input.aspectRatio !== '16:9') throw makeHttpError(400, 'MiniMax text-to-video only supports 16:9', 'invalid request')
+  if (input.referenceImages?.length) throw makeHttpError(400, 'MiniMax text-to-video does not accept reference images', 'invalid request')
   const prompt = String(input.prompt || '').trim()
   if (!prompt) throw makeHttpError(400, 'prompt is required', 'invalid request')
   if (prompt.length > 2000) throw makeHttpError(400, 'prompt exceeds MiniMax 2000 character limit', 'invalid request')
@@ -312,12 +323,12 @@ function makeHttpError(status, body, fallback) {
 
 async function readPayload(response) {
   try {
-    const body = String(await response.text()).slice(0, 4000)
+    const body = String(await response.text())
     if (!body) return {}
     try {
       return JSON.parse(body)
     } catch {
-      return body
+      return body.slice(0, 4000)
     }
   } catch {
     return {}
