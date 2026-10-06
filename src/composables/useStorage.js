@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   WRITING_BLOCK_HISTORY: 'writing_block_history_v1',
   WRITING_RECOVERY_DRAFTS: 'writing_recovery_drafts_v1',
   WRITING_TYPOGRAPHY: 'writing_typography',
+  LOCAL_MIRROR_SETTINGS: 'local_mirror_settings_v1',
   AUTHORING_REVIEW_RUNS: 'authoring_review_runs_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
   MEMORY_CANDIDATES: 'memory_candidates_v1',
