@@ -66,7 +66,8 @@
     "desktop:package": "electron-forge package",
     "desktop:make": "electron-forge make",
     "smoke:desktop-foundation": "node scripts/desktop-foundation-smoke.mjs",
-    "smoke:desktop-migration": "node scripts/desktop-legacy-migration-smoke.mjs"
+    "smoke:desktop-migration": "node scripts/desktop-legacy-migration-smoke.mjs",
+    "smoke:local-mirror": "node scripts/local-mirror-check.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",
