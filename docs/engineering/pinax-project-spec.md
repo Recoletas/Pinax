@@ -43,8 +43,21 @@
 
 安全闸：open/create 是任意路径能力面，`PINAX_PUBLIC_ORIGINS` 非空（公网部署）一律 403 `ERR_LOCAL_ONLY`；绝对路径校验、建库要求空目录。
 
-## 5. 阶段映射
+## 6. 导入层（2026-10-06，全局工程化）
 
-- **阶段一（本轮）**：Web 模式，路径经 API 显式给出；文件为读拷贝（浏览器真源）。
+全局导入管线 `src/services/import/importPipeline.js`：**文件夹选择 → 递归走查 → 一书+资料分类 → 解析/归档**。
+
+- **选择方式**：File System Access API `showDirectoryPicker`（Chrome/Edge）优先；不可用回落 `webkitdirectory` input。拖拽仍只收文件（文件夹拖拽走查未做）。
+- **一书+资料语义**：根目录 `.txt/.md/.markdown` 合并为一本书（文件名=章节名，按路径排序；文件内 `#` 标题再切章，单文件多章时加「文件名 · 」前缀）；子目录全部文件 + 根目录 `.pdf/.docx/.epub` 归为资料（世界书源档案管线：`parseSourceFilesWithWorker` → `archiveSourceDocuments`，IndexedDB）。
+- **上限**：200 文件 / 单文件 20MB / 书稿 100 万字符 / 走查深度 8；跳过 `.pinax`/`node_modules`/隐藏目录。
+- **归档时机**：选择时只分类预览，确认导入后才写资料归档（`archiveMaterialEntries`）。
+- **自动建项目**：设置「本地项目 → 默认项目新建位置」配置后，导入确认与新建空书都会自动 `<root>/<书名>` 建项目文件夹并绑定 bookId（`ensureProjectForBook`，冲突/失败静默回落文档根镜像）。
+- **设置面**：设置弹窗「本地项目」节——默认新建位置 / 读取位置 / 注册表状态行；轻模块 `src/services/localMirrorSettings.js`（node 可加载）。
+- 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。
+- 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。
+
+## 5. 阶段映射（原 5 节，随 6 节导入层更新）
+
+- **阶段一（本轮）**：Web 模式，路径经 API 显式给出；文件为读拷贝（浏览器真源）。导入层已接「默认位置自动建项目」。
 - **阶段二（Electron 文件为真源）**：原生对话框选目录（`dialog.showOpenDialog` 先例已有）；`shared/desktopProjectContract.js` 现正则只认 `manuscript|reference` .txt，schema v2 需按本范式放开 kind/目录/扩展名（.md）；`.pinax/` 内核（SQLite 日志/锁/备份）与本范式的 marker 合并设计。
 - **阶段三**：双向对账（revision+hash 内核已备）。
