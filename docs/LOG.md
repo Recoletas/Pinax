@@ -1,5 +1,7 @@
 # 开发日志
 
+- 2026-10-06 Agent 统一 P0.1（kit 化排期启动）：全量盘点双链 agent 代码与 kit 架构后产出[统一改造计划](./plan/agent-unification-kit-20261006.md)（P0–P5，用户确认执行）。本轮交付：桥双副本 sync 门禁（`scripts/check-bridge-sync.mjs` 锚点契约 + adapter CI 步骤，JS 对锚点后逐字节、d.ts 整文件）；src 侧 `pinaxNarrativeAgentBridge.d.ts` 更名 `piNarrativeAgentBridge.d.ts` 对齐实现文件名并补齐漂移（onReasoning/onBeatPlan/onToolResult/taskKind/beatPlan/tasks()/healthz(options)）；清 24 个 tasks-bridge-* 残留；kit 仓 executor 回退桥改显式配置（`cfg.fallback.command`+`script`，去 storymasterv4 隐式硬编码，见 kit CHANGELOG 未发布段）。验证：sync-check exit 0、adapter 24/24+typecheck 0E、storyagent-beta-smoke exit 0、storyharness 84/84+typecheck 0E+动词表/openapi 门禁 OK、本仓 verify:full exit 0（20/20 文件 / 200/200 用例）。未推送；下一步 P0.2 契约单源化（capability-manifest@1 / beat-plan@1 进 kit contracts）。
+
 - 2026-10-05 PR #5 整合：先将近期 UI/真实流程收口保存为 `782b03e0`，再修复并接入贡献者 `4fea0677`。现有助手接参考/技法、真实续接、统一对话保存、同站任务隔离和作者确认采纳；规划/取消/预算/最终正文补齐，严格推演保留原生发布前验收。真实 MiniMax 首次及续接均实际调用算术工具，模型只打印工具代码的缺陷已修；组合检查、边界及清理见[接入记录](./agent-runs/pr5-integration-20261005.md)。公网未部署。
 
 - 2026-10-04 巡检遗留修复：按作者要求继续处理实际失败。地点提取兼容可验证的完整 JSON 文本返回；地图按当前世界书区分局部/世界，零国家/城市有效，并修解除绑定复活、局部比例尺与手机层级。漫画真实流式分页→改稿→建页→刷新通过；视频真实原件入库、下载和封锁外链后的空浏览器 ZIP 恢复通过。推演加入原始要求的发布前检查、唯一结束锚点与一次修订；三类真实收束通过，跑团无依据推断修订仍失败时已阻断。记忆限定进入候选正文与完整引文，真实提取及接受后读取保留承诺/条件。检查、限制及清理见[同一巡检记录](./agent-runs/user-journey-20261004.md)，未提交/推送/部署。
