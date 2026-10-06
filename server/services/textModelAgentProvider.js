@@ -1,6 +1,7 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { resolveProviderEndpoint } from './toolCallingProviderAdapter.js'
+import { forwardComplete, isServerKeyedTextConfig, kitFunnelAvailable } from './kitModelGateway.js'
 
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
@@ -161,6 +162,12 @@ function resolveConfig(taskMeta) {
 }
 
 export async function runTextModelAgent(envelope, question, taskMeta = {}) {
+  const rawConfig = taskMeta?.options?.providerConfig || {}
+  // 统一模型漏斗：服务器密钥配置（内置 MiniMax）转发到 kit 任务面（key 由服务端持有，浏览器不下发）。
+  // 自定义（浏览器自带 key）配置保持直连原路径，零变化。
+  if (isServerKeyedTextConfig(rawConfig) && await kitFunnelAvailable()) {
+    return runTextModelAgentViaKit(envelope, question, taskMeta)
+  }
   const config = resolveConfig(taskMeta)
   const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
   const anthropic = config.format === 'anthropic'
@@ -206,6 +213,33 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
       code: lastError.code,
       ...responseShape(data, parsed)
     })
+    if (!lastError.retryable) throw lastError
+  }
+  throw lastError
+}
+
+async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
+  const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
+  const maxTokens = resolveTextModelMaxTokens(taskMeta)
+  let lastError = null
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const repairInstruction = attempt === 0 ? '' : '\n\n上一次响应没有可用的最终结果。请跳过思考过程，仅返回符合上述协议的完整 JSON。'
+    try {
+      const result = await forwardComplete({
+        messages: [{ role: 'user', content: prompt + repairInstruction }],
+        maxTokens: Math.min(4096, maxTokens + (attempt * 600)),
+        temperature: attempt === 0 ? 0.4 : 0.2,
+        timeoutMs: attempt === 0 ? TEXT_MODEL_PROVIDER.timeoutMs : 30000
+      })
+      const content = String(result.content || '').trim()
+      if (content && result.finishReason !== 'length') return content
+      lastError = responseError({ truncated: result.finishReason === 'length', refused: false, hasReasoning: false })
+      console.warn('[Advisor] kit funnel unusable response:', { model: result.model, attempt: attempt + 1, code: lastError.code })
+      if (!lastError.retryable) throw lastError
+    } catch (error) {
+      if (error?.code === 'AGENT_PROVIDER_EMPTY_CONTENT' || error?.code === 'AGENT_PROVIDER_REFUSAL' || error?.code === 'AGENT_PROVIDER_OUTPUT_TRUNCATED') throw error
+      lastError = Object.assign(new Error(`kit funnel 请求失败：${error?.message || error}`), { code: 'AGENT_PROVIDER_UPSTREAM_FAILED', retryable: attempt === 0 })
+    }
     if (!lastError.retryable) throw lastError
   }
   throw lastError
