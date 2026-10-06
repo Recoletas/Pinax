@@ -1,17 +1,16 @@
-// 本地文件镜像（前端预留接口）：把作品的正文/大纲/世界书/构思单向镜像到服务端文档目录。
-// - 位置由服务端唯一决定（PINAX_MIRROR_ROOT > <homedir>/Documents/Pinax），前端设置只预留字段不做 UI；
-//   customRoot 仅作未来展示用途，不随请求发送（防路径注入）。
+// 本地文件镜像（前端）：payload 组装与自动同步（浏览器域，重模块）。
+// - 设置/绑定面（设置字段、注册表、自动建项目）在 localMirrorSettings.js（轻模块，node 可加载）。
 // - 自动同步挂 writing_books 订阅（保存链唯一边界），2.5s 去抖；失败静默退避 60s，不打断写作。
-import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
-import { loadWritingBooks, subscribeWritingBooks } from './writing/writingBooksRepository'
-import { readWorldbookSnapshot } from '../stores/worldStore'
-import { listWritingSnapshots } from './writing/writingSnapshots'
-import { listWritingBlockHistory } from './writing/writingBlockHistory'
-import { listMemoryCandidates } from './memory/memoryCandidates'
-import { listMediaAssets } from './media/mediaAssetStore'
-import { loadAllSourceArchiveRecords } from './worldbook/worldbookSourceArchive'
+import { getItem, STORAGE_KEYS } from '../composables/useStorage.js'
+import { getLocalMirrorSettings } from './localMirrorSettings.js'
+import { loadWritingBooks, subscribeWritingBooks } from './writing/writingBooksRepository.js'
+import { readWorldbookSnapshot } from '../stores/worldStore.js'
+import { listWritingSnapshots } from './writing/writingSnapshots.js'
+import { listWritingBlockHistory } from './writing/writingBlockHistory.js'
+import { listMemoryCandidates } from './memory/memoryCandidates.js'
+import { listMediaAssets } from './media/mediaAssetStore.js'
+import { loadAllSourceArchiveRecords } from './worldbook/worldbookSourceArchive.js'
 
-const SETTINGS_KEY = STORAGE_KEYS.LOCAL_MIRROR_SETTINGS
 const DEBOUNCE_MS = 2500
 const FAILURE_BACKOFF_MS = 60_000
 const CONVERSATION_KEY_PREFIX = 'authoring_assistant_conversation:'
@@ -27,31 +26,8 @@ const CAPS = {
   conversationMessageChars: 8_000
 }
 
-function normalizeSettings(raw) {
-  const value = raw && typeof raw === 'object' ? raw : {}
-  return {
-    enabled: value.enabled !== false,
-    customRoot: typeof value.customRoot === 'string' ? value.customRoot : ''
-  }
-}
-
-export function getLocalMirrorSettings() {
-  return normalizeSettings(getItem(SETTINGS_KEY, null))
-}
-
-/** 预留给未来设置 UI；当前无按钮入口。customRoot 仅展示用，不参与请求。 */
-export function setLocalMirrorSettings(patch) {
-  const next = { ...getLocalMirrorSettings(), ...(patch && typeof patch === 'object' ? patch : {}) }
-  setItem(SETTINGS_KEY, normalizeSettings(next))
-  return next
-}
-
-export async function getLocalMirrorLocation() {
-  const response = await fetch('/api/localmirror/location')
-  const payload = await response.json().catch(() => null)
-  if (!response.ok || payload?.ok !== true) throw Object.assign(new Error(payload?.message || 'mirror location unavailable'), { status: response.status })
-  return payload
-}
+// 设置/绑定面（getLocalMirrorSettings/setLocalMirrorSettings/ensureProjectForBook/
+// listLocalProjects/getLocalMirrorLocation）在 localMirrorSettings.js——轻模块单源。
 
 function gatherLogs(book, chapterIds, worldbookId) {
   const logs = { revisions: [], sessions: [], conversations: [], memory: [] }

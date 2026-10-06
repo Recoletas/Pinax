@@ -1612,6 +1612,7 @@ import {
   saveWritingBooksDurable,
   createWritingBookRecord
 } from '../services/writing/writingBooksRepository'
+import { ensureProjectForBook } from '../services/localMirrorSettings.js'
 import {
   ASSET_KINDS,
   getAssetKindExplanation,
@@ -8364,6 +8365,8 @@ function confirmCreateBook() {
   }
   selectBook(newBook.id)
   showNewBookModal.value = false
+  // 配置了默认新建位置时，自动在本地建项目文件夹并绑定（失败静默回落文档根镜像）
+  void ensureProjectForBook(newBook)
   assistantWorkspace.afterCreateBook()
 }
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；
