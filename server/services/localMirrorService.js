@@ -7,6 +7,13 @@ import os from 'node:os'
 import path from 'node:path'
 
 export const MIRROR_SCHEMA = 'pinax-project-fs@2'
+export const PROJECT_SPEC = 'pinax-project@1'
+/** 项目文件夹范式（Obsidian/VS Code 模式）：任意位置自包含文件夹，.pinax/project.json 为标记。 */
+const KIND_TEMPLATES = {
+  novel: ['正文', '大纲', '世界书', '构思', '资料', '日志'],
+  screenplay: ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志'],
+  generic: ['文档', '资料', '日志']
+}
 const MANAGED_SUBDIRS = ['正文', '大纲', '世界书', '构思', '资料', '日志']
 const LIMITS = {
   maxChapters: 500,
@@ -25,6 +32,29 @@ const LIMITS = {
 
 export function resolveMirrorRoot(env = process.env) {
   return env.PINAX_MIRROR_ROOT || path.join(os.homedir(), 'Documents', 'Pinax')
+}
+
+/** 应用侧数据（注册表/索引）："代码安装位置附近"——PINAX_APP_DATA > <server>/.pinax-app/（桌面阶段换 Electron userData）。 */
+export function resolveAppData(env = process.env, serverDir = path.resolve(import.meta.dirname, '..')) {
+  return env.PINAX_APP_DATA || path.join(serverDir, '.pinax-app')
+}
+
+function readRegistry(appData) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(appData, 'projects.registry.json'), 'utf-8'))
+    return Array.isArray(parsed.projects) ? parsed.projects : []
+  } catch { return [] }
+}
+
+function writeRegistry(appData, projects) {
+  fs.mkdirSync(appData, { recursive: true })
+  writeFileAtomic(path.join(appData, 'projects.registry.json'), JSON.stringify({ schema: PROJECT_SPEC, projects }, null, 2) + '\n')
+}
+
+function validateProjectPathInput(rootPath) {
+  if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath)) return '路径必须是绝对路径'
+  if (rootPath.includes('..')) return '路径不允许包含 ..'
+  return null
 }
 
 /** Windows/通用文件名消毒：去控制符与非法字符，截断，空则回落占位。 */
@@ -147,11 +177,80 @@ function conversationMarkdown(projectId, conversation) {
  * 把一个项目的文件体系写入 root 下。返回 { dir, counts }。
  * 托管子目录整体重建（先删后写），meta.json 最后写——它是「本次同步完整」的标记。
  */
-export function createLocalMirrorService({ rootPath, now = () => new Date().toISOString() } = {}) {
+export function createLocalMirrorService({ rootPath, appDataPath, now = () => new Date().toISOString() } = {}) {
   function resolveRoot() {
     const root = rootPath || resolveMirrorRoot()
     fs.mkdirSync(root, { recursive: true })
     return root
+  }
+
+  function resolveAppDataDir() {
+    const appData = appDataPath || resolveAppData()
+    fs.mkdirSync(appData, { recursive: true })
+    return appData
+  }
+
+  const registryKeyOf = (rootPath) => path.resolve(rootPath).toLowerCase()
+
+  function upsertRegistry(entry) {
+    const appData = resolveAppDataDir()
+    const projects = readRegistry(appData).filter((item) => registryKeyOf(item.rootPath) !== registryKeyOf(entry.rootPath))
+    projects.push(entry)
+    writeRegistry(appData, projects)
+    return entry
+  }
+
+  /** 在任意位置创建项目文件夹（Obsidian 建库）：空目录 + marker + kind 模板目录，并登记注册表。 */
+  function createProjectAt({ rootPath, name, kind = 'novel', bookId = null }) {
+    const invalid = validateProjectPathInput(rootPath)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    if (!KIND_TEMPLATES[kind]) throw Object.assign(new Error(`未知项目类型 ${kind}（可用：${Object.keys(KIND_TEMPLATES).join('/')}）`), { code: 'ERR_INVALID_INPUT' })
+    if (typeof name !== 'string' || !name.trim()) throw Object.assign(new Error('name 必填'), { code: 'ERR_INVALID_INPUT' })
+    const root = path.resolve(rootPath)
+    const exists = fs.existsSync(root)
+    if (exists && fs.readdirSync(root).length > 0) throw Object.assign(new Error('目标目录非空——创建项目需要空目录（打开已有项目用 /projects/open）'), { code: 'ERR_DIR_NOT_EMPTY' })
+    fs.mkdirSync(root, { recursive: true })
+    const projectId = `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const manifest = { schemaVersion: 1, spec: PROJECT_SPEC, projectId, name: sanitizeFilename(name), kind, createdAt: now(), updatedAt: now() }
+    writeFileAtomic(path.join(root, '.pinax', 'project.json'), JSON.stringify(manifest, null, 2) + '\n')
+    for (const dir of KIND_TEMPLATES[kind]) fs.mkdirSync(path.join(root, dir), { recursive: true })
+    return { manifest, entry: upsertRegistry({ projectId, bookId, name: manifest.name, kind, rootPath: root, lastOpenedAt: now(), lastSyncAt: null }) }
+  }
+
+  /** 打开已有项目文件夹：校验 marker 并登记/刷新注册表。 */
+  function openProjectAt({ rootPath, bookId = null }) {
+    const invalid = validateProjectPathInput(rootPath)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const root = path.resolve(rootPath)
+    let manifest
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(root, '.pinax', 'project.json'), 'utf-8'))
+    } catch {
+      throw Object.assign(new Error('目标目录不是 pinax 项目（缺少 .pinax/project.json）——可改用 /projects/create 创建'), { code: 'ERR_NOT_A_PROJECT' })
+    }
+    if (manifest.spec !== PROJECT_SPEC) throw Object.assign(new Error(`项目范式 ${manifest.spec} 与当前支持 ${PROJECT_SPEC} 不匹配`), { code: 'ERR_SPEC_MISMATCH' })
+    const existing = readRegistry(resolveAppDataDir()).find((item) => registryKeyOf(item.rootPath) === registryKeyOf(root))
+    const entry = upsertRegistry({
+      projectId: manifest.projectId, bookId: bookId ?? existing?.bookId ?? null,
+      name: manifest.name, kind: manifest.kind || 'generic', rootPath: root, lastOpenedAt: now(),
+      lastSyncAt: existing?.lastSyncAt ?? null
+    })
+    return { manifest, entry }
+  }
+
+  function listProjects() {
+    return readRegistry(resolveAppDataDir())
+  }
+
+  /** 同步落点：bookId 在注册表绑定过的项目根优先，否则回落文档根（旧行为兼容）。 */
+  function resolveBookDir(book) {
+    const entry = readRegistry(resolveAppDataDir()).find((item) => item.bookId === book.id && fs.existsSync(item.rootPath))
+    if (entry) return { dir: entry.rootPath, projectRoot: entry.rootPath, kind: KIND_TEMPLATES[entry.kind] ? entry.kind : 'novel' }
+    return {
+      dir: path.join(resolveRoot(), `${sanitizeFilename(book.title)}-${String(book.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(-8)}`),
+      projectRoot: null,
+      kind: 'novel'
+    }
   }
 
   function mirrorBook(payload) {
@@ -159,9 +258,12 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
     if (error) throw Object.assign(new Error(error), { code: 'ERR_INVALID_INPUT' })
     const root = resolveRoot()
     const book = payload.book
-    const dir = path.join(root, `${sanitizeFilename(book.title)}-${String(book.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(-8)}`)
+    const located = resolveBookDir(book)
+    const dir = located.dir
     for (const sub of MANAGED_SUBDIRS) fs.rmSync(path.join(dir, sub), { recursive: true, force: true })
     fs.mkdirSync(dir, { recursive: true })
+    // 范式目录保留：同步只重写内容，kind 模板目录（可能为空）必须存在
+    for (const templateDir of KIND_TEMPLATES[located.kind] ?? []) fs.mkdirSync(path.join(dir, templateDir), { recursive: true })
 
     const usedChapterNames = new Set()
     book.chapters.forEach((chapter, index) => {
@@ -259,13 +361,18 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
       artifacts: artifactCount,
       media: Array.isArray(payload.media) ? payload.media.length : 0
     }
+    if (located.projectRoot) {
+      const appData = resolveAppDataDir()
+      const projects = readRegistry(appData).map((item) => (registryKeyOf(item.rootPath) === registryKeyOf(located.projectRoot) ? { ...item, lastSyncAt: now() } : item))
+      writeRegistry(appData, projects)
+    }
     writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: MIRROR_SCHEMA, bookId: book.id, title: book.title, mirroredAt: now(), ...counts }, null, 2) + '\n')
-    return { dir, counts }
+    return { dir, counts, projectRoot: located.projectRoot }
   }
 
-  /** 根级项目索引：全部书的摘要。server 在 /index 路由调用。 */
+  /** 应用侧项目索引：<appData>/index.json（注册表旁，不在项目文件夹内）。 */
   function writeProjectIndex(books) {
-    const root = resolveRoot()
+    const appData = resolveAppDataDir()
     const entries = (Array.isArray(books) ? books : []).map((book) => ({
       id: book.id,
       title: book.title,
@@ -276,9 +383,10 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
       mirroredAt: book.mirroredAt ?? null,
       dir: book.dir ?? null
     }))
-    writeFileAtomic(path.join(root, '项目索引.json'), JSON.stringify({ schema: MIRROR_SCHEMA, generatedAt: now(), projects: entries }, null, 2) + '\n')
-    return path.join(root, '项目索引.json')
+    const file = path.join(appData, 'index.json')
+    writeFileAtomic(file, JSON.stringify({ schema: MIRROR_SCHEMA, generatedAt: now(), projects: entries }, null, 2) + '\n')
+    return file
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex }
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, resolveAppDataDir }
 }

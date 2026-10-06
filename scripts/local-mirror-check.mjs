@@ -111,8 +111,50 @@ const indexPath = service.writeProjectIndex([
   { id: 'book_logs_001', title: '日志验收', chapters: 1, words: 3, entries: 0, updatedAt: '2026-10-06T02:00:00Z', dir: logsResult.dir },
   { id: 'book_mat_001', title: '资料验收', chapters: 1, words: 1, entries: 0, updatedAt: '2026-10-06T02:00:00Z', dir: matResult.dir }
 ])
-const index = JSON.parse(fs.readFileSync(indexPath, 'utf-8'))
-check('项目索引.json 含两项目与计数', index.projects.length === 2 && index.projects[0].words === 3 && index.schema === 'pinax-project-fs@2')
+check('索引写在 app-data（注册表旁）', path.dirname(indexPath) === service.resolveAppDataDir() && JSON.parse(fs.readFileSync(indexPath, 'utf-8')).projects.length === 2)
+
+console.log('[9] 项目标准范式 pinax-project@1：任意位置项目 + 注册表')
+const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-appdata-'))
+const paradigmService = createLocalMirrorService({ rootPath: root, appDataPath: appData })
+const novelRoot = path.join(os.tmpdir(), 'pinax-proj-novel-')
+fs.rmSync(novelRoot, { recursive: true, force: true })
+const created = paradigmService.createProjectAt({ rootPath: novelRoot, name: '雾港纪事', kind: 'novel', bookId: 'book_logs_001' })
+check('marker 落盘且 spec 正确', JSON.parse(fs.readFileSync(path.join(novelRoot, '.pinax', 'project.json'), 'utf-8')).spec === 'pinax-project@1')
+check('novel 模板目录齐全', ['正文', '大纲', '世界书', '构思', '资料', '日志'].every((dir) => fs.existsSync(path.join(novelRoot, dir))))
+check('create 登记注册表（绑定 bookId）', paradigmService.listProjects().some((item) => item.bookId === 'book_logs_001' && item.kind === 'novel'))
+const reopened = paradigmService.openProjectAt({ rootPath: novelRoot })
+check('open 校验 marker 并刷新注册表', reopened.manifest.projectId === created.manifest.projectId)
+const boundSync = paradigmService.mirrorBook({ ...logsPayload, book: { ...logsPayload.book, id: 'book_logs_001' } })
+check('绑定项目同步落到项目根（非文档根）', boundSync.projectRoot === path.resolve(novelRoot) && fs.existsSync(path.join(novelRoot, 'meta.json')))
+check('项目根内含 @2 全布局', fs.existsSync(path.join(novelRoot, '世界书')) && fs.existsSync(path.join(novelRoot, '日志', '助手对话')))
+const screenplayRoot = path.join(os.tmpdir(), 'pinax-proj-screenplay-')
+fs.rmSync(screenplayRoot, { recursive: true, force: true })
+paradigmService.createProjectAt({ rootPath: screenplayRoot, name: '夜航剧本', kind: 'screenplay' })
+check('screenplay 模板目录齐全', ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志'].every((dir) => fs.existsSync(path.join(screenplayRoot, dir))))
+const genericRoot = path.join(os.tmpdir(), 'pinax-proj-generic-')
+fs.rmSync(genericRoot, { recursive: true, force: true })
+paradigmService.createProjectAt({ rootPath: genericRoot, name: '杂项', kind: 'generic' })
+check('generic 模板目录齐全', ['文档', '资料', '日志'].every((dir) => fs.existsSync(path.join(genericRoot, dir))))
+let nonProjectError = ''
+try { paradigmService.openProjectAt({ rootPath: os.tmpdir() }) } catch (error) { nonProjectError = error.code }
+check('打开非项目目录 → ERR_NOT_A_PROJECT', nonProjectError === 'ERR_NOT_A_PROJECT')
+let nonEmptyError = ''
+try { paradigmService.createProjectAt({ rootPath: novelRoot, name: 'x', kind: 'novel' }) } catch (error) { nonEmptyError = error.code }
+check('create 到非空目录 → ERR_DIR_NOT_EMPTY', nonEmptyError === 'ERR_DIR_NOT_EMPTY')
+let badPathError = ''
+try { paradigmService.createProjectAt({ rootPath: 'relative/path', name: 'x' }) } catch (error) { badPathError = error.code }
+check('相对路径 → ERR_INVALID_INPUT', badPathError === 'ERR_INVALID_INPUT')
+
+console.log('[10] 公网部署安全闸：open/create 403')
+const guardRouter = createLocalMirrorRouter({ service: paradigmService })
+process.env.PINAX_PUBLIC_ORIGINS = 'https://example.com'
+const guardCalls = []
+for (const routePath of ['/projects/create', '/projects/open']) {
+  const handler = guardRouter.stack.find((layer) => layer.route?.path === routePath && layer.route?.methods?.post).route.stack[0].handle
+  await handler({ body: { path: novelRoot, name: 'x' } }, { status(code) { this.code = code; return this }, json(body) { guardCalls.push({ routePath, code: this.code, body }) } }, () => {})
+}
+delete process.env.PINAX_PUBLIC_ORIGINS
+check('公网部署下 create/open 均 403 ERR_LOCAL_ONLY', guardCalls.every((call) => call.code === 403 && call.body.error === 'ERR_LOCAL_ONLY'))
 
 console.log(`local-mirror-check: ${passed} 项全部通过`)
 fs.rmSync(root, { recursive: true, force: true })

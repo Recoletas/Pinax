@@ -81,9 +81,8 @@
 - Electron 打包时，镜像应切换为直写（`desktopProjectRepository` 已有 chooseDirectory/writeText 桥，可替代服务端路由）——接口已按「前端只组 payload、位置由宿主决定」预留。
 - agent 读取：kit 任务面后续可用 fs 工具挂 `PINAX_MIRROR_ROOT`（能力清单已留 `capabilities.json` 机制）。
 
-## 四、全局项目化路线（2026-10-06 定）
+## 四、全局项目化路线（2026-10-06 定；范式见 [pinax-project-spec.md](./pinax-project-spec.md)）
 
-**阶段一（本轮，已交付）**：项目文件体系 @2——上面全量布局，浏览器为真源，文件为全量单向读拷贝。
-**阶段二（Electron 文件为真源）**：`electron/projects` 内核升级 desktop schema v2——`project_items.kind` 增 worldbook-entry/outline/exploration/log 等域 kind、目录契约扩展（现仅 `manuscript|reference` .txt，`shared/desktopProjectContract.js` 正则会拒）、manifest v2；届时文件即真源，Web 模式继续走服务端镜像。
-**阶段三（双向对账）**：文件手改回流应用（revision+hash 乐观并发在 Electron 内核已备），需冲突策略与 UI。
-基础设施现状：Electron 内核生产级可用但域结构缺失（只有 volume/chapter/reference 三 kind）；kit fs 工具已按项目目录越狱；浏览器侧仅助手对话键物理按项目分键，其余按字段过滤——存储按项目重组（45 个 project 类键）是阶段二的并行项。
+**阶段一（已交付两步）**：① 项目文件体系 @2（浏览器真源、文件全量读拷贝）；② **项目标准范式 `pinax-project@1`**——项目 = 磁盘任意位置的自包含文件夹（`.pinax/project.json` 标记，Obsidian/VS Code 模式），应用侧注册表/索引存"代码安装位置附近"（`PINAX_APP_DATA` > `<server>/.pinax-app/`），sync 按 bookId 绑定落项目根，open/create 任意路径能力面被公网部署闸锁死（403）。kind 模板：novel/screenplay/generic。
+**阶段二（Electron 文件为真源）**：原生对话框选目录（先例已有）；`shared/desktopProjectContract.js` schema v2 按范式放开 kind/目录/.md；`.pinax/` SQLite 内核与范式 marker 合并。
+**阶段三（双向对账）**：文件手改回流（revision+hash 内核已备）+ 冲突策略。
