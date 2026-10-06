@@ -200,9 +200,11 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return entry
   }
 
-  /** 在任意位置创建项目文件夹（Obsidian 建库）：空目录 + marker + kind 模板目录，并登记注册表。 */
+  /** 在任意位置创建项目文件夹（Obsidian 建库）：空目录 + marker + kind 模板目录，并登记注册表。
+   *  path 缺省时回落 <mirrorRoot>/<name>——「全部都是本地项目」的服务端兜底。 */
   function createProjectAt({ rootPath, path: pathInput, name, kind = 'novel', bookId = null }) {
-    const target = rootPath || pathInput
+    const fallbackRoot = path.join(resolveRoot(), sanitizeFilename(name || '未命名项目'))
+    const target = rootPath || pathInput || fallbackRoot
     const invalid = validateProjectPathInput(target)
     if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
     if (!KIND_TEMPLATES[kind]) throw Object.assign(new Error(`未知项目类型 ${kind}（可用：${Object.keys(KIND_TEMPLATES).join('/')}）`), { code: 'ERR_INVALID_INPUT' })
@@ -262,6 +264,35 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     const next = projects.filter((item) => !(projectId ? item.projectId === projectId : registryKeyOf(item.rootPath) === registryKeyOf(String(rootPath || ''))))
     if (next.length === projects.length) throw Object.assign(new Error('注册表中没有这个项目'), { code: 'ERR_PROJECT_NOT_FOUND' })
     writeRegistry(appData, next)
+  }
+
+  /** 编辑项目属性（name/kind）：同步 .pinax/project.json marker 与注册表。 */
+  function updateProjectAt({ projectId, rootPath, name, kind }) {
+    const appData = resolveAppDataDir()
+    const projects = readRegistry(appData)
+    const target = projects.find((item) => (projectId ? item.projectId === projectId : registryKeyOf(item.rootPath) === registryKeyOf(String(rootPath || ''))))
+    if (!target) throw Object.assign(new Error('注册表中没有这个项目'), { code: 'ERR_PROJECT_NOT_FOUND' })
+    if (kind !== undefined && !KIND_TEMPLATES[kind]) throw Object.assign(new Error(`未知项目类型 ${kind}`), { code: 'ERR_INVALID_INPUT' })
+    const markerPath = path.join(target.rootPath, '.pinax', 'project.json')
+    let manifest
+    try {
+      manifest = JSON.parse(fs.readFileSync(markerPath, 'utf-8'))
+    } catch {
+      throw Object.assign(new Error('项目 marker 缺失或损坏，无法更新'), { code: 'ERR_NOT_A_PROJECT' })
+    }
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) throw Object.assign(new Error('name 非法'), { code: 'ERR_INVALID_INPUT' })
+      manifest.name = sanitizeFilename(name)
+      target.name = manifest.name
+    }
+    if (kind !== undefined) {
+      manifest.kind = kind
+      target.kind = kind
+    }
+    manifest.updatedAt = now()
+    writeFileAtomic(markerPath, JSON.stringify(manifest, null, 2) + '\n')
+    writeRegistry(appData, projects)
+    return target
   }
 
   /** 同步落点：bookId 在注册表绑定过的项目根优先，否则回落文档根（旧行为兼容）。 */
@@ -410,5 +441,5 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return file
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, resolveAppDataDir }
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, resolveAppDataDir }
 }

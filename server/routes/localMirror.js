@@ -77,6 +77,16 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
+  router.post('/projects/update', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const entry = service.updateProjectAt(req.body || {})
+      return res.json({ ok: true, entry })
+    } catch (error) {
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' || error?.code === 'ERR_NOT_A_PROJECT' ? 404 : 400
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
   router.post('/sync', (req, res) => {
     try {
       const result = service.mirrorBook(req.body)

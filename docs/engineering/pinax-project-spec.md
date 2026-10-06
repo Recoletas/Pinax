@@ -52,6 +52,7 @@
 - **上限**：200 文件 / 单文件 20MB / 书稿 100 万字符 / 走查深度 8；跳过 `.pinax`/`node_modules`/隐藏目录。
 - **归档时机**：选择时只分类预览，确认导入后才写资料归档（`archiveMaterialEntries`）。
 - **自动建项目**：设置「本地项目 → 默认项目新建位置」配置后，导入确认与新建空书都会自动 `<root>/<书名>` 建项目文件夹并绑定 bookId（`ensureProjectForBook`，冲突/失败静默回落文档根镜像）。
+- **统一项目资料面板（2026-10-07）**：`ProjectInfoPanel`（全局单例 `useProjectInfoPanel`，非独立页面）承载新建/编辑/导入绑定三模式——字段：书名/简介/语言/世界书/kind/文件夹位置。**「全部都是本地项目」**：create/attach 的 path 可省，服务端回落 `<mirrorRoot>/<name>`（Documents\Pinax）；edit 模式经 `POST /projects/update` 同步 marker+registry（name/kind 随时可改）。书卡 hover 出「修改项目配置/删除项目」（删除=删书+摘注册表，磁盘保留）。导入确认后自动弹 attach 模式。
 - **设置面**：设置弹窗「本地项目」节——默认新建位置 / 读取位置 / 注册表状态行；轻模块 `src/services/localMirrorSettings.js`（node 可加载）。
 - 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。
 - 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。

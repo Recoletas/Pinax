@@ -168,5 +168,16 @@ let notFoundError = ''
 try { paradigmService.setProjectBinding({ projectId: 'proj_missing', bookId: 'x' }) } catch (error) { notFoundError = error.code }
 check('绑定不存在项目 → ERR_PROJECT_NOT_FOUND', notFoundError === 'ERR_PROJECT_NOT_FOUND')
 
+console.log('[12] create 缺 path 回落 + update 编辑项目属性')
+const fallbackRoot = paradigmService.createProjectAt({ name: '回落项目', kind: 'generic' })
+check('create 缺 path 回落 mirrorRoot 下', fallbackRoot.entry.rootPath.startsWith(root))
+const updated = paradigmService.updateProjectAt({ projectId: fallbackRoot.manifest.projectId, name: '改名项目', kind: 'screenplay' })
+check('update 改注册表 name/kind', updated.name === '改名项目' && updated.kind === 'screenplay')
+const markerAfter = JSON.parse(fs.readFileSync(path.join(fallbackRoot.entry.rootPath, '.pinax', 'project.json'), 'utf-8'))
+check('update 同步 marker 文件', markerAfter.name === '改名项目' && markerAfter.kind === 'screenplay')
+let badKindError = ''
+try { paradigmService.updateProjectAt({ projectId: fallbackRoot.manifest.projectId, kind: 'nope' }) } catch (error) { badKindError = error.code }
+check('未知 kind → ERR_INVALID_INPUT', badKindError === 'ERR_INVALID_INPUT')
+
 console.log(`local-mirror-check: ${passed} 项全部通过`)
 fs.rmSync(root, { recursive: true, force: true })
