@@ -123,7 +123,6 @@ import {
   validateManuscriptFile
 } from '../../services/writing/writingManuscriptImport.js'
 import { archiveMaterialEntries, importFolderAsBook } from '../../services/import/importPipeline.js'
-import { ensureProjectForBook } from '../../services/localMirrorSettings.js'
 
 const emit = defineEmits(['close', 'import'])
 
@@ -430,10 +429,9 @@ function confirmImport() {
     return
   }
   confirming.value = true
-  // 文件夹模式：资料归档与本地项目绑定在书创建后异步进行，不阻塞保存链
+  // 文件夹模式：资料归档在书创建后异步进行，不阻塞保存链；本地项目绑定由导入确认后的项目资料面板负责
   const materials = folderMaterials.value
   if (materials?.length) void archiveMaterialEntries(materials).catch(() => {})
-  void ensureProjectForBook(result.book).catch(() => {})
   let responded = false
   emit('import', result.book, (ok) => {
     responded = true

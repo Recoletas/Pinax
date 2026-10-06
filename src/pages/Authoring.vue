@@ -1454,53 +1454,8 @@
       </div>
     </Transition>
 
-    <!-- 新建书籍弹窗 -->
-    <Transition name="modal-fade">
-      <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
-        <Transition name="modal-scale" appear>
-          <form class="modal" role="dialog" aria-modal="true" aria-labelledby="new-book-title" @submit.prevent="confirmCreateBook">
-            <div class="modal-header">
-              <h3 id="new-book-title">{{ tr('新建书稿') }}</h3>
-              <button class="modal-close" type="button" :aria-label="tr(&quot;关闭新建书稿&quot;)" @click="showNewBookModal = false">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-                </svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <label class="input-label">{{ tr('书名') }}</label>
-              <input
-                v-model="newBookTitle"
-                type="text"
-                class="input"
-                :placeholder="tr(&quot;输入书籍名称&quot;)"
-                ref="newBookInput"
-              />
-              <fieldset class="authoring-new-book-start"><legend>{{ tr('如何开始') }}</legend><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="false" />{{ tr('直接写作') }}</label><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="true" />{{ tr('和助手构思') }}</label></fieldset>
-              <ManuscriptLanguageSelect v-model="newBookLanguage" /><p class="modal-hint">{{ tr('创建后会建立第一个章节，可以立即写正文。') }}</p>
-              <details class="modal-options">
-                <summary>{{ tr('可选：简介与世界书') }}</summary>
-                <label class="input-label">{{ tr('简介') }}</label>
-                <textarea
-                  v-model="newBookDesc"
-                  class="input textarea"
-                  :placeholder="tr(&quot;一句话记下这本书想写什么&quot;)"
-                ></textarea>
-                <label class="input-label">{{ tr('世界书') }}</label>
-                <select v-model="newBookWorldbookId" class="input" :aria-label="tr(&quot;新建书籍绑定世界书&quot;)">
-                  <option value="">{{ tr('暂不绑定') }}</option>
-                  <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
-                </select>
-              </details>
-            </div>
-            <div class="modal-footer">
-              <button class="btn" type="button" @click="showNewBookModal = false">{{ tr('取消') }}</button>
-              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim() && !assistantWorkspace.newBookWithAssistant.value">{{ assistantWorkspace.newBookWithAssistant.value ? tr('创建并构思') : tr('创建并开始写') }}</button>
-            </div>
-          </form>
-        </Transition>
-      </div>
-    </Transition>
+    <!-- 项目资料面板（新建/编辑/导入绑定 统一入口） -->
+    <ProjectInfoPanel @saved="onProjectInfoSaved" />
     <AuthoringManuscriptImport
       v-if="showManuscriptImport"
       @close="closeManuscriptImport"
@@ -1609,10 +1564,10 @@ const AuthoringHistoryPanel = defineAsyncComponent(() => import('../components/a
 import { listMemoryCandidates, queueMemoryCandidate, updateMemoryCandidate, confirmMemoryCandidate, rejectMemoryCandidate, mergeMemoryCandidateConflicts, replaceMemoryCandidateConflicts } from '../services/memory/memoryCandidates'
 import {
   loadWritingBooks,
-  saveWritingBooksDurable,
-  createWritingBookRecord
+  saveWritingBooksDurable
 } from '../services/writing/writingBooksRepository'
-import { ensureProjectForBook } from '../services/localMirrorSettings.js'
+import { useProjectInfoPanel } from '../composables/useProjectInfoPanel.js'
+import ProjectInfoPanel from '../components/workbench/ProjectInfoPanel.vue'
 import {
   ASSET_KINDS,
   getAssetKindExplanation,
@@ -1809,7 +1764,6 @@ const {
 } = createBoundWorldbookSync({
   loadWorldbookForProject: (id) => worldStore.loadWorldbookForProject(id)
 })
-const newBookWorldbookId = ref('')
 // L5 跨页资料同步：同浏览器其他标签/设定页修改绑定世界书后，保守刷新。
 // 只比较 revision，内容未变不动；变化时用当前 book.worldbookId 重新加载（自带令牌）。
 async function refreshBoundWorldbookIfChanged({ notify = false } = {}) {
@@ -1848,13 +1802,9 @@ const authoringObservations = ref([])
 // 最近一次锚点写入回执（撤销安全校验用）。
 const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
-const showNewBookModal = ref(false)
+const projectPanel = useProjectInfoPanel()
 const showManuscriptImport = ref(false)
 const manuscriptImportReturnFocus = shallowRef(null)
-const newBookTitle = ref('')
-const newBookLanguage = ref('')
-const newBookDesc = ref('')
-const newBookInput = ref(null)
 const editorRef = ref(null)
 const notebookEditorRef = ref(null)
 const blockComposerRef = ref(null)
@@ -6440,7 +6390,7 @@ const writingAgentHost = useInlineWritingAgentHost({
   buildAgentInput: buildPassiveAgentInput,
   readInteractionSignals: () => ({
     dualComposing: dualCompositionActive.value,
-    modalOpen: showNewBookModal.value
+    modalOpen: projectPanel.isOpen.value
       || assetInboxOpen.value
       || illustratorOpen.value
       || reviewPanelOpen.value
@@ -7108,7 +7058,7 @@ watch([
   if (illustratorBrief.value) reconcileIllustratorSource()
 })
 const shouldLockPageScroll = computed(() => {
-  return assetInboxOpen.value || showNewBookModal.value || showManuscriptImport.value || illustratorBlocking.value
+  return assetInboxOpen.value || projectPanel.isOpen.value || showManuscriptImport.value || illustratorBlocking.value
 })
 useBodyScrollLock(shouldLockPageScroll)
 // U33：键盘 undo/redo 后 PM 事务副作用可能使编辑器丢失焦点（DOM 重渲染
@@ -8272,13 +8222,15 @@ function selectChapter(chapterId) {
 }
 function createNewBook({ clearRouteIntent = false } = {}) {
   if (clearRouteIntent) assistantWorkspace.startNewBook()
-  showNewBookModal.value = true
-  newBookTitle.value = ''
-  newBookLanguage.value = uiLocale.value
-  newBookDesc.value = ''
-  newBookWorldbookId.value = ''
-  void worldStore.loadWorldbooksIndex()
-  nextTick(() => newBookInput.value?.focus())
+  projectPanel.open({
+    mode: 'create',
+    allowEmptyTitle: assistantWorkspace.newBookWithAssistant.value,
+    onCreated: (book) => {
+      books.value = loadWritingBooks()
+      selectBook(book.id)
+      assistantWorkspace.afterCreateBook()
+    }
+  })
   if (!clearRouteIntent || String(route.query.start || '') !== 'new') return
   const query = { ...route.query }
   delete query.start
@@ -8318,6 +8270,8 @@ function confirmManuscriptImport(book, respond = null) {
   manuscriptImportReturnFocus.value = null
   selectBook(book.id)
   authoringTask.notify(tr('已导入《{value0}》· {value1} 章', { value0: book.title, value1: book.chapters.length }))
+  // 导入也经历项目资料面板：选择本地位置建项目并绑定
+  projectPanel.open({ mode: 'attach', book })
   respond?.(true)
   return true
 }
@@ -8337,37 +8291,10 @@ function setManuscriptLanguage(value) {
     reviewWorkflow.reconcile()
   }
 }
-function confirmCreateBook() {
-  if (!newBookTitle.value.trim() && !assistantWorkspace.newBookWithAssistant.value) return
-  const createdAt = new Date().toISOString()
-  const newBook = createWritingBookRecord({
-    title: newBookTitle.value.trim() || tr('未命名作品'),
-    description: newBookDesc.value.trim(),
-    manuscriptLanguage: newBookLanguage.value,
-    worldbookId: String(newBookWorldbookId.value || '')
-  })
-  newBook.chapters = [{
-    id: `${Date.now()}-chapter-1`,
-    title: newBookLanguage.value === 'en' ? 'Chapter 1' : '第一章',
-    content: '',
-    contentFormat: 'md',
-    outlineItems: [],
-    wordCount: 0,
-    createdAt,
-    updatedAt: createdAt
-  }]
-  const previousBooks = books.value
-  books.value = [...books.value, newBook]
-  if (!saveBooks()) {
-    books.value = previousBooks
-    authoringTask.notify(tr('书稿未能保存，请检查浏览器存储空间'))
-    return
-  }
-  selectBook(newBook.id)
-  showNewBookModal.value = false
-  // 配置了默认新建位置时，自动在本地建项目文件夹并绑定（失败静默回落文档根镜像）
-  void ensureProjectForBook(newBook)
-  assistantWorkspace.afterCreateBook()
+// 项目资料面板保存回调：新建模式由 onCreated 处理（含选书）；编辑模式保存后刷新本地书列表。
+function onProjectInfoSaved(book) {
+  books.value = loadWritingBooks()
+  if (book?.id && book.id !== selectedBookId.value) selectBook(book.id)
 }
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；
 // 写入 book.worldbookId 后精确加载该世界书并刷新现场。
