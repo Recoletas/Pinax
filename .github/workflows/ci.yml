@@ -12,37 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  adapter-typecheck:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: adapters/pinax-adapter
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: adapters/pinax-adapter/package-lock.json
-
-      - name: Check bridge dual-copy sync
-        working-directory: .
-        run: node scripts/check-bridge-sync.mjs
-
-      - name: Install adapter dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Typecheck adapter
-        run: npm run typecheck
-
-      - name: Test adapter lifecycle and tool contracts
-        run: npm test
-
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -53,6 +22,9 @@ jobs:
         with:
           # 完整历史：供 PR/push 显式取基准，避免无参数 git diff --check 什么也没检查
           fetch-depth: 0
+
+      - name: Check bridge dual-copy sync
+        run: node scripts/check-bridge-sync.mjs
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

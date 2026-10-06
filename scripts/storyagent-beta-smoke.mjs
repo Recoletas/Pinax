@@ -266,20 +266,26 @@ try {
   check('engine.cancel 走 /cancel 端点', engineCalls.some((c) => c.url.endsWith('/cancel')))
   check('engine.tasks 走 /tasks/list', await (async () => { await engine.tasks(); return engineCalls.some((c) => c.url.includes('/tasks/list?')) })())
 
-  console.log('[7b] toolManifest 转换接口 + calc（kit 缺位补齐）')
+  console.log('[7b] toolManifest 转换接口 + calc（P2 起 canonical 在 storyflow-kit）')
   {
-    const { manifestToAgentTool, safeCalcEval } = await import('../adapters/pinax-adapter/src/toolManifest.ts')
-    const tool = manifestToAgentTool({
-      id: 'calc_evaluate', title: '确定性算术', desc: '复算数值', kind: 'query', knowledge: [],
-      execute: async (p) => { try { return JSON.stringify({ ok: true, value: safeCalcEval(String(p.expression)) }) } catch (e) { return JSON.stringify({ ok: false, error: String(e.message || e) }) } },
-    })
-    check('KitOp 形状清单 → agent 工具（name/描述/knowledge 标注）', tool.name === 'calc_evaluate' && tool.label === '确定性算术' && tool.description.includes('复算数值'))
-    const out = JSON.parse((await tool.execute('x', { expression: '1200 * 3 + 450 / 2' })).content[0].text)
-    check('calc 复算确定性求值', out.ok === true && out.value === 3825)
-    const bad = JSON.parse((await tool.execute('x', { expression: '2 + evil()' })).content[0].text)
-    check('白名单外输入拒绝（无 eval）', bad.ok === false)
-    const msTool = manifestToAgentTool({ id: 'manuscript_search', title: '正文检索', desc: 'd', knowledge: ['manuscript'], execute: async () => JSON.stringify({ ok: true, hits: [] }) })
-    check('知识域标注进工具描述', msTool.description.includes('manuscript'))
+    let mod = null
+    try { mod = await import('../../storyflow-kit/storyharness/src/pinax/toolManifest.ts') } catch { /* kit 仓不在场——环境性跳过 */ }
+    if (!mod) {
+      console.log('  （kit 仓不在场，跳过 toolManifest 段）')
+    } else {
+      const { manifestToAgentTool, safeCalcEval } = mod
+      const tool = manifestToAgentTool({
+        id: 'calc_evaluate', title: '确定性算术', desc: '复算数值', kind: 'query', knowledge: [],
+        execute: async (p) => { try { return JSON.stringify({ ok: true, value: safeCalcEval(String(p.expression)) }) } catch (e) { return JSON.stringify({ ok: false, error: String(e.message || e) }) } },
+      })
+      check('KitOp 形状清单 → agent 工具（name/描述/knowledge 标注）', tool.name === 'calc_evaluate' && tool.label === '确定性算术' && tool.description.includes('复算数值'))
+      const out = JSON.parse((await tool.execute('x', { expression: '1200 * 3 + 450 / 2' })).content[0].text)
+      check('calc 复算确定性求值', out.ok === true && out.value === 3825)
+      const bad = JSON.parse((await tool.execute('x', { expression: '2 + evil()' })).content[0].text)
+      check('白名单外输入拒绝（无 eval）', bad.ok === false)
+      const msTool = manifestToAgentTool({ id: 'manuscript_search', title: '正文检索', desc: 'd', knowledge: ['manuscript'], execute: async () => JSON.stringify({ ok: true, hits: [] }) })
+      check('知识域标注进工具描述', msTool.description.includes('manuscript'))
+    }
   }
 
   console.log('[7c] 桥快照新域（manuscript/notes/outline）映射')
