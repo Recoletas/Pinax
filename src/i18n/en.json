@@ -1243,5 +1243,13 @@
   "所有链路（写作、讨论、审校、设定生成、推演）统一由 Agent 通路执行，共用下面这一个模型。模型由服务器持有密钥并热生效，无需作者填写。": "All chains (writing, story chat, review, settings generation, exploration) run through the single Agent path and share the one model below. Keys are held server-side and switches apply hot — nothing for authors to fill in.",
   "引擎未运行——启动 kit 任务面（serve:pinax）后可选模型": "Engine not running — start the kit task plane (serve:pinax) to choose a model",
   "高级：直连自定义配置（自带 Key，不走 Agent 通路）": "Advanced: direct custom configs (own key, bypasses the Agent path)",
-  "适合想用自己密钥直连特定厂商的情况；这类配置不经 Agent 通路。": "For using your own key against a specific provider directly; these configs do not go through the Agent path."
+  "适合想用自己密钥直连特定厂商的情况；这类配置不经 Agent 通路。": "For using your own key against a specific provider directly; these configs do not go through the Agent path.",
+  "选择经 Agent 通路服务的文本模型：所有链路（写作、讨论、审校、设定生成、推演）共用这一个模型。可添加自己的模型配置。": "Pick the text model served through the Agent path: all chains (writing, story chat, review, settings generation, exploration) share this one model. You can add your own model configs.",
+  "Agent 引擎": "Agent engine",
+  "未运行——启动 kit 任务面（serve:pinax）后所有链路经 Agent 通路": "Not running — start the kit task plane (serve:pinax) so all chains go through the Agent path",
+  "Agent 引擎当前模型与所选配置不一致。": "The engine model differs from the selected config.",
+  "同步到 Agent 通路": "Sync to the Agent path",
+  "同步中…": "Syncing…",
+  "已与所选配置同步。": "In sync with the selected config.",
+  "同步失败，请检查 Agent 引擎状态。": "Sync failed — check the Agent engine status."
 }
