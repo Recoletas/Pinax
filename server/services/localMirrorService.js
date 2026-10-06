@@ -1,16 +1,26 @@
-// 本地文件镜像（P1）：把作品正文/大纲/世界书/构思单向落盘到本机文档目录，供 agent 与用户直接读取。
-// 镜像是单向输出：托管子目录（正文/大纲/世界书/构思）每次同步整体重建，本地手改会被覆盖——读拷贝语义。
+// 本地文件镜像（P1→项目文件体系 @2）：把项目的正文/大纲/世界书/构思/资料/日志/媒体清单
+// 单向落盘到本机文档目录，供 agent 与用户直接读取。
+// 镜像是单向输出：托管子目录每次同步整体重建，本地手改会被覆盖——读拷贝语义。
 // 位置解析：PINAX_MIRROR_ROOT env > <homedir>/Documents/Pinax。前端不传路径（防路径注入），服务端唯一决定权。
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const MANAGED_SUBDIRS = ['正文', '大纲', '世界书', '构思']
+export const MIRROR_SCHEMA = 'pinax-project-fs@2'
+const MANAGED_SUBDIRS = ['正文', '大纲', '世界书', '构思', '资料', '日志']
 const LIMITS = {
   maxChapters: 500,
   maxEntries: 2000,
   maxExplorations: 300,
-  maxTotalChars: 4_000_000
+  maxArtifacts: 50,
+  maxArtifactChars: 50_000,
+  maxSessions: 20,
+  maxSessionChars: 200_000,
+  maxRevisionsPerChapter: 10,
+  maxRevisionChars: 20_000,
+  maxBlockHistoryPerChapter: 20,
+  maxConversationMessages: 60,
+  maxTotalChars: 8_000_000
 }
 
 export function resolveMirrorRoot(env = process.env) {
@@ -28,6 +38,10 @@ export function sanitizeFilename(input, fallback = '未命名') {
   return cleaned || fallback
 }
 
+function totalPayloadChars(payload) {
+  return JSON.stringify(payload ?? {}).length
+}
+
 function validatePayload(payload) {
   if (!payload || typeof payload !== 'object') return '请求体必须是对象'
   const book = payload.book
@@ -35,28 +49,37 @@ function validatePayload(payload) {
   if (typeof book.id !== 'string' || !book.id.trim() || book.id.length > 120) return 'book.id 非法'
   if (typeof book.title !== 'string' || !book.title.trim()) return 'book.title 非法'
   if (!Array.isArray(book.chapters) || book.chapters.length > LIMITS.maxChapters) return `chapters 必须是数组且 ≤ ${LIMITS.maxChapters}`
-  let total = 0
   for (const chapter of book.chapters) {
-    if (!chapter || typeof chapter !== 'object') return 'chapter 项非法'
-    if (typeof chapter.title !== 'string' || typeof chapter.content !== 'string') return 'chapter 需要 title/content 字符串'
-    total += chapter.content.length
+    if (!chapter || typeof chapter.title !== 'string' || typeof chapter.content !== 'string') return 'chapter 需要 title/content 字符串'
   }
   const explorations = Array.isArray(book.explorations) ? book.explorations : []
   if (explorations.length > LIMITS.maxExplorations) return `explorations ≤ ${LIMITS.maxExplorations}`
-  for (const doc of explorations) {
-    if (!doc || typeof doc.content !== 'string' || typeof doc.title !== 'string') return 'exploration 需要 title/content 字符串'
-    total += doc.content.length
-  }
   const wb = payload.worldbook
   if (wb !== null && wb !== undefined) {
-    if (typeof wb !== 'object') return 'worldbook 非法'
-    if (!Array.isArray(wb.entries) || wb.entries.length > LIMITS.maxEntries) return `worldbook.entries 必须是数组且 ≤ ${LIMITS.maxEntries}`
+    if (typeof wb !== 'object' || !Array.isArray(wb.entries) || wb.entries.length > LIMITS.maxEntries) return `worldbook.entries 必须是数组且 ≤ ${LIMITS.maxEntries}`
     for (const entry of wb.entries) {
       if (!entry || typeof entry.content !== 'string' || typeof entry.name !== 'string') return 'entry 需要 name/content 字符串'
-      total += entry.content.length
     }
   }
-  if (total > LIMITS.maxTotalChars) return `内容总量超过 ${LIMITS.maxTotalChars} 字符`
+  const logs = payload.logs
+  if (logs !== undefined && logs !== null && typeof logs !== 'object') return 'logs 非法'
+  if (logs) {
+    if (!Array.isArray(logs.sessions) || logs.sessions.length > LIMITS.maxSessions) return `logs.sessions ≤ ${LIMITS.maxSessions}`
+    for (const session of logs.sessions) {
+      if (!session || typeof session !== 'object') return 'session 项非法'
+    }
+    if (!Array.isArray(logs.revisions) || logs.revisions.length > LIMITS.maxChapters) return 'logs.revisions 非法'
+    if (!Array.isArray(logs.memory)) return 'logs.memory 必须是数组'
+  }
+  const materials = payload.materials
+  if (materials !== undefined && materials !== null) {
+    if (typeof materials !== 'object' || !Array.isArray(materials.artifacts) || materials.artifacts.length > LIMITS.maxArtifacts) return `materials.artifacts ≤ ${LIMITS.maxArtifacts}`
+    for (const artifact of materials.artifacts) {
+      if (!artifact || typeof artifact.content !== 'string' || typeof artifact.title !== 'string') return 'artifact 需要 title/content 字符串'
+    }
+  }
+  if (payload.media !== undefined && !Array.isArray(payload.media)) return 'media 必须是数组'
+  if (totalPayloadChars(payload) > LIMITS.maxTotalChars) return `payload 超过 ${LIMITS.maxTotalChars} 字符`
   return null
 }
 
@@ -102,8 +125,26 @@ function entryMarkdown(entry, worldbookName) {
   return front.join('\n') + String(entry.content ?? '')
 }
 
+function writeDeduped(dir, base, content, usedNames, ext = '.md') {
+  let name = `${base}${ext}`
+  for (let n = 2; usedNames.has(name); n += 1) name = `${base}-${n}${ext}`
+  usedNames.add(name)
+  writeFileAtomic(path.join(dir, name), content)
+  return name
+}
+
+function conversationMarkdown(projectId, conversation) {
+  const messages = Array.isArray(conversation?.messages) ? conversation.messages.slice(-LIMITS.maxConversationMessages) : []
+  const lines = [`# 助手对话 ${projectId}`, '']
+  for (const message of messages) {
+    const who = message.role === 'user' ? '作者' : message.role === 'assistant' ? '助手' : (message.role || '系统')
+    lines.push(`## ${who}${message.createdAt ? ` · ${new Date(message.createdAt).toLocaleString('zh-CN')}` : ''}`, '', String(message.content ?? '').slice(0, 8000), '')
+  }
+  return lines.join('\n')
+}
+
 /**
- * 把一本书的镜像写入 root 下。返回 { dir, counts }。
+ * 把一个项目的文件体系写入 root 下。返回 { dir, counts }。
  * 托管子目录整体重建（先删后写），meta.json 最后写——它是「本次同步完整」的标记。
  */
 export function createLocalMirrorService({ rootPath, now = () => new Date().toISOString() } = {}) {
@@ -119,19 +160,13 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
     const root = resolveRoot()
     const book = payload.book
     const dir = path.join(root, `${sanitizeFilename(book.title)}-${String(book.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(-8)}`)
-    // 托管区清扫：镜像目录由本服务创建并独占管理
     for (const sub of MANAGED_SUBDIRS) fs.rmSync(path.join(dir, sub), { recursive: true, force: true })
     fs.mkdirSync(dir, { recursive: true })
 
-    const usedNames = new Set()
-    const chapterFiles = []
+    const usedChapterNames = new Set()
     book.chapters.forEach((chapter, index) => {
       const base = `${String(index + 1).padStart(3, '0')}-${sanitizeFilename(chapter.title)}`
-      let name = `${base}.md`
-      for (let n = 2; usedNames.has(name); n += 1) name = `${base}-${n}.md`
-      usedNames.add(name)
-      writeFileAtomic(path.join(dir, '正文', name), `${chapter.content}\n`)
-      chapterFiles.push(name)
+      writeDeduped(path.join(dir, '正文'), base, `${chapter.content}\n`, usedChapterNames)
     })
 
     writeFileAtomic(path.join(dir, '大纲', '大纲.md'), outlineMarkdown(book))
@@ -140,14 +175,12 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
     const wb = payload.worldbook
     let entryCount = 0
     if (wb) {
-      const usedEntryFiles = new Set()
+      const usedEntryFiles = new Map()
       for (const entry of wb.entries) {
         const group = sanitizeFilename(entry.group || '未分组', '未分组')
-        const base = sanitizeFilename(entry.name)
-        let name = `${base}.md`
-        for (let n = 2; usedEntryFiles.has(`${group}/${name}`); n += 1) name = `${base}-${n}.md`
-        usedEntryFiles.add(`${group}/${name}`)
-        writeFileAtomic(path.join(dir, '世界书', group, name), entryMarkdown(entry, wb.name))
+        const used = usedEntryFiles.get(group) ?? new Set()
+        usedEntryFiles.set(group, used)
+        writeDeduped(path.join(dir, '世界书', group), sanitizeFilename(entry.name), entryMarkdown(entry, wb.name), used)
         entryCount += 1
       }
       writeFileAtomic(path.join(dir, '世界书', 'manifest.json'), JSON.stringify({
@@ -162,20 +195,90 @@ export function createLocalMirrorService({ rootPath, now = () => new Date().toIS
       }, null, 2) + '\n')
     }
 
-    const usedDocNames = new Set()
-    const explorations = Array.isArray(book.explorations) ? book.explorations : []
-    for (const doc of explorations) {
-      const base = sanitizeFilename(doc.title)
-      let name = `${base}.md`
-      for (let n = 2; usedDocNames.has(name); n += 1) name = `${base}-${n}.md`
-      usedDocNames.add(name)
-      writeFileAtomic(path.join(dir, '构思', name), `${doc.content}\n`)
+    for (const doc of Array.isArray(book.explorations) ? book.explorations : []) {
+      writeDeduped(path.join(dir, '构思'), sanitizeFilename(doc.title), `${doc.content}\n`, new Set())
     }
 
-    const counts = { chapters: chapterFiles.length, entries: entryCount, explorations: explorations.length }
-    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: 'pinax-local-mirror@1', bookId: book.id, title: book.title, mirroredAt: now(), ...counts }, null, 2) + '\n')
+    const logs = payload.logs ?? {}
+    const usedSessionNames = new Set()
+    let sessionCount = 0
+    for (const session of Array.isArray(logs.sessions) ? logs.sessions : []) {
+      writeDeduped(path.join(dir, '日志', '体验会话'), sanitizeFilename(session.title || session.id || '会话'), `${JSON.stringify(session, null, 2)}\n`, usedSessionNames, '.json')
+      sessionCount += 1
+    }
+    const usedRevisionNames = new Set()
+    let revisionCount = 0
+    for (const revision of Array.isArray(logs.revisions) ? logs.revisions : []) {
+      writeDeduped(path.join(dir, '日志', '修订史'), sanitizeFilename(revision.chapterTitle || revision.chapterId || '章节'), `${JSON.stringify({
+        chapterId: revision.chapterId,
+        chapterTitle: revision.chapterTitle || '',
+        snapshots: (revision.snapshots ?? []).map((snapshot) => ({ ...snapshot, markdown: String(snapshot.markdown ?? '').slice(0, LIMITS.maxRevisionChars) })),
+        blockHistory: (revision.blockHistory ?? []).slice(0, LIMITS.maxBlockHistoryPerChapter)
+      }, null, 2)}\n`, usedRevisionNames, '.json')
+      revisionCount += 1
+    }
+    const usedConversationNames = new Set()
+    let conversationCount = 0
+    for (const conversation of Array.isArray(logs.conversations) ? logs.conversations : []) {
+      writeDeduped(path.join(dir, '日志', '助手对话'), sanitizeFilename(conversation.projectId || '项目'), conversationMarkdown(conversation.projectId, conversation), usedConversationNames)
+      conversationCount += 1
+    }
+    if (Array.isArray(logs.memory)) {
+      writeFileAtomic(path.join(dir, '日志', '记忆台账.json'), JSON.stringify({
+        count: logs.memory.length,
+        byStatus: logs.memory.reduce((acc, candidate) => ({ ...acc, [candidate.status || 'unknown']: (acc[candidate.status || 'unknown'] || 0) + 1 }), {}),
+        candidates: logs.memory
+      }, null, 2) + '\n')
+    }
+
+    const materials = payload.materials
+    let artifactCount = 0
+    if (materials && Array.isArray(materials.artifacts) && materials.artifacts.length) {
+      const usedArtifactNames = new Set()
+      const index = []
+      for (const artifact of materials.artifacts) {
+        const base = `${artifact.ref || artifact.id || 'S'}-${sanitizeFilename(artifact.title)}`
+        const name = writeDeduped(path.join(dir, '资料'), base, `${artifact.content}\n`, usedArtifactNames)
+        index.push({ ref: artifact.ref || artifact.id || '', title: artifact.title, kind: artifact.kind || 'reference-text', file: name, chars: artifact.content.length })
+        artifactCount += 1
+      }
+      writeFileAtomic(path.join(dir, '资料', 'sources.json'), JSON.stringify({ count: artifactCount, artifacts: index }, null, 2) + '\n')
+    }
+
+    if (Array.isArray(payload.media) && payload.media.length) {
+      writeFileAtomic(path.join(dir, '媒体清单.json'), JSON.stringify({ count: payload.media.length, assets: payload.media }, null, 2) + '\n')
+    }
+
+    const counts = {
+      chapters: book.chapters.length,
+      entries: entryCount,
+      explorations: Array.isArray(book.explorations) ? book.explorations.length : 0,
+      sessions: sessionCount,
+      revisions: revisionCount,
+      conversations: conversationCount,
+      artifacts: artifactCount,
+      media: Array.isArray(payload.media) ? payload.media.length : 0
+    }
+    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: MIRROR_SCHEMA, bookId: book.id, title: book.title, mirroredAt: now(), ...counts }, null, 2) + '\n')
     return { dir, counts }
   }
 
-  return { resolveRoot, mirrorBook }
+  /** 根级项目索引：全部书的摘要。server 在 /index 路由调用。 */
+  function writeProjectIndex(books) {
+    const root = resolveRoot()
+    const entries = (Array.isArray(books) ? books : []).map((book) => ({
+      id: book.id,
+      title: book.title,
+      chapters: book.chapters ?? 0,
+      words: book.words ?? 0,
+      entries: book.entries ?? 0,
+      updatedAt: book.updatedAt ?? null,
+      mirroredAt: book.mirroredAt ?? null,
+      dir: book.dir ?? null
+    }))
+    writeFileAtomic(path.join(root, '项目索引.json'), JSON.stringify({ schema: MIRROR_SCHEMA, generatedAt: now(), projects: entries }, null, 2) + '\n')
+    return path.join(root, '项目索引.json')
+  }
+
+  return { resolveRoot, mirrorBook, writeProjectIndex }
 }

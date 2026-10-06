@@ -49,17 +49,27 @@
 - 自动：`writing_books` 订阅 → 2.5s 去抖 → 全量书同步（`main.js` 安装 `installLocalMirrorAutoSync`）；失败静默退避 60s。
 - 手动/程序：`POST /api/localmirror/sync`（payload：book + worldbook；上限 500 章/2000 条目/4M 字符，`express.json` 16mb 之内）。
 
-### 2.3 落盘布局（`<root>/<书名>-<bookId 尾 8>/`）
+### 2.3 落盘布局（@2，`<root>/<书名>-<bookId 尾 8>/`）
 ```
-meta.json                    # schema pinax-local-mirror@1、bookId、时间、计数——最后写，= 本次同步完整标记
-正文/001-章节名.md           # chapter.content 原文
-大纲/大纲.md                 # 节点列表 + 关系（causes→导致 等可读标签）
-大纲/outline.json            # 结构化节点/边
-世界书/manifest.json         # 库元数据 + 条目索引
-世界书/<分组>/<条目名>.md     # frontmatter（name/type/group/keys/worldbook）+ entry.content
-构思/<标题>.md
+项目索引.json                # 根级：全部项目摘要（id/标题/章数/字数/条目数/updatedAt/目录）——POST /index 写入
+<书名>-<id8>/
+  meta.json                    # schema pinax-project-fs@2、bookId、时间、八类计数——最后写，= 本次同步完整标记
+  正文/NNN-章节名.md           # chapter.content 原文
+  大纲/大纲.md                 # 节点列表 + 关系（causes→导致 等可读标签）
+  大纲/outline.json            # 结构化节点/边
+  世界书/manifest.json         # 库元数据 + 条目索引
+  世界书/<分组>/<条目名>.md     # frontmatter（name/type/group/keys/worldbook）+ entry.content
+  构思/<标题>.md
+  资料/sources.json            # sourceRefs/sourceDocuments → 工件索引
+  资料/<S编号>-<标题>.md       # 文本工件（内联 content 或按 chunkIds 重组，≤50 个、单个 ≤50KB）
+  日志/修订史/<章节>.json       # 每章最新 10 条快照（markdown 截断 2 万字符）+ 块级历史摘要 20 条
+  日志/体验会话/<会话>.json     # writing_sessions 按会话 worldbookId 过滤，最新 20 场（单场截断）
+  日志/助手对话/<projectId>.md  # authoring_assistant_conversation:<id> 转可读 md（末 60 条）
+  日志/记忆台账.json           # memory_candidates 按 scopeId=projectId 过滤 + 状态统计
+  媒体清单.json                # media_assets_v1 按 projectId 过滤（仅元数据，二进制仍 IndexedDB）
 ```
-- 文件名消毒（Windows 非法字符/控制符/80 字符截断）+ 同名去重（-2/-3）；tmp+rename 原子写。
+- 文件名消毒（Windows 非法字符/控制符/80 字符截断）+ 同名去重（-2/-3）；tmp+rename 原子写；payload 总量 ≤8M 字符。
+- agent 读取捷径：`PINAX_MIRROR_ROOT` 指向 kit 的 `kernel.projectDir(<project>)`（workspace 内项目目录）即可让 fs_tree/fs_read/fs_grep **零改动**读到整套文件体系——两个根都是 env 可配，无需写代码。
 
 ### 2.4 验证
 - `npm run smoke:local-mirror`（`scripts/local-mirror-check.mjs`）：16 项断言——布局/内容/frontmatter/清扫/消毒/去重/校验信封，全部通过；临时根注入，不触真实文档目录。
@@ -70,3 +80,10 @@ meta.json                    # schema pinax-local-mirror@1、bookId、时间、�
 - v1 未镜像：速记（`writing_notes`，全局键）、IndexedDB 三库（记忆账本/资料原件/媒体二进制）、世界书结构化 `structuredSettings`。
 - Electron 打包时，镜像应切换为直写（`desktopProjectRepository` 已有 chooseDirectory/writeText 桥，可替代服务端路由）——接口已按「前端只组 payload、位置由宿主决定」预留。
 - agent 读取：kit 任务面后续可用 fs 工具挂 `PINAX_MIRROR_ROOT`（能力清单已留 `capabilities.json` 机制）。
+
+## 四、全局项目化路线（2026-10-06 定）
+
+**阶段一（本轮，已交付）**：项目文件体系 @2——上面全量布局，浏览器为真源，文件为全量单向读拷贝。
+**阶段二（Electron 文件为真源）**：`electron/projects` 内核升级 desktop schema v2——`project_items.kind` 增 worldbook-entry/outline/exploration/log 等域 kind、目录契约扩展（现仅 `manuscript|reference` .txt，`shared/desktopProjectContract.js` 正则会拒）、manifest v2；届时文件即真源，Web 模式继续走服务端镜像。
+**阶段三（双向对账）**：文件手改回流应用（revision+hash 乐观并发在 Electron 内核已备），需冲突策略与 UI。
+基础设施现状：Electron 内核生产级可用但域结构缺失（只有 volume/chapter/reference 三 kind）；kit fs 工具已按项目目录越狱；浏览器侧仅助手对话键物理按项目分键，其余按字段过滤——存储按项目重组（45 个 project 类键）是阶段二的并行项。

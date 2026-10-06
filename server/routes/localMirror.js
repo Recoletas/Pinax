@@ -22,5 +22,14 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       return res.status(500).json({ error: 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
+  router.post('/index', (req, res) => {
+    try {
+      const file = service.writeProjectIndex(req.body?.books)
+      return res.json({ ok: true, file })
+    } catch (error) {
+      if (error?.code === 'ERR_INVALID_INPUT') return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: error.message })
+      return res.status(500).json({ error: 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
   return router
 }
