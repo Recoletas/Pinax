@@ -68,7 +68,8 @@
     "smoke:desktop-foundation": "node scripts/desktop-foundation-smoke.mjs",
     "smoke:desktop-migration": "node scripts/desktop-legacy-migration-smoke.mjs",
     "smoke:local-mirror": "node scripts/local-mirror-check.mjs",
-    "smoke:local-funnel": "node scripts/local-funnel-check.mjs"
+    "smoke:local-funnel": "node scripts/local-funnel-check.mjs",
+    "smoke:capability-task": "node scripts/capability-task-check.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",
