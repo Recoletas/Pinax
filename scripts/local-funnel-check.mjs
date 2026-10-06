@@ -3,8 +3,10 @@
 // 不打真实模型；转发协议由 kit 侧 pinax-model-funnel.test.ts 钉住。
 // 运行：node scripts/local-funnel-check.mjs
 import assert from 'node:assert/strict'
-import { isServerKeyedTextConfig, kitFunnelAvailable, invalidateKitFunnelCache } from '../server/services/kitModelGateway.js'
-import { createStoryAgentRouter } from '../server/routes/storyagent.js'
+// 指向死端口：可用性探测断言（不可达→false）不依赖本机任务面是否在跑
+process.env.PINAX_ADAPTER_ENDPOINT = 'http://127.0.0.1:1'
+const { isServerKeyedTextConfig, kitFunnelAvailable, invalidateKitFunnelCache } = await import('../server/services/kitModelGateway.js')
+const { createStoryAgentRouter } = await import('../server/routes/storyagent.js')
 
 let passed = 0
 const check = (name, condition) => { assert.ok(condition, name); passed += 1; console.log(`  ✓ ${name}`) }

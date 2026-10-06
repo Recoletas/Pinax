@@ -18,6 +18,8 @@ import {
   validateAgentContextEnvelope
 } from '../../shared/agentContextContract.js'
 import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
+import { buildOpenClawUserMessage } from '../services/openclawService.js'
+import { capabilityPlaneAvailable, runCapabilityTaskAgent } from '../services/capabilityTaskRunner.js'
 import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
 import { applyWritingSkillEnforcement } from '../services/writingSkillEnforcement.js'
 
@@ -145,21 +147,46 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   const ledger = createAgentContextLedger(clippedEnvelope)
 
   try {
-    const runOnce = (activeQuestion) => runAdvisorAgent({
-      providerId: String(options?.agentProvider || 'text-model'),
-      fallbackProviderId: options?.fallbackProvider
-        ? String(options.fallbackProvider)
-        : null,
-      capability: taskValidation.definition.capability,
-      envelope: clippedEnvelope,
-      question: activeQuestion,
-      taskMeta: {
-        taskType: normalizedTaskType,
-        target: clippedEnvelope.target,
-        options: sanitizedOptions,
-        mode
+    // 统一调度门控：三个切片 taskType 在能力任务面健康时走 agent 循环（submit 工具回执序列化为 advice，
+    // 既有解析/模板/语义修复原样工作）；任务面不可达回落漏斗直连（双层 fail-open）。其余 taskType 随 P4-B 逐片迁移。
+    const capabilitySlices = ['authoring.review.chapter', 'authoring.knowledge.query', 'memory.extraction']
+    const useCapability = capabilitySlices.includes(normalizedTaskType) && await capabilityPlaneAvailable()
+    const runOnce = (activeQuestion) => {
+      if (useCapability) {
+        return runCapabilityTaskAgent({
+          taskType: normalizedTaskType,
+          envelope: clippedEnvelope,
+          question: activeQuestion,
+          taskMeta: {
+            taskType: normalizedTaskType,
+            target: clippedEnvelope.target,
+            options: sanitizedOptions,
+            mode,
+            prompt: buildOpenClawUserMessage(clippedEnvelope, activeQuestion, {
+              taskType: normalizedTaskType,
+              target: clippedEnvelope.target,
+              options: sanitizedOptions,
+              mode
+            })
+          }
+        })
       }
-    })
+      return runAdvisorAgent({
+        providerId: String(options?.agentProvider || 'text-model'),
+        fallbackProviderId: options?.fallbackProvider
+          ? String(options.fallbackProvider)
+          : null,
+        capability: taskValidation.definition.capability,
+        envelope: clippedEnvelope,
+        question: activeQuestion,
+        taskMeta: {
+          taskType: normalizedTaskType,
+          target: clippedEnvelope.target,
+          options: sanitizedOptions,
+          mode
+        }
+      })
+    }
     let run = await runOnce(enforcedQuestion)
     let semanticRepairCount = 0
     const buildResponse = () => createAdvisorTaskResponse({

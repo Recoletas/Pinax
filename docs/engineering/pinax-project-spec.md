@@ -56,8 +56,36 @@
 - 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。
 - 验证：`scripts/local-import-check.mjs`（walk/分类/payload，12 项）；真机混放文件夹全链（建书 2 章 → 建项目 → 同步落项目根）。
 
-## 5. 阶段映射（原 5 节，随 6 节导入层更新）
+## 5. 阶段映射（原 5 节，随 6/7 节更新）
 
 - **阶段一（本轮）**：Web 模式，路径经 API 显式给出；文件为读拷贝（浏览器真源）。导入层已接「默认位置自动建项目」。
 - **阶段二（Electron 文件为真源）**：原生对话框选目录（`dialog.showOpenDialog` 先例已有）；`shared/desktopProjectContract.js` 现正则只认 `manuscript|reference` .txt，schema v2 需按本范式放开 kind/目录/扩展名（.md）；`.pinax/` 内核（SQLite 日志/锁/备份）与本范式的 marker 合并设计。
 - **阶段三**：双向对账（revision+hash 内核已备）。
+
+## 7. Agent 统一调度：能力任务面与工具化（2026-10-07，P4-A 已交付）
+
+**终态口径：一个模型（kit provider registry）+ 一个通路（kit 任务面 agent 循环）+ 提示词管线工具化（agent 统一调度）。**
+
+- **能力任务模式**：任务面 `taskKind=capability` + `capability.{systemPrompt, submitTool}`——系统提示=任务指令卡（含输出协议），强制提交工具（BeatPlan 模式）：agent 先用资料工具取证，调用 submit 工具即终态（回执随快照 `capabilityResult` 回传）；预算耗尽未提交 → `PINAX_ADAPTER_NO_SUBMISSION` 显式失败；提交后收敛闸只保留 submit 工具。
+- **submit 契约**：`shared/capabilityToolContracts.js`（模型面 schema，宽松形状；语义校验在宿主既有归一化器）。已交付三件：`submit_review_findings`（审校 findings）、`submit_knowledge_answer`（问答 claims/calculations）、`submit_memory_claims`（记忆三元组，quote 逐字约束）。
+- **代理层**：`server/services/capabilityTaskRunner.js`——advisor 任务 → capability 任务 → submit 回执序列化为 advice JSON → `createAdvisorTaskResponse` 既有解析/模板/语义修复原样工作。门控：`authoring.review.chapter` / `authoring.knowledge.query` / `memory.extraction` 三切片在任务面健康时走 agent 循环，不可达回落漏斗直连（双层 fail-open）。
+- **模型面**：capability 任务与写作 agent 同源（kit provider registry /model 热切）。
+
+### P4-B 工具化地图（剩余族，按同模板逐片）
+
+| taskType 族 | submit_* 工具 | schema 来源 | UI 契约保留方式 |
+|---|---|---|---|
+| authoring.rewrite/expand/shorten/insert/complete.inline、materials.refine | submit_text_patch / submit_rewrite_candidates | writingReplacementContract + writingCandidateContract | useAuthoringRewriteWorkflow L179 / useWritingAgent L448 不变 |
+| authoring.review.selection | submit_closure_options | summary/issues/action 协议（openclaw L464-474） | legacyAdapter L176 透传 |
+| authoring.scene.directions | submit_scene_directions | openclaw L346-369 | planner 签名不变 |
+| authoring.rehearsal.step | submit_rehearsal_step | authoringRehearsalConsequenceContract（quote/ref 授权校验留宿主） | authoringRehearsal L54 不变 |
+| materials.classify/split/relate | submit_material_actions | typedActions 协议 openclaw L228-270 | useNotesMaterialAdvisor 动作表不变 |
+| canvas.organize/relate/transition | submit_canvas_actions | openclaw L272-313 | ProseEssay applyCanvasAdvisorResult 不变 |
+| storyboard.review / video.prompt | submit_storyboard_actions | openclaw L421-462 | StoryboardVideoPanel apply 不变 |
+| authoring.next-actions / dialogue-options / experience.next-actions | submit_action_options | runtime-candidate 协议；experienceAgentResults 校验器改吃回执 | Experience.vue validator 不变 |
+| authoring.emergence | submit_emergence_review | openclaw L403-419；重试协议 → 工具 repair 循环 | generationEmergence 不变 |
+| authoring.context.compact | submit_memory_summary | contextCompression 协议 | normalizeSummaryText 不变 |
+| settings.*（9 个） | submit_setting_draft(s) | structuredSettingContract + structuredGenerationContract | settings review-draft 管线不变 |
+| observer.*.derive / memory.derive | 后置（可 submit_derived_*） | authoringObservationContract | 派生状态消费面不变 |
+
+随 P4-B 退役：chat.js 普通生成并入 authoring.continue agent、promptRegistry 退役、17 张 openclaw 指令卡迁 kit 技能库、advisor 路由整体变薄代理。
