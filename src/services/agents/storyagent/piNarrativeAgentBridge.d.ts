@@ -24,6 +24,9 @@ export interface BridgeTaskEvent {
 }
 
 export interface BridgeCallbacks {
+  onReasoning?: (chunk: { content: string }) => void;
+  onBeatPlan?: (plan: Record<string, unknown> | null) => void;
+  onToolResult?: (result: Record<string, unknown>) => void;
   onChunk?: (chunk: { content: string }) => void;
   /** 只在确认 completed 且无 error 时调用；部分生成或取消不算完成。 */
   onComplete?: (result: { content: string }) => void;
@@ -36,6 +39,7 @@ export interface BridgeRunArgs {
   kernel: any;
   index: any;
   registry?: { revision?: string } | null;
+  taskKind?: "assistant" | "narrative";
   mode?: "init" | "continue" | "auto" | "respond";
   intent?: string | null;
   formatInstructions?: string;
@@ -53,6 +57,7 @@ export interface BridgeRunArgs {
 export interface BridgeRunResult {
   ok: boolean;
   finalContent: string;
+  beatPlan?: Record<string, unknown> | null;
   provider: string;
   model: string;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
@@ -75,6 +80,9 @@ export interface BridgeRunResult {
 
 export interface BridgeResumeArgs {
   taskId: string;
+  taskKind?: "assistant" | "narrative";
+  maxTokens?: number;
+  formatInstructions?: string;
   kernel: any;
   index: any;
   intent?: string | null;
@@ -97,7 +105,8 @@ export interface BridgeCancelResult {
 }
 
 export interface PinaxNarrativeAgentBridge {
-  healthz(): Promise<Record<string, unknown> | null>;
+  tasks(bookId?: string): Promise<{ tasks: unknown[] }>;
+  healthz(options?: { signal?: AbortSignal | null; timeoutMs?: number }): Promise<Record<string, unknown> | null>;
   run(args: BridgeRunArgs): Promise<BridgeRunResult>;
   status(taskId: string): Promise<Record<string, unknown> | null>;
   /** HTTP/网络/未确认终态时 reject；不会以 null 隐藏失败。 */

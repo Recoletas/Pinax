@@ -1,5 +1,6 @@
 import { sha256Hex } from '../../../shared/collaboration/canonicalJson.js'
 const createBrowserStorageRepository = () => ({ getText: key => globalThis.localStorage?.getItem(key), setText: (key, value) => globalThis.localStorage?.setItem(key, value) })
+// === bridge-sync：此行之下两副本必须逐字节一致（scripts/check-bridge-sync.mjs）===
 
 const DOMAINS = {
   world: 'world_lookup',

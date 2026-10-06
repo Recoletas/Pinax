@@ -30,6 +30,10 @@ jobs:
           cache: npm
           cache-dependency-path: adapters/pinax-adapter/package-lock.json
 
+      - name: Check bridge dual-copy sync
+        working-directory: .
+        run: node scripts/check-bridge-sync.mjs
+
       - name: Install adapter dependencies
         run: npm ci --ignore-scripts
 
