@@ -2,30 +2,19 @@
   <div class="api-settings-panel">
     <div class="ai-settings-head">
       <strong>{{ tr('AI 文本模型') }}</strong>
-      <p>{{ tr('内置 MiniMax 由部署服务器提供密钥，无需作者填写；首次使用前可打开详情测试连通性。也可添加自己的模型配置。') }}</p>
+      <p>{{ tr('所有链路（写作、讨论、审校、设定生成、推演）统一由 Agent 通路执行，共用下面这一个模型。模型由服务器持有密钥并热生效，无需作者填写。') }}</p>
     </div>
 
-    <TextModelPicker
-      :model-value="selectedId"
-      :configs="configs"
-      @update:model-value="handleSelect"
-      @configs-updated="handleConfigsUpdated"
-    />
-
-    <p v-if="currentNote" class="ai-settings-note" role="status">{{ currentNote }}</p>
-    <p class="ai-settings-note" role="status">{{ tr('上方为遗留链路（讨论故事 / 设定生成 / 审校）；服务器密钥配置已自动经 kit 漏斗与 Agent 引擎同源。') }}</p>
-
-    <div class="agent-engine" data-test="agent-engine">
+    <div class="model-primary" data-test="agent-engine">
       <div class="agent-engine__head">
-        <strong>{{ tr('Agent 引擎（kit 任务面）') }}</strong>
         <span v-if="engineState === 'up'" class="agent-engine__model" data-test="agent-engine-model">{{ engineModel }}</span>
-        <span v-else-if="engineState === 'down'" class="agent-engine__down">{{ tr('未运行——启动 kit 任务面（serve:pinax）后可用') }}</span>
+        <span v-else-if="engineState === 'down'" class="agent-engine__down">{{ tr('引擎未运行——启动 kit 任务面（serve:pinax）后可选模型') }}</span>
         <span v-else>{{ tr('检测中…') }}</span>
       </div>
 
       <template v-if="engineState === 'up'">
         <label class="agent-engine__field">
-          <span>{{ tr('切换模型') }}</span>
+          <span>{{ tr('模型') }}</span>
           <select v-model="preset" data-test="agent-engine-preset" @change="applyPreset">
             <option v-for="option in presetOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             <option value="custom">{{ tr('自定义…') }}</option>
@@ -43,6 +32,18 @@
         <p v-if="engineMessage" role="status" data-test="agent-engine-message">{{ engineMessage }}</p>
       </template>
     </div>
+
+    <details class="legacy-direct">
+      <summary>{{ tr('高级：直连自定义配置（自带 Key，不走 Agent 通路）') }}</summary>
+      <p class="ai-settings-note">{{ tr('适合想用自己密钥直连特定厂商的情况；这类配置不经 Agent 通路。') }}</p>
+      <TextModelPicker
+        :model-value="selectedId"
+        :configs="configs"
+        @update:model-value="handleSelect"
+        @configs-updated="handleConfigsUpdated"
+      />
+      <p v-if="currentNote" class="ai-settings-note" role="status">{{ currentNote }}</p>
+    </details>
   </div>
 </template>
 
@@ -90,7 +91,8 @@ const canApply = computed(() => {
 })
 
 function currentPresetValue() {
-  const match = PRESETS.find((option) => option.model === engineModel.value.split('.').slice(1).join('.'))
+  const suffix = engineModel.value.split('.').slice(1).join('.')
+  const match = PRESETS.find((option) => option.model === suffix)
   return match ? match.value : 'custom'
 }
 
@@ -117,7 +119,7 @@ async function refreshEngine() {
 }
 
 async function applyModel() {
-  if (applying.value || !canApply.value) return
+  if (applying.value || !canApply()) return
   applying.value = true
   engineMessage.value = ''
   try {
@@ -149,7 +151,6 @@ onMounted(() => {
   configs.value = listTextProviderConfigs()
   const resolved = resolveSelectedTextProviderConfig()
   selectedId.value = resolved.id
-  // 选中失效时收敛回内置, 保持 store 干净
   if (getSelectedTextProviderConfigId() !== resolved.id) {
     saveSelectedTextProviderConfigId(resolved.id)
   }
@@ -210,7 +211,7 @@ function handleConfigsUpdated(next) {
 .api-settings-panel :deep(.text-model-picker__trigger small) { font-size: 12px; }
 .api-settings-panel :deep(.text-model-picker__trigger strong) { font-size: 14px; font-weight: 500; }
 
-.agent-engine {
+.model-primary {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -225,11 +226,6 @@ function handleConfigsUpdated(next) {
   gap: 10px;
   flex-wrap: wrap;
   font-size: 13px;
-}
-
-.agent-engine__head strong {
-  font-weight: 600;
-  color: var(--text-primary);
 }
 
 .agent-engine__model {
@@ -276,4 +272,23 @@ function handleConfigsUpdated(next) {
 }
 
 .agent-engine__apply:disabled { opacity: 0.45; cursor: default; }
+
+.legacy-direct {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.legacy-direct summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.legacy-direct summary:hover { color: var(--text-primary); }
+
+.legacy-direct[open] { display: grid; gap: 10px; }
 </style>
