@@ -1,6 +1,6 @@
 # Agent 服务统一到 kit 的改造计划（2026-10-06）
 
-> 状态：已确认执行（2026-10-06 用户拍板统一方向：原生链内容纳入 kit 工具体系）。P0.1 已交付——双副本 sync 门禁、src 侧 `.d.ts` 漂移修复与命名对齐、tasks-bridge 残留清理、kit executor 回退去 storymasterv4 硬编码；见 STATUS 当轮条目。盘点产出与排期如下。
+> 状态：执行中（2026-10-06 用户确认统一方向并拍板排期）。P0.1 已交付（sync 门禁/d.ts 对齐/残留清理/kit 回退参数化）；P0.2+P1 已交付——契约口径（capability-manifest@1、beat-plan@1 进 kit contracts，adapter fixture+同步门禁+校验测试）与模型口径（kit llm.ts provider 注册表，THINKING_BUDGETS 单源判决 32768，taskBudget 落 executor），adapter 换 vendor 副本并完成 dots 真机验收（首轮+续接各一次 calc 实调）。下一步 P2 任务面进 kit。盘点与排期如下。
 > 关联：`docs/agent-runs/pr5-integration-20261005.md`（上游接入回执）、`docs/engineering/current-architecture.md` §4 AI 分层、kit 仓库 `AGENTS.md` / `docs/Agent.md`。
 
 ## 0. 结论
