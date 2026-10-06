@@ -201,12 +201,13 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
   }
 
   /** 在任意位置创建项目文件夹（Obsidian 建库）：空目录 + marker + kind 模板目录，并登记注册表。 */
-  function createProjectAt({ rootPath, name, kind = 'novel', bookId = null }) {
-    const invalid = validateProjectPathInput(rootPath)
+  function createProjectAt({ rootPath, path: pathInput, name, kind = 'novel', bookId = null }) {
+    const target = rootPath || pathInput
+    const invalid = validateProjectPathInput(target)
     if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
     if (!KIND_TEMPLATES[kind]) throw Object.assign(new Error(`未知项目类型 ${kind}（可用：${Object.keys(KIND_TEMPLATES).join('/')}）`), { code: 'ERR_INVALID_INPUT' })
     if (typeof name !== 'string' || !name.trim()) throw Object.assign(new Error('name 必填'), { code: 'ERR_INVALID_INPUT' })
-    const root = path.resolve(rootPath)
+    const root = path.resolve(target)
     const exists = fs.existsSync(root)
     if (exists && fs.readdirSync(root).length > 0) throw Object.assign(new Error('目标目录非空——创建项目需要空目录（打开已有项目用 /projects/open）'), { code: 'ERR_DIR_NOT_EMPTY' })
     fs.mkdirSync(root, { recursive: true })
@@ -218,10 +219,11 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
   }
 
   /** 打开已有项目文件夹：校验 marker 并登记/刷新注册表。 */
-  function openProjectAt({ rootPath, bookId = null }) {
-    const invalid = validateProjectPathInput(rootPath)
+  function openProjectAt({ rootPath, path: pathInput, bookId = null }) {
+    const target = rootPath || pathInput
+    const invalid = validateProjectPathInput(target)
     if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
-    const root = path.resolve(rootPath)
+    const root = path.resolve(target)
     let manifest
     try {
       manifest = JSON.parse(fs.readFileSync(path.join(root, '.pinax', 'project.json'), 'utf-8'))
