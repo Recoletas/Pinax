@@ -5,6 +5,7 @@ import { createPinaxRouterHistory } from './history'
 // 懒加载页面组件
 const AppShell = () => import('../layouts/AppShell.vue')
 const AuthoringWelcomeView = () => import('../views/AuthoringWelcomeView.vue')
+const ProjectManagerView = () => import('../views/ProjectManagerView.vue')
 const Experience = () => import('../pages/Experience.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorkspace.vue')
@@ -35,6 +36,17 @@ const workbenchChildren = [
       immersiveShell: true,
       hideActivityBar: true,
       hideSidePanel: true
+    }
+  },
+  {
+    path: 'projects',
+    name: 'projects',
+    component: ProjectManagerView,
+    meta: {
+      immersiveShell: true,
+      hideActivityBar: true,
+      hideSidePanel: true,
+      title: '项目管理'
     }
   },
   {

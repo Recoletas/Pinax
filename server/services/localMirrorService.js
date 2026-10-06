@@ -244,6 +244,26 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return readRegistry(resolveAppDataDir())
   }
 
+  /** 改注册表绑定（bookId=null 解绑）；不动磁盘。 */
+  function setProjectBinding({ projectId, rootPath, bookId }) {
+    const appData = resolveAppDataDir()
+    const projects = readRegistry(appData)
+    const target = projects.find((item) => (projectId ? item.projectId === projectId : registryKeyOf(item.rootPath) === registryKeyOf(String(rootPath || ''))))
+    if (!target) throw Object.assign(new Error('注册表中没有这个项目'), { code: 'ERR_PROJECT_NOT_FOUND' })
+    target.bookId = bookId ?? null
+    writeRegistry(appData, projects)
+    return target
+  }
+
+  /** 从注册表移除条目（磁盘项目文件夹不动）。 */
+  function removeProjectEntry({ projectId, rootPath }) {
+    const appData = resolveAppDataDir()
+    const projects = readRegistry(appData)
+    const next = projects.filter((item) => !(projectId ? item.projectId === projectId : registryKeyOf(item.rootPath) === registryKeyOf(String(rootPath || ''))))
+    if (next.length === projects.length) throw Object.assign(new Error('注册表中没有这个项目'), { code: 'ERR_PROJECT_NOT_FOUND' })
+    writeRegistry(appData, next)
+  }
+
   /** 同步落点：bookId 在注册表绑定过的项目根优先，否则回落文档根（旧行为兼容）。 */
   function resolveBookDir(book) {
     const entry = readRegistry(resolveAppDataDir()).find((item) => item.bookId === book.id && fs.existsSync(item.rootPath))
@@ -390,5 +410,5 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return file
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, resolveAppDataDir }
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, resolveAppDataDir }
 }

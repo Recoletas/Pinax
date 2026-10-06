@@ -57,6 +57,26 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
+  router.post('/projects/bind', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const entry = service.setProjectBinding(req.body || {})
+      return res.json({ ok: true, entry })
+    } catch (error) {
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : 400
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
+  router.post('/projects/remove', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      service.removeProjectEntry(req.body || {})
+      return res.json({ ok: true })
+    } catch (error) {
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : 400
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
   router.post('/sync', (req, res) => {
     try {
       const result = service.mirrorBook(req.body)
