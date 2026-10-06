@@ -156,5 +156,17 @@ for (const routePath of ['/projects/create', '/projects/open']) {
 delete process.env.PINAX_PUBLIC_ORIGINS
 check('公网部署下 create/open 均 403 ERR_LOCAL_ONLY', guardCalls.every((call) => call.code === 403 && call.body.error === 'ERR_LOCAL_ONLY'))
 
+console.log('[11] 绑定管理：bind/remove（注册表层，磁盘不动）')
+const bound = paradigmService.setProjectBinding({ projectId: created.manifest.projectId, bookId: 'book_new_1' })
+check('bind 写入 bookId', bound.bookId === 'book_new_1')
+const unbound = paradigmService.setProjectBinding({ projectId: created.manifest.projectId, bookId: null })
+check('bookId=null 解绑', unbound.bookId === null)
+paradigmService.setProjectBinding({ projectId: created.manifest.projectId, bookId: 'book_logs_001' })
+paradigmService.removeProjectEntry({ projectId: created.manifest.projectId })
+check('remove 摘除注册表条目（磁盘不动）', !paradigmService.listProjects().some((item) => item.projectId === created.manifest.projectId) && fs.existsSync(path.join(novelRoot, '.pinax', 'project.json')))
+let notFoundError = ''
+try { paradigmService.setProjectBinding({ projectId: 'proj_missing', bookId: 'x' }) } catch (error) { notFoundError = error.code }
+check('绑定不存在项目 → ERR_PROJECT_NOT_FOUND', notFoundError === 'ERR_PROJECT_NOT_FOUND')
+
 console.log(`local-mirror-check: ${passed} 项全部通过`)
 fs.rmSync(root, { recursive: true, force: true })

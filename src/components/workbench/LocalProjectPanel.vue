@@ -22,6 +22,7 @@
         <span v-for="project in projects" :key="project.projectId" class="local-project-row">
           {{ tr('已绑定：{name} → {path}', { name: project.name, path: project.rootPath }) }}
         </span>
+        <span class="local-project-row">{{ tr('绑定与移除请到首页「项目管理」面板。') }}</span>
       </template>
       <template v-else>{{ tr('还没有打开过任何项目文件夹；未绑定的书镜像到文档目录。') }}</template>
     </p>

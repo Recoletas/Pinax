@@ -39,6 +39,29 @@ export async function listLocalProjects() {
   return Array.isArray(body.projects) ? body.projects : []
 }
 
+/** 改注册表绑定（bookId=null 解绑；磁盘不动）。失败抛错由调用方展示。 */
+export async function bindLocalProject(projectId, bookId) {
+  const response = await fetch('/api/localmirror/projects/bind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId, bookId })
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok || body?.ok !== true) throw Object.assign(new Error(body?.message || 'bind failed'), { status: response.status })
+  return body.entry
+}
+
+/** 从注册表移除项目条目（磁盘文件夹不动）。 */
+export async function removeLocalProject(projectId) {
+  const response = await fetch('/api/localmirror/projects/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId })
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok || body?.ok !== true) throw Object.assign(new Error(body?.message || 'remove failed'), { status: response.status })
+}
+
 function sanitizeProjectFolderName(input) {
   return (
     String(input ?? '')
