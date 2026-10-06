@@ -6,6 +6,7 @@ import {
 } from '../services/toolCallingProviderAdapter.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { createNarrativeAgentStreamEvent, serializeNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
+import { isServerKeyedTextConfig, kitFunnelAvailable, runKitFunnelProviderTurn } from '../services/kitModelGateway.js'
 
 function statusForError(code) {
   if (code === 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED') return 422
@@ -54,17 +55,20 @@ export function createGenerationAgentStepStreamHandler({
       )
     }
     const request = validation.request
+    const originalApiKey = request.provider.apiKey
     request.provider.apiKey = resolveTextApiKey({
       provider: request.provider.id,
       baseUrl: request.provider.baseUrl,
       apiKey: request.provider.apiKey
     })
-    if (!request.provider.apiKey) {
+    if (!request.provider.apiKey && !isServerKeyedTextConfig({ baseUrl: request.provider.baseUrl, apiKey: originalApiKey })) {
       return res.status(400).json(safeErrorPayload(
         Object.assign(new Error('provider.apiKey 不能为空'), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
         request.requestId
       ))
     }
+    // 统一模型漏斗：服务器密钥配置（内置 MiniMax）的单回合工具调用转发 kit 任务面；自带 key 的自定义配置直连原适配器
+    const useKitFunnel = isServerKeyedTextConfig({ baseUrl: request.provider.baseUrl, apiKey: originalApiKey }) && await kitFunnelAvailable()
     res.status(200)
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache, no-transform')
@@ -89,7 +93,9 @@ export function createGenerationAgentStepStreamHandler({
     res.once?.('close', abortClosedResponse)
     try {
       send('step.start', { stepIndex: 0, toolChoice: request.options.toolChoice || 'auto' })
-      const result = await runner(request, { signal: controller.signal })
+      const result = await (useKitFunnel
+        ? runKitFunnelProviderTurn(request, { signal: controller.signal })
+        : runner(request, { signal: controller.signal }))
       for (const call of result.calls || []) {
         send('tool.input.delta', { callId: call.id, toolName: call.name, input: call.arguments })
         send('tool.call', { callId: call.id, toolName: call.name, action: call.arguments?.action })

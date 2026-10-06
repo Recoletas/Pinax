@@ -6,6 +6,7 @@ import {
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { createKitFunnelFetchImpl, isServerKeyedTextConfig, kitFunnelAvailable } from './kitModelGateway.js'
 import {
   createStructuredCapabilityCache,
   downgradeStructuredProviderCapability,
@@ -237,13 +238,14 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
     try {
       // 内置 MiniMax 客户端发来哨兵 key → 替换为服务器 env key (或给出明确报错)
       const body = req.body || {}
+      const originalApiKey = body?.provider?.apiKey
       if (body?.provider) {
         body.provider.apiKey = resolveTextApiKey({
           provider: body.provider.id,
           baseUrl: body.provider.baseUrl,
           apiKey: body.provider.apiKey
         })
-        if (!body.provider.apiKey) {
+        if (!body.provider.apiKey && !isServerKeyedTextConfig({ baseUrl: body.provider.baseUrl, apiKey: originalApiKey })) {
           const isMiniMaxUnconfigured =
             /minimax/i.test(body.provider.id || '') || /minimaxi?\.com/i.test(body.provider.baseUrl || '')
           if (isMiniMaxUnconfigured) {
@@ -257,7 +259,11 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
           }
         }
       }
-      const result = await runner(body, { signal: controller.signal })
+      // 统一模型漏斗：服务器密钥配置（内置 MiniMax）经 kit fetch shim 转发任务面；自带 key 的自定义配置直连原适配器
+      const useKitFunnel = body?.provider
+        && isServerKeyedTextConfig({ baseUrl: body.provider.baseUrl, apiKey: originalApiKey })
+        && await kitFunnelAvailable()
+      const result = await runner(body, { signal: controller.signal, ...(useKitFunnel ? { fetchImpl: createKitFunnelFetchImpl() } : {}) })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)
     } catch (error) {

@@ -6,6 +6,7 @@ import { resolveGenerationToolProtocol } from '../../shared/generationToolContra
 import { probeNarrativeProviderCapabilities } from '../services/providers/narrativeCapabilityProbe.js'
 import { probeStructuredProviderCapabilities } from '../services/structuredGenerationRunner.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { forwardComplete, forwardCompleteStream, isServerKeyedTextConfig, kitFunnelAvailable } from '../services/kitModelGateway.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -380,13 +381,13 @@ export async function handleGenerateRequest(req, res) {
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey) {
+  if (!effectiveApiKey && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })) {
     const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
     return sendApiError(
       res,
       400,
       'API_KEY_REQUIRED',
-      isMiniMaxUnconfigured
+      isMiniMaxUnconfigured && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })
         ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
         : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。',
       null,
@@ -564,6 +565,27 @@ export async function handleGenerateRequest(req, res) {
 
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
+
+    // 统一模型漏斗：服务器密钥配置（内置 MiniMax）转发 kit 任务面（key 服务端持有）；自带 key 的自定义配置直连原路径
+    if (isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey }) && await kitFunnelAvailable()) {
+      try {
+        const result = await forwardComplete({
+          ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
+          messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
+          maxTokens: effectiveMaxTokens,
+          temperature: effectiveTemperature,
+          ...(response_format?.type === 'json_object' ? { responseFormat: 'json_object' } : {}),
+          timeoutMs: Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000)))
+        })
+        if (!String(result.content || '').trim()) {
+          return sendApiError(res, 502, 'UPSTREAM_EMPTY_CONTENT', '上游模型返回为空内容', `via=kit, model=${result.model}`, responseMeta)
+        }
+        return res.json({ content: result.content, meta: { ...responseMeta, viaKit: true, model: result.model } })
+      } catch (kitError) {
+        if (generationAbort.signal.aborted && res.destroyed) return
+        return sendApiError(res, 502, 'UPSTREAM_REQUEST_FAILED', `kit 漏斗请求失败：${kitError?.message || kitError}`, null, responseMeta)
+      }
+    }
 
     let requestBody = {
       model: effectiveModel,
@@ -761,12 +783,12 @@ router.post('/stream', async (req, res) => {
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey) {
+  if (!effectiveApiKey && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })) {
     const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
-    res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: isMiniMaxUnconfigured ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。' : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
+    return res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: isMiniMaxUnconfigured ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。' : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
     return res.end()
   }
 
@@ -891,6 +913,31 @@ router.post('/stream', async (req, res) => {
 
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
+
+    // 统一模型漏斗（流式）：服务器密钥配置（内置 MiniMax）经 kit 任务面 /complete/stream，
+    // 重播为既有 {content} SSE 帧；自带 key 的自定义配置直连原路径。
+    if (isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey }) && await kitFunnelAvailable()) {
+      try {
+        await forwardCompleteStream({
+          ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
+          messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
+          maxTokens: effectiveMaxTokens,
+          temperature: effectiveTemperature,
+          timeoutMs: 120000
+        }, (delta) => {
+          if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
+        })
+        if (!res.writableEnded && !res.destroyed) res.write('data: [DONE]\n\n')
+        return res.end()
+      } catch (kitError) {
+        if (!res.writableEnded && !res.destroyed) {
+          res.write(`data: ${JSON.stringify({ error: `kit 漏斗请求失败：${kitError?.message || kitError}` })}\n\n`)
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
+        return
+      }
+    }
 
     let requestBody = {
       model: effectiveModel,
