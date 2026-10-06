@@ -10,12 +10,16 @@ import { runCapabilityTaskAgent, CAPABILITY_TASK_TYPES } from '../server/service
 let passed = 0
 const check = (name, condition) => { assert.ok(condition, name); passed += 1; console.log(`  ✓ ${name}`) }
 
-console.log('[1] 契约目录：三切片各有 submit 工具 schema')
-for (const taskType of ['authoring.review.chapter', 'authoring.knowledge.query', 'memory.extraction']) {
+console.log('[1] 契约目录：全族 spec（P4-A 三件 + P4-B 扩容）')
+check('目录规模 ≥ 18', Object.keys(CAPABILITY_TOOL_SPECS).length >= 18)
+for (const taskType of ['authoring.review.chapter', 'authoring.knowledge.query', 'memory.extraction', 'authoring.rewrite', 'authoring.complete.inline', 'materials.refine', 'authoring.scene.directions', 'authoring.rehearsal.step', 'authoring.review.selection', 'materials.classify', 'canvas.organize', 'storyboard.review', 'experience.next-actions', 'authoring.next-actions']) {
   const spec = getCapabilityToolSpec(taskType)
   check(`${taskType} → ${spec?.toolName}`, Boolean(spec?.toolName && spec?.schema?.type === 'object'))
 }
 check('memory.extraction quote 逐字约束在 schema description', CAPABILITY_TOOL_SPECS['memory.extraction'].schema.properties.proposals.items.properties.quote.description.includes('逐字'))
+check('review.findings 带 target 精确定位（nodeId/offset/exact）', JSON.stringify(CAPABILITY_TOOL_SPECS['authoring.review.chapter'].schema).includes('startOffset'))
+check('rewrite 支持 candidates 多候选', JSON.stringify(CAPABILITY_TOOL_SPECS['authoring.rewrite'].schema).includes('candidates'))
+check('typedActions 族 action 类型约束', Array.isArray(CAPABILITY_TOOL_SPECS['storyboard.review'].actionTypes) && CAPABILITY_TOOL_SPECS['storyboard.review'].actionTypes[0] === 'storyboard-shot-patch')
 
 console.log('[2] runCapabilityTaskAgent：mock 任务面 SSE → 回执序列化为 advice')
 let forwarded = null

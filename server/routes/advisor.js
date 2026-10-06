@@ -20,6 +20,7 @@ import {
 import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
 import { buildOpenClawUserMessage } from '../services/openclawService.js'
 import { capabilityPlaneAvailable, runCapabilityTaskAgent } from '../services/capabilityTaskRunner.js'
+import { getCapabilityToolSpec } from '../../shared/capabilityToolContracts.js'
 import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
 import { applyWritingSkillEnforcement } from '../services/writingSkillEnforcement.js'
 
@@ -147,10 +148,9 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   const ledger = createAgentContextLedger(clippedEnvelope)
 
   try {
-    // 统一调度门控：三个切片 taskType 在能力任务面健康时走 agent 循环（submit 工具回执序列化为 advice，
-    // 既有解析/模板/语义修复原样工作）；任务面不可达回落漏斗直连（双层 fail-open）。其余 taskType 随 P4-B 逐片迁移。
-    const capabilitySlices = ['authoring.review.chapter', 'authoring.knowledge.query', 'memory.extraction']
-    const useCapability = capabilitySlices.includes(normalizedTaskType) && await capabilityPlaneAvailable()
+    // 统一调度门控：凡有 submit 契约的 taskType，在能力任务面健康时走 agent 循环（submit 回执序列化为 advice，
+    // 既有解析/模板/语义修复原样工作）；无契约或任务面不可达 → 回落漏斗直连（双层 fail-open）。
+    const useCapability = Boolean(getCapabilityToolSpec(normalizedTaskType)) && await capabilityPlaneAvailable()
     const runOnce = (activeQuestion) => {
       if (useCapability) {
         return runCapabilityTaskAgent({
