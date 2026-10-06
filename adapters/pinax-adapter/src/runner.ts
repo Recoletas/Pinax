@@ -15,72 +15,10 @@ import { narrativeBeatPlanRevision, validateNarrativeBeatPlanInput } from "./bea
 import type { AdapterConfig } from "./config.ts";
 import type { TaskSnapshot } from "./store.ts";
 
-// ---- LLM 绑定（与 storyharness/src/llm.ts 同口径：pi-ai Models，自定义端点走 setProvider）----
-import {
-  createModels,
-  createProvider,
-  envApiKeyAuth,
-  type Model,
-  type Models,
-} from "@earendil-works/pi-ai";
-import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { zaiProvider } from "@earendil-works/pi-ai/providers/zai";
-
-export function makeModels(cfg: AdapterConfig): Models {
-  const models = createModels();
-  if (cfg.baseUrl) {
-    const ambient = envApiKeyAuth("pinax-adapter key", ["MINIFLOW_AGENT_KEY", "ZAI_API_KEY"]);
-    models.setProvider(
-      createProvider({
-        id: cfg.provider,
-        name: cfg.provider,
-        baseUrl: cfg.baseUrl,
-        auth: {
-          apiKey: {
-            name: cfg.apiKey ? "adapter 端点 key（配置内联）" : ambient.name,
-            ...(ambient.login ? { login: ambient.login } : {}),
-            resolve: async (input: Parameters<NonNullable<typeof ambient.resolve>>[0]) =>
-              cfg.apiKey
-                ? { auth: { apiKey: cfg.apiKey }, source: "配置内联 apiKey" }
-                : ambient.resolve(input),
-          },
-        },
-        models: [
-          {
-            id: cfg.model,
-            provider: cfg.provider,
-            api: "openai-completions",
-            name: cfg.model,
-            baseUrl: cfg.baseUrl,
-            reasoning: true,
-            input: ["text"],
-            contextWindow: 128_000,
-            maxTokens: 16_384,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            // dots.ai 等国产 OpenAI 兼容端点实测：拒绝 developer 角色（400 provider.client_bad_request），
-            // 不发 reasoning_effort；思维链以 reasoning_content 增量返回（pi-ai 原生解析）。
-            compat: { supportsDeveloperRole: false, supportsStore: false, supportsReasoningEffort: false, maxTokensField: "max_tokens" },
-          },
-        ],
-        api: openAICompletionsApi(),
-        headers: cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : undefined,
-      }),
-    );
-    return models;
-  }
-  if (cfg.provider === "zai") {
-    if (cfg.apiKey) process.env.ZAI_API_KEY = cfg.apiKey;
-    models.setProvider(zaiProvider());
-  }
-  return models;
-}
-
-const BUDGETS: Record<string, { minimal?: number; low?: number; medium?: number; high?: number }> = {
-  off: {},
-  low: { low: 1024, medium: 2048, high: 4096 },
-  medium: { low: 2048, medium: 8192, high: 16384 },
-  high: { low: 4096, medium: 16384, high: 32384 },
-};
+// ---- LLM 绑定（口径统一 P1）：makeModels/THINKING_BUDGETS 单源在 kit storyharness/src/llm.ts，
+// 本文件为 vendor 副本消费方——compat 旗标按 PROVIDER_PROFILES 精确注入（dots 等），generic 端点不带。----
+import { makeModels, THINKING_BUDGETS } from "./llm.js";
+import type { Model } from "@earendil-works/pi-ai";
 
 export interface RunHandle {
   taskId: string;
@@ -177,7 +115,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
       tools,
       ...(opts.resumeMessages?.length ? { messages: boundedResumeMessages(opts.resumeMessages) as never } : {}),
     },
-    thinkingBudgets: BUDGETS[cfg.thinking] ?? BUDGETS.medium,
+    thinkingBudgets: THINKING_BUDGETS[cfg.thinking] ?? THINKING_BUDGETS.medium,
     streamFn: (m, context, options) =>
       models.streamSimple(m, context as never, { ...(options as Record<string, unknown> | undefined), maxTokens: Math.max(200, Math.min(8000, req.maxTokens || 1600)), timeoutMs: budget.agentTimeoutMs } as never) as never,
     beforeToolCall: async (ctx) => {
@@ -294,7 +232,7 @@ export function createRun(req: TurnRequest, cfg: AdapterConfig, snapshot: Resour
           counters.steps += 1;
           const planAgent = new Agent({
             initialState: { systemPrompt: buildBeatPlannerPrompt(), model, tools: [] },
-            thinkingBudgets: BUDGETS[cfg.thinking] ?? BUDGETS.medium,
+            thinkingBudgets: THINKING_BUDGETS[cfg.thinking] ?? THINKING_BUDGETS.medium,
             streamFn: (m, context, options) =>
               models.streamSimple(m, context as never, { ...(options as Record<string, unknown> | undefined), maxTokens: 900, timeoutMs: Math.min(90_000, budget.agentTimeoutMs) }) as never,
           });
