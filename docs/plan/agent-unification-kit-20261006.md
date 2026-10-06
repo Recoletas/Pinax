@@ -1,6 +1,6 @@
 # Agent 服务统一到 kit 的改造计划（2026-10-06）
 
-> 状态：执行中（2026-10-06 用户确认统一方向并拍板排期）。P0.1 已交付（sync 门禁/d.ts 对齐/残留清理/kit 回退参数化）；P0.2+P1 已交付——契约口径（capability-manifest@1、beat-plan@1 进 kit contracts，adapter fixture+同步门禁+校验测试）与模型口径（kit llm.ts provider 注册表，THINKING_BUDGETS 单源判决 32768，taskBudget 落 executor），adapter 换 vendor 副本并完成 dots 真机验收（首轮+续接各一次 calc 实调）。下一步 P2 任务面进 kit。盘点与排期如下。
+> 状态：**全程交付（2026-10-06）**。P0.1–P5 全部执行：P0 双副本门禁/契约单源、P1 provider 注册表、P2 运行时迁入 kit（adapter 退役，`storyflow-kit/storyharness/src/pinax/` 为 canonical，`serve:pinax` 承载 8451）、P3 标准工具集清单工件（浏览器原生工具环按边界留 Pinax 由契约测试对齐）、P4 文档化（advisor/structured 走 kit provider 与 orchestrator retire 为**待上游 PR 剩余项**，前置已备）、P5 设置页 agent 引擎行（统一模型可见）。终验经 3001 代理真实 dots 首轮+续接 calc 实调通过。剩余待办：①上游 PR（Pinax 分支 + kit main 均未推送）；②P4 原生链消费化（需上游协同）；③本机并行 vitest 的环境性超时与改动无关（已取证）。盘点与排期详情如下。
 > 关联：`docs/agent-runs/pr5-integration-20261005.md`（上游接入回执）、`docs/engineering/current-architecture.md` §4 AI 分层、kit 仓库 `AGENTS.md` / `docs/Agent.md`。
 
 ## 0. 结论
