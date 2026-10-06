@@ -13,6 +13,11 @@
     />
 
     <p v-if="currentNote" class="ai-settings-note" role="status">{{ currentNote }}</p>
+
+    <p class="ai-settings-note" role="status" data-test="agent-engine-note">
+      <template v-if="agentEngine.state === 'up'">{{ tr('Agent 引擎（kit 任务面）：{model}', { model: agentEngine.model }) }}</template>
+      <template v-else-if="agentEngine.state === 'down'">{{ tr('Agent 引擎未运行：写作与修改将回落原生链，启动 kit 任务面（serve:pinax）后可用。') }}</template>
+    </p>
   </div>
 </template>
 
@@ -29,6 +34,7 @@ import {
 
 const selectedId = ref('')
 const configs = ref([])
+const agentEngine = ref({ state: 'loading', model: '' })
 
 const currentNote = computed(() => {
   const resolved = configs.value.find((config) => config.id === selectedId.value)
@@ -47,6 +53,14 @@ onMounted(() => {
   if (getSelectedTextProviderConfigId() !== resolved.id) {
     saveSelectedTextProviderConfigId(resolved.id)
   }
+  // Agent 引擎状态（P5 统一模型口径的可见面）：kit 任务面 healthz，一次即止、失败静默降级
+  fetch('/api/storyagent/healthz')
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body) => {
+      if (body?.ok && body?.model) agentEngine.value = { state: 'up', model: body.model }
+      else agentEngine.value = { state: 'down', model: '' }
+    })
+    .catch(() => { agentEngine.value = { state: 'down', model: '' } })
 })
 
 function handleSelect(id) {

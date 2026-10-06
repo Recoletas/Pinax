@@ -1144,6 +1144,8 @@
   "ComfyUI API 工作流 JSON 无效": "Invalid ComfyUI API workflow JSON",
   "请使用 ComfyUI 的 API 格式工作流，不是编辑器布局 JSON": "Use ComfyUI's API workflow format instead of the editor layout JSON.",
   "写作与修改": "Write & revise",
+  "Agent 引擎（kit 任务面）：{model}": "Agent engine (kit task plane): {model}",
+  "Agent 引擎未运行：写作与修改将回落原生链，启动 kit 任务面（serve:pinax）后可用。": "Agent engine not running: write & revise falls back to the native chain. Start the kit task plane (serve:pinax) to enable it.",
   "查阅参考、运用技法，确认后加入正文": "Use references and techniques; approve before adding to the manuscript",
   "希望怎样续写、改写或打磨？": "What would you like to continue, revise, or polish?",
   "思考过程": "Thinking",
