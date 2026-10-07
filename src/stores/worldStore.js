@@ -27,6 +27,13 @@ import {
 } from '../services/worldbook/worldbookPlaceCatalog'
 import { archiveSourceDocuments } from '../services/worldbook/worldbookSourceArchive'
 import { mutationFailure, mutationSuccess } from '../services/storage/durableMutationResult.js'
+import {
+  createWorldbookFileSyncController,
+  isFileSourceAvailable,
+  resolveWorldbookLoadSource,
+  resolveWorldbookProjectRoot,
+  saveWorldbookToFiles
+} from '../services/worldbook/worldbookFileRepository'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -475,6 +482,79 @@ function persistOrThrow(key, value, label) {
   if (!setItem(key, value)) throw storageWriteError(label)
 }
 
+// ---------- 文件双写接缝（W2·A3：文件真源优先 + localStorage 缓存回落 + 首载迁移） ----------
+// 只挂持久化路径：条目 CRUD/注入/结构化投影语义零变化；server 不可达/未绑定时
+// isFileSourceAvailable() 为 false，一切走原 localStorage 路径（零行为差异）。
+// 竞争守卫（worldbook-workflow §4）落在副作用 owner=worldbookFileRepository 的控制器内。
+
+const WORLDBOOK_FILE_SYNC_COALESCE_MS = 1500
+
+/** sync 载荷组装：世界书域字段 + 完整条目（entriesMap 是索引不入文件，normalize 重建）。 */
+function buildWorldbookFilePayload(raw) {
+  const worldbook = normalizeWorldbook(raw)
+  return {
+    id: String(worldbook.id || ''),
+    name: String(worldbook.name || ''),
+    worldDescription: String(worldbook.worldDescription || ''),
+    writingStyle: String(worldbook.writingStyle || ''),
+    forbidden: String(worldbook.forbidden || ''),
+    groups: Array.isArray(worldbook.groups) ? worldbook.groups : [],
+    entries: Array.isArray(worldbook.entries) ? worldbook.entries : []
+  }
+}
+
+/** 双写结果轻量标记：只挂在内存 activeWorldbook 上（不入持久化，避免标记写入再触发推送）。 */
+function markWorldbookFileSync(worldbookId, info) {
+  try {
+    const store = useWorldStore()
+    if (store.activeWorldbook?.id === worldbookId) {
+      store.activeWorldbook.fileSyncAt = info?.at || Date.now()
+      store.activeWorldbook.fileSyncError = null
+    }
+  } catch { /* 标记失败不影响双写 */ }
+}
+
+function markWorldbookFileSyncFailed(worldbookId, error) {
+  console.warn('[worldStore] 世界书文件双写失败（不影响本地编辑）', worldbookId, String(error?.code || ''), String(error?.message || ''))
+  try {
+    const store = useWorldStore()
+    if (store.activeWorldbook?.id === worldbookId) {
+      store.activeWorldbook.fileSyncError = String(error?.message || error?.code || 'file-sync-failed')
+    }
+  } catch { /* 轻量标记，绝不抛错 */ }
+}
+
+let worldbookFileSyncController = null
+
+function getWorldbookFileSyncController() {
+  if (worldbookFileSyncController) return worldbookFileSyncController
+  worldbookFileSyncController = createWorldbookFileSyncController({
+    readFile: (worldbookId) => decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null),
+    resolveRoot: (worldbookId) => resolveWorldbookProjectRoot(worldbookId),
+    isAvailable: isFileSourceAvailable,
+    assemble: buildWorldbookFilePayload,
+    push: (projectRoot, worldbook) => saveWorldbookToFiles(projectRoot, worldbook),
+    onSynced: markWorldbookFileSync,
+    onSyncFailed: markWorldbookFileSyncFailed,
+    coalesceMs: WORLDBOOK_FILE_SYNC_COALESCE_MS
+  })
+  return worldbookFileSyncController
+}
+
+/** 保存接缝入口：localStorage 世界书写入成功后调用；文件源不可用时零开销返回。 */
+function queueWorldbookFilePush(worldbookId) {
+  try {
+    getWorldbookFileSyncController().enqueue(worldbookId)
+  } catch { /* 双写绝不打断编辑 */ }
+}
+
+/** 文件加载成功后的 localStorage 缓存刷新（best-effort；失败时文件仍是真源）。 */
+function cacheWorldbookFromFiles(worldbookId, raw) {
+  try {
+    setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.parse(JSON.stringify(raw)))
+  } catch { /* 配额/序列化失败不阻塞加载 */ }
+}
+
 function cloneMutationValue(value) {
   if (value == null) return value
   return JSON.parse(JSON.stringify(value))
@@ -661,11 +741,22 @@ export const useWorldStore = defineStore('world', {
       const activationTicket = ++worldbookActivationSequence
       this.isLoading = true
       try {
-        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
-        if (!raw) throw new Error('世界书不存在')
+        const persistedRaw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        // 文件真源优先（W2·A3）：server 不可达/超时/未绑定/条目失配 → 完全走原 localStorage
+        // 路径（零行为差异）；文件缺失而本地有 → 首载迁移（异步幂等推一次）。
+        const fileSource = await resolveWorldbookLoadSource(worldbookId, persistedRaw)
+        if (!persistedRaw && fileSource.source !== 'files') throw new Error('世界书不存在')
+        const raw = fileSource.source === 'files' ? fileSource.raw : persistedRaw
         const normalized = normalizeWorldbook(raw)
         const loaded = await migrateLegacyWorldbookSources(worldbookId, normalized)
-        if (activationTicket === worldbookActivationSequence) this.activeWorldbook = loaded
+        if (activationTicket === worldbookActivationSequence) {
+          this.activeWorldbook = loaded
+          if (fileSource.source === 'files') {
+            cacheWorldbookFromFiles(worldbookId, raw)
+          } else if (fileSource.migrate && persistedRaw) {
+            queueWorldbookFilePush(worldbookId)
+          }
+        }
         return loaded
       } catch (e) {
         if (activationTicket === worldbookActivationSequence) this.lastError = e.message
@@ -725,6 +816,7 @@ export const useWorldStore = defineStore('world', {
       const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
       try {
         persistOrThrow(worldbookKey, worldbook, '世界书')
+        queueWorldbookFilePush(worldbook.id)
         this.worldbooksIndex.push({
           id: worldbook.id,
           name: worldbook.name,
@@ -766,6 +858,7 @@ export const useWorldStore = defineStore('world', {
       })
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, updated, '世界书')
+      queueWorldbookFilePush(worldbookId)
 
       // 更新索引
       const indexEntry = this.worldbooksIndex[idx]
@@ -905,6 +998,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -987,6 +1081,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
@@ -1025,6 +1120,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -1387,6 +1483,7 @@ export const useWorldStore = defineStore('world', {
       const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
       try {
         persistOrThrow(worldbookKey, worldbook, '导入世界书')
+        queueWorldbookFilePush(worldbook.id)
         this.worldbooksIndex.push({
           id: worldbook.id,
           name: worldbook.name,
