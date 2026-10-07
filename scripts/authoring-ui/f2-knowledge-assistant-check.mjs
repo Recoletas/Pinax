@@ -166,6 +166,21 @@ async function fillAndAsk(page, question) {
   return assistant
 }
 
+// 20261008 dock 化同步：收起徽标（data-authoring-tool="ai"）只负责展开 dock，
+// 可能带着上次的工具面板 overlay 重开（activeInspectorTool 初始为 'annotations'）；
+// 「回到助手」语义在 dock 会话 tab 上（selectTab('session') 会触发 panel-close）。
+// 这里点到达会话段为止，至多两击；回退是否触发只记录，不改断言。
+async function openAssistantSession(page) {
+  await page.locator('[data-authoring-tool="ai"]').click()
+  await page.waitForTimeout(300)
+  if (await page.locator('.authoring-dock__panel').isVisible().catch(() => false)) {
+    console.log('NOTE openAssistantSession: dock reopened onto a tool panel overlay; clicking session tab to return to assistant')
+    await page.locator('[data-authoring-tool="ai"]').click()
+    await page.waitForTimeout(300)
+  }
+  await page.locator('.authoring-knowledge').waitFor({ state: 'visible', timeout: 15000 })
+}
+
 const browser = await chromium.launch()
 const results = []
 
@@ -192,10 +207,13 @@ try {
     selection: window.getSelection()?.toString() || '',
     scrollTop: document.querySelector('.wall__dossier [data-notebook-scroll-owner], .wall__dossier .writing-notebook-editor__scroll')?.scrollTop || 0
   }))
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   const assistant = page.locator('.authoring-knowledge')
   await assistant.waitFor({ state: 'visible' })
-  check(results, '右 rail 入口命名为助手', await page.locator('[data-authoring-tool="ai"]').getAttribute('aria-label') === '助手')
+  // 20261008 dock 化同步：助手入口不再是右 rail 按钮，data-authoring-tool="ai"
+  // 改落在 dock 的会话段 tab（打开时）/收起徽标钮（收起时），任一时刻至多一个；
+  // rail 按钮专属的 aria-label 断言同步改为入口唯一且可见。
+  check(results, '助手入口可见且唯一', await page.locator('[data-authoring-tool="ai"]').count() === 1 && await page.locator('[data-authoring-tool="ai"]').isVisible())
   // 20260917 UI 线起快捷任务从按钮组改为 composer 的“问答范围”下拉。
   const intentOptions = await assistant.locator('.authoring-knowledge__tasks select option').allTextContents()
   check(results, '助手首页只呈现成熟快捷任务', intentOptions.join('|') === '查设定|找伏笔|理线索|挖角色|算数值|问全书|自由问', intentOptions.join('|'))
@@ -209,7 +227,7 @@ try {
   }))
   check(results, '打开并关闭助手恢复正文选区、焦点和滚动', surfaceBefore.selection.length === 2 && surfaceAfter.selection === surfaceBefore.selection && surfaceAfter.activeInEditor && surfaceAfter.scrollTop === surfaceBefore.scrollTop, JSON.stringify({ surfaceBefore, surfaceAfter }))
 
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   const formalBefore = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)))
   await fillAndAsk(page, '艾德加此前在哪几章出现？')
   await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).waitFor({ timeout: 30000 })
@@ -248,7 +266,7 @@ try {
   await assistant.getByText(/资料已更新/).first().waitFor({ timeout: 10000 })
   check(results, '来源修改后旧回答保留并标记 stale', await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).count() === 1)
   await page.locator('.writing-inspector__icon-btn[title="关闭检查器"]').click()
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   check(results, '重新打开助手仍可返回原回答', await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).count() === 1)
   check(results, '1440 无页面级横向溢出', await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth))
   check(results, '桌面旅程无控制台错误', desktop.errors.length === 0, desktop.errors.join('\n'))
@@ -262,7 +280,7 @@ try {
   await liveEditor.locator('p').first().click()
   await liveDraft.page.keyboard.press('End')
   await liveDraft.page.keyboard.insertText(liveSentinel)
-  await liveDraft.page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(liveDraft.page)
   await fillAndAsk(liveDraft.page, `${liveSentinel}在哪里？`)
   const liveRequest = liveDraft.requests[0]
   check(results, '尚未自动保存的当前正文进入冻结证据', JSON.stringify(liveRequest?.payload?.envelope || {}).includes(liveSentinel))
@@ -285,7 +303,7 @@ try {
   const dualEditor = dualPane.locator('.ProseMirror')
   await dualEditor.locator('p').first().click()
   await dualPage.waitForTimeout(48)
-  await dualPage.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(dualPage)
   const dualAssistant = dualPage.locator('.authoring-knowledge')
   await dualAssistant.waitFor({ state: 'visible' })
   await dualAssistant.locator('.authoring-knowledge__tasks select').selectOption('character')
@@ -298,7 +316,7 @@ try {
   await dualTarget.context.close()
 
   const mobile = await createPage(browser, { width: 390, height: 844 })
-  await mobile.page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(mobile.page)
   const mobileAssistant = mobile.page.locator('.authoring-knowledge')
   await mobileAssistant.waitFor({ state: 'visible' })
   const mobileGeometry = await mobile.page.evaluate(() => {
@@ -436,7 +454,7 @@ async function runKnowledgeSeamClickGate(browser) {
   await editor.locator('p').first().waitFor({ timeout: 30000 })
 
   // 1) 无焦点来源的提问走旧路径：trace 0。
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   await fillAndAsk(page, '艾德加此前在哪几章出现？')
   await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).waitFor({ timeout: 30000 })
   let trace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
@@ -450,7 +468,7 @@ async function runKnowledgeSeamClickGate(browser) {
   await page.waitForTimeout(400)
   // 世界设定来源的"回到原文"会切到设定面板，助手抽屉随之关闭——真实作者
   // 会重新打开助手继续追问；焦点来源已登记在应用内。
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
 
   // 3) 追问：本次真实进入接缝（trace +1），envelope 只含焦点来源，
@@ -503,7 +521,7 @@ async function runKnowledgeSeamClickGate(browser) {
     .locator('.authoring-knowledge__evidence-list > button').first().click()
   await page.waitForTimeout(300)
   check(results, 'click: 接缝回答来源可回原文', (await editor.count()) > 0)
-  await page.locator('[data-authoring-tool="ai"]').click()
+  await openAssistantSession(page)
   await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
 
   // 5) 点名来源失效是终态：删除该条目后再追问 → typed 停止，provider 零

@@ -394,9 +394,15 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain("historyRestoreEpoch: String(source?.meta?.historyRestoreEpoch || '')")
     expect(authoringDualPane).toContain("historyRestoreEpoch: String(documentState.value?.meta?.historyRestoreEpoch || '')")
     expect(source).not.toContain('<AuthoringAiReference')
-    expect(authoringToolRail).toContain("{ id: 'ai', label: '助手' }")
+    // 20261008 dock 化：助手不再占工具轨格；入口合同移到 AuthoringDock——
+    // 会话 tab（打开时）/收起徽标（收起时）携带 data-authoring-tool="ai"，会话段保持 data-authoring-inspector="ai"。
+    const authoringDock = readFileSync(resolve(__dirname, '../components/authoring/AuthoringDock.vue'), 'utf8')
+    expect(authoringToolRail).not.toContain("id: 'ai'")
+    expect(authoringDock).toContain(`:data-authoring-tool="open ? 'ai' : null"`)
+    expect(authoringDock).toContain('data-authoring-inspector="ai"')
     expect(writing).toContain('<AuthoringCharacterPanel')
-    expect(writing).toContain("'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool)")
+    // 20261008 dock 化：检查器壳的 class 绑定随壳迁入 AuthoringDock。
+    expect(authoringDock).toContain("'is-catalog-workbench': ['outline','characters','worldbook'].includes(activeTool)")
     for (const action of ['新建', '提取', '生图', '上传', '提及章节']) expect(authoringCharacterPanel).toContain(action)
     for (const field of ['背景', '性格', '外貌', '其他']) expect(authoringCharacterPanel).toContain(`'${field}'`)
     expect(authoringCharacterPanel).toContain("emit('remove', selectedCharacter.value.id)")
