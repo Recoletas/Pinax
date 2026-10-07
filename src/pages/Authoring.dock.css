@@ -8,6 +8,16 @@
   width: var(--writing-dock-width, clamp(420px,31vw,440px));
 }
 
+/* 拖宽的实际作用点是 .has-inspector 第三列：列模板里的 clamp 是硬顶，而 CSS 变量
+   不会向上继承，宿主网格上的 --writing-dock-width 由 AuthoringDock 拖宽时用 JS 写入。
+   变量未设时列宽与原规则逐字一致；只接管 ≥1181 的四列桌面区（981-1180 是覆盖层
+   三列断点、≤980 另有断点，均保持原样）；catalog 加宽列保留原 clamp，不参与拖宽。 */
+@media (min-width: 1181px) {
+  .theme-legacy .writing-page .wall__main.has-inspector {
+    grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) var(--writing-dock-width, clamp(420px, 31vw, 440px)) var(--writing-tool-rail-width, 52px);
+  }
+}
+
 /* dual 的面板本体在正文区（AuthoringDualPane）：dock 整体让位，复刻原 aside 的 v-if 排除。
    带 .writing-page 提升特异性，否则被下方同特异性的 display:grid 按级联顺序覆盖。 */
 .writing-page .authoring-dock.is-dual { display: none; }

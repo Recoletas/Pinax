@@ -2,6 +2,7 @@
   <!-- 约束：根元素永远挂载（无任何 v-if 卸载路径），显隐交给 .writing-inspector 既有 :not(.is-open) 规则。 -->
   <aside
     v-show="true"
+    ref="dockRef"
     class="writing-inspector authoring-dock"
     :class="{ 'is-open': open, 'is-pinned': pinned, 'is-assistant': activeTool === 'ai' && !panelOpen, 'is-rehearsal': activeTool === 'rehearsal', 'is-catalog-workbench': ['outline','characters','worldbook'].includes(activeTool), 'is-dual': dualActive }"
     :aria-label="tr(&quot;写作检查器&quot;)"
@@ -72,7 +73,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { clampDockWidth, loadDockPreferences, saveDockPreferences } from '../../composables/useAuthoringDockPreferences.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
@@ -108,17 +109,29 @@ let resizePointerId = null
 // 拖拽期间 dock 右缘固定（rail 列宽恒定），以起始右缘为锚算宽度，避免浮点漂移。
 let resizeAnchorRight = 0
 
+// 列模板变量写在宿主网格（.wall__main）上：CSS 变量不向上继承，aside 自身的
+// width var 只能让格子里的自己变窄，顶不开列上的 clamp 硬顶。
+const dockRef = ref(null)
+function applyHostWidth() {
+  const host = dockRef.value?.closest('.wall__main')
+  if (!host) return
+  if (props.open && dockWidth.value) host.style.setProperty('--writing-dock-width', dockWidth.value + 'px')
+  else host.style.removeProperty('--writing-dock-width')
+}
+watch([dockWidth, () => props.open], applyHostWidth)
+onMounted(applyHostWidth)
+
 function selectTab(tab) {
   dockTab.value = tab
-  // 会话 tab 是「回到助手」的语义入口：面板开着时先收面板。
-  if (tab === 'session' && panelOpen.value) emit('panel-close')
+  // 面板 overlay 开着时点任何 tab 都先收面板：否则高亮切了、内容仍被 overlay 盖住。
+  if (panelOpen.value) emit('panel-close')
 }
 
 function startResize(event) {
   if (!desktopQuery?.matches) return
   event.preventDefault()
   resizePointerId = event.pointerId
-  resizeAnchorRight = event.currentTarget.getBoundingClientRect().right
+  resizeAnchorRight = event.currentTarget.closest('.authoring-dock').getBoundingClientRect().right
   resizing.value = true
   event.currentTarget?.setPointerCapture?.(event.pointerId)
   window.addEventListener('pointermove', onResizeMove)
