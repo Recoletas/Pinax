@@ -37,13 +37,24 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
   router.get('/projects', (_req, res) => {
     return res.json({ ok: true, projects: service.listProjects() })
   })
-  // 内置文件夹浏览器数据源（local-only）：列子目录 + pinax 徽标 + 顶层书稿计数
+  // 内置文件夹浏览器数据源（local-only）：空路径=盘符+常用位置；否则列子目录 + pinax 徽标 + 顶层书稿计数
   router.get('/browse', (req, res) => {
     try {
       const result = service.browseDirectories(String(req.query.path || ''))
       return res.json({ ok: true, ...result })
     } catch (error) {
       const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
+  // 浏览器内新建文件夹（local-only）
+  router.post('/browse/mkdir', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const target = service.createDirectory(String(req.body?.path || ''), String(req.body?.name || ''))
+      return res.json({ ok: true, path: target })
+    } catch (error) {
+      const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' || error?.code === 'ERR_DIR_NOT_EMPTY' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })

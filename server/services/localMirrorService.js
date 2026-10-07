@@ -441,8 +441,26 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return file
   }
 
-  /** 浏览目录（内置文件夹浏览器数据源）：列子目录 + 是否 pinax 项目 + 顶层书稿计数。 */
+  /** 盘符枚举（Windows）：C:-Z 存在性探测。 */
+  function listDrives() {
+    const drives = []
+    for (let code = 65; code <= 90; code += 1) {
+      const letter = `${String.fromCharCode(code)}:\\`
+      try { if (fs.existsSync(letter)) drives.push({ name: letter, hasPinax: false }) } catch { /* 探测失败跳过 */ }
+    }
+    return drives
+  }
+
+  /** 浏览目录（内置文件夹浏览器数据源）：空路径 → 盘符 + 常用位置；否则列子目录 + 是否 pinax 项目 + 顶层书稿计数。 */
   function browseDirectories(rootPath) {
+    if (!rootPath || !String(rootPath).trim()) {
+      const home = os.homedir()
+      const quick = []
+      for (const [name, dir] of [['文档', path.join(home, 'Documents')], ['桌面', path.join(home, 'Desktop')], ['下载', path.join(home, 'Downloads')]]) {
+        if (fs.existsSync(dir)) quick.push({ name, path: dir })
+      }
+      return { drives: listDrives(), quick, home }
+    }
     const invalid = validateProjectPathInput(rootPath)
     if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
     const dir = path.resolve(rootPath)
@@ -463,6 +481,19 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     }
     directories.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
     return { path: dir, parent: dir !== path.parse(dir).root ? parent : null, directories, bookFiles, isProject: fs.existsSync(path.join(dir, '.pinax', 'project.json')) }
+  }
+
+  /** 新建文件夹（浏览器内建能力）：父目录下按消毒名创建。 */
+  function createDirectory(parentPath, name) {
+    const invalid = validateProjectPathInput(parentPath)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const parent = path.resolve(parentPath)
+    if (!fs.existsSync(parent)) throw Object.assign(new Error('父目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const safe = sanitizeFilename(name, '新建文件夹')
+    const target = path.join(parent, safe)
+    if (fs.existsSync(target)) throw Object.assign(new Error('同名文件夹已存在'), { code: 'ERR_DIR_NOT_EMPTY' })
+    fs.mkdirSync(target)
+    return target
   }
 
   /** 反向导入数据源：读项目文件夹 正文/*.md 章节（文件名=章节名；utf-8；单文件 ≤1MB；≤500 章）。 */
@@ -487,5 +518,5 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return { chapters }
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, readProjectChapters, resolveAppDataDir }
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir }
 }

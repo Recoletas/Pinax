@@ -46,13 +46,12 @@
         <label class="project-info__field">
           <span>{{ tr('项目文件夹位置') }}<template v-if="panel.mode.value === 'import-project'">（{{ tr('必填') }}）</template></span>
           <div class="project-info__rootrow">
-            <input v-model.trim="form.root" type="text" :placeholder="tr('留空则在「文档\\\\Pinax」下创建（绝对路径可自定）')" spellcheck="false" data-test="project-info-root">
+            <input v-model.trim="form.root" type="text" :placeholder="tr('留空则在「文档\\Pinax」下创建')" spellcheck="false" data-test="project-info-root">
             <button type="button" class="project-info__browse" data-test="project-info-browse" @click="browserOpen = true">{{ tr('浏览…') }}</button>
           </div>
           <small>{{ panel.mode.value === 'import-project' ? tr('指向磁盘上的项目文件夹（含 .pinax 标记则直接打开；否则按类型新建并回读正文/章节）') : tr('每本书都会有一个本地项目文件夹（含 .pinax 标记），正文/世界书/日志自动同步其中，可整体拷贝迁移。') }}</small>
         </label>
 
-        <p v-if="browserOpen" class="project-info__note" role="status">{{ tr('文件夹浏览器已打开（浏览器窗口）…') }}</p>
         <FolderBrowserModal v-if="browserOpen" @close="browserOpen = false" @select="onFolderSelected" />
 
         <p v-if="boundNote" class="project-info__note" role="status">{{ boundNote }}</p>
@@ -348,9 +347,9 @@ async function confirm() {
 .project-info__field small { font-weight: 400; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .project-info__field input:disabled, .project-info__field select:disabled { opacity: 0.55; }
 
-.project-info__rootrow { display: flex; gap: 8px; }
-.project-info__rootrow input { flex: 1; min-width: 0; }
-.project-info__browse { flex: none; min-height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }
+.project-info__rootrow { display: flex; align-items: stretch; }
+.project-info__rootrow input { flex: 1; min-width: 0; border-radius: 8px 0 0 8px; }
+.project-info__browse { flex: none; min-height: 38px; padding: 0 14px; border: 1px solid var(--border); border-left: 0; border-radius: 0 8px 8px 0; background: var(--bg-secondary, transparent); color: var(--text-primary); font: inherit; cursor: pointer; }
 .project-info__browse:hover { background: var(--nav-hover); }
 
 .project-info__note, .project-info__error { margin: 0; font-size: 12px; line-height: 1.55; }
