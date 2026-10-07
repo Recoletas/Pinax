@@ -47,7 +47,7 @@
           <span>{{ tr('项目文件夹位置') }}<template v-if="panel.mode.value === 'import-project'">（{{ tr('必填') }}）</template></span>
           <div class="project-info__rootrow">
             <input v-model.trim="form.root" type="text" :placeholder="tr('留空则在「文档\\Pinax」下创建')" spellcheck="false" data-test="project-info-root">
-            <button type="button" class="project-info__browse" data-test="project-info-browse" @click="browserOpen = true">{{ tr('浏览…') }}</button>
+            <button type="button" class="project-info__browse" data-test="project-info-browse" :disabled="browsing" @click="onBrowseClick">{{ browsing ? tr('系统选择器已打开…') : tr('浏览…') }}</button>
           </div>
           <small>{{ panel.mode.value === 'import-project' ? tr('指向磁盘上的项目文件夹（含 .pinax 标记则直接打开；否则按类型新建并回读正文/章节）') : tr('每本书都会有一个本地项目文件夹（含 .pinax 标记），正文/世界书/日志自动同步其中，可整体拷贝迁移。') }}</small>
         </label>
@@ -76,7 +76,7 @@ import FolderBrowserModal from './FolderBrowserModal.vue'
 import { useProjectInfoPanel } from '../../composables/useProjectInfoPanel.js'
 import { createWritingBookRecord, loadWritingBooks, saveWritingBooksDurable, updateWritingBook } from '../../services/writing/writingBooksRepository.js'
 import { createImportedWritingBook } from '../../services/writing/writingManuscriptImport.js'
-import { getLocalMirrorSettings, listLocalProjects } from '../../services/localMirrorSettings.js'
+import { getLocalMirrorSettings, listLocalProjects, pickFolderNative } from '../../services/localMirrorSettings.js'
 import { useWorldStore } from '../../stores/worldStore.js'
 
 const panel = useProjectInfoPanel()
@@ -90,6 +90,27 @@ const worldbooks = computed(() => worldStore.worldbooksIndex || [])
 const form = ref({ title: '', description: '', manuscriptLanguage: '', worldbookId: '', kind: 'novel', root: '' })
 const boundProject = ref(null)
 const browserOpen = ref(false)
+const browsing = ref(false)
+
+/** 浏览：首选 Windows 原生文件夹选择对话框（服务端同机拉起）；不可用回落内置文件夹浏览器。 */
+async function onBrowseClick() {
+  if (browsing.value) return
+  browsing.value = true
+  error.value = ''
+  try {
+    const picked = await pickFolderNative(form.value.root || '')
+    if (picked) {
+      onFolderSelected(picked)
+      return
+    }
+    browserOpen.value = true // 用户在系统对话框里取消 → 不开内置浏览器，保持原值
+  } catch (nativeError) {
+    if (nativeError?.code === 'NATIVE_PICKER_TIMEOUT') return
+    browserOpen.value = true // 原生不可用（非 Windows/无 powershell）→ 回落内置浏览器
+  } finally {
+    browsing.value = false
+  }
+}
 
 function onFolderSelected(selectedPath) {
   form.value.root = String(selectedPath || '').trim()

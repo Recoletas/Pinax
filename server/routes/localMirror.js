@@ -9,6 +9,7 @@
 // 安全：open/create 是"任意路径"能力面，公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403；路径必须是绝对路径。
 import express from 'express'
 import { createLocalMirrorService } from '../services/localMirrorService.js'
+import { startFolderPick, getFolderPickResult } from '../services/nativeFolderPicker.js'
 
 export function createLocalMirrorRouter({ service = createLocalMirrorService() } = {}) {
   const router = express.Router()
@@ -57,6 +58,21 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' || error?.code === 'ERR_DIR_NOT_EMPTY' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
+  })
+  // Windows 原生文件夹选择器（local-only）：服务端拉起真实系统对话框，两步 start/result
+  router.post('/projects/pick-folder/start', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const pick = startFolderPick({ initial: String(req.body?.initial || ''), description: '选择项目文件夹' })
+      return res.json({ ok: true, pickId: pick.pickId, pid: pick.pid })
+    } catch (error) {
+      return res.status(500).json({ error: 'ERR_PICKER_START', message: error.message, fallback: true })
+    }
+  })
+  router.get('/projects/pick-folder/result', (req, res) => {
+    if (!localOnly(res)) return
+    const result = getFolderPickResult(String(req.query.id || ''))
+    return res.json({ ok: true, ...result })
   })
   // 反向导入数据源：读项目文件夹 正文/*.md 章节（不写库；书稿创建在浏览器侧）
   router.post('/projects/import-content', (req, res) => {

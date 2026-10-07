@@ -74,6 +74,30 @@ function sanitizeProjectFolderName(input) {
     .replace(/[. ]+$/, '') || '未命名项目')
 }
 
+/** Windows 原生文件夹选择器：服务端拉起真实系统对话框（同机），返回绝对路径；取消返回 null；不可用抛 NATIVE_PICKER_UNAVAILABLE。 */
+export async function pickFolderNative(initial = '', { pollMs = 500, timeoutMs = 10 * 60_000 } = {}) {
+  const startResponse = await fetch('/api/localmirror/projects/pick-folder/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initial })
+  })
+  const startBody = await startResponse.json().catch(() => null)
+  if (!startResponse.ok || startBody?.ok !== true) {
+    throw Object.assign(new Error(startBody?.message || 'native picker unavailable'), { code: 'NATIVE_PICKER_UNAVAILABLE' })
+  }
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs))
+    if (Date.now() > deadline) throw Object.assign(new Error('native picker timeout'), { code: 'NATIVE_PICKER_TIMEOUT' })
+    const resultResponse = await fetch(`/api/localmirror/projects/pick-folder/result?id=${encodeURIComponent(startBody.pickId)}`)
+    const result = await resultResponse.json().catch(() => null)
+    if (!resultResponse.ok || !result || !result.done) continue
+    if (result.failed) throw Object.assign(new Error('native picker failed'), { code: 'NATIVE_PICKER_UNAVAILABLE' })
+    if (result.cancelled || !result.path) return null
+    return result.path
+  }
+}
+
 /** 配了默认新建位置时，为书自动建项目文件夹并绑定 bookId；冲突/失败静默返回 null（回落文档根镜像）。 */
 export async function ensureProjectForBook(book) {
   const { defaultCreateRoot } = getLocalMirrorSettings()
