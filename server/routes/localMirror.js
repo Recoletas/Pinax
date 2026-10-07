@@ -6,7 +6,9 @@
 // POST /api/localmirror/projects/open   {path,bookId?}          —— 打开已有项目文件夹
 // POST /api/localmirror/sync     {book,worldbook,logs,materials,media} —— 同步（落点=注册表绑定根 > 文档根）
 // POST /api/localmirror/index    {books} —— 应用侧 index.json
-// 安全：open/create 是"任意路径"能力面，公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403；路径必须是绝对路径。
+// GET  /api/localmirror/worldbook?path=<项目根或「世界书」目录绝对路径> —— 世界书读回（契约 v2）
+// POST /api/localmirror/worldbook-validate {files:{relPath:text}} —— 世界书纯校验（不落盘）
+// 安全：open/create/worldbook 读写是"任意路径"能力面，公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403；路径必须是绝对路径。
 import express from 'express'
 import { createLocalMirrorService } from '../services/localMirrorService.js'
 import { startFolderPick, getFolderPickResult } from '../services/nativeFolderPicker.js'
@@ -133,6 +135,27 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
     } catch (error) {
       const code = error?.code === 'ERR_PROJECT_NOT_FOUND' || error?.code === 'ERR_NOT_A_PROJECT' ? 404 : 400
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
+  // 世界书读回（契约 §3.2，local-only）：项目根或「世界书」目录绝对路径 → { ok, worldbook, warnings }
+  router.get('/worldbook', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const result = service.readWorldbookFolder(String(req.query.path || ''))
+      return res.json({ ok: true, worldbook: result.worldbook, warnings: result.warnings })
+    } catch (error) {
+      const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_READ', message: error.message })
+    }
+  })
+  // 世界书纯校验（契约 §3.2，local-only；C 组预检复用）：{ files: { relPath: text } } → 逐文件 { relPath, ok, error? }
+  router.post('/worldbook-validate', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      return res.json({ ok: true, results: service.validateWorldbookFiles(req.body?.files) })
+    } catch (error) {
+      if (error?.code === 'ERR_INVALID_INPUT') return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: error.message })
+      return res.status(500).json({ error: 'ERR_MIRROR_READ', message: error.message })
     }
   })
   router.post('/sync', (req, res) => {
