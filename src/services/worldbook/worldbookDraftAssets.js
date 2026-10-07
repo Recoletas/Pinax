@@ -9,7 +9,9 @@ const ENTRY_TYPES = new Set([
   'event',
   'lore',
   'quest',
-  'general'
+  'general',
+  // W4 写侧合并：资料升 source 条目后，素材草稿允许直接落为资料条目。
+  'source'
 ])
 
 const TYPE_LABELS = {
@@ -28,7 +30,10 @@ const TYPE_LABELS = {
   设定: 'lore',
   世界观: 'lore',
   任务: 'quest',
-  普通: 'general'
+  普通: 'general',
+  资料: 'source',
+  素材: 'source',
+  原文: 'source'
 }
 
 const FIELD_ALIASES = {
@@ -91,14 +96,19 @@ function defaultGroupByType(type) {
   if (type === 'rule') return '硬约束'
   if (type === 'style') return '文风约束'
   if (type === 'forbidden') return '禁写边界'
+  if (type === 'source') return '资料'
   return null
 }
 
 function resolveInjection(parsedFields, type, name, content, keys) {
+  // W4：资料条目永不常驻——不做 constraint 推断，固定 selective（keys 留空不激活）。
+  const isConstraint = type === 'source'
+    ? false
+    : (['rule', 'style', 'forbidden'].includes(type) || Boolean(inferConstraintType(name, content, keys)))
   const explicitMode = normalizeMode(parsedFields.mode)
-  const constraintType = inferConstraintType(name, content, keys)
-  const isConstraint = ['rule', 'style', 'forbidden'].includes(type) || Boolean(constraintType)
-  const mode = isConstraint ? 'constant' : (explicitMode === 'constant' ? 'constant' : 'selective')
+  const mode = isConstraint
+    ? 'constant'
+    : (type === 'source' ? 'selective' : (explicitMode === 'constant' ? 'constant' : 'selective'))
   const depthFallback = mode === 'constant' ? 2 : 1
   const group = normalizeText(parsedFields.group) || defaultGroupByType(type)
 
@@ -181,7 +191,8 @@ export function buildWorldbookEntryFromAsset(asset = {}) {
   return {
     name,
     content: entryContent,
-    keys: normalizedKeys,
+    // 资料条目不参与关键词激活（keys 空，与迁移生成的 source 条目一致）。
+    keys: type === 'source' ? [] : normalizedKeys,
     keysSecondary: [],
     type,
     injection: resolveInjection(parsed.fields, type, name, entryContent, normalizedKeys),
@@ -193,7 +204,10 @@ export function buildWorldbookEntryFromAsset(asset = {}) {
     },
     metadata: {
       importSource: 'narrative-asset',
-      sourceAssetId: asset.id || ''
+      sourceAssetId: asset.id || '',
+      // W4：新资料创建走条目 upsert——同 importKey 的素材重复写入时由 store 原位更新，
+      // 不重复追加（幂等收编）。
+      importKey: asset.id ? `draft-asset:${asset.id}` : ''
     }
   }
 }
