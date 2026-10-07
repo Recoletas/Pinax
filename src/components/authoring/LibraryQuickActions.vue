@@ -30,7 +30,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 .library-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 24px 0 40px; font: 14px/1.5 var(--font-sans); }
 .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border: 1px solid var(--hairline-soft); border-radius: 999px; background: transparent; color: var(--text-primary); text-decoration: none; font: inherit; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
 .library-quick-actions__new { position: relative; padding: 0; gap: 0; color: var(--accent-text); background: var(--accent); border-color: transparent; }
-.library-quick-actions__new > :is(a, button) { display: flex; min-width: 0; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; border-radius: 999px 0 0 999px; color: inherit; text-decoration: none; }
+.library-quick-actions__new > :is(a, button) { display: flex; min-width: 0; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; border: 0; border-radius: 999px 0 0 999px; background: transparent; color: inherit; text-decoration: none; font: inherit; }
 .library-quick-actions :is(a, button) > span { min-width: 0; }
 .library-quick-actions > button, .library-quick-actions > a:last-child { border-color: transparent; color: var(--text-secondary); }
 .library-quick-actions svg { flex-shrink: 0; }
