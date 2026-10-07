@@ -56,4 +56,28 @@ check('未配置默认位置时不发请求', (await ensureProjectForBook({ id: 
 const current = getItem('local_mirror_settings_v1', null)
 check('设置字段归一（含 defaultCreateRoot/defaultReadRoot）', current && 'defaultCreateRoot' in current && 'defaultReadRoot' in current && current.defaultCreateRoot === '')
 
+
+console.log('[5] browse / import-content 服务端端点（真实临时目录）')
+const { createLocalMirrorService } = await import('../server/services/localMirrorService.js')
+const fsMod = await import('node:fs')
+const osMod = await import('node:os')
+const pathMod = await import('node:path')
+const projRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), 'pinax-imp-live-'))
+fsMod.mkdirSync(pathMod.join(projRoot, '正文'), { recursive: true })
+fsMod.mkdirSync(pathMod.join(projRoot, '.pinax'), { recursive: true })
+fsMod.writeFileSync(pathMod.join(projRoot, '.pinax', 'project.json'), '{}')
+fsMod.writeFileSync(pathMod.join(projRoot, '正文', '001-第一章.md'), '回读的章节内容。')
+fsMod.writeFileSync(pathMod.join(projRoot, '正文', '002-第二章.txt'), '第二章。')
+const svc = createLocalMirrorService({ rootPath: projRoot })
+const browse = svc.browseDirectories(osMod.tmpdir())
+check('browse 列出子目录', Array.isArray(browse.directories) && browse.directories.length >= 0)
+const projectBrowse = svc.browseDirectories(projRoot)
+check('browse isProject 探测（.pinax 在场）', projectBrowse.isProject === true)
+const content = svc.readProjectChapters(projRoot)
+check('readProjectChapters 回读 2 章（文件名=章节名，序号剥除）', content.chapters.length === 2 && content.chapters[0].title === '第一章' && content.chapters[0].content === '回读的章节内容。')
+let browseErr = ''
+try { svc.browseDirectories('relative/path') } catch (e) { browseErr = e.code }
+check('相对路径 → ERR_INVALID_INPUT', browseErr === 'ERR_INVALID_INPUT')
+fsMod.rmSync(projRoot, { recursive: true, force: true })
+
 console.log(`local-import-check: ${passed} 项全部通过`)
