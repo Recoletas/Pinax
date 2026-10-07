@@ -78,7 +78,8 @@
     "smoke:worldbook-browser": "node scripts/worldbook-browser-smoke.mjs",
     "smoke:worldbook-editing": "node scripts/worldbook-editing-smoke.mjs",
     "smoke:worldbook-write-merge": "node scripts/worldbook-write-merge-smoke.mjs",
-    "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs"
+    "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs",
+    "smoke:worldbook-localization": "node scripts/worldbook-localization-smoke.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",

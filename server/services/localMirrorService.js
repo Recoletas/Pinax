@@ -35,6 +35,8 @@ const LIMITS = {
   maxArtifactChars: 50_000,
   maxSessions: 20,
   maxSessionChars: 200_000,
+  maxSessionPayloads: 100,
+  maxArchiveDocs: 500,
   maxRevisionsPerChapter: 10,
   maxRevisionChars: 20_000,
   maxBlockHistoryPerChapter: 20,
@@ -121,6 +123,26 @@ function validatePayload(payload) {
     }
   }
   if (payload.media !== undefined && !Array.isArray(payload.media)) return 'media 必须是数组'
+  // W6·C 全量本地化扩展载荷：会话快照（助手/体验会话）与 IndexedDB 资料归档。
+  const sessionsPayload = payload.sessions
+  if (sessionsPayload !== undefined && sessionsPayload !== null) {
+    if (!Array.isArray(sessionsPayload) || sessionsPayload.length > LIMITS.maxSessionPayloads) return `sessions 必须是数组且 ≤ ${LIMITS.maxSessionPayloads}`
+    for (const session of sessionsPayload) {
+      if (!session || typeof session !== 'object' || Array.isArray(session)) return 'sessions 项必须是对象'
+    }
+  }
+  const sourceArchive = payload.sourceArchive
+  if (sourceArchive !== undefined && sourceArchive !== null) {
+    if (typeof sourceArchive !== 'object' || Array.isArray(sourceArchive)) return 'sourceArchive 必须是 { docId → { meta, chunks[] } } 对象'
+    const docIds = Object.keys(sourceArchive)
+    if (docIds.length > LIMITS.maxArchiveDocs) return `sourceArchive 文档数 ≤ ${LIMITS.maxArchiveDocs}`
+    for (const [docId, record] of Object.entries(sourceArchive)) {
+      if (!docId.trim()) return 'sourceArchive docId 不能为空'
+      if (!record || typeof record !== 'object' || Array.isArray(record)) return `sourceArchive[${docId}] 必须是对象`
+      if (record.meta !== undefined && record.meta !== null && (typeof record.meta !== 'object' || Array.isArray(record.meta))) return `sourceArchive[${docId}].meta 必须是对象`
+      if (!Array.isArray(record.chunks)) return `sourceArchive[${docId}].chunks 必须是数组`
+    }
+  }
   if (totalPayloadChars(payload) > LIMITS.maxTotalChars) return `payload 超过 ${LIMITS.maxTotalChars} 字符`
   return null
 }
@@ -595,6 +617,16 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       writeDeduped(path.join(dir, '日志', '助手对话'), sanitizeFilename(conversation.projectId || '项目'), conversationMarkdown(conversation.projectId, conversation), usedConversationNames)
       conversationCount += 1
     }
+    // W6·C 会话快照：payload.sessions（助手/体验会话原样）→ 日志/会话-<bookId>.json 单文件。
+    let sessionFileCount = 0
+    if (Array.isArray(payload.sessions) && payload.sessions.length) {
+      writeFileAtomic(path.join(dir, '日志', `会话-${sanitizeFilename(book.id)}.json`), JSON.stringify({
+        bookId: book.id,
+        count: payload.sessions.length,
+        sessions: payload.sessions
+      }, null, 2) + '\n')
+      sessionFileCount = 1
+    }
     if (Array.isArray(logs.memory)) {
       writeFileAtomic(path.join(dir, '日志', '记忆台账.json'), JSON.stringify({
         count: logs.memory.length,
@@ -617,6 +649,26 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       writeFileAtomic(path.join(dir, '资料', 'sources.json'), JSON.stringify({ count: artifactCount, artifacts: index }, null, 2) + '\n')
     }
 
+    // W6·C 资料归档文件化：payload.sourceArchive（IndexedDB pinax-source-archive 快照，
+    // { docId → { meta, chunks[] } }）→ 资料/归档/<docId>.json 逐文档一份（meta=归档 artifact
+    // 记录，chunks=SourceChunk 记录数组；docId 写进文件内容，文件名只作消毒落点，重名追加 -n）。
+    let archiveDocCount = 0
+    if (payload.sourceArchive && typeof payload.sourceArchive === 'object') {
+      const usedDocNames = new Set()
+      for (const [docId, record] of Object.entries(payload.sourceArchive)) {
+        const safeDoc = sanitizeFilename(docId, '归档')
+        let fileName = `${safeDoc}.json`
+        for (let n = 2; usedDocNames.has(fileName); n += 1) fileName = `${safeDoc}-${n}.json`
+        usedDocNames.add(fileName)
+        writeFileAtomic(path.join(dir, '资料', '归档', fileName), JSON.stringify({
+          docId,
+          meta: record.meta ?? null,
+          chunks: Array.isArray(record.chunks) ? record.chunks : []
+        }, null, 2) + '\n')
+        archiveDocCount += 1
+      }
+    }
+
     if (Array.isArray(payload.media) && payload.media.length) {
       writeFileAtomic(path.join(dir, '媒体清单.json'), JSON.stringify({ count: payload.media.length, assets: payload.media }, null, 2) + '\n')
     }
@@ -628,7 +680,9 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       sessions: sessionCount,
       revisions: revisionCount,
       conversations: conversationCount,
+      sessionFiles: sessionFileCount,
       artifacts: artifactCount,
+      archiveDocs: archiveDocCount,
       media: Array.isArray(payload.media) ? payload.media.length : 0
     }
     if (located.projectRoot) {
@@ -735,6 +789,103 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return { chapters }
   }
 
+  /** JSON 文件存在则解析返回，缺失/损坏返回 null（读侧容错，不整批失败）。 */
+  function readJsonIfExists(filePath) {
+    try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')) } catch { return null }
+  }
+
+  /** 书读回（W6·C 全量本地化读侧）：从项目文件夹组装 book——.pinax/project.json 元数据 +
+   *  正文/*.md 逐章（复用 readProjectChapters 的解析规则）+ 大纲/outline.json + 构思/*.md。
+   *  bookId 取注册表绑定（registryKeyOf 匹配），无绑定时回落 manifest.projectId（此时不可
+   *  直接写回 writing_books，由前端按 warnings 提示先绑定）。容忍非项目文件夹（warning）。 */
+  function readBookFromFolder(absDir) {
+    const invalid = validateProjectPathInput(absDir)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const root = path.resolve(String(absDir))
+    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const warnings = []
+    const hasMarker = fs.existsSync(path.join(root, '.pinax', 'project.json'))
+    if (!hasMarker) warnings.push('.pinax/project.json 缺失——不是 pinax 项目文件夹，按普通目录读取')
+    const manifest = hasMarker ? readJsonIfExists(path.join(root, '.pinax', 'project.json')) : null
+    if (hasMarker && !manifest) warnings.push('.pinax/project.json 解析失败——元数据缺失')
+    const entry = readRegistry(resolveAppDataDir()).find((item) => registryKeyOf(item.rootPath) === registryKeyOf(root)) || null
+    if (manifest && !entry) warnings.push('项目未在注册表登记（或未绑定 bookId）——读回 id 使用 projectId 占位')
+    const manuscript = readProjectChapters(root)
+    const outlineRaw = readJsonIfExists(path.join(root, '大纲', 'outline.json'))
+    const outline = {
+      nodes: Array.isArray(outlineRaw?.nodes) ? outlineRaw.nodes : [],
+      edges: Array.isArray(outlineRaw?.edges) ? outlineRaw.edges : []
+    }
+    if (fs.existsSync(path.join(root, '大纲', '大纲.md')) && !outline.nodes.length) warnings.push('大纲/outline.json 缺失——大纲节点为空（仅 大纲.md 概览不可结构化读回）')
+    const explorations = []
+    const ideasDir = path.join(root, '构思')
+    if (fs.existsSync(ideasDir)) {
+      const files = fs.readdirSync(ideasDir)
+        .filter((name) => /\.(?:md|txt)$/iu.test(name))
+        .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+        .slice(0, LIMITS.maxExplorations)
+      for (const name of files) {
+        const file = path.join(ideasDir, name)
+        if (fs.statSync(file).size > 1024 * 1024) continue
+        const content = fs.readFileSync(file, 'utf-8').replace(/\r\n/g, '\n').trim()
+        if (!content) continue
+        const title = name.replace(/\.(?:md|txt)$/iu, '').trim() || `构思 ${explorations.length + 1}`
+        explorations.push({ id: title, title, content })
+      }
+    }
+    const book = {
+      id: String(entry?.bookId || manifest?.projectId || ''),
+      title: String(manifest?.name || path.basename(root)),
+      kind: KIND_TEMPLATES[manifest?.kind] ? manifest.kind : 'novel',
+      chapters: manuscript.chapters,
+      outline,
+      explorations,
+      projectRoot: root,
+      createdAt: manifest?.createdAt ?? null,
+      updatedAt: manifest?.updatedAt ?? null,
+      lastSyncAt: entry?.lastSyncAt ?? null
+    }
+    return { ok: true, book, warnings }
+  }
+
+  /** 资料归档读回（W6·C）：读 <root>/资料/归档/*.json（或 root 即 归档 目录），
+   *  逐文件返回 { docId, meta, chunks, chunkCount, file }；损坏文件跳过记 warnings。 */
+  function listArchivedSources(absDir) {
+    const invalid = validateProjectPathInput(absDir)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const base = path.resolve(String(absDir))
+    if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const nested = path.join(base, '资料', '归档')
+    const archiveDir = fs.existsSync(nested) ? nested : base
+    const warnings = []
+    const sources = []
+    for (const name of fs.readdirSync(archiveDir).sort((a, b) => a.localeCompare(b, 'zh-CN'))) {
+      if (!/\.json$/iu.test(name) || name === 'index.json' || name === 'sources.json') continue
+      const file = path.join(archiveDir, name)
+      let parsed
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf-8'))
+      } catch (error) {
+        warnings.push(`${name}: 解析失败（${error.message}）`)
+        continue
+      }
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.docId !== 'string' || !parsed.docId.trim()) {
+        warnings.push(`${name}: 缺少 docId——不是资料归档文件，跳过`)
+        continue
+      }
+      const chunks = Array.isArray(parsed.chunks) ? parsed.chunks : []
+      sources.push({
+        docId: parsed.docId,
+        meta: parsed.meta && typeof parsed.meta === 'object' && !Array.isArray(parsed.meta) ? parsed.meta : null,
+        chunks,
+        chunkCount: chunks.length,
+        file: name
+      })
+    }
+    if (!sources.length && !warnings.length) warnings.push('归档目录内未找到资料文件（*.json）')
+    return { ok: true, sources, warnings, dir: archiveDir }
+  }
+
   /** 体系标准骨架件幂等补齐（契约 §3.1）：已存在的不覆盖（纪律/台账/底牌/章账的本地手改保留）。 */
   function ensureWorldbookAuxFiles(absWbDir, { variant = 'novel' } = {}) {
     const written = []
@@ -820,5 +971,5 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     })
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles }
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles, readBookFromFolder, listArchivedSources }
 }
