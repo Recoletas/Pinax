@@ -1298,5 +1298,6 @@
   "此电脑": "This PC",
   "+ 新建文件夹": "+ New folder",
   "新建文件夹名称": "New folder name",
-  "新建失败": "Create failed"
+  "新建失败": "Create failed",
+  "系统选择器已打开…": "System folder dialog is open…"
 }
