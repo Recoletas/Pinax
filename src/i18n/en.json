@@ -1157,6 +1157,12 @@
   "还没有打开过任何项目文件夹；未绑定的书镜像到文档目录。": "No project folders opened yet; unbound books mirror to the documents folder.",
   "已绑定：{name} → {path}": "Bound: {name} → {path}",
   "未绑定书的镜像目录：{root}": "Mirror root for unbound books: {root}",
+  "所有链路（写作、讨论、审校、设定生成、推演）共用这一个模型——选择即生效。可添加自己的模型配置。": "All chains (writing, story chat, review, settings generation, exploration) share this one model — selecting applies it everywhere. You can add your own model configs.",
+  "当前生效：{model}（所有链路共用）": "In effect: {model} (shared by all chains)",
+  "Agent 通路未运行——启动 kit 任务面（serve:pinax）后此选择对所有链路生效。": "Agent pathway not running — start the kit task plane (serve:pinax) so this choice applies to all chains.",
+  "内置 MiniMax 使用服务器密钥；未配置 MINIMAX_API_KEY 时该选项不可用。": "Built-in MiniMax uses the server key; unavailable when MINIMAX_API_KEY is not configured.",
+  "该配置为 Anthropic 协议：Agent 通路暂不支持，将按原直连方式使用。": "This config uses the Anthropic protocol: the agent pathway does not support it yet — it will keep working via the legacy direct connection.",
+  "应用失败，请检查 Agent 通路状态。": "Apply failed — check the agent pathway status.",
   "项目文件夹创建失败：{message}（书已创建，可稍后在「修改项目配置」里重试绑定）": "Project folder creation failed: {message} (the book was created — retry binding later via Edit project settings).",
   "缺少要绑定的书。": "No book to bind.",
   "保存失败：书稿不存在。": "Save failed: the book no longer exists.",
@@ -1284,8 +1290,13 @@
   "选择此文件夹": "Choose this folder",
   "必填": "required",
   "指向磁盘上的项目文件夹（含 .pinax 标记则直接打开；否则按类型新建并回读正文/章节）": "Point at a project folder on disk (opens directly if it has a .pinax marker; otherwise creates one of the chosen kind and reads back manuscript chapters)",
-  "文件夹浏览器已打开（浏览器窗口）…": "Folder browser is open (in its own dialog)…",
   "项目导入失败：{message}": "Project import failed: {message}",
   "导入项目需要指向项目文件夹（点「浏览…」选择）。": "Importing a project requires pointing at its folder (click Browse to choose).",
-  "导入项目 · 指向本地文件夹": "Import project · point at a local folder"
+  "导入项目 · 指向本地文件夹": "Import project · point at a local folder",
+  "磁盘": "Disks",
+  "常用位置": "Quick locations",
+  "此电脑": "This PC",
+  "+ 新建文件夹": "+ New folder",
+  "新建文件夹名称": "New folder name",
+  "新建失败": "Create failed"
 }

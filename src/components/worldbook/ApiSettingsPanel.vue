@@ -2,7 +2,7 @@
   <div class="api-settings-panel">
     <div class="ai-settings-head">
       <strong>{{ tr('AI 文本模型') }}</strong>
-      <p>{{ tr('选择经 Agent 通路服务的文本模型：所有链路（写作、讨论、审校、设定生成、推演）共用这一个模型。可添加自己的模型配置。') }}</p>
+      <p>{{ tr('所有链路（写作、讨论、审校、设定生成、推演）共用这一个模型——选择即生效。可添加自己的模型配置。') }}</p>
     </div>
 
     <TextModelPicker
@@ -12,28 +12,19 @@
       @configs-updated="handleConfigsUpdated"
     />
 
-    <div class="agent-engine" data-test="agent-engine">
-      <div class="agent-engine__head">
-        <strong>{{ tr('Agent 引擎') }}</strong>
-        <span v-if="engineState === 'up'" class="agent-engine__model" data-test="agent-engine-model">{{ engineModel }}</span>
-        <span v-else-if="engineState === 'down'" class="agent-engine__down">{{ tr('未运行——启动 kit 任务面（serve:pinax）后所有链路经 Agent 通路') }}</span>
-        <span v-else>{{ tr('检测中…') }}</span>
-      </div>
-      <p v-if="engineState === 'up' && syncState === 'mismatch'" class="ai-settings-note" role="status">
-        {{ tr('Agent 引擎当前模型与所选配置不一致。') }}
-        <button type="button" class="agent-engine__sync" data-test="agent-engine-sync" :disabled="syncing" @click="syncSelectedToEngine">{{ syncing ? tr('同步中…') : tr('同步到 Agent 通路') }}</button>
-      </p>
-      <p v-if="engineState === 'up' && syncState === 'synced'" class="ai-settings-note" role="status" data-test="agent-engine-synced">{{ tr('已与所选配置同步。') }}</p>
-      <p v-if="engineMessage" role="status" data-test="agent-engine-message">{{ engineMessage }}</p>
-    </div>
-
+    <p class="ai-settings-note" role="status" data-test="model-effective-line">
+      <template v-if="engineState === 'up'">{{ tr('当前生效：{model}（所有链路共用）', { model: effectiveModel }) }}</template>
+      <template v-else-if="engineState === 'down'">{{ tr('Agent 通路未运行——启动 kit 任务面（serve:pinax）后此选择对所有链路生效。') }}</template>
+      <template v-else>{{ tr('检测中…') }}</template>
+    </p>
+    <p v-if="applyMessage" class="ai-settings-note" role="alert" data-test="model-apply-message">{{ applyMessage }}</p>
     <p v-if="currentNote" class="ai-settings-note" role="status">{{ currentNote }}</p>
   </div>
 </template>
 
 <script setup>
 import { tr } from '../../i18n/index.js'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import TextModelPicker from '../text/TextModelPicker.vue'
 import {
   getSelectedTextProviderConfigId,
@@ -45,45 +36,42 @@ import {
 const selectedId = ref('')
 const configs = ref([])
 const engineState = ref('loading')
-const engineModel = ref('')
-const syncing = ref(false)
-const syncState = ref('unknown') // unknown | synced | mismatch
-const engineMessage = ref('')
+const effectiveModel = ref('')
+const applying = ref(false)
+const applyMessage = ref('')
 
 const currentNote = computed(() => {
   const resolved = configs.value.find((config) => config.id === selectedId.value)
     || resolveSelectedTextProviderConfig()
   if (resolved?.builtin) {
-    return tr('当前使用内置 MiniMax：能否生成取决于部署服务器状态，可在模型详情中测试。')
+    return tr('内置 MiniMax 使用服务器密钥；未配置 MINIMAX_API_KEY 时该选项不可用。')
   }
   return tr('当前使用「{name}」，模型 {model}。', { name: resolved?.name || tr('自定义配置'), model: resolved?.model || '—' })
 })
 
-/** 所选配置映射为 kit /model patch。内置/服务器密钥配置不带 key（由服务器 env 注入）。 */
+/** 所选配置映射为 kit /model patch。内置/服务器密钥配置不带 key（kit 进程 env 注入）、走 OpenAI 兼容 v1 端点。 */
 function modelPatchOf(config) {
   const resolved = config || resolveSelectedTextProviderConfig()
-  if (!resolved) return null
+  if (!resolved) return { patch: null, reason: 'no-config' }
   const baseUrl = String(resolved.baseUrl || '')
   const serverKeyed = !String(resolved.apiKey || '').trim() || resolved.apiKey === 'minimax-server-key'
   if (serverKeyed && /minimaxi?\.com/i.test(baseUrl)) {
-    // 内置 MiniMax：走 OpenAI 兼容 v1 端点（kit 侧密钥由 env 注入）
-    return { provider: 'minimax', model: resolved.model || 'MiniMax-Text-01', baseUrl: 'https://api.minimaxi.com/v1' }
+    return { patch: { provider: 'minimax', model: resolved.model || 'MiniMax-Text-01', baseUrl: 'https://api.minimaxi.com/v1' } }
+  }
+  // Anthropic 协议配置：kit 通路目前只讲 OpenAI 兼容线——保持该配置直连，不切 Agent 模型
+  if (resolved.format === 'anthropic' || /\/anthropic/i.test(baseUrl)) {
+    return { patch: null, reason: 'anthropic-protocol' }
   }
   const provider = String(resolved.providerId || resolved.provider || resolved.id || 'openai').replace(/[^a-zA-Z0-9_-]/g, '') || 'openai'
+  if (!resolved.model || !baseUrl) return { patch: null, reason: 'incomplete' }
   return {
-    provider,
-    model: resolved.model || '',
-    baseUrl,
-    ...(resolved.apiKey ? { apiKey: resolved.apiKey } : {})
+    patch: {
+      provider,
+      model: resolved.model,
+      baseUrl,
+      ...(resolved.apiKey ? { apiKey: resolved.apiKey } : {})
+    }
   }
-}
-
-function modelsDiffer(config) {
-  const patch = modelPatchOf(config)
-  if (!patch || !engineModel.value) return false
-  const [engineProvider, ...rest] = engineModel.value.split('.')
-  const engineName = rest.join('.')
-  return patch.provider !== engineProvider || patch.model !== engineName
 }
 
 async function refreshEngine() {
@@ -92,23 +80,30 @@ async function refreshEngine() {
     const body = await response.json().catch(() => null)
     if (response.ok && body?.ok) {
       engineState.value = 'up'
-      engineModel.value = `${body.provider}.${body.model}`
-    } else {
-      engineState.value = 'down'
+      effectiveModel.value = `${body.provider}.${body.model}`
+      return true
     }
+    engineState.value = 'down'
+    return false
   } catch {
     engineState.value = 'down'
+    return false
   }
 }
 
-/** 把当前选中配置同步到 Agent 通路（/model 热切）。用户显式选择或点同步按钮时调用；挂载时不自动切模型。 */
-async function syncSelectedToEngine() {
-  if (syncing.value) return
+/** 选择即生效：把选中配置热切到 Agent 通路（所有链路共用）。挂载时若与生效模型不一致，同样以所选为准。 */
+async function applySelectedToEngine() {
+  if (applying.value) return
   const resolved = resolveSelectedTextProviderConfig()
-  const patch = modelPatchOf(resolved)
-  if (!patch || !patch.model) return
-  syncing.value = true
-  engineMessage.value = ''
+  const { patch, reason } = modelPatchOf(resolved)
+  if (!patch) {
+    if (reason === 'anthropic-protocol') {
+      applyMessage.value = tr('该配置为 Anthropic 协议：Agent 通路暂不支持，将按原直连方式使用。')
+    }
+    return
+  }
+  applying.value = true
+  applyMessage.value = ''
   try {
     const response = await fetch('/api/storyagent/model', {
       method: 'POST',
@@ -117,39 +112,36 @@ async function syncSelectedToEngine() {
     })
     const body = await response.json().catch(() => null)
     if (response.ok && body?.ok) {
-      engineMessage.value = tr('已热生效：{model}', { model: body.model })
-      await refreshEngine()
-      syncState.value = 'synced'
+      effectiveModel.value = body.model
     } else {
-      engineMessage.value = body?.message || tr('同步失败，请检查 Agent 引擎状态。')
+      applyMessage.value = body?.message || tr('应用失败，请检查 Agent 通路状态。')
     }
   } catch (error) {
-    engineMessage.value = error?.message || tr('同步失败，请检查 Agent 引擎状态。')
+    applyMessage.value = error?.message || tr('应用失败，请检查 Agent 通路状态。')
   } finally {
-    syncing.value = false
+    applying.value = false
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   configs.value = listTextProviderConfigs()
   const resolved = resolveSelectedTextProviderConfig()
   selectedId.value = resolved.id
   if (getSelectedTextProviderConfigId() !== resolved.id) {
     saveSelectedTextProviderConfigId(resolved.id)
   }
-  void refreshEngine().then(() => {
-    syncState.value = engineState.value === 'up' && modelsDiffer(resolved) ? 'mismatch' : 'synced'
-  })
+  const up = await refreshEngine()
+  // 选择器即模型真源：面板打开时若生效模型与所选不一致，以所选为准
+  if (up && effectiveModel.value !== `${modelPatchOf(resolved).patch?.provider ?? ''}.${modelPatchOf(resolved).patch?.model ?? ''}`) {
+    await applySelectedToEngine()
+  }
 })
 
 function handleSelect(id) {
-  const previous = selectedId.value
+  const changed = selectedId.value !== id
   selectedId.value = id
   saveSelectedTextProviderConfigId(id)
-  // 用户显式换选 → 自动同步到 Agent 通路（统一模型：选什么，所有链路就用什么）
-  if (id !== previous && engineState.value === 'up') {
-    void syncSelectedToEngine()
-  }
+  if (changed) void applySelectedToEngine()
 }
 
 function handleConfigsUpdated(next) {
@@ -157,12 +149,6 @@ function handleConfigsUpdated(next) {
   const resolved = resolveSelectedTextProviderConfig()
   selectedId.value = resolved.id
 }
-
-watch(selectedId, () => {
-  if (engineState.value === 'up') {
-    syncState.value = modelsDiffer(resolveSelectedTextProviderConfig()) ? 'mismatch' : 'synced'
-  }
-})
 </script>
 
 <style scoped>
@@ -206,46 +192,4 @@ watch(selectedId, () => {
 }
 .api-settings-panel :deep(.text-model-picker__trigger small) { font-size: 12px; }
 .api-settings-panel :deep(.text-model-picker__trigger strong) { font-size: 14px; font-weight: 500; }
-
-.agent-engine {
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--hairline-soft, var(--border));
-  border-radius: var(--radius-control);
-  background: var(--surface-workbench-input, var(--bg-secondary));
-}
-
-.agent-engine__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 13px;
-}
-
-.agent-engine__head strong {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.agent-engine__model {
-  font: 12px/1.4 var(--font-mono, var(--font-sans));
-  color: var(--accent);
-}
-
-.agent-engine__down { color: var(--text-muted, var(--text-secondary)); }
-
-.agent-engine__sync {
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--archive-olive, var(--accent));
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--archive-olive, var(--accent));
-  font: inherit;
-  cursor: pointer;
-}
-
-.agent-engine__sync:disabled { opacity: 0.5; cursor: default; }
 </style>
