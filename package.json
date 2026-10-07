@@ -76,6 +76,7 @@
     "smoke:worldbook-relations": "node scripts/worldbook-relations-smoke.mjs",
     "smoke:worldbook-dualwrite": "node scripts/worldbook-dualwrite-smoke.mjs",
 "smoke:worldbook-browser": "node scripts/worldbook-browser-smoke.mjs"
+,"smoke:worldbook-editing": "node scripts/worldbook-editing-smoke.mjs"
 
   },
   "dependencies": {

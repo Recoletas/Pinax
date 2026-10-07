@@ -521,15 +521,8 @@
                   :placeholder="tr('例如：边境领地')"
                 />
               </label>
-              <label>
-                {{ tr("内容") }}
-                <textarea
-                  v-model.trim="entryForm.content"
-                  class="text-area"
-                  rows="8"
-                  :placeholder="tr('输入条目内容')"
-                ></textarea>
-              </label>
+
+              <EntryMdEditor v-model="entryForm.content" />
 
               <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
                 <header class="entry-voice-editor__head">
@@ -567,6 +560,23 @@
                   {{ tr("添加示例台词") }}
                 </button>
               </section>
+
+              <details class="entry-advanced-panel" :open="entryAdvancedOpen" @toggle="onAdvancedToggle">
+                <summary>{{ tr("条目档案模板与关联") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+                <EntryProfileEditor
+                  :entry="selectedEntry"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyProfileSave"
+                />
+                <EntryLinksEditor
+                  :entry="selectedEntry"
+                  :entries="entries"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyLinksSave"
+                />
+              </details>
 
               <details class="injection-panel">
                 <summary>{{ tr("高级引用设置") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
@@ -670,6 +680,9 @@ import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import EntryMdEditor from '../components/worldbook/EntryMdEditor.vue'
+import EntryProfileEditor from '../components/worldbook/EntryProfileEditor.vue'
+import EntryLinksEditor from '../components/worldbook/EntryLinksEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -719,6 +732,8 @@ const maintenanceCandidates = ref([])
 const maintenanceRevision = ref('')
 const maintenanceTouchedEntryIds = ref(new Set())
 const maintenanceCompleted = ref(false)
+// W3·B2/B3：条目档案模板与关联编辑区——character 类型默认展开，其他类型可开。
+const entryAdvancedOpen = ref(false)
 
 const maintenanceModes = [
   {
@@ -925,6 +940,11 @@ watch(selectedEntry, (entry, previous) => {
   else if (entry) return
   else resetEntryForm()
 }, { immediate: true })
+
+// W3：档案模板/关联区默认展开策略——选中 character 时展开，其余类型收起（可手动开）。
+watch(() => [selectedEntry.value?.id, selectedEntry.value?.type], ([, type]) => {
+  entryAdvancedOpen.value = type === 'character'
+})
 
 watch(entries, (nextEntries) => {
   const idSet = new Set(nextEntries.map(entry => entry.id))
@@ -1541,6 +1561,44 @@ async function deleteEntry() {
   await worldStore.deleteEntry(activeWorldbook.value.id, selectedEntry.value.id)
   await worldStore.loadWorldbooksIndex()
   selectFirstEntry()
+}
+
+// W3·B2：档案模板保存——profile 落条目；仅在作者显式选「覆盖原文」时才以投影替换
+// content（content 是注入真相，禁默认覆盖）。
+async function applyProfileSave({ profile, content, overwrite }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      profile,
+      ...(overwrite ? { content } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+    if (selectedEntry.value) syncEntryForm(selectedEntry.value)
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+// W3·B3：关系双层保存——links=纯 id 层、relations=富关系层由 entryRelations.
+// applyRelationRows 同一实现派生，两层必然一致；tags 承接旧 relations.tags 桶。
+async function applyLinksSave({ links, relations, tags }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      links,
+      relations,
+      ...(Array.isArray(tags) ? { tags } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+function onAdvancedToggle(event) {
+  entryAdvancedOpen.value = Boolean(event.target?.open)
 }
 
 function pickEntry(entryId) {
@@ -3562,6 +3620,29 @@ label {
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: 0;
+}
+
+.entry-workspace-card .entry-advanced-panel {
+  padding: 0;
+  border: 0;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary:hover {
+  color: var(--text-primary);
+}
+
+.entry-workspace-card .entry-advanced-panel[open] > summary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
 }
 
 .entry-workspace-card .injection-panel h3 {
