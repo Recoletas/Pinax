@@ -6,7 +6,7 @@
         <div><h1 id="library-title">{{ tr('我的作品') }}</h1><p v-if="!books.length">{{ tr('从第一本书开始，把想法写成故事。') }}</p></div>
         <router-link v-if="recentBook" class="library-return" data-test="welcome-continue-book" :to="{ name: 'authoring', query: { bookId: recentBook.id } }"><WorkbenchIcon name="pencil" :size="21" /><span><small>{{ tr('继续最近的书稿') }}</small><strong>{{ recentBook.title || tr('未命名书稿') }}</strong></span><WorkbenchIcon name="arrow-right" :size="20" /></router-link>
       </section>
-      <LibraryQuickActions @backup="settings.open('storage')" @create="openCreatePanel" @projects="openProjectPanel" />
+      <LibraryQuickActions @backup="settings.open('storage')" @create="openCreatePanel" @import-project="openImportProjectPanel" />
       <template v-if="books.length">
         <div class="library-toolbar">
           <h2 class="library-section-title">{{ tr('全部作品') }}<span>{{ books.length }}</span></h2>
@@ -72,9 +72,8 @@ async function clearSearch() { search.value = ''; await nextTick(); searchInput.
 function openCreatePanel() {
   projectPanel.open({ mode: 'create' })
 }
-function openProjectPanel() {
-  if (recentBook.value) projectPanel.open({ mode: 'edit', book: recentBook.value })
-  else projectPanel.open({ mode: 'create' })
+function openImportProjectPanel() {
+  projectPanel.open({ mode: 'import-project' })
 }
 function configureProject(book) {
   projectPanel.open({ mode: 'edit', book })

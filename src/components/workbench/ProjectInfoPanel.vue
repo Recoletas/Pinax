@@ -44,10 +44,16 @@
         </label>
 
         <label class="project-info__field">
-          <span>{{ tr('项目文件夹位置') }}</span>
-          <input v-model.trim="form.root" type="text" :placeholder="tr('留空则在「文档\\Pinax」下创建（绝对路径可自定）')" spellcheck="false" data-test="project-info-root">
-          <small>{{ tr('每本书都会有一个本地项目文件夹（含 .pinax 标记），正文/世界书/日志自动同步其中，可整体拷贝迁移。') }}</small>
+          <span>{{ tr('项目文件夹位置') }}<template v-if="panel.mode.value === 'import-project'">（{{ tr('必填') }}）</template></span>
+          <div class="project-info__rootrow">
+            <input v-model.trim="form.root" type="text" :placeholder="tr('留空则在「文档\\\\Pinax」下创建（绝对路径可自定）')" spellcheck="false" data-test="project-info-root">
+            <button type="button" class="project-info__browse" data-test="project-info-browse" @click="browserOpen = true">{{ tr('浏览…') }}</button>
+          </div>
+          <small>{{ panel.mode.value === 'import-project' ? tr('指向磁盘上的项目文件夹（含 .pinax 标记则直接打开；否则按类型新建并回读正文/章节）') : tr('每本书都会有一个本地项目文件夹（含 .pinax 标记），正文/世界书/日志自动同步其中，可整体拷贝迁移。') }}</small>
         </label>
+
+        <p v-if="browserOpen" class="project-info__note" role="status">{{ tr('文件夹浏览器已打开（浏览器窗口）…') }}</p>
+        <FolderBrowserModal v-if="browserOpen" @close="browserOpen = false" @select="onFolderSelected" />
 
         <p v-if="boundNote" class="project-info__note" role="status">{{ boundNote }}</p>
         <p v-if="error" class="project-info__error" role="alert">{{ error }}</p>
@@ -67,8 +73,10 @@
 import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import ManuscriptLanguageSelect from '../authoring/ManuscriptLanguageSelect.vue'
+import FolderBrowserModal from './FolderBrowserModal.vue'
 import { useProjectInfoPanel } from '../../composables/useProjectInfoPanel.js'
 import { createWritingBookRecord, loadWritingBooks, saveWritingBooksDurable, updateWritingBook } from '../../services/writing/writingBooksRepository.js'
+import { createImportedWritingBook } from '../../services/writing/writingManuscriptImport.js'
 import { getLocalMirrorSettings, listLocalProjects } from '../../services/localMirrorSettings.js'
 import { useWorldStore } from '../../stores/worldStore.js'
 
@@ -82,9 +90,20 @@ const error = ref('')
 const worldbooks = computed(() => worldStore.worldbooksIndex || [])
 const form = ref({ title: '', description: '', manuscriptLanguage: '', worldbookId: '', kind: 'novel', root: '' })
 const boundProject = ref(null)
+const browserOpen = ref(false)
 
-const modeLabel = computed(() => ({ create: tr('新建作品'), edit: tr('编辑项目'), attach: tr('导入完成 · 选择本地位置') }[panel.mode.value] || tr('项目资料')))
-const confirmLabel = computed(() => (panel.mode.value === 'edit' ? tr('保存') : tr('创建并开始写作')))
+function onFolderSelected(selectedPath) {
+  form.value.root = String(selectedPath || '').trim()
+  browserOpen.value = false
+  if (panel.mode.value === 'import-project' && !form.value.title.trim()) {
+    const name = selectedPath.split(/[\\/]/).filter(Boolean).pop()
+    if (name) form.value.title = name
+  }
+  titleInput.value?.focus()
+}
+
+const modeLabel = computed(() => ({ create: tr('新建作品'), edit: tr('编辑项目'), attach: tr('导入完成 · 选择本地位置'), 'import-project': tr('导入项目 · 指向本地文件夹') }[panel.mode.value] || tr('项目资料')))
+const confirmLabel = computed(() => (panel.mode.value === 'edit' ? tr('保存') : panel.mode.value === 'import-project' ? tr('导入项目') : tr('创建并开始写作')))
 const worldbookSelectLocked = computed(() => panel.mode.value === 'edit' && Boolean(panel.book.value?.worldbookId))
 const boundNote = computed(() => {
   if (!boundProject.value) return ''
@@ -96,8 +115,8 @@ async function preload() {
   boundProject.value = null
   try { await worldStore.loadWorldbooksIndex() } catch { /* 世界书索引不可用时不阻塞表单 */ }
   const current = panel.book.value
-  if (panel.mode.value === 'create') {
-    form.value = { title: '', description: '', manuscriptLanguage: '', worldbookId: '', kind: 'novel', root: getLocalMirrorSettings().defaultCreateRoot }
+  if (panel.mode.value === 'create' || panel.mode.value === 'import-project') {
+    form.value = { title: '', description: '', manuscriptLanguage: '', worldbookId: '', kind: 'novel', root: panel.mode.value === 'import-project' ? '' : getLocalMirrorSettings().defaultCreateRoot }
     return
   }
   form.value = {
@@ -152,6 +171,70 @@ async function createProjectAndBind(createdBook) {
   return true
 }
 
+/** 导入项目：指向的文件夹有 .pinax 标记 → 直接打开绑定；否则按类型新建。随后回读 正文/*.md 建书稿章节。 */
+async function confirmImportProject() {
+  const projectPath = form.value.root.replace(/[\\/]+$/, '')
+  // 探测：是 pinax 项目 → open；否则 → create（服务端会因目录非空而失败时给出明确报错）
+  let opened = null
+  try {
+    const response = await fetch('/api/localmirror/projects/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: projectPath })
+    })
+    const body = await response.json().catch(() => null)
+    if (response.ok && body?.ok) opened = body
+  } catch { /* 探测失败按 create 处理 */ }
+
+  if (!opened) {
+    const response = await fetch('/api/localmirror/projects/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: projectPath, name: form.value.title || projectPath.split(/[\\/]/).pop(), kind: form.value.kind, bookId: null })
+    })
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) {
+      error.value = tr('项目导入失败：{message}', { message: body?.message || response.status })
+      return
+    }
+    opened = body
+  }
+
+  // 回读 正文/*.md 为章节（反向导入）
+  let chapters = []
+  try {
+    const contentResponse = await fetch('/api/localmirror/projects/import-content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: projectPath })
+    })
+    const contentBody = await contentResponse.json().catch(() => null)
+    if (contentResponse.ok && contentBody?.ok) chapters = contentBody.chapters || []
+  } catch { /* 回读失败不阻塞导入——项目已绑定，正文可稍后再导 */ }
+
+  const created = createImportedWritingBook({
+    title: form.value.title || opened.manifest.name,
+    chapters: chapters.length ? chapters : [{ title: form.value.manuscriptLanguage === 'en' ? 'Chapter 1' : '第一章', content: '' }],
+    manuscriptLanguage: form.value.manuscriptLanguage
+  })
+  if (!created.ok) {
+    error.value = tr('没有可以导入的章节。')
+    return
+  }
+  const saved = loadWritingBooks()
+  if (!saveWritingBooksDurable([...saved, created.book]).ok) {
+    error.value = tr('书稿未能保存，请检查浏览器存储空间。')
+    return
+  }
+  await fetch('/api/localmirror/projects/bind', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId: opened.manifest.projectId, bookId: created.book.id })
+  })
+  emit('saved', created.book)
+  panel.finishCreated(created.book)
+}
+
 async function confirm() {
   if (busy.value || !form.value.title) return
   busy.value = true
@@ -180,7 +263,15 @@ async function confirm() {
       emit('saved', updated.book)
       return
     }
-    // create / attach：建书（attach 用已有书）+ 建本地项目 + 绑定
+    // create / import-project / attach：建书（attach 用已有书）+ 本地项目 + 绑定
+    if (panel.mode.value === 'import-project') {
+      if (!form.value.root.trim()) {
+        error.value = tr('导入项目需要指向项目文件夹（点「浏览…」选择）。')
+        return
+      }
+      await confirmImportProject()
+      return
+    }
     let created = panel.book.value
     if (panel.mode.value === 'create') {
       created = createWritingBookRecord(buildBookPayload())
@@ -256,6 +347,11 @@ async function confirm() {
 .project-info__field textarea { resize: vertical; }
 .project-info__field small { font-weight: 400; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .project-info__field input:disabled, .project-info__field select:disabled { opacity: 0.55; }
+
+.project-info__rootrow { display: flex; gap: 8px; }
+.project-info__rootrow input { flex: 1; min-width: 0; }
+.project-info__browse { flex: none; min-height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }
+.project-info__browse:hover { background: var(--nav-hover); }
 
 .project-info__note, .project-info__error { margin: 0; font-size: 12px; line-height: 1.55; }
 .project-info__note { color: var(--text-secondary); word-break: break-all; }

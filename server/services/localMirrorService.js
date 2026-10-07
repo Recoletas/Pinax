@@ -441,5 +441,51 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return file
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, resolveAppDataDir }
+  /** 浏览目录（内置文件夹浏览器数据源）：列子目录 + 是否 pinax 项目 + 顶层书稿计数。 */
+  function browseDirectories(rootPath) {
+    const invalid = validateProjectPathInput(rootPath)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const dir = path.resolve(rootPath)
+    if (!fs.existsSync(dir)) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const stat = fs.statSync(dir)
+    if (!stat.isDirectory()) throw Object.assign(new Error('目标不是文件夹'), { code: 'ERR_INVALID_INPUT' })
+    const parent = path.dirname(dir)
+    const directories = []
+    let bookFiles = 0
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        const hasPinax = fs.existsSync(path.join(dir, entry.name, '.pinax', 'project.json'))
+        directories.push({ name: entry.name, hasPinax })
+        continue
+      }
+      if (/\.(?:txt|md|markdown)$/iu.test(entry.name) && !fs.existsSync(path.join(dir, '.pinax', 'project.json'))) bookFiles += 1
+    }
+    directories.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    return { path: dir, parent: dir !== path.parse(dir).root ? parent : null, directories, bookFiles, isProject: fs.existsSync(path.join(dir, '.pinax', 'project.json')) }
+  }
+
+  /** 反向导入数据源：读项目文件夹 正文/*.md 章节（文件名=章节名；utf-8；单文件 ≤1MB；≤500 章）。 */
+  function readProjectChapters(rootPath) {
+    const invalid = validateProjectPathInput(rootPath)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const dir = path.resolve(rootPath)
+    const manuscriptDir = path.join(dir, '正文')
+    if (!fs.existsSync(manuscriptDir)) return { chapters: [] }
+    const files = fs.readdirSync(manuscriptDir)
+      .filter((name) => /\.(?:md|txt)$/iu.test(name))
+      .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+      .slice(0, 500)
+    const chapters = []
+    for (const name of files) {
+      const file = path.join(manuscriptDir, name)
+      if (fs.statSync(file).size > 1024 * 1024) continue
+      const content = fs.readFileSync(file, 'utf-8').replace(/\r\n/g, '\n').trim()
+      if (!content) continue
+      chapters.push({ title: name.replace(/\.(?:md|txt)$/iu, '').replace(/^\d+-/, '').trim() || `章节 ${chapters.length + 1}`, content })
+    }
+    return { chapters }
+  }
+
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, readProjectChapters, resolveAppDataDir }
 }

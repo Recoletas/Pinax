@@ -2,7 +2,7 @@
 import { tr } from '../../i18n/index.js'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-defineEmits(['backup', 'create', 'projects'])
+defineEmits(['backup', 'create', 'import-project'])
 const menu = ref(null)
 function closeMenu(event) {
   if (event.type === 'focusout' && menu.value?.contains(event.relatedTarget)) return
@@ -19,7 +19,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 <template>
   <div class="library-quick-actions">
     <div class="library-quick-actions__new"><button type="button" data-test="welcome-start-authoring" @click="$emit('create')"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>{{ tr('新建作品') }}</strong></span></button><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary :aria-label="tr(&quot;新建作品选项&quot;)"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&view=assistant">{{ tr('和助手构思') }}</router-link><router-link to="/authoring?start=import&guide=first-run">{{ tr('从已有书稿导入') }}</router-link></div></details></div>
-    <button type="button" data-test="welcome-project-manager" @click="$emit('projects')"><WorkbenchIcon name="backup" :size="18" /><span><strong>{{ tr('项目管理') }}</strong></span></button>
+    <button type="button" data-test="welcome-import-project" @click="$emit('import-project')"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>{{ tr('导入项目') }}</strong></span></button>
     <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>{{ tr('导入书稿') }}</strong></span></router-link>
     <button type="button" @click="$emit('backup')"><WorkbenchIcon name="backup" :size="18" /><span><strong>{{ tr('备份与恢复') }}</strong></span></button>
     <router-link to="/docs/01-quickstart"><WorkbenchIcon name="guide" :size="18" /><span><strong>{{ tr('创作指南') }}</strong></span></router-link>

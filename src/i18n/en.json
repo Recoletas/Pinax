@@ -1270,5 +1270,22 @@
   "同步到 Agent 通路": "Sync to the Agent path",
   "同步中…": "Syncing…",
   "已与所选配置同步。": "In sync with the selected config.",
-  "同步失败，请检查 Agent 引擎状态。": "Sync failed — check the Agent engine status."
+  "同步失败，请检查 Agent 引擎状态。": "Sync failed — check the Agent engine status.",
+  "导入项目": "Import project",
+  "选择项目文件夹": "Choose project folder",
+  "本地文件夹": "Local folder",
+  "上一级": "Up one level",
+  "此层没有子文件夹": "No subfolders at this level",
+  "Pinax 项目": "Pinax project",
+  "当前层": "This level:",
+  "个子文件夹": "subfolders",
+  "个书稿文件": "manuscript files",
+  "已是 Pinax 项目": "already a Pinax project",
+  "选择此文件夹": "Choose this folder",
+  "必填": "required",
+  "指向磁盘上的项目文件夹（含 .pinax 标记则直接打开；否则按类型新建并回读正文/章节）": "Point at a project folder on disk (opens directly if it has a .pinax marker; otherwise creates one of the chosen kind and reads back manuscript chapters)",
+  "文件夹浏览器已打开（浏览器窗口）…": "Folder browser is open (in its own dialog)…",
+  "项目导入失败：{message}": "Project import failed: {message}",
+  "导入项目需要指向项目文件夹（点「浏览…」选择）。": "Importing a project requires pointing at its folder (click Browse to choose).",
+  "导入项目 · 指向本地文件夹": "Import project · point at a local folder"
 }

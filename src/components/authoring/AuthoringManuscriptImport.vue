@@ -31,10 +31,16 @@
         </button>
         <input ref="fileInput" class="manuscript-import__file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" @change="handleFileInput">
         <input ref="folderInput" class="manuscript-import__file" type="file" webkitdirectory multiple @change="handleFolderInput">
-        <div class="manuscript-import__alt">
-          <button type="button" data-test="manuscript-folder-picker" :disabled="reading" @click="pickFolder">{{ tr('选择文件夹（书稿 + 资料）') }}</button>
-          <small>{{ folderModeHint }}</small>
-        </div>
+        <button
+          type="button"
+          class="manuscript-import__folderzone"
+          data-test="manuscript-folder-picker"
+          :disabled="reading"
+          @click="pickFolder"
+        >
+          <strong>{{ tr('选择文件夹（书稿 + 资料）') }}</strong>
+          <span>{{ folderModeHint }}</span>
+        </button>
         <p v-if="error" class="manuscript-import__error" role="alert">{{ tr(error) }}</p>
       </div>
 
@@ -548,6 +554,22 @@ onBeforeUnmount(() => {
 .manuscript-import__dropzone strong { font-size: 17px; }
 .manuscript-import__dropzone span { color: var(--text-secondary); }
 .manuscript-import__dropzone small { margin-top: 14px; color: var(--text-muted, var(--text-secondary)); }
+.manuscript-import__folderzone {
+  width: 100%;
+  min-height: 96px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  border: 1px dashed color-mix(in srgb, var(--archive-olive) 55%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 40%, var(--surface-panel));
+  color: var(--text-primary);
+  text-align: center;
+  cursor: pointer;
+}
+.manuscript-import__folderzone:disabled { opacity: 0.5; cursor: progress; }
+.manuscript-import__folderzone strong { font-size: 14px; }
+.manuscript-import__folderzone span { color: var(--text-secondary); font-size: 12px; }
 .manuscript-import__file { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .manuscript-import__alt { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .manuscript-import__alt button { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }

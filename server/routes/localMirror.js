@@ -37,6 +37,27 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
   router.get('/projects', (_req, res) => {
     return res.json({ ok: true, projects: service.listProjects() })
   })
+  // 内置文件夹浏览器数据源（local-only）：列子目录 + pinax 徽标 + 顶层书稿计数
+  router.get('/browse', (req, res) => {
+    try {
+      const result = service.browseDirectories(String(req.query.path || ''))
+      return res.json({ ok: true, ...result })
+    } catch (error) {
+      const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
+  // 反向导入数据源：读项目文件夹 正文/*.md 章节（不写库；书稿创建在浏览器侧）
+  router.post('/projects/import-content', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const result = service.readProjectChapters(String(req.body?.path || ''))
+      return res.json({ ok: true, ...result })
+    } catch (error) {
+      const code = error?.code === 'ERR_INVALID_INPUT' ? 400 : 500
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
+    }
+  })
   router.post('/projects/create', (req, res) => {
     if (!localOnly(res)) return
     try {
