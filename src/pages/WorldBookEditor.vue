@@ -57,6 +57,10 @@
           </button>
         </nav>
 
+        <section v-if="editorTab === 'overview'" class="card">
+          <UnifiedEntryBrowser :worldbook="activeWorldbook" @select="onBrowserSelect" />
+        </section>
+
         <section v-if="editorTab === 'base'" class="card">
           <div class="card-head">
             <h2>{{ tr("世界书基础设定") }}</h2>
@@ -893,6 +897,7 @@ import {
   findWorldbookAuditTargets,
   WORLDBOOK_MAINTENANCE_MODES
 } from '../services/worldbook/worldbookMaintenance'
+import UnifiedEntryBrowser from '../components/worldbook/UnifiedEntryBrowser.vue'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
@@ -987,8 +992,14 @@ const maintenanceModes = [
   }
 ]
 
-const editorTab = ref('entries')
+const editorTab = ref('overview')
+// 总览浏览器点选条目 → 跳条目管理并定位（B1 组件只 emit，不路由）
+function onBrowserSelect(entry) {
+  if (entry?.id) pickEntry(entry.id)
+  editorTab.value = 'entries'
+}
 const editorTabs = [
+  { key: 'overview', label: '总览', icon: 'layout' },
   { key: 'entries', label: '条目管理', icon: 'list' },
   { key: 'settlement', label: '章回结算', icon: 'history' },
   { key: 'base', label: '基础设定', icon: 'book' },
