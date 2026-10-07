@@ -1,9 +1,14 @@
 import { estimateTokens } from '../../composables/useTokenEstimate.js'
 import { appendContextLedgerPart, createContextLedger } from '../contextLedger.js'
-import { entryBoundMatchLabel } from './entryRelations.js'
+import { entryBoundMatchLabel, relationNeighborWeights } from './entryRelations.js'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
+// W3·B3 注入一跳扩展（kit 一跳 top-N 同款）：命中条目的 relations/links 邻居
+// top-3 以低预算附带注入；单条关联条目预算上限 = max(80, 预算×20%)。
+const LINKED_NEIGHBOR_LIMIT = 3
+const LINKED_ENTRY_BUDGET_RATIO = 0.2
+const LINKED_ENTRY_MIN_TOKEN_CAP = 80
 const DEFAULT_STARTER_ENTRY_LIMITS = {
   location: 3,
   organization: 3,
@@ -441,9 +446,33 @@ export function matchWorldbookEntries({
     matchedEntries.push(...collectStarterEntries(worldbook.entries, seenIds, starterLimits))
   }
 
+  // W3·B3 注入一跳扩展：命中集合的 relations/links 邻居按 weight 降序取 top-3
+  // （去重、排除已命中与自环），以 matchReason='linked' 附带进注入（排序垫底、
+  // 低预算，见 buildWorldbookContext）。条目没有 relations/links 时零变化。
+  if (matchedEntries.length) {
+    const linkedEntriesById = new Map()
+    for (const rawEntry of worldbook.entries) {
+      const normalized = normalizeEntry(rawEntry)
+      if (normalized && !linkedEntriesById.has(normalized.id)) linkedEntriesById.set(normalized.id, normalized)
+    }
+    for (const neighbor of relationNeighborWeights(matchedEntries, worldbook.entries, { limit: LINKED_NEIGHBOR_LIMIT })) {
+      const entry = linkedEntriesById.get(neighbor.id)
+      if (!entry || seenIds.has(entry.id)) continue
+      matchedEntries.push({
+        ...entry,
+        matchReason: 'linked',
+        matchedKeys: [],
+        matchedKeysLabel: '关联条目',
+        linkedWeight: neighbor.weight
+      })
+      seenIds.add(entry.id)
+    }
+  }
+
   return matchedEntries.sort((a, b) => {
-    const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : 1)
-      - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : 1)
+    // linked 一跳附带条目垫底（主命中优先占预算）
+    const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : a.matchReason === 'linked' ? 2 : 1)
+      - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : b.matchReason === 'linked' ? 2 : 1)
     if (modeDelta !== 0) return modeDelta
     // R3：次键命中多的排前面（selective 精确化优先）
     const secondaryDelta = (b.matchedSecondaryKeys?.length || 0) - (a.matchedSecondaryKeys?.length || 0)
@@ -605,21 +634,31 @@ export function buildWorldbookContext({
 
   parts.push('\n\n--- 以下是世界书中的关键设定条目，必须在叙事中严格遵循 ---')
 
+  // W3·B3：关联条目（一跳扩展）低预算附带注入——单条上限 max(80, 预算×20%)，
+  // 超限或挤占主条目预算时跳过（不计预算外），复用现有 token 预算口径。
+  const linkedTokenCap = Math.max(LINKED_ENTRY_MIN_TOKEN_CAP, Math.ceil(effectiveBudget * LINKED_ENTRY_BUDGET_RATIO))
+
   for (const entry of matchedEntries) {
-    const entryText = `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
-    if (usedTokens + estimateTokens(entryText) > effectiveBudget) {
+    const isLinked = entry.matchReason === 'linked'
+    const entryText = isLinked
+      ? `\n\n◇ 【${entry.name}】(${entry.type || 'general'})（关联）\n${entry.content}`
+      : `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
+    const entryTokens = estimateTokens(entryText)
+    if (isLinked
+      ? (entryTokens > linkedTokenCap || usedTokens + entryTokens > effectiveBudget)
+      : usedTokens + entryTokens > effectiveBudget) {
       truncatedEntries += 1
-      warnings.push(`truncated:${entry.name}`)
+      warnings.push(isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`)
       contextLedger = appendContextLedgerPart(contextLedger, {
         source: 'worldbook',
         title: entry.name,
-        purpose: 'worldbook-entry-truncated',
+        purpose: isLinked ? 'worldbook-entry-skipped-linked' : 'worldbook-entry-truncated',
         content: entry.content,
         included: false,
-        truncated: true,
-        limit: effectiveBudget,
+        truncated: !isLinked,
+        limit: isLinked ? linkedTokenCap : effectiveBudget,
         entryId: entry.id,
-        warning: `truncated:${entry.name}`
+        warning: isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`
       })
       continue
     }
