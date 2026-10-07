@@ -75,10 +75,10 @@
     "smoke:worldbook-server-rw": "node scripts/worldbook-server-rw-smoke.mjs",
     "smoke:worldbook-relations": "node scripts/worldbook-relations-smoke.mjs",
     "smoke:worldbook-dualwrite": "node scripts/worldbook-dualwrite-smoke.mjs",
-"smoke:worldbook-browser": "node scripts/worldbook-browser-smoke.mjs"
-,"smoke:worldbook-editing": "node scripts/worldbook-editing-smoke.mjs"
-,"smoke:worldbook-write-merge": "node scripts/worldbook-write-merge-smoke.mjs"
-
+    "smoke:worldbook-browser": "node scripts/worldbook-browser-smoke.mjs",
+    "smoke:worldbook-editing": "node scripts/worldbook-editing-smoke.mjs",
+    "smoke:worldbook-write-merge": "node scripts/worldbook-write-merge-smoke.mjs",
+    "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",

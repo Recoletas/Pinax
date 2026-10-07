@@ -1,6 +1,7 @@
 import { estimateTokens } from '../../composables/useTokenEstimate.js'
 import { appendContextLedgerPart, createContextLedger } from '../contextLedger.js'
 import { entryBoundMatchLabel, relationNeighborWeights } from './entryRelations.js'
+import { extractHandoffSection, isChapterLedgerEntry, isCovertCardEntry } from './settlementService.js'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
@@ -302,6 +303,12 @@ export function matchWorldbookEntries({
     return []
   }
 
+  // W5·B5：底牌（status draft + 底牌标记）与章账结算条目在任何激活路径都不进注入——
+  // 底牌永不入正文（kit 红线，constant/history/bound/keyword/starter/linked 全路径拦）；
+  // 章账只以「末节 handoff」形态进上下文（见 buildWorldbookContext），整本历史不进。
+  // 无此类条目时过滤零命中，命中集与既有行为逐条一致（回归护栏）。
+  const injectableEntries = worldbook.entries.filter((rawEntry) => !isCovertCardEntry(rawEntry) && !isChapterLedgerEntry(rawEntry))
+
   const scanText = collectScanText(chatHistory, runtimeState, scanDepth)
   const matchedEntries = []
   const seenIds = new Set()
@@ -338,7 +345,7 @@ export function matchWorldbookEntries({
   const boundSourceRefs = new Set((boundContext?.sourceRefs || [])
     .map((ref) => String(ref || '').trim()).filter(Boolean))
 
-  for (const rawEntry of worldbook.entries) {
+  for (const rawEntry of injectableEntries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry) continue
 
@@ -443,7 +450,7 @@ export function matchWorldbookEntries({
   }
 
   if (includeStarterEntries) {
-    matchedEntries.push(...collectStarterEntries(worldbook.entries, seenIds, starterLimits))
+    matchedEntries.push(...collectStarterEntries(injectableEntries, seenIds, starterLimits))
   }
 
   // W3·B3 注入一跳扩展：命中集合的 relations/links 邻居按 weight 降序取 top-3
@@ -451,11 +458,11 @@ export function matchWorldbookEntries({
   // 低预算，见 buildWorldbookContext）。条目没有 relations/links 时零变化。
   if (matchedEntries.length) {
     const linkedEntriesById = new Map()
-    for (const rawEntry of worldbook.entries) {
+    for (const rawEntry of injectableEntries) {
       const normalized = normalizeEntry(rawEntry)
       if (normalized && !linkedEntriesById.has(normalized.id)) linkedEntriesById.set(normalized.id, normalized)
     }
-    for (const neighbor of relationNeighborWeights(matchedEntries, worldbook.entries, { limit: LINKED_NEIGHBOR_LIMIT })) {
+    for (const neighbor of relationNeighborWeights(matchedEntries, injectableEntries, { limit: LINKED_NEIGHBOR_LIMIT })) {
       const entry = linkedEntriesById.get(neighbor.id)
       if (!entry || seenIds.has(entry.id)) continue
       matchedEntries.push({
@@ -674,6 +681,42 @@ export function buildWorldbookContext({
       limit: effectiveBudget,
       entryId: entry.id
     })
+  }
+
+  // W5·B5：章账末节（=上一章 handoff，kit §四「只读末节」）作为 continuity 附带内容
+  // 进上下文——数据存在才生效：世界书里没有章账结算条目时零行为差异（不造新数据源）；
+  // 存在时只在预算装得下才注入，装不下记 handoff-skipped 警告（不计预算外）。
+  const ledgerEntry = Array.isArray(worldbook.entries)
+    ? worldbook.entries.find((rawEntry) => isChapterLedgerEntry(rawEntry))
+    : null
+  const handoff = ledgerEntry ? extractHandoffSection(String(ledgerEntry.content || '')) : ''
+  if (handoff) {
+    const handoffText = `\n\n【上一章交接 · 章账末节】\n${handoff}`
+    const handoffTokens = estimateTokens(handoffText)
+    if (usedTokens + handoffTokens <= effectiveBudget) {
+      parts.push(handoffText)
+      usedChars += handoffText.length
+      usedTokens += handoffTokens
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '章账末节（handoff）',
+        purpose: 'worldbook-handoff',
+        content: handoff,
+        included: true,
+        limit: effectiveBudget
+      })
+    } else {
+      warnings.push('handoff-skipped:budget')
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '章账末节（handoff）',
+        purpose: 'worldbook-handoff-skipped',
+        content: handoff,
+        included: false,
+        limit: effectiveBudget,
+        warning: 'handoff-skipped:budget'
+      })
+    }
   }
 
   parts.push('\n\n⚠️ 重要约束：')
