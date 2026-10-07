@@ -1,5 +1,6 @@
 import { estimateTokens } from '../../composables/useTokenEstimate.js'
 import { appendContextLedgerPart, createContextLedger } from '../contextLedger.js'
+import { entryBoundMatchLabel } from './entryRelations.js'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
@@ -347,21 +348,20 @@ export function matchWorldbookEntries({
     }
 
     // P1-6：bound 绑定 —— placeId/characterId/sourceRef 直接绑定激活。
-    // 从 entry.relations（{placeIds, characterIds}）或 metadata 读绑定目标。
+    // A4：绑定字段的读取与判定统一走 entryRelations 纯函数 —— 优先 store
+    // 写入端命名 relations.locations/characters，回落旧命名 placeIds/characterIds。
     if (!seenIds.has(entry.id)) {
-      const relations = entry.relations && typeof entry.relations === 'object' ? entry.relations : {}
-      const entryPlaceIds = Array.isArray(relations.placeIds) ? relations.placeIds : []
-      const entryCharacterIds = Array.isArray(relations.characterIds) ? relations.characterIds : []
-      const entrySourceRef = String(entry.metadata?.sourceRef || relations.sourceRef || '').trim()
-      const boundByPlace = entryPlaceIds.some((id) => boundPlaceIds.has(String(id || '').trim()))
-      const boundByCharacter = entryCharacterIds.some((id) => boundCharacterIds.has(String(id || '').trim()))
-      const boundBySourceRef = Boolean(entrySourceRef && boundSourceRefs.has(entrySourceRef))
-      if (boundByPlace || boundByCharacter || boundBySourceRef) {
+      const boundLabel = entryBoundMatchLabel(entry, {
+        placeIds: boundPlaceIds,
+        characterIds: boundCharacterIds,
+        sourceRefs: boundSourceRefs
+      })
+      if (boundLabel) {
         matchedEntries.push({
           ...entry,
           matchReason: 'bound',
           matchedKeys: [],
-          matchedKeysLabel: boundByPlace ? '地点绑定' : boundByCharacter ? '角色绑定' : '来源绑定'
+          matchedKeysLabel: boundLabel
         })
         seenIds.add(entry.id)
       }
