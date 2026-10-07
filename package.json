@@ -73,7 +73,8 @@
     "smoke:local-import": "node scripts/local-import-check.mjs",
     "smoke:worldbook-file-contract": "node scripts/worldbook-file-contract-smoke.mjs",
     "smoke:worldbook-server-rw": "node scripts/worldbook-server-rw-smoke.mjs",
-    "smoke:worldbook-relations": "node scripts/worldbook-relations-smoke.mjs"
+    "smoke:worldbook-relations": "node scripts/worldbook-relations-smoke.mjs",
+    "smoke:worldbook-dualwrite": "node scripts/worldbook-dualwrite-smoke.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",
