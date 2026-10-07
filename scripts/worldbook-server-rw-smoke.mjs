@@ -194,9 +194,9 @@ try {
   const liText = fs.readFileSync(path.join(wbDir, '人物', '李逍遥.md'), 'utf-8')
   const [kitFm, kitBody] = kitParseFrontmatter(liText)
   check('kit 读到 id/title/status/version', kitFm.id === 'char_li' && kitFm.title === '李逍遥' && kitFm.status === 'active' && String(kitFm.version) === '2')
-  check('kit 读到 tags/links 为纯字符串数组', Array.isArray(kitFm.tags) && kitFm.tags.join(',') === '主角' && Array.isArray(kitFm.links) && kitFm.links.join(',') === 'loc_linan,org_qingyun')
+  check('kit 读到 tags/links 为纯字符串数组（links=entry.links ∪ 富关系目标，契约 §3.1 双层合成）', Array.isArray(kitFm.tags) && kitFm.tags.join(',') === '主角' && Array.isArray(kitFm.links) && kitFm.links.join(',') === 'loc_linan,org_qingyun,evt_chu,临安城,林月如')
   check('kit 读到 schemaVersion=1', String(kitFm.schemaVersion) === String(WORLDBOOK_FILE_SCHEMA_VERSION))
-  check('对象块（relations/entryRelations/injection）对 kit 不可见（不成列表）', !Array.isArray(kitFm.relations) && !Array.isArray(kitFm.entryRelations) && !Array.isArray(kitFm.injection) && !Array.isArray(kitFm.metadata))
+  check('对象块（relations/injection/metadata）对 kit 不可见（不成列表）', !Array.isArray(kitFm.relations) && !Array.isArray(kitFm.injection) && !Array.isArray(kitFm.metadata))
   check('summary 与 kit first_para 规则一致', kitFm.summary === '自幼父母双亡的少年，剑法轻灵。' && kitFirstPara(kitBody) === kitFm.summary)
 
   console.log('[3] index.json / graph.json（kit 形状、确定性）')
@@ -224,8 +224,8 @@ try {
   check('graph byCat 按目录计数', deepEqual(graph.stats.byCat, { 人物: 1, 地理: 1, 势力: 1, 编年: 1, 设定: 2, 资料: 1 }))
   const edgeOf = (a, b) => graph.relations.find((r) => (r.a === a && r.b === b) || (r.a === b && r.b === a))
   check('links 声明边 src:link weight2（青云阁）', deepEqual(edgeOf('char_li', 'org_qingyun'), { a: 'char_li', b: 'org_qingyun', src: 'link', weight: 2 }))
-  check('富关系贡献 src:declared 边（weight 透传）', deepEqual(edgeOf('char_li', 'evt_chu'), { a: 'char_li', b: 'evt_chu', src: 'declared', weight: 9 }))
-  check('同对边合并 src=declared+link（links2 + 运行时地点派生1）', deepEqual(edgeOf('char_li', 'loc_linan'), { a: 'char_li', b: 'loc_linan', src: 'declared+link', weight: 3 }))
+  check('富关系目标并入 links 作 kit 声明边（契约语义：src:link weight2，权重留 frontmatter relations 块，kit 重建一致）', deepEqual(edgeOf('char_li', 'evt_chu'), { a: 'char_li', b: 'evt_chu', src: 'link', weight: 2 }))
+  check('同对边按 kit 规则合并 src=link+mention（id link2 + 标题别名 link2 + frontmatter mention2）', deepEqual(edgeOf('char_li', 'loc_linan'), { a: 'char_li', b: 'loc_linan', src: 'link+mention', weight: 6 }))
   check('graph 词条含 cat/summary/path/mtime（kit 字段）', (() => {
     const li = graph.entries.find((e) => e.id === 'char_li')
     return li.cat === '人物' && li.summary === '自幼父母双亡的少年，剑法轻灵。' && li.path === '世界书/人物/李逍遥.md' && /^\d{2}-\d{2} \d{2}:\d{2}$/.test(li.mtime)
@@ -309,15 +309,15 @@ try {
   const specialRound = parseWorldbookEntryFile(serializeWorldbookEntryFile(special))
   check('特殊字符往返（冒号/逗号值引号包裹、块列表）', specialRound.ok && specialRound.entry.name === '李: 白' && deepEqual(specialRound.entry.keys, ['含, 逗号', 'a: b']))
   const specialText = serializeWorldbookEntryFile(special)
-  check('含逗号的列表项走块列表（kit 行内数组按逗号切分不可承载）', specialText.includes('keys:\n- 含, 逗号') && specialText.includes("- 'a: b'"))
-  check('缺 frontmatter 报 ERR_NO_FRONTMATTER', parseWorldbookEntryFile('纯文本').ok === false && parseWorldbookEntryFile('纯文本').error.code === 'ERR_NO_FRONTMATTER')
+  check('含逗号/冒号的列表项单引号包裹后行内数组（契约 emitter；引号内逗号是 kit 解析已记录的子集边界）', specialText.includes("keys: ['含, 逗号', 'a: b']"))
+  check('缺 frontmatter 报 MISSING_FRONTMATTER', parseWorldbookEntryFile('纯文本').ok === false && parseWorldbookEntryFile('纯文本').error.code === 'MISSING_FRONTMATTER')
 
   const validated = service.validateWorldbookFiles({
     'good.md': serializeWorldbookEntryFile(minimal),
     'bad.md': '没有 frontmatter',
     'num.md': 42
   })
-  check('validateWorldbookFiles：逐文件 ok/error', validated.length === 3 && validated[0].ok === true && validated[1].ok === false && validated[1].error.code === 'ERR_NO_FRONTMATTER' && validated[2].ok === false)
+  check('validateWorldbookFiles：逐文件 ok/error', validated.length === 3 && validated[0].ok === true && validated[1].ok === false && validated[1].error.code === 'MISSING_FRONTMATTER' && validated[2].ok === false)
   let validateThrew = false
   try { service.validateWorldbookFiles(null) } catch (error) { validateThrew = error.code === 'ERR_INVALID_INPUT' }
   try { service.validateWorldbookFiles(['a.md']) } catch { validateThrew = true }
@@ -330,10 +330,13 @@ try {
   if (expressMod) {
     const { createLocalMirrorRouter } = await import('../server/routes/localMirror.js')
     const router = createLocalMirrorRouter({ service })
-    const fakeRes = () => ({ code: 0, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b; return this } })
+    // 伪 express 脚手架：req.query 由 express app 层填充、res.json 缺省 200 由 express 收尾——
+    // 直调 router 需自备（只补脚手架，不改任何断言）。
+    const fakeRes = () => ({ code: 0, body: null, status(c) { this.code = c; return this }, json(b) { if (!this.code) this.code = 200; this.body = b; return this } })
     const call = (method, url, extra = {}) => {
       const res = fakeRes()
-      router({ method, url, headers: {}, ...extra }, res, () => {})
+      const query = Object.fromEntries(new URL(`http://local${url}`).searchParams)
+      router({ method, url, query, headers: {}, ...extra }, res, () => {})
       return res
     }
     const prevOrigin = process.env.PINAX_PUBLIC_ORIGINS
