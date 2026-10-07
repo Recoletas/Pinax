@@ -13,8 +13,8 @@ function emitBeforeSelect(toolId, event) {
   emit('before-select', toolId)
 }
 // 常用工具直接以“图标 + 文字”暴露，不让人猜图标含义；素材收进“更多”菜单，
-// 不再占一格。顺序对齐高频动线：校对 → 结构 → 事实 → 助手 → 回溯。
-const assistantTool = { id: 'ai', label: '助手' }
+// 不再占一格。顺序对齐高频动线：校对 → 结构 → 事实 → 回溯。
+// 助手自 20261008 起常驻右侧 dock，不再占工具轨一格。
 const baseTools = Object.freeze([
   { id: 'annotations', label: '批注', icon: 'annotation' },
   { id: 'outline', label: '大纲', icon: 'outline' },
@@ -23,7 +23,6 @@ const baseTools = Object.freeze([
   { id: 'scene', label: '现场', icon: 'scene' },
   { id: 'rehearsal', label: '推演', icon: 'rehearsal' },
   { id: 'dual', label: '双栏', icon: 'columns' },
-  { ...assistantTool, icon: 'assistant' },
   { id: 'history', label: '记忆', icon: 'history' }
 ])
 const tools = computed(() => props.collaborationVisible

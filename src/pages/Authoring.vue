@@ -25,7 +25,6 @@
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
       </button>
-      <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" @pointerdown="beforeInspectorToolSelect('ai')" @click="assistantWorkspace.enter"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
       <div class="wall__tabs">
         <button
           ref="moreToolsTriggerRef"
@@ -757,7 +756,7 @@
       </section>
 
       <AuthoringDualPane
-        v-if="inspectorOpen && (activeInspectorTool === 'dual' || (activeInspectorTool === 'ai' && knowledgeAssistantInvocation?.pane === 'dual'))"
+        v-if="inspectorOpen && activeInspectorTool === 'dual'"
         v-show="activeInspectorTool === 'dual'"
         ref="dualPaneRef"
         :book-id="selectedBookId"
@@ -829,42 +828,40 @@
         @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
       />
 
-      <aside
-        v-if="activeInspectorTool !== 'dual'"
-        class="writing-inspector"
+      <AuthoringDock
         ref="writingInspectorRef"
-        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
-        :aria-label="tr(&quot;写作检查器&quot;)"
+        :active-tool="activeInspectorTool"
+        :open="inspectorOpen"
+        :pinned="inspectorPinned"
+        :inspector-tab="inspectorTab"
+        :dual-active="inspectorDualColumn"
+        :label="activeInspectorLabel"
+        :annotation-count="openAnnotationCount"
+        :unread="Boolean(knowledgeAssistant.hasUnread?.value)"
+        :en-locale="uiLocale === 'en'"
+        @close="closeActiveWritingInspector"
+        @toggle-pin="inspectorPinned = !inspectorPinned"
+        @open-memory="appSettings.open('memory')"
+        @reopen="returnToAssistantSession"
+        @panel-close="returnToAssistantSession"
+        @manuscript="scrollRehearsalBackToManuscript"
       >
-        <header class="writing-inspector__head">
-          <div>
-            <strong>{{ tr(activeInspectorLabel) }}</strong>
-            <small v-if="uiLocale === 'en' && ['worldbook', 'scene', 'collaboration'].includes(activeInspectorTool)" class="writing-inspector__locale-note" :title="tr('此工具部分界面目前仅中文')">{{ tr('部分翻译') }}</small>
-            <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ tr('{openAnnotationCount} 条待处理', { openAnnotationCount: openAnnotationCount }) }}</span>
-          </div>
-          <div class="writing-inspector__head-actions">
-            <button v-if="activeInspectorTool === 'ai'" type="button" class="writing-inspector__memory-link" @click="appSettings.open('memory')">{{ tr('记忆与历史') }}</button>
-            <!-- 顺序展开（≤1180）时推演排在正文之后：回程入口必须常驻 sticky 标题栏，
-                 不能放在会随内容滚走的出处行里。宽屏由 CSS 隐藏。 -->
-            <button
-              v-if="activeInspectorTool === 'rehearsal'"
-              class="writing-inspector__manuscript-btn"
-              type="button"
-              :aria-label="tr(&quot;回到正文&quot;)"
-              :title="tr(&quot;回到正文&quot;)"
-              @click="scrollRehearsalBackToManuscript"
-            >{{ tr('正文') }}</button>
-            <button
-              class="writing-inspector__icon-btn"
-              type="button"
-              :class="{ active: inspectorPinned }"
-              :aria-pressed="inspectorPinned.toString()"
-              :title="tr(&quot;固定检查器&quot;)"
-              @click="inspectorPinned = !inspectorPinned"
-            ><WorkbenchIcon name="pin" :size="15" /></button>
-            <button class="writing-inspector__icon-btn" type="button" :title="tr(&quot;关闭检查器&quot;)" @click="closeActiveWritingInspector"><WorkbenchIcon name="close" :size="15" /></button>
-          </div>
-        </header>
+        <template #session>
+          <!-- 原 aside 助手分支整体迁入 dock 会话段（v-show 常挂载）：
+               切工具不再卸载助手组件，流式与未读状态由页面层 composable 持有。 -->
+          <AuthoringAssistantWorkspace :assistant="knowledgeAssistant" :review-workflow="reviewWorkflow"
+            :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
+            :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
+            @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
+            @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
+          <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
+            @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
+            @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
+            @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
+        </template>
+        <template #panel>
+          <!-- 工具临时面板：可见性由 dock 的 overlay（activeTool !== 'ai'）承载，
+               分支链只负责当前工具的内容互斥。 -->
 
         <div ref="rehearsalComposerHostRef" v-show="activeInspectorTool === 'rehearsal' && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__compose-host" />
         <div v-if="activeInspectorTool === 'rehearsal' && !((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__rehearsal">
@@ -915,18 +912,7 @@
           <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
         </nav>
 
-        <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
-          <AuthoringAssistantWorkspace :assistant="knowledgeAssistant" :review-workflow="reviewWorkflow"
-            :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
-            :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
-            @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
-            @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
-          <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
-            @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
-            @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
-            @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
-        </div>
-        <div v-else-if="activeInspectorTool === 'collaboration'" class="writing-inspector__body" data-authoring-inspector="collaboration">
+        <div v-if="activeInspectorTool === 'collaboration'" class="writing-inspector__body" data-authoring-inspector="collaboration">
           <RehearsalReviewSurface
             :mode="authoringRehearsalState.room?.hostId === authoringRehearsalState.selfMemberId ? 'host' : 'reviewer'"
             :connection-state="authoringRehearsalState.connectionState"
@@ -1094,9 +1080,8 @@
         </div>
         <AuthoringMaterialsPanel v-else-if="activeInspectorTool === 'materials'" :assets="inboxAssets"
           @open-asset="openInboxAssetFromInspector" @open-inbox="openAssetInbox" @open-library="openMaterialsPage" />
-      </aside>
-
-      <button v-if="!inspectorOpen" class="writing-inspector__reopen" type="button" :title="tr(&quot;打开检查器&quot;)" @click="inspectorOpen = true">{{ tr('批注') }}<span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
+        </template>
+      </AuthoringDock>
     </main>
 
     <AuthoringIllustratorDrawer
@@ -1330,6 +1315,8 @@ const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../compon
 const AuthoringInspectorAnnotations = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorAnnotations.vue'))
 const AuthoringSceneOverview = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneOverview.vue'))
 const AuthoringMaterialsPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringMaterialsPanel.vue'))
+// 常驻右侧 dock：接管原 aside 壳（header/会话段/工具面板 overlay/收起徽标）。
+const AuthoringDock = defineAsyncComponent(() => import('../components/authoring/AuthoringDock.vue'))
 import ProjectWritingNavigation from '../components/workbench/ProjectWritingNavigation.vue'
 import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
 const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
@@ -3892,7 +3879,9 @@ function openNotesExtraction(doc) {
 }
 watch(selectedBookId, () => { notesExtractionSource.value = null })
 function closeRehearsalOverlay() {
-  if (writingInspectorRef.value && getComputedStyle(writingInspectorRef.value).position === 'absolute') closeWritingInspector()
+  // writingInspectorRef 现在指向 AuthoringDock 组件实例，$el 才是根 aside。
+  const inspectorEl = writingInspectorRef.value?.$el
+  if (inspectorEl && getComputedStyle(inspectorEl).position === 'absolute') closeWritingInspector()
 }
 function openSceneLaboratoryEvidence(evidence = {}) {
   if (!['character', 'location'].includes(evidence.kind) || !evidence.entityId) return
@@ -5209,7 +5198,7 @@ const {
 async function revealRehearsalComposer() {
   openInspectorTool('rehearsal')
   await nextTick()
-  if (window.matchMedia('(max-width: 1180px)').matches) writingInspectorRef.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+  if (window.matchMedia('(max-width: 1180px)').matches) writingInspectorRef.value?.$el?.scrollIntoView({ block: 'start', behavior: 'instant' })
 }
 watch([() => blockComposer.open, () => interventionComposer.open], ([blockOpen, interventionOpen], previous = []) => {
   if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()
@@ -10294,6 +10283,11 @@ function beforeInspectorToolSelect(tool) {
   if (tool === 'ai') freezeReviewSource()
   freezeWritingSurfaceBeforeToolSelect(tool)
 }
+function returnToAssistantSession() {
+  // 回会话段等价旧的「点助手」入口：先把当前选区冻结成助手上下文，再切回 ai。
+  beforeInspectorToolSelect('ai')
+  selectInspectorTool('ai')
+}
 function captureAuthoringSearchLiveSources() {
   const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]
     .filter((source) => source?.document && String(source.projectId || '') === String(selectedBookId.value || ''))
@@ -10592,3 +10586,4 @@ function onGlobalClick() {
 
 <style src="./Authoring.block-native.css"></style>
 <style src="./Authoring.assistant.css"></style>
+<style src="./Authoring.dock.css"></style>
