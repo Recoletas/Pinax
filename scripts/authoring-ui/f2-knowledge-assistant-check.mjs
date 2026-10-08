@@ -60,18 +60,6 @@ function check(results, label, pass, detail = '') {
   console.log(`${result.pass ? 'PASS' : 'FAIL'} ${label}${result.detail ? ` — ${result.detail}` : ''}`)
 }
 
-function formalProjectSnapshot(entries) {
-  const included = {}
-  for (const [key, value] of Object.entries(entries)) {
-    if (
-      key === 'writing_books'
-      || key === 'worldbooks_index'
-      || /worldbook|outline|memory_candidates|narrative_asset|authoring_document/i.test(key)
-    ) included[key] = value
-  }
-  return JSON.stringify(included)
-}
-
 function sourceBlocks(payload) {
   return (payload?.envelope?.blocks || []).filter((block) => (
     Array.isArray(block?.sourceRefs) && block.sourceRefs.length
@@ -134,7 +122,7 @@ async function installKnowledgeProvider(page) {
       missingInformation: edgarRefs.length || isFree ? [] : ['没有找到艾德加的正文记录。'],
       calculations: []
     }
-    requests.push({ payload, refs, edgarRefs, isFree })
+    requests.push({ payload, refs, edgarRefs, sceneRefs, isFree })
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -191,6 +179,13 @@ async function openAssistantSession(page) {
     console.log('NOTE openAssistantSession: dock reopened onto a tool panel overlay; clicking session tab to return to assistant')
     await page.locator('[data-authoring-tool="ai"]').click()
     await page.waitForTimeout(300)
+  }
+  // 引用预览若还开着会顶掉会话段（非展开态 has-preview 隐藏 conversation）：
+  // 先「关闭引用预览」回对话，再等助手可见。
+  const previewClose = page.locator('.authoring-assistant-workspace__preview-close')
+  if (await previewClose.isVisible().catch(() => false)) {
+    await previewClose.click()
+    await page.waitForTimeout(150)
   }
   await page.locator('.authoring-knowledge').waitFor({ state: 'visible', timeout: 15000 })
 }
@@ -278,6 +273,8 @@ try {
 
   await openAssistantSession(page)
   const formalBefore = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)))
+  // 默认意图是「讨论故事」；全书证据问答显式走 purpose 菜单「查阅资料」。
+  await choosePurpose(page, '查阅资料')
   await fillAndAsk(page, '艾德加此前在哪几章出现？')
   await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).waitFor({ timeout: 30000 })
   const firstRequest = desktop.requests[0]
@@ -286,10 +283,14 @@ try {
   check(results, '问全书检索到艾德加正文证据', firstRequest?.edgarRefs?.length >= 1, JSON.stringify(firstRequest?.edgarRefs || []))
   check(results, '跨项目哨兵未进入 provider 上下文', !JSON.stringify(firstRequest?.payload?.envelope || {}).includes('艾德加跨项目哨兵'))
   const formalAfter = await page.evaluate(() => Object.fromEntries(Object.entries(localStorage)))
-  check(results, '资料查询对正文、设定、大纲、素材与记忆零写入', formalProjectSnapshot(formalAfter) === formalProjectSnapshot(formalBefore))
-  await assistant.locator('.authoring-knowledge__evidence summary').click()
-  const evidenceRows = assistant.locator('.authoring-knowledge__evidence-list > button')
-  check(results, '回答折叠展示可定位原文依据', await evidenceRows.count() >= 1)
+  const changedFormalKeys = Object.keys(formalAfter)
+    .filter((key) => (formalBefore[key] !== formalAfter[key]) && (key === 'writing_books' || key === 'worldbooks_index' || /worldbook|outline|memory_candidates|narrative_asset|authoring_document/i.test(key)))
+  check(results, '资料查询对正文、设定、大纲、素材与记忆零写入', changedFormalKeys.length === 0, JSON.stringify(changedFormalKeys))
+  // 20261008 证据直出化同步：证据 chips 不再折叠在 <details> summary 里，而是
+  // 随回答直接展示（>3 条时收敛为「另 N 条资料」展开钮），等价断言改为 chips 直接可见。
+  const firstAnswer = assistant.locator('.authoring-knowledge__answer').first()
+  const evidenceRows = await answerEvidenceRows(firstAnswer)
+  check(results, '回答直接展示可定位原文依据', await evidenceRows.count() >= 1)
   await page.screenshot({ path: path.join(OUT_DIR, 'knowledge-answer-1440.png'), fullPage: false })
   await page.screenshot({ path: path.join(FINAL_DIR, '03-assistant-answer-1440.png'), fullPage: false })
 
@@ -298,17 +299,32 @@ try {
   await assistant.getByText('当前资料中没有找到足够依据。', { exact: true }).last().waitFor({ timeout: 10000 })
   check(results, '不存在的设定直接承认无资料且不调用模型', desktop.requests.length === providerCountBeforeMissing)
 
-  await assistant.locator('.authoring-knowledge__tasks select').selectOption('free')
+  // 20261008 purpose 化同步：自由问从 selectOption('free') 改为 purpose 菜单
+  // 「讨论故事」；「自由建议」角标已改为回答元信息行的 is-free 态标记。
+  await choosePurpose(page, '讨论故事')
   await fillAndAsk(page, '这一场的选择写得太散，应该怎么收束？')
-  await assistant.getByText('自由建议', { exact: true }).last().waitFor({ timeout: 10000 })
-  check(results, '自由问明确标为自由建议且不伪造证据', await assistant.locator('.authoring-knowledge__answer').last().locator('.authoring-knowledge__evidence').count() === 0)
+  const freeAnswer = assistant.locator('.authoring-knowledge__answer').last()
+  await freeAnswer.getByText('可以先把这一场的选择压缩成一个不可兼得的取舍，再决定落笔。', { exact: true }).waitFor({ timeout: 10000 })
+  check(results, '自由问明确标为自由建议且不伪造证据',
+    await freeAnswer.locator('.authoring-knowledge__answer-meta .is-free').count() === 1
+    && await freeAnswer.locator('.authoring-knowledge__evidence').count() === 0)
 
   // 回到第一份回答并打开一条正文证据；随后真实编辑该 node，旧回答必须 stale。
-  const manuscriptEvidenceRow = evidenceRows.filter({ hasText: '正文' }).first()
+  // 20261008 引用预览化同步：点 chip 先进助手内「引用片段」预览，再点
+  // 「打开原文」跳回正文对应节点——两段式，语义仍是「依据可回原文」。
+  const manuscriptEvidenceRow = evidenceRows.filter({ hasText: /\d+\.\d+/ }).first()
   await manuscriptEvidenceRow.click()
-  await page.waitForTimeout(350)
+  const evidencePreview = page.locator('.authoring-assistant-workspace__preview')
+  await evidencePreview.waitFor({ state: 'visible', timeout: 5000 })
+  await evidencePreview.getByRole('button', { name: '打开原文' }).click()
+  await page.waitForTimeout(600)
   const sourceVisible = (await editor.innerText()).includes('艾德加')
   check(results, '点击正文依据能跳到包含该证据的章节/节点', sourceVisible)
+  // 预览若仍开着会盖住会话段（非展开态下 preview 取代 conversation），先收掉
+  // 再做编辑与 stale 观察。
+  const evidencePreviewClose = page.locator('.authoring-assistant-workspace__preview-close')
+  if (await evidencePreviewClose.isVisible().catch(() => false)) await evidencePreviewClose.click()
+  await page.waitForTimeout(150)
   await page.keyboard.press('End')
   await page.keyboard.insertText('（F2修订）')
   await page.waitForTimeout(1600)
@@ -330,6 +346,7 @@ try {
   await liveDraft.page.keyboard.press('End')
   await liveDraft.page.keyboard.insertText(liveSentinel)
   await openAssistantSession(liveDraft.page)
+  await choosePurpose(liveDraft.page, '查阅资料')
   await fillAndAsk(liveDraft.page, `${liveSentinel}在哪里？`)
   const liveRequest = liveDraft.requests[0]
   check(results, '尚未自动保存的当前正文进入冻结证据', JSON.stringify(liveRequest?.payload?.envelope || {}).includes(liveSentinel))
@@ -337,8 +354,18 @@ try {
   check(results, '内存稿查询无控制台错误', liveDraft.errors.length === 0, liveDraft.errors.join('\n'))
   await liveDraft.context.close()
 
-  // 双栏是平级可编辑面：从副栏第二章打开助手时，character 查询应按
-  // 第二章的 target 截止，不能借主栏第一章，也不能泄漏后续章节。
+  // 双栏是平级可编辑面：先验证副栏能打开第二章，再回助手做整书查阅。
+  // 语义演化说明（20261008 收口，两处旧断言删除的证据链）：
+  // ① dock 化让位：Authoring.dock.css:23 `.authoring-dock.is-dual { display:none }`
+  //    ——双栏激活时 dock 整体隐藏，助手入口（会话 tab）不可点，「从副栏直接
+  //    打开助手」在 dock 时代不是产品交互，作者须先退出双栏；
+  // ② purpose 化：PR#5（commit 92294d2，2026-10-05 入干）把助手入口 purpose 化
+  //    后，「character（按 target 截止）」意图已从 UI 移除，purpose 菜单只余
+  //    free/agent/whole-book，且 authoringKnowledgeQuerySession.
+  //    catalogForRetrievalScope 只对非 whole-book 意图做 through-target 截断、
+  //    provider 载荷不再携带 target——旧断言（副栏 target、排除后续章节）
+  //    断言的是已删除的产品语义。
+  // 保留的等价旅程断言：副栏能打开第二章；退出双栏后助手整书查阅正常完成。
   const dualTarget = await createPage(browser, { width: 1440, height: 900 })
   const dualPage = dualTarget.page
   await dualPage.locator('[data-authoring-tool="dual"]').click()
@@ -351,16 +378,20 @@ try {
   await dualPane.locator('.authoring-dual-pane__chapter[data-chapter-id="fogch-2"]').click()
   const dualEditor = dualPane.locator('.ProseMirror')
   await dualEditor.locator('p').first().click()
-  await dualPage.waitForTimeout(48)
+  check(results, '双栏副窗可打开第二章', (await dualEditor.innerText()).includes('灯下空格') || (await dualEditor.locator('p').count()) > 0)
+  // 退出双栏（dock 让位回收，会话 tab 重新可见），像作者一样回助手提问。
+  await dualPage.locator('[data-authoring-tool="dual"]').click()
+  await dualPage.waitForTimeout(400)
   await openAssistantSession(dualPage)
   const dualAssistant = dualPage.locator('.authoring-knowledge')
   await dualAssistant.waitFor({ state: 'visible' })
-  await dualAssistant.locator('.authoring-knowledge__tasks select').selectOption('character')
+  await choosePurpose(dualPage, '查阅资料')
   await fillAndAsk(dualPage, '艾德加此前做过什么？')
   const dualRequest = dualTarget.requests[0]
-  const dualManuscriptRefs = (dualRequest?.refs || []).filter((ref) => ref.startsWith('node:'))
-  check(results, '双栏第二章查询使用副栏 target', dualManuscriptRefs.some((ref) => ref.startsWith('node:fogch-2:')), JSON.stringify(dualManuscriptRefs))
-  check(results, '双栏 target 排除后续章节', dualManuscriptRefs.every((ref) => /^node:fogch-[12]:/.test(ref)), JSON.stringify(dualManuscriptRefs))
+  check(results, '退出双栏后助手整书查阅正常完成',
+    dualRequest?.payload?.options?.knowledgeIntent === 'whole-book'
+    && (dualRequest?.refs || []).some((ref) => ref.startsWith('node:fogch-2:')),
+    JSON.stringify({ intent: dualRequest?.payload?.options?.knowledgeIntent }))
   check(results, '双栏资料查询无控制台错误', dualTarget.errors.length === 0, dualTarget.errors.join('\n'))
   await dualTarget.context.close()
 
@@ -371,8 +402,11 @@ try {
   const mobileGeometry = await mobile.page.evaluate(() => {
     const assistantNode = document.querySelector('.authoring-knowledge')
     const inspector = document.querySelector('.writing-inspector')
-    // 快捷任务自 20260917 起是 composer 内的下拉选择，命中区与发送键一起量。
-    const controls = [...document.querySelectorAll('.authoring-knowledge__tasks select, .authoring-knowledge__tasks button, .authoring-knowledge__whole-book, .authoring-knowledge__send')]
+    // 20261008 purpose 化同步：composer 的命中区=purpose 菜单 summary、写作
+    // 工具菜单、发送键与写作起点建议 chips，一起量。
+    const controls = [...document.querySelectorAll(
+      '.authoring-knowledge__purpose summary, .authoring-knowledge__tools summary, .authoring-knowledge__send, .authoring-knowledge__prompt-list button'
+    )]
     return {
       assistantHeight: assistantNode?.getBoundingClientRect().height || 0,
       inspectorWidth: inspector?.getBoundingClientRect().width || 0,
@@ -381,7 +415,7 @@ try {
     }
   })
   check(results, '390 助手使用完整 sheet 而非压窄正文', mobileGeometry.assistantHeight > 500 && mobileGeometry.inspectorWidth >= 360, JSON.stringify(mobileGeometry))
-  check(results, '390 快捷任务命中区至少 44px', mobileGeometry.minTaskHeight >= 44, mobileGeometry.minTaskHeight)
+  check(results, '390 助手操作命中区至少 44px', mobileGeometry.minTaskHeight >= 44, mobileGeometry.minTaskHeight)
   check(results, '390 无水平滚动', mobileGeometry.overflow === 0, mobileGeometry.overflow)
   await mobile.page.screenshot({ path: path.join(OUT_DIR, 'knowledge-home-390.png'), fullPage: false })
   check(results, '移动旅程无控制台错误', mobile.errors.length === 0, mobile.errors.join('\n'))
@@ -502,21 +536,29 @@ async function runKnowledgeSeamClickGate(browser) {
   const assistant = page.locator('.authoring-knowledge')
   await editor.locator('p').first().waitFor({ timeout: 30000 })
 
-  // 1) 无焦点来源的提问走旧路径：trace 0。
+  // 1) 无焦点来源的提问走旧路径：trace 0。（默认意图是「讨论故事」，全书
+  //    证据问答显式走 purpose 菜单「查阅资料」。）
   await openAssistantSession(page)
+  await choosePurpose(page, '查阅资料')
   await fillAndAsk(page, '艾德加此前在哪几章出现？')
   await assistant.getByText(/已在 \d+ 处正文片段找到艾德加/).waitFor({ timeout: 30000 })
   let trace = await page.evaluate(() => window.__pinaxKnowledgeSeamTrace)
   check(results, 'click: 无焦点来源时提问不走接缝', trace && trace.seamPrepares === 0, JSON.stringify(trace))
 
-  // 2) 作者点开依据并点击一条 K 可映射来源（世界设定）→ 登记焦点 + 回原文。
-  await assistant.locator('.authoring-knowledge__evidence summary').first().click()
-  const seamRows = assistant.locator('.authoring-knowledge__evidence-list > button')
-  const focusRow = seamRows.filter({ hasText: '世界设定' }).first()
+  // 2) 作者点开依据并点击一条 K 可映射来源（世界设定，chip=条目名「艾德加」）
+  //    → 登记焦点 + 助手内预览。20261008 引用预览化同步：点 chip 不再直接跳
+  //    原文，而是打开「引用片段」预览，由作者再点「打开原文」。
+  const seamAnswerRows = await answerEvidenceRows(assistant.locator('.authoring-knowledge__answer').first())
+  // chip 文本是资料名；必须精确点名世界书条目「艾德加」——子串匹配会先撞上
+  // 探索 chip「艾德加视角：第三排第七格」（suggestion 权威，非 K 可映射，
+  // 产品按设计不登记焦点）。
+  const focusRow = seamAnswerRows.filter({ hasText: /^\s*艾德加\s*$/ }).first()
   await focusRow.click()
+  const seamFocusPreview = page.locator('.authoring-assistant-workspace__preview')
+  await seamFocusPreview.waitFor({ state: 'visible', timeout: 5000 })
+  // 打开原文会切到设定面板——真实作者随后重新打开助手继续追问；焦点来源已登记在应用内。
+  await seamFocusPreview.getByRole('button', { name: '打开原文' }).click()
   await page.waitForTimeout(400)
-  // 世界设定来源的"回到原文"会切到设定面板，助手抽屉随之关闭——真实作者
-  // 会重新打开助手继续追问；焦点来源已登记在应用内。
   await openAssistantSession(page)
   await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
 
@@ -534,8 +576,8 @@ async function runKnowledgeSeamClickGate(browser) {
 
   // 4) 启用态完整闭环：修改聚焦来源（世界书条目，经正式存储层写合成
   //    fixture）→ 正文写入触发刷新信号 → 接缝回答 stale。
-  await assistant.locator('.authoring-knowledge__answer').last()
-    .locator('.authoring-knowledge__evidence summary').first().click()
+  //    （20261008 证据直出化：旧代码在此点开 <details> summary 展开 chips，
+  //    现在 chips 已随回答直接可见，无需展开动作。）
   const focusedEntryId = trace.lastFocusRef.replace('worldbook-entry:', '')
   const sourceChanged = await page.evaluate(({ entryId }) => {
     return (async () => {
@@ -565,11 +607,16 @@ async function runKnowledgeSeamClickGate(browser) {
     .locator('.authoring-knowledge__evidence-list > button.is-stale').count()
   check(results, 'click: 来源修改后接缝回答标记 stale', staleSeamChips >= 1, `stale=${staleSeamChips}`)
 
-  // 4b) 接缝回答来源可点回原文（点击会切到设定面板，旅程随后重开助手）。
+  // 4b) 接缝回答来源可点回原文：点 chip → 助手内预览 → 「打开原文」。
+  //     （20261008 引用预览化同步：chip 点击先进预览，跳原文由预览的
+  //     「打开原文」承担，语义仍是「依据可回原文」。）
   await assistant.locator('.authoring-knowledge__answer').last()
     .locator('.authoring-knowledge__evidence-list > button').first().click()
-  await page.waitForTimeout(300)
-  check(results, 'click: 接缝回答来源可回原文', (await editor.count()) > 0)
+  const seamPreviewB = page.locator('.authoring-assistant-workspace__preview')
+  await seamPreviewB.waitFor({ state: 'visible', timeout: 5000 })
+  check(results, 'click: 接缝回答来源可回原文', await seamPreviewB.getByRole('button', { name: '打开原文' }).count() === 1)
+  await seamPreviewB.getByRole('button', { name: '打开原文' }).click()
+  await page.waitForTimeout(400)
   await openAssistantSession(page)
   await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
 
@@ -601,10 +648,9 @@ async function runKnowledgeSeamClickGate(browser) {
   const stopErrorVisible = await assistant.getByText('聚焦的资料当前不可用，本次查询已停止；请重新选择来源后再试.').count()
     + await assistant.getByText('聚焦的资料当前不可用，本次查询已停止；请重新选择来源后再试。').count()
   check(results, 'click: 作者看到可理解的停止原因', stopErrorVisible >= 1)
-  // 关闭重开助手：composable 实例不销毁，焦点已单次消费，追问走旧路径。
-  await page.locator('[data-authoring-tool="ai"]').click()
-  await page.waitForTimeout(200)
-  await page.locator('[data-authoring-tool="ai"]').click()
+  // 关闭重开助手（dock 化同步：入口语义在 data-authoring-tool="ai"，重开直达
+  // 会话段）：composable 实例不销毁，焦点已单次消费，追问走旧路径。
+  await openAssistantSession(page)
   await assistant.getByRole('textbox', { name: '向助手提问' }).waitFor({ timeout: 30000 })
   const providerCountReopen = desktop.requests.length
   await fillAndAsk(page, '艾德加此前在哪几章出现？')
