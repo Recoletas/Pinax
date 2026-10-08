@@ -1080,8 +1080,8 @@
             @close="closeActiveWritingInspector"
           />
         </div>
-        <AuthoringMaterialsPanel v-else-if="activeInspectorTool === 'materials'" :assets="inboxAssets"
-          @open-asset="openInboxAssetFromInspector" @open-inbox="openAssetInbox" @open-library="openMaterialsPage" />
+        <!-- materials 检查器分支 20261008 移除：该分支自素材页化后无任何导航入口
+             （openMaterialsPage 直跳 /materials 路由），属不可达死代码。 -->
         </template>
       </AuthoringDock>
     </main>
@@ -1316,7 +1316,6 @@ const AuthoringQuickWords = defineAsyncComponent(() => import('../components/aut
 const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
 const AuthoringInspectorAnnotations = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorAnnotations.vue'))
 const AuthoringSceneOverview = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneOverview.vue'))
-const AuthoringMaterialsPanel = defineAsyncComponent(() => import('../components/authoring/AuthoringMaterialsPanel.vue'))
 // 常驻右侧 dock：接管原 aside 壳（header/会话段/工具面板 overlay/收起徽标）。
 const AuthoringDock = defineAsyncComponent(() => import('../components/authoring/AuthoringDock.vue'))
 import ProjectWritingNavigation from '../components/workbench/ProjectWritingNavigation.vue'
@@ -7197,10 +7196,6 @@ function openAssetInbox() {
       assetInboxActiveId.value = inboxAssets.value[0].id
     }
   })
-}
-function openInboxAssetFromInspector(asset) {
-  assetInboxActiveId.value = String(asset?.id || '')
-  openAssetInbox()
 }
 function openMaterialsPage() {
   if (pendingGhostAdoption.value) {
