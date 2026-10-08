@@ -43,7 +43,8 @@ try {
   await editor.click()
   await page.keyboard.type('潮水漫过台阶，林昭站在岸边看灯。守卫在门口停下脚步。')
   await page.waitForTimeout(600)
-  await page.locator('[data-test="assistant-workspace-entry"]').click()
+  // 20261008 dock 化：顶栏助手按钮删除，收起态由右下角徽标进助手（data-authoring-tool="ai"）。
+  await page.locator('.authoring-dock__reopen').click()
   await page.locator('.authoring-knowledge__purpose summary').click()
   await page.getByRole('button', { name: '写作与修改', exact: false }).click()
   const input = page.getByRole('textbox', { name: '向助手提问' })
@@ -80,6 +81,9 @@ try {
   await page.getByRole('button', { name: '查看问答历史', exact: true }).click()
   await page.getByRole('button', { name: '新对话', exact: true }).click()
   assert.equal(await page.locator('.authoring-knowledge__answer-text').count(), 0)
+  // 20261008 dock 化：会话列表在 expanded 索引侧栏里（expanded && indexOpen），先撑开再切会话。
+  await page.locator('.authoring-assistant-workspace__expand').click()
+  await page.locator('.authoring-assistant-workspace__index-toggle').click()
   await page.locator('.authoring-assistant-workspace__sessions button').filter({ hasText: '@第一章' }).click()
   assert.equal(await page.locator('.authoring-knowledge__answer-text').count(), 2)
   await page.evaluate(() => localStorage.setItem('app_theme', 'dark'))

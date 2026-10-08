@@ -839,12 +839,14 @@
         :annotation-count="openAnnotationCount"
         :unread="Boolean(knowledgeAssistant.hasUnread?.value)"
         :en-locale="uiLocale === 'en'"
+        :project-id="selectedBookId"
         @close="closeActiveWritingInspector"
         @toggle-pin="inspectorPinned = !inspectorPinned"
         @open-memory="appSettings.open('memory')"
         @reopen="returnToAssistantSession"
         @panel-close="returnToAssistantSession"
         @manuscript="scrollRehearsalBackToManuscript"
+        @mark-read="knowledgeAssistant.markRead()"
       >
         <template #session>
           <!-- 原 aside 助手分支整体迁入 dock 会话段（v-show 常挂载）：
@@ -1501,7 +1503,6 @@ import {
 } from '../services/agents/authoring/authoringProjectWorldbook.js'
 import {
   normalizeSceneAnchors,
-  resolveActiveSceneAnchor,
   reconcileSceneAnchorsForUnitTransition,
   fingerprintSceneAnchors
 } from '../services/agents/authoring/authoringSceneAnchors.js'
@@ -6936,6 +6937,11 @@ function handleWritingInspectorKeydown(event) {
   // Escape 先关闭当前详情（回到批注），再次 Escape 才收起检查器。
   if (inspectorDetailState.value) {
     closeSceneDetail()
+    return
+  }
+  // dock 化：工具面板 overlay 开着时，Esc 先收面板回会话段，再按才收整个 dock。
+  if (activeInspectorTool.value !== 'ai' && activeInspectorTool.value !== 'dual') {
+    returnToAssistantSession()
     return
   }
   closeActiveWritingInspector()
