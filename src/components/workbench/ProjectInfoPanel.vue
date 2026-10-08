@@ -99,11 +99,8 @@ async function onBrowseClick() {
   error.value = ''
   try {
     const picked = await pickFolderNative(form.value.root || '')
-    if (picked) {
-      onFolderSelected(picked)
-      return
-    }
-    browserOpen.value = true // 用户在系统对话框里取消 → 不开内置浏览器，保持原值
+    if (picked) onFolderSelected(picked)
+    return // picked=null 是用户在系统对话框里点了取消：保持原值，不催开内置浏览器
   } catch (nativeError) {
     if (nativeError?.code === 'NATIVE_PICKER_TIMEOUT') return
     browserOpen.value = true // 原生不可用（非 Windows/无 powershell）→ 回落内置浏览器
@@ -185,6 +182,11 @@ async function createProjectAndBind(createdBook) {
   })
   const body = await response.json().catch(() => null)
   if (!response.ok || body?.ok !== true) {
+    // 重名/目录非空是最常见失败：服务端 message 面向运维（提 /projects/open），对作者要翻译成人话。
+    if (body?.error === 'ERR_DIR_NOT_EMPTY') {
+      error.value = tr('同名项目文件夹已存在——请换一个书名，或在「导入项目」模式里选择该文件夹。')
+      return false
+    }
     error.value = tr('项目文件夹创建失败：{message}（书已创建，可稍后在「修改项目配置」里重试绑定）', { message: body?.message || response.status })
     return false
   }
@@ -246,11 +248,17 @@ async function confirmImportProject() {
     error.value = tr('书稿未能保存，请检查浏览器存储空间。')
     return
   }
-  await fetch('/api/localmirror/projects/bind', {
+  const bindResponse = await fetch('/api/localmirror/projects/bind', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectId: opened.manifest.projectId, bookId: created.book.id })
   })
+  const bindBody = await bindResponse.json().catch(() => null)
+  if (!bindResponse.ok || bindBody?.ok !== true) {
+    // 书稿本体已保存进 localStorage，只是本地项目绑定失败——面板留着让用户看到原因。
+    error.value = tr('书稿已创建，但本地项目绑定失败：{message}（可稍后在「修改项目配置」里重试）', { message: bindBody?.message || bindResponse.status })
+    return
+  }
   emit('saved', created.book)
   panel.finishCreated(created.book)
 }
@@ -273,11 +281,17 @@ async function confirm() {
         updateWritingBook(current.id, (draft) => { draft.manuscriptLanguage = form.value.manuscriptLanguage })
       }
       if (boundProject.value) {
-        await fetch('/api/localmirror/projects/update', {
+        const updateResponse = await fetch('/api/localmirror/projects/update', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ projectId: boundProject.value.projectId, name: form.value.title, kind: form.value.kind })
         })
+        const updateBody = await updateResponse.json().catch(() => null)
+        if (!updateResponse.ok || updateBody?.ok !== true) {
+          // 书稿侧已保存，别假装成功：面板开着显示同步失败原因。
+          error.value = tr('书稿已保存，但本地项目信息同步失败：{message}', { message: updateBody?.message || updateResponse.status })
+          return
+        }
       }
       panel.close()
       emit('saved', updated.book)
