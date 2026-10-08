@@ -128,10 +128,15 @@ export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_
 
 /** 叙事 agent-step 的 kit 漏斗 runner（与 runToolCallingProviderTurn 同返回合同）。
  *  入参 request：generationToolContract 归一化形状 {messages(parts), tools, options, requestId}。
- *  单回合：一次 /complete 转发，tools + toolChoice 透传；浏览器仍拥有工具执行与多回合循环。 */
+ *  单回合：一次 /complete 转发，tools + toolChoice 透传；浏览器仍拥有工具执行与多回合循环。
+ *  2026-10-08 回归修复（docs/plan/legacy-feature-regression-findings-20261008.md 问题一）：
+ *  契约层 content 必填、parts 可选，本网关曾只读 parts——content-only 调用方
+ *  （narrativeCritic / authoringRehearsalToolRun / narrativeTaskQuality）静默拿到空提示词。
+ *  取文本一律 parts 优先、string content 兜底；assistant 轮 toolCalls 仍只认 parts（契约层 raw.toolCalls 合并维持现状）。 */
 export async function runKitFunnelProviderTurn(request, { signal } = {}) {
   const messages = (request.messages || []).map((message) => {
     const textParts = (message.parts || []).filter((part) => part.type === 'text').map((part) => part.text || '')
+    const text = textParts.length ? textParts.join('\n') : (typeof message.content === 'string' ? message.content : '')
     const toolCalls = (message.parts || []).filter((part) => part.type === 'tool-call').map((part) => ({
       id: String(part.toolCallId || ''),
       name: String(part.toolName || ''),
@@ -139,17 +144,24 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
     }))
     if (message.role === 'tool') {
       const resultPart = (message.parts || []).find((part) => part.type === 'tool-result')
+      const partOutput = resultPart
+        ? (typeof resultPart.output === 'string' ? resultPart.output : JSON.stringify(resultPart.output ?? ''))
+        : ''
+      // tool-result 部件缺失时回退 string content，避免工具结果退化为 '""'
+      const output = resultPart
+        ? partOutput
+        : (typeof message.content === 'string' && message.content ? message.content : JSON.stringify(resultPart?.output ?? ''))
       return {
         role: 'tool',
         toolCallId: String(resultPart?.toolCallId || message.toolCallId || ''),
-        toolName: String(resultPart?.toolName || message.toolName || ''),
-        output: typeof resultPart?.output === 'string' ? resultPart.output : JSON.stringify(resultPart?.output ?? ''),
+        toolName: String(resultPart?.toolName || message.toolName || message.name || ''),
+        output,
         isError: resultPart?.isError === true
       }
     }
     return {
       role: message.role,
-      content: textParts.join('\n'),
+      content: text,
       ...(message.role === 'assistant' && toolCalls.length ? { toolCalls } : {})
     }
   }).filter((message) => message.role !== 'assistant' || message.content || message.toolCalls?.length)
@@ -167,6 +179,11 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
     ...(Number.isFinite(Number(request.options?.temperature)) ? { temperature: Number(request.options.temperature) } : {}),
     ...(request.options?.thinking ? { thinking: request.options.thinking } : {}),
     ...(request.requestId ? {} : {})
+  }
+  // 20261008 空提示词护栏：组装后若不存在任何正文非空的 user/system 轮，转发只会让模型自由发挥
+  // （20261008 回归的现象——不报错、产出与提示词无关的文本）。这是全链路最后一道防线，直接拒绝转发。
+  if (!messages.some((message) => (message.role === 'user' || message.role === 'system') && String(message.content || '').trim())) {
+    throw Object.assign(new Error('agent-step 组装后所有提示词为空——拒绝转发（20261008 空提示词护栏）'), { code: 'NARRATIVE_AGENT_EMPTY_PROMPT', retryable: false })
   }
   try {
     const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000 })

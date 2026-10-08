@@ -499,7 +499,14 @@ export async function handleGenerateRequest(req, res) {
         timeoutMs: Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000)))
       }, { signal: generationAbort.signal })
       if (!String(result.content || '').trim()) {
-        return sendApiError(res, 502, 'UPSTREAM_EMPTY_CONTENT', '上游模型返回为空内容', `via=kit, model=${result.model}`, responseMeta)
+        // 20261008 分档（docs/plan/legacy-feature-regression-findings-20261008.md 问题二 / R4）：
+        // 思考型上游（如 dots3-note-prev）把输出预算耗在推理上时正文为空、finishReason=length，
+        // 与「正常结束但正文为空」根因不同，分两档报错并透出 finishReason/usage，便于区分与调预算。
+        // 分档形状参照 server/services/textModelAgentProvider.js 的空内容/截断/纯思考先例。
+        if (result.finishReason === 'length') {
+          return sendApiError(res, 502, 'UPSTREAM_REASONING_ONLY', '思考型模型把预算耗在推理上，正文为空——请提高 max_tokens 或更换模型', { via: 'kit', model: result.model, finishReason: result.finishReason, usage: result.usage }, responseMeta)
+        }
+        return sendApiError(res, 502, 'UPSTREAM_EMPTY_CONTENT', '上游模型返回为空内容', { via: 'kit', model: result.model, finishReason: result.finishReason, usage: result.usage }, responseMeta)
       }
       return res.json({ content: result.content, meta: { ...responseMeta, viaKit: true, model: result.model } })
     } catch (kitError) {

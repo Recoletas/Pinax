@@ -152,3 +152,13 @@
    - **B10 判定链更正**：`hasFactPrefix` 的正则集合是 `对话|地点|物品|决策|剧情|偏好|约束|风格|角色`——**「作者偏好：」不在集合内**；实际判否依赖的是 `compactMemoryText` 对 author-preference 类型提取出的**「偏好：」**前缀（≤72 字判否）。按原文档字面（拿「作者偏好：」去对正则）会得出相反判定，结论凑巧不变但机制表述以本条为准。
    - 补强一条：流式链结束时**不校验空正文**——kit 侧 `finishReason:'empty'`（modelFunnel.ts:259）被忽略、静默 `[DONE]`，与 B8「思考期零帧」同根。
 4. **R1–R8 编排者建议**：R1 三件全做（网关兜底最小向后兼容 / 契约单源化防复发 / 空提示词硬错误护栏，护栏先落 Pinax 侧自检、kit validateCompleteRequest 随 kit 仓批次）；R2 按实测值立即抬（对白 2400、涌现 4000、分镜 4000+），换模型后重估；R3 需要你给模型行与密钥，作为质量问题根治另议；R4 做（照 textModelAgentProvider 四档先例）；R5 两边都落（Pinax 自检先行）；R6 做（工装现成）；R7 维持显式开关默认关；R8 随下次 UI 冒烟顺带。
+
+## 九、修复落地与验证（2026-10-09）
+
+**R1 三层 + R4 分档已全部实施并验证**（kit 侧 validateCompleteRequest 护栏按裁定延后，随 kit 仓批次）：
+
+- 网关兜底 / 契约单源化 / 空提示词护栏（`NARRATIVE_AGENT_EMPTY_PROMPT`，retryable:false，护栏证实保护直调 runner 的调用方与未来映射层回归）——`server/services/kitModelGateway.js` + `shared/generationToolContract.js` + `scripts/agent-step-message-shape-check.mjs`（确定性 18/18：content-only 合成+转发体非空 / parts-only 仍 400 / 双写保留 / tool 轮兜底 / 护栏转发前触发）。
+- R4 分档实测：`max_tokens:60` + 长指令 → 502 `UPSTREAM_REASONING_ONLY`（details 带 finishReason:length + usage 160/60/220，output 恰为推理烧光）；`UPSTREAM_EMPTY_CONTENT` 代码路径在位（自然构造不可得，未实测）。
+- 真链路三格矩阵（3001 全链 SSE）：content-only ✓ 200 出 342 字相关正文（首词命中）；parts-only ✓ 400 契约拒绝（修复二合成只对 content 非空生效，纯 parts 仍拒）；双写 ✓ 200（工装 SSE 解析器丢帧为工装 bug，确定性脚本覆盖）。
+- 预算裁定回归实测（内核 4096 兜底）：对白选项 ✓（2112 token，parseDialogueOptions=3）、分镜 ✓（3262 token，6 shots——原 1400/3000 全空，显著改善）、涌现事件出正文 1072 字符但 parseEmergenceEventDraft=null——**schema 合规缺口为遗留记账项**（placeId/choices≥2/changes 硬校验 vs 模型输出，非预算问题，建议提示词强化或带重试复放）。
+- 修复后全量：vitest 20/20 文件 **200/200 用例全绿**（含 narrativeAssets 断言同步与此前两处存量红收口）、build 24.84s。
