@@ -169,7 +169,8 @@ export async function generateComicAdaptationCandidates({
     taskType: 'media.comic-adaptation',
     baseMessages,
     settings: apiSettings,
-    generationOptions: { max_tokens: 3600, temperature: 0.72, timeout_ms: 120000, retryCount: 0 },
+    // 20261008 预算裁定：不写死 max_tokens（thinking 端点计量方式不同），交内核缺省。
+    generationOptions: { temperature: 0.72, timeout_ms: 120000, retryCount: 0 },
     signal
   })
   const candidates = parseComicAdaptationCandidates(result.content)

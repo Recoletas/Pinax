@@ -81,7 +81,7 @@
 ### 解决思路（按彻底程度排序，可分层做）
 
 1. **模型适配（最干净）**：把内核指到一个非思考型的创作用模型（`POST http://127.0.0.1:8451/model` 热切即可，无需重启；切换前先在内存快照当前密钥）。这条同时解决拒答人格问题。需要用户提供/确认模型行与密钥。
-2. **预算分层（不换模型也能救大部分）**：给 JSON 形状的任务显式抬预算——对白选项 900→2400、涌现事件 1000→4000 是实测有效值；分镜 3000 仍不够，需 4000+ 或换模型；分页方案在流式链上要重新设计（流式只回正文增量，思考期表现为"长时间无帧"，需要心跳帧或改走非流式）。附带建议：`dialogueOptions`（`src/services/experience/dialogueOptions.js:25-33`）现在没声明预算，靠服务端默认 500 兜着，应该显式写明。成本口径要说清楚：抬预算＝抬 token 花费。
+2. **预算分层（不换模型也能救大部分）——【20261008 裁定已执行：写死预算摒弃】**：原建议按实测值逐功能抬写死预算（对白 2400、涌现 4000）；用户裁定「暂时摒弃写死的预算模块，thinking 是完全不同的计量方式」。**已实施**：涌现/分镜两处调用点写死值删除，chat.js 双处理器（非流式+流式）的 `DEFAULT_MAX_TOKENS=500` 强制缺省撤销——未声明预算的请求不再透传 max_tokens，交内核缺省（4096，实测 dots3 该档出正文，全链活体通过）。分页方案流式链的重新设计建议维持原文。附带建议维持：`dialogueOptions`（`src/services/experience/dialogueOptions.js:25-33`）无预算声明现在落在内核 4096 兜底上，成本口径要说清楚。thinking 计量的正式设计（思考预算与正文预算分列/按端点能力自适应）另立工单，本条为过渡态。
 3. **错误可见性（无论换不换模型都该做）**：`server/routes/chat.js:500` 按 `finishReason` 与 `usage` 分档报错，例如 `UPSTREAM_REASONING_ONLY`（length + 正文空 + 输出 token 已耗尽）与 `UPSTREAM_EMPTY_CONTENT`（stop + 正文空）分开，`details` 带上 `finishReason/usage/maxTokens`。仓库里已有先例可抄：`server/services/textModelAgentProvider.js:24-41` 就区分了 `truncated / refused / hasReasoning` 三类。
 4. **思考开关透传**：`modelFunnel.ts:212-218` 用 `THINKING_BUDGETS[thinking]` 控制预算，当前内核 `cfg.thinking='off'` 时**不下发任何思考参数**，端点按自己的默认走（仍会思考）。若要真正关闭，需要按 provider 下发显式参数（例如 `samplingParams` 逃生舱，`modelFunnel.ts:220` 已有该通道）。这条要按端点逐个验证，不能笼统改。
 
@@ -124,7 +124,7 @@
 | 编号 | 事项 | 选项 |
 |---|---|---|
 | R1 | 问题一修复形态 | 只做网关兜底 / 网关兜底 + 契约单源化 / 再加空提示词硬错误护栏（建议后两者） |
-| R2 | JSON 任务预算是否抬 | 按实测值抬（对白 2400、涌现 4000、分镜 4000+）还是等换模型后再定 |
+| R2 | JSON 任务预算是否抬 | **已裁定并实施（20261008）**：摒弃写死预算，未声明请求交内核缺省 4096（全链实测出正文）；thinking 计量正式设计另立工单 |
 | R3 | 是否换内核模型 | 需要模型行与密钥；换哪些任务面用哪个模型 |
 | R4 | 错误可见性分层 | 是否把 `finishReason/usage` 透出到前端错误 |
 | R5 | 空提示词护栏落在哪一侧 | Pinax 组装后自检 / kit `validateCompleteRequest` 拒绝（后者更根本但要改 kit 仓） |
