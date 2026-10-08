@@ -64,7 +64,13 @@ onBeforeRouteUpdate((to, from) => {
 onMounted(async () => {
   await worldStore.loadWorldbooksIndex()
   if (context.value?.mode === 'global' && !route.query.worldbookId && !worldbook.value) {
-    await worldStore.ensureActiveWorldbook()
+    // 空索引自动建世界书，配额满/写盘失败会 throw——不能变成 unhandled rejection；
+    // 失败态由 mapContextError 呈现。
+    try {
+      await worldStore.ensureActiveWorldbook()
+    } catch {
+      // 配额满/写盘失败：失败态由 mapContextError 呈现，这里只防 unhandled rejection。
+    }
   }
 })
 const mapContextError = computed(() => {
