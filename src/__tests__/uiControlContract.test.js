@@ -102,7 +102,9 @@ describe('workbench control contract (U1)', () => {
     expect(welcome).toContain(':aria-label="tr(&quot;搜索书名&quot;)"')
     expect(welcome).toContain(':aria-label="tr(&quot;书稿排序&quot;)"')
     const actions = readFileSync(resolve(__dirname, '../components/authoring/LibraryQuickActions.vue'), 'utf8')
-    expect(actions).toContain('start=new&guide=first-run')
+    // 20261008 同步：新建作品入口改道助手共创（start=new&view=assistant），
+    // first-run 指引忠实挂在导入入口上；guide 不再随 start=new 出现。
+    expect(actions).toContain('start=new&view=assistant')
     expect(actions).toContain('start=import&guide=first-run')
     expect(welcome).toContain('LibrarySidebar')
     const tabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
