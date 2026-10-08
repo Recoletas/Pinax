@@ -31,7 +31,39 @@ export const TEXT_PROVIDER_TYPES = Object.freeze([
 
 const LEGACY_API_SETTINGS_KEY = 'apiSettings'
 
+// 服务器（pi-agent 内核）实时模型：仅内存态，绝不落盘/进浏览器缓存。
+// 由设置面板从 /api/storyagent/model 读取后写入，用于让内置行显示真正的生效模型。
+let serverTextModelOverride = null
+
+export function setServerTextModel(model) {
+  serverTextModelOverride = model && String(model.model || '').trim()
+    ? {
+        provider: String(model.provider || '').trim(),
+        model: String(model.model || '').trim(),
+        baseUrl: String(model.baseUrl || '').trim()
+      }
+    : null
+  return serverTextModelOverride
+}
+
+export function getServerTextModel() {
+  return serverTextModelOverride
+}
+
 export function createBuiltinMinimaxConfig() {
+  if (serverTextModelOverride) {
+    return Object.freeze({
+      id: BUILTIN_TEXT_CONFIG_ID,
+      name: '服务器模型',
+      providerId: serverTextModelOverride.provider || 'openai',
+      baseUrl: serverTextModelOverride.baseUrl || '',
+      apiKey: '',
+      model: serverTextModelOverride.model || '',
+      builtin: true,
+      serverKey: true,
+      description: '由 pi-agent 内核持有，所有链路共用'
+    })
+  }
   return Object.freeze({
     id: BUILTIN_TEXT_CONFIG_ID,
     name: 'MiniMax (内置)',

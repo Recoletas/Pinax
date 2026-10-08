@@ -6,7 +6,8 @@ import { resolveGenerationToolProtocol } from '../../shared/generationToolContra
 import { probeNarrativeProviderCapabilities } from '../services/providers/narrativeCapabilityProbe.js'
 import { probeStructuredProviderCapabilities } from '../services/structuredGenerationRunner.js'
 import { resolveTextApiKey } from '../../shared/textModelKeys.js'
-import { forwardComplete, forwardCompleteStream, isServerKeyedTextConfig, kitFunnelAvailable } from '../services/kitModelGateway.js'
+import { forwardComplete, forwardCompleteStream } from '../services/kitModelGateway.js'
+import { isServerOwnedModelConfig, MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -381,15 +382,16 @@ export async function handleGenerateRequest(req, res) {
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })) {
-    const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
+  // 自带 key 的浏览器配置直连，不触发任务面探测（保持首个 await 仍是上游 fetch）。
+  const routing = isServerOwnedModelConfig({ apiKey })
+    ? await resolveModelRouting({ id: effectiveProvider, baseUrl: effectiveBaseUrl, apiKey })
+    : { mode: 'direct', apiKey: effectiveApiKey }
+  if (routing.mode === 'none') {
     return sendApiError(
       res,
       400,
       'API_KEY_REQUIRED',
-      isMiniMaxUnconfigured && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })
-        ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-        : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。',
+      MODEL_ROUTING_ERROR_MESSAGE,
       null,
       {
         requestId,
@@ -566,8 +568,8 @@ export async function handleGenerateRequest(req, res) {
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
-    // 统一模型漏斗：服务器密钥配置（内置 MiniMax）转发 kit 任务面（key 服务端持有）；自带 key 的自定义配置直连原路径
-    if (isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey }) && await kitFunnelAvailable()) {
+    // 统一模型路由：kernel 配置经 pi-agent 任务面转发（key 服务端持有）；自带 key 的直连原路径。
+    if (routing.mode === 'kernel') {
       try {
         const result = await forwardComplete({
           ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
@@ -783,12 +785,15 @@ router.post('/stream', async (req, res) => {
   const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
   const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
 
-  if (!effectiveApiKey && !isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey })) {
-    const isMiniMaxUnconfigured = /minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(effectiveBaseUrl)
+  // 自带 key 的浏览器配置直连，不触发任务面探测（保持首个 await 仍是上游 fetch）。
+  const routing = isServerOwnedModelConfig({ apiKey })
+    ? await resolveModelRouting({ id: effectiveProvider, baseUrl: effectiveBaseUrl, apiKey })
+    : { mode: 'direct', apiKey: effectiveApiKey }
+  if (routing.mode === 'none') {
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
-    return res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: isMiniMaxUnconfigured ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。' : '未在请求体中提供 apiKey。请在客户端设置中配置 API Key。' })}\n\n`)
+    res.write(`data: ${JSON.stringify({ error: 'api_key_required', code: 'API_KEY_REQUIRED', message: MODEL_ROUTING_ERROR_MESSAGE })}\n\n`)
     return res.end()
   }
 
@@ -914,9 +919,8 @@ router.post('/stream', async (req, res) => {
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
-    // 统一模型漏斗（流式）：服务器密钥配置（内置 MiniMax）经 kit 任务面 /complete/stream，
-    // 重播为既有 {content} SSE 帧；自带 key 的自定义配置直连原路径。
-    if (isServerKeyedTextConfig({ baseUrl: effectiveBaseUrl, apiKey }) && await kitFunnelAvailable()) {
+    // 统一模型路由（流式）：kernel 配置经 pi-agent 任务面 /complete/stream，重播为既有 {content} SSE 帧；自带 key 的直连原路径。
+    if (routing.mode === 'kernel') {
       try {
         await forwardCompleteStream({
           ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),

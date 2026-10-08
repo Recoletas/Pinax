@@ -4,9 +4,9 @@ import {
   NarrativeProviderError,
   runToolCallingProviderTurn
 } from '../services/toolCallingProviderAdapter.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { createNarrativeAgentStreamEvent, serializeNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
-import { isServerKeyedTextConfig, kitFunnelAvailable, runKitFunnelProviderTurn } from '../services/kitModelGateway.js'
+import { runKitFunnelProviderTurn } from '../services/kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
 
 function statusForError(code) {
   if (code === 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED') return 422
@@ -55,20 +55,16 @@ export function createGenerationAgentStepStreamHandler({
       )
     }
     const request = validation.request
-    const originalApiKey = request.provider.apiKey
-    request.provider.apiKey = resolveTextApiKey({
-      provider: request.provider.id,
-      baseUrl: request.provider.baseUrl,
-      apiKey: request.provider.apiKey
-    })
-    if (!request.provider.apiKey && !isServerKeyedTextConfig({ baseUrl: request.provider.baseUrl, apiKey: originalApiKey })) {
+    // 统一模型路由：与 chat / 结构化 / advisor 共用同一判定，不再按 MiniMax 域名特判。
+    const routing = await resolveModelRouting(request.provider)
+    if (routing.mode === 'none') {
       return res.status(400).json(safeErrorPayload(
-        Object.assign(new Error('provider.apiKey 不能为空'), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
+        Object.assign(new Error(MODEL_ROUTING_ERROR_MESSAGE), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
         request.requestId
       ))
     }
-    // 统一模型漏斗：服务器密钥配置（内置 MiniMax）的单回合工具调用转发 kit 任务面；自带 key 的自定义配置直连原适配器
-    const useKitFunnel = isServerKeyedTextConfig({ baseUrl: request.provider.baseUrl, apiKey: originalApiKey }) && await kitFunnelAvailable()
+    if (routing.mode === 'direct') request.provider.apiKey = routing.apiKey
+    const useKitFunnel = routing.mode === 'kernel'
     res.status(200)
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache, no-transform')

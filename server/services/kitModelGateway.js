@@ -39,15 +39,33 @@ export function invalidateKitFunnelCache() {
   availabilityCache = { ok: false, checkedAt: 0 }
 }
 
+/** 把独立系统提示折进首个 user 轮，并剔除 messages 里的 system 角色。
+ *  部分 OpenAI 兼容网关（如 dots3-note-prev）遇到单独 system 轮直接返回空补全（usage 全 0、finishReason=error），
+ *  折进用户轮后对所有网关都安全。forwardComplete / forwardCompleteStream 统一在此收敛，覆盖 chat / agent / 结构化全部漏斗调用方。 */
+function foldSystemIntoPrompt(payload) {
+  const systemText = String(payload?.systemPrompt || '').trim()
+  const source = Array.isArray(payload?.messages) ? payload.messages : []
+  const systemInMessages = source.filter((message) => message?.role === 'system' && String(message.content || '').trim()).map((message) => String(message.content).trim())
+  const lead = [systemText, ...systemInMessages].filter(Boolean).join('\n\n')
+  const messages = source.filter((message) => message?.role !== 'system').map((message) => ({ ...message }))
+  if (!lead) return messages === source ? payload : { ...payload, messages }
+  const firstUser = messages.find((message) => message.role === 'user')
+  if (firstUser) firstUser.content = `${lead}\n\n${firstUser.content}`.trim()
+  else messages.unshift({ role: 'user', content: lead })
+  const { systemPrompt, ...rest } = payload
+  return { ...rest, messages }
+}
+
 /** 一次性补全转发。返回 { ok, content, toolCalls, finishReason, usage, model }；上游失败抛错（code: KIT_COMPLETE_FAILED）。 */
 export async function forwardComplete(payload, { timeoutMs = 120_000 } = {}) {
+  const folded = foldSystemIntoPrompt(payload)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(new URL('/v1/pinax/complete', TASK_PLANE_ENDPOINT), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(folded),
       signal: controller.signal
     })
     const body = await response.json().catch(() => null)
@@ -61,13 +79,15 @@ export async function forwardComplete(payload, { timeoutMs = 120_000 } = {}) {
 }
 
 /** 流式补全转发：onDelta(content) 增量回调；resolve 为完整结果（与 forwardComplete 同形状，toolCalls 恒空）。 */
-export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000 } = {}) {  const controller = new AbortController()
+export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000 } = {}) {
+  const folded = foldSystemIntoPrompt(payload)
+  const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(new URL('/v1/pinax/complete/stream', TASK_PLANE_ENDPOINT), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(folded),
       signal: controller.signal
     })
     if (!response.ok || !response.body) {
@@ -171,35 +191,57 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
 }
 
 /** structured 生成专用：kit 漏斗版 fetchImpl——拦截 structuredOutputAdapter 的上游请求，
- *  经 forwardComplete 执行后合成 OpenAI 形状响应。runner/模式/降级逻辑零改动（受同款 builtin 门控）。 */
+ *  经 forwardComplete 执行后按调用方协议合成响应。
+ *  两道内核无关的健壮性处理，令「只要有模型，所有内容都搞定」：
+ *  1. 系统提示折进首个 user 消息，不再单独发 systemPrompt——部分兼容网关（如 dots3-note-prev）
+ *     见到独立 system 轮会直接返回空补全（finishReason=error、usage 全 0）。
+ *  2. 三种模式（native-json-schema / forced-tool / json-object）的输出 Schema 统一抽出，作为
+ *     「只输出严格符合该 Schema 的 JSON」显式指令追加到同一 user 消息，并以 responseFormat=json_object 转发——
+ *     内核不保证遵守 native json_schema / forced tool_choice。
+ *  runner / 模式选择 / 能力降级逻辑零改动。 */
 export function createKitFunnelFetchImpl() {
   return async function kitFunnelFetch(_url, init = {}) {
     let body = {}
     try { body = JSON.parse(init.body || '{}') } catch { body = {} }
-    const messages = (body.messages || []).map((message) => ({
-      role: message.role,
-      content: typeof message.content === 'string'
-        ? message.content
-        : Array.isArray(message.content)
-          ? message.content.map((block) => (typeof block === 'string' ? block : (block?.text || ''))).join('\n')
-          : ''
-    }))
-    const tools = (body.tools || []).map((tool) => ({
-      name: tool.function?.name || tool.name || '',
-      description: tool.function?.description || tool.description || '',
-      parameters: tool.function?.parameters || tool.input_schema || tool.parameters || { type: 'object', properties: {} }
-    }))
-    const toolChoice = body.tool_choice === 'any' && tools.length
-      ? { type: 'function', function: { name: tools[0].name } }
-      : body.tool_choice
+    const flatten = (content) => typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((block) => (typeof block === 'string' ? block : (block?.text || ''))).join('\n')
+        : ''
+    // 收集全部系统文本（Anthropic 的 top-level system + OpenAI 的 role=system 消息）
+    const systemParts = []
+    if (typeof body.system === 'string' && body.system.trim()) systemParts.push(body.system.trim())
+    const turns = []
+    for (const message of (body.messages || [])) {
+      const content = flatten(message.content)
+      if (message.role === 'system') { if (content.trim()) systemParts.push(content.trim()); continue }
+      turns.push({ role: message.role, content })
+    }
+    // 抽取各模式的输出 Schema（内核不保证遵守，转为提示词显式约束）
+    const schema = body.output_config?.format?.schema
+      || body.response_format?.json_schema?.schema
+      || body.response_format?.schema
+      || body.tools?.[0]?.function?.parameters
+      || body.tools?.[0]?.parameters
+      || body.tools?.[0]?.input_schema
+      || null
+    const schemaInstruction = schema
+      ? `输出必须是且仅是一个完整 JSON 对象，严格符合以下 JSON Schema，不得输出解释、Markdown、思考过程或额外字段：\n${JSON.stringify(schema)}`
+      : ''
+    // 把系统提示 + Schema 指令折进首个 user 轮（没有 user 轮则新起一个前置轮）
+    const leadText = [...systemParts, schemaInstruction].filter(Boolean).join('\n\n')
+    const messages = turns.map((turn) => ({ ...turn }))
+    if (leadText) {
+      const firstUser = messages.find((turn) => turn.role === 'user')
+      if (firstUser) firstUser.content = `${leadText}\n\n${firstUser.content}`.trim()
+      else messages.unshift({ role: 'user', content: leadText })
+    }
+    const wantsJson = Boolean(schema) || body.response_format?.type === 'json_object' || body.response_format?.type === 'json_schema'
     const result = await forwardComplete({
-      ...(body.system ? { systemPrompt: body.system } : {}),
       messages,
-      ...(tools.length ? { tools } : {}),
-      ...(toolChoice ? { toolChoice } : {}),
       ...(Number.isFinite(Number(body.max_tokens)) ? { maxTokens: Number(body.max_tokens) } : {}),
       ...(Number.isFinite(Number(body.temperature)) ? { temperature: Number(body.temperature) } : {}),
-      ...(body.response_format?.type === 'json_object' ? { responseFormat: 'json_object' } : {}),
+      ...(wantsJson ? { responseFormat: 'json_object' } : {}),
       timeoutMs: 120000
     })
     const toolCalls = (result.toolCalls || []).map((call, index) => ({
@@ -207,15 +249,36 @@ export function createKitFunnelFetchImpl() {
       type: 'function',
       function: { name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }
     }))
-    const payload = {
-      choices: [{
-        message: { role: 'assistant', content: result.content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) },
-        finish_reason: toolCalls.length ? 'tool_calls' : (result.finishReason === 'length' ? 'length' : 'stop')
-      }],
-      usage: {
-        prompt_tokens: result.usage?.inputTokens ?? 0,
-        completion_tokens: result.usage?.outputTokens ?? 0,
-        total_tokens: result.usage?.totalTokens ?? 0
+    const usage = {
+      input_tokens: result.usage?.inputTokens ?? 0,
+      output_tokens: result.usage?.outputTokens ?? 0,
+      total_tokens: result.usage?.totalTokens ?? 0
+    }
+    // 按调用方自身的协议合成响应，令 structuredOutputAdapter 的 providerText/finishReason 能正确读取。
+    const isAnthropic = typeof body.system === 'string' || Boolean(body.output_config)
+    const isResponses = Array.isArray(body.input) || Boolean(body.text?.format)
+    let payload
+    if (isAnthropic) {
+      const blocks = result.toolCalls?.length
+        ? result.toolCalls.map((call, index) => ({ type: 'tool_use', id: call.id || `toolu_${index + 1}`, name: call.name, input: call.arguments || {} }))
+        : [{ type: 'text', text: result.content || '' }]
+      payload = { content: blocks, stop_reason: result.toolCalls?.length ? 'tool_use' : (result.finishReason === 'length' ? 'max_tokens' : 'end_turn'), usage }
+    } else if (isResponses) {
+      payload = {
+        output: result.toolCalls?.length
+          ? result.toolCalls.map((call) => ({ type: 'function_call', name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }))
+          : [{ type: 'message', content: [{ type: 'output_text', text: result.content || '' }] }],
+        output_text: result.content || '',
+        status: result.finishReason === 'length' ? 'incomplete' : 'completed',
+        usage
+      }
+    } else {
+      payload = {
+        choices: [{
+          message: { role: 'assistant', content: result.content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) },
+          finish_reason: toolCalls.length ? 'tool_calls' : (result.finishReason === 'length' ? 'length' : 'stop')
+        }],
+        usage: { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens, total_tokens: usage.total_tokens }
       }
     }
     return { ok: true, status: 200, json: async () => payload }

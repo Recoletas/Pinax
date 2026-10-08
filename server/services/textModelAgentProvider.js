@@ -1,7 +1,7 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { resolveProviderEndpoint } from './toolCallingProviderAdapter.js'
-import { forwardComplete, isServerKeyedTextConfig, kitFunnelAvailable } from './kitModelGateway.js'
+import { forwardComplete } from './kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
@@ -142,18 +142,14 @@ function responseError(parsed) {
   return error
 }
 
-function resolveConfig(taskMeta) {
+function resolveConfig(taskMeta, routing) {
   const config = taskMeta?.options?.providerConfig || {}
   const baseUrl = String(config.baseUrl || '').trim().replace(/\/+$/, '')
-  const providerId = String(config.provider || config.id || '').trim()
-  const apiKey = resolveTextApiKey({ provider: providerId, baseUrl, apiKey: config.apiKey })
   const model = String(config.model || '').trim()
   const format = config.format === 'anthropic' ? 'anthropic' : 'openai'
+  const apiKey = String(routing?.apiKey || '').trim()
   if (!/^https?:\/\//i.test(baseUrl) || !apiKey || !model) {
-    const isMiniMax = /minimax/i.test(providerId) || /minimaxi?\.com/i.test(baseUrl)
-    const error = new Error(isMiniMax
-      ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-      : 'text-model provider 缺少有效的 baseUrl、apiKey 或 model')
+    const error = new Error(MODEL_ROUTING_ERROR_MESSAGE)
     error.code = 'AGENT_PROVIDER_CONFIG_INVALID'
     error.retryable = false
     throw error
@@ -163,12 +159,11 @@ function resolveConfig(taskMeta) {
 
 export async function runTextModelAgent(envelope, question, taskMeta = {}) {
   const rawConfig = taskMeta?.options?.providerConfig || {}
-  // 统一模型漏斗：服务器密钥配置（内置 MiniMax）转发到 kit 任务面（key 由服务端持有，浏览器不下发）。
-  // 自定义（浏览器自带 key）配置保持直连原路径，零变化。
-  if (isServerKeyedTextConfig(rawConfig) && await kitFunnelAvailable()) {
-    return runTextModelAgentViaKit(envelope, question, taskMeta)
-  }
-  const config = resolveConfig(taskMeta)
+  // 统一模型路由：浏览器未持有真实 key（内置/空/哨兵）时交给 pi-agent 任务面这一唯一内核模型；
+  // 自带 key 或服务器 env 注入 key 走原 provider 直连。与 provider 无关，不限于 MiniMax。
+  const routing = await resolveModelRouting(rawConfig)
+  if (routing.mode === 'kernel') return runTextModelAgentViaKit(envelope, question, taskMeta)
+  const config = resolveConfig(taskMeta, routing)
   const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
   const anthropic = config.format === 'anthropic'
   const url = resolveProviderEndpoint(config.baseUrl, anthropic ? 'anthropic' : 'openai')
