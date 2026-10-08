@@ -25,7 +25,6 @@
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
       </button>
-      <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" @pointerdown="beforeInspectorToolSelect('ai')" @click="assistantWorkspace.enter"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
       <div class="wall__tabs">
         <button
           ref="moreToolsTriggerRef"
@@ -757,7 +756,7 @@
       </section>
 
       <AuthoringDualPane
-        v-if="inspectorOpen && (activeInspectorTool === 'dual' || (activeInspectorTool === 'ai' && knowledgeAssistantInvocation?.pane === 'dual'))"
+        v-if="inspectorOpen && activeInspectorTool === 'dual'"
         v-show="activeInspectorTool === 'dual'"
         ref="dualPaneRef"
         :book-id="selectedBookId"
@@ -829,42 +828,42 @@
         @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
       />
 
-      <aside
-        v-if="activeInspectorTool !== 'dual'"
-        class="writing-inspector"
+      <AuthoringDock
         ref="writingInspectorRef"
-        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
-        :aria-label="tr(&quot;写作检查器&quot;)"
+        :active-tool="activeInspectorTool"
+        :open="inspectorOpen"
+        :pinned="inspectorPinned"
+        :inspector-tab="inspectorTab"
+        :dual-active="inspectorDualColumn"
+        :label="activeInspectorLabel"
+        :annotation-count="openAnnotationCount"
+        :unread="Boolean(knowledgeAssistant.hasUnread?.value)"
+        :en-locale="uiLocale === 'en'"
+        :project-id="selectedBookId"
+        @close="closeActiveWritingInspector"
+        @toggle-pin="inspectorPinned = !inspectorPinned"
+        @open-memory="appSettings.open('memory')"
+        @reopen="returnToAssistantSession"
+        @panel-close="returnToAssistantSession"
+        @manuscript="scrollRehearsalBackToManuscript"
+        @mark-read="knowledgeAssistant.markRead()"
       >
-        <header class="writing-inspector__head">
-          <div>
-            <strong>{{ tr(activeInspectorLabel) }}</strong>
-            <small v-if="uiLocale === 'en' && ['worldbook', 'scene', 'collaboration'].includes(activeInspectorTool)" class="writing-inspector__locale-note" :title="tr('此工具部分界面目前仅中文')">{{ tr('部分翻译') }}</small>
-            <span v-if="activeInspectorTool === 'annotations' && openAnnotationCount" class="writing-inspector__head-count">{{ tr('{openAnnotationCount} 条待处理', { openAnnotationCount: openAnnotationCount }) }}</span>
-          </div>
-          <div class="writing-inspector__head-actions">
-            <button v-if="activeInspectorTool === 'ai'" type="button" class="writing-inspector__memory-link" @click="appSettings.open('memory')">{{ tr('记忆与历史') }}</button>
-            <!-- 顺序展开（≤1180）时推演排在正文之后：回程入口必须常驻 sticky 标题栏，
-                 不能放在会随内容滚走的出处行里。宽屏由 CSS 隐藏。 -->
-            <button
-              v-if="activeInspectorTool === 'rehearsal'"
-              class="writing-inspector__manuscript-btn"
-              type="button"
-              :aria-label="tr(&quot;回到正文&quot;)"
-              :title="tr(&quot;回到正文&quot;)"
-              @click="scrollRehearsalBackToManuscript"
-            >{{ tr('正文') }}</button>
-            <button
-              class="writing-inspector__icon-btn"
-              type="button"
-              :class="{ active: inspectorPinned }"
-              :aria-pressed="inspectorPinned.toString()"
-              :title="tr(&quot;固定检查器&quot;)"
-              @click="inspectorPinned = !inspectorPinned"
-            ><WorkbenchIcon name="pin" :size="15" /></button>
-            <button class="writing-inspector__icon-btn" type="button" :title="tr(&quot;关闭检查器&quot;)" @click="closeActiveWritingInspector"><WorkbenchIcon name="close" :size="15" /></button>
-          </div>
-        </header>
+        <template #session>
+          <!-- 原 aside 助手分支整体迁入 dock 会话段（v-show 常挂载）：
+               切工具不再卸载助手组件，流式与未读状态由页面层 composable 持有。 -->
+          <AuthoringAssistantWorkspace :assistant="knowledgeAssistant" :review-workflow="reviewWorkflow"
+            :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
+            :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
+            @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
+            @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
+          <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
+            @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
+            @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
+            @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
+        </template>
+        <template #panel>
+          <!-- 工具临时面板：可见性由 dock 的 overlay（activeTool !== 'ai'）承载，
+               分支链只负责当前工具的内容互斥。 -->
 
         <div ref="rehearsalComposerHostRef" v-show="activeInspectorTool === 'rehearsal' && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__compose-host" />
         <div v-if="activeInspectorTool === 'rehearsal' && !((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__rehearsal">
@@ -915,18 +914,7 @@
           <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
         </nav>
 
-        <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
-          <AuthoringAssistantWorkspace :assistant="knowledgeAssistant" :review-workflow="reviewWorkflow"
-            :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
-            :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
-            @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
-            @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
-          <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
-            @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
-            @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
-            @jump-source="jumpToMemorySource" @close="closeMemoryReview" />
-        </div>
-        <div v-else-if="activeInspectorTool === 'collaboration'" class="writing-inspector__body" data-authoring-inspector="collaboration">
+        <div v-if="activeInspectorTool === 'collaboration'" class="writing-inspector__body" data-authoring-inspector="collaboration">
           <RehearsalReviewSurface
             :mode="authoringRehearsalState.room?.hostId === authoringRehearsalState.selfMemberId ? 'host' : 'reviewer'"
             :connection-state="authoringRehearsalState.connectionState"
@@ -1038,142 +1026,20 @@
           />
         </div>
 
-        <div v-else-if="activeInspectorTool === 'annotations' && inspectorTab === 'comments'" class="writing-inspector__body" data-authoring-inspector="annotations">
-          <div class="writing-inspector__density">
-            <button type="button" class="writing-review-trigger" :disabled="!selectedChapterId" @pointerdown="freezeReviewSource" @click="openReviewPanel">{{ tr('打开校对') }}</button>
-          </div>
-
-          <div
-            ref="annotationLaneRef"
-            class="writing-inspector__list"
-            :style="annotationLaneStyle"
-          >
-            <article
-              v-for="annotation in marginAnnotations"
-              :key="annotation.id"
-              class="writing-annotation"
-              :class="[`is-${annotation.status}`, { 'is-active': activeAnnotationId === annotation.id }]"
-              role="button"
-              tabindex="0"
-              :aria-label="`${getWritingAnnotationLabel(annotation)}：${annotation.body}`"
-              :ref="(element) => setAnnotationNoteRef(element, annotation.id)"
-              :style="getAnnotationNoteStyle(annotation)"
-              @click="locateAnnotation(annotation)"
-              @focus="activeAnnotationId = annotation.id"
-              @keydown="handleAnnotationKeydown($event, annotation, marginAnnotations.indexOf(annotation))"
-            >
-              <header>
-                <span>{{ annotation.reviewType ? `${annotation.reviewType} · ` : '' }}{{ getWritingAnnotationLabel(annotation) }}</span>
-              </header>
-              <template v-if="editingAnnotationId === annotation.id">
-                <textarea
-                  v-model="annotationEditDraft"
-                  class="writing-annotation__edit"
-                  rows="3"
-                  :aria-label="tr(&quot;编辑批注&quot;)"
-                  @click.stop
-                  @keydown.meta.enter.prevent="saveAnnotationEdit(annotation)"
-                  @keydown.ctrl.enter.prevent="saveAnnotationEdit(annotation)"
-                  @keydown.esc.prevent="cancelAnnotationEdit"
-                ></textarea>
-                <div class="writing-annotation__edit-actions" @click.stop>
-                  <button type="button" :disabled="!annotationEditDraft.trim()" @click="saveAnnotationEdit(annotation)">{{ tr('保存') }}</button>
-                  <button type="button" @click="cancelAnnotationEdit">{{ tr('取消') }}</button>
-                </div>
-              </template>
-              <p v-else>{{ annotation.body }}</p>
-              <div v-if="getAnnotationSupplements(annotation).length" class="writing-annotation__supplements">
-                <p v-for="item in getAnnotationSupplements(annotation)" :key="item.id"><span>{{ tr('补充') }}</span>{{ item.body }}</p>
-              </div>
-              <footer>
-                <button type="button" @click.stop="startAnnotationEdit(annotation)">{{ tr('编辑') }}</button>
-                <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">{{ tr('按批注改写') }}</button>
-                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)">{{ tr('删除') }}</button>
-              </footer>
-
-              <section
-                v-if="rewriteTarget?.annotationId === annotation.id"
-                class="writing-annotation-rewrite"
-                :aria-label="tr(&quot;按当前批注改写&quot;)"
-                @click.stop
-              >
-                <textarea
-                  v-model="rewriteInstruction"
-                  class="writing-rewrite-panel__input"
-                  rows="2"
-                  :aria-label="tr(&quot;改写要求&quot;)"
-                  @keydown.meta.enter.prevent="generateRewriteCandidates(rewriteTarget)"
-                  @keydown.ctrl.enter.prevent="generateRewriteCandidates(rewriteTarget)"
-                ></textarea>
-                <div class="writing-rewrite-panel__actions">
-                  <button type="button" :disabled="rewriteLoading || !rewriteTarget?.text" @click="generateRewriteCandidates(rewriteTarget)">
-                    {{ rewriteLoading ? tr('生成中…') : rewriteCandidates.length ? tr('重新生成') : tr('生成改写') }}
-                  </button>
-                  <button v-if="rewriteLoading" type="button" class="is-quiet" @click="cancelRewriteGeneration">{{ tr('停止') }}</button>
-                  <button v-if="rewriteError && !rewriteLoading" type="button" class="is-quiet" @click="retryRewriteCandidates">{{ tr('重试') }}</button>
-                  <button type="button" class="is-quiet" @click="closeAnnotationRewrite">{{ tr('收起') }}</button>
-                </div>
-                <p v-if="rewriteError" class="writing-rewrite-panel__error" role="alert">{{ rewriteError }}</p>
-                <div v-if="rewriteCandidates.length > 1" class="writing-annotation-rewrite__choices" :aria-label="tr(&quot;改写候选&quot;)">
-                  <button
-                    v-for="(candidate, candidateIndex) in rewriteCandidates"
-                    :key="candidate.id"
-                    type="button"
-                    :class="{ active: selectedRewriteCandidateId === candidate.id }"
-                    @click="selectedRewriteCandidateId = candidate.id"
-                  >{{ candidateIndex + 1 }}</button>
-                </div>
-                <article v-if="selectedRewriteCandidate" class="writing-rewrite-candidate is-selected">
-                  <p v-if="selectedRewriteCandidate.rationale">{{ selectedRewriteCandidate.rationale }}</p>
-                  <div v-if="selectedRewriteCandidate.patches?.length" class="writing-rewrite-patches" :aria-label="tr(&quot;跨片段改写差异&quot;)">
-                    <section v-for="(patch, patchIndex) in selectedRewriteCandidate.patches" :key="patch.nodeId" class="writing-rewrite-patch">
-                      <small>{{ tr('片段 {value}', { value: patchIndex + 1 }) }}</small>
-                      <div class="writing-rewrite-diff">
-                        <div><small>{{ tr('原文') }}</small><span v-for="(part, index) in patch.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                        <div><small>{{ tr('候选') }}</small><span v-for="(part, index) in patch.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                      </div>
-                    </section>
-                  </div>
-                  <div v-else class="writing-rewrite-diff" :aria-label="tr(&quot;改写差异&quot;)">
-                    <div><small>{{ tr('原文') }}</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.before || []" :key="`before-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                    <div><small>{{ tr('候选') }}</small><span v-for="(part, index) in selectedRewriteCandidate.diff?.after || []" :key="`after-${index}`" :class="`is-${part.type}`">{{ part.text }}</span></div>
-                  </div>
-                  <footer>
-                    <button type="button" :disabled="selectedRewriteCandidate.status !== 'ready'" @click="applyRewriteCandidate(selectedRewriteCandidate)">{{ selectedRewriteCandidate.patches?.length ? tr('整批采用') : tr('采用') }}</button>
-                    <button type="button" class="is-quiet" @click="dismissRewriteCandidate(selectedRewriteCandidate)">{{ tr('忽略') }}</button>
-                  </footer>
-                </article>
-              </section>
-            </article>
-            <form
-              v-show="annotationComposerOpen"
-              class="writing-annotation-composer"
-              :ref="(element) => setAnnotationNoteRef(element, 'annotation-draft')"
-              :style="annotationDraftAnchor ? getAnnotationNoteStyle(annotationDraftAnchor) : undefined"
-              @submit.prevent="createAnnotationFromSelection"
-            >
-              <header>
-                <span>{{ tr('新批注') }}</span>
-                <button type="button" :title="tr(&quot;取消批注&quot;)" :aria-label="tr(&quot;取消批注&quot;)" @click="closeAnnotationComposer">×</button>
-              </header>
-              <p>“{{ selectedText.slice(0, 72) }}{{ selectedText.length > 72 ? '…' : '' }}”</p>
-              <textarea
-                v-model="annotationDraft"
-                rows="3"
-                :placeholder="tr(&quot;写下批注或修改要求&quot;)"
-                :aria-label="tr(&quot;批注内容&quot;)"
-                @keydown.meta.enter.prevent="createAnnotationFromSelection"
-                @keydown.ctrl.enter.prevent="createAnnotationFromSelection"
-                @keydown.esc.prevent="closeAnnotationComposer"
-              ></textarea>
-              <footer>
-                <button type="submit" :disabled="!canCreateAnnotation">{{ tr('添加') }}</button>
-                <button type="button" @click="closeAnnotationComposer">{{ tr('取消') }}</button>
-              </footer>
-            </form>
-            <div v-if="!marginAnnotations.length && !annotationComposerOpen" class="writing-inspector__empty">{{ tr('选中正文后即可添加边注。') }}</div>
-          </div>
-        </div>
+        <AuthoringInspectorAnnotations
+          v-else-if="activeInspectorTool === 'annotations' && inspectorTab === 'comments'"
+          :session="annotationSession"
+          :rewrite="authoringRewriteWorkflow"
+          :layout="annotationLayout"
+          :lane-ref="annotationLaneRef"
+          :selected-chapter-id="selectedChapterId"
+          :selected-text="selectedText"
+          :locate-annotation="locateAnnotation"
+          :start-rewrite-from-annotation="startRewriteFromAnnotation"
+          :freeze-review-source="freezeReviewSource"
+          :open-review-panel="openReviewPanel"
+          :close-annotation-rewrite="closeAnnotationRewrite"
+        />
 
         <AuthoringHistoryPanel
           v-else-if="activeInspectorTool === 'history' || (activeInspectorTool === 'annotations' && inspectorTab === 'version')"
@@ -1192,42 +1058,9 @@
             @intervene="interveneFromLivingStory"
           />
         </div>
-        <div v-else-if="activeInspectorTool === 'scene'" class="writing-inspector__body writing-scene-overview" data-authoring-inspector="scene">
-          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
-          <!-- UX-03：桌面由左栏索引负责定位；右侧只放紧凑概览与主动作。
-               窄屏左栏收入抽屉，当前地点文字可直达详情，但不恢复整套交互索引。 -->
-          <dl class="writing-scene-overview__summary">
-            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
-            <div><dt>{{ tr('人物') }}</dt><dd>{{ sceneOverviewPresentNames || tr('未设置') }}</dd></div>
-            <div>
-              <dt>{{ tr('地点') }}</dt>
-              <dd>
-                <button
-                  v-if="chapterShelfSheetMode && sceneProjection.location?.id"
-                  class="writing-scene-overview__fact-link"
-                  type="button"
-                  :aria-label="tr(&quot;查看地点详情&quot;)"
-                  @click="openSceneDetail({ kind: 'location', id: sceneProjection.location.id })"
-                >{{ sceneProjection.location.name }}</button>
-                <template v-else>{{ sceneProjection.location?.name || tr('未设置') }}</template>
-              </dd>
-            </div>
-          </dl>
-          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" :aria-label="tr(&quot;本场未决事件&quot;)">
-            <strong>{{ tr('全部未决事件') }}</strong>
-            <button
-              v-for="event in sceneProjection.unresolvedEvents"
-              :key="event.id"
-              type="button"
-              @click="openSceneDetail({ kind: 'event', id: event.id })"
-            >{{ event.label }}</button>
-          </section>
-          <div class="writing-inspector__actions">
-            <button type="button" data-test="scene-overview-edit" @click="handleSceneEditRequest">{{ tr('调整当前场') }}</button>
-            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
-            <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
-          </div>
-        </div>
+        <AuthoringSceneOverview v-else-if="activeInspectorTool === 'scene'" :scene-projection="sceneProjection"
+          :notice="sceneDetailNotice" :shelf-sheet-mode="chapterShelfSheetMode" :active-writing-unit-id="activeWritingUnitId"
+          @open-detail="openSceneDetail" @edit-request="handleSceneEditRequest" @if-entry="openIfEntry()" @compose-open="openBlockComposer()" />
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
           <AuthoringCharacterPanel :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
@@ -1247,27 +1080,10 @@
             @close="closeActiveWritingInspector"
           />
         </div>
-        <div v-else-if="activeInspectorTool === 'materials'" class="writing-inspector__body" data-authoring-inspector="materials">
-          <p class="writing-inspector__context"><strong>{{ tr('写作素材') }}</strong><span>{{ tr('这里只显示可直接用于当前稿面的收件箱内容') }}</span></p>
-          <div v-if="inboxAssets.length" class="writing-inspector-simple-list">
-            <button
-              v-for="asset in inboxAssets.slice(0, 12)"
-              :key="asset.id"
-              type="button"
-              @click="openInboxAssetFromInspector(asset)"
-            ><strong>{{ asset.title || tr('未命名素材') }}</strong><span>{{ getAssetKindLabel(asset.kind) }}</span></button>
-          </div>
-          <div v-else class="writing-inspector__actions">
-            <span>{{ tr('当前收件箱没有素材。') }}</span>
-            <button type="button" @click="openAssetInbox">{{ tr('打开收件箱') }}</button>
-          </div>
-          <div class="writing-inspector__actions">
-            <button type="button" @click="openMaterialsPage">{{ tr('打开完整素材库') }}</button>
-          </div>
-        </div>
-      </aside>
-
-      <button v-if="!inspectorOpen" class="writing-inspector__reopen" type="button" :title="tr(&quot;打开检查器&quot;)" @click="inspectorOpen = true">{{ tr('批注') }}<span v-if="openAnnotationCount">{{ openAnnotationCount }}</span></button>
+        <!-- materials 检查器分支 20261008 移除：该分支自素材页化后无任何导航入口
+             （openMaterialsPage 直跳 /materials 路由），属不可达死代码。 -->
+        </template>
+      </AuthoringDock>
     </main>
 
     <AuthoringIllustratorDrawer
@@ -1454,53 +1270,8 @@
       </div>
     </Transition>
 
-    <!-- 新建书籍弹窗 -->
-    <Transition name="modal-fade">
-      <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
-        <Transition name="modal-scale" appear>
-          <form class="modal" role="dialog" aria-modal="true" aria-labelledby="new-book-title" @submit.prevent="confirmCreateBook">
-            <div class="modal-header">
-              <h3 id="new-book-title">{{ tr('新建书稿') }}</h3>
-              <button class="modal-close" type="button" :aria-label="tr(&quot;关闭新建书稿&quot;)" @click="showNewBookModal = false">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.5"/>
-                </svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <label class="input-label">{{ tr('书名') }}</label>
-              <input
-                v-model="newBookTitle"
-                type="text"
-                class="input"
-                :placeholder="tr(&quot;输入书籍名称&quot;)"
-                ref="newBookInput"
-              />
-              <fieldset class="authoring-new-book-start"><legend>{{ tr('如何开始') }}</legend><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="false" />{{ tr('直接写作') }}</label><label><input v-model="assistantWorkspace.newBookWithAssistant.value" type="radio" :value="true" />{{ tr('和助手构思') }}</label></fieldset>
-              <ManuscriptLanguageSelect v-model="newBookLanguage" /><p class="modal-hint">{{ tr('创建后会建立第一个章节，可以立即写正文。') }}</p>
-              <details class="modal-options">
-                <summary>{{ tr('可选：简介与世界书') }}</summary>
-                <label class="input-label">{{ tr('简介') }}</label>
-                <textarea
-                  v-model="newBookDesc"
-                  class="input textarea"
-                  :placeholder="tr(&quot;一句话记下这本书想写什么&quot;)"
-                ></textarea>
-                <label class="input-label">{{ tr('世界书') }}</label>
-                <select v-model="newBookWorldbookId" class="input" :aria-label="tr(&quot;新建书籍绑定世界书&quot;)">
-                  <option value="">{{ tr('暂不绑定') }}</option>
-                  <option v-for="wb in worldStore.worldbooksIndex" :key="wb.id" :value="String(wb.id)">{{ wb.name || wb.id }}</option>
-                </select>
-              </details>
-            </div>
-            <div class="modal-footer">
-              <button class="btn" type="button" @click="showNewBookModal = false">{{ tr('取消') }}</button>
-              <button class="btn-primary" type="submit" data-test="new-book-confirm" :disabled="!newBookTitle.trim() && !assistantWorkspace.newBookWithAssistant.value">{{ assistantWorkspace.newBookWithAssistant.value ? tr('创建并构思') : tr('创建并开始写') }}</button>
-            </div>
-          </form>
-        </Transition>
-      </div>
-    </Transition>
+    <!-- 项目资料面板（新建/编辑/导入绑定 统一入口） -->
+    <ProjectInfoPanel @saved="onProjectInfoSaved" />
     <AuthoringManuscriptImport
       v-if="showManuscriptImport"
       @close="closeManuscriptImport"
@@ -1543,6 +1314,10 @@ import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspa
 const AuthoringDualPane = defineAsyncComponent(() => import('../components/authoring/AuthoringDualPane.vue'))
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
 const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
+const AuthoringInspectorAnnotations = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorAnnotations.vue'))
+const AuthoringSceneOverview = defineAsyncComponent(() => import('../components/authoring/AuthoringSceneOverview.vue'))
+// 常驻右侧 dock：接管原 aside 壳（header/会话段/工具面板 overlay/收起徽标）。
+const AuthoringDock = defineAsyncComponent(() => import('../components/authoring/AuthoringDock.vue'))
 import ProjectWritingNavigation from '../components/workbench/ProjectWritingNavigation.vue'
 import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
 const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
@@ -1609,9 +1384,10 @@ const AuthoringHistoryPanel = defineAsyncComponent(() => import('../components/a
 import { listMemoryCandidates, queueMemoryCandidate, updateMemoryCandidate, confirmMemoryCandidate, rejectMemoryCandidate, mergeMemoryCandidateConflicts, replaceMemoryCandidateConflicts } from '../services/memory/memoryCandidates'
 import {
   loadWritingBooks,
-  saveWritingBooksDurable,
-  createWritingBookRecord
+  saveWritingBooksDurable
 } from '../services/writing/writingBooksRepository'
+import { useProjectInfoPanel } from '../composables/useProjectInfoPanel.js'
+import ProjectInfoPanel from '../components/workbench/ProjectInfoPanel.vue'
 import {
   ASSET_KINDS,
   getAssetKindExplanation,
@@ -1676,7 +1452,6 @@ import {
 import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   deleteWritingAnnotation,
-  getWritingAnnotationLabel,
   normalizeWritingAnnotations,
   reconcileWritingAnnotations,
   resolveSelectionActionPosition,
@@ -1727,7 +1502,6 @@ import {
 } from '../services/agents/authoring/authoringProjectWorldbook.js'
 import {
   normalizeSceneAnchors,
-  resolveActiveSceneAnchor,
   reconcileSceneAnchorsForUnitTransition,
   fingerprintSceneAnchors
 } from '../services/agents/authoring/authoringSceneAnchors.js'
@@ -1808,7 +1582,6 @@ const {
 } = createBoundWorldbookSync({
   loadWorldbookForProject: (id) => worldStore.loadWorldbookForProject(id)
 })
-const newBookWorldbookId = ref('')
 // L5 跨页资料同步：同浏览器其他标签/设定页修改绑定世界书后，保守刷新。
 // 只比较 revision，内容未变不动；变化时用当前 book.worldbookId 重新加载（自带令牌）。
 async function refreshBoundWorldbookIfChanged({ notify = false } = {}) {
@@ -1847,13 +1620,9 @@ const authoringObservations = ref([])
 // 最近一次锚点写入回执（撤销安全校验用）。
 const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
-const showNewBookModal = ref(false)
+const projectPanel = useProjectInfoPanel()
 const showManuscriptImport = ref(false)
 const manuscriptImportReturnFocus = shallowRef(null)
-const newBookTitle = ref('')
-const newBookLanguage = ref('')
-const newBookDesc = ref('')
-const newBookInput = ref(null)
 const editorRef = ref(null)
 const notebookEditorRef = ref(null)
 const blockComposerRef = ref(null)
@@ -2337,27 +2106,7 @@ const {
   getWritingBlockAtPosition: (position, markdown) => getWritingBlockAtPosition(position, markdown),
   getMarkdown: () => markdownContent.value
 })
-const {
-  activeAnnotationId,
-  editingAnnotationId,
-  annotationEditDraft,
-  annotationDraft,
-  annotationComposerOpen,
-  annotationComposerContext,
-  marginAnnotations,
-  openAnnotationCount,
-  annotationDraftAnchor,
-  canCreateAnnotation,
-  getAnnotationSupplements,
-  addAnnotation,
-  closeAnnotationComposer,
-  createAnnotationFromSelection,
-  startAnnotationEdit,
-  cancelAnnotationEdit,
-  saveAnnotationEdit,
-  deleteAnnotation,
-  resetAnnotationSession
-} = useAuthoringAnnotationSession({
+const annotationSession = useAuthoringAnnotationSession({
   getAnnotations: () => activeEditorAnnotations.value,
   setAnnotations: (annotations) => {
     if (wt3ActiveDoc.value) wt3Annotations.value = annotations
@@ -2383,23 +2132,8 @@ const {
   focusEditor: () => notebookEditorRef.value?.focus?.(),
   focusEditField: () => document.querySelector('.writing-annotation__edit')?.focus()
 })
-const {
-  rewriteInstruction,
-  rewriteTarget,
-  rewriteCandidates,
-  selectedRewriteCandidateId,
-  rewriteLockedSegments,
-  selectedRewriteCandidate,
-  rewriteLoading,
-  rewriteError,
-  resetRewriteState,
-  markRewriteCandidatesStale,
-  generateRewriteCandidates,
-  cancelRewriteGeneration,
-  retryRewriteCandidates,
-  applyRewriteCandidate,
-  dismissRewriteCandidate
-} = useAuthoringRewriteWorkflow({
+const { activeAnnotationId, marginAnnotations, openAnnotationCount, annotationDraftAnchor, addAnnotation, closeAnnotationComposer, annotationComposerContext, annotationComposerOpen, resetAnnotationSession } = annotationSession
+const authoringRewriteWorkflow = useAuthoringRewriteWorkflow({
   getManuscriptLanguage: () => currentBook.value?.manuscriptLanguage || '',
   getCurrentTarget: () => getCurrentRewriteTarget(),
   getCurrentComparison: (target) => target?.pane === 'dual' ? getDualRewriteComparison(target) : getCurrentRewriteComparison(target),
@@ -2427,6 +2161,7 @@ const {
     syncCursorAndSelection()
   }
 })
+const { rewriteInstruction, rewriteTarget, rewriteCandidates, rewriteLockedSegments, rewriteLoading, rewriteError, resetRewriteState, markRewriteCandidatesStale, generateRewriteCandidates, cancelRewriteGeneration, applyRewriteCandidate } = authoringRewriteWorkflow
 function resetAnnotationWorkspaceScope() {
   resetAnnotationSession()
   resetRewriteState()
@@ -2482,16 +2217,7 @@ const {
 function closeActiveWritingInspector() {
   closeWritingInspector()
 }
-const {
-  annotationLaneRef,
-  annotationLaneStyle,
-  setAnnotationNoteRef,
-  getAnnotationNoteStyle,
-  refreshAnnotationLayout,
-  scheduleAnnotationLayout,
-  captureAnnotationLaneScroll,
-  restoreAnnotationLaneScroll
-} = useAuthoringAnnotationLayout({
+const annotationLayout = useAuthoringAnnotationLayout({
   annotations: marginAnnotations,
   draftAnchor: annotationDraftAnchor,
   activeAnnotationId,
@@ -2502,6 +2228,7 @@ const {
   getWritingMain: () => writingMainRef.value,
   getAnchorMetrics: (annotation) => notebookEditorRef.value?.getAnnotationAnchorMetrics?.(annotation)
 })
+const { annotationLaneRef, setAnnotationNoteRef, refreshAnnotationLayout, scheduleAnnotationLayout, captureAnnotationLaneScroll, restoreAnnotationLaneScroll } = annotationLayout
 const illustratorTriggerRef = ref(null)
 const illustratorController = useAuthoringIllustrator({
   isCompositionEvent: isWritingCompositionKey,
@@ -3458,10 +3185,6 @@ const sceneProjection = computed(() => buildAuthoringSceneProjection({
   acceptedObservations: authoringObservations.value,
   outlineItems: chapterOutlineItems.value
 }))
-// UX-03：检查器“现场”页的只读概览文案（左栏索引才是定位入口）。
-const sceneOverviewPresentNames = computed(() => (
-  (sceneProjection.value.presentCharacters || []).map((person) => person.name).filter(Boolean).join('、')
-))
 const livingStoryProjection = computed(() => buildAuthoringLivingStoryProjection({
   projectId: selectedBookId.value,
   chapterId: selectedChapterId.value,
@@ -4156,7 +3879,9 @@ function openNotesExtraction(doc) {
 }
 watch(selectedBookId, () => { notesExtractionSource.value = null })
 function closeRehearsalOverlay() {
-  if (writingInspectorRef.value && getComputedStyle(writingInspectorRef.value).position === 'absolute') closeWritingInspector()
+  // writingInspectorRef 现在指向 AuthoringDock 组件实例，$el 才是根 aside。
+  const inspectorEl = writingInspectorRef.value?.$el
+  if (inspectorEl && getComputedStyle(inspectorEl).position === 'absolute') closeWritingInspector()
 }
 function openSceneLaboratoryEvidence(evidence = {}) {
   if (!['character', 'location'].includes(evidence.kind) || !evidence.entityId) return
@@ -5473,7 +5198,7 @@ const {
 async function revealRehearsalComposer() {
   openInspectorTool('rehearsal')
   await nextTick()
-  if (window.matchMedia('(max-width: 1180px)').matches) writingInspectorRef.value?.scrollIntoView({ block: 'start', behavior: 'instant' })
+  if (window.matchMedia('(max-width: 1180px)').matches) writingInspectorRef.value?.$el?.scrollIntoView({ block: 'start', behavior: 'instant' })
 }
 watch([() => blockComposer.open, () => interventionComposer.open], ([blockOpen, interventionOpen], previous = []) => {
   if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()
@@ -6439,7 +6164,7 @@ const writingAgentHost = useInlineWritingAgentHost({
   buildAgentInput: buildPassiveAgentInput,
   readInteractionSignals: () => ({
     dualComposing: dualCompositionActive.value,
-    modalOpen: showNewBookModal.value
+    modalOpen: projectPanel.isOpen.value
       || assetInboxOpen.value
       || illustratorOpen.value
       || reviewPanelOpen.value
@@ -7107,7 +6832,7 @@ watch([
   if (illustratorBrief.value) reconcileIllustratorSource()
 })
 const shouldLockPageScroll = computed(() => {
-  return assetInboxOpen.value || showNewBookModal.value || showManuscriptImport.value || illustratorBlocking.value
+  return assetInboxOpen.value || projectPanel.isOpen.value || showManuscriptImport.value || illustratorBlocking.value
 })
 useBodyScrollLock(shouldLockPageScroll)
 // U33：键盘 undo/redo 后 PM 事务副作用可能使编辑器丢失焦点（DOM 重渲染
@@ -7211,6 +6936,11 @@ function handleWritingInspectorKeydown(event) {
   // Escape 先关闭当前详情（回到批注），再次 Escape 才收起检查器。
   if (inspectorDetailState.value) {
     closeSceneDetail()
+    return
+  }
+  // dock 化：工具面板 overlay 开着时，Esc 先收面板回会话段，再按才收整个 dock。
+  if (activeInspectorTool.value !== 'ai' && activeInspectorTool.value !== 'dual') {
+    returnToAssistantSession()
     return
   }
   closeActiveWritingInspector()
@@ -7466,10 +7196,6 @@ function openAssetInbox() {
       assetInboxActiveId.value = inboxAssets.value[0].id
     }
   })
-}
-function openInboxAssetFromInspector(asset) {
-  assetInboxActiveId.value = String(asset?.id || '')
-  openAssetInbox()
 }
 function openMaterialsPage() {
   if (pendingGhostAdoption.value) {
@@ -8271,13 +7997,15 @@ function selectChapter(chapterId) {
 }
 function createNewBook({ clearRouteIntent = false } = {}) {
   if (clearRouteIntent) assistantWorkspace.startNewBook()
-  showNewBookModal.value = true
-  newBookTitle.value = ''
-  newBookLanguage.value = uiLocale.value
-  newBookDesc.value = ''
-  newBookWorldbookId.value = ''
-  void worldStore.loadWorldbooksIndex()
-  nextTick(() => newBookInput.value?.focus())
+  projectPanel.open({
+    mode: 'create',
+    allowEmptyTitle: assistantWorkspace.newBookWithAssistant.value,
+    onCreated: (book) => {
+      books.value = loadWritingBooks()
+      selectBook(book.id)
+      assistantWorkspace.afterCreateBook()
+    }
+  })
   if (!clearRouteIntent || String(route.query.start || '') !== 'new') return
   const query = { ...route.query }
   delete query.start
@@ -8317,6 +8045,8 @@ function confirmManuscriptImport(book, respond = null) {
   manuscriptImportReturnFocus.value = null
   selectBook(book.id)
   authoringTask.notify(tr('已导入《{value0}》· {value1} 章', { value0: book.title, value1: book.chapters.length }))
+  // 导入也经历项目资料面板：选择本地位置建项目并绑定
+  projectPanel.open({ mode: 'attach', book })
   respond?.(true)
   return true
 }
@@ -8336,35 +8066,10 @@ function setManuscriptLanguage(value) {
     reviewWorkflow.reconcile()
   }
 }
-function confirmCreateBook() {
-  if (!newBookTitle.value.trim() && !assistantWorkspace.newBookWithAssistant.value) return
-  const createdAt = new Date().toISOString()
-  const newBook = createWritingBookRecord({
-    title: newBookTitle.value.trim() || tr('未命名作品'),
-    description: newBookDesc.value.trim(),
-    manuscriptLanguage: newBookLanguage.value,
-    worldbookId: String(newBookWorldbookId.value || '')
-  })
-  newBook.chapters = [{
-    id: `${Date.now()}-chapter-1`,
-    title: newBookLanguage.value === 'en' ? 'Chapter 1' : '第一章',
-    content: '',
-    contentFormat: 'md',
-    outlineItems: [],
-    wordCount: 0,
-    createdAt,
-    updatedAt: createdAt
-  }]
-  const previousBooks = books.value
-  books.value = [...books.value, newBook]
-  if (!saveBooks()) {
-    books.value = previousBooks
-    authoringTask.notify(tr('书稿未能保存，请检查浏览器存储空间'))
-    return
-  }
-  selectBook(newBook.id)
-  showNewBookModal.value = false
-  assistantWorkspace.afterCreateBook()
+// 项目资料面板保存回调：新建模式由 onCreated 处理（含选书）；编辑模式保存后刷新本地书列表。
+function onProjectInfoSaved(book) {
+  books.value = loadWritingBooks()
+  if (book?.id && book.id !== selectedBookId.value) selectBook(book.id)
 }
 // 显式换绑当前书的世界书：有受影响锚点时先请求确认；
 // 写入 book.worldbookId 后精确加载该世界书并刷新现场。
@@ -10579,6 +10284,11 @@ function beforeInspectorToolSelect(tool) {
   if (tool === 'ai') freezeReviewSource()
   freezeWritingSurfaceBeforeToolSelect(tool)
 }
+function returnToAssistantSession() {
+  // 回会话段等价旧的「点助手」入口：先把当前选区冻结成助手上下文，再切回 ai。
+  beforeInspectorToolSelect('ai')
+  selectInspectorTool('ai')
+}
 function captureAuthoringSearchLiveSources() {
   const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]
     .filter((source) => source?.document && String(source.projectId || '') === String(selectedBookId.value || ''))
@@ -10818,25 +10528,6 @@ function locateAnnotation(annotation, { tab = 'comments' } = {}) {
     notebookEditorRef.value?.focus?.()
   })
 }
-function handleAnnotationKeydown(event, annotation, index) {
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    locateAnnotation(annotation)
-    return
-  }
-  const annotations = marginAnnotations.value
-  if (!annotations.length) return
-  let nextIndex = index
-  if (event.key === 'ArrowDown') nextIndex = Math.min(annotations.length - 1, index + 1)
-  if (event.key === 'ArrowUp') nextIndex = Math.max(0, index - 1)
-  if (event.key === 'Home') nextIndex = 0
-  if (event.key === 'End') nextIndex = annotations.length - 1
-  if (nextIndex === index) return
-  event.preventDefault()
-  const cards = Array.from(event.currentTarget?.parentElement?.querySelectorAll('.writing-annotation') || [])
-  cards[nextIndex]?.focus()
-  activeAnnotationId.value = annotations[nextIndex].id
-}
 function onNotebookInput(payload = {}) {
   // Ghost 采纳窗口内：编辑器插入及其 focus 事务都会以普通 'input' 冒出，
   // 这里只同步光标；任何清候选/失效回执/新联想都会把刚要 consume 的建议清空，
@@ -10896,3 +10587,4 @@ function onGlobalClick() {
 
 <style src="./Authoring.block-native.css"></style>
 <style src="./Authoring.assistant.css"></style>
+<style src="./Authoring.dock.css"></style>

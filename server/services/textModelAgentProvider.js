@@ -1,6 +1,7 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { resolveProviderEndpoint } from './toolCallingProviderAdapter.js'
+import { forwardComplete } from './kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
@@ -141,18 +142,14 @@ function responseError(parsed) {
   return error
 }
 
-function resolveConfig(taskMeta) {
+function resolveConfig(taskMeta, routing) {
   const config = taskMeta?.options?.providerConfig || {}
   const baseUrl = String(config.baseUrl || '').trim().replace(/\/+$/, '')
-  const providerId = String(config.provider || config.id || '').trim()
-  const apiKey = resolveTextApiKey({ provider: providerId, baseUrl, apiKey: config.apiKey })
   const model = String(config.model || '').trim()
   const format = config.format === 'anthropic' ? 'anthropic' : 'openai'
+  const apiKey = String(routing?.apiKey || '').trim()
   if (!/^https?:\/\//i.test(baseUrl) || !apiKey || !model) {
-    const isMiniMax = /minimax/i.test(providerId) || /minimaxi?\.com/i.test(baseUrl)
-    const error = new Error(isMiniMax
-      ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-      : 'text-model provider 缺少有效的 baseUrl、apiKey 或 model')
+    const error = new Error(MODEL_ROUTING_ERROR_MESSAGE)
     error.code = 'AGENT_PROVIDER_CONFIG_INVALID'
     error.retryable = false
     throw error
@@ -161,7 +158,12 @@ function resolveConfig(taskMeta) {
 }
 
 export async function runTextModelAgent(envelope, question, taskMeta = {}) {
-  const config = resolveConfig(taskMeta)
+  const rawConfig = taskMeta?.options?.providerConfig || {}
+  // 统一模型路由：浏览器未持有真实 key（内置/空/哨兵）时交给 pi-agent 任务面这一唯一内核模型；
+  // 自带 key 或服务器 env 注入 key 走原 provider 直连。与 provider 无关，不限于 MiniMax。
+  const routing = await resolveModelRouting(rawConfig)
+  if (routing.mode === 'kernel') return runTextModelAgentViaKit(envelope, question, taskMeta)
+  const config = resolveConfig(taskMeta, routing)
   const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
   const anthropic = config.format === 'anthropic'
   const url = resolveProviderEndpoint(config.baseUrl, anthropic ? 'anthropic' : 'openai')
@@ -206,6 +208,33 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
       code: lastError.code,
       ...responseShape(data, parsed)
     })
+    if (!lastError.retryable) throw lastError
+  }
+  throw lastError
+}
+
+async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
+  const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
+  const maxTokens = resolveTextModelMaxTokens(taskMeta)
+  let lastError = null
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const repairInstruction = attempt === 0 ? '' : '\n\n上一次响应没有可用的最终结果。请跳过思考过程，仅返回符合上述协议的完整 JSON。'
+    try {
+      const result = await forwardComplete({
+        messages: [{ role: 'user', content: prompt + repairInstruction }],
+        maxTokens: Math.min(4096, maxTokens + (attempt * 600)),
+        temperature: attempt === 0 ? 0.4 : 0.2,
+        timeoutMs: attempt === 0 ? TEXT_MODEL_PROVIDER.timeoutMs : 30000
+      })
+      const content = String(result.content || '').trim()
+      if (content && result.finishReason !== 'length') return content
+      lastError = responseError({ truncated: result.finishReason === 'length', refused: false, hasReasoning: false })
+      console.warn('[Advisor] kit funnel unusable response:', { model: result.model, attempt: attempt + 1, code: lastError.code })
+      if (!lastError.retryable) throw lastError
+    } catch (error) {
+      if (error?.code === 'AGENT_PROVIDER_EMPTY_CONTENT' || error?.code === 'AGENT_PROVIDER_REFUSAL' || error?.code === 'AGENT_PROVIDER_OUTPUT_TRUNCATED') throw error
+      lastError = Object.assign(new Error(`kit funnel 请求失败：${error?.message || error}`), { code: 'AGENT_PROVIDER_UPSTREAM_FAILED', retryable: attempt === 0 })
+    }
     if (!lastError.retryable) throw lastError
   }
   throw lastError

@@ -228,4 +228,3 @@ export default {
 </template>
 
 <style scoped src="../../pages/Notes.scoped.css"></style>
-

@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringCharacterAiReview from './AuthoringCharacterAiReview.vue'
 import { parseCharacterEntryProfile, serializeCharacterEntryProfile } from '../../services/characterCard'
+import { renameEntryKeys } from '../../services/worldbook/entryProfileTemplates.js'
 
 const props = defineProps({
   manuscriptLanguage: { type: String, default: '' },
@@ -115,7 +116,10 @@ function characterPayload() {
   const entry = selectedCharacter.value
   if (!entry || !draft.name.trim()) return null
   return {
-    name: draft.name.trim(), type: 'character', keys: [...new Set([draft.name.trim(), ...(entry.keys || [])])], content: serializeCharacterEntryProfile(draft), avatar: draft.avatar,
+    name: draft.name.trim(), type: 'character',
+    // P0.2 修复：改名时旧名触发词被「替换」而非追加（旧逻辑只增不减，旧占位名
+    // 「新角色」永久残留）；占位残留只在 keys 全等于旧占位名时保守清理。
+    keys: renameEntryKeys({ keys: entry.keys, previousName: entry.name, nextName: draft.name.trim() }), content: serializeCharacterEntryProfile(draft), avatar: draft.avatar,
     metadata: { ...(entry.metadata || {}), characterProfile: {
       background: draft.background.trim(), personality: draft.personality.trim(), appearance: draft.appearance.trim(), other: draft.other.trim(), avatar: draft.avatar
     } }

@@ -9,17 +9,20 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
   const router = Router()
   router.use(async (req, res) => {
     const health = req.method === 'GET' && req.path === '/healthz'
+    const modelRead = req.method === 'GET' && req.path === '/model'
+    const modelWrite = req.method === 'POST' && req.path === '/model'
     const token = String(req.get('x-pinax-agent-session') || '')
-    if (!health && !/^[a-f0-9]{64}$/.test(token)) return res.status(403).json({ error: 'agent-session-required' })
+    if (!health && !modelRead && !modelWrite && !/^[a-f0-9]{64}$/.test(token)) return res.status(403).json({ error: 'agent-session-required' })
     const prefix = `pa_${createHash('sha256').update(token).digest('hex').slice(0, 24)}_`
     const create = req.method === 'POST' && req.path === '/v1/pinax/tasks'
     const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel))?$/.exec(req.path)
-    if (!health && !create && !(task && task[1].startsWith(prefix) && ((req.method === 'GET' && !task[2]) || (req.method === 'POST' && task[2])))) {
+    if (!health && !modelRead && !modelWrite && !create && !(task && task[1].startsWith(prefix) && ((req.method === 'GET' && !task[2]) || (req.method === 'POST' && task[2])))) {
       return res.status(404).json({ error: 'agent-route-not-found' })
     }
+    if (modelWrite && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: 'agent 模型切换仅限本机使用；公网部署已禁用。' })
     if (create && (!req.body?.taskId || !String(req.body.taskId).startsWith(prefix))) return res.status(403).json({ error: 'agent-task-scope-mismatch' })
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), health ? 2000 : 250000)
+    const timer = setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite ? 5000 : 250000)
     res.on('close', () => controller.abort())
     try {
       const response = await fetchImpl(new URL(req.path, upstream), {
