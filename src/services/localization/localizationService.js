@@ -118,12 +118,8 @@ export const LOCALIZATION_KEY_PLAN = Object.freeze([
   },
 
   /* ── browser-only：设备本地偏好 / 未文件化作者数据 ─────────────────────── */
-  {
-    key: 'sab_enabled',
-    domain: 'assistant',
-    category: 'browser-only',
-    reason: '助手 beta 挂载开关——设备本地 UI 偏好'
-  },
+  /* 20261008 清理：sab_enabled（助手 beta 挂载开关）随 StoryAgentBetaPanel 死面板删除一并退役。 */
+
   {
     key: 'sab_*',
     domain: 'assistant',
