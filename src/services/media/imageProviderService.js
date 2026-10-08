@@ -9,6 +9,9 @@ export const IMAGE_MODEL_TYPES = [
   { value: 'http', label: '通用 HTTP' }
 ]
 
+// MiniMax 图片当前登记的模型名：只作输入建议，不再是可填模型的白名单。
+export const MINIMAX_IMAGE_MODEL_SUGGESTIONS = Object.freeze(['image-01', 'image-01-live'])
+
 const IMAGE_MODEL_DEFAULTS = Object.freeze({
   minimax_image: {
     baseUrl: 'https://api.minimaxi.com',
@@ -231,8 +234,9 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
     type: 'character', image_file: reference.data
   })))
   const model = String(config.defaultModel || 'image-01').trim()
-  if (!['image-01', 'image-01-live'].includes(model)) {
-    throw invalidImageInput(`MiniMax 图片模型无效: ${model}`)
+  // 模型名由用户在设置页配置，这里只守 URL 安全形状，不再限定厂商已知名单。
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(model)) {
+    throw invalidImageInput(`MiniMax 图片模型名无效: ${model}`)
   }
   const prompt = [options.prompt, options.negativePrompt ? `避免出现：${options.negativePrompt}` : '']
     .filter(Boolean)

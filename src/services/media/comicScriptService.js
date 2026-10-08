@@ -87,7 +87,7 @@ export async function generateComicPageScript({
     taskType: 'media.comic-script',
     baseMessages,
     settings: apiSettings,
-    generationOptions: { max_tokens: 2400, temperature: 0.65 },
+    generationOptions: { temperature: 0.65 },
     parseContent: parseComicScript,
     isValidParsed: (parsed) => Array.isArray(parsed?.panels) && parsed.panels.length === expectedPanelCount,
     attempts: [

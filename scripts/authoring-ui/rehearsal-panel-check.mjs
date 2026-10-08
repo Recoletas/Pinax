@@ -1,7 +1,11 @@
 /* eslint-disable no-console */
 // 推演右栏打磨 Gate（R1–R8 + P0/P2 回归）。真实组件 + 真实页面 + 确定性 provider
 // fixture：只断言结构、几何、阅读与隔离，不调用真实模型，也不评价模型文采。
-// 用法：BASE=http://127.0.0.1:5198 node scripts/authoring-ui/rehearsal-panel-check.mjs
+// 用法：先播种 fixture（产物只写 tmp/authoring-context-closure/，不动用户浏览器）
+//   BASE=http://127.0.0.1:5174 node scripts/authoring-ui/context-closure-fixture.mjs
+// 再跑（dev server 需已启动；无 dev server 时可 `npm run dev` 自起一个）：
+//   BASE=http://127.0.0.1:5174 node scripts/authoring-ui/rehearsal-panel-check.mjs
+// 可选：REHEARSAL_WIDTHS=1440 只跑一个宽度；OUT_DIR=... 指定证据目录。
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -44,19 +48,120 @@ const DIRECTIONS = {
     { id: 'probe', title: '借异象试探他', action: '故意说错暗格编号，观察艾德加是否纠正。', immediateGain: '判断他知道多少', cost: '误判会暴露自己的怀疑', evidenceRefs: [], entityRefs: [] }
   ]
 }
-const PARAGRAPHS = [
-  '艾德加没有立刻伸手去碰那页纸。他先看向莉娜，像是在确认她到底想让谁知道这件事。',
-  '“你先说，你是怎么发现的。”他把油灯往两人之间推了推，光落在缺页的边缘。',
-  '“昨天夜里我数过水痕。”莉娜说，“今天多了一道，而且是在最上面。”',
-  '他沉默了一会儿，把椅子从桌边挪开半步，让出通往暗格的那条狭窄过道。',
-  '“你要是打算一个人下去，我不会拦你。”他说，“但我会站在楼梯口。”',
-  '窗外传来钟楼的第七响，比前六声都慢。两人都没有再说话。'
-]
-const CHANGE = '他把守夜变成了条件，而不是让步；莉娜从此知道他会等一个交代。'
-const REPLIES = [
-  { response: PARAGRAPHS.slice(0, 6).join('\n\n'), change: CHANGE, choices: ['先说明缺页的来路', '反问他在档案室外站了多久'], evidenceRefs: [] },
-  { response: PARAGRAPHS.slice(1).join('\n\n'), change: CHANGE, choices: ['让他先说守夜的条件'], evidenceRefs: [] },
-  { response: PARAGRAPHS.slice(0, 5).join('\n\n'), change: CHANGE, choices: ['告诉他缺页上少了谁'], evidenceRefs: [] }
+// 确定性回应库（每幕 response/change/choices 对齐 REHEARSAL_STEP_SCHEMA 与宿主
+// parseRehearsalResponse 闸）。关键约束：authoringRehearsal.js 的逐字复述守卫
+// 会拒绝与同一路既有步骤共享 ≥32 字连续原文的回应，因此各幕 response 正文
+// 两两互不重叠；一次完整旅程顺序消费至多 9 幕（其余 3 幕为裕量），幕序号只
+// 前进不回退（换路重放的步骤读的是已生成的旧回应，不新增请求）。
+const STEP_REPLIES = [
+  {
+    response: [
+      '莉娜把那页纸按回暗格，指尖在锁扣上多停了半拍，才装作若无其事地直起身。',
+      '“旧账而已，”她说，声音比平时低了一度，“钟楼的东西，不该由我们来数。”',
+      '艾德加盯着她的侧脸看了两息，把已经伸向暗格的手收了回去，退到楼梯口站定。'
+    ].join('\n\n'),
+    change: '莉娜选择独自扛住秘密，艾德加把追问换成了沉默的守望。',
+    choices: ['先说明缺页的来路', '反问他在档案室外站了多久'], evidenceRefs: []
+  },
+  {
+    response: [
+      '艾德加终于开口，说装订线上的胶是新补的，补它的人手艺好得不像门外汉。',
+      '莉娜举起油灯，让光贴着书脊走了一遍，在第三道缝上停住，那里有一根极细的竹刺。',
+      '“数水痕只是习惯，”她说，“我想知道的是，昨夜是谁替这间屋子关的门。”'
+    ].join('\n\n'),
+    change: '装订线的新胶成了两人共同的疑点，追问从水痕转向了门。',
+    choices: ['让他先说守夜的条件'], evidenceRefs: []
+  },
+  {
+    response: [
+      '莉娜故意把暗格编号报错一位，看着艾德加的眉毛几不可察地动了一下。',
+      '他没有纠正她，只是把腰间的钥匙串解下来，放在了桌面上最显眼的位置。',
+      '“要我陪你下去可以，”他说，“但得先告诉我，你在怕谁听见。”'
+    ].join('\n\n'),
+    change: '试探落空了一半，艾德加用钥匙串把主动权摆上了桌面。',
+    choices: ['告诉他缺页上少了谁'], evidenceRefs: []
+  },
+  {
+    response: [
+      '莉娜把抄表册摊开，把钟响第七下的那晚逐条念给他听，一条都没有跳过。',
+      '艾德加听完，只问了一句：簿册上除了名的那口钟，铸文是不是和石柱同源。',
+      '两人把各自的记录并排放好，中间那道空行像一道没愈合的伤口。'
+    ].join('\n\n'),
+    change: '两份记录第一次拼在一起，钟与石柱的关联浮出水面。',
+    choices: ['一起去查簿册上的铸文'], evidenceRefs: []
+  },
+  {
+    response: [
+      '水痕从上往下数第三道最宽，边缘却有两条细线，像被什么东西拖过去的。',
+      '莉娜用铅笔临下轮廓，忽然发现细线的间距和暗格锁扣上的划痕完全一致。',
+      '“不是漏雨，”她抬起头，“是有人用同一件东西，开了两次门。”'
+    ].join('\n\n'),
+    change: '水痕与锁扣划痕对上，昨夜的访客被锁定为持钥匙的人。',
+    choices: ['核对他的钥匙串', '先封存暗格'], evidenceRefs: []
+  },
+  {
+    response: [
+      '“我把话说完，”艾德加把钥匙串推到莉娜面前，“我昨夜来过，为的是这本册子。”',
+      '莉娜没有去碰钥匙，只是把油灯往两人中间挪了挪，光把两道影子叠在一起。',
+      '“那你该看看缺页，”她说，“少掉的那页上，写着你不想让我知道的事。”'
+    ].join('\n\n'),
+    change: '艾德加承认夜访，摊牌把两人的猜忌换成了对质的起点。',
+    choices: ['把缺页摊给他看', '要求他交出钥匙'], evidenceRefs: []
+  },
+  {
+    response: [
+      '从头再来的话，莉娜决定先不提水痕，只问艾德加昨晚在楼梯口站了多久。',
+      '艾德加答得干脆：从钟响第七下站到雾散，中间只离开过一次，去追一道白影。',
+      '莉娜在心里把这句话记了两遍，一遍记进抄表册，一遍记进她自己的怀疑。'
+    ].join('\n\n'),
+    change: '重新起头的一步换来了艾德加的完整行踪，白影成了新的线头。',
+    choices: ['追问白影的方向'], evidenceRefs: []
+  },
+  {
+    response: [
+      '莉娜不再绕弯，把缺页的断口直接转到艾德加眼前，灯芯挑到最亮。',
+      '他俯身看了很久，久到油灯爆了个灯花，才低声说这个断口和摘除簿册页的手法一致。',
+      '“所以你早就见过这页纸，”莉娜说，“在它还没被撕下来之前。”'
+    ].join('\n\n'),
+    change: '缺页当面对质，艾德加默认自己见过完整的那一页。',
+    choices: ['请他交代页上的内容'], evidenceRefs: []
+  },
+  {
+    response: [
+      '莉娜退开半步，让出灯光最好的位置，说看不看由他自己定。',
+      '艾德加沉默地把缺页拿起来，指尖抚过断口，像在数一道旧伤疤的针脚。',
+      '“看过就回不去了，”他说，“但装作没看见，也回不去了。”'
+    ].join('\n\n'),
+    change: '选择权交到艾德加手里，他把犹豫站成了一个决定的前奏。',
+    choices: ['等他把话说完'], evidenceRefs: []
+  },
+  {
+    response: [
+      '这一步莉娜什么都没问，只是把抄表册翻回第一页，从头念起。',
+      '艾德加听着听着，忽然指出第三行的日期写错了，比钟响那晚早了一天。',
+      '“有人替你写过一页，”他说，“笔迹很像，收笔不像。”'
+    ].join('\n\n'),
+    change: '日期差了一天，簿册里可能藏着一页替写的手笔。',
+    choices: ['对笔迹', '追问谁碰过簿册'], evidenceRefs: []
+  },
+  {
+    response: [
+      '莉娜把灯芯剪短，屋里的影子一下子退到墙角，只剩桌面一小圈光。',
+      '两人约定天亮前分头行动：她去查簿册，他去码头问昨夜的更夫。',
+      '分手前艾德加把一枚铜纽扣放在桌上，说是昨夜在暗格前捡到的。'
+    ].join('\n\n'),
+    change: '两人分工查证，一枚铜纽扣成了暗格前的新物证。',
+    choices: ['收下纽扣', '让他带走'], evidenceRefs: []
+  },
+  {
+    response: [
+      '再往前试一步，莉娜决定把抄表员的规矩放到一边，先信一次直觉。',
+      '她觉得艾德加昨夜追的白影和磷光是同一样东西，只是名字不同。',
+      '艾德加没有笑她，反而说自己也这么想，只是不敢第一个说出口。'
+    ].join('\n\n'),
+    change: '直觉被互相印证，磷光与白影在两人眼里合成了同一条线索。',
+    choices: ['去石柱下守一夜'], evidenceRefs: []
+  }
 ]
 const PROSE = [':::action', '莉娜把缺页摊在窗下，让艾德加辨认装订线上的新伤。'].join('\n')
 
@@ -91,7 +196,7 @@ async function openRehearsal(page) {
     }
     if (payload.taskType === 'authoring.rehearsal.step') {
       if (hold.armed) await hold.gate
-      const reply = REPLIES[Math.min(advisory.length, REPLIES.length - 1)]
+      const reply = STEP_REPLIES[Math.min(advisory.length, STEP_REPLIES.length - 1)]
       advisory.push(payload)
       return route.fulfill({ json: { taskType: payload.taskType, advice: JSON.stringify(reply), result: { task: payload.taskType, rehearsal: reply } } })
     }
@@ -158,15 +263,42 @@ async function clickInView(locator, { attempts = 14 } = {}) {
       }
       const hit = document.elementFromPoint(x, y)
       if (hit && (hit === node || node.contains(hit))) return { x, y }
-      if (scroller) scroller.scrollTop += 48
-      else window.scrollBy(0, 48)
-      return { covered: 'covered' }
+      // 遮挡来自视口顶部的 sticky 工作台标签条（ws-tabs）时，向下滚动只会把
+      // 目标压得更深：真实作者会向上滚一格让内容退回标签条下方，照做。
+      const hitTop = hit ? Math.round(hit.getBoundingClientRect().top) : null
+      const coveredFromAbove = hitTop !== null && hitTop <= box.top + 4
+      if (scroller) scroller.scrollTop += coveredFromAbove ? -48 : 48
+      else window.scrollBy(0, coveredFromAbove ? -48 : 48)
+      return { covered: coveredFromAbove ? 'covered-from-above' : 'covered' }
     }).catch(() => null)
     if (result && result.x !== undefined) { await page.mouse.click(result.x, result.y); return }
     await page.waitForTimeout(120)
   }
-  const label = await locator.evaluate((node) => (node.textContent || '').trim().slice(0, 30))
-  throw new Error(`clickInView could not reach ${label}`)
+  const label = await locator.evaluate((node) => (node.textContent || '').trim().slice(0, 30)).catch(() => '(detached)')
+  const diagnosis = await locator.evaluate((node) => {
+    const box = node.getBoundingClientRect()
+    const x = Math.round(box.left + Math.max(4, box.width / 2))
+    const y = Math.round(box.top + Math.max(4, Math.min(box.height / 2, box.height - 4)))
+    const hit = document.elementFromPoint(x, y)
+    const scroller = (() => {
+      let parent = node.parentElement
+      while (parent && parent !== document.body) {
+        const overflow = getComputedStyle(parent).overflowY
+        if ((overflow === 'auto' || overflow === 'scroll') && parent.scrollHeight > parent.clientHeight) return parent
+        parent = parent.parentElement
+      }
+      return null
+    })()
+    return {
+      rect: { top: Math.round(box.top), bottom: Math.round(box.bottom), h: Math.round(box.height) },
+      hit: hit ? `${hit.tagName}.${String(hit.className).slice(0, 60)}` : null,
+      hitRect: hit ? { top: Math.round(hit.getBoundingClientRect().top), bottom: Math.round(hit.getBoundingClientRect().bottom) } : null,
+      flowScroll: (() => { const flow = document.querySelector('.rehearsal-flow'); return flow ? { st: Math.round(flow.scrollTop), sh: flow.scrollHeight, ch: flow.clientHeight } : null })(),
+      page: { scrollY: Math.round(window.scrollY), sh: document.documentElement.scrollHeight, ch: document.documentElement.clientHeight },
+      scroller: scroller ? { cls: String(scroller.className).slice(0, 50), st: Math.round(scroller.scrollTop), sh: scroller.scrollHeight, ch: scroller.clientHeight } : null
+    }
+  }).catch(() => null)
+  throw new Error(`clickInView could not reach ${label} — ${JSON.stringify(diagnosis)}`)
 }
 
 // 走法可能在直接位，也可能收在“更多走法”里；按 id 找，不按位置猜。

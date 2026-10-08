@@ -344,10 +344,13 @@ function normalizeMessages(rawMessages, allowedToolNames) {
 }
 
 function normalizeOptions(raw = {}) {
-  const maxTokens = Number(raw?.maxTokens ?? raw?.max_tokens ?? 1200)
+  // 2026-10-09 预算完全废弃：未声明不补默认值，也不再透传（内核按自身缺省计量）。
+  // 声明了才校验形状，作为安全上界保留。
+  const declaredMaxTokens = raw?.maxTokens ?? raw?.max_tokens
+  const maxTokens = Number.isFinite(Number(declaredMaxTokens)) ? Math.floor(Number(declaredMaxTokens)) : null
   const temperature = Number(raw?.temperature ?? 0.2)
   const timeoutMs = Number(raw?.timeoutMs ?? raw?.timeout_ms ?? 12000)
-  if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > GENERATION_AGENT_LIMITS.maxTokens) {
+  if (maxTokens !== null && (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > GENERATION_AGENT_LIMITS.maxTokens)) {
     return contractError('NARRATIVE_MAX_TOKENS_INVALID', `maxTokens 必须是 1-${GENERATION_AGENT_LIMITS.maxTokens} 的整数`)
   }
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
@@ -378,7 +381,7 @@ function normalizeOptions(raw = {}) {
   return {
     valid: true,
     options: {
-      maxTokens,
+      ...(maxTokens !== null ? { maxTokens } : {}),
       temperature,
       timeoutMs: Math.floor(timeoutMs),
       parallelToolCalls: raw?.parallelToolCalls !== false,

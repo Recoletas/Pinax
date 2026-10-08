@@ -274,7 +274,7 @@ export async function generatePlacesFromOverview({
       const response = await sendStructuredGenerationImpl({
         ...request,
         settings: resolvedSettings,
-        options: { max_tokens: 3000, timeout_ms: 90000 },
+        options: { timeout_ms: 90000 },
         signal
       })
       const parsed = normalizeStructuredPlaceGenerationPayload(response)
@@ -410,7 +410,7 @@ export async function generatePlaceFleshOut({
     const response = await sendStructuredGenerationImpl({
       ...request,
       settings: resolvedSettings,
-      options: { max_tokens: 4000, timeout_ms: 60000 },
+      options: { timeout_ms: 60000 },
       signal
     })
     const place = response?.drafts?.places?.[0]

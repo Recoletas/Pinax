@@ -336,9 +336,10 @@ export function validateStructuredGenerationRequest(raw = {}) {
       },
       context,
       options: {
-        maxTokens: Number.isFinite(Number(raw.options?.maxTokens))
-          ? Math.max(120, Math.min(6000, Math.floor(Number(raw.options.maxTokens))))
-          : 1200,
+        // 2026-10-09 预算完全废弃：未声明即不写 maxTokens（交内核缺省），声明才夹到合同区间。
+        ...(Number.isFinite(Number(raw.options?.maxTokens))
+          ? { maxTokens: Math.max(120, Math.min(6000, Math.floor(Number(raw.options.maxTokens)))) }
+          : {}),
         temperature: Number.isFinite(Number(raw.options?.temperature))
           ? Math.max(0, Math.min(1, Number(raw.options.temperature)))
           : 0.2,

@@ -51,7 +51,7 @@
             <EntryCards :entries="visible" :selected-id="selected?.id || ''" @select="openEntry" />
             <p v-if="!visible.length" class="ueb-empty">{{ tr('暂无匹配条目') }}</p>
           </template>
-          <GraphCanvas v-else :graph="graph" @select="openEntry" />
+          <GraphCanvas v-else :graph="graph" @select="openEntry" @create-edge="(payload) => emit('create-edge', payload)" />
         </div>
       </div>
     </div>
@@ -82,7 +82,7 @@ const props = defineProps({
   worldbook: { type: Object, default: null }
 })
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'create-edge'])
 
 const query = ref('')
 const cat = ref('')

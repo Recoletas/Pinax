@@ -42,7 +42,7 @@ import {
   validateServerTaskType
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
-import { resolveTextModelMaxTokens, runTextModelAgent } from '../../server/services/textModelAgentProvider'
+import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
 import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
@@ -208,6 +208,7 @@ import {
   probeStructuredProviderCapabilities,
   runStructuredGeneration
 } from '../../server/services/structuredGenerationRunner.js'
+import { createModelRoundGuard } from '../../shared/modelLoopGuard.js'
 
 describe('agentContracts', function () {
   it('covers task registry, context budget, result lifecycle, and legacy compatibility', async function () {
@@ -598,14 +599,13 @@ describe('agentContracts', function () {
     })
     expect(validateAgentContextEnvelope(directionEnvelope, getTask('authoring.scene.directions'))).toMatchObject({ valid: true })
     expect(directionEnvelope.blocks.map((item) => item.kind)).toEqual(expect.arrayContaining(['scene', 'worldbook']))
-    expect(resolveTextModelMaxTokens({ taskType: 'authoring.scene.directions' })).toBe(1200)
+    // 20261008 直连退役：按任务的 max_tokens 限额随直连档一起退役，预算统一交内核缺省（4096）兜底。
     var directionPrompt = buildOpenClawUserMessage(directionEnvelope, '规划本场方向', {
       taskType: 'authoring.scene.directions', options: { toolChoice: 'none' }
     })
     expect(directionPrompt).toContain('immediateGain')
     expect(directionPrompt).toContain('insufficient-evidence')
     expect(directionPrompt).toContain('不得创造未知人物')
-    expect(resolveTextModelMaxTokens({ taskType: 'authoring.knowledge.query' })).toBe(2800)
     var knowledgePrompt = buildOpenClawUserMessage(directionEnvelope, '艾德加此前在哪几章出现？', {
       taskType: 'authoring.knowledge.query', options: { toolChoice: 'none' }
     })
@@ -3880,7 +3880,22 @@ describe('agentContracts', function () {
     })
     expect(incompleteResult.drafts.geography).toContain('潮滩')
     expect(incompleteFetch).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(incompleteFetch.mock.calls[1][1].body).max_tokens).toBeGreaterThan(2200)
+    // 2026-10-09 预算完全废弃：截断只补跑同一轮请求，声明值原样透传，不再抬预算。
+    expect(JSON.parse(incompleteFetch.mock.calls[0][1].body).max_tokens).toBe(2200)
+    expect(JSON.parse(incompleteFetch.mock.calls[1][1].body).max_tokens).toBe(2200)
+
+    var exhaustedFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '{"drafts":{"geography":"港城沿旧灯塔' } }] })
+    })
+    await expect(runStructuredGeneration({ ...incompleteRequest, options: {} }, {
+      fetchImpl: exhaustedFetch,
+      cache: createStructuredCapabilityCache(),
+      roundGuard: createModelRoundGuard(1)
+    })).rejects.toMatchObject({ code: 'MODEL_ROUND_LIMIT_EXCEEDED' })
+    // 未声明预算的请求体不带 max_tokens，交内核缺省。
+    expect(JSON.parse(exhaustedFetch.mock.calls[0][1].body).max_tokens).toBeUndefined()
 
     const malformedStopFetch = vi.fn()
       .mockResolvedValueOnce({

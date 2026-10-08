@@ -91,7 +91,6 @@ export function createNarrativeKernelExecutor({
   buildResourceIndex = getNarrativeResourceIndex,
   createRegistry = createNarrativeToolRegistry,
   formatInstructions = buildNarrativeFormatInstructions(),
-  maxTokens = 2600,
   resolveMemories = () => []
 } = {}) {
   if (typeof buildKernel !== 'function') throw new Error('createNarrativeKernelExecutor requires buildKernel')
@@ -261,7 +260,6 @@ export function createNarrativeKernelExecutor({
         settings,
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
-        maxTokens,
         taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
       })
     } catch (error) {

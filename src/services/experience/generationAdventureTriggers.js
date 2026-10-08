@@ -179,7 +179,6 @@ export async function generateAdventureProseDraft({
     }),
     settings,
     generationOptions: {
-      max_tokens: 1200,
       temperature: 0.55
     },
     attempts: [

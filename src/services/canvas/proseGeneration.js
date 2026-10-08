@@ -129,7 +129,6 @@ export function parseCardBlock(text) {
 export async function generateProseCardExtensions({ cardContent, settings }) {
   const generationSettings = {
     ...settings,
-    max_tokens: 2000,
     temperature: 0.8
   }
 
@@ -172,7 +171,6 @@ export async function generateProseCardExtensions({ cardContent, settings }) {
 export async function generateProseEmotionExtensions({ content, emotionLabel, settings }) {
   const generationSettings = {
     ...settings,
-    max_tokens: 2000,
     temperature: 0.8
   }
 
@@ -211,7 +209,6 @@ export async function generateProseEmotionExtensions({ content, emotionLabel, se
 export async function generateProseCardsFromTopic({ topic, mode = 'writing', settings }) {
   const generationSettings = {
     ...settings,
-    max_tokens: 3000,
     temperature: 0.8
   }
 

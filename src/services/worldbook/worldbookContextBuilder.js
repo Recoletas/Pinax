@@ -20,6 +20,44 @@ const DEFAULT_STARTER_ENTRY_LIMITS = {
   lore: 1
 }
 
+// W2·G4 tier 分档语义：
+// - 条目档位 entry.tier ∈ core|support|background；缺省按 kind 推导（kindTierOf）：
+//   rule→core，character/location/organization→support，其余（item/event/quest/npc/
+//   extra/未知 kind）→background。用户可在条目上显式改档，entry.tier 恒优先于推导。
+// - 注入预算按档裁剪（只收索单条上限，不改排序与匹配语义）：
+//   core 不裁（只受全局预算约束）；support 单条上限=预算×50%；
+//   background 走既有低预算垫底通道（max(80, 预算×20%)，与 linked 一跳同式）。
+// - NPC/extra 默认不自动注入：两类 kind 不进 starter 自动注入集；NPC 被场景显式
+//   引用（keys/links 命中）时仍可经一跳扩展进入；extra 永不自动注入（一跳扩展也拦，
+//   只剩 constant/history/bound/keyword 这些作者在条目上显式配置的通道）。
+const SUPPORT_ENTRY_BUDGET_RATIO = 0.5
+const CORE_STARTER_LIMIT_MULTIPLIER = 2
+const KIND_TIER_MAP = {
+  rule: 'core',
+  character: 'support',
+  location: 'support',
+  organization: 'support'
+}
+// 不进 starter 自动注入集的 kind（NPC/extra）；显式引用走一跳扩展通道不受此限
+const STARTER_EXCLUDED_KINDS = new Set(['npc', 'extra'])
+// 永不自动注入的 kind（extra）：连一跳扩展这条自动通道也拦
+const NEVER_AUTO_INJECT_KINDS = new Set(['extra'])
+
+export const ENTRY_TIER_VALUES = Object.freeze(['core', 'support', 'background'])
+
+// kind → 缺省档位；未知 kind 落 background（与 getTypePriority 未知落 general 的兜底同理）
+export function kindTierOf(kind) {
+  const key = String(kind || '').trim().toLowerCase()
+  return KIND_TIER_MAP[key] || 'background'
+}
+
+// 条目档位：显式 entry.tier 优先，缺省按 kind 推导（kind 取 entry.kind，回落 entry.type）
+export function entryTierOf(entry) {
+  const explicit = String(entry?.tier || '').trim().toLowerCase()
+  if (ENTRY_TIER_VALUES.includes(explicit)) return explicit
+  return kindTierOf(entry?.kind ?? entry?.type)
+}
+
 export const ENTRY_TYPE_PRIORITY = {
   rule: 1,
   forbidden: 2,
@@ -271,8 +309,14 @@ function collectStarterEntries(rawEntries = [], seenIds = new Set(), limits = {}
   for (const rawEntry of rawEntries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry || seenIds.has(entry.id)) continue
+    // NPC/extra kind 不进 starter 自动注入集（与 limits 覆盖无关，kind 排除恒生效）
+    const kind = String(entry.kind ?? entry.type ?? '').trim().toLowerCase()
+    if (STARTER_EXCLUDED_KINDS.has(kind)) continue
     const limit = normalizedLimits[entry.type]
-    if (!limit || counts[entry.type] >= limit) continue
+    if (!limit) continue
+    // core tier 的 starter 上限放宽为原 2 倍（core 是作者钦点的主角/规则，配得上）
+    const effectiveLimit = entryTierOf(entry) === 'core' ? limit * CORE_STARTER_LIMIT_MULTIPLIER : limit
+    if (counts[entry.type] >= effectiveLimit) continue
 
     starters.push({
       ...entry,
@@ -465,6 +509,9 @@ export function matchWorldbookEntries({
     for (const neighbor of relationNeighborWeights(matchedEntries, injectableEntries, { limit: LINKED_NEIGHBOR_LIMIT })) {
       const entry = linkedEntriesById.get(neighbor.id)
       if (!entry || seenIds.has(entry.id)) continue
+      // extra 永不自动注入——一跳扩展也是自动通道，拦下（NPC 经显式引用由此进入）
+      const neighborKind = String(entry.kind ?? entry.type ?? '').trim().toLowerCase()
+      if (NEVER_AUTO_INJECT_KINDS.has(neighborKind)) continue
       matchedEntries.push({
         ...entry,
         matchReason: 'linked',
@@ -644,16 +691,21 @@ export function buildWorldbookContext({
   // W3·B3：关联条目（一跳扩展）低预算附带注入——单条上限 max(80, 预算×20%)，
   // 超限或挤占主条目预算时跳过（不计预算外），复用现有 token 预算口径。
   const linkedTokenCap = Math.max(LINKED_ENTRY_MIN_TOKEN_CAP, Math.ceil(effectiveBudget * LINKED_ENTRY_BUDGET_RATIO))
+  // W2·G4 tier 分档裁剪：core 不裁（Infinity，退化为既有全局预算判定）；
+  // support 单条上限=预算×50%；background 与 linked 同式（低预算垫底通道）。
+  // linked 一跳条目恒用 linkedTokenCap（垫底通道不被档位抬升）。
+  const supportTokenCap = Math.ceil(effectiveBudget * SUPPORT_ENTRY_BUDGET_RATIO)
 
   for (const entry of matchedEntries) {
     const isLinked = entry.matchReason === 'linked'
+    const tier = entryTierOf(entry)
+    const tierCap = tier === 'core' ? Infinity : tier === 'support' ? supportTokenCap : linkedTokenCap
+    const entryCap = isLinked ? linkedTokenCap : tierCap
     const entryText = isLinked
       ? `\n\n◇ 【${entry.name}】(${entry.type || 'general'})（关联）\n${entry.content}`
       : `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
     const entryTokens = estimateTokens(entryText)
-    if (isLinked
-      ? (entryTokens > linkedTokenCap || usedTokens + entryTokens > effectiveBudget)
-      : usedTokens + entryTokens > effectiveBudget) {
+    if (entryTokens > entryCap || usedTokens + entryTokens > effectiveBudget) {
       truncatedEntries += 1
       warnings.push(isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`)
       contextLedger = appendContextLedgerPart(contextLedger, {
@@ -663,7 +715,7 @@ export function buildWorldbookContext({
         content: entry.content,
         included: false,
         truncated: !isLinked,
-        limit: isLinked ? linkedTokenCap : effectiveBudget,
+        limit: isLinked || Number.isFinite(entryCap) ? entryCap : effectiveBudget,
         entryId: entry.id,
         warning: isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`
       })

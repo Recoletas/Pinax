@@ -25,6 +25,9 @@ export const TEXT_PROVIDER_TYPES = Object.freeze([
   { id: 'ollama', name: 'Ollama (本地)', baseUrl: 'http://localhost:11434', defaultModel: '' },
   { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: '' },
   { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: '' },
+  // Anthropic 线：内核按 anthropic-messages 传输接入。baseUrl 不带 /v1（SDK 自行拼 /v1/messages）；
+  // Anthropic 无 /models 列表端点，模型名需手填。
+  { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', defaultModel: '' },
   { id: 'custom', name: '自定义', baseUrl: '', defaultModel: '' }
 ])
 

@@ -23,6 +23,7 @@
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
+        @pointercancel="onPointerCancel"
         @pointerleave="onPointerLeave"
         @dblclick="resetView"
         @wheel.prevent="onWheel"
@@ -30,7 +31,7 @@
       <p v-else class="graph-empty">{{ tr('暂无可绘制的词条') }}</p>
     </div>
     <p class="graph-foot">
-      {{ tr('{entries} 词条 · {edges} 关系边 · hover 高亮邻域 · 拖节点/拖画布/滚轮缩放 · 双击复位 · 点节点选中词条', { entries: nodeCount, edges: edgeCount }) }}
+      {{ tr('{entries} 词条 · {edges} 关系边 · hover 高亮邻域 · 拖节点/拖画布/滚轮缩放 · Shift+拖节点拉线建边 · 双击复位 · 点节点选中词条', { entries: nodeCount, edges: edgeCount }) }}
     </p>
   </div>
 </template>
@@ -44,14 +45,16 @@ import { catColorOf } from '../../services/worldbook/entryBrowserModel.js'
  * 世界书关系图谱（W2·B1）——kit WorldbookGraphView 的 Vue 移植，零依赖 Canvas 2D：
  * 环形起点 + 斥力/弹簧预跑收敛、hover 邻域淡化、分类图例高亮、度数定半径、
  * 节点拖拽 / 画布平移 / 滚轮缩放 / 双击复位；节点原地点击 emit('select', graphEntry)。
- * 纯只读：不写任何数据、无路由副作用。
+ * W2·G1 建边：Shift+从节点拖拽拉临时虚线到目标节点，松开命中即 emit('create-edge',
+ * { fromId, toId })；不修饰键的拖拽仍是移动节点，两行为用修饰键互斥。
+ * 组件自身仍不写任何数据、无路由副作用；建边落库由父层走 EntryLinksEditor 契约。
  */
 const props = defineProps({
   /** worldbook-graph@1（entryBrowserModel.buildGraph 产物） */
   graph: { type: Object, default: null }
 })
 
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'create-edge'])
 
 const rootRef = ref(null)
 const bodyRef = ref(null)
@@ -70,6 +73,7 @@ let layout = null
 let view = { k: 1, tx: 0, ty: 0 }
 let hoverId = null
 let drag = null
+let edgeDrag = null
 let lastSize = { w: 0, h: 0 }
 let labelColor = 'rgba(60, 54, 46, 0.92)'
 let labelFont = '22px sans-serif'
@@ -150,6 +154,32 @@ function draw(activeHover) {
       ctx.fillText(n.e.title, n.x, n.y - r - 6 / k)
     }
     ctx.globalAlpha = 1
+  }
+  // W2·G1 建边拖拽中的临时线（贝塞尔虚线 + 起点/落点圆 + 目标候选环），世界坐标系
+  if (edgeDrag) {
+    const mx = (edgeDrag.from.x + edgeDrag.x) / 2
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = 'rgba(176, 154, 95, 0.9)'
+    ctx.setLineDash([6 / k, 5 / k])
+    ctx.lineWidth = 2 / k
+    ctx.beginPath()
+    ctx.moveTo(edgeDrag.from.x, edgeDrag.from.y)
+    ctx.bezierCurveTo(mx, edgeDrag.from.y, mx, edgeDrag.y, edgeDrag.x, edgeDrag.y)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(edgeDrag.from.x, edgeDrag.from.y, radiusOf(edgeDrag.from) + 4 / k, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(edgeDrag.x, edgeDrag.y, 5 / k, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(176, 154, 95, 0.9)'
+    ctx.fill()
+    if (edgeDrag.target) {
+      ctx.beginPath()
+      ctx.arc(edgeDrag.target.x, edgeDrag.target.y, radiusOf(edgeDrag.target) + 6 / k, 0, Math.PI * 2)
+      ctx.setLineDash([4 / k, 4 / k])
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0)
 }
@@ -264,6 +294,23 @@ function pickNode(clientX, clientY) {
 }
 
 function onPointerDown(event) {
+  // W2·G1：Shift+按在节点上 = 建边拖拽（与移动节点/平移画布用修饰键互斥）
+  if (event.shiftKey) {
+    const hit = pickNode(event.clientX, event.clientY)
+    if (hit) {
+      const p = toWorld(event.clientX, event.clientY)
+      edgeDrag = { from: hit, x: p?.x ?? hit.x, y: p?.y ?? hit.y, target: null }
+      if (typeof window !== 'undefined') window.addEventListener('keydown', onWindowKeydown)
+      try {
+        canvasRef.value?.setPointerCapture(event.pointerId)
+      } catch {
+        /* 捕获失败照走 */
+      }
+      if (canvasRef.value) canvasRef.value.style.cursor = 'crosshair'
+      draw(null)
+      return
+    }
+  }
   const hit = pickNode(event.clientX, event.clientY)
   if (hit) {
     const p = toWorld(event.clientX, event.clientY)
@@ -279,6 +326,18 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  // 建边拖拽：更新临时线端点与目标候选（复用既有节点命中半径）
+  if (edgeDrag) {
+    const p = toWorld(event.clientX, event.clientY)
+    if (p) {
+      edgeDrag.x = p.x
+      edgeDrag.y = p.y
+    }
+    const hit = pickNode(event.clientX, event.clientY)
+    edgeDrag.target = hit && hit !== edgeDrag.from ? hit : null
+    draw(null)
+    return
+  }
   const current = drag
   if (!current) {
     const hit = pickNode(event.clientX, event.clientY)
@@ -311,7 +370,18 @@ function onPointerMove(event) {
   draw(null)
 }
 
-function onPointerUp() {
+function onPointerUp(event) {
+  // 建边拖拽收尾：落在目标节点命中半径内 → emit（自环静默忽略）
+  if (edgeDrag) {
+    const hit = pickNode(event.clientX, event.clientY)
+    const fromId = edgeDrag.from.e.id
+    edgeDrag = null
+    removeEdgeDragKeydown()
+    if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
+    if (hit && hit.e.id !== fromId) emit('create-edge', { fromId, toId: hit.e.id })
+    draw(hoverId)
+    return
+  }
   const current = drag
   drag = null
   if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
@@ -319,8 +389,35 @@ function onPointerUp() {
   if (current?.type === 'node' && !current.moved) emit('select', current.n.e)
 }
 
+function onPointerCancel() {
+  // 系统打断（滚轮滚动/手势接管等）：建边取消，移动/平移按既有语义收尾
+  if (edgeDrag) {
+    cancelEdgeDrag()
+    return
+  }
+  drag = null
+  if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
+}
+
+function cancelEdgeDrag() {
+  if (!edgeDrag) return
+  edgeDrag = null
+  removeEdgeDragKeydown()
+  if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
+  draw(hoverId)
+}
+
+function removeEdgeDragKeydown() {
+  if (typeof window !== 'undefined') window.removeEventListener('keydown', onWindowKeydown)
+}
+
+function onWindowKeydown(event) {
+  // ESC 取消建边（监听挂在 window：canvas 无焦点也能收到）
+  if (event.key === 'Escape') cancelEdgeDrag()
+}
+
 function onPointerLeave() {
-  if (!drag) {
+  if (!drag && !edgeDrag) {
     hoverId = null
     draw(null)
   }
@@ -364,6 +461,7 @@ watch(
   () => props.graph,
   () => {
     highlightCat.value = ''
+    cancelEdgeDrag()
     layout = null
     lastSize = { w: 0, h: 0 }
     // flush post：等 canvas 随 v-if 出现后再布局
@@ -390,6 +488,9 @@ onBeforeUnmount(() => {
     resizeObserver.disconnect()
     resizeObserver = null
   }
+  removeEdgeDragKeydown()
+  edgeDrag = null
+  drag = null
   layout = null
 })
 </script>

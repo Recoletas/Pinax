@@ -1,25 +1,12 @@
 import { buildOpenClawUserMessage } from './openclawService.js'
 import { forwardComplete } from './kitModelGateway.js'
 import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
-
+import { resolveModelRoundGuard } from '../../shared/modelLoopGuard.js'
 export const TEXT_MODEL_PROVIDER = Object.freeze({
   id: 'text-model',
   capabilities: ['text'],
   timeoutMs: 45000
 })
-
-export function resolveTextModelMaxTokens(taskMeta = {}) {
-  const taskType = String(taskMeta?.taskType || '')
-  const options = taskMeta?.options || {}
-  const candidateCount = Math.max(1, Math.min(3, Math.floor(Number(options.candidateCount) || 1)))
-  if (taskType.startsWith('writing.fix.') && candidateCount > 1) {
-    return Math.min(3600, 1800 + (candidateCount * 400))
-  }
-  if (taskType === 'authoring.scene.directions' || taskType === 'authoring.rehearsal.step') return 1200
-  if (taskType === 'authoring.knowledge.query') return 2800
-  if (taskType === 'writing.chapter.health' || options.chapterReview) return 2800
-  return 1800
-}
 
 function responseError(parsed) {
   let code = 'AGENT_PROVIDER_EMPTY_CONTENT'
@@ -55,14 +42,16 @@ export async function runTextModelAgent(envelope, question, taskMeta = {}) {
 
 async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
   const prompt = buildOpenClawUserMessage(envelope, question, taskMeta)
-  const maxTokens = resolveTextModelMaxTokens(taskMeta)
+  // 2026-10-09 预算完全废弃：不发 max_tokens（思考型端点的计量与正文不同，写死会把正文饿死），
+  // 单次请求的失控护栏只剩模型调用轮数闸。
+  const roundGuard = resolveModelRoundGuard(taskMeta.roundGuard, 'advisor')
   let lastError = null
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; ; attempt += 1) {
+    roundGuard.acquire('advisor')
     const repairInstruction = attempt === 0 ? '' : '\n\n上一次响应没有可用的最终结果。请跳过思考过程，仅返回符合上述协议的完整 JSON。'
     try {
       const result = await forwardComplete({
         messages: [{ role: 'user', content: prompt + repairInstruction }],
-        maxTokens: Math.min(4096, maxTokens + (attempt * 600)),
         temperature: attempt === 0 ? 0.4 : 0.2,
         timeoutMs: attempt === 0 ? TEXT_MODEL_PROVIDER.timeoutMs : 30000
       })
@@ -72,10 +61,10 @@ async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
       console.warn('[Advisor] kit funnel unusable response:', { model: result.model, attempt: attempt + 1, code: lastError.code })
       if (!lastError.retryable) throw lastError
     } catch (error) {
+      if (error?.code === 'MODEL_ROUND_LIMIT_EXCEEDED') throw error
       if (error?.code === 'AGENT_PROVIDER_EMPTY_CONTENT' || error?.code === 'AGENT_PROVIDER_REFUSAL' || error?.code === 'AGENT_PROVIDER_OUTPUT_TRUNCATED') throw error
       lastError = Object.assign(new Error(`kit funnel 请求失败：${error?.message || error}`), { code: 'AGENT_PROVIDER_UPSTREAM_FAILED', retryable: attempt === 0 })
     }
     if (!lastError.retryable) throw lastError
   }
-  throw lastError
 }

@@ -417,7 +417,10 @@ export async function sendStructuredGeneration({
       target,
       context,
       options: {
-        maxTokens: Number(options.max_tokens || options.maxTokens || 1200),
+        // 2026-10-09 预算完全废弃：调用方不再写死预算，未声明即不发送该字段（交内核缺省）。
+        ...(Number.isFinite(Number(options.max_tokens || options.maxTokens))
+          ? { maxTokens: Number(options.max_tokens || options.maxTokens) }
+          : {}),
         temperature: Number.isFinite(Number(options.temperature)) ? Number(options.temperature) : 0.2,
         timeoutMs: requestedTimeoutMs
       }
@@ -622,7 +625,6 @@ async function compactMemoryTextWithLlm({ source, type, metadata, heuristic }) {
       metadata?.worldId || metadata?.projectId || '',
       null,
       {
-        max_tokens: 120,
         temperature: 0.1,
         response_format: { type: 'json_object' },
         taskType: 'memory.compact',

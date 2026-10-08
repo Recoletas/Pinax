@@ -36,6 +36,8 @@ import {
   preparePlaceForWrite
 } from '../services/worldbook/worldbookPlaceCatalog'
 import { archiveSourceDocuments } from '../services/worldbook/worldbookSourceArchive'
+// tier 档位枚举单源于注入端（entryTierOf/kindTierOf 语义见 worldbookContextBuilder 头注释）
+import { ENTRY_TIER_VALUES } from '../services/worldbook/worldbookContextBuilder'
 import { mutationFailure, mutationSuccess } from '../services/storage/durableMutationResult.js'
 import {
   createWorldbookFileSyncController,
@@ -716,6 +718,9 @@ export const useWorldStore = defineStore('world', {
         keysSecondary: entryData.keysSecondary || [],
         content: entryData.content || '',
         type: entryData.type || 'general',
+        // tier 档位（注入分档）：仅接受 core/support/background，无效值不落字段，
+        // 注入端回落 kind 推导；更新路径（_updateEntryMutation 展开透传）不丢显式档位
+        ...(ENTRY_TIER_VALUES.includes(entryData.tier) ? { tier: entryData.tier } : {}),
         name: entryData.name || entryData.keys?.[0] || '未命名条目',
         injection: {
           mode: entryData.injection?.mode || 'selective',
@@ -991,6 +996,22 @@ export const useWorldStore = defineStore('world', {
 
     async updateEntry(worldbookId, entryId, updates) {
       return unwrapWorldbookMutation(await this.updateEntryDurable(worldbookId, entryId, updates), 'entry')
+    },
+
+    // W2·G5 重复条目标记（去重保守裁定）：只给条目打 metadata.duplicateOf，
+    // 不删除、不合并不改名——真删除留 UI 确认。duplicateOfId 为空 = 清标记
+    // （undefined 经 JSON 序列化后不落盘，消费方按真值判定）。走 activeWorldbook，
+    // 复用 updateEntryDurable 的 durable 边界（回滚/文件双写/索引计数）；自引用静默无操作。
+    async markDuplicate(entryId, duplicateOfId) {
+      const worldbookId = String(this.activeWorldbook?.id || '').trim()
+      if (!worldbookId) throw new Error('没有激活的世界书')
+      const selfId = String(entryId || '').trim()
+      const targetId = String(duplicateOfId || '').trim()
+      if (!selfId || (targetId && targetId === selfId)) return null
+      return unwrapWorldbookMutation(
+        await this.updateEntryDurable(worldbookId, selfId, { metadata: { duplicateOf: targetId } }),
+        'entry'
+      )
     },
 
     async deleteEntry(worldbookId, entryId) {

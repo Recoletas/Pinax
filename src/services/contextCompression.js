@@ -256,7 +256,6 @@ async function buildLlmSummary({
       settings,
       worldId: worldId || null,
       generationOptions: {
-        max_tokens: 700,
         temperature: 0.1,
         attemptName: 'context-compress',
         max_input_chars: 9000

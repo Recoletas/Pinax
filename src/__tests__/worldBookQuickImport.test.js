@@ -1360,11 +1360,10 @@ const store = useWorldStore()
     expect(characterGenerationRequest.schemaId).toBe(STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD)
     expect(characterGenerationRequest.context.currentCharacter).toMatchObject({ id: 'char-1', name: '沈砚' })
     expect(characterDraft).toMatchObject({ ok: true, sourceRevision: 'wb-r3', sourceEntryRevision: 'entry-r2', profile: { personality: '寡言' } })
-    expect(editorSource).toContain('entryForm.speechStyle')
-    expect(editorSource).toContain('entryForm.samples')
-    expect(editorSource).toContain('addVoiceSample')
-    expect(editorSource).toContain('removeVoiceSample')
-    expect(editorSource).toContain('生成时最多使用前 3 条')
+    // 20261008 声口双轨合并：老「角色声口 0/6」编辑器退役，读写统一走 profile.speech（声口横切）。
+    expect(editorSource).toContain('characterVoicePayload')
+    expect(editorSource).not.toContain('entryForm.speechStyle')
+    expect(editorSource).not.toContain('addVoiceSample')
     const retryCalls = []
     const retryResults = await generateSettingSectionDraftBatch({
       worldbook: sectionWorldbook,
