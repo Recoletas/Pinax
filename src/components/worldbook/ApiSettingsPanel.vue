@@ -28,9 +28,11 @@ import { computed, onMounted, ref } from 'vue'
 import TextModelPicker from '../text/TextModelPicker.vue'
 import {
   getSelectedTextProviderConfigId,
+  getServerTextModel,
   listTextProviderConfigs,
   resolveSelectedTextProviderConfig,
-  saveSelectedTextProviderConfigId
+  saveSelectedTextProviderConfigId,
+  setServerTextModel
 } from '../../services/textProviderConfigStore'
 
 const selectedId = ref('')
@@ -43,21 +45,24 @@ const applyMessage = ref('')
 const currentNote = computed(() => {
   const resolved = configs.value.find((config) => config.id === selectedId.value)
     || resolveSelectedTextProviderConfig()
-  if (resolved?.builtin) {
-    return tr('内置 MiniMax 使用服务器密钥；未配置 MINIMAX_API_KEY 时该选项不可用。')
+  if (resolved?.builtin || !String(resolved?.apiKey || '').trim()) {
+    const server = getServerTextModel()
+    if (server) return `服务器模型由 pi-agent 内核持有（${server.model}），浏览器不接触密钥。`
+    return tr('内置服务器模型使用内核密钥；内核未运行时该选项不可用。')
   }
   return tr('当前使用「{name}」，模型 {model}。', { name: resolved?.name || tr('自定义配置'), model: resolved?.model || '—' })
 })
 
-/** 所选配置映射为 kit /model patch。内置/服务器密钥配置不带 key（kit 进程 env 注入）、走 OpenAI 兼容 v1 端点。 */
+/** 选择映射为 kit /model patch。服务器内置/无 Key 的配置由内核自持模型，永不推送 patch（否则会把内核模型改回硬编码）。 */
 function modelPatchOf(config) {
   const resolved = config || resolveSelectedTextProviderConfig()
   if (!resolved) return { patch: null, reason: 'no-config' }
-  const baseUrl = String(resolved.baseUrl || '')
-  const serverKeyed = !String(resolved.apiKey || '').trim() || resolved.apiKey === 'minimax-server-key'
-  if (serverKeyed && /minimaxi?\.com/i.test(baseUrl)) {
-    return { patch: { provider: 'minimax', model: resolved.model || 'MiniMax-Text-01', baseUrl: 'https://api.minimaxi.com/v1' } }
+  const key = String(resolved.apiKey || '').trim()
+  // 内置行或空 Key 配置都是"服务器拥有模型"：内核即为真源，不改写。
+  if (resolved.builtin || !key || key === 'minimax-server-key') {
+    return { patch: null, reason: 'server-owned' }
   }
+  const baseUrl = String(resolved.baseUrl || '')
   // Anthropic 协议配置：kit 通路目前只讲 OpenAI 兼容线——保持该配置直连，不切 Agent 模型
   if (resolved.format === 'anthropic' || /\/anthropic/i.test(baseUrl)) {
     return { patch: null, reason: 'anthropic-protocol' }
@@ -69,7 +74,7 @@ function modelPatchOf(config) {
       provider,
       model: resolved.model,
       baseUrl,
-      ...(resolved.apiKey ? { apiKey: resolved.apiKey } : {})
+      apiKey: resolved.apiKey
     }
   }
 }
@@ -81,17 +86,21 @@ async function refreshEngine() {
     if (response.ok && body?.ok) {
       engineState.value = 'up'
       effectiveModel.value = `${body.provider}.${body.model}`
+      setServerTextModel({ provider: body.provider, model: body.model, baseUrl: body.baseUrl })
+      configs.value = listTextProviderConfigs()
       return true
     }
     engineState.value = 'down'
+    setServerTextModel(null)
     return false
   } catch {
     engineState.value = 'down'
+    setServerTextModel(null)
     return false
   }
 }
 
-/** 选择即生效：把选中配置热切到 Agent 通路（所有链路共用）。挂载时若与生效模型不一致，同样以所选为准。 */
+/** 选择即生效：把选中配置热切到 Agent 通路（所有链路共用）。服务器内置行为 no-op，内核保持自持模型。 */
 async function applySelectedToEngine() {
   if (applying.value) return
   const resolved = resolveSelectedTextProviderConfig()
@@ -131,10 +140,8 @@ onMounted(async () => {
     saveSelectedTextProviderConfigId(resolved.id)
   }
   const up = await refreshEngine()
-  // 选择器即模型真源：面板打开时若生效模型与所选不一致，以所选为准
-  if (up && effectiveModel.value !== `${modelPatchOf(resolved).patch?.provider ?? ''}.${modelPatchOf(resolved).patch?.model ?? ''}`) {
-    await applySelectedToEngine()
-  }
+  // 只有自带 Key 的浏览器配置才需要把内核切过去；内置行为内核自持，不动。
+  if (up) await applySelectedToEngine()
 })
 
 function handleSelect(id) {

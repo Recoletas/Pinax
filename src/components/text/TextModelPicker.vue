@@ -227,8 +227,8 @@ useTransientLayer({
                 v-else
                 type="button"
                 class="is-icon"
-                :title="tr(&quot;查看内置 MiniMax&quot;)"
-                :aria-label="tr(&quot;查看内置 MiniMax&quot;)"
+                :title="tr(&quot;查看服务器模型&quot;)"
+                :aria-label="tr(&quot;查看服务器模型&quot;)"
                 @click.stop="editConfig(config)"
               >…</button>
             </div>
@@ -242,7 +242,7 @@ useTransientLayer({
         <section class="text-model-dialog text-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr(&quot;文本模型配置&quot;)">
           <header>
             <div>
-              <strong>{{ editingIsBuiltin ? tr('内置 MiniMax') : (editingConfig.id ? tr('编辑文本配置') : tr('添加文本配置')) }}</strong>
+              <strong>{{ editingIsBuiltin ? tr('服务器模型') : (editingConfig.id ? tr('编辑文本配置') : tr('添加文本配置')) }}</strong>
               <small>{{ providerLabel(editingConfig.providerId) }}</small>
             </div>
             <button type="button" class="is-icon" :title="tr(&quot;关闭&quot;)" :aria-label="tr(&quot;关闭&quot;)" @click="closeConfig">×</button>
@@ -257,7 +257,7 @@ useTransientLayer({
             <div class="text-model-server-key">
               <span>API Key</span>
               <strong>{{ tr('已由服务器配置，无需填写') }}</strong>
-              <p>{{ tr('使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置') }}<code>MINIMAX_API_KEY</code>{{ tr('，请求时会有明确报错。') }}</p>
+              <p>{{ tr('该模型由 pi-agent 内核持有密钥，所有链路（写作、讨论、审校、设定生成、推演）共用；浏览器不接触真实密钥。内核未运行时，此选项不可用。') }}</p>
             </div>
           </div>
 

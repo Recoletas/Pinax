@@ -1,4 +1,4 @@
-// 项目资料面板（全局单例）：新建 / 编辑 / 导入绑定 三模式共用的统一面板。
+// 项目资料面板（全局单例）：新建 / 编辑 / 导入绑定 / 导入项目 四模式共用的统一面板。
 // open({mode, book, onCreated}) —— onCreated 供宿主页面（如 Authoring）接管创建后的选书与助手衔接；
 // 未传 onCreated 时默认导航到 authoring?bookId=（跨路由重挂载后 query 生效）。
 import { ref } from 'vue'
