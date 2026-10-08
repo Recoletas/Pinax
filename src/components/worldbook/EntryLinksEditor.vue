@@ -184,6 +184,42 @@ function ignoreSuggestion(suggestion) {
   next.add(suggestion.to)
   ignoredSuggestionIds.value = next
 }
+
+/* ---------- W2·G3 图谱建边对接（GraphCanvas create-edge → 本编辑器走既有契约写回） ---------- */
+
+/**
+ * 接收图谱建边结果：fromId 必须是当前编辑条目，toId 是目标条目 id。
+ * 命中已有同目标行时原位更新属性（applyRelationRows 按 to 首现去重，盲目追加会丢新属性），
+ * 否则追加一条 src='declared' 的行；随后立即走 saveRows 的既有双层写回（emit('save')）。
+ * 返回是否受理（父层可据此决定是否提示）。
+ */
+function createEdge({ fromId, toId, type = '', stance = '', covert = false, weight = 2 } = {}) {
+  const selfId = String(props.entry?.id ?? '').trim()
+  const targetId = String(toId ?? '').trim()
+  if (!selfId || String(fromId ?? '').trim() !== selfId || !targetId || targetId === selfId) return false
+  const normalizedWeight = Number.isFinite(Number(weight)) && Number(weight) > 0 ? Number(weight) : 2
+  const normalizedStance = stances.includes(stance) ? stance : ''
+  const existing = rows.value.find((row) => String(row.to ?? '').trim() === targetId)
+  if (existing) {
+    existing.type = String(type ?? '')
+    existing.stance = normalizedStance
+    existing.covert = covert === true
+    existing.weight = normalizedWeight
+  } else {
+    rows.value.push({
+      to: targetId,
+      type: String(type ?? ''),
+      stance: normalizedStance,
+      covert: covert === true,
+      weight: normalizedWeight,
+      src: 'declared'
+    })
+  }
+  saveRows()
+  return true
+}
+
+defineExpose({ createEdge })
 </script>
 
 <style scoped>

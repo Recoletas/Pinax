@@ -281,9 +281,10 @@ useTransientLayer({
             </label>
             <label v-if="editingConfig.providerId === 'minimax-video'">
               <span>模型</span>
-              <select v-model="editingConfig.model" @change="normalizeEditingResolution">
-                <option v-for="item in MINIMAX_VIDEO_MODELS" :key="item" :value="item">{{ item }}</option>
-              </select>
+              <input v-model="editingConfig.model" list="minimax-video-models" placeholder="例如：MiniMax-Hailuo-2.3" @change="normalizeEditingResolution" />
+              <datalist id="minimax-video-models">
+                <option v-for="item in MINIMAX_VIDEO_MODELS" :key="item" :value="item"></option>
+              </datalist>
             </label>
             <label v-else><span>模型</span><input v-model="editingConfig.model" placeholder="视频模型名称" /></label>
             <label><span>API 地址</span><input v-model="editingConfig.baseUrl" placeholder="渠道默认地址或自定义地址" /></label>

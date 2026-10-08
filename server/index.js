@@ -13,7 +13,6 @@ import chatRouter from './routes/chat.js'
 import generateRouter from './routes/generate.js'
 import preferencesRouter from './routes/preferences.js'
 import advisorRouter from './routes/advisor.js'
-import openclawRouter from './routes/openclaw.js'
 import roomsRouter from './routes/rooms.js'
 import createMediaRouter from './routes/media.js'
 import createImageRouter from './routes/image.js'
@@ -75,7 +74,6 @@ app.use('/api/chat', chatRouter)
 app.use('/api/generate', generateRouter)
 app.use('/api/preferences', preferencesRouter)
 app.use('/api/advisor', advisorRouter)
-app.use('/api/openclaw', openclawRouter)
 app.use('/api/research', researchRouter)
 app.use('/api/localmirror', createLocalMirrorRouter())
 app.use('/api/storyagent', createStoryAgentRouter())

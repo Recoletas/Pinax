@@ -35,7 +35,7 @@
 - `server/data/worlds/*.json`（5 个）与 `server/data/events/*.json`（8 个）——**体验页游玩世界/事件池配置**，不是创作世界书，路由 `config.js`/`events.js` 只读。
 
 ### 1.7 服务端写盘先例
-- 唯一运行时写盘：`openclawService.js` 设备身份文件（env 覆盖 + recursive mkdir + 0600）——本镜像的写盘模板；原子 tmp+rename 取自 `electron/projects/projectFiles.mjs`。
+- 运行时写盘现为 `localMirrorService.js` 的项目镜像（`世界书/**.md` + `index.json`/`graph.json`/`manifest.json`，原子 tmp+rename）；历史先例 `openclawService.js` 设备身份文件已随 OpenClaw 网关通路退役删除（2026-10-09）。
 - `server/data/` 只读；媒体是字节管道不落盘；任务日志在 kit 侧。
 
 ## 二、本地文件镜像（已实现）

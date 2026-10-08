@@ -358,7 +358,7 @@ export function createKitStructuredCapabilityFetchImpl() {
           description: '提交结构化设定草稿 JSON；提交即结束任务。',
           parameters: parsed.schema || { type: 'object', properties: {} }
         },
-        maxTokens: parsed.maxTokens || 1200,
+        ...(Number.isFinite(Number(parsed.maxTokens)) ? { maxTokens: Number(parsed.maxTokens) } : {}),
         budget: { agentTimeoutMs: STRUCTURED_CAPABILITY_TIMEOUT_MS, maxModelSteps: 2, maxCallsPerTurn: 3 },
         timeoutMs: STRUCTURED_CAPABILITY_TIMEOUT_MS,
         signal

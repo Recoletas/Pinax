@@ -27,7 +27,7 @@ import {
   updateComicPageComposition,
   updateComicSequenceVisualBible
 } from '../services/media/comicPageStore'
-import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
+import { listImageProviderConfigs, resolveSelectedImageProviderConfig, saveSelectedImageProviderConfigId } from '../services/media/imageProviderConfigStore'
 
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
@@ -221,9 +221,14 @@ onBeforeRouteUpdate(() => flushPendingEdits())
 function loadModels(configs = null) {
   modelConfigs.value = Array.isArray(configs) ? configs : listImageProviderConfigs()
   if (!modelConfigs.value.some((config) => config.id === selectedModelId.value)) {
-    selectedModelId.value = modelConfigs.value[0]?.id || ''
+    selectedModelId.value = resolveSelectedImageProviderConfig()?.id || modelConfigs.value[0]?.id || ''
   }
 }
+
+watch(selectedModelId, (id) => {
+  if (!id) return
+  try { saveSelectedImageProviderConfigId(id) } catch { /* 本次选择仍生效，写盘失败不阻塞出图 */ }
+})
 
 function onPageClick(item) {
   if (selectPage(item.page.id)) {

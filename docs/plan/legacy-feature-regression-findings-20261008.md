@@ -81,7 +81,7 @@
 ### 解决思路（按彻底程度排序，可分层做）
 
 1. **模型适配（最干净）**：把内核指到一个非思考型的创作用模型（`POST http://127.0.0.1:8451/model` 热切即可，无需重启；切换前先在内存快照当前密钥）。这条同时解决拒答人格问题。需要用户提供/确认模型行与密钥。
-2. **预算分层（不换模型也能救大部分）——【20261008 裁定已执行：写死预算摒弃】**：原建议按实测值逐功能抬写死预算（对白 2400、涌现 4000）；用户裁定「暂时摒弃写死的预算模块，thinking 是完全不同的计量方式」。**已实施**：涌现/分镜两处调用点写死值删除，chat.js 双处理器（非流式+流式）的 `DEFAULT_MAX_TOKENS=500` 强制缺省撤销——未声明预算的请求不再透传 max_tokens，交内核缺省（4096，实测 dots3 该档出正文，全链活体通过）。分页方案流式链的重新设计建议维持原文。附带建议维持：`dialogueOptions`（`src/services/experience/dialogueOptions.js:25-33`）无预算声明现在落在内核 4096 兜底上，成本口径要说清楚。thinking 计量的正式设计（思考预算与正文预算分列/按端点能力自适应）另立工单，本条为过渡态。
+2. **预算分层（不换模型也能救大部分）——【20261008 裁定已执行：写死预算摒弃】**：原建议按实测值逐功能抬写死预算（对白 2400、涌现 4000）；用户裁定「暂时摒弃写死的预算模块，thinking 是完全不同的计量方式」。**已实施**：涌现/分镜两处调用点写死值删除，chat.js 双处理器（非流式+流式）的 `DEFAULT_MAX_TOKENS=500` 强制缺省撤销——未声明预算的请求不再透传 max_tokens，交内核缺省（4096，实测 dots3 该档出正文，全链活体通过）。分页方案流式链的重新设计建议维持原文。附带建议维持：`dialogueOptions`（`src/services/experience/dialogueOptions.js:25-33`）无预算声明现在落在内核 4096 兜底上，成本口径要说清楚。thinking 计量的正式设计（思考预算与正文预算分列/按端点能力自适应）另立工单。**2026-10-09 本条由过渡态升为终态（用户裁定「完全废弃，暂不加预算，只加一个最大循环次数」）**：废弃面铺满 Pinax 三侧全部调用点（详见第六节 R2 与 `docs/STATUS.md` 首行），跑飞兜底改为请求级轮数闸 `shared/modelLoopGuard.js`（`MAX_MODEL_ROUNDS_PER_REQUEST=3`，超限 `MODEL_ROUND_LIMIT_EXCEEDED`）；截断不再抬预算，同请求补跑一轮。保留的数值只有防超长（输入字符比对 `contextRunBudget`）与防跑飞（`maxModelSteps`、`timeoutMs`），均非输出预算。
 3. **错误可见性（无论换不换模型都该做）**：`server/routes/chat.js:500` 按 `finishReason` 与 `usage` 分档报错，例如 `UPSTREAM_REASONING_ONLY`（length + 正文空 + 输出 token 已耗尽）与 `UPSTREAM_EMPTY_CONTENT`（stop + 正文空）分开，`details` 带上 `finishReason/usage/maxTokens`。仓库里已有先例可抄：`server/services/textModelAgentProvider.js:24-41` 就区分了 `truncated / refused / hasReasoning` 三类。
 4. **思考开关透传**：`modelFunnel.ts:212-218` 用 `THINKING_BUDGETS[thinking]` 控制预算，当前内核 `cfg.thinking='off'` 时**不下发任何思考参数**，端点按自己的默认走（仍会思考）。若要真正关闭，需要按 provider 下发显式参数（例如 `samplingParams` 逃生舱，`modelFunnel.ts:220` 已有该通道）。这条要按端点逐个验证，不能笼统改。
 
@@ -123,8 +123,8 @@
 
 | 编号 | 事项 | 选项 |
 |---|---|---|
-| R1 | 问题一修复形态 | 只做网关兜底 / 网关兜底 + 契约单源化 / 再加空提示词硬错误护栏（建议后两者） |
-| R2 | JSON 任务预算是否抬 | **已裁定并实施（20261008）**：摒弃写死预算，未声明请求交内核缺省 4096（全链实测出正文）；thinking 计量正式设计另立工单 |
+| R1 | 问题一修复形态 | **已裁定并实施（2026-10-09，随 f4dbbb6 入干）**：三件全做——网关兜底 + 契约单源化 + `NARRATIVE_AGENT_EMPTY_PROMPT` 硬错误护栏；确定性脚本 `scripts/agent-step-message-shape-check.mjs` 18/18，真链路三格矩阵通过 |
+| R2 | JSON 任务预算是否抬 | **终态裁定（2026-10-09，用户指令「裁定完全废弃，暂不加预算，只加一个最大循环次数」）**：2026-10-08 的「未声明交内核缺省 4096」是过渡态，现废弃面铺满——Pinax 服务端/`shared/`/浏览器三侧的 `max_tokens`/`maxTokens` 声明全数摘除（含 `narrativeAgentOrchestrator` 的 1600 参数阶梯、桥的 run/resume、世界书与地图/漫画/图片等 12 处调用点），一律交内核缺省；跑飞兜底改为请求级轮数闸 `shared/modelLoopGuard.js`（3 轮，超限 `MODEL_ROUND_LIMIT_EXCEEDED`），截断不再靠抬预算修复而是同请求补跑一轮。thinking 计量正式设计仍另立工单 |
 | R3 | 是否换内核模型 | 需要模型行与密钥；换哪些任务面用哪个模型 |
 | R4 | 错误可见性分层 | 是否把 `finishReason/usage` 透出到前端错误 |
 | R5 | 空提示词护栏落在哪一侧 | Pinax 组装后自检 / kit `validateCompleteRequest` 拒绝（后者更根本但要改 kit 仓） |
@@ -162,3 +162,16 @@
 - 真链路三格矩阵（3001 全链 SSE）：content-only ✓ 200 出 342 字相关正文（首词命中）；parts-only ✓ 400 契约拒绝（修复二合成只对 content 非空生效，纯 parts 仍拒）；双写 ✓ 200（工装 SSE 解析器丢帧为工装 bug，确定性脚本覆盖）。
 - 预算裁定回归实测（内核 4096 兜底）：对白选项 ✓（2112 token，parseDialogueOptions=3）、分镜 ✓（3262 token，6 shots——原 1400/3000 全空，显著改善）、涌现事件出正文 1072 字符但 parseEmergenceEventDraft=null——**schema 合规缺口为遗留记账项**（placeId/choices≥2/changes 硬校验 vs 模型输出，非预算问题，建议提示词强化或带重试复放）。
 - 修复后全量：vitest 20/20 文件 **200/200 用例全绿**（含 narrativeAssets 断言同步与此前两处存量红收口）、build 24.84s。
+
+## 十、终态收口（2026-10-09 同日第二批：预算完全废弃 + 轮数闸 + 直连残口）
+
+用户裁定「残留干掉，然后裁定完全废弃，暂不加预算，只加一个最大循环次数」，三件落地（**已实施，确定性门禁组合验证；真实模型链本批未复跑——现网 3001/8451 未重启，本批未获冒烟授权**）：
+
+- **残留**：`server/routes/openclaw.js` 删除、`server/index.js` 撤挂载（该路由绕过 `modelRouting.js` 直调 provider，是 2026-10-08 直连退役后唯一残口）；`openclawService.js` 只留提示卡与 `buildOpenClawUserMessage`，两个引用已移除符号的死函数（网关令牌读取/解析）删除。全仓 `/api/openclaw` grep 零命中。
+- **废弃铺满**：`narrativeAgentOrchestrator` 的 `maxTokens=1600` 参数与三处调用档（planning 900 / requestStep / quality review+revision）、桥 `run`/`resume` 及其 d.ts 与 `agentEngine`/`experienceAgentRoute` 转发、`api.js` 记忆压缩 120、图片描述 700、漫画分镜 2400、冒险触发 1200、世界书 research 500 / maintenance 2800–5000 三档 / importGeneration 3400+1800、WorldMap 与 Geography 各 4000 —— 全部不再声明 `max_tokens`，交内核缺省（漏斗 4096 / 任务面 1600；kit `server.ts` 仅在字段有定义时校验 200–8000，**故 kit 侧无需改动**）。桥双副本按 kit `pinax-side` 镜像同步，bridge-sync 2/2。
+- **一个闸**：`shared/modelLoopGuard.js`（`MAX_MODEL_ROUNDS_PER_REQUEST = 3`）经 advisor（漏斗与 capability `taskMeta` 共享同一实例）与结构化生成降级环传递；advisor 的能力→漏斗回落里显式上抛 `MODEL_ROUND_LIMIT_EXCEEDED`，防 fail-open 吞掉上限。截断（`RESPONSE_INCOMPLETE`）改为同请求补跑一轮。
+- **保留的数值不是预算**：`assertModelCallBudget` 单参化只比对输入字符（防超长）、`maxModelSteps`（模型步数）、各链 `timeoutMs`。
+- **非生产残留（如实登记，未动）**：三个直连 tool adapter 的 `|| 1200`（仅 `runToolCallingProviderTurn` 可达，生产零调用方）、连通探测档 180/32/64（Anthropic/Responses 协议必填，不是生成预算）、`GENERATION_AGENT_LIMITS.maxTokens: 8192`（入参校验上限）、未挂载孤儿 `StoryAgentBetaPanel.vue` 的 `/tokens` 控件、`scripts/**` 离线工装。
+- **行为变化**：客户端正文链由 1600/2000 → 内核缺省 4096（更宽）；任务面中性但 kit `prompt.ts` 的篇幅话术对 init 回合固定为「约 1600 tokens」；BeatPlan plan 阶段仍是 kit 自己的 900。
+- **门禁**：编辑文件 `node --check` 全过；串行 vitest（本机内存约束）**20/20 文件、200/200 用例顶格不破**（并行时 `settingsAgentWorkflows` 一条 5s 超时属 LOG 已记存量环境性 flake，单跑 780ms）；`agentContracts.test.js` 预算断言按合并置换改写（补跑两轮 `max_tokens` 平值透传 / 未声明请求体 `undefined` / `createModelRoundGuard(1)` 抛 `MODEL_ROUND_LIMIT_EXCEEDED`）；`lint:delta` 0 新增 error（4 存量 warning）；`vite build` 29.13s、Authoring chunk 1,360.58 kB ≤ 1,450,000；`architecture:check` / `catalog-sync` 21/21 / `bridge-sync` 2/2 / `git diff --check` 全 exit 0。
+

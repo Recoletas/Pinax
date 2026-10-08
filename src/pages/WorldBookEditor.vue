@@ -50,6 +50,7 @@
             v-for="tab in editorTabs"
             :key="tab.key"
             :class="['editor-tab', { active: editorTab === tab.key }]"
+            :data-test="`editor-tab-${tab.key}`"
             @click="editorTab = tab.key"
           >
             <WorkbenchIcon :name="tab.icon" :size="15" />
@@ -58,7 +59,7 @@
         </nav>
 
         <section v-if="editorTab === 'overview'" class="card">
-          <UnifiedEntryBrowser :worldbook="activeWorldbook" @select="onBrowserSelect" />
+          <UnifiedEntryBrowser :worldbook="activeWorldbook" @select="onBrowserSelect" @create-edge="onGraphCreateEdge" />
         </section>
 
         <section v-if="editorTab === 'base'" class="card">
@@ -117,6 +118,13 @@
             </button>
             <button class="danger-btn" @click="deleteWorldbook">{{ tr("删除世界书") }}</button>
           </div>
+        </section>
+
+        <section v-if="editorTab === 'research'" class="card" data-test="worldbook-research-card">
+          <div class="card-head">
+            <h2>{{ tr("联网调研") }}</h2>
+          </div>
+          <WorldbookResearchPanel :worldbook="activeWorldbook" />
         </section>
 
         <section v-if="editorTab === 'transfer'" class="card">
@@ -554,6 +562,10 @@
                 <WorkbenchIcon name="assistant" :size="16" />
                 {{ tr("AI 处理世界书") }}
               </button>
+              <button class="ghost-btn" :class="{ active: migrationOpen }" :aria-expanded="migrationOpen" data-test="profile-migration-toggle" @click="toggleMigration">
+                <WorkbenchIcon name="archive" :size="16" />
+                {{ tr("档案迁移（预览）") }}
+              </button>
               <button class="ghost-btn" @click="createEntry"><WorkbenchIcon name="plus" :size="16" />{{ tr("新增条目") }}</button>
             </div>
           </div>
@@ -656,6 +668,68 @@
             <div v-else-if="maintenanceCompleted" class="maintenance-empty">{{ tr("没有需要处理的候选。") }}</div>
           </section>
 
+          <!-- 档案迁移（预览）：扫描 profile 为空且正文带【标签】结构的条目；
+               回填只写 profile 不改正文；重复条目只标记建议，不自动删除。 -->
+          <section v-if="migrationOpen" class="worldbook-migration" aria-labelledby="worldbook-migration-title" data-test="profile-migration-panel">
+            <div class="maintenance-head">
+              <div>
+                <h3 id="worldbook-migration-title">{{ tr("档案迁移（预览）") }}</h3>
+                <p>{{ tr("回填只写档案字段，不改条目正文；模板必填缺失不阻塞，留给编辑器补。") }}</p>
+              </div>
+              <button type="button" class="ghost-btn small" :disabled="migrationWorking" @click="runMigrationScan">
+                {{ tr(migrationWorking ? '扫描中...' : '重新扫描') }}
+              </button>
+            </div>
+            <div v-if="migrationError" class="maintenance-error" role="alert">{{ tr(migrationError) }}</div>
+            <template v-if="migrationScan">
+              <h4 class="migration-subhead">{{ tr("待回填条目（{count}）", { count: migrationScan.needsMigration.length }) }}</h4>
+              <p class="migration-hint">{{ tr("档案为空且正文含 3 个以上【标签】的条目；执行回填会把标签内容整理进档案字段。") }}</p>
+              <ul v-if="migrationScan.needsMigration.length" class="migration-list">
+                <li v-for="entry in migrationScan.needsMigration" :key="entry.id" class="migration-row">
+                  <span class="entry-title">{{ entry.name || tr('未命名条目') }}</span>
+                  <span class="entry-type">{{ entryTypeLabel(entry.type) }}</span>
+                </li>
+              </ul>
+              <div v-else class="empty-hint">{{ tr("没有需要回填的条目。") }}</div>
+              <div class="migration-actions">
+                <button
+                  type="button"
+                  class="primary-btn"
+                  data-test="profile-migration-apply"
+                  :disabled="migrationApplying || migrationWorking || !migrationScan.needsMigration.length"
+                  @click="applyMigrationBackfill"
+                >
+                  {{ tr(migrationApplying ? '回填中...' : '执行回填') }}
+                </button>
+              </div>
+              <h4 class="migration-subhead">{{ tr("疑似重复（{count} 组）", { count: migrationScan.duplicates.length }) }}</h4>
+              <p class="migration-hint">{{ tr("同名同类型的条目组；保留最早创建的一条，其余只建议标记，不自动删除。") }}</p>
+              <ul v-if="migrationScan.duplicates.length" class="migration-list">
+                <li v-for="group in migrationScan.duplicates" :key="group.keepId" class="migration-row">
+                  <span class="migration-group">
+                    <strong>{{ group.name }}</strong>
+                    <span class="entry-type">{{ entryTypeLabel(group.type) }}</span>
+                  </span>
+                  <span class="migration-dupes">{{ duplicateGroupLabel(group) }}</span>
+                </li>
+              </ul>
+              <div v-else class="empty-hint">{{ tr("没有发现同名同类型的重复条目。") }}</div>
+              <div class="migration-actions">
+                <button
+                  type="button"
+                  class="ghost-btn"
+                  data-test="profile-migration-mark"
+                  :disabled="migrationApplying || migrationWorking || !migrationScan.duplicates.length"
+                  @click="markDuplicateEntries"
+                >
+                  {{ tr("按建议标记重复") }}
+                </button>
+              </div>
+              <div v-if="migrationMessage" class="maintenance-summary" role="status">{{ migrationMessage }}</div>
+            </template>
+            <div v-else class="empty-hint">{{ tr("正在扫描当前世界书...") }}</div>
+          </section>
+
           <div class="bulk-tools" v-if="selectedEntryIds.length">
             <span class="bulk-label">{{ tr('已选 {count} 条', { count: selectedEntryIds.length }) }}</span>
             <button class="ghost-btn small" @click="selectAllFilteredEntries">{{ tr("全选筛选结果") }}</button>
@@ -721,11 +795,16 @@
               </label>
               <label>
                 {{ tr("条目类型") }}
-                <select v-model="entryForm.type" class="select-input">
-                  <option v-for="type in entryTypes" :key="type.value" :value="type.value">
-                    {{ tr(type.label) }}
-                  </option>
-                </select>
+                <input
+                  v-model.trim="entryForm.type"
+                  class="text-input"
+                  type="text"
+                  list="worldbook-entry-type-options"
+                  :placeholder="tr('可建议或自由输入，如 角色 / 势力 / 种族')"
+                />
+                <datalist id="worldbook-entry-type-options">
+                  <option v-for="typeValue in entryTypeSuggestions" :key="typeValue" :value="typeValue"></option>
+                </datalist>
               </label>
               <label>
                 {{ tr("触发词（逗号分隔）") }}
@@ -748,42 +827,8 @@
 
               <EntryMdEditor v-model="entryForm.content" />
 
-              <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
-                <header class="entry-voice-editor__head">
-                  <div>
-                    <span class="panel-kicker">{{ tr("角色声口") }}</span>
-                    <h3 id="entry-voice-title">{{ tr("说话方式与示例") }}</h3>
-                  </div>
-                  <span class="entry-voice-editor__count">{{ entryForm.samples.length }}/6</span>
-                </header>
-                <p class="entry-voice-editor__hint">
-                  {{ tr("只锚定当前说话角色；生成时最多使用前 3 条，空白与重复样例会在保存时清理。") }}
-                </p>
-                <label>
-                  {{ tr("说话方式") }}
-                  <textarea
-                    v-model="entryForm.speechStyle"
-                    rows="3"
-                    maxlength="240"
-                    :placeholder="tr('句长、措辞、回避或强调习惯')"
-                  ></textarea>
-                </label>
-                <label v-for="(_sample, index) in entryForm.samples" :key="index">
-                  {{ tr('示例台词 {number}', { number: index + 1 }) }}
-                  <span class="entry-voice-editor__sample">
-                    <textarea v-model="entryForm.samples[index]" rows="2" maxlength="240"></textarea>
-                    <button type="button" class="ghost-btn small" @click="removeVoiceSample(index)">{{ tr("移除") }}</button>
-                  </span>
-                </label>
-                <button
-                  v-if="entryForm.samples.length < 6"
-                  type="button"
-                  class="ghost-btn small entry-voice-editor__add"
-                  @click="addVoiceSample"
-                >
-                  {{ tr("添加示例台词") }}
-                </button>
-              </section>
+              <!-- 角色声口老编辑器已退役：声口读写统一走档案 profile.speech（声口横切），
+                   见下方「条目档案模板与关联」里的 EntryProfileEditor。 -->
 
               <details class="entry-advanced-panel" :open="entryAdvancedOpen" @toggle="onAdvancedToggle">
                 <summary>{{ tr("条目档案模板与关联") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
@@ -794,6 +839,7 @@
                   @save="applyProfileSave"
                 />
                 <EntryLinksEditor
+                  ref="entryLinksEditorRef"
                   :entry="selectedEntry"
                   :entries="entries"
                   :content="entryForm.content"
@@ -801,6 +847,13 @@
                   @save="applyLinksSave"
                 />
               </details>
+
+              <RelationEdgeDialog
+                v-model:open="edgeDialogOpen"
+                :from-name="edgeDialogFrom.name"
+                :to-name="edgeDialogTo.name"
+                @confirm="onEdgeDialogConfirm"
+              />
 
               <details class="injection-panel">
                 <summary>{{ tr("高级引用设置") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
@@ -908,6 +961,8 @@ import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import EntryMdEditor from '../components/worldbook/EntryMdEditor.vue'
 import EntryProfileEditor from '../components/worldbook/EntryProfileEditor.vue'
 import EntryLinksEditor from '../components/worldbook/EntryLinksEditor.vue'
+import RelationEdgeDialog from '../components/worldbook/RelationEdgeDialog.vue'
+import WorldbookResearchPanel from '../components/worldbook/WorldbookResearchPanel.vue'
 import {
   FORESHADOW_STATUSES,
   HANDOFF_MAX_ITEMS,
@@ -922,6 +977,8 @@ import {
   settlementFromTurn
 } from '../services/worldbook/settlementService'
 import { isFileSourceAvailable, refreshFileSourceAvailability } from '../services/worldbook/worldbookFileRepository'
+import { profileFromEntry } from '../services/worldbook/entryProfileTemplates.js'
+import { applyMigration, markDuplicates, scanEntriesForMigration } from '../services/worldbook/profileMigration'
 
 const route = useRoute()
 const router = useRouter()
@@ -971,6 +1028,13 @@ const maintenanceCandidates = ref([])
 const maintenanceRevision = ref('')
 const maintenanceTouchedEntryIds = ref(new Set())
 const maintenanceCompleted = ref(false)
+// W·卡片制：档案迁移（预览）——needsMigration 回填 / duplicates 只标记不删
+const migrationOpen = ref(false)
+const migrationScan = ref(null)
+const migrationWorking = ref(false)
+const migrationApplying = ref(false)
+const migrationMessage = ref('')
+const migrationError = ref('')
 // W3·B2/B3：条目档案模板与关联编辑区——character 类型默认展开，其他类型可开。
 const entryAdvancedOpen = ref(false)
 
@@ -998,11 +1062,40 @@ function onBrowserSelect(entry) {
   if (entry?.id) pickEntry(entry.id)
   editorTab.value = 'entries'
 }
+// 图谱建边（Shift 拖拽）：GraphCanvas 只报 from/to 两个 id，属性收集交给 RelationEdgeDialog；
+// 确认后先 pickEntry 对齐编辑条目，再走 EntryLinksEditor 的既有双层写回。
+const entryLinksEditorRef = ref(null)
+const edgeDialogOpen = ref(false)
+const edgeDialogFrom = ref({ id: '', name: '' })
+const edgeDialogTo = ref({ id: '', name: '' })
+function onGraphCreateEdge({ fromId, toId }) {
+  const nameOf = (id) => {
+    const entry = entries.value.find((item) => String(item.id) === String(id))
+    return entry?.name || entry?.title || String(id)
+  }
+  edgeDialogFrom.value = { id: fromId, name: nameOf(fromId) }
+  edgeDialogTo.value = { id: toId, name: nameOf(toId) }
+  edgeDialogOpen.value = true
+}
+function onEdgeDialogConfirm(attrs) {
+  const fromId = edgeDialogFrom.value.id
+  if (!fromId || !edgeDialogTo.value.id) return
+  pickEntry(fromId)
+  editorTab.value = 'entries'
+  void nextTick(() => {
+    entryLinksEditorRef.value?.createEdge({
+      fromId,
+      toId: edgeDialogTo.value.id,
+      ...attrs
+    })
+  })
+}
 const editorTabs = [
   { key: 'overview', label: '总览', icon: 'layout' },
   { key: 'entries', label: '条目管理', icon: 'list' },
   { key: 'settlement', label: '章回结算', icon: 'history' },
   { key: 'base', label: '基础设定', icon: 'book' },
+  { key: 'research', label: '联网调研', icon: 'compass' },
   { key: 'transfer', label: '导入导出', icon: 'download' },
   { key: 'groups', label: '分组管理', icon: 'archive' },
 ]
@@ -1061,8 +1154,6 @@ const entryForm = reactive({
   keys: '',
   keysSecondary: '',
   content: '',
-  speechStyle: '',
-  samples: [],
   injectionMode: 'selective',
   injectionProbability: 100,
   injectionCooldown: 0,
@@ -1097,6 +1188,10 @@ const entryTypes = [
   { value: 'quest', label: '任务' },
   { value: 'event', label: '事件' }
 ]
+
+// kind 开放自由输入：已知 11 类 + source（W4 资料条目）只作 datalist 建议；
+// 未知 kind 原样保存，注入端（worldbookContextBuilder）对未知 type 落 general 优先级兜底。
+const entryTypeSuggestions = [...entryTypes.map((type) => type.value), 'source']
 
 const injectionModes = [
   { value: 'selective', label: '选择触发' },
@@ -1464,9 +1559,6 @@ function syncEntryForm(entry) {
   entryForm.keys = (entry?.keys || []).join(', ')
   entryForm.keysSecondary = (entry?.keysSecondary || []).join(', ')
   entryForm.content = entry?.content || ''
-  const voice = normalizeNarrativeVoiceProfile(entry || {}, entryForm.name)
-  entryForm.speechStyle = voice.speechStyle
-  entryForm.samples = [...voice.samples]
   entryForm.injectionMode = injection.mode
   entryForm.injectionProbability = injection.probability
   entryForm.injectionCooldown = injection.cooldown
@@ -1486,8 +1578,6 @@ function resetEntryForm() {
   entryForm.keys = ''
   entryForm.keysSecondary = ''
   entryForm.content = ''
-  entryForm.speechStyle = ''
-  entryForm.samples = []
   entryForm.injectionMode = 'selective'
   entryForm.injectionProbability = 100
   entryForm.injectionCooldown = 0
@@ -1762,6 +1852,17 @@ async function createEntry() {
   if (created?.id) selectedEntryId.value = created.id
 }
 
+// 声口双轨合并（写侧）：character 保存时把「stored profile.speech > 正文【标签】反解 >
+// 顶层旧 speechStyle/samples」的合并结果物化进 profile；顶层镜像与 profile.speech 同源
+// 写出、不产生第二真相，仅供存量消费端（narrativeKernel 声口注入、ST 导出 pinax_voice）读。
+function characterVoicePayload(speech, name) {
+  const source = speech && typeof speech === 'object' ? speech : {}
+  return normalizeNarrativeVoiceProfile({
+    speechStyle: source.speechStyle || '',
+    samples: Array.isArray(source.samples) ? source.samples : []
+  }, name)
+}
+
 async function saveEntry() {
   if (!activeWorldbook.value?.id || !selectedEntry.value) return
   savingEntry.value = true
@@ -1777,19 +1878,26 @@ async function saveEntry() {
       wholeWord: entryForm.injectionWholeWord,
       caseSensitive: entryForm.injectionCaseSensitive
     })
-
-    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
-      name: entryForm.name.trim() || tr('未命名条目'),
-      type: entryForm.type,
+    const nextName = entryForm.name.trim() || tr('未命名条目')
+    // kind 自由输入：未知类型原样保存；空值回落 general
+    const nextType = String(entryForm.type || '').trim() || 'general'
+    const updates = {
+      name: nextName,
+      type: nextType,
       keys: splitKeywords(entryForm.keys),
       keysSecondary: splitKeywords(entryForm.keysSecondary),
       content: entryForm.content.trim(),
-      ...normalizeNarrativeVoiceProfile({
-        speechStyle: entryForm.speechStyle,
-        samples: entryForm.samples
-      }, entryForm.name),
       injection: normalizedInjection
-    })
+    }
+    if (nextType === 'character') {
+      const merged = profileFromEntry(
+        { ...selectedEntry.value, name: nextName, content: updates.content },
+        selectedEntry.value?.profile?.template || ''
+      )
+      updates.profile = merged
+      Object.assign(updates, characterVoicePayload(merged.speech, nextName))
+    }
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, updates)
     await worldStore.loadWorldbooksIndex()
     if (normalizedInjection.group) {
       await persistWorldbookGroups([normalizedInjection.group])
@@ -1810,13 +1918,16 @@ async function deleteEntry() {
 }
 
 // W3·B2：档案模板保存——profile 落条目；仅在作者显式选「覆盖原文」时才以投影替换
-// content（content 是注入真相，禁默认覆盖）。
+// content（content 是注入真相，禁默认覆盖）。character 同时把 profile.speech 镜像到
+// 顶层声口字段（同源写出，存量消费端 narrativeKernel/ST 导出继续有供数）。
 async function applyProfileSave({ profile, content, overwrite }) {
   if (!activeWorldbook.value?.id || !selectedEntry.value) return
   savingEntry.value = true
   try {
+    const isCharacter = String(selectedEntry.value?.type || '').trim().toLowerCase() === 'character'
     await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
       profile,
+      ...(isCharacter ? characterVoicePayload(profile?.speech, selectedEntry.value.name) : {}),
       ...(overwrite ? { content } : {})
     })
     await worldStore.loadWorldbooksIndex()
@@ -2208,13 +2319,88 @@ function setEntryGroup(group) {
   entryForm.injectionGroup = group
 }
 
-function addVoiceSample() {
-  if (entryForm.samples.length >= 6) return
-  entryForm.samples.push('')
+/* ---------- 档案迁移（预览）：回填只写 profile；重复只标记，不自动删除 ---------- */
+
+function toggleMigration() {
+  migrationOpen.value = !migrationOpen.value
+  if (migrationOpen.value) runMigrationScan()
 }
 
-function removeVoiceSample(index) {
-  entryForm.samples.splice(index, 1)
+function runMigrationScan() {
+  migrationError.value = ''
+  migrationMessage.value = ''
+  migrationWorking.value = true
+  try {
+    migrationScan.value = scanEntriesForMigration(entries.value)
+  } finally {
+    migrationWorking.value = false
+  }
+}
+
+function duplicateLabel(entryId) {
+  const entry = entries.value.find((item) => item.id === entryId)
+  if (!entry) return entryId
+  const marked = entry.metadata?.duplicateOf ? tr('已标记') : ''
+  return marked ? `${entry.name || tr('未命名条目')}（${marked}）` : (entry.name || tr('未命名条目'))
+}
+
+function duplicateGroupLabel(group) {
+  const keep = tr('保留：{name}', { name: entryName(group.keepId) })
+  const dupes = tr('重复：{names}', { names: group.duplicateIds.map((id) => duplicateLabel(id)).join(uiLocale === 'en' ? ', ' : '、') })
+  return `${keep}；${dupes}`
+}
+
+// 逐条回填：profileFromEntry 负责【标签】反解 + 顶层旧声口合并；正文与触发词不动
+async function applyMigrationBackfill() {
+  if (!activeWorldbook.value?.id || !migrationScan.value?.needsMigration?.length) return
+  const ok = window.confirm(tr('对 {count} 个条目执行档案回填？条目正文不会被修改。', { count: migrationScan.value.needsMigration.length }))
+  if (!ok) return
+  migrationApplying.value = true
+  migrationError.value = ''
+  try {
+    let applied = 0
+    for (const entry of migrationScan.value.needsMigration) {
+      // 条目可能在确认后被删：逐条复核存在性
+      const current = entries.value.find((item) => item.id === entry.id)
+      if (!current) continue
+      const parsedProfile = profileFromEntry(current, current?.profile?.template || '')
+      await worldStore.updateEntry(activeWorldbook.value.id, current.id, { profile: applyMigration(current, parsedProfile).profile })
+      applied += 1
+    }
+    await worldStore.loadWorldbooksIndex()
+    runMigrationScan()
+    migrationMessage.value = tr('已回填 {count} 个条目的档案。', { count: applied })
+  } catch (error) {
+    migrationError.value = error?.message || tr('档案回填失败。')
+  } finally {
+    migrationApplying.value = false
+  }
+}
+
+// 重复条目只打 metadata.duplicateOf 标记（保留方=最早创建）；真删除由用户另行确认
+async function markDuplicateEntries() {
+  if (!activeWorldbook.value?.id || !migrationScan.value?.duplicates?.length) return
+  migrationApplying.value = true
+  migrationError.value = ''
+  try {
+    const marked = markDuplicates(entries.value)
+    const markedById = new Map(marked.map((entry) => [entry.id, entry]))
+    let count = 0
+    for (const original of entries.value) {
+      const next = markedById.get(original.id)
+      if (!next || next === original) continue
+      if (next.metadata.duplicateOf === original.metadata?.duplicateOf) continue
+      await worldStore.updateEntry(activeWorldbook.value.id, original.id, { metadata: { duplicateOf: next.metadata.duplicateOf } })
+      count += 1
+    }
+    await worldStore.loadWorldbooksIndex()
+    runMigrationScan()
+    migrationMessage.value = tr('已标记 {count} 个重复条目（未删除）。', { count })
+  } catch (error) {
+    migrationError.value = error?.message || tr('标记重复条目失败。')
+  } finally {
+    migrationApplying.value = false
+  }
 }
 
 function openImportFilePicker() {
@@ -2785,6 +2971,74 @@ onMounted(async () => {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* 档案迁移（预览）面板：与维护面板同族，但走中性描边（不暗示 AI 语义） */
+.worldbook-migration {
+  margin: 4px 0 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  background: var(--bg-primary);
+}
+
+.migration-subhead {
+  margin: 12px 0 2px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.migration-hint {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.migration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.migration-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.migration-row .entry-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.migration-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.migration-dupes {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.migration-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .maintenance-candidates {
@@ -4044,56 +4298,6 @@ label {
   );
 }
 
-.entry-workspace-card .entry-voice-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 0 4px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
-}
-
-.entry-voice-editor__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.entry-voice-editor__head h3 {
-  margin: 4px 0 0;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.entry-voice-editor__count {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.entry-voice-editor__hint {
-  margin: -4px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.entry-voice-editor__sample {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.entry-voice-editor__sample textarea {
-  flex: 1;
-  min-width: 0;
-}
-
-.entry-voice-editor__sample .ghost-btn,
-.entry-voice-editor__add {
-  flex: 0 0 auto;
-}
-
 .entry-workspace-card .injection-panel {
   padding: 14px 0 0;
   border: 0;
@@ -4191,15 +4395,6 @@ label {
   .entry-workspace-card .entry-editor {
     padding-top: 4px;
   }
-
-  .entry-voice-editor__sample {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .entry-voice-editor__sample .ghost-btn {
-    align-self: flex-start;
-  }
 }
 /* Entry management: a quiet directory and a single editing surface. */
 .worldbook-page { background: var(--surface-workbench-canvas); }
@@ -4233,7 +4428,7 @@ label {
 .entry-editor-kicker { font-size: 12px; color: var(--text-secondary); }
 .entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 20px; min-height: 36px; }
 .entry-workspace-card .entry-editor > label { gap: 8px; font: 14px/1.5 var(--font-sans); color: var(--text-secondary); }
-.entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.entry-voice-editor, .injection-panel, .card-actions) { grid-column: 1 / -1; }
+.entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.injection-panel, .card-actions) { grid-column: 1 / -1; }
 .entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { min-height: var(--control-hit-min, 36px); border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input); padding: 6px 12px; color: var(--text-primary); font: 14px/1.5 var(--font-sans); }
 .entry-workspace-card .entry-editor > label .text-area { min-height: 260px; padding: 12px 14px; font-size: 15px; line-height: 1.85; resize: vertical; background-image: none; }
 .entry-workspace-card .injection-panel { margin: 0; padding: 0; background: transparent; }

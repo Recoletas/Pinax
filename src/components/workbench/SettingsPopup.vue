@@ -54,6 +54,15 @@
           <ApiSettingsPanel />
         </section>
         <section
+          v-show="activeSection === 'media'"
+          id="settings-panel-media"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;媒体模型&quot;)"
+        >
+          <MediaModelSettings />
+        </section>
+        <section
           v-show="activeSection === 'localproject'"
           id="settings-panel-localproject"
           class="settings-section"
@@ -215,6 +224,7 @@ function changeLanguage(locale, assistant = assistantLanguage.value) { languageS
 import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
+import MediaModelSettings from '../settings/MediaModelSettings.vue'
 import LocalProjectPanel from './LocalProjectPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
@@ -284,6 +294,7 @@ const tabs = [
   { key: 'writing', label: '写作' },
   { key: 'appearance', label: '外观' },
   { key: 'ai', label: 'AI 配置' },
+  { key: 'media', label: '媒体模型' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
   { key: 'storage', label: '备份与恢复' },

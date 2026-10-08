@@ -33,6 +33,27 @@
       <input v-else v-model="values[field.key]" class="text-input" type="text" :placeholder="tr(field.label)" />
     </label>
 
+    <section class="entry-profile-free" aria-labelledby="entry-profile-free-title">
+      <header class="entry-profile-free-head">
+        <span id="entry-profile-free-title">{{ tr("自由字段") }}</span>
+        <span class="entry-profile-free-add">
+          <input v-model.trim="newFreeKey" class="text-input" type="text" :placeholder="tr('字段名，如 性别/年龄/目标')" @keyup.enter="addFreeField" />
+          <button type="button" class="ghost-btn small" @click="addFreeField">{{ tr("添加字段") }}</button>
+        </span>
+      </header>
+      <p class="entry-profile-hint">
+        {{ tr("模板之外的字段（含正文里识别出的【自定义标签】）在这里编辑；保存时会一并投影进正文。") }}
+      </p>
+      <div v-for="pair in freeEntries" :key="pair.key" class="entry-profile-field">
+        <span class="entry-profile-free-label">
+          {{ pair.key }}
+          <button type="button" class="ghost-btn small" @click="removeFreeField(pair.key)">{{ tr("移除") }}</button>
+        </span>
+        <textarea v-model="values[pair.key]" rows="2" :placeholder="pair.key"></textarea>
+      </div>
+      <div v-if="!freeEntries.length" class="empty-hint">{{ tr("暂无自由字段。") }}</div>
+    </section>
+
     <section class="entry-profile-speech" aria-labelledby="entry-profile-speech-title">
       <label class="checkbox-line">
         <input v-model="speech.enabled" type="checkbox" />
@@ -108,9 +129,35 @@ const selectedTemplateId = ref('')
 const values = reactive({})
 const speech = reactive({ enabled: false, speechStyle: '', vocabularyCommonText: '', vocabularyForbiddenText: '', samplesText: '', greeting: '' })
 const confirmOpen = ref(false)
+const newFreeKey = ref('')
 
 const template = computed(() => getProfileTemplate(selectedTemplateId.value))
 const missingLabels = computed(() => missingRequiredLabels({ template: selectedTemplateId.value, values }))
+
+// 自由键 = values 里既不是模板字段 key、也不是模板字段 label 的键
+function knownFieldNames() {
+  const fields = template.value.fields
+  return new Set([...fields.map((field) => field.key), ...fields.map((field) => field.label)])
+}
+
+const freeEntries = computed(() => {
+  const known = knownFieldNames()
+  return Object.keys(values).filter((key) => !known.has(key)).map((key) => ({ key }))
+})
+
+function addFreeField() {
+  const key = newFreeKey.value.trim()
+  newFreeKey.value = ''
+  if (!key) return
+  const fields = template.value.fields
+  // 与模板字段 key/label 撞名的输入拒绝：撞名键既不会被当自由键投影，也会被模板字段遮蔽
+  if (fields.some((field) => field.key === key || field.label === key)) return
+  if (!Object.prototype.hasOwnProperty.call(values, key)) values[key] = ''
+}
+
+function removeFreeField(key) {
+  delete values[key]
+}
 
 function splitListText(text) {
   return String(text ?? '')
@@ -122,8 +169,17 @@ function splitListText(text) {
 function seedFromEntry() {
   const profile = profileFromEntry(props.entry, props.entry?.profile?.template || '')
   selectedTemplateId.value = profile.template
-  for (const field of template.value.fields) {
+  const fields = template.value.fields
+  // 先清掉旧自由键再播种：切换条目/重读时上一条的键不得残留
+  for (const key of Object.keys(values)) {
+    if (!fields.some((field) => field.key === key)) delete values[key]
+  }
+  for (const field of fields) {
     values[field.key] = profile.values[field.key] || ''
+  }
+  for (const [key, value] of Object.entries(profile.values)) {
+    if (knownFieldNames().has(key)) continue
+    values[key] = value
   }
   Object.assign(speech, {
     enabled: profile.speech.enabled,
@@ -145,9 +201,21 @@ watch(selectedTemplateId, () => {
 })
 
 function buildProfile() {
+  const fields = template.value.fields
+  const known = new Set(fields.map((field) => field.key))
+  const valuesOut = {}
+  // 模板字段在前（保投影顺序），自由键按 values 插入序跟在后面（renderToContent 同序）
+  for (const field of fields) {
+    valuesOut[field.key] = String(values[field.key] ?? '').trim()
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (known.has(key)) continue
+    const text = String(value ?? '').trim()
+    if (text) valuesOut[key] = text
+  }
   return {
     template: template.value.id,
-    values: Object.fromEntries(template.value.fields.map((field) => [field.key, String(values[field.key] ?? '').trim()])),
+    values: valuesOut,
     speech: normalizeSpeech({
       enabled: speech.enabled,
       speechStyle: speech.speechStyle,
@@ -251,6 +319,46 @@ function emitSave(overwrite) {
   padding: 10px 12px;
   border: 1px solid var(--border, var(--border-subtle));
   border-radius: 6px;
+}
+
+.entry-profile-free {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border, var(--border-subtle));
+  border-radius: 6px;
+}
+
+.entry-profile-free-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-size: var(--authoring-catalog-label-size, 12px);
+  font-weight: 600;
+}
+
+.entry-profile-free-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.entry-profile-free-add .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-profile-free-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .entry-profile-speech .checkbox-line {

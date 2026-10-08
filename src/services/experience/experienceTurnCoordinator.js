@@ -35,8 +35,7 @@ import {
 } from '../../../shared/narrativeTurnContract.js'
 import {
   normalizeNarrativeIntent,
-  intentToOrchestratorMode,
-  narrativeExpansionFactor
+  intentToOrchestratorMode
 } from '../../../shared/narrativeGenerationIntentContract.js'
 import { cloneState, combineExtensionContent } from './gameSessionNormalization.js'
 // C 线跑团（nightly-20260916）：已检定行动的叙述绑定/落账回调。
@@ -132,7 +131,6 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         })
         store.pendingTurnRecord = turnRecord
 
-        const isInitGeneration = effectiveIntent === 'open'
         productionMode = intentToOrchestratorMode(effectiveIntent)
         const narrativeProjectId = store.worldId || worldbook?.id || ''
         const narrativeSessionId = store.currentSessionId || ''
@@ -281,13 +279,9 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
 
         let fullContent = ''
         let cleanContent = ''
-        // 修复输出截断：原 init=1500/常规=800/auto=460 对中文叙事偏小，
-        // 且工具调用（决策+参数）与正文共用同一 maxTokens 预算，模型常在
-        // Q1：maxTokens 按 intent 决定，并按叙事展开度缩放 —— open 基 3000、其他基 2600，
-        // 足以容纳 BeatPlan/工具结果与完整场景正文。展开度由 resolveNarrativeExpansion() 读取。
+        // 2026-10-09 预算完全废弃：不再按 intent/展开度写死 maxTokens（思考型端点计量不同），
+        // 正文长度交给内核缺省与写作提示词本身。展开度仍作为设置透传给叙事链。
         const expansionLevel = store.resolveNarrativeExpansion()
-        const baseTokens = isInitGeneration ? 3000 : 2600
-        const maxTokens = Math.min(5000, Math.round(baseTokens * narrativeExpansionFactor(expansionLevel)))
         const agentRun = await runExperienceAgentGeneration({
           index: narrativeIndex, bookId: `experience:${narrativeSessionId}`,
           kernel: narrativeKernel,
@@ -299,7 +293,6 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           settings: { ...store.apiSettings, expansion: expansionLevel },
           requestId,
           signal: controller.signal,
-          maxTokens,
           taskContract: roleplayContext ? {
             ...roleplayContext.taskContract,
             authorizedAction: roleplayContext.taskContract.authorizedAction || String(continuityMessages.at(-1)?.role === 'user' ? continuityMessages.at(-1).content : '')

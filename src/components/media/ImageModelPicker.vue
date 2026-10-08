@@ -4,6 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import {
   createImageModelConfigDraft,
   IMAGE_MODEL_TYPES,
+  MINIMAX_IMAGE_MODEL_SUGGESTIONS,
   testImageProviderConnection
 } from '../../services/media/imageProviderService'
 import {
@@ -256,14 +257,17 @@ useTransientLayer({
             </label>
             <label><span>{{ tr("API 地址") }}</span><input v-model="editingConfig.baseUrl" placeholder="http://127.0.0.1:7860" /></label>
             <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" :placeholder="tr('可选')" /></label>
-            <label v-if="editingConfig.type === 'minimax_image'">
+            <label v-if="editingConfig.type !== 'comfyui'">
               <span>{{ tr("模型 ID") }}</span>
-              <select v-model="editingConfig.defaultModel">
-                <option value="image-01">image-01</option>
-                <option value="image-01-live">image-01-live</option>
-              </select>
+              <input
+                v-model="editingConfig.defaultModel"
+                :list="editingConfig.type === 'minimax_image' ? 'minimax-image-models' : undefined"
+                :placeholder="editingConfig.type === 'minimax_image' ? tr('例如：image-01') : tr('例如：gpt-image-1 或 SDXL checkpoint')"
+              />
+              <datalist v-if="editingConfig.type === 'minimax_image'" id="minimax-image-models">
+                <option v-for="item in MINIMAX_IMAGE_MODEL_SUGGESTIONS" :key="item" :value="item"></option>
+              </datalist>
             </label>
-            <label v-else-if="editingConfig.type !== 'comfyui'"><span>{{ tr("模型 ID") }}</span><input v-model="editingConfig.defaultModel" :placeholder="tr('例如：gpt-image-1 或 SDXL checkpoint')" /></label>
             <label v-if="editingConfig.type === 'http'"><span>{{ tr("响应字段路径") }}</span><input v-model="editingConfig.responsePath" :placeholder="tr('通用 HTTP 可选，例如 data.0.url')" /></label>
             <label v-if="editingConfig.type === 'http'">
               <span>{{ tr("请求体模板") }}</span>

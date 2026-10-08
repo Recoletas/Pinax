@@ -142,7 +142,7 @@ export async function runAuthoringRehearsalToolStep({
   try {
     const first = await requestModel({
       messages, tools, settings: settingsSnapshot,
-      options: { toolChoice: 'auto', parallelToolCalls: false, maxTokens: 1800 },
+      options: { toolChoice: 'auto', parallelToolCalls: false },
       intentMode: 'rehearsal', signal
     })
     modelSteps += 1
@@ -170,7 +170,7 @@ export async function runAuthoringRehearsalToolStep({
 
     const final = await requestModel({
       messages, tools, settings: settingsSnapshot,
-      options: { toolChoice: 'none', parallelToolCalls: false, maxTokens: 1800 },
+      options: { toolChoice: 'none', parallelToolCalls: false },
       intentMode: 'rehearsal', signal
     })
     modelSteps += 1
@@ -188,7 +188,7 @@ export async function runAuthoringRehearsalToolStep({
         }]
         const repaired = await requestModel({
           messages, tools, settings: settingsSnapshot,
-          options: { toolChoice: 'none', parallelToolCalls: false, maxTokens: 1800 },
+          options: { toolChoice: 'none', parallelToolCalls: false },
           intentMode: 'rehearsal', signal
         })
         modelSteps += 1

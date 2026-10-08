@@ -4,6 +4,7 @@
 // 门控语义：任务面 /model 探测健康才走此路径；不可达/失败抛错由调用方回落漏斗直连（双层 fail-open）。
 import { randomUUID } from 'node:crypto'
 import { getCapabilityToolSpec, CAPABILITY_TOOL_SPECS } from '../../shared/capabilityToolContracts.js'
+import { resolveModelRoundGuard } from '../../shared/modelLoopGuard.js'
 import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
 
 const TASK_PLANE_ENDPOINT = process.env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT
@@ -35,11 +36,11 @@ export const CAPABILITY_TASK_TYPES = Object.keys(CAPABILITY_TOOL_SPECS)
 export async function submitCapabilityTask({
   systemPrompt,
   submitTool,
-  maxTokens = 4000,
   budget = {},
   requestId = '',
   taskId = '',
   timeoutMs = 90_000,
+  roundGuard = null,
   signal
 } = {}) {
   const prompt = String(systemPrompt || '').trim()
@@ -65,8 +66,8 @@ export async function submitCapabilityTask({
       }
     },
     kernel: { blocks: [] },
-    // kit 侧边界：maxTokens 整数 200–8000；budget 须为有限正数。
-    maxTokens: Math.max(200, Math.min(8000, Math.floor(Number(maxTokens) || 4000))),
+    // 2026-10-09 预算完全废弃：不发 maxTokens，内核按自己的缺省计量；
+    // 失控护栏只剩内核 agent 循环步数（budget.maxModelSteps）与请求轮数闸两层计数。
     budget: {
       agentTimeoutMs: Math.max(1000, Math.floor(Number(budget.agentTimeoutMs) || resolvedTimeoutMs)),
       maxModelSteps: Math.max(1, Math.floor(Number(budget.maxModelSteps) || 8)),
@@ -75,6 +76,7 @@ export async function submitCapabilityTask({
   }
 
   const controller = new AbortController()
+  resolveModelRoundGuard(roundGuard, 'capability').acquire('capability')
   const timer = setTimeout(() => controller.abort(), resolvedTimeoutMs + 15_000)
   const onAbort = () => controller.abort(signal?.reason)
   if (signal) {
@@ -151,9 +153,9 @@ export async function runCapabilityTaskAgent({ taskType, envelope, question, tas
   const completed = await submitCapabilityTask({
     systemPrompt,
     submitTool: { name: spec.toolName, description: spec.description, parameters: spec.schema },
-    maxTokens: 4000,
     budget: { agentTimeoutMs: timeoutMs, maxModelSteps: 8, maxCallsPerTurn: 6 },
     requestId: taskMeta?.requestId,
+    roundGuard: taskMeta?.roundGuard,
     timeoutMs
   })
   return {

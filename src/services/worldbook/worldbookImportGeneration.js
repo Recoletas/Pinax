@@ -297,7 +297,6 @@ export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameH
     settings: apiSettings,
     signal,
     generationOptions: {
-      max_tokens: 3400,
       temperature: 0.35,
       max_input_chars: 16000,
       timeout_ms: 90000,
@@ -388,7 +387,6 @@ export async function tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, n
     ],
     settings: apiSettings,
     generationOptions: {
-      max_tokens: 1800,
       temperature: 0.45,
       max_input_chars: 8000,
       timeout_ms: 90000,

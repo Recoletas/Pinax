@@ -15,6 +15,8 @@
  * 模板形状：{ id, label, fields: [{ key, label, required?, multiline? }], renderToContent(profile) }
  * profile 形状：{ template: id, values: { [fieldKey]: string }, speech: { enabled, speechStyle,
  *   vocabularyCommon: string[], vocabularyForbidden: string[], samples: string[], greeting } }
+ * values 是「模板键 + 自由键」共存：模板没有的【标签】以标签名作自由键保留
+ * （renderToContent 同序投影回去，覆盖原文不丢数据）。
  * 声口为横切：所有模板可开（§4.1「声口（横切，所有模板可开）」）。
  */
 
@@ -54,15 +56,30 @@ function toText(value) {
 
 /* ---------- 七模板（§4.1 表格逐字段落地） ---------- */
 
+/** 自由键安全判定：values 键会进模板投影与 JSON 往返，危险键名一律不入 */
+function isSafeFreeKey(key) {
+  const text = String(key ?? '').trim()
+  return Boolean(text) && !['__proto__', 'constructor', 'prototype'].includes(text)
+}
+
 function makeTemplate(id, label, fields, extra = {}) {
-  /** renderToContent：模板字段顺序投影 + 声口横切块；全空返回空串 */
+  /** renderToContent：模板字段顺序投影 + 自由键块 + 声口横切块；全空返回空串。
+   *  自由键（values 里非模板键/非模板标签）以「【键】值」投影在模板字段之后，
+   *  与 parseLabeledBlocks 反解互逆，覆盖原文时自由字段不丢。 */
   function renderToContent(profile) {
     const values = profile?.values && typeof profile.values === 'object' ? profile.values : {}
+    const knownKeys = new Set(fields.map((field) => field.key))
+    const knownLabels = new Set(fields.map((field) => field.label))
     const blocks = []
     for (const field of fields) {
       const value = toText(values[field.key])
       if (!value) continue
       blocks.push(`【${field.label}】${value}`)
+    }
+    for (const [key, rawValue] of Object.entries(values)) {
+      if (knownKeys.has(key) || knownLabels.has(key) || !isSafeFreeKey(key)) continue
+      const value = toText(rawValue)
+      if (value) blocks.push(`【${key}】${value}`)
     }
     const speech = normalizeSpeech(profile?.speech)
     if (speech.enabled) {
@@ -173,7 +190,7 @@ function speechFromContent(contentText) {
   return speech
 }
 
-function speechHasContent(speech) {
+export function speechHasContent(speech) {
   return Boolean(speech.speechStyle || speech.vocabularyCommon.length || speech.vocabularyForbidden.length || speech.samples.length || speech.greeting)
 }
 
@@ -190,6 +207,8 @@ function mergeSpeech(base, fallback) {
 
 /**
  * 从既有条目反解 profile：content 的【标签】行回填同名字段（模板 label 逆映射），
+ * 模板没有的标签以标签名直接作自由键保留进 values（声口横切标签除外，它们落
+ * speech；这是「profile 全空」解析侧的修复点——身份/性别/年龄等不再被丢弃），
  * 声口横切块按 stored profile > content 反解 > 顶层 speechStyle/samples（既有
  * 「角色声口」编辑器数据）的优先级回填；任一来源非空即视为已启用。
  */
@@ -199,15 +218,28 @@ export function profileFromEntry(entry, templateId = '') {
   const contentText = typeof entry?.content === 'string' ? entry.content : ''
   const labeled = parseLabeledBlocks(contentText)
   const labelToKey = new Map(template.fields.map((field) => [field.label, field.key]))
+  const speechLabels = new Set(Object.values(SPEECH_LABELS))
   for (const [label, value] of labeled) {
     const key = labelToKey.get(label)
-    if (key) profile.values[key] = value
+    if (key) {
+      profile.values[key] = value
+      continue
+    }
+    if (speechLabels.has(label) || !isSafeFreeKey(label)) continue
+    profile.values[label] = value
   }
   const stored = entry?.profile && typeof entry.profile === 'object' ? entry.profile : {}
   const storedValues = stored.values && typeof stored.values === 'object' ? stored.values : {}
   for (const field of template.fields) {
     const value = toText(storedValues[field.key])
     if (value && !toText(profile.values[field.key])) profile.values[field.key] = value
+  }
+  // 存量自由键兜底：正文没有同名标签时保留 stored 里的自由键（只补空，不覆盖）；
+  // 模板标签键与声口标签名不作自由键（它们各归模板字段与 speech 块）
+  for (const [key, value] of Object.entries(storedValues)) {
+    if (labelToKey.has(key) || speechLabels.has(key) || !isSafeFreeKey(key)) continue
+    const text = toText(value)
+    if (text && !toText(profile.values[key])) profile.values[key] = text
   }
   let speech = normalizeSpeech(stored.speech)
   speech = mergeSpeech(speech, speechFromContent(contentText))

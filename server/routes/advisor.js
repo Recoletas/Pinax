@@ -21,6 +21,7 @@ import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
 import { buildOpenClawUserMessage } from '../services/openclawService.js'
 import { capabilityPlaneAvailable, runCapabilityTaskAgent } from '../services/capabilityTaskRunner.js'
 import { getCapabilityToolSpec } from '../../shared/capabilityToolContracts.js'
+import { createModelRoundGuard } from '../../shared/modelLoopGuard.js'
 import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
 import { applyWritingSkillEnforcement } from '../services/writingSkillEnforcement.js'
 
@@ -145,6 +146,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     })
   }
   const requestId = String(trace?.requestId || '').trim().slice(0, 120) || randomUUID()
+  // 2026-10-09 预算完全废弃：本请求内所有模型调用（含语义修复重跑与回落）共用一个轮数闸。
+  const roundGuard = createModelRoundGuard()
   const ledger = createAgentContextLedger(clippedEnvelope)
 
   try {
@@ -163,7 +166,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         taskType: normalizedTaskType,
         target: clippedEnvelope.target,
         options: sanitizedOptions,
-        mode
+        mode,
+        roundGuard
       }
     })
     const runOnce = async (activeQuestion) => {
@@ -178,6 +182,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
             target: clippedEnvelope.target,
             options: sanitizedOptions,
             mode,
+            roundGuard,
             prompt: buildOpenClawUserMessage(clippedEnvelope, activeQuestion, {
               taskType: normalizedTaskType,
               target: clippedEnvelope.target,
@@ -190,6 +195,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         // 双层 fail-open 的第二层：任务面可达但任务本身失败（网关拒绝/空补全等）时，
         // 降级走漏斗直连而不是把硬 500 抛给作者；响应 meta.provider 会留痕实际链路。
         if (error.code === 'AGENT_REQUEST_ABORTED' || error.name === 'AbortError') throw error
+        if (error.code === 'MODEL_ROUND_LIMIT_EXCEEDED') throw error
         console.warn(`[Advisor] capability agent failed (${error.code || error.message}); falling back to funnel`)
         return runFunnelAgent(activeQuestion)
       }

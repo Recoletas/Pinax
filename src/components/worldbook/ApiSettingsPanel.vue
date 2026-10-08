@@ -63,18 +63,23 @@ function modelPatchOf(config) {
     return { patch: null, reason: 'server-owned' }
   }
   const baseUrl = String(resolved.baseUrl || '')
-  // Anthropic 协议配置：内核只讲 OpenAI 兼容线（llm.ts openAICompletionsApi），无法热切，不推 patch
-  if (resolved.format === 'anthropic' || /\/anthropic/i.test(baseUrl)) {
-    return { patch: null, reason: 'anthropic-protocol' }
-  }
   const provider = String(resolved.providerId || resolved.provider || resolved.id || 'openai').replace(/[^a-zA-Z0-9_-]/g, '') || 'openai'
   if (!resolved.model || !baseUrl) return { patch: null, reason: 'incomplete' }
+  // 协议轴：内核按 api 选传输。Anthropic 线（原生域或各家 /anthropic 兼容路径，以及显式选择 Anthropic 预设）
+  // 走 pi-ai anthropic-messages，其余仍走 OpenAI 兼容线。
+  const api = resolved.format === 'anthropic'
+    || provider.toLowerCase() === 'anthropic'
+    || /\/anthropic/i.test(baseUrl)
+    || /api\.anthropic\.com/i.test(baseUrl)
+    ? 'anthropic-messages'
+    : 'openai-completions'
   return {
     patch: {
       provider,
       model: resolved.model,
       baseUrl,
-      apiKey: resolved.apiKey
+      apiKey: resolved.apiKey,
+      api
     }
   }
 }
@@ -104,13 +109,8 @@ async function refreshEngine() {
 async function applySelectedToEngine() {
   if (applying.value) return
   const resolved = resolveSelectedTextProviderConfig()
-  const { patch, reason } = modelPatchOf(resolved)
-  if (!patch) {
-    if (reason === 'anthropic-protocol') {
-      applyMessage.value = tr('该配置为 Anthropic 协议，内核暂不支持，无法作为全局模型使用。')
-    }
-    return
-  }
+  const { patch } = modelPatchOf(resolved)
+  if (!patch) return
   applying.value = true
   applyMessage.value = ''
   try {

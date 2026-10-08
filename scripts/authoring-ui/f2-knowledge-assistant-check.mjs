@@ -2,11 +2,20 @@
 // F2-4 real-page Gate: project-grounded knowledge assistant, exact evidence,
 // stale reconciliation, read-only queries, editor-surface restoration and phone sheet.
 // Runs in isolated Playwright contexts; never mutates the user's browser profile.
+//
+// 跑法：
+//   1) 播种 fixture（产物只写 tmp/authoring-rollout/，不动用户浏览器 localStorage）：
+//        BASE=http://127.0.0.1:5174 node scripts/authoring-ui/rollout-fixture.mjs
+//   2) 起 dev server（本 Gate 的接缝段会在页面里动态 import /src 模块，
+//      走 Vite 转换管线，`vite preview`/dist 不提供 /src，必须用 dev）：
+//        npm run dev   # 或复用已在跑的 dev server
+//   3) 跑 Gate：
+//        BASE=http://127.0.0.1:5174 node scripts/authoring-ui/f2-knowledge-assistant-check.mjs
 import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const BASE = process.env.BASE || 'http://127.0.0.1:5173'
+const BASE = process.env.BASE || 'http://127.0.0.1:5174'
 const FIXTURE_DIR = path.resolve('tmp/authoring-rollout')
 const OUT_DIR = path.resolve('/tmp/pinax-f2-knowledge')
 const FINAL_DIR = path.resolve('/tmp/pinax-f2-final')
@@ -98,6 +107,11 @@ async function installKnowledgeProvider(page) {
     const edgarRefs = [...new Set(blocks
       .filter((block) => String(block.content || '').includes('艾德加'))
       .flatMap((block) => block.sourceRefs || []))]
+    // scene/selection 块携带「当前落笔处」投影（作者此刻在哪一章哪一节），
+    // 是副栏 target 断言的观察点。
+    const sceneRefs = [...new Set((payload.envelope?.blocks || [])
+      .filter((block) => ['scene', 'selection'].includes(block.kind))
+      .flatMap((block) => block.sourceRefs || []))]
     const isFree = payload.options?.knowledgeIntent === 'free'
     const worldRefs = refs.filter((ref) => ref.startsWith('worldbook-entry:')).slice(0, 2)
     const claims = isFree ? [] : [{
@@ -181,6 +195,34 @@ async function openAssistantSession(page) {
   await page.locator('.authoring-knowledge').waitFor({ state: 'visible', timeout: 15000 })
 }
 
+// 20261008 purpose 化同步（PR#5 起）：问答范围不再是 composer 旁的 <select>，
+// 而是 purpose 菜单（details.authoring-knowledge__purpose，summary=助手任务），
+// 三个入口按钮：讨论故事（free）/ 写作与修改（agent，agent 引擎在时才有）/
+// 查阅资料（whole-book）。选择即收起菜单并聚焦输入框。
+async function purposeMenu(page) {
+  const root = page.locator('.authoring-knowledge__purpose')
+  const menu = root.locator('.authoring-knowledge__purpose-menu')
+  if (!(await menu.isVisible().catch(() => false))) {
+    await root.locator('summary').click()
+    await menu.waitFor({ state: 'visible', timeout: 5000 })
+  }
+  return menu
+}
+
+async function choosePurpose(page, label) {
+  const menu = await purposeMenu(page)
+  await menu.getByRole('button', { name: label }).click()
+  await page.waitForTimeout(150)
+}
+
+// 助手回答的证据 chips：正文类 label 形如「章节名 · 单元.节点」，
+// 世界设定类 label 是条目名（如「艾德加」）；超出 3 条时先点开「另 N 条资料」。
+async function answerEvidenceRows(scope) {
+  const more = scope.locator('.authoring-knowledge__evidence-list > button.authoring-knowledge__more-sources')
+  if (await more.isVisible().catch(() => false)) await more.click()
+  return scope.locator('.authoring-knowledge__evidence-list > button:not(.authoring-knowledge__more-sources)')
+}
+
 const browser = await chromium.launch()
 const results = []
 
@@ -214,9 +256,16 @@ try {
   // 改落在 dock 的会话段 tab（打开时）/收起徽标钮（收起时），任一时刻至多一个；
   // rail 按钮专属的 aria-label 断言同步改为入口唯一且可见。
   check(results, '助手入口可见且唯一', await page.locator('[data-authoring-tool="ai"]').count() === 1 && await page.locator('[data-authoring-tool="ai"]').isVisible())
-  // 20260917 UI 线起快捷任务从按钮组改为 composer 的“问答范围”下拉。
-  const intentOptions = await assistant.locator('.authoring-knowledge__tasks select option').allTextContents()
-  check(results, '助手首页只呈现成熟快捷任务', intentOptions.join('|') === '查设定|找伏笔|理线索|挖角色|算数值|问全书|自由问', intentOptions.join('|'))
+  // 20261008 purpose 化同步（PR#5 起）：旧「成熟快捷任务」七项下拉
+  // （查设定|找伏笔|理线索|挖角色|算数值|问全书|自由问）已被 purpose 菜单
+  // 三入口取代（讨论故事=自由聊、写作与修改=agent、查阅资料=全书证据问答），
+  // 等价断言改为菜单入口名与顺序。
+  const purposeLabels = await (await purposeMenu(page)).locator('button span').evaluateAll((spans) => (
+    spans.map((span) => (span.childNodes[0]?.textContent || '').trim())
+  ))
+  await page.locator('.authoring-knowledge__purpose summary').click()
+  check(results, '助手 purpose 菜单呈现三入口（讨论/写作修改/查阅资料）',
+    purposeLabels.join('|') === '讨论故事|写作与修改|查阅资料', purposeLabels.join('|'))
   check(results, '助手首页不暴露诊断内部术语', !/manifest|receipt|candidate ID|token budget|上下文数量/i.test(await assistant.innerText()))
   await page.locator('.writing-inspector__icon-btn[title="关闭检查器"]').click()
   await page.waitForTimeout(120)

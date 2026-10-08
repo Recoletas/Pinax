@@ -58,6 +58,7 @@ AI request
 | 工作台标签 | `src/stores/workspaceTabsStore.js` + `workspaceRouteAdapter` | 安全导航快照 | URL 是导航真源；selection/scroll 只存内存 ledger |
 | 当前场、推演、干预 | `src/services/agents/authoring/` 中的 session/projection/transaction | 正式现场有限持久化；Ghost/session 多为内存 | provider 前后都要核对 revision |
 | 素材 | `src/services/media/narrativeAssets.js` | localStorage | AI 输出先是候选，不直接成为正文/世界事实 |
+| 模型渠道配置与选中 | `src/services/textProviderConfigStore.js` / `src/services/media/{image,video}ProviderConfigStore.js` | `localStorage.text_model_configs` + `image_model_configs` / `video_model_configs` 及各自 `*_selected` | 文本、图片、视频三条链各自独立；选中键是唯一真源，设置页与生成面都读写它，页面不得另造回落 |
 | 来源文档、媒体二进制 | `src/services/worldbook/worldbookSourceArchive.js` / `src/services/media/mediaAssetStore.js` | IndexedDB | 轻量 JSON 不含二进制；完整工作区 ZIP 会连同来源归档和已落盘媒体导出 |
 | 体验运行时 | `src/stores/gameStore.js` | localStorage | 兼容能力；不能反向成为 Authoring 的稿件真源 |
 | 地图 | `src/stores/geographyStore.js` + `src/services/world-map/` | localStorage / worldbook projection | 地图生成事实与作者确认的世界事实分开 |
@@ -174,7 +175,11 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 
 **循环归属试点范围（W1-1，2026-10-08）**：**单发结构化生成**（世界书字段生成）的回合循环已切至 kit 任务面 capability 路径——`structuredGenerationRunner.js` 在 kernel 路由下注入 `createKitStructuredCapabilityFetchImpl()`，请求折成 `taskKind=capability` 任务（Schema 进强制提交工具，回执即终态），任务不可达/失败时同请求回落 kit 漏斗（`/v1/pinax/complete`，双层 fail-open）。**助手对话（`chat.js`）与 agent-step（`generationAgent.js`）仍走 Pinax 侧循环**，kit 漏斗在其链路中只承担传输。**「同仓两种循环归属」是过渡期的合法中间态，不是全切完成**；试点出口与 ①②b 的切换另行裁定。
 
-**文本直连退役（2026-10-08，用户裁定）**：文本链不再有直连通路——`server/services/modelRouting.js` 只有 `kernel`（探测 kit `/model`）/`none` 两态，`none` 统一报「未检测到可用模型」；讨论/审校/设定/agent-step/正文生成与结构化生成四条生产链无条件经 kit 任务面（`generationAgent.js` 的多回合循环仍归 Pinax）。用户在设置页选中的模型即全局模型：「选中即热切内核」（`ApiSettingsPanel` → `POST /api/storyagent/model` → kit `/model`；公网部署 403）；用户 key 仅剩设置页探测（`/models`、`/test`）用途，浏览器不接触内容生成密钥。Anthropic 协议配置无法进内核（kit 只支持 OpenAI-completions）。media 链（image/video）不受影响，仍用服务器 `MINIMAX_API_KEY`。
+**文本直连退役（2026-10-08，用户裁定）**：文本链不再有直连通路——`server/services/modelRouting.js` 只有 `kernel`（探测 kit `/model`）/`none` 两态，`none` 统一报「未检测到可用模型」；讨论/审校/设定/agent-step/正文生成与结构化生成四条生产链无条件经 kit 任务面（`generationAgent.js` 的多回合循环仍归 Pinax）。用户在设置页选中的模型即全局模型：「选中即热切内核」（`ApiSettingsPanel` → `POST /api/storyagent/model` → kit `/model`；公网部署 403）；用户 key 仅剩设置页探测（`/models`、`/test`）用途，浏览器不接触内容生成密钥。**协议轴（2026-10-08）**：内核按 `api` 选传输——`openai-completions`（缺省）或 `anthropic-messages`（pi-ai 自带传输，鉴权走 `x-api-key`、系统提示在顶层 `params.system`）。设置页选中 Anthropic 预设（baseUrl 不带 `/v1`）或 baseUrl 命中 `/anthropic`、`api.anthropic.com` 时热切带 `api:'anthropic-messages'`；该线不消费 `options.samplingParams`，故 `response_format` 被忽略，结构化靠折进 user 轮的显式 Schema 指令兜底。media 链（image/video）不受影响，仍用服务器 `MINIMAX_API_KEY`。
+
+**输出预算完全废弃（2026-10-09，用户裁定「暂不加预算，只加一个最大循环次数」）**：Pinax 侧不再声明任何单次调用的输出 token 预算——服务端/共享层/浏览器链的 `max_tokens`（含 `maxTokens`）声明全部摘除，请求体不带该字段即交内核缺省（kit `modelFunnel.ts` 缺省 4096；任务面 `runner.ts` 缺省 1600；`server.ts` 只在字段有定义时校验 200–8000）。保留的数值不是预算而是**防超长与防跑飞**两类：上下文窗校验 `assertModelCallBudget` 只按已记录真实用量比对输入字符（`contextRunBudget`）、`NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps` 与结构化 `budget.maxModelSteps`（模型步数）、各链 `timeoutMs`。**跑飞兜底为请求级模型轮数闸**：`shared/modelLoopGuard.js` 的 `MAX_MODEL_ROUNDS_PER_REQUEST = 3`，以 `roundGuard` 随 advisor（`taskMeta` 与漏斗共享同一实例）与结构化生成/能力任务传递，超限抛 `MODEL_ROUND_LIMIT_EXCEEDED`（`retryable:false`，且 advisor 的能力→漏斗回落必须原样上抛、不得被 fail-open 吞掉）。截断（`RESPONSE_INCOMPLETE`）不再靠抬预算修复，改为同请求补跑一轮、失控由轮数闸兜底。例外保留：连接探测（180/32/64 token）与 Anthropic/Responses 协议必填字段的探测声明不是生成预算；`GENERATION_AGENT_LIMITS.maxTokens: 8192` 是入参校验上限不是声明值。
+
+**OpenClaw 僵尸直连摘除（2026-10-09）**：`server/routes/openclaw.js` 删除、`server/index.js` 撤挂载（该路由绕过 `modelRouting.js` 直调 provider，是直连退役后唯一残口），`openclawService.js` 只保留提示卡与 `buildOpenClawUserMessage`，其读取网关令牌的两个死函数（引用已移除的 `join/homedir/existsSync/readFileSync` 与 `OPENCLAW_GATEWAY_TOKEN`）一并删除。全仓 `/api/openclaw` 引用 grep 零命中。
 
 ## 运行时监督拓扑（2026-10-08 实测定档）
 

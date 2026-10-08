@@ -5,6 +5,7 @@ import {
   normalizeStructuredDraftPayload
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
+import { resolveModelRoundGuard } from '../../shared/modelLoopGuard.js'
 import { createKitStructuredCapabilityFetchImpl } from './kitModelGateway.js'
 import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 import {
@@ -82,7 +83,11 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
   let mode = firstMode
   let attemptCount = 0
   let lastError = null
-  for (let round = 0; round < 2 && mode; round += 1) {
+  // 2026-10-09 预算完全废弃：不再有「截断就抬预算」的修复分支，单请求的失控护栏只剩模型调用轮数闸。
+  const roundGuard = resolveModelRoundGuard(options.roundGuard, 'structured')
+  for (;;) {
+    if (!mode) break
+    roundGuard.acquire('structured')
     attemptCount += 1
     try {
       const result = await runStructuredProviderRequest(request, mode, {
@@ -132,26 +137,14 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
       // Some compatible endpoints accept output_config but ignore its schema.
       // A complete malformed response needs another supported protocol, not a
       // larger token budget for the same ineffective request.
-      if (mode === 'native-json-schema' && round === 0
+      if (mode === 'native-json-schema' && attemptCount === 1
         && error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID) {
         downgradeStructuredProviderCapability(cache, request.provider, 'nativeJsonSchema')
         mode = chooseFallbackMode(request.provider, mode)
         continue
       }
-      if (
-        error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE
-        && round === 0
-        && request.options.maxTokens < 6000
-      ) {
-        request = {
-          ...request,
-          options: {
-            ...request.options,
-            maxTokens: Math.min(6000, Math.max(request.options.maxTokens + 800, Math.ceil(request.options.maxTokens * 1.5)))
-          }
-        }
-        continue
-      }
+      // 截断不再靠抬预算修复（预算裁定）：同一请求只补跑一轮，失控由轮数闸兜底。
+      if (error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE && attemptCount === 1) continue
       const capability = mode === 'native-json-schema'
         ? 'nativeJsonSchema'
         : mode === 'forced-tool'
@@ -195,6 +188,8 @@ export async function probeStructuredProviderCapabilities(provider, options = {}
       userBrief: '仅用于验证结构化输出协议，测试内容不会保存到世界书。'
     },
     options: {
+      // 设置面连接探测：Anthropic / Responses 协议把预算字段列为必填，探测必须带一个值；
+      // 这不是内容生成预算（生成链已完全废弃写死预算），只影响用户主动点「测试连接」这一次调用。
       maxTokens: 180,
       temperature: 0,
       timeoutMs: Math.min(Number(options.timeoutMs || 30000), 30000)

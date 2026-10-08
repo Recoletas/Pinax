@@ -54,6 +54,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
   POETRY_IMAGE_LIBRARY_V1: 'project',
 
   IMAGE_MODEL_CONFIGS: 'secret-config',
+  IMAGE_MODEL_SELECTED: 'preference',
   VIDEO_MODEL_CONFIGS: 'secret-config',
   VIDEO_MODEL_SELECTED: 'preference',
   MEDIA_ASSETS: 'project',
