@@ -74,12 +74,16 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import ManuscriptLanguageSelect from '../authoring/ManuscriptLanguageSelect.vue'
 import FolderBrowserModal from './FolderBrowserModal.vue'
 import { useProjectInfoPanel } from '../../composables/useProjectInfoPanel.js'
+import { useRouter } from 'vue-router'
 import { createWritingBookRecord, loadWritingBooks, saveWritingBooksDurable, updateWritingBook } from '../../services/writing/writingBooksRepository.js'
 import { createImportedWritingBook } from '../../services/writing/writingManuscriptImport.js'
 import { getLocalMirrorSettings, listLocalProjects, pickFolderNative } from '../../services/localMirrorSettings.js'
 import { useWorldStore } from '../../stores/worldStore.js'
 
-const panel = useProjectInfoPanel()
+// 面板宿主注入导航回调：useProjectInfoPanel 因此不再静态依赖 router
+// （那会构成 useProjectInfoPanel → router → AuthoringWelcomeView → Authoring → 本模块的 4 连环）。
+const router = useRouter()
+const panel = useProjectInfoPanel({ navigate: (createdBook) => router.push({ name: 'authoring', query: { bookId: createdBook.id } }) })
 const worldStore = useWorldStore()
 const emit = defineEmits(['saved'])
 
