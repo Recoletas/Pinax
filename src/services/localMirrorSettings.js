@@ -9,8 +9,7 @@ function normalizeSettings(raw) {
   return {
     enabled: value.enabled !== false,
     customRoot: typeof value.customRoot === 'string' ? value.customRoot : '',
-    defaultCreateRoot: typeof value.defaultCreateRoot === 'string' ? value.defaultCreateRoot : '',
-    defaultReadRoot: typeof value.defaultReadRoot === 'string' ? value.defaultReadRoot : ''
+    defaultCreateRoot: typeof value.defaultCreateRoot === 'string' ? value.defaultCreateRoot : ''
   }
 }
 

@@ -3428,3 +3428,23 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 
 **门禁（本批实跑数字）**：所有编辑文件 `node --check` 通过；**串行** vitest（本机内存约束用 `--no-file-parallelism`）20/20 文件、**200/200 用例顶格不破**——并行时 `settingsAgentWorkflows > keeps extracted and fleshed-out places as review drafts` 5000ms 超时，该 flake 在 `docs/LOG.md` 与 `docs/plan/kit-runtime-workorders-20261008.md` 已存记（单跑 780ms），非本批引入。预算断言按「合并置换」改写 `src/__tests__/agentContracts.test.js` 既有用例（补跑两轮请求体 `max_tokens` 平值透传 2200/2200、未声明请求体该字段 `undefined`、`createModelRoundGuard(1)` 触发 `MODEL_ROUND_LIMIT_EXCEEDED`），**未新增测试文件**。`lint:delta` 0 新增 error（4 条存量 warning 不计门禁）；`vite build` 29.13s、Authoring chunk **1,360.58 kB ≤ 1,450,000**；`architecture:check`、`catalog-sync` 21/21、`bridge-sync` 2/2、`git diff --check` 全 exit 0。长期口径已写入 `docs/engineering/current-architecture.md`（「输出预算完全废弃」「OpenClaw 僵尸直连摘除」两段），`docs/STATUS.md` 首行新增本批安排行并把 2026-10-08 回归账的过渡态口径标注作废，`docs/plan/legacy-feature-regression-findings-20261008.md` 的 R1/R2 改终态并新增第十节。**未 commit**（本轮未获授权）。
 
+---
+
+## 2026-10-09 设置 → 本地项目 面板重做（用户反馈：两个路径输入框＋文字墙，丑）
+
+**用户口径**：「就用默认目录，以及已绑定项目，下拉框，就行了」——原面板是「默认项目新建位置」＋「读取位置」两个同形大输入框，加一段 `已绑定：书名 → 路径` 的逐行文字，控件彼此不像一个系统。
+
+**新形态（两控件）**：**默认目录**＝输入框＋`浏览…` 按钮，交互与 `ProjectInfoPanel` 完全一致（`pickFolderNative` 拉服务端系统对话框 → 不可用回落 `FolderBrowserModal` → 用户点取消则保持原值不催开），输入框与按钮拼成一体控件（左圆角输入＋右圆角按钮），hint 单行说明留空落点；**已绑定项目**＝`<select>`，选项按 `lastOpenedAt` 倒序、未绑定书稿的带「· 未绑定书稿」，选中后在下方单行显示该项目绝对路径（`word-break: break-all` 兜长路径）。样式全部走既有 token（`--hairline-soft`/`--radius-control`/`--surface-workbench-input`/`--nav-hover`），无新硬编码色、无新断点。
+
+**「读取位置」是死字段，直接撤除**：全仓 grep `defaultReadRoot` 只有该面板自己写、`normalizeSettings` 自己留，**零读取方**（`scripts/local-import-check.mjs` 那条断言是唯一外部引用），因此不是「藏起来」而是从 `normalizeSettings` 白名单删掉——旧 localStorage 里的该键在下次保存时自然消失。
+
+**顺带纠了两处话术假账**：① 旧面板写「配置默认位置后，新建或导入的书会自动在默认位置建项目并绑定」，但自动建项目的 `ensureProjectForBook` 早在 `58c1f51`（死代码清理批）就被删了，现状是 `ProjectInfoPanel:140` 拿默认目录**预填**、用户确认才建——文案改成预填语义，不再承诺自动；② 输入框原先拿服务端文档根当 placeholder，与 hint 里的同一个路径重复显示，实拍后改为中性 placeholder（`例如 D:\Projects（绝对路径）`），留空落点只在 hint 出现一次（root 取 `/api/localmirror/location`，实测 `C:\Users\Administrator\Documents\Pinax`）。
+
+**i18n**：`en.json` 删 6 个孤儿键（`读取位置`、`打开已有项目时的预填位置。`、`已绑定：{name} → {path}`、`未绑定书的镜像目录：{root}`、`默认项目新建位置`、旧 head 长句与旧 hint），补 5 键（新 head 句、`默认目录`、`已绑定项目`、`留空则落在文档目录：{root}`、`读取中…`），并顺手补上 `浏览…` —— 这个键 `ProjectInfoPanel` 用了几轮却从未登记，属英文态下的既有缺口。
+
+**修好一道哑掉的 smoke**：`npm run smoke:local-import`（`scripts/local-import-check.mjs`）自 `58c1f51` 起第 [4] 段以 `TypeError: ensureProjectForBook is not a function` 崩在导入后第一行——即该 smoke 已断跑多轮无人察觉。第 [4] 段重写为现存面的断言（设置面只留活字段 / 落盘三键形状 / 默认目录可清空 / 解绑 `bookId=null` / 移除端点），现 **17/17 通过**。
+
+**门禁与实拍**：vitest 串行 20/20 文件、200/200 用例顶格不破（**未新增用例**，行为断言由脚本＋真浏览器承载）；`lint:delta` 0 新增 error；`vite build` 30.27s；`architecture:check` / `catalog-sync` 21/21 / `bridge-sync` 2/2 / `git diff --check` 全 exit 0。真浏览器实拍用 Playwright 驱动 3001 现网 dist（工装 `%LOCALAPPDATA%\pinax-probe\localproject-panel-check.mjs`，截图入库 `docs/screenshots/localproject-settings-20261009/`）：桌面 1440 与手机 390 各拍一张，下拉切第二项时路径行随变为 `D:\Projects\导入验收`，输入 `D:/Projects` 后 localStorage 落盘 `{"enabled":true,"customRoot":"","defaultCreateRoot":"D:/Projects"}`（无 `defaultReadRoot`），手机横向溢出 0px，pageerror 与控制台 error 零条。**`浏览…` 未点**：它会在用户机器上拉起用户看不见的系统对话框（本机 GUI 弹窗不可见是已记约束），该路径的可用性沿用 `ProjectInfoPanel` 同一实现的既有验收。实拍为看图而非只看断言——两处冗余（placeholder 重复路径）就是看图才发现的。
+
+**注意**：为实拍重建了 `dist`，3001 前端刷新即见新版；后端进程未动、未重启。未 commit（本轮未获授权）。
+
