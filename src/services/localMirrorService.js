@@ -26,8 +26,8 @@ const CAPS = {
   conversationMessageChars: 8_000
 }
 
-// 设置/绑定面（getLocalMirrorSettings/setLocalMirrorSettings/ensureProjectForBook/
-// listLocalProjects/getLocalMirrorLocation）在 localMirrorSettings.js——轻模块单源。
+// 设置/绑定面（getLocalMirrorSettings/setLocalMirrorSettings/listLocalProjects/
+// getLocalMirrorLocation）在 localMirrorSettings.js——轻模块单源。
 
 function gatherLogs(book, chapterIds, worldbookId) {
   const logs = { revisions: [], sessions: [], conversations: [], memory: [] }

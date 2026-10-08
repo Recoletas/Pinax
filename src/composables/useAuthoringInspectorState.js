@@ -8,7 +8,6 @@ const INSPECTOR_LABELS = Object.freeze({
   scene: '现场',
   rehearsal: '推演',
   collaboration: '共同排演',
-  materials: '素材',
   ai: '助手',
   history: '历史',
   dual: '双栏'

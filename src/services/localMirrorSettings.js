@@ -62,18 +62,6 @@ export async function removeLocalProject(projectId) {
   if (!response.ok || body?.ok !== true) throw Object.assign(new Error(body?.message || 'remove failed'), { status: response.status })
 }
 
-function sanitizeProjectFolderName(input) {
-  return (
-    String(input ?? '')
-      // 文件名消毒本就要清控制字符——豁免与 server/services/localMirrorService.js 同款
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80)
-    .replace(/[. ]+$/, '') || '未命名项目')
-}
-
 /** Windows 原生文件夹选择器：服务端拉起真实系统对话框（同机），返回绝对路径；取消返回 null；不可用抛 NATIVE_PICKER_UNAVAILABLE。 */
 export async function pickFolderNative(initial = '', { pollMs = 500, timeoutMs = 10 * 60_000 } = {}) {
   const startResponse = await fetch('/api/localmirror/projects/pick-folder/start', {
@@ -95,28 +83,5 @@ export async function pickFolderNative(initial = '', { pollMs = 500, timeoutMs =
     if (result.failed) throw Object.assign(new Error('native picker failed'), { code: 'NATIVE_PICKER_UNAVAILABLE' })
     if (result.cancelled || !result.path) return null
     return result.path
-  }
-}
-
-/** 配了默认新建位置时，为书自动建项目文件夹并绑定 bookId；冲突/失败静默返回 null（回落文档根镜像）。 */
-export async function ensureProjectForBook(book) {
-  const { defaultCreateRoot } = getLocalMirrorSettings()
-  if (!defaultCreateRoot || !book?.id || !book?.title) return null
-  try {
-    const response = await fetch('/api/localmirror/projects/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        path: `${defaultCreateRoot.replace(/[\\/]+$/, '')}/${sanitizeProjectFolderName(book.title)}`,
-        name: book.title,
-        kind: 'novel',
-        bookId: book.id
-      })
-    })
-    const body = await response.json().catch(() => null)
-    if (response.ok && body?.ok) return body.entry
-    return null
-  } catch {
-    return null
   }
 }
