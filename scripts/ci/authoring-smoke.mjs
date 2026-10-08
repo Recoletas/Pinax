@@ -178,7 +178,8 @@ async function runJourney() {
     await page.locator('[data-test="welcome-import-manuscript"]').click()
     const dialog = page.getByRole('dialog', { name: '导入 TXT / Markdown' })
     await dialog.waitFor({ timeout: 30_000 })
-    await dialog.locator('input[type=file]').setInputFiles({
+    // 导入对话框有两个 file input（单文件 + webkitdirectory 文件夹模式）：smoke 走单文件。
+    await dialog.locator('input[type=file]').first().setInputFiles({
       name: 'authoring-smoke-synthetic.txt',
       mimeType: 'text/plain',
       buffer: Buffer.from(SYNTHETIC_GB18030_HEX, 'hex')

@@ -231,4 +231,3 @@ rebuildChatHistory() {
   this.chatHistory = [systemPrompt, ...history];
 },
 }
-
