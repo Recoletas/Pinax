@@ -57,6 +57,10 @@
           </button>
         </nav>
 
+        <section v-if="editorTab === 'overview'" class="card">
+          <UnifiedEntryBrowser :worldbook="activeWorldbook" @select="onBrowserSelect" />
+        </section>
+
         <section v-if="editorTab === 'base'" class="card">
           <div class="card-head">
             <h2>{{ tr("世界书基础设定") }}</h2>
@@ -296,6 +300,226 @@
           </datalist>
         </section>
 
+        <section v-if="editorTab === 'settlement'" class="card settlement-card">
+          <div class="card-head split">
+            <div>
+              <h2>{{ tr("章回结算") }}</h2>
+              <p class="settlement-lede">{{ tr("每章交稿后结算五件：章卡、人物状态、交接、伏笔台账、世界揭示。草案不落库，显式「写入」才生效；只写世界书侧，绝不碰正文。") }}</p>
+            </div>
+            <span class="settlement-channel" :class="{ online: fileChannelOnline }" data-test="settlement-channel">
+              {{ fileChannelOnline ? tr("文件通道：已连接") : tr("文件通道：离线（本地编辑继续，server 可达后自动落盘）") }}
+            </span>
+          </div>
+
+          <div v-if="settlementError" class="import-error" role="alert">{{ displayStatus(settlementError) }}</div>
+          <div v-if="settlementMessage" class="import-success" role="status">{{ displayStatus(settlementMessage) }}</div>
+
+          <div class="settlement-draft-gen">
+            <label>
+              {{ tr("章节标题") }}
+              <input v-model.trim="settlementDraft.chapterTitle" class="text-input" type="text" :placeholder="tr('例如：第 3 章 盐夜')" />
+            </label>
+            <label class="full-width">
+              {{ tr("本章产出文本（仅用于本地抽取草案，不进入世界书或正文）") }}
+              <textarea
+                v-model="settlementDraft.sourceText"
+                class="text-area"
+                rows="4"
+                :placeholder="tr('粘贴一轮生成或本章片段，点「生成结算草案」。')"
+              ></textarea>
+            </label>
+            <div class="settlement-draft-actions">
+              <button
+                class="ghost-btn"
+                :disabled="settlementBusy || !settlementDraft.sourceText.trim()"
+                @click="generateSettlementDraft"
+              >
+                {{ tr("生成结算草案") }}
+              </button>
+              <span class="settlement-hint">{{ tr("草案=本地确定性抽取（提及人物/新名目/首句），逐项确认后才写入。") }}</span>
+            </div>
+          </div>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("① 章卡 → 章账（一句话+梗点+钩型+新名目）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div class="settlement-grid">
+              <label>
+                {{ tr("一句话") }}
+                <input v-model.trim="settlementDraft.card.summary" class="text-input" type="text" />
+              </label>
+              <label>
+                {{ tr("梗点/钩子") }}
+                <input v-model.trim="settlementDraft.card.hook" class="text-input" type="text" :placeholder="tr('钩型+梗点，一句话')" />
+              </label>
+              <label class="full-width">
+                {{ tr("新名目（逗号分隔；成长阶/招式等先登记再进正文）") }}
+                <input v-model.trim="settlementDraft.card.newTermsText" class="text-input" type="text" />
+              </label>
+            </div>
+            <div class="settlement-piece-actions">
+              <span class="settlement-hint">{{ tr("同名章节已结算过时再点写入不会重复追加。") }}</span>
+              <button class="primary-btn" :disabled="settlementBusy || !settlementCardWriteReady" @click="writeChapterCard">
+                {{ tr(settlementBusy ? '写入中...' : '写入章卡') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("③ 交接 → 章账末节（下一章 handoff，3-5 条）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <label class="full-width">
+              {{ tr("交接清单（每行一条；下一章写手只读末节）") }}
+              <textarea
+                v-model="settlementDraft.handoffText"
+                class="text-area"
+                rows="4"
+                :placeholder="tr('写下一章必知的事实与悬置钩子，不写过程。')"
+              ></textarea>
+            </label>
+            <div class="settlement-piece-actions">
+              <span class="settlement-hint">
+                {{ settlementHandoffItems.length }}/{{ settlementHandoffMax }} 条
+                <template v-if="settlementHandoffItems.length > 0 && settlementHandoffItems.length < settlementHandoffMin">（{{ tr("不足 3 条不会写入交接节") }}）</template>
+              </span>
+              <button class="primary-btn" :disabled="settlementBusy || !settlementHandoffWriteReady" @click="writeChapterHandoff">
+                {{ tr(settlementBusy ? '写入中...' : '写入交接（末节）') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("② 人物状态推进 → 条目（当前状态改写+变动史追加）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div v-if="!settlementDraft.characters.length" class="empty-hint">{{ tr("生成草案会带入正文提及的角色，也可在下方手动添加。") }}</div>
+            <article v-for="(row, index) in settlementDraft.characters" :key="`char-${index}`" class="settlement-character" data-test="settlement-character">
+              <div class="settlement-character-head">
+                <select v-model="row.entryId" class="select-input" :aria-label="tr('选择人物条目')">
+                  <option v-for="option in settlementCharacterOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span v-if="row.written" class="settlement-written">{{ tr("已写入") }}</span>
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeCharacterRow(index)">{{ tr("移除") }}</button>
+              </div>
+              <div class="settlement-grid">
+                <label>{{ tr("伤势") }} <input v-model.trim="row.deltas.injury" class="text-input" type="text" /></label>
+                <label>{{ tr("财物") }} <input v-model.trim="row.deltas.money" class="text-input" type="text" /></label>
+                <label>{{ tr("知情") }} <input v-model.trim="row.deltas.knowledge" class="text-input" type="text" /></label>
+                <label>{{ tr("关系") }} <input v-model.trim="row.deltas.relations" class="text-input" type="text" /></label>
+                <label>{{ tr("位置") }} <input v-model.trim="row.deltas.location" class="text-input" type="text" /></label>
+                <label>{{ tr("备注（记入变动史）") }} <input v-model.trim="row.deltas.note" class="text-input" type="text" /></label>
+              </div>
+              <div class="settlement-piece-actions">
+                <span class="settlement-hint">{{ tr("只改【当前状态】并追加【变动史】；背景/性格/外貌等静态段不动。") }}</span>
+                <button
+                  class="primary-btn"
+                  :disabled="settlementBusy || !row.entryId || !settlementRowHasDelta(row)"
+                  @click="writeCharacterRow(row)"
+                >
+                  {{ tr("写入人物状态") }}
+                </button>
+              </div>
+            </article>
+            <div class="settlement-add-row">
+              <select class="select-input" value="" :aria-label="tr('添加人物行')" @change="addCharacterRow">
+                <option value="">{{ tr("＋ 添加人物行…") }}</option>
+                <option v-for="option in settlementCharacterOptions" :key="`add-${option.value}`" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("④ 伏笔变动 → 台账（open/paid/retired 机器可读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div v-if="!settlementDraft.foreshadow.length" class="empty-hint">{{ tr("登记本章新埋/回收/顺期的伏笔；同 fid 行会被原位更新。") }}</div>
+            <article v-for="(row, index) in settlementDraft.foreshadow" :key="`fb-${index}`" class="settlement-character">
+              <div class="settlement-grid">
+                <label>{{ tr("fid") }} <input v-model.trim="row.fid" class="text-input" type="text" :placeholder="tr('例如 F-012')" /></label>
+                <label class="full-width">{{ tr("内容") }} <input v-model.trim="row.content" class="text-input" type="text" /></label>
+                <label>{{ tr("埋点") }} <input v-model.trim="row.plantedAt" class="text-input" type="text" :placeholder="tr('章名/节点')" /></label>
+                <label>{{ tr("预定回收") }} <input v-model.trim="row.dueBy" class="text-input" type="text" /></label>
+                <label>
+                  {{ tr("状态") }}
+                  <select v-model="row.status" class="select-input">
+                    <option v-for="status in settlementForeshadowStatuses" :key="status" :value="status">{{ status }}</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settlement-piece-actions">
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeForeshadowRow(index)">{{ tr("移除") }}</button>
+              </div>
+            </article>
+            <div class="settlement-piece-actions">
+              <button class="ghost-btn small" :disabled="settlementBusy" @click="addForeshadowRow">{{ tr("＋ 添加伏笔行") }}</button>
+              <button
+                class="primary-btn"
+                :disabled="settlementBusy || !settlementDraft.foreshadow.some((row) => row.fid.trim())"
+                @click="writeForeshadowRows"
+              >
+                {{ tr(settlementBusy ? '写入中...' : '写入伏笔台账') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("⑤ 世界揭示 → 设定条目（逐条采纳）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div class="settlement-add-row">
+              <input
+                v-model.trim="settlementDraft.revealText"
+                class="text-input"
+                type="text"
+                :placeholder="tr('本章确立的新设定事实，例如：盐引制度由潮盐行会垄断')"
+                @keyup.enter="addReveal"
+              />
+              <button class="ghost-btn small" :disabled="!settlementDraft.revealText.trim()" @click="addReveal">{{ tr("＋ 登记揭示") }}</button>
+            </div>
+            <div v-if="!settlementDraft.reveals.length" class="empty-hint">{{ tr("登记后逐条「采纳」，采纳会创建设定（lore）条目。") }}</div>
+            <article v-for="(reveal, index) in settlementDraft.reveals" :key="`reveal-${index}`" class="settlement-character">
+              <div class="settlement-grid">
+                <label class="full-width">
+                  {{ tr("揭示事实") }}
+                  <input v-model.trim="reveal.text" class="text-input" type="text" />
+                </label>
+                <label>
+                  {{ tr("条目名（可选）") }}
+                  <input v-model.trim="reveal.name" class="text-input" type="text" :placeholder="tr('缺省用「世界揭示 N」')" />
+                </label>
+              </div>
+              <div class="settlement-piece-actions">
+                <span v-if="reveal.adopted" class="settlement-written">{{ tr("已采纳") }}</span>
+                <button v-if="!reveal.adopted" class="primary-btn" :disabled="settlementBusy || !reveal.text.trim()" @click="adoptReveal(reveal)">
+                  {{ tr("采纳为设定条目") }}
+                </button>
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeReveal(index)">{{ tr("移除") }}</button>
+              </div>
+            </article>
+          </details>
+
+          <div class="settlement-views">
+            <details class="settlement-piece view">
+              <summary>{{ tr("章账（只读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <pre class="settlement-ledger-view" data-test="chapter-ledger-view">{{ chapterLedgerText }}</pre>
+            </details>
+            <details class="settlement-piece view">
+              <summary>{{ tr("伏笔台账（只读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <pre class="settlement-ledger-view">{{ foreshadowLedgerText }}</pre>
+            </details>
+            <details class="settlement-piece view">
+              <summary>{{ tr("底牌（作者专用 · 永不入正文）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <p class="settlement-hint">{{ tr("status:draft 且带底牌标记的条目被注入端显式排除，任何激活路径都不会进入正文上下文。") }}</p>
+              <div v-if="covertEntries.length" class="settlement-covert-list">
+                <article v-for="entry in covertEntries" :key="entry.id" class="settlement-covert" data-test="covert-card">
+                  <header>
+                    <strong>{{ entry.name }}</strong>
+                    <span class="settlement-covert-badge">{{ tr("永不入正文") }}</span>
+                  </header>
+                  <p>{{ entry.content }}</p>
+                </article>
+              </div>
+              <div v-else class="empty-hint">{{ tr("暂无底牌条目；项目文件的 世界书/底牌/暗线底牌.md 为作者专用登记处。") }}</div>
+            </details>
+          </div>
+        </section>
+
         <section v-if="editorTab === 'entries'" class="card entry-workspace-card">
           <div class="card-head split">
             <div><h2>{{ tr("条目管理") }}</h2></div>
@@ -521,15 +745,8 @@
                   :placeholder="tr('例如：边境领地')"
                 />
               </label>
-              <label>
-                {{ tr("内容") }}
-                <textarea
-                  v-model.trim="entryForm.content"
-                  class="text-area"
-                  rows="8"
-                  :placeholder="tr('输入条目内容')"
-                ></textarea>
-              </label>
+
+              <EntryMdEditor v-model="entryForm.content" />
 
               <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
                 <header class="entry-voice-editor__head">
@@ -567,6 +784,23 @@
                   {{ tr("添加示例台词") }}
                 </button>
               </section>
+
+              <details class="entry-advanced-panel" :open="entryAdvancedOpen" @toggle="onAdvancedToggle">
+                <summary>{{ tr("条目档案模板与关联") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+                <EntryProfileEditor
+                  :entry="selectedEntry"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyProfileSave"
+                />
+                <EntryLinksEditor
+                  :entry="selectedEntry"
+                  :entries="entries"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyLinksSave"
+                />
+              </details>
 
               <details class="injection-panel">
                 <summary>{{ tr("高级引用设置") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
@@ -663,6 +897,7 @@ import {
   findWorldbookAuditTargets,
   WORLDBOOK_MAINTENANCE_MODES
 } from '../services/worldbook/worldbookMaintenance'
+import UnifiedEntryBrowser from '../components/worldbook/UnifiedEntryBrowser.vue'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
@@ -670,6 +905,23 @@ import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import EntryMdEditor from '../components/worldbook/EntryMdEditor.vue'
+import EntryProfileEditor from '../components/worldbook/EntryProfileEditor.vue'
+import EntryLinksEditor from '../components/worldbook/EntryLinksEditor.vue'
+import {
+  FORESHADOW_STATUSES,
+  HANDOFF_MAX_ITEMS,
+  HANDOFF_MIN_ITEMS,
+  applyChapterSettlement,
+  chapterLedgerSkeleton,
+  createSettlementChannel,
+  foreshadowLedgerSkeleton,
+  isChapterLedgerEntry,
+  isCovertCardEntry,
+  isForeshadowLedgerEntry,
+  settlementFromTurn
+} from '../services/worldbook/settlementService'
+import { isFileSourceAvailable, refreshFileSourceAvailability } from '../services/worldbook/worldbookFileRepository'
 
 const route = useRoute()
 const router = useRouter()
@@ -719,6 +971,8 @@ const maintenanceCandidates = ref([])
 const maintenanceRevision = ref('')
 const maintenanceTouchedEntryIds = ref(new Set())
 const maintenanceCompleted = ref(false)
+// W3·B2/B3：条目档案模板与关联编辑区——character 类型默认展开，其他类型可开。
+const entryAdvancedOpen = ref(false)
 
 const maintenanceModes = [
   {
@@ -738,9 +992,16 @@ const maintenanceModes = [
   }
 ]
 
-const editorTab = ref('entries')
+const editorTab = ref('overview')
+// 总览浏览器点选条目 → 跳条目管理并定位（B1 组件只 emit，不路由）
+function onBrowserSelect(entry) {
+  if (entry?.id) pickEntry(entry.id)
+  editorTab.value = 'entries'
+}
 const editorTabs = [
+  { key: 'overview', label: '总览', icon: 'layout' },
   { key: 'entries', label: '条目管理', icon: 'list' },
+  { key: 'settlement', label: '章回结算', icon: 'history' },
   { key: 'base', label: '基础设定', icon: 'book' },
   { key: 'transfer', label: '导入导出', icon: 'download' },
   { key: 'groups', label: '分组管理', icon: 'archive' },
@@ -925,6 +1186,11 @@ watch(selectedEntry, (entry, previous) => {
   else if (entry) return
   else resetEntryForm()
 }, { immediate: true })
+
+// W3：档案模板/关联区默认展开策略——选中 character 时展开，其余类型收起（可手动开）。
+watch(() => [selectedEntry.value?.id, selectedEntry.value?.type], ([, type]) => {
+  entryAdvancedOpen.value = type === 'character'
+})
 
 watch(entries, (nextEntries) => {
   const idSet = new Set(nextEntries.map(entry => entry.id))
@@ -1543,6 +1809,44 @@ async function deleteEntry() {
   selectFirstEntry()
 }
 
+// W3·B2：档案模板保存——profile 落条目；仅在作者显式选「覆盖原文」时才以投影替换
+// content（content 是注入真相，禁默认覆盖）。
+async function applyProfileSave({ profile, content, overwrite }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      profile,
+      ...(overwrite ? { content } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+    if (selectedEntry.value) syncEntryForm(selectedEntry.value)
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+// W3·B3：关系双层保存——links=纯 id 层、relations=富关系层由 entryRelations.
+// applyRelationRows 同一实现派生，两层必然一致；tags 承接旧 relations.tags 桶。
+async function applyLinksSave({ links, relations, tags }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      links,
+      relations,
+      ...(Array.isArray(tags) ? { tags } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+function onAdvancedToggle(event) {
+  entryAdvancedOpen.value = Boolean(event.target?.open)
+}
+
 function pickEntry(entryId) {
   selectedEntryId.value = entryId
 }
@@ -2001,6 +2305,239 @@ async function exportActiveWorldbook() {
   } finally {
     exporting.value = false
   }
+}
+
+/* ---------- W5·B5：章回结算面板（草案→逐项确认→显式写入；只写世界书侧，零静默写） ---------- */
+
+const settlementBusy = ref(false)
+const settlementError = ref('')
+const settlementMessage = ref('')
+const fileChannelOnline = ref(false)
+const settlementDraft = reactive({
+  chapterTitle: '',
+  sourceText: '',
+  card: { summary: '', hook: '', newTermsText: '' },
+  handoffText: '',
+  characters: [],
+  foreshadow: [],
+  reveals: [],
+  revealText: ''
+})
+const settlementHandoffMin = HANDOFF_MIN_ITEMS
+const settlementHandoffMax = HANDOFF_MAX_ITEMS
+const settlementForeshadowStatuses = FORESHADOW_STATUSES
+
+// 结算写入通道：装配既有保存接缝（worldStore.addEntry/updateEntry）——A3 双写
+// 自动把结算产物落盘到项目世界书目录，这里不碰文件通道内部。
+const settlementChannel = createSettlementChannel({
+  listEntries: () => entries.value,
+  addEntry: (payload) => worldStore.addEntry(activeWorldbook.value.id, payload),
+  updateEntry: (entryId, updates) => worldStore.updateEntry(activeWorldbook.value.id, entryId, updates)
+})
+
+const settlementCharacterOptions = computed(() => entries.value
+  .filter((entry) => !isChapterLedgerEntry(entry) && !isForeshadowLedgerEntry(entry) && !isCovertCardEntry(entry))
+  .map((entry) => ({ value: entry.id, label: `${entry.name || tr('未命名条目')}（${entryTypeLabel(entry.type)}）` })))
+
+const chapterLedgerText = computed(() => entries.value.find(isChapterLedgerEntry)?.content || chapterLedgerSkeleton())
+const foreshadowLedgerText = computed(() => entries.value.find(isForeshadowLedgerEntry)?.content || foreshadowLedgerSkeleton())
+const covertEntries = computed(() => entries.value.filter(isCovertCardEntry))
+const settlementHandoffItems = computed(() => settlementDraft.handoffText
+  .split('\n')
+  .map(line => line.trim())
+  .filter(Boolean))
+const settlementCardWriteReady = computed(() => Boolean(
+  settlementDraft.chapterTitle.trim()
+  || settlementDraft.card.summary.trim()
+  || settlementDraft.card.hook.trim()
+  || settlementDraft.card.newTermsText.trim()
+))
+const settlementHandoffWriteReady = computed(() => {
+  const count = settlementHandoffItems.value.length
+  return count >= settlementHandoffMin && count <= settlementHandoffMax
+})
+
+watch(() => editorTab.value, (tab) => {
+  if (tab === 'settlement') void refreshSettlementChannel()
+})
+
+async function refreshSettlementChannel() {
+  try {
+    await refreshFileSourceAvailability()
+    fileChannelOnline.value = isFileSourceAvailable()
+  } catch {
+    fileChannelOnline.value = false
+  }
+}
+
+function setSettlementError(message) {
+  settlementError.value = message
+  settlementMessage.value = ''
+}
+
+function setSettlementMessage(message) {
+  settlementMessage.value = message
+  settlementError.value = ''
+}
+
+function generateSettlementDraft() {
+  if (!activeWorldbook.value?.id) return
+  const draft = settlementFromTurn({
+    chapterTitle: settlementDraft.chapterTitle,
+    text: settlementDraft.sourceText,
+    entries: entries.value
+  })
+  settlementDraft.card.summary = draft.chapterCard.summary
+  settlementDraft.card.hook = draft.chapterCard.hook
+  settlementDraft.card.newTermsText = draft.chapterCard.newTerms.join(', ')
+  settlementDraft.characters = draft.characterStates.map((row) => ({
+    ...row,
+    deltas: { ...row.deltas },
+    written: false
+  }))
+  if (!settlementDraft.foreshadow.length) addForeshadowRow()
+  setSettlementMessage('草案已生成（本地抽取，未写入任何数据）。请逐项确认后用「写入」按钮落库。')
+}
+
+function addCharacterRow(event) {
+  const entryId = String(event?.target?.value || '').trim()
+  if (event?.target) event.target.value = ''
+  if (!entryId || settlementDraft.characters.some((row) => row.entryId === entryId)) return
+  settlementDraft.characters.push({
+    entryId,
+    name: entries.value.find((entry) => entry.id === entryId)?.name || '',
+    deltas: { injury: '', money: '', knowledge: '', relations: '', location: '', note: '' },
+    written: false
+  })
+}
+
+function removeCharacterRow(index) {
+  settlementDraft.characters.splice(index, 1)
+}
+
+function settlementRowHasDelta(row) {
+  return ['injury', 'money', 'knowledge', 'relations', 'location', 'note']
+    .some(key => String(row?.deltas?.[key] || '').trim())
+}
+
+function addForeshadowRow() {
+  settlementDraft.foreshadow.push({
+    fid: '',
+    content: '',
+    plantedAt: settlementDraft.chapterTitle.trim(),
+    dueBy: '',
+    status: 'open'
+  })
+}
+
+function removeForeshadowRow(index) {
+  settlementDraft.foreshadow.splice(index, 1)
+}
+
+function addReveal() {
+  const text = settlementDraft.revealText.trim()
+  if (!text) return
+  settlementDraft.reveals.push({ text, name: '', adopted: false })
+  settlementDraft.revealText = ''
+}
+
+function removeReveal(index) {
+  settlementDraft.reveals.splice(index, 1)
+}
+
+async function runSettlementWrite(label, payload, pieces, onDone) {
+  if (!activeWorldbook.value?.id) return
+  settlementBusy.value = true
+  settlementError.value = ''
+  try {
+    const { results } = await applyChapterSettlement(settlementChannel, payload, { pieces })
+    const failed = Object.entries(results).filter(([, result]) => result?.ok === false)
+    if (failed.length) {
+      setSettlementError(`${label}失败：${failed.map(([, result]) => result.error || '未知错误').join('；')}`)
+      return
+    }
+    await worldStore.loadWorldbooksIndex()
+    if (typeof onDone === 'function') onDone(results)
+  } catch (error) {
+    setSettlementError(`${label}失败：${error?.message || '未知错误'}`)
+  } finally {
+    settlementBusy.value = false
+  }
+}
+
+async function writeChapterCard() {
+  await runSettlementWrite(
+    '写入章卡',
+    {
+      chapterTitle: settlementDraft.chapterTitle,
+      chapterCard: {
+        summary: settlementDraft.card.summary,
+        hook: settlementDraft.card.hook,
+        newTerms: splitKeywords(settlementDraft.card.newTermsText)
+      }
+    },
+    ['chapterCard'],
+    (results) => {
+      const skipped = results.chapterCard?.skipped
+      setSettlementMessage(skipped ? '章卡没有可追加的内容（同名章节可能已结算）。' : '章卡已写入章账（文件随双写自动落盘）。')
+    }
+  )
+}
+
+async function writeChapterHandoff() {
+  await runSettlementWrite(
+    '写入交接',
+    { chapterTitle: settlementDraft.chapterTitle, handoff: settlementHandoffItems.value },
+    ['handoff'],
+    (results) => {
+      setSettlementMessage(results.handoff?.skipped
+        ? '交接未写入（需 3-5 条）。'
+        : '交接已写入章账末节（下一章写手只读末节）。')
+    }
+  )
+}
+
+async function writeCharacterRow(row) {
+  row.written = false
+  await runSettlementWrite(
+    '写入人物状态',
+    { characterStates: [{ entryId: row.entryId, name: row.name, deltas: { ...row.deltas } }] },
+    ['characterStates'],
+    (results) => {
+      const result = results.characterStates
+      if (result?.applied?.length) {
+        row.written = true
+        setSettlementMessage('人物状态已写入条目（当前状态改写+变动史追加）。')
+      } else if (result?.skipped?.length) {
+        setSettlementMessage('没有可写入的状态变动。')
+      }
+    }
+  )
+}
+
+async function writeForeshadowRows() {
+  const rows = settlementDraft.foreshadow
+    .filter((row) => row.fid.trim())
+    .map((row) => ({ ...row }))
+  if (!rows.length) return
+  await runSettlementWrite(
+    '写入伏笔台账',
+    { foreshadow: rows },
+    ['foreshadow'],
+    () => setSettlementMessage('伏笔台账已更新（同 fid 行原位更新，状态 open/paid/retired 机器可读）。')
+  )
+}
+
+async function adoptReveal(reveal) {
+  await runSettlementWrite(
+    '采纳世界揭示',
+    { worldReveals: [{ text: reveal.text, name: reveal.name, adopted: false }] },
+    ['worldReveals'],
+    () => {
+      reveal.adopted = true
+      setSettlementMessage('揭示已采纳为设定条目。')
+    }
+  )
 }
 
 onMounted(async () => {
@@ -3564,6 +4101,29 @@ label {
   border-radius: 0;
 }
 
+.entry-workspace-card .entry-advanced-panel {
+  padding: 0;
+  border: 0;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary:hover {
+  color: var(--text-primary);
+}
+
+.entry-workspace-card .entry-advanced-panel[open] > summary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
+}
+
 .entry-workspace-card .injection-panel h3 {
   color: var(--text-primary);
   font-size: 14px;
@@ -3705,5 +4265,212 @@ label {
   .editor-tab, .editor-main :is(.primary-btn, .ghost-btn, .danger-btn, .text-input, .select-input, .search-input, summary), .entry-workspace-card .entry-tools :is(.search-input, .select-input, .ghost-btn) { min-height: 44px; height: auto; }
 }
 @media (max-width: 760px) { .editor-layout { border-radius: 0; } }
+/* ---------- W5·B5 章回结算面板（复用既有 token；summary/按钮触达面与其余分区一致） ---------- */
+
+.settlement-lede {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.settlement-channel {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.settlement-channel.online {
+  border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  color: var(--accent);
+}
+
+.settlement-draft-gen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 46%, transparent);
+}
+
+.settlement-draft-gen .full-width {
+  grid-column: 1 / -1;
+}
+
+.settlement-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settlement-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settlement-piece {
+  margin-top: 10px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 8px;
+}
+
+.settlement-piece > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 620;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settlement-piece > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settlement-piece > summary:hover {
+  color: var(--text-primary);
+}
+
+.settlement-piece[open] > summary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.settlement-piece > *:not(summary) {
+  margin: 10px 0;
+}
+
+.settlement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.settlement-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+.settlement-piece-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settlement-piece-actions .settlement-hint {
+  margin-right: auto;
+}
+
+.settlement-character {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.settlement-character-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settlement-character-head .select-input {
+  flex: 1 1 220px;
+}
+
+.settlement-written {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.settlement-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settlement-add-row .text-input {
+  flex: 1 1 260px;
+}
+
+.settlement-views {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.settlement-ledger-view {
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settlement-covert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settlement-covert {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+}
+
+.settlement-covert header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.settlement-covert p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settlement-covert-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--danger, #c0392b) 46%, transparent);
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .settlement-channel {
+    white-space: normal;
+  }
+}
 @media (prefers-reduced-motion: reduce) { .editor-main :is(button, input, select, textarea) { animation: none; transition: none; } }
 </style>
