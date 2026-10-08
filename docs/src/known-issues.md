@@ -20,9 +20,11 @@
 ### 写作工具运行时
 
 - 2026-10-05 接入现有助手的“写作与修改”，并补完取消、续接、同站代理与采纳回执；合成流程和真实 MiniMax 首次/续接样本已核查，见[接入记录](../agent-runs/pr5-integration-20261005.md)。这不代表跨模型质量矩阵完成。
-- 2026-10-07 统一模型漏斗（阶段一）：内置（服务器密钥）配置的六路文本调用（讨论/审校/设定/agent-step/正文生成×2）统一经 kit 任务面（`/v1/pinax/complete`）以注册表模型（本机 dots）出活；**自带 key 的自定义配置保持直连**，与其余原生面合并待上游 PR。设置「Agent 引擎」切换器经 `/model` 热生效（公网部署 403）。语义变化：未配置 `MINIMAX_API_KEY` 的部署（内置配置）现在有模型可用（走 kit 注册表模型），「内置 MiniMax」文案下的实际模型以 Agent 引擎行为准。
+- 2026-10-07 统一模型漏斗（阶段一）+ 2026-10-08 直连全退役（用户裁定）：六路文本调用（讨论/审校/设定/agent-step/正文生成×2）与结构化生成**一律经 kit 任务面**（`/v1/pinax/complete`）以注册表模型出活；**直连已全面取消，原「自带 key 的自定义配置保持直连」作废**。用户 key 仅剩两个用途：设置页探测（`/models`、`/test`）与「选中即热切内核」（`/model` 热生效；公网部署 403）。「服务器模型」由 pi-agent 内核自持，浏览器不接触内容生成密钥；内核不可用统一报「未检测到可用模型。请先启动 pi-agent 任务面（serve:pinax），并在设置中选择模型。」。Anthropic 协议配置无法作为全局模型（内核只支持 OpenAI-completions），仅可本机探测。
 - 需要服务器安装适配器依赖并启动 loopback runtime；本轮未部署公网。普通体验的开关默认关闭，严格推演仍保留原生发布前验收。
 - 新增工具仅查本轮有限快照，不提供资料原件全文、外部数据库/RAG、自动替换正文或设定。任务记录不可用时需要显式重新开始任务，原对话仍保留。
+- 🟡 2026-10-08 实测：kit 侧守护计划任务 `kit-guard`（每 5 分钟巡检 8421 内核 / 8431 协议面 / 30142 面板，启动器在 `storyflow-kit/scripts/ops/`）**当前不工作**——计划任务显示 State Ready、`LastTaskResult 0`，但三探针全 down（8451 存活），`%TEMP%\kit-core.log`（10-05 01:53）与 `kit-web.log`（10-06 05:37）两天多零增长。`LastTaskResult 0` 不能当巡检成功证据：`kit-guard.vbs` 用 `Run ..., 0, False`（第三参 False = 不等待），wscript 立刻退出、任务立刻报 0，`.bat` 作为孤儿继续跑，返回码与巡检结果完全解耦。三条候选根因（作业对象回收孤儿 / 计划任务上下文缺 PATH / `.vbs` 关联被改）均未确证，需用户亲手起长驻服务时复验。修好前 8421/8431 无人拉起，需要时手工启动；8451 由 Pinax 宿主 `storyAgentRuntime.js` spawn 监督，不受影响——监督拓扑见 [current-architecture](../engineering/current-architecture.md)。
+- 🟡 8421 内核 HTTP 面 CORS 为全反射且无鉴权：`storyflow-kit/core/src/http.ts:21` `void app.register(cors, { origin: true })` 对任意来源放行。8451 任务面已在 2026-10-08 收为白名单；8421 当前仅 loopback 监听时实际风险有限，但只要被暴露（端口转发/公网）即全开——修复前不要将 8421 暴露到 loopback 之外。
 
 ### 受控项目记忆系统外部门禁
 

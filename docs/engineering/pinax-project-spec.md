@@ -89,4 +89,6 @@
 | settings.*（9 个） | submit_setting_draft(s) | structuredSettingContract + structuredGenerationContract | settings review-draft 管线不变 |
 | observer.*.derive / memory.derive | 后置（可 submit_derived_*） | authoringObservationContract | 派生状态消费面不变 |
 
+**注（2026-10-08 实测口径）**：本表是施工前地图，实际交付的 submit 工具名以 `shared/capabilityToolContracts.js` 为准——typedActions 族（materials/canvas/storyboard/next-actions/emergence）统一为 `submit_typed_actions`（actionTypes 白名单按任务约束）、review.selection/asset.summarize 为 `submit_default_advice`、rewrite 族为 `submit_rewrite_result`；条目键已全部 canonical（`experience.*` 前缀清零，D7 裁定）。context.compact / settings.* / observer.* 未并入工具表，仍走漏斗直连。
+
 随 P4-B 退役：chat.js 普通生成并入 authoring.continue agent、promptRegistry 退役、17 张 openclaw 指令卡迁 kit 技能库、advisor 路由整体变薄代理。

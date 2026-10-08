@@ -68,6 +68,7 @@ async function runAbortCase() {
   let providerAborted = false
   let providerCompleted = false
   const handler = createGenerationAgentStepStreamHandler({
+    resolveRouting: async () => ({ mode: 'kernel' }),
     runner: async (_request, { signal }) => {
       await new Promise((resolve) => {
         signal.addEventListener('abort', () => {
@@ -106,6 +107,7 @@ async function runLateResultCase() {
   const response = new FakeResponse()
   let providerAborted = false
   const handler = createGenerationAgentStepStreamHandler({
+    resolveRouting: async () => ({ mode: 'kernel' }),
     runner: async (_request, { signal }) => {
       signal.addEventListener('abort', () => { providerAborted = true }, { once: true })
       await new Promise((resolve) => setTimeout(resolve, 15))
@@ -134,6 +136,7 @@ async function runLateResultCase() {
 async function runTypedErrorCase() {
   const response = new FakeResponse()
   const handler = createGenerationAgentStepStreamHandler({
+    resolveRouting: async () => ({ mode: 'kernel' }),
     runner: async () => {
       throw Object.assign(new Error('受控 provider 超时'), {
         code: 'NARRATIVE_PROVIDER_TIMEOUT',

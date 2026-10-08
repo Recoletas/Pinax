@@ -1,14 +1,18 @@
 /**
- * 内置 MiniMax 文本模型的服务器密钥约定 (客户端与服务器共用)。
+ * 媒体链（图片/视频）的 MiniMax 服务器密钥约定 (客户端与服务器共用)。
+ * 文本链已随直连退役不再使用本文件 (2026-10-08: 模型与密钥由 pi-agent 内核持有)。
  *
  * - MINIMAX_SERVER_KEY_SENTINEL: 客户端在「已由服务器配置密钥」时使用的占位 key。
- *   它让所有现存 `Boolean(apiKey)` 守卫通过; 请求到达服务器后由 resolveTextApiKey
+ *   它让所有现存 `Boolean(apiKey)` 守卫通过; 请求到达服务器后由 resolveMiniMaxApiKey
  *   替换为真实 env key。真实 key 永不进入浏览器 localStorage / 请求日志。
- * - resolveTextApiKey: 服务器在转发上游前调用。命中官方 MiniMax HTTPS 主机
+ * - resolveMiniMaxApiKey: 服务器在转发上游前调用。命中官方 MiniMax HTTPS 主机
  *   且 URL 无凭据/查询参数、key 为空或为哨兵时, 注入 process.env.MINIMAX_API_KEY。
  */
 
 export const MINIMAX_SERVER_KEY_SENTINEL = 'minimax-server-key'
+
+/** 官方 MiniMax 主机名单（服务器密钥注入与漏斗路由共用同一份单源）。 */
+export const MINIMAX_OFFICIAL_HOSTS = Object.freeze(['api.minimaxi.com', 'api.minimax.io', 'api.minimax.chat'])
 
 /**
  * 服务器 key 解析的通用实现 (按 baseUrl 判定 MiniMax)。
@@ -21,7 +25,7 @@ export function resolveMiniMaxApiKey({ baseUrl = '', apiKey = '' } = {}) {
   try {
     const url = new URL(String(baseUrl))
     isMiniMax = url.protocol === 'https:'
-      && ['api.minimaxi.com', 'api.minimax.io', 'api.minimax.chat'].includes(url.hostname)
+      && MINIMAX_OFFICIAL_HOSTS.includes(url.hostname)
       && !url.username && !url.password && !url.port && !url.search && !url.hash
   } catch { /* Invalid or relative URLs must never receive the server credential. */ }
   const serverKey =
@@ -31,8 +35,4 @@ export function resolveMiniMaxApiKey({ baseUrl = '', apiKey = '' } = {}) {
     return serverKey || ''
   }
   return key === MINIMAX_SERVER_KEY_SENTINEL ? '' : key
-}
-
-export function resolveTextApiKey({ baseUrl = '', apiKey = '' } = {}) {
-  return resolveMiniMaxApiKey({ baseUrl, apiKey })
 }

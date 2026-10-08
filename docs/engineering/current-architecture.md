@@ -171,3 +171,25 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。快照查询不等于资料原件/RAG 接入。
 
 **运行时归属（P2 口径统一）**：pi-agent 任务面（agent 循环、工具环、BeatPlan、任务存储、SSE 服务面、provider 绑定经 kit `llm.ts` 注册表）canonical 在 `storyflow-kit/storyharness/src/pinax/`，由 `npm run serve:pinax` 承载于 loopback 8451；Pinax 侧 `adapters/pinax-adapter` 已退役为 stub（其 `.external` 配置仍是凭据源，经 env 传给 kit 进程）。`server/services/storyAgentRuntime.js` 探测/拉起该服务面，不可达时 agent 路由回落原生链。契约与工具清单的 canonical 在 kit `contracts/`（capability-manifest@1、beat-plan@1）；桥双副本纪律见 `scripts/check-bridge-sync.mjs`（Pinax 浏览器桥 ⇄ kit pinax-side）。浏览器原生工具环仍在 Pinax（浏览器域），由契约等价测试对齐。
+
+**循环归属试点范围（W1-1，2026-10-08）**：**单发结构化生成**（世界书字段生成）的回合循环已切至 kit 任务面 capability 路径——`structuredGenerationRunner.js` 在 kernel 路由下注入 `createKitStructuredCapabilityFetchImpl()`，请求折成 `taskKind=capability` 任务（Schema 进强制提交工具，回执即终态），任务不可达/失败时同请求回落 kit 漏斗（`/v1/pinax/complete`，双层 fail-open）。**助手对话（`chat.js`）与 agent-step（`generationAgent.js`）仍走 Pinax 侧循环**，kit 漏斗在其链路中只承担传输。**「同仓两种循环归属」是过渡期的合法中间态，不是全切完成**；试点出口与 ①②b 的切换另行裁定。
+
+**文本直连退役（2026-10-08，用户裁定）**：文本链不再有直连通路——`server/services/modelRouting.js` 只有 `kernel`（探测 kit `/model`）/`none` 两态，`none` 统一报「未检测到可用模型」；讨论/审校/设定/agent-step/正文生成与结构化生成四条生产链无条件经 kit 任务面（`generationAgent.js` 的多回合循环仍归 Pinax）。用户在设置页选中的模型即全局模型：「选中即热切内核」（`ApiSettingsPanel` → `POST /api/storyagent/model` → kit `/model`；公网部署 403）；用户 key 仅剩设置页探测（`/models`、`/test`）用途，浏览器不接触内容生成密钥。Anthropic 协议配置无法进内核（kit 只支持 OpenAI-completions）。media 链（image/video）不受影响，仍用服务器 `MINIMAX_API_KEY`。
+
+## 运行时监督拓扑（2026-10-08 实测定档）
+
+全栈三个 loopback 服务面的监督责任按「谁知道这个能力要不要」分层：
+
+- **8451（kit 任务面：pi-agent / BeatPlan / 能力任务）归 Pinax 宿主监督**。`server/services/storyAgentRuntime.js` 负责探测与拉起：`:13` `/healthz` 探针；`:23` 总开关（`PINAX_STORYAGENT_ENABLED=0` 直接返回 null）；`:33` 已在跑则短路；`:44` 未跑则 spawn（node + tsx 起 `pinax/serve.ts`）并轮询等健康（`:54`）；`:64` 拉起点写日志，`:66` 返回句柄供关停。不可达时 agent 路由回落原生链——宿主才知道自己要不要 agent 能力，这个 fail-open 依赖的正是这份探测结果。
+- **8421（core 内核 HTTP 面）与 8431（kit 协议面）归 kit 守护监督**。守护件在 `storyflow-kit/scripts/ops/`（`kit-guard.bat` + `kit-guard.vbs`，经 Windows 计划任务 `kit-guard` 每 5 分钟 HTTP 健康巡检）。**该守护当前失效**，登记见 [known-issues](../src/known-issues.md)；修复前 8421/8431 无人拉起，需要时手工启动。
+- **`kit/storyharness/src/web.ts` 是 kit 开发态一键起**（`:41-42` 声明式 `RuntimeSpec`；`:49` 读 `<ws>/.storyharness.json`；`:60-61` 未声明时回落 v4 缺省内核命令）。两仓均不存在 `.storyharness.json`（2026-10-08 实测），故该路径当前全走缺省；它不参与 Pinax 生产链路的监督。
+
+一个反证性现场证据：2026-10-08 实测时 8451 是全栈唯一活着的服务面，而它恰好是唯一由宿主自己 spawn 并轮询健康的那个。
+
+## 8451 任务落盘与日志维度（W1-4）
+
+8451 的日志维度是**任务，不是会话**；`bookId` 是快照里的过滤字段，不是目录分区键。落盘位置 `<tasksDir>/task-<taskId>.jsonl`（`storyflow-kit/storyharness/src/pinax/store.ts:41-48` 与文件名解析 `:77`）；`bookId` 定义在 `:24`，仅在 `list(limit, {bookId})` 过滤时使用（`:74-82`）。
+
+帧结构（`src/pinax/server.ts`）：首帧由提交路径落盘（`:118`），携带 `status: "running"` 与全零 `usage`（`:242-245`）；终态帧由 `settled` 落盘（`:132-135`），即 `{...final, taskId, bookId, createdAt}`。**`usage.{inputTokens,outputTokens,totalTokens}` 在每帧顶层，但只有终态行（如 `completed`）的值才真实**——首帧为占位全零。样例：`tasks/task-pa_e63a7cf2a7558e1ad04d9d3f_final1.jsonl` 末帧 `completed`，usage 1899/114/2013，steps 2、toolCalls 1。
+
+不引入 kit 的 `sessions.ts` 会话维度（`src/sessions.ts:2` 自述位置依赖 `projectDir` + `CorpusLayout`）：8451 任务面的全部路径从 `pkgRoot()` 解析、不读工作区环境变量（`src/pinax/config.ts:68-74`），引入会话维度等于把 `STORYHARNESS_WORKSPACE` 环境变量坑（kit `AGENTS.md:61`：本机该变量指向 storymasterv4，漏 set 会静默落到 v4）引进 Pinax 链路。当前不引进是更安全的选择。

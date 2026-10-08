@@ -2,12 +2,10 @@ import express from 'express'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { memoryService } from '../services/memoryService.js'
-import { resolveGenerationToolProtocol } from '../../shared/generationToolContract.js'
 import { probeNarrativeProviderCapabilities } from '../services/providers/narrativeCapabilityProbe.js'
 import { probeStructuredProviderCapabilities } from '../services/structuredGenerationRunner.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { forwardComplete, forwardCompleteStream } from '../services/kitModelGateway.js'
-import { isServerOwnedModelConfig, MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -43,28 +41,6 @@ function resolveBaseUrl(provider, baseUrl, fallbackUrl) {
   }
 
   return resolved
-}
-
-function normalizeBaseUrl(baseUrl, chatPath) {
-  if (!baseUrl) return ''
-
-  let normalized = baseUrl.replace(/\/$/, '')
-
-  if (chatPath.startsWith('/v1/') && normalized.endsWith('/v1')) {
-    normalized = normalized.slice(0, -3)
-  }
-
-  return normalized
-}
-
-function buildChatUrl(baseUrl, chatPath) {
-  if (!baseUrl) return ''
-
-  if (baseUrl.endsWith(chatPath)) {
-    return baseUrl
-  }
-
-  return `${baseUrl}${chatPath}`
 }
 
 const DEFAULT_MEM0_HOST = 'https://api.mem0.ai'
@@ -328,11 +304,6 @@ export async function handleGenerateRequest(req, res) {
     messages,
     character,
     worldId,
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    format,
     max_tokens,
     temperature,
     response_format,
@@ -341,8 +312,7 @@ export async function handleGenerateRequest(req, res) {
     mem0Host,
     retryCount,
     max_input_chars,
-    request_id,
-    reasoning_effort
+    request_id
   } = req.body || {}
 
   if (!messages || !Array.isArray(messages)) {
@@ -361,57 +331,14 @@ export async function handleGenerateRequest(req, res) {
     ? request_id.trim()
     : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-  const effectiveProvider = provider || 'openai'
-  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
-  const effectiveApiKey = resolveTextApiKey({
-    provider: effectiveProvider,
-    baseUrl: effectiveBaseUrl,
-    apiKey
-  })
-  const effectiveModel = model || 'gpt-4o-mini'
-  const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
-  const providerProtocol = resolveGenerationToolProtocol({
-    id: effectiveProvider,
-    baseUrl: effectiveBaseUrl,
-    format
-  })
-  const usesAnthropicProtocol = providerProtocol === 'anthropic'
-  const chatPath = usesAnthropicProtocol
-    ? '/v1/messages'
-    : (providerDefaults.chatPath || '/chat/completions')
-  const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
-  const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
-
-  // 自带 key 的浏览器配置直连，不触发任务面探测（保持首个 await 仍是上游 fetch）。
-  const routing = isServerOwnedModelConfig({ apiKey })
-    ? await resolveModelRouting({ id: effectiveProvider, baseUrl: effectiveBaseUrl, apiKey })
-    : { mode: 'direct', apiKey: effectiveApiKey }
+  // 统一模型路由（2026-10-08 直连退役）：内容生成一律走内核，请求体里的 provider/baseUrl/apiKey 不再决定通路。
+  const routing = await resolveModelRouting()
   if (routing.mode === 'none') {
     return sendApiError(
       res,
       400,
       'API_KEY_REQUIRED',
       MODEL_ROUTING_ERROR_MESSAGE,
-      null,
-      {
-        requestId,
-        retryCount: effectiveRetryCount,
-        truncatedInput: budgetedInput.truncatedInput,
-        droppedMessages: budgetedInput.droppedMessages,
-        inputChars: budgetedInput.finalStats.totalChars,
-        inputCharsOriginal: budgetedInput.originalStats.totalChars,
-        warnings: budgetWarnings,
-        maxInputChars
-      }
-    )
-  }
-
-  if (!chatUrl) {
-    return sendApiError(
-      res,
-      400,
-      'INVALID_BASE_URL',
-      'Base URL 未配置或无效，请在设置中填写正确的 Base URL。',
       null,
       {
         requestId,
@@ -504,15 +431,7 @@ export async function handleGenerateRequest(req, res) {
       systemPromptBlocks.push(memoryPrompt)
     }
 
-    const headers = {
-      'Content-Type': 'application/json'
-    }
-
-    if (effectiveApiKey) {
-      headers['Authorization'] = `Bearer ${effectiveApiKey}`
-    }
-
-    // Anthropic-compatible APIs require system content outside the message list.
+    // 系统内容单独抽取交给内核折叠（部分网关不兼容独立 system 轮）。
     const clientSystemPrompt = budgetedInput.messages
       .filter((message) => message?.role === 'system')
       .map((message) => extractTextContent(message?.content))
@@ -568,136 +487,27 @@ export async function handleGenerateRequest(req, res) {
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
-    // 统一模型路由：kernel 配置经 pi-agent 任务面转发（key 服务端持有）；自带 key 的直连原路径。
-    if (routing.mode === 'kernel') {
-      try {
-        const result = await forwardComplete({
-          ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
-          messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
-          maxTokens: effectiveMaxTokens,
-          temperature: effectiveTemperature,
-          ...(response_format?.type === 'json_object' ? { responseFormat: 'json_object' } : {}),
-          timeoutMs: Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000)))
-        })
-        if (!String(result.content || '').trim()) {
-          return sendApiError(res, 502, 'UPSTREAM_EMPTY_CONTENT', '上游模型返回为空内容', `via=kit, model=${result.model}`, responseMeta)
-        }
-        return res.json({ content: result.content, meta: { ...responseMeta, viaKit: true, model: result.model } })
-      } catch (kitError) {
-        if (generationAbort.signal.aborted && res.destroyed) return
-        return sendApiError(res, 502, 'UPSTREAM_REQUEST_FAILED', `kit 漏斗请求失败：${kitError?.message || kitError}`, null, responseMeta)
-      }
-    }
-
-    let requestBody = {
-      model: effectiveModel,
-      messages: composedMessages,
-      max_tokens: effectiveMaxTokens,
-      temperature: effectiveTemperature
-    }
-
-    if (typeof reasoning_effort === 'string' && reasoning_effort.trim()
-      && (effectiveProvider === 'deepseek' || String(effectiveModel).toLowerCase().includes('reasoning'))) {
-      requestBody.reasoning_effort = reasoning_effort.trim()
-    }
-
-    if (response_format && !usesAnthropicProtocol && effectiveProvider !== 'cohere') {
-      requestBody.response_format = response_format
-    }
-
-    if (usesAnthropicProtocol) {
-      delete headers['Authorization']
-      headers['x-api-key'] = effectiveApiKey
-      headers['anthropic-version'] = '2023-06-01'
-      if (/minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(chatUrl)) {
-        delete headers['x-api-key']
-        headers['Authorization'] = `Bearer ${effectiveApiKey}`
-      }
-      requestBody = {
-        model: effectiveModel,
-        max_tokens: effectiveMaxTokens,
+    // 内容生成统一经内核漏斗（2026-10-08 直连退役：不再有自带 key 直连路径）。
+    try {
+      const result = await forwardComplete({
+        ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
+        messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
+        maxTokens: effectiveMaxTokens,
         temperature: effectiveTemperature,
-        messages: normalizedMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : m.role,
-          content: m.content
-        })),
-        ...(mergedSystemPrompt ? { system: mergedSystemPrompt } : {})
+        ...(response_format?.type === 'json_object' ? { responseFormat: 'json_object' } : {}),
+        timeoutMs: Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000)))
+      }, { signal: generationAbort.signal })
+      if (!String(result.content || '').trim()) {
+        return sendApiError(res, 502, 'UPSTREAM_EMPTY_CONTENT', '上游模型返回为空内容', `via=kit, model=${result.model}`, responseMeta)
       }
-    }
-
-    if (effectiveProvider === 'cohere') {
-      requestBody = {
-        model: effectiveModel,
-        messages: normalizedMessages.map(m => ({
-          role: m.role,
-          content: m.content
-        })),
-        ...(mergedSystemPrompt ? { preamble: mergedSystemPrompt } : {}),
-        temperature: effectiveTemperature,
-        max_tokens: effectiveMaxTokens
+      return res.json({ content: result.content, meta: { ...responseMeta, viaKit: true, model: result.model } })
+    } catch (kitError) {
+      if (generationAbort.signal.aborted) {
+        if (!requestTimedOut || res.destroyed) return
+        return sendApiError(res, 504, 'GENERATION_TIMEOUT', '生成超时，请稍后重试', null, responseMeta)
       }
+      return sendApiError(res, 502, 'UPSTREAM_REQUEST_FAILED', `kit 漏斗请求失败：${kitError?.message || kitError}`, null, responseMeta)
     }
-
-    const response = await fetch(chatUrl, { redirect: 'error',
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-      signal: generationAbort.signal
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      console.error('API error:', response.status, error)
-      return sendApiError(
-        res,
-        response.status,
-        'UPSTREAM_REQUEST_FAILED',
-        `API 请求失败 (${response.status})`,
-        error.slice(0, 200),
-        responseMeta
-      )
-    }
-
-    const data = await response.json()
-    const message = data?.choices?.[0]?.message
-    let content =
-      extractOpenAIChoiceText(data?.choices?.[0]) ||
-      extractTextContent(message?.content) ||
-      extractTextContent(data?.message?.content) ||
-      extractTextContent(data?.content) ||
-      extractTextContent(data?.output_text) ||
-      extractTextContent(data?.output) ||
-      ''
-
-    if (usesAnthropicProtocol && data.content) {
-      content = extractTextContent(data.content) || content
-    }
-
-    if (effectiveProvider === 'cohere' && data.message?.content) {
-      content = extractTextContent(data.message.content) || content
-    }
-
-    if (!content) {
-      console.error('Empty model content:', {
-        provider: effectiveProvider,
-        model: effectiveModel,
-        hasChoices: Boolean(data?.choices?.length),
-        keys: Object.keys(data || {}).slice(0, 12),
-        choiceKeys: Object.keys(data?.choices?.[0] || {}).slice(0, 12),
-        messageKeys: Object.keys(message || {}).slice(0, 12),
-        rawPreview: JSON.stringify(data).slice(0, 1200)
-      })
-      return sendApiError(
-        res,
-        502,
-        'UPSTREAM_EMPTY_CONTENT',
-        '上游模型返回为空内容',
-        `provider=${effectiveProvider}, model=${effectiveModel}`,
-        responseMeta
-      )
-    }
-
-    res.json({ content, meta: responseMeta })
   } catch (e) {
     if (generationAbort.signal.aborted) {
       if (!requestTimedOut || res.destroyed) return
@@ -736,11 +546,6 @@ router.post('/stream', async (req, res) => {
     messages,
     character,
     worldId,
-    provider,
-    baseUrl,
-    apiKey,
-    model,
-    format,
     max_tokens,
     temperature,
     userId,
@@ -764,31 +569,8 @@ router.post('/stream', async (req, res) => {
     ? request_id.trim()
     : `gen_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-  const effectiveProvider = provider || 'openai'
-  const effectiveBaseUrl = resolveBaseUrl(effectiveProvider, baseUrl, '')
-  const effectiveApiKey = resolveTextApiKey({
-    provider: effectiveProvider,
-    baseUrl: effectiveBaseUrl,
-    apiKey
-  })
-  const effectiveModel = model || 'gpt-4o-mini'
-  const providerDefaults = PROVIDER_DEFAULTS[effectiveProvider] || {}
-  const providerProtocol = resolveGenerationToolProtocol({
-    id: effectiveProvider,
-    baseUrl: effectiveBaseUrl,
-    format
-  })
-  const usesAnthropicProtocol = providerProtocol === 'anthropic'
-  const chatPath = usesAnthropicProtocol
-    ? '/v1/messages'
-    : (providerDefaults.chatPath || '/chat/completions')
-  const normalizedBaseUrl = normalizeBaseUrl(effectiveBaseUrl, chatPath)
-  const chatUrl = buildChatUrl(normalizedBaseUrl, chatPath)
-
-  // 自带 key 的浏览器配置直连，不触发任务面探测（保持首个 await 仍是上游 fetch）。
-  const routing = isServerOwnedModelConfig({ apiKey })
-    ? await resolveModelRouting({ id: effectiveProvider, baseUrl: effectiveBaseUrl, apiKey })
-    : { mode: 'direct', apiKey: effectiveApiKey }
+  // 统一模型路由（2026-10-08 直连退役）：内容生成一律走内核，请求体里的 provider/baseUrl/apiKey 不再决定通路。
+  const routing = await resolveModelRouting()
   if (routing.mode === 'none') {
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
@@ -877,14 +659,6 @@ router.post('/stream', async (req, res) => {
       systemPromptBlocks.push(memoryPrompt)
     }
 
-    const headers = {
-      'Content-Type': 'application/json'
-    }
-
-    if (effectiveApiKey) {
-      headers['Authorization'] = `Bearer ${effectiveApiKey}`
-    }
-
     const normalizedMessages = budgetedInput.messages
       .filter((message) => message?.role !== 'system')
       .map(m => ({
@@ -912,132 +686,30 @@ router.post('/stream', async (req, res) => {
       }
     }
 
-    const composedMessages = mergedSystemPrompt
-      ? [{ role: 'system', content: mergedSystemPrompt }, ...normalizedMessages]
-      : normalizedMessages
-
     const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
-    // 统一模型路由（流式）：kernel 配置经 pi-agent 任务面 /complete/stream，重播为既有 {content} SSE 帧；自带 key 的直连原路径。
-    if (routing.mode === 'kernel') {
-      try {
-        await forwardCompleteStream({
-          ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
-          messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
-          maxTokens: effectiveMaxTokens,
-          temperature: effectiveTemperature,
-          timeoutMs: 120000
-        }, (delta) => {
-          if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
-        })
-        if (!res.writableEnded && !res.destroyed) res.write('data: [DONE]\n\n')
-        return res.end()
-      } catch (kitError) {
-        if (!res.writableEnded && !res.destroyed) {
-          res.write(`data: ${JSON.stringify({ error: `kit 漏斗请求失败：${kitError?.message || kitError}` })}\n\n`)
-          res.write('data: [DONE]\n\n')
-          return res.end()
-        }
-        return
-      }
-    }
-
-    let requestBody = {
-      model: effectiveModel,
-      messages: composedMessages,
-      max_tokens: effectiveMaxTokens,
-      temperature: effectiveTemperature,
-      stream: true
-    }
-
-    // 禁用推理/思考过程，避免占用 token
-    // DeepSeek 等模型支持 reasoning_effort 参数
-    if (effectiveProvider === 'deepseek' || String(effectiveModel).toLowerCase().includes('reasoning')) {
-      // 对于推理模型，设置最小推理 effort
-      requestBody.reasoning_effort = 'low'
-    }
-
-    // Claude API uses different format
-    if (usesAnthropicProtocol) {
-      delete headers['Authorization']
-      headers['x-api-key'] = effectiveApiKey
-      headers['anthropic-version'] = '2023-06-01'
-      if (/minimax/i.test(effectiveProvider) || /minimaxi?\.com/i.test(chatUrl)) {
-        delete headers['x-api-key']
-        headers['Authorization'] = `Bearer ${effectiveApiKey}`
-      }
-      requestBody = {
-        model: effectiveModel,
-        max_tokens: effectiveMaxTokens,
+    // 内容生成统一经内核漏斗（2026-10-08 直连退役）：重播为既有 {content} SSE 帧。
+    try {
+      await forwardCompleteStream({
+        ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
+        messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
+        maxTokens: effectiveMaxTokens,
         temperature: effectiveTemperature,
-        messages: normalizedMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : m.role,
-          content: m.content
-        })),
-        ...(mergedSystemPrompt ? { system: mergedSystemPrompt } : {}),
-        stream: true
-      }
-    }
-
-    const response = await fetch(chatUrl, { redirect: 'error',
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-      signal: upstreamController.signal
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      res.write(`data: ${JSON.stringify({ error: `API 请求失败 (${response.status})`, details: error.slice(0, 200) })}\n\n`)
+        timeoutMs: 120000
+      }, (delta) => {
+        if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify({ content: delta })}\n\n`)
+      }, { signal: upstreamController.signal })
+      if (!res.writableEnded && !res.destroyed) res.write('data: [DONE]\n\n')
       return res.end()
-    }
-
-    // Handle streaming response
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (res.writableEnded || res.destroyed) return
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data: ')) continue
-
-        const data = trimmed.slice(6)
-        if (data === '[DONE]') {
-          res.write(`data: [DONE]\n\n`)
-          continue
-        }
-
-        try {
-          const parsed = JSON.parse(data)
-
-          // Handle OpenAI format - 只发送正文内容
-          if (parsed.choices?.[0]?.delta?.content) {
-            const content = parsed.choices[0].delta.content
-            res.write(`data: ${JSON.stringify({ content })}\n\n`)
-          }
-          // Handle Claude format
-          else if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-            res.write(`data: ${JSON.stringify({ content: parsed.delta.text })}\n\n`)
-          }
-          // 忽略 reasoning_content，不发送到前端
-        } catch (e) {
-          // Skip invalid JSON
-        }
+    } catch (kitError) {
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`data: ${JSON.stringify({ error: `kit 漏斗请求失败：${kitError?.message || kitError}` })}\n\n`)
+        res.write('data: [DONE]\n\n')
+        return res.end()
       }
+      return
     }
-
-    res.write(`data: [DONE]\n\n`)
-    res.end()
   } catch (e) {
     if (upstreamController.signal.aborted || res.writableEnded || res.destroyed) return
     console.error('Stream error:', e)
@@ -1053,7 +725,7 @@ router.post('/stream', async (req, res) => {
 router.post('/models', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body
   const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
-  const effectiveApiKey = resolveTextApiKey({ provider, baseUrl: effectiveBaseUrl, apiKey })
+  const effectiveApiKey = String(apiKey || '').trim()
 
   if (!effectiveBaseUrl) {
     return res.status(400).json({ error: 'baseUrl is required' })
@@ -1140,19 +812,13 @@ router.post('/models', async (req, res) => {
 router.post('/test', async (req, res) => {
   const { baseUrl, apiKey, provider, model, format } = req.body
   const effectiveBaseUrl = resolveBaseUrl(provider, baseUrl, '')
-  const effectiveApiKey = resolveTextApiKey({ provider, baseUrl: effectiveBaseUrl, apiKey })
+  const effectiveApiKey = String(apiKey || '').trim()
 
   if (!effectiveBaseUrl) {
     return res.json({ ok: false, message: '请输入 Base URL' })
   }
-  if (!String(effectiveApiKey || '').trim()) {
-    const isMiniMaxUnconfigured = /minimax/i.test(provider || '') || /minimaxi?\.com/i.test(effectiveBaseUrl)
-    return res.json({
-      ok: false,
-      message: isMiniMaxUnconfigured
-        ? '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-        : '请输入 API Key'
-    })
+  if (!effectiveApiKey) {
+    return res.json({ ok: false, message: '请输入 API Key' })
   }
   if (!String(model || '').trim()) return res.json({ ok: false, message: '请输入模型名称' })
 

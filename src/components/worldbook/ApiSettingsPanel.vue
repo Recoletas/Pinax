@@ -48,22 +48,22 @@ const currentNote = computed(() => {
   if (resolved?.builtin || !String(resolved?.apiKey || '').trim()) {
     const server = getServerTextModel()
     if (server) return `服务器模型由 pi-agent 内核持有（${server.model}），浏览器不接触密钥。`
-    return tr('内置服务器模型使用内核密钥；内核未运行时该选项不可用。')
+    return tr('服务器模型由 pi-agent 内核持有；内核未运行时该选项不可用。')
   }
   return tr('当前使用「{name}」，模型 {model}。', { name: resolved?.name || tr('自定义配置'), model: resolved?.model || '—' })
 })
 
-/** 选择映射为 kit /model patch。服务器内置/无 Key 的配置由内核自持模型，永不推送 patch（否则会把内核模型改回硬编码）。 */
+/** 选择映射为 kit /model patch。服务器模型行由内核自持模型，永不推送 patch（否则会把内核模型改回硬编码）。 */
 function modelPatchOf(config) {
   const resolved = config || resolveSelectedTextProviderConfig()
   if (!resolved) return { patch: null, reason: 'no-config' }
   const key = String(resolved.apiKey || '').trim()
-  // 内置行或空 Key 配置都是"服务器拥有模型"：内核即为真源，不改写。
-  if (resolved.builtin || !key || key === 'minimax-server-key') {
+  // 服务器模型行或空 Key 配置都是"内核拥有模型"：内核即为真源，不改写。
+  if (resolved.builtin || !key) {
     return { patch: null, reason: 'server-owned' }
   }
   const baseUrl = String(resolved.baseUrl || '')
-  // Anthropic 协议配置：kit 通路目前只讲 OpenAI 兼容线——保持该配置直连，不切 Agent 模型
+  // Anthropic 协议配置：内核只讲 OpenAI 兼容线（llm.ts openAICompletionsApi），无法热切，不推 patch
   if (resolved.format === 'anthropic' || /\/anthropic/i.test(baseUrl)) {
     return { patch: null, reason: 'anthropic-protocol' }
   }
@@ -107,7 +107,7 @@ async function applySelectedToEngine() {
   const { patch, reason } = modelPatchOf(resolved)
   if (!patch) {
     if (reason === 'anthropic-protocol') {
-      applyMessage.value = tr('该配置为 Anthropic 协议：Agent 通路暂不支持，将按原直连方式使用。')
+      applyMessage.value = tr('该配置为 Anthropic 协议，内核暂不支持，无法作为全局模型使用。')
     }
     return
   }

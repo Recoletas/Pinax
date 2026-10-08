@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import { Readable } from 'node:stream'
+import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
 
 // The runtime stays on loopback. Browser capabilities isolate task journals; no global list is exposed.
-export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.env.PINAX_ADAPTER_ENDPOINT || 'http://127.0.0.1:8451' } = {}) {
+export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT } = {}) {
   const upstream = new URL(endpoint)
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(upstream.hostname)) throw new Error('storyagent-runtime-must-use-loopback')
   const router = Router()

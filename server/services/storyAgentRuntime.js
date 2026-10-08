@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
 
 const HEALTH_TIMEOUT_MS = 2000
 const SPAWN_WAIT_MS = 20000
@@ -20,12 +21,14 @@ function probeHealthz(endpoint, timeoutMs = HEALTH_TIMEOUT_MS) {
 
 export async function startStoryAgentRuntime(env = process.env) {
   if (env.PINAX_STORYAGENT_ENABLED === '0') return null
-  const endpoint = env.PINAX_ADAPTER_ENDPOINT || 'http://127.0.0.1:8451'
+  const endpoint = env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT
   const configPath = env.PINAX_ADAPTER_CONFIG
     || path.resolve(process.cwd(), 'adapters', 'pinax-adapter', '.external', 'pinax-adapter.json')
   const serveTs = env.PINAX_KIT_SERVE_TS
     || path.resolve(process.cwd(), '..', 'storyflow-kit', 'storyharness', 'src', 'pinax', 'serve.ts')
-  if (!env.MINIMAX_API_KEY && !env.MINIFLOW_AGENT_KEY && !env.ZAI_API_KEY && !existsSync(configPath)) return null
+  // 镜像 kit src/pinax/config.ts 的启动前提（2026-10-08 去内置档后）：
+  // 有显式 env key（MINIFLOW_AGENT_KEY / ZAI_API_KEY）或配置文件即可；kit 侧新增 key 源时这里需同步。
+  if (!env.MINIFLOW_AGENT_KEY && !env.ZAI_API_KEY && !existsSync(configPath)) return null
 
   if (await probeHealthz(endpoint)) return { spawned: null, close() {}, closeAllConnections() {} }
 
