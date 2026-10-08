@@ -208,7 +208,8 @@ const workflow = createSettingsGenerationWorkflow({ generateField: vi.fn() })
 })
 
 describe('settings place workflow', () => {
-  it("keeps extracted and fleshed-out places as review drafts（合并3例）", async () => {
+  // 合并3例含多次真实文件与服务往返：全量并发下 5s 默认超时偏紧（20261009 flake 记录），显式放宽。
+  it("keeps extracted and fleshed-out places as review drafts（合并3例）", { timeout: 30_000 }, async () => {
 {
     const map = {
       width: 600, height: 400, seed: 'authored-place-audit',
