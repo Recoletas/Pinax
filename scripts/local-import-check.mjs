@@ -33,7 +33,7 @@ console.log('[3] 空书稿场景')
 const onlyMaterials = classifyImportEntries([entry('资料/a.txt', 1)])
 check('只有资料时书稿为空', onlyMaterials.bookEntries.length === 0 && onlyMaterials.materialEntries.length === 1)
 
-console.log('[4] ensureProjectForBook payload 组装（fetch mock + localStorage shim）')
+console.log('[4] 本地项目设置面与绑定（fetch mock + localStorage shim）')
 const storage = new Map()
 globalThis.localStorage = {
   getItem: (key) => (storage.has(key) ? storage.get(key) : null),
@@ -42,19 +42,21 @@ globalThis.localStorage = {
 }
 const calls = []
 globalThis.fetch = async (url, options) => {
-  calls.push({ url, body: JSON.parse(options.body) })
-  return { ok: true, json: async () => ({ ok: true, entry: { projectId: 'p1', rootPath: 'D:/Projects/新书' } }) }
+  calls.push({ url, body: options?.body ? JSON.parse(options.body) : null })
+  return { ok: true, json: async () => ({ ok: true, entry: { projectId: 'p1', rootPath: 'D:/Projects/新书', bookId: 'book_xyz' } }) }
 }
-const { setLocalMirrorSettings, ensureProjectForBook } = await import('../src/services/localMirrorSettings.js')
+const { bindLocalProject, getLocalMirrorSettings, removeLocalProject, setLocalMirrorSettings } = await import('../src/services/localMirrorSettings.js')
 const { getItem } = await import('../src/composables/useStorage.js')
-setLocalMirrorSettings({ defaultCreateRoot: 'D:/Projects' })
-const result = await ensureProjectForBook({ id: 'book_xyz', title: '雾海航志' })
-check('调用 /projects/create 并带绝对路径 + bookId', calls[0]?.url === '/api/localmirror/projects/create' && calls[0]?.body.path === 'D:/Projects/雾海航志' && calls[0]?.body.bookId === 'book_xyz' && calls[0]?.body.kind === 'novel')
-check('成功返回注册表 entry', result?.projectId === 'p1')
+setLocalMirrorSettings({ defaultCreateRoot: 'D:/Projects', defaultReadRoot: 'D:/Old', enabled: false })
+check('设置面只留活字段（读取位置作为死字段已撤）', getLocalMirrorSettings().defaultCreateRoot === 'D:/Projects' && !('defaultReadRoot' in getLocalMirrorSettings()))
+const persisted = getItem('local_mirror_settings_v1', null)
+check('落盘形状归一（enabled/customRoot/defaultCreateRoot 三键）', persisted && JSON.stringify(Object.keys(persisted).sort()) === JSON.stringify(['customRoot', 'defaultCreateRoot', 'enabled']))
 setLocalMirrorSettings({ defaultCreateRoot: '' })
-check('未配置默认位置时不发请求', (await ensureProjectForBook({ id: 'b2', title: 'x' })) === null && calls.length === 1)
-const current = getItem('local_mirror_settings_v1', null)
-check('设置字段归一（含 defaultCreateRoot/defaultReadRoot）', current && 'defaultCreateRoot' in current && 'defaultReadRoot' in current && current.defaultCreateRoot === '')
+check('默认目录可清空（留空回落文档目录）', getLocalMirrorSettings().defaultCreateRoot === '')
+await bindLocalProject('p1', null)
+check('解绑走 /projects/bind 且 bookId=null', calls.at(-1)?.url === '/api/localmirror/projects/bind' && calls.at(-1)?.body?.projectId === 'p1' && calls.at(-1)?.body?.bookId === null)
+await removeLocalProject('p1')
+check('移除走 /projects/remove', calls.at(-1)?.url === '/api/localmirror/projects/remove' && calls.at(-1)?.body?.projectId === 'p1')
 
 
 console.log('[5] browse / import-content 服务端端点（真实临时目录）')
