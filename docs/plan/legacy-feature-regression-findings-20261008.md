@@ -87,8 +87,8 @@
 
 ## 四、附带发现（记账，未定性为 bug）
 
-- **B10 记忆压缩只证明了启发式**：`src/services/api.js:601-614` 是 `llmMemory || heuristic` 的静默兜底，且 `needsLlmMemoryCompaction`（`src/services/memory/memoryCompaction.js:15-34`）对"作者偏好：…"这类带前缀且 ≤72 字的夹具直接判否。所以那行「通过」不代表 LLM 分支可用，需要用能触发 LLM 的夹具重测（夹具要求：无前缀且 source >5 字，或 heuristic 被截断带 `...`，或 general/dialogue 类 >180 字）。
-- **批 A 的 A7/A11 归因要更正**：先前记为「上游 403」，但那条 403 的 journal 时间是 19:43，批 A 跑在 21:24–21:36，且正文链路根本不写 journal——**证据不成立**。最可能是同一个思考烧预算问题，复测方法见本文件第五节的复放工装。
+- **B10 记忆压缩只证明了启发式**：`src/services/api.js:601-614` 是 `llmMemory || heuristic` 的静默兜底，且 `needsLlmMemoryCompaction`（`src/services/memory/memoryCompaction.js:15-34`）对"作者偏好：…"这类带前缀且 ≤72 字的夹具直接判否。所以那行「通过」不代表 LLM 分支可用，需要用能触发 LLM 的夹具重测（夹具要求：无前缀且 source >5 字，或 heuristic 被截断带 `...`，或 general/dialogue 类 >180 字）。**【20261009 复测闭案】**：夹具改 general 类 200 字（无前缀）→ LLM 分支真跑（14s 真实调用，LLM 摘要≠启发式截断，见第五节 B10 行）；另勘误：`hasFactPrefix` 正则集合不含「作者偏好：」，原夹具判否的实际机制是 `compactMemoryText` 提取的「偏好：」前缀。
+- **批 A 的 A7/A11 归因要更正**：先前记为「上游 403」，但那条 403 的 journal 时间是 19:43，批 A 跑在 21:24–21:36，且正文链路根本不写 journal——**证据不成立**。最可能是同一个思考烧预算问题，复测方法见本文件第五节的复放工装。**【20261009 复测闭案】**：A7/A11 均已通过（A7 检索词规划 plannedBy=ai 出 3 检索词、A11 出 222 字画面描述）——预算裁定（内核 4096 兜底）后自然恢复，无需额外动作。
 - **世界书检索规划（`src/services/worldbook/worldbookResearch.js`）在 src 内除测试外无生产调用方**：目前没有 UI 入口，回归通过与否只影响未来接入。
 - **地理面板未覆盖**：`WorldMapPanel.vue:660`、`GeographyPanel.vue:388` 的生成入口在 `.vue` 里，Node 工装加载不到，需要 Playwright UI 级覆盖。
 - **生图/生视频真上游本轮未打**：`server/routes/image.js:33` 依赖服务器 `MINIMAX_API_KEY`，缺配置返回 400 `ERR_SERVER_KEY_MISSING`。工装里 B11 默认跳过，需显式 `REGRESS_MEDIA=1` 才花钱。
@@ -115,7 +115,7 @@
 | 漫画 | B7 | 单页脚本 | `/api/generate` | ✅ 4 格（2 次尝试） |
 | 漫画 | B8 | 分页方案 | `/api/chat/stream` | ❌ 流式思考期无正文 |
 | 结构化 | B9 | 世界起源草案 | `/api/generate/structured` | ✅ 内核 journal `capabilityResult` 有原文 |
-| 记忆 | B10 | 压缩 | `/api/generate` | ⚠️ 只证启发式（第四节） |
+| 记忆 | B10 | 压缩 | `/api/generate` | ❌→✅ 夹具改 general 类 200 字（无前缀）触发 LLM 分支（LLM 摘要≠启发式截断，14s 真实调用；原夹具为 preference 类，设计上跳过 LLM） |
 | 媒体 | B11 | 生图真上游 | `/api/media/images` | ⏸ 未开 `REGRESS_MEDIA` |
 | UI | — | 地理面板 | — | ⬜ 未覆盖 |
 
@@ -128,7 +128,7 @@
 | R3 | 是否换内核模型 | 需要模型行与密钥；换哪些任务面用哪个模型 |
 | R4 | 错误可见性分层 | 是否把 `finishReason/usage` 透出到前端错误 |
 | R5 | 空提示词护栏落在哪一侧 | Pinax 组装后自检 / kit `validateCompleteRequest` 拒绝（后者更根本但要改 kit 仓） |
-| R6 | B10 与 A7/A11 复测 | 是否补做（工装现成，各 1–2 次真实调用） |
+| R6 | B10 与 A7/A11 复测 | **已复测（20261009）**：A7/A11 在预算裁定（内核 4096 兜底）后自然恢复通过；B10 需夹具改 general>180 触发 LLM 分支（已验，LLM 摘要≠启发式） |
 | R7 | 生图 / 生视频真上游 | 是否开 `REGRESS_MEDIA=1`；生视频默认不打 |
 | R8 | 地理面板 UI 级覆盖 | 是否补 Playwright 一行 |
 
