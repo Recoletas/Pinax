@@ -104,6 +104,14 @@ app.use(/^\/(?!api\/|ws\/).*/, (req, res) => {
   res.sendFile(join(__dirname, '../dist/index.html'))
 })
 
+// 全局错误兜底（必须在所有路由之后）：body 解析失败/超限等走这里，统一 JSON 而不是
+// Express 默认 HTML——前端 .json().catch() 至少能拿到结构化错误。
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error)
+  const clientError = error?.type === 'entity.parse.failed' || error?.type === 'entity.too.large' || error?.status === 400
+  res.status(clientError ? 400 : 500).json({ error: 'ERR_REQUEST', message: error?.message || '请求处理失败' })
+})
+
 const server = createServer(app)
 
 const wss = new WebSocketServer({ noServer: true })

@@ -111,7 +111,8 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       const entry = service.setProjectBinding(req.body || {})
       return res.json({ ok: true, entry })
     } catch (error) {
-      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : 400
+      // 与 create/open/sync 对齐：已识别的客户端错误 4xx，注册表写盘等意外错误 500。
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : error?.code === 'ERR_INVALID_INPUT' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
@@ -121,7 +122,7 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       service.removeProjectEntry(req.body || {})
       return res.json({ ok: true })
     } catch (error) {
-      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : 400
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' ? 404 : error?.code === 'ERR_INVALID_INPUT' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
@@ -131,7 +132,7 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
       const entry = service.updateProjectAt(req.body || {})
       return res.json({ ok: true, entry })
     } catch (error) {
-      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' || error?.code === 'ERR_NOT_A_PROJECT' ? 404 : 400
+      const code = error?.code === 'ERR_PROJECT_NOT_FOUND' || error?.code === 'ERR_NOT_A_PROJECT' ? 404 : error?.code === 'ERR_INVALID_INPUT' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_WRITE', message: error.message })
     }
   })
