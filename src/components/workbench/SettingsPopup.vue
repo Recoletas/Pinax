@@ -53,6 +53,15 @@
         >
           <ApiSettingsPanel />
         </section>
+        <section
+          v-show="activeSection === 'localproject'"
+          id="settings-panel-localproject"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;本地项目&quot;)"
+        >
+          <LocalProjectPanel />
+        </section>
 
         <section
           v-show="activeSection === 'experience'"
@@ -206,6 +215,7 @@ function changeLanguage(locale, assistant = assistantLanguage.value) { languageS
 import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
+import LocalProjectPanel from './LocalProjectPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
@@ -276,7 +286,8 @@ const tabs = [
   { key: 'ai', label: 'AI 配置' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
-  { key: 'storage', label: '备份与恢复' }
+  { key: 'storage', label: '备份与恢复' },
+  { key: 'localproject', label: '本地项目' }
 ]
 
 function formatBytes(bytes) {

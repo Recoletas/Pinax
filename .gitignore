@@ -94,3 +94,6 @@ __pycache__/
 
 
 Marcia/
+
+# 本地项目注册表/索引（运行数据）
+server/.pinax-app/

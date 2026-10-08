@@ -201,8 +201,7 @@
   outline: none;
 }
 
-.writing-page .writing-inspector__tabs span,
-.writing-page .writing-inspector__reopen span {
+.writing-page .writing-inspector__tabs span {
   color: var(--archive-olive-strong);
   font-family: var(--font-sans);
   font-size: 10px;
@@ -1499,22 +1498,6 @@
   color: var(--archive-ink-soft);
   font-size: 12px;
   line-height: 1.65;
-}
-
-.writing-page .writing-inspector__reopen {
-  position: fixed;
-  right: 18px;
-  bottom: 20px;
-  z-index: var(--z-workbench-sheet);
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--archive-olive) 42%, transparent);
-  background: var(--archive-paper-soft);
-  color: var(--archive-olive-strong);
-  font: inherit;
-  font-size: 11px;
-  box-shadow: var(--shadow-workbench-float);
-  cursor: pointer;
 }
 
 .writing-page .wall__shelf {

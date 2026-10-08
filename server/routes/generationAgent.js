@@ -4,8 +4,9 @@ import {
   NarrativeProviderError,
   runToolCallingProviderTurn
 } from '../services/toolCallingProviderAdapter.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
 import { createNarrativeAgentStreamEvent, serializeNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
+import { runKitFunnelProviderTurn } from '../services/kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
 
 function statusForError(code) {
   if (code === 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED') return 422
@@ -54,17 +55,16 @@ export function createGenerationAgentStepStreamHandler({
       )
     }
     const request = validation.request
-    request.provider.apiKey = resolveTextApiKey({
-      provider: request.provider.id,
-      baseUrl: request.provider.baseUrl,
-      apiKey: request.provider.apiKey
-    })
-    if (!request.provider.apiKey) {
+    // 统一模型路由：与 chat / 结构化 / advisor 共用同一判定，不再按 MiniMax 域名特判。
+    const routing = await resolveModelRouting(request.provider)
+    if (routing.mode === 'none') {
       return res.status(400).json(safeErrorPayload(
-        Object.assign(new Error('provider.apiKey 不能为空'), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
+        Object.assign(new Error(MODEL_ROUTING_ERROR_MESSAGE), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
         request.requestId
       ))
     }
+    if (routing.mode === 'direct') request.provider.apiKey = routing.apiKey
+    const useKitFunnel = routing.mode === 'kernel'
     res.status(200)
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache, no-transform')
@@ -89,7 +89,9 @@ export function createGenerationAgentStepStreamHandler({
     res.once?.('close', abortClosedResponse)
     try {
       send('step.start', { stepIndex: 0, toolChoice: request.options.toolChoice || 'auto' })
-      const result = await runner(request, { signal: controller.signal })
+      const result = await (useKitFunnel
+        ? runKitFunnelProviderTurn(request, { signal: controller.signal })
+        : runner(request, { signal: controller.signal }))
       for (const call of result.calls || []) {
         send('tool.input.delta', { callId: call.id, toolName: call.name, input: call.arguments })
         send('tool.call', { callId: call.id, toolName: call.name, action: call.arguments?.action })

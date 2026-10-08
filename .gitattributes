@@ -7,3 +7,6 @@ src/assets/fonts/OFL.txt -whitespace
 # 第三方对照源码保留原始 CRLF；CR 是换行的一部分，其余空白规则继续检查
 adapters/pinax-adapter/vendor/storyflow-kit/** whitespace=cr-at-eol
 adapters/pinax-adapter/vendor/storyflow-kit/**/*.md whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
+
+# writing-skills 的 CRLF 夹具：CR 是测试内容本身，不做空白检查
+scripts/writing-skills/fixtures/positive-adjacent-repeat-crlf.txt -whitespace

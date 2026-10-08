@@ -1,15 +1,25 @@
 import { defineStore } from 'pinia'
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
 import {
-  SETTING_SECTIONS,
   getSettingField,
+  getSettingSection,
   normalizeStructuredSettings
 } from '../services/worldbook/settingPanelSchema'
 import {
-  characterProfileFromCard,
-  parseCharacterCards,
-  parseCharacterEntryProfile,
-  serializeCharacterEntryProfile
+  WRITE_MERGE_MIGRATION_VERSION,
+  STRUCTURED_USER_TOUCHED_KEY,
+  findStructuredFieldByRef,
+  isStructuredEntryInDefaultShape,
+  structuredSettingRef,
+  syncStructuredCharacterFields,
+  migrateStructuredSettingProjections,
+  upsertStructuredFieldEntry,
+  normalizeSourceDocumentRecords,
+  reconcileSourceDocumentEntries,
+  deriveSourceDocumentsFromEntries
+} from '../services/worldbook/writeMergeMigration'
+import {
+  parseCharacterEntryProfile
 } from '../services/characterCard'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
@@ -27,6 +37,13 @@ import {
 } from '../services/worldbook/worldbookPlaceCatalog'
 import { archiveSourceDocuments } from '../services/worldbook/worldbookSourceArchive'
 import { mutationFailure, mutationSuccess } from '../services/storage/durableMutationResult.js'
+import {
+  createWorldbookFileSyncController,
+  isFileSourceAvailable,
+  resolveWorldbookLoadSource,
+  resolveWorldbookProjectRoot,
+  saveWorldbookToFiles
+} from '../services/worldbook/worldbookFileRepository'
 
 const WORLDBOOKS_INDEX_KEY = 'worldbooks_index'
 const WORLDBOOK_KEY_PREFIX = 'worldbook_'
@@ -63,256 +80,12 @@ function ensureArray(value) {
   return Array.isArray(value) ? value : []
 }
 
-function structuredSettingRef(sectionKey, fieldKey) {
-  return `${sectionKey}.${fieldKey}`
-}
-
-// 用户编辑过的 structured entry 不再被 syncStructuredEntries 覆盖 name/type/injection。
-// 仅同步 keys（保持索引新鲜），其余字段保持用户最后一次编辑的结果。
-// 见 audit-pass2-plan Phase A1：避免 reload 后静默丢失用户对 PlaceCatalog 的编辑。
-const STRUCTURED_USER_TOUCHED_KEY = 'userTouched'
-
-// 判断一个 structured entry 当前字段是否仍为「默认填充形态」。
-// 用于 loadWorldbook 迁移：仍为默认形态 → 视作未被用户编辑（userTouched=false），
-// 允许后续同步继续刷新；已偏离默认 → 保守视作用户编辑过（userTouched=true）。
-function isStructuredEntryInDefaultShape(entry, field) {
-  if (!entry || !field) return false
-  if (entry.name !== field.label) return false
-  const inj = entry.injection || {}
-  const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
-  // 默认 injection 形态（与下方新建分支保持一致）
-  if (inj.mode !== (isConstant ? 'constant' : 'selective')) return false
-  if (inj.probability !== 100) return false
-  if (inj.cooldown !== 0) return false
-  if (inj.depth !== (isConstant ? 2 : 1)) return false
-  if (inj.excludeRecursion !== false) return false
-  if (inj.group !== field.defaultGroup) return false
-  return true
-}
-
-// 根据 ref（sectionKey.fieldKey）或 entry 自带的 sourceSection/sourceField/name
-// 在 SETTING_SECTIONS 中找到对应的 field 定义。找不到返回 null。
-function findStructuredFieldByRef(ref, entry) {
-  for (const section of SETTING_SECTIONS) {
-    for (const field of section.fields) {
-      const candidateRef = structuredSettingRef(section.key, field.key)
-      if (ref && candidateRef === ref) return field
-      if (
-        (entry?.metadata?.sourceSection === section.key || !entry?.metadata?.sourceSection) &&
-        (entry?.metadata?.sourceField === field.key || entry?.name === field.label)
-      ) return field
-    }
-  }
-  return null
-}
-
-function stableStructuredCharacterKey(name, occurrence = 0) {
-  const input = `${String(name || '').trim().toLocaleLowerCase()}#${occurrence}`
-  let hash = 2166136261
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= input.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return (hash >>> 0).toString(36)
-}
-
-function syncStructuredCharacterEntries(nextEntries, { section, field, content, ref, stableNow, tombstones }) {
-  const sourceEntries = nextEntries.filter((entry) => entry?.metadata?.structuredSettingRef === ref)
-  const sourceIds = new Set(sourceEntries.map((entry) => entry.id))
-  const detachedLegacyEntries = sourceEntries
-    .filter((entry) => !entry?.metadata?.structuredCharacterKey && entry?.metadata?.[STRUCTURED_USER_TOUCHED_KEY])
-    .flatMap((entry) => {
-      const legacyCards = parseCharacterCards(entry.content)
-      if (!legacyCards.length) {
-        return [{
-          ...entry,
-          metadata: {
-            ...entry.metadata,
-            importSource: 'manual',
-            structuredSettingRef: '',
-            sourceSection: '',
-            sourceField: ''
-          }
-        }]
-      }
-      return legacyCards.map((card, index) => {
-        const profile = characterProfileFromCard(card)
-        return {
-          ...entry,
-          id: index === 0 ? entry.id : `${entry.id}_${stableStructuredCharacterKey(card.name, index)}`,
-          name: card.name,
-          keys: [...new Set([card.name, ...(entry.keys || [])])],
-          content: serializeCharacterEntryProfile(profile),
-          metadata: {
-            ...entry.metadata,
-            importSource: 'manual',
-            structuredSettingRef: '',
-            structuredCharacterKey: '',
-            sourceSection: '',
-            sourceField: '',
-            characterProfile: profile
-          }
-        }
-      })
-    })
-  const detachedNames = new Set(detachedLegacyEntries.map((entry) => String(entry.name || '').trim().toLocaleLowerCase()).filter(Boolean))
-  const cards = parseCharacterCards(content)
-  const occurrences = new Map()
-  const materialized = []
-
-  for (const card of cards) {
-    const name = String(card?.name || '').trim()
-    if (!name) continue
-    const occurrenceName = name.toLocaleLowerCase()
-    if (detachedNames.has(occurrenceName)) continue
-    const occurrence = occurrences.get(occurrenceName) || 0
-    occurrences.set(occurrenceName, occurrence + 1)
-    const cardKey = stableStructuredCharacterKey(name, occurrence)
-    if (tombstones.has(`${ref}:${cardKey}`)) continue
-    const existing = sourceEntries.find((entry) => entry?.metadata?.structuredCharacterKey === cardKey)
-    if (existing?.metadata?.[STRUCTURED_USER_TOUCHED_KEY]) {
-      materialized.push(existing)
-      continue
-    }
-    const profile = characterProfileFromCard(card)
-    const serialized = serializeCharacterEntryProfile(profile)
-    materialized.push({
-      ...(existing || {}),
-      id: existing?.id || `entry_structured_${section.key}_${field.key}_${cardKey}`,
-      name,
-      type: 'character',
-      keys: [...new Set([name, field.label, ...(existing?.keys || [])])],
-      keysSecondary: existing?.keysSecondary || [],
-      content: serialized || String(card.description || '').trim(),
-      speechStyle: card.speechStyle || existing?.speechStyle || '',
-      samples: card.samples?.length ? card.samples : (existing?.samples || []),
-      injection: {
-        ...(existing?.injection || {}),
-        mode: 'selective',
-        probability: 100,
-        cooldown: 0,
-        depth: 1,
-        excludeRecursion: false,
-        group: field.defaultGroup || '角色'
-      },
-      relations: {
-        tags: [...new Set(['结构化设定', field.label, ...(existing?.relations?.tags || [])])],
-        locations: existing?.relations?.locations || [],
-        characters: existing?.relations?.characters || [],
-        events: existing?.relations?.events || []
-      },
-      metadata: {
-        ...(existing?.metadata || {}),
-        createdAt: existing?.metadata?.createdAt || stableNow,
-        updatedAt: existing?.content === serialized ? (existing?.metadata?.updatedAt || stableNow) : stableNow,
-        importSource: 'structured-setting',
-        structuredSettingRef: ref,
-        structuredCharacterKey: cardKey,
-        sourceSection: section.key,
-        sourceField: field.key,
-        basis: existing?.metadata?.basis || 'creative',
-        reviewState: existing?.metadata?.reviewState || 'ready',
-        [STRUCTURED_USER_TOUCHED_KEY]: false,
-        characterProfile: profile
-      }
-    })
-  }
-
-  return [...nextEntries.filter((entry) => !sourceIds.has(entry.id)), ...detachedLegacyEntries, ...materialized]
-}
-
-function syncStructuredEntries(entries, structuredSettings, normalizationNow = Date.now(), structuredCharacterTombstones = [], options = {}) {
-  const stableNow = Number.isFinite(Number(normalizationNow)) ? Number(normalizationNow) : Date.now()
-  let nextEntries = entries.map((entry) => ({
-    ...entry,
-    metadata: { ...(entry.metadata || {}) }
-  }))
-  const tombstones = new Set(ensureArray(structuredCharacterTombstones).map(String))
-
-  for (const section of SETTING_SECTIONS) {
-    for (const field of section.fields) {
-      const content = String(structuredSettings?.[section.key]?.[field.key] || '').trim()
-      const ref = structuredSettingRef(section.key, field.key)
-      if (field.entryType === 'character') {
-        if (options.syncLegacyCharacters) {
-          nextEntries = syncStructuredCharacterEntries(nextEntries, { section, field, content, ref, stableNow, tombstones })
-        }
-        continue
-      }
-      const existingIndex = nextEntries.findIndex((entry) => (
-        entry.metadata?.structuredSettingRef === ref ||
-        (
-          entry.metadata?.importSource === 'structured-setting' &&
-          (entry.metadata?.sourceSection === section.key || !entry.metadata?.sourceSection) &&
-          (entry.metadata?.sourceField === field.key || entry.name === field.label)
-        )
-      ))
-
-      if (!content) {
-        if (existingIndex >= 0) nextEntries.splice(existingIndex, 1)
-        continue
-      }
-
-      const baseEntry = existingIndex >= 0 ? nextEntries[existingIndex] : null
-      // A1 守卫：用户编辑过的 entry 只同步 keys（保持索引新鲜），不动 name/type/injection。
-      const userTouched = Boolean(baseEntry?.metadata?.[STRUCTURED_USER_TOUCHED_KEY])
-      if (userTouched && baseEntry) {
-        // 右侧设定工作台接管日常真源后，旧 structuredSettings 只作兼容投影，
-        // 不得在 reload 时把用户刚保存的 entry.content 反向覆盖。
-        nextEntries[existingIndex] = {
-          ...baseEntry,
-          keys: [...new Set([field.label, ...(baseEntry.keys || [])])],
-          metadata: { ...baseEntry.metadata }
-        }
-        continue
-      }
-
-      const isConstant = ['rule', 'style', 'forbidden'].includes(field.entryType)
-      const contentChanged = !baseEntry || baseEntry.content !== content
-      const now = stableNow
-      const entry = {
-        ...(baseEntry || {}),
-        id: baseEntry?.id || `entry_structured_${section.key}_${field.key}`,
-        name: field.label,
-        type: field.entryType,
-        keys: [...new Set([field.label, ...(baseEntry?.keys || [])])],
-        keysSecondary: baseEntry?.keysSecondary || [],
-        content,
-        injection: {
-          ...(baseEntry?.injection || {}),
-          mode: isConstant ? 'constant' : 'selective',
-          probability: 100,
-          cooldown: 0,
-          depth: isConstant ? 2 : 1,
-          excludeRecursion: false,
-          group: field.defaultGroup
-        },
-        relations: {
-          tags: [...new Set(['结构化设定', ...(baseEntry?.relations?.tags || [])])],
-          locations: baseEntry?.relations?.locations || [],
-          characters: baseEntry?.relations?.characters || [],
-          events: baseEntry?.relations?.events || []
-        },
-        metadata: {
-          ...(baseEntry?.metadata || {}),
-          createdAt: baseEntry?.metadata?.createdAt || now,
-          updatedAt: contentChanged ? now : (baseEntry?.metadata?.updatedAt || now),
-          importSource: 'structured-setting',
-          structuredSettingRef: ref,
-          sourceSection: section.key,
-          sourceField: field.key,
-          basis: baseEntry?.metadata?.basis || 'creative',
-          reviewState: baseEntry?.metadata?.reviewState || 'ready'
-        }
-      }
-
-      if (existingIndex >= 0) nextEntries[existingIndex] = entry
-      else nextEntries.push(entry)
-    }
-  }
-
-  return nextEntries
-}
+// ---------- W4 写侧合并：结构化投影迁移 / 资料升 source 条目 ----------
+// structuredSettings 投影链（syncStructuredEntries + 墓碑 + userTouched 守卫）已退役为
+// writeMergeMigration 纯函数模块：非 character 字段的自动 materialize 停用，改为
+// writeMergeMigrationVersion 门控的一次性迁移 + 兼容入口保存时显式 upsert；
+// 资料记录（sourceDocuments）升为 type:'source' 条目，资料页读路径从条目重建旧形状。
+// 语义逐条保留：墓碑不复活 / userTouched 不覆盖 / content 仍是注入真相 / A3 双写接缝零变化。
 
 /**
  * 归一化 geoHistory 容器。
@@ -347,7 +120,7 @@ function normalizeEntryVoice(entry = {}) {
   }
 }
 
-function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
+function normalizeWorldbook(raw = {}, { normalizationNow = Date.now(), sourceEntriesReconcile = 'full' } = {}) {
   const source = decodeStored(raw, {})
   const structuredSettings = normalizeStructuredSettings(source.structuredSettings)
   // A1.4 迁移守卫：旧存档的 structured entry 没有 userTouched 字段。
@@ -373,9 +146,23 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
   })
   const structuredCharacterTombstones = [...new Set(ensureArray(source.structuredCharacterTombstones).map(String).filter(Boolean))]
   const structuredCharacterMigrationVersion = Number(source.structuredCharacterMigrationVersion) || 0
-  const syncedEntries = syncStructuredEntries(rawEntries, structuredSettings, normalizationNow, structuredCharacterTombstones, {
-    syncLegacyCharacters: structuredCharacterMigrationVersion < 1
-  })
+  const writeMergeMigrationVersion = Number(source.writeMergeMigrationVersion) || 0
+  let syncedEntries = rawEntries
+  if (structuredCharacterMigrationVersion < 1) {
+    // character 聚合文本的一次性迁移（updateStructuredSetting 保存角色字段后重推也走这里）。
+    syncedEntries = syncStructuredCharacterFields(syncedEntries, structuredSettings, normalizationNow, structuredCharacterTombstones)
+  }
+  if (writeMergeMigrationVersion < WRITE_MERGE_MIGRATION_VERSION) {
+    // W4 一次性迁移：非 character 结构化投影落成正式条目（幂等；userTouched 不覆盖）。
+    syncedEntries = migrateStructuredSettingProjections(syncedEntries, structuredSettings, { now: normalizationNow })
+  }
+  const sourceDocumentRecords = normalizeSourceDocumentRecords(source.sourceDocuments, { now: normalizationNow })
+  // W4：资料记录 → type:'source' 条目（幂等 reconcile；注入零变化——keys 空 + selective）。
+  // 载入/文件组装走 full（账本与条目双向对齐）；更新动作显式传 entries 而未传
+  // sourceDocuments 时调用方拥有条目数组（整组替换语义），不做资料条目的增删。
+  if (sourceEntriesReconcile === 'full') {
+    syncedEntries = reconcileSourceDocumentEntries(syncedEntries, sourceDocumentRecords, { now: normalizationNow })
+  }
   const entries = syncedEntries.map((entry) => {
     const normalizedEntry = normalizeEntryVoice(entry)
     return normalizedEntry?.type === 'location' && !isPlaceOverviewEntry(normalizedEntry)
@@ -406,35 +193,17 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now() } = {}) {
     entries,
     entriesMap,
     groups: ensureArray(decodeStored(source.groups, [])),
-    sourceDocuments: ensureArray(decodeStored(source.sourceDocuments, []))
-      .filter((document) => document && typeof document === 'object' && String(document.content || document.contentPreview || document.preview || '').trim())
-      .map((document, index) => {
-        const content = String(document.content || document.contentPreview || document.preview || '')
-        const contentPreview = String(document.contentPreview || document.preview || content)
-        return {
-          id: String(document.id || `source_${index + 1}`),
-          title: String(document.title || `原始资料 ${index + 1}`),
-          kind: String(document.kind || 'reference-text'),
-          content,
-          contentPreview,
-          preview: contentPreview,
-          sourceLabel: String(document.sourceLabel || ''),
-          originalLength: Math.max(content.length, Number(document.originalLength) || 0),
-          normalizedLength: Math.max(content.length, Number(document.normalizedLength) || 0),
-          truncated: Boolean(document.truncated),
-          archiveRef: document.archiveRef ? String(document.archiveRef) : null,
-          chunkIds: [...new Set((Array.isArray(document.chunkIds) ? document.chunkIds : []).map(String).filter(Boolean))],
-          contentHash: document.contentHash ? String(document.contentHash) : null,
-          warnings: ensureArray(document.warnings).map(String),
-          createdAt: Number.isFinite(Number(document.createdAt))
-            ? Number(document.createdAt)
-            : normalizationNow
-        }
-      }),
+    // 资料页读路径兼容：从 source 条目重建旧记录形状（旧记录完整保存在条目 metadata）。
+    // entries-owned 更新（整组替换条目、未动资料账本）时保留原记录，避免视图丢资料。
+    sourceDocuments: sourceEntriesReconcile === 'full'
+      ? deriveSourceDocumentsFromEntries(entries)
+      : sourceDocumentRecords,
     // 地理历史（可玩历史节点）：无地图时保持 null，不阻塞导入。
     geoHistory: normalizeGeoHistory(source.geoHistory),
     structuredCharacterTombstones,
     structuredCharacterMigrationVersion: 1,
+    // W4 写侧合并迁移门：非 character 结构化投影退役 + 资料升 source 条目（一次性、幂等）。
+    writeMergeMigrationVersion: WRITE_MERGE_MIGRATION_VERSION,
     structuredSettings
   }
 }
@@ -473,6 +242,79 @@ function storageWriteError(label = '本地数据') {
 
 function persistOrThrow(key, value, label) {
   if (!setItem(key, value)) throw storageWriteError(label)
+}
+
+// ---------- 文件双写接缝（W2·A3：文件真源优先 + localStorage 缓存回落 + 首载迁移） ----------
+// 只挂持久化路径：条目 CRUD/注入/结构化投影语义零变化；server 不可达/未绑定时
+// isFileSourceAvailable() 为 false，一切走原 localStorage 路径（零行为差异）。
+// 竞争守卫（worldbook-workflow §4）落在副作用 owner=worldbookFileRepository 的控制器内。
+
+const WORLDBOOK_FILE_SYNC_COALESCE_MS = 1500
+
+/** sync 载荷组装：世界书域字段 + 完整条目（entriesMap 是索引不入文件，normalize 重建）。 */
+function buildWorldbookFilePayload(raw) {
+  const worldbook = normalizeWorldbook(raw)
+  return {
+    id: String(worldbook.id || ''),
+    name: String(worldbook.name || ''),
+    worldDescription: String(worldbook.worldDescription || ''),
+    writingStyle: String(worldbook.writingStyle || ''),
+    forbidden: String(worldbook.forbidden || ''),
+    groups: Array.isArray(worldbook.groups) ? worldbook.groups : [],
+    entries: Array.isArray(worldbook.entries) ? worldbook.entries : []
+  }
+}
+
+/** 双写结果轻量标记：只挂在内存 activeWorldbook 上（不入持久化，避免标记写入再触发推送）。 */
+function markWorldbookFileSync(worldbookId, info) {
+  try {
+    const store = useWorldStore()
+    if (store.activeWorldbook?.id === worldbookId) {
+      store.activeWorldbook.fileSyncAt = info?.at || Date.now()
+      store.activeWorldbook.fileSyncError = null
+    }
+  } catch { /* 标记失败不影响双写 */ }
+}
+
+function markWorldbookFileSyncFailed(worldbookId, error) {
+  console.warn('[worldStore] 世界书文件双写失败（不影响本地编辑）', worldbookId, String(error?.code || ''), String(error?.message || ''))
+  try {
+    const store = useWorldStore()
+    if (store.activeWorldbook?.id === worldbookId) {
+      store.activeWorldbook.fileSyncError = String(error?.message || error?.code || 'file-sync-failed')
+    }
+  } catch { /* 轻量标记，绝不抛错 */ }
+}
+
+let worldbookFileSyncController = null
+
+function getWorldbookFileSyncController() {
+  if (worldbookFileSyncController) return worldbookFileSyncController
+  worldbookFileSyncController = createWorldbookFileSyncController({
+    readFile: (worldbookId) => decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null),
+    resolveRoot: (worldbookId) => resolveWorldbookProjectRoot(worldbookId),
+    isAvailable: isFileSourceAvailable,
+    assemble: buildWorldbookFilePayload,
+    push: (projectRoot, worldbook) => saveWorldbookToFiles(projectRoot, worldbook),
+    onSynced: markWorldbookFileSync,
+    onSyncFailed: markWorldbookFileSyncFailed,
+    coalesceMs: WORLDBOOK_FILE_SYNC_COALESCE_MS
+  })
+  return worldbookFileSyncController
+}
+
+/** 保存接缝入口：localStorage 世界书写入成功后调用；文件源不可用时零开销返回。 */
+function queueWorldbookFilePush(worldbookId) {
+  try {
+    getWorldbookFileSyncController().enqueue(worldbookId)
+  } catch { /* 双写绝不打断编辑 */ }
+}
+
+/** 文件加载成功后的 localStorage 缓存刷新（best-effort；失败时文件仍是真源）。 */
+function cacheWorldbookFromFiles(worldbookId, raw) {
+  try {
+    setItem(WORLDBOOK_KEY_PREFIX + worldbookId, JSON.parse(JSON.stringify(raw)))
+  } catch { /* 配额/序列化失败不阻塞加载 */ }
 }
 
 function cloneMutationValue(value) {
@@ -661,11 +503,22 @@ export const useWorldStore = defineStore('world', {
       const activationTicket = ++worldbookActivationSequence
       this.isLoading = true
       try {
-        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
-        if (!raw) throw new Error('世界书不存在')
+        const persistedRaw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        // 文件真源优先（W2·A3）：server 不可达/超时/未绑定/条目失配 → 完全走原 localStorage
+        // 路径（零行为差异）；文件缺失而本地有 → 首载迁移（异步幂等推一次）。
+        const fileSource = await resolveWorldbookLoadSource(worldbookId, persistedRaw)
+        if (!persistedRaw && fileSource.source !== 'files') throw new Error('世界书不存在')
+        const raw = fileSource.source === 'files' ? fileSource.raw : persistedRaw
         const normalized = normalizeWorldbook(raw)
         const loaded = await migrateLegacyWorldbookSources(worldbookId, normalized)
-        if (activationTicket === worldbookActivationSequence) this.activeWorldbook = loaded
+        if (activationTicket === worldbookActivationSequence) {
+          this.activeWorldbook = loaded
+          if (fileSource.source === 'files') {
+            cacheWorldbookFromFiles(worldbookId, raw)
+          } else if (fileSource.migrate && persistedRaw) {
+            queueWorldbookFilePush(worldbookId)
+          }
+        }
         return loaded
       } catch (e) {
         if (activationTicket === worldbookActivationSequence) this.lastError = e.message
@@ -725,6 +578,7 @@ export const useWorldStore = defineStore('world', {
       const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
       try {
         persistOrThrow(worldbookKey, worldbook, '世界书')
+        queueWorldbookFilePush(worldbook.id)
         this.worldbooksIndex.push({
           id: worldbook.id,
           name: worldbook.name,
@@ -759,13 +613,20 @@ export const useWorldStore = defineStore('world', {
       if (!raw) throw new Error('世界书数据不存在')
 
       const worldbook = normalizeWorldbook(raw)
+      // W4：显式传 entries 且未动 sourceDocuments 的更新 = 调用方拥有条目数组
+      //（整组替换/合并语义），跳过资料条目 reconcile，防止整组替换被资料记录复活。
+      const sourceEntriesReconcile = Object.prototype.hasOwnProperty.call(updates, 'entries') &&
+        !Object.prototype.hasOwnProperty.call(updates, 'sourceDocuments')
+        ? 'entries-owned'
+        : 'full'
       const updated = normalizeWorldbook({
         ...worldbook,
         ...updates,
         updatedAt: Date.now()
-      })
+      }, { sourceEntriesReconcile })
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, updated, '世界书')
+      queueWorldbookFilePush(worldbookId)
 
       // 更新索引
       const indexEntry = this.worldbooksIndex[idx]
@@ -900,11 +761,28 @@ export const useWorldStore = defineStore('world', {
       const persistedEntry = normalizedEntry.type === 'location'
         ? createPlaceEntryPatch(normalizedEntry, normalizedEntry)
         : normalizedEntry
-      worldbook.entries.push(persistedEntry)
+      // W4：新资料创建走条目 upsert——携带 importKey（如素材草稿 draft-asset:<id>）的
+      // 写入命中同键既有条目时原位更新，不重复追加；其余写入路径零变化。
+      const importKey = String(entryData.metadata?.importKey || '').trim()
+      const existingKeyIndex = importKey
+        ? worldbook.entries.findIndex((existing) => String(existing?.metadata?.importKey || '').trim() === importKey)
+        : -1
+      if (existingKeyIndex >= 0) {
+        const existing = worldbook.entries[existingKeyIndex]
+        persistedEntry.id = existing.id
+        persistedEntry.metadata = {
+          ...persistedEntry.metadata,
+          createdAt: existing.metadata?.createdAt || persistedEntry.metadata.createdAt
+        }
+        worldbook.entries.splice(existingKeyIndex, 1, persistedEntry)
+      } else {
+        worldbook.entries.push(persistedEntry)
+      }
       worldbook.entriesMap[persistedEntry.id] = persistedEntry
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -987,6 +865,7 @@ export const useWorldStore = defineStore('world', {
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       const idx = this.worldbooksIndex.findIndex(w => w.id === worldbookId)
@@ -1019,12 +898,20 @@ export const useWorldStore = defineStore('world', {
           `${structuredRef}:${structuredCharacterKey}`
         ])]
       }
+      // W4：删除资料条目联动移除 sourceDocuments 记录——资料升条目后记录账本与
+      // 条目一致，否则下次归一的 reconcile 会把已删资料复活。
+      if (deleting?.metadata?.importSource === 'source-document' && String(deleting?.metadata?.sourceDocumentId || '').trim()) {
+        const removedDocId = String(deleting.metadata.sourceDocumentId)
+        worldbook.sourceDocuments = ensureArray(worldbook.sourceDocuments)
+          .filter((document) => String(document?.id || '') !== removedDocId)
+      }
 
       worldbook.entries.splice(entryIdx, 1)
       delete worldbook.entriesMap[entryId]
       worldbook.updatedAt = Date.now()
 
       persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, worldbook, '世界书条目')
+      queueWorldbookFilePush(worldbookId)
       this.activeWorldbook = worldbook
 
       // 更新索引计数
@@ -1387,6 +1274,7 @@ export const useWorldStore = defineStore('world', {
       const worldbookKey = WORLDBOOK_KEY_PREFIX + worldbook.id
       try {
         persistOrThrow(worldbookKey, worldbook, '导入世界书')
+        queueWorldbookFilePush(worldbook.id)
         this.worldbooksIndex.push({
           id: worldbook.id,
           name: worldbook.name,
@@ -1501,18 +1389,23 @@ export const useWorldStore = defineStore('world', {
       const structuredSettings = normalizeStructuredSettings(worldbook.structuredSettings)
       structuredSettings[sectionKey][fieldKey] = String(value || '')
       const ref = structuredSettingRef(sectionKey, fieldKey)
-      const structuredCharacterTombstones = field.entryType === 'character'
-        ? (worldbook.structuredCharacterTombstones || []).filter((item) => !String(item).startsWith(`${ref}:`))
-        : (worldbook.structuredCharacterTombstones || [])
-      const entries = field.entryType === 'character'
-        ? worldbook.entries.filter((entry) => entry?.metadata?.structuredSettingRef !== ref)
-        : worldbook.entries
-
+      if (field.entryType === 'character') {
+        const structuredCharacterTombstones = (worldbook.structuredCharacterTombstones || [])
+          .filter((item) => !String(item).startsWith(`${ref}:`))
+        const entries = worldbook.entries.filter((entry) => entry?.metadata?.structuredSettingRef !== ref)
+        return this.updateWorldbook(worldbookId, {
+          structuredSettings,
+          structuredCharacterTombstones,
+          entries,
+          structuredCharacterMigrationVersion: 0
+        })
+      }
+      // W4 投影链退役：兼容入口保存即直接 upsert 条目（userTouched 只刷 keys，
+      // 语义与退役前 sync 的非 character 分支一致），不再依赖载入时的自动 materialize。
+      const entries = upsertStructuredFieldEntry(worldbook.entries, getSettingSection(sectionKey), field, String(value || ''), { now: Date.now() })
       return this.updateWorldbook(worldbookId, {
         structuredSettings,
-        structuredCharacterTombstones,
-        entries,
-        ...(field.entryType === 'character' ? { structuredCharacterMigrationVersion: 0 } : {})
+        entries
       })
     },
 
@@ -1531,7 +1424,9 @@ export const useWorldStore = defineStore('world', {
       const content = structuredSettings[sectionKey][fieldKey].trim()
       if (!content) throw new Error('设定字段为空，不能转为世界书条目')
 
-      const updated = await this.updateWorldbook(worldbookId, { structuredSettings })
+      // W4 投影链退役后条目不再由载入自动派生：转换动作自己完成一次 upsert。
+      const entries = upsertStructuredFieldEntry(worldbook.entries, getSettingSection(sectionKey), field, content, { now: Date.now() })
+      const updated = await this.updateWorldbook(worldbookId, { structuredSettings, entries })
       return updated.entries.find((entry) => entry.metadata?.structuredSettingRef === structuredSettingRef(sectionKey, fieldKey)) || null
     },
 

@@ -5,7 +5,9 @@ import {
   normalizeStructuredDraftPayload
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { MINIMAX_SERVER_KEY_SENTINEL } from '../../shared/textModelKeys.js'
+import { createKitFunnelFetchImpl } from './kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 import {
   createStructuredCapabilityCache,
   downgradeStructuredProviderCapability,
@@ -235,29 +237,28 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
     req.once?.('aborted', abortRequest)
     res.once?.('close', abortClosedResponse)
     try {
-      // 内置 MiniMax 客户端发来哨兵 key → 替换为服务器 env key (或给出明确报错)
+      // 统一模型路由：无论内置还是自定义，只要有可用模型即走同一判定。
+      // kernel=pi-agent 任务面（单一模型/单一工具流，fetchImpl 转发后浏览器 key 永不下发上游）；
+      // direct=自带 key 或服务器 env 注入 key，按原 provider 直连；none=没有任何可用模型。
       const body = req.body || {}
-      if (body?.provider) {
-        body.provider.apiKey = resolveTextApiKey({
-          provider: body.provider.id,
-          baseUrl: body.provider.baseUrl,
-          apiKey: body.provider.apiKey
-        })
-        if (!body.provider.apiKey) {
-          const isMiniMaxUnconfigured =
-            /minimax/i.test(body.provider.id || '') || /minimaxi?\.com/i.test(body.provider.baseUrl || '')
-          if (isMiniMaxUnconfigured) {
-            return res.status(400).json(errorPayload(
-              new StructuredProviderError(
-                STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID,
-                '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-              ),
-              body.requestId
-            ))
-          }
-        }
+      const provider = body.provider || {}
+      const routing = await resolveModelRouting(provider)
+      if (routing.mode === 'none') {
+        return res.status(400).json(errorPayload(
+          new StructuredProviderError(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, MODEL_ROUTING_ERROR_MESSAGE),
+          body.requestId
+        ))
       }
-      const result = await runner(body, { signal: controller.signal })
+      if (body.provider) {
+        body.provider = routing.mode === 'kernel'
+          // 任务面自行持有模型与密钥；用哨兵占位以通过请求合同的非空校验。
+          ? { ...body.provider, apiKey: MINIMAX_SERVER_KEY_SENTINEL }
+          : { ...body.provider, apiKey: routing.apiKey }
+      }
+      const result = await runner(body, {
+        signal: controller.signal,
+        ...(routing.mode === 'kernel' ? { fetchImpl: createKitFunnelFetchImpl() } : {})
+      })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)
     } catch (error) {

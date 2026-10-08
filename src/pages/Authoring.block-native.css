@@ -1231,10 +1231,6 @@
   display: none;
 }
 
-.theme-legacy .writing-page .writing-inspector__reopen {
-  display: none;
-}
-
 @media (max-width: 1180px) and (min-width: 981px) {
   .theme-legacy .writing-page .wall__main {
     grid-template-columns: 220px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);

@@ -6,7 +6,7 @@
         <div><h1 id="library-title">{{ tr('我的作品') }}</h1><p v-if="!books.length">{{ tr('从第一本书开始，把想法写成故事。') }}</p></div>
         <router-link v-if="recentBook" class="library-return" data-test="welcome-continue-book" :to="{ name: 'authoring', query: { bookId: recentBook.id } }"><WorkbenchIcon name="pencil" :size="21" /><span><small>{{ tr('继续最近的书稿') }}</small><strong>{{ recentBook.title || tr('未命名书稿') }}</strong></span><WorkbenchIcon name="arrow-right" :size="20" /></router-link>
       </section>
-      <LibraryQuickActions @backup="settings.open('storage')" />
+      <LibraryQuickActions @backup="settings.open('storage')" @create="openCreatePanel" @import-project="openImportProjectPanel" />
       <template v-if="books.length">
         <div class="library-toolbar">
           <h2 class="library-section-title">{{ tr('全部作品') }}<span>{{ books.length }}</span></h2>
@@ -14,29 +14,36 @@
           <div class="library-view-controls"><select v-model="sort" :aria-label="tr(&quot;书稿排序&quot;)"><option value="updated">{{ tr('最近修改') }}</option><option value="title">{{ tr('书名排序') }}</option><option value="created">{{ tr('最近创建') }}</option></select><div class="library-view-toggle" role="group" :aria-label="tr(&quot;书库视图&quot;)"><button type="button" :aria-pressed="view === 'grid'" @click="view = 'grid'"><WorkbenchIcon name="grid" :size="16" />{{ tr('书架') }}</button><button type="button" :aria-pressed="view === 'list'" @click="view = 'list'"><WorkbenchIcon name="list" :size="16" />{{ tr('列表') }}</button></div></div>
         </div>
         <p v-if="search.trim()" class="library-results" role="status">{{ tr('找到 {length} 本书稿', { length: visibleBooks.length }) }}</p>
-        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" /></section>
+        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" @configure="configureProject" @delete="deleteProject" /></section>
         <div v-else class="library-no-results"><h2>{{ tr('没有找到这本书') }}</h2><p>{{ tr('试试其他书名，或清除搜索查看全部作品。') }}</p><button type="button" class="library-button" @click="clearSearch">{{ tr('清除搜索') }}</button></div>
       </template>
       <section v-else class="library-empty" aria-labelledby="library-empty-title"><span class="library-empty__label">{{ tr('你的第一份书稿') }}</span><h2 id="library-empty-title">{{ tr('空白的一页，') }}<br>{{ tr('是故事的开始。') }}</h2><p>{{ tr('新建一本书直接写正文，或导入已有的 TXT / Markdown。') }}<br>{{ tr('不必先搭建世界，也不用先配置 AI。') }}</p><ol><li><strong>{{ tr('写下第一场') }}</strong><span>{{ tr('从眼前正在发生的事开始。') }}</span></li><li><strong>{{ tr('放入人物') }}</strong><span>{{ tr('需要时，再补充角色和设定。') }}</span></li><li><strong>{{ tr('试一条岔路') }}</strong><span>{{ tr('推演另一种走法，决定是否写回。') }}</span></li></ol></section>
       <footer class="library-footer"><WorkbenchIcon name="archive" :size="16" /><p>{{ tr('作品保存在当前浏览器，暂不跨设备同步。') }}<button type="button" @click="settings.open('storage')">{{ tr('导出备份') }}</button></p></footer>
     </main>
     <SettingsPopup v-if="settings.isOpen.value" />
+    <ProjectInfoPanel />
   </div>
 </template>
 
 <script setup>
 import { tr, uiLocale } from '../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useSettingsPopup } from '../composables/useSettingsPopup.js'
-import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
+import { useProjectInfoPanel } from '../composables/useProjectInfoPanel.js'
+import { deleteWritingBook, loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
+import { listLocalProjects, removeLocalProject } from '../services/localMirrorSettings.js'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
+import ProjectInfoPanel from '../components/workbench/ProjectInfoPanel.vue'
 import BookLibraryCard from '../components/authoring/BookLibraryCard.vue'
 import LibrarySidebar from '../components/authoring/LibrarySidebar.vue'
 import LibraryQuickActions from '../components/authoring/LibraryQuickActions.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore.js'
 const settings = useSettingsPopup()
+const projectPanel = useProjectInfoPanel()
 const workspaceTabs = useWorkspaceTabsStore()
+const router = useRouter()
 const books = ref(loadWritingBooks())
 const search = ref('')
 const searchInput = ref(null)
@@ -61,6 +68,26 @@ const visibleBooks = computed(() => {
 })
 const stopBooks = subscribeWritingBooks(({ books: nextBooks }) => { books.value = Array.isArray(nextBooks) ? nextBooks : [] })
 async function clearSearch() { search.value = ''; await nextTick(); searchInput.value?.focus() }
+
+function openCreatePanel() {
+  projectPanel.open({ mode: 'create' })
+}
+function openImportProjectPanel() {
+  projectPanel.open({ mode: 'import-project' })
+}
+function configureProject(book) {
+  projectPanel.open({ mode: 'edit', book })
+}
+async function deleteProject(book) {
+  const title = book.title || tr('未命名书稿')
+  if (!window.confirm(tr('删除项目「{title}」？书稿与本地绑定会一并移除；磁盘上的项目文件夹会保留。', { title }))) return
+  if (!deleteWritingBook(book.id).ok) return
+  workspaceTabs.closeProject(book.id)
+  try {
+    const entry = (await listLocalProjects()).find((project) => project.bookId === book.id)
+    if (entry) await removeLocalProject(entry.projectId)
+  } catch { /* 注册表清理失败不阻塞删除 */ }
+}
 onBeforeUnmount(() => { stopBooks(); settings.close() })
 </script>
 

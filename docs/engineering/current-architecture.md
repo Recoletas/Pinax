@@ -164,8 +164,10 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 - 兼容代码是否写明入口、数据范围和删除条件？
 - 是否跑了与改动对应的 focused Gate，最后再跑 `npm run verify:full`？
 
-## StoryAgent 接入（2026-10-05）
+## StoryAgent 接入（2026-10-05；2026-10-06 P2 起运行时迁入 storyflow-kit）
 
-正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，适配器没有直接写权限。
+正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，agent 运行时没有直接写权限。
 
-体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。适配器快照查询不等于资料原件/RAG 接入；运行与限制见 [adapter README](../../adapters/pinax-adapter/README.md)。
+体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。快照查询不等于资料原件/RAG 接入。
+
+**运行时归属（P2 口径统一）**：pi-agent 任务面（agent 循环、工具环、BeatPlan、任务存储、SSE 服务面、provider 绑定经 kit `llm.ts` 注册表）canonical 在 `storyflow-kit/storyharness/src/pinax/`，由 `npm run serve:pinax` 承载于 loopback 8451；Pinax 侧 `adapters/pinax-adapter` 已退役为 stub（其 `.external` 配置仍是凭据源，经 env 传给 kit 进程）。`server/services/storyAgentRuntime.js` 探测/拉起该服务面，不可达时 agent 路由回落原生链。契约与工具清单的 canonical 在 kit `contracts/`（capability-manifest@1、beat-plan@1）；桥双副本纪律见 `scripts/check-bridge-sync.mjs`（Pinax 浏览器桥 ⇄ kit pinax-side）。浏览器原生工具环仍在 Pinax（浏览器域），由契约等价测试对齐。

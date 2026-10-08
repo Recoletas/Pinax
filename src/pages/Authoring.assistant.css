@@ -1,20 +1,5 @@
-.writing-page .authoring-assistant-entry {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  min-height: var(--workspace-control-height, 36px);
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--workspace-radius, 10px);
-  background: transparent;
-  color: var(--text-secondary);
-  font: 500 14px/1.4 var(--font-interface, var(--font-sans));
-  cursor: pointer;
-}
-.writing-page .authoring-assistant-entry:hover { background: var(--nav-hover); color: var(--text-primary); }
-.writing-page .authoring-assistant-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
-.authoring-assistant-entry__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+/* 20261008 dock 化清理：.authoring-assistant-entry 顶栏入口按钮已随 dock 删除，
+   .writing-inspector__reopen 由 .authoring-dock__reopen 徽标接替，死样式一并移除。 */
 .writing-page .authoring-assistant-start {
   display: flex;
   align-items: center;
@@ -40,7 +25,7 @@
   overflow: hidden;
   min-height: 0;
 }
-.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-tool-rail, .writing-inspector__reopen) { display: none; }
+.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-tool-rail) { display: none; }
 .writing-page.is-assistant-full .writing-inspector,
 .theme-legacy .writing-page.is-assistant-full .writing-inspector.is-open {
   position: relative;
