@@ -16,6 +16,7 @@ import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
+import LocalizationCenter from '../components/settings/LocalizationCenter.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 
 const route = useRoute()
@@ -99,6 +100,12 @@ const router = useRouter()
         />
       </div>
     </template>
+
+    <!-- W6·C 本地化中心：全局数据域（不依赖当前书），任何页面状态下常驻底部可折叠 -->
+    <details class="settings-sources-localization" data-test="settings-localization-dock">
+      <summary>{{ tr("本地化中心") }}</summary>
+      <LocalizationCenter />
+    </details>
   </div>
 </template>
 
@@ -116,6 +123,9 @@ const router = useRouter()
 .settings-sources-add { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; }
 .settings-sources-body { flex: 1; padding: 0 clamp(20px, 3vw, 48px) 32px; background: var(--surface-workbench); }
 .settings-sources-empty .control-primary { display: inline-flex; align-items: center; gap: 7px; }
+.settings-sources-localization > summary { padding: 14px clamp(20px, 3vw, 48px); font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-top: 1px solid var(--hairline-soft, var(--border)); background: var(--surface-workbench); }
+.settings-sources-localization > summary:hover { color: var(--text-primary); }
+.settings-sources-localization[open] > summary { color: var(--text-primary); }
 @media (max-width: 760px) { .settings-sources-head { padding: 24px 20px 22px; gap: 14px; align-items: flex-start; border-radius: 0; } .settings-sources-heading h1 { font-size: 22px; } .settings-sources-heading p { font-size: 13px; max-width: 24ch; } }
 
 </style>

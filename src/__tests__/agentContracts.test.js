@@ -862,11 +862,13 @@ describe('agentContracts', function () {
     expect(loreBlock).toBeTruthy()
     expect(loreBlock.content.entries.map(function (entry) { return entry.entryId }))
       .toEqual(expect.arrayContaining(['entry-chu']))
+    // A4 关系修复（2026-10-08）：store 侧 relations.locations/characters 命名此前被注入端
+    // （旧读 placeIds/characterIds）无视，条目只能靠 keyword 命中；修复后绑定优先于 keyword，
+    // 本 fixture 的 entry-chu 经绑定命中（matchReason 'bound'）——旧断言锁定的是 bug 行为。
     expect(loreBlock.content.entries[0]).toMatchObject({
-      matchReason: 'keyword',
-      matchedKeys: expect.arrayContaining(['褚岩'])
+      matchReason: 'bound'
     })
-    expect(narrativeKernel.activatedLore.reasons).toMatchObject({ keyword: 1 })
+    expect(narrativeKernel.activatedLore.reasons).toMatchObject({ bound: 1 })
     expect(JSON.stringify(narrativeKernel)).toContain('不得替玩家声明未输入的决定')
     expect(JSON.stringify(narrativeKernel)).not.toContain('这一段很长的世界简介')
     expect(JSON.stringify(narrativeKernel.blocks.find(function (block) {

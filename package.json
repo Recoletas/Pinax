@@ -70,7 +70,16 @@
     "smoke:local-mirror": "node scripts/local-mirror-check.mjs",
     "smoke:local-funnel": "node scripts/local-funnel-check.mjs",
     "smoke:capability-task": "node scripts/capability-task-check.mjs",
-    "smoke:local-import": "node scripts/local-import-check.mjs"
+    "smoke:local-import": "node scripts/local-import-check.mjs",
+    "smoke:worldbook-file-contract": "node scripts/worldbook-file-contract-smoke.mjs",
+    "smoke:worldbook-server-rw": "node scripts/worldbook-server-rw-smoke.mjs",
+    "smoke:worldbook-relations": "node scripts/worldbook-relations-smoke.mjs",
+    "smoke:worldbook-dualwrite": "node scripts/worldbook-dualwrite-smoke.mjs",
+    "smoke:worldbook-browser": "node scripts/worldbook-browser-smoke.mjs",
+    "smoke:worldbook-editing": "node scripts/worldbook-editing-smoke.mjs",
+    "smoke:worldbook-write-merge": "node scripts/worldbook-write-merge-smoke.mjs",
+    "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs",
+    "smoke:worldbook-localization": "node scripts/worldbook-localization-smoke.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",
