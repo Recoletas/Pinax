@@ -1,24 +1,13 @@
-// 统一模型漏斗网关：内置（服务器密钥）配置的文本模型调用统一转发到 kit 任务面 /v1/pinax/complete。
-// 门控语义：只有「服务器密钥」配置（浏览器 key 为空或 sentinel，且 baseUrl 是 MiniMax 官方域——
-// 与 shared/textModelKeys.js resolveTextApiKey 的注入语义一致）才走漏斗；自带 key 的自定义配置保持直连，零变化。
-// 可用性探测带 5s 缓存；任务面不可达时调用方回落直连原路径（与 storyagent 代理的 fail-open 设计一致）。
-const TASK_PLANE_ENDPOINT = process.env.PINAX_ADAPTER_ENDPOINT || 'http://127.0.0.1:8451'
-const MINIMAX_OFFICIAL_HOSTS = new Set(['api.minimaxi.com', 'api.minimax.io', 'api.minimax.chat'])
-const SENTINEL = 'minimax-server-key'
+// 统一模型漏斗网关：文本模型调用统一转发到 kit 任务面 /v1/pinax/complete（内核持有模型与密钥）；
+// 结构化生成（W1-1 试点）另有 capability 版 fetchImpl——把单发结构化生成改为 kit 任务面 capability 任务
+// （agent 循环与强制提交归 kit 持有），失败回落漏斗直连（双层 fail-open）。
+// 可用性探测带 5s 缓存；任务面不可达时调用方给出统一"未检测到可用模型"错误（2026-10-08 直连退役）。
+import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
+import { capabilityPlaneAvailable, submitCapabilityTask } from './capabilityTaskRunner.js'
+
+const TASK_PLANE_ENDPOINT = process.env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT
 
 let availabilityCache = { ok: false, checkedAt: 0 }
-
-export function isServerKeyedTextConfig(config = {}) {
-  const apiKey = String(config.apiKey || '').trim()
-  const serverKeyed = !apiKey || apiKey === SENTINEL
-  if (!serverKeyed) return false
-  try {
-    const url = new URL(String(config.baseUrl || ''))
-    return MINIMAX_OFFICIAL_HOSTS.has(url.hostname) && !url.username && !url.port && !url.search
-  } catch {
-    return false
-  }
-}
 
 export async function kitFunnelAvailable({ force = false } = {}) {
   const now = Date.now()
@@ -56,11 +45,17 @@ function foldSystemIntoPrompt(payload) {
   return { ...rest, messages }
 }
 
-/** 一次性补全转发。返回 { ok, content, toolCalls, finishReason, usage, model }；上游失败抛错（code: KIT_COMPLETE_FAILED）。 */
-export async function forwardComplete(payload, { timeoutMs = 120_000 } = {}) {
+/** 一次性补全转发。返回 { ok, content, toolCalls, finishReason, usage, model }；上游失败抛错（code: KIT_COMPLETE_FAILED）。
+ *  signal：调用方（如 chat 的客户端断连）中止时联动中止内核请求。 */
+export async function forwardComplete(payload, { timeoutMs = 120_000, signal } = {}) {
   const folded = foldSystemIntoPrompt(payload)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const onAbort = () => controller.abort(signal?.reason)
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason)
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
   try {
     const response = await fetch(new URL('/v1/pinax/complete', TASK_PLANE_ENDPOINT), {
       method: 'POST',
@@ -75,14 +70,20 @@ export async function forwardComplete(payload, { timeoutMs = 120_000 } = {}) {
     return body
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
   }
 }
 
 /** 流式补全转发：onDelta(content) 增量回调；resolve 为完整结果（与 forwardComplete 同形状，toolCalls 恒空）。 */
-export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000 } = {}) {
+export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000, signal } = {}) {
   const folded = foldSystemIntoPrompt(payload)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const onAbort = () => controller.abort(signal?.reason)
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason)
+    else signal.addEventListener('abort', onAbort, { once: true })
+  }
   try {
     const response = await fetch(new URL('/v1/pinax/complete/stream', TASK_PLANE_ENDPOINT), {
       method: 'POST',
@@ -190,8 +191,91 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
   }
 }
 
+/** 解析 structuredOutputAdapter 合成的上游请求体（anthropic / openai-responses / openai-chat 三种形状）。
+ *  返回系统文本、会话轮、输出 Schema、强制工具名与采样参数；funnel 与 capability 两个 fetchImpl 共用。 */
+function parseStructuredAdapterBody(rawBody) {
+  let body = {}
+  try { body = JSON.parse(rawBody || '{}') } catch { body = {} }
+  const flatten = (content) => typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content.map((block) => (typeof block === 'string' ? block : (block?.text || ''))).join('\n')
+      : ''
+  // 收集全部系统文本（Anthropic 的 top-level system / responses 的 instructions + OpenAI 的 role=system 消息）
+  const systemParts = []
+  if (typeof body.system === 'string' && body.system.trim()) systemParts.push(body.system.trim())
+  if (typeof body.instructions === 'string' && body.instructions.trim()) systemParts.push(body.instructions.trim())
+  const turns = []
+  const pushTurn = (role, content) => {
+    if (role === 'system') { if (content.trim()) systemParts.push(content.trim()); return }
+    if (role) turns.push({ role, content })
+  }
+  for (const message of (Array.isArray(body.messages) ? body.messages : [])) pushTurn(message?.role, flatten(message?.content))
+  for (const item of (Array.isArray(body.input) ? body.input : [])) pushTurn(item?.role, flatten(item?.content))
+  // 抽取各模式的输出 Schema（内核不保证遵守 native json_schema / forced tool_choice，转为提示词显式约束）
+  const schema = body.output_config?.format?.schema
+    || body.response_format?.json_schema?.schema
+    || body.response_format?.schema
+    || body.text?.format?.schema
+    || body.tools?.[0]?.function?.parameters
+    || body.tools?.[0]?.parameters
+    || body.tools?.[0]?.input_schema
+    || null
+  const forcedTool = Array.isArray(body.tools) && body.tools.length ? body.tools[0] : null
+  const maxTokens = Number.isFinite(Number(body.max_tokens))
+    ? Number(body.max_tokens)
+    : (Number.isFinite(Number(body.max_output_tokens)) ? Number(body.max_output_tokens) : null)
+  return {
+    body,
+    systemParts,
+    turns,
+    schema,
+    toolName: forcedTool ? String(forcedTool.function?.name || forcedTool.name || '') : '',
+    maxTokens,
+    temperature: Number.isFinite(Number(body.temperature)) ? Number(body.temperature) : null
+  }
+}
+
+/** 按 structuredOutputAdapter 的三协议读取面合成上游响应。
+ *  text-json 模式的请求体不带协议信号（anthropic 与 openai-chat 形状相同），故合成全协议超集——
+ *  providerText / finishReason / 工具解析各自只读自己协议的键，多余键无害。 */
+function renderStructuredResponse({ content, toolCalls = [], finishReason = 'stop', usage = {} }) {
+  const textOut = content || ''
+  const truncated = finishReason === 'length'
+  const calls = Array.isArray(toolCalls) ? toolCalls : []
+  const anthropicBlocks = calls.length
+    ? calls.map((call, index) => ({ type: 'tool_use', id: call.id || `toolu_${index + 1}`, name: call.name, input: call.arguments || {} }))
+    : [{ type: 'text', text: textOut }]
+  const responsesOutput = calls.length
+    ? calls.map((call) => ({ type: 'function_call', name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }))
+    : [{ type: 'message', content: [{ type: 'output_text', text: textOut }] }]
+  const chatToolCalls = calls.map((call, index) => ({
+    id: call.id || `call_${index + 1}`,
+    type: 'function',
+    function: { name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }
+  }))
+  return {
+    content: anthropicBlocks,
+    stop_reason: calls.length ? 'tool_use' : (truncated ? 'max_tokens' : 'end_turn'),
+    output: responsesOutput,
+    output_text: textOut,
+    status: truncated ? 'incomplete' : 'completed',
+    choices: [{
+      message: { role: 'assistant', content: textOut || null, ...(chatToolCalls.length ? { tool_calls: chatToolCalls } : {}) },
+      finish_reason: chatToolCalls.length ? 'tool_calls' : (truncated ? 'length' : 'stop')
+    }],
+    usage: {
+      input_tokens: usage.input_tokens ?? 0,
+      output_tokens: usage.output_tokens ?? 0,
+      total_tokens: usage.total_tokens ?? 0,
+      prompt_tokens: usage.input_tokens ?? 0,
+      completion_tokens: usage.output_tokens ?? 0
+    }
+  }
+}
+
 /** structured 生成专用：kit 漏斗版 fetchImpl——拦截 structuredOutputAdapter 的上游请求，
- *  经 forwardComplete 执行后按调用方协议合成响应。
+ *  经 forwardComplete 执行后合成超集响应。
  *  两道内核无关的健壮性处理，令「只要有模型，所有内容都搞定」：
  *  1. 系统提示折进首个 user 消息，不再单独发 systemPrompt——部分兼容网关（如 dots3-note-prev）
  *     见到独立 system 轮会直接返回空补全（finishReason=error、usage 全 0）。
@@ -201,86 +285,77 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
  *  runner / 模式选择 / 能力降级逻辑零改动。 */
 export function createKitFunnelFetchImpl() {
   return async function kitFunnelFetch(_url, init = {}) {
-    let body = {}
-    try { body = JSON.parse(init.body || '{}') } catch { body = {} }
-    const flatten = (content) => typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.map((block) => (typeof block === 'string' ? block : (block?.text || ''))).join('\n')
-        : ''
-    // 收集全部系统文本（Anthropic 的 top-level system + OpenAI 的 role=system 消息）
-    const systemParts = []
-    if (typeof body.system === 'string' && body.system.trim()) systemParts.push(body.system.trim())
-    const turns = []
-    for (const message of (body.messages || [])) {
-      const content = flatten(message.content)
-      if (message.role === 'system') { if (content.trim()) systemParts.push(content.trim()); continue }
-      turns.push({ role: message.role, content })
-    }
-    // 抽取各模式的输出 Schema（内核不保证遵守，转为提示词显式约束）
-    const schema = body.output_config?.format?.schema
-      || body.response_format?.json_schema?.schema
-      || body.response_format?.schema
-      || body.tools?.[0]?.function?.parameters
-      || body.tools?.[0]?.parameters
-      || body.tools?.[0]?.input_schema
-      || null
-    const schemaInstruction = schema
-      ? `输出必须是且仅是一个完整 JSON 对象，严格符合以下 JSON Schema，不得输出解释、Markdown、思考过程或额外字段：\n${JSON.stringify(schema)}`
+    const parsed = parseStructuredAdapterBody(init.body)
+    const schemaInstruction = parsed.schema
+      ? `输出必须是且仅是一个完整 JSON 对象，严格符合以下 JSON Schema，不得输出解释、Markdown、思考过程或额外字段：\n${JSON.stringify(parsed.schema)}`
       : ''
     // 把系统提示 + Schema 指令折进首个 user 轮（没有 user 轮则新起一个前置轮）
-    const leadText = [...systemParts, schemaInstruction].filter(Boolean).join('\n\n')
-    const messages = turns.map((turn) => ({ ...turn }))
+    const leadText = [...parsed.systemParts, schemaInstruction].filter(Boolean).join('\n\n')
+    const messages = parsed.turns.map((turn) => ({ ...turn }))
     if (leadText) {
       const firstUser = messages.find((turn) => turn.role === 'user')
       if (firstUser) firstUser.content = `${leadText}\n\n${firstUser.content}`.trim()
       else messages.unshift({ role: 'user', content: leadText })
     }
-    const wantsJson = Boolean(schema) || body.response_format?.type === 'json_object' || body.response_format?.type === 'json_schema'
+    const wantsJson = Boolean(parsed.schema) || parsed.body.response_format?.type === 'json_object' || parsed.body.response_format?.type === 'json_schema'
     const result = await forwardComplete({
       messages,
-      ...(Number.isFinite(Number(body.max_tokens)) ? { maxTokens: Number(body.max_tokens) } : {}),
-      ...(Number.isFinite(Number(body.temperature)) ? { temperature: Number(body.temperature) } : {}),
+      ...(parsed.maxTokens != null ? { maxTokens: parsed.maxTokens } : {}),
+      ...(parsed.temperature != null ? { temperature: parsed.temperature } : {}),
       ...(wantsJson ? { responseFormat: 'json_object' } : {}),
       timeoutMs: 120000
     })
-    const toolCalls = (result.toolCalls || []).map((call, index) => ({
-      id: call.id || `call_${index + 1}`,
-      type: 'function',
-      function: { name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }
-    }))
-    const usage = {
-      input_tokens: result.usage?.inputTokens ?? 0,
-      output_tokens: result.usage?.outputTokens ?? 0,
-      total_tokens: result.usage?.totalTokens ?? 0
-    }
-    // 按调用方自身的协议合成响应，令 structuredOutputAdapter 的 providerText/finishReason 能正确读取。
-    const isAnthropic = typeof body.system === 'string' || Boolean(body.output_config)
-    const isResponses = Array.isArray(body.input) || Boolean(body.text?.format)
-    let payload
-    if (isAnthropic) {
-      const blocks = result.toolCalls?.length
-        ? result.toolCalls.map((call, index) => ({ type: 'tool_use', id: call.id || `toolu_${index + 1}`, name: call.name, input: call.arguments || {} }))
-        : [{ type: 'text', text: result.content || '' }]
-      payload = { content: blocks, stop_reason: result.toolCalls?.length ? 'tool_use' : (result.finishReason === 'length' ? 'max_tokens' : 'end_turn'), usage }
-    } else if (isResponses) {
-      payload = {
-        output: result.toolCalls?.length
-          ? result.toolCalls.map((call) => ({ type: 'function_call', name: call.name, arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments || {}) }))
-          : [{ type: 'message', content: [{ type: 'output_text', text: result.content || '' }] }],
-        output_text: result.content || '',
-        status: result.finishReason === 'length' ? 'incomplete' : 'completed',
-        usage
-      }
-    } else {
-      payload = {
-        choices: [{
-          message: { role: 'assistant', content: result.content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) },
-          finish_reason: toolCalls.length ? 'tool_calls' : (result.finishReason === 'length' ? 'length' : 'stop')
-        }],
-        usage: { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens, total_tokens: usage.total_tokens }
-      }
-    }
+    const payload = renderStructuredResponse({
+      content: result.content || '',
+      toolCalls: result.toolCalls || [],
+      finishReason: result.finishReason || 'stop',
+      usage: { input_tokens: result.usage?.inputTokens ?? 0, output_tokens: result.usage?.outputTokens ?? 0, total_tokens: result.usage?.totalTokens ?? 0 }
+    })
     return { ok: true, status: 200, json: async () => payload }
+  }
+}
+
+/** structured 生成专用（W1-1 试点）：capability 版 fetchImpl——单发结构化生成的循环归 kit 持有。
+ *  adapter 请求体抽出系统文本 + 会话轮 + 输出 Schema 折成 capability.systemPrompt；
+ *  Schema 同时进 submitTool.parameters（强制提交工具即 schema 绕过），submit 回执合成上游响应。
+ *  双层 fail-open：任务面探测不可达 → 直走漏斗；任务失败/未提交 → 同一请求回落漏斗（原因留 console.warn）。
+ *  修复重试仍留 Pinax（runStructuredGeneration 的两轮循环不在本文件），每次重试=一个新任务。 */
+const STRUCTURED_CAPABILITY_TIMEOUT_MS = 40_000
+export function createKitStructuredCapabilityFetchImpl() {
+  const funnelFetch = createKitFunnelFetchImpl()
+  return async function kitStructuredCapabilityFetch(url, init = {}) {
+    const signal = init?.signal
+    try {
+      if (!(await capabilityPlaneAvailable())) return funnelFetch(url, init)
+      const parsed = parseStructuredAdapterBody(init.body)
+      const submitToolName = parsed.toolName || 'submit_structured_generation'
+      const schemaInstruction = parsed.schema
+        ? `输出必须是且仅是一个完整 JSON 对象，严格符合以下 JSON Schema，不得输出解释、Markdown、思考过程或额外字段：\n${JSON.stringify(parsed.schema)}`
+        : ''
+      const conversationText = parsed.turns.map((turn) => String(turn.content || '').trim()).filter(Boolean).join('\n\n')
+      const submitInstruction = `== 提交方式 ==\n本次运行为结构化设定能力任务：完成上述协议要求的 JSON 后，调用工具 ${submitToolName}，把该 JSON 作为工具参数整体提交；提交即结束任务。禁止把结果 JSON 作为普通文本返回。`
+      const completed = await submitCapabilityTask({
+        systemPrompt: [...parsed.systemParts, schemaInstruction, conversationText, submitInstruction].filter(Boolean).join('\n\n'),
+        submitTool: {
+          name: submitToolName,
+          description: '提交结构化设定草稿 JSON；提交即结束任务。',
+          parameters: parsed.schema || { type: 'object', properties: {} }
+        },
+        maxTokens: parsed.maxTokens || 1200,
+        budget: { agentTimeoutMs: STRUCTURED_CAPABILITY_TIMEOUT_MS, maxModelSteps: 2, maxCallsPerTurn: 3 },
+        timeoutMs: STRUCTURED_CAPABILITY_TIMEOUT_MS,
+        signal
+      })
+      const payload = renderStructuredResponse({
+        content: JSON.stringify(completed.capabilityResult),
+        toolCalls: parsed.toolName ? [{ id: 'cap_submit_1', name: parsed.toolName, arguments: completed.capabilityResult }] : [],
+        usage: { input_tokens: completed.usage?.inputTokens ?? 0, output_tokens: completed.usage?.outputTokens ?? 0, total_tokens: completed.usage?.totalTokens ?? 0 }
+      })
+      return { ok: true, status: 200, json: async () => payload }
+    } catch (error) {
+      if (signal?.aborted || error?.code === 'AGENT_REQUEST_ABORTED') throw error
+      console.warn(`[Structured] capability task failed (${error?.code || error?.message}); falling back to funnel`)
+      return funnelFetch(url, init)
+    }
   }
 }

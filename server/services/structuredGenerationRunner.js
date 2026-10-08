@@ -5,8 +5,7 @@ import {
   normalizeStructuredDraftPayload
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
-import { MINIMAX_SERVER_KEY_SENTINEL } from '../../shared/textModelKeys.js'
-import { createKitFunnelFetchImpl } from './kitModelGateway.js'
+import { createKitStructuredCapabilityFetchImpl } from './kitModelGateway.js'
 import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 import {
   createStructuredCapabilityCache,
@@ -237,12 +236,10 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
     req.once?.('aborted', abortRequest)
     res.once?.('close', abortClosedResponse)
     try {
-      // 统一模型路由：无论内置还是自定义，只要有可用模型即走同一判定。
-      // kernel=pi-agent 任务面（单一模型/单一工具流，fetchImpl 转发后浏览器 key 永不下发上游）；
-      // direct=自带 key 或服务器 env 注入 key，按原 provider 直连；none=没有任何可用模型。
+      // 统一模型路由（2026-10-08 直连退役）：内容生成一律走内核（pi-agent 任务面持有模型与密钥），
+      // 无可用内核时返回 none；请求体里的 provider key 不再决定通路。
       const body = req.body || {}
-      const provider = body.provider || {}
-      const routing = await resolveModelRouting(provider)
+      const routing = await resolveModelRouting()
       if (routing.mode === 'none') {
         return res.status(400).json(errorPayload(
           new StructuredProviderError(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, MODEL_ROUTING_ERROR_MESSAGE),
@@ -250,14 +247,14 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
         ))
       }
       if (body.provider) {
-        body.provider = routing.mode === 'kernel'
-          // 任务面自行持有模型与密钥；用哨兵占位以通过请求合同的非空校验。
-          ? { ...body.provider, apiKey: MINIMAX_SERVER_KEY_SENTINEL }
-          : { ...body.provider, apiKey: routing.apiKey }
+        // 任务面自行持有模型与密钥；占位值仅用于通过请求合同的非空校验。
+        body.provider = { ...body.provider, apiKey: 'kernel-managed' }
       }
       const result = await runner(body, {
         signal: controller.signal,
-        ...(routing.mode === 'kernel' ? { fetchImpl: createKitFunnelFetchImpl() } : {})
+        // W1-1 试点：单发结构化生成的循环归 kit——capability 任务（含强制提交与文本 JSON 兜底），
+        // 任务面不可达/任务失败时在同一请求内回落漏斗直连（双层 fail-open）。
+        fetchImpl: createKitStructuredCapabilityFetchImpl()
       })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)

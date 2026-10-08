@@ -1,5 +1,8 @@
 import { AGENT_CONTEXT_PROFILES } from './agentContextProfiles.js'
 
+// 本目录是能力任务 id 的唯一 canonical 源；工具契约表（capabilityToolContracts.js）为其派生视图，
+// 两侧一致性（49/21/交集、豁免清单）由 scripts/check-capability-catalog-sync.mjs 在门禁断言。
+
 export const WORKFLOW_KINDS = Object.freeze([
   'local',
   'structured-one-shot',

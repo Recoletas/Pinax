@@ -537,18 +537,22 @@ describe('agentContracts', function () {
     expect(memoryResponse.result).toMatchObject({ proposals, mode: 'review', typedActions: [], action: [], replacement: '', unextractable: { reason: '' } })
     {
       const { handleGenerateRequest } = await import('../../server/routes/chat.js')
+      const { invalidateKitFunnelCache } = await import('../../server/services/kitModelGateway.js')
       const { EventEmitter } = await import('node:events')
-      const request = Object.assign(new EventEmitter(), { body: { messages: [{ role: 'user', content: '分页' }], provider: 'openai', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', model: 'fixture' } })
+      const request = Object.assign(new EventEmitter(), { body: { messages: [{ role: 'user', content: '分页' }], provider: 'kernel', baseUrl: 'https://kernel.invalid/v1', apiKey: 'kernel-managed', model: 'kernel' } })
       const response = Object.assign(new EventEmitter(), { json: vi.fn(), status: vi.fn().mockReturnThis() })
       const fetchBefore = globalThis.fetch
+      const probeResponse = { ok: true, status: 200, json: async () => ({ ok: true }) }
       let upstreamSignal
-      globalThis.fetch = vi.fn(async (_url, options) => {
+      invalidateKitFunnelCache()
+      globalThis.fetch = vi.fn(async (url, options) => {
+        if (!String(url).endsWith('/v1/pinax/complete')) return probeResponse
         upstreamSignal = options.signal
         return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))
       })
       try {
         const pending = handleGenerateRequest(request, response)
-        expect(upstreamSignal).toBeDefined()
+        await vi.waitFor(() => expect(upstreamSignal).toBeDefined())
         response.emit('close')
         await pending
         expect(upstreamSignal.aborted).toBe(true)
@@ -556,16 +560,17 @@ describe('agentContracts', function () {
         expect(response.listenerCount('close')).toBe(0)
         expect(request.listenerCount('aborted')).toBe(0)
         let completedSignal
-        globalThis.fetch = vi.fn(async (_url, options) => {
+        globalThis.fetch = vi.fn(async (url, options) => {
+          if (!String(url).endsWith('/v1/pinax/complete')) return probeResponse
           completedSignal = options.signal
-          return { ok: true, json: async () => ({ choices: [{ message: { content: '完成' } }] }) }
+          return { ok: true, status: 200, json: async () => ({ ok: true, content: '完成', finishReason: 'stop', model: 'kit-test' }) }
         })
         response.json.mockImplementation(() => { response.writableEnded = true; response.emit('close') })
         await handleGenerateRequest(request, response)
-        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ content: '完成' }))
+        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ content: '完成', meta: expect.objectContaining({ viaKit: true }) }))
         expect(completedSignal.aborted).toBe(false)
 
-      } finally { globalThis.fetch = fetchBefore }
+      } finally { globalThis.fetch = fetchBefore; invalidateKitFunnelCache() }
     }
 
 
@@ -3536,35 +3541,44 @@ describe('agentContracts', function () {
     var ledger = createAgentContextLedger(tight)
     expect(ledger.parts.map(function (part) { return part.status })).toEqual(['truncated', 'dropped'])
     expect(ledger.parts.every(function (part) { return Boolean(part.reason) })).toBe(true)
-    await expect(runTextModelAgent(requestPayload.envelope, '检查', {
-      taskType: requestPayload.taskType,
-      options: { providerConfig: {} }
-    })).rejects.toMatchObject({
-      code: 'AGENT_PROVIDER_CONFIG_INVALID',
-      retryable: false
-    })
-    var capturedTextModelUrl = ''
+    const { invalidateKitFunnelCache } = await import('../../server/services/kitModelGateway.js')
     var originalFetch = globalThis.fetch
+    invalidateKitFunnelCache()
+    globalThis.fetch = async function () { return { ok: false, status: 503 } }
+    try {
+      await expect(runTextModelAgent(requestPayload.envelope, '检查', {
+        taskType: requestPayload.taskType,
+        options: { providerConfig: {} }
+      })).rejects.toMatchObject({
+        code: 'AGENT_PROVIDER_CONFIG_INVALID',
+        retryable: false
+      })
+    } finally { globalThis.fetch = originalFetch }
+    var capturedKitUrl = ''
+    invalidateKitFunnelCache()
     globalThis.fetch = async function (url) {
-      capturedTextModelUrl = String(url)
-      return { ok: false, status: 404 }
+      if (String(url).endsWith('/model')) return { ok: true, status: 200, json: async () => ({ ok: true }) }
+      capturedKitUrl = String(url)
+      return { ok: false, status: 404, json: async () => null }
     }
     try {
       await expect(runTextModelAgent(requestPayload.envelope, '检查', {
         taskType: 'writing.fix.paragraph',
         options: {
           providerConfig: {
-            baseUrl: 'https://api.minimaxi.com/anthropic',
-            apiKey: 'sk-test',
-            model: 'MiniMax-M3',
-            format: 'anthropic'
+            baseUrl: 'https://provider.invalid/v1',
+            apiKey: 'fixture-key',
+            model: 'fixture-model',
+            format: 'openai'
           }
         }
       })).rejects.toMatchObject({ code: 'AGENT_PROVIDER_UPSTREAM_FAILED' })
     } finally {
       globalThis.fetch = originalFetch
+      invalidateKitFunnelCache()
     }
-    expect(capturedTextModelUrl).toBe('https://api.minimaxi.com/anthropic/v1/messages')
+    expect(capturedKitUrl).toMatch(/\/v1\/pinax\/complete$/)
+    expect(capturedKitUrl).not.toContain('provider.invalid')
     expect(buildAdvisorProviderOptions({
       provider: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic',

@@ -13,6 +13,7 @@ import { loadWritingBooks, findWritingBook, subscribeWritingBooks } from '../../
 import { normalizeBookWorldbookBinding } from '../../services/agents/authoring/authoringProjectWorldbook.js'
 import { createStoryAgentPanelSessions } from '../../services/agents/storyagent/panelSessionState.js'
 import { randomUUID } from '../../../shared/randomId.js'
+import { KIT_TASK_PLANE_ENDPOINT } from '../../../shared/kitTaskPlane.js'
 import {
   applyMention,
   buildKernelBlocks,
@@ -28,7 +29,7 @@ import {
 const route = useRoute()
 const worldStore = useWorldStore()
 
-const endpoint = String(import.meta.env.VITE_PI_ADAPTER_URL || 'http://127.0.0.1:8451')
+const endpoint = String(import.meta.env.VITE_PI_ADAPTER_URL || KIT_TASK_PLANE_ENDPOINT)
 const bridge = createPiNarrativeAgentBridge({ endpoint })
 const panelSessions = createStoryAgentPanelSessions()
 let disposed = false

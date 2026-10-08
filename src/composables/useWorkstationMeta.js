@@ -87,8 +87,8 @@ export function useWorkstationMeta() {
   const isEmpty = computed(() => totalCount.value === 0)
 
   // The local demo is an empty-state presentation, not an AI-configuration
-  // probe. Built-in MiniMax is valid even though its real key is resolved on
-  // the server and is therefore not stored in localStorage.
+  // probe. The server-model row is valid even though the real key lives in the
+  // pi-agent kernel and is never stored in localStorage.
   const hasConfiguredAi = computed(() => {
     try {
       const config = resolveSelectedTextProviderConfig()

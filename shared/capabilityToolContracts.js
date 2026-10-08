@@ -2,6 +2,8 @@
 // schema 是模型面的形状约束（对齐 openclawService 输出协议卡）；字段级规则与语义校验
 // （引文逐字、evidenceRefs 授权、nodeId/offset 映射、typedActions 事务）保持在宿主既有归一化器——不进 agent prompt。
 // 门控：advisor 任务面健康且任务有 spec → 走 agent 循环；否则回落漏斗直连（双层 fail-open）。
+// 本表为派生视图：taskType 键一律用 canonical（agentCapabilityContract.js）id，零豁免——
+// D7 裁定（2026-10-08）清掉了原 experience.* 两把不可达死键（门禁 scripts/check-capability-catalog-sync.mjs）。
 
 const REVIEW_FINDINGS_SCHEMA = {
   type: 'object',
@@ -290,9 +292,8 @@ const TYPED_ACTION_FAMILIES = {
   'canvas.transition': { actionTypes: ['canvas-transition'] },
   'storyboard.review': { actionTypes: ['storyboard-shot-patch'] },
   'storyboard.video.prompt': { actionTypes: ['generation-request'] },
-  'experience.next-actions': { actionTypes: ['runtime-candidate'] },
-  'experience.emergence': { actionTypes: ['runtime-candidate'] },
-  'authoring.next-actions': { actionTypes: ['runtime-candidate'] }
+  'authoring.next-actions': { actionTypes: ['runtime-candidate'] },
+  'authoring.emergence': { actionTypes: ['runtime-candidate'] }
 }
 
 function typedActionsSpec(taskType, description) {

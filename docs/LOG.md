@@ -3335,3 +3335,51 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 ## 2026-09-29 设定页直接切书（本地）
 
 顶部当前作品名称改为原生选择器，设定、资料、地图、条目共用；切换保留栏目并清除旧书对象定位，按目标书关联加载。条目页添加未保存修改确认，进行保存/批量操作时禁用；地图在加载阶段不挂载旧世界书面板。中英文说明同步。`npm run build` exit 0，diff check 通过；已查看 1440/390 截图，选择器与正文回程入口可见。未新增/运行自动测试、未提交、未部署；跨书交互与完整门禁未验收。
+
+## 2026-10-08 kit 运行时工单：Wave 0 全五单 + W1-2/W1-3/W1-4 落地
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` 施工（W0-1 profile 命中轴修复与 W0-2 bridge-sync 入门禁此前已落，见 `docs/STATUS.md` 同 session 行）。本批：**W0-3** 先备份 `_staging/w0-3-task-cleanup-20261008` 再清理 140 个遗留任务目录 + 24 个陈旧 jsonl；**W0-4** 8451 CORS 收白名单（kit `pinax/server.ts:33-36` 单点 `corsOriginFor`，三处硬编码 `*` 撤除，配置文件填四个开发来源）；**W0-5** 监督拓扑入档 `docs/engineering/current-architecture.md`（8451 归 Pinax spawn 监督、8421/8431 归 kit `scripts/ops/` 守护但当前失效、`web.ts` 留 kit 开发态），kit-guard 失效与 8421 CORS 全反射（`core/src/http.ts:21`）两条入 `docs/src/known-issues.md`；**W1-2** `scripts/check-capability-catalog-sync.mjs`（canonical=49 / tools=21 / 交集=19 / 只在工具侧=2 / 只在 canonical 侧=30）入 `verify:full`，孤儿注入反向验证能红，2 项豁免带 D7 待复核标注；**W1-3** kit provider 表内置档（`envKey/defaultModel`，minimax 档 `MINIMAX_API_KEY`/`MiniMax-Text-01`）+ `THINKING_BUDGETS` 32384 全仓零残留 + Pinax 侧 sentinel/MiniMax host 名单收为 `shared/textModelKeys.js` 单源；**W1-4** 8451 日志维度=任务（`bookId` 是过滤字段非分区键，首帧/终态帧与 usage 字段入档），sessions.ts 不接线（D11）。
+
+验证：`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 新增、双 build、结构 0 循环、bridge-sync 2/2、catalog-sync 6/6、diff clean、docs build OK）；kit 侧 139/139 + typecheck 干净。仍待：W1-1 循环归属试点（需 D8 裁定 + 真实网关）、W1-5 删退役件（需 fail-open 演练留证）、D7 复核。未 commit。
+
+## 2026-10-08 kit 运行时工单：W1-1 单发改写循环归属试点落地
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` W1-1 施工（切片=② 单发改写，D8 收口）。**开工先破了一处已存两日的现场故障**：capability 任务面全族失败（`kit/storyharness/tasks/task-pcap_*.jsonl` 29 个里 21 failed、19 个带 `400`/「未产出正文」，最早 10-07）。根因经运行中 kit 的 `/v1/pinax/complete`（非流式 6 形状）与 `/complete/stream`（流式 2 形状）共 8 种形状变异离线探针实测定案：**dots3-note-prev 端点拒绝任何「独立 system 轮」**——systemPrompt 字段或 messages 内 system/developer 轮一律拒（非流式空补全 finishReason=error、usage 全零；流式立即 [DONE] 零内容；pi-agent-core 链路落盘为守卫报错/400），与 tools、流式与否无关；折进首条 user 后全通（含工具调用）。此结论同时统一了 W0-1 遗留的口径分歧（拒绝面=独立 system 轮，顶层症状=空补全而非 HTTP 400）。
+
+**修复落 kit** `storyharness/src/llm.ts`：`ProviderProfile.foldSystemIntoUser` 旗标（dots 置 true）+ `foldSystemIntoUserPayload()`（system/developer 轮文本并入首条 user，text 块数组与 string 两形状均处理）+ `withSystemFolding()` 在 `makeModels` 出口经 pi-ai 官方 `onPayload` 钩子注入（streamSimple/complete/completeSimple 三方法；调用方自带 onPayload 链式保留）——一处安装覆盖全部消费方（runner Agent 循环/planningAgent/modelFunnel/makeStreamFn），非命中 profile 零开销。
+
+**Pinax 侧调用形态改造**：`server/services/kitModelGateway.js:327-364` 新增 `createKitStructuredCapabilityFetchImpl()`——结构化请求抽成 capability 任务（系统文本+会话轮+Schema 显式指令+提交方式指令折成 `capability.systemPrompt`；Schema 同时进 `submitTool.parameters`，即三模式绕过等价物），submit 回执经 `renderStructuredResponse` 合成三协议超集响应；`server/services/capabilityTaskRunner.js:35-139` 抽出低层 `submitCapabilityTask()`（advisor 路径同步改走它）；`server/services/structuredGenerationRunner.js:258-262` 接线（kernel 模式注入 capability fetchImpl）。双层 fail-open 保持（探测不可达→直走漏斗；任务失败→同请求回落漏斗，console.warn；abort 不回落）。修复重试按工单预案留 Pinax（两轮循环未动，每次重试=新任务；D9 出口裁定保留）。
+
+**验收（真实模型调用）**：临时实例（8463、新代码）经 handler 全链实跑，产出合法 draft、usage 699/454/1153、无回落警告；任务盘落盘 `task-pcap_muz9aqil_68f36c12.jsonl` = completed / steps 1 / toolCalls 1（`submit_structured_generation`）/ capabilityResult present。门禁：kit 141/141 + typecheck 干净；`storyagent-integration-smoke` 19/19、capability-task-check 32/32、`npm run verify:full` EXIT=0（20/20 文件、200/200 用例顶格不破，未新增测试文件）。**试点范围显式标注**：只切 ②；①②b（`chat.js`/`generationAgent.js`）仍走 Pinax 循环，属合法中间态。**仍待**：W1-5 删退役件（需 fail-open 演练留证）、D7 裁定（生产 8451 重启已于当日 16:45 完成，见下节）。未 commit。
+
+## 2026-10-08 kit 运行时工单：生产栈重启复验——8451 新码生效
+
+用户授权「杀掉老线程重新做」。判定依据（mtime 对比）：运行中后端/kit 启动于 10:19:47，而 W1-1 代码写盘于 16:01–16:09，运行栈确为旧码。执行：`taskkill /F /T /PID 11124` 一次清掉后端 11124 + tsx 10080 + kit 21936（旧父 shell 22492 随之退出），3001/8451 端口释放核验通过；新后端以 PowerShell `Start-Process` 分离进程重启（`node server/index.js`，cwd=本仓；日志仍 `%LOCALAPPDATA%\pinax-probe\server.{out,err}`，旧日志存档 `*.boot1019`）。注意 `storyAgentRuntime.js:33` 是「healthz 通即复用、不通才 spawn」——必须先杀 kit 再杀后端，否则新后端会复用旧 kit。新栈时间线：16:44 杀树 → 16:45:22 后端 9320（0.0.0.0:3001）→ 16:45:23 kit 23776（127.0.0.1:8451，`/healthz` = `{"ok":true,"service":"pinax-adapter","port":8451,"model":"openai.dots3-note-prev"}`）→ 16:45:51 生产请求 → 16:45:57 任务完成。生产全链复验（真实模型调用）：`POST http://127.0.0.1:3001/api/generate/structured`（payload 空 apiKey → resolveModelRouting=kernel → 哨兵 → capability fetchImpl）HTTP=200、5.87s、mode=native-json-schema、draft 非空；kit 任务盘新落 `task-pcap_muzakkb7_1bcfd7d9.jsonl` = taskKind capability / completed / toolCalls 1 / usage 665/542/1207（与响应 meta 的 inputTokens/outputTokens 同值）/ capabilityResult present；server.err 与 server.out 全文零回落警告零错误（层2 fail-open 未触发）。5173 vite preview 仍 200（dist/index.html 16:12:25 构建，其后无前端改动）。至此 W1-1「生产生效」闭环：折叠层 + capability 本路在生产栈跑通。仍待：W1-5（fail-open 演练留证 + D10 盘点）、D7 裁定、D9 出口裁定。未 commit。
+
+## 2026-10-08 kit 运行时工单：W1-5 零删除裁定 + D7/D9/D10 出口收口
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` 收口最后一批外部条件。**W1-5 裁定=零删除**：四个前置（W0-1 + W1-1 + 演练留证 + 盘点）满足后执行，原删除面经逐文件盘点全部为活体——`providers/` 8 文件（1795 行）分三类：narrative 传输族 4（anthropic/openAi/openAiResponses/minimax ToolAdapter，经 `toolCallingProviderAdapter.js:8-20` 接线，上溯 narrativeAgentOrchestrator，归 W2-3 一并评估）、structured 基建 2（`structuredOutputAdapter`/`structuredCapabilityResolver`，W1-1 漏斗兜底依赖）、探测 2（`narrativeCapabilityProbe`←chat.js /test、`providerCapabilityResolver`）；`textModelAgentProvider.js` 保留为 advisor 唯一 L2 回落载体（自带 key 直连政策未裁）；`advisorAgentRunner.js` 全文复核回落机制正确、无需改。退役前提（kit 全面承接）目前只在 W1-1 单点成立，Wave 2 铺满前删除等于拆服役中的链。
+
+**fail-open 演练留证（W1-5 硬前置）**：新脚本 `scripts/failopen-drill.mjs` 可复跑——stub 代理 8464 只拦 `/v1/pinax/tasks*`→502、其余透传真实 8451，测试实例 8465 指向 stub（「/model 热切失败档」不可用：modelFunnel.ts 证 /tasks 与 /complete 共用同一 cfg）。v2 全绿：advisor（回落 `provider=text-model` 出答）/structured（回落 native-json-schema 出草稿，innerAttemptCount=1）/chat（与任务面无关直连出活）三链各 1 attempt 200，任务面拦截面 2 次、回落警告 `[Advisor]`/`[Structured]` 各 1；证据 `%LOCALAPPDATA%\pinax-probe\failopen-drill-evidence.json`（v1 抖动版另存 `-run1-flaky.json`）。
+
+**D7 裁定并落地**：`experience.next-actions`/`experience.emergence` 两把工具键实为不可达死键（服务侧 canonical 先行解析：`advisor.js:153`/`capabilityTaskRunner.js:143`），且 `authoring.emergence` 从未进表（emergence 永远走漏斗、与 next-actions 不对等）。裁定=死键替换为 canonical 键（emergence 首获能力路径），49 项 canonical 不动；`check-capability-catalog-sync.mjs` 豁免清零改逐项直查（49/20/交集 20/只在工具侧 0，21/21 绿），`capability-task-check.mjs` 换键+新增 emergence/零死键断言（34/34 绿）。
+
+**D9 出口裁定=留 Pinax**：kit capability 路径已有 submit 校验环（W1-1 已证）；漏斗/直连路径 kit 无 schema 视图，搬移需把 Pinax 协议降级策略（native-json-schema→forced-tool→text-json、预算 ×1.5+800）耦合进 kit runner，收益小于耦合成本；实测膨胀=仅异常触发、每次 +1 轮（+1 kit 任务），正常路径 0（drill v2 attemptCount=1、生产 probe attemptCount=1）；机制 `structuredGenerationRunner.js:86` 两轮循环。
+
+验证（串行调度 + 分段跑齐）：串行 vitest **20/20 文件、200/200 用例**全绿；`lint:delta` 0 新增；`npm run build` 过（22.18s）；architecture:build-size（Authoring chunk 1,397,843 ≤ 1,450,000）与 architecture:check exit 0；bridge-sync 2/2、catalog-sync 21/21、`git diff --check`、docs build 全过。**注**：默认并行调度的 `npm run verify:full` 本次两连红，均为一例存量环境性 flake——`settingsAgentWorkflows`「settings place workflow」5000ms 超时（单跑 7/7 过、556ms；09-14/09-18 先例），未触 src/、非本批改动引入。未 commit。
+
+## 2026-10-08 直连退役批：文本链全数内核 + 写死 MiniMax 清除（用户裁定）
+
+用户裁定：「未来不会有直连了，也需要干掉所有写死 minimax 的，用户配的模型就是所有服务用的模型」。原「自带 key 直连政策未裁」就此关闭，四面执行：
+
+**路由两态化**：`server/services/modelRouting.js` 收敛为 `kernel`（探测 kit `/model`，5s 缓存）与 `none` 两态，无直连档；`none` 统一报 `MODEL_ROUTING_ERROR_MESSAGE`（“未检测到可用模型。请先启动 pi-agent 任务面（serve:pinax），并在设置中选择模型。”）。
+
+**四条生产链无条件内核**：`chat.js`（/chat、/stream）与 `structuredGenerationRunner.js` 无条件走 kit；`generationAgent.js` 默认 runner 由 `runToolCallingProviderTurn` 换为 `runKitFunnelProviderTurn`（多回合循环仍归 Pinax）；`textModelAgentProvider.js` 删 direct 分支（缺内核即 `AGENT_PROVIDER_CONFIG_INVALID`/retryable:false），保留为 advisor「任务面→complete 面」双层 fail-open 的错误合同载体。
+
+**key 面收口**：`resolveTextApiKey` 从 `shared/textModelKeys.js` 删除（该文件自此媒体链专用）；用户 key 仅剩两个用途——设置页探测（`chat.js:725` `/models`、`chat.js:812` `/test`）与「选中即热切内核」（`ApiSettingsPanel.applySelectedToEngine` → `POST /api/storyagent/model` → kit `/model`；公网部署 403 ERR_LOCAL_ONLY）。合同占位：`textProviderConfigStore.js:54-59` `SERVER_MODEL_PLACEHOLDER`（provider:'kernel'）。
+
+**保留边界**：media 链（image/video）全保留，仍用服务器 `MINIMAX_API_KEY`（`resolveMiniMaxApiKey`、sentinel、ImageModelPicker/VideoModelPicker、`routes/image.js`、`media/adapters/minimaxVideo.js`，漫画 e2e 在用）；anthropic 协议配置无法进内核（kit 只讲 openAI-completions），面板话术「该配置为 Anthropic 协议，内核暂不支持，无法作为全局模型使用。」。
+
+同步项：i18n en.json 删 8 旧键（6 孤儿 + 2 置换）补 7 新条目、tools.en.json 删 1；W1-5 零删除结论不变，narrative 传输族生产调用方清零（`runToolCallingProviderTurn` 仅剩测试引用 + `NarrativeProviderError` 被 generationAgent 引用），W2-3 评估面收窄。
+
+验证（本批复跑）：capability-task-check 34/34、local-funnel 3/3、public-access 40、structured-settings 双模式、narrative stream/recovery、bakeoff dry-run、kit typecheck + 139/139、`verify:full` exit 0。至此 2026-10-08 kit 运行时全批（W0×5 + W1×5 + 直连退役）收敛为单一 commit 入 main；用户安排测试。kit 仓侧改动（llm.ts / pinax/server.ts 等）留在 kit 仓工作区——该仓有他人在途改动，未动其 git。
