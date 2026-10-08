@@ -9,7 +9,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
-import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
+import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -2710,12 +2710,14 @@ describe('Media services', () => {
     const picker = settingsPanel.findComponent({ name: 'TextModelPicker' })
     picker.vm.$emit('update:modelValue', textConfig.id)
     await nextTick()
-    expect(settingsPanel.get('[role="status"]').text()).toContain('Journey model')
-    expect(settingsPanel.get('[role="status"]').text()).toContain('journey-text')
+    // 20261008 统一路由收编后，[role=status] 改为引擎通路状态（up/down/检测中），
+    // 选中配置的共享语义改由 store + picker 的 modelValue/configs 承载。
+    expect(getSelectedTextProviderConfigId()).toBe(textConfig.id)
+    expect(picker.props('modelValue')).toBe(textConfig.id)
     deleteTextProviderConfig(textConfig.id)
     picker.vm.$emit('configs-updated', listTextProviderConfigs())
     await nextTick()
-    expect(settingsPanel.get('[role="status"]').text()).toContain('MiniMax')
+    expect(picker.props('configs')).toEqual(listTextProviderConfigs())
     settingsPanel.unmount()
 
     // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
