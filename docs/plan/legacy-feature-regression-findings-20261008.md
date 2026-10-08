@@ -1,0 +1,154 @@
+# 老功能回归发现账 · 2026-10-08（agent-step 空提示词回归 + 思考型上游预算塌陷）
+
+> 交付形态：问题现象 + 证据 + 根因 + 解决思路 + 待裁定。**本轮不改代码**，等安排。
+> 背景：验证「新架构（内核统一漏斗）吞掉老架构之后，续写 / AI 讨论 / 体验 / 漫画 / 世界书等老功能是否受影响」。
+> 方法：不重写提示词，直接在 Node 里 import 仓库真实服务模块，让真实 `src/services/api.js` 打真实后端与真实模型，再用**功能自己的解析器与校验闸**验收。
+
+## 一、结论先行
+
+1. **有一条真回归，且与新架构直接相关**：`/api/generate/agent-step/stream` 的转发层只读 `message.parts`，把 `message.content` 丢了；而契约又强制消息必须带 `content`。两者叠加的结果是——凡是只写 `content` 的调用方，**发给模型的提示词是空串，全链路不报任何错**，模型拿空提示词瞎答，返回被当成正文用。受影响功能：叙事 shadow 质检、故事试演（rehearsal）。体验主线（`narrativeAgentOrchestrator`）因为消息同时双写 `content` 与 `parts` 而幸免。
+2. **批 B 其余失败都不是链路故障，而是当前内核模型不适配**：`openai.dots3-note-prev` 是思考型（笔记/答题）端点，思考 token 计入 `max_tokens`，结构化 JSON 任务在小预算下正文被吃光。同一提示词只抬预算即复现通过（对白选项 900→2400 通过；涌现事件 1000→4000 全闸通过）。
+3. **五类传输链路本身全部实测健康**：流式正文、非流式正文、agent-step（双写形态）、结构化回执（任务面）、合同校验都出正确结果；世界书/画布/压缩/编导等批 A 覆盖的文本面 11/13 通过。也就是说"新架构吃掉老功能"这件事，只在第 1 条那一个点上成立。
+
+## 二、问题一：agent-step 转发丢弃 `content`，模型收到空提示词
+
+### 现象
+
+同一条中文创作指令（要求正文首词必须是「矿镇雪夜」），按三种消息写法分别发 `/api/generate/agent-step/stream`：
+
+| 消息写法 | 结果 |
+|---|---|
+| 只有 `content`（`{role, content}`） | 返回 `The capital of France is Paris.`、`zero zero zero zero`、`To solve this problem, we need to find the l…`（与提示词毫无关系），HTTP 200，`finishReason=stop/length`，不报错 |
+| 只有 `parts` | 400 `NARRATIVE_MESSAGE_CONTENT_REQUIRED`（`messages[0] 没有内容或工具调用`） |
+| `content` + `parts` 双写 | 命中标记词，正文正常（97 字，`finishReason=stop`） |
+
+即：契约接受、且实际发往模型的，只有第一种会静默变质。
+
+### 证据链（file:line）
+
+- 转发层组装：`server/services/kitModelGateway.js:133-155` — 逐条消息 `const textParts = (message.parts || []).filter(part => part.type === 'text')…`，然后 `content: textParts.join('\n')`。`message.parts` 缺失时该值恒为 `''`，原消息的 `message.content` 从未被读。工具结果同理：`kitModelGateway.js:140-149` 只从 `parts` 里找 `tool-result`，`output` 退化为 `'""'`。
+- 契约侧要求：`shared/generationToolContract.js:268`（`content = contentText(raw.content)`）、`:275-281`（`parts` 仅在调用方给了才附上）、`:309-311`（`!message.content && !toolCalls` 直接报 `NARRATIVE_MESSAGE_CONTENT_REQUIRED`）。**所以"只给 parts"进不来，"只给 content"进来后被网关清空。**
+- 入口：`server/routes/generate.js:7` → `server/routes/generationAgent.js:43-52`（`runner = runKitFunnelProviderTurn`）。
+- 受影响调用方（content-only）：
+  - `src/services/agents/narrativeCritic.js:79-127` `criticMessages()` 产出 `[{role:'system',content},{role:'user',content}]`，在 `:142` 交给 `runNarrativeAgentTurn`。
+  - `src/services/agents/authoring/authoringRehearsalToolRun.js:66-79` `initialMessages()`，以及 `:186-187` 的格式修复追加轮，均在 `:170`/`:189` 交给 `requestModel`（默认 `runNarrativeAgentTurn`）。
+- 幸免的调用方（双写）：`src/services/agents/narrativeAgentOrchestrator.js:95-119` `transcriptPartsToGenerationMessage()` 同时输出 `content`（由 parts 反推）与 `parts`。
+- 透传不加工：`src/services/generationService.js:69-92` `runNarrativeAgentTurn` 原样把 `messages` 交给 `sendNarrativeAgentStepStream`（`src/services/api.js:140`）。
+
+### 根因
+
+老架构时代该链路按 provider 协议（openai-chat / anthropic / responses）各自组装消息，`content` 是主字段；直连退役、统一改走 kit 漏斗后（`kitModelGateway.js:129` 注释所述），网关只按 transcript 的 `parts` 形状取文本，而契约保留了「`content` 才是必填」的历史约定。两个形状约定并存却没有一处做转换，凡是新写或沿用 content 形态的调用方都掉进空提示词。
+
+### 解决思路（三层，建议 1+3 必做）
+
+1. **网关兜底（最小修复，一处）**：`kitModelGateway.js:133-155` 取文本时改为「`parts` 有 text 就用 parts，否则回退 `message.content`」；tool 轮的 `output` 同样回退 `message.content`。改完 content-only 与双写两种形态都可用，行为向后兼容。
+2. **契约单源化（防复发的根本解）**：`shared/generationToolContract.js:275-281` 在 `normalizeMessage` 里，当调用方没给 `parts` 时用 `content` 合成一个 `{type:'text'}` part，让下游只会看到一种形状。代价是归一化输出体积变大、parts/content 语义要写进注释。
+3. **让空提示词变成硬错误（关键护栏）**：目前这类事故**在链路上任何一环都不报错**，只能靠人肉看输出对不对才发现。建议在内核侧 `D:/storyflow-kit/storyharness/src/pinax/modelFunnel.ts` 的 `validateCompleteRequest`（`:116` 起）拒绝「所有 user 轮正文皆空」的 `/v1/pinax/complete` 请求，或在 Pinax 侧 `runKitFunnelProviderTurn` 组装后自检并抛 `NARRATIVE_AGENT_EMPTY_PROMPT`。这样同类回归第一次发生就会响，而不是产出看起来像模型发疯的文本。
+4. **可选静态守卫**：加一条脚本级检查，禁止 `runNarrativeAgentTurn` 的调用方传 content-only 消息（当前只有两处，成本很低）。
+
+### 验收口径
+
+- 复放三格矩阵必须变成：content-only ✅ 命中标记词 / parts-only ✅ 仍 400 / 双写 ✅ 不变。
+- 叙事 shadow 质检（`runNarrativeCriticShadow`）必须返回 `verdict.pass` 为布尔值而不是 `null`。
+- 故事试演走一遍真实 rehearsal：`parseFinal` 一次通过，不触发格式修复轮。
+- 新增覆盖按仓库约定放 `scripts/*.mjs`，不占 vitest 预算（`scripts/vitest-budget-reporter.mjs:2` 上限 200 用例，现已满）。
+
+## 三、问题二：思考型上游把预算烧成空正文，错误被折成一句话
+
+### 现象
+
+批 B 里 B3 对白选项、B4 涌现事件、B6 分镜、B8 漫画分页方案四行失败，前端只看到「上游模型返回为空内容」；B2 shadow 质检拿到的是无法解析的返回。直连内核 `/v1/pinax/complete` 复放同一批真实提示词后：
+
+| 行 | 功能自设预算 | 结果 |
+|---|---|---|
+| B5 冒险正文 | 1200（非 JSON） | ✅ `finishReason=stop`，630 输出 token，正文正常 |
+| B0 流式正文 | 500（`/api/chat/stream`） | ✅ 31 帧中文正文 |
+| B3 对白选项 | 未声明 → 服务端默认 500（`server/routes/chat.js:134`） | ❌ `finishReason=length`，`outputTokens=900/900`（探针值），正文 0 字 |
+| B3 复放 | 2400 | ✅ 解析出 3 个选项 |
+| B4 涌现事件 | 1000（`experience/generationEmergence.js:232-236`） | ❌ `length`，`outputTokens=1000/1000`，正文 0 字 |
+| B4 复放 | 3000 | ⚠️ 出 576 字但 JSON 被截断，`parseEmergenceEventDraft=null` |
+| B4 复放 | 4000 | ✅ 804 字完整 JSON，**placeId / 参与者白名单 / choices≥2 / 状态增量 / title / summary 全部校验闸通过** |
+| B6 分镜 | 1400（`experience/generationAdventureTriggers.js:306-310`） | ❌ `length`，正文 0 字 |
+| B6 复放 | 3000 | ❌ 仍 `length`，正文 0 字 |
+| B8 分页方案 | 流式 3600（`media/comicAdaptationService.js:168-177`） | ❌ 流内 0 字（`runCompleteStream` 只转发 `text_delta`，思考期无帧），抛「分页方案未完整返回」（`:176`） |
+
+### 根因
+
+`dots3-note-prev` 这类推理型端点把思考内容计入输出预算；kit 的 `runComplete`（`D:/storyflow-kit/storyharness/src/pinax/modelFunnel.ts:209-236`）只取 `type==='text'` 的块拼正文，思考块既不进正文也不报错，于是预算耗尽时正文为空。Pinax 侧 `server/routes/chat.js:500-501` 再把「正文为空」一律折成 `UPSTREAM_EMPTY_CONTENT`，`finishReason` 与 `usage` 被丢弃，用户无法区分"模型拒答""模型只思考没写""输入被截断"。另外该端点本身是笔记/答题人格，批 A 的 A0 出现过「我的身份是AI助手，无法扮演任何特定角色」，说明它对创作指令还有第二层不适配。
+
+补充事实（影响排查成本）：`/v1/pinax/complete`、`complete/stream`、agent-step 三条转发链**不写内核 journal**，只有任务面（`/v1/pinax/tasks`，structured/capability）会追加 `D:/storyflow-kit/storyharness/tasks/task-*.jsonl`（`store.ts:57`）。所以上游到底报什么，正文链路上现在查不到痕迹。
+
+### 解决思路（按彻底程度排序，可分层做）
+
+1. **模型适配（最干净）**：把内核指到一个非思考型的创作用模型（`POST http://127.0.0.1:8451/model` 热切即可，无需重启；切换前先在内存快照当前密钥）。这条同时解决拒答人格问题。需要用户提供/确认模型行与密钥。
+2. **预算分层（不换模型也能救大部分）**：给 JSON 形状的任务显式抬预算——对白选项 900→2400、涌现事件 1000→4000 是实测有效值；分镜 3000 仍不够，需 4000+ 或换模型；分页方案在流式链上要重新设计（流式只回正文增量，思考期表现为"长时间无帧"，需要心跳帧或改走非流式）。附带建议：`dialogueOptions`（`src/services/experience/dialogueOptions.js:25-33`）现在没声明预算，靠服务端默认 500 兜着，应该显式写明。成本口径要说清楚：抬预算＝抬 token 花费。
+3. **错误可见性（无论换不换模型都该做）**：`server/routes/chat.js:500` 按 `finishReason` 与 `usage` 分档报错，例如 `UPSTREAM_REASONING_ONLY`（length + 正文空 + 输出 token 已耗尽）与 `UPSTREAM_EMPTY_CONTENT`（stop + 正文空）分开，`details` 带上 `finishReason/usage/maxTokens`。仓库里已有先例可抄：`server/services/textModelAgentProvider.js:24-41` 就区分了 `truncated / refused / hasReasoning` 三类。
+4. **思考开关透传**：`modelFunnel.ts:212-218` 用 `THINKING_BUDGETS[thinking]` 控制预算，当前内核 `cfg.thinking='off'` 时**不下发任何思考参数**，端点按自己的默认走（仍会思考）。若要真正关闭，需要按 provider 下发显式参数（例如 `samplingParams` 逃生舱，`modelFunnel.ts:220` 已有该通道）。这条要按端点逐个验证，不能笼统改。
+
+## 四、附带发现（记账，未定性为 bug）
+
+- **B10 记忆压缩只证明了启发式**：`src/services/api.js:601-614` 是 `llmMemory || heuristic` 的静默兜底，且 `needsLlmMemoryCompaction`（`src/services/memory/memoryCompaction.js:15-34`）对"作者偏好：…"这类带前缀且 ≤72 字的夹具直接判否。所以那行「通过」不代表 LLM 分支可用，需要用能触发 LLM 的夹具重测（夹具要求：无前缀且 source >5 字，或 heuristic 被截断带 `...`，或 general/dialogue 类 >180 字）。
+- **批 A 的 A7/A11 归因要更正**：先前记为「上游 403」，但那条 403 的 journal 时间是 19:43，批 A 跑在 21:24–21:36，且正文链路根本不写 journal——**证据不成立**。最可能是同一个思考烧预算问题，复测方法见本文件第五节的复放工装。
+- **世界书检索规划（`src/services/worldbook/worldbookResearch.js`）在 src 内除测试外无生产调用方**：目前没有 UI 入口，回归通过与否只影响未来接入。
+- **地理面板未覆盖**：`WorldMapPanel.vue:660`、`GeographyPanel.vue:388` 的生成入口在 `.vue` 里，Node 工装加载不到，需要 Playwright UI 级覆盖。
+- **生图/生视频真上游本轮未打**：`server/routes/image.js:33` 依赖服务器 `MINIMAX_API_KEY`，缺配置返回 400 `ERR_SERVER_KEY_MISSING`。工装里 B11 默认跳过，需显式 `REGRESS_MEDIA=1` 才花钱。
+
+## 五、合并回归矩阵（批 A + 批 B，功能级）
+
+| 面 | 行 | 功能 | 链路 | 结论 |
+|---|---|---|---|---|
+| 文本 | A0 | `sendChat` 基线 | `/api/generate` | ✅（人格拒答另计） |
+| 文本 | A1 | 正文续写 | `/api/advisor/task` | ✅ |
+| 文本 | A2 | AI 讨论·知识问答 | `/api/advisor/task` | ✅ |
+| 文本 | A3 | 世界书导入·原文提炼 | `/api/generate` | ✅（首轮工装断言读错字段，已修） |
+| 文本 | A4/A5/A6 | 世界书基调/审计/精修 | `/api/generate`、任务面 | ✅ |
+| 文本 | A7 | 世界书检索规划 | `/api/generate` | ❓ 真因待复测（见第四节） |
+| 文本 | A8/A9 | 画布主题卡/卡片延伸 | `/api/generate` | ✅ |
+| 文本 | A10 | 上下文压缩 LLM 摘要 | `/api/generate` | ✅ `method=llm` |
+| 文本 | A11 | 插画画面描述整理 | `/api/generate` | ❓ 真因待复测 |
+| 文本 | A12 | 专业编导信息 JSON | 任务面 | ✅ |
+| 体验 | B1 | agent-step 工具流 | `/api/generate/agent-step/stream` | ❌ 工装用 content-only → **命中问题一**；双写形态 ✅ |
+| 体验 | B2 | 叙事 shadow 质检 | 同上 | ❌ 问题一 + 预算 500/超时 12s |
+| 体验 | B3 | 对白选项 | `/api/generate` | ❌→✅ 预算（900 空 / 2400 通） |
+| 体验 | B4 | 涌现事件具体化 | `/api/generate` | ❌→✅ 预算（1000 空 / 4000 全闸通） |
+| 体验 | B5/B6 | 冒险触发正文/分镜 | `/api/generate` | ✅ / ❌ 预算（3000 仍空） |
+| 漫画 | B7 | 单页脚本 | `/api/generate` | ✅ 4 格（2 次尝试） |
+| 漫画 | B8 | 分页方案 | `/api/chat/stream` | ❌ 流式思考期无正文 |
+| 结构化 | B9 | 世界起源草案 | `/api/generate/structured` | ✅ 内核 journal `capabilityResult` 有原文 |
+| 记忆 | B10 | 压缩 | `/api/generate` | ⚠️ 只证启发式（第四节） |
+| 媒体 | B11 | 生图真上游 | `/api/media/images` | ⏸ 未开 `REGRESS_MEDIA` |
+| UI | — | 地理面板 | — | ⬜ 未覆盖 |
+
+## 六、待裁定
+
+| 编号 | 事项 | 选项 |
+|---|---|---|
+| R1 | 问题一修复形态 | 只做网关兜底 / 网关兜底 + 契约单源化 / 再加空提示词硬错误护栏（建议后两者） |
+| R2 | JSON 任务预算是否抬 | 按实测值抬（对白 2400、涌现 4000、分镜 4000+）还是等换模型后再定 |
+| R3 | 是否换内核模型 | 需要模型行与密钥；换哪些任务面用哪个模型 |
+| R4 | 错误可见性分层 | 是否把 `finishReason/usage` 透出到前端错误 |
+| R5 | 空提示词护栏落在哪一侧 | Pinax 组装后自检 / kit `validateCompleteRequest` 拒绝（后者更根本但要改 kit 仓） |
+| R6 | B10 与 A7/A11 复测 | 是否补做（工装现成，各 1–2 次真实调用） |
+| R7 | 生图 / 生视频真上游 | 是否开 `REGRESS_MEDIA=1`；生视频默认不打 |
+| R8 | 地理面板 UI 级覆盖 | 是否补 Playwright 一行 |
+
+## 七、复现工装（仓库外，不入库）
+
+`C:\Users\Administrator\AppData\Local\pinax-probe\`：
+
+- 矩阵：`feature-regression-matrix.mjs`（批 A 13 行）、`feature-regression-matrix-b.mjs`（批 B 12 行），跑法 `node --import ./regress-register.mjs <矩阵>.mjs`；结果 `feature-regression-matrix{,-b}.result.json`、日志 `regress-a-run1.log` / `regress-b-run1.log`。
+- 归因：`regress-b-attrib.mjs`（原始预算复放，读 `finishReason/usage`）、`regress-b-attrib2.mjs`（抬预算复放 + 功能自带解析器验收）、`regress-b-attrib3.mjs`（涌现事件逐校验闸）、`regress-b1-replay.mjs`（content-only 瞎答取证）、`regress-b1-parts.mjs`（三格矩阵取证）。
+- 支撑件：`regress-register.mjs` / `regress-hooks.mjs` / `regress-axios-shim.mjs`（让仓库真实服务模块在 Node 里原样可跑）。
+- 内核当前模型取证：`curl --noproxy "*" http://127.0.0.1:8451/model`；任务面流水：`D:/storyflow-kit/storyharness/tasks/task-*.jsonl`。
+
+## 八、编排者复核（2026-10-08，双子代理并行 + 亲验核心两点）
+
+**结论：两个问题全部成立，准予入库；以下为复核增量与勘误。**
+
+1. **问题一证据链 8/8 核实**（kitModelGateway 组装/契约三处/两处 content-only 受害者/orchestrator 双写/透传链/入口挂载，行号零漂移或 ±1）。编排者另亲验一条文档未写的补强：网关组装后的滤网 `role !== 'assistant' || content || toolCalls` **只滤 assistant 空消息，user/system 的空提示词直达内核**。
+2. **受影响面 +1**：`runNarrativeAgentTurn` 全仓普查发现**第 4 处 content-only 调用方**——`src/services/agents/narrativeTaskQuality.js:30-47` `buildTaskQualityMessages`（经 orchestrator `verifyTask` 的 review 阶段 → decisionRunner），同样拿空提示词；revision 阶段（transcriptToGenerationMessages 双写）幸免。修复方案 1（网关兜底）天然覆盖此处置。
+3. **问题二机制链 9/10 核实**，勘误两条：
+   - 路径补全：涌现事件与分镜的预算声明在 `src/services/experience/` 子目录，分页方案在 `src/services/media/`（正文表格已就地更正）。
+   - **B10 判定链更正**：`hasFactPrefix` 的正则集合是 `对话|地点|物品|决策|剧情|偏好|约束|风格|角色`——**「作者偏好：」不在集合内**；实际判否依赖的是 `compactMemoryText` 对 author-preference 类型提取出的**「偏好：」**前缀（≤72 字判否）。按原文档字面（拿「作者偏好：」去对正则）会得出相反判定，结论凑巧不变但机制表述以本条为准。
+   - 补强一条：流式链结束时**不校验空正文**——kit 侧 `finishReason:'empty'`（modelFunnel.ts:259）被忽略、静默 `[DONE]`，与 B8「思考期零帧」同根。
+4. **R1–R8 编排者建议**：R1 三件全做（网关兜底最小向后兼容 / 契约单源化防复发 / 空提示词硬错误护栏，护栏先落 Pinax 侧自检、kit validateCompleteRequest 随 kit 仓批次）；R2 按实测值立即抬（对白 2400、涌现 4000、分镜 4000+），换模型后重估；R3 需要你给模型行与密钥，作为质量问题根治另议；R4 做（照 textModelAgentProvider 四档先例）；R5 两边都落（Pinax 自检先行）；R6 做（工装现成）；R7 维持显式开关默认关；R8 随下次 UI 冒烟顺带。
