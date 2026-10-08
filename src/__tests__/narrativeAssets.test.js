@@ -158,7 +158,9 @@ describe('narrativeAssets', () => {
         const request = { sources: [{ content: '只有一段简短剧情' }], settings: { baseUrl: 'https://example.test', apiKey: 'unit-test', model: 'unit-test' }, signal: controller.signal }
         await expect(generateComicAdaptationCandidates(request)).rejects.toThrow('request-timeout')
         expect(sendChat).toHaveBeenCalledTimes(1)
-        expect(sendChat.mock.calls[0][4]).toMatchObject({ max_tokens: 3600, timeout_ms: 120000, retryCount: 0 })
+        // 20261008 预算裁定：调用点不再写死 max_tokens（thinking 端点计量不同），交内核缺省 4096。
+        expect(sendChat.mock.calls[0][4]).toMatchObject({ timeout_ms: 120000, retryCount: 0 })
+        expect(sendChat.mock.calls[0][4].max_tokens).toBeUndefined()
         expect(sendChat.mock.calls[0][6].signal).toBe(controller.signal)
         controller.abort()
         await expect(generateComicAdaptationCandidates(request)).rejects.toMatchObject({ name: 'AbortError' })

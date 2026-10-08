@@ -274,10 +274,20 @@ function normalizeMessage(raw, index, allowedToolNames) {
   }
   const partsResult = normalizeMessageParts(raw.parts, index, role, allowedToolNames)
   if (!partsResult.valid) return partsResult
+  // 2026-10-08 回归单源化（docs/plan/legacy-feature-regression-findings-20261008.md 问题一）：
+  // 本契约历史约定 content 必填、parts 可选，而下游网关（runKitFunnelProviderTurn）曾只读 parts，
+  // content-only 调用方（narrativeCritic / authoringRehearsalToolRun / narrativeTaskQuality）静默拿到空提示词。
+  // 为让下游只见「parts 必存在」单一形状：user/assistant 消息未提供 parts（或归一化后为空）且 content 非空时，
+  // 用 content 合成单个 text part。tool 角色的 parts 语义不同（tool-result），维持原状不合成。
+  // 代价：归一化输出体积变大——client（api.js 走 validateGenerationAgentTurnRequest）与 server 共用本函数，
+  // 请求体会同时带 content 与合成 parts，双写属预期，不再视为异常形状。
+  const effectiveParts = (role === 'user' || role === 'assistant') && partsResult.parts.length === 0 && content
+    ? [{ type: 'text', text: content }]
+    : partsResult.parts
   const message = {
     role,
     content,
-    ...(partsResult.parts.length ? { parts: partsResult.parts } : {})
+    ...(effectiveParts.length ? { parts: effectiveParts } : {})
   }
   const partToolCalls = partsResult.parts
     .filter((part) => part.type === 'tool-call')
