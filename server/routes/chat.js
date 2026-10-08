@@ -131,7 +131,8 @@ function buildMemoryPrompt(memoryContextText) {
   return `用户偏好记忆（来自历史采纳与情绪反馈）：\n${memoryContextText}\n\n请在不违背当前用户输入的前提下，优先贴合这些偏好风格与情绪倾向。`
 }
 
-const DEFAULT_MAX_TOKENS = 500
+// 20261008 预算裁定：不再写死默认 max_tokens（thinking 端点的计量方式不同，写死会把
+// 思考型模型的正文饿死）。调用方声明了 max_tokens 才透传，未声明时交给内核缺省（4096）。
 const DEFAULT_TEMPERATURE = 0.8
 const DEFAULT_MAX_INPUT_CHARS = 18000
 const MIN_CLIP_CHARS = 120
@@ -484,7 +485,7 @@ export async function handleGenerateRequest(req, res) {
       maxInputChars
     }
 
-    const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
+    const declaredMaxTokens = Number.isFinite(Number(max_tokens)) ? Math.max(1, Math.floor(Number(max_tokens))) : null
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
     // 内容生成统一经内核漏斗（2026-10-08 直连退役：不再有自带 key 直连路径）。
@@ -492,7 +493,7 @@ export async function handleGenerateRequest(req, res) {
       const result = await forwardComplete({
         ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
         messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
-        maxTokens: effectiveMaxTokens,
+        ...(declaredMaxTokens ? { maxTokens: declaredMaxTokens } : {}),
         temperature: effectiveTemperature,
         ...(response_format?.type === 'json_object' ? { responseFormat: 'json_object' } : {}),
         timeoutMs: Math.max(1000, Math.min(120000, toFiniteNumber(req.body?.timeout_ms, 60000)))
@@ -686,7 +687,8 @@ router.post('/stream', async (req, res) => {
       }
     }
 
-    const effectiveMaxTokens = Math.max(1, Math.floor(toFiniteNumber(max_tokens, DEFAULT_MAX_TOKENS)))
+    // 20261008 预算裁定：同非流式——未声明不透传，交内核缺省（4096）。
+    const declaredMaxTokens = Number.isFinite(Number(max_tokens)) ? Math.max(1, Math.floor(Number(max_tokens))) : null
     const effectiveTemperature = toFiniteNumber(temperature, DEFAULT_TEMPERATURE)
 
     // 内容生成统一经内核漏斗（2026-10-08 直连退役）：重播为既有 {content} SSE 帧。
@@ -694,7 +696,7 @@ router.post('/stream', async (req, res) => {
       await forwardCompleteStream({
         ...(mergedSystemPrompt ? { systemPrompt: mergedSystemPrompt } : {}),
         messages: normalizedMessages.map((message) => ({ role: message.role, content: typeof message.content === 'string' ? message.content : extractTextContent(message.content) })),
-        maxTokens: effectiveMaxTokens,
+        ...(declaredMaxTokens ? { maxTokens: declaredMaxTokens } : {}),
         temperature: effectiveTemperature,
         timeoutMs: 120000
       }, (delta) => {

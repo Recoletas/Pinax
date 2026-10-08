@@ -304,7 +304,7 @@ export async function generateAdventureStoryboardDraft({
     }),
     settings,
     generationOptions: {
-      max_tokens: 1400,
+      // 20261008 预算裁定：不写死 max_tokens（thinking 端点计量方式不同），交内核缺省。
       temperature: 0.35,
       response_format: { type: 'json_object' }
     },
