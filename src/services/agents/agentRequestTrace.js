@@ -1,7 +1,8 @@
 import { randomUUID } from '../../../shared/randomId.js'
+import { serializeAgentBlockContent } from '../../../shared/agentContextContract.js'
 
 const STORAGE_KEY = 'pinax_agent_request_trace_v1'
-const TRACE_LIMIT = 20
+const TRACE_LIMIT = 50
 
 function readTraces() {
   if (typeof localStorage === 'undefined') return []
@@ -20,6 +21,7 @@ export function createAgentRequestId() {
 export function summarizeAgentEnvelope(envelope) {
   return {
     surface: envelope?.surface || '',
+    projectId: envelope?.projectId || null,
     target: {
       type: envelope?.target?.type || '',
       id: envelope?.target?.id || null,
@@ -30,6 +32,7 @@ export function summarizeAgentEnvelope(envelope) {
       order,
       kind: block.kind,
       priority: block.priority,
+      chars: serializeAgentBlockContent(block?.content).length,
       sourceRefs: block.sourceRefs || [],
       truncated: Boolean(block.truncated),
       retainedChars: block.retainedChars ?? null

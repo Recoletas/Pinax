@@ -492,6 +492,7 @@ export function useAuthoringKnowledgeAssistant({
       if (token !== runtime.token || disposed) return false
       const session = prepared.session
       let modelOutput
+      let answerSnapshotKey = ''
       if (intent !== 'free' && session.evidenceEnvelope.evidence.length === 0) {
         modelOutput = {
           answer: '当前资料中没有找到足够依据。', claims: [],
@@ -503,6 +504,7 @@ export function useAuthoringKnowledgeAssistant({
           taskType: session.taskId, scope: 'writing', mode: 'review',
           options: { knowledgeIntent: intent }, signal: controller.signal
         })
+        answerSnapshotKey = String(result?.requestId || '')
         modelOutput = result?.result?.knowledgeAnswer
           || result?.rawAdvice || result?.advice || result?.result?.summary
       }
@@ -512,7 +514,7 @@ export function useAuthoringKnowledgeAssistant({
       const revisions = await querySession.collectCurrentRevisions(session, currentReconcileInput(entry, session))
       if (token !== runtime.token || disposed) return false
       answer = reconcileAuthoringKnowledgeAnswer(answer, revisions)
-      state.messages.push({ id: messageId('answer'), role: 'assistant', answer, session, createdAt: Date.now() })
+      state.messages.push({ id: messageId('answer'), role: 'assistant', answer, session, createdAt: Date.now(), promptSnapshotKey: answerSnapshotKey })
       state.status = 'completed'
       state.hasUnread = true
       state.lastRequest = null

@@ -1,3 +1,5 @@
+import { createAgentRequestId, recordAgentRequestTrace } from '../agentRequestTrace.js'
+
 function retrievedReferences(prepared, results, projectId) {
   const references = []
   for (const result of results) {
@@ -29,9 +31,33 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   const previousTask = state.agentTaskId || ''
   if (engine.enrichPrepared) await engine.enrichPrepared(prepared, { text: question, signal })
   if (!current()) return false
+  const traceRequestId = createAgentRequestId()
+  const traceStartedAt = Date.now()
+  const recordTurnTrace = (status, extra = {}) => recordAgentRequestTrace({
+    kind: 'agent',
+    requestId: traceRequestId,
+    projectId,
+    taskId: extra.taskId || '',
+    startedAt: traceStartedAt,
+    completedAt: Date.now(),
+    status,
+    model: extra.model || '',
+    usage: extra.usage || null,
+    toolRounds: extra.toolRounds ?? null,
+    totalCalls: extra.totalCalls ?? null,
+    terminalMode: extra.terminalMode || '',
+    reasoningChars: extra.reasoningChars ?? null,
+    toolCalls: (extra.toolCalls || []).slice(0, 24),
+    resumed: Boolean(extra.resumed),
+    error: extra.error || null
+  })
   const health = await engine.healthz({ signal })
   if (!current()) return false
-  if (!health?.ok) throw new Error('写作工具暂不可用。可以切换为“讨论故事”继续，或稍后重试。')
+  if (!health?.ok) {
+    const unavailableMessage = '写作工具暂不可用。可以切换为“讨论故事”继续，或稍后重试。'
+    recordTurnTrace('failed', { taskId: previousTask, error: { message: unavailableMessage } })
+    throw new Error(unavailableMessage)
+  }
   const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '' }
   state.messages.push(answer)
   // Use the reactive object from the collection; raw-object writes do not trigger Vue updates.
@@ -69,9 +95,24 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (changes.length) message.proposal = engine.prepareProposal({ changes }, prepared, message.id)
     }
     state.agentTaskId = message.taskId
+    recordTurnTrace('completed', {
+      taskId: message.taskId,
+      model: result.model || '',
+      usage: result.usage || null,
+      toolRounds: result.toolRounds,
+      totalCalls: result.totalCalls,
+      terminalMode: result.trace?.terminalMode || '',
+      reasoningChars: result.trace?.reasoningChars,
+      toolCalls: result.trace?.calls || [],
+      resumed: Boolean(result.trace?.resumed)
+    })
     return true
   } catch (error) {
     message.status = signal.aborted ? 'cancelled' : 'failed'
+    recordTurnTrace(message.status, {
+      taskId: state.agentTaskId || previousTask,
+      error: { message: String(error?.message || '').slice(0, 240) }
+    })
     // Partial failed output stays visible, never becomes adoptable.
     throw error
   } finally { runtime.agentMessageId = '' }

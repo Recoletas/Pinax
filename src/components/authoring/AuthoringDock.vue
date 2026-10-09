@@ -39,7 +39,7 @@
 
     <div v-if="dockTab === 'run' && !panelOpen" class="authoring-dock__section">
       <slot name="run">
-        <p class="authoring-dock__empty">{{ tr('运行步骤、工具调用与用量记录将在这里显示。') }}</p>
+        <AuthoringRunLog :project-id="projectId" />
       </slot>
     </div>
     <div v-if="dockTab === 'tools' && !panelOpen" class="authoring-dock__section">
@@ -74,10 +74,14 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { clampDockWidth, loadDockPreferences, saveDockPreferences } from '../../composables/useAuthoringDockPreferences.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+
+// 预算：Authoring.vue imports 顶格 125，「执行」段渲染沉进 dock run 槽默认值；
+// 异步导入保持 run tab 首点才加载组件（dock 自身不在 structure-budget 限额表内）。
+const AuthoringRunLog = defineAsyncComponent(() => import('./AuthoringRunLog.vue'))
 
 const props = defineProps({
   activeTool: { type: String, required: true },

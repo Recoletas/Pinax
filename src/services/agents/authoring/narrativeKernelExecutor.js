@@ -5,6 +5,7 @@ import { writingLanguageInstruction } from '../../../../shared/writingLanguage.j
 // buildNarrativeKernel（消费共享现场投影）→ 资料索引 + 工具注册表
 // → runNarrativeAgentGeneration（orchestrator：BeatPlan 规划隔离、资料工具、正文 transcript）。
 import { buildNarrativeKernel } from '../narrativeKernel.js'
+import { recordPromptSnapshot } from '../promptSnapshot.js'
 import {
   runNarrativeAgentGeneration,
   narrativeTranscriptStaticOverheadChars,
@@ -250,6 +251,22 @@ export function createNarrativeKernelExecutor({
       allowedToolNames: manifestMode ? kernel.activeToolNames : null
     })
 
+    // W7 提示词透明化：构建时快照，键优先取冻结 manifest 指纹（草稿卡已持有
+    // sessionFingerprint，无需额外穿透）；无 manifest 的旧路径回退 requestId。
+    const requestId = `authoring:${Date.now().toString(36)}`
+    recordPromptSnapshot({
+      key: String(contextManifest?.fingerprint || fingerprint || requestId),
+      surface: 'authoring',
+      projectId,
+      sessionId: '',
+      revision: kernel.revision,
+      intentMode: String(intentMode || ''),
+      blocks: kernel.blocks,
+      budget: kernel.budget,
+      toolNames: kernel.activeToolNames,
+      activatedLore: kernel.activatedLore
+    })
+
     let run
     try {
       run = await runGeneration({
@@ -261,7 +278,7 @@ export function createNarrativeKernelExecutor({
         formatInstructions: languageFormatInstructions,
         worldId: projectId,
         settings,
-        requestId: `authoring:${Date.now().toString(36)}`,
+        requestId,
         signal,
         taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
       })

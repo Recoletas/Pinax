@@ -34,6 +34,7 @@ import {
   sourceRefForAuthoringEvidenceLocator
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { useAuthoringKnowledgeAssistant, recordKnowledgeSeamFocus } from '../composables/useAuthoringKnowledgeAssistant.js'
+import { getAgentRequestTraces } from '../services/agents/agentRequestTrace.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
 import { applyAuthoringSearchEditorTransaction } from '../composables/useAuthoringSearchWorkflow.js'
 import { useAuthoringBlockWorkflow } from '../composables/useAuthoringBlockWorkflow.js'
@@ -611,7 +612,7 @@ describe('authoring project adapter', () => {
       const refs = ((input?.envelope?.blocks) || []).flatMap((block) => block.sourceRefs || [])
       // 优先引用世界书来源，让焦点消费探针能覆盖可映射路径。
       const cited = (refs.filter((ref) => ref.startsWith('worldbook-entry:')).concat(refs)).slice(0, 2)
-      return { result: { knowledgeAnswer: { answer: '收到。', claims: cited.map((ref) => ({ text: '引用 ' + ref, confidence: 'supported', evidenceRefs: [ref] })), missingInformation: [], calculations: [] } } }
+      return { requestId: 'focus-probe-1', result: { knowledgeAnswer: { answer: '收到。', claims: cited.map((ref) => ({ text: '引用 ' + ref, confidence: 'supported', evidenceRefs: [ref] })), missingInformation: [], calculations: [] } } }
     })
     const focusProbeAssistant = useAuthoringKnowledgeAssistant({
       projectId: 'book-query',
@@ -628,6 +629,8 @@ describe('authoring project adapter', () => {
     expect(probeTrace.staleFocusIgnored).toBeGreaterThanOrEqual(1)
     // 焦点单次消费：一次接缝提问后，后续无新点击的提问回到旧路径。
     const edgarAnswer = focusProbeAssistant.messages.value.find((m) => m.role === 'assistant')
+    // 提示词快照键从 provider 结果透传到消息：🔍 入口只对带键的 advisor 回答出现。
+    expect(edgarAnswer.promptSnapshotKey).toBe('focus-probe-1')
     const mappableRef = edgarAnswer.answer.evidence.map((item) => item.sourceRef)
       .find((ref) => ref.startsWith('worldbook-entry:'))
     expect(mappableRef).toBeTruthy()
@@ -710,6 +713,10 @@ describe('authoring project adapter', () => {
     expect(await agentAssistant.ask({ intent: 'agent', question: '写一个开场' })).toBe(true)
     expect(agentCalls[0].prepared.bookId).toBe('agent-book-a')
     expect(agentAssistant.messages.value.at(-1)).toMatchObject({ kind: 'agent', status: 'completed', projectId: 'agent-book-a' })
+    // 「执行」tab 数据面：成功回合在 localStorage 留一条 agent 摘要（按作品过滤）。
+    const agentTracesAfterRun = getAgentRequestTraces().filter((trace) => trace.kind === 'agent')
+    expect(agentTracesAfterRun).toHaveLength(1)
+    expect(agentTracesAfterRun[0]).toMatchObject({ projectId: 'agent-book-a', taskId: 'task-a', status: 'completed', toolCalls: [] })
     expect(await agentAssistant.ask({ intent: 'agent', question: '接着推进' })).toBe(true)
     expect(agentEngine.resume).toHaveBeenCalledTimes(1)
     const candidateId = agentAssistant.messages.value.at(-1).id
@@ -727,6 +734,15 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.selectSession(existingSession)).toBe(true)
     expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
     expect(agentAssistant.agentState.value.taskId).toBe('task-a')
+
+    // 失败回合也留痕（终态摘要），且 trace 永不落正文。
+    agentEngine.resume.mockRejectedValueOnce(new Error('模型链路中断'))
+    expect(await agentAssistant.ask({ intent: 'agent', question: '再试一次' })).toBe(false)
+    const agentTracesAfterFailure = getAgentRequestTraces().filter((trace) => trace.kind === 'agent')
+    expect(agentTracesAfterFailure[0]).toMatchObject({ projectId: 'agent-book-a', taskId: 'task-a', status: 'failed', error: { message: '模型链路中断' } })
+    const serializedAgentTraces = JSON.stringify(agentTracesAfterFailure)
+    expect(serializedAgentTraces).not.toContain('完整候选')
+    expect(serializedAgentTraces).not.toContain('续接候选')
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复

@@ -11,6 +11,7 @@ import {
   listScopedActiveMemoryCandidates
 } from '../memory/memoryCandidates'
 import { buildNarrativeKernel } from '../agents/narrativeKernel'
+import { recordPromptSnapshot } from '../agents/promptSnapshot'
 import { buildNarrativeContinuityFrame } from '../agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../agents/narrativeResourceIndex'
 import { buildNarrativeContextAudit } from '../agents/narrativeContextAudit'
@@ -282,6 +283,24 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         // 2026-10-09 预算完全废弃：不再按 intent/展开度写死 maxTokens（思考型端点计量不同），
         // 正文长度交给内核缺省与写作提示词本身。展开度仍作为设置透传给叙事链。
         const expansionLevel = store.resolveNarrativeExpansion()
+        // W7 提示词透明化：构建时快照（会话内存 LRU，键=消息 id），面板按消息读取；
+        // 快照先于生成记录，失败的回合同样可查看本轮实际送出的内核。
+        recordPromptSnapshot({
+          key: placeholderId,
+          surface: 'experience',
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId,
+          revision: narrativeKernel.revision,
+          intentMode: effectiveIntent,
+          blocks: narrativeKernel.blocks,
+          budget: narrativeKernel.budget,
+          toolNames: narrativeKernel.activeToolNames,
+          activatedLore: narrativeKernel.activatedLore
+        })
+        {
+          const snapshotMessage = getPlaceholder()
+          if (snapshotMessage) snapshotMessage.promptSnapshotKey = placeholderId
+        }
         const agentRun = await runExperienceAgentGeneration({
           index: narrativeIndex, bookId: `experience:${narrativeSessionId}`,
           kernel: narrativeKernel,

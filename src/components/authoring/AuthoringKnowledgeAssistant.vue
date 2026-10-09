@@ -56,6 +56,7 @@
             <span :class="message.answer.answerKind === 'free-advice' ? 'is-free' : 'is-grounded'">
               <WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}
             </span>
+            <button v-if="message.promptSnapshotKey" type="button" class="authoring-knowledge__prompt" :aria-label="tr('查看本轮提示词')" :title="tr('查看本轮提示词')" @click="openPromptPreview(message.promptSnapshotKey)"><WorkbenchIcon name="search" :size="14" /></button>
             <time>{{ formatTime(message.answer.createdAt) }}</time>
           </div>
           <p v-if="message.answer.stale" class="authoring-knowledge__stale" role="status">
@@ -146,6 +147,8 @@
     </div>
     </div>
     </template>
+
+    <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="promptPreviewKey" />
   </section>
 </template>
 
@@ -159,6 +162,8 @@ const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalRe
 
 import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
+import { promptPreviewKey, openPromptPreview } from '../../composables/usePromptPreview.js'
 
 const props = defineProps({
   assistant: { type: Object, default: null },
@@ -456,6 +461,8 @@ const visibleMessages = computed(() => {
     .filter(Boolean)
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
+const promptPreviewOpen = computed(() => Boolean(promptPreviewKey.value)
+  && props.messages.some((message) => message.promptSnapshotKey === promptPreviewKey.value))
 
 function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议' })[name] || name) }
 function formatTime(value) {
@@ -631,6 +638,9 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__answer-meta > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-primary); font-weight: 500; }
 .authoring-knowledge__answer-meta .is-grounded { color: var(--text-primary); }
 .authoring-knowledge__answer-meta time { color: var(--text-muted); font-size: 12px; }
+.authoring-knowledge__prompt { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.authoring-knowledge__prompt:hover { background: var(--nav-hover); color: var(--text-primary); }
+.authoring-knowledge__prompt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .authoring-knowledge__answer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--assistant-answer-size, 15px)/1.85 var(--font-interface, var(--font-sans)); }
 .authoring-knowledge__stale { margin: 0 0 10px; padding: 8px 10px; border-inline-start: 2px solid var(--signal-warm); background: color-mix(in srgb, var(--signal-warm) 8%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 .authoring-knowledge__missing { margin: 12px 0 0; padding: 9px 10px 9px 28px; background: var(--archive-paper); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }

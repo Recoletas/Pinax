@@ -3502,3 +3502,64 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 **门禁（本轮实跑）**：串行 vitest（`--no-file-parallelism`，本机内存口径）**20/20 文件、200/200 用例顶格不破**（[test-budget] ok）；`lint:delta` 0 新增 error（5 条 warning 不计门禁）；`vite build` ✓ 30.28s；Authoring chunk **1,397,721 B ≤ 1,450,000**；`architecture:check`（Authoring.vue 10595 行/125 imports、services 根 16/20、生产循环 0/0）；`bridge-sync` 2/2；`catalog-sync` 21/21（canonical=49 tools=20 交集=20 只在工具侧=0）；`git diff --check`；vitepress build 6.66s——全链 exit 0。**并行口径两连红如实记账**：默认并行 vitest 两次分别红 3 条/1 条 5s 超时（`uiControlContract` / `authoringWorldbookBinding` / `authoringTurnComposer`，均非本批文件；单跑 677ms 即过），同一棵树另有一次并行全链 exit 0（含 bridge/catalog/vitepress 尾段）——属本机内存受限的存量环境 flake（设置面板批与 kit 工单批已两度存记），串行复跑全绿为定案记录。
 
 **push + PR**：本批以单一 commit 推送 fork `skkbsgzf/Pinax-StoryHarness` main（命令级 SSH 一次性密钥，未改 remote/config、未动任何凭据文件）；gh CLI 未安装，PR 以预填 compare URL 交付用户提交（`Recoletas/Pinax:main ... skkbsgzf:Pinax-StoryHarness:main`），PR 备注四主题全文随消息交付。
+
+---
+
+## 2026-10-09 前端可见性增强 Phase 1：提示词透明化（PromptPreviewPanel + 内核构建时快照 + 双侧 🔍 入口）
+
+**来源与批准范围**：用户送达设计文档《Pinax 前端可见性增强：提示词透明化、重跑与 Agent 日志》（存档 `%LOCALAPPDATA%\pinax-probe\next-doc-cand15092.md`），含三大需求（① PromptPreviewPanel 提示词透明化；② RegenerateDialog 重跑参数化；③ AgentLogViewer 统一日志）与 Phase 1–4 排期。用户批准「按 Phase 1→2→3、砍最大长度、不做 Top-p、Chat trace 并入」范围，四处口径修正获准：**最大长度控件砍掉**（与「预算完全废弃」裁定冲突，内核持有缺省）、**Top-p 不做**（kitModelGateway 无通路）、**温度按阶段覆盖**（review 保持 0，plan/write 可调，Phase 2 落实）、**意图模式最扎实**（continue/advance/character/scene/trigger → orchestrator 映射，Phase 2 落实）。
+
+**Phase 1 交付（3 新增共 476 行 + 5 修改）**：
+- `src/services/agents/promptSnapshot.js`（79 行）：会话内存 LRU 20 的提示词快照；体验链键=placeholderId、创作链键=冻结 manifest 指纹（contextManifest.fingerprint，草稿卡已持有 sessionFingerprint 无需额外穿透，无 manifest 旧路径回退 requestId）；快照在构建时先于生成记录——失败的回合同样可查看本轮实际送出的内核；刷新即失效（面板回退文案）。
+- `src/composables/usePromptPreview.js`（24 行）：单开抽屉 `promptPreviewKey` ref；`openPromptPreview` 记录 `document.activeElement` 为 lastTrigger，`closePromptPreview` 恢复焦点。
+- `src/components/agent/PromptPreviewPanel.vue`（377 行）：25 项块标签（内核 13+1 含场景摘要 + 信封词表 12）、预算条（`{used} / {max} 字符`、已截断块列表、可用工具列表、`世界书激活 {count} 条`）、修订号与意图、Esc 关闭、`onMounted` 聚焦关闭钮、role=dialog + aria；≤640px 全宽 + 44px 触控关闭钮 + prefers-reduced-motion 块；全部文案走 `tr()`。
+- 接线（5 修改）：`experienceTurnCoordinator.js`（构建时快照 + placeholder 消息携 `promptSnapshotKey`）、`narrativeKernelExecutor.js`（快照键=contextManifest.fingerprint 优先，回退 requestId 且与 runGeneration 的 requestId 同值）、`NarrativeTurn.vue`（assistant 消息 🔍，仅 `message.promptSnapshotKey` 存在时渲染）、`AuthoringBlockDraft.vue`（草稿卡头 🔍，键=sessionFingerprint）、`en.json` +26 键（1420 总）。
+
+**实拍（真浏览器，5173=vite preview 现网 dist；模型响应以 canned-SSE 注入、前端链路与内核构建真实执行）**：
+- 体验页 zh：回合经真实 coordinator/orchestrator/plan tool 执行并 commit（metrics runId 匹配、outcome success）→ 🔍 出现 → 面板内容全对（跑团 / 1553·32500 字符 / 6 块 / 工具顿号分隔 / `修订号 nar-1b6kutg` / `意图 open`）→ × 关、Esc 关、焦点回 🔍。
+- 体验页 en：全标签翻译（", " 分隔）；发现并修复一处 section aria 硬编码（`aria-label="本轮提示词"` → `:aria-label="tr('本轮提示词')"`），重建 dist 后实测 "Turn prompt"。
+- 创作页：新建测试书 → Tiptap 喂字 → 推演三步（条件/行动→试演→写成试稿）→ 草稿卡 `[data-test="block-draft"]` 🔍 → 面板（创作·805·32500 字符 / 3 块含来源计数 / `修订号 nar-ao3gzq` / `意图 advance`）→ 关闭、草稿丢弃、现场清理。
+- 移动宽度：本环境无 viewport 不可真测，以 CSSOM 佐证（@media 640 全宽 / 44px 触控关闭钮 / prefers-reduced-motion）——如实分层声明，不冒充实拍。
+
+**门禁（本轮实跑全绿）**：串行 vitest（`--no-file-parallelism`，本机内存口径）**20/20 文件、200/200 用例顶格不破**（[test-budget] ok，51.83s）；`lint:delta` 0 新增 error（5 条存量 warning 不计门禁）；`vite build` ✓（aria 修复后重建；`architecture:build-size` 复测 Authoring chunk **1,398,072 B ≤ 1,450,000**）；`architecture:check` exit 0；bridge-sync 2/2；catalog-sync 21/21；`git diff --check`；vitepress build 6.23s——全链 exit 0。
+
+**待裁定 / 登记（均未修，超本批范围）**：
+1. **模型侧发现**：跑团回合当前全线失败——dots3-note-prev 在 plan step 耗时 35–64s、强制 toolChoice 下 63.6s 跑飞（finishReason=length、4096 打满、无 tool call）；后端未修改原样复现，与本批改动无关，处置待用户裁定。
+2. **latent 候选缺陷**：`narrativeAgentOrchestrator.js:1443` 有界补全调用点传 4 实参（response, currentTurnInput, minTargetChars, endCondition）而定义（`:789`）只收 3（response, turnInput, endCondition）→ `minTargetChars` 落进 endCondition 位、真 endCondition 被丢弃，该调用点 `reachedEndCondition` 实质失效。
+3. **环境伪影疑点**：创作 reveal 后控制台出现 `getComputedStyle` 参数非 Element 报错（疑无 viewport 环境下 revealDraft 滚动定位伪影，未深究）。
+4. **透明说明**：受控浏览器固有单页——先前 SSH 密钥流程遗留的 GitHub 登录页被本轮测试导航替换为工作台页（那是应用内浏览器自身，不影响用户真实设备会话）。
+
+**测试 fixture**：`%LOCALAPPDATA%\pinax-probe\authoring-e2e\可见性测试稿`（bookId 1791535653518，5173 origin）；用户真实文档库与其项目索引未受影响。**Phase 2（重跑参数化）后置（跑团绑定）；Phase 3（Agent 日志）随本批完成；两阶段合并为一笔提交入本地 main（未推送）。**
+
+---
+
+## 2026-10-09 前端可见性增强 Phase 3：执行 tab 运行日志（advisor + agent trace）+ 助手 🔍（承 Phase 1）
+
+**来源与口径**：承上一条 Phase 1。用户指令「先不管跑团，我主要针对助手连续聊天，没啥问题可以继续往下做」——Phase 2（重跑参数化，整段绑定跑团）后置；本批做 Phase 3 助手侧：右 dock「执行」tab 统一运行日志（advisor 问答 + 写作 Agent 两条链归一化 trace，即「Chat trace 并入」落点）+ 助手回答旁 🔍 提示词查看入口。
+
+**交付（3 新增 + 4 修改）**：
+- `src/services/agents/agentRequestTrace.js`（新 57 行）：localStorage `pinax_agent_request_trace_v1`（上限 50，requestId 去重前置）；`summarizeAgentEnvelope` 只存块级摘要（order/kind/priority/chars=serializeAgentBlockContent 长度/sourceRefs/truncated/retainedChars）——trace 永不落块内容与正文。
+- `src/services/advisorTaskService.js`：每次 requestAdvisorTask 生成 requestId；completed/failed/cancelled 三态落痕（含 error.code/retryable）；`recordPromptSnapshot` 同帧记录；requestId 经 normalizeAdvisorResult 透传到结果（🔍 快照键来源）。
+- `src/services/agents/storyagent/authoringAgentTurn.js`：写作 Agent 回合终态摘要（taskId/model/usage/toolRounds/totalCalls/terminalMode/reasoningChars/toolCalls≤24/resumed），healthz 失败、成功、catch 三处留痕，失败 message ≤240 字符；不落正文。
+- `src/components/authoring/AuthoringRunLog.vue`（新 162 行）：右 dock「执行」tab 面板——按 projectId 过滤、`details` 展开详情（advisor：任务类型/上下文用量/块分布/截断徽标/来源计数；agent：任务号/模型/用量/工具轮与调用清单/思考字数/终端模式）、刷新钮、空态文案；720px 下刷新钮 44px、prefers-reduced-motion。
+- 修改：`AuthoringKnowledgeAssistant.vue`（回答元信息行 🔍，v-if=promptSnapshotKey，开 PromptPreviewPanel）、`useAuthoringKnowledgeAssistant.js`（ask 成功把 result.requestId 作为 message.promptSnapshotKey）、`AuthoringDock.vue` 与 `Authoring.vue`（挂钩方式，见下）、`authoringAssistantConversationStore.js`（见下）。
+
+**本轮三处修正（均为实测驱动）**：
+1. **RunLog 挂钩迁移**（`Authoring.vue` 126>125 imports 实测超限，architecture:check exit 1）：不抬判据、不豁免——把 `AuthoringRunLog` 的 import 与渲染从 `Authoring.vue` 沉进 `AuthoringDock.vue` 的 run 槽默认值（dock 不在 structure-budget 限额表内，run tab 首点才异步加载），Authoring.vue 回到 125 imports / 10,595 行。dock 仅 Authoring.vue 一个消费方，槽可覆写语义不变。
+2. **快照键持久化**：`authoringAssistantConversationStore.storedMessages` 白名单补 `promptSnapshotKey`——原先 reload 后回答恢复但 🔍 整颗消失，而 PromptPreviewPanel 失效文案明写「仅保留最近 20 轮于当前会话内存，刷新页面后清空」；不持久化键则该文案在真实用户路径不可达，入口语义自相矛盾。补上后 reload 保留入口、如实显示失效说明（E2E 两态均断言）。
+3. **面板块标签补信封词表**（提交前截图复核发现）：`PromptPreviewPanel.vue` 的 BLOCK_LABELS 只覆盖内核 13+1 块类型，advisor 信封的 `references`/`selection`/`worldbook` 等因缺键回落显示原始英文 kind（运行日志无此问题）；补 12 键与 `AuthoringRunLog` 同词表（en.json 标签键全部已存在，无需增键），面板块标签不再有原始 kind 回落——E2E 增 1 断言「面板块标签全部本地化」并重出 6 张截图（本轮 Gate 由 24 项增至 25 项）。
+
+**实拍 Gate（新脚本 `scripts/authoring-ui/visibility-runlog-check.mjs`，25/25 全过）**：先跑 5174 dev（活源码，含上述三处修正）、再对 5173 vite preview 现网 dist 复跑，两轮均 25/25（磁盘截图为该轮产物）；模型响应以 canned `/api/advisor/task` 注入、前端链路与内核构建真实执行——5173/5174 origin 无可用凭据且读 apiKey 被禁止，与 Phase 1 canned 先例一致；advisorTaskService 的 requestId → trace → 快照全链真实执行。旅程与断言：
+- 查阅资料提问 → 回答与 🔍 出现（aria-label「查看本轮提示词」）→ trace 落档（kind=advisor/projectId=fixture book/status=completed，16 块摘要全为字符数、无 content 键、全文不含正文词「艾德加」）。
+- 🔍 → 面板预算行（2,916 / 28,000 字符）+ 块数与 trace 一致（16=16）+ 首块展开可见规则文案（「你是项目资料助手…」）+ 脚注「意图 whole-book」→ Esc 关闭且焦点回 🔍。
+- 「执行」tab：1 条本作品记录（data-kind=advisor/data-status=completed），详情含任务类型、上下文用量与逐块字符分布，块数与 trace 一致；空态文案让位。
+- 按作品过滤：localStorage 播种异作品 trace → 刷新列表后仍只见 1 条本作品（异作品不进列表）。
+- reload：运行记录仍在（持久化）；回答恢复且 🔍 保留；点开显示快照失效文案（.prompt-preview__missing）。
+- 1440/390 双视口零横向溢出、零控制台错误；390 触控刷新钮实测 44px。
+- 截图 6 张落 `docs/screenshots/visibility-runlog-20261009/`（01 回答+🔍 / 02 快照面板 / 03 执行 tab 详情 / 04 reload 后运行记录 / 05 reload 后失效文案 / 06 390 空态）。
+
+**测试增强（守 20/200 顶格：只加断言不加用例）**：`agentContracts.test.js`——summarizeAgentEnvelope 契约（projectId/块序/字符数=serializeAgentBlockContent 长度/无 content 键）；`authoringAgentWorkflows.test.js`——快照键从 provider 结果透传到消息、成功回合 agent trace 摘要字段、失败回合留痕（status=failed/error.message）且序列化 trace 不含正文候选词。
+
+**门禁（本轮实跑全绿）**：串行 vitest（`--no-file-parallelism`，本机内存口径）20/20 文件、200/200 用例顶格不破（[test-budget] ok）；`lint:delta` 0 新增 error（5 条存量 warning 不计门禁）；`vite build` ✓；`architecture:build-size` Authoring chunk 1,399,148 B ≤ 1,450,000；`architecture:check` exit 0（Authoring.vue 10,595 行 /125 imports）；bridge-sync 2/2；catalog-sync 21/21；`git diff --check`；vitepress build 7.68s——全链 exit 0。
+
+**后置/登记**：Phase 2（RegenerateDialog 重跑参数化：温度按阶段覆盖、意图模式→orchestrator 映射）整段绑定跑团，用户明示先不管跑团，后置；Phase 1 条目登记的四项待裁定（dots3 跑团失败、orchestrator latent 缺陷等）状态不变。**与 Phase 1 合并为一笔提交入本地 main（未推送；Phase 2 后置）。**

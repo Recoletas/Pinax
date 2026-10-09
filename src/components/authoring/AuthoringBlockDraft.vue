@@ -5,7 +5,17 @@
         <strong>{{ operation === 'rewrite-unit' ? '重写草稿' : '推演草稿' }}</strong>
         <span v-if="busy || locked">{{ busy ? actionBusyLabel : '正文已写入，正在等待保存' }}</span>
       </div>
-      <span class="authoring-block-draft__state">{{ stateLabel }}</span>
+      <span class="authoring-block-draft__head-end">
+        <button
+          v-if="sessionFingerprint"
+          type="button"
+          class="authoring-block-draft__prompt"
+          title="查看本轮提示词"
+          aria-label="查看本轮提示词"
+          @click="openPromptPreview(sessionFingerprint)"
+        ><WorkbenchIcon name="search" :size="13" /></button>
+        <span class="authoring-block-draft__state">{{ stateLabel }}</span>
+      </span>
     </header>
 
     <p v-if="selectedDirection" class="authoring-block-draft__direction">
@@ -84,12 +94,16 @@
         >{{ locked ? '再次保存' : operation === 'rewrite-unit' ? '替换当前块' : '采用编辑稿' }}</button>
       </div>
     </footer>
+    <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="sessionFingerprint" />
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createSceneBeatDraft } from '../../services/agents/authoring/unitSemanticProjection.js'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
+import { promptPreviewKey, openPromptPreview } from '../../composables/usePromptPreview.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -109,6 +123,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore', 'save-as-exploration', 'switch-if', 'retry-if'])
 const draftInput = ref(null)
+// W7 提示词透明化：快照键 = 冻结会话的 manifest 指纹（内核执行器同键记录）。
+const promptPreviewOpen = computed(() => Boolean(props.sessionFingerprint)
+  && promptPreviewKey.value === props.sessionFingerprint)
 const boundaryCorrections = ref([])
 const stableBoundaryHints = ref([])
 const selectedBoundaryKey = ref('')
@@ -294,6 +311,19 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 
 .authoring-block-draft__state {
   flex: 0 0 auto;
+}
+
+.authoring-block-draft__head-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.authoring-block-draft__prompt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
 }
 
 .authoring-block-draft__direction {
@@ -537,6 +567,7 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
   .authoring-block-draft__boundary-action { flex-wrap: wrap; gap: 6px 16px; }
   .authoring-block-draft__boundary-action > span { flex-basis: 100%; }
   .authoring-block-draft__boundary-action button { min-height: 44px; }
+  .authoring-block-draft__prompt { min-height: 44px; min-width: 44px; }
   .authoring-block-draft__direction { display: grid; gap: 1px; }
   .authoring-block-draft__unit-plan { grid-template-columns: 1fr; gap: 4px; }
   .authoring-block-draft__unit-plan > header { display: flex; justify-content: space-between; gap: 12px; }

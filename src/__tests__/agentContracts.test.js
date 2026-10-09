@@ -37,6 +37,7 @@ import {
   buildAdvisorProviderOptions,
   buildAdvisorRequestPayload
 } from '../services/advisorTaskService'
+import { summarizeAgentEnvelope } from '../services/agents/agentRequestTrace'
 import {
   getServerTaskTypes,
   validateServerTaskType
@@ -47,6 +48,7 @@ import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
   createAgentContextLedger,
+  serializeAgentBlockContent,
   validateAgentContextEnvelope
 } from '../../shared/agentContextContract'
 import {
@@ -3521,6 +3523,19 @@ describe('agentContracts', function () {
       }
     })
     expect(reviewProviderAdapted.envelope.projectId).toBe('review-provider-book')
+    // 「执行」tab 查看器的摘要契约：trace 只存块级摘要（kind/字符数/来源），
+    // 不落块内容；按作品过滤依赖 summary.projectId。
+    var reviewProviderSummary = summarizeAgentEnvelope(reviewProviderAdapted.envelope)
+    expect(reviewProviderSummary.projectId).toBe('review-provider-book')
+    expect(reviewProviderSummary.blocks.map(function (block) { return block.kind })).toEqual(
+      reviewProviderAdapted.envelope.blocks.map(function (block) { return block.kind })
+    )
+    expect(reviewProviderSummary.blocks.every(function (block, index) {
+      return block.chars === serializeAgentBlockContent(reviewProviderAdapted.envelope.blocks[index].content).length
+    })).toBe(true)
+    expect(reviewProviderSummary.blocks.every(function (block) {
+      return typeof block.chars === 'number' && !('content' in block)
+    })).toBe(true)
     var serializedReviewTargetBlock = reviewProviderAdapted.envelope.blocks.find(function (block) {
       return String(block.content).includes('【章节审查目标块】')
     })

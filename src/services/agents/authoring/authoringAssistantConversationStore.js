@@ -44,7 +44,10 @@ function storedMessages(messages, projectId) {
     }
     if (message.role !== 'assistant' || !message.answer
       || String(message.answer.projectId || '') !== projectId) return []
-    return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId) }]
+    // 快照本体是会话内存 LRU，刷新即失效；键要跟着消息活下来，🔍 才能在刷新后
+    // 显示「快照已失效」说明而不是整颗消失。
+    return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId),
+      promptSnapshotKey: String(message.promptSnapshotKey || '') }]
   })
 }
 
