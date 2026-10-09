@@ -3563,3 +3563,17 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 **门禁（本轮实跑全绿）**：串行 vitest（`--no-file-parallelism`，本机内存口径）20/20 文件、200/200 用例顶格不破（[test-budget] ok）；`lint:delta` 0 新增 error（5 条存量 warning 不计门禁）；`vite build` ✓；`architecture:build-size` Authoring chunk 1,399,148 B ≤ 1,450,000；`architecture:check` exit 0（Authoring.vue 10,595 行 /125 imports）；bridge-sync 2/2；catalog-sync 21/21；`git diff --check`；vitepress build 7.68s——全链 exit 0。
 
 **后置/登记**：Phase 2（RegenerateDialog 重跑参数化：温度按阶段覆盖、意图模式→orchestrator 映射）整段绑定跑团，用户明示先不管跑团，后置；Phase 1 条目登记的四项待裁定（dots3 跑团失败、orchestrator latent 缺陷等）状态不变。**与 Phase 1 合并为一笔提交入本地 main（未推送；Phase 2 后置）。**
+
+## 2026-10-10 RAG 前端化 + 格式阅读 W1 双波：kit 检索接线 + 文档阅读器 v1
+
+排期账 `docs/plan/rag-frontend-format-readers-20261009.md`（v2+§6 方向账）W1 两波并行完工；双 general-purpose worker 施工（写集不相交）、编排者集成验证。用户指令原文与 kit 口径纠偏见排期文档头部。
+
+**W1-A 知识检索接线（kit canonical，Pinax 零重算）**：`shared/kitProtocolPlane.js`（8431 常量单源，`PINAX_KIT_PROTOCOL_PORT` 可覆写供打桩）；`server/routes/knowledge.js` 同源代理三端点（worldbook-search/kb-search/kb-read，照 storyagent.js 形制：loopback 守卫+DI），**location 由 server 从项目注册表推导**（`listProjects()` rootPath，请求体伪造 location 一律忽略），显式失败 `503 KIT_PROTOCOL_PLANE_UNAVAILABLE` 含启动指引、409 已挂载剥 location 重发续用、8s 超时；`knowledgeSearchClient.js`（bookId→projectId 注册表真源+5s TTL）；`BrowserSearchBar.vue`+`UnifiedEntryBrowser.vue` 渲染 kit 形状（hits score/relations + 独立「一跳扩展」分区 via/weight/from，快照外 id 显式「无法打开详情」）；**本地打分轨移除**（`entryBrowserModel.js` searchScore/bigrams 删除，§5-7 单源裁定；`worldbook-browser-smoke.mjs` 就地修断言 +4 sections/109 assertions +「q 不再本地过滤」防漂移钉）。kb_read 形参映射 `maxChars→max_chars`（kit snake_case）。
+
+**W1-B 文档阅读器 v1（只读零写入）**：`src/services/documents/`（scriptFormat 行级轻识别纯函数/outlineView 容错规整/documentReader 双只读数据轨）+ `src/components/documents/`（DocumentReader 双栏/ScriptDocumentView/OutlineStructureView/DocumentFileList）+ `DocumentsPage.vue`；路由 `settings/documents`（?bookId= 预选），入口 LibrarySidebar 创作工具组「文档」（SettingsSectionNav 4-tab 有 vitest 数量合同不可动）。剧本按 kit 格式轻样式（场景头/△/对白缩进/卡点高亮/旁白弱化/集与分镜标题，全部插值渲染无 v-html）；fixtures 逐字取自 kit `script-forge.md:30-46`/`scene-breakdown.md:18-24`。**偏离记录**：server 无任意 md 只读端点（browseDirectories 只列目录），故本地轨=File System Access/webkitdirectory 直读（先例 AuthoringManuscriptImport），服务器轨=/projects+/book+/rules。
+
+**前置件（编排者）**：kit 8421/8431 手工拉起（`STORYHARNESS_WORKSPACE=D:\storyflow-kit npx tsx src/cli.ts web`）；活体三探全绿——hub/openapi/`kernel-verb worldbook_search` 经 location junction（夹具豹子头 1 命中 score14+2 扩展）+kb_search。集成期复测：Pinax 文件双写把 localStorage 世界书真实编译为 `世界书/graph.json`（链接边 weight2+mention 边），kit 检索打在该图上——**Pinax 世界书 ↔ kit 检索全链为真实数据闭环**。
+
+**验证**：`smoke:doc-reader` 47/47；`smoke:worldbook-knowledge-search` 6 段 24 断言（桩模式独立于 8431；location 推导/伪造忽略/409 重发/显式失败/只读纪律）；`probe:kit-protocol` 46 paths 含三只读动词；浏览器集成探针 `%LOCALAPPDATA%\pinax-probe\w1-integration-shots.mjs`（dev server+隔离注册表 3941）：检索扩展区渲染+命中卡、剧本视图行级特征、大纲 6 节点、1440/390 零横向溢出、零控制台错误；截图 5 张落 `docs/screenshots/w1-doc-reader-knowledge-20261010/`。**门禁**：`verify:full` 全链 exit 0（串行 vitest 20/20 文件 200/200 顶格、lint:delta 0 新增、build、Authoring chunk 1,399,148 ≤ 1,450,000、architecture:check、bridge-sync、catalog-sync、git diff --check、vitepress）。**坑账**：vite preview 不继承 dev 代理场景下 API 需 Playwright 层转发或改用 dev server（`PINAX_DEV_BACKEND_ORIGIN` 可钉隔离后端）；生产构建剥 `__vueParentComponent` 且 Chromium 拒绝对 webkitdirectory input 程序化赋 files——本地文件夹注入只能在 dev 构建直调 Vue handler；文件真源优先会压过 localStorage 播种（夹具须先清空让首载迁移重建）。
+
+**已推送 fork main（2026-10-10，SSH）**；W2 知识控制台与词表三类调研（`docs/plan/lexicon-style-quantification-survey-20261009.md`，6 条待裁）待用户逐波点头。
