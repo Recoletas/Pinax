@@ -1636,6 +1636,7 @@ import {
 } from '../services/writing/chapterOutline'
 import { requestAdvisorTask } from '../services/advisorTaskService'
 import { getResolvedApiSettings } from '../services/api'
+import { readLocalRuleFilesForBook, readLocalLexiconForBook } from '../services/localMirrorSettings'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor'
@@ -4841,8 +4842,16 @@ function getAuthoringNarrativeRun() {
       executeSession: async ({ session, ...execution }) => {
         const settings = session === ifBaselineRun.value?.runSession && ifSettings.value
           ? ifSettings.value : await getResolvedApiSettings()
+        // W6·C/W1.5：本地约束 + 词汇表（pinax-lexicon@1）并行取数（fail-open），注入 kernel local-rules 块。
+        const bookId = String(selectedBookId.value || '')
+        const [localRules, lexicon] = await Promise.all([
+          readLocalRuleFilesForBook(bookId),
+          readLocalLexiconForBook(bookId)
+        ])
         return getNarrativeKernelExecutor().executeTurn({
           ...execution,
+          localRules,
+          lexicon,
           authoringRunSession: session,
           settings,
           resolveLiveContextDependencies: () => (

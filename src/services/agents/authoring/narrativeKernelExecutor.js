@@ -113,6 +113,8 @@ export function createNarrativeKernelExecutor({
     contextManifest = null,
     // W6·C：项目文件夹「约束/」下的作者本地约束文件（kernel local-rules 块输入）。
     localRules = null,
+    // W1.5：项目根「词汇表.json」（pinax-lexicon@1），编译后并入 local-rules 块。
+    lexicon = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const projectId = String(explicitProjectId || projection?.projectId || worldbook?.id || '')
@@ -226,7 +228,8 @@ export function createNarrativeKernelExecutor({
       } : null,
       sceneProjection: manifestMode ? null : (projection || null),
       contextManifest,
-      localRules
+      localRules,
+      lexicon
     })
     // U1：executor 的 receipt 读取这里的 serializedBlocks——必须与实际发送
     // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。

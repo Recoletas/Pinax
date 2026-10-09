@@ -85,6 +85,7 @@
     "build:agent-runtime": "node scripts/build-storyagent-runtime.mjs",
     "smoke:worldbook-knowledge-search": "node scripts/knowledge-proxy-smoke.mjs",
     "smoke:doc-reader": "node scripts/doc-reader-smoke.mjs",
+    "smoke:lexicon-contract": "node scripts/lexicon-contract-smoke.mjs",
     "probe:kit-protocol": "node scripts/kit-protocol-probe.mjs"
   },
   "dependencies": {

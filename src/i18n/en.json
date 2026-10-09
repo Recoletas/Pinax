@@ -1682,5 +1682,21 @@
   "并行": "Parallel",
   "大纲结构": "Outline structure",
   "这份 outline.json 没有可展示的节点。": "This outline.json has no nodes to show.",
-  "关联 {count} 章": "{count} chapters linked"
+  "关联 {count} 章": "{count} chapters linked",
+  "词汇表": "Lexicon",
+  "词汇表（词汇表.json）": "Lexicon (词汇表.json)",
+  "禁用词": "Banned words",
+  "偏好词": "Preferred words",
+  "专名口径": "Proper-name canon",
+  "词语": "Word",
+  "级别": "Level",
+  "备注": "Note",
+  "正名": "Canonical term",
+  "禁用别名": "Banned aliases",
+  "出处": "Reference",
+  "一级（零容忍）": "Level 1 (zero tolerance)",
+  "二级（单段 ≤3）": "Level 2 (≤3 per paragraph)",
+  "尚未播种：项目根目录还没有「词汇表.json」。新建或首次同步项目时会自动生成默认骨架。": "Not seeded yet: the project root has no 词汇表.json. A default skeleton is generated when a project is created or synced for the first time.",
+  "这份词汇表三段都是空。直接编辑项目根目录下的「词汇表.json」（禁用词 banned／偏好词 own／专名口径 canon），保存后即生效。": "All three sections of this lexicon are empty. Edit 词汇表.json in the project root directly (banned / own / canon); changes take effect on save.",
+  "文件即真相：本页只读，直接编辑项目根目录下的「词汇表.json」即可生效。": "The file is the source of truth: this page is read-only. Edit 词汇表.json in the project root directly; changes take effect on save."
 }

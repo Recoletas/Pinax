@@ -9,6 +9,8 @@
 //    故文件列举由 A 轨承担；/book 提供 outline.json 结构 + 正文/构思文本，/rules 提供约束）。
 // 本模块绝不发 POST/PUT/DELETE——阅读面零写入。
 // 仅浏览器使用（依赖 fetch / DOM API），node 冒烟不 import 本文件。
+// 词汇表检测/读回（W1.5）：parseLexiconJsonText 是纯函数可独立单测，fetch 走 /lexicon 只读端点。
+import { LEXICON_FORMAT, parseLexiconFile } from '../../../shared/lexiconFileContract.js'
 
 const WALK_LIMITS = Object.freeze({
   maxDepth: 8,
@@ -145,6 +147,35 @@ export async function fetchProjectRules(rootPath) {
   if (!rootPath) return null
   try {
     const body = await readJson(await fetch(`/api/localmirror/rules?path=${encodeURIComponent(rootPath)}`, { method: 'GET' }))
+    return body?.ok ? body : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 词汇表检测（W1.5，pinax-lexicon@1）：JSON 文本含 format 标记 → 走结构视图。
+ * 容错：损坏/缺字段经 parseLexiconFile 归为空段 + warning，绝不抛错。
+ * → { ok, lexicon: { format, project, banned, own, canon } | null, warning }
+ */
+export function parseLexiconJsonText(input) {
+  if (typeof input !== 'string' || !input.includes(LEXICON_FORMAT)) {
+    return { ok: false, lexicon: null, warning: '' }
+  }
+  const parsed = parseLexiconFile(input)
+  const { format, project, banned, own, canon } = parsed
+  return {
+    ok: true,
+    lexicon: { format, project, banned, own, canon },
+    warning: (parsed.warnings || []).join(' ')
+  }
+}
+
+/** 词汇表读回（GET /api/localmirror/lexicon?path=项目根）→ { ok, exists, lexicon, warnings }；失败返回 null。 */
+export async function fetchProjectLexicon(rootPath) {
+  if (!rootPath) return null
+  try {
+    const body = await readJson(await fetch(`/api/localmirror/lexicon?path=${encodeURIComponent(rootPath)}`, { method: 'GET' }))
     return body?.ok ? body : null
   } catch {
     return null

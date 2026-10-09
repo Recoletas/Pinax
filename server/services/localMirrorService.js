@@ -18,6 +18,8 @@ import {
   parseWorldbookGraphFile,
   buildWorldbookAuxFiles
 } from '../../shared/worldbookFileContract.js'
+// 词汇表文件契约（pinax-lexicon@1）——项目根「词汇表.json」三段式（禁用/偏好/专名口径）。
+import { LEXICON_FILE_NAME, buildLexiconFile, parseLexiconFile } from '../../shared/lexiconFileContract.js'
 
 export const MIRROR_SCHEMA = 'pinax-project-fs@2'
 export const PROJECT_SPEC = 'pinax-project@1'
@@ -62,6 +64,14 @@ function readRegistry(appData) {
     const parsed = JSON.parse(fs.readFileSync(path.join(appData, 'projects.registry.json'), 'utf-8'))
     return Array.isArray(parsed.projects) ? parsed.projects : []
   } catch { return [] }
+}
+
+/** 词汇表播种（pinax-lexicon@1，create-if-absent）：目录初始化时补默认三段式骨架，已存在绝不覆盖。 */
+function seedLexiconFile(root, projectName) {
+  const target = path.join(root, LEXICON_FILE_NAME)
+  if (fs.existsSync(target)) return false
+  writeFileAtomic(target, buildLexiconFile({ project: projectName || '' }))
+  return true
 }
 
 function writeRegistry(appData, projects) {
@@ -468,6 +478,7 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     const manifest = { schemaVersion: 1, spec: PROJECT_SPEC, projectId, name: sanitizeFilename(name), kind, createdAt: now(), updatedAt: now() }
     writeFileAtomic(path.join(root, '.pinax', 'project.json'), JSON.stringify(manifest, null, 2) + '\n')
     for (const dir of KIND_TEMPLATES[kind]) fs.mkdirSync(path.join(root, dir), { recursive: true })
+    seedLexiconFile(root, manifest.name)
     return { manifest, entry: upsertRegistry({ projectId, bookId, name: manifest.name, kind, rootPath: root, lastOpenedAt: now(), lastSyncAt: null }) }
   }
 
@@ -714,6 +725,10 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     if (error) throw Object.assign(new Error(error), { code: 'ERR_INVALID_INPUT' })
     const located = resolveBookDir(payload.book)
     const result = commitMirrorTransaction({ dir: located.dir, payload, render: dir => renderMirror(payload, located, dir) })
+    // 词汇表播种必须在事务提交之后落真实目录：renderMirror 写进 generated 临时壳，
+    // 换壳只搬运 emitted 托管清单——词表是用户手改文件，不入托管清单（否则手改被
+    // ERR_LOCAL_EDIT 拦截），只能在 rename 换壳后 create-if-absent。
+    seedLexiconFile(located.dir, payload.book?.title || '')
     return { ...result, worldbookFingerprint: mirrorDomainFingerprint(path.join(located.dir, '世界书')) }
   }
 
@@ -1060,5 +1075,35 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return readRuleFiles(entry.rootPath)
   }
 
-  return { resolveRoot, readSyncState, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles, readBookFromFolder, listArchivedSources, readRuleFiles, readRuleFilesForBook }
+  /** 词汇表读回（pinax-lexicon@1）：读 <root>/词汇表.json 经 parseLexiconFile（容错，不抛错）。
+   *  文件缺失 → { exists:false }（fail-open）。返回 { ok, exists, lexicon, warnings, dir }。 */
+  function readLexicon(absDir) {
+    const invalid = validateProjectPathInput(absDir)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const base = path.resolve(String(absDir))
+    recoverMirrorTransaction(path.basename(base) === "世界书" ? path.dirname(base) : base)
+    if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const file = path.join(base, LEXICON_FILE_NAME)
+    if (!fs.existsSync(file)) return { ok: true, exists: false, lexicon: null, warnings: [], dir: base }
+    let raw = ''
+    try {
+      raw = fs.readFileSync(file, 'utf-8')
+    } catch (error) {
+      return { ok: true, exists: true, lexicon: null, warnings: [`${LEXICON_FILE_NAME}: 读取失败（${error.message}）`], dir: base }
+    }
+    const parsed = parseLexiconFile(raw)
+    const { format, project, banned, own, canon } = parsed
+    return { ok: true, exists: true, lexicon: { format, project, banned, own, canon }, warnings: parsed.warnings, dir: base }
+  }
+
+  /** 书绑定词汇表读回：注册表 bookId → 项目根 → readLexicon。无绑定/未登记返回 { exists:false }（fail-open）。 */
+  function readLexiconForBook(bookId) {
+    const id = String(bookId || '').trim()
+    if (!id) return { ok: true, exists: false, lexicon: null, warnings: ['bookId 为空'], dir: null }
+    const entry = readRegistry(resolveAppDataDir()).find((item) => item.bookId === id && fs.existsSync(item.rootPath))
+    if (!entry) return { ok: true, exists: false, lexicon: null, warnings: [`未找到与 bookId=${id} 绑定的项目文件夹`], dir: null }
+    return readLexicon(entry.rootPath)
+  }
+
+  return { resolveRoot, readSyncState, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles, readBookFromFolder, listArchivedSources, readRuleFiles, readRuleFilesForBook, readLexicon, readLexiconForBook }
 }

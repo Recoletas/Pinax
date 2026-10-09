@@ -77,6 +77,26 @@ export async function readLocalRuleFilesForBook(bookId) {
   }
 }
 
+/** 项目词汇表读回（pinax-lexicon@1）：注册表 bookId → 项目根「词汇表.json」→ { exists, lexicon, warnings }。
+ *  fail-open：未绑定/公网 403/文件缺失等读不到时返回 { exists:false }，绝不阻塞生成。 */
+export async function readLocalLexiconForBook(bookId) {
+  const id = String(bookId || '').trim()
+  if (!id) return { exists: false, lexicon: null, warnings: [] }
+  try {
+    const response = await fetch(`/api/localmirror/lexicon?bookId=${encodeURIComponent(id)}`)
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) return { exists: false, lexicon: null, warnings: [] }
+    return {
+      exists: body.exists === true,
+      lexicon: body.lexicon && typeof body.lexicon === 'object' ? body.lexicon : null,
+      warnings: Array.isArray(body.warnings) ? body.warnings : []
+    }
+  } catch (error) {
+    console.warn('[localMirror] 读取本地词汇表失败（忽略）:', error?.message || error)
+    return { exists: false, lexicon: null, warnings: [] }
+  }
+}
+
 /** Windows 原生文件夹选择器：服务端拉起真实系统对话框（同机），返回绝对路径；取消返回 null；不可用抛 NATIVE_PICKER_UNAVAILABLE。 */
 export async function pickFolderNative(initial = '', { pollMs = 500, timeoutMs = 10 * 60_000 } = {}) {
   const startResponse = await fetch('/api/localmirror/projects/pick-folder/start', {

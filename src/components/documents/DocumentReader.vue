@@ -11,11 +11,12 @@ import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import DocumentFileList from './DocumentFileList.vue'
 import ScriptDocumentView from './ScriptDocumentView.vue'
 import OutlineStructureView from './OutlineStructureView.vue'
+import LexiconStructureView from './LexiconStructureView.vue'
 import { analyzeScriptDocument, detectScriptFormat } from '../../services/documents/scriptFormat.js'
 import { buildOutlineView, parseOutlineJsonText } from '../../services/documents/outlineView.js'
 import {
-  entriesFromFileList, fetchLocalProjects, fetchProjectBook, fetchProjectRules,
-  isFileSystemAccessAvailable, pickProjectDirectory, walkDocumentFiles
+  entriesFromFileList, fetchLocalProjects, fetchProjectBook, fetchProjectLexicon, fetchProjectRules,
+  isFileSystemAccessAvailable, parseLexiconJsonText, pickProjectDirectory, walkDocumentFiles
 } from '../../services/documents/documentReader.js'
 
 const props = defineProps({
@@ -26,6 +27,7 @@ const projects = ref([])
 const selectedProjectId = ref('')
 const serverBook = shallowRef(null)
 const serverRules = shallowRef(null)
+const serverLexicon = shallowRef(null)
 const serverLoading = ref(false)
 const serverError = ref('')
 const localFolderName = ref('')
@@ -86,6 +88,21 @@ const fileGroups = computed(() => {
         warning: outlineWarning
       }]
     })
+    // 词汇表虚拟项（W1.5）：固定入口，数据来自 /api/localmirror/lexicon；端点读不到时隐藏。
+    if (serverLexicon.value) {
+      const lexicon = serverLexicon.value.lexicon
+      groups.push({
+        key: 'lexicon',
+        label: tr('词汇表'),
+        entries: [{
+          key: 'server:lexicon',
+          label: tr('词汇表（词汇表.json）'),
+          sub: serverLexicon.value.exists ? `${(lexicon?.banned || []).length}/${(lexicon?.own || []).length}/${(lexicon?.canon || []).length}` : '',
+          kind: 'json',
+          icon: 'outline'
+        }]
+      })
+    }
     groups.push({
       key: 'chapters',
       label: tr('正文'),
@@ -141,18 +158,21 @@ async function loadServerProject(projectId) {
   if (!projectId) {
     serverBook.value = null
     serverRules.value = null
+    serverLexicon.value = null
     return
   }
   const project = projects.value.find((item) => String(item.projectId) === String(projectId))
   serverLoading.value = true
   serverError.value = ''
   try {
-    const [book, rules] = await Promise.all([
+    const [book, rules, lexicon] = await Promise.all([
       fetchProjectBook(project?.rootPath || ''),
-      fetchProjectRules(project?.rootPath || '')
+      fetchProjectRules(project?.rootPath || ''),
+      fetchProjectLexicon(project?.rootPath || '')
     ])
     serverBook.value = book
     serverRules.value = rules
+    serverLexicon.value = lexicon
     if (!book) {
       serverError.value = tr('无法读取该项目文件夹（需要本机部署的只读接口）。可改用「打开本地文件夹」。')
     }
@@ -187,6 +207,7 @@ async function openLocalFolder() {
   selectedProjectId.value = ''
   serverBook.value = null
   serverRules.value = null
+  serverLexicon.value = null
   serverError.value = ''
   resetPreview()
 }
@@ -203,6 +224,7 @@ async function handleFolderInput(event) {
   selectedProjectId.value = ''
   serverBook.value = null
   serverRules.value = null
+  serverLexicon.value = null
   serverError.value = ''
   resetPreview()
 }
@@ -236,6 +258,12 @@ async function selectEntry(entry) {
         return
       }
       if (entry.kind === 'json') {
+        // 词汇表检测（pinax-lexicon@1）优先于 outline：标记命中即走结构视图（W1.5）。
+        const lexiconParsed = parseLexiconJsonText(text)
+        if (lexiconParsed.ok) {
+          preview.value = { view: 'lexicon', lexicon: lexiconParsed.lexicon, warning: lexiconParsed.warning, title }
+          return
+        }
         const parsed = parseOutlineJsonText(text)
         if (parsed.ok) {
           preview.value = { view: 'outline', view_: parsed.view, warning: parsed.warning, title }
@@ -258,6 +286,16 @@ async function selectEntry(entry) {
         view_: buildOutlineView(outline?.nodes, outline?.edges),
         warning: entry.warning || '',
         title: tr('大纲结构（outline.json）')
+      }
+      return
+    }
+    if (entry.key === 'server:lexicon') {
+      const lexicon = serverLexicon.value
+      preview.value = {
+        view: 'lexicon',
+        lexicon: lexicon?.exists ? (lexicon.lexicon || { format: '', project: '', banned: [], own: [], canon: [] }) : null,
+        warning: (lexicon?.warnings || []).join(' '),
+        title: tr('词汇表（词汇表.json）')
       }
       return
     }
@@ -342,6 +380,9 @@ onMounted(async () => {
         </template>
         <template v-else-if="preview?.view === 'outline'">
           <OutlineStructureView :view="preview.view_" :warning="preview.warning" :title="previewTitle" />
+        </template>
+        <template v-else-if="preview?.view === 'lexicon'">
+          <LexiconStructureView :lexicon="preview.lexicon" :warning="preview.warning" :title="previewTitle" />
         </template>
         <template v-else-if="preview?.view === 'markdown'">
           <article class="doc-reader__markdown" data-test="doc-markdown">

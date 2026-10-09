@@ -107,7 +107,9 @@ export function commitMirrorTransaction({ dir, payload, render }) {
     const revision = previous.revision + 1
     durable(path.join(staging, manifestName), JSON.stringify({ revision, files: owned, requestId: payload.requestId || null, fingerprint, result }, null, 2))
     for (const relative of files(staging)) {
-      const descriptor = fs.openSync(path.join(staging, relative), 'r')
+      // 'r+' 而非 'r'：win32 对只读句柄 fsync 一律 EPERM（目录侧已在 flushDirectory 豁免，
+      // 文件侧用写句柄则三平台皆通；staging 文件刚由 durable 写出，句柄仅用于落盘校验）。
+      const descriptor = fs.openSync(path.join(staging, relative), 'r+')
       try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
       flushDirectory(path.dirname(path.join(staging, relative)))
     }

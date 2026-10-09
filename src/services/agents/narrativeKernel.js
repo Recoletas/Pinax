@@ -9,6 +9,8 @@ import { matchWorldbookEntries } from '../worldbook/worldbookContextBuilder'
 import { speakerIdOf } from '../narrativePresentation'
 import { toKernelVoiceProfile } from '../narrativeVoiceProfile'
 import { NARRATIVE_BEAT_PLAN_TOOL } from '../../../shared/narrativeBeatPlanContract'
+// 词汇表契约（pinax-lexicon@1）：项目根「词汇表.json」三段式 → 紧凑指令段，进 local-rules 块。
+import { compileLexiconPrompt } from '../../../shared/lexiconFileContract.js'
 
 const BLOCK_LIMITS = Object.freeze({
   rules: 900,
@@ -383,7 +385,7 @@ function normalizeRawContent(value) {
   return String(value ?? '').replace(/\r\n?/g, '\n').trim()
 }
 
-function buildLocalRulesBlock(localRules) {
+function buildLocalRulesBlock(localRules, lexicon = null) {
   const source = Array.isArray(localRules) ? localRules : (Array.isArray(localRules?.files) ? localRules.files : [])
   const files = source
     .slice(0, 8)
@@ -398,13 +400,19 @@ function buildLocalRulesBlock(localRules) {
       }
     })
     .filter((file) => file.name && file.content)
-  if (files.length === 0) return null
+  // 词汇表段（pinax-lexicon@1）：编译后的紧凑指令串作为同一块内的末位条目注入，
+  // 不新增块类型——2000 字预算与既有逐文件截断逻辑共用（超预算时与其他条目一起被截）。
+  const lexiconPrompt = compileLexiconPrompt(lexicon)
+  const entries = lexiconPrompt
+    ? [...files, { id: '词汇表', name: '词汇表', kind: 'rule', sourceRef: 'lexicon:词汇表.json', content: lexiconPrompt }]
+    : files
+  if (entries.length === 0) return null
 
   const maxChars = BLOCK_LIMITS['local-rules']
   const note = '本地约束文件为作者手写规则，与规则块同级生效，优先级高于世界书普通资料。'
-  const sourceRefs = files.map((file) => file.sourceRef || `local-rule:${file.id || file.name}`)
-  const assemble = (limit, count = files.length) => {
-    const kept = files.slice(0, count)
+  const sourceRefs = entries.map((file) => file.sourceRef || `local-rule:${file.id || file.name}`)
+  const assemble = (limit, count = entries.length) => {
+    const kept = entries.slice(0, count)
     return {
       note,
       files: kept.map((file) => ({
@@ -414,7 +422,7 @@ function buildLocalRulesBlock(localRules) {
         ...(limit < file.content.length ? { truncated: true } : {}),
         content: file.content.slice(0, limit)
       })),
-      ...(count < files.length ? { omittedCount: files.length - count } : {})
+      ...(count < entries.length ? { omittedCount: entries.length - count } : {})
     }
   }
 
@@ -427,7 +435,7 @@ function buildLocalRulesBlock(localRules) {
   let accepted = null
   let acceptedChars = 0
   let low = 0
-  let high = Math.max(...files.map((file) => file.content.length))
+  let high = Math.max(...entries.map((file) => file.content.length))
   while (low <= high) {
     const limit = Math.floor((low + high) / 2)
     const candidate = assemble(limit)
@@ -476,7 +484,8 @@ export function buildNarrativeKernel({
   turnContext = null,      // authoring turn contract 的低敏元数据（类型/说话人/对象），正文指令仍取最后一条 user message
   sceneProjection = null,  // authoring fusion：与左栏/composer 同一份共享现场投影（spec §10），覆盖地点并落 chapter 证据
   contextManifest = null,  // 文本工作台 v3 Phase 4：唯一 compiled context 输入
-  localRules = null        // W6·C：项目文件夹「约束/」下的作者本地约束文件（与规则块同级）
+  localRules = null,       // W6·C：项目文件夹「约束/」下的作者本地约束文件（与规则块同级）
+  lexicon = null           // W1.5：项目根「词汇表.json」（pinax-lexicon@1），编译后并入 local-rules 块
 } = {}) {
   const recent = compactMessages(messages)
   const latestUser = [...recent].reverse().find((message) => message.role === 'user') || null
@@ -588,8 +597,8 @@ export function buildNarrativeKernel({
         content: clip(worldOverview, 420)
       }] : [])
 
-  // W6·C：本地约束块与 manifest 模式正交，两种装配模式都注入。
-  const localRulesBlock = buildLocalRulesBlock(localRules)
+  // W6·C：本地约束块与 manifest 模式正交，两种装配模式都注入。词汇表段随块注入（W1.5）。
+  const localRulesBlock = buildLocalRulesBlock(localRules, lexicon)
 
   const blocks = [
     makeBlock('rules', {
