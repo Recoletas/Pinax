@@ -4,7 +4,9 @@
 // becomes changed/missing instead of being masked by a legacy token shape.
 
 import {
+  authoringRunHistoryNodes,
   authoringRunReferenceRevision,
+  historyRunRevision,
   memoryRunRevision,
   memorySourceDependencyKey,
   worldbookRunRevision
@@ -19,6 +21,7 @@ const OWNED_DEPENDENCY_PREFIXES = Object.freeze([
   'exploration:',
   'narrative-asset:',
   'worldbook-entry:',
+  'history-node:',
   'memory:',
   'memory-source:',
   'scene-intent:'
@@ -125,6 +128,9 @@ export function collectAuthoringRunDependencyRevisions({
   if (worldbook && expectedWorldbookId && text(worldbook.id) === expectedWorldbookId) {
     for (const entry of list(worldbook.entries)) {
       assignRevision(revisions, `worldbook-entry:${text(entry?.id)}`, worldbookRunRevision(entry))
+    }
+    for (const { node, kind } of authoringRunHistoryNodes(worldbook)) {
+      assignRevision(revisions, `history-node:${text(node?.id || node?.nodeId)}`, historyRunRevision(node, worldbook, kind))
     }
   }
 

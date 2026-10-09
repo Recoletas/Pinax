@@ -122,3 +122,9 @@
   .comic-editor :is(.comic-panel__beat summary, .comic-panel__direction summary, .comic-editor__export summary) { min-height: 44px; line-height: 44px; }
   .comic-editor__task-tabs button { min-height: 44px; }
 }
+
+.comic-editor.is-compact { gap: 20px; }
+.comic-editor.is-compact .comic-editor__workspace-tabs button { border-radius: 6px; font-size: 13px; }
+.comic-editor :is(input, select, textarea) { border-radius: 8px; }
+.comic-editor__section-heading { padding-block: 12px; }
+.comic-editor__footer { border-top: 1px solid var(--hairline-soft); padding-top: 20px; }

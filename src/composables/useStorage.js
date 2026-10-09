@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
   WORLDBOOK_CREATE_DRAFT: 'worldbook_create_draft_v1',
   WORLDBOOK_RESEARCH_SETTINGS: 'worldbook_research_settings_v1',
   WORKSPACE_TABS: 'workspace_tabs_v1',
+  WORKSPACE_RECENT: 'workspace_recent_history',
 
   // 小说写作
   WRITING_BOOKS: 'writing_books',

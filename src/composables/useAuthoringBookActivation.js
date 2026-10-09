@@ -1,5 +1,6 @@
 import { loadWritingBooks, saveWritingBooksDurable } from '../services/writing/writingBooksRepository'
 import { publishAcceptedAuthoringBookId } from '../services/writing/acceptedAuthoringBook.js'
+import { getExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
 
 // Owns the book-level activation transaction. Chapter hydration and editor DOM
 // work remain adapters supplied by Authoring because they belong to the editor.
@@ -59,15 +60,31 @@ export function useAuthoringBookActivation({
   }
 
   function ensureInitialBookSelection() {
-    if (selectedBookId.value || books.value.length === 0) return
+    if (selectedBookId.value) return
     const queryBookId = typeof route.query.bookId === 'string' ? route.query.bookId.trim() : ''
-    const preferred = (queryBookId && books.value.find((book) => String(book.id) === queryBookId)) || books.value[0]
-    openBook(preferred.id, { fromInitialLoad: true })
     const queryChapterId = typeof route.query.chapterId === 'string' ? route.query.chapterId.trim() : ''
-    if (queryChapterId && !pendingBackJump.value && !pendingInsertBack.value) {
-      const chapter = chapters.value.find((item) => item && item.id === queryChapterId)
-      if (chapter) selectChapter(chapter.id)
+    const queryExplorationId = typeof route.query.explorationId === 'string' ? route.query.explorationId.trim() : ''
+    const returning = pendingBackJump.value || pendingInsertBack.value
+    const requested = books.value.find((book) => String(book.id) === queryBookId)
+    if (queryBookId && !requested && !returning) {
+      clearEditorDocument()
+      notify('指定作品已不存在，请从作品列表重新选择。')
+      return
     }
+    const legacyChapterBook = !queryBookId && queryChapterId && !returning
+      ? books.value.find(book => book.chapters?.some(chapter => String(chapter.id) === queryChapterId))
+      : null
+    const preferred = requested || legacyChapterBook || books.value[0]
+    if (!preferred) return
+    if (returning) { openBook(preferred.id, { fromInitialLoad: true }); return }
+    const validChapter = preferred.chapters?.some(chapter => String(chapter.id) === queryChapterId)
+    const validExploration = queryExplorationId && getExplorationDocument(preferred.id, queryExplorationId)
+    if ((queryExplorationId && !validExploration) || (!queryExplorationId && queryChapterId && !validChapter)) {
+      openBook(preferred.id, { fromInitialLoad: true, empty: true })
+      notify(queryExplorationId ? '指定速记已不存在或不属于这本书，请从目录重新选择。' : '指定章节已不存在或不属于这本书，请从目录重新选择。')
+      return
+    }
+    openBook(preferred.id, { fromInitialLoad: true, chapterId: validChapter ? queryChapterId : '' })
   }
 
   function activateBook(bookId, { savePrevious = true } = {}) {
@@ -103,24 +120,26 @@ export function useAuthoringBookActivation({
     return nextBook
   }
 
-  function openBook(bookId, { fromInitialLoad = false } = {}) {
+  function openBook(bookId, { fromInitialLoad = false, chapterId = '', empty = false } = {}) {
     const book = activateBook(bookId)
     if (!book) {
       if (fromInitialLoad) clearEditorDocument()
       return false
     }
     chapters.value = book.chapters || []
-    if (chapters.value.length > 0) {
-      if (!selectChapter(chapters.value[0].id)) return false
+    const requestedChapter = chapterId ? chapters.value.find(chapter => String(chapter.id) === String(chapterId)) : null
+    if (!empty && (requestedChapter || (!chapterId && chapters.value.length > 0))) {
+      if (!selectChapter(requestedChapter?.id || chapters.value[0].id)) return false
     } else {
       pendingActivationBoundary = false
       clearEditorDocument()
+      if (chapterId && !requestedChapter && !empty) notify('指定章节已不存在或不属于这本书，请从目录重新选择。')
     }
     markSaved()
     return true
   }
 
-  function selectBook(bookId) {
+  function selectBook(bookId, options = {}) {
     if (pendingGhostAdoption.value) {
       notify('推演正文尚未保存，请先重试保存或留在当前章节')
       return false
@@ -132,7 +151,7 @@ export function useAuthoringBookActivation({
     cancelWritingAgent()
     dismissAuxiliary()
     closeBlockComposer()
-    if (!openBook(bookId)) return false
+    if (!openBook(bookId, options)) return false
     closeChapterDrawer()
     return true
   }

@@ -248,13 +248,42 @@ export function useAuthoringKnowledgeAssistant({
     if (!saved || !normalizedText(title)) return false
     saved.title = normalizedText(title).slice(0, 80); persistConversation(entry); return true
   }
-  const sessions = computed(() => activeEntry.value.state.agentSessions.map(session => ({ sessionId: session.sessionId, title: session.title, active: session.sessionId === activeEntry.value.state.activeSessionId })))
+  function deleteConversation(sessionId) {
+    const entry = activeEntry.value
+    const state = entry.state
+    if (state.busy || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    if (persistConversation(entry)?.ok === false) return false
+    if (!state.agentSessions.some(session => session.sessionId === sessionId)) return false
+    const previous = JSON.parse(JSON.stringify(state))
+    state.agentSessions = state.agentSessions.filter(session => session.sessionId !== sessionId)
+    if (state.activeSessionId === sessionId) {
+      const next = state.agentSessions[0]
+      state.activeSessionId = next?.sessionId || messageId('session')
+      state.messages = JSON.parse(JSON.stringify(next?.messages || []))
+      state.draft = next?.draft || ''; state.selectedIntent = next?.selectedIntent || 'free'
+      state.agentTaskId = next?.agentTaskId || ''; state.agentRefs = next?.agentRefs || []; state.agentSkills = next?.agentSkills || []
+      state.error = ''; state.lastRequest = null; state.status = 'idle'; state.hasUnread = false
+      entry.runtime.token += 1; entry.runtime.staleToken += 1
+    }
+    const saved = persistConversation(entry)
+    if (!saved?.ok) { Object.assign(state, previous); syncPersistenceError(entry); return false }
+    persistDraft(entry)
+    scheduleStalenessRefresh()
+    return true
+  }
+  const sessions = computed(() => {
+    const state = activeEntry.value.state
+    const list = state.agentSessions.some(session => session.sessionId === state.activeSessionId)
+      ? state.agentSessions : [{ sessionId: state.activeSessionId, title: '新对话', updatedAt: Date.now() }, ...state.agentSessions]
+    return list.map(session => ({ sessionId: session.sessionId, title: session.title, updatedAt: session.updatedAt, active: session.sessionId === state.activeSessionId }))
+  })
   function persistConversation(entry) {
     if (!entry.projectId || !entry.runtime.canSaveConversation) return
     syncSession(entry)
     const result = conversationStore.saveConversation(entry.projectId, entry.state)
     entry.runtime.conversationError = result.ok ? '' : result.error
     syncPersistenceError(entry)
+    return result
   }
 
   function persistDraft(entry) {
@@ -563,7 +592,7 @@ export function useAuthoringKnowledgeAssistant({
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
   return Object.freeze({
-    sessions, selectSession, newConversation, renameConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    sessions, selectSession, newConversation, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

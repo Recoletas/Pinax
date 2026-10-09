@@ -54,7 +54,7 @@ export function normalizeChapterOutlineItems(items = []) {
 
   return items
     .map((item) => createChapterOutlineItem(item))
-    .filter((item) => item.content)
+    .filter((item, index) => item.content || (items[index]?.source?.type === 'manual' && String(items[index]?.title || '').trim()))
 }
 
 export function addAssetsToChapterOutline(currentItems = [], assets = []) {
@@ -93,7 +93,7 @@ export function removeChapterOutlineItem(items = [], itemId = '') {
 }
 
 export function buildChapterOutlineContext(items = [], limit = DEFAULT_CONTEXT_LIMIT) {
-  const normalized = normalizeChapterOutlineItems(items)
+  const normalized = normalizeChapterOutlineItems(items).filter((item) => item.content)
   if (!normalized.length) return ''
 
   const body = normalized

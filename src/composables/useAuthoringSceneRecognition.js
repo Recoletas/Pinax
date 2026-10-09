@@ -14,8 +14,10 @@ export function useAuthoringSceneRecognition({
   writingDocument,
   sceneProjection,
   getDocumentRevision,
+  getDocumentScopeKey = () => '',
   getBookWorldbookStatus,
   readLiveSelection,
+  resolveTarget = (target) => target,
   sceneCurationPreviewOpen,
   sceneCurationDraft,
   sceneCurationHasUnsavedChanges,
@@ -30,35 +32,62 @@ export function useAuthoringSceneRecognition({
   const sceneRecognitionPending = ref(false)
   let sceneRecognitionSeenKey = ''
   let skipNextSceneRecognition = false
+  let pendingStart = null
+  let reviewVersion = 0
 
-  function sceneRecognitionKey() {
-    return [selectedBookId.value, selectedChapterId.value, activeWritingUnitId.value,
+  function continueRequest(request) {
+    return typeof request?.resume === 'function' ? request.resume() : openSceneLaboratory(request)
+  }
+  function resumeReview(request) {
+    const version = reviewVersion
+    const scope = recognitionScope()
+    skipNextSceneRecognition = true
+    void nextTick(() => {
+      if (version !== reviewVersion || scope !== recognitionScope()) return
+      if (typeof request?.resume === 'function') void prepareRehearsalSceneReview(request)
+      else void startRehearsal(request || {})
+    })
+  }
+
+  function recognitionScope() {
+    return JSON.stringify([selectedBookId.value, selectedChapterId.value, selectedBookWorldbookId.value, getDocumentScopeKey()])
+  }
+
+  function captureRecognitionTarget(target = null) {
+    const source = target || readLiveSelection() || notebookSelection.value || {}
+    return Object.freeze({ ...resolveTarget(source) })
+  }
+  function sceneRecognitionKey(target) {
+    return JSON.stringify([selectedBookId.value, selectedChapterId.value, getDocumentScopeKey(),
+      target.documentId || '', target.unitId || activeWritingUnitId.value,
+      target.nodeId || '', target.cursorLocalOffset ?? '',
       getDocumentRevision(), selectedBookWorldbookId.value,
-      boundWorldbook.value?.updatedAt || boundWorldbook.value?.revision || '']
-      .map(String).join('|')
+      boundWorldbook.value?.updatedAt || boundWorldbook.value?.revision || ''])
   }
   function sceneRecognitionNodeText(node) {
     return String(node?.text || '') + (node?.content || []).map(sceneRecognitionNodeText).join('')
   }
   function scanCurrentSceneMentions() {
+    return scanSceneMentionsAtTarget(captureRecognitionTarget())
+  }
+  function scanSceneMentionsAtTarget(target) {
     if (getBookWorldbookStatus()?.status !== 'bound') {
       sceneRecognitionSuggestions.value = []
       return []
     }
-    const selection = readLiveSelection() || notebookSelection.value || {}
-    const unitId = String(selection.unitId || activeWritingUnitId.value || '')
+    const unitId = String(target.unitId || activeWritingUnitId.value || '')
     const units = writingDocument.value?.content || []
     const index = units.findIndex(unit => String(unit?.attrs?.unitId || '') === unitId)
     const blocks = []
     if (index >= 0) {
       const nodes = units[index]?.content || []
-      const nodeIndex = nodes.findIndex(node => String(node?.attrs?.nodeId || '') === String(selection.nodeId || ''))
+      const nodeIndex = nodes.findIndex(node => String(node?.attrs?.nodeId || '') === String(target.nodeId || ''))
       const visibleNodes = nodeIndex >= 0 ? nodes.slice(0, nodeIndex + 1) : nodes
       for (let offset = visibleNodes.length - 1; offset >= 0; offset -= 1) {
         const node = visibleNodes[offset]
         const fullText = sceneRecognitionNodeText(node)
         const limitedText = offset === nodeIndex
-          ? fullText.slice(0, Math.max(0, Number(selection.cursorLocalOffset) || 0))
+          ? fullText.slice(0, Math.max(0, Number(target.cursorLocalOffset) || 0))
           : fullText
         if (limitedText) blocks.push({ text: limitedText.slice(-4000) })
       }
@@ -71,23 +100,26 @@ export function useAuthoringSceneRecognition({
     })
     return sceneRecognitionSuggestions.value
   }
-  async function prepareRehearsalSceneReview() {
+  async function prepareRehearsalSceneReview(options = {}) {
     if (skipNextSceneRecognition) {
       skipNextSceneRecognition = false
-      return openSceneLaboratory()
+      // 确认期间作者可能移动光标。接续使用原请求冻结的起点，不重新解析。
+      return continueRequest({ ...options, target: options.target || captureRecognitionTarget(), planDirections: false })
     }
-    if (sceneCurationPreviewOpen.value) return false
-    const key = sceneRecognitionKey()
+    const request = { ...options, target: captureRecognitionTarget(options.target), planDirections: false }
+    if (sceneCurationPreviewOpen.value) return { status: 'needs-review' }
+    const key = sceneRecognitionKey(request.target)
     if (key !== sceneRecognitionSeenKey) {
-      const suggestions = scanCurrentSceneMentions()
+      const suggestions = scanSceneMentionsAtTarget(request.target)
       if (suggestions.length && handleSceneEditRequest({ scan: false })) {
         sceneRecognitionSeenKey = key
         sceneRecognitionPending.value = true
-        return false
+        pendingStart = request
+        return { status: 'needs-review' }
       }
       sceneRecognitionSeenKey = key
     }
-    return openSceneLaboratory()
+    return continueRequest(request)
   }
   function acceptSceneRecognitionSuggestion(candidate) {
     const draft = sceneCurationDraft.value
@@ -103,36 +135,43 @@ export function useAuthoringSceneRecognition({
   }
   function saveSceneRecognitionReview() {
     const resume = sceneRecognitionPending.value
+    const request = pendingStart
     if (resume && !sceneCurationHasUnsavedChanges.value) {
       skipSceneRecognition()
       return true
     }
     if (!handleCurationSave()) return false
     sceneRecognitionPending.value = false
+    pendingStart = null
     sceneRecognitionSuggestions.value = []
     if (resume) {
-      skipNextSceneRecognition = true
-      void nextTick(() => startRehearsal())
+      resumeReview(request)
     }
     return true
   }
-  function cancelSceneRecognitionReview() {
+  function cancelSceneRecognitionReview({ rememberReview = false } = {}) {
+    reviewVersion += 1
+    skipNextSceneRecognition = false
+    if (!rememberReview && sceneRecognitionPending.value) sceneRecognitionSeenKey = ''
     sceneRecognitionPending.value = false
+    pendingStart = null
     sceneRecognitionSuggestions.value = []
     handleCurationCancel()
   }
   function skipSceneRecognition() {
     if (!sceneRecognitionPending.value) return
-    cancelSceneRecognitionReview()
-    skipNextSceneRecognition = true
-    void nextTick(() => startRehearsal())
+    const request = pendingStart
+    cancelSceneRecognitionReview({ rememberReview: true })
+    resumeReview(request)
   }
   // 书/章节/速记文档/世界书绑定切换时清场；sceneRecognitionSeenKey 不在此复位，
   // 与迁移前逐字一致（换作用域才重新扫描）。
   function resetSceneRecognition() {
+    reviewVersion += 1
     sceneRecognitionPending.value = false
     sceneRecognitionSuggestions.value = []
     skipNextSceneRecognition = false
+    pendingStart = null
   }
 
   return Object.freeze({

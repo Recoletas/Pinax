@@ -9,10 +9,9 @@
     <div class="authoring-assistant-workspace__body" :class="{ 'has-index': expanded && indexOpen, 'has-preview': preview }">
       <button v-if="expanded && indexOpen && narrow" type="button" class="authoring-assistant-workspace__scrim" :aria-label="tr('收起作品导航')" @click="closeIndex"></button>
       <aside v-if="expanded && indexOpen" id="assistant-workspace-nav" ref="indexRef" class="authoring-assistant-workspace__index" :aria-label="tr('作品导航')">
-        <div class="authoring-assistant-workspace__book"><WorkbenchIcon name="book" :size="20" /><strong :title="projectTitle || tr('未命名作品')">{{ projectTitle || tr('未命名作品') }}</strong></div>
-        <ProjectWritingNavigation current="assistant" :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" />
+        <WorkspaceProjectNavigation :book-id="projectId" current="assistant" managed :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" @select-book="emit('select-book', $event)" />
         <div v-if="state.sessions.length > 1" class="authoring-assistant-workspace__sessions" :aria-label="tr('作品对话')">
-          <button v-for="session in state.sessions" :key="session.sessionId" type="button" :class="{ 'is-selected': session.active }" :aria-current="session.active ? 'true' : undefined" :disabled="state.busy || state.agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="14" /><span>{{ session.title }}</span></button>
+          <div v-for="session in state.sessions" :key="session.sessionId" class="assistant-session-row"><button type="button" :class="{ 'is-selected': session.active }" :aria-current="session.active ? 'true' : undefined" :disabled="state.busy || state.agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="14" /><span>{{ session.title }}</span></button><button type="button" class="assistant-session-delete" :aria-label="tr('删除对话 {title}', { title: session.title })" :title="tr('删除对话')" :disabled="state.busy || state.agentState.adoptionBusy" @click="deleteConversation(session)"><WorkbenchIcon name="trash" :size="14" /></button></div>
         </div>
         <div class="authoring-assistant-workspace__questions">
           <strong>{{ tr('对话提问') }}</strong>
@@ -46,7 +45,6 @@
           @ask="assistant.ask($event)"
           @cancel="assistant.cancel()"
           @retry="assistant.retry()"
-          @clear="clearConversation"
           @open-evidence="previewEvidence"
           @review-notice="emit('review-notice')"
           @open-illustrator="emit('open-illustrator')"
@@ -84,7 +82,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-import ProjectWritingNavigation from '../workbench/ProjectWritingNavigation.vue'
+import WorkspaceProjectNavigation from '../workbench/WorkspaceProjectNavigation.vue'
 import AuthoringKnowledgeAssistant from './AuthoringKnowledgeAssistant.vue'
 
 const props = defineProps({
@@ -97,7 +95,7 @@ const props = defineProps({
   expanded: Boolean,
   notice: { type: Object, default: null }
 })
-const emit = defineEmits(['expand', 'collapse', 'open-evidence', 'open-settings', 'open-sources', 'review-notice', 'open-illustrator'])
+const emit = defineEmits(['expand', 'collapse', 'open-evidence', 'open-settings', 'open-sources', 'review-notice', 'open-illustrator', 'select-surface', 'select-book'])
 const knowledgeRef = ref(null)
 const workspaceRef = ref(null)
 const preview = ref(null)
@@ -120,7 +118,7 @@ function selectSurface(surface) {
   if (surface === 'assistant') return focusDraft()
   if (surface === 'writing') return emit('collapse')
   if (sourcesBusy.value) return
-  emit(surface === 'settings' ? 'open-settings' : 'open-sources')
+  emit('select-surface', surface)
 }
 const sourcesTitle = computed(() => reviewBusy.value ? tr('检查进行中，请先停止检查再打开资料') : state.value.busy ? tr('查询中，请完成或停止后打开资料') : tr('资料'))
 function restoreNavigationFocus() {
@@ -179,11 +177,13 @@ function updateDraft(value) {
   props.assistant.updateDraft(value)
 }
 
-function selectConversation(id) { closePreview(); props.assistant.selectSession?.(id); activeQuestionId.value = ''; focusDraft() }
-function clearConversation() {
-  closePreview()
-  props.assistant.newConversation?.() ?? props.assistant.clear()
+function deleteConversation(session) {
+  const owner = props.projectId
+  if (!window.confirm(tr('删除对话「{title}」？删除后无法恢复。', { title: session.title }))) return
+  if (owner === props.projectId && props.assistant.deleteConversation?.(session.sessionId)) { closePreview(); activeQuestionId.value = '' }
 }
+
+function selectConversation(id) { closePreview(); props.assistant.selectSession?.(id); activeQuestionId.value = ''; focusDraft() }
 
 function previewEvidence(evidence, trigger) {
   if (!evidence || evidence.projectId !== props.projectId) return
@@ -283,29 +283,29 @@ watch(() => state.value.messages, (messages) => {
 .authoring-assistant-workspace:not(.is-expanded) .authoring-assistant-workspace__body.has-preview { grid-template-columns: minmax(0, 1fr); }
 .authoring-assistant-workspace:not(.is-expanded) .has-preview .authoring-assistant-workspace__conversation { display: none; }
 .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__header { min-height: 52px; padding-inline: 18px; border-bottom: 0; }
-.authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__conversation { margin: 0 8px 8px; border-radius: var(--radius-surface, 24px); }
+.authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__conversation { margin: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; }
 .authoring-assistant-workspace.is-expanded .has-index .authoring-assistant-workspace__conversation { margin-inline-start: 0; }
 .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__body.has-index { grid-template-columns: var(--workspace-sidebar-width, 256px) minmax(0, 1fr); }
 .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__body.has-index.has-preview { grid-template-columns: var(--workspace-sidebar-width, 256px) minmax(0, 1fr) minmax(260px, 28%); }
 .authoring-assistant-workspace__index { position: relative; display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; padding: 20px 12px 16px; background: var(--surface-assistant-nav); }
-.authoring-assistant-workspace__book { display: flex; min-width: 0; flex: none; align-items: center; gap: 12px; margin: 0 14px 22px; }
+.authoring-assistant-workspace__book { display: flex; min-width: 0; min-height: 40px; flex: none; align-items: center; gap: 12px; margin: 0 12px 12px; }
 .authoring-assistant-workspace__book > svg { flex: none; color: var(--text-secondary); }
-.authoring-assistant-workspace__book strong { overflow: hidden; min-width: 0; font: 500 15px/1.5 var(--font-interface, var(--font-sans)); text-overflow: ellipsis; white-space: nowrap; }
+.authoring-assistant-workspace__book strong { overflow: hidden; min-width: 0; font: 600 var(--authoring-sidebar-title-size, 16px)/1.5 var(--font-interface, var(--font-sans)); text-overflow: ellipsis; white-space: nowrap; }
 .authoring-assistant-workspace__index > .project-writing-nav { flex: none; }
 .authoring-assistant-workspace__index > button, .authoring-assistant-workspace__questions button { display: flex; min-width: 0; min-height: var(--workspace-control-height, 36px); align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-radius: var(--workspace-radius, 10px); background: transparent; color: var(--text-secondary); font: 15px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
 .authoring-assistant-workspace__questions button span { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-assistant-workspace__index > button:not(:disabled):hover, .authoring-assistant-workspace__questions button:not(:disabled):hover { background: var(--nav-hover); }
 .authoring-assistant-workspace__questions { display: flex; min-height: 0; flex: 1; flex-direction: column; margin-top: 24px; }
-.authoring-assistant-workspace__questions > strong { display: block; flex: none; margin: 0 12px 10px; color: var(--text-muted); font: 500 12px/1.5 var(--font-interface, var(--font-sans)); }
+.authoring-assistant-workspace__questions > strong { display: block; flex: none; margin: 0 12px 10px; color: var(--text-muted); font: 500 var(--authoring-sidebar-meta-size, 13px)/1.5 var(--font-interface, var(--font-sans)); }
 .authoring-assistant-workspace__questions-scroll { position: relative; min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-.authoring-assistant-workspace__questions button { gap: 8px; min-height: var(--workspace-control-height, 36px); margin-bottom: 3px; border-radius: var(--workspace-radius, 10px); font-size: 14px; }
+.authoring-assistant-workspace__questions button { gap: 8px; min-height: var(--workspace-control-height, 36px); margin-bottom: 0; border-radius: 0; font-size: 14px; }
 .authoring-assistant-workspace__questions button::before { content: ''; flex: none; width: 4px; height: 4px; border-radius: 50%; background: transparent; }
 .authoring-assistant-workspace__questions button.is-selected { background: var(--nav-selected-secondary, var(--nav-selected)); color: var(--text-primary); }
 .authoring-assistant-workspace__questions button.is-selected::before { background: var(--accent); }
 .authoring-assistant-workspace__questions-scroll > p { margin: 8px 12px; color: var(--text-muted); font-size: 13px; line-height: 1.8; }
 .authoring-assistant-workspace__index .authoring-assistant-workspace__nav-close { display: none; }
 .authoring-assistant-workspace__preview { display: flex; min-width: 0; min-height: 0; flex-direction: column; border-inline-start: 1px solid var(--hairline-soft); background: var(--surface-assistant); }
-.authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__preview { margin: 0 8px 8px 0; border: 0; border-radius: var(--radius-surface, 24px); overflow: hidden; }
+.authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__preview { margin: 0; border: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; overflow: hidden; }
 .authoring-assistant-workspace__preview header { display: flex; min-height: 52px; box-sizing: border-box; flex: none; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 0; }
 .authoring-assistant-workspace__preview header > strong { font: 500 14px/1.5 var(--font-interface, var(--font-sans)); }
 .authoring-assistant-workspace__preview-close { margin-inline-start: auto; }
@@ -334,7 +334,7 @@ watch(() => state.value.messages, (messages) => {
   .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__preview-back { display: inline-flex; }
   .authoring-assistant-workspace__preview header > strong { display: none; }
   .authoring-assistant-workspace__preview { border-inline-start: 0; }
-  .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__conversation, .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__preview { margin: 0; border-radius: 16px 16px 0 0; }
+  .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__conversation, .authoring-assistant-workspace.is-expanded .authoring-assistant-workspace__preview { margin: 0; border-radius: 0; }
   .authoring-assistant-workspace__title { flex: 1; }
   .authoring-assistant-workspace__title span { display: none; }
   .authoring-assistant-workspace__title strong { font-size: 14px; }
@@ -358,9 +358,16 @@ watch(() => state.value.messages, (messages) => {
   .authoring-assistant-workspace__index button, .authoring-assistant-workspace__inline-actions button { transition: background-color 140ms ease, color 140ms ease; }
 }
 .authoring-assistant-workspace__sessions { flex: none; max-height: 180px; overflow: auto; margin: 16px 0 0; scrollbar-width: thin; }
-.authoring-assistant-workspace__sessions button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; border: 0; border-radius: var(--workspace-radius, 10px); padding: 8px 12px; color: var(--text-secondary); background: transparent; font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
+.authoring-assistant-workspace__sessions button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; border: 0; border-radius: 0; padding: 8px 12px; color: var(--text-secondary); background: transparent; font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
 .authoring-assistant-workspace__sessions button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .authoring-assistant-workspace__sessions button.is-selected { background: var(--nav-selected-secondary, var(--nav-selected)); color: var(--text-primary); }
 .authoring-assistant-workspace__sessions button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 720px) { .authoring-assistant-workspace__sessions button { min-height: 44px; } }
+</style>
+
+<style scoped>
+.assistant-session-row { display: flex; min-width: 0; align-items: center; }
+.assistant-session-row > button:first-child { flex: 1; min-width: 0; }
+.authoring-assistant-workspace__sessions .assistant-session-delete { flex: none; width: 32px; padding: 8px; }
+@media(max-width:720px) { .authoring-assistant-workspace__sessions .assistant-session-delete { width: 44px; } }
 </style>

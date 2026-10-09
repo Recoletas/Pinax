@@ -71,9 +71,10 @@ function displayTitle(tab) {
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
   if (tab.scope !== 'project') return tab.instanceId ? `${shortTitle(tab)} · ${tab.instanceId}` : shortTitle(tab)
   if (tab.surface === 'authoring') return tab.title
-  const label = SURFACE_LABELS[tab.surface]
+  const label = tab.surface === 'sources' && tab.route?.query?.mode === 'sources' && tab.route?.query?.action === 'add'
+    ? '资料导入' : SURFACE_LABELS[tab.surface]
   // Book titles are author data, including any “ · ” they contain.
-  const suffix = label ? ` · ${label}` : ''
+  const suffix = SURFACE_LABELS[tab.surface] ? ` · ${SURFACE_LABELS[tab.surface]}` : ''
   const project = workspaceTabs.bookIndex?.[tab.projectId]?.title || (suffix && tab.title.endsWith(suffix) ? tab.title.slice(0, -suffix.length) : tab.title)
   return label ? `${tr(label)} · ${project}` : tab.title
 }

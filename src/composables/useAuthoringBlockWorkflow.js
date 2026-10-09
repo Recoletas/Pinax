@@ -8,6 +8,7 @@ import {
 import { shouldDispatchAuthoringObservers } from '../services/agents/authoring/authoringObserverDispatch.js'
 import { getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import { getWritingBlockText } from '../../shared/writingBlockHistoryContract.js'
+import { normalizeNarrativeTransportProse } from '../services/narrativePresentation.js'
 
 const RUN_FAILURE_MESSAGES = Object.freeze({
   aborted: '这一拍已取消',
@@ -29,7 +30,6 @@ export function useAuthoringBlockWorkflow({
   targetScopeKey,
   referenceTargetKey,
   setReferenceTargetKey,
-  scheduleContextPreflight,
   preserveSceneIntents,
   clearRunReferences,
   clearSceneIntents,
@@ -65,7 +65,8 @@ export function useAuthoringBlockWorkflow({
     target: null,
     failure: null,
     staleResult: null,
-    initialInstruction: ''
+    initialInstruction: '',
+    draft: null
   })
   const failure = shallowRef(null)
   const adoptionBusy = ref(false)
@@ -95,24 +96,31 @@ export function useAuthoringBlockWorkflow({
 
   function resolveTarget(target = {}) {
     const context = getTargetContext()
+    // 编辑器初始化的章首选区并非作者选择。尚未落过光标时，续写从章末开始。
+    const selection = context.selection?.hasExplicitPosition === false ? {} : context.selection || {}
+    if (target.hasExplicitPosition === false) target = {}
     const fallbackUnit = context.document?.content?.at(-1)
-    const requestedUnitId = target.unitId || context.selection?.unitId || fallbackUnit?.attrs?.unitId || null
+    const requestedUnitId = target.unitId || selection.unitId || fallbackUnit?.attrs?.unitId || null
     const unit = (context.document?.content || [])
       .find((item) => String(item?.attrs?.unitId || '') === String(requestedUnitId || '')) || fallbackUnit || null
     const unitId = unit?.attrs?.unitId || null
     const node = (unit?.content || [])
-      .find((item) => String(item?.attrs?.nodeId || '') === String(target.nodeId || context.selection?.nodeId || '')) || unit?.content?.at(-1) || null
+      .find((item) => String(item?.attrs?.nodeId || '') === String(target.nodeId || selection.nodeId || '')) || unit?.content?.at(-1) || null
     const nodeId = node?.attrs?.nodeId || null
-    const sameLiveNode = Boolean(nodeId && String(context.selection?.nodeId || '') === String(nodeId))
+    const sameLiveNode = Boolean(nodeId && String(selection.nodeId || '') === String(nodeId))
     const nodeText = node ? getWritingBlockText(node) : ''
-    const nodeEnd = nodeId ? getWritingMarkdownPosition(context.document, nodeId, nodeText.length) : null
-    const caret = sameLiveNode && Number.isFinite(context.selection?.end)
-      ? context.selection.end
-      : Number.isFinite(nodeEnd) ? nodeEnd : context.documentTextLength
-    const localOffset = target.cursorLocalOffset ?? context.selection.cursorLocalOffset
-    const cursorLocalOffset = sameLiveNode && Number.isFinite(Number(localOffset))
+    const targetOwnsNode = target.nodeId
+      ? String(target.nodeId) === String(nodeId)
+      : sameLiveNode
+    const localOffset = targetOwnsNode && target.cursorLocalOffset != null
+      ? target.cursorLocalOffset
+      : sameLiveNode ? selection.cursorLocalOffset : nodeText.length
+    const cursorLocalOffset = Number.isFinite(Number(localOffset))
       ? Math.max(0, Math.min(nodeText.length, Number(localOffset)))
       : nodeText.length
+    // 人物确认后可以再次解析同一冻结目标；不能用后来移动的光标覆盖原起点。
+    const nodePosition = nodeId ? getWritingMarkdownPosition(context.document, nodeId, cursorLocalOffset) : null
+    const caret = Number.isFinite(nodePosition) ? nodePosition : context.documentTextLength
     return Object.freeze({
       projectId: context.projectId,
       documentId: context.documentId,
@@ -127,7 +135,7 @@ export function useAuthoringBlockWorkflow({
       caret,
       markdownFrom: caret,
       markdownTo: caret,
-      selectionBookmark: target.selectionBookmark || context.selectionBookmark,
+      selectionBookmark: target.selectionBookmark || (sameLiveNode ? context.selectionBookmark : null),
       documentRevision: context.documentRevision,
       documentSchemaRevision: Number(context.document?.revision || 0)
     })
@@ -179,6 +187,7 @@ export function useAuthoringBlockWorkflow({
     composer.failure = null
     composer.staleResult = null
     composer.initialInstruction = ''
+    composer.draft = null
   }
 
   function resetScope() {
@@ -193,6 +202,8 @@ export function useAuthoringBlockWorkflow({
     if (hasPendingAdoption()) return false
     const frozenTarget = resolveTarget(target || {})
     if (!frozenTarget.unitId && !isEmptyDocument()) return false
+    const retained = composer.staleResult
+    const keepResult = retained && retained.target?.projectId === frozenTarget.projectId && retained.target?.documentId === frozenTarget.documentId
     const nextReferenceKey = targetScopeKey(frozenTarget)
     if (referenceTargetKey() && referenceTargetKey() !== nextReferenceKey) clearRunReferences()
     setReferenceTargetKey(nextReferenceKey)
@@ -201,12 +212,11 @@ export function useAuthoringBlockWorkflow({
     cancelCopilot()
     closeIntervention()
     invalidateRequest()
-    if (!options.preserveInstruction) composer.initialInstruction = ''
+    if (!options.preserveInstruction && !keepResult) composer.initialInstruction = ''
+    if (!keepResult) composer.draft = null
     composer.open = true
-    composer.failure = null
-    composer.staleResult = null
+    if (!keepResult) { composer.failure = null; composer.staleResult = null }
     composer.target = frozenTarget
-    scheduleContextPreflight()
     blurEditor()
     focusInstruction()
     return true
@@ -221,9 +231,7 @@ export function useAuthoringBlockWorkflow({
     clearSceneIntents()
     setReferenceTargetKey(targetScopeKey(next))
     composer.target = next
-    composer.failure = null
-    composer.staleResult = null
-    scheduleContextPreflight()
+    if (!composer.staleResult) composer.failure = null
   }
 
   function abandon({ shouldRestoreSelection = false } = {}) {
@@ -336,6 +344,7 @@ export function useAuthoringBlockWorkflow({
       })
       return
     }
+    composer.failure = null
     const outcome = await run({
       ...turn,
       directorNote: authorNote || turn.directorNote,
@@ -344,7 +353,9 @@ export function useAuthoringBlockWorkflow({
     }, version)
     if (!isCurrentRequest(version)) return
     composer.failure = outcome?.ok ? null : normalizeAuthoringFailure(outcome)
-    if (outcome?.reason === 'stale' || outcome?.reason === 'target-unit-stale') {
+    if (outcome?.ok) composer.staleResult = null
+    if ((outcome?.reason === 'stale' || outcome?.reason === 'target-unit-stale')
+      && (String(outcome.text || '').trim() || !composer.staleResult)) {
       composer.staleResult = {
         text: outcome.text || '',
         target,
@@ -432,6 +443,30 @@ export function useAuthoringBlockWorkflow({
     return true
   }
 
+  async function saveRetainedAsExploration() {
+    if (explorationSavePending || !selectedBookId.value) return false
+    const retained = composer.staleResult
+    const text = normalizeNarrativeTransportProse(String(retained?.text || '')).trim()
+    if (!text || (retained.target?.projectId && retained.target.projectId !== selectedBookId.value)) return false
+    const projectId = selectedBookId.value
+    const chapterId = selectedChapterId.value
+    explorationSavePending = true
+    let result
+    try {
+      result = await createExplorationDocument(projectId, {
+        title: `推演草稿 ${new Date().toLocaleDateString()}`,
+        content: text,
+        sourceRefs: chapterId ? [`chapter:${chapterId}`] : []
+      })
+    } catch { result = { ok: false } }
+    finally { explorationSavePending = false }
+    if (selectedBookId.value !== projectId || selectedChapterId.value !== chapterId) return Boolean(result?.ok)
+    if (result?.ok) refreshExplorations(projectId)
+    notify(result?.ok ? '已留作构思，可在左栏构思区查看' : '留作构思保存失败，请重试')
+    if (result?.ok && composer.staleResult === retained) composer.staleResult = { ...retained, savedAsExploration: true }
+    return Boolean(result?.ok)
+  }
+
   return {
     preview,
     draftText,
@@ -461,6 +496,7 @@ export function useAuthoringBlockWorkflow({
     submit,
     accept,
     retryPersist,
+    saveRetainedAsExploration,
     saveAsExploration
   }
 }

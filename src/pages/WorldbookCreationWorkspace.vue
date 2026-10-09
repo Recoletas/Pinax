@@ -43,16 +43,23 @@ import {
   getCreationSourceResultState
 } from '../services/worldbook/worldbookCreationState'
 
+const props = defineProps({ embedded: { type: Boolean, default: false }, bookId: { type: String, default: '' }, fileMode: { type: Boolean, default: false } })
+const emit = defineEmits(['close', 'completed'])
 const route = useRoute()
+const inputQuery = computed(() => props.embedded ? { bookId: props.bookId, mode: 'sources', workspaceId: `source-import:${props.bookId}` } : route.query)
+let disposed = false
+let confirmed = false
 const router = useRouter()
 const worldStore = useWorldStore()
 // N-A：项目书上下文。携带 bookId 进入时，确认动作按"未绑定建库绑定 /
 // 已绑定追加"处理，不再只切全局 active（NA05）。
-const projectBookId = ref(String(route.query.bookId || ''))
+const projectBookId = ref(String(inputQuery.value.bookId || ''))
 const bookContext = ref(null)
+const sourceInputMode = ref('file')
+const isSourceImport = computed(() => Boolean(bookContext.value?.ok && inputQuery.value.mode === 'sources'))
 
 function refreshBookContext() {
-  projectBookId.value = String(route.query.bookId || '')
+  projectBookId.value = String(inputQuery.value.bookId || '')
   bookContext.value = projectBookId.value
     ? resolveBookSourceContext(projectBookId.value)
     : null
@@ -62,7 +69,8 @@ function refreshBookContext() {
 const projectReturnQuery = computed(() => (
   projectBookId.value ? { bookId: projectBookId.value } : {}
 ))
-const projectReturnRoute = computed(() => projectBookId.value && route.query.mode === 'sources' ? 'settings-sources' : 'settings-structured')
+const projectReturnRoute = computed(() => projectBookId.value && inputQuery.value.mode === 'sources' ? 'settings-sources' : 'settings-structured')
+const projectReturnLabel = computed(() => projectReturnRoute.value === 'settings-sources' ? '返回资料' : '返回世界书')
 const projectBindingLabel = computed(() => {
   const context = bookContext.value
   if (!context?.ok) return ''
@@ -91,6 +99,7 @@ const jsonConflictResolved = computed(() => !jsonNameConflict.value || ['create'
 const fileInput = ref(null)
 const jsonInput = ref(null)
 const dragging = ref(false)
+let dragDepth = 0
 const busy = ref(false)
 const brief = ref('')
 const pastedText = ref('')
@@ -134,8 +143,8 @@ function throwDispatchFailure(result, fallbackMessage) {
 }
 
 const workspace = reactive(createCreationWorkspace({
-  id: String(route.query.workspaceId || 'creation-active'),
-  mode: ['structured-import', 'brief'].includes(String(route.query.mode)) ? String(route.query.mode) : 'sources'
+  id: String(inputQuery.value.workspaceId || 'creation-active'),
+  mode: ['structured-import', 'brief'].includes(String(inputQuery.value.mode)) ? String(inputQuery.value.mode) : 'sources'
 }))
 
 function isSourceUsable(item) {
@@ -248,7 +257,7 @@ function addFailedQueueItem(result, error = null) {
   const failedItem = {
     id: `failed-${Date.now()}-${sourceQueue.value.length}`,
     title: result?.fileName || '未命名文件',
-    kind: 'text-file',
+    kind: result?.artifact?.kind || result?.format || detectSourceKind({ name: result?.fileName }) || 'text-file',
     status: result?.error?.code === 'needs-ocr' ? 'needs-ocr' : 'error',
     error: error
       ? { code: failure.code, message: failure.message }
@@ -475,12 +484,14 @@ async function parseFiles(files) {
         if (metrics && typeof metrics === 'object') workspace.sourceParseMetrics = metrics
       }
     })
+    if (disposed) return
     if (dispatched.status !== 'completed') throwDispatchFailure(dispatched, '资料读取失败。')
     const results = dispatched.actions[0].payload
     let readyCount = 0
     let failedCount = 0
     let memoryOnlyCount = 0
     for (const [index, result] of results.entries()) {
+      if (disposed) return
       removeProcessingQueueItems([processingIds[index]])
       try {
         const added = await addParsedResult(result)
@@ -526,7 +537,7 @@ async function parseFiles(files) {
     if (activeAbortController === abortController) activeAbortController = null
     cancelAvailable.value = false
     busy.value = false
-    dragging.value = false
+    resetDrag()
     refreshArchiveUsage()
   }
 }
@@ -536,7 +547,32 @@ function onFileChange(event) {
   event.target.value = ''
 }
 
+function isFileDrag(event) {
+  return Array.from(event.dataTransfer?.types || []).includes('Files')
+}
+function resetDrag() { dragDepth = 0; dragging.value = false }
+function onDragEnter(event) {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  dragDepth += 1
+  dragging.value = true
+}
+function onDragOver(event) {
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = busy.value || restoring.value ? 'none' : 'copy'
+}
+function onDragLeave() {
+  if (!dragging.value) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (!dragDepth) dragging.value = false
+}
 function onDrop(event) {
+  resetDrag()
+  if (!isFileDrag(event)) return
+  event.preventDefault()
+  if (busy.value || restoring.value) return
+  sourceInputMode.value = 'file'
   parseFiles(event.dataTransfer?.files)
 }
 
@@ -588,7 +624,9 @@ function removeSource(id) {
   workspace.sourceFailures = (workspace.sourceFailures || []).filter((failure) => failure.id !== id)
   if (!removedSourceIds.value.includes(id)) removedSourceIds.value.push(id)
   if (previewSourceId.value === id) previewSourceId.value = ''
-  infoMessage.value = '资料已从当前工作区移除；可在右侧清理未引用归档。'
+  infoMessage.value = isSourceImport.value
+    ? '资料已从待添加列表移除。'
+    : '资料已从当前工作区移除；可在右侧清理未引用归档。'
 }
 
 function toggleSource(id) {
@@ -721,10 +759,12 @@ async function confirmAppendSources() {
     })
     if (!result.ok) throw new Error(`资料写入失败（${result.detail || result.reason}）；已选资料保留在本页，可重试。`)
     await worldStore.loadWorldbooksIndex()
+    confirmed = true
     await deleteCreationWorkspace(workspace.id)
     infoMessage.value = `已加入本书资料库：新增 ${result.added} 份${result.skipped ? `，跳过重复 ${result.skipped} 份` : ''}。`
-    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
+    await finishConfirmation({ bookId: context.book.id, sources: selectedFullSourceDocuments() })
   } catch (error) {
+    confirmed = false
     setGenerationFailure(error, 'append-sources')
   } finally {
     busy.value = false
@@ -821,6 +861,7 @@ async function onJsonChange(event) {
     })
     infoMessage.value = 'JSON 结构预览已就绪，确认后直接导入，不经过普通文本提炼。'
   } catch (error) {
+    confirmed = false
     setGenerationFailure(error, 'json-import')
     errorMessage.value = `JSON 预览失败：${errorMessage.value}`
   } finally {
@@ -858,10 +899,11 @@ async function confirmJsonImport() {
         bindingNote += ' 本书关联已更换为该世界书。'
       }
       await worldStore.loadWorldbooksIndex()
+      confirmed = true
       await deleteCreationWorkspace(workspace.id)
       jsonPreview.value = null
       infoMessage.value = bindingNote
-      await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
+      await finishConfirmation()
       return
     }
     const created = await worldStore.importFromSillyTavern(jsonPreview.value.rawData)
@@ -897,11 +939,13 @@ async function confirmJsonImport() {
         bindingNote = '新世界书保持独立；本书仍关联原资料库。'
       }
     }
+    confirmed = true
     await deleteCreationWorkspace(workspace.id)
     jsonPreview.value = null
     infoMessage.value = bindingNote
-    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
+    await finishConfirmation()
   } catch (error) {
+    confirmed = false
     setGenerationFailure(error, 'json-import')
     errorMessage.value = `导入失败：${errorMessage.value}`
   } finally {
@@ -941,10 +985,12 @@ async function confirmFoundation() {
         bindingNote = '新世界书保持独立；本书仍关联原资料库。'
       }
     }
+    confirmed = true
     await deleteCreationWorkspace(workspace.id)
     infoMessage.value = bindingNote
-    await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
+    await finishConfirmation()
   } catch (error) {
+    confirmed = false
     setGenerationFailure(error, 'foundation-confirm')
     errorMessage.value = `创建失败：${errorMessage.value}`
   } finally {
@@ -952,12 +998,26 @@ async function confirmFoundation() {
   }
 }
 
+async function finishConfirmation(payload = {}) {
+  confirmed = true
+  if (props.embedded) emit('completed', payload)
+  else await router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
+}
+
+function requestClose() {
+  if (busy.value && !cancelAvailable.value) return
+  disposed = true
+  activeAbortController?.abort()
+  emit('close')
+}
+defineExpose({ requestClose })
+
 function goBack() {
   router.push({ name: 'settings-worldbook' })
 }
 
 watch(
-  () => String(route.query.bookId || ''),
+  () => String(inputQuery.value.bookId || ''),
   () => {
     refreshBookContext()
     rebindAfterCreate.value = false
@@ -981,10 +1041,12 @@ watch(
         error: item.error
       })),
     brief: brief.value,
+    pastedText: pastedText.value,
+    sourceInputMode: sourceInputMode.value,
     foundationDraft: pendingPayload.value || workspace.foundationDraft
   }),
   (next) => {
-    if (restoring.value) return
+    if (restoring.value || disposed || confirmed) return
     saveCreationWorkspace(next).catch(() => {})
   },
   { deep: true }
@@ -996,6 +1058,7 @@ onMounted(async () => {
   try {
     await worldStore.loadWorldbooksIndex()
     const restored = await loadCreationWorkspace(workspace.id)
+    if (disposed) return
     if (!restored) return
     Object.assign(workspace, restored)
     if (['preparing', 'generating', 'validating'].includes(workspace.generationState)) {
@@ -1008,6 +1071,8 @@ onMounted(async () => {
     const selectedSourceIds = new Set(Array.isArray(restored.selectedSourceIds) ? restored.selectedSourceIds : restored.sourceIds)
     workspace.selectedSourceIds = [...selectedSourceIds]
     brief.value = restored.brief || ''
+    pastedText.value = restored.pastedText || ''
+    sourceInputMode.value = restored.sourceInputMode || 'file'
     pendingPayload.value = restored.foundationDraft || null
 
     const artifacts = await loadSourceArtifacts(restored.sourceIds)
@@ -1040,7 +1105,7 @@ onMounted(async () => {
       chunkCount: 0,
       chunks: []
     }))
-    sourceQueue.value = [...restoredSources, ...restoredFailures]
+    if (!disposed) sourceQueue.value = [...restoredSources, ...restoredFailures]
   } catch (error) {
     errorMessage.value = error?.message || '创建工作区恢复失败。'
   } finally {
@@ -1049,6 +1114,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   activeAbortController?.abort()
   activeAbortController = null
   cancelAvailable.value = false
@@ -1056,28 +1122,31 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="creation-page">
-    <SettingsSectionNav />
+  <div class="creation-page" :class="{ 'is-source-import': isSourceImport, 'is-embedded': embedded }" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop" @dragend="resetDrag">
+    <div v-if="dragging" class="source-drag-feedback" role="status"><WorkbenchIcon name="import-manuscript" :size="36" /><strong>{{ busy || restoring ? tr('正在读取，请稍候') : tr(fileMode ? '松开以添加文件' : '松开以添加资料') }}</strong><span>{{ bookContext?.book?.title || tr('资料') }}</span></div>
+    <SettingsSectionNav v-if="!isSourceImport" />
 
     <header class="creation-header">
-      <button type="button" class="creation-back" :aria-label="tr(&quot;返回世界书&quot;)" :title="tr(&quot;返回世界书&quot;)" @click="goBack">
+      <button v-if="!embedded" type="button" class="creation-back" :aria-label="tr(projectReturnLabel)" :title="tr(projectReturnLabel)" @click="goBack">
         <span aria-hidden="true">‹</span>
-        <span>{{ tr("返回世界书") }}</span>
+        <span>{{ tr(projectReturnLabel) }}</span>
       </button>
       <div>
-        <h1>{{ bookContext?.ok ? tr("本书资料导入") : tr("建立一册世界书") }}</h1>
-        <p>{{ tr("添加资料后可直接回书稿；需要时再用 AI 建立基调。") }}</p>
-        <p v-if="projectBindingLabel" class="creation-binding" data-test="creation-binding-label">{{ projectBindingLabel }}</p>
+        <h1 id="source-import-heading">{{ isSourceImport ? tr(fileMode ? "添加文件" : "添加资料") : bookContext?.ok ? tr("本书资料导入") : tr("建立一册世界书") }}</h1>
+        <p v-if="isSourceImport" class="source-import-target">{{ bookContext.book.title || tr("未命名书稿") }}</p>
+        <p v-else>{{ tr("添加资料后可直接回书稿；需要时再用 AI 建立基调。") }}</p>
+        <p v-if="projectBindingLabel && !isSourceImport" class="creation-binding" data-test="creation-binding-label">{{ projectBindingLabel }}</p>
       </div>
-      <div class="creation-state" :class="`is-${generationState}`" aria-live="polite">
+      <button v-if="embedded" type="button" class="source-dialog-close" :disabled="busy && !cancelAvailable" :aria-label="tr('关闭')" @click="requestClose"><WorkbenchIcon name="close" :size="20" /></button>
+      <div v-if="!isSourceImport || busy" class="creation-state" :class="`is-${generationState}`" aria-live="polite">
         <strong>{{ statusLabel }}</strong>
         <small v-if="generationMessage">{{ displayNotice(generationMessage) }}</small>
       </div>
     </header>
 
     <main class="creation-main">
-      <section class="creation-section creation-sources" aria-labelledby="source-title">
-        <div class="section-heading">
+      <section class="creation-section creation-sources" :aria-labelledby="isSourceImport ? undefined : 'source-title'" :aria-label="isSourceImport ? tr(fileMode ? '添加文件' : '添加资料') : undefined">
+        <div v-if="!isSourceImport" class="section-heading">
           <span class="section-mark" aria-hidden="true"><WorkbenchIcon name="archive" :size="17" /></span>
           <div>
             <h2 id="source-title">{{ tr("资料") }}</h2>
@@ -1085,13 +1154,14 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div v-if="isSourceImport" class="source-input-switch" role="group" :aria-label="tr('添加方式')">
+          <button type="button" :aria-pressed="sourceInputMode === 'file'" :disabled="busy" @click="sourceInputMode = 'file'"><WorkbenchIcon name="document" :size="17" />{{ tr('文件') }}</button>
+          <button type="button" :aria-pressed="sourceInputMode === 'text'" :disabled="busy" @click="sourceInputMode = 'text'"><WorkbenchIcon name="pencil" :size="17" />{{ tr('粘贴文字') }}</button>
+        </div>
         <div
+          v-if="!isSourceImport || sourceInputMode === 'file'"
           class="source-dropzone"
           :class="{ 'is-dragging': dragging }"
-          @dragenter.prevent="dragging = true"
-          @dragover.prevent="dragging = true"
-          @dragleave.prevent="dragging = false"
-          @drop.prevent="onDrop"
         >
           <input
             ref="fileInput"
@@ -1102,32 +1172,35 @@ onBeforeUnmount(() => {
             accept=".txt,.text,.md,.markdown,.pdf,.docx, text/plain, text/markdown, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             @change="onFileChange"
           />
-          <span class="dropzone-mark" aria-hidden="true">＋</span>
-          <strong>{{ tr("拖入资料，或选择多个文件") }}</strong>
+          <WorkbenchIcon v-if="isSourceImport" name="import-manuscript" :size="28" class="source-upload-icon" />
+          <span v-else class="dropzone-mark" aria-hidden="true">＋</span>
+          <strong>{{ tr(fileMode ? "拖入文件，或选择多个文件" : "拖入资料，或选择多个文件") }}</strong>
+          <small v-if="isSourceImport" class="source-file-types">TXT · Markdown · PDF · DOCX</small>
           <small>{{ tr("文件在本地提取文字；扫描 PDF 会标记为需要 OCR。") }}</small>
           <button type="button" class="text-action" @click="openFilePicker">{{ tr("选择文件") }}</button>
           <button v-if="busy && workspace.generationAction === 'sources'" type="button" class="quiet-action" @click="cancelActiveTask">{{ tr("停止读取") }}</button>
         </div>
 
-        <div class="paste-row">
+        <div v-if="!isSourceImport || sourceInputMode === 'text'" class="paste-row">
           <textarea
             v-model="pastedText"
             rows="3"
             :placeholder="tr(&quot;也可以把正文、章节摘要或设定片段粘贴到这里……&quot;)"
            :aria-label="tr(&quot;粘贴资料文本&quot;)"></textarea>
           <button type="button" class="quiet-action" :disabled="!pastedText.trim() || busy" @click="addPastedSource">
-            {{ tr("暂存片段") }}
+            {{ isSourceImport ? tr("添加到列表") : tr("暂存片段") }}
           </button>
         </div>
 
-        <div v-if="sourceQueue.length" class="source-queue" :aria-label="tr(&quot;已添加资料&quot;)">
+        <div v-if="sourceQueue.length" class="source-queue" :aria-label="tr(fileMode ? '已添加文件' : '已添加资料')">
           <div class="source-queue__head">
-            <span>{{ tr('已选 {count} 份 · {chars} 字', { count: selectedSourceCount, chars: formatUiNumber(selectedCharacterCount) }) }}</span>
+            <span v-if="isSourceImport">{{ tr("待添加的资料") }}</span>
+            <span v-else>{{ tr('已选 {count} 份 · {chars} 字', { count: selectedSourceCount, chars: formatUiNumber(selectedCharacterCount) }) }}</span>
             <button type="button" class="text-action" @click="toggleAllSources">
               {{ selectedSourceCount === readySourceCount ? tr("取消全选") : tr("全选可用资料") }}
             </button>
           </div>
-          <div v-if="bookContext?.ok" class="append-sources-line">
+          <div v-if="bookContext?.ok && !isSourceImport" class="append-sources-line">
             <button
               type="button"
               class="primary-action"
@@ -1135,7 +1208,7 @@ onBeforeUnmount(() => {
               :disabled="busy || !selectedSourceCount"
               @click="confirmAppendSources"
             >
-              {{ tr('加入本书（{count}）', { count: selectedSourceCount }) }}
+              {{ tr(fileMode ? '添加文件（{count}）' : '加入本书（{count}）', { count: selectedSourceCount }) }}
             </button>
             <small>{{ bookContext.mode === 'unbound' ? tr("确认时建立随书资料库。") : tr("追加到当前资料库。") }}{{ tr("重复内容自动跳过。") }}</small>
           </div>
@@ -1163,10 +1236,11 @@ onBeforeUnmount(() => {
               <small v-else-if="item.status === 'processing'" class="is-processing">
                 {{ item.parseStatus === 'error' ? displayNotice(item.error?.message || tr("读取失败，正在整理结果……")) : tr('{progress}% · 正在读取', { progress: item.parseProgress }) }}
               </small>
+              <small v-else-if="isSourceImport">{{ tr('{count} 字', { count: formatUiNumber(item.charCount) }) }}</small>
               <small v-else>{{ tr('{chars} 字 · {chunks} 个片段', { chars: formatUiNumber(item.charCount), chunks: item.chunkCount }) }}</small>
             </div>
             <span class="source-status" :class="`is-${item.status}`">{{ sourceStatusLabel(item.status) }}</span>
-            <button type="button" class="icon-action" :aria-label="tr('移除 {title}', { title: item.title })" @click="removeSource(item.id)">×</button>
+            <button type="button" class="icon-action" :disabled="busy" :aria-label="tr('移除 {title}', { title: item.title })" @click="removeSource(item.id)">×</button>
           </div>
           <div v-if="previewSource" class="source-preview">
             <div class="source-preview__head">
@@ -1177,8 +1251,9 @@ onBeforeUnmount(() => {
             <pre>{{ previewSource.chunks.map((chunk) => chunk.text).join('\n\n') }}</pre>
           </div>
         </div>
-        <p v-else class="source-empty">{{ tr("尚未添加资料。也可以直接从一句构思开始。") }}</p>
+        <p v-else-if="!isSourceImport" class="source-empty">{{ tr("尚未添加资料。也可以直接从一句构思开始。") }}</p>
 
+        <template v-if="!isSourceImport">
         <div class="json-import-line">
           <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" :aria-label="tr(&quot;导入设定 JSON&quot;)" @change="onJsonChange" />
           <button type="button" class="text-action" :disabled="busy" @click="openJsonPicker">{{ tr("导入 SillyTavern / Pinax JSON") }}</button>
@@ -1230,8 +1305,64 @@ onBeforeUnmount(() => {
             <span>{{ tr("确认后进入详细设定。") }}</span>
           </div>
         </section>
+        </template>
       </section>
 
+      <details v-if="isSourceImport" class="source-import-options" :open="Boolean(jsonPreview || pendingPayload)">
+        <summary>{{ tr('更多选项') }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+        <div class="json-import-line">
+          <input ref="jsonInput" class="visually-hidden" type="file" accept=".json,application/json" :aria-label="tr(&quot;导入设定 JSON&quot;)" @change="onJsonChange" />
+          <button type="button" class="text-action" :disabled="busy" @click="openJsonPicker">{{ tr("导入 SillyTavern / Pinax JSON") }}</button>
+          <span v-if="jsonPreview">{{ tr('已读取：{name} · {count} 条目', { name: jsonPreview.name, count: jsonPreview.entryCount }) }}</span>
+        </div>
+
+        <section v-if="jsonPreview" class="json-preview" :aria-label="tr(&quot;JSON 结构化预览&quot;)">
+          <div class="json-preview__heading">
+            <div>
+              <span class="preview-kicker">STRUCTURED IMPORT</span>
+              <h3>{{ jsonPreview.name }}</h3>
+            </div>
+            <span>{{ tr('{count} 条目', { count: jsonPreview.entryCount }) }}</span>
+          </div>
+          <div class="json-preview__stats">
+            <span>{{ tr('{count} 个分组', { count: jsonPreview.groupCount }) }}</span>
+            <span>{{ tr('{count} 条有触发词', { count: jsonPreview.keyedEntryCount }) }}</span>
+            <span v-if="jsonPreview.configuredEntryCount">{{ tr('{count} 条含注入参数', { count: jsonPreview.configuredEntryCount }) }}</span>
+          </div>
+          <div v-if="jsonPreview.typeSummary.length" class="json-preview__types">
+            <span v-for="item in jsonPreview.typeSummary" :key="item.type">{{ tr(item.label) }} {{ item.count }}</span>
+          </div>
+          <ol v-if="jsonPreview.previewEntries.length" class="json-preview__entries">
+            <li v-for="entry in jsonPreview.previewEntries" :key="entry.id">
+              <div>
+                <strong>{{ entry.name }}</strong>
+                <small>{{ tr(entry.typeLabel) }}<template v-if="entry.group"> · {{ entry.group }}</template></small>
+              </div>
+              <p>{{ entry.content || tr("未提供正文预览") }}</p>
+              <small v-if="entry.keys.length">{{ tr("触发：") }}{{ entry.keys.join('、') }}</small>
+            </li>
+          </ol>
+          <p v-else class="json-preview__empty">{{ tr("没有识别到可导入条目，无法确认导入。") }}</p>
+          <div v-if="jsonNameConflict" class="json-conflict" data-test="json-name-conflict" role="status">
+            <p class="json-conflict-note">{{ tr('已存在同名世界书「{name}」。选择处理方式：', { name: jsonNameConflict.name }) }}</p>
+            <p class="json-conflict-note">{{ tr("当前条目") }} {{ formatUiNumber(jsonNameConflict.entryCount || 0) }} · {{ tr("导入条目") }} {{ formatUiNumber(jsonPreview.entryCount) }}</p>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="create" /> {{ tr("新建为独立世界书，保留现有内容") }}</label>
+            <label class="rebind-choice"><input v-model="jsonImportMode" type="radio" value="update" /> {{ tr("并入同名世界书（按名称+类型逐条：新增/更新/跳过）") }}</label>
+            <p v-if="!jsonConflictResolved" class="json-conflict-note">{{ tr("请选择一种处理方式后再确认。") }}</p>
+          </div>
+          <div v-if="jsonPreview.entryCount" class="json-preview__actions">
+            <button type="button" class="primary-action" :disabled="busy || !jsonConflictResolved" @click="confirmJsonImport">
+              {{ tr(jsonImportMode === 'update' && jsonNameConflict ? '并入同名世界书' : jsonConfirmLabel) }}
+            </button>
+            <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
+              <input v-model="rebindAfterCreate" type="checkbox" />
+              {{ tr("新建后更换本书关联") }}
+            </label>
+            <span>{{ tr("确认后进入详细设定。") }}</span>
+          </div>
+        </section>
+      <details class="creation-foundation-disclosure" :open="Boolean(pendingPayload) || !bookContext?.ok">
+        <summary><span>{{ tr('提炼创作基调') }}</span><small>{{ tr('可选：从资料提炼文风与设定边界') }}</small><WorkbenchIcon name="chevron-down" :size="16" /></summary>
       <section class="creation-section creation-foundation" aria-labelledby="foundation-title">
         <div class="section-heading">
           <span class="section-mark" aria-hidden="true"><WorkbenchIcon name="sparkles" :size="17" /></span>
@@ -1283,6 +1414,9 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      </details>
+
+        <details class="source-archive-options"><summary>{{ tr('本地归档') }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
       <aside class="creation-summary" :aria-label="tr(&quot;创建进度&quot;)">
         <h2>{{ workspace.name || tr("未命名世界书") }}</h2>
         <dl>
@@ -1302,10 +1436,92 @@ onBeforeUnmount(() => {
         </div>
         <p class="summary-note">{{ tr("刷新或离开页面后，已暂存的创建工作区仍可恢复。") }}</p>
       </aside>
+        </details>
+      </details>
+      <template v-else>
+      <details class="creation-foundation-disclosure" :open="Boolean(pendingPayload) || !bookContext?.ok">
+        <summary><span>{{ tr('提炼创作基调') }}</span><small>{{ tr('可选：从资料提炼文风与设定边界') }}</small><WorkbenchIcon name="chevron-down" :size="16" /></summary>
+      <section class="creation-section creation-foundation" aria-labelledby="foundation-title">
+        <div class="section-heading">
+          <span class="section-mark" aria-hidden="true"><WorkbenchIcon name="sparkles" :size="17" /></span>
+          <div>
+            <h2 id="foundation-title">{{ tr("基础基调") }}</h2>
+            <p>{{ tr("这里只建立世界骨架、文风和一致性边界，不一次生成整本世界书。") }}</p>
+          </div>
+        </div>
+
+        <label class="field-label">
+          {{ tr("世界书名称") }}
+          <input v-model.trim="workspace.name" type="text" :placeholder="tr(&quot;例如：风雪港调查案&quot;)" :aria-label="tr(&quot;作品名&quot;)" />
+        </label>
+        <label class="field-label">
+          {{ tr("一句构思或提炼方向") }}
+          <textarea v-model="brief" rows="6" :placeholder="tr(&quot;例如：蒸汽港城在每次退潮后会露出一段被抹去的历史……&quot;)" :aria-label="tr(&quot;资料简介&quot;)"></textarea>
+        </label>
+
+        <div class="foundation-actions">
+          <button type="button" class="primary-action" :disabled="!canGenerate || (busy && !cancelAvailable)" @click="cancelAvailable ? cancelActiveTask() : generateFoundation()">
+            {{ cancelAvailable ? tr("停止生成") : (busy ? tr("正在整理……") : tr("生成基础基调")) }}
+          </button>
+          <span>{{ tr("仅发送选中的资料；长文会取开头、中段和结尾代表片段。") }}</span>
+        </div>
+
+        <div v-if="pendingPayload" class="foundation-preview" aria-live="polite">
+          <div class="preview-heading">
+            <div>
+              <span class="preview-kicker">DRAFT / FOUNDATION</span>
+              <h3>{{ pendingPayload.name }}</h3>
+            </div>
+            <span>{{ tr("待确认") }}</span>
+          </div>
+          <p>{{ pendingPayload.worldDescription }}</p>
+          <dl>
+            <div><dt>{{ tr("文风") }}</dt><dd>{{ pendingPayload.writingStyle || tr("未填写") }}</dd></div>
+            <div><dt>{{ tr("禁写") }}</dt><dd>{{ pendingPayload.forbidden || tr("未填写") }}</dd></div>
+          </dl>
+          <div class="preview-actions">
+            <button type="button" class="primary-action" :disabled="busy" @click="confirmFoundation">
+              {{ tr(foundationConfirmLabel) }}
+            </button>
+            <button type="button" class="quiet-action" :disabled="busy" @click="pendingPayload = null">{{ tr("重新生成") }}</button>
+            <label v-if="bookContext?.ok && bookContext.mode === 'project'" class="rebind-choice">
+              <input v-model="rebindAfterCreate" type="checkbox" />
+              {{ tr("新建后更换本书关联") }}
+            </label>
+          </div>
+        </div>
+      </section>
+
+      </details>
+
+      <aside class="creation-summary" :aria-label="tr(&quot;创建进度&quot;)">
+        <h2>{{ workspace.name || tr("未命名世界书") }}</h2>
+        <dl>
+          <div><dt>{{ tr("资料") }}</dt><dd>{{ tr('{selected} / {total} 份参与', { selected: selectedSourceCount, total: readySourceCount }) }}</dd></div>
+          <div><dt>{{ tr("文字") }}</dt><dd>{{ tr('{selected} / {total} 字', { selected: formatUiNumber(selectedCharacterCount), total: formatUiNumber(sourceCharacterCount) }) }}</dd></div>
+          <div><dt>{{ tr("状态") }}</dt><dd>{{ statusLabel }}</dd></div>
+        </dl>
+        <div class="summary-storage" :class="{ 'is-warning': archiveUsageWarning }">
+          <div class="summary-storage__line">
+            <span>{{ tr("本地归档") }}</span>
+            <strong>{{ archiveUsageLabel }}</strong>
+          </div>
+          <small>{{ tr("只保存抽取文字与定位信息，原始文件不会上传。") }}</small>
+          <button type="button" class="text-action" :disabled="archiveCleaning" @click="cleanupArchive">
+            {{ archiveCleaning ? tr("清理中……") : tr("清理未引用资料") }}
+          </button>
+        </div>
+        <p class="summary-note">{{ tr("刷新或离开页面后，已暂存的创建工作区仍可恢复。") }}</p>
+      </aside>
+      </template>
     </main>
 
     <p v-if="errorMessage" class="creation-message is-error" role="alert">{{ displayNotice(errorMessage) }}</p>
     <p v-if="infoMessage" class="creation-message" aria-live="polite">{{ displayNotice(infoMessage) }}</p>
+    <footer v-if="isSourceImport" class="source-import-submit">
+      <span>{{ selectedSourceCount ? tr('已选 {count} 份 · {chars} 字', { count: selectedSourceCount, chars: formatUiNumber(selectedCharacterCount) }) : tr('选择文件或粘贴文字') }}</span>
+      <button type="button" class="primary-action" data-test="append-sources-confirm" :disabled="busy || !selectedSourceCount" @click="confirmAppendSources">{{ tr(fileMode ? '添加文件（{count}）' : '加入本书（{count}）', { count: selectedSourceCount }) }}</button>
+    </footer>
   </div>
 </template>
 
@@ -1901,4 +2117,90 @@ dd { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.55
     margin: 0;
   }
 }
+</style>
+
+<style scoped>
+.creation-foundation-disclosure { grid-column: 1; min-width: 0; border-top: 1px solid var(--hairline-soft); }
+.creation-foundation-disclosure > summary, .source-import-options > summary, .source-archive-options > summary { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 12px 0; list-style: none; cursor: pointer; color: var(--text-secondary); font: 500 13px/1.5 var(--font-sans); }
+.creation-foundation-disclosure > summary::-webkit-details-marker, .source-import-options > summary::-webkit-details-marker, .source-archive-options > summary::-webkit-details-marker { display: none; }
+.creation-foundation-disclosure > summary small { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+.creation-foundation-disclosure > summary svg, .source-import-options > summary svg, .source-archive-options > summary svg { margin-left: auto; }
+.creation-foundation-disclosure > summary:focus-visible, .source-import-options > summary:focus-visible, .source-archive-options > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.creation-page.is-source-import { min-height: 100%; padding: 32px max(24px, calc((100% - 760px) / 2)) 0; background: var(--surface-workbench); font-family: var(--font-interface); box-sizing: border-box; }
+.is-source-import .creation-header { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px 16px; padding: 0 0 28px; border: 0; }
+.is-source-import .creation-back { grid-column: 1 / -1; }
+.is-source-import .creation-header h1 { margin: 0 0 8px; font: 500 26px/1.4 var(--font-interface); }
+.is-source-import .source-import-target { font-size: 14px; }
+.is-source-import .creation-main { width: 100%; display: flex; flex-direction: column; gap: 24px; padding: 0; }
+.is-source-import .creation-sources { width: 100%; min-width: 0; padding: 0; border: 0; background: transparent; }
+.source-input-switch { display: flex; gap: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--hairline-soft); }
+.source-input-switch button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 2px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: 500 14px/1.5 var(--font-interface); cursor: pointer; }
+.source-input-switch button[aria-pressed='true'] { color: var(--text-primary); border-bottom-color: var(--accent); }
+.source-input-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.is-source-import .source-dropzone { min-height: 240px; box-sizing: border-box; justify-content: center; padding: 36px 24px; border: 1px dashed var(--hairline-soft); border-radius: 10px; background: var(--surface-workbench-muted); }
+.source-upload-icon { color: var(--text-muted); margin-bottom: 8px; }
+.is-source-import .source-dropzone .text-action { min-height: 40px; margin-top: 12px; padding: 8px 16px; border: 1px solid var(--hairline-soft); border-radius: 8px; background: var(--surface-workbench); color: var(--text-primary); }
+.is-source-import .paste-row { display: flex; flex-direction: column; gap: 12px; margin: 0; align-items: stretch; }
+.is-source-import .paste-row textarea { width: 100%; min-height: 240px; box-sizing: border-box; border: 1px solid var(--hairline-soft); border-radius: 10px; padding: 18px; background: var(--surface-workbench-input); color: var(--text-primary); font: 14px/1.8 var(--font-interface); }
+.is-source-import .paste-row .quiet-action { align-self: flex-end; padding: 8px 16px; border-radius: 8px; color: var(--accent); background: var(--nav-hover); min-height: 40px; }
+.is-source-import .source-queue { margin-top: 28px; }
+.is-source-import .source-queue__head { border-bottom: 1px solid var(--hairline-soft); padding-bottom: 12px; }
+.is-source-import .source-row { padding: 16px 0; border-bottom: 1px solid var(--hairline-soft); }
+.is-source-import .source-preview { padding: 16px; border-radius: 8px; background: var(--surface-workbench-muted); }
+.source-import-options { width: 100%; border-top: 1px solid var(--hairline-soft); }
+.is-source-import .json-import-line { margin: 12px 0 24px; }
+.is-source-import .creation-summary { position: static; padding: 16px 0; margin: 0; border: 0; background: transparent; box-shadow: none; }
+.is-source-import .creation-summary h2 { display: none; }
+.is-source-import .creation-foundation { padding: 16px 0 24px; border: 0; }
+.source-import-submit { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: 100%; box-sizing: border-box; margin-top: 24px; padding: 20px 0 max(20px, env(safe-area-inset-bottom)); border-top: 1px solid var(--hairline-soft); background: var(--surface-workbench); }
+.source-import-submit > span { color: var(--text-secondary); font-size: 13px; }
+.is-source-import .primary-action, .is-source-import .quiet-action { border-radius: 8px; min-height: 40px; }
+.is-source-import .primary-action { color: var(--accent-text); }
+
+@media (max-width: 760px) {
+ .creation-page.is-source-import { padding: 24px 16px 0; }
+ .is-source-import .creation-header { padding-bottom: 24px; }
+ .is-source-import .creation-header h1 { font-size: 24px; }
+ .is-source-import .source-dropzone { min-height: 220px; padding: 28px 16px; }
+ .is-source-import .source-dropzone small { text-align: center; line-height: 1.7; }
+ .is-source-import .primary-action, .is-source-import .quiet-action, .is-source-import .source-dropzone .text-action { min-height: 44px; }
+ .source-import-submit > span { flex: 1 1 100%; }
+ .source-import-submit > button { width: 100%; }
+ .creation-foundation-disclosure > summary { flex-wrap: wrap; }
+}
+.source-drag-feedback { position: absolute; inset: 10px; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; border: 2px dashed var(--accent); border-radius: 12px; background: var(--surface-workbench); color: var(--accent); pointer-events: none; }
+.source-drag-feedback strong { font: 600 20px/1.5 var(--font-interface); }
+.source-drag-feedback span { color: var(--text-secondary); font-size: 13px; }
+.creation-page { position: relative; }
+.creation-page.is-embedded { display: flex; flex-direction: column; min-height: 0; max-height: min(760px, calc(100dvh - 80px)); padding: 0; overflow: hidden; }
+.is-embedded .creation-header { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 26px 28px 18px; }
+.is-embedded .creation-header h1 { margin-bottom: 4px; font-size: 21px; font-weight: 600; }
+.is-embedded .source-import-target { font-size: 13px; }
+.source-dialog-close { display: grid; place-items: center; align-self: start; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.source-dialog-close:hover { background: var(--nav-hover); color: var(--text-primary); }
+.source-dialog-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.source-dialog-close:disabled { opacity: .4; cursor: wait; }
+.is-embedded .creation-state { grid-column: 1 / -1; padding: 0; text-align: left; }
+.is-embedded .creation-main { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 28px; box-sizing: border-box; }
+.is-embedded .source-input-switch { margin-bottom: 18px; }
+.is-embedded .source-dropzone { min-height: 192px; padding: 24px 20px; gap: 10px; border-radius: 10px; }
+.is-embedded .source-upload-icon { width: 24px; height: 24px; }
+.is-embedded .source-dropzone strong { font-size: 14px; }
+.is-embedded .source-dropzone .text-action { margin-top: 2px; }
+.is-embedded .paste-row textarea { min-height: 192px; }
+.is-embedded .source-queue { margin-top: 24px; }
+.is-embedded .source-row { padding: 12px 0; }
+.is-embedded .source-preview { margin-left: 0; }
+.is-embedded .source-import-options { margin-top: 18px; }
+.is-embedded > .creation-message { flex: 0 0 auto; width: auto; margin: 0; padding: 10px 28px; box-sizing: border-box; font-size: 12px; }
+.is-embedded .source-import-submit { position: static; flex: 0 0 auto; margin: 0; padding: 18px 28px; border-top: 1px solid var(--hairline-soft); }
+@media (max-width: 760px) {
+ .creation-page.is-embedded { max-height: calc(100dvh - 32px); padding: 0; }
+ .is-embedded .creation-header { padding: 20px 20px 16px; }
+ .is-embedded .creation-main { padding: 0 20px; }
+ .is-embedded .source-dropzone { min-height: 180px; padding: 20px 12px; }
+ .is-embedded .source-import-submit { padding: 14px 20px max(14px, env(safe-area-inset-bottom)); }
+ .is-embedded > .creation-message { padding: 10px 20px; }
+}
+.is-source-import .creation-message { width: 100%; }
 </style>

@@ -190,10 +190,10 @@ describe('workbench control contract (U1)', () => {
     // C11 / AT-00a：手动锚点按钮已移除，改为断言两段真实行为接线。
     // ① composer 由关转开即自动 reveal 推演面板。
     expect(writing).toContain('if ((blockOpen && !previous[0]) || (interventionOpen && !previous[1])) void revealRehearsalComposer()')
-    // ② 关闭右栏时 abandon/close 未提交 composer，不留失效入口。
+    // ② 关闭右栏保留正文推演输入和运行中请求。
     expect(writing).toContain("if (!wasOpen || previousTool !== 'rehearsal' || (open && tool === 'rehearsal')) return")
-    // ②b 保护条件必须整条锁定：已有 blockPreview 候选、ghosts 阶段不得被误清理。
-    expect(writing).toContain('if (blockComposer.open && !blockPreview.value) abandonBlockComposer({ restoreSelection: false })')
+    // ②b 收起不得等同丢弃；批注独立保持原关闭规则。
+    expect(writing).not.toContain('if (blockComposer.open && !blockPreview.value) abandonBlockComposer({ restoreSelection: false })')
     expect(writing).toContain("if (interventionComposer.open && interventionComposer.phase !== 'ghosts') {")
     // ③ 已移除的锚点按钮不得回潮。
     expect(writing).not.toContain('authoring-rehearsal-anchor')
@@ -221,8 +221,9 @@ describe('workbench control contract (U1)', () => {
       expect(authoringBlockCss).toContain('.writing-annotation__edit')
       expect(authoringBlockCss).toMatch(/\.writing-annotation__edit \{[\s\S]*border: 1px solid var\(--authoring-hairline\);[\s\S]*box-shadow: none;/)
       expect(authoringBlockCss).toContain(':has(> .writing-inspector.is-catalog-workbench)')
-      expect(authoringWorldbookPanel).toContain('class="setting-create" :aria-label="tr(\'新建设定\')"')
-      expect(authoringWorldbookPanel).toContain("<span>{{ tr('新建') }}</span>")
+      expect(authoringWorldbookPanel).toContain('class="catalog-actions"')
+      expect(authoringWorldbookPanel).toContain('@click="startCreate"')
+      expect(authoringWorldbookPanel).toContain("{{ tr('新建') }}")
       expect(imageWorkbench).toContain('class="image-gen-style-option"')
       expect(imageWorkbench).toContain('role="radiogroup"')
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__shelf \{[\s\S]*display: grid;/)
@@ -430,15 +431,24 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringWorldbookPanel).toContain('新建时会自动为这本书建立资料库')
     expect(authoringWorldbookPanel).toContain("emit('update', selectedEntry.value.id")
     expect(authoringWorldbookPanel).toContain('<AuthoringSettingAiReview')
-    expect(authoringWorldbookPanel).toContain('class="setting-directory__search-row"')
-    expect(authoringWorldbookPanel).toContain(':aria-label="tr(\'新建设定\')"')
+    expect(authoringWorldbookPanel).toContain('class="catalog-search"')
+    expect(authoringWorldbookPanel).toContain(':aria-label="tr(\'搜索设定\')"')
+    expect(authoringWorldbookPanel).toContain('@click="startCreate"')
     expect(authoringWorldbookPanel).not.toContain("emit('open-character'")
     expect(authoringWorldbookPanel).toContain(':aria-expanded="(!collapsedFolders.has(group.name)).toString()"')
     expect(writing).toContain("activeInspectorTool === 'history' || (activeInspectorTool === 'annotations' && inspectorTab === 'version')")
     expect(writing).toContain(':focus-entry-id="inspectorCharacterEntryId"')
     expect(authoringIllustratorComposable).toContain('visualReferenceCandidates')
     expect(authoringIllustratorComposable).toContain('inlineCandidates')
-    for (const label of ['文本模式', '历史版本', '总纲', '章纲']) expect(authoringOutlinePanel).toContain(label)
+    // 大纲与人物目录共用直接编辑稿面：可搜索、自动增高并保存，原操作与历史入口保留。
+    for (const label of ['搜索大纲', '大纲标题', '大纲内容', '历史版本', '总纲', '章纲']) expect(authoringOutlinePanel).toContain(label)
+    expect(authoringOutlinePanel).toContain('catalog-prose-field')
+    expect(authoringOutlinePanel).toContain('@input="scheduleSave" @blur="flushSave"')
+    expect(authoringOutlinePanel).toContain('resizeContent()')
+    expect(authoringOutlinePanel).toContain("emit('update-project', item.id")
+    expect(authoringOutlinePanel).toContain("emit('update', item.id")
+    expect(authoringOutlinePanel).toContain("emit('history')")
+    expect(authoringOutlinePanel).not.toContain('文本模式')
     expect(authoringOutlinePanel).toContain("emit('insert', selectedItem)")
     expect(authoringOutlinePanel).toContain("toggleGroup('project')")
     expect(authoringOutlinePanel).toContain("toggleGroup('chapter')")
@@ -699,7 +709,8 @@ const shellTemplate = appShell.split('<style scoped>')[0]
     expect(shellTemplate).not.toContain('shell-tabbar')
     expect(shellTemplate).not.toContain('shell-subnav')
     expect(shellTemplate).toContain('shell-drawer__utility')
-    expect(shellTemplate).toContain(':active-panel="activePanel"')
+    expect(shellTemplate).toContain('<WorkspaceProjectNavigation')
+    expect(shellTemplate).toContain(':current="currentProjectSurface"')
     expect(shellTemplate).not.toContain('data-test="shell-storage-status"')
     expect(shellTemplate).toContain('备份与恢复')
     const backupSettings = readFileSync(resolve(__dirname, '../components/workbench/SettingsPopup.vue'), 'utf8')

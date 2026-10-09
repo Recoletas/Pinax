@@ -1,10 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { tr, formatUiNumber } from '../../i18n'
 import { useWorldStore } from '../../stores/worldStore'
 import { loadSourceChunks } from '../../services/worldbook/worldbookSourceArchive'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+const WorldbookSourceImportDialog = defineAsyncComponent(() => import('./WorldbookSourceImportDialog.vue'))
 
 // N-A：设定区可持续管理的资料面板（NA03/NA04/NA09 基础片）。
 // 列表 + 按块加载的全文预览 + 搜索/类型筛选 + 软移除 + 添加入口。
@@ -18,7 +18,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['sources-changed'])
 
-const router = useRouter()
+const importOpen = ref(false)
 const worldStore = useWorldStore()
 const search = ref('')
 const kindFilter = ref('all')
@@ -70,9 +70,12 @@ function addLabel() {
   return props.bookId ? '添加资料' : '添加资料（先选择一本书）'
 }
 
+watch(() => props.bookId, () => { importOpen.value = false })
+function onImportCompleted() { importOpen.value = false; emit('sources-changed') }
+
 function openAdd() {
   if (!props.bookId) return
-  router.push({ name: 'settings-worldbook-create', query: { bookId: props.bookId, mode: 'sources', action: 'add' } })
+  importOpen.value = true
 }
 
 async function togglePreview(source) {
@@ -160,7 +163,7 @@ async function removeSource(source) {
     </button>
 
     <div v-if="standalone || open" class="sources-panel__body">
-      <div class="sources-panel__controls">
+      <div v-if="sources.length" class="sources-panel__controls">
         <label class="sources-panel__search-field">
         <WorkbenchIcon name="search" :size="17" />
         <input
@@ -229,6 +232,7 @@ async function removeSource(source) {
       <p v-if="actionMessage" class="sources-panel__status" role="status">{{ actionMessage }}</p>
     </div>
   </section>
+  <WorldbookSourceImportDialog v-if="importOpen && bookId" :key="bookId" :book-id="bookId" @close="importOpen = false" @completed="onImportCompleted" />
 </template>
 
 <style scoped>
@@ -253,7 +257,7 @@ async function removeSource(source) {
 .sources-panel__list { list-style: none; margin: 0; padding: 0; border-top: 0; }
 .sources-panel__item { border-bottom: 1px solid var(--hairline-soft); }
 .sources-panel__row { display: flex; gap: 16px; align-items: center; padding: 20px 8px; }
-.sources-panel__file-icon { color: var(--text-secondary); display: grid; place-items: center; width: 38px; height: 44px; flex-shrink: 0; background: var(--surface-workbench-muted); border-radius: 12px; }
+.sources-panel__file-icon { color: var(--text-secondary); display: grid; place-items: center; width: 38px; height: 44px; flex-shrink: 0; background: transparent; border-radius: 0; }
 .sources-panel__identity { flex: 1; min-width: 0; }
 .sources-panel__title { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font: 15px/1.6 var(--font-sans); font-weight: 500; line-height: 1.6; color: var(--text-primary); background: transparent; border: 0; padding: 2px 0; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .sources-panel__title svg { color: var(--text-secondary); }
@@ -264,7 +268,7 @@ async function removeSource(source) {
 .sources-panel__kind { min-width: 42px; font-size: 11px; letter-spacing: .03em; }
 .sources-panel__meta > span:nth-child(2) { min-width: 65px; text-align: right; }
 .sources-panel__remove { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 12px; font: 500 14px/1.5 var(--font-sans); }
-.sources-panel__preview { margin: 0 8px 20px 62px; padding: 22px 24px; background: var(--surface-workbench-muted); border-radius: 12px; }
+.sources-panel__preview { margin: 0 8px 20px 62px; padding: 4px 0 0; background: transparent; border-radius: 0; }
 .sources-panel__preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 440px; overflow-y: auto; font-family: inherit; font-size: 15px; line-height: 1.9; color: var(--text-primary); }
 .sources-panel__warn, .sources-panel__status { margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
 .sources-panel__status { margin-top: 16px; }
@@ -282,8 +286,17 @@ async function removeSource(source) {
  .sources-panel__kind { min-width: 0; }
  .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }
  .sources-panel__remove svg { display: none; }
- .sources-panel__preview { margin: 0 0 16px; padding: 16px; }
+ .sources-panel__preview { margin: 0 0 16px; padding: 4px 0 0; }
 }
 
 @media (pointer: coarse) { .sources-panel__search-field, .sources-panel__controls select { min-height: 44px; height: 44px; } }
+</style>
+
+<style scoped>
+.sources-panel.is-standalone .sources-panel__empty { padding: clamp(64px, 14vh, 140px) 24px; }
+.sources-panel__search-field, .sources-panel__controls select { min-height: 40px; height: 40px; border-radius: 8px; }
+.sources-panel__row { padding: 20px 0; gap: 18px; }
+.sources-panel__preview { padding: 20px 24px; margin: 0 0 24px 56px; background: var(--surface-workbench-muted); border-radius: 8px; }
+.sources-panel__preview pre { font-size: 14px; line-height: 1.9; }
+@media (max-width: 760px) { .sources-panel__preview { margin-left: 0; padding: 16px; } .sources-panel__row { gap: 10px; } .sources-panel__search-field, .sources-panel__controls select { height: 44px; } }
 </style>

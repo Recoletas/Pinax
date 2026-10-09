@@ -224,6 +224,8 @@ const compositionSettling = ref(false)
 let programmaticScrollUntil = 0
 let userScrollIntentUntil = 0
 let applyingExternalDocument = false
+// 初始化/切章产生的默认选区不是作者指定的续写起点。
+let hasExplicitPosition = false
 let lastCommandMenuGeometry = null
 let compositionRefreshTimer = null
 let componentUnmounting = false
@@ -1805,6 +1807,7 @@ function buildSelectionSnapshot(currentEditor) {
     beforeText: plainTextSnapshot.beforeText,
     afterText: plainTextSnapshot.afterText,
     currentNodeText: editorBlockPlainText(startBlock),
+    hasExplicitPosition,
     cursorLocalOffset: Number(startBlockSelection?.localOffset || 0),
     selectionLocalStart: Number(startBlockSelection?.localOffset || 0),
     selectionLocalEnd: Number(endBlockSelection?.localOffset || 0),
@@ -1889,6 +1892,7 @@ const editor = useEditor({
   },
   editable: props.editable,
   onCreate({ editor: currentEditor }) {
+    hasExplicitPosition = false
     emit('ready', currentEditor)
     // 初始 document 已由父页完成 hydrate。这里不能伪装成一次用户编辑，
     // 否则刚打开章节就会进入未保存 → 自动保存，并触发观察器与“已保存”闪现。
@@ -1897,6 +1901,7 @@ const editor = useEditor({
   },
   onUpdate({ editor: currentEditor, transaction }) {
     if (!transaction.docChanged) return
+    if (!applyingExternalDocument) hasExplicitPosition = true
     // U33：键盘 undo/redo 的事务副作用可能使 PM view 丢失焦点（DOM 重渲染
     // 替换含 caret 的节点），导致后续 redo/继续编辑的键盘事件无法到达编辑器。
     // historyUndo/historyRedo 后显式恢复焦点。
@@ -1927,16 +1932,23 @@ const editor = useEditor({
     // docChanged 事务由紧随其后的 onUpdate 在 currentDocument 更新后发布，
     // 防止同一次输入出现一份旧 markdown 坐标和一份新坐标。
     if (transaction?.docChanged) return
+    hasExplicitPosition = true
     publishCurrentSelectionState(currentEditor)
   },
   onTransaction({ editor: currentEditor, transaction }) {
     // 光标处 Ctrl/Cmd+B/I 只改变 stored marks，不一定触发 selectionUpdate
     // 或 docChanged；仍需把真实 Tiptap mark 状态同步给外层工具栏。
-    if (transaction.storedMarksSet && !transaction.docChanged && !transaction.selectionSet) {
+    if (!applyingExternalDocument && transaction.storedMarksSet && !transaction.docChanged && !transaction.selectionSet) {
+      hasExplicitPosition = true
       emitCurrentSelectionSnapshot(currentEditor)
     }
   },
-  onFocus() {
+  onFocus({ editor: currentEditor }) {
+    // 点击默认章首可能不改变 selection，focus 仍代表作者明确选了这里。
+    if (!applyingExternalDocument) {
+      hasExplicitPosition = true
+      emitCurrentSelectionSnapshot(currentEditor)
+    }
     emit('editor-focus')
     updateCurrentLineOverlay()
     scrollTypewriterIntoView()
@@ -2239,6 +2251,7 @@ function applyExternalWritingDocument(nextDocument) {
   closeCommandMenu()
   currentDocument.value = nextDocument
   applyingExternalDocument = true
+  hasExplicitPosition = false
   try {
     currentEditor.chain()
       .setMeta('addToHistory', false)

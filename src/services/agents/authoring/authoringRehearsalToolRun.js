@@ -139,6 +139,37 @@ export async function runAuthoringRehearsalToolStep({
   let modelSteps = 0
   let callSummary = null
   let toolReceipt = noTool
+  async function validateOutput(output) {
+    if (signal?.aborted) throw typedError('AGENT_REQUEST_ABORTED', '生成已取消')
+    if (typeof parseFinal !== 'function') return output
+    try {
+      parseFinal(output)
+      return output
+    } catch (originalError) {
+      if (modelSteps >= MAX_MODEL_STEPS) throw originalError
+      messages = [...messages, { role: 'assistant', content: text(output) }, {
+        role: 'user', content: '上一次输出没有通过格式校验。请保持事实不变，只输出符合要求的推演 JSON。'
+      }]
+      try {
+        const repaired = await requestModel({
+          messages, tools, settings: settingsSnapshot,
+          options: { toolChoice: 'none', parallelToolCalls: false, maxTokens: 1800 },
+          intentMode: 'rehearsal', signal
+        })
+        modelSteps += 1
+        if (signal?.aborted) throw typedError('AGENT_REQUEST_ABORTED', '生成已取消')
+        if (repaired.kind !== 'final_ready' || repaired.calls?.length) throw originalError
+        parseFinal(repaired.text)
+        return repaired.text
+      } catch (repairError) {
+        if (!repairError.retainedResponse && originalError.retainedResponse) {
+          repairError.retainedResponse = originalError.retainedResponse
+          repairError.retainedTruncated = originalError.retainedTruncated
+        }
+        throw repairError
+      }
+    }
+  }
   try {
     const first = await requestModel({
       messages, tools, settings: settingsSnapshot,
@@ -146,7 +177,8 @@ export async function runAuthoringRehearsalToolStep({
       intentMode: 'rehearsal', signal
     })
     modelSteps += 1
-    if (first.kind === 'final_ready') return { output: first.text, toolReceipt: noTool }
+    if (signal?.aborted) throw typedError('AGENT_REQUEST_ABORTED', '生成已取消')
+    if (first.kind === 'final_ready' && !first.calls?.length) return { output: await validateOutput(first.text), toolReceipt: noTool }
     if (first.kind !== 'tool_calls' || first.calls?.length !== 1) {
       throw typedError('AUTHORING_REHEARSAL_TOOL_CALL_COUNT_INVALID', '一次试演只允许一次历史查阅')
     }
@@ -177,29 +209,10 @@ export async function runAuthoringRehearsalToolStep({
     if (final.kind === 'tool_calls' || final.calls?.length) {
       throw typedError('AUTHORING_REHEARSAL_SECOND_TOOL_CALL', '历史资料每步最多查阅一次')
     }
-    let output = final.text
-    if (typeof parseFinal === 'function') {
-      try {
-        parseFinal(output)
-      } catch (error) {
-        if (modelSteps >= MAX_MODEL_STEPS) throw error
-        messages = [...messages, { role: 'assistant', content: text(output) }, {
-          role: 'user', content: '上一次输出没有通过格式校验。请保持事实不变，只输出符合要求的试演 JSON。'
-        }]
-        const repaired = await requestModel({
-          messages, tools, settings: settingsSnapshot,
-          options: { toolChoice: 'none', parallelToolCalls: false, maxTokens: 1800 },
-          intentMode: 'rehearsal', signal
-        })
-        modelSteps += 1
-        if (repaired.kind !== 'final_ready' || repaired.calls?.length) throw error
-        output = repaired.text
-        parseFinal(output)
-      }
-    }
+    const output = await validateOutput(final.text)
     return { output, toolReceipt }
   } catch (error) {
-    if (!providerUnavailable(error)) throw error
+    if (!providerUnavailable(error) || error.retainedResponse) throw error
     const unavailable = receipt('unavailable', manifest, callSummary ? [callSummary] : [])
     const output = await requestFallback({ signal, toolReceipt: unavailable })
     return { output, toolReceipt: unavailable }

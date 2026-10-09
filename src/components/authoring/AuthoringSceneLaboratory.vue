@@ -27,6 +27,10 @@ watch(() => props.ifActiveBranch, value => { visibleBranch.value = value })
 watch(() => props.ifBranches?.A, value => {
   if (value) { editingConditions.value = false; ifOpen.value = true }
 })
+function leaveComparison() {
+  if (props.initialIfOpen) emit('close')
+  else ifOpen.value = false
+}
 function editConditions() {
   ifBeliefA.value = props.ifBranches?.A?.belief || ifBeliefA.value
   ifBeliefB.value = props.ifBranches?.B?.belief || ifBeliefB.value
@@ -42,6 +46,14 @@ watch(() => props.initialIfActor, value => { ifActor.value = value })
 const ifBeliefA = ref('')
 const ifBeliefB = ref('')
 const titleRef = ref(null)
+const labRoot = ref(null)
+function fitConditions() {
+  for (const field of labRoot.value?.querySelectorAll('textarea.authoring-scene-lab__if-input') || []) {
+    field.style.height = 'auto'
+    field.style.height = `${Math.min(240, Math.max(64, field.scrollHeight))}px`
+  }
+}
+watch([ifBeliefA, ifBeliefB, ifOpen, editingConditions], () => nextTick(fitConditions))
 const selectedDirection = computed(() => (
   props.directions.find((direction) => direction.id === props.selectedDirectionId) || null
 ))
@@ -52,7 +64,7 @@ const intentName = computed(() => String(
   || ''
 ).trim())
 const heading = computed(() => {
-  if (ifOpen.value) return '同一情境，两种选择'
+  if (ifOpen.value) return '比较人物选择'
   if (!props.entryIntent || !intentName.value) return '推演本场'
   if (props.entryIntent.mode === 'next-passage') {
     return props.entryIntent.entityKind === 'location'
@@ -64,7 +76,7 @@ const heading = computed(() => {
     : `带${intentName.value}参与这次推演`
 })
 const headingDetail = computed(() => {
-  if (ifOpen.value) return '只改一句信念，看看人物会怎么做'
+  if (ifOpen.value) return '设定两种想法，分别推演人物会怎么做'
   if (!props.entryIntent) return '先选清楚因果方向，再决定是否写成正文'
   return props.entryIntent.mode === 'next-passage'
     ? '采纳推演稿后才更新当前场'
@@ -90,7 +102,7 @@ const workingCopy = computed(() => ({
   }
 }[props.phase] || { title: '正在准备', detail: '本次操作尚未改动正文。' }))
 
-onMounted(() => nextTick(() => titleRef.value?.focus?.({ preventScroll: true })))
+onMounted(() => nextTick(() => { titleRef.value?.focus?.({ preventScroll: true }); fitConditions() }))
 
 function handleLaboratoryKeydown(event) {
   if (event?.isComposing || event?.keyCode === 229 || event?.key !== 'Escape') return
@@ -102,6 +114,7 @@ function handleLaboratoryKeydown(event) {
 
 <template>
   <section
+    ref="labRoot"
     class="authoring-scene-lab"
     :class="{ 'is-comparing': ifOpen }"
     data-test="scene-laboratory"
@@ -152,10 +165,10 @@ function handleLaboratoryKeydown(event) {
     </template>
 
     <template v-else-if="ready">
-      <div class="authoring-scene-lab__pressure">
+      <div v-if="!ifOpen" class="authoring-scene-lab__pressure">
         <span>此刻的难题</span>
         <p>{{ pressure?.statement }}</p>
-        <div class="authoring-scene-lab__evidence" aria-label="场景压力依据">
+        <div v-if="pressure?.evidence?.length" class="authoring-scene-lab__evidence" aria-label="场景压力依据">
           <span>来自</span>
           <button
             v-for="evidence in pressure?.evidence || []"
@@ -167,7 +180,7 @@ function handleLaboratoryKeydown(event) {
       </div>
 
       <div class="authoring-scene-lab__mode">
-        <button v-if="ifOpen" type="button" @click="ifOpen = false">← 返回本场方向</button>
+        <button v-if="ifOpen" type="button" @click="leaveComparison">{{ initialIfOpen ? '返回推演' : '返回推演方向' }}</button>
         <button v-else type="button" @click="ifOpen = true">{{ hasComparison ? '继续人物对照' : '只改一个条件' }}</button>
         <button v-if="ifOpen && hasComparison && !editingConditions" type="button" @click="editConditions">修改条件</button>
       </div>
@@ -208,26 +221,26 @@ function handleLaboratoryKeydown(event) {
       </footer>
 
       <form v-if="ifOpen && (!hasComparison || editingConditions)" class="authoring-scene-lab__if-panel"
-        aria-label="人物 IF 面板" @submit.prevent="startComparison">
+        aria-label="比较人物选择" @submit.prevent="startComparison">
         <label class="authoring-scene-lab__if-label is-actor">这次想试谁的选择
-          <input v-model="ifActor" required class="authoring-scene-lab__if-input"
-            placeholder="人物名字，如：艾德加" aria-label="IF 人物名" />
+          <input v-model="ifActor" :readonly="ifBusy" required class="authoring-scene-lab__if-input"
+            placeholder="输入人物名字" aria-label="人物名字" />
         </label>
         <div class="authoring-scene-lab__conditions">
-          <label class="authoring-scene-lab__if-label"><span>原先的想法 <small>作者假设 A</small></span>
-            <textarea v-model="ifBeliefA" required rows="2" class="authoring-scene-lab__if-input"
-              placeholder="如：即使受罚，也要遵守承诺" aria-label="条件 A" />
+          <label class="authoring-scene-lab__if-label"><span>原先的想法</span>
+            <textarea v-model="ifBeliefA" :readonly="ifBusy" required rows="2" class="authoring-scene-lab__if-input"
+              placeholder="如：即使受罚，也要遵守承诺" aria-label="原先的想法" />
           </label>
-          <label class="authoring-scene-lab__if-label"><span>换一种想法 <small>作者假设 B</small></span>
-            <textarea v-model="ifBeliefB" required rows="2" class="authoring-scene-lab__if-input"
-              placeholder="如：比起守诺，更应该公开真相" aria-label="条件 B" />
+          <label class="authoring-scene-lab__if-label"><span>换一种想法</span>
+            <textarea v-model="ifBeliefB" :readonly="ifBusy" required rows="2" class="authoring-scene-lab__if-input"
+              placeholder="如：比起守诺，更应该公开真相" aria-label="换一种想法" />
           </label>
         </div>
         <div class="authoring-scene-lab__form-actions">
-          <span>{{ hasComparison ? '重新对照会替换本次两支试稿，请先留作构思。' : '不修改正式人物设定。' }}</span>
+          <span v-if="hasComparison">重新比较会替换这两份草稿，请先保存需要的内容。</span>
           <button v-if="hasComparison" type="button" @click="editingConditions = false">取消修改</button>
           <button type="submit" class="is-primary"
-            :disabled="ifBusy || !ifActor.trim() || !ifBeliefA.trim() || !ifBeliefB.trim()">{{ ifBusy ? '正在准备…' : '开始 A/B 对照' }}</button>
+            :disabled="ifBusy || !ifActor.trim() || !ifBeliefA.trim() || !ifBeliefB.trim()">{{ ifBusy ? '正在准备…' : '开始比较' }}</button>
         </div>
       </form>
 
@@ -641,4 +654,16 @@ function handleLaboratoryKeydown(event) {
   .authoring-scene-lab__mode button, .authoring-scene-lab .is-primary { min-height:44px; }
   .authoring-scene-lab__form-actions > span { flex-basis:100%; }
 }
+
+.authoring-scene-lab.is-comparing { box-sizing:border-box; padding:20px 18px; border:0; }
+.authoring-scene-lab.is-comparing::before { display:none; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__head strong { font:600 18px/1.5 var(--font-interface); letter-spacing:0; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__head span { line-height:1.7; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__if-label { gap:6px; font:500 13px/1.6 var(--font-interface); }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__if-input { padding:10px 0; border:0; border-bottom:1px solid var(--hairline-soft); background:transparent; resize:none; font:400 15px/1.75 var(--font-interface); }
+.authoring-scene-lab.is-comparing textarea.authoring-scene-lab__if-input { min-height:64px; max-height:240px; overflow-y:auto; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__if-input:focus-visible { outline:0; border-bottom-color:var(--accent); }
+.authoring-scene-lab.is-comparing .is-primary { border-radius:8px; }
+.authoring-scene-lab.is-comparing .authoring-scene-lab__mode { padding-block:4px 12px; }
+@media(max-width:720px) { .authoring-scene-lab.is-comparing { padding:18px 16px max(56px, env(safe-area-inset-bottom)); } }
 </style>

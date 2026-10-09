@@ -3,9 +3,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
 import { tr } from '../../i18n/index.js'
+import { normalizeNarrativeTransportProse } from '../../services/narrativePresentation.js'
 const props = defineProps({
   rehearsal: { type: Object, required: true },
   preparing: Boolean,
+  waitingReview: Boolean,
+  sourceExcerpt: { type: String, default: '' },
   notice: { type: String, default: '' },
   title: { type: String, default: '' },
   drafting: Boolean,
@@ -13,14 +16,42 @@ const props = defineProps({
   firstRunHint: { type: String, default: '' },
   memoryWorkflow: { type: Object, default: null }
 })
-const emit = defineEmits(['start', 'draft', 'view-draft', 'locate', 'if', 'check-connection'])
+const emit = defineEmits(['start', 'draft', 'view-draft', 'locate', 'if', 'check-connection', 'cancel'])
 const steps = computed(() => props.rehearsal.steps.value)
 const last = computed(() => steps.value.at(-1))
 const atLimit = computed(() => steps.value.length >= props.rehearsal.maxSteps)
 const suggestions = computed(() => (last.value?.choices || []).slice(0, 3))
-const locked = computed(() => props.preparing || props.drafting || props.rehearsal.busy.value)
+const working = computed(() => props.preparing || props.drafting || props.rehearsal.busy.value)
+const hasDraft = computed(() => props.draftState !== 'none')
+const locked = computed(() => working.value || props.waitingReview || hasDraft.value)
 const stale = computed(() => props.rehearsal.stale.value)
 const rejected = computed(() => props.rehearsal.lastRejected.value)
+const pendingInstruction = ref(props.rehearsal.action.value || '')
+const actionText = computed(() => props.rehearsal.run.value ? props.rehearsal.action.value : pendingInstruction.value)
+watch(() => props.rehearsal.run.value, (run, previous) => {
+  if (run && !previous) props.rehearsal.setAction(pendingInstruction.value)
+  else if (!run && previous) pendingInstruction.value = ''
+}, { flush: 'sync' })
+function setAction(value) {
+  if (!props.rehearsal.run.value) pendingInstruction.value = value
+  props.rehearsal.setAction(value)
+}
+const retained = computed(() => {
+  const result = props.rehearsal.retainedResult?.value
+  return result && (!result.routeId || result.routeId === props.rehearsal.route.value) ? result : null
+})
+const retainedText = computed(() => normalizeNarrativeTransportProse(retained.value?.response || ''))
+const retainedNotice = computed(() => {
+  if (retained.value?.reason === 'stale') return tr('生成期间正文或参考发生变化，这份结果已保留。')
+  if (retained.value?.reason === 'repeat') return tr('这份结果可能重复了前文，尚未加入本次推演。')
+  return tr('这份结果未能完整解析，已保留可读内容。')
+})
+const copyNotice = ref('')
+watch(retained, () => { copyNotice.value = '' })
+async function copyRetained() {
+  try { await navigator.clipboard.writeText(retainedText.value); copyNotice.value = tr('已复制') }
+  catch { copyNotice.value = tr('复制失败，请选中文字复制。') }
+}
 // 失败就地回程:错误翻译成作者能行动的一句话,原始细节保留为次级信息;
 // 草拟行动、行动者与对象不动,重试直接重发同一意图。
 const failureHeadline = computed(() => {
@@ -35,35 +66,54 @@ const hasNew = ref(false)
 const follow = ref(true)
 
 function chooseAction(choice) {
-  props.rehearsal.setAction(choice)
+  setAction(choice)
   nextTick(() => input.value?.focus())
 }
-function menuAction(action) {
-  more.value.open = false
-  emit(action)
+function placeMoreMenu(event) {
+  const menu = event.currentTarget
+  if (!menu.open) return
+  const panel = menu.querySelector('.rehearsal-menu')
+  const anchor = menu.querySelector('summary').getBoundingClientRect()
+  panel.classList.toggle('is-above', window.innerHeight - anchor.bottom < panel.getBoundingClientRect().height + 12)
 }
-function closeMenuOnBlur(event) {
-  if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false
-}
-function closeMenu() {
+function closeMore(restoreFocus = false) {
+  if (!more.value) return
   more.value.open = false
-  more.value.querySelector('summary')?.focus()
+  if (restoreFocus) more.value.querySelector('summary')?.focus({ preventScroll: true })
+}
+function onMoreBlur(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) closeMore()
+}
+function openComparison() {
+  if (locked.value || !props.rehearsal.run.value) return
+  closeMore()
+  emit('if')
 }
 function submitFromKeyboard(event) {
-  if (event.isComposing || event.keyCode === 229 || locked.value) return
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault()
-    submit()
-  }
+  if (event.isComposing || event.keyCode === 229 || event.key !== 'Enter') return
+  if (event.shiftKey && !event.ctrlKey && !event.metaKey) return
+  event.preventDefault()
+  if (locked.value || event.repeat) return
+  if (event.ctrlKey || event.metaKey) {
+    const field = event.target
+    field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
+    setAction(field.value)
+    nextTick(fitAction)
+  } else submit()
 }
+
 function pickActor(ref) {
   actorRef.value = ref
-  targetRef.value = ''
+}
+function restart() {
+  if (locked.value) return
+  closeMore()
+  emit('start', { instruction: '', autoAdvance: false })
 }
 function submit() {
-  if (locked.value || !props.rehearsal.action.value.trim()) return
-  if (ambiguousTarget.value && !targetRef.value) {
-    input.value?.focus()
+  if (locked.value || stale.value || atLimit.value) return
+  if (!props.rehearsal.run.value) {
+    emit('start', { instruction: pendingInstruction.value.trim(), autoAdvance: true })
     return
   }
   props.rehearsal.advance(buildIntent())
@@ -190,8 +240,7 @@ const conditionKnowerRef = ref('')
 const conditionUnawareRef = ref('')
 const conditionIssue = ref('')
 
-// P2-1 行动意图：默认行动者=视角人物；出现代词且在场多人时不自动猜对象，
-// 要求作者点名。会话内状态，不写作品数据。
+// 行动者只提供叙事焦点。代词不作为强制指定受事人物的依据。
 const participants = computed(() => props.rehearsal.participants.value)
 const actorRef = ref('')
 const defaultActorRef = computed(() => participants.value.find(person => person.roles.includes('viewpoint') && person.status !== 'planned')?.ref
@@ -199,25 +248,14 @@ const defaultActorRef = computed(() => participants.value.find(person => person.
 const activeActor = computed(() => participants.value.find(person => person.ref === (actorRef.value || defaultActorRef.value)) || null)
 watch(defaultActorRef, (value) => { if (!actorRef.value && value) actorRef.value = '' })
 const others = computed(() => participants.value.filter(person => person.status !== 'planned' && person.ref !== activeActor.value?.ref))
-const ambiguousTarget = computed(() => {
-  const text = props.rehearsal.action.value
-  if (!text.trim() || !others.value.length) return null
-  if (others.value.some(person => text.includes(person.name))) return null
-  if (/[他她它]|对方|那人/.test(text)) return others.value
-  return null
-})
-const targetRef = ref('')
-watch([ambiguousTarget, () => props.rehearsal.route.value], ([names]) => {
-  if (!names) targetRef.value = ''
-})
 function buildIntent() {
   const selected = []
-  if (targetRef.value) selected.push(participants.value.find(person => person.ref === targetRef.value))
   for (const person of others.value.filter(item => props.rehearsal.action.value.includes(item.name))) {
     if (!selected.some(item => item?.ref === person.ref)) selected.push(person)
   }
   return {
-    text: props.rehearsal.action.value,
+    mode: props.rehearsal.action.value.trim() ? 'instruction' : 'continue',
+    text: props.rehearsal.action.value.trim(),
     actor: activeActor.value?.name || '',
     actorRef: activeActor.value?.ref || '',
     targets: selected.filter(Boolean).map(person => person.name),
@@ -279,55 +317,45 @@ async function onCompareToggle(event) {
   const offset = section.getBoundingClientRect().top - (target === window ? 0 : target.getBoundingClientRect().top)
   scrollToPosition(scrollTopOf() + offset - 16)
 }
+function fitAction() {
+  const field = input.value
+  if (!field) return
+  field.style.height = 'auto'
+  field.style.height = `${compareOpen.value ? 40 : Math.min(132, Math.max(56, field.scrollHeight))}px`
+}
+watch(actionText, () => nextTick(fitAction))
+watch(input, () => nextTick(fitAction))
+watch(compareOpen, () => nextTick(fitAction))
+function onRoutesToggle(event) {
+  if (event.target !== event.currentTarget) return
+  compareOpen.value = event.currentTarget.open && Boolean(compareSection.value?.open)
+}
 function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Boolean) }
 </script>
 
 <template>
-  <section class="rehearsal-panel" :aria-label="tr('故事试演')" data-test="rehearsal-panel" :data-current-route="rehearsal.route.value">
-    <header v-if="rehearsal.run.value" class="rehearsal-origin">
-      <button class="rehearsal-source" type="button" :title="title || tr('当前段落')" @click="emit('locate')"><span>{{ title || tr('当前段落') }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
-      <details ref="more" class="rehearsal-more" @focusout="closeMenuOnBlur" @keydown.esc.stop.prevent="closeMenu">
-        <summary :aria-label="tr('更多试演操作')"><WorkbenchIcon name="more" :size="18" /></summary>
-        <div class="rehearsal-menu">
-          <button type="button" :disabled="locked" @click="menuAction('if')">{{ tr('人物信念对照') }}</button>
-          <button type="button" :disabled="locked" @click="menuAction('start')">{{ tr('重新确定起点') }}</button>
-          <p>{{ tr('仅为假想，不改正文或设定。刷新后不保留。') }}</p>
-        </div>
-      </details>
-    </header>
+  <section class="rehearsal-panel" :class="{ 'is-ready': !steps.length && !retainedText }" :aria-label="tr('故事推演')" data-test="rehearsal-panel" :data-current-route="rehearsal.route.value">
     <p v-if="firstRunHint" class="rehearsal-first-run-hint" data-test="rehearsal-first-run-hint">{{ tr(firstRunHint) }}</p>
+    <button v-if="sourceExcerpt" type="button" class="rehearsal-anchor" :title="sourceExcerpt" :aria-label="tr('定位推演起点')" @click="emit('locate')"><span>{{ sourceExcerpt }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
     <div ref="flow" class="rehearsal-flow" @scroll.passive="onFlowScroll">
-      <template v-if="!rehearsal.run.value">
-        <p class="rehearsal-intro">{{ tr('试一个行动，看看人物如何回应。') }}</p>
-        <button type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">{{ preparing ? tr('正在核对现场…') : tr('从当前段落开始') }}</button>
-        <p class="rehearsal-limit">{{ tr('暂不写入正文 · 刷新后不保留') }}</p>
-      </template>
-      <template v-else>
-        <details v-if="!steps.length" class="rehearsal-conditions" data-test="rehearsal-conditions">
-          <summary>{{ rehearsal.conditions.value?.facts?.length ? tr('本次条件已补充') : tr('补充本次条件') }}</summary>
-          <div class="rehearsal-condition-form">
-            <label>{{ tr('只在这次推演成立的事实') }}<input v-model="conditionText" maxlength="120" :placeholder="tr('例如：艾德加已经看过那封信')" :disabled="locked" /></label>
-            <div v-if="participants.length" class="rehearsal-condition-people">
-              <label>{{ tr('谁知道') }}<select v-model="conditionKnowerRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'knows-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
-              <label>{{ tr('谁还不知道') }}<select v-model="conditionUnawareRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'unaware-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
-            </div>
-            <p v-if="conditionIssue" class="rehearsal-ambiguous" role="status">{{ tr(conditionIssue) }}</p>
-            <button type="button" class="rehearsal-condition-save" :disabled="locked || !conditionText.trim()" @click="saveCondition">{{ tr('用于本次推演') }}</button>
-          </div>
-        </details>
+      <div v-if="!rehearsal.run.value && hasDraft" class="rehearsal-result-actions">
+        <button type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr('查看草稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+      </div>
+      <template v-if="rehearsal.run.value">
+
         <p v-if="!steps.length && rehearsal.run.value.directionSet?.pressure?.statement" class="rehearsal-question">{{ rehearsal.run.value.directionSet.pressure.statement }}</p>
         <ol class="rehearsal-steps">
           <li v-for="(item, index) in steps" :key="item.id" class="rehearsal-step" :data-step="item.id">
             <button type="button" class="rehearsal-step-head" :aria-expanded="folded(item.id) ? 'false' : 'true'" @click="rehearsal.toggleFold(item.id)">
               <span class="rehearsal-step-index" aria-hidden="true">{{ index + 1 }}</span>
-              <span class="rehearsal-step-action">{{ item.actor ? `${item.actor}：${item.action}` : item.action }}</span>
+              <span class="rehearsal-step-action">{{ item.mode === 'continue' ? tr('继续推演') : item.actor ? `${item.actor}：${item.action}` : item.action }}</span>
               <WorkbenchIcon name="arrow-right" :size="13" class="rehearsal-step-chevron" />
             </button>
             <div v-show="!folded(item.id)" class="rehearsal-step-body">
               <div class="rehearsal-response"><p v-for="(paragraph, paragraphIndex) in paragraphs(item.response)" :key="paragraphIndex">{{ paragraph }}</p></div>
               <div class="rehearsal-step-tools">
-                <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">{{ tr('从这里换路') }}</button>
-                <details class="rehearsal-consequence"><summary>{{ tr('局面变化') }}</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
+                <button type="button" class="rehearsal-back" :disabled="locked" @click="rehearsal.rewind(index)">{{ tr('从这一步重新推演') }}</button>
+                <details class="rehearsal-consequence"><summary>{{ tr('发生了什么变化') }}</summary><p>{{ item.change }}</p><ul v-if="consequenceLines(item).length"><li v-for="line in consequenceLines(item)" :key="line">{{ line }}</li></ul></details>
                 <details v-if="item.toolReceipt?.status === 'completed'" class="rehearsal-evidence" data-test="rehearsal-evidence">
                   <summary>{{ tr('查阅 {count} 项 · 查看', { count: receiptCount(item) }) }}</summary>
                   <ul><li v-for="source in receiptSources(item)" :key="source.title"><strong>{{ source.title }}</strong><small>{{ source.type }} · {{ source.summary }}</small></li></ul>
@@ -339,16 +367,22 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             </div>
           </li>
         </ol>
-        <AuthoringGenerationStatus v-if="rehearsal.busy.value || drafting" :label="drafting ? tr('正在写成试稿…') : tr('正在推演人物回应…')" />
+        <div v-if="steps.length || draftState !== 'none'" class="rehearsal-result-actions">
+          <button v-if="draftState !== 'none'" type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr('查看草稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else type="button" class="rehearsal-export" :disabled="locked || stale" @click="emit('draft')">{{ drafting ? tr('正在整理正文草稿…') : tr('写成正文') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+        </div>
         <button v-if="hasNew" type="button" class="rehearsal-new" @click="revealStep(steps[steps.length - 1].id)">{{ tr('有新回应') }}<WorkbenchIcon name="arrow-right" :size="13" class="is-down" /></button>
         <template v-if="!stale && !atLimit">
           <div v-if="suggestions.length" class="rehearsal-options" :aria-label="tr('可试行动')">
+            <span class="rehearsal-options-label">{{ tr('接下来') }}</span>
             <button v-for="choice in suggestions" :key="choice" type="button" :disabled="locked" :aria-pressed="rehearsal.action.value === choice" @click="chooseAction(choice)"><span>{{ choice }}</span><WorkbenchIcon name="arrow-right" :size="13" /></button>
           </div>
         </template>
-        <p v-else-if="!stale" class="rehearsal-limit">{{ tr('已试演四步：可以从这里换路，或把这条路写成试稿。') }}</p>
-        <p v-if="stale" class="rehearsal-stale" role="status">{{ tr('正文或参考已变化：这条路仍可回看和留作构思，需要重新确定起点才能继续。') }}</p>
-        <div v-if="otherRoutes.length || steps.length" class="rehearsal-routes" :aria-label="tr('试演走法')">
+        <p v-else-if="!stale" class="rehearsal-limit">{{ tr('已完成四步推演。可以写成正文，或从前面的步骤重新推演。') }}</p>
+        <p v-if="stale && !retainedText" class="rehearsal-stale" role="status">{{ tr('正文或参考已变化：这条路仍可回看和留作构思，需要重新确定起点才能继续。') }}</p>
+        <details v-if="otherRoutes.length || steps.length" class="rehearsal-route-library" @toggle="onRoutesToggle">
+          <summary>{{ tr('其他结果') }}<span v-if="otherRoutes.length">{{ otherRoutes.length }}</span><WorkbenchIcon name="chevron-down" :size="14" /></summary>
+          <div class="rehearsal-routes" :aria-label="tr('其他推演结果')">
           <button v-if="steps.length" type="button" class="rehearsal-route" data-route-root :disabled="locked" @click="rehearsal.rewind(0)">
             <span>{{ tr('回到起点') }}</span><small>{{ tr('第 {count} 步', { count: 0 }) }}</small>
           </button>
@@ -356,33 +390,34 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
             <span>{{ routeName(path) }}</span><small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small>
           </button>
           <details v-if="otherRoutes.length > 1" class="rehearsal-routes-more">
-            <summary>{{ tr('更多走法 · {count}', { count: otherRoutes.length - 1 }) }}</summary>
+            <summary>{{ tr('更多结果 · {count}', { count: otherRoutes.length - 1 }) }}</summary>
             <button v-for="path in otherRoutes.slice(0, -1).reverse()" :key="path.id" type="button" class="rehearsal-route" :data-route="path.id" :disabled="locked" @click="rehearsal.restore(path.id)">
               <span>{{ routeName(path) }}</span><small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small>
             </button>
           </details>
           <details v-if="compareSide" ref="compareSection" class="rehearsal-compare" @toggle="onCompareToggle">
-            <summary>{{ tr('对照两条走法') }}</summary>
-            <nav v-if="otherRoutes.length > 1" class="rehearsal-compare-pick" :aria-label="tr('选择要比较的走法')">
+            <summary>{{ tr('比较两种结果') }}</summary>
+            <nav v-if="otherRoutes.length > 1" class="rehearsal-compare-pick" :aria-label="tr('选择要比较的结果')">
               <button v-for="path in otherRoutes" :key="path.id" type="button" :data-route="path.id" :aria-pressed="path.id === compareId" @click="compareId = path.id">{{ routeName(path) }}<small>{{ tr('第 {count} 步', { count: path.steps.length }) }}</small></button>
             </nav>
             <div v-if="compareDifferences.length" class="rehearsal-compare-differences" data-test="rehearsal-compare-differences">
-              <h4>{{ tr('真正不同的后果') }}</h4>
-              <p v-for="difference in compareDifferences" :key="difference.key"><span>{{ difference.label }}</span><small>{{ tr('当前路：{current} · 另一路：{other}', { current: differenceStatus(difference.a), other: differenceStatus(difference.b) }) }}</small></p>
+              <h4>{{ tr('结果差异') }}</h4>
+              <p v-for="difference in compareDifferences" :key="difference.key"><span>{{ difference.label }}</span><small>{{ tr('当前结果：{current} · 另一种结果：{other}', { current: differenceStatus(difference.a), other: differenceStatus(difference.b) }) }}</small></p>
             </div>
             <article v-for="side in [compareSide.mine, compareSide.theirs]" :key="side.depth + '-' + side.index" class="rehearsal-compare-side">
-              <h4>{{ tr(side === compareSide.mine ? '当前路' : '另一路') }} · {{ tr('第 {count} 步', { count: side.depth }) }}</h4>
+              <h4>{{ tr(side === compareSide.mine ? '当前结果' : '另一种结果') }} · {{ tr('第 {count} 步', { count: side.depth }) }}</h4>
               <p v-if="side.depth === 0" class="rehearsal-compare-empty">{{ tr('还没有这一步。') }}</p>
               <template v-else>
-                <p v-if="side.common.length" class="rehearsal-compare-common">{{ tr('共同前缀 {count} 步：{actions}', { count: side.common.length, actions: side.common.join(' → ') }) }}</p>
-                <p v-else class="rehearsal-compare-common">{{ tr('与另一条从一开始就不同。') }}</p>
+                <p v-if="side.common.length" class="rehearsal-compare-common">{{ tr('前 {count} 步相同：{actions}', { count: side.common.length, actions: side.common.join(' → ') }) }}</p>
+                <p v-else class="rehearsal-compare-common">{{ tr('两次推演从第一步就不同。') }}</p>
                 <p class="rehearsal-compare-action">{{ side.step?.action || tr('不再继续') }}</p>
                 <div v-if="side.step" class="rehearsal-response is-compare"><p v-for="(paragraph, paragraphIndex) in paragraphs(side.step.response)" :key="paragraphIndex">{{ paragraph }}</p></div>
                 <p v-if="side.latest && side.step && side.latest.id !== side.step.id" class="rehearsal-compare-latest">{{ tr('最新一步「{action}」：{change}', { action: side.latest.action, change: side.latest.change }) }}</p>
               </template>
             </article>
           </details>
-        </div>
+          </div>
+        </details>
         <section v-if="memoryWorkflow?.available.value" class="rehearsal-memory" data-test="rehearsal-memory">
           <button v-if="!memoryWorkflow.open.value" type="button" class="rehearsal-memory-open" @click="memoryWorkflow.begin">{{ tr('记住一项变化') }}</button>
           <form v-else @submit.prevent="memoryWorkflow.submit">
@@ -396,40 +431,61 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
           </form>
         </section>
       </template>
-      <div v-if="rehearsal.error.value" class="rehearsal-failure" role="alert" data-test="rehearsal-failure">
-        <p class="rehearsal-failure__text">{{ failureHeadline }} {{ tr('行动草稿和已有走法都还在。') }}</p>
+      <AuthoringGenerationStatus v-if="working" :label="preparing ? tr('正在核对现场…') : drafting ? tr('正在整理正文草稿…') : tr('正在推演…')" />
+      <p v-else-if="waitingReview" class="rehearsal-review" role="status">{{ tr('确认出场人物后继续推演。') }}</p>
+      <section v-if="retainedText && !working" class="rehearsal-retained" :aria-label="tr('保留的推演结果')">
+        <p class="rehearsal-retained-notice">{{ retainedNotice }}</p>
+        <div class="rehearsal-response"><p v-for="(paragraph, index) in paragraphs(retainedText)" :key="index">{{ paragraph }}</p></div>
+        <p v-if="retained.truncated" class="rehearsal-retained-notice">{{ tr('仅保留了部分生成内容。') }}</p>
+        <div class="rehearsal-retained-actions"><button type="button" @click="copyRetained">{{ tr('复制') }}</button><button v-if="!stale && !atLimit" type="button" :disabled="locked" @click="submit">{{ tr('重试') }}</button><span v-if="copyNotice" role="status">{{ copyNotice }}</span></div>
+        <details v-if="rehearsal.error.value" class="rehearsal-failure__technical"><summary>{{ tr('技术信息') }}</summary><p class="rehearsal-failure__detail">{{ rehearsal.error.value }}</p></details>
+      </section>
+      <div v-if="rehearsal.error.value && !retainedText && !working && !waitingReview" class="rehearsal-failure" role="alert" data-test="rehearsal-failure">
+        <p class="rehearsal-failure__text">{{ failureHeadline }} {{ tr('输入的要求和之前的结果都已保留。') }}</p>
         <div v-if="rejected" class="rehearsal-rejected">
-          <p>{{ tr('这次人物回应可以先读，但它登记的后果没有通过核对，所以还没有接到当前走法上。') }}</p>
+          <p>{{ tr('这段回应的后果尚未核对通过，暂时不能继续。') }}</p>
           <blockquote>{{ rejected.response }}</blockquote>
         </div>
         <details class="rehearsal-failure__technical"><summary>{{ tr('技术信息') }}</summary><p class="rehearsal-failure__detail">{{ rehearsal.error.value }}</p></details>
         <div class="rehearsal-failure__actions">
-          <button type="button" :disabled="rehearsal.busy.value" data-test="rehearsal-failure-retry" @click="submit">{{ rehearsal.busy.value ? tr('正在重试…') : tr('重试') }}</button>
+          <button v-if="!stale" type="button" :disabled="locked || atLimit" data-test="rehearsal-failure-retry" @click="submit">{{ tr('重试') }}</button>
           <button v-if="rejected" type="button" data-test="rehearsal-failure-keep" @click="rehearsal.acceptRejectedWithoutConsequences">{{ tr('保留回应，不登记后果') }}</button>
           <button v-if="rejected" type="button" data-test="rehearsal-failure-discard" @click="rehearsal.discardRejected">{{ tr('弃掉这次回应') }}</button>
           <button type="button" data-test="rehearsal-failure-connect" @click="emit('check-connection')">{{ tr('检查模型连接') }}</button>
         </div>
       </div>
-      <p v-else-if="notice" class="rehearsal-error" role="status">{{ tr(notice) }}</p>
+      <p v-else-if="notice && !working && !waitingReview" class="rehearsal-error" role="status">{{ tr(notice) }}</p>
     </div>
-    <footer v-if="rehearsal.run.value" class="rehearsal-footer">
+    <footer v-if="!hasDraft" class="rehearsal-footer">
       <form class="rehearsal-compose" :class="{ 'is-comparing': compareOpen }" @submit.prevent="submit">
-        <div v-if="!stale && !atLimit && participants.length > 1" class="rehearsal-cast" :aria-label="tr('行动者')">
-          <span class="rehearsal-cast-label">{{ tr('行动者') }}</span>
-          <button v-for="person in participants.filter(item => item.status !== 'planned')" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="person.ref === activeActor?.ref ? 'true' : 'false'" :disabled="locked" @click="pickActor(person.ref)">{{ person.name }}</button>
+        <div v-if="!stale && !atLimit && participants.length > 1" class="rehearsal-cast" :aria-label="tr('谁来行动')">
+          <span class="rehearsal-cast-label">{{ tr('谁来行动') }}</span>
+          <select :value="activeActor?.ref || ''" :aria-label="tr('谁来行动')" :disabled="locked" @change="pickActor($event.target.value)"><option v-for="person in participants.filter(item => item.status !== 'planned')" :key="person.ref" :value="person.ref">{{ person.name }}</option></select>
         </div>
-        <textarea v-if="!stale && !atLimit" ref="input" :value="rehearsal.action.value" maxlength="300" rows="2" :aria-label="tr('试演行动')" :placeholder="last ? tr('接下来，让人物…') : tr('让人物…')" :readonly="locked" @input="rehearsal.setAction($event.target.value)" @keydown="submitFromKeyboard" />
-        <p v-if="!stale && !atLimit && ambiguousTarget && !targetRef" class="rehearsal-ambiguous" role="status">{{ ambiguousTarget.length > 1 ? tr('这句话里的「他/她」指向谁？点名或选一个，不自动猜。') : tr('这句话要交给谁回应？点名或选一个，不自动猜。') }}</p>
-        <div v-if="!stale && !atLimit && ambiguousTarget" class="rehearsal-cast is-target" :aria-label="tr('动作对象')">
-          <button v-for="person in ambiguousTarget" :key="person.ref" type="button" class="rehearsal-cast-person" :aria-pressed="targetRef === person.ref ? 'true' : 'false'" :disabled="locked" @click="targetRef = person.ref">{{ person.name }}</button>
-        </div>
+        <details v-if="rehearsal.run.value && !steps.length" class="rehearsal-conditions" data-test="rehearsal-conditions">
+          <summary>{{ rehearsal.conditions.value?.facts?.length ? tr('已补充背景') : tr('补充背景') }}</summary>
+          <div class="rehearsal-condition-form">
+            <label>{{ tr('补充这次推演的背景') }}<input v-model="conditionText" maxlength="120" :placeholder="tr('例如：艾德加已经看过那封信')" :disabled="locked" /></label>
+            <div v-if="participants.length" class="rehearsal-condition-people">
+              <label>{{ tr('谁知道') }}<select v-model="conditionKnowerRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'knows-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+              <label>{{ tr('谁还不知道') }}<select v-model="conditionUnawareRef" :disabled="locked"><option value="">{{ tr('不指定') }}</option><option v-for="person in participants" :key="'unaware-'+person.ref" :value="person.ref">{{ person.name }}</option></select></label>
+            </div>
+            <p v-if="conditionIssue" class="rehearsal-ambiguous" role="status">{{ tr(conditionIssue) }}</p>
+            <button type="button" class="rehearsal-condition-save" :disabled="locked || !conditionText.trim()" @click="saveCondition">{{ tr('添加背景') }}</button>
+          </div>
+        </details>
+        <textarea v-if="!stale && !atLimit" ref="input" :value="actionText" maxlength="300" rows="2" :aria-label="tr('推演要求')" :placeholder="tr('补充推演要求（可留空）')" :readonly="locked" @input="setAction($event.target.value); fitAction()" @keydown="submitFromKeyboard" />
         <div class="rehearsal-dock-actions">
-          <button v-if="draftState === 'same-route'" type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr('查看试稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="draftState !== 'none'" type="button" class="rehearsal-export" @click="emit('view-draft')">{{ tr(draftState === 'other-route' ? '正文已有另一条走法的待处理试稿' : '正文已有其他来源的待处理试稿') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="steps.length" type="button" class="rehearsal-export" :disabled="locked || stale" @click="emit('draft')">{{ drafting ? tr('正在写成试稿…') : tr('写成试稿') }}</button>
-          <button v-if="rehearsal.busy.value" type="button" class="rehearsal-primary" @click="rehearsal.cancel">{{ tr('停止') }}</button>
-          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked || !rehearsal.action.value.trim() || Boolean(ambiguousTarget && !targetRef)" title="Ctrl / ⌘ + Enter">{{ tr('试演') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
-          <button v-else-if="stale" type="button" class="rehearsal-primary" :disabled="locked" @click="emit('start')">{{ tr('重新确定起点') }}</button>
+          <details v-if="rehearsal.run.value" ref="more" class="rehearsal-more" @toggle="placeMoreMenu" @focusout="onMoreBlur" @keydown.esc.stop.prevent="closeMore(true)">
+            <summary :aria-label="tr('更多推演操作')" :title="tr('更多推演操作')"><WorkbenchIcon name="more" :size="18" /></summary>
+            <div class="rehearsal-menu">
+              <button type="button" :disabled="locked" @click="openComparison">{{ tr('比较人物选择') }}</button>
+              <button type="button" :disabled="locked" @click="restart">{{ tr('重新开始') }}</button>
+            </div>
+          </details>
+          <button v-if="working || waitingReview" type="button" class="rehearsal-primary" @click="emit('cancel')">{{ tr('停止') }}</button>
+          <button v-else-if="!stale && !atLimit" type="submit" class="rehearsal-primary" :disabled="locked" :title="tr('Enter 推演 · Ctrl+Enter 换行')">{{ steps.length ? tr('继续推演') : tr('推演') }}<WorkbenchIcon name="arrow-right" :size="14" /></button>
+          <button v-else-if="stale" type="button" class="rehearsal-primary" :disabled="locked" @click="restart">{{ tr('重新确定起点') }}</button>
         </div>
       </form>
     </footer>
@@ -442,17 +498,19 @@ function paragraphs(text) { return String(text || '').split(/\n\s*\n/).filter(Bo
 button, summary { font:inherit; }
 button { border:0; background:none; color:inherit; cursor:pointer; min-height:36px; }
 button:disabled { opacity:.45; cursor:not-allowed; }
-button:focus-visible, textarea:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+button:focus-visible, textarea:focus-visible, summary:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 button:not(:disabled):hover { color:var(--accent); }
 .rehearsal-origin { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:2px 18px; border-bottom:1px solid var(--hairline-soft); font-size:12px; color:var(--text-secondary); }
 .rehearsal-first-run-hint { margin:0; padding:9px 18px; border-bottom:1px solid var(--hairline-soft); color:var(--archive-olive, var(--accent-primary)); font-size:12px; line-height:1.55; }
-.rehearsal-source { display:flex; align-items:center; gap:8px; padding:0; min-width:0; text-align:left; }
+.rehearsal-source { flex:1; display:flex; align-items:center; gap:8px; padding:0; min-width:0; text-align:left; }
 .rehearsal-source span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 svg { flex-shrink:0; }
-.rehearsal-more { position:relative; flex-shrink:0; }
+.rehearsal-more { position:relative; flex-shrink:0; margin-inline-end:auto; color:var(--text-secondary); }
 .rehearsal-more > summary { display:flex; align-items:center; justify-content:center; width:36px; min-height:36px; cursor:pointer; list-style:none; }
 .rehearsal-more > summary::-webkit-details-marker { display:none; }
-.rehearsal-menu { position:absolute; z-index:2; right:0; top:100%; width:220px; padding:8px; background:var(--archive-paper); border:1px solid var(--hairline-soft); box-shadow:var(--shadow-workbench-float); }
+.rehearsal-menu { position:absolute; z-index:2; left:0; right:auto; top:calc(100% + 6px); width:240px; max-width:calc(100vw - 64px); box-sizing:border-box; padding:8px; background:var(--surface-workbench-overlay); border:1px solid var(--hairline-soft); border-radius:var(--radius-popover); box-shadow:var(--shadow-workbench-float); }
+.rehearsal-dock-actions .rehearsal-menu button { justify-content:flex-start; color:var(--text-primary); }
+.rehearsal-menu.is-above { top:auto; bottom:calc(100% + 6px); }
 .rehearsal-menu button { display:block; width:100%; text-align:left; padding:6px 10px; font-size:13px; }
 .rehearsal-menu p { margin:6px 10px; font-size:12px; line-height:1.7; color:var(--text-muted); }
 .rehearsal-flow { flex:1; min-height:0; overflow-y:auto; padding:16px 18px 18px; overscroll-behavior:contain; }
@@ -500,7 +558,7 @@ svg { flex-shrink:0; }
 .rehearsal-options button[aria-pressed="true"] svg { color:var(--accent); }
 .rehearsal-new { display:inline-flex; align-items:center; gap:6px; margin-top:12px; padding:6px 10px; border:1px solid var(--hairline-soft); border-radius:999px; font-size:12px; color:var(--text-secondary); background:var(--archive-paper); }
 .rehearsal-stale { margin-top:14px; font-size:12px; line-height:1.8; color:var(--text-secondary); }
-.rehearsal-routes { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 14px; margin-top:20px; padding-top:12px; border-top:1px solid var(--hairline-soft); font-size:12px; color:var(--text-secondary); }
+.rehearsal-routes { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 14px; margin-top:0; padding-top:4px; border-top:0; font-size:12px; color:var(--text-secondary); }
 .rehearsal-memory { margin-top:16px; padding-top:12px; border-top:1px solid var(--hairline-soft); font-size:12px; }
 .rehearsal-memory-open { padding:4px 0; color:var(--accent); }
 .rehearsal-memory form, .rehearsal-memory label { display:grid; gap:8px; }
@@ -538,15 +596,15 @@ svg { flex-shrink:0; }
 .rehearsal-cast-person { min-height:28px; padding:2px 10px; border:1px solid var(--hairline-soft); border-radius:999px; font-size:12px; color:var(--text-secondary); }
 .rehearsal-cast-person[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
 .rehearsal-ambiguous { margin:0; font-size:12px; line-height:1.7; color:var(--text-secondary); }
-.rehearsal-compose { display:grid; gap:6px; width:100%; padding:10px; border:1px solid var(--hairline-soft); border-radius:4px; background:var(--surface-workbench-muted); box-sizing:border-box; }
-.rehearsal-compose:focus-within { border-color:var(--accent); }
-.rehearsal-compose textarea { box-sizing:border-box; flex:1; min-width:0; width:100%; min-height:48px; max-height:160px; resize:vertical; border:0; padding:4px; background:transparent; color:var(--archive-ink); font:14px/1.7 var(--font-body,sans-serif); }
+.rehearsal-compose { display:grid; gap:10px; width:100%; padding:0; border:0; border-radius:0; background:transparent; box-sizing:border-box; }
+.rehearsal-compose:focus-within { box-shadow:none; }
+.rehearsal-compose textarea { box-sizing:border-box; flex:1; min-width:0; width:100%; min-height:48px; max-height:132px; resize:none; border:0; border-bottom:1px solid var(--hairline-soft); padding:10px 0 14px; background:transparent; color:var(--text-primary); font:15px/1.75 var(--font-interface); }
 /* 对照展开时作者在读两条路的差异，输入压成一行给故事让高度。 */
 .rehearsal-compose.is-comparing textarea { min-height:40px; height:40px; max-height:40px; resize:none; }
-.rehearsal-compose textarea:focus-visible { outline:none; }
+.rehearsal-compose textarea:focus-visible { outline:none; border-bottom-color:var(--accent); }
 .rehearsal-primary { background:var(--accent); color:var(--accent-text); border-radius:3px; padding:8px 14px; font-size:13px; flex-shrink:0; }
 .rehearsal-primary:not(:disabled):hover { color:var(--accent-text); filter:brightness(.95); }
-.rehearsal-footer { flex-shrink:0; padding:12px 18px; border-top:1px solid var(--hairline-soft); background:var(--archive-paper); }
+.rehearsal-footer { flex-shrink:0; padding:12px 18px; border-top:0; background:var(--surface-workbench); }
 .rehearsal-dock-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px 12px; }
 .rehearsal-dock-actions button { display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; text-align:left; }
 .rehearsal-export { min-width:0; margin-right:auto; color:var(--text-secondary); padding:0 4px; }
@@ -575,4 +633,42 @@ svg { flex-shrink:0; }
   .rehearsal-compose textarea { min-height:44px; height:44px; max-height:80px; }
   .rehearsal-flow { padding:10px 18px; }
 }
+
+.rehearsal-empty { padding:24px 2px 0; }
+.rehearsal-empty h2 { margin:0 0 12px; font:600 20px/1.4 var(--font-interface); letter-spacing:-.02em; }
+.rehearsal-empty .rehearsal-intro { color:var(--text-secondary); font-size:14px; margin:0 0 18px; }
+.rehearsal-empty-source { margin:0 0 16px; color:var(--text-muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rehearsal-progress { flex:none; font-size:11px; color:var(--text-muted); font-variant-numeric:tabular-nums; }
+.rehearsal-options-label { color:var(--text-muted); font-size:11px; padding-top:8px; }
+.rehearsal-route-library { margin-top:18px; padding-top:6px; border-top:1px solid var(--hairline-soft); color:var(--text-secondary); }
+.rehearsal-route-library > summary { display:flex; align-items:center; gap:8px; min-height:36px; list-style:none; cursor:pointer; font-size:12px; }
+.rehearsal-route-library > summary::-webkit-details-marker { display:none; }
+.rehearsal-route-library > summary span { color:var(--text-muted); font-size:11px; }
+.rehearsal-route-library > summary svg { margin-inline-start:auto; transition:transform .15s; }
+.rehearsal-route-library[open] > summary svg { transform:rotate(180deg); }
+.rehearsal-cast select { flex:1; min-width:0; min-height:32px; border:0; border-radius:6px; padding:4px 8px; background:var(--surface-workbench-input); color:var(--text-primary); font:inherit; cursor:pointer; }
+.rehearsal-compose textarea::placeholder { color:var(--text-muted); opacity:1; }
+.rehearsal-export { min-height:36px; border-radius:8px; }
+.rehearsal-step-head { align-items:start; padding-block:10px; }
+.rehearsal-step-index { padding-top:1px; }
+.rehearsal-step-action { font-weight:550; }
+@media(max-width:720px) { .rehearsal-route-library > summary, .rehearsal-cast select { min-height:44px; } }
+@media(prefers-reduced-motion:reduce) { .rehearsal-route-library > summary svg, .rehearsal-step-head svg { transition:none; } }
+.rehearsal-panel.is-ready .rehearsal-flow { flex:none; padding-block:0; }
+.rehearsal-compose .rehearsal-conditions { margin:0; border:0; }
+.rehearsal-compose .rehearsal-conditions > summary { font-size:12px; color:var(--text-muted); }
+.rehearsal-restart { color:var(--text-muted); }
+
+.rehearsal-anchor { flex:none; display:flex; align-items:center; gap:10px; width:100%; padding:8px 18px 12px; text-align:left; color:var(--text-secondary); font-size:12px; line-height:1.6; }
+.rehearsal-anchor span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rehearsal-anchor svg { margin-inline-start:auto; }
+.rehearsal-result-actions { display:flex; justify-content:flex-end; margin:10px 0 4px; }
+.rehearsal-result-actions .rehearsal-export { display:inline-flex; align-items:center; gap:8px; margin:0; padding:4px 0; color:var(--text-primary); }
+.rehearsal-review, .rehearsal-retained-notice { margin:12px 0; color:var(--text-secondary); font-size:12px; line-height:1.75; }
+.rehearsal-retained { padding-block:4px 12px; }
+.rehearsal-retained-actions { display:flex; align-items:center; gap:12px; color:var(--text-secondary); font-size:12px; }
+.rehearsal-retained-actions button { padding-inline:0; }
+.rehearsal-panel.is-ready .rehearsal-footer { padding-top:12px; }
+.rehearsal-panel.is-ready .rehearsal-flow:empty { display:none; }
+@media(max-width:720px) { .rehearsal-anchor { min-height:44px; } }
 </style>

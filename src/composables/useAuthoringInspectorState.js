@@ -97,7 +97,7 @@ export function useAuthoringInspectorState({
 
   function closeWritingInspector(options = {}) {
     const shouldRestoreSurface = options?.restoreSurface !== false
-    if (inspectorDetailState.value?.kind === 'scene-edit') {
+    if (inspectorDetailState.value?.kind === 'scene-edit' && options.preserveSceneDraft !== true) {
       discardSceneDraft?.()
       inspectorDetailState.value = null
     }

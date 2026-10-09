@@ -215,9 +215,19 @@ function boundedBlockContent(content, maxChars = 2400) {
   return { truncated: true, chars: serialized.length, preview: serialized.slice(0, maxChars) }
 }
 
+function isCurrentManuscriptEntry(entry) {
+  return entry?.kind === 'manuscript-unit'
+    && entry.temporalRelation === 'at-target'
+    && !entry.intendedReference
+    && typeof entry.text === 'string'
+    && Boolean(entry.text.trim())
+}
+
 function compiledContextSerialization(content, maxChars = 2400) {
   const source = content && typeof content === 'object' ? content : {}
-  const entries = Array.isArray(source.entries) ? source.entries : []
+  const entries = (Array.isArray(source.entries) ? source.entries : []).slice().sort((a, b) => (
+    Number(isCurrentManuscriptEntry(b)) - Number(isCurrentManuscriptEntry(a))
+  ))
   const serializedBlocks = {}
   const fullSerialized = JSON.stringify(source)
   if (fullSerialized.length <= maxChars) {
@@ -244,8 +254,23 @@ function compiledContextSerialization(content, maxChars = 2400) {
     const entry = {
       candidateId,
       kind: text(rawEntry?.kind),
+      ...(rawEntry.label ? { label: text(rawEntry.label) } : {}),
+      ...(rawEntry.sourceKind ? { sourceKind: text(rawEntry.sourceKind) } : {}),
+      ...(rawEntry.temporalRelation ? { temporalRelation: text(rawEntry.temporalRelation) } : {}),
+      ...(rawEntry.contextMode ? { contextMode: text(rawEntry.contextMode) } : {}),
+      ...(rawEntry.narrativeStatus ? { narrativeStatus: text(rawEntry.narrativeStatus) } : {}),
+      ...(rawEntry.usageRole ? { usageRole: text(rawEntry.usageRole) } : {}),
+      ...(rawEntry.intendedReference ? { intendedReference: true } : {}),
       representation: text(rawEntry?.representation),
       text: entryText
+    }
+    const currentManuscript = isCurrentManuscriptEntry(entry)
+    // 重写目标是必要输入，必须完整发送。若完整目标放不下真实 part
+    // 上限，外层预算检查会拒绝请求；不能把部分重写伪装成整块重写。
+    if (currentManuscript && entry.contextMode === 'rewrite-unit') {
+      bounded.entries.push(entry)
+      serializedBlocks[candidateId] = entryText
+      continue
     }
     const withFullEntry = { ...bounded, entries: [...bounded.entries, entry] }
     if (JSON.stringify(withFullEntry).length <= maxChars) {
@@ -254,12 +279,22 @@ function compiledContextSerialization(content, maxChars = 2400) {
       continue
     }
 
-    let low = 0
+    const preserveTail = entry.kind === 'manuscript-unit'
+      && ['at-target', 'before-target'].includes(entry.temporalRelation)
+    const clipped = (length) => ({
+      ...entry,
+      text: length > 0 ? (preserveTail ? entryText.slice(-length) : entryText.slice(0, length)) : '',
+      truncated: true
+    })
+    // 即使降级参考预算，也不能把非空落笔处降成零字；最后由完整
+    // text part 上限决定能否发送，空间不足就明确拒绝。
+    const minimumLength = currentManuscript ? Math.min(320, entryText.length) : 0
+    let low = minimumLength
     let high = entryText.length
-    let accepted = null
+    let accepted = minimumLength ? clipped(minimumLength) : null
     while (low <= high) {
       const length = Math.floor((low + high) / 2)
-      const clippedEntry = { ...entry, text: entryText.slice(0, length), truncated: true }
+      const clippedEntry = clipped(length)
       const candidate = { ...bounded, entries: [...bounded.entries, clippedEntry] }
       if (JSON.stringify(candidate).length <= maxChars) {
         accepted = clippedEntry
@@ -337,8 +372,18 @@ function loreContextSerialization(content, maxChars = 2400) {
 export function serializeNarrativeKernelForProvider(kernel, { referenceBlockBudget = 2400, dropReferenceBlocks = false } = {}) {
   const serializedBlocks = {}
   const blocks = (kernel?.blocks || []).map((block) => {
-    if (dropReferenceBlocks && (block?.kind === 'compiled-context' || block?.kind === 'lore')) {
+    if (dropReferenceBlocks && block?.kind === 'lore') {
       return { kind: block.kind, content: { omitted: true }, sourceRefs: block.sourceRefs }
+    }
+    if (dropReferenceBlocks && block?.kind === 'compiled-context') {
+      const currentEntries = (Array.isArray(block.content?.entries) ? block.content.entries : [])
+        .filter(isCurrentManuscriptEntry)
+      if (!currentEntries.length) {
+        return { kind: block.kind, content: { omitted: true }, sourceRefs: block.sourceRefs }
+      }
+      const context = compiledContextSerialization({ ...block.content, entries: currentEntries }, 400)
+      Object.assign(serializedBlocks, context.serializedBlocks)
+      return { kind: block.kind, content: context.content, sourceRefs: block.sourceRefs }
     }
     if (block?.kind === 'compiled-context' || block?.kind === 'lore') {
       const context = block.kind === 'compiled-context'
@@ -377,7 +422,7 @@ export function serializeNarrativeKernelForProvider(kernel, { referenceBlockBudg
 // U1 安全收口：payload 是 transcript 的单个 text part，受合同 maxPartChars
 // 约束。按"实际发送的完整 part"校验总长——静态指令前缀 + payload + 连接符
 // 必须同 budget 放得下。越限时先递减参考块界额（有界减少参考资料），
-// 仍不足则丢弃参考块；必要输入（turn 指令等控制块，kernel 层已各有限额）
+// 仍不足则丢弃补充参考，保留当前落笔处；必要输入（turn 指令和当前正文）
 // 自身放不下时返回 typed 错误，绝不悄悄截掉作者要求。
 export function serializeKernelWithinTextPartBudget(kernel, staticOverheadChars = 0, { initial = null } = {}) {
   const budget = NARRATIVE_TRANSCRIPT_LIMITS.maxPartChars - Math.max(0, Number(staticOverheadChars) || 0) - 2

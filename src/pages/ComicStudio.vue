@@ -7,6 +7,7 @@ import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.v
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
 import ComicPageEditor from '../components/media/ComicPageEditor.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
+import WorkspaceProjectNavigation from '../components/workbench/WorkspaceProjectNavigation.vue'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { useComicWorkspaceSelection } from '../composables/comics/useComicWorkspaceSelection'
 import { useComicPageThumbnails } from '../composables/comics/useComicPageThumbnails'
@@ -28,6 +29,7 @@ import {
   updateComicSequenceVisualBible
 } from '../services/media/comicPageStore'
 import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
+import { recordWorkspaceRecentLocation } from '../services/workspace/workspaceRecentHistory'
 
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
@@ -55,7 +57,7 @@ const pageMobilePanes = [
   { value: 'panel', label: '当前格' }
 ]
 const planMobilePanes = [
-  { value: 'sources', label: '素材' },
+  { value: 'sources', label: '目录' },
   { value: 'page', label: '页面计划' }
 ]
 
@@ -69,6 +71,7 @@ const {
   mode: scopeMode,
   activeBook,
   scopeNotice,
+  locationNotice,
   catalog,
   sequences,
   standalonePages,
@@ -109,8 +112,8 @@ const selectedSourceRefs = computed(() => selectedSource.value ? [{
 const activeProjectId = computed(() => activeBook.value?.id || null)
 const canCreatePage = computed(() => scopeMode.value === 'project' && Boolean(activeBook.value))
 const comicMobilePanes = computed(() => studioMode.value === 'plan'
-  ? (planningPersisted.value ? planMobilePanes.filter((pane) => pane.value === 'page') : planMobilePanes)
-  : pageMobilePanes)
+  ? planMobilePanes
+  : locationNotice.value ? pageMobilePanes.filter(pane => pane.value !== 'panel') : pageMobilePanes)
 const referenceCatalog = computed(() => buildComicReferenceCatalog({
   worldbook: activeBook.value?.worldbookId ? readWorldbookSnapshot(activeBook.value.worldbookId) : null,
   assets: scopedSources.value
@@ -172,6 +175,62 @@ const unknownRequests = computed(() => {
   return unknownRequestSummaries()
 })
 const legacyTargets = computed(() => legacyWorldbookPages.value.length + unownedPages.value.length)
+let locationReady = false
+let applyingRouteLocation = false
+let locationRevision = 0
+let lastReportedComicLocationKey = ''
+
+function restoreComicLocation() {
+  const previousPageId = activePageId.value
+  applyingRouteLocation = true
+  const restored = selection.restoreRouteSelection({ pageId: route.query.pageId, panelId: route.query.panelId }, { flush: false })
+  if (activePageId.value !== previousPageId || !restored) pagePreview.value = null
+  if (activePageId.value && !catalog.value.some(item => item.page.id === activePageId.value)) {
+    sequenceFilter.value = 'all'
+  }
+  if (route.query.pageId || route.query.panelId) {
+    studioMode.value = 'page'
+    planningTarget.value = selection.activePage.value?.sequenceId ? 'sequence' : 'new'
+    mobilePane.value = 'page'
+  }
+  applyingRouteLocation = false
+  return restored
+}
+
+async function syncComicLocation() {
+  if (!locationReady || disposed || applyingRouteLocation || locationNotice.value || route.name !== 'comics'
+    || (studioMode.value === 'plan' && !planningPersisted.value)) return
+  const page = selection.activePage.value
+  const panelId = activePanelId.value
+  if (!page || page.projectId !== activeProjectId.value || (panelId && !page.panels.some(panel => panel.id === panelId))) return
+  const revision = ++locationRevision
+  const query = { ...route.query, bookId: activeProjectId.value, pageId: page.id }
+  if (panelId) query.panelId = panelId
+  else delete query.panelId
+  try {
+    if (route.query.pageId !== page.id || String(route.query.panelId || '') !== panelId) {
+      const failure = await router.replace({ name: 'comics', query, hash: route.hash })
+      if (failure) {
+        if (!disposed && revision === locationRevision) archiveStatus.value = '打开位置未更新，请完成当前保存后重新选择这一页。'
+        return
+      }
+    }
+    if (disposed || revision !== locationRevision || route.name !== 'comics'
+      || String(route.query.bookId || '') !== page.projectId || route.query.pageId !== page.id
+      || String(route.query.panelId || '') !== panelId || locationNotice.value) return
+    const locationKey = JSON.stringify([page.projectId, page.id, panelId])
+    recordWorkspaceRecentLocation({
+      mode: locationKey === lastReportedComicLocationKey ? 'context' : 'visit',
+      bookId: page.projectId,
+      surface: 'comics',
+      route: { name: 'comics', query: { bookId: page.projectId, pageId: page.id, ...(panelId ? { panelId } : {}) } },
+      object: { kind: 'comic-page', id: page.id, title: page.title || '未命名漫画页', parentId: '', panelId }
+    })
+    lastReportedComicLocationKey = locationKey
+  } catch {
+    if (!disposed && revision === locationRevision) archiveStatus.value = '漫画内容仍保留，但未能更新打开位置。请重新选择这一页。'
+  }
+}
 
 onMounted(() => {
   selection.refreshBooks()
@@ -182,7 +241,6 @@ onMounted(() => {
     : ''
   adaptationSourceIds.value = selectedSourceId.value ? [selectedSourceId.value] : []
   loadModels()
-  selection.refreshBooks()
   touchCatalog()
   // 默认进入整页制作：空书可见“新建空白页”直达空态，全局模式可见未归属旧页目录。
   studioMode.value = selectedSourceId.value ? 'plan' : 'page'
@@ -190,13 +248,15 @@ onMounted(() => {
   if (catalog.value.length && !requestedSourceId) {
     planningTarget.value = selection.activePage.value?.sequenceId ? 'sequence' : 'new'
   }
-  if (activePageId.value && !selection.activePage.value) selectPage(activePageId.value, { flush: false })
-  if (!activePageId.value && catalog.value.length) selectPage(catalog.value[0].page.id, { flush: false })
+  restoreComicLocation()
+  locationReady = true
+  void syncComicLocation()
   window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
 onBeforeUnmount(() => {
   disposed = true
+  locationRevision += 1
   invalidateAdaptationRequest()
   window.removeEventListener('beforeunload', handleBeforeUnload)
 })
@@ -318,7 +378,7 @@ function toggleInspector() {
 function enterBookScope(bookIdValue) {
   if (!bookIdValue) return
   if (!flushPendingEdits()) return
-  router.replace({ query: { ...route.query, bookId: bookIdValue } })
+  router.replace({ name: 'comics', query: { bookId: bookIdValue } })
 }
 
 function resetAdaptation() {
@@ -513,6 +573,7 @@ function handlePageSaved(page) {
 }
 
 function handlePagePreview(page) {
+  if (locationNotice.value) return
   if (page && (page.projectId !== activeProjectId.value || (activePageId.value && page.id !== activePageId.value))) return
   pagePreview.value = page
   if (!page?.panels?.some((panel) => panel.id === activePanelId.value)) {
@@ -631,6 +692,10 @@ watch(catalog, () => {
 }, { immediate: false })
 
 watch(() => [route.query.bookId, route.query.assetId], ([bookId, assetId], [previousBookId, previousAssetId]) => {
+  // The getter also reruns when only pageId/panelId changes: compare values,
+  // rather than treating a fresh query object as a new generation owner.
+  if (bookId === previousBookId && assetId === previousAssetId) return
+  locationRevision += 1
   invalidateAdaptationRequest()
   adaptationGenerating.value = false
   adaptationCandidates.value = []
@@ -641,14 +706,13 @@ watch(() => [route.query.bookId, route.query.assetId], ([bookId, assetId], [prev
   adaptationError.value = ''
   activePageId.value = ''
   activePanelId.value = ''
+  locationNotice.value = ''
   sequenceFilter.value = 'all'
   archiveStatus.value = ''
   inspectorCollapsed.value = false
   thumbnails.reset()
   selection.refreshBooks()
   touchCatalog()
-  const first = catalog.value[0]
-  if (!selection.activePage.value && first) selectPage(first.page.id, { flush: false })
   pagePreview.value = null
   sourceCandidates.value = listActiveNarrativeAssets()
   const requestedSourceId = String(assetId || '')
@@ -664,6 +728,24 @@ watch(() => [route.query.bookId, route.query.assetId], ([bookId, assetId], [prev
     mobilePane.value = 'page'
     if (requestedSourceId) archiveStatus.value = '这条素材不属于当前作品，未载入改编。'
   }
+  restoreComicLocation()
+  void syncComicLocation()
+})
+watch(() => [route.query.pageId, route.query.panelId], () => {
+  if (!locationReady || applyingRouteLocation) return
+  // A replace caused by selecting a frame is only the URL echo of this owner.
+  // It must not remount the editor, clear the adaptation task or change panes.
+  if (String(route.query.pageId || '') === activePageId.value
+    && String(route.query.panelId || '') === activePanelId.value && !locationNotice.value) return
+  restoreComicLocation()
+  void syncComicLocation()
+})
+watch(() => [activeProjectId.value, activePageId.value, activePanelId.value,
+  selection.activePage.value?.title, locationNotice.value, studioMode.value, planningPersisted.value], (current, previous) => {
+  // A route guard saves the editor and refreshes the catalog. A fresh page
+  // object with the same locator/title must not start another replace/save.
+  if (current.every((value, index) => value === previous[index])) return
+  void syncComicLocation()
 })
 watch(mobilePane, (pane) => {
   if (pane === 'panel') inspectorCollapsed.value = false
@@ -674,9 +756,8 @@ watch(mobilePane, (pane) => {
   <div class="comic-studio">
     <header class="comic-studio__mast">
       <div class="comic-studio__mast-left">
-        <div class="comic-studio__book" :title="activeBook?.title">
+        <div class="comic-studio__book">
           <strong>漫画</strong>
-          <span>{{ activeBook ? activeBook.title : '未选择作品' }}</span>
         </div>
         <select class="comic-studio__mode-picker" aria-label="漫画制作模式" :value="studioMode" @change="changeStudioMode">
           <option value="plan">页面计划</option>
@@ -704,6 +785,7 @@ watch(mobilePane, (pane) => {
           <li>
             <button
               type="button"
+              :disabled="Boolean(locationNotice) || !selection.activePage.value"
               :class="{ 'is-current': studioMode === 'page' && mobilePane === 'panel' }"
               @click="openStudioMode('panel')"
             >
@@ -734,7 +816,7 @@ watch(mobilePane, (pane) => {
           {{ studioMode === 'plan' ? '新建改编' : '新建漫画页' }}
         </button>
         <button
-          v-if="studioMode === 'page' && (activePageId || mobilePane === 'panel')"
+          v-if="studioMode === 'page' && !locationNotice && (activePageId || mobilePane === 'panel')"
           type="button"
           class="comic-studio__collapse"
           :aria-pressed="inspectorCollapsed"
@@ -748,6 +830,7 @@ watch(mobilePane, (pane) => {
     </header>
 
     <div v-if="scopeNotice" class="comic-studio__scope-notice" role="status">{{ scopeNotice }}</div>
+    <div v-if="locationNotice" class="comic-studio__scope-notice" role="status" data-test="comic-location-notice">{{ locationNotice }}</div>
     <div v-if="unknownRequests.length" class="comic-studio__unknown-bar" role="status">
       <span>有 {{ unknownRequests.length }} 个图片请求结果未知（可能在刷新前已发出，不会自动重发）</span>
       <button type="button" @click="openUnknownRequest(unknownRequests[0])">查看所在格</button>
@@ -767,24 +850,32 @@ watch(mobilePane, (pane) => {
       :class="{
         'is-planning': studioMode === 'plan',
         'is-reviewing': studioMode === 'plan' && planningPersisted,
-        'inspector-collapsed': studioMode === 'page' && (inspectorCollapsed || (!activePageId && mobilePane !== 'panel'))
+        'inspector-collapsed': studioMode === 'page' && (locationNotice || inspectorCollapsed || (!activePageId && mobilePane !== 'panel'))
       }"
       :data-mobile-pane="mobilePane"
     >
-      <MaterialSourceDrawer
-        v-if="studioMode === 'plan' && !planningPersisted"
-        :assets="scopedSources"
-        :selected-id="selectedSourceId"
-        :selected-ids="adaptationSourceIds"
-        multi
-        @select="selectSource"
-      />
       <aside
-        v-else-if="studioMode === 'page'"
         class="comic-studio__catalog archive-pin workspace-sidebar"
-        aria-label="漫画页目录"
+        aria-label="作品导航与漫画目录"
         data-test="comic-catalog"
       >
+        <WorkspaceProjectNavigation
+          class="comic-studio__project-navigation"
+          :book-id="selection.bookId.value"
+          current="comics"
+          :blocked="adaptationGenerating"
+          blocked-title="正在生成分页方案，请先等待完成或取消。"
+        />
+        <MaterialSourceDrawer
+          v-if="studioMode === 'plan' && !planningPersisted"
+          class="comic-studio__source-list"
+          :assets="scopedSources"
+          :selected-id="selectedSourceId"
+          :selected-ids="adaptationSourceIds"
+          multi
+          @select="selectSource"
+        />
+        <template v-else>
         <header class="comic-studio__catalog-head">
           <strong>页目录</strong>
           <span>{{ catalog.length }} 页</span>
@@ -898,6 +989,7 @@ watch(mobilePane, (pane) => {
             </button>
           </div>
         </details>
+        </template>
       </aside>
 
       <main class="comic-studio__canvas">
@@ -959,9 +1051,10 @@ watch(mobilePane, (pane) => {
               @update-lettering-tail="updatePreviewLetteringTail"
             />
             <div v-else class="comic-studio__empty-canvas">
-              <strong>{{ canCreatePage ? '建立一张漫画页' : '选择作品后开始制作漫画' }}</strong>
-              <span>{{ canCreatePage ? '直接建一页手工分镜，或从素材改编成多页序列。不需要先配置模型。' : '漫画默认归属当前作品；从目录选择作品后即可建页。' }}</span>
+              <strong>{{ locationNotice ? '无法恢复指定位置' : canCreatePage ? '建立一张漫画页' : '选择作品后开始制作漫画' }}</strong>
+              <span>{{ locationNotice || (canCreatePage ? '直接建一页手工分镜，或从素材改编成多页序列。不需要先配置模型。' : '漫画默认归属当前作品；从目录选择作品后即可建页。') }}</span>
               <div class="comic-studio__empty-actions">
+                <button v-if="locationNotice" type="button" @click="selectMobilePane('sources')">打开页目录</button>
                 <button
                   v-if="canCreatePage"
                   type="button"
@@ -999,7 +1092,7 @@ watch(mobilePane, (pane) => {
       </main>
 
       <aside
-        v-if="studioMode === 'page' && (activePageId || mobilePane === 'panel')"
+        v-if="studioMode === 'page' && !locationNotice && (activePageId || mobilePane === 'panel')"
         v-show="!inspectorCollapsed"
         class="comic-studio__inspector notes-sidekick"
         aria-label="副阅读台"
@@ -1106,11 +1199,17 @@ watch(mobilePane, (pane) => {
 .comic-studio__workspace > :deep(.material-source-drawer) { width: 100%; }
 
 .comic-studio__catalog { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 0; background: var(--surface-workbench-muted); font-family: var(--font-sans); }
+.comic-studio__project-navigation { flex: 0 1 auto; min-height: 0; max-height: 55%; overflow-y: auto; scrollbar-width: thin; }
+.comic-studio__source-list { --workspace-radius: 0; flex: 1 1 0; width: 100%; min-height: 0; overflow-y: auto; }
+.comic-studio__source-list :deep(.drawer-body) { gap: 0; }
+.comic-studio__source-list :deep(.index-card) { margin-inline: 0; border-radius: 0; }
+.comic-studio__source-list :deep(.drawer-unit) { border-top: 0; }
+.comic-studio__source-list :deep(.drawer-handle) { border-bottom: 0; }
 .comic-studio__catalog-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 16px; min-height: 52px; border-bottom: 0; }
 .comic-studio__catalog-head strong { color: var(--archive-ink-soft); font-family: var(--font-sans); font-size: 12px; font-weight: 500; }
 .comic-studio__catalog-head span { color: var(--archive-ink-soft); font-size: 12px; }
 .comic-studio__catalog > .archive-pin__nail, .comic-studio__catalog::before, .comic-studio__catalog::after { display: none; }
-.comic-studio__catalog-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 12px; overflow-y: auto; scrollbar-width: thin; }
+.comic-studio__catalog-list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 0; padding: 4px 10px 12px; overflow-y: auto; scrollbar-width: thin; }
 .comic-studio__catalog-item {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -1190,9 +1289,9 @@ watch(mobilePane, (pane) => {
 .comic-studio__page-bar { width: 100%; min-height: 44px; height: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 0; background: var(--surface-workbench-canvas); font: 12px/1.5 var(--font-sans); }
 
 .comic-studio__page-bar-label { flex: 0 0 auto; color: var(--archive-ink-soft, var(--text-secondary)); }
-.comic-studio__page-list { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: thin; }
+.comic-studio__page-list { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 0; overflow-x: auto; scrollbar-width: thin; }
 
-.comic-studio__page-item { max-width: 190px; min-width: 92px; min-height: 36px; height: auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0; border-radius: 10px; background: transparent; color: var(--text-primary); cursor: pointer; font: 14px/1.4 var(--font-sans); text-align: left; }
+.comic-studio__page-item { max-width: 190px; min-width: 92px; min-height: 36px; height: auto; display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); cursor: pointer; font: 14px/1.4 var(--font-sans); text-align: left; }
 
 .comic-studio__page-item:hover,
 .comic-studio__page-item.active { background: var(--nav-selected); color: var(--text-primary); }
@@ -1201,7 +1300,7 @@ watch(mobilePane, (pane) => {
 .comic-studio__page-item strong { min-width: 0; overflow: hidden; font-family: var(--font-sans); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .comic-studio__canvas { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; background: var(--surface-workbench-canvas); }
 
-.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px 12px; overflow: auto; border-radius: 20px 20px 0 0; }
+.comic-studio__canvas-stage { flex: 1 1 auto; min-height: 0; display: grid; place-items: center; padding: 8px 12px; overflow: auto; border-radius: 0; }
 .comic-studio__canvas-stage.is-planning { display: block; padding: 0; }
 .comic-studio__canvas-stage.has-composition { display: block; padding: 0; overflow: hidden; }
 .comic-studio__canvas-stage.has-composition :deep(.comic-composition) { height: 100%; }
@@ -1272,7 +1371,6 @@ watch(mobilePane, (pane) => {
   .comic-studio__mast-actions { flex: 1; justify-content: flex-end; }
   .comic-studio__empty-canvas button, .comic-studio__page-item { min-height: 44px; }
 }
-.comic-studio__workspace.is-planning.is-reviewing { grid-template-columns: minmax(0, 1fr); }
 .comic-studio__mode-picker { display: none; }
 @media (max-width: 980px) {
   .comic-studio__mast-left { flex-shrink: 0; }
@@ -1286,7 +1384,7 @@ watch(mobilePane, (pane) => {
 }
 </style>
 <style scoped>
-.comic-studio__catalog-item { padding: 10px; border: 0; border-radius: 12px; background: transparent; }
+.comic-studio__catalog-item { padding: 8px 10px; border: 0; border-radius: 0; background: transparent; }
 .comic-studio__catalog-item.active { background: var(--nav-selected); box-shadow: none; }
 .comic-studio__catalog-meta strong { font-family: var(--font-sans); font-size: 14px; font-weight: 600; }
 .comic-studio__catalog-meta small, .comic-studio__catalog-head { font-family: var(--font-sans); font-size: 13px; }
@@ -1301,4 +1399,22 @@ watch(mobilePane, (pane) => {
 @media (max-width: 640px), (pointer: coarse) {
  .comic-studio__sequence-picker select, .comic-studio__book-picker select { min-height: 44px; }
 }
+</style>
+
+<style scoped>
+.comic-studio__mast { min-height: 64px; padding: 10px 24px; border-bottom: 1px solid var(--hairline-soft); gap: 24px; }
+.comic-studio__book strong { font: 600 17px/1.4 var(--font-sans); }
+.comic-studio__workflow { gap: 14px; margin-left: 20px; }
+.comic-studio__workflow button { min-height: 40px; border-radius: 0; padding: 8px 4px; border-bottom: 2px solid transparent; font-size: 14px; }
+.comic-studio__workflow button.is-current { background: transparent; border-bottom-color: var(--accent); }
+.comic-studio__workflow button:disabled { opacity: .4; cursor: default; }
+.comic-studio__canvas-stage:not(.is-planning):not(.has-composition) { padding: 28px; }
+.comic-studio__empty-canvas { gap: 18px; max-width: 480px; padding: 48px 28px 96px; }
+.comic-studio__empty-canvas strong { font-size: 26px; }
+.comic-studio__empty-actions { gap: 12px; }
+.comic-studio__empty-canvas button, .comic-studio__new { border-radius: 8px; min-height: 40px; }
+.comic-studio__catalog-thumb { border-radius: 3px; border: 1px solid var(--hairline-soft); }
+.comic-studio__catalog-item { padding-block: 12px; }
+.comic-studio__inspector { background: var(--surface-workbench); border-left: 1px solid var(--hairline-soft); }
+@media (max-width: 760px) { .comic-studio__mast { padding: 10px 14px; gap: 12px; } .comic-studio__canvas-stage:not(.is-planning):not(.has-composition) { padding: 14px; } .comic-studio__empty-canvas { padding: 32px 12px 56px; } .comic-studio__empty-canvas strong { font-size: 23px; } .comic-studio__new, .comic-studio__empty-canvas button { min-height: 44px; } }
 </style>

@@ -27,7 +27,7 @@ export function useExperienceCodexWorkspace({
   const codexSheetOpen = ref(false)
   const codexTriggerRef = ref(null)
   const codexSheetRef = ref(null)
-  const activeCodexSection = ref('events')
+  const activeCodexSection = ref('')
   const codexDetailSection = ref(null)
   const lastAddedLocationId = ref('')
   const codexUpdates = ref({

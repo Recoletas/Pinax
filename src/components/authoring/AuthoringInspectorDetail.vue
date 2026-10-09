@@ -199,9 +199,11 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
 <style scoped>
 /* 沿用检查器批注密度与边注语义，不新增卡片墙。 */
 .writing-inspector-detail {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
+  padding: 20px 24px 24px;
   font-size: 13px;
 }
 .writing-inspector-detail__back {

@@ -5,8 +5,10 @@
 
 import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
 import {
+  authoringRunHistoryNodes,
   authoringRunReferenceRevision,
   captureAuthoringRunTarget,
+  historyRunRevision,
   memoryPrimarySourceRef,
   readAuthoringSceneIntentCandidates,
   readManuscriptRunCandidates,
@@ -106,7 +108,7 @@ function targetFromRequest(request = {}) {
   return target
 }
 
-function liveTargetMatches(expected, live) {
+function liveTargetMatches(expected, live, { requireUnchangedRevision = true } = {}) {
   if (!live || typeof live !== 'object' || !live.document || !live.sceneProjection) return false
   const liveRole = text(live.role || live.documentRole)
   if (!['manuscript', 'exploration'].includes(liveRole)) return false
@@ -117,9 +119,11 @@ function liveTargetMatches(expected, live) {
     || (expected.role === 'manuscript' && text(live.chapterId) !== expected.chapterId)
     || text(live.unitId) !== expected.unitId
     || text(live.nodeId) !== expected.nodeId) return false
-  if (text(live.documentRevision) !== expected.documentRevision) return false
+  const documentRevision = text(live.documentRevision)
   const schemaRevision = text(live.documentSchemaRevision || live.document?.revision)
-  if (!schemaRevision || (expected.documentSchemaRevision && schemaRevision !== expected.documentSchemaRevision)) return false
+  if (!documentRevision || !schemaRevision) return false
+  if (requireUnchangedRevision && (documentRevision !== expected.documentRevision
+    || (expected.documentSchemaRevision && schemaRevision !== expected.documentSchemaRevision))) return false
   return true
 }
 
@@ -304,7 +308,7 @@ async function resolveMemoryProvenanceSources({
           if (source) assetById.set(sourceId, source)
         } catch { /* 同上，保守排除而不是回退 frozen revision */ }
       })())
-    } else if (sourceRef.startsWith('chapter:') || sourceRef.startsWith('unit:')) {
+    } else if (sourceRef.startsWith('chapter:') || sourceRef.startsWith('unit:') || sourceRef.startsWith('node:')) {
       if (!pending.has(sourceRef)) requests.push((async () => {
         pending.add(sourceRef)
         try {
@@ -385,10 +389,16 @@ function buildMemorySourceRevisions({
   else assign(`exploration:${live.documentId}`, live.documentRevision)
   for (const unit of list(live.document?.content)) {
     assign(`unit:${text(unit?.attrs?.unitId || unit?.unitId)}`, live.documentRevision)
+    for (const node of list(unit?.content)) {
+      assign(`node:${text(node?.attrs?.nodeId || node?.nodeId)}`, live.documentRevision)
+    }
   }
   assign('scene-projection:current', projection?.projectionFingerprint)
   for (const entry of list(worldbook?.entries)) {
     assign(`worldbook-entry:${text(entry?.id)}`, worldbookRunRevision(entry))
+  }
+  for (const { node, kind } of authoringRunHistoryNodes(worldbook)) {
+    assign(`history-node:${text(node?.id || node?.nodeId)}`, historyRunRevision(node, worldbook, kind))
   }
   for (const document of list(explorationDocuments)) {
     assign(`exploration:${text(document?.id)}`, authoringRunReferenceRevision('exploration-doc', document))
@@ -411,10 +421,11 @@ async function readLiveBundle({
   readOutlineNodes,
   readSceneIntents,
   readReferenceSelections,
-  readSourceRevisions
+  readSourceRevisions,
+  requireUnchangedRevision = true
 }) {
   const live = await readValue(repositoryAdapters?.liveTargetReader, expectedTarget, null)
-  if (!liveTargetMatches(expectedTarget, live)) return null
+  if (!liveTargetMatches(expectedTarget, live, { requireUnchangedRevision })) return null
   const projection = snapshotRunProjection(live.sceneProjection)
   let binding = null
   try {
@@ -580,7 +591,11 @@ export function createAuthoringRunSessionAdapter({
         sourceId: reference.sourceId,
         usageRole: reference.usageRole
       })),
-      readSourceRevisions
+      readSourceRevisions,
+      // Same-scope edits must return their actual new versions. Returning an
+      // empty map here mislabels every dependency as missing and hides which
+      // source changed; reconciliation still rejects all version mismatches.
+      requireUnchangedRevision: false
     })
     if (!bundle) return Object.freeze({})
     return collectAuthoringRunDependencyRevisions({

@@ -1345,3 +1345,17 @@ span.prose-top__chip:hover { background: transparent; }
   .prose-top__chip--generate { padding-inline: 14px; }
   .prose-director-feedback { padding-inline: 12px; }
 }
+
+.pe-main.is-empty { grid-template-columns: minmax(0, 1fr); }
+.pe-main.is-empty .scene-board-host { display: flex; flex: 1; width: 100%; }
+.prose-hero__inner { width: min(620px, 100%); gap: 16px; text-align: start; }
+.prose-hero__title { font-size: 28px; font-weight: 500; }
+.prose-hero__input { width: 100%; box-sizing: border-box; min-height: 152px; padding: 18px 20px; margin-top: 12px; resize: vertical; border: 1px solid var(--hairline-soft); border-radius: 12px; background: var(--surface-workbench-input); color: var(--text-primary); font: 15px/1.8 var(--font-sans); }
+.prose-hero__input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prose-hero__input::placeholder { color: var(--text-muted); }
+.prose-hero__actions { justify-content: flex-start; gap: 12px; margin-top: 0; }
+.prose-hero__actions > button { background: var(--accent); color: var(--accent-text); border: 0; border-radius: 8px; padding: 10px 18px; min-height: 40px; }
+.prose-hero__actions > button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 760px) { .pe-main.is-empty { display: flex; } .prose-hero { padding: 40px 20px 80px; } .prose-hero__title { font-size: 24px; } .prose-hero__actions > button { min-height: 44px; } }
+
+.floating-toolbar.is-empty .toolbar-divider { display: none; }

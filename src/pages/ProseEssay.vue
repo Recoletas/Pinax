@@ -4,7 +4,7 @@
       <div class="prose-top">
         <div class="prose-top__left">
           <div class="prose-top__id">
-            <span class="prose-top__id-mark">画布</span>
+            <span class="prose-top__id-mark">视频与编导</span>
             <span class="prose-top__id-count">{{ cards.length }} 节点</span>
           </div>
           <span v-if="selectedCard" class="prose-top__summary">
@@ -12,7 +12,7 @@
           </span>
         </div>
 
-        <div class="prose-top__mid">
+        <div v-if="cards.length" class="prose-top__mid">
           <input
             v-model="currentTopic"
             ref="topicInputRef"
@@ -37,13 +37,14 @@
         </div>
 
         <div class="prose-top__right">
-          <span class="prose-top__chip prose-top__chip--accent" :title="currentModeLabel">
+          <span v-if="cards.length" class="prose-top__chip prose-top__chip--accent" :title="currentModeLabel">
             <span class="prose-top__chip-label">{{ currentModeLabel }}</span>
           </span>
-          <span class="prose-top__chip" :title="timelineSummaryLabel">
+          <span v-if="cards.length" class="prose-top__chip" :title="timelineSummaryLabel">
             <span class="prose-top__chip-label">{{ timelineSummaryLabel }}</span>
           </span>
           <button
+            v-if="cards.length"
             class="prose-top__chip prose-top__chip--video"
             type="button"
             :disabled="timelineItems.length === 0 || directorExportController.busy.value"
@@ -97,7 +98,7 @@
 
     <p v-if="directorStoryboardStatus" class="prose-director-feedback" role="status">{{ directorStoryboardStatus }}</p>
 
-    <WorkspacePaneSwitch
+    <WorkspacePaneSwitch v-if="cards.length"
       v-model="mobilePane"
       :items="canvasMobilePanes"
       label="画布工作区"
@@ -110,9 +111,9 @@
     </nav>
 
 
-    <div class="pe-main" :data-mobile-pane="mobilePane" :data-canvas-surface="canvasSurface">
+    <div class="pe-main" :class="{ 'is-empty': !cards.length }" :data-mobile-pane="mobilePane" :data-canvas-surface="canvasSurface">
       <!-- 左侧面板 -->
-      <aside class="left-panel">
+      <aside v-if="cards.length || timelineItems.length" class="left-panel">
         <!-- 选中卡片详情面板 -->
         <div v-if="selectedCard" class="card-detail-panel">
           <div class="detail-panel-header">
@@ -165,11 +166,12 @@
       <div class="scene-board-host">
     <section v-if="cards.length === 0" class="prose-hero" aria-label="画布零态引导">
       <div class="prose-hero__inner">
-        <h1 class="prose-hero__title">从一个场景开始</h1>
-        <p class="prose-hero__desc">输入场景线索生成节点，或将已有素材送入画布。</p>
+        <h1 class="prose-hero__title">把故事变成镜头</h1>
+        <p class="prose-hero__desc">写下一个场景，安排镜头，再制作视频。</p>
+        <textarea ref="topicInputRef" v-model="currentTopic" class="prose-hero__input" aria-label="场景描述" maxlength="2000" rows="4" placeholder="例如：雨夜，守卫在港口拦住了一位带信的陌生人。" @keydown.ctrl.enter.prevent="generateCards" @keydown.meta.enter.prevent="generateCards"></textarea>
         <div class="prose-hero__actions">
-          <button class="prose-top__chip prose-top__chip--cta" type="button" @click="focusTopicInput">
-            <span class="prose-top__chip-label">输入主题</span>
+          <button class="prose-top__chip prose-top__chip--cta" type="button" :disabled="isGenerating || !currentTopic.trim()" @click="generateCards">
+            <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '拆成镜头' }}</span>
           </button>
           <router-link class="prose-top__chip prose-top__chip--cta" :to="materialsLocation">
             <span class="prose-top__chip-label">从素材库导入</span>
@@ -329,8 +331,8 @@
     </div>
 
     <!-- 右下角悬浮工具栏 -->
-    <div class="floating-toolbar">
-      <button class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
+    <div class="floating-toolbar" :class="{ 'is-empty': !cards.length }">
+      <button v-if="cards.length" class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -342,7 +344,7 @@
         </svg>
       </button>
       <div class="toolbar-divider"></div>
-      <button class="toolbar-btn export-btn" :class="directorExportStatus ? `is-${directorExportStatus.kind}` : ''" @click="showExportMenu = !showExportMenu" :title="directorExportButtonTitle">
+      <button v-if="cards.length" class="toolbar-btn export-btn" :class="directorExportStatus ? `is-${directorExportStatus.kind}` : ''" @click="showExportMenu = !showExportMenu" :title="directorExportButtonTitle">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           <path d="M7 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -384,6 +386,10 @@
           <div class="dialog" @click.stop>
             <div class="dialog-header">镜头参数</div>
             <div class="dialog-body">
+              <div class="form-group">
+                <label for="shot-content">画面与动作</label>
+                <textarea id="shot-content" v-model="editingContent" class="input" rows="4" :readonly="Boolean(selectedCard.assetId)" placeholder="描述人物、环境和这一个镜头里发生的动作。"></textarea>
+              </div>
               <div class="form-group">
                 <label>景别</label>
                 <select v-model="editingShotType" class="input">

@@ -1,4 +1,5 @@
 <script setup>
+import './AuthoringCatalogWorkbench.css'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { tr, formatUiNumber, uiLocale } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
@@ -15,7 +16,7 @@ const props = defineProps({
   caretContext: { type: Object, default: null }, focusEntryId: { type: String, default: '' },
   candidateEntryIds: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'toggle-pin', 'close'])
+const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'close'])
 const router = useRouter()
 // N-A：本书资料概况与入口（NA04 右栏片）。资料数量来自绑定世界书的 sourceDocuments。
 const sourceCount = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments.length : 0))
@@ -160,23 +161,16 @@ onBeforeUnmount(flushSave)
 </script>
 
 <template>
-  <section class="authoring-setting-workbench">
-    <main class="setting-sheet">
-      <div class="setting-sources" data-test="authoring-sources-line">
-        <span class="setting-sources__label">
-          {{ tr('资料 · {count}', { count: formatUiNumber(sourceCount) }) }}
-        </span>
-        <button type="button" class="setting-sources__action" :disabled="!bookId" @click="openAddSources">{{ tr('添加资料') }}</button>
-        <button type="button" class="setting-sources__action setting-sources__action--quiet" :disabled="!bookId || !sourceCount" @click="openSourcesPanel">{{ tr('查看与管理') }}</button>
-      </div>
+  <section class="authoring-setting-workbench catalog-workbench" data-catalog="settings">
+    <main class="setting-sheet catalog-sheet">
       <template v-if="worldbook && selectedEntry">
-        <header class="setting-sheet__head">
+        <header class="setting-sheet__head catalog-sheet-head">
           <input v-model="draft.name" :aria-label="tr('设定名称')" @blur="flushSave" />
           <button type="button" class="setting-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
           <button type="button" class="setting-delete" :aria-label="tr('删除设定')" :title="tr('删除设定')" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
         </header>
         <AuthoringSettingAiReview v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
-        <div class="setting-sheet__scroll">
+        <div class="setting-sheet__scroll catalog-sheet-body">
           <!-- A2-1：内容优先；触发词/注入归"用于AI的规则"折叠；类型/分组归对象属性 -->
           <label class="setting-content"><span>{{ tr('内容') }}</span><textarea ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
           <div class="setting-object-row">
@@ -199,10 +193,19 @@ onBeforeUnmount(flushSave)
         <button type="button" @click="startCreate">{{ tr('新建设定') }}</button>
         <button type="button" @click="emit('bind')">{{ tr('关联已有资料库') }}</button>
       </div>
+      <div class="setting-sources" data-test="authoring-sources-line">
+        <span class="setting-sources__label">
+          {{ tr('资料 · {count}', { count: formatUiNumber(sourceCount) }) }}
+        </span>
+        <button type="button" class="setting-sources__action" :disabled="!bookId" @click="openAddSources">{{ tr('添加资料') }}</button>
+        <button type="button" class="setting-sources__action setting-sources__action--quiet" :disabled="!bookId || !sourceCount" @click="openSourcesPanel">{{ tr('查看与管理') }}</button>
+      </div>
     </main>
-    <aside class="setting-directory">
-      <div class="catalog-window-controls"><button type="button" :title="tr('固定设定工作台')" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr('关闭设定工作台')" @click="emit('close')">×</button></div>
-      <div class="setting-directory__search-row"><div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('搜索…')" :aria-label="tr('搜索设定')" /></div><button type="button" class="setting-create" :aria-label="tr('新建设定')" @click="startCreate"><WorkbenchIcon name="bookmark-plus" :size="15" /><span>{{ tr('新建') }}</span></button></div>
+    <aside class="setting-directory catalog-directory">
+      <div class="catalog-window-controls"><button type="button" :title="tr('关闭设定工作台')" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
+      <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('设定')" :aria-label="tr('搜索设定')" /></div>
+      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate">{{ tr('新建') }}</button><button type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('高级管理') }}</button></div>
+      <header><strong>{{ tr('目录') }}</strong></header>
       <nav class="setting-directory__modes" :aria-label="tr('设定目录范围')"><button type="button" :class="{ active: directoryMode === 'contextual' }" @click="directoryMode = 'contextual'">{{ uiLocale === 'en' ? tr('相关设定') : tr('当前落笔处') }}</button><button type="button" :class="{ active: directoryMode === 'all' }" @click="directoryMode = 'all'">{{ tr('全部') }}</button></nav>
       <select v-model="typeFilter" class="setting-type-filter" :aria-label="tr('筛选设定类型')"><option value="all">{{ tr('全部类型') }}</option><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select>
       <section v-for="group in groupedEntries" :key="group.name" class="setting-directory__group">
@@ -210,14 +213,13 @@ onBeforeUnmount(flushSave)
         <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.entries" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" :title="entry.name || tr('未命名设定')" @click="selectEntry(entry)"><span>{{ entry.name || tr('未命名设定') }}</span></button></template>
       </section>
       <div v-if="!groupedEntries.length" class="setting-directory__empty">{{ directoryMode === 'contextual' ? tr('当前落笔处没有命中的设定') : tr('没有匹配的设定') }}</div>
-      <button class="setting-open-full" type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('高级管理') }}</button>
     </aside>
   </section>
 </template>
 
 <style scoped>
 .authoring-setting-workbench{display:grid;grid-template-columns:minmax(300px,1.35fr) minmax(210px,.95fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}
-button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:#fff!important}
+button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:var(--accent-text)!important}
 .setting-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.setting-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.setting-sheet__head input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 17px/1.5 var(--font-body);outline:0}.setting-sheet__head input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-ai{color:var(--accent-primary);font-size:11px}.setting-delete{width:28px;height:28px}.setting-sheet__scroll{flex:1;min-height:0;overflow:auto;padding:7px 16px 32px}.setting-sheet__scroll label{display:grid;gap:7px;padding:14px 0;border-bottom:1px dashed var(--border-subtle)}.setting-sheet__scroll label>span{color:var(--text-secondary);font-size:12px}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{box-sizing:border-box;width:100%;border:0;outline:0;background:transparent;color:var(--text-primary);font:14px/1.8 var(--font-body)}.setting-sheet__scroll textarea{min-height:180px;overflow:hidden;resize:none}.setting-sheet__scroll input:focus,.setting-sheet__scroll textarea:focus,.setting-sheet__scroll select:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .setting-object-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 0 4px}
 .setting-ai-rules{border-top:1px dashed var(--border-subtle);margin-top:4px;padding-top:2px}

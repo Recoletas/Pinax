@@ -29,7 +29,7 @@ function navigate(name) {
   <section class="ws-topstrip" aria-label="当前体验会话" @keydown.escape="moreOpen = false">
     <div class="ws-topstrip__main">
       <button class="ws-session-trigger control-quiet" type="button" :title="sessionTitleTooltip" aria-label="切换会话" @click="emit('open-session')">
-        <span class="ws-session-trigger__eyebrow">体验</span>
+        <span class="ws-session-trigger__eyebrow">跑团与冒险</span>
         <span class="ws-session-trigger__label">{{ currentSessionLabel }}</span>
       </button>
     </div>

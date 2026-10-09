@@ -235,7 +235,10 @@ function buildSceneCast(worldbook, runtimeState, messages = []) {
 function makeBlock(kind, content, sourceRefs = []) {
   const maxChars = BLOCK_LIMITS[kind]
   const serialized = JSON.stringify(content)
-  if (serialized.length <= maxChars) {
+  // Manifest 的文本已由 compiler 限额；JSON 的标签/引用开销可能越过
+  // 此处 16000。保留可对账 entries，由 provider 按实际 part 预算裁剪，
+  // 不能先变成 summary，导致下一层把正文当成空 entries 丢掉。
+  if (serialized.length <= maxChars || (kind === 'compiled-context' && Array.isArray(content?.entries))) {
     return { kind, content, sourceRefs, chars: serialized.length, truncated: false }
   }
   return {
@@ -580,6 +583,15 @@ export function buildNarrativeKernel({
         .map((entry) => ({
           candidateId: text(entry.candidateId),
           kind: text(entry.kind),
+          label: text(entry.label),
+          sourceKind: text(entry.sourceKind),
+          temporalRelation: text(entry.temporalRelation),
+          narrativeStatus: text(entry.narrativeStatus),
+          usageRole: text(entry.usageRole),
+          ...(entry.contextMode || (entry.kind === 'manuscript-unit' && entry.temporalRelation === 'at-target')
+            ? { contextMode: text(entry.contextMode || contextManifest.target?.contextMode) }
+            : {}),
+          ...(entry.intendedReference ? { intendedReference: true } : {}),
           representation: text(entry.representation),
           text: typeof entry.text === 'string' ? entry.text : ''
         }))

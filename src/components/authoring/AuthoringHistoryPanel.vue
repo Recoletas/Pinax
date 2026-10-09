@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { tr } from '../../i18n/index.js'
 const props = defineProps({
   history: { type: Object, required: true },
   chapterTitle: { type: String, default: '' },
@@ -13,6 +14,9 @@ watch(() => props.history.snapshots.value[0]?.chapterId, () => { visibleCount.va
 
 <template>
   <div class="writing-version-panel" data-authoring-inspector="history">
+    <p v-if="!chapterSelected" class="writing-version-panel__help">{{ tr('正文历史仅用于章节；请先从目录打开章节。') }}</p>
+    <template v-else>
+    <p class="writing-version-panel__help">{{ tr('保存章节正文与批注的快照，需要时恢复旧稿。恢复前会保留当前版本。') }}</p>
     <div class="writing-version-panel__current">
       <div><span>当前章节</span><strong>{{ chapterTitle || '未命名章节' }}</strong></div>
       <div class="writing-version-panel__revision" aria-label="当前修订"><small>修订</small><b>{{ documentRevision }}</b></div>
@@ -56,5 +60,6 @@ watch(() => props.history.snapshots.value[0]?.chapterId, () => { visibleCount.va
     </div>
     <div v-else class="writing-version-panel__empty">当前章节还没有快照。</div>
     <button v-if="history.snapshots.value.length > visibleSnapshots.length" type="button" class="writing-version-panel__more control-quiet" @click="visibleCount += 20">查看较早版本（{{ history.snapshots.value.length - visibleSnapshots.length }}）</button>
+    </template>
   </div>
 </template>

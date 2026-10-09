@@ -2,44 +2,44 @@
 import { tr } from '../i18n/index.js'
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
-import ActivityBar from '../components/workbench/ActivityBar.vue'
+import WorkspaceProjectNavigation from '../components/workbench/WorkspaceProjectNavigation.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
-import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useTheme } from '../composables/useTheme'
 import { PROJECT_SURFACE_ROUTE_NAMES } from '../services/workspace/workspaceTabContract.js'
+import { useWorkspaceRecentStore } from '../stores/workspaceRecentStore.js'
 import '../styles/workspace-surfaces.css'
 import '../styles/workspace-navigation.css'
 
 const route = useRoute()
 const router = useRouter()
+const baseUrl = import.meta.env.BASE_URL
 
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
 const drawerCloseRef = ref(null)
 
-const currentActivityKey = computed(() => resolveActivityKey(route))
-const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
 const hideActivityBar = computed(() => Boolean(route.meta?.hideActivityBar))
-const hideSidePanel = computed(() => Boolean(route.meta?.hideSidePanel))
 const isImmersiveShell = computed(() => Boolean(route.meta?.immersiveShell))
-const activePanel = computed(() => hideSidePanel.value ? { title: '', items: [] } : currentPanel.value)
-const currentRouteCaption = computed(() => {
-  const activity = ACTIVITY_ITEMS.find((item) => item.key === currentActivityKey.value)
-  return String(route.meta?.title || activity?.label || '工作区')
-})
+const currentProjectSurface = computed(() => route.name === 'settings-worldbook-create' && route.query.mode === 'sources' && route.query.bookId ? 'sources' : route.name === 'authoring'
+  ? route.query.view === 'assistant' ? 'assistant' : 'writing'
+  : Object.entries(PROJECT_SURFACE_ROUTE_NAMES).find(([, name]) => name === route.name)?.[0] || '')
 
 // Workspace tabs replace the page directly; exit animations delay editor ownership.
 
 const settingsPopup = useSettingsPopup()
+const workspaceRecent = useWorkspaceRecentStore()
+workspaceRecent.hydrate()
 const { isDark, toggleTheme } = useTheme()
 function openSettings(section) {
+  closeDrawer()
   settingsPopup.open(section)
 }
 function openDocs() {
+  closeDrawer()
   router.push({ name: 'docs' })
 }
 
@@ -47,13 +47,11 @@ watch(() => route.fullPath, () => {
   drawerOpen.value = false
 })
 
-// Focus management: move focus into the drawer when it opens, return
-// focus to the trigger when it closes. Minimal-but-real a11y — a full
-// focus-trap loop is left for future polish, but keyboard users can at
-// least dismiss the drawer with Esc and re-enter via Tab from the trigger.
+// Wait for inert to update before entering the drawer or restoring its trigger.
 watch(drawerOpen, async (open) => {
+  await nextTick()
+  if (drawerOpen.value !== open) return
   if (open) {
-    await nextTick()
     drawerCloseRef.value?.focus()
   } else if (drawerTriggerRef.value) {
     // Only restore focus when the drawer was actually closed (not
@@ -66,6 +64,16 @@ function handleDrawerKeydown(e) {
   if (e.key === 'Escape' && drawerOpen.value) {
     e.preventDefault()
     closeDrawer()
+  }
+  if (e.key === 'Tab' && drawerOpen.value) {
+    const controls = [...(drawerCloseRef.value?.closest('aside')?.querySelectorAll('button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled)') || [])]
+      .filter(control => control.getClientRects().length && !control.closest('[inert]'))
+    const first = controls[0]
+    const last = controls.at(-1)
+    if (first && ((!e.shiftKey && document.activeElement === last) || (e.shiftKey && document.activeElement === first))) {
+      e.preventDefault()
+      ;(e.shiftKey ? last : first).focus()
+    }
   }
 }
 
@@ -102,29 +110,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
 })
 
-function handleSelectActivity(activityKey) {
-  const matched = ACTIVITY_ITEMS.find((item) => item.key === activityKey)
-  if (!matched) return
-  if (route.name !== matched.defaultRouteName) {
-    router.push(workspaceDestination(matched.defaultRouteName))
-  }
-  closeDrawer()
-}
-
-function handleSelectPanel(routeName) {
-  if (!routeName) return
-  if (route.name !== routeName) {
-    router.push(workspaceDestination(routeName))
-  }
-  closeDrawer()
-}
-
-function workspaceDestination(name) {
-  const bookId = typeof route.query.bookId === 'string' ? route.query.bookId : ''
-  const isProjectSurface = Object.values(PROJECT_SURFACE_ROUTE_NAMES).includes(name)
-  return { name, query: bookId && isProjectSurface ? { bookId } : {} }
-}
-
 </script>
 
 <template>
@@ -135,16 +120,16 @@ function workspaceDestination(name) {
       'nav-hidden': hideActivityBar
     }"
   >
-    <WorkspaceTabs>
+    <WorkspaceTabs :inert="drawerOpen ? '' : undefined">
       <div class="shell-tab-actions">
+        <button ref="drawerTriggerRef" class="shell-tab-navigation" type="button" :aria-label="tr('打开工作区导航')" :title="tr('工作区导航')" :aria-expanded="drawerOpen" aria-controls="pinax-workspace-navigation" @click="drawerOpen = true"><WorkbenchIcon name="panel-left" :size="18" /><span>{{ tr('导航') }}</span></button>
         <button type="button" :aria-label="isDark ? tr('切换日间模式') : tr('切换夜间模式')" :title="isDark ? tr('日间模式') : tr('夜间模式')" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
         <button type="button" :aria-label="tr(&quot;打开设置&quot;)" :title="tr(&quot;设置&quot;)" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
       </div>
     </WorkspaceTabs>
-    <template v-if="!hideActivityBar">
-
+    <p v-if="workspaceRecent.persistenceNotice && route.name !== 'welcome'" class="shell-navigation-notice" role="status">{{ tr(workspaceRecent.persistenceNotice) }}</p>
       <Transition name="modal-fade">
-        <SettingsPopup v-if="settingsPopup.isOpen.value" />
+        <SettingsPopup v-if="settingsPopup.isOpen.value && route.name !== 'welcome'" />
       </Transition>
 
       <Transition name="modal-fade">
@@ -158,12 +143,14 @@ function workspaceDestination(name) {
       </Transition>
 
       <FolioSurface
+        id="pinax-workspace-navigation"
         as="aside"
         class="shell-drawer"
         variant="chrome"
         :decorated="false"
         :class="{ open: drawerOpen }"
         role="dialog"
+        :aria-label="tr('工作区导航')"
         aria-modal="true"
         :aria-hidden="drawerOpen ? 'false' : 'true'"
         :inert="drawerOpen ? null : ''"
@@ -171,22 +158,18 @@ function workspaceDestination(name) {
       >
         <div class="shell-drawer__head">
           <div class="shell-drawer__copy">
-            <span>Pinax</span>
-            <strong>{{ currentRouteCaption }}</strong>
+            <img :src="`${baseUrl}pinax-icon-192.png`" alt="Pinax" width="24" height="24" />
+            <strong>{{ tr('工作区导航') }}</strong>
           </div>
           <button ref="drawerCloseRef" class="shell-drawer__close" type="button" :aria-label="tr(&quot;关闭导航&quot;)" @click="closeDrawer">×</button>
         </div>
 
         <div class="shell-drawer__body">
-          <ActivityBar
-            :items="ACTIVITY_ITEMS"
-            :active-key="currentActivityKey"
-            :active-panel="activePanel"
-            :active-route-name="String(route.name || '')"
-            @select="handleSelectActivity"
-            @select-route="handleSelectPanel"
-          />
+          <WorkspaceProjectNavigation :book-id="typeof route.query.bookId === 'string' ? route.query.bookId : ''" :current="currentProjectSurface" />
           <div class="shell-drawer__utility" :aria-label="tr(&quot;工具&quot;)">
+            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'welcome' }); closeDrawer()"><WorkbenchIcon name="grid" :size="16" /><span>{{ tr('首页') }}</span></button>
+            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'experience' }); closeDrawer()"><WorkbenchIcon name="adventure" :size="16" /><span>{{ tr('跑团与冒险') }}</span></button>
+            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'online-experience' }); closeDrawer()"><WorkbenchIcon name="collaboration" :size="16" /><span>{{ tr('联机房间') }}</span></button>
             <button class="shell-drawer__utility-btn" type="button" @click="openDocs">
               <WorkbenchIcon name="book" :size="16" />
               <span>{{ tr('文档') }}</span>
@@ -202,9 +185,7 @@ function workspaceDestination(name) {
         </div>
       </FolioSurface>
 
-    </template>
-
-    <main class="shell-content">
+    <main class="shell-content" :inert="drawerOpen ? '' : undefined">
       <RouterView v-slot="{ Component, route: routeInfo }">
           <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
           <div v-else class="route-loading">
@@ -222,6 +203,8 @@ function workspaceDestination(name) {
 .shell-tab-actions > button:hover { background: var(--nav-hover); color: var(--archive-ink); }
 .shell-tab-actions > button:active { background: var(--nav-focused); }
 .shell-tab-actions > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.shell-tab-actions > .shell-tab-navigation { display: flex; gap: 6px; width: auto; padding: 0 10px; font: 13px var(--font-sans); }
+.shell-navigation-notice { flex: none; margin: 0; padding: 6px 16px; color: var(--text-secondary); background: var(--surface-workbench-muted); font: 12px/1.5 var(--font-sans); }
 @media (max-width: 760px), (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
 .app-shell {
   --shell-drawer-width: 360px;
@@ -1008,8 +991,8 @@ function workspaceDestination(name) {
 
 .shell-drawer__copy {
   display: flex;
-  align-items: baseline;
-  gap: 9px;
+  align-items: center;
+  gap: 12px;
 }
 
 .shell-drawer__copy span {
@@ -1038,8 +1021,9 @@ function workspaceDestination(name) {
 .shell-drawer__body {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
+.shell-drawer__body > :deep(.workspace-project-nav) { flex: none; }
 
 .shell-drawer__utility {
   display: grid;
@@ -1058,7 +1042,7 @@ function workspaceDestination(name) {
   background: transparent;
   color: var(--archive-ink-soft);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }

@@ -39,7 +39,6 @@
           <input id="manuscript-book-title" ref="titleInput" v-model="bookTitle" maxlength="120" type="text" data-test="manuscript-book-title" @input="authorTitleEdited = true">
         </div>
 
-        <ManuscriptLanguageSelect v-model="manuscriptLanguage" />
         <fieldset class="manuscript-import__mode">
           <legend>{{ tr('怎样建立章节') }}</legend>
           <label>
@@ -106,7 +105,6 @@
 <script setup>
 import { tr } from '../../i18n/index.js'
 import { uiLocale } from '../../i18n/index.js'
-import ManuscriptLanguageSelect from './ManuscriptLanguageSelect.vue'
 import { countWritingText } from '../../../shared/writingTextMetrics.js'
 const manuscriptLanguage = ref(uiLocale.value)
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'

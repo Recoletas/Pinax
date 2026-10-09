@@ -11,12 +11,12 @@ const emit = defineEmits(['advance', 'dismiss'])
 const steps = Object.freeze([
   {
     title: '先写下眼前发生的一件事',
-    description: '不用先补齐设定，从人物此刻看见或做出的事落笔。',
+    description: '写一段人物的行动或眼前的场景。',
     action: '开始落笔'
   },
   {
     title: '记住一个关键人物',
-    description: '姓名和一句背景就够，之后可以在写作中慢慢补。',
+    description: '先记录姓名和背景，之后再补性格与外貌。',
     action: '打开角色'
   },
   {
@@ -144,4 +144,14 @@ const current = computed(() => steps[safeStage.value - 1])
     min-height: 44px;
   }
 }
+</style>
+
+<style scoped>
+.first-run-path { padding: 16px 18px; margin-block: 12px 24px; border: 1px solid var(--hairline-soft); border-radius: 10px; background: var(--surface-workbench-muted); gap: 16px; font-family: var(--font-sans); }
+.first-run-path__index { color: var(--text-muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.first-run-path__copy strong { font-size: 14px; font-weight: 500; line-height: 1.5; }
+.first-run-path__copy small { font-size: 13px; line-height: 1.6; white-space: normal; }
+.first-run-path__advance { color: var(--accent) !important; font-size: 13px !important; font-weight: 500 !important; padding-inline: 12px; }
+.first-run-path__dismiss { font-size: 22px !important; }
+@media (max-width: 720px) { .first-run-path { padding: 14px; gap: 8px 12px; } }
 </style>

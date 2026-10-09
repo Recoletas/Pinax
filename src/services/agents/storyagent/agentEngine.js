@@ -14,10 +14,10 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
   function buildPayload({ text, pinnedRefs = [], skills = [], bookId = valueOf(projectId) }) {
     const ctx = (typeof resolveContext === 'function' ? resolveContext(bookId) : resolveContext) || fallbackContext()
     const worldEntries = Array.isArray(ctx.worldEntries) ? ctx.worldEntries : []
-    const referenceCatalogue = [...worldEntries, ...(ctx.chapterEntries || [])]
+    const referenceCatalogue = [...worldEntries, ...(ctx.chapterEntries || []), ...(ctx.sourceEntries || [])]
     pinnedRefs = pinnedRefs.map(ref => {
       const current = referenceCatalogue.find(item => item.id === ref.id && item.type === ref.type)
-      if (!current && !['worldbook', 'chapter'].includes(ref.type)) return ref
+      if (!current && !['worldbook', 'chapter', 'source'].includes(ref.type)) return ref
       if (!current) throw new Error('参考资料已变化，请重新选择后发送。')
       return current
     })
@@ -36,7 +36,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
     const index = {
       revision: `saew_${worldEntries.length}_${(ctx.manuscriptItems || []).length}_${(ctx.notesItems || []).length}`,
       byDomain: {
-        world: worldEntries,
+        world: [...worldEntries, ...(ctx.sourceEntries || [])],
         manuscript: Array.isArray(ctx.manuscriptItems) ? ctx.manuscriptItems : [],
         notes: Array.isArray(ctx.notesItems) ? ctx.notesItems : [],
         outline: Array.isArray(ctx.outlineItems) ? ctx.outlineItems : [],

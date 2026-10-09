@@ -313,7 +313,7 @@ export function createAuthoringNarrativeRun({
       const generatedText = String(result?.text ?? result?.generatedText ?? '')
       throw typedError(
         'AGENT_RESULT_STALE',
-        '本轮结果未通过上下文对账，不能采纳',
+        generatedText.trim() ? '本次参考有变化，生成的草稿已保留' : '本次参考有变化，请重试',
         {
           adoptable: false,
           generatedText,

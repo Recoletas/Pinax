@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AuthoringBlockComposer from '../components/authoring/AuthoringBlockComposer.vue'
 import AuthoringBlockDraft from '../components/authoring/AuthoringBlockDraft.vue'
@@ -21,7 +21,7 @@ describe('authoring block composer', () => {
     const wrapper = mountComposer()
     expect(wrapper.find('[data-test="block-composer"]').exists()).toBe(true)
     expect(wrapper.findAll('[role="radio"]')).toHaveLength(6)
-    expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成推演稿')
+    expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成草稿')
     await wrapper.setProps({ generating: true })
     expect(wrapper.find('[role="status"]').text()).toContain('正在生成推演稿')
     expect(wrapper.find('[role="status"]').text()).toContain('已等待 0 秒')
@@ -80,15 +80,15 @@ describe('authoring block composer', () => {
     await wrapper.setProps({ staleResult: { text: staleProse } })
     const stalePreview = wrapper.find('[data-test="block-stale-preview"]')
     expect(stalePreview.exists()).toBe(true)
-    expect(stalePreview.attributes('readonly')).toBeDefined()
-    expect(stalePreview.attributes('wrap')).toBe('soft')
-    expect(stalePreview.element.value).toBe(staleProse)
+    expect(stalePreview.element.tagName).toBe('DIV')
+    expect(stalePreview.findAll('p').map(item => item.text())).toEqual(['潮水越过石阶。', '她没有回头。'])
+    expect(stalePreview.find('textarea').exists()).toBe(false)
     expect(wrapper.findAll('button').some((button) => button.text().includes('采用'))).toBe(false)
   })
 
   it('labels an empty chapter opening and emits a single cancel transition', async () => {
     const wrapper = mountComposer({ emptyChapter: true })
-    expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成推演稿')
+    expect(wrapper.find('[data-test="block-primary"]').text()).toBe('生成草稿')
     await wrapper.find('[aria-label="收起推演"]').trigger('click')
     expect(wrapper.emitted('cancel')).toHaveLength(1)
     expect(wrapper.emitted('restore-selection')).toBeUndefined()
@@ -203,10 +203,10 @@ describe('block composer initial instruction', () => {
     await laboratory.setProps({ phase: 'ready', selectedDirectionId: 'verify' })
     await laboratory.find('.authoring-scene-lab__mode button').trigger('click')
     expect(laboratory.find('[aria-label="本场方向"]').exists()).toBe(false)
-    expect(laboratory.find('[aria-label="人物 IF 面板"]').exists()).toBe(true)
-    await laboratory.find('[aria-label="IF 人物名"]').setValue('莉娜')
-    await laboratory.find('[aria-label="条件 A"]').setValue('守诺')
-    await laboratory.find('[aria-label="条件 B"]').setValue('协商')
+    expect(laboratory.find('[aria-label="比较人物选择"]').exists()).toBe(true)
+    await laboratory.find('[aria-label="人物名字"]').setValue('莉娜')
+    await laboratory.find('[aria-label="原先的想法"]').setValue('守诺')
+    await laboratory.find('[aria-label="换一种想法"]').setValue('协商')
     await laboratory.find('form').trigger('submit')
     expect(laboratory.emitted('start-if')?.at(-1)).toEqual([{ actor: '莉娜', beliefA: '守诺', beliefB: '协商' }])
     await laboratory.setProps({ ifBranches: { A: { belief: '守诺' }, B: { belief: '协商' } },
@@ -219,7 +219,7 @@ describe('block composer initial instruction', () => {
     await laboratory.find('[aria-label="以 B 条件写正文"]').trigger('click')
     expect(laboratory.emitted('write-if-draft')?.at(-1)).toEqual(['B'])
     const { useAuthoringRehearsal } = await import('../composables/useAuthoringRehearsal.js')
-    const { parseRehearsalResponse, rehearsalPathText } = await import('../services/agents/authoring/authoringRehearsal.js')
+    const { normalizeActionIntent, parseRehearsalResponse, planRehearsalRequest, rehearsalPathText } = await import('../services/agents/authoring/authoringRehearsal.js')
     const response = { response: '他没有回答。', change: '谈话暂时停住。', choices: ['再问一次'], evidenceRefs: ['unit:known'] }
     // 无后果批次是合法结果：四字段保留，后果段为空且已提交。
     expect(parseRehearsalResponse(response, ['unit:known'])).toEqual({
@@ -227,6 +227,48 @@ describe('block composer initial instruction', () => {
       consequences: [], consequenceVersion: 1, consequenceStatus: 'committed', consequenceIssues: []
     })
     expect(() => parseRehearsalResponse(response, [])).toThrow()
+    // 空白续演、待发生要求与旧版已完成行动不能共享一条相互矛盾的指令。
+    const actorRef = 'worldbook-entry:edgar'
+    const responderRef = 'worldbook-entry:lina'
+    const modeRun = { pressureProjection: { participants: [
+      { ref: actorRef, name: '艾德加', roles: ['viewpoint'] },
+      { ref: responderRef, name: '莉娜', roles: ['present'] }
+    ] } }
+    expect(normalizeActionIntent('旧版已完成行动').mode).toBe('action')
+    expect(normalizeActionIntent({ text: '旧版对象调用' }).mode).toBe('action')
+    for (const mode of ['continue', 'instruction', 'action']) {
+      const plan = planRehearsalRequest({ run: modeRun, steps: [], action: {
+        mode, text: mode === 'continue' ? '' : '让艾德加打开信', actorRef
+      } })
+      expect(plan.error).toBeUndefined()
+      expect(plan.intent.mode).toBe(mode)
+      expect(plan.intent.text).not.toBe('')
+      expect(plan.verification.actionMode).toBe(mode)
+      expect(plan.question.includes('不替行动者对白')).toBe(mode === 'action')
+      expect(plan.responders.some(person => person.ref === actorRef)).toBe(mode !== 'action')
+      if (mode === 'instruction') expect(plan.question).toContain('不能跳过要求中的行动')
+      if (mode === 'continue') expect(plan.question).toContain('本次是自然续演')
+    }
+    // 原始工具 JSON 的后果引文必须在这次 response 中核对，不能漏传原文。
+    const quotedResponse = {
+      response: '莉娜接过钥匙，将它放在灯下。', change: '钥匙已交给莉娜。', choices: ['艾德加打开信'], evidenceRefs: [],
+      consequences: [{ kind: 'item', itemKey: 'key', toRef: responderRef, state: 'delivered', source: { kind: 'response', quote: '莉娜接过钥匙' } }]
+    }
+    const verification = { actionText: '艾德加递出钥匙', actionMode: 'action', allowedRefs: [actorRef, responderRef], authorizedItems: [{ itemKey: 'key', holderRef: actorRef }] }
+    expect(parseRehearsalResponse(JSON.stringify(quotedResponse), [], verification)).toMatchObject({
+      consequenceStatus: 'committed', consequences: [expect.objectContaining({ kind: 'item', toRef: responderRef })]
+    })
+    const forgedResponse = { ...quotedResponse, consequenceStatus: 'committed', consequences: [{
+      ...quotedResponse.consequences[0], source: { kind: 'response', quote: '莉娜说了一句实际不存在的话' }
+    }] }
+    expect(parseRehearsalResponse(JSON.stringify(forgedResponse), [], verification)).toMatchObject({
+      response: quotedResponse.response, consequenceStatus: 'needs-review', consequences: []
+    })
+    // 未执行的写作要求不能充当角色已经知情的证据。
+    const pendingKnowledge = { ...quotedResponse, consequences: [{ kind: 'knowledge', knowerRef: responderRef, factKey: 'fact-letter', source: { kind: 'action', quote: '递出钥匙' } }] }
+    expect(parseRehearsalResponse(JSON.stringify(pendingKnowledge), [], {
+      ...verification, actionMode: 'instruction', allowedFactKeys: ['fact-letter']
+    }).consequenceStatus).toBe('needs-review')
     const requests = []
     let current = true
     const replay = useAuthoringRehearsal({ validate: async () => current, getSettings: async () => ({}), step: async input => {
@@ -268,9 +310,10 @@ describe('block composer initial instruction', () => {
     expect(panel.find('.rehearsal-consequence').attributes('open')).toBeUndefined()
     expect(panel.find('footer form textarea').exists()).toBe(true)
     expect(panel.find('.rehearsal-flow textarea').exists()).toBe(false)
-    expect(panel.find('footer').text()).toContain('写成试稿')
+    expect(panel.find('.rehearsal-flow').text()).toContain('写成正文')
+    expect(panel.find('footer').text()).not.toContain('写成正文')
     expect(panel.find('.rehearsal-compare').exists()).toBe(true)
-    expect(panel.find('.rehearsal-compare').text()).toContain('另一路')
+    expect(panel.find('.rehearsal-compare').text()).toContain('另一种结果')
     expect(panel.findAll('.rehearsal-compare-pick button')).toHaveLength(0)
     await panel.find('.rehearsal-options button').trigger('click')
     expect(replay.action.value).toBe('再问一次')
@@ -284,10 +327,18 @@ describe('block composer initial instruction', () => {
     await flushPromises()
     expect(requests).toHaveLength(4)
     await panel.setProps({ draftState: 'same-route' })
+    expect(panel.find('footer').exists()).toBe(false)
     await panel.find('.rehearsal-export').trigger('click')
     expect(panel.emitted('view-draft')).toHaveLength(1)
     expect(requests).toHaveLength(4)
     panel.unmount()
+    const proseOnly = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}) })
+    const pendingProse = mount(RehearsalPanel, { props: { rehearsal: proseOnly, draftState: 'foreign' } })
+    expect(pendingProse.find('textarea').exists()).toBe(false)
+    expect(pendingProse.find('footer').exists()).toBe(false)
+    await pendingProse.find('.rehearsal-export').trigger('click')
+    expect(pendingProse.emitted('view-draft')).toHaveLength(1)
+    pendingProse.unmount()
     current = false; expect(await replay.advance('再问')).toBe(false)
     expect(replay.stale.value).toBe(true)
     const rejectedReplay = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}), step: async () => ({
@@ -312,10 +363,55 @@ describe('block composer initial instruction', () => {
     finishLate(response)
     expect(await pendingStep).toBe(false)
     expect(delayed.steps.value).toEqual([])
+    // 页面事务等待作者确认现场时保持中性状态；取消后的迟到准备不能自动续跑。
+    const { useAuthoringRehearsalWorkflow } = await import('../composables/useAuthoringRehearsalWorkflow.js')
+    const workflowStep = vi.fn(async () => response)
+    const managedRehearsal = useAuthoringRehearsal({ validate: async () => true, getSettings: async () => ({}), step: workflowStep })
+    managedRehearsal.start({ target: 'workflow-target' })
+    let finishPreparation
+    const prepareStart = vi.fn()
+      .mockResolvedValueOnce({ status: 'needs-review' })
+      .mockImplementationOnce(() => new Promise(resolve => { finishPreparation = resolve }))
+      .mockResolvedValue(true)
+    const readStartFailure = vi.fn(() => '不应读取等待确认状态为失败')
+    const cancelPreparation = vi.fn()
+    const cancelGeneration = vi.fn()
+    const workflow = useAuthoringRehearsalWorkflow({
+      rehearsal: managedRehearsal,
+      getDraftPreview: () => null,
+      hasAlternativeDraft: () => false,
+      isAuthoringTaskBusy: () => false,
+      confirmRestart: () => true,
+      prepareStart, readStartFailure, cancelPreparation, cancelGeneration,
+      closeComparison: vi.fn(), closeComparisonEntry: vi.fn(),
+      getDocumentScopeKey: () => 'book-1:chapter-1',
+      prepareDraftTarget: vi.fn(), generateDraft: vi.fn(), readDraftFailure: vi.fn(),
+      dismissDraft: vi.fn(), revealDraft: vi.fn()
+    })
+    expect(await workflow.start({ instruction: '让她开门', autoAdvance: true })).toBe(false)
+    expect(workflow.notice.value).toBe('')
+    expect(workflow.preparing.value).toBe(false)
+    expect(readStartFailure).not.toHaveBeenCalled()
+    expect(workflowStep).not.toHaveBeenCalled()
+    const pendingPreparation = workflow.start({ instruction: '让她开门', autoAdvance: true })
+    await flushPromises()
+    expect(workflow.preparing.value).toBe(true)
+    workflow.cancel()
+    expect(cancelPreparation).toHaveBeenCalledTimes(1)
+    expect(cancelGeneration).toHaveBeenCalledTimes(1)
+    finishPreparation(true)
+    expect(await pendingPreparation).toBe(false)
+    expect(workflow.preparing.value).toBe(false)
+    expect(workflow.notice.value).toBe('')
+    expect(workflowStep).not.toHaveBeenCalled()
+    expect(await workflow.start({ autoAdvance: true })).toBe(true)
+    expect(workflowStep.mock.calls[0][0].action).toMatchObject({ mode: 'continue' })
+    expect(await workflow.start({ instruction: '让她开门', autoAdvance: true })).toBe(true)
+    expect(workflowStep.mock.calls[1][0].action).toMatchObject({ mode: 'instruction', text: '让她开门' })
     await laboratory.findAll('.authoring-scene-lab__branch-nav button')[0].trigger('click')
     expect(laboratory.find('[aria-label="A 条件行动"]').classes()).toContain('is-visible')
     await laboratory.findAll('.authoring-scene-lab__mode button')[1].trigger('click')
-    expect(laboratory.find('[aria-label="条件 A"]').element.value).toBe('守诺')
+    expect(laboratory.find('[aria-label="原先的想法"]').element.value).toBe('守诺')
     await laboratory.find('.authoring-scene-lab__mode button').trigger('click')
     expect(laboratory.find('.authoring-scene-lab__direction.is-selected').exists()).toBe(true)
 

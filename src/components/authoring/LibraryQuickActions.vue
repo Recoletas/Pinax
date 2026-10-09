@@ -3,6 +3,7 @@ import { tr } from '../../i18n/index.js'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 defineEmits(['backup'])
+defineProps({ empty: Boolean })
 const menu = ref(null)
 function closeMenu(event) {
   if (event.type === 'focusout' && menu.value?.contains(event.relatedTarget)) return
@@ -18,7 +19,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 
 <template>
   <div class="library-quick-actions">
-    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>{{ tr('新建作品') }}</strong></span></router-link><details ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary :aria-label="tr(&quot;新建作品选项&quot;)"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&view=assistant">{{ tr('和助手构思') }}</router-link><router-link to="/authoring?start=new&guide=first-run">{{ tr('直接写作') }}</router-link><router-link to="/authoring?start=import&guide=first-run">{{ tr('从已有书稿创建') }}</router-link></div></details></div>
+    <div class="library-quick-actions__new"><router-link data-test="welcome-start-authoring" to="/authoring?start=new&guide=first-run"><WorkbenchIcon name="new-manuscript" :size="18" /><span><strong>{{ tr(empty ? '开始写作' : '新建作品') }}</strong></span></router-link><details v-if="!empty" ref="menu" @keydown.esc.stop.prevent="closeMenu" @focusout="closeMenu"><summary :aria-label="tr(&quot;新建作品选项&quot;)"><WorkbenchIcon name="chevron-down" :size="17" /></summary><div class="library-quick-actions__menu"><router-link to="/authoring?start=new&view=assistant">{{ tr('和助手构思') }}</router-link><router-link to="/authoring?start=new&guide=first-run">{{ tr('直接写作') }}</router-link><router-link to="/authoring?start=import&guide=first-run">{{ tr('从已有书稿创建') }}</router-link></div></details></div>
+    <router-link v-if="empty" data-test="welcome-start-assistant" to="/authoring?start=new&view=assistant"><WorkbenchIcon name="assistant" :size="18" /><span><strong>{{ tr('和助手构思') }}</strong></span></router-link>
     <router-link data-test="welcome-import-manuscript" to="/authoring?start=import&guide=first-run"><WorkbenchIcon name="import-manuscript" :size="18" /><span><strong>{{ tr('导入书稿') }}</strong></span></router-link>
     <button type="button" @click="$emit('backup')"><WorkbenchIcon name="backup" :size="18" /><span><strong>{{ tr('备份与恢复') }}</strong></span></button>
     <router-link to="/docs/01-quickstart"><WorkbenchIcon name="guide" :size="18" /><span><strong>{{ tr('创作指南') }}</strong></span></router-link>
@@ -30,6 +32,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border: 1px solid var(--hairline-soft); border-radius: 999px; background: transparent; color: var(--text-primary); text-decoration: none; font: inherit; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
 .library-quick-actions__new { position: relative; padding: 0; gap: 0; color: var(--accent-text); background: var(--accent); border-color: transparent; }
 .library-quick-actions__new > a { display: flex; min-width: 0; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; border-radius: 999px 0 0 999px; color: inherit; text-decoration: none; }
+.library-quick-actions__new > a:only-child { border-radius: inherit; }
 .library-quick-actions :is(a, button) > span { min-width: 0; }
 .library-quick-actions > button, .library-quick-actions > a:last-child { border-color: transparent; color: var(--text-secondary); }
 .library-quick-actions svg { flex-shrink: 0; }

@@ -1363,3 +1363,40 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 @media (prefers-reduced-motion: reduce) { .structured-settings-panel :deep(*) { transition: none; animation: none; } }
 @media (forced-colors: active) { .fields-grid :deep(textarea:focus) { outline: 2px solid Highlight; } }
 </style>
+
+<style scoped>
+/* Restore the original continuous setting manuscript; retain current surfaces. */
+.structured-settings-panel.is-continuous .section-canvas { padding: 28px 40px 48px; }
+.structured-settings-panel.is-continuous .section-content-heading { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--hairline-soft); }
+.structured-settings-panel.is-continuous .section-content-heading,
+.structured-settings-panel.is-continuous .settings-editor-layout { width: 100%; max-width: none; margin-inline: 0; }
+.structured-settings-panel.is-continuous .section-content-heading h1 { margin: 0 0 10px; font-size: 30px; font-weight: 600; }
+.structured-settings-panel.is-continuous .section-content-heading p { font-size: 15px; line-height: 1.7; }
+.structured-settings-panel.is-continuous .settings-editor-layout { gap: 24px; }
+.structured-settings-panel.is-continuous .fields-grid { gap: 22px; border: 0; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.setting-field-card) { min-width: 0; min-height: 0; gap: 6px; padding: 0 0 18px; border: 0; border-bottom: 1px solid var(--hairline-soft); border-radius: 0; background: transparent; box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-head) { margin-bottom: 4px; min-height: 34px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.field-label) { font-size: 17px; font-weight: 600; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea) { min-height: 60px; max-height: none; padding: 6px 0; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); font: 400 16px/1.85 var(--font-sans); resize: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(textarea:focus) { border: 0; outline: none; background: transparent; box-shadow: inset 0 -1px var(--accent); }
+.structured-settings-panel.is-continuous .fields-grid :deep(.tag-input),
+.structured-settings-panel.is-continuous .fields-grid :deep(.chip-input),
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-list),
+.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-list) { border: 0; border-radius: 0; background: transparent; padding: 6px 0; box-shadow: none; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.rule-input-row),
+.structured-settings-panel.is-continuous .fields-grid :deep(.forbidden-input-row) { padding: 7px 0; border-radius: 0; background: transparent; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: grid; grid-template-columns: 132px minmax(0, 1fr) auto; align-items: center; column-gap: 18px; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: contents; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-title-group) { grid-column: 1; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .setting-field-actions) { grid-column: 3; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { grid-column: 2; grid-row: 1; }
+.structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-footer) { grid-column: 2 / -1; }
+@media (max-width: 1100px) { .structured-settings-panel.is-continuous .section-canvas { padding: 24px 28px 40px; } }
+@media (max-width: 760px) {
+ .structured-settings-panel.is-continuous .section-canvas { padding: 20px 18px 32px; }
+ .structured-settings-panel.is-continuous .section-content-heading h1 { font-size: 24px; }
+ .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags) { display: flex; }
+ .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: flex; width: 100%; }
+ .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { width: 100%; }
+}
+</style>

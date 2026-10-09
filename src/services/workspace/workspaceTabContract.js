@@ -34,7 +34,7 @@ export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
 export const SURFACE_LABELS = Object.freeze({
   authoring: '写作',
   materials: '素材',
-  canvas: '画布',
+  canvas: '视频与编导',
   settings: '设定',
   sources: '资料',
   map: '地图',
@@ -92,6 +92,10 @@ export function resolveRouteIntent(route) {
   const name = route.name
   const query = route.query || {}
   const bookId = typeof query.bookId === 'string' && query.bookId ? query.bookId : ''
+  // 本书添加资料沿用资料页签与项目身份；创建工作区仍是原处理 owner。
+  if (bookId && name === 'settings-worldbook-create' && query.mode === 'sources' && query.action === 'add') {
+    return { scope: 'project', surface: 'sources', projectId: bookId, worldbookId: typeof query.worldbookId === 'string' ? query.worldbookId : null }
+  }
   for (const [surface, routeName] of Object.entries(PROJECT_SURFACE_ROUTE_NAMES)) {
     if (routeName === name) {
       // 双模式路由（高级条目）不带 bookId 时回落全局模式判断，不能在这里截断；
@@ -248,5 +252,7 @@ export function extractRestoreStateFromRoute(route) {
   const restoreState = {}
   if (typeof query.chapterId === 'string' && query.chapterId) restoreState.chapterId = query.chapterId
   if (typeof query.focus === 'string' && query.focus) restoreState.objectId = query.focus
+  if (typeof query.pageId === 'string' && query.pageId) restoreState.pageId = query.pageId
+  if (typeof query.panelId === 'string' && query.panelId) restoreState.panelId = query.panelId
   return restoreState
 }

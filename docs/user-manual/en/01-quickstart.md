@@ -6,13 +6,13 @@ Create a manuscript, write a passage, add a comment and save a backup. AI rewrit
 
 ![New manuscript and import actions on the home page](../../screenshots/user-guide-20260924/12-home-en.png)
 
-Choose **New manuscript**, enter a title and confirm. The workspace opens with the first chapter ready to edit.
+Choose **Start writing** in an empty library, or **New manuscript** if you already have books, enter a title and confirm. The workspace opens with the first chapter ready to edit.
 
 To discuss the story first, select **Brainstorm with the assistant**, then **Create and brainstorm**. You can add a title later. Suggested starting points fill a question draft; the assistant responds only after you send it.
 
 For an existing draft, choose **Import manuscript** and select a TXT or Markdown file. Check the text, chapter names and split points in the preview before confirming. Import creates a new manuscript; it does not append to your open chapter.
 
-PDF and DOCX reference files go through **Sources** in the story-bible workspace. See [Story bible](./03-worldbook.md).
+PDF and DOCX reference files go through **Sources → Add sources** in book navigation. For existing work, The first **Recently opened** entry returns to the last opened location. See [Story bible](./03-worldbook.md).
 
 ## 2. Write and check saving
 

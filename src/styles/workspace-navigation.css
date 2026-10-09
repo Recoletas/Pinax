@@ -22,7 +22,7 @@
   box-sizing: border-box;
   min-height: var(--nav-row-height);
   border: 0;
-  border-radius: var(--workspace-radius, 12px);
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
   color: var(--nav-fg);

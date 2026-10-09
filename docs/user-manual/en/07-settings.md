@@ -2,7 +2,7 @@
 
 ## Languages and appearance
 
-In **Appearance**, choose Interface language and Assistant language. These are device preferences and are intentionally excluded from workspace backups. **Book language** belongs to each manuscript and is included in its backup. Older manuscripts and backups may have no language field; this is supported.
+In **Appearance**, choose Interface language and Assistant language. These are device preferences and are intentionally excluded from workspace backups. Changing these preferences does not translate existing text.
 
 Theme, zoom and writing typography remain separate. Switching languages does not translate your manuscript, reset the editor or regenerate AI results.
 

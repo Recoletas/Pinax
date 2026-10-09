@@ -16,7 +16,8 @@ import {
 } from '../../../shared/importReportContract'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url'
 
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024
+export const MAX_SOURCE_BYTES = 50 * 1024 * 1024
+export const MAX_PDF_SOURCE_BYTES = 100 * 1024 * 1024
 const DEFAULT_SOURCE_PARSE_TIMEOUT_MS = 60 * 1000
 const EXTENSION_KIND = Object.freeze({
   '.txt': 'text-file',
@@ -293,6 +294,7 @@ async function parsePdfFile(file, sourceId, signal, fileInstanceId) {
   throwIfAborted(signal)
   const binaryData = ArrayBuffer.isView(data) ? data : new Uint8Array(data)
   let document
+  let loadingTask
   try {
     // pdfjs-dist 6 no longer treats disableWorker as a browser fake-worker
     // switch. Give it the Vite-emitted worker explicitly so PDF extraction
@@ -300,7 +302,7 @@ async function parsePdfFile(file, sourceId, signal, fileInstanceId) {
     if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
       pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
     }
-    const loadingTask = pdfjs.getDocument({
+    loadingTask = pdfjs.getDocument({
       data: binaryData,
       disableWorker: true,
       disableFontFace: true,
@@ -322,6 +324,7 @@ async function parsePdfFile(file, sourceId, signal, fileInstanceId) {
       const textContent = await page.getTextContent()
       throwIfAborted(signal)
       const pageText = normalizeSourceText(textContent.items.map((item) => item.str || '').join(' '))
+      page.cleanup?.()
       if (pageText) {
         pages.push({ text: pageText, locator: { type: 'pdf-page', page: pageNumber } })
       }
@@ -339,6 +342,8 @@ async function parsePdfFile(file, sourceId, signal, fileInstanceId) {
         : `${text(file?.name) || 'PDF'} 无法解析，可能已损坏或格式不受支持。`,
       { reason: text(error?.name || error?.message).slice(0, 120) }
     )
+  } finally {
+    if (loadingTask) await loadingTask.destroy().catch(() => {})
   }
 }
 
@@ -423,7 +428,7 @@ async function parseEpubFile(file, sourceId, signal, fileInstanceId) {
 export async function parseSourceFile(file, options = {}) {
   throwIfAborted(options.signal)
   const kind = detectSourceKind(file)
-  const maxBytes = Number(options.maxBytes) || MAX_SOURCE_BYTES
+  const maxBytes = Number(options.maxBytes) || (kind === 'pdf' ? MAX_PDF_SOURCE_BYTES : MAX_SOURCE_BYTES)
   validateFile(file, kind, maxBytes)
   const explicitSourceId = text(options.sourceId)
   // 技术点 #4：fileInstanceId 标识本次上传（UI 临时层）；内容身份由

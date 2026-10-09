@@ -197,6 +197,7 @@ function buildAdvisorResult(taskType, advice, options = {}) {
       allowedEvidenceRefs: verification.allowedEvidenceRefs,
       authorizedItems: verification.authorizedItems,
       sceneLocationRef: verification.sceneLocationRef,
+      actionMode: verification.actionMode,
       actionText: verification.actionText,
       responseText: parsedResponse
     })

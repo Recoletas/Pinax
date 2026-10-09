@@ -1,5 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import './AuthoringCatalogWorkbench.css'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { tr, uiLocale } from '../../i18n/index.js'
 
@@ -8,9 +9,9 @@ const props = defineProps({
   projectConflicts: { type: Array, default: () => [] }, projectFilter: { type: String, default: 'all' },
   chapters: { type: Array, default: () => [] }, explorations: { type: Array, default: () => [] },
   items: { type: Array, default: () => [] }, focusProjectNodeId: { type: String, default: '' },
-  chapterTitle: { type: String, default: '' }, selectedText: { type: String, default: '' }
+  bookId: { type: String, default: '' }, chapterId: { type: [String, Number], default: '' }, chapterTitle: { type: String, default: '' }, selectedText: { type: String, default: '' }
 })
-const emit = defineEmits(['add', 'update', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'open-dual', 'history', 'toggle-pin', 'close'])
+const emit = defineEmits(['add', 'update', 'update-project', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'open-dual', 'history', 'close'])
 const FILTERS = [{ key: 'all', label: '全部' }, { key: 'unfiled', label: '未编排' }, { key: 'causes', label: '人物线' }, { key: 'foreshadows', label: '伏笔' }]
 const STATUS_LABELS = { exploring: '推演中', planned: '已计划', drafted: '已成稿', fulfilled: '已兑现', parked: '已搁置' }
 const EDGE_LABELS = { causes: '因果', foreshadows: '伏笔', alternative: '另一种可能', parallel: '并行' }
@@ -18,7 +19,9 @@ const query = ref('')
 const selectedKind = ref('')
 const selectedId = ref('')
 const creating = ref(false)
-const editing = ref(false)
+const contentInput = ref(null)
+let saveTimer = null
+let creatingFromIds = new Set()
 const filterOpen = ref(false)
 const collapsedGroups = ref(new Set())
 const title = ref('')
@@ -51,13 +54,49 @@ const selectedRelations = computed(() => {
 const editorCount = computed(() => content.value.length)
 
 function statusLabel(status) { return tr(STATUS_LABELS[status] || '未标记') }
-function selectProject(node) { selectedKind.value = 'project'; selectedId.value = String(node.id); creating.value = false; editing.value = false; title.value = node.title || ''; content.value = node.intent || '' }
-function selectItem(item) { selectedKind.value = 'chapter'; selectedId.value = String(item.id); creating.value = false; editing.value = false; title.value = item.title || ''; content.value = item.content || '' }
-function startCreate(fromSelection = false) { selectedKind.value = 'chapter'; selectedId.value = ''; creating.value = true; editing.value = true; title.value = ''; content.value = fromSelection ? props.selectedText.trim() : '' }
+function resizeContent() {
+  const element = contentInput.value
+  if (!element) return
+  element.style.height = 'auto'
+  element.style.height = `${Math.max(120, element.scrollHeight)}px`
+}
+function flushSave() {
+  clearTimeout(saveTimer)
+  saveTimer = null
+  const item = selectedItem.value || selectedProjectNode.value
+  if (!item || creating.value) return
+  const nextTitle = title.value.trim()
+  const nextContent = content.value.trim()
+  if (nextTitle === (item.title || '') && nextContent === (selectedProjectNode.value ? item.intent || '' : item.content || '')) return
+  if (selectedProjectNode.value) emit('update-project', item.id, { title: nextTitle, intent: nextContent }, { bookId: props.bookId })
+  else emit('update', item.id, { title: nextTitle, content: nextContent }, { bookId: props.bookId, chapterId: props.chapterId })
+}
+function scheduleSave() {
+  resizeContent()
+  clearTimeout(saveTimer)
+  if (selectedItem.value || selectedProjectNode.value) saveTimer = setTimeout(flushSave, 500)
+}
+function selectProject(node) {
+  flushSave()
+  selectedKind.value = 'project'; selectedId.value = String(node.id); creating.value = false
+  title.value = node.title || ''; content.value = node.intent || ''; confirmDeleteId.value = ''; nextTick(resizeContent)
+}
+function selectItem(item) {
+  flushSave()
+  selectedKind.value = 'chapter'; selectedId.value = String(item.id); creating.value = false
+  title.value = item.title || ''; content.value = item.content || ''; confirmDeleteId.value = ''
+  nextTick(resizeContent)
+}
+function startCreate(fromSelection = false) {
+  flushSave()
+  creatingFromIds = new Set(props.items.map(item => String(item.id)))
+  selectedKind.value = 'chapter'; selectedId.value = ''; creating.value = true
+  title.value = tr('新章纲'); content.value = fromSelection ? props.selectedText.trim() : ''
+  emit('add', { title: title.value, content: content.value })
+  nextTick(() => { resizeContent(); contentInput.value?.focus() })
+}
 function toggleGroup(name) { const next = new Set(collapsedGroups.value); if (next.has(name)) next.delete(name); else next.add(name); collapsedGroups.value = next }
-function beginEdit() { if (selectedItem.value) { title.value = selectedItem.value.title || ''; content.value = selectedItem.value.content || ''; editing.value = true } }
-function save() { if (!content.value.trim()) return; if (creating.value) emit('add', { title: title.value.trim(), content: content.value.trim() }); else if (selectedItem.value) emit('update', selectedItem.value.id, { title: title.value.trim(), content: content.value.trim() }); creating.value = false; editing.value = false }
-function removeSelected() { if (!selectedItem.value) return; if (confirmDeleteId.value !== selectedItem.value.id) { confirmDeleteId.value = selectedItem.value.id; return }; emit('remove', selectedItem.value.id); selectedId.value = ''; selectedKind.value = ''; confirmDeleteId.value = '' }
+function removeSelected() { clearTimeout(saveTimer); saveTimer = null; if (!selectedItem.value) return; if (confirmDeleteId.value !== selectedItem.value.id) { confirmDeleteId.value = selectedItem.value.id; return }; emit('remove', selectedItem.value.id); selectedId.value = ''; selectedKind.value = ''; confirmDeleteId.value = '' }
 function relationLabel(edge) { return tr(EDGE_LABELS[edge.kind] || '关联') }
 function chapterById(id) { return props.chapters.find((chapter) => String(chapter.id) === String(id)) || null }
 function explorationById(id) { return props.explorations.find((document) => String(document.id) === String(id)) || null }
@@ -71,40 +110,43 @@ function chapterLabel(id) {
 function directoryExcerpt(value) { return String(value || '').replace(/\s+/g, ' ').trim() || tr('暂无内容') }
 function selectInitial() { const project = props.projectNodes[0]; const item = props.items[0]; if (project) selectProject(project); else if (item) selectItem(item) }
 
+watch(() => props.chapterId, () => { clearTimeout(saveTimer); saveTimer = null; selectedId.value = ''; selectedKind.value = ''; creating.value = false; selectInitial() }, { flush: 'sync' })
+onBeforeUnmount(flushSave)
+
 watch(() => props.focusProjectNodeId, (id) => { const node = projectNodeById.value.get(String(id || '')); if (node) selectProject(node) }, { immediate: true })
 watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.map((item) => item.id).join('|')], () => {
+  if (creating.value) { const added = props.items.find(item => !creatingFromIds.has(String(item.id))); if (added) selectItem(added) }
   const exists = selectedKind.value === 'project' ? selectedProjectNode.value : selectedKind.value === 'chapter' ? selectedItem.value : false
   if (!exists && !creating.value) selectInitial()
 }, { immediate: true })
 </script>
 
 <template>
-  <section class="outline-workbench">
-    <main class="outline-editor">
-      <header class="outline-editor__head">
-        <input v-if="editing" v-model="title" :aria-label="tr('大纲标题')" :placeholder="tr('大纲标题')" />
+  <section class="outline-workbench catalog-workbench" data-catalog="outline">
+    <main class="outline-editor catalog-sheet">
+      <header class="outline-editor__head catalog-sheet-head">
+        <input v-if="selectedItem || selectedProjectNode || creating" v-model="title" :aria-label="tr('大纲标题')" :placeholder="tr('大纲标题')" @input="scheduleSave" @blur="flushSave" />
         <h2 v-else>{{ selectedProjectNode?.title || selectedItem?.title || (creating ? tr('新章纲') : tr('总纲')) }}</h2>
-        <div><span class="outline-mode" :title="tr('当前为文本模式')">{{ tr('文本模式⌄') }}</span><button type="button" :title="tr('历史版本')" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
+        <div><button type="button" :title="tr('历史版本')" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
       </header>
-      <div v-if="creating || selectedItem || selectedProjectNode" class="outline-editor__body authoring-outline-detail" :class="{ 'is-project-detail': selectedProjectNode }">
+      <div v-if="creating || selectedItem || selectedProjectNode" class="outline-editor__body authoring-outline-detail catalog-sheet-body" :class="{ 'is-project-detail': selectedProjectNode }">
         <div class="outline-editor__toolbar">
           <span>{{ selectedProjectNode ? `${tr('总纲')} · ${statusLabel(selectedProjectNode.status)}` : `${chapterTitle || tr('当前章节')} · ${tr('章纲')}` }}</span>
-          <div class="authoring-outline-detail__primary"><button v-if="selectedItem && !editing" type="button" @click="emit('insert', selectedItem)">{{ tr('插入正文') }}</button><button v-if="selectedItem && !editing" type="button" @click="beginEdit">{{ tr('编辑') }}</button><button v-if="editing" type="button" class="primary" @click="save">{{ tr('保存') }}</button><button v-if="selectedItem && !editing" type="button" class="danger" @click="removeSelected">{{ confirmDeleteId === selectedItem.id ? tr('确认删除') : tr('删除') }}</button></div>
+          <div class="authoring-outline-detail__primary"><button v-if="selectedItem" type="button" @click="emit('insert', selectedItem)">{{ tr('插入正文') }}</button><button v-if="selectedItem" type="button" class="danger" @click="removeSelected">{{ confirmDeleteId === selectedItem.id ? tr('确认删除') : tr('删除') }}</button></div>
         </div>
-        <textarea v-if="editing" v-model="content" autofocus :placeholder="tr('写下关键动作、转折和必须兑现的信息')"></textarea>
-        <article v-else class="outline-prose">{{ content || tr('还没有写下这个节点的内容。') }}</article>
+        <label v-if="selectedItem || selectedProjectNode || creating" class="catalog-prose-field"><span>{{ tr('内容') }}</span><textarea ref="contentInput" v-model="content" :aria-label="tr('大纲内容')" :placeholder="tr('写下关键动作、转折和必须兑现的信息')" @input="scheduleSave" @blur="flushSave"></textarea></label>
         <section v-if="selectedProjectNode && selectedRelations.length" class="outline-relations"><h3>{{ tr('叙事关系') }}</h3><button v-for="edge in selectedRelations" :key="edge.id" type="button" @click="edge.peer && selectProject(edge.peer)"><small>{{ relationLabel(edge) }}</small><span>{{ edge.peer?.title || tr('已移除节点') }}</span></button></section>
         <section v-if="selectedProjectNode?.chapterRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('关联章节') }}</h3><button v-for="chapterId in selectedProjectNode.chapterRefs" :key="chapterId" type="button" :disabled="!chapterById(chapterId)" @click="emit('open-project-chapter', chapterId)"><span>{{ chapterLabel(chapterId) }}</span><small>{{ chapterById(chapterId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>
         <section v-if="selectedProjectNode?.explorationRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('推演草稿') }}</h3><button v-for="reference in selectedProjectNode.explorationRefs" :key="reference.documentId" type="button" :disabled="!explorationById(reference.documentId)" @click="emit('open-project-exploration', reference.documentId)"><span>{{ explorationById(reference.documentId)?.title || tr('推演草稿已移除') }}</span><small>{{ explorationById(reference.documentId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>
-        <div v-if="selectedItem && !editing" class="outline-order"><button type="button" :disabled="selectedItemIndex === 0" @click="emit('move', selectedItemIndex, -1)">{{ tr('上移') }}</button><button type="button" :disabled="selectedItemIndex === items.length - 1" @click="emit('move', selectedItemIndex, 1)">{{ tr('下移') }}</button></div>
+        <div v-if="selectedItem" class="outline-order"><button type="button" :disabled="selectedItemIndex === 0" @click="emit('move', selectedItemIndex, -1)">{{ tr('上移') }}</button><button type="button" :disabled="selectedItemIndex === items.length - 1" @click="emit('move', selectedItemIndex, 1)">{{ tr('下移') }}</button></div>
         <footer>{{ editorCount }}/20000</footer>
       </div>
       <div v-else class="outline-empty"><h2>{{ tr('使用说明') }}</h2><p>{{ tr('新建总纲或章纲，梳理故事目标、转折和需要兑现的信息。') }}</p><button type="button" @click="startCreate(false)">{{ tr('建立第一个章纲') }}</button></div>
     </main>
-    <aside class="outline-directory">
-      <div class="outline-window-controls"><button type="button" :title="tr('固定大纲工作台')" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr('关闭大纲工作台')" @click="emit('close')">×</button></div>
-      <div class="outline-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('大纲')" :aria-label="tr('搜索大纲')" /></div>
-      <div class="outline-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
+    <aside class="outline-directory catalog-directory">
+      <div class="outline-window-controls catalog-window-controls"><button type="button" :title="tr('关闭大纲工作台')" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
+      <div class="outline-search catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('大纲')" :aria-label="tr('搜索大纲')" /></div>
+      <div class="outline-actions catalog-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
       <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr('筛选大纲')" :class="{ active: filterOpen }" @click="filterOpen = !filterOpen">{{ tr('筛选') }}</button></header>
       <div v-if="filterOpen" class="outline-filters"><button v-for="filter in FILTERS" :key="filter.key" type="button" :class="{ active: projectFilter === filter.key }" @click="emit('filter', filter.key)">{{ tr(filter.label) }}</button></div>
       <section v-if="projectConflicts.length" class="outline-conflicts"><strong>{{ tr('待整理') }}</strong><div v-for="conflict in projectConflicts" :key="conflict.fingerprint" class="authoring-outline-conflict-chapters"><span>{{ conflict.title || tr('同名旧章纲') }}</span><button v-for="occurrence in conflict.occurrences || []" :key="occurrence.chapterId" type="button" :disabled="!chapterById(occurrence.chapterId)" @click="emit('open-project-chapter', occurrence.chapterId)">{{ chapterLabel(occurrence.chapterId) }}</button></div></section>
@@ -116,7 +158,7 @@ watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.ma
 </template>
 
 <style scoped>
-.outline-workbench{display:grid;grid-template-columns:minmax(0,1.62fr) minmax(160px,1fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:white!important}.danger{color:var(--signal-danger,#a04b3c)!important}
+.outline-workbench{display:grid;grid-template-columns:minmax(0,1.62fr) minmax(160px,1fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:var(--accent-text)!important}.danger{color:var(--signal-danger,#a04b3c)!important}
 .outline-editor{display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.outline-editor__head{display:flex;min-height:54px;align-items:center;justify-content:space-between;gap:12px;padding:4px 14px}.outline-editor__head h2{margin:0;color:var(--text-primary);font-size:17px;font-weight:500}.outline-editor__head>div{display:flex;align-items:center;gap:6px}.outline-editor__head button{padding:6px}.outline-mode{color:var(--text-primary);font-size:12px}.outline-editor__head input{min-width:0;flex:1;border:0;border-bottom:1px solid var(--accent-primary,var(--accent,#1677ff));background:transparent;color:var(--text-primary);font:500 17px/1.5 var(--font-body);outline:0}
 .outline-editor__body{display:flex;position:relative;flex:1;min-height:0;flex-direction:column;padding:0 14px 36px;overflow:auto}.outline-editor__toolbar{display:flex;min-height:38px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary);font-size:11px}.outline-editor__toolbar div{display:flex;gap:4px}.outline-editor__toolbar button{padding:4px 7px;border-radius:3px}.outline-editor__toolbar button:hover{background:var(--surface-workbench-muted)}.outline-editor__body>textarea{box-sizing:border-box;min-height:360px;flex:1;resize:none;padding:17px 0;border:0;background:transparent;color:var(--text-primary);font:15px/2 var(--font-writing);outline:0}.outline-prose{min-height:260px;padding:17px 0;color:var(--text-primary);font:15px/2 var(--font-writing);white-space:pre-wrap}.outline-editor__body>footer{position:sticky;bottom:-36px;padding-top:10px;text-align:right;color:var(--text-secondary);font-size:11px}.outline-relations{padding:12px 0;border-top:1px dashed var(--border-subtle)}.outline-relations h3{margin:0 0 6px;color:var(--text-secondary);font-size:11px;font-weight:500}.outline-relations button{display:grid;width:100%;grid-template-columns:auto 1fr;gap:8px;padding:6px 0;text-align:left}.outline-relations small{color:var(--accent-primary)}.outline-relations span{color:var(--text-primary)}.outline-order{display:flex;gap:8px;padding-top:10px}.outline-order button{padding:4px 8px;border:1px solid var(--border-subtle);border-radius:3px}.outline-empty{padding:28px 18px;color:var(--text-secondary);line-height:1.8}.outline-empty h2{color:var(--text-primary)}.outline-empty button{color:var(--accent-primary)}
 .outline-directory{min-width:0;overflow:auto;padding:6px 10px 12px}.outline-window-controls{display:flex;height:28px;align-items:center;justify-content:flex-end;gap:3px}.outline-window-controls button{width:26px;height:26px;font-size:18px}.outline-search{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;height:38px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-secondary)}.outline-search input{min-width:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit}.outline-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0 14px}.outline-actions button{height:36px;border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary)}.outline-directory>header{display:flex;align-items:center;justify-content:space-between}.outline-directory>header button{font-size:11px}.outline-directory>header button.active{color:var(--accent-primary,var(--accent,#1677ff))}.outline-filters{display:flex;gap:8px;overflow:auto;padding:8px 0}.outline-filters button{font-size:10px;white-space:nowrap}.outline-filters button.active{color:var(--accent-primary,var(--accent,#1677ff));font-weight:600}.outline-directory__group h3{margin:12px 0 5px;font-size:13px;font-weight:500}.outline-directory__group h3 button{display:flex;width:100%;min-height:30px;align-items:center;gap:6px;padding:0 6px;color:var(--text-primary);text-align:left}.catalog-folder-caret{display:inline-block;width:10px;color:var(--text-secondary);font-size:15px;transform-origin:center;transition:transform var(--motion-fast,120ms)}.catalog-folder-caret.open{transform:rotate(90deg)}.outline-directory__group>button{display:grid;width:100%;min-height:42px;gap:2px;padding:6px 12px 6px 27px;border-radius:4px;text-align:left}.outline-directory__group>button.active{background:color-mix(in srgb,var(--accent-primary,var(--accent,#1677ff)) 19%,var(--surface-workbench-raised))}.outline-directory__group strong,.outline-directory__group small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.outline-directory__group strong{color:var(--text-primary);font-size:13px}.outline-directory__group small{color:var(--text-secondary);font-size:10px}.outline-directory__empty{padding:18px 6px;color:var(--text-secondary);font-size:11px}

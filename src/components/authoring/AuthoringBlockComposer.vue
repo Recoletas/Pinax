@@ -1,43 +1,30 @@
 <template>
   <section class="authoring-block-composer" data-test="block-composer" :aria-label="tr('长篇推演')">
     <header class="authoring-block-composer__head">
-      <div>
-        <strong>{{ emptyChapter ? tr("写下开场") : tr("推演草稿") }}</strong>
-      </div>
+      <strong v-if="emptyChapter">{{ tr('写下开场') }}</strong>
+      <p v-else-if="displayTarget?.anchorExcerpt" class="authoring-block-composer__anchor" :title="displayTarget.anchorExcerpt">{{ displayTarget.anchorExcerpt }}</p>
       <button type="button" class="authoring-block-composer__close" :aria-label="tr('收起推演')" @click="cancel">{{ tr("收起") }}</button>
     </header>
     <p v-if="sceneContextSummary" class="authoring-block-composer__scene-context">
       <span>{{ tr("当前场") }}</span>{{ sceneContextSummary }}
     </p>
-    <p v-if="!emptyChapter && target.anchorExcerpt" class="authoring-block-composer__anchor" :title="target.anchorExcerpt">{{ operation === 'rewrite-unit' ? tr('重写此处') : tr('接续此处') }} · {{ target.anchorExcerpt }}</p>
     <slot name="context" />
     <AuthoringGenerationStatus v-if="generating" />
-    <p v-else-if="contextLoading" role="status">{{ tr("正在核对本次参考资料…") }}</p>
-    <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" :aria-label="tr('写作任务')">
-      <button type="button" role="radio" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">{{ tr("推演下一段") }}</button>
-      <button type="button" role="radio" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">{{ tr("重写当前块") }}</button>
-    </div>
-    <div v-if="operation === 'next-passage' && (kind === 'dialogue' || kind === 'thought')" class="authoring-block-composer__people">
-      <label>{{ kind === 'thought' ? tr("视角人物") : tr("说话人") }}<select v-model="actorId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
-      <label v-if="kind === 'dialogue'">{{ tr("对象") }}<select v-model="targetId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
-    </div>
-    <label class="authoring-block-composer__instruction">
-      <textarea ref="instructionInput" v-model="instruction" :aria-label="tr('推演要求')" :placeholder="tr(instructionPlaceholder)" @keydown="handleInstructionKeydown" />
-    </label>
-    <p v-if="validationMessage" role="alert">{{ tr(validationMessage) }}</p>
-    <p v-else-if="failure" role="alert">{{ failure.message || tr("生成失败，请重试") }}</p>
-    <p v-if="staleResult" role="alert">{{ tr("目标文本已变化，请重新选择插入位置；生成结果已保留。") }}</p>
-    <label v-if="staleText" class="authoring-block-composer__stale-preview">
-      <span>{{ tr("生成正文 · 只读，未写入正文") }}</span>
-      <textarea
-        data-test="block-stale-preview"
-        :value="staleText"
-        readonly
-        wrap="soft"
-        :aria-label="tr('过期生成正文，只读')"
-        spellcheck="false"
-      ></textarea>
-    </label>
+    <template v-if="!showRetained">
+      <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" :aria-label="tr('写作任务')">
+        <button type="button" role="radio" :disabled="generating" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">{{ tr("推演下一段") }}</button>
+        <button type="button" role="radio" :disabled="generating" :aria-checked="operation === 'rewrite-unit'" @click="operation = 'rewrite-unit'">{{ tr("重写当前块") }}</button>
+      </div>
+      <div v-if="operation === 'next-passage' && (kind === 'dialogue' || kind === 'thought')" class="authoring-block-composer__people">
+        <label>{{ kind === 'thought' ? tr("视角人物") : tr("说话人") }}<select v-model="actorId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+        <label v-if="kind === 'dialogue'">{{ tr("对象") }}<select v-model="targetId"><option value="">{{ tr("请选择") }}</option><option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option></select></label>
+      </div>
+      <label class="authoring-block-composer__instruction">
+        <textarea ref="instructionInput" v-model="instruction" :readonly="generating" :aria-label="tr('推演要求')" :placeholder="tr(instructionPlaceholder)" @keydown="handleInstructionKeydown" />
+      </label>
+      <small class="authoring-block-composer__shortcut">{{ tr('Enter 推演 · Ctrl+Enter 换行') }}</small>
+      <p v-if="!generating && validationMessage" role="alert">{{ tr(validationMessage) }}</p>
+      <p v-else-if="!generating && failure && !staleText" role="alert">{{ failure.message || tr("生成失败，请重试") }}</p>
       <details class="authoring-block-composer__more">
         <summary>{{ tr("推演选项") }}<span v-if="kind !== 'action' || authorNote.trim()"> {{ tr("· 已设置") }}</span></summary>
         <div class="authoring-block-composer__more-body">
@@ -47,12 +34,24 @@
           <label>{{ tr("额外约束") }}<textarea v-model="authorNote" :placeholder="tr('仅用于本次，不写入正文')" /></label>
         </div>
       </details>
-    <div class="authoring-block-composer__footer">
-      <div class="authoring-block-composer__actions">
-        <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">{{ tr("再次保存") }}</button>
-        <button type="button" class="control-primary" data-test="block-primary" :disabled="contextLoading && !generating" @click="generating ? $emit('stop') : submit()">{{ tr(primaryLabel) }}</button>
+      <div class="authoring-block-composer__footer">
+        <div class="authoring-block-composer__actions">
+          <button v-if="failure?.phase === 'persist'" type="button" @click="$emit('retry-persist')">{{ tr("再次保存") }}</button>
+          <button type="button" class="control-primary" data-test="block-primary" @click="generating ? $emit('stop') : submit()">{{ tr(primaryLabel) }}</button>
+        </div>
       </div>
-    </div>
+      <button v-if="staleText" type="button" class="authoring-block-composer__return-result" @click="editingRetained = false">{{ tr('返回生成结果') }}</button>
+    </template>
+    <section v-else class="authoring-block-composer__stale-preview" :aria-label="tr('保留的生成正文')">
+      <p v-if="!generating" class="authoring-block-composer__result-notice" role="status">{{ tr(failure && failure.phase !== 'stale' ? failure.message || staleNotice : staleNotice) }}</p>
+      <div data-test="block-stale-preview" class="authoring-block-composer__retained-prose"><p v-for="(paragraph, index) in staleParagraphs" :key="index">{{ paragraph }}</p></div>
+      <div class="authoring-block-composer__retained-actions">
+        <button type="button" @click="copyRetained">{{ tr(copyNotice || '复制') }}</button>
+        <button type="button" :disabled="staleResult.savedAsExploration" @click="$emit('save-retained')">{{ tr(staleResult.savedAsExploration ? '已留作构思' : '留作构思') }}</button>
+        <button v-if="!generating" type="button" @click="editingRetained = true; nextTick(() => { fitInstruction(); focusInstruction() })">{{ tr('修改要求') }}</button>
+        <button v-else type="button" @click="$emit('stop')">{{ tr('停止') }}</button>
+      </div>
+    </section>
   </section>
 </template>
 
@@ -60,6 +59,7 @@
 import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { buildAuthoringTurnIntent } from '../../services/agents/authoring/authoringTurnContract.js'
+import { normalizeNarrativeTransportProse } from '../../services/narrativePresentation.js'
 import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
 
 const props = defineProps({
@@ -70,29 +70,44 @@ const props = defineProps({
   generating: { type: Boolean, default: false },
   failure: { type: Object, default: null },
   staleResult: { type: Object, default: null },
-  contextLoading: { type: Boolean, default: false },
   initialActorId: { type: String, default: '' },
   initialTargetId: { type: String, default: '' },
   // 预填指令（如现场条“以此推进”）：composer 打开时写入输入框，仍由用户确认后才生成。
-  initialInstruction: { type: String, default: '' }
+  initialInstruction: { type: String, default: '' },
+  initialDraft: { type: Object, default: null }
 })
-const emit = defineEmits(['submit', 'cancel', 'stop', 'retry-persist', 'draft-change'])
+const emit = defineEmits(['submit', 'cancel', 'stop', 'retry-persist', 'draft-change', 'save-retained'])
+const copyNotice = ref('')
+async function copyRetained() {
+  try { await navigator.clipboard.writeText(staleText.value); copyNotice.value = '已复制' }
+  catch { copyNotice.value = '请选中文字复制' }
+}
 const kindOptions = Object.freeze([
   { id: 'action', label: '推动行动' }, { id: 'dialogue', label: '人物对话' },
   { id: 'thought', label: '人物内心' }, { id: 'scene', label: '转场铺陈' }
 ])
-const kind = ref('action')
-const operation = ref('next-passage')
-const actorId = ref('')
-const targetId = ref('')
-const instruction = ref('')
+const kind = ref(props.initialDraft?.kind || 'action')
+const operation = ref(props.initialDraft?.operation || 'next-passage')
+const actorId = ref(props.initialDraft?.actorId || '')
+const targetId = ref(props.initialDraft?.targetId || '')
+const instruction = ref(props.initialDraft?.instruction || '')
 const instructionInput = ref(null)
-const authorNote = ref('')
+const authorNote = ref(props.initialDraft?.directorNote || '')
 const validationMessage = ref('')
 const staleText = computed(() => {
   const text = String(props.staleResult?.text || '')
-  return text.trim() ? text : ''
+  return text.trim() ? normalizeNarrativeTransportProse(text) : ''
 })
+const staleParagraphs = computed(() => staleText.value.split(/\n\s*\n/).filter(Boolean))
+const editingRetained = ref(false)
+const showRetained = computed(() => Boolean(staleText.value) && !editingRetained.value)
+const displayTarget = computed(() => showRetained.value ? props.staleResult?.target || props.target : props.target)
+watch(() => props.staleResult, () => { copyNotice.value = ''; editingRetained.value = false })
+const staleNotice = computed(() => (props.staleResult?.dependencyIssues || []).some(issue => issue.reason === 'revision-missing')
+  ? '这份草稿的参考尚未确认，暂未加入正文。'
+  : (props.staleResult?.dependencyIssues || []).some(issue => issue.reason === 'revision-changed')
+    ? '生成期间正文或参考有改动，这份草稿已保留。'
+    : '这份草稿已保留，暂未加入正文。')
 const sceneContextSummary = computed(() => {
   const projection = props.projection || {}
   const peopleNames = [
@@ -142,7 +157,7 @@ watch([kind, () => props.projection, () => props.people], ([nextKind]) => {
   }
   validationMessage.value = ''
 }, { immediate: true })
-watch([operation, actorId, targetId, instruction, authorNote], () => {
+watch([kind, operation, actorId, targetId, instruction, authorNote], () => {
   validationMessage.value = ''
   emit('draft-change', {
     instruction: instruction.value,
@@ -155,11 +170,11 @@ watch([operation, actorId, targetId, instruction, authorNote], () => {
 })
 const primaryLabel = computed(() => {
   if (props.generating) return '停止'
-  if (props.contextLoading) return '核对参考中'
-  return '生成推演稿'
+  return '生成草稿'
 })
 
 function submit() {
+  if (props.generating) return
   const built = buildAuthoringTurnIntent({
     operation: operation.value,
     kind: kind.value,
@@ -183,6 +198,18 @@ function submit() {
 
 function handleInstructionKeydown(event) {
   if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Enter') {
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (props.generating || event.repeat) return
+    if (event.ctrlKey || event.metaKey) {
+      const field = event.target
+      field.setRangeText('\n', field.selectionStart, field.selectionEnd, 'end')
+      instruction.value = field.value
+    } else submit()
+    return
+  }
   if (event.key !== 'Escape') return
   event.preventDefault()
   event.stopPropagation()
@@ -198,7 +225,14 @@ function focusInstruction() {
   return document.activeElement === instructionInput.value
 }
 
-onMounted(() => nextTick(focusInstruction))
+function fitInstruction() {
+  const field = instructionInput.value
+  if (!field) return
+  field.style.height = 'auto'
+  field.style.height = `${Math.min(260, Math.max(88, field.scrollHeight))}px`
+}
+watch(instruction, () => nextTick(fitInstruction))
+onMounted(() => nextTick(() => { fitInstruction(); focusInstruction() }))
 
 defineExpose({ focusInstruction })
 </script>
@@ -206,6 +240,7 @@ defineExpose({ focusInstruction })
 <style scoped>
 .authoring-block-composer {
   position: relative;
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   padding: 16px 16px 14px 38px;
@@ -225,13 +260,17 @@ defineExpose({ focusInstruction })
 .authoring-block-composer__head span { color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__scene-context { margin: -1px 0 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
 .authoring-block-composer__anchor { margin: -1px 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.authoring-block-composer__head .authoring-block-composer__anchor { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 28px; }
+.authoring-block-composer__result-notice { margin: 0 0 8px; color: var(--text-secondary); font: 12px/1.7 var(--font-interface); }
+.authoring-block-composer__return-result { margin-top: 8px; }
 .authoring-block-composer__scene-context span { margin-right: 7px; color: var(--text-primary); font-weight: 600; }
 .authoring-block-composer textarea { width: 100%; min-height: 72px; padding: 9px 0 7px; resize: vertical; background: transparent; color: var(--text-primary); border: 0; border-bottom: 1px solid var(--border-default); font: 14px/1.72 var(--notebook-font-family, var(--font-serif, serif)); outline: none; }
 .authoring-block-composer textarea:focus { border-bottom-color: var(--accent-primary); }
 .authoring-block-composer__instruction { display: grid; gap: 0; margin-top: 5px; color: var(--text-secondary); font-size: 11px; }
 .authoring-block-composer__stale-preview { display: grid; min-width: 0; max-width: 100%; gap: 3px; margin-top: 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
-.authoring-block-composer__stale-preview textarea { display: block; min-width: 0; max-width: 100%; min-height: 112px; max-height: 34vh; padding: 8px 0; resize: vertical; overflow-x: hidden; overflow-y: auto; border: 0; border-block: 1px solid var(--border-subtle); line-height: var(--notebook-line-height, 1.9); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; cursor: text; }
-.authoring-block-composer__stale-preview textarea:focus { border-block-color: var(--border-subtle); }
+ .authoring-block-composer__retained-prose { width:100%; min-width:0; color:var(--text-primary); font:16px/1.9 var(--notebook-font-family,var(--font-body,var(--font-serif))); white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; }
+.authoring-block-composer__retained-prose p { margin:14px 0; }
+.authoring-block-composer__shortcut { display:block; margin-top:6px; color:var(--text-muted); font:11px/1.5 var(--font-interface); }
 .authoring-block-composer__operations, .authoring-block-composer__kinds, .authoring-block-composer__actions, .authoring-block-composer__people { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
 .authoring-block-composer__operations, .authoring-block-composer__kinds { border-bottom: 1px solid var(--border-subtle); }
 .authoring-block-composer__operations { margin-bottom: 4px; }

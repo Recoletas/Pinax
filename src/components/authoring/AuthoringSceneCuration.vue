@@ -118,9 +118,9 @@ function chooseCurrentLocation(candidate) {
 <template>
   <section class="scene-curation" aria-label="现场调整表单">
 
-    <section class="scene-curation__recognition" aria-label="正文现场识别">
-      <div class="scene-curation__group-head"><strong>从正文识别</strong><button type="button" :disabled="busy" @click="emit('recognize')">重新识别</button></div>
-      <p>只根据落笔处附近的正文提出候选；选入草稿并保存后才成为当前场。</p>
+    <details class="scene-curation__recognition" :open="recognitionPending || recognitionSuggestions.length > 0" aria-label="正文现场识别">
+      <summary><strong>从正文识别</strong><span>{{ recognitionSuggestions.length ? `${recognitionSuggestions.length} 项待确认` : '人物与地点' }}</span></summary>
+      <div class="scene-curation__group-head"><p>选入需要的人物和地点，保存后生效。</p><button type="button" :disabled="busy" @click="emit('recognize')">重新识别</button></div>
       <ul v-if="recognitionSuggestions.length">
         <li v-for="candidate in recognitionSuggestions" :key="candidate.kind + candidate.id">
           <span><strong>{{ candidate.name }}</strong> · {{ candidate.kind === 'character' ? '人物' : '地点' }}<small>{{ candidate.excerpt }}</small></span>
@@ -129,7 +129,7 @@ function chooseCurrentLocation(candidate) {
       </ul>
       <p v-else>附近没有待确认的人物或地点。</p>
       <button v-if="recognitionPending" type="button" :disabled="busy" @click="emit('skip-recognition')">暂不调整，直接推演</button>
-    </section>
+    </details>
 
     <div v-if="draft.originAxis === 'worldbook-mismatch'" class="scene-curation__warning is-conflict" role="status">
       <span>这份现场来自旧世界书。时间已保留；失效的人物与地点需要移除或改选后才能保存。</span>
@@ -192,7 +192,7 @@ function chooseCurrentLocation(candidate) {
             <button
               type="button"
               class="scene-curation__option"
-              :class="{ 'is-active': isActive('location', candidate) }"
+              :class="{ 'is-active': isActive('location', candidate), 'is-selected': draft.locationId === candidate.id }"
               :aria-expanded="isActive('location', candidate).toString()"
               @click="selectCandidate('location', candidate)"
             ><span aria-hidden="true">{{ draft.locationId === candidate.id ? '●' : '○' }}</span><span>{{ candidate.name }}</span><small>{{ draft.locationId === candidate.id ? '当前地点' : '选择' }}</small></button>
@@ -234,7 +234,7 @@ function chooseCurrentLocation(candidate) {
             <button
               type="button"
               class="scene-curation__person-toggle"
-              :class="{ 'is-active': isActive('character', candidate) }"
+              :class="{ 'is-active': isActive('character', candidate), 'is-selected': isSelected(candidate) }"
               :aria-expanded="isActive('character', candidate).toString()"
               @click="selectCandidate('character', candidate)"
             ><span aria-hidden="true">{{ isSelected(candidate) ? '✓' : '＋' }}</span><span>{{ candidate.name }}</span><small>{{ isSelected(candidate) ? (isViewpoint(candidate) ? '当前视角' : '在场') : '选择' }}</small></button>
@@ -273,7 +273,7 @@ function chooseCurrentLocation(candidate) {
     <p v-if="error || selectionNotice" class="scene-curation__error" role="alert">{{ error?.message || selectionNotice }}</p>
 
     <footer class="writing-inspector__actions scene-curation__actions">
-      <button type="button" data-test="curation-save" :disabled="busy" @click="emit('save')">保存当前场</button>
+      <button type="button" class="control-primary" data-test="curation-save" :disabled="busy" @click="emit('save')">保存当前场</button>
       <button type="button" data-test="curation-cancel" :disabled="busy" @click="emit('cancel')">取消</button>
       <button v-if="canUndo" type="button" data-test="curation-undo" :disabled="busy" @click="emit('undo')">撤销上次保存</button>
       <button
@@ -289,19 +289,25 @@ function chooseCurrentLocation(candidate) {
 
 <style scoped>
 /* 外层标题与返回动作由 AuthoringInspectorDetail 唯一拥有。 */
-.scene-curation__recognition { padding: 10px 0; border-bottom: 1px solid var(--border-subtle); }
+.scene-curation__recognition { padding: 10px 0 14px; border-bottom: 1px solid var(--border-subtle); }
+.scene-curation__recognition summary { display: flex; align-items: center; gap: 8px; min-height: 32px; list-style: none; cursor: pointer; color: var(--text-primary); }
+.scene-curation__recognition summary::-webkit-details-marker { display: none; }
+.scene-curation__recognition summary::before { content: '›'; color: var(--text-secondary); transition: transform 120ms; }
+.scene-curation__recognition[open] summary::before { transform: rotate(90deg); }
+.scene-curation__recognition summary strong { font-size: 13px; font-weight: 600; }
+.scene-curation__recognition summary span { margin-inline-start: auto; color: var(--text-secondary); font-size: 11px; }
 .scene-curation__recognition p { margin: 6px 0; color: var(--text-secondary); line-height: 1.5; }
 .scene-curation__recognition ul { list-style: none; margin: 8px 0; padding: 0; }
 .scene-curation__recognition li { display: flex; align-items: start; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border-subtle); }
 .scene-curation__recognition li span { min-width: 0; }
 .scene-curation__recognition li small { display: block; margin-top: 3px; color: var(--text-secondary); line-height: 1.4; }
-.scene-curation__recognition button { color: var(--accent-primary); flex-shrink: 0; }
+.scene-curation__recognition button { min-height: 32px; padding: 4px 0; border: 0; background: transparent; font: inherit; color: var(--accent-primary); flex-shrink: 0; cursor: pointer; }
 @media (max-width: 480px) { .scene-curation__recognition li { flex-direction: column; } }
 .scene-curation {
   display: flex;
   flex-direction: column;
   gap: 0;
-  font-size: 13px;
+  font: 13px/1.6 var(--font-sans);
 }
 .scene-curation__warning {
   display: grid;
@@ -335,8 +341,8 @@ function chooseCurrentLocation(candidate) {
 }
 .scene-curation__group {
   display: grid;
-  gap: 8px;
-  padding: 13px 0 15px;
+  gap: 12px;
+  padding: 20px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 .scene-curation__group-head {
@@ -346,14 +352,14 @@ function chooseCurrentLocation(candidate) {
 }
 .scene-curation__group-head strong {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .scene-curation__group-head small,
 .scene-curation__group-head button {
   margin-left: auto;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
 }
 .scene-curation__time-grid {
@@ -372,12 +378,15 @@ function chooseCurrentLocation(candidate) {
   color: var(--text-secondary);
 }
 .scene-curation__field input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   border: none;
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: inherit;
-  font: inherit;
-  padding: 4px 0 5px;
+  font: 14px/1.7 var(--font-sans);
+  padding: 8px 0;
 }
 .scene-curation__field input:focus-visible,
 .scene-curation__search:focus-visible {
@@ -385,13 +394,14 @@ function chooseCurrentLocation(candidate) {
   border-bottom-color: var(--control-focus, currentColor);
 }
 .scene-curation__search {
+  box-sizing: border-box;
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--border);
   background: transparent;
   color: var(--text-primary);
-  font: 12px/1.5 var(--font-sans, sans-serif);
-  padding: 4px 0 5px;
+  font: 13px/1.5 var(--font-sans, sans-serif);
+  padding: 8px 0;
 }
 .scene-curation__options {
   list-style: none;
@@ -451,7 +461,19 @@ function chooseCurrentLocation(candidate) {
 .scene-curation__option.is-active,
 .scene-curation__person-toggle.is-active {
   color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 19%, transparent);
+  border-radius: 4px;
 }
+.scene-curation__option.is-selected > span:nth-child(2),
+.scene-curation__person-toggle.is-selected > span:nth-child(2) { color: var(--text-primary); font-weight: 600; }
+.scene-curation__option,
+.scene-curation__person-toggle { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px; font-size: 13px; }
+.scene-curation__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 18px; }
+.scene-curation__actions button { min-height: 36px; border: 0; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-sans); cursor: pointer; }
+.scene-curation__actions button[data-test='curation-save'] { padding: 7px 18px; border: 0; border-radius: 999px; background: var(--control-accent-bg, var(--accent-primary)); color: var(--accent-text); }
+.scene-curation__actions button:disabled { opacity: .45; cursor: not-allowed; }
+.scene-curation button:focus-visible,
+.scene-curation summary:focus-visible { outline: 2px solid var(--control-focus); outline-offset: 3px; }
 .scene-curation__option[aria-pressed='true'],
 .scene-curation__person-toggle[aria-pressed='true'],
 .scene-curation__viewpoint[aria-pressed='true'] {

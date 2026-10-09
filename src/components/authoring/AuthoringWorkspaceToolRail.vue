@@ -12,32 +12,28 @@ function emitBeforeSelect(toolId, event) {
   if (event?.button != null && event.button !== 0) return
   emit('before-select', toolId)
 }
-// 常用工具直接以“图标 + 文字”暴露，不让人猜图标含义；素材收进“更多”菜单，
-// 不再占一格。顺序对齐高频动线：校对 → 结构 → 事实 → 助手 → 回溯。
+// 写作、参考、辅助分组保留可见文字，切换仍由页面唯一 owner 处理。
 const assistantTool = { id: 'ai', label: '助手' }
 const baseTools = Object.freeze([
-  { id: 'annotations', label: '批注', icon: 'annotation' },
-  { id: 'outline', label: '大纲', icon: 'outline' },
-  { id: 'characters', label: '角色', icon: 'character' },
-  { id: 'worldbook', label: '设定', icon: 'worldbook' },
-  { id: 'scene', label: '现场', icon: 'scene' },
-  { id: 'rehearsal', label: '推演', icon: 'rehearsal' },
-  { id: 'dual', label: '双栏', icon: 'columns' },
-  { ...assistantTool, icon: 'assistant' },
-  { id: 'history', label: '记忆', icon: 'history' }
+  { ...assistantTool, icon: 'assistant', group: 'writing' },
+  { id: 'rehearsal', label: '推演', icon: 'rehearsal', group: 'writing' },
+  { id: 'annotations', label: '批注', icon: 'annotation', group: 'writing' },
+  { id: 'outline', label: '大纲', icon: 'outline', group: 'reference' },
+  { id: 'characters', label: '角色', icon: 'character', group: 'reference' },
+  { id: 'worldbook', label: '设定', icon: 'worldbook', group: 'reference' },
+  { id: 'scene', label: '现场', icon: 'scene', group: 'reference' },
+  { id: 'history', label: '记忆', icon: 'history', group: 'utility' },
+  { id: 'dual', label: '双栏', icon: 'columns', group: 'utility' }
 ])
 const tools = computed(() => props.collaborationVisible
-  ? [
-      ...baseTools.slice(0, 5),
-      { id: 'collaboration', label: '协作', icon: 'collaboration' },
-      ...baseTools.slice(5)
-    ]
+  ? [...baseTools.slice(0, 3), { id: 'collaboration', label: '协作', icon: 'collaboration', group: 'writing' }, ...baseTools.slice(3)]
   : baseTools)
+
 </script>
 
 <template>
   <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
-    <button v-for="tool in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id"
+    <button v-for="(tool, index) in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id" :data-group-start="index > 0 && tools[index - 1].group !== tool.group ? 'true' : undefined"
       :aria-label="tr(tool.label)" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tr(tool.label)"
       @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
@@ -47,14 +43,17 @@ const tools = computed(() => props.collaborationVisible
 </template>
 
 <style scoped>
-.writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; width: var(--writing-tool-rail-width, 52px); min-width: var(--writing-tool-rail-width, 52px); padding-block: 6px; border-inline: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--surface-primary) 94%, transparent); }
-.writing-tool-rail button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 100%; min-height: 46px; padding: 0; border: 0; background: transparent; color: color-mix(in srgb, var(--text-secondary) 84%, transparent); cursor: pointer; }
-.writing-tool-rail__label { font-family: var(--font-sans); font-size: 11px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: center; }
-.writing-tool-rail button::before { position: absolute; inset-block: 8px; inset-inline-start: -1px; width: 3px; content: ''; background: transparent; }
-.writing-tool-rail button[aria-pressed="true"] { color: var(--text-primary); background: color-mix(in srgb, var(--accent-primary) 7%, transparent); }
-.writing-tool-rail button[aria-pressed="true"]::before { background: var(--accent-primary); }
-.writing-tool-rail button:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); color: var(--text-primary); }
-.writing-tool-rail button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -4px; color: var(--text-primary); }
+.writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; width: var(--writing-tool-rail-width, 60px); min-width: var(--writing-tool-rail-width, 60px); padding: 12px 5px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border: 0; background: transparent; }
+.writing-tool-rail button { display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 52px; padding: 5px 2px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+.writing-tool-rail__label { font-family: var(--font-interface, var(--font-sans)); font-size: 13px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: center; }
+.writing-tool-rail button[aria-pressed="true"] { color: var(--accent); background: var(--nav-primary-selected); }
+.writing-tool-rail button[aria-pressed="true"] .writing-tool-rail__label { font-weight: 500; }
+.writing-tool-rail button:hover { background: var(--nav-hover); color: var(--text-primary); }
+.writing-tool-rail button[aria-pressed="true"]:hover { background: var(--nav-focused); color: var(--accent); }
+.writing-tool-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.writing-tool-rail button:active { background: var(--nav-focused); }
+@media (min-width: 721px) { .writing-tool-rail button[data-group-start="true"] { margin-top: 14px; } }
+@media (prefers-reduced-motion: reduce) { .writing-tool-rail button { transition: none; } }
 /* 与 Authoring 的全宽 sheet 同时切为底部工具带，避免 641–720px 留下被稿面遮住的竖栏。 */
-@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; width: auto; flex-direction: row; padding-block: 0 env(safe-area-inset-bottom, 0px); overflow-x: auto; border-top: 1px solid var(--border); } .writing-tool-rail button { flex: 1 0 var(--writing-tool-rail-width, 48px); min-height: 48px; } }
+@media (max-width: 720px) { .writing-tool-rail { position: fixed; z-index: 30; inset-inline: 0; inset-block-end: 0; width: auto; flex-direction: row; gap: 2px; padding: 0 4px env(safe-area-inset-bottom, 0px); overflow-x: auto; overflow-y: hidden; border-top: 1px solid var(--hairline-soft); background: var(--surface-workbench-muted); } .writing-tool-rail button { flex: 1 0 var(--writing-tool-rail-width, 60px); min-height: 48px; } }
 </style>

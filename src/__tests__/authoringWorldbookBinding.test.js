@@ -513,19 +513,22 @@ import {
 import { vi } from 'vitest'
 
 function createMockRouter(currentRoute = { name: 'welcome', query: {} }) {
-  return {
+  const router = {
     currentRoute: { value: currentRoute },
     isReady: vi.fn(async () => {}),
-    push: vi.fn(async () => {}),
-    replace: vi.fn(async () => {}),
+    push: vi.fn(async to => router.emit(to)),
+    replace: vi.fn(async to => router.emit(to)),
     afterEachHandlers: [],
     afterEach(handler) {
       this.afterEachHandlers.push(handler)
     },
     emit(to) {
-      for (const handler of this.afterEachHandlers) handler(to)
+      const from = this.currentRoute.value
+      this.currentRoute.value = to
+      for (const handler of this.afterEachHandlers) handler(to, from)
     }
   }
+  return router
 }
 
 describe('workspace route adapter', () => {
@@ -533,7 +536,10 @@ describe('workspace route adapter', () => {
 {
 // install：hydrate 当前路由；afterEach 里 URL 变化只跟随 store，不反向 push。
     localStorage.clear()
-    localStorage.setItem('writing_books', JSON.stringify([{ id: 'b1', title: '书一', chapters: [] }]))
+    localStorage.setItem('writing_books', JSON.stringify([
+      { id: 'b1', title: '书一', chapters: [{ id: 'c2' }] },
+      { id: 'b2', title: '书二', chapters: [{ id: 'c1' }] }
+    ]))
     const router = createMockRouter({ name: 'authoring', query: { bookId: 'b1' } })
     const store = useWorkspaceTabsStore()
     installWorkspaceRouteAdapter(store, router)
@@ -548,7 +554,7 @@ describe('workspace route adapter', () => {
 }
 {
 // 旧无 query 链接：replace 为 canonical URL（最近书或首书）。
-// canonical 状态先应用到 store 再 replace，因此标签立即存在，不创建无主标签。
+// 导航成功后才创建 canonical 标签，等待期间不创建无主标签。
     localStorage.clear()
     localStorage.setItem('writing_books', JSON.stringify([
       { id: 'b1', title: '书一', chapters: [] },
@@ -557,8 +563,9 @@ describe('workspace route adapter', () => {
     const router = createMockRouter({ name: 'authoring', query: {} })
     const store = useWorkspaceTabsStore()
     installWorkspaceRouteAdapter(store, router)
-    router.emit({ name: 'authoring', query: {} })
     expect(router.replace).toHaveBeenCalledWith({ name: 'authoring', query: { bookId: 'b2' } })
+    expect(store.tabs).toHaveLength(0)
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(store.tabs.map((tab) => tab.key)).toEqual(['project:b2:authoring'])
     // 无任何书：保持原 URL，不产生标签（页面显示空态/建书入口）。
     const router2 = createMockRouter({ name: 'welcome', query: {} })
@@ -583,6 +590,12 @@ describe('workspace route adapter', () => {
     const authoringTab = store.tabs.find((tab) => tab.key === 'project:b1:authoring')
     await activateWorkspaceTab(store, router, authoringTab.id)
     expect(router.push).toHaveBeenLastCalledWith({ name: 'authoring', query: { bookId: 'b1' } })
+    // 导航守卫拒绝关闭时，活动标签与全部正文工作页必须原样保留。
+    const beforeCancelledClose = JSON.parse(JSON.stringify(store.tabs))
+    router.push.mockImplementationOnce(async () => { throw new Error('保存失败，取消导航') })
+    expect(await closeWorkspaceTab(store, router, authoringTab.id)).toMatchObject({ ok: false, reason: 'navigation-cancelled' })
+    expect(store.tabs).toEqual(beforeCancelledClose)
+    expect(store.activeTabId).toBe(authoringTab.id)
     // 关闭活动标签 → push 邻居路由；最后一个 → 欢迎页。
     await closeWorkspaceTab(store, router, authoringTab.id)
     expect(router.push).toHaveBeenLastCalledWith({ name: 'docs', query: {} })
@@ -899,20 +912,15 @@ describe('route adapter install ordering — data-loss race regression', () => {
 })
 
 describe('programmatic navigation window buffers external routes', () => {
-  it('canonicalize applies immediately; a differing external route is processed after the window', async () => {
+  it('commits canonical tabs after navigation succeeds and preserves a newer external route', async () => {
     localStorage.clear()
     localStorage.setItem('writing_books', JSON.stringify([
       { id: 'book-a', title: '雾港书稿', worldbookId: 'wb-1', updatedAt: '2026-08-24T01:00:00Z' },
       { id: 'book-b', title: '灯塔手记', worldbookId: '', updatedAt: '2026-08-24T02:00:00Z' }
     ]))
-    const hooks = []
     let resolveReplace
-    const router = {
-      currentRoute: { value: { name: 'materials', query: {} } },
-      push: vi.fn(async () => {}),
-      replace: vi.fn(() => new Promise((resolve) => { resolveReplace = resolve })),
-      afterEach(fn) { hooks.push(fn) }
-    }
+    const router = createMockRouter({ name: 'materials', query: {} })
+    router.replace.mockImplementation(() => new Promise((resolve) => { resolveReplace = resolve }))
 
     const pinia = createPinia()
     setActivePinia(pinia)
@@ -920,24 +928,25 @@ describe('programmatic navigation window buffers external routes', () => {
 
     try {
       installWorkspaceRouteAdapter(store, router)
-      // 复验修复后的语义：canonical 状态立即应用到 store（标签即刻可见），
-      // 只有 URL replace 本身留在程序化窗口内。
-      // resolveDefaultBookId 取最近更新的书（book-b）。
-      expect(store.tabs.map((tab) => tab.key)).toEqual(['project:book-b:materials'])
+      // 默认书是 book-b，但保存守卫尚未放行，不提前创建该书标签。
+      expect(router.replace).toHaveBeenCalledWith({ name: 'materials', query: { bookId: 'book-b' } })
+      expect(store.tabs).toHaveLength(0)
       expect(isWorkspaceRouteSyncing()).toBe(true)
 
       // 窗口内到达指向另一 surface 的真实外部导航：先缓存，不立即处理。
-      hooks[0]({ name: 'authoring', query: { bookId: 'book-a' } })
-      expect(store.tabs.map((tab) => tab.key)).toEqual(['project:book-b:materials'])
+      router.emit({ name: 'authoring', query: { bookId: 'book-a' } })
+      expect(store.tabs).toHaveLength(0)
 
       // replace 完成 → 缓存的外部路由被补处理，而不是丢弃。
       resolveReplace()
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(store.tabs.map((tab) => tab.key)).toContain('project:book-a:authoring')
+      expect(store.tabs.map((tab) => tab.key)).toEqual(['project:book-a:authoring'])
+      expect(store.activeTab?.projectId).toBe('book-a')
       expect(isWorkspaceRouteSyncing()).toBe(false)
     } finally {
       // 防止本用例断言失败时窗口悬挂，污染同文件后续用例。
       if (resolveReplace) resolveReplace()
+      await new Promise((resolve) => setTimeout(resolve, 0))
     }
   })
 })
@@ -949,39 +958,33 @@ describe('programmatic navigation own-echo suppression', () => {
       { id: 'b1', title: '书一', chapters: [] },
       { id: 'b2', title: '书二', updatedAt: '2026-08-24T10:00:00Z', chapters: [] }
     ]))
-    const hooks = []
     // mock router：replace 触发真实路由器语义——完成后以同目标发出 afterEach 回声。
     let resolveReplace
-    const router = {
-      currentRoute: { value: { name: 'authoring', query: {} } },
-      push: vi.fn(async () => {}),
-      replace: vi.fn((target) => new Promise((resolve) => {
-        resolveReplace = () => {
-          for (const hook of hooks) hook(target)
-          resolve()
-        }
-      })),
-      afterEach(handler) { hooks.push(handler) },
-      emit(to) { for (const hook of hooks) hook(to) }
-    }
+    const router = createMockRouter({ name: 'authoring', query: {} })
+    router.replace.mockImplementation(target => new Promise(resolve => {
+      resolveReplace = () => { router.emit(target); resolve() }
+    }))
 
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useWorkspaceTabsStore()
     const syncSpy = vi.spyOn(store, 'syncFromRoute')
 
-    installWorkspaceRouteAdapter(store, router)
-    // 初始导航：无 bookId → canonicalize：syncFromRoute(canonical) 预应用一次 + replace 入窗口。
-    handleRouteChangeForTest(store, router, { name: 'authoring', query: {} })
-    expect(syncSpy).toHaveBeenCalledTimes(1)
-
-    // 自身回声在窗口内到达，窗口关闭时因 key 相同被丢弃。
-    resolveReplace()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(syncSpy).toHaveBeenCalledTimes(1)
-    expect(router.replace).toHaveBeenCalledTimes(1)
-    expect(store.tabs.map((tab) => tab.key)).toEqual(['project:b2:authoring'])
+    try {
+      installWorkspaceRouteAdapter(store, router)
+      // 无 bookId 时等待 canonical replace 成功，不提前修改标签。
+      expect(syncSpy).not.toHaveBeenCalled()
+      expect(store.tabs).toHaveLength(0)
+      // 自身回声在窗口内到达；完成时只提交一次，不重复同步。
+      resolveReplace()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(syncSpy).toHaveBeenCalledTimes(1)
+      expect(router.replace).toHaveBeenCalledTimes(1)
+      expect(store.tabs.map((tab) => tab.key)).toEqual(['project:b2:authoring'])
+    } finally {
+      if (resolveReplace && isWorkspaceRouteSyncing()) resolveReplace()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
   })
 
   it('still processes a genuinely different external route after the window closes', async () => {
@@ -990,26 +993,25 @@ describe('programmatic navigation own-echo suppression', () => {
       { id: 'b1', title: '书一', chapters: [] },
       { id: 'b2', title: '书二', updatedAt: '2026-08-24T10:00:00Z', chapters: [] }
     ]))
-    const hooks = []
     let resolveReplace
-    const router = {
-      currentRoute: { value: { name: 'authoring', query: {} } },
-      push: vi.fn(async () => {}),
-      replace: vi.fn(() => new Promise((resolve) => { resolveReplace = resolve })),
-      afterEach(handler) { hooks.push(handler) }
-    }
+    const router = createMockRouter({ name: 'authoring', query: {} })
+    router.replace.mockImplementation(() => new Promise(resolve => { resolveReplace = resolve }))
 
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useWorkspaceTabsStore()
-    installWorkspaceRouteAdapter(store, router)
-
-    // 窗口内到达指向另一本书的真实外部导航。
-    hooks[0]({ name: 'authoring', query: { bookId: 'b1' } })
-    resolveReplace()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(store.tabs.map((tab) => tab.key)).toContain('project:b1:authoring')
+    try {
+      installWorkspaceRouteAdapter(store, router)
+      // 外部导航已成功进入 b1；旧 b2 replace 完成不能覆盖新 URL 或创建 b2 标签。
+      router.emit({ name: 'authoring', query: { bookId: 'b1' } })
+      resolveReplace()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(store.tabs.map((tab) => tab.key)).toEqual(['project:b1:authoring'])
+      expect(router.currentRoute.value.query.bookId).toBe('b1')
+    } finally {
+      if (resolveReplace) resolveReplace()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
   })
 })
 
@@ -1370,7 +1372,7 @@ describe('workspace route adapter stale focus (journey finding)', () => {
       store.hydrate({ route: null })
       store.openOrFocus({ scope: 'global', surface: 'experience', projectId: null })
       expect(store.activeTab?.surface).toBe('experience')
-      const router = { replace: () => Promise.resolve(), push: () => Promise.resolve() }
+      const router = createMockRouter({ name: 'authoring', query: {} })
       handleRouteChangeForTest(store, router, { name: 'authoring', query: {} })
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(store.tabs).toHaveLength(1)
@@ -1381,7 +1383,7 @@ describe('workspace route adapter stale focus (journey finding)', () => {
       localStorage.setItem('writing_books', JSON.stringify([{ id: 'b1', title: '书一' }]))
       const store2 = useWorkspaceTabsStore()
       store2.hydrate({ route: null })
-      const router2 = { replace: () => Promise.resolve(), push: () => Promise.resolve() }
+      const router2 = createMockRouter({ name: 'authoring', query: {} })
       handleRouteChangeForTest(store2, router2, { name: 'authoring', query: {} })
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(store2.activeTab?.scope).toBe('project')

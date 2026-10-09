@@ -75,8 +75,8 @@ const workbenchChildren = [
     component: WorldbookCreationWorkspace,
     beforeEnter: (to) => {
       // 旧入口兼容：mode=sources + bookId → 重定向到资料一级页
-      if (to.query?.mode === 'sources' && to.query?.bookId && to.query?.action !== 'add') {
-        return { name: 'settings-sources', query: { bookId: to.query.bookId } }
+      if (to.query?.mode === 'sources' && to.query?.bookId) {
+        return { name: 'settings-sources', query: { bookId: to.query.bookId, ...(to.query.action === 'add' ? { import: 'add' } : {}) } }
       }
     },
     meta: {

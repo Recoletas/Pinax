@@ -24,8 +24,9 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       chapterEntries: manuscriptItems,
       manuscriptItems,
       worldEntries: (world?.entries || []).map(entry => item(entry, 'worldbook')),
+      sourceEntries: (world?.sourceDocuments || []).map(entry => item({ ...entry, content: entry.content || entry.contentPreview || '', title: entry.title || entry.sourceLabel }, 'source')),
       notesItems: (getNotes?.() || []).map(entry => item(entry, 'notes')),
-      outlineItems: (getOutline?.() || []).map(entry => item({ ...entry, text: entry.summary || entry.description || entry.title }, 'outline'))
+      outlineItems: (getOutline?.() || []).map(entry => item({ ...entry, text: entry.intent || entry.summary || entry.description || entry.title }, 'outline'))
     }
   }
   const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context })

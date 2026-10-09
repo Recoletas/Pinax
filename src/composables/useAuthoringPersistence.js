@@ -1,6 +1,7 @@
 import { tr } from '../i18n/index.js'
 import { computed, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
+import { loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 
 const EXIT_GUARD_STATUSES = new Set(['unsaved', 'saving', 'error'])
 
@@ -12,6 +13,7 @@ export function useAuthoringPersistence({
   selectedBookId,
   selectedChapterId,
   activeDocument,
+  isNavigationBusy,
   saveStatus = ref('saved'),
   writingRecoveryDraft,
   pendingGhostAdoption,
@@ -215,7 +217,11 @@ export function useAuthoringPersistence({
     if (EXIT_GUARD_STATUSES.has(saveStatus.value)) writeRecoveryDraft?.()
   })
 
-  onBeforeRouteLeave(() => {
+  function guardWorkspaceExit() {
+    if (isNavigationBusy?.()) {
+      notify?.(tr('请先完成或停止当前任务再切换页面'))
+      return false
+    }
     if (valueOf(pendingGhostAdoption)) {
       notify?.(tr('推演正文尚未保存，请先重试保存或留在当前文档'))
       return false
@@ -238,6 +244,24 @@ export function useAuthoringPersistence({
     cancelCopilot?.()
     if (valueOf(blockComposer)?.open) abandonBlockComposer?.({ restoreSelection: false })
     return true
+  }
+  onBeforeRouteLeave(guardWorkspaceExit)
+  onBeforeRouteUpdate((to) => {
+    const bookId = typeof to.query.bookId === 'string' ? to.query.bookId : ''
+    const book = bookId ? loadWritingBooks().find(item => String(item.id) === bookId) : null
+    if (bookId && !book) { notify?.(tr('这本书已不存在。')); return false }
+    if (book && to.query.chapterId && !book.chapters?.some(item => String(item.id) === to.query.chapterId)) {
+      notify?.(tr('这个章节已不存在或不属于当前作品，请从目录重新选择。'))
+      return false
+    }
+    if (book && to.query.explorationId && !book.explorationDocuments?.some(item => String(item.id) === to.query.explorationId)) {
+      notify?.(tr('这份构思已不存在或不属于当前作品，请从目录重新选择。'))
+      return false
+    }
+    const changesBook = to.query.bookId && String(to.query.bookId) !== String(valueOf(selectedBookId) || '')
+    const changesChapter = to.query.chapterId && String(to.query.chapterId) !== String(valueOf(selectedChapterId) || '')
+    const changesExploration = String(to.query.explorationId || '') !== String(valueOf(activeDocument)?.id || '')
+    return changesBook || changesChapter || changesExploration ? guardWorkspaceExit() : true
   })
 
   return Object.freeze({

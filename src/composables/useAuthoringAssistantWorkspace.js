@@ -7,7 +7,7 @@ export function useAuthoringAssistantWorkspace({
   route, router, projectId, chapterId, chapters, assistant, writingTypography,
   openInspector, inspectorOpen, activeInspectorTool, closeChapterDrawer,
   captureScroll, restoreScroll, focusEditor, openEvidence, createBook,
-  openSources: navigateSources, openSettings: navigateSettings, getReviewWorkflow, openIllustrator: showIllustrator
+  openSources: navigateSources, openSettings: navigateSettings, openSurface: navigateSurface, getReviewWorkflow, openIllustrator: showIllustrator
 }) {
   const expanded = ref(false)
   const newBookWithAssistant = ref(false)
@@ -94,7 +94,11 @@ export function useAuthoringAssistantWorkspace({
   function openSurface(surface) {
     if (surface === 'assistant') return enter()
     if (surface === 'writing') { closeChapterDrawer(); return leave() }
-    return surface === 'settings' ? openSettings() : openSources()
+    if (navigationBusy.value) return false
+    if (surface === 'home') return router.push({ name: 'welcome' })
+    if (surface === 'settings') return openSettings()
+    if (surface === 'sources') return openSources()
+    return navigateSurface?.(surface) ?? false
   }
 
   async function openIllustrator() {

@@ -71,3 +71,174 @@
   .writing-page .authoring-assistant-entry { min-height: 44px; padding-inline: 10px; }
   .writing-page.is-assistant-full .wall__main { margin: 0; padding: 0; }
 }
+
+/* Both sidebars share a type scale; UI zoom remains a user preference. */
+.writing-page {
+  --authoring-sidebar-title-size: 16px;
+  --authoring-sidebar-label-size: 15px;
+  --authoring-sidebar-meta-size: 13px;
+  --authoring-sidebar-gutter: 22px;
+  --writing-tool-rail-width: 60px;
+}
+/* Restore the original shelf geometry; only surface treatments differ. */
+.theme-legacy .writing-page .wall__shelf {
+  --nav-surface: color-mix(in srgb, var(--surface-workbench-muted) 85%, var(--surface-workbench));
+  --nav-hover: color-mix(in srgb, var(--text-primary) 4%, var(--nav-surface));
+  --nav-selected-secondary: color-mix(in srgb, var(--text-primary) 6%, var(--nav-surface));
+  background: var(--nav-surface);
+  box-shadow: inset -1px 0 var(--hairline-soft);
+}
+.theme-legacy .writing-page .authoring-chapter-search {
+  background: color-mix(in srgb, var(--surface-workbench-raised) 75%, var(--nav-surface));
+}
+/* The shared navigation's new square rows must not change the restored shelf. */
+.theme-legacy .app-shell .writing-page .wall__shelf .workspace-nav-item {
+  border-radius: var(--workspace-radius, 12px);
+}
+.theme-legacy .writing-page .wall__shelf .authoring-idea-row.is-active {
+  background: var(--nav-selected-secondary);
+}
+.theme-legacy .writing-page .authoring-chapter-group.is-current {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.theme-legacy .writing-page .authoring-chapter-group.is-current > svg { color: var(--accent); }
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row { color: var(--text-primary); }
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row__title { font-size: 16px; }
+.theme-legacy .writing-page .authoring-chapter-row__name { font-weight: 500; }
+.theme-legacy .writing-page .authoring-chapter-row__ordinal { color: var(--text-secondary); font-size: 13px; }
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row.is-active {
+  background: var(--nav-primary-selected);
+  color: var(--text-primary);
+}
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row.is-active :is(.authoring-chapter-row__title, .authoring-chapter-row__name, .authoring-chapter-row__ordinal) { font-weight: 600; }
+.theme-legacy .writing-page .authoring-chapter-row.is-active .authoring-chapter-row__ordinal { color: var(--accent); }
+.theme-legacy .writing-page .wall__shelf-scene { background: var(--nav-surface); }
+.theme-legacy .writing-page .wall__dossier { margin: 0; border: 0; border-inline: 1px solid var(--hairline-soft); border-radius: 0; box-shadow: none; }
+
+/* The right workbench has one heading, a compact action row and a reading area. */
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector {
+  font-family: var(--font-interface);
+  background: var(--surface-assistant);
+  --authoring-catalog-title-size: var(--authoring-sidebar-title-size);
+  --authoring-catalog-entry-size: var(--authoring-sidebar-label-size);
+  --authoring-catalog-meta-size: 12px;
+}
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__head {
+  min-height: 60px;
+  padding: 12px var(--authoring-sidebar-gutter) 8px;
+  background: var(--surface-assistant);
+  border-bottom: 0;
+}
+.theme-legacy .writing-page .writing-inspector__head strong { font-size: var(--authoring-sidebar-title-size); font-weight: 600; }
+.theme-legacy .writing-page .writing-inspector__head-actions { gap: 4px; }
+.theme-legacy .writing-page .writing-inspector__icon-btn { width: 32px; height: 32px; border-radius: var(--radius-control); }
+.theme-legacy .writing-page .writing-inspector__icon-btn:hover { color: var(--text-primary); background: var(--nav-hover); }
+.theme-legacy .writing-page .writing-inspector__icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.theme-legacy .writing-page .writing-inspector__memory-link { min-height: 32px; padding: 4px 6px; border-radius: var(--radius-control); font-size: 12px; }
+.theme-legacy .writing-page .writing-inspector__memory-link:hover { background: var(--nav-hover); }
+.theme-legacy .writing-page .writing-inspector__memory-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs {
+  gap: 4px;
+  margin: 0 var(--authoring-sidebar-gutter) 12px;
+  padding: 3px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--surface-workbench-muted);
+}
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs button {
+  flex: 1;
+  min-height: 32px;
+  padding-inline: 8px;
+  border: 0;
+  border-radius: 7px;
+  font: 500 var(--authoring-sidebar-meta-size)/1.5 var(--font-interface);
+}
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs button.active {
+  color: var(--text-primary);
+  background: var(--surface-workbench-raised);
+  box-shadow: var(--shadow-workbench);
+}
+.theme-legacy .writing-page .writing-inspector__tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.writing-page:not(.is-assistant-full) .writing-inspector__body--assistant > .authoring-assistant-workspace { flex: 1; height: auto; }
+.theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__body--assistant { flex: 1; max-height: none; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge { --assistant-gutter: var(--authoring-sidebar-gutter); --assistant-answer-size: 16px; --assistant-question-size: 15px; --assistant-intro-size: 22px; --assistant-start-offset: clamp(28px, 6vh, 64px); --assistant-input-radius: 16px; --assistant-input-min-height: 108px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar { min-height: 42px; padding: 0 14px 8px; }
+.writing-page:not(.is-assistant-full) .authoring-assistant-workspace__inline-actions button { min-height: 32px; padding: 4px 8px; font-size: var(--authoring-sidebar-meta-size); }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar-actions button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar-actions .assistant-conversation-toggle { width: auto; min-width: 0; padding-inline: 8px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__answer { margin-bottom: 22px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__question { margin-bottom: 22px; padding: 9px 12px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__thread { padding: 18px var(--assistant-gutter) 12px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__composer { padding: 12px var(--assistant-gutter) 20px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__context { order: -1; flex-basis: 100%; margin: 0 4px 2px; font-size: 13px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__composer-actions { flex-wrap: wrap; gap: 4px 6px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list { display: grid; justify-content: stretch; gap: 4px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button { justify-content: flex-start; gap: 10px; padding: 9px 4px; border: 0; border-radius: var(--radius-control); font-size: 14px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button > svg { color: var(--text-muted); }
+@media (min-width: 1181px) {
+  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0 0 10px 10px; border: 1px solid var(--hairline-soft); border-radius: 18px; box-shadow: none; }
+}
+@media (min-width: 721px) and (max-width: 1180px) {
+  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0; border: 1px solid var(--hairline-soft); border-radius: 16px 0 0 16px; box-shadow: var(--shadow-workbench-float); }
+}
+@media (max-width: 720px), (pointer: coarse) {
+  .theme-legacy .writing-page .writing-inspector__icon-btn { min-width: 44px; min-height: 44px; }
+  .theme-legacy .writing-page .writing-inspector__memory-link { min-height: 44px; }
+  .writing-page:not(.is-assistant-full) .authoring-assistant-workspace__inline-actions button,
+  .writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar-actions button { min-width: 44px; min-height: 44px; }
+}
+
+/* The volume is a parent; chapter and note text share the child baseline. */
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row { padding-inline-start: 34px; }
+.writing-page .writing-inspector__body { container: writing-tool / inline-size; }
+.writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) {
+  font-family: var(--font-interface);
+  --font-body: var(--font-interface);
+  background: var(--surface-assistant);
+}
+.writing-page .writing-inspector__body .catalog-workbench { grid-template-columns: minmax(0, 1.62fr) minmax(160px, 1fr); }
+.writing-page .writing-inspector__body :is(.character-directory, .setting-directory, .outline-directory) { padding: 8px 14px 16px; background: var(--surface-workbench-muted); }
+.writing-page .writing-inspector__body :is(.catalog-search, .outline-search) { border-radius: 8px; background: var(--surface-workbench-input); border-color: var(--hairline-soft); }
+.writing-page .writing-inspector__body :is(.catalog-actions, .outline-actions) { gap: 6px; margin-block: 10px 16px; }
+.writing-page .writing-inspector__body :is(.catalog-actions, .outline-actions) button { min-height: 38px; border-radius: 8px; font-size: 13px; }
+.writing-page .writing-inspector__body :is(.character-directory, .setting-directory, .outline-directory) > header { padding-block: 4px 8px; font-size: 14px; }
+.writing-page .writing-inspector__body :is(.character-directory__group, .setting-directory__group, .outline-directory__group) h3 { margin-block: 12px 4px; }
+.writing-page .writing-inspector__body :is(.character-empty, .setting-empty, .outline-empty) { display: grid; place-content: start; justify-items: start; max-width: none; height: auto; gap: 12px; padding: 24px 22px; text-align: start; font-size: 14px; line-height: 1.7; }
+.writing-page .writing-inspector__body :is(.character-empty, .setting-empty, .outline-empty) :is(strong, h2) { margin: 0; color: var(--text-primary); font-size: 18px; line-height: 1.4; font-weight: 600; }
+.writing-page .writing-inspector__body :is(.character-empty, .setting-empty, .outline-empty) p { margin: 0; font-size: 14px; line-height: 1.7; }
+.writing-page .writing-inspector__body .character-empty .character-empty__primary { color: var(--accent-text); border-radius: 8px; min-height: 40px; }
+.writing-page .writing-inspector__body :is(.character-sheet__head, .setting-sheet__head, .outline-editor__head) { padding-inline: 20px; min-height: 58px; }
+.writing-page .writing-inspector__body :is(.character-sheet__scroll, .setting-sheet__scroll, .outline-editor__body) { padding-inline: 20px; }
+.writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) :is(button, summary, input, textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.writing-page .rehearsal-panel .rehearsal-intro { margin-block: 4px 18px; color: var(--text-primary); font-size: 16px; line-height: 1.6; }
+.writing-page .rehearsal-panel .rehearsal-primary { border-radius: 8px; min-height: 40px; padding-inline: 16px; }
+.writing-page .rehearsal-panel .rehearsal-limit { margin-top: 12px; color: var(--text-secondary); line-height: 1.6; }
+.writing-page .writing-version-panel__help { margin: 0 0 16px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+@container writing-tool (max-width: 440px) {
+  .writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .writing-page .writing-inspector__body :is(.character-directory, .setting-directory, .outline-directory) { order: -1; max-height: 180px; border-bottom: 1px solid var(--hairline-soft); }
+  .writing-page .writing-inspector__body :is(.character-sheet, .setting-sheet, .outline-editor) { border-right: 0; min-height: 0; }
+}
+
+@media (max-width: 720px) {
+  .writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .writing-page .writing-inspector__body :is(.character-directory, .setting-directory, .outline-directory) { order: -1; max-height: 180px; border-bottom: 1px solid var(--hairline-soft); }
+  .writing-page .writing-inspector__body :is(.character-sheet, .setting-sheet, .outline-editor) { border-right: 0; min-height: 0; }
+}
+
+/* Empty role guidance sits below the directory controls; forms keep their head. */
+.writing-page .writing-inspector__body .character-empty { padding-block-start: clamp(56px, 11vh, 104px); }
+@media (max-width: 720px) { .writing-page .writing-inspector__body .character-empty { padding-block-start: 32px; } }
+
+@media (max-width: 720px) {
+  .writing-page .rehearsal-panel .rehearsal-primary { min-height: 44px; }
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-footer { position: static; padding-bottom: max(56px, env(safe-area-inset-bottom)); }
+  .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector.is-rehearsal .rehearsal-flow { padding-bottom: 18px; }
+}
+
+.writing-inspector__task-select { margin-inline-start: 12px; max-width: 140px; padding: 5px 20px 5px 6px; border: 0; border-radius: 4px; background-color: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-ui, sans-serif); cursor: pointer; }
+.writing-inspector__task-select option { background: var(--surface-workbench-overlay); color: var(--text-primary); }
+.writing-inspector__task-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-block-composer__retained-actions { display: flex; gap: 16px; margin-block: 12px; color: var(--text-secondary); }

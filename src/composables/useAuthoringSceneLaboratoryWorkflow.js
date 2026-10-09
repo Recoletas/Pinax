@@ -123,7 +123,7 @@ export function useAuthoringSceneLaboratoryWorkflow({
     return true
   }
 
-  async function open({ target = null, instruction = '' } = {}) {
+  async function open({ target = null, instruction = '', planDirections = true } = {}) {
     if (isBusy()) return false
     if (hasPendingDrafts()) {
       notifyPendingDraft()
@@ -145,6 +145,7 @@ export function useAuthoringSceneLaboratoryWorkflow({
     laboratory.notice = ''
     restoreScroll(laboratory.returnScrollTop)
     const result = await getRunner().prepare({
+      planDirections,
       taskId: 'authoring.advance',
       request: {
         intent: {
@@ -159,6 +160,12 @@ export function useAuthoringSceneLaboratoryWorkflow({
       }
     })
     return applyResult(result, request.version)
+  }
+
+  function stopPreparing() {
+    cancelRequest()
+    laboratory.phase = laboratory.run?.phase || 'cancelled'
+    laboratory.notice = ''
   }
 
   function selectDirection(directionId) {
@@ -257,6 +264,7 @@ export function useAuthoringSceneLaboratoryWorkflow({
     open,
     close,
     cancelRequest,
+    stopPreparing,
     selectDirection,
     confirmDirection,
     retryDirections
