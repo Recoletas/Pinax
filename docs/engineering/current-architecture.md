@@ -28,6 +28,14 @@ AI request
 
 核心原则不是“AI 自动改稿”，而是：资料有明确来源、生成先进入临时会话、正式数据只在作者确认后由唯一 owner 写入。
 
+## Agent 与文件边界（2026-10-09）
+
+文本请求通过 `server/services/kitModelGateway.js` 进入固定版本的 Storyflow 运行器；助手多轮任务由 `/api/storyagent` 转发到 loopback。Pinax 构建运行包到 `.runtime/storyagent`，发布时携带该目录，服务器无需编译。见[运行包发布说明](./agent-runtime-deployment.md)。单次生成与推演仍保留各自的任务契约和界面。
+
+助手冻结当前作品、章节与资料快照，检索当前书引用的条目和原文分块；目前采用有界词项匹配，未接外部向量数据库。`submit_edit_proposals` 仅返回修改提议，不能直接写文件。正文建议在正文区域审阅，人物、设定和大纲建议在已有右栏审阅。作者采用时检查基准内容与作品归属，经存储日志持久化后才发布状态；撤销也会检查是否存在后续修改。浏览器事务恢复不等于多标签页数据库锁。
+
+免登录公网部署关闭整个 `/api/localmirror` 文件入口，模型配置只读，任务按浏览器能力令牌隔离，并限制并发和调用预算。本机文件能力需要明确启用并绑定作品。世界书文件保存只更新 worldbook 域；省略资料、正文、日志域不会删除它们。镜像提交校验修订与文件指纹，保留未托管文件，拒绝覆盖未确认的外部修改，并可恢复中断提交。
+
 ## 2. 运行时入口
 
 | 层 | 当前入口 | 职责 |
@@ -58,6 +66,7 @@ AI request
 | 工作台标签 | `src/stores/workspaceTabsStore.js` + `workspaceRouteAdapter` | 安全导航快照 | URL 是导航真源；selection/scroll 只存内存 ledger |
 | 当前场、推演、干预 | `src/services/agents/authoring/` 中的 session/projection/transaction | 正式现场有限持久化；Ghost/session 多为内存 | provider 前后都要核对 revision |
 | 素材 | `src/services/media/narrativeAssets.js` | localStorage | AI 输出先是候选，不直接成为正文/世界事实 |
+| 模型渠道配置与选中 | `src/services/textProviderConfigStore.js` / `src/services/media/{image,video}ProviderConfigStore.js` | `localStorage.text_model_configs` + `image_model_configs` / `video_model_configs` 及各自 `*_selected` | 文本、图片、视频三条链各自独立；选中键是唯一真源，设置页与生成面都读写它，页面不得另造回落 |
 | 来源文档、媒体二进制 | `src/services/worldbook/worldbookSourceArchive.js` / `src/services/media/mediaAssetStore.js` | IndexedDB | 轻量 JSON 不含二进制；完整工作区 ZIP 会连同来源归档和已落盘媒体导出 |
 | 体验运行时 | `src/stores/gameStore.js` | localStorage | 兼容能力；不能反向成为 Authoring 的稿件真源 |
 | 地图 | `src/stores/geographyStore.js` + `src/services/world-map/` | localStorage / worldbook projection | 地图生成事实与作者确认的世界事实分开 |
@@ -164,8 +173,36 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 - 兼容代码是否写明入口、数据范围和删除条件？
 - 是否跑了与改动对应的 focused Gate，最后再跑 `npm run verify:full`？
 
-## StoryAgent 接入（2026-10-05）
+## StoryAgent 接入（2026-10-05；2026-10-06 P2 起运行时迁入 storyflow-kit）
 
-正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，适配器没有直接写权限。
+正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，agent 运行时没有直接写权限。
 
-体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。适配器快照查询不等于资料原件/RAG 接入；运行与限制见 [adapter README](../../adapters/pinax-adapter/README.md)。
+体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。快照查询不等于资料原件/RAG 接入。
+
+**运行时归属（P2 口径统一）**：pi-agent 任务面（agent 循环、工具环、BeatPlan、任务存储、SSE 服务面、provider 绑定经 kit `llm.ts` 注册表）canonical 在 `storyflow-kit/storyharness/src/pinax/`，由 `npm run serve:pinax` 承载于 loopback 8451；Pinax 侧 `adapters/pinax-adapter` 已退役为 stub（其 `.external` 配置仍是凭据源，经 env 传给 kit 进程）。`server/services/storyAgentRuntime.js` 探测/拉起该服务面，不可达时 agent 路由回落原生链。契约与工具清单的 canonical 在 kit `contracts/`（capability-manifest@1、beat-plan@1）；桥双副本纪律见 `scripts/check-bridge-sync.mjs`（Pinax 浏览器桥 ⇄ kit pinax-side）。浏览器原生工具环仍在 Pinax（浏览器域），由契约等价测试对齐。
+
+**循环归属试点范围（W1-1，2026-10-08）**：**单发结构化生成**（世界书字段生成）的回合循环已切至 kit 任务面 capability 路径——`structuredGenerationRunner.js` 在 kernel 路由下注入 `createKitStructuredCapabilityFetchImpl()`，请求折成 `taskKind=capability` 任务（Schema 进强制提交工具，回执即终态），任务不可达/失败时同请求回落 kit 漏斗（`/v1/pinax/complete`，双层 fail-open）。**助手对话（`chat.js`）与 agent-step（`generationAgent.js`）仍走 Pinax 侧循环**，kit 漏斗在其链路中只承担传输。**「同仓两种循环归属」是过渡期的合法中间态，不是全切完成**；试点出口与 ①②b 的切换另行裁定。
+
+**文本直连退役（2026-10-08，用户裁定）**：文本链不再有直连通路——`server/services/modelRouting.js` 只有 `kernel`（探测 kit `/model`）/`none` 两态，`none` 统一报「未检测到可用模型」；讨论/审校/设定/agent-step/正文生成与结构化生成四条生产链无条件经 kit 任务面（`generationAgent.js` 的多回合循环仍归 Pinax）。用户在设置页选中的模型即全局模型：「选中即热切内核」（`ApiSettingsPanel` → `POST /api/storyagent/model` → kit `/model`；公网部署 403）；用户 key 仅剩设置页探测（`/models`、`/test`）用途，浏览器不接触内容生成密钥。**协议轴（2026-10-08）**：内核按 `api` 选传输——`openai-completions`（缺省）或 `anthropic-messages`（pi-ai 自带传输，鉴权走 `x-api-key`、系统提示在顶层 `params.system`）。设置页选中 Anthropic 预设（baseUrl 不带 `/v1`）或 baseUrl 命中 `/anthropic`、`api.anthropic.com` 时热切带 `api:'anthropic-messages'`；该线不消费 `options.samplingParams`，故 `response_format` 被忽略，结构化靠折进 user 轮的显式 Schema 指令兜底。media 链（image/video）不受影响，仍用服务器 `MINIMAX_API_KEY`。
+
+**输出预算完全废弃（2026-10-09，用户裁定「暂不加预算，只加一个最大循环次数」）**：Pinax 侧不再声明任何单次调用的输出 token 预算——服务端/共享层/浏览器链的 `max_tokens`（含 `maxTokens`）声明全部摘除，请求体不带该字段即交内核缺省（kit `modelFunnel.ts` 缺省 4096；任务面 `runner.ts` 缺省 1600；`server.ts` 只在字段有定义时校验 200–8000）。保留的数值不是预算而是**防超长与防跑飞**两类：上下文窗校验 `assertModelCallBudget` 只按已记录真实用量比对输入字符（`contextRunBudget`）、`NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps` 与结构化 `budget.maxModelSteps`（模型步数）、各链 `timeoutMs`。**跑飞兜底为请求级模型轮数闸**：`shared/modelLoopGuard.js` 的 `MAX_MODEL_ROUNDS_PER_REQUEST = 3`，以 `roundGuard` 随 advisor（`taskMeta` 与漏斗共享同一实例）与结构化生成/能力任务传递，超限抛 `MODEL_ROUND_LIMIT_EXCEEDED`（`retryable:false`，且 advisor 的能力→漏斗回落必须原样上抛、不得被 fail-open 吞掉）。截断（`RESPONSE_INCOMPLETE`）不再靠抬预算修复，改为同请求补跑一轮、失控由轮数闸兜底。例外保留：连接探测（180/32/64 token）与 Anthropic/Responses 协议必填字段的探测声明不是生成预算；`GENERATION_AGENT_LIMITS.maxTokens: 8192` 是入参校验上限不是声明值。
+
+**OpenClaw 僵尸直连摘除（2026-10-09）**：`server/routes/openclaw.js` 删除、`server/index.js` 撤挂载（该路由绕过 `modelRouting.js` 直调 provider，是直连退役后唯一残口），`openclawService.js` 只保留提示卡与 `buildOpenClawUserMessage`，其读取网关令牌的两个死函数（引用已移除的 `join/homedir/existsSync/readFileSync` 与 `OPENCLAW_GATEWAY_TOKEN`）一并删除。全仓 `/api/openclaw` 引用 grep 零命中。
+
+## 运行时监督拓扑（2026-10-08 实测定档）
+
+全栈三个 loopback 服务面的监督责任按「谁知道这个能力要不要」分层：
+
+- **8451（kit 任务面：pi-agent / BeatPlan / 能力任务）归 Pinax 宿主监督**。`server/services/storyAgentRuntime.js` 负责探测与拉起：`:13` `/healthz` 探针；`:23` 总开关（`PINAX_STORYAGENT_ENABLED=0` 直接返回 null）；`:33` 已在跑则短路；`:44` 未跑则 spawn（node + tsx 起 `pinax/serve.ts`）并轮询等健康（`:54`）；`:64` 拉起点写日志，`:66` 返回句柄供关停。不可达时 agent 路由回落原生链——宿主才知道自己要不要 agent 能力，这个 fail-open 依赖的正是这份探测结果。
+- **8421（core 内核 HTTP 面）与 8431（kit 协议面）归 kit 守护监督**。守护件在 `storyflow-kit/scripts/ops/`（`kit-guard.bat` + `kit-guard.vbs`，经 Windows 计划任务 `kit-guard` 每 5 分钟 HTTP 健康巡检）。**该守护当前失效**，登记见 [known-issues](../src/known-issues.md)；修复前 8421/8431 无人拉起，需要时手工启动。
+- **`kit/storyharness/src/web.ts` 是 kit 开发态一键起**（`:41-42` 声明式 `RuntimeSpec`；`:49` 读 `<ws>/.storyharness.json`；`:60-61` 未声明时回落 v4 缺省内核命令）。两仓均不存在 `.storyharness.json`（2026-10-08 实测），故该路径当前全走缺省；它不参与 Pinax 生产链路的监督。
+
+一个反证性现场证据：2026-10-08 实测时 8451 是全栈唯一活着的服务面，而它恰好是唯一由宿主自己 spawn 并轮询健康的那个。
+
+## 8451 任务落盘与日志维度（W1-4）
+
+8451 的日志维度是**任务，不是会话**；`bookId` 是快照里的过滤字段，不是目录分区键。落盘位置 `<tasksDir>/task-<taskId>.jsonl`（`storyflow-kit/storyharness/src/pinax/store.ts:41-48` 与文件名解析 `:77`）；`bookId` 定义在 `:24`，仅在 `list(limit, {bookId})` 过滤时使用（`:74-82`）。
+
+帧结构（`src/pinax/server.ts`）：首帧由提交路径落盘（`:118`），携带 `status: "running"` 与全零 `usage`（`:242-245`）；终态帧由 `settled` 落盘（`:132-135`），即 `{...final, taskId, bookId, createdAt}`。**`usage.{inputTokens,outputTokens,totalTokens}` 在每帧顶层，但只有终态行（如 `completed`）的值才真实**——首帧为占位全零。样例：`tasks/task-pa_e63a7cf2a7558e1ad04d9d3f_final1.jsonl` 末帧 `completed`，usage 1899/114/2013，steps 2、toolCalls 1。
+
+不引入 kit 的 `sessions.ts` 会话维度（`src/sessions.ts:2` 自述位置依赖 `projectDir` + `CorpusLayout`）：8451 任务面的全部路径从 `pkgRoot()` 解析、不读工作区环境变量（`src/pinax/config.ts:68-74`），引入会话维度等于把 `STORYHARNESS_WORKSPACE` 环境变量坑（kit `AGENTS.md:61`：本机该变量指向 storymasterv4，漏 set 会静默落到 v4）引进 Pinax 链路。当前不引进是更安全的选择。

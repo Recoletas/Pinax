@@ -53,7 +53,7 @@ The **+** menu also offers **Review manuscript** and **Generate illustration**. 
 
 **Look up sources** searches the current book's connected manuscript, story-bible entries and other supported content. When supporting material is found, the answer includes the sources actually cited. Select a source title to preview the passage inside the assistant, then choose **Open original** to go to its source.
 
-This scope does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Original files imported on the materials page are not yet connected to assistant retrieval; open them on that page when you need to check them. This interface does not search the web.
+This scope does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Original chunks imported and linked to this book are included in retrieval. Citations can open their source files; other books are outside this scope. This interface does not search the web.
 
 Conversations and input drafts are saved separately for each manuscript in this browser. Switching manuscripts opens the corresponding conversation. Refreshing does not resend a question; it interrupts an active request, which you can retry yourself.
 
@@ -61,11 +61,11 @@ Conversations and input drafts are saved separately for each manuscript in this 
 
 Choose **Write & revise** in the input task menu. Select references and techniques, or type `@` and use the arrow keys, Enter or Tab to confirm a reference. Confirming a reference does not send a task.
 
-Review the candidate before choosing **Add to the original chapter**. Return to its original chapter if you have switched documents. Incomplete results cannot be adopted. A failed save leaves the candidate available; retry adoption after resolving storage issues. The manuscript before adoption is retained in history.
+Choose **Review proposed changes** to inspect manuscript edits in the manuscript area and character, setting or outline edits in their existing sidebar. Confirm the group to save its changes together. A failed save rolls back incomplete writes and retains the proposal. Applied changes can be undone; later edits are checked before undoing.
 
 Follow-up messages continue the task. **Start a new task** keeps the conversation and creates a fresh task. **New conversation** starts another topic; project navigation lets you reopen earlier conversations. Refreshing never runs a task automatically.
 
-These tools require the server runtime. If unavailable, discussion and reference lookup remain available. The optional story exploration switch is off by default and does not bypass strict task checks. Retrieval covers bounded loaded excerpts. Imported book sources can now be selected as references; an external database is not connected here.
+These tools require the server runtime. If unavailable, inputs and saved results are retained; retry after the runtime recovers. The optional story exploration switch is off by default and does not bypass strict task checks. Retrieval covers bounded loaded excerpts. Imported book sources can now be selected as references; an external database is not connected here.
 
 **Review manuscript** opens the review panel. Choose a scope and describe your goal, then inspect the suggestions or rewrite candidates before applying them. The manuscript stays unchanged until you apply a result; use the review's undo control to reverse an applied change. **Generate illustration** needs its own supported image configuration, even if the text-model connection works.
 

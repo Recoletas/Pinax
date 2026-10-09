@@ -359,11 +359,11 @@ export function useWritingAgent(options = {}) {
     if (typeof options.resolveProviderCredential === 'function') {
       return Boolean(await options.resolveProviderCredential())
     }
-    // settings.apiKey 是浏览器侧用户密钥；serverKey 表示部署侧代持密钥。
+    // settings.apiKey 是浏览器侧用户密钥；serverKey 表示模型由部署侧内核持有。
     // 两者都没有时，行内联想注定失败，不应发出请求。
     const settings = await getResolvedApiSettings().catch(() => null)
     if (!settings) return false
-    return Boolean(settings.serverKey || (settings.apiKey && !settings.serverKey))
+    return Boolean(settings.serverKey || settings.apiKey)
   }
 
   async function generate(snapshot, cursorPos, manual = false, triggerFingerprint = '', triggerInputType = '') {

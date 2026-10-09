@@ -1,3 +1,9 @@
+// 直连形状适配层（2026-10-08 直连退役后的边界说明）：本文件合成的上游请求只服务两类调用方——
+// ① 内容生成：调用方注入 fetchImpl（kitModelGateway 的 createKitStructuredCapabilityFetchImpl /
+//    createKitFunnelFetchImpl），请求实际经 kit 内核漏斗执行，不透传直连；
+// ② 用户主动的「测试连接」探测（/api/chat/test → probeStructuredProviderCapabilities，不注入
+//    fetchImpl）：有意直连用户配置渠道验证可用性，不经内核、不产出内容。
+// 生产内容生成路径不得在此新增直连调用方。
 import { resolveGenerationToolProtocol } from '../../../shared/generationToolContract.js'
 import {
   STRUCTURED_GENERATION_ERROR_CODES,
@@ -189,11 +195,17 @@ function openAiMessages(context, targets, schemaId) {
   ]
 }
 
+// 2026-10-09 预算完全废弃：只有请求显式声明预算时才写预算字段；未声明交内核缺省。
+function budgetField(request, key = 'max_tokens') {
+  const value = Number(request.options?.maxTokens)
+  return Number.isFinite(value) && value > 0 ? { [key]: value } : {}
+}
+
 function buildChatRequest(request, schema) {
   const body = {
     model: request.provider.model,
     messages: openAiMessages(request.context, request.target, request.schemaId),
-    max_tokens: request.options?.maxTokens || 1200,
+    ...budgetField(request),
     temperature: request.options?.temperature ?? 0.2,
     response_format: {
       type: 'json_schema',
@@ -218,7 +230,7 @@ function buildResponsesRequest(request, schema) {
       }
     },
     reasoning: { effort: 'none' },
-    max_output_tokens: request.options?.maxTokens || 1200,
+    ...budgetField(request, 'max_output_tokens'),
     temperature: request.options?.temperature ?? 0.2,
     store: false
   }
@@ -229,7 +241,7 @@ function buildResponsesRequest(request, schema) {
 function buildAnthropicRequest(request, schema) {
   return {
     model: request.provider.model,
-    max_tokens: request.options?.maxTokens || 1200,
+    ...budgetField(request),
     temperature: request.options?.temperature ?? 0.2,
     system: '你是结构化世界书编辑。只返回协议要求的 JSON，不输出思考过程、任务复述或解释。',
     messages: [{ role: 'user', content: textParts(request.context, request.target, request.schemaId) }],
@@ -253,7 +265,7 @@ function buildToolRequest(request, schema, protocol) {
   if (protocol === 'anthropic') {
     return {
       model: request.provider.model,
-      max_tokens: request.options?.maxTokens || 1200,
+      ...budgetField(request),
       temperature: request.options?.temperature ?? 0.2,
       messages: [{ role: 'user', content: prompt }],
       tools: [tool],
@@ -266,7 +278,7 @@ function buildToolRequest(request, schema, protocol) {
       input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
       tools: [tool],
       tool_choice: { type: 'function', name: 'submit_setting_draft' },
-      max_output_tokens: request.options?.maxTokens || 1200,
+      ...budgetField(request, 'max_output_tokens'),
       temperature: request.options?.temperature ?? 0.2,
       reasoning: { effort: 'none' },
       store: false
@@ -277,7 +289,7 @@ function buildToolRequest(request, schema, protocol) {
     messages: openAiMessages(request.context, request.target, request.schemaId).concat({ role: 'user', content: '必须调用 submit_setting_draft，不能输出自然语言答案。' }),
     tools: [tool],
     tool_choice: { type: 'function', function: { name: 'submit_setting_draft' } },
-    max_tokens: request.options?.maxTokens || 1200,
+    ...budgetField(request),
     temperature: request.options?.temperature ?? 0.2
   }
 }
@@ -401,8 +413,8 @@ export function buildStructuredProviderRequest(request, mode = 'native-json-sche
     const prompt = `${textParts(request.context, request.target, request.schemaId)}\n\n输出必须是一个完整 JSON 对象，严格符合以下 JSON Schema，不要输出解释或 Markdown：\n${JSON.stringify(schemaResult.schema)}`
     const common = { model: request.provider.model, temperature: request.options?.temperature ?? 0.2 }
     const body = protocol === 'openai-responses'
-      ? { ...common, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], max_output_tokens: request.options?.maxTokens || 1200, store: false }
-      : { ...common, messages: [{ role: 'user', content: prompt }], max_tokens: request.options?.maxTokens || 1200 }
+      ? { ...common, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], ...budgetField(request, 'max_output_tokens'), store: false }
+      : { ...common, messages: [{ role: 'user', content: prompt }], ...budgetField(request) }
     return { protocol, url: endpoint(request.provider.baseUrl, protocol), body }
   }
   if (mode === 'forced-tool') return { protocol, url: endpoint(request.provider.baseUrl, protocol), body: buildToolRequest(request, schemaResult.schema, protocol) }

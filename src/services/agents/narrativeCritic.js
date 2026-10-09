@@ -9,7 +9,6 @@ import {
 export const NARRATIVE_CRITIC_SCHEMA_VERSION = 1
 export const NARRATIVE_CRITIC_LIMITS = Object.freeze({
   timeoutMs: 12000,
-  maxTokens: 500,
   maxTextChars: 5000,
   sampleRate: 0.25
 })
@@ -147,7 +146,6 @@ export async function runNarrativeCriticShadow(input = {}) {
       options: {
         toolChoice: 'none',
         temperature: 0,
-        maxTokens: NARRATIVE_CRITIC_LIMITS.maxTokens,
         timeoutMs: NARRATIVE_CRITIC_LIMITS.timeoutMs
       },
       signal: controller.signal

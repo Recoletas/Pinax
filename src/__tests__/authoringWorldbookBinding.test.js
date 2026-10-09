@@ -1075,7 +1075,13 @@ describe('authoring document repository (text workbench v3 Phase 1)', () => {
     const worldbookSnapshot = readWorldbookSnapshot('wb-bound')
     expect(worldbookSnapshot).toMatchObject({
       id: 'wb-bound',
-      entries: [expect.objectContaining({ id: 'entry-lina', content: '莉娜负责守住北门。' })]
+      // W4 写侧合并：legacy sourceDocuments 记录在纯读时同样落成 type:'source' 条目
+      //（keys 为空不参与注入）；本用例锁定的语义不变——纯读不落盘、不切 active、
+      // 投影逐次稳定，只是条目列表按设计多出资料条目。
+      entries: [
+        expect.objectContaining({ id: 'entry-lina', content: '莉娜负责守住北门。' }),
+        expect.objectContaining({ id: 'entry_source_legacy-source', type: 'source', keys: [] })
+      ]
     })
     expect(worldbookSnapshot.sourceDocuments[0].archiveRef).toBe(null)
     expect(worldStore.activeWorldbook.id).toBe('wb-active')

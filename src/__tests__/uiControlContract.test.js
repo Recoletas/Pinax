@@ -102,7 +102,9 @@ describe('workbench control contract (U1)', () => {
     expect(welcome).toContain(':aria-label="tr(&quot;搜索书名&quot;)"')
     expect(welcome).toContain(':aria-label="tr(&quot;书稿排序&quot;)"')
     const actions = readFileSync(resolve(__dirname, '../components/authoring/LibraryQuickActions.vue'), 'utf8')
-    expect(actions).toContain('start=new&guide=first-run')
+    // 20261008 同步：新建作品入口改道助手共创（start=new&view=assistant），
+    // first-run 指引忠实挂在导入入口上；guide 不再随 start=new 出现。
+    expect(actions).toContain('start=new&view=assistant')
     expect(actions).toContain('start=import&guide=first-run')
     expect(welcome).toContain('LibrarySidebar')
     const tabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
@@ -395,9 +397,10 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain("historyRestoreEpoch: String(source?.meta?.historyRestoreEpoch || '')")
     expect(authoringDualPane).toContain("historyRestoreEpoch: String(documentState.value?.meta?.historyRestoreEpoch || '')")
     expect(source).not.toContain('<AuthoringAiReference')
-    expect(authoringToolRail).toContain("{ id: 'ai', label: '助手' }")
+    expect(authoringToolRail).toContain("id: 'ai'")
+    expect(source).toContain('data-authoring-inspector="ai"')
+    expect(source).toContain("'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool)")
     expect(writing).toContain('<AuthoringCharacterPanel')
-    expect(writing).toContain("'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool)")
     for (const action of ['新建', '提取', '生图', '上传', '提及章节']) expect(authoringCharacterPanel).toContain(action)
     for (const field of ['背景', '性格', '外貌', '其他']) expect(authoringCharacterPanel).toContain(`'${field}'`)
     expect(authoringCharacterPanel).toContain("emit('remove', selectedCharacter.value.id)")
@@ -464,7 +467,11 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(knowledgeTemplate).toContain('onEvidenceClick(evidence, $event.currentTarget)')
     expect(authoringKnowledgeAssistant).toContain('recordKnowledgeSeamFocus(evidence.sourceRef, evidence.projectId)')
     expect(knowledgeTemplate).toContain('资料已更新')
-    expect(knowledgeTemplate).not.toMatch(/manifest|receipt|token|candidate ID|上下文数量/i)
+    expect(knowledgeTemplate).not.toMatch(/manifest|receipt|candidate ID|上下文数量/i)
+    // 20261009 修订：用量展示按用户裁定上屏（正常 token 计量、中性「用量」标签），
+    // 术语禁令收敛为「用户可见的 Token 字样标签」不允许；属性访问（totalTokens）属机器面不算文案。
+    expect(knowledgeTemplate).not.toMatch(/[Tt]oken \{/i)
+    expect(knowledgeTemplate).toContain('用量 {n}')
     expect(knowledgeTemplate).not.toContain('<q>')
     expect(authoringKnowledgeComposable).toContain('createAuthoringKnowledgeQuerySession')
     expect(authoringKnowledgeComposable).toContain('reconcileAuthoringKnowledgeAnswer')

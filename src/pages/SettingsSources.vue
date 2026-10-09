@@ -18,6 +18,7 @@ import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkspaceProjectNavigation from '../components/workbench/WorkspaceProjectNavigation.vue'
+import LocalizationCenter from '../components/settings/LocalizationCenter.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { STORAGE_KEYS } from '../composables/useStorage.js'
@@ -185,7 +186,7 @@ watch(() => route.query.import, async value => {
 
     <template v-else>
       <div class="settings-sources-body">
-        <WorldbookSourcesPanel
+        <WorldbookSourcesPanel :initial-source-id="String(route.query.sourceId || '')"
           :key="`${bookId}:${selectedWorldbookId}`"
           :worldbook="activeWorldbook"
           :book-id="bookId"
@@ -195,6 +196,7 @@ watch(() => route.query.import, async value => {
         />
       </div>
     </template>
+    <details class="settings-sources-localization" data-test="settings-localization-dock"><summary>{{ tr("本地化中心") }}</summary><LocalizationCenter /></details>
     </main>
     <WorldbookSourceImportDialog v-if="importOpen && bookId" :key="bookId" :book-id="bookId" @close="importOpen = false" @completed="onImportCompleted" />
   </div>
@@ -237,6 +239,10 @@ watch(() => route.query.import, async value => {
 }
 
 </style>
+.settings-sources-localization > summary { padding: 14px clamp(20px, 3vw, 48px); font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-top: 1px solid var(--hairline-soft, var(--border)); background: var(--surface-workbench); }
+.settings-sources-localization > summary:hover { color: var(--text-primary); }
+.settings-sources-localization[open] > summary { color: var(--text-primary); }
+@media (max-width: 760px) { .settings-sources-head { padding: 24px 20px 22px; gap: 14px; align-items: flex-start; border-radius: 0; } .settings-sources-heading h1 { font-size: 22px; } .settings-sources-heading p { font-size: 13px; max-width: 24ch; } }
 
 <style scoped>
 .settings-sources-head { padding: 32px clamp(24px, 4vw, 64px) 24px; }

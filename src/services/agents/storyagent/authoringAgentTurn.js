@@ -8,15 +8,13 @@ function retrievedReferences(prepared, results, projectId) {
     if (!domain) continue
     const catalogue = prepared.index.byDomain[domain] || []
     for (const hit of [...(payload.hits || []), ...(payload.items || [])]) {
-      // Original lookup tools return formatted lines, not item IDs; do not invent citations from those lines.
-      if (!hit || typeof hit !== 'object') continue
-      const source = catalogue.find(item => item.id === hit.id)
+      const source = typeof hit === 'string' ? catalogue.find(item => hit === item.id || hit.startsWith(`${item.id} `)) : catalogue.find(item => item.id === hit?.id)
       if (!source || references.some(item => item.sourceRef === source.sourceRefs?.[0])) continue
       const original = String(source.text || source.summary || '')
-      const quote = String(hit.excerpt || hit.text || '')
+      const quote = typeof hit === 'object' ? String(hit.excerpt || hit.text || '') : ''
       references.push({ projectId, sourceRef: source.sourceRefs?.[0] || `${domain}:${source.id}`, label: source.title,
         excerpt: (quote && original.includes(quote) ? quote : original).slice(0, 800), authority: domain === 'manuscript' ? 'manuscript' : domain === 'notes' ? 'suggestion' : domain === 'outline' ? 'outline' : 'worldbook',
-        locator: domain === 'manuscript' ? { kind: 'manuscript', chapterId: source.id, documentId: source.id } : domain === 'notes' ? { kind: 'exploration', documentId: source.id } : domain === 'outline' ? { kind: 'outline-node', nodeId: source.id } : null })
+        locator: source.type === 'source' ? { kind: 'source-document', documentId: source.sourceDocumentId || source.id, worldbookId: prepared.editBaseline?.worldbook?.id || '', contentHash: source.contentHash || '' } : domain === 'world' ? { kind: 'worldbook-entry', worldbookId: prepared.editBaseline?.worldbook?.id || '', entryId: source.id } : domain === 'manuscript' ? { kind: 'manuscript', chapterId: source.id, documentId: source.id } : domain === 'notes' ? { kind: 'exploration', documentId: source.id } : domain === 'outline' ? { kind: 'outline-node', nodeId: source.id } : null })
     }
   }
   return references.slice(0, 12)
@@ -29,6 +27,8 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   const destination = engine.destination?.() || { chapterId: '' }
   const current = () => isCurrent(token) && !signal.aborted
   const previousTask = state.agentTaskId || ''
+  if (engine.enrichPrepared) await engine.enrichPrepared(prepared, { text: question, signal })
+  if (!current()) return false
   const health = await engine.healthz({ signal })
   if (!current()) return false
   if (!health?.ok) throw new Error('写作工具暂不可用。可以切换为“讨论故事”继续，或稍后重试。')
@@ -56,9 +56,18 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     if (!message.text.trim()) throw new Error('写作任务没有返回可用回答。')
     message.status = 'completed'
     message.taskId = result.trace?.taskId || message.taskId
+    message.usage = result.usage || null
     message.beatPlan = result.beatPlan || null
     message.toolResults = (result.finalToolResults || []).slice(0, 12)
     message.references = retrievedReferences(prepared, message.toolResults, projectId)
+    const submitted = message.toolResults.filter(tool => tool.toolName === 'submit_edit_proposals' && !tool.isError)
+    if (submitted.length) {
+      const changes = submitted.flatMap(tool => {
+        const payload = JSON.parse((tool.result?.content || []).filter(block => block.type === 'text').map(block => block.text || '').join(''))
+        return payload.ok ? payload.changes || [] : []
+      })
+      if (changes.length) message.proposal = engine.prepareProposal({ changes }, prepared, message.id)
+    }
     state.agentTaskId = message.taskId
     return true
   } catch (error) {

@@ -13,6 +13,7 @@ const WorldbookSourceImportDialog = defineAsyncComponent(() => import('./Worldbo
 const props = defineProps({
   worldbook: { type: Object, default: null },
   bookId: { type: String, default: '' },
+  initialSourceId: { type: String, default: '' },
   initialOpen: { type: Boolean, default: false },
   standalone: { type: Boolean, default: false }
 })
@@ -52,6 +53,10 @@ const KIND_LABELS = {
 }
 
 const sources = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments : []))
+watch([() => props.initialSourceId, sources], () => {
+  const source = sources.value.find(source => String(source.id) === props.initialSourceId)
+  if (source && expandedId.value !== source.id) { open.value = true; search.value = ''; kindFilter.value = 'all'; void togglePreview(source) }
+}, { immediate: true })
 const kindOptions = computed(() => [...new Set(sources.value.map(source => String(source.kind || 'text-file')))])
 const filtered = computed(() => {
   const needle = search.value.trim().toLocaleLowerCase()

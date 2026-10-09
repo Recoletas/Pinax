@@ -8,6 +8,7 @@ import { createAuthoringStoryAgent } from '../src/services/agents/storyagent/aut
 import { createAuthoringAssistantConversationStore } from '../src/services/agents/authoring/authoringAssistantConversationStore.js'
 import { createBrowserStorageRepository } from '../src/services/storage/browserStorageRepository.js'
 import { runExperienceAgentGeneration } from '../src/services/agents/storyagent/experienceAgentRoute.js'
+import { KIT_TASK_PLANE_ENDPOINT } from '../shared/kitTaskPlane.js'
 
 let checks = 0
 const check = (condition, message) => { assert.ok(condition, message); checks++; console.log(`✓ ${message}`) }
@@ -75,6 +76,17 @@ try {
   check((await fetch(`${base}/v1/pinax/tasks/${owned}`, { headers })).ok, '当前浏览器可以读取自己的任务')
   check((await fetch(`${base}/v1/pinax/tasks/${owned}/cancel`, { method: 'POST', headers })).ok, '当前浏览器可以停止自己的任务')
   check((await fetch(`${base}/v1/pinax/tasks`, { method: 'POST', headers, body: JSON.stringify({ taskId: 'foreign' }) })).status === 403, '不能指定他人的任务 ID 创建任务')
-  check(upstreamCalls.length === 2 && upstreamCalls.every(call => call.url.startsWith('http://127.0.0.1:8451/')), '被拒绝的请求不转发，运行地址只由服务器决定')
+  check(upstreamCalls.length === 2 && upstreamCalls.every(call => call.url.startsWith(`${KIT_TASK_PLANE_ENDPOINT}/`)), '被拒绝的请求不转发，运行地址只由服务器决定')
+  const previousPublic = process.env.PINAX_PUBLIC_ORIGINS
+  process.env.PINAX_PUBLIC_ORIGINS = 'https://example.invalid'
+  try {
+    check((await fetch(`${base}/model`, { method: 'POST', headers, body: '{}' })).status === 403, '公网不能修改服务端模型')
+    const model = await (await fetch(`${base}/model`)).json()
+    check(model.ok === true && model.readOnly === true && !('apiKey' in model) && !('baseURL' in model), '公网模型状态可读且不泄露密钥或私有地址')
+    await fetch(`${base}/v1/pinax/tasks`, { method: 'POST', headers, body: JSON.stringify({ taskId: `${prefix}budget`, budget: { maxModelSteps: 1000, maxCallsPerTurn: 1000, agentTimeoutMs: 1000000 } }) })
+    const budget = JSON.parse(upstreamCalls.at(-1).options.body).budget
+    check(budget.maxModelSteps === 8 && budget.maxCallsPerTurn === 6 && budget.agentTimeoutMs === 240000, '客户端不能提高服务端任务预算')
+  } finally { if (previousPublic === undefined) delete process.env.PINAX_PUBLIC_ORIGINS; else process.env.PINAX_PUBLIC_ORIGINS = previousPublic }
+
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
 console.log(`storyagent-integration-smoke: ${checks}/${checks} passed`)

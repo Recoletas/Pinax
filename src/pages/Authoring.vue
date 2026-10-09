@@ -442,6 +442,8 @@
               @advance="advanceFirstRunGuide"
               @dismiss="dismissFirstRunGuide"
             />
+            <div v-if="!knowledgeAssistant.proposalReview.value && assistantPanelProposals.length" class="writing-inspector__pending-proposals"><button v-for="proposal in assistantPanelProposals" :key="proposal.id" type="button" @click="knowledgeAssistant.reviewProposal(proposal.messageId)">{{ tr('查看修改建议') }} · {{ proposal.changes.find(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook'))?.label }}</button></div>
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.targetId === selectedChapterId)" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" />
             <WritingNotebookEditor
               :key="notebookDocumentKey"
               ref="notebookEditorRef"
@@ -819,6 +821,7 @@
       </Teleport>
 
       <AuthoringWorkspaceToolRail
+          :pending="assistantPendingTools"
         :active-tool="activeInspectorTool"
         :dual="inspectorDualColumn"
         :collaboration-visible="authoringRehearsalActive"
@@ -857,6 +860,7 @@
           </div>
         </header>
 
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook')) && ['worldbook', 'characters', 'outline'].includes(activeInspectorTool)" :kind="activeInspectorTool === 'outline' ? 'outline' : 'worldbook'" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" />
         <div ref="rehearsalComposerHostRef" v-show="activeInspectorTool === 'rehearsal' && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__compose-host" />
         <div v-if="activeInspectorTool === 'rehearsal' && !((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__rehearsal">
           <AuthoringSceneLaboratory v-if="ifEntryOpen && sceneLaboratory.open"
@@ -1516,6 +1520,7 @@ import { useWritingTypographyStore, WRITING_FONT_OPTIONS, MIN_FONT_SIZE, MAX_FON
 import { useGameStore } from '../stores/gameStore'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import { publishWritingBooks } from '../services/writing/writingBooksRepository.js'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import { buildWritingSelectionRanges } from '../services/writing/writingSelectionRanges.js'
 import AuthoringSceneRail from '../components/authoring/AuthoringSceneRail.vue'
@@ -1540,6 +1545,7 @@ const AuthoringSearchPanel = defineAsyncComponent(() => import('../components/au
 const AuthoringIdeaShelf = defineAsyncComponent(() => import('../components/authoring/AuthoringIdeaShelf.vue'))
 const AuthoringNotesExtractionPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringNotesExtractionPreview.vue'))
 const AuthoringInspectorDetail = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorDetail.vue'))
+const AuthoringAgentProposalReview = defineAsyncComponent(() => import('../components/authoring/AuthoringAgentProposalReview.vue'))
 const AuthoringOutlinePanel = defineAsyncComponent(() => import('../components/authoring/AuthoringOutlinePanel.vue'))
 const AuthoringManuscriptImport = defineAsyncComponent(() => import('../components/authoring/AuthoringManuscriptImport.vue'))
 const AuthoringFirstRunPath = defineAsyncComponent(() => import('../components/authoring/AuthoringFirstRunPath.vue'))
@@ -1662,7 +1668,7 @@ import {
   resolveInsertOffset,
   spliceTextAt
 } from '../services/agents/authoring/writingSelectionCapture'
-import { STORAGE_KEYS } from '../composables/useStorage'
+import { getItem, STORAGE_KEYS } from '../composables/useStorage'
 import {
   deleteWritingAnnotation,
   getWritingAnnotationLabel,
@@ -3514,21 +3520,54 @@ const knowledgeAssistantSceneProjection = computed(() => (
 ))
 const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
+  onReviewProposal: locateAssistantProposal,
   agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, getBook: () => currentBook.value,
     getChapter: () => wt3ActiveDoc.value ? null : chapters.value.find(c => c.id === selectedChapterId.value), getWorldbook: () => boundWorldbook.value,
     getLiveText: () => wt3ActiveDoc.value ? '' : markdownContent.value, getNotes: () => wt3ExplorationDocs.value.map(doc => doc.id === wt3ActiveDocId.value ? { ...doc, content: markdownContent.value } : doc), getOutline: () => wt3OutlineNodes.value,
-    persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && !wt3ActiveDoc.value && saveCurrentChapter(),
+    persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && !wt3ActiveDoc.value && (selectedChapterId.value ? saveCurrentChapter() : saveBooks()),
     protectCurrent: (id) => authoringHistory.recordProtection({ chapterId: selectedChapterId.value, chapterTitle: currentChapterTitle.value, reason: 'before-adoption', document: writingDocument.value, markdown: markdownContent.value, annotations: chapterAnnotations.value, operation: 'append-storyagent', transactionId: id }),
     observeAdoption: ({ text, unitId, bookId, chapterId }) => commitDirectAuthoringObservation({ text, unitId, memoryProjectId: bookId, documentId: chapterId, chapterId, unitRevision: 0, sourceRefs: [`unit:${chapterId}:${unitId}`], sourceDocumentRevision: currentDocumentRevision() }),
     readBooks: () => books.value, saveBooks: saveWritingBooksDurable,
+    publishRepository: publishWritingBooks,
+    publishWorldbook: (next) => { worldStore.worldbooksIndex = getItem('worldbooks_index', []) || []; if (!next || String(currentBook.value?.worldbookId) === String(next.id)) { worldStore.activeWorldbook = next; boundWorldbook.value = next } },
     publishBooks: (next, chapterId) => { books.value = next; chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters;
-      const chapter = chapters.value.find(c => c.id === chapterId); markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value) }
+      const chapter = chapters.value.find(c => c.id === chapterId); if (!chapter) return; markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value) }
   }),
   target: knowledgeAssistantTarget,
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
   sceneProjection: knowledgeAssistantSceneProjection,
   revisionSignal: knowledgeAssistantRevisionSignal
 })
+const assistantPanelProposals = computed(() => knowledgeAssistant.pendingProposals.value.filter(proposal => proposal.changes.some(change => {
+  if (activeInspectorTool.value === 'outline') return change.kind === 'outline'
+  if (!['characters', 'worldbook'].includes(activeInspectorTool.value) || change.kind !== 'worldbook') return false
+  const type = boundWorldbook.value?.entries?.find(entry => String(entry.id) === change.targetId)?.type || change.entryType
+  return activeInspectorTool.value === (type === 'character' ? 'characters' : 'worldbook')
+})))
+const assistantPendingTools = computed(() => {
+  const counts = {}
+  for (const proposal of knowledgeAssistant.pendingProposals.value) for (const change of proposal.changes) {
+    const type = boundWorldbook.value?.entries?.find(entry => String(entry.id) === change.targetId)?.type || change.entryType
+    const tool = change.kind === 'chapter' ? 'ai' : change.kind === 'outline' ? 'outline' : type === 'character' ? 'characters' : 'worldbook'
+    counts[tool] = (counts[tool] || 0) + 1
+  }
+  return counts
+})
+function locateAssistantProposal(change) {
+  if (!change) return
+  if (change.kind === 'chapter') {
+    if (assistantWorkspace.expanded.value) void assistantWorkspace.leave({ restore: false })
+    if (chapters.value.some(chapter => String(chapter.id) === change.targetId)) selectChapter(change.targetId)
+    closeActiveWritingInspector()
+  } else if (change.kind === 'outline') { inspectorOutlineNodeId.value = ''; openInspectorTool('outline'); nextTick(() => { inspectorOutlineNodeId.value = change.targetId }) }
+  else {
+    const entry = boundWorldbook.value?.entries?.find(item => String(item.id) === change.targetId)
+    const character = (entry?.type || change.entryType) === 'character'
+    if (character) inspectorCharacterEntryId.value = ''; else inspectorWorldbookEntryId.value = ''
+    openInspectorTool(character ? 'characters' : 'worldbook')
+    nextTick(() => { if (character) inspectorCharacterEntryId.value = change.targetId; else inspectorWorldbookEntryId.value = change.targetId })
+  }
+}
 const assistantWorkspace = useAuthoringAssistantWorkspace({
   route, router, projectId: selectedBookId, chapterId: selectedChapterId, chapters, assistant: knowledgeAssistant,
   writingTypography, openInspector: openInspectorTool, inspectorOpen, activeInspectorTool, closeChapterDrawer,
@@ -6602,6 +6641,14 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
       } else if (locator.nodeId) notebookEditorRef.value?.focusNode?.(locator.nodeId)
       else if (locator.unitId) notebookEditorRef.value?.focusWritingUnit?.(locator.unitId)
     }))
+    return true
+  }
+  if (locator.kind === 'source-document') {
+    const source = boundWorldbook.value?.sourceDocuments?.find(document => String(document.id) === locator.documentId)
+    if (!source || String(boundWorldbook.value?.id) !== locator.worldbookId || (locator.contentHash && locator.contentHash !== source.contentHash)) {
+      authoringTask.notify(tr('资料已变化，请重新检索。')); return false
+    }
+    void router.push({ name: 'settings-sources', query: { bookId: selectedBookId.value, sourceId: locator.documentId } })
     return true
   }
   if (locator.kind === 'worldbook-entry') {

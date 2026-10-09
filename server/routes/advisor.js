@@ -18,6 +18,10 @@ import {
   validateAgentContextEnvelope
 } from '../../shared/agentContextContract.js'
 import { runAdvisorAgent } from '../services/advisorAgentRunner.js'
+import { buildOpenClawUserMessage } from '../services/openclawService.js'
+import { capabilityPlaneAvailable, runCapabilityTaskAgent } from '../services/capabilityTaskRunner.js'
+import { getCapabilityToolSpec } from '../../shared/capabilityToolContracts.js'
+import { createModelRoundGuard } from '../../shared/modelLoopGuard.js'
 import { validateWritingSkillInvocation } from '../../shared/writingSkillMethodContract.js'
 import { applyWritingSkillEnforcement } from '../services/writingSkillEnforcement.js'
 
@@ -142,10 +146,15 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     })
   }
   const requestId = String(trace?.requestId || '').trim().slice(0, 120) || randomUUID()
+  // 2026-10-09 预算完全废弃：本请求内所有模型调用（含语义修复重跑与回落）共用一个轮数闸。
+  const roundGuard = createModelRoundGuard()
   const ledger = createAgentContextLedger(clippedEnvelope)
 
   try {
-    const runOnce = (activeQuestion) => runAdvisorAgent({
+    // 统一调度门控：凡有 submit 契约的 taskType，在能力任务面健康时走 agent 循环（submit 回执序列化为 advice，
+    // 既有解析/模板/语义修复原样工作）；无契约或任务面不可达 → 回落漏斗直连（双层 fail-open）。
+    const useCapability = Boolean(getCapabilityToolSpec(normalizedTaskType)) && await capabilityPlaneAvailable()
+    const runFunnelAgent = (activeQuestion) => runAdvisorAgent({
       providerId: String(options?.agentProvider || 'text-model'),
       fallbackProviderId: options?.fallbackProvider
         ? String(options.fallbackProvider)
@@ -157,9 +166,40 @@ async function handleAdvisorTask(req, res, defaults = {}) {
         taskType: normalizedTaskType,
         target: clippedEnvelope.target,
         options: sanitizedOptions,
-        mode
+        mode,
+        roundGuard
       }
     })
+    const runOnce = async (activeQuestion) => {
+      if (!useCapability) return runFunnelAgent(activeQuestion)
+      try {
+        return await runCapabilityTaskAgent({
+          taskType: normalizedTaskType,
+          envelope: clippedEnvelope,
+          question: activeQuestion,
+          taskMeta: {
+            taskType: normalizedTaskType,
+            target: clippedEnvelope.target,
+            options: sanitizedOptions,
+            mode,
+            roundGuard,
+            prompt: buildOpenClawUserMessage(clippedEnvelope, activeQuestion, {
+              taskType: normalizedTaskType,
+              target: clippedEnvelope.target,
+              options: sanitizedOptions,
+              mode
+            })
+          }
+        })
+      } catch (error) {
+        // 双层 fail-open 的第二层：任务面可达但任务本身失败（网关拒绝/空补全等）时，
+        // 降级走漏斗直连而不是把硬 500 抛给作者；响应 meta.provider 会留痕实际链路。
+        if (error.code === 'AGENT_REQUEST_ABORTED' || error.name === 'AbortError') throw error
+        if (error.code === 'MODEL_ROUND_LIMIT_EXCEEDED') throw error
+        console.warn(`[Advisor] capability agent failed (${error.code || error.message}); falling back to funnel`)
+        return runFunnelAgent(activeQuestion)
+      }
+    }
     let run = await runOnce(enforcedQuestion)
     let semanticRepairCount = 0
     const buildResponse = () => createAdvisorTaskResponse({

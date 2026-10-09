@@ -423,7 +423,6 @@ async function runWorldbookMaintenanceBatch({
       settings,
       signal,
       generationOptions: {
-        max_tokens: isAudit ? 2800 : 4200,
         temperature: 0.1,
         max_input_chars: isAudit ? 16000 : 20000,
         timeout_ms: 90000,
@@ -436,7 +435,6 @@ async function runWorldbookMaintenanceBatch({
           name: `worldbook-maintenance-repair-${batchIndex + 1}`,
           generationOptions: {
             response_format: null,
-            max_tokens: isAudit ? 3200 : 4600,
             max_input_chars: isAudit ? 16000 : 20000,
             reasoning_effort: 'low',
           },
@@ -449,7 +447,6 @@ async function runWorldbookMaintenanceBatch({
           name: `worldbook-maintenance-concise-${batchIndex + 1}`,
           generationOptions: {
             response_format: null,
-            max_tokens: isAudit ? 3600 : 5000,
             max_input_chars: isAudit ? 14000 : 18000,
             temperature: 0.2,
             reasoning_effort: 'low',

@@ -274,10 +274,20 @@ function normalizeMessage(raw, index, allowedToolNames) {
   }
   const partsResult = normalizeMessageParts(raw.parts, index, role, allowedToolNames)
   if (!partsResult.valid) return partsResult
+  // 2026-10-08 回归单源化（docs/plan/legacy-feature-regression-findings-20261008.md 问题一）：
+  // 本契约历史约定 content 必填、parts 可选，而下游网关（runKitFunnelProviderTurn）曾只读 parts，
+  // content-only 调用方（narrativeCritic / authoringRehearsalToolRun / narrativeTaskQuality）静默拿到空提示词。
+  // 为让下游只见「parts 必存在」单一形状：user/assistant 消息未提供 parts（或归一化后为空）且 content 非空时，
+  // 用 content 合成单个 text part。tool 角色的 parts 语义不同（tool-result），维持原状不合成。
+  // 代价：归一化输出体积变大——client（api.js 走 validateGenerationAgentTurnRequest）与 server 共用本函数，
+  // 请求体会同时带 content 与合成 parts，双写属预期，不再视为异常形状。
+  const effectiveParts = (role === 'user' || role === 'assistant') && partsResult.parts.length === 0 && content
+    ? [{ type: 'text', text: content }]
+    : partsResult.parts
   const message = {
     role,
     content,
-    ...(partsResult.parts.length ? { parts: partsResult.parts } : {})
+    ...(effectiveParts.length ? { parts: effectiveParts } : {})
   }
   const partToolCalls = partsResult.parts
     .filter((part) => part.type === 'tool-call')
@@ -334,10 +344,13 @@ function normalizeMessages(rawMessages, allowedToolNames) {
 }
 
 function normalizeOptions(raw = {}) {
-  const maxTokens = Number(raw?.maxTokens ?? raw?.max_tokens ?? 1200)
+  // 2026-10-09 预算完全废弃：未声明不补默认值，也不再透传（内核按自身缺省计量）。
+  // 声明了才校验形状，作为安全上界保留。
+  const declaredMaxTokens = raw?.maxTokens ?? raw?.max_tokens
+  const maxTokens = Number.isFinite(Number(declaredMaxTokens)) ? Math.floor(Number(declaredMaxTokens)) : null
   const temperature = Number(raw?.temperature ?? 0.2)
   const timeoutMs = Number(raw?.timeoutMs ?? raw?.timeout_ms ?? 12000)
-  if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > GENERATION_AGENT_LIMITS.maxTokens) {
+  if (maxTokens !== null && (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > GENERATION_AGENT_LIMITS.maxTokens)) {
     return contractError('NARRATIVE_MAX_TOKENS_INVALID', `maxTokens 必须是 1-${GENERATION_AGENT_LIMITS.maxTokens} 的整数`)
   }
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
@@ -368,7 +381,7 @@ function normalizeOptions(raw = {}) {
   return {
     valid: true,
     options: {
-      maxTokens,
+      ...(maxTokens !== null ? { maxTokens } : {}),
       temperature,
       timeoutMs: Math.floor(timeoutMs),
       parallelToolCalls: raw?.parallelToolCalls !== false,

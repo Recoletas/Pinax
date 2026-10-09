@@ -53,7 +53,6 @@ export function createExperiencePiAgentRoute({ endpoint } = {}) {
         mode: args.mode,
         intent: args.intent,
         formatInstructions: args.formatInstructions,
-        maxTokens: args.maxTokens,
         requestId: args.requestId,
         signal: args.signal,
         taskId: args.taskId || `exp_${Date.now().toString(36)}`,

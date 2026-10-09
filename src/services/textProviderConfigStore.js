@@ -1,20 +1,20 @@
 /**
  * 文本模型配置 store — 与 image/video 的「配置列表 + 新增」模式对齐。
  *
- * 存储形态:
- * - 一条「内置 MiniMax」配置由 createBuiltinMinimaxConfig() 计算得出, 永不落盘,
- *   始终排在列表第一且只读; 它的 API key 由服务器 .env 注入, 客户端以哨兵占位。
+ * 存储形态 (2026-10-08 直连退役后):
+ * - 一条「服务器模型」行由 createServerModelConfig() 计算得出, 永不落盘, 始终排第一且只读;
+ *   它代表 pi-agent 内核当前持有的模型（所有链路共用的唯一模型）, 浏览器不接触密钥。
  * - 用户自定义配置存于 STORAGE_KEYS.TEXT_MODEL_CONFIGS; 选中 id 存于 TEXT_MODEL_SELECTED。
+ *   选中用户配置即把它热切到内核（经 /api/storyagent/model, 见 ApiSettingsPanel）。
  * - 首次读取时把旧的单一对象 localStorage['apiSettings'] 迁移为一条可编辑用户配置
- *   (一次性、幂等), 之后旧 key 被移除。
+ *   (一次性、幂等), 之后旧 key 被移除; 无自带 key 的旧配置直接落回服务器模型行。
  *
- * getResolvedApiSettings() 经 toResolvedTextApiSettings() 拿到与旧版形状一致的
- * { provider, baseUrl, apiKey, model, format } (内置时 apiKey 为哨兵), 兼容全部消费方。
+ * getResolvedApiSettings() 经 toResolvedTextApiSettings() 拿到 { provider, baseUrl, apiKey, model, format }
+ * 形状；服务器模型行以合同占位值满足消费方的非空校验（服务端不读取这些字段）。
  */
 import { STORAGE_KEYS } from '../composables/useStorage'
-import { MINIMAX_SERVER_KEY_SENTINEL } from '../../shared/textModelKeys'
 
-export const BUILTIN_TEXT_CONFIG_ID = 'text-minimax-builtin'
+export const BUILTIN_TEXT_CONFIG_ID = 'text-server-model'
 
 // 文本 provider 的唯一前端目录；设置 UI 与生成调用都消费这里，避免多处漂移。
 export const TEXT_PROVIDER_TYPES = Object.freeze([
@@ -25,27 +25,58 @@ export const TEXT_PROVIDER_TYPES = Object.freeze([
   { id: 'ollama', name: 'Ollama (本地)', baseUrl: 'http://localhost:11434', defaultModel: '' },
   { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', defaultModel: '' },
   { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', defaultModel: '' },
-  { id: 'MiniMax', name: 'MiniMax (Anthropic 兼容)', baseUrl: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-Text-01' },
+  // Anthropic 线：内核按 anthropic-messages 传输接入。baseUrl 不带 /v1（SDK 自行拼 /v1/messages）；
+  // Anthropic 无 /models 列表端点，模型名需手填。
+  { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', defaultModel: '' },
   { id: 'custom', name: '自定义', baseUrl: '', defaultModel: '' }
 ])
 
 const LEGACY_API_SETTINGS_KEY = 'apiSettings'
 
-export function createBuiltinMinimaxConfig() {
+// 服务器（pi-agent 内核）实时模型：仅内存态，绝不落盘/进浏览器缓存。
+// 由设置面板从 /api/storyagent/model 读取后写入，用于让内置行显示真正的生效模型。
+let serverTextModelOverride = null
+
+export function setServerTextModel(model) {
+  serverTextModelOverride = model && String(model.model || '').trim()
+    ? {
+        provider: String(model.provider || '').trim(),
+        model: String(model.model || '').trim(),
+        baseUrl: String(model.baseUrl || '').trim()
+      }
+    : null
+  return serverTextModelOverride
+}
+
+export function getServerTextModel() {
+  return serverTextModelOverride
+}
+
+/** 服务器模型行的合同占位：消费方的本地校验要求 provider 字段非空。
+ *  直连退役后服务端不再读取这些字段（内容一律由 pi-agent 内核生成），填什么都不会被使用。 */
+const SERVER_MODEL_PLACEHOLDER = Object.freeze({
+  provider: 'kernel',
+  baseUrl: 'https://kernel.invalid/v1',
+  apiKey: 'kernel-managed',
+  model: 'kernel'
+})
+
+export function createServerModelConfig() {
+  const server = serverTextModelOverride
   return Object.freeze({
     id: BUILTIN_TEXT_CONFIG_ID,
-    name: 'MiniMax (内置)',
-    providerId: 'MiniMax',
-    baseUrl: 'https://api.minimaxi.com/anthropic',
+    name: '服务器模型',
+    providerId: server?.provider || '',
+    baseUrl: server?.baseUrl || '',
     apiKey: '',
-    model: 'MiniMax-Text-01',
+    model: server?.model || '',
     builtin: true,
     serverKey: true,
-    description: '由服务器提供密钥，开箱即用'
+    description: '由 pi-agent 内核持有，所有链路共用'
   })
 }
 
-export function createTextProviderConfigDraft(providerId = 'MiniMax') {
+export function createTextProviderConfigDraft(providerId = 'custom') {
   const p = TEXT_PROVIDER_TYPES.find((item) => item.id === providerId)
   return {
     id: '',
@@ -58,19 +89,19 @@ export function createTextProviderConfigDraft(providerId = 'MiniMax') {
 }
 
 /**
- * 列表 = [内置, ...用户配置]。内置不落盘, 由 createBuiltinMinimaxConfig 计算。
+ * 列表 = [服务器模型, ...用户配置]。服务器模型行不落盘, 由 createServerModelConfig 计算。
  */
 export function listTextProviderConfigs(options = {}) {
   const storage = resolveStorage(options.storage)
   migrateLegacyApiSettings({ storage })
   const userConfigs = readConfigs(storage).map(normalizeTextProviderConfig).filter(Boolean)
-  return [createBuiltinMinimaxConfig(), ...userConfigs]
+  return [createServerModelConfig(), ...userConfigs]
 }
 
 export function saveTextProviderConfig(input = {}, options = {}) {
   const storage = resolveStorage(options.storage)
   if (input?.builtin || input?.id === BUILTIN_TEXT_CONFIG_ID) {
-    throw new Error('内置 MiniMax 配置不可编辑')
+    throw new Error('服务器模型行不可编辑')
   }
   const config = normalizeTextProviderConfig({
     ...input,
@@ -92,7 +123,7 @@ export function deleteTextProviderConfig(configId, options = {}) {
   const storage = resolveStorage(options.storage)
   const id = String(configId || '').trim()
   if (id === BUILTIN_TEXT_CONFIG_ID) {
-    throw new Error('内置 MiniMax 配置不可删除')
+    throw new Error('服务器模型行不可删除')
   }
   const configs = readConfigs(storage).filter((item) => item.id !== id)
   writeConfigs(storage, configs)
@@ -112,19 +143,19 @@ export function saveSelectedTextProviderConfigId(configId, options = {}) {
 }
 
 /**
- * 解析当前生效的文本配置: 有选中且存在 → 选中项; 否则回退内置 MiniMax。
+ * 解析当前生效的文本配置: 有选中且存在 → 选中项; 否则回退服务器模型行。
  */
 export function resolveSelectedTextProviderConfig(options = {}) {
   const storage = resolveStorage(options.storage)
   migrateLegacyApiSettings({ storage })
   const all = listTextProviderConfigs({ storage })
   const selectedId = getSelectedTextProviderConfigId({ storage })
-  return all.find((c) => c.id === selectedId) || createBuiltinMinimaxConfig()
+  return all.find((c) => c.id === selectedId) || createServerModelConfig()
 }
 
 /**
- * 单一映射点: 配置对象 → 与旧 getResolvedApiSettings 形状一致的设置对象。
- * 内置 MiniMax 时 apiKey 为哨兵 (让现存 Boolean(apiKey) 守卫通过), 服务器再替换为真 key。
+ * 单一映射点: 配置对象 → { provider, baseUrl, apiKey, model, format } 设置对象。
+ * 服务器模型行返回合同占位值（真实模型经 /api/storyagent/model 由内核持有）。
  */
 export function toResolvedTextApiSettings(config) {
   if (!config) {
@@ -139,16 +170,28 @@ export function toResolvedTextApiSettings(config) {
       configId: null
     }
   }
-  const builtin = config.builtin === true
+  if (config.builtin === true) {
+    const server = getServerTextModel()
+    return {
+      provider: server?.provider || SERVER_MODEL_PLACEHOLDER.provider,
+      baseUrl: server?.baseUrl || SERVER_MODEL_PLACEHOLDER.baseUrl,
+      apiKey: SERVER_MODEL_PLACEHOLDER.apiKey,
+      model: server?.model || SERVER_MODEL_PLACEHOLDER.model,
+      format: null,
+      builtin: true,
+      serverKey: true,
+      configId: config.id || null
+    }
+  }
   const clientKey = String(config.apiKey || '').trim()
   return {
     provider: config.providerId || null,
     baseUrl: config.baseUrl || null,
-    apiKey: builtin ? MINIMAX_SERVER_KEY_SENTINEL : clientKey || null,
+    apiKey: clientKey || null,
     model: config.model || null,
     format: null,
-    builtin,
-    serverKey: builtin,
+    builtin: false,
+    serverKey: false,
     configId: config.id || null
   }
 }
@@ -205,8 +248,8 @@ export function migrateLegacyApiSettings(options = {}) {
     }
   }
 
-  // MiniMax 无自己的 key → 内置即等价物; 完全空配置 → 默认内置
-  if ((providerId === 'MiniMax' && !apiKey) || (!apiKey && !model)) {
+  // 无自带 key 的旧配置（含旧 MiniMax 内置默认）→ 服务器模型行；直连退役后无 key 配置不再有独立通路。
+  if (!apiKey) {
     fallbackToBuiltin()
     return
   }

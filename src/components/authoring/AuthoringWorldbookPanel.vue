@@ -1,6 +1,7 @@
 <script setup>
 import './AuthoringCatalogWorkbench.css'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr, formatUiNumber, uiLocale } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
@@ -42,6 +43,21 @@ const contentInput = ref(null)
 const draft = reactive({ name: '', type: 'general', content: '', keysText: '', group: '', mode: 'selective' })
 let hydrating = false
 let saveTimer = null
+let draftDirty = false
+let draftBaseline = ''
+let draftOwnerWorldbookId = ''
+const externalConflict = ref(false)
+const fingerprint = entry => JSON.stringify(entry || null)
+function preserveExternalDraft() {
+  if (draftDirty && selectedId.value) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'setting', { baseline: draftBaseline, draft: { ...draft } })
+}
+function reloadExternalDraft() {
+  if (window.confirm(tr('载入最新条目会替换当前未保存的输入，是否继续？'))) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'setting'); loadDraft(selectedEntry.value) }
+}
+function overwriteExternalDraft() {
+  if (!window.confirm(tr('条目已经更新，确定用当前输入覆盖吗？'))) return
+  draftBaseline = fingerprint(selectedEntry.value); externalConflict.value = false; flushSave()
+}
 
 const nonCharacterEntries = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type !== 'character'))
 const selectedEntry = computed(() => nonCharacterEntries.value.find((entry) => String(entry.id) === selectedId.value) || null)
@@ -70,11 +86,18 @@ const groupedEntries = computed(() => {
   return [...groups.entries()].map(([name, entries]) => ({ name, entries }))
 })
 function loadDraft(entry) {
+  draftOwnerWorldbookId = String(props.worldbook?.id || '')
+  clearTimeout(saveTimer); saveTimer = null; draftDirty = false; externalConflict.value = false; draftBaseline = fingerprint(entry)
   hydrating = true
   Object.assign(draft, {
     name: entry?.name || '', type: entry?.type || 'general', content: entry?.content || '',
     keysText: (entry?.keys || []).join('、'), group: entry?.injection?.group || '', mode: entry?.injection?.mode || 'selective'
   })
+  const saved = readEntryPanelDraft(props.worldbook?.id, entry?.id, 'setting')
+  if (saved?.draft && typeof saved.baseline === 'string') {
+    for (const key of Object.keys(draft)) if (typeof saved.draft[key] === 'string') draft[key] = saved.draft[key]
+    draftBaseline = saved.baseline; draftDirty = true; externalConflict.value = true
+  }
   hydrating = false
   nextTick(resizeContent)
 }
@@ -104,11 +127,16 @@ function entryPayload() {
 function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
+  if (!draftDirty) return
+  if (draftOwnerWorldbookId !== String(props.worldbook?.id || '')) { preserveExternalDraft(); return }
+  if (fingerprint(selectedEntry.value) !== draftBaseline) { externalConflict.value = true; preserveExternalDraft(); return }
+  draftDirty = false
   const payload = entryPayload()
   if (payload) emit('update', selectedEntry.value.id, payload, { silent: true })
 }
 function scheduleSave() {
   if (hydrating || !selectedEntry.value) return
+  draftDirty = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 500)
 }
@@ -141,6 +169,11 @@ function applyAiCandidate(candidate) {
   nextTick(() => { resizeContent(); flushSave() })
 }
 
+watch(() => fingerprint(selectedEntry.value), (current) => {
+  if (current === draftBaseline) return
+  if (draftDirty) { clearTimeout(saveTimer); saveTimer = null; externalConflict.value = true; preserveExternalDraft() }
+  else if (selectedEntry.value) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'setting'); loadDraft(selectedEntry.value) }
+})
 watch(draft, scheduleSave, { deep: true, flush: 'sync' })
 watch(nonCharacterEntries, (entries) => {
   if (selectedEntry.value) return
@@ -152,17 +185,20 @@ watch(() => props.focusEntryId, (id) => {
   if (target) selectEntry(target)
 })
 watch(() => props.worldbook?.id, () => {
+  preserveExternalDraft(); draftDirty = false; externalConflict.value = false
   selectedId.value = ''
+  nextTick(() => { const entry = nonCharacterEntries.value[0]; if (entry) selectEntry(entry) })
   query.value = ''
   directoryMode.value = 'contextual'
   typeFilter.value = 'all'
 })
-onBeforeUnmount(flushSave)
+onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
 </script>
 
 <template>
   <section class="authoring-setting-workbench catalog-workbench" data-catalog="settings">
     <main class="setting-sheet catalog-sheet">
+      <div v-if="externalConflict" class="catalog-external-conflict" role="alert"><p>{{ tr('条目已更新，当前输入尚未保存。') }}</p><button type="button" @click="reloadExternalDraft">{{ tr('载入最新') }}</button><button type="button" @click="overwriteExternalDraft">{{ tr('保存当前输入') }}</button></div>
       <template v-if="worldbook && selectedEntry">
         <header class="setting-sheet__head catalog-sheet-head">
           <input v-model="draft.name" :aria-label="tr('设定名称')" @blur="flushSave" />

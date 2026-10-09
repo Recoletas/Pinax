@@ -29,6 +29,8 @@ export const STORAGE_KEYS = {
   WRITING_BLOCK_HISTORY: 'writing_block_history_v1',
   WRITING_RECOVERY_DRAFTS: 'writing_recovery_drafts_v1',
   WRITING_TYPOGRAPHY: 'writing_typography',
+  WRITING_DOCK_PREFERENCES: 'writing_dock_preferences_v1',
+  LOCAL_MIRROR_SETTINGS: 'local_mirror_settings_v1',
   AUTHORING_REVIEW_RUNS: 'authoring_review_runs_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
   MEMORY_CANDIDATES: 'memory_candidates_v1',
@@ -57,6 +59,7 @@ export const STORAGE_KEYS = {
 
   // AI 生图
   IMAGE_MODEL_CONFIGS: 'image_model_configs',
+  IMAGE_MODEL_SELECTED: 'image_model_selected',
   VIDEO_MODEL_CONFIGS: 'video_model_configs',
   VIDEO_MODEL_SELECTED: 'video_model_selected',
   MEDIA_ASSETS: 'media_assets_v1',

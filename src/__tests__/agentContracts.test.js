@@ -42,7 +42,7 @@ import {
   validateServerTaskType
 } from '../../server/services/agentTaskAllowlist'
 import { buildOpenClawUserMessage } from '../../server/services/openclawService'
-import { resolveTextModelMaxTokens, runTextModelAgent } from '../../server/services/textModelAgentProvider'
+import { runTextModelAgent } from '../../server/services/textModelAgentProvider'
 import { runAdvisorAgent } from '../../server/services/advisorAgentRunner'
 import {
   agentEnvelopeToPromptText,
@@ -208,9 +208,43 @@ import {
   probeStructuredProviderCapabilities,
   runStructuredGeneration
 } from '../../server/services/structuredGenerationRunner.js'
+import { createModelRoundGuard } from '../../shared/modelLoopGuard.js'
 
 describe('agentContracts', function () {
   it('covers task registry, context budget, result lifecycle, and legacy compatibility', async function () {
+    {
+    const { prepareAssistantProposal, applyAssistantProposal } = await import('../services/agents/storyagent/assistantEditTransaction.js')
+    const baseBook = { id: 'book-proposal', worldbookId: 'world-proposal', chapters: [{ id: 'chapter-proposal', title: '第一章', content: '甲推开门。' }], outlineNodes: [{ id: 'outline-proposal', title: '相遇', intent: '在码头见面' }] }
+    const baseWorld = { id: 'world-proposal', entries: [{ id: 'person-proposal', name: '甲', type: 'character', content: '甲是船员。', injection: { constant: true }, metadata: { reviewed: true } }] }
+    const edit = prepareAssistantProposal({ changes: [
+      { kind: 'chapter', targetId: 'chapter-proposal', operation: 'replace', field: 'content', before: '甲推开门。', after: '甲敲了敲门。', reason: '符合人物谨慎的性格' },
+      { kind: 'worldbook', targetId: 'person-proposal', operation: 'append', field: 'content', before: '', after: '行动谨慎。', reason: '补充性格' },
+      { kind: 'outline', targetId: 'outline-proposal', operation: 'replace', field: 'intent', before: '在码头见面', after: '在船舱见面', reason: '统一场景' }
+    ] }, { book: baseBook, worldbook: baseWorld, runId: 'run-proposal' })
+    const applied = applyAssistantProposal(edit, { book: baseBook, worldbook: baseWorld })
+    expect(applied.book.chapters[0].content).toBe('甲敲了敲门。')
+    expect(applied.worldbook.entries[0].metadata.reviewed).toBe(true)
+    expect(applied.book.outlineNodes[0].intent).toBe('在船舱见面')
+    expect(baseBook.chapters[0].content).toBe('甲推开门。')
+    const receipt = { ...edit, receipt: { changes: applied.changes } }
+    const reversed = applyAssistantProposal(receipt, { book: applied.book, worldbook: applied.worldbook, undo: true })
+    expect(reversed.book.chapters[0].content).toBe('甲推开门。')
+    expect(reversed.worldbook.entries[0].content).toBe('甲是船员。')
+    expect(() => applyAssistantProposal(edit, { book: { ...baseBook, id: 'other-book' }, worldbook: baseWorld })).toThrow('作品')
+    const edited = JSON.parse(JSON.stringify(applied.book)); edited.chapters[0].content = '作者继续写了新句。'; delete edited.chapters[0].editorDocument
+    expect(() => applyAssistantProposal(receipt, { book: edited, worldbook: applied.worldbook, undo: true })).toThrow('目标内容已修改')
+    expect(() => prepareAssistantProposal({ changes: [{ ...edit.changes[0], before: '不存在的原文' }] }, { book: baseBook, worldbook: baseWorld, runId: 'bad' })).toThrow('原文')
+    const blankBook = { id: 'blank-book', worldbookId: '', title: '新书', chapters: [], outlineNodes: [] }
+    const create = prepareAssistantProposal({ changes: [{ kind: 'worldbook', targetId: 'new-person', operation: 'create', field: 'content', before: '', after: '她在码头工作。', title: '乙', entryType: 'character', reason: '创建主角' }] }, { book: blankBook, worldbook: null, runId: 'blank-run' })
+    const created = applyAssistantProposal(create, { book: blankBook, worldbook: null })
+    expect(created.worldbook.entries[0].name).toBe('乙')
+    expect(created.book.worldbookId).toBe(created.worldbook.id)
+    const restoredBlank = applyAssistantProposal({ ...create, receipt: { changes: created.changes, createdWorldbook: true, worldbookId: created.worldbook.id } }, { book: created.book, worldbook: created.worldbook, undo: true })
+    expect(restoredBlank.book.worldbookId).toBe('')
+    expect(restoredBlank.worldbook).toBeNull()
+
+    }
+
     const policyValues = new Map()
     const policyStorage = {
       getItem: (key) => policyValues.get(key) || null,
@@ -537,18 +571,22 @@ describe('agentContracts', function () {
     expect(memoryResponse.result).toMatchObject({ proposals, mode: 'review', typedActions: [], action: [], replacement: '', unextractable: { reason: '' } })
     {
       const { handleGenerateRequest } = await import('../../server/routes/chat.js')
+      const { invalidateKitFunnelCache } = await import('../../server/services/kitModelGateway.js')
       const { EventEmitter } = await import('node:events')
-      const request = Object.assign(new EventEmitter(), { body: { messages: [{ role: 'user', content: '分页' }], provider: 'openai', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', model: 'fixture' } })
+      const request = Object.assign(new EventEmitter(), { body: { messages: [{ role: 'user', content: '分页' }], provider: 'kernel', baseUrl: 'https://kernel.invalid/v1', apiKey: 'kernel-managed', model: 'kernel' } })
       const response = Object.assign(new EventEmitter(), { json: vi.fn(), status: vi.fn().mockReturnThis() })
       const fetchBefore = globalThis.fetch
+      const probeResponse = { ok: true, status: 200, json: async () => ({ ok: true }) }
       let upstreamSignal
-      globalThis.fetch = vi.fn(async (_url, options) => {
+      invalidateKitFunnelCache()
+      globalThis.fetch = vi.fn(async (url, options) => {
+        if (!String(url).endsWith('/v1/pinax/complete')) return probeResponse
         upstreamSignal = options.signal
         return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }))
       })
       try {
         const pending = handleGenerateRequest(request, response)
-        expect(upstreamSignal).toBeDefined()
+        await vi.waitFor(() => expect(upstreamSignal).toBeDefined())
         response.emit('close')
         await pending
         expect(upstreamSignal.aborted).toBe(true)
@@ -556,16 +594,17 @@ describe('agentContracts', function () {
         expect(response.listenerCount('close')).toBe(0)
         expect(request.listenerCount('aborted')).toBe(0)
         let completedSignal
-        globalThis.fetch = vi.fn(async (_url, options) => {
+        globalThis.fetch = vi.fn(async (url, options) => {
+          if (!String(url).endsWith('/v1/pinax/complete')) return probeResponse
           completedSignal = options.signal
-          return { ok: true, json: async () => ({ choices: [{ message: { content: '完成' } }] }) }
+          return { ok: true, status: 200, json: async () => ({ ok: true, content: '完成', finishReason: 'stop', model: 'kit-test' }) }
         })
         response.json.mockImplementation(() => { response.writableEnded = true; response.emit('close') })
         await handleGenerateRequest(request, response)
-        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ content: '完成' }))
+        expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ content: '完成', meta: expect.objectContaining({ viaKit: true }) }))
         expect(completedSignal.aborted).toBe(false)
 
-      } finally { globalThis.fetch = fetchBefore }
+      } finally { globalThis.fetch = fetchBefore; invalidateKitFunnelCache() }
     }
 
 
@@ -593,14 +632,13 @@ describe('agentContracts', function () {
     })
     expect(validateAgentContextEnvelope(directionEnvelope, getTask('authoring.scene.directions'))).toMatchObject({ valid: true })
     expect(directionEnvelope.blocks.map((item) => item.kind)).toEqual(expect.arrayContaining(['scene', 'worldbook']))
-    expect(resolveTextModelMaxTokens({ taskType: 'authoring.scene.directions' })).toBe(1200)
+    // 20261008 直连退役：按任务的 max_tokens 限额随直连档一起退役，预算统一交内核缺省（4096）兜底。
     var directionPrompt = buildOpenClawUserMessage(directionEnvelope, '规划本场方向', {
       taskType: 'authoring.scene.directions', options: { toolChoice: 'none' }
     })
     expect(directionPrompt).toContain('immediateGain')
     expect(directionPrompt).toContain('insufficient-evidence')
     expect(directionPrompt).toContain('不得创造未知人物')
-    expect(resolveTextModelMaxTokens({ taskType: 'authoring.knowledge.query' })).toBe(2800)
     var knowledgePrompt = buildOpenClawUserMessage(directionEnvelope, '艾德加此前在哪几章出现？', {
       taskType: 'authoring.knowledge.query', options: { toolChoice: 'none' }
     })
@@ -862,11 +900,13 @@ describe('agentContracts', function () {
     expect(loreBlock).toBeTruthy()
     expect(loreBlock.content.entries.map(function (entry) { return entry.entryId }))
       .toEqual(expect.arrayContaining(['entry-chu']))
+    // A4 关系修复（2026-10-08）：store 侧 relations.locations/characters 命名此前被注入端
+    // （旧读 placeIds/characterIds）无视，条目只能靠 keyword 命中；修复后绑定优先于 keyword，
+    // 本 fixture 的 entry-chu 经绑定命中（matchReason 'bound'）——旧断言锁定的是 bug 行为。
     expect(loreBlock.content.entries[0]).toMatchObject({
-      matchReason: 'keyword',
-      matchedKeys: expect.arrayContaining(['褚岩'])
+      matchReason: 'bound'
     })
-    expect(narrativeKernel.activatedLore.reasons).toMatchObject({ keyword: 1 })
+    expect(narrativeKernel.activatedLore.reasons).toMatchObject({ bound: 1 })
     expect(JSON.stringify(narrativeKernel)).toContain('不得替玩家声明未输入的决定')
     expect(JSON.stringify(narrativeKernel)).not.toContain('这一段很长的世界简介')
     expect(JSON.stringify(narrativeKernel.blocks.find(function (block) {
@@ -896,6 +936,46 @@ describe('agentContracts', function () {
     })
     expect(nonSpeaker.voice).toBeUndefined()
     expect(narrativeKernel.voice).toMatchObject({ anchored: true, speakerId: speaker.speakerId, sampleCount: 3 })
+    // W6·C：local-rules —— 本地约束文件块（rules 之后；内容保留原始换行；无输入时不存在——上面
+    // 的 kinds 断言已锁定）。这里的 base kernel 未传 localRules。
+    var localRulesKernel = buildNarrativeKernel({
+      worldbook: narrativeWorldbook,
+      runtimeState: narrativeRuntime,
+      messages: [{ id: 'msg-lr', role: 'user', content: '继续。' }],
+      projectId: 'wb-narrative',
+      sessionId: 'session-1',
+      localRules: {
+        files: [
+          { id: '禁用句式', name: '禁用句式', kind: 'forbidden', content: '不要写：\n- 不是…而是…\n- 心中一凛', sourceRef: 'local-rule:禁用句式.md' },
+          { id: '写作约束', name: '写作约束', kind: 'rule', content: '每段只写一个动作。', sourceRef: 'local-rule:写作约束.md' }
+        ]
+      }
+    })
+    expect(localRulesKernel.blocks.map(function (block) { return block.kind }).slice(0, 2)).toEqual(['rules', 'local-rules'])
+    var localRulesBlock = localRulesKernel.blocks.find(function (block) { return block.kind === 'local-rules' })
+    expect(localRulesBlock.content.files.map(function (file) { return file.kind })).toEqual(['forbidden', 'rule'])
+    expect(localRulesBlock.content.files[0].content).toContain('\n')  // 换行不被折叠
+    expect(localRulesBlock.content.files[0].content).toContain('- 不是…而是…')
+    expect(localRulesBlock.content.note).toContain('与规则块同级')
+    expect(localRulesBlock.truncated).toBe(false)
+    expect(localRulesBlock.chars).toBeLessThanOrEqual(2000)
+    expect(localRulesKernel.revision).not.toBe(narrativeKernel.revision)
+    // 超预算：统一的正文上限二分截断，元数据保留，块可序列化 ≤2000。
+    var oversizedLocalRulesKernel = buildNarrativeKernel({
+      worldbook: narrativeWorldbook,
+      runtimeState: narrativeRuntime,
+      messages: [{ id: 'msg-lr2', role: 'user', content: '继续。' }],
+      projectId: 'wb-narrative',
+      sessionId: 'session-1',
+      localRules: {
+        files: [{ id: '超长约束', name: '超长约束', kind: 'rule', content: '长'.repeat(5000), sourceRef: 'local-rule:超长.md' }]
+      }
+    })
+    var oversizedLocalRulesBlock = oversizedLocalRulesKernel.blocks.find(function (block) { return block.kind === 'local-rules' })
+    expect(oversizedLocalRulesBlock.truncated).toBe(true)
+    expect(oversizedLocalRulesBlock.chars).toBeLessThanOrEqual(2000)
+    expect(oversizedLocalRulesBlock.content.files[0].truncated).toBe(true)
+    expect(oversizedLocalRulesBlock.content.files[0].content.length).toBeLessThan(5000)
     var crowdedCharacters = Array.from({ length: 8 }, function (_, index) {
       return {
         id: `crowded-${index + 1}`,
@@ -3534,35 +3614,44 @@ describe('agentContracts', function () {
     var ledger = createAgentContextLedger(tight)
     expect(ledger.parts.map(function (part) { return part.status })).toEqual(['truncated', 'dropped'])
     expect(ledger.parts.every(function (part) { return Boolean(part.reason) })).toBe(true)
-    await expect(runTextModelAgent(requestPayload.envelope, '检查', {
-      taskType: requestPayload.taskType,
-      options: { providerConfig: {} }
-    })).rejects.toMatchObject({
-      code: 'AGENT_PROVIDER_CONFIG_INVALID',
-      retryable: false
-    })
-    var capturedTextModelUrl = ''
+    const { invalidateKitFunnelCache } = await import('../../server/services/kitModelGateway.js')
     var originalFetch = globalThis.fetch
+    invalidateKitFunnelCache()
+    globalThis.fetch = async function () { return { ok: false, status: 503 } }
+    try {
+      await expect(runTextModelAgent(requestPayload.envelope, '检查', {
+        taskType: requestPayload.taskType,
+        options: { providerConfig: {} }
+      })).rejects.toMatchObject({
+        code: 'AGENT_PROVIDER_CONFIG_INVALID',
+        retryable: false
+      })
+    } finally { globalThis.fetch = originalFetch }
+    var capturedKitUrl = ''
+    invalidateKitFunnelCache()
     globalThis.fetch = async function (url) {
-      capturedTextModelUrl = String(url)
-      return { ok: false, status: 404 }
+      if (String(url).endsWith('/model')) return { ok: true, status: 200, json: async () => ({ ok: true }) }
+      capturedKitUrl = String(url)
+      return { ok: false, status: 404, json: async () => null }
     }
     try {
       await expect(runTextModelAgent(requestPayload.envelope, '检查', {
         taskType: 'writing.fix.paragraph',
         options: {
           providerConfig: {
-            baseUrl: 'https://api.minimaxi.com/anthropic',
-            apiKey: 'sk-test',
-            model: 'MiniMax-M3',
-            format: 'anthropic'
+            baseUrl: 'https://provider.invalid/v1',
+            apiKey: 'fixture-key',
+            model: 'fixture-model',
+            format: 'openai'
           }
         }
       })).rejects.toMatchObject({ code: 'AGENT_PROVIDER_UPSTREAM_FAILED' })
     } finally {
       globalThis.fetch = originalFetch
+      invalidateKitFunnelCache()
     }
-    expect(capturedTextModelUrl).toBe('https://api.minimaxi.com/anthropic/v1/messages')
+    expect(capturedKitUrl).toMatch(/\/v1\/pinax\/complete$/)
+    expect(capturedKitUrl).not.toContain('provider.invalid')
     expect(buildAdvisorProviderOptions({
       provider: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic',
@@ -3864,7 +3953,22 @@ describe('agentContracts', function () {
     })
     expect(incompleteResult.drafts.geography).toContain('潮滩')
     expect(incompleteFetch).toHaveBeenCalledTimes(2)
-    expect(JSON.parse(incompleteFetch.mock.calls[1][1].body).max_tokens).toBeGreaterThan(2200)
+    // 2026-10-09 预算完全废弃：截断只补跑同一轮请求，声明值原样透传，不再抬预算。
+    expect(JSON.parse(incompleteFetch.mock.calls[0][1].body).max_tokens).toBe(2200)
+    expect(JSON.parse(incompleteFetch.mock.calls[1][1].body).max_tokens).toBe(2200)
+
+    var exhaustedFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '{"drafts":{"geography":"港城沿旧灯塔' } }] })
+    })
+    await expect(runStructuredGeneration({ ...incompleteRequest, options: {} }, {
+      fetchImpl: exhaustedFetch,
+      cache: createStructuredCapabilityCache(),
+      roundGuard: createModelRoundGuard(1)
+    })).rejects.toMatchObject({ code: 'MODEL_ROUND_LIMIT_EXCEEDED' })
+    // 未声明预算的请求体不带 max_tokens，交内核缺省。
+    expect(JSON.parse(exhaustedFetch.mock.calls[0][1].body).max_tokens).toBeUndefined()
 
     const malformedStopFetch = vi.fn()
       .mockResolvedValueOnce({

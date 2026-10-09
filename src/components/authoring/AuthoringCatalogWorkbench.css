@@ -42,3 +42,6 @@
 @media(pointer:coarse) { .catalog-workbench[data-catalog] .catalog-window-controls button,.catalog-workbench[data-catalog] .catalog-actions button,.catalog-workbench[data-catalog] :is(.character-directory__group,.setting-directory__group,.outline-directory__group)>button { min-height: 44px; } }
 
 .catalog-workbench[data-catalog] .setting-sources { flex: 0 0 auto; margin-top: auto; border-top: 1px solid var(--border-subtle); border-bottom: 0; padding: 10px 20px; }
+
+.catalog-external-conflict { padding: 12px 16px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-secondary); font: 13px/1.6 var(--font-sans); }
+.catalog-external-conflict button { border: 0; padding: 6px 8px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }

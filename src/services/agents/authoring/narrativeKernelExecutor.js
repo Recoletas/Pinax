@@ -91,7 +91,6 @@ export function createNarrativeKernelExecutor({
   buildResourceIndex = getNarrativeResourceIndex,
   createRegistry = createNarrativeToolRegistry,
   formatInstructions = buildNarrativeFormatInstructions(),
-  maxTokens = 2600,
   resolveMemories = () => []
 } = {}) {
   if (typeof buildKernel !== 'function') throw new Error('createNarrativeKernelExecutor requires buildKernel')
@@ -111,6 +110,8 @@ export function createNarrativeKernelExecutor({
     projectId: explicitProjectId = '',
     projectionFingerprint = '',
     contextManifest = null,
+    // W6·C：项目文件夹「约束/」下的作者本地约束文件（kernel local-rules 块输入）。
+    localRules = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const projectId = String(explicitProjectId || projection?.projectId || worldbook?.id || '')
@@ -223,7 +224,8 @@ export function createNarrativeKernelExecutor({
         targetId: String(turn.targetId || '')
       } : null,
       sceneProjection: manifestMode ? null : (projection || null),
-      contextManifest
+      contextManifest,
+      localRules
     })
     // U1：executor 的 receipt 读取这里的 serializedBlocks——必须与实际发送
     // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。
@@ -261,7 +263,6 @@ export function createNarrativeKernelExecutor({
         settings,
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
-        maxTokens,
         taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
       })
     } catch (error) {

@@ -1599,8 +1599,8 @@ export const useGameStore = defineStore('game', {
     },
 
     loadApiSettings() {
-      // 文本模型配置现在走「配置列表 + 新增」模式 (textProviderConfigStore);
-      // 内置 MiniMax 时 apiKey 为哨兵, 由服务器替换为 env key。
+      // 文本模型配置经 textProviderConfigStore 解析 (「配置列表 + 新增」模式);
+      // 服务器模型行解析为合同占位值, 真实模型与密钥由 pi-agent 内核持有 (2026-10-08 直连退役)。
       const resolved = toResolvedTextApiSettings(resolveSelectedTextProviderConfig())
       if (resolved) {
         this.apiSettings = {

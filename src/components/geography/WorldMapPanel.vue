@@ -665,7 +665,6 @@ async function handleGenerate() {
       // prompt 的预算，避免被通用聊天上下文裁剪器截掉 JSON 契约。
       generationOptions: {
         temperature: 0.7,
-        max_tokens: 4000,
         max_input_chars: 14000,
       },
       attempts: [{ name: 'voronoi-map' }],

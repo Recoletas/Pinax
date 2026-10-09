@@ -44,7 +44,8 @@ async function runCase(label, resultOrError) {
     runner: async () => {
       if (resultOrError instanceof Error) throw resultOrError
       return resultOrError
-    }
+    },
+    resolveRouting: async () => ({ mode: 'kernel' })
   })
   await handler({ body: requestBody, once() {}, removeListener() {} }, response)
   const events = response.chunks

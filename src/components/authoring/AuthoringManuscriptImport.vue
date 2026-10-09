@@ -30,6 +30,17 @@
           </template>
         </button>
         <input ref="fileInput" class="manuscript-import__file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" @change="handleFileInput">
+        <input ref="folderInput" class="manuscript-import__file" type="file" webkitdirectory multiple @change="handleFolderInput">
+        <button
+          type="button"
+          class="manuscript-import__folderzone"
+          data-test="manuscript-folder-picker"
+          :disabled="reading"
+          @click="pickFolder"
+        >
+          <strong>{{ tr('选择文件夹（书稿 + 资料）') }}</strong>
+          <span>{{ folderModeHint }}</span>
+        </button>
         <p v-if="error" class="manuscript-import__error" role="alert">{{ tr(error) }}</p>
       </div>
 
@@ -115,12 +126,14 @@ import {
   parseManuscriptText,
   validateManuscriptFile
 } from '../../services/writing/writingManuscriptImport.js'
+import { archiveMaterialEntries, importFolderAsBook } from '../../services/import/importPipeline.js'
 
 const emit = defineEmits(['close', 'import'])
 
 const dialog = ref(null)
 const closeButton = ref(null)
 const fileInput = ref(null)
+const folderInput = ref(null)
 const titleInput = ref(null)
 const errorLine = ref(null)
 const encodingTools = ref(null)
@@ -146,6 +159,13 @@ const chapterTitleEdits = ref(new Map())
 const confirming = ref(false)
 const rebuildNotice = ref('')
 const previewSnapshot = ref(null)
+const folderMaterials = ref(null)
+
+const folderModeHint = computed(() => (
+  typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
+    ? tr('根目录 txt/md 合并为一本书；子目录与 pdf/docx/epub 归为资料')
+    : tr('浏览器不支持目录选择器时将列出文件夹内文件')
+))
 
 const autoChapters = computed(() => parsed.value?.chapters || [])
 const canConfirm = computed(() => Boolean(
@@ -316,6 +336,68 @@ function handleFileInput(event) {
   if (file) void readFile(file)
 }
 
+async function pickFolder() {
+  if (typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function') {
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'read' })
+      error.value = ''
+      reading.value = true
+      readingName.value = handle.name
+      const walked = await walkDirectoryHandleSafe(handle)
+      await reviewFolder(handle.name, walked)
+    } catch (pickError) {
+      if (pickError?.name !== 'AbortError') error.value = pickError?.message || tr('文件夹读取失败，请重试。')
+    } finally {
+      reading.value = false
+      readingName.value = ''
+    }
+    return
+  }
+  folderInput.value?.click()
+}
+
+async function walkDirectoryHandleSafe(handle) {
+  const { walkDirectoryHandle } = await import('../../services/import/importPipeline.js')
+  return walkDirectoryHandle(handle)
+}
+
+function handleFolderInput(event) {
+  const files = event.target?.files
+  event.target.value = ''
+  if (!files?.length) return
+  void (async () => {
+    error.value = ''
+    reading.value = true
+    readingName.value = files[0].webkitRelativePath?.split('/')[0] || ''
+    try {
+      const { walkDirectoryFiles } = await import('../../services/import/importPipeline.js')
+      await reviewFolder(readingName.value, walkDirectoryFiles(files))
+    } catch (walkError) {
+      error.value = walkError?.message || tr('文件夹读取失败，请重试。')
+    } finally {
+      reading.value = false
+      readingName.value = ''
+    }
+  })()
+}
+
+async function reviewFolder(folderName, walked) {
+  const result = await importFolderAsBook({ folderName, entries: walked.entries, manuscriptLanguage: manuscriptLanguage.value, sourceParse: async () => ({ results: [] }) })
+  if (!result.ok) {
+    error.value = tr(result.message || '这个文件夹里没有可导入的书稿。')
+    return
+  }
+  clearAuthorEdits()
+  folderMaterials.value = result.ok ? walked.entries.filter((entry) => entry.depth > 0 || /\.(?:pdf|docx|epub)$/iu.test(entry.name)) : null
+  parsed.value = { ok: true, title: result.book.title, filename: `${folderName}/`, text: '', charCount: 0, detected: false, chapters: result.book.chapters, folderImport: true }
+  encodingInfo.value = null
+  bookTitle.value = result.book.title
+  mode.value = 'auto'
+  draftChapters.value = cloneChapters(result.book.chapters)
+  await nextTick()
+  titleInput.value?.focus()
+}
+
 function handleDrop(event) {
   const file = event.dataTransfer?.files?.[0]
   if (file) void readFile(file)
@@ -337,6 +419,7 @@ function reset() {
   encodingInfo.value = null
   reading.value = false
   readingName.value = ''
+  folderMaterials.value = null
   clearAuthorEdits()
   nextTick(() => fileInput.value?.focus())
 }
@@ -350,6 +433,9 @@ function confirmImport() {
     return
   }
   confirming.value = true
+  // 文件夹模式：资料归档在书创建后异步进行，不阻塞保存链；本地项目绑定由导入确认后的项目资料面板负责
+  const materials = folderMaterials.value
+  if (materials?.length) void archiveMaterialEntries(materials).catch(() => {})
   let responded = false
   emit('import', result.book, (ok) => {
     responded = true
@@ -466,7 +552,27 @@ onBeforeUnmount(() => {
 .manuscript-import__dropzone strong { font-size: 17px; }
 .manuscript-import__dropzone span { color: var(--text-secondary); }
 .manuscript-import__dropzone small { margin-top: 14px; color: var(--text-muted, var(--text-secondary)); }
+.manuscript-import__folderzone {
+  width: 100%;
+  min-height: 96px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  border: 1px dashed color-mix(in srgb, var(--archive-olive) 55%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--archive-paper-soft) 40%, var(--surface-panel));
+  color: var(--text-primary);
+  text-align: center;
+  cursor: pointer;
+}
+.manuscript-import__folderzone:disabled { opacity: 0.5; cursor: progress; }
+.manuscript-import__folderzone strong { font-size: 14px; }
+.manuscript-import__folderzone span { color: var(--text-secondary); font-size: 12px; }
 .manuscript-import__file { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.manuscript-import__alt { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.manuscript-import__alt button { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }
+.manuscript-import__alt button:disabled { opacity: 0.5; cursor: default; }
+.manuscript-import__alt small { color: var(--text-muted, var(--text-secondary)); font-size: 12px; }
 
 .manuscript-import__review { display: grid; gap: 18px; }
 .manuscript-import__field { display: grid; gap: 7px; }

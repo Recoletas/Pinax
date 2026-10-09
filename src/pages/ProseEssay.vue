@@ -919,10 +919,14 @@ useProseCanvasInteraction({ cancelPointerDrag, cancelDraggedEdgeUpdate, stopEdge
 
 let canvasDisposed = false
 onMounted(async () => {
-  await migrateNarrativeImageAssets()
-  await loadCanvasAssets()
-  await loadData()
-  apiSettings.value = await getResolvedApiSettings()
+  try {
+    await migrateNarrativeImageAssets()
+    await loadCanvasAssets()
+    await loadData()
+    apiSettings.value = await getResolvedApiSettings()
+  } catch {
+    // 画布资产迁移/加载失败不阻断页面：各加载器已把错误落进自己的状态与 UI 通道。
+  }
   if (canvasDisposed) return
   document.addEventListener('keydown', handleKeydown)
   await nextTick()

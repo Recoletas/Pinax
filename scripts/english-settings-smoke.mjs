@@ -71,7 +71,8 @@ try {
   await page.waitForFunction(() => localStorage.getItem('worldbook_en-settings-world')?.includes('原文保留'))
   const stored = await page.evaluate(() => localStorage.getItem('worldbook_en-settings-world'))
   await locale('zh-CN')
-  assert.equal(await page.locator('.context-project-name').innerText(), 'The Harbor · North')
+  // 20261008 同步：.context-project-name 已由 settings-context-bar 的 data-worldbook-name 接替。
+  assert.equal(await page.locator('[data-test="settings-context-bar"]').getAttribute('data-worldbook-name'), 'The Harbor · North')
   assert.equal(await page.locator('.ws-tab.is-active').getAttribute('title'), '设定 · The Harbor · North')
   await locale('en')
   assert.equal(await page.locator('#setting-field-world-origin').inputValue(), 'The harbor was built after a storm. 原文保留。')

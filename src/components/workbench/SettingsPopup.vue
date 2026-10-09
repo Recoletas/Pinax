@@ -53,6 +53,24 @@
         >
           <ApiSettingsPanel />
         </section>
+        <section
+          v-show="activeSection === 'media'"
+          id="settings-panel-media"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;媒体模型&quot;)"
+        >
+          <MediaModelSettings />
+        </section>
+        <section
+          v-show="activeSection === 'localproject'"
+          id="settings-panel-localproject"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;本地项目&quot;)"
+        >
+          <LocalProjectPanel v-if="localFilesAvailable && activeSection === 'localproject'" />
+        </section>
 
         <section
           v-show="activeSection === 'experience'"
@@ -203,9 +221,11 @@ import { backupMessage } from '../../i18n/backupMessages.js'
 import { uiLocale, assistantLanguage, setLanguagePreferences } from '../../i18n/index.js'
 const languageSaveError = ref(false)
 function changeLanguage(locale, assistant = assistantLanguage.value) { languageSaveError.value = !setLanguagePreferences(locale, assistant) }
-import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
+import MediaModelSettings from '../settings/MediaModelSettings.vue'
+import LocalProjectPanel from './LocalProjectPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
@@ -270,14 +290,22 @@ function readBackupBooksSafe() {
   try { return readBackupBooks() } catch { return null }
 }
 
-const tabs = [
+const localFilesAvailable = ref(false)
+onMounted(async () => {
+  try { const response = await fetch('/api/localmirror/capabilities'); const payload = await response.json(); localFilesAvailable.value = response.ok && payload.localFiles === true } catch { localFilesAvailable.value = false }
+})
+const allTabs = [
   { key: 'writing', label: '写作' },
   { key: 'appearance', label: '外观' },
   { key: 'ai', label: 'AI 配置' },
+  { key: 'media', label: '媒体模型' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
-  { key: 'storage', label: '备份与恢复' }
+  { key: 'storage', label: '备份与恢复' },
+  { key: 'localproject', label: '本地项目' }
 ]
+
+const tabs = computed(() => allTabs.filter(tab => tab.key !== 'localproject' || localFilesAvailable.value))
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -482,16 +510,16 @@ function onModalKeydown(event) {
 
 function onTablistKeydown(event) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-  const index = tabs.findIndex((tab) => tab.key === activeSection.value)
+  const index = tabs.value.findIndex((tab) => tab.key === activeSection.value)
   let next = index
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.value.length
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.value.length) % tabs.value.length
   if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = tabs.length - 1
+  if (event.key === 'End') next = tabs.value.length - 1
   if (next === index) return
   event.preventDefault()
-  activeSection.value = tabs[next].key
-  nextTick(() => document.getElementById(`settings-tab-${tabs[next].key}`)?.focus())
+  activeSection.value = tabs.value[next].key
+  nextTick(() => document.getElementById(`settings-tab-${tabs.value[next].key}`)?.focus())
 }
 </script>
 

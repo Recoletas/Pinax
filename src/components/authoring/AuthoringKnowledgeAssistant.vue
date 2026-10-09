@@ -41,7 +41,7 @@
           <p>{{ message.question }}</p>
         </div>
         <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__answer">
-          <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
+          <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
           <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
           <p class="authoring-knowledge__answer-text">{{ message.text }}</p>
@@ -49,7 +49,7 @@
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
           <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr('这次回答未完成，保留的文字不能直接采纳。') }}</p>
-          <button v-if="message.status === 'completed' && message.chapterId" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || message.adopted || agentState.adoptionBusy" @click="assistant.adoptAgentAnswer(message.id)"><WorkbenchIcon name="writing" :size="14" />{{ tr(message.adopted ? '已加入正文' : '加入生成时的章节') }}</button>
+          <button v-if="message.status === 'completed' && message.proposal" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" />{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</button>
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
@@ -457,7 +457,7 @@ const visibleMessages = computed(() => {
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
 
-function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景' })[name] || name) }
+function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })

@@ -11,7 +11,7 @@ import { resolveMiniMaxApiKey } from '../../shared/textModelKeys.js'
 import { redactSecrets } from '../media/errorNormalization.js'
 import { buildMiniMaxImageSize, normalizeMiniMaxSubjectReferences, MINIMAX_REFERENCE_LIMIT } from '../../shared/minimaxImageRequest.js'
 
-const IMAGE_MODELS = new Set(['image-01', 'image-01-live'])
+const IMAGE_MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/
 const MAX_PROMPT_CHARS = 1500
 
 export function createImageRouter(options = {}) {
@@ -45,7 +45,8 @@ export function createImageRouter(options = {}) {
         return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: `prompt 长度超过 ${MAX_PROMPT_CHARS}` })
       }
       const model = String(body.model || 'image-01')
-      if (!IMAGE_MODELS.has(model)) return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: 'MiniMax 图片模型无效' })
+      // 图片模型名由用户在设置页配置；只守安全形状，不再限定厂商已知名单。
+      if (!IMAGE_MODEL_PATTERN.test(model)) return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: 'MiniMax 图片模型名无效' })
       const subjectReferences = normalizeMiniMaxSubjectReferences(body.subjectReferences ?? [])
       const size = buildMiniMaxImageSize({ width: body.width, height: body.height, aspectRatio: body.aspectRatio, model })
       const providerConfig = (body.providerConfig && typeof body.providerConfig === 'object' && !Array.isArray(body.providerConfig))

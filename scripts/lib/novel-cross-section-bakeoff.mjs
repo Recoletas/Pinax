@@ -7,7 +7,7 @@ import process from 'node:process'
 import { runToolCallingProviderTurn } from '../../server/services/toolCallingProviderAdapter.js'
 import { getNarrativeToolCatalog } from '../../shared/narrativeAgentContract.js'
 import { normalizeGenerationUsage } from '../../shared/generationToolContract.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { resolveMiniMaxApiKey } from '../../shared/textModelKeys.js'
 import {
   buildNarrativeFormatInstructions,
   parseNarrativePresentation
@@ -812,7 +812,7 @@ const isTruncatedResult = result => {
 
 export async function invokeBakeoffModel(config, invocation, options = {}) {
   const runner = options.runner || runToolCallingProviderTurn
-  const resolveApiKey = options.resolveApiKey || resolveTextApiKey
+  const resolveApiKey = options.resolveApiKey || resolveMiniMaxApiKey
   const now = resolveNow(options)
   const startedAt = now()
   const requestProvider = cloneValue(config)

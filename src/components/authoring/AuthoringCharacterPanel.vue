@@ -1,10 +1,12 @@
 <script setup>
 import './AuthoringCatalogWorkbench.css'
+import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringCharacterAiReview from './AuthoringCharacterAiReview.vue'
 import { parseCharacterEntryProfile, serializeCharacterEntryProfile } from '../../services/characterCard'
+import { renameEntryKeys } from '../../services/worldbook/entryProfileTemplates.js'
 
 const props = defineProps({
   manuscriptLanguage: { type: String, default: '' },
@@ -29,6 +31,21 @@ const profileFieldInputs = new Map()
 const draft = reactive({ name: '', background: '', personality: '', appearance: '', other: '', avatar: '' })
 let hydratingDraft = false
 let saveTimer = null
+let draftDirty = false
+let draftBaseline = ''
+let draftOwnerWorldbookId = ''
+const externalConflict = ref(false)
+const fingerprint = entry => JSON.stringify(entry || null)
+function preserveExternalDraft() {
+  if (draftDirty && selectedId.value) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'character', { baseline: draftBaseline, draft: { ...draft } })
+}
+function reloadExternalDraft() {
+  if (window.confirm(tr('载入最新条目会替换当前未保存的输入，是否继续？'))) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'character'); loadDraft(selectedCharacter.value) }
+}
+function overwriteExternalDraft() {
+  if (!window.confirm(tr('条目已经更新，确定用当前输入覆盖吗？'))) return
+  draftBaseline = fingerprint(selectedCharacter.value); externalConflict.value = false; flushSave()
+}
 let preservedScroll = null
 
 const characters = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type === 'character'))
@@ -76,8 +93,15 @@ function profileFor(entry) {
 }
 
 function loadDraft(entry) {
+  draftOwnerWorldbookId = String(props.worldbook?.id || '')
+  clearTimeout(saveTimer); saveTimer = null; draftDirty = false; externalConflict.value = false; draftBaseline = fingerprint(entry)
   hydratingDraft = true
   Object.assign(draft, profileFor(entry))
+  const saved = readEntryPanelDraft(props.worldbook?.id, entry?.id, 'character')
+  if (saved?.draft && typeof saved.baseline === 'string') {
+    for (const key of Object.keys(draft)) if (typeof saved.draft[key] === 'string') draft[key] = saved.draft[key]
+    draftBaseline = saved.baseline; draftDirty = true; externalConflict.value = true
+  }
   hydratingDraft = false
   nextTick(resizeProfileFields)
 }
@@ -115,17 +139,23 @@ function selectCharacter(entry) {
 function characterPayload() {
   const entry = selectedCharacter.value
   if (!entry || !draft.name.trim()) return null
+  const fullProfile = { ...parseCharacterEntryProfile(entry), background: draft.background.trim(), personality: draft.personality.trim(), appearance: draft.appearance.trim(), other: draft.other.trim(), avatar: draft.avatar }
   return {
-    name: draft.name.trim(), type: 'character', keys: [...new Set([draft.name.trim(), ...(entry.keys || [])])], content: serializeCharacterEntryProfile(draft), avatar: draft.avatar,
-    metadata: { ...(entry.metadata || {}), characterProfile: {
-      background: draft.background.trim(), personality: draft.personality.trim(), appearance: draft.appearance.trim(), other: draft.other.trim(), avatar: draft.avatar
-    } }
+    name: draft.name.trim(), type: 'character',
+    // P0.2 修复：改名时旧名触发词被「替换」而非追加（旧逻辑只增不减，旧占位名
+    // 「新角色」永久残留）；占位残留只在 keys 全等于旧占位名时保守清理。
+    keys: renameEntryKeys({ keys: entry.keys, previousName: entry.name, nextName: draft.name.trim() }), content: serializeCharacterEntryProfile(fullProfile), avatar: draft.avatar,
+    metadata: { ...(entry.metadata || {}), characterProfile: fullProfile }
   }
 }
 
 function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
+  if (!draftDirty) return
+  if (draftOwnerWorldbookId !== String(props.worldbook?.id || '')) { preserveExternalDraft(); return }
+  if (fingerprint(selectedCharacter.value) !== draftBaseline) { externalConflict.value = true; preserveExternalDraft(); return }
+  draftDirty = false
   const payload = characterPayload()
   if (payload) {
     preservedScroll = { entryId: String(selectedCharacter.value.id), top: profileScroll.value?.scrollTop || 0 }
@@ -135,6 +165,7 @@ function flushSave() {
 
 function scheduleSave() {
   if (hydratingDraft || !selectedCharacter.value) return
+  draftDirty = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 500)
 }
@@ -192,6 +223,11 @@ function applyAiProfile(profile) {
   })
 }
 
+watch(() => fingerprint(selectedCharacter.value), (current) => {
+  if (current === draftBaseline) return
+  if (draftDirty) { clearTimeout(saveTimer); saveTimer = null; externalConflict.value = true; preserveExternalDraft() }
+  else if (selectedCharacter.value) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'character'); loadDraft(selectedCharacter.value) }
+})
 watch(draft, scheduleSave, { deep: true, flush: 'sync' })
 watch(characters, (items) => {
   if (selectedCharacter.value) return
@@ -210,13 +246,18 @@ watch(() => props.focusEntryId, (entryId) => {
   const target = characters.value.find((entry) => String(entry.id) === String(entryId || ''))
   if (target) selectCharacter(target)
 })
+watch(() => props.worldbook?.id, () => {
+  preserveExternalDraft(); draftDirty = false; externalConflict.value = false; selectedId.value = ''
+  nextTick(() => { const entry = characters.value[0]; if (entry) selectCharacter(entry) })
+})
 onMounted(() => nextTick(resizeProfileFields))
-onBeforeUnmount(flushSave)
+onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
 </script>
 
 <template>
   <section class="authoring-character-workbench catalog-workbench" data-catalog="characters">
     <main class="character-sheet catalog-sheet">
+      <div v-if="externalConflict" class="catalog-external-conflict" role="alert"><p>{{ tr('条目已更新，当前输入尚未保存。') }}</p><button type="button" @click="reloadExternalDraft">{{ tr('载入最新') }}</button><button type="button" @click="overwriteExternalDraft">{{ tr('保存当前输入') }}</button></div>
       <template v-if="worldbook">
         <header class="character-sheet__head catalog-sheet-head">
           <input v-model="draft.name" class="character-name-input" :aria-label="tr(&quot;角色名称&quot;)" @blur="flushSave" />

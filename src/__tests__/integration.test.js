@@ -9,7 +9,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
-import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
+import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -48,10 +48,21 @@ import {
   testImageProviderConnection
 } from '../services/media/imageProviderService'
 import {
+  BUILTIN_IMAGE_CONFIG_ID,
   deleteImageProviderConfig,
+  getSelectedImageProviderConfigId,
   listImageProviderConfigs,
-  saveImageProviderConfig
+  resolveSelectedImageProviderConfig,
+  saveImageProviderConfig,
+  saveSelectedImageProviderConfigId
 } from '../services/media/imageProviderConfigStore'
+import {
+  deleteVideoProviderConfig,
+  resolveSelectedVideoProviderConfig,
+  saveSelectedVideoProviderConfigId,
+  saveVideoProviderConfig
+} from '../services/media/videoProviderConfigStore'
+import MediaModelSettings from '../components/settings/MediaModelSettings.vue'
 import {
   addGeneratedImageToLibrary,
   deleteMediaAsset,
@@ -2707,15 +2718,41 @@ describe('Media services', () => {
     const textConfig = saveTextProviderConfig({ name: 'Journey model', model: 'journey-text', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', provider: 'openai' })
     saveSelectedTextProviderConfigId(BUILTIN_TEXT_CONFIG_ID)
     const settingsPanel = mount(ApiSettingsPanel, { global: { stubs: { TextModelPicker: { name: 'TextModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] } } } })
+    // 模型能力探测完成后才显示本机配置，公网不会闪现可写控件。
+    await flushPromises()
     const picker = settingsPanel.findComponent({ name: 'TextModelPicker' })
     picker.vm.$emit('update:modelValue', textConfig.id)
     await nextTick()
-    expect(settingsPanel.get('[role="status"]').text()).toContain('Journey model')
-    expect(settingsPanel.get('[role="status"]').text()).toContain('journey-text')
+    // 20261008 统一路由收编后，[role=status] 改为引擎通路状态（up/down/检测中），
+    // 选中配置的共享语义改由 store + picker 的 modelValue/configs 承载。
+    expect(getSelectedTextProviderConfigId()).toBe(textConfig.id)
+    expect(picker.props('modelValue')).toBe(textConfig.id)
     deleteTextProviderConfig(textConfig.id)
     picker.vm.$emit('configs-updated', listTextProviderConfigs())
     await nextTick()
-    expect(settingsPanel.get('[role="status"]').text()).toContain('MiniMax')
+    expect(picker.props('configs')).toEqual(listTextProviderConfigs())
+
+    // 协议轴：选中配置热切进内核时，Anthropic 线（预设域）与 OpenAI 兼容线分流不同 api。
+    const fetchBefore = globalThis.fetch
+    const patches = []
+    globalThis.fetch = vi.fn(async (_url, options) => {
+      if (options?.method === 'POST') patches.push(JSON.parse(options.body))
+      return { ok: true, status: 200, json: async () => ({ ok: true, model: 'claude-sonnet-4-5' }) }
+    })
+    const anthropicConfig = saveTextProviderConfig({ name: 'Anthropic 直连', providerId: 'anthropic', model: 'claude-sonnet-4-5', baseUrl: 'https://api.anthropic.com', apiKey: 'fixture-only' })
+    const compatConfig = saveTextProviderConfig({ name: 'OpenAI 兼容', providerId: 'openai', model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1', apiKey: 'fixture-only' })
+    try {
+      picker.vm.$emit('update:modelValue', anthropicConfig.id)
+      await flushPromises()
+      expect(patches.at(-1)).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      picker.vm.$emit('update:modelValue', compatConfig.id)
+      await flushPromises()
+      expect(patches.at(-1)).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+    } finally {
+      globalThis.fetch = fetchBefore
+      deleteTextProviderConfig(anthropicConfig.id)
+      deleteTextProviderConfig(compatConfig.id)
+    }
     settingsPanel.unmount()
 
     // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
@@ -2951,6 +2988,69 @@ describe('Media services', () => {
     expect(listImageProviderConfigs().filter((c) => !c.builtin)).toEqual([
       expect.objectContaining({ id: savedConfig.id, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2' })
     ])
+
+    // 20261008 媒体模型收进设置页：选中项要真正落盘、失效要回落、用户自配模型名不再被厂商名单拒绝。
+    const settingsImageConfig = saveImageProviderConfig({ type: 'minimax_image', name: '自建生图渠道', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', defaultModel: 'image-02' })
+    const settingsVideoConfig = saveVideoProviderConfig({ providerId: 'minimax-video', name: '自建视频渠道', model: 'MiniMax-Hailuo-2.3', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', resolution: '768P' })
+    saveSelectedImageProviderConfigId(settingsImageConfig.id)
+    saveSelectedVideoProviderConfigId(settingsVideoConfig.id)
+    expect(resolveSelectedImageProviderConfig()?.id).toBe(settingsImageConfig.id)
+    expect(resolveSelectedVideoProviderConfig()?.id).toBe(settingsVideoConfig.id)
+
+    const mediaSettings = mount(MediaModelSettings, {
+      global: {
+        stubs: {
+          ImageModelPicker: { name: 'ImageModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] },
+          VideoModelPicker: { name: 'VideoModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] }
+        }
+      }
+    })
+    await nextTick()
+    const imagePicker = mediaSettings.findComponent({ name: 'ImageModelPicker' })
+    const videoPicker = mediaSettings.findComponent({ name: 'VideoModelPicker' })
+    expect(imagePicker.props('modelValue')).toBe(settingsImageConfig.id)
+    expect(videoPicker.props('modelValue')).toBe(settingsVideoConfig.id)
+    expect(imagePicker.props('configs').map((item) => item.id)).toContain(BUILTIN_IMAGE_CONFIG_ID)
+    expect(mediaSettings.find('[data-test="media-image-effective-line"]').text()).toContain('自建生图渠道')
+    imagePicker.vm.$emit('update:modelValue', BUILTIN_IMAGE_CONFIG_ID)
+    await nextTick()
+    expect(getSelectedImageProviderConfigId()).toBe(BUILTIN_IMAGE_CONFIG_ID)
+    expect(mediaSettings.find('[data-test="media-image-effective-line"]').text()).toContain('密钥由服务器持有')
+    imagePicker.vm.$emit('configs-updated', listImageProviderConfigs().filter((item) => item.id !== BUILTIN_IMAGE_CONFIG_ID))
+    await nextTick()
+    expect(getSelectedImageProviderConfigId()).toBe(savedConfig.id)
+    mediaSettings.unmount()
+
+    const unlistedImageFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { image_base64: ['dW5saXN0ZWQ='] }, base_resp: { status_code: 0, status_msg: 'success' } })
+    })
+    await generateImage({ type: 'minimax_image', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', defaultModel: 'image-02' }, {
+      prompt: '名单外的新模型名',
+      fetchImpl: unlistedImageFetch
+    })
+    expect(JSON.parse(unlistedImageFetch.mock.calls[0][1].body).model).toBe('image-02')
+
+    const { createMinimaxVideoAdapter } = await import('../../server/media/adapters/minimaxVideo.js')
+    const videoSubmitFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ task_id: 'task-unlisted-model', base_resp: { status_code: 0 } })
+    })
+    const videoAdapter = createMinimaxVideoAdapter({ fetchImpl: videoSubmitFetch })
+    await videoAdapter.submit(
+      { input: { prompt: '名单外的视频模型', durationSeconds: 10 } },
+      { model: 'Hailuo-Next', resolution: '1080P', apiKey: 'fixture-only' }
+    )
+    expect(JSON.parse(videoSubmitFetch.mock.calls[0][1].body)).toMatchObject({ model: 'Hailuo-Next', duration: 10 })
+    expect(videoAdapter.validateInput({ prompt: '名单外模型放行 10 秒', durationSeconds: 10 }, { model: 'Hailuo-Next', resolution: '1080P' })).toMatchObject({ duration: 10 })
+    expect(() => videoAdapter.validateInput({ prompt: '已登记模型仍守时长', durationSeconds: 10 }, { model: 'T2V-01', resolution: '720P' })).toThrow('only supports')
+
+    deleteImageProviderConfig(settingsImageConfig.id)
+    deleteVideoProviderConfig(settingsVideoConfig.id)
+    saveSelectedImageProviderConfigId('')
+    saveSelectedVideoProviderConfigId('')
 
     const blobs = new Map()
     const binaryStore = {

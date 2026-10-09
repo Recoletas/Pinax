@@ -460,32 +460,8 @@ export function buildStructuredSettingRequest({ worldbook, sectionKey, fieldKeys
   }
 }
 
-function getFieldOutputBudget(field) {
-  if (!field) return 1800
-  // Role cards contain several required labels. Keep one complete card well
-  // below the shared request ceiling, while leaving room for a retry if the
-  // provider spends part of its budget on reasoning.
-  if (field.entryType === 'character') return 2600
-  if (field.controlType === 'textarea' || ['lore', 'event', 'location', 'organization', 'quest'].includes(field.entryType)) return 3600
-  if (field.controlType === 'list' || ['rule', 'forbidden'].includes(field.entryType)) return 1000
-  if (field.controlType === 'chips') return 700
-  return 800
-}
-
-function getSectionOutputBudget(fields) {
-  const requested = Array.isArray(fields) ? fields : []
-  const contentBudget = requested.reduce((total, field) => total + getFieldOutputBudget(field), 0)
-  // Keep one JSON envelope and field separators available without allowing a
-  // six-field request to exceed the shared 6000-token request ceiling.
-  return Math.min(5600, Math.max(2200, contentBudget + 500))
-}
-
-function getRepairOutputBudget(fields) {
-  const requested = Array.isArray(fields) ? fields : []
-  const contentBudget = requested.reduce((total, field) => total + getFieldOutputBudget(field), 0)
-  return Math.min(6000, Math.max(1800, contentBudget + 400))
-}
-
+// 2026-10-09 预算完全废弃：原 getFieldOutputBudget / getSectionOutputBudget / getRepairOutputBudget
+// 三个按字段形态写死 token 预算的函数已删除，设定生成请求不带预算，交内核缺省计量。
 export function getStructuredGenerationTimeout(fieldOrFields) {
   const fields = Array.isArray(fieldOrFields) ? fieldOrFields : [fieldOrFields]
   return fields.some((field) => (
@@ -524,7 +500,7 @@ export async function generateSettingCandidates({
       ...base,
       schemaId: STRUCTURED_GENERATION_SCHEMA_IDS.CANDIDATES,
       settings: resolvedSettings,
-      options: { max_tokens: 2800, timeout_ms: getStructuredGenerationTimeout(requested) },
+      options: { timeout_ms: getStructuredGenerationTimeout(requested) },
       signal
     })
     const validSourceIds = new Set((Array.isArray(hydratedWorldbook?.sourceDocuments) ? hydratedWorldbook.sourceDocuments : [])
@@ -578,7 +554,6 @@ export async function generateSettingDraftRevision({
     context: { ...request.context, ...revision.context },
     settings: null,
     options: {
-      max_tokens: 4200,
       timeout_ms: getStructuredGenerationTimeout(getFieldMeta(sectionKey, fieldKey))
     },
     signal
@@ -651,7 +626,6 @@ export async function generateSettingFieldDraft(options) {
       ...request,
       settings,
       options: {
-        max_tokens: getFieldOutputBudget(fieldMeta),
         timeout_ms: getStructuredGenerationTimeout(fieldMeta)
       },
       signal: options.signal
@@ -720,7 +694,7 @@ export async function generateCharacterProfileDraft({
     const response = await sendStructuredGenerationImpl({
       ...request,
       settings: settings || await getResolvedApiSettings(),
-      options: { max_tokens: 2200, timeout_ms: STRUCTURED_GENERATION_TIMEOUTS.longMs },
+      options: { timeout_ms: STRUCTURED_GENERATION_TIMEOUTS.longMs },
       signal
     })
     const candidate = response?.drafts?.characterProfile
@@ -791,7 +765,6 @@ export async function generateSettingSectionDraftBatch({
       ...request,
       settings: resolvedSettings,
       options: {
-        max_tokens: getSectionOutputBudget(fields),
         timeout_ms: getStructuredGenerationTimeout(fields)
       },
       signal
@@ -839,7 +812,6 @@ export async function generateSettingSectionDraftBatch({
           ...repairRequest,
           settings: resolvedSettings,
           options: {
-            max_tokens: getRepairOutputBudget(failedFields),
             timeout_ms: getStructuredGenerationTimeout(failedFields)
           },
           signal

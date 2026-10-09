@@ -85,6 +85,25 @@ export function ensureDefaultImageConfig() {
   return []
 }
 
+export function getSelectedImageProviderConfigId(options = {}) {
+  const storage = resolveStorage(options.storage)
+  return String(storage.getItem(STORAGE_KEYS.IMAGE_MODEL_SELECTED) || '').trim()
+}
+
+export function saveSelectedImageProviderConfigId(configId, options = {}) {
+  const storage = resolveStorage(options.storage)
+  const id = String(configId || '').trim()
+  storage.setItem(STORAGE_KEYS.IMAGE_MODEL_SELECTED, id)
+  return id
+}
+
+/** 设置页与三个生图面共用: 选中项失效时回落列表首项 (内置 MiniMax)。 */
+export function resolveSelectedImageProviderConfig(options = {}) {
+  const all = listImageProviderConfigs(options)
+  const selectedId = getSelectedImageProviderConfigId(options)
+  return all.find((config) => config.id === selectedId) || all[0] || null
+}
+
 export function normalizeImageProviderConfig(input = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const fallback = createImageModelConfigDraft()

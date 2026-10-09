@@ -220,7 +220,8 @@ export function createMinimaxVideoAdapter(options = {}) {
 }
 
 function normalizeGenerationOptions(input, config, model) {
-  if (!MINIMAX_MODELS.includes(model)) throw makeHttpError(400, 'unsupported MiniMax text-to-video model', 'invalid request')
+  // 模型名来自用户的渠道配置：未知名字不再直接拒绝，已知名单只用于时长约束。
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(model)) throw makeHttpError(400, 'invalid MiniMax text-to-video model name', 'invalid request')
   if (input.aspectRatio && input.aspectRatio !== '16:9') throw makeHttpError(400, 'MiniMax text-to-video only supports 16:9', 'invalid request')
   if (input.referenceImages?.length) throw makeHttpError(400, 'MiniMax text-to-video does not accept reference images', 'invalid request')
   const prompt = String(input.prompt || '').trim()
@@ -240,7 +241,11 @@ function normalizeGenerationOptions(input, config, model) {
     if (!['720P', '1080P'].includes(resolution)) {
       throw makeHttpError(400, `${model} only supports 720P or 1080P`, 'invalid request')
     }
-    if (duration !== 6) throw makeHttpError(400, `${model} only supports 6 seconds`, 'invalid request')
+    // 未知模型按 MiniMax 视频接口的通用时长档放行；已登记的 T2V 仍锁 6 秒。
+    const allowedDurations = MINIMAX_MODELS.includes(model) ? [6] : [6, 10]
+    if (!allowedDurations.includes(duration)) {
+      throw makeHttpError(400, `${model} only supports ${allowedDurations.join(' or ')} seconds`, 'invalid request')
+    }
   }
   return { prompt, duration, resolution }
 }

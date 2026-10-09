@@ -952,7 +952,6 @@ export async function runNarrativeAgentLoop({
   mode = 'continue',
   intent = null,  // C1：intent 传给 turn note
   formatInstructions = '',
-  maxTokens = 1600,
   taskContract = null,
   onStatus = null,
   decisionRunner = runNarrativeAgentTurn
@@ -1050,9 +1049,11 @@ export async function runNarrativeAgentLoop({
     }
   }
 
-  const assertModelCallBudget = (messages, requestedOutputTokens) => {
+  // 2026-10-09 预算裁定：单次调用不再预留输出 token（交内核缺省），这里只按已记录的真实
+  // 用量校验上下文窗（防超长）；跑飞由 maxModelSteps 循环闸负责。
+  const assertModelCallBudget = (messages) => {
     const inputChars = stableNarrativeSerialize(messages || []).length
-    const verdict = runBudget.canStartCall({ inputChars, maxOutputTokens: requestedOutputTokens })
+    const verdict = runBudget.canStartCall({ inputChars })
     if (!verdict.allowed) {
       const error = runtimeError('NARRATIVE_TOKEN_BUDGET_EXCEEDED', '本轮累计 token 预算已达上限')
       error.budget = { usage: runBudget.usage, projected: verdict.projected, limits: verdict.limits }
@@ -1105,14 +1106,13 @@ export async function runNarrativeAgentLoop({
       let phaseRecorded = false
       try {
         const planningMessages = transcriptToGenerationMessages(planningTranscript)
-        const planningInputChars = assertModelCallBudget(planningMessages, 900)
+        const planningInputChars = assertModelCallBudget(planningMessages)
         const rawResponse = await decisionRunner({
           messages: planningMessages,
           tools: [planTool],
           settings,
           requestId: turnRequestId,
           options: {
-            maxTokens: 900,
             temperature: 0.2,
             timeoutMs: NARRATIVE_AGENT_RUNTIME_LIMITS.planStepTimeoutMs,
             parallelToolCalls: false,
@@ -1212,17 +1212,13 @@ export async function runNarrativeAgentLoop({
     })
     const request = async () => {
       const requestMessages = transcriptToGenerationMessages(transcript)
-      const requestedOutputTokens = mode === 'init'
-        ? Math.max(2000, Number(maxTokens) || 2000)
-        : Math.max(1, Number(maxTokens) || 1600)
-      const inputChars = assertModelCallBudget(requestMessages, requestedOutputTokens)
+      const inputChars = assertModelCallBudget(requestMessages)
       const response = await decisionRunner({
         messages: requestMessages,
         tools: requestTools(),
         settings,
         requestId: turnRequestId,
         options: {
-          maxTokens: requestedOutputTokens,
           temperature: 0.2,
           timeoutMs: stepTimeoutMs,
           parallelToolCalls: true,
@@ -1290,19 +1286,19 @@ export async function runNarrativeAgentLoop({
     }
   }
 
-  const qualityRequest = async (messages, phase, outputTokens) => {
+  const qualityRequest = async (messages, phase) => {
     ensureActive()
     if (runBudget.calls.length >= NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps) {
       throw runtimeError('NARRATIVE_TOKEN_BUDGET_EXCEEDED', '本轮任务检查已达到调用上限')
     }
-    const inputChars = assertModelCallBudget(messages, outputTokens)
+    const inputChars = assertModelCallBudget(messages)
     const startedAt = Date.now()
     status(onStatus, phase === 'review' ? 'checking-task' : 'revising-task', { repairs: quality.repairs })
     try {
       const response = await decisionRunner({ messages, tools: requestTools(), settings,
         requestId: `${turnRequestId}:${phase}:${phaseStats[phase].rounds}`,
         options: { toolChoice: 'none', temperature: phase === 'review' ? 0 : 0.2,
-          maxTokens: outputTokens, timeoutMs: phase === 'review' ? 30000 : NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs },
+          timeoutMs: phase === 'review' ? 30000 : NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs },
         signal: linkedAbort.signal
       }, { phase, stepIndex: runBudget.calls.length })
       recordModelCall({ inputChars, response, phase })
@@ -1323,7 +1319,7 @@ export async function runNarrativeAgentLoop({
     const context = { payload: providerKernelSerialization.payload,
       history: narrativeHistoryMessages(kernel, `${turnRequestId}:review`).map(transcriptPartsToGenerationMessage) }
     for (let attempt = 0; attempt <= 1; attempt += 1) {
-      const raw = await qualityRequest(buildTaskQualityMessages({ contract, context, draft }), 'review', 1200)
+      const raw = await qualityRequest(buildTaskQualityMessages({ contract, context, draft }), 'review')
       const verdict = parseTaskQualityVerdict(raw, { contract, draft })
       if (!verdict) throw runtimeError('NARRATIVE_TASK_CHECK_INVALID', '无法核实正文是否符合本次要求，正文未提交')
       quality.reviews.push(verdict)
@@ -1339,7 +1335,7 @@ export async function runNarrativeAgentLoop({
         id: `${turnRequestId}:task:repair`, role: 'user',
         parts: [{ type: 'text', text: taskRepairMessage({ contract, verdict }) }]
       })
-      draft = await qualityRequest(transcriptToGenerationMessages(transcript), 'revision', maxTokens)
+      draft = await qualityRequest(transcriptToGenerationMessages(transcript), 'revision')
       transcript = appendTranscript(transcript, {
         id: `${turnRequestId}:task:revised`, role: 'assistant', parts: [{ type: 'text', text: draft }]
       })
@@ -1808,7 +1804,6 @@ export async function runNarrativeAgentGeneration({
   intent = null,  // C1：intent 透传给 turn note
   formatInstructions = '',
   worldId = '',
-  maxTokens = 1600,
   taskContract = null,
   callbacks = {},
   onStatus = null,
@@ -1826,7 +1821,6 @@ export async function runNarrativeAgentGeneration({
     mode,
     intent,
     formatInstructions,
-    maxTokens,
     taskContract,
     onStatus,
     decisionRunner
@@ -1889,7 +1883,6 @@ export async function runNarrativeAgentGeneration({
     trace: { ...loop.trace, criticShadow },
     finalToolResults: loop.toolResults,
     finalContent: loop.finalText,
-    maxTokens,
     worldId
   }
 }

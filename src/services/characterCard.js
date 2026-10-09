@@ -1,4 +1,4 @@
-import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile'
+import { normalizeNarrativeVoiceProfile } from './narrativeVoiceProfile.js'
 
 const FIELD_ALIASES = {
   name: ['姓名', '名字', '角色名', 'name'],
@@ -129,58 +129,78 @@ export function parseCharacterCards(content) {
   } catch {
     // 结构化设定默认使用可读的标签文本；JSON 仅作为导入兼容格式。
   }
-  return splitCardChunks(raw).map(parseLabeledCard).filter(Boolean).slice(0, 4)
+  // 不截断：世界书导入路径需要完整卡集（旧实现会把标签文本卡截到前 4 张，
+  // 多卡草稿被静默丢卡）；调用方需要限量时由调用方自行截取。
+  return splitCardChunks(raw).map(parseLabeledCard).filter(Boolean)
 }
 
 export function parseCharacterCard(content) {
   return parseCharacterCards(content)[0] || null
 }
 
+// 全字段 frame 表（metadata.characterProfile 扁平形状）；顺序即序列化顺序。
+// 字段落点语义与 worldbook/profileMigration.CARD_PROFILE_FIELD_MAP 对齐
+// （等价实现：这里输出扁平 frame，profileMigration 输出 profile.values 形状）。
+const CHARACTER_PROFILE_FRAMES = [
+  ['background', '背景'],
+  ['personality', '性格'],
+  ['appearance', '外貌'],
+  ['identity', '身份'],
+  ['gender', '性别'],
+  ['age', '年龄'],
+  ['goal', '目标'],
+  ['relation', '关系'],
+  ['openingState', '开场状态'],
+  ['other', '其他']
+]
+
+const CHARACTER_PROFILE_FRAME_KEYS = CHARACTER_PROFILE_FRAMES.map(([frame]) => frame)
+
+function characterProfileHasContent(profile = {}) {
+  return CHARACTER_PROFILE_FRAME_KEYS.some((frame) => text(profile[frame]))
+}
+
+// 全字段 profile 草稿：不再把身份/性别/年龄/目标/关系/开场状态折叠进 other——
+// 折叠会让结构化消费端拿不到独立字段，也是「档案只有 4 框」的写入侧根因。
 export function characterProfileFromCard(card = {}) {
-  const other = [
-    card.identity ? `身份：${text(card.identity)}` : '',
-    card.gender ? `性别：${text(card.gender)}` : '',
-    card.age ? `年龄：${text(card.age)}` : '',
-    card.goal ? `目标：${text(card.goal)}` : '',
-    card.relation ? `关系：${text(card.relation)}` : '',
-    card.openingState ? `开场状态：${text(card.openingState)}` : '',
-    card.other ? text(card.other) : ''
-  ].filter(Boolean).join('\n')
-  return {
-    background: text(card.background) || text(card.description),
-    personality: text(card.personality) || splitTraits(card.traits).join('、'),
-    appearance: text(card.appearance),
-    other,
-    avatar: text(card.avatar)
+  const source = card && typeof card === 'object' ? card : {}
+  const profile = {}
+  for (const [frame] of CHARACTER_PROFILE_FRAMES) profile[frame] = ''
+  profile.background = text(source.background) || text(source.description)
+  profile.personality = text(source.personality) || splitTraits(source.traits).join('、')
+  for (const [frame] of CHARACTER_PROFILE_FRAMES) {
+    if (frame === 'background' || frame === 'personality') continue
+    profile[frame] = text(source[frame])
   }
+  profile.avatar = text(source.avatar)
+  return profile
 }
 
 export function parseCharacterEntryProfile(entry = {}) {
-  const stored = entry?.metadata?.characterProfile
-  if (stored && typeof stored === 'object') {
-    return {
-      background: String(stored.background || ''),
-      personality: String(stored.personality || ''),
-      appearance: String(stored.appearance || ''),
-      other: String(stored.other || ''),
-      avatar: String(stored.avatar || entry?.avatar || '')
-    }
-  }
   const card = parseCharacterCard(`姓名：${text(entry?.name) || '未命名角色'}\n${String(entry?.content || '')}`)
   const profile = characterProfileFromCard(card || { description: entry?.content, avatar: entry?.avatar })
-  if (![profile.background, profile.personality, profile.appearance, profile.other].some((value) => String(value || '').trim())) {
+  const stored = entry?.metadata?.characterProfile
+  if (stored && typeof stored === 'object') {
+    // 存储框逐键覆盖正文反解（旧 4 框存档语义原样）；存储里没有的新字段保留
+    // 正文反解值——角色面板的 4 框保存不再悄悄丢掉身份/性别/年龄等。
+    for (const frame of CHARACTER_PROFILE_FRAME_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(stored, frame)) profile[frame] = String(stored[frame] ?? '')
+    }
+    profile.avatar = String(stored.avatar || entry?.avatar || '')
+  }
+  if (!characterProfileHasContent(profile)) {
     profile.background = String(entry?.content || '')
   }
   return profile
 }
 
+// 全字段往返序列化：4 框之外的新增字段按「标签: 值」行输出，与 parseLabeledCard
+// 的标签解析互逆（人类可读 + 可解析回同一 profile）。
 export function serializeCharacterEntryProfile(profile = {}) {
-  return [
-    ['背景', profile.background],
-    ['性格', profile.personality],
-    ['外貌', profile.appearance],
-    ['其他', profile.other]
-  ].filter(([, value]) => String(value || '').trim())
-    .map(([label, value]) => `${label}：${String(value).trim()}`)
+  const source = profile && typeof profile === 'object' ? profile : {}
+  return CHARACTER_PROFILE_FRAMES
+    .map(([frame, label]) => [label, String(source[frame] ?? '').trim()])
+    .filter(([, value]) => value)
+    .map(([label, value]) => `${label}：${value}`)
     .join('\n')
 }

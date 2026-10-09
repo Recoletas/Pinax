@@ -137,8 +137,10 @@ function updateMedium(event) {
 }
 onMounted(() => { narrowQuery?.addEventListener('change', updateViewport); mediumQuery?.addEventListener('change', updateMedium) })
 onBeforeUnmount(() => { narrowQuery?.removeEventListener('change', updateViewport); mediumQuery?.removeEventListener('change', updateMedium) })
-function closeIndex() {
+function closeIndex(event) {
   if (!narrow.value || !indexOpen.value) return
+  // 索引收起即止：document 级 Esc 还会关整个 dock，一次按键不该连收两层。
+  event?.stopPropagation()
   indexOpen.value = false
   nextTick(() => indexToggleRef.value?.focus({ preventScroll: true }))
 }

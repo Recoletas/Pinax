@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ImageModelPicker from './ImageModelPicker.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { generateImage, getImageProviderCapabilities } from '../../services/media/imageProviderService'
-import { listImageProviderConfigs } from '../../services/media/imageProviderConfigStore'
+import { listImageProviderConfigs, resolveSelectedImageProviderConfig, saveSelectedImageProviderConfigId } from '../../services/media/imageProviderConfigStore'
 import {
   addGeneratedImageToLibrary,
   listMediaAssets,
@@ -237,6 +237,10 @@ watch(referenceSelectionLimit, (limit) => {
   selectedReferenceIds.value = selectedReferenceIds.value.slice(-limit)
 })
 watch(() => [imageSelectedModel.value, selectedReferenceIds.value.join('|')], () => { allowTextOnlyReference.value = false })
+watch(imageSelectedModel, (id) => {
+  if (!id) return
+  try { saveSelectedImageProviderConfigId(id) } catch { /* 本次选择仍生效，写盘失败不阻塞生成 */ }
+})
 const effectiveLibrarySourceRefs = computed(() => (
   Array.isArray(props.librarySourceRefs) ? props.librarySourceRefs : props.sourceRefs
 ))
@@ -331,7 +335,7 @@ onBeforeUnmount(() => {
 function loadModelConfigs() {
   modelConfigs.value = listImageProviderConfigs()
   if (modelConfigs.value.length && !imageSelectedModel.value) {
-    imageSelectedModel.value = modelConfigs.value[0].id
+    imageSelectedModel.value = resolveSelectedImageProviderConfig()?.id || modelConfigs.value[0].id
   }
 }
 
@@ -356,11 +360,10 @@ function flushPendingPromptSync() {
 function handleConfigsUpdated(configs) {
   modelConfigs.value = Array.isArray(configs) ? configs : listImageProviderConfigs()
   if (!modelConfigs.value.some((config) => config.id === imageSelectedModel.value)) {
-    imageSelectedModel.value = modelConfigs.value[0]?.id || ''
+    imageSelectedModel.value = resolveSelectedImageProviderConfig()?.id || modelConfigs.value[0]?.id || ''
   }
   emit('configs-updated', modelConfigs.value)
 }
-
 async function reloadLibraries() {
   const revision = ++libraryLoadRevision
   const scope = {

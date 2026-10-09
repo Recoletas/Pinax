@@ -1971,6 +1971,10 @@ describe('C1-1A authoring run session gate', () => {
         geoHistory: [{ id: 'rogue-history', summary: 'ROGUE_HISTORY_SENTINEL' }]
       },
       contextManifest: prepared.session.manifest,
+      // W6·C：本地约束文件随 executeTurn 显式输入透传（执行器不内部查找）。
+      localRules: {
+        files: [{ id: '写作约束', name: '写作约束', kind: 'rule', content: 'LR_SENTINEL：第一行\n第二行', sourceRef: 'local-rule:写作约束.md' }]
+      },
       resolveLiveContextDependencies: liveResolver
     }
     const execution = await executor.executeTurn(executionInput)
@@ -1985,6 +1989,12 @@ describe('C1-1A authoring run session gate', () => {
     expect(runArgs.kernel.blocks.map((block) => block.kind)).not.toEqual(expect.arrayContaining([
       'scene', 'projection', 'cast', 'summary', 'recent', 'continuity', 'style'
     ]))
+    // W6·C：localRules 到达 kernel —— local-rules 块存在且 payload 保留约束内容（原始换行）。
+    expect(runArgs.kernel.blocks.map((block) => block.kind)).toContain('local-rules')
+    expect(runArgs.kernelSerialization.payload).toContain('本地约束文件为作者手写规则')
+    expect(JSON.parse(runArgs.kernelSerialization.payload).blocks
+      .find((block) => block.kind === 'local-rules').content.files[0].content)
+      .toBe('LR_SENTINEL：第一行\n第二行')
     expect(runArgs.kernelSerialization.payload).not.toMatch(/ROGUE_(?:NARRATIVE|SCENE|WORLD|RUNTIME|HISTORY)/)
     expect(runArgs.kernelSerialization.payload).toContain('沿盐霜追查')
     expect(runArgs.kernelSerialization.payload).not.toContain('放弃钟绳转查码头')

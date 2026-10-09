@@ -2,7 +2,7 @@
 import { tr } from '../../i18n/index.js'
 import { computed } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-const props = defineProps({ activeTool: { type: String, default: 'annotations' }, dual: Boolean, collaborationVisible: Boolean })
+const props = defineProps({ activeTool: { type: String, default: 'annotations' }, pending: { type: Object, default: () => ({}) }, dual: Boolean, collaborationVisible: Boolean })
 const emit = defineEmits(['before-select', 'select'])
 
 // pointerdown 发生在浏览器把焦点从 ProseMirror 移到 rail 按钮之前。
@@ -34,9 +34,10 @@ const tools = computed(() => props.collaborationVisible
 <template>
   <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
     <button v-for="(tool, index) in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id" :data-group-start="index > 0 && tools[index - 1].group !== tool.group ? 'true' : undefined"
-      :aria-label="tr(tool.label)" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="tr(tool.label)"
+      :aria-label="tr(tool.label)" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
       @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
+      <span v-if="pending[tool.id]" class="writing-tool-rail__pending" aria-hidden="true" />
       <span class="writing-tool-rail__label">{{ tr(tool.label) }}</span>
     </button>
   </nav>
@@ -44,7 +45,8 @@ const tools = computed(() => props.collaborationVisible
 
 <style scoped>
 .writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; width: var(--writing-tool-rail-width, 60px); min-width: var(--writing-tool-rail-width, 60px); padding: 12px 5px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border: 0; background: transparent; }
-.writing-tool-rail button { display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 52px; padding: 5px 2px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+.writing-tool-rail__pending { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); position: absolute; inset-inline-end: 9px; top: 9px; }
+.writing-tool-rail button { position: relative; display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 52px; padding: 5px 2px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 .writing-tool-rail__label { font-family: var(--font-interface, var(--font-sans)); font-size: 13px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: center; }
 .writing-tool-rail button[aria-pressed="true"] { color: var(--accent); background: var(--nav-primary-selected); }
 .writing-tool-rail button[aria-pressed="true"] .writing-tool-rail__label { font-weight: 500; }

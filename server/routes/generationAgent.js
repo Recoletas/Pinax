@@ -1,11 +1,9 @@
 import express from 'express'
 import { validateGenerationAgentTurnRequest } from '../../shared/generationToolContract.js'
-import {
-  NarrativeProviderError,
-  runToolCallingProviderTurn
-} from '../services/toolCallingProviderAdapter.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { NarrativeProviderError } from '../services/toolCallingProviderAdapter.js'
 import { createNarrativeAgentStreamEvent, serializeNarrativeAgentSseEvent } from '../../shared/narrativeAgentStreamContract.js'
+import { runKitFunnelProviderTurn } from '../services/kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from '../services/modelRouting.js'
 
 function statusForError(code) {
   if (code === 'NARRATIVE_PROVIDER_TOOLS_UNSUPPORTED') return 422
@@ -44,7 +42,8 @@ function safeErrorPayload(error, requestId = '') {
 }
 
 export function createGenerationAgentStepStreamHandler({
-  runner = runToolCallingProviderTurn
+  runner = runKitFunnelProviderTurn,
+  resolveRouting = resolveModelRouting
 } = {}) {
   return async function handleGenerationAgentStepStream(req, res) {
     const validation = validateGenerationAgentTurnRequest(req.body || {})
@@ -54,14 +53,11 @@ export function createGenerationAgentStepStreamHandler({
       )
     }
     const request = validation.request
-    request.provider.apiKey = resolveTextApiKey({
-      provider: request.provider.id,
-      baseUrl: request.provider.baseUrl,
-      apiKey: request.provider.apiKey
-    })
-    if (!request.provider.apiKey) {
+    // 统一模型路由（2026-10-08 直连退役）：内容生成一律走内核，请求体的 provider 不再决定通路。
+    const routing = await resolveRouting()
+    if (routing.mode === 'none') {
       return res.status(400).json(safeErrorPayload(
-        Object.assign(new Error('provider.apiKey 不能为空'), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
+        Object.assign(new Error(MODEL_ROUTING_ERROR_MESSAGE), { code: 'NARRATIVE_PROVIDER_API_KEY_REQUIRED' }),
         request.requestId
       ))
     }

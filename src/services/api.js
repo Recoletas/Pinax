@@ -118,8 +118,8 @@ export async function getState(gameId) {
  * Read the resolved text-model configuration.
  *
  * 用户自定义配置存浏览器 localStorage, 由 textProviderConfigStore 解析;
- * 内置 MiniMax 由服务器 .env 提供密钥, 客户端拿到的是哨兵 apiKey
- * (MINIMAX_SERVER_KEY_SENTINEL), 服务器在转发前替换为真实 key。
+ * 服务器模型行（模型由 pi-agent 内核持有）返回合同占位值 —— 服务端在
+ * 直连退役后不再读取 provider 字段, 内容一律由内核生成。
  * 返回形状与旧版一致 ({ provider, baseUrl, apiKey, model, format }), 消费方零改动。
  */
 export async function getResolvedApiSettings() {
@@ -417,7 +417,10 @@ export async function sendStructuredGeneration({
       target,
       context,
       options: {
-        maxTokens: Number(options.max_tokens || options.maxTokens || 1200),
+        // 2026-10-09 预算完全废弃：调用方不再写死预算，未声明即不发送该字段（交内核缺省）。
+        ...(Number.isFinite(Number(options.max_tokens || options.maxTokens))
+          ? { maxTokens: Number(options.max_tokens || options.maxTokens) }
+          : {}),
         temperature: Number.isFinite(Number(options.temperature)) ? Number(options.temperature) : 0.2,
         timeoutMs: requestedTimeoutMs
       }
@@ -622,7 +625,6 @@ async function compactMemoryTextWithLlm({ source, type, metadata, heuristic }) {
       metadata?.worldId || metadata?.projectId || '',
       null,
       {
-        max_tokens: 120,
         temperature: 0.1,
         response_format: { type: 'json_object' },
         taskType: 'memory.compact',

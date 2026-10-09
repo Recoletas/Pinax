@@ -42,14 +42,14 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         outline: Array.isArray(ctx.outlineItems) ? ctx.outlineItems : [],
       },
     }
-    return JSON.parse(JSON.stringify({ kernel, index, bookId: String(bookId || ''), worldEntries }))
+    return JSON.parse(JSON.stringify({ kernel, index, bookId: String(bookId || ''), worldEntries, editBaseline: ctx.editBaseline || null }))
   }
 
   return Object.freeze({
     kind: 'storyagent-engine',
     prepare: buildPayload,
     healthz: (options) => bridge.healthz(options),
-    async run({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], maxTokens = 1600, taskId = null, signal = null, callbacks = {}, onStatus = null, mode = 'auto', skills = [] } = {}) {
+    async run({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId = null, signal = null, callbacks = {}, onStatus = null, mode = 'auto', skills = [] } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, skills, bookId })
       return bridge.run({
         kernel,
@@ -57,7 +57,6 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         mode,
         intent: String(text || ''),
         formatInstructions,
-        maxTokens,
         requestId: `sae_${Date.now().toString(36)}`,
         taskId,
         bookId: ownerId || null, taskKind: 'assistant',
@@ -66,14 +65,15 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         onStatus,
       })
     },
-    async resume({ prepared = null, bookId = valueOf(projectId), maxTokens = 1600, text, pinnedRefs = [], taskId, signal = null, callbacks = {}, onStatus = null } = {}) {
+    async resume({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId, signal = null, callbacks = {}, onStatus = null } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, bookId })
       return bridge.resume({
+        budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         taskId: String(taskId || ''),
         kernel,
         index,
         intent: String(text || ''),
-        bookId: ownerId || null, taskKind: 'assistant', maxTokens, formatInstructions,
+        bookId: ownerId || null, taskKind: 'assistant', formatInstructions,
         signal,
         callbacks: { ...callbacks },
         onStatus,

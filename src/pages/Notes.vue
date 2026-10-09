@@ -344,7 +344,7 @@ import {
   updateMediaImagePresentation,
   updateNarrativeImagePresentation
 } from '../services/media/narrativeImageAssetBridge'
-import { listImageProviderConfigs } from '../services/media/imageProviderConfigStore'
+import { listImageProviderConfigs, resolveSelectedImageProviderConfig, saveSelectedImageProviderConfigId } from '../services/media/imageProviderConfigStore'
 
 const router = useRouter()
 const route = useRoute()
@@ -618,9 +618,14 @@ function loadSidekickImageModels(configs = null) {
   const next = Array.isArray(configs) ? configs : listImageProviderConfigs()
   sidekickImageModelConfigs.value = next
   if (!next.some((config) => config.id === sidekickImageModelId.value)) {
-    sidekickImageModelId.value = next[0]?.id || ''
+    sidekickImageModelId.value = resolveSelectedImageProviderConfig()?.id || next[0]?.id || ''
   }
 }
+
+watch(sidekickImageModelId, (id) => {
+  if (!id) return
+  try { saveSelectedImageProviderConfigId(id) } catch { /* 本次选择仍生效，写盘失败不阻塞出图 */ }
+})
 
 function setSidekickWorkspace(workspace) {
   const allowedWorkspaces = ['materials', 'illustration']

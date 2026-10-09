@@ -1,3 +1,8 @@
+// @deprecated 2026-10-08 生产直连退役：叙事 agent-step 生产链已全数换 runKitFunnelProviderTurn
+// （server/services/kitModelGateway.js，经 kit 内核漏斗转发）；本文件的工具调用直连 runner
+// 在生产零调用方，仅被离线 eval 工装（scripts/novel-cross-section-*.mjs）与契约测试使用。
+// NarrativeProviderError 仍被 server/routes/generationAgent.js 引用（错误归一化）。
+// 不要新增生产调用方；整文件删除或迁入 scripts 需单独裁定（见 docs/plan/legacy-feature-regression-findings-20261008.md）。
 import {
   resolveGenerationToolProtocol,
   validateGenerationAgentTurnRequest
