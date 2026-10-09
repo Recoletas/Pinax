@@ -730,6 +730,8 @@ router.post('/stream', async (req, res) => {
   }
 })
 
+// 模型选择通道（2026-10-08 直连退役的边界例外，有意直连）：用户在设置面板主动拉取模型列表，
+// 用其当前输入的 baseUrl/apiKey 直连渠道；不参与内容生成、不产出内容，密钥不落任何存储。
 // Fetch available models from API URL
 router.post('/models', async (req, res) => {
   const { baseUrl, apiKey, provider } = req.body
@@ -817,6 +819,8 @@ router.post('/models', async (req, res) => {
   }
 })
 
+// 模型选择通道（同 /models，有意直连）：用户主动点「测试连接」时用其当前配置直连验证可用性；
+// 内容生成路径不经过这里（生成统一走内核漏斗）。
 // Test connection endpoint
 router.post('/test', async (req, res) => {
   const { baseUrl, apiKey, provider, model, format } = req.body

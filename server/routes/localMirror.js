@@ -10,7 +10,8 @@
 // POST /api/localmirror/worldbook-validate {files:{relPath:text}} —— 世界书纯校验（不落盘）
 // GET  /api/localmirror/book?path=<项目根绝对路径>   —— 书读回（正文/大纲/构思/元数据，W6·C）
 // GET  /api/localmirror/sources?path=<项目根或归档目录绝对路径> —— 资料归档读回（W6·C）
-// 安全：open/create/worldbook/book/sources 读写是"任意路径"能力面，公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403；路径必须是绝对路径。
+// GET  /api/localmirror/rules?path=<项目根绝对路径> | ?bookId=<绑定书 ID> —— 本地约束读回（「约束」目录，W6·C）
+// 安全：open/create/worldbook/book/sources/rules 读写是"任意路径"能力面，公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403；路径必须是绝对路径。
 import express from 'express'
 import { createLocalMirrorService } from '../services/localMirrorService.js'
 import { startFolderPick, getFolderPickResult } from '../services/nativeFolderPicker.js'
@@ -178,6 +179,20 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
     try {
       const result = service.listArchivedSources(String(req.query.path || ''))
       return res.json({ ok: true, sources: result.sources, warnings: result.warnings, dir: result.dir })
+    } catch (error) {
+      const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
+      return res.status(code).json({ error: error?.code || 'ERR_MIRROR_READ', message: error.message })
+    }
+  })
+  // 本地约束读回（W6·C，local-only）：?path=项目根 或 ?bookId=注册表绑定 → { ok, files: [{id,name,kind,content,sourceRef}], warnings }
+  router.get('/rules', (req, res) => {
+    if (!localOnly(res)) return
+    try {
+      const bookId = String(req.query.bookId || '').trim()
+      const result = bookId
+        ? service.readRuleFilesForBook(bookId)
+        : service.readRuleFiles(String(req.query.path || ''))
+      return res.json({ ok: true, files: result.files, warnings: result.warnings, dir: result.dir })
     } catch (error) {
       const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_READ', message: error.message })

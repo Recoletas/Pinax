@@ -13,15 +13,15 @@
 ```
 - **marker 规则**：目录含可解析的 `.pinax/project.json` 且 `spec === "pinax-project@1"` 即为 pinax 项目；`open` 校验 marker，`create` 要求目标目录为空（或不存在）。
 - **kind 注册机制**：`KIND_TEMPLATES`（localMirrorService.js）注册目录模板；新增项目类型 = 加一条模板 + spec 文档登记。
-- 同步语义：托管内容子目录（正文/大纲/世界书/构思/资料/日志）每次同步整体重建；**kind 模板目录永不被清扫删除**（空目录保留）。
+- 同步语义：托管内容子目录（正文/大纲/世界书/构思/资料/日志）每次同步整体重建；**kind 模板目录永不被清扫删除**（空目录保留）。**「约束」目录是用户手写自由区**：不参与同步重建，经 `GET /api/localmirror/rules` 读回后作为 Kernel `local-rules` 块（与规则块同级）注入生成。
 
 ## 2. kind 模板
 
 | kind | 目录 |
 |---|---|
-| `novel` 小说 | 正文/ 大纲/（大纲.md+outline.json） 世界书/（manifest.json+<分组>/*.md） 构思/ 资料/（sources.json+*.md） 日志/（修订史/ 体验会话/ 助手对话/ 记忆台账.json） 媒体清单.json |
-| `screenplay` 剧本 | 剧本/（<集>/<场>.md，内容映射待扩展） 人物/ 场景/ 大纲/ 世界书/ 资料/ 日志/ 媒体清单.json |
-| `generic` 通用 | 文档/ 资料/ 日志/ |
+| `novel` 小说 | 正文/ 大纲/（大纲.md+outline.json） 世界书/（manifest.json+<分组>/*.md） 构思/ 资料/（sources.json+*.md） 日志/（修订史/ 体验会话/ 助手对话/ 记忆台账.json） 约束/（*.md/*.txt，作者手写约束） 媒体清单.json |
+| `screenplay` 剧本 | 剧本/（<集>/<场>.md，内容映射待扩展） 人物/ 场景/ 大纲/ 世界书/ 资料/ 日志/ 约束/ 媒体清单.json |
+| `generic` 通用 | 文档/ 资料/ 日志/ 约束/ |
 
 文件命名：Windows 非法字符消毒 + 80 字符截断 + 同名去重（-2/-3）；原子写（tmp+rename）。
 
@@ -39,6 +39,7 @@
 | `POST /api/localmirror/projects/open` | `{path,bookId?}` 打开已有项目（校验 marker）；**公网部署 403** |
 | `GET  /api/localmirror/projects` | 注册表列表 |
 | `POST /api/localmirror/sync` | 落点 = 注册表按 bookId 绑定的项目根 > 文档根 `<homedir>/Documents/Pinax`（兼容旧行为） |
+| `GET  /api/localmirror/rules` | `?path=<项目根>` 或 `?bookId=<绑定书 ID>` 读回「约束」目录（*.md/*.txt ≤8，kind 按文件名判：禁用→forbidden/文风→style/备注→note/其余 rule）；**公网部署 403** |
 | `GET  /api/localmirror/appdata` | 查询应用侧数据目录 |
 
 安全闸：open/create 是任意路径能力面，`PINAX_PUBLIC_ORIGINS` 非空（公网部署）一律 403 `ERR_LOCAL_ONLY`；绝对路径校验、建库要求空目录。

@@ -1,3 +1,9 @@
+// 直连形状适配层（2026-10-08 直连退役后的边界说明）：本文件合成的上游请求只服务两类调用方——
+// ① 内容生成：调用方注入 fetchImpl（kitModelGateway 的 createKitStructuredCapabilityFetchImpl /
+//    createKitFunnelFetchImpl），请求实际经 kit 内核漏斗执行，不透传直连；
+// ② 用户主动的「测试连接」探测（/api/chat/test → probeStructuredProviderCapabilities，不注入
+//    fetchImpl）：有意直连用户配置渠道验证可用性，不经内核、不产出内容。
+// 生产内容生成路径不得在此新增直连调用方。
 import { resolveGenerationToolProtocol } from '../../../shared/generationToolContract.js'
 import {
   STRUCTURED_GENERATION_ERROR_CODES,

@@ -22,10 +22,11 @@ export const MIRROR_SCHEMA = 'pinax-project-fs@2'
 export const PROJECT_SPEC = 'pinax-project@1'
 /** 项目文件夹范式（Obsidian/VS Code 模式）：任意位置自包含文件夹，.pinax/project.json 为标记。 */
 const KIND_TEMPLATES = {
-  novel: ['正文', '大纲', '世界书', '构思', '资料', '日志'],
-  screenplay: ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志'],
-  generic: ['文档', '资料', '日志']
+  novel: ['正文', '大纲', '世界书', '构思', '资料', '日志', '约束'],
+  screenplay: ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束'],
+  generic: ['文档', '资料', '日志', '约束']
 }
+// 「约束」刻意不在 MANAGED_SUBDIRS：同步整体重建只覆盖托管子目录，约束文件是用户手写自由区。
 const MANAGED_SUBDIRS = ['正文', '大纲', '世界书', '构思', '资料', '日志']
 const LIMITS = {
   maxChapters: 500,
@@ -41,7 +42,10 @@ const LIMITS = {
   maxRevisionChars: 20_000,
   maxBlockHistoryPerChapter: 20,
   maxConversationMessages: 60,
-  maxTotalChars: 8_000_000
+  maxTotalChars: 8_000_000,
+  maxRuleFiles: 8,
+  maxRuleFileBytes: 1024 * 1024,
+  maxRuleFileChars: 50_000
 }
 
 export function resolveMirrorRoot(env = process.env) {
@@ -80,6 +84,14 @@ export function sanitizeFilename(input, fallback = '未命名') {
     .slice(0, 80)
     .replace(/[. ]+$/, '')
   return cleaned || fallback
+}
+
+/** 本地约束文件 kind：按文件名关键字判类（禁用→forbidden / 文风→style / 备注→note / 其余 rule）。 */
+function ruleKindOfName(name) {
+  if (/禁用|禁词|黑名单|避雷/u.test(name)) return 'forbidden'
+  if (/文风|文笔|风格|语气/u.test(name)) return 'style'
+  if (/备注|说明|提示/u.test(name)) return 'note'
+  return 'rule'
 }
 
 function totalPayloadChars(payload) {
@@ -971,5 +983,67 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     })
   }
 
-  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles, readBookFromFolder, listArchivedSources }
+  /** 本地约束读回（W6·C）：读 <root>/约束/*.md|*.txt（或「约束」目录本身），文件名判 kind。
+   *  约束目录不在 MANAGED_SUBDIRS——同步不会重建/覆盖，属用户手写自由区。
+   *  返回 { ok: true, files: [{id,name,kind,content,sourceRef,truncated}], warnings, dir }。 */
+  function readRuleFiles(absDir) {
+    const invalid = validateProjectPathInput(absDir)
+    if (invalid) throw Object.assign(new Error(invalid), { code: 'ERR_INVALID_INPUT' })
+    const base = path.resolve(String(absDir))
+    if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
+    const nested = path.join(base, '约束')
+    const ruleDir = fs.existsSync(nested) ? nested : (path.basename(base) === '约束' ? base : null)
+    if (!ruleDir) return { ok: true, files: [], warnings: [], dir: null }
+    const warnings = []
+    const files = []
+    const names = fs.readdirSync(ruleDir)
+      .filter((name) => /\.(?:md|txt)$/iu.test(name))
+      .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+    for (const name of names) {
+      if (files.length >= LIMITS.maxRuleFiles) {
+        warnings.push(`约束文件超过 ${LIMITS.maxRuleFiles} 个，其余已忽略`)
+        break
+      }
+      const file = path.join(ruleDir, name)
+      try {
+        const stat = fs.statSync(file)
+        if (!stat.isFile()) continue
+        if (stat.size > LIMITS.maxRuleFileBytes) {
+          warnings.push(`${name}: 文件过大（>${Math.round(LIMITS.maxRuleFileBytes / 1024)}KB），已跳过`)
+          continue
+        }
+        let content = fs.readFileSync(file, 'utf-8').replace(/\r\n?/g, '\n').trim()
+        if (!content) continue
+        let truncated = false
+        if (content.length > LIMITS.maxRuleFileChars) {
+          content = content.slice(0, LIMITS.maxRuleFileChars)
+          truncated = true
+        }
+        const stem = name.replace(/\.(?:md|txt)$/iu, '').trim() || name
+        files.push({
+          id: stem,
+          name: stem,
+          kind: ruleKindOfName(stem),
+          content,
+          sourceRef: `local-rule:${name}`,
+          truncated
+        })
+      } catch (error) {
+        warnings.push(`${name}: 读取失败（${error.message}）`)
+      }
+    }
+    if (!files.length && !warnings.length) warnings.push('约束目录内未找到约束文件（*.md/*.txt）')
+    return { ok: true, files, warnings, dir: ruleDir }
+  }
+
+  /** 书绑定约束读回：注册表 bookId → 项目根 → readRuleFiles。无绑定/未登记返回空（fail-open）。 */
+  function readRuleFilesForBook(bookId) {
+    const id = String(bookId || '').trim()
+    if (!id) return { ok: true, files: [], warnings: ['bookId 为空'], dir: null }
+    const entry = readRegistry(resolveAppDataDir()).find((item) => item.bookId === id && fs.existsSync(item.rootPath))
+    if (!entry) return { ok: true, files: [], warnings: [`未找到与 bookId=${id} 绑定的项目文件夹`], dir: null }
+    return readRuleFiles(entry.rootPath)
+  }
+
+  return { resolveRoot, mirrorBook, writeProjectIndex, createProjectAt, openProjectAt, listProjects, setProjectBinding, removeProjectEntry, updateProjectAt, browseDirectories, createDirectory, readProjectChapters, resolveAppDataDir, ensureWorldbookAuxFiles, readWorldbookFolder, validateWorldbookFiles, readBookFromFolder, listArchivedSources, readRuleFiles, readRuleFilesForBook }
 }

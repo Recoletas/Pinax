@@ -3448,3 +3448,28 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 
 **注意**：为实拍重建了 `dist`，3001 前端刷新即见新版；后端进程未动、未重启。未 commit（本轮未获授权）。
 
+
+---
+
+## 2026-10-09 两个优化点落地：直连残留标记 + narrativeKernel 本地约束注入（W6·C）；分支 push + PR 提交
+
+**用户指令**：按两份报告落实两个优化点——① 《改造遗留排查报告》的直连残留处置（toolCallingProviderAdapter 退役标记 / structuredOutputAdapter 标意图 / chat.js 探测端点边界注释）；② 《localRules 设计》的项目「约束/」目录注入 narrativeKernel（方案 A+C）——完成后 commit、push、提交 PR（备注覆盖：项目本地化全局改造 / Agent 内核底层全局改造 / 世界书底层逻辑优化 / 模型接入）。
+
+**优化点 1（3 文件，报告口径两处修正）**：
+- `server/services/toolCallingProviderAdapter.js` 头部加 `@deprecated 2026-10-08 生产直连退役` 横幅：叙事后端 agent-step 生产链已全数换 `runKitFunnelProviderTurn`（经 kit 内核漏斗），本文件的工具调用直连 runner 在生产零调用方。**报告称「只有测试引用」不成立**——离线 eval 工装 `scripts/novel-cross-section-*.mjs` 也 import 它，且 `NarrativeProviderError` 仍被 `server/routes/generationAgent.js` 生产引用（错误归一化），故只标记不删除；整文件删除或迁入 scripts 需单独裁定。
+- `server/services/providers/structuredOutputAdapter.js` 头部边界横幅：合成的上游请求只服务两类调用方——内容生成（调用方注入 fetchImpl，请求实际经 kit 内核执行）与用户主动「测试连接」探测（不注入 fetchImpl，有意直连用户配置渠道验证可用性、不产出内容）；「生产内容生成路径不得在此新增直连调用方」。
+- `server/routes/chat.js` `/models`、`/test` 两端点边界注释：模型选择通道是直连退役的边界例外——用用户当前输入的 baseUrl/apiKey 直连渠道做可用性验证（拉模型列表/测试连接），不参与内容生成、密钥不落任何存储。
+
+**优化点 2（localRules 全垂直切片）**：
+- **kernel**（`src/services/agents/narrativeKernel.js`）：`BLOCK_LIMITS['local-rules']=2000`；`buildLocalRulesBlock` 插在规则块之后（与规则块同级，note 明示「优先级高于世界书普通资料」；rules 约束串同步改为「只遵守本块与本地约束块中的显式规则」）；**内容刻意不走 `text()` 折叠**（折叠空白会毁掉清单/条款换行排版，只归一化 CRLF）；≤8 文件、kind 白名单（forbidden/style/note/rule）；超预算时逐文件统一正文上限二分截断 + `truncated`/`omittedCount` 记账，极窄路径收缩文件数后仍放不下返回 null；与 `contextManifest` 模式正交（两种装配模式都注入）。
+- **executor**（`narrativeKernelExecutor.js`）：`executeTurn` 显式 `localRules` 参数透传（store 无关契约不变）；唯一生产调用点 `Authoring.vue` 的 `executeSession`（`selectedBookId` = 写作 book id = 注册表 bookId）。
+- **服务端**（`localMirrorService.js`）：KIND_TEMPLATES 三模板（novel/screenplay/generic）加「约束」；**「约束」刻意不入 MANAGED_SUBDIRS**——同步整体重建只覆盖托管子目录，约束文件是用户手写自由区；新增 `readRuleFiles`（md/txt、>8 个忽略并 warning、>1MB 跳过、>50000 字符截断、CRLF 归一、文件名关键字判 kind：禁用→forbidden/文风→style/备注→note/其余 rule）与 `readRuleFilesForBook`（注册表 bookId → 项目根，未绑定 fail-open 空集）。
+- **路由**（`server/routes/localMirror.js`）：`GET /api/localmirror/rules`（`?path=` 或 `?bookId=`；公网 403 `ERR_LOCAL_ONLY`，与 book/sources 同权能面）。
+- **客户端**（`localMirrorSettings.js`）：`readLocalRuleFilesForBook` fail-open 读回（未绑定/公网 403/网络错误一律空集，`console.warn` 后继续，绝不阻塞生成）。
+- **体验页不接线**：`worldId` 是 worldbook id（gameStore 五处），无 bookId 概念、无裁定映射，记账留待将来。
+- **测试（合并置换，未新增 vitest 文件/用例）**：`agentContracts.test.js` omnibus 用例内加 localRules 正常注入（kinds=['rules','local-rules']、换行保真、note 语义、truncated:false）与 5000 字超限截断（truncated:true、chars≤2000）双断言；`narrativeKernelExecutor.test.js` manifest 用例加 localRules 透传与逐字保真断言；`scripts/local-mirror-check.mjs` 新增 [13] 段 8 断言（kind 判定/CRLF 归一/绑定读回/未绑定空集/无目录空集/同步后手写保留/路由读回）→ **58/58**；内核回归两个 vite-node eval 全绿（`narrative-context-eval` gatesPassed:true、failures:[]；`authoring-context-lifecycle-eval` passed 6/failed 0、六闸全 true）。
+- **文档**：`docs/engineering/pinax-project-spec.md` §1（「约束」= 手写自由区、不参与同步重建）、§2（三 kind 模板表加 约束/）、§4（API 表加 `GET /rules`）。
+
+**门禁（本轮实跑）**：串行 vitest（`--no-file-parallelism`，本机内存口径）**20/20 文件、200/200 用例顶格不破**（[test-budget] ok）；`lint:delta` 0 新增 error（5 条 warning 不计门禁）；`vite build` ✓ 30.28s；Authoring chunk **1,397,721 B ≤ 1,450,000**；`architecture:check`（Authoring.vue 10595 行/125 imports、services 根 16/20、生产循环 0/0）；`bridge-sync` 2/2；`catalog-sync` 21/21（canonical=49 tools=20 交集=20 只在工具侧=0）；`git diff --check`；vitepress build 6.66s——全链 exit 0。**并行口径两连红如实记账**：默认并行 vitest 两次分别红 3 条/1 条 5s 超时（`uiControlContract` / `authoringWorldbookBinding` / `authoringTurnComposer`，均非本批文件；单跑 677ms 即过），同一棵树另有一次并行全链 exit 0（含 bridge/catalog/vitepress 尾段）——属本机内存受限的存量环境 flake（设置面板批与 kit 工单批已两度存记），串行复跑全绿为定案记录。
+
+**push + PR**：本批以单一 commit 推送 fork `skkbsgzf/Pinax-StoryHarness` main（命令级 SSH 一次性密钥，未改 remote/config、未动任何凭据文件）；gh CLI 未安装，PR 以预填 compare URL 交付用户提交（`Recoletas/Pinax:main ... skkbsgzf:Pinax-StoryHarness:main`），PR 备注四主题全文随消息交付。

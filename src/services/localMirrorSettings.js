@@ -61,6 +61,22 @@ export async function removeLocalProject(projectId) {
   if (!response.ok || body?.ok !== true) throw Object.assign(new Error(body?.message || 'remove failed'), { status: response.status })
 }
 
+/** 本地约束文件读回（W6·C）：注册表 bookId → 项目文件夹「约束/」→ { files }。
+ *  fail-open：未绑定/公网 403/目录缺失等读不到时返回空集，绝不阻塞生成。 */
+export async function readLocalRuleFilesForBook(bookId) {
+  const id = String(bookId || '').trim()
+  if (!id) return { files: [] }
+  try {
+    const response = await fetch(`/api/localmirror/rules?bookId=${encodeURIComponent(id)}`)
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) return { files: [] }
+    return { files: Array.isArray(body.files) ? body.files : [] }
+  } catch (error) {
+    console.warn('[localMirror] 读取本地约束失败（忽略）:', error?.message || error)
+    return { files: [] }
+  }
+}
+
 /** Windows 原生文件夹选择器：服务端拉起真实系统对话框（同机），返回绝对路径；取消返回 null；不可用抛 NATIVE_PICKER_UNAVAILABLE。 */
 export async function pickFolderNative(initial = '', { pollMs = 500, timeoutMs = 10 * 60_000 } = {}) {
   const startResponse = await fetch('/api/localmirror/projects/pick-folder/start', {
