@@ -56,6 +56,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     if (!message.text.trim()) throw new Error('写作任务没有返回可用回答。')
     message.status = 'completed'
     message.taskId = result.trace?.taskId || message.taskId
+    message.usage = result.usage || null
     message.beatPlan = result.beatPlan || null
     message.toolResults = (result.finalToolResults || []).slice(0, 12)
     message.references = retrievedReferences(prepared, message.toolResults, projectId)

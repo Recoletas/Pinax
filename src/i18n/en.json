@@ -1390,5 +1390,7 @@
   "权重（1-5）": "Weight (1-5)",
   "标记重复条目失败。": "Failed to mark duplicate entries.",
   "档案回填失败。": "Profile backfill failed.",
-  "立场": "Stance"
+  "立场": "Stance",
+  "输入 {in} · 输出 {out}": "Input {in} · Output {out}",
+  "用量 {n}": "Usage: {n}"
 }

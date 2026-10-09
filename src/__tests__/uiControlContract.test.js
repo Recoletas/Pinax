@@ -462,7 +462,11 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(knowledgeTemplate).toContain('onEvidenceClick(evidence, $event.currentTarget)')
     expect(authoringKnowledgeAssistant).toContain('recordKnowledgeSeamFocus(evidence.sourceRef, evidence.projectId)')
     expect(knowledgeTemplate).toContain('资料已更新')
-    expect(knowledgeTemplate).not.toMatch(/manifest|receipt|token|candidate ID|上下文数量/i)
+    expect(knowledgeTemplate).not.toMatch(/manifest|receipt|candidate ID|上下文数量/i)
+    // 20261009 修订：用量展示按用户裁定上屏（正常 token 计量、中性「用量」标签），
+    // 术语禁令收敛为「用户可见的 Token 字样标签」不允许；属性访问（totalTokens）属机器面不算文案。
+    expect(knowledgeTemplate).not.toMatch(/[Tt]oken \{/i)
+    expect(knowledgeTemplate).toContain('用量 {n}')
     expect(knowledgeTemplate).not.toContain('<q>')
     expect(authoringKnowledgeComposable).toContain('createAuthoringKnowledgeQuerySession')
     expect(authoringKnowledgeComposable).toContain('reconcileAuthoringKnowledgeAnswer')
