@@ -2,7 +2,12 @@
   <section class="unified-entry-browser" :aria-label="tr('世界书条目总览（只读）')">
     <header class="ueb-toolbar">
       <b class="ueb-title">{{ tr('条目总览') }}</b>
-      <BrowserSearchBar v-model:query="query" :result-count="visible.length" />
+      <BrowserSearchBar
+        v-model:query="query"
+        :result-count="searchResult ? (searchResult.hits?.length || 0) : visible.length"
+        :searching="searching"
+        @submit="runSearch"
+      />
       <div class="ueb-modes" role="tablist" :aria-label="tr('视图切换')">
         <button
           type="button"
@@ -43,13 +48,71 @@
 
       <div class="ueb-main">
         <p class="ueb-count" role="status">
-          {{ tr('显示 {shown} / {total} 条', { shown: visible.length, total: tree.total }) }}
+          {{ searchResult
+            ? tr('kit 检索「{query}」：命中 {shown} 条 + 扩展 {extra} 条', { query: searchResult.query || '', shown: searchResult.hits?.length || 0, extra: searchResult.expansion?.length || 0 })
+            : tr('显示 {shown} / {total} 条', { shown: visible.length, total: tree.total }) }}
         </p>
         <div class="ueb-view">
           <EntryWiki v-if="selected" :entry="selected" :entries="entries" @back="selected = null" @jump="jumpTo" />
           <template v-else-if="mode === 'cards'">
-            <EntryCards :entries="visible" :selected-id="selected?.id || ''" @select="openEntry" />
-            <p v-if="!visible.length" class="ueb-empty">{{ tr('暂无匹配条目') }}</p>
+            <div v-if="searchError" class="ueb-search-error" role="alert">
+              <b>{{ tr('知识检索服务不可用') }}</b>
+              <span>{{ searchError.message }}</span>
+              <code>{{ searchError.code }}</code>
+            </div>
+            <template v-else-if="searchResult">
+              <ol class="ueb-hits">
+                <li v-for="hit in searchResult.hits" :key="`hit-${hit.id}`" class="ueb-hit">
+                  <button
+                    v-if="entriesById.has(hit.id)"
+                    type="button"
+                    class="ueb-hit-main"
+                    @click="openEntry(hit)"
+                  >
+                    <span class="ueb-hit-title">{{ hit.title }}</span>
+                    <span class="ueb-hit-cat" :style="{ color: kitCatColor(hit.cat) }">{{ hit.cat }}</span>
+                    <span class="ueb-hit-score">{{ tr('score {score}', { score: hit.score }) }}</span>
+                    <span v-if="hit.relations?.length" class="ueb-hit-rel">{{ tr('{count} 条关系', { count: hit.relations.length }) }}</span>
+                  </button>
+                  <div v-else class="ueb-hit-main is-static">
+                    <span class="ueb-hit-title">{{ hit.title }}</span>
+                    <span class="ueb-hit-cat" :style="{ color: kitCatColor(hit.cat) }">{{ hit.cat }}</span>
+                    <span class="ueb-hit-score">{{ tr('score {score}', { score: hit.score }) }}</span>
+                    <span class="ueb-hit-missing">{{ tr('不在当前世界书快照，无法打开详情') }}</span>
+                  </div>
+                  <p v-if="hit.summary" class="ueb-hit-summary">{{ hit.summary }}</p>
+                </li>
+              </ol>
+              <p v-if="!searchResult.hits?.length" class="ueb-empty">{{ tr('无命中') }}</p>
+              <section v-if="searchResult.expansion?.length" class="ueb-expansion">
+                <h4 class="ueb-expansion-title">{{ tr('一跳扩展（沿关系边，weight 降序）') }}</h4>
+                <ol class="ueb-expansion-list">
+                  <li v-for="item in searchResult.expansion" :key="`exp-${item.id}`" class="ueb-expansion-item">
+                    <button
+                      v-if="entriesById.has(item.id)"
+                      type="button"
+                      class="ueb-hit-main"
+                      @click="openEntry(item)"
+                    >
+                      <span class="ueb-hit-title">{{ item.title }}</span>
+                      <span class="ueb-hit-cat" :style="{ color: kitCatColor(item.cat) }">{{ item.cat }}</span>
+                    </button>
+                    <div v-else class="ueb-hit-main is-static">
+                      <span class="ueb-hit-title">{{ item.title }}</span>
+                      <span class="ueb-hit-cat" :style="{ color: kitCatColor(item.cat) }">{{ item.cat }}</span>
+                    </div>
+                    <p class="ueb-expansion-src">
+                      {{ expansionSourceOf(item) }}
+                      <code>{{ item.from }} —({{ item.via }})→ {{ item.id }}</code>
+                    </p>
+                  </li>
+                </ol>
+              </section>
+            </template>
+            <template v-else>
+              <EntryCards :entries="visible" :selected-id="selected?.id || ''" @select="openEntry" />
+              <p v-if="!visible.length" class="ueb-empty">{{ tr('暂无匹配条目') }}</p>
+            </template>
           </template>
           <GraphCanvas v-else :graph="graph" @select="openEntry" @create-edge="(payload) => emit('create-edge', payload)" />
         </div>
@@ -59,13 +122,16 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { tr } from '../../i18n/index.js'
 import {
   buildCategoryTree,
   buildGraph,
+  catColorOf,
   filterEntries
 } from '../../services/worldbook/entryBrowserModel.js'
+import { searchWorldbookEntries } from '../../services/worldbook/knowledgeSearchClient.js'
 import BrowserSearchBar from './BrowserSearchBar.vue'
 import CategoryTree from './CategoryTree.vue'
 import EntryCards from './EntryCards.vue'
@@ -73,9 +139,11 @@ import EntryWiki from './EntryWiki.vue'
 import GraphCanvas from './GraphCanvas.vue'
 
 /**
- * 统一条目浏览器（W2·B1 只读壳）——kit 四合一浏览面蓝本：
- * 左分类树带计数 / 中词条卡墙 / 图谱模式 / 顶栏本地轨检索 / wiki 详情关联 chips 就地跳转 / status 徽标。
+ * 统一条目浏览器（W2·B1 只读壳；W1-A 检索接线）——kit 四合一浏览面蓝本：
+ * 左分类树带计数 / 中词条卡墙 / 图谱模式 / 顶栏 kit 代理检索（hits + 一跳扩展分区，渲染
+ * kit 返回的 score/relations/expansion，前端不重算） / wiki 详情关联 chips 就地跳转 / status 徽标。
  * 纯只读：props 进 worldbook 对象，选中条目时 emit('select', entry)；无写操作、无路由跳转副作用。
+ * 检索目标：route.query.bookId → 项目注册表解析 projectId（knowledgeSearchClient 内做）。
  */
 const props = defineProps({
   /** 世界书对象（worldStore 运行时形状，{ name, entries } 即可） */
@@ -84,11 +152,15 @@ const props = defineProps({
 
 const emit = defineEmits(['select', 'create-edge'])
 
+const route = useRoute()
 const query = ref('')
 const cat = ref('')
 const status = ref('')
 const mode = ref('cards')
 const selected = ref(null)
+const searching = ref(false)
+const searchResult = ref(null)
+const searchError = ref(null)
 
 const STATUS_OPTIONS = [
   { value: '', label: tr('全部') },
@@ -100,10 +172,56 @@ const STATUS_OPTIONS = [
 const entries = computed(() => (Array.isArray(props.worldbook?.entries) ? props.worldbook.entries : []))
 const graph = computed(() => buildGraph(props.worldbook))
 const tree = computed(() => buildCategoryTree(entries.value))
-const visible = computed(() => filterEntries(entries.value, { q: query.value, cat: cat.value, status: status.value }))
+const visible = computed(() => filterEntries(entries.value, { cat: cat.value, status: status.value }))
 const entriesById = computed(() => new Map(entries.value.map((entry) => [entry.id, entry]).filter(([, entry]) => entry.id)))
 
-/** 图谱节点/chips 解析结果（契约 graph 节点）→ 运行时条目，就地打开 wiki */
+/** kit 命中的 cat 是 graph.json 的目录名（kit canonical 原样展示）；配色复用本地目录表 */
+function kitCatColor(catName) {
+  return catColorOf(String(catName || '').trim())
+}
+
+/** 扩展项来源说明（渲染 kit 的 via/weight/from，不重算） */
+function expansionSourceOf(item) {
+  const fromTitle = searchResult.value?.hits?.find((hit) => hit.id === item.from)?.title || item.from
+  return tr('由「{from}」沿边一跳（weight {weight}）', { from: fromTitle, weight: item.weight })
+}
+
+/** 提交检索：cat 取目录一级（kit cat 是等值过滤，「目录/分组」二级不可表达，随目录收窄） */
+async function runSearch() {
+  const q = query.value.trim()
+  if (!q || searching.value) return
+  searching.value = true
+  searchError.value = null
+  searchResult.value = null
+  const slash = cat.value.indexOf('/')
+  const kitCat = cat.value && cat.value !== '全部' ? (slash >= 0 ? cat.value.slice(0, slash) : cat.value) : ''
+  const response = await searchWorldbookEntries({
+    bookId: String(route.query.bookId || ''),
+    q,
+    cat: kitCat
+  })
+  searching.value = false
+  if (response.ok) {
+    searchResult.value = response.result
+  } else {
+    searchError.value = response.error
+  }
+}
+
+watch(query, (value) => {
+  if (!value.trim()) {
+    searchResult.value = null
+    searchError.value = null
+  }
+})
+
+watch(cat, () => {
+  // 分类树切换后旧检索结果不再代表当前过滤口径，回到浏览态
+  searchResult.value = null
+  searchError.value = null
+})
+
+/** 图谱节点/chips/kit 命中解析（kit hit.id == 契约 graph 节点 id == 运行时条目 id）→ 就地打开 wiki */
 function openEntry(target) {
   if (!target?.id) return
   const runtime = entriesById.value.get(target.id)
@@ -250,6 +368,122 @@ function jumpTo(graphNode) {
   padding: 20px 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.ueb-search-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  font-size: 13px;
+}
+
+.ueb-search-error b {
+  color: var(--warning);
+}
+
+.ueb-search-error code {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ueb-hits,
+.ueb-expansion-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ueb-hit {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.ueb-hit-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ueb-hit-main.is-static {
+  cursor: default;
+}
+
+.ueb-hit-title {
+  font-weight: 600;
+}
+
+.ueb-hit-cat {
+  font-size: 11px;
+}
+
+.ueb-hit-score {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ueb-hit-rel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ueb-hit-missing {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ueb-hit-summary {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ueb-expansion {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.ueb-expansion-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.ueb-expansion-item {
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.ueb-expansion-src {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ueb-expansion-src code {
+  margin-left: 8px;
+  font-size: 10px;
 }
 
 @media (max-width: 920px) {

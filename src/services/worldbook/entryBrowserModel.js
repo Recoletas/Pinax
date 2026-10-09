@@ -16,6 +16,8 @@
  *   必有；status/version/cat/tags/links/profile/summary/kind 可选。旧 relations
  *   对象分组（tags/locations/characters/events/placeIds/characterIds）与富关系
  *   数组（[{to,type,...}]）都接受，归一口径与契约 normalizeRelations 一致。
+ * - 文本检索自 W1-A 起走 kit worldbook_search 代理（knowledgeSearchClient.js）：打分与
+ *   一跳扩展只认 kit 返回值，本模块不再持有第二份打分器（§5-7 裁定），只留 cat/status 过滤。
  */
 
 import { buildWorldbookGraphFile } from '../../../shared/worldbookFileContract.js'
@@ -168,44 +170,15 @@ export function buildCategoryTree(entries) {
   return { total: list.length, cats }
 }
 
-/* ---------- 双轨检索·本地轨（kit worldbookSearch 打分同款） ---------- */
-
-const QUERY_SPLIT_RE = /[\s,，、;；/]+/
-
-/** kit bigrams：按码点切双字分片；单字返回自身 */
-function bigrams(term) {
-  const t = [...term.toLowerCase()]
-  if (t.length < 2) return [term.toLowerCase()]
-  return t.slice(0, -1).map((_, i) => t[i] + t[i + 1])
-}
+/* ---------- 检索（kit 代理单源）+ cat/status 本地过滤 ---------- */
 
 /**
- * 本地轨打分（kit kernel-view worldbookSearch 同款）：
- * 标题等值 +20 / 标题含 +12 / tag 含 +6 / 摘要含 +4 / CJK 双字 bigram 命中 ≤+4。
- */
-export function searchScore(entry, query) {
-  let score = 0
-  const title = str(entry?.name ?? entry?.title ?? entry?.id).toLowerCase()
-  const tags = entryTagsOf(entry)
-  const summary = entrySummaryOf(entry)
-  const terms = str(query).toLowerCase().split(QUERY_SPLIT_RE).filter(Boolean)
-  for (const term of terms) {
-    if (title === term) score += 20
-    else if (title.includes(term)) score += 12
-    if (tags.some((t) => t.toLowerCase().includes(term))) score += 6
-    if (summary.toLowerCase().includes(term)) score += 4
-    score += Math.min(4, bigrams(term).filter((b) => title.includes(b)).length)
-  }
-  return score
-}
-
-/**
- * 双轨检索的本地轨过滤。
+ * cat/status 本地过滤（文本检索已改走 kit worldbook_search 代理，见 knowledgeSearchClient.js；
+ * §5-7 裁定移除本地打分轨——避免第二实现漂移，打分/一跳扩展只认 kit 返回值）。
  * - cat：''/'全部' 不过滤；'人物' 按目录；'人物/皇室' 目录+自由分组二级联合。
  * - status：'' 不过滤，否则 entryStatusOf(entry) === status。
- * - q：空 → 按过滤后原序返回；非空 → 打分 >0 降序，平分按 id 中文序（kit 同款）。
  */
-export function filterEntries(entries, { q = '', cat = '', status = '' } = {}) {
+export function filterEntries(entries, { cat = '', status = '' } = {}) {
   let pool = Array.isArray(entries) ? entries.slice() : []
   const catKey = str(cat).trim()
   if (catKey && catKey !== '全部') {
@@ -219,13 +192,7 @@ export function filterEntries(entries, { q = '', cat = '', status = '' } = {}) {
   }
   const statusKey = str(status).trim()
   if (statusKey) pool = pool.filter((entry) => entryStatusOf(entry) === statusKey)
-  const query = str(q).trim()
-  if (!query) return pool
   return pool
-    .map((entry) => ({ entry, score: searchScore(entry, query) }))
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || str(a.entry?.id).localeCompare(str(b.entry?.id), 'zh'))
-    .map((x) => x.entry)
 }
 
 /* ---------- 关联 chips：三来源合并 + 四级兜底解析（kit resolveEntryRef 同款） ---------- */

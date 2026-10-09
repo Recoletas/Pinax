@@ -4,11 +4,19 @@
       class="browser-search-input"
       type="search"
       :value="query"
-      :placeholder="tr('检索：标题 / 触发词 / 标签 / 摘要（本地即时轨）')"
+      :placeholder="tr('检索：标题 / 触发词 / 标签 / 摘要（kit 知识检索）')"
       :aria-label="tr('检索条目')"
       @input="emit('update:query', $event.target.value)"
       @keydown.enter="emit('submit')"
     />
+    <button
+      type="button"
+      class="browser-search-go"
+      :disabled="searching || !query.trim()"
+      @click="emit('submit')"
+    >
+      {{ searching ? tr('检索中…') : tr('检索') }}
+    </button>
     <span class="browser-search-count" role="status">{{ tr('命中 {count}', { count: resultCount }) }}</span>
   </div>
 </template>
@@ -17,12 +25,14 @@
 import { tr } from '../../i18n/index.js'
 
 /**
- * 双轨检索的本地轨输入条（W2·B1，kit 顶栏检索蓝本）：
- * 纯受控输入，打分/过滤在 entryBrowserModel.filterEntries；无任何写副作用。
+ * 检索输入条（W1-A 起走 kit worldbook_search 同源代理）：纯受控输入 + 提交按钮，
+ * 打分/一跳扩展全部来自 kit 返回值（UnifiedEntryBrowser 调 knowledgeSearchClient）；
+ * 本地只剩 cat/status 过滤。无任何写副作用。
  */
 defineProps({
   query: { type: String, default: '' },
-  resultCount: { type: Number, default: 0 }
+  resultCount: { type: Number, default: 0 },
+  searching: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:query', 'submit'])
@@ -57,6 +67,25 @@ const emit = defineEmits(['update:query', 'submit'])
 
 .browser-search-input::placeholder {
   color: var(--text-muted);
+}
+
+.browser-search-go {
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 4px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.browser-search-go:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .browser-search-count {

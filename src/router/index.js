@@ -12,6 +12,7 @@ const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
 const StructuredSettings = () => import('../pages/StructuredSettings.vue')
 const SettingsSources = () => import('../pages/SettingsSources.vue')
 const WorldMapPage = () => import('../pages/WorldMapPage.vue')
+const DocumentsPage = () => import('../pages/DocumentsPage.vue')
 const Authoring = () => import('../pages/Authoring.vue')
 const Notes = () => import('../pages/Notes.vue')
 const ProseEssay = () => import('../pages/ProseEssay.vue')
@@ -119,6 +120,15 @@ const workbenchChildren = [
     meta: {
       activityKey: 'worldbook',
       title: '世界地图'
+    }
+  },
+  {
+    path: 'settings/documents',
+    name: 'settings-documents',
+    component: DocumentsPage,
+    meta: {
+      activityKey: 'worldbook',
+      title: '文档'
     }
   },
   {

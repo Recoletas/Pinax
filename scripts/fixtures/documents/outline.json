@@ -1,0 +1,57 @@
+{
+  "nodes": [
+    {
+      "id": "node-01",
+      "title": "楔子：水库渗漏报告",
+      "intent": "以 1958 年的水库与三年前的渗漏报告开场，埋下维保中标猫腻的线头。",
+      "status": "fulfilled",
+      "chapterRefs": ["ch-001"],
+      "explorationRefs": [{ "documentId": "exp-01", "role": "alternative", "state": "adopted" }]
+    },
+    {
+      "id": "node-02",
+      "title": "免责承诺书签字会",
+      "intent": "钱有德当众施压，陈默加注遥测未雨中校验，两人结下明面矛盾。",
+      "status": "fulfilled",
+      "chapterRefs": ["ch-001", "ch-002"]
+    },
+    {
+      "id": "node-03",
+      "title": "汛前静水期巡查",
+      "intent": "陈默私下复测水位与渗压管，发现数据被人替换的痕迹。",
+      "status": "drafted",
+      "chapterRefs": ["ch-003"]
+    },
+    {
+      "id": "node-04",
+      "title": "中标公司旧账",
+      "intent": "维保中标公司与三年前渗漏报告签在同一家，牵出利益链。",
+      "status": "planned",
+      "chapterRefs": ["ch-004"]
+    },
+    {
+      "id": "node-05",
+      "title": "暴雨夜开闸抉择",
+      "intent": "雨中校验缺失引爆风险，陈默必须决定是否公开数据。",
+      "status": "exploring",
+      "chapterRefs": [],
+      "explorationRefs": [{ "documentId": "exp-02", "role": "alternative", "state": "proposed" }]
+    },
+    {
+      "id": "node-06",
+      "title": "备用线：老站长的笔记本",
+      "intent": "若主线泄压不足，用老站长的遗物补一层人情重量。",
+      "status": "parked",
+      "chapterRefs": []
+    }
+  ],
+  "edges": [
+    { "id": "edge-01", "kind": "causes", "fromNodeId": "node-01", "toNodeId": "node-02" },
+    { "id": "edge-02", "kind": "causes", "fromNodeId": "node-02", "toNodeId": "node-03" },
+    { "id": "edge-03", "kind": "causes", "fromNodeId": "node-03", "toNodeId": "node-05" },
+    { "id": "edge-04", "kind": "foreshadows", "fromNodeId": "node-01", "toNodeId": "node-04" },
+    { "id": "edge-05", "kind": "foreshadows", "fromNodeId": "node-02", "toNodeId": "node-05" },
+    { "id": "edge-06", "kind": "alternative", "fromNodeId": "node-04", "toNodeId": "node-06" },
+    { "id": "edge-07", "kind": "parallel", "fromNodeId": "node-03", "toNodeId": "node-04" }
+  ]
+}

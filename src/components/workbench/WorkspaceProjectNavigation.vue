@@ -36,7 +36,7 @@ const moreOpen = ref(false)
 
 const routes = Object.freeze({
   writing: 'authoring', assistant: 'authoring', settings: 'settings-structured',
-  sources: 'settings-sources', materials: 'materials', map: 'settings-world-map',
+  sources: 'settings-sources', documents: 'settings-documents', materials: 'materials', map: 'settings-world-map',
   comics: 'comics', canvas: 'prose-essay'
 })
 const mainSurfaces = Object.freeze([
@@ -46,6 +46,7 @@ const mainSurfaces = Object.freeze([
   { key: 'sources', label: '资料', icon: 'sources' }
 ])
 const extraSurfaces = Object.freeze([
+  { key: 'documents', label: '文档', icon: 'document' },
   { key: 'materials', label: '灵感', icon: 'compass' },
   { key: 'map', label: '地图', icon: 'map' },
   { key: 'comics', label: '漫画', icon: 'comics' },

@@ -5,15 +5,16 @@
  * 只测 src/services/worldbook/entryBrowserModel.js（纯逻辑，无 Vue 依赖）：
  *   1. buildCategoryTree：目录计数 / 自由分组二级 / 与契约 graph.stats.byCat 同数
  *   2. entryStatusOf：缺省 active / draft / retired / 未知值回落 active
- *   3. filterEntries（双轨检索·本地轨）：打分排序 标题等值(20) > 标题含(12) > tag(6) > 摘要(4)
- *      + CJK 双字 bigram 兜底 ≤4 + cat（含「目录/分组」二级联合）与 status 过滤 + 无 q 保序
+ *   3. filterEntries（cat/status 本地过滤）：目录+自由分组二级联合过滤、status 过滤、
+ *      无条件保序；文本检索自 W1-A 起走 kit worldbook_search 代理（§5-7 裁定移除本地
+ *      打分轨），q 不再参与本地过滤/排序——防「第二实现漂移」回归钉
  *   4. 关联 chips：links ∪ relations（含旧分组桶，tags 桶排除）∪ 正文 [[id]] 三来源合并去重，
  *      四级兜底解析（全路径 → .md 尾段 → 裸标题 → id），未解析显式 resolved=false
  *   5. 防漂移交叉验证：entryCatDirOf/entryTagsOf/entrySummaryOf 逐条与
  *      shared/worldbookFileContract.js buildWorldbookGraphFile 产物一致；
  *      buildGraph 与契约产物 deepStrictEqual
  *
- * 蓝本：kit kernel-view worldbookSearch 打分（title 20/含 12/tag 6/summary 4/CJK bigram≤4）、
+ * 蓝本：kit kernel-view worldbookSearch（打分/一跳扩展在 kit，经 knowledgeSearchClient 代理渲染）、
  * resolveEntryRef 四级兜底（worldbook-data.ts:42）。
  */
 import assert from 'node:assert/strict'
@@ -30,8 +31,7 @@ import {
   entryTagsOf,
   filterEntries,
   relationRefsOf,
-  resolveEntryRef,
-  searchScore
+  resolveEntryRef
 } from '../src/services/worldbook/entryBrowserModel.js'
 
 let asserted = 0
@@ -90,32 +90,15 @@ function section1() {
   eq(entryStatusOf({ status: 'weird' }), 'active', '未知 status 回落 active')
 }
 
-/* ============ 2. 双轨检索·本地轨（打分/过滤） ============ */
-
-// 打分隔离 fixture：标题等值 20+bigram1=21 > 标题含 12+1=13 > tag 6 > 摘要 4
-const SCORE_ENTRIES = [
-  { id: 'a', name: '张三', type: 'general', content: '这段正文与检索词毫无关系，长度足够。' },
-  { id: 'b', name: '张三传', type: 'general', content: '这段正文与检索词毫无关系，长度足够。' },
-  { id: 'c', name: '李四', type: 'general', tags: ['张三'], content: '这段正文与检索词毫无关系，长度足够。' },
-  { id: 'd', name: '王五', type: 'general', content: '张三的事迹记录于此处，字数足够。' }
-]
+/* ============ 2. filterEntries（cat/status 本地过滤；文本检索走 kit 代理） ============ */
 
 function section2() {
-  console.log('# 2. filterEntries / searchScore（kit 打分同款）')
-  const [a, b, c, d] = SCORE_ENTRIES
-  eq(searchScore(a, '张三'), 21, '标题等值 20 + bigram 1 = 21')
-  eq(searchScore(b, '张三'), 13, '标题含 12 + bigram 1 = 13')
-  eq(searchScore(c, '张三'), 6, 'tag 含 6')
-  eq(searchScore(d, '张三'), 4, '摘要含 4')
-  eq(filterEntries(SCORE_ENTRIES, { q: '张三' }), [a, b, c, d], '排序：标题等值 > 标题含 > tag > 摘要')
+  console.log('# 2. filterEntries（cat/status 过滤；W1-A 移除本地打分轨）')
+  // W1-A §5-7 裁定：打分/排序单源在 kit（worldbook_search 代理），q 不再参与本地过滤
+  eq(filterEntries(TREE_ENTRIES, { q: '王城' }).length, 11, "q 不再本地过滤（'王城' 返回全量，文本检索走 kit 代理）")
+  eq(filterEntries(TREE_ENTRIES, { q: '    ' }).length, 11, '空白查询 → 全量保序')
 
-  // CJK 双字 bigram 兜底：q='张三丰' 只靠 bigram 命中（≤4），平分按 id 中文序
-  eq(filterEntries(SCORE_ENTRIES, { q: '张三丰' }).map((e) => e.id), ['a', 'b'], 'bigram 兜底：部分名命中且 ≤4，平分按 id 序')
-
-  eq(searchScore(a, ''), 0, '空查询 0 分')
-  eq(filterEntries(SCORE_ENTRIES, { q: '    ' }).length, 4, '空白查询 → 全量保序')
-
-  // 主 fixture 上的组合过滤
+  // cat（含「目录/分组」二级联合）与 status 过滤
   eq(filterEntries(TREE_ENTRIES, { cat: '人物' }).map((e) => e.id), ['char-zhangsan', 'char-lisi', 'char-wangwu'], 'cat=人物 3 条')
   eq(filterEntries(TREE_ENTRIES, { cat: '人物/皇室' }).map((e) => e.id), ['char-zhangsan', 'char-lisi'], 'cat=人物/皇室 二级联合 2 条')
   eq(filterEntries(TREE_ENTRIES, { cat: '地理/边境' }).map((e) => e.id), ['loc-bianjing'], 'cat=地理/边境 1 条')
@@ -124,10 +107,8 @@ function section2() {
   eq(filterEntries(TREE_ENTRIES, { status: 'retired' }).map((e) => e.id), ['src-notes'], 'status=retired 1 条')
   eq(filterEntries(TREE_ENTRIES, { status: 'active' }).length, 9, '缺省条目按 active 计入过滤')
   eq(filterEntries(TREE_ENTRIES, { cat: '人物', status: 'draft' }).length, 0, 'cat+status 联合为空')
-  eq(filterEntries(TREE_ENTRIES, { q: '王城' }).map((e) => e.id), ['loc-wangcheng', 'char-lisi'], "q='王城'：标题等值 25 > 摘要含 4")
-  eq(filterEntries(TREE_ENTRIES, { q: '王城', cat: '人物' }).map((e) => e.id), ['char-lisi'], 'q+cat 联合过滤')
   eq(filterEntries(TREE_ENTRIES, {}).map((e) => e.id), TREE_ENTRIES.map((e) => e.id), '无过滤条件 → 原序全量')
-  eq(filterEntries(undefined, { q: 'x' }), [], 'undefined 输入 → 空数组')
+  eq(filterEntries(undefined, { cat: 'x' }), [], 'undefined 输入 → 空数组')
 }
 
 /* ============ 3. 关联 chips：三来源合并 + 四级兜底 ============ */
