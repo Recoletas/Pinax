@@ -44,7 +44,7 @@
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
           <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
-          <p class="authoring-knowledge__answer-text">{{ message.text }}</p>
+          <div class="authoring-knowledge__answer-text authoring-knowledge__answer-md" v-html="renderAnswerHtml(message.text)"></div>
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
@@ -62,7 +62,7 @@
           <p v-if="message.answer.stale" class="authoring-knowledge__stale" role="status">
             {{ tr('资料已更新，这份回答保留供回看；请重新查询后再据此继续创作。') }}
           </p>
-          <p class="authoring-knowledge__answer-text">{{ message.answer.answer }}</p>
+          <div class="authoring-knowledge__answer-text authoring-knowledge__answer-md" v-html="renderAnswerHtml(message.answer.answer)"></div>
 
           <section v-if="message.answer.calculations.length" class="authoring-knowledge__calculations" :aria-label="tr('计算过程')">
             <div v-for="calculation in message.answer.calculations" :key="calculation.label">
@@ -162,6 +162,7 @@ const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalRe
 
 import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import { markdownToHtml } from '../../services/notes/assetMarkdown.js'
 import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
 import { promptPreviewKey, openPromptPreview } from '../../composables/usePromptPreview.js'
 
@@ -465,6 +466,11 @@ const promptPreviewOpen = computed(() => Boolean(promptPreviewKey.value)
   && props.messages.some((message) => message.promptSnapshotKey === promptPreviewKey.value))
 
 function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议' })[name] || name) }
+// 助手回答按 Markdown 渲染（模型以 md 书写：加粗标题/分隔线/列表）；连续空行折叠为段距，
+// 避免流式分段输出在 pre-wrap 下留出大片空白。经 sanitizeHtml 净化后才进 v-html。
+function renderAnswerHtml(text) {
+  return markdownToHtml(String(text || '').replace(/\n{3,}/g, '\n\n').trim())
+}
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -642,6 +648,18 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__prompt:hover { background: var(--nav-hover); color: var(--text-primary); }
 .authoring-knowledge__prompt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .authoring-knowledge__answer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--assistant-answer-size, 15px)/1.85 var(--font-interface, var(--font-sans)); }
+.authoring-knowledge__answer-md { white-space: normal; }
+.authoring-knowledge__answer-md p { margin: 0 0 10px; }
+.authoring-knowledge__answer-md > :last-child { margin-bottom: 0; }
+.authoring-knowledge__answer-md h1, .authoring-knowledge__answer-md h2, .authoring-knowledge__answer-md h3, .authoring-knowledge__answer-md h4 { margin: 16px 0 8px; font-size: 1.06em; font-weight: 600; line-height: 1.5; }
+.authoring-knowledge__answer-md hr { margin: 14px 0; border: 0; border-top: 1px solid var(--hairline-soft); }
+.authoring-knowledge__answer-md ul, .authoring-knowledge__answer-md ol { margin: 0 0 10px; padding-inline-start: 22px; }
+.authoring-knowledge__answer-md li { margin: 0 0 4px; }
+.authoring-knowledge__answer-md code { padding: 1px 5px; border-radius: 5px; background: var(--surface-workbench-muted); font-size: .88em; }
+.authoring-knowledge__answer-md pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface-workbench-muted); overflow-x: auto; }
+.authoring-knowledge__answer-md pre code { padding: 0; background: transparent; }
+.authoring-knowledge__answer-md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-inline-start: 2px solid var(--hairline-soft); color: var(--text-secondary); }
+.authoring-knowledge__answer-md a { color: var(--accent-primary, var(--accent)); }
 .authoring-knowledge__stale { margin: 0 0 10px; padding: 8px 10px; border-inline-start: 2px solid var(--signal-warm); background: color-mix(in srgb, var(--signal-warm) 8%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 .authoring-knowledge__missing { margin: 12px 0 0; padding: 9px 10px 9px 28px; background: var(--archive-paper); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .authoring-knowledge__calculations { display: grid; gap: 8px; margin-top: 12px; }
