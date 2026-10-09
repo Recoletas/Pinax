@@ -1417,6 +1417,7 @@ import {
 } from '../services/writing/chapterOutline'
 import { requestAdvisorTask } from '../services/advisorTaskService'
 import { getResolvedApiSettings } from '../services/api'
+import { readLocalRuleFilesForBook } from '../services/localMirrorSettings'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor'
@@ -4528,8 +4529,11 @@ function getAuthoringNarrativeRun() {
       executeSession: async ({ session, ...execution }) => {
         const settings = session === ifBaselineRun.value?.runSession && ifSettings.value
           ? ifSettings.value : await getResolvedApiSettings()
+        // W6·C：项目文件夹「约束/」下的作者本地约束（fail-open，无绑定/公网部署时为空）。
+        const localRules = await readLocalRuleFilesForBook(String(selectedBookId.value || ''))
         return getNarrativeKernelExecutor().executeTurn({
           ...execution,
+          localRules,
           authoringRunSession: session,
           settings,
           resolveLiveContextDependencies: () => (

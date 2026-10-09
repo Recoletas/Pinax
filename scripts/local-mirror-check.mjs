@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 本地文件镜像确定性 smoke：注入临时根目录与 fake 时钟，不打真实文档目录、无网络。
-// 覆盖：目录布局、md/frontmatter 内容、托管区清扫（stale 移除）、文件名消毒、payload 校验。
+// 覆盖：目录布局、md/frontmatter 内容、托管区清扫（stale 移除）、文件名消毒、payload 校验、
+// 「约束」目录读回（W6·C local-rules：kind 判定/换行保留/绑定解析/同步不触碰）。
 // 运行：node scripts/local-mirror-check.mjs
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -129,7 +130,7 @@ const novelRoot = path.join(os.tmpdir(), 'pinax-proj-novel-')
 fs.rmSync(novelRoot, { recursive: true, force: true })
 const created = paradigmService.createProjectAt({ rootPath: novelRoot, name: '雾港纪事', kind: 'novel', bookId: 'book_logs_001' })
 check('marker 落盘且 spec 正确', JSON.parse(fs.readFileSync(path.join(novelRoot, '.pinax', 'project.json'), 'utf-8')).spec === 'pinax-project@1')
-check('novel 模板目录齐全', ['正文', '大纲', '世界书', '构思', '资料', '日志'].every((dir) => fs.existsSync(path.join(novelRoot, dir))))
+check('novel 模板目录齐全', ['正文', '大纲', '世界书', '构思', '资料', '日志', '约束'].every((dir) => fs.existsSync(path.join(novelRoot, dir))))
 check('create 登记注册表（绑定 bookId）', paradigmService.listProjects().some((item) => item.bookId === 'book_logs_001' && item.kind === 'novel'))
 const reopened = paradigmService.openProjectAt({ rootPath: novelRoot })
 check('open 校验 marker 并刷新注册表', reopened.manifest.projectId === created.manifest.projectId)
@@ -139,11 +140,11 @@ check('项目根内含 @2 全布局', fs.existsSync(path.join(novelRoot, '世界
 const screenplayRoot = path.join(os.tmpdir(), 'pinax-proj-screenplay-')
 fs.rmSync(screenplayRoot, { recursive: true, force: true })
 paradigmService.createProjectAt({ rootPath: screenplayRoot, name: '夜航剧本', kind: 'screenplay' })
-check('screenplay 模板目录齐全', ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志'].every((dir) => fs.existsSync(path.join(screenplayRoot, dir))))
+check('screenplay 模板目录齐全', ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束'].every((dir) => fs.existsSync(path.join(screenplayRoot, dir))))
 const genericRoot = path.join(os.tmpdir(), 'pinax-proj-generic-')
 fs.rmSync(genericRoot, { recursive: true, force: true })
 paradigmService.createProjectAt({ rootPath: genericRoot, name: '杂项', kind: 'generic' })
-check('generic 模板目录齐全', ['文档', '资料', '日志'].every((dir) => fs.existsSync(path.join(genericRoot, dir))))
+check('generic 模板目录齐全', ['文档', '资料', '日志', '约束'].every((dir) => fs.existsSync(path.join(genericRoot, dir))))
 let nonProjectError = ''
 try { paradigmService.openProjectAt({ rootPath: os.tmpdir() }) } catch (error) { nonProjectError = error.code }
 check('打开非项目目录 → ERR_NOT_A_PROJECT', nonProjectError === 'ERR_NOT_A_PROJECT')
@@ -162,8 +163,10 @@ for (const routePath of ['/projects/create', '/projects/open']) {
   const handler = guardRouter.stack.find((layer) => layer.route?.path === routePath && layer.route?.methods?.post).route.stack[0].handle
   await handler({ body: { path: novelRoot, name: 'x' } }, { status(code) { this.code = code; return this }, json(body) { guardCalls.push({ routePath, code: this.code, body }) } }, () => {})
 }
+const guardRulesHandler = guardRouter.stack.find((layer) => layer.route?.path === '/rules' && layer.route?.methods?.get).route.stack[0].handle
+await guardRulesHandler({ query: { path: novelRoot } }, { status(code) { this.code = code; return this }, json(body) { guardCalls.push({ routePath: '/rules', code: this.code, body }) } }, () => {})
 delete process.env.PINAX_PUBLIC_ORIGINS
-check('公网部署下 create/open 均 403 ERR_LOCAL_ONLY', guardCalls.every((call) => call.code === 403 && call.body.error === 'ERR_LOCAL_ONLY'))
+check('公网部署下 create/open/rules 均 403 ERR_LOCAL_ONLY', guardCalls.length === 3 && guardCalls.every((call) => call.code === 403 && call.body.error === 'ERR_LOCAL_ONLY'))
 
 console.log('[11] 绑定管理：bind/remove（注册表层，磁盘不动）')
 const bound = paradigmService.setProjectBinding({ projectId: created.manifest.projectId, bookId: 'book_new_1' })
@@ -187,6 +190,38 @@ check('update 同步 marker 文件', markerAfter.name === '改名项目' && mark
 let badKindError = ''
 try { paradigmService.updateProjectAt({ projectId: fallbackRoot.manifest.projectId, kind: 'nope' }) } catch (error) { badKindError = error.code }
 check('未知 kind → ERR_INVALID_INPUT', badKindError === 'ERR_INVALID_INPUT')
+
+console.log('[13] W6·C 本地约束读回（约束/ 目录）')
+const rulesRoot = fallbackRoot.entry.rootPath
+const ruleDir = path.join(rulesRoot, '约束')
+fs.mkdirSync(ruleDir, { recursive: true })
+fs.writeFileSync(path.join(ruleDir, '禁用句式.md'), '不要写：\r\n- 不是…而是…\r\n')
+fs.writeFileSync(path.join(ruleDir, '文风要求.txt'), '短句为主。')
+fs.writeFileSync(path.join(ruleDir, '备注事项.md'), '备注文本。')
+fs.writeFileSync(path.join(ruleDir, '别的不相关.json'), '{}')
+const ruleFiles = paradigmService.readRuleFiles(rulesRoot)
+check('约束读回：只收 md/txt，按文件名判 kind', ruleFiles.files.length === 3
+  && ruleFiles.files.find((file) => file.id === '禁用句式').kind === 'forbidden'
+  && ruleFiles.files.find((file) => file.id === '文风要求').kind === 'style'
+  && ruleFiles.files.find((file) => file.id === '备注事项').kind === 'note')
+check('约束内容 CRLF 归一化且保留换行', ruleFiles.files.find((file) => file.id === '禁用句式').content === '不要写：\n- 不是…而是…')
+check('约束 sourceRef 指向文件名', ruleFiles.files.find((file) => file.id === '禁用句式').sourceRef === 'local-rule:禁用句式.md')
+paradigmService.setProjectBinding({ projectId: fallbackRoot.manifest.projectId, bookId: 'book_rules_001' })
+const ruleFilesByBook = paradigmService.readRuleFilesForBook('book_rules_001')
+check('按 bookId 解析注册表绑定读约束', ruleFilesByBook.files.length === 3 && ruleFilesByBook.dir === ruleDir)
+check('未绑定 bookId fail-open 空集', paradigmService.readRuleFilesForBook('book_missing').files.length === 0)
+const emptyRuleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-no-rules-'))
+const noRulesResult = paradigmService.readRuleFiles(emptyRuleRoot)
+check('无约束目录返回空集（不抛错）', noRulesResult.files.length === 0 && noRulesResult.dir === null)
+// 约束目录不在 MANAGED_SUBDIRS：同步重建托管子目录，但不触碰用户手写约束。
+fs.writeFileSync(path.join(ruleDir, '写作约束.md'), '作者手写。')
+paradigmService.mirrorBook({ ...logsPayload, book: { ...logsPayload.book, id: 'book_rules_001' } })
+check('同步不触碰约束目录（手写保留）', fs.readFileSync(path.join(ruleDir, '写作约束.md'), 'utf-8') === '作者手写。')
+// 路由成功路径（local-only 未开启）：?bookId= 读回。
+const rulesGetHandler = guardRouter.stack.find((layer) => layer.route?.path === '/rules' && layer.route?.methods?.get).route.stack[0].handle
+const rulesRouteCalls = []
+await rulesGetHandler({ query: { bookId: 'book_rules_001' } }, { status(code) { this.code = code; return this }, json(body) { rulesRouteCalls.push({ code: this.code, body }) } }, () => {})
+check('路由 /rules?bookId= 读回（含新增手写共 4 份）', rulesRouteCalls[0]?.body?.ok === true && rulesRouteCalls[0]?.body?.files?.length === 4)
 
 console.log(`local-mirror-check: ${passed} 项全部通过`)
 fs.rmSync(root, { recursive: true, force: true })

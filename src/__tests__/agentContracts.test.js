@@ -903,6 +903,46 @@ describe('agentContracts', function () {
     })
     expect(nonSpeaker.voice).toBeUndefined()
     expect(narrativeKernel.voice).toMatchObject({ anchored: true, speakerId: speaker.speakerId, sampleCount: 3 })
+    // W6·C：local-rules —— 本地约束文件块（rules 之后；内容保留原始换行；无输入时不存在——上面
+    // 的 kinds 断言已锁定）。这里的 base kernel 未传 localRules。
+    var localRulesKernel = buildNarrativeKernel({
+      worldbook: narrativeWorldbook,
+      runtimeState: narrativeRuntime,
+      messages: [{ id: 'msg-lr', role: 'user', content: '继续。' }],
+      projectId: 'wb-narrative',
+      sessionId: 'session-1',
+      localRules: {
+        files: [
+          { id: '禁用句式', name: '禁用句式', kind: 'forbidden', content: '不要写：\n- 不是…而是…\n- 心中一凛', sourceRef: 'local-rule:禁用句式.md' },
+          { id: '写作约束', name: '写作约束', kind: 'rule', content: '每段只写一个动作。', sourceRef: 'local-rule:写作约束.md' }
+        ]
+      }
+    })
+    expect(localRulesKernel.blocks.map(function (block) { return block.kind }).slice(0, 2)).toEqual(['rules', 'local-rules'])
+    var localRulesBlock = localRulesKernel.blocks.find(function (block) { return block.kind === 'local-rules' })
+    expect(localRulesBlock.content.files.map(function (file) { return file.kind })).toEqual(['forbidden', 'rule'])
+    expect(localRulesBlock.content.files[0].content).toContain('\n')  // 换行不被折叠
+    expect(localRulesBlock.content.files[0].content).toContain('- 不是…而是…')
+    expect(localRulesBlock.content.note).toContain('与规则块同级')
+    expect(localRulesBlock.truncated).toBe(false)
+    expect(localRulesBlock.chars).toBeLessThanOrEqual(2000)
+    expect(localRulesKernel.revision).not.toBe(narrativeKernel.revision)
+    // 超预算：统一的正文上限二分截断，元数据保留，块可序列化 ≤2000。
+    var oversizedLocalRulesKernel = buildNarrativeKernel({
+      worldbook: narrativeWorldbook,
+      runtimeState: narrativeRuntime,
+      messages: [{ id: 'msg-lr2', role: 'user', content: '继续。' }],
+      projectId: 'wb-narrative',
+      sessionId: 'session-1',
+      localRules: {
+        files: [{ id: '超长约束', name: '超长约束', kind: 'rule', content: '长'.repeat(5000), sourceRef: 'local-rule:超长.md' }]
+      }
+    })
+    var oversizedLocalRulesBlock = oversizedLocalRulesKernel.blocks.find(function (block) { return block.kind === 'local-rules' })
+    expect(oversizedLocalRulesBlock.truncated).toBe(true)
+    expect(oversizedLocalRulesBlock.chars).toBeLessThanOrEqual(2000)
+    expect(oversizedLocalRulesBlock.content.files[0].truncated).toBe(true)
+    expect(oversizedLocalRulesBlock.content.files[0].content.length).toBeLessThan(5000)
     var crowdedCharacters = Array.from({ length: 8 }, function (_, index) {
       return {
         id: `crowded-${index + 1}`,
