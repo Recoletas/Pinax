@@ -1,0 +1,39 @@
+PASS 文档页产生项目工作台标签（标题走「文档」面） — 文档 · 雾港来信
+PASS 文档标签唯一 — 首页 | 文档 · 雾港来信
+PASS 绑定书不显示未绑提示
+PASS 读回本书正文 — 大纲 大纲结构（outline.json） 2/1 词汇表 词汇表（词汇表.json） 1/1/1 正文 第一章 归航 构思 夜航 kit 编号目录（如 02-编剧/剧本.md）与 大纲.md 请用「打开本地文件夹」读取。
+PASS 不串到别的项目文件
+PASS 词汇表三段式按契约读回 — 词汇表（词汇表.json） 1/1/1
+PASS 大纲结构视图从项目文件夹读回不报错 — 大纲结构（outline.json） 推演中 2 推演中 旧港重见灯塔 推演中 灯塔守夜人 叙事关系 因果 1 旧港重见灯塔 → 灯塔守夜人
+PASS 无 bookId 进入被 canonical 补书 — http://127.0.0.1:5337/settings/documents?bookId=book_fold
+PASS 补书后仍是同一个文档标签 — 首页 | 文档 · 雾港来信
+PASS 补书不新增标签数 — 2→2
+PASS 未绑书时项目下拉停在「选择项目…」 — value=""
+PASS 未绑书不加载任何项目文件 — 没有可展示的文件。 当前作品还没有绑定项目文件夹，文档阅读器不替你猜一个项目。
+PASS 未绑书照样有本书的标签（归属按书，不按猜的项目） — 文档 · 没有项目的书
+PASS 手选后未绑提示让位
+PASS 手选项目按选择加载 — 大纲 大纲结构（outline.json） 0/0 词汇表 词汇表（词汇表.json） 正文 冒名章节 kit 编号目录（如 02-编剧/剧本.md）与 大纲.md 请用「打开本地文件夹」读取。
+PASS SPA 抽屉点「知识」开出知识标签 — 首页 | 文档 · 雾港来信 | 知识 · 雾港来信
+PASS 知识与文档两标签并存 — 首页 | 文档 · 雾港来信 | 知识 · 雾港来信
+PASS 抽屉点「文档」后活跃标签是文档 — 文档 · 雾港来信
+PASS 往返不重复开文档标签 — 首页 | 文档 · 雾港来信 | 知识 · 雾港来信
+PASS 往返不新增标签总数 — 3→3
+PASS 1440 宽度零横向溢出 — overflow=0px
+PASS 900 宽度零横向溢出 — overflow=0px
+PASS 390 宽度零横向溢出 — overflow=0px
+PASS 空书库多候选时不自动选项目 — http://127.0.0.1:5337/settings/documents
+PASS 文档页只有一张共享头
+PASS 共享头 kicker 走项目模式 — 当前作品
+PASS 头部显示本书书名并可切书
+PASS 资料/地图/知识三个分区入口在场
+PASS 文档不认领任何分区 tab（它不是设定分区）
+PASS 正文/助手回程在场
+PASS 自制返回头已撤
+PASS 只读声明移入来源栏 — 项目文件 · 只读
+PASS 分区导航带书上下文跳知识 — http://127.0.0.1:5337/settings/knowledge?bookId=book_fold
+PASS 回程按钮带书回正文 — http://127.0.0.1:5337/authoring?bookId=book_fold&chapterId=ch1
+PASS 换头后阅读器仍按本书绑定读回 — 大纲 大纲结构（outline.json） 2/1 词汇表 词汇表（词汇表.json） 1/1/1 正文 第一章 归航 构思 夜航 kit 编号目录（如 02-编剧/剧本.md）与
+PASS 共享头几何五面 × 三宽度零位移（仓库侧探针） — settings-header: five shared-header surfaces × three widths exact geometry / current book / section navigation / dark / no page errors PASS
+PASS pageerror / console error / 缺 i18n 键为零
+
+failures=0

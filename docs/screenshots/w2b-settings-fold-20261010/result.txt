@@ -1,0 +1,30 @@
+PASS 分区导航只剩三个一级 tab — sources:false map:false knowledge:true
+PASS 旧「设定」分区 tab 已撤 — sources:false map:false knowledge:true
+PASS 控制台页「知识」tab 选中
+PASS 旧「设定」链接落到控制台设定视图 — http://127.0.0.1:5336/settings/knowledge?bookId=book_fold&view=settings
+PASS 结构化设定面板复用既有件（非第二套实现）
+PASS 视图切换器选中「结构化设定」
+PASS 工作台标签标题走「知识」面 — 知识 · 雾港来信
+INFO 旧链接进入后的标签：首页 | 知识 · 雾港来信
+PASS 链式重定向（经旧名一跳）同样落位 — http://127.0.0.1:5336/settings/knowledge?bookId=book_fold&view=settings
+PASS 地点上下文条显示地点名 — 地点上下文 旧港 历史 1 · 条目 2 在地图查看 历史节点 风暴封港 设定条目 旧港 潮汐禁令
+PASS 「在地图查看」带 placeId 跳地图 — http://127.0.0.1:5336/settings/world-map?placeId=place_oldport&bookId=book_fold&worldbookId=wb_fold
+PASS 视图切换不新增工作台标签 — 2→2
+PASS 视图切换后仍是同一「知识」标签
+PASS 分区往返后仍只有一个「知识」标签 — 首页 | 知识 · 雾港来信 | 地图 · 雾港来信
+PASS 没有任何「设定 ·」标签残留 — 首页 | 知识 · 雾港来信 | 地图 · 雾港来信
+PASS 未绑书空态与「添加资料」动作在场
+PASS 旧入口兼容重定向已吞掉 mode=sources（落资料页） — http://127.0.0.1:5336/settings/sources?bookId=book_none
+PASS 资料页接得住：「添加资料」入口可用 — http://127.0.0.1:5336/settings/sources?bookId=book_none
+PASS 资料页空态有「回到设定」入口 — http://127.0.0.1:5336/settings/sources
+INFO 空书库时资料页 URL（不应被补 bookId）：http://127.0.0.1:5336/settings/sources
+PASS 「回到设定」落控制台设定视图 — http://127.0.0.1:5336/settings/knowledge?view=settings
+PASS 编辑台 → 知识控制台分区可达 — http://127.0.0.1:5336/settings/knowledge?bookId=book_fold&worldbookId=wb_fold
+PASS 控制台「编辑台」外链保留项目上下文 — http://127.0.0.1:5336/settings/worldbook/advanced?bookId=book_fold&worldbookId=wb_fold
+PASS 1440 宽度零横向溢出 — overflow=0px
+PASS 900 宽度零横向溢出 — overflow=0px
+PASS 390 宽度零横向溢出 — overflow=0px
+PASS 设定视图内编辑写回世界书（写路径未因折叠改变）
+PASS pageerror / console error 为零
+
+failures=0

@@ -96,6 +96,9 @@
 
 ## 已知缺口
 
+- 🟡 2026-10-10 实测（W4-A）：编辑台（`WorldBookEditor.vue`）页面本体在英文界面有 2 处缺词——tab 名「总览」「章回结算」在 EN 词典无对应，英文界面会直接落中文。与命名收口无关，是既有缺口，补译随 W4-B 的「世界书 → 知识」词表切换一并裁。
+- 🟢 2026-10-10 重锚（W4-B-1，承 W4-A 登记的存量红）：`scripts/workspace-consistency-smoke.mjs` 已按当前界面重锚，并改成**可隔离直跑的仓库脚本**：base 走 `PINAX_SMOKE_BASE_URL`（缺省仍是 5173）、截图目录走 `PINAX_SMOKE_SHOT_DIR`。`:21` 的 kicker 不再钉死「关联资料」——`SettingsContextBar.vue` 的文案是「当前作品／关联资料／世界书」三态条件式，断言改钉「在位＋合法态集合」；`.settings-body` 已随控制台改版不存在（现仅 `WorldMapPage` 有），滚轮断言改按「最近可滚动祖先」取意图。隔离栈（自有端口 5365/3965、临时 `PINAX_APP_DATA`/`PINAX_MIRROR_ROOT`、`PINAX_STORYAGENT_ENABLED=0`）实测 exit 0、20 张截图产出，未碰 5173。
+- 🟡 2026-10-10 实测（W2-A-2b 修英文冒烟时量到）：`src/components/settings/LocalizationCenter.vue` 的 30 个 `tr()` 字面量与另 3 处（「写作、助手、校对和设定生成共用当前模型…」「粘贴文字」「更多选项」）在 EN 词典无对应，英文界面会直接落中文。该面板含「湮灭浏览器缓存」等破坏性动作，未擅自代译，待作者裁定口径后再补；`scripts/english-settings-smoke.mjs` 已把这一组登记为已知缺口白名单，只对新出现的缺键报红。缺键告警只在 DEV 构建产生（`src/i18n/index.js:45`），跑 prod build 查不出问题。
 - 🟡 Windows x64 portable ZIP 已完成压缩完整性、ASAR、PE32+ 及真实 Linux package 激活后路由 smoke。Windows 实测发现的目录 `fsync` `EPERM` 与项目激活后 Web History 白屏均已修复并重建包，但仍需 clean-machine 复验新建、导入、刷新、OS 目录对话框、SQLite、锁与原子替换；host 证据不能替代该门禁。Squirrel installer 仍需 Windows runner，或在 Linux 安装 Wine/Mono 后再生成。
 - 🟡 `desktop-project-empty/error/readonly` 已加入 UI audit mock state 和 1440/390 可运行配置，但当前 5173 服务属于另一 worktree。按“不启动或重启现有服务”约定，本分支 live browser audit 未执行；组件行为、初始焦点、键盘、共享 token 与 768px 合同测试已通过。
 - 🟢 P1 只建立新桌面项目 repository/schema/bridge，不迁移现有 localStorage 项目记录，也不把 legacy key-value 数据伪装为 SQLite rows。迁移归 P2，plain-text editor 归 P3。
