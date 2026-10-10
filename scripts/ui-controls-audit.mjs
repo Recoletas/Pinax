@@ -35,7 +35,7 @@ const ROUTES = [
   { id: 'settings-worldbook', path: '/settings/worldbook', label: '世界书首页' },
   { id: 'settings-worldbook-create', path: '/settings/worldbook/create', label: '创建工作区' },
   { id: 'settings-worldbook-advanced', path: '/settings/worldbook/advanced', label: '高级世界书' },
-  { id: 'settings-structured', path: '/settings/structured', label: '结构化设定' },
+  { id: 'settings-knowledge', path: '/settings/knowledge?view=settings', label: '知识控制台 · 结构化设定' },
   { id: 'settings-world-map', path: '/settings/world-map', label: '地图' },
   { id: 'authoring', path: '/authoring', label: '创作工作区' },
   { id: 'materials', path: '/materials', label: '素材/速记' },

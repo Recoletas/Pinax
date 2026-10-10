@@ -97,12 +97,14 @@ async function changeWorldbook(worldbookId) {
 }
 
 function openFocusedPlaceSettings(placeId) {
+  // 设定面已折进知识控制台：带 view=settings 落到结构化设定视图，保留地点上下文。
   router.push({
-    name: 'settings-structured',
+    name: 'settings-knowledge',
     query: {
       ...(route.query.bookId ? { bookId: String(route.query.bookId) } : {}),
       ...(route.query.worldbookId ? { worldbookId: String(route.query.worldbookId) } : {}),
-      ...(placeId ? { placeId } : {})
+      ...(placeId ? { placeId } : {}),
+      view: 'settings'
     }
   })
 }

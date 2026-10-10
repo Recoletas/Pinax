@@ -27,6 +27,20 @@ function storedQuerySession(session, projectId) {
   }
 }
 
+function storedTemperature(value) {
+  const number = Number(value)
+  return value != null && Number.isFinite(number) && number >= 0 && number <= 2 ? number : null
+}
+
+function storedParams(params) {
+  if (!params || typeof params !== 'object') return null
+  const temperature = storedTemperature(params.temperatureOverride)
+  return {
+    intent: String(params.intent || ''),
+    ...(temperature !== null ? { temperatureOverride: temperature } : {})
+  }
+}
+
 function storedMessages(messages, projectId) {
   return (Array.isArray(messages) ? messages : []).flatMap((message) => {
     const common = { id: String(message?.id || ''), role: message?.role, createdAt: Number(message?.createdAt) || 0 }
@@ -47,12 +61,13 @@ function storedMessages(messages, projectId) {
     // 快照本体是会话内存 LRU，刷新即失效；键要跟着消息活下来，🔍 才能在刷新后
     // 显示「快照已失效」说明而不是整颗消失。
     return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId),
-      promptSnapshotKey: String(message.promptSnapshotKey || '') }]
+      promptSnapshotKey: String(message.promptSnapshotKey || ''), params: storedParams(message.params) }]
   })
 }
 
 function savedConversation(projectId, record) {
   const request = record.lastRequest
+  const requestTemperature = storedTemperature(request?.temperatureOverride)
   return {
     schemaVersion: SCHEMA_VERSION,
     projectId,
@@ -70,7 +85,10 @@ function savedConversation(projectId, record) {
     selectedIntent: String(record.selectedIntent || 'whole-book'),
     error: String(record.error || ''),
     lastRequest: request && String(request.projectId || '') === projectId
-      ? { projectId, question: String(request.question || ''), intent: String(request.intent || 'whole-book') }
+      ? { projectId, question: String(request.question || ''), intent: String(request.intent || 'whole-book'),
+        ...(requestTemperature !== null ? { temperatureOverride: requestTemperature } : {}),
+        ...(request.via === 'query' ? { via: 'query' } : {}),
+        ...(String(request.regenerateOf || '') ? { regenerateOf: String(request.regenerateOf).slice(0, 80) } : {}) }
       : null,
     status: record.busy ? 'running' : String(record.status || 'idle'),
     hasUnread: Boolean(record.hasUnread),

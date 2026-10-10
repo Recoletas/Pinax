@@ -113,7 +113,7 @@
   "上次任务在页面离开时已停止，可重新开始。": "The previous task stopped when you left. You can start it again.",
   "页面离开时已停止读取，可重新选择该文件。": "Reading stopped when you left. Select the file again to retry.",
   "创建工作区恢复失败。": "Could not restore the import workspace.",
-  "返回世界书": "Back to story bibles",
+  "返回知识": "Back to the knowledge console",
   "本书资料导入": "Add references",
   "建立一册世界书": "Create a story bible",
   "添加资料后可直接回书稿；需要时再用 AI 建立基调。": "Add references and return to writing. AI foundations are optional.",

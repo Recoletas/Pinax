@@ -19,9 +19,9 @@ watch(() => props.codexOpen, (open) => {
   if (open) moreOpen.value = false
 })
 
-function navigate(name) {
+function navigate(name, query) {
   moreOpen.value = false
-  router.push({ name })
+  router.push({ name, ...(query ? { query } : {}) })
 }
 </script>
 
@@ -47,7 +47,7 @@ function navigate(name) {
           </select>
         </label>
         <button v-if="advisorEnabled" class="ws-more-menu__item" type="button" role="menuitem" @click="moreOpen = false; emit('open-advisor')">当场顾问</button>
-        <button class="ws-more-menu__item" type="button" role="menuitem" :disabled="!hasSelectedWorldbook" @click="navigate('settings-structured')">设定</button>
+        <button class="ws-more-menu__item" type="button" role="menuitem" :disabled="!hasSelectedWorldbook" @click="navigate('settings-knowledge', { view: 'settings' })">设定</button>
         <button class="ws-more-menu__item" type="button" role="menuitem" @click="navigate('online-experience')">联机</button>
       </div>
     </div>

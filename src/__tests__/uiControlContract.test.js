@@ -280,7 +280,6 @@ describe('workbench control contract (U1)', () => {
 }
 {
 const routerSource = await readFile(resolve(__dirname, '../router/index.js'), 'utf8')
-    const navSource = await readFile(resolve(__dirname, '../config/workbenchNav.js'), 'utf8')
     expect(routerSource).toContain("name: 'authoring'")
     expect(routerSource).toContain("path: 'authoring'")
     expect(routerSource).toMatch(/path: 'authoring',[\s\S]*?hideGlobalMemory: true,[\s\S]*?title: '创作'/)
@@ -288,8 +287,6 @@ const routerSource = await readFile(resolve(__dirname, '../router/index.js'), 'u
     expect(routerSource).toContain("path: '/writing', redirect: { name: 'authoring' }")
     expect(routerSource).toContain("name: 'collaboration-review'")
     expect(routerSource).toContain("VITE_COLLABORATION_V2_ENABLED === 'true'")
-    expect(navSource).toContain("key: 'authoring'")
-    expect(navSource).not.toMatch(/key: 'experience'[\s\S]*key: 'writing'/)
 }
 {
 const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')

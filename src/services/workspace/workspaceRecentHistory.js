@@ -7,7 +7,7 @@ export const WORKSPACE_RECENT_VERSION = 1
 export const WORKSPACE_RECENT_LIMIT = 40
 export const WORKSPACE_RECENT_SURFACE_LABELS = Object.freeze({
   authoring: '正文', materials: '灵感素材', canvas: '视频与编导', settings: '设定',
-  sources: '资料', map: '世界地图', comics: '漫画制作', entries: '高级设定'
+  sources: '资料', map: '世界地图', comics: '漫画制作', entries: '编辑台', documents: '文档'
 })
 
 // Only navigation identities and human-assigned titles cross this boundary.

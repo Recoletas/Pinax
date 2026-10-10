@@ -27,13 +27,15 @@ import { tr } from '../../i18n/index.js'
 import { useRoute } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
-/* 设定工作区只保留四个一级职责：设定、资料、地图、条目。
-   世界书首页作为设定入口保留路由，但不再占用一个重复 tab。 */
+/* 设定工作区的一级分区（W2-A-2b 后）：资料、地图、知识。
+   「设定」不再是独立一级页——结构化设定是知识控制台内的视图（?view=settings），旧路由重定向过去。
+   「知识」tab 覆盖知识控制台 + 编辑台（settings-worldbook-advanced，写面真源）+ 世界书快速导入页。
+   活动栏那份把「世界书」「高级设置」当独立入口列出的 nav 配置已删（无运行时引用）；
+   这两个页面本身是否再收进控制台，属 W4-B 待裁，不在命名收口范围内。 */
 const tabs = [
-  { key: 'structured', icon: 'worldbook', label: '设定', routeNames: ['settings-structured', 'settings-worldbook'], routeName: 'settings-structured' },
   { key: 'sources', icon: 'sources', label: '资料', routeNames: ['settings-sources'], routeName: 'settings-sources' },
   { key: 'map', icon: 'map', label: '地图', routeNames: ['settings-world-map'], routeName: 'settings-world-map' },
-  { key: 'advanced', icon: 'settings', label: '条目', routeNames: ['settings-worldbook-advanced'], routeName: 'settings-worldbook-advanced' }
+  { key: 'knowledge', icon: 'list', label: '知识', routeNames: ['settings-knowledge', 'settings-worldbook-advanced', 'settings-worldbook'], routeName: 'settings-knowledge' }
 ]
 
 const route = useRoute()
@@ -63,10 +65,9 @@ watch(currentTabKey, revealCurrentSection, { flush: 'post' })
 // bookId/worldbookId 始终保留；对象定位只带给用得到它的分区，跨分区清除。
 // 正文回程不依赖这里的 query（存在 Authoring 标签的 volatile ledger），不会被覆盖。
 const QUERY_WHITELIST_BY_TAB = {
-  structured: ['bookId', 'worldbookId', 'placeId'],
   sources: ['bookId', 'worldbookId'],
   map: ['bookId', 'worldbookId', 'placeId', 'historyNodeId', 'entryId'],
-  advanced: ['bookId', 'worldbookId', 'entryId']
+  knowledge: ['bookId', 'worldbookId', 'entryId', 'view']
 }
 function sectionRoute(tab) {
   const query = {}

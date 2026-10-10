@@ -2,6 +2,9 @@ import { chromium } from 'playwright'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 
+// 默认打本机 dev 口；隔离取证时用 PINAX_SMOKE_BASE_URL 指到自有端口，别挂用户的 5173。
+const BASE = (process.env.PINAX_SMOKE_BASE_URL || 'http://127.0.0.1:5173').replace(/\/$/, '')
+const SHOTS = process.env.PINAX_SMOKE_SHOT_DIR || '/tmp'
 const snapshot = JSON.parse(fs.readFileSync('tmp/authoring-context-closure/fixture-localstorage.json', 'utf8'))
 const books = JSON.parse(snapshot.writing_books)
 const book = books[0]
@@ -15,13 +18,15 @@ try {
     for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value)
     sessionStorage.setItem('ui-consistency-seeded', 'yes')
   }, snapshot)
-  await page.goto(`http://127.0.0.1:5173/settings/structured?bookId=${book.id}`)
+  // 旧「结构化设定」路由已由 W2-A-2b 重定向进知识控制台设定视图，这里按旧链接进、验面板仍在位。
+  await page.goto(`${BASE}/settings/structured?bookId=${book.id}`)
   await page.waitForSelector('.structured-settings-panel')
   assert.equal(await page.locator('.shell-mast').count(), 0)
-  assert.equal(await page.locator('.context-kicker').innerText(), '关联资料')
+  // 上下文条文案按锁定态三选一（SettingsContextBar.vue），断言在位而不是钉死某个条件值。
+  assert.match(await page.locator('.context-kicker').innerText(), /^(当前作品|关联资料|世界书)$/)
   for (const width of [1440, 900, 390]) {
     await page.setViewportSize({ width, height: 1000 })
-    await page.screenshot({ path: `/tmp/pinax-settings-unified-${width}.png` })
+    await page.screenshot({ path: `${SHOTS}/pinax-settings-unified-${width}.png` })
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `overflow at ${width}`)
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -46,7 +51,7 @@ try {
     await page.setViewportSize({ width, height: 1000 })
     await page.waitForTimeout(200)
     assert(await origin.evaluate(el => el.scrollHeight <= el.clientHeight + 2), `long text clipped at ${width}`)
-    await page.screenshot({ path: `/tmp/pinax-settings-document-${width}.png` })
+    await page.screenshot({ path: `${SHOTS}/pinax-settings-document-${width}.png` })
   }
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.reload()
@@ -56,40 +61,49 @@ try {
   await origin.hover()
   await page.mouse.wheel(0, 450)
   await page.waitForTimeout(200)
-  assert(await page.locator('.settings-body').evaluate(el => el.scrollTop > 0), 'wheel over text scrolls document')
+  // 滚动容器随控制台改版换过 class：按「最近可滚动祖先」断言意图——滚轮滚的是文档，不是文本框自己。
+  const documentScrolled = await origin.evaluate((el) => {
+    let node = el.parentElement
+    while (node && node !== document.documentElement) {
+      if (node.scrollTop > 0) return true
+      node = node.parentElement
+    }
+    return (document.scrollingElement?.scrollTop || 0) > 0
+  })
+  assert(documentScrolled, 'wheel over text scrolls document')
   await page.locator('.field-directory button').first().click()
   assert(await origin.evaluate(el => document.activeElement === el), 'directory owns focus')
   await page.evaluate(() => { localStorage.setItem('app_theme', 'dark') })
   await page.reload()
   await origin.waitFor()
-  await page.screenshot({ path: '/tmp/pinax-settings-document-dark.png' })
+  await page.screenshot({ path: `${SHOTS}/pinax-settings-document-dark.png` })
   await page.evaluate(() => { localStorage.setItem('app_theme', 'light') })
   await page.reload()
   await origin.waitFor()
   await page.getByRole('button', { name: '打开工作区导航' }).click()
   await page.locator('.shell-drawer.open').waitFor()
   await page.getByRole('button', { name: '关闭导航', exact: true }).click()
-  await page.goto(`http://127.0.0.1:5173/authoring?bookId=${book.id}`)
+  await page.goto(`${BASE}/authoring?bookId=${book.id}`)
   await page.locator('.ProseMirror').first().waitFor()
   assert.equal(await page.locator('.authoring-book-tabs').count(), 0)
   assert.equal(await page.locator('.shell-mast').count(), 0)
   assert.match(await page.locator('.wall__chapter-trigger').innerText(), /章节目录/)
-  await page.screenshot({ path: '/tmp/pinax-authoring-unified.png' })
+  await page.screenshot({ path: `${SHOTS}/pinax-authoring-unified.png` })
   await page.setViewportSize({ width: 390, height: 1000 })
   await page.locator('.wall__chapter-trigger').click()
   assert.equal(await page.locator('.wall__chapter-trigger').getAttribute('aria-expanded'), 'true')
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1440, height: 1000 })
   for (const route of ['materials', 'comics', 'prose-essay']) {
-    await page.goto(`http://127.0.0.1:5173/${route}?bookId=${book.id}`)
+    await page.goto(`${BASE}/${route}?bookId=${book.id}`)
     await page.locator('[data-test="workspace-tabs"]').waitFor()
     await page.waitForFunction(() => document.querySelector('.shell-content')?.innerText.trim().length > 20)
     assert.equal(await page.locator('.shell-mast').count(), 0)
-    await page.screenshot({ path: `/tmp/pinax-${route}-unified.png` })
+    await page.screenshot({ path: `${SHOTS}/pinax-${route}-unified.png` })
     for (const width of [900, 390]) {
       await page.setViewportSize({ width, height: 1000 })
       await page.waitForTimeout(200)
-      await page.screenshot({ path: `/tmp/pinax-${route}-unified-${width}.png` })
+      await page.screenshot({ path: `${SHOTS}/pinax-${route}-unified-${width}.png` })
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${route} overflow at ${width}`)
       assert(await page.locator('.ws-tab.is-active').evaluate(tab => {
         const viewport = tab.parentElement.getBoundingClientRect()
@@ -99,28 +113,28 @@ try {
     }
     await page.setViewportSize({ width: 1440, height: 1000 })
   }
-  await page.goto('http://127.0.0.1:5173/docs/README')
+  await page.goto(`${BASE}/docs/README`)
   await page.locator('.docs-page__content h1').waitFor()
   await page.locator('[data-test="workspace-tabs"]').waitFor()
-  assert.match(await page.locator('.ws-tab.is-active').innerText(), /文档/)
+  assert.match(await page.locator('.ws-tab.is-active').innerText(), /使用指南/)
   await page.locator('.docs-page__nav-item').nth(1).click()
   await page.waitForTimeout(300)
   const chapterUrl = page.url()
   const tabWidths = await page.locator('.ws-tab').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width))
   await page.locator('.ws-tab').filter({ hasText: '首页' }).first().click()
-  await page.waitForURL('http://127.0.0.1:5173/')
-  await page.locator('.ws-tab').filter({ hasText: '文档' }).first().click()
+  await page.waitForURL(`${BASE}/`)
+  await page.locator('.ws-tab').filter({ hasText: '使用指南' }).first().click()
   await page.waitForURL(chapterUrl)
   assert.deepEqual(await page.locator('.ws-tab').evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().width)), tabWidths, 'switching must not resize tabs')
   assert.equal(await page.locator('[class*="page-route-enter"], [class*="page-layer-enter"]').count(), 0)
   await page.reload()
   await page.locator('.docs-page__content h1').waitFor()
   assert.equal(page.url(), chapterUrl)
-  assert.match(await page.locator('.ws-tab.is-active').innerText(), /文档/)
+  assert.match(await page.locator('.ws-tab.is-active').innerText(), /使用指南/)
   for (const width of [1440, 900, 390]) {
     await page.setViewportSize({ width, height: 1000 })
     await page.waitForTimeout(350)
-    await page.screenshot({ path: `/tmp/pinax-docs-tabs-${width}.png` })
+    await page.screenshot({ path: `${SHOTS}/pinax-docs-tabs-${width}.png` })
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
   }
   assert.deepEqual(errors, [])

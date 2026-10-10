@@ -174,7 +174,7 @@ watch(() => route.query.import, async value => {
 
     <div v-else-if="!bookId" class="settings-sources-empty" role="status">
       <p>{{ tr("请先从首页或写作页打开一本书。") }}</p>
-      <button type="button" class="control-primary" @click="router.push({ name: 'settings-structured' })">{{ tr("回到设定") }}</button>
+      <button type="button" class="control-primary" @click="router.push({ name: 'settings-knowledge', query: { view: 'settings' } })">{{ tr("回到设定") }}</button>
     </div>
 
     <div v-else-if="!activeWorldbook" class="settings-sources-empty" role="status">

@@ -5,14 +5,15 @@
         v-for="item in legend"
         :key="item.cat"
         type="button"
-        :class="['legend-chip', { on: highlightCat === item.cat }]"
+        :class="['legend-chip', { on: cat === item.cat }]"
+        :aria-pressed="String(cat === item.cat)"
         :style="legendStyle(item.cat)"
-        @click="toggleCat(item.cat)"
+        @click="emit('update:cat', cat === item.cat ? '' : item.cat)"
       >
         <span class="legend-dot" :style="{ background: catColorOf(item.cat) }" />
         {{ item.cat }} · {{ item.count }}
       </button>
-      <span v-if="highlightCat" class="legend-hint">{{ tr('已高亮「{cat}」— 再点图例取消', { cat: highlightCat }) }}</span>
+      <span v-if="legendHint" class="legend-hint">{{ legendHint }}</span>
     </div>
     <div ref="bodyRef" class="graph-body">
       <canvas
@@ -25,13 +26,18 @@
         @pointerup="onPointerUp"
         @pointercancel="onPointerCancel"
         @pointerleave="onPointerLeave"
-        @dblclick="resetView"
+        @dblclick="onDoubleClick"
         @wheel.prevent="onWheel"
       />
       <p v-else class="graph-empty">{{ tr('暂无可绘制的词条') }}</p>
+      <!-- 过滤后交集为空：画布保留（原位不重排），但给一句为什么是空的 -->
+      <p v-if="hasNodes && visibleNodeCount === 0" class="graph-no-match">
+        {{ tr('当前过滤条件下没有词条 — 放宽分类/状态/档位即可原位恢复') }}
+      </p>
     </div>
     <p class="graph-foot">
-      {{ tr('{entries} 词条 · {edges} 关系边 · hover 高亮邻域 · 拖节点/拖画布/滚轮缩放 · Shift+拖节点拉线建边 · 双击复位 · 点节点选中词条', { entries: nodeCount, edges: edgeCount }) }}
+      {{ footerStats }}
+      <span class="graph-foot-hint">{{ tr('悬停看邻域 · 点节点打开词条 · Alt+点聚焦邻域 · Shift+拖节点建边 · 拖画布平移 · 滚轮缩放 · 双击空白复位') }}</span>
     </p>
   </div>
 </template>
@@ -43,30 +49,74 @@ import { catColorOf } from '../../services/worldbook/entryBrowserModel.js'
 
 /**
  * 世界书关系图谱（W2·B1）——kit WorldbookGraphView 的 Vue 移植，零依赖 Canvas 2D：
- * 环形起点 + 斥力/弹簧预跑收敛、hover 邻域淡化、分类图例高亮、度数定半径、
- * 节点拖拽 / 画布平移 / 滚轮缩放 / 双击复位；节点原地点击 emit('select', graphEntry)。
+ * 环形起点 + 斥力/弹簧预跑收敛、hover 邻域淡化、度数定半径、
+ * 节点拖拽 / 画布平移 / 滚轮缩放；节点原地点击 emit('select', graphEntry)。
  * W2·G1 建边：Shift+从节点拖拽拉临时虚线到目标节点，松开命中即 emit('create-edge',
  * { fromId, toId })；不修饰键的拖拽仍是移动节点，两行为用修饰键互斥。
+ * W2-A-2 升级（过滤/命中/聚焦全部由父层给数据，本组件不再自持分类状态）：
+ * - visibleIds：分类/状态/档位过滤后的可见词条 id（Set），不可见节点与其边一起不绘制；
+ *   布局不重跑，过滤=原地聚焦，取消过滤=原位恢复。
+ * - highlightIds：kit 检索命中 id（Set），描主色环且标签常显（渲染 kit 结果，不重算）。
+ * - Alt+点节点=聚焦该节点邻域（与 hover 同一淡化档），再击或双击空白取消。
+ * - 图例分类点击改走 update:cat，与左侧分类树共用同一个 cat（不重复持状态）。
  * 组件自身仍不写任何数据、无路由副作用；建边落库由父层走 EntryLinksEditor 契约。
  */
 const props = defineProps({
   /** worldbook-graph@1（entryBrowserModel.buildGraph 产物） */
-  graph: { type: Object, default: null }
+  graph: { type: Object, default: null },
+  /** 当前分类过滤（'' = 全部）：真相在父层，图例只读 + 回写 */
+  cat: { type: String, default: '' },
+  /** 过滤后可见词条 id（Set）；null = 父层未过滤，全部可见 */
+  visibleIds: { type: Object, default: null },
+  /** kit 检索命中词条 id（Set）：主色（--accent）环 + 常显标签 */
+  highlightIds: { type: Object, default: null }
 })
 
-const emit = defineEmits(['select', 'create-edge'])
+const emit = defineEmits(['select', 'create-edge', 'update:cat'])
 
 const rootRef = ref(null)
 const bodyRef = ref(null)
 const canvasRef = ref(null)
-const highlightCat = ref('')
+const focusId = ref('')
 const legend = ref([])
 
 const graphEntries = computed(() => (Array.isArray(props.graph?.entries) ? props.graph.entries : []))
 const graphRelations = computed(() => (Array.isArray(props.graph?.relations) ? props.graph.relations : []))
 const hasNodes = computed(() => graphEntries.value.length > 0)
 const nodeCount = computed(() => graphEntries.value.length)
-const edgeCount = computed(() => graphRelations.value.length)
+
+function isVisible(id) {
+  return !props.visibleIds || props.visibleIds.has(id)
+}
+
+const visibleNodeCount = computed(() => {
+  if (!props.visibleIds) return nodeCount.value
+  return graphEntries.value.filter((entry) => props.visibleIds.has(entry.id)).length
+})
+const edgeCount = computed(() => {
+  if (!props.visibleIds) return graphRelations.value.length
+  return graphRelations.value.filter((r) => props.visibleIds.has(r.a) && props.visibleIds.has(r.b)).length
+})
+const hitCount = computed(() => (props.highlightIds ? props.highlightIds.size : 0))
+
+const footerStats = computed(() => {
+  if (props.visibleIds && visibleNodeCount.value !== nodeCount.value) {
+    return tr('{shown} / {total} 词条 · {edges} 关系边（已过滤）', {
+      shown: visibleNodeCount.value,
+      total: nodeCount.value,
+      edges: edgeCount.value
+    })
+  }
+  return tr('{total} 词条 · {edges} 关系边', { total: nodeCount.value, edges: edgeCount.value })
+})
+
+const legendHint = computed(() => {
+  const title = focusId.value ? String(graphEntries.value.find((e) => e.id === focusId.value)?.title || '') : ''
+  if (title) return tr('已聚焦「{title}」邻域 — Alt+再点或双击空白取消', { title })
+  if (hitCount.value) return tr('检索命中 {count} 个节点已描环', { count: hitCount.value })
+  if (props.cat) return tr('仅显示「{cat}」— 再点图例取消', { cat: props.cat })
+  return ''
+})
 
 /* 布局与视图为命令式状态（绘制全在 canvas，无需响应式） */
 let layout = null
@@ -77,6 +127,7 @@ let edgeDrag = null
 let lastSize = { w: 0, h: 0 }
 let labelColor = 'rgba(60, 54, 46, 0.92)'
 let labelFont = '22px sans-serif'
+let hitColor = 'rgba(176, 154, 95, 0.95)'
 let resizeObserver = null
 
 const MIN_K = 0.35
@@ -96,49 +147,49 @@ function draw(activeHover) {
   if (!canvas || !ctx || !layout) return
   const { nodes, edges } = layout
   const { k, tx, ty } = view
-  const hl = highlightCat.value
+  const lit = activeHover || focusId.value
+  const hits = props.highlightIds
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.setTransform(k, 0, 0, k, tx, ty)
 
   const neighbors = new Set()
-  if (activeHover) {
-    neighbors.add(activeHover)
+  if (lit) {
+    neighbors.add(lit)
     for (const [a, b] of edges) {
-      if (a.e.id === activeHover) neighbors.add(b.e.id)
-      if (b.e.id === activeHover) neighbors.add(a.e.id)
+      if (a.e.id === lit) neighbors.add(b.e.id)
+      if (b.e.id === lit) neighbors.add(a.e.id)
     }
   }
-  // 淡化优先级：hover 邻域 > 分类高亮 > 无（kit 同款阈值）
+  // 淡化优先级：hover / 聚焦邻域 > 无（过滤不再靠淡化，见 isVisible）
   const dimOf = (id) => {
-    if (activeHover) return neighbors.has(id) ? 1 : 0.14
-    if (hl) {
-      const n = nodes.find((item) => item.e.id === id)
-      return n && n.e.cat === hl ? 1 : 0.16
-    }
+    if (lit) return neighbors.has(id) ? 1 : 0.14
     return 1
   }
   ctx.lineWidth = 1.4
   for (const [a, b] of edges) {
-    const on = !activeHover && !hl ? 1 : Math.min(dimOf(a.e.id), dimOf(b.e.id))
+    if (!isVisible(a.e.id) || !isVisible(b.e.id)) continue
+    const on = !lit ? 1 : Math.min(dimOf(a.e.id), dimOf(b.e.id))
     ctx.strokeStyle = on === 1 ? 'rgba(138, 131, 117, 0.5)' : `rgba(138, 131, 117, ${0.35 * on})`
     ctx.beginPath()
     ctx.moveTo(a.x, a.y)
     ctx.lineTo(b.x, b.y)
     ctx.stroke()
   }
-  // 名称显隐：放大后全显，度数 ≥5 的枢纽常显
+  // 名称显隐：放大后全显，度数 ≥5 的枢纽与检索命中常显
   const labelAll = k >= 1.2
   for (const n of nodes) {
+    if (!isVisible(n.e.id)) continue
     const alpha = dimOf(n.e.id)
     if (alpha === 0) continue
     const r = radiusOf(n)
+    const isHit = Boolean(hits && hits.has(n.e.id))
     ctx.globalAlpha = alpha
     ctx.beginPath()
     ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
     ctx.fillStyle = catColorOf(n.e.cat)
     ctx.fill()
-    if (activeHover && n.e.id === activeHover) {
+    if (lit && n.e.id === lit) {
       // 明暗两主题都可见的选中环：深色描边打底 + 白色细环
       ctx.lineWidth = 5 / k
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)'
@@ -146,8 +197,13 @@ function draw(activeHover) {
       ctx.lineWidth = 2 / k
       ctx.strokeStyle = '#fff'
       ctx.stroke()
+    } else if (isHit) {
+      // kit 检索命中：主题主色单环（与选中环区分，不叠双圈）；4px 才在 1x 下压过同色节点填色
+      ctx.lineWidth = 4 / k
+      ctx.strokeStyle = hitColor
+      ctx.stroke()
     }
-    if (labelAll || n.deg >= 5) {
+    if (labelAll || n.deg >= 5 || isHit) {
       ctx.font = labelFont
       ctx.textAlign = 'center'
       ctx.fillStyle = labelColor
@@ -283,6 +339,7 @@ function pickNode(clientX, clientY) {
   let best = null
   let bestD = Infinity
   for (const n of layout.nodes) {
+    if (!isVisible(n.e.id)) continue
     const r = Math.max(radiusOf(n), 12 / k)
     const d = (n.x - p.x) ** 2 + (n.y - p.y) ** 2
     if (d <= r * r && d < bestD) {
@@ -385,8 +442,15 @@ function onPointerUp(event) {
   const current = drag
   drag = null
   if (canvasRef.value) canvasRef.value.style.cursor = 'grab'
-  // 节点原地点击（未拖动）→ 选中词条
-  if (current?.type === 'node' && !current.moved) emit('select', current.n.e)
+  // 节点原地点击（未拖动）：Alt+点=聚焦该节点邻域（原地、可继续平移缩放），否则选中词条
+  if (current?.type === 'node' && !current.moved) {
+    if (event.altKey) {
+      focusId.value = focusId.value === current.n.e.id ? '' : current.n.e.id
+      draw(hoverId)
+      return
+    }
+    emit('select', current.n.e)
+  }
 }
 
 function onPointerCancel() {
@@ -423,6 +487,14 @@ function onPointerLeave() {
   }
 }
 
+function onDoubleClick(event) {
+  // 节点上的双击不承接手势：单次点击已是「打开词条」，再挂双击会先触发两次选中。
+  // 聚焦邻域走 Alt+点（见 onPointerUp）；空白双击保持既有复位语义。
+  if (pickNode(event.clientX, event.clientY)) return
+  focusId.value = ''
+  resetView()
+}
+
 function resetView() {
   view = { k: 1, tx: 0, ty: 0 }
   draw(null)
@@ -442,13 +514,8 @@ function onWheel(event) {
   draw(hoverId)
 }
 
-function toggleCat(cat) {
-  highlightCat.value = highlightCat.value === cat ? '' : cat
-  draw(hoverId)
-}
-
 function legendStyle(cat) {
-  const on = highlightCat.value === cat
+  const on = props.cat === cat
   const color = catColorOf(cat)
   return {
     borderColor: on ? color : 'var(--border)',
@@ -460,7 +527,7 @@ function legendStyle(cat) {
 watch(
   () => props.graph,
   () => {
-    highlightCat.value = ''
+    focusId.value = ''
     cancelEdgeDrag()
     layout = null
     lastSize = { w: 0, h: 0 }
@@ -469,12 +536,20 @@ watch(
   }
 )
 
+// 过滤/命中变化只重绘：布局与节点原位保持不变（过滤=原地收窄，不是重排）
+watch(
+  () => [props.visibleIds, props.highlightIds],
+  () => draw(hoverId)
+)
+
 onMounted(() => {
   if (rootRef.value) {
     // 标签颜色/字体随主题：读容器 computed 值（canvas 不认 CSS var）
     const computed = getComputedStyle(rootRef.value)
     labelColor = computed.color || labelColor
     if (computed.fontFamily) labelFont = `22px ${computed.fontFamily}`
+    const accent = computed.getPropertyValue('--accent').trim()
+    if (accent) hitColor = accent
   }
   relayout()
   if (typeof ResizeObserver !== 'undefined' && bodyRef.value) {
@@ -564,11 +639,37 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 
+/* 覆盖在空画布中央：不拦截指针，过滤放宽后原位恢复 */
+.graph-no-match {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
 .graph-foot {
   margin: 0;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.graph-foot-hint {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* 手势说明全是桌面修饰键/滚轮，触屏无对应操作，窄屏不占行 */
+@media (max-width: 760px), (pointer: coarse) {
+  .graph-foot-hint {
+    display: none;
+  }
 }
 </style>

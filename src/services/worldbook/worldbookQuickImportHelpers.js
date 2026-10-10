@@ -2,7 +2,7 @@
  * 世界书·快速导入 共享 helpers
  *
  * 提取自 WorldBookQuickImport.vue 的纯函数 + 流程编排 helper。
- * 这些 helper 同时被快速导入页与高级设置编辑器复用，确保两边行为一致。
+ * 这些 helper 同时被快速导入页与编辑台（settings-worldbook-advanced）复用，确保两边行为一致。
  *
  * 包含：
  * - 纯归一函数：normalizeText / normalizeEntryType / normalizeKeywords / uniqueGroups
@@ -876,6 +876,6 @@ export function getHookExcerpt(preset, maxChars = 80) {
   return `${hook.slice(0, maxChars)}…`
 }
 
-// ----- Preset re-export (供 WorldBookQuickImport.vue / 高级设置使用) -----
+// ----- Preset re-export (供 WorldBookQuickImport.vue / 编辑台使用) -----
 
 export { presets as seedWorldbookPresets, formatWorldbookStatus }

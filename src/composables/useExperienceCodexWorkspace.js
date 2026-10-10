@@ -77,8 +77,12 @@ export function useExperienceCodexWorkspace({
 
   function openPlaceContext({ placeId, target } = {}) {
     if (!placeId) return
-    const routeName = target === 'settings' ? 'settings-structured' : 'settings-world-map'
-    router.push({ name: routeName, query: { placeId } })
+    // 设定面已折进知识控制台：地点上下文跳控制台的结构化设定视图。
+    if (target === 'settings') {
+      router.push({ name: 'settings-knowledge', query: { placeId, view: 'settings' } })
+      return
+    }
+    router.push({ name: 'settings-world-map', query: { placeId } })
   }
 
   function closeCodexDetail() {

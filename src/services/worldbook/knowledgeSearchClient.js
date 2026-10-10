@@ -2,7 +2,9 @@
 // 唯一职责：把 server 三个同源代理端点（/api/knowledge/*）包成带超时与结构化错误的调用；
 // 打分与一跳扩展全部由 kit 内核返回、原样上抛给 UI 渲染——前端不重算任何分数。
 // projectId 解析：显式传入优先；否则按 bookId 查本地项目注册表（GET /api/localmirror/projects，
-// 与 ProjectInfoPanel / 文件双写同一真源，短 TTL 缓存），查不到 = 显式 NO_PROJECT_CONTEXT 错误态。
+// 与 ProjectInfoPanel / 文件双写同一真源，短 TTL 缓存）。世界书检索查不到 = 显式
+// NO_PROJECT_CONTEXT 错误态（kit 词表按项目建，没有项目就没有检索目标）；知识卡检索把它当
+// 可选增强（方法论语料在 kit 仓全局根），解析不到只查全局并把 project='' 如实上抛。
 const API_BASE = '/api/knowledge'
 const REGISTRY_BASE = '/api/localmirror'
 // 服务端转发自身有 8s 总超时；这里再加客户端护栏（含注册表解析余量）。
@@ -80,21 +82,37 @@ export async function searchWorldbookEntries({ projectId = '', bookId = '', q = 
   return postJson('/worldbook-search', body)
 }
 
-/** 写作方法论知识卡检索（kit kb_search）。 */
-export async function searchKnowledgeCards({ q = '', dir = '', k } = {}) {
+/**
+ * 写作方法论知识卡检索（kit kb_search；R2.2 双根合并）。
+ * projectId/bookId 可选：能解析到本地项目就带上 kit 的 project 形参，kit 把全局语料与
+ * projects/<id>/kit 本书档并池检索、命中带 source=global|project；解析不到就只查全局
+ * （方法论语料本来在 kit 仓，没有本书上下文不是错误）。
+ * 返回值的 project 字段（'' = 本轮没带项目侧）供 UI 如实说明来源，代理层不静默这一维。
+ */
+export async function searchKnowledgeCards({ q = '', dir = '', k, projectId = '', bookId = '' } = {}) {
   const query = String(q || '').trim()
   if (!query) return { ok: false, error: { code: 'EMPTY_QUERY', message: '检索词为空' } }
+  const project = String(projectId || '').trim() || await projectIdForBook(bookId)
   const body = { q: query }
   if (String(dir || '').trim()) body.dir = String(dir).trim()
   if (Number.isInteger(k) && k > 0) body.k = k
-  return postJson('/kb-search', body)
+  if (project) body.projectId = project
+  const response = await postJson('/kb-search', body)
+  return response.ok ? { ...response, project } : response
 }
 
-/** 读知识卡正文（kit kb_read；ref = 卡片 id 或相对路径）。 */
-export async function readKnowledgeCard({ ref = '', maxChars } = {}) {
+/**
+ * 读知识卡正文（kit kb_read；ref = 卡片 id 或相对路径）。
+ * project 与检索时同源：项目命中的 file 是项目根相对路径，不带 project 时全局根读不到它
+ * （kit 侧「全局未命中 → 回落项目根」只在传了 project 时才成立）。
+ */
+export async function readKnowledgeCard({ ref = '', maxChars, projectId = '' } = {}) {
   const cardRef = String(ref || '').trim()
   if (!cardRef) return { ok: false, error: { code: 'EMPTY_REF', message: '卡片引用为空' } }
   const body = { ref: cardRef }
   if (Number.isInteger(maxChars) && maxChars > 0) body.maxChars = maxChars
-  return postJson('/kb-read', body)
+  const project = String(projectId || '').trim()
+  if (project) body.projectId = project
+  const response = await postJson('/kb-read', body)
+  return response.ok ? { ...response, project } : response
 }

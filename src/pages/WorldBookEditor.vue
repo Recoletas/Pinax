@@ -2766,7 +2766,7 @@ onMounted(async () => {
   /* AppShell is height: 100vh + overflow: hidden; without an internal
      scroll container, the create tab's stacked "novel snippet import" +
      "AI generation worldbook" sections get clipped at the bottom.
-     Mirror StructuredSettings.vue .settings-body so the editor scrolls
+     Mirror the structured-settings workspace body so the editor scrolls
      inside the bounded shell. */
   overflow: auto;
 }

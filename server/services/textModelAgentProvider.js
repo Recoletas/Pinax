@@ -45,6 +45,11 @@ async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
   // 2026-10-09 预算完全废弃：不发 max_tokens（思考型端点的计量与正文不同，写死会把正文饿死），
   // 单次请求的失控护栏只剩模型调用轮数闸。
   const roundGuard = resolveModelRoundGuard(taskMeta.roundGuard, 'advisor')
+  // 作者显式指定的取样档贯穿整个请求（含格式修复轮），未指定时沿用缺省曲线。
+  const declaredTemperature = Number(taskMeta?.options?.temperatureOverride)
+  const overrideTemperature = Number.isFinite(declaredTemperature) && declaredTemperature >= 0 && declaredTemperature <= 2
+    ? declaredTemperature
+    : null
   let lastError = null
   for (let attempt = 0; ; attempt += 1) {
     roundGuard.acquire('advisor')
@@ -52,7 +57,7 @@ async function runTextModelAgentViaKit(envelope, question, taskMeta = {}) {
     try {
       const result = await forwardComplete({
         messages: [{ role: 'user', content: prompt + repairInstruction }],
-        temperature: attempt === 0 ? 0.4 : 0.2,
+        temperature: overrideTemperature ?? (attempt === 0 ? 0.4 : 0.2),
         timeoutMs: attempt === 0 ? TEXT_MODEL_PROVIDER.timeoutMs : 30000
       })
       const content = String(result.content || '').trim()

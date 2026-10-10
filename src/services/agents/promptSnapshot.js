@@ -32,6 +32,7 @@ export function recordPromptSnapshot({
   sessionId,
   revision,
   intentMode,
+  temperature,
   blocks,
   budget,
   toolNames,
@@ -47,6 +48,8 @@ export function recordPromptSnapshot({
     sessionId: String(sessionId || ''),
     revision: String(revision || ''),
     intentMode: String(intentMode || ''),
+    // 只有作者显式指定取样档才记账；null 表示沿用服务端缺省曲线，不是「温度为 null」。
+    temperature: Number.isFinite(Number(temperature)) && temperature != null ? Number(temperature) : null,
     blocks: normalizeBlocks(blocks),
     budget: {
       maxChars: Number(budget?.maxChars || 0),

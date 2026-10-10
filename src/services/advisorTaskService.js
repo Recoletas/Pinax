@@ -198,6 +198,9 @@ export async function requestAdvisorTask({
     projectId: built.envelope.projectId || '',
     revision: built.envelope.target?.revision || '',
     intentMode: String(frozenOptions.knowledgeIntent || ''),
+    temperature: Number.isFinite(Number(frozenOptions.temperatureOverride)) && frozenOptions.temperatureOverride != null
+      ? Number(frozenOptions.temperatureOverride)
+      : null,
     blocks: (built.envelope.blocks || []).map((block) => ({
       kind: block.kind,
       chars: serializeAgentBlockContent(block?.content).length,

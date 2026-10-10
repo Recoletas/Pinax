@@ -142,6 +142,7 @@ onMounted(() => {
             <template v-if="snapshot.revision">{{ tr('修订号 {id}', { id: snapshot.revision }) }}</template>
             <template v-if="snapshot.revision && snapshot.intentMode"> · </template>
             <template v-if="snapshot.intentMode">{{ tr('意图 {intent}', { intent: snapshot.intentMode }) }}</template>
+            <template v-if="snapshot.temperature !== null && snapshot.temperature !== undefined"> · {{ tr('取样 {temp}', { temp: snapshot.temperature }) }}</template>
           </p>
         </footer>
       </template>

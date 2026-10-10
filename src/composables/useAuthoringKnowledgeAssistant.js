@@ -2,6 +2,7 @@ import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAg
 import { computed, onBeforeUnmount, reactive, ref, unref, watch } from 'vue'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
 import {
+  AUTHORING_KNOWLEDGE_INTENTS,
   createAuthoringKnowledgeAnswer,
   reconcileAuthoringKnowledgeAnswer
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
@@ -16,6 +17,23 @@ function valueOf(value) {
 
 function normalizedText(value) {
   return String(value ?? '').trim()
+}
+
+// 作者显式取样档的归一化：与 shared/generationToolContract 的 0-2 口径一致，
+// 越界或非数值一律视为「不覆盖」，由服务端 typed 400 兜住真正的非法请求。
+function normalizeTemperatureOverride(value) {
+  const number = Number(value)
+  if (value === null || value === undefined || value === '' || !Number.isFinite(number)) return null
+  return number >= 0 && number <= 2 ? number : null
+}
+
+// 重答的意图必须落回资料直查认识的取值：旧回答可能带着写作面（'agent'）等直查不认的
+// 意图，这类回落到整本查阅，避免把非法枚举灌进查询会话。
+function regenerateIntent(intent, message) {
+  for (const candidate of [normalizedText(intent), normalizedText(message?.params?.intent)]) {
+    if (AUTHORING_KNOWLEDGE_INTENTS.includes(candidate)) return candidate
+  }
+  return 'whole-book'
 }
 
 function messageId(prefix = 'knowledge') {
@@ -109,16 +127,20 @@ function cloneQueryInput(value) {
   return value == null ? null : freeze(JSON.parse(JSON.stringify(value)))
 }
 
-function questionWithConversation(question, messages) {
+function questionWithConversation(question, messages, excludeId = '') {
   const turns = []
   let remaining = 2400
   const history = [...messages]
   const lastMessage = history.at(-1)
   // 重试或停止后再次发送同一问题时，末尾尚无回答的作者问题只出现一次。
   if (lastMessage?.role === 'user' && normalizedText(lastMessage.question) === question) history.pop()
+  // 重答时先剔掉被替换的那条回答，否则旧答案会当作历史把新答案锚回同一个写法。
+  const excluded = excludeId ? history.findIndex((message) => message.id === excludeId) : -1
+  if (excluded >= 0) history.splice(excluded, 1)
   for (const message of history.reverse()) {
     const answer = message.role === 'assistant' ? message.answer : null
     if (answer?.stale) continue
+    if (message.role === 'user' && normalizedText(message.question) === question) continue
     const content = message.role === 'user' ? message.question : answer?.answer || (message.kind === 'agent' ? message.text : '')
     if (!content) continue
     const excerpt = String(content).slice(0, Math.min(600, remaining))
@@ -427,6 +449,11 @@ export function useAuthoringKnowledgeAssistant({
     const runtime = entry.runtime
     const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
     const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
+    const temperatureOverride = normalizeTemperatureOverride(typeof payload === 'object' ? payload.temperatureOverride : null)
+    const regenerateOf = normalizedText(typeof payload === 'object' ? payload.regenerateOf : '')
+    // 直查链：一次成型、带出处、逐请求温度生效；Agent 链走工具循环但不认逐请求温度。
+    // 声明温度即必须落直查，否则温度会被任务面静默丢弃；「重答」面板显式请求 via=query。
+    const viaQuery = (typeof payload === 'object' && payload.via === 'query') || temperatureOverride !== null
     const project = entry.projectId
     if (!project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
     if (runtime.cancellation) {
@@ -435,7 +462,7 @@ export function useAuthoringKnowledgeAssistant({
       if (stopped === false || entry !== activeEntry.value || disposed || state.busy) return false
     }
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
-    const providerQuestion = questionWithConversation(question, state.messages)
+    const providerQuestion = questionWithConversation(question, state.messages, regenerateOf)
     const token = ++runtime.token
     runtime.staleToken += 1
     const controller = new AbortController()
@@ -447,7 +474,12 @@ export function useAuthoringKnowledgeAssistant({
     state.status = 'running'
     state.error = ''
     state.selectedIntent = intent
-    state.lastRequest = { question, intent, projectId: project }
+    state.lastRequest = {
+      question, intent, projectId: project,
+      ...(temperatureOverride !== null ? { temperatureOverride } : {}),
+      ...(viaQuery ? { via: 'query' } : {}),
+      ...(regenerateOf ? { regenerateOf } : {})
+    }
     if (appendUser) {
       state.messages.push({ id: messageId('question'), role: 'user', question, intent, createdAt: Date.now() })
     }
@@ -457,7 +489,7 @@ export function useAuthoringKnowledgeAssistant({
     persistDraft(entry)
 
     try {
-      if (agentEngine) {
+      if (agentEngine && !viaQuery) {
         // runAuthoringAgentTurn captures the context before its first await.
         const pending = runAuthoringAgentTurn({ engine: agentEngine, entry, question, providerQuestion, token, signal: controller.signal,
           persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
@@ -502,7 +534,8 @@ export function useAuthoringKnowledgeAssistant({
         const result = await executeQuery({
           envelope: session.contextEnvelope, question: providerQuestion,
           taskType: session.taskId, scope: 'writing', mode: 'review',
-          options: { knowledgeIntent: intent }, signal: controller.signal
+          options: { knowledgeIntent: intent, ...(temperatureOverride !== null ? { temperatureOverride } : {}) },
+          signal: controller.signal
         })
         answerSnapshotKey = String(result?.requestId || '')
         modelOutput = result?.result?.knowledgeAnswer
@@ -514,7 +547,15 @@ export function useAuthoringKnowledgeAssistant({
       const revisions = await querySession.collectCurrentRevisions(session, currentReconcileInput(entry, session))
       if (token !== runtime.token || disposed) return false
       answer = reconcileAuthoringKnowledgeAnswer(answer, revisions)
-      state.messages.push({ id: messageId('answer'), role: 'assistant', answer, session, createdAt: Date.now(), promptSnapshotKey: answerSnapshotKey })
+      const answerMessage = {
+        id: messageId('answer'), role: 'assistant', answer, session, createdAt: Date.now(), promptSnapshotKey: answerSnapshotKey,
+        params: { intent, ...(temperatureOverride !== null ? { temperatureOverride } : {}) }
+      }
+      const replaced = regenerateOf ? state.messages.findIndex((message) => message.id === regenerateOf) : -1
+      if (replaced >= 0) {
+        answerMessage.id = state.messages[replaced].id
+        state.messages.splice(replaced, 1, answerMessage)
+      } else state.messages.push(answerMessage)
       state.status = 'completed'
       state.hasUnread = true
       state.lastRequest = null
@@ -526,7 +567,8 @@ export function useAuthoringKnowledgeAssistant({
       if (message) {
         state.error = message
         state.hasUnread = true
-        if (!state.draft && runtime.draftRevision === runtime.requestDraftRevision) {
+        // 重答失败时原答案仍在对话里，不再把历史问题灌回输入框。
+        if (!regenerateOf && !state.draft && runtime.draftRevision === runtime.requestDraftRevision) {
           state.draft = question
           persistDraft(entry)
         }
@@ -545,6 +587,32 @@ export function useAuthoringKnowledgeAssistant({
     const request = activeEntry.value.state.lastRequest
     if (!request || busy.value) return false
     return ask(request, { appendUser: false })
+  }
+
+  /**
+   * 重答某条回答：沿用该回答对应的作者问题，按新的意图视角／取样档走一次带出处的
+   * 资料直查，成功后原地替换那条回答（不新增作者消息、不改动提问顺序）。
+   */
+  function regenerateAnswer(id, { intent = '', temperatureOverride = null } = {}) {
+    const entry = activeEntry.value
+    const state = entry.state
+    if (disposed || !normalizedText(id) || state.busy || state.agentAdoptionBusy) return false
+    const index = state.messages.findIndex((message) => message.id === id)
+    if (index < 0) return false
+    const message = state.messages[index]
+    const answerable = message.role === 'assistant' && (message.answer || message.kind === 'agent')
+    if (!answerable || message.proposal) return false
+    const question = [...state.messages.slice(0, index)].reverse()
+      .find((item) => item.role === 'user' && normalizedText(item.question))
+    if (!question) return false
+    return ask({
+      question: question.question,
+      intent: regenerateIntent(intent, message),
+      temperatureOverride: normalizeTemperatureOverride(temperatureOverride),
+      via: 'query',
+      regenerateOf: id,
+      projectId: entry.projectId
+    }, { appendUser: false })
   }
 
   watch(activeProjectId, (next, previous) => {
@@ -638,6 +706,6 @@ export function useAuthoringKnowledgeAssistant({
     sessions, selectSession, newConversation, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
-    ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
+    ask, retry, regenerateAnswer, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
   })
 }

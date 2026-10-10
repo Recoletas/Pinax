@@ -123,13 +123,16 @@ async function seed(browser, viewport) {
 async function contextInfo(page) {
   return page.evaluate(() => {
     const bar = document.querySelector('[data-test="settings-context-bar"]')
+    // 项目模式下上下文条第一枚 select 是「切换作品」（.context-book-select），
+    // 世界书选择器不在其中；这里只取世界书那枚，取不到就回落到 data-worldbook-name。
+    const worldbookSelect = bar?.querySelector('.context-worldbook-select:not(.context-book-select)')
     return {
       kicker: bar?.querySelector('.context-kicker')?.textContent.trim() || '',
       projectTitle: document.querySelector('.ws-tab.is-active')?.getAttribute('title') || '',
-      selected: bar?.querySelector('.context-worldbook-select')?.selectedOptions?.[0]?.textContent.trim()
+      selected: worldbookSelect?.selectedOptions?.[0]?.textContent.trim()
         || bar?.dataset.worldbookName || bar?.querySelector('.context-worldbook-empty')?.textContent.trim() || '',
       mismatch: bar?.querySelector('.context-mismatch')?.textContent.trim() || '',
-      selectDisabled: bar?.querySelector('.context-worldbook-select')?.disabled ?? (bar?.dataset.projectLocked === 'true' && !bar?.querySelector('select')),
+      selectDisabled: worldbookSelect?.disabled ?? (bar?.dataset.projectLocked === 'true' && !worldbookSelect),
       returnBtn: Boolean(document.querySelector('[data-test="settings-return-authoring"]'))
     }
   })
@@ -172,13 +175,15 @@ try {
     const j6 = await contextInfo(page)
     check('J6 路由不一致提示并使用当前绑定', j6.mismatch.includes('已变化') && j6.selected === '雾港世界（甲）', JSON.stringify(j6))
 
-    // J2：分区切换保留 bookId/worldbookId。
+    // J2：分区切换保留 bookId/worldbookId。（W2-A-2b：「设定」已折进知识控制台的设定视图）
     await page.goto(`${BASE}/settings/worldbook/advanced?bookId=book-a&worldbookId=wa`, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(800)
-    await page.locator('[data-test="settings-section-tab-structured"]').click()
+    await page.locator('[data-test="settings-section-tab-knowledge"]').click()
+    await page.waitForTimeout(500)
+    await page.locator('[data-test="knowledge-view-settings"]').click()
     await page.waitForTimeout(700)
     const j2a = { url: page.url(), ...(await contextInfo(page)) }
-    check('J2 条目→设定保留项目上下文', /[?&]bookId=book-a/.test(j2a.url) && /[?&]worldbookId=wa/.test(j2a.url) && j2a.projectTitle.includes('雾港纪事·甲'), JSON.stringify({ url: j2a.url, kicker: j2a.kicker }))
+    check('J2 条目→知识控制台设定视图保留项目上下文', /[?&]bookId=book-a/.test(j2a.url) && /[?&]worldbookId=wa/.test(j2a.url) && /[?&]view=settings/.test(j2a.url) && j2a.projectTitle.includes('雾港纪事·甲'), JSON.stringify({ url: j2a.url, kicker: j2a.kicker }))
     await page.locator('[data-test="settings-section-tab-map"]').click()
     await page.waitForTimeout(900)
     const j2b = { url: page.url(), ...(await contextInfo(page)) }

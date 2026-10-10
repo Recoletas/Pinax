@@ -9,7 +9,7 @@ const Experience = () => import('../pages/Experience.vue')
 const WorldBookQuickImport = () => import('../pages/WorldBookQuickImport.vue')
 const WorldbookCreationWorkspace = () => import('../pages/WorldbookCreationWorkspace.vue')
 const WorldBookEditor = () => import('../pages/WorldBookEditor.vue')
-const StructuredSettings = () => import('../pages/StructuredSettings.vue')
+const KnowledgeConsolePage = () => import('../pages/KnowledgeConsolePage.vue')
 const SettingsSources = () => import('../pages/SettingsSources.vue')
 const WorldMapPage = () => import('../pages/WorldMapPage.vue')
 const DocumentsPage = () => import('../pages/DocumentsPage.vue')
@@ -92,17 +92,23 @@ const workbenchChildren = [
     component: WorldBookEditor,
     meta: {
       activityKey: 'worldbook',
-      title: '世界书 · 高级设置'
+      title: '编辑台'
+    }
+  },
+  {
+    path: 'settings/knowledge',
+    name: 'settings-knowledge',
+    component: KnowledgeConsolePage,
+    meta: {
+      activityKey: 'worldbook',
+      title: '知识'
     }
   },
   {
     path: 'settings/structured',
     name: 'settings-structured',
-    component: StructuredSettings,
-    meta: {
-      activityKey: 'worldbook',
-      title: '设定 · 结构化设定'
-    }
+    // W2-A-2b：独立「设定」页折进知识控制台的控制台内视图；旧名/旧链接带原 query 重定向。
+    redirect: (to) => ({ name: 'settings-knowledge', query: { ...to.query, view: 'settings' } })
   },
   {
     path: 'settings/sources',

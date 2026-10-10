@@ -4,7 +4,7 @@
       <b class="ueb-title">{{ tr('条目总览') }}</b>
       <BrowserSearchBar
         v-model:query="query"
-        :result-count="searchResult ? (searchResult.hits?.length || 0) : visible.length"
+        :result-count="searchError ? 0 : searchResult ? (searchResult.hits?.length || 0) : visible.length"
         :searching="searching"
         @submit="runSearch"
       />
@@ -44,6 +44,17 @@
             {{ option.label }}
           </button>
         </div>
+        <div class="ueb-status ueb-tier" role="group" :aria-label="tr('档位过滤')">
+          <button
+            v-for="option in TIER_OPTIONS"
+            :key="option.value"
+            type="button"
+            :class="['ueb-status-chip', { on: tier === option.value }]"
+            @click="tier = option.value"
+          >
+            {{ option.label }}
+          </button>
+        </div>
       </aside>
 
       <div class="ueb-main">
@@ -53,14 +64,14 @@
             : tr('显示 {shown} / {total} 条', { shown: visible.length, total: tree.total }) }}
         </p>
         <div class="ueb-view">
+          <div v-if="searchError" class="ueb-search-error" role="alert">
+            <b>{{ tr('知识检索服务不可用') }}</b>
+            <span>{{ searchError.message }}</span>
+            <code>{{ searchError.code }}</code>
+          </div>
           <EntryWiki v-if="selected" :entry="selected" :entries="entries" @back="selected = null" @jump="jumpTo" />
           <template v-else-if="mode === 'cards'">
-            <div v-if="searchError" class="ueb-search-error" role="alert">
-              <b>{{ tr('知识检索服务不可用') }}</b>
-              <span>{{ searchError.message }}</span>
-              <code>{{ searchError.code }}</code>
-            </div>
-            <template v-else-if="searchResult">
+            <template v-if="searchResult">
               <ol class="ueb-hits">
                 <li v-for="hit in searchResult.hits" :key="`hit-${hit.id}`" class="ueb-hit">
                   <button
@@ -114,7 +125,16 @@
               <p v-if="!visible.length" class="ueb-empty">{{ tr('暂无匹配条目') }}</p>
             </template>
           </template>
-          <GraphCanvas v-else :graph="graph" @select="openEntry" @create-edge="(payload) => emit('create-edge', payload)" />
+          <GraphCanvas
+            v-else
+            :graph="graph"
+            :cat="cat"
+            :visible-ids="visibleIds"
+            :highlight-ids="hitIds"
+            @update:cat="cat = $event"
+            @select="openEntry"
+            @create-edge="(payload) => emit('create-edge', payload)"
+          />
         </div>
       </div>
     </div>
@@ -122,14 +142,16 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { tr } from '../../i18n/index.js'
 import {
   buildCategoryTree,
   buildGraph,
   catColorOf,
-  filterEntries
+  filterEntries,
+  hitIdsOf,
+  visibleIdsOf
 } from '../../services/worldbook/entryBrowserModel.js'
 import { searchWorldbookEntries } from '../../services/worldbook/knowledgeSearchClient.js'
 import BrowserSearchBar from './BrowserSearchBar.vue'
@@ -139,23 +161,44 @@ import EntryWiki from './EntryWiki.vue'
 import GraphCanvas from './GraphCanvas.vue'
 
 /**
- * 统一条目浏览器（W2·B1 只读壳；W1-A 检索接线）——kit 四合一浏览面蓝本：
- * 左分类树带计数 / 中词条卡墙 / 图谱模式 / 顶栏 kit 代理检索（hits + 一跳扩展分区，渲染
- * kit 返回的 score/relations/expansion，前端不重算） / wiki 详情关联 chips 就地跳转 / status 徽标。
+ * 统一条目浏览器（W2·B1 只读壳；W1-A 检索接线；W2-A-2 过滤与命中同驱图谱）——kit 四合一浏览面蓝本：
+ * 左分类树带计数 + 状态/档位过滤 / 中词条卡墙 / 图谱模式 / 顶栏 kit 代理检索（hits + 一跳扩展分区，
+ * 渲染 kit 返回的 score/relations/expansion，前端不重算） / wiki 详情关联 chips 就地跳转 / status 徽标。
+ * 三个过滤轴（cat/status/tier）是一份真相：词条墙按它筛，图谱按它隐藏节点（布局不重排，原位收窄）。
+ * 宿主（知识控制台）可传入 filters 把这份真相收到自己手里，表格视图据此同步收窄；不传则本件自持。
+ * 检索命中集合下发图谱描环；档位单源注入端 entryTierOf，本处不另定档位规则。
  * 纯只读：props 进 worldbook 对象，选中条目时 emit('select', entry)；无写操作、无路由跳转副作用。
  * 检索目标：route.query.bookId → 项目注册表解析 projectId（knowledgeSearchClient 内做）。
  */
 const props = defineProps({
   /** 世界书对象（worldStore 运行时形状，{ name, entries } 即可） */
-  worldbook: { type: Object, default: null }
+  worldbook: { type: Object, default: null },
+  /**
+   * 跨视图共享的过滤真相（知识控制台持有同一份，表格视图跟着收窄）。
+   * 不传时浏览器自持一份——独立挂载（编辑台等）行为与之前完全一致。
+   */
+  filters: { type: Object, default: null }
 })
 
-const emit = defineEmits(['select', 'create-edge'])
+const emit = defineEmits(['select', 'create-edge', 'update:filters'])
 
 const route = useRoute()
 const query = ref('')
-const cat = ref('')
-const status = ref('')
+const localFilters = reactive({ cat: '', status: '', tier: '' })
+
+/** 一条轴的读写：有宿主就读写宿主那份，没宿主就写自己的抽屉 */
+function filterAxis(key) {
+  return computed({
+    get: () => String(props.filters?.[key] ?? ''),
+    set: (value) => {
+      if (props.filters) emit('update:filters', { ...props.filters, [key]: value })
+      else localFilters[key] = value
+    }
+  })
+}
+const cat = filterAxis('cat')
+const status = filterAxis('status')
+const tier = filterAxis('tier')
 const mode = ref('cards')
 const selected = ref(null)
 const searching = ref(false)
@@ -169,11 +212,25 @@ const STATUS_OPTIONS = [
   { value: 'retired', label: tr('退役') }
 ]
 
+const TIER_OPTIONS = [
+  { value: '', label: tr('全部档位') },
+  { value: 'core', label: tr('核心') },
+  { value: 'support', label: tr('支撑') },
+  { value: 'background', label: tr('背景') }
+]
+
 const entries = computed(() => (Array.isArray(props.worldbook?.entries) ? props.worldbook.entries : []))
 const graph = computed(() => buildGraph(props.worldbook))
 const tree = computed(() => buildCategoryTree(entries.value))
-const visible = computed(() => filterEntries(entries.value, { cat: cat.value, status: status.value }))
+const axisSnapshot = computed(() => ({ cat: cat.value, status: status.value, tier: tier.value }))
+const visible = computed(() => filterEntries(entries.value, axisSnapshot.value))
 const entriesById = computed(() => new Map(entries.value.map((entry) => [entry.id, entry]).filter(([, entry]) => entry.id)))
+
+/** 词条墙与图谱共用同一份过滤真相（无过滤 = null，图谱按全量显示总数） */
+const visibleIds = computed(() => visibleIdsOf(entries.value, axisSnapshot.value))
+
+/** kit 命中 + 一跳扩展节点集合：图谱据此描环（渲染 kit 结果，不重算打分） */
+const hitIds = computed(() => hitIdsOf(searchResult.value))
 
 /** kit 命中的 cat 是 graph.json 的目录名（kit canonical 原样展示）；配色复用本地目录表 */
 function kitCatColor(catName) {

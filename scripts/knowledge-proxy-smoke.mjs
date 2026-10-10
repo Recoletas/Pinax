@@ -6,8 +6,10 @@
 //   [1] worldbook-search：verb/args 转发正确；location 恒由注册表 rootPath 推导
 //      （请求体伪造 location 被忽略）；kit 响应形状原样透传（前端/代理不重算）
 //   [2] junction 幂等：kit 对已挂载 pid 回 409（真 serve.ts 形状）→ 代理剥 location 重发
-//   [3] kb-search / kb-read：无 location 转发；maxChars → max_chars 参数映射（kit 形参名）
-//   [4] 入参校验：projectId 形状 / q 非空 / 未注册项目 404（伪造 location 不触桩）
+//   [3] kb-search / kb-read：无 location 转发；maxChars → max_chars 参数映射（kit 形参名）；
+//       kit R2.2 双根——projectId → args.project（并入本书档，命中 source=global|project 原样透传），
+//       只读检索不因它挂 junction（伪造 location 一律忽略）
+//   [4] 入参校验：projectId 形状（含 kb 侧非法即 400，不静默丢维度） / q 非空 / 未注册项目 404（伪造 location 不触桩）
 //   [5] 显式失败：8431 不可达 → 503 KIT_PROTOCOL_PLANE_UNAVAILABLE（含启动指引）；
 //       8431 挂起 → 总超时同码，不冒充空结果
 //   [6] 只读纪律：全程桩收到的 verb ⊆ KNOWLEDGE_READ_VERBS
@@ -59,12 +61,23 @@ const WORLDBOOK_SEARCH_RESULT = {
     { id: 'org_kaifeng', title: '开封府', cat: 'organization', via: 'org_kaifeng', weight: 7, from: 'ch_linchong' }
   ]
 }
+// kit kb_search 双根形状（kit/core/src/kb.ts kbSearch R2.2：total + hits，命中带 source=global|project）
 const KB_SEARCH_RESULT = {
-  query: '节奏', dir: 'craft',
-  hits: [{ id: 'kb/craft/pacing', title: '节奏标尺', score: 12, summary: '三幕拍点…' }],
-  expansion: []
+  total: 1,
+  hits: [{
+    id: 'kb/craft/pacing', title: '节奏标尺', file: 'knowledge/craft/pacing.md', dir: 'craft',
+    score: 12, excerpt: '# 节奏标尺\n三幕拍点…', source: 'global'
+  }]
 }
-const KB_READ_RESULT = { file: 'craft/pacing.md', content: '---\nid: kb/craft/pacing\n---\n三幕拍点：……（截断标记内嵌在 content）' }
+const KB_SEARCH_PROJECT_RESULT = {
+  total: 2,
+  hits: [
+    { id: 'kb/craft/pacing', title: '节奏标尺', file: 'kit/rag/kb/craft/pacing.md', dir: 'craft', score: 12, excerpt: '# 节奏标尺\n三幕拍点…', source: 'project' },
+    { id: 'kb/structure/act', title: '幕结构', file: 'knowledge/structure/act.md', dir: 'structure', score: 9, excerpt: '# 幕结构\n……', source: 'global' }
+  ]
+}
+const KB_READ_RESULT = { file: 'craft/pacing.md', content: '---\nid: kb/craft/pacing\n---\n三幕拍点：……（截断标记内嵌在 content）', source: 'global' }
+const KB_READ_PROJECT_RESULT = { file: 'kit/rag/craft/pacing.md', content: '---\nid: kb/craft/pacing\n---\n本书编译后的节奏卡', source: 'project' }
 
 // ---- 8431 桩：最小复刻 kit/storyharness/src/serve.ts 的 /api/kernel-verb + /api/hub ----
 const allRequests = [] // 跨桩实例累计（显式失败段会换桩重开端口）
@@ -118,9 +131,10 @@ function createStub({ hangOnQuery = '' } = {}) {
       if (hangOnQuery && body.args?.q === hangOnQuery) return // 挂起不回，触发代理总超时
       requests.push(record)
       allRequests.push(record)
+      const scoped = Boolean(body.args?.project)
       const result = body.verb === 'worldbook_search' ? WORLDBOOK_SEARCH_RESULT
-        : body.verb === 'kb_search' ? KB_SEARCH_RESULT
-          : KB_READ_RESULT
+        : body.verb === 'kb_search' ? (scoped ? KB_SEARCH_PROJECT_RESULT : KB_SEARCH_RESULT)
+          : (scoped ? KB_READ_PROJECT_RESULT : KB_READ_RESULT)
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(result))
     })
@@ -207,15 +221,24 @@ try {
   const retry = stub.requests.at(-1)
   check('重发请求不再携带 location（续用既有挂载）', retry?.location === undefined && retry?.verb === 'worldbook_search', JSON.stringify(retry))
 
-  console.log('\n[3] kb-search / kb-read：无 location 转发 + maxChars → max_chars')
+  console.log('\n[3] kb-search / kb-read：无 location 转发 + maxChars → max_chars + kit 双根 project')
   const kbSearch = await postJson(`${BASE}/api/knowledge/kb-search`, { q: '节奏', dir: 'craft', k: 2 })
   check('kb-search HTTP 200 且形状透传', kbSearch.status === 200 && JSON.stringify(kbSearch.body) === JSON.stringify(KB_SEARCH_RESULT), JSON.stringify(kbSearch.body))
   const kbSearchCall = stub.requests.at(-1)
-  check('kb-search 转发 {verb, args:{q,dir,k}} 且无 location', kbSearchCall?.verb === 'kb_search' && kbSearchCall?.args?.q === '节奏' && kbSearchCall?.args?.dir === 'craft' && kbSearchCall?.args?.k === 2 && kbSearchCall?.location === undefined, JSON.stringify(kbSearchCall))
+  check('kb-search 转发 {verb, args:{q,dir,k}} 且无 location（无本书上下文时不带 project）', kbSearchCall?.verb === 'kb_search' && kbSearchCall?.args?.q === '节奏' && kbSearchCall?.args?.dir === 'craft' && kbSearchCall?.args?.k === 2 && kbSearchCall?.location === undefined && !('project' in (kbSearchCall?.args || {})), JSON.stringify(kbSearchCall))
+  // kit R2.2 双根：projectId → args.project（并入本书档）；只读检索绝不因它挂 junction（location 写副作用）
+  const kbScoped = await postJson(`${BASE}/api/knowledge/kb-search`, { q: '节奏', projectId: 'proj_fixture1', location: 'D:\\forged\\kb\\must-be-ignored' })
+  check('带 projectId → 200 且命中含 source=project（kit 合并形状原样透传，代理不重算不改写）', kbScoped.status === 200 && JSON.stringify(kbScoped.body) === JSON.stringify(KB_SEARCH_PROJECT_RESULT) && (kbScoped.body?.hits || []).some((hit) => hit.source === 'project'), JSON.stringify(kbScoped.body))
+  const scopedCall = stub.requests.at(-1)
+  check('kb-search 转发 args.project 且无 location（伪造 location 被忽略）', scopedCall?.args?.project === 'proj_fixture1' && scopedCall?.location === undefined, JSON.stringify(scopedCall))
+  const kbReadScoped = await postJson(`${BASE}/api/knowledge/kb-read`, { ref: 'kit/rag/craft/pacing.md', projectId: 'proj_fixture1' })
+  check('kb-read 带 project → 项目根读回（source=project）透传', kbReadScoped.status === 200 && kbReadScoped.body?.source === 'project' && JSON.stringify(kbReadScoped.body) === JSON.stringify(KB_READ_PROJECT_RESULT), JSON.stringify(kbReadScoped.body))
+  const readScopedCall = stub.requests.at(-1)
+  check('kb-read 转发 args.project 且无 location', readScopedCall?.verb === 'kb_read' && readScopedCall?.args?.project === 'proj_fixture1' && readScopedCall?.location === undefined, JSON.stringify(readScopedCall))
   const kbRead = await postJson(`${BASE}/api/knowledge/kb-read`, { ref: 'kb/craft/pacing', maxChars: 999 })
   check('kb-read HTTP 200 且形状透传', kbRead.status === 200 && JSON.stringify(kbRead.body) === JSON.stringify(KB_READ_RESULT), JSON.stringify(kbRead.body))
   const kbReadCall = stub.requests.at(-1)
-  check('kb-read 转发 maxChars → args.max_chars（kit 形参名）', kbReadCall?.verb === 'kb_read' && kbReadCall?.args?.ref === 'kb/craft/pacing' && kbReadCall?.args?.max_chars === 999 && kbReadCall?.location === undefined, JSON.stringify(kbReadCall))
+  check('kb-read 转发 maxChars → args.max_chars（kit 形参名）', kbReadCall?.verb === 'kb_read' && kbReadCall?.args?.ref === 'kb/craft/pacing' && kbReadCall?.args?.max_chars === 999 && kbReadCall?.location === undefined && !('project' in (kbReadCall?.args || {})), JSON.stringify(kbReadCall))
 
   console.log('\n[4] 入参校验：形状 / 空词 / 未注册项目')
   const badId = await postJson(`${BASE}/api/knowledge/worldbook-search`, { projectId: 'evil;drop', q: 'x' })
@@ -227,6 +250,9 @@ try {
   check('未注册项目的伪造 location 未触桩（桩请求数不变）', stub.requests.every((r) => r.args?.project !== 'proj_missing0'))
   const emptyRef = await postJson(`${BASE}/api/knowledge/kb-read`, { ref: '' })
   check('kb-read 空 ref → 400 INVALID_REF', emptyRef.status === 400 && emptyRef.body?.error?.code === 'INVALID_REF', JSON.stringify(emptyRef.body))
+  const badScoped = await postJson(`${BASE}/api/knowledge/kb-search`, { q: '节奏', projectId: '..\\escape' })
+  check('kb-search 的 projectId 形状非法 → 400 INVALID_PROJECT_ID（不静默丢掉这一维）', badScoped.status === 400 && badScoped.body?.error?.code === 'INVALID_PROJECT_ID', JSON.stringify(badScoped.body))
+  check('非法 projectId 的请求未触桩', !allRequests.some((r) => r.args?.project === '..\\escape'))
 
   console.log('\n[5] 显式失败：8431 不可达 / 挂起超时（不冒充空结果）')
   await stub.close()

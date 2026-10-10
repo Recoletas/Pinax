@@ -38,6 +38,7 @@ const selectedKey = ref('')
 const preview = shallowRef(null)
 const previewError = ref('')
 const folderInput = ref(null)
+const unboundNotice = ref('')
 const localTextCache = new Map()
 
 const fsAccessAvailable = isFileSystemAccessAvailable()
@@ -151,6 +152,7 @@ function resetPreview() {
 
 async function loadServerProject(projectId) {
   selectedProjectId.value = projectId
+  if (projectId) unboundNotice.value = ''
   localFolderName.value = ''
   localEntries.value = []
   localError.value = ''
@@ -310,12 +312,13 @@ onMounted(async () => {
   projects.value = await fetchLocalProjects()
   if (props.bookId) {
     const matched = projects.value.find((item) => String(item.bookId || '') === String(props.bookId))
-    if (matched) {
-      await loadServerProject(String(matched.projectId))
-      return
-    }
+    // 本书没有绑定项目时不加载任何项目：拿别的书的项目文件冒充本书，正是「文档页归属混乱」的根因。
+    if (matched) await loadServerProject(String(matched.projectId))
+    else unboundNotice.value = tr('当前作品还没有绑定项目文件夹，文档阅读器不替你猜一个项目。')
+    return
   }
-  if (projects.value.length) await loadServerProject(String(projects.value[0].projectId))
+  // 无书上下文（直接敲 URL）：只有一个候选项目时不算猜，多候选留给用户选。
+  if (projects.value.length === 1) await loadServerProject(String(projects.value[0].projectId))
 })
 </script>
 
@@ -350,6 +353,7 @@ onMounted(async () => {
       <p v-if="localFolderName || selectedProjectName" class="doc-reader__source-caption" data-test="doc-source-caption">
         {{ localFolderName || selectedProjectName }}
       </p>
+      <p class="doc-reader__mode" data-test="doc-mode-readonly">{{ tr('项目文件 · 只读') }}</p>
     </div>
 
     <p v-if="!fsAccessAvailable" class="doc-reader__env-hint">{{ tr('当前浏览器不支持文件夹直读，将使用文件列表选择。') }}</p>
@@ -364,6 +368,7 @@ onMounted(async () => {
         />
         <p v-if="serverError" class="doc-reader__pane-hint doc-reader__pane-hint--warn" role="status">{{ serverError }}</p>
         <p v-else-if="localError" class="doc-reader__pane-hint doc-reader__pane-hint--warn" role="status">{{ localError }}</p>
+        <p v-else-if="unboundNotice" class="doc-reader__pane-hint" role="status" data-test="doc-unbound-project">{{ unboundNotice }}</p>
         <p v-else-if="activeSource === 'server'" class="doc-reader__pane-hint">{{ tr('kit 编号目录（如 02-编剧/剧本.md）与 大纲.md 请用「打开本地文件夹」读取。') }}</p>
         <p v-else-if="activeSource === 'none'" class="doc-reader__pane-hint">{{ tr('选择服务器项目，或打开本地项目文件夹，浏览其中的 .md/.json。') }}</p>
       </aside>
@@ -481,6 +486,14 @@ onMounted(async () => {
   color: var(--text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 只读声明贴着来源栏右端：本页零写入，读者需要一眼确认这一点。 */
+.doc-reader__mode {
+  margin-inline: auto 0;
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
   white-space: nowrap;
 }
 .doc-reader__env-hint {

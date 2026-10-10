@@ -126,7 +126,7 @@ function openAdvanced(section) {
 }
 
 function openStructuredSettings() {
-  router.push({ name: 'settings-structured' })
+  router.push({ name: 'settings-knowledge', query: { view: 'settings' } })
 }
 
 onMounted(async () => {

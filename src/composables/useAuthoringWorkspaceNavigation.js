@@ -5,13 +5,18 @@ import { getExplorationDocument } from '../services/writing/authoringDocumentRep
 
 const SETTINGS_ROUTES = Object.freeze({
   sources: 'settings-sources',
-  settings: 'settings-structured',
+  settings: 'settings-knowledge',
   map: 'settings-world-map',
   entries: 'settings-worldbook-advanced',
   materials: 'materials',
   canvas: 'prose-essay',
   comics: 'comics'
 })
+
+// W2-A-2b：调用方仍说 'settings'（右栏「设定」按钮、地点/条目回程等），但页面身份已折进
+// 知识控制台——标签 surface 归 'knowledge'，并用视图参数落到结构化设定视图，避免同书开出两个标签。
+const SURFACE_TAB_ALIAS = Object.freeze({ settings: 'knowledge' })
+const SURFACE_EXTRA_QUERY = Object.freeze({ settings: { view: 'settings' } })
 
 export function authoringTabKey(bookId) {
   return bookId ? `project:${String(bookId)}:authoring` : ''
@@ -125,9 +130,9 @@ export function useAuthoringWorkspaceNavigation({
     if (entryId) query.entryId = text(entryId)
     if (placeId) query.placeId = text(placeId)
     if (historyNodeId) query.historyNodeId = text(historyNodeId)
-    Object.assign(query, extraQuery)
+    Object.assign(query, SURFACE_EXTRA_QUERY[surface] || {}, extraQuery)
     return openWorkspaceRoute({
-      surface,
+      surface: SURFACE_TAB_ALIAS[surface] || surface,
       route: { name: routeName, query },
       projectId: bookId,
       worldbookId,

@@ -9,17 +9,23 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
   authoring: 'authoring',
   materials: 'materials',
   canvas: 'prose-essay',
+  // 兼容位：W2-A-2b 后 `settings-structured` 只剩重定向（进控制台 ?view=settings）。
+  // 保留是为了让上一会话持久化下来的 `project:{book}:settings` 标签还能恢复；新入口一律走 knowledge。
   settings: 'settings-structured',
   sources: 'settings-sources',
   map: 'settings-world-map',
   comics: 'comics',
   // 项目高级条目（联动闭环 L2）：带 bookId 是项目 surface；不带时回落全局模式。
-  entries: 'settings-worldbook-advanced'
+  entries: 'settings-worldbook-advanced',
+  // 知识控制台（W2-A）：带 bookId 打开本书知识面；不带时是全局世界书浏览。
+  knowledge: 'settings-knowledge',
+  // 文档阅读器（W1-B）：只读展示项目文件夹里的大纲/剧本/md。项目 surface，无 bookId 由适配器补书。
+  documents: 'settings-documents'
 })
 
 // 双模式路由：同名路由带 bookId 是项目 surface，不带是全局 surface。
 // 路由适配器对它们不做「补默认书」的 canonical 化，避免全局访问被吞进项目。
-export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced']))
+export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced', 'settings-knowledge']))
 
 export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
   experience: 'experience',
@@ -27,6 +33,7 @@ export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
   'settings-worldbook': 'settings-worldbook',
   'settings-worldbook-create': 'settings-worldbook-create',
   'settings-worldbook-advanced': 'settings-worldbook-advanced',
+  'settings-knowledge': 'settings-knowledge',
   'online-experience': 'online-experience',
   'collaboration-review': 'collaboration-review'
 })
@@ -40,11 +47,17 @@ export const SURFACE_LABELS = Object.freeze({
   map: '地图',
   comics: '漫画',
   experience: '体验',
-  docs: '文档',
+  // 应用自带的「使用指南」与项目文件夹阅读器都简称文档；标签条里两者会并排出现，
+  // 全局面用页面自己的标题「使用指南」，项目面保持「书名 · 文档」。
+  docs: '使用指南',
   'settings-worldbook': '设定',
   'settings-worldbook-create': '创建世界书',
-  'settings-worldbook-advanced': '高级设定',
-  entries: '条目',
+  // 同一个编辑页在标签条、最近使用和知识控制台里都叫「编辑台」，不再另起「高级设定/条目」。
+  'settings-worldbook-advanced': '编辑台',
+  entries: '编辑台',
+  knowledge: '知识',
+  documents: '文档',
+  'settings-knowledge': '知识',
   'online-experience': '联机',
   'collaboration-review': '协作审阅'
 })

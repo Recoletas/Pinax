@@ -35,14 +35,14 @@ const moreTriggerRef = ref(null)
 const moreOpen = ref(false)
 
 const routes = Object.freeze({
-  writing: 'authoring', assistant: 'authoring', settings: 'settings-structured',
+  writing: 'authoring', assistant: 'authoring', knowledge: 'settings-knowledge',
   sources: 'settings-sources', documents: 'settings-documents', materials: 'materials', map: 'settings-world-map',
   comics: 'comics', canvas: 'prose-essay'
 })
 const mainSurfaces = Object.freeze([
   { key: 'writing', label: '正文', icon: 'writing' },
   { key: 'assistant', label: '助手', icon: 'message-square' },
-  { key: 'settings', label: '设定', icon: 'worldbook' },
+  { key: 'knowledge', label: '知识', icon: 'worldbook' },
   { key: 'sources', label: '资料', icon: 'sources' }
 ])
 const extraSurfaces = Object.freeze([
@@ -124,7 +124,7 @@ function surfaceRoute(surface, book) {
     }
   }
   if (surface === 'assistant') query.view = 'assistant'
-  if (['settings', 'sources', 'map'].includes(surface) && book.worldbookId) {
+  if (['knowledge', 'sources', 'map'].includes(surface) && book.worldbookId) {
     query.worldbookId = String(book.worldbookId)
   }
   return { name, query }

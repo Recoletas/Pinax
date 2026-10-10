@@ -6,7 +6,7 @@
         <h3 id="entry-profile-title">{{ tr("模板与字段") }}</h3>
       </div>
       <span v-if="missingLabels.length" class="entry-profile-missing" role="status">
-        {{ tr("必填未填：{labels}", { labels: missingLabels.join('、') }) }}
+        {{ tr("必填未填：{labels}", { labels: missingLabels.map((label) => tr(label)).join('、') }) }}
       </span>
     </header>
     <p class="entry-profile-hint">

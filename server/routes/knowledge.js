@@ -3,11 +3,15 @@
 // kbSearch），本路由只做入参校验与转发，不重算任何分数。
 //   POST /api/knowledge/worldbook-search {projectId, q, cat?, k?}
 //       → {verb:'worldbook_search', args:{project, q, cat?, k?}, location}
-//   POST /api/knowledge/kb-search {q, dir?, k?}   → {verb:'kb_search', args:{q, dir?, k?}}（语料在 kit 仓，无 location）
-//   POST /api/knowledge/kb-read  {ref, maxChars?} → {verb:'kb_read', args:{ref, max_chars?}}
+//   POST /api/knowledge/kb-search {q, dir?, k?, projectId?}   → {verb:'kb_search', args:{q, dir?, k?, project?}}（语料在 kit 仓）
+//   POST /api/knowledge/kb-read  {ref, maxChars?, projectId?} → {verb:'kb_read', args:{ref, max_chars?, project?}}
 // 纪律：
 // - location（junction 挂载点）恒由 server 从本地项目注册表（service.listProjects() 的 rootPath）
 //   推导，绝不信任浏览器入参——body 里的 location 字段一律忽略；项目未注册 → 404 显式错误。
+// - kb 双根（kit R2.2）：projectId 只转成 args.project（kit 侧 = 并入 projects/<id>/kit 项目档），
+//   **不挂 location**——只读检索面不该有 junction 写副作用，本书挂载由 worldbook-search 负责。
+//   项目未绑定或未编译时 kit 只查全局（fail-open，仅多出 source 字段），所以这里不做注册表存在性校验；
+//   「本书档没生效」由前端按命中里的 source 如实提示，不在代理层静默。
 // - 只读：转发动词限定 shared/kitProtocolPlane.js 的 KNOWLEDGE_READ_VERBS，永不发 flow_* 写动词。
 // - 显式失败：8431 不可达/超时 → KIT_PROTOCOL_PLANE_UNAVAILABLE（含启动指引），不静默回落、
 //   不冒充空结果；单次转发总超时 8s 防挂死。
@@ -83,6 +87,20 @@ export function createKnowledgeRouter({
     return res.json(body)
   }
 
+  /**
+   * kb 双根的可选项目侧入参：projectId → kit 形参 project。
+   * 缺省（本书未绑定项目）= 不传，行为与历史一致（只查全局语料）；形状非法 = 400 显式拒绝，
+   * 不做「悄悄丢掉这一维」的兼容，否则「本书档为什么没参与」在代理层就成了隐形故障。
+   */
+  function kbProjectArg(req) {
+    const projectId = String(req.body?.projectId || '').trim()
+    if (!projectId) return { value: '' }
+    if (!PROJECT_ID_RE.test(projectId)) {
+      return { error: { code: 'INVALID_PROJECT_ID', message: 'projectId 必须形如 proj_<字母/数字/下划线>' } }
+    }
+    return { value: projectId }
+  }
+
   router.post('/worldbook-search', async (req, res) => {
     try {
       const projectId = String(req.body?.projectId || '').trim()
@@ -115,6 +133,9 @@ export function createKnowledgeRouter({
       if (dir) args.dir = dir
       const k = Number(req.body?.k)
       if (Number.isInteger(k) && k > 0) args.k = k
+      const project = kbProjectArg(req)
+      if (project.error) return res.status(400).json({ error: project.error })
+      if (project.value) args.project = project.value
       return await forwardKernelVerb(res, { verb: 'kb_search', args })
     } catch (error) {
       return res.status(500).json({ error: { code: 'KNOWLEDGE_PROXY_ERROR', message: String(error?.message || error) } })
@@ -128,6 +149,9 @@ export function createKnowledgeRouter({
       const args = { ref }
       const maxChars = Number(req.body?.maxChars)
       if (Number.isInteger(maxChars) && maxChars > 0) args.max_chars = maxChars
+      const project = kbProjectArg(req)
+      if (project.error) return res.status(400).json({ error: project.error })
+      if (project.value) args.project = project.value
       return await forwardKernelVerb(res, { verb: 'kb_read', args })
     } catch (error) {
       return res.status(500).json({ error: { code: 'KNOWLEDGE_PROXY_ERROR', message: String(error?.message || error) } })

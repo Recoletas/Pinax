@@ -7,7 +7,8 @@
  *
  * 硬约束：
  * - 零 Vue / store / 路由依赖：纯函数 + 模块内 WeakMap 缓存，node 冒烟直跑
- *   （scripts/worldbook-browser-smoke.mjs）。
+ *   （scripts/worldbook-browser-smoke.mjs）。档位是唯一例外口径：tier 判定委托注入端
+ *   worldbookContextBuilder.entryTierOf（node 亦可直载），本模块不自定第二套档位规则。
  * - 唯一的 cat/type→目录、links 合成、summary、graph 语义真源是
  *   shared/worldbookFileContract.js（W1·A1）：本模块镜像其纯判定函数
  *   （目录映射/标签归一/首段摘要），并用 buildWorldbookGraphFile 产出图谱与
@@ -17,10 +18,12 @@
  *   对象分组（tags/locations/characters/events/placeIds/characterIds）与富关系
  *   数组（[{to,type,...}]）都接受，归一口径与契约 normalizeRelations 一致。
  * - 文本检索自 W1-A 起走 kit worldbook_search 代理（knowledgeSearchClient.js）：打分与
- *   一跳扩展只认 kit 返回值，本模块不再持有第二份打分器（§5-7 裁定），只留 cat/status 过滤。
+ *   一跳扩展只认 kit 返回值，本模块不再持有第二份打分器（§5-7 裁定），只留 cat/status/tier
+ *   过滤与「过滤后可见集合/命中集合」两个下发图谱的纯派生函数（W2-A-2）。
  */
 
 import { buildWorldbookGraphFile } from '../../../shared/worldbookFileContract.js'
+import { entryTierOf } from './worldbookContextBuilder.js'
 
 /** type→cat 目录映射（镜像契约 §3.1；未知 type→设定） */
 const TYPE_TO_CAT = {
@@ -170,15 +173,17 @@ export function buildCategoryTree(entries) {
   return { total: list.length, cats }
 }
 
-/* ---------- 检索（kit 代理单源）+ cat/status 本地过滤 ---------- */
+/* ---------- 检索（kit 代理单源）+ cat/status/tier 本地过滤 ---------- */
 
 /**
- * cat/status 本地过滤（文本检索已改走 kit worldbook_search 代理，见 knowledgeSearchClient.js；
+ * cat/status/tier 本地过滤（文本检索已改走 kit worldbook_search 代理，见 knowledgeSearchClient.js；
  * §5-7 裁定移除本地打分轨——避免第二实现漂移，打分/一跳扩展只认 kit 返回值）。
  * - cat：''/'全部' 不过滤；'人物' 按目录；'人物/皇室' 目录+自由分组二级联合。
  * - status：'' 不过滤，否则 entryStatusOf(entry) === status。
+ * - tier：'' 不过滤，否则按注入端 entryTierOf 档位（core/support/background）——
+ *   档位规则单源在 worldbookContextBuilder，本处不另定。
  */
-export function filterEntries(entries, { cat = '', status = '' } = {}) {
+export function filterEntries(entries, { cat = '', status = '', tier = '' } = {}) {
   let pool = Array.isArray(entries) ? entries.slice() : []
   const catKey = str(cat).trim()
   if (catKey && catKey !== '全部') {
@@ -192,7 +197,32 @@ export function filterEntries(entries, { cat = '', status = '' } = {}) {
   }
   const statusKey = str(status).trim()
   if (statusKey) pool = pool.filter((entry) => entryStatusOf(entry) === statusKey)
+  const tierKey = str(tier).trim()
+  if (tierKey) pool = pool.filter((entry) => entryTierOf(entry) === tierKey)
   return pool
+}
+
+/**
+ * 过滤后可见 id 集合（词条墙与图谱共用同一份过滤真相）。
+ * 无任何过滤轴时返回 null——图谱据此显示全量并在页脚报总数，避免「12 / 12」这类假过滤。
+ */
+export function visibleIdsOf(entries, { cat = '', status = '', tier = '' } = {}) {
+  const catKey = str(cat).trim()
+  const filtering = Boolean((catKey && catKey !== '全部') || str(status).trim() || str(tier).trim())
+  if (!filtering) return null
+  return new Set(filterEntries(entries, { cat, status, tier }).map((entry) => entry.id))
+}
+
+/**
+ * kit 检索命中 + 一跳扩展的节点 id 集合（图谱描环用；渲染 kit 结果，不重算打分）。
+ * 空结果/无检索返回 null，与 visibleIdsOf 的「null = 不适用」口径一致。
+ */
+export function hitIdsOf(searchResult) {
+  if (!searchResult) return null
+  const ids = new Set()
+  for (const hit of searchResult.hits || []) if (hit.id) ids.add(hit.id)
+  for (const item of searchResult.expansion || []) if (item.id) ids.add(item.id)
+  return ids.size ? ids : null
 }
 
 /* ---------- 关联 chips：三来源合并 + 四级兜底解析（kit resolveEntryRef 同款） ---------- */

@@ -66,11 +66,12 @@ function refreshBookContext() {
   return bookContext.value
 }
 
-const projectReturnQuery = computed(() => (
-  projectBookId.value ? { bookId: projectBookId.value } : {}
-))
-const projectReturnRoute = computed(() => projectBookId.value && inputQuery.value.mode === 'sources' ? 'settings-sources' : 'settings-structured')
-const projectReturnLabel = computed(() => projectReturnRoute.value === 'settings-sources' ? '返回资料' : '返回世界书')
+const projectReturnRoute = computed(() => projectBookId.value && inputQuery.value.mode === 'sources' ? 'settings-sources' : 'settings-knowledge')
+const projectReturnQuery = computed(() => ({
+  ...(projectBookId.value ? { bookId: projectBookId.value } : {}),
+  ...(projectReturnRoute.value === 'settings-knowledge' ? { view: 'settings' } : {})
+}))
+const projectReturnLabel = computed(() => projectReturnRoute.value === 'settings-sources' ? '返回资料' : '返回知识')
 const projectBindingLabel = computed(() => {
   const context = bookContext.value
   if (!context?.ok) return ''
@@ -1012,8 +1013,10 @@ function requestClose() {
 }
 defineExpose({ requestClose })
 
+// 回程与确认路径同源：mode+bookId 的旧入口已被路由 beforeEnter 重定向到资料页，
+// 非嵌入渲染时这里只会是知识控制台；硬写旧「快速导入」页会让按钮文案与动作各说各话。
 function goBack() {
-  router.push({ name: 'settings-worldbook' })
+  router.push({ name: projectReturnRoute.value, query: projectReturnQuery.value })
 }
 
 watch(

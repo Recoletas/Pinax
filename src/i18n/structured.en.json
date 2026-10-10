@@ -198,6 +198,7 @@
   "用逗号分隔": "Separate with commas",
   "上级地点": "Parent place",
   "可留空，允许待解析": "Optional; can be linked later",
+  "由作者填写，AI 补全不会修改上级地点。": "Set by the author; AI drafting will not change the parent place.",
   "AI 补全不会写入此项；请通过 relations 或直接编辑": "Set manually or through relationships; AI leaves this unchanged.",
   "势力 / 国家": "Faction / state",
   "AI 补全不会写入此项；请直接编辑": "Set manually; AI leaves this unchanged.",

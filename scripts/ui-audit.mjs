@@ -60,7 +60,8 @@ const routes = [
     surfaces: ['.creation-page', '.creation-main'],
     keyboardTargets: ['.creation-page input[type="text"]', '.creation-page textarea', '.creation-page button']
   },
-  { id: 'settings-structured', path: '/settings/structured', surfaces: ['main', '.structured-settings'] },
+  // W2-A-2b：结构化设定折进知识控制台的设定视图（旧 /settings/structured 重定向到这里）。
+  { id: 'settings-knowledge', path: '/settings/knowledge?view=settings', surfaces: ['main', '.structured-settings-panel'] },
   {
     id: 'settings-worldbook-advanced',
     path: '/settings/worldbook/advanced',
@@ -544,11 +545,11 @@ function supportsActionState(route, state) {
   if (['generating', 'context', 'conflict'].includes(state)) return false
   if (['partial', 'stale', 'cancelled'].includes(state)) {
     return state === 'partial'
-      ? ['settings-worldbook-create', 'settings-structured'].includes(route.id)
-      : route.id === 'settings-structured'
+      ? ['settings-worldbook-create', 'settings-knowledge'].includes(route.id)
+      : route.id === 'settings-knowledge'
   }
   return !['loading', 'error'].includes(state)
-    || ['prose-essay', 'settings-worldbook-create', 'settings-structured'].includes(route.id)
+    || ['prose-essay', 'settings-worldbook-create', 'settings-knowledge'].includes(route.id)
 }
 
 async function installActionScenario(page, state) {
@@ -725,7 +726,7 @@ async function triggerActionScenario(page, route, state) {
     await page.locator('.creation-state.is-error').waitFor({ state: 'visible', timeout: 10_000 })
     return { assertion: 'creation workspace shows recoverable error after failed generation', passed: true }
   }
-  if (route.id === 'settings-structured') {
+  if (route.id === 'settings-knowledge') {
     await page.locator('.section-ai-btn').click()
     if (state === 'loading') {
       await page.locator('.generation-status.is-pending').waitFor({ state: 'visible' })

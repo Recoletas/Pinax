@@ -82,10 +82,34 @@ async function handleAdvisorTask(req, res, defaults = {}) {
     }
     skillInvocation = skillValidation.invocation
   }
+  // 逐请求取样温度只在漏斗直连生效（2026-10-10 实测：kit 能力任务面 /v1/pinax/tasks
+  // 没有逐请求采样概念——runner 用内核全局 cfg 造模型，请求体只能覆盖 budget）。
+  // 因此声明温度即锁定直连链，见下方 useCapability 门控。
+  // 越界值（如 5）也在此拒绝：否则请求会因"声明了温度"锁定直连链，却在下游
+  // 归一化时被静默丢弃，作者看到一个生效不了的旋钮。
+  const declaredTemperature = Number(options?.temperatureOverride)
+  const hasTemperatureOverride = options?.temperatureOverride !== undefined
+    && options?.temperatureOverride !== null
+    && Number.isFinite(declaredTemperature)
+    && declaredTemperature >= 0
+    && declaredTemperature <= 2
+  if (options?.temperatureOverride != null && !hasTemperatureOverride) {
+    return res.status(400).json({
+      code: 'AGENT_TEMPERATURE_INVALID',
+      error: 'temperatureOverride 必须是 0-2 之间的数值。',
+      taskType: normalizedTaskType,
+      retryable: false
+    })
+  }
   // 阻断 1 返工：模型链与结果归一化只接触逐字段归一化后的冻结输入，
   // 原始 options 里的任何未校验内容都不再透传；方法组合器与检查器在
   // 能真实执行的任务上就地执行，回执如实标注 enforcement。
-  const sanitizedOptions = { ...options, ...(skillInvocation ? { writingSkill: skillInvocation } : {}), ...(languageValidation ? { languagePolicy: languageValidation.policy } : {}) }
+  const sanitizedOptions = {
+    ...options,
+    ...(skillInvocation ? { writingSkill: skillInvocation } : {}),
+    ...(languageValidation ? { languagePolicy: languageValidation.policy } : {}),
+    ...(hasTemperatureOverride ? { temperatureOverride: declaredTemperature } : {})
+  }
   const skillEnforcement = applyWritingSkillEnforcement({
     taskType: normalizedTaskType,
     question,
@@ -153,7 +177,8 @@ async function handleAdvisorTask(req, res, defaults = {}) {
   try {
     // 统一调度门控：凡有 submit 契约的 taskType，在能力任务面健康时走 agent 循环（submit 回执序列化为 advice，
     // 既有解析/模板/语义修复原样工作）；无契约或任务面不可达 → 回落漏斗直连（双层 fail-open）。
-    const useCapability = Boolean(getCapabilityToolSpec(normalizedTaskType)) && await capabilityPlaneAvailable()
+    // 声明了逐请求温度的请求例外：任务面不认温度，一律走漏斗直连。
+    const useCapability = !hasTemperatureOverride && Boolean(getCapabilityToolSpec(normalizedTaskType)) && await capabilityPlaneAvailable()
     const runFunnelAgent = (activeQuestion) => runAdvisorAgent({
       providerId: String(options?.agentProvider || 'text-model'),
       fallbackProviderId: options?.fallbackProvider
@@ -209,6 +234,7 @@ async function handleAdvisorTask(req, res, defaults = {}) {
       options: sanitizedOptions,
       meta: {
         requestId,
+        ...(hasTemperatureOverride ? { temperature: declaredTemperature, routed: 'funnel' } : {}),
         ...(languageValidation ? { languagePolicy: languageValidation.policy } : {}),
         provider: run.provider,
         targetRevision: clippedEnvelope.target.revision,

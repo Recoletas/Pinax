@@ -41,7 +41,7 @@
           <p>{{ message.question }}</p>
         </div>
         <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__answer">
-          <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
+          <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><button v-if="canRegenerate(message)" type="button" class="authoring-knowledge__regenerate" data-test="assistant-regenerate-open" :aria-label="tr('换参数重答这一问')" :title="tr('换参数重答这一问')" @click="openRegenerate(message)"><WorkbenchIcon name="refresh" :size="14" /></button><time>{{ formatTime(message.createdAt) }}</time></div>
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
           <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
           <div class="authoring-knowledge__answer-text authoring-knowledge__answer-md" v-html="renderAnswerHtml(message.text)"></div>
@@ -57,6 +57,8 @@
               <WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}
             </span>
             <button v-if="message.promptSnapshotKey" type="button" class="authoring-knowledge__prompt" :aria-label="tr('查看本轮提示词')" :title="tr('查看本轮提示词')" @click="openPromptPreview(message.promptSnapshotKey)"><WorkbenchIcon name="search" :size="14" /></button>
+            <button type="button" class="authoring-knowledge__regenerate" data-test="assistant-regenerate-open" :aria-label="tr('换参数重答这一问')" :title="tr('换参数重答这一问')" @click="openRegenerate(message)"><WorkbenchIcon name="refresh" :size="14" /></button>
+            <small v-if="message.params" class="authoring-knowledge__answer-params">{{ tr('按 {params} 重答', { params: regenerateParamsLabel(message.params) }) }}</small>
             <time>{{ formatTime(message.answer.createdAt) }}</time>
           </div>
           <p v-if="message.answer.stale" class="authoring-knowledge__stale" role="status">
@@ -149,6 +151,14 @@
     </template>
 
     <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="promptPreviewKey" />
+    <AssistantRegenerateDialog
+      v-if="regenerateTarget"
+      :question="regenerateTarget.question"
+      :initial-intent="regenerateTarget.intent"
+      :busy="busy"
+      @close="closeRegenerate"
+      @confirm="applyRegenerate"
+    />
   </section>
 </template>
 
@@ -159,10 +169,12 @@ import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const AuthoringAgentTools = defineAsyncComponent(() => import('./AuthoringAgentTools.vue'))
 const WorldbookSourceImportDialog = defineAsyncComponent(() => import('../worldbook/WorldbookSourceImportDialog.vue'))
 const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
+const AssistantRegenerateDialog = defineAsyncComponent(() => import('./AssistantRegenerateDialog.vue'))
 
 import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
 import { markdownToHtml } from '../../services/notes/assetMarkdown.js'
+import { regenerateIntentLabel, regenerateTemperatureLabel } from '../../services/agents/authoring/assistantRegenerateOptions.js'
 import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
 import { promptPreviewKey, openPromptPreview } from '../../composables/usePromptPreview.js'
 
@@ -480,6 +492,38 @@ function staleSource(answer, sourceRef) {
   return (answer?.staleSources || []).some((item) => item.sourceRef === sourceRef)
 }
 
+// 「换参数重答」：按新意图／温度重跑一次带出处的资料直查，成功后原地替换这条回答。
+// 带修改建议的回答不开放——建议已指向正文，替换回答会让建议失去对应对象。
+const regenerateTarget = ref(null)
+function canRegenerate(message) {
+  if (!props.assistant?.regenerateAnswer) return false
+  if (message.kind === 'agent') return message.status === 'completed' && !message.proposal
+  return Boolean(message.answer)
+}
+function openRegenerate(message) {
+  if (!canRegenerate(message)) return
+  const index = props.messages.findIndex((item) => item.id === message.id)
+  if (index <= 0) return
+  const question = [...props.messages.slice(0, index)].reverse().find((item) => item.role === 'user' && item.question)
+  if (!question) return
+  regenerateTarget.value = { message, question: question.question, intent: message.params?.intent || question.intent || 'whole-book' }
+}
+function closeRegenerate() {
+  regenerateTarget.value = null
+  nextTick(() => draftInputRef.value?.focus({ preventScroll: true }))
+}
+function applyRegenerate({ intent, temperatureOverride }) {
+  const target = regenerateTarget.value
+  if (!target) return
+  regenerateTarget.value = null
+  props.assistant.regenerateAnswer(target.message.id, { intent, temperatureOverride })
+}
+function regenerateParamsLabel(params) {
+  const intent = regenerateIntentLabel(params?.intent)
+  const temperature = regenerateTemperatureLabel(params?.temperatureOverride ?? null)
+  return [intent, temperature].filter(Boolean).join(' · ')
+}
+
 function formatCalculationInput(item = {}) {
   return `${item.label || '输入'} ${item.value ?? ''}${item.unit || ''}`.trim()
 }
@@ -534,6 +578,7 @@ async function focusQuestion(id) {
 
 watch(() => props.projectId, () => {
   discardThreadRestore()
+  regenerateTarget.value = null
   if (reviewOpen.value) props.reviewWorkflow?.close?.({ restore: false })
   reviewOpen.value = false
   closeSearch()
@@ -644,9 +689,10 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__answer-meta > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-primary); font-weight: 500; }
 .authoring-knowledge__answer-meta .is-grounded { color: var(--text-primary); }
 .authoring-knowledge__answer-meta time { color: var(--text-muted); font-size: 12px; }
-.authoring-knowledge__prompt { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
-.authoring-knowledge__prompt:hover { background: var(--nav-hover); color: var(--text-primary); }
-.authoring-knowledge__prompt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__prompt, .authoring-knowledge__regenerate { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.authoring-knowledge__prompt:hover, .authoring-knowledge__regenerate:hover { background: var(--nav-hover); color: var(--text-primary); }
+.authoring-knowledge__prompt:focus-visible, .authoring-knowledge__regenerate:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__answer-params { margin-inline-start: auto; color: var(--text-muted); font-size: 11.5px; font-weight: 400; }
 .authoring-knowledge__answer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--assistant-answer-size, 15px)/1.85 var(--font-interface, var(--font-sans)); }
 .authoring-knowledge__answer-md { white-space: normal; }
 .authoring-knowledge__answer-md p { margin: 0 0 10px; }
