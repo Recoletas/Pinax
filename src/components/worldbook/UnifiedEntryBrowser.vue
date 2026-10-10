@@ -177,7 +177,9 @@ const props = defineProps({
    * 跨视图共享的过滤真相（知识控制台持有同一份，表格视图跟着收窄）。
    * 不传时浏览器自持一份——独立挂载（编辑台等）行为与之前完全一致。
    */
-  filters: { type: Object, default: null }
+  filters: { type: Object, default: null },
+  /** 初始视图模式（cards/graph）：知识控制台的顶级「图谱」视图以 graph 直入，独立挂载默认 cards。 */
+  initialMode: { type: String, default: 'cards' }
 })
 
 const emit = defineEmits(['select', 'create-edge', 'update:filters'])
@@ -199,7 +201,7 @@ function filterAxis(key) {
 const cat = filterAxis('cat')
 const status = filterAxis('status')
 const tier = filterAxis('tier')
-const mode = ref('cards')
+const mode = ref(['cards', 'graph'].includes(props.initialMode) ? props.initialMode : 'cards')
 const selected = ref(null)
 const searching = ref(false)
 const searchResult = ref(null)

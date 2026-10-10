@@ -80,6 +80,15 @@
             @create-edge="onGraphCreateEdge"
           />
         </div>
+        <div v-else-if="view === 'graph'" class="knowledge-frame">
+          <UnifiedEntryBrowser
+            :worldbook="activeWorldbook"
+            :filters="filters"
+            initial-mode="graph"
+            @update:filters="applyFilters"
+            @create-edge="onGraphCreateEdge"
+          />
+        </div>
         <div v-else-if="view === 'table'" class="knowledge-frame knowledge-table-frame" data-test="knowledge-table-view">
           <nav class="table-scope-bar" data-test="table-scope-bar" :aria-label="tr('表格视图')">
             <button
@@ -197,6 +206,7 @@ const { context, worldbook: activeWorldbook, loading: contextLoading, loadError 
 
 const views = Object.freeze([
   { key: 'browse', label: '浏览', icon: 'list' },
+  { key: 'graph', label: '图谱', icon: 'network' },
   { key: 'table', label: '表格', icon: 'columns' },
   { key: 'settings', label: '结构化设定', icon: 'worldbook' },
   { key: 'method', label: '方法论', icon: 'compass' }
