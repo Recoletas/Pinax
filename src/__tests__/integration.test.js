@@ -214,7 +214,6 @@ import {
   rebaseAuthoringReviewSessionAfterTransaction
 } from '../services/agents/authoring/authoringReviewSession.js'
 import { loadAuthoringReviewRun, removeAuthoringReviewRun, saveAuthoringReviewRun } from '../services/agents/authoring/authoringReviewRunStore.js'
-import { buildAuthoringReviewRewriteTarget, compareAuthoringReviewRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
 import { loadImageGenerationRun, removeImageGenerationRun, saveImageGenerationRun } from '../services/media/imageGenerationRunStore.js'
 import {
   applyWritingDocumentTextPatches,
@@ -1650,10 +1649,6 @@ describe('PromptBuilder', () => {
       kind: 'proofing', issueType: 'grammar', reason: '选区内意见', start: { nodeId: selectionNode.attrs.nodeId, offset: 0 }, end: { nodeId: selectionNode.attrs.nodeId, offset: 2 }, exact: '港区'
     }] }])
     expect(exactMerged.findings.find((finding) => finding.reason === '选区内意见')?.target).toMatchObject({ startOffset: selectionStart, endOffset: selectionStart + 2, exact: '港区' })
-    const dualReviewSource = { documentId: 'scoped-review-chapter', documentRole: 'manuscript', documentRevision: scopedReviewDocument.revision, document: scopedReviewDocument }
-    const dualRewriteTarget = buildAuthoringReviewRewriteTarget(dualReviewSource, exactMerged.findings.find((finding) => finding.reason === '选区内意见'))
-    expect(dualRewriteTarget).toMatchObject({ pane: 'dual', kind: 'selection', text: '港区', startOffset: selectionStart, endOffset: selectionStart + 2 })
-    expect(compareAuthoringReviewRewriteTarget(dualReviewSource, dualRewriteTarget)).toMatchObject({ text: '港区', documentRevision: scopedReviewDocument.revision })
     saveAuthoringReviewRun({ id: 'review-resume-fixture', status: 'running', projectId: 'review-book', pane: 'main', documentRole: 'manuscript', documentId: 'scoped-review-chapter', documentRevision: 'r1', goal: '检查选区', skillId: 'motivation-causality', scope: 'selection', scopeRanges: [{ nodeId: selectionNode.attrs.nodeId, startOffset: selectionStart, endOffset: selectionStart + 5 }], batches: [{ windowId: 'window-1', findings: [] }], totalBatches: 2 })
     expect(loadAuthoringReviewRun({ projectId: 'review-book', pane: 'main', documentRole: 'manuscript', documentId: 'scoped-review-chapter' })).toMatchObject({ status: 'interrupted', goal: '检查选区', totalBatches: 2 })
     removeAuthoringReviewRun('review-resume-fixture')

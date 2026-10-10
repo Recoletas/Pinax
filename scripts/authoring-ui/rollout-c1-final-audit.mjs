@@ -97,7 +97,7 @@ function sameSelection(before, after) {
 async function railGeometry(page) {
   return page.evaluate(() => Object.fromEntries([
     ['shelf', document.querySelector('.wall__shelf')],
-    ['tools', document.querySelector('.writing-tool-rail')],
+
     ['inspector', document.querySelector('.writing-inspector')],
   ].map(([key, element]) => {
     const box = element?.getBoundingClientRect()
@@ -160,7 +160,8 @@ try {
   const railsAfterScroll = await railGeometry(page)
   metrics.desktopRails = { before: railsBeforeScroll, after: railsAfterScroll }
   check('左右工具区域不随正文滚动',
-    ['shelf', 'tools', 'inspector'].every((key) => near(railsBeforeScroll[key]?.top, railsAfterScroll[key]?.top)),
+    // W-B 右轨退役：不随正文滚动只看 shelf 与 inspector。
+    ['shelf', 'inspector'].every((key) => near(railsBeforeScroll[key]?.top, railsAfterScroll[key]?.top)),
     JSON.stringify(metrics.desktopRails))
   await assertNoHorizontalOverflow(page, '1440 当前场无横向滚动')
   await page.screenshot({ path: evidence.scene, fullPage: false })

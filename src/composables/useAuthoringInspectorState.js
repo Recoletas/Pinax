@@ -9,19 +9,12 @@ const INSPECTOR_LABELS = Object.freeze({
   rehearsal: '推演',
   collaboration: '共同排演',
   ai: '助手',
-  history: '历史',
-  dual: '双栏'
+  history: '历史'
 })
 
+// W-B 外壳重构：双栏（dual）整体退役，状态机不再持有 dual 分支；其余
+// open/pinned/tab/tool 与 freeze/restore 语义保持不变，驱动源从右轨换成顶栏。
 export function useAuthoringInspectorState({
-  selectedChapterId,
-  chapters,
-  dualPaneRef,
-  dualTargetChapterId,
-  dualTargetExplorationId,
-  dualTargetOutlineNodeId,
-  dualTargetWorldbookEntryId,
-  clearDualQuickWordDocument,
   sceneDetailNotice,
   captureWritingSurface,
   captureAssistantInvocation,
@@ -48,7 +41,6 @@ export function useAuthoringInspectorState({
       inspectorBaseView.value = value
     }
   })
-  const inspectorDualColumn = computed(() => inspectorOpen.value && activeInspectorTool.value === 'dual')
   const activeInspectorLabel = computed(() => INSPECTOR_LABELS[activeInspectorTool.value] || '批注')
 
   function freezeWritingSurfaceBeforeToolSelect(tool) {
@@ -66,10 +58,7 @@ export function useAuthoringInspectorState({
 
     const snapshot = captureWritingSurface?.()
     if (snapshot) {
-      const leavingDual = inspectorOpen.value && activeInspectorTool.value === 'dual' && normalizedTool !== 'dual'
-      if (leavingDual && snapshot.pane === 'dual') {
-        next = Object.freeze({ ...snapshot, previous })
-      } else if (!inspectorOpen.value) {
+      if (!inspectorOpen.value) {
         next = Object.freeze({ ...snapshot, previous: null })
       } else if (snapshot.editorFocused) {
         next = Object.freeze({ ...snapshot, previous: previous?.previous || null })
@@ -102,7 +91,6 @@ export function useAuthoringInspectorState({
     }
     inspectorOpen.value = false
     activeWritingPane.value = 'main'
-    clearDualQuickWordDocument?.()
     const snapshot = inspectorReturnSurface.value
     if (!shouldRestoreSurface) {
       clearInspectorReturnSurface()
@@ -118,14 +106,7 @@ export function useAuthoringInspectorState({
     const normalizedTool = String(tool || '')
     if (!INSPECTOR_LABELS[normalizedTool]) return false
     const previousTool = activeInspectorTool.value
-    const prepared = prepareToolSelection(normalizedTool)
-    if (inspectorOpen.value && activeInspectorTool.value === 'dual' && normalizedTool !== 'dual') {
-      if (dualPaneRef.value?.prepareClose?.() === false) {
-        inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value?.previous || null
-        return false
-      }
-      activeWritingPane.value = 'main'
-    }
+    prepareToolSelection(normalizedTool)
     if (inspectorDetailState.value?.kind === 'scene-edit' && normalizedTool !== 'scene') {
       discardSceneDraft?.()
       inspectorDetailState.value = null
@@ -146,45 +127,22 @@ export function useAuthoringInspectorState({
   }
 
   function selectInspectorTool(tool) {
-    const prepared = prepareToolSelection(tool)
-    if (tool === 'dual') {
-      if (inspectorOpen.value && activeInspectorTool.value === 'dual') {
-        if (dualPaneRef.value?.prepareClose?.() === false) {
-          inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value
-          return
-        }
-        closeWritingInspector()
-        return
-      }
-      activeInspectorTool.value = 'dual'
-      inspectorOpen.value = true
-      inspectorPinned.value = true
-      if (!dualTargetChapterId.value && !dualTargetExplorationId.value && !dualTargetOutlineNodeId.value && !dualTargetWorldbookEntryId.value) {
-        dualTargetChapterId.value = String(selectedChapterId.value || chapters.value[0]?.id || '')
-      }
-      return
-    }
-    if (inspectorOpen.value && activeInspectorTool.value === 'dual') {
-      if (dualPaneRef.value?.prepareClose?.() === false) {
-        inspectorReturnSurface.value = prepared?.previous || inspectorReturnSurface.value?.previous || null
-        return
-      }
-      activeWritingPane.value = 'main'
-    }
-    if (inspectorDetailState.value?.kind === 'scene-edit' && tool !== 'scene') {
+    const normalizedTool = String(tool || '')
+    if (!INSPECTOR_LABELS[normalizedTool]) return
+    prepareToolSelection(normalizedTool)
+    if (inspectorDetailState.value?.kind === 'scene-edit' && normalizedTool !== 'scene') {
       discardSceneDraft?.()
       inspectorDetailState.value = null
     }
-    activeInspectorTool.value = tool
+    activeInspectorTool.value = normalizedTool
     inspectorOpen.value = true
-    if (tool === 'scene') {
-      if (inspectorDetailState.value?.kind === 'scene-edit') discardSceneDraft?.()
+    if (normalizedTool === 'scene') {
       inspectorDetailState.value = null
       if (sceneDetailNotice) sceneDetailNotice.value = ''
       return
     }
-    if (tool === 'annotations') inspectorTab.value = 'comments'
-    if (tool === 'history') inspectorTab.value = 'version'
+    if (normalizedTool === 'annotations') inspectorTab.value = 'comments'
+    if (normalizedTool === 'history') inspectorTab.value = 'version'
   }
 
   return Object.freeze({
@@ -195,7 +153,6 @@ export function useAuthoringInspectorState({
     closeWritingInspector,
     freezeWritingSurfaceBeforeToolSelect,
     inspectorDetailState,
-    inspectorDualColumn,
     inspectorOpen,
     inspectorPinned,
     inspectorReturnFocusRef,

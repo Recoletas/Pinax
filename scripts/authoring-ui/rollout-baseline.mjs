@@ -29,7 +29,7 @@ const MARKER_TEXT = '黄铜钥匙' // ch5 中段（fixture midUnit 邻域）的�
 const GEOMETRY_SELECTORS = [
   '.workspace-tabs', '.wall__cork', '.authoring-book-tabs', '#authoring-editor-toolbar-host .editor-toolbar',
   '.wall__main', '.wall__shelf', '.wall__dossier', '.wall__dossier-scroll', '.wall__dossier-body',
-  '.wall__dossier-title', '.wall__chapter-head', '.dossier-footer', '.writing-tool-rail',
+  '.wall__dossier-title', '.wall__chapter-head', '.dossier-footer', // W-B 右轨退役：rail 选择器移除
   '.writing-inspector', '.wall__shelf-scene', '.ProseMirror'
 ]
 

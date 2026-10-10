@@ -19,7 +19,7 @@ function check(label, pass, detail) {
 async function capture(page, selector = '.wall__dossier') {
   return page.evaluate(selector => {
     const root = document.querySelector(selector)
-    const scroll = root.querySelector('.wall__dossier-scroll,.authoring-dual-pane__scroll')
+    const scroll = root.querySelector('.wall__dossier-scroll') // W-B 双栏退役：副稿面滚动容器已随功能移除
     const selection = getSelection()
     const locate = node => {
       const element = node?.nodeType === 1 ? node : node?.parentElement
@@ -54,7 +54,8 @@ try {
       const editor = page.locator('.wall__dossier .ProseMirror').first()
       await editor.waitFor()
       await page.waitForTimeout(250)
-      for (const tool of ['characters', 'dual']) {
+      // W-B 双栏退役：工具旅程收敛到顶栏工具组既有工具（characters/outline）。
+      for (const tool of ['characters', 'outline']) {
         const label = `${width}-${theme}-${tool}`
         await editor.locator('p').nth(4).click()
         await page.waitForTimeout(150)
@@ -71,63 +72,8 @@ try {
         check(`${label} 无横向溢出`, !opened.overflow, opened.width)
         if (width <= 1180) check(`${label} 覆盖态保持稿面宽度`, Math.abs(opened.width - before.width) <= 1, { before: before.width, opened: opened.width })
         if ([390, 1440].includes(width)) await page.screenshot({ path: path.join(out, `${label}-opened.png`) })
-        if (tool === 'dual') {
-          const header = page.locator('.authoring-dual-pane__head')
-          const titleBox = await header.locator('.authoring-dual-pane__title').boundingBox()
-          const actionsBox = await header.locator('.authoring-dual-pane__actions').boundingBox()
-          check(`${label} 标题独占操作行上方`, titleBox.y + titleBox.height <= actionsBox.y + 1, { titleBox, actionsBox })
-          check(`${label} 已保存不占标题空间`, await header.locator('.authoring-dual-pane__save').count() === 0, null)
-          const longTitle = await header.evaluate(element => {
-            const title = element.querySelector('strong')
-            const original = title.textContent
-            title.textContent = '当雾港的最后一盏灯熄灭之后她终于听见了海底的钟声'
-            const range = document.createRange()
-            range.selectNodeContents(title)
-            const bounds = element.querySelector('.authoring-dual-pane__title').getBoundingClientRect()
-            const rects = [...range.getClientRects()]
-            const visible = rects.every(rect => rect.left >= bounds.left - 1 && rect.right <= bounds.right + 1 && rect.bottom <= bounds.bottom + 1)
-            title.textContent = original
-            return { visible, lines: rects.length }
-          })
-          check(
-            `${label} 长章名完整显示（空间不足时换行）`,
-            longTitle.visible && (width > 390 || longTitle.lines >= 2),
-            longTitle
-          )
-          if (width <= 720) {
-            await header.getByRole('button', { name: '切换副窗内容', exact: true }).click()
-            await page.waitForTimeout(100)
-            const directoryBox = await page.locator('.authoring-dual-pane__directory').boundingBox()
-            const headerBox = await header.boundingBox()
-            check(`${label} 移动目录不遮挡标题和操作`, directoryBox.y >= headerBox.y + headerBox.height - 1, { directoryBox, headerBox })
-            await header.getByRole('button', { name: '切换副窗内容', exact: true }).click()
-          }
-        }
-        if (tool === 'dual' && width === 1440) {
-          const pane = page.locator('.authoring-dual-pane')
-          check(`${label} 正文副稿不混入设定空态`, await pane.locator('[data-document-role="dual-worldbook-entry"]').count() === 0, null)
-          const content = pane.locator('.authoring-dual-pane__editor')
-          const directoryWidth = (await content.boundingBox()).width
-          const toggle = pane.getByRole('button', { name: '切换副窗内容', exact: true })
-          await toggle.click()
-          await page.waitForTimeout(150)
-          check(`${label} 收起目录释放副稿宽度`, (await content.boundingBox()).width > directoryWidth + 100, { before: directoryWidth, after: (await content.boundingBox()).width })
-          check(`${label} 外宽保持440`, Math.abs((await pane.boundingBox()).width - 440) <= 1, await pane.boundingBox())
-          await page.screenshot({ path: path.join(out, `${label}-directory-closed.png`) })
-          await pane.locator('.ProseMirror p').nth(3).click()
-          await page.keyboard.press('Home')
-          await page.keyboard.press('Shift+ArrowRight')
-          await page.waitForTimeout(150)
-          const dualBefore = await capture(page, '.authoring-dual-pane')
-          await page.locator('[data-authoring-tool="characters"]').click()
-          await page.getByTitle('关闭角色工作台', { exact: true }).click()
-          await page.waitForTimeout(300)
-          const dualAfter = await capture(page, '.authoring-dual-pane')
-          check(`${label} 临时工具返回保留目录收起`, await pane.locator('.authoring-dual-pane__directory').count() === 0, null)
-          check(`${label} 返回副稿恢复选区与滚动`, JSON.stringify(dualBefore.selection) === JSON.stringify(dualAfter.selection) && Math.abs(dualBefore.scroll - dualAfter.scroll) <= 2 && dualAfter.focused, { before: dualBefore.selection, after: dualAfter.selection, scroll: [dualBefore.scroll, dualAfter.scroll] })
-        }
-        if (tool === 'dual') await page.getByRole('button', { name: '关闭双栏', exact: true }).click()
-        else await page.getByTitle('关闭角色工作台', { exact: true }).click()
+        // W-B 双栏退役：dual 专属几何/目录/副稿断言随功能移除。
+        await page.getByTitle(tool === 'characters' ? '关闭角色工作台' : '关闭大纲工作台', { exact: true }).click()
         await page.waitForTimeout(300)
         const after = await capture(page)
         check(`${label} 关闭恢复选区`, JSON.stringify(before.selection) === JSON.stringify(after.selection), { before: before.selection, after: after.selection })

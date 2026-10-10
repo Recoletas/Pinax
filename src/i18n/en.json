@@ -1726,5 +1726,10 @@
   "取样 {temp}": "Sampling {temp}",
   "尚未播种：项目根目录还没有「词汇表.json」。新建或首次同步项目时会自动生成默认骨架。": "Not seeded yet: the project root has no 词汇表.json. A default skeleton is generated when a project is created or synced for the first time.",
   "这份词汇表三段都是空。直接编辑项目根目录下的「词汇表.json」（禁用词 banned／偏好词 own／专名口径 canon），保存后即生效。": "All three sections of this lexicon are empty. Edit 词汇表.json in the project root directly (banned / own / canon); changes take effect on save.",
-  "文件即真相：本页只读，直接编辑项目根目录下的「词汇表.json」即可生效。": "The file is the source of truth: this page is read-only. Edit 词汇表.json in the project root directly; changes take effect on save."
+  "文件即真相：本页只读，直接编辑项目根目录下的「词汇表.json」即可生效。": "The file is the source of truth: this page is read-only. Edit 词汇表.json in the project root directly; changes take effect on save.",
+  "收起侧栏": "Collapse sidebar",
+  "展开侧栏": "Expand sidebar",
+  "运行日志": "Run log",
+  "收起章节目录": "Collapse chapter list",
+  "展开章节目录": "Expand chapter list"
 }

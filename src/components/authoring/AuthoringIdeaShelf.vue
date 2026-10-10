@@ -92,7 +92,6 @@
                 :aria-label="isSelected(referenceFor(doc).id) ? '移出推演夹' : '带入推演夹'"
                 @click="runRowAction($event, () => toggleReference(referenceFor(doc)))"
               >{{ isSelected(referenceFor(doc).id) ? '移出推演夹' : '带入推演' }}</button>
-              <button type="button" @click="runRowAction($event, () => $emit('open-dual', doc.id))">在双栏打开</button>
               <button
                 type="button"
                 :disabled="!currentChapterId || doc.associatedChapterIds?.includes(currentChapterId)"
@@ -144,7 +143,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'extract-preview',
-  'create', 'migrate', 'open', 'open-dual', 'add', 'remove', 'refresh', 'link-current', 'park', 'restore', 'delete', 'open-full', 'update:query'
+  'create', 'migrate', 'open', 'add', 'remove', 'refresh', 'link-current', 'park', 'restore', 'delete', 'open-full', 'update:query'
 ])
 
 const pickerOpen = ref(false)

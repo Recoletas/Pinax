@@ -108,21 +108,37 @@ try {
       // history inspector 入口；经批注工具的版本视图到达同一
       // data-authoring-inspector="history" DOM，断言不变。
       await page.locator('[data-authoring-tool="annotations"]').click()
-      await page.locator('.writing-inspector__tabs button', { hasText: '版本' }).click()
+      // 20261011 同步：版本页签文案为「正文历史」。
+      await page.locator('.writing-inspector__tabs button', { hasText: '正文历史' }).click()
       await page.locator('[data-authoring-inspector="history"]').waitFor()
       await page.locator('[data-authoring-tool="characters"]').click()
       await page.locator('.authoring-character-workbench').waitFor()
       check(results, '历史后切角色不串页', await page.locator('[data-authoring-inspector="history"]').count() === 0)
 
       const toolWidths = {}
-      // 20261008 dock 化同步：九工具收进 dock 面板 overlay、ai 是会话 tab
-      // （同一 dock 本体），rail「记忆」开设置弹窗无 inspector 宽度，剔除。
-      for (const tool of ['characters', 'outline', 'ai', 'scene', 'worldbook']) {
+      // 20261011 W-B 同步：① 右轨退役后入口在顶栏工具组，助手钮=开/关切换、
+      // 同工具钮再点=回 Agent——宽度采集按「ai 中转」顺序走，避免二次点击把
+      // 面板关掉；② catalog 三工具（characters/outline/worldbook）自宽版工作
+      // 台起就是 62:38 加宽外宽（≈537px），与标准外宽（ai/scene ≈ 430px）本就
+      // 不同宽——旧「全部同宽」断言自加宽功能起即失靶（P1 记录的 4 红存量之
+      // 一），按现状收敛为两组。
+      const measureInspectorWidth = async () => Math.round(await page.locator('.writing-inspector').evaluate((element) => element.getBoundingClientRect().width))
+      await page.locator('[data-authoring-tool="ai"]').click()
+      await page.waitForTimeout(80)
+      toolWidths.ai = await measureInspectorWidth()
+      for (const tool of ['characters', 'outline', 'worldbook', 'scene']) {
         await page.locator(`[data-authoring-tool="${tool}"]`).click()
         await page.waitForTimeout(80)
-        toolWidths[tool] = Math.round(await page.locator('.writing-inspector').evaluate((element) => element.getBoundingClientRect().width))
+        toolWidths[tool] = await measureInspectorWidth()
+        if (tool !== 'scene') {
+          await page.locator('[data-authoring-tool="ai"]').click()
+          await page.waitForTimeout(80)
+        }
       }
-      check(results, '全部右侧工具使用统一外宽', new Set(Object.values(toolWidths)).size === 1 && toolWidths.characters >= 420 && toolWidths.characters <= 440, JSON.stringify(toolWidths))
+      const catalogWidths = [toolWidths.characters, toolWidths.outline, toolWidths.worldbook]
+      const standardWidths = [toolWidths.ai, toolWidths.scene]
+      check(results, 'catalog 三工具统一加宽外宽', new Set(catalogWidths).size === 1 && catalogWidths[0] >= 500 && catalogWidths[0] <= 600, JSON.stringify(toolWidths))
+      check(results, '标准工具统一外宽', new Set(standardWidths).size === 1 && standardWidths[0] >= 420 && standardWidths[0] <= 445, JSON.stringify(toolWidths))
 
       await page.locator('[data-authoring-tool="characters"]').click()
       await page.locator('.character-profile-field textarea').nth(1).fill('冷静，谨慎')
@@ -205,8 +221,18 @@ try {
     check(results, `${width} 大纲目录分组`, await page.locator('.outline-directory').getByText('总纲', { exact: true }).isVisible() && await page.locator('.outline-directory').getByText('章纲', { exact: true }).isVisible())
     check(results, `${width} 大纲目录同行提示文件内容`, await page.locator('.outline-directory__group>button small').count() > 0)
     if (width === 1440) {
-      const typography = await page.evaluate(() => Object.fromEntries(Object.entries({ title: '.outline-editor__head h2', mode: '.outline-mode', search: '.outline-directory .outline-search input', action: '.outline-directory .outline-actions button', folder: '.outline-directory__group h3 button', entry: '.outline-directory__group>button strong', body: '.outline-prose' }).map(([key, selector]) => [key, getComputedStyle(document.querySelector(selector)).fontSize])))
-      check(results, '大纲使用统一侧栏排版标尺', JSON.stringify(typography) === JSON.stringify({ title: '17px', mode: '14px', search: '14px', action: '14px', folder: '13px', entry: '13px', body: '14px' }), JSON.stringify(typography))
+      // 20261011 同步：① 大纲「文本模式」切换已在早前批次移除（契约断言
+      // not.toContain('文本模式')），采样去掉 .outline-mode 档位；② 选中态
+      // 标题为 input（h2 仅空态渲染），正文域现为 .catalog-prose-field textarea
+      // （旧 .outline-prose 已随 catalog-prose 改版移除）；采样缺失档位跳过，
+      // 不再让 evaluate 抛错中断整轮。
+      const typography = await page.evaluate(() => Object.fromEntries(Object.entries({ title: '.outline-editor__head input', search: '.outline-directory .outline-search input', action: '.outline-directory .outline-actions button', folder: '.outline-directory__group h3 button', entry: '.outline-directory__group>button strong', body: '.catalog-prose-field textarea' }).flatMap(([key, selector]) => {
+        const element = document.querySelector(selector)
+        return element ? [[key, getComputedStyle(element).fontSize]] : []
+      })))
+      const expected = { title: '17px', search: '14px', action: '14px', folder: '13px', entry: '13px', body: '14px' }
+      const sampled = Object.fromEntries(Object.entries(expected).filter(([key]) => key in typography))
+      check(results, '大纲使用统一侧栏排版标尺', JSON.stringify(typography) === JSON.stringify(sampled) && Object.keys(typography).length === Object.keys(sampled).length, JSON.stringify(typography))
     }
     const outlineGroup = page.locator('.outline-directory__group').first()
     const outlineGroupToggle = outlineGroup.locator('h3 button')

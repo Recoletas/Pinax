@@ -194,7 +194,8 @@ async function createPage(browser) {
   const requests = await installAdvisor(page, control)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}&chapterId=fogch-1`, { waitUntil: 'domcontentloaded' })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
-  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
+  // W-B 右轨退役：等待顶栏工具组。
+  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, errors, control, requests }
 }

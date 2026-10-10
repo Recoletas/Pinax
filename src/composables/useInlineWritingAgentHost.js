@@ -58,7 +58,7 @@ export function useInlineWritingAgentHost({
     const signals = readInteractionSignals()
     return resolveWritingInteractionOwner({
       ...signals,
-      composing: compositionActive.value || Boolean(signals.dualComposing),
+      composing: compositionActive.value,
       inlineSuggestionVisible: agent.visible.value,
       inlineSuggestionRequesting: agent.requesting.value
     })

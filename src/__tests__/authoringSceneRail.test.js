@@ -14,7 +14,6 @@ import {
   createAuthoringInspectorState,
   openAuthoringInspectorDetail,
   returnFromAuthoringInspectorDetail,
-  toggleAuthoringInspectorDual
 } from '../services/authoring/authoringInspectorRoute.js'
 import { buildAuthoringCaretContext, buildAuthoringSettingContext, extractAuthoringCaretWindow } from '../services/authoring/authoringSettingContext.js'
 import { normalizeWritingAnnotation } from '../services/writing/writingAnnotations.js'
@@ -106,7 +105,6 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
 
     const dangling = mount(AuthoringOutlinePanel, {
       props: {
-        dual: true,
         projectNodes: [{
           id: 'dangling', title: '残留引用', intent: '等待整理。', status: 'planned',
           chapterRefs: ['missing-chapter'],
@@ -382,7 +380,6 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     const base = createAuthoringInspectorState({ tool: 'worldbook', mode: 'search', query: '旧港' })
     const detail = openAuthoringInspectorDetail(base, 'char_lina')
     expect(returnFromAuthoringInspectorDetail(detail)).toMatchObject({ mode: 'search', query: '旧港', selectedId: '' })
-    expect(toggleAuthoringInspectorDual(base, false).dual).toBe(false)
 
     const annotation = normalizeWritingAnnotation({
       id: 'a1', body: '核对人物身份', chapterId: 'chapter-9',
@@ -392,7 +389,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     expect(annotation.references[0].entryId).toBe('char_lina')
     expect(resolveWritingWorldbookReference(annotation.references[0], worldbook)).toMatchObject({ status: 'stale', label: '莉娜' })
 
-    const outline = mount(AuthoringOutlinePanel, { props: { dual: true, chapterTitle: '石柱下的星图', items: [
+    const outline = mount(AuthoringOutlinePanel, { props: { chapterTitle: '石柱下的星图', items: [
       { id: 'o1', title: '发现星图', content: '莉娜在石柱下发现星图。', source: { type: 'manual' } },
       { id: 'o2', title: '转动石柱', content: '穹顶亮起第一颗星。', source: { type: 'narrative-asset' } }
     ] } })

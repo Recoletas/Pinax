@@ -3614,3 +3614,19 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 **验证**：smoke:lexicon-contract 34 断言（契约 round-trip/容错/预算/接线静态/真实端到端：未播种 fail-open→首同步播种→读回→二次同步不覆盖手改→建项目播种→400 防覆盖）；doc-reader 47/47；local-mirror 绿（存量红转绿）；knowledge-search 24；kit-protocol probe 活体 0；lint:delta 0 新增；结构 10,897/120 ≤ 10,900/125；verify:full 全链 exit 0；浏览器抽查（隔离注册表 dev 双端）词汇表三段渲染零报错，截图 [lexicon-view-1440.png](./screenshots/w1-doc-reader-knowledge-20261010/lexicon-view-1440.png)。
 
 **未部署**；fork 以 force-push 对齐换基后历史。待办：W2 知识控制台、词表调研 6 裁定、W2.5（settlement 回流 canon + 事后校验扫描）、文风量化（python 环境修复后）。
+
+## 2026-10-11 Agent 优先外壳重构 W-A+W-B：右轨退役、工具迁顶栏、双栏退役、双左栏可收起
+
+方案账 `docs/plan/agent-first-shell-20261010.md`（用户两张批注截图 + 六条裁定编排者按「自己拍」口径拍定）。双 worker 并行（写集不相交），编排者会师复核。
+
+**关键现状纠偏（影响实现口径）**：方案 §2 描述的「AuthoringDock 四段 tab 常驻」与树不符——dock 自 44466ab（PR#6 整合）起就是**零挂载死代码**（组件/css/dockPreferences 全仓零引用），创作台实际壳 = inline `<aside class="writing-inspector">` + 右轨九钮，`data-authoring-tool="ai"` 落在右轨助手钮（f2 Gate 契约）。因此「dock 收敛」落为删五死件 + 等价语义新做。
+
+**交付**：W-A 首页侧栏（工具组贴底/侧栏收起+悬边展开钮/持久化四处注册面；项目组确认无折叠态未动组件）；W-B 创作台（右轨 8 工具迁顶栏新件 `AuthoringInspectorToolbar`（cork 常驻位——编辑器工具条随章节存在会消失，cork 才全时可达）、助手钮=内嵌开/关+完整工作台=面板内显式动作、执行日志并入 Agent 面板抽屉 `AuthoringRunLogDrawer`、**双栏整体退役**（Authoring.vue ~35 分支、inspectorState dual 分支、ghost 跨章改主栏导航、uiControlContract ~60 条钉串断言删除=功能移除改写）、章节树左栏收起（顶栏「章节目录」钮桌面常驻化））。共享键 `writing_sidebar_preferences_v1` 两 worker 加性合并（collapsed/writingCollapsed 字段级）。
+
+**预算**：Authoring.vue 10,421/121（净省 476 行）、chunk 1,424,653 ≤ 1,450,000。
+
+**Gate 同步 11 脚本**：f2-review 33/33 转绿（含「版本」页签存量失靶修复）；f2-catalog 本批 landing 转绿（余 6 红为更早批次漂移，如实留红）；f2-dual-pane 退役占位；f2-knowledge/visibility-runlog 落点同步后仍红——**provider 前提失效**（ask 自 agent 引擎接入走 /api/storyagent SSE 工具循环，直打 /api/advisor/task 的 mock 面不再被命中），PR#5 起存量、转绿需按 SSE 桥重铺 mock，移交 W-C。
+
+**会师复核**：authoring-shell-check 34/34、home-sidebar-check 5/5、smoke:doc-reader 47/47、lint 0、structure 0、verify:full 全链 exit 0（vitest 20/200 顶格）。
+
+**工装坑账**：vite dev watcher 偶发漏 Edit 的 mtime 变化（转译旧代码、浏览器 reload 也拿旧件）——touch 源文件强制失效缓存即愈；验证转译是否生效要 curl dev server 的模块 URL 看产物，别只信文件内容。

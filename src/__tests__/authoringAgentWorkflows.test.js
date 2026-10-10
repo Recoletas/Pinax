@@ -409,13 +409,12 @@ describe('authoring project adapter', () => {
     expect(await knowledgeQuery.prepare(liveDiscussionInput)).toMatchObject({ ok: false, reason: 'knowledge-live-source-invalid' })
 
     const mainEditor = { replaceNodeRanges: vi.fn(() => true) }
-    const dualEditor = { getActiveSource: () => ({ kind: 'chapter', id: 'query-chapter-1' }), replaceReviewRanges: vi.fn(() => true) }
     const searchPlan = { chapters: [{ chapterId: 'query-chapter-1', patches: [{ nodeId: 'node-one', start: 2, end: 4, replacement: '新词' }] }] }
-    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: true, dual: false })
+    // W-B 双栏退役：activePane/dualPane 分支已移除，替换只落主栏编辑器。
+    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: true })
     expect(mainEditor.replaceNodeRanges).toHaveBeenCalledWith([{ nodeId: 'node-one', range: { startOffset: 2, endOffset: 4 }, replacement: '新词' }], { origin: 'writing-agent' })
-    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, activePane: 'dual', dualPane: dualEditor })).toEqual({ main: false, dual: true })
-    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'another-chapter', mainEditor })).toEqual({ main: false, dual: false })
-    expect(applyAuthoringSearchEditorTransaction({ plan: { chapters: [...searchPlan.chapters, { chapterId: 'query-chapter-2', patches: [] }] }, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: false, dual: false })
+    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'another-chapter', mainEditor })).toEqual({ main: false })
+    expect(applyAuthoringSearchEditorTransaction({ plan: { chapters: [...searchPlan.chapters, { chapterId: 'query-chapter-2', patches: [] }] }, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: false })
     expect(mainEditor.replaceNodeRanges).toHaveBeenCalledTimes(1)
     const anchorDocument = createWritingDocument('门外响起三下敲击。\n\n林岚已经拆开信封，把信纸压在油灯下面。')
     const anchorUnit = anchorDocument.content[0]

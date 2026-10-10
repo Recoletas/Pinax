@@ -1,0 +1,176 @@
+{
+  "total": 34,
+  "failed": 0,
+  "results": [
+    {
+      "label": "双栏/右轨/dock 源代码零残留",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏工具组可见（右轨已退役）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏工具组七工具 + 无双栏",
+      "pass": true,
+      "detail": "[\"rehearsal\",\"annotations\",\"outline\",\"characters\",\"worldbook\",\"scene\",\"history\"]"
+    },
+    {
+      "label": "助手入口唯一（data-authoring-tool=\"ai\" 落顶栏助手钮）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「rehearsal」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「rehearsal」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「annotations」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「annotations」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「outline」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「outline」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「characters」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「characters」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「worldbook」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「worldbook」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「scene」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「scene」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏「记忆」打开设置记忆页",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "Agent 面板内执行日志次级入口可开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "执行日志次级入口可收",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "右侧栏可收起且助手钮仍可见",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏助手钮重开右侧栏回 Agent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "切工具后点「助手」→ 回 Agent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "完整助手展开后顶栏随 cork 隐藏",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "返回工作台回到 Agent 常规态且工具组回归",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "章节树左栏可收起（is-shelf-collapsed）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "左栏收起态 reload 后持久",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点章节目录钮左栏展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "双栏/右轨/dock DOM 零残留",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "label": "1440 无页面级横向溢出",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "桌面旅程无控制台错误",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 顶栏工具组可见",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 顶栏批注 → 检查器 sheet 打开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 无水平滚动",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 旅程无控制台错误",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

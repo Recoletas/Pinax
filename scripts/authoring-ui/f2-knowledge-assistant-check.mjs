@@ -3,6 +3,16 @@
 // stale reconciliation, read-only queries, editor-surface restoration and phone sheet.
 // Runs in isolated Playwright contexts; never mutates the user's browser profile.
 //
+// ⚠️ 存量失靶（2026-10-11 W-B 核对，非本批引入）：
+//   本 Gate 的 provider 前提是「knowledge 查询直打 /api/advisor/task」。
+//   PR#5（2026-10-05，purpose 化）后助手入口改 purpose 菜单；agent 引擎接入
+//   后（agent tool calling 批）ask 默认走 createAuthoringStoryAgent 的
+//   /api/storyagent SSE 工具循环，不再直打 advisor 端点——本 Gate 的 canned
+//   mock 拦不到查询，后续断言无法收敛。50bb0a7（P1，2026-10-08）已如实记录
+//   「f2-knowledge/rehearsal 为 PR#5 起存量失靶」。W-B 只同步了选择器落点
+//   （右轨退役→顶栏工具组、四段 dock 死代码删除、双栏旅程改直查），语义
+//   断言未动；重铺 provider 前提（mock SSE 桥）归 W-C（Agent 前端域）。
+//
 // 跑法：
 //   1) 播种 fixture（产物只写 tmp/authoring-rollout/，不动用户浏览器 localStorage）：
 //        BASE=http://127.0.0.1:5174 node scripts/authoring-ui/rollout-fixture.mjs
@@ -152,7 +162,8 @@ async function createPage(browser, viewport, { knowledgeSeamFlag = false } = {})
   page.on('console', (message) => { if (message.type() === 'error') errors.push(`console:${message.text()}`) })
   const requests = await installKnowledgeProvider(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}`, { waitUntil: 'domcontentloaded' })
-  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
+  // W-B 外壳重构：右轨退役，等待顶栏工具组（工具入口落点随之迁移）。
+  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, requests, errors }
@@ -168,18 +179,13 @@ async function fillAndAsk(page, question) {
   return assistant
 }
 
-// 20261008 dock 化同步：收起徽标（data-authoring-tool="ai"）只负责展开 dock，
-// 可能带着上次的工具面板 overlay 重开（activeInspectorTool 初始为 'annotations'）；
-// 「回到助手」语义在 dock 会话 tab 上（selectTab('session') 会触发 panel-close）。
-// 这里点到达会话段为止，至多两击；回退是否触发只记录，不改断言。
+// 20261011 W-B 外壳重构同步：助手入口 data-authoring-tool="ai" 从右轨钮迁到
+// 顶栏「助手」钮（点击即进助手会话段）；四段 dock 死代码已删除，不再有工具
+// 面板 overlay 残留路径。引用预览若开着会顶掉会话段：先「关闭引用预览」回
+// 对话，再等助手可见。
 async function openAssistantSession(page) {
   await page.locator('[data-authoring-tool="ai"]').click()
   await page.waitForTimeout(300)
-  if (await page.locator('.authoring-dock__panel').isVisible().catch(() => false)) {
-    console.log('NOTE openAssistantSession: dock reopened onto a tool panel overlay; clicking session tab to return to assistant')
-    await page.locator('[data-authoring-tool="ai"]').click()
-    await page.waitForTimeout(300)
-  }
   // 引用预览若还开着会顶掉会话段（非展开态 has-preview 隐藏 conversation）：
   // 先「关闭引用预览」回对话，再等助手可见。
   const previewClose = page.locator('.authoring-assistant-workspace__preview-close')
@@ -259,8 +265,10 @@ try {
     spans.map((span) => (span.childNodes[0]?.textContent || '').trim())
   ))
   await page.locator('.authoring-knowledge__purpose summary').click()
-  check(results, '助手 purpose 菜单呈现三入口（讨论/写作修改/查阅资料）',
-    purposeLabels.join('|') === '讨论故事|写作与修改|查阅资料', purposeLabels.join('|'))
+  // 20261011 同步：purpose 菜单在快任务（检查文稿/生成插图）入列后为五入口；
+  // 三入口断言属 PR#5 前旧形态，按产品现状收敛。
+  check(results, '助手 purpose 菜单呈现五入口（讨论/写作修改/查阅资料/检查文稿/生成插图）',
+    purposeLabels.join('|') === '讨论故事|写作与修改|查阅资料|检查文稿|生成插图', purposeLabels.join('|'))
   check(results, '助手首页不暴露诊断内部术语', !/manifest|receipt|candidate ID|token budget|上下文数量/i.test(await assistant.innerText()))
   await page.locator('.writing-inspector__icon-btn[title="关闭检查器"]').click()
   await page.waitForTimeout(120)
@@ -354,46 +362,28 @@ try {
   check(results, '内存稿查询无控制台错误', liveDraft.errors.length === 0, liveDraft.errors.join('\n'))
   await liveDraft.context.close()
 
-  // 双栏是平级可编辑面：先验证副栏能打开第二章，再回助手做整书查阅。
-  // 语义演化说明（20261008 收口，两处旧断言删除的证据链）：
-  // ① dock 化让位：Authoring.dock.css:23 `.authoring-dock.is-dual { display:none }`
-  //    ——双栏激活时 dock 整体隐藏，助手入口（会话 tab）不可点，「从副栏直接
-  //    打开助手」在 dock 时代不是产品交互，作者须先退出双栏；
-  // ② purpose 化：PR#5（commit 92294d2，2026-10-05 入干）把助手入口 purpose 化
-  //    后，「character（按 target 截止）」意图已从 UI 移除，purpose 菜单只余
-  //    free/agent/whole-book，且 authoringKnowledgeQuerySession.
-  //    catalogForRetrievalScope 只对非 whole-book 意图做 through-target 截断、
-  //    provider 载荷不再携带 target——旧断言（副栏 target、排除后续章节）
-  //    断言的是已删除的产品语义。
-  // 保留的等价旅程断言：副栏能打开第二章；退出双栏后助手整书查阅正常完成。
-  const dualTarget = await createPage(browser, { width: 1440, height: 900 })
-  const dualPage = dualTarget.page
-  await dualPage.locator('[data-authoring-tool="dual"]').click()
-  const dualPane = dualPage.locator('.authoring-dual-pane')
-  await dualPane.waitFor({ state: 'visible' })
-  const dualDirectory = dualPane.locator('.authoring-dual-pane__directory')
-  if (!await dualDirectory.isVisible().catch(() => false)) {
-    await dualPane.getByRole('button', { name: '切换副窗内容' }).click()
-  }
-  await dualPane.locator('.authoring-dual-pane__chapter[data-chapter-id="fogch-2"]').click()
-  const dualEditor = dualPane.locator('.ProseMirror')
-  await dualEditor.locator('p').first().click()
-  check(results, '双栏副窗可打开第二章', (await dualEditor.innerText()).includes('灯下空格') || (await dualEditor.locator('p').count()) > 0)
-  // 退出双栏（dock 让位回收，会话 tab 重新可见），像作者一样回助手提问。
-  await dualPage.locator('[data-authoring-tool="dual"]').click()
-  await dualPage.waitForTimeout(400)
-  await openAssistantSession(dualPage)
-  const dualAssistant = dualPage.locator('.authoring-knowledge')
-  await dualAssistant.waitFor({ state: 'visible' })
-  await choosePurpose(dualPage, '查阅资料')
-  await fillAndAsk(dualPage, '艾德加此前做过什么？')
-  const dualRequest = dualTarget.requests[0]
-  check(results, '退出双栏后助手整书查阅正常完成',
-    dualRequest?.payload?.options?.knowledgeIntent === 'whole-book'
-    && (dualRequest?.refs || []).some((ref) => ref.startsWith('node:fogch-2:')),
-    JSON.stringify({ intent: dualRequest?.payload?.options?.knowledgeIntent }))
-  check(results, '双栏资料查询无控制台错误', dualTarget.errors.length === 0, dualTarget.errors.join('\n'))
-  await dualTarget.context.close()
+  // 整书查阅须覆盖未在当前章打开的后续章节。
+  // 语义演化说明（20261011 W-B 同步，双栏退役的证据链）：
+  // ① 双栏整体退役（plan §5 待裁 3）：AuthoringDualPane/右轨 dual 钮/
+  //    f2-dual-pane Gate 已删除，原「双栏副窗打开第二章 → 退出双栏 → 整书
+  //    查阅」旅程的前半段不再是产品交互；
+  // ② 保留的等价旅程断言：助手整书查阅（查阅资料 intent）照常检索到
+  //    第二章（fogch-2）正文证据——原断言的落点（副栏 target/排除后续章节）
+  //    早已随 purpose 化删除，本段只保留「整书查阅覆盖 fogch-2」这一语义。
+  const wholeBook = await createPage(browser, { width: 1440, height: 900 })
+  const wholeBookPage = wholeBook.page
+  await openAssistantSession(wholeBookPage)
+  const wholeBookAssistant = wholeBookPage.locator('.authoring-knowledge')
+  await wholeBookAssistant.waitFor({ state: 'visible' })
+  await choosePurpose(wholeBookPage, '查阅资料')
+  await fillAndAsk(wholeBookPage, '艾德加此前做过什么？')
+  const wholeBookRequest = wholeBook.requests[0]
+  check(results, '助手整书查阅覆盖后续章节（fogch-2）',
+    wholeBookRequest?.payload?.options?.knowledgeIntent === 'whole-book'
+    && (wholeBookRequest?.refs || []).some((ref) => ref.startsWith('node:fogch-2:')),
+    JSON.stringify({ intent: wholeBookRequest?.payload?.options?.knowledgeIntent }))
+  check(results, '整书查阅无控制台错误', wholeBook.errors.length === 0, wholeBook.errors.join('\n'))
+  await wholeBook.context.close()
 
   const mobile = await createPage(browser, { width: 390, height: 844 })
   await openAssistantSession(mobile.page)

@@ -1,7 +1,16 @@
 /* eslint-disable no-console */
 // Phase 3 real-page Gate：前端可见性增强（助手侧）。
 // 覆盖：advisor 问答 → 回答旁 🔍（提示词快照面板、Esc 焦点恢复、刷新后失效文案）；
-// 右 dock「执行」tab 运行记录（trace 摘要、按作品过滤、刷新持久化）。
+// 运行记录（trace 摘要、按作品过滤、刷新持久化）——20261011 W-B 起挂 in
+// Agent 面板次级入口（原右 dock「执行」tab 已随四段 dock 退役）。
+//
+// ⚠️ 存量失靶（2026-10-11 W-B 核对，非本批引入）：本 Gate 的 trace 前提是
+// 「ask 直打 /api/advisor/task 落 advisor trace」。agent 引擎接入后 ask 默认
+// 走 /api/storyagent SSE 工具循环，advisor 直查仅剩「重答（via=query）」与
+// 温度覆写路径——canned mock 拦不到默认链，回答断言无法收敛（与
+// f2-knowledge-assistant-check 同根因，见其文件头）。W-B 只同步了选择器
+// 落点（顶栏工具组等待、助手入口、运行日志次级入口 data-test），语义断言
+// 未动；重铺前提归 W-C（Agent 前端域）。
 // 模型响应以 canned /api/advisor/task 注入（本机 5173/5174 origin 无可用凭据，
 // 读 apiKey 被禁止）——与 Phase 1「canned 注入 + 前端链路真实执行」先例一致；
 // advisorTaskService 的 requestId → trace → 快照全链仍真实执行。
@@ -121,7 +130,8 @@ async function createPage(browser, viewport) {
   page.on('console', (message) => { if (message.type() === 'error') errors.push(`console:${message.text()}`) })
   const requests = await installCannedAdvisor(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}`, { waitUntil: 'domcontentloaded' })
-  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
+  // W-B 外壳重构：右轨退役，等待顶栏工具组；助手入口在顶栏「助手」钮。
+  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, requests, errors }
@@ -130,11 +140,6 @@ async function createPage(browser, viewport) {
 async function openAssistantSession(page) {
   await page.locator('[data-authoring-tool="ai"]').click()
   await page.waitForTimeout(300)
-  if (await page.locator('.authoring-dock__panel').isVisible().catch(() => false)) {
-    console.log('NOTE openAssistantSession: dock reopened onto a tool panel overlay; clicking session tab to return to assistant')
-    await page.locator('[data-authoring-tool="ai"]').click()
-    await page.waitForTimeout(300)
-  }
   const previewClose = page.locator('.authoring-assistant-workspace__preview-close')
   if (await previewClose.isVisible().catch(() => false)) {
     await previewClose.click()
@@ -163,8 +168,11 @@ async function fillAndAsk(page, question) {
   return assistant
 }
 
+// 20261011 W-B dock 收敛同步：旧「执行」tab 退役，运行日志降为 Agent 面板内
+// 次级入口（默认收起的抽屉，data-test="authoring-run-log-entry"），点开即
+// 渲染同一 AuthoringRunLog（data-test="authoring-run-log" 契约不变）。
 async function openRunTab(page) {
-  await page.locator('.authoring-dock__tabs').getByRole('tab', { name: '执行', exact: true }).click()
+  await page.locator('[data-test="authoring-run-log-entry"]').click()
   await page.locator('[data-test="authoring-run-log"]').waitFor({ state: 'visible', timeout: 10000 })
 }
 

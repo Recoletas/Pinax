@@ -40,7 +40,7 @@
   overflow: hidden;
   min-height: 0;
 }
-.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-tool-rail, .writing-inspector__reopen) { display: none; }
+.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-inspector__reopen) { display: none; }
 .writing-page.is-assistant-full .writing-inspector,
 .theme-legacy .writing-page.is-assistant-full .writing-inspector.is-open {
   position: relative;
@@ -78,7 +78,6 @@
   --authoring-sidebar-label-size: 15px;
   --authoring-sidebar-meta-size: 13px;
   --authoring-sidebar-gutter: 22px;
-  --writing-tool-rail-width: 60px;
 }
 /* Restore the original shelf geometry; only surface treatments differ. */
 .theme-legacy .writing-page .wall__shelf {
@@ -245,3 +244,7 @@
 
 .writing-inspector__pending-proposals { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--hairline-soft); }
 .writing-inspector__pending-proposals button { display: block; border: 0; padding: 8px 0; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-sans); cursor: pointer; }
+
+/* W-B 外壳重构：Agent 面板内次级入口——运行日志抽屉与助手工作区共用面板高度。 */
+.writing-page .writing-inspector__body--assistant > .authoring-assistant-workspace { flex: 1 1 auto; height: auto; min-height: 0; }
+.writing-page .writing-inspector__body--assistant > .authoring-run-log-drawer { flex: none; }

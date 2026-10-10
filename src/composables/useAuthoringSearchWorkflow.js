@@ -17,8 +17,9 @@ const failureMessage = (reason) => ({
 
 // 只把活动文稿中的单章替换放进该编辑器的撤销栈。全书替换涉及多个
 // 文稿，仍由各章保护版本恢复，不能让一次 Ctrl+Z 悄悄只撤销其中一章。
-export function applyAuthoringSearchEditorTransaction({ plan, activePane, mainChapterId, mainEditor, dualPane }) {
-  const history = { main: false, dual: false }
+// （W-B 双栏退役：activePane/dualPane 分支已随双栏功能一并移除。）
+export function applyAuthoringSearchEditorTransaction({ plan, mainChapterId, mainEditor }) {
+  const history = { main: false }
   if (plan?.chapters?.length !== 1) return history
   const chapter = plan.chapters[0]
   const patches = chapter.patches.map((patch) => ({
@@ -26,12 +27,7 @@ export function applyAuthoringSearchEditorTransaction({ plan, activePane, mainCh
     range: { startOffset: patch.start, endOffset: patch.end },
     replacement: patch.replacement
   }))
-  if (activePane === 'dual') {
-    const source = dualPane?.getActiveSource?.()
-    if (source?.kind === 'chapter' && String(source.id) === String(chapter.chapterId)) {
-      history.dual = dualPane.replaceReviewRanges?.(patches) === true
-    }
-  } else if (String(mainChapterId) === String(chapter.chapterId)) {
+  if (String(mainChapterId) === String(chapter.chapterId)) {
     history.main = mainEditor?.replaceNodeRanges?.(patches, { origin: 'writing-agent' }) === true
   }
   return history
@@ -135,7 +131,6 @@ export function useAuthoringSearchWorkflow(host) {
       host.notify('请先打开一本书稿')
       return false
     }
-    const dualSource = host.getDualSource()
     const source = preparedSource || host.captureActiveSource() || host.captureMainSource()
     preparedSource = null
     host.beforeOpen()
@@ -148,8 +143,7 @@ export function useAuthoringSearchWorkflow(host) {
       chapterId: host.getSelectedChapterId(),
       title: host.getCurrentChapterTitle()
     }
-    if (dualSource?.kind === 'worldbook-entry') scope.value = 'worldbook'
-    else if (dualSource?.kind === 'exploration' || source?.documentRole === 'exploration') scope.value = 'exploration'
+    if (source?.documentRole === 'exploration') scope.value = 'exploration'
     else scope.value = 'current-chapter'
     hasNavigated.value = false
     activeFindingId.value = ''
@@ -224,7 +218,7 @@ export function useAuthoringSearchWorkflow(host) {
     debounceTimer = null
     const shouldRestore = restore && !hasNavigated.value
     const surface = returnSurface
-    const navigatedToEditor = hasNavigated.value && surface && surface.pane !== 'dual'
+    const navigatedToEditor = hasNavigated.value && surface
     openState.value = false
     replacePreview.value = null
     preparedSource = null

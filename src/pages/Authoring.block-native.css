@@ -51,6 +51,32 @@
   box-shadow: none;
 }
 
+/* W-B（R1）：章节树左栏收起开关——顶栏「章节目录」钮桌面常驻（原为 ≤720 抽屉
+   专用触发器，桌面 display:none）。点击收起/展开左栏，状态持久化。 */
+@media (min-width: 721px) {
+  .theme-legacy .writing-page .wall__chapter-trigger {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    font: 400 12px/1.4 var(--font-sans, sans-serif);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .theme-legacy .writing-page .wall__chapter-trigger:hover {
+    background: var(--nav-hover);
+    color: var(--text-primary);
+  }
+
+  .theme-legacy .writing-page .wall__chapter-trigger:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+}
+
 .theme-legacy .writing-page .wall__save-chip {
   padding-inline: 10px;
 }
@@ -558,7 +584,8 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
+  /* W-B 右轨退役：网格从「书架/稿面/检查器/rail」回到「书架/稿面/检查器」。 */
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr);
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -566,26 +593,33 @@
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px);
 }
 
-.theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
+/* W-B（R1）：章节树左栏收起——列宽归零，shelf 隐藏出焦点树；再点顶栏「章节目录」展开。 */
+.theme-legacy .writing-page .wall__main.is-shelf-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+.theme-legacy .writing-page .wall__main.is-shelf-collapsed.has-inspector {
+  grid-template-columns: 0px minmax(360px, 1fr) clamp(420px, 31vw, 440px);
+}
+
+.theme-legacy .writing-page .wall__main.is-shelf-collapsed .wall__shelf {
+  visibility: hidden;
+  min-width: 0;
+  border: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 /* 设定是“详情 + 索引”的双列工具，索引不应被压成按钮窄条。 */
 .theme-legacy .writing-page .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench) {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(520px, 38vw, 600px) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(520px, 38vw, 600px);
 }
 
-.theme-legacy .writing-page .writing-tool-rail {
-  grid-column: 3;
-  grid-row: 1;
-  align-self: stretch;
-}
-
-.theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
-  grid-column: 4;
+.theme-legacy .writing-page .wall__main.is-shelf-collapsed.has-inspector:has(> .writing-inspector.is-catalog-workbench) {
+  grid-template-columns: 0px minmax(360px, 1fr) clamp(520px, 38vw, 600px);
 }
 
 .theme-legacy .writing-page .writing-inspector {
@@ -1234,36 +1268,34 @@
 }
 
 @media (max-width: 1180px) and (min-width: 981px) {
-  .theme-legacy .writing-page .wall__main {
-    grid-template-columns: 220px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
-  }
-
+  .theme-legacy .writing-page .wall__main,
   .theme-legacy .writing-page .wall__main.has-inspector {
-    grid-template-columns: 220px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
+    grid-template-columns: 220px minmax(0, 1fr);
   }
 
-  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-    grid-template-columns: 220px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed,
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed.has-inspector {
+    grid-template-columns: 0px minmax(0, 1fr);
   }
 
-  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
-    grid-column: 3;
-  }
-
-  /* Laptop distance：检查器是辅助层，不能用第四列把正文压到半屏。
-     贴在工具 rail 左侧覆盖稿面，关闭后不保留 phantom column。 */
+  /* Laptop distance：检查器是辅助层，不能用第三列把正文压到半屏。
+     贴右缘覆盖稿面，关闭后不保留 phantom column。 */
   .theme-legacy .writing-page .writing-inspector {
     position: absolute;
     z-index: var(--z-workbench-sheet);
     grid-column: auto;
     grid-row: auto;
     inset-block: 0;
-    inset-inline-end: var(--writing-tool-rail-width, 52px);
-    width: min(440px, calc(100% - 264px));
+    inset-inline-end: 0;
+    width: min(440px, calc(100% - 232px));
     height: auto;
     max-height: none;
     overflow: hidden;
     box-shadow: -12px 0 32px color-mix(in srgb, #000 14%, transparent);
+  }
+
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed .writing-inspector {
+    width: min(440px, calc(100% - 12px));
   }
 
 }
@@ -1271,17 +1303,13 @@
 @media (max-width: 980px) {
   .theme-legacy .writing-page .wall__main,
   .theme-legacy .writing-page .wall__main.has-inspector {
-    grid-template-columns: 190px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
+    grid-template-columns: 190px minmax(0, 1fr);
     padding: 0;
   }
 
-  .theme-legacy .writing-page .writing-tool-rail {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
-    grid-column: 3;
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed,
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed.has-inspector {
+    grid-template-columns: 0px minmax(0, 1fr);
   }
 
   .theme-legacy .writing-page .writing-inspector {
@@ -1290,22 +1318,18 @@
     grid-column: auto;
     grid-row: auto;
     inset-block: 0;
-    inset-inline-end: var(--writing-tool-rail-width, 52px);
-    width: min(440px, calc(100% - var(--writing-tool-rail-width, 52px)));
+    inset-inline-end: 0;
+    width: min(440px, calc(100% - 202px));
     height: auto;
     max-height: none;
     overflow: hidden;
-    transform: translateX(calc(100% + var(--writing-tool-rail-width, 52px)));
+    transform: translateX(102%);
     transition: transform var(--motion-page) var(--motion-ease-out);
     box-shadow: -12px 0 32px color-mix(in srgb, #000 16%, transparent);
   }
 
   .theme-legacy .writing-page .writing-inspector.is-open {
     transform: translateX(0);
-  }
-
-  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-    grid-template-columns: 190px minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
   }
 }
 
@@ -1315,7 +1339,8 @@
   /* 覆盖面离开网格后，打开态也必须保持单列，不能继承桌面侧栏轨道。 */
   .theme-legacy .writing-page .wall__main,
   .theme-legacy .writing-page .wall__main.has-inspector,
-  .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed,
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed.has-inspector {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     padding: 0;
@@ -1338,30 +1363,27 @@
     transform: translateX(0);
   }
 
-  .theme-legacy .writing-page .writing-tool-rail,
-  .theme-legacy .writing-page .wall__main.has-inspector .writing-tool-rail {
-    grid-column: 1;
-    position: fixed;
-    inset-inline: 0;
-    inset-block-end: 0;
-    width: auto;
+  /* ≤720 章节树走抽屉（顶栏钮开合），桌面态的收起列在此不生效。 */
+  .theme-legacy .writing-page .wall__main.is-shelf-collapsed .wall__shelf {
+    visibility: visible;
+    pointer-events: auto;
   }
 
   /* Phone distance：右侧窄抽屉会只留下破碎的正文残片。移动端改为
-     工具 rail 上方的全宽 bottom sheet，正文仍在上方保持可辨认。 */
+     全宽 bottom sheet，正文仍在上方保持可辨认。 */
   .theme-legacy .writing-page .writing-inspector {
     position: absolute;
     grid-column: auto;
     grid-row: auto;
     inset-block-start: auto;
     inset-inline: 0;
-    inset-block-end: 44px;
+    inset-block-end: 0;
     width: auto;
     height: min(62vh, 480px);
     max-height: min(62vh, 480px);
     border-inline-start: 0;
     border-top: 1px solid var(--authoring-hairline);
-    transform: translateY(calc(100% + 44px));
+    transform: translateY(102%);
     box-shadow: 0 -12px 32px color-mix(in srgb, #000 16%, transparent);
   }
 
@@ -1535,7 +1557,7 @@
     flex: 0 0 auto;
   }
 
-  /* 底部工具 rail 固定后，底栏必须让出 rail 高度，保存/字数不被遮挡。 */
+  /* 移动端底栏让出安全区高度，保存/字数不被遮挡。 */
   .theme-legacy .writing-page .dossier-footer {
     padding-bottom: 60px;
   }
@@ -1660,20 +1682,14 @@
 }
 
 /* ── 专注全屏：Zen 不只隐藏 AppShell 壳，还要收掉 Authoring 自己的
-   顶栏/左栏/工具 rail，稿面占满整个视口。Esc 或退出按钮恢复。 ── */
+   顶栏与左栏，稿面占满整个视口。Esc 或退出按钮恢复。 ── */
 body.is-writing-zen .writing-page .wall__cork,
 body.is-writing-zen .writing-page .wall__shelf,
-body.is-writing-zen .writing-page .writing-tool-rail,
 body.is-writing-zen .writing-page .writing-inspector {
   display: none !important;
 }
 
 body.is-writing-zen .writing-page .wall__main {
-  grid-template-columns: minmax(0, 1fr) !important;
-}
-
-body.is-writing-zen .writing-page .wall__main.has-inspector,
-body.is-writing-zen .writing-page .wall__main.has-inspector.is-dual-inspector {
   grid-template-columns: minmax(0, 1fr) !important;
 }
 
@@ -1958,14 +1974,6 @@ body.is-writing-zen .ws-tabs {
   font: 9px/1 var(--font-sans, sans-serif);
 }
 
-.authoring-quick-word-strip.is-dual {
-  position: absolute;
-  inset-inline-start: 50%;
-  bottom: 8px;
-  margin: 0;
-  transform: translateX(-50%);
-}
-
 .authoring-quick-word-strip > button:hover,
 .authoring-quick-word-strip > button:focus-visible {
   outline: 0;
@@ -2037,7 +2045,6 @@ body.is-writing-zen .ws-tabs {
 }
 
 /* English tool names need space without reducing their readable size. */
-.writing-page:lang(en) { --writing-tool-rail-width: 76px; }
 
 @media (max-width: 720px), (pointer: coarse) {
   .theme-legacy .writing-page .authoring-chapter-search,
@@ -2045,6 +2052,4 @@ body.is-writing-zen .ws-tabs {
   .theme-legacy .writing-page .wall__shelf .manuscript-language select,
   .theme-legacy .writing-page .wall__binding-compact,
   .theme-legacy .writing-page .authoring-idea-shelf__head-actions button { min-height: 44px; }
-  .theme-legacy .writing-page .writing-tool-rail { padding: 0 4px env(safe-area-inset-bottom, 0px); }
-  .theme-legacy .writing-page .writing-tool-rail button { min-height: 48px; border-radius: 10px; }
 }

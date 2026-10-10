@@ -167,7 +167,8 @@ async function createPage(browser, viewport) {
   const reviewRequests = installReviewProvider(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}&chapterId=fogch-1`, { waitUntil: 'domcontentloaded' })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
-  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
+  // W-B 右轨退役：等待顶栏工具组（工具入口落点迁移）。
+  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, errors, reviewRequests }
 }
@@ -300,7 +301,8 @@ async function inspectHistory(page) {
   await page.locator('[data-authoring-tool="annotations"]').click({ force: true })
   const inspector = page.locator('.writing-inspector.is-open')
   await inspector.waitFor({ state: 'visible', timeout: 10000 })
-  await inspector.locator('.writing-inspector__tabs button', { hasText: '版本' }).click()
+  // 20261011 同步：版本页签文案为「正文历史」（旧「版本」过滤器已失靶）。
+  await inspector.locator('.writing-inspector__tabs button', { hasText: '正文历史' }).click()
   const panel = inspector.locator('.writing-version-panel')
   await panel.waitFor({ state: 'visible', timeout: 10000 })
   const settings = panel.locator('.writing-version-panel__automatic')

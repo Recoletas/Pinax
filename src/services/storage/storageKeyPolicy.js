@@ -24,7 +24,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
   WRITING_SESSIONS: 'project',
   WRITING_SNAPSHOTS: 'project',
   WRITING_HISTORY_PREFERENCES: 'preference',
-  WRITING_DOCK_PREFERENCES: 'preference',
+  WRITING_SIDEBAR_PREFERENCES: 'preference',
   WRITING_BLOCK_HISTORY: 'project',
   WRITING_RECOVERY_DRAFTS: 'project',
   WRITING_TYPOGRAPHY: 'preference',

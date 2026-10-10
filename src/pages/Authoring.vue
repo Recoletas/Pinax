@@ -18,14 +18,15 @@
         ref="chapterDrawerTriggerRef"
         class="wall__chapter-trigger"
         type="button"
-        :aria-expanded="chapterDrawerOpen.toString()"
+        :aria-expanded="chapterShelfVisible.toString()"
         aria-controls="writing-chapter-shelf"
-        @click.stop="openChapterDrawer"
+        :title="chapterShelfVisible ? tr('收起章节目录') : tr('展开章节目录')"
+        @click.stop="toggleChapterShelf"
       >
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
       </button>
-      <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" @pointerdown="beforeInspectorToolSelect('ai')" @click="assistantWorkspace.enter"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
+      <button class="authoring-assistant-entry" type="button" data-test="assistant-workspace-entry" data-authoring-tool="ai" :aria-pressed="(inspectorOpen && activeInspectorTool === 'ai' && !assistantWorkspace.expanded.value).toString()" @pointerdown="beforeInspectorToolSelect('ai')" @click="toggleAssistantEntry"><WorkbenchIcon name="assistant" :size="15" />{{ tr('助手') }}<span v-if="knowledgeAssistant.hasUnread?.value || assistantPendingTools.ai" class="authoring-assistant-entry__dot" :aria-label="tr('有未查看的回答')"></span></button>
       <div class="wall__tabs">
         <button
           ref="moreToolsTriggerRef"
@@ -40,6 +41,16 @@
           <WorkbenchIcon name="more" :size="16" />
           <span>{{ chapterShelfSheetMode ? tr('工具') : tr('更多') }}</span>
         </button>
+        <!-- W-B 外壳重构：右轨退役，七个工具入口 + 协作模式「协作」钮迁顶栏；
+             点击切右侧栏对应工具，再点同钮或「助手」回 Agent。 -->
+        <AuthoringInspectorToolbar
+          :active-tool="activeInspectorTool"
+          :inspector-open="inspectorOpen"
+          :pending="assistantPendingTools"
+          :collaboration-visible="authoringRehearsalActive"
+          @before-select="beforeInspectorToolSelect"
+          @select="selectToolFromToolbar"
+        />
         <Teleport to="body">
           <!-- 工具条是 42px 单行 + overflow 裁切，absolute 菜单会被整体裁没（死按钮）；
                菜单固定定位到触发按钮下方，点击任意位置或 Esc 关闭。 -->
@@ -49,7 +60,6 @@
               <button type="button" role="menuitem" @pointerdown="freezeSearchSource" @click="moreAction(openSearchPanel)">{{ tr('查找') }}</button>
               <button type="button" role="menuitem" @click="moreAction(toggleQuickWords)">{{ tr('快捷词') }}</button>
               <button type="button" role="menuitem" @click="moreAction(openNameGenerator)">{{ tr('取名') }}</button>
-              <button type="button" role="menuitem" @click="moreAction(() => selectInspectorTool('dual'))">{{ tr('双栏') }}</button>
               <button type="button" role="menuitem" data-test="mobile-illustrator-action" @click="openIllustratorFromMobileTools">{{ tr('生图') }}</button>
             </div>
             <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">{{ tr('继续创作指引') }}</button>
@@ -79,7 +89,6 @@
           >
             <template v-if="shelfContextMenu.kind === 'chapter'">
               <button type="button" role="menuitem" @click="shelfMenuAction((id) => selectChapter(id))">{{ tr('打开章节') }}</button>
-              <button type="button" role="menuitem" @click="shelfMenuAction(openChapterInDual)">{{ tr('在双栏打开') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(renameChapterFromShelf)">{{ tr('重命名') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentChapterManuscript())">{{ tr('导出本章') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(() => selectInspectorTool('history'))">{{ tr('历史版本') }}</button>
@@ -127,7 +136,7 @@
       @click="closeChapterDrawer"
     ></button>
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
-    <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': inspectorOpen, 'is-dual-inspector': inspectorOpen && inspectorDualColumn, 'has-sequential-inspector': inspectorOpen && activeInspectorTool === 'rehearsal' }">
+    <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': inspectorOpen, 'is-shelf-collapsed': writingSidebarCollapsed && !chapterShelfSheetMode, 'has-sequential-inspector': inspectorOpen && activeInspectorTool === 'rehearsal' }">
       <aside
         id="writing-chapter-shelf"
         ref="chapterShelfRef"
@@ -161,7 +170,6 @@
               @create="wt3QuickCapture"
               @migrate="wt3MigrateLegacyNotes"
               @open="openExplorationDoc"
-              @open-dual="openExplorationInDual"
               @extract-preview="openNotesExtraction"
               @add="addAuthoringRunReference"
               @remove="removeAuthoringRunReference"
@@ -432,7 +440,6 @@
             </header>
 
             <AuthoringTransientNotice
-              v-if="!inspectorOpen || activeInspectorTool !== 'dual'"
               :notice="authoringTaskNotice"
               @undo="undoAuthoringTask"
             />
@@ -460,7 +467,7 @@
               :inline-suggestion-error="copilotError"
               :typewriter="writingTypography.typewriter"
               :focus-paragraph="writingTypography.focusParagraph"
-              :block-composer-open="blockComposer.open || sceneCurationPreviewOpen || (interventionComposer.open && !interventionGhostInDual) || Boolean(adoptionImpact)"
+              :block-composer-open="blockComposer.open || sceneCurationPreviewOpen || interventionComposer.open || Boolean(adoptionImpact)"
               :block-composer-target="adoptionImpact?.target || (sceneCurationPreviewOpen ? sceneCurationTarget : (interventionComposer.open ? interventionDisplayTarget : blockComposer.target))"
               :intervention-enabled="!wt3ActiveDoc"
               :block-preview="blockPreview"
@@ -556,7 +563,7 @@
                 @cancel="closeInterventionComposer"
               />
             </Teleport>
-            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase === 'ghosts' && !interventionGhostInDual" to="#authoring-block-gap">
+            <Teleport v-else-if="interventionComposer.open && interventionComposer.phase === 'ghosts' && !interventionGhostOffChapter" to="#authoring-block-gap">
               <AuthoringInterventionGhost
                 :ghosts="interventionGhosts"
                 :active-ghost-id="interventionComposer.activeGhostId"
@@ -755,85 +762,12 @@
         </template>
       </section>
 
-      <AuthoringDualPane
-        v-if="inspectorOpen && (activeInspectorTool === 'dual' || (activeInspectorTool === 'ai' && knowledgeAssistantInvocation?.pane === 'dual'))"
-        v-show="activeInspectorTool === 'dual'"
-        ref="dualPaneRef"
-        :book-id="selectedBookId"
-        :chapters="chapters"
-        :explorations="wt3IdeaShelfDocs"
-        :outline-nodes="wt3OutlineNodes"
-        :outline-edges="wt3OutlineEdges"
-        :worldbook="boundWorldbook"
-        :main-chapter-id="selectedChapterId || ''"
-        :main-exploration-id="wt3ActiveDocId"
-        :initial-chapter-id="dualTargetChapterId"
-        :initial-exploration-id="dualTargetExplorationId"
-        :initial-outline-node-id="dualTargetOutlineNodeId"
-        :initial-worldbook-entry-id="dualTargetWorldbookEntryId"
-        :main-document="writingDocument"
-        :main-markdown="markdownContent"
-        :active="activeWritingPane === 'dual'"
-        :save-chapter="saveDualChapter"
-        :save-exploration="saveDualExploration"
-        :protect-destructive-edit="protectDualDestructiveEdit"
-        :resolve-scene-projection="resolveDualSceneProjection"
-        :editor-style="notebookEditorStyle"
-        :quick-word-prefix="quickWordPrefix"
-        :quick-word-suggestions="writingInteractionOwner === 'quick-word' ? quickWordSuggestions : []"
-        :intervention-ghost-open="interventionGhostInDual"
-        :intervention-ghost-target="interventionDisplayTarget"
-        @close="closeWritingInspector"
-        @activate="activateDualPane"
-        @source-change="handleDualSourceChange"
-        @document-change="dualQuickWordDocument = $event"
-        @command-availability="handleDualCommandAvailability"
-        @selection-change="dualNotebookSelection = $event"
-        @composition-change="dualCompositionActive = $event"
-        @quick-word-complete="completeQuickWord"
-        @swap="swapDualChapter"
-        @open-outline="openOutlineFromDual"
-        @open-worldbook="openWorldbookFromDual"
-      >
-        <template v-if="authoringTaskNotice?.text" #notice>
-          <AuthoringTransientNotice :notice="authoringTaskNotice" @undo="undoAuthoringTask" />
-        </template>
-      </AuthoringDualPane>
-      <Teleport v-if="interventionComposer.open && interventionComposer.phase === 'ghosts' && interventionGhostInDual && interventionGhostTeleportReady" to="#authoring-dual-block-gap">
-        <AuthoringInterventionGhost
-          :ghosts="interventionGhosts"
-          :active-ghost-id="interventionComposer.activeGhostId"
-          :retrying-ghost-id="interventionComposer.retryingGhostId"
-          :adopting-ghost-id="interventionComposer.adoptingGhostId"
-          :batch-count="interventionBatchGhosts.length"
-          :batch-busy="interventionComposer.adoptingGhostId === 'all'"
-          :persist-pending-ghost-id="interventionComposer.pendingAdoption?.ghostId || ''"
-          :persist-error="interventionComposer.persistError"
-          @select="selectInterventionGhost"
-          @update="updateInterventionGhost"
-          @retry="retryInterventionGhost"
-          @discard="discardInterventionGhost"
-          @adopt="adoptInterventionGhost"
-          @adopt-all="adoptAllInterventionGhosts"
-          @retry-persist="persistPendingInterventionAdoption"
-          @close="closeInterventionComposer"
-        />
-      </Teleport>
-
-      <AuthoringWorkspaceToolRail
-          :pending="assistantPendingTools"
-        :active-tool="activeInspectorTool"
-        :dual="inspectorDualColumn"
-        :collaboration-visible="authoringRehearsalActive"
-        @before-select="beforeInspectorToolSelect"
-        @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
-      />
-
+      <!-- W-B 双栏退役：AuthoringDualPane 与右轨（AuthoringWorkspaceToolRail）整体移除。
+           右侧栏只剩检查器本体：Agent 助手是默认态，其余工具面板由顶栏工具组驱动。 -->
       <aside
-        v-if="activeInspectorTool !== 'dual'"
         class="writing-inspector"
         ref="writingInspectorRef"
-        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-dual': inspectorDualColumn, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
+        :class="{ 'is-open': inspectorOpen, 'is-pinned': inspectorPinned, 'is-assistant': activeInspectorTool === 'ai', 'is-rehearsal': activeInspectorTool === 'rehearsal', 'is-catalog-workbench': ['outline', 'characters', 'worldbook'].includes(activeInspectorTool) }"
         :aria-label="tr(&quot;写作检查器&quot;)"
       >
         <header class="writing-inspector__head">
@@ -917,6 +851,8 @@
             :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
             @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
             @select-surface="assistantWorkspace.openSurface" @select-book="selectBook" @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
+          <!-- W-B dock 收敛：旧「执行」段降为 Agent 面板内的次级入口（默认收起）。 -->
+          <AuthoringRunLogDrawer :project-id="selectedBookId" />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
             @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
@@ -966,7 +902,6 @@
             @filter="wt3OutlineFilter = $event"
             @open-project-chapter="selectChapter"
             @open-project-exploration="openExplorationDoc"
-            @open-dual="openOutlineInDual"
             @history="selectInspectorTool('history')"
             @close="closeActiveWritingInspector"
           />
@@ -988,7 +923,7 @@
             @create="createAuthoringSetting"
             @update="updateAuthoringSetting"
             @remove="removeAuthoringSetting"
-            @open-full="openWorldbookFromDual"
+            @open-full="openWorldbookEntryDetail"
             @close="closeActiveWritingInspector"
           />
         </div>
@@ -1238,7 +1173,7 @@
             @remove="removeAuthoringCharacter"
             @generate="openIllustratorForCharacter"
             @open-chapter="selectChapter"
-            @open-full="openWorldbookFromDual"
+            @open-full="openWorldbookEntryDetail"
             @close="closeActiveWritingInspector"
           />
         </div>
@@ -1534,8 +1469,9 @@ const AuthoringInterventionGhost = defineAsyncComponent(() => import('../compone
 const AuthoringBlockComposer = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockComposer.vue'))
 const AuthoringBlockDraft = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockDraft.vue'))
 const AuthoringAdoptionImpact = defineAsyncComponent(() => import('../components/authoring/AuthoringAdoptionImpact.vue'))
-import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
-const AuthoringDualPane = defineAsyncComponent(() => import('../components/authoring/AuthoringDualPane.vue'))
+import AuthoringInspectorToolbar from '../components/authoring/AuthoringInspectorToolbar.vue'
+import AuthoringRunLogDrawer from '../components/authoring/AuthoringRunLogDrawer.vue'
+import { loadWritingSidebarPreferences, saveWritingSidebarPreferences } from '../composables/useWritingSidebarPreferences.js'
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
 const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
 import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
@@ -1557,7 +1493,7 @@ import { buildManuscriptPositionIndex } from '../services/writing/manuscriptPosi
 import { buildAuthoringPositionIndex as buildWritingAuthoringPositionIndex } from '../services/writing/authoringPositionIndex.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/lazyAuthoringKnowledgeQuerySession.js'
 import { createAuthoringKnowledgeReaderHost } from '../services/agents/authoring/authoringKnowledgeReaderHost.js'
-import { buildAuthoringReviewRewriteTarget, compareAuthoringReviewRewriteTarget, compareWritingRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
+import { compareWritingRewriteTarget } from '../services/agents/authoring/authoringReviewRewriteTarget.js'
 import { sourceRefForAuthoringEvidenceLocator } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { createAuthoringInterventionSession } from '../services/agents/authoring/authoringInterventionSession.js'
 import { readAuthoringOutlineCausalLinks } from '../services/agents/authoring/authoringCausalLinkReader.js'
@@ -2294,13 +2230,10 @@ const authoringHistory = useAuthoringHistoryWorkflow({
   persistCurrent: () => saveCurrentChapter({ automaticHistory: false }),
   historyVisible: () => activeInspectorTool.value === 'history',
   rejectMutation: () => rejectLockedNotebookMutation(),
-  dualSource: () => dualPaneRef.value?.getActiveSource?.(),
-  prepareDualClose: () => dualPaneRef.value?.prepareClose?.(),
   confirmRestore: () => typeof window === 'undefined' || window.confirm(tr('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？')),
   findChapter: (chapterId) => chapters.value.find((item) => item.id === chapterId),
   persistChapters: () => saveChapters(),
   selectChapter: (chapterId) => selectChapter(chapterId),
-  reloadDual: (payload) => dualPaneRef.value?.reloadSearchSource?.(payload),
   markSaved: () => { saveStatus.value = 'saved' },
   unitByNode: (nodeId) => getWritingUnitByNodeId(nodeId),
   editorActive: () => notebookEditorActive.value,
@@ -2399,15 +2332,11 @@ const {
 } = useAuthoringRewriteWorkflow({
   getManuscriptLanguage: () => currentBook.value?.manuscriptLanguage || '',
   getCurrentTarget: () => getCurrentRewriteTarget(),
-  getCurrentComparison: (target) => target?.pane === 'dual' ? getDualRewriteComparison(target) : getCurrentRewriteComparison(target),
+  getCurrentComparison: (target) => getCurrentRewriteComparison(target),
   getChapterId: (target) => target?.chapterId || target?.documentId || selectedChapterId.value,
   getEditorMode: () => editorMode.value,
-  buildTaskContext: (options, target) => target?.pane === 'dual'
-    ? { writingTask: { ...options }, selection: { text: target.text }, paragraph: { text: target.text }, contextWindow: target.text }
-    : buildWritingTaskContext(options),
-  commitCandidate: (candidate, target) => target?.pane === 'dual'
-    ? commitDualRewriteCandidate(candidate, target)
-    : commitRewriteCandidate(candidate, target),
+  buildTaskContext: (options) => buildWritingTaskContext(options),
+  commitCandidate: (candidate, target) => commitRewriteCandidate(candidate, target),
   onCandidateApplied: ({ target }) => {
     if (!target?.annotationId) return
     if (wt3ActiveDoc.value) {
@@ -2433,14 +2362,6 @@ const sceneDetailNotice = ref('')
 const reviewRewriteSavePending = ref(false)
 const rehearsalComposerHostRef = ref(null)
 const sceneInspectorMode = ref('current')
-const dualPaneRef = ref(null)
-const dualNotebookSelection = ref(null)
-const dualCompositionActive = ref(false)
-const dualTargetChapterId = ref('')
-const dualTargetExplorationId = ref('')
-const dualTargetOutlineNodeId = ref('')
-const dualTargetWorldbookEntryId = ref('')
-const dualActiveChapterId = ref('')
 const inspectorOutlineNodeId = ref('')
 const inspectorCharacterEntryId = ref('')
 const knowledgeAssistantInvocation = shallowRef(null)
@@ -2452,7 +2373,6 @@ const {
   closeWritingInspector,
   freezeWritingSurfaceBeforeToolSelect,
   inspectorDetailState,
-  inspectorDualColumn,
   inspectorOpen,
   inspectorPinned,
   inspectorReturnFocusRef,
@@ -2461,14 +2381,6 @@ const {
   openInspectorTool,
   selectInspectorTool
 } = useAuthoringInspectorState({
-  selectedChapterId,
-  chapters,
-  dualPaneRef,
-  dualTargetChapterId,
-  dualTargetExplorationId,
-  dualTargetOutlineNodeId,
-  dualTargetWorldbookEntryId,
-  clearDualQuickWordDocument: () => { dualQuickWordDocument.value = null },
   sceneDetailNotice,
   captureWritingSurface: captureCurrentWritingSurface,
   captureAssistantInvocation: captureKnowledgeAssistantInvocation,
@@ -2478,6 +2390,39 @@ const {
 })
 function closeActiveWritingInspector() {
   closeWritingInspector()
+}
+// W-B：顶栏工具组的唯一选中 owner（原右轨 select 语义 + 新增回 Agent 语义）。
+// 「记忆」沿用右轨映射：入口打开设置的记忆页，不占检查器。
+// 再点已激活工具（或点「助手」）→ 检查器回到 Agent 默认态。
+function selectToolFromToolbar(tool) {
+  if (tool === 'history') {
+    appSettings.open('memory')
+    return
+  }
+  if (tool === 'ai' || (inspectorOpen.value && activeInspectorTool.value === tool)) {
+    openInspectorTool('ai')
+    return
+  }
+  selectInspectorTool(tool)
+}
+// 顶栏「助手」钮 = 右侧栏 Agent 的开/关切换（W-B R2/R5：Agent 钉死右侧栏默认态）。
+// 内嵌打开，不自动进完整工作台——展开态仍是面板内「完整助手」的显式选择；
+// 已展开时（cork 被隐藏，钮不可达，防御性兜底）退回内嵌态。无书稿时保留
+// 原共创入口（enter 内部会走新建书流程）。
+function toggleAssistantEntry() {
+  if (!selectedBookId.value) {
+    assistantWorkspace.enter()
+    return
+  }
+  if (assistantWorkspace.expanded.value) {
+    void assistantWorkspace.leave()
+    return
+  }
+  if (inspectorOpen.value && activeInspectorTool.value === 'ai') {
+    closeActiveWritingInspector()
+    return
+  }
+  openInspectorTool('ai')
 }
 const {
   annotationLaneRef,
@@ -2502,7 +2447,7 @@ const {
 const illustratorTriggerRef = ref(null)
 const illustratorController = useAuthoringIllustrator({
   isCompositionEvent: isWritingCompositionKey,
-  compositionActive: () => writingCompositionActive.value || dualCompositionActive.value,
+  compositionActive: () => writingCompositionActive.value,
   draftBlocksOpen: () => blockComposer.open || blockPreview.value || pendingGhostAdoption.value,
   mobileToolsActive: () => chapterShelfSheetMode.value,
   notify: (message) => authoringTask.notify(message),
@@ -2521,16 +2466,8 @@ const illustratorController = useAuthoringIllustrator({
   },
   closeMobileTools: () => { moreMenuOpen.value = false },
   projectId: () => selectedBookId.value,
-  insertMediaReference: (payload, pane) => pane === 'dual'
-    ? dualPaneRef.value?.insertMediaReference?.(payload)
-    : notebookEditorRef.value?.insertMediaReference?.(payload),
-  restoreSurface: async (surface) => {
-    if (surface?.pane === 'dual' && dualSurfaceTargetMatches(surface)) {
-      activeWritingPane.value = 'dual'
-      if (await dualPaneRef.value?.restoreSurfaceState?.(surface)) return true
-    }
-    return surface?.pane === 'main' && restoreMainWritingSurface(surface)
-  },
+  insertMediaReference: (payload) => notebookEditorRef.value?.insertMediaReference?.(payload),
+  restoreSurface: async (surface) => (surface?.pane === 'main' && restoreMainWritingSurface(surface)),
   focusFallback: () => (chapterShelfSheetMode.value ? moreToolsTriggerRef.value : illustratorTriggerRef.value)?.focus?.()
 })
 const {
@@ -2583,10 +2520,6 @@ function captureMainWritingSurface() {
   })
 }
 function captureCurrentWritingSurface() {
-  if (activeWritingPane.value === 'dual') {
-    const dualSurface = dualPaneRef.value?.captureSurfaceState?.()
-    if (dualSurface) return dualSurface
-  }
   return captureMainWritingSurface()
 }
 function captureMainDocumentSource() {
@@ -2616,15 +2549,9 @@ function captureMainDocumentSource() {
   })
 }
 function captureActiveDocumentSource() {
-  if (activeWritingPane.value === 'dual') {
-    return dualPaneRef.value?.captureSearchSource?.() || null
-  }
   return captureMainDocumentSource()
 }
 function captureActiveReviewSource() {
-  if (activeWritingPane.value === 'dual') {
-    return dualPaneRef.value?.captureReviewSource?.() || null
-  }
   return captureMainDocumentSource()
 }
 function captureMainKnowledgeAssistantInvocation() {
@@ -2669,43 +2596,8 @@ function captureMainKnowledgeAssistantInvocation() {
   })
 }
 function captureKnowledgeAssistantInvocation() {
-  if (activeWritingPane.value !== 'dual') return captureMainKnowledgeAssistantInvocation()
-  const source = dualPaneRef.value?.getActiveSource?.() || null
-  const liveSource = dualPaneRef.value?.captureKnowledgeSource?.() || null
-  if (!liveSource) {
-    // 大纲/设定等只读副窗没有落笔 target；助手按项目范围查询，绝不借用
-    // 被遮在后面的主栏章节作为“当前写作位置”。
-    return Object.freeze({
-      pane: 'dual-reference',
-      projectId: String(selectedBookId.value || ''),
-      role: '',
-      documentId: String(source?.id || ''),
-      chapterId: '',
-      target: null,
-      sceneProjection: null,
-      liveSource: null
-    })
-  }
-  const role = liveSource.documentRole === 'exploration' ? 'exploration' : 'manuscript'
-  const target = role === 'manuscript'
-    ? Object.freeze({
-        projectId: String(liveSource.projectId || ''),
-        documentId: String(liveSource.documentId || ''),
-        chapterId: String(liveSource.chapterId || ''),
-        ...(liveSource.unitId ? { unitId: String(liveSource.unitId) } : {}),
-        ...(liveSource.nodeId ? { nodeId: String(liveSource.nodeId) } : {})
-      })
-    : null
-  return Object.freeze({
-    pane: 'dual',
-    projectId: String(liveSource.projectId || ''),
-    role,
-    documentId: String(liveSource.documentId || ''),
-    chapterId: String(liveSource.chapterId || ''),
-    target,
-    sceneProjection: cloneAuthoringRunValue(liveSource.sceneProjection),
-    liveSource
-  })
+  // W-B 双栏退役：助手 invocation 只来自主栏活动稿面。
+  return captureMainKnowledgeAssistantInvocation()
 }
 function writingUnitVisualText(unit) {
   return (unit?.content || []).map((node) => {
@@ -2752,14 +2644,7 @@ function captureMainIllustratorSource() {
   })
 }
 function captureCurrentIllustratorSource() {
-  if (activeWritingPane.value !== 'dual') return captureMainIllustratorSource()
-  const source = dualPaneRef.value?.captureVisualSource?.()
-  if (!source) return null
-  return Object.freeze({
-    ...source,
-    pane: 'dual',
-    worldbook: cloneAuthoringRunValue(boundWorldbook.value)
-  })
+  return captureMainIllustratorSource()
 }
 function captureLiveIllustratorSource() {
   const expectedPane = illustratorBrief.value?.pane
@@ -2767,12 +2652,7 @@ function captureLiveIllustratorSource() {
   if (String(activeWritingPane.value || '') !== String(expectedPane || '')) {
     return captureCurrentIllustratorSource()
   }
-  return expectedPane === 'dual'
-    ? (() => {
-        const source = dualPaneRef.value?.captureVisualSource?.()
-        return source ? { ...source, pane: 'dual', worldbook: cloneAuthoringRunValue(boundWorldbook.value) } : null
-      })()
-    : captureMainIllustratorSource()
+  return captureMainIllustratorSource()
 }
 async function refreshBoundWorldbookAfterCharacterChange() {
   if (!currentBook.value?.id) return null
@@ -2928,41 +2808,8 @@ async function restoreMainWritingSurfaceWhenReady(snapshot, { attempts = 6, prev
   }
   return false
 }
-function dualSurfaceTargetMatches(snapshot = {}) {
-  if (snapshot?.pane !== 'dual' || String(snapshot.projectId || '') !== String(selectedBookId.value || '')) return false
-  const liveId = ({
-    chapter: dualTargetChapterId.value,
-    exploration: dualTargetExplorationId.value,
-    outline: dualTargetOutlineNodeId.value,
-    'worldbook-entry': dualTargetWorldbookEntryId.value
-  })[snapshot.sourceKind]
-  return String(snapshot.sourceId || '') === String(liveId || '')
-}
 function restoreWritingSurfaceAfterInspector(snapshot) {
   if (!snapshot) return false
-  if (snapshot.pane === 'dual') {
-    if (!dualSurfaceTargetMatches(snapshot)) {
-      clearInspectorReturnSurface()
-      return false
-    }
-    const previous = snapshot.previous || null
-    activeInspectorTool.value = 'dual'
-    inspectorOpen.value = true
-    inspectorPinned.value = true
-    activeWritingPane.value = 'dual'
-    inspectorReturnSurface.value = previous
-    nextTick(async () => {
-      const restored = await dualPaneRef.value?.restoreSurfaceState?.(snapshot)
-      if (restored) return
-      // 来源或 revision 在工具打开期间变化：保持 fail-closed，不继续回退到
-      // 更早的主窗 bookmark，也不留下一个看似恢复成功的空副窗。
-      inspectorOpen.value = false
-      activeWritingPane.value = 'main'
-      dualQuickWordDocument.value = null
-      clearInspectorReturnSurface()
-    })
-    return true
-  }
   clearInspectorReturnSurface()
   nextTick(() => restoreMainWritingSurface(snapshot))
   return true
@@ -2971,66 +2818,9 @@ function activateMainPane() {
   activeWritingPane.value = 'main'
   nextTick(refreshNotebookCommandAvailability)
 }
-function activateDualPane(source = {}) {
-  dualActiveChapterId.value = source?.kind === 'chapter' ? String(source.id || '') : ''
-  activeWritingPane.value = 'dual'
-}
-function handleDualCommandAvailability(availability = {}) {
-  dualNotebookCommandAvailability.value = {
-    ...emptyNotebookCommandAvailability,
-    ...availability
-  }
-}
-function handleDualSourceChange(source = {}) {
-  const nextId = String(source?.id || '')
-  if (source?.kind === 'exploration') {
-    dualTargetExplorationId.value = nextId
-    dualTargetChapterId.value = ''
-    dualTargetOutlineNodeId.value = ''
-    dualTargetWorldbookEntryId.value = ''
-    dualActiveChapterId.value = ''
-  } else if (source?.kind === 'outline') {
-    dualTargetOutlineNodeId.value = nextId
-    dualTargetChapterId.value = ''
-    dualTargetExplorationId.value = ''
-    dualTargetWorldbookEntryId.value = ''
-    dualActiveChapterId.value = ''
-  } else if (source?.kind === 'worldbook-entry') {
-    dualTargetWorldbookEntryId.value = nextId
-    dualTargetChapterId.value = ''
-    dualTargetExplorationId.value = ''
-    dualTargetOutlineNodeId.value = ''
-    dualActiveChapterId.value = ''
-  } else {
-    dualTargetChapterId.value = nextId
-    dualTargetExplorationId.value = ''
-    dualTargetOutlineNodeId.value = ''
-    dualTargetWorldbookEntryId.value = ''
-    dualActiveChapterId.value = nextId
-  }
-}
-function swapDualChapter({ chapterId = '' } = {}) {
-  const nextMainId = String(chapterId || '')
-  const previousMainId = String(selectedChapterId.value || '')
-  if (!nextMainId || !previousMainId || nextMainId === previousMainId) return false
-  if (!selectChapter(nextMainId)) return false
-  dualTargetChapterId.value = previousMainId
-  dualTargetExplorationId.value = ''
-  dualTargetOutlineNodeId.value = ''
-  dualTargetWorldbookEntryId.value = ''
-  dualActiveChapterId.value = previousMainId
-  activeWritingPane.value = 'main'
-  return true
-}
 watch(selectedBookId, (nextBookId, previousBookId) => {
   if (!previousBookId || String(nextBookId) === String(previousBookId)) return
   clearInspectorReturnSurface()
-  if (activeInspectorTool.value === 'dual') inspectorOpen.value = false
-  dualTargetChapterId.value = ''
-  dualTargetExplorationId.value = ''
-  dualTargetOutlineNodeId.value = ''
-  dualTargetWorldbookEntryId.value = ''
-  dualActiveChapterId.value = ''
 })
 const editorHistory = useEditorHistory()
 const emptyNotebookCommandAvailability = Object.freeze({
@@ -3049,19 +2839,9 @@ const emptyNotebookCommandAvailability = Object.freeze({
   italic: false
 })
 const notebookCommandAvailability = ref({ ...emptyNotebookCommandAvailability })
-const dualNotebookCommandAvailability = ref({ ...emptyNotebookCommandAvailability, editable: false })
 const activeNotebookCommandAvailability = computed(() => (
-  activeWritingPane.value === 'dual'
-    ? dualNotebookCommandAvailability.value
-    : { ...notebookCommandAvailability.value, editable: notebookEditorActive.value }
+  { ...notebookCommandAvailability.value, editable: notebookEditorActive.value }
 ))
-function dualSharesMainDocument() {
-  const source = dualPaneRef.value?.getActiveSource?.()
-  if (!source?.editable) return false
-  if (source.kind === 'chapter') return String(source.id || '') === String(selectedChapterId.value || '') && !wt3ActiveDocId.value
-  if (source.kind === 'exploration') return String(source.id || '') === String(wt3ActiveDocId.value || '')
-  return false
-}
 const contextMenuRef = ref(null)
 const contextMenu = ref({
   show: false,
@@ -3159,15 +2939,10 @@ const {
 const showNameGen = ref(false)
 const showQuickWords = ref(false)
 const quickWordEnabledIds = ref([])
-const dualQuickWordDocument = shallowRef(null)
 // 仅保存于当前页面会话；切回同一本书时保留最近顺序，不污染世界书或 localStorage。
 const quickWordRecentIdsByBook = reactive(new Map())
-const activeQuickWordSelection = computed(() => (
-  activeWritingPane.value === 'dual' ? dualNotebookSelection.value : notebookSelection.value
-))
-const activeQuickWordDocument = computed(() => (
-  activeWritingPane.value === 'dual' ? dualQuickWordDocument.value : writingDocument.value
-))
+const activeQuickWordSelection = computed(() => notebookSelection.value)
+const activeQuickWordDocument = computed(() => writingDocument.value)
 const quickWordCatalog = computed(() => buildAuthoringQuickWordCatalog({
   worldbook: boundWorldbook.value,
   document: activeQuickWordDocument.value
@@ -3176,7 +2951,7 @@ const activeQuickWordRecentIds = computed(() => (
   quickWordRecentIdsByBook.get(String(selectedBookId.value || '')) || []
 ))
 const quickWordPrefix = computed(() => {
-  if (writingCompositionActive.value || dualCompositionActive.value || !activeNotebookCommandAvailability.value.editable) return ''
+  if (writingCompositionActive.value || !activeNotebookCommandAvailability.value.editable) return ''
   return resolveAuthoringQuickWordPrefix(activeQuickWordSelection.value, quickWordCatalog.value, quickWordEnabledIds.value)
 })
 const quickWordSuggestions = computed(() => resolveAuthoringQuickWordSuggestions({
@@ -3250,11 +3025,7 @@ function closeMoreMenu({ restorePrepared = true } = {}) {
   const prepared = releaseIllustratorMobileSource()
   moreMenuOpen.value = false
   if (restorePrepared && prepared?.surface) {
-    nextTick(async () => {
-      if (prepared.surface.pane === 'dual' && dualSurfaceTargetMatches(prepared.surface)) {
-        activeWritingPane.value = 'dual'
-        if (await dualPaneRef.value?.restoreSurfaceState?.(prepared.surface)) return
-      }
+    nextTick(() => {
       if (prepared.surface.pane === 'main') restoreMainWritingSurface(prepared.surface)
     })
   }
@@ -3300,45 +3071,7 @@ function shelfMenuAction(action) {
   closeShelfContextMenu()
   action(chapterId)
 }
-function openChapterInDual(chapterId) {
-  const target = chapters.value.find((chapter) => String(chapter?.id) === String(chapterId || ''))
-  if (!target) return false
-  if (!openInspectorTool('dual', { pinned: true })) return false
-  dualTargetChapterId.value = String(target.id)
-  dualTargetExplorationId.value = ''
-  dualTargetOutlineNodeId.value = ''
-  dualTargetWorldbookEntryId.value = ''
-  dualActiveChapterId.value = String(target.id)
-  return true
-}
-function openExplorationInDual(documentId) {
-  const target = wt3ExplorationDocs.value.find((doc) => String(doc?.id) === String(documentId || ''))
-  if (!target) return false
-  if (!openInspectorTool('dual', { pinned: true })) return false
-  dualTargetExplorationId.value = String(target.id)
-  dualTargetChapterId.value = ''
-  dualTargetOutlineNodeId.value = ''
-  dualTargetWorldbookEntryId.value = ''
-  dualActiveChapterId.value = ''
-  return true
-}
-function openOutlineInDual(nodeId) {
-  const target = wt3OutlineNodes.value.find((node) => String(node?.id) === String(nodeId || ''))
-  if (!target) return false
-  if (!openInspectorTool('dual', { pinned: true })) return false
-  dualTargetOutlineNodeId.value = String(target.id)
-  dualTargetChapterId.value = ''
-  dualTargetExplorationId.value = ''
-  dualTargetWorldbookEntryId.value = ''
-  dualActiveChapterId.value = ''
-  return true
-}
-function openOutlineFromDual(nodeId) {
-  inspectorOutlineNodeId.value = ''
-  selectInspectorTool('outline')
-  nextTick(() => { inspectorOutlineNodeId.value = String(nodeId || '') })
-}
-function openWorldbookFromDual(entryId) {
+function openWorldbookEntryDetail(entryId) {
   // L4：项目上下文出程——同一书绑定的同一条目；无书时保留全局世界书访问。
   if (openProjectSettingsSurface('entries', { entryId: String(entryId || '') })) return
   router.push({ name: 'settings-worldbook-advanced', query: { entryId: String(entryId || '') } })
@@ -3577,59 +3310,6 @@ const assistantWorkspace = useAuthoringAssistantWorkspace({
   openEvidence: openAuthoringKnowledgeEvidence, createBook: createNewBook,
   openSources: () => openProjectSettingsSurface('sources'), openSettings: () => openProjectSettingsSurface('settings'), openSurface: surface => openProjectSettingsSurface(surface), getReviewWorkflow: () => reviewWorkflow, openIllustrator
 })
-function resolveDualSceneProjection({ kind = '', sourceId = '', document = null, activeUnitId = null, documentRevision = null } = {}) {
-  if (!document || !Array.isArray(document.content)) return null
-  const chapter = kind === 'chapter'
-    ? chapters.value.find((item) => String(item?.id || '') === String(sourceId || '')) || null
-    : null
-  if (kind === 'chapter' && !chapter) return null
-  if (kind !== 'chapter' && kind !== 'exploration') return null
-  const chapterId = String(chapter?.id || '')
-  const acceptedObservations = chapterId
-    ? (gameStore.getAuthoringDerivedState?.() || [])
-      .filter((observation) => (
-        String(observation?.projectId || '') === String(selectedBookId.value || '')
-        && String(observation?.chapterId || '') === chapterId
-      ))
-      .map((observation) => ({
-        id: String(observation?.id || ''),
-        kind: String(observation?.kind || ''),
-        text: String(observation?.text || observation?.summary || ''),
-        subjectId: String(observation?.subjectId || resolveObserverCharacterId(observation?.subject) || ''),
-        objectId: String(observation?.objectId || resolveObserverCharacterId(observation?.object) || ''),
-        relation: String(observation?.relation || ''),
-        unitId: String(observation?.unitId || ''),
-        unitRevision: Number(observation?.unitRevision || 0),
-        documentRevision: String(observation?.documentRevision || ''),
-        sourceRefs: Array.isArray(observation?.sourceRefs) ? observation.sourceRefs : [],
-        status: String(observation?.status || 'applied')
-      }))
-    : []
-  return buildAuthoringSceneProjection({
-    chapter: chapter ? { id: chapterId } : null,
-    documentRevision,
-    projectId: selectedBookId.value || null,
-    runtimeState: {
-      encounteredCharacters: gameStore.encounteredCharacters,
-      plotJournal: gameStore.plotJournal,
-      worldMapState: gameStore.worldMapState,
-      writingTime: gameStore.writingTime,
-      worldMapStateNote: undefined,
-      emergenceCandidates: gameStore.emergenceCandidates,
-      dialogueMode: false,
-      dialogueCharacter: null,
-      activeActor: null,
-      dialogueTarget: null
-    },
-    document,
-    activeUnitId,
-    expectedWorldbookId: selectedBookWorldbookId.value,
-    worldbook: boundWorldbook.value || null,
-    sceneAnchors: chapter ? normalizeSceneAnchors(chapter.sceneAnchors) : [],
-    acceptedObservations,
-    outlineItems: chapter ? normalizeChapterOutlineItems(chapter.outlineItems) : []
-  })
-}
 watch([selectedChapterId, selectedBookId], () => {
   sceneActiveActorId.value = ''
   sceneDialogueTargetId.value = ''
@@ -3663,25 +3343,21 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
     candidates: rewriteCandidates, lockedSegments: rewriteLockedSegments, loading: rewriteLoading, error: rewriteError, cancel: cancelRewriteGeneration,
     apply: applyRewriteCandidate, savePending: reviewRewriteSavePending,
     retrySave: () => {
-      const saved = dualPaneRef.value?.prepareClose?.() !== false
-      if (saved) reviewRewriteSavePending.value = false
-      return saved
+      // W-B 双栏退役：改写候选只落主栏，无「副栏未落盘」重试态；保留钩子满足
+      // 审稿工作流契约，savePending 恒为 false。
+      reviewRewriteSavePending.value = false
+      return true
     },
     begin: async (finding, options) => {
       resetRewriteState(); reviewRewriteSavePending.value = false
       if (!await jumpToReviewFinding(finding)) return false
       await nextTick(); rewriteInstruction.value = finding.reason || finding.body || ''
-      const target = reviewWorkflow.invocation.value?.pane === 'dual'
-        ? buildDualReviewRewriteTarget(reviewWorkflow.invocation.value, finding)
-        : { ...getCurrentRewriteTarget(), pane: 'main' }
-      return generateRewriteCandidates(target, options)
+      return generateRewriteCandidates({ ...getCurrentRewriteTarget(), pane: 'main' }, options)
     }
   },
   currentTitle: () => currentChapterTitle.value || '',
   captureSource: () => captureActiveReviewSource(),
-  captureLiveSource: (invocation) => invocation.pane === 'dual'
-    ? dualPaneRef.value?.captureReviewSource?.()
-    : captureMainDocumentSource(),
+  captureLiveSource: () => captureMainDocumentSource(),
   sceneProjection: () => sceneProjection.value || null,
   worldbookEntries: () => boundWorldbook.value?.entries || [],
   historyLocked: () => historyInteractionLocked.value,
@@ -3692,16 +3368,8 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
     showNameGen.value = false
   },
   notify: (message) => authoringTask.notify(message),
-  restoreSurface: (surface) => {
-    if (surface.pane === 'dual') dualPaneRef.value?.restoreSurfaceState?.(surface)
-    else restoreMainWritingSurface(surface)
-  },
+  restoreSurface: (surface) => restoreMainWritingSurface(surface),
   navigateToFinding: async (invocation, target) => {
-    if (invocation.pane === 'dual') {
-      return Boolean(await dualPaneRef.value?.navigateSearchLocator?.({
-        ...target, sourceKind: invocation.sourceKind, sourceId: invocation.documentId
-      }))
-    }
     if (invocation.documentRole === 'manuscript' && String(selectedChapterId.value) !== String(invocation.documentId)) {
       if (!selectChapter(invocation.documentId)) return false
       await nextTick()
@@ -3723,7 +3391,7 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
       reason: 'before-rewrite',
       document: live.document,
       markdown: live.markdown,
-      annotations: invocation.pane === 'main' ? chapterAnnotations.value : [],
+      annotations: chapterAnnotations.value,
       operation: 'proofing-batch',
       transactionId: transaction.receipt.id
     })
@@ -3732,16 +3400,11 @@ const reviewWorkflow = useAuthoringReviewWorkflow({
     }
     return protection.ok
   },
-  applyPatches: (invocation, patches) => {
-    const changed = invocation.pane === 'dual'
-      ? dualPaneRef.value?.replaceReviewRanges?.(patches)
-      : notebookEditorRef.value?.replaceNodeRanges?.(patches, { origin: 'writing-agent' })
-    return Boolean(changed)
-  },
-  undoPatches: (receipt) => receipt.pane === 'dual'
-    ? dualPaneRef.value?.runCommand?.('undo')
-    : notebookEditorRef.value?.undo?.(),
-  reconcileSources: [writingDocument, dualQuickWordDocument, selectedChapterId, wt3ActiveDocId, boundWorldbook, sceneProjection]
+  applyPatches: (invocation, patches) => (
+    notebookEditorRef.value?.replaceNodeRanges?.(patches, { origin: 'writing-agent' })
+  ),
+  undoPatches: () => notebookEditorRef.value?.undo?.(),
+  reconcileSources: [writingDocument, selectedChapterId, wt3ActiveDocId, boundWorldbook, sceneProjection]
 })
 const {
   loading: reviewLoading,
@@ -4772,10 +4435,7 @@ function cloneAuthoringRunValue(value) {
 // 页面只实现“当前编辑器内存稿”的严格读取边界。adapter 会再次核对全部
 // scope ID；不匹配时返回 null，绝不把切章后的新页面状态冒充旧目标。
 function readLiveAuthoringRunTarget(expected = {}) {
-  // 双栏是与主栏平级的可编辑落笔面。先让它按 expected scope 自证；不匹配
-  // 才读取主栏，禁止副栏任务在切章后借到主栏当前文档。
-  const dualTarget = dualPaneRef.value?.readLiveRunTarget?.(expected)
-  if (dualTarget) return dualTarget
+  // W-B 双栏退役：落笔面只剩主栏，按 expected scope 严格自证，不匹配返回 null。
   const role = wt3ActiveDoc.value ? 'exploration' : 'manuscript'
   const projectId = String(selectedBookId.value || '')
   const documentId = String(wt3ActiveDoc.value?.id || selectedChapterId.value || '')
@@ -5461,7 +5121,7 @@ const {
   rehearsalDirections: interventionRehearsalDirections,
   ghosts: interventionGhosts,
   batchGhosts: interventionBatchGhosts,
-  ghostInDual: interventionGhostInDual,
+  ghostOffChapter: interventionGhostOffChapter,
   displayTarget: interventionDisplayTarget,
   clearRehearsalResult: clearInterventionRehearsalResult
 } = useAuthoringInterventionState({ selectedChapterId })
@@ -5488,7 +5148,7 @@ let authoringInterventionRunner = null
 let authoringInterventionRehearsalRunner = null
 const historyInteractionLocked = computed(() => blockAdoptionBusy.value || Boolean(pendingGhostAdoption.value) || atomicHistoryBusy.value)
 const activeWritingMutationLocked = computed(() => (
-  historyInteractionLocked.value && (activeWritingPane.value === 'main' || dualSharesMainDocument())
+  historyInteractionLocked.value && activeWritingPane.value === 'main'
 ))
 const isEmptyChapter = computed(() => !String(markdownContent.value || '').trim())
 const firstRunCharacterCount = computed(() => (
@@ -5760,22 +5420,13 @@ async function selectInterventionGhost(ghostId = '') {
   const documentId = String(ghost.target?.documentId || '')
   interventionGhostTeleportReady.value = false
   interventionComposer.activeGhostId = ghost.id
+  // W-B 双栏退役：ghost 落点只剩主栏稿面。目标章不是当前章时，先把主栏
+  // 导航到目标章（等价「打开章节」），再聚焦对应写作单元。
   if (documentId && documentId !== String(selectedChapterId.value || '')) {
-    if (!openChapterInDual(documentId)) return false
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      await nextTick()
-      if (typeof document !== 'undefined' && document.getElementById('authoring-dual-block-gap')) break
-      await new Promise((resolve) => requestAnimationFrame(resolve))
-    }
-    interventionGhostTeleportReady.value = Boolean(
-      typeof document !== 'undefined' && document.getElementById('authoring-dual-block-gap')
-    )
-    await nextTick()
-    dualPaneRef.value?.focusWritingUnit?.(ghost.target?.unitId)
-    document.getElementById('authoring-dual-block-gap')?.scrollIntoView?.({ block: 'center' })
+    if (!selectChapter(documentId)) return false
   }
   await nextTick()
-  if (!interventionGhostInDual.value) {
+  if (!interventionGhostOffChapter.value) {
     notebookEditorRef.value?.focusWritingUnit?.(ghost.target?.unitId)
     document.getElementById('authoring-block-gap')?.scrollIntoView?.({ block: 'center' })
   }
@@ -5808,9 +5459,10 @@ function readMainInterventionTarget(expected = {}) {
 }
 function readLiveInterventionAdoptionTarget(ghost) {
   const expected = ghost?.target || {}
+  // W-B 双栏退役：采用核对只认主栏当前章的内存稿（目标章不匹配时 fail-closed）。
   const surface = String(expected.documentId || '') === String(selectedChapterId.value || '')
     ? readMainInterventionTarget(expected)
-    : dualPaneRef.value?.readLiveInterventionTarget?.(expected) || null
+    : null
   if (!surface) return null
   // F3 session 的 documentRevision 来自全书 position index；主/副编辑器各自
   // 的 surface revision 只用于窗口恢复。采用核对必须回到同一 canonical 口径。
@@ -5838,7 +5490,7 @@ async function persistPendingInterventionAdoption() {
   try {
     persisted = inMain
       ? saveCurrentChapter({ automaticHistory: false })
-      : dualPaneRef.value?.persistInterventionAdoption?.() === true
+      : false
   } catch {
     persisted = false
   }
@@ -5940,8 +5592,7 @@ async function adoptInterventionGhost(ghostId = '') {
     writingSnapshots.value = authoringHistory.refreshSnapshots(prepared.adoption.target.chapterId)
   }
   const changed = prepared.adoption.target.documentId === String(selectedChapterId.value || '')
-    ? notebookEditorRef.value?.replaceNodeRanges?.([prepared.adoption.patch], { origin: 'writing-agent' }) === true
-    : dualPaneRef.value?.applyInterventionAdoption?.(prepared.adoption.patch) === true
+    && notebookEditorRef.value?.replaceNodeRanges?.([prepared.adoption.patch], { origin: 'writing-agent' }) === true
   if (!changed) {
     interventionComposer.adoptingGhostId = ''
     interventionComposer.persistError = tr('编辑器没有接受这次修改，正文未变化。')
@@ -5980,19 +5631,6 @@ function reloadInterventionBookSurfaces(nextBooks) {
       String(chapter.id) === String(selectedChapterId.value)
     )))
   }
-  const dualSource = dualPaneRef.value?.getActiveSource?.()
-  if (dualSource?.kind === 'chapter') {
-    const dualChapter = chapters.value.find((chapter) => String(chapter.id) === String(dualSource.id))
-    if (dualChapter?.editorDocument) {
-      dualPaneRef.value?.reloadSearchSource?.({
-        sourceKind: 'chapter',
-        sourceId: dualChapter.id,
-        title: dualChapter.title,
-        document: dualChapter.editorDocument,
-        markdown: dualChapter.content
-      })
-    }
-  }
   writingBlockHistory.value = selectedChapterId.value ? authoringHistory.refreshBlockHistory(selectedChapterId.value) : []
   writingSnapshots.value = selectedChapterId.value ? authoringHistory.refreshSnapshots(selectedChapterId.value) : []
 }
@@ -6017,7 +5655,7 @@ async function adoptAllInterventionGhosts() {
     || interventionComposer.pendingAdoption || interventionComposer.adoptingGhostId) return false
   interventionComposer.adoptingGhostId = 'all'
   interventionComposer.persistError = ''
-  if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
+  if (!saveCurrentChapter({ automaticHistory: false })) {
     interventionComposer.adoptingGhostId = ''
     interventionComposer.persistError = tr('当前正文无法保存，批量采用尚未执行。')
     return false
@@ -6097,7 +5735,7 @@ async function adoptAllInterventionGhosts() {
 async function undoInterventionUmbrella() {
   const receipt = lastInterventionUmbrellaReceipt.value
   if (!receipt || String(receipt.projectId) !== String(selectedBookId.value)) return false
-  if (!saveCurrentChapter({ automaticHistory: false }) || dualPaneRef.value?.prepareClose?.() === false) {
+  if (!saveCurrentChapter({ automaticHistory: false })) {
     authoringTask.notify(tr('当前正文保存失败，尚未撤销这次介入'))
     return false
   }
@@ -6436,7 +6074,6 @@ const writingAgentHost = useInlineWritingAgentHost({
   readCursorSnapshot: readLiveWritingCursorSnapshot,
   buildAgentInput: buildPassiveAgentInput,
   readInteractionSignals: () => ({
-    dualComposing: dualCompositionActive.value,
     modalOpen: showNewBookModal.value
       || assetInboxOpen.value
       || illustratorOpen.value
@@ -7040,6 +6677,24 @@ const chapterDrawerTriggerRef = ref(null)
 const moreToolsTriggerRef = ref(null)
 const chapterShelfRef = ref(null)
 let chapterShelfViewportCleanup = null
+// W-B（R1）：创作台章节树左栏收起开关，与首页侧栏共用
+// writing_sidebar_preferences_v1（本侧只写 writingCollapsed 字段，合并落盘）。
+const writingSidebarCollapsed = ref(loadWritingSidebarPreferences().writingCollapsed)
+watch(writingSidebarCollapsed, (collapsed) => {
+  saveWritingSidebarPreferences({ writingCollapsed: collapsed })
+})
+// 章节目录钮的可见性语义：桌面=左栏未收起；≤720 抽屉模式下=抽屉打开。
+const chapterShelfVisible = computed(() => (
+  chapterShelfSheetMode.value ? chapterDrawerOpen.value : !writingSidebarCollapsed.value
+))
+function toggleChapterShelf() {
+  if (chapterShelfSheetMode.value) {
+    if (chapterDrawerOpen.value) closeChapterDrawer()
+    else openChapterDrawer()
+    return
+  }
+  writingSidebarCollapsed.value = !writingSidebarCollapsed.value
+}
 const {
   activeDocumentSaveScopeKey,
   cancelContentSave,
@@ -7106,7 +6761,6 @@ watch([
   wt3ActiveDocId,
   activeWritingPane,
   () => writingDocument.value?.revision,
-  () => dualQuickWordDocument.value?.revision,
   () => sceneProjection.value?.projectionFingerprint,
   selectedBookWorldbookId,
   () => boundWorldbook.value?.updatedAt
@@ -7194,7 +6848,7 @@ function closeChapterDrawer({ restoreFocus = true } = {}) {
   if (restoreFocus && wasOpen) nextTick(() => chapterDrawerTriggerRef.value?.focus())
 }
 function isWritingCompositionKey(event) {
-  return Boolean(event?.isComposing || event?.keyCode === 229 || writingCompositionActive.value || dualCompositionActive.value)
+  return Boolean(event?.isComposing || event?.keyCode === 229 || writingCompositionActive.value)
 }
 function handleChapterDrawerKeydown(event) {
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
@@ -8132,9 +7786,6 @@ function protectMainDestructiveEdit(payload = {}) {
     annotations: exploration ? wt3Annotations.value : chapterAnnotations.value
   })
 }
-function protectDualDestructiveEdit(payload = {}) {
-  return recordDestructiveWritingProtection(payload)
-}
 function protectCurrentRewrite(candidate) {
   const exploration = wt3ActiveDoc.value
   const persisted = exploration
@@ -8494,66 +8145,6 @@ function saveChapters() {
   }
   return false
 }
-function saveDualChapter({ chapterId = '', title = '', markdown = '', document = null, wordCount: nextWordCount = 0, automaticHistory = true } = {}) {
-  const chapter = chapters.value.find((item) => String(item?.id) === String(chapterId))
-  if (!chapter || !document) return false
-  const previous = {
-    title: chapter.title,
-    content: chapter.content,
-    contentFormat: chapter.contentFormat,
-    editorDocument: chapter.editorDocument,
-    editorDocumentSchemaVersion: chapter.editorDocumentSchemaVersion,
-    wordCount: chapter.wordCount,
-    updatedAt: chapter.updatedAt
-  }
-  const clonedDocument = JSON.parse(JSON.stringify(document))
-  chapter.title = String(title || chapter.title || '')
-  chapter.content = String(markdown || '')
-  chapter.contentFormat = 'md'
-  chapter.editorDocument = clonedDocument
-  chapter.editorDocumentSchemaVersion = Number(clonedDocument.schemaVersion || 3)
-  chapter.wordCount = Number(nextWordCount || 0)
-  chapter.updatedAt = new Date().toISOString()
-  if (!saveChapters()) {
-    Object.assign(chapter, previous)
-    return false
-  }
-  if (automaticHistory) recordAutomaticHistoryAfterPersist({
-    chapterId: chapter.id,
-    chapterTitle: chapter.title,
-    previousDocument: previous.editorDocument,
-    previousMarkdown: previous.content,
-    persistedDocument: clonedDocument,
-    persistedMarkdown: chapter.content,
-    annotations: chapter.annotations || []
-  })
-  // 作家助手桌面双栏允许同一章在两个位置同时打开。Pinax 仍只保留
-  // 一个 document handle：副栏编辑时把共享文档投影回主栏，而不是让
-  // 两个编辑器各自持久化一份互相覆盖的正文。
-  if (!wt3ActiveDoc.value && String(selectedChapterId.value) === String(chapterId)) {
-    currentChapterTitle.value = chapter.title
-    markdownContent.value = chapter.content
-    writingDocument.value = clonedDocument
-    editorContent.value = markdownToHtml(chapter.content)
-  }
-  return true
-}
-function saveDualExploration({ documentId = '', title = '', markdown = '', document = null } = {}) {
-  const target = wt3ExplorationDocs.value.find((doc) => String(doc?.id) === String(documentId))
-  if (!target || !document) return false
-  const result = saveExplorationDocument(selectedBookId.value, documentId, {
-    title: String(title || target.title || ''),
-    content: String(markdown || '')
-  })
-  if (!result?.ok) return false
-  wt3RefreshDocs()
-  if (String(wt3ActiveDocId.value) === String(documentId)) {
-    markdownContent.value = String(markdown || '')
-    writingDocument.value = JSON.parse(JSON.stringify(document))
-    editorContent.value = markdownToHtml(markdownContent.value)
-  }
-  return true
-}
 // 自动保存只负责落盘。语义观察器在章节/页面边界消费这段时间真正改过的
 // 稳定文本节点；同一节点连续修改只保留最后版本，避免每秒重扫整章。
 const pendingObserverNodesByChapter = new Map()
@@ -8883,11 +8474,6 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
 }
 // 插入分隔线
 function insertSeparator() {
-  if (activeWritingPane.value === 'dual') {
-    if (rejectActiveWritingMutation()) return
-    dualPaneRef.value?.runCommand?.('insertDivider')
-    return
-  }
   if (rejectLockedNotebookMutation()) return
   if (notebookEditorActive.value && notebookEditorRef.value) {
     notebookEditorRef.value.insertDivider()
@@ -8977,9 +8563,8 @@ function toggleQuickWord(id) {
 }
 function insertQuickWord(value) {
   const insertion = String(value || '')
-  if (!insertion || writingCompositionActive.value || dualCompositionActive.value) return false
+  if (!insertion || writingCompositionActive.value) return false
   if (rejectActiveWritingMutation()) return false
-  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('insertText', insertion))
   if (!notebookEditorActive.value || !notebookEditorRef.value) return false
   return Boolean(notebookEditorRef.value.insertText(insertion))
 }
@@ -9022,13 +8607,6 @@ function createNameEntitySelection(item) {
 }
 function insertNameEntitySelection(selection) {
   if (!selection || String(selection.projectId || '') !== String(selectedBookId.value || '')) return false
-  if (activeWritingPane.value === 'dual') {
-    if (rejectActiveWritingMutation()) return false
-    if (!dualPaneRef.value?.runCommand?.('insertText', selection.text)) return false
-    closeNameGenerator({ force: true })
-    generatedNames.value = []
-    return true
-  }
   if (rejectLockedNotebookMutation()) return false
   if (notebookEditorActive.value && notebookEditorRef.value) {
     if (!notebookEditorRef.value.insertText(selection.text)) return false
@@ -9230,7 +8808,6 @@ function rejectActiveWritingMutation() {
 }
 function undoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
-  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('undo'))
   writingAgentHost.notifyHistory('history')
   let result = false
   if (hasStructureUndoBoundary.value) result = undoStructureTransition()
@@ -9242,7 +8819,6 @@ function undoNotebookEdit() {
 }
 function redoNotebookEdit() {
   if (rejectActiveWritingMutation()) return false
-  if (activeWritingPane.value === 'dual') return Boolean(dualPaneRef.value?.runCommand?.('redo'))
   writingAgentHost.notifyHistory('history')
   if (hasStructureRedoBoundary.value) return redoStructureTransition()
   if (hasGhostAdoptionRedoBoundary.value) return redoGhostAdoption()
@@ -9250,10 +8826,6 @@ function redoNotebookEdit() {
 }
 function toggleNotebookMark(mark) {
   if (rejectActiveWritingMutation()) return
-  if (activeWritingPane.value === 'dual') {
-    dualPaneRef.value?.runCommand?.('toggleMark', mark)
-    return
-  }
   if (!notebookEditorRef.value?.toggleMark?.(mark)) return
   nextTick(refreshNotebookCommandAvailability)
 }
@@ -9279,8 +8851,6 @@ function handleQuickWordDigitKey(event) {
   ) return false
   const editor = event.target?.closest?.('.ProseMirror')
   if (!editor) return false
-  const targetsDualPane = Boolean(editor.closest('[data-test="authoring-dual-pane"]'))
-  if (targetsDualPane !== (activeWritingPane.value === 'dual')) return false
   const item = quickWordSuggestions.value[Number(event.key) - 1]
   if (!item || !completeQuickWord(item)) return false
   event.preventDefault()
@@ -10486,33 +10056,6 @@ function getCurrentRewriteComparison(targetOverride = null) {
   const target = targetOverride || rewriteTarget.value
   return compareWritingRewriteTarget({ document: writingDocument.value, target, chapterId: selectedChapterId.value, markdown: markdownContent.value })
 }
-function buildDualReviewRewriteTarget(invocation, finding) {
-  const source = dualPaneRef.value?.captureReviewSource?.()
-  if (!source || String(source.documentId) !== String(invocation?.documentId)) return null
-  return buildAuthoringReviewRewriteTarget(source, finding)
-}
-function getDualRewriteComparison(target) {
-  const source = dualPaneRef.value?.captureReviewSource?.()
-  return compareAuthoringReviewRewriteTarget(source, target)
-}
-function commitDualRewriteCandidate(candidate, target) {
-  if (dualPaneRef.value?.prepareClose?.() === false) return { ok: false, message: tr('副栏原文保存失败，尚未采用候选。') }
-  const source = dualPaneRef.value?.captureReviewSource?.()
-  if (!source || String(source.documentId) !== String(target.documentId)) return { ok: false, stale: true, message: tr('副栏原文已经变化，请重新审稿。') }
-  if (!recordDestructiveWritingProtection({ ...source, operation: 'review-rewrite', transactionId: candidate.id })) {
-    return { ok: false, message: tr('无法保存改写前版本，正文没有变化。') }
-  }
-  const patches = candidate.patches || [{
-    nodeId: target.nodeId,
-    range: { startOffset: target.startOffset, endOffset: target.endOffset },
-    baseText: target.text,
-    replacement: candidate.text
-  }]
-  if (dualPaneRef.value?.replaceReviewRanges?.(patches) !== true) return { ok: false, stale: true, message: tr('副栏没有接受这次修改，请重新审稿。') }
-  reviewRewriteSavePending.value = dualPaneRef.value?.prepareClose?.() === false
-  if (reviewRewriteSavePending.value) authoringTask.notify(tr('改写已进入副栏，但保存失败；请在审稿结果中重试保存'))
-  return { ok: true }
-}
 function commitRewriteCandidate(candidate, target) {
   if (rejectLockedNotebookMutation()) return { ok: false, silent: true }
   if (!protectCurrentRewrite(candidate)) {
@@ -10579,7 +10122,7 @@ function beforeInspectorToolSelect(tool) {
   freezeWritingSurfaceBeforeToolSelect(tool)
 }
 function captureAuthoringSearchLiveSources() {
-  const sources = [captureMainDocumentSource(), dualPaneRef.value?.captureSearchSource?.()]
+  const sources = [captureMainDocumentSource()]
     .filter((source) => source?.document && String(source.projectId || '') === String(selectedBookId.value || ''))
     .map((source) => ({
       ...source,
@@ -10618,16 +10161,12 @@ async function selectMainSearchTarget(finding) {
   return Boolean(selected)
 }
 function persistSearchEditorsBeforeReplace(setError) {
-  if (historyInteractionLocked.value || writingCompositionActive.value || dualCompositionActive.value) {
+  if (historyInteractionLocked.value || writingCompositionActive.value) {
     setError('正文正在输入或提交，请完成当前操作后再替换。')
     return false
   }
   if (!wt3ActiveDoc.value && selectedChapterId.value && !saveCurrentChapter()) {
     setError('当前章节保存失败，替换没有执行。')
-    return false
-  }
-  if (dualPaneRef.value?.prepareClose?.() === false) {
-    setError('副窗正文保存失败，替换没有执行。')
     return false
   }
   return true
@@ -10687,22 +10226,9 @@ function afterSearchReplace({ plan, applied, latestBook, nextBooks }) {
   books.value = nextBooks
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
   chapters.value = nextBook?.chapters || []
-  const editorHistory = applyAuthoringSearchEditorTransaction({ plan, activePane: activeWritingPane.value, mainChapterId: selectedChapterId.value, mainEditor: wt3ActiveDoc.value ? null : notebookEditorRef.value, dualPane: dualPaneRef.value })
+  const editorHistory = applyAuthoringSearchEditorTransaction({ plan, mainChapterId: selectedChapterId.value, mainEditor: wt3ActiveDoc.value ? null : notebookEditorRef.value })
   if (!wt3ActiveDoc.value) {
     reloadMainChapterAfterSearchReplace(chapters.value.find((chapter) => String(chapter.id) === String(selectedChapterId.value)), editorHistory.main)
-  }
-  const dualSource = dualPaneRef.value?.getActiveSource?.()
-  if (dualSource?.kind === 'chapter') {
-    const dualChapter = chapters.value.find((chapter) => String(chapter.id) === String(dualSource.id))
-    if (dualChapter?.editorDocument) {
-      dualPaneRef.value?.reloadSearchSource?.({
-        sourceKind: 'chapter',
-        sourceId: dualChapter.id,
-        title: dualChapter.title,
-        document: dualChapter.editorDocument,
-        markdown: dualChapter.content, preserveHistory: editorHistory.dual
-      })
-    }
   }
   writingBlockHistory.value = selectedChapterId.value ? authoringHistory.refreshBlockHistory(selectedChapterId.value) : []
   writingSnapshots.value = selectedChapterId.value ? authoringHistory.refreshSnapshots(selectedChapterId.value) : []
@@ -10713,7 +10239,6 @@ function afterSearchReplace({ plan, applied, latestBook, nextBooks }) {
   }).catch(() => {})
 }
 async function restoreSearchSurface(surface) {
-  if (surface?.pane === 'dual') return Boolean(await dualPaneRef.value?.restoreSurfaceState?.(surface))
   let previousEditor = null
   if (surface?.sourceKind === 'chapter' && String(selectedChapterId.value || '') !== String(surface.sourceId || '')) {
     previousEditor = notebookEditorRef.value
@@ -10733,7 +10258,6 @@ function createAuthoringSearchWorkflow() {
     getCurrentChapterTitle: () => currentChapterTitle.value,
     getExplorations: () => wt3ExplorationDocs.value,
     getWorldbook: () => boundWorldbook.value,
-    getDualSource: () => activeWritingPane.value === 'dual' ? dualPaneRef.value?.getActiveSource?.() : null,
     captureActiveSource: () => captureActiveDocumentSource(),
     captureMainSource: () => captureMainDocumentSource(),
     captureSurface: () => captureCurrentWritingSurface(),

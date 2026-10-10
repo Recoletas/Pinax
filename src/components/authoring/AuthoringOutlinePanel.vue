@@ -11,7 +11,7 @@ const props = defineProps({
   items: { type: Array, default: () => [] }, focusProjectNodeId: { type: String, default: '' },
   bookId: { type: String, default: '' }, chapterId: { type: [String, Number], default: '' }, chapterTitle: { type: String, default: '' }, selectedText: { type: String, default: '' }
 })
-const emit = defineEmits(['add', 'update', 'update-project', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'open-dual', 'history', 'close'])
+const emit = defineEmits(['add', 'update', 'update-project', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'history', 'close'])
 const FILTERS = [{ key: 'all', label: '全部' }, { key: 'unfiled', label: '未编排' }, { key: 'causes', label: '人物线' }, { key: 'foreshadows', label: '伏笔' }]
 const STATUS_LABELS = { exploring: '推演中', planned: '已计划', drafted: '已成稿', fulfilled: '已兑现', parked: '已搁置' }
 const EDGE_LABELS = { causes: '因果', foreshadows: '伏笔', alternative: '另一种可能', parallel: '并行' }

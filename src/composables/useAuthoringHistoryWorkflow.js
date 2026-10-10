@@ -144,12 +144,6 @@ export function useAuthoringHistoryWorkflow(host) {
 
   function restore(snapshot) {
     if (host.rejectMutation() || !snapshot || !host.chapterId()) return false
-    const dual = host.dualSource()
-    const dualShowsChapter = dual?.kind === 'chapter' && String(dual.id || '') === String(host.chapterId())
-    if (dualShowsChapter && host.prepareDualClose() === false) {
-      status.value = '恢复已停止：副栏正文尚未保存。'
-      return false
-    }
     const guard = getWritingSnapshotRestoreGuard(snapshot, {
       chapterId: host.chapterId(), documentRevision: host.document()?.revision || 0, markdown: host.markdown()
     })
@@ -181,7 +175,6 @@ export function useAuthoringHistoryWorkflow(host) {
       return false
     }
     host.selectChapter(host.chapterId())
-    if (dualShowsChapter) host.reloadDual({ sourceKind: 'chapter', sourceId: chapter.id, title: chapter.title, document, markdown: snapshot.markdown })
     status.value = `已恢复「${snapshot.label}」 · 当前修订 ${document.revision}`
     host.markSaved()
     return true

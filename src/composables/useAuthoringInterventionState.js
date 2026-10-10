@@ -75,7 +75,9 @@ export function useAuthoringInterventionState({ selectedChapterId }) {
   const activeGhost = computed(() => ghosts.value.find((ghost) => (
     ghost.id === composer.activeGhostId
   )) || ghosts.value[0] || null)
-  const ghostInDual = computed(() => Boolean(
+  // W-B 双栏退役：ghost 落点只剩主栏稿面；目标章不是当前章时主栏需要
+  // 先导航过去（Authoring 侧负责 selectChapter），该状态用于区分这一情形。
+  const ghostOffChapter = computed(() => Boolean(
     composer.phase === 'ghosts'
     && activeGhost.value
     && String(activeGhost.value.target?.documentId || '') !== String(selectedChapterId.value || '')
@@ -106,7 +108,7 @@ export function useAuthoringInterventionState({ selectedChapterId }) {
     ghosts,
     batchGhosts,
     activeGhost,
-    ghostInDual,
+    ghostOffChapter,
     displayTarget,
     clearRehearsalResult
   }

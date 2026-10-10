@@ -7,7 +7,6 @@ export function createAuthoringInspectorState(overrides = {}) {
     indexView: 'group',
     selectedId: '',
     query: '',
-    dual: false,
     pinned: false,
     returnState: null,
     ...overrides
@@ -33,12 +32,6 @@ export function openAuthoringInspectorDetail(state, selectedId) {
 export function returnFromAuthoringInspectorDetail(state) {
   const previous = state.returnState || { mode: 'contextual', indexView: 'group', query: '' }
   return { ...state, ...previous, selectedId: '', returnState: null }
-}
-
-export function toggleAuthoringInspectorDual(state, eligible = true) {
-  if (!eligible) return { ...state, dual: false }
-  const dual = !state.dual
-  return { ...state, dual, pinned: dual || state.pinned }
 }
 
 export function resetAuthoringInspectorForBook(state) {

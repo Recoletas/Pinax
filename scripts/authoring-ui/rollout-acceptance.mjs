@@ -321,10 +321,10 @@ check('进入专注：出现退出按钮', await page.evaluate(() => Boolean(doc
 const zenState = await page.evaluate(() => ({
   cork: getComputedStyle(document.querySelector('.wall__cork')).display,
   shelf: getComputedStyle(document.querySelector('.wall__shelf')).display,
-  rail: getComputedStyle(document.querySelector('.writing-tool-rail')).display,
   mainCols: getComputedStyle(document.querySelector('.wall__main')).gridTemplateColumns.split(' ').length
 }))
-check('专注进入全屏（顶栏/左栏/rail 隐藏，正文单列占满）', zenState.cork === 'none' && zenState.shelf === 'none' && zenState.rail === 'none' && zenState.mainCols === 1, JSON.stringify(zenState))
+// W-B 右轨退役：rail 不复存在，专注断言只看顶栏/左栏隐藏与单列。
+check('专注进入全屏（顶栏/左栏隐藏，正文单列占满）', zenState.cork === 'none' && zenState.shelf === 'none' && zenState.mainCols === 1, JSON.stringify(zenState))
 await page.screenshot({ path: path.join(SHOT_DIR, 'tb08-zen.png') })
 await page.keyboard.press('Escape')
 await page.waitForTimeout(500)
@@ -449,15 +449,15 @@ await page.keyboard.press('Control+z')
 await page.waitForTimeout(200)
 record('ED-10', '底栏安静信息')
 
-// ---------- RS-01 1440 桌面四列关系 ----------
+// ---------- RS-01 1440 桌面三列关系 ----------
 current = { id: 'RS-01', checks: [] }
 const rs01 = {
   shelf: await rectOf(page, '.wall__shelf'),
-  rail: await rectOf(page, '.writing-tool-rail'),
   dossier: await rectOf(page, '.wall__dossier'),
   horizontalOverflow: await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
 }
-check('左栏/稿面/rail 同行排布', rs01.shelf.y === rs01.dossier.y && rs01.rail.y === rs01.dossier.y, JSON.stringify(rs01))
+// W-B 右轨退役：同行排布只看左栏与稿面。
+check('左栏/稿面同行排布', rs01.shelf.y === rs01.dossier.y, JSON.stringify(rs01))
 check('无横向页面滚动', !rs01.horizontalOverflow)
 record('RS-01', '1440 桌面结构')
 
