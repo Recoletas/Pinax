@@ -1739,5 +1739,16 @@
   "复制回答": "Copy answer",
   "本会话工具流水": "Session tool ledger",
   "出错": "Error",
-  "{n} 字符": "{n} chars"
+  "{n} 字符": "{n} chars",
+  "会话操作": "Session actions",
+  "重命名对话": "Rename conversation",
+  "取消归档": "Unarchive",
+  "已归档": "Archived",
+  "复制会话 ID": "Copy session ID",
+  "复制存储路径": "Copy storage path",
+  "查看会话数据": "View session data",
+  "会话数据": "Session data",
+  "已复制会话 ID": "Session ID copied",
+  "已复制存储路径": "Storage path copied",
+  "已切换到「{title}」": "Switched to \"{title}\""
 }

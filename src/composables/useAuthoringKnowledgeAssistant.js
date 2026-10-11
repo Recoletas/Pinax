@@ -238,7 +238,7 @@ export function useAuthoringKnowledgeAssistant({
     const state = entry.state
     const previous = state.agentSessions.find(session => session.sessionId === state.activeSessionId)
     const record = { sessionId: state.activeSessionId, projectId: entry.projectId, title: (previous?.title !== '新对话' ? previous?.title : '') || state.messages.find(message => message.question)?.question?.slice(0, 40) || '新对话',
-      updatedAt: Date.now(), messages: state.messages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
+      updatedAt: Date.now(), messages: state.messages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills, archived: Boolean(previous?.archived) }
     state.agentSessions = [record, ...state.agentSessions.filter(session => session.sessionId !== state.activeSessionId)].slice(0, 20)
   }
   function selectSession(sessionId) {
@@ -292,6 +292,29 @@ export function useAuthoringKnowledgeAssistant({
     persistConversation(entry)
     return true
   }
+  // 归档/取消归档：归档只是从主列表收起（可恢复），不删数据。归档当前激活会话时
+  // 自动切到最近一条未归档会话（没有则新建空会话承接）。
+  function archiveConversation(sessionId, archived = true) {
+    const entry = activeEntry.value
+    const state = entry.state
+    if (state.busy || state.agentAdoptionBusy) return false
+    const saved = state.agentSessions.find(session => session.sessionId === sessionId)
+    if (!saved) return false
+    saved.archived = Boolean(archived)
+    if (archived && state.activeSessionId === sessionId) {
+      const next = state.agentSessions.find(session => session.sessionId !== sessionId && !session.archived)
+      if (next) {
+        selectSession(next.sessionId)
+      } else {
+        const sessionIdNew = messageId('session')
+        state.agentSessions.unshift({ sessionId: sessionIdNew, projectId: entry.projectId, title: '新对话', messages: [], updatedAt: Date.now() })
+        state.activeSessionId = sessionIdNew
+        state.messages = []; state.draft = ''; state.error = ''; state.lastRequest = null; state.status = 'idle'
+      }
+    }
+    persistConversation(entry)
+    return true
+  }
   function renameConversation(sessionId, title) {
     const entry = activeEntry.value
     const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
@@ -325,7 +348,7 @@ export function useAuthoringKnowledgeAssistant({
     const state = activeEntry.value.state
     const list = state.agentSessions.some(session => session.sessionId === state.activeSessionId)
       ? state.agentSessions : [{ sessionId: state.activeSessionId, title: '新对话', updatedAt: Date.now() }, ...state.agentSessions]
-    return list.map(session => ({ sessionId: session.sessionId, title: session.title, updatedAt: session.updatedAt, active: session.sessionId === state.activeSessionId }))
+    return list.map(session => ({ sessionId: session.sessionId, title: session.title, updatedAt: session.updatedAt, archived: Boolean(session.archived), active: session.sessionId === state.activeSessionId }))
   })
   function persistConversation(entry) {
     if (!entry.projectId || !entry.runtime.canSaveConversation) return
@@ -728,7 +751,7 @@ export function useAuthoringKnowledgeAssistant({
   }
   return Object.freeze({
     pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    sessions, selectSession, newConversation, renameConversation, deleteConversation, branchConversation, rateMessage, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    sessions, selectSession, newConversation, renameConversation, deleteConversation, branchConversation, rateMessage, archiveConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, regenerateAnswer, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
