@@ -24,10 +24,32 @@
 
     <div v-if="historyOpen" class="authoring-knowledge__history" :aria-label="tr('作品对话')">
       <div class="assistant-conversation-heading"><strong>{{ tr('对话') }}</strong><button type="button" :disabled="busy || agentState.adoptionBusy" @click="startConversation">{{ tr('新建对话') }}</button></div>
-      <div v-for="session in conversations" :key="session.sessionId" class="assistant-conversation-row" :class="{ 'is-active': session.active }">
-        <button type="button" class="assistant-conversation-select" :disabled="busy || agentState.adoptionBusy" :aria-current="session.active ? 'true' : undefined" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="15" /><span>{{ session.title }}</span></button>
+      <div v-for="session in conversations.filter(item => !item.archived || item.active)" :key="session.sessionId" class="assistant-conversation-row" :class="{ 'is-active': session.active }">
+        <template v-if="renamingId === session.sessionId">
+          <input v-model="renameDraft" class="assistant-conversation-rename" type="text" :aria-label="tr('重命名对话')" @keydown.enter.prevent="commitRename(session)" @keydown.esc.prevent="cancelRename" @blur="commitRename(session)" v-focus />
+        </template>
+        <button v-else type="button" class="assistant-conversation-select" :disabled="busy || agentState.adoptionBusy" :aria-current="session.active ? 'true' : undefined" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="15" /><span>{{ session.title }}</span></button>
+        <details ref="sessionMenuRefs" class="authoring-knowledge__session-menu" @focusout="maybeCloseSessionMenu($event)">
+          <summary :aria-label="tr('会话操作')" :title="tr('会话操作')" @click.prevent="toggleSessionMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="more" :size="15" /></summary>
+          <div class="authoring-knowledge__session-menu-list" role="menu">
+            <button type="button" role="menuitem" @click="startRename(session); closeSessionMenus()">{{ tr('重命名') }}</button>
+            <button type="button" role="menuitem" :disabled="busy || agentState.adoptionBusy" @click="archiveSession(session, !session.archived); closeSessionMenus()">{{ tr(session.archived ? '取消归档' : '归档') }}</button>
+            <button type="button" role="menuitem" @click="copySessionText(session.sessionId, tr('已复制会话 ID')); closeSessionMenus()">{{ tr('复制会话 ID') }}</button>
+            <button type="button" role="menuitem" @click="copySessionText(conversationStoragePath, tr('已复制存储路径')); closeSessionMenus()">{{ tr('复制存储路径') }}</button>
+            <button type="button" role="menuitem" @click="openSessionData(); closeSessionMenus()">{{ tr('查看会话数据') }}</button>
+          </div>
+        </details>
         <button type="button" class="assistant-conversation-delete" :disabled="busy || agentState.adoptionBusy" :aria-label="tr('删除对话 {title}', { title: session.title })" :title="tr('删除对话')" @click="deleteConversation(session)"><WorkbenchIcon name="trash" :size="15" /></button>
       </div>
+      <details v-if="archivedConversations.length" class="authoring-knowledge__archived">
+        <summary>{{ tr('已归档') }}（{{ archivedConversations.length }}）</summary>
+        <div>
+          <div v-for="session in archivedConversations" :key="session.sessionId" class="assistant-conversation-row is-archived">
+            <button type="button" class="assistant-conversation-select" :disabled="busy || agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="15" /><span>{{ session.title }}</span></button>
+            <button type="button" class="assistant-conversation-delete" :aria-label="tr('取消归档')" :title="tr('取消归档')" @click="archiveSession(session, false)"><WorkbenchIcon name="unlink" :size="15" /></button>
+          </div>
+        </div>
+      </details>
     </div>
 
     <div class="authoring-knowledge__body">
@@ -157,6 +179,18 @@
     </template>
 
     <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="promptPreviewKey" />
+    <!-- 会话切换中央提示（1.8s 自动消） -->
+    <div v-if="switchToast" class="authoring-knowledge__switch-toast" role="status" data-test="session-switch-toast">{{ switchToast }}</div>
+    <!-- 会话数据浮层：整桶原始 JSON（ZCode 式查看数据），只读+复制 -->
+    <div v-if="sessionDataOpen" class="authoring-knowledge__session-data" role="dialog" :aria-label="tr('会话数据')">
+      <header class="authoring-knowledge__session-data-head">
+        <strong>{{ tr('会话数据') }}</strong>
+        <code class="authoring-knowledge__session-data-path">{{ conversationStoragePath }}</code>
+        <button type="button" @click="copySessionText(conversationStoragePath, tr('已复制存储路径'))">{{ tr('复制存储路径') }}</button>
+        <button type="button" @click="closeSessionData">×</button>
+      </header>
+      <pre class="authoring-knowledge__session-data-body">{{ sessionDataText }}</pre>
+    </div>
     <AssistantRegenerateDialog
       v-if="regenerateTarget"
       :question="regenerateTarget.question"
@@ -183,6 +217,9 @@ import { markdownToHtml } from '../../services/notes/assetMarkdown.js'
 import { regenerateIntentLabel, regenerateTemperatureLabel } from '../../services/agents/authoring/assistantRegenerateOptions.js'
 import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
 import { promptPreviewKey, openPromptPreview } from '../../composables/usePromptPreview.js'
+
+// 行内重命名输入框挂载即聚焦（v-focus 局部指令）。
+const vFocus = { mounted: (el) => el.focus() }
 
 const props = defineProps({
   assistant: { type: Object, default: null },
@@ -231,7 +268,79 @@ async function filesImported(payload) {
   if (props.agentState.enabled) emit('select-intent', 'agent')
 }
 function startConversation() { if (props.assistant?.newConversation?.()) { historyOpen.value = false; emit('active-question', ''); nextTick(() => draftInputRef.value?.focus()) } }
-function selectConversation(id) { if (props.assistant?.selectSession?.(id)) { historyOpen.value = false; emit('active-question', ''); nextTick(() => draftInputRef.value?.focus()) } }
+function selectConversation(id) {
+  const target = conversations.value.find((session) => session.sessionId === id)
+  if (props.assistant?.selectSession?.(id)) {
+    historyOpen.value = false
+    showSwitchToast(tr('已切换到「{title}」', { title: target?.title || '' }))
+    emit('active-question', '')
+    nextTick(() => draftInputRef.value?.focus())
+  }
+}
+// 会话管理（ZCode 任务菜单对齐）：中央 toast / 行内重命名 / 归档 / 复制 ID 与存储路径 / 查看数据。
+const switchToast = ref('')
+let switchToastTimer = null
+function showSwitchToast(text) {
+  switchToast.value = text
+  if (switchToastTimer) clearTimeout(switchToastTimer)
+  switchToastTimer = window.setTimeout(() => { switchToast.value = '' }, 1800)
+}
+const renamingId = ref('')
+const renameDraft = ref('')
+function startRename(session) {
+  renamingId.value = session.sessionId
+  renameDraft.value = session.title
+}
+function cancelRename() { renamingId.value = '' }
+function commitRename(session) {
+  if (renamingId.value !== session.sessionId) return
+  const title = renameDraft.value.trim()
+  if (title && title !== session.title) props.assistant?.renameConversation?.(session.sessionId, title)
+  renamingId.value = ''
+}
+const archivedConversations = computed(() => conversations.value.filter((session) => session.archived))
+function archiveSession(session, archived) {
+  props.assistant?.archiveConversation?.(session.sessionId, archived)
+}
+const sessionMenuRefs = ref([])
+function toggleSessionMenu(detailsEl) {
+  const wasOpen = detailsEl?.open
+  closeSessionMenus()
+  if (detailsEl && !wasOpen) detailsEl.open = true
+}
+function closeSessionMenus() {
+  for (const el of sessionMenuRefs.value || []) { if (el) el.open = false }
+}
+function maybeCloseSessionMenu(event) {
+  const menu = event.currentTarget
+  if (!menu.contains(event.relatedTarget)) menu.open = false
+}
+const conversationStoragePath = computed(() => `localStorage["authoring_assistant_conversation:${encodeURIComponent(String(props.projectId || ''))}"]`)
+async function copySessionText(text, toastText) {
+  if (!text) return
+  try { await navigator.clipboard.writeText(text) } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+  }
+  showSwitchToast(toastText)
+}
+const sessionDataOpen = ref(false)
+const sessionDataText = ref('')
+function openSessionData() {
+  try {
+    const raw = localStorage.getItem(`authoring_assistant_conversation:${encodeURIComponent(String(props.projectId || ''))}`)
+    const parsed = raw ? JSON.parse(raw) : null
+    sessionDataText.value = JSON.stringify(parsed, null, 2).slice(0, 60000)
+  } catch (error) {
+    sessionDataText.value = String(error?.message || error)
+  }
+  sessionDataOpen.value = true
+}
+function closeSessionData() { sessionDataOpen.value = false }
 function deleteConversation(session) {
   const owner = props.projectId
   if (!window.confirm(tr('删除对话「{title}」？删除后无法恢复。', { title: session.title }))) return
@@ -892,6 +1001,25 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .assistant-conversation-select span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-knowledge__history .assistant-conversation-delete { display: grid; place-items: center; width: 32px; min-width: 32px; padding: 6px; }
 .authoring-knowledge__history .assistant-conversation-delete:hover { color: var(--signal-danger); }
+.authoring-knowledge__history .assistant-conversation-rename { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface-workbench-input); color: var(--text-primary); font: 13px/1.4 var(--font-interface, var(--font-sans)); }
+.authoring-knowledge__session-menu { position: relative; display: grid; place-items: center; width: 32px; min-width: 32px; }
+.authoring-knowledge__session-menu summary { display: grid; place-items: center; width: 32px; min-width: 32px; padding: 6px; list-style: none; color: var(--text-muted); cursor: pointer; }
+.authoring-knowledge__session-menu summary::-webkit-details-marker { display: none; }
+.authoring-knowledge__session-menu summary:hover { color: var(--text-primary); background: var(--nav-hover); border-radius: 7px; }
+.authoring-knowledge__session-menu-list { position: absolute; z-index: 6; top: calc(100% + 4px); inset-inline-end: 0; min-width: 168px; padding: 5px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover, 12px); background: var(--surface-workbench-overlay, var(--surface-workbench-raised)); box-shadow: var(--shadow-workbench-float); display: grid; }
+.authoring-knowledge__session-menu-list button { padding: 7px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text-primary); font: 13px/1.4 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
+.authoring-knowledge__session-menu-list button:hover { background: var(--nav-hover); }
+.authoring-knowledge__archived { margin-top: 8px; border-top: 1px solid var(--hairline-soft); padding-top: 6px; }
+.authoring-knowledge__archived summary { color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 4px 2px; }
+.authoring-knowledge__history .assistant-conversation-row.is-archived .assistant-conversation-select { color: var(--text-muted); }
+.authoring-knowledge__switch-toast { position: fixed; z-index: 40; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 18px; border-radius: 12px; background: var(--surface-workbench-overlay, var(--surface-primary)); box-shadow: var(--shadow-workbench-float); color: var(--text-primary); font: 13px/1.5 var(--font-interface, var(--font-sans)); pointer-events: none; }
+.authoring-knowledge__session-data { position: fixed; z-index: 50; inset: 6vh 8vw; display: flex; flex-direction: column; border: 1px solid var(--hairline-soft); border-radius: 14px; background: var(--surface-workbench-raised); box-shadow: var(--shadow-workbench-float); overflow: hidden; }
+.authoring-knowledge__session-data-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--hairline-soft); }
+.authoring-knowledge__session-data-head strong { font-size: 14px; }
+.authoring-knowledge__session-data-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+.authoring-knowledge__session-data-head button { padding: 5px 10px; border: 1px solid var(--hairline-soft); border-radius: 8px; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-interface, var(--font-sans)); cursor: pointer; }
+.authoring-knowledge__session-data-head button:last-of-type { width: 32px; }
+.authoring-knowledge__session-data-body { flex: 1; margin: 0; padding: 12px 14px; overflow: auto; font: 11px/1.6 var(--font-mono, ui-monospace, monospace); color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .authoring-knowledge__tool-menu input { min-width: 0; margin: 8px 0; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: 6px; background: var(--surface-workbench-input); color: var(--text-primary); font: inherit; }
 @media(max-width:720px) { .authoring-knowledge__history .assistant-conversation-delete { width: 44px; min-width: 44px; } }
 </style>
