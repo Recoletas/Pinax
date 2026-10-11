@@ -172,6 +172,13 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
         }
         return
       }
+      if (named?.eventName === 'prompt.composed') {
+        // 提示词透明化（agent 会话链）：本轮实际进入内核的 system/user 全文，只进会话内存快照。
+        if (named.data && (typeof named.data.system === 'string' || typeof named.data.user === 'string')) {
+          callbacks.onPromptComposed?.(named.data)
+        }
+        return
+      }
       // 默认 parser 读取标准 schema；显式 parser 可增加 Pinax 的契约核对。
       const frame = parseEvent ? parseEvent(raw) : named?.data
       if (!frame || frame.schemaVersion !== 1 || !STREAM_EVENT_TYPES.has(frame.type)) {

@@ -852,7 +852,7 @@
             @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
             @select-surface="assistantWorkspace.openSurface" @select-book="selectBook" @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
           <!-- W-B dock 收敛：旧「执行」段降为 Agent 面板内的次级入口（默认收起）。 -->
-          <AuthoringRunLogDrawer :project-id="selectedBookId" />
+          <AuthoringRunLogDrawer :project-id="selectedBookId" :messages="knowledgeAssistant.messages" />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
             @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
