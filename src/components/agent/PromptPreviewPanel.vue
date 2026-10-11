@@ -27,7 +27,7 @@ const BLOCK_LABELS = {
   cast: '角色编排',
   'local-rules': '本地约束',
   // 信封（advisor/legacy 等）块类型，与 AuthoringRunLog 同词表；缺键会回落显示原始 kind。
-  system: '系统', selection: '选区', character: '角色', location: '地点',
+  system: '系统', user: '本轮输入', selection: '选区', character: '角色', location: '地点',
   history: '历史', memory: '记忆', references: '参考', raw: '原文',
   outline: '大纲', worldbook: '世界书', inbox: '速记', legacy: '旧版'
 }

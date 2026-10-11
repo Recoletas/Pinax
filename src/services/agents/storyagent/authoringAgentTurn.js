@@ -1,4 +1,5 @@
 import { createAgentRequestId, recordAgentRequestTrace } from '../agentRequestTrace.js'
+import { recordPromptSnapshot } from '../promptSnapshot.js'
 
 function retrievedReferences(prepared, results, projectId) {
   const references = []
@@ -72,6 +73,26 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (task.taskId) { message.taskId = task.taskId; state.agentTaskId = task.taskId; persist() }
     },
     onStatus: (status) => { if (current() && status.phase === 'tool') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), detail: String(status.detail || '').slice(0, 200) }) },
+    // 提示词透明化（agent 会话链）：kit 组装完本轮 system/user 即发 composed 帧，记进会话内存
+    // 快照（LRU 不落盘，与创作/体验链同口径）；消息携 key，🔍 由此点亮。
+    onPromptComposed: (composed) => {
+      if (!current() || !composed) return
+      const system = String(composed.system || '')
+      const user = String(composed.user || '')
+      recordPromptSnapshot({
+        key: traceRequestId,
+        surface: 'authoring-agent',
+        projectId,
+        sessionId: previousTask || '',
+        blocks: [
+          { kind: 'system', content: system, chars: system.length, truncated: false, sourceRefs: [] },
+          { kind: 'user', content: user, chars: user.length, truncated: false, sourceRefs: [] }
+        ],
+        budget: { maxChars: 0, usedChars: system.length + user.length, truncatedBlocks: [] },
+        toolNames: []
+      })
+      message.promptSnapshotKey = traceRequestId
+    },
     onComplete: ({ content }) => { if (current()) message.text = String(content || '') }
   }
   try {
