@@ -9,7 +9,7 @@
 // 走 /api/storyagent SSE 工具循环，advisor 直查仅剩「重答（via=query）」与
 // 温度覆写路径——canned mock 拦不到默认链，回答断言无法收敛（与
 // f2-knowledge-assistant-check 同根因，见其文件头）。W-B 只同步了选择器
-// 落点（顶栏工具组等待、助手入口、运行日志次级入口 data-test），语义断言
+// 落点（右侧工具轨等待、助手入口、运行日志次级入口 data-test），语义断言
 // 未动；重铺前提归 W-C（Agent 前端域）。
 // 模型响应以 canned /api/advisor/task 注入（本机 5173/5174 origin 无可用凭据，
 // 读 apiKey 被禁止）——与 Phase 1「canned 注入 + 前端链路真实执行」先例一致；
@@ -130,8 +130,8 @@ async function createPage(browser, viewport) {
   page.on('console', (message) => { if (message.type() === 'error') errors.push(`console:${message.text()}`) })
   const requests = await installCannedAdvisor(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}`, { waitUntil: 'domcontentloaded' })
-  // W-B 外壳重构：右轨退役，等待顶栏工具组；助手入口在顶栏「助手」钮。
-  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
+  // 工具入口落点=右侧工具轨；助手入口在顶栏「助手」钮。
+  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, requests, errors }

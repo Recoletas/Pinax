@@ -40,7 +40,7 @@
   overflow: hidden;
   min-height: 0;
 }
-.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-inspector__reopen) { display: none; }
+.writing-page.is-assistant-full .wall__main > :is(.wall__shelf, .wall__dossier, .writing-tool-rail, .writing-inspector__reopen) { display: none; }
 .writing-page.is-assistant-full .writing-inspector,
 .theme-legacy .writing-page.is-assistant-full .writing-inspector.is-open {
   position: relative;
@@ -78,6 +78,7 @@
   --authoring-sidebar-label-size: 15px;
   --authoring-sidebar-meta-size: 13px;
   --authoring-sidebar-gutter: 22px;
+  --writing-tool-rail-width: 60px;
 }
 /* Restore the original shelf geometry; only surface treatments differ. */
 .theme-legacy .writing-page .wall__shelf {

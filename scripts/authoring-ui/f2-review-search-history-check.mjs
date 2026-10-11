@@ -167,8 +167,8 @@ async function createPage(browser, viewport) {
   const reviewRequests = installReviewProvider(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}&chapterId=fogch-1`, { waitUntil: 'domcontentloaded' })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
-  // W-B 右轨退役：等待顶栏工具组（工具入口落点迁移）。
-  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
+  // 工具入口落点=右侧工具轨（顶栏工具组方案已按用户裁定回退）。
+  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, errors, reviewRequests }
 }

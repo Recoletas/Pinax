@@ -41,16 +41,6 @@
           <WorkbenchIcon name="more" :size="16" />
           <span>{{ chapterShelfSheetMode ? tr('工具') : tr('更多') }}</span>
         </button>
-        <!-- W-B 外壳重构：右轨退役，七个工具入口 + 协作模式「协作」钮迁顶栏；
-             点击切右侧栏对应工具，再点同钮或「助手」回 Agent。 -->
-        <AuthoringInspectorToolbar
-          :active-tool="activeInspectorTool"
-          :inspector-open="inspectorOpen"
-          :pending="assistantPendingTools"
-          :collaboration-visible="authoringRehearsalActive"
-          @before-select="beforeInspectorToolSelect"
-          @select="selectToolFromToolbar"
-        />
         <Teleport to="body">
           <!-- 工具条是 42px 单行 + overflow 裁切，absolute 菜单会被整体裁没（死按钮）；
                菜单固定定位到触发按钮下方，点击任意位置或 Esc 关闭。 -->
@@ -762,8 +752,17 @@
         </template>
       </section>
 
-      <!-- W-B 双栏退役：AuthoringDualPane 与右轨（AuthoringWorkspaceToolRail）整体移除。
-           右侧栏只剩检查器本体：Agent 助手是默认态，其余工具面板由顶栏工具组驱动。 -->
+      <!-- 工具轨在检查器右侧：推演/批注/大纲/角色/设定/现场/记忆（联机时多一枚「协作」）。
+           助手不占轨位——Agent 是右侧栏默认态，入口为顶栏「助手」钮。 -->
+      <AuthoringWorkspaceToolRail
+        :active-tool="activeInspectorTool"
+        :inspector-open="inspectorOpen"
+        :pending="assistantPendingTools"
+        :collaboration-visible="authoringRehearsalActive"
+        @before-select="beforeInspectorToolSelect"
+        @select="selectToolFromRail"
+      />
+
       <aside
         class="writing-inspector"
         ref="writingInspectorRef"
@@ -1469,7 +1468,7 @@ const AuthoringInterventionGhost = defineAsyncComponent(() => import('../compone
 const AuthoringBlockComposer = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockComposer.vue'))
 const AuthoringBlockDraft = defineAsyncComponent(() => import('../components/authoring/AuthoringBlockDraft.vue'))
 const AuthoringAdoptionImpact = defineAsyncComponent(() => import('../components/authoring/AuthoringAdoptionImpact.vue'))
-import AuthoringInspectorToolbar from '../components/authoring/AuthoringInspectorToolbar.vue'
+import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
 import AuthoringRunLogDrawer from '../components/authoring/AuthoringRunLogDrawer.vue'
 import { loadWritingSidebarPreferences, saveWritingSidebarPreferences } from '../composables/useWritingSidebarPreferences.js'
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
@@ -2391,15 +2390,14 @@ const {
 function closeActiveWritingInspector() {
   closeWritingInspector()
 }
-// W-B：顶栏工具组的唯一选中 owner（原右轨 select 语义 + 新增回 Agent 语义）。
-// 「记忆」沿用右轨映射：入口打开设置的记忆页，不占检查器。
-// 再点已激活工具（或点「助手」）→ 检查器回到 Agent 默认态。
-function selectToolFromToolbar(tool) {
+// 工具轨的唯一选中 owner：「记忆」沿用右轨映射，入口打开设置的记忆页，不占检查器；
+// 再点已激活工具 → 检查器回到 Agent 默认态。助手不在轨上，走顶栏「助手」钮。
+function selectToolFromRail(tool) {
   if (tool === 'history') {
     appSettings.open('memory')
     return
   }
-  if (tool === 'ai' || (inspectorOpen.value && activeInspectorTool.value === tool)) {
+  if (inspectorOpen.value && activeInspectorTool.value === tool) {
     openInspectorTool('ai')
     return
   }

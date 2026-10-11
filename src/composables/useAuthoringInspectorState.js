@@ -12,8 +12,8 @@ const INSPECTOR_LABELS = Object.freeze({
   history: '历史'
 })
 
-// W-B 外壳重构：双栏（dual）整体退役，状态机不再持有 dual 分支；其余
-// open/pinned/tab/tool 与 freeze/restore 语义保持不变，驱动源从右轨换成顶栏。
+// 双栏（dual）整体退役后状态机不再持有 dual 分支；其余 open/pinned/tab/tool 与
+// freeze/restore 语义保持不变，工具入口由右侧工具轨驱动（助手入口在顶栏「助手」钮）。
 export function useAuthoringInspectorState({
   sceneDetailNotice,
   captureWritingSurface,
