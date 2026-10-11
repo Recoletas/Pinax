@@ -43,8 +43,14 @@
         <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><button v-if="canRegenerate(message)" type="button" class="authoring-knowledge__regenerate" data-test="assistant-regenerate-open" :aria-label="tr('换参数重答这一问')" :title="tr('换参数重答这一问')" @click="openRegenerate(message)"><WorkbenchIcon name="refresh" :size="14" /></button><time>{{ formatTime(message.createdAt) }}</time></div>
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index" class="authoring-knowledge__tool-line">{{ toolLabel(tool.name) }}<code v-if="tool.detail" class="authoring-knowledge__tool-detail">{{ tool.detail }}</code></p></details>
           <div class="authoring-knowledge__answer-text authoring-knowledge__answer-md" v-html="renderAnswerHtml(message.text)"></div>
+          <div v-if="message.status === 'completed' || message.status === 'interrupted'" class="authoring-knowledge__answer-actions">
+            <button type="button" class="authoring-knowledge__action-btn" :aria-label="tr('复制回答')" :title="tr('复制回答')" @click="copyAnswer(message)"><WorkbenchIcon name="copy" :size="14" /><span>{{ copiedIds.has(message.id) ? tr('已复制') : tr('复制') }}</span></button>
+            <button type="button" class="authoring-knowledge__action-btn" :class="{ 'is-on': message.reaction === 'up' }" :aria-label="tr('有帮助')" :title="tr('有帮助')" @click="assistant.rateMessage(message.id, 'up')"><WorkbenchIcon name="thumbs-up" :size="14" /></button>
+            <button type="button" class="authoring-knowledge__action-btn" :class="{ 'is-on': message.reaction === 'down' }" :aria-label="tr('需改进')" :title="tr('需改进')" @click="assistant.rateMessage(message.id, 'down')"><WorkbenchIcon name="thumbs-down" :size="14" /></button>
+            <button type="button" class="authoring-knowledge__action-btn" :disabled="busy || agentState.adoptionBusy" :aria-label="tr('从这条回答分支新对话')" :title="tr('从这条回答分支新对话')" @click="assistant.branchConversation(message.id)"><WorkbenchIcon name="rehearsal" :size="14" /><span>{{ tr('分支') }}</span></button>
+          </div>
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
@@ -478,6 +484,30 @@ const promptPreviewOpen = computed(() => Boolean(promptPreviewKey.value)
   && props.messages.some((message) => message.promptSnapshotKey === promptPreviewKey.value))
 
 function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议' })[name] || name) }
+// 回答操作条：复制反馈是临时态（不进存储）；点赞/倒赞与分支走 assistant（reaction 随会话持久化）。
+const copiedIds = ref(new Set())
+async function copyAnswer(message) {
+  const text = String(message.text || '')
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    textarea.remove()
+  }
+  const next = new Set(copiedIds.value)
+  next.add(message.id)
+  copiedIds.value = next
+  window.setTimeout(() => {
+    const settled = new Set(copiedIds.value)
+    settled.delete(message.id)
+    copiedIds.value = settled
+  }, 1600)
+}
 // 助手回答按 Markdown 渲染（模型以 md 书写：加粗标题/分隔线/列表）；连续空行折叠为段距，
 // 避免流式分段输出在 pre-wrap 下留出大片空白。经 sanitizeHtml 净化后才进 v-html。
 function renderAnswerHtml(text) {
@@ -832,6 +862,13 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 5px; }
 .authoring-knowledge__agent-detail[open] summary svg { transform: rotate(180deg); }
 .authoring-knowledge__agent-detail p { white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.authoring-knowledge__tool-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.authoring-knowledge__tool-detail { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 5px; background: var(--surface-workbench-muted); color: var(--text-muted); font-size: 12px; }
+.authoring-knowledge__answer-actions { display: flex; align-items: center; gap: 4px; margin-top: 10px; }
+.authoring-knowledge__action-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 4px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted); font: 12px/1.4 var(--font-interface, var(--font-sans)); cursor: pointer; }
+.authoring-knowledge__action-btn:hover { border-color: var(--hairline-soft); background: var(--surface-workbench-muted); color: var(--text-primary); }
+.authoring-knowledge__action-btn.is-on { color: var(--accent-primary, var(--accent)); border-color: var(--hairline-soft); }
+.authoring-knowledge__action-btn:disabled { opacity: .5; cursor: default; }
 .authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 7px 12px; min-height: 36px; border: 1px solid var(--hairline-soft); border-radius: var(--workspace-radius, 10px); background: var(--nav-primary-selected); color: var(--accent); font: 500 13px/1.5 var(--font-interface); cursor: pointer; }
 .authoring-knowledge__agent-adopt:hover:not(:disabled) { background: var(--nav-focused); }
 .authoring-knowledge__agent-adopt:disabled { opacity: .5; cursor: default; }

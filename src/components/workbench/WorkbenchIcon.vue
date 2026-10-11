@@ -61,7 +61,10 @@ import {
   Users,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  Copy,
+  ThumbsUp,
+  ThumbsDown
 } from 'lucide-vue-next'
 
 const icons = {
@@ -86,6 +89,9 @@ const icons = {
   collaboration: UsersRound,
   annotation: SquarePen,
   rehearsal: GitBranch,
+  copy: Copy,
+  'thumbs-up': ThumbsUp,
+  'thumbs-down': ThumbsDown,
   scene: ScanEye,
   assistant: MessageSquareText,
   history: History,

@@ -267,6 +267,31 @@ export function useAuthoringKnowledgeAssistant({
     entry.state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: '新对话', messages: [], updatedAt: Date.now() })
     return selectSession(sessionId)
   }
+  // 分支：复制截至某条回答（含）的历史为新会话并切换——原会话不动，作者可从任意中间节点另开走向。
+  function branchConversation(fromMessageId) {
+    const entry = activeEntry.value
+    const state = entry.state
+    if (state.busy || state.agentAdoptionBusy) return false
+    const index = state.messages.findIndex((message) => message.id === fromMessageId)
+    if (index < 0) return false
+    const history = JSON.parse(JSON.stringify(state.messages.slice(0, index + 1).map((message) => ({ ...message, status: message.status === 'running' ? 'interrupted' : message.status }))))
+    if (!history.some((message) => message.question)) return false
+    persistConversation(entry)
+    const sessionId = messageId('session')
+    const sourceTitle = state.agentSessions.find((session) => session.sessionId === state.activeSessionId)?.title || '新对话'
+    state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: `分支 · ${sourceTitle}`.slice(0, 80), messages: history, updatedAt: Date.now(), draft: '', selectedIntent: state.selectedIntent, agentTaskId: '', agentRefs: state.agentRefs, agentSkills: state.agentSkills })
+    return selectSession(sessionId)
+  }
+  // 点赞/倒赞：本地干预信号（再点取消）。只记在消息上，不改变任何生成行为。
+  function rateMessage(ratedMessageId, value) {
+    const entry = activeEntry.value
+    if (!['up', 'down'].includes(value)) return false
+    const message = entry.state.messages.find((item) => item.id === ratedMessageId)
+    if (!message) return false
+    message.reaction = message.reaction === value ? '' : value
+    persistConversation(entry)
+    return true
+  }
   function renameConversation(sessionId, title) {
     const entry = activeEntry.value
     const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
@@ -703,7 +728,7 @@ export function useAuthoringKnowledgeAssistant({
   }
   return Object.freeze({
     pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    sessions, selectSession, newConversation, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    sessions, selectSession, newConversation, renameConversation, deleteConversation, branchConversation, rateMessage, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, regenerateAnswer, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
