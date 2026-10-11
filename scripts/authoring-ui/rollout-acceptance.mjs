@@ -323,7 +323,7 @@ const zenState = await page.evaluate(() => ({
   shelf: getComputedStyle(document.querySelector('.wall__shelf')).display,
   mainCols: getComputedStyle(document.querySelector('.wall__main')).gridTemplateColumns.split(' ').length
 }))
-// W-B 右轨退役：rail 不复存在，专注断言只看顶栏/左栏隐藏与单列。
+// 专注态下工具轨随壳隐藏，断言只看顶栏/左栏隐藏与单列。
 check('专注进入全屏（顶栏/左栏隐藏，正文单列占满）', zenState.cork === 'none' && zenState.shelf === 'none' && zenState.mainCols === 1, JSON.stringify(zenState))
 await page.screenshot({ path: path.join(SHOT_DIR, 'tb08-zen.png') })
 await page.keyboard.press('Escape')
@@ -456,7 +456,7 @@ const rs01 = {
   dossier: await rectOf(page, '.wall__dossier'),
   horizontalOverflow: await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
 }
-// W-B 右轨退役：同行排布只看左栏与稿面。
+// 同行排布只看左栏与稿面（工具轨在最右，不参与本断言）。
 check('左栏/稿面同行排布', rs01.shelf.y === rs01.dossier.y, JSON.stringify(rs01))
 check('无横向页面滚动', !rs01.horizontalOverflow)
 record('RS-01', '1440 桌面结构')

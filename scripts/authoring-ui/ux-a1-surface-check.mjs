@@ -54,7 +54,7 @@ try {
       const editor = page.locator('.wall__dossier .ProseMirror').first()
       await editor.waitFor()
       await page.waitForTimeout(250)
-      // W-B 双栏退役：工具旅程收敛到顶栏工具组既有工具（characters/outline）。
+      // 双栏退役：工具旅程收敛到右侧工具轨既有工具（characters/outline）。
       for (const tool of ['characters', 'outline']) {
         const label = `${width}-${theme}-${tool}`
         await editor.locator('p').nth(4).click()

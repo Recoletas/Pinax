@@ -1,0 +1,236 @@
+{
+  "total": 46,
+  "failed": 0,
+  "results": [
+    {
+      "label": "双栏/dock/顶栏工具组源代码零残留，工具轨在册",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "右侧工具轨可见且顶栏无工具组",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨七工具（无助手位、无双栏位）",
+      "pass": true,
+      "detail": "[\"rehearsal\",\"annotations\",\"outline\",\"characters\",\"worldbook\",\"scene\",\"history\"]"
+    },
+    {
+      "label": "助手入口唯一（data-authoring-tool=\"ai\" 在顶栏助手钮，不在轨上）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「rehearsal」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「rehearsal」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「rehearsal」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「annotations」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「annotations」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「annotations」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「outline」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「outline」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「outline」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「characters」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「characters」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「characters」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「worldbook」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「worldbook」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「worldbook」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「scene」→ 右侧栏切到该工具",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「scene」呈按下态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点「scene」→ 回 Agent 默认态",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "工具轨「记忆」打开设置记忆页",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "Agent 面板内执行日志次级入口可开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "执行日志次级入口可收",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "右侧栏可收起且助手钮/工具轨仍可见",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "顶栏助手钮重开右侧栏回 Agent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "切工具后点「助手」→ 回 Agent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "完整助手展开后工具轨随 cork 隐藏",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "返回工作台回到 Agent 常规态且工具轨回归",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "章节树左栏可收起（is-shelf-collapsed）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "左栏收起后工具轨仍在网格内可见",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "左栏收起态 reload 后持久",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "再点章节目录钮左栏展开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "检查器打开时工具轨贴最右（grid-column 4）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "双栏/dock/顶栏工具组 DOM 零残留",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "label": "1440 无页面级横向溢出",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "桌面旅程无前端控制台错误",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "桌面旅程无 /api 之外的失败响应",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 工具轨可见（底部工具带）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 工具轨为 fixed 底部带",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 工具轨批注 → 检查器 sheet 打开",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 检查器 sheet 让出底部工具带（工具可点）",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 无水平滚动",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 旅程无前端控制台错误",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "label": "390 旅程无 /api 之外的失败响应",
+      "pass": true,
+      "detail": ""
+    }
+  ]
+}

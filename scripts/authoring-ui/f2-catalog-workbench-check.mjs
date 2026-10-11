@@ -116,7 +116,7 @@ try {
       check(results, '历史后切角色不串页', await page.locator('[data-authoring-inspector="history"]').count() === 0)
 
       const toolWidths = {}
-      // 20261011 W-B 同步：① 右轨退役后入口在顶栏工具组，助手钮=开/关切换、
+      // 落点同步：① 工具入口在右侧工具轨，顶栏助手钮=开/关切换、
       // 同工具钮再点=回 Agent——宽度采集按「ai 中转」顺序走，避免二次点击把
       // 面板关掉；② catalog 三工具（characters/outline/worldbook）自宽版工作
       // 台起就是 62:38 加宽外宽（≈537px），与标准外宽（ai/scene ≈ 430px）本就

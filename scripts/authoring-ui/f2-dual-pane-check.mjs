@@ -2,8 +2,8 @@
 //
 // 退役范围（docs/plan/agent-first-shell-20261010.md §3.2 / §5 待裁 3）：
 //   - src/components/authoring/AuthoringDualPane.vue（删除）
-//   - 右轨 AuthoringWorkspaceToolRail 的 dual 钮（右轨整体删除，工具入口迁顶栏
-//     AuthoringInspectorToolbar，dual 不再迁移）
+//   - 右轨 AuthoringWorkspaceToolRail 的 dual 钮（dual 随功能退役；右轨本身在
+//     2026-10-11「工具迁顶栏」回退后恢复为工具入口，但不含 dual）
 //   - useAuthoringInspectorState 的 dual 状态机分支、Authoring.vue 的全部
 //     dual 管线（saveDual*/swapDual*/open*InDual/protectDualDestructiveEdit、
 //     dualQuickWordDocument、dualCompositionActive、intervention ghost dual 槽等）

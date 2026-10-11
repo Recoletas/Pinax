@@ -160,7 +160,7 @@ try {
   const railsAfterScroll = await railGeometry(page)
   metrics.desktopRails = { before: railsBeforeScroll, after: railsAfterScroll }
   check('左右工具区域不随正文滚动',
-    // W-B 右轨退役：不随正文滚动只看 shelf 与 inspector。
+    // 不随正文滚动：只看 shelf 与 inspector（工具轨独立成列）。
     ['shelf', 'inspector'].every((key) => near(railsBeforeScroll[key]?.top, railsAfterScroll[key]?.top)),
     JSON.stringify(metrics.desktopRails))
   await assertNoHorizontalOverflow(page, '1440 当前场无横向滚动')

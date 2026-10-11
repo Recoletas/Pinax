@@ -170,8 +170,8 @@ try {
     await seedFixtureStorage(context)
     await page.goto(`${BASE}/authoring`, { waitUntil: 'domcontentloaded' })
     await page.waitForTimeout(1600)
-    // W-B 右轨退役：推演入口在顶栏工具组。
-    const railButton = page.locator('.authoring-inspector-toolbar button', { hasText: '推演' }).first()
+    // 推演入口在右侧工具轨。
+    const railButton = page.locator('.writing-tool-rail button', { hasText: '推演' }).first()
     await railButton.click()
     await page.waitForTimeout(900)
     const startButton = page.getByRole('button', { name: '从当前段落开始' })

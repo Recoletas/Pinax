@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
-// W-B 创作台外壳重构 Gate（2026-10-11）：顶栏工具组 → 右侧栏切换/回 Agent、
-// 执行日志次级入口开合、双栏零残留、左右侧栏收起与持久化、1440/390 零横向
-// 溢出零 console error。隔离 Playwright context，绝不触碰用户浏览器 profile。
+// 创作台外壳 Gate（工具退回右侧轨版，2026-10-11）：右侧工具轨 → 检查器切换/回 Agent、
+// 执行日志次级入口开合、双栏/dock/顶栏工具组零残留、左栏收起与持久化、1440/390
+// 零横向溢出零 console error。隔离 Playwright context，绝不触碰用户浏览器 profile。
 //
 // 跑法：
 //   1) 播种 fixture（产物只写 tmp/authoring-rollout/）：
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 
 const BASE = process.env.BASE || 'http://127.0.0.1:5174'
 const FIXTURE_DIR = path.resolve('tmp/authoring-rollout')
-const OUT_DIR = path.resolve('docs/screenshots/authoring-shell-20261011')
+const OUT_DIR = path.resolve('docs/screenshots/authoring-rail-restore-20261011')
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const state = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-state.json'), 'utf8'))
 const baseStorage = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'fixture-localstorage.json'), 'utf8'))
@@ -32,21 +32,25 @@ function check(results, label, pass, detail = '') {
 let results = []
 const assert = (label, pass, detail = '') => check(results, label, pass, detail)
 
-// 双栏零残留（源代码面）：src 生产代码内不得再出现双栏/右轨/dock 的接线痕迹
-// （模板标签、类名、函数名）。__tests__ 的负向断言与注释性提法不算残留。
+// 源代码面残留：双栏/dock 与其偏好件必须继续缺席，顶栏工具组随本次回退一并退役，
+// 工具轨必须回来。__tests__ 的负向断言与注释性提法不算残留。
 function sourceResidue() {
-  const banned = [
+  const mustNotExist = [
     'src/components/authoring/AuthoringDualPane.vue',
-    'src/components/authoring/AuthoringWorkspaceToolRail.vue',
     'src/components/authoring/AuthoringDock.vue',
+    'src/components/authoring/AuthoringInspectorToolbar.vue',
     'src/pages/Authoring.dock.css',
     'src/composables/useAuthoringDockPreferences.js'
   ]
+  const mustExist = ['src/components/authoring/AuthoringWorkspaceToolRail.vue']
   const findings = []
-  for (const relative of banned) {
+  for (const relative of mustNotExist) {
     if (fs.existsSync(path.join(repoRoot, relative))) findings.push(`${relative} 仍存在`)
   }
-  const residuePattern = /<AuthoringDualPane|<AuthoringWorkspaceToolRail|<AuthoringDock\b|authoring-dual-pane|writing-tool-rail|data-authoring-tool="dual"|saveDualChapter|saveDualExploration|swapDualChapter|openChapterInDual|openExplorationInDual|openOutlineInDual|useAuthoringDockPreferences/
+  for (const relative of mustExist) {
+    if (!fs.existsSync(path.join(repoRoot, relative))) findings.push(`${relative} 缺失`)
+  }
+  const residuePattern = /<AuthoringDualPane|<AuthoringInspectorToolbar|<AuthoringDock\b|authoring-dual-pane|authoring-inspector-toolbar|data-authoring-tool="dual"|saveDualChapter|saveDualExploration|swapDualChapter|openChapterInDual|openExplorationInDual|openOutlineInDual|useAuthoringDockPreferences/
   const productionFiles = []
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir)) {
@@ -76,13 +80,23 @@ async function createPage(browser, viewport) {
   }, baseStorage)
   const page = await context.newPage()
   const errors = []
+  const nonApiFailures = []
   page.on('pageerror', (error) => errors.push(`pageerror:${error.message}`))
-  page.on('console', (message) => { if (message.type() === 'error') errors.push(`console:${message.text()}`) })
+  page.on('console', (message) => {
+    const text = message.text()
+    // 本 Gate 不起后端，/api 资源 500 属环境缺位；单独记账，不混进前端错误。
+    if (message.type() === 'error' && !/Failed to load resource/.test(text)) errors.push(`console:${text}`)
+  })
+  page.on('response', (response) => {
+    if (response.status() < 400) return
+    if (/\/api\//.test(response.url())) return
+    nonApiFailures.push(`${response.status()} ${response.url()}`)
+  })
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}`, { waitUntil: 'domcontentloaded' })
-  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
+  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
   await page.waitForTimeout(700)
-  return { context, page, errors }
+  return { context, page, errors, nonApiFailures }
 }
 
 // 面板可见性：右侧栏里 data-authoring-inspector="{tool}" 的 body 可见。
@@ -94,41 +108,43 @@ const browser = await chromium.launch()
 
 try {
   const residue = sourceResidue()
-  assert('双栏/右轨/dock 源代码零残留', residue.length === 0, residue.join(', '))
+  assert('双栏/dock/顶栏工具组源代码零残留，工具轨在册', residue.length === 0, residue.join(', '))
 
-  // ── 桌面 1440：顶栏工具组 → 右侧栏切换 → 回 Agent ─────────────────────────
+  // ── 桌面 1440：右侧工具轨 → 检查器切换 → 回 Agent ─────────────────────────
   const desktop = await createPage(browser, { width: 1440, height: 900 })
   const page = desktop.page
-  const toolbar = page.locator('.authoring-inspector-toolbar')
-  assert('顶栏工具组可见（右轨已退役）', await toolbar.isVisible() && await page.locator('.writing-tool-rail').count() === 0)
-  const toolIds = await toolbar.locator('button[data-authoring-tool]').evaluateAll((buttons) => (
+  const rail = page.locator('.writing-tool-rail')
+  assert('右侧工具轨可见且顶栏无工具组', await rail.isVisible() && await page.locator('.authoring-inspector-toolbar').count() === 0)
+  const toolIds = await rail.locator('button[data-authoring-tool]').evaluateAll((buttons) => (
     buttons.map((button) => button.getAttribute('data-authoring-tool'))
   ))
-  assert('顶栏工具组七工具 + 无双栏',
+  assert('工具轨七工具（无助手位、无双栏位）',
     JSON.stringify(toolIds) === JSON.stringify(['rehearsal', 'annotations', 'outline', 'characters', 'worldbook', 'scene', 'history']),
     JSON.stringify(toolIds))
-  assert('助手入口唯一（data-authoring-tool="ai" 落顶栏助手钮）',
-    await page.locator('[data-authoring-tool="ai"]').count() === 1 && await page.locator('[data-authoring-tool="ai"]').isVisible())
+  assert('助手入口唯一（data-authoring-tool="ai" 在顶栏助手钮，不在轨上）',
+    await page.locator('[data-authoring-tool="ai"]').count() === 1
+    && await page.locator('.authoring-assistant-entry[data-authoring-tool="ai"]').isVisible())
 
   // 逐工具：点击 → 面板切换；再点同钮 → 回 Agent。
   // 推演打开时自动挂正文推演 composer（compose-host 无独立 inspector body），
   // 以 is-rehearsal 类判定；其余工具以 data-authoring-inspector body 判定。
   for (const tool of ['rehearsal', 'annotations', 'outline', 'characters', 'worldbook', 'scene']) {
-    const button = toolbar.locator(`button[data-authoring-tool="${tool}"]`)
+    const button = rail.locator(`button[data-authoring-tool="${tool}"]`)
     await button.click()
     await page.waitForTimeout(350)
     const switched = tool === 'rehearsal'
       ? await page.locator('.writing-inspector.is-open.is-rehearsal').isVisible().catch(() => false)
       : await inspectorBodyVisible(page, tool)
-    assert(`顶栏「${tool}」→ 右侧栏切到该工具`, switched)
+    assert(`工具轨「${tool}」→ 右侧栏切到该工具`, switched)
+    assert(`工具轨「${tool}」呈按下态`, (await rail.locator(`button[data-authoring-tool="${tool}"]`).getAttribute('aria-pressed')) === 'true')
     await button.click()
     await page.waitForTimeout(350)
     assert(`再点「${tool}」→ 回 Agent 默认态`, await inspectorBodyVisible(page, 'ai'))
   }
   // 「记忆」入口打开设置的记忆页（沿用右轨语义）。
-  await toolbar.locator('button[data-authoring-tool="history"]').click()
+  await rail.locator('button[data-authoring-tool="history"]').click()
   await page.waitForTimeout(400)
-  assert('顶栏「记忆」打开设置记忆页', await page.locator('.settings-modal').isVisible().catch(() => false)
+  assert('工具轨「记忆」打开设置记忆页', await page.locator('.settings-modal').isVisible().catch(() => false)
     && await page.locator('[data-test="settings-tab-memory"]').isVisible().catch(() => false))
   await page.keyboard.press('Escape')
   await page.waitForTimeout(200)
@@ -142,31 +158,31 @@ try {
   await page.waitForTimeout(250)
   assert('执行日志次级入口可收', !(await page.locator('[data-test="authoring-run-log"]').isVisible().catch(() => false)))
 
-  // 右侧栏收起 = 顶栏「助手」钮重开（徽标钮语义）。
+  // 右侧栏收起 = 顶栏「助手」钮重开（徽标钮语义），工具轨在栏关闭时仍可直达工具。
   await page.locator('.writing-inspector.is-open .writing-inspector__icon-btn[title="关闭检查器"]').click()
   await page.waitForTimeout(250)
-  assert('右侧栏可收起且助手钮仍可见', await page.locator('[data-authoring-tool="ai"]').isVisible()
-    && !(await page.locator('.writing-inspector.is-open').isVisible().catch(() => false)))
+  assert('右侧栏可收起且助手钮/工具轨仍可见', await page.locator('[data-authoring-tool="ai"]').isVisible()
+    && await rail.isVisible() && !(await page.locator('.writing-inspector.is-open').isVisible().catch(() => false)))
   await page.locator('[data-authoring-tool="ai"]').click()
   await page.waitForTimeout(300)
   assert('顶栏助手钮重开右侧栏回 Agent', await inspectorBodyVisible(page, 'ai'))
-  await page.screenshot({ path: path.join(OUT_DIR, '01-toolbar-agent-1440.png'), fullPage: false })
+  await page.screenshot({ path: path.join(OUT_DIR, '01-rail-agent-1440.png'), fullPage: false })
 
-  // 「助手」钮承担回程（非展开态）：切到批注后点助手回 Agent。
-  await toolbar.locator('button[data-authoring-tool="annotations"]').click()
+  // 「助手」钮承担回程：切到批注后点助手回 Agent。
+  await rail.locator('button[data-authoring-tool="annotations"]').click()
   await page.waitForTimeout(300)
   await page.locator('[data-authoring-tool="ai"]').click()
   await page.waitForTimeout(300)
   assert('切工具后点「助手」→ 回 Agent', await inspectorBodyVisible(page, 'ai'))
 
   // 助手「完整工作台」展开态（既有产品行为：is-assistant-full 隐藏 cork）：
-  // 顶栏工具组随之隐藏，经助手头「返回工作台」回到 Agent 常规态。
+  // 工具轨在整屏助手下同样让位，经助手头「返回工作台」回到 Agent 常规态。
   await page.locator('.authoring-assistant-workspace__expand').click()
   await page.waitForTimeout(400)
-  assert('完整助手展开后顶栏随 cork 隐藏', !(await toolbar.isVisible().catch(() => false)))
+  assert('完整助手展开后工具轨随 cork 隐藏', !(await rail.isVisible().catch(() => false)))
   await page.locator('.authoring-assistant-workspace__back').click()
   await page.waitForTimeout(400)
-  assert('返回工作台回到 Agent 常规态且工具组回归', await toolbar.isVisible() && await inspectorBodyVisible(page, 'ai'))
+  assert('返回工作台回到 Agent 常规态且工具轨回归', await rail.isVisible() && await inspectorBodyVisible(page, 'ai'))
 
   // 左侧章节树收起：开 → 持久化 → reload 保持 → 再点展开。
   const shelfTrigger = page.locator('.wall__chapter-trigger')
@@ -176,8 +192,9 @@ try {
     document.querySelector('.wall__main')?.classList.contains('is-shelf-collapsed')
     && JSON.parse(localStorage.getItem('writing_sidebar_preferences_v1') || '{}').writingCollapsed === true
   )))
+  assert('左栏收起后工具轨仍在网格内可见', await rail.isVisible())
   await page.reload({ waitUntil: 'domcontentloaded' })
-  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
+  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
   await page.waitForTimeout(600)
   assert('左栏收起态 reload 后持久', await page.evaluate(() => (
     document.querySelector('.wall__main')?.classList.contains('is-shelf-collapsed')
@@ -189,25 +206,48 @@ try {
     && JSON.parse(localStorage.getItem('writing_sidebar_preferences_v1') || '{}').writingCollapsed === false
   )))
 
-  // 页面级：1440 零横向溢出、零 console error；DOM 零双栏残留。
+  // 打开检查器时工具轨让到第四列，不得把正文挤出轨道。
+  await rail.locator('button[data-authoring-tool="characters"]').click()
+  await page.waitForTimeout(350)
+  assert('检查器打开时工具轨贴最右（grid-column 4）', await page.evaluate(() => {
+    const rail = document.querySelector('.writing-tool-rail')
+    return Number(getComputedStyle(rail).gridColumnStart) === 4
+      && document.querySelector('.wall__main')?.classList.contains('has-inspector')
+  }))
+  await rail.locator('button[data-authoring-tool="characters"]').click()
+  await page.waitForTimeout(300)
+
+  // 页面级：1440 零横向溢出、零 console error；DOM 零双栏/dock/顶栏工具组残留。
   const domResidue = await page.evaluate(() => (
-    ['authoring-dual-pane', 'writing-tool-rail', 'authoring-dock'].filter((token) => document.body.innerHTML.includes(token))
+    ['authoring-dual-pane', 'authoring-dock', 'authoring-inspector-toolbar'].filter((token) => document.body.innerHTML.includes(token))
   ))
-  assert('双栏/右轨/dock DOM 零残留', domResidue.length === 0, JSON.stringify(domResidue))
+  assert('双栏/dock/顶栏工具组 DOM 零残留', domResidue.length === 0, JSON.stringify(domResidue))
   assert('1440 无页面级横向溢出', await page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth))
-  assert('桌面旅程无控制台错误', desktop.errors.length === 0, desktop.errors.join('\n'))
+  assert('桌面旅程无前端控制台错误', desktop.errors.length === 0, desktop.errors.join('\n'))
+  assert('桌面旅程无 /api 之外的失败响应', desktop.nonApiFailures.length === 0, desktop.nonApiFailures.join('\n'))
   await desktop.context.close()
 
-  // ── 390 窄屏：工具组可达、无溢出、零 console error ────────────────────────
+  // ── 390 窄屏：工具轨（底部工具带）可达、无溢出、零 console error ──────────
   const mobile = await createPage(browser, { width: 390, height: 844 })
   const mobilePage = mobile.page
-  assert('390 顶栏工具组可见', await mobilePage.locator('.authoring-inspector-toolbar').isVisible())
-  await mobilePage.locator('.authoring-inspector-toolbar button[data-authoring-tool="annotations"]').click()
+  assert('390 工具轨可见（底部工具带）', await mobilePage.locator('.writing-tool-rail').isVisible())
+  assert('390 工具轨为 fixed 底部带', await mobilePage.evaluate(() => {
+    const styles = getComputedStyle(document.querySelector('.writing-tool-rail'))
+    return styles.position === 'fixed' && styles.flexDirection === 'row'
+  }))
+  await mobilePage.locator('.writing-tool-rail button[data-authoring-tool="annotations"]').click()
   await mobilePage.waitForTimeout(400)
-  assert('390 顶栏批注 → 检查器 sheet 打开', await mobilePage.locator('.writing-inspector.is-open').isVisible())
-  assert('390 无水平滚动', await mobilePage.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth))
-  assert('390 旅程无控制台错误', mobile.errors.length === 0, mobile.errors.join('\n'))
+  assert('390 工具轨批注 → 检查器 sheet 打开', await mobilePage.locator('.writing-inspector.is-open').isVisible())
+  assert('390 检查器 sheet 让出底部工具带（工具可点）', await mobilePage.evaluate(() => {
+    const band = document.querySelector('.writing-tool-rail')?.getBoundingClientRect()
+    if (!band) return false
+    const hit = document.elementFromPoint(band.left + band.width / 2, band.top + band.height / 2)
+    return Boolean(hit?.closest('.writing-tool-rail'))
+  }))
   await mobilePage.screenshot({ path: path.join(OUT_DIR, '03-shell-390.png'), fullPage: false })
+  assert('390 无水平滚动', await mobilePage.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth))
+  assert('390 旅程无前端控制台错误', mobile.errors.length === 0, mobile.errors.join('\n'))
+  assert('390 旅程无 /api 之外的失败响应', mobile.nonApiFailures.length === 0, mobile.nonApiFailures.join('\n'))
   await mobile.context.close()
 } finally {
   await browser.close()

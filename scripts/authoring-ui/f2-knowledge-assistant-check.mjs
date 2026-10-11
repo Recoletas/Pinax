@@ -10,7 +10,7 @@
 //   /api/storyagent SSE 工具循环，不再直打 advisor 端点——本 Gate 的 canned
 //   mock 拦不到查询，后续断言无法收敛。50bb0a7（P1，2026-10-08）已如实记录
 //   「f2-knowledge/rehearsal 为 PR#5 起存量失靶」。W-B 只同步了选择器落点
-//   （右轨退役→顶栏工具组、四段 dock 死代码删除、双栏旅程改直查），语义
+//   （工具等待/入口落点、四段 dock 死代码删除、双栏旅程改直查），语义
 //   断言未动；重铺 provider 前提（mock SSE 桥）归 W-C（Agent 前端域）。
 //
 // 跑法：
@@ -162,8 +162,8 @@ async function createPage(browser, viewport, { knowledgeSeamFlag = false } = {})
   page.on('console', (message) => { if (message.type() === 'error') errors.push(`console:${message.text()}`) })
   const requests = await installKnowledgeProvider(page)
   await page.goto(`${BASE}/authoring?bookId=${state.bookId}`, { waitUntil: 'domcontentloaded' })
-  // W-B 外壳重构：右轨退役，等待顶栏工具组（工具入口落点随之迁移）。
-  await page.locator('.authoring-inspector-toolbar').waitFor({ timeout: 30000 })
+  // 工具入口落点=右侧工具轨（顶栏工具组方案已按用户裁定回退）。
+  await page.locator('.writing-tool-rail').waitFor({ timeout: 30000 })
   await page.locator('.wall__dossier .ProseMirror').waitFor({ timeout: 30000 })
   await page.waitForTimeout(900)
   return { context, page, requests, errors }
