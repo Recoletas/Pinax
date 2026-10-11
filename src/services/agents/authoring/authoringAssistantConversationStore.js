@@ -52,6 +52,7 @@ function storedMessages(messages, projectId) {
       return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),
         thinking: String(message.thinking || '').slice(-4000), tools: clone((message.tools || []).slice(0, 30)),
         usage: clone(message.usage || null),
+        reaction: message.reaction === 'up' || message.reaction === 'down' ? message.reaction : '',
         status: message.status === 'running' ? 'interrupted' : message.status, taskId: String(message.taskId || ''), adopted: Boolean(message.adopted),
         references: clone((message.references || []).filter(item => item.projectId === projectId).slice(0, 12)),
         proposal: clone(message.proposal || null), adoptionReceipt: clone(message.adoptionReceipt || null), beatPlan: clone(message.beatPlan || null), toolResults: clone((message.toolResults || []).slice(0, 12)) }]

@@ -185,7 +185,7 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
         finalText += content
         callbacks.onChunk?.({ content })
       } else if (type === 'tool.call') {
-        emitStatus({ phase: 'tool', tool: frame.toolName, action: frame.action })
+        emitStatus({ phase: 'tool', tool: frame.toolName, action: frame.action, detail: frame.detail || '' })
       } else if (type === 'step.start') {
         emitStatus({ phase: 'step', stepIndex: frame.stepIndex, toolChoice: frame.toolChoice })
       } else if (type === 'usage') {

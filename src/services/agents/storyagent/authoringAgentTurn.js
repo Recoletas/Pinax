@@ -71,7 +71,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (task.bookId && task.bookId !== projectId) throw new Error('任务作品归属不一致。')
       if (task.taskId) { message.taskId = task.taskId; state.agentTaskId = task.taskId; persist() }
     },
-    onStatus: (status) => { if (current() && status.phase === 'tool') message.tools.push({ name: String(status.tool || ''), action: String(status.action || '') }) },
+    onStatus: (status) => { if (current() && status.phase === 'tool') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), detail: String(status.detail || '').slice(0, 200) }) },
     onComplete: ({ content }) => { if (current()) message.text = String(content || '') }
   }
   try {

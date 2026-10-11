@@ -1731,5 +1731,10 @@
   "展开侧栏": "Expand sidebar",
   "运行日志": "Run log",
   "收起章节目录": "Collapse chapter list",
-  "展开章节目录": "Expand chapter list"
+  "展开章节目录": "Expand chapter list",
+  "有帮助": "Helpful",
+  "需改进": "Needs work",
+  "分支": "Branch",
+  "从这条回答分支新对话": "Branch a new conversation from this answer",
+  "复制回答": "Copy answer"
 }
