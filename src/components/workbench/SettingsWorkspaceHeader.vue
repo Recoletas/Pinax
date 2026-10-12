@@ -1,11 +1,13 @@
 <script setup>
 import SettingsSectionNav from './SettingsSectionNav.vue'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
+const workspace = useComposableWorkspace()
 </script>
 
 <template>
   <div class="settings-workspace-header" data-test="settings-workspace-header">
     <slot />
-    <SettingsSectionNav />
+    <SettingsSectionNav v-if="!workspace?.moduleNavigation.value" />
   </div>
 </template>
 

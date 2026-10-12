@@ -1,5 +1,5 @@
 <template>
-  <div ref="containerRef" class="voronoi-container">
+  <div ref="containerRef" tabindex="-1" class="voronoi-container">
     <!-- Empty state -->
     <div v-if="!mapData && !generating && !error" class="overlay empty-overlay">
       <div class="empty-content">
@@ -269,13 +269,14 @@ const perf = usePerf()
 const themeStore = useThemeStore()
 
 const props = defineProps({
+  workspaceActive: { type: Boolean, default: true },
   config: { type: Object, default: undefined },
   markers: { type: Array, default: () => [] },
   focusMarkerId: { type: String, default: '' },
   reviewBeforeCommit: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['map-generated', 'map-replacement-ready', 'config-change', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end'])
+const emit = defineEmits(['map-generated', 'map-replacement-ready', 'config-change', 'add-marker', 'update-marker', 'delete-marker', 'marker-drag-end', 'busy-change'])
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -285,6 +286,7 @@ let baseRenderScale = 1
 
 const mapData = shallowRef(null)
 const generating = ref(false)
+watch(generating, busy => emit('busy-change', busy))
 const error = ref(null)
 const replacementPending = ref(false)
 
@@ -639,6 +641,8 @@ function rerenderScaleBarOverlay() {
   schedulePaint()
 }
 
+let viewportWidth = 0
+let viewportHeight = 0
 function paint() {
   const canvas = canvasRef.value
   const container = containerRef.value
@@ -647,6 +651,8 @@ function paint() {
   const dpr = window.devicePixelRatio || 1
   const cw = container.clientWidth
   const ch = container.clientHeight
+  viewportWidth = cw
+  viewportHeight = ch
   if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
     canvas.width = cw * dpr
     canvas.height = ch * dpr
@@ -709,6 +715,8 @@ function handleZoomBtn(delta) {
   if (!container) return
   const cw = container.clientWidth
   const ch = container.clientHeight
+  viewportWidth = cw
+  viewportHeight = ch
   const cx = vp.value.offsetX + cw / (2 * vp.value.scale)
   const cy = vp.value.offsetY + ch / (2 * vp.value.scale)
   const newScale = Math.max(0.2, Math.min(8, vp.value.scale * (delta > 0 ? 1.3 : 1 / 1.3)))
@@ -803,6 +811,7 @@ function onWheel(e) {
 }
 
 function onPointerDown(e) {
+  containerRef.value?.focus({ preventScroll: true })
   cachedRect = null
   const world = screenToWorld(e.clientX, e.clientY)
   if (e.button === 0 && addingMarkerMode.value) {
@@ -973,6 +982,15 @@ watch(mapData, () => {
 })
 
 const onResize = () => {
+  const width = containerRef.value?.clientWidth
+  const height = containerRef.value?.clientHeight
+  if (!width || !height) return
+  if (viewportWidth && viewportHeight) {
+    vp.value.offsetX += (viewportWidth - width) / (2 * vp.value.scale)
+    vp.value.offsetY += (viewportHeight - height) / (2 * vp.value.scale)
+  }
+  viewportWidth = width
+  viewportHeight = height
   cachedRect = null
   if (mapData.value && currentRenderScale() !== baseRenderScale) {
     requestAnimationFrame(() => rerender())
@@ -982,6 +1000,7 @@ const onResize = () => {
 }
 
 function onKeyDown(e) {
+  if (!props.workspaceActive || !containerRef.value?.contains(e.target)) return
   if (e.key === 'Escape') {
     placementTarget.value = null
     addingMarkerMode.value = false
@@ -997,7 +1016,9 @@ function onKeyDown(e) {
   }
 }
 
+let containerObserver = null
 onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') { containerObserver = new ResizeObserver(() => { if (containerRef.value?.clientWidth && containerRef.value?.clientHeight) onResize() }); containerObserver.observe(containerRef.value) }
   syncParamDraft()
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', onKeyDown)
@@ -1016,6 +1037,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  containerObserver?.disconnect()
   window.removeEventListener('resize', onResize)
   window.removeEventListener('keydown', onKeyDown)
   const canvas = canvasRef.value
@@ -1238,9 +1260,13 @@ function roundTo(value, digits) {
   display: flex;
   align-items: center;
   gap: 6px;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
 }
 
 .canvas-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 6px;

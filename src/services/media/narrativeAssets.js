@@ -7,6 +7,24 @@ import {
 
 export const ASSET_SCHEMA_VERSION = 1
 
+const assetListeners = new Set()
+let notificationPending = false
+export function subscribeNarrativeAssets(listener) {
+  assetListeners.add(listener)
+  return () => assetListeners.delete(listener)
+}
+function writeNarrativeAssets(assets) {
+  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, assets)) return false
+  if (!notificationPending) {
+    notificationPending = true
+    queueMicrotask(() => {
+      notificationPending = false
+      for (const listener of [...assetListeners]) { try { listener() } catch { /* A view failure cannot undo a durable write. */ } }
+    })
+  }
+  return true
+}
+
 export const ASSET_KINDS = [
   {
     value: 'draft-prose',
@@ -134,7 +152,7 @@ export function addNarrativeAssetDurable(input = {}, { dedupe = false } = {}) {
     const duplicate = findDuplicateNarrativeAsset(asset, current)
     if (duplicate) return mutationSuccess({ asset: duplicate, deduped: true })
   }
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, [asset, ...current])) {
+  if (!writeNarrativeAssets([asset, ...current])) {
     return storageWriteFailure({ resource: 'narrative-assets' })
   }
   return mutationSuccess({ asset })
@@ -272,11 +290,16 @@ export function updateNarrativeAsset(assetId, patch = {}) {
  * C-R3：结果型更新。setItem 失败（含被吞掉的配额异常）返回 { ok:false }，
  * 不产生假成功对象；调用方据此跳过 receipt/画布清理等副作用。
  */
-export function updateNarrativeAssetDurable(assetId, patch = {}) {
+export function updateNarrativeAssetDurable(assetId, patch = {}, { expected = null } = {}) {
   const current = listNarrativeAssets({ status: null })
+  if (expected) {
+    const stored = current.find(asset => asset.id === assetId)
+    if (!stored) return mutationFailure('asset-not-found')
+    if (['projectId', 'content', 'title'].some(key => (stored[key] ?? '') !== (expected[key] ?? ''))) return mutationFailure('asset-conflict', { assetId })
+  }
   const { next, updated } = buildNarrativeAssetUpdate(current, assetId, patch)
   if (!updated) return mutationFailure('asset-not-found')
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+  if (!writeNarrativeAssets(next)) {
     return storageWriteFailure({ resource: 'narrative-assets', assetId: normalizeText(assetId) })
   }
   return mutationSuccess({ asset: updated })
@@ -305,7 +328,7 @@ export function deleteNarrativeAssetDurable(assetId) {
   const current = listNarrativeAssets({ status: null })
   const { next, deleted } = buildNarrativeAssetRemoval(current, assetId)
   if (!deleted) return mutationFailure('asset-not-found')
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+  if (!writeNarrativeAssets(next)) {
     return storageWriteFailure({ resource: 'narrative-assets', assetId: normalizeText(assetId) })
   }
   return mutationSuccess({ deleted })
@@ -325,7 +348,7 @@ export function deleteNarrativeAssetsDurable(assetIds = []) {
       missingAssetIds: ids.filter((id) => !found.has(id))
     })
   }
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, current.filter((asset) => !wanted.has(asset.id)))) {
+  if (!writeNarrativeAssets(current.filter((asset) => !wanted.has(asset.id)))) {
     return storageWriteFailure({ resource: 'narrative-assets', assetIds: ids })
   }
   return mutationSuccess({ deleted, deletedIds: ids })
@@ -358,7 +381,7 @@ export function setNarrativeAssetsStatusDurable(assetIds = [], status) {
   const current = listNarrativeAssets({ status: null })
   const { next, updated } = buildNarrativeAssetsStatusUpdate(current, assetIds, status)
   if (updated.length === 0) return mutationSuccess({ changed: [] })
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, next)) {
+  if (!writeNarrativeAssets(next)) {
     return storageWriteFailure({ resource: 'narrative-assets' })
   }
   return mutationSuccess({ changed: updated })
@@ -413,7 +436,7 @@ function buildNarrativeAssetMerge(currentOrLoader, assetIds = [], { targetId = n
 export function mergeNarrativeAssetsDurable(assetIds = [], options = {}) {
   const buildResult = buildNarrativeAssetMerge(listNarrativeAssets({ status: null }), assetIds, options)
   if (!buildResult) return mutationFailure('merge-invalid-selection')
-  if (!setItem(STORAGE_KEYS.NARRATIVE_ASSETS, buildResult.next)) {
+  if (!writeNarrativeAssets(buildResult.next)) {
     return storageWriteFailure({ resource: 'narrative-assets' })
   }
   return mutationSuccess({ asset: buildResult.asset, mergedIds: buildResult.mergedIds })

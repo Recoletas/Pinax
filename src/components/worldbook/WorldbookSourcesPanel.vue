@@ -15,9 +15,10 @@ const props = defineProps({
   bookId: { type: String, default: '' },
   initialSourceId: { type: String, default: '' },
   initialOpen: { type: Boolean, default: false },
-  standalone: { type: Boolean, default: false }
+  standalone: { type: Boolean, default: false },
+  externalReader: Boolean
 })
-const emit = defineEmits(['sources-changed'])
+const emit = defineEmits(['sources-changed', 'open-source'])
 
 const importOpen = ref(false)
 const worldStore = useWorldStore()
@@ -84,6 +85,7 @@ function openAdd() {
 }
 
 async function togglePreview(source) {
+  if (props.externalReader) { emit('open-source', source); return }
   const id = String(source.id || '')
   const sequence = ++previewSequence
   if (expandedId.value === id) {
@@ -202,9 +204,9 @@ async function removeSource(source) {
           <div class="sources-panel__row">
             <span class="sources-panel__file-icon"><WorkbenchIcon :name="source.kind === 'markdown' ? 'markdown' : source.kind === 'epub' ? 'book' : 'document'" :size="23" /></span>
             <div class="sources-panel__identity">
-            <button type="button" class="sources-panel__title" :aria-expanded="expandedId === String(source.id)" @click="togglePreview(source)">
+            <button type="button" class="sources-panel__title" :aria-expanded="externalReader ? undefined : expandedId === String(source.id)" @click="togglePreview(source)">
               {{ source.title || source.id }}
-              <WorkbenchIcon name="chevron-down" :size="15" />
+              <WorkbenchIcon :name="externalReader ? 'arrow-right' : 'chevron-down'" :size="15" />
             </button>
             <p class="sources-panel__excerpt">{{ source.contentPreview || source.content || tr("点击名称查看原文") }}</p>
             </div>
@@ -218,10 +220,11 @@ async function removeSource(source) {
               class="sources-panel__remove control-quiet"
               :disabled="busyRemoveId === String(source.id)"
               :aria-label="tr('移出 {title}', { title: source.title || source.id })"
+              :title="tr('移出 {title}', { title: source.title || source.id })"
               @click="removeSource(source)"
             >
               <WorkbenchIcon name="unlink" :size="15" />
-              {{ tr("移出") }}
+              <span class="sources-panel__remove-label">{{ tr("移出") }}</span>
             </button>
           </div>
           <div v-if="expandedId === String(source.id)" class="sources-panel__preview" :aria-label="tr(&quot;资料全文预览&quot;)">
@@ -298,10 +301,24 @@ async function removeSource(source) {
 </style>
 
 <style scoped>
+.sources-panel { container-type: inline-size; container-name: source-list; }
 .sources-panel.is-standalone .sources-panel__empty { padding: clamp(64px, 14vh, 140px) 24px; }
 .sources-panel__search-field, .sources-panel__controls select { min-height: 40px; height: 40px; border-radius: 8px; }
 .sources-panel__row { padding: 20px 0; gap: 18px; }
 .sources-panel__preview { padding: 20px 24px; margin: 0 0 24px 56px; background: var(--surface-workbench-muted); border-radius: 8px; }
 .sources-panel__preview pre { font-size: 14px; line-height: 1.9; }
 @media (max-width: 760px) { .sources-panel__preview { margin-left: 0; padding: 16px; } .sources-panel__row { gap: 10px; } .sources-panel__search-field, .sources-panel__controls select { height: 44px; } }
+@container source-list (max-width: 760px) {
+ .sources-panel__controls { gap: 8px; flex-wrap: wrap; }
+ .sources-panel__search-field { max-width: none; }
+ .sources-panel__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; }
+ .sources-panel__file-icon { width: 32px; grid-row: 1 / 3; align-self: start; }
+ .sources-panel__identity { grid-column: 2; }
+ .sources-panel__meta { grid-column: 2; max-width: none; justify-content: flex-start; }
+ .sources-panel__meta > span:nth-child(2) { min-width: 0; text-align: left; }
+ .sources-panel__kind { min-width: 0; }
+ .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }
+ .sources-panel__remove svg { display: none; }
+ .sources-panel__preview { margin-left: 0; }
+}
 </style>

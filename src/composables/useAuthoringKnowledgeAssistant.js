@@ -1,12 +1,13 @@
 import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
-import { computed, onBeforeUnmount, reactive, ref, unref, watch } from 'vue'
+import { computed, onScopeDispose, reactive, ref, unref, watch } from 'vue'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
 import {
   createAuthoringKnowledgeAnswer,
   reconcileAuthoringKnowledgeAnswer
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/lazyAuthoringKnowledgeQuerySession.js'
-import { getItem, removeItem } from './useStorage.js'
+import { getItem } from './useStorage.js'
 import { createBrowserStorageRepository } from '../services/storage/browserStorageRepository.js'
 import { createAuthoringAssistantConversationStore } from '../services/agents/authoring/authoringAssistantConversationStore.js'
 
@@ -131,7 +132,12 @@ function questionWithConversation(question, messages) {
   return `此前对话仅用于理解作者意图，旧回答不是作品事实。作品事实必须以本次授权证据为准，不能把以下对话当作引用来源。\n${turns.join('\n')}\n\n本次作者问题：${question}`
 }
 
-export function useAuthoringKnowledgeAssistant({
+export function useAuthoringKnowledgeAssistant(options = {}) {
+  const workspace = useComposableWorkspace()
+  return workspace?.attachAssistant ? workspace.attachAssistant(options) : createAuthoringKnowledgeAssistant(options)
+}
+
+export function createAuthoringKnowledgeAssistant({
   projectId,
   agentEngine = null,
   onReviewProposal = null,
@@ -139,6 +145,8 @@ export function useAuthoringKnowledgeAssistant({
   resolveLiveSource = null,
   sceneProjection = null,
   revisionSignal = null,
+  editorAttached = () => true,
+  attachmentRevision = () => 0,
   querySession = createAuthoringKnowledgeQuerySession(),
   executeQuery = requestAdvisorTask,
   conversationStore = createAuthoringAssistantConversationStore()
@@ -168,6 +176,7 @@ export function useAuthoringKnowledgeAssistant({
         hasUnread: Boolean(saved.hasUnread),
         persistenceError: loaded.ok ? '' : loaded.error,
         agentTaskId: saved.agentTaskId || '', agentRefs: saved.agentRefs || [], agentSkills: saved.agentSkills || [],
+        agentPermission: { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }, permissionRevision: 0,
         agentAdoptionBusy: false, activeSessionId: saved.activeSessionId || messageId('session'),
         agentSessions: saved.agentSessions || []
       }),
@@ -202,7 +211,7 @@ export function useAuthoringKnowledgeAssistant({
   const persistenceError = computed(() => activeEntry.value.state.persistenceError)
   const hasUnread = computed(() => activeEntry.value.state.hasUnread)
   const status = computed(() => activeEntry.value.state.status)
-  const canSubmit = computed(() => Boolean(activeProjectId.value && draft.value.trim() && !busy.value))
+  const canSubmit = computed(() => Boolean(editorAttached() && activeProjectId.value && draft.value.trim() && !busy.value))
 
   function updateDraft(value) {
     draft.value = value
@@ -227,6 +236,9 @@ export function useAuthoringKnowledgeAssistant({
     if (!saved) return false
     entry.runtime.token += 1
     entry.runtime.staleToken += 1
+    agentEngine?.revokePermission?.()
+    entry.state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; entry.state.permissionRevision++
+    reviewedMessageId.value = ''
     entry.state.activeSessionId = sessionId
     entry.state.messages = JSON.parse(JSON.stringify(saved.messages || []))
     entry.state.draft = saved.draft || ''
@@ -234,6 +246,7 @@ export function useAuthoringKnowledgeAssistant({
     entry.state.agentTaskId = saved.agentTaskId || ''
     entry.state.agentSkills = saved.agentSkills || []
     entry.state.agentRefs = saved.agentRefs || []; entry.state.error = ''; entry.state.lastRequest = null; entry.state.status = 'idle'
+    entry.state.hasUnread = false
     persistConversation(entry); persistDraft(entry); scheduleStalenessRefresh()
     return true
   }
@@ -244,6 +257,49 @@ export function useAuthoringKnowledgeAssistant({
     const sessionId = messageId('session')
     entry.state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: '新对话', messages: [], updatedAt: Date.now() })
     return selectSession(sessionId)
+  }
+  function branchConversation(id, { before = false } = {}) {
+    const entry = activeEntry.value
+    const state = entry.state
+    if (state.busy || state.agentAdoptionBusy || disposed || !entry.runtime.canSaveConversation) return false
+    const index = state.messages.findIndex(message => message.id === id)
+    if (index < 0 || persistConversation(entry)?.ok !== true) return false
+    const previous = JSON.parse(JSON.stringify(state))
+    const history = state.messages.slice(0, index + (before ? 0 : 1)).map(message => {
+      const copy = JSON.parse(JSON.stringify(message))
+      copy.id = messageId(copy.role === 'user' ? 'question' : 'answer')
+      // A branch is conversation history, not another editable copy of old proposals.
+      for (const key of ['proposal', 'adoptionReceipt', 'toolResults', 'taskId', 'beatPlan']) delete copy[key]
+      return copy
+    })
+    const sessionId = messageId('session')
+    const source = state.agentSessions.find(session => session.sessionId === state.activeSessionId)
+    state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: `${source?.title || '对话'} · 分支`.slice(0, 80), messages: history, updatedAt: Date.now(), agentTaskId: '', agentRefs: [], agentSkills: state.agentSkills })
+    if (!selectSession(sessionId) || persistConversation(entry)?.ok !== true) {
+      Object.assign(state, previous)
+      persistConversation(entry)
+      return false
+    }
+    return true
+  }
+  async function editQuestion(id, question) {
+    const message = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'user')
+    const text = normalizedText(question)
+    if (!message || !text || !editorAttached()) return false
+    const intent = message.intent || 'free'
+    if (!branchConversation(id, { before: true })) return false
+    updateDraft(text)
+    return ask({ question: text, intent })
+  }
+  function regenerateAnswer(id) {
+    const messages = activeEntry.value.state.messages
+    const index = messages.findIndex(message => message.id === id && message.role === 'assistant')
+    const question = index >= 0 ? messages.slice(0, index).findLast(message => message.role === 'user') : null
+    return question ? editQuestion(question.id, question.question) : false
+  }
+  function continueFromMessage(id) {
+    const message = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'assistant')
+    return Boolean(message && branchConversation(id))
   }
   function renameConversation(sessionId, title) {
     const entry = activeEntry.value
@@ -260,6 +316,8 @@ export function useAuthoringKnowledgeAssistant({
     const previous = JSON.parse(JSON.stringify(state))
     state.agentSessions = state.agentSessions.filter(session => session.sessionId !== sessionId)
     if (state.activeSessionId === sessionId) {
+      agentEngine?.revokePermission?.(); state.agentPermission = { mode: 'review', scope: 'current' }; state.permissionRevision++
+      reviewedMessageId.value = ''
       const next = state.agentSessions[0]
       state.activeSessionId = next?.sessionId || messageId('session')
       state.messages = JSON.parse(JSON.stringify(next?.messages || []))
@@ -309,7 +367,8 @@ export function useAuthoringKnowledgeAssistant({
     entry.runtime.token += 1
     const taskId = entry.state.agentTaskId
     if (wasBusy && taskId && agentEngine) {
-      entry.runtime.cancellation = agentEngine.cancel(taskId).catch(() => { entry.state.error = '远端停止尚未确认，请稍后重试。'; persistConversation(entry); return false })
+      const executionEngine = entry.runtime.requestEngine || agentEngine
+      entry.runtime.cancellation = executionEngine.cancel(taskId).catch(() => { entry.state.error = '远端停止尚未确认，请稍后重试。'; persistConversation(entry); return false })
     }
     for (const message of entry.state.messages) if (message.kind === 'agent' && message.status === 'running') message.status = leaving ? 'interrupted' : 'cancelled'
     entry.runtime.controller?.abort()
@@ -425,10 +484,11 @@ export function useAuthoringKnowledgeAssistant({
     const entry = activeEntry.value
     const state = entry.state
     const runtime = entry.runtime
+    const permissionRevision = state.permissionRevision
     const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
     const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
     const project = entry.projectId
-    if (!project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
+    if (!editorAttached() || !project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
     if (runtime.cancellation) {
       const stopped = await runtime.cancellation
       runtime.cancellation = null
@@ -437,6 +497,10 @@ export function useAuthoringKnowledgeAssistant({
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
     const providerQuestion = questionWithConversation(question, state.messages)
     const token = ++runtime.token
+    let revealChange = null
+    const requestAttachment = attachmentRevision()
+    const requestEngine = agentEngine?.capture?.() || agentEngine
+    runtime.requestEngine = requestEngine
     runtime.staleToken += 1
     const controller = new AbortController()
     runtime.controller = controller
@@ -459,11 +523,21 @@ export function useAuthoringKnowledgeAssistant({
     try {
       if (agentEngine) {
         // runAuthoringAgentTurn captures the context before its first await.
-        const pending = runAuthoringAgentTurn({ engine: agentEngine, entry, question, providerQuestion, token, signal: controller.signal,
+        const pending = runAuthoringAgentTurn({ engine: requestEngine, entry, question, providerQuestion, token, signal: controller.signal,
           persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
         const succeeded = await pending
         if (!succeeded || token !== runtime.token || disposed) return false
-        state.status = 'completed'; state.hasUnread = true; state.lastRequest = null
+        state.status = state.messages.at(-1)?.status || 'completed'; state.hasUnread = true; state.lastRequest = null
+        const message = state.messages.findLast(item => item.kind === 'agent' && item.proposal)
+        if (message?.proposal && permissionRevision === state.permissionRevision && entry === activeEntry.value) {
+          reviewedMessageId.value = message.id
+          if (state.agentPermission.mode === 'auto' && editorAttached() && attachmentRevision() === requestAttachment) {
+            const result = await applyAgentProposal({ automatic: true })
+            if (!result) state.error ||= '自动修改未应用，建议已保留供审阅。'
+          } else if (state.agentPermission.mode === 'auto') {
+            state.error = '修改建议已保留，请返回正文审阅后采用。'
+          } else { revealChange = message.proposal.changes.find(change => change.kind === 'chapter') || message.proposal.changes[0] }
+        }
         return true
       }
       // 所有准备输入在第一次 await 前冻结。后台返回只更新启动时的作品。
@@ -535,7 +609,10 @@ export function useAuthoringKnowledgeAssistant({
         state.busy = false
         runtime.controller = null
         persistConversation(entry)
+        if (revealChange && entry === activeEntry.value && editorAttached() && attachmentRevision() === requestAttachment) onReviewProposal?.(revealChange)
       }
+      if (requestEngine && (!editorAttached() || attachmentRevision() !== requestAttachment)) requestEngine.revokePermission?.()
+      if (runtime.requestEngine === requestEngine) runtime.requestEngine = null
     }
   }
 
@@ -548,7 +625,8 @@ export function useAuthoringKnowledgeAssistant({
   watch(activeProjectId, (next, previous) => {
     if (previous && next !== previous) {
       const entry = entries.get(previous)
-      if (entry) { cancelEntry(entry, { leaving: true }); persistDraft(entry) }
+      if (entry) { agentEngine?.revokePermission?.(); entry.state.agentPermission = { mode: 'review', scope: 'current' }; entry.state.permissionRevision++; cancelEntry(entry, { leaving: true }); persistDraft(entry) }
+      reviewedMessageId.value = ''
       focusedEvidenceSources.delete(previous)
     }
     getEntry(next)
@@ -562,8 +640,9 @@ export function useAuthoringKnowledgeAssistant({
   }
   // 浏览器刷新不会经过 Vue 卸载；在离开文档时冲刷尚未 debounce 落盘的输入。
   if (typeof window !== 'undefined') window.addEventListener('pagehide', flushDrafts)
-  onBeforeUnmount(() => {
+  onScopeDispose(() => {
     disposed = true
+    agentEngine?.revokePermission?.()
     if (typeof window !== 'undefined') window.removeEventListener('pagehide', flushDrafts)
     for (const entry of entries.values()) {
       if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
@@ -581,10 +660,12 @@ export function useAuthoringKnowledgeAssistant({
     for (const message of state.messages) if (message.proposal) byId.set(message.id, message)
     return [...byId.values()]
   })
-  const pendingProposals = computed(() => allProposalMessages.value.filter(message => (getItem(`assistant_edit_receipt:${message.proposal.id}`, null)?.status || message.proposal.status) === 'pending').map(message => ({ ...message.proposal, messageId: message.id })))
+  const pendingProposals = computed(() => allProposalMessages.value.filter(message => ['pending', 'partial'].includes(getItem(`assistant_edit_receipt:${message.proposal.id}`, null)?.status || message.proposal.status)).map(message => ({ ...message.proposal, messageId: message.id })))
   const proposalReview = computed(() => activeEntry.value.state.messages.find(message => message.id === reviewedMessageId.value)?.proposal || null)
+  const canUndoProposal = computed(() => agentEngine?.canUndoProposal?.(proposalReview.value) || false)
   function reviewProposal(id) {
     const state = activeEntry.value.state
+    if (state.busy || state.agentAdoptionBusy) return false
     let message = state.messages.find(item => item.id === id)
     if (!message) {
       const session = state.agentSessions.find(session => session.messages?.some(item => item.id === id))
@@ -595,32 +676,52 @@ export function useAuthoringKnowledgeAssistant({
     const stored = getItem(`assistant_edit_receipt:${message.proposal.id}`, null)
     if (stored?.bookId === message.proposal.bookId) message.proposal = stored
     reviewedMessageId.value = id
+    if (!agentEngine.ensureEditorAuthorization) void setAgentPermission(activeEntry.value.state.agentPermission)
     onReviewProposal?.(message.proposal.changes[0])
     return true
   }
-  async function applyAgentProposal({ undo = false, discard = false } = {}) {
+  async function undoAgentProposal(id) {
+    const message = activeEntry.value.state.messages.find(item => item.id === id)
+    if (!message?.proposal?.receipt?.changes?.length) return false
+    reviewedMessageId.value = id
+    return applyAgentProposal({ undo: true })
+  }
+  async function applyAgentProposal({ undo = false, discard = false, changeIds = null, automatic = false } = {}) {
     const entry = activeEntry.value
     const proposal = proposalReview.value
-    if (!proposal || entry.state.busy || entry.state.agentAdoptionBusy) return false
+    if (!editorAttached() || !proposal || (entry.state.busy && !automatic) || entry.state.agentAdoptionBusy) return false
     entry.state.agentAdoptionBusy = true
     try {
-      if (discard) { proposal.status = 'discarded'; return true }
-      const result = await agentEngine.applyProposal(proposal, { undo })
+      if (!undo && !discard) await agentEngine.ensureEditorAuthorization?.(entry.state.agentPermission, entry.state.activeSessionId)
+      const result = await agentEngine.applyProposal(proposal, { undo, discard, changeIds })
       if (!result.ok) entry.state.error = result.error
       else entry.state.error = ''
       return result.ok
     } catch (error) { entry.state.error = error.message || '修改未保存，建议已保留。'; return false }
-    finally { entry.state.agentAdoptionBusy = false; const saved = persistConversation(entry); if (saved?.ok) removeItem(`assistant_edit_receipt:${proposal.id}`) }
+    finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
-  const agentState = computed(() => ({ enabled: Boolean(agentEngine), taskId: activeEntry.value.state.agentTaskId, refs: activeEntry.value.state.agentRefs, skills: activeEntry.value.state.agentSkills, adoptionBusy: activeEntry.value.state.agentAdoptionBusy }))
+  const agentState = computed(() => ({ permission: activeEntry.value.state.agentPermission, enabled: Boolean(agentEngine), taskId: activeEntry.value.state.agentTaskId, refs: activeEntry.value.state.agentRefs, skills: activeEntry.value.state.agentSkills, adoptionBusy: activeEntry.value.state.agentAdoptionBusy }))
+  async function setAgentPermission(patch) {
+    const entry = activeEntry.value
+    if (!editorAttached() || entry.state.agentAdoptionBusy) return false
+    agentEngine?.revokePermission?.()
+    const revision = ++entry.state.permissionRevision
+    entry.state.agentPermission = { ...entry.state.agentPermission, ...patch }
+    // Update policy immediately so pending suggestions can be reviewed after changing scope.
+    try {
+      const prepared = agentEngine?.prepare({ text: '', bookId: entry.projectId })
+      if (prepared && agentEngine.authorize) await agentEngine.authorize(entry.state.agentPermission, entry.state.activeSessionId, prepared)
+      return true
+    } catch (error) { if (revision === entry.state.permissionRevision && entry === activeEntry.value) entry.state.error = error.message; return false }
+  }
   function agentContext() { try { return agentEngine?.context() || {} } catch { return {} } }
   function setAgentReferences(refs) { activeEntry.value.state.agentRefs = refs.slice(0, 8); persistConversation(activeEntry.value) }
   function setAgentSkills(skills) { activeEntry.value.state.agentSkills = skills.slice(0, 3); persistConversation(activeEntry.value) }
-  function newAgentTask() { if (busy.value) return; activeEntry.value.state.agentTaskId = ''; persistConversation(activeEntry.value) }
+  function newAgentTask() { return newConversation() }
   async function adoptAgentAnswer(id) {
     const entry = activeEntry.value
     const message = entry.state.messages.find(item => item.id === id && item.kind === 'agent')
-    if (!message || message.adopted || entry.state.busy || entry.state.agentAdoptionBusy) return false
+    if (!editorAttached() || !message || message.adopted || entry.state.busy || entry.state.agentAdoptionBusy) return false
     entry.state.agentAdoptionBusy = true
     entry.state.error = ''
     try {
@@ -632,8 +733,8 @@ export function useAuthoringKnowledgeAssistant({
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
   return Object.freeze({
-    pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    sessions, selectSession, newConversation, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
+    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

@@ -85,8 +85,8 @@
         <p>{{ tr(loadError) }}</p>
       </div>
       <template v-else-if="activeWorldbook">
-        <StructuredSettingsWorkspace
-          :worldbook="activeWorldbook"
+        <WorldbookContentWorkspace ref="contentEditor"
+          :worldbook="activeWorldbook" :reload="refreshContext" :book-id="context?.bookId || ''"
         />
       </template>
       <div v-else class="empty-state">
@@ -99,15 +99,18 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { tr } from '../i18n/index.js'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
-import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
+import WorldbookContentWorkspace from '../components/worldbook/WorldbookContentWorkspace.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
+const contentEditor = ref(null)
+onBeforeRouteLeave(() => contentEditor.value?.flushAll?.() ?? true)
+onBeforeRouteUpdate(() => contentEditor.value?.flushAll?.() ?? true)
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
@@ -115,7 +118,7 @@ const selectedWorldbookId = ref('')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
 // 项目上下文：bookId -> book.worldbookId 唯一真源；全局模式沿用既有 active 行为。
-const { context, worldbook: activeWorldbook, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook: activeWorldbook, loading: contextLoading, loadError, refresh: refreshContext } = useSettingsProjectContext({ worldStore })
 const isProjectMode = computed(() => context.value?.mode === 'project')
 const projectContextLabel = computed(() => context.value?.book?.title || '')
 const projectContextStatus = computed(() => context.value?.status || '')
@@ -142,7 +145,7 @@ function onGlobalClick() {
 let worldbookChangeSequence = 0
 async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
   // 项目模式：世界书由书稿关联决定，选择器已锁定，不在这里静默换库。
-  if (isProjectMode.value) return
+  if (isProjectMode.value || !await (contentEditor.value?.flushAll?.() ?? true)) return
   if (worldbookId) {
     const ticket = ++worldbookChangeSequence
     const from = route.fullPath

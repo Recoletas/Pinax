@@ -12,7 +12,7 @@
         <label class="agent-tools__experience"><input v-model="experienceEnabled" type="checkbox" @change="setExperiencePiAgentEnabled(experienceEnabled)" /><span>{{ tr('体验推演也使用写作工具') }}</span></label>
       </div>
     </details>
-    <button v-if="state.taskId" type="button" :disabled="busy" :title="tr('后续消息会沿当前任务继续；重新开始保留对话记录')" @click="assistant.newAgentTask()">{{ tr('重新开始任务') }}</button>
+    <button v-if="state.taskId" type="button" :disabled="busy || state.adoptionBusy" :title="tr('开始空白对话，旧消息保留在对话列表中')" @click="assistant.newAgentTask()">{{ tr('重新开始') }}</button>
     <button v-for="reference in state.refs || []" :key="reference.type + ':' + reference.id" type="button" class="agent-tools__reference" :disabled="busy" :aria-label="tr('移除参考 {title}', { title: reference.title })" :title="reference.title" @click="assistant.setAgentReferences(state.refs.filter(ref => !(ref.id === reference.id && ref.type === reference.type)))"><span>{{ reference.title }}</span><WorkbenchIcon name="close" :size="12" /></button>
     <span v-if="state.skills?.length" class="agent-tools__selection">{{ state.skills.map(skill => tr(skill.label)).join(' · ') }}</span>
   </div>

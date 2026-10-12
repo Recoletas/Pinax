@@ -46,6 +46,7 @@ export function useNotesAssetEditor({
   const renderedMarkdownContent = ref('')
   const saveStatus = ref('saved')
 
+  let loadedSnapshot = null
   let saveTimeout = null
   let titleTimeout = null
 
@@ -54,6 +55,7 @@ export function useNotesAssetEditor({
       case 'saved': return '已保存'
       case 'saving': return '保存中...'
       case 'unsaved': return '未保存'
+      case 'conflict': return '素材已在别处更新，输入已保留'
       case 'failed': return '保存失败，输入已保留'
       default: return ''
     }
@@ -122,6 +124,8 @@ export function useNotesAssetEditor({
    * 迁移媒体引用为异步，带 asset id + 内容双身份核对，晚到结果不写错素材。
    */
   function loadAsset(asset) {
+    loadedSnapshot = { projectId: asset.projectId, content: asset.content, title: asset.title }
+    saveStatus.value = 'saved'
     currentChapterTitle.value = asset.title || ''
     const raw = asset.content || ''
     const format = asset.contentFormat || (/<\/?[a-z][\s\S]*>/i.test(raw) ? 'html' : 'md')
@@ -165,11 +169,12 @@ export function useNotesAssetEditor({
       content: result.content,
       contentFormat: 'md',
       embeddedImagePresentations
-    })
+    }, { expected: loadedSnapshot })
     if (!persisted.ok) return
 
     markdownContent.value = result.content
     editorContent.value = markdownToHtml(result.content)
+    loadedSnapshot = { projectId: persisted.asset.projectId, content: persisted.asset.content, title: persisted.asset.title }
     asset.content = result.content
     asset.contentFormat = 'md'
     asset.embeddedImagePresentations = embeddedImagePresentations
@@ -195,16 +200,20 @@ export function useNotesAssetEditor({
    */
   function saveCurrentChapter() {
     const chapter = getSelectedAsset()
-    if (!chapter) return { ok: true, assetId: null, skipped: true }
+    if (!chapter) {
+      if (getSelectedChapterId() && loadedSnapshot) { saveStatus.value = 'conflict'; return { ok: false, reason: 'asset-not-found' } }
+      return { ok: true, assetId: null, skipped: true }
+    }
 
     syncFromCurrentEditor()
     const patch = { title: currentChapterTitle.value, content: markdownContent.value }
-    const persisted = updateNarrativeAssetDurable(chapter.id, patch)
+    const persisted = updateNarrativeAssetDurable(chapter.id, patch, { expected: loadedSnapshot })
     if (!persisted.ok) {
-      saveStatus.value = 'failed'
+      saveStatus.value = persisted.reason === 'asset-conflict' ? 'conflict' : 'failed'
       return { ...persisted, assetId: chapter.id }
     }
 
+    loadedSnapshot = { projectId: persisted.asset.projectId, content: persisted.asset.content, title: persisted.asset.title }
     chapter.title = persisted.asset.title
     chapter.content = persisted.asset.content
     try {
@@ -248,10 +257,12 @@ export function useNotesAssetEditor({
       clearTimeout(saveTimeout)
       saveTimeout = null
     }
-    saveCurrentChapter()
+    return saveCurrentChapter().ok
   }
 
-  const flushOnLeaveEvent = () => flushPendingSave()
+  const flushOnLeaveEvent = event => {
+    if (!flushPendingSave() && event.type === 'beforeunload') { event.preventDefault(); event.returnValue = '' }
+  }
   const flushOnHidden = () => {
     if (document.visibilityState === 'hidden') flushPendingSave()
   }

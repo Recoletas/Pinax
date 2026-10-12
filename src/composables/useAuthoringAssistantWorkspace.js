@@ -1,5 +1,6 @@
-import { computed, nextTick, ref, unref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, unref, watch } from 'vue'
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
 
 // The editor and assistant share the Authoring owner. A query changes the
 // visible surface without remounting the editor or restarting a request.
@@ -9,10 +10,17 @@ export function useAuthoringAssistantWorkspace({
   captureScroll, restoreScroll, focusEditor, openEvidence, createBook,
   openSources: navigateSources, openSettings: navigateSettings, openSurface: navigateSurface, getReviewWorkflow, openIllustrator: showIllustrator
 }) {
+  const contentWorkspace = useComposableWorkspace()
   const expanded = ref(false)
   const newBookWithAssistant = ref(false)
   let returnPosition = null
   const emptyBook = computed(() => !chapters.value.some(chapter => getChapterMarkdown(chapter).trim()))
+  // Registration belongs to the page's task owner, not the visible assistant card.
+  const releaseTaskSummary = contentWorkspace?.registerTaskAdapter('assistant:primary', {
+    summary: () => !unref(assistant.backgroundCapable) && unref(assistant.busy) ? { id: unref(assistant.agentState)?.taskId || '', projectId: projectId.value, label: '助手运行中', status: 'running' } : null,
+    open: () => { contentWorkspace.hide(); enter() }
+  })
+  onScopeDispose(() => releaseTaskSummary?.())
 
   function setQueryView(value) {
     const query = { ...route.query }
@@ -76,25 +84,30 @@ export function useAuthoringAssistantWorkspace({
 
   const navigationBusy = computed(() => {
     const review = getReviewWorkflow?.()
-    return Boolean(unref(assistant.busy) || unref(review?.loading) || unref(review?.rewrite?.loading))
+    return Boolean(unref(assistant.busy) || unref(assistant.agentState)?.adoptionBusy || unref(review?.loading) || unref(review?.rewrite?.loading))
   })
+  function blocksNavigation(to) {
+    const review = getReviewWorkflow?.()
+    if (unref(assistant.agentState)?.adoptionBusy || unref(review?.loading) || unref(review?.rewrite?.loading)) return true
+    return Boolean(unref(assistant.busy) && !(unref(assistant.backgroundCapable) && to?.query?.bookId === projectId.value))
+  }
+  const blocksSameProjectNavigation = () => blocksNavigation({ query: { bookId: projectId.value } })
 
   async function openSources() {
-    // Browser-local tasks have no server recovery yet. Keep the request owner
-    // alive while it is running; sources can be opened when it has settled.
-    if (navigationBusy.value) return false
+    // Embedded sources leave the existing editor/request owner mounted.
+    if (blocksSameProjectNavigation() && !contentWorkspace) return false
     return navigateSources()
   }
 
   function openSettings() {
-    if (navigationBusy.value) return false
+    if (blocksSameProjectNavigation()) return false
     return navigateSettings()
   }
 
   function openSurface(surface) {
     if (surface === 'assistant') return enter()
     if (surface === 'writing') { closeChapterDrawer(); return leave() }
-    if (navigationBusy.value) return false
+    if (blocksSameProjectNavigation()) return false
     if (surface === 'home') return router.push({ name: 'welcome' })
     if (surface === 'settings') return openSettings()
     if (surface === 'sources') return openSources()
@@ -116,5 +129,5 @@ export function useAuthoringAssistantWorkspace({
   })
   watch(projectId, () => { returnPosition = null })
 
-  return { expanded, emptyBook, newBookWithAssistant, enter, leave, locateEvidence, startNewBook, afterCreateBook, openSources, openSettings, openSurface, navigationBusy, openIllustrator }
+  return { expanded, emptyBook, newBookWithAssistant, enter, leave, locateEvidence, startNewBook, afterCreateBook, openSources, openSettings, openSurface, navigationBusy, blocksNavigation, openIllustrator }
 }

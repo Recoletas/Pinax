@@ -277,6 +277,7 @@
         </template>
 
         <template v-else-if="!selectedChapterId">
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.operation === 'create')" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
               <span class="wall__empty-kicker">{{ tr('空白章节') }}</span>
@@ -443,10 +444,12 @@
               @dismiss="dismissFirstRunGuide"
             />
             <div v-if="!knowledgeAssistant.proposalReview.value && assistantPanelProposals.length" class="writing-inspector__pending-proposals"><button v-for="proposal in assistantPanelProposals" :key="proposal.id" type="button" @click="knowledgeAssistant.reviewProposal(proposal.messageId)">{{ tr('查看修改建议') }} · {{ proposal.changes.find(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook'))?.label }}</button></div>
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.targetId === selectedChapterId)" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" />
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && (change.targetId === selectedChapterId || change.operation === 'create'))" kind="chapter" :compact="!knowledgeAssistant.proposalReview.value.changes.some(change => change.operation === 'create')" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
             <WritingNotebookEditor
               :key="notebookDocumentKey"
               ref="notebookEditorRef"
+              :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, chapterId: selectedChapterId, busy: knowledgeAssistant.agentState.value.adoptionBusy }"
+              @assistant-edit-action="knowledgeAssistant.applyAgentProposal({ discard: $event.action === 'discard', changeIds: [$event.changeId] })"
               :model-value="markdownContent"
               :document="writingDocument"
               :editable="!pendingGhostAdoption && !atomicHistoryBusy"
@@ -464,7 +467,7 @@
               :block-composer-target="adoptionImpact?.target || (sceneCurationPreviewOpen ? sceneCurationTarget : (interventionComposer.open ? interventionDisplayTarget : blockComposer.target))"
               :intervention-enabled="!wt3ActiveDoc"
               :block-preview="blockPreview"
-              :atomic-undo-available="hasGhostAdoptionUndoBoundary || hasStructureUndoBoundary"
+              :atomic-undo-available="hasGhostAdoptionUndoBoundary || hasStructureUndoBoundary || knowledgeAssistant.canUndoProposal.value"
               :atomic-redo-available="hasGhostAdoptionRedoBoundary || hasStructureRedoBoundary"
               :history-locked="historyInteractionLocked"
               block-menu-enabled
@@ -578,7 +581,7 @@
             </Teleport>
             <Teleport v-else-if="blockComposer.open && !blockPreview && !sceneLaboratory.open" :to="rehearsalComposerHostRef || '#authoring-block-gap'">
               <AuthoringBlockComposer ref="blockComposerRef" :target="blockComposer.target" :empty-chapter="isEmptyChapter"
-                :projection="sceneProjection" :people="composerPeople" :generating="authoringTaskBusy"
+                :show-scene-context="activeInspectorTool !== 'rehearsal'" :projection="sceneProjection" :people="composerPeople" :generating="authoringTaskBusy"
                 :failure="blockComposer.failure" :stale-result="blockComposer.staleResult"
                 :initial-instruction="blockComposer.initialInstruction" :initial-draft="blockComposer.draft"
                 :initial-actor-id="sceneActiveActorId"
@@ -821,6 +824,7 @@
       </Teleport>
 
       <AuthoringWorkspaceToolRail
+        :workspace-hidden="assistantWorkspace.expanded.value"
           :pending="assistantPendingTools"
         :active-tool="activeInspectorTool"
         :dual="inspectorDualColumn"
@@ -860,7 +864,99 @@
           </div>
         </header>
 
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook')) && ['worldbook', 'characters', 'outline'].includes(activeInspectorTool)" :kind="activeInspectorTool === 'outline' ? 'outline' : 'worldbook'" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" />
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook')) && ['worldbook', 'characters', 'outline'].includes(activeInspectorTool)" :kind="activeInspectorTool === 'outline' ? 'outline' : 'worldbook'" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
+        <AuthoringRehearsalScene v-if="activeInspectorTool === 'rehearsal'" :projection="sceneProjection" :detail-open="inspectorTab === 'detail'" :recognition-pending="sceneRecognitionPending">
+        <nav v-if="inspectorTab !== 'detail'" class="writing-inspector__tabs" :aria-label="tr(&quot;现场与因果视图&quot;)">
+          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">{{ tr('当前场') }}</button>
+          <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
+        </nav>
+        <div v-if="inspectorTab === 'detail'" class="writing-scene-content" data-authoring-inspector="scene">
+          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
+          <AuthoringInspectorDetail
+            :detail="inspectorDetailState"
+            :model="sceneDetailModel"
+            :curation="sceneCurationDraft"
+            :worldbook-status="bookWorldbookStatus.status"
+            :character-candidates="curationCharacterCandidates"
+            :location-candidates="curationLocationCandidates"
+            :recognition-suggestions="sceneRecognitionSuggestions"
+            :recognition-pending="sceneRecognitionPending"
+            :missing-character-ids="curationMissingCharacterIds"
+            :missing-location-id="curationMissingLocationId"
+            :busy="sceneCurationBusy"
+            :error="sceneCurationError"
+            :can-undo="sceneCurationCanUndo"
+            :can-restore-inheritance="sceneCurationCanRestoreInheritance"
+            @close="closeSceneDetail"
+            @set-actor="handleDetailSetActor"
+            @open-full="handleDetailOpenFull"
+            @advance-with="handleDetailAdvanceWith"
+            @add-to-outline="handleDetailAddToOutline"
+            @confirm-emergence="handleDetailConfirmEmergence"
+            @dismiss-emergence="handleDetailDismissEmergence"
+            @open-source="handleDetailOpenEmergenceSource"
+            @open-map="handleDetailOpenMap"
+            @update-draft="handleCurationDraftUpdate"
+            @recognize="scanCurrentSceneMentions"
+            @accept-recognition="acceptSceneRecognitionSuggestion"
+            @skip-recognition="skipSceneRecognition"
+            @save="saveSceneRecognitionReview"
+            @cancel="cancelSceneRecognitionReview"
+            @undo="handleCurationUndo"
+            @restore-inheritance="handleCurationRestoreInheritance"
+            @bind-worldbook="openBindingSelect"
+            @open-worldbook="openProjectSettingsSurface('settings')"
+            @search="handleCurationSearch"
+            @run-intent="handleSceneRunIntent"
+            @if-experiment="openIfEntry"
+          />
+        </div>
+        <div v-else-if="sceneInspectorMode === 'story'" class="writing-scene-content" data-authoring-inspector="living-story">
+          <AuthoringLivingStoryProjection
+            :projection="livingStoryProjection"
+            :active-unit-id="activeWritingUnitId || ''"
+            @locate="locateLivingStoryBeat"
+            @open-source="openLivingStorySource"
+            @intervene="interveneFromLivingStory"
+          />
+        </div>
+        <div v-else class="writing-scene-overview" data-authoring-inspector="scene">
+          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
+          <!-- UX-03：桌面由左栏索引负责定位；右侧只放紧凑概览与主动作。
+               窄屏左栏收入抽屉，当前地点文字可直达详情，但不恢复整套交互索引。 -->
+          <dl class="writing-scene-overview__summary">
+            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
+            <div>
+              <dt>{{ tr('地点') }}</dt>
+              <dd>
+                <button
+                  v-if="chapterShelfSheetMode && sceneProjection.location?.id"
+                  class="writing-scene-overview__fact-link"
+                  type="button"
+                  :aria-label="tr(&quot;查看地点详情&quot;)"
+                  @click="openSceneDetail({ kind: 'location', id: sceneProjection.location.id })"
+                >{{ sceneProjection.location.name }}</button>
+                <template v-else>{{ sceneProjection.location?.name || tr('未设置') }}</template>
+              </dd>
+            </div>
+            <div><dt>{{ tr('人物') }}</dt><dd>{{ sceneOverviewPresentNames || tr('未设置') }}</dd></div>
+          </dl>
+          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" :aria-label="tr(&quot;本场未决事件&quot;)">
+            <strong>{{ tr('全部未决事件') }}</strong>
+            <button
+              v-for="event in sceneProjection.unresolvedEvents"
+              :key="event.id"
+              type="button"
+              @click="openSceneDetail({ kind: 'event', id: event.id })"
+            >{{ event.label }}</button>
+          </section>
+          <div class="writing-inspector__actions">
+            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest">{{ tr('调整当前场') }}</button>
+            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
+            <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
+          </div>
+        </div>
+        </AuthoringRehearsalScene>
         <div ref="rehearsalComposerHostRef" v-show="activeInspectorTool === 'rehearsal' && ((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__compose-host" />
         <div v-if="activeInspectorTool === 'rehearsal' && !((blockComposer.open && !blockPreview && !sceneLaboratory.open) || (interventionComposer.open && interventionComposer.phase !== 'ghosts'))" class="writing-inspector__rehearsal">
           <AuthoringSceneLaboratory v-if="ifEntryOpen && sceneLaboratory.open"
@@ -905,10 +1001,6 @@
         <nav v-if="activeInspectorTool === 'annotations' || activeInspectorTool === 'history'" class="writing-inspector__tabs" :aria-label="tr(&quot;检查器视图&quot;)">
           <button type="button" :class="{ active: inspectorTab === 'comments' }" @click="inspectorTab = 'comments'">{{ tr('批注') }}</button>
           <button type="button" :class="{ active: inspectorTab === 'version' }" @click="inspectorTab = 'version'">{{ tr('正文历史') }}</button>
-        </nav>
-        <nav v-else-if="activeInspectorTool === 'scene' && inspectorTab !== 'detail'" class="writing-inspector__tabs" :aria-label="tr(&quot;现场与因果视图&quot;)">
-          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">{{ tr('当前场') }}</button>
-          <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
         </nav>
 
         <div v-if="activeInspectorTool === 'ai'" class="writing-inspector__body writing-inspector__body--assistant" data-authoring-inspector="ai">
@@ -988,49 +1080,8 @@
             @create="createAuthoringSetting"
             @update="updateAuthoringSetting"
             @remove="removeAuthoringSetting"
-            @open-full="openWorldbookFromDual"
+            @open-full="entryId => openProjectSettingsSurface('settings', { entryId })"
             @close="closeActiveWritingInspector"
-          />
-        </div>
-        <div v-else-if="activeInspectorTool === 'scene' && inspectorTab === 'detail'" class="writing-inspector__body" data-authoring-inspector="scene">
-          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
-          <AuthoringInspectorDetail
-            :detail="inspectorDetailState"
-            :model="sceneDetailModel"
-            :curation="sceneCurationDraft"
-            :worldbook-status="bookWorldbookStatus.status"
-            :character-candidates="curationCharacterCandidates"
-            :location-candidates="curationLocationCandidates"
-            :recognition-suggestions="sceneRecognitionSuggestions"
-            :recognition-pending="sceneRecognitionPending"
-            :missing-character-ids="curationMissingCharacterIds"
-            :missing-location-id="curationMissingLocationId"
-            :busy="sceneCurationBusy"
-            :error="sceneCurationError"
-            :can-undo="sceneCurationCanUndo"
-            :can-restore-inheritance="sceneCurationCanRestoreInheritance"
-            @close="closeSceneDetail"
-            @set-actor="handleDetailSetActor"
-            @open-full="handleDetailOpenFull"
-            @advance-with="handleDetailAdvanceWith"
-            @add-to-outline="handleDetailAddToOutline"
-            @confirm-emergence="handleDetailConfirmEmergence"
-            @dismiss-emergence="handleDetailDismissEmergence"
-            @open-source="handleDetailOpenEmergenceSource"
-            @open-map="handleDetailOpenMap"
-            @update-draft="handleCurationDraftUpdate"
-            @recognize="scanCurrentSceneMentions"
-            @accept-recognition="acceptSceneRecognitionSuggestion"
-            @skip-recognition="skipSceneRecognition"
-            @save="saveSceneRecognitionReview"
-            @cancel="cancelSceneRecognitionReview"
-            @undo="handleCurationUndo"
-            @restore-inheritance="handleCurationRestoreInheritance"
-            @bind-worldbook="openBindingSelect"
-            @open-worldbook="openProjectSettingsSurface('settings')"
-            @search="handleCurationSearch"
-            @run-intent="handleSceneRunIntent"
-            @if-experiment="openIfEntry"
           />
         </div>
 
@@ -1179,51 +1230,6 @@
           :document-revision="writingDocument?.revision || 0"
           :chapter-selected="Boolean(selectedChapterId) && !wt3ActiveDoc"
         />
-        <div v-else-if="activeInspectorTool === 'scene' && sceneInspectorMode === 'story'" class="writing-inspector__body" data-authoring-inspector="living-story">
-          <AuthoringLivingStoryProjection
-            :projection="livingStoryProjection"
-            :active-unit-id="activeWritingUnitId || ''"
-            @locate="locateLivingStoryBeat"
-            @open-source="openLivingStorySource"
-            @intervene="interveneFromLivingStory"
-          />
-        </div>
-        <div v-else-if="activeInspectorTool === 'scene'" class="writing-inspector__body writing-scene-overview" data-authoring-inspector="scene">
-          <p v-if="sceneDetailNotice" class="writing-review-status" role="status">{{ sceneDetailNotice }}</p>
-          <!-- UX-03：桌面由左栏索引负责定位；右侧只放紧凑概览与主动作。
-               窄屏左栏收入抽屉，当前地点文字可直达详情，但不恢复整套交互索引。 -->
-          <dl class="writing-scene-overview__summary">
-            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
-            <div>
-              <dt>{{ tr('地点') }}</dt>
-              <dd>
-                <button
-                  v-if="chapterShelfSheetMode && sceneProjection.location?.id"
-                  class="writing-scene-overview__fact-link"
-                  type="button"
-                  :aria-label="tr(&quot;查看地点详情&quot;)"
-                  @click="openSceneDetail({ kind: 'location', id: sceneProjection.location.id })"
-                >{{ sceneProjection.location.name }}</button>
-                <template v-else>{{ sceneProjection.location?.name || tr('未设置') }}</template>
-              </dd>
-            </div>
-            <div><dt>{{ tr('人物') }}</dt><dd>{{ sceneOverviewPresentNames || tr('未设置') }}</dd></div>
-          </dl>
-          <section v-if="sceneProjection.unresolvedEvents?.length" class="writing-scene-overview__events" :aria-label="tr(&quot;本场未决事件&quot;)">
-            <strong>{{ tr('全部未决事件') }}</strong>
-            <button
-              v-for="event in sceneProjection.unresolvedEvents"
-              :key="event.id"
-              type="button"
-              @click="openSceneDetail({ kind: 'event', id: event.id })"
-            >{{ event.label }}</button>
-          </section>
-          <div class="writing-inspector__actions">
-            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest">{{ tr('调整当前场') }}</button>
-            <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
-            <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
-          </div>
-        </div>
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
           <AuthoringCharacterPanel :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
@@ -1238,7 +1244,7 @@
             @remove="removeAuthoringCharacter"
             @generate="openIllustratorForCharacter"
             @open-chapter="selectChapter"
-            @open-full="openWorldbookFromDual"
+            @open-full="entryId => openProjectSettingsSurface('settings', { entryId })"
             @close="closeActiveWritingInspector"
           />
         </div>
@@ -1545,6 +1551,7 @@ const AuthoringSearchPanel = defineAsyncComponent(() => import('../components/au
 const AuthoringIdeaShelf = defineAsyncComponent(() => import('../components/authoring/AuthoringIdeaShelf.vue'))
 const AuthoringNotesExtractionPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringNotesExtractionPreview.vue'))
 const AuthoringInspectorDetail = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorDetail.vue'))
+const AuthoringRehearsalScene = defineAsyncComponent(() => import('../components/authoring/AuthoringRehearsalScene.vue'))
 const AuthoringAgentProposalReview = defineAsyncComponent(() => import('../components/authoring/AuthoringAgentProposalReview.vue'))
 const AuthoringOutlinePanel = defineAsyncComponent(() => import('../components/authoring/AuthoringOutlinePanel.vue'))
 const AuthoringManuscriptImport = defineAsyncComponent(() => import('../components/authoring/AuthoringManuscriptImport.vue'))
@@ -3523,15 +3530,17 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   onReviewProposal: locateAssistantProposal,
   agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, getBook: () => currentBook.value,
     getChapter: () => wt3ActiveDoc.value ? null : chapters.value.find(c => c.id === selectedChapterId.value), getWorldbook: () => boundWorldbook.value,
+    getLiveDocument: () => writingDocument.value, getSelection: () => notebookSelection.value,
     getLiveText: () => wt3ActiveDoc.value ? '' : markdownContent.value, getNotes: () => wt3ExplorationDocs.value.map(doc => doc.id === wt3ActiveDocId.value ? { ...doc, content: markdownContent.value } : doc), getOutline: () => wt3OutlineNodes.value,
     persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && !wt3ActiveDoc.value && (selectedChapterId.value ? saveCurrentChapter() : saveBooks()),
+    protectChanges: (snapshots, id) => snapshots.every(snapshot => authoringHistory.recordProtection({ ...snapshot, reason: 'before-rewrite', operation: 'assistant-edit', transactionId: id }).ok),
     protectCurrent: (id) => authoringHistory.recordProtection({ chapterId: selectedChapterId.value, chapterTitle: currentChapterTitle.value, reason: 'before-adoption', document: writingDocument.value, markdown: markdownContent.value, annotations: chapterAnnotations.value, operation: 'append-storyagent', transactionId: id }),
     observeAdoption: ({ text, unitId, bookId, chapterId }) => commitDirectAuthoringObservation({ text, unitId, memoryProjectId: bookId, documentId: chapterId, chapterId, unitRevision: 0, sourceRefs: [`unit:${chapterId}:${unitId}`], sourceDocumentRevision: currentDocumentRevision() }),
     readBooks: () => books.value, saveBooks: saveWritingBooksDurable,
     publishRepository: publishWritingBooks,
     publishWorldbook: (next) => { worldStore.worldbooksIndex = getItem('worldbooks_index', []) || []; if (!next || String(currentBook.value?.worldbookId) === String(next.id)) { worldStore.activeWorldbook = next; boundWorldbook.value = next } },
     publishBooks: (next, chapterId) => { books.value = next; chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters;
-      const chapter = chapters.value.find(c => c.id === chapterId); if (!chapter) return; markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value) }
+      const chapter = chapters.value.find(c => c.id === chapterId); if (!chapter) return; if (!selectedChapterId.value) selectedChapterId.value = chapterId; currentChapterTitle.value = chapter.title || ''; markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value); fenceNotebookHistory() }
   }),
   target: knowledgeAssistantTarget,
   resolveLiveSource: resolveKnowledgeAssistantLiveSource,
@@ -3547,6 +3556,7 @@ const assistantPanelProposals = computed(() => knowledgeAssistant.pendingProposa
 const assistantPendingTools = computed(() => {
   const counts = {}
   for (const proposal of knowledgeAssistant.pendingProposals.value) for (const change of proposal.changes) {
+    if (change.status && change.status !== 'pending') continue
     const type = boundWorldbook.value?.entries?.find(entry => String(entry.id) === change.targetId)?.type || change.entryType
     const tool = change.kind === 'chapter' ? 'ai' : change.kind === 'outline' ? 'outline' : type === 'character' ? 'characters' : 'worldbook'
     counts[tool] = (counts[tool] || 0) + 1
@@ -4215,7 +4225,7 @@ function clearAuthoringSceneRunIntents() {
   authoringSceneRunIntents.value = []
 }
 function handleSceneEditRequest(options = {}) {
-  const unitId = activeWritingUnitId.value
+  const unitId = activeWritingUnitId.value || documentUnitOrder().at(-1)
   if (!unitId) return
   if (!sceneLaboratory.open) {
     sceneLaboratory.returnScrollTop = notebookSelectionScrollTop
@@ -6440,7 +6450,7 @@ const writingAgentHost = useInlineWritingAgentHost({
       || contextMenu.value.show,
     commandMenuOpen: notebookCommandMenuOpen.value,
     inspectorEditing: inspectorOpen.value
-      && activeInspectorTool.value === 'scene'
+      && activeInspectorTool.value === 'rehearsal'
       && inspectorDetailState.value?.kind === 'scene-edit',
     blockPreviewOpen: Boolean(blockPreview.value),
     blockComposerOpen: blockComposer.open,
@@ -6648,7 +6658,8 @@ function navigateAuthoringKnowledgeEvidence(evidence) {
     if (!source || String(boundWorldbook.value?.id) !== locator.worldbookId || (locator.contentHash && locator.contentHash !== source.contentHash)) {
       authoringTask.notify(tr('资料已变化，请重新检索。')); return false
     }
-    void router.push({ name: 'settings-sources', query: { bookId: selectedBookId.value, sourceId: locator.documentId } })
+    void openProjectSettingsSurface('sources', { extraQuery: { sourceId: locator.documentId, contentHash: locator.contentHash,
+      chunkId: locator.chunkId, start: locator.start, end: locator.end } })
     return true
   }
   if (locator.kind === 'worldbook-entry') {
@@ -7005,6 +7016,7 @@ async function redoStructureTransition() {
   }
 }
 function handleNotebookHistoryCommand(direction) {
+  if (direction === 'undo' && knowledgeAssistant.canUndoProposal.value && !hasGhostAdoptionUndoBoundary.value && !hasStructureUndoBoundary.value) return knowledgeAssistant.applyAgentProposal({ undo: true })
   return direction === 'redo' ? redoNotebookEdit() : undoNotebookEdit()
 }
 function undoAuthoringTask() {
@@ -7051,7 +7063,7 @@ const {
   selectedBookId,
   selectedChapterId,
   activeDocument: wt3ActiveDoc,
-  isNavigationBusy: () => assistantWorkspace.navigationBusy.value,
+  isNavigationBusy: to => assistantWorkspace.blocksNavigation(to),
   writingRecoveryDraft,
   pendingGhostAdoption,
   blockPreview,
@@ -7112,21 +7124,7 @@ useBodyScrollLock(shouldLockPageScroll)
 // 替换含 caret 的节点），导致后续 redo 键盘事件落在 BODY 上。当选区仍在
 // 编辑器内但焦点不在时，转发 undo/redo 到编辑器。
 function handleEditorHistoryKeyForward(event) {
-  if (!event.ctrlKey && !event.metaKey) return
-  const key = String(event.key || '').toLowerCase()
-  const isUndo = key === 'z' && !event.shiftKey
-  const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)
-  if (!isUndo && !isRedo) return
-  const pm = document.querySelector('.writing-notebook-editor__surface .ProseMirror')
-  if (!pm || pm.contains(document.activeElement)) return
-  const sel = window.getSelection()
-  if (!sel?.anchorNode || !pm.contains(sel.anchorNode)) return
-  event.preventDefault()
-  pm.focus()
-  nextTick(() => {
-    if (isRedo) redoNotebookEdit()
-    else undoNotebookEdit()
-  })
+  workspaceNavigationController?.forwardEditorHistoryKey(event, { undo: undoNotebookEdit, redo: redoNotebookEdit })
 }
 onMounted(() => {
   document.addEventListener('keydown', handleEditorHistoryKeyForward)
@@ -7188,6 +7186,7 @@ function isWritingCompositionKey(event) {
   return Boolean(event?.isComposing || event?.keyCode === 229 || writingCompositionActive.value || dualCompositionActive.value)
 }
 function handleChapterDrawerKeydown(event) {
+  if (!workspaceNavigationController?.ownsKeyboard(event)) return
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (event.key !== 'Escape' || !chapterDrawerOpen.value) return
   event.preventDefault()
@@ -8163,6 +8162,7 @@ const {
   consumeActivationBoundary
 } = useAuthoringBookActivation({
   route,
+  canSwitchProject: bookId => !assistantWorkspace.blocksNavigation({ query: { bookId } }),
   books,
   chapters,
   selectedBookId,
@@ -9279,6 +9279,7 @@ function handleQuickWordDigitKey(event) {
 }
 // Zen 下隐藏顶栏/书架/检查器；Esc 或快捷键退出。
 function handleWritingFocusKeydown(event) {
+  if (!workspaceNavigationController?.ownsKeyboard(event)) return
   if (event.defaultPrevented || isWritingCompositionKey(event)) return
   if (handleQuickWordDigitKey(event)) return
   if (event.key === 'Escape') {
@@ -9840,6 +9841,7 @@ function closeContextMenuFromKeyboard() {
   notebookEditorRef.value?.focus?.({ scrollIntoView: false })
 }
 function handleContextMenuKeydown(event) {
+  if (!workspaceNavigationController?.ownsKeyboard(event)) return
   if (!contextMenu.value.show || isWritingCompositionKey(event)) return
   const items = contextMenuKeyboardItems()
   const currentIndex = items.indexOf(document.activeElement)

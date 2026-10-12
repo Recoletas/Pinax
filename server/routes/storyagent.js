@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Router } from 'express'
 import { Readable } from 'node:stream'
+import { createAssistantPolicyStore } from '../services/assistantPolicyStore.js'
 import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
 
 // The runtime stays on loopback. Browser capabilities isolate task journals; no global list is exposed.
@@ -9,7 +10,13 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(upstream.hostname)) throw new Error('storyagent-runtime-must-use-loopback')
   const router = Router()
   let activeRuns = 0
-  router.get('/capabilities', (_req, res) => res.json({ protocolVersion: 1, proposalTool: 'submit_edit_proposals', confirmationRequired: true, modelEditing: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), maxConcurrentTasks: 2, budgets: { maxModelSteps: 8, maxCallsPerTurn: 6, agentTimeoutMs: 240000 }, localFiles: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), recovery: 'saved-results-and-task-resume' }))
+  const policies = createAssistantPolicyStore()
+  const policyRuns = new Map()
+  function stopPolicyRuns(owner, input) {
+    const key = JSON.stringify([owner, input.bookId, input.sessionId])
+    for (const controller of policyRuns.get(key) || []) controller.abort()
+  }
+  router.get('/capabilities', (_req, res) => res.json({ protocolVersion: 2, assistantPermissions: true, deliveryContract: true, proposalTool: 'submit_edit_proposals', confirmationRequired: true, modelEditing: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), maxConcurrentTasks: 2, budgets: { maxModelSteps: 8, maxCallsPerTurn: 6, agentTimeoutMs: 240000 }, localFiles: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), recovery: 'saved-results-and-task-resume' }))
   router.use(async (req, res) => {
     const health = req.method === 'GET' && req.path === '/healthz'
     const modelRead = req.method === 'GET' && req.path === '/model'
@@ -17,6 +24,15 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     const token = String(req.get('x-pinax-agent-session') || '')
     if (!health && !modelRead && !modelWrite && !/^[a-f0-9]{64}$/.test(token)) return res.status(403).json({ error: 'agent-session-required' })
     const prefix = `pa_${createHash('sha256').update(token).digest('hex').slice(0, 24)}_`
+    if (req.path === '/policies' && req.method === 'POST') {
+      try { const policy = policies.set(prefix, req.body || {}); stopPolicyRuns(prefix, req.body || {}); return res.json({ ok: true, policy }) }
+      catch (error) { return res.status(400).json({ error: error.message }) }
+    }
+    if (req.path === '/policies/check' && req.method === 'POST') {
+      const policy = policies.get(prefix, req.body || {})
+      return policy ? res.json({ ok: true, policy }) : res.status(403).json({ error: 'agent-policy-expired' })
+    }
+    if (req.path === '/policies/revoke' && req.method === 'POST') { policies.revoke(prefix, req.body || {}); stopPolicyRuns(prefix, req.body || {}); return res.json({ ok: true }) }
     const create = req.method === 'POST' && req.path === '/v1/pinax/tasks'
     const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel))?$/.exec(req.path)
     if (!health && !modelRead && !modelWrite && !create && !(task && task[1].startsWith(prefix) && ((req.method === 'GET' && !task[2]) || (req.method === 'POST' && task[2])))) {
@@ -27,12 +43,21 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     const runsModel = create || task?.[2] === 'resume'
     if (runsModel && activeRuns >= 2) return res.status(429).json({ error: 'agent-concurrency-limit', message: '助手当前繁忙，请稍后再试。' })
     if (runsModel) {
+      if (req.body?.taskKind === 'assistant') {
+        const reference = (req.body.kernel?.blocks || []).find(block => block.kind === 'assistant-policy')
+        let policy
+        try { policy = policies.get(prefix, JSON.parse(reference?.text || '{}')) } catch { /* malformed reference */ }
+        if (!policy || policy.bookId !== req.body.bookId) return res.status(403).json({ error: 'agent-policy-required', message: '助手授权已过期，请重新发送。' })
+        req.body = { ...req.body, assistantPolicy: policy }
+      } else { delete req.body.assistantPolicy }
       const limits = { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6, maxToolResultChars: 4200 }
       req.body = { ...req.body, budget: Object.fromEntries(Object.entries(limits).map(([key, maximum]) => [key, Math.min(maximum, Math.max(1, Number(req.body?.budget?.[key]) || maximum))])) }
       if (req.body.resources && JSON.stringify(req.body.resources).length > 1000000) return res.status(413).json({ error: 'agent-resource-budget-exceeded' })
     }
     if (runsModel) activeRuns++
     const controller = new AbortController()
+    const policyKey = req.body?.assistantPolicy ? JSON.stringify([prefix, req.body.assistantPolicy.bookId, req.body.assistantPolicy.sessionId]) : null
+    if (policyKey) { const runs = policyRuns.get(policyKey) || new Set(); runs.add(controller); policyRuns.set(policyKey, runs) }
     const timer = setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite ? 5000 : 250000)
     res.on('close', () => controller.abort())
     try {
@@ -60,7 +85,7 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     } catch {
       if (!res.headersSent && !res.destroyed) res.status(503).json({ error: 'agent-runtime-unavailable', readOnly: Boolean(process.env.PINAX_PUBLIC_ORIGINS), message: '模型服务暂不可用，输入和已有结果已保留，请稍后重试。' })
       else if (!res.destroyed) res.end()
-    } finally { clearTimeout(timer); if (runsModel) activeRuns-- }
+    } finally { clearTimeout(timer); if (runsModel) activeRuns--; if (policyKey) { const runs = policyRuns.get(policyKey); runs?.delete(controller); if (!runs?.size) policyRuns.delete(policyKey) } }
   })
   return router
 }

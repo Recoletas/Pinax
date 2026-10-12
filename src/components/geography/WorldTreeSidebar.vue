@@ -48,15 +48,22 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
 import TreeItem from './WorldTreeItem.vue'
 
+const props = defineProps({ compact: Boolean })
 const geoStore = useGeographyStore()
 const { worldTree: tree, activeWorldId } = storeToRefs(geoStore)
 
 const collapsed = ref(typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches)
+
+let wideCollapsed = collapsed.value
+watch(() => props.compact, compact => {
+  if (compact) { wideCollapsed = collapsed.value; collapsed.value = true }
+  else collapsed.value = wideCollapsed
+}, { immediate: true })
 
 function setActiveWorld(id) {
   geoStore.setActiveWorld(id)

@@ -8,7 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import WorldBookQuickImport from '@/pages/WorldBookQuickImport.vue'
 import StructuredSettingsPanel from '@/components/worldbook/StructuredSettingsPanel.vue'
-import { useWorldStore } from '@/stores/worldStore'
+import { useWorldStore, worldbookEntryEditFingerprint } from '@/stores/worldStore'
 import {
   buildFoundationPayloadFromAiResult,
   buildPendingPayload,
@@ -864,6 +864,12 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     setActivePinia(createPinia())
 
 const store = useWorldStore()
+    const guardedBook = await store.createWorldbook({ name: 'workspace-CAS' })
+    const guardedEntry = await store.addEntry(guardedBook.id, { name: '地点', type: 'general', content: '初始资料' })
+    const baselineFingerprint = worldbookEntryEditFingerprint(guardedEntry)
+    expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '最新资料' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(true)
+    expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '迟到覆盖' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`worldbook_${guardedBook.id}`)).entries.find(entry => entry.id === guardedEntry.id).content).toBe('最新资料')
     const wb = await store.createWorldbook({
       name: '有地图的世界',
       geoHistory: { version: 1, nodes: [{ id: 'n1', title: '建城', playable: true }] }

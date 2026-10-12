@@ -3,10 +3,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { extendAssistantRuntime } from './extend-assistant-runtime.mjs'
 
 const source = JSON.parse(fs.readFileSync(new URL('../shared/storyagentRuntimeSource.json', import.meta.url), 'utf8'))
 const root = path.resolve(import.meta.dirname, '..')
-const output = path.join(root, '.runtime', 'storyagent')
+const output = path.resolve(process.env.PINAX_RUNTIME_OUTPUT || path.join(root, '.runtime', 'storyagent'))
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-agent-build-'))
 const run = (command, args, cwd = temporary) => execFileSync(command, args, { cwd, stdio: 'inherit', env: process.env })
 try {
@@ -38,18 +39,16 @@ try {
   }
   validateLinks(staged)
   fs.copyFileSync(path.join(exported, 'LICENSE'), path.join(staged, 'LICENSE'))
-  const extensionDir = path.join(staged, 'dist', 'pinax')
-  fs.copyFileSync(path.join(root, 'runtime-extensions', 'assistantProposalTool.js'), path.join(extensionDir, 'assistantProposalTool.js'))
-  fs.copyFileSync(path.join(root, 'shared', 'assistantEditProposal.js'), path.join(extensionDir, 'assistantEditProposal.js'))
-  const runnerPath = path.join(extensionDir, 'runner.js')
-  let runner = fs.readFileSync(runnerPath, 'utf8')
-  const insertion = '    const lookupTools = buildPinaxTools(snapshot, toolNames, toolHooks);'
-  if (!runner.includes(insertion)) throw new Error('Pinned runtime extension location changed')
-  runner = 'import { createAssistantProposalTool } from "./assistantProposalTool.js";\n' + runner.replace(insertion, insertion + '\n    if (req.taskKind === "assistant") lookupTools.push(createAssistantProposalTool(snapshot));')
-  fs.writeFileSync(runnerPath, runner)
-  const extensionSha256 = createHash('sha256').update(fs.readFileSync(path.join(root, 'runtime-extensions', 'assistantProposalTool.js'))).update(fs.readFileSync(path.join(root, 'shared', 'assistantEditProposal.js'))).digest('hex')
+  const extensionSha256 = extendAssistantRuntime(staged)
   const lockSha256 = createHash('sha256').update(fs.readFileSync(path.join(staged, 'package-lock.json'))).digest('hex')
-  fs.writeFileSync(path.join(staged, 'runtime-source.json'), JSON.stringify({ ...source, extensionSha256, lockSha256, nodeMajor: Number(process.versions.node.split('.')[0]) }, null, 2))
-  fs.rmSync(output, { recursive: true, force: true }); fs.renameSync(staged, output)
+  fs.writeFileSync(path.join(staged, 'runtime-source.json'), JSON.stringify({ ...source, extensionSha256, lockSha256, assistantProtocolVersion: 2, nodeMajor: Number(process.versions.node.split('.')[0]) }, null, 2))
+  // Never erase journals when rebuilding an existing package. A running package is immutable.
+  if (fs.existsSync(path.join(output, 'tasks'))) throw new Error('Legacy task journals exist. Build a candidate with PINAX_RUNTIME_OUTPUT; migrate journals before replacing the runtime.')
+  if (fs.existsSync(output)) {
+    const previous = `${output}.previous`
+    if (fs.existsSync(previous)) throw new Error('Previous runtime backup exists; choose a new candidate output.')
+    fs.renameSync(output, previous)
+    try { fs.renameSync(staged, output) } catch (error) { fs.renameSync(previous, output); throw error }
+  } else fs.renameSync(staged, output)
   console.log(`Agent runtime ready: ${output}; source ${source.commit}; lock ${lockSha256}`)
 } finally { fs.rmSync(temporary, { recursive: true, force: true }) }

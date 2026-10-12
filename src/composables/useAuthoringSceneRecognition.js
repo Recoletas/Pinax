@@ -41,9 +41,11 @@ export function useAuthoringSceneRecognition({
   function resumeReview(request) {
     const version = reviewVersion
     const scope = recognitionScope()
+    const revision = getDocumentRevision()
     skipNextSceneRecognition = true
     void nextTick(() => {
       if (version !== reviewVersion || scope !== recognitionScope()) return
+      if (revision !== getDocumentRevision()) skipNextSceneRecognition = false
       if (typeof request?.resume === 'function') void prepareRehearsalSceneReview(request)
       else void startRehearsal(request || {})
     })
@@ -60,7 +62,7 @@ export function useAuthoringSceneRecognition({
   function sceneRecognitionKey(target) {
     return JSON.stringify([selectedBookId.value, selectedChapterId.value, getDocumentScopeKey(),
       target.documentId || '', target.unitId || activeWritingUnitId.value,
-      target.nodeId || '', target.cursorLocalOffset ?? '',
+      target.nodeId || '',
       getDocumentRevision(), selectedBookWorldbookId.value,
       boundWorldbook.value?.updatedAt || boundWorldbook.value?.revision || ''])
   }
@@ -75,7 +77,7 @@ export function useAuthoringSceneRecognition({
       sceneRecognitionSuggestions.value = []
       return []
     }
-    const unitId = String(target.unitId || activeWritingUnitId.value || '')
+    const unitId = String(target.unitId || activeWritingUnitId.value || writingDocument.value?.content?.at(-1)?.attrs?.unitId || '')
     const units = writingDocument.value?.content || []
     const index = units.findIndex(unit => String(unit?.attrs?.unitId || '') === unitId)
     const blocks = []
@@ -167,6 +169,7 @@ export function useAuthoringSceneRecognition({
   // 书/章节/速记文档/世界书绑定切换时清场；sceneRecognitionSeenKey 不在此复位，
   // 与迁移前逐字一致（换作用域才重新扫描）。
   function resetSceneRecognition() {
+    if (sceneRecognitionPending.value) sceneRecognitionSeenKey = ''
     reviewVersion += 1
     sceneRecognitionPending.value = false
     sceneRecognitionSuggestions.value = []

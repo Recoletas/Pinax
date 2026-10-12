@@ -623,7 +623,7 @@
 /* The composer owns the right workbench, not a second editor-sized insert. */
 .theme-legacy .writing-page .writing-inspector__compose-host {
   min-height: 0; overflow: auto; flex: 1; padding: 18px;
-  background: var(--archive-paper-soft); overscroll-behavior: contain;
+  background: var(--surface-workbench); overscroll-behavior: contain;
 }
 .theme-legacy .writing-page .writing-inspector__compose-host > :is(.authoring-block-composer, .authoring-intervention) {
   position: relative; inset: auto; width: 100%; max-height: none;
@@ -1447,7 +1447,7 @@
     position: sticky;
     top: 0;
     z-index: 2;
-    background: var(--authoring-chrome-surface);
+    background: var(--surface-workbench);
   }
 
   .theme-legacy .writing-page .wall__main.has-sequential-inspector .writing-inspector__rehearsal {

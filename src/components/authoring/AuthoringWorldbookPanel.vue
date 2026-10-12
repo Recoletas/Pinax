@@ -8,6 +8,7 @@ import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
 import { buildAuthoringSettingContext } from '../../services/authoring/authoringSettingContext.js'
 
 import { useRouter } from 'vue-router'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 const props = defineProps({
   worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' },
@@ -19,10 +20,12 @@ const props = defineProps({
 })
 const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'close'])
 const router = useRouter()
+const workspace = useComposableWorkspace()
 // N-A：本书资料概况与入口（NA04 右栏片）。资料数量来自绑定世界书的 sourceDocuments。
 const sourceCount = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments.length : 0))
 function openSourcesPanel() {
   if (!props.bookId) return
+  if (workspace?.openResource({ type: 'sources', bookId: props.bookId, worldbookId: String(props.worldbook?.id || '') })) return
   router.push({ name: 'settings-sources', query: { bookId: props.bookId } })
 }
 function openAddSources() {
@@ -240,7 +243,7 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
     <aside class="setting-directory catalog-directory">
       <div class="catalog-window-controls"><button type="button" :title="tr('关闭设定工作台')" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
       <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('设定')" :aria-label="tr('搜索设定')" /></div>
-      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate">{{ tr('新建') }}</button><button type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('高级管理') }}</button></div>
+      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate">{{ tr('新建') }}</button><button type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('展开设定') }}</button></div>
       <header><strong>{{ tr('目录') }}</strong></header>
       <nav class="setting-directory__modes" :aria-label="tr('设定目录范围')"><button type="button" :class="{ active: directoryMode === 'contextual' }" @click="directoryMode = 'contextual'">{{ uiLocale === 'en' ? tr('相关设定') : tr('当前落笔处') }}</button><button type="button" :class="{ active: directoryMode === 'all' }" @click="directoryMode = 'all'">{{ tr('全部') }}</button></nav>
       <select v-model="typeFilter" class="setting-type-filter" :aria-label="tr('筛选设定类型')"><option value="all">{{ tr('全部类型') }}</option><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select>

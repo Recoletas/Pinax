@@ -756,6 +756,8 @@ function updateLetteringTail(panelId, objectId, tailTarget) {
 }
 
 defineExpose({
+  canCloseWorkspace: () => !scriptGenerating.value && !batchGenerating.value && !activePanelRequests.size && !uploadingPanelId.value && flushPendingEdits(),
+  getWorkspaceTaskSummary: () => scriptGenerating.value || batchGenerating.value || activePanelRequests.size || uploadingPanelId.value ? { label: '漫画制作中' } : null,
   reloadPage: loadStoredPage,
   updateLetteringBox,
   updateLetteringTail,

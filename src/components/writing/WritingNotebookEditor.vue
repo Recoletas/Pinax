@@ -135,6 +135,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import { Extension, getMarkRange } from '@tiptap/core'
 import { Fragment, Slice } from '@tiptap/pm/model'
+import { createAssistantEditDecorations, assistantEditDecorationKey } from '../../services/writing/assistantEditDecorations.js'
 import { AllSelection, NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { closeHistory, isHistoryTransaction, redoNoScroll, undoNoScroll } from '@tiptap/pm/history'
@@ -182,6 +183,7 @@ import {
 const writingPreferences = useWritingTypographyStore()
 writingPreferences.init()
 const props = defineProps({
+  assistantReview: { type: Object, default: null },
   taskUnitId: { type: String, default: '' },
   blockMenuEnabled: Boolean,
   modelValue: { type: String, default: '' },
@@ -210,7 +212,7 @@ const props = defineProps({
   blockGapId: { type: String, default: 'authoring-block-gap' }
 })
 
-const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'worldbook-mention-click', 'writing-command', 'open-block-composer', 'open-intervention', 'accept-block-preview', 'dismiss-block-preview', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'cycle-inline-suggestion', 'retry-inline-suggestion', 'history-command', 'command-menu-change', 'composition-change', 'writing-paste', 'blocked-structure-edit', 'editor-focus', 'editor-blur', 'scroll-owner', 'ready'])
+const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'worldbook-mention-click', 'writing-command', 'open-block-composer', 'open-intervention', 'accept-block-preview', 'dismiss-block-preview', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'cycle-inline-suggestion', 'retry-inline-suggestion', 'history-command', 'command-menu-change', 'composition-change', 'writing-paste', 'blocked-structure-edit', 'editor-focus', 'editor-blur', 'scroll-owner', 'ready', 'assistant-edit-action'])
 
 const initialDocument = props.document || createWritingDocument(props.modelValue)
 const notebookRoot = ref(null)
@@ -1880,6 +1882,7 @@ const editor = useEditor({
     LiveMarkdownDecorations,
     WritingCommandMenu,
     InlineSuggestionDecorations,
+    createAssistantEditDecorations({ getReview: () => props.assistantReview, getDocument: () => currentDocument.value, act: (action, changeId) => emit('assistant-edit-action', { action, changeId }) }),
     UniqueID.configure({
       types: ['paragraph', 'heading', 'horizontalRule', 'blockquote', 'mediaReference'],
       attributeName: 'nodeId',
@@ -2317,6 +2320,8 @@ watch(() => [props.blockComposerOpen, props.blockComposerTarget, props.blockPrev
   editor.value.view.dispatch(editor.value.state.tr.setMeta(blockGapPluginKey, true))
   refreshInlineSuggestionLayer()
 })
+
+watch(() => props.assistantReview, () => { if (editor.value && !editor.value.isDestroyed) editor.value.view.dispatch(editor.value.state.tr.setMeta(assistantEditDecorationKey, true).setMeta('addToHistory', false)) }, { deep: true })
 
 watch(
   () => [props.inlineSuggestionVisible, props.inlineSuggestion, props.inlineSuggestionGenerating, props.inlineSuggestionError, props.interactionOwner],
@@ -4010,4 +4015,17 @@ defineExpose({
   }
 
 }
+</style>
+
+<style>
+.assistant-edit-original-range { text-decoration: line-through; color: var(--text-secondary); text-decoration-color: var(--text-secondary); }
+.assistant-inline-edit { display: block; margin: 8px 0 20px; padding: 0; background: transparent; color: var(--text-primary); white-space: normal; }
+.assistant-inline-edit__content { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 5px; text-decoration-thickness: 1px; }
+.assistant-inline-edit__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; font: 12px/1.5 var(--font-sans); }
+.assistant-inline-edit__actions span { color: var(--text-secondary); }
+.assistant-inline-edit__actions button { border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); padding: 4px 10px; background: var(--surface-workbench); color: var(--text-primary); cursor: pointer; }
+.assistant-inline-edit__actions button:first-child { color: var(--accent); }
+.assistant-inline-edit__actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.assistant-inline-edit__actions button:disabled { opacity: .5; cursor: default; }
+@media(max-width:720px) { .assistant-inline-edit__actions button { min-height: 44px; } }
 </style>

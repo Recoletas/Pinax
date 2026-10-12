@@ -1,9 +1,14 @@
 <script setup>
 import { tr } from '../../i18n/index.js'
-import { computed } from 'vue'
+import { computed, watch, onScopeDispose } from 'vue'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
-const props = defineProps({ activeTool: { type: String, default: 'annotations' }, pending: { type: Object, default: () => ({}) }, dual: Boolean, collaborationVisible: Boolean })
+const props = defineProps({ activeTool: { type: String, default: 'annotations' }, pending: { type: Object, default: () => ({}) }, dual: Boolean, collaborationVisible: Boolean, workspaceHidden: Boolean })
 const emit = defineEmits(['before-select', 'select'])
+const workspace = useComposableWorkspace()
+const docked = computed(() => Boolean(workspace?.railTarget.value && !props.workspaceHidden && !workspace.state.narrow && workspace.state.primaryVisible && !workspace.state.hidden && !workspace.state.expanded && (!workspace.state.mainModuleId || workspace.state.views.find(view => view.id === workspace.state.mainModuleId)?.resource.type === 'chapter') && workspace.state.sideActiveId))
+watch(docked, value => { if (workspace) workspace.railDocked.value = value }, { immediate: true })
+onScopeDispose(() => { if (workspace) workspace.railDocked.value = false })
 
 // pointerdown 发生在浏览器把焦点从 ProseMirror 移到 rail 按钮之前。
 // 页面借这个时机冻结活动写作窗的 selection/scroll；这里不 preventDefault，
@@ -21,7 +26,6 @@ const baseTools = Object.freeze([
   { id: 'outline', label: '大纲', icon: 'outline', group: 'reference' },
   { id: 'characters', label: '角色', icon: 'character', group: 'reference' },
   { id: 'worldbook', label: '设定', icon: 'worldbook', group: 'reference' },
-  { id: 'scene', label: '现场', icon: 'scene', group: 'reference' },
   { id: 'history', label: '记忆', icon: 'history', group: 'utility' },
   { id: 'dual', label: '双栏', icon: 'columns', group: 'utility' }
 ])
@@ -32,15 +36,17 @@ const tools = computed(() => props.collaborationVisible
 </script>
 
 <template>
+  <Teleport :to="workspace?.railTarget.value || 'body'" :disabled="!docked">
   <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
     <button v-for="(tool, index) in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id" :data-group-start="index > 0 && tools[index - 1].group !== tool.group ? 'true' : undefined"
-      :aria-label="tr(tool.label)" :aria-pressed="(tool.id === 'dual' ? dual : activeTool === tool.id)" :title="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
+      :aria-label="tr(tool.label)" :data-selected="(tool.id === 'dual' ? dual : activeTool === tool.id)" :aria-pressed="!docked && (tool.id === 'dual' ? dual : activeTool === tool.id)" :title="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
       @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
       <span v-if="pending[tool.id]" class="writing-tool-rail__pending" aria-hidden="true" />
       <span class="writing-tool-rail__label">{{ tr(tool.label) }}</span>
     </button>
   </nav>
+  </Teleport>
 </template>
 
 <style scoped>

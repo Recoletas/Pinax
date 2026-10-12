@@ -8,19 +8,21 @@ PR #6 将文本请求出口统一到 Storyflow。仅上传 `dist` 无法运行�
 
 ```sh
 npm ci
-npm run build:agent-runtime
+PINAX_RUNTIME_OUTPUT=.runtime/storyagent-next npm run build:agent-runtime
 npm run build
 ```
 
-运行器源版本固定在 `shared/storyagentRuntimeSource.json`；构建脚本只导出源代码和锁文件，使用 `npm ci` 编译并移除开发依赖，不带入上游配置或上游已安装依赖。输出 `.runtime/storyagent/runtime-source.json` 记录源提交、依赖锁和 Pinax 扩展指纹。此目录被 Git 忽略，需要随发布包上传。
+运行器源版本固定在 `shared/storyagentRuntimeSource.json`；构建脚本只导出源代码和锁文件，使用 `npm ci` 编译并移除开发依赖，不带入上游配置或上游已安装依赖。输出目录由 `PINAX_RUNTIME_OUTPUT` 指定（默认 `.runtime/storyagent`）；本轮候选位于 `.runtime/storyagent-next`，其 `runtime-source.json` 记录源提交、依赖锁和 Pinax 扩展指纹。此目录被 Git 忽略，需要随发布包上传。
+
+2026-10-12 助手返修经过独立包验证，并按作者授权切为 `.runtime/storyagent-next`、仅重启8451。健康响应包含 `assistantWorkspace: true`，新版交付预算及默认目录已加载。最近一次追加参数修复前的包保存在 `.runtime/storyagent-next-backup-append-1791781497`，首轮旧包保存在 `.runtime/storyagent-next-backup-20261012-1791780256`；任务目录和模型配置未改，5份日志哈希已核对。Express与前端未重启。运行PID另记 `.runtime/storyagent-current.pid`，本轮运行器为独立后台进程，Express重启会探测并复用。不要覆盖任务目录或密钥配置。
 
 ## 服务器运行
 
-服务器使用同平台 Node 22；发布包含 `dist/`、`server/`、`shared/`、必要的服务端生产依赖和 `.runtime/storyagent/`。服务器启动 Express 时自动拉起编译后的运行器，监听 loopback，浏览器只能通过 Express 代理访问。运行器任务目录要使用持久目录，不能随着版本目录一起删除。
+服务器使用同平台 Node 22；发布包含 `dist/`、`server/`、`shared/`、必要的服务端生产依赖和本轮 `.runtime/storyagent-next/`（或通过 `PINAX_RUNTIME_DIR` 显式指定的运行包）。服务器启动 Express 时自动拉起编译后的运行器，监听 loopback，浏览器只能通过 Express 代理访问。运行器默认任务目录为 `.runtime/data/storyagent-tasks`，可用 `PINAX_ADAPTER_TASKS_DIR` 显式覆盖。宿主在拉起新运行器前非破坏性复制旧 `.runtime/storyagent/tasks` 日志，保留源文件，并拒绝覆盖分歧日志。默认构建遇到输出目录含旧日志会拒绝替换，应使用独立候选目录。更新前先停止旧运行器，避免迁移期间继续追加。
 
 保留服务器已有环境配置和模型密钥。只有 `MINIMAX_API_KEY` 且没有显式 Kit 模型配置时，启动器使用 MiniMax-M2.7 的 Anthropic 接口；有显式配置时尊重显式配置。公网必须设置已有的 `PINAX_PUBLIC_ORIGINS`，由服务端关闭本机文件能力和模型写接口。不得上传本地 `.env`，也不要把运行器端口暴露到公网。
 
-发布前检查 `/api/storyagent/healthz`、模型状态、真实助手检索与生成；采用动作应在浏览器执行，不能让运行器直接修改正式作品。运行器缺失时会明确返回不可用，不自动切换另一套文本引擎。
+协议 2 前后端须成套更新，运行包健康响应需包含 `assistantProtocolVersion: 2`；只刷新网页无法让已加载旧模块的 Express 或运行器更新。发布前检查 `/api/storyagent/healthz`、模型状态、真实助手检索与生成；采用动作应在浏览器执行，不能让运行器直接修改正式作品。运行器缺失时会明确返回不可用，不自动切换另一套文本引擎。
 
 ## 回滚
 

@@ -1,6 +1,6 @@
 <template>
   <div class="worldbook-page">
-    <SettingsWorkspaceHeader>
+    <SettingsWorkspaceHeader v-if="!workspaceProps.workspaceEmbedded">
       <SettingsContextBar
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
@@ -28,6 +28,7 @@
       </SettingsContextBar>
     </SettingsWorkspaceHeader>
 
+    <p v-if="workspaceNotice" class="entry-missing-strip" role="status">{{ workspaceNotice }} <button type="button" class="ghost-btn small" :disabled="workspaceBusy" @click="reloadEntryWorkspace">重新载入</button></p>
     <div v-if="requestedEntryMissing" class="entry-missing-strip" data-test="entry-missing" role="status">
       <p>{{ tr("要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。") }}</p>
     </div>
@@ -942,8 +943,8 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { tr, uiLocale } from '../i18n/index.js'
-import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router'
-import { useWorldStore } from '../stores/worldStore'
+import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router'
+import { useWorldStore, worldbookEntryEditFingerprint } from '../stores/worldStore'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
   createWorldbookMaintenanceServices,
@@ -980,6 +981,7 @@ import { isFileSourceAvailable, refreshFileSourceAvailability } from '../service
 import { profileFromEntry } from '../services/worldbook/entryProfileTemplates.js'
 import { applyMigration, markDuplicates, scanEntriesForMigration } from '../services/worldbook/profileMigration'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -1167,13 +1169,28 @@ const entryForm = reactive({
 
 const savedWorldbookForm = ref('')
 const savedEntryForm = ref('')
-onBeforeRouteUpdate((to, from) => {
-  if (String(to.query.bookId || '') === String(from.query.bookId || '')) return true
-  if (savingWorldbook.value || savingEntry.value || importing.value || groupWorking.value || maintenanceWorking.value || maintenanceApplying.value) return false
-  const dirty = (savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value)
-    || (selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value)
-  return !dirty || window.confirm(tr('有尚未保存的设定修改，切换作品会丢弃这些修改。仍要切换吗？'))
-})
+let loadedEntryFingerprint = ''
+const workspaceNotice = ref('')
+const workspaceDirty = computed(() => Boolean((savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value) || (selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value)))
+const workspaceBusy = computed(() => savingWorldbook.value || savingEntry.value || importing.value || groupWorking.value || maintenanceWorking.value || maintenanceApplying.value)
+async function reloadEntryWorkspace() {
+  if (workspaceBusy.value || !window.confirm(tr('重新载入会放弃当前未保存的修改，请先复制需要保留的输入。'))) return
+  const id = selectedEntryId.value
+  await refreshProjectContext()
+  if (entries.value.some(entry => entry.id === id)) pickEntry(id)
+  workspaceNotice.value = ''
+}
+function canCloseWorkspace() {
+  if (workspaceBusy.value || contextLoading.value) return false
+  if (maintenanceCandidates.value.some(candidate => candidate.status === 'pending')) { workspaceNotice.value = '还有待处理的条目建议，请先采用或忽略后关闭。'; return false }
+  if (workspaceDirty.value) { workspaceNotice.value = '还有未保存的修改，请先保存后关闭条目页。'; return false }
+  return true
+}
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => workspaceBusy.value ? { label: '条目处理中', icon: 'list' } : null })
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate((to, from) => String(to.query.bookId || '') === String(from.query.bookId || '') && String(to.query.entryId || '') === String(from.query.entryId || '') || canCloseWorkspace())
+}
 
 const entryTypes = [
   { value: 'general', label: '通用' },
@@ -1260,6 +1277,8 @@ const selectedEntry = computed(() => {
   return entries.value.find(e => e.id === selectedEntryId.value) || null
 })
 
+watch(workspaceDirty, dirty => { if (!dirty) workspaceNotice.value = '' })
+
 watch(activeWorldbook, (next, previous) => {
   selectedWorldbookId.value = next?.id || ''
   const sameWorldbook = next?.id && next.id === previous?.id
@@ -1344,7 +1363,7 @@ watch(
     entryTypeFilter.value = 'all'
     injectionModeFilter.value = 'all'
     entryGroupFilter.value = 'all'
-    selectedEntryId.value = entryId
+    if (!pickEntry(entryId)) return
     await nextTick()
     const target = Array.from(document.querySelectorAll('[data-entry-id]'))
       .find((element) => element.dataset.entryId === entryId)
@@ -1553,6 +1572,7 @@ function syncWorldbookForm(worldbook) {
 }
 
 function syncEntryForm(entry) {
+  loadedEntryFingerprint = worldbookEntryEditFingerprint(entry)
   const injection = normalizeInjection(entry?.injection)
   entryForm.name = entry?.name || ''
   entryForm.type = entry?.type || 'general'
@@ -1806,6 +1826,9 @@ async function saveWorldbook() {
       description: worldbookForm.worldDescription.trim() // 兼容旧字段
     })
     await worldStore.loadWorldbooksIndex()
+    workspaceNotice.value = ''
+  } catch (error) {
+    workspaceNotice.value = error?.message || '世界书未能保存，当前输入仍保留。'
   } finally {
     savingWorldbook.value = false
   }
@@ -1897,11 +1920,14 @@ async function saveEntry() {
       updates.profile = merged
       Object.assign(updates, characterVoicePayload(merged.speech, nextName))
     }
-    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, updates)
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, updates, { expectedFingerprint: loadedEntryFingerprint })
     await worldStore.loadWorldbooksIndex()
     if (normalizedInjection.group) {
       await persistWorldbookGroups([normalizedInjection.group])
     }
+    workspaceNotice.value = ''
+  } catch (error) {
+    workspaceNotice.value = error?.message || '条目未能保存，当前输入仍保留。'
   } finally {
     savingEntry.value = false
   }
@@ -1959,7 +1985,9 @@ function onAdvancedToggle(event) {
 }
 
 function pickEntry(entryId) {
+  if (entryId !== selectedEntryId.value && selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value) { workspaceNotice.value = '当前条目还有未保存的修改，请先保存再切换条目。'; return false }
   selectedEntryId.value = entryId
+  return true
 }
 
 function isEntrySelected(entryId) {

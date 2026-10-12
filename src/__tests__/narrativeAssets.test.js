@@ -24,7 +24,8 @@ import {
   setNarrativeAssetsStatus,
   setNarrativeAssetStatus,
   updateNarrativeAsset,
-  updateNarrativeAssetDurable
+  updateNarrativeAssetDurable,
+  subscribeNarrativeAssets
 } from '@/services/media/narrativeAssets'
 import { createChapterOutlineItemFromAsset } from '@/services/writing/chapterOutline'
 import {
@@ -355,6 +356,18 @@ const first = addNarrativeAsset({
     })
     expect(updated.title).toBe('新的秘密')
     expect(updated.kind).toBe('character-fact')
+    await Promise.resolve()
+    const notifications = []
+    const release = subscribeNarrativeAssets(() => notifications.push('saved'))
+    const snapshot = { projectId: updated.projectId, title: updated.title, content: updated.content }
+    expect(updateNarrativeAssetDurable(first.id, { content: '更新后的秘密' }, { expected: snapshot }).ok).toBe(true)
+    await Promise.resolve()
+    expect(notifications).toEqual(['saved'])
+    expect(updateNarrativeAssetDurable(first.id, { content: '迟到的覆盖' }, { expected: snapshot }).reason).toBe('asset-conflict')
+    await Promise.resolve()
+    expect(notifications).toEqual(['saved'])
+    expect(listNarrativeAssets().find(asset => asset.id === first.id).content).toBe('更新后的秘密')
+    release()
 
     setNarrativeAssetStatus(first.id, 'accepted')
     expect(listNarrativeAssets({ status: 'inbox', projectId: 'book-a' })).toHaveLength(0)
@@ -510,7 +523,7 @@ expect(ensureAssetCanvasCards([])).toEqual({
       catalog.checkedAssetIds.value = [assetA.id, assetB.id]
       let failedWrites = 0
       Storage.prototype.setItem = function (key, value) {
-        if (key === STORAGE_KEYS.PROSE_CARDS_V1) {
+        if (key === STORAGE_KEYS.PROSE_CARDS_V1 || key.startsWith('pinax-prose-workspace:v1:')) {
           failedWrites += 1
           throw new DOMException('quota', 'QuotaExceededError')
         }
@@ -520,7 +533,7 @@ expect(ensureAssetCanvasCards([])).toEqual({
       expect(() => ensureAssetCanvasCardWithExtra(assetA, { duration: 5 })).toThrow('画布保存失败')
       expect(listRelationCanvasCards()).toEqual([])
       expect(catalog.openSelectedAssetInCanvas()).toMatchObject({ ok: false, reason: 'storage-write-failed' })
-      expect(catalog.sendCheckedAssetsToCanvas()).toMatchObject({ ok: false, reason: 'storage-write-failed' })
+      expect(catalog.sendCheckedAssetsToCanvas()).toMatchObject({ ok: false, reason: 'project-mismatch' })
       expect(catalog.checkedAssetIds.value).toEqual([assetA.id, assetB.id])
       expect(catalog.selectedChapterId.value).toBe(assetB.id)
       expect(catalog.canvasImportRevision.value).toBe(0)
@@ -533,10 +546,15 @@ expect(ensureAssetCanvasCards([])).toEqual({
       expect(listRelationCanvasCards()).toEqual([])
 
       Storage.prototype.setItem = originalSetItem
+      // A book canvas cannot silently absorb material from another book.
+      expect(catalog.sendCheckedAssetsToCanvas().ok).toBe(false)
+      expect(listRelationCanvasCards({ projectId: 'book-b' })).toEqual([])
+      catalog.checkedAssetIds.value = [assetB.id]
       expect(catalog.sendCheckedAssetsToCanvas()).toEqual({ ok: true })
       expect(catalog.checkedAssetIds.value).toEqual([])
       expect(routes.pop()).toEqual({ name: 'prose-essay', query: { assetId: assetB.id } })
-      expect(listRelationCanvasCards()).toHaveLength(2)
+      expect(listRelationCanvasCards({ projectId: 'book-b' })).toHaveLength(1)
+      expect(listRelationCanvasCards({ projectId: 'book-a' })).toEqual([])
 
       localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
       const pending = catalog.generateAndImportToCanvas()
@@ -545,7 +563,7 @@ expect(ensureAssetCanvasCards([])).toEqual({
       expect(await pending).toEqual({ ok: false, reason: 'save-blocked', canvasSaved: true })
       expect(routes).toEqual([])
       expect(catalog.selectedAsset.value.content).toBe('等待期间继续写的内容')
-      expect(listRelationCanvasCards()[0]).toMatchObject({ assetId: assetB.id, content: '' })
+      expect(listRelationCanvasCards({ projectId: 'book-b' })[0]).toMatchObject({ assetId: assetB.id, content: '' })
     } finally {
       Storage.prototype.setItem = originalSetItem
       if (previousBooks === null) localStorage.removeItem(STORAGE_KEYS.WRITING_BOOKS)

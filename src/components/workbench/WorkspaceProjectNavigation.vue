@@ -6,6 +6,9 @@ import { STORAGE_KEYS } from '../../composables/useStorage.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
+
+const contentWorkspace = useComposableWorkspace()
 
 const props = defineProps({
   bookId: { type: String, default: '' },
@@ -37,7 +40,7 @@ const moreOpen = ref(false)
 const routes = Object.freeze({
   writing: 'authoring', assistant: 'authoring', settings: 'settings-structured',
   sources: 'settings-sources', materials: 'materials', map: 'settings-world-map',
-  comics: 'comics', canvas: 'prose-essay'
+  comics: 'comics', canvas: 'prose-essay', entries: 'settings-worldbook-advanced', experience: 'experience', online: 'online-experience'
 })
 const mainSurfaces = Object.freeze([
   { key: 'writing', label: '正文', icon: 'writing' },
@@ -46,10 +49,13 @@ const mainSurfaces = Object.freeze([
   { key: 'sources', label: '资料', icon: 'sources' }
 ])
 const extraSurfaces = Object.freeze([
-  { key: 'materials', label: '灵感', icon: 'compass' },
+  { key: 'materials', label: '素材', icon: 'image' },
   { key: 'map', label: '地图', icon: 'map' },
   { key: 'comics', label: '漫画', icon: 'comics' },
-  { key: 'canvas', label: '视频', icon: 'film' }
+  { key: 'canvas', label: '视频', icon: 'film' },
+  { key: 'entries', label: '条目', icon: 'list' },
+  { key: 'experience', label: '跑团', icon: 'adventure' },
+  { key: 'online', label: '联机', icon: 'users' }
 ])
 const currentExtra = computed(() => extraSurfaces.find(surface => surface.key === currentSurface.value))
 function closeMore(restoreFocus = false) {
@@ -95,6 +101,7 @@ onBeforeUnmount(() => {
 
 function isDisabled(surface) {
   if (surface !== 'home' && !selectedBook.value) return true
+  if (surface === 'sources' && contentWorkspace && !props.managed) return navigating.value
   return surface !== currentSurface.value && (props.blocked || navigating.value)
 }
 function surfaceTitle(surface, label) {
@@ -151,6 +158,9 @@ function selectSurface(surface) {
   closeMore(surface === currentSurface.value)
   emit('select', surface)
   if (props.managed || surface === currentSurface.value) return
+  if (surface === 'sources' && contentWorkspace) {
+    if (contentWorkspace.openResource({ type: 'sources', bookId: String(selectedBook.value.id), worldbookId: String(selectedBook.value.worldbookId || '') })) return
+  }
   void navigate(surfaceRoute(surface, selectedBook.value))
 }
 async function selectBook(event) {

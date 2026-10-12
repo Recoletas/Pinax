@@ -7,13 +7,12 @@
  * 项目模式共用作品导航；无作品的全局模式保留世界书选择。
  * 底层归档/按书绑定/解析/备份全部复用 N-A 已有实现。
  */
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { tr } from '../i18n'
 import { useWorldStore } from '../stores/worldStore'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
-import WorldbookSourcesPanel from '../components/worldbook/WorldbookSourcesPanel.vue'
-const WorldbookSourceImportDialog = defineAsyncComponent(() => import('../components/worldbook/WorldbookSourceImportDialog.vue'))
+import WorkspaceSourcesView from '../components/workbench/WorkspaceSourcesView.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
@@ -22,14 +21,16 @@ import LocalizationCenter from '../components/settings/LocalizationCenter.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { STORAGE_KEYS } from '../composables/useStorage.js'
+import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 
 const route = useRoute()
 const router = useRouter()
+const contentWorkspace = useComposableWorkspace()
 const worldStore = useWorldStore()
 
 const bookId = computed(() => typeof route.query.bookId === 'string' ? route.query.bookId.trim() : '')
 const books = ref([])
-const importOpen = ref(false)
+const sourceView = ref(null)
 const projectBook = computed(() => books.value.find(book => String(book.id) === bookId.value) || null)
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex)
 const { context, worldbook: activeWorldbook, loading: contextLoading, loadError, refresh } = useSettingsProjectContext({ worldStore })
@@ -101,7 +102,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('storage', onStorage)
   window.removeEventListener('focus', refreshBooks)
 })
-watch(bookId, () => { importOpen.value = false; closeNavigation({ restoreFocus: false }) })
+watch(bookId, () => { closeNavigation({ restoreFocus: false }) })
 // Repository changes can remove this book or change its binding without a route
 // change. Hide a removed project's sources and reload a newly accepted binding.
 watch(() => [bookId.value, projectBook.value?.id || '', projectBook.value?.worldbookId || ''], (next, previous) => {
@@ -115,31 +116,29 @@ function onWorldbookChange(wbId) {
 }
 
 function goCreate() {
-  importOpen.value = true
+  sourceView.value?.openImport()
 }
-
-async function onImportCompleted() {
-  importOpen.value = false
-  await refresh()
-}
-watch(() => route.query.import, async value => {
-  if (value !== 'add' || !bookId.value) return
-  importOpen.value = true
+watch([() => route.query.import, sourceView], async ([value, view]) => {
+  if (value !== 'add' || !bookId.value || !view) return
+  view.openImport()
   const query = { ...route.query }; delete query.import
   await router.replace({ name: 'settings-sources', query })
+}, { immediate: true })
+watch([() => route.query.sourceId, sourceView], ([id, view]) => {
+  if (typeof id === 'string' && id && view) contentWorkspace?.openResource({ type: 'source', bookId: bookId.value, worldbookId: selectedWorldbookId.value, id })
 }, { immediate: true })
 </script>
 
 <template>
   <div class="settings-page" :class="{ 'is-project': bookId }" data-test="settings-sources" @keydown.esc="onEscape">
     <button v-if="navigationOverlay" type="button" class="settings-sources-navigation-scrim" :aria-label="tr('关闭作品导航')" @click="closeNavigation"></button>
-    <aside v-if="bookId" id="sources-workspace-navigation" ref="navigationRef" class="settings-sources-navigation" :class="{ 'is-open': navigationOpen }" :aria-label="tr('作品导航')">
+    <aside v-if="bookId && !contentWorkspace?.moduleNavigation.value" id="sources-workspace-navigation" ref="navigationRef" class="settings-sources-navigation" :class="{ 'is-open': navigationOpen }" :aria-label="tr('作品导航')">
       <WorkspaceProjectNavigation :book-id="bookId" current="sources" @select="onSurfaceSelect" @select-book="closeNavigation">
         <template #actions><button v-if="narrow" type="button" class="settings-sources-navigation-close" :aria-label="tr('关闭作品导航')" :title="tr('关闭作品导航')" @click="closeNavigation"><WorkbenchIcon name="close" :size="18" /></button></template>
       </WorkspaceProjectNavigation>
     </aside>
     <main class="settings-sources-main" :inert="navigationOverlay ? '' : null">
-    <div v-if="bookId" class="settings-sources-navigation-toolbar">
+    <div v-if="bookId && !contentWorkspace?.moduleNavigation.value" class="settings-sources-navigation-toolbar">
       <button ref="navigationToggleRef" type="button" :aria-expanded="navigationOpen" aria-controls="sources-workspace-navigation" :aria-label="tr('打开作品导航')" :title="tr('打开作品导航')" @click="openNavigation"><WorkbenchIcon name="panel-left" :size="19" /><span>{{ tr('作品导航') }}</span></button>
       <strong :title="contextLabel">{{ contextLabel }}</strong>
     </div>
@@ -177,28 +176,19 @@ watch(() => route.query.import, async value => {
       <button type="button" class="control-primary" @click="router.push({ name: 'settings-structured' })">{{ tr("回到设定") }}</button>
     </div>
 
-    <div v-else-if="!activeWorldbook" class="settings-sources-empty" role="status">
-      <WorkbenchIcon name="sources" :size="32" />
-      <h2>{{ tr("还没有参考资料") }}</h2>
-      <p>{{ tr("添加文档或文字片段，写作时随时回来查阅。") }}</p>
-      <small>{{ tr("支持 TXT、Markdown、PDF、DOCX 与 EPUB") }}</small>
-    </div>
-
     <template v-else>
       <div class="settings-sources-body">
-        <WorldbookSourcesPanel :initial-source-id="String(route.query.sourceId || '')"
+        <WorkspaceSourcesView ref="sourceView"
           :key="`${bookId}:${selectedWorldbookId}`"
-          :worldbook="activeWorldbook"
-          :book-id="bookId"
-          :initial-open="true"
-          standalone
+          :resource="{ type: 'sources', bookId, worldbookId: selectedWorldbookId }"
+          :instance-id="`sources-route:${bookId}:${selectedWorldbookId}`"
+          :show-add-button="false"
           @sources-changed="refresh"
         />
       </div>
     </template>
     <details class="settings-sources-localization" data-test="settings-localization-dock"><summary>{{ tr("本地化中心") }}</summary><LocalizationCenter /></details>
     </main>
-    <WorldbookSourceImportDialog v-if="importOpen && bookId" :key="bookId" :book-id="bookId" @close="importOpen = false" @completed="onImportCompleted" />
   </div>
 </template>
 

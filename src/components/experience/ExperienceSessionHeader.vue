@@ -8,10 +8,11 @@ const props = defineProps({
   sessionTitleTooltip: { type: String, default: '' },
   codexOpen: Boolean,
   advisorEnabled: Boolean,
+  sourcesEnabled: Boolean,
   hasSelectedWorldbook: Boolean,
   readingProfile: { type: String, default: 'standard' }
 })
-const emit = defineEmits(['open-session', 'open-codex', 'open-advisor', 'update:reading-profile'])
+const emit = defineEmits(['open-session', 'open-codex', 'open-advisor', 'open-sources', 'update:reading-profile'])
 const router = useRouter()
 const moreOpen = ref(false)
 
@@ -34,6 +35,7 @@ function navigate(name) {
       </button>
     </div>
     <div class="ws-topstrip__actions">
+      <button v-if="sourcesEnabled" class="ws-topstrip__sources control-quiet" type="button" title="在旁边打开资料" @click="emit('open-sources')">资料</button>
       <button class="ws-topstrip__codex-toggle control-quiet" type="button" aria-controls="experience-codex" :aria-expanded="codexOpen.toString()" @click="emit('open-codex', $event)">索引</button>
       <button class="ws-more-trigger control-icon" data-transient-trigger="advisor-review" type="button" aria-label="更多体验设置" :aria-expanded="moreOpen.toString()" @click="moreOpen = !moreOpen">
         <WorkbenchIcon name="more" :size="18" />
@@ -53,3 +55,10 @@ function navigate(name) {
     </div>
   </section>
 </template>
+
+<style scoped>
+.ws-topstrip__sources { display: inline-flex; flex: none; white-space: nowrap; align-items: center; justify-content: center; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); font: 13px var(--font-sans); cursor: pointer; }
+.ws-topstrip__sources:hover { background: var(--nav-hover); color: var(--text-primary); }
+.ws-topstrip__sources:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 760px), (pointer: coarse) { .ws-topstrip__sources { min-width: 44px; min-height: 44px; } }
+</style>

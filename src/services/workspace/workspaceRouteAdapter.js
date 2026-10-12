@@ -196,6 +196,21 @@ export function closeWorkspaceTab(store, router, tabId) {
   }).then(ok => ok ? result : { ok: false, route: null, reason: 'navigation-cancelled' })
 }
 
+export function closeWorkspaceProject(store, router, projectId) {
+  const active = store.tabs.find(tab => tab.id === store.activeTabId)
+  if (active?.scope !== 'project' || active.projectId !== projectId) return Promise.resolve(store.closeProject(projectId))
+  const other = [...store.tabs].filter(tab => tab.scope !== 'project' || tab.projectId !== projectId).sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))[0]
+  const target = other ? routeForTab(other) : { name: 'welcome', query: {} }
+  if (!target) return Promise.resolve({ ok: false })
+  return runProgrammatic(store, router, 'push', target, actual => {
+    const result = store.closeProject(projectId)
+    if (!result.ok) return false
+    if (actual.name === 'welcome') store.clearActiveTab()
+    else store.syncFromRoute(actual)
+    return true
+  }).then(ok => ({ ok }))
+}
+
 // 供测试与显式调用方判断当前是否处于程序化导航窗口。
 export function isWorkspaceRouteSyncing() {
   return syncing

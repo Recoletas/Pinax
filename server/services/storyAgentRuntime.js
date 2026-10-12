@@ -3,7 +3,8 @@
 // loopback plane and, when the kit repo is available locally, spawns it with the
 // Pinax-side config. Public browsers reach it only through the guarded /api/storyagent proxy.
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { preserveStoryAgentJournals } from './storyAgentJournals.js'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
 
@@ -24,7 +25,12 @@ export async function startStoryAgentRuntime(env = process.env) {
   const endpoint = env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT
   const configPath = env.PINAX_ADAPTER_CONFIG
     || path.resolve(process.cwd(), 'adapters', 'pinax-adapter', '.external', 'pinax-adapter.json')
-  const packagedEntry = path.resolve(process.cwd(), '.runtime', 'storyagent', 'dist', 'pinax', 'serve.js')
+  const nextPackage = path.resolve(process.cwd(), '.runtime', 'storyagent-next')
+  let nextReady = false
+  try { nextReady = JSON.parse(readFileSync(path.join(nextPackage, 'runtime-source.json'), 'utf8')).assistantProtocolVersion === 2 } catch { /* no candidate */ }
+  const packageRoot = env.PINAX_RUNTIME_DIR || (nextReady ? nextPackage : path.resolve(process.cwd(), '.runtime', 'storyagent'))
+  const packagedEntry = path.resolve(packageRoot, 'dist', 'pinax', 'serve.js')
+  const tasksDir = env.PINAX_ADAPTER_TASKS_DIR || path.resolve(process.cwd(), '.runtime', 'data', 'storyagent-tasks')
   const serveTs = env.PINAX_KIT_SERVE_TS
     || path.resolve(process.cwd(), '..', 'storyflow-kit', 'storyharness', 'src', 'pinax', 'serve.ts')
   const endpointUrl = new URL(endpoint)
@@ -37,6 +43,8 @@ export async function startStoryAgentRuntime(env = process.env) {
 
   if (await probeHealthz(endpoint)) return { spawned: null, close() {}, closeAllConnections() {} }
 
+  if (!env.PINAX_ADAPTER_TASKS_DIR) preserveStoryAgentJournals(path.resolve(process.cwd(), '.runtime', 'storyagent', 'tasks'), tasksDir)
+
   if (!existsSync(packagedEntry) && !existsSync(serveTs)) {
     console.warn(`[storyagent] Kit task plane not running and serve entry not found (${serveTs}); text requests require a healthy Agent runtime.`)
     return null
@@ -48,7 +56,7 @@ export async function startStoryAgentRuntime(env = process.env) {
   }
   const child = spawn(process.execPath, existsSync(packagedEntry) ? [packagedEntry] : [tsxCli, serveTs], {
     cwd: existsSync(packagedEntry) ? path.dirname(packagedEntry) : path.dirname(serveTs),
-    env: { ...runtimeEnv, PINAX_ADAPTER_CONFIG: configPath, PINAX_ADAPTER_HOST: '127.0.0.1' },
+    env: { ...runtimeEnv, PINAX_ADAPTER_CONFIG: configPath, PINAX_ADAPTER_HOST: '127.0.0.1', PINAX_ADAPTER_TASKS_DIR: tasksDir },
     stdio: 'ignore',
   })
   child.on('error', (error) => console.warn(`[storyagent] Kit task plane spawn failed: ${error.message}`))

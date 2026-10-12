@@ -13,13 +13,15 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
   sources: 'settings-sources',
   map: 'settings-world-map',
   comics: 'comics',
+  roleplay: 'experience',
+  online: 'online-experience',
   // 项目高级条目（联动闭环 L2）：带 bookId 是项目 surface；不带时回落全局模式。
   entries: 'settings-worldbook-advanced'
 })
 
 // 双模式路由：同名路由带 bookId 是项目 surface，不带是全局 surface。
 // 路由适配器对它们不做「补默认书」的 canonical 化，避免全局访问被吞进项目。
-export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced']))
+export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced', 'experience', 'online-experience']))
 
 export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
   experience: 'experience',
@@ -40,6 +42,8 @@ export const SURFACE_LABELS = Object.freeze({
   map: '地图',
   comics: '漫画',
   experience: '体验',
+  roleplay: '跑团',
+  online: '联机',
   docs: '文档',
   'settings-worldbook': '设定',
   'settings-worldbook-create': '创建世界书',
@@ -50,6 +54,23 @@ export const SURFACE_LABELS = Object.freeze({
 })
 
 let tabIdSequence = 0
+
+// Module routes retain their restore state; the visible tab represents a book.
+export function groupWorkspaceProjectTabs(tabs, activeId) {
+  const groups = new Map()
+  const result = []
+  for (const tab of tabs) {
+    if (tab.scope !== 'project') { result.push(tab); continue }
+    if (!groups.has(tab.projectId)) { groups.set(tab.projectId, []); result.push(tab.projectId) }
+    groups.get(tab.projectId).push(tab)
+  }
+  return result.map(item => {
+    if (typeof item !== 'string') return item
+    const group = groups.get(item)
+    const chosen = group.find(tab => tab.id === activeId) || [...group].sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))[0]
+    return { ...chosen, projectGrouped: true, dirty: group.some(tab => tab.dirty) }
+  })
+}
 
 export function createTabId() {
   tabIdSequence += 1

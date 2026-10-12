@@ -6,6 +6,7 @@ import { getExplorationDocument } from '../services/writing/authoringDocumentRep
 // work remain adapters supplied by Authoring because they belong to the editor.
 export function useAuthoringBookActivation({
   route,
+  canSwitchProject = () => true,
   books,
   chapters,
   selectedBookId,
@@ -88,6 +89,7 @@ export function useAuthoringBookActivation({
   }
 
   function activateBook(bookId, { savePrevious = true } = {}) {
+    if (!canSwitchProject(bookId)) { notify('请先完成或停止当前任务再切换作品'); return null }
     if (pendingGhostAdoption.value) {
       notify('推演正文尚未保存，请先重试保存或留在当前章节')
       return null
@@ -140,6 +142,7 @@ export function useAuthoringBookActivation({
   }
 
   function selectBook(bookId, options = {}) {
+    if (!canSwitchProject(bookId)) { notify('请先完成或停止当前任务再切换作品'); return false }
     if (pendingGhostAdoption.value) {
       notify('推演正文尚未保存，请先重试保存或留在当前章节')
       return false

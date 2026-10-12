@@ -214,6 +214,10 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now(), sourceEnt
 // Authoring run 的只读世界书边界：从指定 storage key 读取一份独立快照，
 // 复用正式 worldbook 归一逻辑，但不切换 activeWorldbook，也不执行旧来源归档
 // 迁移或任何持久化写入。项目与世界书绑定关系由上层 repository adapter 核对。
+export function worldbookEntryEditFingerprint(entry) {
+  return JSON.stringify(['id', 'name', 'type', 'content', 'keys', 'keysSecondary', 'injection', 'profile', 'links', 'relations', 'status', 'tier'].map(key => entry?.[key] ?? null))
+}
+
 export function readWorldbookSnapshot(worldbookId) {
   const id = String(worldbookId ?? '').trim()
   if (!id) return null
@@ -804,8 +808,8 @@ export const useWorldStore = defineStore('world', {
       return persistedEntry
     },
 
-    async _updateEntryMutation(worldbookId, entryId, updates) {
-      let worldbook = this.activeWorldbook
+    async _updateEntryMutation(worldbookId, entryId, updates, options = {}) {
+      let worldbook = options.expectedFingerprint !== undefined ? readWorldbookSnapshot(worldbookId) : this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
@@ -816,6 +820,7 @@ export const useWorldStore = defineStore('world', {
       if (entryIdx < 0) throw new Error('条目不存在')
 
       const entry = worldbook.entries[entryIdx]
+      if (options.expectedFingerprint !== undefined && worldbookEntryEditFingerprint(entry) !== options.expectedFingerprint) throw new Error('条目已在别处更新，当前输入仍保留。请先保留输入再重新载入。')
       // A1.3 守卫：structured entry 被用户编辑了「sync 会覆盖的字段」
       // (name/type/injection) 时，标记 userTouched，避免后续 reload 被静默还原。
       const isStructuredEntry = entry.metadata?.importSource === 'structured-setting' ||
@@ -964,8 +969,8 @@ export const useWorldStore = defineStore('world', {
       return this._runWorldbookMutation(worldbookId, () => this._addEntryMutation(worldbookId, entryData), 'entry')
     },
 
-    updateEntryDurable(worldbookId, entryId, updates) {
-      return this._runWorldbookMutation(worldbookId, () => this._updateEntryMutation(worldbookId, entryId, updates), 'entry')
+    updateEntryDurable(worldbookId, entryId, updates, options = {}) {
+      return this._runWorldbookMutation(worldbookId, () => this._updateEntryMutation(worldbookId, entryId, updates, options), 'entry')
     },
 
     deleteEntryDurable(worldbookId, entryId) {
@@ -997,8 +1002,8 @@ export const useWorldStore = defineStore('world', {
       return unwrapWorldbookMutation(await this.addEntryDurable(worldbookId, entryData), 'entry')
     },
 
-    async updateEntry(worldbookId, entryId, updates) {
-      return unwrapWorldbookMutation(await this.updateEntryDurable(worldbookId, entryId, updates), 'entry')
+    async updateEntry(worldbookId, entryId, updates, options = {}) {
+      return unwrapWorldbookMutation(await this.updateEntryDurable(worldbookId, entryId, updates, options), 'entry')
     },
 
     // W2·G5 重复条目标记（去重保守裁定）：只给条目打 metadata.duplicateOf，

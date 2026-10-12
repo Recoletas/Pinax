@@ -1,0 +1,170 @@
+/* 知识控制台表格面的共用控件层（人物表／伏笔台账／记录浮层共用一份）。
+ *
+ * 为什么要有这个文件：`.text-input / .select-input / .ghost-btn / .primary-btn / .danger-btn`
+ * 这些类名只在 `WorldBookEditor.vue` 的 **scoped** 样式里有定义（无 :deep），所以离开编辑台后
+ * 它们什么也不是——同一页里浏览视图（BrowserSearchBar、.ueb-mode）是描边＋主色焦点的形态，
+ * 表格却是浏览器原生控件（原生下拉箭头、原生复选框蓝、原生搜索框放大镜），两套形态并存。
+ *
+ * 命名空间 `.knowledge-tables` 由两张表的根节点与记录浮层带上：编辑台里挂的是同一个
+ * EntryProfileEditor，它那里的字段是无边框下划线形态，不能被子孙选择器改成有框。
+ */
+
+/* —— 字段：8px 圆角 + --border 描边，主色只给焦点（与 .browser-search-input 同档）。
+   裸 textarea 也要收进来：记录浮层里挂的是编辑台那个 EntryProfileEditor，它有几处不带类名的
+   textarea（自由字段／台词示例／开场白），不收就同一张表单里一半有框一半是浏览器默认。 —— */
+.knowledge-tables :is(.text-input, .select-input, .text-area, textarea) {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.knowledge-tables :is(.text-input, .select-input, .text-area, textarea)::placeholder { color: var(--text-muted); }
+.knowledge-tables :is(.text-input, .select-input, .text-area, textarea):hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.knowledge-tables :is(.text-input, .select-input, .text-area, textarea):focus { outline: none; border-color: var(--accent); }
+
+/* 下拉箭头走主题自带的 --control-select-indicator（亮 #575b62 / 暗 #a9adb3），
+   与 workbench-controls.css 对全应用 select 的处理逐字同参，不再露出系统原生箭头。 */
+.knowledge-tables select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-inline-end: 32px;
+  background-image: var(--control-select-indicator);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+}
+@media (forced-colors: active) {
+  .knowledge-tables select:not([multiple]):not([size]) { appearance: auto; background-image: none; }
+}
+
+/* 勾选态吃主色（原生是系统蓝），尺寸与 WritingPreferences 的偏好勾选同档 */
+.knowledge-tables :is(input[type='checkbox'], input[type='radio']) {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+/* 搜索框的原生放大镜与 ✕ 是浏览器灰，与本页 --text-muted 不是一套；清理由 focus 描边承担 */
+.knowledge-tables input[type='search']::-webkit-search-cancel-button,
+.knowledge-tables input[type='search']::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+/* —— 按钮：一个区域最多一个实色主按钮，这里主按钮用「主色描边＋淡底」（同 .browser-search-go） —— */
+.knowledge-tables :is(.ghost-btn, .primary-btn, .danger-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+.knowledge-tables :is(.ghost-btn, .primary-btn, .danger-btn).small { min-height: 28px; padding: 3px 10px; font-size: 12px; }
+.knowledge-tables .ghost-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.knowledge-tables .primary-btn {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.knowledge-tables .primary-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.knowledge-tables .danger-btn { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); color: var(--danger); }
+.knowledge-tables .danger-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.knowledge-tables :is(.ghost-btn, .primary-btn, .danger-btn):disabled { opacity: 0.55; cursor: default; }
+.knowledge-tables :is(.ghost-btn, .primary-btn, .danger-btn):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 行内动作竖排一列：常驻描边会让每行多两个框，这里收成静默文字按钮，hover 才回描边。
+   危险动作（删行／确认删除）的 hover 保持危险色——让「删除」在 hover 时突然变成主色，
+   读起来像是安全动作。 */
+.knowledge-tables :is(.edt-cell-action, .flt-cell-action) :is(.ghost-btn, .danger-btn) {
+  justify-content: flex-start;
+  border-color: transparent;
+}
+.knowledge-tables :is(.edt-cell-action, .flt-cell-action) :is(.edt-delete-btn, .flt-delete-btn, .danger-btn) {
+  color: var(--danger);
+}
+.knowledge-tables :is(.edt-cell-action, .flt-cell-action) .ghost-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--bg-primary);
+}
+.knowledge-tables :is(.edt-cell-action, .flt-cell-action) :is(.edt-delete-btn, .flt-delete-btn, .danger-btn):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+}
+
+/* 行内下拉（人物表的档位／状态、台账的状态）与同一行的格子按钮同一档：静默无框，hover 或聚焦才起框。
+   常驻描边会让每行凭空多两个框，数据行读起来像一排控件；工具条上的下拉（分组）仍走有框形态，
+   因为那里它是控件而不是数据。 */
+.knowledge-tables :is(.edt-axis-select, .flt-status) {
+  min-height: 30px;
+  padding: 4px 28px 4px 6px;
+  border-color: transparent;
+  background-color: transparent;
+  background-position: right 8px center;
+}
+.knowledge-tables :is(.edt-axis-select, .flt-status):hover,
+.knowledge-tables :is(.edt-axis-select, .flt-status):focus {
+  border-color: var(--border);
+  background-color: var(--bg-secondary);
+}
+
+/* —— 格子即字段：两张表的行内格子按钮共用一套形态。以前人物表写 30px 高、hover 回 --bg-primary
+   （容器本身就是 --bg-primary，等于只有描边没有起底），台账表不写高度、hover 用 --bg-secondary，
+   同一页两套表格语言。触控档的最小命中高度也一并同源。 */
+.knowledge-tables :is(.edt-cell-btn, .flt-cell-btn) {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.knowledge-tables :is(.edt-cell-btn, .flt-cell-btn):hover,
+.knowledge-tables :is(.edt-cell-btn, .flt-cell-btn):focus-visible {
+  border-color: var(--border);
+  background: var(--bg-secondary);
+  outline: none;
+}
+.knowledge-tables :is(.edt-cell-btn, .flt-cell-btn).is-empty { color: var(--text-muted); }
+@media (pointer: coarse) {
+  .knowledge-tables :is(.edt-cell-btn, .flt-cell-btn) { min-height: 40px; }
+}
+
+/* 纯字形按钮（隐藏列的 ×）：静默用 --text-muted，hover/焦点才提一级，避免一片灰叉像禁用 */
+.knowledge-tables :is(.edt-col-hide) {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.knowledge-tables .edt-col-hide:hover { color: var(--text-primary); }
+.knowledge-tables .edt-col-hide:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

@@ -1,6 +1,6 @@
 <template>
   <div class="world-map-page">
-    <SettingsWorkspaceHeader>
+    <SettingsWorkspaceHeader v-if="!workspaceProps.workspaceEmbedded">
       <SettingsContextBar
         :model-value="context?.worldbookId || ''"
         :worldbooks-index="worldStore.worldbooksIndex"
@@ -19,6 +19,7 @@
         v-if="mapContextReady"
         :key="`${context?.bookId || 'global'}:${worldbook?.id || ''}`"
         :worldbook="worldbook"
+        :workspace-active="workspaceProps.workspaceActive"
         :project-id="context?.bookId || ''"
         :reload-worldbook="reloadWorldbookSnapshot"
         :focus-place-id="focusPlaceId"
@@ -38,7 +39,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter, onBeforeRouteUpdate } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import WorldMapPanel from '../components/geography/WorldMapPanel.vue'
@@ -47,6 +48,7 @@ import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHe
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const route = useRoute()
 const router = useRouter()
 const worldStore = useWorldStore()
@@ -56,11 +58,16 @@ const mapBusy = ref(false)
 const switchingSource = ref(false)
 let sourceChangeSequence = 0
 const mapContextReady = computed(() => !contextLoading.value && Boolean(worldbook.value))
+function canCloseWorkspace() { return !mapBusy.value && !switchingSource.value && !contextLoading.value }
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => mapBusy.value || switchingSource.value ? { label: '地图处理中', icon: 'map' } : null })
+if (!workspaceProps.workspaceEmbedded) {
+onBeforeRouteLeave(canCloseWorkspace)
 onBeforeRouteUpdate((to, from) => {
   const changed = String(to.query.bookId || '') !== String(from.query.bookId || '')
     || String(to.query.worldbookId || '') !== String(from.query.worldbookId || '')
-  return !changed || !mapBusy.value
+  return !changed || canCloseWorkspace()
 })
+}
 onMounted(async () => {
   await worldStore.loadWorldbooksIndex()
   if (context.value?.mode === 'global' && !route.query.worldbookId && !worldbook.value) {

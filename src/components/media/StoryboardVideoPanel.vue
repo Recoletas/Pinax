@@ -30,7 +30,9 @@ import {
 const props = defineProps({
   context: { type: Object, default: null },
   stale: { type: Boolean, default: false },
-  projectId: { type: String, default: null }
+  projectId: { type: String, default: null },
+  embedded: Boolean,
+  validateContext: { type: Function, default: null }
 })
 
 const emit = defineEmits(['close', 'archived', 'shots-updated'])
@@ -250,7 +252,7 @@ onBeforeUnmount(() => {
 })
 useTransientLayer({
   id: 'storyboard-video-panel',
-  isOpen: panelOpen,
+  isOpen: computed(() => panelOpen.value && !props.embedded),
   exclusive: false,
   initialFocus: () => closeRef.value,
   onClose: () => { if (!submitting.value) emit('close') }
@@ -350,6 +352,7 @@ function restoreTask() {
 
 async function submitJob() {
   if (!canSubmit.value) return
+  if (props.validateContext && !props.validateContext()) { hasError.value = true; message.value = '分镜版本已变化，请打开当前版本后再生成。'; return }
   if (isMinimax.value && backendContractOutdated.value) {
     hasError.value = true
     message.value = '当前视频服务需要更新，请联系站点维护者。'
@@ -719,6 +722,10 @@ function handleVideoConfigsUpdated(configs) {
   applySelectedVideoConfig()
 }
 
+defineExpose({ canClose: () => !busy.value && !testingConnection.value && savingVideoIds.value.size === 0,
+  getTaskSummary: () => busy.value ? { id: job.value?.id || '', label: '视频生成中', status: submitting.value ? 'submitting' : job.value?.status || 'running',
+    projectId: props.projectId, documentId: taskSnapshot.value?.documentId || props.context?.document?.id, versionId: taskSnapshot.value?.versionId || version.value.versionId } : null })
+
 function applySelectedVideoConfig() {
   const config = selectedVideoConfig.value
   if (!config) return
@@ -765,13 +772,13 @@ function mergeProviderMetadata(remoteProviders) {
 </script>
 
 <template>
-  <section class="video-panel" role="dialog" aria-label="生成镜头视频" aria-describedby="video-panel-context">
+  <section class="video-panel" :class="{ 'is-embedded': embedded }" :role="embedded ? 'region' : 'dialog'" aria-label="生成镜头视频" :aria-describedby="embedded ? undefined : 'video-panel-context'">
     <header class="video-panel__header">
       <div class="video-panel__heading">
         <WorkbenchIcon name="film" :size="20" />
-        <div><h2>生成镜头视频</h2><p id="video-panel-context">{{ documentTitle }}</p></div>
+        <div><h2>生成镜头视频</h2><p :id="embedded ? undefined : 'video-panel-context'">{{ documentTitle }}</p></div>
       </div>
-      <button ref="closeRef" type="button" class="video-panel__close" title="关闭" aria-label="关闭" :disabled="submitting" @click="$emit('close')"><WorkbenchIcon name="close" :size="18" /></button>
+      <button v-if="!embedded" ref="closeRef" type="button" class="video-panel__close" title="关闭" aria-label="关闭" :disabled="submitting" @click="$emit('close')"><WorkbenchIcon name="close" :size="18" /></button>
     </header>
 
     <div class="video-panel__body">
@@ -843,6 +850,8 @@ function mergeProviderMetadata(remoteProviders) {
   border: 1px solid var(--hairline-soft, var(--border)); border-radius: var(--radius-surface, 24px);
   box-shadow: var(--shadow-workbench-float); font: 13px/1.6 var(--font-interface, var(--font-sans)); overflow: hidden;
 }
+.video-panel.is-embedded { position: relative; inset: auto; z-index: auto; width: 100%; height: 100%; max-height: none; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: var(--surface-workbench); }
+.video-panel.is-embedded :is(.video-panel__header, .video-panel__body, .video-panel__actions) { width: 100%; max-width: 900px; margin-inline: auto; box-sizing: border-box; }
 .video-panel__header, .video-panel__heading, .video-panel__job-row, .video-panel__actions, .video-panel__field-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .video-panel__header { padding: 18px 20px 14px; border-bottom: 1px solid var(--hairline-soft); flex-shrink: 0; }
 .video-panel__heading { justify-content: flex-start; min-width: 0; }

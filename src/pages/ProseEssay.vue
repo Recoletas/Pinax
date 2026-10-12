@@ -1,5 +1,5 @@
 <template>
-  <div class="prose-essay-page is-archive-paper">
+  <div ref="workspaceRoot" class="prose-essay-page is-archive-paper" :tabindex="workspaceProps.workspaceEmbedded ? -1 : undefined" @pointerdown.capture="focusWorkspace">
     <FolioSurface as="header" variant="chrome" :decorated="false" class="prose-essay__hero">
       <div class="prose-top">
         <div class="prose-top__left">
@@ -98,6 +98,7 @@
 
     <p v-if="directorStoryboardStatus" class="prose-director-feedback" role="status">{{ directorStoryboardStatus }}</p>
 
+    <p v-if="canvasSaveError" class="prose-generation-feedback" role="alert">{{ canvasSaveError }} <button type="button" class="control-quiet" @click="saveData">重试保存</button><button type="button" class="control-quiet" :disabled="isGenerating || advisorLoading" @click="reloadCanvas">重新载入</button></p>
     <WorkspacePaneSwitch v-if="cards.length"
       v-model="mobilePane"
       :items="canvasMobilePanes"
@@ -454,8 +455,8 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref, onMounted, onBeforeUnmount, onScopeDispose, nextTick, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
@@ -489,7 +490,8 @@ import {
   createNarrativeAssetSourceRef,
   listNarrativeAssets,
   mergeSourceRefs,
-  normalizeContentRef
+  normalizeContentRef,
+  subscribeNarrativeAssets
 } from '../services/media/narrativeAssets'
 import {
   addNarrativeImageAsset,
@@ -500,6 +502,7 @@ import {
   migrateCanvasAttachedImages
 } from '../services/media/canvasImageAssetBridge'
 import {
+  subscribeProseCanvas,
   readProseCanvasWorkspace,
   saveProseCanvasWorkspace
 } from '../services/canvas/proseCanvasRepository.js'
@@ -515,6 +518,7 @@ import {
   useCanvasViewport,
   useProseCanvasInteraction,
   useProseDirectorExport,
+  useProseReferenceWorkspace,
   resolveCanvasCreationProjectId,
   resolveCanvasCardProjectId,
   getDirectorProjectId,
@@ -537,8 +541,11 @@ import {
   upsertSceneRelationship
 } from '../services/canvas/sceneMaterialBoard'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
+const workspaceRoot = ref(null)
 const router = useRouter()
 const route = useRoute()
+const referenceWorkspace = useProseReferenceWorkspace(route)
 const materialsLocation = computed(() => ({
   name: 'materials',
   query: route.query.bookId ? { bookId: String(route.query.bookId) } : {}
@@ -915,8 +922,32 @@ function redoCard() {
   editingEmotion.value = next.emotion
 }
 
-useProseCanvasInteraction({ cancelPointerDrag, cancelDraggedEdgeUpdate, stopEdgeDraft })
+const canvasInteraction = useProseCanvasInteraction({ cancelPointerDrag, cancelDraggedEdgeUpdate, stopEdgeDraft })
+watch(() => workspaceProps.workspaceActive, active => { if (!active) canvasInteraction.reset() })
+function canCloseWorkspace() { return !isGenerating.value && !advisorLoading.value && !directorExportController.busy.value && saveData() }
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate(canCloseWorkspace)
+}
+defineExpose({
+  canCloseWorkspace,
+  getWorkspaceTaskSummary: () => isGenerating.value || advisorLoading.value || directorExportController.busy.value ? { label: '视频与编导处理中的任务' } : null
+})
 
+const canvasOrigin = Symbol('director-view')
+let canvasStorageRevision = 0
+let canvasLoadRevision = 0
+let canvasAssetLoadRevision = 0
+const releaseAssets = subscribeNarrativeAssets(() => { if (!canvasDisposed) void loadCanvasAssets() })
+const releaseCanvas = subscribeProseCanvas(async ({ projectId, origin }) => {
+  if (showCardDetailDialog.value || origin === canvasOrigin || projectId !== String(route.query.bookId || '') || canvasDisposed || canvasSaveError.value) return
+  const selectedId = selectedCard.value?.id
+  await loadCanvasAssets()
+  if (canvasDisposed) return
+  await loadData()
+  selectedCard.value = cards.value.find(card => card.id === selectedId) || null
+})
+onScopeDispose(() => { releaseAssets(); releaseCanvas() })
 let canvasDisposed = false
 onMounted(async () => {
   try {
@@ -940,16 +971,20 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeydown)
 })
 
-watch(() => route.query.bookId, () => {
+watch(() => route.query.bookId, async () => {
   directorExportController.reset()
   showStoryboardVideoPanel.value = false
   storyboardVideoContext.value = null
   directorStoryboardStatus.value = ''
+  selectedCard.value = null
+  await loadCanvasAssets()
+  await loadData()
+  if (!canvasDisposed) focusAssetCardFromRoute()
 })
 
-watch(() => route.query.assetId, () => {
-  void loadCanvasAssets()
-  focusAssetCardFromRoute()
+watch(() => route.query.assetId, async () => {
+  await loadCanvasAssets()
+  if (!canvasDisposed) focusAssetCardFromRoute()
 })
 
 // Advisor functions
@@ -1046,14 +1081,18 @@ function inferZone(cardId) {
 }
 
 async function loadData() {
+  const ticket = ++canvasLoadRevision
+  const projectId = String(route.query.bookId || '')
   try {
-    const rawCards = await migrateCanvasAttachedImages()
-    const workspace = readProseCanvasWorkspace()
+    await migrateCanvasAttachedImages()
+    if (canvasDisposed || ticket !== canvasLoadRevision || projectId !== String(route.query.bookId || '')) return false
+    const workspace = readProseCanvasWorkspace({ projectId: projectId || '', assetProjectIds: Object.fromEntries(canvasAssets.value.map(asset => [asset.id, asset.projectId])) })
+    canvasStorageRevision = workspace.storageRevision || 0
     edges.value = workspace.edges
     outline.value = workspace.outline
     timeline.value = workspace.timeline
 
-    cards.value = rawCards.map((card, idx) => ({
+    cards.value = workspace.cards.map((card, idx) => ({
       ...card,
       pileId: card.pileId || null,
       zone: card.zone || inferZone(card.id),
@@ -1066,12 +1105,17 @@ async function loadData() {
     proseCommits.value = workspace.commits
     proseBranches.value = workspace.branches
   } catch {
-    cards.value = []
-    edges.value = []
-    outline.value = []
-    timeline.value = []
+    if (ticket === canvasLoadRevision && !canvasDisposed) generationError.value = '画布读取失败，当前输入仍保留。'
+    return false
   }
   nextTick(() => updateLayout())
+  return true
+}
+
+async function reloadCanvas() {
+  if (isGenerating.value || advisorLoading.value || !window.confirm('重新载入会放弃当前未保存的画布输入。请先导出或复制需要保留的内容。')) return
+  await loadCanvasAssets()
+  if (await loadData()) { selectedCard.value = null; canvasSaveError.value = '' }
 }
 
 function saveData() {
@@ -1083,8 +1127,9 @@ function saveData() {
     piles: piles.value,
     commits: proseCommits.value,
     branches: proseBranches.value
-  })
-  canvasSaveError.value = result.ok ? '' : '画布未保存，请保留页面并重试当前操作。'
+  }, { projectId: route.query.bookId || '', expectedRevision: canvasStorageRevision, origin: canvasOrigin })
+  if (result.ok) canvasStorageRevision = result.storageRevision || 0
+  canvasSaveError.value = result.ok ? '' : result.reason === 'canvas-conflict' ? '画布已在别处更新，当前输入保留。请先保留输入后重新打开画布。' : '画布未保存，请保留页面并重试当前操作。'
   nextTick(() => computeEdgePositions())
   return result.ok
 }
@@ -1103,7 +1148,9 @@ function countWords(text) {
 }
 
 async function loadCanvasAssets() {
-  canvasAssets.value = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
+  const ticket = ++canvasAssetLoadRevision
+  const assets = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
+  if (!canvasDisposed && ticket === canvasAssetLoadRevision) canvasAssets.value = assets
 }
 
 function getCardAsset(card) {
@@ -1201,14 +1248,22 @@ function getCardImageReferences(card) {
 
 function openCardMaterial(card) {
   if (!card?.assetId) return
+  if (referenceWorkspace.openAsset(card.assetId)) return
   router.push({ ...materialsLocation.value, query: { ...materialsLocation.value.query, assetId: card.assetId } })
 }
 
 function focusAssetCardFromRoute() {
   const assetId = String(route.query.assetId || '')
   if (!assetId) return
-  const card = cards.value.find((item) => item.assetId === assetId)
-  if (!card) return
+  let card = cards.value.find((item) => item.assetId === assetId)
+  if (!card) {
+    const asset = canvasAssets.value.find(item => item.id === assetId && item.projectId === route.query.bookId)
+    if (!asset) return
+    card = createCardFromAsset(asset)
+    card.projectId = asset.projectId
+    cards.value.push(card)
+    if (!saveData()) { cards.value.pop(); return }
+  }
   selectCard(card)
   nextTick(() => jumpToCard(card.id))
 }
@@ -1271,7 +1326,12 @@ function trackPreference(action, card) {
 }
 
 // Card operations
+function focusWorkspace(event) {
+  if (workspaceProps.workspaceEmbedded && !event.target.closest('button,a,input,textarea,select,[contenteditable="true"]')) workspaceRoot.value?.focus({ preventScroll: true })
+}
 function handleKeydown(e) {
+  if (!workspaceProps.workspaceActive) return
+  if (workspaceProps.workspaceEmbedded ? !workspaceRoot.value?.contains(e.target) || e.target?.closest?.('[inert]') : !referenceWorkspace.ownsKeyboard(e)) return
   const activeTag = document.activeElement?.tagName?.toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || document.activeElement?.isContentEditable
 
@@ -2529,6 +2589,8 @@ function openStoryboardVideoPanel(preparedContext) {
   showExportMenu.value = false
   try {
     storyboardVideoContext.value = preparedContext || getDirectorExportContext()
+    const context = storyboardVideoContext.value
+    if (referenceWorkspace.openVideo(context)) return
     showStoryboardVideoPanel.value = true
   } catch (error) {
     directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'

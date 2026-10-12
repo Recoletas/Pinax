@@ -300,7 +300,7 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
       <div class="catalog-window-controls"><button type="button" :title="tr(&quot;关闭角色工作台&quot;)" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
       <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr(&quot;角色&quot;)" :aria-label="tr(&quot;搜索角色&quot;)" /></div>
       <div class="catalog-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
-      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr(&quot;在世界书中打开当前角色&quot;)" @click="emit('open-full', selectedCharacter?.id)">{{ tr('世界书') }}</button></header>
+      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr(&quot;展开当前人物的设定&quot;)" @click="emit('open-full', selectedCharacter?.id)">{{ tr('展开设定') }}</button></header>
       <section v-for="group in characterFolders" :key="group.name" class="character-directory__group">
         <h3><button type="button" :aria-expanded="(!collapsedFolders.has(group.name)).toString()" @click="toggleFolder(group.name)"><span class="catalog-folder-caret" :class="{ open: !collapsedFolders.has(group.name) }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ group.name }}</span></button></h3>
         <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.items" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" @click="selectCharacter(entry)">{{ entry.name || tr('未命名角色') }}</button></template>

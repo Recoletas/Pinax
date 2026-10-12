@@ -727,6 +727,37 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.selectSession(existingSession)).toBe(true)
     expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
     expect(agentAssistant.agentState.value.taskId).toBe('task-a')
+    agentAssistant.draft.value = '未发送的旧问题'
+    expect(agentAssistant.newAgentTask()).toBe(true)
+    expect(agentAssistant.messages.value).toEqual([])
+    expect(agentAssistant.draft.value).toBe('')
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+
+    const originalHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
+    expect(agentAssistant.continueFromMessage(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.messages.value).toHaveLength(3)
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.messages.value.every(item => !item.taskId && !item.proposal)).toBe(true)
+    expect(await agentAssistant.ask({ question: '只接第一段' })).toBe(true)
+    expect(agentCalls.at(-1).text).toContain('只接第一段')
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    expect(await agentAssistant.editQuestion(originalHistory[3].id, '改成先敲门')).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe('改成先敲门')
+    expect(agentAssistant.messages.value).toHaveLength(5)
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[1].question)
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复

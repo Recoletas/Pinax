@@ -4,13 +4,15 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
-import { activateWorkspaceTab, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
-import { SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
+import { activateWorkspaceTab, closeWorkspaceProject, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
+import { groupWorkspaceProjectTabs, SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 // 顶部工作台标签：浏览器式连续标签带。活动标签与内容面连通；
 // dirty 用信号点；窄屏通过横向滚动访问全部标签。
 const router = useRouter()
 const route = useRoute()
+const contentWorkspace = useComposableWorkspace()
 const workspaceTabs = useWorkspaceTabsStore()
 
 const scrollRef = ref(null)
@@ -35,7 +37,7 @@ const SURFACE_ICONS = {
 
 const HOME_TAB_ID = 'pinax-home'
 const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
-const tabs = computed(() => [homeTab, ...workspaceTabs.tabs])
+const tabs = computed(() => [homeTab, ...groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)])
 const activeTabId = computed(() => route.name === 'welcome' ? HOME_TAB_ID : workspaceTabs.activeTabId)
 async function revealActiveTab() {
   await nextTick()
@@ -64,12 +66,14 @@ function projectInkStyle(tab) {
 // 760-1179 的缩短标题：项目子 surface 只显示 surface 名，写作标签显示书名。
 function shortTitle(tab) {
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
+  if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
   return tab.scope === 'project' && tab.surface === 'authoring' ? tab.title : tr(SURFACE_LABELS[tab.surface] || tab.title)
 }
 
 function displayTitle(tab) {
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
   if (tab.scope !== 'project') return tab.instanceId ? `${shortTitle(tab)} · ${tab.instanceId}` : shortTitle(tab)
+  if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
   if (tab.surface === 'authoring') return tab.title
   const label = tab.surface === 'sources' && tab.route?.query?.mode === 'sources' && tab.route?.query?.action === 'add'
     ? '资料导入' : SURFACE_LABELS[tab.surface]
@@ -81,12 +85,19 @@ function displayTitle(tab) {
 
 function activateTab(tabId) {
   if (tabId === HOME_TAB_ID) { void router.push({ name: 'welcome' }); return }
+  const tab = workspaceTabs.tabs.find(tab => tab.id === tabId)
+  if (!tabs.value.find(item => item.id === tabId)?.projectGrouped && tab?.surface === 'sources' && tab.projectId === route.query.bookId && route.name !== 'settings-sources' && contentWorkspace) {
+    if (contentWorkspace.openResource({ type: tab.route?.query?.sourceId ? 'source' : 'sources', bookId: tab.projectId,
+      worldbookId: tab.worldbookId || '', id: String(tab.route?.query?.sourceId || '') })) return
+  }
   void activateWorkspaceTab(workspaceTabs, router, tabId)
 }
 
 function closeTab(tabId) {
   if (tabId === HOME_TAB_ID) return
-  void closeWorkspaceTab(workspaceTabs, router, tabId).then(() => {
+  const tab = tabs.value.find(item => item.id === tabId)
+  const operation = tab?.projectGrouped ? closeWorkspaceProject(workspaceTabs, router, tab.projectId) : closeWorkspaceTab(workspaceTabs, router, tabId)
+  void operation.then(() => {
     focusActiveTab()
   })
 }
@@ -202,7 +213,7 @@ onBeforeUnmount(() => {
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
           <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
-          <WorkbenchIcon v-else class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
+          <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.projectGrouped ? 'book' : surfaceIcon(tab.surface)" :size="14" />
           <span class="ws-tab__label">
             <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
             <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>

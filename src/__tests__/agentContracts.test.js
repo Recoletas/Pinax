@@ -243,6 +243,64 @@ describe('agentContracts', function () {
     expect(restoredBlank.book.worldbookId).toBe('')
     expect(restoredBlank.worldbook).toBeNull()
 
+    const { normalizeAssistantPermission, assistantChangeAllowed } = await import('../../shared/assistantPermission.js')
+    const { createAssistantPolicyStore } = await import('../../server/services/assistantPolicyStore.js')
+    const { preserveStoryAgentJournals } = await import('../../server/services/storyAgentJournals.js')
+    const filesystem = await import('node:fs'); const os = await import('node:os'); const paths = await import('node:path')
+    const journals = filesystem.mkdtempSync(paths.join(os.tmpdir(), 'pinax-journal-test-'))
+    try {
+      const legacy = paths.join(journals, 'legacy'); const durable = paths.join(journals, 'durable')
+      filesystem.mkdirSync(legacy)
+      filesystem.writeFileSync(paths.join(legacy, 'task-synthetic.jsonl'), '{"status":"completed"}\n')
+      expect(preserveStoryAgentJournals(legacy, durable)).toBe(1)
+      expect(preserveStoryAgentJournals(legacy, durable)).toBe(0)
+      expect(filesystem.existsSync(paths.join(legacy, 'task-synthetic.jsonl'))).toBe(true)
+      filesystem.writeFileSync(paths.join(durable, 'task-synthetic.jsonl'), '{"status":"other"}\n')
+      expect(() => preserveStoryAgentJournals(legacy, durable)).toThrow('conflict')
+      expect(filesystem.readFileSync(paths.join(durable, 'task-synthetic.jsonl'), 'utf8')).toBe('{"status":"other"}\n')
+    } finally { filesystem.rmSync(journals, { recursive: true, force: true }) }
+    const permission = normalizeAssistantPermission({ mode: 'review', scope: 'current' }, { bookId: baseBook.id, sessionId: 'session', chapterId: 'chapter-proposal' })
+    expect(assistantChangeAllowed(permission, edit.changes[0])).toBe(true)
+    expect(assistantChangeAllowed(permission, edit.changes[1])).toBe(false)
+    expect(assistantChangeAllowed({ ...permission, mode: 'read' }, edit.changes[0])).toBe(false)
+    let time = 1000
+    const policies = createAssistantPolicyStore({ now: () => time })
+    const grant = policies.set('browser-one', { ...permission, chapterId: 'chapter-proposal' })
+    expect(policies.get('browser-two', grant)).toBeNull()
+    expect(policies.get('browser-one', grant)?.revision).toBe(1)
+    const replacement = policies.set('browser-one', { ...permission, chapterId: 'chapter-proposal', mode: 'read' })
+    expect(policies.get('browser-one', grant)).toBeNull()
+    policies.revoke('browser-one', replacement)
+    expect(policies.get('browser-one', replacement)).toBeNull()
+    const expired = policies.set('browser-one', { ...permission, chapterId: 'chapter-proposal' }); time += 3600001
+    expect(policies.get('browser-one', expired)).toBeNull()
+    const longBook = { id: 'multi', chapters: [{ id: 'multi-chapter', content: '甲推门。乙关窗。丙离开。' }] }
+    const multi = prepareAssistantProposal({ changes: [
+      { ...edit.changes[0], targetId: 'multi-chapter', groupId: 'one', before: '甲推门。', after: '甲敲门。' },
+      { ...edit.changes[0], targetId: 'multi-chapter', groupId: 'two', before: '乙关窗。', after: '乙打开窗。' },
+      { ...edit.changes[0], targetId: 'multi-chapter', groupId: 'three', operation: 'delete', before: '丙离开。', after: '' }
+    ] }, { book: longBook, worldbook: null, runId: 'multi' })
+    const first = applyAssistantProposal(multi, { book: longBook, worldbook: null, changeIds: ['change-1'] })
+    expect(first.status).toBe('partial')
+    expect(first.book.chapters[0].content).toBe('甲敲门。乙关窗。丙离开。')
+    const second = applyAssistantProposal({ ...multi, changes: first.proposalChanges }, { book: first.book, worldbook: null, changeIds: ['change-2'] })
+    expect(second.book.chapters[0].content.trimEnd()).toBe('甲敲门。乙打开窗。丙离开。')
+    const all = applyAssistantProposal(multi, { book: longBook, worldbook: null })
+    expect(all.book.chapters[0].content.trimEnd()).toBe('甲敲门。乙打开窗。')
+    const undoMulti = applyAssistantProposal({ ...multi, changes: second.proposalChanges, receipt: { changes: [...first.changes, ...second.changes] } }, { book: second.book, worldbook: null, undo: true })
+    expect(undoMulti.book.chapters[0].content).toBe(longBook.chapters[0].content)
+    const insert = prepareAssistantProposal({ changes: [{ ...multi.changes[0], groupId: 'insert', operation: 'insert', before: '乙关窗。', after: '丁走进来。' }] }, { book: longBook, worldbook: null, runId: 'insert' })
+    expect(applyAssistantProposal(insert, { book: longBook, worldbook: null }).book.chapters[0].content).toBe('甲推门。乙关窗。丁走进来。丙离开。')
+    const shiftedBook = { id: 'shift', chapters: [{ id: 'shift-chapter', content: '旧前文。'.repeat(20) + '目标句。' + '后文。'.repeat(20) }] }
+    const shift = prepareAssistantProposal({ changes: [{ ...edit.changes[0], targetId: 'shift-chapter', before: '目标句。', after: '新目标句。' }] }, { book: shiftedBook, worldbook: null, runId: 'shift' })
+    const unrelated = JSON.parse(JSON.stringify(shiftedBook)); unrelated.chapters[0].content = '新前文。' + unrelated.chapters[0].content
+    expect(applyAssistantProposal(shift, { book: unrelated, worldbook: null }).book.chapters[0].content).toContain('新目标句。')
+    const conflicting = JSON.parse(JSON.stringify(shiftedBook)); conflicting.chapters[0].content = conflicting.chapters[0].content.replace('目标句。', '作者改动。')
+    expect(() => applyAssistantProposal(shift, { book: conflicting, worldbook: null })).toThrow('段落')
+    const grouped = { ...multi, changes: multi.changes.map(change => ({ ...change, groupId: 'atomic' })) }
+    expect(applyAssistantProposal(grouped, { book: longBook, worldbook: null, changeIds: ['change-1'] }).status).toBe('adopted')
+    expect(applyAssistantProposal(multi, { book: longBook, worldbook: null, discard: true, changeIds: ['change-2'] }).proposalChanges[1].status).toBe('discarded')
+
     }
 
     const policyValues = new Map()

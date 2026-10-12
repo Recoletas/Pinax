@@ -37,19 +37,30 @@
 
     <div ref="threadRef" class="authoring-knowledge__thread" aria-live="polite" @scroll.passive="updateActiveQuestion">
       <template v-for="message in visibleMessages" :key="message.id">
-        <div v-if="message.role === 'user'" class="authoring-knowledge__question" :data-message-id="message.id" tabindex="-1">
-          <p>{{ message.question }}</p>
+        <div v-if="message.role === 'user'" class="authoring-knowledge__question-row" :class="{ 'is-editing': editingQuestionId === message.id }" :data-message-id="message.id" tabindex="-1">
+          <button v-if="assistant?.editQuestion && editingQuestionId !== message.id" type="button" class="authoring-knowledge__edit-trigger" :disabled="busy || agentState.adoptionBusy" :title="tr('编辑提问')" :aria-label="tr('编辑提问')" @click="startQuestionEdit(message)"><WorkbenchIcon name="pencil" :size="16" /></button>
+          <div class="authoring-knowledge__question">
+          <template v-if="editingQuestionId === message.id">
+            <textarea v-model="editedQuestion" class="authoring-knowledge__edit-input" rows="3" :aria-label="tr('编辑提问')" @input="fitEditedQuestion" @keydown.esc.stop.prevent="cancelQuestionEdit" />
+            <div class="authoring-knowledge__message-actions"><button type="button" @click="cancelQuestionEdit">{{ tr('取消') }}</button><button type="button" :disabled="busy || agentState.adoptionBusy || !editedQuestion.trim()" @click="saveQuestionEdit(message)">{{ tr('保存并重新生成') }}</button></div>
+          </template>
+          <p v-else>{{ message.question }}</p>
+          </div>
         </div>
         <article v-else-if="message.kind === 'agent'" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
+          <div v-if="message.thinking || message.tools?.length" class="authoring-knowledge__process">
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}</p></details>
-          <p class="authoring-knowledge__answer-text">{{ message.text }}</p>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.name === 'submit_edit_proposals' && tool.status === 'completed'" class="authoring-knowledge__tool-outcome">{{ tr('已提交') }}</span></p></details>
+          </div>
+          <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
-          <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr('这次回答未完成，保留的文字不能直接采纳。') }}</p>
+          <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr(message.failureReason || (message.status === 'failed' ? '生成中断，文字已保留。可以复制或重试。' : '生成已停止，文字已保留。')) }}</p>
           <button v-if="message.status === 'completed' && message.proposal" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" />{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</button>
+          <button v-if="canUndoMessage(message)" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.undoAgentProposal(message.id)">{{ tr('撤销本次修改') }}</button>
+          <div v-if="message.status !== 'running'" class="authoring-knowledge__message-actions"><button type="button" @click="copyAnswer(message)">{{ tr(copiedAnswerId === message.id ? '已复制' : '复制') }}</button><button v-if="assistant?.regenerateAnswer" type="button" :disabled="busy || agentState.adoptionBusy" @click="assistant.regenerateAnswer(message.id)"><WorkbenchIcon name="refresh" :size="14" />{{ tr('重新生成') }}</button><button v-if="assistant?.continueFromMessage" type="button" :disabled="busy || agentState.adoptionBusy" @click="continueFromAnswer(message)"><WorkbenchIcon name="rehearsal" :size="14" />{{ tr('从这里继续') }}</button></div>
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
@@ -61,7 +72,7 @@
           <p v-if="message.answer.stale" class="authoring-knowledge__stale" role="status">
             {{ tr('资料已更新，这份回答保留供回看；请重新查询后再据此继续创作。') }}
           </p>
-          <p class="authoring-knowledge__answer-text">{{ message.answer.answer }}</p>
+          <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.answer.answer)" />
 
           <section v-if="message.answer.calculations.length" class="authoring-knowledge__calculations" :aria-label="tr('计算过程')">
             <div v-for="calculation in message.answer.calculations" :key="calculation.label">
@@ -85,6 +96,7 @@
               <button v-if="message.answer.evidence.length > 3" type="button" class="authoring-knowledge__more-sources" @click="toggleSources(message.id)">{{ expandedSources.has(message.id) ? tr('收起') : tr('另 {count} 条资料', { count: message.answer.evidence.length - 3 }) }}</button>
             </div>
           </section>
+          <div v-if="message.status !== 'running'" class="authoring-knowledge__message-actions"><button type="button" @click="copyAnswer(message)">{{ tr(copiedAnswerId === message.id ? '已复制' : '复制') }}</button><button v-if="assistant?.regenerateAnswer" type="button" :disabled="busy || agentState.adoptionBusy" @click="assistant.regenerateAnswer(message.id)"><WorkbenchIcon name="refresh" :size="14" />{{ tr('重新生成') }}</button><button v-if="assistant?.continueFromMessage" type="button" :disabled="busy || agentState.adoptionBusy" @click="continueFromAnswer(message)"><WorkbenchIcon name="rehearsal" :size="14" />{{ tr('从这里继续') }}</button></div>
         </article>
       </template>
 
@@ -104,7 +116,7 @@
 
     <footer class="authoring-knowledge__composer">
       <div v-if="documentTitle" class="assistant-document-context"><span>{{ tr('当前文稿') }}</span><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
-      <AuthoringAgentTools v-if="selectedIntent === 'agent' && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
+      <AuthoringAgentTools v-if="agentState.enabled && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
       <div class="authoring-knowledge__input-row">
         <div v-if="mentionCandidates.length" class="authoring-knowledge__mentions" role="listbox" :aria-label="tr('选择参考资料')">
           <button v-for="(entry, index) in mentionCandidates" :key="entry.type + ':' + entry.id" type="button" role="option" :aria-selected="index === mentionIndex" @pointerdown.prevent="pickMention(entry)">{{ entry.title }}</button>
@@ -120,16 +132,14 @@
               <button type="button" :disabled="busy || !agentState.enabled" @click="referencePicker = 'chapter'"><WorkbenchIcon name="book" :size="18" /><span>{{ tr('引用章节') }}</span></button>
               <button type="button" :disabled="busy || !agentState.enabled" @click="referencePicker = 'source'"><WorkbenchIcon name="archive" :size="18" /><span>{{ tr('引用已有资料') }}</span></button>
               <template v-if="referencePicker"><input v-model="referenceQuery" type="search" :placeholder="tr('搜索参考资料')" :aria-label="tr('搜索添加参考')" /><button v-for="entry in referenceCandidates" :key="entry.type + entry.id" type="button" :disabled="busy" :aria-pressed="referenceSelected(entry)" @click="toggleReference(entry)"><WorkbenchIcon :name="referenceSelected(entry) ? 'check' : 'document'" :size="15" /><span>{{ entry.title }}</span></button><p v-if="!referenceCandidates.length">{{ tr('当前没有匹配的参考') }}</p></template>
+              <button v-if="reviewWorkflow" type="button" :disabled="busy || emptyBook" @click="useTool('review')"><WorkbenchIcon name="guide" :size="18" /><span>{{ tr('检查文稿') }}</span></button>
+              <button type="button" @click="useTool('illustrator')"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生成插图') }}</span></button>
             </div>
           </details>
           <details ref="purposeRef" class="authoring-knowledge__purpose" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
-            <summary :aria-label="tr('助手任务')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon :name="discussing ? 'message-square' : 'search'" :size="15" /><span>{{ tr(selectedIntent === 'agent' ? '写作与修改' : discussing ? '讨论故事' : '查阅资料') }}</span><WorkbenchIcon name="chevron-down" :size="14" /></summary>
-            <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手任务')">
-              <button type="button" :aria-pressed="discussing" @click="choosePurpose('free')"><WorkbenchIcon name="message-square" :size="18" /><span>{{ tr('讨论故事') }}<small>{{ tr('一起想情节、人物和写法') }}</small></span></button>
-              <button v-if="agentState.enabled" type="button" :aria-pressed="selectedIntent === 'agent'" @click="choosePurpose('agent')"><WorkbenchIcon name="assistant" :size="18" /><span>{{ tr('写作与修改') }}<small>{{ tr('查阅参考、运用技法，确认后加入正文') }}</small></span></button>
-              <button type="button" :aria-pressed="!discussing && selectedIntent !== 'agent'" @click="choosePurpose('whole-book')"><WorkbenchIcon name="search" :size="18" /><span>{{ tr('查阅资料') }}<small>{{ tr('查正文和设定，附原文出处') }}</small></span></button>
-              <button v-if="reviewWorkflow" type="button" :disabled="busy || emptyBook" @click="useTool('review')"><WorkbenchIcon name="guide" :size="18" /><span>{{ tr('检查文稿') }}</span></button>
-              <button type="button" @click="useTool('illustrator')"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生成插图') }}</span></button>
+            <summary :aria-label="tr('助手权限')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="assistant" :size="15" /><span>{{ tr(permissionLabel) }}</span><small v-if="agentState.permission?.mode !== 'read'">{{ tr(permissionScopeLabel) }}</small><WorkbenchIcon name="chevron-down" :size="14" /></summary>
+            <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手权限')">
+              <AuthoringAssistantPermissions :assistant="assistant" :busy="agentState.adoptionBusy" />
             </div>
           </details>
           <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" :title="tr('停止查询')" @click="$emit('cancel')"><WorkbenchIcon name="close" :size="20" /></button>
@@ -150,9 +160,16 @@
 </template>
 
 <script setup>
+import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
 import { tr, uiLocale } from '../../i18n/index.js'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { marked } from 'marked'
+import { sanitizeHtml } from '../../utils/sanitize.js'
+
+function renderAssistantAnswer(text) {
+  return sanitizeHtml(marked.parse(String(text || '').trim(), { async: false, gfm: true, breaks: true }))
+}
 const AuthoringAgentTools = defineAsyncComponent(() => import('./AuthoringAgentTools.vue'))
 const WorldbookSourceImportDialog = defineAsyncComponent(() => import('../worldbook/WorldbookSourceImportDialog.vue'))
 const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalReview.vue'))
@@ -178,6 +195,34 @@ const props = defineProps({
   notice: { type: Object, default: null }
 })
 const emit = defineEmits(['update:draft', 'select-intent', 'ask', 'cancel', 'retry', 'open-evidence', 'review-notice', 'open-illustrator', 'direct-writing', 'active-question'])
+const copiedAnswerId = ref('')
+async function copyAnswer(message) {
+  const text = message.text || message.answer?.answer || ''
+  try { await navigator.clipboard.writeText(text); copiedAnswerId.value = message.id }
+  catch { const range = document.createRange(); const answer = knowledgeRootRef.value?.querySelectorAll('.authoring-knowledge__answer-text'); const index = visibleMessages.value.filter(item => item.role === 'assistant').findIndex(item => item.id === message.id); if (answer?.[index]) { range.selectNodeContents(answer[index]); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range) } }
+}
+const editingQuestionId = ref('')
+const editedQuestion = ref('')
+function cancelQuestionEdit() { editingQuestionId.value = ''; editedQuestion.value = '' }
+function fitEditedQuestion(event) { const input = event.target; input.style.height = 'auto'; input.style.height = `${input.scrollHeight}px` }
+async function startQuestionEdit(message) {
+  editingQuestionId.value = message.id; editedQuestion.value = message.question
+  await nextTick()
+  const input = knowledgeRootRef.value?.querySelector('.authoring-knowledge__edit-input')
+  if (input) { fitEditedQuestion({ target: input }); input.focus() }
+}
+async function saveQuestionEdit(message) {
+  const text = editedQuestion.value.trim()
+  if (!text || props.busy || props.agentState.adoptionBusy) return
+  const pending = props.assistant?.editQuestion?.(message.id, text)
+  // The original question remains intact in its session; the new branch owns the request.
+  await pending
+  if (!props.messages.some(item => item.id === message.id)) cancelQuestionEdit()
+}
+function continueFromAnswer(message) {
+  if (props.assistant?.continueFromMessage?.(message.id)) { cancelQuestionEdit(); searchTerm.value = ''; nextTick(() => draftInputRef.value?.focus()) }
+}
+watch(() => [props.projectId, unref(props.assistant?.sessions)?.find(session => session.active)?.sessionId], cancelQuestionEdit)
 const conversations = computed(() => unref(props.assistant?.sessions) || [])
 const referencePicker = ref('')
 const referenceQuery = ref('')
@@ -365,20 +410,29 @@ function placeMenu(menu) {
     return
   }
   if (!menu.open) return
-  const root = knowledgeRootRef.value?.querySelector('.authoring-knowledge__body')?.getBoundingClientRect()
   const anchor = panel.offsetParent
-  if (!root || !anchor) return
-  const anchorRect = anchor.getBoundingClientRect()
-  const scale = anchorRect.width / anchor.offsetWidth || 1
-  const panelRect = panel.getBoundingClientRect()
-  const above = panelRect.bottom - Math.max(0, root.top) - 8
-  const below = Math.min(window.innerHeight, root.bottom) - anchorRect.bottom - 14 * scale - 8
-  const opensBelow = above < panelRect.height && below > above
-  panel.classList.toggle('is-below', opensBelow)
-  const available = opensBelow ? below : above
-  panel.classList.toggle('is-compact', panel.classList.contains('authoring-knowledge__purpose-menu') && available < panelRect.height)
-  // Rects include body.zoom; menu height is expressed in local CSS pixels.
-  panel.style.maxHeight = `${Math.max(1, available) / scale}px`
+  const trigger = menu.querySelector('summary')?.getBoundingClientRect()
+  if (!anchor || !trigger) return
+  const host = anchor.getBoundingClientRect()
+  const scale = host.width / anchor.offsetWidth || 1
+  const viewport = window.visualViewport
+  const top = viewport?.offsetTop || 0
+  const bottom = top + (viewport?.height || window.innerHeight)
+  const availableAbove = trigger.top - top - 8
+  const availableBelow = bottom - trigger.bottom - 8
+  const height = panel.scrollHeight * scale
+  const below = availableBelow >= height || availableBelow > availableAbove
+  const maxHeight = Math.max(44, below ? availableBelow : availableAbove)
+  panel.style.maxHeight = `${maxHeight / scale}px`
+  panel.style.bottom = 'auto'
+  panel.style.right = 'auto'
+  const width = panel.getBoundingClientRect().width
+  const viewportLeft = viewport?.offsetLeft || 0
+  const viewportRight = viewportLeft + (viewport?.width || window.innerWidth)
+  const left = Math.max(viewportLeft + 8, Math.min(trigger.right - width, viewportRight - width - 8))
+  panel.style.left = `${(left - host.left) / scale}px`
+  panel.style.top = `${(below ? trigger.bottom + 6 : trigger.top - Math.min(height, maxHeight) - 6) / scale - host.top / scale}px`
+
 }
 function closeMenu(menu, restoreFocus = false) {
   if (!menu?.open) return
@@ -398,13 +452,6 @@ function focusFirstMenu(menu) {
   menu.open = true
   nextTick(() => menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true }))
 }
-function choosePurpose(intent) {
-  mention.value = null
-  closeMenu(toolsRef.value)
-  closeMenu(purposeRef.value)
-  emit('select-intent', intent)
-  nextTick(() => draftInputRef.value?.focus({ preventScroll: true }))
-}
 function useTool(tool) {
   closeMenu(toolsRef.value, true)
   closeMenu(purposeRef.value)
@@ -418,18 +465,25 @@ function fitDraft() {
   input.style.height = `${Math.min(160, Math.max(28, input.scrollHeight))}px`
   for (const menu of [toolsRef.value, purposeRef.value]) if (menu?.open) placeMenu(menu)
 }
-function resizeConversation() {
+function resizeConversation(event) {
+  // A thread scroll is authored navigation, not a layout change to undo.
+  if (event?.type === 'scroll') {
+    for (const menu of [toolsRef.value, purposeRef.value]) if (menu?.open) placeMenu(menu)
+    return
+  }
   const position = lastThreadPosition || captureThreadPosition()
   fitDraft()
   if (!reviewOpen.value) queueThreadRestore(position)
 }
-onMounted(() => { document.addEventListener('pointerdown', closeMenusOutside); window.addEventListener('resize', resizeConversation) })
-onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame) })
+onMounted(() => { document.addEventListener('pointerdown', closeMenusOutside); window.addEventListener('resize', resizeConversation); document.addEventListener('scroll', resizeConversation, true); window.visualViewport?.addEventListener('resize', resizeConversation) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); document.removeEventListener('scroll', resizeConversation, true); window.visualViewport?.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame) })
 watch(() => [props.draft, props.expanded, props.projectId, props.selectedIntent], () => nextTick(fitDraft), { immediate: true })
 watch(draftInputRef, () => nextTick(fitDraft))
 watch(() => [referencePicker.value, referenceQuery.value, referenceCandidates.value.length], () => nextTick(() => placeMenu(toolsRef.value)))
+const permissionLabel = computed(() => ({ read: '只读', review: '审阅修改', auto: '自动修改' })[props.agentState.permission?.mode] || '审阅修改')
+const permissionScopeLabel = computed(() => ({ book: '本书', selected: '指定章节', current: '当前章节' })[props.agentState.permission?.scope] || '当前章节')
 const discussing = computed(() => props.selectedIntent === 'free')
-const placeholder = computed(() => props.selectedIntent === 'agent' ? '希望怎样续写、改写或打磨？' : discussing.value ? '说说你的故事想法…' : '想查什么？')
+const placeholder = computed(() => props.agentState.enabled ? '讨论情节、查阅资料，或说说想怎样修改…' : '说说你的故事想法…')
 const suggestedTasks = Object.freeze([
   { id: 'whole-book', label: '理清人物关系', suggestion: '请根据已有正文和设定梳理主要人物的关系，并列出出处。没有依据的关系请不要补全。' },
   { id: 'whole-book', label: '回顾前文', suggestion: '请根据已有正文整理前情，按事件先后列出重要变化，并标注对应原文。' },
@@ -457,7 +511,8 @@ const visibleMessages = computed(() => {
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
 
-function toolLabel(name) { return tr(({ manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议' })[name] || name) }
+function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
+function toolLabel(name) { return tr(({ workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -545,12 +600,12 @@ defineExpose({ focusQuestion, focusDraft: () => {
 const mention = ref(null)
 const mentionIndex = ref(0)
 const mentionCandidates = computed(() => {
-  if (props.selectedIntent !== 'agent' || !props.projectId || !mention.value || composing.value) return []
+  if (!props.agentState.enabled || !props.projectId || !mention.value || composing.value) return []
   const context = props.assistant?.agentContext?.() || {}
   return filterMentions([...(context.worldEntries || []), ...(context.chapterEntries || [])], mention.value.token)
 })
 function updateMention(input) {
-  if (!input || composing.value || props.selectedIntent !== 'agent') { mention.value = null; return }
+  if (!input || composing.value || !props.agentState.enabled) { mention.value = null; return }
   const next = mentionAtCursor(input.value, input.selectionStart)
   if (next?.token !== mention.value?.token) mentionIndex.value = 0
   mention.value = next
@@ -591,13 +646,19 @@ function submitOnEnter(event) {
   submit()
 }
 
-watch(() => [props.projectId, props.messages.length, props.busy], () => nextTick(() => {
-  discardThreadRestore()
-  focusedQuestion = null
-  if (!props.messages.length) { lastActiveQuestionId = ''; emit('active-question', '') }
-  if (threadRef.value) threadRef.value.scrollTop = threadRef.value.scrollHeight
-  updateActiveQuestion()
-}), { immediate: true })
+watch(() => [props.projectId, props.messages, props.messages.length, props.busy], (current, previous) => {
+  const changedConversation = !previous || current[0] !== previous[0] || current[1] !== previous[1]
+  const followLatest = changedConversation || lastThreadPosition?.atBottom !== false
+    || (current[2] !== previous?.[2] && props.messages.at(-1)?.role === 'user')
+  if (changedConversation) { searchTerm.value = ''; lastThreadPosition = null }
+  nextTick(() => {
+    discardThreadRestore()
+    if (followLatest) focusedQuestion = null
+    if (!props.messages.length) { lastActiveQuestionId = ''; emit('active-question', '') }
+    if (followLatest && threadRef.value) threadRef.value.scrollTop = threadRef.value.scrollHeight
+    updateActiveQuestion()
+  })
+}, { immediate: true })
 watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion) })
 </script>
 
@@ -624,7 +685,8 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__history > div button { width: auto; border: 0; color: var(--accent-primary, var(--accent)); }
 .authoring-knowledge__history p { margin: 18px 0; color: var(--text-secondary); font-size: 13px; text-align: center; }
 .authoring-knowledge__thread { position: relative; min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 20px var(--assistant-gutter) 28px; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-.authoring-knowledge__question { width: fit-content; max-width: 88%; margin: 0 0 22px auto; padding: 10px 16px; border-radius: 18px; background: var(--surface-workbench-input); overflow-wrap: anywhere; }
+.authoring-knowledge__question-row { display: flex; align-items: center; gap: 6px; width: fit-content; max-width: min(100%, calc(88% + 38px)); margin: 0 0 22px auto; }
+.authoring-knowledge__question { min-width: 0; width: fit-content; max-width: 100%; margin: 0; padding: 10px 16px; border-radius: 18px; background: var(--surface-workbench-input); overflow-wrap: anywhere; }
 .authoring-knowledge__question p { margin: 0; font: var(--assistant-question-size, 15px)/1.7 var(--font-interface, var(--font-sans)); }
 .authoring-knowledge__answer { margin: 0 0 32px; }
 .authoring-knowledge__answer-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; color: var(--text-secondary); font: 13px/1.5 var(--font-interface, var(--font-sans)); }
@@ -632,6 +694,25 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__answer-meta .is-grounded { color: var(--text-primary); }
 .authoring-knowledge__answer-meta time { color: var(--text-muted); font-size: 12px; }
 .authoring-knowledge__answer-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--assistant-answer-size, 15px)/1.85 var(--font-interface, var(--font-sans)); }
+.authoring-knowledge__markdown { white-space: normal; }
+.authoring-knowledge__markdown :deep(p) { margin: 0 0 1em; }
+.authoring-knowledge__markdown :deep(> :first-child) { margin-top: 0; }
+.authoring-knowledge__markdown :deep(> :last-child) { margin-bottom: 0; }
+.authoring-knowledge__markdown :deep(h1), .authoring-knowledge__markdown :deep(h2), .authoring-knowledge__markdown :deep(h3), .authoring-knowledge__markdown :deep(h4), .authoring-knowledge__markdown :deep(h5), .authoring-knowledge__markdown :deep(h6) { margin: 1.3em 0 .55em; color: var(--text-primary); font-size: 1.08em; font-weight: 600; line-height: 1.5; }
+.authoring-knowledge__markdown :deep(strong) { font-weight: 600; }
+.authoring-knowledge__markdown :deep(ul), .authoring-knowledge__markdown :deep(ol) { margin: .6em 0 1em; padding-inline-start: 1.5em; }
+.authoring-knowledge__markdown :deep(li) { margin: .35em 0; padding-inline-start: .2em; }
+.authoring-knowledge__markdown :deep(li > p) { margin: .35em 0; }
+.authoring-knowledge__markdown :deep(hr) { margin: 1.3em 0; border: 0; border-top: 1px solid var(--hairline-soft); }
+.authoring-knowledge__markdown :deep(blockquote) { margin: 1em 0; padding-inline-start: 1em; border-inline-start: 2px solid var(--hairline-soft); color: var(--text-secondary); }
+.authoring-knowledge__markdown :deep(a) { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.authoring-knowledge__markdown :deep(pre) { max-width: 100%; overflow-x: auto; margin: 1em 0; padding: 12px; background: var(--surface-workbench-muted); border-radius: var(--radius-control); font-size: .88em; line-height: 1.6; }
+.authoring-knowledge__markdown :deep(code) { font-family: var(--font-mono, monospace); white-space: pre-wrap; }
+.authoring-knowledge__markdown :deep(pre code) { white-space: pre; }
+.authoring-knowledge__markdown :deep(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 1em 0; font-size: .92em; }
+.authoring-knowledge__markdown :deep(th), .authoring-knowledge__markdown :deep(td) { padding: 6px 10px; border-bottom: 1px solid var(--hairline-soft); text-align: start; }
+.authoring-knowledge__markdown :deep(img) { max-width: 100%; height: auto; }
+
 .authoring-knowledge__stale { margin: 0 0 10px; padding: 8px 10px; border-inline-start: 2px solid var(--signal-warm); background: color-mix(in srgb, var(--signal-warm) 8%, transparent); color: var(--text-secondary); font-size: 13px; line-height: 1.55; }
 .authoring-knowledge__missing { margin: 12px 0 0; padding: 9px 10px 9px 28px; background: var(--archive-paper); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .authoring-knowledge__calculations { display: grid; gap: 8px; margin-top: 12px; }
@@ -666,6 +747,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__tools summary::-webkit-details-marker, .authoring-knowledge__purpose summary::-webkit-details-marker { display: none; }
 .authoring-knowledge__tools[open] summary, .authoring-knowledge__tools summary:hover { background: var(--surface-workbench-muted); color: var(--archive-ink); }
 .authoring-knowledge__purpose summary { display: flex; min-width: 0; min-height: var(--workspace-control-height, 36px); box-sizing: border-box; align-items: center; gap: 7px; padding: 4px 9px; border-radius: var(--workspace-radius, 10px); color: var(--text-secondary); font: 13px/1.4 var(--font-interface, var(--font-sans)); white-space: nowrap; cursor: pointer; list-style: none; }
+.authoring-knowledge__purpose summary small { font-size: 11px; color: var(--text-muted); }
 .authoring-knowledge__purpose summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .authoring-knowledge__purpose summary > svg { flex: none; }
 .authoring-knowledge__purpose summary:hover, .authoring-knowledge__purpose[open] summary { background: var(--nav-hover); color: var(--text-primary); }
@@ -696,7 +778,8 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding-block: 12px 16px; }
 .authoring-knowledge.is-expanded { --assistant-gutter: max(32px, calc((100% - var(--assistant-reading-width)) / 2)); --assistant-input-padding: 16px 18px 12px; --assistant-input-radius: 24px; --assistant-input-min-height: 108px; --assistant-answer-size: 16px; --assistant-intro-size: clamp(28px, 2.8vw, 34px); }
 .authoring-knowledge.is-expanded .authoring-knowledge__input-row textarea { font-size: 16px; }
-.authoring-knowledge.is-expanded .authoring-knowledge__question { margin-bottom: 28px; padding: 11px 18px; }
+.authoring-knowledge.is-expanded .authoring-knowledge__question-row { margin-bottom: 28px; }
+.authoring-knowledge.is-expanded .authoring-knowledge__question { padding: 11px 18px; }
 .authoring-knowledge.is-starting .authoring-knowledge__body { box-sizing: border-box; overflow-y: auto; justify-content: safe center; padding: 32px 18px 64px; }
 .authoring-knowledge.is-expanded.is-starting { background: var(--surface-assistant); }
 .authoring-knowledge.is-expanded.is-starting .authoring-knowledge__body { padding: 40px 32px clamp(64px, 12vh, 110px); }
@@ -754,10 +837,14 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 @media (prefers-reduced-motion: reduce) {
   .authoring-knowledge__thinking span { animation: none; }
 }
-.authoring-knowledge__agent-detail { margin: 10px 0; color: var(--text-muted); font-size: 12px; }
-.authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; gap: 5px; }
+.authoring-knowledge__process { display: grid; gap: 0; margin: -4px 0 14px; }
+.authoring-knowledge__agent-detail { margin: 0; padding: 0; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; }
+.authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 30px; padding: 0; display: flex; align-items: center; gap: 6px; line-height: 1.5; list-style: none; }
 .authoring-knowledge__agent-detail[open] summary svg { transform: rotate(180deg); }
-.authoring-knowledge__agent-detail p { white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.authoring-knowledge__agent-detail summary::-webkit-details-marker { display: none; }
+.authoring-knowledge__agent-detail summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__agent-detail p { margin: 4px 0 10px 18px; white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+@media (max-width: 720px) { .authoring-knowledge__agent-detail summary { min-height: 44px; } }
 .authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 7px 12px; min-height: 36px; border: 1px solid var(--hairline-soft); border-radius: var(--workspace-radius, 10px); background: var(--nav-primary-selected); color: var(--accent); font: 500 13px/1.5 var(--font-interface); cursor: pointer; }
 .authoring-knowledge__agent-adopt:hover:not(:disabled) { background: var(--nav-focused); }
 .authoring-knowledge__agent-adopt:disabled { opacity: .5; cursor: default; }
@@ -768,6 +855,22 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__mentions button { display: block; width: 100%; min-height: 36px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
 .authoring-knowledge__mentions button[aria-selected="true"] { background: var(--nav-selected); color: var(--text-primary); }
 @media (max-width: 720px) { .authoring-knowledge__mentions button { min-height: 44px; } }
+.authoring-knowledge__message-actions { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.authoring-knowledge__question .authoring-knowledge__message-actions { justify-content: flex-end; }
+.authoring-knowledge__message-actions button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 4px 7px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: 12px/1.5 var(--font-interface, var(--font-sans)); cursor: pointer; }
+.authoring-knowledge__message-actions button:hover, .authoring-knowledge__message-actions button:focus-visible { background: var(--surface-workbench-input); color: var(--text-primary); }
+.authoring-knowledge__message-actions button:disabled { opacity: .45; cursor: default; }
+.authoring-knowledge__edit-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.authoring-knowledge__tool-outcome { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; }
+.authoring-knowledge__edit-trigger { flex: 0 0 32px; display: grid; place-items: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); opacity: 0; pointer-events: none; cursor: pointer; }
+.authoring-knowledge__question-row:hover .authoring-knowledge__edit-trigger, .authoring-knowledge__question-row:focus-within .authoring-knowledge__edit-trigger { opacity: 1; pointer-events: auto; }
+.authoring-knowledge__edit-trigger:hover { background: var(--surface-workbench-input); color: var(--text-primary); }
+.authoring-knowledge__edit-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__edit-trigger:disabled { cursor: default; }
+.authoring-knowledge__question-row.is-editing { width: 100%; max-width: 100%; }
+@media (hover: none), (pointer: coarse) { .authoring-knowledge__edit-trigger { opacity: 1; pointer-events: auto; width: 44px; height: 44px; flex-basis: 44px; } }
+.authoring-knowledge__question:has(.authoring-knowledge__edit-input) { width: 100%; max-width: 100%; box-sizing: border-box; }
+.authoring-knowledge__edit-input { width: 100%; min-height: 80px; box-sizing: border-box; border: 0; background: transparent; color: var(--text-primary); resize: none; font: 15px/1.7 var(--font-interface, var(--font-sans)); }
 </style>
 
 <style scoped>

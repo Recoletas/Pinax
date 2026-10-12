@@ -36,6 +36,7 @@ function storedMessages(messages, projectId) {
     }
     if (message.role === 'assistant' && message.kind === 'agent' && message.projectId === projectId) {
       return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),
+        failureReason: String(message.failureReason || '').slice(0, 1000), outcome: String(message.outcome || ''), deliveryMessage: String(message.deliveryMessage || '').slice(0, 12000),
         thinking: String(message.thinking || '').slice(-4000), tools: clone((message.tools || []).slice(0, 30)),
         usage: clone(message.usage || null),
         status: message.status === 'running' ? 'interrupted' : message.status, taskId: String(message.taskId || ''), adopted: Boolean(message.adopted),

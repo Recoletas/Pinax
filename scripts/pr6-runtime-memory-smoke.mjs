@@ -10,8 +10,8 @@ const mock = http.createServer((req, res) => {
     JSON.parse(raw)
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     const frame = (delta, finish_reason) => `data: ${JSON.stringify({ id: 'synthetic', object: 'chat.completion.chunk', created: 1, model: 'synthetic', choices: [{ index: 0, delta, finish_reason }] })}\n\n`
-    res.write(frame({ role: 'assistant', content: '合成任务完成。' }, null))
-    setTimeout(() => { res.write(frame({}, 'stop')); res.end('data: [DONE]\n\n') }, 150)
+    res.write(frame({ role: 'assistant', tool_calls: [{ index: 0, id: 'synthetic-finish', type: 'function', function: { name: 'complete_assistant_task', arguments: JSON.stringify({ intent: 'answer', outcome: 'answer', message: '合成任务完成。' }) } }] }, null))
+    setTimeout(() => { res.write(frame({}, 'tool_calls')); res.end('data: [DONE]\n\n') }, 150)
   })
 })
 mock.listen(0, '127.0.0.1'); await new Promise(resolve => mock.on('listening', resolve))

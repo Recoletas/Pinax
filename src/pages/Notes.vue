@@ -3,7 +3,7 @@
     <FolioSurface as="header" variant="chrome" :decorated="false" class="writing-page__hero">
       <div class="manuscript-top material-top">
         <div class="manuscript-top__left">
-          <button class="manuscript-top__back" @click="goBack" title="返回首页" aria-label="返回首页">
+          <button v-if="!workspaceProps.workspaceEmbedded" class="manuscript-top__back" @click="goBack" title="返回首页" aria-label="返回首页">
             <ArrowLeft :size="18" :stroke-width="1.65" aria-hidden="true" />
         </button>
           <div class="manuscript-top__book">
@@ -20,12 +20,13 @@
 
         <div class="manuscript-top__right">
           <span class="manuscript-top__chip">{{ statusText }}<template v-if="saveStatus !== 'saving'"> · {{ wordCount.toLocaleString() }} 字</template></span>
-          <button class="manuscript-top__tab" type="button" @click.stop="goToAdventure" title="回到冒险">
+          <button v-if="!workspaceProps.workspaceEmbedded" class="manuscript-top__tab" type="button" @click.stop="goToAdventure" title="回到冒险">
             冒险
           </button>
-          <button class="manuscript-top__tab" type="button" @click.stop="goToWriting" :title="workspaceBookId ? '返回正文' : '选择作品'">
+          <button v-if="!workspaceProps.workspaceEmbedded" class="manuscript-top__tab" type="button" @click.stop="goToWriting" :title="workspaceBookId ? '返回正文' : '选择作品'">
             {{ workspaceBookId ? '正文' : '作品' }}
           </button>
+          <button v-if="saveStatus === 'conflict'" class="manuscript-top__tab" type="button" @click="reloadSelectedAsset">重新载入</button>
           <button class="manuscript-top__tab" type="button" @click="createNewNote" title="新建素材">
             新素材
           </button>
@@ -218,6 +219,7 @@
         </template>
         <ImageGenerationWorkbench
           v-else
+          ref="illustrationWorkbench"
           class="notes-sidekick__illustration"
           :showHeader="false"
           :storageKey="STORAGE_KEYS.PROSE_IMAGE_LIBRARY"
@@ -301,10 +303,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onScopeDispose, nextTick } from 'vue'
 import { ArrowLeft } from 'lucide-vue-next'
 import { sanitizeHtml } from '../utils/sanitize'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { useAdvisor } from '../composables/useAdvisor'
 import { useCanvasBoard } from '../composables/useCanvasBoard'
@@ -333,7 +335,8 @@ import {
   DEFAULT_IMAGE_PRESENTATION,
   getAssetKindLabel,
   normalizeImagePresentation,
-  updateNarrativeAssetDurable
+  updateNarrativeAssetDurable,
+  subscribeNarrativeAssets
 } from '../services/media/narrativeAssets'
 import { findWritingBook, loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { findAssetsByContentRefs } from '../services/media/narrativeAssetRetrieval'
@@ -346,6 +349,8 @@ import {
 } from '../services/media/narrativeImageAssetBridge'
 import { listImageProviderConfigs, resolveSelectedImageProviderConfig, saveSelectedImageProviderConfigId } from '../services/media/imageProviderConfigStore'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
+const illustrationWorkbench = ref(null)
 const router = useRouter()
 const route = useRoute()
 const workspaceBookId = computed(() => catalogApi.resolveWorkspaceBookId(route.query.bookId))
@@ -492,6 +497,7 @@ const editorApi = useNotesAssetEditor({
   renderPreview: renderPreviewSurface
 })
 const catalogApi = useNotesAssetCatalog({
+  getProjectId: () => typeof route.query.bookId === 'string' && route.query.bookId ? route.query.bookId : undefined,
   editor: editorApi,
   onAssetDeselected: resetIllustrationSelection,
   onSelectionChanged: (assetId) => {
@@ -589,6 +595,17 @@ const {
   advisor: { updateAdvisorResultStatus, askAdvisor }
 })
 
+const releaseAssets = subscribeNarrativeAssets(() => refreshCatalog())
+onScopeDispose(releaseAssets)
+function canCloseWorkspace() { return !advisorLoading.value && !isGeneratingProfessionalInfo.value && illustrationWorkbench.value?.canCloseWorkspace?.() !== false && editorApi.flushPendingSave() }
+if (!workspaceProps.workspaceEmbedded) { onBeforeRouteLeave(canCloseWorkspace); onBeforeRouteUpdate(canCloseWorkspace) }
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => advisorLoading.value || isGeneratingProfessionalInfo.value ? { label: '素材处理中' } : illustrationWorkbench.value?.getWorkspaceTaskSummary?.() || null })
+watch(() => workspaceProps.workspaceActive, active => { if (!active) cancelIllustrationDrag() })
+watch(() => route.query.assetId, assetId => {
+  refreshCatalog()
+  if (assetId && chapters.value.some(asset => asset.id === assetId)) selectChapter(assetId)
+})
+watch(() => route.query.workspace, value => { if (value) setSidekickWorkspace(value) })
 onMounted(() => {
   const initialWorkspace = String(route.query.workspace || 'materials')
   setSidekickWorkspace(initialWorkspace)
@@ -628,10 +645,14 @@ watch(sidekickImageModelId, (id) => {
 })
 
 function setSidekickWorkspace(workspace) {
+  if (illustrationWorkbench.value?.canCloseWorkspace?.() === false) return
   const allowedWorkspaces = ['materials', 'illustration']
   sidekickWorkspace.value = allowedWorkspaces.includes(workspace) ? workspace : 'materials'
   if (sidekickWorkspace.value !== 'materials') loadSidekickImageModels()
   mobilePane.value = 'tools'
+  if (workspaceProps.workspaceEmbedded && route.query.workspace !== sidekickWorkspace.value) {
+    router.replace({ name: 'materials', query: { ...route.query, workspace: sidekickWorkspace.value } }).catch(() => {})
+  }
 }
 
 function goToComics() {
@@ -839,6 +860,13 @@ function goToAdventure() {
   } else {
     router.push({ name: 'opening' })
   }
+}
+
+function reloadSelectedAsset() {
+  if (!window.confirm('重新载入会放弃这份素材当前未保存的输入。请先复制需要保留的内容。')) return
+  const id = selectedChapterId.value
+  refreshCatalog()
+  replaceEditorFromPersisted(id)
 }
 
 function goBack() {

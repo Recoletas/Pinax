@@ -1,12 +1,14 @@
 // Experience 半自动推进（R-X1）：timer、暂停判断、schedule/run/stop、
 // 人工输入取消与卸载清理的唯一 owner。依赖全部由页面注入：
 // 不 import 页面、router 或 store singleton；本 composable 不互相 import。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
 
 const AUTO_ADVANCE_MAX_BEATS = 3
 const AUTO_ADVANCE_INTERVAL_MS = 1500
 
 export function useExperienceAutoAdvance({
+  workspaceActive,
   gameStore,
   onlineSession,
   isStarting,
@@ -14,6 +16,7 @@ export function useExperienceAutoAdvance({
   handleSend,
   handleLocalDemoEvent
 }) {
+  const contentWorkspace = useComposableWorkspace()
   const autoAdvanceEnabled = ref(false)
   const autoAdvancePending = ref(false)
   const autoAdvanceRequestActive = ref(false)
@@ -21,8 +24,10 @@ export function useExperienceAutoAdvance({
   // C6：半自动节奏 —— 一次自动会话最多推进 N 个完整 beat，间隔阅读友好。
   const autoAdvanceBeatCount = ref(0)
 
-  const canUseAutoAdvance = computed(() => !onlineSession && Boolean(gameStore.currentSessionId) && !isStarting.value)
+  const canUseAutoAdvance = computed(() => workspaceActive?.value !== false && !onlineSession && Boolean(gameStore.currentSessionId) && !isStarting.value)
   const isDemoSequence = computed(() => (typeof isLocalDemoSequence === 'function' ? isLocalDemoSequence() : isLocalDemoSequence.value))
+
+  watch(() => workspaceActive?.value, active => { if (active === false) stopAutoAdvance() })
 
   function clearAutoAdvanceTimer() {
     if (autoAdvanceTimer !== null) {
@@ -144,6 +149,10 @@ export function useExperienceAutoAdvance({
       stopAutoAdvance({ abortRunning: true })
     }
   }
+
+  watch(() => contentWorkspace?.state.primaryVisible, visible => {
+    if (!workspaceActive && visible === false) stopAutoAdvance({ abortRunning: false })
+  })
 
   return {
     autoAdvanceEnabled,

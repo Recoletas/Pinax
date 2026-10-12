@@ -69,12 +69,13 @@ import { useGameStore } from '../stores/gameStore'
 const gameStore = useGameStore()
 const emit = defineEmits(['select', 'create', 'delete', 'update:selected-worldbook-id', 'close'])
 const props = defineProps({
+  scopeWorldbookId: { type: String, default: '' },
   busy: { type: Boolean, default: false },
   worldbooks: { type: Array, default: () => [] },
   selectedWorldbookId: { type: String, default: '' }
 })
 
-const sessions = computed(() => gameStore.sessions || [])
+const sessions = computed(() => (gameStore.sessions || []).filter(session => !props.scopeWorldbookId || (session.worldbookId || session.worldId) === props.scopeWorldbookId))
 const currentSessionId = computed(() => gameStore.currentSessionId)
 
 const sortedSessions = computed(() => {

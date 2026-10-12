@@ -3,6 +3,7 @@ import { createBrowserStorageRepository } from '../../storage/browserStorageRepo
 // === bridge-sync：此行之下两副本必须逐字节一致（scripts/check-bridge-sync.mjs）===
 
 const DOMAINS = {
+  workspace: 'workspace',
   world: 'world_lookup',
   geo: 'geo_lookup',
   history: 'history_lookup',
@@ -28,6 +29,8 @@ export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
     coverage[toolName] = { included: Math.min(resources.length, itemLimit), available: resources.length, maxTextCharacters: domain === 'manuscript' ? 8000 : 2400 }
     domains[toolName] = resources.slice(0, itemLimit).map((r) => ({
       id: text(r.id, 120),
+      ...(domain === 'workspace' ? { bookId: text(r.bookId, 120), resourceId: text(r.resourceId, 120) } : {}),
+      sourceLength: String(r.text || r.content || r.summary || '').trim().length,
       title: text(r.title || r.name || '', 120),
       type: text(r.type || '', 60),
       summary: text(r.summary || r.content || r.description || r.text || '', 520),
@@ -44,6 +47,17 @@ export function buildResourceSnapshot(index, { maxItemsPerDomain = 120 } = {}) {
       ...(r.time ? { time: text(r.time, 60) } : {}),
       ...(r.cause ? { cause: text(r.cause, 120) } : {}),
     }))
+  }
+  // Keep the request below the proxy's 1 MB resource limit; declare every clipped source.
+  let excess = JSON.stringify({ domains, coverage }).length - 850000
+  if (excess > 0) {
+    const rows = Object.values(domains).flat().sort((a, b) => b.text.length - a.text.length)
+    for (const row of rows) {
+      if (excess <= 0) break
+      const before = JSON.stringify(row.text).length
+      row.text = text(row.text, Math.max(320, row.text.length - excess))
+      excess -= before - JSON.stringify(row.text).length
+    }
   }
   return { revision: text(index?.revision || '', 80), currentPlaceId: text(index?.currentPlaceId || '', 120), domains, coverage }
 }
@@ -99,6 +113,12 @@ async function requestError(response) {
 
 export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fetchImpl = fetch, parseEvent = null } = {}) {
   const base = String(endpoint).replace(/\/$/, '')
+  let workspaceSupported = false
+  function snapshotForRuntime(index, options) {
+    const snapshot = buildResourceSnapshot(index, options)
+    if (!workspaceSupported) { delete snapshot.domains.workspace; delete snapshot.coverage.workspace }
+    return snapshot
+  }
   const repo = createBrowserStorageRepository()
   let session = ''
   try { session = repo.getText('pinax_agent_client_capability') || '' } catch { /* transient capability */ }
@@ -270,12 +290,14 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
       const timer = setTimeout(() => controller.abort(), timeoutMs)
       try {
         const response = await fetchImpl(`${base}/healthz`, { signal: controller.signal })
-        return response.ok ? await response.json() : null
+        const health = response.ok ? await response.json() : null
+        workspaceSupported = health?.assistantWorkspace === true
+        return health
       } catch { if (signal?.aborted) throw abortError(signal); return null }
       finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
     },
 
-    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null, taskKind = 'narrative' }) {
+    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null, taskKind = 'narrative', maxTokens = null }) {
       taskId = base === '/api/storyagent' ? scopedId(taskId) : taskId || freshId()
       if (signal?.aborted) throw abortError(signal)
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
@@ -283,11 +305,12 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
         requestId: requestId || `pi_${Date.now().toString(36)}`,
         mode, taskKind,
         intent,
+        ...(maxTokens ? { maxTokens } : {}),
         formatInstructions,
         // 作品归属（PR #4 审阅②）：任务开始时固定；适配器全程携带并落账
         ...(bookId ? { bookId } : {}),
         kernel: buildKernelPayload(kernel),
-        resources: buildResourceSnapshot(index, { maxItemsPerDomain: budget?.maxItemsPerDomain }),
+        resources: snapshotForRuntime(index, { maxItemsPerDomain: budget?.maxItemsPerDomain }),
         ...(budget ? { budget: { agentTimeoutMs: budget.agentTimeoutMs, maxModelSteps: budget.maxModelSteps, maxCallsPerTurn: budget.maxCallsPerTurn } } : {}),
         ...(taskId ? { taskId } : {}),
       }
@@ -318,16 +341,18 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
       return { ...result, cancelled: result.status === 'cancelled' }
     },
 
-    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null, taskKind = 'assistant', formatInstructions = '' }) {
+    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null, taskKind = 'assistant', formatInstructions = '', budget = null, maxTokens = null }) {
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
       const body = {
         requestId: requestId || `pi_resume_${Date.now().toString(36)}`,
         mode: 'continue', taskId, taskKind, formatInstructions,
+        ...(budget ? { budget: { agentTimeoutMs: budget.agentTimeoutMs, maxModelSteps: budget.maxModelSteps, maxCallsPerTurn: budget.maxCallsPerTurn } } : {}),
         intent,
+        ...(maxTokens ? { maxTokens } : {}),
         // 归属不变式：续跑重发同值；客户端漏发时适配器以快照为准（旧任务永远归旧作品）
         ...(bookId ? { bookId } : {}),
         kernel: buildKernelPayload(kernel),
-        resources: buildResourceSnapshot(index),
+        resources: snapshotForRuntime(index),
       }
       const { finalText, events } = await streamTask(`/v1/pinax/tasks/${encodeURIComponent(taskId)}/resume`, body, { signal, callbacks, onStatus, state })
       const result = resultOf(state, finalText, events, taskId, true)

@@ -1,7 +1,7 @@
 <template>
-  <section class="structured-settings-panel is-continuous">
+  <section class="structured-settings-panel is-continuous" :class="{ 'is-compact': compact }">
     <div class="section-workbench">
-      <aside class="section-rail workspace-sidebar">
+      <aside v-if="!compact" class="section-rail workspace-sidebar">
         <span class="section-index-label">{{ tr('设定目录') }}</span>
         <label class="setting-directory-search">
           <WorkbenchIcon name="search" :size="15" />
@@ -42,6 +42,7 @@
       </aside>
 
       <div class="section-main">
+        <label v-if="compact" class="compact-section-picker"><span>{{ tr('作品设定') }}</span><select :value="activeSectionKey" :aria-label="tr('设定分区')" @change="selectSection($event.target.value)"><option v-for="section in sections" :key="section.key" :value="section.key">{{ tr(section.label) }}</option></select></label>
         <slot name="sources" />
         <div class="section-canvas">
           <header class="section-content-heading">
@@ -202,7 +203,8 @@ import PlaceCatalog from './PlaceCatalog.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
 const props = defineProps({
-  worldbook: { type: Object, required: true }
+  worldbook: { type: Object, required: true },
+  compact: Boolean
 })
 
 const emit = defineEmits(['saved'])
@@ -1185,6 +1187,7 @@ restoreDraftState()
 
 // ---------- 暴露给快捷键 / workspace ----------
 async function flushAll() {
+  if (sectionAbortController || fieldAbortController || revisionAbortController) { feedback.value = '生成尚未结束，请先完成或停止后切换。'; return false }
   const tasks = []
   for (const el of fieldRefs.values()) {
     if (el?.flush) tasks.push(el.flush().catch(() => {}))
@@ -1436,4 +1439,11 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .field-head) { display: flex; width: 100%; }
  .structured-settings-panel.is-continuous .fields-grid :deep(.control-tags .tag-input) { width: 100%; }
 }
+.structured-settings-panel.is-compact .section-workbench { display: block; }
+.compact-section-picker { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-secondary); font: 12px var(--font-sans); }
+.compact-section-picker select { max-width: 65%; min-height: 32px; border: 0; border-radius: var(--radius-control); padding: 4px 10px; color: var(--text-primary); background: var(--nav-hover); font: 13px var(--font-sans); }
+.structured-settings-panel.is-compact .section-canvas { padding: 24px 20px 40px; }
+.structured-settings-panel.is-compact .section-content-heading h1 { font-size: 20px; }
+.structured-settings-panel.is-compact .section-content-heading { gap: 12px; margin-bottom: 20px; padding-bottom: 16px; }
+.structured-settings-panel.is-compact .section-content-heading p { font-size: 13px; }
 </style>

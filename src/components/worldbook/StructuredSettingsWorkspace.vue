@@ -1,12 +1,12 @@
 <template>
-  <div class="settings-workspace">
+  <div ref="workspaceRef" class="settings-workspace">
     <StructuredSettingsPanel
       v-if="worldbook"
       ref="panelRef"
-      :worldbook="worldbook"
+      :worldbook="worldbook" :compact="compact"
     >
       <template #sources>
-        <section v-if="sourceDocuments.length" class="source-rail" :aria-label="tr('来源资料')">
+        <section v-if="sourceDocuments.length && !compact" class="source-rail" :aria-label="tr('来源资料')">
           <div class="source-rail__lead">
             <span class="source-rail__mark">{{ tr('来源') }}</span>
             <strong :aria-label="tr('{count} 份资料', { count: sourceDocuments.length })">{{ sourceDocuments.length }}</strong>
@@ -56,17 +56,22 @@ import StructuredSettingsPanel from './StructuredSettingsPanel.vue'
 import SettingKeyboardHints from './SettingKeyboardHints.vue'
 
 const props = defineProps({
-  worldbook: { type: Object, default: null }
+  worldbook: { type: Object, default: null },
+  embedded: Boolean,
+  compact: Boolean
 })
+const workspaceRef = ref(null)
 const panelRef = ref(null)
 const activeSourceId = ref('')
 watch(() => props.worldbook?.id, () => { activeSourceId.value = '' })
 
 const { hintsOpen } = useSettingKeyboardShortcuts({
+  ownsKeyboard: event => Boolean(workspaceRef.value?.getClientRects().length && !workspaceRef.value.closest('[inert]') && (!props.embedded || workspaceRef.value.contains(event.target))),
   save: () => panelRef.value?.flushAll?.(),
   undo: () => panelRef.value?.undoCurrentField?.(),
   redo: () => panelRef.value?.redoCurrentField?.()
 })
+defineExpose({ flushAll: () => panelRef.value?.flushAll?.() ?? true })
 
 const sourceDocuments = computed(() => Array.isArray(props.worldbook?.sourceDocuments)
   ? props.worldbook.sourceDocuments.filter((document) => sourcePreview(document).trim())

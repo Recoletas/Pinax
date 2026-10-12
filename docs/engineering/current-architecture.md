@@ -6,6 +6,20 @@
 
 ## 1. 一句话结构
 
+2026-10-10 本地工作区新增 `WorkspaceContentGroups`：AppShell 主路由保持原编辑与会话所有者，参考组按显式作品／世界书资源引用挂载资料、原文、正文／设定参考、漫画／素材参考和内嵌视频面板。布局只存资源定位、实例与位置；任务摘要和关闭检查由原模块注册。移位不重建显示实例，同作品主页面导航保留参考组；跨项目检查尚未结束的操作。助手请求与对话已由宿主独立会话持有，同书切到其他主页面继续接收结果；正文页只提供可释放的编辑绑定。绑定改变后的自动提案转待审阅，返回后重新校验授权并通过原事务采用／撤销。跨书并行、多编辑组共享撤销仍未实现；联机通过常驻完整视图持有连接，尚未拆成独立连接服务，不能把此宿主视作已完成的任意多视图运行时。实施边界和证据见[本轮记录](../agent-runs/composable-workspace-20261010.md)。
+
+2026-10-11 主区和旁区改为独立的内容标签组：每个视图保存 `group`，两个区域分别保存选中资源。旧 `mainModuleId` 字段保留作为主区选中视图的兼容字段，不再只允许制作模块；旧布局的 expanded 参考会迁到主区。资料、设定、媒体与制作视图统一使用同一实例移动，切换主区不再等于把参考栏撑满。标签支持键盘切换、桌面排序和跨区域拖动；布局最多保存 32 个视图，超限要求显式关闭，不自动淘汰未保存编辑器。
+
+正文主区的章节标签复用原 Authoring owner，切章仍执行原保存、草稿和修订检查。位置恢复只存选区／滚动／修订元数据；旁区章节用于查阅，原可编辑双栏保留。顶部“打开内容”及 Ctrl/Cmd+P 按本书查找章节、人物、来源、漫画页、镜头、素材和跑团存档，并可选择主区或旁边。参考进入编辑也走宿主，避免重新进入另一套导航。关闭由旧路由承载的工作台时，先确认回到正文再卸载，避免重新挂载原页面或再次连接房间。
+
+单人跑团已用 `game-editor` 常驻视图承载同一本书的存档。它仍使用原 gameStore、历史和生成流程；切到正文、制作或资料保留实例和已发起的生成，隐藏或失去工作焦点暂停后续自动推进。存档选择限制为本书资料库，资源定位记录当前存档；生成、初始化中禁止关闭与换存档。单人和联机不能同时创建游戏 owner，切换先检查并关闭原视图，活跃房间必须先离开。本地布局不承诺刷新后恢复正在生成的网络请求。
+
+本地界面整合将项目打开动作交给 AppShell 的原导航抽屉，通过 useWorkspaceProjectActions 调用宿主；撤掉新加的模块横排及“对照设定／对照资料”常驻按钮，正文原工具栏与右栏设定继续作为写作入口；顶栏按作品聚合显示，仍保留模块路由恢复状态。`WorkspaceSettingsView` 用显式作用域复用原连续设定编辑器，窄栏采用分区选择而非整页目录，主区与旁栏共享一实例，关闭冲刷保存且拒绝未结束生成。资料和漫画侧栏撤掉重复的全局模块导航，领域编辑器保持原正式存储边界。 `WorkspaceModuleView` 进一步以显式资源和局部路由快照装配完整漫画／编导工作台；主／侧两区移动用 Teleport 保持显示实例，原稿页面隐藏时仍保留。宿主只保存位置与定位，制作内容仍由领域 Repository 保存。编导画布通过 `proseCanvasRepository` 按作品存快照，旧全局数据保守投影且不覆盖；没有另建媒体数据库。跑团保持单活动会话，任务摘要与离开保护接入宿主。
+
+素材与插画也以 `materials-editor` 装配原 `Notes` 工作台，可放中央或正文旁。它使用显式作品过滤目录；素材选择与插画分区属于视图定位，切换工作台不重建编辑器。素材到漫画／编导的同书跳转由宿主接收，编导交接统一写本书画布；无明确书籍归属的旧素材仍保留旧全局路径。素材和画布的成功写入通知已挂载的同页视图，更新目录、参考及编导来源；通知不重装正在输入的素材编辑器。素材写入比较加载时的作品、标题和内容，书内画布写入比较快照版本；冲突时保留当前输入并要求作者显式重载，关闭检查不能绕过它。这里仍是浏览器本地保存保护，不是跨设备同步或分布式事务。插画处理／未保存候选会阻止关闭或切换会销毁它的分区；正式图片沿用既有媒体存储。
+
+作品的联机入口以 `online-editor` 装配完整 `OnlineExperience`。视图隐藏、移位、同书查资料或切正文时，原连接与剧情订阅继续保留；顶部房间入口可以找回。局部房间导航只更新房间码，布局不保存邀请秘密；显式 URL 的房间定位优先于恢复布局。真实连接仍由既有 `useOnlineRoom`／V2适配器管理，宿主控制视图存活与关闭。当前只有一个游戏状态 owner：联机活跃时拒绝进入单人跑团或关闭作品，先显式离开房间；单人视图启动时不再挂一份联机剧情实例。房间控制使用可展开区域，不覆盖现场栏；窄容器降为单列。刷新、断网重连和服务重启能否恢复仍取决于原协议与服务，不由布局持久化保证。
+
 Pinax 目前是一个 **Vue 单页工作台 + 本地优先浏览器数据 + 可选 Express AI/媒体代理 + 可选 Electron/协作适配器**：
 
 ```text
@@ -175,11 +189,18 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 
 ## StoryAgent 接入（2026-10-05；2026-10-06 P2 起运行时迁入 storyflow-kit）
 
-正式入口是既有助手的“写作与修改”，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用由 Authoring 保存保护版本、durable 写回后发布，并通知既有现场观察，agent 运行时没有直接写权限。
+正式入口是既有助手，输入区选择只读／审阅修改／自动修改和写入范围，全屏/侧栏复用 per-book composable 和 `authoring_assistant_conversation:` 真源。`authoringIntegration` 同步冻结当前作品的正文/已绑定世界书/构思/大纲快照；bridge 经 `/api/storyagent` 转到 loopback。任务 ID 的浏览器 capability 命名空间不与作品 ID 混用。作者采用或有效自动授权由 Pinax 保存保护版本，经 durable 事务写回后发布；正文原位差异是编辑器装饰，不进入正文序列化。已保存文本通过共享现场的版本检查在下次使用时参与识别，人物入场仍需确认。Agent 运行时只交付提议，不直接写作品。
+
+2026-10-12 本地改动：默认上下文包含当前作品／章节目录、正文（长章为明确标注的开头及末尾节选）和正文涉及的设定，不再任意选择第一条人物。新运行包声明 `assistantWorkspace: true` 后，`workspace` 可浏览有界作品快照，读取其他作品不改变编辑目标或权限；旧运行包不发送新资料域。目录不是磁盘文件系统，未收录的作品和章节、被截断的中段仍不可读取。普通回答保留流式全文，`complete_assistant_task.message` 单独作为交付说明；模型错误在补交付前终止并显示可读原因。助手单次模型输出上限6000 token，资源操作最多6次，拒绝尝试不扣执行额度；本地完成确认独立于资源额度，仍检查意图和提议。有效提议后工具收束为完成确认，模型步骤／超时继续受服务端限制。append若携带before，只有该锚点精确匹配完整目标末尾时才规范为空before；中段／截断／越权仍拒绝。曾调用修改工具后不能以普通answer交付，运行器和前端均校验。前台编辑绑定未变化时，成功提议自动定位正文／设定审阅。
+
+消息级编辑、重新生成和从回答继续均建立独立会话分支；原会话完整保留，新分支只带截止位置的聊天历史，不带旧任务 ID、修改提议或自动授权。分支不回滚已经采用的书稿修改，新请求仍以当前书稿为准。已有会话数量上限20、每会话保存60条消息，新任务提示历史仍是有界摘要，不等于无限历史上下文。
+
+助手协议 2：`shared/assistantPermission.js` 定义领域与范围，Express `/api/storyagent/policies` 建立浏览器 capability + 会话 + 作品绑定的临时策略；工具执行和前端实际事务分别校验，更新／撤销策略停止在途请求。`complete_assistant_task` 交付结构化意图与结果，编辑需要有效 `submit_edit_proposals`。权限不来自模型参数，自动授权不随重载或会话切换继承。原位审阅、分组采用和撤销复用既有提议／事务／会话存储。现场界面合入推演，数据仍由原共享场景服务管理。[实施记录](../agent-runs/assistant-editing-20261009.md)。
+
 
 体验开关只路由没有严格任务合同的回合；严格任务继续由原生 loop 的发布前验收处理。资料查阅、审稿、轻量推演仍保留各自 owner。快照查询不等于资料原件/RAG 接入。
 
-**运行时归属（P2 口径统一）**：pi-agent 任务面（agent 循环、工具环、BeatPlan、任务存储、SSE 服务面、provider 绑定经 kit `llm.ts` 注册表）canonical 在 `storyflow-kit/storyharness/src/pinax/`，由 `npm run serve:pinax` 承载于 loopback 8451；Pinax 侧 `adapters/pinax-adapter` 已退役为 stub（其 `.external` 配置仍是凭据源，经 env 传给 kit 进程）。`server/services/storyAgentRuntime.js` 探测/拉起该服务面，不可达时 agent 路由回落原生链。契约与工具清单的 canonical 在 kit `contracts/`（capability-manifest@1、beat-plan@1）；桥双副本纪律见 `scripts/check-bridge-sync.mjs`（Pinax 浏览器桥 ⇄ kit pinax-side）。浏览器原生工具环仍在 Pinax（浏览器域），由契约等价测试对齐。
+**运行时归属（P2 口径统一）**：pi-agent 任务面（agent 循环、工具环、BeatPlan、任务存储、SSE 服务面、provider 绑定经 kit `llm.ts` 注册表）canonical 在 `storyflow-kit/storyharness/src/pinax/`，由 `npm run serve:pinax` 承载于 loopback 8451；Pinax 侧 `adapters/pinax-adapter` 已退役为 stub（其 `.external` 配置仍是凭据源，经 env 传给 kit 进程）。`server/services/storyAgentRuntime.js` 探测/拉起该服务面，不可达时助手保留输入并报不可用。契约与工具清单的 canonical 在 kit `contracts/`（capability-manifest@1、beat-plan@1）；桥双副本纪律见 `scripts/check-bridge-sync.mjs`（Pinax 浏览器桥 ⇄ kit pinax-side）。浏览器原生工具环仍在 Pinax（浏览器域），由契约等价测试对齐。
 
 **循环归属试点范围（W1-1，2026-10-08）**：**单发结构化生成**（世界书字段生成）的回合循环已切至 kit 任务面 capability 路径——`structuredGenerationRunner.js` 在 kernel 路由下注入 `createKitStructuredCapabilityFetchImpl()`，请求折成 `taskKind=capability` 任务（Schema 进强制提交工具，回执即终态），任务不可达/失败时同请求回落 kit 漏斗（`/v1/pinax/complete`，双层 fail-open）。**助手对话（`chat.js`）与 agent-step（`generationAgent.js`）仍走 Pinax 侧循环**，kit 漏斗在其链路中只承担传输。**「同仓两种循环归属」是过渡期的合法中间态，不是全切完成**；试点出口与 ①②b 的切换另行裁定。
 
@@ -193,7 +214,7 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 
 全栈三个 loopback 服务面的监督责任按「谁知道这个能力要不要」分层：
 
-- **8451（kit 任务面：pi-agent / BeatPlan / 能力任务）归 Pinax 宿主监督**。`server/services/storyAgentRuntime.js` 负责探测与拉起：`:13` `/healthz` 探针；`:23` 总开关（`PINAX_STORYAGENT_ENABLED=0` 直接返回 null）；`:33` 已在跑则短路；`:44` 未跑则 spawn（node + tsx 起 `pinax/serve.ts`）并轮询等健康（`:54`）；`:64` 拉起点写日志，`:66` 返回句柄供关停。不可达时 agent 路由回落原生链——宿主才知道自己要不要 agent 能力，这个 fail-open 依赖的正是这份探测结果。
+- **8451（kit 任务面：pi-agent / BeatPlan / 能力任务）归 Pinax 宿主监督**。`server/services/storyAgentRuntime.js` 负责探测与拉起：`:13` `/healthz` 探针；`:23` 总开关（`PINAX_STORYAGENT_ENABLED=0` 直接返回 null）；`:33` 已在跑则短路；`:44` 未跑则 spawn（node + tsx 起 `pinax/serve.ts`）并轮询等健康（`:54`）；`:64` 拉起点写日志，`:66` 返回句柄供关停。不可达时助手保留输入并报不可用，不能把无修改工具的聊天输出当作成功编辑。
 - **8421（core 内核 HTTP 面）与 8431（kit 协议面）归 kit 守护监督**。守护件在 `storyflow-kit/scripts/ops/`（`kit-guard.bat` + `kit-guard.vbs`，经 Windows 计划任务 `kit-guard` 每 5 分钟 HTTP 健康巡检）。**该守护当前失效**，登记见 [known-issues](../src/known-issues.md)；修复前 8421/8431 无人拉起，需要时手工启动。
 - **`kit/storyharness/src/web.ts` 是 kit 开发态一键起**（`:41-42` 声明式 `RuntimeSpec`；`:49` 读 `<ws>/.storyharness.json`；`:60-61` 未声明时回落 v4 缺省内核命令）。两仓均不存在 `.storyharness.json`（2026-10-08 实测），故该路径当前全走缺省；它不参与 Pinax 生产链路的监督。
 
@@ -206,3 +227,17 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 帧结构（`src/pinax/server.ts`）：首帧由提交路径落盘（`:118`），携带 `status: "running"` 与全零 `usage`（`:242-245`）；终态帧由 `settled` 落盘（`:132-135`），即 `{...final, taskId, bookId, createdAt}`。**`usage.{inputTokens,outputTokens,totalTokens}` 在每帧顶层，但只有终态行（如 `completed`）的值才真实**——首帧为占位全零。样例：`tasks/task-pa_e63a7cf2a7558e1ad04d9d3f_final1.jsonl` 末帧 `completed`，usage 1899/114/2013，steps 2、toolCalls 1。
 
 不引入 kit 的 `sessions.ts` 会话维度（`src/sessions.ts:2` 自述位置依赖 `projectDir` + `CorpusLayout`）：8451 任务面的全部路径从 `pkgRoot()` 解析、不读工作区环境变量（`src/pinax/config.ts:68-74`），引入会话维度等于把 `STORYHARNESS_WORKSPACE` 环境变量坑（kit `AGENTS.md:61`：本机该变量指向 storymasterv4，漏 set 会静默落到 v4）引进 Pinax 链路。当前不引进是更安全的选择。
+
+
+地图／高级条目管理以 `map-editor`／`entries-editor` 接入同一常驻模块宿主，复用原完整页面。显式资源引用携带作品／世界书与条目、地点和历史定位，移动只改变显示位置。地图容器观察器适配实际宽高并保留观看中心；地形存储仍是既有 geographyStore／世界树，不能把作品绑定误认为每书独立地形。高级条目保存可携带正式字段基准指纹，由 worldStore 的 durable owner 对持久化条目检查；过期草稿拒绝覆盖并保留输入，未保存与运行任务接入关闭／离开守卫。
+
+
+正文旁参考内容可见时，桌面写作工具栏通过同一 Teleport 实例停靠工作区最右侧；工具与 inspector 状态仍由 Authoring owner 管理。宿主的 railTarget／railDocked 是临时显示状态，不参与布局存储。点击原工具先恢复其显示，当前工具不因再次点击而关闭；全屏助手、中央制作模块与手机保留原工具布局。
+
+首页最近打开按作品聚合后取最近4本，仅展示作品名与访问时间。章节／助手／资料等精确位置仍保留在已有导航历史中，点击作品时选择最近可用目标；全部旧目标失效时回该作品正文，已删除作品不进入列表。
+
+### 世界书内容工作区（2026-10-12，本地适配）
+
+`WorldbookContentWorkspace` 由旧完整设定路由和 `WorkspaceSettingsView` 共同使用，接收显式世界书快照与作品标识；内容目录、条目选中、查看方式不改变正式存储。详情、表格、关系图及伏笔台账继续经 `worldStore` 写入，字段和正文投影沿用现有模板／标签辅助函数，关联使用 `applyRelationRows` 双层同步。窄旁区以条目编辑为主，完整表格及图谱放主区；原日常设定右栏、可编辑双栏保留。详情草案复用 `entryPanelDraft` 的 `workspace` 面，关闭与切换复用 `flushAll` 和条目指纹校验。
+
+表格／台账／图谱增强选择性来源为贡献者 skkbsgzf 的 PR #7（固定 b70e893a）。这不表示 PR 的 kit 服务、助手重答链或外壳删除已合并；范围与证据见[接入记录](../agent-runs/worldbook-workspace-20261012.md)。

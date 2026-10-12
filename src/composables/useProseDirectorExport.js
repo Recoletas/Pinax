@@ -1,4 +1,14 @@
 import { ref } from 'vue'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
+
+export function useProseReferenceWorkspace(route) {
+  const host = useComposableWorkspace()
+  return {
+    openAsset: assetId => host?.openResource({ type: 'asset', bookId: String(route.query.bookId || ''), id: String(assetId) }) || false,
+    openVideo: context => host?.openResource({ type: 'video', bookId: String(context.document.projectId || ''), id: context.document.id, versionId: context.version.versionId }) || false,
+    ownsKeyboard: event => host?.state.primaryVisible !== false && !event.target?.closest?.('.workspace-reference-group')
+  }
+}
 
 // Single lifecycle owner for director export handoff state. Serialization and
 // persistence are injected adapters; no repository or storage access occurs here.

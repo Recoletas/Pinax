@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
 import { createExperienceSessionAdapter } from '../services/experience/experienceSessionAdapter'
 import { scrubCollaborationInviteFragment } from '../services/collaboration/endpoint'
@@ -8,8 +8,18 @@ import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
 import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
 import Experience from './Experience.vue'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const route = useRoute()
 const router = useRouter()
+
+const experienceView = ref(null)
+const roomActive = computed(() => hasEnteredRoom.value && !['idle', 'disconnected', 'disabled'].includes(connectionState.value))
+function canCloseWorkspace() { return !roomActive.value && experienceView.value?.canCloseWorkspace?.() !== false }
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate((to, from) => to.params.roomSlug === from.params.roomSlug && to.query.bookId === from.query.bookId || canCloseWorkspace())
+}
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => roomActive.value ? { label: `联机房间 · ${roomSlug.value}`, icon: 'users' } : null })
 
 const roomSlug = computed(() => route.params.roomSlug || '')
 const inviteCredentials = import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true' && /^#(?:invite|secret|contentKey)=/.test(window.location.hash)
@@ -80,13 +90,16 @@ async function onEnterRoom() {
   }
   const targetSlug = lobbyRoomSlug.value || generateSlug()
   pendingJoinSlug = targetSlug
-  if (roomSlug.value !== targetSlug) await router.push({ name: 'online-experience', params: { roomSlug: targetSlug } })
+  if (roomSlug.value !== targetSlug) {
+    const failure = await router.push({ name: 'online-experience', params: { roomSlug: targetSlug }, query: route.query })
+    if (failure) { pendingJoinSlug = ''; lobbyError.value = '请先处理当前任务，再加入房间'; return }
+  }
   pendingJoinSlug = ''
   hasEnteredRoom.value = true
   await joinRoom(targetSlug, lobbyNickname.value)
 }
 
-function onCreateRoom() {
+async function onCreateRoom() {
   lobbyError.value = ''
   if (!lobbyNickname.value) {
     lobbyError.value = '请输入昵称'
@@ -94,8 +107,11 @@ function onCreateRoom() {
   }
   const targetSlug = generateSlug()
   pendingCreateSlug = targetSlug
+  const failure = await router.push({ name: 'online-experience', params: { roomSlug: targetSlug }, query: route.query })
+  pendingCreateSlug = ''
+  if (failure) { lobbyError.value = '请先处理当前任务，再创建房间'; return }
   hasEnteredRoom.value = true
-  router.push({ name: 'online-experience', params: { roomSlug: targetSlug } }).then(() => createRoom(targetSlug, lobbyNickname.value))
+  await createRoom(targetSlug, lobbyNickname.value)
 }
 
 function onRoomSendChat(text) {
@@ -121,7 +137,7 @@ function onRoomLeave() {
   roomPanelOpen.value = false
   leaveRoom()
   hasEnteredRoom.value = false
-  router.push({ name: 'online-experience' })
+  router.replace({ name: 'online-experience', query: route.query })
 }
 
 async function onCopyRoomLink() {
@@ -153,10 +169,10 @@ async function onCopyRoomLink() {
 
 watch(roomSlug, (newSlug) => {
   if (newSlug && lobbyNickname.value) {
-    if (pendingCreateSlug === newSlug) { pendingCreateSlug = ''; return }
+    if (pendingCreateSlug === newSlug) return
     if (pendingJoinSlug === newSlug) return
     hasEnteredRoom.value = true
-    if (connectionState.value === 'idle') joinRoom(newSlug, lobbyNickname.value)
+    if (['idle', 'disconnected', 'disabled'].includes(connectionState.value)) joinRoom(newSlug, lobbyNickname.value)
   }
 }, { immediate: true })
 
@@ -229,7 +245,7 @@ watch(() => events.length, () => {
           <span>{{ roomPanelOpen ? '收起' : '查看' }}</span>
         </button>
         <div class="online-page__stage">
-          <Experience class="online-page__experience" :online-session="onlineSession" />
+          <Experience ref="experienceView" class="online-page__experience" :online-session="onlineSession" :workspace-active="workspaceProps.workspaceActive" />
           <OnlineChatOverlay
             :messages="chatMessages"
             :is-connected="isConnected"
@@ -403,7 +419,8 @@ watch(() => events.length, () => {
 .online-page__room {
   flex: 1;
   min-height: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
   position: relative;
 }
 
@@ -416,29 +433,34 @@ watch(() => events.length, () => {
 .online-page__stage {
   position: relative;
   width: 100%;
-  height: 100%;
+  height: auto;
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.online-page__room-toggle { display: none; }
+.online-page__room-toggle { display: flex; justify-content: space-between; flex-shrink: 0; min-height: 44px; padding: 8px 18px; color: var(--text-secondary); background: var(--surface-workbench); border: 0; border-bottom: 1px solid var(--hairline-soft); font-size: 12px; }
 .online-page__copy-notice { margin: 0; padding: 8px 12px; color: var(--text-secondary); background: var(--bg-primary); font-size: 12px; }
 .online-page__copy-fallback { width: 100%; box-sizing: border-box; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 18%, transparent)); padding: 10px; font-size: 12px; }
 
 .online-page__room-panel {
-  position: absolute;
-  top: 54px;
-  right: 12px;
-  z-index: 9;
-  width: min(220px, calc(100% - 24px));
+  display: none;
+  position: static;
+  flex: 0 0 auto;
+  max-height: 38vh;
+  overflow: auto;
+  margin: 0 12px 8px;
+  width: auto;
 }
+
+.is-room-panel-open .online-page__room-panel { display: block; }
 
 @media (max-width: 900px) {
   .online-page__room-panel {
     top: 52px;
     right: 10px;
-    width: min(210px, calc(100% - 20px));
+    width: auto;
   }
 }
 

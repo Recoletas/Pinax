@@ -42,6 +42,11 @@ const hiddenUnplacedCount = computed(() => Math.max(
   0,
   (props.model.unplacedItems || []).length - displayedUnplaced.value.length
 ))
+watch(() => [props.selectedCardId, (props.model.beatItems || []).some(item => item.card.id === props.selectedCardId), (props.model.unplacedItems || []).some(item => item.card.id === props.selectedCardId)], ([id, inBeats, unplaced], previous) => {
+  if (!id || previous && previous.every((value, index) => value === [id, inBeats, unplaced][index])) return
+  if (inBeats) mobileTab.value = 'beats'
+  else if (unplaced) mobileTab.value = 'unplaced'
+}, { immediate: true })
 
 watch(() => props.relationTypes, (types) => {
   if (!types.some((item) => item.value === selectedRelationType.value)) {

@@ -2,6 +2,7 @@ import { nextTick, onMounted, onScopeDispose, unref, watch } from 'vue'
 import { openOrFocusWorkspaceTab } from '../services/workspace/workspaceRouteAdapter.js'
 import { recordWorkspaceRecentLocation } from '../services/workspace/workspaceRecentHistory.js'
 import { getExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
 
 const SETTINGS_ROUTES = Object.freeze({
   sources: 'settings-sources',
@@ -50,6 +51,7 @@ export function useAuthoringWorkspaceNavigation({
   captureScrollState,
   restoreScrollState
 }) {
+  const contentWorkspace = useComposableWorkspace()
   let pendingReturnRestore = null
   let pendingReturnKey = ''
   let disposed = false
@@ -82,6 +84,51 @@ export function useAuthoringWorkspaceNavigation({
     }
     workspaceTabsStore.setVolatileRestoreStateByKey(authoringTabKey(bookId), snapshot)
     return snapshot
+  }
+
+  const chapterPositions = new Map()
+  let chapterNavigation = Promise.resolve()
+  async function navigateChapter(resource) {
+    if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId) return false
+    const snapshot = captureReturnState()
+    if (snapshot?.chapterId && !snapshot.explorationId) chapterPositions.set(snapshot.chapterId, snapshot)
+    const target = { name: 'authoring', query: { bookId: resource.bookId, chapterId: resource.id } }
+    const failure = await router.push(target)
+    if (failure && !(route.name === 'authoring' && route.query.bookId === resource.bookId && route.query.chapterId === resource.id && !route.query.view && !route.query.explorationId)) return false
+    // The accepted route is the single chapter-switch command. Selecting first
+    // and rewriting the URL afterwards races the previous route's owner watcher.
+    await nextTick()
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId || selectedValue(activeDocument) || text(selectedValue(selectedChapterId)) !== resource.id) return false
+    const previous = chapterPositions.get(resource.id)
+    if (previous && text(previous.documentRevision) === text(getDocumentRevision?.())) {
+      if (previous.selection) selectedValue(notebookEditorRef)?.setSelection?.(previous.selection.from, previous.selection.to)
+      restoreScrollState?.(previous.scroll)
+    }
+    return true
+  }
+  const releaseChapterNavigator = contentWorkspace?.bindChapterNavigator(resource => {
+    const pending = chapterNavigation.then(() => navigateChapter(resource))
+    chapterNavigation = pending.catch(() => false)
+    return pending
+  })
+  onScopeDispose(() => { releaseChapterNavigator?.(); chapterPositions.clear() })
+
+  function ownsKeyboard(event) { return contentWorkspace?.state.primaryVisible !== false && !event.target?.closest?.('.workspace-reference-group') }
+  function forwardEditorHistoryKey(event, { undo, redo }) {
+    if (!ownsKeyboard(event)) return
+    if (!event.ctrlKey && !event.metaKey) return
+    const key = String(event.key || '').toLowerCase()
+    const isUndo = key === 'z' && !event.shiftKey
+    const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey)
+    if (!isUndo && !isRedo) return
+    const pm = document.querySelector('.workspace-primary-group .writing-notebook-editor__surface .ProseMirror')
+    if (!pm || pm.contains(document.activeElement)) return
+    const selection = window.getSelection()
+    if (!selection?.anchorNode || !pm.contains(selection.anchorNode)) return
+    event.preventDefault()
+    pm.focus()
+    nextTick(() => { if (isRedo) redo(); else undo() })
   }
 
   async function openWorkspaceRoute({
@@ -120,6 +167,13 @@ export function useAuthoringWorkspaceNavigation({
     const routeName = SETTINGS_ROUTES[surface]
     if (!bookId || !routeName) return false
     const worldbookId = text(selectedValue(selectedWorldbookId))
+    if (surface === 'settings' && contentWorkspace) {
+      return contentWorkspace.openAt({ type: 'settings-editor', bookId, worldbookId, entryId: text(entryId) }, 'main')
+    }
+    if (surface === 'sources' && contentWorkspace) {
+      return contentWorkspace.openResource({ type: extraQuery.sourceId ? 'source' : 'sources', bookId, worldbookId, id: text(extraQuery.sourceId),
+        contentHash: text(extraQuery.contentHash), chunkId: text(extraQuery.chunkId), start: extraQuery.start, end: extraQuery.end })
+    }
     const query = { bookId }
     if (worldbookId) query.worldbookId = worldbookId
     if (entryId) query.entryId = text(entryId)
@@ -169,6 +223,7 @@ export function useAuthoringWorkspaceNavigation({
     const location = currentLocation(bookId, chapterId)
     if (!location || !routeMatches(location)) return
     const { book, object } = location
+    if (object?.kind === 'chapter') contentWorkspace?.trackPrimaryChapter({ type: 'chapter', bookId: text(book.id), worldbookId: text(book.worldbookId), id: object.id }, object.title)
     const query = locationQuery(location)
     lastAcceptedRoute = { name: 'authoring', query: { ...query } }
     lastAcceptedOwnerKey = ownerKey()
@@ -383,6 +438,8 @@ export function useAuthoringWorkspaceNavigation({
   })
 
   return Object.freeze({
+    ownsKeyboard,
+    forwardEditorHistoryKey,
     captureReturnState,
     openProjectSettingsSurface,
     openWorkspaceRoute,

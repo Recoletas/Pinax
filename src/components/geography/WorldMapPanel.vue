@@ -1,5 +1,5 @@
 <template>
-  <div class="world-map-panel">
+  <div ref="panelRef" class="world-map-panel" :class="{ 'is-compact': compactPanel }">
     <!-- Toolbar -->
     <div class="panel-toolbar">
       <h2 class="panel-title">
@@ -458,14 +458,16 @@
 
     <!-- Main content: world tree + map -->
     <div class="main-content">
-      <WorldTreeSidebar />
+      <WorldTreeSidebar :compact="compactPanel" />
       <div class="map-area">
         <WorldMapVoronoi
           ref="mapRendererRef"
+          :workspace-active="props.workspaceActive"
           :config="displayedVoronoiConfig"
           :markers="markers"
           :focus-marker-id="focusMarkerId"
           :review-before-commit="confirmedBindingCount > 0"
+          @busy-change="mapRendererBusy = $event"
           @map-generated="onMapGenerated"
           @map-replacement-ready="onMapReplacementReady"
           @config-change="handleConfigChange"
@@ -499,7 +501,11 @@ import WorldMapVoronoi from './WorldMapVoronoi.vue'
 import { useGameStore } from '../../stores/gameStore'
 import { tr } from '../../i18n/index.js'
 
+const panelRef = ref(null)
+const compactPanel = ref(false)
+let panelObserver = null
 const props = defineProps({
+  workspaceActive: { type: Boolean, default: true },
   worldbook: { type: Object, default: null },
   projectId: { type: String, default: '' },
   reloadWorldbook: { type: Function, default: null },
@@ -558,7 +564,8 @@ let mountedOwner = true
 let historyDraftOwner = null
 
 const activeWorldbook = computed(() => props.worldbook)
-const sourceBusy = computed(() => Boolean(streaming.value || historyGenerating.value || historySaving.value
+const mapRendererBusy = ref(false)
+const sourceBusy = computed(() => Boolean(mapRendererBusy.value || streaming.value || historyGenerating.value || historySaving.value
   || placeBindingSaving.value || nativePlaceSaving.value || worldbookRefreshing.value
   || mapReplacementSaving.value || mapVersionRestoring.value || pendingMapReplacement.value || pendingVoronoiConfig.value))
 watch(sourceBusy, busy => emit('busy-change', busy), { immediate: true })
@@ -1254,6 +1261,13 @@ function handleMarkerDragEnd(id, x, y) {
 
 // 页面先确认世界书身份，Panel 只消费该快照；这里不重新激活持久化的全局选择。
 onMounted(async () => {
+  if (typeof ResizeObserver !== 'undefined') {
+    panelObserver = new ResizeObserver(() => {
+      const width = panelRef.value?.clientWidth
+      if (width) compactPanel.value = width <= 760
+    })
+    panelObserver.observe(panelRef.value)
+  }
   window.addEventListener('keydown', handlePanelKeydown)
   geoStore.loadAll()
   try {
@@ -1263,13 +1277,14 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  panelObserver?.disconnect()
   mountedOwner = false
   emit('busy-change', false)
   window.removeEventListener('keydown', handlePanelKeydown)
 })
 
 function handlePanelKeydown(event) {
-  if (event.key === 'Escape' && atlasToolsOpen.value) atlasToolsOpen.value = false
+  if (props.workspaceActive && event.key === 'Escape' && atlasToolsOpen.value) atlasToolsOpen.value = false
 }
 
 // 世界书可能在地图组件之后异步加载；地点条目变化时也要立即同步到当前地图。
@@ -2166,4 +2181,6 @@ watch(
     min-height: 0;
   }
 }
+.is-compact .main-content { position: relative; }
+.is-compact :deep(.sidebar-expanded) { position: absolute; inset: 0 auto 0 0; z-index: 20; width: 240px; box-shadow: var(--shadow-floating); }
 </style>

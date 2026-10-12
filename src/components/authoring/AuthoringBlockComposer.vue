@@ -5,7 +5,7 @@
       <p v-else-if="displayTarget?.anchorExcerpt" class="authoring-block-composer__anchor" :title="displayTarget.anchorExcerpt">{{ displayTarget.anchorExcerpt }}</p>
       <button type="button" class="authoring-block-composer__close" :aria-label="tr('收起推演')" @click="cancel">{{ tr("收起") }}</button>
     </header>
-    <p v-if="sceneContextSummary" class="authoring-block-composer__scene-context">
+    <p v-if="showSceneContext && sceneContextSummary" class="authoring-block-composer__scene-context">
       <span>{{ tr("当前场") }}</span>{{ sceneContextSummary }}
     </p>
     <slot name="context" />
@@ -63,6 +63,7 @@ import { normalizeNarrativeTransportProse } from '../../services/narrativePresen
 import AuthoringGenerationStatus from './AuthoringGenerationStatus.vue'
 
 const props = defineProps({
+  showSceneContext: { type: Boolean, default: true },
   target: { type: Object, required: true },
   emptyChapter: { type: Boolean, default: false },
   projection: { type: Object, default: null },

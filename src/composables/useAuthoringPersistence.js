@@ -217,8 +217,8 @@ export function useAuthoringPersistence({
     if (EXIT_GUARD_STATUSES.has(saveStatus.value)) writeRecoveryDraft?.()
   })
 
-  function guardWorkspaceExit() {
-    if (isNavigationBusy?.()) {
+  function guardWorkspaceExit(to) {
+    if (isNavigationBusy?.(to)) {
       notify?.(tr('请先完成或停止当前任务再切换页面'))
       return false
     }
@@ -261,7 +261,7 @@ export function useAuthoringPersistence({
     const changesBook = to.query.bookId && String(to.query.bookId) !== String(valueOf(selectedBookId) || '')
     const changesChapter = to.query.chapterId && String(to.query.chapterId) !== String(valueOf(selectedChapterId) || '')
     const changesExploration = String(to.query.explorationId || '') !== String(valueOf(activeDocument)?.id || '')
-    return changesBook || changesChapter || changesExploration ? guardWorkspaceExit() : true
+    return changesBook || changesChapter || changesExploration ? guardWorkspaceExit(to) : true
   })
 
   return Object.freeze({

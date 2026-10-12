@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, unref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { readWorldbookSnapshot } from '../stores/worldStore.js'
@@ -9,7 +9,7 @@ import {
 
 // 设定三页（结构化/地图/高级条目）共用的项目上下文加载。
 // route query 变化时重新解析；世界书内容加载带竞态令牌，快速切换不串库。
-export function useSettingsProjectContext({ worldStore } = {}) {
+export function useSettingsProjectContext({ worldStore, bookId, worldbookId } = {}) {
   const route = useRoute()
   const context = ref(null)
   const worldbook = ref(null)
@@ -22,8 +22,9 @@ export function useSettingsProjectContext({ worldStore } = {}) {
     return loaded || null
   })
 
-  const routeBookId = computed(() => String(route.query.bookId || ''))
-  const routeWorldbookId = computed(() => String(route.query.worldbookId || ''))
+  // Explicit view scope takes precedence, including an explicitly empty ID.
+  const routeBookId = computed(() => String(bookId === undefined ? route.query.bookId || '' : unref(bookId) || ''))
+  const routeWorldbookId = computed(() => String(worldbookId === undefined ? route.query.worldbookId || '' : unref(worldbookId) || ''))
 
   function reloadWorldbookSnapshot() {
     const id = String(context.value?.worldbookId || '')
@@ -68,7 +69,7 @@ export function useSettingsProjectContext({ worldStore } = {}) {
     loading.value = true
     loadError.value = ''
     const result = await loadWorldbook(resolved.worldbookId)
-    if (ticket !== sequence) return resolved
+    if (disposed || ticket !== sequence) return resolved
     loading.value = false
     if (!result.ok) {
       worldbook.value = null

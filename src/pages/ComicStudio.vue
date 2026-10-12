@@ -29,8 +29,10 @@ import {
   updateComicSequenceVisualBible
 } from '../services/media/comicPageStore'
 import { recordWorkspaceRecentLocation } from '../services/workspace/workspaceRecentHistory'
+import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 import { listImageProviderConfigs, resolveSelectedImageProviderConfig, saveSelectedImageProviderConfigId } from '../services/media/imageProviderConfigStore'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const pagePreview = ref(null)
 const sourceCandidates = ref([])
 const modelConfigs = ref([])
@@ -62,6 +64,7 @@ const planMobilePanes = [
 ]
 
 const route = useRoute()
+const contentWorkspace = useComposableWorkspace()
 const router = useRouter()
 const selection = useComicWorkspaceSelection({ route })
 const thumbnails = useComicPageThumbnails()
@@ -275,8 +278,14 @@ function handleBeforeUnload(event) {
 const unregisterFlush = registerFlush(() => comicEditor.value?.flushPendingEdits?.() !== false
   && adaptationPlanner.value?.flushPendingEdits?.() !== false)
 onBeforeUnmount(unregisterFlush)
-onBeforeRouteLeave(() => flushPendingEdits())
-onBeforeRouteUpdate(() => flushPendingEdits())
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(() => flushPendingEdits())
+  onBeforeRouteUpdate(() => flushPendingEdits())
+}
+defineExpose({
+  canCloseWorkspace: () => !adaptationGenerating.value && comicEditor.value?.canCloseWorkspace?.() !== false && flushPendingEdits(),
+  getWorkspaceTaskSummary: () => adaptationGenerating.value ? { label: '漫画分页生成中' } : comicEditor.value?.getWorkspaceTaskSummary?.() || null
+})
 
 function loadModels(configs = null) {
   modelConfigs.value = Array.isArray(configs) ? configs : listImageProviderConfigs()
@@ -556,6 +565,7 @@ function openReference(reference) {
   const sourceRef = reference?.sourceRef
   if (!sourceRef?.refId) return
   if (sourceRef.refType === 'worldbook-entry') {
+    if (contentWorkspace?.openResource({ type: 'entry', bookId: String(activeProjectId.value || ''), worldbookId: String(activeBook.value?.worldbookId || ''), id: String(sourceRef.refId) })) return
     router.push({ name: 'settings-worldbook-advanced', query: { bookId: activeProjectId.value, entryId: sourceRef.refId } })
     return
   }
@@ -564,6 +574,7 @@ function openReference(reference) {
     return
   }
   if (sourceRef.refType === 'narrative-asset') {
+    if (contentWorkspace?.openResource({ type: 'asset', bookId: String(activeProjectId.value || ''), id: String(sourceRef.refId) })) return
     router.push({ name: 'materials', query: { bookId: activeProjectId.value, assetId: sourceRef.refId } })
   }
 }
@@ -868,6 +879,7 @@ watch(mobilePane, (pane) => {
           class="comic-studio__project-navigation"
           :book-id="selection.bookId.value"
           current="comics"
+          :navigation="!contentWorkspace?.moduleNavigation.value"
           :blocked="adaptationGenerating"
           blocked-title="正在生成分页方案，请先等待完成或取消。"
         />

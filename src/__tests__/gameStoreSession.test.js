@@ -5,6 +5,7 @@ import { createScenarioRun, normalizeScenario } from '../services/experience/rol
 import lampkeeperFixture from '../services/experience/roleplay/fixtures/lampkeeper-scenario.json'
 import RoleplayModeBar from '../components/experience/roleplay/RoleplayModeBar.vue'
 import { useExperienceSessionWorkflow } from '../composables/useExperienceSessionWorkflow'
+import { nextTick, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { useGameStore } from '../stores/gameStore'
 import { useWorldStore } from '../stores/worldStore'
@@ -127,6 +128,31 @@ describe('gameStore sessions', () => {
         route: { query: { sessionId: 'missing-session' } }, router: { push: vi.fn() }, onlineSession: null })
       await workflow.bootstrapSessions()
       expect(workflow.showSessionPicker.value).toBe(true)
+      localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{ id: 'workflow-book', title: '后台存档', worldbookId: 'workflow-world', chapters: [] }]))
+      game.createSession({ worldbookId: 'workflow-world', inheritRuntimeState: false })
+      game.saveCurrentSession(); game.flushSaveSessions()
+      const beginGame = vi.spyOn(game, 'initGame').mockResolvedValue(undefined)
+      const activeView = ref(false)
+      let hiddenWorkflow
+      const hiddenHarness = mount({ setup() {
+        hiddenWorkflow = useExperienceSessionWorkflow({ gameStore: game,
+        worldStore: { loadWorldbooksIndex: async () => {}, worldbooksIndex: [{ id: 'workflow-world' }], activeWorldbookId: 'workflow-world', setActiveWorldbook: async () => {} },
+        route: { query: { bookId: 'workflow-book', worldbookId: 'workflow-world' } }, router: { push: vi.fn() }, onlineSession: null,
+        workspaceEmbedded: true, workspaceActive: activeView })
+        return () => null
+      } })
+      await hiddenWorkflow.bootstrapSessions()
+      expect(beginGame).not.toHaveBeenCalled()
+      activeView.value = true
+      await nextTick()
+      expect(beginGame).toHaveBeenCalledTimes(1)
+      activeView.value = false
+      await nextTick()
+      activeView.value = true
+      await nextTick()
+      expect(beginGame).toHaveBeenCalledTimes(1)
+      hiddenHarness.unmount()
+      beginGame.mockRestore()
     }
 
 {

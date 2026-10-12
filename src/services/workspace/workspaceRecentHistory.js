@@ -86,6 +86,23 @@ export function sanitizeWorkspaceRecentHistory(payload) {
   return [...entries.values()].sort((a, b) => b.lastUsedAt - a.lastUsedAt).slice(0, WORKSPACE_RECENT_LIMIT)
 }
 
+// Home shows one work per book; locators remain internal navigation state.
+export function selectRecentWorkspaceBooks(entries, limit = 4) {
+  const groups = new Map()
+  for (const entry of [...entries].filter(entry => entry?.bookId && entry.reason !== 'book-removed').sort((a, b) => b.lastUsedAt - a.lastUsedAt)) {
+    if (!groups.has(entry.bookId)) groups.set(entry.bookId, [])
+    groups.get(entry.bookId).push(entry)
+  }
+  return [...groups.values()].slice(0, limit).map(group => {
+    const latest = group[0]
+    const target = group.find(entry => entry.available) || {
+      ...latest, surface: 'authoring', object: null, available: true, reason: undefined, unavailableReason: undefined,
+      route: { name: 'authoring', query: { bookId: latest.bookId } }
+    }
+    return { ...target, lastUsedAt: latest.lastUsedAt, bookTitle: latest.bookTitle || target.bookTitle }
+  })
+}
+
 export function workspaceRecentSurfaceLabel(entry) {
   if (entry.surface === 'authoring' && entry.route.query.view === 'assistant') return '助手'
   if (entry.surface === 'sources' && entry.route.name === 'settings-worldbook-create') return '资料导入'

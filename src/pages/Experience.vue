@@ -9,6 +9,7 @@
         :session-title-tooltip="sessionTitleTooltip"
         :codex-open="codexSheetOpen"
         :has-selected-worldbook="hasSelectedWorldbook"
+        :sources-enabled="Boolean(contentWorkspace && !props.onlineSession && experienceWorldbookId)" @open-sources="openExperienceSources"
         @open-session="showSessionPicker = true"
         @open-codex="openCodexFromHeader"
         :advisor-enabled="showExperienceWorkChrome" @open-advisor="openAdvisorFromAction"
@@ -136,8 +137,8 @@
       </aside>
       <SessionPicker
         v-if="showSessionPicker"
-        :busy="isStarting"
-        :worldbooks="worldStore.worldbooksIndex"
+        :busy="isStarting || gameStore.isLoading" :scope-worldbook-id="props.workspaceEmbedded ? String(route.query.worldbookId || '') : ''"
+        :worldbooks="props.workspaceEmbedded ? worldStore.worldbooksIndex.filter(world => world.id === route.query.worldbookId) : worldStore.worldbooksIndex"
         :selected-worldbook-id="sessionPickerWorldbookId"
         @select="handleSessionSelect"
         @update:selected-worldbook-id="sessionPickerWorldbookId = $event"
@@ -494,10 +495,14 @@ import { useExperienceSessionWorkflow } from '../composables/useExperienceSessio
 import { useExperienceQuickCapture } from '../composables/useExperienceQuickCapture.js'
 
 const props = defineProps({
-  onlineSession: { type: Object, default: null }
+  onlineSession: { type: Object, default: null },
+  workspaceEmbedded: Boolean,
+  workspaceActive: { type: Boolean, default: true }
 })
 
+const emit = defineEmits(['workspace-resource'])
 const gameStore = useGameStore()
+defineExpose({ canCloseWorkspace: () => !gameStore.isLoading && !isStarting.value, getWorkspaceTaskSummary: () => gameStore.isLoading || isStarting.value ? { label: '跑团生成中', icon: 'adventure' } : null })
 const experienceSourceStatus = ref('')
 const worldStore = useWorldStore()
 const geographyStore = useGeographyStore()
@@ -584,11 +589,6 @@ function installFirstMessageWatch() {
   })
 }
 
-// UI-E10: sticky scene-stage indicator data — counts messages and derives
-// UI-E10-CLEAN: sceneStageIndicator + sceneIndicatorVisible computeds deleted
-// 2026-06-22 — sticky indicator above the ledger is gone (template + CSS);
-// UI-E11 (workstation) replaces with an always-on topstrip section anchor.
-
   async function retryNarrativeGeneration() {
     if (props.onlineSession || gameStore.isLoading) return
     // P1-4：重试消费 pendingDirectorNote（失败保留的导演注），不再丢失
@@ -605,18 +605,22 @@ const isLocalDemoSequence = computed(() => {
 const experienceWorkflow = useExperienceSessionWorkflow({
   gameStore, worldStore, route, router,
   onlineSession: props.onlineSession,
+  workspaceEmbedded: props.workspaceEmbedded,
+  workspaceActive: computed(() => props.workspaceActive),
   notifySourceStatus: (message) => { experienceSourceStatus.value = message },
+  notifyWorkspaceResource: resource => emit('workspace-resource', resource),
   buildOnlineRuntimePatch,
   applyOnlineRuntimePatch,
   applyOnlineNarrativeCompletion
 })
 const {
+  contentWorkspace, experienceWorldbookId, openExperienceSources,
   showSessionPicker, isStarting, selectedWorldbookId, sessionPickerWorldbookId,
   handleSessionSelect, handleSessionCreate, handleSessionDelete,
   visibleNarrativeAgentStatus,
   bindOnlineSession, disposeOnlineSession
 } = experienceWorkflow
-const autoAdvance = useExperienceAutoAdvance({ gameStore, onlineSession: props.onlineSession, isStarting, isLocalDemoSequence, handleSend, handleLocalDemoEvent })
+const autoAdvance = useExperienceAutoAdvance({ workspaceActive: computed(() => props.workspaceActive && (props.workspaceEmbedded || contentWorkspace?.state.primaryVisible !== false)), gameStore, onlineSession: props.onlineSession, isStarting, isLocalDemoSequence, handleSend, handleLocalDemoEvent })
 const {
   autoAdvanceEnabled, autoAdvancePending, canUseAutoAdvance,
   toggleAutoAdvance, handleManualInput, stopAutoAdvance
@@ -750,9 +754,11 @@ function handleLocalDemoEvent(action) {
   return true
 }
 
+function onWorkspaceCodexKeydown(event) { if (props.workspaceActive) handleCodexKeydown(event) }
+
 onMounted(async () => {
   window.addEventListener('story-mechanism-ready', handleMechanismReady)
-  window.addEventListener('keydown', handleCodexKeydown)
+  window.addEventListener('keydown', onWorkspaceCodexKeydown)
 
   const { requestedSession, requestedMessageId } = await experienceWorkflow.bootstrapSessions()
 
@@ -778,7 +784,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopAutoAdvance({ abortRunning: true })
   window.removeEventListener('story-mechanism-ready', handleMechanismReady)
-  window.removeEventListener('keydown', handleCodexKeydown)
+  window.removeEventListener('keydown', onWorkspaceCodexKeydown)
   clearMechanismNotice()
   disposeOnlineSession()
 })

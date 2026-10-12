@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { ref } from 'vue'
+import { createApp, effectScope, nextTick, reactive, ref } from 'vue'
+import { readProseCanvasWorkspace, saveProseCanvasWorkspace, PROSE_CANVAS_KEYS } from '../services/canvas/proseCanvasRepository.js'
 import { useProseDirectorExport } from '../composables/useProseDirectorExport.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -8,7 +9,12 @@ import { trapFocusWithin } from '../composables/useTransientLayer'
 import { validateWritingLockedSegments, normalizeWritingCandidates } from '../../shared/writingCandidateContract.js'
 import { normalizeWritingTypography } from '../stores/writingTypographyStore.js'
 import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
+import { normalizeWorkspaceLayout, normalizeWorkspaceResource, workspaceResourceKey } from '../services/workspace/workspaceViewContract.js'
+import { sourceChunkLocator } from '../services/workspace/sourceChunkLocator.js'
+import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
 import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
+import { selectRecentWorkspaceBooks } from '../services/workspace/workspaceRecentHistory.js'
+import { groupWorkspaceProjectTabs, resolveRouteIntent } from '../services/workspace/workspaceTabContract.js'
 import {
   createWritingDocument,
   editorContentToWritingDocument,
@@ -180,6 +186,220 @@ describe('workbench control contract (U1)', () => {
   })
 
   it("keeps the authoring shell structural and one authoring destination（合并5例）", async () => {
+    const canvasStorage = new Map()
+    const storage = { getItem: key => canvasStorage.get(key) ?? null, setItem: (key, value) => canvasStorage.set(key, value), removeItem: key => canvasStorage.delete(key) }
+    const legacyCanvas = { cards: [{ id: 'one', projectId: 'a', pileId: 'mixed' }, { id: 'two', projectId: 'b', pileId: 'mixed' }, { id: 'asset', assetId: 'owned-asset' }, { id: 'unowned' }], edges: [{ sourceId: 'one', targetId: 'two' }, { sourceId: 'one', targetId: 'asset' }], outline: [{ cardId: 'one' }, { cardId: 'two' }], piles: [{ pileId: 'mixed' }] }
+    expect(saveProseCanvasWorkspace(legacyCanvas, { storage }).ok).toBe(true)
+    const beforeLegacy = storage.getItem(PROSE_CANVAS_KEYS.cards)
+    const bookCanvas = readProseCanvasWorkspace({ storage, projectId: 'a', assetProjectIds: { 'owned-asset': 'a' } })
+    expect(bookCanvas.cards.map(card => card.id)).toEqual(['one', 'asset'])
+    expect(bookCanvas.cards[0].pileId).toBeNull()
+    expect(bookCanvas.edges).toEqual([{ sourceId: 'one', targetId: 'asset' }])
+    expect(bookCanvas.outline).toEqual([{ cardId: 'one' }])
+    bookCanvas.cards.push({ id: 'new', projectId: 'a' })
+    expect(saveProseCanvasWorkspace(bookCanvas, { storage, projectId: 'a' }).ok).toBe(true)
+    expect(readProseCanvasWorkspace({ storage, projectId: 'a' }).cards).toHaveLength(3)
+    expect(saveProseCanvasWorkspace(bookCanvas, { storage, projectId: 'a', expectedRevision: 0 }).reason).toBe('canvas-conflict')
+    expect(readProseCanvasWorkspace({ storage, projectId: 'b' }).cards.map(card => card.id)).toEqual(['two'])
+    expect(storage.getItem(PROSE_CANVAS_KEYS.cards)).toBe(beforeLegacy)
+    expect(saveProseCanvasWorkspace(bookCanvas, { storage: { ...storage, setItem() { throw Error('quota') } }, projectId: 'a' }).ok).toBe(false)
+    expect(readProseCanvasWorkspace({ storage, projectId: 'a' }).cards).toHaveLength(3)
+    expect(normalizeWorkspaceResource({ type: 'comic-editor', worldbookId: 'world' })).toBeNull()
+    expect(normalizeWorkspaceResource({ type: 'map-editor', bookId: 'a', entryId: 'place-a' })).toMatchObject({ type: 'map-editor', entryId: 'place-a' })
+    expect(workspaceResourceKey({ type: 'entries-editor', bookId: 'a', entryId: 'one' })).toBe(workspaceResourceKey({ type: 'entries-editor', bookId: 'a', entryId: 'two' }))
+    expect(workspaceResourceKey({ type: 'comic-editor', bookId: 'a', worldbookId: 'old' })).toBe(workspaceResourceKey({ type: 'comic-editor', bookId: 'a', worldbookId: 'new' }))
+    const recentBooks = selectRecentWorkspaceBooks([
+      { key: 'a-removed', bookId: 'a', bookTitle: '甲', available: false, lastUsedAt: 30 },
+      { key: 'a-assistant', bookId: 'a', available: true, lastUsedAt: 20, route: { name: 'authoring', query: { bookId: 'a', view: 'assistant' } } },
+      { key: 'b-sources', bookId: 'b', bookTitle: '乙', available: true, lastUsedAt: 25 },
+      { key: 'c-removed', bookId: 'c', available: false, unavailableReason: 'object-removed', lastUsedAt: 10 },
+      { key: 'deleted', bookId: 'deleted', available: false, reason: 'book-removed', lastUsedAt: 40 }
+    ])
+    expect(recentBooks.map(entry => entry.bookId)).toEqual(['a', 'b', 'c'])
+    expect(recentBooks[0]).toMatchObject({ key: 'a-assistant', bookTitle: '甲', lastUsedAt: 30 })
+    expect(recentBooks[2].unavailableReason).toBeUndefined()
+    expect(recentBooks[2]).toMatchObject({ available: true, route: { name: 'authoring', query: { bookId: 'c' } }, object: null })
+    const grouped = groupWorkspaceProjectTabs([{ id: 'write', projectId: 'one-book', scope: 'project', lastActiveAt: 1 }, { id: 'comic', projectId: 'one-book', scope: 'project', lastActiveAt: 2, dirty: true }, { id: 'global', scope: 'global' }], 'write')
+    expect(grouped).toHaveLength(2)
+    expect(grouped[0]).toMatchObject({ id: 'write', projectGrouped: true, dirty: true })
+    expect(resolveRouteIntent({ name: 'experience', query: { bookId: 'one-book', worldbookId: 'one-world' } })).toMatchObject({ scope: 'project', surface: 'roleplay', projectId: 'one-book' })
+    expect(resolveRouteIntent({ name: 'experience', query: { worldbookId: 'one-world' } })).toMatchObject({ scope: 'global' })
+    // New host metadata never carries document content or another project's scope.
+    const reference = normalizeWorkspaceResource({ type: 'source', bookId: 'book-a', id: 'source-a', start: 3, end: 9, content: 'private', grant: 'secret' })
+    expect(reference).toEqual({ type: 'source', bookId: 'book-a', worldbookId: '', id: 'source-a', start: 3, end: 9 })
+    expect(normalizeWorkspaceResource({ type: 'chapter', worldbookId: 'world-a', id: 'chapter' })).toBeNull()
+    const restored = normalizeWorkspaceLayout({ version: 1, width: 900, views: [{ resource: reference }, { resource: reference }, { resource: { ...reference, bookId: 'other-book' } }], activeId: 'missing' }, { bookId: 'book-a' })
+    expect(restored.views).toHaveLength(1)
+    expect(restored.activeId).toBe(workspaceResourceKey(reference))
+    expect(restored.width).toBe(680)
+    expect(normalizeWorkspaceLayout({ version: 99, views: [] }, { bookId: 'book-a' })).toBeNull()
+    expect(workspaceResourceKey({ type: 'source', bookId: 'a|b', id: 'c' })).not.toBe(workspaceResourceKey({ type: 'source', bookId: 'a', id: 'b|c' }))
+    const shared = { sourceId: 'source-a', locator: { start: 0, end: 5 }, sourceRefs: [{ sourceId: 'source-a', locator: { start: 0, end: 5 } }, { sourceId: 'source-b', locator: { start: 37, end: 42 } }] }
+    expect(sourceChunkLocator(shared, 'source-b')).toEqual({ start: 37, end: 42 })
+    expect(sourceChunkLocator(shared, 'source-c')).toBeNull()
+    const workspaceRoute = reactive({ name: 'authoring', query: { bookId: 'guard-book' } })
+    let host
+    const root = document.createElement('div')
+    const app = createApp({ setup() { host = provideComposableWorkspace(workspaceRoute); return () => null } })
+    app.mount(root)
+    try {
+      expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book', pageId: 'page-one', panelId: 'panel-one' })).toBe(true)
+      expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book' })).toBe(true)
+      expect(host.activeView.value.resource.pageId).toBe('page-one')
+      expect(host.activeView.value.resource.panelId).toBe('panel-one')
+      host.move(true)
+      const moduleId = host.state.mainModuleId
+      expect(moduleId).toBe(host.state.activeId)
+      host.openResource({ type: 'sources', bookId: 'guard-book' })
+      host.move(false)
+      expect(host.state.mainModuleId).toBe(moduleId)
+      expect(normalizeWorkspaceLayout(JSON.parse(localStorage.getItem('pinax-workspace-views:v1:["guard-book",""]')), { bookId: 'guard-book' }).mainModuleId).toBe(moduleId)
+      expect(await host.close(host.state.activeId)).toBe(true)
+      expect(await host.close(moduleId)).toBe(true)
+      expect(host.state.mainModuleId).toBe('')
+      expect(host.openResource({ type: 'source', bookId: 'other-book', id: 'source' })).toBe(false)
+      expect(host.openResource({ type: 'source', bookId: 'guard-book', id: 'source' })).toBe(true)
+      const id = host.state.activeId
+      host.state.primaryComposing = true
+      expect(host.move(true)).toBe(false)
+      host.state.primaryComposing = false
+      host.state.composingViewId = id
+      expect(await host.close(id)).toBe(false)
+      host.state.composingViewId = ''
+      let permit
+      const release = host.registerGuard(id, () => new Promise(resolve => { permit = resolve }))
+      const pendingClose = host.close(id)
+      host.move(true)
+      permit(true)
+      expect(await pendingClose).toBe(false)
+      expect(host.state.views).toHaveLength(1)
+      release()
+      const task = reactive({ active: true })
+      const removeTask = host.registerTaskAdapter(id, { summary: () => task.active ? { id: 'frozen-task', label: 'running' } : null })
+      expect(await host.close(id)).toBe(false)
+      expect(host.taskSummaries.value).toHaveLength(1)
+      removeTask()
+      expect(host.taskSummaries.value).toHaveLength(0)
+      expect(await host.close(id)).toBe(true)
+      // Main and side groups select concrete resources independently.
+      host.openResource({ type: 'source', bookId: 'guard-book', id: 'main-source' })
+      host.move(true)
+      const mainSource = host.state.mainModuleId
+      host.openResource({ type: 'source', bookId: 'guard-book', id: 'side-source' })
+      const sideSource = host.state.sideActiveId
+      expect(host.state.mainModuleId).toBe(mainSource)
+      host.activate(sideSource)
+      expect(host.state.mainModuleId).toBe(mainSource)
+      host.move(true)
+      expect(host.state.views.filter(view => view.group === 'main')).toHaveLength(2)
+      host.activate(mainSource)
+      expect(host.state.mainModuleId).toBe(mainSource)
+      expect(await host.reorderView(sideSource, mainSource, 'main')).toBe(true)
+      const groupedLayout = normalizeWorkspaceLayout(JSON.parse(localStorage.getItem('pinax-workspace-views:v1:["guard-book",""]')), { bookId: 'guard-book' })
+      expect(groupedLayout.views.map(view => view.id)).toEqual([sideSource, mainSource])
+      expect(groupedLayout.mainModuleId).toBe(mainSource)
+      expect(groupedLayout.sideActiveId).toBe('')
+      host.move(false, sideSource)
+      expect(host.state.mainModuleId).toBe(mainSource)
+      expect(host.state.sideActiveId).toBe(sideSource)
+      expect(await host.openAt({ type: 'source', bookId: 'guard-book', id: 'main-source' }, 'side')).toBe(true)
+      expect(await host.openAt({ type: 'source', bookId: 'guard-book', id: 'side-source' }, 'main')).toBe(true)
+      expect(await host.openAt({ type: 'source', bookId: 'guard-book', id: 'main-source' }, 'side')).toBe(true)
+      expect(host.state.mainModuleId).toBe(sideSource)
+      expect(host.state.sideActiveId).toBe(mainSource)
+      await host.close(mainSource)
+      await host.close(sideSource)
+      host.openResource({ type: 'chapter', bookId: 'guard-book', id: 'chapter-test' })
+      const chapterView = host.state.activeId
+      const denyChapter = host.bindChapterNavigator(async () => false)
+      expect(await host.move(true, chapterView)).toBe(false)
+      expect(host.state.views[0].group).toBe('side')
+      denyChapter()
+      const allowChapter = host.bindChapterNavigator(async resource => { host.trackPrimaryChapter(resource, '测试章'); return true })
+      expect(await host.move(true, chapterView)).toBe(true)
+      expect(host.state.views[0].group).toBe('main')
+      host.state.primaryComposing = true
+      expect(await host.reorderView(chapterView, '', 'side')).toBe(false)
+      host.state.primaryComposing = false
+      allowChapter()
+      await host.close(chapterView)
+      expect(host.openResource({ type: 'game-editor', bookId: 'guard-book' })).toBe(false)
+      expect(host.openResource({ type: 'game-editor', bookId: 'guard-book', worldbookId: 'guard-world' })).toBe(true)
+      expect(host.openResource({ type: 'online-editor', bookId: 'guard-book' })).toBe(false)
+      await host.close(host.state.activeId)
+      // A request belongs to the shell session; editor leases are replaceable.
+      let finishHealth
+      const health = new Promise(resolve => { finishHealth = resolve })
+      let writes = 0
+      let authorizations = 0
+      const requestEngine = {
+        prepare: () => ({ bookId: 'guard-book', currentChapterId: 'chapter-a' }),
+        destination: () => ({ bookId: 'guard-book', chapterId: 'chapter-a' }),
+        healthz: () => health,
+        authorize: async () => { authorizations++ },
+        revokePermission: () => {},
+        prepareProposal: async input => ({ id: 'background-proposal', bookId: 'guard-book', status: 'pending', changes: input.changes }),
+        run: async ({ callbacks }) => {
+          callbacks.onTask({ taskId: 'background-task', bookId: 'guard-book' })
+          return { ok: true, finalContent: '后台建议', finalToolResults: [
+            { toolName: 'submit_edit_proposals', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, changes: [{ kind: 'chapter', targetId: 'chapter-a', field: 'content', text: '新段落' }] }) }] } },
+            { toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'edit', outcome: 'proposal', message: '后台建议' }) }] } }
+          ] }
+        },
+        cancel: async () => true,
+        applyProposal: async () => { writes++; return { ok: true } }
+      }
+      const editorScope = effectScope()
+      const assistant = editorScope.run(() => host.attachAssistant({ projectId: ref('guard-book'), agentEngine: requestEngine }))
+      expect(await assistant.setAgentPermission({ mode: 'auto' })).toBe(true)
+      const pending = assistant.ask({ question: '修改原章' })
+      expect(assistant.busy.value).toBe(true)
+      expect(await host.prepareLeave({ name: 'comic-studio', query: { bookId: 'guard-book' } }, workspaceRoute)).toBe(true)
+      expect(await host.prepareLeave({ name: 'welcome', query: {} }, workspaceRoute)).toBe(false)
+      editorScope.stop()
+      expect(host.assistantSummary.value.label).toBe('助手运行中')
+      finishHealth({ ok: true, assistantProtocolVersion: 2 })
+      expect(await pending).toBe(true)
+      expect(writes).toBe(0)
+      expect(assistant.messages.value.at(-1).proposal.bookId).toBe('guard-book')
+      expect(host.assistantSummary.value.label).toBe('助手有新结果')
+      expect(await assistant.applyAgentProposal()).toBe(false)
+      const renewedScope = effectScope()
+      const renewed = renewedScope.run(() => host.attachAssistant({ projectId: ref('guard-book'), agentEngine: { ...requestEngine, healthz: async () => ({ ok: true, assistantProtocolVersion: 2 }) } }))
+      expect(renewed.messages.value.at(-1).text).toBe('后台建议')
+      expect(renewed.reviewProposal(renewed.messages.value.at(-1).id)).toBe(true)
+      expect(await renewed.applyAgentProposal()).toBe(true)
+      expect(writes).toBe(1)
+      expect(authorizations).toBeGreaterThan(2)
+      renewedScope.stop()
+      workspaceRoute.query.bookId = 'another-book'
+      await nextTick()
+      expect(host.state.views).toHaveLength(0)
+    } finally { app.unmount(); localStorage.removeItem('pinax-workspace-views:v1:["guard-book",""]') }
+    let shutdownHost
+    let signalAtShutdown
+    let cancelled = 0
+    const shutdownApp = createApp({ setup() { shutdownHost = provideComposableWorkspace(reactive({ name: 'authoring', query: { bookId: 'shutdown-book' } })); return () => null } })
+    shutdownApp.mount(document.createElement('div'))
+    const shutdownEditor = effectScope()
+    const shutdownAssistant = shutdownEditor.run(() => shutdownHost.attachAssistant({ projectId: 'shutdown-book', agentEngine: {
+      prepare: () => ({ bookId: 'shutdown-book' }), destination: () => ({ chapterId: 'original-chapter' }),
+      healthz: async () => ({ ok: true }), revokePermission: () => {},
+      run: async ({ signal, callbacks }) => {
+        signalAtShutdown = signal
+        callbacks.onTask({ taskId: 'shutdown-task', bookId: 'shutdown-book' })
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      },
+      cancel: async () => { cancelled++; return true }
+    } }))
+    const interrupted = shutdownAssistant.ask({ question: '等待后退出应用' })
+    await nextTick()
+    shutdownEditor.stop()
+    expect(signalAtShutdown.aborted).toBe(false)
+    shutdownApp.unmount()
+    expect(signalAtShutdown.aborted).toBe(true)
+    expect(await interrupted).toBe(false)
+    expect(cancelled).toBe(1)
     const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
     expect(workspaceTabs).toContain('height: 36px;')
@@ -200,6 +420,9 @@ describe('workbench control contract (U1)', () => {
     // ③ 已移除的锚点按钮不得回潮。
     expect(writing).not.toContain('authoring-rehearsal-anchor')
     expect(authoringBlockCss).toContain('.writing-inspector__compose-host')
+    const composeSurface = authoringBlockCss.match(/\.theme-legacy \.writing-page \.writing-inspector__compose-host \{([^}]+)\}/)?.[1]
+    expect(composeSurface).toContain('background: var(--surface-workbench)')
+    expect(composeSurface).not.toContain('var(--archive-paper-soft)')
     const routes = readFileSync(resolve(__dirname, '../router/index.js'), 'utf8')
     expect(routes.split('const routes =')[0]).toContain("path: 'docs/:chapterId?'")
     const textarea = readFileSync(resolve(__dirname, '../components/worldbook/fields/FieldTextarea.vue'), 'utf8')
@@ -317,8 +540,31 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain('<AuthoringQuickWords')
     expect(source).toContain('<AuthoringAssistantWorkspace')
     const workspace = await readFile(resolve(__dirname, '../components/authoring/AuthoringAssistantWorkspace.vue'), 'utf8')
+    expect(authoringKnowledgeAssistant).toContain('authoring-knowledge__question-row:hover .authoring-knowledge__edit-trigger')
+    expect(authoringKnowledgeAssistant).toContain('authoring-knowledge__question-row:focus-within .authoring-knowledge__edit-trigger')
+    expect(authoringKnowledgeAssistant).toContain('@media (hover: none), (pointer: coarse)')
     expect(workspace).toContain('<AuthoringKnowledgeAssistant')
     expect(workspace).toContain(':notice="notice"')
+    // The real assistant component renders Markdown, streams updates and strips executable HTML.
+    {
+      const { mount } = await import('@vue/test-utils')
+      const { default: KnowledgeAssistant } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
+      const answer = { id: 'markdown-answer', kind: 'agent', role: 'assistant', text: '\n\n**人物**\n\n---\n\n1. 第一项\n2. 第二项\n\n<script>window.injected = true</script><a href="javascript:alert(1)">坏链接</a>', thinking: '核对资料。', tools: [{ name: 'world_lookup' }] }
+      const panel = mount(KnowledgeAssistant, { props: { messages: [answer] }, global: { stubs: { AuthoringAgentTools: true } } })
+      try {
+        expect(panel.find('.authoring-knowledge__markdown strong').text()).toBe('人物')
+        expect(panel.findAll('.authoring-knowledge__markdown ol li')).toHaveLength(2)
+        expect(panel.find('.authoring-knowledge__markdown hr').exists()).toBe(true)
+        expect(panel.find('.authoring-knowledge__markdown script').exists()).toBe(false)
+        expect(panel.find('.authoring-knowledge__markdown a').attributes('href')).toBeUndefined()
+        expect(panel.findAll('.authoring-knowledge__process details')).toHaveLength(2)
+        expect(panel.find('.authoring-knowledge__process details').element.open).toBe(false)
+        await panel.setProps({ messages: [{ ...answer, text: '**流式' }] })
+        await panel.setProps({ messages: [{ ...answer, text: '**流式完成**' }] })
+        expect(panel.find('.authoring-knowledge__markdown strong').text()).toBe('流式完成')
+      } finally { panel.unmount() }
+    }
+
     expect(source).toContain('<AuthoringInterventionComposer')
     expect(source).toContain('@open-intervention="openInterventionComposer"')
     expect(source).toContain(':intervention-enabled="!wt3ActiveDoc"')
@@ -414,7 +660,15 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringCharacterPanel).not.toContain("label: '主要角色'")
     expect(authoringCharacterPanel).not.toContain("label: '次要角色'")
     expect(authoringCharacterPanel).toContain('preservedScroll')
-    expect(source).toContain('@open-full="openWorldbookFromDual"')
+    expect(source).toContain("openProjectSettingsSurface('settings', { entryId })")
+    const contentWorkspace = readFileSync(resolve(__dirname, '../components/worldbook/WorldbookContentWorkspace.vue'), 'utf8')
+    expect(contentWorkspace).toContain('expectedFingerprint: target.fingerprint')
+    expect(contentWorkspace).toContain('defineExpose({ flushAll })')
+    expect(contentWorkspace).toContain('saveEntryPanelDraft')
+    expect(contentWorkspace).toContain('EntryDataTable')
+    expect(contentWorkspace).toContain('GraphCanvas')
+    expect(contentWorkspace).toContain('ForeshadowLedgerTable')
+    expect(contentWorkspace).not.toContain('KnowledgeMethodPanel')
     expect(authoringCharacterPanel).toContain('@input="resizeProfileField($event.currentTarget)"')
     expect(authoringCharacterPanel).toContain('resize:none')
     expect(authoringCharacterPanel).toContain('overflow:hidden')
@@ -460,8 +714,8 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     for (const task of ['讨论故事', '查阅资料', '检查文稿', '生成插图', '理清人物关系', '回顾前文', '讨论下一段', '构思人物', '展开情节', '想个开场']) {
       expect(authoringKnowledgeAssistant).toContain(task)
     }
-    expect(knowledgeTemplate).toContain("choosePurpose('free')")
-    expect(knowledgeTemplate).toContain("choosePurpose('whole-book')")
+    expect(knowledgeTemplate).toContain('AuthoringAssistantPermissions')
+    expect(knowledgeTemplate).toContain("tr('助手权限')")
     expect(knowledgeTemplate).toContain('参考资料')
     expect(knowledgeTemplate).toContain('message.answer.calculations.length')
     expect(knowledgeTemplate).toContain('onEvidenceClick(evidence, $event.currentTarget)')
@@ -684,6 +938,9 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
     expect(online).toContain(':aria-expanded="roomPanelOpen"')
     expect(online).toContain('aria-controls="online-room-panel"')
     expect(online).toContain('const roomPanelOpen = ref(false)')
+    expect(online).toContain('onBeforeRouteUpdate(')
+    expect(online).toContain('defineExpose({ canCloseWorkspace')
+    expect(normalizeWorkspaceResource({ type: 'online-editor', bookId: 'a', roomSlug: 'room-a', inviteSecret: 'never-persist' })).toEqual({ type: 'online-editor', bookId: 'a', worldbookId: '', id: '', roomSlug: 'room-a' })
     expect(online).toMatch(/@media \(max-width: 760px\)[\s\S]*?online-page__room-panel \{ display: none; position: static;/)
     expect(online).toContain('.is-room-panel-open .online-page__room-panel { display: block; }')
 }

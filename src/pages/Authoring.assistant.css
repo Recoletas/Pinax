@@ -169,7 +169,8 @@
 .writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar-actions button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__toolbar-actions .assistant-conversation-toggle { width: auto; min-width: 0; padding-inline: 8px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__answer { margin-bottom: 22px; }
-.writing-page:not(.is-assistant-full) .authoring-knowledge__question { margin-bottom: 22px; padding: 9px 12px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__question-row { margin-bottom: 22px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__question { margin: 0; padding: 9px 12px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__thread { padding: 18px var(--assistant-gutter) 12px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__composer { padding: 12px var(--assistant-gutter) 20px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__context { order: -1; flex-basis: 100%; margin: 0 4px 2px; font-size: 13px; }

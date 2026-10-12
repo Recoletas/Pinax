@@ -207,6 +207,29 @@ function replaceBlockValue(text, block, nextValue) {
   return `${text.slice(0, block.valueStart)}${nextValue}${text.slice(block.end)}`
 }
 
+/**
+ * 正文标签块的定位手术写回（表格对「未建档行」的编辑口径，与 advanceCharacterState 同一套
+ * 底层件：findLabeledBlock + replaceBlockValue）：
+ * - 有该【标签】块 → 只替换块值，其余字节原样（块值后的原有换行保留，缺失则补一个换行）；
+ * - 无该块且有新值 → 文末新建 `【标签】值`（追加不重排，绝不动别人家的块）；
+ * - 无该块且新值为空 → 原文返回（零写入语义）；
+ * - 清空已有块 → 整块摘除（含【标签】本身），注入文本里不留空壳。
+ */
+export function setLabeledBlock(content, label, nextValue) {
+  const text = String(content ?? '').replace(/\r\n/g, '\n')
+  const name = String(label ?? '').trim()
+  const value = String(nextValue ?? '').trim()
+  if (!name) return text
+  const block = findLabeledBlock(text, name)
+  if (block) {
+    if (!value) return `${text.slice(0, block.start)}${text.slice(block.end)}`.replace(/\n{3,}/g, '\n\n')
+    const trailing = String(block.value).match(/\s*$/)[0]
+    return replaceBlockValue(text, block, `${value}${trailing.includes('\n') ? trailing : '\n'}`)
+  }
+  if (!value) return text
+  return `${text.replace(/\s+$/, '')}\n\n【${name}】${value}\n`
+}
+
 function dimensionLinesOf(value) {
   return String(value ?? '')
     .split('\n')
@@ -317,6 +340,57 @@ export function updateForeshadowLedger(ledger, { fid, content = '', plantedAt = 
   lines.splice(insertAt, 0, row)
   const out = lines.join('\n')
   return out.endsWith('\n') ? out : `${out}\n`
+}
+
+/** 台账表头列名（与骨架件首行同一套词；冒烟断言两者一致，防骨架改了这边漂移） */
+export const FORESHADOW_LEDGER_LABELS = ['fid', '内容', '埋点', '预定回收', '状态']
+
+/**
+ * 伏笔台账行解析（纯函数）：只认表格行，跳过表头与分隔行。
+ * 列序按 FORESHADOW_LEDGER_LABELS；status 归一到 open|paid|retired（非法值→open，与 upsert 同口径）。
+ */
+export function parseForeshadowLedger(ledger) {
+  const rows = []
+  for (const line of String(ledger ?? '').replace(/\r\n/g, '\n').split('\n')) {
+    if (!line.trim().startsWith('|')) continue
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim())
+    if (cells.length < FORESHADOW_LEDGER_LABELS.length) continue
+    if (cells[0] === FORESHADOW_LEDGER_LABELS[0] || /^[-:\s]*$/.test(cells[0])) continue
+    rows.push({
+      fid: cells[0],
+      content: cells[1],
+      plantedAt: cells[2],
+      dueBy: cells[3],
+      status: FORESHADOW_STATUSES.includes(cells[4]) ? cells[4] : 'open'
+    })
+  }
+  return rows
+}
+
+/**
+ * 伏笔台账删行（纯函数，补齐 upsert 缺的那一手）：按 fid 整行摘除。
+ * fid 为空或无命中 → 原文原样返回（零写入语义，调用方据此可以不落盘）。
+ */
+export function removeForeshadowLedgerRow(ledger, fid) {
+  const id = foreshadowCell(fid)
+  const text = String(ledger ?? '').replace(/\r\n/g, '\n')
+  if (!id) return text
+  const lines = text.split('\n')
+  const rowIndex = lines.findIndex((line) => line.startsWith('|')
+    && String(line.split('|')[1] ?? '').trim() === id)
+  if (rowIndex < 0) return text
+  lines.splice(rowIndex, 1)
+  return `${lines.join('\n')}`
+}
+
+/** 伏笔台账条目的建档载荷（与结算落库同一形状：type=general、extra.auxRole 双保险识别） */
+export function foreshadowLedgerEntryDraft() {
+  return ledgerEntryPayload(
+    FORESHADOW_LEDGER_ENTRY_NAME,
+    'general',
+    LEDGER_AUX_ROLES.foreshadow,
+    foreshadowLedgerSkeleton()
+  )
 }
 
 /* ---------- 世界揭示（结算件 5：清单，供采纳进设定条目） ---------- */

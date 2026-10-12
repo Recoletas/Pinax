@@ -9,7 +9,7 @@
     <div class="authoring-assistant-workspace__body" :class="{ 'has-index': expanded && indexOpen, 'has-preview': preview }">
       <button v-if="expanded && indexOpen && narrow" type="button" class="authoring-assistant-workspace__scrim" :aria-label="tr('收起作品导航')" @click="closeIndex"></button>
       <aside v-if="expanded && indexOpen" id="assistant-workspace-nav" ref="indexRef" class="authoring-assistant-workspace__index" :aria-label="tr('作品导航')">
-        <WorkspaceProjectNavigation :book-id="projectId" current="assistant" managed :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" @select-book="emit('select-book', $event)" />
+        <WorkspaceProjectNavigation :book-id="projectId" current="assistant" :navigation="!contentWorkspace?.moduleNavigation.value" managed :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" @select-book="emit('select-book', $event)" />
         <div v-if="state.sessions.length > 1" class="authoring-assistant-workspace__sessions" :aria-label="tr('作品对话')">
           <div v-for="session in state.sessions" :key="session.sessionId" class="assistant-session-row"><button type="button" :class="{ 'is-selected': session.active }" :aria-current="session.active ? 'true' : undefined" :disabled="state.busy || state.agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="14" /><span>{{ session.title }}</span></button><button type="button" class="assistant-session-delete" :aria-label="tr('删除对话 {title}', { title: session.title })" :title="tr('删除对话')" :disabled="state.busy || state.agentState.adoptionBusy" @click="deleteConversation(session)"><WorkbenchIcon name="trash" :size="14" /></button></div>
         </div>
@@ -84,6 +84,9 @@ import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WorkspaceProjectNavigation from '../workbench/WorkspaceProjectNavigation.vue'
 import AuthoringKnowledgeAssistant from './AuthoringKnowledgeAssistant.vue'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
+
+const contentWorkspace = useComposableWorkspace()
 
 const props = defineProps({
   assistant: { type: Object, required: true },
@@ -112,7 +115,7 @@ const questionsRef = ref(null)
 const activeQuestionId = ref('')
 const navigationVisible = computed(() => props.expanded && indexOpen.value && !(medium.value && !narrow.value && preview.value))
 const reviewBusy = computed(() => Boolean(unref(props.reviewWorkflow?.loading) || unref(props.reviewWorkflow?.rewrite?.loading)))
-const sourcesBusy = computed(() => state.value.busy || reviewBusy.value)
+const sourcesBusy = computed(() => !contentWorkspace && (state.value.busy || reviewBusy.value))
 const navigationBlockedTitle = computed(() => reviewBusy.value ? tr('检查进行中，请先停止检查再切换页面') : tr('查询中，请完成或停止后切换页面'))
 function selectSurface(surface) {
   if (surface === 'assistant') return focusDraft()
@@ -120,7 +123,7 @@ function selectSurface(surface) {
   if (sourcesBusy.value) return
   emit('select-surface', surface)
 }
-const sourcesTitle = computed(() => reviewBusy.value ? tr('检查进行中，请先停止检查再打开资料') : state.value.busy ? tr('查询中，请完成或停止后打开资料') : tr('资料'))
+const sourcesTitle = computed(() => contentWorkspace ? tr('在旁边打开资料') : reviewBusy.value ? tr('检查进行中，请先停止检查再打开资料') : state.value.busy ? tr('查询中，请完成或停止后打开资料') : tr('资料'))
 function restoreNavigationFocus() {
   nextTick(() => indexToggleRef.value?.focus({ preventScroll: true }))
 }
