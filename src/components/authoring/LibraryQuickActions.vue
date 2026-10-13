@@ -28,10 +28,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 </template>
 
 <style scoped>
-.library-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 24px 0 40px; font: 14px/1.5 var(--font-sans); }
-.library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 16px; border: 1px solid var(--hairline-soft); border-radius: 999px; background: transparent; color: var(--text-primary); text-decoration: none; font: inherit; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
+.library-quick-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; font: 14px/1.5 var(--font-sans); }
+.library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 16px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: transparent; color: var(--text-primary); text-decoration: none; font: inherit; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
 .library-quick-actions__new { position: relative; padding: 0; gap: 0; color: var(--accent-text); background: var(--accent); border-color: transparent; }
-.library-quick-actions__new > a { display: flex; min-width: 0; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; border-radius: 999px 0 0 999px; color: inherit; text-decoration: none; }
+.library-quick-actions__new > a { display: flex; min-width: 0; align-items: center; gap: 8px; min-height: 36px; padding: 0 18px; border-radius: var(--radius-control) 0 0 var(--radius-control); color: inherit; text-decoration: none; }
 .library-quick-actions__new > a:only-child { border-radius: inherit; }
 .library-quick-actions :is(a, button) > span { min-width: 0; }
 .library-quick-actions > button, .library-quick-actions > a:last-child { border-color: transparent; color: var(--text-secondary); }
@@ -39,24 +39,24 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutsidePoint
 .library-quick-actions strong { font-size: 14px; font-weight: 400; white-space: nowrap; }
 .library-quick-actions__new strong { font-weight: 500; }
 .library-quick-actions details { position: relative; flex: none; }
-.library-quick-actions summary { display: grid; place-items: center; width: 40px; height: 40px; border-left: 1px solid color-mix(in srgb, var(--accent-text) 22%, transparent); border-radius: 0 999px 999px 0; cursor: pointer; list-style: none; }
+.library-quick-actions summary { display: grid; place-items: center; width: 36px; height: 36px; border-left: 1px solid color-mix(in srgb, var(--accent-text) 22%, transparent); border-radius: 0 var(--radius-control) var(--radius-control) 0; cursor: pointer; list-style: none; }
 .library-quick-actions summary::-webkit-details-marker { display: none; }
-.library-quick-actions__menu { position: absolute; z-index: 5; left: 0; top: calc(100% + 8px); width: 224px; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: 16px; background: var(--surface-workbench-raised); box-shadow: var(--shadow-workbench-float); }
-.library-quick-actions__menu a { display: flex; align-items: center; padding: 8px 12px; min-height: 40px; color: var(--text-primary); text-decoration: none; font-size: 14px; border-radius: 10px; }
+.library-quick-actions__menu { position: absolute; z-index: 5; left: 0; top: calc(100% + 8px); width: 224px; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover); background: var(--surface-workbench-raised); box-shadow: var(--shadow-workbench-float); }
+.library-quick-actions__menu a { display: flex; align-items: center; padding: 8px 12px; min-height: 36px; color: var(--text-primary); text-decoration: none; font-size: 14px; border-radius: var(--radius-control); }
 .library-quick-actions__menu a:hover, .library-quick-actions > a:hover, .library-quick-actions > button:hover { background: var(--nav-hover); color: var(--text-primary); }
 .library-quick-actions__new > a:hover, .library-quick-actions summary:hover { background: color-mix(in srgb, var(--accent-text) 12%, transparent); }
 .library-quick-actions :is(a, button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .library-quick-actions__new :is(a, summary):focus-visible { outline-color: var(--text-primary); }
 .library-quick-actions :is(a, button, summary):active { filter: brightness(.94); }
 @media (max-width: 520px) {
- .library-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 22px 0 26px; }
+ .library-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; margin: 0; }
  .library-quick-actions__new > a { flex: 1; }
  .library-quick-actions__new details { position: static; }
  .library-quick-actions__menu { width: min(280px, calc(100vw - 32px)); }
  .library-quick-actions strong { white-space: normal; line-height: 1.35; overflow-wrap: anywhere; }
- .library-quick-actions > a, .library-quick-actions > button { min-height: 40px; padding-inline: 10px; }
+ .library-quick-actions > a, .library-quick-actions > button { min-height: 36px; padding-inline: 10px; }
  .library-quick-actions__new > a { padding-inline: 8px; }
- .library-quick-actions__new, .library-quick-actions__new > a { min-height: 40px; }
+ .library-quick-actions__new, .library-quick-actions__new > a { min-height: 36px; }
 }
 @media (max-width: 760px), (pointer: coarse) {
  .library-quick-actions > a, .library-quick-actions > button, .library-quick-actions__new, .library-quick-actions__new > a, .library-quick-actions summary, .library-quick-actions__menu a { min-height: 44px; }

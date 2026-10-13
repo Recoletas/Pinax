@@ -37,10 +37,10 @@ function selectBook(value) {
 </template>
 
 <style scoped>
-.library-sidebar { width: var(--workspace-sidebar-width, 256px); flex: 0 0 var(--workspace-sidebar-width, 256px); min-height: 0; overflow: hidden; background: var(--surface-workbench-muted); border-right: 0; display: flex; flex-direction: column; padding: 18px 0 12px; font: 14px/1.5 var(--font-sans); }
+.library-sidebar { width: var(--workspace-sidebar-width, 256px); flex: 0 0 var(--workspace-sidebar-width, 256px); min-height: 0; overflow: hidden; background: var(--surface-workbench-muted); border-right: 0; display: flex; flex-direction: column; padding: 16px 0 12px; font: 14px/1.5 var(--font-sans); }
 .library-sidebar__brand { display: flex; flex: none; align-items: center; gap: 10px; padding: 0 16px 16px; }
-.library-sidebar__brand img { width: 28px; height: 28px; border-radius: 0; }
-.library-sidebar__brand strong { font-size: 20px; font-weight: 500; letter-spacing: -.02em; color: var(--text-primary); }
+.library-sidebar__brand img { width: 24px; height: 24px; border-radius: 0; }
+.library-sidebar__brand strong { font-size: 17px; font-weight: 600; letter-spacing: -.02em; color: var(--text-primary); }
 .library-sidebar__nav { display: flex; min-height: 0; flex-direction: column; gap: 12px; flex: 1; overflow-y: auto; scrollbar-width: thin; }
 .library-sidebar__nav > :deep(.workspace-project-nav) { flex: none; }
 .library-sidebar.workspace-sidebar .library-sidebar__nav .library-sidebar__utility { display: flex; box-sizing: border-box; align-items: center; gap: 12px; min-width: 0; min-height: 40px; width: 100%; padding: 8px 16px; border: 0; border-radius: 0; box-shadow: none; background: transparent; text-decoration: none; color: var(--nav-fg); font: inherit; font-size: 14px; text-align: start; cursor: pointer; transition: background-color .12s ease, color .12s ease; }

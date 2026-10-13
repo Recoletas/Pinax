@@ -28,15 +28,16 @@ function timeLabel(entry) {
 </template>
 
 <style scoped>
-.library-recent { margin: 0 0 32px; color: var(--text-primary); }
+.library-recent { margin: 0 0 24px; color: var(--text-primary); }
 .library-recent header { padding-block: 4px 10px; }
 .library-recent h2 { margin: 0; font: 500 16px/1.5 var(--font-sans); }
 .library-recent ul { margin: 0; padding: 0; list-style: none; }
-.library-recent button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; width: 100%; min-height: 46px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--hairline-soft); border-radius: 0; background: transparent; color: inherit; font: 14px/1.5 var(--font-sans); text-align: start; cursor: pointer; }
+.library-recent button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; width: 100%; min-height: 46px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: transparent; color: inherit; font: 14px/1.5 var(--font-sans); text-align: start; cursor: pointer; }
 .library-recent__name { display: grid; min-width: 0; gap: 3px; }
 .library-recent strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .library-recent time { color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .library-recent button:disabled { cursor: default; }
+.library-recent button:not(:disabled):hover { background: var(--nav-hover); }
 .library-recent button:not(:disabled):hover strong { color: var(--accent); }
 .library-recent button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 520px) {
