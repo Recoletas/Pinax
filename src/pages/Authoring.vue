@@ -3531,7 +3531,7 @@ const knowledgeAssistantSceneProjection = computed(() => (
 const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
   onReviewProposal: locateAssistantProposal,
-  agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, getBook: () => currentBook.value,
+  agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, readWorldbookSnapshot, getBook: () => currentBook.value,
     generateNarrative: args => generateAssistantNarrative(args, {
       readCurrent: () => ({ projectId: String(selectedBookId.value), chapterId: String(selectedChapterId.value), exploration: Boolean(wt3ActiveDoc.value), markdown: markdownContent.value, document: writingDocument.value, revision: currentDocumentRevision() }),
       resolveTarget: target => resolveBlockComposerTarget(target), readNarrative: () => getAuthoringNarrativeRun()

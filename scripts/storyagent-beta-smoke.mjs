@@ -253,7 +253,7 @@ try {
     callbacks: { onChunk: ({ content }) => { engineText += content }, onReasoning: ({ content }) => { engineThinking += content } },
   })
   const engineBody = JSON.parse(engineCalls[0].opts.body)
-  check('engine kernel 含 project block（书名/正文尾）', engineBody.kernel.blocks.some((b) => b.kind === 'project' && b.text.includes('《雾港纪事》') && b.text.includes('三声轻叩')))
+  check('engine kernel 含作品目录与正文上下文', engineBody.kernel.blocks.some(b => b.kind === 'workspace' && b.text.includes('《雾港纪事》') && b.text.includes('/works/book_1')) && engineBody.kernel.blocks.some(b => b.kind === 'manuscript-context' && b.text.includes('三声轻叩')) && !engineBody.kernel.blocks.some(b => b.kind === 'project'))
   check('engine kernel 含 reference block（@ 章节）', engineBody.kernel.blocks.some((b) => b.kind === 'reference' && b.text.includes('@第一章')))
   check('engine 资源快照映射 world_lookup', engineBody.resources.domains.world_lookup?.length === 1)
   check('engine 归属 bookId 上行', engineBody.bookId === 'book_1')

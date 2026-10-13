@@ -5,12 +5,11 @@ import { requestAssistantPolicy } from './assistantPolicyClient.js'
 import { withAssistantEditLock } from '../../storage/assistantEditLock.js'
 import { persistAssistantEdits } from '../../storage/assistantEditJournal.js'
 import { getItem, STORAGE_KEYS } from '../../../composables/useStorage.js'
-import { readWorldbookSnapshot } from '../../../stores/worldStore.js'
 import { buildAssistantWorkspaceItems } from './assistantWorkspaceContext.js'
 import { createStoryAgentEngine } from './agentEngine.js'
 import { getChapterMarkdown } from '../../writing/writingDocumentSchema.js'
 
-export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getWorldbook, getLiveText, getLiveDocument, getSelection, getNotes, getOutline, persistCurrent, readBooks, saveBooks, publishBooks, protectCurrent, protectChanges, observeAdoption, publishWorldbook, publishRepository, generateNarrative } = {}) {
+export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getWorldbook, readWorldbookSnapshot, getLiveText, getLiveDocument, getSelection, getNotes, getOutline, persistCurrent, readBooks, saveBooks, publishBooks, protectCurrent, protectChanges, observeAdoption, publishWorldbook, publishRepository, generateNarrative } = {}) {
   let bridge
   let currentPermission = null
   let permissionEpoch = 0
@@ -35,7 +34,7 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
     return {
       manuscriptText: String(getLiveText?.() || ''),
       workspaceProjects: workspaceBooks.map(item => ({ id: String(item.id), title: item.title || '未命名作品' })),
-      workspaceItems: buildAssistantWorkspaceItems(workspaceBooks, book.id, getChapterMarkdown, item => item.worldbookId ? readWorldbookSnapshot(item.worldbookId) : null),
+      workspaceItems: buildAssistantWorkspaceItems(workspaceBooks, book.id, getChapterMarkdown, item => item.worldbookId ? (String(item.worldbookId) === String(world?.id) ? world : readWorldbookSnapshot?.(item.worldbookId)) : null),
       currentChapterId: String(chapter?.id || ''), selection: getSelection?.() || null,
       editBaseline: JSON.parse(JSON.stringify({ book: { ...book, chapters: (book.chapters || []).map(entry => String(entry.id) === String(chapter?.id) ? { ...entry, content: getLiveText?.() || '', editorDocument: getLiveDocument?.() || null } : entry) }, worldbook: world })),
       bookTitle: book.title || '', chapterTitle: chapter?.title || '', manuscriptTail: String(getLiveText?.() || '').slice(-2400),

@@ -80,9 +80,7 @@ jobs:
         run: npm run verify:contract
 
       - name: StoryAgent integration regression
-        run: |
-          node scripts/storyagent-beta-smoke.mjs
-          node scripts/storyagent-integration-smoke.mjs
+        run: npm run verify:storyagent
 
   build:
     runs-on: ubuntu-latest

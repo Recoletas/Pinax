@@ -30,6 +30,17 @@ check(loaded.messages[0].text === '完整结果' && loaded.agentTaskId === 'task
 check(store.load('book-b').conversation === null, '另一作品看不到当前作品的输出')
 check([...fakeMap.keys()].every(key => key.startsWith('authoring_assistant_conversation:')), '没有第二套 Agent 会话存储键')
 
+const workspaceReads = []
+const workspaceBook = { id: 'book-a', worldbookId: 'world-a', chapters: [] }
+const workspaceAgent = createAuthoringStoryAgent({
+  projectId: workspaceBook.id, getBook: () => workspaceBook,
+  getWorldbook: () => ({ id: 'world-a', entries: [{ id: 'local', name: '当前人物', content: '当前设定' }] }),
+  readBooks: () => [workspaceBook, { id: 'book-b', worldbookId: 'world-b', chapters: [] }],
+  readWorldbookSnapshot: id => { workspaceReads.push(id); return { id, entries: [{ id: 'other', name: '其他人物', content: '其他设定' }] } }
+})
+const workspacePrepared = workspaceAgent.prepare({ text: '查阅作品' })
+check(workspaceReads.join(',') === 'world-b' && JSON.stringify(workspacePrepared).includes('其他设定') && JSON.stringify(workspacePrepared).includes('当前设定'), '当前世界书复用已绑定对象，跨作品查阅经注入的只读快照入口')
+
 let books = [{ id: 'book-a', chapters: [{ id: 'chapter-a', content: '', editorDocument: null }] }]
 let saves = 0
 let published = false

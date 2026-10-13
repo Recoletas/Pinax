@@ -1,5 +1,11 @@
 # 开发日志
 
+## 2026-10-13 · CI 的 StoryAgent 回归收口
+
+GitHub run `38370958742` 的构建及两组浏览器流程成功，失败位于独立 StoryAgent 回归。修复两处：旧冒烟仍要求已拆分的 project block，现核对 workspace 与 manuscript-context 的书名、目录和正文；authoringIntegration 静态引入 worldStore，使裸 Node 误加载其前端依赖，现由 Authoring 显式注入同一只读快照入口，并复用当前绑定世界书。补查当前／跨作品设定可见性，未新建存储或绕过权限。
+
+新增 `npm run verify:storyagent`，CI 和 `verify:full` 共用；本地 StoryAgent 两套检查 exit 0（integration 23/23），完整门禁 exit 0（20 files / 200 tests，lint、应用构建、结构／体积、桥接／目录同步、docs、diff）。真实 kit 不在这两套模拟检查范围内。PR #7 采用适配整合和署名修正提交而非 GitHub 直接合并，因而未自动关闭；需 GitHub API 登录后关闭，不能用伪造合并提交冒充原分支完整合并。
+
 ## 2026-10-13 · 混合目录与设定详情
 
 最新反馈：项目根下的平铺列表过乱，恢复默认页面分类文件夹（正文／构思／设定／资料／素材）。初始只展开正文，其他分类显示数量并折叠；当前对象自动显露，中央标签不变。旧平铺归档适配为默认分类，自建目录和作者显式归档保留。
