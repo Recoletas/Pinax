@@ -33,7 +33,7 @@ onScopeDispose(release)
     <p v-else-if="stale" role="alert">{{ tr('本书的资料库关联已变化，请重新打开设定。') }}</p>
     <p v-else-if="loading" role="status">{{ tr('加载设定…') }}</p>
     <div v-else-if="loadError" role="alert">{{ tr(loadError) }}<button type="button" class="control-quiet" @click="refresh()">{{ tr('重试') }}</button></div>
-    <WorldbookContentWorkspace v-else-if="worldbook" ref="editor" :worldbook="worldbook" :reload="refresh" :book-id="resource.bookId" :initial-entry-id="resource.entryId" :initial-mode="resource.settingsView" :initial-category="resource.settingsCategory" @navigation="host.updateResource(instanceId, $event)" :compact="compact" />
+    <WorldbookContentWorkspace v-else-if="worldbook" ref="editor" :worldbook="worldbook" :reload="refresh" :book-id="resource.bookId" :initial-entry-id="resource.entryId" :initial-mode="resource.settingsView" :initial-category="resource.settingsCategory" @navigation="host.updateResource(instanceId, $event)" :compact="compact" :focus-entry="resource.focusEntry" :entry-request-id="resource.entryRequestId" />
     <div v-else class="workspace-settings-empty"><h2>{{ tr('还没有设定') }}</h2><p>{{ tr('先导入资料，或关联这本书的资料库。') }}</p><button type="button" class="control-primary" @click="host.openResource({ ...resource, type: 'sources' })">{{ tr('添加资料') }}</button></div>
   </section>
 </template>

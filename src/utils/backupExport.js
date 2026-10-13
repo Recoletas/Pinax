@@ -96,6 +96,7 @@ export const PINAX_BACKUP_KEYS = [
 ]
 
 export const PINAX_BACKUP_DYNAMIC_PREFIXES = Object.freeze([
+  'pinax-project-directory:v1:',
   'worldbook_',
   'worldbook:brief:',
   'authoring_assistant_conversation:',

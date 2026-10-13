@@ -128,17 +128,24 @@
     ></button>
     <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
     <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': inspectorOpen, 'is-dual-inspector': inspectorOpen && inspectorDualColumn, 'has-sequential-inspector': inspectorOpen && activeInspectorTool === 'rehearsal' }">
+      <Teleport :to="directoryHost?.directoryTarget.value || 'body'" :disabled="!directoryHost?.directoryDocked.value || !directoryHost?.directoryTarget.value">
       <aside
         id="writing-chapter-shelf"
         ref="chapterShelfRef"
         class="wall__shelf workspace-sidebar"
         :class="{ 'is-mobile-open': chapterDrawerOpen }"
         :tabindex="chapterDrawerOpen ? -1 : undefined"
-        :inert="chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
-        :aria-hidden="chapterShelfSheetMode && !chapterDrawerOpen ? 'true' : undefined"
+        :inert="!directoryHost?.directoryDocked.value && chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
+        :aria-hidden="!directoryHost?.directoryDocked.value && chapterShelfSheetMode && !chapterDrawerOpen ? 'true' : undefined"
         :aria-label="tr(&quot;章节书架&quot;)"
       >
         <div class="wall__shelf-manuscript">
+          <div v-if="selectedBookId" class="authoring-directory-mode" aria-label="目录查看方式">
+            <button type="button" :aria-pressed="directoryMode === 'files'" @click="directoryMode = 'files'">{{ tr('文件目录') }}</button>
+            <button type="button" :aria-pressed="directoryMode === 'chapters'" @click="directoryMode = 'chapters'">{{ tr('章节顺序') }}</button>
+          </div>
+          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" />
+          <div v-show="directoryMode === 'chapters' || !selectedBookId">
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
             <input v-model="chapterShelfQuery" type="search" :placeholder="tr(&quot;搜索章节&quot;)" :aria-label="tr(&quot;搜索章节&quot;)" />
@@ -217,6 +224,7 @@
             </div>
             <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">{{ tr('没有匹配的章节') }}</p>
           </div>
+          </div>
           <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
           <div v-if="selectedBookId" class="wall__binding-line" data-test="book-worldbook-binding">
             <template v-if="bindingSelectOpen">
@@ -260,6 +268,7 @@
 
         <div class="wall__shelf-board" aria-hidden="true"></div>
       </aside>
+      </Teleport>
 
       <!-- 中：卷宗稿纸（中央主线） -->
       <section class="wall__dossier" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" :aria-label="tr(&quot;章节正文卷宗&quot;)">
@@ -1511,7 +1520,7 @@
 </template>
 
 <script setup>
-import { chineseChapterNumber } from '../services/writing/writingChapterLabels.js'
+import { chineseChapterNumber, writingChapterRowLabel, writingChapterRowParts } from '../services/writing/writingChapterLabels.js'
 import { tr, uiLocale } from '../i18n/index.js'
 import { inferWritingLanguage } from '../../shared/writingLanguage.js'
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
@@ -1543,6 +1552,14 @@ const AuthoringAdoptionImpact = defineAsyncComponent(() => import('../components
 import AuthoringWorkspaceToolRail from '../components/authoring/AuthoringWorkspaceToolRail.vue'
 const AuthoringDualPane = defineAsyncComponent(() => import('../components/authoring/AuthoringDualPane.vue'))
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
+import { useAuthoringDirectory } from '../composables/useAuthoringDirectory.js'
+const ProjectDirectory = defineAsyncComponent(() => import('../components/workbench/ProjectDirectory.vue'))
+const { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource } = useAuthoringDirectory({
+  hasPendingDraft: () => pendingGhostAdoption.value || blockPreview.value,
+  bookId: () => selectedBookId.value, chapterId: () => selectedChapterId.value, ideaId: () => wt3ActiveDocId.value,
+  saveIdea: () => wt3PersistActiveDoc(), saveChapter: () => saveCurrentChapter(), leaveIdea: () => wt3PersistBeforeLeaving(),
+  createChapter: () => createNewChapter(), createIdea: () => wt3QuickCapture()
+})
 const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
 import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
 const AuthoringIllustratorDrawer = defineAsyncComponent(() => import('../components/authoring/AuthoringIllustratorDrawer.vue'))
@@ -1975,23 +1992,8 @@ const wt3IdeaShelfDocs = computed(() => wt3ExplorationDocs.value.map((doc) => {
     associationLabel: associationLabels.length ? tr('关联 {value0}', { value0: associationLabels.join('、') }) : ''
   }
 }))
-// 章行只拥有一个序号来源。作者若把“第一章”也写进标题，先去掉标题里的
-// 序号再按目录位置呈现，避免“第一章 第一章 上元夜”；空标题就朴素显示“第一章”。
-function chapterRowLabel(index, title) {
-  const { ordinal, name } = chapterRowParts(index, title)
-  return name ? `${ordinal} ${name}` : ordinal
-}
-// 章行模板用分体式：序号与章名各占一个 span，间隔由排版控制，
-// 不依赖半角空格（不同字重/字体下空格宽度不稳定）。
-function chapterRowParts(index, title) {
-  if (/^(?:chapter\s+(?:\d+|[ivxlcdm]+)\b|prologue$|epilogue$)/i.test(String(title || '').trim())) return { ordinal: '', name: String(title).trim() }
-  const ordinal = uiLocale.value === 'en' ? `Chapter ${index + 1}` : `第${chineseChapterNumber(index + 1)}章`
-  const name = String(title || '')
-    .trim()
-    .replace(/^第\s*(?:[零〇一二三四五六七八九十百千万两]+|\d+)\s*章(?:\s*[-—:：·、.]?\s*)?/u, '')
-    .trim()
-  return { ordinal, name }
-}
+const chapterRowLabel = (index, title) => writingChapterRowLabel(index, title, uiLocale.value)
+const chapterRowParts = (index, title) => writingChapterRowParts(index, title, uiLocale.value)
 // 稿面标题与左导航共用同一序号来源：稿面只补“第X章”，章名仍由输入框承载。
 // 作者标题已自带序号时不再重复显示（避免“第一章 第一章 上元夜”）。
 const selectedChapterOrdinalLabel = computed(() => {
@@ -10887,9 +10889,9 @@ function onGlobalClick() {
 }
 </script>
 
-<style scoped src="./Writing.scoped.css">
-</style>
 
+
+<style scoped src="./Writing.scoped.css"></style>
 <style src="./Writing.global.css"></style>
 <style src="./Authoring.block-native.css"></style>
 <style src="./Authoring.assistant.css"></style>

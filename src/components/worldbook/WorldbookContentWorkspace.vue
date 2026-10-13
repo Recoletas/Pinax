@@ -8,18 +8,21 @@ import { applyRelationRows, relationRowsFromEntry } from '../../services/worldbo
 import { renameEntryKeys } from '../../services/worldbook/entryProfileTemplates.js'
 import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { useWorldbookKnowledgeSearch } from '../../composables/useWorldbookKnowledgeSearch.js'
+import EntryProfileEditor from './EntryProfileEditor.vue'
 import StructuredSettingsWorkspace from './StructuredSettingsWorkspace.vue'
 import EntryDataTable from '../knowledge/EntryDataTable.vue'
 import ForeshadowLedgerTable from '../knowledge/ForeshadowLedgerTable.vue'
 import GraphCanvas from './GraphCanvas.vue'
 
-const props = defineProps({ worldbook: { type: Object, required: true }, compact: Boolean, bookId: { type: String, default: '' }, initialEntryId: { type: String, default: '' }, initialMode: { type: String, default: 'detail' }, initialCategory: { type: String, default: '' }, reload: { type: Function, default: null } })
+const props = defineProps({ worldbook: { type: Object, required: true }, compact: Boolean, focusEntry: Boolean, entryRequestId: { type: String, default: '' }, bookId: { type: String, default: '' }, initialEntryId: { type: String, default: '' }, initialMode: { type: String, default: 'detail' }, initialCategory: { type: String, default: '' }, reload: { type: Function, default: null } })
 const emit = defineEmits(['navigation'])
 const store = useWorldStore()
 const category = ref(props.initialCategory)
 const mode = ref(props.initialMode)
 const selectedId = ref(props.initialEntryId)
 const query = ref('')
+const browseAll = ref(false)
+const focusedDetail = computed(() => props.focusEntry && !browseAll.value && mode.value === 'detail')
 const notice = ref('')
 const pendingRelation = ref(null)
 const relationTarget = ref('')
@@ -29,6 +32,38 @@ const baseEditor = ref(null)
 const table = ref(null)
 const ledger = ref(null)
 const bodyInput = ref(null)
+const profileEditor = ref(null)
+const profileOpen = ref(false)
+const profileSaving = ref(false)
+const profileDraft = ref(null)
+const profileBaseline = ref('')
+const retainedProfile = ref(null)
+function profileChanged(value, scope) {
+  if (scope?.entryId !== draft.id || scope?.scopeKey !== draft.worldbookId) return
+  profileDraft.value = value
+  if (!value && draft.id) clearEntryPanelDraft(draft.worldbookId, draft.id, 'workspace-profile')
+  if (value && draft.id) saveEntryPanelDraft(draft.worldbookId, draft.id, 'workspace-profile', { baseline: profileBaseline.value, draft: value })
+}
+async function saveProfile(value) {
+  if (busy.value || composing || !current.value || value.entryId !== draft.id || value.scopeKey !== draft.worldbookId) return
+  const worldbookId = draft.worldbookId, entryId = draft.id
+  if (worldbookEntryEditFingerprint(current.value) !== profileBaseline.value) { notice.value = tr('设定已有新版本，属性输入已保留。请载入最新内容后再整理。'); return }
+  if (!await save()) return
+  if (draft.worldbookId !== worldbookId || draft.id !== entryId) return
+  busy.value = true; profileSaving.value = true
+  try {
+    const saved = await store.updateEntry(worldbookId, entryId, { profile: value.profile, ...(value.overwrite ? { content: value.content } : {}) }, { expectedFingerprint: draft.fingerprint })
+    if (draft.worldbookId !== worldbookId || draft.id !== entryId) return
+    draft.fingerprint = worldbookEntryEditFingerprint(saved)
+    if (value.overwrite) draft.content = saved.content
+    profileBaseline.value = draft.fingerprint
+    profileDraft.value = null; retainedProfile.value = null
+    profileEditor.value?.markSaved()
+    clearEntryPanelDraft(worldbookId, entryId, 'workspace-profile')
+    notice.value = ''; nextTick(resizeBody)
+  } catch (error) { notice.value = String(error.message || error) }
+  finally { busy.value = false; profileSaving.value = false }
+}
 let composing = false
 let pendingSave = null
 const entries = computed(() => (props.worldbook.entries || []).filter(entry => !isMachineLedgerEntry(entry)))
@@ -58,6 +93,13 @@ const chips = computed(() => current.value ? buildRelationChips(current.value, e
 const effectiveMode = computed(() => props.compact && mode.value === 'table' ? 'detail' : mode.value)
 
 function loadDraft(entry) {
+  if (draft.id !== (entry?.id || '') || draft.worldbookId !== props.worldbook.id) {
+    const retained = entry && readEntryPanelDraft(props.worldbook.id, entry.id, 'workspace-profile')
+    retainedProfile.value = retained?.draft || null
+    profileDraft.value = retained?.draft || null
+    profileBaseline.value = retained?.baseline || (entry ? worldbookEntryEditFingerprint(entry) : '')
+    profileOpen.value = Boolean(retained)
+  } else if (!profileDraft.value && !profileEditor.value?.hasPending?.()) profileBaseline.value = entry ? worldbookEntryEditFingerprint(entry) : ''
   draft.id = entry?.id || ''
   draft.worldbookId = props.worldbook.id
   draft.name = String(entry?.name || '')
@@ -90,6 +132,7 @@ async function save() {
       const saved = await store.updateEntry(target.worldbookId, target.id, { name: target.name.trim(), content: target.content, keys: renameEntryKeys({ keys: entry.keys, previousName: entry.name, nextName: target.name.trim() }) }, { expectedFingerprint: target.fingerprint })
       // Keep edits typed while an earlier save was in flight.
       if (draft.id === target.id && draft.worldbookId === target.worldbookId) {
+        if (profileBaseline.value === target.fingerprint) profileBaseline.value = worldbookEntryEditFingerprint(saved)
         draft.fingerprint = worldbookEntryEditFingerprint(saved)
         if (draft.name === target.name) draft.name = saved.name
         if (draft.name === saved.name && draft.content === target.content) clearEntryPanelDraft(target.worldbookId, target.id, 'workspace')
@@ -103,6 +146,8 @@ async function save() {
   return pendingSave
 }
 async function flushAll() {
+  if (busy.value && !pendingSave) return false
+  if (profileDraft.value || profileEditor.value?.hasPending?.()) { notice.value = tr('属性修改尚未保存，请先保存属性或取消修改。'); profileOpen.value = true; return false }
   if (pendingRelation.value) { notice.value = tr('请先确认或取消这条关联。'); return false }
   if (composing) { notice.value = tr('请先完成输入。'); return false }
   const guards = await Promise.all([table.value?.flushAll?.() ?? true, ledger.value?.flushAll?.() ?? true, baseEditor.value?.flushAll?.() ?? true])
@@ -183,7 +228,12 @@ async function addEntry() {
 watch(() => props.worldbook.id, () => {
   category.value = props.initialCategory; mode.value = props.initialMode; selectedId.value = props.initialEntryId || entries.value[0]?.id || ''; query.value = ''; notice.value = ''; loadDraft(current.value)
 }, { immediate: true })
-watch(() => props.initialEntryId, id => { if (id && id !== selectedId.value) void selectEntry(entries.value.find(entry => entry.id === id)) })
+watch(() => props.entryRequestId, async id => {
+  if (!id) return
+  const target = entries.value.find(entry => entry.id === props.initialEntryId)
+  if (target && await selectEntry(target)) { browseAll.value = false; category.value = ''; mode.value = 'detail'; query.value = ''; nextTick(resizeBody) }
+})
+watch(() => props.initialEntryId, id => { browseAll.value = false; if (id && id !== selectedId.value) void selectEntry(entries.value.find(entry => entry.id === id)) })
 watch(() => current.value, (entry, previous) => {
   if (!entry) { if (!draft.id) loadDraft(null); return }
   if (entry.id === draft.id && draft.name === String(previous?.name || '') && draft.content === String(previous?.content || '')) loadDraft(entry)
@@ -196,14 +246,25 @@ async function refreshFromStorage() {
   await props.reload?.()
   loadDraft(current.value); notice.value = ''
 }
+async function cancelProfile() {
+  if (busy.value || !window.confirm(tr('放弃未保存的属性修改？正文保持不变。'))) return
+  clearEntryPanelDraft(draft.worldbookId, draft.id, 'workspace-profile')
+  retainedProfile.value = null; profileDraft.value = null
+  profileBaseline.value = current.value ? worldbookEntryEditFingerprint(current.value) : ''
+  await nextTick(); profileEditor.value?.reset()
+  notice.value = ''
+}
 async function reloadEntry() {
   if (busy.value || !window.confirm(tr('载入最新内容会替换当前输入，是否继续？'))) return
   clearEntryPanelDraft(draft.worldbookId, draft.id, 'workspace')
+  clearEntryPanelDraft(draft.worldbookId, draft.id, 'workspace-profile')
+  retainedProfile.value = null; profileDraft.value = null
   await props.reload?.()
   loadDraft(current.value); notice.value = ''
+  await nextTick(); profileEditor.value?.reset()
 }
 function beforeUnload(event) {
-  if (!dirty.value && !busy.value && !table.value?.hasPending?.() && !ledger.value?.hasPending?.() && !pendingRelation.value) return
+  if (!profileDraft.value && !profileEditor.value?.hasPending?.() && !dirty.value && !busy.value && !table.value?.hasPending?.() && !ledger.value?.hasPending?.() && !pendingRelation.value) return
   event.preventDefault(); event.returnValue = ''
 }
 onMounted(() => window.addEventListener('beforeunload', beforeUnload))
@@ -212,7 +273,7 @@ defineExpose({ flushAll })
 </script>
 
 <template>
-  <section class="worldbook-content-workspace" :class="{ 'is-compact': compact }" data-test="worldbook-content-workspace">
+  <section class="worldbook-content-workspace" :class="{ 'is-compact': compact, 'is-focused-detail': focusedDetail }" data-test="worldbook-content-workspace">
     <nav class="setting-content-directory" :aria-label="tr('设定目录')">
       <button type="button" :class="{ active: category === '' }" @click="chooseCategory('')">{{ tr('全部设定') }}<span>{{ entries.length }}</span></button>
       <button v-for="item in categories" :key="item" type="button" :class="{ active: category === item }" @click="chooseCategory(item)">{{ tr({ '地理': '地点', '编年': '历史', '设定': '世界规则' }[item] || item) }}<span>{{ entries.filter(entry => entryCatDirOf(entry) === item).length }}</span></button>
@@ -223,12 +284,13 @@ defineExpose({ flushAll })
     </nav>
     <main class="setting-content-main">
       <div v-if="pendingRelation" class="setting-relation-confirm" role="status"><span>{{ pendingRelation.from.name }} → {{ pendingRelation.toName }}</span><button type="button" :disabled="busy" @click="confirmRelation">{{ tr('添加关联') }}</button><button type="button" :disabled="busy" @click="pendingRelation = null; notice = ''">{{ tr('取消') }}</button></div>
-      <p v-if="notice" class="setting-save-notice" role="alert">{{ notice }}<button v-if="dirty" type="button" @click="save">{{ tr('重试保存') }}</button><button v-if="dirty && reload" type="button" @click="reloadEntry">{{ tr('载入最新') }}</button></p>
+      <p v-if="notice" class="setting-save-notice" role="alert">{{ notice }}<button v-if="dirty" type="button" @click="save">{{ tr('重试保存') }}</button><button v-if="(dirty || profileDraft) && reload" type="button" @click="reloadEntry">{{ tr('载入最新') }}</button></p>
       <StructuredSettingsWorkspace v-show="category === 'base'" ref="baseEditor" :worldbook="worldbook" :compact="compact" embedded />
       <ForeshadowLedgerTable v-show="category === 'foreshadow'" ref="ledger" :worldbook="worldbook" @reload="refreshFromStorage" />
       <div v-show="!['base', 'foreshadow'].includes(category)" class="setting-entity-workspace">
         <header class="setting-content-toolbar">
-          <div class="setting-search">
+          <button v-if="focusedDetail" type="button" @click="browseAll = true">{{ tr('浏览设定') }}</button>
+          <div v-if="!focusedDetail" class="setting-search">
             <input v-model="query" type="search" :placeholder="tr('查找设定…')" :aria-label="tr('查找设定')" @keydown.enter="searchRelations" />
             <button type="button" class="setting-search-go" :disabled="searching || busy || !query.trim()" :title="tr('检索本书设定及相关人物、地点与事件')" @click="searchRelations">{{ tr('检索关联') }}</button>
           </div>
@@ -253,8 +315,13 @@ defineExpose({ flushAll })
             <p v-if="!visible.length">{{ tr('暂无匹配设定') }}</p>
           </nav>
           <article v-if="draft.id" class="setting-entry-document">
-            <input v-model="draft.name" data-test="setting-entry-name" class="setting-entry-title" :aria-label="tr('设定名称')" @blur="save" @keydown.enter.prevent="save" @compositionstart="composing = true" @compositionend="composing = false" />
-            <textarea ref="bodyInput" v-model="draft.content" data-test="setting-entry-content" :aria-label="tr('设定正文')" :placeholder="tr('写下这项设定…')" @input="resizeBody" @blur="save" @keydown.ctrl.s.prevent="save" @keydown.meta.s.prevent="save" @compositionstart="composing = true" @compositionend="composing = false"></textarea>
+            <input v-model="draft.name" :readonly="profileSaving" data-test="setting-entry-name" class="setting-entry-title" :aria-label="tr('设定名称')" @blur="save" @keydown.enter.prevent="save" @compositionstart="composing = true" @compositionend="composing = false" />
+            <textarea ref="bodyInput" v-model="draft.content" :readonly="profileSaving" data-test="setting-entry-content" :aria-label="tr('设定正文')" :placeholder="tr('写下这项设定…')" @input="resizeBody" @blur="save" @keydown.ctrl.s.prevent="save" @keydown.meta.s.prevent="save" @compositionstart="composing = true" @compositionend="composing = false"></textarea>
+            <details :open="profileOpen" class="setting-entry-properties" @toggle="profileOpen = $event.target.open">
+              <summary>{{ tr('属性与模板') }}<small v-if="profileDraft"> · {{ tr('未保存') }}</small></summary>
+              <EntryProfileEditor v-if="current" v-show="profileOpen" :key="`${worldbook.id}:${draft.id}`" ref="profileEditor" :entry="current" :content="draft.content" :initial-profile="retainedProfile" :scope-key="worldbook.id" :saving="busy" compact-fields @change="profileChanged" @save="saveProfile" />
+              <button v-if="profileDraft" type="button" @click="cancelProfile">{{ tr('取消属性修改') }}</button>
+            </details>
             <footer class="setting-related"><span>{{ tr('相关设定') }}</span><button v-for="chip in chips" :key="chip.ref" type="button" @pointerdown.prevent @click="selectEntry(chip.entry, $event)">{{ chip.entry.title }}</button><select v-model="relationTarget" :aria-label="tr('关联设定')"><option value="">{{ tr('选择关联对象') }}</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select><button v-if="relationTarget" type="button" @click="proposeRelation({ fromId: selectedId, toId: relationTarget })">{{ tr('关联') }}</button></footer>
             <span v-if="busy" class="setting-save-state" role="status">{{ tr('保存中…') }}</span>
           </article>
@@ -270,6 +337,15 @@ defineExpose({ flushAll })
   </section>
 </template>
 <style scoped>
+.worldbook-content-workspace.is-focused-detail { grid-template-columns: minmax(0, 1fr); }
+.is-focused-detail .setting-content-directory, .is-focused-detail .setting-entry-list { display: none; }
+.is-focused-detail .setting-details-layout { grid-template-columns: minmax(0, 1fr); }
+.is-focused-detail .setting-content-toolbar { justify-content: flex-end; }
+.is-focused-detail .setting-content-toolbar > button:first-child { margin-right: auto; }
+.setting-entry-properties { margin-top: 24px; border-top: 1px solid var(--hairline-soft); padding-top: 12px; }
+.setting-entry-properties summary { color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+.setting-entry-properties > button { margin-top: 8px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.setting-entry-properties :deep(.entry-profile-editor) { border-top: 0; }
 .worldbook-content-workspace { display: grid; grid-template-columns: 176px minmax(0, 1fr); min-height: 560px; height: 100%; color: var(--text-primary); background: var(--surface-workbench); }
 .setting-content-directory { padding: 22px 12px; border-right: 1px solid var(--hairline-soft); }
 .setting-content-directory button, .setting-entry-list button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }

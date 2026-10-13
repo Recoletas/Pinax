@@ -1,16 +1,16 @@
 <template>
-  <section class="entry-profile-editor" aria-labelledby="entry-profile-title">
+  <section class="entry-profile-editor" aria-labelledby="entry-profile-title" :inert="saving ? '' : undefined">
     <header class="entry-profile-head">
       <div>
         <span class="panel-kicker">{{ tr("条目档案") }}</span>
         <h3 id="entry-profile-title">{{ tr("模板与字段") }}</h3>
       </div>
-      <span v-if="missingLabels.length" class="entry-profile-missing" role="status">
+      <span v-if="!compactFields && missingLabels.length" class="entry-profile-missing" role="status">
         {{ tr("必填未填：{labels}", { labels: missingLabels.join('、') }) }}
       </span>
     </header>
     <p class="entry-profile-hint">
-      {{ tr("选择模板决定字段集；保存时会把字段投影成条目正文。若正文已被手动修改，会先请你选择保留原文还是覆盖。") }}
+      {{ tr("按需添加属性。保存时可只保留字段，或确认用字段整理正文。") }}
     </p>
 
     <label class="entry-profile-template">
@@ -22,7 +22,7 @@
       </select>
     </label>
 
-    <label v-for="field in template.fields" :key="field.key" class="entry-profile-field">
+    <label v-for="field in visibleFields" :key="field.key" class="entry-profile-field">
       <span>{{ tr(field.label) }}<i v-if="field.required" class="req" :title="tr('必填')">*</i></span>
       <textarea
         v-if="field.multiline"
@@ -33,6 +33,9 @@
       <input v-else v-model="values[field.key]" class="text-input" type="text" :placeholder="tr(field.label)" />
     </label>
 
+    <label v-if="compactFields && hiddenFields.length" class="entry-profile-template">{{ tr('添加属性') }}
+      <select :value="''" @change="revealField($event.target.value)"><option value="">{{ tr('选择需要的属性…') }}</option><option v-for="field in hiddenFields" :key="field.key" :value="field.key">{{ tr(field.label) }}</option></select>
+    </label>
     <section class="entry-profile-free" aria-labelledby="entry-profile-free-title">
       <header class="entry-profile-free-head">
         <span id="entry-profile-free-title">{{ tr("自由字段") }}</span>
@@ -98,7 +101,7 @@
     </div>
     <div v-else class="entry-profile-actions">
       <button type="button" class="primary-btn" :disabled="saving" @click="requestSave">
-        {{ saving ? tr('保存中...') : tr('保存档案并投影正文') }}
+        {{ saving ? tr('保存中...') : tr('保存属性') }}
       </button>
     </div>
   </section>
@@ -120,9 +123,12 @@ const props = defineProps({
   entry: { type: Object, required: true },
   /** 当前编辑中的正文（含未保存的手改）；缺省读 entry.content */
   content: { type: String, default: '' },
-  saving: { type: Boolean, default: false }
+  saving: { type: Boolean, default: false },
+  compactFields: Boolean,
+  scopeKey: { type: String, default: '' },
+  initialProfile: { type: Object, default: null }
 })
-const emit = defineEmits(['save'])
+const emit = defineEmits(['save', 'change'])
 
 const templates = ENTRY_PROFILE_TEMPLATES
 const selectedTemplateId = ref('')
@@ -130,6 +136,11 @@ const values = reactive({})
 const speech = reactive({ enabled: false, speechStyle: '', vocabularyCommonText: '', vocabularyForbiddenText: '', samplesText: '', greeting: '' })
 const confirmOpen = ref(false)
 const newFreeKey = ref('')
+const revealed = ref(new Set())
+const savedSignature = ref('')
+const visibleFields = computed(() => template.value.fields.filter(field => !props.compactFields || revealed.value.has(field.key) || String(values[field.key] || '').trim()))
+const hiddenFields = computed(() => template.value.fields.filter(field => !visibleFields.value.includes(field)))
+function revealField(key) { if (key) revealed.value = new Set([...revealed.value, key]) }
 
 const template = computed(() => getProfileTemplate(selectedTemplateId.value))
 const missingLabels = computed(() => missingRequiredLabels({ template: selectedTemplateId.value, values }))
@@ -167,7 +178,7 @@ function splitListText(text) {
 }
 
 function seedFromEntry() {
-  const profile = profileFromEntry(props.entry, props.entry?.profile?.template || '')
+  const profile = profileFromEntry(props.initialProfile ? { ...props.entry, profile: props.initialProfile } : props.entry, props.initialProfile?.template || props.entry?.profile?.template || '')
   selectedTemplateId.value = profile.template
   const fields = template.value.fields
   // 先清掉旧自由键再播种：切换条目/重读时上一条的键不得残留
@@ -190,6 +201,8 @@ function seedFromEntry() {
     greeting: profile.speech.greeting
   })
   confirmOpen.value = false
+  revealed.value = new Set()
+  savedSignature.value = JSON.stringify(buildProfile())
 }
 
 watch(() => props.entry?.id, seedFromEntry, { immediate: true })
@@ -227,6 +240,10 @@ function buildProfile() {
   }
 }
 
+const pending = computed(() => JSON.stringify(buildProfile()) !== savedSignature.value)
+watch(() => JSON.stringify(buildProfile()), () => emit('change', pending.value ? buildProfile() : null, { entryId: props.entry.id, scopeKey: props.scopeKey }), { flush: 'post' })
+defineExpose({ hasPending: () => pending.value || confirmOpen.value, markSaved: () => { savedSignature.value = JSON.stringify(buildProfile()); confirmOpen.value = false }, reset: seedFromEntry })
+
 const renderedContent = computed(() => template.value.renderToContent(buildProfile()))
 
 function requestSave() {
@@ -244,6 +261,7 @@ function requestSave() {
 function emitSave(overwrite) {
   confirmOpen.value = false
   emit('save', {
+    entryId: props.entry.id, scopeKey: props.scopeKey,
     profile: buildProfile(),
     content: renderedContent.value,
     overwrite: Boolean(overwrite)

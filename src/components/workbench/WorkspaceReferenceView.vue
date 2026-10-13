@@ -19,9 +19,9 @@ const { worldbook, loading, loadError, refresh } = useSettingsProjectContext({ w
 const books = ref(loadWritingBooks())
 const unsubscribe = subscribeWritingBooks(() => { books.value = loadWritingBooks() })
 const source = computed(() => worldbook.value?.sourceDocuments?.find(item => String(item.id) === props.resource.id) || null)
-const chapter = computed(() => books.value.find(book => String(book.id) === props.resource.bookId)?.chapters?.find(item => String(item.id) === props.resource.id) || null)
+const chapter = computed(() => books.value.find(book => String(book.id) === props.resource.bookId)?.[props.resource.type === 'exploration' ? 'explorationDocuments' : 'chapters']?.find(item => String(item.id) === props.resource.id) || null)
 const entry = computed(() => worldbook.value?.entries?.find(item => String(item.id) === props.resource.id) || null)
-const title = computed(() => props.resource.type === 'chapter' ? chapter.value?.title : props.resource.type === 'entry' ? entry.value?.name || entry.value?.title : source.value?.title)
+const title = computed(() => ['chapter', 'exploration'].includes(props.resource.type) ? chapter.value?.title : props.resource.type === 'entry' ? entry.value?.name || entry.value?.title : source.value?.title)
 watch(title, value => emit('title', value || ''), { immediate: true })
 const chunks = ref([])
 const page = ref(0)
@@ -78,7 +78,7 @@ function fragment(chunk) {
 onBeforeUnmount(() => { disposed = true; sequence += 1; unsubscribe() })
 async function editOriginal() {
   navigationError.value = ''
-  if (props.resource.type === 'chapter') {
+  if (['chapter', 'exploration'].includes(props.resource.type)) {
     if (!await host.move(true, props.instanceId)) navigationError.value = host.state.notice || '请先处理当前工作区的未保存内容或任务。'
     return
   }
@@ -89,13 +89,13 @@ async function editOriginal() {
 
 <template>
   <article class="workspace-reference" data-test="workspace-reference-view">
-    <div v-if="['chapter', 'entry'].includes(resource.type)" class="workspace-reference-edit"><span>{{ tr('参考内容') }}</span><button type="button" class="control-quiet" @click="editOriginal">{{ tr(resource.type === 'chapter' ? '在正文编辑' : '编辑设定') }}</button></div>
+    <div v-if="['chapter', 'exploration', 'entry'].includes(resource.type) && entry?.type !== 'source'" class="workspace-reference-edit"><span>{{ tr('参考内容') }}</span><button type="button" class="control-quiet" @click="editOriginal">{{ tr(['chapter', 'exploration'].includes(resource.type) ? '在正文编辑' : '编辑设定') }}</button></div>
     <p v-if="navigationError" role="status">{{ tr(navigationError) }}</p>
-    <p v-if="loading && resource.type !== 'chapter'" role="status">{{ tr('加载中…') }}</p>
+    <p v-if="loading && !['chapter', 'exploration'].includes(resource.type)" role="status">{{ tr('加载中…') }}</p>
     <div v-else-if="stale" role="alert"><p>{{ tr('来源版本或关联已变化，请重新打开当前资料。') }}</p></div>
-    <div v-else-if="resource.type !== 'chapter' && loadError" role="alert"><p>{{ tr(loadError) }}</p><button class="control-secondary" type="button" @click="refresh">{{ tr('重新加载') }}</button></div>
-    <template v-else-if="resource.type === 'chapter' && chapter">
-      <h1>{{ title }}</h1><pre class="workspace-reference-text">{{ getChapterMarkdown(chapter) }}</pre>
+    <div v-else-if="!['chapter', 'exploration'].includes(resource.type) && loadError" role="alert"><p>{{ tr(loadError) }}</p><button class="control-secondary" type="button" @click="refresh">{{ tr('重新加载') }}</button></div>
+    <template v-else-if="['chapter', 'exploration'].includes(resource.type) && chapter">
+      <h1>{{ title }}</h1><pre class="workspace-reference-text">{{ resource.type === 'exploration' ? chapter.content : getChapterMarkdown(chapter) }}</pre>
     </template>
     <template v-else-if="resource.type === 'entry' && entry">
       <h1>{{ title }}</h1><pre class="workspace-reference-text">{{ entry.content || entry.description || '' }}</pre>

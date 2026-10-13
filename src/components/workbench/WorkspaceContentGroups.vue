@@ -10,7 +10,7 @@ const Reference = defineAsyncComponent(() => import('./WorkspaceReferenceView.vu
 const Media = defineAsyncComponent(() => import('./WorkspaceMediaView.vue'))
 const Module = defineAsyncComponent(() => import('./WorkspaceModuleView.vue'))
 const Settings = defineAsyncComponent(() => import('./WorkspaceSettingsView.vue'))
-const viewComponents = { 'game-editor': Module, 'map-editor': Module, 'entries-editor': Module, 'online-editor': Module, 'comic-editor': Module, 'director-editor': Module, 'materials-editor': Module, sources: Sources, 'settings-editor': Settings, source: Reference, chapter: Reference, entry: Reference, asset: Media, comic: Media, video: Media }
+const viewComponents = { 'game-editor': Module, 'map-editor': Module, 'entries-editor': Module, 'online-editor': Module, 'comic-editor': Module, 'director-editor': Module, 'materials-editor': Module, sources: Sources, 'settings-editor': Settings, source: Reference, chapter: Reference, exploration: Reference, entry: Reference, asset: Media, comic: Media, video: Media }
 const host = useComposableWorkspace()
 const root = ref(null)
 const mainTarget = ref(null)
@@ -18,7 +18,7 @@ const sideTarget = ref(null)
 const targetsReady = ref(false)
 const renderedViews = computed(() => host.state.views.filter(view => view.resource.type !== 'online-editor' || host.onlineMountAllowed.value))
 // Chapters are navigated in the authoring shelf, not a second header row.
-const mainViews = computed(() => host.state.views.filter(view => view.group === 'main' && view.resource.type !== 'chapter'))
+const mainViews = computed(() => host.state.views.filter(view => view.group === 'main' && !['chapter', 'exploration'].includes(view.resource.type)))
 const sideViews = computed(() => host.state.views.filter(view => view.group !== 'main'))
 const mainModule = computed(() => !host.state.hidden && host.state.views.find(view => view.id === host.state.mainModuleId))
 const titles = ref({})
@@ -39,9 +39,10 @@ watch(() => [host.state.activeId, visible.value, host.state.mainModuleId, host.s
   }
 }, { immediate: true, flush: 'post' })
 const primaryHidden = computed(() => visible.value && narrow.value && !host.state.primaryComposing)
-const mainUsesPrimary = computed(() => !mainModule.value || mainModule.value.resource.type === 'chapter')
+const mainUsesPrimary = computed(() => !mainModule.value || ['chapter', 'exploration'].includes(mainModule.value.resource.type))
 const showMainTabs = computed(() => Boolean(mainModule.value && !mainUsesPrimary.value))
 watch(primaryHidden, hidden => { host.state.primaryVisible = !hidden && mainUsesPrimary.value }, { immediate: true })
+watch(mainUsesPrimary, value => { host.directoryDocked.value = !value }, { immediate: true })
 watch(mainModule, () => { host.state.primaryVisible = !primaryHidden.value && mainUsesPrimary.value })
 watch(narrow, value => { host.state.narrow = value }, { immediate: true })
 function composition(event, composing) {
@@ -85,13 +86,15 @@ function resizeKey(event) {
   if (event.key === 'Home') host.resetLayout()
   else host.resize(host.state.width + (event.key === 'ArrowLeft' ? 24 : -24))
 }
-onBeforeUnmount(() => { host.railTarget.value = null; endResize(); narrowQuery?.removeEventListener('change', updateViewport) })
+onBeforeUnmount(() => { host.railTarget.value = null; host.directoryTarget.value = null; host.directoryDocked.value = false; endResize(); narrowQuery?.removeEventListener('change', updateViewport) })
 </script>
 
 <template>
   <div ref="root" class="workspace-content-groups" :class="{ 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
+    <div :ref="element => host.directoryTarget.value = element" v-show="!mainUsesPrimary" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" @keydown.esc.stop="host.state.directoryOpen = false"></div>
     <section class="workspace-primary-group" :inert="primaryHidden ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
       <header v-if="showMainTabs" class="workspace-reference-header workspace-main-header">
+        <button type="button" class="workspace-directory-toggle" :aria-expanded="host.state.directoryOpen" @click="host.state.directoryOpen = !host.state.directoryOpen">{{ tr('目录') }}</button>
         <button v-if="!mainViews.some(view => view.id === host.primaryChapter.value?.id)" type="button" class="workspace-primary-return" :aria-current="mainUsesPrimary ? 'true' : undefined" @click="host.showPrimary()">{{ host.primaryChapter.value ? tr('回到正文') : host.primaryTitle.value }}</button>
         <WorkspaceContentTabs :views="mainViews" :active-id="host.state.hidden ? '' : host.state.mainModuleId" :titles="titles" group="main" label="主区已打开的内容" @activate="host.activate" @close="close" @reorder="host.reorderView($event.id, $event.beforeId, $event.group)" />
         <div v-if="mainModule" class="workspace-reference-controls"><button type="button" :aria-label="tr('放回旁边')" :title="tr('放回旁边')" @click="host.move(false, mainModule.id)"><WorkbenchIcon name="columns" :size="17" /></button><button type="button" :aria-label="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" :title="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" @click="host.hide()"><WorkbenchIcon name="arrow-left" :size="17" /></button></div>
@@ -117,7 +120,7 @@ onBeforeUnmount(() => { host.railTarget.value = null; endResize(); narrowQuery?.
     </div>
     <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
     <template v-if="targetsReady"><Teleport v-for="view in renderedViews" :key="view.id" :to="view.id === host.state.mainModuleId ? mainTarget : sideTarget">
-      <section v-show="!host.state.hidden && ((view.id === host.state.mainModuleId && view.resource.type !== 'chapter') || (view.group !== 'main' && view.id === host.state.sideActiveId))" :data-workspace-view-id="view.id" class="workspace-reference-body" :class="{ 'workspace-module-body': isWorkspaceModule(view.resource.type) }" :inert="!host.state.hidden && ((view.id === host.state.mainModuleId && view.resource.type !== 'chapter') || (view.group !== 'main' && view.id === host.state.sideActiveId)) ? undefined : ''">
+      <section v-show="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId))" :data-workspace-view-id="view.id" class="workspace-reference-body" :class="{ 'workspace-module-body': isWorkspaceModule(view.resource.type) }" :inert="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId)) ? undefined : ''">
         <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" @title="titles[view.id] = $event" />
       </section>
     </Teleport></template>
@@ -125,6 +128,11 @@ onBeforeUnmount(() => { host.railTarget.value = null; endResize(); narrowQuery?.
 </template>
 
 <style scoped>
+.workspace-directory-dock.writing-page { display: flex; flex-direction: row; flex: 0 0 248px; width: 248px; min-width: 0; min-height: 0; padding: 0; overflow: hidden; }
+.workspace-directory-dock :deep(.wall__shelf) { box-sizing: border-box; width: 100%; height: 100%; align-self: stretch; }
+.workspace-directory-toggle { display: none; border: 0; color: var(--text-primary); background: transparent; min-height: 44px; padding: 0 12px; }
+.workspace-directory-dock:empty { display: none; }
+@media (max-width: 900px) { .workspace-directory-toggle { display: block; } .workspace-directory-dock.writing-page { display: none; } .workspace-directory-dock.writing-page.is-open { display: flex; position: absolute; inset: 44px auto 0 0; width: min(320px, calc(100vw - 42px)); z-index: 110; background: var(--surface-workbench-muted); box-shadow: var(--shadow-workbench-float); } .workspace-directory-dock.writing-page :deep(.wall__shelf) { position: static; transform: none; height: 100%; max-height: none; } }
 .workspace-content-groups { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-primary-group { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-original-primary { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }

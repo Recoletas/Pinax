@@ -13,6 +13,7 @@ export const WORKSPACE_VIEW_TYPES = Object.freeze({
   'materials-editor': { title: '素材与插画', icon: 'image' },
   source: { title: '来源原文', icon: 'document' },
   chapter: { title: '正文参考', icon: 'writing' },
+  exploration: { title: '构思', icon: 'pencil' },
   entry: { title: '设定参考', icon: 'worldbook' },
   asset: { title: '素材参考', icon: 'image' },
   comic: { title: '漫画参考', icon: 'comics' },
@@ -31,12 +32,14 @@ export function normalizeWorkspaceResource(value) {
   if (!bookId && !worldbookId) return null
   if (isWorkspaceModule(value.type) && !bookId) return null
   if (value.type === 'game-editor' && !worldbookId) return null
-  if (value.type === 'chapter' && (!bookId || !id)) return null
+  if (['chapter', 'exploration'].includes(value.type) && (!bookId || !id)) return null
   if (['asset', 'comic', 'video'].includes(value.type) && (!bookId || !id)) return null
   if (['source', 'entry'].includes(value.type) && !id) return null
   const resource = { type: value.type, bookId, worldbookId, id }
   // Only navigation metadata is persisted. No content, grant or provider keys.
-  for (const key of ['contentHash', 'chunkId', 'versionId', 'pageId', 'panelId', 'assetId', 'roomSlug', 'entryId', 'placeId', 'historyNodeId', 'sessionId', 'messageId', 'settingsCategory']) if (text(value[key])) resource[key] = text(value[key])
+  for (const key of ['contentHash', 'chunkId', 'versionId', 'pageId', 'panelId', 'assetId', 'roomSlug', 'entryId', 'placeId', 'historyNodeId', 'sessionId', 'messageId', 'settingsCategory', 'entryRequestId']) if (text(value[key])) resource[key] = text(value[key])
+  if (typeof value.focusEntry === 'boolean') resource.focusEntry = value.focusEntry
+  if (['files', 'sources', 'knowledge'].includes(value.sourcesView)) resource.sourcesView = value.sourcesView
   if (['detail', 'table', 'graph'].includes(value.settingsView)) resource.settingsView = value.settingsView
   if (['materials', 'illustration'].includes(value.workspace)) resource.workspace = value.workspace
   if (Number.isFinite(value.start) && value.start >= 0) resource.start = value.start
@@ -46,7 +49,7 @@ export function normalizeWorkspaceResource(value) {
 
 export function workspaceResourceKey(resource) {
   const ref = normalizeWorkspaceResource(resource)
-  return ref ? JSON.stringify([ref.type, ref.bookId, isWorkspaceModule(ref.type) ? '' : ref.worldbookId, ref.id, ref.type === 'video' ? ref.versionId || '' : '']) : ''
+  return ref ? JSON.stringify([ref.type, ref.bookId, isWorkspaceModule(ref.type) || ['chapter', 'exploration', 'asset', 'comic', 'video'].includes(ref.type) ? '' : ref.worldbookId, ref.id, ref.type === 'video' ? ref.versionId || '' : '']) : ''
 }
 
 export function normalizeWorkspaceLayout(value, scope) {

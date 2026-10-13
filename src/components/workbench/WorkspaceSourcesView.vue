@@ -11,6 +11,7 @@ const KnowledgeMethodPanel = defineAsyncComponent(() => import('../knowledge/Kno
 const view = ref('sources')
 const ImportDialog = defineAsyncComponent(() => import('../worldbook/WorldbookSourceImportDialog.vue'))
 const props = defineProps({ resource: { type: Object, required: true }, instanceId: { type: String, required: true }, showAddButton: { type: Boolean, default: true } })
+watch(() => props.resource.sourcesView, value => { if (['sources', 'files', 'knowledge'].includes(value)) view.value = value }, { immediate: true })
 const emit = defineEmits(['sources-changed'])
 const host = useComposableWorkspace()
 const worldStore = useWorldStore()

@@ -92,14 +92,17 @@ export function useAuthoringWorkspaceNavigation({
     if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId) return false
     const snapshot = captureReturnState()
     if (snapshot?.chapterId && !snapshot.explorationId) chapterPositions.set(snapshot.chapterId, snapshot)
-    const target = { name: 'authoring', query: { bookId: resource.bookId, chapterId: resource.id } }
+    const field = resource.type === 'exploration' ? 'explorationId' : 'chapterId'
+    const target = { name: 'authoring', query: { bookId: resource.bookId, [field]: resource.id } }
     const failure = await router.push(target)
-    if (failure && !(route.name === 'authoring' && route.query.bookId === resource.bookId && route.query.chapterId === resource.id && !route.query.view && !route.query.explorationId)) return false
+    if (failure && !(route.name === 'authoring' && route.query.bookId === resource.bookId && route.query[field] === resource.id && !route.query.view)) return false
     // The accepted route is the single chapter-switch command. Selecting first
     // and rewriting the URL afterwards races the previous route's owner watcher.
     await nextTick()
     await new Promise(resolve => requestAnimationFrame(resolve))
-    if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId || selectedValue(activeDocument) || text(selectedValue(selectedChapterId)) !== resource.id) return false
+    if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId) return false
+    if (resource.type === 'exploration') return text(selectedValue(activeDocument)?.id) === resource.id
+    if (selectedValue(activeDocument) || text(selectedValue(selectedChapterId)) !== resource.id) return false
     const previous = chapterPositions.get(resource.id)
     if (previous && text(previous.documentRevision) === text(getDocumentRevision?.())) {
       if (previous.selection) selectedValue(notebookEditorRef)?.setSelection?.(previous.selection.from, previous.selection.to)
@@ -223,7 +226,7 @@ export function useAuthoringWorkspaceNavigation({
     const location = currentLocation(bookId, chapterId)
     if (!location || !routeMatches(location)) return
     const { book, object } = location
-    if (object?.kind === 'chapter') contentWorkspace?.trackPrimaryChapter({ type: 'chapter', bookId: text(book.id), worldbookId: text(book.worldbookId), id: object.id }, object.title)
+    if (['chapter', 'exploration'].includes(object?.kind)) contentWorkspace?.trackPrimaryChapter({ type: object.kind, bookId: text(book.id), worldbookId: text(book.worldbookId), id: object.id }, object.title)
     const query = locationQuery(location)
     lastAcceptedRoute = { name: 'authoring', query: { ...query } }
     lastAcceptedOwnerKey = ownerKey()

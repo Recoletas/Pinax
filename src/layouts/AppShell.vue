@@ -34,15 +34,15 @@ const contentWorkspace = provideComposableWorkspace(route, { returnToPrimary: as
   const failure = await router.replace({ name: 'authoring', query: { bookId, ...(chapterId ? { chapterId: String(chapterId) } : {}) } })
   await nextTick()
   return !isNavigationFailure(failure) || route.name === 'authoring' && route.query.bookId === bookId
-}, openChapter: async ({ bookId, id }) => {
-  const failure = await router.push({ name: 'authoring', query: { bookId, chapterId: id } })
+}, openChapter: async ({ bookId, id, type }) => {
+  const failure = await router.push({ name: 'authoring', query: { bookId, [type === 'exploration' ? 'explorationId' : 'chapterId']: id } })
   if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return false
   await nextTick()
-  const accepted = () => contentWorkspace.primaryChapter.value?.resource.bookId === bookId && contentWorkspace.primaryChapter.value?.resource.id === id && route.name === 'authoring' && route.query.bookId === bookId
+  const accepted = () => contentWorkspace.primaryChapter.value?.resource.bookId === bookId && contentWorkspace.primaryChapter.value?.resource.id === id && contentWorkspace.primaryChapter.value?.resource.type === type && route.name === 'authoring' && route.query.bookId === bookId
   if (accepted()) return true
   return new Promise(resolve => {
     let timer
-    const stop = watch(() => [contentWorkspace.primaryChapter.value?.id, route.name, route.query.bookId, route.query.chapterId], () => {
+    const stop = watch(() => [contentWorkspace.primaryChapter.value?.id, route.name, route.query.bookId, route.query.chapterId, route.query.explorationId], () => {
       if (accepted()) finish(true)
       else if (route.query.bookId !== bookId) finish(false)
     })

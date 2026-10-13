@@ -6,7 +6,9 @@ import { createWorkspaceAssistantSessions } from './useWorkspaceAssistantSession
 // One host owns placement. Domain components continue to own their data/tasks.
 export function provideComposableWorkspace(route, { openAssistant, openChapter, returnToPrimary } = {}) {
   const assistantNavigationNotice = '请先完成或停止助手任务，再切换作品；正文采用期间请稍候。'
-  const state = reactive({ views: [], activeId: '', mainModuleId: '', sideActiveId: '', expanded: false, hidden: false, width: 420, notice: '', primaryVisible: true, narrow: false, primaryComposing: false, composingViewId: '' })
+  const state = reactive({ directoryOpen: false, views: [], activeId: '', mainModuleId: '', sideActiveId: '', expanded: false, hidden: false, width: 420, notice: '', primaryVisible: true, narrow: false, primaryComposing: false, composingViewId: '' })
+  const directoryTarget = shallowRef(null)
+  const directoryDocked = shallowRef(false)
   const railTarget = shallowRef(null)
   const railDocked = shallowRef(false)
   const primaryChapter = shallowRef(null)
@@ -32,7 +34,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   watch(() => route.name, name => {
     if (name !== 'authoring') {
       primaryChapter.value = null
-      if (state.views.find(view => view.id === state.mainModuleId)?.resource.type === 'chapter') state.mainModuleId = ''
+      if (['chapter', 'exploration'].includes(state.views.find(view => view.id === state.mainModuleId)?.resource.type)) state.mainModuleId = ''
     }
   })
   const storageKey = () => `pinax-workspace-views:v1:${scopeKey.value}`
@@ -71,6 +73,15 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     persist()
     return true
   }
+  async function prepareOpen(group = 'main') {
+    if (state.primaryComposing || state.composingViewId) { state.notice = '请先完成输入。'; return false }
+    const id = group === 'main' ? state.mainModuleId : state.sideActiveId
+    const ticket = revision
+    if (id && guards.has(id) && await guards.get(id)() === false) {
+      state.notice = '请先保存当前修改，或处理待确认内容。'; return false
+    }
+    return !disposed && ticket === revision
+  }
   async function openAt(raw, group = 'side') {
     if (!['main', 'side'].includes(group) || !openResource(raw, { focus: false })) return false
     const key = workspaceResourceKey(raw)
@@ -82,7 +93,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     if (state.primaryComposing) return false
     if (state.composingViewId && state.composingViewId !== id) return false
     const view = state.views.find(view => view.id === id)
-    if (view.group === 'main' && view.resource.type === 'chapter') return selectMain(id)
+    if (view.group === 'main' && ['chapter', 'exploration'].includes(view.resource.type)) return selectMain(id)
     revision += 1; state.activeId = id
     if (view.group === 'main') state.mainModuleId = id
     else state.sideActiveId = id
@@ -158,7 +169,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     state.views.splice(index, 1)
     if (state.activeId === id) state.activeId = state.views[Math.min(index, state.views.length - 1)]?.id || ''
     if (state.sideActiveId === id) state.sideActiveId = state.views.find(view => view.group !== 'main')?.id || ''
-    if (state.mainModuleId === id) state.mainModuleId = state.views.find(view => view.group === 'main' && view.resource.type !== 'chapter')?.id || ''
+    if (state.mainModuleId === id) state.mainModuleId = state.views.find(view => view.group === 'main' && !['chapter', 'exploration'].includes(view.resource.type))?.id || ''
     if (!state.views.length) { state.expanded = false; returnFocus?.isConnected && returnFocus.focus?.({ preventScroll: true }); returnFocus = null }
     persist(); return true
   }
@@ -169,7 +180,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   async function selectMain(id) {
     const view = state.views.find(view => view.id === id)
     if (!view || state.composingViewId || state.primaryComposing) return false
-    if (view.resource.type === 'chapter') {
+    if (['chapter', 'exploration'].includes(view.resource.type)) {
       const ticket = revision
       try {
         const navigate = route.name === 'authoring' && chapterNavigator ? chapterNavigator : openChapter
@@ -188,7 +199,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     if (state.composingViewId || state.primaryComposing) { state.notice = '请先完成当前输入，再移动内容。'; return false }
     const view = state.views.find(view => view.id === id)
     if (!view) return false
-    if (expanded && view.resource.type === 'chapter') return selectMain(id)
+    if (expanded && ['chapter', 'exploration'].includes(view.resource.type)) return selectMain(id)
     view.group = expanded ? 'main' : 'side'
     state.activeId = id
     if (expanded) {
@@ -207,14 +218,14 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   function hide() { if (state.composingViewId) return false; revision += 1; state.hidden = true; state.expanded = false; state.mainModuleId = ''; persist(); return true }
   function trackPrimaryChapter(resource, title) {
     const normalized = normalizeWorkspaceResource(resource)
-    if (!normalized || normalized.type !== 'chapter' || !accepts(normalized)) return
+    if (!normalized || !['chapter', 'exploration'].includes(normalized.type) || !accepts(normalized)) return
     const key = workspaceResourceKey(normalized)
-    primaryChapter.value = { id: key, resource: normalized, title }
+    let view = state.views.find(view => workspaceResourceKey(view.resource) === key)
+    primaryChapter.value = { id: view?.id || key, resource: normalized, title }
     primaryReturnResource.value = normalized
-    let view = state.views.find(view => view.id === key)
     // A chapter already open for comparison stays there until explicitly moved.
     if (view?.group === 'side') {
-      if (state.views.find(item => item.id === state.mainModuleId)?.resource.type === 'chapter') state.mainModuleId = ''
+      if (['chapter', 'exploration'].includes(state.views.find(item => item.id === state.mainModuleId)?.resource.type)) state.mainModuleId = ''
       return
     }
     if (!view) {
@@ -223,7 +234,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
       state.views.push(view)
     }
     view.title = title
-    if (!state.mainModuleId || state.views.find(item => item.id === state.mainModuleId)?.resource.type === 'chapter') state.mainModuleId = key
+    if (!state.mainModuleId || ['chapter', 'exploration'].includes(state.views.find(item => item.id === state.mainModuleId)?.resource.type)) state.mainModuleId = view.id
     persist()
   }
   async function reorderView(id, beforeId, group) {
@@ -267,7 +278,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }
