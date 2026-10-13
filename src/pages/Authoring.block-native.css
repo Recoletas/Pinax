@@ -1,5 +1,5 @@
 .theme-legacy .writing-page {
-  --authoring-chrome-surface: var(--surface-workbench-muted);
+  --authoring-chrome-surface: var(--surface-workbench);
   --authoring-hairline: var(--archive-paper-strong);
   position: relative;
   display: flex;
@@ -13,7 +13,7 @@
 }
 
 .theme-legacy.theme-dark .writing-page {
-  --authoring-chrome-surface: var(--surface-workbench-muted);
+  --authoring-chrome-surface: var(--surface-workbench);
   --authoring-hairline: var(--border);
 }
 
@@ -558,7 +558,7 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--authoring-shelf-width, 248px) minmax(0, 1fr) var(--writing-tool-rail-width, 52px);
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -566,16 +566,16 @@
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--authoring-shelf-width, 248px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
 }
 
 .theme-legacy .writing-page .wall__main.has-inspector.is-dual-inspector {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--authoring-shelf-width, 248px) minmax(360px, 1fr) clamp(420px, 31vw, 440px) var(--writing-tool-rail-width, 52px);
 }
 
 /* 设定是“详情 + 索引”的双列工具，索引不应被压成按钮窄条。 */
 .theme-legacy .writing-page .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench) {
-  grid-template-columns: var(--workspace-sidebar-width, 240px) minmax(360px, 1fr) clamp(520px, 38vw, 600px) var(--writing-tool-rail-width, 52px);
+  grid-template-columns: var(--authoring-shelf-width, 248px) minmax(360px, 1fr) clamp(520px, 38vw, 600px) var(--writing-tool-rail-width, 52px);
 }
 
 .theme-legacy .writing-page .writing-tool-rail {
@@ -761,7 +761,7 @@
   min-height: 0;
   overflow-y: auto;
   gap: 0;
-  padding: 20px 0 12px;
+  padding: 12px 0;
 }
 
 .theme-legacy .writing-page .authoring-chapter-search {
@@ -769,7 +769,7 @@
   grid-template-columns: 18px minmax(0, 1fr);
   align-items: center;
   min-height: 40px;
-  margin: 0 12px 12px;
+  margin: 0 12px 8px;
   padding: 0 12px;
   border: 0;
   border-radius: 12px;
@@ -803,21 +803,26 @@
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-control);
   font: 500 14px/1.4 var(--font-sans);
 }
 
 .theme-legacy .writing-page .authoring-chapter-create button.is-primary {
-  background: var(--nav-selected);
-  color: var(--text-primary);
+  background: var(--accent);
+  color: var(--accent-text);
 }
 .theme-legacy .writing-page .authoring-chapter-create button.control-secondary {
-  background: transparent;
+  background: var(--nav-selected);
   color: var(--text-secondary);
 }
 .theme-legacy .writing-page .authoring-chapter-create button:hover:not(:disabled) {
   background: var(--nav-hover);
   color: var(--text-primary);
+}
+
+.theme-legacy .writing-page .authoring-chapter-create button.is-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--accent-text);
 }
 
 .theme-legacy .writing-page .authoring-chapter-create button:disabled {
@@ -830,7 +835,7 @@
   flex-direction: column;
   flex-shrink: 0;
   min-height: 0;
-  padding: 8px 12px 12px;
+  padding: 8px 8px 12px;
 }
 
 .theme-legacy .writing-page .authoring-chapter-group,
@@ -861,9 +866,9 @@
 
 .theme-legacy .writing-page .authoring-chapter-row {
   grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 12px;
-  border-radius: 12px;
+  border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
 }

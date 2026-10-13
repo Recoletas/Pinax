@@ -11,6 +11,9 @@ import {
   listScopedActiveMemoryCandidates
 } from '../memory/memoryCandidates'
 import { buildNarrativeKernel } from '../agents/narrativeKernel'
+import { recordPromptSnapshot } from '../agents/promptSnapshot.js'
+import { recordAgentRequestTrace, summarizeAgentEnvelope } from '../agents/agentRequestTrace.js'
+import { serializeAgentBlockContent } from '../../../shared/agentContextContract.js'
 import { buildNarrativeContinuityFrame } from '../agents/narrativeContinuityFrame'
 import { getNarrativeResourceIndex } from '../agents/narrativeResourceIndex'
 import { buildNarrativeContextAudit } from '../agents/narrativeContextAudit'
@@ -72,6 +75,8 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
       store.cancelNarrativeGeneration('superseded')
       const controller = new AbortController()
       const requestId = `narrative_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+      const startedAt = Date.now()
+      let promptSnapshotKey = requestId
       const productionObserver = createNarrativeProductionObserver()
       activeTurnControllers.set(store, controller)
       store.isLoading = true
@@ -254,7 +259,8 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           extensionBase = {
             content: extensionTarget.content || '',
             presentation: extensionTarget.presentation || null,
-            segments: extensionTarget.segments || null
+            segments: extensionTarget.segments || null,
+            promptSnapshotKey: extensionTarget.promptSnapshotKey || ''
           }
           placeholderId = extensionTarget.id
           messageIndex = store.messages.findIndex((message) => message?.id === extensionTarget.id)
@@ -282,6 +288,27 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         // 2026-10-09 预算完全废弃：不再按 intent/展开度写死 maxTokens（思考型端点计量不同），
         // 正文长度交给内核缺省与写作提示词本身。展开度仍作为设置透传给叙事链。
         const expansionLevel = store.resolveNarrativeExpansion()
+        // Each generation gets a distinct key, including continuation of an
+        // existing message, so a failed extension never replaces its old input.
+        recordPromptSnapshot({
+          key: requestId,
+          surface: 'experience',
+          projectId: narrativeProjectId,
+          sessionId: narrativeSessionId,
+          revision: narrativeKernel.revision,
+          intentMode: effectiveIntent,
+          blocks: narrativeKernel.blocks,
+          budget: narrativeKernel.budget,
+          toolNames: narrativeKernel.activeToolNames,
+          activatedLore: narrativeKernel.activatedLore
+        })
+        getPlaceholder().promptSnapshotKey = requestId
+        recordAgentRequestTrace({
+          kind: 'experience', requestId, promptSnapshotKey: requestId,
+          projectId: narrativeProjectId, sessionId: narrativeSessionId,
+          taskType: effectiveIntent, status: 'pending', startedAt,
+          context: summarizeAgentEnvelope(narrativeKernel)
+        })
         const agentRun = await runExperienceAgentGeneration({
           index: narrativeIndex, bookId: `experience:${narrativeSessionId}`,
           kernel: narrativeKernel,
@@ -293,6 +320,25 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           settings: { ...store.apiSettings, expansion: expansionLevel },
           requestId,
           signal: controller.signal,
+          onModelRequest: input => {
+            if (activeTurnControllers.get(store) !== controller || controller.signal.aborted) return
+            const blocks = input.messages.map(message => ({
+              kind: message.role === 'system' ? 'system' : message.role === 'user' ? 'user' : 'history',
+              content: message,
+              chars: serializeAgentBlockContent(message).length
+            }))
+            const key = `${requestId}:${input.phase}`
+            recordPromptSnapshot({ key, surface: 'experience', projectId: narrativeProjectId,
+              sessionId: narrativeSessionId, revision: narrativeKernel.revision,
+              intentMode: effectiveIntent, temperature: input.temperature,
+              blocks, budget: { usedChars: blocks.reduce((sum, block) => sum + block.chars, 0) },
+              toolNames: input.toolNames })
+            const message = getPlaceholder()
+            if (!['review', 'plan'].includes(input.phase)) {
+              promptSnapshotKey = key
+              if (message) message.promptSnapshotKey = key
+            }
+          },
           taskContract: roleplayContext ? {
             ...roleplayContext.taskContract,
             authorizedAction: roleplayContext.taskContract.authorizedAction || String(continuityMessages.at(-1)?.role === 'user' ? continuityMessages.at(-1).content : '')
@@ -606,6 +652,7 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
           rollbackTarget.content = extensionBase.content
           rollbackTarget.presentation = extensionBase.presentation
           rollbackTarget.segments = extensionBase.segments
+          rollbackTarget.promptSnapshotKey = extensionBase.promptSnapshotKey
         } else {
           const placeholderIndex = store.messages.findIndex((message) => message?.id === placeholderId)
           if (placeholderIndex >= 0) {
@@ -669,6 +716,15 @@ export async function runExperienceTurn(store, { narrativeMode: _narrativeMode =
         const timing = productionObserver.snapshot()
         const targetMessage = store.messages.find((message) => message?.id === placeholderId)
         const trace = completedAgentRun?.trace || null
+        recordAgentRequestTrace({
+          kind: 'experience', requestId, promptSnapshotKey,
+          projectId: productionKernel?.projectId || '', sessionId: originSessionId,
+          taskType: effectiveIntent, startedAt, completedAt: Date.now(),
+          status: productionOutcome === 'success' ? 'completed' : productionOutcome === 'cancelled' ? 'cancelled' : 'failed',
+          context: summarizeAgentEnvelope(productionKernel),
+          server: { totalCalls: completedAgentRun?.totalCalls || 0, toolRounds: completedAgentRun?.toolRounds || 0 },
+          ...(productionError ? { error: { code: productionError.code || 'NARRATIVE_AGENT_FAILED', retryable: productionError.retryable !== false } } : {})
+        })
         const summaryBlock = (productionKernel?.blocks || []).find((block) => block?.kind === 'summary')
         const isTypedFailureVisible = productionOutcome !== 'error'
           || store.narrativeAgentStatus?.phase === 'error'

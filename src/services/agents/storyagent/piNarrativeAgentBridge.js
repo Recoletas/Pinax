@@ -192,6 +192,10 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
         }
         return
       }
+      if (named?.eventName === 'prompt.composed') {
+        callbacks.onPromptComposed?.(named.data)
+        return
+      }
       // 默认 parser 读取标准 schema；显式 parser 可增加 Pinax 的契约核对。
       const frame = parseEvent ? parseEvent(raw) : named?.data
       if (!frame || frame.schemaVersion !== 1 || !STREAM_EVENT_TYPES.has(frame.type)) {
@@ -204,8 +208,10 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
         const content = String(frame.content ?? '')
         finalText += content
         callbacks.onChunk?.({ content })
+      } else if (type === 'tool.input.delta') {
+        (state.toolInputs ||= {})[frame.callId] = frame.input
       } else if (type === 'tool.call') {
-        emitStatus({ phase: 'tool', tool: frame.toolName, action: frame.action })
+        emitStatus({ phase: 'tool', tool: frame.toolName, action: frame.action, callId: frame.callId, input: state.toolInputs?.[frame.callId] || null })
       } else if (type === 'step.start') {
         emitStatus({ phase: 'step', stepIndex: frame.stepIndex, toolChoice: frame.toolChoice })
       } else if (type === 'usage') {

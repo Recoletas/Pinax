@@ -23,11 +23,7 @@
     </div>
 
     <div v-if="historyOpen" class="authoring-knowledge__history" :aria-label="tr('作品对话')">
-      <div class="assistant-conversation-heading"><strong>{{ tr('对话') }}</strong><button type="button" :disabled="busy || agentState.adoptionBusy" @click="startConversation">{{ tr('新建对话') }}</button></div>
-      <div v-for="session in conversations" :key="session.sessionId" class="assistant-conversation-row" :class="{ 'is-active': session.active }">
-        <button type="button" class="assistant-conversation-select" :disabled="busy || agentState.adoptionBusy" :aria-current="session.active ? 'true' : undefined" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="15" /><span>{{ session.title }}</span></button>
-        <button type="button" class="assistant-conversation-delete" :disabled="busy || agentState.adoptionBusy" :aria-label="tr('删除对话 {title}', { title: session.title })" :title="tr('删除对话')" @click="deleteConversation(session)"><WorkbenchIcon name="trash" :size="15" /></button>
-      </div>
+      <AssistantConversationList v-if="assistant" :assistant="assistant" :busy="busy || agentState.adoptionBusy" @select="selectConversation" @new="startConversation" @deleted="emit('active-question', '')" />
     </div>
 
     <div class="authoring-knowledge__body">
@@ -51,7 +47,7 @@
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <div v-if="message.thinking || message.tools?.length" class="authoring-knowledge__process">
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><p v-for="(tool, index) in message.tools" :key="index">{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.name === 'submit_edit_proposals' && tool.status === 'completed'" class="authoring-knowledge__tool-outcome">{{ tr('已提交') }}</span></p></details>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><small>{{ tr('调用者：助手') }}</small><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
           </div>
           <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
@@ -60,7 +56,7 @@
           <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr(message.failureReason || (message.status === 'failed' ? '生成中断，文字已保留。可以复制或重试。' : '生成已停止，文字已保留。')) }}</p>
           <button v-if="message.status === 'completed' && message.proposal" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" />{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</button>
           <button v-if="canUndoMessage(message)" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.undoAgentProposal(message.id)">{{ tr('撤销本次修改') }}</button>
-          <div v-if="message.status !== 'running'" class="authoring-knowledge__message-actions"><button type="button" @click="copyAnswer(message)">{{ tr(copiedAnswerId === message.id ? '已复制' : '复制') }}</button><button v-if="assistant?.regenerateAnswer" type="button" :disabled="busy || agentState.adoptionBusy" @click="assistant.regenerateAnswer(message.id)"><WorkbenchIcon name="refresh" :size="14" />{{ tr('重新生成') }}</button><button v-if="assistant?.continueFromMessage" type="button" :disabled="busy || agentState.adoptionBusy" @click="continueFromAnswer(message)"><WorkbenchIcon name="rehearsal" :size="14" />{{ tr('从这里继续') }}</button></div>
+          <AssistantMessageActions v-if="message.status !== 'running'" :message="message" :messages="messages" :assistant="assistant" :busy="busy || agentState.adoptionBusy" :copied="copiedAnswerId === message.id" @copy="copyAnswer(message)" @continue="continueFromAnswer(message)" />
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
           <div class="authoring-knowledge__answer-meta">
@@ -96,14 +92,14 @@
               <button v-if="message.answer.evidence.length > 3" type="button" class="authoring-knowledge__more-sources" @click="toggleSources(message.id)">{{ expandedSources.has(message.id) ? tr('收起') : tr('另 {count} 条资料', { count: message.answer.evidence.length - 3 }) }}</button>
             </div>
           </section>
-          <div v-if="message.status !== 'running'" class="authoring-knowledge__message-actions"><button type="button" @click="copyAnswer(message)">{{ tr(copiedAnswerId === message.id ? '已复制' : '复制') }}</button><button v-if="assistant?.regenerateAnswer" type="button" :disabled="busy || agentState.adoptionBusy" @click="assistant.regenerateAnswer(message.id)"><WorkbenchIcon name="refresh" :size="14" />{{ tr('重新生成') }}</button><button v-if="assistant?.continueFromMessage" type="button" :disabled="busy || agentState.adoptionBusy" @click="continueFromAnswer(message)"><WorkbenchIcon name="rehearsal" :size="14" />{{ tr('从这里继续') }}</button></div>
+          <AssistantMessageActions v-if="message.status !== 'running'" :message="message" :messages="messages" :assistant="assistant" :busy="busy || agentState.adoptionBusy" :copied="copiedAnswerId === message.id" @copy="copyAnswer(message)" @continue="continueFromAnswer(message)" />
         </article>
       </template>
 
       <p v-if="messages.length && !visibleMessages.length" class="authoring-knowledge__no-results">{{ tr('没有找到相关问答') }}</p>
 
       <div v-if="busy" class="authoring-knowledge__thinking" role="status">
-        <span aria-hidden="true"></span>{{ tr(selectedIntent === 'free' ? '正在整理思路…' : '正在核对项目资料…') }}
+        <span aria-hidden="true"></span>{{ tr(messages.at(-1)?.tools?.some(tool => tool.name === 'generate_narrative_draft' && tool.status === 'running') ? '正在推演正文…' : selectedIntent === 'free' ? '正在整理思路…' : '正在核对项目资料…') }}
       </div>
       <button v-if="notice?.text" type="button" class="authoring-knowledge__notice" @click="$emit('review-notice')">
         <span>{{ notice.text }}</span><small v-if="notice.reviewable">{{ tr('查看') }}</small>
@@ -116,6 +112,7 @@
 
     <footer class="authoring-knowledge__composer">
       <div v-if="documentTitle" class="assistant-document-context"><span>{{ tr('当前文稿') }}</span><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
+      <AuthoringRunLogDrawer v-if="agentState.enabled" :project-id="projectId" :messages="messages" />
       <AuthoringAgentTools v-if="agentState.enabled && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
       <div class="authoring-knowledge__input-row">
         <div v-if="mentionCandidates.length" class="authoring-knowledge__mentions" role="listbox" :aria-label="tr('选择参考资料')">
@@ -147,6 +144,7 @@
         </div>
       </div>
     </footer>
+    <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="promptPreviewKey" />
     <WorldbookSourceImportDialog v-if="fileImportOpen && projectId" :key="projectId" :book-id="projectId" file-mode @close="fileImportOpen = false" @completed="filesImported" />
 
     <div v-if="!messages.length" class="authoring-knowledge__start-options">
@@ -161,8 +159,13 @@
 
 <script setup>
 import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
+import AssistantMessageActions from './AssistantMessageActions.vue'
+import AssistantConversationList from './AssistantConversationList.vue'
+import { promptPreviewKey, closePromptPreview } from '../../composables/usePromptPreview.js'
+const PromptPreviewPanel = defineAsyncComponent(() => import('../agent/PromptPreviewPanel.vue'))
+const AuthoringRunLogDrawer = defineAsyncComponent(() => import('./AuthoringRunLogDrawer.vue'))
 import { tr, uiLocale } from '../../i18n/index.js'
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, unref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../../utils/sanitize.js'
@@ -222,8 +225,11 @@ async function saveQuestionEdit(message) {
 function continueFromAnswer(message) {
   if (props.assistant?.continueFromMessage?.(message.id)) { cancelQuestionEdit(); searchTerm.value = ''; nextTick(() => draftInputRef.value?.focus()) }
 }
-watch(() => [props.projectId, unref(props.assistant?.sessions)?.find(session => session.active)?.sessionId], cancelQuestionEdit)
-const conversations = computed(() => unref(props.assistant?.sessions) || [])
+watch(() => [props.projectId, unref(props.assistant?.sessions)?.find(session => session.active)?.sessionId], () => { cancelQuestionEdit(); closePromptPreview({ restoreFocus: false }) })
+const promptPreviewOpen = computed(() => Boolean(promptPreviewKey.value && props.messages.some(message => message.promptSnapshotKey === promptPreviewKey.value || message.narrativePromptKey === promptPreviewKey.value)))
+watch(() => props.projectId, () => closePromptPreview({ restoreFocus: false }))
+onDeactivated(() => closePromptPreview({ restoreFocus: false }))
+onBeforeUnmount(() => closePromptPreview({ restoreFocus: false }))
 const referencePicker = ref('')
 const referenceQuery = ref('')
 const fileImportOpen = ref(false)
@@ -253,11 +259,7 @@ async function filesImported(payload) {
 }
 function startConversation() { if (props.assistant?.newConversation?.()) { historyOpen.value = false; emit('active-question', ''); nextTick(() => draftInputRef.value?.focus()) } }
 function selectConversation(id) { if (props.assistant?.selectSession?.(id)) { historyOpen.value = false; emit('active-question', ''); nextTick(() => draftInputRef.value?.focus()) } }
-function deleteConversation(session) {
-  const owner = props.projectId
-  if (!window.confirm(tr('删除对话「{title}」？删除后无法恢复。', { title: session.title }))) return
-  if (owner === props.projectId && props.assistant?.deleteConversation?.(session.sessionId)) emit('active-question', '')
-}
+
 watch(() => props.projectId, () => { fileImportOpen.value = false; referencePicker.value = ''; referenceQuery.value = ''; historyOpen.value = false })
 const knowledgeRootRef = ref(null)
 const goalReviewRef = ref(null)
@@ -512,7 +514,7 @@ const visibleMessages = computed(() => {
 })
 
 function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
-function toolLabel(name) { return tr(({ workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -776,12 +778,13 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge.is-expanded .authoring-knowledge__toolbar { min-height: 48px; padding-inline: var(--assistant-gutter); border-bottom: 0; }
 .authoring-knowledge.is-expanded .authoring-knowledge__model strong { display: none; }
 .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding-block: 12px 16px; }
-.authoring-knowledge.is-expanded { --assistant-gutter: max(32px, calc((100% - var(--assistant-reading-width)) / 2)); --assistant-input-padding: 16px 18px 12px; --assistant-input-radius: 24px; --assistant-input-min-height: 108px; --assistant-answer-size: 16px; --assistant-intro-size: clamp(28px, 2.8vw, 34px); }
+.authoring-knowledge.is-expanded { --assistant-reading-width: 1040px; --assistant-gutter: max(32px, calc((100% - var(--assistant-reading-width)) / 2)); --assistant-input-padding: 16px 18px 12px; --assistant-input-radius: 24px; --assistant-input-min-height: 108px; --assistant-answer-size: 16px; --assistant-intro-size: clamp(28px, 2.8vw, 34px); }
 .authoring-knowledge.is-expanded .authoring-knowledge__input-row textarea { font-size: 16px; }
 .authoring-knowledge.is-expanded .authoring-knowledge__question-row { margin-bottom: 28px; }
 .authoring-knowledge.is-expanded .authoring-knowledge__question { padding: 11px 18px; }
 .authoring-knowledge.is-starting .authoring-knowledge__body { box-sizing: border-box; overflow-y: auto; justify-content: safe center; padding: 32px 18px 64px; }
 .authoring-knowledge.is-expanded.is-starting { background: var(--surface-assistant); }
+.authoring-knowledge.is-expanded.is-starting .authoring-knowledge__body { justify-content: flex-start; padding-top: clamp(56px, 18vh, 160px); }
 .authoring-knowledge.is-expanded.is-starting .authoring-knowledge__body { padding: 40px 32px clamp(64px, 12vh, 110px); }
 .authoring-knowledge__intro { width: 100%; max-width: var(--assistant-reading-width); flex: none; margin: 0 auto 32px; text-align: center; }
 .authoring-knowledge__intro h3 { margin: 0; color: var(--archive-ink); font: 500 var(--assistant-intro-size, 21px)/1.45 var(--font-interface, var(--font-sans)); letter-spacing: -.025em; }
@@ -812,7 +815,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
   .authoring-knowledge__search button, .authoring-knowledge__history button, .authoring-knowledge__toolbar-actions button, .authoring-knowledge__tool-menu button, .authoring-knowledge__evidence-list button, .authoring-knowledge__context button, .authoring-knowledge__prompt-list button { min-height: 44px; }
   .authoring-knowledge__send, .authoring-knowledge__tools summary { width: 44px; height: 44px; }
   .authoring-knowledge__purpose summary { min-height: 44px; }
-  .authoring-knowledge.is-expanded { --assistant-gutter: 16px; --assistant-input-padding: 14px 12px 10px; --assistant-input-radius: 22px; }
+  .authoring-knowledge.is-expanded { --assistant-reading-width: 1040px; --assistant-gutter: 16px; --assistant-input-padding: 14px 12px 10px; --assistant-input-radius: 22px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__thread { padding-block: 16px 24px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__toolbar { padding-inline: 16px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding: 10px 16px max(16px, env(safe-area-inset-bottom)); }
@@ -886,4 +889,11 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__history .assistant-conversation-delete:hover { color: var(--signal-danger); }
 .authoring-knowledge__tool-menu input { min-width: 0; margin: 8px 0; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: 6px; background: var(--surface-workbench-input); color: var(--text-primary); font: inherit; }
 @media(max-width:720px) { .authoring-knowledge__history .assistant-conversation-delete { width: 44px; min-width: 44px; } }
+</style>
+
+<style scoped>
+.assistant-tool-call { margin:4px 0; }
+.assistant-tool-call > summary { padding:4px 0; cursor:pointer; }
+.assistant-tool-call small { color:var(--text-muted); }
+.assistant-tool-call pre { max-height:160px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:8px; background:var(--surface-workbench-input); font:11px/1.5 var(--font-mono); }
 </style>

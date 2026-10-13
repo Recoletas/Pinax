@@ -735,6 +735,21 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.selectSession(existingSession)).toBe(true)
     expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
 
+    const ratedId = agentAssistant.messages.value.at(-1).id
+    expect(agentAssistant.rateMessage(ratedId, 'up')).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).reaction).toBe('up')
+    expect(agentAssistant.rateMessage(ratedId, 'up')).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).reaction).toBe('')
+    expect(agentAssistant.renameConversation(existingSession, '故事讨论')).toBe(true)
+    expect(agentAssistant.conversationDetails(existingSession)).toMatchObject({ title: '故事讨论', storageKey: 'authoring_assistant_conversation:agent-book-a' })
+    expect(agentAssistant.newConversation()).toBe(true)
+    const archiveId = agentAssistant.sessions.value.find(session => session.active).sessionId
+    expect(agentAssistant.archiveConversation(archiveId)).toBe(true)
+    expect(agentAssistant.sessions.value.find(session => session.sessionId === archiveId)).toMatchObject({ archived: true, active: false })
+    expect(agentAssistant.archiveConversation(archiveId, false)).toBe(true)
+    expect(agentAssistant.deleteConversation(archiveId)).toBe(true)
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+
     const originalHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
     expect(agentAssistant.continueFromMessage(originalHistory[2].id)).toBe(true)
     expect(agentAssistant.messages.value).toHaveLength(3)
@@ -758,6 +773,20 @@ describe('authoring project adapter', () => {
     expect(agentCalls.at(-1).text).not.toContain('接着推进')
     expect(agentAssistant.selectSession(existingSession)).toBe(true)
     expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+
+    const prepareBeforeSampling = agentEngine.prepare
+    agentEngine.prepare = input => ({ ...prepareBeforeSampling(input), kernel: { serialization: { blocks: [] } } })
+    health = Promise.resolve({ ok: true, assistantSampling: true })
+    expect(agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: '0.6' })).toBe(false)
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: 0.6 })).toBe(true)
+    expect(agentCalls.at(-1).prepared.kernel.serialization.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'assistant-focus' }), expect.objectContaining({ kind: 'assistant-sampling', text: '{"temperature":0.6}' })
+    ]))
+    expect(agentAssistant.messages.value.at(-1).params).toMatchObject({ intent: 'character', temperatureOverride: 0.6 })
+    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    agentEngine.prepare = prepareBeforeSampling
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复

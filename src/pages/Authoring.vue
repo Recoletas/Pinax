@@ -1644,6 +1644,7 @@ import {
 import { requestAdvisorTask } from '../services/advisorTaskService'
 import { getResolvedApiSettings } from '../services/api'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow'
+import { generateAssistantNarrative } from '../services/agents/storyagent/assistantNarrativeGeneration.js'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow'
 import { createNarrativeKernelExecutor } from '../services/agents/authoring/narrativeKernelExecutor'
 import { createAuthoringNarrativeRun } from '../services/agents/authoring/authoringNarrativeRun.js'
@@ -3529,6 +3530,10 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
   projectId: selectedBookId,
   onReviewProposal: locateAssistantProposal,
   agentEngine: createAuthoringStoryAgent({ projectId: selectedBookId, getBook: () => currentBook.value,
+    generateNarrative: args => generateAssistantNarrative(args, {
+      readCurrent: () => ({ projectId: String(selectedBookId.value), chapterId: String(selectedChapterId.value), exploration: Boolean(wt3ActiveDoc.value), markdown: markdownContent.value, document: writingDocument.value, revision: currentDocumentRevision() }),
+      resolveTarget: target => resolveBlockComposerTarget(target), readNarrative: () => getAuthoringNarrativeRun()
+    }),
     getChapter: () => wt3ActiveDoc.value ? null : chapters.value.find(c => c.id === selectedChapterId.value), getWorldbook: () => boundWorldbook.value,
     getLiveDocument: () => writingDocument.value, getSelection: () => notebookSelection.value,
     getLiveText: () => wt3ActiveDoc.value ? '' : markdownContent.value, getNotes: () => wt3ExplorationDocs.value.map(doc => doc.id === wt3ActiveDocId.value ? { ...doc, content: markdownContent.value } : doc), getOutline: () => wt3OutlineNodes.value,
@@ -3568,7 +3573,8 @@ function locateAssistantProposal(change) {
   if (change.kind === 'chapter') {
     if (assistantWorkspace.expanded.value) void assistantWorkspace.leave({ restore: false })
     if (chapters.value.some(chapter => String(chapter.id) === change.targetId)) selectChapter(change.targetId)
-    closeActiveWritingInspector()
+    // Keep the conversation visible while reviewing the manuscript.
+    openInspectorTool('ai')
   } else if (change.kind === 'outline') { inspectorOutlineNodeId.value = ''; openInspectorTool('outline'); nextTick(() => { inspectorOutlineNodeId.value = change.targetId }) }
   else {
     const entry = boundWorldbook.value?.entries?.find(item => String(item.id) === change.targetId)

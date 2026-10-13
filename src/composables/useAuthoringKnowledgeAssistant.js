@@ -1,4 +1,5 @@
 import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
+import { normalizeAssistantSampling } from '../services/agents/authoring/assistantRegenerateOptions.js'
 import { computed, onScopeDispose, reactive, ref, unref, watch } from 'vue'
 import { useComposableWorkspace } from './useComposableWorkspace.js'
 import { requestAdvisorTask } from '../services/advisorTaskService.js'
@@ -225,7 +226,7 @@ export function createAuthoringKnowledgeAssistant({
     const state = entry.state
     const previous = state.agentSessions.find(session => session.sessionId === state.activeSessionId)
     const record = { sessionId: state.activeSessionId, projectId: entry.projectId, title: (previous?.title !== '新对话' ? previous?.title : '') || state.messages.find(message => message.question)?.question?.slice(0, 40) || '新对话',
-      updatedAt: Date.now(), messages: state.messages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
+      archived: Boolean(previous?.archived), updatedAt: Date.now(), messages: state.messages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
     state.agentSessions = [record, ...state.agentSessions.filter(session => session.sessionId !== state.activeSessionId)].slice(0, 20)
   }
   function selectSession(sessionId) {
@@ -291,21 +292,62 @@ export function createAuthoringKnowledgeAssistant({
     updateDraft(text)
     return ask({ question: text, intent })
   }
-  function regenerateAnswer(id) {
+  function regenerateAnswer(id, params = null) {
     const messages = activeEntry.value.state.messages
     const index = messages.findIndex(message => message.id === id && message.role === 'assistant')
     const question = index >= 0 ? messages.slice(0, index).findLast(message => message.role === 'user') : null
-    return question ? editQuestion(question.id, question.question) : false
+    if (!question) return false
+    if (!params) return editQuestion(question.id, question.question)
+    const sampling = normalizeAssistantSampling(params)
+    if (!sampling || !branchConversation(question.id, { before: true })) return false
+    updateDraft(question.question)
+    return ask({ question: question.question, intent: sampling.intent, sampling })
   }
   function continueFromMessage(id) {
     const message = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'assistant')
-    return Boolean(message && branchConversation(id))
+    if (!message || activeEntry.value.state.busy || activeEntry.value.state.agentAdoptionBusy) return false
+    // Continuing the current last answer already has the correct history.
+    if (activeEntry.value.state.messages.at(-1)?.id === id) return true
+    return branchConversation(id)
   }
   function renameConversation(sessionId, title) {
     const entry = activeEntry.value
     const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
-    if (!saved || !normalizedText(title)) return false
-    saved.title = normalizedText(title).slice(0, 80); persistConversation(entry); return true
+    if (!saved || !normalizedText(title) || entry.state.busy || entry.state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    const previous = saved.title
+    saved.title = normalizedText(title).slice(0, 80)
+    if (persistConversation(entry)?.ok !== true) { entry.state.agentSessions.find(session => session.sessionId === sessionId).title = previous; return false }
+    return true
+  }
+  function archiveConversation(sessionId, archived = true) {
+    const entry = activeEntry.value, state = entry.state
+    if (state.busy || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    if (persistConversation(entry)?.ok !== true) return false
+    const saved = state.agentSessions.find(session => session.sessionId === sessionId)
+    if (!saved) return false
+    const previous = Boolean(saved.archived)
+    saved.archived = Boolean(archived)
+    if (persistConversation(entry)?.ok !== true) { state.agentSessions.find(session => session.sessionId === sessionId).archived = previous; return false }
+    if (archived && state.activeSessionId === sessionId) {
+      const next = state.agentSessions.find(session => !session.archived && session.sessionId !== sessionId)
+      return next ? selectSession(next.sessionId) : newConversation()
+    }
+    return true
+  }
+  function rateMessage(id, reaction) {
+    const entry = activeEntry.value
+    const message = entry.state.messages.find(item => item.id === id && item.role === 'assistant')
+    if (!message || !['up', 'down'].includes(reaction) || entry.state.busy || entry.state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    const previous = message.reaction || ''
+    message.reaction = previous === reaction ? '' : reaction
+    if (persistConversation(entry)?.ok !== true) { message.reaction = previous; return false }
+    return true
+  }
+  function conversationDetails(id) {
+    const entry = activeEntry.value
+    if (persistConversation(entry)?.ok !== true) return null
+    const session = entry.state.agentSessions.find(item => item.sessionId === id)
+    return session ? JSON.parse(JSON.stringify({ ...session, storageKey: `authoring_assistant_conversation:${encodeURIComponent(entry.projectId)}` })) : null
   }
   function deleteConversation(sessionId) {
     const entry = activeEntry.value
@@ -336,7 +378,7 @@ export function createAuthoringKnowledgeAssistant({
     const state = activeEntry.value.state
     const list = state.agentSessions.some(session => session.sessionId === state.activeSessionId)
       ? state.agentSessions : [{ sessionId: state.activeSessionId, title: '新对话', updatedAt: Date.now() }, ...state.agentSessions]
-    return list.map(session => ({ sessionId: session.sessionId, title: session.title, updatedAt: session.updatedAt, active: session.sessionId === state.activeSessionId }))
+    return list.map(session => ({ sessionId: session.sessionId, title: session.title, updatedAt: session.updatedAt, archived: Boolean(session.archived), active: session.sessionId === state.activeSessionId }))
   })
   function persistConversation(entry) {
     if (!entry.projectId || !entry.runtime.canSaveConversation) return
@@ -488,6 +530,8 @@ export function createAuthoringKnowledgeAssistant({
     const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
     const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
     const project = entry.projectId
+    const sampling = payload?.sampling ? normalizeAssistantSampling(payload.sampling) : null
+    if (payload?.sampling && (!sampling || !agentEngine)) { state.error = '重答参数无效或当前助手不支持参数重答。'; return false }
     if (!editorAttached() || !project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
     if (runtime.cancellation) {
       const stopped = await runtime.cancellation
@@ -511,7 +555,7 @@ export function createAuthoringKnowledgeAssistant({
     state.status = 'running'
     state.error = ''
     state.selectedIntent = intent
-    state.lastRequest = { question, intent, projectId: project }
+    state.lastRequest = { question, intent, projectId: project, ...(sampling ? { sampling } : {}) }
     if (appendUser) {
       state.messages.push({ id: messageId('question'), role: 'user', question, intent, createdAt: Date.now() })
     }
@@ -524,7 +568,7 @@ export function createAuthoringKnowledgeAssistant({
       if (agentEngine) {
         // runAuthoringAgentTurn captures the context before its first await.
         const pending = runAuthoringAgentTurn({ engine: requestEngine, entry, question, providerQuestion, token, signal: controller.signal,
-          persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
+          sampling, persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
         const succeeded = await pending
         if (!succeeded || token !== runtime.token || disposed) return false
         state.status = state.messages.at(-1)?.status || 'completed'; state.hasUnread = true; state.lastRequest = null
@@ -734,7 +778,7 @@ export function createAuthoringKnowledgeAssistant({
   }
   return Object.freeze({
     undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, renameConversation, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

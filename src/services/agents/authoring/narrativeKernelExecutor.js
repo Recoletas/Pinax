@@ -102,6 +102,8 @@ export function createNarrativeKernelExecutor({
     narrativeContext = null,
     projection = null,
     settings = {},
+    assistantSampling = null,
+    onModelRequest = null,
     worldbook = null,
     runtimeState = {},
     signal = null,
@@ -112,6 +114,7 @@ export function createNarrativeKernelExecutor({
     contextManifest = null,
     // W6·C：项目文件夹「约束/」下的作者本地约束文件（kernel local-rules 块输入）。
     localRules = null,
+    lexicon = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const projectId = String(explicitProjectId || projection?.projectId || worldbook?.id || '')
@@ -225,7 +228,8 @@ export function createNarrativeKernelExecutor({
       } : null,
       sceneProjection: manifestMode ? null : (projection || null),
       contextManifest,
-      localRules
+      localRules,
+      lexicon
     })
     // U1：executor 的 receipt 读取这里的 serializedBlocks——必须与实际发送
     // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。
@@ -260,7 +264,8 @@ export function createNarrativeKernelExecutor({
         intent: instruction ? 'respond' : intentMode,
         formatInstructions: languageFormatInstructions,
         worldId: projectId,
-        settings,
+        settings: assistantSampling?.temperatureOverride != null ? { ...settings, assistantTemperature: assistantSampling.temperatureOverride } : settings,
+        onModelRequest,
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
         taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })

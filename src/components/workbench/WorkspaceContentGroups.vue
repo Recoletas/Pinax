@@ -17,7 +17,8 @@ const mainTarget = ref(null)
 const sideTarget = ref(null)
 const targetsReady = ref(false)
 const renderedViews = computed(() => host.state.views.filter(view => view.resource.type !== 'online-editor' || host.onlineMountAllowed.value))
-const mainViews = computed(() => host.state.views.filter(view => view.group === 'main'))
+// Chapters are navigated in the authoring shelf, not a second header row.
+const mainViews = computed(() => host.state.views.filter(view => view.group === 'main' && view.resource.type !== 'chapter'))
 const sideViews = computed(() => host.state.views.filter(view => view.group !== 'main'))
 const mainModule = computed(() => !host.state.hidden && host.state.views.find(view => view.id === host.state.mainModuleId))
 const titles = ref({})
@@ -39,7 +40,7 @@ watch(() => [host.state.activeId, visible.value, host.state.mainModuleId, host.s
 }, { immediate: true, flush: 'post' })
 const primaryHidden = computed(() => visible.value && narrow.value && !host.state.primaryComposing)
 const mainUsesPrimary = computed(() => !mainModule.value || mainModule.value.resource.type === 'chapter')
-const showMainTabs = computed(() => mainViews.value.length > 1 || mainModule.value && !mainUsesPrimary.value)
+const showMainTabs = computed(() => Boolean(mainModule.value && !mainUsesPrimary.value))
 watch(primaryHidden, hidden => { host.state.primaryVisible = !hidden && mainUsesPrimary.value }, { immediate: true })
 watch(mainModule, () => { host.state.primaryVisible = !primaryHidden.value && mainUsesPrimary.value })
 watch(narrow, value => { host.state.narrow = value }, { immediate: true })
@@ -91,7 +92,7 @@ onBeforeUnmount(() => { host.railTarget.value = null; endResize(); narrowQuery?.
   <div ref="root" class="workspace-content-groups" :class="{ 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
     <section class="workspace-primary-group" :inert="primaryHidden ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
       <header v-if="showMainTabs" class="workspace-reference-header workspace-main-header">
-        <button v-if="!mainViews.some(view => view.id === host.primaryChapter.value?.id)" type="button" class="workspace-primary-return" :aria-current="mainUsesPrimary ? 'true' : undefined" @click="host.showPrimary()">{{ host.primaryTitle.value }}</button>
+        <button v-if="!mainViews.some(view => view.id === host.primaryChapter.value?.id)" type="button" class="workspace-primary-return" :aria-current="mainUsesPrimary ? 'true' : undefined" @click="host.showPrimary()">{{ host.primaryChapter.value ? tr('回到正文') : host.primaryTitle.value }}</button>
         <WorkspaceContentTabs :views="mainViews" :active-id="host.state.hidden ? '' : host.state.mainModuleId" :titles="titles" group="main" label="主区已打开的内容" @activate="host.activate" @close="close" @reorder="host.reorderView($event.id, $event.beforeId, $event.group)" />
         <div v-if="mainModule" class="workspace-reference-controls"><button type="button" :aria-label="tr('放回旁边')" :title="tr('放回旁边')" @click="host.move(false, mainModule.id)"><WorkbenchIcon name="columns" :size="17" /></button><button type="button" :aria-label="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" :title="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" @click="host.hide()"><WorkbenchIcon name="arrow-left" :size="17" /></button></div>
       </header>

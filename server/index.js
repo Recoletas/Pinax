@@ -17,6 +17,7 @@ import roomsRouter from './routes/rooms.js'
 import createMediaRouter from './routes/media.js'
 import createImageRouter from './routes/image.js'
 import researchRouter from './routes/research.js'
+import { createKnowledgeRouter } from './routes/knowledge.js'
 import { createLocalMirrorRouter } from './routes/localMirror.js'
 import { startStoryAgentRuntime } from './services/storyAgentRuntime.js'
 import { createStoryAgentRouter } from './routes/storyagent.js'
@@ -76,6 +77,7 @@ app.use('/api/preferences', preferencesRouter)
 app.use('/api/advisor', advisorRouter)
 app.use('/api/research', researchRouter)
 app.use('/api/localmirror', createLocalMirrorRouter())
+app.use('/api/knowledge', createKnowledgeRouter())
 app.use('/api/storyagent', createStoryAgentRouter())
 app.use(mediaRouter)
 app.use(imageRouter)

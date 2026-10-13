@@ -43,7 +43,12 @@ export function createAssistantEditDecorations({ getReview, getDocument, act }) 
       decorations.push(Decoration.widget(blockEnd, () => {
         const widget = document.createElement('section')
         widget.className = 'assistant-inline-edit'; widget.contentEditable = 'false'; widget.dataset.changeId = change.changeId || ''
-        const content = document.createElement('div'); content.className = 'assistant-inline-edit__content'; content.textContent = change.after || tr('删除这段文字'); widget.append(content)
+        widget.dataset.label = tr(change.operation === 'append' || change.operation === 'insert' ? '新增内容' : change.operation === 'delete' ? '删除内容' : '替换内容')
+        const content = document.createElement('div'); content.className = 'assistant-inline-edit__content'
+        for (const text of String(change.after || tr('删除这段文字')).split(/\n\s*\n/)) {
+          const paragraph = document.createElement('p'); paragraph.textContent = text; content.append(paragraph)
+        }
+        widget.append(content)
         const actions = document.createElement('div'); actions.className = 'assistant-inline-edit__actions'
         for (const [label, action] of [['接受', 'adopt'], ['拒绝', 'discard']]) {
           const button = document.createElement('button'); button.type = 'button'; button.textContent = tr(label); button.disabled = Boolean(busy)

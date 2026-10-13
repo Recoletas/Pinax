@@ -1,3 +1,7 @@
+import { recordPromptSnapshot } from '../promptSnapshot.js'
+import { recordAgentRequestTrace } from '../agentRequestTrace.js'
+import { assistantFocusInstruction } from '../authoring/assistantRegenerateOptions.js'
+
 function retrievedReferences(prepared, results, projectId) {
   const references = []
   for (const result of results) {
@@ -20,10 +24,16 @@ function retrievedReferences(prepared, results, projectId) {
   return references.slice(0, 12)
 }
 
-export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id }) {
+export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null }) {
   const { state, runtime, projectId } = entry
   // Prepare synchronously before health probing or loading the bridge.
   const prepared = engine.prepare({ text: providerQuestion, bookId: projectId, pinnedRefs: state.agentRefs || [], skills: state.agentSkills || [] })
+  prepared.authorQuestion = question
+  prepared.sampling = sampling
+  if (sampling) {
+    prepared.kernel.serialization.blocks.push({ kind: 'assistant-focus', title: '本轮参考侧重', text: assistantFocusInstruction(sampling.intent) })
+    if (sampling.temperatureOverride !== null) prepared.kernel.serialization.blocks.push({ kind: 'assistant-sampling', title: '本轮取样参数', text: JSON.stringify({ temperature: sampling.temperatureOverride }) })
+  }
   const destination = engine.destination?.() || { chapterId: '' }
   const current = () => isCurrent(token) && !signal.aborted
   const previousTask = state.agentTaskId || ''
@@ -32,12 +42,13 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   const health = await engine.healthz({ signal })
   if (!current()) return false
   if (!health?.ok) throw new Error('助手服务暂不可用，输入已保留。')
+  if (sampling?.temperatureOverride != null && !health.assistantSampling) throw new Error('助手运行包尚未支持参数重答，请更新运行包后重试。')
   if (engine.authorize) {
     if (health.assistantProtocolVersion !== 2) throw new Error('助手运行包需要更新，本轮尚未执行，输入已保留。')
     await engine.authorize(state.agentPermission || { mode: 'review', scope: 'current' }, state.activeSessionId, prepared, signal)
     if (!current()) return false
   }
-  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '' }
+  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling }
   state.messages.push(answer)
   // Use the reactive object from the collection; raw-object writes do not trigger Vue updates.
   const message = state.messages[state.messages.length - 1]
@@ -51,10 +62,17 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (task.bookId && task.bookId !== projectId) throw new Error('任务作品归属不一致。')
       if (task.taskId) { message.taskId = task.taskId; state.agentTaskId = task.taskId; persist() }
     },
-    onStatus: (status) => { if (current() && status.phase === 'tool' && status.tool !== 'complete_assistant_task') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), status: 'running' }) },
+    onStatus: (status) => { if (current() && status.phase === 'tool' && status.tool !== 'complete_assistant_task') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), callId: String(status.callId || ''), input: status.input || null, status: 'running' }) },
+    onPromptComposed: composed => {
+      if (!current() || !composed || typeof composed.system !== 'string' || typeof composed.user !== 'string') return
+      recordPromptSnapshot({ key: id, surface: 'authoring-agent', projectId, sessionId: state.activeSessionId,
+        blocks: [{ kind: 'system', content: composed.system, chars: composed.system.length }, { kind: 'user', content: composed.user, chars: composed.user.length }, ...(composed.history?.length ? [{ kind: 'history', content: composed.history, chars: JSON.stringify(composed.history).length }] : [])],
+        toolNames: composed.toolNames || [], temperature: composed.temperature, budget: { usedChars: composed.system.length + composed.user.length + (composed.history?.length ? JSON.stringify(composed.history).length : 0) } })
+      message.promptSnapshotKey = id
+    },
     onToolResult: result => {
       if (!current() || result.toolName === 'complete_assistant_task') return
-      const tool = message.tools.find(item => item.name === result.toolName && item.status === 'running')
+      const tool = message.tools.find(item => (result.callId ? item.callId === result.callId : item.name === result.toolName) && item.status === 'running')
       if (!tool) return
       let payload
       try { payload = JSON.parse(result.result?.content?.find(block => block.type === 'text')?.text || '{}') } catch { /* plain tool results */ }
@@ -76,6 +94,32 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     message.beatPlan = result.beatPlan || null
     message.references = retrievedReferences(prepared, message.toolResults, projectId)
     const submitted = message.toolResults.filter(tool => tool.toolName === 'submit_edit_proposals' && !tool.isError)
+    const delegated = message.toolResults.filter(tool => tool.toolName === 'generate_narrative_draft')
+    const requests = delegated.flatMap(tool => {
+      try { const payload = JSON.parse(tool.result?.content?.find(block => block.type === 'text')?.text || '{}'); return payload.ok && payload.phase === 'planned' ? [payload.request] : [] } catch { return [] }
+    })
+    if (requests.length) {
+      prepared.onNarrativeModelRequest = input => {
+        if (!current()) return
+        const key = `${id}:narrative:${input.phase}`
+        recordPromptSnapshot({ key, surface: 'authoring', projectId, sessionId: state.activeSessionId, temperature: input.temperature,
+          blocks: input.messages.map(item => ({ kind: item.role === 'system' ? 'system' : 'user', content: item.content, chars: String(item.content || '').length })),
+          toolNames: input.toolNames, budget: { usedChars: input.messages.reduce((sum, item) => sum + String(item.content || '').length, 0) } })
+        // Prefer the writing/revision input over the quality checker prompt.
+        if (!['review', 'plan'].includes(input.phase)) message.narrativePromptKey = key
+      }
+
+      if (requests.length !== 1 || submitted.some(tool => JSON.parse(tool.result?.content?.find(block => block.type === 'text')?.text || '{}').ok)) throw new Error('本轮生成请求与直接修改不能混合提交。')
+      const tool = message.tools.findLast(item => item.name === 'generate_narrative_draft') || { name: 'generate_narrative_draft' }
+      if (!message.tools.includes(tool)) message.tools.push(tool)
+      tool.status = 'running'
+      state.status = 'running'
+      message.status = 'running'
+      persist()
+      try { message.proposal = await engine.prepareNarrativeProposal(requests[0], prepared, message.id, signal); tool.status = 'completed'; message.status = 'completed' }
+      catch (error) { tool.status = 'failed'; tool.error = String(error.message).slice(0, 180); throw error }
+      if (!current()) return false
+    }
     if (submitted.length) {
       const changes = submitted.flatMap(tool => {
         const payload = JSON.parse((tool.result?.content || []).filter(block => block.type === 'text').map(block => block.text || '').join(''))
@@ -92,15 +136,21 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       message.outcome = delivery.outcome
       if (['needs_input', 'blocked'].includes(delivery.outcome)) message.status = delivery.outcome
       message.deliveryMessage = String(delivery.message || '')
-      message.text = delivery.outcome === 'answer' ? (streamedAnswer.trim() ? streamedAnswer : message.text || message.deliveryMessage) : message.deliveryMessage || message.text
+      message.text = requests.length ? '已通过推演生成正文修改建议，可在原文处审阅。' : delivery.outcome === 'answer' ? (streamedAnswer.trim() ? streamedAnswer : message.text || message.deliveryMessage) : message.deliveryMessage || message.text
     }
     state.agentTaskId = message.taskId
     return true
   } catch (error) {
+    if (error.generatedText?.trim()) message.text = error.generatedText
     message.status = signal.aborted ? 'cancelled' : 'failed'
     message.failureReason = signal.aborted ? '' : String(error.message || '生成中断，文字已保留。')
     delete message.proposal
     // Partial failed output stays visible, never becomes adoptable.
     throw error
-  } finally { runtime.agentMessageId = '' }
+  } finally {
+    recordAgentRequestTrace({ requestId: id, kind: 'agent', projectId, taskId: message.taskId, startedAt: message.createdAt, completedAt: Date.now(),
+      status: message.status, usage: message.usage, totalCalls: message.tools.length, toolCalls: message.tools.map(tool => ({ name: tool.name, status: tool.status })),
+      error: message.failureReason ? { message: message.failureReason.slice(0, 240) } : null })
+    runtime.agentMessageId = ''
+  }
 }

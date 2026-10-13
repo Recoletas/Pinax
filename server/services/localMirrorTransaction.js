@@ -22,6 +22,21 @@ function flushDirectory(directory) {
   const descriptor = fs.openSync(directory, 'r')
   try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
 }
+function flushStagedFile(file) {
+  // Windows requires a writable handle for fsync. Staging also contains copies
+  // of author-owned read-only files: only relax that private copy, then restore
+  // its mode before installing the tree. POSIX keeps the existing read handle.
+  const windows = process.platform === 'win32'
+  const mode = windows ? fs.statSync(file).mode : 0
+  const restoreMode = windows && !(mode & 0o200)
+  if (restoreMode) fs.chmodSync(file, mode | 0o200)
+  try {
+    const descriptor = fs.openSync(file, windows ? 'r+' : 'r')
+    try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
+  } finally {
+    if (restoreMode) fs.chmodSync(file, mode)
+  }
+}
 const locations = dir => ({ journal: `${dir}.pinax-sync.json`, backup: `${dir}.pinax-before-sync`, staging: `${dir}.pinax-next-sync`, generated: `${dir}.pinax-generated-sync` })
 
 // The journal records whether the new tree was durably installed. An interrupted
@@ -107,8 +122,7 @@ export function commitMirrorTransaction({ dir, payload, render }) {
     const revision = previous.revision + 1
     durable(path.join(staging, manifestName), JSON.stringify({ revision, files: owned, requestId: payload.requestId || null, fingerprint, result }, null, 2))
     for (const relative of files(staging)) {
-      const descriptor = fs.openSync(path.join(staging, relative), 'r')
-      try { fs.fsyncSync(descriptor) } finally { fs.closeSync(descriptor) }
+      flushStagedFile(path.join(staging, relative))
       flushDirectory(path.dirname(path.join(staging, relative)))
     }
     flushDirectory(staging)

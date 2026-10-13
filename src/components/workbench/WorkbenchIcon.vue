@@ -58,6 +58,8 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  ThumbsUp,
+  ThumbsDown,
   Users,
   X,
   ZoomIn,
@@ -65,6 +67,8 @@ import {
 } from 'lucide-vue-next'
 
 const icons = {
+  'thumbs-up': ThumbsUp,
+  'thumbs-down': ThumbsDown,
   'new-manuscript': FilePlus2,
   'import-manuscript': FileUp,
   document: FileText,

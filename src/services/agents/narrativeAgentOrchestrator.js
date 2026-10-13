@@ -52,6 +52,7 @@ export const NARRATIVE_AGENT_RUNTIME_LIMITS = Object.freeze({
   // P1：模型步骤按阶段分配超时（trace 记录），整轮只做保护上限。
   planStepTimeoutMs: 35000,
   writeStepTimeoutMs: 60000,
+  reviewStepTimeoutMs: 60000,
   completionStepTimeoutMs: 45000,
   agentTimeoutMs: 100000,
   repeatedCallLimit: 2,
@@ -1034,7 +1035,7 @@ export async function runNarrativeAgentLoop({
   }
   // Freeze before the first await. Mutable UI/store input cannot widen permission mid-run.
   const contract = taskContract ? JSON.parse(JSON.stringify(taskContract)) : null
-  const quality = { required: Boolean(contract), repairs: 0, reviews: [] }
+  const quality = { required: Boolean(contract), repairs: 0, formatRepairs: 0, reviews: [] }
   const appendTaskControl = (value, suffix) => contract ? appendTranscript(value, {
     id: `${turnRequestId}:task:${suffix}`, role: 'user',
     parts: [{ type: 'text', text: narrativeTaskControlText(contract) }]
@@ -1219,7 +1220,7 @@ export async function runNarrativeAgentLoop({
         settings,
         requestId: turnRequestId,
         options: {
-          temperature: 0.2,
+          temperature: Number.isFinite(settings?.assistantTemperature) && settings.assistantTemperature >= 0 && settings.assistantTemperature <= 2 ? settings.assistantTemperature : 0.2,
           timeoutMs: stepTimeoutMs,
           parallelToolCalls: true,
           streamEvents: true,
@@ -1297,8 +1298,8 @@ export async function runNarrativeAgentLoop({
     try {
       const response = await decisionRunner({ messages, tools: requestTools(), settings,
         requestId: `${turnRequestId}:${phase}:${phaseStats[phase].rounds}`,
-        options: { toolChoice: 'none', temperature: phase === 'review' ? 0 : 0.2,
-          timeoutMs: phase === 'review' ? 30000 : NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs },
+        options: { toolChoice: 'none', temperature: phase === 'review' ? 0 : Number.isFinite(settings?.assistantTemperature) && settings.assistantTemperature >= 0 && settings.assistantTemperature <= 2 ? settings.assistantTemperature : 0.2,
+          timeoutMs: phase === 'review' ? NARRATIVE_AGENT_RUNTIME_LIMITS.reviewStepTimeoutMs : NARRATIVE_AGENT_RUNTIME_LIMITS.writeStepTimeoutMs },
         signal: linkedAbort.signal
       }, { phase, stepIndex: runBudget.calls.length })
       recordModelCall({ inputChars, response, phase })
@@ -1319,8 +1320,17 @@ export async function runNarrativeAgentLoop({
     const context = { payload: providerKernelSerialization.payload,
       history: narrativeHistoryMessages(kernel, `${turnRequestId}:review`).map(transcriptPartsToGenerationMessage) }
     for (let attempt = 0; attempt <= 1; attempt += 1) {
-      const raw = await qualityRequest(buildTaskQualityMessages({ contract, context, draft }), 'review')
-      const verdict = parseTaskQualityVerdict(raw, { contract, draft })
+      const messages = buildTaskQualityMessages({ contract, context, draft })
+      let raw = ''
+      try { raw = await qualityRequest(messages, 'review') }
+      catch (error) { if (error.code !== 'NARRATIVE_TASK_CHECK_INVALID') throw error }
+      let verdict = parseTaskQualityVerdict(raw, { contract, draft })
+      if (!verdict && quality.formatRepairs === 0) {
+        quality.formatRepairs += 1
+        const corrected = await qualityRequest([...messages, { role: 'user', content:
+          '上一份判定未通过格式或原文证据校验。重新独立核对同一正文，只返回规定的检查项；quote 必须逐字来自正文，结束锚点须描述作者指定事件。不要改写正文，不得为了通过格式把不合格正文判为 pass。' }], 'review')
+        verdict = parseTaskQualityVerdict(corrected, { contract, draft })
+      }
       if (!verdict) throw runtimeError('NARRATIVE_TASK_CHECK_INVALID', '无法核实正文是否符合本次要求，正文未提交')
       quality.reviews.push(verdict)
       if (verdict.pass) return draft
@@ -1807,6 +1817,7 @@ export async function runNarrativeAgentGeneration({
   taskContract = null,
   callbacks = {},
   onStatus = null,
+  onModelRequest = null,
   decisionRunner = runNarrativeAgentTurn,
   criticRunner = runNarrativeCriticShadow,
   criticSampleRate = NARRATIVE_CRITIC_LIMITS.sampleRate
@@ -1823,7 +1834,10 @@ export async function runNarrativeAgentGeneration({
     formatInstructions,
     taskContract,
     onStatus,
-    decisionRunner
+    decisionRunner: async (input, meta) => {
+      try { onModelRequest?.({ messages: input.messages, toolNames: input.tools.map(tool => tool.name || tool.function?.name), phase: meta?.phase || 'write', temperature: input.options?.temperature }) } catch { /* Observability cannot interrupt generation. */ }
+      return decisionRunner(input, meta)
+    }
   })
   if (signal?.aborted) {
     throw signal.reason || runtimeError('NARRATIVE_AGENT_ABORTED', '叙事生成已取消')

@@ -1,3 +1,4 @@
+import { normalizeAssistantSampling } from './assistantRegenerateOptions.js'
 import { createBrowserStorageRepository } from '../../storage/browserStorageRepository.js'
 
 export const AUTHORING_ASSISTANT_CONVERSATION_PREFIX = 'authoring_assistant_conversation:'
@@ -38,14 +39,14 @@ function storedMessages(messages, projectId) {
       return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),
         failureReason: String(message.failureReason || '').slice(0, 1000), outcome: String(message.outcome || ''), deliveryMessage: String(message.deliveryMessage || '').slice(0, 12000),
         thinking: String(message.thinking || '').slice(-4000), tools: clone((message.tools || []).slice(0, 30)),
-        usage: clone(message.usage || null),
+        usage: clone(message.usage || null), reaction: ['up', 'down'].includes(message.reaction) ? message.reaction : '', promptSnapshotKey: String(message.promptSnapshotKey || ''), params: normalizeAssistantSampling(message.params), narrativePromptKey: String(message.narrativePromptKey || ''),
         status: message.status === 'running' ? 'interrupted' : message.status, taskId: String(message.taskId || ''), adopted: Boolean(message.adopted),
         references: clone((message.references || []).filter(item => item.projectId === projectId).slice(0, 12)),
         proposal: clone(message.proposal || null), adoptionReceipt: clone(message.adoptionReceipt || null), beatPlan: clone(message.beatPlan || null), toolResults: clone((message.toolResults || []).slice(0, 12)) }]
     }
     if (message.role !== 'assistant' || !message.answer
       || String(message.answer.projectId || '') !== projectId) return []
-    return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId) }]
+    return [{ ...common, answer: clone(message.answer), session: storedQuerySession(message.session, projectId), reaction: ['up', 'down'].includes(message.reaction) ? message.reaction : '', promptSnapshotKey: String(message.promptSnapshotKey || '') }]
   })
 }
 
@@ -58,7 +59,7 @@ function savedConversation(projectId, record) {
     activeSessionId: String(record.activeSessionId || ''),
     agentSessions: (Array.isArray(record.agentSessions) ? record.agentSessions : []).filter(session => session.projectId === projectId)
       .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt)).slice(0, 20).map(session => ({
-        sessionId: String(session.sessionId || ''), projectId, title: String(session.title || '新对话').slice(0, 80), updatedAt: Number(session.updatedAt) || 0,
+        sessionId: String(session.sessionId || ''), projectId, title: String(session.title || '新对话').slice(0, 80), updatedAt: Number(session.updatedAt) || 0, archived: Boolean(session.archived),
         messages: storedMessages(session.messages, projectId).slice(-60), draft: String(session.draft || '').slice(0, 12000),
         selectedIntent: String(session.selectedIntent || 'free'), agentRefs: clone((session.agentRefs || []).slice(0, 8).map(ref => ({ id: String(ref.id), type: String(ref.type), title: String(ref.title || '').slice(0, 120) }))), agentTaskId: String(session.agentTaskId || ''), agentSkills: clone((session.agentSkills || []).slice(0, 3))
       })),
@@ -68,7 +69,7 @@ function savedConversation(projectId, record) {
     selectedIntent: String(record.selectedIntent || 'whole-book'),
     error: String(record.error || ''),
     lastRequest: request && String(request.projectId || '') === projectId
-      ? { projectId, question: String(request.question || ''), intent: String(request.intent || 'whole-book') }
+      ? { projectId, question: String(request.question || ''), intent: String(request.intent || 'whole-book'), sampling: normalizeAssistantSampling(request.sampling) }
       : null,
     status: record.busy ? 'running' : String(record.status || 'idle'),
     hasUnread: Boolean(record.hasUnread),

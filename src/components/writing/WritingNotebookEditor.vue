@@ -4020,7 +4020,10 @@ defineExpose({
 <style>
 .assistant-edit-original-range { text-decoration: line-through; color: var(--text-secondary); text-decoration-color: var(--text-secondary); }
 .assistant-inline-edit { display: block; margin: 8px 0 20px; padding: 0; background: transparent; color: var(--text-primary); white-space: normal; }
-.assistant-inline-edit__content { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 5px; text-decoration-thickness: 1px; }
+.assistant-inline-edit::before { content: attr(data-label); display: block; margin-bottom: 8px; color: var(--accent); font: 500 12px/1.5 var(--font-sans); }
+.assistant-inline-edit__content { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: inherit; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.assistant-inline-edit__content p { margin: 0 0 var(--notebook-paragraph-gap, 1.05em); text-indent: var(--notebook-first-line-indent, 2em); }
+.assistant-inline-edit__content p:last-child { margin-bottom: 0; }
 .assistant-inline-edit__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; font: 12px/1.5 var(--font-sans); }
 .assistant-inline-edit__actions span { color: var(--text-secondary); }
 .assistant-inline-edit__actions button { border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); padding: 4px 10px; background: var(--surface-workbench); color: var(--text-primary); cursor: pointer; }

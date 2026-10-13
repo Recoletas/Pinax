@@ -49,9 +49,12 @@ describe('narrative kernel executor', () => {
       const runner = vi.fn(async ({ messages }, { phase }) => ({ kind: 'final_ready', calls: [], text:
         phase === 'review' ? JSON.stringify(verdict(messages.at(-1).content.endsWith(draft))) : phase === 'revision' ? fixed : draft,
         usage: { inputTokens: 10, outputTokens: 10 } }))
-      const result = await runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,
-        decisionRunner: runner, criticSampleRate: 1, callbacks: { onChunk: ({ content }) => visible.push(content) } })
+      const observedPrompts = []
+      const result = await runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract, settings: { assistantTemperature: 0.6 },
+        onModelRequest: input => observedPrompts.push(input), decisionRunner: runner, criticSampleRate: 1, callbacks: { onChunk: ({ content }) => visible.push(content) } })
       expect(result.finalText).toBe(fixed)
+      expect(observedPrompts.map(input => input.phase)).toEqual(['write', 'review', 'revision', 'review'])
+      expect(runner.mock.calls.map(call => call[0].options.temperature)).toEqual([0.6, 0, 0.6, 0])
       expect(visible.join('')).toBe(fixed)
       expect(result.trace.taskQuality).toMatchObject({ required: true, repairs: 1, reviews: [{ pass: false }, { pass: true }] })
       expect(result.trace.criticShadow.scheduled).toBe(false)
@@ -85,13 +88,13 @@ describe('narrative kernel executor', () => {
       expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, authorizedAction: '我推测可能有人误填日期' }, draft: '你推测可能有人误填日期。' }).pass).toBe(true)
       expect(parseTaskQualityVerdict(roleplayVerdict, { contract: { ...roleplay, authorizedAction: '我决定检查记录' }, draft: '你决定检查记录。' }).pass).toBe(true)
       expect(parseTaskQualityVerdict(roleplayVerdict, { contract: roleplay, draft: '闻舟决定现在离开。' }).pass).toBe(false)
-      for (const invalid of ['not-json', JSON.stringify(verdict(true))]) {
+      for (const invalid of ['not-json', 'no-final', JSON.stringify(verdict(true))]) {
         const onChunk = vi.fn()
-        const failing = vi.fn(async (_args, { phase }) => ({ kind: 'final_ready', calls: [], text: phase === 'review' ? invalid : draft }))
+        const failing = vi.fn(async (_args, { phase }) => ({ kind: phase === 'review' && invalid === 'no-final' ? 'tool_calls' : 'final_ready', calls: [], text: phase === 'review' ? invalid : draft }))
         await expect(runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,
-          decisionRunner: failing, callbacks: { onChunk } })).rejects.toMatchObject({ code: invalid === 'not-json' ? 'NARRATIVE_TASK_CHECK_INVALID' : 'NARRATIVE_TASK_CONSTRAINT_FAILED' })
+          decisionRunner: failing, callbacks: { onChunk } })).rejects.toMatchObject({ code: ['not-json', 'no-final'].includes(invalid) ? 'NARRATIVE_TASK_CHECK_INVALID' : 'NARRATIVE_TASK_CONSTRAINT_FAILED' })
         expect(onChunk).not.toHaveBeenCalled()
-        expect(failing.mock.calls.length).toBe(invalid === 'not-json' ? 2 : 4)
+        expect(failing.mock.calls.length).toBe(['not-json', 'no-final'].includes(invalid) ? 3 : 4)
       }
       const controller = new AbortController()
       await expect(runNarrativeAgentGeneration({ kernel, registry, intent: 'extend', taskContract: contract,

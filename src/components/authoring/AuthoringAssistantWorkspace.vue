@@ -10,16 +10,16 @@
       <button v-if="expanded && indexOpen && narrow" type="button" class="authoring-assistant-workspace__scrim" :aria-label="tr('收起作品导航')" @click="closeIndex"></button>
       <aside v-if="expanded && indexOpen" id="assistant-workspace-nav" ref="indexRef" class="authoring-assistant-workspace__index" :aria-label="tr('作品导航')">
         <WorkspaceProjectNavigation :book-id="projectId" current="assistant" :navigation="!contentWorkspace?.moduleNavigation.value" managed :document-title="documentTitle" :blocked="sourcesBusy" :blocked-title="navigationBlockedTitle" @select="selectSurface" @select-book="emit('select-book', $event)" />
-        <div v-if="state.sessions.length > 1" class="authoring-assistant-workspace__sessions" :aria-label="tr('作品对话')">
-          <div v-for="session in state.sessions" :key="session.sessionId" class="assistant-session-row"><button type="button" :class="{ 'is-selected': session.active }" :aria-current="session.active ? 'true' : undefined" :disabled="state.busy || state.agentState.adoptionBusy" @click="selectConversation(session.sessionId)"><WorkbenchIcon name="message-square" :size="14" /><span>{{ session.title }}</span></button><button type="button" class="assistant-session-delete" :aria-label="tr('删除对话 {title}', { title: session.title })" :title="tr('删除对话')" :disabled="state.busy || state.agentState.adoptionBusy" @click="deleteConversation(session)"><WorkbenchIcon name="trash" :size="14" /></button></div>
+        <div class="authoring-assistant-workspace__sessions" :aria-label="tr('作品对话')">
+          <AssistantConversationList :assistant="assistant" :busy="state.busy || state.agentState.adoptionBusy" @select="selectConversation" @new="startConversation" @deleted="handleDeletedConversation" />
         </div>
-        <div class="authoring-assistant-workspace__questions">
-          <strong>{{ tr('对话提问') }}</strong>
+        <details v-if="questions.length" class="authoring-assistant-workspace__questions">
+          <summary>{{ tr('本次对话目录') }}</summary>
           <div ref="questionsRef" class="authoring-assistant-workspace__questions-scroll" :aria-label="tr('当前对话索引')">
             <button v-for="question in questions" :key="question.id" type="button" :data-question-id="question.id" :class="{ 'is-selected': activeQuestionId === question.id }" :aria-current="activeQuestionId === question.id ? 'location' : null" :disabled="reviewBusy" :title="reviewBusy ? tr('检查进行中，请先停止检查再查看对话') : question.question" @click="focusQuestion(question.id)"><span>{{ question.question }}</span></button>
             <p v-if="!questions.length">{{ tr('对话会保存在这部作品里') }}</p>
           </div>
-        </div>
+        </details>
         <button type="button" class="authoring-assistant-workspace__nav-close" @click="closeIndex"><WorkbenchIcon name="close" :size="17" />{{ tr('收起作品导航') }}</button>
       </aside>
 
@@ -84,6 +84,7 @@ import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WorkspaceProjectNavigation from '../workbench/WorkspaceProjectNavigation.vue'
 import AuthoringKnowledgeAssistant from './AuthoringKnowledgeAssistant.vue'
+import AssistantConversationList from './AssistantConversationList.vue'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 const contentWorkspace = useComposableWorkspace()
@@ -182,12 +183,9 @@ function updateDraft(value) {
   props.assistant.updateDraft(value)
 }
 
-function deleteConversation(session) {
-  const owner = props.projectId
-  if (!window.confirm(tr('删除对话「{title}」？删除后无法恢复。', { title: session.title }))) return
-  if (owner === props.projectId && props.assistant.deleteConversation?.(session.sessionId)) { closePreview(); activeQuestionId.value = '' }
-}
+function handleDeletedConversation() { closePreview({ restoreFocus: false }); activeQuestionId.value = ''; focusDraft() }
 
+function startConversation() { if (props.assistant.newConversation()) { closePreview({ restoreFocus: false }); nextTick(() => knowledgeRef.value?.focusDraft()) } }
 function selectConversation(id) { closePreview(); props.assistant.selectSession?.(id); activeQuestionId.value = ''; focusDraft() }
 
 function previewEvidence(evidence, trigger) {
@@ -375,4 +373,13 @@ watch(() => state.value.messages, (messages) => {
 .assistant-session-row > button:first-child { flex: 1; min-width: 0; }
 .authoring-assistant-workspace__sessions .assistant-session-delete { flex: none; width: 32px; padding: 8px; }
 @media(max-width:720px) { .authoring-assistant-workspace__sessions .assistant-session-delete { width: 44px; } }
+</style>
+
+<style scoped>
+.authoring-assistant-workspace__sessions { flex: 1; max-height: none; }
+.authoring-assistant-workspace__sessions .assistant-conversation-heading { display: flex; align-items: center; gap: 8px; padding: 4px 12px 8px; font: 500 13px/1.5 var(--font-interface); }
+.assistant-conversation-heading strong { flex: 1; white-space: nowrap; }
+.authoring-assistant-workspace__sessions .assistant-conversation-heading button { width: auto; padding-inline: 0; font-size: 12px; }
+.authoring-assistant-workspace__questions { flex: none; max-height: 32%; margin-top: 16px; overflow-y: auto; }
+.authoring-assistant-workspace__questions summary { padding: 8px 12px; color: var(--text-muted); font: 13px/1.5 var(--font-interface); cursor: pointer; }
 </style>

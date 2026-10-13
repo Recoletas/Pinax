@@ -1,3 +1,5 @@
+import { compileLexiconPrompt } from '../../../../shared/lexiconFileContract.js'
+import { readLocalRuleFilesForBook, readLocalLexiconForBook } from '../../localMirrorSettings.js'
 import { assertAssistantPermission, normalizeAssistantPermission } from '../../../../shared/assistantPermission.js'
 import { requestAssistantPolicy } from './assistantPolicyClient.js'
 import { withAssistantEditLock } from '../../storage/assistantEditLock.js'
@@ -8,7 +10,7 @@ import { buildAssistantWorkspaceItems } from './assistantWorkspaceContext.js'
 import { createStoryAgentEngine } from './agentEngine.js'
 import { getChapterMarkdown } from '../../writing/writingDocumentSchema.js'
 
-export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getWorldbook, getLiveText, getLiveDocument, getSelection, getNotes, getOutline, persistCurrent, readBooks, saveBooks, publishBooks, protectCurrent, protectChanges, observeAdoption, publishWorldbook, publishRepository } = {}) {
+export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getWorldbook, getLiveText, getLiveDocument, getSelection, getNotes, getOutline, persistCurrent, readBooks, saveBooks, publishBooks, protectCurrent, protectChanges, observeAdoption, publishWorldbook, publishRepository, generateNarrative } = {}) {
   let bridge
   let currentPermission = null
   let permissionEpoch = 0
@@ -45,9 +47,29 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       outlineItems: (getOutline?.() || []).map(entry => item({ ...entry, text: entry.intent || entry.summary || entry.description || entry.title }, 'outline'))
     }
   }
-  const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context, formatInstructions: '讨论与检索正常回答。用户要求写作、改写、增补人物设定或大纲时，查清目标后调用 submit_edit_proposals 提交修改，最终回答简述修改与依据。禁止把操作说明当正文；修改需作者确认。' })
+  const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context, formatInstructions: typeof generateNarrative === 'function' ? '讨论与检索正常回答。当前章节的正文续写、改写和增补必须调用 generate_narrative_draft，提供作者要求，由推演链生成；设定、大纲及标题修改调用 submit_edit_proposals。不要在聊天里自行撰写正文充当修改结果；修改需作者确认。' : '讨论与检索正常回答。用户要求写作、改写、增补人物设定或大纲时，查清目标后调用 submit_edit_proposals 提交修改，最终回答简述修改与依据。禁止把操作说明当正文；修改需作者确认。' })
   return Object.freeze({
     ...engine,
+    prepare(input) {
+      const prepared = engine.prepare(input)
+      if (typeof generateNarrative === 'function' && prepared.currentChapterId) prepared.kernel.serialization.blocks.push({ kind: 'assistant-narrative', title: '推演写作能力', text: '正文续写、改写及增补使用 generate_narrative_draft；由当前作品的冻结现场、BeatPlan与正文执行链生成，不直接提交自行撰写的正文。' })
+      return prepared
+    },
+    async prepareNarrativeProposal(request, prepared, runId, signal) {
+      if (typeof generateNarrative !== 'function' || !prepared.editBaseline || request?.targetId !== prepared.currentChapterId) throw new Error('本轮没有可执行的推演写作目标。')
+      const changes = [{ kind: 'chapter', targetId: request.targetId, operation: request.operation, field: 'content', before: request.before, after: '', reason: request.instruction }]
+      assertAssistantPermission(prepared.permission, changes, prepared.bookId)
+      const generated = await generateNarrative({ request, prepared, signal })
+      if (signal?.aborted) throw signal.reason || new DOMException('请求已停止', 'AbortError')
+      if (this.destination().bookId !== prepared.bookId || this.destination().chapterId !== prepared.currentChapterId || currentPermission?.policyId !== prepared.permission.policyId || currentPermission?.revision !== prepared.permission.revision) throw new Error('作品或权限已变化，生成结果不能采用。')
+      assertAssistantPermission(currentPermission, changes, prepared.bookId)
+      const text = String(generated?.text || '').trim()
+      if (!text || generated.adoptable === false) throw Object.assign(new Error('推演未返回可采用的正文。'), { generatedText: text })
+      changes[0].after = text
+      const proposal = await this.prepareProposal({ changes }, prepared, runId)
+      proposal.narrativeReceipt = { manifestFingerprint: generated.contextManifest?.fingerprint || '', receipt: generated.contextReceipt || null }
+      return proposal
+    },
     async authorize(permission, sessionId, prepared, signal) {
       const epoch = ++permissionEpoch
       await loadBridge()
@@ -74,6 +96,13 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
     },
     destination: () => ({ bookId: String(getBook?.()?.id || ''), chapterId: String(getChapter?.()?.id || '') }),
     async enrichPrepared(prepared, { text, signal }) {
+      const [rules, lexicon] = await Promise.all([
+        readLocalRuleFilesForBook(prepared.bookId), readLocalLexiconForBook(prepared.bookId)
+      ])
+      if (signal?.aborted) throw signal.reason || new Error('请求已取消')
+      const ruleText = rules.files.slice(0, 8).map(item => `${item.name}: ${String(item.content || '').slice(0, 400)}`).join('\n')
+      const lexiconText = compileLexiconPrompt(lexicon.lexicon)
+      if (ruleText || lexiconText) prepared.kernel.serialization.blocks.push({ kind: 'local-rules', title: '作者词汇与本地约束', text: [ruleText.slice(0, 1200), lexiconText].filter(Boolean).join('\n') })
       const documents = prepared.editBaseline?.worldbook?.sourceDocuments || []
       if (!documents.some(document => document.chunkIds?.length)) return prepared
       const { retrieveAssistantSourceChunks } = await import('./assistantSourceRetrieval.js')

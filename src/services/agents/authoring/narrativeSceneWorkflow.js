@@ -49,6 +49,8 @@ export function createNarrativeSceneWorkflow({ runTurn } = {}) {
         envelope: context.envelope,
         authoringRunSession,
         signal: request.options?.signal,
+        assistantSampling: request.options?.assistantSampling || null,
+        onModelRequest: request.options?.onModelRequest || null,
         turn,
         narrativeContext: request.intent?.narrativeContext ?? null,
         resolveLiveContextDependencies: context.resolveLiveContextDependencies ?? null,

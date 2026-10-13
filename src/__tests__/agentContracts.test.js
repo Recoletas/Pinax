@@ -1018,6 +1018,14 @@ describe('agentContracts', function () {
     expect(localRulesBlock.truncated).toBe(false)
     expect(localRulesBlock.chars).toBeLessThanOrEqual(2000)
     expect(localRulesKernel.revision).not.toBe(narrativeKernel.revision)
+    const lexiconKernel = buildNarrativeKernel({ projectId: 'wb-narrative', messages: [{ role: 'user', content: '继续' }],
+      lexicon: { banned: [{ word: '心中一凛', level: 1 }], own: [{ word: '雾港' }], canon: [{ term: '陆晨曦', aliases: ['小陆'] }] } })
+    const lexiconBlock = lexiconKernel.blocks.find(block => block.kind === 'local-rules')
+    expect(lexiconBlock.sourceRefs).toContain('lexicon:词汇表.json')
+    expect(lexiconBlock.content.files[0].content).toContain('心中一凛')
+    expect(lexiconBlock.content.files[0].content).toContain('雾港')
+    expect(lexiconBlock.content.files[0].content).toContain('小陆')
+    expect(lexiconBlock.chars).toBeLessThanOrEqual(2000)
     // 超预算：统一的正文上限二分截断，元数据保留，块可序列化 ≤2000。
     var oversizedLocalRulesKernel = buildNarrativeKernel({
       worldbook: narrativeWorldbook,

@@ -1,6 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { tr } from '../../i18n/index.js'
 import NarrativeBlock from './NarrativeBlock.vue'
+import PromptPreviewPanel from '../agent/PromptPreviewPanel.vue'
+import { openPromptPreview, promptPreviewKey } from '../../composables/usePromptPreview.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { speakerToneOf, speakerGroupMarkers } from '../../services/experience/experienceSpeakerTone'
 
@@ -33,6 +36,7 @@ const blockMeta = computed(() => {
 
 // M3：触屏不常驻显示消息操作 —— 点消息主体显示一次性操作入口
 const actionsOpen = ref(false)
+const promptPreviewOpen = computed(() => Boolean(props.message.promptSnapshotKey) && promptPreviewKey.value === props.message.promptSnapshotKey)
 const isCoarsePointer = () => (
   typeof window !== 'undefined'
   && window.matchMedia?.('(hover: none), (pointer: coarse)').matches
@@ -77,12 +81,14 @@ function shouldShowBlockSpeaker(block, index) {
       <span class="prose__actions-menu">
         <button v-if="canCollectWriting" type="button" class="prose__action prose__action--collect" @click="$emit('collect-writing')">收进稿件</button>
         <button type="button" class="prose__action" title="编辑内容" aria-label="编辑内容" @click="$emit('edit')"><WorkbenchIcon name="pencil" :size="13" /></button>
+        <button v-if="message.role === 'assistant' && message.promptSnapshotKey" type="button" class="prose__action" :title="tr('查看本轮提示词')" :aria-label="tr('查看本轮提示词')" @click="openPromptPreview(message.promptSnapshotKey)"><WorkbenchIcon name="search" :size="13" /></button>
         <button v-if="canUndoExtension" type="button" class="prose__action prose__action--undo" title="撤销本次续接" aria-label="撤销本次续接" @click="$emit('undo-extension')"><WorkbenchIcon name="undo-extension" :size="13" /></button>
         <button type="button" class="prose__action prose__action--delete" title="删除" aria-label="删除消息" @click="$emit('delete')"><WorkbenchIcon name="trash" :size="13" /></button>
         <button v-if="message.role === 'user'" type="button" class="prose__action prose__action--regen" title="重写后续" aria-label="重写后续" @click="$emit('regenerate')"><WorkbenchIcon name="refresh" :size="13" /></button>
         <button v-if="message.role === 'user' && hasCandidates" type="button" class="prose__action prose__action--branch" title="切换回复版本" aria-label="切换回复版本" @click="$emit('switch-candidate')"><WorkbenchIcon name="network" :size="13" /></button>
       </span>
     </details>
+    <PromptPreviewPanel v-if="promptPreviewOpen" :snapshot-key="message.promptSnapshotKey" />
   </div>
 </template>
 

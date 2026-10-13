@@ -67,13 +67,32 @@ export async function readLocalRuleFilesForBook(bookId) {
   const id = String(bookId || '').trim()
   if (!id) return { files: [] }
   try {
-    const response = await fetch(`/api/localmirror/rules?bookId=${encodeURIComponent(id)}`)
+    const response = await fetch(`/api/localmirror/rules?bookId=${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(3000) })
     const body = await response.json().catch(() => null)
     if (!response.ok || body?.ok !== true) return { files: [] }
     return { files: Array.isArray(body.files) ? body.files : [] }
   } catch (error) {
     console.warn('[localMirror] 读取本地约束失败（忽略）:', error?.message || error)
     return { files: [] }
+  }
+}
+
+/** 项目词汇表读回（pinax-lexicon@1）：注册表 bookId → 项目根「词汇表.json」→ { exists, lexicon, warnings }。
+ *  fail-open：未绑定/公网 403/文件缺失等读不到时返回 { exists:false }，绝不阻塞生成。 */
+export async function readLocalLexiconForBook(bookId) {
+  const id = String(bookId || '').trim()
+  if (!id) return { exists: false, lexicon: null, warnings: [] }
+  try {
+    const response = await fetch(`/api/localmirror/lexicon?bookId=${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(3000) })
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) return { exists: false, lexicon: null, warnings: [] }
+    return {
+      exists: body.exists === true,
+      lexicon: body.lexicon && typeof body.lexicon === 'object' ? body.lexicon : null,
+      warnings: Array.isArray(body.warnings) ? body.warnings : []
+    }
+  } catch {
+    return { exists: false, lexicon: null, warnings: [] }
   }
 }
 

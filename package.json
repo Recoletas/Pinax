@@ -82,6 +82,7 @@
     "smoke:worldbook-write-merge": "node scripts/worldbook-write-merge-smoke.mjs",
     "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs",
     "smoke:worldbook-localization": "node scripts/worldbook-localization-smoke.mjs",
+    "build:knowledge-runtime": "node scripts/build-knowledge-runtime.mjs",
     "build:agent-runtime": "node scripts/build-storyagent-runtime.mjs"
   },
   "dependencies": {

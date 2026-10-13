@@ -12,6 +12,8 @@ export interface BridgeStatus {
   phase: "step" | "tool";
   tool?: string;
   action?: string;
+  callId?: string;
+  input?: unknown;
   stepIndex?: number;
   toolChoice?: string;
 }
@@ -24,6 +26,7 @@ export interface BridgeTaskEvent {
 }
 
 export interface BridgeCallbacks {
+  onPromptComposed?: (prompt: { system: string; user: string; history?: unknown[]; toolNames?: string[]; temperature?: number | null }) => void;
   onReasoning?: (chunk: { content: string }) => void;
   onBeatPlan?: (plan: Record<string, unknown> | null) => void;
   onToolResult?: (result: Record<string, unknown>) => void;

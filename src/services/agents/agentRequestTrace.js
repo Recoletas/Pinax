@@ -1,7 +1,7 @@
 import { randomUUID } from '../../../shared/randomId.js'
 
 const STORAGE_KEY = 'pinax_agent_request_trace_v1'
-const TRACE_LIMIT = 20
+const TRACE_LIMIT = 50
 
 function readTraces() {
   if (typeof localStorage === 'undefined') return []
@@ -20,6 +20,7 @@ export function createAgentRequestId() {
 export function summarizeAgentEnvelope(envelope) {
   return {
     surface: envelope?.surface || '',
+    projectId: envelope?.projectId || '',
     target: {
       type: envelope?.target?.type || '',
       id: envelope?.target?.id || null,
@@ -29,6 +30,7 @@ export function summarizeAgentEnvelope(envelope) {
     blocks: (envelope?.blocks || []).map((block, order) => ({
       order,
       kind: block.kind,
+      chars: Number(block.chars || block.retainedChars || 0),
       priority: block.priority,
       sourceRefs: block.sourceRefs || [],
       truncated: Boolean(block.truncated),
@@ -43,6 +45,7 @@ export function recordAgentRequestTrace(trace) {
   const traces = [trace, ...readTraces().filter((item) => item?.requestId !== trace?.requestId)]
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(traces.slice(0, TRACE_LIMIT)))
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('pinax-agent-trace'))
   } catch {
     // Trace must never block an Agent request.
   }

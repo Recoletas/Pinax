@@ -245,7 +245,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 6px 12px;
   gap: 6px;
-  background: var(--surface-workbench-canvas);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--hairline-soft);
   position: relative;
   z-index: var(--z-workbench-chrome, 90);
 }

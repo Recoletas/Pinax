@@ -295,7 +295,8 @@ const props = defineProps({
   /** 'characters'=人物表（七模板字段并集）；'all'=全部词条混排（列=模板字段并集∪正文标签并集） */
   scope: { type: String, default: 'characters' },
   /** 与词条墙／图谱同源的一份过滤真相（控制菜单点持有，表格只是消费者） */
-  filters: { type: Object, default: () => ({ cat: '', status: '', tier: '' }) }
+  filters: { type: Object, default: () => ({ cat: '', status: '', tier: '' }) },
+  visibleIds: { type: Object, default: null }
 })
 
 const emit = defineEmits(['update:filters', 'select', 'open', 'reload'])
@@ -332,7 +333,7 @@ const allColumns = computed(() => (props.scope === 'all'
 const rows = computed(() => {
   const needle = nameFilter.value.trim()
   // 共享轴（分类/状态/档位）先过一遍，判据仍是浏览视图那一份 filterEntries，表格不自定第二套
-  const list = filterEntries(tableEntries(props.worldbook, props.scope), props.filters)
+  const list = filterEntries(tableEntries(props.worldbook, props.scope), props.filters).filter(entry => !props.visibleIds || props.visibleIds.has(entry.id))
   if (!needle) return list
   return list.filter((entry) => String(entry?.name || '').includes(needle))
 })

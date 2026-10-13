@@ -77,12 +77,12 @@
   --authoring-sidebar-title-size: 16px;
   --authoring-sidebar-label-size: 15px;
   --authoring-sidebar-meta-size: 13px;
-  --authoring-sidebar-gutter: 22px;
-  --writing-tool-rail-width: 60px;
+  --authoring-sidebar-gutter: 16px;
+  --writing-tool-rail-width: 52px;
 }
 /* Restore the original shelf geometry; only surface treatments differ. */
 .theme-legacy .writing-page .wall__shelf {
-  --nav-surface: color-mix(in srgb, var(--surface-workbench-muted) 85%, var(--surface-workbench));
+  --nav-surface: var(--surface-workbench-muted);
   --nav-hover: color-mix(in srgb, var(--text-primary) 4%, var(--nav-surface));
   --nav-selected-secondary: color-mix(in srgb, var(--text-primary) 6%, var(--nav-surface));
   background: var(--nav-surface);
@@ -91,9 +91,13 @@
 .theme-legacy .writing-page .authoring-chapter-search {
   background: color-mix(in srgb, var(--surface-workbench-raised) 75%, var(--nav-surface));
 }
+/* Keep the original compact shelf inside the current control material. */
+.theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-create button {
+  border-radius: var(--radius-control);
+}
 /* The shared navigation's new square rows must not change the restored shelf. */
 .theme-legacy .app-shell .writing-page .wall__shelf .workspace-nav-item {
-  border-radius: var(--workspace-radius, 12px);
+  border-radius: 4px;
 }
 .theme-legacy .writing-page .wall__shelf .authoring-idea-row.is-active {
   background: var(--nav-selected-secondary);
@@ -109,11 +113,11 @@
 .theme-legacy .writing-page .authoring-chapter-row__name { font-weight: 500; }
 .theme-legacy .writing-page .authoring-chapter-row__ordinal { color: var(--text-secondary); font-size: 13px; }
 .theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row.is-active {
-  background: var(--nav-primary-selected);
+  background: var(--nav-selected-secondary);
   color: var(--text-primary);
 }
 .theme-legacy .app-shell .writing-page .wall__shelf .authoring-chapter-row.is-active :is(.authoring-chapter-row__title, .authoring-chapter-row__name, .authoring-chapter-row__ordinal) { font-weight: 600; }
-.theme-legacy .writing-page .authoring-chapter-row.is-active .authoring-chapter-row__ordinal { color: var(--accent); }
+.theme-legacy .writing-page .authoring-chapter-row.is-active .authoring-chapter-row__ordinal { color: inherit; }
 .theme-legacy .writing-page .wall__shelf-scene { background: var(--nav-surface); }
 .theme-legacy .writing-page .wall__dossier { margin: 0; border: 0; border-inline: 1px solid var(--hairline-soft); border-radius: 0; box-shadow: none; }
 
@@ -126,10 +130,10 @@
   --authoring-catalog-meta-size: 12px;
 }
 .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__head {
-  min-height: 60px;
-  padding: 12px var(--authoring-sidebar-gutter) 8px;
+  min-height: 44px;
+  padding: 8px var(--authoring-sidebar-gutter);
   background: var(--surface-assistant);
-  border-bottom: 0;
+  border-bottom: 1px solid var(--hairline-soft);
 }
 .theme-legacy .writing-page .writing-inspector__head strong { font-size: var(--authoring-sidebar-title-size); font-weight: 600; }
 .theme-legacy .writing-page .writing-inspector__head-actions { gap: 4px; }
@@ -141,23 +145,24 @@
 .theme-legacy .writing-page .writing-inspector__memory-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs {
   gap: 4px;
-  margin: 0 var(--authoring-sidebar-gutter) 12px;
-  padding: 3px;
+  margin: 0;
+  padding: 6px 12px;
   border: 0;
-  border-radius: 10px;
-  background: var(--surface-workbench-muted);
+  border-bottom: 1px solid var(--hairline-soft);
+  border-radius: 0;
+  background: transparent;
 }
 .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs button {
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 32px;
-  padding-inline: 8px;
+  padding-inline: 10px;
   border: 0;
   border-radius: 7px;
   font: 500 var(--authoring-sidebar-meta-size)/1.5 var(--font-interface);
 }
 .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector__tabs button.active {
   color: var(--text-primary);
-  background: var(--surface-workbench-raised);
+  background: var(--surface-workbench-muted);
   box-shadow: var(--shadow-workbench);
 }
 .theme-legacy .writing-page .writing-inspector__tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -179,10 +184,10 @@
 .writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button { justify-content: flex-start; gap: 10px; padding: 9px 4px; border: 0; border-radius: var(--radius-control); font-size: 14px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button > svg { color: var(--text-muted); }
 @media (min-width: 1181px) {
-  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0 0 10px 10px; border: 1px solid var(--hairline-soft); border-radius: 18px; box-shadow: none; }
+  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0; border: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; box-shadow: none; }
 }
 @media (min-width: 721px) and (max-width: 1180px) {
-  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0; border: 1px solid var(--hairline-soft); border-radius: 16px 0 0 16px; box-shadow: var(--shadow-workbench-float); }
+  .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0; border: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; box-shadow: var(--shadow-workbench-float); }
 }
 @media (max-width: 720px), (pointer: coarse) {
   .theme-legacy .writing-page .writing-inspector__icon-btn { min-width: 44px; min-height: 44px; }
@@ -246,3 +251,12 @@
 
 .writing-inspector__pending-proposals { flex: none; padding: 8px 16px; border-bottom: 1px solid var(--hairline-soft); }
 .writing-inspector__pending-proposals button { display: block; border: 0; padding: 8px 0; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-sans); cursor: pointer; }
+
+@media (max-width: 720px) {
+  /* During manuscript review, retain the conversation without covering the draft. */
+  .theme-legacy .writing-page:not(.is-assistant-full):has(.assistant-edit-review) .writing-inspector.is-assistant {
+    inset-block-start: auto;
+    height: min(48dvh, 400px);
+    max-height: min(48dvh, 400px);
+  }
+}

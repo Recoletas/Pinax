@@ -6,6 +6,9 @@ import { useSettingsProjectContext } from '../../composables/useSettingsProjectC
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorldbookSourcesPanel from '../worldbook/WorldbookSourcesPanel.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
+const DocumentReader = defineAsyncComponent(() => import('../documents/DocumentReader.vue'))
+const KnowledgeMethodPanel = defineAsyncComponent(() => import('../knowledge/KnowledgeMethodPanel.vue'))
+const view = ref('sources')
 const ImportDialog = defineAsyncComponent(() => import('../worldbook/WorldbookSourceImportDialog.vue'))
 const props = defineProps({ resource: { type: Object, required: true }, instanceId: { type: String, required: true }, showAddButton: { type: Boolean, default: true } })
 const emit = defineEmits(['sources-changed'])
@@ -32,7 +35,12 @@ defineExpose({ openImport: () => { importOpen.value = true } })
       <button v-if="resource.bookId && showAddButton" type="button" class="control-secondary" @click="importOpen = true"><WorkbenchIcon name="plus" :size="16" />{{ tr('添加资料') }}</button>
       <button type="button" class="control-quiet" :aria-label="tr('刷新资料')" :title="tr('刷新资料')" :disabled="loading" @click="refresh"><WorkbenchIcon name="refresh" :size="16" /></button>
     </header>
-    <p v-if="loading" role="status">{{ tr('正在加载资料…') }}</p>
+    <nav class="sources-view-modes" aria-label="资料查看方式">
+      <button v-for="item in [{ id: 'sources', title: '参考资料' }, { id: 'files', title: '项目文档' }, { id: 'knowledge', title: '知识检索' }]" :key="item.id" type="button" :aria-pressed="view === item.id" :class="{ active: view === item.id }" @click="view = item.id">{{ tr(item.title) }}</button>
+    </nav>
+    <DocumentReader v-if="view === 'files'" :key="resource.bookId" :book-id="resource.bookId" />
+    <KnowledgeMethodPanel v-else-if="view === 'knowledge'" :key="resource.bookId" :book-id="resource.bookId" :worldbook="worldbook" />
+    <p v-else-if="loading" role="status">{{ tr('正在加载资料…') }}</p>
     <div v-else-if="loadError || context?.status === 'missing-book'" role="alert"><p>{{ tr(loadError || '这本书已不存在。') }}</p></div>
     <WorldbookSourcesPanel v-else-if="worldbook" :worldbook="worldbook" :book-id="resource.bookId" initial-open standalone external-reader @open-source="openSource" @sources-changed="changed" />
     <p v-else>{{ tr('还没有参考资料') }}</p>
@@ -41,6 +49,10 @@ defineExpose({ openImport: () => { importOpen.value = true } })
 </template>
 
 <style scoped>
+.sources-view-modes { display: flex; gap: 16px; border-bottom: 1px solid var(--hairline-soft); margin-bottom: 16px; }
+.sources-view-modes button { background: none; color: var(--text-secondary); border: 0; padding: 8px 0; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
+.sources-view-modes button.active { color: var(--accent-primary); border-bottom-color: var(--accent-primary); }
+.workspace-sources-view :deep(.doc-reader), .workspace-sources-view :deep(.kb-panel) { min-height: 360px; height: auto; }
 .workspace-sources-view { min-height: 0; padding: 20px; container-type: inline-size; container-name: workspace-sources; color: var(--text-primary); }
 .workspace-sources-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
 .workspace-sources-actions button { display: inline-flex; align-items: center; gap: 6px; }
