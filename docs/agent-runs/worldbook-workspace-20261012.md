@@ -96,3 +96,5 @@ GitHub PR #7仍为Open，head仍是b70e893ae1707a1272cab7094fb27c69474f16e1，�
 组合`npm run verify:full` exit0：20文件／200用例，lint0error／5存量warning，Vite及VitePress、结构／体积（Authoring1,373,796字节）与diff通过。bridge两项因兄弟kit仓不存在仍环境跳过；本轮独立知识运行包另行真实执行。最终3001和8451已按授权更新，24份日志哈希一致，5173不动；运行包回退位置见部署说明。
 
 贡献归属：保留原PR head b70e893ae1707a1272cab7094fb27c69474f16e1 的本地引用 `pr7-source-original`，16个原提交只修正 `miniflow@local` 邮箱为GitHub已核对的 `59155174+skkbsgzf@users.noreply.github.com`；不改变树、消息或日期。修正链 head 为61e4aad8a222b4727e30468e3e38c656b75355e6（`pr7-contributor-credited`），用于本地main历史整合。GitHub原PR的合并状态须单独确认，不能用修正链的本地合并冒充原head已在远端合并。
+
+本地整合实现提交97e44411；历史合并以这份已验证实现为最终代码树，保留原本地工作区与双栏，不导入PR的旧外壳替换、独立知识页及临时截图。合并父链为本地实现与已修正署名的16个贡献提交；原PR引用另保留。最终验证20／200 exit0，Authoring1,373,796字节，VitePress退出0。未推送，GitHub原PR仍未由本轮操作合并。
