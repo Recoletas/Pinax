@@ -20,7 +20,7 @@
         type="button"
         :aria-expanded="chapterDrawerOpen.toString()"
         aria-controls="writing-chapter-shelf"
-        @click.stop="openChapterDrawer"
+        @click.stop="directoryHost?.directoryDocked.value ? directoryHost.state.directoryOpen = true : openChapterDrawer()"
       >
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>

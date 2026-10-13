@@ -1,5 +1,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { loadWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { tr } from '../../i18n/index.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import { createDirectory, readDirectory, saveDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../../services/workspace/projectDirectory.js'
@@ -11,6 +13,8 @@ import WorkbenchIcon from './WorkbenchIcon.vue'
 const props = defineProps({ bookId: { type: String, required: true }, chapters: { type: Array, default: () => [] }, ideas: { type: Array, default: () => [] }, worldbook: { type: Object, default: null }, activeChapterId: { type: String, default: '' }, activeIdeaId: { type: String, default: '' }, beforeOpen: { type: Function, default: null }, createResource: { type: Function, default: null }, refreshWorldbook: { type: Function, default: null } })
 const DirectoryCreateDialog = defineAsyncComponent(() => import('./DirectoryCreateDialog.vue'))
 const creation = ref(null)
+const router = useRouter()
+const projects = ref([])
 const host = useComposableWorkspace()
 const directory = ref(createDirectory())
 const error = ref('')
@@ -40,10 +44,10 @@ const resource = (type, id, extra = {}) => ({ type, id: String(id), bookId: prop
 const sourceMirror = source => (props.worldbook?.entries || []).find(entry => entry.type === 'source' && String(entry.metadata?.sourceDocumentId || entry.id) === String(source.id))
 const catalog = computed(() => [
   { title: '项目文档', label: '文档', icon: 'sources', folder: 'sources', readonly: true, resource: resource('sources', 'project-documents', { sourcesView: 'files' }) },
-  ...props.chapters.map((item, index) => ({ title: writingChapterRowLabel(index, item.title), label: '章节', icon: 'writing', folder: 'manuscript', resource: resource('chapter', item.id) })),
-  ...props.ideas.map(item => ({ title: item.title || '未命名构思', label: '构思', icon: 'pencil', folder: 'ideas', resource: resource('exploration', item.id) })),
-  ...(props.worldbook?.entries || []).filter(item => !isMachineLedgerEntry(item) && !(item.type === 'source' && (props.worldbook?.sourceDocuments || []).some(source => String(source.id) === String(item.metadata?.sourceDocumentId || item.id)))).map(item => ({ title: item.name || item.title || '未命名设定', label: ({ character: '人物', location: '地点', organization: '组织', source: '来源' })[item.type] || '设定', icon: ({ character: 'character', location: 'map', organization: 'users', source: 'document' })[item.type] || 'worldbook', folder: item.type === 'source' ? 'sources' : 'settings', readonly: item.type === 'source', resource: resource('entry', item.id) })),
-  ...(props.worldbook?.sourceDocuments || []).map(item => ({ aliases: sourceMirror(item) ? [directoryResourceKey(resource('entry', sourceMirror(item).id))] : [], title: sourceMirror(item)?.name || item.title || '未命名资料', label: '资料', icon: 'document', folder: 'sources', readonly: true, resource: resource('source', item.id, { contentHash: item.contentHash || '' }) })),
+  ...props.chapters.map((item, index) => ({ title: writingChapterRowLabel(index, item.title), label: '章节', icon: 'chapter', folder: 'manuscript', resource: resource('chapter', item.id) })),
+  ...props.ideas.map(item => ({ title: item.title || '未命名构思', label: '构思', icon: 'idea', folder: 'ideas', resource: resource('exploration', item.id) })),
+  ...(props.worldbook?.entries || []).filter(item => !isMachineLedgerEntry(item) && !(item.type === 'source' && (props.worldbook?.sourceDocuments || []).some(source => String(source.id) === String(item.metadata?.sourceDocumentId || item.id)))).map(item => ({ title: item.name || item.title || '未命名设定', label: ({ character: '人物', location: '地点', organization: '组织', event: '事件', source: '来源' })[item.type] || '设定', icon: ({ character: 'character-file', location: 'location-file', organization: 'organization-file', event: 'event-file', source: 'source-file' })[item.type] || 'setting-file', folder: item.type === 'source' ? 'sources' : 'settings', readonly: item.type === 'source', resource: resource('entry', item.id) })),
+  ...(props.worldbook?.sourceDocuments || []).map(item => ({ aliases: sourceMirror(item) ? [directoryResourceKey(resource('entry', sourceMirror(item).id))] : [], title: sourceMirror(item)?.name || item.title || '未命名资料', label: '资料', icon: 'source-file', folder: 'sources', readonly: true, resource: resource('source', item.id, { contentHash: item.contentHash || '' }) })),
   ...assets.value.map(item => ({ title: item.title || '未命名素材', label: item.kind === 'reference-image' || item.mediaAssetId ? '图片' : '素材', icon: 'image', folder: 'assets', readonly: true, resource: resource('asset', item.id) }))
 ])
 const rows = computed(() => directoryRows(directory.value, catalog.value))
@@ -85,6 +89,7 @@ const activeKey = computed(() => {
 })
 function isActiveRow(row) { return row.key === activeKey.value || row.aliases?.includes(activeKey.value) }
 function reload() {
+  projects.value = loadWritingBooks()
   try { directory.value = readDirectory(props.bookId); loadFailed.value = false; error.value = '' } catch (cause) { loadFailed.value = true; error.value = cause.message || '目录无法读取，原记录已保留。' }
   reloadAssets()
 }
@@ -126,6 +131,19 @@ onBeforeUnmount(() => { unsubscribe(); window.removeEventListener('pinax-project
 function mutate(next) {
   if (loadFailed.value) return false
   try { directory.value = saveDirectory(props.bookId, directory.value, next); error.value = ''; return true } catch (cause) { error.value = cause.message || '目录未能保存，请重试。'; return false }
+}
+async function selectProject(event) {
+  const bookId = event.target.value
+  event.target.value = props.bookId
+  if (opening.value || bookId === props.bookId) return
+  const book = projects.value.find(item => String(item.id) === bookId)
+  if (!book) return
+  opening.value = true
+  try {
+    if (props.beforeOpen && await props.beforeOpen() === false) { error.value = host.state.notice || '请先保存当前修改。'; return }
+    await router.push({ name: 'authoring', query: { bookId, ...(book.chapters?.[0]?.id ? { chapterId: String(book.chapters[0].id) } : {}) } })
+  } catch (cause) { error.value = cause.message || '未能切换作品。' }
+  finally { opening.value = false }
 }
 function toggle(row) { const next = new Set(closed.value); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); closed.value = next }
 function select(row) { selectedKey.value = row.key; focusedKey.value = row.key }
@@ -305,6 +323,7 @@ function drop(event, row) {
 
 <template>
   <section class="project-directory" aria-label="作品文件目录" data-test="project-directory">
+    <div class="directory-project"><WorkbenchIcon name="project" :size="17" /><select :value="bookId" :disabled="opening" :aria-label="tr('切换作品')" @change="selectProject"><option v-for="project in projects" :key="project.id" :value="String(project.id)">{{ project.title || tr('未命名作品') }}</option></select></div>
     <div class="directory-search"><WorkbenchIcon name="search" :size="14" /><input v-model="query" type="search" :placeholder="tr('搜索本书内容')" :aria-label="tr('搜索本书内容')" /></div>
     <div class="directory-controls">
       <select v-model="filter" :aria-label="tr('按类型筛选')"><option value="">{{ tr('全部类型') }}</option><option value="chapter">{{ tr('章节') }}</option><option value="exploration">{{ tr('构思') }}</option><option value="entry">{{ tr('设定') }}</option><option value="source">{{ tr('资料 · 只读') }}</option><option value="sources">{{ tr('项目文档 · 只读') }}</option><option value="asset">{{ tr('素材') }}</option></select>
@@ -316,7 +335,7 @@ function drop(event, row) {
     <p v-if="error" class="directory-notice" role="alert">{{ tr(error) }}</p>
     <div ref="tree" role="tree" :aria-label="tr('文件目录')" :aria-busy="opening" class="directory-tree">
       <div v-for="(row, index) in visible" :key="row.key" role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.folder ? !closed.has(row.id) : undefined" :aria-selected="row.key === selectedKey" :aria-current="isActiveRow(row) ? 'page' : undefined" :aria-label="`${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" :tabindex="row.key === focusedKey || (!visible.some(item => item.key === focusedKey) && index === 0) ? 0 : -1" :data-key="row.key" :title="`${row.path ? row.path + ' / ' : ''}${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" class="directory-row" :class="{ 'is-active': isActiveRow(row), 'is-selected': row.key === selectedKey, 'is-folder': row.folder }" :style="{ paddingInlineStart: `${8 + row.depth * 16}px` }" draggable="true" @focus="focusedKey = row.key" @click="open(row)" @contextmenu.prevent="showTools(row, $event)" @keydown="keydown($event, row)" @dragstart="drag($event, row)" @dragover.prevent @drop.stop.prevent="drop($event, row)">
-        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.icon" :size="15" /><span class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><small v-if="!row.folder" class="directory-type">{{ tr(row.label) }}<span v-if="row.readonly"> · {{ tr('只读') }}</span></small><button type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
+        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) ? 'folder-open' : row.icon" :size="16" /><span class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><small v-if="!row.folder" class="directory-type">{{ tr(row.label) }}<span v-if="row.readonly"> · {{ tr('只读') }}</span></small><button type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
       </div>
     </div>
     <p v-if="!visible.length" class="directory-notice">{{ tr('没有匹配的内容') }}</p>
@@ -341,6 +360,8 @@ function drop(event, row) {
 
 <style scoped>
 .project-directory { min-width: 0; font: 13px/1.5 var(--font-sans); color: var(--text-primary); }
+.directory-project { display: flex; align-items: center; gap: 8px; padding: 8px 12px 14px; font-weight: 600; }
+.directory-project select { flex: 1; min-width: 0; padding: 0; color: var(--text-primary); text-overflow: ellipsis; font-weight: inherit; }
 .directory-search { display: flex; align-items: center; gap: 6px; padding: 8px 10px; margin: 0 8px 8px; background: var(--surface-workbench); border-radius: var(--radius-control); color: var(--text-muted); }
 .directory-search input { border: 0; outline: none; width: 100%; min-width: 0; background: transparent; color: var(--text-primary); font: inherit; }
 .directory-controls { display: flex; align-items: center; gap: 4px; margin: 0 8px 8px; }

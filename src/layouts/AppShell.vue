@@ -168,8 +168,10 @@ onBeforeUnmount(() => {
       'nav-hidden': hideActivityBar
     }"
   >
+    <Teleport :to="contentWorkspace.tabsTarget.value || 'body'" :disabled="!contentWorkspace.tabsTarget.value">
     <WorkspaceTabs :inert="drawerOpen ? '' : undefined">
       <div class="shell-tab-actions">
+        <button v-if="contentWorkspace.scope.value.bookId && contentWorkspace.state.narrow" type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.state.directoryOpen" @click="contentWorkspace.state.directoryOpen = !contentWorkspace.state.directoryOpen"><WorkbenchIcon name="panel-left" :size="18" /></button>
         <WorkspaceReferenceMenu />
         <button v-for="task in contentWorkspace.taskSummaries.value.filter(task => !String(task.viewId).startsWith('assistant:'))" :key="task.viewId" class="shell-assistant-task" type="button" :aria-label="tr(task.label)" :title="tr(task.label)" @click="task.open?.()"><WorkbenchIcon :name="task.icon || 'film'" :size="16" /><span>{{ tr(task.label) }}</span></button>
         <button v-if="contentWorkspace.state.hidden && contentWorkspace.activeView.value" type="button" :aria-label="tr('返回已打开内容')" :title="tr('返回已打开内容')" @click="contentWorkspace.activate(contentWorkspace.state.activeId)"><WorkbenchIcon name="columns" :size="18" /></button>
@@ -179,6 +181,7 @@ onBeforeUnmount(() => {
         <button type="button" :aria-label="tr(&quot;打开设置&quot;)" :title="tr(&quot;设置&quot;)" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
       </div>
     </WorkspaceTabs>
+    </Teleport>
     <p v-if="workspaceRecent.persistenceNotice && route.name !== 'welcome'" class="shell-navigation-notice" role="status">{{ tr(workspaceRecent.persistenceNotice) }}</p>
       <Transition name="modal-fade">
         <SettingsPopup v-if="settingsPopup.isOpen.value && route.name !== 'welcome'" />

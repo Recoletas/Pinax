@@ -7,6 +7,9 @@ import { createWorkspaceAssistantSessions } from './useWorkspaceAssistantSession
 export function provideComposableWorkspace(route, { openAssistant, openChapter, returnToPrimary } = {}) {
   const assistantNavigationNotice = '请先完成或停止助手任务，再切换作品；正文采用期间请稍候。'
   const state = reactive({ directoryOpen: false, views: [], activeId: '', mainModuleId: '', sideActiveId: '', expanded: false, hidden: false, width: 420, notice: '', primaryVisible: true, narrow: false, primaryComposing: false, composingViewId: '' })
+  const tabsTarget = shallowRef(null)
+  const viewTitles = reactive({})
+  const viewIcons = reactive({})
   const directoryTarget = shallowRef(null)
   const directoryDocked = shallowRef(false)
   const railTarget = shallowRef(null)
@@ -278,7 +281,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }

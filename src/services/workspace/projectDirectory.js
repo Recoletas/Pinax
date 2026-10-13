@@ -14,7 +14,7 @@ export function directoryResourceKey(raw) {
   return JSON.stringify([ref.bookId, ref.type, ['entry', 'source'].includes(ref.type) ? ref.worldbookId : '', ref.id])
 }
 export function createDirectory() {
-  return { version: 1, revision: 0, folders: DEFAULT_FOLDERS.map(folder => ({ ...folder })), placements: [], links: [] }
+  return { version: 1, revision: 0, folders: [], placements: [], links: [] }
 }
 export function validateDirectory(value, bookId) {
   if (value?.version !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.folders) || !Array.isArray(value.placements) || !Array.isArray(value.links)) throw new Error('目录格式无法读取，原记录已保留。')
@@ -51,7 +51,10 @@ export function readDirectory(bookId) {
   if (raw === null) return createDirectory()
   let value
   try { value = JSON.parse(raw) } catch { throw new Error('目录记录损坏，原数据已保留，可通过备份恢复。') }
-  return validateDirectory(value, bookId)
+  const valid = validateDirectory(value, bookId)
+  // Retire only untouched generated type folders; authored folders retain their identity.
+  const generated = new Set(valid.folders.filter(folder => DEFAULT_FOLDERS.some(defaultFolder => Object.keys(defaultFolder).every(key => folder[key] === defaultFolder[key]))).map(folder => folder.id))
+  return { ...valid, folders: valid.folders.filter(folder => !generated.has(folder.id)).map(folder => ({ ...folder, parentId: generated.has(folder.parentId) ? '' : folder.parentId })), placements: valid.placements.map(item => ({ ...item, parentId: generated.has(item.parentId) ? '' : item.parentId })) }
 }
 export function saveDirectory(bookId, previous, next) {
   const current = readDirectory(bookId)

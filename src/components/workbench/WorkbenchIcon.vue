@@ -1,6 +1,15 @@
 <script setup>
 import {
   FilePlus2,
+  FolderOpen,
+  BookText,
+  FilePenLine,
+  ContactRound,
+  Landmark,
+  Building2,
+  CalendarDays,
+  ScrollText,
+  TextQuote,
   FileUp,
   FileText,
   FileType,
@@ -67,6 +76,16 @@ import {
 } from 'lucide-vue-next'
 
 const icons = {
+  project: BookOpen,
+  'folder-open': FolderOpen,
+  chapter: BookText,
+  idea: FilePenLine,
+  'character-file': ContactRound,
+  'location-file': Landmark,
+  'organization-file': Building2,
+  'event-file': CalendarDays,
+  'setting-file': ScrollText,
+  'source-file': TextQuote,
   'thumbs-up': ThumbsUp,
   'thumbs-down': ThumbsDown,
   'new-manuscript': FilePlus2,

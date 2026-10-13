@@ -6,6 +6,7 @@ import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
 import { activateWorkspaceTab, closeWorkspaceProject, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
 import { groupWorkspaceProjectTabs, SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
+import { WORKSPACE_VIEW_TYPES } from '../../services/workspace/workspaceViewContract.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 // 顶部工作台标签：浏览器式连续标签带。活动标签与内容面连通；
@@ -37,8 +38,17 @@ const SURFACE_ICONS = {
 
 const HOME_TAB_ID = 'pinax-home'
 const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
-const tabs = computed(() => [homeTab, ...groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)])
-const activeTabId = computed(() => route.name === 'welcome' ? HOME_TAB_ID : workspaceTabs.activeTabId)
+const tabs = computed(() => {
+  const grouped = groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)
+  const mainViews = contentWorkspace?.state.views.filter(view => view.group === 'main') || []
+  return [homeTab, ...grouped.flatMap(tab => tab.projectGrouped && tab.projectId === route.query.bookId && mainViews.length
+    ? mainViews.map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: contentWorkspace.viewTitles[view.id] || view.title || WORKSPACE_VIEW_TYPES[view.resource.type]?.title || '内容', icon: contentWorkspace.viewIcons[view.id] || WORKSPACE_VIEW_TYPES[view.resource.type]?.icon, projectId: tab.projectId, scope: 'project' })) : [tab])]
+})
+const activeTabId = computed(() => {
+  if (route.name === 'welcome') return HOME_TAB_ID
+  const id = !contentWorkspace?.state.hidden && contentWorkspace?.state.mainModuleId || contentWorkspace?.primaryChapter.value?.id
+  return tabs.value.some(tab => tab.id === `content:${id}`) ? `content:${id}` : workspaceTabs.activeTabId
+})
 async function revealActiveTab() {
   await nextTick()
   const selected = scrollRef.value?.querySelector('[aria-current="true"]')
@@ -65,12 +75,14 @@ function projectInkStyle(tab) {
 
 // 760-1179 的缩短标题：项目子 surface 只显示 surface 名，写作标签显示书名。
 function shortTitle(tab) {
+  if (tab.view) return tab.title
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
   if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
   return tab.scope === 'project' && tab.surface === 'authoring' ? tab.title : tr(SURFACE_LABELS[tab.surface] || tab.title)
 }
 
 function displayTitle(tab) {
+  if (tab.view) return tab.title
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
   if (tab.scope !== 'project') return tab.instanceId ? `${shortTitle(tab)} · ${tab.instanceId}` : shortTitle(tab)
   if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
@@ -83,7 +95,12 @@ function displayTitle(tab) {
   return label ? `${tr(label)} · ${project}` : tab.title
 }
 
-function activateTab(tabId) {
+async function activateTab(tabId) {
+  const content = tabs.value.find(tab => tab.id === tabId)?.view
+  if (content) {
+    if (!await contentWorkspace.prepareOpen('main')) return
+    await contentWorkspace.activate(content.id); return
+  }
   if (tabId === HOME_TAB_ID) { void router.push({ name: 'welcome' }); return }
   const tab = workspaceTabs.tabs.find(tab => tab.id === tabId)
   if (!tabs.value.find(item => item.id === tabId)?.projectGrouped && tab?.surface === 'sources' && tab.projectId === route.query.bookId && route.name !== 'settings-sources' && contentWorkspace) {
@@ -93,7 +110,20 @@ function activateTab(tabId) {
   void activateWorkspaceTab(workspaceTabs, router, tabId)
 }
 
-function closeTab(tabId) {
+async function closeTab(tabId) {
+  const content = tabs.value.find(tab => tab.id === tabId)?.view
+  if (content) {
+    const current = activeTabId.value === tabId
+    if (await contentWorkspace.close(content.id)) {
+      delete contentWorkspace.viewTitles[content.id]; delete contentWorkspace.viewIcons[content.id]
+      if (current && !contentWorkspace.state.mainModuleId) {
+        const next = contentWorkspace.state.views.find(view => view.group === 'main')
+        if (next) await contentWorkspace.activate(next.id)
+      }
+      focusActiveTab()
+    }
+    return
+  }
   if (tabId === HOME_TAB_ID) return
   const tab = tabs.value.find(item => item.id === tabId)
   const operation = tab?.projectGrouped ? closeWorkspaceProject(workspaceTabs, router, tab.projectId) : closeWorkspaceTab(workspaceTabs, router, tabId)
@@ -104,7 +134,7 @@ function closeTab(tabId) {
 
 function focusActiveTab() {
   nextTick(() => {
-    const el = scrollRef.value?.querySelector(`[data-tab-id="${activeTabId.value}"]`)
+    const el = [...(scrollRef.value?.querySelectorAll('[data-tab-id]') || [])].find(element => element.dataset.tabId === activeTabId.value)
     if (el) el.focus({ preventScroll: false })
   })
 }
@@ -213,7 +243,7 @@ onBeforeUnmount(() => {
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
           <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
-          <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.projectGrouped ? 'book' : surfaceIcon(tab.surface)" :size="14" />
+          <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.icon || (tab.projectGrouped ? 'book' : surfaceIcon(tab.surface))" :size="14" />
           <span class="ws-tab__label">
             <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
             <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>

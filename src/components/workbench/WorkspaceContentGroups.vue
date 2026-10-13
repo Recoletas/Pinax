@@ -18,15 +18,14 @@ const sideTarget = ref(null)
 const targetsReady = ref(false)
 const renderedViews = computed(() => host.state.views.filter(view => view.resource.type !== 'online-editor' || host.onlineMountAllowed.value))
 // Chapters are navigated in the authoring shelf, not a second header row.
-const mainViews = computed(() => host.state.views.filter(view => view.group === 'main' && !['chapter', 'exploration'].includes(view.resource.type)))
 const sideViews = computed(() => host.state.views.filter(view => view.group !== 'main'))
 const mainModule = computed(() => !host.state.hidden && host.state.views.find(view => view.id === host.state.mainModuleId))
-const titles = ref({})
+const titles = host.viewTitles
 const active = computed(() => host.state.views.find(view => view.id === host.state.sideActiveId && view.group !== 'main'))
 const visible = computed(() => Boolean(active.value && active.value.id !== host.state.mainModuleId && !host.state.hidden && (!narrow.value || Boolean(host.state.activeId) && host.state.activeId !== host.state.mainModuleId)))
 const narrowQuery = typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)') : null
 const narrow = ref(Boolean(narrowQuery?.matches))
-watch(() => [host.state.activeId, visible.value, host.state.mainModuleId, host.state.expanded, host.state.width, Object.values(titles.value).join('|')], async () => {
+watch(() => [host.state.activeId, visible.value, host.state.mainModuleId, host.state.expanded, host.state.width, Object.values(titles).join('|')], async () => {
   await nextTick()
   await new Promise(resolve => requestAnimationFrame(resolve))
   for (const tab of root.value?.querySelectorAll('.workspace-content-tab.is-active') || []) {
@@ -40,9 +39,8 @@ watch(() => [host.state.activeId, visible.value, host.state.mainModuleId, host.s
 }, { immediate: true, flush: 'post' })
 const primaryHidden = computed(() => visible.value && narrow.value && !host.state.primaryComposing)
 const mainUsesPrimary = computed(() => !mainModule.value || ['chapter', 'exploration'].includes(mainModule.value.resource.type))
-const showMainTabs = computed(() => Boolean(mainModule.value && !mainUsesPrimary.value))
 watch(primaryHidden, hidden => { host.state.primaryVisible = !hidden && mainUsesPrimary.value }, { immediate: true })
-watch(mainUsesPrimary, value => { host.directoryDocked.value = !value }, { immediate: true })
+watch(() => host.scope.value.bookId, bookId => { host.directoryDocked.value = Boolean(bookId) }, { immediate: true })
 watch(mainModule, () => { host.state.primaryVisible = !primaryHidden.value && mainUsesPrimary.value })
 watch(narrow, value => { host.state.narrow = value }, { immediate: true })
 function composition(event, composing) {
@@ -69,7 +67,7 @@ onMounted(() => { targetsReady.value = true; narrowQuery?.addEventListener('chan
 let drag = null
 async function close(view) {
   await nextTick()
-  if (await host.close(view.id)) { delete titles.value[view.id]; await nextTick(); root.value?.querySelector('.workspace-content-tab.is-active')?.focus() }
+  if (await host.close(view.id)) { delete titles[view.id]; await nextTick(); root.value?.querySelector('.workspace-content-tab.is-active')?.focus() }
   else if (!host.state.notice) host.state.notice = view.resource.type === 'online-editor' && view.resource.roomSlug ? '请先在联机页离开房间，再关闭联机。' : host.state.composingViewId === view.id ? '请先完成当前输入，再关闭内容。' : '当前内容尚未保存，或仍有任务运行。请先完成保存或处理任务。'
 }
 function startResize(event) {
@@ -86,19 +84,14 @@ function resizeKey(event) {
   if (event.key === 'Home') host.resetLayout()
   else host.resize(host.state.width + (event.key === 'ArrowLeft' ? 24 : -24))
 }
-onBeforeUnmount(() => { host.railTarget.value = null; host.directoryTarget.value = null; host.directoryDocked.value = false; endResize(); narrowQuery?.removeEventListener('change', updateViewport) })
+onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = null; host.directoryTarget.value = null; host.directoryDocked.value = false; endResize(); narrowQuery?.removeEventListener('change', updateViewport) })
 </script>
 
 <template>
-  <div ref="root" class="workspace-content-groups" :class="{ 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
-    <div :ref="element => host.directoryTarget.value = element" v-show="!mainUsesPrimary" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" @keydown.esc.stop="host.state.directoryOpen = false"></div>
+  <div ref="root" class="workspace-content-groups" :class="{ 'has-project-directory': Boolean(host.scope.value.bookId), 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
+    <div :ref="element => host.directoryTarget.value = element" v-show="Boolean(host.scope.value.bookId)" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" @keydown.esc.stop="host.state.directoryOpen = false"></div>
     <section class="workspace-primary-group" :inert="primaryHidden ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
-      <header v-if="showMainTabs" class="workspace-reference-header workspace-main-header">
-        <button type="button" class="workspace-directory-toggle" :aria-expanded="host.state.directoryOpen" @click="host.state.directoryOpen = !host.state.directoryOpen">{{ tr('目录') }}</button>
-        <button v-if="!mainViews.some(view => view.id === host.primaryChapter.value?.id)" type="button" class="workspace-primary-return" :aria-current="mainUsesPrimary ? 'true' : undefined" @click="host.showPrimary()">{{ host.primaryChapter.value ? tr('回到正文') : host.primaryTitle.value }}</button>
-        <WorkspaceContentTabs :views="mainViews" :active-id="host.state.hidden ? '' : host.state.mainModuleId" :titles="titles" group="main" label="主区已打开的内容" @activate="host.activate" @close="close" @reorder="host.reorderView($event.id, $event.beforeId, $event.group)" />
-        <div v-if="mainModule" class="workspace-reference-controls"><button type="button" :aria-label="tr('放回旁边')" :title="tr('放回旁边')" @click="host.move(false, mainModule.id)"><WorkbenchIcon name="columns" :size="17" /></button><button type="button" :aria-label="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" :title="tr(host.primaryChapter.value ? '回到正文' : '返回原页面')" @click="host.hide()"><WorkbenchIcon name="arrow-left" :size="17" /></button></div>
-      </header>
+      <div :ref="element => host.tabsTarget.value = element" class="workspace-tabs-host"></div>
       <div ref="mainTarget" v-show="!mainUsesPrimary" class="workspace-main-body"></div>
       <div v-show="mainUsesPrimary" class="workspace-original-primary" :inert="mainUsesPrimary ? undefined : ''"><slot /></div>
     </section>
@@ -121,13 +114,14 @@ onBeforeUnmount(() => { host.railTarget.value = null; host.directoryTarget.value
     <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
     <template v-if="targetsReady"><Teleport v-for="view in renderedViews" :key="view.id" :to="view.id === host.state.mainModuleId ? mainTarget : sideTarget">
       <section v-show="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId))" :data-workspace-view-id="view.id" class="workspace-reference-body" :class="{ 'workspace-module-body': isWorkspaceModule(view.resource.type) }" :inert="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId)) ? undefined : ''">
-        <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" @title="titles[view.id] = $event" />
+        <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" @title="titles[view.id] = $event" @icon="host.viewIcons[view.id] = $event" />
       </section>
     </Teleport></template>
   </div>
 </template>
 
 <style scoped>
+.workspace-tabs-host { flex: none; min-width: 0; }
 .workspace-directory-dock.writing-page { display: flex; flex-direction: row; flex: 0 0 248px; width: 248px; min-width: 0; min-height: 0; padding: 0; overflow: hidden; }
 .workspace-directory-dock :deep(.wall__shelf) { box-sizing: border-box; width: 100%; height: 100%; align-self: stretch; }
 .workspace-directory-toggle { display: none; border: 0; color: var(--text-primary); background: transparent; min-height: 44px; padding: 0 12px; }
@@ -190,4 +184,17 @@ onBeforeUnmount(() => { host.railTarget.value = null; host.directoryTarget.value
 @media (min-width: 901px) and (max-width: 1280px) {
   .has-docked-tools :deep(.writing-page:not(.is-assistant-full) .wall__main) { grid-template-columns: 220px minmax(0, 1fr) !important; }
 }
+@media (min-width: 901px) {
+  .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main) { grid-template-columns: 0 minmax(0, 1fr) var(--writing-tool-rail-width, 52px) !important; }
+  .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector) { grid-template-columns: 0 minmax(360px, 1fr) var(--writing-dock-width, clamp(420px, 31vw, 440px)) var(--writing-tool-rail-width, 52px) !important; }
+  .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench)) { grid-template-columns: 0 minmax(360px, 1fr) clamp(520px, 38vw, 600px) var(--writing-tool-rail-width, 52px) !important; }
+  .has-project-directory.has-reference :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector), .has-project-directory.has-reference :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench)) { grid-template-columns: 0 minmax(0, 1fr) var(--writing-tool-rail-width, 52px) !important; }
+  .has-project-directory.has-docked-tools :deep(.writing-page:not(.is-assistant-full) .wall__main), .has-project-directory.has-docked-tools :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench)) { grid-template-columns: 0 minmax(0, 1fr) !important; }
+  .has-project-directory :deep(.writing-page .wall__dossier) { grid-column: 2; grid-row: 1; }
+}
+@media (min-width: 901px) and (max-width: 1180px) {
+  .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector), .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench)) { grid-template-columns: 0 minmax(0, 1fr) var(--writing-tool-rail-width, 52px) !important; }
+  .has-project-directory :deep(.writing-page .writing-inspector), .has-project-directory :deep(.authoring-dual-pane) { width: min(440px, calc(100% - var(--writing-tool-rail-width, 52px))); }
+}
+.workspace-content-groups:has(.writing-page.is-zen) .workspace-directory-dock { display: none; }
 </style>

@@ -10,6 +10,8 @@ import { validateWritingLockedSegments, normalizeWritingCandidates } from '../..
 import { normalizeWritingTypography } from '../stores/writingTypographyStore.js'
 import { useAuthoringFirstRun } from '../composables/useAuthoringFirstRun.js'
 import { normalizeWorkspaceLayout, normalizeWorkspaceResource, workspaceResourceKey } from '../services/workspace/workspaceViewContract.js'
+import { writingChapterRowLabel } from '../services/writing/writingChapterLabels.js'
+import { createDirectory, readDirectory, directoryRows, directoryResourceKey, DEFAULT_FOLDERS, DIRECTORY_PREFIX } from '../services/workspace/projectDirectory.js'
 import { sourceChunkLocator } from '../services/workspace/sourceChunkLocator.js'
 import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
 import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
@@ -233,6 +235,24 @@ describe('workbench control contract (U1)', () => {
     expect(restored.activeId).toBe(workspaceResourceKey(reference))
     expect(restored.width).toBe(680)
     expect(normalizeWorkspaceLayout({ version: 99, views: [] }, { bookId: 'book-a' })).toBeNull()
+    // Default project navigation retires generated type buckets without losing authored folders or references.
+    expect(createDirectory().folders).toEqual([])
+    const chapterRef = { type: 'chapter', bookId: 'book-a', id: 'chapter-a' }
+    const chapterKey = directoryResourceKey(chapterRef)
+    const oldDirectory = { version: 1, revision: 4, folders: [
+      ...DEFAULT_FOLDERS.map(folder => ({ ...folder, ...(folder.id === 'settings' ? { name: '我的设定' } : {}) })),
+      { id: 'custom-folder', name: '第一部', parentId: 'manuscript', order: 6 }
+    ], placements: [{ key: chapterKey, parentId: 'manuscript', order: 42 }], links: [] }
+    const oldRaw = JSON.stringify(oldDirectory)
+    localStorage.setItem(DIRECTORY_PREFIX + 'book-a', oldRaw)
+    const migratedDirectory = readDirectory('book-a')
+    expect(migratedDirectory.revision).toBe(4)
+    expect(migratedDirectory.folders.map(folder => folder.name)).toEqual(['我的设定', '第一部'])
+    expect(migratedDirectory.folders.find(folder => folder.id === 'custom-folder').parentId).toBe('')
+    expect(migratedDirectory.placements).toEqual([{ key: chapterKey, parentId: '', order: 42 }])
+    expect(directoryRows(migratedDirectory, [{ title: '开篇', folder: 'manuscript', resource: chapterRef }]).find(row => row.key === chapterKey)).toMatchObject({ parentId: '', order: 42, resource: chapterRef })
+    expect(localStorage.getItem(DIRECTORY_PREFIX + 'book-a')).toBe(oldRaw)
+
     expect(workspaceResourceKey({ type: 'source', bookId: 'a|b', id: 'c' })).not.toBe(workspaceResourceKey({ type: 'source', bookId: 'a', id: 'b|c' }))
     const shared = { sourceId: 'source-a', locator: { start: 0, end: 5 }, sourceRefs: [{ sourceId: 'source-a', locator: { start: 0, end: 5 } }, { sourceId: 'source-b', locator: { start: 37, end: 42 } }] }
     expect(sourceChunkLocator(shared, 'source-b')).toEqual({ start: 37, end: 42 })
@@ -525,7 +545,9 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).not.toContain('wt3-right-tree')
     expect(source).toContain(':docs="wt3IdeaShelfDocs"')
     expect(await readFile(resolve(__dirname, '../services/writing/writingChapterLabels.js'), 'utf8')).toContain('function chineseChapterNumber(value)')
-    expect(source).toContain("return name ? `${ordinal} ${name}` : ordinal")
+    expect(writingChapterRowLabel(0, '第一章 开篇')).toBe('第一章 开篇')
+    expect(writingChapterRowLabel(1, '')).toBe('第二章')
+    expect(writingChapterRowLabel(2, '旧标题')).toBe('第三章 旧标题')
     expect(source).toContain("tr('{value0} · 拖拽排序', { value0: chapterRowLabel(entry.index, entry.chapter.title) })")
     expect(source).toContain('v-for="entry in visibleChapterEntries"')
     expect(source).not.toContain('<template v-for="book in books"')

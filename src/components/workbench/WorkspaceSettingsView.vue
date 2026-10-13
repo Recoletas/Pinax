@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onScopeDispose, onMounted, ref } from 'vue'
+import { computed, onScopeDispose, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { tr } from '../../i18n/index.js'
 import { useWorldStore } from '../../stores/worldStore.js'
@@ -7,6 +7,7 @@ import { useSettingsProjectContext } from '../../composables/useSettingsProjectC
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorldbookContentWorkspace from '../worldbook/WorldbookContentWorkspace.vue'
 const props = defineProps({ resource: { type: Object, required: true }, instanceId: { type: String, required: true } })
+const emit = defineEmits(['title', 'icon'])
 const host = useComposableWorkspace()
 const route = useRoute()
 const editor = ref(null)
@@ -22,6 +23,11 @@ onMounted(() => {
 })
 onScopeDispose(() => observer?.disconnect())
 const { worldbook, loading, loadError, refresh } = useSettingsProjectContext({ worldStore: useWorldStore(), bookId: computed(() => props.resource.bookId), worldbookId: computed(() => props.resource.worldbookId) })
+watch(() => [worldbook.value, props.resource.entryId], () => {
+  const entry = worldbook.value?.entries?.find(item => String(item.id) === props.resource.entryId)
+  emit('title', entry?.name || tr('设定'))
+  emit('icon', ({ character: 'character-file', location: 'location-file', organization: 'organization-file', event: 'event-file' })[entry?.type] || 'setting-file')
+}, { immediate: true })
 const duplicate = computed(() => route.name === 'settings-structured' && route.query.bookId === props.resource.bookId)
 const stale = computed(() => props.resource.worldbookId && worldbook.value?.id && String(worldbook.value.id) !== props.resource.worldbookId)
 const release = host.registerGuard(props.instanceId, () => editor.value?.flushAll?.() ?? true)
