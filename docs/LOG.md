@@ -1,10 +1,14 @@
 # 开发日志
 
+## 2026-10-13 · PR #7 原始历史合并
+
+作者要求补正式合并提交。核对 `44466ab1..b70e893a` 与已纳入 main 的 `44466ab1..61e4aad8`：16/16 提交的文件树与提交消息逐笔一致，只修正署名；两分支最终树相同。执行普通 `git merge --no-ff --no-commit origin/pr-7`，冲突来自已重放历史与后续适配，解决为保留 main 已验证实现；原始 PR 头作为第二父提交纳入历史。未重新引入贡献分支旧版外壳或覆盖本地适配。代码树相对合并前不变，仅更新本记录与状态；本轮 verify:full exit 0：20/20 files、200/200 tests，StoryAgent integration 23/23，lint、应用构建、结构／体积、同步、diff 与 docs 均通过。GitHub PR 状态以推送后公开页面为准。
+
 ## 2026-10-13 · CI 的 StoryAgent 回归收口
 
 GitHub run `38370958742` 的构建及两组浏览器流程成功，失败位于独立 StoryAgent 回归。修复两处：旧冒烟仍要求已拆分的 project block，现核对 workspace 与 manuscript-context 的书名、目录和正文；authoringIntegration 静态引入 worldStore，使裸 Node 误加载其前端依赖，现由 Authoring 显式注入同一只读快照入口，并复用当前绑定世界书。补查当前／跨作品设定可见性，未新建存储或绕过权限。
 
-新增 `npm run verify:storyagent`，CI 和 `verify:full` 共用；本地 StoryAgent 两套检查 exit 0（integration 23/23），完整门禁 exit 0（20 files / 200 tests，lint、应用构建、结构／体积、桥接／目录同步、docs、diff）。真实 kit 不在这两套模拟检查范围内。PR #7 采用适配整合和署名修正提交而非 GitHub 直接合并，因而未自动关闭；需 GitHub API 登录后关闭，不能用伪造合并提交冒充原分支完整合并。
+新增 `npm run verify:storyagent`，CI 和 `verify:full` 共用；本地 StoryAgent 两套检查 exit 0（integration 23/23），完整门禁 exit 0（20 files / 200 tests，lint、应用构建、结构／体积、桥接／目录同步、docs、diff）。真实 kit 不在这两套模拟检查范围内。PR #7 采用适配整合和署名修正提交而非 GitHub 直接合并，因而未自动关闭；此前计划 API 关闭；作者随后要求正式合并，改为按下述等价核对完成历史合并。
 
 ## 2026-10-13 · 混合目录与设定详情
 
