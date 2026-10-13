@@ -254,7 +254,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   function resetLayout() { state.width = 420; state.mainModuleId = ''; state.expanded = false; state.hidden = false; for (const view of state.views) view.group = 'side'; state.sideActiveId = state.activeId; persist() }
   watch(scopeKey, () => {
     revision += 1; primaryChapter.value = null; primaryReturnResource.value = null; for (const view of state.views) guards.delete(view.id); returnFocus = null
-    state.primaryComposing = false; state.composingViewId = ''
+    state.primaryComposing = false; state.composingViewId = ''; state.directoryOpen = false
     let saved = null
     try { saved = normalizeWorkspaceLayout(JSON.parse(localStorage.getItem(storageKey())), scope.value) } catch { /* Missing or damaged layout is safe to ignore. */ }
     if (saved && (route.name === 'experience' || saved.views.some(view => view.resource.type === 'game-editor'))) {

@@ -225,5 +225,11 @@
   "正文中还有待处理的试稿，请先采用、留作构思或放弃，再写这一版。": "Review the existing draft first: adopt it, keep it as a note, or discard it.",
   "生成期间这条走法已经变化，试稿没有挂到正文；请重新写成试稿。": "This path changed during generation. Create a new draft from the updated path.",
   "试稿已放在正文落笔处，采用前仍可修改。": "The draft is beside your passage. Edit it before adopting.",
-  "试稿生成失败，可重试。": "Draft generation failed. Try again."
+  "试稿生成失败，可重试。": "Draft generation failed. Try again.",
+  "管理 {name}": "Manage {name}",
+  "更多操作": "More actions",
+  "关闭操作": "Close actions",
+  "搜索关联内容": "Search related content",
+  "搜索名称、类型或路径": "Search name, type or path",
+  "{count} 项": "{count} items"
 }

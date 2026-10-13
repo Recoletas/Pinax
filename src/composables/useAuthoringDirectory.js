@@ -1,4 +1,4 @@
-import { nextTick, ref } from 'vue'
+import { nextTick, ref, watch, onMounted } from 'vue'
 import { tr } from '../i18n/index.js'
 import { useComposableWorkspace } from './useComposableWorkspace.js'
 
@@ -6,6 +6,14 @@ import { useComposableWorkspace } from './useComposableWorkspace.js'
 export function useAuthoringDirectory(owner) {
   const directoryHost = useComposableWorkspace()
   const directoryMode = ref('files')
+  onMounted(() => {
+    watch(() => String(owner.bookId() || ''), bookId => {
+      try { directoryMode.value = localStorage.getItem(`pinax-directory-mode:v1:${bookId}`) === 'chapters' ? 'chapters' : 'files' } catch { directoryMode.value = 'files' }
+    }, { immediate: true })
+  })
+  watch(directoryMode, value => {
+    try { localStorage.setItem(`pinax-directory-mode:v1:${owner.bookId()}`, value) } catch { /* Display preferences do not block writing. */ }
+  })
   function prepareDirectoryOpen() {
     if (owner.hasPendingDraft()) {
       directoryHost.state.notice = tr('请先采用或保留当前推演草稿，再切换内容。')
@@ -15,6 +23,7 @@ export function useAuthoringDirectory(owner) {
     return !owner.chapterId() || owner.saveChapter()
   }
   async function createDirectoryResource(type) {
+    const bookId = String(owner.bookId())
     if (!prepareDirectoryOpen()) return null
     if (type === 'chapter') {
       if (owner.ideaId() && !owner.leaveIdea()?.ok) return null
@@ -24,8 +33,10 @@ export function useAuthoringDirectory(owner) {
       owner.createIdea()
       if (!owner.ideaId() || previous === owner.ideaId()) return null
     }
+    const id = String(type === 'chapter' ? owner.chapterId() : owner.ideaId())
     await nextTick()
-    return { type, bookId: String(owner.bookId()), id: String(type === 'chapter' ? owner.chapterId() : owner.ideaId()) }
+    if (String(owner.bookId()) !== bookId) return null
+    return { type, bookId, id }
   }
   return { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource }
 }
