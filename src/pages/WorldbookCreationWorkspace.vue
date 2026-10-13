@@ -762,7 +762,7 @@ async function confirmAppendSources() {
     confirmed = true
     await deleteCreationWorkspace(workspace.id)
     infoMessage.value = `已加入本书资料库：新增 ${result.added} 份${result.skipped ? `，跳过重复 ${result.skipped} 份` : ''}。`
-    await finishConfirmation({ bookId: context.book.id, sources: selectedFullSourceDocuments() })
+    await finishConfirmation({ bookId: context.book.id, worldbookId: target.worldbookId, sources: selectedFullSourceDocuments(), addedSources: result.addedSources || [] })
   } catch (error) {
     confirmed = false
     setGenerationFailure(error, 'append-sources')

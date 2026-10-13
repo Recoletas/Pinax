@@ -1,4 +1,5 @@
 import { nextTick, ref, watch, onMounted } from 'vue'
+import { resolveBookSourceContext } from '../services/worldbook/worldbookProjectSources.js'
 import { tr } from '../i18n/index.js'
 import { useComposableWorkspace } from './useComposableWorkspace.js'
 
@@ -14,6 +15,15 @@ export function useAuthoringDirectory(owner) {
   watch(directoryMode, value => {
     try { localStorage.setItem(`pinax-directory-mode:v1:${owner.bookId()}`, value) } catch { /* Display preferences do not block writing. */ }
   })
+  async function refreshDirectoryWorldbook(bookId, worldbookId) {
+    if (String(owner.bookId()) !== bookId) return false
+    const context = resolveBookSourceContext(bookId)
+    if (!context.ok) throw new Error(tr('这本书已不存在。'))
+    if (worldbookId && context.worldbookId !== worldbookId) throw new Error(tr('作品的设定库关联已变化，内容保留在原资料库。'))
+    owner.book().worldbookId = context.worldbookId || ''
+    await owner.refreshWorldbook()
+    return String(owner.bookId()) === bookId
+  }
   function prepareDirectoryOpen() {
     if (owner.hasPendingDraft()) {
       directoryHost.state.notice = tr('请先采用或保留当前推演草稿，再切换内容。')
@@ -38,5 +48,5 @@ export function useAuthoringDirectory(owner) {
     if (String(owner.bookId()) !== bookId) return null
     return { type, bookId, id }
   }
-  return { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource }
+  return { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook }
 }

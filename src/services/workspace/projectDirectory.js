@@ -69,7 +69,7 @@ export function directoryRows(directory, resources) {
   resources.forEach((item, index) => {
     const key = directoryResourceKey(item.resource)
     if (!key) return
-    const placement = placements.get(key)
+    const placement = placements.get(key) || (item.aliases || []).map(alias => placements.get(alias)).find(Boolean)
     const preferred = placement?.parentId ?? item.folder
     rows.push({ ...item, folder: false, key, parentId: folders.has(preferred) ? preferred : '', order: placement?.order ?? index })
   })

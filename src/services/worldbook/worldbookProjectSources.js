@@ -88,6 +88,7 @@ export async function appendSourcesToWorldbook({ worldbookId, documents = [], wo
   const seenIds = new Set(existingSources.map(source => String(source.id)))
   const seenHashes = new Set(existingSources.map(source => String(source.contentHash || '')))
   const merged = [...existingSources]
+  const addedSources = []
   let added = 0
   let skipped = 0
   for (const source of archived) {
@@ -103,6 +104,7 @@ export async function appendSourcesToWorldbook({ worldbookId, documents = [], wo
     seenIds.add(reference.sourceId)
     if (reference.contentHash) seenHashes.add(reference.contentHash)
     merged.push(reference)
+    addedSources.push(reference)
     added += 1
   }
   if (!added) return { ok: true, added: 0, skipped, sources: [] }
@@ -114,7 +116,7 @@ export async function appendSourcesToWorldbook({ worldbookId, documents = [], wo
   } catch (error) {
     return { ok: false, reason: 'source-attach-failed', detail: error?.message || String(error) }
   }
-  return { ok: true, added, skipped, sources: archived }
+  return { ok: true, added, skipped, sources: archived, addedSources }
 }
 
 // 供创建工作区确认流程使用：确保目标库存在并绑定（未绑定时建库），再追加。

@@ -144,7 +144,7 @@
             <button type="button" :aria-pressed="directoryMode === 'files'" @click="directoryMode = 'files'">{{ tr('文件目录') }}</button>
             <button type="button" :aria-pressed="directoryMode === 'chapters'" @click="directoryMode = 'chapters'">{{ tr('章节顺序') }}</button>
           </div>
-          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" />
+          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" />
           <div v-show="directoryMode === 'chapters' || !selectedBookId">
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
@@ -1554,11 +1554,11 @@ const AuthoringDualPane = defineAsyncComponent(() => import('../components/autho
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
 import { useAuthoringDirectory } from '../composables/useAuthoringDirectory.js'
 const ProjectDirectory = defineAsyncComponent(() => import('../components/workbench/ProjectDirectory.vue'))
-const { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource } = useAuthoringDirectory({
+const { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook } = useAuthoringDirectory({
   hasPendingDraft: () => pendingGhostAdoption.value || blockPreview.value,
   bookId: () => selectedBookId.value, chapterId: () => selectedChapterId.value, ideaId: () => wt3ActiveDocId.value,
   saveIdea: () => wt3PersistActiveDoc(), saveChapter: () => saveCurrentChapter(), leaveIdea: () => wt3PersistBeforeLeaving(),
-  createChapter: () => createNewChapter(), createIdea: () => wt3QuickCapture()
+  createChapter: () => createNewChapter(), createIdea: () => wt3QuickCapture(), book: () => currentBook.value, refreshWorldbook: () => refreshBoundWorldbookAfterCharacterChange()
 })
 const AuthoringAssistantWorkspace = defineAsyncComponent(() => import('../components/authoring/AuthoringAssistantWorkspace.vue'))
 import { useAuthoringAssistantWorkspace } from '../composables/useAuthoringAssistantWorkspace.js'
