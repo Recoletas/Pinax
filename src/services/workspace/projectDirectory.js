@@ -2,7 +2,7 @@ import { normalizeWorkspaceResource } from './workspaceViewContract.js'
 
 export const DIRECTORY_PREFIX = 'pinax-project-directory:v1:'
 export const DEFAULT_FOLDERS = Object.freeze([
-  { id: 'manuscript', name: '书稿', parentId: '', order: 0 },
+  { id: 'manuscript', name: '正文', parentId: '', order: 0 },
   { id: 'ideas', name: '构思', parentId: '', order: 1 },
   { id: 'settings', name: '设定', parentId: '', order: 2 },
   { id: 'sources', name: '资料', parentId: '', order: 3 },
@@ -14,10 +14,10 @@ export function directoryResourceKey(raw) {
   return JSON.stringify([ref.bookId, ref.type, ['entry', 'source'].includes(ref.type) ? ref.worldbookId : '', ref.id])
 }
 export function createDirectory() {
-  return { version: 1, revision: 0, folders: [], placements: [], links: [] }
+  return { version: 1, revision: 0, defaultFoldersVersion: 1, folders: DEFAULT_FOLDERS.map(folder => ({ ...folder })), placements: [], links: [] }
 }
 export function validateDirectory(value, bookId) {
-  if (value?.version !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.folders) || !Array.isArray(value.placements) || !Array.isArray(value.links)) throw new Error('目录格式无法读取，原记录已保留。')
+  if (value?.version !== 1 || value.defaultFoldersVersion !== undefined && value.defaultFoldersVersion !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.folders) || !Array.isArray(value.placements) || !Array.isArray(value.links)) throw new Error('目录格式无法读取，原记录已保留。')
   const ids = new Set()
   for (const folder of value.folders) {
     if (!folder || typeof folder.id !== 'string' || !folder.id || ids.has(folder.id) || typeof folder.name !== 'string' || !folder.name.trim() || typeof folder.parentId !== 'string' || !Number.isFinite(folder.order)) throw new Error('目录文件夹记录无效，原记录已保留。')
@@ -41,9 +41,9 @@ export function validateDirectory(value, bookId) {
   }
   for (const link of value.links) if (!validKey(link?.from) || !validKey(link?.to) || link.from === link.to) throw new Error('目录关联记录无效，原记录已保留。')
   // Whitelist metadata: the directory must never acquire a copy of content.
-  return { version: 1, revision: value.revision,
+  return { version: 1, revision: value.revision, ...(value.defaultFoldersVersion === 1 ? { defaultFoldersVersion: 1 } : {}),
     folders: value.folders.map(({ id, name, parentId, order }) => ({ id, name, parentId, order })),
-    placements: value.placements.map(({ key, parentId, order }) => ({ key, parentId, order })),
+    placements: value.placements.map(({ key, parentId, order, automatic }) => ({ key, parentId, order, ...(automatic === true ? { automatic: true } : {}) })),
     links: value.links.map(({ from, to }) => ({ from, to })) }
 }
 export function readDirectory(bookId) {
@@ -52,9 +52,13 @@ export function readDirectory(bookId) {
   let value
   try { value = JSON.parse(raw) } catch { throw new Error('目录记录损坏，原数据已保留，可通过备份恢复。') }
   const valid = validateDirectory(value, bookId)
-  // Retire only untouched generated type folders; authored folders retain their identity.
-  const generated = new Set(valid.folders.filter(folder => DEFAULT_FOLDERS.some(defaultFolder => Object.keys(defaultFolder).every(key => folder[key] === defaultFolder[key]))).map(folder => folder.id))
-  return { ...valid, folders: valid.folders.filter(folder => !generated.has(folder.id)).map(folder => ({ ...folder, parentId: generated.has(folder.parentId) ? '' : folder.parentId })), placements: valid.placements.map(item => ({ ...item, parentId: generated.has(item.parentId) ? '' : item.parentId })) }
+  if (valid.defaultFoldersVersion === 1) return valid
+  // Seed page folders once. Keep authored names, nesting, links and original ordering.
+  const ids = new Set(valid.folders.map(folder => folder.id))
+  return { ...valid, defaultFoldersVersion: 1,
+    folders: [...valid.folders, ...DEFAULT_FOLDERS.filter(folder => !ids.has(folder.id)).map(folder => ({ ...folder }))],
+    placements: valid.placements.map(item => item.parentId === '' ? { ...item, automatic: true } : item) }
+
 }
 export function saveDirectory(bookId, previous, next) {
   const current = readDirectory(bookId)
@@ -73,7 +77,7 @@ export function directoryRows(directory, resources) {
     const key = directoryResourceKey(item.resource)
     if (!key) return
     const placement = placements.get(key) || (item.aliases || []).map(alias => placements.get(alias)).find(Boolean)
-    const preferred = placement?.parentId ?? item.folder
+    const preferred = placement?.automatic ? item.folder : placement?.parentId ?? item.folder
     rows.push({ ...item, folder: false, key, parentId: folders.has(preferred) ? preferred : '', order: placement?.order ?? index })
   })
   const path = row => {

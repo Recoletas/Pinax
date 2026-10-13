@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { loadWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { tr } from '../../i18n/index.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
-import { createDirectory, readDirectory, saveDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../../services/workspace/projectDirectory.js'
+import { createDirectory, readDirectory, saveDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX, DEFAULT_FOLDERS } from '../../services/workspace/projectDirectory.js'
 import { listNarrativeAssets, subscribeNarrativeAssets } from '../../services/media/narrativeAssets.js'
 import { writingChapterRowLabel } from '../../services/writing/writingChapterLabels.js'
 import { isMachineLedgerEntry } from '../../services/worldbook/entryTableColumns.js'
@@ -87,6 +87,10 @@ const activeKey = computed(() => {
   if (active && !['chapter', 'exploration'].includes(active.resource.type)) return directoryResourceKey(active.resource)
   return directoryResourceKey(resource(props.activeIdeaId ? 'exploration' : 'chapter', props.activeIdeaId || props.activeChapterId))
 })
+watch([activeKey, rows], ([key, items]) => {
+  let parent = items.find(row => row.key === key || row.aliases?.includes(key))?.parentId
+  while (parent) { closed.value.delete(parent); parent = directory.value.folders.find(folder => folder.id === parent)?.parentId }
+}, { flush: 'post' })
 function isActiveRow(row) { return row.key === activeKey.value || row.aliases?.includes(activeKey.value) }
 function reload() {
   projects.value = loadWritingBooks()
@@ -98,11 +102,12 @@ watch(chosen, row => { rename.value = row?.title || ''; destination.value = row?
 function restoreView() {
   try {
     const value = JSON.parse(localStorage.getItem(viewStorageKey()))
-    closed.value = new Set(Array.isArray(value?.closed) ? value.closed.filter(id => directory.value.folders.some(folder => folder.id === id)) : [])
+    const saved = Array.isArray(value?.closed) ? value.closed.filter(id => directory.value.folders.some(folder => folder.id === id)) : []
+    closed.value = new Set([...saved, ...(!value?.groupedDefault ? DEFAULT_FOLDERS.filter(folder => folder.id !== 'manuscript').map(folder => folder.id) : [])])
   } catch { closed.value = new Set() /* Display preferences never block access to original content. */ }
 }
 watch(closed, value => {
-  try { localStorage.setItem(viewStorageKey(), JSON.stringify({ closed: [...value] })) } catch { /* Directory content uses its own explicit save errors. */ }
+  try { localStorage.setItem(viewStorageKey(), JSON.stringify({ groupedDefault: true, closed: [...value] })) } catch { /* Directory content uses its own explicit save errors. */ }
 }, { deep: true, flush: 'sync' })
 async function showTools(row, event) {
   select(row); toolsTrigger = event.currentTarget
@@ -162,10 +167,14 @@ async function open(row, group = 'main') {
   } catch (cause) { error.value = cause.message || '未能打开，当前内容已保留。' }
   finally { opening.value = false }
 }
+function creationParent(folderId) {
+  if (chosen.value) return chosen.value.folder ? chosen.value.id : chosen.value.parentId
+  return directory.value.folders.some(folder => folder.id === folderId) ? folderId : ''
+}
 async function createContent(type) {
   if (opening.value || !props.createResource) return
   const bookId = props.bookId
-  const parentId = chosen.value?.folder ? chosen.value.id : chosen.value?.parentId || ''
+  const parentId = creationParent(type === 'chapter' ? 'manuscript' : 'ideas')
   opening.value = true
   try {
     if (props.beforeOpen && await props.beforeOpen() === false || !await host.prepareOpen('main')) { error.value = host.state.notice || '请先保存当前修改。'; return }
@@ -199,9 +208,9 @@ async function openCollection(type) {
 async function startCreation(type) {
   if (opening.value || creation.value) return
   const bookId = props.bookId
-  const row = chosen.value
-  const parentId = row?.folder ? row.id : row?.parentId || ''
-  const path = row?.folder ? [row.path, row.title].filter(Boolean).join(' / ') : row?.path || ''
+  const parentId = creationParent(type === 'entry' ? 'settings' : 'sources')
+  const parent = rows.value.find(item => item.folder && item.id === parentId)
+  const path = parent ? [parent.path, parent.title].filter(Boolean).join(' / ') : ''
   opening.value = true
   try {
     if (props.beforeOpen && await props.beforeOpen() === false || !await host.prepareOpen('main')) { error.value = host.state.notice || '请先保存当前修改。'; return }
@@ -335,7 +344,7 @@ function drop(event, row) {
     <p v-if="error" class="directory-notice" role="alert">{{ tr(error) }}</p>
     <div ref="tree" role="tree" :aria-label="tr('文件目录')" :aria-busy="opening" class="directory-tree">
       <div v-for="(row, index) in visible" :key="row.key" role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.folder ? !closed.has(row.id) : undefined" :aria-selected="row.key === selectedKey" :aria-current="isActiveRow(row) ? 'page' : undefined" :aria-label="`${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" :tabindex="row.key === focusedKey || (!visible.some(item => item.key === focusedKey) && index === 0) ? 0 : -1" :data-key="row.key" :title="`${row.path ? row.path + ' / ' : ''}${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" class="directory-row" :class="{ 'is-active': isActiveRow(row), 'is-selected': row.key === selectedKey, 'is-folder': row.folder }" :style="{ paddingInlineStart: `${8 + row.depth * 16}px` }" draggable="true" @focus="focusedKey = row.key" @click="open(row)" @contextmenu.prevent="showTools(row, $event)" @keydown="keydown($event, row)" @dragstart="drag($event, row)" @dragover.prevent @drop.stop.prevent="drop($event, row)">
-        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) ? 'folder-open' : row.icon" :size="16" /><span class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><small v-if="!row.folder" class="directory-type">{{ tr(row.label) }}<span v-if="row.readonly"> · {{ tr('只读') }}</span></small><button type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
+        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) ? 'folder-open' : row.icon" :size="16" /><span class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><small v-if="row.folder" class="directory-type">{{ rows.filter(item => !item.folder && item.parentId === row.id).length }}</small><small v-else class="directory-type">{{ tr(row.label) }}<span v-if="row.readonly"> · {{ tr('只读') }}</span></small><button type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
       </div>
     </div>
     <p v-if="!visible.length" class="directory-notice">{{ tr('没有匹配的内容') }}</p>
