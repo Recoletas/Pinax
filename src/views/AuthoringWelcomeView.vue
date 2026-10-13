@@ -1,6 +1,6 @@
 <template>
-  <div class="authoring-welcome">
-    <LibrarySidebar :books="books" :recent-book-id="recentBook?.id || ''" @settings="settings.open" />
+  <div class="authoring-welcome" :class="{ 'is-embedded': embedded }">
+    <LibrarySidebar v-if="!embedded" :books="books" :recent-book-id="recentBook?.id || ''" @settings="settings.open" />
     <main class="library-main">
       <section class="library-heading" aria-labelledby="library-title">
         <div><h1 id="library-title">{{ tr('我的作品') }}</h1><p v-if="!books.length">{{ tr('从第一本书开始，把想法写成故事。') }}</p></div>
@@ -16,7 +16,7 @@
           <div class="library-view-controls"><select v-model="sort" :aria-label="tr(&quot;书稿排序&quot;)"><option value="used">{{ tr('最近使用') }}</option><option value="updated">{{ tr('最近修改') }}</option><option value="title">{{ tr('书名排序') }}</option></select><div class="library-view-toggle" role="group" :aria-label="tr(&quot;书库视图&quot;)"><button type="button" :aria-pressed="view === 'grid'" @click="view = 'grid'"><WorkbenchIcon name="grid" :size="16" />{{ tr('书架') }}</button><button type="button" :aria-pressed="view === 'list'" @click="view = 'list'"><WorkbenchIcon name="list" :size="16" />{{ tr('列表') }}</button></div></div>
         </div>
         <p v-if="search.trim()" class="library-results" role="status">{{ tr('找到 {length} 本书稿', { length: visibleBooks.length }) }}</p>
-        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" /></section>
+        <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" @click.capture="openBook($event, book)" /></section>
         <div v-else class="library-no-results"><h2>{{ tr('没有找到这本书') }}</h2><p>{{ tr('试试其他书名，或清除搜索查看全部作品。') }}</p><button type="button" class="library-button" @click="clearSearch">{{ tr('清除搜索') }}</button></div>
       </template>
       <section v-else class="library-empty" aria-labelledby="library-empty-title"><h2 id="library-empty-title">{{ tr('还没有作品') }}</h2><p>{{ tr('开始写作、和助手构思，或导入已有的 TXT / Markdown 书稿。') }}</p></section>
@@ -28,7 +28,8 @@
 <script setup>
 import { tr, uiLocale } from '../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, isNavigationFailure, NavigationFailureType } from 'vue-router'
+import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 import { useSettingsPopup } from '../composables/useSettingsPopup.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
@@ -38,8 +39,10 @@ import LibraryQuickActions from '../components/authoring/LibraryQuickActions.vue
 import LibraryRecentWork from '../components/authoring/LibraryRecentWork.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { useWorkspaceRecentStore } from '../stores/workspaceRecentStore.js'
+const props = defineProps({ embedded: Boolean })
 const settings = useSettingsPopup()
 const router = useRouter()
+const host = useComposableWorkspace()
 const recent = useWorkspaceRecentStore()
 recent.hydrate()
 const books = ref(loadWritingBooks())
@@ -67,18 +70,25 @@ const visibleBooks = computed(() => {
   })
 })
 const stopBooks = subscribeWritingBooks(({ books: nextBooks }) => { books.value = Array.isArray(nextBooks) ? nextBooks : [] })
+async function openBook(event, book) {
+  if (!props.embedded || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  const failure = await router.push({ name: 'authoring', query: { bookId: book.id } })
+  if (!failure || isNavigationFailure(failure, NavigationFailureType.duplicated)) host?.hide()
+}
 async function openRecent(entry) {
   const sequence = ++openSequence
   openingKey.value = entry.key
   openNotice.value = ''
   try {
     const resolved = await recent.resolveForOpen(entry)
-    if (sequence !== openSequence || router.currentRoute.value.name !== 'welcome') return
+    if (sequence !== openSequence || (!props.embedded && router.currentRoute.value.name !== 'welcome')) return
     if (!resolved.available || !books.value.some(book => String(book.id) === resolved.bookId)) {
       openNotice.value = resolved.reason === 'lookup-failed' ? '暂时无法读取这个位置，请稍后再试。' : '上次打开的位置已不存在，请选择其他工作。'
       return
     }
     const failure = await router.push(resolved.route)
+    if (props.embedded && (!failure || isNavigationFailure(failure, NavigationFailureType.duplicated))) host?.hide()
     if (failure && sequence === openSequence) openNotice.value = '这次没有离开首页，请先处理当前的导航提示。'
   } catch {
     if (sequence === openSequence) openNotice.value = '这个位置暂时无法打开，请稍后再试。'
@@ -93,6 +103,7 @@ onBeforeUnmount(() => { openSequence += 1; stopBooks(); settings.close() })
 <style scoped>
 .authoring-welcome { display: flex; flex: 1; min-height: 0; overflow: hidden; color: var(--text-primary); background: var(--surface-workbench); font: 15px/1.5 var(--font-sans); }
 .library-main { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; margin: 0; padding: 24px 28px; border: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; background: var(--surface-workbench); }
+.authoring-welcome.is-embedded .library-main { border-inline-start: 0; }
 .library-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; min-height: 44px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline-soft); }
 .library-heading h1 { margin: 0; font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
 .library-heading p { color: var(--archive-ink-soft); font-size: 14px; margin: 6px 0 0; line-height: 1.7; }

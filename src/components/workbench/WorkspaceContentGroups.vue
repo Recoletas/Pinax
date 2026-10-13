@@ -9,8 +9,9 @@ const Sources = defineAsyncComponent(() => import('./WorkspaceSourcesView.vue'))
 const Reference = defineAsyncComponent(() => import('./WorkspaceReferenceView.vue'))
 const Media = defineAsyncComponent(() => import('./WorkspaceMediaView.vue'))
 const Module = defineAsyncComponent(() => import('./WorkspaceModuleView.vue'))
+const Home = defineAsyncComponent(() => import('../../views/AuthoringWelcomeView.vue'))
 const Settings = defineAsyncComponent(() => import('./WorkspaceSettingsView.vue'))
-const viewComponents = { 'game-editor': Module, 'map-editor': Module, 'entries-editor': Module, 'online-editor': Module, 'comic-editor': Module, 'director-editor': Module, 'materials-editor': Module, sources: Sources, 'settings-editor': Settings, source: Reference, chapter: Reference, exploration: Reference, entry: Reference, asset: Media, comic: Media, video: Media }
+const viewComponents = { home: Home, 'game-editor': Module, 'map-editor': Module, 'entries-editor': Module, 'online-editor': Module, 'comic-editor': Module, 'director-editor': Module, 'materials-editor': Module, sources: Sources, 'settings-editor': Settings, source: Reference, chapter: Reference, exploration: Reference, entry: Reference, asset: Media, comic: Media, video: Media }
 const host = useComposableWorkspace()
 const root = ref(null)
 const mainTarget = ref(null)
@@ -111,10 +112,10 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
       <div ref="sideTarget" class="workspace-side-body">
       </div>
     </div>
-    <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
+    <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value && mainModule?.resource.type !== 'home'" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
     <template v-if="targetsReady"><Teleport v-for="view in renderedViews" :key="view.id" :to="view.id === host.state.mainModuleId ? mainTarget : sideTarget">
       <section v-show="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId))" :data-workspace-view-id="view.id" class="workspace-reference-body" :class="{ 'workspace-module-body': isWorkspaceModule(view.resource.type) }" :inert="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId)) ? undefined : ''">
-        <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" @title="titles[view.id] = $event" @icon="host.viewIcons[view.id] = $event" />
+        <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" v-bind="view.resource.type === 'home' ? { embedded: true } : {}" @title="titles[view.id] = $event" @icon="host.viewIcons[view.id] = $event" />
       </section>
     </Teleport></template>
   </div>

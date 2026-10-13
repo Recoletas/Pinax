@@ -40,12 +40,12 @@ const HOME_TAB_ID = 'pinax-home'
 const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
 const tabs = computed(() => {
   const grouped = groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)
-  const mainViews = contentWorkspace?.state.views.filter(view => view.group === 'main') || []
+  const mainViews = contentWorkspace?.state.views.filter(view => view.group === 'main' && view.resource.type !== 'home') || []
   return [homeTab, ...grouped.flatMap(tab => tab.projectGrouped && tab.projectId === route.query.bookId && mainViews.length
     ? mainViews.map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: contentWorkspace.viewTitles[view.id] || view.title || WORKSPACE_VIEW_TYPES[view.resource.type]?.title || '内容', icon: contentWorkspace.viewIcons[view.id] || WORKSPACE_VIEW_TYPES[view.resource.type]?.icon, projectId: tab.projectId, scope: 'project' })) : [tab])]
 })
 const activeTabId = computed(() => {
-  if (route.name === 'welcome') return HOME_TAB_ID
+  if (route.name === 'welcome' || !contentWorkspace?.state.hidden && contentWorkspace?.state.views.find(view => view.id === contentWorkspace.state.mainModuleId)?.resource.type === 'home') return HOME_TAB_ID
   const id = !contentWorkspace?.state.hidden && contentWorkspace?.state.mainModuleId || contentWorkspace?.primaryChapter.value?.id
   return tabs.value.some(tab => tab.id === `content:${id}`) ? `content:${id}` : workspaceTabs.activeTabId
 })
@@ -101,7 +101,11 @@ async function activateTab(tabId) {
     if (!await contentWorkspace.prepareOpen('main')) return
     await contentWorkspace.activate(content.id); return
   }
-  if (tabId === HOME_TAB_ID) { void router.push({ name: 'welcome' }); return }
+  if (tabId === HOME_TAB_ID) {
+    if (contentWorkspace?.scope.value.bookId) await contentWorkspace.openHome()
+    else void router.push({ name: 'welcome' })
+    return
+  }
   const tab = workspaceTabs.tabs.find(tab => tab.id === tabId)
   if (!tabs.value.find(item => item.id === tabId)?.projectGrouped && tab?.surface === 'sources' && tab.projectId === route.query.bookId && route.name !== 'settings-sources' && contentWorkspace) {
     if (contentWorkspace.openResource({ type: tab.route?.query?.sourceId ? 'source' : 'sources', bookId: tab.projectId,

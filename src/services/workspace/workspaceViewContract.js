@@ -2,6 +2,7 @@ export const WORKSPACE_VIEW_LIMIT = 32
 
 // Resource identity is independent of a view's position and display title.
 export const WORKSPACE_VIEW_TYPES = Object.freeze({
+  home: { title: '首页', icon: 'library' },
   sources: { title: '资料', icon: 'sources' },
   'settings-editor': { title: '设定', icon: 'worldbook' },
   'comic-editor': { title: '漫画', icon: 'comics' },
@@ -30,7 +31,7 @@ export function normalizeWorkspaceResource(value) {
   const worldbookId = text(value.worldbookId)
   const id = text(value.id)
   if (!bookId && !worldbookId) return null
-  if (isWorkspaceModule(value.type) && !bookId) return null
+  if ((isWorkspaceModule(value.type) || value.type === 'home') && !bookId) return null
   if (value.type === 'game-editor' && !worldbookId) return null
   if (['chapter', 'exploration'].includes(value.type) && (!bookId || !id)) return null
   if (['asset', 'comic', 'video'].includes(value.type) && (!bookId || !id)) return null

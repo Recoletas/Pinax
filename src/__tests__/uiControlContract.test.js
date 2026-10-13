@@ -117,6 +117,8 @@ describe('workbench control contract (U1)', () => {
     expect(welcome).toContain('LibrarySidebar')
     const tabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(tabs).toContain("title: '首页'")
+    expect(tabs).toContain('await contentWorkspace.openHome()')
+    expect(welcome).toContain('v-if="!embedded"')
     expect(tabs).toContain('v-if="!tab.pinned"')
     // N-B（nightly-20260917）：标签重构为真实 button，原生 Enter/Space 激活。
     expect(tabs).toContain('@click="activateTab(tab.id)"')
@@ -230,6 +232,8 @@ describe('workbench control contract (U1)', () => {
     const reference = normalizeWorkspaceResource({ type: 'source', bookId: 'book-a', id: 'source-a', start: 3, end: 9, content: 'private', grant: 'secret' })
     expect(reference).toEqual({ type: 'source', bookId: 'book-a', worldbookId: '', id: 'source-a', start: 3, end: 9 })
     expect(normalizeWorkspaceResource({ type: 'chapter', worldbookId: 'world-a', id: 'chapter' })).toBeNull()
+    expect(normalizeWorkspaceResource({ type: 'home', worldbookId: 'world-a' })).toBeNull()
+    expect(normalizeWorkspaceResource({ type: 'home', bookId: 'book-a' })).toMatchObject({ type: 'home', bookId: 'book-a' })
     const restored = normalizeWorkspaceLayout({ version: 1, width: 900, views: [{ resource: reference }, { resource: reference }, { resource: { ...reference, bookId: 'other-book' } }], activeId: 'missing' }, { bookId: 'book-a' })
     expect(restored.views).toHaveLength(1)
     expect(restored.activeId).toBe(workspaceResourceKey(reference))
@@ -346,6 +350,16 @@ describe('workbench control contract (U1)', () => {
       host.state.primaryComposing = false
       allowChapter()
       await host.close(chapterView)
+      host.state.primaryComposing = true
+      expect(await host.openHome()).toBe(false)
+      host.state.primaryComposing = false
+      expect(await host.openHome()).toBe(true)
+      const homeView = host.state.views.find(view => view.resource.type === 'home')
+      expect(homeView).toMatchObject({ group: 'main', pinned: true })
+      expect(host.state.mainModuleId).toBe(homeView.id)
+      expect(await host.openHome()).toBe(true)
+      expect(host.state.views.filter(view => view.resource.type === 'home')).toHaveLength(1)
+      await host.close(homeView.id)
       expect(host.openResource({ type: 'game-editor', bookId: 'guard-book' })).toBe(false)
       expect(host.openResource({ type: 'game-editor', bookId: 'guard-book', worldbookId: 'guard-world' })).toBe(true)
       expect(host.openResource({ type: 'online-editor', bookId: 'guard-book' })).toBe(false)

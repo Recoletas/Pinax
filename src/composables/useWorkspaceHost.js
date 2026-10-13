@@ -91,6 +91,14 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     const view = state.views.find(view => workspaceResourceKey(view.resource) === key)
     return view ? await move(group === 'main', view.id) : false
   }
+  async function openHome() {
+    const bookId = scope.value.bookId
+    if (!bookId || !await prepareOpen('main') || scope.value.bookId !== bookId) return false
+    const resource = { type: 'home', bookId }
+    if (!openResource(resource, { pinned: true, focus: false })) return false
+    const view = state.views.find(item => workspaceResourceKey(item.resource) === workspaceResourceKey(resource))
+    return view ? move(true, view.id) : false
+  }
   function activate(id) {
     if (!state.views.some(view => view.id === id)) return false
     if (state.primaryComposing) return false
@@ -281,7 +289,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }

@@ -144,6 +144,12 @@ function handleGlobalKeydown(e) {
   }
 }
 
+async function openHome() {
+  closeDrawer()
+  if (contentWorkspace.scope.value.bookId) await contentWorkspace.openHome()
+  else await router.push({ name: 'welcome' })
+}
+
 function closeDrawer() {
   drawerOpen.value = false
 }
@@ -222,7 +228,7 @@ onBeforeUnmount(() => {
         <div class="shell-drawer__body">
           <WorkspaceProjectNavigation :book-id="typeof route.query.bookId === 'string' ? route.query.bookId : ''" :current="currentProjectSurface" :managed="contentWorkspace.moduleNavigation.value" @select="selectProjectSurface" @select-book="closeDrawer" />
           <div class="shell-drawer__utility" :aria-label="tr(&quot;工具&quot;)">
-            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'welcome' }); closeDrawer()"><WorkbenchIcon name="grid" :size="16" /><span>{{ tr('首页') }}</span></button>
+            <button class="shell-drawer__utility-btn" type="button" @click="openHome"><WorkbenchIcon name="grid" :size="16" /><span>{{ tr('首页') }}</span></button>
             <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'experience' }); closeDrawer()"><WorkbenchIcon name="adventure" :size="16" /><span>{{ tr('跑团与冒险') }}</span></button>
             <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'online-experience' }); closeDrawer()"><WorkbenchIcon name="collaboration" :size="16" /><span>{{ tr('联机房间') }}</span></button>
             <button class="shell-drawer__utility-btn" type="button" @click="openDocs">

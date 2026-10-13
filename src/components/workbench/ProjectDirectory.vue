@@ -82,8 +82,9 @@ const destinations = computed(() => rows.value.filter(row => {
   return true
 }))
 const activeKey = computed(() => {
-  const active = !host?.state.hidden && host?.state.views.find(view => view.id === host.state.mainModuleId)
-  if (active?.resource.type === 'settings-editor' && active.resource.entryId) return directoryResourceKey(resource('entry', active.resource.entryId))
+  const active = host?.state.hidden ? null : host?.state.views.find(view => view.id === host.state.mainModuleId)
+  if (active?.resource?.type === 'settings-editor' && active.resource.entryId) return directoryResourceKey(resource('entry', active.resource.entryId))
+  if (active?.resource.type === 'home') return ''
   if (active && !['chapter', 'exploration'].includes(active.resource.type)) return directoryResourceKey(active.resource)
   return directoryResourceKey(resource(props.activeIdeaId ? 'exploration' : 'chapter', props.activeIdeaId || props.activeChapterId))
 })
