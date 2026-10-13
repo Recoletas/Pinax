@@ -252,7 +252,7 @@ memory、writing、worldbook、media、canvas 与 Experience 服务已完成纯�
 
 ### 世界书内容工作区（2026-10-12，本地适配）
 
-`WorldbookContentWorkspace` 由旧完整设定路由和 `WorkspaceSettingsView` 共同使用，接收显式世界书快照与作品标识；内容目录、条目选中、查看方式不改变正式存储。详情、表格、关系图及伏笔台账继续经 `worldStore` 写入，字段和正文投影沿用现有模板／标签辅助函数，关联使用 `applyRelationRows` 双层同步。窄旁区以条目编辑为主，完整表格及图谱放主区；原日常设定右栏、可编辑双栏保留。详情草案复用 `entryPanelDraft` 的 `workspace` 面，关闭与切换复用 `flushAll` 和条目指纹校验。
+`WorldbookContentWorkspace` 由旧完整设定路由和 `WorkspaceSettingsView` 共同使用，接收显式世界书快照与作品标识；条目选中、查看方式不改变正式存储。2026-10-13调整为中央条目正文／右侧同类、表格、关系与管理，移除内部固定分类列；表格概览与关系导航不另建编辑真源，展开仍用既有组件。新建复用DirectoryCreateDialog（无库时按书绑定），管理以条目指纹守卫；删除追加设定库revision校验，避免确认期间新增引用被漏查。非人物的新自由属性使用free模板，七个人物模板及已有profile保持兼容。显式worldbookId的全局设定入口不补默认bookId。详情、表格、关系图及伏笔台账继续经 `worldStore` 写入，字段和正文投影沿用现有模板／标签辅助函数，关联使用 `applyRelationRows` 双层同步。窄旁区以条目编辑为主，完整表格及图谱放主区；原日常设定右栏、可编辑双栏保留。详情草案复用 `entryPanelDraft` 的 `workspace` 面，关闭与切换复用 `flushAll` 和条目指纹校验。
 
 表格／台账／图谱增强选择性来源为贡献者 skkbsgzf 的 PR #7（固定 b70e893a）。这不表示 PR 的 kit 服务、助手重答链或外壳删除已合并；范围与证据见[接入记录](../agent-runs/worldbook-workspace-20261012.md)。
 

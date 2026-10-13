@@ -24,6 +24,7 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
 export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced', 'experience', 'online-experience']))
 
 export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
+  'settings-structured': 'settings-structured',
   experience: 'experience',
   docs: 'docs',
   'settings-worldbook': 'settings-worldbook',
@@ -108,10 +109,14 @@ export function parseTabKey(key) {
 
 // 路由 -> 标签意图：只识别已冻结的 surface 矩阵，未知路由不产生标签。
 // project surface 必须带 bookId query（书籍上下文真源）。
+export function isExplicitWorldbookSettingsRoute(route) {
+  return route?.name === 'settings-structured' && !route.query?.bookId && typeof route.query?.worldbookId === 'string' && Boolean(route.query.worldbookId.trim())
+}
 export function resolveRouteIntent(route) {
   if (!route || typeof route.name !== 'string') return null
   const name = route.name
   const query = route.query || {}
+  if (isExplicitWorldbookSettingsRoute(route)) return { scope: 'global', surface: 'settings-structured', projectId: null, worldbookId: query.worldbookId.trim(), instanceId: query.worldbookId.trim() }
   const bookId = typeof query.bookId === 'string' && query.bookId ? query.bookId : ''
   // 本书添加资料沿用资料页签与项目身份；创建工作区仍是原处理 owner。
   if (bookId && name === 'settings-worldbook-create' && query.mode === 'sources' && query.action === 'add') {
@@ -166,6 +171,7 @@ export function buildDefaultRouteForIntent(intent) {
   }
   const routeName = GLOBAL_SURFACE_ROUTE_NAMES[intent.surface]
   if (!routeName) return null
+  if (intent.surface === 'settings-structured' && intent.worldbookId) return { name: routeName, query: { worldbookId: intent.worldbookId } }
   const params = intent.instanceId ? { roomSlug: intent.instanceId } : undefined
   return { name: routeName, ...(params ? { params } : {}), query: {} }
 }

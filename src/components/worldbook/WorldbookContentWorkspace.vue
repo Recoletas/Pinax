@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, defineAsyncComponent, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { useWorldStore, worldbookEntryEditFingerprint } from '../../stores/worldStore.js'
 import { buildGraph, entryCatDirOf, buildRelationChips, CAT_DIRS } from '../../services/worldbook/entryBrowserModel.js'
@@ -13,16 +13,33 @@ import StructuredSettingsWorkspace from './StructuredSettingsWorkspace.vue'
 import EntryDataTable from '../knowledge/EntryDataTable.vue'
 import ForeshadowLedgerTable from '../knowledge/ForeshadowLedgerTable.vue'
 import GraphCanvas from './GraphCanvas.vue'
+import SettingEntryManagement from './SettingEntryManagement.vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { settingCategoryLabel, settingTypeForCategory, settingDeletionImpact } from '../../services/worldbook/settingWorkspaceModel.js'
+const CreateDialog = defineAsyncComponent(() => import('../workbench/DirectoryCreateDialog.vue'))
 
 const props = defineProps({ worldbook: { type: Object, required: true }, compact: Boolean, focusEntry: Boolean, entryRequestId: { type: String, default: '' }, bookId: { type: String, default: '' }, initialEntryId: { type: String, default: '' }, initialMode: { type: String, default: 'detail' }, initialCategory: { type: String, default: '' }, reload: { type: Function, default: null } })
-const emit = defineEmits(['navigation'])
+const emit = defineEmits(['navigation', 'expand'])
 const store = useWorldStore()
 const category = ref(props.initialCategory)
 const mode = ref(props.initialMode)
 const selectedId = ref(props.initialEntryId)
 const query = ref('')
-const browseAll = ref(false)
-const focusedDetail = computed(() => props.focusEntry && !browseAll.value && mode.value === 'detail')
+const graphCategory = ref('')
+const inspectorTab = ref(props.initialMode === 'detail' ? 'browse' : props.initialMode)
+const inspectorOpen = ref(false)
+const management = ref(null)
+const managementDraft = ref(null)
+const createRequest = ref(null)
+const deleteDialog = ref(null)
+const deleteRequest = ref(null)
+const titleInput = ref(null)
+const inspectorTabs = computed(() => [
+  { id: 'browse', title: settingCategoryLabel(category.value), icon: 'list' },
+  { id: 'table', title: '表格', icon: 'grid' },
+  { id: 'graph', title: '关系', icon: 'network' },
+  { id: 'manage', title: '管理', icon: 'settings' }
+])
 const notice = ref('')
 const pendingRelation = ref(null)
 const relationTarget = ref('')
@@ -90,9 +107,10 @@ const searchErrorText = computed(() => {
   return searchError.value?.message || tr('关联检索暂不可用，仍可直接查找设定。')
 })
 const chips = computed(() => current.value ? buildRelationChips(current.value, entries.value).filter(chip => chip.resolved) : [])
-const effectiveMode = computed(() => props.compact && mode.value === 'table' ? 'detail' : mode.value)
+const effectiveMode = computed(() => mode.value)
 
 function loadDraft(entry) {
+  if (draft.id !== (entry?.id || '')) managementDraft.value = null
   if (draft.id !== (entry?.id || '') || draft.worldbookId !== props.worldbook.id) {
     const retained = entry && readEntryPanelDraft(props.worldbook.id, entry.id, 'workspace-profile')
     retainedProfile.value = retained?.draft || null
@@ -146,6 +164,8 @@ async function save() {
   return pendingSave
 }
 async function flushAll() {
+  if (createRequest.value || deleteRequest.value) { notice.value = tr('请先完成或关闭当前窗口。'); return false }
+  if (managementDraft.value || management.value?.hasPending?.()) { inspectorTab.value = 'manage'; inspectorOpen.value = true; notice.value = tr('管理修改尚未保存，请先保存或取消。'); return false }
   if (busy.value && !pendingSave) return false
   if (profileDraft.value || profileEditor.value?.hasPending?.()) { notice.value = tr('属性修改尚未保存，请先保存属性或取消修改。'); profileOpen.value = true; return false }
   if (pendingRelation.value) { notice.value = tr('请先确认或取消这条关联。'); return false }
@@ -164,7 +184,9 @@ async function selectEntry(entry, event) {
   if (!target) { notice.value = tr('条目已失效，输入已保留。'); return false }
   selectedId.value = target.id
   loadDraft(target)
-  if (props.compact) mode.value = 'detail'
+  mode.value = 'detail'
+  if (category.value && entryCatDirOf(target) !== category.value) { category.value = entryCatDirOf(target); query.value = '' }
+  inspectorOpen.value = false
   if (focusTarget) nextTick(() => { if (focusTarget.isConnected) focusTarget.focus({ preventScroll: true }) })
   return true
 }
@@ -187,7 +209,7 @@ async function chooseCategory(value) {
   }
 }
 async function chooseMode(value) {
-  if (await flushAll()) { mode.value = value; nextTick(resizeBody) }
+  if (await flushAll()) { mode.value = value; if (value !== 'detail') { inspectorTab.value = value; emit('expand') }; inspectorOpen.value = false; nextTick(resizeBody) }
 }
 async function proposeRelation({ fromId, toId }) {
   if (!await flushAll()) return
@@ -212,28 +234,82 @@ async function confirmRelation() {
 }
 async function addEntry() {
   if (!await flushAll() || busy.value) return
-  const worldbookId = props.worldbook.id
+  createRequest.value = { type: 'entry', bookId: props.bookId, worldbookId: props.worldbook.id, path: settingCategoryLabel(category.value), initialType: settingTypeForCategory(category.value) }
+}
+async function created(resources) {
+  const target = resources?.[0], scopeId = createRequest.value?.worldbookId
+  createRequest.value = null
+  if (!target || scopeId !== props.worldbook.id || target.worldbookId !== scopeId) return
+  await nextTick()
+  if (scopeId !== props.worldbook.id) return
+  const entry = entries.value.find(item => String(item.id) === target.id)
+  if (!entry) { notice.value = tr('设定已创建，请刷新后打开。'); return }
+  category.value = entryCatDirOf(entry); query.value = ''; mode.value = 'detail'; selectedId.value = entry.id
+  loadDraft(entry); inspectorTab.value = 'browse'; inspectorOpen.value = false
+  await nextTick(); bodyInput.value?.focus()
+}
+async function saveManagement() {
+  const pending = managementDraft.value
+  if (!pending || busy.value || !current.value || pending.entryId !== draft.id) return
+  if (worldbookEntryEditFingerprint(current.value) !== pending.baseline) { notice.value = tr('设定已有新版本，管理输入已保留。'); return }
+  const worldbookId = props.worldbook.id, entryId = draft.id
+  if (!await save() || props.worldbook.id !== worldbookId || draft.id !== entryId) return
   busy.value = true
   try {
-    const type = { '人物': 'character', '地理': 'location', '势力': 'organization', '编年': 'event' }[category.value] || 'general'
-    const entry = await store.addEntry(worldbookId, { name: type === 'character' ? tr('新人物') : tr('新设定'), type, content: '', keys: [], ...(category.value ? { cat: category.value } : {}) })
-    if (props.worldbook.id !== worldbookId) return
-    selectedId.value = entry.id
-    mode.value = 'detail'
-    loadDraft(entry)
-    nextTick(() => document.querySelector('.worldbook-content-workspace input[data-test="setting-entry-name"]')?.focus())
+    const saved = await store.updateEntry(worldbookId, entryId, pending.updates, { expectedFingerprint: draft.fingerprint })
+    if (props.worldbook.id !== worldbookId || draft.id !== entryId) return
+    managementDraft.value = null; management.value?.reset(saved)
+    loadDraft(saved); category.value = entryCatDirOf(saved); notice.value = ''
   } catch (error) { notice.value = String(error.message || error) }
   finally { busy.value = false }
 }
+async function copyEntry() {
+  if (!await flushAll() || !current.value || busy.value) return
+  const worldbookId = props.worldbook.id
+  const original = JSON.parse(JSON.stringify(current.value))
+  let name = `${original.name} ${tr('副本')}`, index = 2
+  while (entries.value.some(entry => entry.name === name)) name = `${original.name} ${tr('副本')} ${index++}`
+  busy.value = true
+  try {
+    const entry = await store.addEntry(worldbookId, { ...original, name, content: draft.content, keys: renameEntryKeys({ keys: original.keys, previousName: original.name, nextName: name }), metadata: { ...original.metadata, importSource: 'manual', structuredSettingRef: '', structuredCharacterKey: '', structuredCharacterSection: '', importKey: '' } })
+    if (props.worldbook.id !== worldbookId) return
+    await nextTick(); if (props.worldbook.id !== worldbookId) return; selectedId.value = entry.id; loadDraft(entry); mode.value = 'detail'; notice.value = ''
+  } catch (error) { notice.value = String(error.message || error) }
+  finally { busy.value = false }
+}
+async function requestDelete() {
+  if (!await flushAll() || !current.value) return
+  notice.value = ''
+  deleteRequest.value = { worldbookId: props.worldbook.id, revision: props.worldbook.updatedAt, placeImpact: store.getPlaceDeleteImpact(props.worldbook.id, current.value.id), entry: JSON.parse(JSON.stringify(current.value)), impact: settingDeletionImpact(entries.value, current.value.id) }
+  await nextTick(); deleteDialog.value?.showModal()
+}
+function cancelDelete() { if (!busy.value) { deleteDialog.value?.close(); deleteRequest.value = null; nextTick(() => management.value?.$el.querySelector('button')?.focus()) } }
+async function confirmDelete() {
+  const target = deleteRequest.value
+  if (!target || busy.value || target.worldbookId !== props.worldbook.id) return
+  busy.value = true
+  try {
+    await store.deleteEntry(target.worldbookId, target.entry.id, { expectedFingerprint: worldbookEntryEditFingerprint(target.entry), expectedWorldbookRevision: target.revision })
+    if (target.worldbookId !== props.worldbook.id) return
+    clearEntryPanelDraft(target.worldbookId, target.entry.id, 'workspace'); clearEntryPanelDraft(target.worldbookId, target.entry.id, 'workspace-profile')
+    deleteDialog.value?.close(); deleteRequest.value = null; managementDraft.value = null
+    await nextTick()
+    if (props.worldbook.id !== target.worldbookId) return
+    selectedId.value = visible.value.find(entry => entry.id !== target.entry.id)?.id || ''
+    loadDraft(current.value); mode.value = 'detail'; inspectorTab.value = 'browse'; notice.value = ''
+  } catch (error) { notice.value = String(error.message || error) }
+  finally { busy.value = false }
+}
+function selectInspector(value) { inspectorTab.value = value; inspectorOpen.value = true }
 watch(() => props.worldbook.id, () => {
-  category.value = props.initialCategory; mode.value = props.initialMode; selectedId.value = props.initialEntryId || entries.value[0]?.id || ''; query.value = ''; notice.value = ''; loadDraft(current.value)
+  selectedId.value = props.initialEntryId || entries.value[0]?.id || ''; category.value = props.initialCategory || (current.value ? entryCatDirOf(current.value) : ''); mode.value = props.initialMode; query.value = ''; notice.value = ''; loadDraft(current.value)
 }, { immediate: true })
 watch(() => props.entryRequestId, async id => {
   if (!id) return
   const target = entries.value.find(entry => entry.id === props.initialEntryId)
-  if (target && await selectEntry(target)) { browseAll.value = false; category.value = ''; mode.value = 'detail'; query.value = ''; nextTick(resizeBody) }
+  if (target && await selectEntry(target)) { category.value = entryCatDirOf(target); mode.value = 'detail'; query.value = ''; nextTick(resizeBody) }
 })
-watch(() => props.initialEntryId, id => { browseAll.value = false; if (id && id !== selectedId.value) void selectEntry(entries.value.find(entry => entry.id === id)) })
+watch(() => props.initialEntryId, id => { if (id && id !== selectedId.value) void selectEntry(entries.value.find(entry => entry.id === id)) })
 watch(() => current.value, (entry, previous) => {
   if (!entry) { if (!draft.id) loadDraft(null); return }
   if (entry.id === draft.id && draft.name === String(previous?.name || '') && draft.content === String(previous?.content || '')) loadDraft(entry)
@@ -261,147 +337,158 @@ async function reloadEntry() {
   retainedProfile.value = null; profileDraft.value = null
   await props.reload?.()
   loadDraft(current.value); notice.value = ''
-  await nextTick(); profileEditor.value?.reset()
+  await nextTick(); profileEditor.value?.reset(); management.value?.reset()
 }
 function beforeUnload(event) {
-  if (!profileDraft.value && !profileEditor.value?.hasPending?.() && !dirty.value && !busy.value && !table.value?.hasPending?.() && !ledger.value?.hasPending?.() && !pendingRelation.value) return
+  if (!managementDraft.value && !createRequest.value && !deleteRequest.value && !profileDraft.value && !profileEditor.value?.hasPending?.() && !dirty.value && !busy.value && !table.value?.hasPending?.() && !ledger.value?.hasPending?.() && !pendingRelation.value) return
   event.preventDefault(); event.returnValue = ''
 }
 onMounted(() => window.addEventListener('beforeunload', beforeUnload))
-onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => { deleteDialog.value?.close(); window.removeEventListener('beforeunload', beforeUnload) })
 defineExpose({ flushAll })
 </script>
 
 <template>
-  <section class="worldbook-content-workspace" :class="{ 'is-compact': compact, 'is-focused-detail': focusedDetail }" data-test="worldbook-content-workspace">
-    <nav class="setting-content-directory" :aria-label="tr('设定目录')">
-      <button type="button" :class="{ active: category === '' }" @click="chooseCategory('')">{{ tr('全部设定') }}<span>{{ entries.length }}</span></button>
-      <button v-for="item in categories" :key="item" type="button" :class="{ active: category === item }" @click="chooseCategory(item)">{{ tr({ '地理': '地点', '编年': '历史', '设定': '世界规则' }[item] || item) }}<span>{{ entries.filter(entry => entryCatDirOf(entry) === item).length }}</span></button>
-      <div class="setting-directory-secondary">
-        <button type="button" :class="{ active: category === 'foreshadow' }" @click="chooseCategory('foreshadow')">{{ tr('伏笔') }}</button>
-        <button type="button" :class="{ active: category === 'base' }" @click="chooseCategory('base')">{{ tr('创作基调') }}</button>
-      </div>
-    </nav>
+  <section class="worldbook-content-workspace" :class="{ 'is-compact': compact, 'inspector-open': inspectorOpen }" data-test="worldbook-content-workspace">
     <main class="setting-content-main">
+      <header class="setting-content-toolbar">
+        <select :value="['base', 'foreshadow'].includes(category) ? category : 'entries'" :aria-label="tr('设定内容')" @change="chooseCategory($event.target.value === 'entries' ? (current ? entryCatDirOf(current) : '') : $event.target.value)"><option value="entries">{{ tr('设定') }}</option><option value="base">{{ tr('创作基调') }}</option><option value="foreshadow">{{ tr('伏笔') }}</option></select>
+        <span class="setting-workspace-context">{{ ['base', 'foreshadow'].includes(category) ? '' : tr(settingCategoryLabel(current ? entryCatDirOf(current) : category)) }}</span>
+        <button v-if="mode !== 'detail'" type="button" class="control-quiet" @click="chooseMode('detail')"><WorkbenchIcon name="arrow-left" :size="16" />{{ tr('返回正文') }}</button>
+        <button type="button" class="control-quiet setting-add" :disabled="busy" @click="addEntry"><WorkbenchIcon name="plus" :size="16" />{{ tr('新建设定') }}</button>
+        <button type="button" class="control-quiet setting-inspector-toggle" :aria-expanded="inspectorOpen" :aria-label="tr('设定工具')" @click="inspectorOpen = !inspectorOpen"><WorkbenchIcon name="settings" :size="18" /></button>
+      </header>
       <div v-if="pendingRelation" class="setting-relation-confirm" role="status"><span>{{ pendingRelation.from.name }} → {{ pendingRelation.toName }}</span><button type="button" :disabled="busy" @click="confirmRelation">{{ tr('添加关联') }}</button><button type="button" :disabled="busy" @click="pendingRelation = null; notice = ''">{{ tr('取消') }}</button></div>
-      <p v-if="notice" class="setting-save-notice" role="alert">{{ notice }}<button v-if="dirty" type="button" @click="save">{{ tr('重试保存') }}</button><button v-if="(dirty || profileDraft) && reload" type="button" @click="reloadEntry">{{ tr('载入最新') }}</button></p>
+      <p v-if="notice" class="setting-save-notice" role="alert">{{ notice }}<button v-if="dirty" type="button" @click="save">{{ tr('重试保存') }}</button><button v-if="(dirty || profileDraft || managementDraft) && reload" type="button" @click="reloadEntry">{{ tr('载入最新') }}</button></p>
       <StructuredSettingsWorkspace v-show="category === 'base'" ref="baseEditor" :worldbook="worldbook" :compact="compact" embedded />
       <ForeshadowLedgerTable v-show="category === 'foreshadow'" ref="ledger" :worldbook="worldbook" @reload="refreshFromStorage" />
       <div v-show="!['base', 'foreshadow'].includes(category)" class="setting-entity-workspace">
-        <header class="setting-content-toolbar">
-          <button v-if="focusedDetail" type="button" @click="browseAll = true">{{ tr('浏览设定') }}</button>
-          <div v-if="!focusedDetail" class="setting-search">
-            <input v-model="query" type="search" :placeholder="tr('查找设定…')" :aria-label="tr('查找设定')" @keydown.enter="searchRelations" />
-            <button type="button" class="setting-search-go" :disabled="searching || busy || !query.trim()" :title="tr('检索本书设定及相关人物、地点与事件')" @click="searchRelations">{{ tr('检索关联') }}</button>
-          </div>
-          <div v-if="!compact" class="setting-view-switch" :aria-label="tr('设定查看方式')">
-            <button v-for="item in [{ id: 'detail', title: '详情' }, { id: 'table', title: '表格' }, { id: 'graph', title: '关系图' }]" :key="item.id" type="button" :aria-pressed="mode === item.id" :class="{ active: mode === item.id }" @click="chooseMode(item.id)">{{ tr(item.title) }}</button>
-          </div>
-          <button type="button" class="setting-add" :disabled="busy" @click="addEntry">{{ tr('新建') }}</button>
-        </header>
-        <div v-if="searching || searchResult || searchError" class="setting-search-status" :class="{ 'is-error': searchError }" :role="searchError ? 'alert' : 'status'" data-test="setting-search-status">
-          <span v-if="searching">{{ tr('正在检索关联…') }}</span>
-          <span v-else-if="searchError">{{ searchErrorText }}</span>
-          <template v-else>
-            <span>{{ tr('找到 {hits} 项，关联 {related} 项', { hits: hitIds.size, related: relatedIds.size }) }}</span>
-            <span v-if="missingCount">{{ tr('有 {count} 项不在当前设定中，请同步后重新检索。', { count: missingCount }) }}</span>
-          </template>
-          <button type="button" @click="knowledge.reset">{{ searching ? tr('取消') : tr('返回筛选') }}</button>
-        </div>
         <div v-show="effectiveMode === 'detail'" class="setting-details-layout">
-          <nav class="setting-entry-list" :aria-label="tr('设定条目')">
-            <!-- Let the guarded selection save before changing focus; blur notices can otherwise move the clicked row. -->
-            <button v-for="entry in visible" :key="entry.id" type="button" :class="{ active: entry.id === selectedId }" :aria-current="entry.id === selectedId ? 'true' : undefined" @pointerdown.prevent @click="selectEntry(entry, $event)"><span>{{ entry.name || tr('未命名条目') }}</span><small v-if="relatedIds.has(String(entry.id))">{{ tr('关联') }}</small></button>
-            <p v-if="!visible.length">{{ tr('暂无匹配设定') }}</p>
-          </nav>
           <article v-if="draft.id" class="setting-entry-document">
-            <input v-model="draft.name" :readonly="profileSaving" data-test="setting-entry-name" class="setting-entry-title" :aria-label="tr('设定名称')" @blur="save" @keydown.enter.prevent="save" @compositionstart="composing = true" @compositionend="composing = false" />
+            <input ref="titleInput" v-model="draft.name" :readonly="profileSaving" data-test="setting-entry-name" class="setting-entry-title" :aria-label="tr('设定名称')" @blur="save" @keydown.enter.prevent="bodyInput?.focus()" @compositionstart="composing = true" @compositionend="composing = false" />
             <textarea ref="bodyInput" v-model="draft.content" :readonly="profileSaving" data-test="setting-entry-content" :aria-label="tr('设定正文')" :placeholder="tr('写下这项设定…')" @input="resizeBody" @blur="save" @keydown.ctrl.s.prevent="save" @keydown.meta.s.prevent="save" @compositionstart="composing = true" @compositionend="composing = false"></textarea>
             <details :open="profileOpen" class="setting-entry-properties" @toggle="profileOpen = $event.target.open">
               <summary>{{ tr('属性与模板') }}<small v-if="profileDraft"> · {{ tr('未保存') }}</small></summary>
-              <EntryProfileEditor v-if="current" v-show="profileOpen" :key="`${worldbook.id}:${draft.id}`" ref="profileEditor" :entry="current" :content="draft.content" :initial-profile="retainedProfile" :scope-key="worldbook.id" :saving="busy" compact-fields @change="profileChanged" @save="saveProfile" />
+              <EntryProfileEditor v-if="current" v-show="profileOpen" :key="`${worldbook.id}:${draft.id}`" ref="profileEditor" :entry="current" :content="draft.content" :initial-profile="retainedProfile" :scope-key="worldbook.id" :saving="busy" compact-fields :free-fields="(current.kind || current.type) !== 'character'" @change="profileChanged" @save="saveProfile" />
               <button v-if="profileDraft" type="button" @click="cancelProfile">{{ tr('取消属性修改') }}</button>
             </details>
-            <footer class="setting-related"><span>{{ tr('相关设定') }}</span><button v-for="chip in chips" :key="chip.ref" type="button" @pointerdown.prevent @click="selectEntry(chip.entry, $event)">{{ chip.entry.title }}</button><select v-model="relationTarget" :aria-label="tr('关联设定')"><option value="">{{ tr('选择关联对象') }}</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select><button v-if="relationTarget" type="button" @click="proposeRelation({ fromId: selectedId, toId: relationTarget })">{{ tr('关联') }}</button></footer>
             <span v-if="busy" class="setting-save-state" role="status">{{ tr('保存中…') }}</span>
           </article>
-          <div v-else class="setting-empty"><h2>{{ tr('还没有设定') }}</h2><p>{{ tr('新建人物或世界设定，也可以在创作基调里自由整理想法。') }}</p><button type="button" @click="addEntry">{{ tr('新建设定') }}</button></div>
+          <div v-else class="setting-empty"><h2>{{ tr('还没有设定') }}</h2><p>{{ tr('从一个人物、地点或世界规则开始。') }}</p><button type="button" class="control-primary" @click="addEntry">{{ tr('新建设定') }}</button></div>
         </div>
         <EntryDataTable v-show="effectiveMode === 'table'" ref="table" :worldbook="worldbook" scope="all" :filters="searchResult ? {} : { cat: category, q: query }" :visible-ids="searchResult ? visibleIds : null" :selected-id="selectedId" embedded @reload="refreshFromStorage" @select="selectEntry" @open="async entry => { if (await selectEntry(entry)) await chooseMode('detail') }" />
-        <aside v-if="effectiveMode === 'graph' && current" class="setting-graph-selection">
-          <strong>{{ current.name }}</strong><span>{{ current.content || tr('尚未填写内容') }}</span><button type="button" @click="chooseMode('detail')">{{ tr('编辑设定') }}</button>
-        </aside>
-        <GraphCanvas v-show="effectiveMode === 'graph'" :graph="graph" :visible-ids="visibleIds" :highlight-ids="highlightedIds" :cat="category" @update:cat="chooseCategory" @select="selectEntry" @create-edge="proposeRelation" />
+        <GraphCanvas v-show="effectiveMode === 'graph'" :graph="graph" :visible-ids="searchResult ? visibleIds : null" :highlight-ids="highlightedIds" :cat="graphCategory" @update:cat="graphCategory = $event" @select="selectEntry" @create-edge="proposeRelation" />
       </div>
     </main>
+    <aside class="setting-inspector" :aria-label="tr('设定工具')">
+      <nav class="setting-inspector-tabs" :aria-label="tr('设定工具切换')"><button v-for="item in inspectorTabs" :key="item.id" type="button" :class="{ active: inspectorTab === item.id }" :aria-pressed="inspectorTab === item.id" :data-test="`setting-tool-${item.id}`" @click="selectInspector(item.id)"><WorkbenchIcon :name="item.icon" :size="17" /><span>{{ tr(item.title) }}</span></button></nav>
+      <div v-show="inspectorTab === 'browse'" class="setting-inspector-browse">
+        <div class="setting-browse-scope"><select :value="category" :aria-label="tr('设定分类')" @change="chooseCategory($event.target.value)"><option value="">{{ tr('全部设定') }}</option><option v-for="item in categories" :key="item" :value="item">{{ tr(settingCategoryLabel(item)) }}</option><option v-if="['base', 'foreshadow'].includes(category)" :value="category">{{ tr(category === 'base' ? '创作基调' : '伏笔') }}</option></select><span>{{ visible.length }}</span></div>
+        <div class="setting-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('查找设定…')" :aria-label="tr('查找设定')" @keydown.enter="searchRelations" /></div>
+        <button type="button" class="setting-search-go" :disabled="searching || busy || !query.trim()" @click="searchRelations">{{ searching ? tr('检索中…') : tr('检索关联') }}</button>
+        <div v-if="searchResult || searchError" class="setting-search-status" :role="searchError ? 'alert' : 'status'"><span>{{ searchError ? searchErrorText : tr('找到 {count} 项', { count: visible.length }) }}</span><small v-if="missingCount">{{ tr('有 {count} 项不在当前设定中，请同步后重新检索。', { count: missingCount }) }}</small><button type="button" @click="knowledge.reset">{{ tr('清除检索') }}</button></div>
+        <nav class="setting-entry-list" :aria-label="tr('同类设定')"><button v-for="entry in visible" :key="entry.id" type="button" :class="{ active: entry.id === selectedId }" :aria-current="entry.id === selectedId ? 'true' : undefined" @pointerdown.prevent @click="selectEntry(entry, $event)"><span>{{ entry.name || tr('未命名条目') }}<small v-if="relatedIds.has(String(entry.id))"> · {{ tr('关联') }}</small></span><small>{{ (entry.content || '').split('\n').find(line => line.trim())?.slice(0, 64) || tr('尚未填写') }}</small></button><p v-if="!visible.length">{{ tr('暂无匹配设定') }}</p></nav>
+        <button type="button" class="setting-browse-new" :disabled="busy" @click="addEntry"><WorkbenchIcon name="plus" :size="16" />{{ tr('新建{type}', { type: settingCategoryLabel(category) }) }}</button>
+      </div>
+      <div v-show="inspectorTab === 'table'" class="setting-inspector-preview">
+        <header><h3>{{ tr('表格') }}</h3><button type="button" class="control-quiet" @click="chooseMode('table')">{{ tr('展开表格') }}<WorkbenchIcon name="canvas" :size="16" /></button></header>
+        <p>{{ tr('在表格中比较和整理属性。') }}</p>
+        <table class="setting-overview-table"><thead><tr><th>{{ tr('名称') }}</th><th>{{ tr('类型') }}</th></tr></thead><tbody><tr v-for="entry in visible" :key="entry.id"><td><button type="button" @click="selectEntry(entry)">{{ entry.name }}</button></td><td>{{ tr(settingCategoryLabel(entryCatDirOf(entry))) }}</td></tr></tbody></table>
+      </div>
+      <div v-show="inspectorTab === 'graph'" class="setting-inspector-preview">
+        <header><h3>{{ tr('关系图') }}</h3><button type="button" class="control-quiet" @click="chooseMode('graph')">{{ tr('展开关系图') }}<WorkbenchIcon name="canvas" :size="16" /></button></header>
+        <div v-if="current" class="setting-relations"><h4>{{ current.name }}</h4><button v-for="chip in chips" :key="chip.ref" type="button" @click="selectEntry(chip.entry)"><WorkbenchIcon name="network" :size="15" /><span>{{ chip.entry.title }}</span></button><p v-if="!chips.length">{{ tr('还没有关联设定') }}</p><label>{{ tr('添加关联') }}<select v-model="relationTarget" :aria-label="tr('关联设定')"><option value="">{{ tr('选择关联对象') }}</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select></label><button v-if="relationTarget" type="button" class="control-secondary" @click="proposeRelation({ fromId: selectedId, toId: relationTarget })">{{ tr('关联') }}</button></div>
+        <p v-else>{{ tr('选一项设定查看关联。') }}</p>
+      </div>
+      <SettingEntryManagement v-if="current" v-show="inspectorTab === 'manage'" :key="`${worldbook.id}:${current.id}`" ref="management" :entry="current" :busy="busy" @change="managementDraft = $event" @save="saveManagement" @copy="copyEntry" @delete="requestDelete" />
+      <p v-else-if="inspectorTab === 'manage'" class="setting-inspector-empty">{{ tr('选一项设定进行管理。') }}</p>
+    </aside>
+    <CreateDialog v-if="createRequest" :request="createRequest" @close="createRequest = null" @created="created" />
+    <Teleport to="body"><dialog v-if="deleteRequest" ref="deleteDialog" class="setting-delete-dialog" :aria-label="tr('删除设定')" @cancel.prevent="cancelDelete"><h2>{{ tr('删除「{name}」？', { name: deleteRequest.entry.name }) }}</h2><p>{{ tr('删除后无法撤销。正文中的文字不会被删除。') }}</p><div v-if="deleteRequest.impact.length"><p>{{ tr('以下设定关联了它，删除后关联将失效：') }}</p><ul><li v-for="entry in deleteRequest.impact" :key="entry.id">{{ entry.name }}</li></ul></div><p v-if="deleteRequest.placeImpact.total">{{ tr('地点引用：地图绑定 {map}，历史 {history} 项，地点关联 {relations} 项。', { map: deleteRequest.placeImpact.mapBinding ? 1 : 0, history: deleteRequest.placeImpact.historyRefs, relations: deleteRequest.placeImpact.relationRefs }) }}</p><p v-if="notice" role="alert">{{ notice }}</p><footer><button type="button" class="control-secondary" :disabled="busy" @click="cancelDelete">{{ tr('取消') }}</button><button type="button" class="control-primary" :disabled="busy" @click="confirmDelete">{{ busy ? tr('删除中…') : tr('删除') }}</button></footer></dialog></Teleport>
   </section>
 </template>
 <style scoped>
-.worldbook-content-workspace.is-focused-detail { grid-template-columns: minmax(0, 1fr); }
-.is-focused-detail .setting-content-directory, .is-focused-detail .setting-entry-list { display: none; }
-.is-focused-detail .setting-details-layout { grid-template-columns: minmax(0, 1fr); }
-.is-focused-detail .setting-content-toolbar { justify-content: flex-end; }
-.is-focused-detail .setting-content-toolbar > button:first-child { margin-right: auto; }
-.setting-entry-properties { margin-top: 24px; border-top: 1px solid var(--hairline-soft); padding-top: 12px; }
-.setting-entry-properties summary { color: var(--text-secondary); font-size: 13px; cursor: pointer; }
-.setting-entry-properties > button { margin-top: 8px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
-.setting-entry-properties :deep(.entry-profile-editor) { border-top: 0; }
-.worldbook-content-workspace { display: grid; grid-template-columns: 176px minmax(0, 1fr); min-height: 560px; height: 100%; color: var(--text-primary); background: var(--surface-workbench); }
-.setting-content-directory { padding: 22px 12px; border-right: 1px solid var(--hairline-soft); }
-.setting-content-directory button, .setting-entry-list button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; text-align: left; cursor: pointer; }
-.setting-content-directory button.active, .setting-entry-list button.active { background: color-mix(in srgb, var(--accent) 19%, transparent); color: var(--text-primary); font-weight: 600; }
-.setting-content-directory span { color: var(--text-muted); font-size: 12px; font-weight: 400; }
-.setting-directory-secondary { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--hairline-soft); }
-.setting-content-main { min-width: 0; min-height: 0; }
-.setting-entity-workspace { display: flex; flex-direction: column; min-height: 560px; height: 100%; }
-.setting-content-toolbar { display: flex; align-items: center; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--hairline-soft); }
-.setting-content-toolbar input { flex: 1; min-width: 80px; border: 0; background: transparent; color: var(--text-primary); font: inherit; outline-offset: 4px; }
-.setting-search { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
-.setting-search input { width: 0; }
-.setting-search .setting-search-go { flex-shrink: 0; color: var(--accent); }
-.setting-search-go:disabled { color: var(--text-muted); cursor: default; }
-.setting-search-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; padding: 10px 24px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
-.setting-search-status button { margin-left: auto; flex-shrink: 0; border: 0; padding: 4px 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; }
-.setting-search-status.is-error { color: var(--text-primary); }
-.setting-entry-list button { gap: 8px; }
-.setting-entry-list button span { min-width: 0; overflow-wrap: anywhere; }
-.setting-entry-list small { flex-shrink: 0; color: var(--text-muted); font-size: 11px; font-weight: 400; }
-.setting-view-switch { display: flex; gap: 4px; }
-.setting-content-toolbar button, .setting-related button, .setting-save-notice button, .setting-empty button { border: 0; border-radius: 4px; padding: 7px 10px; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
-.setting-view-switch button.active { background: var(--bg-secondary); color: var(--text-primary); }
+.worldbook-content-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; height: 100%; min-height: 560px; min-width: 0; color: var(--text-primary); background: var(--surface-workbench); font: 14px/1.5 var(--font-sans); container-type: inline-size; container-name: setting-workspace; }
+.setting-content-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.setting-content-toolbar { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 20px; border-bottom: 1px solid var(--hairline-soft); box-sizing: border-box; }
+.setting-content-toolbar select { max-width: 150px; }
+.setting-workspace-context { flex: 1; min-width: 0; color: var(--text-muted); font-size: 12px; }
+.setting-content-toolbar button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 8px; font: inherit; white-space: nowrap; }
 .setting-content-toolbar .setting-add { color: var(--accent); }
-.setting-details-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); flex: 1; min-height: 0; }
-.setting-entry-list { padding: 18px 12px; border-right: 1px solid var(--hairline-soft); overflow: auto; }
-.setting-entry-list p { color: var(--text-muted); font-size: 13px; }
-.setting-entry-document { padding: 36px clamp(24px, 5vw, 64px); min-width: 0; overflow: auto; }
-.setting-entry-title { display: block; width: 100%; border: 0; background: transparent; color: var(--text-primary); font: 600 25px/1.5 var(--font-sans); margin-bottom: 24px; }
-.setting-entry-document textarea { width: 100%; min-height: 180px; resize: none; overflow: hidden; border: 0; background: transparent; color: var(--text-primary); font: 16px/1.9 var(--font-sans); }
-.setting-entry-document input:focus, .setting-entry-document textarea:focus { outline: none; }
-.setting-entry-document input:focus-visible, .setting-entry-document textarea:focus-visible { outline: 1px solid var(--accent); outline-offset: 6px; }
-.setting-related { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--hairline-soft); margin-top: 32px; padding-top: 14px; font-size: 13px; }
-.setting-related select { max-width: 180px; padding: 6px 8px; color: var(--text-secondary); background: transparent; border: 0; font: inherit; }
-.setting-relation-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 24px; background: var(--bg-secondary); }
-.setting-relation-confirm button { color: var(--accent); border: 0; background: transparent; padding: 6px 8px; font: inherit; cursor: pointer; }
-.setting-related span, .setting-save-state { color: var(--text-muted); }
-.setting-save-notice { margin: 0; padding: 12px 24px; color: var(--text-primary); background: var(--bg-secondary); }
-.setting-empty { padding: 40px 32px; }
-.setting-empty h2 { font-size: 20px; }
-.setting-empty p { max-width: 340px; line-height: 1.8; color: var(--text-muted); }
+.setting-inspector-toggle { display: none !important; }
+.setting-entity-workspace { flex: 1; min-height: 0; }
+.setting-entry-document { padding: 40px clamp(24px, 4vw, 56px); min-width: 0; }
+.setting-entry-title { width: 100%; box-sizing: border-box; display: block; margin: 0 0 24px; padding: 0; border: 0; background: transparent; color: var(--text-primary); font: 600 25px/1.5 var(--font-sans); }
+.setting-entry-document textarea { width: 100%; box-sizing: border-box; min-height: 180px; padding: 0; resize: none; overflow: hidden; border: 0; background: transparent; color: var(--text-primary); font: 16px/1.9 var(--font-sans); }
+.setting-entry-properties { margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--hairline-soft); }
+.setting-entry-properties summary { color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+.setting-entry-properties :deep(.entry-profile-editor) { border-top: 0; }
+.setting-entry-properties > button { margin-top: 8px; }
+.setting-save-state { display: block; margin-top: 12px; color: var(--text-muted); font-size: 12px; }
+.setting-inspector { min-width: 0; min-height: 0; border-left: 1px solid var(--hairline-soft); background: var(--surface-workbench); }
+.setting-inspector-tabs { display: flex; min-height: 52px; border-bottom: 1px solid var(--hairline-soft); }
+.setting-inspector-tabs button { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; background: transparent; color: var(--text-secondary); font: 12px var(--font-sans); padding: 8px 2px; cursor: pointer; }
+.setting-inspector-tabs span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setting-inspector-tabs button.active { color: var(--accent); background: var(--accent-light); }
+.setting-inspector-tabs button:hover { background: var(--nav-hover); }
+.setting-inspector-browse, .setting-inspector-preview { padding: 16px; }
+.setting-browse-scope { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.setting-browse-scope select { flex: 1; }
+.setting-browse-scope > span { color: var(--text-muted); font-size: 12px; }
+select, .setting-search, .setting-relations select { min-width: 0; min-height: 34px; padding: 7px 10px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--surface-workbench-input); color: var(--text-primary); font: inherit; }
+.setting-search { display: flex; align-items: center; gap: 8px; }
+.setting-search input { width: 0; flex: 1; min-width: 0; border: 0; padding: 0; background: transparent; color: var(--text-primary); font: inherit; }
+.setting-search:focus-within { border-color: var(--accent); }
+.setting-search-go { display: block; margin: 8px 0 12px auto; padding: 2px; font-size: 12px; color: var(--accent); }
+.setting-entry-list { display: grid; gap: 4px; }
+.setting-entry-list button { display: grid; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-primary); font: inherit; text-align: start; cursor: pointer; }
+.setting-entry-list button.active { background: var(--nav-selected-secondary, var(--bg-hover)); font-weight: 600; }
+.setting-entry-list button:hover { background: var(--nav-hover); }
+.setting-entry-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 12px; font-weight: 400; }
+.setting-browse-new { display: flex; align-items: center; gap: 6px; margin-top: 16px; min-height: 36px; color: var(--accent); }
+.setting-inspector-preview header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.setting-inspector-preview h3 { margin: 0; font-size: 15px; }
+.setting-inspector-preview header button { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.setting-inspector-preview p, .setting-inspector-empty { color: var(--text-muted); font-size: 13px; line-height: 1.7; }
+.setting-inspector-empty { padding: 20px; }
+.setting-overview-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 16px; font-size: 13px; }
+.setting-overview-table th, .setting-overview-table td { padding: 10px 4px; border-bottom: 1px solid var(--hairline-soft); text-align: start; overflow-wrap: anywhere; }
+.setting-overview-table th { color: var(--text-muted); font-weight: 500; }
+.setting-overview-table th:last-child { width: 64px; }
+.setting-overview-table button { color: var(--text-primary); text-align: start; font: inherit; }
+.setting-relations h4 { margin: 20px 0 14px; font-size: 14px; }
+.setting-relations > button { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.setting-relations label { display: grid; gap: 8px; margin-top: 24px; color: var(--text-secondary); font-size: 13px; }
 .setting-content-main :deep(.entry-data-table), .setting-content-main :deep(.flt), .setting-content-main :deep(.graph-canvas) { border: 0; border-radius: 0; background: transparent; min-height: 420px; }
-.setting-content-main :deep(.edt-toolbar) { padding: 10px 18px; border-bottom: 1px solid var(--hairline-soft); }
-.setting-content-main :deep(.edt-title), .setting-content-main :deep(.edt-filter), .setting-content-main :deep(.edt-axis), .setting-content-main :deep([data-test="edt-add-character"]) { display: none; }
-.setting-graph-selection { display: flex; align-items: center; gap: 14px; padding: 14px 24px; border-bottom: 1px solid var(--hairline-soft); font-size: 13px; }
-.setting-graph-selection span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text-muted); }
-.setting-graph-selection button { border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; flex-shrink: 0; }
-.is-compact { display: flex; flex-direction: column; min-height: 100%; }
-.is-compact .setting-content-directory { display: flex; gap: 4px; overflow: auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--hairline-soft); }
-.is-compact .setting-content-directory button { width: auto; flex-shrink: 0; gap: 12px; }
-.is-compact .setting-directory-secondary { display: flex; margin: 0; padding: 0; border: 0; }
-.is-compact .setting-details-layout { display: flex; flex-direction: column; }
-.is-compact .setting-entry-list { display: flex; overflow: auto; padding: 10px 12px; border: 0; }
-.is-compact .setting-entry-list button { width: auto; flex-shrink: 0; }
+.setting-content-main :deep(.edt-title), .setting-content-main :deep([data-test="edt-add-character"]) { display: none; }
+.setting-relation-confirm, .setting-save-notice, .setting-search-status { margin: 0; padding: 12px 20px; background: var(--surface-workbench-muted); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.setting-relation-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.setting-search-status { padding: 10px; margin-bottom: 12px; }
+.setting-save-notice button, .setting-relation-confirm button, .setting-search-status button { color: var(--accent); margin-left: 8px; }
+.setting-empty { padding: 64px 32px; }
+.setting-empty h2 { margin: 0 0 12px; font-size: 22px; }
+.setting-empty p { color: var(--text-secondary); }
+.setting-empty button { padding: 8px 14px; margin-top: 16px; }
+:where(button):not(.control-primary):not(.control-secondary) { border: 0; background-color: transparent; font-family: inherit; cursor: pointer; }
+:where(button, select, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+.setting-delete-dialog { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover); background: var(--surface-workbench); color: var(--text-primary); box-shadow: var(--shadow-workbench-float); }
+.setting-delete-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.setting-delete-dialog h2 { font: 600 18px/1.5 var(--font-sans); overflow-wrap: anywhere; margin-top: 0; }
+.setting-delete-dialog p, .setting-delete-dialog ul { font: 14px/1.7 var(--font-sans); }
+.setting-delete-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.setting-delete-dialog footer button { padding: 8px 14px; }
+@container setting-workspace (max-width: 680px) { .setting-content-toolbar { flex-wrap: wrap; } }
+@media (max-width: 680px) {
+  .worldbook-content-workspace { display: flex; flex-direction: column; min-height: 100%; height: auto; }
+  .setting-inspector { display: none; border-left: 0; border-top: 1px solid var(--hairline-soft); }
+  .inspector-open .setting-inspector { display: block; }
+  .setting-inspector-toggle { display: inline-flex !important; }
+  .setting-content-toolbar { padding: 8px 16px; gap: 8px; }
+  .setting-entry-document { padding: 28px 24px; }
+}
+.is-compact { display: flex; flex-direction: column; min-height: 100%; height: auto; }
+.is-compact .setting-inspector { border-left: 0; border-top: 1px solid var(--hairline-soft); }
 .is-compact .setting-entry-document { padding: 24px; }
-.is-compact .setting-content-toolbar { padding: 12px 24px; gap: 8px; }
-.is-compact .setting-search-status { padding: 8px 24px; }
-@media (max-width: 680px) { .worldbook-content-workspace:not(.is-compact) { display: flex; flex-direction: column; height: auto; } .setting-content-directory { flex: none; } .setting-content-directory button, .setting-entry-list button { min-height: 40px; align-self: flex-start; } .setting-entry-list { flex: none; } .setting-content-directory { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px; border-right: 0; } .setting-content-directory button { width: auto; gap: 8px; } .setting-directory-secondary { display: flex; margin: 0; padding: 0; border: 0; } .setting-content-toolbar { flex-wrap: wrap; gap: 8px; padding: 12px; } .setting-search { flex-basis: 100%; } .setting-search-status { padding: 8px 12px; } .setting-details-layout { grid-template-columns: minmax(0, 1fr); } .setting-entry-list { display: flex; overflow: auto; padding: 8px 12px; border: 0; } .setting-entry-list button { width: auto; flex-shrink: 0; } .setting-entry-document { padding: 24px; } }
+@media (pointer: coarse) { .setting-content-toolbar button, select, .setting-browse-new { min-height: 44px; } }
 </style>

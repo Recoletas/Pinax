@@ -870,6 +870,11 @@ const store = useWorldStore()
     expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '最新资料' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(true)
     expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '迟到覆盖' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(false)
     expect(JSON.parse(localStorage.getItem(`worldbook_${guardedBook.id}`)).entries.find(entry => entry.id === guardedEntry.id).content).toBe('最新资料')
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedFingerprint: baselineFingerprint })).ok).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`worldbook_${guardedBook.id}`)).entries.some(entry => entry.id === guardedEntry.id)).toBe(true)
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedWorldbookRevision: -1 })).ok).toBe(false)
+    const currentForDeletion = store.activeWorldbook.entries.find(entry => entry.id === guardedEntry.id)
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedFingerprint: worldbookEntryEditFingerprint(currentForDeletion) })).ok).toBe(true)
     const wb = await store.createWorldbook({
       name: '有地图的世界',
       geoHistory: { version: 1, nodes: [{ id: 'n1', title: '建城', playable: true }] }

@@ -4,7 +4,7 @@
 // 旧无 query 的 project 链接 replace 为 canonical URL（最近书或首书）。
 import { loadWritingBooks } from '../writing/writingBooksRepository'
 import { isNavigationFailure, NavigationFailureType } from 'vue-router'
-import { PROJECT_SURFACE_ROUTE_NAMES, DUAL_MODE_ROUTE_NAMES, buildDefaultRouteForIntent, chooseCloseNeighbor, intentToTabKey, resolveRouteIntent } from './workspaceTabContract'
+import { PROJECT_SURFACE_ROUTE_NAMES, DUAL_MODE_ROUTE_NAMES, isExplicitWorldbookSettingsRoute, buildDefaultRouteForIntent, chooseCloseNeighbor, intentToTabKey, resolveRouteIntent } from './workspaceTabContract'
 import { recordWorkspaceRecentRoute, resolveRecentBookId } from './workspaceRecentHistory.js'
 
 const PROJECT_ROUTE_NAMES = new Set(Object.values(PROJECT_SURFACE_ROUTE_NAMES))
@@ -104,7 +104,7 @@ function processRouteChange(store, router, to) {
     return
   }
   // 双模式路由（高级条目）不带 bookId 是合法的全局访问，不能被补默认书后吞进项目标签。
-  if (PROJECT_ROUTE_NAMES.has(to.name) && !DUAL_MODE_ROUTE_NAMES.has(to.name) && !to.query?.bookId) {
+  if (PROJECT_ROUTE_NAMES.has(to.name) && !DUAL_MODE_ROUTE_NAMES.has(to.name) && !isExplicitWorldbookSettingsRoute(to) && !to.query?.bookId) {
     const bookId = resolveDefaultBookId(store, to)
     if (bookId) {
       const canonical = { name: to.name, query: { ...to.query, bookId } }

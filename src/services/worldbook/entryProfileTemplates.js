@@ -151,11 +151,14 @@ export const ENTRY_PROFILE_TEMPLATES = [
   ])
 ]
 
+export const FREE_PROFILE_TEMPLATE = makeTemplate('free', '自由属性', [])
+
 export const DEFAULT_PROFILE_TEMPLATE_ID = ENTRY_PROFILE_TEMPLATES[0].id
 
 /** 模板 id → 模板；未知 id 回落默认模板（主角） */
 export function getProfileTemplate(id) {
   const key = String(id ?? '').trim()
+  if (key === 'free') return FREE_PROFILE_TEMPLATE
   return ENTRY_PROFILE_TEMPLATES.find((template) => template.id === key) ||
     ENTRY_PROFILE_TEMPLATES.find((template) => template.id === DEFAULT_PROFILE_TEMPLATE_ID)
 }

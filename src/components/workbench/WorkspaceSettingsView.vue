@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onScopeDispose, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onScopeDispose, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { tr } from '../../i18n/index.js'
 import { useWorldStore } from '../../stores/worldStore.js'
 import { useSettingsProjectContext } from '../../composables/useSettingsProjectContext.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorldbookContentWorkspace from '../worldbook/WorldbookContentWorkspace.vue'
+const CreateDialog = defineAsyncComponent(() => import('./DirectoryCreateDialog.vue'))
+const createRequest = ref(null)
 const props = defineProps({ resource: { type: Object, required: true }, instanceId: { type: String, required: true } })
 const emit = defineEmits(['title', 'icon'])
 const host = useComposableWorkspace()
@@ -30,8 +32,16 @@ watch(() => [worldbook.value, props.resource.entryId], () => {
 }, { immediate: true })
 const duplicate = computed(() => route.name === 'settings-structured' && route.query.bookId === props.resource.bookId)
 const stale = computed(() => props.resource.worldbookId && worldbook.value?.id && String(worldbook.value.id) !== props.resource.worldbookId)
-const release = host.registerGuard(props.instanceId, () => editor.value?.flushAll?.() ?? true)
+const release = host.registerGuard(props.instanceId, () => createRequest.value ? false : editor.value?.flushAll?.() ?? true)
 onScopeDispose(release)
+async function created(resources) {
+  const target = resources?.[0], bookId = createRequest.value?.bookId
+  createRequest.value = null
+  if (!target || bookId !== props.resource.bookId) return
+  await refresh()
+  if (bookId !== props.resource.bookId) return
+  host.updateResource(props.instanceId, { worldbookId: target.worldbookId, entryId: target.id, focusEntry: true, entryRequestId: String(Date.now()) })
+}
 </script>
 <template>
   <section ref="surface" class="workspace-settings-view" data-test="workspace-settings-view">
@@ -39,13 +49,15 @@ onScopeDispose(release)
     <p v-else-if="stale" role="alert">{{ tr('本书的资料库关联已变化，请重新打开设定。') }}</p>
     <p v-else-if="loading" role="status">{{ tr('加载设定…') }}</p>
     <div v-else-if="loadError" role="alert">{{ tr(loadError) }}<button type="button" class="control-quiet" @click="refresh()">{{ tr('重试') }}</button></div>
-    <WorldbookContentWorkspace v-else-if="worldbook" ref="editor" :worldbook="worldbook" :reload="refresh" :book-id="resource.bookId" :initial-entry-id="resource.entryId" :initial-mode="resource.settingsView" :initial-category="resource.settingsCategory" @navigation="host.updateResource(instanceId, $event)" :compact="compact" :focus-entry="resource.focusEntry" :entry-request-id="resource.entryRequestId" />
-    <div v-else class="workspace-settings-empty"><h2>{{ tr('还没有设定') }}</h2><p>{{ tr('先导入资料，或关联这本书的资料库。') }}</p><button type="button" class="control-primary" @click="host.openResource({ ...resource, type: 'sources' })">{{ tr('添加资料') }}</button></div>
+    <WorldbookContentWorkspace v-else-if="worldbook" ref="editor" :worldbook="worldbook" :reload="refresh" :book-id="resource.bookId" :initial-entry-id="resource.entryId" :initial-mode="resource.settingsView" :initial-category="resource.settingsCategory" @navigation="host.updateResource(instanceId, $event)" @expand="host.move(true, instanceId)" :compact="compact" :focus-entry="resource.focusEntry" :entry-request-id="resource.entryRequestId" />
+    <div v-else class="workspace-settings-empty"><h2>{{ tr('还没有设定') }}</h2><p>{{ tr('新建人物、地点或世界规则，开始整理这本书的设定。') }}</p><button v-if="resource.bookId" type="button" class="control-primary" @click="createRequest = { type: 'entry', bookId: resource.bookId }">{{ tr('新建设定') }}</button><button type="button" class="control-primary" @click="host.openResource({ ...resource, type: 'sources' })">{{ tr('添加资料') }}</button></div>
+    <CreateDialog v-if="createRequest" :request="createRequest" @close="createRequest = null" @created="created" />
   </section>
 </template>
 <style scoped>
-.workspace-settings-view { min-width: 0; min-height: 100%; color: var(--text-primary); background: var(--surface-workbench); container-type: inline-size; container-name: workspace-settings; }
+.workspace-settings-view { display: flex; flex-direction: column; min-width: 0; min-height: 100%; color: var(--text-primary); background: var(--surface-workbench); container-type: inline-size; container-name: workspace-settings; }
 .workspace-settings-empty { padding: 48px 24px; }
+.workspace-settings-view :deep(.worldbook-content-workspace) { flex: 1; }
 @container workspace-settings (max-width: 680px) {
   .workspace-settings-view :deep(.section-workbench) { grid-template-columns: minmax(0,1fr); grid-template-rows: max-content auto; }
   .workspace-settings-view :deep(.section-rail) { position: static; height: auto; padding: 12px; gap: 8px; overflow: visible; }

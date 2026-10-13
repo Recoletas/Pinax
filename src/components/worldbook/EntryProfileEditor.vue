@@ -112,6 +112,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import {
   ENTRY_PROFILE_TEMPLATES,
+  FREE_PROFILE_TEMPLATE,
   getProfileTemplate,
   missingRequiredLabels,
   normalizeSpeech,
@@ -125,12 +126,13 @@ const props = defineProps({
   content: { type: String, default: '' },
   saving: { type: Boolean, default: false },
   compactFields: Boolean,
+  freeFields: Boolean,
   scopeKey: { type: String, default: '' },
   initialProfile: { type: Object, default: null }
 })
 const emit = defineEmits(['save', 'change'])
 
-const templates = ENTRY_PROFILE_TEMPLATES
+const templates = computed(() => props.freeFields ? [FREE_PROFILE_TEMPLATE, ...(props.entry.profile?.template && props.entry.profile.template !== 'free' ? ENTRY_PROFILE_TEMPLATES : [])] : ENTRY_PROFILE_TEMPLATES)
 const selectedTemplateId = ref('')
 const values = reactive({})
 const speech = reactive({ enabled: false, speechStyle: '', vocabularyCommonText: '', vocabularyForbiddenText: '', samplesText: '', greeting: '' })
@@ -178,7 +180,7 @@ function splitListText(text) {
 }
 
 function seedFromEntry() {
-  const profile = profileFromEntry(props.initialProfile ? { ...props.entry, profile: props.initialProfile } : props.entry, props.initialProfile?.template || props.entry?.profile?.template || '')
+  const profile = profileFromEntry(props.initialProfile ? { ...props.entry, profile: props.initialProfile } : props.entry, props.initialProfile?.template || props.entry?.profile?.template || (props.freeFields ? 'free' : ''))
   selectedTemplateId.value = profile.template
   const fields = template.value.fields
   // 先清掉旧自由键再播种：切换条目/重读时上一条的键不得残留

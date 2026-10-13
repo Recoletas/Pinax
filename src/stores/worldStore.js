@@ -215,7 +215,7 @@ function normalizeWorldbook(raw = {}, { normalizationNow = Date.now(), sourceEnt
 // 复用正式 worldbook 归一逻辑，但不切换 activeWorldbook，也不执行旧来源归档
 // 迁移或任何持久化写入。项目与世界书绑定关系由上层 repository adapter 核对。
 export function worldbookEntryEditFingerprint(entry) {
-  return JSON.stringify(['id', 'name', 'type', 'content', 'keys', 'keysSecondary', 'injection', 'profile', 'links', 'relations', 'status', 'tier'].map(key => entry?.[key] ?? null))
+  return JSON.stringify(['id', 'name', 'type', 'content', 'keys', 'keysSecondary', 'injection', 'profile', 'links', 'relations', 'status', 'tier', 'kind'].map(key => entry?.[key] ?? null))
 }
 
 export function readWorldbookSnapshot(worldbookId) {
@@ -891,18 +891,20 @@ export const useWorldStore = defineStore('world', {
       return updated
     },
 
-    async _deleteEntryMutation(worldbookId, entryId) {
-      let worldbook = this.activeWorldbook
+    async _deleteEntryMutation(worldbookId, entryId, options = {}) {
+      let worldbook = options.expectedFingerprint !== undefined || options.expectedWorldbookRevision !== undefined ? readWorldbookSnapshot(worldbookId) : this.activeWorldbook
       if (worldbook?.id !== worldbookId) {
         const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         if (!raw) throw new Error('世界书不存在')
         worldbook = normalizeWorldbook(raw)
       }
 
+      if (options.expectedWorldbookRevision !== undefined && Number(worldbook.updatedAt) !== Number(options.expectedWorldbookRevision)) throw new Error('设定库已更新，请重新确认关联影响后删除。')
       const entryIdx = worldbook.entries.findIndex(e => e.id === entryId)
       if (entryIdx < 0) return
 
       const deleting = worldbook.entries[entryIdx]
+      if (options.expectedFingerprint !== undefined && worldbookEntryEditFingerprint(deleting) !== options.expectedFingerprint) throw new Error('条目已在别处更新，请重新检查后再删除。')
       const structuredRef = String(deleting?.metadata?.structuredSettingRef || '')
       const structuredCharacterKey = String(deleting?.metadata?.structuredCharacterKey || '')
       if (structuredRef && structuredCharacterKey) {
@@ -973,9 +975,9 @@ export const useWorldStore = defineStore('world', {
       return this._runWorldbookMutation(worldbookId, () => this._updateEntryMutation(worldbookId, entryId, updates, options), 'entry')
     },
 
-    deleteEntryDurable(worldbookId, entryId) {
+    deleteEntryDurable(worldbookId, entryId, options = {}) {
       return this._runWorldbookMutation(worldbookId, async () => {
-        await this._deleteEntryMutation(worldbookId, entryId)
+        await this._deleteEntryMutation(worldbookId, entryId, options)
         return true
       }, 'deleted')
     },
@@ -1022,8 +1024,8 @@ export const useWorldStore = defineStore('world', {
       )
     },
 
-    async deleteEntry(worldbookId, entryId) {
-      return unwrapWorldbookMutation(await this.deleteEntryDurable(worldbookId, entryId), 'deleted')
+    async deleteEntry(worldbookId, entryId, options = {}) {
+      return unwrapWorldbookMutation(await this.deleteEntryDurable(worldbookId, entryId, options), 'deleted')
     },
 
     async importFromSillyTavern(worldbookData) {

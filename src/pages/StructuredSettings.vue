@@ -66,7 +66,8 @@
       <div v-if="contextLoading" class="empty-state" role="status">{{ tr('正在打开这本书的设定…') }}</div>
       <template v-else-if="projectContextStatus === 'unbound'">
         <div class="empty-state" data-test="settings-unbound">
-          <p>{{ tr('这本书还没有关联世界书。') }}</p>
+          <p>{{ tr('还没有设定') }}</p>
+          <button type="button" class="control-primary" @click="createRequest = { type: 'entry', bookId: context?.bookId }">{{ tr('新建设定') }}</button>
           <p class="empty-state__hint">{{ tr('添加资料后会建立并关联资料库；也可在工作台关联已有世界书。') }}</p>
           <button
             type="button"
@@ -93,11 +94,12 @@
         <p>{{ tr('请选择一个世界书开始编辑结构化设定') }}</p>
       </div>
     </div>
+    <CreateDialog v-if="createRequest" :request="createRequest" @close="createRequest = null" @created="created" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { tr } from '../i18n/index.js'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
@@ -108,9 +110,12 @@ import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHe
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
+const CreateDialog = defineAsyncComponent(() => import('../components/workbench/DirectoryCreateDialog.vue'))
+const createRequest = ref(null)
+async function created() { createRequest.value = null; await refreshContext() }
 const contentEditor = ref(null)
-onBeforeRouteLeave(() => contentEditor.value?.flushAll?.() ?? true)
-onBeforeRouteUpdate(() => contentEditor.value?.flushAll?.() ?? true)
+onBeforeRouteLeave(() => createRequest.value ? false : contentEditor.value?.flushAll?.() ?? true)
+onBeforeRouteUpdate(() => createRequest.value ? false : contentEditor.value?.flushAll?.() ?? true)
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()

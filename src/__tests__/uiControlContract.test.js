@@ -5,6 +5,8 @@ import { useProseDirectorExport } from '../composables/useProseDirectorExport.js
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { getProfileTemplate, profileFromEntry } from '../services/worldbook/entryProfileTemplates.js'
+import { settingAliases, settingDeletionImpact } from '../services/worldbook/settingWorkspaceModel.js'
 import { trapFocusWithin } from '../composables/useTransientLayer'
 import { validateWritingLockedSegments, normalizeWritingCandidates } from '../../shared/writingCandidateContract.js'
 import { normalizeWritingTypography } from '../stores/writingTypographyStore.js'
@@ -119,6 +121,15 @@ describe('workbench control contract (U1)', () => {
     expect(tabs).toContain("title: '首页'")
     expect(tabs).toContain('await contentWorkspace.openHome()')
     expect(welcome).toContain('v-if="!embedded"')
+    const settingsWorkspace = readFileSync(resolve(__dirname, '../components/worldbook/WorldbookContentWorkspace.vue'), 'utf8')
+    expect(settingsWorkspace).not.toContain('class="setting-content-directory"')
+    expect(settingsWorkspace).toContain('class="setting-inspector"')
+    expect(settingsWorkspace).toContain('SettingEntryManagement')
+    expect(settingsWorkspace).toContain('CreateDialog')
+    expect(settingAliases('阿岚，阿岚\n小岚')).toEqual(['阿岚', '小岚'])
+    expect(getProfileTemplate('free').fields).toEqual([])
+    expect(profileFromEntry({ content: '【气候】海风\n【旧字段】保留' }, 'free')).toMatchObject({ template: 'free', values: { 气候: '海风', 旧字段: '保留' } })
+    expect(settingDeletionImpact([{ id: 'a', links: ['b'] }, { id: 'b' }], 'b').map(entry => entry.id)).toEqual(['a'])
     expect(tabs).toContain('v-if="!tab.pinned"')
     // N-B（nightly-20260917）：标签重构为真实 button，原生 Enter/Space 激活。
     expect(tabs).toContain('@click="activateTab(tab.id)"')
@@ -228,6 +239,7 @@ describe('workbench control contract (U1)', () => {
     expect(grouped[0]).toMatchObject({ id: 'write', projectGrouped: true, dirty: true })
     expect(resolveRouteIntent({ name: 'experience', query: { bookId: 'one-book', worldbookId: 'one-world' } })).toMatchObject({ scope: 'project', surface: 'roleplay', projectId: 'one-book' })
     expect(resolveRouteIntent({ name: 'experience', query: { worldbookId: 'one-world' } })).toMatchObject({ scope: 'global' })
+    expect(resolveRouteIntent({ name: 'settings-structured', query: { worldbookId: 'one-world' } })).toMatchObject({ scope: 'global', worldbookId: 'one-world', instanceId: 'one-world' })
     // New host metadata never carries document content or another project's scope.
     const reference = normalizeWorkspaceResource({ type: 'source', bookId: 'book-a', id: 'source-a', start: 3, end: 9, content: 'private', grant: 'secret' })
     expect(reference).toEqual({ type: 'source', bookId: 'book-a', worldbookId: '', id: 'source-a', start: 3, end: 9 })
