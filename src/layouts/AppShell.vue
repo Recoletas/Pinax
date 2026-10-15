@@ -1,44 +1,95 @@
 <script setup>
 import { tr } from '../i18n/index.js'
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { RouterView, useRoute, useRouter } from 'vue-router'
-import ActivityBar from '../components/workbench/ActivityBar.vue'
+import { isNavigationFailure, NavigationFailureType, RouterView, useRoute, useRouter } from 'vue-router'
+import WorkspaceProjectNavigation from '../components/workbench/WorkspaceProjectNavigation.vue'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
-import { ACTIVITY_ITEMS, SIDE_PANELS, resolveActivityKey } from '../config/workbenchNav'
+import WorkbenchTooltip from '../components/workbench/WorkbenchTooltip.vue'
+import WorkspaceContentGroups from '../components/workbench/WorkspaceContentGroups.vue'
+import { builtinWorkspaceRenderers } from '../components/workbench/workspaceBuiltinViews.js'
+import WorkspaceReferenceMenu from '../components/workbench/WorkspaceReferenceMenu.vue'
+import { useWorkspaceProjectActions } from '../composables/useWorkspaceProjectActions.js'
+import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
 import { useSettingsPopup } from '../composables/useSettingsPopup'
 import { useTheme } from '../composables/useTheme'
+import { PROJECT_SURFACE_ROUTE_NAMES } from '../services/workspace/workspaceTabContract.js'
+import { useWorkspaceRecentStore } from '../stores/workspaceRecentStore.js'
 import '../styles/workspace-surfaces.css'
 import '../styles/workspace-navigation.css'
 
+const projectNavigationError = ref('')
+function selectProjectSurface(surface) {
+  projectNavigationError.value = ''
+  closeDrawer()
+  if (contentWorkspace.moduleNavigation.value) void projectActions.openSurface(surface)
+}
 const route = useRoute()
 const router = useRouter()
+const contentWorkspace = provideComposableWorkspace(route, { renderers: builtinWorkspaceRenderers, returnToPrimary: async ({ bookId }) => {
+  const { loadWritingBooks } = await import('../services/writing/writingBooksRepository.js')
+  const chapters = loadWritingBooks().find(book => String(book.id) === bookId)?.chapters || []
+  const remembered = contentWorkspace.primaryReturnResource.value
+  const chapterId = chapters.find(chapter => remembered?.bookId === bookId && String(chapter.id) === remembered.id)?.id || chapters[0]?.id
+  const failure = await router.replace({ name: 'authoring', query: { bookId, ...(chapterId ? { chapterId: String(chapterId) } : {}) } })
+  await nextTick()
+  return !isNavigationFailure(failure) || route.name === 'authoring' && route.query.bookId === bookId
+}, openChapter: async ({ bookId, id, type }) => {
+  const failure = await router.push({ name: 'authoring', query: { bookId, [type === 'exploration' ? 'explorationId' : 'chapterId']: id } })
+  if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return false
+  await nextTick()
+  const accepted = () => contentWorkspace.primaryChapter.value?.resource.bookId === bookId && contentWorkspace.primaryChapter.value?.resource.id === id && contentWorkspace.primaryChapter.value?.resource.type === type && route.name === 'authoring' && route.query.bookId === bookId
+  if (accepted()) return true
+  return new Promise(resolve => {
+    let timer
+    const stop = watch(() => [contentWorkspace.primaryChapter.value?.id, route.name, route.query.bookId, route.query.chapterId, route.query.explorationId], () => {
+      if (accepted()) finish(true)
+      else if (route.query.bookId !== bookId) finish(false)
+    })
+    function finish(result) { clearTimeout(timer); stop(); resolve(result) }
+    timer = setTimeout(() => finish(false), 3000)
+  })
+}, openAssistant: async ({ bookId, chapterId }) => {
+  const failure = await router.push({ name: 'authoring', query: { bookId, ...(chapterId ? { chapterId } : {}), view: 'assistant' } })
+  if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return false
+  return contentWorkspace.hide()
+} })
+const projectActions = useWorkspaceProjectActions({ route, router, host: contentWorkspace, onError: message => { projectNavigationError.value = message } })
+const removeContentGuard = router.beforeEach((to, from) => to.fullPath === from.fullPath ? true : contentWorkspace.prepareLeave(to, from))
+onBeforeUnmount(removeContentGuard)
+const baseUrl = import.meta.env.BASE_URL
 
 const drawerOpen = ref(false)
 const drawerTriggerRef = ref(null)
 const drawerCloseRef = ref(null)
 
-const currentActivityKey = computed(() => resolveActivityKey(route))
-const currentPanel = computed(() => SIDE_PANELS[currentActivityKey.value] || { title: '模块', items: [] })
 const hideActivityBar = computed(() => Boolean(route.meta?.hideActivityBar))
-const hideSidePanel = computed(() => Boolean(route.meta?.hideSidePanel))
 const isImmersiveShell = computed(() => Boolean(route.meta?.immersiveShell))
-const activePanel = computed(() => hideSidePanel.value ? { title: '', items: [] } : currentPanel.value)
-const currentRouteCaption = computed(() => {
-  const activity = ACTIVITY_ITEMS.find((item) => item.key === currentActivityKey.value)
-  return String(route.meta?.title || activity?.label || '工作区')
+const currentProjectSurface = computed(() => {
+  const active = contentWorkspace.state.views.find(view => view.id === (contentWorkspace.state.mainModuleId || contentWorkspace.state.activeId))
+  if (!contentWorkspace.state.hidden && (contentWorkspace.state.expanded || contentWorkspace.state.mainModuleId)) {
+    const surface = { 'settings-editor': 'settings', sources: 'sources', source: 'sources', 'comic-editor': 'comics', 'director-editor': 'canvas', 'materials-editor': 'materials', 'map-editor': 'map', 'entries-editor': 'entries', 'online-editor': 'online', 'game-editor': 'experience' }[active?.resource.type]
+    if (surface) return surface
+  }
+  return route.name === 'settings-worldbook-create' && route.query.mode === 'sources' && route.query.bookId ? 'sources' : route.name === 'authoring'
+  ? route.query.view === 'assistant' ? 'assistant' : 'writing'
+  : Object.entries(PROJECT_SURFACE_ROUTE_NAMES).find(([, name]) => name === route.name)?.[0] || ''
 })
 
 // Workspace tabs replace the page directly; exit animations delay editor ownership.
 
 const settingsPopup = useSettingsPopup()
+const workspaceRecent = useWorkspaceRecentStore()
+workspaceRecent.hydrate()
 const { isDark, toggleTheme } = useTheme()
 function openSettings(section) {
+  closeDrawer()
   settingsPopup.open(section)
 }
 function openDocs() {
+  closeDrawer()
   router.push({ name: 'docs' })
 }
 
@@ -46,13 +97,11 @@ watch(() => route.fullPath, () => {
   drawerOpen.value = false
 })
 
-// Focus management: move focus into the drawer when it opens, return
-// focus to the trigger when it closes. Minimal-but-real a11y — a full
-// focus-trap loop is left for future polish, but keyboard users can at
-// least dismiss the drawer with Esc and re-enter via Tab from the trigger.
+// Wait for inert to update before entering the drawer or restoring its trigger.
 watch(drawerOpen, async (open) => {
+  await nextTick()
+  if (drawerOpen.value !== open) return
   if (open) {
-    await nextTick()
     drawerCloseRef.value?.focus()
   } else if (drawerTriggerRef.value) {
     // Only restore focus when the drawer was actually closed (not
@@ -65,6 +114,16 @@ function handleDrawerKeydown(e) {
   if (e.key === 'Escape' && drawerOpen.value) {
     e.preventDefault()
     closeDrawer()
+  }
+  if (e.key === 'Tab' && drawerOpen.value) {
+    const controls = [...(drawerCloseRef.value?.closest('aside')?.querySelectorAll('button:not(:disabled), a[href], select:not(:disabled), input:not(:disabled)') || [])]
+      .filter(control => control.getClientRects().length && !control.closest('[inert]'))
+    const first = controls[0]
+    const last = controls.at(-1)
+    if (first && ((!e.shiftKey && document.activeElement === last) || (e.shiftKey && document.activeElement === first))) {
+      e.preventDefault()
+      ;(e.shiftKey ? last : first).focus()
+    }
   }
 }
 
@@ -87,6 +146,12 @@ function handleGlobalKeydown(e) {
   }
 }
 
+async function openHome() {
+  closeDrawer()
+  if (contentWorkspace.scope.value.bookId) await contentWorkspace.openHome()
+  else if (await contentWorkspace.prepareOpen('main')) { contentWorkspace.hide(); await router.push({ name: 'welcome' }) }
+}
+
 function closeDrawer() {
   drawerOpen.value = false
 }
@@ -101,23 +166,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
 })
 
-function handleSelectActivity(activityKey) {
-  const matched = ACTIVITY_ITEMS.find((item) => item.key === activityKey)
-  if (!matched) return
-  if (route.name !== matched.defaultRouteName) {
-    router.push({ name: matched.defaultRouteName })
-  }
-  closeDrawer()
-}
-
-function handleSelectPanel(routeName) {
-  if (!routeName) return
-  if (route.name !== routeName) {
-    router.push({ name: routeName })
-  }
-  closeDrawer()
-}
-
 </script>
 
 <template>
@@ -128,14 +176,21 @@ function handleSelectPanel(routeName) {
       'nav-hidden': hideActivityBar
     }"
   >
-    <WorkspaceTabs>
+    <Teleport :to="contentWorkspace.tabsTarget.value || 'body'" :disabled="!contentWorkspace.tabsTarget.value">
+    <WorkspaceTabs :inert="drawerOpen ? '' : undefined">
       <div class="shell-tab-actions">
+        <button v-if="(route.name === 'authoring' && contentWorkspace.scope.value.bookId || route.name === 'welcome') && contentWorkspace.state.narrow" data-workspace-directory-toggle type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.directory.expanded.value" @click="contentWorkspace.directory.toggle()"><WorkbenchIcon name="panel-left" :size="18" /></button>
+        <WorkspaceReferenceMenu />
+        <button v-for="task in contentWorkspace.taskSummaries.value.filter(task => !String(task.viewId).startsWith('assistant:'))" :key="task.viewId" class="shell-assistant-task" type="button" :aria-label="tr(task.label)" :title="tr(task.label)" @click="task.open?.()"><WorkbenchIcon :name="task.icon || 'film'" :size="16" /><span>{{ tr(task.label) }}</span></button>
+        <button v-if="contentWorkspace.state.hidden && contentWorkspace.activeView.value" type="button" :aria-label="tr('返回已打开内容')" :title="tr('返回已打开内容')" @click="contentWorkspace.activate(contentWorkspace.state.activeId)"><WorkbenchIcon name="columns" :size="18" /></button>
+        <button v-if="contentWorkspace.assistantSummary.value" class="shell-assistant-task" type="button" :aria-label="tr(contentWorkspace.assistantSummary.value.label)" :title="tr(contentWorkspace.assistantSummary.value.label)" @click="contentWorkspace.assistantSummary.value.open()"><WorkbenchIcon name="message-square" :size="16" /><span>{{ tr(contentWorkspace.assistantSummary.value.label) }}</span></button>
+        <button ref="drawerTriggerRef" class="shell-tab-navigation" type="button" :aria-label="tr('打开工作区导航')" :title="tr('工作区导航')" :aria-expanded="drawerOpen" aria-controls="pinax-workspace-navigation" @click="drawerOpen = true"><WorkbenchIcon name="panel-left" :size="18" /><span>{{ tr('导航') }}</span></button>
         <button type="button" :aria-label="isDark ? tr('切换日间模式') : tr('切换夜间模式')" :title="isDark ? tr('日间模式') : tr('夜间模式')" @click="toggleTheme"><WorkbenchIcon :name="isDark ? 'sun' : 'moon'" :size="18" /></button>
         <button type="button" :aria-label="tr(&quot;打开设置&quot;)" :title="tr(&quot;设置&quot;)" @click="openSettings('writing')"><WorkbenchIcon name="settings" :size="18" /></button>
       </div>
     </WorkspaceTabs>
-    <template v-if="!hideActivityBar">
-
+    </Teleport>
+    <p v-if="workspaceRecent.persistenceNotice && route.name !== 'welcome'" class="shell-navigation-notice" role="status">{{ tr(workspaceRecent.persistenceNotice) }}</p>
       <Transition name="modal-fade">
         <SettingsPopup v-if="settingsPopup.isOpen.value" />
       </Transition>
@@ -151,12 +206,14 @@ function handleSelectPanel(routeName) {
       </Transition>
 
       <FolioSurface
+        id="pinax-workspace-navigation"
         as="aside"
         class="shell-drawer"
         variant="chrome"
         :decorated="false"
         :class="{ open: drawerOpen }"
         role="dialog"
+        :aria-label="tr('工作区导航')"
         aria-modal="true"
         :aria-hidden="drawerOpen ? 'false' : 'true'"
         :inert="drawerOpen ? null : ''"
@@ -164,22 +221,18 @@ function handleSelectPanel(routeName) {
       >
         <div class="shell-drawer__head">
           <div class="shell-drawer__copy">
-            <span>Pinax</span>
-            <strong>{{ currentRouteCaption }}</strong>
+            <img :src="`${baseUrl}pinax-icon-192.png`" alt="Pinax" width="24" height="24" />
+            <strong>{{ tr('工作区导航') }}</strong>
           </div>
           <button ref="drawerCloseRef" class="shell-drawer__close" type="button" :aria-label="tr(&quot;关闭导航&quot;)" @click="closeDrawer">×</button>
         </div>
 
         <div class="shell-drawer__body">
-          <ActivityBar
-            :items="ACTIVITY_ITEMS"
-            :active-key="currentActivityKey"
-            :active-panel="activePanel"
-            :active-route-name="String(route.name || '')"
-            @select="handleSelectActivity"
-            @select-route="handleSelectPanel"
-          />
+          <WorkspaceProjectNavigation :book-id="typeof route.query.bookId === 'string' ? route.query.bookId : ''" :current="currentProjectSurface" :managed="contentWorkspace.moduleNavigation.value" @select="selectProjectSurface" @select-book="closeDrawer" />
           <div class="shell-drawer__utility" :aria-label="tr(&quot;工具&quot;)">
+            <button class="shell-drawer__utility-btn" type="button" @click="openHome"><WorkbenchIcon name="grid" :size="16" /><span>{{ tr('首页') }}</span></button>
+            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'experience' }); closeDrawer()"><WorkbenchIcon name="adventure" :size="16" /><span>{{ tr('跑团与冒险') }}</span></button>
+            <button class="shell-drawer__utility-btn" type="button" @click="router.push({ name: 'online-experience' }); closeDrawer()"><WorkbenchIcon name="collaboration" :size="16" /><span>{{ tr('联机房间') }}</span></button>
             <button class="shell-drawer__utility-btn" type="button" @click="openDocs">
               <WorkbenchIcon name="book" :size="16" />
               <span>{{ tr('文档') }}</span>
@@ -195,26 +248,39 @@ function handleSelectPanel(routeName) {
         </div>
       </FolioSurface>
 
-    </template>
-
-    <main class="shell-content">
+    <WorkbenchTooltip />
+    <main class="shell-content" :inert="drawerOpen ? '' : undefined">
+      <div v-if="projectNavigationError" class="workspace-navigation-error" role="status">{{ tr(projectNavigationError) }}<button type="button" :aria-label="tr('关闭提示')" @click="projectNavigationError = ''">×</button></div>
+      <WorkspaceContentGroups>
       <RouterView v-slot="{ Component, route: routeInfo }">
-          <component v-if="Component" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
-          <div v-else class="route-loading">
+          <component v-if="Component && !contentWorkspace.hostedRoute.value" :is="Component" :key="routeInfo.name || routeInfo.fullPath" />
+          <div v-else-if="!Component" class="route-loading">
             <span class="route-loading-spinner"></span>
             <span>{{ tr('加载中…') }}</span>
           </div>
       </RouterView>
+      </WorkspaceContentGroups>
     </main>
   </div>
 </template>
 
 <style scoped>
-.shell-tab-actions { display: flex; flex: 0 0 auto; align-self: stretch; align-items: center; gap: 4px; padding: 0 4px 4px 8px; margin-left: 6px; border-left: 1px solid var(--hairline-soft); }
-.shell-tab-actions > button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
-.shell-tab-actions > button:hover { background: var(--archive-paper-soft); color: var(--archive-ink); }
-.shell-tab-actions > button:focus-visible { outline: 2px solid var(--archive-olive); outline-offset: -2px; }
-@media (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
+.shell-tab-actions > .shell-assistant-task { display: flex; gap: 6px; width: auto; flex: none; min-height: 36px; padding: 4px 10px; border: 0; background: transparent; color: var(--text-secondary); font: 12px var(--font-sans); cursor: pointer; white-space: nowrap; }
+.shell-assistant-task:hover { color: var(--text-primary); background: var(--nav-hover); }
+.shell-assistant-task:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 720px) {
+  .shell-tab-actions > .shell-assistant-task { position: relative; justify-content: center; width: 44px; min-height: 44px; padding: 0; }
+  .shell-assistant-task span { display: none; }
+  .shell-assistant-task::after { content: ''; position: absolute; top: 8px; right: 8px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+}
+.shell-tab-actions { display: flex; flex: 0 0 auto; align-self: stretch; align-items: center; gap: 2px; padding: 0 0 0 8px; margin-left: 6px; }
+.shell-tab-actions > button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--archive-ink-soft); cursor: pointer; }
+.shell-tab-actions > button:hover { background: var(--nav-hover); color: var(--archive-ink); }
+.shell-tab-actions > button:active { background: var(--nav-focused); }
+.shell-tab-actions > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.shell-tab-actions > .shell-tab-navigation { display: flex; gap: 6px; width: auto; padding: 0 10px; font: 13px var(--font-sans); }
+.shell-navigation-notice { flex: none; margin: 0; padding: 6px 16px; color: var(--text-secondary); background: var(--surface-workbench-muted); font: 12px/1.5 var(--font-sans); }
+@media (max-width: 760px), (pointer: coarse) { .shell-tab-actions > button { width: 44px; height: 44px; } }
 .app-shell {
   --shell-drawer-width: 360px;
   position: relative;
@@ -230,31 +296,10 @@ function handleSelectPanel(routeName) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-paper-soft) 96%, transparent), color-mix(in srgb, var(--archive-paper) 92%, transparent) 220px);
+  background: var(--surface-workbench-canvas);
+  font-family: var(--font-sans);
   color: var(--text-primary);
   isolation: isolate;
-}
-
-.app-shell::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--archive-ink) 5%, transparent), transparent 140px),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0 64px,
-      color-mix(in srgb, var(--archive-ink) 4%, transparent) 64px 65px
-    );
-  opacity: 0.55;
-  z-index: -1;
-}
-
-.app-shell.immersive::before,
-.app-shell.nav-hidden::before {
-  opacity: 0.32;
 }
 
 .shell-nav-trigger {
@@ -1021,8 +1066,8 @@ function handleSelectPanel(routeName) {
 
 .shell-drawer__copy {
   display: flex;
-  align-items: baseline;
-  gap: 9px;
+  align-items: center;
+  gap: 12px;
 }
 
 .shell-drawer__copy span {
@@ -1051,8 +1096,9 @@ function handleSelectPanel(routeName) {
 .shell-drawer__body {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
+.shell-drawer__body > :deep(.workspace-project-nav) { flex: none; }
 
 .shell-drawer__utility {
   display: grid;
@@ -1071,7 +1117,7 @@ function handleSelectPanel(routeName) {
   background: transparent;
   color: var(--archive-ink-soft);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
@@ -1103,4 +1149,6 @@ function handleSelectPanel(routeName) {
     max-width: min(52vw, 220px);
   }
 }
+.workspace-navigation-error { position: absolute; z-index: 20; inset-inline: 20px; bottom: 20px; display: flex; align-items: center; gap: 12px; width: fit-content; max-width: calc(100% - 40px); margin-inline: auto; padding: 10px 14px; border: 1px solid var(--hairline-soft); background: var(--surface-workbench); color: var(--text-secondary); font: 13px/1.5 var(--font-sans); }
+.workspace-navigation-error button { border: 0; background: transparent; color: inherit; font-size: 20px; cursor: pointer; }
 </style>

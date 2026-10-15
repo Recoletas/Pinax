@@ -1,6 +1,7 @@
 import { Extension, Node, mergeAttributes } from '@tiptap/core'
 import { closeHistory } from '@tiptap/pm/history'
 import { TextSelection } from '@tiptap/pm/state'
+import { createWritingMediaReferenceView } from './writingMediaReferenceView.js'
 
 const makeId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
@@ -344,6 +345,9 @@ export const MediaReferenceNode = Node.create({
     }
   },
   parseHTML: () => [{ tag: 'figure[data-media-reference]' }],
+  addNodeView() {
+    return ({ node }) => createWritingMediaReferenceView(node)
+  },
   renderHTML({ HTMLAttributes }) {
     const alt = String(HTMLAttributes.alt || '正文插画')
     return ['figure', mergeAttributes(HTMLAttributes, {

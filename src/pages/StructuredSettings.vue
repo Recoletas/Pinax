@@ -23,7 +23,6 @@
       :aria-label="tr('当前地点上下文')"
     >
       <div class="place-context-copy">
-        <span class="place-context-kicker">{{ tr('地点上下文') }}</span>
         <strong>{{ focusedPlace.name || focusedPlace.placeId }}</strong>
         <span>{{ tr('历史 {history} · 条目 {entries}', { history: focusedPlace.historyNodeIds?.length || 0, entries: focusedPlace.entryIds?.length || 0 }) }}</span>
       </div>
@@ -66,8 +65,8 @@
       <div v-if="contextLoading" class="empty-state" role="status">{{ tr('正在打开这本书的设定…') }}</div>
       <template v-else-if="projectContextStatus === 'unbound'">
         <div class="empty-state" data-test="settings-unbound">
-          <p>{{ tr('这本书还没有关联世界书。') }}</p>
-          <p class="empty-state__hint">{{ tr('添加资料后会建立并关联资料库；也可在工作台关联已有世界书。') }}</p>
+          <p>{{ tr('还没有设定') }}</p>
+          <button type="button" class="control-primary" @click="createRequest = { type: 'entry', bookId: context?.bookId }">{{ tr('新建设定') }}</button>
           <button
             type="button"
             class="empty-state__action"
@@ -85,44 +84,51 @@
         <p>{{ tr(loadError) }}</p>
       </div>
       <template v-else-if="activeWorldbook">
-        <StructuredSettingsWorkspace
-          :worldbook="activeWorldbook"
+        <WorldbookContentWorkspace ref="contentEditor"
+          :worldbook="activeWorldbook" :reload="refreshContext" :book-id="context?.bookId || ''"
         />
       </template>
       <div v-else class="empty-state">
         <p>{{ tr('请选择一个世界书开始编辑结构化设定') }}</p>
       </div>
     </div>
+    <CreateDialog v-if="createRequest" :request="createRequest" @close="createRequest = null" @created="created" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { tr } from '../i18n/index.js'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useWorldStore } from '../stores/worldStore'
 import { buildPlaceEntityIndex, resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
-import StructuredSettingsWorkspace from '../components/worldbook/StructuredSettingsWorkspace.vue'
+import WorldbookContentWorkspace from '../components/worldbook/WorldbookContentWorkspace.vue'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
 import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 
+const CreateDialog = defineAsyncComponent(() => import('../components/workbench/DirectoryCreateDialog.vue'))
+const createRequest = ref(null)
+async function created() { createRequest.value = null; await refreshContext() }
+const contentEditor = ref(null)
+onBeforeRouteLeave(() => createRequest.value ? false : contentEditor.value?.flushAll?.() ?? true)
+onBeforeRouteUpdate(() => createRequest.value ? false : contentEditor.value?.flushAll?.() ?? true)
 const router = useRouter()
 const route = useRoute()
 const worldStore = useWorldStore()
 const selectedWorldbookId = ref('')
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
-const activeWorldbook = computed(() => worldStore.activeWorldbook)
 // 项目上下文：bookId -> book.worldbookId 唯一真源；全局模式沿用既有 active 行为。
-const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook: activeWorldbook, loading: contextLoading, loadError, refresh: refreshContext } = useSettingsProjectContext({ worldStore })
 const isProjectMode = computed(() => context.value?.mode === 'project')
 const projectContextLabel = computed(() => context.value?.book?.title || '')
 const projectContextStatus = computed(() => context.value?.status || '')
 const placeEntityIndex = computed(() => buildPlaceEntityIndex(activeWorldbook.value || {}))
 const focusedPlace = computed(() => resolvePlaceEntity(placeEntityIndex.value, String(route.query.placeId || '')))
 const contextNotice = computed(() => (context.value?.status === 'route-mismatch' ? context.value.notice : ''))
+watch(() => activeWorldbook.value?.id, id => { selectedWorldbookId.value = id || '' }, { immediate: true })
 
 function openFocusedPlaceMap(kind = '', itemId = '') {
   if (!focusedPlace.value?.placeId) return
@@ -139,11 +145,16 @@ function onGlobalClick() {
   // placeholder for global click handler if needed
 }
 
+let worldbookChangeSequence = 0
 async function onWorldbookChange(worldbookId = selectedWorldbookId.value) {
   // 项目模式：世界书由书稿关联决定，选择器已锁定，不在这里静默换库。
-  if (isProjectMode.value) return
+  if (isProjectMode.value || !await (contentEditor.value?.flushAll?.() ?? true)) return
   if (worldbookId) {
-    await worldStore.setActiveWorldbook(worldbookId)
+    const ticket = ++worldbookChangeSequence
+    const from = route.fullPath
+    const loaded = await worldStore.setActiveWorldbook(worldbookId)
+    if (ticket !== worldbookChangeSequence || route.fullPath !== from || route.query.bookId || String(loaded?.id || '') !== String(worldbookId)) return
+    await router.replace({ name: route.name, query: { worldbookId: String(worldbookId) } })
   }
 }
 
@@ -179,7 +190,7 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--archive-paper-soft);
+  background: var(--surface-workbench);
   color: var(--text-primary);
   position: relative;
   overflow: hidden;
@@ -228,11 +239,6 @@ onMounted(async () => {
   gap: 2px;
 }
 
-.place-context-kicker {
-  color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
 
 .place-context-copy strong {
   overflow: hidden;

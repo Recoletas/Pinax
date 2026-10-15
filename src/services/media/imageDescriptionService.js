@@ -15,7 +15,7 @@ export async function draftImageDescription({ sourceText, signal, settings } = {
   const result = await runGenerationTask({
     taskType: 'media.image-description', settings: apiSettings,
     baseMessages: buildImageDescriptionMessages(sourceText), signal,
-    generationOptions: { max_tokens: 700, temperature: .4 },
+    generationOptions: { temperature: .4 },
     parseContent: (value) => String(value || '').trim(),
     isValidParsed: (value) => Boolean(value && value.length <= 600),
     attempts: [{ name: 'image-description' }]

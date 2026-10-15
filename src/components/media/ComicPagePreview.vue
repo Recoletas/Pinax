@@ -1,6 +1,8 @@
 <script setup>
+import { getComicPanelDisplayImage } from '../../services/media/comicPanelDisplay'
 import { reactive } from 'vue'
 import { getComicCanvasSize, getComicImageStyle, getComicPanelRect } from '../../services/media/comicLayout'
+import { getComicLetteringTailPoints, getComicLetteringTextMetrics } from '../../services/media/comicLetteringService'
 
 const props = defineProps({
   page: { type: Object, default: null },
@@ -18,7 +20,7 @@ const letteringResizeHandles = Object.freeze(['nw', 'n', 'ne', 'e', 'se', 's', '
 let letteringDrag = null
 
 function selectedTake(panel) {
-  return panel.imageTakes?.find((take) => take.id === panel.selectedTakeId) || null
+  return getComicPanelDisplayImage(panel, props.page)
 }
 
 function pageStyle(page) {
@@ -52,17 +54,20 @@ function rememberImageSize(event, take) {
   }
 }
 
-function letteringStyle(object) {
+function letteringStyle(object, panel) {
   const [x, y, width, height] = normalizeBox(transientLetteringBoxes[object?.id] || object?.box)
   const style = normalizeLetteringStyle(object?.style, object?.type)
+  const rect = getComicPanelRect(props.page, panel.order)
+  const { insetX, insetY } = getComicLetteringTextMetrics({ ...object, box: [x, y, width, height] }, rect)
   return {
     left: `${x * 100}%`,
     top: `${y * 100}%`,
     width: `${width * 100}%`,
     height: `${height * 100}%`,
+    padding: `${insetY * 100 / rect.height}cqh ${insetX * 100 / rect.height}cqh`,
     zIndex: 10 + (Number(object?.zIndex) || 0),
     fontFamily: letteringFontFamily(style.fontFamily),
-    fontSize: `clamp(6px, ${style.fontSize / 3}cqh, 34px)`,
+    fontSize: `${style.fontSize * 100 / getComicPanelRect(props.page, panel.order).height}cqh`,
     fontWeight: style.fontWeight,
     textAlign: style.textAlign,
     writingMode: style.textDirection === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
@@ -85,27 +90,19 @@ function letteringTailTarget(object) {
 }
 
 function letteringTailStyle(object) {
-  const target = letteringTailTarget(object)
   const [x, y, width, height] = normalizeBox(object?.box)
-  if (!target) return { display: 'none' }
+  const target = letteringTailTarget(object) || { x: x + width / 2, y: y + height }
   return {
     left: `${((target.x - x) / width) * 100}%`,
     top: `${((target.y - y) / height) * 100}%`
   }
 }
 
-function letteringTailPoints(object) {
-  const target = letteringTailTarget(object)
-  const [x, y, width, height] = normalizeBox(object?.box)
-  if (!target) return ''
-  const tx = ((target.x - x) / width) * 100
-  const ty = ((target.y - y) / height) * 100
-  const dx = tx - 50
-  const dy = ty - 50
-  const length = Math.max(1, Math.sqrt(dx * dx + dy * dy))
-  const nx = -dy / length * 7
-  const ny = dx / length * 7
-  return `50,50 ${50 + nx},${50 + ny} ${tx},${ty} ${50 - nx},${50 - ny}`
+function letteringTailPoints(object, panel) {
+  return getComicLetteringTailPoints({ ...object,
+    box: transientLetteringBoxes[object.id] || object.box,
+    tailTarget: letteringTailTarget(object)
+  }, getComicPanelRect(props.page, panel.order)).map(([x, y]) => `${x * 100},${y * 100}`).join(' ')
 }
 
 function startLetteringDrag(event, panel, object) {
@@ -282,7 +279,7 @@ function roundUnit(value) {
         :type="editableLettering ? 'button' : undefined"
         class="comic-page-preview__lettering"
         :class="[`is-${object.type}`, { 'is-editable': editableLettering }]"
-        :style="letteringStyle(object)"
+        :style="letteringStyle(object, panel)"
         :title="editableLettering ? '拖动文字框，拖拽控制点调整大小' : undefined"
         @pointerdown="startLetteringDrag($event, panel, object)"
         @pointermove="moveLetteringDrag"
@@ -290,13 +287,14 @@ function roundUnit(value) {
         @pointercancel="cancelLetteringDrag"
       >
         <svg
-          v-if="editableLettering && ['speech', 'thought'].includes(object.type) && letteringTailTarget(object)"
+          v-if="['speech', 'thought'].includes(object.type)"
           class="comic-page-preview__lettering-tail"
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
           aria-hidden="true"
         >
-          <polygon :points="letteringTailPoints(object)" />
+          <polygon v-if="letteringTailTarget(object)" :points="letteringTailPoints(object, panel)" />
+          <ellipse cx="50" cy="50" rx="50" ry="50" />
         </svg>
         <i
           v-if="editableLettering && ['speech', 'thought'].includes(object.type)"
@@ -351,13 +349,14 @@ function roundUnit(value) {
 .comic-page-preview__placeholder { width: 100%; height: 100%; display: grid; align-content: center; justify-items: center; gap: 8px; padding: 12px; background: color-mix(in srgb, var(--archive-paper-soft, var(--bg-secondary)) 82%, transparent); color: var(--text-muted); text-align: center; }
 .comic-page-preview__placeholder strong { font-family: var(--font-display); font-size: 24px; }
 .comic-page-preview__placeholder span { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-size: 11px; line-height: 1.5; }
-.comic-page-preview__lettering { position: absolute; min-width: 0; min-height: 0; display: grid; place-items: center; margin: 0; padding: 3px 5px; overflow: hidden; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: rgb(255 255 255 / 0.94); color: #20242a; box-shadow: 0 1px 5px rgb(0 0 0 / 0.16); line-height: 1.3; }
-.comic-page-preview__lettering.is-thought { border-style: dashed; border-radius: 46%; }
+.comic-page-preview__lettering { position: absolute; min-width: 0; min-height: 0; display: grid; place-items: center; margin: 0; padding: 3px 5px; overflow: visible; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: rgb(255 255 255 / 0.94); color: #20242a; box-shadow: 0 1px 5px rgb(0 0 0 / 0.16); line-height: 1.3; }
+.comic-page-preview__lettering:is(.is-speech, .is-thought) { border: 0; background: transparent; box-shadow: none; }
+.comic-page-preview__lettering.is-thought ellipse { stroke-dasharray: 4 3; }
 .comic-page-preview__lettering.is-caption { place-items: start; border-radius: 2px; text-align: left; }
 .comic-page-preview__lettering.is-sfx { border: 0; background: transparent; box-shadow: none; color: #fff; font-size: 14px; font-weight: 800; text-shadow: -1px -1px 0 #20242a, 1px -1px 0 #20242a, -1px 1px 0 #20242a, 1px 1px 0 #20242a; transform: rotate(-7deg); }
-.comic-page-preview__lettering-text { width: 100%; max-height: 100%; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 6; }
-.comic-page-preview__lettering-tail { position: absolute; z-index: -1; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
-.comic-page-preview__lettering-tail polygon { fill: rgb(255 255 255 / 0.94); stroke: rgb(32 36 42 / 0.82); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.comic-page-preview__lettering-text { position: relative; z-index: 1; width: 100%; max-height: 100%; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; line-break: strict; letter-spacing: 0; }
+.comic-page-preview__lettering-tail { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.comic-page-preview__lettering-tail :is(polygon, ellipse) { fill: #fff; stroke: rgb(32 36 42 / 0.82); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 .comic-page-preview__lettering-tail-handle { position: absolute; z-index: 3; width: 10px; height: 10px; margin: -5px; border: 1px solid rgb(32 36 42 / 0.82); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.24); cursor: crosshair; }
 .comic-page-preview__lettering.is-editable { overflow: visible; cursor: grab; touch-action: none; }
 .comic-page-preview__lettering.is-editable:active { cursor: grabbing; }

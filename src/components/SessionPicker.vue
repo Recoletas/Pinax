@@ -69,12 +69,13 @@ import { useGameStore } from '../stores/gameStore'
 const gameStore = useGameStore()
 const emit = defineEmits(['select', 'create', 'delete', 'update:selected-worldbook-id', 'close'])
 const props = defineProps({
+  scopeWorldbookId: { type: String, default: '' },
   busy: { type: Boolean, default: false },
   worldbooks: { type: Array, default: () => [] },
   selectedWorldbookId: { type: String, default: '' }
 })
 
-const sessions = computed(() => gameStore.sessions || [])
+const sessions = computed(() => (gameStore.sessions || []).filter(session => !props.scopeWorldbookId || (session.worldbookId || session.worldId) === props.scopeWorldbookId))
 const currentSessionId = computed(() => gameStore.currentSessionId)
 
 const sortedSessions = computed(() => {
@@ -335,4 +336,14 @@ function handleDelete(session) {
     width: 100%;
   }
 }
+</style>
+
+<style scoped>
+.session-picker { width: min(840px, 100%); box-sizing: border-box; margin-inline: auto; padding: 40px 32px; background: var(--surface-workbench); font-family: var(--font-sans); }
+.picker-title { font-size: 24px; font-weight: 500; }
+.worldbook-target { padding: 20px 0 28px; border-bottom: 1px solid var(--hairline-soft); }
+.session-item { border: 0; border-bottom: 1px solid var(--hairline-soft); border-radius: 0; padding: 20px 12px; background: transparent; }
+.session-item.active { background: var(--nav-selected); }
+.empty-state { padding: 64px 20px; }
+@media (max-width: 720px) { .session-picker { padding: 28px 16px; } .picker-title { font-size: 21px; } }
 </style>

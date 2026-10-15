@@ -23,6 +23,9 @@ jobs:
           # 完整历史：供 PR/push 显式取基准，避免无参数 git diff --check 什么也没检查
           fetch-depth: 0
 
+      - name: Check bridge dual-copy sync
+        run: node scripts/check-bridge-sync.mjs
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -75,6 +78,9 @@ jobs:
 
       - name: Run tests
         run: npm run verify:contract
+
+      - name: StoryAgent integration regression
+        run: npm run verify:storyagent
 
   build:
     runs-on: ubuntu-latest

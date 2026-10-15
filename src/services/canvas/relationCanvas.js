@@ -1,6 +1,16 @@
 import { getItem, setItem, STORAGE_KEYS } from '../../composables/useStorage'
+import { readProseCanvasWorkspace, saveProseCanvasWorkspace } from './proseCanvasRepository.js'
+import { listNarrativeAssets } from '../media/narrativeAssets.js'
 
-export function listRelationCanvasCards() {
+function scopedWorkspace(projectId) {
+  return readProseCanvasWorkspace({ projectId, assetProjectIds: Object.fromEntries(listNarrativeAssets({ status: null }).map(asset => [asset.id, asset.projectId])) })
+}
+function saveScoped(workspace, projectId) {
+  if (!saveProseCanvasWorkspace(workspace, { projectId, expectedRevision: workspace.storageRevision }).ok) throw new Error('画布保存失败')
+}
+
+export function listRelationCanvasCards({ projectId } = {}) {
+  if (projectId) return scopedWorkspace(projectId).cards
   const stored = getItem(STORAGE_KEYS.PROSE_CARDS_V1)
   return Array.isArray(stored) ? stored : []
 }
@@ -10,16 +20,24 @@ function readStoredList(key) {
   return Array.isArray(stored) ? stored : []
 }
 
-export function findAssetCanvasCard(assetId) {
+export function findAssetCanvasCard(assetId, options) {
   if (!assetId) return null
-  return listRelationCanvasCards().find((card) => card.assetId === assetId) || null
+  return listRelationCanvasCards(options).find((card) => card.assetId === assetId) || null
 }
 
-export function ensureAssetCanvasCard(asset) {
-  return ensureAssetCanvasCards([asset]).cards[0] || null
+export function ensureAssetCanvasCard(asset, options) {
+  return ensureAssetCanvasCards([asset], options).cards[0] || null
 }
 
-export function ensureAssetCanvasCards(assets = []) {
+function persistCanvasCards(cards) {
+  if (setItem(STORAGE_KEYS.PROSE_CARDS_V1, cards)) return
+  const error = new Error('画布保存失败')
+  error.code = 'CANVAS_STORAGE_WRITE_FAILED'
+  throw error
+}
+
+export function ensureAssetCanvasCards(assets = [], { projectId } = {}) {
+  if (projectId && assets.some(asset => asset.projectId !== projectId)) throw new Error('请选择同一本书的素材')
   const uniqueAssets = []
   const seenAssetIds = new Set()
   for (const asset of Array.isArray(assets) ? assets : []) {
@@ -29,7 +47,8 @@ export function ensureAssetCanvasCards(assets = []) {
     uniqueAssets.push(assetId === asset.id ? asset : { ...asset, id: assetId })
   }
 
-  const storedCards = listRelationCanvasCards()
+  const workspace = projectId ? scopedWorkspace(projectId) : null
+  const storedCards = workspace ? workspace.cards : listRelationCanvasCards()
   const cardsByAssetId = new Map(storedCards.map((card) => [card.assetId, card]))
   const cards = []
   const createdAssetIds = []
@@ -52,7 +71,8 @@ export function ensureAssetCanvasCards(assets = []) {
   }
 
   if (createdCards.length) {
-    setItem(STORAGE_KEYS.PROSE_CARDS_V1, [...storedCards, ...createdCards])
+    if (workspace) saveScoped({ ...workspace, cards: [...storedCards, ...createdCards] }, projectId)
+    else persistCanvasCards([...storedCards, ...createdCards])
   }
 
   return { cards, createdAssetIds, existingAssetIds }
@@ -67,6 +87,7 @@ function createAssetCanvasCard(asset) {
   return {
     id: `card_asset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     assetId: asset.id,
+    projectId: asset.projectId || null,
     content: String(asset.content || asset.title || '').trim(),
     emotion: 'calm',
     wordCount: countWords(asset.content || ''),
@@ -80,25 +101,28 @@ function createAssetCanvasCard(asset) {
   }
 }
 
-export function ensureAssetCanvasCardWithExtra(asset, extraFields) {
-  if (!asset?.id) return null
+export function ensureAssetCanvasCardWithExtra(asset, extraFields, { projectId } = {}) {
+  const assetId = String(asset?.id || '').trim()
+  if (!assetId) return null
+  if (projectId && asset.projectId !== projectId) throw new Error('素材不属于这本书')
+  const workspace = projectId ? scopedWorkspace(projectId) : null
+  const cards = workspace ? workspace.cards : listRelationCanvasCards()
+  const index = cards.findIndex((card) => card.assetId === assetId)
+  const existing = cards[index]
+  if (existing && !extraFields) return existing
 
-  const card = ensureAssetCanvasCard(asset)
-  if (!card) return null
-
-  if (extraFields) {
-    const cards = listRelationCanvasCards()
-    const idx = cards.findIndex((c) => c.id === card.id)
-    if (idx >= 0) {
-      cards[idx] = { ...cards[idx], extraFields }
-      setItem(STORAGE_KEYS.PROSE_CARDS_V1, cards)
-      return cards[idx]
-    }
-  }
+  const card = existing
+    ? { ...existing, extraFields }
+    : { ...createAssetCanvasCard({ ...asset, id: assetId }), extraFields: extraFields || null }
+  if (existing) cards[index] = card
+  else cards.push(card)
+  // 卡片和生成的编导信息一起落盘，失败时不留下半成品。
+  if (workspace) saveScoped({ ...workspace, cards }, projectId)
+  else persistCanvasCards(cards)
   return card
 }
 
-export function deleteAssetCanvasReferences(assetId) {
+export function deleteAssetCanvasReferences(assetId, { projectId } = {}) {
   const normalizedAssetId = String(assetId || '').trim()
   if (!normalizedAssetId) {
     return {
@@ -110,15 +134,17 @@ export function deleteAssetCanvasReferences(assetId) {
     }
   }
 
-  const cards = listRelationCanvasCards()
+  const workspace = projectId ? scopedWorkspace(projectId) : null
+  const cards = workspace ? workspace.cards : listRelationCanvasCards()
   const removedCards = cards.filter((card) => card.assetId === normalizedAssetId)
   const removedCardIds = new Set(removedCards.map((card) => card.id).filter(Boolean))
-  const timeline = readStoredList(STORAGE_KEYS.PROSE_TIMELINE_V1)
+  const timeline = workspace ? workspace.timeline : readStoredList(STORAGE_KEYS.PROSE_TIMELINE_V1)
 
   if (removedCardIds.size === 0) {
     const nextTimeline = timeline.filter((item) => item?.assetId !== normalizedAssetId)
     if (nextTimeline.length !== timeline.length) {
-      setItem(STORAGE_KEYS.PROSE_TIMELINE_V1, nextTimeline)
+      if (workspace) saveScoped({ ...workspace, timeline: nextTimeline }, projectId)
+      else setItem(STORAGE_KEYS.PROSE_TIMELINE_V1, nextTimeline)
     }
 
     return {
@@ -131,7 +157,7 @@ export function deleteAssetCanvasReferences(assetId) {
   }
 
   const rawNextCards = cards.filter((card) => !removedCardIds.has(card.id))
-  const piles = readStoredList(STORAGE_KEYS.PROSE_PILES_V1)
+  const piles = workspace ? workspace.piles : readStoredList(STORAGE_KEYS.PROSE_PILES_V1)
   const dissolvedPileIds = new Set()
   const nextPiles = []
 
@@ -161,12 +187,12 @@ export function deleteAssetCanvasReferences(assetId) {
       : card
   ))
 
-  const edges = readStoredList(STORAGE_KEYS.PROSE_EDGES_V1)
+  const edges = workspace ? workspace.edges : readStoredList(STORAGE_KEYS.PROSE_EDGES_V1)
   const nextEdges = edges.filter((edge) => (
     !removedCardIds.has(edge?.sourceId) && !removedCardIds.has(edge?.targetId)
   ))
 
-  const outline = readStoredList(STORAGE_KEYS.PROSE_OUTLINE_V1)
+  const outline = workspace ? workspace.outline : readStoredList(STORAGE_KEYS.PROSE_OUTLINE_V1)
   const nextOutline = outline.filter((item) => (
     !removedCardIds.has(item?.cardId) && !dissolvedPileIds.has(item?.pileId)
   ))
@@ -179,11 +205,14 @@ export function deleteAssetCanvasReferences(assetId) {
     return true
   })
 
+  if (workspace) saveScoped({ ...workspace, cards: nextCards, edges: nextEdges, outline: nextOutline, timeline: nextTimeline, piles: nextPiles }, projectId)
+  else {
   setItem(STORAGE_KEYS.PROSE_CARDS_V1, nextCards)
   setItem(STORAGE_KEYS.PROSE_EDGES_V1, nextEdges)
   setItem(STORAGE_KEYS.PROSE_OUTLINE_V1, nextOutline)
   setItem(STORAGE_KEYS.PROSE_TIMELINE_V1, nextTimeline)
   setItem(STORAGE_KEYS.PROSE_PILES_V1, nextPiles)
+  }
 
   return {
     removedCards,

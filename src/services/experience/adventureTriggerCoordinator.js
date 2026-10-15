@@ -281,4 +281,3 @@ dismissAdventureTriggerDraft(type) {
   this.clearAdventureTriggerDraft(type)
 },
 }
-

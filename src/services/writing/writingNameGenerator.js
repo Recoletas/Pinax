@@ -51,13 +51,12 @@ const CATEGORY_PARTS = Object.freeze({
   }
 })
 
-const CATEGORY_REASONS = Object.freeze({
-  person: ['音节清楚', '字形疏密均衡', '称呼顺口', '适合正文反复出现', '姓与名节奏分明', '昵称容易派生', '人物辨识度较高', '对白中不易混淆', '书面与口语兼容', '适合作为核心角色', '读音转折自然', '视觉重心稳定'],
-  place: ['地貌意象明确', '适合作为章节地点', '方位辨识度高', '读音有空间感', '便于衍生辖区名', '适合地图标注', '环境气质鲜明', '可自然形成简称', '适合作为事件锚点', '远近层次清楚', '名称画面感集中', '正文指代不费力'],
-  organization: ['组织属性清楚', '简称容易形成', '适合正式称谓', '阵营辨识度高', '便于成员自称', '适合公文语境', '权力气质明确', '可衍生下属机构', '敌我称呼都自然', '名称层级稳定', '适合反复提及', '徽记意象容易建立'],
-  ability: ['动作感明确', '便于招式分级', '能力意象集中', '适合战斗叙述', '发动口令简洁', '力量来源可联想', '升级名称容易延展', '适合角色专属能力', '读音节奏有冲击', '效果边界易理解', '可形成体系词根', '战斗中指代清楚'],
-  item: ['器物类型明确', '适合成为线索', '名称便于反复指代', '材质意象清楚', '适合作为关键道具', '易形成民间别称', '来源故事容易展开', '外观联想具体', '持有者关系好表达', '适合任务文本引用', '稀有度气质明确', '名称不易与人物混淆']
-})
+// 常用姓名用字组合，增加可选空间，避免始终复用少量固定双字名。
+const GIVEN_PARTS = {
+  male: ['志文明建国伟世振承启正立成永宏俊博浩宇泽瑞康健嘉学德仁思元维绍致', '明华安平和文成荣杰辉峰远诚毅宁轩辰阳泽川林海松柏舟'],
+  female: ['文慧敏静淑雅丽佳美婉怡欣思晓秋春玉秀芳燕琳雯瑶晴悦宁舒安芸涵洁颖珊', '华文安宁然晴月云雪玉玲琳雯瑶怡悦欣涵萱莹颖慧雅芸洁彤晨秋'],
+  neutral: ['文明嘉思安宁子亦予景时清云天雨星晨晓秋春溪庭书言知怀', '文安宁然和平川明远辰雨青林言初晨阳秋新清凡泽柏松舟']
+}
 
 function shuffled(items, random) {
   return [...items]
@@ -70,7 +69,10 @@ function chineseCandidates({ length, gender, surname }) {
   const given = CHINESE_GIVEN[gender] || CHINESE_GIVEN.neutral
   const fixed = String(surname || '').trim()
   const surnames = fixed ? [fixed] : (length === 'multi' ? [...CHINESE_COMPOUND_SURNAMES, ...CHINESE_SURNAMES] : CHINESE_SURNAMES)
-  const givenNames = length === 'two' ? given.single : length === 'multi' && fixed ? given.triple : given.double
+  const [starts, ends] = GIVEN_PARTS[gender] || GIVEN_PARTS.neutral
+  const characters = [...new Set(Array.from(starts + ends))]
+  const pairs = Array.from(starts).flatMap((first) => Array.from(ends).filter((last) => last !== first).map((last) => first + last))
+  const givenNames = length === 'two' ? [...new Set([...given.single, ...characters])] : length === 'multi' && fixed ? given.triple : [...new Set([...given.double, ...pairs])]
   const candidates = []
   for (const family of surnames) {
     for (const personal of givenNames) {
@@ -141,19 +143,19 @@ export function generateWritingNames({ category = 'person', language = 'chinese'
     const family = families.sort((a, b) => b.length - a.length).find((item) => value.startsWith(item))
     return family ? value.slice(family.length) : value
   }
+  const recentSignatures = new Set([...excluded].map(signature))
   const usedSignatures = new Set()
   const result = []
-  for (const value of shuffled([...new Set(candidates)], random)) {
-    const core = signature(value)
-    if (excluded.has(value) || usedSignatures.has(core)) continue
-    result.push(value)
-    usedSignatures.add(core)
-    if (result.length >= count) break
+  const ordered = shuffled([...new Set(candidates)], random)
+  // 优先避开近期同名核心；小名字池耗尽时允许换姓，但不重复完整姓名。
+  for (const avoidRecentCore of [true, false]) {
+    for (const value of ordered) {
+      const core = signature(value)
+      if (excluded.has(value) || usedSignatures.has(core) || (avoidRecentCore && recentSignatures.has(core))) continue
+      result.push(value)
+      usedSignatures.add(core)
+      if (result.length >= count) return result
+    }
   }
   return result
-}
-
-export function explainWritingName({ category = 'person', index = 0 } = {}) {
-  const reasons = CATEGORY_REASONS[category] || CATEGORY_REASONS.person
-  return reasons[Math.max(0, Number(index) || 0) % reasons.length]
 }

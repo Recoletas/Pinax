@@ -546,6 +546,11 @@ export interface MapGenConfig {
   generateProvinces?: boolean
   /** 是否生成道路（默认 true） */
   generateRoads?: boolean
+  /** Local story maps do not invent nations, settlements or named rivers. */
+  authoredPlacesOnly?: boolean
+  geographicScope?: 'local' | 'world'
+  /** Display scale for the author's terrain sketch. */
+  kmPerPixel?: number
 
   // ── AI 指定的名称（可选） ──
   /** 地图名称 */

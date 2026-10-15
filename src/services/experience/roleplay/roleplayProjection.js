@@ -10,6 +10,7 @@
  *   （≤400 字块预算），不新增第二条模型链，不改 kernel 合同。
  */
 
+import { buildScenarioPublicProjection } from './roleplayScenario.js'
 import { sha256HexOfText } from '../../contentHash.js'
 import { attributeLabel, describeOutcomeText, describeRuleText } from './roleplayRules.js'
 import { compareRoleplayActionPayload } from './roleplayActionContract.js'
@@ -186,3 +187,38 @@ function truncate(value, limit) {
 }
 
 export { compareRoleplayActionPayload }
+
+/** Only expose the current public scene and this resolved check's reveal; never the full scenario. */
+export function buildRoleplayNarrationContext(state, action = null) {
+  const view = buildScenarioPublicProjection(state?.scenarioRun, state?.scenario)
+  if (!view?.currentScene) return null
+  const parts = ['【当前冒险场景，以本段为准】', `${view.currentScene.title}：${view.currentScene.description}`]
+  const hint = String(action?.intentHint || '')
+  const clue = hint.startsWith('scenario-clue:')
+    ? state.scenario.clues.find((item) => item.id === hint.slice('scenario-clue:'.length) && item.locationSceneId === view.currentScene.id)
+    : null
+  if (clue && action?.resolution && action.status === 'resolved') {
+    if (['success', 'partial'].includes(action.resolution.outcome)) parts.push(`本次检定允许揭示的线索：${clue.summary}`)
+    else parts.push(`本次检查未发现线索。${clue.failForward?.eventText || '描写受挫，不得编造新的线索结论。'}`)
+  }
+  if (action?.actionId && action.status === 'committed') {
+    const events = state.scenarioRun.publicEvents.filter((event) => event.sourceActionId === action.actionId && event.visibleTo === 'player')
+    if (events.length) parts.push('本次检定已经发生的公开后果，不得改变：' + events.slice(-3).map((event) => event.text).join('；'))
+  }
+  if (view.discoveredClues.length) parts.push('已确认：' + view.discoveredClues.slice(-4).map((item) => item.summary).join('；'))
+  if (state.companion?.enabled && state.companion.name) parts.push(`已经在场的旅伴：${state.companion.name}。旅伴提议仍须玩家确认，不能替玩家执行。`)
+  parts.push('可去：' + view.currentScene.exits.map((item) => item.label).join('；'))
+  parts.push('只回应本次行动与已裁定结果，保留场景事实；不得以自创日期、地名替代线索，不替玩家采取下一步行动。')
+  return { summary: parts.join('\n').slice(0, 1400), sourceRefs: [], revision: view.scenarioRevision,
+    taskContract: {
+      kind: 'roleplay',
+      hasStopBoundary: true,
+      request: '叙述本次行动的已裁定后果，到可由玩家继续选择的现场状态为止。',
+      playerName: String(state.actor?.name || state.actorRef?.name || '玩家'),
+      authorizedAction: String(action?.rawInput || action?.rawInputDigest || ''),
+      outcome: String(action?.resolution?.outcome || ''),
+      publicFacts: parts.slice(0, -1).join('\n'),
+      sceneId: view.currentScene.id
+    },
+    location: { id: view.currentScene.id, name: view.currentScene.title } }
+}

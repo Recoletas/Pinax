@@ -135,6 +135,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import { Extension, getMarkRange } from '@tiptap/core'
 import { Fragment, Slice } from '@tiptap/pm/model'
+import { createAssistantEditDecorations, assistantEditDecorationKey } from '../../services/writing/assistantEditDecorations.js'
 import { AllSelection, NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { closeHistory, isHistoryTransaction, redoNoScroll, undoNoScroll } from '@tiptap/pm/history'
@@ -182,6 +183,7 @@ import {
 const writingPreferences = useWritingTypographyStore()
 writingPreferences.init()
 const props = defineProps({
+  assistantReview: { type: Object, default: null },
   taskUnitId: { type: String, default: '' },
   blockMenuEnabled: Boolean,
   modelValue: { type: String, default: '' },
@@ -210,7 +212,7 @@ const props = defineProps({
   blockGapId: { type: String, default: 'authoring-block-gap' }
 })
 
-const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'worldbook-mention-click', 'writing-command', 'open-block-composer', 'open-intervention', 'accept-block-preview', 'dismiss-block-preview', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'cycle-inline-suggestion', 'retry-inline-suggestion', 'history-command', 'command-menu-change', 'composition-change', 'writing-paste', 'blocked-structure-edit', 'editor-focus', 'editor-blur', 'scroll-owner', 'ready'])
+const emit = defineEmits(['update:modelValue', 'update:document', 'selection-change', 'unit-transition', 'input', 'context-menu', 'annotation-click', 'worldbook-mention-click', 'writing-command', 'open-block-composer', 'open-intervention', 'accept-block-preview', 'dismiss-block-preview', 'accept-inline-suggestion', 'dismiss-inline-suggestion', 'cycle-inline-suggestion', 'retry-inline-suggestion', 'history-command', 'command-menu-change', 'composition-change', 'writing-paste', 'blocked-structure-edit', 'editor-focus', 'editor-blur', 'scroll-owner', 'ready', 'assistant-edit-action'])
 
 const initialDocument = props.document || createWritingDocument(props.modelValue)
 const notebookRoot = ref(null)
@@ -224,6 +226,8 @@ const compositionSettling = ref(false)
 let programmaticScrollUntil = 0
 let userScrollIntentUntil = 0
 let applyingExternalDocument = false
+// 初始化/切章产生的默认选区不是作者指定的续写起点。
+let hasExplicitPosition = false
 let lastCommandMenuGeometry = null
 let compositionRefreshTimer = null
 let componentUnmounting = false
@@ -1805,6 +1809,7 @@ function buildSelectionSnapshot(currentEditor) {
     beforeText: plainTextSnapshot.beforeText,
     afterText: plainTextSnapshot.afterText,
     currentNodeText: editorBlockPlainText(startBlock),
+    hasExplicitPosition,
     cursorLocalOffset: Number(startBlockSelection?.localOffset || 0),
     selectionLocalStart: Number(startBlockSelection?.localOffset || 0),
     selectionLocalEnd: Number(endBlockSelection?.localOffset || 0),
@@ -1877,6 +1882,7 @@ const editor = useEditor({
     LiveMarkdownDecorations,
     WritingCommandMenu,
     InlineSuggestionDecorations,
+    createAssistantEditDecorations({ getReview: () => props.assistantReview, getDocument: () => currentDocument.value, act: (action, changeId) => emit('assistant-edit-action', { action, changeId }) }),
     UniqueID.configure({
       types: ['paragraph', 'heading', 'horizontalRule', 'blockquote', 'mediaReference'],
       attributeName: 'nodeId',
@@ -1889,6 +1895,7 @@ const editor = useEditor({
   },
   editable: props.editable,
   onCreate({ editor: currentEditor }) {
+    hasExplicitPosition = false
     emit('ready', currentEditor)
     // 初始 document 已由父页完成 hydrate。这里不能伪装成一次用户编辑，
     // 否则刚打开章节就会进入未保存 → 自动保存，并触发观察器与“已保存”闪现。
@@ -1897,6 +1904,7 @@ const editor = useEditor({
   },
   onUpdate({ editor: currentEditor, transaction }) {
     if (!transaction.docChanged) return
+    if (!applyingExternalDocument) hasExplicitPosition = true
     // U33：键盘 undo/redo 的事务副作用可能使 PM view 丢失焦点（DOM 重渲染
     // 替换含 caret 的节点），导致后续 redo/继续编辑的键盘事件无法到达编辑器。
     // historyUndo/historyRedo 后显式恢复焦点。
@@ -1927,16 +1935,23 @@ const editor = useEditor({
     // docChanged 事务由紧随其后的 onUpdate 在 currentDocument 更新后发布，
     // 防止同一次输入出现一份旧 markdown 坐标和一份新坐标。
     if (transaction?.docChanged) return
+    hasExplicitPosition = true
     publishCurrentSelectionState(currentEditor)
   },
   onTransaction({ editor: currentEditor, transaction }) {
     // 光标处 Ctrl/Cmd+B/I 只改变 stored marks，不一定触发 selectionUpdate
     // 或 docChanged；仍需把真实 Tiptap mark 状态同步给外层工具栏。
-    if (transaction.storedMarksSet && !transaction.docChanged && !transaction.selectionSet) {
+    if (!applyingExternalDocument && transaction.storedMarksSet && !transaction.docChanged && !transaction.selectionSet) {
+      hasExplicitPosition = true
       emitCurrentSelectionSnapshot(currentEditor)
     }
   },
-  onFocus() {
+  onFocus({ editor: currentEditor }) {
+    // 点击默认章首可能不改变 selection，focus 仍代表作者明确选了这里。
+    if (!applyingExternalDocument) {
+      hasExplicitPosition = true
+      emitCurrentSelectionSnapshot(currentEditor)
+    }
     emit('editor-focus')
     updateCurrentLineOverlay()
     scrollTypewriterIntoView()
@@ -2239,6 +2254,7 @@ function applyExternalWritingDocument(nextDocument) {
   closeCommandMenu()
   currentDocument.value = nextDocument
   applyingExternalDocument = true
+  hasExplicitPosition = false
   try {
     currentEditor.chain()
       .setMeta('addToHistory', false)
@@ -2304,6 +2320,8 @@ watch(() => [props.blockComposerOpen, props.blockComposerTarget, props.blockPrev
   editor.value.view.dispatch(editor.value.state.tr.setMeta(blockGapPluginKey, true))
   refreshInlineSuggestionLayer()
 })
+
+watch(() => props.assistantReview, () => { if (editor.value && !editor.value.isDestroyed) editor.value.view.dispatch(editor.value.state.tr.setMeta(assistantEditDecorationKey, true).setMeta('addToHistory', false)) }, { deep: true })
 
 watch(
   () => [props.inlineSuggestionVisible, props.inlineSuggestion, props.inlineSuggestionGenerating, props.inlineSuggestionError, props.interactionOwner],
@@ -3784,15 +3802,15 @@ defineExpose({
 }
 
 .writing-notebook-editor__surface .ProseMirror figure[data-media-reference] {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
   min-height: 54px;
   margin: 1.4em 0;
-  padding: 10px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--notebook-rule) 86%, transparent);
-  background: color-mix(in srgb, var(--notebook-paper) 92%, var(--accent-primary) 8%);
+  padding: 14px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
   color: var(--notebook-muted);
   font: 500 12px/1.5 var(--font-sans, sans-serif);
   white-space: normal;
@@ -3815,10 +3833,23 @@ defineExpose({
 
 .writing-media-reference__caption {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
+  line-height: 1.5;
 }
+
+.writing-media-reference__image {
+  display: block;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  max-height: min(70vh, 620px);
+  border-radius: 8px;
+  object-fit: contain;
+}
+.writing-media-reference__image[hidden] { display: none; }
+.writing-media-reference__status { color: var(--notebook-muted); font: 13px/1.5 var(--font-sans, sans-serif); }
 
 .writing-notebook-editor__loading {
   padding: 36px;
@@ -3984,4 +4015,20 @@ defineExpose({
   }
 
 }
+</style>
+
+<style>
+.assistant-edit-original-range { text-decoration: line-through; color: var(--text-secondary); text-decoration-color: var(--text-secondary); }
+.assistant-inline-edit { display: block; margin: 8px 0 20px; padding: 0; background: transparent; color: var(--text-primary); white-space: normal; }
+.assistant-inline-edit::before { content: attr(data-label); display: block; margin-bottom: 8px; color: var(--accent); font: 500 12px/1.5 var(--font-sans); }
+.assistant-inline-edit__content { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: inherit; background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.assistant-inline-edit__content p { margin: 0 0 var(--notebook-paragraph-gap, 1.05em); text-indent: var(--notebook-first-line-indent, 2em); }
+.assistant-inline-edit__content p:last-child { margin-bottom: 0; }
+.assistant-inline-edit__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; font: 12px/1.5 var(--font-sans); }
+.assistant-inline-edit__actions span { color: var(--text-secondary); }
+.assistant-inline-edit__actions button { border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); padding: 4px 10px; background: var(--surface-workbench); color: var(--text-primary); cursor: pointer; }
+.assistant-inline-edit__actions button:first-child { color: var(--accent); }
+.assistant-inline-edit__actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.assistant-inline-edit__actions button:disabled { opacity: .5; cursor: default; }
+@media(max-width:720px) { .assistant-inline-edit__actions button { min-height: 44px; } }
 </style>

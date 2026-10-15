@@ -1,27 +1,10 @@
 <template>
-  <div class="prose-essay-page is-archive-paper">
-    <!-- V3 archive-folio top strip (印章签名手法: paper-fiber + 透明底
-         chip + archive-rose 22% 边 + `·` 墨点 + 0 圆角 + 1px dashed
-         archive-gold 18% 撕边虚线).
-         结构参考 Notes manuscript-top: __left (back chip + page id +
-         optional summary) / __mid (topic input + 生成 button) /
-         __right (meta chips + 素材库 + theme-toggle).
-         FolioSurface as="header" :decorated="false" keeps the paper
-         baseline; the prose-top scoped CSS layers the stamp signature. -->
+  <div ref="workspaceRoot" class="prose-essay-page is-archive-paper" :tabindex="workspaceProps.workspaceEmbedded ? -1 : undefined" @pointerdown.capture="focusWorkspace">
     <FolioSurface as="header" variant="chrome" :decorated="false" class="prose-essay__hero">
       <div class="prose-top">
         <div class="prose-top__left">
-          <button
-            class="prose-top__chip prose-top__chip--back"
-            type="button"
-            @click="goToAdventure"
-            title="返回冒险"
-            aria-label="返回冒险"
-          >
-            <span class="prose-top__chip-label">冒险</span>
-          </button>
           <div class="prose-top__id">
-            <span class="prose-top__id-mark">画布</span>
+            <span class="prose-top__id-mark">视频与编导</span>
             <span class="prose-top__id-count">{{ cards.length }} 节点</span>
           </div>
           <span v-if="selectedCard" class="prose-top__summary">
@@ -29,14 +12,14 @@
           </span>
         </div>
 
-        <div class="prose-top__mid">
+        <div v-if="cards.length" class="prose-top__mid">
           <input
             v-model="currentTopic"
             ref="topicInputRef"
             class="prose-top__input"
             aria-label="画布主题"
             :class="{ 'is-overtlong': currentTopic.length > 500 }"
-            placeholder="输入场景线索… (建议 ≤ 500 字 · 上限 2000)"
+            placeholder="描述一个场景，拆成镜头…"
             maxlength="2000"
             @keydown.enter="generateCards"
           />
@@ -44,26 +27,27 @@
             {{ currentTopic.length }} 字 · 建议截断到 500 以内
           </span>
           <button
-            class="prose-top__chip prose-top__chip--generate"
+            class="prose-top__chip prose-top__chip--generate control-primary"
             type="button"
             @click="generateCards"
             :disabled="isGenerating || !currentTopic.trim()"
           >
-            <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '生成' }}</span>
+            <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '拆成镜头' }}</span>
           </button>
         </div>
 
         <div class="prose-top__right">
-          <span class="prose-top__chip prose-top__chip--accent" :title="currentModeLabel">
+          <span v-if="cards.length" class="prose-top__chip prose-top__chip--accent" :title="currentModeLabel">
             <span class="prose-top__chip-label">{{ currentModeLabel }}</span>
           </span>
-          <span class="prose-top__chip" :title="timelineSummaryLabel">
+          <span v-if="cards.length" class="prose-top__chip" :title="timelineSummaryLabel">
             <span class="prose-top__chip-label">{{ timelineSummaryLabel }}</span>
           </span>
           <button
+            v-if="cards.length"
             class="prose-top__chip prose-top__chip--video"
             type="button"
-            :disabled="timelineItems.length === 0"
+            :disabled="timelineItems.length === 0 || directorExportController.busy.value"
             :title="timelineItems.length ? '根据当前分镜生成视频' : '先把节点加入时间轴'"
             @click="directorExportController.handoff"
           >
@@ -75,7 +59,7 @@
           </button>
           <router-link
             class="prose-top__chip prose-top__chip--link"
-            to="/materials"
+            :to="materialsLocation"
             title="素材库"
             aria-label="素材库"
           >
@@ -112,7 +96,10 @@
       {{ generationError }}
     </p>
 
-    <WorkspacePaneSwitch
+    <p v-if="directorStoryboardStatus" class="prose-director-feedback" role="status">{{ directorStoryboardStatus }}</p>
+
+    <p v-if="canvasSaveError" class="prose-generation-feedback" role="alert">{{ canvasSaveError }} <button type="button" class="control-quiet" @click="saveData">重试保存</button><button type="button" class="control-quiet" :disabled="isGenerating || advisorLoading" @click="reloadCanvas">重新载入</button></p>
+    <WorkspacePaneSwitch v-if="cards.length"
       v-model="mobilePane"
       :items="canvasMobilePanes"
       label="画布工作区"
@@ -124,24 +111,10 @@
       <button type="button" class="control-toggle" :aria-pressed="canvasSurface === 'free'" @click="canvasSurface = 'free'">自由画布</button>
     </nav>
 
-    <section v-if="cards.length === 0" class="prose-hero is-archive-paper" aria-label="画布零态引导">
-      <div class="prose-hero__inner">
-        <h1 class="prose-hero__title">画布空白</h1>
-        <p class="prose-hero__desc">输入主题，或从素材库拖入素材生成画布。</p>
-        <div class="prose-hero__actions">
-          <button class="prose-top__chip prose-top__chip--cta" type="button" @click="focusTopicInput">
-            <span class="prose-top__chip-label">输入主题</span>
-          </button>
-          <router-link class="prose-top__chip prose-top__chip--cta" to="/materials">
-            <span class="prose-top__chip-label">从素材库导入</span>
-          </router-link>
-        </div>
-      </div>
-    </section>
 
-    <div class="pe-main" :data-mobile-pane="mobilePane" :data-canvas-surface="canvasSurface">
+    <div class="pe-main" :class="{ 'is-empty': !cards.length }" :data-mobile-pane="mobilePane" :data-canvas-surface="canvasSurface">
       <!-- 左侧面板 -->
-      <aside class="left-panel">
+      <aside v-if="cards.length || timelineItems.length" class="left-panel">
         <!-- 选中卡片详情面板 -->
         <div v-if="selectedCard" class="card-detail-panel">
           <div class="detail-panel-header">
@@ -164,14 +137,7 @@
             <button class="btn-danger node-delete-btn" @click="deleteCard(selectedCard.id)">删除节点</button>
           </div>
         </div>
-        <div v-else class="no-selection">
-          <div class="no-selection-icon">
-            <svg width="36" height="36" viewBox="0 0 48 48" fill="currentColor">
-              <rect x="8" y="8" width="32" height="32" rx="4" fill="none" stroke="currentColor" stroke-width="1.5"/>
-              <line x1="16" y1="20" x2="32" y2="20" stroke="currentColor" stroke-width="1.5"/>
-              <line x1="16" y1="28" x2="28" y2="28" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </div>
+        <div v-else-if="cards.length" class="no-selection">
           <p>选择节点编辑镜头参数</p>
         </div>
 
@@ -199,7 +165,23 @@
       </aside>
 
       <div class="scene-board-host">
-        <SceneMaterialBoard
+    <section v-if="cards.length === 0" class="prose-hero" aria-label="画布零态引导">
+      <div class="prose-hero__inner">
+        <h1 class="prose-hero__title">把故事变成镜头</h1>
+        <p class="prose-hero__desc">写下一个场景，安排镜头，再制作视频。</p>
+        <textarea ref="topicInputRef" v-model="currentTopic" class="prose-hero__input" aria-label="场景描述" maxlength="2000" rows="4" placeholder="例如：雨夜，守卫在港口拦住了一位带信的陌生人。" @keydown.ctrl.enter.prevent="generateCards" @keydown.meta.enter.prevent="generateCards"></textarea>
+        <div class="prose-hero__actions">
+          <button class="prose-top__chip prose-top__chip--cta" type="button" :disabled="isGenerating || !currentTopic.trim()" @click="generateCards">
+            <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '拆成镜头' }}</span>
+          </button>
+          <router-link class="prose-top__chip prose-top__chip--cta" :to="materialsLocation">
+            <span class="prose-top__chip-label">从素材库导入</span>
+          </router-link>
+        </div>
+      </div>
+    </section>
+
+        <SceneMaterialBoard v-else
           :model="sceneBoardModel"
           :selected-card-id="selectedCard?.id || ''"
           :relation-types="edgeTypes"
@@ -266,7 +248,7 @@
           <p class="empty-desc">生成节点后，可在这里组织关系、镜头顺序与视频任务。</p>
           <div class="empty-cards__actions">
             <button class="prose-top__chip prose-top__chip--generate" type="button" @click="focusTopicInput">输入场景线索</button>
-            <router-link class="empty-cards__link" to="/materials">从素材库导入</router-link>
+            <router-link class="empty-cards__link" :to="materialsLocation">从素材库导入</router-link>
           </div>
         </div>
 
@@ -350,8 +332,8 @@
     </div>
 
     <!-- 右下角悬浮工具栏 -->
-    <div class="floating-toolbar">
-      <button class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
+    <div class="floating-toolbar" :class="{ 'is-empty': !cards.length }">
+      <button v-if="cards.length" class="toolbar-btn" @click="confirmClearAll" title="清空所有卡片">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -363,7 +345,7 @@
         </svg>
       </button>
       <div class="toolbar-divider"></div>
-      <button class="toolbar-btn export-btn" :class="directorExportStatus ? `is-${directorExportStatus.kind}` : ''" @click="showExportMenu = !showExportMenu" :title="directorExportButtonTitle">
+      <button v-if="cards.length" class="toolbar-btn export-btn" :class="directorExportStatus ? `is-${directorExportStatus.kind}` : ''" @click="showExportMenu = !showExportMenu" :title="directorExportButtonTitle">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 3v12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           <path d="M7 8l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -406,6 +388,10 @@
             <div class="dialog-header">镜头参数</div>
             <div class="dialog-body">
               <div class="form-group">
+                <label for="shot-content">画面与动作</label>
+                <textarea id="shot-content" v-model="editingContent" class="input" rows="4" :readonly="Boolean(selectedCard.assetId)" placeholder="描述人物、环境和这一个镜头里发生的动作。"></textarea>
+              </div>
+              <div class="form-group">
                 <label>景别</label>
                 <select v-model="editingShotType" class="input">
                   <option value="">选择景别...</option>
@@ -446,12 +432,7 @@
     </Transition>
 
       <GmPersonaLauncher
-        kicker="编导顾问"
-        title="先理顺镜头和关系，再决定下一刀"
-        body="我先看卡片关系、镜头顺序和转场，再帮你指出最该先修的一处。"
-        avatarLabel="编"
         caption="编导顾问"
-        captionHint="编导入口"
         :pendingCount="pendingReminderVisible ? pendingReviewCount : 0"
         @open="openAdvisor"
       />
@@ -474,8 +455,8 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref, onMounted, onBeforeUnmount, onScopeDispose, nextTick, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useTheme } from '../composables/useTheme'
 import { getResolvedApiSettings, recordPreference } from '../services/api'
 import { useAdvisor } from '../composables/useAdvisor'
@@ -491,7 +472,9 @@ import {
   WorkspacePaneSwitch
 } from '../components/canvas/proseEssayComponents.js'
 import {
-  saveValidatedStoryboardVersion
+  saveValidatedStoryboardVersion,
+  listStoryboardDocuments,
+  getCurrentStoryboardVersion
 } from '../services/media/storyboardStore'
 import {
   generateProseCardsFromTopic
@@ -507,7 +490,8 @@ import {
   createNarrativeAssetSourceRef,
   listNarrativeAssets,
   mergeSourceRefs,
-  normalizeContentRef
+  normalizeContentRef,
+  subscribeNarrativeAssets
 } from '../services/media/narrativeAssets'
 import {
   addNarrativeImageAsset,
@@ -518,6 +502,7 @@ import {
   migrateCanvasAttachedImages
 } from '../services/media/canvasImageAssetBridge'
 import {
+  subscribeProseCanvas,
   readProseCanvasWorkspace,
   saveProseCanvasWorkspace
 } from '../services/canvas/proseCanvasRepository.js'
@@ -532,7 +517,15 @@ import {
 import {
   useCanvasViewport,
   useProseCanvasInteraction,
-  useProseDirectorExport
+  useProseDirectorExport,
+  useProseReferenceWorkspace,
+  resolveCanvasCreationProjectId,
+  resolveCanvasCardProjectId,
+  getDirectorProjectId,
+  createDirectorExportFingerprint,
+  resolveDirectorExportTitle,
+  SHOT_TYPES,
+  CAMERA_MOVEMENTS
 } from '../composables/useProseWorkspaceOwners.js'
 import { buildCanvasAgentContext } from '../services/agents/creativeGraphAgentContext'
 import {
@@ -548,8 +541,15 @@ import {
   upsertSceneRelationship
 } from '../services/canvas/sceneMaterialBoard'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
+const workspaceRoot = ref(null)
 const router = useRouter()
 const route = useRoute()
+const referenceWorkspace = useProseReferenceWorkspace(route)
+const materialsLocation = computed(() => ({
+  name: 'materials',
+  query: route.query.bookId ? { bookId: String(route.query.bookId) } : {}
+}))
 const { isDark, toggleTheme } = useTheme()
 const {
   advisorOpen,
@@ -586,35 +586,8 @@ const directorEdgeTypes = [
 ]
 
 // Director mode shot options
-const shotTypes = [
-  { value: 'extreme_wide', label: '极远景' },
-  { value: 'wide', label: '远景' },
-  { value: 'full', label: '全景' },
-  { value: 'medium_wide', label: '中远景' },
-  { value: 'medium', label: '中景' },
-  { value: 'medium_close', label: '中近景' },
-  { value: 'close_up', label: '近景' },
-  { value: 'extreme_close_up', label: '特写' },
-  { value: 'two_shot', label: '双人镜头' },
-  { value: 'over_shoulder', label: '过肩镜头' },
-  { value: 'pov', label: '主观镜头' },
-  { value: 'aerial', label: '航拍' }
-]
-
-const cameraMovements = [
-  { value: 'static', label: '固定' },
-  { value: 'pan', label: '横摇' },
-  { value: 'tilt', label: '竖摇' },
-  { value: 'dolly', label: '推拉' },
-  { value: 'track', label: '轨道' },
-  { value: 'crane', label: '升降' },
-  { value: 'zoom', label: '变焦' },
-  { value: 'handheld', label: '手持' },
-  { value: 'steadicam', label: '稳定器' },
-  { value: 'spin', label: '旋转' },
-  { value: 'tilt_up', label: '仰拍' },
-  { value: 'tilt_down', label: '俯拍' }
-]
+const shotTypes = Object.values(SHOT_TYPES).map(({ id, label }) => ({ value: id, label }))
+const cameraMovements = Object.values(CAMERA_MOVEMENTS).filter(({ id }) => id !== 'static').map(({ id, label }) => ({ value: id, label }))
 
 const canvasAssets = ref([])
 const showCardDetailDialog = ref(false)
@@ -664,6 +637,7 @@ const showStoryboardVideoPanel = ref(false)
 const storyboardVideoContext = ref(null)
 const cardWallRef = ref(null)
 const apiSettings = ref(null)
+const canvasSaveError = ref('')
 // V3 top strip: topic input element ref so the 0-state "输入主题" CTA
 // can move focus into the input without scrolling the canvas.
 const topicInputRef = ref(null)
@@ -678,9 +652,6 @@ function focusTopicInput() {
   })
 }
 
-function goToAdventure() {
-  router.push({ name: 'experience' })
-}
 const canvasWidth = ref(1200)
 const canvasHeight = ref(800)
 
@@ -951,25 +922,69 @@ function redoCard() {
   editingEmotion.value = next.emotion
 }
 
-useProseCanvasInteraction({ cancelPointerDrag, cancelDraggedEdgeUpdate, stopEdgeDraft })
+const canvasInteraction = useProseCanvasInteraction({ cancelPointerDrag, cancelDraggedEdgeUpdate, stopEdgeDraft })
+watch(() => workspaceProps.workspaceActive, active => { if (!active) canvasInteraction.reset() })
+function canCloseWorkspace() { return !isGenerating.value && !advisorLoading.value && !directorExportController.busy.value && saveData() }
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate(canCloseWorkspace)
+}
+defineExpose({
+  canCloseWorkspace,
+  getWorkspaceTaskSummary: () => isGenerating.value || advisorLoading.value || directorExportController.busy.value ? { label: '视频与编导处理中的任务' } : null
+})
 
-onMounted(async () => {
-  await migrateNarrativeImageAssets()
+const canvasOrigin = Symbol('director-view')
+let canvasStorageRevision = 0
+let canvasLoadRevision = 0
+let canvasAssetLoadRevision = 0
+const releaseAssets = subscribeNarrativeAssets(() => { if (!canvasDisposed) void loadCanvasAssets() })
+const releaseCanvas = subscribeProseCanvas(async ({ projectId, origin }) => {
+  if (showCardDetailDialog.value || origin === canvasOrigin || projectId !== String(route.query.bookId || '') || canvasDisposed || canvasSaveError.value) return
+  const selectedId = selectedCard.value?.id
   await loadCanvasAssets()
+  if (canvasDisposed) return
   await loadData()
-  apiSettings.value = await getResolvedApiSettings()
+  selectedCard.value = cards.value.find(card => card.id === selectedId) || null
+})
+onScopeDispose(() => { releaseAssets(); releaseCanvas() })
+let canvasDisposed = false
+onMounted(async () => {
+  try {
+    await migrateNarrativeImageAssets()
+    await loadCanvasAssets()
+    await loadData()
+    apiSettings.value = await getResolvedApiSettings()
+  } catch {
+    // 画布资产迁移/加载失败不阻断页面：各加载器已把错误落进自己的状态与 UI 通道。
+  }
+  if (canvasDisposed) return
   document.addEventListener('keydown', handleKeydown)
   await nextTick()
   focusAssetCardFromRoute()
 })
 
 onBeforeUnmount(() => {
+  canvasDisposed = true
+  directorExportController.dispose()
+  clearInterval(generationMsgTimer)
   document.removeEventListener('keydown', handleKeydown)
 })
 
-watch(() => route.query.assetId, () => {
-  void loadCanvasAssets()
-  focusAssetCardFromRoute()
+watch(() => route.query.bookId, async () => {
+  directorExportController.reset()
+  showStoryboardVideoPanel.value = false
+  storyboardVideoContext.value = null
+  directorStoryboardStatus.value = ''
+  selectedCard.value = null
+  await loadCanvasAssets()
+  await loadData()
+  if (!canvasDisposed) focusAssetCardFromRoute()
+})
+
+watch(() => route.query.assetId, async () => {
+  await loadCanvasAssets()
+  if (!canvasDisposed) focusAssetCardFromRoute()
 })
 
 // Advisor functions
@@ -1066,14 +1081,18 @@ function inferZone(cardId) {
 }
 
 async function loadData() {
+  const ticket = ++canvasLoadRevision
+  const projectId = String(route.query.bookId || '')
   try {
-    const rawCards = await migrateCanvasAttachedImages()
-    const workspace = readProseCanvasWorkspace()
+    await migrateCanvasAttachedImages()
+    if (canvasDisposed || ticket !== canvasLoadRevision || projectId !== String(route.query.bookId || '')) return false
+    const workspace = readProseCanvasWorkspace({ projectId: projectId || '', assetProjectIds: Object.fromEntries(canvasAssets.value.map(asset => [asset.id, asset.projectId])) })
+    canvasStorageRevision = workspace.storageRevision || 0
     edges.value = workspace.edges
     outline.value = workspace.outline
     timeline.value = workspace.timeline
 
-    cards.value = rawCards.map((card, idx) => ({
+    cards.value = workspace.cards.map((card, idx) => ({
       ...card,
       pileId: card.pileId || null,
       zone: card.zone || inferZone(card.id),
@@ -1086,12 +1105,17 @@ async function loadData() {
     proseCommits.value = workspace.commits
     proseBranches.value = workspace.branches
   } catch {
-    cards.value = []
-    edges.value = []
-    outline.value = []
-    timeline.value = []
+    if (ticket === canvasLoadRevision && !canvasDisposed) generationError.value = '画布读取失败，当前输入仍保留。'
+    return false
   }
   nextTick(() => updateLayout())
+  return true
+}
+
+async function reloadCanvas() {
+  if (isGenerating.value || advisorLoading.value || !window.confirm('重新载入会放弃当前未保存的画布输入。请先导出或复制需要保留的内容。')) return
+  await loadCanvasAssets()
+  if (await loadData()) { selectedCard.value = null; canvasSaveError.value = '' }
 }
 
 function saveData() {
@@ -1103,7 +1127,9 @@ function saveData() {
     piles: piles.value,
     commits: proseCommits.value,
     branches: proseBranches.value
-  })
+  }, { projectId: route.query.bookId || '', expectedRevision: canvasStorageRevision, origin: canvasOrigin })
+  if (result.ok) canvasStorageRevision = result.storageRevision || 0
+  canvasSaveError.value = result.ok ? '' : result.reason === 'canvas-conflict' ? '画布已在别处更新，当前输入保留。请先保留输入后重新打开画布。' : '画布未保存，请保留页面并重试当前操作。'
   nextTick(() => computeEdgePositions())
   return result.ok
 }
@@ -1122,7 +1148,9 @@ function countWords(text) {
 }
 
 async function loadCanvasAssets() {
-  canvasAssets.value = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
+  const ticket = ++canvasAssetLoadRevision
+  const assets = await hydrateNarrativeImageAssets(listNarrativeAssets({ status: null }))
+  if (!canvasDisposed && ticket === canvasAssetLoadRevision) canvasAssets.value = assets
 }
 
 function getCardAsset(card) {
@@ -1220,14 +1248,22 @@ function getCardImageReferences(card) {
 
 function openCardMaterial(card) {
   if (!card?.assetId) return
-  router.push({ name: 'materials', query: { assetId: card.assetId } })
+  if (referenceWorkspace.openAsset(card.assetId)) return
+  router.push({ ...materialsLocation.value, query: { ...materialsLocation.value.query, assetId: card.assetId } })
 }
 
 function focusAssetCardFromRoute() {
   const assetId = String(route.query.assetId || '')
   if (!assetId) return
-  const card = cards.value.find((item) => item.assetId === assetId)
-  if (!card) return
+  let card = cards.value.find((item) => item.assetId === assetId)
+  if (!card) {
+    const asset = canvasAssets.value.find(item => item.id === assetId && item.projectId === route.query.bookId)
+    if (!asset) return
+    card = createCardFromAsset(asset)
+    card.projectId = asset.projectId
+    cards.value.push(card)
+    if (!saveData()) { cards.value.pop(); return }
+  }
   selectCard(card)
   nextTick(() => jumpToCard(card.id))
 }
@@ -1249,7 +1285,7 @@ function createCardFromAsset(asset, emotion = 'calm', extraFields = null) {
   }
 }
 
-function createMaterialCard(content, emotion = 'calm', extraFields = null, sourceId = '') {
+function createMaterialCard(content, emotion = 'calm', extraFields = null, sourceId = '', projectId = null) {
   const normalizedContent = String(content || '').trim()
   if (!normalizedContent) return null
   const persisted = addNarrativeAssetDurable({
@@ -1257,6 +1293,7 @@ function createMaterialCard(content, emotion = 'calm', extraFields = null, sourc
     content: normalizedContent,
     kind: 'storyboard-seed',
     status: 'accepted',
+    projectId,
     source: {
       type: 'relation-canvas',
       id: sourceId
@@ -1289,17 +1326,22 @@ function trackPreference(action, card) {
 }
 
 // Card operations
+function focusWorkspace(event) {
+  if (workspaceProps.workspaceEmbedded && !event.target.closest('button,a,input,textarea,select,[contenteditable="true"]')) workspaceRoot.value?.focus({ preventScroll: true })
+}
 function handleKeydown(e) {
+  if (!workspaceProps.workspaceActive) return
+  if (workspaceProps.workspaceEmbedded ? !workspaceRoot.value?.contains(e.target) || e.target?.closest?.('[inert]') : !referenceWorkspace.ownsKeyboard(e)) return
   const activeTag = document.activeElement?.tagName?.toLowerCase()
   const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || document.activeElement?.isContentEditable
 
   if (e.key === 'Escape' && (linkingActive.value || edgeDeleteActive.value)) {
     cancelLinking()
     edgeDeleteActive.value = false
-  } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+  } else if (!isInput && (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault()
     undoCard()
-  } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+  } else if (!isInput && (e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
     e.preventDefault()
     redoCard()
   } else if (!isInput && selectedCard.value && (e.key.startsWith('Arrow'))) {
@@ -1420,7 +1462,7 @@ function selectCard(card) {
   // Load director mode extra fields
   if (card.extraFields) {
     editingShotType.value = card.extraFields.shotType || ''
-    editingCameraMovement.value = card.extraFields.cameraMovement || ''
+    editingCameraMovement.value = card.extraFields.cameraMovement === 'static' ? 'fixed' : card.extraFields.cameraMovement || ''
     editingDuration.value = card.extraFields.duration || 3
     editingDialogue.value = card.extraFields.dialogue || ''
     editingSoundEffects.value = card.extraFields.soundEffects || ''
@@ -1488,6 +1530,7 @@ async function sendSelectedCardToMaterials() {
     content: lines.join('；'),
     kind: assetKind,
     status: 'accepted',
+    projectId: resolveCanvasCardProjectId(card, getCardAsset(card)),
     source: {
       type: 'prose-card',
       id: card.id
@@ -1528,6 +1571,7 @@ async function sendSelectedCardToMaterials() {
 function insertCard() {
   const newCard = {
     id: `card_${Date.now()}`,
+    projectId: resolveCanvasCreationProjectId(route.query.bookId),
     content: '',
     emotion: 'calm',
     wordCount: 0,
@@ -1576,6 +1620,7 @@ async function generateCards() {
   }
 
   generationError.value = ''
+  const generationProjectId = resolveCanvasCreationProjectId(route.query.bookId)
   isGenerating.value = true
   generationMsgIndex = 0
   generationMessage.value = generationMessages[0]
@@ -1590,14 +1635,16 @@ async function generateCards() {
       settings: apiSettings.value
     })
 
+    if (canvasDisposed) return
     if (generationResult.success && Array.isArray(generationResult.parsed) && generationResult.parsed.length > 0) {
-      createNewCards(generationResult.parsed, topic)
+      createNewCards(generationResult.parsed, topic, generationProjectId)
       return
     }
 
     generationError.value = '未能生成有效节点，请调整场景线索后重试。'
 
   } catch (e) {
+    if (canvasDisposed) return
     generationError.value = `生成失败：${e?.message || '请检查网络与模型配置后重试。'}`
 
   } finally {
@@ -1640,7 +1687,7 @@ function normalizeEmotionKey(emotion) {
   return aliasMap[rawEmotion] || aliasMap[lowerEmotion] || 'calm'
 }
 
-function createNewCards(generated, topic) {
+function createNewCards(generated, topic, projectId) {
   const newCards = generated.map(item => {
     const emotion = normalizeEmotionKey(item.emotion)
     const extraFields = {
@@ -1650,7 +1697,7 @@ function createNewCards(generated, topic) {
       dialogue: item.dialogue || '',
       soundEffects: item.soundEffects || ''
     }
-    return createMaterialCard(item.content, emotion, extraFields, topic)
+    return createMaterialCard(item.content, emotion, extraFields, topic, projectId)
   }).filter(Boolean)
 
   if (newCards.length === 0) return
@@ -2322,14 +2369,14 @@ const directorExportButtonTitle = computed(() => {
 })
 
 const directorTimelineActionDisabled = computed(() => {
-  return currentMode.value !== 'directing' || timelineItems.value.length === 0
+  return currentMode.value !== 'directing' || timelineItems.value.length === 0 || directorExportController.busy.value
 })
 
 const directorTimelineActionLabel = computed(() => {
   const kind = directorExportStatus.value?.kind
-  if (kind === 'current' || kind === 'warning') return '下载'
-  if (kind === 'stale') return '更新'
-  return '生成'
+  if (kind === 'current' || kind === 'warning') return '分镜稿'
+  if (kind === 'stale') return '更新分镜'
+  return '整理分镜'
 })
 
 const directorTimelineActionTitle = computed(() => {
@@ -2433,33 +2480,6 @@ function buildDirectorSourceExcerpt() {
     .slice(0, 240)
 }
 
-function createDirectorExportFingerprint(shots, topic, sourceRefs = []) {
-  return JSON.stringify({
-    topic: String(topic || '').trim(),
-    sourceRefs: sourceRefs.map((ref) => [
-      ref.refType,
-      ref.refId,
-      ref.projectId || '',
-      ref.version || ''
-    ]),
-    shots: (shots || []).map((shot) => [
-      shot.sequence,
-      shot.assetId,
-      shot.content,
-      shot.shotType,
-      shot.camera,
-      shot.duration,
-      shot.dialogue,
-      shot.sound,
-      shot.transition,
-      shot.relationType,
-      shot.relationLabel,
-      shot.tone,
-      shot.emotion,
-      JSON.stringify(shot.imageReferences || [])
-    ])
-  })
-}
 
 function buildDirectorSourceRefs() {
   const inheritedRefs = []
@@ -2471,7 +2491,7 @@ function buildDirectorSourceRefs() {
     localRefs.push(normalizeContentRef({
       refType: 'canvas-card',
       refId: card.id,
-      projectId: asset?.projectId ?? null,
+      projectId: resolveCanvasCardProjectId(card, asset),
       excerpt: getCardFullContent(card)
     }))
     if (asset) {
@@ -2480,10 +2500,6 @@ function buildDirectorSourceRefs() {
     }
   }
   return mergeSourceRefs(inheritedRefs, localRefs)
-}
-
-function getDirectorProjectId(sourceRefs = []) {
-  return sourceRefs.find((ref) => ref?.projectId)?.projectId || null
 }
 
 function buildDirectorRawShots() {
@@ -2506,10 +2522,27 @@ function getDirectorExportContext() {
     return lastDirectorExportContext.value
   }
 
-  const sourceId = String(currentTopic.value || '').trim() || 'untitled-prose'
-  const sourceTitle = String(currentTopic.value || '').trim() || '卡片画布'
+  const sourceId = 'prose-canvas'
+  const projectId = getDirectorProjectId(sourceRefs)
+  const savedDocument = listStoryboardDocuments({ sourceType: 'prose-card', sourceId })
+    .find((document) => (document.projectId || null) === projectId)
+  const savedVersion = savedDocument && getCurrentStoryboardVersion(savedDocument)
+  if (savedVersion?.parameters?.canvasFingerprint === fingerprint) {
+    lastDirectorExportFingerprint.value = fingerprint
+    lastDirectorExportContext.value = {
+      fingerprint, document: savedDocument, version: savedVersion, shots: savedVersion.shots,
+      validation: savedVersion.validation || { valid: true, errors: [], warnings: [] }
+    }
+    return lastDirectorExportContext.value
+  }
+  const sourceTitle = resolveDirectorExportTitle({
+    topic: currentTopic.value,
+    savedDocument,
+    projectId,
+    sourceAssets: outline.value.map((item) => getCardAsset(getOutlineCard(item)))
+  })
   const result = saveValidatedStoryboardVersion({
-    projectId: getDirectorProjectId(sourceRefs),
+    projectId,
     source: {
       sourceType: 'prose-card',
       sourceId,
@@ -2521,9 +2554,10 @@ function getDirectorExportContext() {
     taskType: 'prose.directing.export',
     parameters: {
       mode: 'directing',
-      topic: currentTopic.value || '',
+      topic: sourceTitle,
       outlineCount: outline.value.length,
-      cardCount: cards.value.length
+      cardCount: cards.value.length,
+      canvasFingerprint: fingerprint
     }
   })
 
@@ -2542,7 +2576,7 @@ function prepareDirectorStoryboardVersion() {
   showExportMenu.value = false
   try {
     const directorExport = getDirectorExportContext()
-    directorStoryboardStatus.value = `已生成分镜版本 ${directorExport.version.versionId.slice(-6)}，确认后可下载 Markdown`
+    directorStoryboardStatus.value = `分镜已保存 · ${directorExport.shots.length} 个镜头，可下载分镜稿或生成视频`
     addTimeline('生成统一分镜版本')
     return directorExport
   } catch (error) {
@@ -2551,10 +2585,12 @@ function prepareDirectorStoryboardVersion() {
   }
 }
 
-function openStoryboardVideoPanel() {
+function openStoryboardVideoPanel(preparedContext) {
   showExportMenu.value = false
   try {
-    storyboardVideoContext.value = getDirectorExportContext()
+    storyboardVideoContext.value = preparedContext || getDirectorExportContext()
+    const context = storyboardVideoContext.value
+    if (referenceWorkspace.openVideo(context)) return
     showStoryboardVideoPanel.value = true
   } catch (error) {
     directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '分镜校验未通过'
@@ -2567,13 +2603,13 @@ const directorExportController = useProseDirectorExport({
 })
 
 function handleStoryboardVideoArchived(asset) {
-  directorStoryboardStatus.value = `视频已归档，任务 ${String(asset?.generationJobId || '').slice(-6)}`
-  addTimeline('归档分镜视频')
+  directorStoryboardStatus.value = asset?.storageRef?.startsWith('idb://') ? '视频已保存在当前浏览器，可随完整备份带走' : '视频链接已保存，尚未保存原件'
+  addTimeline(asset?.storageRef?.startsWith('idb://') ? '保存分镜视频原件' : '保存分镜视频链接')
 }
 
 function handleStoryboardAgentShotsUpdated(shots, meta = {}) {
   const current = storyboardVideoContext.value
-  if (!current?.document?.id || !Array.isArray(shots) || !shots.length) return
+  if (!current?.document?.id || !Array.isArray(shots) || !shots.length) { meta.onSaved?.(false); return }
   try {
     const result = saveValidatedStoryboardVersion({
       documentId: current.document.id,
@@ -2584,7 +2620,8 @@ function handleStoryboardAgentShotsUpdated(shots, meta = {}) {
       taskType: meta.reason === 'agent-undo' ? 'storyboard.agent.undo' : 'storyboard.agent.review',
       parameters: {
         mode: 'directing',
-        agentReviewed: true
+        agentReviewed: true,
+        canvasFingerprint: current.fingerprint
       }
     })
     const updatedContext = {
@@ -2596,10 +2633,12 @@ function handleStoryboardAgentShotsUpdated(shots, meta = {}) {
     }
     storyboardVideoContext.value = updatedContext
     lastDirectorExportContext.value = updatedContext
+    meta.onSaved?.(true, result.shots)
     directorStoryboardStatus.value = meta.reason === 'agent-undo'
       ? `已撤销镜头修正，建立版本 ${result.version.versionId.slice(-6)}`
       : `已应用镜头修正，建立版本 ${result.version.versionId.slice(-6)}`
   } catch (error) {
+    meta.onSaved?.(false)
     directorStoryboardStatus.value = error?.validation?.errors?.[0] || error?.message || '镜头修正保存失败'
   }
 }
@@ -2612,7 +2651,7 @@ function downloadDirectorMarkdown() {
       : getDirectorExportContext()
     const md = toMarkdown(getDirectorStoryboardShots(directorExport), {
       title: '分镜脚本',
-      topic: currentTopic.value || '未命名'
+      topic: directorExport.document.source.title
     })
     downloadFile(md, '分镜脚本.md', 'text/markdown')
     directorStoryboardStatus.value = `已下载分镜 Markdown，版本 ${directorExport.version.versionId.slice(-6)}`
@@ -2764,11 +2803,11 @@ function exportEditingPackage() {
     const shots = getDirectorStoryboardShots(directorExport)
     const versionId = directorExport.version.versionId
     const packageData = buildEditingPackage(shots, {
-      topic: currentTopic.value || '未命名',
+      topic: directorExport.document.source.title,
       storyboardDocumentId: directorExport.document.id,
       storyboardVersionId: versionId,
       validation: directorExport.version.validation,
-      name: currentTopic.value || '卡片画布'
+      name: directorExport.document.source.title
     })
     const zipData = buildEditingPackageZip(packageData)
     downloadFile(zipData, '分镜剪辑包.zip', 'application/zip')

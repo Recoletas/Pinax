@@ -1,7 +1,9 @@
 // Experience 会话工作流（R-X1）：会话选择/创建/删除、加载期状态、启动
 // 引导（bootstrap）与选择器弹层状态的全部逻辑在同一个组合式函数中，通过参数注入 store/router/路由，不 import 页面，不直接读取路由单例。
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { installLedgerRoleplayHistoryPort } from '../services/experience/roleplay/roleplayLedgerPort.js'
+import { useComposableWorkspace } from './useComposableWorkspace.js'
+import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 
 export function useExperienceSessionWorkflow({
   gameStore,
@@ -9,13 +11,53 @@ export function useExperienceSessionWorkflow({
   route,
   router,
   onlineSession,
+  workspaceEmbedded = false,
+  workspaceActive,
+  notifyWorkspaceResource = () => {},
   notifySourceStatus = () => {},
   buildOnlineRuntimePatch = () => ({}),
   applyOnlineRuntimePatch = () => {},
   applyOnlineNarrativeCompletion = () => {}
 }) {
+  const contentWorkspace = useComposableWorkspace()
+  const scopeBootstrapped = ref(false)
+  const experienceWorldbookId = computed(() => String(!scopeBootstrapped.value && route.query.worldbookId || gameStore.worldId || worldStore.activeWorldbookId || ''))
+  const experienceBooks = ref(loadWritingBooks())
+  const releaseBooks = subscribeWritingBooks(() => { experienceBooks.value = loadWritingBooks() })
+  onScopeDispose(releaseBooks)
+  const experienceScope = computed(() => {
+    const book = experienceBooks.value.find(item => String(item.id) === String(route.query.bookId || ''))
+    return { bookId: !onlineSession && book?.worldbookId === experienceWorldbookId.value ? String(book.id) : '', worldbookId: experienceWorldbookId.value }
+  })
+  const releaseScope = onlineSession || workspaceEmbedded ? null : contentWorkspace?.bindScope(experienceScope)
+  onScopeDispose(() => releaseScope?.())
+  function openExperienceSources() {
+    if (onlineSession || !experienceWorldbookId.value) return false
+    return contentWorkspace?.openAt({ type: 'sources', ...experienceScope.value }, 'side') || false
+  }
   const showSessionPicker = ref(false)
   const isStarting = ref(false)
+  const releaseTask = onlineSession || workspaceEmbedded ? null : contentWorkspace?.registerTaskAdapter('primary:experience', {
+    summary: () => gameStore.isLoading || isStarting.value ? { label: '跑团生成中', icon: 'adventure' } : null,
+    open: () => contentWorkspace.hide()
+  })
+  const releaseGuard = onlineSession || workspaceEmbedded ? null : contentWorkspace?.registerGuard('primary:experience', () => !gameStore.isLoading && !isStarting.value)
+  onScopeDispose(() => { releaseTask?.(); releaseGuard?.() })
+  watch(() => [gameStore.currentSessionId, gameStore.worldId], ([sessionId, worldId]) => {
+    if (workspaceEmbedded && sessionId && worldId === route.query.worldbookId) notifyWorkspaceResource({ sessionId: String(sessionId) })
+  })
+  let deferredBootstrapSessionId = ''
+  watch(() => workspaceActive?.value, async active => {
+    if (!active || !deferredBootstrapSessionId || isStarting.value || gameStore.isLoading) return
+    const id = deferredBootstrapSessionId
+    deferredBootstrapSessionId = ''
+    if (id !== gameStore.currentSessionId || gameStore.roleplaySession?.mode || (gameStore.isPlaying && gameStore.messages?.length)) return
+    if (experienceBooks.value.find(book => String(book.id) === String(route.query.bookId || ''))?.worldbookId !== route.query.worldbookId) { notifySourceStatus('作品资料库关联已变化，请关闭原跑团再重新打开。'); return }
+    isStarting.value = true
+    try { await gameStore.initGame() }
+    catch { notifySourceStatus('跑团准备失败，请重新打开存档。') }
+    finally { isStarting.value = false }
+  })
   const selectedWorldbookId = ref('')
   const sessionPickerWorldbookId = ref('')
 
@@ -27,6 +69,8 @@ export function useExperienceSessionWorkflow({
   // 启动引导：按 来源会话 → 来源世界书最新会话 → 当前会话 → 全库最新 →
   // 默认新建 的顺序恢复；返回供页面滚动定位的请求信息。
   async function bootstrapSessions() {
+    isStarting.value = true
+    try {
     // CX08：接入 A factLedger 生产归档端口（幂等；安装失败保持不可用，
     // UI 如实显示"历史归档待重试"，不阻塞游戏）。
     installLedgerRoleplayHistoryPort()
@@ -39,9 +83,17 @@ export function useExperienceSessionWorkflow({
     const requestedSessionId = typeof route.query.sessionId === 'string'
       ? route.query.sessionId.trim()
       : ''
+    const hasRequestedWorldbook = Boolean(requestedWorldbookId
+      && (!workspaceEmbedded || experienceBooks.value.find(book => String(book.id) === String(route.query.bookId || ''))?.worldbookId === requestedWorldbookId)
+      && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
     const requestedSession = requestedSessionId
-      ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId) || null
+      ? gameStore.sessions.find((session) => String(session.id) === requestedSessionId && (!workspaceEmbedded || (session.worldbookId || session.worldId) === requestedWorldbookId)) || null
       : null
+    if (workspaceEmbedded && !hasRequestedWorldbook) {
+      showSessionPicker.value = true
+      notifySourceStatus('本书资料库已不存在，请返回设定重新关联。')
+      return { requestedSession: null, requestedMessageId: '' }
+    }
     if (requestedSessionId && !requestedSession) notifySourceStatus('来源会话已不可用')
     // C 线跑团（V03）：显式指定的存档不存在、又没有显式世界书可归位时，
     // 如实停住让用户选择，不静默回退到全库最近会话、不自动生成。
@@ -59,8 +111,6 @@ export function useExperienceSessionWorkflow({
         requestedMessageId: typeof route.query.messageId === 'string' ? route.query.messageId.trim() : ''
       }
     }
-    const hasRequestedWorldbook = Boolean(requestedWorldbookId
-      && worldStore.worldbooksIndex.some((worldbook) => worldbook.id === requestedWorldbookId))
     const activeSession = !requestedSession && !hasRequestedWorldbook
       ? gameStore.sessions.find((session) => session.id === gameStore.currentSessionId) || null
       : null
@@ -121,15 +171,24 @@ export function useExperienceSessionWorkflow({
       showSessionPicker.value = false
     }
 
-    if (!onlineSession && loadedExistingSession && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
-      await gameStore.initGame()
+    if (!onlineSession && loadedExistingSession && !gameStore.roleplaySession?.mode && (!gameStore.isPlaying || !Array.isArray(gameStore.messages) || gameStore.messages.length === 0)) {
+      if (!workspaceEmbedded || workspaceActive?.value !== false) await gameStore.initGame()
+      else deferredBootstrapSessionId = gameStore.currentSessionId
     }
 
     return { requestedSession, requestedMessageId: typeof route.query.messageId === 'string' ? route.query.messageId.trim() : '' }
+    } finally { scopeBootstrapped.value = true; isStarting.value = false }
   }
 
+  watch(() => route.query.sessionId, id => {
+    if (!workspaceEmbedded || !scopeBootstrapped.value || !id || id === gameStore.currentSessionId) return
+    const session = gameStore.sessions.find(session => String(session.id) === id && (session.worldbookId || session.worldId) === route.query.worldbookId)
+    if (session) void handleSessionSelect(session)
+  })
+
   async function handleSessionSelect(session) {
-    if (isStarting.value) return
+    if (workspaceEmbedded && (session.worldbookId || session.worldId) !== route.query.worldbookId) return
+    if (isStarting.value || gameStore.isLoading) return
     try {
       isStarting.value = true
       gameStore.loadSession(session.id)
@@ -139,7 +198,7 @@ export function useExperienceSessionWorkflow({
         await worldStore.setActiveWorldbook(selectedWorldbookId.value)
       }
       showSessionPicker.value = false
-      if (!onlineSession && (!gameStore.messages || gameStore.messages.length === 0)) {
+      if (!onlineSession && !gameStore.roleplaySession?.mode && (!gameStore.messages || gameStore.messages.length === 0)) {
         await gameStore.initGame()
       }
     } finally {
@@ -148,10 +207,10 @@ export function useExperienceSessionWorkflow({
   }
 
   async function handleSessionCreate() {
-    if (isStarting.value) return
+    if (isStarting.value || gameStore.isLoading) return
     try {
       isStarting.value = true
-      const worldbookId = sessionPickerWorldbookId.value || selectedWorldbookId.value || ''
+      const worldbookId = workspaceEmbedded ? route.query.worldbookId : sessionPickerWorldbookId.value || selectedWorldbookId.value || ''
       if (!worldbookId) {
         router.push({ name: 'settings-worldbook' })
         return
@@ -174,7 +233,8 @@ export function useExperienceSessionWorkflow({
   }
 
   async function handleSessionDelete(session) {
-    if (isStarting.value) return
+    if (workspaceEmbedded && (session.worldbookId || session.worldId) !== route.query.worldbookId) return
+    if (isStarting.value || gameStore.isLoading) return
     try {
       isStarting.value = true
       gameStore.deleteSession(session.id)
@@ -363,11 +423,13 @@ export function useExperienceSessionWorkflow({
   }
 
   function disposeOnlineSession() {
+    if (activeOnlineNarrativeRequestId.value) gameStore.cancelNarrativeGeneration?.('online-view-closed')
     onlineUnsubscribers.forEach((unsubscribe) => unsubscribe?.())
     onlineUnsubscribers = []
   }
 
   return {
+    contentWorkspace, experienceWorldbookId, openExperienceSources,
     showSessionPicker,
     onlineNarrativeStatus,
     visibleNarrativeAgentStatus,

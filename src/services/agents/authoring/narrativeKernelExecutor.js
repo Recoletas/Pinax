@@ -21,6 +21,7 @@ import {
 import { classifyContextRunOutcome } from '../context/contextRunBudget.js'
 import { reconcileManifestDependencies } from '../context/contextManifestLifecycle.js'
 import { createManifestAuthorizedNarrativeIndex } from '../context/manifestToolAuthorization.js'
+import { createAuthoringTaskContract } from '../narrativeTaskQuality.js'
 
 function emptyResultError() {
   return Object.assign(new Error('叙事内核没有返回正文'), { code: 'AGENT_EMPTY_RESULT' })
@@ -90,7 +91,6 @@ export function createNarrativeKernelExecutor({
   buildResourceIndex = getNarrativeResourceIndex,
   createRegistry = createNarrativeToolRegistry,
   formatInstructions = buildNarrativeFormatInstructions(),
-  maxTokens = 2600,
   resolveMemories = () => []
 } = {}) {
   if (typeof buildKernel !== 'function') throw new Error('createNarrativeKernelExecutor requires buildKernel')
@@ -102,6 +102,8 @@ export function createNarrativeKernelExecutor({
     narrativeContext = null,
     projection = null,
     settings = {},
+    assistantSampling = null,
+    onModelRequest = null,
     worldbook = null,
     runtimeState = {},
     signal = null,
@@ -110,6 +112,9 @@ export function createNarrativeKernelExecutor({
     projectId: explicitProjectId = '',
     projectionFingerprint = '',
     contextManifest = null,
+    // W6·C：项目文件夹「约束/」下的作者本地约束文件（kernel local-rules 块输入）。
+    localRules = null,
+    lexicon = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const projectId = String(explicitProjectId || projection?.projectId || worldbook?.id || '')
@@ -190,7 +195,9 @@ export function createNarrativeKernelExecutor({
       : ''
     const operationInstruction = turn?.operation === 'rewrite-unit'
       ? '重写“待重写文本块”的完整内容：保留已成立的事实、人物关系与叙事视角，改善表达与节奏；只输出可整体替换该文本块的正文，不续写后续情节。'
-      : ''
+      : turn?.operation === 'next-passage'
+        ? '从“当前落笔处”最后一句之后接续，只写新增正文。光标前的叙述与动作已经发生，不重新开场、不重演已完成的动作；回应作者要求后，在指定的收束处停下。'
+        : ''
     const effectiveInstruction = [operationInstruction, directionInstruction, instruction].filter(Boolean).join('\n')
     const messages = effectiveInstruction
       ? [
@@ -220,7 +227,9 @@ export function createNarrativeKernelExecutor({
         targetId: String(turn.targetId || '')
       } : null,
       sceneProjection: manifestMode ? null : (projection || null),
-      contextManifest
+      contextManifest,
+      localRules,
+      lexicon
     })
     // U1：executor 的 receipt 读取这里的 serializedBlocks——必须与实际发送
     // 的 text part 同源。使用总预算序列化（含 prose 静态前缀预留）。
@@ -255,10 +264,11 @@ export function createNarrativeKernelExecutor({
         intent: instruction ? 'respond' : intentMode,
         formatInstructions: languageFormatInstructions,
         worldId: projectId,
-        settings,
+        settings: assistantSampling?.temperatureOverride != null ? { ...settings, assistantTemperature: assistantSampling.temperatureOverride } : settings,
+        onModelRequest,
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
-        maxTokens
+        taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
       })
     } catch (error) {
       error.contextOutcome = classifyContextRunOutcome({ error })

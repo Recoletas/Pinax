@@ -8,7 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import WorldBookQuickImport from '@/pages/WorldBookQuickImport.vue'
 import StructuredSettingsPanel from '@/components/worldbook/StructuredSettingsPanel.vue'
-import { useWorldStore } from '@/stores/worldStore'
+import { useWorldStore, worldbookEntryEditFingerprint } from '@/stores/worldStore'
 import {
   buildFoundationPayloadFromAiResult,
   buildPendingPayload,
@@ -275,6 +275,17 @@ const worldStore = mockWorldStoreLifecycle()
     await wrapper.find('[data-test="hero-cta"]').trigger('click')
     await flushPromises()
     expect(worldStore.createWorldbook).not.toHaveBeenCalled()
+    worldStore.addEntry = vi.fn().mockResolvedValue(undefined)
+    worldStore.updateWorldbook = vi.fn().mockResolvedValue(undefined)
+    routerPush.mockClear()
+    await wrapper.findAll('[data-test="preset-card"]')[0].trigger('click')
+    await flushPromises()
+    expect(worldStore.createWorldbook).toHaveBeenCalledOnce()
+    expect(worldStore.createWorldbook.mock.calls[0][0].sourcePresetId).toBe('preset-border-kingdom-fogtide')
+    expect(worldStore.addEntry.mock.calls.length).toBeGreaterThan(30)
+    expect(routerPush).toHaveBeenLastCalledWith({ name: 'experience', query: { worldbookId: 'wb-new' } })
+    expect(routerPush).not.toHaveBeenCalledWith({ name: 'experience', query: { worldbookId: 'wb-active' } })
+    wrapper.unmount()
 }
 {
 
@@ -595,6 +606,24 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
       speechStyle: '短句，先复述事实再判断',
       samples: ['我只相信能复核的记录。', '先关门，再谈下一步。']
     })
+    const collidingEntries = ['0', '0', '1', '__proto__'].map((originalUid, index) => ({
+      ...importedFromPinax.entries[0],
+      id: `entry_export_collision_${index}`,
+      name: `雾港导出条目${index}`,
+      content: `各自独立保留的内容${index}`,
+      metadata: { ...importedFromPinax.entries[0].metadata, originalUid }
+    }))
+    await store.updateWorldbook(importedFromPinax.id, { entries: collidingEntries })
+    const exportedCollisions = await store.exportToSillyTavern(importedFromPinax.id)
+    expect(Object.keys(exportedCollisions.entries)).toHaveLength(4)
+    expect(exportedCollisions.entries['0'].content).toBe('各自独立保留的内容0')
+    expect(exportedCollisions.entries['1'].content).toBe('各自独立保留的内容2')
+    expect(exportedCollisions.entries['2'].content).toBe('各自独立保留的内容1')
+    expect(exportedCollisions.entries.__proto__.content).toBe('各自独立保留的内容3')
+    const collisionRoundtrip = await store.importFromSillyTavern(JSON.parse(JSON.stringify(exportedCollisions)))
+    expect(collisionRoundtrip.entries).toHaveLength(4)
+    expect(collisionRoundtrip.entries.map(entry => entry.content).sort())
+      .toEqual(collidingEntries.map(entry => entry.content).sort())
 
     const ownerCreateCalls = []
     const ownerEntryCalls = []
@@ -835,6 +864,17 @@ describe('GEO-HISTORY: worldStore normalizeWorldbook preserves geoHistory', () =
     setActivePinia(createPinia())
 
 const store = useWorldStore()
+    const guardedBook = await store.createWorldbook({ name: 'workspace-CAS' })
+    const guardedEntry = await store.addEntry(guardedBook.id, { name: '地点', type: 'general', content: '初始资料' })
+    const baselineFingerprint = worldbookEntryEditFingerprint(guardedEntry)
+    expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '最新资料' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(true)
+    expect((await store.updateEntryDurable(guardedBook.id, guardedEntry.id, { content: '迟到覆盖' }, { expectedFingerprint: baselineFingerprint })).ok).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`worldbook_${guardedBook.id}`)).entries.find(entry => entry.id === guardedEntry.id).content).toBe('最新资料')
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedFingerprint: baselineFingerprint })).ok).toBe(false)
+    expect(JSON.parse(localStorage.getItem(`worldbook_${guardedBook.id}`)).entries.some(entry => entry.id === guardedEntry.id)).toBe(true)
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedWorldbookRevision: -1 })).ok).toBe(false)
+    const currentForDeletion = store.activeWorldbook.entries.find(entry => entry.id === guardedEntry.id)
+    expect((await store.deleteEntryDurable(guardedBook.id, guardedEntry.id, { expectedFingerprint: worldbookEntryEditFingerprint(currentForDeletion) })).ok).toBe(true)
     const wb = await store.createWorldbook({
       name: '有地图的世界',
       geoHistory: { version: 1, nodes: [{ id: 'n1', title: '建城', playable: true }] }
@@ -912,6 +952,13 @@ const store = useWorldStore()
       mapBinding: { status: 'confirmed', x: 10, y: 20 },
       sourceEvidence: [expect.objectContaining({ excerpt: '白石港位于南部海岸。' })]
     })
+    const clearedPlace = await store.updatePlace(wb.id, storedPlace.id, { mapBinding: null })
+    expect(clearedPlace.mapBinding).toBeNull()
+    expect(clearedPlace.metadata.place.mapBinding).toBeNull()
+    const clearedReload = await store.loadWorldbook(wb.id)
+    expect(getPlacePayloadFromEntry(clearedReload.entries.find(entry => entry.id === storedPlace.id)).mapBinding).toBeNull()
+    const reboundPlace = await store.updatePlace(wb.id, storedPlace.id, { mapBinding: { status: 'confirmed', x: 40, y: 50 } })
+    expect(getPlacePayloadFromEntry(reboundPlace).mapBinding).toMatchObject({ status: 'confirmed', x: 40, y: 50 })
 
     const overview = '高汤盆地北侧有白石港，旧商道连接白石港与灰锤堡。'
     expect(buildSettingPlacesRequest({
@@ -1031,6 +1078,22 @@ const store = useWorldStore()
       previewEntries: [{ name: '旧灯塔', typeLabel: '地点', keys: ['灯塔'] }]
     })
     expect(buildWorldbookImportPreview({}).entryCount).toBe(0)
+    const sillyTavernPreviewSource = {
+      world_name: '雾港灯塔',
+      entries: {
+        0: { comment: '北岬灯塔', key: ['灯塔', '北岬'], content: '九点亮灯。' },
+        1: { comment: '北岬灯塔', key: '灯塔', content: '十点亮灯。' }
+      }
+    }
+    const previewInputSnapshot = JSON.stringify(sillyTavernPreviewSource)
+    expect(buildWorldbookImportPreview(sillyTavernPreviewSource)).toMatchObject({
+      name: '雾港灯塔', entryCount: 2, keyedEntryCount: 2,
+      previewEntries: [
+        { name: '北岬灯塔', keys: ['灯塔', '北岬'], content: '九点亮灯。' },
+        { name: '北岬灯塔', keys: ['灯塔'], content: '十点亮灯。' }
+      ]
+    })
+    expect(JSON.stringify(sillyTavernPreviewSource)).toBe(previewInputSnapshot)
     const foundation = buildFoundationPayloadFromAiResult({
       parsed: {
         name: '雾港',
@@ -1308,11 +1371,10 @@ const store = useWorldStore()
     expect(characterGenerationRequest.schemaId).toBe(STRUCTURED_GENERATION_SCHEMA_IDS.CHARACTER_CARD)
     expect(characterGenerationRequest.context.currentCharacter).toMatchObject({ id: 'char-1', name: '沈砚' })
     expect(characterDraft).toMatchObject({ ok: true, sourceRevision: 'wb-r3', sourceEntryRevision: 'entry-r2', profile: { personality: '寡言' } })
-    expect(editorSource).toContain('entryForm.speechStyle')
-    expect(editorSource).toContain('entryForm.samples')
-    expect(editorSource).toContain('addVoiceSample')
-    expect(editorSource).toContain('removeVoiceSample')
-    expect(editorSource).toContain('生成时最多使用前 3 条')
+    // 20261008 声口双轨合并：老「角色声口 0/6」编辑器退役，读写统一走 profile.speech（声口横切）。
+    expect(editorSource).toContain('characterVoicePayload')
+    expect(editorSource).not.toContain('entryForm.speechStyle')
+    expect(editorSource).not.toContain('addVoiceSample')
     const retryCalls = []
     const retryResults = await generateSettingSectionDraftBatch({
       worldbook: sectionWorldbook,

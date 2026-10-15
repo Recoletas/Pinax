@@ -9,7 +9,7 @@
           type="button"
           :aria-label="tr(&quot;关闭&quot;)"
           @click="close"
-        >×</button>
+        ><WorkbenchIcon name="close" :size="18" /></button>
       </header>
 
       <nav class="settings-tabs settings-navigation" role="tablist" :aria-label="tr(&quot;设置分区&quot;)" @keydown="onTablistKeydown">
@@ -32,14 +32,12 @@
       <div class="settings-modal__body">
         <section v-if="activeSection === 'writing'" id="settings-panel-writing" class="settings-section" role="tabpanel" :aria-label="tr(&quot;写作偏好&quot;)"><WritingPreferences /></section>
         <section v-if="activeSection === 'appearance'" id="settings-panel-appearance" class="settings-section appearance-preferences" role="tabpanel" :aria-label="tr(&quot;外观&quot;)">
-          <h2>{{ tr('外观') }}</h2>
           <label>{{ tr('界面语言') }}<select :aria-label="tr('界面语言')" data-test="ui-language" :value="uiLocale" @change="changeLanguage($event.target.value)"><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
           <label>{{ tr('助手解释语言') }}<select :aria-label="tr('助手解释语言')" data-test="assistant-language" :value="assistantLanguage" @change="changeLanguage(uiLocale, $event.target.value)"><option value="">{{ tr('跟随界面') }}</option><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
           <p class="settings-field-hint">{{ tr('语言偏好仅保存在此设备，不随书稿备份恢复；切换界面不会翻译正文。') }}</p>
           <p v-if="languageSaveError" role="alert">{{ tr('语言偏好保存失败，请重试。') }}</p>
           <label>{{ tr('配色') }}<select :aria-label="tr('配色')" :value="theme.colorScheme" @change="theme.setColorScheme($event.target.value)"><option value="light">{{ tr('日间') }}</option><option value="dark">{{ tr('夜间') }}</option></select></label>
           <label>{{ tr('界面缩放') }}<select :aria-label="tr('界面缩放')" :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
-          <p class="settings-field-hint">{{ tr('只改变显示，不修改正文。夜间模式也可在右上角直接切换。') }}</p>
         </section>
         <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" :aria-label="tr(&quot;记忆与历史&quot;)">
           <MemoryHistoryWorkspace />
@@ -53,6 +51,24 @@
         >
           <ApiSettingsPanel />
         </section>
+        <section
+          v-show="activeSection === 'media'"
+          id="settings-panel-media"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;媒体模型&quot;)"
+        >
+          <MediaModelSettings />
+        </section>
+        <section
+          v-show="activeSection === 'localproject'"
+          id="settings-panel-localproject"
+          class="settings-section"
+          role="tabpanel"
+          :aria-label="tr(&quot;本地项目&quot;)"
+        >
+          <LocalProjectPanel v-if="localFilesAvailable && activeSection === 'localproject'" />
+        </section>
 
         <section
           v-show="activeSection === 'experience'"
@@ -62,7 +78,6 @@
           :aria-label="tr(&quot;体验&quot;)"
         >
           <label class="settings-field-label" id="narrative-expansion-label">{{ tr('单次续写篇幅') }}</label>
-          <p class="settings-field-hint">{{ tr('仅影响之后的 AI 生成长度，不会改写已显示的正文。') }}</p>
           <nav class="settings-tabs" role="group" aria-labelledby="narrative-expansion-label">
             <button
               v-for="level in expansion.levels"
@@ -203,10 +218,13 @@ import { backupMessage } from '../../i18n/backupMessages.js'
 import { uiLocale, assistantLanguage, setLanguagePreferences } from '../../i18n/index.js'
 const languageSaveError = ref(false)
 function changeLanguage(locale, assistant = assistantLanguage.value) { languageSaveError.value = !setLanguagePreferences(locale, assistant) }
-import { computed, ref, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
+import MediaModelSettings from '../settings/MediaModelSettings.vue'
+import LocalProjectPanel from './LocalProjectPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
+import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
 import {
@@ -269,14 +287,22 @@ function readBackupBooksSafe() {
   try { return readBackupBooks() } catch { return null }
 }
 
-const tabs = [
+const localFilesAvailable = ref(false)
+onMounted(async () => {
+  try { const response = await fetch('/api/localmirror/capabilities'); const payload = await response.json(); localFilesAvailable.value = response.ok && payload.localFiles === true } catch { localFilesAvailable.value = false }
+})
+const allTabs = [
   { key: 'writing', label: '写作' },
   { key: 'appearance', label: '外观' },
   { key: 'ai', label: 'AI 配置' },
+  { key: 'media', label: '媒体模型' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
-  { key: 'storage', label: '备份与恢复' }
+  { key: 'storage', label: '备份与恢复' },
+  { key: 'localproject', label: '本地项目' }
 ]
+
+const tabs = computed(() => allTabs.filter(tab => tab.key !== 'localproject' || localFilesAvailable.value))
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
@@ -481,16 +507,16 @@ function onModalKeydown(event) {
 
 function onTablistKeydown(event) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-  const index = tabs.findIndex((tab) => tab.key === activeSection.value)
+  const index = tabs.value.findIndex((tab) => tab.key === activeSection.value)
   let next = index
-  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.value.length
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.value.length) % tabs.value.length
   if (event.key === 'Home') next = 0
-  if (event.key === 'End') next = tabs.length - 1
+  if (event.key === 'End') next = tabs.value.length - 1
   if (next === index) return
   event.preventDefault()
-  activeSection.value = tabs[next].key
-  nextTick(() => document.getElementById(`settings-tab-${tabs[next].key}`)?.focus())
+  activeSection.value = tabs.value[next].key
+  nextTick(() => document.getElementById(`settings-tab-${tabs.value[next].key}`)?.focus())
 }
 </script>
 
@@ -499,7 +525,9 @@ function onTablistKeydown(event) {
   position: fixed;
   inset: 0;
   z-index: var(--z-modal);
-  background: rgb(0 0 0 / 24%);
+  background: var(--surface-overlay);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -510,12 +538,13 @@ function onTablistKeydown(event) {
   max-height: 84vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  background: var(--surface-panel, var(--surface-raised));
+  border: 1px solid var(--hairline-soft);
+  background: var(--surface-workbench);
   color: var(--text-primary);
-  border-radius: 8px;
+  border-radius: var(--radius-surface);
   overflow: hidden;
-  box-shadow: 0 24px 60px color-mix(in srgb, #000 28%, transparent);
+  box-shadow: var(--shadow-workbench-float);
+  font-family: var(--font-sans);
 }
 
 .settings-modal__head {
@@ -523,30 +552,34 @@ function onTablistKeydown(event) {
   align-items: center;
   justify-content: space-between;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline-soft) 60%, transparent);
 }
 
 .settings-modal__head h2 {
   margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: normal;
 }
 
 .settings-modal__close {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  border: 0;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 20px;
   line-height: 1;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 .settings-modal__close:hover {
-  background: var(--surface-raised);
+  background: var(--surface-workbench-muted);
   color: var(--text-primary);
 }
 
@@ -563,16 +596,15 @@ function onTablistKeydown(event) {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font: 14px/1.4 var(--font-sans);
+  letter-spacing: normal;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
 
 .settings-tab:hover {
-  background: var(--surface-raised);
+  background: var(--surface-workbench-muted);
   color: var(--text-primary);
 }
 
@@ -732,12 +764,13 @@ function onTablistKeydown(event) {
 
 .settings-btn {
   padding: 8px 14px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
+  min-height: 36px;
+  border: 0;
+  background: var(--surface-workbench-muted);
   color: var(--text-primary);
-  font-size: 12px;
+  font: 14px/1.4 var(--font-sans);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-control);
 }
 
 @media (max-width: 720px) {
@@ -753,23 +786,32 @@ function onTablistKeydown(event) {
 .settings-btn--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--surface-raised);
+  color: var(--accent-text);
+  border-radius: 999px;
 }
 
 .settings-btn--primary:hover {
   filter: brightness(1.08);
 }
 /* Preference categories are a stable left index, independent of inner option groups. */
-.settings-modal { width: min(960px, 94vw); height: min(720px, 88vh); max-height: 88vh; display: grid; grid-template-columns: 168px minmax(0, 1fr); grid-template-rows: 56px minmax(0, 1fr); }
+.settings-modal { width: min(960px, 94vw); height: min(720px, 88vh); max-height: 88vh; display: grid; grid-template-columns: 184px minmax(0, 1fr); grid-template-rows: 60px minmax(0, 1fr); }
 .settings-modal__head { grid-column: 1 / -1; padding: 12px 20px; }
-.settings-navigation { flex-direction: column; grid-column: 1; gap: 4px; padding: 16px 10px; border: 0; border-right: 1px solid var(--border); background: var(--archive-paper); overflow-y: auto; }
-.settings-navigation .settings-tab { min-height: 36px; text-align: left; font: 500 14px/1.4 var(--font-sans); letter-spacing: normal; border: 0; padding: 8px 12px; }
-.settings-navigation .settings-tab.active { background: var(--bg-hover); color: var(--text-primary); }
+.settings-navigation { flex-direction: column; grid-column: 1; gap: 4px; padding: 16px 12px; border: 0; background: var(--surface-workbench-muted); overflow-y: auto; }
+.settings-navigation .settings-tab { min-height: 40px; text-align: left; font: 400 14px/1.4 var(--font-sans); letter-spacing: normal; border: 0; padding: 10px 12px; }
+.settings-navigation .settings-tab.active { background: var(--bg-hover); color: var(--text-primary); font-weight: 500; }
 .settings-modal__body { min-width: 0; min-height: 0; padding: 24px 28px; font-size: 14px; }
 .appearance-preferences { display: grid; gap: 22px; align-content: start; }
-.appearance-preferences h2 { margin: 0; font-size: 22px; }
+.appearance-preferences h2 { margin: 0; font-size: 24px; font-weight: 500; }
 .appearance-preferences label { display: flex; gap: 20px; align-items: center; justify-content: space-between; }
-.appearance-preferences select { min-width: 140px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg-primary); color: var(--text-primary); }
+.appearance-preferences select { min-width: 140px; height: 36px; min-height: 36px; padding: 6px 12px; border: 1px solid transparent; border-radius: var(--radius-control); font: 14px/1.4 var(--font-sans); background: var(--surface-workbench-input); color: var(--text-primary); }
 .settings-tab:focus-visible, .appearance-preferences select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-@media (max-width: 640px) { .settings-modal { grid-template-columns: minmax(0, 1fr); grid-template-rows: 50px auto minmax(0, 1fr); height: 92vh; max-height: 92vh; } .settings-navigation { flex-direction: row; flex-wrap: wrap; padding: 8px; border-right: 0; border-bottom: 1px solid var(--border); } .settings-navigation .settings-tab { min-height: 40px; } .settings-modal__body { padding: 18px 16px; } }
+@media (max-width: 640px) {
+  .settings-modal { grid-template-columns: minmax(0, 1fr); grid-template-rows: 60px auto minmax(0, 1fr); height: 92vh; max-height: 92vh; }
+  .settings-navigation { min-width: 0; flex-direction: row; flex-wrap: nowrap; padding: 8px; overflow-x: auto; }
+  .settings-navigation .settings-tab { min-height: 44px; flex: none; }
+  .settings-modal__body { padding: 20px 16px; }
+  .appearance-preferences label { gap: 12px; flex-wrap: wrap; }
+  .appearance-preferences select { height: 44px; min-height: 44px; }
+}
+@media (pointer: coarse) { .appearance-preferences select { height: 44px; min-height: 44px; } .settings-modal__close { min-width: 44px; min-height: 44px; } }
 </style>

@@ -11,6 +11,8 @@ export const AUTHORING_RUN_USAGE_ROLES = Object.freeze(['intent', 'fact', 'inspi
 export const AUTHORING_SCENE_INTENT_MODES = Object.freeze(['correct-current', 'next-passage', 'run-only'])
 export const MAX_AUTHORING_RUN_REFERENCES = 3
 export const MAX_AUTHORING_PREVIOUS_UNITS = 3
+const CURRENT_MANUSCRIPT_EXCERPT_CHARS = 4800
+const PREVIOUS_MANUSCRIPT_EXCERPT_CHARS = 2400
 
 function text(value) {
   return String(value ?? '').trim()
@@ -168,6 +170,31 @@ export function worldbookRunRevision(entry = {}) {
     mapBinding: entry.mapBinding,
     metadata: entry.metadata
   })
+}
+
+export function authoringRunHistoryNodes(worldbook = {}) {
+  const history = worldbook?.geoHistory || {}
+  return [
+    ...(Array.isArray(history.nodes) ? history.nodes : [])
+      .map((node) => ({ node, kind: text(node?.kind) || 'world-history' })),
+    ...(Array.isArray(history.playerNodes) ? history.playerNodes : [])
+      .map((node) => ({ node, kind: 'player-history' }))
+  ]
+}
+
+// Discovery and live reconciliation must use the same history version. Include
+// the consumed content so a same-timestamp edit cannot authorize an old result.
+export function historyRunRevision(node = {}, worldbook = {}, kind = 'world-history') {
+  const id = text(node?.id || node?.nodeId)
+  const content = text(node?.summary || node?.description || node?.content)
+  const revision = text([node?.revision, node?.updatedAt, worldbook?.updatedAt].find(hasValue))
+  if (!id || !content || !revision) return ''
+  return `history-r${revision}:${fingerprintValue('history', {
+    id,
+    kind: text(kind),
+    label: text(node?.title || node?.name || '历史节点'),
+    content
+  })}`
 }
 
 export function normalizeAuthoringRunReference(raw = {}) {
@@ -339,7 +366,16 @@ export function readManuscriptRunCandidates({
       revision,
       attentionPriority: relation === 'at-target' ? 100 : Math.max(70, 96 - distance),
       dependencyRevisions: { [dependencyKey]: revision },
-      representations: { full: content },
+      // Keep the actual landing point when a long unit cannot fit the context
+      // budget. Rewriting still requires the entire target unit, never a tail.
+      representations: {
+        full: content,
+        ...(relation !== 'at-target' || target.contextMode !== 'rewrite-unit'
+          ? { excerpt: content.slice(-(relation === 'at-target'
+              ? CURRENT_MANUSCRIPT_EXCERPT_CHARS
+              : PREVIOUS_MANUSCRIPT_EXCERPT_CHARS)) }
+          : {})
+      },
       estimatedChars: content.length
     })
   }
@@ -642,12 +678,7 @@ export async function readAuthoringHistoryCandidates({
     || text(binding?.worldbookId) !== text(worldbookId)
     || text(worldbook?.id) !== text(worldbookId)) return { candidates, exclusions }
 
-  const history = worldbook?.geoHistory || {}
-  const nodes = [
-    ...(Array.isArray(history.nodes) ? history.nodes : []).map((node) => ({ node, kind: text(node?.kind) || 'world-history' })),
-    ...(Array.isArray(history.playerNodes) ? history.playerNodes : []).map((node) => ({ node, kind: 'player-history' }))
-  ]
-  for (const { node, kind } of nodes) {
+  for (const { node, kind } of authoringRunHistoryNodes(worldbook)) {
     const nodeId = text(node?.id || node?.nodeId)
     const sourceRef = nodeId ? `history-node:${nodeId}` : ''
     const content = text(node?.summary || node?.description || node?.content)
@@ -661,7 +692,7 @@ export async function readAuthoringHistoryCandidates({
       exclusions.push(safeExclusion(source, !nodeId ? 'history-node-id-missing' : 'history-node-empty'))
       continue
     }
-    const revision = text(node?.revision || node?.updatedAt || worldbook?.updatedAt)
+    const revision = historyRunRevision(node, worldbook, kind)
     if (!revision) {
       exclusions.push(safeExclusion(source, 'revision-missing-fail-closed'))
       continue
@@ -675,9 +706,9 @@ export async function readAuthoringHistoryCandidates({
       temporalRelation: 'before-target',
       scope: 'project',
       reason: '绑定世界书历史',
-      revision: `history-r${revision}`,
+      revision,
       attentionPriority: 72,
-      dependencyRevisions: { [sourceRef]: `history-r${revision}` },
+      dependencyRevisions: { [sourceRef]: revision },
       representations: { full: content, summary: content.slice(0, 360) },
       estimatedChars: content.length,
       claimKey: `history:${nodeId}`,

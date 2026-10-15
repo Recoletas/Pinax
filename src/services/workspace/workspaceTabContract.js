@@ -13,15 +13,18 @@ export const PROJECT_SURFACE_ROUTE_NAMES = Object.freeze({
   sources: 'settings-sources',
   map: 'settings-world-map',
   comics: 'comics',
+  roleplay: 'experience',
+  online: 'online-experience',
   // 项目高级条目（联动闭环 L2）：带 bookId 是项目 surface；不带时回落全局模式。
   entries: 'settings-worldbook-advanced'
 })
 
 // 双模式路由：同名路由带 bookId 是项目 surface，不带是全局 surface。
 // 路由适配器对它们不做「补默认书」的 canonical 化，避免全局访问被吞进项目。
-export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced']))
+export const DUAL_MODE_ROUTE_NAMES = Object.freeze(new Set(['settings-worldbook-advanced', 'experience', 'online-experience']))
 
 export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
+  'settings-structured': 'settings-structured',
   experience: 'experience',
   docs: 'docs',
   'settings-worldbook': 'settings-worldbook',
@@ -34,12 +37,14 @@ export const GLOBAL_SURFACE_ROUTE_NAMES = Object.freeze({
 export const SURFACE_LABELS = Object.freeze({
   authoring: '写作',
   materials: '素材',
-  canvas: '画布',
+  canvas: '视频与编导',
   settings: '设定',
   sources: '资料',
   map: '地图',
   comics: '漫画',
   experience: '体验',
+  roleplay: '跑团',
+  online: '联机',
   docs: '文档',
   'settings-worldbook': '设定',
   'settings-worldbook-create': '创建世界书',
@@ -50,6 +55,23 @@ export const SURFACE_LABELS = Object.freeze({
 })
 
 let tabIdSequence = 0
+
+// Module routes retain their restore state; the visible tab represents a book.
+export function groupWorkspaceProjectTabs(tabs, activeId) {
+  const groups = new Map()
+  const result = []
+  for (const tab of tabs) {
+    if (tab.scope !== 'project') { result.push(tab); continue }
+    if (!groups.has(tab.projectId)) { groups.set(tab.projectId, []); result.push(tab.projectId) }
+    groups.get(tab.projectId).push(tab)
+  }
+  return result.map(item => {
+    if (typeof item !== 'string') return item
+    const group = groups.get(item)
+    const chosen = group.find(tab => tab.id === activeId) || [...group].sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))[0]
+    return { ...chosen, projectGrouped: true, dirty: group.some(tab => tab.dirty) }
+  })
+}
 
 export function createTabId() {
   tabIdSequence += 1
@@ -87,11 +109,19 @@ export function parseTabKey(key) {
 
 // 路由 -> 标签意图：只识别已冻结的 surface 矩阵，未知路由不产生标签。
 // project surface 必须带 bookId query（书籍上下文真源）。
+export function isExplicitWorldbookSettingsRoute(route) {
+  return route?.name === 'settings-structured' && !route.query?.bookId && typeof route.query?.worldbookId === 'string' && Boolean(route.query.worldbookId.trim())
+}
 export function resolveRouteIntent(route) {
   if (!route || typeof route.name !== 'string') return null
   const name = route.name
   const query = route.query || {}
+  if (isExplicitWorldbookSettingsRoute(route)) return { scope: 'global', surface: 'settings-structured', projectId: null, worldbookId: query.worldbookId.trim(), instanceId: query.worldbookId.trim() }
   const bookId = typeof query.bookId === 'string' && query.bookId ? query.bookId : ''
+  // 本书添加资料沿用资料页签与项目身份；创建工作区仍是原处理 owner。
+  if (bookId && name === 'settings-worldbook-create' && query.mode === 'sources' && query.action === 'add') {
+    return { scope: 'project', surface: 'sources', projectId: bookId, worldbookId: typeof query.worldbookId === 'string' ? query.worldbookId : null }
+  }
   for (const [surface, routeName] of Object.entries(PROJECT_SURFACE_ROUTE_NAMES)) {
     if (routeName === name) {
       // 双模式路由（高级条目）不带 bookId 时回落全局模式判断，不能在这里截断；
@@ -141,6 +171,7 @@ export function buildDefaultRouteForIntent(intent) {
   }
   const routeName = GLOBAL_SURFACE_ROUTE_NAMES[intent.surface]
   if (!routeName) return null
+  if (intent.surface === 'settings-structured' && intent.worldbookId) return { name: routeName, query: { worldbookId: intent.worldbookId } }
   const params = intent.instanceId ? { roomSlug: intent.instanceId } : undefined
   return { name: routeName, ...(params ? { params } : {}), query: {} }
 }
@@ -248,5 +279,7 @@ export function extractRestoreStateFromRoute(route) {
   const restoreState = {}
   if (typeof query.chapterId === 'string' && query.chapterId) restoreState.chapterId = query.chapterId
   if (typeof query.focus === 'string' && query.focus) restoreState.objectId = query.focus
+  if (typeof query.pageId === 'string' && query.pageId) restoreState.pageId = query.pageId
+  if (typeof query.panelId === 'string' && query.panelId) restoreState.panelId = query.panelId
   return restoreState
 }

@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
 }
 
 .authoring-illustrator-layer.is-minimized { align-items: flex-end; justify-content: flex-end; background: transparent; backdrop-filter: none; pointer-events: none; }
-.authoring-illustrator__minibar { display: flex; width: 270px; min-height: 44px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--authoring-hairline, var(--border-subtle)); border-radius: 5px; background: var(--surface-workbench-raised, var(--bg-primary)); box-shadow: var(--shadow-workbench); color: var(--text-primary); pointer-events: auto; cursor: pointer; }
+.authoring-illustrator__minibar { display: flex; width: 270px; min-height: 44px; align-items: center; gap: 9px; padding: 0 12px; border: 1px solid var(--authoring-hairline, var(--border-subtle, var(--border))); border-radius: 12px; background: var(--surface-workbench, var(--bg-primary)); box-shadow: var(--shadow-workbench); color: var(--text-primary); pointer-events: auto; cursor: pointer; }
 .authoring-illustrator__minibar span { font-size: 14px; font-weight: 560; }
 .authoring-illustrator__minibar small { margin-inline-start: auto; color: var(--accent-primary, var(--accent)); font-size: 12px; }
 
@@ -334,23 +334,24 @@ onBeforeUnmount(() => {
   height: min(780px, calc(100vh - 80px));
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--authoring-hairline, var(--border-subtle));
-  border-radius: 10px;
-  background: var(--surface-workbench-raised, var(--bg-primary));
+  border: 1px solid var(--authoring-hairline, var(--border-subtle, var(--border)));
+  border-radius: 12px;
+  background: var(--surface-workbench, var(--bg-primary));
   box-shadow: var(--shadow-workbench);
   color: var(--text-primary);
+  font: 14px/1.5 var(--font-sans);
 }
 
 .authoring-illustrator__head {
   display: flex;
-  min-height: 50px;
+  min-height: 56px;
   flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 0 16px 0 18px;
-  border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle));
-  background: var(--surface-workbench-raised, var(--bg-primary));
+  border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle, var(--border)));
+  background: var(--surface-workbench, var(--bg-primary));
 }
 
 .authoring-illustrator__identity,
@@ -358,20 +359,20 @@ onBeforeUnmount(() => {
 .authoring-illustrator__identity > svg { flex: none; color: var(--accent-primary, var(--accent)); }
 .authoring-illustrator__identity h2 { margin: 0; font-size: 15px; font-weight: 580; }
 .authoring-illustrator__identity p { max-width: 48vw; margin: 1px 0 0; overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.authoring-illustrator__head-actions > button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.authoring-illustrator__head-actions > button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .authoring-illustrator__head-actions > button:hover { background: var(--surface-hover); color: var(--text-primary); }
-.authoring-illustrator__stale { color: var(--signal-warning, #9a641b); font-size: 11px; }
+.authoring-illustrator__stale { color: var(--signal-warning, #9a641b); font-size: 12px; }
 
 .authoring-illustrator__body { min-width: 0; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 .authoring-illustrator__body :deep(.media-generation-inline) { height: 100%; }
 .authoring-illustrator__body :deep(.image-generation-workbench) { height: 100%; }
-.authoring-illustrator__body :deep(.image-model-picker__trigger) { min-height: 44px; border-style: solid; border-color: var(--authoring-hairline, var(--border-subtle)); background: var(--surface-primary); }
+.authoring-illustrator__body :deep(.image-model-picker__trigger) { min-height: 44px; border-style: solid; border-color: var(--authoring-hairline, var(--border-subtle, var(--border))); background: var(--surface-workbench-raised); }
 
 .authoring-illustrator__brief,
-.authoring-illustrator__scene { padding-bottom: 12px; border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle)); }
+.authoring-illustrator__scene { padding-bottom: 6px; border-bottom: 1px solid var(--authoring-hairline, var(--border-subtle, var(--border))); }
 .authoring-illustrator__scene { padding-top: 12px; }
 .authoring-illustrator__brief summary,
-.authoring-illustrator__section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.authoring-illustrator__section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; }
 .authoring-illustrator__brief summary { cursor: pointer; list-style: none; }
 .authoring-illustrator__brief summary::-webkit-details-marker,
 .authoring-illustrator__scene summary::-webkit-details-marker { display: none; }
@@ -380,12 +381,12 @@ onBeforeUnmount(() => {
 .authoring-illustrator__brief[open] summary::before,
 .authoring-illustrator__scene[open] summary::before { transform: rotate(90deg); }
 .authoring-illustrator__brief summary span,
-.authoring-illustrator__section-title span { font-size: 14px; font-weight: 560; }
+.authoring-illustrator__section-title span { flex: 1; min-width: 0; font-size: 14px; font-weight: 450; }
 .authoring-illustrator__brief summary small,
 .authoring-illustrator__section-title small { color: var(--text-secondary); font-size: 12px; }
-.authoring-illustrator__excerpt { margin: 7px 0 0; color: var(--text-secondary); font-family: var(--font-writing); font-size: 13px; line-height: 1.7; }
+.authoring-illustrator__excerpt { margin: 7px 0 0; color: var(--text-secondary); font-family: var(--font-sans); font-size: 14px; line-height: 1.7; }
 .authoring-illustrator__scene-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 8px; padding: 8px 0; cursor: pointer; }
-.authoring-illustrator__scene-row + .authoring-illustrator__scene-row { border-top: 1px solid color-mix(in srgb, var(--authoring-hairline, var(--border-subtle)) 62%, transparent); }
+.authoring-illustrator__scene-row + .authoring-illustrator__scene-row { border-top: 1px solid color-mix(in srgb, var(--authoring-hairline, var(--border-subtle, var(--border))) 62%, transparent); }
 .authoring-illustrator__scene-row input { margin: 3px 0 0; accent-color: var(--accent-primary, var(--accent)); }
 .authoring-illustrator__scene-row span { display: grid; min-width: 0; gap: 2px; }
 .authoring-illustrator__scene-row strong { font-size: 13px; font-weight: 560; }
@@ -399,15 +400,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 720px), (max-height: 560px) {
-  .authoring-illustrator-layer { position: fixed; inset: 0; padding: 0; background: var(--surface-workbench-raised, var(--bg-primary)); backdrop-filter: none; }
+  .authoring-illustrator-layer { position: fixed; inset: 0; padding: 0; background: var(--surface-workbench, var(--bg-primary)); backdrop-filter: none; }
   .authoring-illustrator { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
   .authoring-illustrator__head { min-height: 54px; padding-top: env(safe-area-inset-top); }
-  .authoring-illustrator__identity p { max-width: 230px; }
+  .authoring-illustrator__identity p { max-width: min(230px, calc(100vw - 125px)); }
   .authoring-illustrator__head-actions > button { width: 44px; height: 44px; }
   .authoring-illustrator__switch :deep(.workspace-pane-switch) { min-height: 52px; }
   .authoring-illustrator__switch :deep(button) { min-height: 44px; }
   .authoring-illustrator__body { padding-bottom: env(safe-area-inset-bottom); overflow-x: hidden; }
   .authoring-illustrator__scene-row { min-height: 44px; align-items: center; }
+  .authoring-illustrator__brief summary, .authoring-illustrator__scene summary { min-height: 44px; }
+  .authoring-illustrator__stale { max-width: 72px; text-align: end; }
+  .authoring-illustrator__head { gap: 8px; padding-inline: 14px; }
+  .authoring-illustrator__head-actions { gap: 4px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

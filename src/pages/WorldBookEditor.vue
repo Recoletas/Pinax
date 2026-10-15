@@ -1,12 +1,13 @@
 <template>
   <div class="worldbook-page">
-    <SettingsWorkspaceHeader>
+    <SettingsWorkspaceHeader v-if="!workspaceProps.workspaceEmbedded">
       <SettingsContextBar
         v-model="selectedWorldbookId"
         :worldbooks-index="worldbooksIndex"
         :active-worldbook="activeWorldbook"
         :project-label="projectContextLabel"
         :project-locked="isProjectMode"
+        :disabled="savingWorldbook || savingEntry || importing || groupWorking || maintenanceWorking || maintenanceApplying"
         :route-mismatch-notice="contextNotice"
         @change="onWorldbookChange"
       >
@@ -27,6 +28,7 @@
       </SettingsContextBar>
     </SettingsWorkspaceHeader>
 
+    <p v-if="workspaceNotice" class="entry-missing-strip" role="status">{{ workspaceNotice }} <button type="button" class="ghost-btn small" :disabled="workspaceBusy" @click="reloadEntryWorkspace">重新载入</button></p>
     <div v-if="requestedEntryMissing" class="entry-missing-strip" data-test="entry-missing" role="status">
       <p>{{ tr("要打开的条目已不存在，可能已被删除。目录仍可浏览；请从左侧目录重新选择。") }}</p>
     </div>
@@ -49,12 +51,17 @@
             v-for="tab in editorTabs"
             :key="tab.key"
             :class="['editor-tab', { active: editorTab === tab.key }]"
+            :data-test="`editor-tab-${tab.key}`"
             @click="editorTab = tab.key"
           >
             <WorkbenchIcon :name="tab.icon" :size="15" />
             {{ tr(tab.label) }}
           </button>
         </nav>
+
+        <section v-if="editorTab === 'overview'" class="card">
+          <UnifiedEntryBrowser :worldbook="activeWorldbook" @select="onBrowserSelect" @create-edge="onGraphCreateEdge" />
+        </section>
 
         <section v-if="editorTab === 'base'" class="card">
           <div class="card-head">
@@ -112,6 +119,13 @@
             </button>
             <button class="danger-btn" @click="deleteWorldbook">{{ tr("删除世界书") }}</button>
           </div>
+        </section>
+
+        <section v-if="editorTab === 'research'" class="card" data-test="worldbook-research-card">
+          <div class="card-head">
+            <h2>{{ tr("联网调研") }}</h2>
+          </div>
+          <WorldbookResearchPanel :worldbook="activeWorldbook" />
         </section>
 
         <section v-if="editorTab === 'transfer'" class="card">
@@ -295,6 +309,226 @@
           </datalist>
         </section>
 
+        <section v-if="editorTab === 'settlement'" class="card settlement-card">
+          <div class="card-head split">
+            <div>
+              <h2>{{ tr("章回结算") }}</h2>
+              <p class="settlement-lede">{{ tr("每章交稿后结算五件：章卡、人物状态、交接、伏笔台账、世界揭示。草案不落库，显式「写入」才生效；只写世界书侧，绝不碰正文。") }}</p>
+            </div>
+            <span class="settlement-channel" :class="{ online: fileChannelOnline }" data-test="settlement-channel">
+              {{ fileChannelOnline ? tr("文件通道：已连接") : tr("文件通道：离线（本地编辑继续，server 可达后自动落盘）") }}
+            </span>
+          </div>
+
+          <div v-if="settlementError" class="import-error" role="alert">{{ displayStatus(settlementError) }}</div>
+          <div v-if="settlementMessage" class="import-success" role="status">{{ displayStatus(settlementMessage) }}</div>
+
+          <div class="settlement-draft-gen">
+            <label>
+              {{ tr("章节标题") }}
+              <input v-model.trim="settlementDraft.chapterTitle" class="text-input" type="text" :placeholder="tr('例如：第 3 章 盐夜')" />
+            </label>
+            <label class="full-width">
+              {{ tr("本章产出文本（仅用于本地抽取草案，不进入世界书或正文）") }}
+              <textarea
+                v-model="settlementDraft.sourceText"
+                class="text-area"
+                rows="4"
+                :placeholder="tr('粘贴一轮生成或本章片段，点「生成结算草案」。')"
+              ></textarea>
+            </label>
+            <div class="settlement-draft-actions">
+              <button
+                class="ghost-btn"
+                :disabled="settlementBusy || !settlementDraft.sourceText.trim()"
+                @click="generateSettlementDraft"
+              >
+                {{ tr("生成结算草案") }}
+              </button>
+              <span class="settlement-hint">{{ tr("草案=本地确定性抽取（提及人物/新名目/首句），逐项确认后才写入。") }}</span>
+            </div>
+          </div>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("① 章卡 → 章账（一句话+梗点+钩型+新名目）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div class="settlement-grid">
+              <label>
+                {{ tr("一句话") }}
+                <input v-model.trim="settlementDraft.card.summary" class="text-input" type="text" />
+              </label>
+              <label>
+                {{ tr("梗点/钩子") }}
+                <input v-model.trim="settlementDraft.card.hook" class="text-input" type="text" :placeholder="tr('钩型+梗点，一句话')" />
+              </label>
+              <label class="full-width">
+                {{ tr("新名目（逗号分隔；成长阶/招式等先登记再进正文）") }}
+                <input v-model.trim="settlementDraft.card.newTermsText" class="text-input" type="text" />
+              </label>
+            </div>
+            <div class="settlement-piece-actions">
+              <span class="settlement-hint">{{ tr("同名章节已结算过时再点写入不会重复追加。") }}</span>
+              <button class="primary-btn" :disabled="settlementBusy || !settlementCardWriteReady" @click="writeChapterCard">
+                {{ tr(settlementBusy ? '写入中...' : '写入章卡') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("③ 交接 → 章账末节（下一章 handoff，3-5 条）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <label class="full-width">
+              {{ tr("交接清单（每行一条；下一章写手只读末节）") }}
+              <textarea
+                v-model="settlementDraft.handoffText"
+                class="text-area"
+                rows="4"
+                :placeholder="tr('写下一章必知的事实与悬置钩子，不写过程。')"
+              ></textarea>
+            </label>
+            <div class="settlement-piece-actions">
+              <span class="settlement-hint">
+                {{ settlementHandoffItems.length }}/{{ settlementHandoffMax }} 条
+                <template v-if="settlementHandoffItems.length > 0 && settlementHandoffItems.length < settlementHandoffMin">（{{ tr("不足 3 条不会写入交接节") }}）</template>
+              </span>
+              <button class="primary-btn" :disabled="settlementBusy || !settlementHandoffWriteReady" @click="writeChapterHandoff">
+                {{ tr(settlementBusy ? '写入中...' : '写入交接（末节）') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("② 人物状态推进 → 条目（当前状态改写+变动史追加）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div v-if="!settlementDraft.characters.length" class="empty-hint">{{ tr("生成草案会带入正文提及的角色，也可在下方手动添加。") }}</div>
+            <article v-for="(row, index) in settlementDraft.characters" :key="`char-${index}`" class="settlement-character" data-test="settlement-character">
+              <div class="settlement-character-head">
+                <select v-model="row.entryId" class="select-input" :aria-label="tr('选择人物条目')">
+                  <option v-for="option in settlementCharacterOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <span v-if="row.written" class="settlement-written">{{ tr("已写入") }}</span>
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeCharacterRow(index)">{{ tr("移除") }}</button>
+              </div>
+              <div class="settlement-grid">
+                <label>{{ tr("伤势") }} <input v-model.trim="row.deltas.injury" class="text-input" type="text" /></label>
+                <label>{{ tr("财物") }} <input v-model.trim="row.deltas.money" class="text-input" type="text" /></label>
+                <label>{{ tr("知情") }} <input v-model.trim="row.deltas.knowledge" class="text-input" type="text" /></label>
+                <label>{{ tr("关系") }} <input v-model.trim="row.deltas.relations" class="text-input" type="text" /></label>
+                <label>{{ tr("位置") }} <input v-model.trim="row.deltas.location" class="text-input" type="text" /></label>
+                <label>{{ tr("备注（记入变动史）") }} <input v-model.trim="row.deltas.note" class="text-input" type="text" /></label>
+              </div>
+              <div class="settlement-piece-actions">
+                <span class="settlement-hint">{{ tr("只改【当前状态】并追加【变动史】；背景/性格/外貌等静态段不动。") }}</span>
+                <button
+                  class="primary-btn"
+                  :disabled="settlementBusy || !row.entryId || !settlementRowHasDelta(row)"
+                  @click="writeCharacterRow(row)"
+                >
+                  {{ tr("写入人物状态") }}
+                </button>
+              </div>
+            </article>
+            <div class="settlement-add-row">
+              <select class="select-input" value="" :aria-label="tr('添加人物行')" @change="addCharacterRow">
+                <option value="">{{ tr("＋ 添加人物行…") }}</option>
+                <option v-for="option in settlementCharacterOptions" :key="`add-${option.value}`" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("④ 伏笔变动 → 台账（open/paid/retired 机器可读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div v-if="!settlementDraft.foreshadow.length" class="empty-hint">{{ tr("登记本章新埋/回收/顺期的伏笔；同 fid 行会被原位更新。") }}</div>
+            <article v-for="(row, index) in settlementDraft.foreshadow" :key="`fb-${index}`" class="settlement-character">
+              <div class="settlement-grid">
+                <label>{{ tr("fid") }} <input v-model.trim="row.fid" class="text-input" type="text" :placeholder="tr('例如 F-012')" /></label>
+                <label class="full-width">{{ tr("内容") }} <input v-model.trim="row.content" class="text-input" type="text" /></label>
+                <label>{{ tr("埋点") }} <input v-model.trim="row.plantedAt" class="text-input" type="text" :placeholder="tr('章名/节点')" /></label>
+                <label>{{ tr("预定回收") }} <input v-model.trim="row.dueBy" class="text-input" type="text" /></label>
+                <label>
+                  {{ tr("状态") }}
+                  <select v-model="row.status" class="select-input">
+                    <option v-for="status in settlementForeshadowStatuses" :key="status" :value="status">{{ status }}</option>
+                  </select>
+                </label>
+              </div>
+              <div class="settlement-piece-actions">
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeForeshadowRow(index)">{{ tr("移除") }}</button>
+              </div>
+            </article>
+            <div class="settlement-piece-actions">
+              <button class="ghost-btn small" :disabled="settlementBusy" @click="addForeshadowRow">{{ tr("＋ 添加伏笔行") }}</button>
+              <button
+                class="primary-btn"
+                :disabled="settlementBusy || !settlementDraft.foreshadow.some((row) => row.fid.trim())"
+                @click="writeForeshadowRows"
+              >
+                {{ tr(settlementBusy ? '写入中...' : '写入伏笔台账') }}
+              </button>
+            </div>
+          </details>
+
+          <details class="settlement-piece">
+            <summary>{{ tr("⑤ 世界揭示 → 设定条目（逐条采纳）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+            <div class="settlement-add-row">
+              <input
+                v-model.trim="settlementDraft.revealText"
+                class="text-input"
+                type="text"
+                :placeholder="tr('本章确立的新设定事实，例如：盐引制度由潮盐行会垄断')"
+                @keyup.enter="addReveal"
+              />
+              <button class="ghost-btn small" :disabled="!settlementDraft.revealText.trim()" @click="addReveal">{{ tr("＋ 登记揭示") }}</button>
+            </div>
+            <div v-if="!settlementDraft.reveals.length" class="empty-hint">{{ tr("登记后逐条「采纳」，采纳会创建设定（lore）条目。") }}</div>
+            <article v-for="(reveal, index) in settlementDraft.reveals" :key="`reveal-${index}`" class="settlement-character">
+              <div class="settlement-grid">
+                <label class="full-width">
+                  {{ tr("揭示事实") }}
+                  <input v-model.trim="reveal.text" class="text-input" type="text" />
+                </label>
+                <label>
+                  {{ tr("条目名（可选）") }}
+                  <input v-model.trim="reveal.name" class="text-input" type="text" :placeholder="tr('缺省用「世界揭示 N」')" />
+                </label>
+              </div>
+              <div class="settlement-piece-actions">
+                <span v-if="reveal.adopted" class="settlement-written">{{ tr("已采纳") }}</span>
+                <button v-if="!reveal.adopted" class="primary-btn" :disabled="settlementBusy || !reveal.text.trim()" @click="adoptReveal(reveal)">
+                  {{ tr("采纳为设定条目") }}
+                </button>
+                <button class="ghost-btn small" :disabled="settlementBusy" @click="removeReveal(index)">{{ tr("移除") }}</button>
+              </div>
+            </article>
+          </details>
+
+          <div class="settlement-views">
+            <details class="settlement-piece view">
+              <summary>{{ tr("章账（只读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <pre class="settlement-ledger-view" data-test="chapter-ledger-view">{{ chapterLedgerText }}</pre>
+            </details>
+            <details class="settlement-piece view">
+              <summary>{{ tr("伏笔台账（只读）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <pre class="settlement-ledger-view">{{ foreshadowLedgerText }}</pre>
+            </details>
+            <details class="settlement-piece view">
+              <summary>{{ tr("底牌（作者专用 · 永不入正文）") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+              <p class="settlement-hint">{{ tr("status:draft 且带底牌标记的条目被注入端显式排除，任何激活路径都不会进入正文上下文。") }}</p>
+              <div v-if="covertEntries.length" class="settlement-covert-list">
+                <article v-for="entry in covertEntries" :key="entry.id" class="settlement-covert" data-test="covert-card">
+                  <header>
+                    <strong>{{ entry.name }}</strong>
+                    <span class="settlement-covert-badge">{{ tr("永不入正文") }}</span>
+                  </header>
+                  <p>{{ entry.content }}</p>
+                </article>
+              </div>
+              <div v-else class="empty-hint">{{ tr("暂无底牌条目；项目文件的 世界书/底牌/暗线底牌.md 为作者专用登记处。") }}</div>
+            </details>
+          </div>
+        </section>
+
         <section v-if="editorTab === 'entries'" class="card entry-workspace-card">
           <div class="card-head split">
             <div><h2>{{ tr("条目管理") }}</h2></div>
@@ -328,6 +562,10 @@
               <button class="ghost-btn" :class="{ active: maintenanceOpen }" :aria-expanded="maintenanceOpen" @click="toggleMaintenance">
                 <WorkbenchIcon name="assistant" :size="16" />
                 {{ tr("AI 处理世界书") }}
+              </button>
+              <button class="ghost-btn" :class="{ active: migrationOpen }" :aria-expanded="migrationOpen" data-test="profile-migration-toggle" @click="toggleMigration">
+                <WorkbenchIcon name="archive" :size="16" />
+                {{ tr("档案迁移（预览）") }}
               </button>
               <button class="ghost-btn" @click="createEntry"><WorkbenchIcon name="plus" :size="16" />{{ tr("新增条目") }}</button>
             </div>
@@ -431,6 +669,68 @@
             <div v-else-if="maintenanceCompleted" class="maintenance-empty">{{ tr("没有需要处理的候选。") }}</div>
           </section>
 
+          <!-- 档案迁移（预览）：扫描 profile 为空且正文带【标签】结构的条目；
+               回填只写 profile 不改正文；重复条目只标记建议，不自动删除。 -->
+          <section v-if="migrationOpen" class="worldbook-migration" aria-labelledby="worldbook-migration-title" data-test="profile-migration-panel">
+            <div class="maintenance-head">
+              <div>
+                <h3 id="worldbook-migration-title">{{ tr("档案迁移（预览）") }}</h3>
+                <p>{{ tr("回填只写档案字段，不改条目正文；模板必填缺失不阻塞，留给编辑器补。") }}</p>
+              </div>
+              <button type="button" class="ghost-btn small" :disabled="migrationWorking" @click="runMigrationScan">
+                {{ tr(migrationWorking ? '扫描中...' : '重新扫描') }}
+              </button>
+            </div>
+            <div v-if="migrationError" class="maintenance-error" role="alert">{{ tr(migrationError) }}</div>
+            <template v-if="migrationScan">
+              <h4 class="migration-subhead">{{ tr("待回填条目（{count}）", { count: migrationScan.needsMigration.length }) }}</h4>
+              <p class="migration-hint">{{ tr("档案为空且正文含 3 个以上【标签】的条目；执行回填会把标签内容整理进档案字段。") }}</p>
+              <ul v-if="migrationScan.needsMigration.length" class="migration-list">
+                <li v-for="entry in migrationScan.needsMigration" :key="entry.id" class="migration-row">
+                  <span class="entry-title">{{ entry.name || tr('未命名条目') }}</span>
+                  <span class="entry-type">{{ entryTypeLabel(entry.type) }}</span>
+                </li>
+              </ul>
+              <div v-else class="empty-hint">{{ tr("没有需要回填的条目。") }}</div>
+              <div class="migration-actions">
+                <button
+                  type="button"
+                  class="primary-btn"
+                  data-test="profile-migration-apply"
+                  :disabled="migrationApplying || migrationWorking || !migrationScan.needsMigration.length"
+                  @click="applyMigrationBackfill"
+                >
+                  {{ tr(migrationApplying ? '回填中...' : '执行回填') }}
+                </button>
+              </div>
+              <h4 class="migration-subhead">{{ tr("疑似重复（{count} 组）", { count: migrationScan.duplicates.length }) }}</h4>
+              <p class="migration-hint">{{ tr("同名同类型的条目组；保留最早创建的一条，其余只建议标记，不自动删除。") }}</p>
+              <ul v-if="migrationScan.duplicates.length" class="migration-list">
+                <li v-for="group in migrationScan.duplicates" :key="group.keepId" class="migration-row">
+                  <span class="migration-group">
+                    <strong>{{ group.name }}</strong>
+                    <span class="entry-type">{{ entryTypeLabel(group.type) }}</span>
+                  </span>
+                  <span class="migration-dupes">{{ duplicateGroupLabel(group) }}</span>
+                </li>
+              </ul>
+              <div v-else class="empty-hint">{{ tr("没有发现同名同类型的重复条目。") }}</div>
+              <div class="migration-actions">
+                <button
+                  type="button"
+                  class="ghost-btn"
+                  data-test="profile-migration-mark"
+                  :disabled="migrationApplying || migrationWorking || !migrationScan.duplicates.length"
+                  @click="markDuplicateEntries"
+                >
+                  {{ tr("按建议标记重复") }}
+                </button>
+              </div>
+              <div v-if="migrationMessage" class="maintenance-summary" role="status">{{ migrationMessage }}</div>
+            </template>
+            <div v-else class="empty-hint">{{ tr("正在扫描当前世界书...") }}</div>
+          </section>
+
           <div class="bulk-tools" v-if="selectedEntryIds.length">
             <span class="bulk-label">{{ tr('已选 {count} 条', { count: selectedEntryIds.length }) }}</span>
             <button class="ghost-btn small" @click="selectAllFilteredEntries">{{ tr("全选筛选结果") }}</button>
@@ -496,11 +796,16 @@
               </label>
               <label>
                 {{ tr("条目类型") }}
-                <select v-model="entryForm.type" class="select-input">
-                  <option v-for="type in entryTypes" :key="type.value" :value="type.value">
-                    {{ tr(type.label) }}
-                  </option>
-                </select>
+                <input
+                  v-model.trim="entryForm.type"
+                  class="text-input"
+                  type="text"
+                  list="worldbook-entry-type-options"
+                  :placeholder="tr('可建议或自由输入，如 角色 / 势力 / 种族')"
+                />
+                <datalist id="worldbook-entry-type-options">
+                  <option v-for="typeValue in entryTypeSuggestions" :key="typeValue" :value="typeValue"></option>
+                </datalist>
               </label>
               <label>
                 {{ tr("触发词（逗号分隔）") }}
@@ -520,52 +825,36 @@
                   :placeholder="tr('例如：边境领地')"
                 />
               </label>
-              <label>
-                {{ tr("内容") }}
-                <textarea
-                  v-model.trim="entryForm.content"
-                  class="text-area"
-                  rows="8"
-                  :placeholder="tr('输入条目内容')"
-                ></textarea>
-              </label>
 
-              <section v-if="entryForm.type === 'character'" class="entry-voice-editor" aria-labelledby="entry-voice-title">
-                <header class="entry-voice-editor__head">
-                  <div>
-                    <span class="panel-kicker">{{ tr("角色声口") }}</span>
-                    <h3 id="entry-voice-title">{{ tr("说话方式与示例") }}</h3>
-                  </div>
-                  <span class="entry-voice-editor__count">{{ entryForm.samples.length }}/6</span>
-                </header>
-                <p class="entry-voice-editor__hint">
-                  {{ tr("只锚定当前说话角色；生成时最多使用前 3 条，空白与重复样例会在保存时清理。") }}
-                </p>
-                <label>
-                  {{ tr("说话方式") }}
-                  <textarea
-                    v-model="entryForm.speechStyle"
-                    rows="3"
-                    maxlength="240"
-                    :placeholder="tr('句长、措辞、回避或强调习惯')"
-                  ></textarea>
-                </label>
-                <label v-for="(_sample, index) in entryForm.samples" :key="index">
-                  {{ tr('示例台词 {number}', { number: index + 1 }) }}
-                  <span class="entry-voice-editor__sample">
-                    <textarea v-model="entryForm.samples[index]" rows="2" maxlength="240"></textarea>
-                    <button type="button" class="ghost-btn small" @click="removeVoiceSample(index)">{{ tr("移除") }}</button>
-                  </span>
-                </label>
-                <button
-                  v-if="entryForm.samples.length < 6"
-                  type="button"
-                  class="ghost-btn small entry-voice-editor__add"
-                  @click="addVoiceSample"
-                >
-                  {{ tr("添加示例台词") }}
-                </button>
-              </section>
+              <EntryMdEditor v-model="entryForm.content" />
+
+              <!-- 角色声口老编辑器已退役：声口读写统一走档案 profile.speech（声口横切），
+                   见下方「条目档案模板与关联」里的 EntryProfileEditor。 -->
+
+              <details class="entry-advanced-panel" :open="entryAdvancedOpen" @toggle="onAdvancedToggle">
+                <summary>{{ tr("条目档案模板与关联") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
+                <EntryProfileEditor
+                  :entry="selectedEntry"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyProfileSave"
+                />
+                <EntryLinksEditor
+                  ref="entryLinksEditorRef"
+                  :entry="selectedEntry"
+                  :entries="entries"
+                  :content="entryForm.content"
+                  :saving="savingEntry"
+                  @save="applyLinksSave"
+                />
+              </details>
+
+              <RelationEdgeDialog
+                v-model:open="edgeDialogOpen"
+                :from-name="edgeDialogFrom.name"
+                :to-name="edgeDialogTo.name"
+                @confirm="onEdgeDialogConfirm"
+              />
 
               <details class="injection-panel">
                 <summary>{{ tr("高级引用设置") }}<WorkbenchIcon name="chevron-down" :size="16" /></summary>
@@ -654,14 +943,15 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { tr, uiLocale } from '../i18n/index.js'
-import { useRoute } from 'vue-router'
-import { useWorldStore } from '../stores/worldStore'
+import { useRoute, useRouter, onBeforeRouteUpdate, onBeforeRouteLeave } from 'vue-router'
+import { useWorldStore, worldbookEntryEditFingerprint } from '../stores/worldStore'
 import { normalizeNarrativeVoiceProfile } from '../services/narrativeVoiceProfile'
 import {
   createWorldbookMaintenanceServices,
   findWorldbookAuditTargets,
   WORLDBOOK_MAINTENANCE_MODES
 } from '../services/worldbook/worldbookMaintenance'
+import UnifiedEntryBrowser from '../components/worldbook/UnifiedEntryBrowser.vue'
 import { createSettingsPageDispatcher } from '../services/agents/settings/settingsTaskDispatcher'
 import { createSettingsMaintenanceWorkflow } from '../services/agents/settings/settingsMaintenanceWorkflow'
 import SettingsWorkspaceHeader from '../components/workbench/SettingsWorkspaceHeader.vue'
@@ -669,8 +959,31 @@ import SettingsContextBar from '../components/workbench/SettingsContextBar.vue'
 import { useSettingsProjectContext } from '../composables/useSettingsProjectContext'
 import SettingsReturnToManuscript from '../components/workbench/SettingsReturnToManuscript.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import EntryMdEditor from '../components/worldbook/EntryMdEditor.vue'
+import EntryProfileEditor from '../components/worldbook/EntryProfileEditor.vue'
+import EntryLinksEditor from '../components/worldbook/EntryLinksEditor.vue'
+import RelationEdgeDialog from '../components/worldbook/RelationEdgeDialog.vue'
+import WorldbookResearchPanel from '../components/worldbook/WorldbookResearchPanel.vue'
+import {
+  FORESHADOW_STATUSES,
+  HANDOFF_MAX_ITEMS,
+  HANDOFF_MIN_ITEMS,
+  applyChapterSettlement,
+  chapterLedgerSkeleton,
+  createSettlementChannel,
+  foreshadowLedgerSkeleton,
+  isChapterLedgerEntry,
+  isCovertCardEntry,
+  isForeshadowLedgerEntry,
+  settlementFromTurn
+} from '../services/worldbook/settlementService'
+import { isFileSourceAvailable, refreshFileSourceAvailability } from '../services/worldbook/worldbookFileRepository'
+import { profileFromEntry } from '../services/worldbook/entryProfileTemplates.js'
+import { applyMigration, markDuplicates, scanEntriesForMigration } from '../services/worldbook/profileMigration'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const route = useRoute()
+const router = useRouter()
 const worldStore = useWorldStore()
 
 // 设定 Agent 调度入口：高级编辑维护统一走 canonical settings.maintenance.audit 任务。
@@ -717,6 +1030,15 @@ const maintenanceCandidates = ref([])
 const maintenanceRevision = ref('')
 const maintenanceTouchedEntryIds = ref(new Set())
 const maintenanceCompleted = ref(false)
+// W·卡片制：档案迁移（预览）——needsMigration 回填 / duplicates 只标记不删
+const migrationOpen = ref(false)
+const migrationScan = ref(null)
+const migrationWorking = ref(false)
+const migrationApplying = ref(false)
+const migrationMessage = ref('')
+const migrationError = ref('')
+// W3·B2/B3：条目档案模板与关联编辑区——character 类型默认展开，其他类型可开。
+const entryAdvancedOpen = ref(false)
 
 const maintenanceModes = [
   {
@@ -736,17 +1058,53 @@ const maintenanceModes = [
   }
 ]
 
-const editorTab = ref('entries')
+const editorTab = ref('overview')
+// 总览浏览器点选条目 → 跳条目管理并定位（B1 组件只 emit，不路由）
+function onBrowserSelect(entry) {
+  if (entry?.id) pickEntry(entry.id)
+  editorTab.value = 'entries'
+}
+// 图谱建边（Shift 拖拽）：GraphCanvas 只报 from/to 两个 id，属性收集交给 RelationEdgeDialog；
+// 确认后先 pickEntry 对齐编辑条目，再走 EntryLinksEditor 的既有双层写回。
+const entryLinksEditorRef = ref(null)
+const edgeDialogOpen = ref(false)
+const edgeDialogFrom = ref({ id: '', name: '' })
+const edgeDialogTo = ref({ id: '', name: '' })
+function onGraphCreateEdge({ fromId, toId }) {
+  const nameOf = (id) => {
+    const entry = entries.value.find((item) => String(item.id) === String(id))
+    return entry?.name || entry?.title || String(id)
+  }
+  edgeDialogFrom.value = { id: fromId, name: nameOf(fromId) }
+  edgeDialogTo.value = { id: toId, name: nameOf(toId) }
+  edgeDialogOpen.value = true
+}
+function onEdgeDialogConfirm(attrs) {
+  const fromId = edgeDialogFrom.value.id
+  if (!fromId || !edgeDialogTo.value.id) return
+  pickEntry(fromId)
+  editorTab.value = 'entries'
+  void nextTick(() => {
+    entryLinksEditorRef.value?.createEdge({
+      fromId,
+      toId: edgeDialogTo.value.id,
+      ...attrs
+    })
+  })
+}
 const editorTabs = [
+  { key: 'overview', label: '总览', icon: 'layout' },
   { key: 'entries', label: '条目管理', icon: 'list' },
+  { key: 'settlement', label: '章回结算', icon: 'history' },
   { key: 'base', label: '基础设定', icon: 'book' },
+  { key: 'research', label: '联网调研', icon: 'compass' },
   { key: 'transfer', label: '导入导出', icon: 'download' },
   { key: 'groups', label: '分组管理', icon: 'archive' },
 ]
 
 const selectedWorldbookId = ref('')
 // 项目上下文（联动闭环 L3）：先解析正确的世界书，再处理 entryId 定位。
-const { context, loading: contextLoading, loadError } = useSettingsProjectContext({ worldStore })
+const { context, worldbook: activeWorldbook, loading: contextLoading, loadError, refresh: refreshProjectContext } = useSettingsProjectContext({ worldStore })
 const isProjectMode = computed(() => context.value?.mode === 'project')
 const projectContextLabel = computed(() => context.value?.book?.title || '')
 const projectContextStatus = computed(() => context.value?.status || '')
@@ -798,8 +1156,6 @@ const entryForm = reactive({
   keys: '',
   keysSecondary: '',
   content: '',
-  speechStyle: '',
-  samples: [],
   injectionMode: 'selective',
   injectionProbability: 100,
   injectionCooldown: 0,
@@ -810,6 +1166,31 @@ const entryForm = reactive({
   injectionWholeWord: false,
   injectionCaseSensitive: false
 })
+
+const savedWorldbookForm = ref('')
+const savedEntryForm = ref('')
+let loadedEntryFingerprint = ''
+const workspaceNotice = ref('')
+const workspaceDirty = computed(() => Boolean((savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value) || (selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value)))
+const workspaceBusy = computed(() => savingWorldbook.value || savingEntry.value || importing.value || groupWorking.value || maintenanceWorking.value || maintenanceApplying.value)
+async function reloadEntryWorkspace() {
+  if (workspaceBusy.value || !window.confirm(tr('重新载入会放弃当前未保存的修改，请先复制需要保留的输入。'))) return
+  const id = selectedEntryId.value
+  await refreshProjectContext()
+  if (entries.value.some(entry => entry.id === id)) pickEntry(id)
+  workspaceNotice.value = ''
+}
+function canCloseWorkspace() {
+  if (workspaceBusy.value || contextLoading.value) return false
+  if (maintenanceCandidates.value.some(candidate => candidate.status === 'pending')) { workspaceNotice.value = '还有待处理的条目建议，请先采用或忽略后关闭。'; return false }
+  if (workspaceDirty.value) { workspaceNotice.value = '还有未保存的修改，请先保存后关闭条目页。'; return false }
+  return true
+}
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => workspaceBusy.value ? { label: '条目处理中', icon: 'list' } : null })
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate((to, from) => String(to.query.bookId || '') === String(from.query.bookId || '') && String(to.query.entryId || '') === String(from.query.entryId || '') || canCloseWorkspace())
+}
 
 const entryTypes = [
   { value: 'general', label: '通用' },
@@ -825,13 +1206,16 @@ const entryTypes = [
   { value: 'event', label: '事件' }
 ]
 
+// kind 开放自由输入：已知 11 类 + source（W4 资料条目）只作 datalist 建议；
+// 未知 kind 原样保存，注入端（worldbookContextBuilder）对未知 type 落 general 优先级兜底。
+const entryTypeSuggestions = [...entryTypes.map((type) => type.value), 'source']
+
 const injectionModes = [
   { value: 'selective', label: '选择触发' },
   { value: 'constant', label: '常量注入' }
 ]
 
 const worldbooksIndex = computed(() => worldStore.worldbooksIndex || [])
-const activeWorldbook = computed(() => worldStore.activeWorldbook)
 const entries = computed(() => activeWorldbook.value?.entries || [])
 
 const availableGroups = computed(() => {
@@ -893,9 +1277,14 @@ const selectedEntry = computed(() => {
   return entries.value.find(e => e.id === selectedEntryId.value) || null
 })
 
-watch(activeWorldbook, (next) => {
+watch(workspaceDirty, dirty => { if (!dirty) workspaceNotice.value = '' })
+
+watch(activeWorldbook, (next, previous) => {
   selectedWorldbookId.value = next?.id || ''
-  syncWorldbookForm(next)
+  const sameWorldbook = next?.id && next.id === previous?.id
+  const formDirty = savedWorldbookForm.value && JSON.stringify(worldbookForm) !== savedWorldbookForm.value
+  if (!sameWorldbook || !formDirty || savingWorldbook.value) syncWorldbookForm(next)
+  if (sameWorldbook) return
   selectFirstEntry()
   selectedEntryIds.value = []
   groupDraftName.value = ''
@@ -904,10 +1293,18 @@ watch(activeWorldbook, (next) => {
   clearGroupMessages()
 }, { immediate: true })
 
-watch(selectedEntry, (entry) => {
-  if (entry) syncEntryForm(entry)
+watch(selectedEntry, (entry, previous) => {
+  const sameEntry = entry?.id && entry.id === previous?.id
+  const formDirty = savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value
+  if (entry && (!sameEntry || !formDirty || savingEntry.value)) syncEntryForm(entry)
+  else if (entry) return
   else resetEntryForm()
 }, { immediate: true })
+
+// W3：档案模板/关联区默认展开策略——选中 character 时展开，其余类型收起（可手动开）。
+watch(() => [selectedEntry.value?.id, selectedEntry.value?.type], ([, type]) => {
+  entryAdvancedOpen.value = type === 'character'
+})
 
 watch(entries, (nextEntries) => {
   const idSet = new Set(nextEntries.map(entry => entry.id))
@@ -966,7 +1363,7 @@ watch(
     entryTypeFilter.value = 'all'
     injectionModeFilter.value = 'all'
     entryGroupFilter.value = 'all'
-    selectedEntryId.value = entryId
+    if (!pickEntry(entryId)) return
     await nextTick()
     const target = Array.from(document.querySelectorAll('[data-entry-id]'))
       .find((element) => element.dataset.entryId === entryId)
@@ -1171,18 +1568,17 @@ function syncWorldbookForm(worldbook) {
   worldbookForm.examples = worldbook?.examples || ''
   worldbookForm.forbidden = worldbook?.forbidden || ''
   worldbookForm.description = worldbook?.description || ''
+  savedWorldbookForm.value = JSON.stringify(worldbookForm)
 }
 
 function syncEntryForm(entry) {
+  loadedEntryFingerprint = worldbookEntryEditFingerprint(entry)
   const injection = normalizeInjection(entry?.injection)
   entryForm.name = entry?.name || ''
   entryForm.type = entry?.type || 'general'
   entryForm.keys = (entry?.keys || []).join(', ')
   entryForm.keysSecondary = (entry?.keysSecondary || []).join(', ')
   entryForm.content = entry?.content || ''
-  const voice = normalizeNarrativeVoiceProfile(entry || {}, entryForm.name)
-  entryForm.speechStyle = voice.speechStyle
-  entryForm.samples = [...voice.samples]
   entryForm.injectionMode = injection.mode
   entryForm.injectionProbability = injection.probability
   entryForm.injectionCooldown = injection.cooldown
@@ -1193,6 +1589,7 @@ function syncEntryForm(entry) {
   entryForm.injectionSecondaryMode = injection.secondaryMode || 'any'
   entryForm.injectionWholeWord = Boolean(injection.wholeWord)
   entryForm.injectionCaseSensitive = Boolean(injection.caseSensitive)
+  savedEntryForm.value = JSON.stringify(entryForm)
 }
 
 function resetEntryForm() {
@@ -1201,8 +1598,6 @@ function resetEntryForm() {
   entryForm.keys = ''
   entryForm.keysSecondary = ''
   entryForm.content = ''
-  entryForm.speechStyle = ''
-  entryForm.samples = []
   entryForm.injectionMode = 'selective'
   entryForm.injectionProbability = 100
   entryForm.injectionCooldown = 0
@@ -1397,10 +1792,15 @@ function ignoreMaintenanceCandidate(candidate) {
   candidate.status = 'ignored'
 }
 
+let worldbookChangeSequence = 0
 async function onWorldbookChange(worldbookId) {
   // 项目模式：世界书由书稿关联决定，不在这里静默换库。
   if (isProjectMode.value) return
-  await worldStore.setActiveWorldbook(worldbookId)
+  const ticket = ++worldbookChangeSequence
+  const from = route.fullPath
+  const loaded = await worldStore.setActiveWorldbook(worldbookId)
+  if (ticket !== worldbookChangeSequence || route.fullPath !== from || route.query.bookId || String(loaded?.id || '') !== String(worldbookId)) return
+  await router.replace({ name: route.name, query: { worldbookId: String(worldbookId) } })
 }
 
 async function createWorldbook() {
@@ -1408,7 +1808,7 @@ async function createWorldbook() {
   const created = await worldStore.createWorldbook({ name: nextName })
   await worldStore.loadWorldbooksIndex()
   if (created?.id) {
-    await worldStore.setActiveWorldbook(created.id)
+    await onWorldbookChange(created.id)
   }
 }
 
@@ -1426,6 +1826,9 @@ async function saveWorldbook() {
       description: worldbookForm.worldDescription.trim() // 兼容旧字段
     })
     await worldStore.loadWorldbooksIndex()
+    workspaceNotice.value = ''
+  } catch (error) {
+    workspaceNotice.value = error?.message || '世界书未能保存，当前输入仍保留。'
   } finally {
     savingWorldbook.value = false
   }
@@ -1438,7 +1841,9 @@ async function deleteWorldbook() {
 
   await worldStore.deleteWorldbook(activeWorldbook.value.id)
   await worldStore.loadWorldbooksIndex()
-  if (typeof worldStore.ensureActiveWorldbook === 'function') {
+  if (isProjectMode.value || route.query.worldbookId) {
+    await refreshProjectContext()
+  } else if (typeof worldStore.ensureActiveWorldbook === 'function') {
     await worldStore.ensureActiveWorldbook()
   }
 }
@@ -1470,6 +1875,17 @@ async function createEntry() {
   if (created?.id) selectedEntryId.value = created.id
 }
 
+// 声口双轨合并（写侧）：character 保存时把「stored profile.speech > 正文【标签】反解 >
+// 顶层旧 speechStyle/samples」的合并结果物化进 profile；顶层镜像与 profile.speech 同源
+// 写出、不产生第二真相，仅供存量消费端（narrativeKernel 声口注入、ST 导出 pinax_voice）读。
+function characterVoicePayload(speech, name) {
+  const source = speech && typeof speech === 'object' ? speech : {}
+  return normalizeNarrativeVoiceProfile({
+    speechStyle: source.speechStyle || '',
+    samples: Array.isArray(source.samples) ? source.samples : []
+  }, name)
+}
+
 async function saveEntry() {
   if (!activeWorldbook.value?.id || !selectedEntry.value) return
   savingEntry.value = true
@@ -1485,23 +1901,33 @@ async function saveEntry() {
       wholeWord: entryForm.injectionWholeWord,
       caseSensitive: entryForm.injectionCaseSensitive
     })
-
-    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
-      name: entryForm.name.trim() || tr('未命名条目'),
-      type: entryForm.type,
+    const nextName = entryForm.name.trim() || tr('未命名条目')
+    // kind 自由输入：未知类型原样保存；空值回落 general
+    const nextType = String(entryForm.type || '').trim() || 'general'
+    const updates = {
+      name: nextName,
+      type: nextType,
       keys: splitKeywords(entryForm.keys),
       keysSecondary: splitKeywords(entryForm.keysSecondary),
       content: entryForm.content.trim(),
-      ...normalizeNarrativeVoiceProfile({
-        speechStyle: entryForm.speechStyle,
-        samples: entryForm.samples
-      }, entryForm.name),
       injection: normalizedInjection
-    })
+    }
+    if (nextType === 'character') {
+      const merged = profileFromEntry(
+        { ...selectedEntry.value, name: nextName, content: updates.content },
+        selectedEntry.value?.profile?.template || ''
+      )
+      updates.profile = merged
+      Object.assign(updates, characterVoicePayload(merged.speech, nextName))
+    }
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, updates, { expectedFingerprint: loadedEntryFingerprint })
     await worldStore.loadWorldbooksIndex()
     if (normalizedInjection.group) {
       await persistWorldbookGroups([normalizedInjection.group])
     }
+    workspaceNotice.value = ''
+  } catch (error) {
+    workspaceNotice.value = error?.message || '条目未能保存，当前输入仍保留。'
   } finally {
     savingEntry.value = false
   }
@@ -1517,8 +1943,51 @@ async function deleteEntry() {
   selectFirstEntry()
 }
 
+// W3·B2：档案模板保存——profile 落条目；仅在作者显式选「覆盖原文」时才以投影替换
+// content（content 是注入真相，禁默认覆盖）。character 同时把 profile.speech 镜像到
+// 顶层声口字段（同源写出，存量消费端 narrativeKernel/ST 导出继续有供数）。
+async function applyProfileSave({ profile, content, overwrite }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    const isCharacter = String(selectedEntry.value?.type || '').trim().toLowerCase() === 'character'
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      profile,
+      ...(isCharacter ? characterVoicePayload(profile?.speech, selectedEntry.value.name) : {}),
+      ...(overwrite ? { content } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+    if (selectedEntry.value) syncEntryForm(selectedEntry.value)
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+// W3·B3：关系双层保存——links=纯 id 层、relations=富关系层由 entryRelations.
+// applyRelationRows 同一实现派生，两层必然一致；tags 承接旧 relations.tags 桶。
+async function applyLinksSave({ links, relations, tags }) {
+  if (!activeWorldbook.value?.id || !selectedEntry.value) return
+  savingEntry.value = true
+  try {
+    await worldStore.updateEntry(activeWorldbook.value.id, selectedEntry.value.id, {
+      links,
+      relations,
+      ...(Array.isArray(tags) ? { tags } : {})
+    })
+    await worldStore.loadWorldbooksIndex()
+  } finally {
+    savingEntry.value = false
+  }
+}
+
+function onAdvancedToggle(event) {
+  entryAdvancedOpen.value = Boolean(event.target?.open)
+}
+
 function pickEntry(entryId) {
+  if (entryId !== selectedEntryId.value && selectedEntry.value && savedEntryForm.value && JSON.stringify(entryForm) !== savedEntryForm.value) { workspaceNotice.value = '当前条目还有未保存的修改，请先保存再切换条目。'; return false }
   selectedEntryId.value = entryId
+  return true
 }
 
 function isEntrySelected(entryId) {
@@ -1878,13 +2347,88 @@ function setEntryGroup(group) {
   entryForm.injectionGroup = group
 }
 
-function addVoiceSample() {
-  if (entryForm.samples.length >= 6) return
-  entryForm.samples.push('')
+/* ---------- 档案迁移（预览）：回填只写 profile；重复只标记，不自动删除 ---------- */
+
+function toggleMigration() {
+  migrationOpen.value = !migrationOpen.value
+  if (migrationOpen.value) runMigrationScan()
 }
 
-function removeVoiceSample(index) {
-  entryForm.samples.splice(index, 1)
+function runMigrationScan() {
+  migrationError.value = ''
+  migrationMessage.value = ''
+  migrationWorking.value = true
+  try {
+    migrationScan.value = scanEntriesForMigration(entries.value)
+  } finally {
+    migrationWorking.value = false
+  }
+}
+
+function duplicateLabel(entryId) {
+  const entry = entries.value.find((item) => item.id === entryId)
+  if (!entry) return entryId
+  const marked = entry.metadata?.duplicateOf ? tr('已标记') : ''
+  return marked ? `${entry.name || tr('未命名条目')}（${marked}）` : (entry.name || tr('未命名条目'))
+}
+
+function duplicateGroupLabel(group) {
+  const keep = tr('保留：{name}', { name: entryName(group.keepId) })
+  const dupes = tr('重复：{names}', { names: group.duplicateIds.map((id) => duplicateLabel(id)).join(uiLocale === 'en' ? ', ' : '、') })
+  return `${keep}；${dupes}`
+}
+
+// 逐条回填：profileFromEntry 负责【标签】反解 + 顶层旧声口合并；正文与触发词不动
+async function applyMigrationBackfill() {
+  if (!activeWorldbook.value?.id || !migrationScan.value?.needsMigration?.length) return
+  const ok = window.confirm(tr('对 {count} 个条目执行档案回填？条目正文不会被修改。', { count: migrationScan.value.needsMigration.length }))
+  if (!ok) return
+  migrationApplying.value = true
+  migrationError.value = ''
+  try {
+    let applied = 0
+    for (const entry of migrationScan.value.needsMigration) {
+      // 条目可能在确认后被删：逐条复核存在性
+      const current = entries.value.find((item) => item.id === entry.id)
+      if (!current) continue
+      const parsedProfile = profileFromEntry(current, current?.profile?.template || '')
+      await worldStore.updateEntry(activeWorldbook.value.id, current.id, { profile: applyMigration(current, parsedProfile).profile })
+      applied += 1
+    }
+    await worldStore.loadWorldbooksIndex()
+    runMigrationScan()
+    migrationMessage.value = tr('已回填 {count} 个条目的档案。', { count: applied })
+  } catch (error) {
+    migrationError.value = error?.message || tr('档案回填失败。')
+  } finally {
+    migrationApplying.value = false
+  }
+}
+
+// 重复条目只打 metadata.duplicateOf 标记（保留方=最早创建）；真删除由用户另行确认
+async function markDuplicateEntries() {
+  if (!activeWorldbook.value?.id || !migrationScan.value?.duplicates?.length) return
+  migrationApplying.value = true
+  migrationError.value = ''
+  try {
+    const marked = markDuplicates(entries.value)
+    const markedById = new Map(marked.map((entry) => [entry.id, entry]))
+    let count = 0
+    for (const original of entries.value) {
+      const next = markedById.get(original.id)
+      if (!next || next === original) continue
+      if (next.metadata.duplicateOf === original.metadata?.duplicateOf) continue
+      await worldStore.updateEntry(activeWorldbook.value.id, original.id, { metadata: { duplicateOf: next.metadata.duplicateOf } })
+      count += 1
+    }
+    await worldStore.loadWorldbooksIndex()
+    runMigrationScan()
+    migrationMessage.value = tr('已标记 {count} 个重复条目（未删除）。', { count })
+  } catch (error) {
+    migrationError.value = error?.message || tr('标记重复条目失败。')
+  } finally {
+    migrationApplying.value = false
+  }
 }
 
 function openImportFilePicker() {
@@ -1932,7 +2476,7 @@ async function confirmImportFromPreview() {
     const created = await worldStore.importFromSillyTavern(importPreview.value.rawData)
     await worldStore.loadWorldbooksIndex()
     if (created?.id) {
-      await worldStore.setActiveWorldbook(created.id)
+      if (!isProjectMode.value) await onWorldbookChange(created.id)
     }
     importPreview.value = null
     setTransferSuccess('导入完成：{name}', { name: created?.name || tr('新建世界书') })
@@ -1977,6 +2521,239 @@ async function exportActiveWorldbook() {
   }
 }
 
+/* ---------- W5·B5：章回结算面板（草案→逐项确认→显式写入；只写世界书侧，零静默写） ---------- */
+
+const settlementBusy = ref(false)
+const settlementError = ref('')
+const settlementMessage = ref('')
+const fileChannelOnline = ref(false)
+const settlementDraft = reactive({
+  chapterTitle: '',
+  sourceText: '',
+  card: { summary: '', hook: '', newTermsText: '' },
+  handoffText: '',
+  characters: [],
+  foreshadow: [],
+  reveals: [],
+  revealText: ''
+})
+const settlementHandoffMin = HANDOFF_MIN_ITEMS
+const settlementHandoffMax = HANDOFF_MAX_ITEMS
+const settlementForeshadowStatuses = FORESHADOW_STATUSES
+
+// 结算写入通道：装配既有保存接缝（worldStore.addEntry/updateEntry）——A3 双写
+// 自动把结算产物落盘到项目世界书目录，这里不碰文件通道内部。
+const settlementChannel = createSettlementChannel({
+  listEntries: () => entries.value,
+  addEntry: (payload) => worldStore.addEntry(activeWorldbook.value.id, payload),
+  updateEntry: (entryId, updates) => worldStore.updateEntry(activeWorldbook.value.id, entryId, updates)
+})
+
+const settlementCharacterOptions = computed(() => entries.value
+  .filter((entry) => !isChapterLedgerEntry(entry) && !isForeshadowLedgerEntry(entry) && !isCovertCardEntry(entry))
+  .map((entry) => ({ value: entry.id, label: `${entry.name || tr('未命名条目')}（${entryTypeLabel(entry.type)}）` })))
+
+const chapterLedgerText = computed(() => entries.value.find(isChapterLedgerEntry)?.content || chapterLedgerSkeleton())
+const foreshadowLedgerText = computed(() => entries.value.find(isForeshadowLedgerEntry)?.content || foreshadowLedgerSkeleton())
+const covertEntries = computed(() => entries.value.filter(isCovertCardEntry))
+const settlementHandoffItems = computed(() => settlementDraft.handoffText
+  .split('\n')
+  .map(line => line.trim())
+  .filter(Boolean))
+const settlementCardWriteReady = computed(() => Boolean(
+  settlementDraft.chapterTitle.trim()
+  || settlementDraft.card.summary.trim()
+  || settlementDraft.card.hook.trim()
+  || settlementDraft.card.newTermsText.trim()
+))
+const settlementHandoffWriteReady = computed(() => {
+  const count = settlementHandoffItems.value.length
+  return count >= settlementHandoffMin && count <= settlementHandoffMax
+})
+
+watch(() => editorTab.value, (tab) => {
+  if (tab === 'settlement') void refreshSettlementChannel()
+})
+
+async function refreshSettlementChannel() {
+  try {
+    await refreshFileSourceAvailability()
+    fileChannelOnline.value = isFileSourceAvailable()
+  } catch {
+    fileChannelOnline.value = false
+  }
+}
+
+function setSettlementError(message) {
+  settlementError.value = message
+  settlementMessage.value = ''
+}
+
+function setSettlementMessage(message) {
+  settlementMessage.value = message
+  settlementError.value = ''
+}
+
+function generateSettlementDraft() {
+  if (!activeWorldbook.value?.id) return
+  const draft = settlementFromTurn({
+    chapterTitle: settlementDraft.chapterTitle,
+    text: settlementDraft.sourceText,
+    entries: entries.value
+  })
+  settlementDraft.card.summary = draft.chapterCard.summary
+  settlementDraft.card.hook = draft.chapterCard.hook
+  settlementDraft.card.newTermsText = draft.chapterCard.newTerms.join(', ')
+  settlementDraft.characters = draft.characterStates.map((row) => ({
+    ...row,
+    deltas: { ...row.deltas },
+    written: false
+  }))
+  if (!settlementDraft.foreshadow.length) addForeshadowRow()
+  setSettlementMessage('草案已生成（本地抽取，未写入任何数据）。请逐项确认后用「写入」按钮落库。')
+}
+
+function addCharacterRow(event) {
+  const entryId = String(event?.target?.value || '').trim()
+  if (event?.target) event.target.value = ''
+  if (!entryId || settlementDraft.characters.some((row) => row.entryId === entryId)) return
+  settlementDraft.characters.push({
+    entryId,
+    name: entries.value.find((entry) => entry.id === entryId)?.name || '',
+    deltas: { injury: '', money: '', knowledge: '', relations: '', location: '', note: '' },
+    written: false
+  })
+}
+
+function removeCharacterRow(index) {
+  settlementDraft.characters.splice(index, 1)
+}
+
+function settlementRowHasDelta(row) {
+  return ['injury', 'money', 'knowledge', 'relations', 'location', 'note']
+    .some(key => String(row?.deltas?.[key] || '').trim())
+}
+
+function addForeshadowRow() {
+  settlementDraft.foreshadow.push({
+    fid: '',
+    content: '',
+    plantedAt: settlementDraft.chapterTitle.trim(),
+    dueBy: '',
+    status: 'open'
+  })
+}
+
+function removeForeshadowRow(index) {
+  settlementDraft.foreshadow.splice(index, 1)
+}
+
+function addReveal() {
+  const text = settlementDraft.revealText.trim()
+  if (!text) return
+  settlementDraft.reveals.push({ text, name: '', adopted: false })
+  settlementDraft.revealText = ''
+}
+
+function removeReveal(index) {
+  settlementDraft.reveals.splice(index, 1)
+}
+
+async function runSettlementWrite(label, payload, pieces, onDone) {
+  if (!activeWorldbook.value?.id) return
+  settlementBusy.value = true
+  settlementError.value = ''
+  try {
+    const { results } = await applyChapterSettlement(settlementChannel, payload, { pieces })
+    const failed = Object.entries(results).filter(([, result]) => result?.ok === false)
+    if (failed.length) {
+      setSettlementError(`${label}失败：${failed.map(([, result]) => result.error || '未知错误').join('；')}`)
+      return
+    }
+    await worldStore.loadWorldbooksIndex()
+    if (typeof onDone === 'function') onDone(results)
+  } catch (error) {
+    setSettlementError(`${label}失败：${error?.message || '未知错误'}`)
+  } finally {
+    settlementBusy.value = false
+  }
+}
+
+async function writeChapterCard() {
+  await runSettlementWrite(
+    '写入章卡',
+    {
+      chapterTitle: settlementDraft.chapterTitle,
+      chapterCard: {
+        summary: settlementDraft.card.summary,
+        hook: settlementDraft.card.hook,
+        newTerms: splitKeywords(settlementDraft.card.newTermsText)
+      }
+    },
+    ['chapterCard'],
+    (results) => {
+      const skipped = results.chapterCard?.skipped
+      setSettlementMessage(skipped ? '章卡没有可追加的内容（同名章节可能已结算）。' : '章卡已写入章账（文件随双写自动落盘）。')
+    }
+  )
+}
+
+async function writeChapterHandoff() {
+  await runSettlementWrite(
+    '写入交接',
+    { chapterTitle: settlementDraft.chapterTitle, handoff: settlementHandoffItems.value },
+    ['handoff'],
+    (results) => {
+      setSettlementMessage(results.handoff?.skipped
+        ? '交接未写入（需 3-5 条）。'
+        : '交接已写入章账末节（下一章写手只读末节）。')
+    }
+  )
+}
+
+async function writeCharacterRow(row) {
+  row.written = false
+  await runSettlementWrite(
+    '写入人物状态',
+    { characterStates: [{ entryId: row.entryId, name: row.name, deltas: { ...row.deltas } }] },
+    ['characterStates'],
+    (results) => {
+      const result = results.characterStates
+      if (result?.applied?.length) {
+        row.written = true
+        setSettlementMessage('人物状态已写入条目（当前状态改写+变动史追加）。')
+      } else if (result?.skipped?.length) {
+        setSettlementMessage('没有可写入的状态变动。')
+      }
+    }
+  )
+}
+
+async function writeForeshadowRows() {
+  const rows = settlementDraft.foreshadow
+    .filter((row) => row.fid.trim())
+    .map((row) => ({ ...row }))
+  if (!rows.length) return
+  await runSettlementWrite(
+    '写入伏笔台账',
+    { foreshadow: rows },
+    ['foreshadow'],
+    () => setSettlementMessage('伏笔台账已更新（同 fid 行原位更新，状态 open/paid/retired 机器可读）。')
+  )
+}
+
+async function adoptReveal(reveal) {
+  await runSettlementWrite(
+    '采纳世界揭示',
+    { worldReveals: [{ text: reveal.text, name: reveal.name, adopted: false }] },
+    ['worldReveals'],
+    () => {
+      reveal.adopted = true
+      setSettlementMessage('揭示已采纳为设定条目。')
+    }
+  )
+}
+
 onMounted(async () => {
   try {
     await worldStore.loadWorldbooksIndex()
@@ -1998,8 +2775,9 @@ onMounted(async () => {
   min-height: var(--app-viewport-height, 100vh);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
+  background: var(--surface-workbench-canvas);
   color: var(--text-primary);
+  font-family: var(--font-sans);
 }
 
 
@@ -2069,7 +2847,7 @@ onMounted(async () => {
 }
 
 .card {
-  background: var(--bg-secondary);
+  background: var(--surface-workbench-raised);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
@@ -2221,6 +2999,74 @@ onMounted(async () => {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+/* 档案迁移（预览）面板：与维护面板同族，但走中性描边（不暗示 AI 语义） */
+.worldbook-migration {
+  margin: 4px 0 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-muted);
+  background: var(--bg-primary);
+}
+
+.migration-subhead {
+  margin: 12px 0 2px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.migration-hint {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.migration-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.migration-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.migration-row .entry-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.migration-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.migration-dupes {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.migration-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .maintenance-candidates {
@@ -2927,12 +3773,14 @@ label {
 .text-area,
 .search-input {
   width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-primary);
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--surface-workbench-input);
   color: var(--text-primary);
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font: 14px/1.6 var(--font-sans);
 }
 
 .text-area {
@@ -3157,7 +4005,9 @@ label {
 .editor-layout {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  padding: 18px clamp(14px, 3vw, 42px) 34px;
+  padding: 20px clamp(14px, 3vw, 42px) 34px;
+  background: var(--surface-workbench);
+  border-radius: 20px 20px 0 0;
 }
 
 .editor-main {
@@ -3168,10 +4018,10 @@ label {
 .editor-tabs {
   flex-wrap: nowrap;
   flex-shrink: 0;
-  gap: 3px;
-  margin: 0 0 20px;
+  gap: 4px;
+  margin: 0 0 24px;
   overflow-x: auto;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-bottom: 0;
   scrollbar-width: thin;
 }
 
@@ -3182,9 +4032,9 @@ label {
   min-height: 36px;
   flex: 0 0 auto;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  padding: 0 10px 8px;
+  border-radius: 12px;
+  padding: 0 12px;
+  font: 500 14px/1.5 var(--font-sans);
   background: transparent;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -3195,18 +4045,17 @@ label {
 }
 
 .editor-tab:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--nav-hover);
   color: var(--text-primary);
 }
 
 .editor-tab.active {
-  border-bottom-color: var(--accent);
-  background: transparent;
-  color: var(--accent);
+  background: var(--nav-selected);
+  color: var(--text-primary);
 }
 
 .editor-tab.active svg {
-  color: var(--accent);
+  color: currentColor;
 }
 
 .editor-main > .card {
@@ -3224,8 +4073,8 @@ label {
 }
 
 .editor-main > .card > .card-head h2 {
-  font-size: 20px;
-  font-weight: 680;
+  font-size: 24px;
+  font-weight: 500;
 }
 
 .editor-main .card-actions {
@@ -3236,34 +4085,33 @@ label {
 .editor-main .primary-btn,
 .editor-main .ghost-btn,
 .editor-main .danger-btn {
-  min-height: 34px;
+  min-height: 36px;
   height: auto;
-  border-radius: 2px;
+  border-radius: 12px;
+  font: 500 14px/1.5 var(--font-sans);
   transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
 
 .editor-main .primary-btn {
   border: 0;
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 72%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
+  border-radius: 20px;
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 .editor-main .primary-btn:hover {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: var(--accent-hover);
 }
 
 .editor-main .ghost-btn {
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   background: transparent;
   color: var(--text-secondary);
 }
 
 .editor-main .ghost-btn:hover {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--text-primary);
+  background: var(--nav-hover);
 }
 
 .editor-main .danger-btn {
@@ -3321,12 +4169,13 @@ label {
   }
 
   .editor-tabs {
-    flex-wrap: wrap;
-    overflow: visible;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .editor-tab {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: center;
   }
 }
@@ -3477,61 +4326,34 @@ label {
   );
 }
 
-.entry-workspace-card .entry-voice-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 0 4px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
-}
-
-.entry-voice-editor__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.entry-voice-editor__head h3 {
-  margin: 4px 0 0;
-  color: var(--text-primary);
-  font-size: 14px;
-}
-
-.entry-voice-editor__count {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.entry-voice-editor__hint {
-  margin: -4px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.entry-voice-editor__sample {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.entry-voice-editor__sample textarea {
-  flex: 1;
-  min-width: 0;
-}
-
-.entry-voice-editor__sample .ghost-btn,
-.entry-voice-editor__add {
-  flex: 0 0 auto;
-}
-
 .entry-workspace-card .injection-panel {
   padding: 14px 0 0;
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: 0;
+}
+
+.entry-workspace-card .entry-advanced-panel {
+  padding: 0;
+  border: 0;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.entry-workspace-card .entry-advanced-panel > summary:hover {
+  color: var(--text-primary);
+}
+
+.entry-workspace-card .entry-advanced-panel[open] > summary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
 }
 
 .entry-workspace-card .injection-panel h3 {
@@ -3601,18 +4423,9 @@ label {
   .entry-workspace-card .entry-editor {
     padding-top: 4px;
   }
-
-  .entry-voice-editor__sample {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .entry-voice-editor__sample .ghost-btn {
-    align-self: flex-start;
-  }
 }
 /* Entry management: a quiet directory and a single editing surface. */
-.worldbook-page { background: var(--archive-paper-soft); }
+.worldbook-page { background: var(--surface-workbench-canvas); }
 .entry-workspace-card .entry-checkbox { margin-top: 16px; accent-color: var(--accent); }
 .entry-workspace-card .entry-editor-heading .primary-btn { background: var(--accent); color: var(--accent-text); border: 0; padding: 9px 16px; }
 .entry-workspace-card .entry-editor-heading .primary-btn:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text-primary)); }
@@ -3620,32 +4433,32 @@ label {
 .entry-workspace-card .injection-panel .checkbox-line { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; min-height: 36px; }
 .entry-workspace-card .injection-panel input[type='checkbox'] { width: 16px; height: 16px; margin: 0; flex: 0 0 16px; accent-color: var(--accent); }
 .entry-workspace-card > .card-head { display: block; margin-bottom: 20px; }
-.entry-workspace-card > .card-head h2 { padding: 0; font-size: 24px; font-weight: 600; }
+.entry-workspace-card > .card-head h2 { padding: 0; font-size: 24px; font-weight: 500; }
 .entry-total { margin-left: 8px; font-size: 14px; color: var(--text-secondary); font-weight: 400; }
 .entry-workspace-caption { margin: 8px 0 20px; color: var(--text-secondary); font-size: 14px; }
 .entry-workspace-card .entry-tools { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; }
 .entry-workspace-card .entry-tools .search-input { flex: 1 1 200px; max-width: 360px; }
 .entry-workspace-card .entry-tools .select-input { width: auto; flex: 0 1 150px; }
-.entry-workspace-card .entry-tools :is(.search-input, .select-input) { height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding: 6px 10px; background: var(--bg-primary); font-size: 13px; }
-.entry-workspace-card .entry-tools .ghost-btn { display: inline-flex; gap: 6px; align-items: center; height: 36px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; padding-inline: 12px; }
+.entry-workspace-card .entry-tools :is(.search-input, .select-input) { min-height: 36px; border: 1px solid transparent; border-radius: 12px; padding: 6px 12px; background: var(--surface-workbench-input); font: 14px/1.5 var(--font-sans); }
+.entry-workspace-card .entry-tools .ghost-btn { display: inline-flex; gap: 6px; align-items: center; min-height: 36px; border: 0; border-radius: 12px; padding-inline: 12px; background: var(--surface-workbench-muted); font: 500 14px/1.5 var(--font-sans); }
 .entry-workspace-card .entry-layout { grid-template-columns: minmax(240px, 28%) minmax(0, 1fr); gap: 28px; align-items: start; }
 .entry-workspace-card .entry-list { max-height: calc(var(--app-viewport-height, 100vh) - 280px); min-height: 320px; padding-right: 18px; border-color: var(--archive-paper-strong); }
 .entry-directory-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 8px 10px; color: var(--text-secondary); font-size: 12px; }
-.entry-workspace-card .entry-item { padding: 0 10px; gap: 10px; margin-bottom: 4px; border: 0; border-radius: 6px; }
+.entry-workspace-card .entry-item { padding: 0 10px; gap: 10px; margin-bottom: 4px; border: 0; border-radius: 12px; }
 .entry-workspace-card .entry-item::before { display: none; }
 .entry-workspace-card .entry-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; align-items: stretch; border: 0; background: transparent; color: var(--text-primary); padding: 12px 0; text-align: left; font: inherit; cursor: pointer; }
-.entry-workspace-card .entry-title { font-size: 14px; font-weight: 550; white-space: normal; overflow-wrap: anywhere; }
+.entry-workspace-card .entry-title { font-size: 15px; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
 .entry-workspace-card .entry-badges { display: flex; flex-wrap: wrap; gap: 5px 10px; }
 .entry-workspace-card :is(.entry-type, .entry-mode, .entry-group) { padding: 0; border: 0; color: var(--text-secondary); background: transparent; font-size: 12px; }
 .entry-workspace-card .entry-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 18px; padding: 0 0 24px; background: transparent; }
 .entry-editor-heading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 1px solid var(--archive-paper-strong); }
-.entry-editor-heading h3 { margin: 6px 0 0; font-size: 21px; font-weight: 600; overflow-wrap: anywhere; }
+.entry-editor-heading h3 { margin: 6px 0 0; font-size: 24px; font-weight: 500; overflow-wrap: anywhere; }
 .entry-editor-kicker { font-size: 12px; color: var(--text-secondary); }
-.entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 6px; min-height: 36px; }
-.entry-workspace-card .entry-editor > label { gap: 8px; font-size: 13px; color: var(--text-secondary); }
-.entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.entry-voice-editor, .injection-panel, .card-actions) { grid-column: 1 / -1; }
-.entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); padding: 10px 12px; color: var(--text-primary); font-size: 14px; }
-.entry-workspace-card .entry-editor > label .text-area { min-height: 260px; line-height: 1.85; resize: vertical; background-image: none; }
+.entry-editor-heading .primary-btn { flex-shrink: 0; border-radius: 20px; min-height: 36px; }
+.entry-workspace-card .entry-editor > label { gap: 8px; font: 14px/1.5 var(--font-sans); color: var(--text-secondary); }
+.entry-workspace-card .entry-editor > label:has(.text-area), .entry-editor > :is(.injection-panel, .card-actions) { grid-column: 1 / -1; }
+.entry-workspace-card .entry-editor > label :is(.text-input, .select-input, .text-area) { min-height: var(--control-hit-min, 36px); border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input); padding: 6px 12px; color: var(--text-primary); font: 14px/1.5 var(--font-sans); }
+.entry-workspace-card .entry-editor > label .text-area { min-height: 260px; padding: 12px 14px; font-size: 15px; line-height: 1.85; resize: vertical; background-image: none; }
 .entry-workspace-card .injection-panel { margin: 0; padding: 0; background: transparent; }
 .injection-panel > summary { display: flex; align-items: center; gap: 12px; padding: 16px 0; cursor: pointer; font-size: 14px; color: var(--text-primary); list-style: none; }
 .injection-panel > summary::-webkit-details-marker { display: none; }
@@ -3664,8 +4477,223 @@ label {
  .entry-workspace-card .entry-tools .search-input { flex-basis: 100%; max-width: none; }
  .entry-workspace-card .entry-tools .select-input { flex: 1 1 100px; }
  .entry-workspace-card .entry-editor { grid-template-columns: minmax(0, 1fr); gap: 18px; }
- .entry-workspace-card .entry-tools .ghost-btn { height: 40px; }
+ .entry-workspace-card .entry-tools .ghost-btn { min-height: 44px; height: auto; }
  .injection-panel > summary { flex-wrap: wrap; gap: 8px; }
- .entry-editor-heading h3 { font-size: 19px; }
+ .entry-editor-heading h3 { font-size: 24px; }
 }
+/* All author-editable controls retain one visible focus owner. */
+.editor-main :is(.text-input, .select-input, .text-area, .search-input):focus { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: none; }
+.entry-workspace-card .entry-item.active { background: var(--nav-selected); }
+@media (max-width: 760px), (pointer: coarse) {
+  .editor-tab, .editor-main :is(.primary-btn, .ghost-btn, .danger-btn, .text-input, .select-input, .search-input, summary), .entry-workspace-card .entry-tools :is(.search-input, .select-input, .ghost-btn) { min-height: 44px; height: auto; }
+}
+@media (max-width: 760px) { .editor-layout { border-radius: 0; } }
+/* ---------- W5·B5 章回结算面板（复用既有 token；summary/按钮触达面与其余分区一致） ---------- */
+
+.settlement-lede {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.settlement-channel {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.settlement-channel.online {
+  border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  color: var(--accent);
+}
+
+.settlement-draft-gen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--border) 66%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 46%, transparent);
+}
+
+.settlement-draft-gen .full-width {
+  grid-column: 1 / -1;
+}
+
+.settlement-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settlement-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settlement-piece {
+  margin-top: 10px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: 8px;
+}
+
+.settlement-piece > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 620;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settlement-piece > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settlement-piece > summary:hover {
+  color: var(--text-primary);
+}
+
+.settlement-piece[open] > summary {
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.settlement-piece > *:not(summary) {
+  margin: 10px 0;
+}
+
+.settlement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.settlement-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+.settlement-piece-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settlement-piece-actions .settlement-hint {
+  margin-right: auto;
+}
+
+.settlement-character {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.settlement-character-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settlement-character-head .select-input {
+  flex: 1 1 220px;
+}
+
+.settlement-written {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.settlement-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.settlement-add-row .text-input {
+  flex: 1 1 260px;
+}
+
+.settlement-views {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+}
+
+.settlement-ledger-view {
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-secondary) 62%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settlement-covert-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settlement-covert {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 48%, transparent);
+  border-radius: 8px;
+}
+
+.settlement-covert header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.settlement-covert p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settlement-covert-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--danger, #c0392b) 46%, transparent);
+  color: var(--danger, #c0392b);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .settlement-channel {
+    white-space: normal;
+  }
+}
+@media (prefers-reduced-motion: reduce) { .editor-main :is(button, input, select, textarea) { animation: none; transition: none; } }
 </style>

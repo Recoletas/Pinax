@@ -217,9 +217,19 @@ export function resolveConflicts(candidates, { taskKind = 'manuscript' } = {}) {
   return { winners, losers, unresolved }
 }
 
-// 表示选择 + 打包：按 authority → 位置 → 大小排序，预算内逐项装入。
-function pack(winners, profile) {
+function isCurrentManuscript(candidate, target) {
+  return candidate.kind === 'manuscript-unit'
+    && candidate.temporalRelation === 'at-target'
+    && !candidate.intendedReference
+    && (!target?.unitId || candidate.position.unitId === target.unitId)
+}
+
+// 先保留已经通过 eligibility/conflict 的落笔正文，再装入钉选与其他资料。
+// 否则钉选可耗尽预算，让“接着写”实际只看到设定而看不到接续位置。
+function pack(winners, profile, target) {
   const ranked = [...winners].sort((a, b) => {
+    const currentDelta = Number(isCurrentManuscript(b, target)) - Number(isCurrentManuscript(a, target))
+    if (currentDelta) return currentDelta
     const pinnedDelta = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
     if (pinnedDelta) return pinnedDelta
     const authorityDelta = authorityRank(b.sourceAuthority) - authorityRank(a.sourceAuthority)
@@ -238,6 +248,13 @@ function pack(winners, profile) {
     }
     const representation = pickRepresentation(candidate, profile, profile.totalChars - used)
     if (!representation) {
+      if (isCurrentManuscript(candidate, target) && target?.contextMode) {
+        throw Object.assign(new Error(target.contextMode === 'rewrite-unit'
+          ? '当前文本块过长，无法完整重写。请先拆分文本块后重试。'
+          : '当前落笔文本超出本次上下文范围，请缩小生成范围后重试。'), {
+          code: 'AUTHORING_TARGET_CONTEXT_TOO_LONG'
+        })
+      }
       excluded.push(excludeCandidate(candidate, 'no-allowed-representation'))
       continue
     }
@@ -258,6 +275,9 @@ function pack(winners, profile) {
       sourceAuthority: candidate.sourceAuthority,
       narrativeStatus: candidate.narrativeStatus,
       temporalRelation: candidate.temporalRelation,
+      ...(isCurrentManuscript(candidate, target) && target?.contextMode
+        ? { contextMode: target.contextMode }
+        : {}),
       reason: candidate.reason,
       revision: candidate.revision,
       pinned: candidate.pinned,
@@ -304,7 +324,7 @@ export function compileWritingContext({
   }
   const { winners, losers, unresolved } = resolveConflicts(eligible, { taskKind })
   const conflictExcluded = losers
-  const { blocks, excluded, totalChars } = pack(winners, profileSpec)
+  const { blocks, excluded, totalChars } = pack(winners, profileSpec, target)
   const dependencyMerge = mergeWritingContextDependencyRevisions([
     ...Object.entries(dependencyRevisions || {}),
     ...blocks.flatMap((block) => {

@@ -1,11 +1,14 @@
 <script setup>
+import './AuthoringCatalogWorkbench.css'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr, formatUiNumber, uiLocale } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
 import { buildAuthoringSettingContext } from '../../services/authoring/authoringSettingContext.js'
 
 import { useRouter } from 'vue-router'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 const props = defineProps({
   worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' },
@@ -15,12 +18,14 @@ const props = defineProps({
   caretContext: { type: Object, default: null }, focusEntryId: { type: String, default: '' },
   candidateEntryIds: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'toggle-pin', 'close'])
+const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'close'])
 const router = useRouter()
+const workspace = useComposableWorkspace()
 // N-A：本书资料概况与入口（NA04 右栏片）。资料数量来自绑定世界书的 sourceDocuments。
 const sourceCount = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments.length : 0))
 function openSourcesPanel() {
   if (!props.bookId) return
+  if (workspace?.openResource({ type: 'sources', bookId: props.bookId, worldbookId: String(props.worldbook?.id || '') })) return
   router.push({ name: 'settings-sources', query: { bookId: props.bookId } })
 }
 function openAddSources() {
@@ -41,6 +46,21 @@ const contentInput = ref(null)
 const draft = reactive({ name: '', type: 'general', content: '', keysText: '', group: '', mode: 'selective' })
 let hydrating = false
 let saveTimer = null
+let draftDirty = false
+let draftBaseline = ''
+let draftOwnerWorldbookId = ''
+const externalConflict = ref(false)
+const fingerprint = entry => JSON.stringify(entry || null)
+function preserveExternalDraft() {
+  if (draftDirty && selectedId.value) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'setting', { baseline: draftBaseline, draft: { ...draft } })
+}
+function reloadExternalDraft() {
+  if (window.confirm(tr('载入最新条目会替换当前未保存的输入，是否继续？'))) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'setting'); loadDraft(selectedEntry.value) }
+}
+function overwriteExternalDraft() {
+  if (!window.confirm(tr('条目已经更新，确定用当前输入覆盖吗？'))) return
+  draftBaseline = fingerprint(selectedEntry.value); externalConflict.value = false; flushSave()
+}
 
 const nonCharacterEntries = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type !== 'character'))
 const selectedEntry = computed(() => nonCharacterEntries.value.find((entry) => String(entry.id) === selectedId.value) || null)
@@ -69,11 +89,18 @@ const groupedEntries = computed(() => {
   return [...groups.entries()].map(([name, entries]) => ({ name, entries }))
 })
 function loadDraft(entry) {
+  draftOwnerWorldbookId = String(props.worldbook?.id || '')
+  clearTimeout(saveTimer); saveTimer = null; draftDirty = false; externalConflict.value = false; draftBaseline = fingerprint(entry)
   hydrating = true
   Object.assign(draft, {
     name: entry?.name || '', type: entry?.type || 'general', content: entry?.content || '',
     keysText: (entry?.keys || []).join('、'), group: entry?.injection?.group || '', mode: entry?.injection?.mode || 'selective'
   })
+  const saved = readEntryPanelDraft(props.worldbook?.id, entry?.id, 'setting')
+  if (saved?.draft && typeof saved.baseline === 'string') {
+    for (const key of Object.keys(draft)) if (typeof saved.draft[key] === 'string') draft[key] = saved.draft[key]
+    draftBaseline = saved.baseline; draftDirty = true; externalConflict.value = true
+  }
   hydrating = false
   nextTick(resizeContent)
 }
@@ -103,11 +130,16 @@ function entryPayload() {
 function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
+  if (!draftDirty) return
+  if (draftOwnerWorldbookId !== String(props.worldbook?.id || '')) { preserveExternalDraft(); return }
+  if (fingerprint(selectedEntry.value) !== draftBaseline) { externalConflict.value = true; preserveExternalDraft(); return }
+  draftDirty = false
   const payload = entryPayload()
   if (payload) emit('update', selectedEntry.value.id, payload, { silent: true })
 }
 function scheduleSave() {
   if (hydrating || !selectedEntry.value) return
+  draftDirty = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 500)
 }
@@ -140,6 +172,11 @@ function applyAiCandidate(candidate) {
   nextTick(() => { resizeContent(); flushSave() })
 }
 
+watch(() => fingerprint(selectedEntry.value), (current) => {
+  if (current === draftBaseline) return
+  if (draftDirty) { clearTimeout(saveTimer); saveTimer = null; externalConflict.value = true; preserveExternalDraft() }
+  else if (selectedEntry.value) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'setting'); loadDraft(selectedEntry.value) }
+})
 watch(draft, scheduleSave, { deep: true, flush: 'sync' })
 watch(nonCharacterEntries, (entries) => {
   if (selectedEntry.value) return
@@ -151,32 +188,28 @@ watch(() => props.focusEntryId, (id) => {
   if (target) selectEntry(target)
 })
 watch(() => props.worldbook?.id, () => {
+  preserveExternalDraft(); draftDirty = false; externalConflict.value = false
   selectedId.value = ''
+  nextTick(() => { const entry = nonCharacterEntries.value[0]; if (entry) selectEntry(entry) })
   query.value = ''
   directoryMode.value = 'contextual'
   typeFilter.value = 'all'
 })
-onBeforeUnmount(flushSave)
+onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
 </script>
 
 <template>
-  <section class="authoring-setting-workbench">
-    <main class="setting-sheet">
-      <div class="setting-sources" data-test="authoring-sources-line">
-        <span class="setting-sources__label">
-          {{ tr('资料 · {count}', { count: formatUiNumber(sourceCount) }) }}
-        </span>
-        <button type="button" class="setting-sources__action" :disabled="!bookId" @click="openAddSources">{{ tr('添加资料') }}</button>
-        <button type="button" class="setting-sources__action setting-sources__action--quiet" :disabled="!bookId || !sourceCount" @click="openSourcesPanel">{{ tr('查看与管理') }}</button>
-      </div>
+  <section class="authoring-setting-workbench catalog-workbench" data-catalog="settings">
+    <main class="setting-sheet catalog-sheet">
+      <div v-if="externalConflict" class="catalog-external-conflict" role="alert"><p>{{ tr('条目已更新，当前输入尚未保存。') }}</p><button type="button" @click="reloadExternalDraft">{{ tr('载入最新') }}</button><button type="button" @click="overwriteExternalDraft">{{ tr('保存当前输入') }}</button></div>
       <template v-if="worldbook && selectedEntry">
-        <header class="setting-sheet__head">
+        <header class="setting-sheet__head catalog-sheet-head">
           <input v-model="draft.name" :aria-label="tr('设定名称')" @blur="flushSave" />
           <button type="button" class="setting-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
           <button type="button" class="setting-delete" :aria-label="tr('删除设定')" :title="tr('删除设定')" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
         </header>
         <AuthoringSettingAiReview v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
-        <div class="setting-sheet__scroll">
+        <div class="setting-sheet__scroll catalog-sheet-body">
           <!-- A2-1：内容优先；触发词/注入归"用于AI的规则"折叠；类型/分组归对象属性 -->
           <label class="setting-content"><span>{{ tr('内容') }}</span><textarea ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
           <div class="setting-object-row">
@@ -199,10 +232,19 @@ onBeforeUnmount(flushSave)
         <button type="button" @click="startCreate">{{ tr('新建设定') }}</button>
         <button type="button" @click="emit('bind')">{{ tr('关联已有资料库') }}</button>
       </div>
+      <div class="setting-sources" data-test="authoring-sources-line">
+        <span class="setting-sources__label">
+          {{ tr('资料 · {count}', { count: formatUiNumber(sourceCount) }) }}
+        </span>
+        <button type="button" class="setting-sources__action" :disabled="!bookId" @click="openAddSources">{{ tr('添加资料') }}</button>
+        <button type="button" class="setting-sources__action setting-sources__action--quiet" :disabled="!bookId || !sourceCount" @click="openSourcesPanel">{{ tr('查看与管理') }}</button>
+      </div>
     </main>
-    <aside class="setting-directory">
-      <div class="catalog-window-controls"><button type="button" :title="tr('固定设定工作台')" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr('关闭设定工作台')" @click="emit('close')">×</button></div>
-      <div class="setting-directory__search-row"><div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('搜索…')" :aria-label="tr('搜索设定')" /></div><button type="button" class="setting-create" :aria-label="tr('新建设定')" @click="startCreate"><WorkbenchIcon name="bookmark-plus" :size="15" /><span>{{ tr('新建') }}</span></button></div>
+    <aside class="setting-directory catalog-directory">
+      <div class="catalog-window-controls"><button type="button" :title="tr('关闭设定工作台')" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
+      <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('设定')" :aria-label="tr('搜索设定')" /></div>
+      <div class="catalog-actions"><button type="button" class="primary" @click="startCreate">{{ tr('新建') }}</button><button type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('展开设定') }}</button></div>
+      <header><strong>{{ tr('目录') }}</strong></header>
       <nav class="setting-directory__modes" :aria-label="tr('设定目录范围')"><button type="button" :class="{ active: directoryMode === 'contextual' }" @click="directoryMode = 'contextual'">{{ uiLocale === 'en' ? tr('相关设定') : tr('当前落笔处') }}</button><button type="button" :class="{ active: directoryMode === 'all' }" @click="directoryMode = 'all'">{{ tr('全部') }}</button></nav>
       <select v-model="typeFilter" class="setting-type-filter" :aria-label="tr('筛选设定类型')"><option value="all">{{ tr('全部类型') }}</option><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select>
       <section v-for="group in groupedEntries" :key="group.name" class="setting-directory__group">
@@ -210,14 +252,13 @@ onBeforeUnmount(flushSave)
         <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.entries" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" :title="entry.name || tr('未命名设定')" @click="selectEntry(entry)"><span>{{ entry.name || tr('未命名设定') }}</span></button></template>
       </section>
       <div v-if="!groupedEntries.length" class="setting-directory__empty">{{ directoryMode === 'contextual' ? tr('当前落笔处没有命中的设定') : tr('没有匹配的设定') }}</div>
-      <button class="setting-open-full" type="button" @click="emit('open-full', selectedEntry?.id)">{{ tr('高级管理') }}</button>
     </aside>
   </section>
 </template>
 
 <style scoped>
 .authoring-setting-workbench{display:grid;grid-template-columns:minmax(300px,1.35fr) minmax(210px,.95fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}
-button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:#fff!important}
+button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:var(--accent-text)!important}
 .setting-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.setting-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.setting-sheet__head input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 17px/1.5 var(--font-body);outline:0}.setting-sheet__head input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-ai{color:var(--accent-primary);font-size:11px}.setting-delete{width:28px;height:28px}.setting-sheet__scroll{flex:1;min-height:0;overflow:auto;padding:7px 16px 32px}.setting-sheet__scroll label{display:grid;gap:7px;padding:14px 0;border-bottom:1px dashed var(--border-subtle)}.setting-sheet__scroll label>span{color:var(--text-secondary);font-size:12px}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{box-sizing:border-box;width:100%;border:0;outline:0;background:transparent;color:var(--text-primary);font:14px/1.8 var(--font-body)}.setting-sheet__scroll textarea{min-height:180px;overflow:hidden;resize:none}.setting-sheet__scroll input:focus,.setting-sheet__scroll textarea:focus,.setting-sheet__scroll select:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .setting-object-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 0 4px}
 .setting-ai-rules{border-top:1px dashed var(--border-subtle);margin-top:4px;padding-top:2px}

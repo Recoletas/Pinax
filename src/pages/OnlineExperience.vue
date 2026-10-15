@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { useOnlineRoom } from '../composables/useOnlineRoom'
 import { createExperienceSessionAdapter } from '../services/experience/experienceSessionAdapter'
 import { scrubCollaborationInviteFragment } from '../services/collaboration/endpoint'
@@ -8,8 +8,18 @@ import OnlineChatOverlay from '../components/experience/OnlineChatOverlay.vue'
 import OnlineRoomPanel from '../components/experience/OnlineRoomPanel.vue'
 import Experience from './Experience.vue'
 
+const workspaceProps = defineProps({ workspaceEmbedded: Boolean, workspaceActive: { type: Boolean, default: true } })
 const route = useRoute()
 const router = useRouter()
+
+const experienceView = ref(null)
+const roomActive = computed(() => hasEnteredRoom.value && !['idle', 'disconnected', 'disabled'].includes(connectionState.value))
+function canCloseWorkspace() { return !roomActive.value && experienceView.value?.canCloseWorkspace?.() !== false }
+if (!workspaceProps.workspaceEmbedded) {
+  onBeforeRouteLeave(canCloseWorkspace)
+  onBeforeRouteUpdate((to, from) => to.params.roomSlug === from.params.roomSlug && to.query.bookId === from.query.bookId || canCloseWorkspace())
+}
+defineExpose({ canCloseWorkspace, getWorkspaceTaskSummary: () => roomActive.value ? { label: `联机房间 · ${roomSlug.value}`, icon: 'users' } : null })
 
 const roomSlug = computed(() => route.params.roomSlug || '')
 const inviteCredentials = import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true' && /^#(?:invite|secret|contentKey)=/.test(window.location.hash)
@@ -56,6 +66,9 @@ const lobbyNickname = ref(nickname.value || '')
 const lobbyRoomSlug = ref(roomSlug.value || '')
 const lobbyError = ref('')
 const copyError = ref('')
+const copyNotice = ref('')
+const copyFallbackUrl = ref('')
+const roomPanelOpen = ref(false)
 const hasEnteredRoom = ref(false)
 let pendingCreateSlug = ''
 let pendingJoinSlug = ''
@@ -77,13 +90,16 @@ async function onEnterRoom() {
   }
   const targetSlug = lobbyRoomSlug.value || generateSlug()
   pendingJoinSlug = targetSlug
-  if (roomSlug.value !== targetSlug) await router.push({ name: 'online-experience', params: { roomSlug: targetSlug } })
+  if (roomSlug.value !== targetSlug) {
+    const failure = await router.push({ name: 'online-experience', params: { roomSlug: targetSlug }, query: route.query })
+    if (failure) { pendingJoinSlug = ''; lobbyError.value = '请先处理当前任务，再加入房间'; return }
+  }
   pendingJoinSlug = ''
   hasEnteredRoom.value = true
   await joinRoom(targetSlug, lobbyNickname.value)
 }
 
-function onCreateRoom() {
+async function onCreateRoom() {
   lobbyError.value = ''
   if (!lobbyNickname.value) {
     lobbyError.value = '请输入昵称'
@@ -91,8 +107,11 @@ function onCreateRoom() {
   }
   const targetSlug = generateSlug()
   pendingCreateSlug = targetSlug
+  const failure = await router.push({ name: 'online-experience', params: { roomSlug: targetSlug }, query: route.query })
+  pendingCreateSlug = ''
+  if (failure) { lobbyError.value = '请先处理当前任务，再创建房间'; return }
   hasEnteredRoom.value = true
-  router.push({ name: 'online-experience', params: { roomSlug: targetSlug } }).then(() => createRoom(targetSlug, lobbyNickname.value))
+  await createRoom(targetSlug, lobbyNickname.value)
 }
 
 function onRoomSendChat(text) {
@@ -112,30 +131,48 @@ function onRoomSelectAction(proposalId) {
 }
 
 function onRoomLeave() {
+  copyFallbackUrl.value = ''
+  copyNotice.value = ''
+  copyError.value = ''
+  roomPanelOpen.value = false
   leaveRoom()
   hasEnteredRoom.value = false
-  router.push({ name: 'online-experience' })
+  router.replace({ name: 'online-experience', query: route.query })
 }
 
-function onCopyRoomLink() {
-  refreshShareInviteState()
-  const url = shareInviteUrl.value
-  if (!url) {
-    copyError.value = '分享邀请已过期或尚未生成，请由房主重新创建邀请'
-    return
-  }
+async function onCopyRoomLink() {
   copyError.value = ''
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).catch(() => {})
+  copyNotice.value = ''
+  copyFallbackUrl.value = ''
+  const sourceRoom = roomSlug.value
+  let url = ''
+  if (import.meta.env.VITE_COLLABORATION_V2_ENABLED === 'true') {
+    refreshShareInviteState()
+    url = shareInviteUrl.value
+    if (!url) {
+      copyError.value = '分享邀请已过期或尚未生成，请由房主重新创建邀请'
+      return
+    }
+  } else {
+    url = new URL(router.resolve({ name: 'online-experience', params: { roomSlug: sourceRoom } }).href, window.location.href).href
+  }
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable')
+    await navigator.clipboard.writeText(url)
+    if (roomSlug.value === sourceRoom && hasEnteredRoom.value) copyNotice.value = '房间链接已复制'
+  } catch {
+    if (roomSlug.value !== sourceRoom || !hasEnteredRoom.value) return
+    copyError.value = '浏览器未能复制，请选中下方链接手动复制。'
+    copyFallbackUrl.value = url
   }
 }
 
 watch(roomSlug, (newSlug) => {
   if (newSlug && lobbyNickname.value) {
-    if (pendingCreateSlug === newSlug) { pendingCreateSlug = ''; return }
+    if (pendingCreateSlug === newSlug) return
     if (pendingJoinSlug === newSlug) return
     hasEnteredRoom.value = true
-    if (connectionState.value === 'idle') joinRoom(newSlug, lobbyNickname.value)
+    if (['idle', 'disconnected', 'disabled'].includes(connectionState.value)) joinRoom(newSlug, lobbyNickname.value)
   }
 }, { immediate: true })
 
@@ -202,18 +239,22 @@ watch(() => events.length, () => {
         </div>
       </div>
 
-      <div v-else-if="roomSlug" class="online-page__room">
+      <div v-else-if="roomSlug" class="online-page__room" :class="{ 'is-room-panel-open': roomPanelOpen }">
+        <button type="button" class="online-page__room-toggle control-quiet" :aria-expanded="roomPanelOpen" aria-controls="online-room-panel" @click="roomPanelOpen = !roomPanelOpen">
+          <span>房间 · {{ members.length }} 人<template v-if="proposals.length"> · {{ proposals.length }} 项提议</template></span>
+          <span>{{ roomPanelOpen ? '收起' : '查看' }}</span>
+        </button>
         <div class="online-page__stage">
-          <Experience class="online-page__experience" :online-session="onlineSession" />
+          <Experience ref="experienceView" class="online-page__experience" :online-session="onlineSession" :workspace-active="workspaceProps.workspaceActive" />
           <OnlineChatOverlay
             :messages="chatMessages"
             :is-connected="isConnected"
             @send="onRoomSendChat"
           />
         </div>
+        <div id="online-room-panel" class="online-page__room-panel">
         <OnlineRoomPanel
           compact
-          class="online-page__room-panel"
           :room-slug="roomSlug"
           :connection-state="connectionState"
           :error="copyError || error"
@@ -226,6 +267,9 @@ watch(() => events.length, () => {
           @leave="onRoomLeave"
           @copy-link="onCopyRoomLink"
         />
+        <p v-if="copyNotice" class="online-page__copy-notice" role="status">{{ copyNotice }}</p>
+        <input v-if="copyFallbackUrl" class="online-page__copy-fallback" :value="copyFallbackUrl" readonly aria-label="手动复制房间链接" @focus="$event.target.select()" />
+        </div>
         <div v-if="connectionState === 'connecting'" class="online-page__overlay">
           <span class="online-page__spinner" aria-label="连接中">连接中...</span>
         </div>
@@ -375,7 +419,8 @@ watch(() => events.length, () => {
 .online-page__room {
   flex: 1;
   min-height: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
   position: relative;
 }
 
@@ -388,26 +433,43 @@ watch(() => events.length, () => {
 .online-page__stage {
   position: relative;
   width: 100%;
-  height: 100%;
+  height: auto;
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
+.online-page__room-toggle { display: flex; justify-content: space-between; flex-shrink: 0; min-height: 44px; padding: 8px 18px; color: var(--text-secondary); background: var(--surface-workbench); border: 0; border-bottom: 1px solid var(--hairline-soft); font-size: 12px; }
+.online-page__copy-notice { margin: 0; padding: 8px 12px; color: var(--text-secondary); background: var(--bg-primary); font-size: 12px; }
+.online-page__copy-fallback { width: 100%; box-sizing: border-box; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 18%, transparent)); padding: 10px; font-size: 12px; }
+
 .online-page__room-panel {
-  position: absolute;
-  top: 54px;
-  right: 12px;
-  z-index: 9;
-  width: min(220px, calc(100% - 24px));
+  display: none;
+  position: static;
+  flex: 0 0 auto;
+  max-height: 38vh;
+  overflow: auto;
+  margin: 0 12px 8px;
+  width: auto;
 }
+
+.is-room-panel-open .online-page__room-panel { display: block; }
 
 @media (max-width: 900px) {
   .online-page__room-panel {
     top: 52px;
     right: 10px;
-    width: min(210px, calc(100% - 20px));
+    width: auto;
   }
+}
+
+@media (max-width: 760px) {
+  .online-page__room { display: flex; flex-direction: column; }
+  .online-page__room-toggle { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; min-height: 44px; width: 100%; padding: 8px 18px; color: var(--text-secondary); background: var(--bg-primary); border-bottom: 1px solid var(--hairline-soft, color-mix(in srgb, var(--text-muted) 18%, transparent)); font-size: 12px; }
+  .online-page__room-panel { display: none; position: static; order: 1; flex: 0 0 auto; width: auto; max-height: 38vh; overflow: auto; margin: 0 10px 8px; }
+  .is-room-panel-open .online-page__room-panel { display: block; }
+  .online-page__stage { order: 2; flex: 1 1 0; height: auto; }
 }
 
 .online-page__overlay {

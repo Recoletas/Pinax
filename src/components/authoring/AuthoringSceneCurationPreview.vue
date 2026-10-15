@@ -85,9 +85,10 @@ const changed = computed(() => rows.value.some((row) => row.changed))
 <style scoped>
 .authoring-scene-curation-preview {
   width: 100%;
-  padding: 13px 12px 11px 36px;
-  border-block: 1px solid color-mix(in srgb, var(--archive-olive) 25%, var(--border-subtle));
-  background: color-mix(in srgb, var(--archive-olive) 3%, transparent);
+  box-sizing: border-box;
+  padding: 12px;
+  border: 0;
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--font-sans, sans-serif);
 }
@@ -125,6 +126,6 @@ const changed = computed(() => rows.value.some((row) => row.changed))
 .authoring-scene-curation-preview .is-changed { box-shadow: inset 2px 0 color-mix(in srgb, var(--archive-olive) 55%, transparent); }
 .authoring-scene-curation-preview p { margin: 7px 0; color: var(--signal-danger, var(--text-primary)); font-size: 11px; }
 @media (max-width: 720px) {
-  .authoring-scene-curation-preview { padding: 12px 8px 10px 28px; }
+  .authoring-scene-curation-preview { padding: 12px; }
 }
 </style>

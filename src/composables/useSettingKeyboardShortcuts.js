@@ -20,6 +20,7 @@ export function useSettingKeyboardShortcuts(handlers = {}) {
   }
 
   function onKeydown(e) {
+    if (handlers.ownsKeyboard && !handlers.ownsKeyboard(e)) return
     const cmd = e.metaKey || e.ctrlKey
     const inSettingField = isSettingFieldTarget(e.target)
     const inPageInput = isPageInputTarget(e.target)

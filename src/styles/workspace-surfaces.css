@@ -2,38 +2,38 @@
 /* Writing inputs: one boundary and one focus owner, no nested highlighted boxes. */
 .theme-legacy .app-shell .writing-inspector :is(.authoring-block-composer__instruction textarea, .authoring-block-composer__more-body textarea, .writing-annotation-composer textarea, .writing-rewrite-panel__input) {
   box-sizing: border-box; width: 100%; min-width: 0; min-height: 96px; padding: 12px;
-  border: 1px solid var(--archive-paper-strong); border-radius: 8px;
-  background: var(--archive-paper-soft); color: var(--archive-ink); box-shadow: none;
+  border: 1px solid var(--hairline-soft); border-radius: 12px;
+  background: var(--surface-workbench-input); color: var(--archive-ink); box-shadow: none;
   font: 14px/1.65 var(--font-sans); resize: vertical;
 }
 .theme-legacy .app-shell .writing-inspector :is(.authoring-block-composer__instruction textarea, .authoring-block-composer__more-body textarea, .writing-annotation-composer textarea, .writing-rewrite-panel__input):focus {
-  outline: 1px solid var(--accent); outline-offset: 0; border-color: var(--accent); box-shadow: none;
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; box-shadow: none;
 }
-.theme-legacy .app-shell .writing-inspector .authoring-knowledge__input-row { background: var(--archive-paper-soft); box-shadow: none; padding: 12px; }
-.theme-legacy .app-shell .writing-inspector .authoring-knowledge__input-row:focus-within { outline: 1px solid var(--accent); outline-offset: 0; box-shadow: none; }
-.theme-legacy .app-shell .authoring-knowledge__tasks select { max-width: 100%; padding: 6px 10px; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper-soft); color: var(--archive-ink); font: 13px/1.4 var(--font-sans); }
-.theme-legacy .app-shell .authoring-knowledge__suggestions summary { color: var(--archive-ink-soft); font-size: 13px; cursor: pointer; padding: 10px 0; }
 .theme-legacy .app-shell {
-  --workspace-toolbar-height: 46px;
-  --workspace-control-height: 34px;
-  --workspace-radius: 6px;
+  --workspace-toolbar-height: 52px;
+  --workspace-control-height: 36px;
+  --workspace-radius: var(--radius-control);
 }
-.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .docs-page__head, .settings-topbar) {
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast, .docs-page__head, .settings-topbar) {
   min-height: var(--workspace-toolbar-height);
-  background: var(--archive-paper-soft);
-  border-bottom: 1px solid var(--archive-paper-strong);
+  background: var(--surface-workbench-canvas);
+  background-image: none;
+  border-bottom: 0;
   box-shadow: none;
+  font-family: var(--font-sans);
 }
-.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) { padding-inline: 20px; gap: 12px; }
-.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) button {
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast) { padding-inline: 20px; gap: 12px; }
+.theme-legacy .app-shell .shell-content :where(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast) :where(button, a) {
   min-height: var(--workspace-control-height);
   border-radius: var(--workspace-radius);
+  font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.4;
   font-weight: 500;
 }
-.theme-legacy .app-shell .shell-content :is(.notes-content-area, .reading-deck, .comic-studio__workspace, .comic-studio__canvas-stage) {
-  background: var(--archive-paper);
+.theme-legacy .app-shell .shell-content .notes-content-area { background: var(--surface-workbench-canvas); }
+.theme-legacy .app-shell .shell-content :is(.reading-deck, .comic-studio__workspace, .comic-studio__canvas-stage) {
+  background: var(--surface-workbench);
   background-image: none;
 }
 .theme-legacy .app-shell .shell-content :is(.notes-content-area, .reading-deck)::before,
@@ -43,37 +43,31 @@
 .theme-legacy .app-shell .shell-content :is(.active-card__tape, .active-card__ruled-lines) { display: none; }
 .theme-legacy .app-shell .shell-content .active-card {
   width: 100%; max-width: none; margin: 0; padding: 28px 32px 20px;
-  border: 1px solid var(--archive-paper-strong); border-radius: var(--workspace-radius);
-  background: var(--archive-paper-soft); box-shadow: 0 2px 8px color-mix(in srgb, var(--archive-ink) 4%, transparent);
+  border: 0; border-radius: 0;
+  background: var(--surface-workbench); box-shadow: none;
 }
 .theme-legacy .app-shell .shell-content .active-card .chapter-title-input { font-family: inherit; font-size: 24px; font-weight: 600; }
 .theme-legacy .app-shell .shell-content .reading-deck { padding: 24px; }
 .theme-legacy .app-shell .shell-content .comic-planner { width: 100%; max-width: none; margin: 0; padding: 28px 32px; }
-.theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface { background: var(--archive-paper); border: 0; }
+.theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface { background: var(--surface-workbench); border: 0; }
 .theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::before,
 .theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::after { display: none; }
 .theme-legacy .app-shell .shell-content .comic-planner__header h2 { font-family: inherit; font-size: 26px; font-weight: 600; }
 .theme-legacy .app-shell .shell-content :is(.comic-planner__header p, .comic-planner__empty p) { font-size: 14px; line-height: 1.7; }
-.theme-legacy .app-shell .shell-content :is(.comic-planner__primary, .active-card button) { min-height: 34px; border-radius: 6px; font-size: 14px; }
+.theme-legacy .app-shell .shell-content :is(.comic-planner__primary, .active-card button) { min-height: var(--workspace-control-height); border-radius: var(--workspace-radius); font-size: 14px; }
 .theme-legacy .app-shell .shell-content .docs-page__head-inner { min-height: var(--workspace-toolbar-height); padding-block: 0; }
-.theme-legacy .app-shell .shell-content .docs-page__sidebar { background: var(--archive-paper); }
-.theme-legacy .app-shell .shell-content .authoring-editor-toolbar-host { min-height: var(--workspace-toolbar-height); background: var(--archive-paper-soft); border-color: var(--archive-paper-strong); }
-.theme-legacy .app-shell .shell-content .scene-board-host > .scene-material-board { flex: 1; width: 100%; background: var(--archive-paper); }
+.theme-legacy .app-shell .shell-content .docs-page__sidebar { background: var(--surface-workbench-muted); }
+.theme-legacy .app-shell .shell-content .authoring-editor-toolbar-host { min-height: var(--workspace-toolbar-height); background: var(--surface-workbench-canvas); border-color: transparent; }
+.theme-legacy .app-shell .shell-content .scene-board-host > .scene-material-board { flex: 1; width: 100%; background: var(--surface-workbench); }
 .theme-legacy .app-shell .shell-content .active-card .prose-rich-editor { width: 100%; min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  .theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) { padding-inline: 12px; gap: 8px; }
+  .theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast) { padding-inline: 12px; gap: 8px; }
   .theme-legacy .app-shell .shell-content :is(.active-card, .comic-planner) { padding: 20px 16px; }
   .theme-legacy .app-shell .shell-content .reading-deck { padding: 12px; }
 }
-.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar) {
-  background: var(--archive-paper-soft);
-  border-color: var(--archive-paper-strong);
-  min-height: var(--workspace-toolbar-height);
-  box-shadow: none;
-}
 .theme-legacy .app-shell .shell-content :is(.manuscript-top__tab, .prose-top__chip, .comic-studio__mode-btn) {
-  min-height: 36px;
-  border-radius: 5px;
+  min-height: var(--workspace-control-height);
+  border-radius: var(--workspace-radius);
   font-size: 14px;
   font-style: normal;
 }
@@ -83,20 +77,20 @@
   color: var(--archive-ink-soft);
 }
 .theme-legacy .app-shell .shell-content .material-drawer {
-  background: var(--archive-paper);
-  border-right: 1px solid var(--archive-paper-strong);
+  background: var(--surface-workbench-muted);
+  border-right: 0;
   box-shadow: none;
 }
 .theme-legacy .app-shell .shell-content .drawer-handle {
   min-height: 40px;
   background: transparent;
   box-shadow: none;
-  border-color: var(--archive-paper-strong);
+  border-color: var(--hairline-soft);
 }
 .theme-legacy .app-shell .shell-content .drawer-handle__title { font-size: 14px; }
 .theme-legacy .app-shell .shell-content .index-card {
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--workspace-radius);
   box-shadow: none;
   transform: none;
   background: transparent;
@@ -105,12 +99,14 @@
   background: var(--nav-selected);
   box-shadow: none;
 }
-.theme-legacy .app-shell .shell-content .material-drawer:focus-within .index-card.is-selected { background: var(--nav-focused); }
 .theme-legacy .app-shell .shell-content .index-card:hover { background: var(--nav-hover); box-shadow: none; transform: none; }
 .theme-legacy .app-shell .shell-content .index-card:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .theme-legacy .app-shell .shell-content .index-card::before,
 .theme-legacy .app-shell .shell-content .index-card::after { display: none; }
 .theme-legacy .app-shell .shell-content .index-card__title { font-size: 14px; }
-.theme-legacy .app-shell .shell-content .notes-sidekick { background: var(--archive-paper); border-color: var(--archive-paper-strong); }
+.theme-legacy .app-shell .shell-content .notes-sidekick { background: var(--surface-workbench-muted); border-color: transparent; }
 .theme-legacy .app-shell .shell-content .notes-sidekick__title { font-size: 15px; }
-.theme-legacy .app-shell .shell-content .writing-page .authoring-editor-toolbar-host .tool-btn { font-size: 14px; border-radius: 5px; }
+.theme-legacy .app-shell .shell-content .writing-page .authoring-editor-toolbar-host .tool-btn { font-family: var(--font-sans); font-size: 14px; border-radius: var(--workspace-radius); }
+@media (max-width: 760px), (pointer: coarse) {
+  .theme-legacy .app-shell { --workspace-control-height: 44px; }
+}

@@ -55,6 +55,10 @@ export async function addNarrativeImageAsset(input = {}, options = {}) {
     : null
   let createdMedia = false
 
+  if (mediaAsset && mediaAsset.projectId !== (input.projectId ?? null)) {
+    throw new Error('图片属于另一作品，请回到原作品保存素材。')
+  }
+
   if (!mediaAsset) {
     if (!image.data) throw new Error('参考图缺少可归档图片')
     mediaAsset = await saveImageBinary(narrativeAssetId, { ...input, id: narrativeAssetId }, options)
@@ -62,7 +66,13 @@ export async function addNarrativeImageAsset(input = {}, options = {}) {
   }
 
   try {
-    const created = addNarrativeAssetDurable({
+    const existing = listNarrativeAssets({ status: null, projectId: input.projectId ?? null, kind: 'reference-image' })
+      .find((asset) => asset.image?.mediaAssetId === mediaAsset.id)
+    const created = existing ? updateNarrativeAssetDurable(existing.id, {
+      status: input.status === 'accepted' ? 'accepted' : existing.status,
+      sourceRefs: normalizeSourceRefs([...(existing.sourceRefs || []), ...(input.sourceRefs || [])], { projectId: existing.projectId }),
+      image: toNarrativeImageMetadata({ ...existing.image, ...image }, mediaAsset)
+    }) : addNarrativeAssetDurable({
       ...input,
       id: narrativeAssetId,
       kind: 'reference-image',
@@ -77,6 +87,7 @@ export async function addNarrativeImageAsset(input = {}, options = {}) {
       excerpt: asset.content
     }
     updateMediaAsset(mediaAsset.id, {
+      status: asset.status === 'accepted' ? 'accepted' : mediaAsset.status,
       sourceRefs: normalizeSourceRefs([
         selfRef,
         ...(mediaAsset.sourceRefs || []),
@@ -179,8 +190,8 @@ function toNarrativeImageMetadata(image, mediaAsset) {
     modelName: image.modelName || mediaAsset.generationParams?.modelName || mediaAsset.model,
     modelId: image.modelId || mediaAsset.generationParams?.modelId || mediaAsset.model,
     modelType: image.modelType || mediaAsset.provider,
-    width: image.width || mediaAsset.width,
-    height: image.height || mediaAsset.height,
+    width: mediaAsset.width || image.width,
+    height: mediaAsset.height || image.height,
     presentation: normalizeImagePresentation(
       image.presentation || mediaAsset.generationParams?.presentation
     ),

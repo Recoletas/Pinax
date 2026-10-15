@@ -979,7 +979,7 @@ function drawScaleBar(
 ): void {
   const targetBarPx = 120
   const targetKm = targetBarPx * kmPerPixel
-  const niceSteps = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+  const niceSteps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
   let barKm = niceSteps[0]
   for (const step of niceSteps) {
     if (step <= targetKm * 2) barKm = step
@@ -1016,7 +1016,7 @@ function drawScaleBar(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   ctx.fillStyle = style.scaleBarColor
-  const label = barKm >= 1000 ? `${barKm / 1000}千公里` : `${barKm}公里`
+  const label = barKm < 1 ? `${Math.round(barKm * 1000)}米` : barKm >= 1000 ? `${barKm / 1000}千公里` : `${barKm}公里`
   ctx.fillText(label, x + barPx / 2, y + 3)
 }
 

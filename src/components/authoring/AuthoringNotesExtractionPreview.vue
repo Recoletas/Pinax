@@ -1,10 +1,10 @@
 <template>
   <div class="notes-extract" role="region" aria-label="速记提炼候选预览">
     <p class="notes-extract__hint">
-      本地规则初筛人物、地点、物品，可能漏识别。请核对原文；候选尚未创建正式设定。
+      自动识别可能遗漏，可选中文字补充候选。
     </p>
     <label class="notes-extract__label">
-      原文片段（可缩小范围，不改写）
+      原文片段
       <textarea v-model="sourceText" class="notes-extract__textarea"
         rows="4" aria-label="速记文本输入" @select="readSelection" />
     </label>

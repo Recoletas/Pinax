@@ -11,6 +11,38 @@ export const MOCK_BLOCK_EDITED_TEXT = [
   '铜钥匙滑到第二层石阶，他推开虚掩的铁门，确认灯室里空无一人，最后守卫停在灯塔门前。',
 ].join('')
 
+// 推演单步确定性 fixture（taskType `authoring.rehearsal.step`）。形状对齐
+// shared/capabilityToolContracts.js 的 REHEARSAL_STEP_SCHEMA submit 契约：
+// response/change 非空有界、choices 1-3 条、evidenceRefs 授权内、consequences 上限 2。
+// 宿主侧还有两道闸（shared/authoringRehearsalConsequenceContract.js 的
+// parseRehearsalResponse 与 authoringRehearsal.js 的逐字复述守卫——同一路内
+// 新回应与既有步骤共享 ≥32 字连续原文即拒绝），因此每幕 response 正文两两
+// 互不重叠，按调用序号轮换，任一 4 步路径内的连续回应必然不同文。
+const MOCK_REHEARSAL_STEP_BODIES = Object.freeze([
+  '守卫没有点破暗格前的手印，只把灯笼举高了一寸，让光替他问出第一个问题。',
+  '潮水退到第三级石阶时，守卫终于开口：昨夜灯室的门闩是从里面取下的。',
+  '守卫把哨子按在掌心，决定先绕灯塔一圈，看看有没有第三个人的脚印。',
+  '石阶尽头的灯室虚掩着，守卫数了三下心跳，把门推到只容一人侧身的宽度。',
+  '守卫回头望了一眼来路，雾把码头吞得只剩轮廓，他头一次觉得自己是孤身查案。',
+  '守卫蹲下身，用指尖量了量石阶上的水渍，宽度与昨夜他在档口见过的那双靴印一致。',
+])
+
+/**
+ * Build a deterministic, parse-gate-valid `authoring.rehearsal.step` reply.
+ * callIndex rotates the response body so consecutive steps on one path never
+ * repeat a ≥32-char passage (rehearsal verbatim-repeat guard).
+ */
+export function makeRehearsalStepFixture(callIndex = 0) {
+  const index = Math.max(0, Number(callIndex) || 0)
+  return {
+    response: MOCK_REHEARSAL_STEP_BODIES[index % MOCK_REHEARSAL_STEP_BODIES.length],
+    change: '守卫把怀疑往前推了一步，但还没有到能落笔的程度。',
+    choices: ['让守卫敲响灯室的门', '先退回石阶观察'],
+    evidenceRefs: [],
+    consequences: [],
+  }
+}
+
 const MOCK_BEAT_PLAN = Object.freeze({
   intent: 'respond',
   mode: 'action',
@@ -143,6 +175,9 @@ export async function installDeterministicProviderMock(page, {
   expectedSelectedDirection = '',
   excludedDirectionTexts = [],
   primaryRequestPrefixes = ['authoring:'],
+  // `authoring.rehearsal.step` 确定性响应：缺省用内置逐幕轮换 fixture；传 null
+  // 恢复旧的严格 501 行为；传对象则每步返回同一份（仅适合单步旅程）。
+  rehearsalStep = makeRehearsalStepFixture,
 } = {}) {
   const requests = []
   await page.addInitScript(({ configId, passive }) => {
@@ -175,6 +210,23 @@ export async function installDeterministicProviderMock(page, {
     }
     const taskType = String(payload.taskType || '')
     requests.push({ kind: 'advisor', taskType })
+    if (taskType === 'authoring.rehearsal.step' && rehearsalStep) {
+      const reply = typeof rehearsalStep === 'function'
+        ? rehearsalStep(requests.filter((request) => request.taskType === 'authoring.rehearsal.step').length - 1, payload)
+        : rehearsalStep
+      const advice = JSON.stringify(reply)
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          taskType,
+          advice,
+          result: { task: taskType, mode: 'direct', summary: advice, rehearsal: reply },
+          meta: { fixture: 'authoring-journey' },
+        }),
+      })
+      return
+    }
     if (taskType === 'authoring.scene.directions' && sceneDirections) {
       const pressureBlock = payload.envelope?.blocks?.find((block) => block.kind === 'scene')
       let pressure = {}

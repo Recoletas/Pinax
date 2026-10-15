@@ -28,13 +28,11 @@ const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_TEXT_CONFIG_ID)
-const editingIsMinimax = computed(() => editingConfig.value?.providerId === 'MiniMax')
-// 内置 / MiniMax(空 key 由服务器注入) 都不强制客户端 key
 const canSaveConfig = computed(() => Boolean(
   editingConfig.value?.name.trim()
   && editingConfig.value?.baseUrl.trim()
   && editingConfig.value?.model.trim()
-  && (editingConfig.value?.apiKey.trim() || editingIsMinimax.value)
+  && editingConfig.value?.apiKey.trim()
 ))
 
 watch(() => props.configs, (configs) => {
@@ -95,7 +93,29 @@ function saveConfig() {
 }
 
 async function testConnection() {
-  if (!editingIsBuiltin.value && !editingConfig.value?.apiKey.trim() && !editingIsMinimax.value) {
+  if (editingIsBuiltin.value) {
+    connectionState.testing = true
+    connectionState.kind = 'idle'
+    connectionState.message = ''
+    try {
+      const response = await fetch('/api/storyagent/model')
+      const body = await response.json().catch(() => null)
+      if (response.ok && body?.ok) {
+        connectionState.kind = 'success'
+        connectionState.message = `${tr('服务器模型可用')}：${body.provider}.${body.model}`
+      } else {
+        connectionState.kind = 'error'
+        connectionState.message = body?.message || tr('内核未运行或尚未配置模型')
+      }
+    } catch (error) {
+      connectionState.kind = 'error'
+      connectionState.message = error?.message || '连接测试失败'
+    } finally {
+      connectionState.testing = false
+    }
+    return
+  }
+  if (!editingConfig.value?.apiKey.trim()) {
     connectionState.kind = 'error'
     connectionState.message = '请先填写 API Key。'
     return
@@ -210,7 +230,7 @@ useTransientLayer({
                   {{ config.name }}
                   <em v-if="config.builtin" class="text-model-badge">{{ tr('内置') }}</em>
                 </strong>
-                <small>{{ providerLabel(config.providerId) }} · {{ config.model }}</small>
+                <small>{{ [providerLabel(config.providerId), config.model].filter(Boolean).join(' · ') || config.description }}</small>
                 <small v-if="config.serverKey" class="text-model-server-note">{{ tr('已由服务器配置') }}</small>
               </span>
               <button
@@ -227,8 +247,8 @@ useTransientLayer({
                 v-else
                 type="button"
                 class="is-icon"
-                :title="tr(&quot;查看内置 MiniMax&quot;)"
-                :aria-label="tr(&quot;查看内置 MiniMax&quot;)"
+                :title="tr(&quot;查看服务器模型&quot;)"
+                :aria-label="tr(&quot;查看服务器模型&quot;)"
                 @click.stop="editConfig(config)"
               >…</button>
             </div>
@@ -242,7 +262,7 @@ useTransientLayer({
         <section class="text-model-dialog text-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr(&quot;文本模型配置&quot;)">
           <header>
             <div>
-              <strong>{{ editingIsBuiltin ? tr('内置 MiniMax') : (editingConfig.id ? tr('编辑文本配置') : tr('添加文本配置')) }}</strong>
+              <strong>{{ editingIsBuiltin ? tr('服务器模型') : (editingConfig.id ? tr('编辑文本配置') : tr('添加文本配置')) }}</strong>
               <small>{{ providerLabel(editingConfig.providerId) }}</small>
             </div>
             <button type="button" class="is-icon" :title="tr(&quot;关闭&quot;)" :aria-label="tr(&quot;关闭&quot;)" @click="closeConfig">×</button>
@@ -251,13 +271,13 @@ useTransientLayer({
           <!-- 内置: 只读详情 -->
           <div v-if="editingIsBuiltin" class="text-model-form text-model-form--readonly">
             <div class="text-model-static-row"><span>{{ tr('名称') }}</span><strong>{{ editingConfig.name }}</strong></div>
-            <div class="text-model-static-row"><span>{{ tr('渠道') }}</span><strong>{{ providerLabel(editingConfig.providerId) }}</strong></div>
-            <div class="text-model-static-row"><span>{{ tr('API 地址') }}</span><strong>{{ editingConfig.baseUrl }}</strong></div>
-            <div class="text-model-static-row"><span>{{ tr('模型') }}</span><strong>{{ editingConfig.model }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('渠道') }}</span><strong>{{ providerLabel(editingConfig.providerId) || '—' }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('API 地址') }}</span><strong>{{ editingConfig.baseUrl || '—' }}</strong></div>
+            <div class="text-model-static-row"><span>{{ tr('模型') }}</span><strong>{{ editingConfig.model || '—' }}</strong></div>
             <div class="text-model-server-key">
               <span>API Key</span>
               <strong>{{ tr('已由服务器配置，无需填写') }}</strong>
-              <p>{{ tr('使用内置 MiniMax 时，请求由服务器携带密钥转发；若服务器尚未配置') }}<code>MINIMAX_API_KEY</code>{{ tr('，请求时会有明确报错。') }}</p>
+              <p>{{ tr('该模型由 pi-agent 内核持有密钥，所有链路（写作、讨论、审校、设定生成、推演）共用；浏览器不接触真实密钥。内核未运行时，此选项不可用。') }}</p>
             </div>
           </div>
 
@@ -273,7 +293,6 @@ useTransientLayer({
             <label><span>{{ tr('API 地址') }}</span><input v-model="editingConfig.baseUrl" :placeholder="tr(&quot;渠道默认地址或自定义地址&quot;)" /></label>
             <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" autocomplete="off" :placeholder="tr(&quot;填你自己的 Key&quot;)" /></label>
             <label><span>{{ tr('模型') }}</span><input v-model="editingConfig.model" :placeholder="tr(&quot;模型名称&quot;)" /></label>
-            <p v-if="editingIsMinimax" class="text-model-hint">{{ tr('未填 Key 将使用服务器内置密钥（服务器配置了') }}<code>MINIMAX_API_KEY</code>{{ tr('时生效）。') }}</p>
           </div>
           <p v-if="connectionState.message" class="text-model-message text-model-message--result" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
 

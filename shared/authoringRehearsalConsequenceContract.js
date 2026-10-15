@@ -184,7 +184,7 @@ export function normalizeRehearsalConsequences(raw, context = {}) {
       const dedupeKey = `k:${factKey}:${knowerRef}`
       if (seenKnowledge.has(dedupeKey)) return failure(['同一步重复登记同一知情'])
       seenKnowledge.add(dedupeKey)
-      const source = normalizeConsequenceSource(item.source, { actionText, responseText, allowAction: true, allowedEvidenceRefs, issues })
+      const source = normalizeConsequenceSource(item.source, { actionText, responseText, allowAction: !['continue', 'instruction'].includes(context.actionMode), allowedEvidenceRefs, issues })
       if (!source) return failure(issues)
       consequences.push({
         kind: 'knowledge',
@@ -299,7 +299,7 @@ function normalizeConsequenceSource(raw, { actionText, responseText, allowAction
     return null
   }
   if (kind === 'action' && !allowAction) {
-    pushIssue(issues, '承诺必须有回应原文依据，不能只由作者行动支持')
+    pushIssue(issues, '这项后果必须有回应原文依据，不能只由作者要求或行动支持')
     return null
   }
   const quote = text(raw?.quote)
@@ -554,8 +554,10 @@ export const REHEARSAL_MAX_STEPS = 4
 // 是显示姓名，保持旧字符串调用兼容，但身份判定永远不取第一个同名人。
 export function normalizeActionIntent(action) {
   if (action && typeof action === 'object') {
+    const mode = ['continue', 'instruction', 'action'].includes(action.mode) ? action.mode : 'action'
     return {
-      text: String(action.text || '').trim(),
+      mode,
+      text: String(action.text || '').trim() || (mode === 'continue' ? '顺着当前情节继续，推演人物接下来的行动与回应。' : ''),
       actor: String(action.actor || '').trim(),
       targets: (Array.isArray(action.targets) ? action.targets : []).map(item => String(item || '').trim()).filter(Boolean),
       actorRef: String(action.actorRef || '').trim(),
@@ -564,13 +566,14 @@ export function normalizeActionIntent(action) {
       enteringRefs: (Array.isArray(action.enteringRefs) ? action.enteringRefs : []).map(item => String(item || '').trim()).filter(Boolean)
     }
   }
-  return { text: String(action || '').trim(), actor: '', targets: [], actorRef: '', targetRefs: [], enteringRefs: [] }
+  return { mode: 'action', text: String(action || '').trim(), actor: '', targets: [], actorRef: '', targetRefs: [], enteringRefs: [] }
 }
 
 export function rehearsalPathText(steps) {
   return steps.map((step, i) => {
     const who = step.actor ? `${step.actor}${step.targets?.length ? `（对 ${step.targets.join('、')}）` : ''}` : '作者'
-    return `${i + 1}. 行动 ${who}：${step.action}\n假想回应：${step.response}\n假想变化：${step.change}`
+    const label = step.mode === 'continue' ? '续演要求' : step.mode === 'instruction' ? '写作要求' : '行动'
+    return `${i + 1}. ${label} ${who}：${step.action}\n假想回应：${step.response}\n假想变化：${step.change}`
   }).join('\n\n')
 }
 
@@ -674,7 +677,7 @@ function buildCommitmentLines({ routeState, participants, maxItems = 6 }) {
     })
 }
 
-function buildConsequenceDirective({ participants, routeState, sceneLocationRef }) {
+function buildConsequenceDirective({ participants, routeState, sceneLocationRef, mode }) {
   const activeParticipants = participants.filter(person => person.status !== 'planned' && person.ref)
   if (!activeParticipants.length || !routeState) return ''
   const nameByRef = new Map(participants.map(person => [person.ref, person.name]))
@@ -686,9 +689,9 @@ function buildConsequenceDirective({ participants, routeState, sceneLocationRef 
     .map(item => `${item.itemKey}（${item.name}${item.holderRef ? `，当前在 ${nameByRef.get(item.holderRef) || item.holderRef} 手里` : '，当前无主'}）`)
   const lines = [
     `\n后果登记（可选；虽然协议最多容纳2条，本次最多输出最明确的1条，登记后本路可继承）：`,
-    `- 知情：若本行动让某人确实得知某项已登记事实，输出 {"kind":"knowledge","knowerRef":"人物ref","factKey":"事实标识","source":{"kind":"action或response","quote":"原句"}}。factKey 必须逐字复制下方机器标识，不能填写事实原文或自造标识。`,
+    `- 知情：若本步让某人确实得知某项已登记事实，输出 {"kind":"knowledge","knowerRef":"人物ref","factKey":"事实标识","source":{"kind":"${mode === 'action' ? 'action或response' : 'response'}","quote":"原句"}}。factKey 必须逐字复制下方机器标识，不能填写事实原文或自造标识。`,
     `- 承诺：若某人物在回应中作出承诺/有条件承诺/拒绝/撤回，输出 {"kind":"commitment","promisorRef":"人物ref","beneficiaryRef":"人物ref或省略","state":"promised|conditioned|refused|withdrawn","content":"守门等具体承诺","condition":"条件或省略","source":{"kind":"response","quote":"回应原句"}}；更新既有承诺必须带上其 commitmentKey，新承诺不要编 key。`,
-    `- quote 必须是 action 或 response 字段里一段连续文字的逐字复制，连中英文引号和标点也保持一致；choices 里的文字不属于 response，绝不能拿来作回应引文。先写完 response 再复制 quote，不能保证逐字一致就不要登记该后果。人物 ref 只能用：${activeParticipants.map(person => `${person.name}=${person.ref}`).join('、')}。`
+    `- quote 必须是${mode === 'action' ? ' action 或' : ''} response 字段里一段连续文字的逐字复制，连中英文引号和标点也保持一致；choices 里的文字不属于 response，绝不能拿来作回应引文。先写完 response 再复制 quote，不能保证逐字一致就不要登记该后果。人物 ref 只能用：${activeParticipants.map(person => `${person.name}=${person.ref}`).join('、')}。`
   ]
   if (factLines.length) lines.push(`- 可登记事实：${factLines.join('；')}`)
   else lines.push('- 当前没有可登记事实：consequences 中不得输出 knowledge。')
@@ -721,9 +724,10 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
   const resolved = resolveActionParticipants(participants, intent)
   if (!resolved.ok) return { error: resolved.error }
   const actor = resolved.actor
+  const completedAction = intent.mode === 'action'
   // 离场者失去回应资格（A01 同一规则）；回到现场后恢复。
   const absentRefs = new Set(routeState?.absentRefs || [])
-  const responders = rehearsalResponders(participants, actor?.ref || '')
+  const responders = rehearsalResponders(participants, completedAction ? actor?.ref || '' : '')
     .filter(person => !absentRefs.has(person.ref))
   const absentPeople = participants.filter(person => person.status !== 'planned' && absentRefs.has(person.ref))
   const cast = participants
@@ -744,7 +748,9 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
   const targetLine = targetNames.length ? `动作对象：${targetNames.join('、')}` : '动作对象：未指明'
   const responderLine = responders.length
     ? `允许回应者（也允许环境）：${responders.map(person => person.name).join('、')}`
-    : '本场没有其他在场人物：不要虚构人物互动，写行动完成后环境与局势的直接后果。'
+    : completedAction
+      ? '本场没有其他在场人物：不要虚构人物互动，写行动完成后环境与局势的直接后果。'
+      : '未提供在场人物名单：仅承接起点原文中已有的人物与动作，不凭空引入新人物。'
   const priorityLine = targetNames.length ? `优先回应者（动作对象）：${targetNames.join('、')}` : ''
   const knowledgeLines = buildKnowledgeLines({ routeState, participants })
   const commitmentLines = buildCommitmentLines({ routeState, participants })
@@ -754,8 +760,9 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
   const commitmentBlock = commitmentLines.length
     ? `\n本路已成立的承诺（延续其条件与状态）：\n${commitmentLines.map(line => `- ${line}`).join('\n')}`
     : ''
-  const consequenceDirective = buildConsequenceDirective({ participants, routeState, sceneLocationRef: run?.pressureProjection?.location?.ref || '' })
+  const consequenceDirective = buildConsequenceDirective({ participants, routeState, sceneLocationRef: run?.pressureProjection?.location?.ref || '', mode: intent.mode })
   const verification = {
+    actionMode: intent.mode,
     actionText: intent.text,
     allowedRefs: participants.filter(person => person.status !== 'planned' && person.ref).map(person => person.ref),
     allowedFactKeys: (routeState?.facts || []).map(fact => fact.factKey),
@@ -769,9 +776,16 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
   }
   const latest = steps.at(-1)
   const continuation = latest
-    ? `\n已发生且不得重演的路径事件：\n${steps.map((step, index) => `${index + 1}. ${step.action}；结果：${step.change}`).join('\n')}\n当前接续点（紧贴此处继续，不重写其中动作、对白或环境描写）：${latest.response}\n当前局面：${latest.change}\n`
+    ? `\n已发生且不得重演的路径事件：\n${steps.map((step, index) => `${index + 1}. ${step.mode && step.mode !== 'action' ? '要求：' : '已完成行动：'}${step.action}；已发生结果：${step.change}`).join('\n')}\n当前接续点（紧贴此处继续，不重写其中动作、对白或环境描写）：${latest.response}\n当前局面：${latest.change}\n`
     : ''
-  const question = `这是未写入作品的隔离试演，不是批注改写。冻结现场仅是起点背景，不代表每一步的当前局面。以下只包含当前路径，承接已发生的假想回应；不要回到起点或引入其他路径。\n${rehearsalPathText(steps) || '尚未试演。'}${continuation}\n\n在场人物（仅限这些人物获得台词、名字或关键行动）：${cast || '（无）'}\n${plannedLine}${plannedLine && enteringLine ? '\n' : ''}${enteringLine}${absentLine ? `\n${absentLine}` : ''}\n${actorLine}\n${targetLine}\n${responderLine}${priorityLine ? `\n${priorityLine}` : ''}${knowledgeBlock}${commitmentBlock}${consequenceDirective}\n本次作者行动：${intent.text}\n\n写作规则：\n1. 从行动完成后的那一瞬间接写。不要重演、描述或解释行动本身，直接写他人与环境对已完成行动的反应。\n2. 只演行动者之外的人物与环境：他们的动作、台词、态度、条件。不替行动者对白，不写行动者的内心独白。若有动作对象，由动作对象先作出直接回应；其他允许回应者只在现场关系确实需要时参与。\n3. 名单之外的人物不得出现台词、名字或关键行动；未入场与已离场人物同样不得获得台词或关键行动；只写本次行动新造成的环境变化，不重述冻结现场或前一步已有的天气、光线、声响；环境异动必须来自已发生的行为，不用凭空的脚步声、陌生人制造紧张。\n4. 每个回应人物至少表现一个自己的目标、条件、保留或拒绝，不总是顺从行动者。\n5. change 用一两句写可继续使用的事实——位置、持有物、承诺、拒绝、暴露的信息、关系中的明确条件；不要只写「更加警觉」「信任加深」这类态度总结。第二步及以后必须继承整条路径已经发生的具体事实；已经完成的事件不能再发生一遍。\n6. response 用具体动作与台词，中文引号。\n7. choices 每条以执行者名字开头（如「艾德加……」「莉娜……」），直接给动作原文，不加任何前缀或引号包裹，不预告结果。\n在作者继续介入之前暂停。`
+  const actionRules = completedAction
+    ? '1. 从行动完成后的那一瞬间接写。不要重演、描述或解释行动本身，直接写他人与环境对已完成行动的反应。\n2. 只演行动者之外的人物与环境：他们的动作、台词、态度、条件。不替行动者对白，不写行动者的内心独白。若有动作对象，由动作对象先作出直接回应；其他允许回应者只在现场关系确实需要时参与。'
+    : intent.mode === 'instruction'
+      ? '1. 本次输入是作者希望接下来发生的事，尚未发生。用具体动作与台词完整演出这项要求及其直接回应，不能跳过要求中的行动，也不能把要求当成已完成事实。\n2. 可以描写行动者以及其他在场人物的动作、对白与合理心理；优先执行作者要求，同时遵守已有状态和人物知情边界。'
+      : '1. 本次是自然续演。从当前接续点演出接下来新发生的行动与回应，不重写前文。\n2. 可以描写行动者以及其他在场人物的动作、对白与合理心理；按人物当前目标自然推进一次具体发展，再交回作者。'
+  const castRule = cast ? '名单之外的人物不得出现台词、名字或关键行动；' : '只使用起点原文中已有的人物，不凭空引入新人物；'
+  const inputLabel = completedAction ? '本次作者行动（已完成）' : intent.mode === 'instruction' ? '本次写作要求（待发生）' : '本次自然续演'
+  const question = `这是未写入作品的隔离试演，不是批注改写。冻结现场仅是起点背景，不代表每一步的当前局面。以下只包含当前路径，承接已发生的假想回应；不要回到起点或引入其他路径。\n${rehearsalPathText(steps) || '尚未试演。'}${continuation}\n\n在场人物（仅限这些人物获得台词、名字或关键行动）：${cast || '沿用起点原文中的人物，本次未提供单独名单'}\n${plannedLine}${plannedLine && enteringLine ? '\n' : ''}${enteringLine}${absentLine ? `\n${absentLine}` : ''}\n${actorLine}\n${targetLine}\n${responderLine}${priorityLine ? `\n${priorityLine}` : ''}${knowledgeBlock}${commitmentBlock}${consequenceDirective}\n${inputLabel}：${intent.text}\n\n写作规则：\n${actionRules}\n3. ${castRule}未入场与已离场人物同样不得获得台词或关键行动；只写本次行动新造成的环境变化，不重述冻结现场或前一步已有的天气、光线、声响；环境异动必须来自已发生的行为，不用凭空的脚步声、陌生人制造紧张。\n4. 每个回应人物至少表现一个自己的目标、条件、保留或拒绝，不总是顺从行动者。\n5. change 用一两句写可继续使用的事实——位置、持有物、承诺、拒绝、暴露的信息、关系中的明确条件；不要只写「更加警觉」「信任加深」这类态度总结。第二步及以后必须继承整条路径已经发生的具体事实；已经完成的事件不能再发生一遍。\n6. response 用具体动作与台词，中文引号。\n7. choices 每条以执行者名字开头（如「艾德加……」「莉娜……」），直接给动作原文，不加任何前缀或引号包裹，不预告结果。\n在作者继续介入之前暂停。只输出 JSON：{"response":"具体动作与对白，最多600字","change":"本步已发生的结果，最多160字","choices":["接下来可做的行动，1至3项，每项最多80字"],"evidenceRefs":[],"consequences":[]}。evidenceRefs 只可引用本次提供的 sourceRefs；整份 JSON 最多2400字符。`
   return {
     intent, participants, actor, targets: resolved.targets, responders, entering,
     question, verification
@@ -781,18 +795,42 @@ export function buildRehearsalRequestPlan({ run, steps, action, routeState = nul
 // 解析一次推演响应：保留四字段；后果批次用同一合同归一化。结构失败仍是
 // 失败；后果非法不吞掉回应，而是标为 needs-review 交作者重试或放弃，
 // 绝不静默丢 delta。verification 传 null 时（服务端已归一化对象）只做透传。
+function responseFailure(message, raw, value = null) {
+  let response = typeof value?.response === 'string' ? value.response.trim() : ''
+  if (!response && raw && typeof raw === 'object' && typeof raw.response === 'string') response = raw.response.trim()
+  if (!response && typeof raw === 'string') {
+    // JSON 尾部损坏时仍可读到已经闭合的 response 字段；不把协议残片当正文。
+    const candidate = raw.match(/"response"\s*:\s*("(?:[^"\\]|\\.)*")/)
+    if (candidate) {
+      try { response = JSON.parse(candidate[1]).trim() } catch { /* 未闭合的正文不猜测 */ }
+    } else if (!['{', '[', '```'].some(prefix => raw.trim().startsWith(prefix))) {
+      response = raw.trim()
+    }
+  }
+  return Object.assign(new Error(response ? message : message.replace('；可读内容已保留', '')), {
+    code: 'AUTHORING_REHEARSAL_RESPONSE_INVALID',
+    retainedResponse: response.slice(0, REHEARSAL_MAX_OUTPUT_CHARS),
+    retainedTruncated: response.length > REHEARSAL_MAX_OUTPUT_CHARS
+  })
+}
+
 export function parseRehearsalResponse(raw, allowedRefs = [], verification = null) {
   const text = typeof raw === 'string' ? raw : JSON.stringify(raw ?? null)
   if (text.length > REHEARSAL_MAX_OUTPUT_CHARS) {
-    throw new Error('这次回应超出结果上限，请重试；已有试演仍为你保留。')
+    throw responseFailure('这次回应超出结果上限，请重试；可读内容已保留。', raw)
   }
-  const value = typeof raw === 'string' ? JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '')) : raw
+  let value
+  try {
+    value = typeof raw === 'string' ? JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '')) : raw
+  } catch {
+    throw responseFailure('这次结果格式不完整，请重试；可读内容已保留。', raw)
+  }
   const bounded = (value_, max) => typeof value_ === 'string' && value_.trim().length > 0 && value_.length <= max
   if (!value || !bounded(value.response, 600) || !bounded(value.change, 160) ||
       !Array.isArray(value.choices) || value.choices.length < 1 || value.choices.length > 3 ||
       value.choices.some(choice => !bounded(choice, 80)) || !Array.isArray(value.evidenceRefs) ||
       value.evidenceRefs.length > 12 || value.evidenceRefs.some(ref => !allowedRefs.includes(ref))) {
-    throw new Error('回应或依据不完整，请重试；已有试演仍为你保留。')
+    throw responseFailure('回应或依据不完整，请重试；可读内容已保留。', raw, value)
   }
   const parsed = {
     response: value.response.trim(),
@@ -800,7 +838,7 @@ export function parseRehearsalResponse(raw, allowedRefs = [], verification = nul
     choices: [...value.choices],
     evidenceRefs: [...value.evidenceRefs]
   }
-  if (value.consequenceStatus) {
+  if (typeof raw !== 'string' && value.consequenceStatus) {
     // 服务端已经用同一合同归一化过：只做形状校验，不再二次归一
     // （新分配的 commitmentKey 不在本端 knownCommitments 里，重跑会误判）。
     parsed.consequences = Array.isArray(value.consequences) ? value.consequences.filter(item => item && typeof item === 'object') : []
@@ -811,7 +849,7 @@ export function parseRehearsalResponse(raw, allowedRefs = [], verification = nul
     parsed.consequenceIssues = Array.isArray(value.consequenceIssues) ? [...value.consequenceIssues] : []
     return parsed
   }
-  const batch = normalizeRehearsalConsequences(value.consequences, verification || {})
+  const batch = normalizeRehearsalConsequences(value.consequences, { ...(verification || {}), responseText: parsed.response })
   if (batch.ok) {
     parsed.consequences = batch.consequences
     parsed.consequenceVersion = AUTHORING_REHEARSAL_CONSEQUENCE_VERSION

@@ -7,7 +7,7 @@ function nodeText(node) {
   return list(node.content).map(nodeText).join('')
 }
 
-function entryTerms(entry) {
+export function writingWorldbookEntryTerms(entry) {
   return [...new Set([entry?.name, ...list(entry?.keys), ...list(entry?.keysSecondary)]
     .map(clean).filter((term) => term.length >= 2))]
     .sort((a, b) => b.length - a.length)
@@ -19,7 +19,7 @@ export function findWritingWorldbookEntriesByTerm(value, worldbook) {
   const needle = clean(value).toLocaleLowerCase()
   if (!needle || !worldbook?.id) return []
   return list(worldbook.entries).filter((entry) => (
-    entryTerms(entry).some((term) => term.toLocaleLowerCase() === needle)
+    writingWorldbookEntryTerms(entry).some((term) => term.toLocaleLowerCase() === needle)
   ))
 }
 
@@ -32,7 +32,7 @@ export function buildWritingWorldbookMentions(document, worldbook, { max = 240 }
   // 先在整本世界书范围按词长排序，避免短别名抢占长全称的区间。
   const groupedTerms = new Map()
   list(worldbook.entries).forEach((entry, entryIndex) => {
-    for (const term of entryTerms(entry)) {
+    for (const term of writingWorldbookEntryTerms(entry)) {
       const group = groupedTerms.get(term) || { term, entryIndex, entries: [] }
       group.entryIndex = Math.min(group.entryIndex, entryIndex)
       if (!group.entries.some((candidate) => String(candidate?.id) === String(entry?.id))) group.entries.push(entry)

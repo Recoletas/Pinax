@@ -132,7 +132,18 @@ function previewText(value, maxLength = 120) {
  */
 export function buildWorldbookImportPreview(parsed, fallbackName = '') {
   const normalized = normalizeWorldbookAiResult(parsed)
-  const entries = Array.isArray(normalized?.entries) ? normalized.entries : []
+  // Preview aliases are read-only; confirm still receives the untouched import
+  // payload so SillyTavern extensions and duplicate entries remain available.
+  const entries = (Array.isArray(normalized?.entries) ? normalized.entries : []).map((entry) => {
+    const rawKeys = entry?.keys ?? entry?.keywords ?? entry?.key
+    const keys = (Array.isArray(rawKeys) ? rawKeys : [rawKeys])
+      .map((key) => String(key || '').trim()).filter(Boolean)
+    return {
+      ...entry,
+      name: entry?.name || entry?.title || entry?.comment || keys[0],
+      keys
+    }
+  })
   const typeCounts = new Map()
   const groups = new Set((Array.isArray(normalized?.groups) ? normalized.groups : [])
     .map((group) => String(group || '').trim())
@@ -156,7 +167,7 @@ export function buildWorldbookImportPreview(parsed, fallbackName = '') {
   }
 
   return {
-    name: String(normalized?.name || normalized?.title || fallbackName || '未命名世界书').trim(),
+    name: String(normalized?.name || normalized?.world_name || normalized?.title || fallbackName || '未命名世界书').trim(),
     entryCount: entries.length,
     groupCount: groups.size,
     groups: [...groups].slice(0, 24),
@@ -286,7 +297,6 @@ export async function tryAiExtractWorldbookJson({ sourceText, targetCount, nameH
     settings: apiSettings,
     signal,
     generationOptions: {
-      max_tokens: 3400,
       temperature: 0.35,
       max_input_chars: 16000,
       timeout_ms: 90000,
@@ -377,7 +387,6 @@ export async function tryAiGenerateWorldbookJsonFromBrief({ genreLabel, brief, n
     ],
     settings: apiSettings,
     generationOptions: {
-      max_tokens: 1800,
       temperature: 0.45,
       max_input_chars: 8000,
       timeout_ms: 90000,

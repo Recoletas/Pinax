@@ -1,5 +1,267 @@
 # 开发日志
 
+## 2026-10-15 · 工作区累计改动发布
+
+- 作者授权提交并推送 main、更新公网服务器。收拢已有目录／扩展入口、助手会话返修、设定上下文与关系图、主题材质与文案调整；菜单设计仍标注尚未接线，纯图标“更多”已落地。
+- 提交前 build exit 0（27.24s）、docs:build exit 0（5.92s）、lint:delta 零错误／5警告、architecture:check／catalog-sync／diff exit 0；bridge-sync 两项因兄弟仓缺失跳过。按本轮约束未跑自动测试；此前各功能验证记录保留。
+- 生产当前为5035f79，需同步后端与StoryAgent运行包；采用独立生产适配工作树、本机构建、上传校验和回退备份。最终部署结果另记发布回执。
+
+## 2026-10-15 · 右栏更多与对象右键菜单设计
+
+- 正式组件小修：`Authoring.vue` 删除“更多”按钮内的桌面文字与手机“工具”文字，改为已有悬浮提示并保留 aria-label；`Writing.scoped.css` 让图标居中，桌面36px、手机44px点击区域。隔离浏览器已看实际页面亮／暗与悬浮提示，点开菜单；`npm run build` exit 0（27.24s，构建提示静态／动态混合导入及大 chunk），`git diff --check` exit 0。未跑自动测试、提交或 push；临时截图清理。整体菜单方案仍未接线。
+
+- 最新收简（替代此前较长的菜单清单）：普通目录五项、根部两项、分类一项；新建文件夹并入新建子菜单。移除查找、排序、折叠、刷新等右键项，章节／设定／对话同步去掉重复与管理性操作；说明其余入口去向，不改业务逻辑。桌面亮色及390px暗色截图已看；docs:build exit 0（5.92s），git diff --check exit 0。未提交或 push。
+
+- 作者指出文件夹遗漏后修订：补普通／默认分类目录、世界书、虚拟分类和空白根部，明确目标内新建与导入、范围查找、改名移动、移除保留内容、异步目标及归档失败重试。依据追加 Obsidian 文件夹说明与 VS Code Explorer 源码；新增五类可点预览及一层子菜单，默认展示文件夹。亮暗／390px／空白处菜单截图已查看；本轮 docs:build exit 0（7.78s），git diff --check exit 0。仍为设计预览，未改业务组件、提交或 push。
+
+- 读取 VS Code、Apple、Microsoft、W3C 官方菜单规范，查看 VS Code 官方示例以及当前写作更多、助手更多和目录右键实页。实际问题：写作菜单 12 项混排、助手更多仅一项、目录菜单混入管理表单、会话操作内联撑高并暴露调试项。
+- [设计文档](./plan/pinax-context-menus-20261015.md)明确各对象动作、入口迁移、目标身份、保存／权限保护、明暗尺寸和键盘交互；[独立 HTML 预览](./plan/pinax-context-menus-20261015.html)展示八类菜单，不连接正式数据。
+- 旧章节顺序右键的“导出本章”忽略被右键章节 ID，实际调用当前章节导出；历史版本也依赖当前编辑对象。记录为需修复的静态接线风险，本轮未运行导出或修改此逻辑。
+- `npm run docs:build` exit 0（5.71s），`git diff --check` exit 0。预览 HTTP 200；1100px 亮／暗和390px截图已查看。研究临时截图与下载收尾清理；本轮没有新增产品运行逻辑、自动测试、模型调用、提交、push、部署或服务重启。
+
+## 2026-10-15 · 工作区重复文案与辅助文字减量
+
+- 参考 Microsoft Writing style、VS Code Views 和 Linear 2026 官方设计说明；研究依据、修改矩阵与保留项见 [记录](./agent-runs/ui-copy-restraint-20261015.md)。
+- 当前场合并重复标题／状态；首页仅产品图标，仍有悬停、焦点提示和可访问名称；桌面目录去重复“文件”标题，手机仍保留模式选择与关闭。
+- 助手去重复身份标签；设定分类进入右栏标题，属性去同义提示，资料模式与操作合成一行。首页、导入、历史、漫画、视频、跑团与速记清理无用辅助字；保存失败、只读、权限、引用失效、候选裁决与视频原件风险均保留。
+- 隔离浏览器查看 1440px 亮暗正文、助手、设定、资料、首页及 390px 首页／目录，未见横向溢出或 pageerror。实页截图发现并追加修正设定重复分类及资料堆叠标题。跑团初始页面、漫画规划与视频结果的隔离组件空状态已查看；漫画完整路由显示首页，未将其算作漫画页面验证。
+- `npm run build` exit 0（21.81s）；`npm run lint:delta` exit 0（0 errors／5 存量 warnings）；`npm run docs:build` exit 0（7.44s）；`git diff --check` exit 0。本轮未运行自动测试、付费模型或导入迁移全流程。未提交、push、部署或重启服务；临时浏览器脚本和截图收尾清理。
+
+## 2026-10-15 · 标签瞬时状态与深色按钮返修（仅本地）
+
+定位标签`:active`仍使用蓝色nav-focused；统一共享导航按下为中性，顶部／旁区标签显式使用工作区状态，触控去系统点击高亮。共用主按钮及推演／重答／设定等消费者同步实底与前景，深色链接及其hover／浅底／边界收敛，完整助手去残留蓝底和外光。创建浮窗焦点与遮罩跟随主题。实页按住150ms可见亮灰／石墨灰，查看亮暗完整助手／浮窗与390px截图；无pageerror输出，未提交创建或模型请求。build exit0（19.71s），lint exit0（0error／5存量warning），docs:build exit0（5.62s），diff检查exit0。未运行自动测试、不提交／push／重启；临时图片和脚本看完清理。[原因与范围](./plan/pinax-color-direction-20261015.md)。
+
+## 2026-10-15 · 中性工作区外壳实施（仅本地）
+
+落实已讨论方向：独立的外壳／选择／焦点／动作token；顶栏去重复分隔与活动描边，目录去重复类型色，左右工具轨统一中性选择，助手输入去静态阴影、发送悬停维持明暗配对。链接与状态语义保留；区域位置、原稿宽度和目录间距不变。1440×900与390×844的正文／助手／设定亮暗截图已实际查看，输入聚焦可辨。build19.56s、lint（0error／5存量warning）、architecture均exit0；docs:build exit0（5.80s），最终diff检查exit0。隔离取景不修改用户浏览器，未配置模型、未运行生成与自动测试；不提交、推送或重启服务。临时截图／脚本查看后清理。详见[配色实施记录](./plan/pinax-color-direction-20261015.md)。
+
+## 2026-10-15 · 配色方向补充调研（仅文档）
+
+作者明确蓝色并非必需，撤回默认蓝色结论。补看iA Writer官方多面板图、Bear主题合成图及Apple色彩规范，将方案改为近中性基底、有限强调色、按语义组织动作／选择／焦点，并细化顶栏重复边界的处理与同布局对照方法。未改运行代码，未更换全站主题；本轮docs:build exit0（5.83s），git diff --check exit0；未运行自动测试。参考图片阅读后清理，不提交、推送或重启服务。
+
+## 2026-10-15 · 撤回顶栏装饰线并重新调研配色（仅本地）
+
+作者否定新增蓝线；本轮移除标签底线及活动图标蓝色，保留目录和首页显隐修复。核对Linear／Raycast官方图及Figma、Adobe、Atlassian设计说明，区分中性色层次、选中／焦点／动作和类型色；候选色板仅作建议，未批量换色。亮暗／390px截图已查看，浏览器取景exit0无pageerror；build21.43s、lint（0error／5存量warning）、结构／diff exit0。完整调研见[配色方向](./plan/pinax-color-direction-20261015.md)。未跑自动测试／真实模型，不提交、推送或重启；临时参考图片与取景文件看完清理。
+
+
+## 2026-10-15 · 强调色与侧栏连续性（仅本地）
+
+- 核对VS Code官方Light Modern主题与颜色／产品图标合同：保留白色正文、浅灰导航与中性选中，蓝色集中在活动标记、标签短线、焦点和主要操作；小范围类型图标用低饱和蓝／青／暖色。
+- 人物、地点、章节和扩展图标收简，统一较轻线宽；工具轨选中去大圆角底块，标签去凸起阴影。目录行距和正文宽度保留。
+- 修正首页／文章切换：进入文章展开目录，回首页保留当时显隐，同作品首页宽度沿用；手动收起后的普通切章不强制重开，手机不自动弹出目录。
+- build19.58s、lint（0error／5存量warning）、结构／diff及docs6.17s均exit0，亮暗及390px实页已查看；具体依据、实现与核查见[续修记录](./agent-runs/workspace-material-context-20261015.md)。本轮不运行自动测试／真实模型，不提交或push、不重启服务。
+
+
+## 2026-10-15 · 文件间距、二级工具与设定场景（仅本地）
+
+- 根据作者反馈放松目录行距与缩进，隐藏非悬停／聚焦时的更多按钮，让名称获得空间；保留原默认文件夹及手工归档。
+- 二级工具延续同一 Lucide 图标和提示：回答操作、批注编辑／删除、属性增删、关系缩放；参数、参考列表、日志及设定列表调整留白和层级。管理别名自动增高；暗色弹窗遮罩使用独立scrim，避免白色提亮整页。
+- 世界书目录接入现有地图，设定右栏新增“场景与经历”，读取本书有效锚点、明确引用的世界历史及地点地图状态；返回正文走原定位校验，打开地图复用原owner和守卫。没有新建人物状态账本，不以最后出场或正文同名推算当前位置。
+- 本轮build25.23s、lint（0error／5存量warning）、结构／体积／diff及docs构建exit0；亮暗／390px实页截图已查看，不沿用前轮测试数字。
+- 调研及本轮核查详见[记录](./agent-runs/workspace-material-context-20261015.md)。未运行自动测试或真实模型，不提交、推送或重启服务。
+
+
+## 2026-10-15 · 扩展入口、左侧搜索与图标工具（仅本地）
+
+左栏补齐文件／搜索／书稿，底部扩展入口接入真实列表与中央详情。内置工作台的类型及异步组件归统一注册表，漫画／视频／素材可启停，停用仅阻止新视图，原内容和任务保留；注册不授予模型工具权限，也不加载在线插件。搜索复用原跨章、构思、设定查找与替换，默认只读，显式展开替换；定位经原guard和修订检查打开正文或设定，兼容无章节的作品。设置弹窗统一由AppShell挂载，避免全局扩展页打开配置后不可见或重复。右侧写作与设定工具移除可见文字，统一独立悬停／键盘提示，保留分组、待审圆点与触控面板名称；补隐藏编辑器选区浮条守卫，防止切漫画后挡住顶部入口。隔离浏览器84项及英文85%缩放／空书8项exit0，亮暗与手机截图已看；测试用扩展真实注册、打开、停用后新旧视图区分与关闭已验收。首次完整门禁发现旧选区静态断言及界面加载器反向依赖产生循环：同步断言、改由UI入口注入加载器，未放宽预算；最终verify:full exit0（20文件／200用例、lint零错误／5存量警告，生产构建／结构／体积／同步／StoryAgent／diff／docs全部通过）。临时图片脚本已清理。不提交或push、不调用真实模型、不重启服务。接口见[扩展说明](./engineering/workspace-extensions.md)。
+
+## 2026-10-15 · 左栏视图与容器分离（仅本地）
+
+核对固定 Code - OSS 源码的活动栏、侧栏、Explorer 与布局默认值后，左侧文件／章节顺序入口移至常驻窄栏，统一由工作区宿主管理模式、显隐及宽度。首页默认收起，作品首次展开，之后保留各自手动选择；目录可拖宽、键盘调宽与复位。目录树收紧单行密度与缩进，创建／筛选／刷新放标题动作，类型筛选按需展开，同类文字文件夹不重复标注类型。手机保留独立抽屉，补遮罩关闭、Escape与焦点循环；收起保留原编辑实例。旧独立路由继续原导航。隔离浏览器78项exit0，亮暗／900px／390px触控截图已看，无pageerror或横向溢出；verify:full exit0（20文件／200用例、lint零错误／5存量警告及全部构建／结构／体积／同步／diff／docs门禁）。临时脚本与截图实看后清理；[源码与实现记录](./agent-runs/sidebar-vscode-20261015.md)。不提交或push、不重启服务、不调用模型。
+
+## 2026-10-15 · 右栏关系阅读与管理行编辑（仅本地）
+
+右栏图谱默认显示当前条目及直接关联，保留全部设定切换；命名节点同时显示名称与类型，当前条目高亮，缩放时维持文字尺寸，小范围按中心与邻居排列。命名渲染仅在设定右栏启用，其他通用图谱保持原样。管理中的类型、别名和 AI 参考方式改为无框行编辑，悬停与键盘焦点用底线提示，保存及指纹检查沿用原流程。亮暗／390px截图已查看，隔离浏览器39项exit0，覆盖范围切换、节点矩形命中与双向定位、图谱仍在右栏、管理无框计算样式、别名保存、无横向溢出及pageerror。verify:full exit0：20/20文件、200/200用例，lint零错误／5存量警告，构建／StoryAgent／结构／体积／同步／diff／docs通过。左栏仅讨论“首页收起、打开内容展开、尊重手动收起”的产品建议，未修改导航行为。不提交或push，不调用真实模型、不重启服务。
+
+## 2026-10-14 · 关系图恢复右栏
+
+作者明确关系图应留在右栏，撤回上一轮擅自采用的中央大图与放大画布布局。旧graph视图恢复为中央详情＋右栏关系工具，不再切换中央正文或使用底栏。图谱采用右栏完整阅读高度，提供标准缩放／重置图标，条目点击继续保留图谱。右栏统一字体、搜索边界、条目间距、选中底色和工具轨密度。亮暗／390px截图已看，35项隔离浏览器检查exit0，验证图谱只在右栏、中央正文／底栏及其位置保留、缩放／重置按钮、输入与刷新保存，无pageerror或横向溢出。最终verify:full exit0：20/20文件、200/200用例，lint零错误／5存量警告，构建／StoryAgent／结构／体积／同步／diff／docs通过。仅本地，不提交或push、不调用模型、不重启服务。
+
+## 2026-10-14 · 设定使用底栏与大关系图（仅本地）
+
+作者认为单个设定正文过空、右栏图谱难读。核对[VS Code底部Panel](https://code.visualstudio.com/docs/configure/custom-layout#_panel)、[引用导航](https://code.visualstudio.com/docs/editing/editingevolved)、[Obsidian反链](https://obsidian.md/help/plugins/backlinks)与[Scrivener Inspector](https://www.literatureandlatte.com/blog/get-to-know-the-scrivener-inspector)：采用中央正文＋底部辅助区、正文提及上下文及稳定定位的适配，不建设终端。实现可收起／调高底栏，限定本书扫描名称和别名，标记同名；名称插入使用既有正文owner、守卫及撤销链，不插整段说明或保存执行命令。关系工具默认中央大图，右栏列关联及添加，支持放大画布与缩小仍可读标签；右栏按钮、管理控件与图标继续统一。隔离浏览器49项exit0，覆盖本书隔离、别名／同名、底栏收起与键盘调高、真实编辑器名称插入与撤销、跨章定位选中、中央画布及放大返回；亮暗／390px截图已查看，无pageerror或横向溢出。首轮门禁被Authoring行数预算拦下（新增参数导致10901／10900），已将同一配置的两项简短传参合为一行，未修改预算；最终verify:full exit0：20/20文件、200/200用例，lint零错误／5存量警告，构建／StoryAgent／结构／体积／同步／diff／docs通过。选区插入在末尾收束光标，保留原文并可撤销；复验49项exit0。不提交或push，不调用模型、不重启服务。
+
+## 2026-10-14 · 编辑重答与完整助手会话整理（仅本地）
+
+作者指出编辑后重答仍新建会话：根因editQuestion继续调用branchConversation。改为复用同问题重答路径，保存提问文本与回答版本；切换版本一起恢复对应提问，白名单持久化最多8版。原会话ID及会话数量保持，清除旧任务延续和授权，只有显式fork另开会话。完整助手移除内部重复作品导航、会话列及其显示状态，保留外层文件目录；现有对话按钮打开紧凑列表，其他管理能力不变。完整助手的正文与输入统一900px阅读上限，仅作用于完整助手，不改写作工作台。隔离浏览器50项exit0，覆盖编辑重答原会话ID／数量、问答版本及刷新、清除另一版失败提示、fork新增、紧凑会话弹层和无第二列；生成请求使用离线拦截，未调用真实模型。切回旧版本时清除另一版的全局失败提示；亮暗／390px截图已查看。最终verify:full exit0：20/20文件、200/200用例，lint零错误／5存量警告，构建／StoryAgent／结构／体积／同步／diff／docs通过。未提交或push、不重启服务。
+
+## 2026-10-14 · 设定右栏与批注打磨（仅本地）
+
+按作者反馈，完整设定右栏对齐写作检查器的起点、宽度和顶部位置，工具改到最右侧；中央标题与正文保持无框，属性使用轻量行控件，减少重复标题、虚线框与说明。右栏接入真实可编辑表格和关系画布，同一实例通过Teleport放大到中央，保留未保存输入与flushAll。关系图初始／复位缩放包含全部节点；工具图标复用Lucide人物、表格、网络与放大图标。修正助手顶部按钮选择器误伤日志菜单项，批注统一间距、文字层级、选中底色、操作按钮与输入材质。亮暗／390px隔离浏览器57项exit0，覆盖右栏位置、无框正文、属性只存字段冲突裁决、右栏表格编辑与放大返回、关系图、日志菜单及批注编辑；截图已查看，无pageerror或横向溢出。最终verify:full exit0：20/20文件、200/200用例、lint零错误／5存量警告及构建／StoryAgent／结构／体积／同步／diff／docs通过。不提交、不push，不重启服务、不调用模型。
+
+## 2026-10-14 · 收简目录与助手控件（仅本地）
+
+按作者纠正，停止归档／集合／类型查看等新模式。世界书保持一棵目录，派生分组收为人物、地点、组织与其他设定；同类条目不重复显示类型词，其他设定保留规则／物品等短标签，类型数据与手动归档不变。详细日志从输入区移到顶部更多，以原生模态浮窗查看本次对话或作品记录，保留参数与结果展开；关闭恢复焦点与输入，不增加正文滚动区域。参考面板减少常驻限额文字，补别名搜索、逐批显示更多和选中技法直接移除；作者再次纠正：fork始终新建会话，撤回最后一条回答不分支的例外，按钮统一“另开对话”；原会话重答逻辑保留。此次纠正verify:full exit0（20文件／200用例及全部门禁），未提交或推送。
+
+亮暗／390px隔离浏览器51项exit0，覆盖四类目录、日志展开与切页、关闭后输入及位置保持、参考别名搜索与显示更多、技法直接移除；截图已查看，无pageerror或横向溢出。verify:full全部门禁exit0：20/20 files、200/200 tests，lint零错误／5存量警告，构建／StoryAgent／结构／体积／同步／diff／docs通过；不提交、不push，不调用真实模型、不重启用户服务。此前调研的多模式方案已标记作者否定，不作为实施依据。
+
+## 2026-10-13 · 目录与助手本地返修
+
+作者要求深入调研后，补充[工作区研究](./plan/workspace-ux-research-20261006.md#_2026-10-13-补充调研-目录-世界书与助手的具体交互)：核对Obsidian／Scrivener／Novelcrafter／Sudowrite／Gemini／Cursor／VS Code官方资料与3张示例图，区分世界书容器、归档和集合，列明问题编辑仍分支、嵌套回答版本持久化限制、标题查询截12项和作者目录与Agent逻辑路径不一致等现状；方案未实施。此轮仅文档更新，verify:full exit0（20/20 files、200/200 tests及构建／docs等），未提交或push，临时参考图验收后清理。
+
+作者明确本轮仅本地调整，不提交、不push。目录查看方式改为两个带可访问名称与悬浮说明的图标；绑定世界书成为命名目录，按人物／地点等派生非空分类，保留手动归档，分类不复制存储、不冒充可删除真实文件夹。绑定更换收进世界书操作菜单，保留未绑定与章节视图入口。分类默认折叠并记住展开，搜索可查看路径与定位原件。
+
+研究参考[Obsidian文件浏览器](https://obsidian.md/help/plugins/file-explorer)的图标操作、上下文菜单与定位，以及[Scrivener目录组织](https://www.literatureandlatte.com/blog/different-ways-of-setting-up-scriveners-binder-for-your-projects)和[集合](https://www.literatureandlatte.com/blog/how-to-use-scriveners-collections-to-access-groups-of-files-or-search-results-quickly)的归档与集合分离。采用世界书容器＋按类型派生分组，是针对当前绑定边界的产品判断；首轮不混入其他作品的世界书、不迁移条目、不建设另一套知识存储。
+
+修正普通重答／参数重答走branchConversation：原会话内保留最多8版回答及后续聊天，箭头切换与白名单持久化；重答较早问题剔除后续上下文、清理远端任务延续，切版本不回滚正文并重置审阅权限。问题编辑和从早期回答继续仍为显式分支。参数弹窗收敛为参考侧重选择与创意程度分段控件；参考／技法改为独立标签与类型说明；日志先展示中文动作、状态与时间，展开才看参数和结果，取消重复卡片与折叠行原始JSON。
+
+隔离浏览器54项exit0，覆盖亮暗／390px、目录图标／分类／条目排序／绑定更换、参数与参考技法及日志、原会话重答／参数重答／早期上下文隔离／版本恢复与刷新持久化；截图已查看。手机绑定入口的旧章节抽屉遮罩阻断已修正，改用现有宿主目录抽屉。最终verify:full exit0：20/20 files、200/200 tests、StoryAgent、lint（0错误／5存量警告）、构建／结构／体积／同步／diff／docs通过。实页回答版本箭头亦已点验；临时截图与脚本验收后清理。未重启服务、未调用真实模型、未提交或推送。
+
+## 2026-10-13 · 设定正文与右栏整理
+
+作者确认左侧作品目录／中间自由正文／右侧同类、表格、关系与管理。移除设定内部固定分类列和并排条目列；浏览与分类移入右侧，表格概览和关系导航提供展开入口，完整表格／图谱复用既有组件。伏笔与创作基调保留为内容切换，正文与属性投影仍显式裁决。人物沿用七个模板，非人物无既有profile时使用自由属性，不强塞主角模板。
+
+新建复用名称＋类型浮窗，默认当前类别，创建后聚焦正文；空库支持直接新建并关联。同名先提示，明确选择同名新建才继续。管理保存类型、别名和现有两种AI参考方式，检查版本并阻止未保存管理内容切换；复制保留内容与属性、生成新ID并去掉导入去重键。删除为现有永久删除：确认前列出条目关联、地图与历史影响，写入owner复核条目指纹和世界书revision，不冒充回收站。显式全局设定链接的worldbookId不再被默认作品canonical覆盖。
+
+产品取舍参考[Notion数据库模板](https://www.notion.com/help/database-templates)与[属性布局](https://www.notion.com/help/layouts)：正文与按需属性分开；参考[Obsidian属性](https://obsidian.md/help/properties)与[文件管理](https://obsidian.md/help/manage-notes)：日常编写和文件操作分开。上述是本轮适配判断，未照搬第三方实现。
+
+亮暗／390px组合检查42项exit0，空库关联／全局目标／同名确认／取消／未保存管理阻断／非人物自由属性与跨书隔离22项exit0；模板文件合同76断言exit0。截图已查看；未调用模型、未重启用户服务。最终verify:full exit0：20/20 files、200/200 tests，StoryAgent、lint（0错误／5存量警告）、构建、结构／体积、同步、diff与docs通过。临时截图与脚本验收后清理。
+
+## 2026-10-13 · 首页保留作品左侧目录
+
+作者纠正上一轮：首页应打开在中央，当前作品左侧目录持续保留，不换成首页项目导航。新增受作品作用域约束的home内容视图，原首页标签与导航抽屉共用openHome；不重复生成首页标签。复用现有主区、输入／保存守卫和正文owner；内嵌首页不显示LibrarySidebar。无当前作品时仍可进入独立首页。封面和最近作品打开成功后返回对应页面，避免同书重复路由仍留在首页；隐藏目录活动对象时的false访问错误已修复。
+
+组合验证：亮暗及390px共33项exit0（目录DOM不重建、唯一首页标签、刷新恢复、封面返回、目录章节返回、无pageerror／横向溢出）；正文输入／编辑器保留5项exit0；截图已查看。verify:full exit0：20/20 files、200/200 tests，StoryAgent、lint、构建、结构／体积、同步、diff和docs通过。未调用模型、未重启服务或部署。临时图和脚本验收后清理。
+
+## 2026-10-13 · 首页与工作台样式统一
+
+沿用现有浅灰导航、白色内容面、蓝色主动作及暗色令牌。首页标题／动作合并为连续顶部栏，缩小多余留白；搜索改用工作台输入材质，书架／列表改为统一分段控件，按钮及菜单复用 control／popover 圆角。保留封面、默认书架、项目导航和最近作品聚合，不新增归档或打开路径。
+
+隔离浏览器检查 34 项 exit 0：亮暗与390px无横向溢出／无pageerror，最近打开仅作品，搜索及清除、列表切换、新建菜单Escape关闭、空书库入口保留。亮暗／手机／空书库截图已查看，临时图与脚本验收后清理；未调用模型、未重启服务或部署。完整门禁 verify:full exit 0：20/20 files、200/200 tests，StoryAgent、lint、构建、结构／体积、同步、diff与docs通过。
+
+## 2026-10-13 · PR #7 原始历史合并
+
+作者要求补正式合并提交。核对 `44466ab1..b70e893a` 与已纳入 main 的 `44466ab1..61e4aad8`：16/16 提交的文件树与提交消息逐笔一致，只修正署名；两分支最终树相同。执行普通 `git merge --no-ff --no-commit origin/pr-7`，冲突来自已重放历史与后续适配，解决为保留 main 已验证实现；原始 PR 头作为第二父提交纳入历史。未重新引入贡献分支旧版外壳或覆盖本地适配。代码树相对合并前不变，仅更新本记录与状态；本轮 verify:full exit 0：20/20 files、200/200 tests，StoryAgent integration 23/23，lint、应用构建、结构／体积、同步、diff 与 docs 均通过。GitHub PR 状态以推送后公开页面为准。
+
+## 2026-10-13 · CI 的 StoryAgent 回归收口
+
+GitHub run `38370958742` 的构建及两组浏览器流程成功，失败位于独立 StoryAgent 回归。修复两处：旧冒烟仍要求已拆分的 project block，现核对 workspace 与 manuscript-context 的书名、目录和正文；authoringIntegration 静态引入 worldStore，使裸 Node 误加载其前端依赖，现由 Authoring 显式注入同一只读快照入口，并复用当前绑定世界书。补查当前／跨作品设定可见性，未新建存储或绕过权限。
+
+新增 `npm run verify:storyagent`，CI 和 `verify:full` 共用；本地 StoryAgent 两套检查 exit 0（integration 23/23），完整门禁 exit 0（20 files / 200 tests，lint、应用构建、结构／体积、桥接／目录同步、docs、diff）。真实 kit 不在这两套模拟检查范围内。PR #7 采用适配整合和署名修正提交而非 GitHub 直接合并，因而未自动关闭；此前计划 API 关闭；作者随后要求正式合并，改为按下述等价核对完成历史合并。
+
+## 2026-10-13 · 混合目录与设定详情
+
+最新反馈：项目根下的平铺列表过乱，恢复默认页面分类文件夹（正文／构思／设定／资料／素材）。初始只展开正文，其他分类显示数量并折叠；当前对象自动显露，中央标签不变。旧平铺归档适配为默认分类，自建目录和作者显式归档保留。
+
+作者截图修订：现有标签移入中央成为唯一主区标签栏；左栏默认项目根下混排，保留自建／改名目录，补齐目录与标签的类型图标。作者右轨、双栏和正文宽度沿用当前能力。实际截图和验收见同一实施记录。
+
+按作者对 e2abbc8a 的收缩方案执行：新增混合目录元数据、类型识别、筛选、文件夹与排序；复用现有主旁区打开和保存守卫。构思主区继续使用正文编辑器；新增同书跨类型关联与反向查阅。设定正文保留，按需属性沿用投影裁决、版本保护与草案恢复；从目录打开条目减少重复导航。详细范围和本轮核查见[记录](./agent-runs/project-directory-20261013.md)。
+
+继续接通目录中新建设定与资料导入：复用随书绑定和原导入浮窗，只归档实际新增的来源；修复初次建库目录刷新及兼容来源重复显示，保留旧位置与关联别名。
+
+续修：操作从列表末尾移至目录行旁，关联内容可搜索；只读来源与设定筛选分开，折叠与章节顺序偏好按书恢复。新建后显露原件，归档失败保留内容并提示；集合导航补并发和切书保护。实页范围与检查见同一记录。
+
+- 2026-10-13 PR #7剩余能力：选择性适配贡献者skkbsgzf／b70e893a的知识代理、双根检索客户端、词汇表和文档阅读器，接入现有资料视图及助手按需工具。词表复用原生推演链；旧读响应、服务端章节渲染、总超时和本机访问边界已修正。隔离服务及1440亮暗／390实页验证通过，kit上游为夹具，真实双根检索与编译未计通过。8451按旧授权更新，24份日志哈希不变；作者5173／3001未重启，真实kit服务缺失。细节与最终门禁见[记录](./agent-runs/worldbook-workspace-20261012.md)。未提交或正式合并PR。
+
+## 2026-10-12 · 助手交付与消息操作
+
+续查作者新任务：append携带末尾before被共享validator拒绝，模型随后将编辑降为普通回答。前轮工具isError／业务ok误读已纠正。准确完整末尾锚点在运行器规范为空before，保持目标、追加内容和权限；失败编辑不能转普通answer，工具失败提供具体原因。62项工具、187项页面、14项真实模型及verify:full20/200 exit 0，作者4份原参数只读回放全部通过。8451已按已有授权更新，5份日志哈希一致，Express／前端未重启。
+
+本地修复完成摘要覆盖全文，补默认作品目录／正文／相关设定、只读跨书快照目录和编辑问题／重答／回答分支／复制；分支保留原会话并重置任务与权限。助手输出6000 token，修复工具回执截断与模型529错误被掩盖。实页163项、工具及上下文25项、真实MiniMax续写采用撤销13项exit 0；最终门禁见[本轮记录](./agent-runs/assistant-delivery-history-20261012.md)。返修按作者实际任务日志修复有效提议后预算错误，完成确认不再被拦、正文审阅自动定位；铅笔框外悬停，187项页面、51项工具与14项真实模型exit 0；返修verify:full20/200 exit 0（bridge两项环境跳过，初次进程143后重跑确认）。作者授权仅更新8451，运行包已切为storyagent-next并生效，4份日志哈希一致，未重启Express／前端，未提交或部署。
+
+## 2026-10-12 · 世界书内容工作区
+
+按作者要求选择性接入贡献者 PR #7 的表格、伏笔台账和图谱能力，统一完整设定的内容目录、条目原地编辑、关联与视图选择；保留原日常右栏、可编辑双栏和创作基调连续编辑。详情与表格增加版本检查、保存失败保留输入及关闭守卫。设定82项、工作区440项与完整门禁20/200均exit 0（kit bridge两项环境跳过），亮暗／手机截图已查看并清理。来源固定 b70e893a，未整体合并、提交或部署。验收与范围见[接入记录](./agent-runs/worldbook-workspace-20261012.md)。
+
+
+- 2026-10-11 工作区内容整合：主／旁各自保留具体资源标签，章节复用原正文切换与保存，加入快速打开、标签移动／排序和布局恢复。漫画、视频、素材及设定编辑回程走同一宿主；单人跑团常驻，隐藏不自动续跑，空存档恢复不自动生成。修复旧地址关闭重挂、快速切章竞态、手机回程与标签定位，保留原章节目录、右栏设定及可编辑双栏。组合实页440项、专项54项、完整门禁20/200均exit 0；接口模拟，bridge两项环境跳过。截图实看与临时清理见[记录](./agent-runs/composable-workspace-20261010.md)。未提交部署或重启作者服务。
+
+- 2026-10-10 可组合工作区基础及界面整合：公共内容组、显式作品／世界书资源、分块原文阅读、助手运行中查资料、漫画与素材参考、内嵌视频面板及跑团资料入口已本地接线。保留章节目录和现有正式写入边界；视图移动不重建编辑器，视频同书导航继续查询。续做将助手会话和请求提至宿主，编辑能力按页面绑定／释放；同书切页可继续收取结果，后台自动提案保留供返回审阅，采用／撤销仍经正式事务。续做浏览器152项、模拟供应商调用0次，最终完整门禁exit 0（20/200、双构建、架构／体积／目录／diff）；bridge因kit仓缺席跳过2对检查。Authoring包1,362,295 bytes。最初完整门禁在三个大页结构预算处退出 1，逻辑提到现有组合函数后结构检查通过，没有放宽预算。最终基础验收：122 项浏览器断言，供应商调用 0 次；完整门禁 exit 0（20/200、双构建、结构／体积／同步／diff）。参考内容与原 inspector 共用右侧空间，实例保持。作者纠正仅做基础未整合界面后，已接共用创作导航、单书标签、完整设定主／侧区编辑与资料／漫画去重复导航，末次207项浏览器断言及完整门禁20/200 exit 0（bridge 2项因kit仓缺席跳过）。10月11日继续接完整漫画／编导可移动编辑器、中央制作＋旁边资料、章节制作引用、书内画布隔离及跑团任务回程，组合验证269项浏览器断言、`verify:full`20/200 exit 0（bridge两项环境跳过）。同日续作接通完整素材／插画编辑器、书内素材到画布交接、同页来源刷新与快照冲突保护；302项亮暗／手机组合实页exit 0，末次`verify:full`20/200 exit 0（双构建、结构／体积／diff；bridge两项环境跳过）。继续将完整联机页接入常驻工作区，补后台收消息／房间回程、单人会话隔离、显式链接定位与窄栏房间控制；347项亮暗／手机组合实页及`verify:full`20/200 exit 0（bridge两项环境跳过），网络与供应商均模拟。实际范围、验收和剩余迁移见[实施记录](./agent-runs/composable-workspace-20261010.md)。未提交或部署，作者服务未重启。
+
+- 2026-10-10 可组合工作区研究：核对固定源码基线与本地助手修改，结合 Obsidian、VS Code、Foundry、Unity、Krita、Premiere、Vue、Dockview 和 W3C 官方资料，形成[详细 issue 正文](./plan/composable-workspace-issue-20261010.md)。覆盖正文、资料、助手、跑团／联机、漫画／插画、分镜／视频，补充编辑会话归属、关闭守卫、来源坐标、付费请求未知状态与视频恢复期限；未修改功能、未启动原型或服务、未划分 PR。发布等待作者配置 GitHub 登录。文档构建 exit 0（5.72s），marked 解析／7 表结构／源码路径核对通过，diff 检查 exit 0；首次解析尝试缺少 markdown-it，改用项目现有 marked，无新增依赖。未运行自动测试或新工作区功能验收。
+
+- 2026-10-10 助手重置与滚动返修：重新开始走新会话流程，清空当前消息、输入及任务并保留旧对话；修复文档 scroll 捕获重复恢复旧位置导致滚轮／滑动被锁住，回看历史时任务结束不再强制到底部。旧构建已复现滚轮位置不变；本地组合验证见[记录](./agent-runs/assistant-editing-20261009.md)。未提交、部署或重启用户服务。
+
+- 2026-10-09 助手编辑与现场整合：实施范围权限、结构化任务交付、正文原位／逐处和分组审阅、自动应用与撤销，以及现场并入推演。修复部分采用后定位、跨域写入、失败交付提议泄漏、手机撤销可达性和旧会话日志保护；真实 MiniMax 连续对话 12 项、权限代理 11 项、交付工具 12 项、亮暗／手机实页 105 项通过。最终门禁见[实施记录](./agent-runs/assistant-editing-20261009.md)。未提交部署，用户服务未重启。
+
+- 2026-10-09 计划：新增[助手正文修改、权限与推演现场整合](./plan/assistant-editing-permissions-scene-integration-20261009.md)，记录已发现的提示与完成判定冲突，明确提议协议、逐处审阅、授权生命周期、现场识别和六阶段实施验收。另列运行包任务日志保护为前置步骤。本轮仅文档，无功能实施、提交、部署或服务操作；检查相对链接与 git diff --check，未运行测试。
+
+- 2026-10-09 推演右栏深色底色修正：输入区仍引用旧 archive-paper-soft 灰纸色，窄屏 sticky 标题栏另用 chrome 色；两处统一使用 surface-workbench，与正文/助手右栏一致，保留原布局与控件状态。桌面亮暗/390 实页背景颜色对照、原有助手采用撤销等 51 项通过，截图已查看。本地修改，未提交部署。
+
+- 2026-10-09 助手显示返修：Agent 与旧问答由纯文本改为清洗后的 Markdown，补齐粗体、列表、引用、分隔线、代码和表格样式，去掉开头空行造成的空档。思考和工具记录共用紧凑过程区，默认折叠，展开可读，手机保留触控高度；流式更新和不可执行 HTML 回归已补进现有用例。桌面亮暗/390 实页 45 项通过，实际截图已看，采用/撤销/刷新流程继续正常。本地修改，未提交部署。
+
+- 2026-10-09 PR #6 整合：保留近期 UI，修复世界书完整字段往返、按域文件事务与中断恢复、公网文件隔离；固定 Storyflow 运行包并接通助手检索、正文/设定修改提议、作者确认、撤销与右栏草稿冲突保护。组合验收 20/200，专项文件和权限核查、桌面亮暗/手机 27 项及实际 MiniMax 工具和停止通过；2GB 服务器运行器并发峰值约 103 MiB。贡献者归属随整合历史修正，生产未部署。[记录](./agent-runs/pr6-integration-20261009.md)。
+
+- 2026-10-08 草稿与现场精修：正文草稿固定中央落笔处，去暗色灰带、对齐正文并完整增高；现场事实和编辑层级整理、空识别折叠，保存和采用实页通过。verify:full exit0（20/200、双构建、lint/结构/体积/diff），视觉待确认；[记录](./agent-runs/workspace-navigation-20261006.md#_2026-10-08-草稿与现场局部精修)。未部署。
+
+- 2026-10-07 推演实际反馈返修：去除未消费的逐字参考预检，补齐历史节点版本/内容指纹；长正文从装箱到最终请求优先保留落笔末尾，初始化位置默认章末且尊重明确光标。生成结果与输入分开，移动光标/收起保留，异常结果可复制或存构思；固定回应实页与实际出站消息证据见[记录](./agent-runs/workspace-navigation-20261006.md#_2026-10-07-实际反馈参考误报结果保留与默认接续)。未调用真实模型、提交或部署。
+
+
+- 2026-10-07 推演流程优化：原右栏区分写下一段/推演情节；透明自增高输入、结果就近转正文/查看草稿，收起保留要求。修正默认续演与待发生要求、工具回应引文、隐式规划、人物确认接续/取消竞态、可读失败结果及分支入场继承。隔离固定响应已走通两种任务的确认后原指令续发、停止/重试/采用，真实模型质量另验；[证据与边界](./agent-runs/workspace-navigation-20261006.md#_2026-10-07-推演流程与可靠性优化)。最终verify:full exit0（20/200、双构建、lint0error/2存量warning、结构/体积/diff）；未提交或部署。
+
+- 2026-10-06 工作区导航第一片：作者授权后，将正文、完整助手、资料和漫画接入共享作品导航，补可见全局导航；首页按真实使用时间继续到章节、速记和漫画页/格，关闭页签保留最近历史，漫画同页去重。资料导入沿用本书页签，视频标题统一。联调修复保存拒绝时先切页签、owner 第二次保存失败后 URL 不一致、速记定位误归章节、抽屉焦点及首页切书意外跳转。两书/两速记/资料导入/第3格刷新、失效对象、存储失败、18章目录及桌面/手机亮暗实图均已观察；首轮 build 21.72s、lint（0 error/2 存量 warning）、结构/体积（Authoring 1,430,639 bytes）和 docs build 7.97s exit 0，见[第一片回执](./agent-runs/workspace-navigation-20261006.md)。本轮未自动测试或调用模型，未提交/推送/部署；视觉待作者确认，后续分区导航与文档级页签未完成。 作者随后否定左栏杂乱与卡片式外观；已将常用入口单列、低频工具弹出、章节单行、作品配置按需展开，并去首页/正文/助手大圆角，默认连续作品列表。删除写死的卷层，保留章节标题右键作品操作；手机关联入口自动展开且收起遮挡。最新 build 19.67s、lint/结构/体积（1,430,903 bytes）/docs 7.89s 与 diff exit 0，多尺寸亮暗/长目录实图已查看，仍待作者视觉确认。 作者再次指出正文左栏不应放功能入口，已撤掉四行菜单与更多工具，改由顶部导航承接；补同书章节/速记返程和助手任务离页保护，速记重挂载刷新目录后再接受 owner。最终 build 18.88s、lint/结构（10,893/119）/体积（1,431,016 bytes）、docs 6.45s 与 diff exit 0；第二章/速记即时离页保存、速记刷新、手机目录及助手返程实际核对，实图已查看，中间资料已清理；仍未提交或部署。 作者认为章节排布退步后，参照保留旧实图恢复章序/章名两层，字数放章序层、长名两行，统一构思左沿及关联行高。最终 build 17.62s、lint/结构/体积/docs 5.99s、Markdown/链接/diff exit 0；搜索/新建/关联和多尺寸亮暗/18章目录实图已核对，视觉仍待确认。 作者最终要求完整恢复旧左栏且只变材质，已按 main 原 DOM/CSS 恢复搜索、新建章/书、语言、构思、卷/章、世界书关联及底部现场；四项已拒菜单仍顶部，撤前轮布局覆盖。旧长目录收缩重叠只补 flex-shrink 保护。实际搜索/新建/速记/手机关联/卷组菜单与多尺寸亮暗截图已核对；最终 build 18.21s、lint/结构/体积（1,430,085 bytes）/docs 6.40s/Markdown/链接/diff exit 0；中间产物已清理，未提交或部署。 作者新增要求删除作品语言、强调章节：已去左栏/新建/导入选择器和无消费组件；章名16px、序号13px、卷标题及选中600与主选中色，结构位置保留。新建/搜索/两章导入预览及手机亮暗实图已核对；build 18.14s、lint/结构（10,876/117）/体积（1,428,778 bytes）/docs 5.93s/Markdown/链接/diff exit 0，中间产物已清理，未提交或部署。
+
+- 2026-10-05 侧栏精修：作者否定第一片观感后继续调整布局。作品导航固定、目录独立滚动、章节提前/新建归位；右侧工具分组、窄栏阅读比例、采纳按钮与手机关闭入口完成。18 章真实目录与 1440/900/390 亮暗截图核对见[第二片记录](./agent-runs/sidebars-refinement-20261005.md)。作者认为已有一点设计但仍廉价后，查看 Linear/Bear/Craft/Figma/Apple Notes 官方界面并核对 Pinax 85%/100% 实页；[研究补充](./plan/premium-workspace-design-20261005.md)明确下一片的字级、对齐、控件与右栏组织约束，研究轮未续改 UI。2026-10-06 作者授权后已实施第三片，统一字级、章名与计数、工具控件、助手阅读/输入和菜单边界；18 章保存刷新、12 个截图状态及工程核对见同一记录。视觉仍待作者确认，未提交/推送/部署。 2026-10-06 按作者关于层级和发现性的反馈补充 Obsidian/VS Code 官方研究与跨区实页观察；[工作区方案](./plan/workspace-ux-research-20261006.md)保留首页默认入口、突出上次及最近使用，并安排共同导航与减少中转；源码确认全局抽屉无打开入口，实页确认资料/视频命名变化。本轮仅调研与文档，核对与清理见同一精修记录。 2026-10-06 后续按作者位置反馈恢复章行子级缩进；右侧推演/大纲/角色/设定统一间距和暗色主按钮，导航复用产品图标，“版本”明确为正文历史。首页恢复默认封面书架、最近打开单列并删除浏览器保存提示；亮暗/手机截图与实际使用证据见同一工作区记录。未部署，视觉待作者确认。 作者再次纠正抽屉标题标识与角色空态位置后，已据官方研究续修资料/导入、视频空白输入、漫画制作层级、跑团开场/玩法及指引；随后按作者明确要求恢复完整设定的旧连续文稿结构，仅保留新材质和保存保护。隔离实际使用与亮暗/手机截图见同一工作区记录，未部署、视觉待确认。 后续按作者要求补查 Google/Microsoft/Notion/Drive 官方导入；本书添加页先收整单列文件/粘贴与唯一入书确认，随后按作者纠正改为原地浮窗、按书草稿、确认后原地刷新，多文件+片段入书及部分失败实际操作，读取期间禁移除，暗色按钮修色；同一记录保留证据。 后续补全浮窗拖入/复位和PDF100MB/其他50MB上限，失败类型与PDF资源释放纠正，22MB合成有效PDF读取成功；真实论文未收到，待作者重试。 随后按作者要求统一大纲/角色/设定目录和阅读样式，接总纲/章纲直接编辑自动保存；保存刷新及三面亮暗/手机实图证据见同一记录。 2026-10-07续修助手控件：去记忆/固定、加号真实引用、对话新建切换删除与写失败保护；实际文件/章参考prepare、删除刷新和截图见同一记录。
+
+- 2026-10-07 项目管理交互定型（卡片角标 + 导入项目 + 内置文件夹浏览器）：按用户定调收口——①「项目管理」工具栏按钮移除（其唯一行为=弹最近一本书的编辑框，多本时其余项目不可达；卡片角标 ⚙/删除 已覆盖全部管理职能）；LibraryQuickActions 改发 import-project，WelcomeView 死路径 openProjectPanel 移除，LocalProjectPanel 陈旧指针改指书卡角标。②工具栏新增「导入项目」→ ProjectInfoPanel 新 import-project 模式（kicker 导入项目·指向本地文件夹；书名可从文件夹名回填）：指向的文件夹有 .pinax 标记 → openProjectAt 直接绑定；无标记 → 按 kind createProjectAt；随后 POST /projects/import-content 回读 正文/*.md（文件名=章节名、序号剥除、≤500 章/单文件 1MB）建书稿章节——项目与书稿一次导入。③项目文件夹位置字段加「浏览…」→ 新 FolderBrowserModal.vue：服务端 GET /browse 逐级导航（父级返回/子目录进入/Pinax 项目徽标/顶层书稿计数），选中回填绝对路径（Web 拿不到原生对话框路径，内置浏览器是 Web 正解；Electron 阶段二换原生 dialog）。④导入书稿对话框「选择文件夹」按钮从行内 ghost 升为与 dropzone 同宽的块级次入口。验证：local-import-check 16/16（增 browse/isProject/回读 2 章/相对路径拒绝）、mirror 46/46、funnel 9/9、capability 25/25、integration 19/19、lint 0 新增、串行 vitest 20/200、build 过；真机：browse 列出 D:Projects 子目录、open 无 marker 正确 400、import-content 回读 2 章。未推送。
+
+- 2026-10-07 项目管理器（Obsidian 式，新建/打开/导入/绑定四合一）：新全屏视图 src/views/ProjectManagerView.vue（路由 /projects，?tab=import 直开导入）——左列注册表项目（名称/路径/kind/绑定书名/同步时间；进入写作/换绑/解绑/从列表移除），右主区三行动（新建项目=建项目+建空书+绑定+进写作；打开本地项目=marker 校验进列表；导入书稿=复用 AuthoringManuscriptImport 单文件/文件夹两模式）。服务端补 projects/bind（bookId=null 解绑）/projects/remove（仅摘注册表，磁盘不动），公网 403 闸沿用；前端轻模块补 bindLocalProject/removeLocalProject。首页入口收编：导入书稿 → 管理器导入页签、新增「项目管理」按钮、新建下拉加「新建项目（本地文件夹）」；设置「本地项目」节加指引行。server/.pinax-app/ 入 gitignore。验证：local-mirror-check 42/42（增 bind/解绑/remove/不存在项目 4 断言）；lint 0 新增；串行 vitest 20/200；build 过；真机 3001 注册表读取正常。并行会话确认：与 P4-B/统一模型会话交错编辑（en.json 双方条目互修），本提交 scoped 至项目管理器集合，未触碰其 WIP（advisor.js/capabilityToolContracts.js/capability-task-check.mjs 留置）。未推送。
+- 2026-10-07 capability 模式缺陷修复（文本 JSON 兜底接收）：真机 knowledge.query 抓到——模型按指令卡把完美结构化 JSON 当普通文本返回而非调用 submit 工具，被 NO_SUBMISSION 守卫误杀，前端回落本地检索呈现「没有找到足够依据」。修复（printedToolCall 修复同款双层）：任务结束未提交时正文中的 JSON 直接解析为回执（结果等价）；正文无 JSON 且预算允许 → 一次修复重试显式要求调用 submit 工具。验证：pinax-capability 4/4（新增文本兜底场景）+ 全量 125/125 + tsc 0E；真机同一条查询复验经 agent 循环以 dots 出 answer + 3 claims（2 supported + 1 partial）。
+
+- 2026-10-07 P4-B 扩容（JSON 协议族全量工具化，门控改 spec 驱动）：capabilityToolContracts 从三件扩到 19 族——submit_rewrite_result（authoring.rewrite/complete.inline/materials.refine，replace 与 candidates/patches 双形态）、submit_review_findings 升级完整协议（target.nodeId/startOffset/endOffset/exact 精确定位 + confidence）、submit_knowledge_answer 修正 confidence 口径（supported|partial|unsupported）、submit_scene_directions（ready/insufficient-evidence 双态）、submit_rehearsal_step（consequences knowledge/commitment）、submit_typed_actions（materials/canvas/storyboard/next-actions/emergence 九族共用，actionTypes 白名单按任务约束）、submit_default_advice（review.selection/asset.summarize）。advisor 门控从三切片白名单改 spec 驱动（有契约即走 agent；settings 结构化链与 runGenerationTask 文本路径不在本轮）。真机抽验：authoring.rewrite 经 agent 循环出 57 字替换（「疯了一样转」→「仍在旋转」，语义准确）；scene.directions 证据不足按协议返回 insufficient-evidence。**发现并行会话编辑冲突**：另一会话正在本地项目/导入面施工（localMirrorService setProjectBinding/removeProject、LocalProjectPanel、LibraryQuickActions、router、en.json 导入条目），其 WIP 留置未提交；en.json 被并行写入的条目缺逗号致 vitest JSON 解析全挂，已修复并提交（文件含双方条目）。验证：capability-task-check 25/25、funnel 9/9、mirror 42/42、integration 19/19、lint 0 新增、串行 vitest 20/200 全绿。未推送。
+
+- 2026-10-07 统一模型两步（控制权收归 kit + 服务端漏斗接 kit，P4 正体）：**第一步** kit 任务面新增 `GET/POST /model`（读写 `.external/pinax-adapter.json` + 内存 cfg 热生效——makeModels/getModel 均为 createRun 时读取，零重启；key 只回显掩码）+ `POST /v1/pinax/complete[/stream]`（pi-ai Models.complete/streamSimple 一次性补全转发；四角色 transcript 含 assistant 工具轮/toolResult；tools/toolChoice/temperature/maxTokens/thinking/responseFormat 经 samplingParams 透传）；Pinax `/api/storyagent/model` 代理（公网 403）+ 设置页 Agent 引擎切换器（预设 dots/glm/minimax + 自定义端点，热切即显）。**第二步（builtin 门控）**：`kitModelGateway.js`（isServerKeyedTextConfig 判定 + forwardComplete/Stream + runKitFunnelProviderTurn + structured fetch shim）——内置（服务器密钥）配置的六路文本调用统一经 kit 漏斗：讨论/审校/记忆提取（textModelAgentProvider）、设定生成（fetch shim，runner/模式/降级零改动）、agent-step 工具回合（runKitFunnelProviderTurn，浏览器仍持工具执行）、正文生成×2（chat.js 非流式+流式，{content} 帧协议不变）；**自带 key 自定义配置保持直连零变化**。四处「未配置」闸加漏斗豁免（内置配置在未配 MINIMAX_API_KEY 的部署上不再报错——语义变化已记 known-issues）。验证：kit 漏斗测试 7/7（热切持久化+内存/补全/工具透传/流式帧）+ storyharness 121/121 + tsc 0E；Pinax `local-funnel-check` 9/9（门控/公网 403/转发）+ mirror 38 + import 12 + integration 19 + lint 0 新增 + 串行 vitest 20/200；真机：/model 热切即刻生效，`/api/generate` 与 `/api/chat/stream` 以内置哨兵配置经漏斗以 dots 出活（46/78 字符文学性文本）。全部本地未推送。
+
+- 2026-10-06 全局导入层 + 本地项目设置：新增强导入管线 `src/services/import/importPipeline.js`——文件夹选择（FS Access `showDirectoryPicker` 优先 / webkitdirectory 回退）→ 递归走查（跳过 .pinax/node_modules/隐藏，200 文件/20MB/深度 8 上限）→ **一书+资料分类**（根目录 txt/md 合并成书：文件名=章节名、内文 # 标题再切章、单文件多章加前缀；子目录全部 + 根目录 pdf/docx/epub → 世界书源档案管线）→ 确认后才写资料归档（`archiveMaterialEntries`）。导入对话框加「选择文件夹」模式（合成 parsed 复用既有预览/确认链）；设置弹窗新增「本地项目」节（`LocalProjectPanel.vue`：默认项目新建位置/读取位置/注册表状态行）；`ensureProjectForBook` 钩子挂导入确认与新建空书——配置默认位置后自动建项目并绑定 bookId（冲突静默回落文档根）。架构：拆轻模块 `src/services/localMirrorSettings.js`（设置/绑定面，node 可加载，重 payload 留 localMirrorService）。规范更新 pinax-project-spec.md §6/§5。验证：`local-import-check` 12/12、`local-mirror-check` 38/38；真机混放文件夹全链（分类 2+2 → 建书 2 章 → 建项目 `D:\Projects\导入验收` → sync 落项目根 → 落盘逐字核对）后清理；lint 0 新增；串行 vitest 20/200；vite build 过。未推送。
+
+- 2026-10-06 项目标准范式 `pinax-project@1`（Obsidian/VS Code 模式，全局项目化推进）：项目 = 磁盘任意位置自包含文件夹（`.pinax/project.json` marker），应用侧注册表/索引搬至安装位附近（`PINAX_APP_DATA` > `<server>/.pinax-app/`，桌面阶段换 userData）。服务端新增 `createProjectAt`（空目录建库 + kind 模板 novel/screenplay/generic + bookId 绑定）/`openProjectAt`（marker 校验 + ERR_NOT_A_PROJECT/ERR_SPEC_MISMATCH）/注册表读写；sync 落点改「注册表按 bookId 绑定根 > 文档根（兼容）」，kind 模板目录永不清扫（修复 worldbook:null 清掉模板目录的缺陷，smoke 抓到）；`projects/create|open` 为任意路径能力面，**公网部署（PINAX_PUBLIC_ORIGINS 非空）一律 403 ERR_LOCAL_ONLY**。规范文档 [pinax-project-spec.md](./engineering/pinax-project-spec.md)（契约/kind 注册/安全闸/阶段映射——Electron schema v2 按此范式放开 manuscript|reference 限制）。验证：smoke **38/38**（三模板建库/marker/绑定同步落项目根且模板目录保留/公网 403/相对路径拒绝/非空目录拒绝）；lint 0 新增；串行 vitest 20/200 全绿；3001 已重启载入范式层。未推送；全局导入层已接续交付（见上条）。
+
+- 2026-10-06 项目文件体系 @2（全局项目化阶段一）：mirror@1 升级为每项目完整文件体系 `pinax-project-fs@2`。新增落盘：资料（worldbook.sourceDocuments 内联 + 档案工件按 chunkIds 重组，≤50 个/50KB，`资料/sources.json` 索引）、日志四类（修订史=每章最新 10 快照截断 2 万字符+块史 20 条；体验会话=writing_sessions 按会话 worldbookId 过滤最新 20 场；助手对话=按项目键转可读 md 末 60 条；记忆台账=memory_candidates 按 scopeId 过滤+状态统计）、媒体清单（仅元数据）、根级 `项目索引.json`（POST /api/localmirror/index）。前端 payload v2 组装（新增四源读取，逐源 try/catch 不阻塞镜像）+ 全量同步后调 /index；托管清扫扩到 6 目录（旧 @1 自动升级）。全局项目化三阶段路线（阶段二 Electron 文件为真源 desktop schema v2；阶段三双向对账；存储按项目重组为并行项）入盘点文档 §四。验证：smoke **26/26**（新增 @2 全部断言）；真机经 3001 同步含日志合成书 **11 项**逐字核对（八类计数全非零、UTF-8 中文正确）后清理；lint 0 新增；串行 vitest 20/200 全绿。未推送；范式层已接续交付（见上条）。
+
+- 2026-10-06 本地文件镜像（正文/大纲/世界书/构思 → 文档\Pinax）：按协作共识（作品数据放本地对用户习惯与 agent 读取更友好）落地单向镜像层。服务端：`server/services/localMirrorService.js`（tmp+rename 原子写、托管子目录整体重建防 stale、Windows 文件名消毒+同名去重、500 章/2000 条/4M 字符上限、meta.json 完整标记）+ `/api/localmirror/location|sync`（`PINAX_MIRROR_ROOT` env > `<homedir>/Documents/Pinax`；路径由服务端唯一决定，浏览器不传——防注入）。前端预留接口无按钮：`local_mirror_settings_v1` 设置键（入 storageKeyPolicy/备份清单）、`src/services/localMirrorService.js`（payload 组装自 `writing_books` + `readWorldbookSnapshot`）、保存链挂钩 `installLocalMirrorAutoSync`（writing_books 订阅 2.5s 去抖、失败静默退避 60s）、main.js 安装。盘点报告（含默认种子世界书 `seedWorldbookPresets.js` 与 `server/data/worlds` 的定位区分、IndexedDB 三库边界）见[本地数据盘点](./engineering/local-data-inventory.md)。验证：`npm run smoke:local-mirror` 16/16（临时根注入不触真实目录）；真机 `GET /location` 返回 `C:\Users\Administrator\Documents\Pinax`，经 3001 同步合成书逐字核对中文文件名/内容/frontmatter 后清理；lint 0 新增；串行 vitest 20/200 全绿。注意：GBK 控制台下中文显示乱码为显示层现象，核对一律用 Node UTF-8 读取。未推送；@2 已接续交付（见上条）。
+
+- 2026-10-06 Agent 统一全程 P2–P5（任务面进 kit，adapter 退役）：pinax-adapter 运行时整体迁入 `storyflow-kit/storyharness/src/pinax/`（canonical，`npm run serve:pinax` 承载 loopback 8451，配置面不变），24 例测试随迁（kit storyharness 114/114 + tsc 0E）；kit 侧桥 vendor 件补 `canonicalJson.js` 自持。Pinax 侧 adapter 包退役为 stub（191 tracked 文件移除），`storyAgentRuntime` 改「探测 + 兄弟仓 spawn」（`PINAX_KIT_SERVE_TS`/`PINAX_ADAPTER_CONFIG` 可覆写，dots key 不复制不迁移），CI 删 adapter job、bridge-sync 步骤入 test job，双副本门禁改跨仓对。P3：`capabilities.json` 标准工具集清单（capability-manifest@1，11 工具）入 kit 由 core 测试钉住；浏览器原生工具环留 Pinax，由契约等价测试对齐（边界记录于计划文档）。P4：advisor/structured 走 kit provider、orchestrator retire 为待上游协同的剩余项，运行时归属已改写进 current-architecture.md。P5：设置页 AI 面板新增 agent 引擎行（kit healthz 带 `model`），i18n 中英同步。验证：kit core 433/434（1 已知环境性）+ 生成门禁；Pinax sync 2/2 + schema 等价 + beta 冒烟 + integration 19/19；verify:full 串行 20/20 文件 / 200/200 用例全绿 + lint/build/架构/diff/docs 全过（默认并行下 2 例 5s 超时为本机内存受限环境性抖动，stash 二分实证与改动无关）。终验：3001 自动 spawn kit 任务面（spawn glue 实证），经代理真实 dots 首轮 (1949×2+53)÷2=1975.5、续接 1975.5×8−300=15504，calc 均实调，usage 1519/2013 tokens。全部本地未推送。
+
+- 2026-10-06 Agent 统一 P0.2+P1（契约口径+模型口径单源）：kit `contracts/` 新增 `capability-manifest@1`（工具声明面，KitOp 同位）与 `beat-plan@1`（submit_narrative_beat_plan 入参，升格自 Pinax shared 实现），登记 core `SCHEMA_IDS`/README R6 并以注册测试钉住；`storyharness/src/llm.ts` 改 provider 注册表（dots 全旗标自 runner.ts 迁入、minimax 缺省端点、generic 兼容面固定 max_tokens 字段），THINKING_BUDGETS 单源（判决 32768，adapter 侧 32384 为笔误），`taskBudget` 落 executor 看门狗/流式。Pinax adapter 换 vendor 副本（llm.ts 逐字节 + schema fixtures），ajv devDep 契约校验测试（含 schema 严格/运行容错的分层表达），`check-bridge-sync` 扩 5 对跨仓门禁，`contract-schema-sync-smoke` 钉 shared ≡ kit 契约。验证：kit storyharness 90/90 + tsc 0E、core 432/433（1 败=已知环境性 python-stub）、adapter 28/28 + tsc 0E、sync 5/5、beta 冒烟、integration 19/19、verify:full exit 0（20/200）；真机 dots 首轮+续接各一次 calc 实调通过（3828.5/15000，usage 1596/2208）。全本地未推送；P2–P5 已接续交付（见上条）。
+
+- 2026-10-06 Agent 统一 P0.1（kit 化排期启动）：全量盘点双链 agent 代码与 kit 架构后产出[统一改造计划](./plan/agent-unification-kit-20261006.md)（P0–P5，用户确认执行）。本轮交付：桥双副本 sync 门禁（`scripts/check-bridge-sync.mjs` 锚点契约 + adapter CI 步骤，JS 对锚点后逐字节 / d.ts 整文件）；src 侧 `pinaxNarrativeAgentBridge.d.ts` 更名 `piNarrativeAgentBridge.d.ts` 对齐实现文件名并补齐漂移（onReasoning/onBeatPlan/onToolResult/taskKind/beatPlan/tasks()/healthz(options)）；清 24 个 tasks-bridge-* 残留；kit 仓 executor 回退桥改显式配置（`cfg.fallback.command`+`script`，去 storymasterv4 隐式硬编码，见 kit CHANGELOG 未发布段）。验证：sync-check exit 0、adapter 24/24+typecheck 0E、storyagent-beta-smoke exit 0、storyharness 84/84+typecheck 0E+动词表/openapi 门禁 OK、本仓 verify:full exit 0（20/20 文件 / 200/200 用例）。未推送；P0.2 已接续交付（见上条）。
+
+- 2026-10-05 PR #5 整合：先将近期 UI/真实流程收口保存为 `782b03e0`，再修复并接入贡献者 `4fea0677`。现有助手接参考/技法、真实续接、统一对话保存、同站任务隔离和作者确认采纳；规划/取消/预算/最终正文补齐，严格推演保留原生发布前验收。真实 MiniMax 首次及续接均实际调用算术工具，模型只打印工具代码的缺陷已修；组合检查、边界及清理见[接入记录](./agent-runs/pr5-integration-20261005.md)。公网未部署。
+
+- 2026-10-04 巡检遗留修复：按作者要求继续处理实际失败。地点提取兼容可验证的完整 JSON 文本返回；地图按当前世界书区分局部/世界，零国家/城市有效，并修解除绑定复活、局部比例尺与手机层级。漫画真实流式分页→改稿→建页→刷新通过；视频真实原件入库、下载和封锁外链后的空浏览器 ZIP 恢复通过。推演加入原始要求的发布前检查、唯一结束锚点与一次修订；三类真实收束通过，跑团无依据推断修订仍失败时已阻断。记忆限定进入候选正文与完整引文，真实提取及接受后读取保留承诺/条件。检查、限制及清理见[同一巡检记录](./agent-runs/user-journey-20261004.md)，未提交/推送/部署。
+
+- 2026-10-04 实际使用巡检：隔离浏览器中操作主要创作/媒体/体验流程，调用真实内置渠道并查看截图。修复设定丢稿、素材/画布归属、查找撤销、助手缺当前稿、推演引号与接续、记忆任务版本误判、世界书预设/导出碰撞、地图导出、联机复制与窄屏遮挡；漫画导出和空浏览器备份恢复通过。`verify:full` exit 0：20 文件/200 用例、lint 0 error/2 存量 warning、双构建与结构/体积/diff通过。地点提取/漫画分页上游失败，地图与文本/记忆质量残余均保留；见[体验清单](./agent-runs/user-journey-20261004.md)。本轮临时产物清理，未提交、推送或部署。
+
+- 2026-10-03 媒体核心区续修：统一视频面板/模型浮层与漫画当前格任务，补直接上传和页面导出；修视频查询失败重提/取消占槽、漫画换页递归/旧稿覆盖候选/默认短句溢出，以及插画切来源后无法停止旧生成。verify:full exit 0（20/200，Web 12.15s、docs 3.80s，结构/体积/diff，lint 0 error/2 存量 warning）；75 项专项、漫画实页 25/25、48 项组合断言和 32 张多尺寸亮暗截图状态通过，实际导出 PNG 已查看。沿用本地 5180 静态预览，不调用真实模型、不提交推送或部署；见[回执](./agent-runs/media-core-20261003.md)。 第二轮续补按镜头视频历史、分页脚本编辑/保存/直达制作、整页缩放、中文标点断行与速记交接失败保护；核心用例仍 20/200，实际页面及离线故障证据见[第二轮回执](./agent-runs/media-continuation-20261003.md)。
+
+- 2026-10-03 界面续修：把既有研究接入正式 Vue 的共同外壳、作品主次导航、活动页签、助手输入/阅读列与设定标题带。手机截图暴露文稿回程零宽，已改为输入面内独立上下文行。构建、lint（0 error / 2 存量 warning）、结构/体积与文档构建检查 exit 0；最终 45 个亮暗、桌面/手机和菜单截图状态未观察到 pageerror 或整页横向溢出，代表图实际查看；具体结果与预览见[续修回执](./agent-runs/ui-refinement-20261003.md)。未提交、推送或部署。
+
+- 2026-10-01 PR #4 接入与修复：作者授权后，在独立 worktree 合入 `4f9bb707`，修复真实作品选择来源、响应式追问、按书运行状态、切书流/终态与取消确认，以及后端归属不变、重复 ID 和恢复互斥。同步双份 bridge/类型并补 adapter CI 类型检查；默认 beta 与正式助手边界保留。build、typecheck、lint、结构/体积、docs 与 diff exit 0；未新增或手动运行测试、模型或服务。已以 `41d4063f` 推到 main，PR 已 merged、代码 CI completed/success；回执提交 `223e3fad` 已同步。原 UI WIP 保留，组合 build/lint/结构 exit 0，本轮不部署。写集、证据与边界见[回执](./agent-runs/pr4-integration-20261001.md)。
+
+- 2026-10-01 PR #4 修订复审：冻结 HEAD `4f9bb707` 在独立 worktree 静态审查，确认 beta 默认关闭、世界书 content 回退及普通首次取消已修。仍发现作品/世界书身份混用、追问状态未响应、切书取消与终态写回、恢复归属覆盖及同任务并发恢复缺陷；建议修订后再合并。fork 同 HEAD 四个 job success，主仓库 PR 工作流 action_required 且无 jobs；新 adapter 测试/类型检查未纳入 CI。最新修订 diff check exit 0；未执行测试、贡献代码、模型或服务，未评论/批准工作流/合并/部署。具体触发和源码位置见[审查单](./agent-runs/pr4-review-20261001.md)。
+
+- 2026-10-01 Google / iOS 质感详细研究：作者仍未认可既有整体质感，本轮重新核对作者 Gemini 桌面图、当前 Google/Apple 一手规范与实际产品图，并诊断 Pinax 页面构图、导航职责、面层与状态密度。形成[整体设计研究](./plan/google-ios-visual-design-20261001.md)及独立 HTML 交互样片，覆盖同书正文/助手/设定/资料、亮暗、局部材质、输入和预览。正式 UI、模型与存储未改；过程、样片截图和本轮检查见[回执](./agent-runs/google-ios-ui-20261001.md#详细研究与独立交互样片)。设计方向待作者确认。
+
+- 2026-10-01 Google / iOS 界面续修：以作者 Gemini 截图和官方设计资料为据，统一侧栏、工作栏、系统字体、中性亮暗面层与控件，覆盖写作、助手、设定、资料、首页、素材、画布、漫画、体验和偏好。修长标题溢出、选中工具/菜单对比、时间轴覆盖，以及手机目录、字段高度和页签。最终 40 个主页面状态与 8 张附加截图无 pageerror/整页横向溢出，代表图实际查看；分线补有内容、长列表、来源与切书观察。build、lint（0 error / 2 存量 warning）、结构/体积、docs:build、diff exit 0，Authoring 10,900 行 / 1,405,822 bytes。作者继续指出细节与质感不足后，续修英文中文回退、主次选中、助手图标与短提示、原生下拉控件、空字段计数/状态行、元信息与素材/漫画密度；最终 build 12.22s，其余工程检查同为 exit 0。新代表图与输入/菜单/保存观察见同一[回执](./agent-runs/google-ios-ui-20261001.md)。视觉待作者确认；未新增/运行自动测试、模型、提交推送或部署，原 5174 中断退出后未重启。
+
+- 2026-10-01 漫画与插画：完成官方产品及调用链调研，沿用工作台主题、工具字级与手机分区。空白漫画格不再强制素材；直出/阶段图共同供预览、取景、计数和导出，保留制作来源与确认门槛。气泡、尾巴、逻辑字号及内文字区共享，超量文字阻止成品导出；临界字宽仍可能换行不同。修按书图库、素材去重、真实引用保护、迟到请求/保存重试，以及正文仅有标题、速记刷新丢图和插入双图。MiniMax 人物参考贯通并校验旧后端能力；ComfyUI 标准 API 工作流接正向描述、排队、历史与图片读取，未知节点明确限制。隔离合成页面已走正文/速记保存插入刷新和漫画四格生成、上传确认、PNG 下载，亮暗与手机无 pageerror/整页溢出；未据此评价模型质量。build/docs/lint/结构/体积/diff exit0，0 error / 2 存量 warning，Authoring 1,405,822 bytes。见[调研与交付记录](./agent-runs/visual-media-polish-20261001.md)。未新增/运行自动测试、真实模型、提交推送、部署或重启服务。
+
+- 2026-10-01 跨页联动与 UI：正文/助手共用四入口，设定和资料明确双回程、同书同章与 view；首页默认当前最近项目且保留手动切书。共享面层/标签/导航/工具统合，素材/画布/漫画/体验收空态和顾问入口，修手机布局与漫画当前格模式；设定/条目/地图按 ID 消费快照，正式保存后刷新，资料迟到预览不写新书。31张隔离亮暗/390/320英文85%截图无 pageerror/整页溢出；Vite build、lint:delta（0 error/2 存量 warning）、结构/体积、VitePress exit0，Authoring 1,404,157 bytes；Notes import超预算已修并复查。见[回执](./agent-runs/cross-workspace-ui-20260930.md)。视觉仍待作者确认，未运行tests/模型、提交或部署。
+
+- 2026-09-30 助手侧边栏打磨：作者初步认可 Gemini 实物方向，要求继续优化细节。左栏统一书名/主导航/提问层级，长标题单行省略、提问列表独立滚动并高亮当前项；65 条样例记录全部保留，短屏关闭按钮常驻。工作台侧栏合并完整助手/资料与搜索/历史，320px 英文适配真实 44px 按钮。阅读锚点覆盖展示、缩放和检查往返，输入自增长后再恢复；作品/消息数量与恢复序号淘汰旧定位。补平板引用预览的导航状态、响应式焦点恢复，以及运行中检查/改写的索引/资料保护。实际查看亮暗、英文、85%、长标题/长列表及 320px/短屏截图；长草稿刷新保留，检查跨展示 DOM 相同，最终观察无 pageerror/缺译 warning/模型请求。build、lint（0 error/2 存量 warning）、结构/体积、docs:build、diff exit 0；Authoring 10,900 行、1,401,584 bytes。仅本地 5174，细节待作者确认；未新增/运行自动测试、真实模型、提交推送或部署，见[回执](./agent-runs/assistant-frontend-20260930.md#侧边栏细节打磨方向初步认可)。
+
+- 2026-09-30 助手写作动作与工作区修订：作者否定七分类及整体视觉，并提供 Gemini 暗色截图。以这张实物为最高参考，完整助手增加约 19% 作品导航，主区采用单行自增长胶囊输入、无卡片起点和柔和蓝光；侧栏使用同一对话与输入。前台只留讨论故事/查阅资料；讨论用 free，资料新提交统一 whole-book，旧记录/重试保留原 intent；检查文稿继续走既有审稿与采用/撤销，空白正文禁用。引用标题直接可点击，手机预览移交焦点、关闭返回触发项。修复不存在的标题变量/焦点 token、手机菜单越界与窄屏发送第三行；短视口菜单按实际空间收紧并保留滚动。实际查看桌面/手机/亮暗/英文/85%、320px 和 390×460 截图；未发送的多行草稿刷新保留，空白书查询用途刷新保留，审稿跨展示的 DOM 对象相同；最终观察无 pageerror/缺译 warning。build、lint:delta（0 error/2 存量 warning）、结构/体积、docs:build 与 diff exit 0，Authoring 10,900 行、1,401,584 bytes。仅本地实施，用户视觉待确认；未新增/运行自动测试、模型、PR #4/RAG、提交推送或部署，见[本轮回执](./agent-runs/assistant-frontend-20260930.md#写作动作与工作区修订作者再次否定)。
+
+- 2026-09-30 助手参考修订：作者再次否定视觉并要求参考 ChatGPT、Cursor、Gemini。主 agent 与两名只读 worker 实际查看官方产品截图及 Gemini 实时桌面/手机页，ChatGPT 实时页 403，引用官方帮助页的 2025 输入截图并标明证据时效。助手空态改为一句无衬线标题、圆角输入和轻起点；现有审稿/查设定/生图收进框内 + 菜单；修复审稿进出焦点、短视口滚动，以及 900px 下旧侧栏 flex 规则造成的白区。亮暗/英文、85%、三尺寸、对话与来源截图已查看，菜单和草稿行为已观察。build、lint（0 error/2 存量 warning）、结构/体积 exit 0；docs:build 与 diff check exit 0，见[回执参考节](./agent-runs/assistant-frontend-20260930.md#chatgpt--cursor--gemini-参考修订)。未新增/运行自动测试或模型、提交或部署；等待作者视觉判断。
+
+- 2026-09-30 助手视觉续修：作者否定功能首版外观并要求高级感。本轮只改助手代表性区域：空白页将标题、输入和起点集中；工具收在输入下方，范围选择并入输入；纸面、边框和 hover 使用项目真实 token，移除不存在的 surface/border 变量；缩减重复头栏、侧栏空态不再把输入压到底部。1440/900/390、85% 缩放、亮暗和英文截图已查看，无 pageerror/英文 warning；构思仍只填草稿，切换/刷新保留输入，范围切换提示语同步。build、lint:delta（0 error/2 存量 warning）、结构/体积、docs:build、diff 均 exit 0；未新增/运行自动测试、调用模型或部署。视觉等待作者确认，见[回执续节](./agent-runs/assistant-frontend-20260930.md#视觉续修)。
+
+- 2026-09-30 助手前端首版：完整助手与工作台侧栏共享同一作品对话；新增空白书构思和新建书起点、引用片段预览及原文定位。对话/草稿按书保存并纳入备份，刷新不重发，旧书请求不影响当前书；停止/失败只恢复未编辑的原问题，读取失败不自动覆盖旧存储。查询按需加载将 Authoring 包从初轮超限的 1,456,483 bytes 降到 1,401,581 bytes。build、lint:delta（0 error/2 存量 warning）、architecture:check、architecture:build-size、docs:build 与 diff 均 exit 0；1440/1024/390 桌面、手机、暗色和英文截图已查看，返回正文滚动位置 400→400 且编辑器未重挂载。首轮引用样例缺少受信 claim，修正样例后可展示三条真实来源；英文占位缺译已补齐。未新增/运行自动测试或 verify:full，未调用模型、接 PR #4、新 RAG、提交、推送或部署。见[回执](./agent-runs/assistant-frontend-20260930.md)。
+
+- 2026-09-30 PR 合作附件：按作者要求新增独立的前端与接口说明，涵盖资料页、同一作品助手的完整页/侧栏、空白书入口、检索和修改的展示位置，以及四类能力的输入输出、来源/目标版本、取消恢复和宿主应用反馈。合作说明增加附件入口，PR 回复改为简短自然的三段。docs:build exit 0；三份 Markdown 使用 marked 解析，3 个本地链接无缺失；diff clean。初次使用未安装的 markdown-it 检查失败，改用项目已有 marked 后通过。曾额外打包 ZIP，已按作者要求删除；附件保留 Markdown。仅文档，未新增/运行测试、改前端、运行 PR、发表评论、合并或部署。
+
+- 2026-09-30 合作分工纠正：按作者说明重写合作文档的职责、能力接口及下一步交付，撤回让贡献者出前端方案的安排。Pinax 作者定产品方向、接入接口并负责前端；贡献者继续资料处理、文件操作、RAG 与 Agent 核心，提供来源/状态/定位结果及联调样例，接口调整先讨论。PR 回复草稿同步，未发布。verify:full exit 0（20/20 文件、200/200 用例，Web/VitePress build、lint/结构/体积及 diff），日志 `/tmp/pinax-collaboration-ownership-verify-20260930.log`。仅文档，未改业务、启动贡献代码、提交或部署。
+
+- 2026-09-30 助手全屏与开书引导调研：核对现有 AuthoringKnowledgeAssistant 的依据展示、页面内存会话、切书清空和卸载取消，以及书库/首次引导。读取 Cursor Agents Window、Notion Research Mode、Sudowrite Story Bible 官方资料，并实际查看两张官方桌面截图；没有产品登录交互或手机截图验证。补[合作说明第六节](./plan/writing-agent-collaboration.md)和[讨论回复](./plan/writing-agent-collaboration-issue.md)：作品级同一助手的全屏/侧栏、可选择的空白书起点、助手内检索来源与按需原文、正文/设定结果定位及两类提醒。只定交互与能力衔接，不冻结字段/函数或改业务。verify:full exit 0（20/20 文件、200/200 用例，Web/VitePress build、lint/结构/体积及 diff）；日志 `/tmp/pinax-assistant-direction-verify-20260930.log`，两份合作文档本地链接无缺失。未启动/运行贡献代码或模型，未提交、发表评论或部署。
+
+- 2026-09-30 PR #4 前端讨论：读取公开 PR 说明及 diff，确认 Node/pi-agent 适配器、资源快照、任务转录与独立 beta 的当前接线；未执行贡献代码或复验作者测试报告。补充[合作说明](./plan/writing-agent-collaboration.md)第五节及[讨论回复草稿](./plan/writing-agent-collaboration-issue.md)：保留结构化设定编辑，资料分析与原文引用贯通，按作品组织文件和生成结果，正式助手逐步接入，正文差异/采用/撤销复用现有链。指出公网适配器部署及数据归属待讨论。仅文档，diff check exit 0；未发表评论、合并或部署。
+
+- 2026-09-29 合作说明范围纠正：作者指出上一版缺少现状、误将记忆列为独立改造方向。重新读取资料解析/归档/提取、Utopia 本地 ingest/extraction 及 Agent 调用入口，重写[合作说明](./plan/writing-agent-collaboration.md)与[issue 草稿](./plan/writing-agent-collaboration-issue.md)，仅聚焦资料导入和 Agent 工作流。记录世界书提取前 12,000 字符与允许补全的实际限制；既有分块、记忆账本和工具链作为复用基础，不以对白单例缩窄合作。仅文档，git diff --check exit 0；未跑测试或模型、未发布 issue/提交/部署。交接技能修订候选：对外合作说明先列当前调用链和已证实缺口，再定改进范围；不把依赖模块自动扩成工作项，本轮未修改技能。
+
+- 2026-09-29 对外合作说明：按作者要求，将前期调研收敛为[方向文档](./plan/writing-agent-collaboration.md)与[issue 草稿](./plan/writing-agent-collaboration-issue.md)。保留轻量批注、半自动推演、自动助手共用能力的方向，仅说明资料/文风/写作/推演的输入输出与职责，不冻结字段、函数或施工细节。建议先做对白修改完整案例，贡献者提出方案并向 main 提 PR，维护者审查合并。仅文档，未发布 issue、提交、推送或部署，未运行测试。
+
+- 2026-09-29 资料与写作 Agent 合作调研：固定审阅 NovelPedia `eb4f140`、Storyflow `bd1c8a1`、SkillRouter `54706a9`，并核对 Pinax 当前调用链。推演已有每步至多一次 history_lookup；审稿已有 writingSkill/补丁/撤销接线；时序协调已接账本，角色知情写入和 provider 在生产 src 中未找到外部调用。形成[调研报告](./engineering/novel-agent-collaboration-research-20260929.md)，纳入作者提出的自动助手、半自动推演、轻量批注共存方向，提出证据化资料分析、文风画像、任务级授权及合作案例。外部项目未执行，性能和模型质量未复现；Utopia 最新远端未核实。仅文档，未改业务、提交或部署；未新增/运行测试。
+
 - 2026-09-28 使用指南续修：按作者“AI 味太浓、细节不清楚”的反馈删重复定位与泛化介绍，首页按任务导航、快速开始缩为五步；补速记改名、批注/版本、助手实际查询边界、推演回应→试稿→采用、现场候选选入/保存、备份迁移与 FAQ，核心英文同步。代码入口只读核对，保留现有截图/布局及其他 WIP。docs:build exit 0、80 项实际挂载链接/截图无缺失、双 manifest 与17篇 Markdown 解析通过、diff check exit 0；未运行自动测试/verify:full、浏览器走查或部署。见[回执](./agent-runs/user-docs-copy-20260928.md)。
 
 - 2026-09-28 Agent 施工计划复核：阅读 MiniMax 需求报告并核对当前调用方/diff，新增[逐包施工任务卡](./plan/agent-tool-calling-execution-20260928.md)，修订上位计划、需求报告证据定位、PLAN/STATUS。接受先做 AT-00 和保留原型，纠正 settings 分派器用途、普通文本请求与工具请求混淆，明确混合 WIP/未跟踪文件输入包；AT-00 拆 a–d，后续每包列写集、步骤、出口与禁止扩项。执行者“20/200”“Windows/Linux”等成绩没有由本轮复验；当前既有修复仍为部分实施。仅文档检查：`npm run docs:build` exit 0（日志 `/tmp/pinax-agent-plan-revision-20260928.log`）、三份计划 9 个本地链接及任务卡覆盖检查 exit 0、`git diff --check` exit 0。未运行自动测试/verify:full、未改功能、未启动 worker 或部署。提出计划下发前核对调用图/WIP/预算红灯/首包出口的技能修订候选，尚未修改技能文件。
@@ -3255,3 +3517,215 @@ Deferred（按重要性排序，不在本 commit）：
 ## 2026-09-28 公网发布
 
 main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/200 用例），本机生产构建上传，服务器只更新源码/手册/静态产物并重启后端。公网内容哈希与浏览器加载检查通过，备份及边界见[发布回执](./agent-runs/release-20260928.md)。
+
+
+## 2026-09-29 免登录公测防滥用
+
+修复内置 MiniMax 密钥按 URL 子串注入的风险，鉴权请求禁跟随重定向；上线可信反代令牌、同站来源检查和单 IP 轻量限流。公测地址 pinax.cc 及原 IP 可用，无新增登录。main `f7fe6b8` / 生产 `5035f79` 已推送部署；60 项检查、verify:full（20/200）与公网防护检查 exit 0。真实模型生成未测；旧密钥建议轮换，未确认发生泄露。配置、证据与回滚见[回执](./agent-runs/public-beta-guard-20260929.md)。
+
+
+## 2026-09-29 设定页直接切书（本地）
+
+顶部当前作品名称改为原生选择器，设定、资料、地图、条目共用；切换保留栏目并清除旧书对象定位，按目标书关联加载。条目页添加未保存修改确认，进行保存/批量操作时禁用；地图在加载阶段不挂载旧世界书面板。中英文说明同步。`npm run build` exit 0，diff check 通过；已查看 1440/390 截图，选择器与正文回程入口可见。未新增/运行自动测试、未提交、未部署；跨书交互与完整门禁未验收。
+
+- 2026-10-07：助手加号菜单改为下方展开，展开预留空间，长参考列表内滚动；全屏/侧栏/手机实图核查，build17.37s与diff exit0，本地未部署。
+
+- 2026-10-07：助手复用导入浮窗改用添加文件标题、拖入提示和确认文案，资料入口保持添加资料；两入口实查、build/diff exit0。
+
+- 2026-10-07：取名删除固定评价，扩充中文姓名池并加强跨批次去重及本书名称排除；浏览器4批48候选未重复，lint/build/diff exit0，本地未部署。
+
+- 2026-10-07：校对空态改为“检查错字、语病和前后矛盾 / 查看原文与修改建议，逐条采用或忽略。”，移除否定式改稿说明，同步英文文案；不改校对行为。
+
+- 2026-10-07：按Sudowrite/Gemini官方交互说明局部优化推演空态、来源进度、回应层级、行动者选择及输入、路线对照收纳；手机输入改随结果滚动。未改模型/工具/试稿真源，离线fixture操作与亮暗/手机截图已查看。
+
+- 2026-10-07：按实际推演草稿截图纠正键盘提交、旧失败与新生成混显示、协议标记及只读文本框；多步推演改用推演/背景/其他结果等直白词并补准备完成引导。
+
+- 2026-10-07：推演取消顶部来源名/等待进度/信念对照和重复引导，空输入按当前故事默认推进，输入去灰框用细分隔；0步输入靠上。
+
+- 2026-10-07：撤回移除人物比较入口的决定，输入区更多菜单恢复“比较人物选择”，沿原IF事件接线；整理表单名称并修复独立入口返回原推演。
+
+- 2026-10-07：比较人物选择页去侧线/重复方向说明，参数采用无框文本与自增高，忙态只读；填入/返回及亮暗实图核查，未调用模型。
+## 2026-10-08 kit 运行时工单：Wave 0 全五单 + W1-2/W1-3/W1-4 落地
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` 施工（W0-1 profile 命中轴修复与 W0-2 bridge-sync 入门禁此前已落，见 `docs/STATUS.md` 同 session 行）。本批：**W0-3** 先备份 `_staging/w0-3-task-cleanup-20261008` 再清理 140 个遗留任务目录 + 24 个陈旧 jsonl；**W0-4** 8451 CORS 收白名单（kit `pinax/server.ts:33-36` 单点 `corsOriginFor`，三处硬编码 `*` 撤除，配置文件填四个开发来源）；**W0-5** 监督拓扑入档 `docs/engineering/current-architecture.md`（8451 归 Pinax spawn 监督、8421/8431 归 kit `scripts/ops/` 守护但当前失效、`web.ts` 留 kit 开发态），kit-guard 失效与 8421 CORS 全反射（`core/src/http.ts:21`）两条入 `docs/src/known-issues.md`；**W1-2** `scripts/check-capability-catalog-sync.mjs`（canonical=49 / tools=21 / 交集=19 / 只在工具侧=2 / 只在 canonical 侧=30）入 `verify:full`，孤儿注入反向验证能红，2 项豁免带 D7 待复核标注；**W1-3** kit provider 表内置档（`envKey/defaultModel`，minimax 档 `MINIMAX_API_KEY`/`MiniMax-Text-01`）+ `THINKING_BUDGETS` 32384 全仓零残留 + Pinax 侧 sentinel/MiniMax host 名单收为 `shared/textModelKeys.js` 单源；**W1-4** 8451 日志维度=任务（`bookId` 是过滤字段非分区键，首帧/终态帧与 usage 字段入档），sessions.ts 不接线（D11）。
+
+验证：`verify:full` exit 0（20/20 文件、200/200 用例、lint 0 新增、双 build、结构 0 循环、bridge-sync 2/2、catalog-sync 6/6、diff clean、docs build OK）；kit 侧 139/139 + typecheck 干净。仍待：W1-1 循环归属试点（需 D8 裁定 + 真实网关）、W1-5 删退役件（需 fail-open 演练留证）、D7 复核。未 commit。
+
+## 2026-10-08 kit 运行时工单：W1-1 单发改写循环归属试点落地
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` W1-1 施工（切片=② 单发改写，D8 收口）。**开工先破了一处已存两日的现场故障**：capability 任务面全族失败（`kit/storyharness/tasks/task-pcap_*.jsonl` 29 个里 21 failed、19 个带 `400`/「未产出正文」，最早 10-07）。根因经运行中 kit 的 `/v1/pinax/complete`（非流式 6 形状）与 `/complete/stream`（流式 2 形状）共 8 种形状变异离线探针实测定案：**dots3-note-prev 端点拒绝任何「独立 system 轮」**——systemPrompt 字段或 messages 内 system/developer 轮一律拒（非流式空补全 finishReason=error、usage 全零；流式立即 [DONE] 零内容；pi-agent-core 链路落盘为守卫报错/400），与 tools、流式与否无关；折进首条 user 后全通（含工具调用）。此结论同时统一了 W0-1 遗留的口径分歧（拒绝面=独立 system 轮，顶层症状=空补全而非 HTTP 400）。
+
+**修复落 kit** `storyharness/src/llm.ts`：`ProviderProfile.foldSystemIntoUser` 旗标（dots 置 true）+ `foldSystemIntoUserPayload()`（system/developer 轮文本并入首条 user，text 块数组与 string 两形状均处理）+ `withSystemFolding()` 在 `makeModels` 出口经 pi-ai 官方 `onPayload` 钩子注入（streamSimple/complete/completeSimple 三方法；调用方自带 onPayload 链式保留）——一处安装覆盖全部消费方（runner Agent 循环/planningAgent/modelFunnel/makeStreamFn），非命中 profile 零开销。
+
+**Pinax 侧调用形态改造**：`server/services/kitModelGateway.js:327-364` 新增 `createKitStructuredCapabilityFetchImpl()`——结构化请求抽成 capability 任务（系统文本+会话轮+Schema 显式指令+提交方式指令折成 `capability.systemPrompt`；Schema 同时进 `submitTool.parameters`，即三模式绕过等价物），submit 回执经 `renderStructuredResponse` 合成三协议超集响应；`server/services/capabilityTaskRunner.js:35-139` 抽出低层 `submitCapabilityTask()`（advisor 路径同步改走它）；`server/services/structuredGenerationRunner.js:258-262` 接线（kernel 模式注入 capability fetchImpl）。双层 fail-open 保持（探测不可达→直走漏斗；任务失败→同请求回落漏斗，console.warn；abort 不回落）。修复重试按工单预案留 Pinax（两轮循环未动，每次重试=新任务；D9 出口裁定保留）。
+
+**验收（真实模型调用）**：临时实例（8463、新代码）经 handler 全链实跑，产出合法 draft、usage 699/454/1153、无回落警告；任务盘落盘 `task-pcap_muz9aqil_68f36c12.jsonl` = completed / steps 1 / toolCalls 1（`submit_structured_generation`）/ capabilityResult present。门禁：kit 141/141 + typecheck 干净；`storyagent-integration-smoke` 19/19、capability-task-check 32/32、`npm run verify:full` EXIT=0（20/20 文件、200/200 用例顶格不破，未新增测试文件）。**试点范围显式标注**：只切 ②；①②b（`chat.js`/`generationAgent.js`）仍走 Pinax 循环，属合法中间态。**仍待**：W1-5 删退役件（需 fail-open 演练留证）、D7 裁定（生产 8451 重启已于当日 16:45 完成，见下节）。未 commit。
+
+## 2026-10-08 kit 运行时工单：生产栈重启复验——8451 新码生效
+
+用户授权「杀掉老线程重新做」。判定依据（mtime 对比）：运行中后端/kit 启动于 10:19:47，而 W1-1 代码写盘于 16:01–16:09，运行栈确为旧码。执行：`taskkill /F /T /PID 11124` 一次清掉后端 11124 + tsx 10080 + kit 21936（旧父 shell 22492 随之退出），3001/8451 端口释放核验通过；新后端以 PowerShell `Start-Process` 分离进程重启（`node server/index.js`，cwd=本仓；日志仍 `%LOCALAPPDATA%\pinax-probe\server.{out,err}`，旧日志存档 `*.boot1019`）。注意 `storyAgentRuntime.js:33` 是「healthz 通即复用、不通才 spawn」——必须先杀 kit 再杀后端，否则新后端会复用旧 kit。新栈时间线：16:44 杀树 → 16:45:22 后端 9320（0.0.0.0:3001）→ 16:45:23 kit 23776（127.0.0.1:8451，`/healthz` = `{"ok":true,"service":"pinax-adapter","port":8451,"model":"openai.dots3-note-prev"}`）→ 16:45:51 生产请求 → 16:45:57 任务完成。生产全链复验（真实模型调用）：`POST http://127.0.0.1:3001/api/generate/structured`（payload 空 apiKey → resolveModelRouting=kernel → 哨兵 → capability fetchImpl）HTTP=200、5.87s、mode=native-json-schema、draft 非空；kit 任务盘新落 `task-pcap_muzakkb7_1bcfd7d9.jsonl` = taskKind capability / completed / toolCalls 1 / usage 665/542/1207（与响应 meta 的 inputTokens/outputTokens 同值）/ capabilityResult present；server.err 与 server.out 全文零回落警告零错误（层2 fail-open 未触发）。5173 vite preview 仍 200（dist/index.html 16:12:25 构建，其后无前端改动）。至此 W1-1「生产生效」闭环：折叠层 + capability 本路在生产栈跑通。仍待：W1-5（fail-open 演练留证 + D10 盘点）、D7 裁定、D9 出口裁定。未 commit。
+
+## 2026-10-08 kit 运行时工单：W1-5 零删除裁定 + D7/D9/D10 出口收口
+
+按 `docs/plan/kit-runtime-workorders-20261008.md` 收口最后一批外部条件。**W1-5 裁定=零删除**：四个前置（W0-1 + W1-1 + 演练留证 + 盘点）满足后执行，原删除面经逐文件盘点全部为活体——`providers/` 8 文件（1795 行）分三类：narrative 传输族 4（anthropic/openAi/openAiResponses/minimax ToolAdapter，经 `toolCallingProviderAdapter.js:8-20` 接线，上溯 narrativeAgentOrchestrator，归 W2-3 一并评估）、structured 基建 2（`structuredOutputAdapter`/`structuredCapabilityResolver`，W1-1 漏斗兜底依赖）、探测 2（`narrativeCapabilityProbe`←chat.js /test、`providerCapabilityResolver`）；`textModelAgentProvider.js` 保留为 advisor 唯一 L2 回落载体（自带 key 直连政策未裁）；`advisorAgentRunner.js` 全文复核回落机制正确、无需改。退役前提（kit 全面承接）目前只在 W1-1 单点成立，Wave 2 铺满前删除等于拆服役中的链。
+
+**fail-open 演练留证（W1-5 硬前置）**：新脚本 `scripts/failopen-drill.mjs` 可复跑——stub 代理 8464 只拦 `/v1/pinax/tasks*`→502、其余透传真实 8451，测试实例 8465 指向 stub（「/model 热切失败档」不可用：modelFunnel.ts 证 /tasks 与 /complete 共用同一 cfg）。v2 全绿：advisor（回落 `provider=text-model` 出答）/structured（回落 native-json-schema 出草稿，innerAttemptCount=1）/chat（与任务面无关直连出活）三链各 1 attempt 200，任务面拦截面 2 次、回落警告 `[Advisor]`/`[Structured]` 各 1；证据 `%LOCALAPPDATA%\pinax-probe\failopen-drill-evidence.json`（v1 抖动版另存 `-run1-flaky.json`）。
+
+**D7 裁定并落地**：`experience.next-actions`/`experience.emergence` 两把工具键实为不可达死键（服务侧 canonical 先行解析：`advisor.js:153`/`capabilityTaskRunner.js:143`），且 `authoring.emergence` 从未进表（emergence 永远走漏斗、与 next-actions 不对等）。裁定=死键替换为 canonical 键（emergence 首获能力路径），49 项 canonical 不动；`check-capability-catalog-sync.mjs` 豁免清零改逐项直查（49/20/交集 20/只在工具侧 0，21/21 绿），`capability-task-check.mjs` 换键+新增 emergence/零死键断言（34/34 绿）。
+
+**D9 出口裁定=留 Pinax**：kit capability 路径已有 submit 校验环（W1-1 已证）；漏斗/直连路径 kit 无 schema 视图，搬移需把 Pinax 协议降级策略（native-json-schema→forced-tool→text-json、预算 ×1.5+800）耦合进 kit runner，收益小于耦合成本；实测膨胀=仅异常触发、每次 +1 轮（+1 kit 任务），正常路径 0（drill v2 attemptCount=1、生产 probe attemptCount=1）；机制 `structuredGenerationRunner.js:86` 两轮循环。
+
+验证（串行调度 + 分段跑齐）：串行 vitest **20/20 文件、200/200 用例**全绿；`lint:delta` 0 新增；`npm run build` 过（22.18s）；architecture:build-size（Authoring chunk 1,397,843 ≤ 1,450,000）与 architecture:check exit 0；bridge-sync 2/2、catalog-sync 21/21、`git diff --check`、docs build 全过。**注**：默认并行调度的 `npm run verify:full` 本次两连红，均为一例存量环境性 flake——`settingsAgentWorkflows`「settings place workflow」5000ms 超时（单跑 7/7 过、556ms；09-14/09-18 先例），未触 src/、非本批改动引入。未 commit。
+
+## 2026-10-08 直连退役批：文本链全数内核 + 写死 MiniMax 清除（用户裁定）
+
+用户裁定：「未来不会有直连了，也需要干掉所有写死 minimax 的，用户配的模型就是所有服务用的模型」。原「自带 key 直连政策未裁」就此关闭，四面执行：
+
+**路由两态化**：`server/services/modelRouting.js` 收敛为 `kernel`（探测 kit `/model`，5s 缓存）与 `none` 两态，无直连档；`none` 统一报 `MODEL_ROUTING_ERROR_MESSAGE`（“未检测到可用模型。请先启动 pi-agent 任务面（serve:pinax），并在设置中选择模型。”）。
+
+**四条生产链无条件内核**：`chat.js`（/chat、/stream）与 `structuredGenerationRunner.js` 无条件走 kit；`generationAgent.js` 默认 runner 由 `runToolCallingProviderTurn` 换为 `runKitFunnelProviderTurn`（多回合循环仍归 Pinax）；`textModelAgentProvider.js` 删 direct 分支（缺内核即 `AGENT_PROVIDER_CONFIG_INVALID`/retryable:false），保留为 advisor「任务面→complete 面」双层 fail-open 的错误合同载体。
+
+**key 面收口**：`resolveTextApiKey` 从 `shared/textModelKeys.js` 删除（该文件自此媒体链专用）；用户 key 仅剩两个用途——设置页探测（`chat.js:725` `/models`、`chat.js:812` `/test`）与「选中即热切内核」（`ApiSettingsPanel.applySelectedToEngine` → `POST /api/storyagent/model` → kit `/model`；公网部署 403 ERR_LOCAL_ONLY）。合同占位：`textProviderConfigStore.js:54-59` `SERVER_MODEL_PLACEHOLDER`（provider:'kernel'）。
+
+**保留边界**：media 链（image/video）全保留，仍用服务器 `MINIMAX_API_KEY`（`resolveMiniMaxApiKey`、sentinel、ImageModelPicker/VideoModelPicker、`routes/image.js`、`media/adapters/minimaxVideo.js`，漫画 e2e 在用）；anthropic 协议配置无法进内核（kit 只讲 openAI-completions），面板话术「该配置为 Anthropic 协议，内核暂不支持，无法作为全局模型使用。」。
+
+同步项：i18n en.json 删 8 旧键（6 孤儿 + 2 置换）补 7 新条目、tools.en.json 删 1；W1-5 零删除结论不变，narrative 传输族生产调用方清零（`runToolCallingProviderTurn` 仅剩测试引用 + `NarrativeProviderError` 被 generationAgent 引用），W2-3 评估面收窄。
+
+验证（本批复跑）：capability-task-check 34/34、local-funnel 3/3、public-access 40、structured-settings 双模式、narrative stream/recovery、bakeoff dry-run、kit typecheck + 139/139、`verify:full` exit 0。至此 2026-10-08 kit 运行时全批（W0×5 + W1×5 + 直连退役）收敛为单一 commit 入 main；用户安排测试。kit 仓侧改动（llm.ts / pinax/server.ts 等）留在 kit 仓工作区——该仓有他人在途改动，未动其 git。
+
+## 2026-10-08 Anthropic 协议接入 + 生产栈全链冒烟（用户指令：加协议 → 冒烟 → 媒体配置项）
+
+**定性**：上一条「保留边界」里写的「anthropic 协议配置无法进内核（kit 只讲 openAI-completions）」被本批推翻。做法是**接 pi-ai 自带的传输，不自研**——`@earendil-works/pi-ai@0.87.1` 有 `api/anthropic-messages.lazy.js`，`KnownApi` 含 `"anthropic-messages"`，参考实现是其 `dist/providers/minimax-cn.js`。
+
+**kit 侧（协议轴）**：`src/llm.ts` 新增 `LlmApi = "openai-completions" | "anthropic-messages"`，`LlmTarget`/`ProviderProfile` 加 `api?`，`PROVIDER_PROFILES.anthropic = { api: "anthropic-messages", hosts: ["/anthropic", "api.anthropic.com"] }`；`makeModels` 按 `t.api ?? profile?.api ?? "openai-completions"` 选传输（显式配置压过域名推断），并把 openai-completions 专属的 compat 旗标在 anthropic 线置 `undefined`（`maxTokensField`/`supportsDeveloperRole`/`supportsStore` 跨线无意义），鉴权同样分流——**只在 openai 线自出 `Authorization: Bearer`**，anthropic 线交回 SDK 出 `x-api-key`（两头同发会被 Anthropic 拒）。`src/pinax/config.ts` 加 `api`（env `PINAX_ADAPTER_API` > 配置文件 > 缺省 `openai-completions`）；`src/pinax/modelFunnel.ts` 的 `ModelPatch`/`validateModelPatch`/`modelStatus` 同轴加白名单校验与回显，热切经既有通用 `Object.entries(patch)` 循环自动生效。
+
+**Pinax 侧（放开面板）**：`TEXT_PROVIDER_TYPES` 增 Anthropic 预设，baseUrl 写作 `https://api.anthropic.com`（**不带 `/v1`**——Anthropic SDK 自己拼 `/v1/messages`，带 `/v1` 会拼成 `/v1/v1/messages`；`narrativeCapabilityProbe.js:53` 的探测面另有一套 `/v1` 约定，两者不冲突）。`ApiSettingsPanel.modelPatchOf` 删除「该配置为 Anthropic 协议，内核暂不支持」拒绝分支，改为按 `format === 'anthropic'` / provider id / baseUrl 三源推导 `api`；`en.json` 删该孤儿话术键。
+
+**协议差异记账（不改动，仅登记）**：① anthropic 线**不消费** `options.samplingParams`，故 `response_format` 在该线被静默忽略——结构化输出仍成立，靠 `kitModelGateway.js:290` 早已折进 user 轮的「只输出严格符合该 JSON Schema」指令 + `responseFormat: json_object` 转发兜底；② `foldSystemIntoUser` 对该线天然 no-op（system 拆到顶层 `params.system`，messages 内永不出现 system 轮），dots3 那类「拒独立 system 轮」的问题在 anthropic 线不存在；③ `thinkingBudgets` 该线消费（`anthropic-messages.js:686` 一带）。
+
+**门禁**：kit `npm run typecheck` 干净、`npm test` **146/146**（`llm-profiles` +4：profile 登记 / `/anthropic` 域名命中且 compat 撤除 / 显式 api 压过推断与缺省；`llm-request-shape` +2：真请求形状断言——路径命中 `/v1/messages?beta=true`、顶层 `system` 含系统文本、messages 内无 system 轮、鉴权头为 `x-api-key`，以及同端点显式 `api:'openai-completions'` 回到兼容线；`pinax-model-funnel` +2：`validateModelPatch` api 合法透传/非法拒 + `POST /model` 非法 api 400 且当前协议不变）。Pinax `verify:full` **exit 0**：vitest 20/20 文件、**200/200 用例顶格不破**——Anthropic 分流断言按「合并置换」规则折进 `integration.test.js` 既有的 ApiSettingsPanel 挂载用例（选中 Anthropic 预设 → patch `api: 'anthropic-messages'`，选中 OpenAI → `api: 'openai-completions'`），**未新增测试文件**；lint delta、双 build、architecture、bridge-sync、catalog-sync、diff check 全绿。
+
+**生产栈冒烟（真实模型调用，12/12）**：判定运行栈陈旧（后端 9320 / kit 23776 均 16:45 启动，早于 17:36+ 的 kit 源码改动），按「先杀 kit 再杀后端」重启（新栈 26288@3001 + 28296@8451；`GET /model` 回显 `api` 字段即新码生效证据）。脚本 `%LOCALAPPDATA%\pinax-probe\smoke-anthropic-20261008.mjs`：openai-completions 线（DeepSeek `deepseek-chat`）四链全 200 出正文——structured（mode=native-json-schema、草稿 85 字）、`/api/chat/stream`（SSE 出字）、advisor（`provider=agent-loop-kit`、答 42 字）、`/api/generate/agent-step/stream`（122 字）；随后经 `POST /api/storyagent/model` 带 `api:"anthropic-messages"` 热切 GLM Anthropic 兼容端点（`https://open.bigmodel.cn/api/anthropic` + `glm-4.6`），`GET /model` 确认 `api=anthropic-messages`，同一批请求再跑：structured 出草稿 79 字、chat 出「2 正确」，`server.err`/`server.out` 零回落警告。
+
+**⚠ 事故（密钥覆盖丢失，需用户处置）**：脚本首版收尾用「重读配置文件里的 key 再写回」恢复现场，但配置文件此时已被 anthropic patch 覆盖（`applyModelPatch` 是读-合并-写原子落盘），于是把 **dots3-note-prev 的原 apiKey（32 位，掩码 `ak_T****JHKv`）写成了 GLM key 并持久化**。已核查恢复面：两仓与工作区无第二份 `pinax-adapter.json`、`.example` 不含 key、按 token 形状 grep `D:\myz`/`D:\storyflow-kit`/`D:\pinax-storyharness`/`~\.dsh`/`~\.workbuddy` 零命中、旧 kit 进程已终止——**agent 侧不可恢复**。当前内核停在 DeepSeek 基线（冒烟收尾状态，链路可用）。恢复路径：Pinax 的用户文本配置真源在浏览器 localStorage（`text_model_configs`），用户在设置页重新选中/填写自己的 dots3 配置即会把 key 热切回内核。脚本已改为「key 快照在打补丁之前读入内存」，同类自覆盖不再可能。**教训入档**：凡是「改一个由被改对象自己持久化的字段，再声称能改回去」的冒烟，必须在改动前把原值快照进内存；重读文件等于读到自己刚写的脏值。
+
+**未 commit**（本轮未获授权）。下一条工单：媒体（图片/视频）模型改由设置页独立配置项管理——**已于同日交付，见下条**。
+
+**事故闭环（同日）**：用户直接提供 dots3-note-prev 的原 apiKey 后，恢复没有走手改 JSON，而是复用 kit 自己的 `/model` 漏斗（`applyModelPatch` 读-合并-写落盘 + 内存热生效，零重启）；`GET /model` 回显 `provider=openai / model=dots3-note-prev / api=openai-completions / keyMasked=ak_T****JHKv` 即恢复证据，随后 `%LOCALAPPDATA%\pinax-probe\dots3-restore-check.mjs` 复跑四条生产链 **5/5 全绿、零回落警告**。key 只写回它本该在的 gitignored 配置文件，仓库外中转文件用完即删，两仓与日志一律只记掩码。附带小事实（非故障）：`/api/chat/stream` 在 `max_tokens:120` 时会把预算耗在思考前缀只回空帧，提到 400 才出正文——探针脚本的预算口径问题，不是链路问题。
+
+---
+
+- 2026-10-08 媒体（图片/视频）模型收进设置页独立配置项 + 模型名去写死：用户指令第三项「对于那些 media 模型用额外的配置项去管理，要在设置项页里添加」。**落点判断**：不复制表单、不建第二真源——仓库里 `ImageModelPicker` / `VideoModelPicker` 已是完整的「触发器 + Teleport 配置面板」，与 `ApiSettingsPanel`+`TextModelPicker` 同一局部模式，缺的只是设置页里的宿主区块。新增 `src/components/settings/MediaModelSettings.vue`（head + 两个 Picker + 两行生效话术 `data-test="media-image-effective-line"` / `media-video-effective-line`），挂进 `SettingsPopup` 的 `ai` 之后成为第 4 分区（`settings-tab-media` / `#settings-panel-media`），tab 顺序同步进 `docs/user-manual/07-settings.md`（并新增「媒体模型」小节，明确「模型名不限于界面建议名单」）。**图片链补齐语义**：图片此前根本没有「默认选中」概念（三个生图面各自回落 `configs[0]`），新增 `STORAGE_KEYS.IMAGE_MODEL_SELECTED` + `get/save/resolveSelectedImageProviderConfig`，`storageKeyPolicy` 记 `preference`、`backupExport` 登记该键（`PINAX_BACKUP_KEYS ⊇ STORAGE_KEYS` 是既有测试断言，漏登记会直接挂）；`ImageGenerationWorkbench` / `Notes.vue` / `ComicStudio.vue` 三处回落改为 resolve，并各加一个选中回写 watch（写盘失败静默，本次选择仍生效、不阻塞生成）。**去写死 MiniMax 三处**：`imageProviderService` 与 `server/routes/image.js` 的模型名白名单换成安全形状正则 `/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/`；`server/media/adapters/minimaxVideo.js` 未知模型不再 400 直拒，已登记 T2V 仍锁 6 秒、未知模型按通用 6/10 档放行；两个 Picker 的模型字段由 `<select>` 改 `<input list>` + `<datalist>`（`MINIMAX_IMAGE_MODEL_SUGGESTIONS` 只作建议）。保留的仍是协议事实而非白名单：`buildMiniMaxImageSize` 对 `image-01` 走宽高、其余走 `aspect_ratio`。**验证（分线 + 组合）**：媒体断言按「合并置换」写进 `integration.test.js` 既有的 `it('shares provider config and keeps generated binary data outside localStorage')`——真挂载 `MediaModelSettings`（stub 两个 Picker）验选中落盘/失效回落内置/note 行，再 `generateImage(defaultModel:'image-02')` 验未登记图片模型名放行，并动态 import 服务端 `createMinimaxVideoAdapter` 验未登记视频模型 submit 请求体带原名 + `T2V-01` 10 秒仍抛 `only supports`；`verify:contract` **20/20 文件、200/200 用例顶格不破**，`lint:delta` 通过（4 条存量 warning 不计门禁），`vite build` + `architecture:build-size`（Authoring 1,397,864 B / 上限 1,450,000）+ `architecture:check` + bridge-sync 2/2 + catalog-sync 21/21 + `git diff --check` + vitepress build 全绿。**真浏览器实拍**（Playwright 驱动 3001 现网 dist，脚本 `%LOCALAPPDATA%\pinax-probe\media-settings-check.mjs` / `media-cross-surface-check.mjs`，截图同目录 `shots/`）：设置 → 媒体模型 两链渲染正确、未登记模型名可直接填入配置面板、seed 自定义图片/视频配置后设置页与 authoring 面图片选择器显示同一选中、pageerror 与控制台 error 零条；`en.json` 补 22 键（媒体区块 5 键 + 图片配置面板既有缺口 17 键）。**遗留（如实）**：3001 后端进程仍是本轮改动前启动的，`minimaxVideo.js` 的未知模型放行需重启后端才在现网生效；素材页与漫画页的图片面板需选中素材/进入分镜才挂载，实拍只覆盖到「页面加载零报错」，其选中共享由 store 单测承载。**未 commit**（本轮未获授权）。
+
+---
+
+## 2026-10-09 预算完全废弃 + 请求级轮数闸 + 直连残口摘除（用户裁定「残留干掉，然后裁定完全废弃，暂不加预算，只加一个最大循环次数」）
+
+**定性**：本批把 2026-10-08 的「摒弃写死预算、未声明交内核缺省」从**过渡态**收为**终态**，并摘掉直连退役后唯一还在绕过模型闸的残口。三件事都改的是生产链路，故逐条记落点与证据等级。
+
+**证据等级**：代码已实施 + 确定性门禁组合验证。**真实模型链本批未复跑**——现网 3001/8451 仍是上一批启动的进程，本轮未获重启与冒烟授权，所以「预算交内核缺省后各链实际出多少字」只沿用上批实测口径（4096 兜底对白 ✓ / 分镜 ✓），不宣称为本批活体验收。
+
+**① 残留摘除**：`server/routes/openclaw.js` 删除、`server/index.js` 撤挂载。该路由直调 provider、不经 `server/services/modelRouting.js` 闸，因此 2026-10-08「文本链零直连」的说法在它身上是不成立的——登记为残口并按用户「残留干掉」摘除。连带清理 `server/services/openclawService.js`：`readGatewayTokenFromConfig` / `resolveGatewayToken` 两个函数引用早已移除的 `join/homedir/existsSync/readFileSync` 与 `OPENCLAW_GATEWAY_TOKEN`（即调用即 `ReferenceError` 的死码），删除后该文件只保留提示卡与 `buildOpenClawUserMessage`。验收：全仓 grep `/api/openclaw` **零命中**。
+
+**② 预算完全废弃（三侧铺满）**：服务端/`shared/`/浏览器所有「为单次输出声明 token 数」的位置清空，请求体不再带 `max_tokens`，交内核缺省。逐点：`src/services/agents/narrativeAgentOrchestrator.js` 的 `maxTokens = 1600` 形参（含 `runNarrativeAgentGeneration` 的转发与返回对象回显）与三处调用档（planning 900、requestStep 阶梯、quality review/revision 两档）；`piNarrativeAgentBridge.{js,d.ts}` 的 `run`/`resume` 及 `agentEngine.js`、`experienceAgentRoute.js` 的转发；浏览器侧 `src/services/api.js` 记忆压缩 120、`media/imageDescriptionService.js` 700、`media/comicScriptService.js` 2400、`experience/generationAdventureTriggers.js` 1200、`worldbook/worldbookResearch.js` 500、`worldbook/worldbookMaintenance.js` 三档（2800/4200、3200/4600、3600/5000）、`worldbook/worldbookImportGeneration.js` 3400+1800、`geography/WorldMapPanel.vue` 与 `geography/GeographyPanel.vue` 各 4000。temperature / timeoutMs / max_input_chars 一律保留（不是预算）。**kit 侧无需改动**这一判断是逐接缝核过的：`pinax/server.ts:88` 只在字段有定义时校验 200–8000，`modelFunnel.ts` 缺省 4096，`runner.ts:135` 用 `req.maxTokens || 1600`——省略即走缺省，契约合法。**桥是双副本**，Pinax 侧改动必须镜像到 kit `storyharness/src/pinax/pinax-side/`（否则 `npm run bridge-sync` 报漂移），并顺手删掉 kit `test/pinax-bridge.test.ts` 里会触发 TS excess-property 报错的 `maxTokens: 1200` 实参。
+
+**③ 只加一个闸**：新增 `shared/modelLoopGuard.js`——`MAX_MODEL_ROUNDS_PER_REQUEST = 3`、`createModelRoundGuard(limit)` 返回 `{used, limit, acquire(scope)}`，超限抛 `MODEL_ROUND_LIMIT_EXCEEDED`（`retryable: false`），`resolveModelRoundGuard` 在无闸时现造一个。接线两处：`server/routes/advisor.js` 每请求建一个实例、漏斗与 capability 的 `taskMeta` 共享同实例，并在能力→漏斗回落的 catch 里显式 `if (error.code === 'MODEL_ROUND_LIMIT_EXCEEDED') throw error`——**这一行是必须的**，否则双层 fail-open 会把上限错误吞成「回落再跑一次」，闸等于没装；`server/services/structuredGenerationRunner.js` 的模式降级环 `roundGuard.acquire('structured')`。截断修复改口径：`RESPONSE_INCOMPLETE` 不再抬预算，同请求只补跑一轮（`attemptCount === 1`），失控交给轮数闸。
+
+**保留的数值明确分层（避免误读成「预算又回来了」）**：`assertModelCallBudget` 单参化后只按已记录真实用量比对输入字符（防超长，走 `contextRunBudget`）；`NARRATIVE_AGENT_RUNTIME_LIMITS.maxModelSteps` 与结构化 `budget.maxModelSteps` 是模型**步数**；各链 `timeoutMs` 是时间。**非生产残留（如实登记、本批未动）**：三个直连 tool adapter 的 `|| 1200`（只在 `runToolCallingProviderTurn` 下可达，而该函数生产零调用方）、连通性探测档 180/32/64（Anthropic/Responses 协议要求该字段必填，属协议形状不是生成预算）、`GENERATION_AGENT_LIMITS.maxTokens: 8192`（入参校验上限）、未挂载孤儿 `StoryAgentBetaPanel.vue` 的 `/tokens` 控件（grep 其 import 零命中；该面板的 `/tokens` 命令声明在 `src/services/agents/storyagent/panelComposer.js:64`，同一孤儿面）、`scripts/**` 离线工装。**其余 `maxTokens` 出现点经全仓 grep 确认为透传/校验而非声明**：`src/services/api.js:269,421`、`server/services/kitModelGateway.js:178,242,320,361`、`shared/generationToolContract.js:349-384`（调用方声明才转发，未声明即不发）。
+
+**行为变化（要说清的不协调处）**：客户端正文链的输出上限由 1600/2000 变内核缺省 4096（更宽，思考型端点因此更不易把正文吃光）；kit 任务面持平（桥原本就缺省 1600），但 kit `prompt.ts:107/116` 把 `req.maxTokens || 1600` 插进篇幅话术，现在 init 回合恒显示「约 1600 tokens」——提示词与实际 4096 上限不再一致，属已知的下一刀（要么让话术随内核缺省走，要么让它不写数字）；BeatPlan plan 阶段仍是 kit 自己的 900，不受本批影响。
+
+**门禁（本批实跑数字）**：所有编辑文件 `node --check` 通过；**串行** vitest（本机内存约束用 `--no-file-parallelism`）20/20 文件、**200/200 用例顶格不破**——并行时 `settingsAgentWorkflows > keeps extracted and fleshed-out places as review drafts` 5000ms 超时，该 flake 在 `docs/LOG.md` 与 `docs/plan/kit-runtime-workorders-20261008.md` 已存记（单跑 780ms），非本批引入。预算断言按「合并置换」改写 `src/__tests__/agentContracts.test.js` 既有用例（补跑两轮请求体 `max_tokens` 平值透传 2200/2200、未声明请求体该字段 `undefined`、`createModelRoundGuard(1)` 触发 `MODEL_ROUND_LIMIT_EXCEEDED`），**未新增测试文件**。`lint:delta` 0 新增 error（4 条存量 warning 不计门禁）；`vite build` 29.13s、Authoring chunk **1,360.58 kB ≤ 1,450,000**；`architecture:check`、`catalog-sync` 21/21、`bridge-sync` 2/2、`git diff --check` 全 exit 0。长期口径已写入 `docs/engineering/current-architecture.md`（「输出预算完全废弃」「OpenClaw 僵尸直连摘除」两段），`docs/STATUS.md` 首行新增本批安排行并把 2026-10-08 回归账的过渡态口径标注作废，`docs/plan/legacy-feature-regression-findings-20261008.md` 的 R1/R2 改终态并新增第十节。**未 commit**（本轮未获授权）。
+
+---
+
+## 2026-10-09 设置 → 本地项目 面板重做（用户反馈：两个路径输入框＋文字墙，丑）
+
+**用户口径**：「就用默认目录，以及已绑定项目，下拉框，就行了」——原面板是「默认项目新建位置」＋「读取位置」两个同形大输入框，加一段 `已绑定：书名 → 路径` 的逐行文字，控件彼此不像一个系统。
+
+**新形态（两控件）**：**默认目录**＝输入框＋`浏览…` 按钮，交互与 `ProjectInfoPanel` 完全一致（`pickFolderNative` 拉服务端系统对话框 → 不可用回落 `FolderBrowserModal` → 用户点取消则保持原值不催开），输入框与按钮拼成一体控件（左圆角输入＋右圆角按钮），hint 单行说明留空落点；**已绑定项目**＝`<select>`，选项按 `lastOpenedAt` 倒序、未绑定书稿的带「· 未绑定书稿」，选中后在下方单行显示该项目绝对路径（`word-break: break-all` 兜长路径）。样式全部走既有 token（`--hairline-soft`/`--radius-control`/`--surface-workbench-input`/`--nav-hover`），无新硬编码色、无新断点。
+
+**「读取位置」是死字段，直接撤除**：全仓 grep `defaultReadRoot` 只有该面板自己写、`normalizeSettings` 自己留，**零读取方**（`scripts/local-import-check.mjs` 那条断言是唯一外部引用），因此不是「藏起来」而是从 `normalizeSettings` 白名单删掉——旧 localStorage 里的该键在下次保存时自然消失。
+
+**顺带纠了两处话术假账**：① 旧面板写「配置默认位置后，新建或导入的书会自动在默认位置建项目并绑定」，但自动建项目的 `ensureProjectForBook` 早在 `58c1f51`（死代码清理批）就被删了，现状是 `ProjectInfoPanel:140` 拿默认目录**预填**、用户确认才建——文案改成预填语义，不再承诺自动；② 输入框原先拿服务端文档根当 placeholder，与 hint 里的同一个路径重复显示，实拍后改为中性 placeholder（`例如 D:\Projects（绝对路径）`），留空落点只在 hint 出现一次（root 取 `/api/localmirror/location`，实测 `C:\Users\Administrator\Documents\Pinax`）。
+
+**i18n**：`en.json` 删 6 个孤儿键（`读取位置`、`打开已有项目时的预填位置。`、`已绑定：{name} → {path}`、`未绑定书的镜像目录：{root}`、`默认项目新建位置`、旧 head 长句与旧 hint），补 5 键（新 head 句、`默认目录`、`已绑定项目`、`留空则落在文档目录：{root}`、`读取中…`），并顺手补上 `浏览…` —— 这个键 `ProjectInfoPanel` 用了几轮却从未登记，属英文态下的既有缺口。
+
+**修好一道哑掉的 smoke**：`npm run smoke:local-import`（`scripts/local-import-check.mjs`）自 `58c1f51` 起第 [4] 段以 `TypeError: ensureProjectForBook is not a function` 崩在导入后第一行——即该 smoke 已断跑多轮无人察觉。第 [4] 段重写为现存面的断言（设置面只留活字段 / 落盘三键形状 / 默认目录可清空 / 解绑 `bookId=null` / 移除端点），现 **17/17 通过**。
+
+**门禁与实拍**：vitest 串行 20/20 文件、200/200 用例顶格不破（**未新增用例**，行为断言由脚本＋真浏览器承载）；`lint:delta` 0 新增 error；`vite build` 30.27s；`architecture:check` / `catalog-sync` 21/21 / `bridge-sync` 2/2 / `git diff --check` 全 exit 0。真浏览器实拍用 Playwright 驱动 3001 现网 dist（工装 `%LOCALAPPDATA%\pinax-probe\localproject-panel-check.mjs`，截图入库 `docs/screenshots/localproject-settings-20261009/`）：桌面 1440 与手机 390 各拍一张，下拉切第二项时路径行随变为 `D:\Projects\导入验收`，输入 `D:/Projects` 后 localStorage 落盘 `{"enabled":true,"customRoot":"","defaultCreateRoot":"D:/Projects"}`（无 `defaultReadRoot`），手机横向溢出 0px，pageerror 与控制台 error 零条。**`浏览…` 未点**：它会在用户机器上拉起用户看不见的系统对话框（本机 GUI 弹窗不可见是已记约束），该路径的可用性沿用 `ProjectInfoPanel` 同一实现的既有验收。实拍为看图而非只看断言——两处冗余（placeholder 重复路径）就是看图才发现的。
+
+**注意**：为实拍重建了 `dist`，3001 前端刷新即见新版；后端进程未动、未重启。未 commit（本轮未获授权）。
+
+
+---
+
+## 2026-10-09 两个优化点落地：直连残留标记 + narrativeKernel 本地约束注入（W6·C）；分支 push + PR 提交
+
+**用户指令**：按两份报告落实两个优化点——① 《改造遗留排查报告》的直连残留处置（toolCallingProviderAdapter 退役标记 / structuredOutputAdapter 标意图 / chat.js 探测端点边界注释）；② 《localRules 设计》的项目「约束/」目录注入 narrativeKernel（方案 A+C）——完成后 commit、push、提交 PR（备注覆盖：项目本地化全局改造 / Agent 内核底层全局改造 / 世界书底层逻辑优化 / 模型接入）。
+
+**优化点 1（3 文件，报告口径两处修正）**：
+- `server/services/toolCallingProviderAdapter.js` 头部加 `@deprecated 2026-10-08 生产直连退役` 横幅：叙事后端 agent-step 生产链已全数换 `runKitFunnelProviderTurn`（经 kit 内核漏斗），本文件的工具调用直连 runner 在生产零调用方。**报告称「只有测试引用」不成立**——离线 eval 工装 `scripts/novel-cross-section-*.mjs` 也 import 它，且 `NarrativeProviderError` 仍被 `server/routes/generationAgent.js` 生产引用（错误归一化），故只标记不删除；整文件删除或迁入 scripts 需单独裁定。
+- `server/services/providers/structuredOutputAdapter.js` 头部边界横幅：合成的上游请求只服务两类调用方——内容生成（调用方注入 fetchImpl，请求实际经 kit 内核执行）与用户主动「测试连接」探测（不注入 fetchImpl，有意直连用户配置渠道验证可用性、不产出内容）；「生产内容生成路径不得在此新增直连调用方」。
+- `server/routes/chat.js` `/models`、`/test` 两端点边界注释：模型选择通道是直连退役的边界例外——用用户当前输入的 baseUrl/apiKey 直连渠道做可用性验证（拉模型列表/测试连接），不参与内容生成、密钥不落任何存储。
+
+**优化点 2（localRules 全垂直切片）**：
+- **kernel**（`src/services/agents/narrativeKernel.js`）：`BLOCK_LIMITS['local-rules']=2000`；`buildLocalRulesBlock` 插在规则块之后（与规则块同级，note 明示「优先级高于世界书普通资料」；rules 约束串同步改为「只遵守本块与本地约束块中的显式规则」）；**内容刻意不走 `text()` 折叠**（折叠空白会毁掉清单/条款换行排版，只归一化 CRLF）；≤8 文件、kind 白名单（forbidden/style/note/rule）；超预算时逐文件统一正文上限二分截断 + `truncated`/`omittedCount` 记账，极窄路径收缩文件数后仍放不下返回 null；与 `contextManifest` 模式正交（两种装配模式都注入）。
+- **executor**（`narrativeKernelExecutor.js`）：`executeTurn` 显式 `localRules` 参数透传（store 无关契约不变）；唯一生产调用点 `Authoring.vue` 的 `executeSession`（`selectedBookId` = 写作 book id = 注册表 bookId）。
+- **服务端**（`localMirrorService.js`）：KIND_TEMPLATES 三模板（novel/screenplay/generic）加「约束」；**「约束」刻意不入 MANAGED_SUBDIRS**——同步整体重建只覆盖托管子目录，约束文件是用户手写自由区；新增 `readRuleFiles`（md/txt、>8 个忽略并 warning、>1MB 跳过、>50000 字符截断、CRLF 归一、文件名关键字判 kind：禁用→forbidden/文风→style/备注→note/其余 rule）与 `readRuleFilesForBook`（注册表 bookId → 项目根，未绑定 fail-open 空集）。
+- **路由**（`server/routes/localMirror.js`）：`GET /api/localmirror/rules`（`?path=` 或 `?bookId=`；公网 403 `ERR_LOCAL_ONLY`，与 book/sources 同权能面）。
+- **客户端**（`localMirrorSettings.js`）：`readLocalRuleFilesForBook` fail-open 读回（未绑定/公网 403/网络错误一律空集，`console.warn` 后继续，绝不阻塞生成）。
+- **体验页不接线**：`worldId` 是 worldbook id（gameStore 五处），无 bookId 概念、无裁定映射，记账留待将来。
+- **测试（合并置换，未新增 vitest 文件/用例）**：`agentContracts.test.js` omnibus 用例内加 localRules 正常注入（kinds=['rules','local-rules']、换行保真、note 语义、truncated:false）与 5000 字超限截断（truncated:true、chars≤2000）双断言；`narrativeKernelExecutor.test.js` manifest 用例加 localRules 透传与逐字保真断言；`scripts/local-mirror-check.mjs` 新增 [13] 段 8 断言（kind 判定/CRLF 归一/绑定读回/未绑定空集/无目录空集/同步后手写保留/路由读回）→ **58/58**；内核回归两个 vite-node eval 全绿（`narrative-context-eval` gatesPassed:true、failures:[]；`authoring-context-lifecycle-eval` passed 6/failed 0、六闸全 true）。
+- **文档**：`docs/engineering/pinax-project-spec.md` §1（「约束」= 手写自由区、不参与同步重建）、§2（三 kind 模板表加 约束/）、§4（API 表加 `GET /rules`）。
+
+**门禁（本轮实跑）**：串行 vitest（`--no-file-parallelism`，本机内存口径）**20/20 文件、200/200 用例顶格不破**（[test-budget] ok）；`lint:delta` 0 新增 error（5 条 warning 不计门禁）；`vite build` ✓ 30.28s；Authoring chunk **1,397,721 B ≤ 1,450,000**；`architecture:check`（Authoring.vue 10595 行/125 imports、services 根 16/20、生产循环 0/0）；`bridge-sync` 2/2；`catalog-sync` 21/21（canonical=49 tools=20 交集=20 只在工具侧=0）；`git diff --check`；vitepress build 6.66s——全链 exit 0。**并行口径两连红如实记账**：默认并行 vitest 两次分别红 3 条/1 条 5s 超时（`uiControlContract` / `authoringWorldbookBinding` / `authoringTurnComposer`，均非本批文件；单跑 677ms 即过），同一棵树另有一次并行全链 exit 0（含 bridge/catalog/vitepress 尾段）——属本机内存受限的存量环境 flake（设置面板批与 kit 工单批已两度存记），串行复跑全绿为定案记录。
+
+**push + PR**：本批以单一 commit 推送 fork `skkbsgzf/Pinax-StoryHarness` main（命令级 SSH 一次性密钥，未改 remote/config、未动任何凭据文件）；gh CLI 未安装，PR 以预填 compare URL 交付用户提交（`Recoletas/Pinax:main ... skkbsgzf:Pinax-StoryHarness:main`），PR 备注四主题全文随消息交付。
+
+
+## 2026-10-11 可组合工作区：完整地图／条目管理
+
+接入原地图和高级条目编辑器的主区／旁栏组合，保留旧入口和编辑草稿。修复地图容器尺寸适配与观看中心偏移，窄栏默认收起世界树。条目保存由实际持久化 owner 检查基准指纹，拒绝过期覆盖；保存失败、未处理草稿与运行任务接关闭保护。组合实页378项exit 0，亮暗／手机关键截图已实际查看；真实供应商调用0次，完整门禁结果见[执行记录](./agent-runs/composable-workspace-20261010.md)。未提交、部署或重启服务。
+
+
+## 2026-10-11 撤掉工作区重复导航层
+
+按作者纠正删除模块横排与常驻对照按钮，将模块打开动作提取到原导航抽屉；原正文右栏设定保持，查看资料在同页进行。窄栏作品设定使用分区选择，资料文件索引收紧，并修正缩窄后当前内容标签定位。此前流程验证不视作作者视觉认可；本片亮暗／手机实页与完整门禁结果见[记录](./agent-runs/composable-workspace-20261010.md)。
+
+
+## 2026-10-11 完善当前版本的写作侧区
+
+按作者继续完善当前版本的方向，将桌面参考阅读与原写作工具放在同一侧区，工具固定在最右边并复用同一实例；切回原工具保留原设定／批注状态，稿面没有留下空列。全屏助手、制作主区与手机沿用现有布局。检查与限制见[执行记录](./agent-runs/composable-workspace-20261010.md)，不把本片验收当作整合全部完成。
+
+## 2026-10-11 最近打开只显示作品
+
+首页最近打开按作品去重后排序，只显示作品名与时间；章节、助手、工具与资料位置保留作内部恢复信息。优先返回同作品最近的可用位置，全部旧位置失效时回到作品正文入口；旧章节被删不使整个作品无法打开。亮暗／手机实页12项exit 0，最终门禁见工作区实施记录。
+
+## 2026-10-12 原版配色与布局恢复
+
+- 按作者要求先将全部现有本地集成保存为 `d87adb0b`，作为视觉调整前回退点；未推送。
+- 以作者提供的原版正文截图和历史蓝白主题为参照：浅灰章节栏、白色连续正文／工具面、`#0078d4` 蓝色主操作、灰底章节选中；恢复紧凑目录、248 CSS px 左栏、52 CSS px 工具轨及贴边右栏。实际尺寸继续服从作者 UI 缩放。
+- 保留现有细边线、浮层阴影、控件材质、功能分组、Agent 和工作区接线；不恢复作品语言、独立现场入口或旧数据链。深色仍使用可读的成对按钮颜色，中性灰替换偏蓝灰底。
+- 本轮只修改 CSS 与顶部标签表面样式，不运行模型或重启任何作者服务。浏览器采用隔离合成作品，截图查看后清理；build exit0（21.32s）、lint:delta exit0（0error／5存量warning）、docs:build exit0（7.08s）、git diff --check exit0。查看2048／1440亮暗、390手机及角色／助手面板截图；新建按钮公共样式覆盖已消除。视觉调整仍为本地待作者确认，未新增或运行自动测试。
+
+- 作者纠正顶部新增章节栏：`WorkspaceContentGroups` 正文显示时不渲染主区标签头，主区导航排除章节；章节仍由原左目录切换，非正文工作页保留返回正文及模块标签，原有布局数据与 owner 不变。
+- 本片在作者5173的隔离两章作品中切到第二章、返回第一章并刷新：正文上方主区标签头均为0，截图已查看。build exit0（20.74s）、lint:delta exit0（0error／5存量warning）、diff exit0；临时截图日志已清理，未运行自动测试。
+
+- 续修助手改稿显示：`locateAssistantProposal` 不再关闭右栏，正文解除62em居中限制，外边距上限104→72、顶部48→28 CSS px；新增建议按正文首行缩进／段距展示，保留轻底色与新增／替换提示，取消全文蓝色下划线。建议仍需采用，正式正文／撤销真源不变。
+- 会话核查：两轮普通问答仍为同一activeSessionId。原“从这里继续”无论是否最后回答都建分支，已改为末尾回答继续原会话；选早期回答仍建立隔离分支，重新生成仍保留原记录。浏览器亮暗固定响应均实际2轮／4消息／1会话，末尾继续仍1会话，再续写后助手保持可见，原位建议分段显示。没有改动作者历史记录或调用真实模型。
+- 生成链审计：助手 `agentEngine.buildPayload → bridge(taskKind=assistant) → assistantSystemPrompt → submit_edit_proposals`，包含作品快照与可选技法，但未调用推演 `AuthoringRunSession → narrativeKernelExecutor → runNarrativeAgentGeneration` 的统一生成执行链。助手生成质量并未因“改稿提交成功”得到同等保证。后续应将既有生成能力暴露为Agent工具，复用目标冻结／授权资料／BeatPlan／taskContract，生成后仍经当前修改提议、修订校验、采用与撤销边界；本轮未伪称该接线已实现，也未修改／重启运行器。
+- 手机审阅态沿用现有底部工具面板，助手保持打开但缩为半屏，避免遮住全文；桌面保持并排。当前工程检查 build exit0（21.82s）、lint:delta exit0（0error／5存量warning）、docs:build exit0；手机样式随后补入，最终构建另记。
+- 最终build exit0（20.99s）；手机390实际改稿助手340px、正文审阅在上方可见，截图已查看。亮暗／手机临时截图日志已清理，视觉与会话局部改动未提交，未推送／部署／重启服务。
+
+- 2026-10-12 作者澄清“中间太空”指完整助手页：撤回正文宽度上限及外边距／顶部间距调整，正文仍使用原62em阅读宽度和原边距。完整助手页独立调整阅读区与空白对话布局；不以助手留白问题扩大核心编辑区。
+
+- 2026-10-12 助手正文生成接入既有推演链：受授权的planned工具请求由浏览器冻结现场、规划、生成及检查后形成原文提议；真实MiniMax单次续写审阅、采用、撤销成功，助手保持打开。小说与跑团的检查提示分离，无效判定受预算限制重判一次，不放宽失败门禁；当前限定既有当前章节续写／替换／插入。完整助手页会话与提问目录分开，正文尺寸恢复原样。详见助手交付记录。
+
+- 2026-10-13 PR #7合并前复核：head仍b70e893a，本地试合并16文件冲突；已接世界书表格／图谱和现有助手修改链，PR的kit知识代理／双根检索、词汇表、文档阅读器等尚未接齐。verify:full退出1（198／200，两个本地近期断言未同步），未直接合并、修代码、推送或重启。详见世界书接入记录。
+
+- 2026-10-13 PR #7助手能力已适配本地布局：提示词与正文输入查看、运行日志、工具参数、反馈、统一会话重命名／归档／详情及参数重答；重答保持Agent与权限，原文采用／撤销保留。真实MiniMax查询和重答、续写采用撤销成功；亮暗／手机截图已查看。8451更新保留21份既有日志，前端／Express未重启。PR其余知识代理等尚未接入，未整体合并或推送。
+
+### 2026-10-13 PR #7 知识与生成观测接线
+
+完成真实Storyflow知识内核独立构建、本书派生索引／原文读取、目录／表格／图谱关联检索、Advisor与跑团提示词预览及Windows事务句柄修复。真实kit／编译器／助手工具贯通19项exit0（隔离合成内容）；完整门禁20／200 exit0，双构建／lint／结构／体积／diff通过。3001重启及8451更新获作者授权，24份旧日志不变，5173保留。通用卡源文未随上游分发，本机作者项目尚未绑定；这两项不能冒充已入库。记录见worldbook-workspace-20261012。

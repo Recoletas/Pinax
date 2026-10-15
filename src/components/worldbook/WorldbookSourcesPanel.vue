@@ -1,10 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch } from 'vue'
 import { tr, formatUiNumber } from '../../i18n'
 import { useWorldStore } from '../../stores/worldStore'
 import { loadSourceChunks } from '../../services/worldbook/worldbookSourceArchive'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+const WorldbookSourceImportDialog = defineAsyncComponent(() => import('./WorldbookSourceImportDialog.vue'))
 
 // N-A：设定区可持续管理的资料面板（NA03/NA04/NA09 基础片）。
 // 列表 + 按块加载的全文预览 + 搜索/类型筛选 + 软移除 + 添加入口。
@@ -13,12 +13,14 @@ import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 const props = defineProps({
   worldbook: { type: Object, default: null },
   bookId: { type: String, default: '' },
+  initialSourceId: { type: String, default: '' },
   initialOpen: { type: Boolean, default: false },
-  standalone: { type: Boolean, default: false }
+  standalone: { type: Boolean, default: false },
+  externalReader: Boolean
 })
-const emit = defineEmits(['sources-changed'])
+const emit = defineEmits(['sources-changed', 'open-source'])
 
-const router = useRouter()
+const importOpen = ref(false)
 const worldStore = useWorldStore()
 const search = ref('')
 const kindFilter = ref('all')
@@ -30,11 +32,32 @@ const busyRemoveId = ref('')
 const actionMessage = ref('')
 const open = ref(props.initialOpen)
 
+const scopeKey = computed(() => JSON.stringify([props.bookId, props.worldbook?.id || '']))
+let previewSequence = 0
+let removeSequence = 0
+onBeforeUnmount(() => { previewSequence += 1; removeSequence += 1 })
+watch(scopeKey, () => {
+  previewSequence += 1
+  removeSequence += 1
+  expandedId.value = ''
+  previewText.value = ''
+  previewError.value = ''
+  previewLoading.value = false
+  busyRemoveId.value = ''
+  actionMessage.value = ''
+  search.value = ''
+  kindFilter.value = 'all'
+})
+
 const KIND_LABELS = {
   'text-file': 'TXT', markdown: 'MD', pdf: 'PDF', docx: 'DOCX', epub: 'EPUB', 'pasted-text': '粘贴'
 }
 
 const sources = computed(() => (Array.isArray(props.worldbook?.sourceDocuments) ? props.worldbook.sourceDocuments : []))
+watch([() => props.initialSourceId, sources], () => {
+  const source = sources.value.find(source => String(source.id) === props.initialSourceId)
+  if (source && expandedId.value !== source.id) { open.value = true; search.value = ''; kindFilter.value = 'all'; void togglePreview(source) }
+}, { immediate: true })
 const kindOptions = computed(() => [...new Set(sources.value.map(source => String(source.kind || 'text-file')))])
 const filtered = computed(() => {
   const needle = search.value.trim().toLocaleLowerCase()
@@ -53,40 +76,50 @@ function addLabel() {
   return props.bookId ? '添加资料' : '添加资料（先选择一本书）'
 }
 
+watch(() => props.bookId, () => { importOpen.value = false })
+function onImportCompleted() { importOpen.value = false; emit('sources-changed') }
+
 function openAdd() {
   if (!props.bookId) return
-  router.push({ name: 'settings-worldbook-create', query: { bookId: props.bookId, mode: 'sources', action: 'add' } })
+  importOpen.value = true
 }
 
 async function togglePreview(source) {
+  if (props.externalReader) { emit('open-source', source); return }
   const id = String(source.id || '')
+  const sequence = ++previewSequence
   if (expandedId.value === id) {
     expandedId.value = ''
     previewText.value = ''
     previewError.value = ''
+    previewLoading.value = false
     return
   }
+  const scope = scopeKey.value
+  const ownsPreview = () => scope === scopeKey.value && sequence === previewSequence && expandedId.value === id
   expandedId.value = id
   previewText.value = ''
   previewError.value = ''
   previewLoading.value = true
   try {
-    const chunkIds = Array.isArray(source.chunkIds) ? source.chunkIds : []
+    let text = ''
+    let warning = ''
+    const chunkIds = Array.isArray(source.chunkIds) ? [...source.chunkIds] : []
     if (chunkIds.length) {
-      // 按块加载：长文不全量进主线程，也避免 2400 字预览冒充全文。
       const chunks = await loadSourceChunks(chunkIds)
       const ordered = [...chunks].sort((a, b) => Number(a?.locator?.start ?? 0) - Number(b?.locator?.start ?? 0))
-      previewText.value = ordered.map(chunk => chunk?.text || '').join('\n\n').trim()
+      text = ordered.map(chunk => chunk?.text || '').join('\n\n').trim()
     }
-    if (!previewText.value) {
-      previewText.value = String(source.contentPreview || source.content || '').trim()
-      if (previewText.value) previewError.value = tr("归档块缺失，当前显示导入时预览。")
+    if (!text) {
+      text = String(source.contentPreview || source.content || '').trim()
+      if (text) warning = tr('归档块缺失，当前显示导入时预览。')
     }
-    if (!previewText.value) previewError.value = tr("全文不可用：归档已缺失，重新导入可恢复。")
+    if (!text) warning = tr('全文不可用：归档已缺失，重新导入可恢复。')
+    if (ownsPreview()) { previewText.value = text; previewError.value = warning }
   } catch (error) {
-    previewError.value = tr('全文读取失败：{reason}', { reason: error?.message || tr('未知错误') })
+    if (ownsPreview()) previewError.value = tr('全文读取失败：{reason}', { reason: error?.message || tr('未知错误') })
   } finally {
-    previewLoading.value = false
+    if (ownsPreview()) previewLoading.value = false
   }
 }
 
@@ -94,13 +127,19 @@ async function togglePreview(source) {
 async function removeSource(source) {
   const id = String(source.id || '')
   if (!id || busyRemoveId.value) return
+  const scope = scopeKey.value
+  const worldbookId = props.worldbook?.id
+  const sequence = ++removeSequence
+  const ownsRemoval = () => scope === scopeKey.value && sequence === removeSequence
+  if (!worldbookId) return
   busyRemoveId.value = id
   actionMessage.value = ''
   try {
     const remaining = sources.value.filter(source_ => String(source_.id || '') !== id)
     // updateWorldbook resolves to the updated worldbook; failures throw.
-    const updated = await worldStore.updateWorldbook(props.worldbook.id, { sourceDocuments: remaining })
+    const updated = await worldStore.updateWorldbook(worldbookId, { sourceDocuments: remaining })
     if (!updated?.id) throw new Error(tr("移除失败，请重试"))
+    if (!ownsRemoval()) return
     if (expandedId.value === id) {
       expandedId.value = ''
       previewText.value = ''
@@ -108,9 +147,9 @@ async function removeSource(source) {
     actionMessage.value = tr('已移出本书资料库：{title}（归档原件保留，仍可重新添加）。', { title: source.title || id })
     emit('sources-changed', { removedId: id, remaining: remaining.length })
   } catch (error) {
-    actionMessage.value = error?.message || tr("移除失败，请重试")
+    if (ownsRemoval()) actionMessage.value = error?.message || tr("移除失败，请重试")
   } finally {
-    busyRemoveId.value = ''
+    if (ownsRemoval()) busyRemoveId.value = ''
   }
 }
 </script>
@@ -127,11 +166,11 @@ async function removeSource(source) {
     >
       <strong>{{ tr("资料") }}</strong>
       <span>{{ tr('{count} 份 · {chars} 字', { count: sources.length, chars: formatUiNumber(totalChars) }) }}</span>
-      <span class="sources-panel__hint">{{ open ? tr("收起") : tr("展开管理与预览") }}</span>
+      <WorkbenchIcon name="chevron-down" :size="16" :style="{ transform: open ? 'rotate(180deg)' : undefined }" />
     </button>
 
     <div v-if="standalone || open" class="sources-panel__body">
-      <div class="sources-panel__controls">
+      <div v-if="sources.length" class="sources-panel__controls">
         <label class="sources-panel__search-field">
         <WorkbenchIcon name="search" :size="17" />
         <input
@@ -156,7 +195,6 @@ async function removeSource(source) {
         <WorkbenchIcon name="sources" :size="30" />
         <h3>{{ tr("还没有参考资料") }}</h3>
         <p>{{ tr("添加参考文档或文字片段，随时查阅原文。") }}</p>
-        <small>{{ tr("支持 TXT、Markdown、PDF、DOCX 与 EPUB") }}</small>
       </div>
       <p v-else-if="!filtered.length" class="sources-panel__empty">{{ tr("没有匹配的资料；调整搜索或类型筛选。") }}</p>
 
@@ -165,9 +203,9 @@ async function removeSource(source) {
           <div class="sources-panel__row">
             <span class="sources-panel__file-icon"><WorkbenchIcon :name="source.kind === 'markdown' ? 'markdown' : source.kind === 'epub' ? 'book' : 'document'" :size="23" /></span>
             <div class="sources-panel__identity">
-            <button type="button" class="sources-panel__title" :aria-expanded="expandedId === String(source.id)" @click="togglePreview(source)">
+            <button type="button" class="sources-panel__title" :aria-expanded="externalReader ? undefined : expandedId === String(source.id)" @click="togglePreview(source)">
               {{ source.title || source.id }}
-              <WorkbenchIcon name="chevron-down" :size="15" />
+              <WorkbenchIcon :name="externalReader ? 'arrow-right' : 'chevron-down'" :size="15" />
             </button>
             <p class="sources-panel__excerpt">{{ source.contentPreview || source.content || tr("点击名称查看原文") }}</p>
             </div>
@@ -181,10 +219,11 @@ async function removeSource(source) {
               class="sources-panel__remove control-quiet"
               :disabled="busyRemoveId === String(source.id)"
               :aria-label="tr('移出 {title}', { title: source.title || source.id })"
+              :title="tr('移出 {title}', { title: source.title || source.id })"
               @click="removeSource(source)"
             >
               <WorkbenchIcon name="unlink" :size="15" />
-              {{ tr("移出") }}
+              <span class="sources-panel__remove-label">{{ tr("移出") }}</span>
             </button>
           </div>
           <div v-if="expandedId === String(source.id)" class="sources-panel__preview" :aria-label="tr(&quot;资料全文预览&quot;)">
@@ -200,11 +239,12 @@ async function removeSource(source) {
       <p v-if="actionMessage" class="sources-panel__status" role="status">{{ actionMessage }}</p>
     </div>
   </section>
+  <WorldbookSourceImportDialog v-if="importOpen && bookId" :key="bookId" :book-id="bookId" @close="importOpen = false" @completed="onImportCompleted" />
 </template>
 
 <style scoped>
 
-.sources-panel { min-width: 0; margin-bottom: 16px; color: var(--text-primary); border: 1px solid var(--archive-paper-strong); border-radius: 8px; }
+.sources-panel { min-width: 0; margin-bottom: 16px; color: var(--text-primary); border: 1px solid var(--archive-paper-strong); border-radius: 16px; }
 .sources-panel.is-standalone { border: 0; border-radius: 0; }
 .sources-panel__toggle { display: flex; flex-wrap: wrap; width: 100%; gap: 10px; align-items: center; padding: 12px 16px; background: transparent; border: 0; cursor: pointer; font: inherit; color: inherit; }
 .sources-panel__toggle span { color: var(--text-secondary); font-size: 13px; }
@@ -212,21 +252,21 @@ async function removeSource(source) {
 .sources-panel__body { padding: 0 16px 16px; }
 .is-standalone .sources-panel__body { padding: 0; }
 .sources-panel__controls { display: flex; gap: 12px; align-items: center; padding-bottom: 20px; }
-.sources-panel__search-field { display: flex; align-items: center; gap: 9px; flex: 1; max-width: 440px; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; color: var(--text-secondary); background: var(--bg-primary); }
-.sources-panel__search { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; padding: 7px 0; }
+.sources-panel__search-field { display: flex; align-items: center; gap: 9px; flex: 1; max-width: 440px; min-width: 0; min-height: 36px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; color: var(--text-secondary); background: var(--surface-workbench-input, var(--surface-workbench-muted)); }
+.sources-panel__search { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 14px/1.5 var(--font-sans); padding: 6px 0; }
 .sources-panel__search-field:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.sources-panel__controls select { font: inherit; font-size: 13px; height: 38px; padding: 0 10px; border: 1px solid var(--archive-paper-strong); border-radius: 6px; background: var(--bg-primary); color: var(--text-secondary); }
+.sources-panel__controls select { font: 14px/1.5 var(--font-sans); min-height: 36px; height: 36px; padding: 0 12px; border: 1px solid transparent; border-radius: 12px; background: var(--surface-workbench-input, var(--surface-workbench-muted)); color: var(--text-secondary); }
 .sources-panel__add { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; white-space: normal; }
 .sources-panel__empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 20px; margin: 0; text-align: center; color: var(--text-secondary); font-size: 14px; }
-.sources-panel__empty h3 { margin: 4px 0 0; font-size: 17px; font-weight: 550; color: var(--text-primary); }
+.sources-panel__empty h3 { font-family: var(--font-sans); margin: 4px 0 0; font-size: 17px; font-weight: 500; color: var(--text-primary); }
 .sources-panel__empty p { margin: 0; line-height: 1.8; }
 .sources-panel__empty small { font-size: 12px; }
-.sources-panel__list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--archive-paper-strong); }
-.sources-panel__item { border-bottom: 1px solid var(--archive-paper-strong); }
-.sources-panel__row { display: flex; gap: 16px; align-items: center; padding: 18px 8px; }
-.sources-panel__file-icon { color: var(--text-secondary); display: grid; place-items: center; width: 38px; height: 44px; flex-shrink: 0; background: var(--archive-paper); border-radius: 5px; }
+.sources-panel__list { list-style: none; margin: 0; padding: 0; border-top: 0; }
+.sources-panel__item { border-bottom: 1px solid var(--hairline-soft); }
+.sources-panel__row { display: flex; gap: 16px; align-items: center; padding: 20px 8px; }
+.sources-panel__file-icon { color: var(--text-secondary); display: grid; place-items: center; width: 38px; height: 44px; flex-shrink: 0; background: transparent; border-radius: 0; }
 .sources-panel__identity { flex: 1; min-width: 0; }
-.sources-panel__title { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font: inherit; font-size: 15px; font-weight: 550; line-height: 1.6; color: var(--text-primary); background: transparent; border: 0; padding: 2px 0; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.sources-panel__title { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font: 15px/1.6 var(--font-sans); font-weight: 500; line-height: 1.6; color: var(--text-primary); background: transparent; border: 0; padding: 2px 0; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
 .sources-panel__title svg { color: var(--text-secondary); }
 .is-expanded .sources-panel__title svg { transform: rotate(180deg); }
 .sources-panel__title:hover { color: var(--accent); }
@@ -234,13 +274,15 @@ async function removeSource(source) {
 .sources-panel__meta { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 12px; max-width: 40%; color: var(--text-secondary); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sources-panel__kind { min-width: 42px; font-size: 11px; letter-spacing: .03em; }
 .sources-panel__meta > span:nth-child(2) { min-width: 65px; text-align: right; }
-.sources-panel__remove { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 12px; font-size: 12px; }
-.sources-panel__preview { margin: 0 8px 20px 62px; padding: 22px 24px; background: var(--archive-paper); border-radius: 6px; }
+.sources-panel__remove { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 12px; font: 500 14px/1.5 var(--font-sans); }
+.sources-panel__preview { margin: 0 8px 20px 62px; padding: 4px 0 0; background: transparent; border-radius: 0; }
 .sources-panel__preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 440px; overflow-y: auto; font-family: inherit; font-size: 15px; line-height: 1.9; color: var(--text-primary); }
 .sources-panel__warn, .sources-panel__status { margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
 .sources-panel__status { margin-top: 16px; }
 .sources-panel :is(button, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 760px) {
+ .sources-panel__search-field, .sources-panel__controls select, .sources-panel__title, .sources-panel__remove { min-height: 44px; }
+ .sources-panel__search-field, .sources-panel__controls select { height: 44px; }
  .sources-panel__controls { gap: 8px; flex-wrap: wrap; }
  .sources-panel__search-field { max-width: none; }
  .sources-panel__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; }
@@ -251,7 +293,31 @@ async function removeSource(source) {
  .sources-panel__kind { min-width: 0; }
  .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }
  .sources-panel__remove svg { display: none; }
- .sources-panel__preview { margin: 0 0 16px; padding: 16px; }
+ .sources-panel__preview { margin: 0 0 16px; padding: 4px 0 0; }
 }
 
+@media (pointer: coarse) { .sources-panel__search-field, .sources-panel__controls select { min-height: 44px; height: 44px; } }
+</style>
+
+<style scoped>
+.sources-panel { container-type: inline-size; container-name: source-list; }
+.sources-panel.is-standalone .sources-panel__empty { padding: clamp(64px, 14vh, 140px) 24px; }
+.sources-panel__search-field, .sources-panel__controls select { min-height: 40px; height: 40px; border-radius: 8px; }
+.sources-panel__row { padding: 20px 0; gap: 18px; }
+.sources-panel__preview { padding: 20px 24px; margin: 0 0 24px 56px; background: var(--surface-workbench-muted); border-radius: 8px; }
+.sources-panel__preview pre { font-size: 14px; line-height: 1.9; }
+@media (max-width: 760px) { .sources-panel__preview { margin-left: 0; padding: 16px; } .sources-panel__row { gap: 10px; } .sources-panel__search-field, .sources-panel__controls select { height: 44px; } }
+@container source-list (max-width: 760px) {
+ .sources-panel__controls { gap: 8px; flex-wrap: wrap; }
+ .sources-panel__search-field { max-width: none; }
+ .sources-panel__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 6px 12px; padding: 16px 0; }
+ .sources-panel__file-icon { width: 32px; grid-row: 1 / 3; align-self: start; }
+ .sources-panel__identity { grid-column: 2; }
+ .sources-panel__meta { grid-column: 2; max-width: none; justify-content: flex-start; }
+ .sources-panel__meta > span:nth-child(2) { min-width: 0; text-align: left; }
+ .sources-panel__kind { min-width: 0; }
+ .sources-panel__remove { grid-column: 3; grid-row: 1 / 3; margin-left: 0; padding-inline: 6px; }
+ .sources-panel__remove svg { display: none; }
+ .sources-panel__preview { margin-left: 0; }
+}
 </style>

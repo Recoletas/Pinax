@@ -112,7 +112,7 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
     relationshipNote
       ? '若上述关系与眼前互动有关，让它通过已经形成的习惯、成本、回避、纠正、默契或遗漏自然显现；不要解释关系名称。'
       : '',
-    `这段正文应写到约 ${range.min}-${range.max} 个中文字符；写足一个完整的场景拍，不要在刚过一半就收束。`,
+    `建议约 ${range.min}-${range.max} 个中文字符。作者指定的结束事件与跑团行动权限优先；达到边界立即收束，不能为凑字数续写后果。`,
     style ? `既定文风：${style}` : '',
     anchor ? `连续锚点（从最后一段承接）：${anchor}` : '',
     sample ? `邻近正文样本：${sample}` : '',

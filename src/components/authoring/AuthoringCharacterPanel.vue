@@ -1,9 +1,12 @@
 <script setup>
+import './AuthoringCatalogWorkbench.css'
+import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import AuthoringCharacterAiReview from './AuthoringCharacterAiReview.vue'
 import { parseCharacterEntryProfile, serializeCharacterEntryProfile } from '../../services/characterCard'
+import { renameEntryKeys } from '../../services/worldbook/entryProfileTemplates.js'
 
 const props = defineProps({
   manuscriptLanguage: { type: String, default: '' },
@@ -14,7 +17,7 @@ const props = defineProps({
   selectedText: { type: String, default: '' },
   focusEntryId: { type: [String, Number], default: '' }
 })
-const emit = defineEmits(['bind', 'create', 'update', 'remove', 'generate', 'open-chapter', 'open-full', 'toggle-pin', 'close'])
+const emit = defineEmits(['bind', 'create', 'update', 'remove', 'generate', 'open-chapter', 'open-full', 'close'])
 
 const query = ref('')
 const selectedId = ref('')
@@ -28,6 +31,21 @@ const profileFieldInputs = new Map()
 const draft = reactive({ name: '', background: '', personality: '', appearance: '', other: '', avatar: '' })
 let hydratingDraft = false
 let saveTimer = null
+let draftDirty = false
+let draftBaseline = ''
+let draftOwnerWorldbookId = ''
+const externalConflict = ref(false)
+const fingerprint = entry => JSON.stringify(entry || null)
+function preserveExternalDraft() {
+  if (draftDirty && selectedId.value) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'character', { baseline: draftBaseline, draft: { ...draft } })
+}
+function reloadExternalDraft() {
+  if (window.confirm(tr('载入最新条目会替换当前未保存的输入，是否继续？'))) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'character'); loadDraft(selectedCharacter.value) }
+}
+function overwriteExternalDraft() {
+  if (!window.confirm(tr('条目已经更新，确定用当前输入覆盖吗？'))) return
+  draftBaseline = fingerprint(selectedCharacter.value); externalConflict.value = false; flushSave()
+}
 let preservedScroll = null
 
 const characters = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type === 'character'))
@@ -75,8 +93,15 @@ function profileFor(entry) {
 }
 
 function loadDraft(entry) {
+  draftOwnerWorldbookId = String(props.worldbook?.id || '')
+  clearTimeout(saveTimer); saveTimer = null; draftDirty = false; externalConflict.value = false; draftBaseline = fingerprint(entry)
   hydratingDraft = true
   Object.assign(draft, profileFor(entry))
+  const saved = readEntryPanelDraft(props.worldbook?.id, entry?.id, 'character')
+  if (saved?.draft && typeof saved.baseline === 'string') {
+    for (const key of Object.keys(draft)) if (typeof saved.draft[key] === 'string') draft[key] = saved.draft[key]
+    draftBaseline = saved.baseline; draftDirty = true; externalConflict.value = true
+  }
   hydratingDraft = false
   nextTick(resizeProfileFields)
 }
@@ -114,17 +139,23 @@ function selectCharacter(entry) {
 function characterPayload() {
   const entry = selectedCharacter.value
   if (!entry || !draft.name.trim()) return null
+  const fullProfile = { ...parseCharacterEntryProfile(entry), background: draft.background.trim(), personality: draft.personality.trim(), appearance: draft.appearance.trim(), other: draft.other.trim(), avatar: draft.avatar }
   return {
-    name: draft.name.trim(), type: 'character', keys: [...new Set([draft.name.trim(), ...(entry.keys || [])])], content: serializeCharacterEntryProfile(draft), avatar: draft.avatar,
-    metadata: { ...(entry.metadata || {}), characterProfile: {
-      background: draft.background.trim(), personality: draft.personality.trim(), appearance: draft.appearance.trim(), other: draft.other.trim(), avatar: draft.avatar
-    } }
+    name: draft.name.trim(), type: 'character',
+    // P0.2 修复：改名时旧名触发词被「替换」而非追加（旧逻辑只增不减，旧占位名
+    // 「新角色」永久残留）；占位残留只在 keys 全等于旧占位名时保守清理。
+    keys: renameEntryKeys({ keys: entry.keys, previousName: entry.name, nextName: draft.name.trim() }), content: serializeCharacterEntryProfile(fullProfile), avatar: draft.avatar,
+    metadata: { ...(entry.metadata || {}), characterProfile: fullProfile }
   }
 }
 
 function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
+  if (!draftDirty) return
+  if (draftOwnerWorldbookId !== String(props.worldbook?.id || '')) { preserveExternalDraft(); return }
+  if (fingerprint(selectedCharacter.value) !== draftBaseline) { externalConflict.value = true; preserveExternalDraft(); return }
+  draftDirty = false
   const payload = characterPayload()
   if (payload) {
     preservedScroll = { entryId: String(selectedCharacter.value.id), top: profileScroll.value?.scrollTop || 0 }
@@ -134,6 +165,7 @@ function flushSave() {
 
 function scheduleSave() {
   if (hydratingDraft || !selectedCharacter.value) return
+  draftDirty = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 500)
 }
@@ -191,6 +223,11 @@ function applyAiProfile(profile) {
   })
 }
 
+watch(() => fingerprint(selectedCharacter.value), (current) => {
+  if (current === draftBaseline) return
+  if (draftDirty) { clearTimeout(saveTimer); saveTimer = null; externalConflict.value = true; preserveExternalDraft() }
+  else if (selectedCharacter.value) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'character'); loadDraft(selectedCharacter.value) }
+})
 watch(draft, scheduleSave, { deep: true, flush: 'sync' })
 watch(characters, (items) => {
   if (selectedCharacter.value) return
@@ -209,15 +246,20 @@ watch(() => props.focusEntryId, (entryId) => {
   const target = characters.value.find((entry) => String(entry.id) === String(entryId || ''))
   if (target) selectCharacter(target)
 })
+watch(() => props.worldbook?.id, () => {
+  preserveExternalDraft(); draftDirty = false; externalConflict.value = false; selectedId.value = ''
+  nextTick(() => { const entry = characters.value[0]; if (entry) selectCharacter(entry) })
+})
 onMounted(() => nextTick(resizeProfileFields))
-onBeforeUnmount(flushSave)
+onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
 </script>
 
 <template>
-  <section class="authoring-character-workbench">
-    <main class="character-sheet">
+  <section class="authoring-character-workbench catalog-workbench" data-catalog="characters">
+    <main class="character-sheet catalog-sheet">
+      <div v-if="externalConflict" class="catalog-external-conflict" role="alert"><p>{{ tr('条目已更新，当前输入尚未保存。') }}</p><button type="button" @click="reloadExternalDraft">{{ tr('载入最新') }}</button><button type="button" @click="overwriteExternalDraft">{{ tr('保存当前输入') }}</button></div>
       <template v-if="worldbook">
-        <header class="character-sheet__head">
+        <header class="character-sheet__head catalog-sheet-head">
           <input v-model="draft.name" class="character-name-input" :aria-label="tr(&quot;角色名称&quot;)" @blur="flushSave" />
           <button v-if="selectedCharacter" type="button" class="character-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
           <button v-if="selectedCharacter" type="button" class="character-delete" :title="tr(&quot;删除角色&quot;)" :aria-label="tr(&quot;删除角色&quot;)" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
@@ -228,7 +270,7 @@ onBeforeUnmount(flushSave)
         </nav>
         <AuthoringCharacterAiReview v-if="selectedCharacter" v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedCharacter" :profile="draft" @apply="applyAiProfile" />
         <span class="character-upload-tooltip" :class="{ 'is-visible': uploadHintVisible }" role="tooltip">{{ tr('支持 jpg、jpeg、png 格式，单张不大于 5MB') }}</span>
-        <div v-if="tab === 'profile'" ref="profileScroll" class="character-sheet__scroll">
+        <div v-if="tab === 'profile'" ref="profileScroll" class="character-sheet__scroll catalog-sheet-body">
           <section class="character-portrait">
             <img v-if="draft.avatar" :src="draft.avatar" :alt="tr(&quot;角色参考图&quot;)" />
             <div v-else class="character-portrait__idle"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生图/上传') }}</span></div>
@@ -254,11 +296,11 @@ onBeforeUnmount(flushSave)
         <button type="button" @click="emit('bind')">{{ tr('关联已有资料库') }}</button>
       </div>
     </main>
-    <aside class="character-directory">
-      <div class="catalog-window-controls"><button type="button" :title="tr(&quot;固定角色工作台&quot;)" @click="emit('toggle-pin')">⌖</button><button type="button" :title="tr(&quot;关闭角色工作台&quot;)" @click="emit('close')">×</button></div>
+    <aside class="character-directory catalog-directory">
+      <div class="catalog-window-controls"><button type="button" :title="tr(&quot;关闭角色工作台&quot;)" @click="emit('close')"><WorkbenchIcon name="close" :size="18" /></button></div>
       <div class="catalog-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr(&quot;角色&quot;)" :aria-label="tr(&quot;搜索角色&quot;)" /></div>
       <div class="catalog-actions"><button type="button" class="primary" @click="startCreate(false)">{{ tr('新建') }}</button><button type="button" @click="startCreate(true)">{{ tr('提取') }}</button></div>
-      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr(&quot;在世界书中打开当前角色&quot;)" @click="emit('open-full', selectedCharacter?.id)">{{ tr('世界书') }}</button></header>
+      <header><strong>{{ tr('目录') }}</strong><button type="button" :title="tr(&quot;展开当前人物的设定&quot;)" @click="emit('open-full', selectedCharacter?.id)">{{ tr('展开设定') }}</button></header>
       <section v-for="group in characterFolders" :key="group.name" class="character-directory__group">
         <h3><button type="button" :aria-expanded="(!collapsedFolders.has(group.name)).toString()" @click="toggleFolder(group.name)"><span class="catalog-folder-caret" :class="{ open: !collapsedFolders.has(group.name) }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ group.name }}</span></button></h3>
         <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.items" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" @click="selectCharacter(entry)">{{ entry.name || tr('未命名角色') }}</button></template>
@@ -269,15 +311,15 @@ onBeforeUnmount(flushSave)
 
 <style scoped>
 .authoring-character-workbench{display:grid;grid-template-columns:minmax(0,1.62fr) minmax(160px,1fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}
-button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:white!important}
+button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:var(--accent-text)!important}
 .character-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}
 .character-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.character-name-input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 var(--authoring-catalog-title-size,17px)/1.5 var(--font-body);outline:0}.character-name-input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.character-ai{flex:0 0 auto;color:var(--accent-primary);font-size:var(--authoring-catalog-meta-size,10px)}.character-delete{width:28px;height:28px;color:var(--text-secondary)}
 .character-sheet__tabs{display:flex;gap:22px;padding:0 16px;border-bottom:1px solid var(--border-subtle)}.character-sheet__tabs button{min-height:39px;border-bottom:2px solid transparent;color:var(--text-secondary);font-size:var(--authoring-catalog-control-size,14px)}.character-sheet__tabs button.active{border-bottom-color:var(--accent-primary);color:var(--text-primary);font-weight:600}.character-sheet__tabs small{font-size:var(--authoring-catalog-meta-size,10px)}
 .character-upload-tooltip{position:absolute;z-index:5;top:88px;left:50%;box-sizing:border-box;width:max-content;max-width:calc(100% - 24px);padding:8px 11px;border:1px solid var(--border-subtle);border-radius:3px;background:var(--surface-workbench-raised);box-shadow:0 4px 14px color-mix(in srgb,var(--text-primary) 14%,transparent);color:var(--text-primary);font-size:11px;line-height:1.4;text-align:center;opacity:0;pointer-events:none;transform:translateX(-50%)}.character-upload-tooltip::after{position:absolute;bottom:-6px;left:70%;width:10px;height:10px;border-right:1px solid var(--border-subtle);border-bottom:1px solid var(--border-subtle);background:var(--surface-workbench-raised);content:"";transform:translateX(-50%) rotate(45deg)}.character-upload-tooltip.is-visible{opacity:1}
-.character-sheet__scroll{position:relative;flex:1;min-height:0;overflow:auto;padding:12px 16px 38px}.character-portrait{position:relative;display:flex;min-height:74px;align-items:center;justify-content:center;border:1px dashed var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted)}.character-portrait__idle{display:flex;align-items:center;gap:8px;color:var(--text-secondary)}.character-portrait img{width:100%;height:150px;border-radius:3px;object-fit:cover}.character-portrait__buttons{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;padding:15px;opacity:0;pointer-events:none;background:var(--surface-workbench-muted)}.character-portrait:hover .character-portrait__buttons,.character-portrait:focus-within .character-portrait__buttons{opacity:1;pointer-events:auto}.character-portrait:hover .character-portrait__idle,.character-portrait:focus-within .character-portrait__idle{opacity:0}.character-portrait__buttons button{position:relative;min-width:0;height:42px;flex:1;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-raised);color:var(--text-primary)}.character-portrait__buttons button:first-child{border-color:var(--accent-primary,var(--accent,#1677ff));background:var(--accent-primary,var(--accent,#1677ff));color:white}
+.character-sheet__scroll{position:relative;flex:1;min-height:0;overflow:auto;padding:12px 16px 38px}.character-portrait{position:relative;display:flex;min-height:74px;align-items:center;justify-content:center;border:1px dashed var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted)}.character-portrait__idle{display:flex;align-items:center;gap:8px;color:var(--text-secondary)}.character-portrait img{width:100%;height:150px;border-radius:3px;object-fit:cover}.character-portrait__buttons{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;padding:15px;opacity:0;pointer-events:none;background:var(--surface-workbench-muted)}.character-portrait:hover .character-portrait__buttons,.character-portrait:focus-within .character-portrait__buttons{opacity:1;pointer-events:auto}.character-portrait:hover .character-portrait__idle,.character-portrait:focus-within .character-portrait__idle{opacity:0}.character-portrait__buttons button{position:relative;min-width:0;height:42px;flex:1;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-raised);color:var(--text-primary)}.character-portrait__buttons button:first-child{border-color:var(--accent-primary,var(--accent,#1677ff));background:var(--accent-primary,var(--accent,#1677ff));color:var(--accent-text)}
 .character-profile-field{display:block;padding:17px 0 14px;border-bottom:1px dashed var(--border-subtle)}.character-profile-field>span{display:block;margin-bottom:7px;color:var(--text-secondary);font-size:var(--authoring-catalog-label-size,12px)}.character-profile-field textarea{display:block;box-sizing:border-box;width:100%;height:auto;min-height:54px;overflow:hidden;resize:none;border:0;background:transparent;color:var(--text-primary);font:var(--authoring-catalog-body-size,14px)/1.8 var(--font-body);outline:0}.character-count{position:sticky;bottom:-38px;padding:12px 0 0;text-align:right;color:var(--text-secondary);font-size:var(--authoring-catalog-meta-size,10px)}
 .character-mentions{display:grid;align-content:start;gap:2px;padding:14px 12px}.character-mentions button{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:11px;text-align:left}.character-mentions button:hover{background:color-mix(in srgb,var(--accent-primary) 7%,transparent)}.character-mentions small{color:var(--text-secondary);font-size:11px}
-.character-directory{min-width:0;overflow:auto;padding:6px 10px 12px}.catalog-window-controls{display:flex;height:28px;align-items:center;justify-content:flex-end;gap:3px}.catalog-window-controls button{width:26px;height:26px;font-size:18px}.catalog-search{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;height:38px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-secondary)}.catalog-search input{min-width:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit}.catalog-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0 14px}.catalog-actions button{height:36px;border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary)}.character-directory>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}.character-directory>header button{font-size:11px}.character-directory__group h3{margin:10px 0 5px;font-size:13px;font-weight:500}.character-directory__group h3 button{display:flex;width:100%;min-height:30px;align-items:center;gap:6px;padding:0 6px;color:var(--text-primary);text-align:left}.catalog-folder-caret{display:inline-block;width:10px;color:var(--text-secondary);font-size:15px;transform-origin:center;transition:transform var(--motion-fast,120ms)}.catalog-folder-caret.open{transform:rotate(90deg)}.character-directory__group>button{width:100%;min-height:38px;padding:0 14px 0 27px;border-radius:4px;text-align:left;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.character-directory__group>button.active{background:color-mix(in srgb,var(--accent-primary,var(--accent,#1677ff)) 19%,var(--surface-workbench-raised));font-weight:600}.character-empty{display:grid;max-width:320px;align-content:center;justify-items:start;gap:12px;padding:32px 24px}.character-empty strong{color:var(--text-primary);font-size:16px}.character-empty p{margin:0;color:var(--text-secondary);font-size:13px;line-height:1.7}.character-empty button{min-height:38px;color:var(--accent-primary,var(--accent,#1677ff))}.character-empty .character-empty__primary{padding:0 14px;border-radius:4px;background:var(--accent-primary,var(--accent,#1677ff));color:white}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.character-directory{min-width:0;overflow:auto;padding:6px 10px 12px}.catalog-window-controls{display:flex;height:28px;align-items:center;justify-content:flex-end;gap:3px}.catalog-window-controls button{width:26px;height:26px;font-size:18px}.catalog-search{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;height:38px;padding:0 10px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--surface-workbench-muted);color:var(--text-secondary)}.catalog-search input{min-width:0;border:0;outline:0;background:transparent;color:var(--text-primary);font:inherit}.catalog-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0 14px}.catalog-actions button{height:36px;border:1px solid var(--border-subtle);border-radius:4px;color:var(--text-primary)}.character-directory>header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}.character-directory>header button{font-size:11px}.character-directory__group h3{margin:10px 0 5px;font-size:13px;font-weight:500}.character-directory__group h3 button{display:flex;width:100%;min-height:30px;align-items:center;gap:6px;padding:0 6px;color:var(--text-primary);text-align:left}.catalog-folder-caret{display:inline-block;width:10px;color:var(--text-secondary);font-size:15px;transform-origin:center;transition:transform var(--motion-fast,120ms)}.catalog-folder-caret.open{transform:rotate(90deg)}.character-directory__group>button{width:100%;min-height:38px;padding:0 14px 0 27px;border-radius:4px;text-align:left;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.character-directory__group>button.active{background:color-mix(in srgb,var(--accent-primary,var(--accent,#1677ff)) 19%,var(--surface-workbench-raised));font-weight:600}.character-empty{display:grid;max-width:320px;align-content:center;justify-items:start;gap:12px;padding:32px 24px}.character-empty strong{color:var(--text-primary);font-size:16px}.character-empty p{margin:0;color:var(--text-secondary);font-size:13px;line-height:1.7}.character-empty button{min-height:38px;color:var(--accent-primary,var(--accent,#1677ff))}.character-empty .character-empty__primary{padding:0 14px;border-radius:4px;background:var(--accent-primary,var(--accent,#1677ff));color:var(--accent-text)}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .catalog-search input,.catalog-actions button{font-size:var(--authoring-catalog-control-size,14px)}.character-directory>header{font-size:var(--authoring-catalog-directory-title-size,14px)}.character-directory>header button{font-size:var(--authoring-catalog-meta-size,10px)}.character-directory__group h3{font-size:var(--authoring-catalog-folder-size,13px)}.character-directory__group h3 button{font-size:inherit}.character-directory__group>button{font-size:var(--authoring-catalog-entry-size,13px)}
 .character-directory__group h3{margin:6px 0 0}
 .character-directory__group h3 button{min-height:34px;padding-inline:4px}

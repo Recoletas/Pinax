@@ -161,22 +161,16 @@ function openDetail(kind, id) {
 
 <template>
   <section class="scene-rail" aria-label="当前场">
-    <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" aria-label="展开或收起当前场">
-      <span>{{ tr('当前场') }}</span><span>{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span><span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
-    </button>
-    <div v-show="expanded" class="scene-rail__expanded">
     <header class="scene-rail__head">
-      <span class="scene-rail__title">当前场</span>
-      <span v-if="unread > 0" class="scene-rail__unread" aria-label="未查看变化">+{{ unread }}</span>
-      <span
-        class="scene-rail__status"
-        :class="{ 'is-redundant': !['scene-inherited', 'scene-unset', 'scene-conflict'].includes(status) }"
-        :data-scene-status="status"
-      >{{ statusLabel }}</span>
-      <span class="scene-rail__actions">
-        <button type="button" class="scene-rail__edit" data-test="scene-edit" data-scene-rail-item="scene-edit" title="调整当前场" @click="emit('edit')">调整</button>
-      </span>
+      <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" :aria-label="tr('展开或收起当前场')">
+        <span>{{ tr('当前场') }}</span>
+        <span class="scene-rail__status" :data-scene-status="status">{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span>
+        <span v-if="unread > 0" class="scene-rail__unread" :aria-label="tr('未查看变化')">+{{ unread }}</span>
+        <span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
+      </button>
+      <button v-if="expanded" type="button" class="scene-rail__edit" data-test="scene-edit" data-scene-rail-item="scene-edit" :title="tr('调整当前场')" @click="emit('edit')">{{ tr('调整') }}</button>
     </header>
+    <div v-show="expanded" class="scene-rail__expanded">
 
     <button
       v-if="status === 'worldbook-missing' || status === 'worldbook-unbound' || status === 'scene-conflict' || missingRefCount"
@@ -227,24 +221,7 @@ function openDetail(kind, id) {
   display: flex;
   align-items: center;
   min-height: 26px;
-  gap: 6px;
-}
-.scene-rail__title {
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-.scene-rail__status.is-redundant {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+  gap: 0;
 }
 .scene-rail__unread {
   font-variant-numeric: tabular-nums;
@@ -255,7 +232,7 @@ function openDetail(kind, id) {
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -263,20 +240,14 @@ function openDetail(kind, id) {
 .scene-rail__status[data-scene-status='scene-conflict'] {
   color: var(--signal-danger, #a04b3c);
 }
-.scene-rail__actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-left: auto;
-  white-space: nowrap;
-}
 .scene-rail__edit {
   appearance: none;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font: 11px/1.2 var(--font-sans, sans-serif);
-  padding: 2px 0;
+  padding: 6px 12px 6px 0;
+  flex: none;
   cursor: pointer;
 }
 .scene-rail__edit:hover {
@@ -351,9 +322,9 @@ function openDetail(kind, id) {
   height: 24px;
 }
 .scene-rail { padding: 0; gap: 0; }
-.scene-rail__toggle { display: flex; width: 100%; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); cursor: pointer; text-align: left; }
+.scene-rail__toggle { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); cursor: pointer; text-align: left; }
 .scene-rail__toggle span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scene-rail__toggle:hover { background: var(--nav-hover); }
-.scene-rail__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.scene-rail__toggle:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: -2px; }
 .scene-rail__expanded { padding: 0 12px 10px; }
 </style>

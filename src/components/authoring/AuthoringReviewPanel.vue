@@ -91,8 +91,8 @@
         </div>
 
         <div v-else-if="!busy" class="authoring-review-panel__empty">
-          <strong>{{ tr('检查正文，不替你改稿') }}</strong>
-          <p>{{ tr('校对只生成可定位的建议。只有你点“采用”后，正文才会发生变化。') }}</p>
+          <strong>{{ tr('检查错字、语病和前后矛盾') }}</strong>
+          <p>{{ tr('查看原文与修改建议，逐条采用或忽略。') }}</p>
         </div>
 
         <footer v-if="selectableCount" class="authoring-review-panel__batch">

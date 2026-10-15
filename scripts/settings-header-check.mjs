@@ -21,12 +21,13 @@ try {
     let reference
     for (const [key, path] of [['structured', 'structured'], ['sources', 'sources'], ['map', 'world-map'], ['advanced', 'worldbook/advanced']]) {
       await page.goto(`${base}/settings/${path}?bookId=header-book`)
-      await page.locator('.context-project-name').filter({ hasText: '雾港来信' }).waitFor()
+      await page.locator('[data-test="settings-context-bar"][data-worldbook-name="雾港来信"]').waitFor()
       await page.waitForTimeout(300)
       assert.equal(await page.locator('.settings-workspace-header').count(), 1)
       assert.equal(await page.locator('.context-kicker').innerText(), '当前作品')
       assert.equal(await page.locator(`[data-test="settings-section-tab-${key}"]`).getAttribute('aria-selected'), 'true')
-      const boxes = await page.evaluate(() => ['.settings-workspace-header', '.settings-context-bar', '.context-project-name', '.settings-section-nav', '.settings-return-authoring'].map(selector => {
+      // 20261008 同步：.context-project-name 已由 settings-context-bar 的 data-worldbook-name 接替。
+      const boxes = await page.evaluate(() => ['.settings-workspace-header', '.settings-context-bar', '.settings-section-nav', '.settings-return-authoring'].map(selector => {
         const rect = document.querySelector(selector).getBoundingClientRect()
         return { x: Math.round(rect.x), y: Math.round(rect.y), height: Math.round(rect.height) }
       }))

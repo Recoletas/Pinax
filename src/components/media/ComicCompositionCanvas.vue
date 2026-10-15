@@ -1,11 +1,12 @@
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   ArrowDown,
   ArrowUp,
   Columns2,
   Combine,
   Crosshair,
+  Minus,
   MessageCircleDashed,
   MoveUpRight,
   Plus,
@@ -37,6 +38,11 @@ const props = defineProps({
 
 const emit = defineEmits(['select-panel', 'update-page', 'update-lettering-box', 'update-lettering-tail'])
 const mode = ref('layout')
+const stageElement = ref(null)
+const stageSize = reactive({ width: 0, height: 0 })
+const viewMode = ref(props.page.format === 'webtoon' ? 'width' : 'page')
+const customScale = ref(0.5)
+let stageObserver = null
 const transientFrames = reactive({})
 const transientControls = reactive({})
 const handles = Object.freeze(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'])
@@ -59,11 +65,46 @@ const activeIndex = computed(() => props.page.panels
   .findIndex((panel) => panel.id === activePanel.value?.id))
 const mergeAllowed = computed(() => canMergeComicPanelWithNext(props.page, activePanel.value?.id))
 
-function pageStyle() {
-  const width = Number(props.page.canvas?.width) || 1200
-  const height = Number(props.page.canvas?.height) || 1600
-  return { aspectRatio: `${width} / ${height}` }
+const canvasWidth = computed(() => Math.max(1, Number(props.page.canvas?.width) || 1200))
+const canvasHeight = computed(() => Math.max(1, Number(props.page.canvas?.height) || 1600))
+const viewScale = computed(() => {
+  if (viewMode.value === 'custom') return customScale.value
+  const widthScale = (stageSize.width || 320) / canvasWidth.value
+  return Math.max(0.01, Math.min(1, widthScale, viewMode.value === 'page'
+    ? (stageSize.height || 480) / canvasHeight.value : Infinity))
+})
+const pageStyle = computed(() => ({
+  aspectRatio: `${canvasWidth.value} / ${canvasHeight.value}`,
+  width: `${canvasWidth.value * viewScale.value}px`
+}))
+
+function setView(value) {
+  viewMode.value = value
+  stageElement.value?.scrollTo?.({ left: 0, top: 0 })
 }
+
+function zoom(delta) {
+  customScale.value = Math.min(2, Math.max(0.1, Math.round((viewScale.value + delta) * 100) / 100))
+  viewMode.value = 'custom'
+}
+
+onMounted(() => {
+  stageObserver = new ResizeObserver(([entry]) => {
+    stageSize.width = Math.max(1, entry.contentRect.width)
+    stageSize.height = Math.max(1, entry.contentRect.height)
+  })
+  stageObserver.observe(stageElement.value)
+})
+
+watch(() => [props.page.id, props.page.format], () => {
+  if (dragState) cancelDrag({ pointerId: dragState.pointerId })
+  setView(props.page.format === 'webtoon' ? 'width' : 'page')
+})
+
+onBeforeUnmount(() => {
+  stageObserver?.disconnect()
+  if (dragState) cancelDrag({ pointerId: dragState.pointerId })
+})
 
 function panelStyle(panel) {
   const bounds = getComicFrameBounds(transientFrames[panel.id] || panel.frame)
@@ -302,6 +343,9 @@ function finishDrag(event) {
 
 function cancelDrag(event) {
   if (!dragState || dragState.pointerId !== event.pointerId) return
+  if (dragState.element.hasPointerCapture?.(event.pointerId)) {
+    dragState.element.releasePointerCapture(event.pointerId)
+  }
   if (dragState.type === 'frame') delete transientFrames[dragState.panelId]
   else if (dragState.type === 'camera') delete transientControls[`camera:${dragState.panelId}`]
   else delete transientControls[controlKey(dragState.kind, dragState.controlId)]
@@ -427,11 +471,11 @@ function clamp(value, min, max) {
       </div>
     </header>
 
-    <div class="comic-composition__stage">
+    <div ref="stageElement" class="comic-composition__stage">
       <div
         class="comic-composition__page"
         :class="{ 'is-webtoon': page.format === 'webtoon' }"
-        :style="pageStyle()"
+        :style="pageStyle"
       >
         <ComicPagePreview
           :page="page"
@@ -591,6 +635,17 @@ function clamp(value, min, max) {
         </div>
       </div>
     </div>
+    <footer class="comic-composition__viewbar" aria-label="画布视图">
+      <div class="comic-composition__fit-options">
+        <button type="button" :aria-pressed="viewMode === 'page'" @click="setView('page')">整页</button>
+        <button type="button" :aria-pressed="viewMode === 'width'" @click="setView('width')">适应宽度</button>
+      </div>
+      <div class="comic-composition__zoom">
+        <button type="button" aria-label="缩小画布" title="缩小画布" :disabled="viewScale <= 0.1" @click="zoom(-0.1)"><Minus :size="15" aria-hidden="true" /></button>
+        <output aria-label="画布缩放比例">{{ Math.round(viewScale * 100) }}%</output>
+        <button type="button" aria-label="放大画布" title="放大画布" :disabled="viewScale >= 2" @click="zoom(0.1)"><Plus :size="15" aria-hidden="true" /></button>
+      </div>
+    </footer>
   </section>
 </template>
 
@@ -690,19 +745,54 @@ function clamp(value, min, max) {
   min-height: 0;
   padding: 10px;
   overflow: auto;
-  display: grid;
-  justify-items: center;
-  align-items: start;
+  scrollbar-gutter: stable;
   background: color-mix(in srgb, var(--archive-paper-soft) 48%, transparent);
 }
 
 .comic-composition__page {
   position: relative;
-  width: min(100%, 760px);
-  flex: 0 0 auto;
+  margin-inline: auto;
 }
 
-.comic-composition__page.is-webtoon { width: min(100%, 560px); }
+.comic-composition__viewbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-workbench-canvas, var(--bg-primary));
+  color: var(--text-secondary);
+}
+.comic-composition__fit-options,
+.comic-composition__zoom { display: flex; align-items: center; gap: 2px; }
+.comic-composition__viewbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.comic-composition__viewbar button:hover:not(:disabled),
+.comic-composition__viewbar button[aria-pressed="true"] {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.comic-composition__viewbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.comic-composition__viewbar button:disabled { opacity: 0.35; cursor: not-allowed; }
+.comic-composition__zoom output { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+@media (pointer: coarse), (max-width: 640px) {
+  .comic-composition__viewbar { padding: 3px 6px; }
+  .comic-composition__viewbar button { min-width: 44px; min-height: 44px; }
+}
 .comic-composition__page :deep(.comic-page-preview) { width: 100%; height: 100%; box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 14%, transparent); }
 .comic-composition__overlay { position: absolute; inset: 0; z-index: 20; }
 
@@ -896,5 +986,22 @@ function clamp(value, min, max) {
   .comic-composition__modes button { flex: 0 0 auto; }
   .comic-composition__commands { min-height: 34px; }
   .comic-composition__stage { padding: 8px 4px 16px; }
+}
+</style>
+<style scoped>
+.comic-composition__toolbar { flex-wrap: wrap; padding: 10px 12px; gap: 8px; background: var(--workspace-surface, var(--bg-primary)); border-color: var(--border); }
+.comic-composition__modes { flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+.comic-composition__modes button { flex: 0 0 auto; min-height: 36px; padding: 7px 10px; border: 0; border-radius: 12px; font-family: var(--font-sans); font-size: 14px; }
+.comic-composition__modes button.active { background: var(--workspace-nav-active, var(--bg-tertiary)); color: var(--text-primary); }
+.comic-composition__commands { margin-left: auto; flex-wrap: wrap; gap: 4px; }
+.comic-composition__commands > button { min-width: 36px; min-height: 36px; border-radius: 12px; }
+.comic-composition__format, .comic-composition__gutter { font-family: var(--font-sans); font-size: 13px; }
+.comic-composition__format select { min-height: 36px; font-size: 13px; }
+@media (max-width: 640px), (pointer: coarse) {
+  .comic-composition__toolbar { flex-direction: row; flex-wrap: nowrap; justify-content: flex-start; height: 52px; min-height: 52px; padding: 4px 8px; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+  .comic-composition__modes { flex: 0 0 auto; overflow: visible; }
+  .comic-composition__commands { flex: 0 0 auto; flex-wrap: nowrap; margin: 0; overflow: visible; }
+  .comic-composition__modes button, .comic-composition__commands > button, .comic-composition__format select { min-height: 44px; }
+  .comic-composition__commands > button { min-width: 44px; }
 }
 </style>

@@ -389,7 +389,7 @@ async function generateConceptMap() {
       taskType: 'geography.concept-map',
       baseMessages: messages,
       settings,
-      generationOptions: { temperature: 0.7, max_tokens: 4000 },
+      generationOptions: { temperature: 0.7 },
       attempts: [{ name: 'concept-map' }],
     })
     const raw = result?.parsed || result?.content || ''

@@ -54,15 +54,18 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
   const folded = ref({})
   // 上一次被拒收的响应（needs-review）：保留输入与旧回应，作者可重试或弃掉。
   const lastRejected = ref(null)
+  const initialAction = ref('')
 
   const current = computed(() => routes.value.find(item => item.id === route.value) || null)
+  // 仅可阅读的回应按路线保留，不能作为已提交步骤或后果核对失败的降级候选。
+  const retainedResult = computed(() => current.value?.retainedResult || null)
   const steps = computed(() => current.value?.steps || [])
   const otherRoutes = computed(() => routes.value.filter(item => item.id !== route.value))
   // 输入就是当前走法的草稿：读写同一个位置，切换走法不可能读到别的路的字，
   // 也不存在“改了但还没同步”的窗口。
   const action = computed({
-    get: () => current.value?.draft || '',
-    set: (value) => { const target = current.value; if (target) target.draft = String(value ?? '') }
+    get: () => current.value ? current.value.draft : initialAction.value,
+    set: (value) => { const target = current.value; if (target) target.draft = String(value ?? ''); else initialAction.value = String(value ?? '') }
   })
   const conditions = computed(() => run.value?.conditions || null)
   const participants = computed(() => rehearsalParticipants(run.value, current.value?.enteredRefs || []))
@@ -81,22 +84,22 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
   }
   function setAction(value) { action.value = value }
   function setReadingScroll(value) { readingScroll.value = Number(value) || 0 }
-  function createRoute(items = [], draft = '') {
+  function createRoute(items = [], draft = '', origin = null) {
+    if (routes.value.length >= MAX_ROUTES) {
+      error.value = `本次已保留 ${MAX_ROUTES} 种发展，请切换已有结果，或重新开始推演。`
+      return null
+    }
     const created = {
       id: `route-${++routeSequence}`,
       // 深复制：fork 只继承值，不共享任何嵌套数组/对象
       steps: items.map(item => freezeStep(cloneStep(item))),
       draft,
-      enteredRefs: [],
-      conditionGeneration: run.value?.conditionGeneration ?? 0,
-      conditions: run.value?.conditions || null
+      enteredRefs: [...new Set(items.flatMap(item => item.enteringRefs || []))],
+      retainedResult: null,
+      conditionGeneration: origin?.conditionGeneration ?? run.value?.conditionGeneration ?? 0,
+      conditions: origin?.conditions || run.value?.conditions || null
     }
     routes.value = [...routes.value, created]
-    // Keep the newest routes; the one in use is never trimmed.
-    if (routes.value.length > MAX_ROUTES) {
-      const droppable = routes.value.find(item => item.id !== route.value && item.id !== created.id)
-      if (droppable) routes.value = routes.value.filter(item => item.id !== droppable.id)
-    }
     return created
   }
   function switchTo(id) {
@@ -113,6 +116,7 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
     cancel(); run.value = null; routes.value = []; route.value = ''; error.value = ''
     stale.value = false; settings = null; readingScroll.value = 0; folded.value = {}
     stepSequence = 0; routeSequence = 0; lastRejected.value = null
+    initialAction.value = ''
   }
   function start(baseline) {
     clear()
@@ -154,7 +158,8 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
       const root = routes.value.find(item => item.id !== from.id && item.steps.length === 0)
       if (root) return switchTo(root.id)
     }
-    const created = createRoute(from.steps.slice(0, count))
+    const created = createRoute(from.steps.slice(0, count), '', count > 0 ? from : null)
+    if (!created) return false
     switchTo(created.id)
     return true
   }
@@ -203,12 +208,25 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
     lastRejected.value = null
     error.value = ''
   }
+  function discardRetained() {
+    if (current.value) current.value.retainedResult = null
+  }
+  function retainResponse({ routeId, prefix, intent, response, reason, truncated = false }) {
+    const owner = routes.value.find(item => item.id === routeId)
+    if (!owner || typeof response !== 'string' || !response.trim()) return
+    owner.retainedResult = Object.freeze({
+      routeId, prefixStepIds: Object.freeze(prefix.map(item => item.id)),
+      action: intent.text, mode: intent.mode, response: response.trim(), reason,
+      truncated, committable: false
+    })
+  }
   // 后果批次失败时，作者可明确选择只保留已经读过的人物回应。降级动作
   // 不登记任何结构化后果，并且只对仍处在原路线/原前缀的结果生效。
   function acceptRejectedWithoutConsequences() {
     const rejected = lastRejected.value
     const owner = current.value
-    if (busy.value || !rejected || !owner || owner.id !== rejected.routeId) return false
+    if (busy.value || stale.value || !rejected || !owner || owner.id !== rejected.routeId) return false
+    if (owner.conditionGeneration !== (run.value?.conditionGeneration ?? 0)) return false
     if (owner.steps.map(item => item.id).join('|') !== rejected.prefixStepIds.join('|')) return false
     owner.steps = [...owner.steps, freezeStep({ ...rejected.step, id: `step-${++stepSequence}`, consequences: [], consequenceStatus: 'author-accepted-without-consequences' })]
     if (rejected.step.enteringRefs.length) owner.enteredRefs = [...owner.enteredRefs, ...rejected.step.enteringRefs]
@@ -244,6 +262,7 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
     const enteringRefs = participants
       .filter(person => person.status === 'planned' && intent.enteringRefs.includes(person.ref))
       .map(person => person.ref)
+    let received = null
     try {
       if (!await check() || ticket !== version) return false
       const resolvedSettings = settings || Object.freeze({ ...await getSettings() })
@@ -253,7 +272,14 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
         run: baseline, steps: prefix, action: intent, signal: controller.signal,
         settingsSnapshot: settings, conditions: baseline.conditions, routeState
       })
-      if (ticket !== version || !await check() || ticket !== version) return false
+      if (ticket !== version) return false
+      received = result
+      const valid = await check()
+      if (ticket !== version) return false
+      if (!valid) {
+        retainResponse({ routeId, prefix, intent, response: result.response, reason: 'stale' })
+        return false
+      }
       const owner = routes.value.find(item => item.id === routeId)
       if (!owner) return false
       if (result.consequenceStatus === 'needs-review') {
@@ -265,7 +291,7 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
           response: result.response,
           issues: Object.freeze([...(result.consequenceIssues || [])]),
           step: freezeStep({
-            action: intent.text,
+            action: intent.text, mode: intent.mode,
             actor: intent.actor || resolved.actor?.name || '', targets: [...intent.targets],
             actorRef: intent.actorRef || resolved.actor?.ref || '',
             targetRefs: intent.targetRefs.length ? [...intent.targetRefs] : resolved.targets.map(person => person.ref),
@@ -279,7 +305,7 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
         return false
       }
       owner.steps = [...prefix, freezeStep({
-        id: `step-${++stepSequence}`, action: intent.text,
+        id: `step-${++stepSequence}`, action: intent.text, mode: intent.mode,
         actor: intent.actor || resolved.actor?.name || '', targets: intent.targets,
         actorRef: intent.actorRef || resolved.actor?.ref || '',
         targetRefs: intent.targetRefs.length ? intent.targetRefs : resolved.targets.map(person => person.ref),
@@ -292,19 +318,27 @@ export function useAuthoringRehearsal({ validate, getSettings, step = requestReh
       })]
       if (enteringRefs.length) owner.enteredRefs = [...owner.enteredRefs, ...enteringRefs]
       owner.draft = ''
+      owner.retainedResult = null
       return true
     } catch (cause) {
-      if (ticket === version) error.value = cause?.message || '这次试演未完成，可以重试。'
+      if (ticket === version) {
+        error.value = cause?.message || '这次推演未完成，可以重试。'
+        retainResponse({
+          routeId, prefix, intent, response: cause?.retainedResponse || received?.response,
+          reason: cause?.code === 'AUTHORING_REHEARSAL_REPEATED_RESPONSE' ? 'repeat' : received ? 'stale' : 'invalid-response',
+          truncated: Boolean(cause?.retainedTruncated)
+        })
+      }
       return false
     } finally { if (ticket === version) busy.value = false }
   }
   return {
     run, routes, route, otherRoutes, current, steps, busy, error, stale, action, maxSteps: REHEARSAL_MAX_STEPS,
     readingScroll, folded, toggleFold,
-    conditions, routeState, participants, lastRejected,
+    conditions, routeState, participants, lastRejected, retainedResult,
     setAction, setReadingScroll,
     start, clear, cancel, check, advance, rewind, restore,
-    freezeConditions, compareRoutes, createDraftSource, draftSourceIsCurrent, discardRejected, acceptRejectedWithoutConsequences,
+    freezeConditions, compareRoutes, createDraftSource, draftSourceIsCurrent, discardRejected, discardRetained, acceptRejectedWithoutConsequences,
     refreshSettings
   }
 }

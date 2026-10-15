@@ -22,6 +22,7 @@ export function useComicWorkspaceSelection({ route } = {}) {
   const activePanelId = ref('')
   const inspectorCollapsed = ref(false)
   const sequenceFilter = ref('all')
+  const locationNotice = ref('')
   let flushHooks = []
 
   const bookId = computed(() => String(route?.query?.bookId || ''))
@@ -111,15 +112,61 @@ export function useComicWorkspaceSelection({ route } = {}) {
   function touchCatalog() {
     catalogVersion.value += 1
     const current = bookPages.value.find((page) => page.id === activePageId.value)
-    if (!current && bookPages.value.length) {
+    if (!current && activePageId.value) {
+      activePageId.value = ''
+      activePanelId.value = ''
+      locationNotice.value = '当前漫画页已不存在或已移出本书，请从页目录重新选择。'
+    } else if (!current && bookPages.value.length && !locationNotice.value && !route?.query?.pageId && !route?.query?.panelId) {
       activePageId.value = bookPages.value[0].id
     }
     if (activePage.value && !activePage.value.panels.some((panel) => panel.id === activePanelId.value)) {
-      activePanelId.value = activePage.value.panels[0]?.id || ''
+      if (activePanelId.value) {
+        activePanelId.value = ''
+        locationNotice.value = '当前漫画格已不存在，请重新选择本页中的漫画格。'
+      } else if (!locationNotice.value) activePanelId.value = activePage.value.panels[0]?.id || ''
     }
   }
 
+  function restoreRouteSelection({ pageId = '', panelId = '' } = {}, { flush = true } = {}) {
+    if (flush && !flushPendingEdits()) return false
+    const targetPageId = String(pageId || '')
+    const targetPanelId = String(panelId || '')
+    locationNotice.value = ''
+    if (!targetPageId && targetPanelId) {
+      activePageId.value = ''
+      activePanelId.value = ''
+      locationNotice.value = '这个链接缺少漫画页，无法定位指定漫画格。请从页目录重新选择。'
+      return false
+    }
+    const page = targetPageId
+      ? bookPages.value.find(item => item.id === targetPageId)
+      : activePage.value || bookPages.value[0]
+    if (!page) {
+      activePageId.value = ''
+      activePanelId.value = ''
+      if (targetPageId) {
+        locationNotice.value = !activeBook.value
+          ? '请先选择这页漫画所属的作品，再打开该页面。'
+          : allPages.value.some(item => item.id === targetPageId)
+            ? '这页漫画不属于当前作品，未载入。请切换到所属作品或从页目录重新选择。'
+            : '这页漫画已不存在，未打开其他页面。请从页目录重新选择。'
+      }
+      return !targetPageId
+    }
+    const samePage = page.id === activePageId.value
+    activePageId.value = page.id
+    if (targetPanelId && !page.panels.some(panel => panel.id === targetPanelId)) {
+      activePanelId.value = ''
+      locationNotice.value = '指定漫画格已不存在或不属于这一页，请从页目录重新打开本页。'
+      return false
+    }
+    activePanelId.value = targetPanelId || (samePage && page.panels.some(panel => panel.id === activePanelId.value)
+      ? activePanelId.value : page.panels[0]?.id || '')
+    return true
+  }
+
   function registerFlush(hook) {
+    if (typeof hook !== 'function' || hook === flushPendingEdits) return () => {}
     flushHooks = [...flushHooks, hook]
     return () => { flushHooks = flushHooks.filter((item) => item !== hook) }
   }
@@ -132,32 +179,41 @@ export function useComicWorkspaceSelection({ route } = {}) {
     }
     for (const hook of flushHooks) {
       try {
-        hook()
+        if (hook() === false) return false
       } catch {
-        // flush 失败不阻断导航；草稿仍在输入框内存中，由调用方提示。
+        // 保存失败时保留当前编辑器，避免换页销毁唯一的未保存草稿。
+        return false
       }
     }
+    return true
   }
 
   function selectPage(pageId, { flush = true } = {}) {
-    if (flush && pageId !== activePageId.value) flushPendingEdits()
+    if (flush && pageId !== activePageId.value && !flushPendingEdits()) return false
     const page = bookPages.value.find((item) => item.id === pageId)
     if (!page) return false
+    const samePage = activePageId.value === page.id
     activePageId.value = page.id
-    activePanelId.value = page.panels[0]?.id || ''
+    activePanelId.value = samePage && page.panels.some(panel => panel.id === activePanelId.value)
+      ? activePanelId.value : page.panels[0]?.id || ''
+    locationNotice.value = ''
     return true
   }
 
   function selectPanel(panelId) {
     if (!activePage.value?.panels.some((panel) => panel.id === panelId)) return false
+    if (panelId !== activePanelId.value && !flushPendingEdits()) return false
     activePanelId.value = panelId
+    locationNotice.value = ''
     return true
   }
 
   function startNewPage() {
-    flushPendingEdits()
+    if (!flushPendingEdits()) return false
     activePageId.value = ''
     activePanelId.value = ''
+    locationNotice.value = ''
+    return true
   }
 
   function adoptLegacyPage(pageId, targetBookId) {
@@ -194,6 +250,7 @@ export function useComicWorkspaceSelection({ route } = {}) {
     activeBook,
     scopeReady,
     scopeNotice,
+    locationNotice,
     bookPages,
     catalog,
     sequences,
@@ -208,6 +265,7 @@ export function useComicWorkspaceSelection({ route } = {}) {
     inspectorCollapsed,
     refreshBooks,
     touchCatalog,
+    restoreRouteSelection,
     registerFlush,
     flushPendingEdits,
     selectPage,

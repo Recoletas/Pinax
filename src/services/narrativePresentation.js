@@ -299,6 +299,9 @@ function splitDialogueProse(value) {
   if (!(normalized.startsWith('“') && normalized.endsWith('”'))) return [normalized]
   const inner = normalized.slice(1, -1).trim()
   if (!inner) return [normalized]
+  // A dialogue marker may contain narration between separate spoken quotes.
+  // Only unwrap a single speech span; rewrapping mixed prose invents quotes.
+  if (/[“”"]/.test(inner)) return [normalized]
   const sentences = splitIntoSentences(inner)
   const cjkCount = (inner.match(/[\u4e00-\u9fff]/g) || []).length
   if (cjkCount <= 120 && sentences.length <= 2) return [normalized]

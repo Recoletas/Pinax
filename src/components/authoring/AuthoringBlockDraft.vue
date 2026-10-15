@@ -3,7 +3,7 @@
     <header class="authoring-block-draft__head">
       <div>
         <strong>{{ operation === 'rewrite-unit' ? '重写草稿' : '推演草稿' }}</strong>
-        <span>{{ busy ? actionBusyLabel : locked ? '正文已写入，正在等待保存' : helperLabel }}</span>
+        <span v-if="busy || locked">{{ busy ? actionBusyLabel : '正文已写入，正在等待保存' }}</span>
       </div>
       <span class="authoring-block-draft__state">{{ stateLabel }}</span>
     </header>
@@ -88,7 +88,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createSceneBeatDraft } from '../../services/agents/authoring/unitSemanticProjection.js'
 
 const props = defineProps({
@@ -114,9 +114,6 @@ const stableBoundaryHints = ref([])
 const selectedBoundaryKey = ref('')
 const changed = computed(() => props.modelValue !== props.originalText)
 const actionBusyLabel = computed(() => props.operation === 'rewrite-unit' ? '正在替换当前文本块' : '正在纳入正文')
-const helperLabel = computed(() => props.operation === 'rewrite-unit'
-  ? '先修改，确认后才整体替换当前文本块'
-  : '先修改，再决定是否纳入正文')
 const characterCount = computed(() => [...String(props.modelValue || '')].length)
 const paragraphCount = computed(() => String(props.modelValue || '').trim()
   ? String(props.modelValue).trim().split(/\n\s*\n/).length
@@ -140,7 +137,7 @@ function resizeInput() {
   const input = draftInput.value
   if (!input) return
   input.style.height = '0px'
-  input.style.height = `${Math.min(Math.max(input.scrollHeight, 132), window.innerHeight * 0.46)}px`
+  input.style.height = `${input.scrollHeight}px`
 }
 
 function updateDraft(event) {
@@ -224,15 +221,25 @@ watch(() => props.originalText, () => {
 })
 watch(() => props.boundaryHints, mapResponseBoundaryHints, { deep: true })
 
+let inputResizeObserver
 onMounted(() => {
   mapResponseBoundaryHints()
   resizeInput()
+  let lastWidth = draftInput.value?.clientWidth
+  if (typeof ResizeObserver !== 'undefined') inputResizeObserver = new ResizeObserver(() => {
+    const width = draftInput.value?.clientWidth
+    if (width === lastWidth) return
+    lastWidth = width
+    resizeInput()
+  })
+  inputResizeObserver?.observe(draftInput.value)
   if (props.locked) return
   draftInput.value?.focus({ preventScroll: true })
   draftInput.value?.setSelectionRange(0, 0)
   if (draftInput.value) draftInput.value.scrollTop = 0
   draftInput.value?.closest('section')?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' })
 })
+onBeforeUnmount(() => inputResizeObserver?.disconnect())
 
 defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 </script>
@@ -244,10 +251,11 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
   color: var(--text-secondary);
 }
 .authoring-block-draft {
+  box-sizing: border-box;
   width: 100%;
-  padding: 14px 12px 12px 36px;
-  border-block: 1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-subtle));
-  background: color-mix(in srgb, var(--accent-soft, #edf5ff) 24%, transparent);
+  padding: 12px;
+  border: 0;
+  background: transparent;
 }
 
 .authoring-block-draft__head,
@@ -260,7 +268,8 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 .authoring-block-draft__head {
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 14px;
+  font-family: var(--font-sans);
 }
 
 .authoring-block-draft__head > div {
@@ -302,19 +311,22 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 }
 
 .authoring-block-draft__input {
+  box-sizing: border-box;
   display: block;
   width: 100%;
-  min-height: 132px;
-  max-height: 46vh;
-  padding: 9px 0;
+  min-height: 0;
+  padding: 0;
   resize: none;
-  overflow-y: auto;
+  overflow: hidden;
   border: 0;
-  border-block: 1px solid var(--border-subtle);
+  border-radius: 0;
   outline: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text-primary) 82%, var(--accent-primary));
-  font: inherit;
+  color: var(--notebook-ink, var(--text-primary));
+  font-family: var(--notebook-font-family, var(--font-writing));
+  font-size: var(--notebook-font-size, 17.5px);
+  font-weight: var(--notebook-font-weight, 400);
+  font-style: var(--notebook-font-style, normal);
   line-height: var(--notebook-line-height, 1.9);
   white-space: pre-wrap;
 }
@@ -476,7 +488,10 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 .authoring-block-draft__footer {
   justify-content: space-between;
   gap: 16px;
-  padding-top: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-sans);
 }
 
 .authoring-block-draft__actions {
@@ -516,8 +531,8 @@ defineExpose({ getSceneBeatDraft: () => beatDraft.value })
 }
 
 @media (max-width: 640px) {
-  .authoring-block-draft { padding: 12px 8px 10px 32px; }
-  .authoring-block-draft__footer { align-items: flex-start; }
+  .authoring-block-draft { padding: 10px 12px; }
+  .authoring-block-draft__footer { align-items: flex-start; flex-wrap: wrap; gap: 4px 12px; }
   .authoring-block-draft__actions { gap: 10px; }
   .authoring-block-draft__boundary-action { flex-wrap: wrap; gap: 6px 16px; }
   .authoring-block-draft__boundary-action > span { flex-basis: 100%; }

@@ -919,7 +919,7 @@ async function triggerRouteScenario(page, route, state, importFixturePath) {
     await reloadWritingFixture()
     const versionTab = page.getByRole('button', { name: '版本', exact: true })
     if (!await versionTab.isVisible()) {
-      await page.locator('.writing-inspector__reopen[title="打开检查器"]').click()
+      await page.locator('.authoring-dock__reopen[title="打开工作台"]').click()
     }
     await versionTab.click()
     const snapshotEntry = page.locator('.writing-version-entry').filter({ hasText: '审计命名快照' })

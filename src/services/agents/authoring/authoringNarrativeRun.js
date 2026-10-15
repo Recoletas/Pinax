@@ -1,3 +1,4 @@
+import { readLocalRuleFilesForBook, readLocalLexiconForBook } from '../../localMirrorSettings.js'
 // C1-1B：生产叙事运行的薄边界。
 // narrative task 必须先获得冻结 AuthoringRunSession，再由同一 session 的 manifest
 // 生成 envelope/ledger 并执行；其余 task 完整回退到既有 resolver。
@@ -284,6 +285,8 @@ export function createAuthoringNarrativeRun({
     envelope = null,
     signal = null,
     turn = null,
+    assistantSampling = null,
+    onModelRequest = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const taskId = resolveAuthoringTaskId(authoringRunSession?.taskId)
@@ -295,10 +298,19 @@ export function createAuthoringNarrativeRun({
         { taskId }
       )
     }
+    const scopedBookId = String(session.manifest.target.projectId)
+    const [localRules, localLexicon] = await Promise.all([
+      readLocalRuleFilesForBook(scopedBookId), readLocalLexiconForBook(scopedBookId)
+    ])
+    if (signal?.aborted) throw signal.reason || new Error('请求已取消')
     const result = await executeSession({
       session,
+      localRules,
+      lexicon: localLexicon.lexicon,
       intentMode,
       turn,
+      assistantSampling,
+      onModelRequest,
       signal,
       envelope,
       projectId: String(session.manifest.target.projectId),
@@ -313,7 +325,7 @@ export function createAuthoringNarrativeRun({
       const generatedText = String(result?.text ?? result?.generatedText ?? '')
       throw typedError(
         'AGENT_RESULT_STALE',
-        '本轮结果未通过上下文对账，不能采纳',
+        generatedText.trim() ? '本次参考有变化，生成的草稿已保留' : '本次参考有变化，请重试',
         {
           adoptable: false,
           generatedText,

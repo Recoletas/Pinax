@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Check,
   ImagePlus,
@@ -10,7 +10,6 @@ import {
 } from 'lucide-vue-next'
 import {
   approveComicPanelStageArtifact,
-  clearComicStagePendingRequest,
   listComicPages,
   selectComicPanelStageArtifact,
   updateComicPanel
@@ -22,10 +21,10 @@ import {
   getComicReferenceCapabilityWarnings,
   getComicStageGate,
   getComicStageInputRevision,
+  listComicPersistRetries,
   retryComicStagePersist,
   runComicStageGeneration
 } from '../../services/media/comicProductionService'
-import { getImageProviderCapabilities } from '../../services/media/imageProviderService'
 import {
   getMediaAssetDataUrl,
   listMediaAssets
@@ -38,7 +37,8 @@ const props = defineProps({
   storageKey: { type: String, required: true },
   projectId: { type: String, default: null },
   sourceTitle: { type: String, default: '' },
-  sourceText: { type: String, default: '' }
+  sourceText: { type: String, default: '' },
+  preferredStage: { type: String, default: '' }
 })
 
 const emit = defineEmits(['page-saved'])
@@ -56,6 +56,37 @@ const maskInput = ref(null)
 const bindingRole = ref('identity')
 const bindingAssetId = ref('')
 let artifactLoadRevision = 0
+let disposed = false
+const activeOperations = new Map()
+const scopeKey = () => JSON.stringify([props.projectId, props.page.id, props.panel.id, activeStage.value])
+
+function beginOperation(kind = 'single') {
+  const operation = JSON.parse(JSON.stringify({
+    key: scopeKey(), kind, page: props.page, panel: props.panel, stage: activeStage.value,
+    config: props.modelConfig || {}, storageKey: props.storageKey, projectId: props.projectId,
+    sourceTitle: props.sourceTitle, sourceText: props.sourceText,
+    previousPanel: previousPanel.value, previousImageData: previousImageData.value,
+    maskImage: maskImage.value, revisionPrompt: revisionPrompt.value
+  }))
+  activeOperations.set(operation.key, operation)
+  busy.value = true
+  return operation
+}
+
+function ownsOperation(operation) {
+  return !disposed && operation.key === scopeKey() && activeOperations.get(operation.key) === operation
+}
+
+function finishOperation(operation) {
+  if (activeOperations.get(operation.key) === operation) activeOperations.delete(operation.key)
+  if (!disposed && operation.key === scopeKey()) busy.value = Boolean(activeOperations.get(operation.key))
+  if (!disposed && operation.key === scopeKey()) batchBusy.value = activeOperations.get(operation.key)?.kind === 'batch'
+}
+
+onBeforeUnmount(() => {
+  disposed = true
+  artifactLoadRevision += 1
+})
 
 const stageOptions = computed(() => props.page.colorMode === 'monochrome'
   ? ['rough', 'line', 'tones', 'effects']
@@ -63,13 +94,12 @@ const stageOptions = computed(() => props.page.colorMode === 'monochrome'
 const stageEntry = computed(() => props.panel.production?.[activeStage.value] || {})
 // B 夜：本会话没有在途请求（busy=false）而阶段仍挂着 pendingRequest，
 // 说明是刷新前遗留的未知结果——不自动重发，交给作者核查或显式再生成。
-const stageUnknown = computed(() => !busy.value && Boolean(stageEntry.value.pendingRequest))
+const stageUnknown = computed(() => !busy.value && !persistRetryId.value && Boolean(stageEntry.value.pendingRequest))
 const persistRetryId = ref('')
 const selectedArtifact = computed(() => artifactPreviews.value
   .find((artifact) => artifact.id === stageEntry.value.selectedArtifactId) || null)
 const selectedLineage = computed(() => stageEntry.value.artifactLineage
   ?.find((artifact) => artifact.id === stageEntry.value.selectedArtifactId) || null)
-const capabilities = computed(() => getImageProviderCapabilities(props.modelConfig || {}))
 const generateGate = computed(() => getComicStageGate({
   page: props.page,
   panel: props.panel,
@@ -111,14 +141,26 @@ const previousImageData = computed(() => previousPanel.value?.imageTakes
 watch(stageOptions, (stages) => {
   if (!stages.includes(activeStage.value)) activeStage.value = stages[0]
 }, { immediate: true })
+watch(() => props.preferredStage, (stage) => {
+  if (stageOptions.value.includes(stage)) activeStage.value = stage
+}, { immediate: true })
 
 watch(
-  () => `${props.panel.id}:${activeStage.value}:${(stageEntry.value.artifactIds || []).join(',')}`,
+  () => `${scopeKey()}:${(stageEntry.value.artifactIds || []).join(',')}`,
   loadArtifacts,
   { immediate: true }
 )
 
 watch(() => props.projectId, refreshReferenceAssets, { immediate: true })
+watch(scopeKey, () => {
+  busy.value = Boolean(activeOperations.get(scopeKey()))
+  batchBusy.value = activeOperations.get(scopeKey())?.kind === 'batch'
+  error.value = ''
+  status.value = ''
+  maskImage.value = ''
+  revisionPrompt.value = ''
+  persistRetryId.value = listComicPersistRetries(props.page.id, props.panel.id, activeStage.value)[0]?.requestId || ''
+}, { immediate: true })
 
 function refreshReferenceAssets() {
   referenceAssets.value = listMediaAssets({
@@ -133,6 +175,7 @@ function refreshReferenceAssets() {
 async function loadArtifacts() {
   const revision = ++artifactLoadRevision
   const ids = [...(stageEntry.value.artifactIds || [])]
+  artifactPreviews.value = []
   loadingArtifacts.value = true
   const metadata = new Map(listMediaAssets({}).map((asset) => [asset.id, asset]))
   const previews = await Promise.all(ids.map(async (id) => ({
@@ -140,15 +183,15 @@ async function loadArtifacts() {
     asset: metadata.get(id) || null,
     data: await getMediaAssetDataUrl(id).catch(() => '')
   })))
-  if (revision !== artifactLoadRevision) return
+  if (disposed || revision !== artifactLoadRevision) return
   artifactPreviews.value = previews
   loadingArtifacts.value = false
 }
 
-async function generateStage(mode = 'generate') {
+async function generateStage(mode = 'generate', approvedClearRequestId = '') {
   if (busy.value || !props.modelConfig) return
   const pending = stageEntry.value.pendingRequest
-  if (pending) {
+  if (pending && pending.requestId !== approvedClearRequestId) {
     error.value = '上一请求结果未知，请先核查结果或明确选择“重新生成”，避免重复请求'
     return
   }
@@ -161,26 +204,15 @@ async function generateStage(mode = 'generate') {
     error.value = '请先上传黑白遮罩图'
     return
   }
-  busy.value = true
+  const operation = beginOperation()
   error.value = ''
   status.value = ''
   persistRetryId.value = ''
   try {
     const saved = await runComicStageGeneration({
-      page: props.page,
-      panel: props.panel,
-      stage: activeStage.value,
-      config: props.modelConfig,
-      storageKey: props.storageKey,
-      projectId: props.projectId,
-      sourceTitle: props.sourceTitle,
-      sourceText: props.sourceText,
-      previousPanel: previousPanel.value,
-      previousImageData: previousImageData.value,
-      mode,
-      maskImage: maskImage.value,
-      revisionPrompt: revisionPrompt.value
+      ...operation, mode, approvedClearRequestId
     })
+    if (!ownsOperation(operation)) return
     refreshReferenceAssets()
     emit('page-saved', saved)
     const latestStage = listComicPages({}).find((item) => item.id === props.page.id)?.panels
@@ -190,6 +222,7 @@ async function generateStage(mode = 'generate') {
       : mode === 'inpaint' ? '局部修订候选已加入' : `${COMIC_STAGE_LABELS[activeStage.value]}候选已加入`
     if (mode === 'inpaint') maskImage.value = ''
   } catch (generationError) {
+    if (!ownsOperation(operation)) return
     if (generationError?.code === 'media-persist-failed' && generationError.requestId) {
       persistRetryId.value = generationError.requestId
       error.value = '图片已生成但保存失败；可只重试保存，不会再次调用模型。'
@@ -198,23 +231,27 @@ async function generateStage(mode = 'generate') {
     }
     emitLatestPage()
   } finally {
-    busy.value = false
+    finishOperation(operation)
   }
 }
 
 function resolveUnknownRequest(action) {
+  const key = scopeKey()
+  const pageId = props.page.id
+  const panelId = props.panel.id
+  const stage = activeStage.value
   const pending = stageEntry.value.pendingRequest
   if (!pending) return
   if (action === 'regenerate') {
-    clearComicStagePendingRequest(props.page.id, props.panel.id, activeStage.value, pending.requestId)
-    emitLatestPage()
-    void generateStage()
+    // 把作者确认的请求 ID 交给服务端前守卫；不依赖父组件异步水合 props。
+    void generateStage('generate', pending.requestId)
     return
   }
   // 核查：只重新读取本格与候选列表；没有新候选就保持未知状态。
   void loadArtifacts().then(() => {
-    const latest = listComicPages({}).find((item) => item.id === props.page.id)?.panels
-      .find((item) => item.id === props.panel.id)?.production?.[activeStage.value]
+    if (disposed || key !== scopeKey()) return
+    const latest = listComicPages({}).find((item) => item.id === pageId)?.panels
+      .find((item) => item.id === panelId)?.production?.[stage]
     if (latest?.artifactIds.length && !latest.pendingRequest) {
       status.value = '已找到请求结果，候选已更新'
     } else {
@@ -226,17 +263,19 @@ function resolveUnknownRequest(action) {
 
 async function retryPersist() {
   if (!persistRetryId.value) return
-  busy.value = true
+  const requestId = persistRetryId.value
+  const operation = beginOperation()
   error.value = ''
   try {
-    const retry = await retryComicStagePersist(persistRetryId.value)
+    const retry = await retryComicStagePersist(requestId)
+    if (!ownsOperation(operation)) return
     persistRetryId.value = ''
     status.value = '图片保存完成，候选已加入'
     if (retry.page) emit('page-saved', retry.page)
   } catch (retryError) {
-    error.value = retryError?.message || '图片保存仍然失败'
+    if (ownsOperation(operation)) error.value = retryError?.message || '图片保存仍然失败'
   } finally {
-    busy.value = false
+    finishOperation(operation)
   }
 }
 
@@ -244,29 +283,25 @@ async function uploadStage(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file || busy.value) return
-  busy.value = true
+  const operation = beginOperation()
   error.value = ''
   try {
     const data = await readFileAsDataUrl(file)
     const dimensions = await readImageDimensions(data)
     const result = await archiveUploadedComicStage({
-      page: props.page,
-      panel: props.panel,
-      stage: activeStage.value,
-      config: props.modelConfig || {},
-      storageKey: props.storageKey,
-      projectId: props.projectId,
+      ...operation,
       data,
       width: dimensions.width,
       height: dimensions.height
     })
+    if (!ownsOperation(operation)) return
     refreshReferenceAssets()
     emit('page-saved', result.page)
     status.value = `${COMIC_STAGE_LABELS[activeStage.value]}人工稿已加入`
   } catch (uploadError) {
-    error.value = uploadError?.message || '上传阶段产物失败'
+    if (ownsOperation(operation)) error.value = uploadError?.message || '上传阶段产物失败'
   } finally {
-    busy.value = false
+    finishOperation(operation)
   }
 }
 
@@ -274,7 +309,9 @@ async function uploadMask(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file) return
-  maskImage.value = await readFileAsDataUrl(file)
+  const key = scopeKey()
+  const data = await readFileAsDataUrl(file)
+  if (!disposed && key === scopeKey()) maskImage.value = data
 }
 
 function selectArtifact(artifactId) {
@@ -306,36 +343,41 @@ function approveStage() {
 }
 
 async function batchGenerateStage() {
-  if (batchBusy.value || !props.modelConfig || !batchEligible.value.length) return
+  if (busy.value || batchBusy.value || !props.modelConfig || !batchEligible.value.length) return
   batchBusy.value = true
   error.value = ''
   const stage = activeStage.value
-  let page = props.page
+  const operation = beginOperation('batch')
+  const candidates = batchEligible.value.map((panel) => panel.id)
+  let page = operation.page
   let completed = 0
   let failed = 0
-  for (const candidate of batchEligible.value) {
-    const panel = page.panels.find((item) => item.id === candidate.id)
+  for (const candidateId of candidates) {
+    if (!ownsOperation(operation)) break
+    const panel = page?.panels.find((item) => item.id === candidateId)
     if (!panel) continue
     try {
       page = await runComicStageGeneration({
         page,
         panel,
         stage,
-        config: props.modelConfig,
-        storageKey: props.storageKey,
-        projectId: props.projectId,
-        sourceTitle: props.sourceTitle,
-        sourceText: props.sourceText
+        config: operation.config,
+        storageKey: operation.storageKey,
+        projectId: operation.projectId,
+        sourceTitle: operation.sourceTitle,
+        sourceText: operation.sourceText
       })
       completed += 1
     } catch {
       failed += 1
-      page = listComicPages({}).find((item) => item.id === props.page.id) || page
+      page = listComicPages({}).find((item) => item.id === operation.page.id) || page
     }
   }
-  emit('page-saved', page)
-  status.value = `${COMIC_STAGE_LABELS[stage]}推进 ${completed} 格${failed ? `，失败 ${failed} 格` : ''}`
-  batchBusy.value = false
+  if (ownsOperation(operation)) {
+    emit('page-saved', page)
+    status.value = `${COMIC_STAGE_LABELS[stage]}推进 ${completed} 格${failed ? `，失败 ${failed} 格` : ''}`
+  }
+  finishOperation(operation)
 }
 
 function addReferenceBinding() {
@@ -385,15 +427,6 @@ function artifactOrigin(artifactId) {
   return { generated: '生成', uploaded: '上传', edited: '修订' }[lineage?.origin] || '候选'
 }
 
-function capabilityLabel(key) {
-  return {
-    textToImage: '文生图',
-    imageToImage: '图生图',
-    inpaint: '局部修订',
-    controlImages: '结构控制'
-  }[key]
-}
-
 function mediaLabel(asset) {
   return [asset.model || asset.provider || '图片', asset.id.slice(-6)].filter(Boolean).join(' · ')
 }
@@ -424,6 +457,7 @@ function readImageDimensions(data) {
 
 <template>
   <section class="comic-stage-workbench" aria-label="当前格制作阶段">
+    <p class="comic-stage-workbench__intro">逐步精修当前画面。每一步选好候选并确认后，再继续下一步。</p>
     <div class="comic-stage-workbench__tabs" role="tablist" aria-label="制作阶段">
       <button
         v-for="stage in stageOptions"
@@ -439,13 +473,7 @@ function readImageDimensions(data) {
       </button>
     </div>
 
-    <div class="comic-stage-workbench__capabilities" aria-label="当前模型能力">
-      <span
-        v-for="key in ['textToImage', 'imageToImage', 'inpaint', 'controlImages']"
-        :key="key"
-        :class="{ supported: capabilities[key] }"
-      >{{ capabilityLabel(key) }}</span>
-    </div>
+    <p v-if="!generateGate.allowed" class="comic-stage-workbench__gate" role="status">{{ generateGate.reason }}。也可以上传这一阶段的图片。</p>
 
     <div v-if="hasProductionRules" class="comic-stage-workbench__bible" aria-label="当前视觉规则">
       <div v-if="visiblePalette.length" class="comic-stage-workbench__palette">
@@ -481,8 +509,8 @@ function readImageDimensions(data) {
       <img :src="selectedArtifact.data" :alt="`${COMIC_STAGE_LABELS[activeStage]}当前候选`" />
       <figcaption>
         <span>{{ artifactOrigin(selectedArtifact.id) }}</span>
-        <span v-if="selectedLineage?.parentAssetId">上游 {{ selectedLineage.parentAssetId.slice(-8) }}</span>
-        <span>{{ selectedArtifact.id.slice(-8) }}</span>
+        <span>{{ stageStatus(activeStage) }}</span>
+        <span v-if="selectedLineage?.parentAssetId">沿用上一阶段</span>
       </figcaption>
     </figure>
 
@@ -495,15 +523,15 @@ function readImageDimensions(data) {
     </div>
 
     <div class="comic-stage-workbench__actions">
-      <button type="button" :disabled="busy || stageUnknown || !generateGate.allowed" :title="stageUnknown ? '上一请求结果未知，请先核查或明确再生成' : generateGate.reason" @click="generateStage()">
+      <button class="comic-stage-workbench__generate" type="button" :disabled="busy || stageUnknown || !generateGate.allowed" :title="stageUnknown ? '上一请求结果未知，请先核查或明确再生成' : generateGate.reason" @click="generateStage()">
         <RefreshCw :size="13" aria-hidden="true" />
-        {{ activeStage === 'rough' ? '生成草稿' : `生成${COMIC_STAGE_LABELS[activeStage]}` }}
+        {{ busy ? '处理中…' : activeStage === 'rough' ? '生成草稿' : `生成${COMIC_STAGE_LABELS[activeStage]}` }}
       </button>
       <button type="button" :disabled="busy" @click="uploadInput?.click()">
         <Upload :size="13" aria-hidden="true" />
         上传替换
       </button>
-      <button type="button" :disabled="stageEntry.status !== 'review' || !selectedArtifact" @click="approveStage">
+      <button class="comic-stage-workbench__approve" type="button" :disabled="busy || stageEntry.status !== 'review' || !selectedArtifact" @click="approveStage">
         <Check :size="13" aria-hidden="true" />
         确认采用
       </button>
@@ -522,6 +550,7 @@ function readImageDimensions(data) {
 
     <details class="comic-stage-workbench__revision">
       <summary>局部遮罩修订</summary>
+      <p v-if="!inpaintGate.allowed" class="comic-stage-workbench__gate">{{ inpaintGate.reason }}</p>
       <div>
         <button type="button" :disabled="!inpaintGate.allowed" :title="inpaintGate.reason" @click="maskInput?.click()">
           <ImagePlus :size="13" aria-hidden="true" />
@@ -904,4 +933,31 @@ function readImageDimensions(data) {
   font-size: 10px;
 }
 .comic-stage-workbench__unknown button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.comic-stage-workbench { gap: 14px; padding-top: 0; border-top: 0; color: var(--text-secondary); font: 13px/1.55 var(--font-sans); }
+.comic-stage-workbench__intro, .comic-stage-workbench__gate { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.comic-stage-workbench__tabs { gap: 3px; padding: 3px; border-radius: var(--radius-control); background: var(--surface-workbench-input); }
+.comic-stage-workbench__tabs button { min-height: 48px; padding: 5px 2px; border: 0; border-radius: 8px; background: transparent; }
+.comic-stage-workbench__tabs button.active { background: var(--surface-workbench-raised); color: var(--text-primary); box-shadow: var(--shadow-workbench); }
+.comic-stage-workbench__tabs strong { font-size: 12px; font-weight: 500; }
+.comic-stage-workbench__tabs small { font-size: 10px; }
+.comic-stage-workbench__candidates { min-height: 0; }
+.comic-stage-workbench__candidates > button { width: 68px; height: 68px; flex-basis: 68px; border-radius: 10px; }
+.comic-stage-workbench__empty { padding-block: 12px; font-style: normal; }
+.comic-stage-workbench__selected { border: 0; border-radius: var(--radius-control); background: var(--surface-workbench-input); }
+.comic-stage-workbench__selected figcaption { border-radius: 6px; padding: 4px 8px; font-size: 11px; }
+.comic-stage-workbench__actions { gap: 8px; }
+.comic-stage-workbench__actions button, .comic-stage-workbench__revision button, .comic-stage-workbench__unknown button { min-height: 36px; padding: 7px 10px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); color: var(--text-primary); background: transparent; font: inherit; }
+.comic-stage-workbench__actions .comic-stage-workbench__approve:not(:disabled) { background: var(--accent); border-color: transparent; color: var(--accent-text); }
+.comic-stage-workbench__revision, .comic-stage-workbench__references { border-color: var(--hairline-soft); border-top-style: solid; }
+.comic-stage-workbench__revision summary, .comic-stage-workbench__references summary { min-height: 40px; font-weight: 500; }
+.comic-stage-workbench__revision textarea, .comic-stage-workbench__binding-add select { padding: 9px; border: 1px solid transparent; border-radius: var(--radius-control); background: var(--surface-workbench-input); color: var(--text-primary); }
+.comic-stage-workbench__binding { grid-template-columns: 38px minmax(0, 1fr) 36px; gap: 8px; }
+.comic-stage-workbench__binding-add { grid-template-columns: 82px minmax(0, 1fr) 36px; gap: 6px; }
+.comic-stage-workbench__binding button, .comic-stage-workbench__binding-add button { width: 36px; height: 36px; }
+.comic-stage-workbench__unknown { padding: 12px; gap: 10px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: var(--surface-workbench-input); font-size: 13px; }
+.comic-stage-workbench :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px), (pointer: coarse) {
+  .comic-stage-workbench__actions button, .comic-stage-workbench__revision button, .comic-stage-workbench__unknown button, .comic-stage-workbench__binding button, .comic-stage-workbench__binding-add button, .comic-stage-workbench__binding-add select { min-height: 44px; }
+}
 </style>

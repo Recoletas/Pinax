@@ -1,8 +1,15 @@
 import { estimateTokens } from '../../composables/useTokenEstimate.js'
 import { appendContextLedgerPart, createContextLedger } from '../contextLedger.js'
+import { entryBoundMatchLabel, relationNeighborWeights } from './entryRelations.js'
+import { extractHandoffSection, isChapterLedgerEntry, isCovertCardEntry } from './settlementService.js'
 
 const DEFAULT_TOKEN_BUDGET = 2000
 const DEFAULT_SCAN_DEPTH = 3
+// W3·B3 注入一跳扩展（kit 一跳 top-N 同款）：命中条目的 relations/links 邻居
+// top-3 以低预算附带注入；单条关联条目预算上限 = max(80, 预算×20%)。
+const LINKED_NEIGHBOR_LIMIT = 3
+const LINKED_ENTRY_BUDGET_RATIO = 0.2
+const LINKED_ENTRY_MIN_TOKEN_CAP = 80
 const DEFAULT_STARTER_ENTRY_LIMITS = {
   location: 3,
   organization: 3,
@@ -11,6 +18,44 @@ const DEFAULT_STARTER_ENTRY_LIMITS = {
   character: 2,
   item: 1,
   lore: 1
+}
+
+// W2·G4 tier 分档语义：
+// - 条目档位 entry.tier ∈ core|support|background；缺省按 kind 推导（kindTierOf）：
+//   rule→core，character/location/organization→support，其余（item/event/quest/npc/
+//   extra/未知 kind）→background。用户可在条目上显式改档，entry.tier 恒优先于推导。
+// - 注入预算按档裁剪（只收索单条上限，不改排序与匹配语义）：
+//   core 不裁（只受全局预算约束）；support 单条上限=预算×50%；
+//   background 走既有低预算垫底通道（max(80, 预算×20%)，与 linked 一跳同式）。
+// - NPC/extra 默认不自动注入：两类 kind 不进 starter 自动注入集；NPC 被场景显式
+//   引用（keys/links 命中）时仍可经一跳扩展进入；extra 永不自动注入（一跳扩展也拦，
+//   只剩 constant/history/bound/keyword 这些作者在条目上显式配置的通道）。
+const SUPPORT_ENTRY_BUDGET_RATIO = 0.5
+const CORE_STARTER_LIMIT_MULTIPLIER = 2
+const KIND_TIER_MAP = {
+  rule: 'core',
+  character: 'support',
+  location: 'support',
+  organization: 'support'
+}
+// 不进 starter 自动注入集的 kind（NPC/extra）；显式引用走一跳扩展通道不受此限
+const STARTER_EXCLUDED_KINDS = new Set(['npc', 'extra'])
+// 永不自动注入的 kind（extra）：连一跳扩展这条自动通道也拦
+const NEVER_AUTO_INJECT_KINDS = new Set(['extra'])
+
+export const ENTRY_TIER_VALUES = Object.freeze(['core', 'support', 'background'])
+
+// kind → 缺省档位；未知 kind 落 background（与 getTypePriority 未知落 general 的兜底同理）
+export function kindTierOf(kind) {
+  const key = String(kind || '').trim().toLowerCase()
+  return KIND_TIER_MAP[key] || 'background'
+}
+
+// 条目档位：显式 entry.tier 优先，缺省按 kind 推导（kind 取 entry.kind，回落 entry.type）
+export function entryTierOf(entry) {
+  const explicit = String(entry?.tier || '').trim().toLowerCase()
+  if (ENTRY_TIER_VALUES.includes(explicit)) return explicit
+  return kindTierOf(entry?.kind ?? entry?.type)
 }
 
 export const ENTRY_TYPE_PRIORITY = {
@@ -264,8 +309,14 @@ function collectStarterEntries(rawEntries = [], seenIds = new Set(), limits = {}
   for (const rawEntry of rawEntries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry || seenIds.has(entry.id)) continue
+    // NPC/extra kind 不进 starter 自动注入集（与 limits 覆盖无关，kind 排除恒生效）
+    const kind = String(entry.kind ?? entry.type ?? '').trim().toLowerCase()
+    if (STARTER_EXCLUDED_KINDS.has(kind)) continue
     const limit = normalizedLimits[entry.type]
-    if (!limit || counts[entry.type] >= limit) continue
+    if (!limit) continue
+    // core tier 的 starter 上限放宽为原 2 倍（core 是作者钦点的主角/规则，配得上）
+    const effectiveLimit = entryTierOf(entry) === 'core' ? limit * CORE_STARTER_LIMIT_MULTIPLIER : limit
+    if (counts[entry.type] >= effectiveLimit) continue
 
     starters.push({
       ...entry,
@@ -295,6 +346,12 @@ export function matchWorldbookEntries({
   if (!worldbook || !Array.isArray(worldbook.entries) || worldbook.entries.length === 0) {
     return []
   }
+
+  // W5·B5：底牌（status draft + 底牌标记）与章账结算条目在任何激活路径都不进注入——
+  // 底牌永不入正文（kit 红线，constant/history/bound/keyword/starter/linked 全路径拦）；
+  // 章账只以「末节 handoff」形态进上下文（见 buildWorldbookContext），整本历史不进。
+  // 无此类条目时过滤零命中，命中集与既有行为逐条一致（回归护栏）。
+  const injectableEntries = worldbook.entries.filter((rawEntry) => !isCovertCardEntry(rawEntry) && !isChapterLedgerEntry(rawEntry))
 
   const scanText = collectScanText(chatHistory, runtimeState, scanDepth)
   const matchedEntries = []
@@ -332,7 +389,7 @@ export function matchWorldbookEntries({
   const boundSourceRefs = new Set((boundContext?.sourceRefs || [])
     .map((ref) => String(ref || '').trim()).filter(Boolean))
 
-  for (const rawEntry of worldbook.entries) {
+  for (const rawEntry of injectableEntries) {
     const entry = normalizeEntry(rawEntry)
     if (!entry) continue
 
@@ -347,21 +404,20 @@ export function matchWorldbookEntries({
     }
 
     // P1-6：bound 绑定 —— placeId/characterId/sourceRef 直接绑定激活。
-    // 从 entry.relations（{placeIds, characterIds}）或 metadata 读绑定目标。
+    // A4：绑定字段的读取与判定统一走 entryRelations 纯函数 —— 优先 store
+    // 写入端命名 relations.locations/characters，回落旧命名 placeIds/characterIds。
     if (!seenIds.has(entry.id)) {
-      const relations = entry.relations && typeof entry.relations === 'object' ? entry.relations : {}
-      const entryPlaceIds = Array.isArray(relations.placeIds) ? relations.placeIds : []
-      const entryCharacterIds = Array.isArray(relations.characterIds) ? relations.characterIds : []
-      const entrySourceRef = String(entry.metadata?.sourceRef || relations.sourceRef || '').trim()
-      const boundByPlace = entryPlaceIds.some((id) => boundPlaceIds.has(String(id || '').trim()))
-      const boundByCharacter = entryCharacterIds.some((id) => boundCharacterIds.has(String(id || '').trim()))
-      const boundBySourceRef = Boolean(entrySourceRef && boundSourceRefs.has(entrySourceRef))
-      if (boundByPlace || boundByCharacter || boundBySourceRef) {
+      const boundLabel = entryBoundMatchLabel(entry, {
+        placeIds: boundPlaceIds,
+        characterIds: boundCharacterIds,
+        sourceRefs: boundSourceRefs
+      })
+      if (boundLabel) {
         matchedEntries.push({
           ...entry,
           matchReason: 'bound',
           matchedKeys: [],
-          matchedKeysLabel: boundByPlace ? '地点绑定' : boundByCharacter ? '角色绑定' : '来源绑定'
+          matchedKeysLabel: boundLabel
         })
         seenIds.add(entry.id)
       }
@@ -438,12 +494,39 @@ export function matchWorldbookEntries({
   }
 
   if (includeStarterEntries) {
-    matchedEntries.push(...collectStarterEntries(worldbook.entries, seenIds, starterLimits))
+    matchedEntries.push(...collectStarterEntries(injectableEntries, seenIds, starterLimits))
+  }
+
+  // W3·B3 注入一跳扩展：命中集合的 relations/links 邻居按 weight 降序取 top-3
+  // （去重、排除已命中与自环），以 matchReason='linked' 附带进注入（排序垫底、
+  // 低预算，见 buildWorldbookContext）。条目没有 relations/links 时零变化。
+  if (matchedEntries.length) {
+    const linkedEntriesById = new Map()
+    for (const rawEntry of injectableEntries) {
+      const normalized = normalizeEntry(rawEntry)
+      if (normalized && !linkedEntriesById.has(normalized.id)) linkedEntriesById.set(normalized.id, normalized)
+    }
+    for (const neighbor of relationNeighborWeights(matchedEntries, injectableEntries, { limit: LINKED_NEIGHBOR_LIMIT })) {
+      const entry = linkedEntriesById.get(neighbor.id)
+      if (!entry || seenIds.has(entry.id)) continue
+      // extra 永不自动注入——一跳扩展也是自动通道，拦下（NPC 经显式引用由此进入）
+      const neighborKind = String(entry.kind ?? entry.type ?? '').trim().toLowerCase()
+      if (NEVER_AUTO_INJECT_KINDS.has(neighborKind)) continue
+      matchedEntries.push({
+        ...entry,
+        matchReason: 'linked',
+        matchedKeys: [],
+        matchedKeysLabel: '关联条目',
+        linkedWeight: neighbor.weight
+      })
+      seenIds.add(entry.id)
+    }
   }
 
   return matchedEntries.sort((a, b) => {
-    const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : 1)
-      - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : 1)
+    // linked 一跳附带条目垫底（主命中优先占预算）
+    const modeDelta = (a.matchReason === 'history' ? -1 : a.matchReason === 'constant' ? 0 : a.matchReason === 'linked' ? 2 : 1)
+      - (b.matchReason === 'history' ? -1 : b.matchReason === 'constant' ? 0 : b.matchReason === 'linked' ? 2 : 1)
     if (modeDelta !== 0) return modeDelta
     // R3：次键命中多的排前面（selective 精确化优先）
     const secondaryDelta = (b.matchedSecondaryKeys?.length || 0) - (a.matchedSecondaryKeys?.length || 0)
@@ -605,21 +688,36 @@ export function buildWorldbookContext({
 
   parts.push('\n\n--- 以下是世界书中的关键设定条目，必须在叙事中严格遵循 ---')
 
+  // W3·B3：关联条目（一跳扩展）低预算附带注入——单条上限 max(80, 预算×20%)，
+  // 超限或挤占主条目预算时跳过（不计预算外），复用现有 token 预算口径。
+  const linkedTokenCap = Math.max(LINKED_ENTRY_MIN_TOKEN_CAP, Math.ceil(effectiveBudget * LINKED_ENTRY_BUDGET_RATIO))
+  // W2·G4 tier 分档裁剪：core 不裁（Infinity，退化为既有全局预算判定）；
+  // support 单条上限=预算×50%；background 与 linked 同式（低预算垫底通道）。
+  // linked 一跳条目恒用 linkedTokenCap（垫底通道不被档位抬升）。
+  const supportTokenCap = Math.ceil(effectiveBudget * SUPPORT_ENTRY_BUDGET_RATIO)
+
   for (const entry of matchedEntries) {
-    const entryText = `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
-    if (usedTokens + estimateTokens(entryText) > effectiveBudget) {
+    const isLinked = entry.matchReason === 'linked'
+    const tier = entryTierOf(entry)
+    const tierCap = tier === 'core' ? Infinity : tier === 'support' ? supportTokenCap : linkedTokenCap
+    const entryCap = isLinked ? linkedTokenCap : tierCap
+    const entryText = isLinked
+      ? `\n\n◇ 【${entry.name}】(${entry.type || 'general'})（关联）\n${entry.content}`
+      : `\n\n◆ 【${entry.name}】(${entry.type || 'general'})\n${entry.content}`
+    const entryTokens = estimateTokens(entryText)
+    if (entryTokens > entryCap || usedTokens + entryTokens > effectiveBudget) {
       truncatedEntries += 1
-      warnings.push(`truncated:${entry.name}`)
+      warnings.push(isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`)
       contextLedger = appendContextLedgerPart(contextLedger, {
         source: 'worldbook',
         title: entry.name,
-        purpose: 'worldbook-entry-truncated',
+        purpose: isLinked ? 'worldbook-entry-skipped-linked' : 'worldbook-entry-truncated',
         content: entry.content,
         included: false,
-        truncated: true,
-        limit: effectiveBudget,
+        truncated: !isLinked,
+        limit: isLinked || Number.isFinite(entryCap) ? entryCap : effectiveBudget,
         entryId: entry.id,
-        warning: `truncated:${entry.name}`
+        warning: isLinked ? `linked-skipped:${entry.name}` : `truncated:${entry.name}`
       })
       continue
     }
@@ -635,6 +733,42 @@ export function buildWorldbookContext({
       limit: effectiveBudget,
       entryId: entry.id
     })
+  }
+
+  // W5·B5：章账末节（=上一章 handoff，kit §四「只读末节」）作为 continuity 附带内容
+  // 进上下文——数据存在才生效：世界书里没有章账结算条目时零行为差异（不造新数据源）；
+  // 存在时只在预算装得下才注入，装不下记 handoff-skipped 警告（不计预算外）。
+  const ledgerEntry = Array.isArray(worldbook.entries)
+    ? worldbook.entries.find((rawEntry) => isChapterLedgerEntry(rawEntry))
+    : null
+  const handoff = ledgerEntry ? extractHandoffSection(String(ledgerEntry.content || '')) : ''
+  if (handoff) {
+    const handoffText = `\n\n【上一章交接 · 章账末节】\n${handoff}`
+    const handoffTokens = estimateTokens(handoffText)
+    if (usedTokens + handoffTokens <= effectiveBudget) {
+      parts.push(handoffText)
+      usedChars += handoffText.length
+      usedTokens += handoffTokens
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '章账末节（handoff）',
+        purpose: 'worldbook-handoff',
+        content: handoff,
+        included: true,
+        limit: effectiveBudget
+      })
+    } else {
+      warnings.push('handoff-skipped:budget')
+      contextLedger = appendContextLedgerPart(contextLedger, {
+        source: 'worldbook',
+        title: '章账末节（handoff）',
+        purpose: 'worldbook-handoff-skipped',
+        content: handoff,
+        included: false,
+        limit: effectiveBudget,
+        warning: 'handoff-skipped:budget'
+      })
+    }
   }
 
   parts.push('\n\n⚠️ 重要约束：')

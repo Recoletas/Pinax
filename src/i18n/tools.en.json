@@ -40,7 +40,6 @@
   "请求体模板": "Request body template",
   "支持以下模板变量：": "Supported template variables:",
   "模型配置：{count}": "Models: {count}",
-  "内置 MiniMax 由服务器转发请求，需要部署者配置密钥：": "Built-in MiniMax requests go through the server. The site administrator must configure:",
   "确定删除这个图片模型配置？": "Delete this image model configuration?",
   "连接成功": "Connected",
   "连接失败": "Connection failed",

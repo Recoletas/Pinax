@@ -1,11 +1,13 @@
 import { freezeWritingLanguage } from './writing/writingLanguagePolicy.js'
 import { validateWritingLanguagePolicy } from '../../shared/writingLanguage.js'
+import { serializeAgentBlockContent } from '../../shared/agentContextContract.js'
 import { tr, uiLocale } from '../i18n/index.js'
 import api, { getResolvedApiSettings } from './api'
 import { adaptLegacyContextToEnvelope } from './agents/legacyAdapter'
 import { clipContextEnvelope, toPromptText } from './agents/agentContextEnvelope'
 import { getTask, validateTaskType } from './agents/agentTaskRegistry'
 import { recordAuthoringAliasUse } from './agents/authoring/authoringTaskDispatcher'
+import { recordPromptSnapshot } from './agents/promptSnapshot.js'
 import {
   createAgentRequestId,
   recordAgentRequestTrace,
@@ -78,7 +80,7 @@ export function normalizeAdvisorTaskType(taskType, scope = '') {
   return validation.canonical
 }
 
-function normalizeAdvisorResult(data, fallbackTaskType) {
+function normalizeAdvisorResult(data, fallbackTaskType, requestId = '') {
   const advice = typeof data?.advice === 'string' && data.advice.trim()
     ? data.advice.trim()
     : '未获取到有效建议'
@@ -93,6 +95,8 @@ function normalizeAdvisorResult(data, fallbackTaskType) {
       }
 
   return {
+    requestId,
+    promptSnapshotKey: requestId,
     taskType,
     advice,
     meta: data?.meta || null,
@@ -180,13 +184,34 @@ export async function requestAdvisorTask({
   const frozenOptions = { ...options, languagePolicy }
   const requestId = createAgentRequestId()
   const traceBase = {
+    kind: 'advisor',
     requestId,
+    promptSnapshotKey: requestId,
     taskType: built.taskType,
+    projectId: built.envelope.projectId || '',
     startedAt: Date.now(),
     status: 'pending',
     context: summarizeAgentEnvelope(built.envelope)
   }
   recordAgentRequestTrace(traceBase)
+  // Capture the exact submitted envelope and instruction. Server-side capability
+  // wrappers may add instructions; this is a request context, not a wire dump.
+  const snapshotBlocks = [
+    ...(built.envelope.blocks || []),
+    { kind: 'user', content: normalizedQuestion, sourceRefs: [], truncated: false }
+  ].map(block => ({ ...block, chars: serializeAgentBlockContent(block.content).length }))
+  recordPromptSnapshot({
+    key: requestId,
+    surface: built.envelope.surface,
+    projectId: built.envelope.projectId,
+    revision: built.envelope.target?.revision,
+    intentMode: built.taskType,
+    blocks: snapshotBlocks,
+    budget: {
+      ...built.envelope.budget,
+      truncatedBlocks: snapshotBlocks.filter(block => block.truncated).map(block => block.kind)
+    }
+  })
 
   try {
     const apiSettings = settingsSnapshot || await getResolvedApiSettings()
@@ -210,7 +235,7 @@ export async function requestAdvisorTask({
       completedAt: Date.now(),
       server: response.data?.meta || null
     })
-    return normalizeAdvisorResult(response.data, built.taskType)
+    return normalizeAdvisorResult(response.data, built.taskType, requestId)
   } catch (error) {
     const aborted = Boolean(signal?.aborted)
       || error?.code === 'ERR_CANCELED'
@@ -221,6 +246,8 @@ export async function requestAdvisorTask({
           retryable: false
         })
       : normalizeAdvisorError(error)
+    normalized.requestId = requestId
+    normalized.promptSnapshotKey = requestId
     recordAgentRequestTrace({
       ...traceBase,
       status: aborted ? 'cancelled' : 'failed',

@@ -8,6 +8,8 @@ Pinax is for writing manuscripts, organizing characters and settings, and using 
 
 Create a manuscript, write your first scene, then try an annotation or a focused AI task if you want. Add story information as it becomes useful. See [Quick start](./01-quickstart.md).
 
+The library opens as a cover bookshelf, with a list view available. **Recently opened** show the book and location: chapter, note, or comic page and panel. Closing a tab keeps its recent entry; a removed location is marked unavailable. The library also sorts by **Recently used**, separately from modification time.
+
 ## Workspaces
 
 - [Writing workspace](./05-writing.md): manuscript, chapters, annotations, assistant, scene rehearsal, notes and earlier manuscript versions.
@@ -19,7 +21,7 @@ Materials, roleplay, video and comics are listed in the guide navigation, but th
 
 ## Two different histories
 
-For earlier manuscript text, open **Comments → Versions** or **Version history** from the chapter menu. For story facts, evidence and revisions, open **Settings → Memory & history**.
+For earlier manuscript text, open **Comments → Manuscript history** or **Version history** from the chapter menu. For story facts, evidence and revisions, open **Settings → Memory & history**.
 
 ## Storage and AI
 

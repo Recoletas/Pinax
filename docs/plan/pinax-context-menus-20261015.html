@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pinax · 菜单设计预览</title>
+<style>
+:root{color-scheme:light;--bg:#f3f3f2;--paper:#fff;--text:#25272b;--muted:#74777b;--line:#dedfdf;--hover:#ebebea;--danger:#b03f38;--shadow:0 4px 18px #15171a15,0 1px 3px #15171a0c;--focus:#677580}
+:root[data-theme=dark]{color-scheme:dark;--bg:#1b1c1e;--paper:#252629;--text:#e5e5e7;--muted:#a6a8ad;--line:#3b3d41;--hover:#36383c;--danger:#e3928c;--shadow:0 6px 20px #0005,0 1px 3px #0003;--focus:#a9bac6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}main{max-width:860px;margin:64px auto;padding:0 28px}h1{font-size:24px;font-weight:600;margin:0 0 8px}p{margin:0;color:var(--muted)}a{color:inherit}header{padding-bottom:24px;border-bottom:1px solid var(--line)}.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:24px 0}label{display:flex;align-items:center;gap:8px}select,.theme{font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:6px;padding:6px 10px}.theme{margin-left:auto;cursor:pointer}.stage{min-height:450px;padding:24px;background:var(--paper);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.target{max-width:440px;display:flex;align-items:center;gap:16px;min-height:44px;outline:none}.target:focus-visible{outline:2px solid var(--focus);outline-offset:4px}.target strong{font-size:15px;font-weight:500;flex:1}.trigger{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:22px/1 sans-serif;cursor:pointer}.trigger:hover{background:var(--hover);color:var(--text)}.menu{position:fixed;width:240px;max-width:calc(100vw - 16px);overflow-y:auto;padding:5px;background:var(--paper);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:10}.menu[hidden]{display:none}.item{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:32px;padding:5px 9px;border:0;border-radius:4px;background:transparent;color:var(--text);font:inherit;font-size:13px;line-height:1.5;text-align:left;white-space:nowrap;cursor:pointer}.item:hover,.item:focus{background:var(--hover);outline:0}.item.danger{color:var(--danger)}.item .key{color:var(--muted);font-size:11px}.item[aria-disabled=true]{color:var(--muted);opacity:.6;cursor:default}.separator{height:1px;background:var(--line);margin:5px 4px}.status{margin-top:20px;min-height:24px}.guide{margin-top:14px;font-size:13px}.trigger:focus-visible,.theme:focus-visible,select:focus-visible{outline:2px solid var(--focus);outline-offset:2px}@media(max-width:600px){main{margin:24px auto;padding:0 16px}.stage{padding:16px;min-height:520px}.theme{margin-left:0}.item{min-height:44px}.trigger{width:44px;height:44px}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>菜单设计预览</h1><p>选择对象，点击“…”或在示例行上右键。此页不修改作品。</p></header>
+<div class="controls"><label>对象 <select id="example" aria-label="菜单示例"></select></label><button type="button" class="theme" id="theme">切换深色</button></div>
+<section class="stage" aria-label="菜单外观示例"><div class="target" id="target" tabindex="0"><strong id="target-label"></strong><button type="button" class="trigger" id="trigger" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">⋯</button></div></section>
+<p class="status" id="status" role="status"></p>
+<p class="guide">方向键选择，Esc 关闭。<a href="./pinax-context-menus-20261015.md">查看设计说明</a></p>
+</main>
+<div class="menu" id="menu" role="menu" aria-label="示例操作菜单" hidden></div>
+<div class="menu" id="submenu" role="menu" aria-label="子菜单" hidden></div>
+<script>
+const newContent={label:'新建',children:['章节','构思','设定…',null,'文件夹']};
+const folderItems=[newContent,'导入文件…',null,'重命名','移动到…',{label:'移除文件夹…',danger:true}];
+const examples = {
+ folder:{label:'普通文件夹',target:'第一部资料',items:folderItems},
+ defaultFolder:{label:'默认分类文件夹',target:'正文',items:folderItems},
+ worldbook:{label:'世界书文件夹',target:'雾港世界书',items:['新建设定…','导入文件…',null,'更换世界书…']},
+ category:{label:'世界书内的分类',target:'人物',items:['新建人物…']},
+ root:{label:'目录空白处',target:'三体同人 · 根目录',items:[newContent,'导入文件…']},
+ assistant:{label:'助手更多',target:'助手',items:['新建对话','查找当前对话',null,'运行日志']},
+ writing:{label:'写作更多',target:'灯火与来信',items:['导出当前章节','导出整本书','导出章节分镜','导入书稿…',null,{label:'自动联想',checked:true},null,'创作指引']},
+ chapter:{label:'章节',target:'第一章 灯火与来信',items:['在双栏打开',null,'重命名…','移动到…','导出…',{label:'删除章节…',danger:true}]},
+ entry:{label:'设定条目',target:'林岚',items:['在旁边打开','复制名称',null,'移动到…',{label:'删除设定…',danger:true}]},
+ conversation:{label:'对话',target:'讨论开篇的节奏',items:['重命名…','归档',null,{label:'删除对话…',danger:true}]},
+ answer:{label:'回答',target:'这封来信可以成为下一段的转折。',items:['复制回答',null,'重新生成','调整后重答…','从这里另开对话']},
+ tab:{label:'内容标签',target:'灯火与来信',items:[{label:'关闭',key:'Ctrl W'},'关闭其他标签','关闭右侧标签',null,'在目录中显示']},
+ source:{label:'导入资料',target:'港口地理资料.pdf',items:['打开原文','在旁边打开',null,'移动到…',{label:'移出资料…',danger:true}]}
+};
+const selector=document.getElementById('example'),target=document.getElementById('target'),trigger=document.getElementById('trigger'),menu=document.getElementById('menu'),submenu=document.getElementById('submenu'),status=document.getElementById('status');
+let anchor=null,invoker=trigger,subTrigger=null;
+const compact=()=>matchMedia('(max-width:600px)').matches;
+for(const [id,example] of Object.entries(examples)){
+ const option=document.createElement('option');option.value=id;option.textContent=example.label;selector.appendChild(option);
+}
+function closeSub(restore=false){
+ submenu.hidden=true;menu.style.visibility='';subTrigger?.setAttribute('aria-expanded','false');
+ if(restore)subTrigger?.focus();subTrigger=null;
+}
+function close(restore=false){closeSub();menu.hidden=true;trigger.setAttribute('aria-expanded','false');if(restore)invoker.focus()}
+function fit(panel,x,y){
+ panel.style.maxHeight=(innerHeight-16)+'px';
+ const r=panel.getBoundingClientRect();
+ panel.style.left=Math.max(8,Math.min(x,innerWidth-r.width-8))+'px';
+ panel.style.top=Math.max(8,Math.min(y,innerHeight-r.height-8))+'px';
+}
+function place(){
+ if(menu.hidden)return;
+ const r=menu.getBoundingClientRect(),t=trigger.getBoundingClientRect();
+ fit(menu,anchor?.x ?? t.right-r.width,anchor?.y ?? t.bottom+4);
+}
+function open(point=null,focus=false,origin=trigger){
+ closeSub();anchor=point;invoker=origin;menu.hidden=false;
+ trigger.setAttribute('aria-expanded','true');place();if(focus)menu.querySelector('button')?.focus();
+}
+function openSub(item,button,focus=true){
+ closeSub();subTrigger=button;button.setAttribute('aria-expanded','true');
+ submenu.setAttribute('aria-label',item.label);submenu.replaceChildren();
+ if(compact()){
+  const back=document.createElement('button');back.type='button';back.className='item';back.setAttribute('role','menuitem');back.tabIndex=-1;
+  back.textContent='‹ 返回';back.style.display='block';back.onclick=()=>closeSub(true);submenu.appendChild(back);
+  const line=document.createElement('div');line.className='separator';line.setAttribute('role','separator');submenu.appendChild(line);
+ }
+ fill(submenu,item.children);submenu.hidden=false;
+ const p=menu.getBoundingClientRect(),r=button.getBoundingClientRect(),width=submenu.getBoundingClientRect().width;
+ if(compact()){fit(submenu,p.left,p.top);menu.style.visibility='hidden'}
+ else fit(submenu,p.right+width+8<=innerWidth?p.right-1:p.left-width+1,r.top-5);
+ if(focus)submenu.querySelector('button')?.focus();
+}
+function fill(panel,items){
+ for(const raw of items){
+  if(raw===null){const line=document.createElement('div');line.className='separator';line.setAttribute('role','separator');panel.appendChild(line);continue}
+  const item=typeof raw==='string'?{label:raw}:raw;
+  const button=document.createElement('button');button.type='button';button.className='item'+(item.danger?' danger':'');button.tabIndex=-1;
+  button.setAttribute('role',item.checked!==undefined?'menuitemcheckbox':'menuitem');
+  if(item.checked!==undefined)button.setAttribute('aria-checked',String(item.checked));
+  if(item.children){button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');button.setAttribute('aria-controls','submenu')}
+  const check=document.createElement('span');check.setAttribute('aria-hidden','true');check.textContent=item.checked?'✓':'';
+  const label=document.createElement('span');label.textContent=item.label;
+  const key=document.createElement('span');key.className='key';key.setAttribute('aria-hidden','true');key.textContent=item.children?'›':item.key||'';
+  button.append(check,label,key);
+  button.onclick=()=>{
+   if(item.children){openSub(item,button);return}
+   const subject=examples[selector.value].target;
+   close(true);status.textContent='设计示例：'+subject+' → '+item.label+'。未执行真实操作。';
+  };
+  button.onpointerenter=e=>{
+   if(panel!==menu||e.pointerType!=='mouse')return;
+   if(item.children&&!compact())openSub(item,button,false);else closeSub();
+  };
+  button.onkeydown=e=>{if(item.children&&e.key==='ArrowRight'){e.preventDefault();openSub(item,button)}};
+  panel.appendChild(button);
+ }
+}
+function render(){
+ close();status.textContent='';document.getElementById('target-label').textContent=examples[selector.value].target;
+ menu.replaceChildren();fill(menu,examples[selector.value].items);open();
+}
+selector.onchange=render;
+trigger.onclick=()=>menu.hidden?open(null,true):close();
+trigger.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();open(null,true);if(e.key==='ArrowUp')menu.querySelector('button:last-child')?.focus()}};
+target.oncontextmenu=e=>{e.preventDefault();open({x:e.clientX,y:e.clientY},true,target)};
+target.onkeydown=e=>{if(e.key==='F10'&&e.shiftKey){e.preventDefault();const r=target.getBoundingClientRect();open({x:r.left,y:r.bottom},true,target)}};
+document.querySelector('.stage').oncontextmenu=e=>{
+ if(target.contains(e.target))return;
+ e.preventDefault();selector.value='root';render();open({x:e.clientX,y:e.clientY},true,target);
+};
+for(const panel of [menu,submenu])panel.onkeydown=e=>{
+ const buttons=[...panel.querySelectorAll('button')];let index=buttons.indexOf(document.activeElement);
+ if(e.key==='Escape'||e.key==='ArrowLeft'&&panel===submenu){
+  e.preventDefault();e.stopPropagation();if(panel===submenu)closeSub(true);else close(true);
+ }else if(e.key==='Tab'){close(true)}
+ else if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){
+  e.preventDefault();if(panel===menu)closeSub();
+  index=e.key==='Home'?0:e.key==='End'?buttons.length-1:(index+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;buttons[index]?.focus();
+ }
+};
+document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target)&&!submenu.contains(e.target)&&!target.contains(e.target))close()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!menu.hidden)close(true)});
+menu.addEventListener('scroll',()=>closeSub(),{passive:true});
+window.addEventListener('resize',()=>close());window.addEventListener('scroll',()=>close(),{passive:true});
+document.getElementById('theme').onclick=e=>{
+ const dark=document.documentElement.dataset.theme!=='dark';document.documentElement.dataset.theme=dark?'dark':'light';
+ e.currentTarget.textContent=dark?'切换浅色':'切换深色';open();
+};render();
+</script>
+</body>
+</html>

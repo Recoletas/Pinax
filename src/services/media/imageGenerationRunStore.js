@@ -21,13 +21,29 @@ export function saveImageGenerationRun(input = {}) {
   write([record, ...list().map(normalize).filter(Boolean).filter((item) => item.runId !== record.runId)])
   return record
 }
-export function loadImageGenerationRun(scopeKey) {
+export function loadImageGenerationRun(scopeKey, options = {}) {
   const records = list().map(normalize).filter(Boolean)
   const record = records.find((item) => item.scopeKey === text(scopeKey)) || null
-  if (record?.status === 'running') {
+  if (record?.status === 'running' && record.runId !== text(options.activeRunId)) {
     record.status = 'interrupted'; record.updatedAt = Date.now()
     write([record, ...records.filter((item) => item.runId !== record.runId)])
   }
+  return record
+}
+export function updateImageGenerationRunItem(runId, input = {}) {
+  const records = list().map(normalize).filter(Boolean)
+  const record = records.find((item) => item.runId === text(runId))
+  if (!record || !input.id) return null
+  const item = record.items.find((candidate) => candidate.id === text(input.id))
+  if (!item) return null
+  item.state = text(input.state || item.state)
+  item.mediaAssetId = text(input.mediaAssetId || item.mediaAssetId)
+  if (record.items.length === record.itemCount && record.items.every((candidate) => candidate.state === 'saved')) {
+    removeImageGenerationRun(record.runId)
+    return { ...record, completed: true }
+  }
+  record.updatedAt = Date.now()
+  write([record, ...records.filter((candidate) => candidate.runId !== record.runId)])
   return record
 }
 export function removeImageGenerationRun(runId) {

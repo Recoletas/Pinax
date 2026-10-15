@@ -223,7 +223,13 @@ export function generateMap(
     style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
   }, effectiveConstraints)
-  applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
+  if (config.authoredPlacesOnly) {
+    const confirmedRiverNames = new Set([
+      ...(effectiveConstraints?.rivers || []).map(river => river.name),
+      ...(effectiveConstraints?.locations || []).flatMap(location => (location.relationRefs || []).filter(ref => ref.relation === 'river').map(ref => ref.name)),
+    ])
+    for (const river of rivers) if (!confirmedRiverNames.has(river.name)) river.name = ''
+  } else applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
   evaluateRiverConstraints(rivers, constraints ?? config.constraints, constraintReport)
   console.timeEnd('[MapEngine] Rivers')
   collector?.end('rivers')
@@ -255,7 +261,7 @@ export function generateMap(
   // 11. 文化
   console.time('[MapEngine] Cultures')
   collector?.start('cultures')
-  const cultureCount = Math.max(3, Math.floor(stateCount * 0.8))
+  const cultureCount = config.authoredPlacesOnly ? 0 : Math.max(3, Math.floor(stateCount * 0.8))
   const cultures = generateCultures(cells, cultureCount, rng)
   console.timeEnd('[MapEngine] Cultures')
   collector?.end('cultures')
@@ -263,7 +269,7 @@ export function generateMap(
   // 12. 城镇
   console.time('[MapEngine] Burgs')
   collector?.start('burgs')
-  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
+  const burgs = generateBurgs(cells, config.authoredPlacesOnly ? 0 : stateCount, config.authoredPlacesOnly ? 0 : burgDensity, width, height, rng, burgNames, cultures)
   applyLocationConstraints(cells, burgs, effectiveConstraints, constraintReport)
   console.timeEnd('[MapEngine] Burgs')
   collector?.end('burgs')
@@ -469,7 +475,13 @@ export async function generateMapAsync(
     style: config.realism?.rivers?.style ?? 'meandering',
     meanderAmplitude: config.realism?.rivers?.meanderAmplitude,
   }, effectiveConstraints)
-  applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
+  if (config.authoredPlacesOnly) {
+    const confirmedRiverNames = new Set([
+      ...(effectiveConstraints?.rivers || []).map(river => river.name),
+      ...(effectiveConstraints?.locations || []).flatMap(location => (location.relationRefs || []).filter(ref => ref.relation === 'river').map(ref => ref.name)),
+    ])
+    for (const river of rivers) if (!confirmedRiverNames.has(river.name)) river.name = ''
+  } else applyGeneratedRiverNames(rivers, riverNames, effectiveConstraints)
   evaluateRiverConstraints(rivers, constraints ?? config.constraints, constraintReport)
   collector?.end('rivers')
   collector?.start('hillshade')
@@ -496,7 +508,7 @@ export async function generateMapAsync(
   // 10. Cultures
   onProgress?.('文化', 56)
   collector?.start('cultures')
-  const cultureCount = Math.max(3, Math.floor(stateCount * 0.8))
+  const cultureCount = config.authoredPlacesOnly ? 0 : Math.max(3, Math.floor(stateCount * 0.8))
   const cultures = generateCultures(cells, cultureCount, rng)
   collector?.end('cultures')
   await yieldToMain()
@@ -504,7 +516,7 @@ export async function generateMapAsync(
   // 11. Burgs
   onProgress?.('城镇', 63)
   collector?.start('burgs')
-  const burgs = generateBurgs(cells, stateCount, burgDensity, width, height, rng, burgNames, cultures)
+  const burgs = generateBurgs(cells, config.authoredPlacesOnly ? 0 : stateCount, config.authoredPlacesOnly ? 0 : burgDensity, width, height, rng, burgNames, cultures)
   applyLocationConstraints(cells, burgs, effectiveConstraints, constraintReport)
   collector?.end('burgs')
   await yieldToMain()

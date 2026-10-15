@@ -5,7 +5,9 @@ import {
   normalizeStructuredDraftPayload
 } from '../../shared/structuredSettingContract.js'
 import { validateStructuredGenerationRequestEnvelope } from '../../shared/structuredGenerationContract.js'
-import { resolveTextApiKey } from '../../shared/textModelKeys.js'
+import { resolveModelRoundGuard } from '../../shared/modelLoopGuard.js'
+import { createKitStructuredCapabilityFetchImpl } from './kitModelGateway.js'
+import { MODEL_ROUTING_ERROR_MESSAGE, resolveModelRouting } from './modelRouting.js'
 import {
   createStructuredCapabilityCache,
   downgradeStructuredProviderCapability,
@@ -26,6 +28,7 @@ function text(value) {
 
 function chooseInitialMode(provider, capabilities) {
   const protocol = resolveStructuredProtocol(provider)
+  if (capabilities.textJson === true) return 'text-json'
   if (capabilities.nativeJsonSchema !== false) return 'native-json-schema'
   if (protocol === 'anthropic' || protocol === 'openai-responses') {
     if (capabilities.specificToolChoice !== false && capabilities.toolCalls !== false) return 'forced-tool'
@@ -80,7 +83,11 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
   let mode = firstMode
   let attemptCount = 0
   let lastError = null
-  for (let round = 0; round < 2 && mode; round += 1) {
+  // 2026-10-09 预算完全废弃：不再有「截断就抬预算」的修复分支，单请求的失控护栏只剩模型调用轮数闸。
+  const roundGuard = resolveModelRoundGuard(options.roundGuard, 'structured')
+  for (;;) {
+    if (!mode) break
+    roundGuard.acquire('structured')
     attemptCount += 1
     try {
       const result = await runStructuredProviderRequest(request, mode, {
@@ -92,9 +99,13 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
       if (!parsed.valid) {
         throw new StructuredProviderError(parsed.error.code, parsed.error.message)
       }
+      const resultMode = result.mode || mode
       recordStructuredProviderCapabilities(cache, request.provider, {
-        [mode === 'native-json-schema' ? 'nativeJsonSchema' : mode === 'forced-tool' ? 'toolCalls' : 'jsonObject']: true,
-        ...(mode === 'forced-tool' ? { specificToolChoice: true, strictToolSchema: true } : {}),
+        ...(resultMode === 'text-json'
+          ? { textJson: true, ...(mode === 'native-json-schema' ? { nativeJsonSchema: false } : {}),
+              ...(mode === 'forced-tool' ? { toolCalls: false, specificToolChoice: false, strictToolSchema: false } : {}) }
+          : { [resultMode === 'native-json-schema' ? 'nativeJsonSchema' : resultMode === 'forced-tool' ? 'toolCalls' : 'jsonObject']: true }),
+        ...(resultMode === 'forced-tool' ? { specificToolChoice: true, strictToolSchema: true } : {}),
         protocol: result.protocol,
         reasoningControl: result.reasoningTokens > 0 ? 'split' : 'none',
         source: 'runtime-success'
@@ -103,7 +114,7 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
         schemaVersion: validation.request.schemaVersion,
         requestId: request.requestId,
         schemaId: request.schemaId,
-        mode,
+        mode: resultMode,
         drafts: parsed.drafts,
         fieldErrors: parsed.fieldErrors || {},
         meta: {
@@ -123,20 +134,17 @@ export async function runStructuredGeneration(rawRequest, options = {}) {
     } catch (error) {
       lastError = error
       if (error?.code === STRUCTURED_GENERATION_ERROR_CODES.ABORTED || error?.code === STRUCTURED_GENERATION_ERROR_CODES.TIMEOUT) throw error
-      if (
-        error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE
-        && round === 0
-        && request.options.maxTokens < 6000
-      ) {
-        request = {
-          ...request,
-          options: {
-            ...request.options,
-            maxTokens: Math.min(6000, Math.max(request.options.maxTokens + 800, Math.ceil(request.options.maxTokens * 1.5)))
-          }
-        }
+      // Some compatible endpoints accept output_config but ignore its schema.
+      // A complete malformed response needs another supported protocol, not a
+      // larger token budget for the same ineffective request.
+      if (mode === 'native-json-schema' && attemptCount === 1
+        && error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INVALID) {
+        downgradeStructuredProviderCapability(cache, request.provider, 'nativeJsonSchema')
+        mode = chooseFallbackMode(request.provider, mode)
         continue
       }
+      // 截断不再靠抬预算修复（预算裁定）：同一请求只补跑一轮，失控由轮数闸兜底。
+      if (error?.code === STRUCTURED_GENERATION_ERROR_CODES.RESPONSE_INCOMPLETE && attemptCount === 1) continue
       const capability = mode === 'native-json-schema'
         ? 'nativeJsonSchema'
         : mode === 'forced-tool'
@@ -180,6 +188,8 @@ export async function probeStructuredProviderCapabilities(provider, options = {}
       userBrief: '仅用于验证结构化输出协议，测试内容不会保存到世界书。'
     },
     options: {
+      // 设置面连接探测：Anthropic / Responses 协议把预算字段列为必填，探测必须带一个值；
+      // 这不是内容生成预算（生成链已完全废弃写死预算），只影响用户主动点「测试连接」这一次调用。
       maxTokens: 180,
       temperature: 0,
       timeoutMs: Math.min(Number(options.timeoutMs || 30000), 30000)
@@ -221,29 +231,26 @@ export function createStructuredGenerationHandler({ runner = runStructuredGenera
     req.once?.('aborted', abortRequest)
     res.once?.('close', abortClosedResponse)
     try {
-      // 内置 MiniMax 客户端发来哨兵 key → 替换为服务器 env key (或给出明确报错)
+      // 统一模型路由（2026-10-08 直连退役）：内容生成一律走内核（pi-agent 任务面持有模型与密钥），
+      // 无可用内核时返回 none；请求体里的 provider key 不再决定通路。
       const body = req.body || {}
-      if (body?.provider) {
-        body.provider.apiKey = resolveTextApiKey({
-          provider: body.provider.id,
-          baseUrl: body.provider.baseUrl,
-          apiKey: body.provider.apiKey
-        })
-        if (!body.provider.apiKey) {
-          const isMiniMaxUnconfigured =
-            /minimax/i.test(body.provider.id || '') || /minimaxi?\.com/i.test(body.provider.baseUrl || '')
-          if (isMiniMaxUnconfigured) {
-            return res.status(400).json(errorPayload(
-              new StructuredProviderError(
-                STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID,
-                '服务器未配置 MINIMAX_API_KEY，内置 MiniMax 暂不可用。请在服务器 .env 中填写后重启。'
-              ),
-              body.requestId
-            ))
-          }
-        }
+      const routing = await resolveModelRouting()
+      if (routing.mode === 'none') {
+        return res.status(400).json(errorPayload(
+          new StructuredProviderError(STRUCTURED_GENERATION_ERROR_CODES.REQUEST_INVALID, MODEL_ROUTING_ERROR_MESSAGE),
+          body.requestId
+        ))
       }
-      const result = await runner(body, { signal: controller.signal })
+      if (body.provider) {
+        // 任务面自行持有模型与密钥；占位值仅用于通过请求合同的非空校验。
+        body.provider = { ...body.provider, apiKey: 'kernel-managed' }
+      }
+      const result = await runner(body, {
+        signal: controller.signal,
+        // W1-1 试点：单发结构化生成的循环归 kit——capability 任务（含强制提交与文本 JSON 兜底），
+        // 任务面不可达/任务失败时在同一请求内回落漏斗直连（双层 fail-open）。
+        fetchImpl: createKitStructuredCapabilityFetchImpl()
+      })
       if (controller.signal.aborted && (res.destroyed || res.writableEnded)) return undefined
       return res.json(result)
     } catch (error) {

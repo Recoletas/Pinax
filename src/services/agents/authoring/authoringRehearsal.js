@@ -64,7 +64,9 @@ export async function requestRehearsalStep({ run, steps, action, signal, setting
   })
   const parsed = parseRehearsalResponse(executed.output, refs, planned.verification)
   if (repeatsCommittedPassage(parsed.response, steps)) {
-    throw new Error('新回应复述了已有试演片段，未接入当前走法；请重试这一步。')
+    throw Object.assign(new Error('这次结果重复了前面的内容，已保留供查看；请重试这一步。'), {
+      code: 'AUTHORING_REHEARSAL_REPEATED_RESPONSE', retainedResponse: parsed.response
+    })
   }
   return {
     ...parsed,

@@ -35,6 +35,8 @@ const PHASE_LABELS = {
   'tools-complete': '资料已就绪',
   'requesting-step': '请求当前一步',
   finalizing: '整理最终正文',
+  'checking-task': '核对本次要求',
+  'revising-task': '修订越界内容',
   'retrying-step': '重新请求当前一步',
   'repairing-step': '修复资料调用',
   'resource-refreshed': '资料已更新，继续核对',

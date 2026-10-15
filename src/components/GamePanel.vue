@@ -7,37 +7,18 @@
       class="chat-container__hero"
       aria-label="档案空白引导"
     >
-      <!-- UI-E12-FIX2: folio corner simplified to case ID only.
-           QA2 flagged the previous "1 / 1" hardcoded page index as
-           misleading in 0-state (no real message at page 1). The page
-           index was never wired to currentSection / totalCount, so the
-           template showed a literal that didn't match the comment.
-           The cleanest fix is to drop the page part entirely and keep
-           only the case ID stamp (the visually informative part).
-           The case ID is derived from session / world ID, not from the
-           message count, so it's always honest. -->
-      <span class="chat-container__hero-folio" aria-hidden="true">
-        <span class="chat-container__hero-folio-case">{{ caseNoShort }}</span>
-      </span>
       <div class="chat-container__hero-prompt">
-        <p class="chat-container__hero-kicker">现场记录入口</p>
         <p class="chat-container__hero-greeting">从第一步行动开始</p>
-        <p class="chat-container__hero-hint">输入你的下一步，或先用本地演示推进一条记录。右侧索引会提示新线索。</p>
+        <p class="chat-container__hero-hint">在下方写下行动或续写方向，现场索引会整理人物、地点与线索。</p>
         <div class="chat-container__hero-actions" aria-label="记录起步操作">
           <button class="chat-container__hero-slip is-primary" type="button" @click="$emit('quick-action', 'continue')">
-            <span>行动</span>
-            <strong>续写第一步</strong>
-            <small>把当前意图写入记录流</small>
+            续写第一步
           </button>
           <button class="chat-container__hero-slip is-secondary" type="button" @click="$emit('quick-action', 'note')">
-            <span>速记</span>
-            <strong>摘一条线索</strong>
-            <small>把对话片段转为素材</small>
+            摘一条线索
           </button>
           <button class="chat-container__hero-slip is-secondary" type="button" @click="$emit('quick-action', 'scene')">
-            <span>场景</span>
-            <strong>切到下一处</strong>
-            <small>用本地演示检查流转</small>
+            切到下一处
           </button>
         </div>
       </div>
@@ -161,11 +142,6 @@ function collectWriting(message) {
 // gameStore.worldId / currentSessionId, fallback to "pending-record")
 // shown in the top-right stamp of the 0-state hero block. Pure
 // computed, no store mutation.
-const caseNoShort = computed(() => {
-  const id = gameStore.currentSessionId || gameStore.worldId || 'pending-record'
-  return id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase() || 'PENDNG'
-})
-
 // === UI-E10 scene-entry structure =====================================
 // Replaces UI-E9 book spread: each message becomes one <article
 // class="scene-entry"> in a single continuous column. The per-entry

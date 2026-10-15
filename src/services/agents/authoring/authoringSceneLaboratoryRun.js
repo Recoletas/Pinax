@@ -109,7 +109,7 @@ export function createAuthoringSceneLaboratoryRun({ prepareSession, planDirectio
     })
   }
 
-  async function prepare({ taskId = 'authoring.advance', request = {}, signal = null, onPhase = null } = {}) {
+  async function prepare({ taskId = 'authoring.advance', request = {}, signal = null, onPhase = null, planDirections = true } = {}) {
     if (typeof prepareSession !== 'function') return failure('scene-session-preparer-unavailable')
     if (typeof onPhase === 'function') onPhase('preparing-context')
     let prepared
@@ -122,23 +122,24 @@ export function createAuthoringSceneLaboratoryRun({ prepareSession, planDirectio
       return failure('scene-session-prepare-failed', { cause: text(prepared?.reason) })
     }
     const session = prepared.session
+    if (signal?.aborted) return failure('scene-session-cancelled')
     if (!Object.isFrozen(session)) return failure('scene-session-not-frozen')
     const pressure = buildAuthoringScenePressureProjection(session)
     if (!pressure.ok) return pressure
     const pressureProjection = pressure.projection
-    if (pressureProjection.availability !== 'ready') {
+    if (pressureProjection.availability !== 'ready' || !planDirections) {
       return deepFreeze({
         ok: true,
         run: {
           kind: 'authoring-scene-laboratory-run',
           version: 1,
-          phase: pressureProjection.availability === 'conflict' ? 'failed' : 'insufficient',
+          phase: pressureProjection.availability === 'conflict' ? 'failed' : pressureProjection.availability === 'ready' ? 'ready' : 'insufficient',
           target: session.target,
           runSession: session,
           pressureProjection,
           directionSet: null,
           selectedDirectionId: '',
-          failure: pressureProjection.availability === 'conflict'
+          failure: pressureProjection.availability === 'ready' ? null : pressureProjection.availability === 'conflict'
             ? { reason: 'scene-pressure-conflict' }
             : { reason: 'insufficient-evidence' }
         }

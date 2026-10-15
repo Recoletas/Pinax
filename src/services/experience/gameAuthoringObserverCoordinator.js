@@ -312,4 +312,3 @@ resetAuthoringObserverRuntime() {
   authoringObserverHub.clearBuffers()
 },
 }
-

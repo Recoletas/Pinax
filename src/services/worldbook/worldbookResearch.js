@@ -85,7 +85,6 @@ export async function planWorldbookResearchQueries({ brief, genreLabel, nameHint
     settings: apiSettings,
     signal,
     generationOptions: {
-      max_tokens: 500,
       temperature: 0.15,
       max_input_chars: 5000,
       timeout_ms: 30000,

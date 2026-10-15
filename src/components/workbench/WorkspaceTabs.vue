@@ -3,14 +3,18 @@ import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from './workbenchTooltip.js'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
-import { activateWorkspaceTab, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
-import { SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
+import { activateWorkspaceTab, closeWorkspaceProject, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
+import { groupWorkspaceProjectTabs, SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
+import { WORKSPACE_VIEW_TYPES } from '../../services/workspace/workspaceViewContract.js'
+import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 // 顶部工作台标签：浏览器式连续标签带。活动标签与内容面连通；
 // dirty 用信号点；窄屏通过横向滚动访问全部标签。
 const router = useRouter()
 const route = useRoute()
+const contentWorkspace = useComposableWorkspace()
 const workspaceTabs = useWorkspaceTabsStore()
 
 const scrollRef = ref(null)
@@ -35,8 +39,18 @@ const SURFACE_ICONS = {
 
 const HOME_TAB_ID = 'pinax-home'
 const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
-const tabs = computed(() => [homeTab, ...workspaceTabs.tabs])
-const activeTabId = computed(() => route.name === 'welcome' ? HOME_TAB_ID : workspaceTabs.activeTabId)
+const tabs = computed(() => {
+  const grouped = groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)
+  const mainViews = contentWorkspace?.state.views.filter(view => view.group === 'main' && view.resource.type !== 'home') || []
+  const globalViews = mainViews.filter(view => !view.resource.bookId).map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: WORKSPACE_VIEW_TYPES[view.resource.type]?.title, icon: WORKSPACE_VIEW_TYPES[view.resource.type]?.icon }))
+  return [homeTab, ...grouped.flatMap(tab => tab.projectGrouped && tab.projectId === route.query.bookId && mainViews.length
+    ? mainViews.map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: contentWorkspace.viewTitles[view.id] || view.title || WORKSPACE_VIEW_TYPES[view.resource.type]?.title || '内容', icon: contentWorkspace.viewIcons[view.id] || WORKSPACE_VIEW_TYPES[view.resource.type]?.icon, projectId: tab.projectId, scope: 'project' })) : [tab]), ...globalViews]
+})
+const activeTabId = computed(() => {
+  if (route.name === 'welcome' && !contentWorkspace?.state.mainModuleId || !contentWorkspace?.state.hidden && contentWorkspace?.state.views.find(view => view.id === contentWorkspace.state.mainModuleId)?.resource.type === 'home') return HOME_TAB_ID
+  const id = !contentWorkspace?.state.hidden && contentWorkspace?.state.mainModuleId || contentWorkspace?.primaryChapter.value?.id
+  return tabs.value.some(tab => tab.id === `content:${id}`) ? `content:${id}` : workspaceTabs.activeTabId
+})
 async function revealActiveTab() {
   await nextTick()
   const selected = scrollRef.value?.querySelector('[aria-current="true"]')
@@ -63,36 +77,70 @@ function projectInkStyle(tab) {
 
 // 760-1179 的缩短标题：项目子 surface 只显示 surface 名，写作标签显示书名。
 function shortTitle(tab) {
+  if (tab.view) return tab.title
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
+  if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
   return tab.scope === 'project' && tab.surface === 'authoring' ? tab.title : tr(SURFACE_LABELS[tab.surface] || tab.title)
 }
 
 function displayTitle(tab) {
+  if (tab.view) return tab.title
   if (tab.pinned || tab.id === HOME_TAB_ID) return tr('首页')
   if (tab.scope !== 'project') return tab.instanceId ? `${shortTitle(tab)} · ${tab.instanceId}` : shortTitle(tab)
+  if (tab.projectGrouped) return workspaceTabs.bookIndex?.[tab.projectId]?.title || tab.title
   if (tab.surface === 'authoring') return tab.title
-  const label = SURFACE_LABELS[tab.surface]
+  const label = tab.surface === 'sources' && tab.route?.query?.mode === 'sources' && tab.route?.query?.action === 'add'
+    ? '资料导入' : SURFACE_LABELS[tab.surface]
   // Book titles are author data, including any “ · ” they contain.
-  const suffix = label ? ` · ${label}` : ''
+  const suffix = SURFACE_LABELS[tab.surface] ? ` · ${SURFACE_LABELS[tab.surface]}` : ''
   const project = workspaceTabs.bookIndex?.[tab.projectId]?.title || (suffix && tab.title.endsWith(suffix) ? tab.title.slice(0, -suffix.length) : tab.title)
   return label ? `${tr(label)} · ${project}` : tab.title
 }
 
-function activateTab(tabId) {
-  if (tabId === HOME_TAB_ID) { void router.push({ name: 'welcome' }); return }
+async function activateTab(tabId) {
+  const content = tabs.value.find(tab => tab.id === tabId)?.view
+  if (content) {
+    if (!await contentWorkspace.prepareOpen('main')) return
+    await contentWorkspace.activate(content.id); return
+  }
+  if (tabId === HOME_TAB_ID) {
+    if (contentWorkspace?.scope.value.bookId) await contentWorkspace.openHome()
+    else if (await contentWorkspace?.prepareOpen('main')) { contentWorkspace.hide(); void router.push({ name: 'welcome' }) }
+    return
+  }
+  const tab = workspaceTabs.tabs.find(tab => tab.id === tabId)
+  if (!tabs.value.find(item => item.id === tabId)?.projectGrouped && tab?.surface === 'sources' && tab.projectId === route.query.bookId && route.name !== 'settings-sources' && contentWorkspace) {
+    if (contentWorkspace.openResource({ type: tab.route?.query?.sourceId ? 'source' : 'sources', bookId: tab.projectId,
+      worldbookId: tab.worldbookId || '', id: String(tab.route?.query?.sourceId || '') })) return
+  }
   void activateWorkspaceTab(workspaceTabs, router, tabId)
 }
 
-function closeTab(tabId) {
+async function closeTab(tabId) {
+  const content = tabs.value.find(tab => tab.id === tabId)?.view
+  if (content) {
+    const current = activeTabId.value === tabId
+    if (await contentWorkspace.close(content.id)) {
+      delete contentWorkspace.viewTitles[content.id]; delete contentWorkspace.viewIcons[content.id]
+      if (current && !contentWorkspace.state.mainModuleId) {
+        const next = contentWorkspace.state.views.find(view => view.group === 'main')
+        if (next) await contentWorkspace.activate(next.id)
+      }
+      focusActiveTab()
+    }
+    return
+  }
   if (tabId === HOME_TAB_ID) return
-  void closeWorkspaceTab(workspaceTabs, router, tabId).then(() => {
+  const tab = tabs.value.find(item => item.id === tabId)
+  const operation = tab?.projectGrouped ? closeWorkspaceProject(workspaceTabs, router, tab.projectId) : closeWorkspaceTab(workspaceTabs, router, tabId)
+  void operation.then(() => {
     focusActiveTab()
   })
 }
 
 function focusActiveTab() {
   nextTick(() => {
-    const el = scrollRef.value?.querySelector(`[data-tab-id="${activeTabId.value}"]`)
+    const el = [...(scrollRef.value?.querySelectorAll('[data-tab-id]') || [])].find(element => element.dataset.tabId === activeTabId.value)
     if (el) el.focus({ preventScroll: false })
   })
 }
@@ -196,13 +244,15 @@ onBeforeUnmount(() => {
           :data-tab-id="tab.id"
           :data-tab-key="tab.key"
           :aria-current="tab.id === activeTabId ? 'true' : undefined"
-          :title="displayTitle(tab)"
+          :title="tab.surface === 'home' ? undefined : displayTitle(tab)"
+          v-workbench-tooltip="tab.surface === 'home' ? displayTitle(tab) : ''"
+          :aria-label="displayTitle(tab)"
           @click="activateTab(tab.id)"
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
           <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
-          <WorkbenchIcon v-else class="ws-tab__icon" :name="surfaceIcon(tab.surface)" :size="14" />
-          <span class="ws-tab__label">
+          <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.icon || (tab.projectGrouped ? 'book' : surfaceIcon(tab.surface))" :size="14" />
+          <span v-if="tab.surface !== 'home'" class="ws-tab__label">
             <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
             <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
           </span>
@@ -227,30 +277,32 @@ onBeforeUnmount(() => {
 <style scoped>
 .ws-tabs {
   display: flex;
-  align-items: flex-end;
-  min-height: 38px;
+  align-items: center;
+  min-height: 48px;
+  box-sizing: border-box;
   flex: 0 0 auto;
-  padding: 4px 6px 0;
-  gap: 0;
-  background: var(--surface-workbench-muted);
-  box-shadow: inset 0 -1px var(--hairline-soft);
+  padding: 6px 12px;
+  gap: 6px;
+  background: var(--workbench-chrome);
+  border-bottom: 1px solid transparent;
   position: relative;
   z-index: var(--z-workbench-chrome, 90);
 }
 
 .ws-tabs__scroll {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   align-self: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   min-width: 0;
   flex: 1 1 auto;
+  gap: 4px;
 }
 .ws-tabs__scroll::-webkit-scrollbar { display: none; }
 .ws-tabs__scroll:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--workbench-focus);
   outline-offset: -3px;
 }
 
@@ -266,63 +318,51 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 30px 0 12px;
-  height: 34px;
+  padding: 0 38px 0 12px;
+  height: 36px;
   width: 176px;
   flex: 1 1 auto;
   min-width: 88px;
   max-width: 204px;
-  border: 0;
-  border-radius: 8px 8px 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--archive-ink-soft);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1;
   font-family: var(--font-sans, inherit);
   cursor: pointer;
   position: relative;
   white-space: nowrap;
   isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
 .ws-tab:hover {
   color: var(--archive-ink);
-  background: color-mix(in srgb, var(--archive-paper-soft) 54%, transparent);
+  background: color-mix(in srgb, var(--archive-ink) 5%, transparent);
+}
+.ws-tab:active {
+  background: var(--workbench-selected-hover);
 }
 
 .ws-tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--workbench-focus);
   outline-offset: -3px;
 }
 
 .ws-tab.is-active {
   color: var(--archive-ink);
   font-weight: 500;
-  background: var(--archive-paper-soft);
-  box-shadow: inset 0 1px color-mix(in srgb, var(--archive-ink) 7%, transparent);
+  background: var(--surface-workbench);
+  border-color: transparent;
+  box-shadow: none;
   z-index: 1;
 }
-
-.ws-tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--archive-paper-soft);
-}
-
-.ws-tab-slot:not(:last-child) .ws-tab:not(.is-active)::before {
-  content: '';
-  position: absolute;
-  right: 0;
-  width: 1px;
-  height: 16px;
-  background: var(--hairline-soft);
-}
-.ws-tab:not(.is-active):hover::before { opacity: 0; }
+.ws-tab.is-active > .ws-tab__icon { color: var(--text-secondary); }
+.ws-tab.is-active:active { background: var(--workbench-selected-hover); }
+.ws-tab.is-active:not([data-tab-key="home"]) { width: 204px; }
 
 .ws-tab__project-bar { display: none; }
 
@@ -362,16 +402,17 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
   border: none;
   padding: 0;
   background: transparent;
   color: var(--archive-ink-soft);
-  border-radius: 5px;
+  border-radius: 10px;
   cursor: pointer;
   opacity: 0;
+  -webkit-tap-highlight-color: transparent;
   transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
 }
 .ws-tab-slot:is(:hover, :focus-within) .ws-tab__close,
@@ -381,29 +422,38 @@ onBeforeUnmount(() => {
   color: var(--archive-ink);
   background: color-mix(in srgb, var(--archive-ink) 9%, transparent);
 }
+.ws-tab__close:active { background: var(--workbench-selected-hover); }
 
 .ws-tab__close:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--archive-olive, #1f4d7a) 70%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--workbench-focus);
+  outline-offset: -2px;
 }
 
-.ws-tab[data-tab-key="home"] { width: 82px; min-width: 82px; }
-.ws-tab:lang(en)[data-tab-key="home"] { width: 100px; min-width: 100px; flex-basis: 100px; }
+.ws-tab[data-tab-key="home"] { width: 36px; min-width: 36px; justify-content: center; padding: 0; }
+
 .ws-tab.is-pinned { padding-right: 8px; }
 
 @media (max-width: 1179px) {
   .ws-tab { width: 158px; max-width: 176px; }
+  .ws-tab.is-active:not([data-tab-key="home"]) { width: 176px; }
   .ws-tab__label-full { display: none; }
   .ws-tab__label-short { display: inline; }
 }
 
 @media (max-width: 759px) {
-  .ws-tabs { min-height: 42px; padding-inline: 4px; }
-  .ws-tab { height: 38px; width: 166px; max-width: 190px; font-size: 14px; }
-  .ws-tab[data-tab-key="home"] { flex-basis: 82px; min-width: 82px; }
+  .ws-tabs { min-height: 52px; padding: 4px; }
+  .ws-tab { height: 44px; width: 166px; max-width: 190px; font-size: 14px; padding-right: 48px; }
+  .ws-tab.is-active:not([data-tab-key="home"]) { width: 190px; }
+  .ws-tab[data-tab-key="home"] { width: 44px; flex-basis: 44px; min-width: 44px; padding: 0; }
   .ws-tab__label-full { display: inline; }
   .ws-tab__label-short { display: none; }
-  .ws-tab__close { opacity: 1; }
+  .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
+}
+
+@media (pointer: coarse) {
+  .ws-tab { min-height: 44px; padding-right: 48px; }
+  .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
+  .ws-tab.is-pinned { padding-right: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

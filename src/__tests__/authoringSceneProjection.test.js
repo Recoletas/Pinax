@@ -510,6 +510,11 @@ const projection = buildAuthoringSceneProjection(v2Input({
         }
       })
       const laboratory = createAuthoringSceneLaboratoryRun({ prepareSession: async () => ({ ok: true, session }), planDirections: planner })
+      const direct = await laboratory.prepare({ planDirections: false, request: { intent: { instruction: '继续推演' } } })
+      expect(direct.ok).toBe(true)
+      expect(direct.run.directionSet).toBeNull()
+      expect(direct.run.runSession).toBe(session)
+      expect(planner).not.toHaveBeenCalled()
       const prepared = await laboratory.prepare({ request: { intent: { instruction: '推演本场' } } })
       expect(prepared.ok).toBe(true)
       expect(prepared.run.phase).toBe('ready')

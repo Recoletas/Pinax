@@ -1,0 +1,83 @@
+// Optional local runtime. Since the P2 unification (2026-10-06) the pi-agent task plane
+// lives in storyflow-kit (storyharness/src/pinax, canonical). This helper probes the
+// loopback plane and, when the kit repo is available locally, spawns it with the
+// Pinax-side config. Public browsers reach it only through the guarded /api/storyagent proxy.
+import { spawn } from 'node:child_process'
+import { preserveStoryAgentJournals } from './storyAgentJournals.js'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { KIT_TASK_PLANE_ENDPOINT } from '../../shared/kitTaskPlane.js'
+
+const HEALTH_TIMEOUT_MS = 2000
+const SPAWN_WAIT_MS = 20000
+
+function probeHealthz(endpoint, timeoutMs = HEALTH_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(new URL('/healthz', endpoint), { signal: controller.signal })
+    .then((response) => response.ok)
+    .catch(() => false)
+    .finally(() => clearTimeout(timer))
+}
+
+export async function startStoryAgentRuntime(env = process.env) {
+  if (env.PINAX_STORYAGENT_ENABLED === '0') return null
+  const endpoint = env.PINAX_ADAPTER_ENDPOINT || KIT_TASK_PLANE_ENDPOINT
+  const configPath = env.PINAX_ADAPTER_CONFIG
+    || path.resolve(process.cwd(), 'adapters', 'pinax-adapter', '.external', 'pinax-adapter.json')
+  const nextPackage = path.resolve(process.cwd(), '.runtime', 'storyagent-next')
+  let nextReady = false
+  try { nextReady = JSON.parse(readFileSync(path.join(nextPackage, 'runtime-source.json'), 'utf8')).assistantProtocolVersion === 2 } catch { /* no candidate */ }
+  const packageRoot = env.PINAX_RUNTIME_DIR || (nextReady ? nextPackage : path.resolve(process.cwd(), '.runtime', 'storyagent'))
+  const packagedEntry = path.resolve(packageRoot, 'dist', 'pinax', 'serve.js')
+  const tasksDir = env.PINAX_ADAPTER_TASKS_DIR || path.resolve(process.cwd(), '.runtime', 'data', 'storyagent-tasks')
+  const serveTs = env.PINAX_KIT_SERVE_TS
+    || path.resolve(process.cwd(), '..', 'storyflow-kit', 'storyharness', 'src', 'pinax', 'serve.ts')
+  const endpointUrl = new URL(endpoint)
+  if (!['127.0.0.1', 'localhost', '[::1]'].includes(endpointUrl.hostname)) throw new Error('storyagent-runtime-must-use-loopback')
+  // 镜像 kit src/pinax/config.ts 的启动前提（2026-10-08 去内置档后）：
+  // 有显式 env key（MINIFLOW_AGENT_KEY / ZAI_API_KEY）或配置文件即可；kit 侧新增 key 源时这里需同步。
+  const useServerMiniMax = Boolean(env.MINIMAX_API_KEY && !env.MINIFLOW_AGENT_KEY && !env.ZAI_API_KEY && !existsSync(configPath))
+  if (!env.MINIFLOW_AGENT_KEY && !env.ZAI_API_KEY && !useServerMiniMax && !existsSync(configPath)) return null
+  const runtimeEnv = useServerMiniMax ? { ...env, MINIFLOW_AGENT_KEY: env.MINIMAX_API_KEY, PINAX_ADAPTER_PROVIDER: 'minimax', PINAX_ADAPTER_MODEL: env.PINAX_ADAPTER_MODEL || 'MiniMax-M2.7', PINAX_ADAPTER_API: 'anthropic-messages', PINAX_ADAPTER_BASE_URL: 'https://api.minimaxi.com/anthropic' } : env
+
+  if (await probeHealthz(endpoint)) return { spawned: null, close() {}, closeAllConnections() {} }
+
+  if (!env.PINAX_ADAPTER_TASKS_DIR) preserveStoryAgentJournals(path.resolve(process.cwd(), '.runtime', 'storyagent', 'tasks'), tasksDir)
+
+  if (!existsSync(packagedEntry) && !existsSync(serveTs)) {
+    console.warn(`[storyagent] Kit task plane not running and serve entry not found (${serveTs}); text requests require a healthy Agent runtime.`)
+    return null
+  }
+  const tsxCli = path.join(path.dirname(serveTs), '..', '..', 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  if (!existsSync(packagedEntry) && !existsSync(tsxCli)) {
+    console.warn('[storyagent] kit/storyharness tsx not found; start `npm run serve:pinax` in storyflow-kit manually.')
+    return null
+  }
+  const child = spawn(process.execPath, existsSync(packagedEntry) ? [packagedEntry] : [tsxCli, serveTs], {
+    cwd: existsSync(packagedEntry) ? path.dirname(packagedEntry) : path.dirname(serveTs),
+    env: { ...runtimeEnv, PINAX_ADAPTER_CONFIG: configPath, PINAX_ADAPTER_HOST: '127.0.0.1', PINAX_ADAPTER_TASKS_DIR: tasksDir },
+    stdio: 'ignore',
+  })
+  child.on('error', (error) => console.warn(`[storyagent] Kit task plane spawn failed: ${error.message}`))
+  child.on('exit', (code) => console.warn(`[storyagent] Kit task plane exited (code=${code}).`))
+  const up = await (async () => {
+    for (let waited = 0; waited < SPAWN_WAIT_MS; waited += 500) {
+      if (child.exitCode !== null) return false
+      if (await probeHealthz(endpoint, 800)) return true
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    return false
+  })()
+  if (!up) {
+    console.warn('[storyagent] Kit task plane did not become healthy in time; text requests require a healthy Agent runtime.')
+    try { child.kill() } catch { /* already gone */ }
+    return null
+  }
+  console.warn(`[storyagent] Kit task plane spawned at ${endpoint} (config: ${configPath}).`)
+  return {
+    spawned: child,
+    close() { try { child.kill() } catch { /* already gone */ } },
+    closeAllConnections() {},
+  }
+}

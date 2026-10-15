@@ -76,8 +76,11 @@ export async function saveMediaAsset(input = {}, options = {}) {
   throwIfAborted(options.signal)
   const blob = await normalizeBinary(options.binary)
   throwIfAborted(options.signal)
+  const decodedSize = await readImageBinaryDimensions(blob, input.mimeType)
+  throwIfAborted(options.signal)
   const asset = createMediaAsset({
     ...input,
+    ...decodedSize,
     mimeType: input.mimeType || blob.type
   })
   const current = readMetadata(storage)
@@ -150,12 +153,15 @@ export async function deleteMediaAsset(assetId, options = {}) {
   const current = readMetadata(storage)
   const asset = current.find((item) => item.id === assetId) || null
   if (!asset) return null
+  assertMediaAssetUnused(asset.id, storage)
   const binaryStore = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
   const previousBlob = await binaryStore.get(asset.id)
+  assertMediaAssetUnused(asset.id, storage)
   let binaryDeleted = false
   try {
     await binaryStore.delete(asset.id)
     binaryDeleted = true
+    assertMediaAssetUnused(asset.id, storage)
     const latest = readMetadata(storage)
     writeMetadata(storage, latest.filter((item) => item.id !== asset.id))
     return asset
@@ -231,10 +237,10 @@ async function addGeneratedImageToLibraryUnlocked(libraryKey, entry = {}, option
   try {
     throwIfAborted(options.signal)
     const latest = readImageLibrary(storage, libraryKey)
-    writeImageLibrary(storage, libraryKey, [
+    writeImageLibrary(storage, libraryKey, retainImageLibraryEntries([
       libraryEntry,
       ...latest.filter((item) => item.id !== libraryEntry.id && item.mediaAssetId !== asset.id)
-    ].slice(0, options.limit || 20))
+    ], readMetadata(storage), options.limit || 20))
     throwIfAborted(options.signal)
     return hydrateGeneratedImageEntry(libraryEntry, asset, entry.data)
   } catch (error) {
@@ -271,6 +277,8 @@ async function removeGeneratedImageFromLibraryUnlocked(libraryKey, entryOrId, op
     (requestedId && normalizeText(entry.id) === requestedId)
     || (requestedMediaId && normalizeText(entry.mediaAssetId) === requestedMediaId)
   )) || null
+  const mediaId = normalizeText(matched?.mediaAssetId || requestedMediaId)
+  if (mediaId) assertMediaAssetUnused(mediaId, storage)
   if (!matched) {
     if (requestedMediaId) {
       await deleteMediaAsset(requestedMediaId, {
@@ -313,7 +321,10 @@ export function loadGeneratedImageLibrary(libraryKey, options = {}) {
 async function loadGeneratedImageLibraryUnlocked(libraryKey, options = {}) {
   const storage = resolveStorage(options.storage)
   const binaryStore = resolveBinaryStore(options.binaryStore, options.indexedDBImpl)
-  const current = readImageLibrary(storage, libraryKey).slice(0, options.limit || 20)
+  const metadata = new Map(readMetadata(storage).map((asset) => [asset.id, asset]))
+  const current = readImageLibrary(storage, libraryKey)
+    .filter((entry) => matchesMediaFilters(imageLibraryAsset(entry, metadata), options))
+    .slice(0, options.limit || 20)
   const refs = []
   const hydrated = []
 
@@ -332,10 +343,10 @@ async function loadGeneratedImageLibraryUnlocked(libraryKey, options = {}) {
 
       const asset = await saveMediaAsset({
         id: `media_${normalizeText(entry.id) || createMediaAssetId()}`,
-        projectId: entry.projectId ?? options.projectId,
+        projectId: entry.projectId ?? null,
         kind: 'image',
-        purpose: entry.mediaPurpose || entry.purpose || options.purpose || 'illustration',
-        sourceRefs: entry.sourceRefs ?? options.sourceRefs,
+        purpose: entry.mediaPurpose || entry.purpose || 'illustration',
+        sourceRefs: entry.sourceRefs || [],
         parentAssetId: entry.parentAssetId,
         generationJobId: entry.generationJobId,
         provider: entry.modelType,
@@ -380,7 +391,9 @@ async function loadGeneratedImageLibraryUnlocked(libraryKey, options = {}) {
   }
 
   const latest = readImageLibrary(storage, libraryKey)
-  writeImageLibrary(storage, libraryKey, mergeLoadedLibraryRefs(latest, current, refs, options.limit || 20))
+  writeImageLibrary(storage, libraryKey, retainImageLibraryEntries(
+    mergeLoadedLibraryRefs(latest, current, refs), readMetadata(storage), options.limit || 20
+  ))
   return hydrated
 }
 
@@ -391,10 +404,10 @@ export function saveGeneratedImageLibraryRefs(libraryKey, entries = [], options 
     .map((entry) => entry?.mediaAssetId ? toImageLibraryRef(entry) : entry)
     .filter((entry) => entry?.mediaAssetId || entry?.data)
   const represented = new Set(refs.map(imageLibraryEntryKey))
-  const merged = [
+  const merged = retainImageLibraryEntries([
     ...refs,
     ...current.filter((entry) => !represented.has(imageLibraryEntryKey(entry)))
-  ].slice(0, options.limit || 20)
+  ], readMetadata(storage), options.limit || 20)
   writeImageLibrary(storage, libraryKey, merged)
   return merged
 }
@@ -473,7 +486,7 @@ function enqueueLibraryOperation(storage, libraryKey, task) {
   })
 }
 
-function mergeLoadedLibraryRefs(latest, snapshot, replacements, limit) {
+function mergeLoadedLibraryRefs(latest, snapshot, replacements) {
   const snapshotIds = new Set(snapshot.map((entry) => normalizeText(entry?.id)).filter(Boolean))
   const replacementById = new Map(
     replacements.map((entry) => [normalizeText(entry?.id), entry]).filter(([id]) => id)
@@ -490,7 +503,94 @@ function mergeLoadedLibraryRefs(latest, snapshot, replacements, limit) {
       seen.add(key)
       return true
     })
-    .slice(0, limit)
+}
+
+function imageLibraryAsset(entry, metadata) {
+  if (entry?.mediaAssetId) return metadata.get(entry.mediaAssetId) || { projectId: null, purpose: '', sourceRefs: [] }
+  return {
+    projectId: entry?.projectId ?? null,
+    purpose: entry?.mediaPurpose || entry?.purpose || 'illustration',
+    sourceRefs: normalizeSourceRefs(entry?.sourceRefs || [], { projectId: entry?.projectId ?? null })
+  }
+}
+
+function retainImageLibraryEntries(entries, assets, limit) {
+  const metadata = new Map(assets.map((asset) => [asset.id, asset]))
+  const counts = new Map()
+  return entries.filter((entry) => {
+    const asset = imageLibraryAsset(entry, metadata)
+    const scope = JSON.stringify([asset.projectId ?? null, asset.purpose || ''])
+    const count = counts.get(scope) || 0
+    counts.set(scope, count + 1)
+    return count < limit
+  })
+}
+
+export function markMediaAssetAccepted(assetId, options = {}) {
+  const asset = readMetadata(resolveStorage(options.storage)).find((item) => item.id === assetId)
+  if (!asset || (options.projectId !== undefined && asset.projectId !== options.projectId)) return null
+  return asset.status === 'accepted' ? asset : updateMediaAsset(assetId, { status: 'accepted' }, options)
+}
+
+function assertMediaAssetUnused(assetId, storage) {
+  const keys = [
+    STORAGE_KEYS.NARRATIVE_ASSETS, STORAGE_KEYS.WRITING_BOOKS,
+    STORAGE_KEYS.COMIC_PAGES, STORAGE_KEYS.PROSE_CARDS_V1,
+    STORAGE_KEYS.STORYBOARD_DOCUMENTS
+  ]
+  for (const key of keys) {
+    let records
+    try { records = JSON.parse(storage.getItem(key) || '[]') } catch {
+      throw new Error('无法确认图片的使用位置，未删除图片。')
+    }
+    if (recordReferencesMedia(records, assetId)) throw new Error('这张图片仍被素材、正文或漫画使用，不能删除媒体文件。')
+  }
+  if (readMetadata(storage).some((asset) => asset.id !== assetId && asset.parentAssetId === assetId)) {
+    throw new Error('这张图片仍是其他图片的上游来源，不能删除媒体文件。')
+  }
+}
+
+function recordReferencesMedia(value, assetId, key = '') {
+  if (typeof value === 'string') {
+    if (['mediaAssetId', 'assetId', 'selectedTakeId', 'selectedArtifactId', 'parentAssetId'].includes(key) && value === assetId) return true
+    return [...value.matchAll(/pinax-media:\/\/([a-zA-Z0-9_-]+)/g)].some((match) => match[1] === assetId)
+  }
+  if (Array.isArray(value)) {
+    if (['imageTakeIds', 'artifactIds', 'assetIds', 'styleAssetIds', 'referenceImageIds'].includes(key) && value.includes(assetId)) return true
+    return value.some((item) => recordReferencesMedia(item, assetId))
+  }
+  if (!value || typeof value !== 'object') return false
+  if (value.refType === 'image' && value.refId === assetId) return true
+  return Object.entries(value).some(([childKey, child]) => recordReferencesMedia(child, assetId, childKey))
+}
+
+async function readImageBinaryDimensions(blob, mimeType = '') {
+  if (!String(blob.type || mimeType).startsWith('image/')) return {}
+  if (typeof globalThis.createImageBitmap === 'function') {
+    try {
+      const bitmap = await globalThis.createImageBitmap(blob)
+      const size = { width: bitmap.width, height: bitmap.height }
+      bitmap.close?.()
+      if (size.width > 0 && size.height > 0) return size
+    } catch { /* Try the browser image decoder before preserving legacy dimensions. */ }
+  }
+  if (typeof globalThis.Image !== 'function' || !globalThis.URL?.createObjectURL) return {}
+  return new Promise((resolve) => {
+    const image = new globalThis.Image()
+    const url = globalThis.URL.createObjectURL(blob)
+    let finished = false
+    const finish = (size) => {
+      if (finished) return
+      finished = true
+      clearTimeout(timer)
+      globalThis.URL.revokeObjectURL(url)
+      resolve(size)
+    }
+    const timer = setTimeout(() => finish({}), 10000)
+    image.onload = () => finish(image.naturalWidth > 0 && image.naturalHeight > 0 ? { width: image.naturalWidth, height: image.naturalHeight } : {})
+    image.onerror = () => finish({})
+    image.src = url
+  })
 }
 
 function resolveStorage(storage) {

@@ -1,5 +1,5 @@
 <template>
-  <div class="world-map-panel">
+  <div ref="panelRef" class="world-map-panel" :class="{ 'is-compact': compactPanel }">
     <!-- Toolbar -->
     <div class="panel-toolbar">
       <h2 class="panel-title">
@@ -10,6 +10,11 @@
         </span>
       </h2>
       <div class="toolbar-right">
+        <select v-model="mapScope" class="source-chip" aria-label="地图范围" :disabled="sourceBusy">
+          <option value="auto">范围随设定</option>
+          <option value="local">局部地形</option>
+          <option value="world">世界 / 区域</option>
+        </select>
         <button
           type="button"
           class="source-chip"
@@ -69,7 +74,7 @@
     <!-- AI error -->
     <div v-if="aiError" class="ai-error">{{ aiError }}</div>
     <div v-else-if="aiWarnings.length > 0" class="ai-error ai-warning">
-      {{ aiWarnings.join('；') }}
+      已按可绘制范围调整部分地图参数。可在“参数”中检查或修改。
     </div>
 
     <aside
@@ -92,7 +97,8 @@
         <select
           data-test="worldbook-source-select"
           :value="activeWorldbook.id"
-          :disabled="worldbookRefreshing || Boolean(pendingMapReplacement)"
+          :disabled="Boolean(projectId) || sourceBusy"
+          :title="projectId ? tr('当前书稿关联的世界书（回工作台更换关联）') : ''"
           @change="switchWorldbookSource($event.target.value)"
         >
           <option v-for="worldbook in worldbooksIndex" :key="worldbook.id" :value="worldbook.id">
@@ -234,6 +240,13 @@
           </div>
           <div class="place-binding-actions">
             <button
+              v-if="place.entryId && latestMapData && place.status !== 'confirmed'"
+              type="button"
+              class="toolbar-text-btn"
+              :disabled="sourceBusy"
+              @click="startManualPlaceBinding(place)"
+            >手动定位</button>
+            <button
               v-if="place.markerId"
               type="button"
               class="toolbar-text-btn"
@@ -299,7 +312,7 @@
           <div class="place-binding-copy">
             <strong>{{ place.name }}</strong>
             <span>{{ mapNativeKindLabel(place.kind) }}<template v-if="place.stateName"> · {{ place.stateName }}</template></span>
-            <small>{{ place.status === 'linked' ? '已由正式世界书地点接管' : place.status === 'previewed' ? '正在被正文提取候选预览，尚未成为正式设定' : '地图生成地点，尚未写入设定' }}</small>
+            <small>{{ place.status === 'linked' ? '已由正式世界书地点接管' : place.status === 'previewed' ? '正在被地点候选预览，尚未确认绑定' : '地图生成地点，尚未写入设定' }}</small>
           </div>
           <div class="place-binding-actions">
             <button type="button" class="toolbar-text-btn" @click="focusNativePlace(place)">定位</button>
@@ -445,14 +458,16 @@
 
     <!-- Main content: world tree + map -->
     <div class="main-content">
-      <WorldTreeSidebar />
+      <WorldTreeSidebar :compact="compactPanel" />
       <div class="map-area">
         <WorldMapVoronoi
           ref="mapRendererRef"
+          :workspace-active="props.workspaceActive"
           :config="displayedVoronoiConfig"
           :markers="markers"
           :focus-marker-id="focusMarkerId"
           :review-before-commit="confirmedBindingCount > 0"
+          @busy-change="mapRendererBusy = $event"
           @map-generated="onMapGenerated"
           @map-replacement-ready="onMapReplacementReady"
           @config-change="handleConfigChange"
@@ -472,6 +487,8 @@ import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
 import { useWorldStore } from '../../stores/worldStore'
 import { buildVoronoiMapPrompt, parseVoronoiMapConfig } from '../../services/ai/voronoiMapAdapter'
+import { buildWorldbookMapBasis, constrainMapConfigToWorldbook } from '../../services/ai/worldbookMapGeneration'
+import { placeFingerprint } from '../../../shared/placeEntryContract.js'
 import { buildMapNativePlaceInventory, buildWorldbookLocationMarkers, buildWorldbookPlaceInventory, compileWorldbookMapConstraints, describeNativePlaceForPromotion, extractMapSeedsFromWorldbook, mapNativeKindLabel } from '../../services/ai/worldbookMapBridge'
 import { getResolvedApiSettings } from '../../services/api'
 import { runGenerationTask } from '../../services/generationService'
@@ -482,8 +499,16 @@ import { applyMapReplacementChoices, buildMapReplacementReview, createMapRevisio
 import WorldTreeSidebar from './WorldTreeSidebar.vue'
 import WorldMapVoronoi from './WorldMapVoronoi.vue'
 import { useGameStore } from '../../stores/gameStore'
+import { tr } from '../../i18n/index.js'
 
+const panelRef = ref(null)
+const compactPanel = ref(false)
+let panelObserver = null
 const props = defineProps({
+  workspaceActive: { type: Boolean, default: true },
+  worldbook: { type: Object, default: null },
+  projectId: { type: String, default: '' },
+  reloadWorldbook: { type: Function, default: null },
   focusPlaceId: {
     type: String,
     default: ''
@@ -497,15 +522,17 @@ const props = defineProps({
     default: ''
   }
 })
-const emit = defineEmits(['open-settings', 'open-worldbook', 'open-entry'])
+const emit = defineEmits(['open-settings', 'open-worldbook', 'open-entry', 'change-worldbook', 'busy-change'])
 
 const geoStore = useGeographyStore()
-const { overview, locations, activeWorldNode: activeNode, voronoiConfig, markers, mapVersions, activeMapRevision } = storeToRefs(geoStore)
+const { locations, activeWorldNode: activeNode, voronoiConfig, markers, mapVersions, activeMapRevision } = storeToRefs(geoStore)
 const worldStore = useWorldStore()
 const { worldbooksIndex } = storeToRefs(worldStore)
 const gameStore = useGameStore()
 
 const viewMode = ref('voronoi')
+const mapScope = ref('auto')
+watch(() => props.worldbook?.id, () => { mapScope.value = 'auto' })
 const streaming = ref(false)
 const streamOutput = ref('')
 const aiError = ref(null)
@@ -533,8 +560,29 @@ const mapVersionRestoring = ref(false)
 const mapRendererRef = ref(null)
 let pendingVersionCommit = null
 let restoringRevisionId = ''
+let mountedOwner = true
+let historyDraftOwner = null
 
-const activeWorldbook = computed(() => worldStore.activeWorldbook)
+const activeWorldbook = computed(() => props.worldbook)
+const mapRendererBusy = ref(false)
+const sourceBusy = computed(() => Boolean(mapRendererBusy.value || streaming.value || historyGenerating.value || historySaving.value
+  || placeBindingSaving.value || nativePlaceSaving.value || worldbookRefreshing.value
+  || mapReplacementSaving.value || mapVersionRestoring.value || pendingMapReplacement.value || pendingVoronoiConfig.value))
+watch(sourceBusy, busy => emit('busy-change', busy), { immediate: true })
+
+function captureWorldbookOwner(worldbook = activeWorldbook.value) {
+  return {
+    projectId: props.projectId, id: String(worldbook?.id || ''), revision: String(worldbook?.updatedAt || ''),
+    worldId: String(activeNode.value?.id || ''), mapRevision: String(activeMapRevision.value || '')
+  }
+}
+function ownsWorldbook(owner, { revision = false } = {}) {
+  return mountedOwner && owner?.id && owner.projectId === props.projectId
+    && owner.id === String(activeWorldbook.value?.id || '')
+    && owner.worldId === String(activeNode.value?.id || '')
+    && (!revision || (owner.revision === String(activeWorldbook.value?.updatedAt || '')
+      && owner.mapRevision === String(activeMapRevision.value || '')))
+}
 const displayedVoronoiConfig = computed(() => pendingVoronoiConfig.value || voronoiConfig.value)
 const historyDraftNodes = computed(() => historyDraft.value?.nodes?.length || 0)
 const historyDraftSites = computed(() => historyDraft.value?.semanticSiteCount || 0)
@@ -596,15 +644,20 @@ async function handleGenerate() {
   aiError.value = null
   aiWarnings.value = []
   streamOutput.value = ''
+  const owner = captureWorldbookOwner()
 
   try {
     await worldStore.loadWorldbooksIndex()
-    const activeWorldbook = await worldStore.ensureActiveWorldbook()
-    const worldbookBridge = extractMapSeedsFromWorldbook(activeWorldbook)
-    const compiledWorldbook = compileWorldbookMapConstraints(activeWorldbook, { mapData: latestMapData.value })
-    const messages = buildVoronoiMapPrompt(null, overview.value, locations.value, worldbookBridge)
+    if (!ownsWorldbook(owner, { revision: true })) return
+    const sourceWorldbook = activeWorldbook.value
+    const basis = buildWorldbookMapBasis(sourceWorldbook, { scope: mapScope.value })
+    if (!basis.ok) throw new Error(basis.reason)
+    const worldbookBridge = extractMapSeedsFromWorldbook(sourceWorldbook)
+    const compiledWorldbook = compileWorldbookMapConstraints(sourceWorldbook, { mapData: latestMapData.value })
+    const messages = buildVoronoiMapPrompt(null, basis.overview, basis.locations, worldbookBridge, basis)
 
     const settings = await getResolvedApiSettings()
+    if (!ownsWorldbook(owner, { revision: true })) return
     if (!settings?.baseUrl || !settings?.apiKey || !settings?.model) {
       aiError.value = '未检测到可用 AI 配置'
       streaming.value = false
@@ -619,11 +672,12 @@ async function handleGenerate() {
       // prompt 的预算，避免被通用聊天上下文裁剪器截掉 JSON 契约。
       generationOptions: {
         temperature: 0.7,
-        max_tokens: 4000,
         max_input_chars: 14000,
       },
       attempts: [{ name: 'voronoi-map' }],
     })
+    if (!ownsWorldbook(owner)) return
+    if (!ownsWorldbook(owner, { revision: true })) throw new Error(tr('世界书已经发生变化，请重新生成地图。'))
 
     const raw = result?.parsed || result?.content || ''
     if (!raw) {
@@ -638,7 +692,7 @@ async function handleGenerate() {
       return
     }
     aiWarnings.value = parsed.warnings
-    const config = parsed.config
+    const config = constrainMapConfigToWorldbook(parsed.config, basis)
     // AI defines geography, not the application's visual appearance. Preserve
     // the current map style so regeneration cannot unexpectedly turn a light
     // workspace into the near-black `dark` preset.
@@ -714,6 +768,7 @@ function mergeNamedConstraintList(...lists) {
 }
 
 function onMapGenerated(payload) {
+  if (!mountedOwner) return
   latestMapData.value = payload?.data || null
   constraintReport.value = payload?.data?.constraintReport || null
   const hadPendingConfig = Boolean(pendingVoronoiConfig.value)
@@ -750,6 +805,7 @@ function onMapGenerated(payload) {
 }
 
 function onMapReplacementReady(payload) {
+  if (!mountedOwner) return
   const review = buildMapReplacementReview({
     worldbook: activeWorldbook.value,
     previousMap: latestMapData.value,
@@ -782,6 +838,7 @@ async function commitMapReplacement() {
   if (!pendingMapReplacement.value || mapReplacementSaving.value) return
   const worldbook = activeWorldbook.value
   if (!worldbook?.id) return
+  const owner = captureWorldbookOwner(worldbook)
   mapReplacementSaving.value = true
   placeBindingError.value = ''
   try {
@@ -794,6 +851,7 @@ async function commitMapReplacement() {
       throw new Error(`以下地点在生成后已被修改：${applied.staleEntryIds.join('、')}。请放弃候选后重新生成。`)
     }
     await worldStore.updateWorldbook(worldbook.id, { entries: applied.entries })
+    if (!ownsWorldbook(owner)) return
     pendingVersionCommit = { review, now, manualMarkers: applied.markers }
     if (!mapRendererRef.value?.acceptReplacement?.()) throw new Error('候选地图已经失效，请重新生成')
     pendingMapReplacement.value = null
@@ -810,8 +868,13 @@ async function restoreMapVersion(revisionId) {
   if (mapVersionRestoring.value || revisionId === activeMapRevision.value) return
   const revision = mapVersions.value.find((item) => item.id === revisionId)
   if (!revision?.config) return
+  if (revision.worldbookId && String(revision.worldbookId) !== String(activeWorldbook.value?.id || '')) {
+    placeBindingError.value = tr('这份地图版本属于另一世界书，请切换到对应作品后恢复。')
+    return
+  }
   mapVersionRestoring.value = true
   placeBindingError.value = ''
+  const owner = captureWorldbookOwner()
   try {
     discardMapReplacement()
     const worldbook = activeWorldbook.value
@@ -833,6 +896,7 @@ async function restoreMapVersion(revisionId) {
       })
       await worldStore.updateWorldbook(worldbook.id, { entries })
     }
+    if (!ownsWorldbook(owner)) return
     restoringRevisionId = revision.id
     mapRendererRef.value?.loadCommittedConfig?.(revision.config)
     geoStore.restoreMapVersion(revision.id)
@@ -845,7 +909,7 @@ async function restoreMapVersion(revisionId) {
 }
 
 function syncWorldbookLocationMarkers() {
-  if (!latestMapData.value || !activeWorldbook.value || typeof geoStore.replaceMarkers !== 'function') return
+  if (!mountedOwner || !latestMapData.value || !activeWorldbook.value || typeof geoStore.replaceMarkers !== 'function') return
   const syncedMarkers = buildWorldbookLocationMarkers(
       activeWorldbook.value,
       latestMapData.value,
@@ -865,11 +929,11 @@ async function refreshWorldbookSource() {
   if (worldbookRefreshing.value) return
   worldbookRefreshing.value = true
   placeBindingError.value = ''
+  const owner = captureWorldbookOwner()
   try {
     await worldStore.loadWorldbooksIndex()
-    const loaded = activeWorldbook.value?.id
-      ? await worldStore.loadWorldbook(activeWorldbook.value.id)
-      : await worldStore.ensureActiveWorldbook()
+    if (!ownsWorldbook(owner)) return
+    const loaded = props.reloadWorldbook?.()
     if (!loaded) throw new Error(worldStore.lastError || '当前世界书读取失败')
     syncWorldbookLocationMarkers()
   } catch (error) {
@@ -881,32 +945,8 @@ async function refreshWorldbookSource() {
 
 async function switchWorldbookSource(worldbookId) {
   const targetId = String(worldbookId || '').trim()
-  if (!targetId || targetId === activeWorldbook.value?.id || worldbookRefreshing.value || pendingMapReplacement.value) return
-  worldbookRefreshing.value = true
-  placeBindingError.value = ''
-  try {
-    const manualMarkers = markers.value.filter((marker) => (
-      marker?.source !== 'worldbook'
-      && marker?.source !== 'geography'
-      && !marker?.sourceEntryId
-      && !marker?.worldbookEntryId
-    ))
-    const loaded = await worldStore.setActiveWorldbook(targetId)
-    if (!loaded) throw new Error(worldStore.lastError || '世界书切换失败')
-    geoStore.replaceMarkers(manualMarkers)
-    constraintReport.value = null
-    historyDraft.value = null
-    historyError.value = ''
-    historySaved.value = false
-    semanticReviewSites.value = []
-    selectedSemanticSiteIds.value = new Set()
-    focusMarkerId.value = ''
-    syncWorldbookLocationMarkers()
-  } catch (error) {
-    placeBindingError.value = error?.message || '世界书切换失败'
-  } finally {
-    worldbookRefreshing.value = false
-  }
+  if (props.projectId || !targetId || targetId === activeWorldbook.value?.id || sourceBusy.value) return
+  emit('change-worldbook', targetId)
 }
 
 function focusNativePlace(place) {
@@ -1001,30 +1041,27 @@ async function confirmPlaceBinding(place) {
   if (!place?.entryId || !place?.marker || placeBindingSaving.value) return
   const worldbook = activeWorldbook.value
   if (!worldbook?.id) return
+  const entry = worldbook.entries?.find(item => String(item.id) === String(place.entryId))
+  if (!entry) return
   placeBindingSaving.value = place.id
   placeBindingError.value = ''
   try {
     const mapId = activeNode.value?.id
       ? `map-${activeNode.value.id}-${latestMapData.value?.seed || 'current'}`
       : `map-${latestMapData.value?.seed || 'current'}`
-    const entries = (worldbook.entries || []).map((entry) => {
-      if (String(entry.id) !== String(place.entryId)) return entry
-      return {
-        ...entry,
-        mapBinding: {
-          status: 'confirmed',
-          mapId,
-          mapRevision: activeMapRevision.value || '',
-          markerId: place.marker.id,
-          x: Number(place.marker.x),
-          y: Number(place.marker.y),
-          ...(Number.isInteger(Number(place.marker.cellId)) ? { cellId: Number(place.marker.cellId) } : {}),
-          ...(place.marker.mapObjectId ? { mapObjectId: String(place.marker.mapObjectId) } : {}),
-          sourceRevision: String(worldbook.updatedAt || worldbook.id)
-        }
+    await worldStore.updatePlace(worldbook.id, entry.id, {
+      mapBinding: {
+        status: 'confirmed',
+        mapId,
+        mapRevision: activeMapRevision.value || '',
+        markerId: place.marker.id,
+        x: Number(place.marker.x),
+        y: Number(place.marker.y),
+        ...(Number.isInteger(Number(place.marker.cellId)) ? { cellId: Number(place.marker.cellId) } : {}),
+        ...(place.marker.mapObjectId ? { mapObjectId: String(place.marker.mapObjectId) } : {}),
+        sourceRevision: String(worldbook.updatedAt || worldbook.id)
       }
-    })
-    await worldStore.updateWorldbook(worldbook.id, { entries })
+    }, { expectedFingerprint: placeFingerprint(entry) })
   } catch (error) {
     placeBindingError.value = error?.message || '地点绑定保存失败'
   } finally {
@@ -1032,19 +1069,28 @@ async function confirmPlaceBinding(place) {
   }
 }
 
+function startManualPlaceBinding(place) {
+  if (!latestMapData.value || !activeWorldbook.value?.id || sourceBusy.value) return
+  if (mapRendererRef.value?.beginPlacePlacement({ ...place, worldbookId: activeWorldbook.value.id })) {
+    atlasToolsOpen.value = false
+    placeBindingError.value = ''
+  }
+}
+
 async function clearPlaceBinding(place) {
   if (!place?.entryId || placeBindingSaving.value) return
   const worldbook = activeWorldbook.value
   if (!worldbook?.id) return
+  const entry = worldbook.entries?.find(item => String(item.id) === String(place.entryId))
+  if (!entry) return
+  const owner = captureWorldbookOwner(worldbook)
   placeBindingSaving.value = place.id
   placeBindingError.value = ''
   try {
-    const entries = (worldbook.entries || []).map((entry) => {
-      if (String(entry.id) !== String(place.entryId)) return entry
-      const {  ...withoutBinding } = entry
-      return withoutBinding
-    })
-    await worldStore.updateWorldbook(worldbook.id, { entries })
+    await worldStore.updatePlace(worldbook.id, entry.id, { mapBinding: null }, { expectedFingerprint: placeFingerprint(entry) })
+    if (!ownsWorldbook(owner)) return
+    geoStore.replaceMarkers(markers.value.filter(marker => String(marker.worldbookEntryId || '') !== String(place.entryId)))
+    syncWorldbookLocationMarkers()
   } catch (error) {
     placeBindingError.value = error?.message || '地点绑定解除失败'
   } finally {
@@ -1056,7 +1102,7 @@ async function handleBuildHistory() {
   if (!latestMapData.value || historyGenerating.value) return
 
   if (semanticReviewSites.value.length === 0) {
-    const currentWorldbook = worldStore.activeWorldbook || await worldStore.ensureActiveWorldbook()
+    const currentWorldbook = activeWorldbook.value
     const mapSemantics = extractMapSemantics(latestMapData.value)
     const candidates = selectSemanticSitesForReview(mapSemantics, {
       maxSites: 12,
@@ -1079,9 +1125,10 @@ async function handleBuildHistory() {
   historySaved.value = false
 
   try {
-    const activeWorldbook = worldStore.activeWorldbook || await worldStore.ensureActiveWorldbook()
+    const sourceWorldbook = activeWorldbook.value
+    if (!sourceWorldbook?.id) throw new Error('当前没有可写入的世界书')
     const result = buildGeoHistoryDraft({
-      worldbook: activeWorldbook,
+      worldbook: sourceWorldbook,
       mapData: latestMapData.value,
       seed: latestMapData.value.seed || geoStore.lastGenerationMeta?.seed,
       mapId: activeNode.value?.id ? `map-${activeNode.value.id}-${latestMapData.value.seed || 'current'}` : undefined,
@@ -1093,6 +1140,7 @@ async function handleBuildHistory() {
       return
     }
     historyDraft.value = result.geoHistory
+    historyDraftOwner = captureWorldbookOwner(sourceWorldbook)
   } catch (error) {
     historyDraft.value = null
     historyError.value = error?.message || '历史草案生成失败'
@@ -1108,6 +1156,7 @@ function toggleSemanticSite(siteId, checked) {
   selectedSemanticSiteIds.value = next
   historySaved.value = false
   historyDraft.value = null
+  historyDraftOwner = null
 }
 
 async function handleSaveHistory() {
@@ -1119,9 +1168,12 @@ async function handleSaveHistory() {
   historySaving.value = true
   historyError.value = ''
   try {
-    const activeWorldbook = worldStore.activeWorldbook || await worldStore.ensureActiveWorldbook()
-    if (!activeWorldbook?.id) throw new Error('当前没有可写入的世界书')
-    await worldStore.updateWorldbook(activeWorldbook.id, { geoHistory: historyDraft.value })
+    const sourceWorldbook = activeWorldbook.value
+    if (!sourceWorldbook?.id) throw new Error('当前没有可写入的世界书')
+    if (!ownsWorldbook(historyDraftOwner, { revision: true })) throw new Error(tr('世界书已经发生变化，请重新整理历史草案。'))
+    const owner = captureWorldbookOwner(sourceWorldbook)
+    await worldStore.updateWorldbook(sourceWorldbook.id, { geoHistory: historyDraft.value })
+    if (!ownsWorldbook(owner)) return
     historySaved.value = true
   } catch (error) {
     historyError.value = error?.message || '历史草案写入失败'
@@ -1157,6 +1209,13 @@ function handleConfigChange(config) {
 }
 
 function handleAddMarker(x, y, patch = {}) {
+  if (patch.worldbookEntryId) {
+    const worldbook = activeWorldbook.value
+    if (String(patch.worldbookId) !== String(worldbook?.id)
+      || !worldbook?.entries?.some(entry => String(entry.id) === String(patch.worldbookEntryId))) return
+    geoStore.markers = markers.value.filter(marker => String(marker.worldbookEntryId || '') !== String(patch.worldbookEntryId))
+    atlasToolsOpen.value = true
+  }
   geoStore.addMarker({
     id: patch.id || 'mk_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     name: patch.name || `新标记 ${markers.value.length + 1}`,
@@ -1200,25 +1259,32 @@ function handleMarkerDragEnd(id, x, y) {
   })
 }
 
-// Load both stores before treating the map as ready. WorldMapVoronoi mounts
-// before this hook, so loading only geography here leaves an existing map
-// without the active worldbook and its source markers.
+// 页面先确认世界书身份，Panel 只消费该快照；这里不重新激活持久化的全局选择。
 onMounted(async () => {
+  if (typeof ResizeObserver !== 'undefined') {
+    panelObserver = new ResizeObserver(() => {
+      const width = panelRef.value?.clientWidth
+      if (width) compactPanel.value = width <= 760
+    })
+    panelObserver.observe(panelRef.value)
+  }
   window.addEventListener('keydown', handlePanelKeydown)
   geoStore.loadAll()
   try {
     await worldStore.loadWorldbooksIndex()
-    await worldStore.ensureActiveWorldbook()
   } catch { /* Best-effort fallback intentionally ignores diagnostics. */ }
   syncWorldbookLocationMarkers()
 })
 
 onUnmounted(() => {
+  panelObserver?.disconnect()
+  mountedOwner = false
+  emit('busy-change', false)
   window.removeEventListener('keydown', handlePanelKeydown)
 })
 
 function handlePanelKeydown(event) {
-  if (event.key === 'Escape' && atlasToolsOpen.value) atlasToolsOpen.value = false
+  if (props.workspaceActive && event.key === 'Escape' && atlasToolsOpen.value) atlasToolsOpen.value = false
 }
 
 // 世界书可能在地图组件之后异步加载；地点条目变化时也要立即同步到当前地图。
@@ -2066,15 +2132,24 @@ watch(
 
 :global(.theme-legacy) .map-area {
   padding: 0;
-  background: var(--archive-paper-soft);
+  background: var(--surface-workbench-canvas);
 }
-.map-area :deep(.voronoi-container) { border: 0; border-radius: 0; }
-.main-content :deep(.sidebar-expanded) { background: var(--archive-paper); border-right: 1px solid var(--archive-paper-strong); }
+.map-area :deep(.voronoi-container) { border: 0; border-radius: var(--radius-surface) var(--radius-surface) 0 0; }
+.main-content :deep(.sidebar-expanded) { background: var(--surface-workbench-muted); border-right-color: transparent; }
+.panel-toolbar { background: var(--surface-workbench-canvas); font-family: var(--font-sans); }
+.panel-toolbar :is(.source-chip, .history-btn, .diagnostics-btn, .toggle-btn) { min-height: 36px; border-radius: var(--radius-control); border-color: var(--hairline-soft); font: 14px/1.4 var(--font-sans); }
+.panel-toolbar :is(.source-chip, .history-btn, .diagnostics-btn) { background: var(--surface-workbench-input); color: var(--text-secondary); }
+@media (pointer: coarse) {
+  .panel-toolbar :is(.source-chip, .history-btn, .diagnostics-btn, .toggle-btn) { min-height: 44px; }
+}
 @media (min-width: 1181px) {
   .main-content :deep(.sidebar-expanded) { width: var(--workspace-sidebar-width, 240px); flex-basis: var(--workspace-sidebar-width, 240px); }
 }
 
 @media (max-width: 760px) {
+  .main-content :deep(.sidebar-expanded) { z-index: var(--z-floating-rail, 220); }
+  .map-area :deep(.voronoi-container) { border-radius: 0; }
+  .panel-toolbar :is(.source-chip, .history-btn, .diagnostics-btn, .toggle-btn) { min-height: 44px; }
   .panel-toolbar {
     align-items: flex-start;
   }
@@ -2106,4 +2181,6 @@ watch(
     min-height: 0;
   }
 }
+.is-compact .main-content { position: relative; }
+.is-compact :deep(.sidebar-expanded) { position: absolute; inset: 0 auto 0 0; z-index: 20; width: 240px; box-shadow: var(--shadow-floating); }
 </style>

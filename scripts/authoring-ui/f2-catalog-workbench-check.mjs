@@ -104,14 +104,20 @@ try {
       check(results, '角色字段聚焦与自动保存不跳回顶部', focusedScrollTop > 100 && Math.abs(savedScrollTop - focusedScrollTop) < 8, JSON.stringify({ focusedScrollTop, savedScrollTop }))
       await backgroundField.fill(originalBackground)
 
-      await page.locator('[data-authoring-tool="history"]').click()
+      // 20261008 dock 化同步：rail「记忆」项改为打开记忆设置弹窗，不再产出
+      // history inspector 入口；经批注工具的版本视图到达同一
+      // data-authoring-inspector="history" DOM，断言不变。
+      await page.locator('[data-authoring-tool="annotations"]').click()
+      await page.locator('.writing-inspector__tabs button', { hasText: '版本' }).click()
       await page.locator('[data-authoring-inspector="history"]').waitFor()
       await page.locator('[data-authoring-tool="characters"]').click()
       await page.locator('.authoring-character-workbench').waitFor()
       check(results, '历史后切角色不串页', await page.locator('[data-authoring-inspector="history"]').count() === 0)
 
       const toolWidths = {}
-      for (const tool of ['characters', 'outline', 'ai', 'scene', 'worldbook', 'history']) {
+      // 20261008 dock 化同步：九工具收进 dock 面板 overlay、ai 是会话 tab
+      // （同一 dock 本体），rail「记忆」开设置弹窗无 inspector 宽度，剔除。
+      for (const tool of ['characters', 'outline', 'ai', 'scene', 'worldbook']) {
         await page.locator(`[data-authoring-tool="${tool}"]`).click()
         await page.waitForTimeout(80)
         toolWidths[tool] = Math.round(await page.locator('.writing-inspector').evaluate((element) => element.getBoundingClientRect().width))
@@ -140,7 +146,8 @@ try {
       const painterPrompt = await page.locator('[data-test="authoring-illustrator-layer"] .image-gen-prompt-input').first().inputValue()
       check(results, '角色完整资料带入画师', ['角色：', '背景：', '性格：冷静，谨慎', '外貌：银发蓝眼'].every((part) => painterPrompt.includes(part)), painterPrompt)
       check(results, '角色参考图带入并默认选中', await page.locator('[data-test="authoring-illustrator-layer"] .image-gen-reference-thumb.active').count() === 1)
-      await page.getByRole('button', { name: '关闭画师' }).click()
+      // 20261008 同步：画师改名生图，关闭钮 aria-label 现为「关闭生图工作台」。
+      await page.getByRole('button', { name: '关闭生图工作台' }).click()
     }
 
     await page.locator('[data-authoring-tool="worldbook"]').click()
@@ -218,7 +225,8 @@ try {
       await page.locator('.authoring-character-workbench').waitFor()
       const selectedCharacterName = (await page.locator('.character-name-input').inputValue()).trim()
       await page.getByRole('button', { name: '世界书', exact: true }).click()
-      await page.waitForURL(/\/settings\/worldbook\/advanced\?entryId=/)
+      // 20261008 同步：直达链接现携带 bookId/worldbookId 前置参数，entryId 不再是首个 query。
+      await page.waitForURL(/\/settings\/worldbook\/advanced\?.*entryId=/)
       const activeWorldbookEntry = (await page.locator('.entry-item.active .entry-title').textContent())?.trim()
       const advancedContent = await page.locator('.entry-editor textarea.text-area').first().inputValue()
       check(results, '角色入口直达世界书中的同一人物条目', activeWorldbookEntry === selectedCharacterName && advancedContent.includes('性格：冷静，谨慎'), JSON.stringify({ selectedCharacterName, activeWorldbookEntry }))

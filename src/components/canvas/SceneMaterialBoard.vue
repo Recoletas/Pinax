@@ -42,6 +42,11 @@ const hiddenUnplacedCount = computed(() => Math.max(
   0,
   (props.model.unplacedItems || []).length - displayedUnplaced.value.length
 ))
+watch(() => [props.selectedCardId, (props.model.beatItems || []).some(item => item.card.id === props.selectedCardId), (props.model.unplacedItems || []).some(item => item.card.id === props.selectedCardId)], ([id, inBeats, unplaced], previous) => {
+  if (!id || previous && previous.every((value, index) => value === [id, inBeats, unplaced][index])) return
+  if (inBeats) mobileTab.value = 'beats'
+  else if (unplaced) mobileTab.value = 'unplaced'
+}, { immediate: true })
 
 watch(() => props.relationTypes, (types) => {
   if (!types.some((item) => item.value === selectedRelationType.value)) {
@@ -106,7 +111,7 @@ function openSource(item) {
       </span>
     </header>
 
-    <nav class="scene-material-board__mobile-tabs control-group" aria-label="场景板区域">
+    <nav class="scene-material-board__mobile-tabs" aria-label="场景板区域">
       <button type="button" class="control-toggle" :aria-pressed="mobileTab === 'relations'" @click="mobileTab = 'relations'">关系</button>
       <button type="button" class="control-toggle" :aria-pressed="mobileTab === 'beats'" @click="mobileTab = 'beats'">节拍</button>
       <button type="button" class="control-toggle" :aria-pressed="mobileTab === 'unplaced'" @click="mobileTab = 'unplaced'">待选素材</button>
@@ -132,7 +137,7 @@ function openSource(item) {
               :aria-pressed="relationCardIds.includes(item.card.id)"
               @click="toggleRelationCard(item.card.id)"
             >
-              {{ cardTitle(item.card) }}
+              <span>{{ cardTitle(item.card) }}</span>
             </button>
           </div>
           <p v-if="relationCardIds.length !== 2" class="scene-board-empty">请选择两张卡片建立关系</p>
@@ -256,7 +261,8 @@ function openSource(item) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--archive-paper) 40%, var(--surface-panel));
+  background: var(--surface-workbench);
+  font-family: var(--font-interface);
   color: var(--text-primary);
 }
 
@@ -266,21 +272,21 @@ function openSource(item) {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 18px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 42%, transparent);
+  border-bottom: 1px solid var(--hairline-soft);
 }
 
 .scene-material-board__eyebrow,
 .scene-board-region__header p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .scene-material-board__header h2,
 .scene-board-region__header h3 {
   margin: 0;
-  font-family: var(--font-display);
+  font-family: var(--font-interface);
   font-weight: 600;
 }
 
@@ -290,7 +296,7 @@ function openSource(item) {
 .scene-material-board__version {
   max-width: 180px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -318,7 +324,7 @@ function openSource(item) {
 .scene-material-board__main { padding: 16px 18px 24px; }
 .scene-board-region--unplaced {
   padding: 16px 14px 24px;
-  border-left: 1px solid color-mix(in srgb, var(--archive-gold) 34%, transparent);
+  border-left: 1px solid var(--hairline-soft);
 }
 
 .scene-board-region + .scene-board-region { margin-top: 22px; }
@@ -329,12 +335,12 @@ function openSource(item) {
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 9px;
-  border-bottom: 1px dashed color-mix(in srgb, var(--archive-gold) 36%, transparent);
+  border-bottom: 1px solid var(--hairline-soft);
 }
 
 .scene-board-region__header > span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -346,8 +352,11 @@ function openSource(item) {
   margin-top: 10px;
 }
 
+.scene-card-button > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
 .scene-card-button {
-  max-width: 180px;
+  max-width: min(220px, 100%);
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -367,7 +376,7 @@ function openSource(item) {
   gap: 8px;
   padding: 7px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .scene-relation-list strong { color: var(--accent); font-weight: 500; }
@@ -387,7 +396,8 @@ function openSource(item) {
 
 .scene-beat-item.is-selected,
 .scene-unplaced-list li.is-selected {
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--nav-selected);
+  border-radius: var(--radius-control);
 }
 
 .scene-beat-item__select,
@@ -407,7 +417,7 @@ function openSource(item) {
 .scene-beat-item__sequence {
   width: 24px;
   color: var(--accent);
-  font-family: var(--font-display);
+  font-family: var(--font-interface);
   font-size: 18px;
   text-align: center;
 }
@@ -426,13 +436,14 @@ function openSource(item) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .scene-beat-item__copy small,
 .scene-unplaced-card small {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .scene-beat-item__actions,
@@ -453,11 +464,11 @@ function openSource(item) {
 .scene-board-empty {
   margin: 12px 0 0;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
-.scene-material-board__mobile-tabs { display: none; }
+.scene-material-board__mobile-tabs { display: none; gap: 4px; background: var(--surface-workbench-muted); }
 
 .scene-material-board button:focus-visible {
   outline: 2px solid var(--control-focus, var(--accent));
@@ -470,7 +481,7 @@ function openSource(item) {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     padding: 6px 10px;
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-gold) 36%, transparent);
+    border-bottom: 1px solid var(--hairline-soft);
   }
   .scene-material-board__mobile-tabs button,
   .scene-material-board button {

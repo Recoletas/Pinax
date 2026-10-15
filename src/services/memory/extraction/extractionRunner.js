@@ -43,14 +43,41 @@ function jobReady(job, now) {
   return !notBefore || now >= notBefore
 }
 
-function sourceSuperseded(job, allJobs) {
-  if (!job.sourceRefs.length || !Number(job.revisionSeq)) return false
-  return allJobs.some((other) => (
-    other.id !== job.id
-    && other.status !== 'cancelled'
-    && other.sourceRefs[0] === job.sourceRefs[0]
-    && (Number(other.revisionSeq) || 0) > Number(job.revisionSeq)
-  ))
+export function readOrderedExtractionRevision(value) {
+  // Content hashes can end in arbitrary digits; only named counters are ordered.
+  const match = /^(?:(.+):)?(doc-r|unit-r|r)(\d+)$/.exec(String(value || ''))
+  const sequence = match ? Number(match[3]) : 0
+  return match && Number.isSafeInteger(sequence) && sequence > 0
+    ? { namespace: `${match[1] || ''}:${match[2]}`, sequence }
+    : null
+}
+
+function extractionSourceScope(job) {
+  const refs = Array.isArray(job?.sourceRefs) ? job.sourceRefs.filter(Boolean).map(String) : []
+  const primary = refs[0] || ''
+  if (!job?.projectId || !primary) return ''
+  // A chapter-wide reference cannot make unrelated units supersede each other.
+  const units = [...new Set(refs.filter(ref => ref.startsWith('unit:')))].sort()
+  return JSON.stringify([String(job.projectId), primary, units])
+}
+
+export function isExtractionJobSuperseded(job, allJobs) {
+  const revision = readOrderedExtractionRevision(job?.sourceRevision)
+  const scope = extractionSourceScope(job)
+  if (!revision || !scope) return false
+  return allJobs.some((other) => {
+    const next = readOrderedExtractionRevision(other?.sourceRevision)
+    return other.id !== job.id
+      && !['cancelled', 'source-changed'].includes(other.status)
+      && extractionSourceScope(other) === scope
+      && next?.namespace === revision.namespace
+      && next.sequence > revision.sequence
+      // Runtime counters can restart after reload. An older job cannot invalidate
+      // a newly created job just because its previous runtime had a larger count.
+      && (Number(other.createdAt) > Number(job.createdAt)
+        || (Number(other.createdAt) === Number(job.createdAt)
+          && Boolean(job.sessionTag) && other.sessionTag === job.sessionTag))
+  })
 }
 
 async function persistProposalsToLedger({ job, proposals, meta }) {
@@ -229,7 +256,7 @@ async function drainExtractionQueueInner({ max = 1, auto = true, knownIdentities
     const pendingJob = allJobs.find((candidate) => jobReady(candidate, now))
     if (!pendingJob) break
     // superseded 标记不消耗模型额度，也不受会话预算约束。
-    if (sourceSuperseded(pendingJob, allJobs)) {
+    if (isExtractionJobSuperseded(pendingJob, allJobs)) {
       updateExtractionJob(pendingJob.id, { status: 'source-changed', lastError: { code: 'source-changed', message: '来源已有更新版本', retryable: false } })
       continue
     }

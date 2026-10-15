@@ -8,6 +8,8 @@ import { defineComponent, h, nextTick, ref } from 'vue'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
+import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
+import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -46,10 +48,21 @@ import {
   testImageProviderConnection
 } from '../services/media/imageProviderService'
 import {
+  BUILTIN_IMAGE_CONFIG_ID,
   deleteImageProviderConfig,
+  getSelectedImageProviderConfigId,
   listImageProviderConfigs,
-  saveImageProviderConfig
+  resolveSelectedImageProviderConfig,
+  saveImageProviderConfig,
+  saveSelectedImageProviderConfigId
 } from '../services/media/imageProviderConfigStore'
+import {
+  deleteVideoProviderConfig,
+  resolveSelectedVideoProviderConfig,
+  saveSelectedVideoProviderConfigId,
+  saveVideoProviderConfig
+} from '../services/media/videoProviderConfigStore'
+import MediaModelSettings from '../components/settings/MediaModelSettings.vue'
 import {
   addGeneratedImageToLibrary,
   deleteMediaAsset,
@@ -62,6 +75,7 @@ import {
   migrateCanvasAttachedImages,
   serializeCanvasCards
 } from '../services/media/canvasImageAssetBridge'
+import { saveValidatedStoryboardVersion } from '../services/media/storyboardStore.js'
 import { saveProseCanvasWorkspace } from '../services/canvas/proseCanvasRepository.js'
 import {
   addComicPanelTake,
@@ -120,7 +134,7 @@ import {
   parseComicScript
 } from '../services/media/comicScriptService'
 import { buildComicPanelImageRequest } from '../services/media/comicImagePrompt'
-import { analyzeComicLettering, buildComicPublicationReport, estimateLineCount } from '../services/media/comicLetteringService'
+import { analyzeComicLettering, buildComicPublicationReport, estimateLineCount, wrapComicLetteringText } from '../services/media/comicLetteringService'
 import { renderRPText } from '../services/rpTextRenderer'
 import { runGenerationRetryPlan } from '../services/generationRetry'
 import {
@@ -2603,6 +2617,17 @@ const normalized = parseNarrativePresentation(':::dialogue|林岫\n「都有。�
     })
     expect(nested.blocks.map((block) => block.text)).toEqual(['“他说：‘都有。’”'])
 
+    // Real provider dialogue markers can include attribution and a second quote.
+    // The density formatter must not strip the first/last quote and invent pairs.
+    const mixedDialogue = '“特别的地点……”周渡似乎在努力回忆，“他提到了旧码头。说如果有问题，可以去那里找他。”'
+    const mixedPresentation = parseNarrativePresentation(`:::dialogue|周渡\n${mixedDialogue}`, {
+      messageId: 'mixed-dialogue-attribution-contract'
+    })
+    expect(mixedPresentation.blocks.map((block) => block.text)).toEqual([mixedDialogue])
+    expect(mixedPresentation.content).toBe(mixedDialogue)
+    const longMixedDialogue = `“我只送信。”周渡压低声音，“${'那人让他沿着码头走，别回头看身后的灯塔。'.repeat(10)}”`
+    expect(parseNarrativePresentation(`:::dialogue|周渡\n${longMixedDialogue}`).content).toBe(longMixedDialogue)
+
     const longDialogue = parseNarrativePresentation(
       ':::dialogue|林岫\n「都有。第一封是三年前寄出的。第二封没有落款。第三封上的墨迹还没有干。」',
       { messageId: 'dialogue-density-contract' }
@@ -2677,13 +2702,59 @@ const refreshed = ensureNarrativeMessage({
 describe('Director Types', () => {
   it('provides shot types and infers them from emotion', () => {
     const types = getShotTypes()
-    expect(types.length).toBe(5)
+    expect(types).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'extreme_wide', label: '极远景' }),
+      expect.objectContaining({ value: 'wide', label: '远景' }),
+      expect.objectContaining({ value: 'full', label: '全景' }),
+      expect.objectContaining({ value: 'over_shoulder', label: '过肩镜头' })
+    ]))
+    expect(new Set(types.map(type => type.value)).size).toBe(types.length)
     expect(inferShotTypeFromEmotion('fear')).toBe('extreme_close_up')
   })
 })
 
 describe('Media services', () => {
   it('shares provider config and keeps generated binary data outside localStorage', async () => {
+    const textConfig = saveTextProviderConfig({ name: 'Journey model', model: 'journey-text', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', provider: 'openai' })
+    saveSelectedTextProviderConfigId(BUILTIN_TEXT_CONFIG_ID)
+    const settingsPanel = mount(ApiSettingsPanel, { global: { stubs: { TextModelPicker: { name: 'TextModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] } } } })
+    // 模型能力探测完成后才显示本机配置，公网不会闪现可写控件。
+    await flushPromises()
+    const picker = settingsPanel.findComponent({ name: 'TextModelPicker' })
+    picker.vm.$emit('update:modelValue', textConfig.id)
+    await nextTick()
+    // 20261008 统一路由收编后，[role=status] 改为引擎通路状态（up/down/检测中），
+    // 选中配置的共享语义改由 store + picker 的 modelValue/configs 承载。
+    expect(getSelectedTextProviderConfigId()).toBe(textConfig.id)
+    expect(picker.props('modelValue')).toBe(textConfig.id)
+    deleteTextProviderConfig(textConfig.id)
+    picker.vm.$emit('configs-updated', listTextProviderConfigs())
+    await nextTick()
+    expect(picker.props('configs')).toEqual(listTextProviderConfigs())
+
+    // 协议轴：选中配置热切进内核时，Anthropic 线（预设域）与 OpenAI 兼容线分流不同 api。
+    const fetchBefore = globalThis.fetch
+    const patches = []
+    globalThis.fetch = vi.fn(async (_url, options) => {
+      if (options?.method === 'POST') patches.push(JSON.parse(options.body))
+      return { ok: true, status: 200, json: async () => ({ ok: true, model: 'claude-sonnet-4-5' }) }
+    })
+    const anthropicConfig = saveTextProviderConfig({ name: 'Anthropic 直连', providerId: 'anthropic', model: 'claude-sonnet-4-5', baseUrl: 'https://api.anthropic.com', apiKey: 'fixture-only' })
+    const compatConfig = saveTextProviderConfig({ name: 'OpenAI 兼容', providerId: 'openai', model: 'gpt-4o-mini', baseUrl: 'https://api.openai.com/v1', apiKey: 'fixture-only' })
+    try {
+      picker.vm.$emit('update:modelValue', anthropicConfig.id)
+      await flushPromises()
+      expect(patches.at(-1)).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      picker.vm.$emit('update:modelValue', compatConfig.id)
+      await flushPromises()
+      expect(patches.at(-1)).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+    } finally {
+      globalThis.fetch = fetchBefore
+      deleteTextProviderConfig(anthropicConfig.id)
+      deleteTextProviderConfig(compatConfig.id)
+    }
+    settingsPanel.unmount()
+
     // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
     localStorage.removeItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS)
     localStorage.removeItem(STORAGE_KEYS.MEDIA_ASSETS)
@@ -2884,12 +2955,14 @@ describe('Media services', () => {
     expect(JSON.parse(minimaxRequest[1].body)).toEqual(expect.objectContaining({
       model: 'image-01',
       prompt: '蓝色空间号穿过小行星带\n避免出现：文字，水印',
-      aspect_ratio: '16:9',
+      width: 1280,
+      height: 720,
       response_format: 'base64',
       n: 1,
       prompt_optimizer: false,
       aigc_watermark: false
     }))
+    expect(JSON.parse(minimaxRequest[1].body)).not.toHaveProperty('aspect_ratio')
     expect(minimaxImage).toBe('data:image/jpeg;base64,bWluaW1heA==')
     expect(await testImageProviderConnection({
       type: 'minimax_image',
@@ -2915,6 +2988,69 @@ describe('Media services', () => {
     expect(listImageProviderConfigs().filter((c) => !c.builtin)).toEqual([
       expect.objectContaining({ id: savedConfig.id, name: '统一图像服务 v2', baseUrl: 'https://images.example/v2' })
     ])
+
+    // 20261008 媒体模型收进设置页：选中项要真正落盘、失效要回落、用户自配模型名不再被厂商名单拒绝。
+    const settingsImageConfig = saveImageProviderConfig({ type: 'minimax_image', name: '自建生图渠道', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', defaultModel: 'image-02' })
+    const settingsVideoConfig = saveVideoProviderConfig({ providerId: 'minimax-video', name: '自建视频渠道', model: 'MiniMax-Hailuo-2.3', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', resolution: '768P' })
+    saveSelectedImageProviderConfigId(settingsImageConfig.id)
+    saveSelectedVideoProviderConfigId(settingsVideoConfig.id)
+    expect(resolveSelectedImageProviderConfig()?.id).toBe(settingsImageConfig.id)
+    expect(resolveSelectedVideoProviderConfig()?.id).toBe(settingsVideoConfig.id)
+
+    const mediaSettings = mount(MediaModelSettings, {
+      global: {
+        stubs: {
+          ImageModelPicker: { name: 'ImageModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] },
+          VideoModelPicker: { name: 'VideoModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] }
+        }
+      }
+    })
+    await nextTick()
+    const imagePicker = mediaSettings.findComponent({ name: 'ImageModelPicker' })
+    const videoPicker = mediaSettings.findComponent({ name: 'VideoModelPicker' })
+    expect(imagePicker.props('modelValue')).toBe(settingsImageConfig.id)
+    expect(videoPicker.props('modelValue')).toBe(settingsVideoConfig.id)
+    expect(imagePicker.props('configs').map((item) => item.id)).toContain(BUILTIN_IMAGE_CONFIG_ID)
+    expect(mediaSettings.find('[data-test="media-image-effective-line"]').text()).toContain('自建生图渠道')
+    imagePicker.vm.$emit('update:modelValue', BUILTIN_IMAGE_CONFIG_ID)
+    await nextTick()
+    expect(getSelectedImageProviderConfigId()).toBe(BUILTIN_IMAGE_CONFIG_ID)
+    expect(mediaSettings.find('[data-test="media-image-effective-line"]').text()).toContain('密钥由服务器持有')
+    imagePicker.vm.$emit('configs-updated', listImageProviderConfigs().filter((item) => item.id !== BUILTIN_IMAGE_CONFIG_ID))
+    await nextTick()
+    expect(getSelectedImageProviderConfigId()).toBe(savedConfig.id)
+    mediaSettings.unmount()
+
+    const unlistedImageFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { image_base64: ['dW5saXN0ZWQ='] }, base_resp: { status_code: 0, status_msg: 'success' } })
+    })
+    await generateImage({ type: 'minimax_image', baseUrl: 'https://api.minimaxi.com', apiKey: 'fixture-only', defaultModel: 'image-02' }, {
+      prompt: '名单外的新模型名',
+      fetchImpl: unlistedImageFetch
+    })
+    expect(JSON.parse(unlistedImageFetch.mock.calls[0][1].body).model).toBe('image-02')
+
+    const { createMinimaxVideoAdapter } = await import('../../server/media/adapters/minimaxVideo.js')
+    const videoSubmitFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ task_id: 'task-unlisted-model', base_resp: { status_code: 0 } })
+    })
+    const videoAdapter = createMinimaxVideoAdapter({ fetchImpl: videoSubmitFetch })
+    await videoAdapter.submit(
+      { input: { prompt: '名单外的视频模型', durationSeconds: 10 } },
+      { model: 'Hailuo-Next', resolution: '1080P', apiKey: 'fixture-only' }
+    )
+    expect(JSON.parse(videoSubmitFetch.mock.calls[0][1].body)).toMatchObject({ model: 'Hailuo-Next', duration: 10 })
+    expect(videoAdapter.validateInput({ prompt: '名单外模型放行 10 秒', durationSeconds: 10 }, { model: 'Hailuo-Next', resolution: '1080P' })).toMatchObject({ duration: 10 })
+    expect(() => videoAdapter.validateInput({ prompt: '已登记模型仍守时长', durationSeconds: 10 }, { model: 'T2V-01', resolution: '720P' })).toThrow('only supports')
+
+    deleteImageProviderConfig(settingsImageConfig.id)
+    deleteVideoProviderConfig(settingsVideoConfig.id)
+    saveSelectedImageProviderConfigId('')
+    saveSelectedVideoProviderConfigId('')
 
     const blobs = new Map()
     const binaryStore = {
@@ -3063,6 +3199,7 @@ describe('Media services', () => {
     const legacyAuthoringLibraryKey = 'integration-legacy-authoring-image-library'
     localStorage.setItem(legacyAuthoringLibraryKey, JSON.stringify([{
       id: 'legacy-authoring-image',
+      projectId: 'book-1',
       prompt: '旧版画师结果',
       data: 'data:image/png;base64,bGVnYWN5',
       generationParams: {
@@ -3086,10 +3223,23 @@ describe('Media services', () => {
       sourceRevisions: { 'chapter:chapter-1': 'revision-3' }
     })
     await deleteMediaAsset(migratedLegacyAuthoringImages[0].mediaAssetId, { binaryStore })
+    const unownedLibraryKey = 'integration-unowned-image-library'
+    localStorage.setItem(unownedLibraryKey, JSON.stringify([{
+      id: 'unowned-image', data: 'data:image/png;base64,YWJj', purpose: 'illustration'
+    }]))
+    expect(await loadGeneratedImageLibrary(unownedLibraryKey, { projectId: 'book-1', purpose: 'illustration', binaryStore })).toEqual([])
+    expect(JSON.parse(localStorage.getItem(unownedLibraryKey))[0].id).toBe('unowned-image')
+    const unownedImages = await loadGeneratedImageLibrary(unownedLibraryKey, { projectId: null, purpose: 'illustration', binaryStore })
+    expect(unownedImages).toHaveLength(1)
+    expect(unownedImages[0].projectId).toBeNull()
+    await deleteMediaAsset(unownedImages[0].mediaAssetId, { binaryStore })
+
 
     const workbenchLibraryKey = 'integration-image-workbench'
     localStorage.setItem(workbenchLibraryKey, JSON.stringify([{
       id: 'legacy-workbench-image',
+      projectId: 'book-1',
+      sourceRefs: [{ refType: 'chapter', refId: 'chapter-1', projectId: 'book-1', version: 'revision-7' }],
       prompt: '保留中的画面描述',
       generationContext: { sessionId: 'workbench-session' },
       data: 'data:image/png;base64,YWJj',
@@ -3098,6 +3248,7 @@ describe('Media services', () => {
     const workbench = mount(ImageGenerationWorkbench, {
       props: {
         storageKey: workbenchLibraryKey,
+        projectId: 'book-1',
         layout: 'split',
         mobilePane: 'results',
         initialPrompt: '作者可见的画面描述',
@@ -3123,7 +3274,7 @@ describe('Media services', () => {
     expect(workbench.get('.image-gen-thumb').element.tagName).toBe('BUTTON')
     expect(workbench.get('.image-preview-action-btn').attributes('disabled')).toBeDefined()
     expect(workbench.get('.image-gen-action-reason').text()).toContain('来源已更新')
-    const materialButton = workbench.findAll('.image-preview-action-btn').at(-1)
+    const materialButton = workbench.findAll('button.image-preview-action-btn').find(button => button.text() === '保存为素材')
     await materialButton.trigger('click')
     expect(workbench.emitted('save-to-material')?.[0]?.[0]).toMatchObject({
       id: 'legacy-workbench-image',
@@ -3161,12 +3312,18 @@ describe('Media services', () => {
       initialPrompt: '新落笔处的画面描述'
     })
     expect(workbench.get('.image-gen-prompt-input').element.value).toBe('作者可见的画面描述')
-    await workbench.get('.image-gen-cancel-btn').trigger('click')
+    const stopPreviousGeneration = workbench.findAll('button').find((button) => button.text() === '停止上次生成')
+    expect(stopPreviousGeneration, '切换上下文后仍须能停止上次生成').toBeTruthy()
+    await stopPreviousGeneration.trigger('click')
     expect(workbench.get('.image-gen-prompt-input').element.value).toBe('新落笔处的画面描述')
     expect(workbench.emitted('generation-cancel')).toHaveLength(1)
     expect(lateWorkbenchFetch.mock.calls[0][1].signal.aborted).toBe(true)
     resolveLateWorkbenchFetch()
-    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('保留 0 张'))
+    await flushPromises()
+    await vi.waitFor(() => expect(workbench.get('.image-gen-status').text()).toContain('已停止上次生成'))
+    // The late response belongs to the previous writing context; it must not
+    // replace the new prompt, report a completed image, or enter this library.
+    expect(workbench.get('.image-gen-prompt-input').element.value).toBe('新落笔处的画面描述')
     expect(workbench.emitted('generation-complete')).toBeUndefined()
     expect(localStorage.getItem(STORAGE_KEYS.MEDIA_ASSETS)).not.toContain(frozenWorkbenchJob.jobId)
     // A late failure must not roll back an earlier successful image; retry only
@@ -3664,8 +3821,19 @@ describe('Media services', () => {
         projectId: 'book-1'
       }
     })
-    expect(productionWorkbench.findAll('.comic-stage-workbench__tabs button')).toHaveLength(5)
-    expect(productionWorkbench.findAll('.comic-stage-workbench__capabilities .supported')).toHaveLength(3)
+    const stageTabs = productionWorkbench.findAll('[role="tab"]')
+    expect(stageTabs).toHaveLength(5)
+    const roughTab = stageTabs.find((tab) => tab.text().includes('草稿'))
+    const lineTab = stageTabs.find((tab) => tab.text().includes('线稿'))
+    expect(roughTab.attributes('aria-selected')).toBe('true')
+    const generateRough = productionWorkbench.findAll('button').find((button) => button.text() === '生成草稿')
+    expect(generateRough.attributes('disabled')).toBeUndefined()
+    await lineTab.trigger('click')
+    expect(lineTab.attributes('aria-selected')).toBe('true')
+    expect(productionWorkbench.get('.comic-stage-workbench__gate').text()).toContain('请先确认草稿')
+    const generateLine = productionWorkbench.findAll('button').find((button) => button.text() === '生成线稿')
+    expect(generateLine.attributes('disabled')).toBeDefined()
+    await roughTab.trigger('click')
     await flushPromises()
     expect(productionWorkbench.text()).toContain('尚无阶段产物')
     productionWorkbench.unmount()
@@ -3701,6 +3869,11 @@ describe('Media services', () => {
     })
     expect(JSON.stringify(manifest)).not.toContain('data:image')
     expect(estimateLineCount('风从门缝里吹进来', 120, 22)).toBeGreaterThan(1)
+    const measureLetters = (text) => Array.from(text).length
+    expect(wrapComicLetteringText('莉娜：灯亮了。', 6, measureLetters)).toEqual(['莉娜：灯亮', '了。'])
+    expect(wrapComicLetteringText('灯亮（夜晚）', 3, measureLetters)).toEqual(['灯亮', '（夜', '晚）'])
+    expect(wrapComicLetteringText('第一行\n\n第二行', 3, measureLetters)).toEqual(['第一行', '', '第二行'])
+    expect(wrapComicLetteringText('😀！', 1, measureLetters).join('')).toBe('😀！')
     const letteringReport = analyzeComicLettering(createComicPage({
       ...comicPage,
       id: 'lettering-audit',
@@ -3803,6 +3976,13 @@ describe('Media services', () => {
     expect(webtoonComposition.canvas.height).toBeGreaterThan(webtoonComposition.canvas.width * 2)
     expect(getComicPanelRect(webtoonComposition, webtoonComposition.panels[0].order).width).toBeGreaterThan(0)
 
+    const previousResizeObserver = globalThis.ResizeObserver
+    const disconnectCanvasObserver = vi.fn()
+    globalThis.ResizeObserver = class {
+      constructor(callback) { this.callback = callback }
+      observe() { this.callback([{ contentRect: { width: 600, height: 500 } }]) }
+      disconnect() { disconnectCanvasObserver() }
+    }
     const compositionCanvas = mount(ComicCompositionCanvas, {
       props: {
         page: createComicPage(controlledComposition),
@@ -3811,6 +3991,19 @@ describe('Media services', () => {
     })
     expect(compositionCanvas.findAll('.comic-composition__frame-handle')).toHaveLength(8)
     expect(compositionCanvas.findAll('.comic-composition__modes button')).toHaveLength(6)
+    await flushPromises()
+    const savedGeometry = JSON.stringify(compositionCanvas.props('page'))
+    const beforeZoom = compositionCanvas.get('.comic-composition__page').attributes('style')
+    await compositionCanvas.get('[aria-label="放大画布"]').trigger('click')
+    expect(compositionCanvas.get('.comic-composition__page').attributes('style')).not.toBe(beforeZoom)
+    expect(compositionCanvas.emitted('update-page')).toBeUndefined()
+    expect(JSON.stringify(compositionCanvas.props('page'))).toBe(savedGeometry)
+    await compositionCanvas.findAll('.comic-composition__fit-options button')[0].trigger('click')
+    expect(compositionCanvas.get('.comic-composition__page').attributes('style')).toBe(beforeZoom)
+    const originalCompositionPage = compositionCanvas.props('page')
+    await compositionCanvas.setProps({ page: { ...originalCompositionPage, format: 'webtoon' } })
+    expect(compositionCanvas.findAll('.comic-composition__fit-options button')[1].attributes('aria-pressed')).toBe('true')
+    await compositionCanvas.setProps({ page: originalCompositionPage })
     await compositionCanvas.findAll('.comic-composition__modes button')[1].trigger('click')
     await compositionCanvas.get('.comic-composition__add').trigger('click')
     expect(compositionCanvas.emitted('update-page')).toBeTruthy()
@@ -3818,6 +4011,8 @@ describe('Media services', () => {
     expect(compositionCanvas.get('.comic-composition__focus').attributes('aria-label')).toBe('拖动视觉焦点')
     expect(compositionCanvas.get('.comic-composition__horizon').attributes('aria-label')).toBe('拖动地平线')
     compositionCanvas.unmount()
+    expect(disconnectCanvasObserver).toHaveBeenCalledOnce()
+    globalThis.ResizeObserver = previousResizeObserver
 
     const referenceCatalog = buildComicReferenceCatalog({
       worldbook: {
@@ -3994,11 +4189,18 @@ describe('Media services', () => {
       }
     })
     expect(adaptationPlanner.findAll('[role="tab"]')).toHaveLength(2)
-    expect(adaptationPlanner.findAll('.comic-planner__page-flow > li')).toHaveLength(2)
-    expect(adaptationPlanner.findAll('.comic-planner__panel-beats')).toHaveLength(2)
-    expect(adaptationPlanner.text()).toContain('视觉圣经')
+    expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')).toHaveLength(2)
+    expect(adaptationPlanner.findAll('.comic-plan-page')).toHaveLength(2)
+    expect(adaptationPlanner.text()).toContain('视觉规则')
+    await adaptationPlanner.get('[aria-label="第 1 页标题"]').setValue('作者调整的第一页')
+    expect(adaptationPlanner.emitted('update-plan').at(-1)[0].pages[0].title).toBe('作者调整的第一页')
+    expect(adaptationCandidates[0].pages[0].title).not.toBe('作者调整的第一页')
+    await adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].trigger('click')
+    expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].attributes('aria-pressed')).toBe('true')
+    expect(adaptationPlanner.findAll('.comic-plan-page')[1].attributes('style') || '').not.toContain('display: none')
+    await adaptationPlanner.findAll('.comic-planner__sections > button')[1].trigger('click')
     await adaptationPlanner.findAll('.comic-planner__icon')[0].trigger('click')
-    expect(adaptationPlanner.emitted('update-plan')).toBeTruthy()
+    expect(adaptationPlanner.emitted('update-plan')).toHaveLength(2)
     await adaptationPlanner.get('.comic-planner__footer .comic-planner__primary').trigger('click')
     expect(adaptationPlanner.emitted('apply')).toHaveLength(1)
     adaptationPlanner.unmount()
@@ -4091,8 +4293,16 @@ describe('Media services', () => {
       }
     })
     await flushPromises()
-    expect(comicEditor.text()).toContain('分格导航')
+    expect(comicEditor.get('button[aria-label="上一格"]').attributes('disabled')).toBeDefined()
+    await comicEditor.get('button[aria-label="下一格"]').trigger('click')
+    expect(comicEditor.get('.comic-editor__panel-nav').text()).toContain('第 2 格')
+    await comicEditor.get('button[aria-label="上一格"]').trigger('click')
+    expect(comicEditor.get('.comic-editor__panel-nav').text()).toContain('第 1 格')
     expect(comicEditor.text()).not.toContain('视觉连续性')
+    const letteringTab = comicEditor.get('nav[aria-label="当前格编辑任务"]').findAll('button')
+      .find((button) => button.text() === '文字')
+    await letteringTab.trigger('click')
+    expect(letteringTab.attributes('aria-pressed')).toBe('true')
     const placeScriptButton = comicEditor.findAll('button').find((button) => button.text() === '排入画面')
     expect(placeScriptButton).toBeTruthy()
     await placeScriptButton.trigger('click')
@@ -4111,7 +4321,9 @@ describe('Media services', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects[0].style)
       .toEqual({ fontFamily: 'rounded', fontSize: 37, fontWeight: 800, textAlign: 'right', textDirection: 'horizontal', rotation: 0 })
     expect(comicEditor.findAll('.comic-lettering-overlay__handle')).toHaveLength(8)
-    await comicEditor.get('.comic-editor__workspace-tabs button:first-child').trigger('click')
+    const pageWorkspaceTab = comicEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
+      .find((button) => button.text() === '页面与导出')
+    await pageWorkspaceTab.trigger('click')
     expect(comicEditor.text()).toContain('视觉连续性')
     expect(comicEditor.text()).toContain('页级节拍与连续性')
     expect(comicEditor.find('.comic-editor__planning-overview').exists()).toBe(true)
@@ -4200,9 +4412,16 @@ describe('Media services', () => {
         compact: true
       }
     })
-    await blankEditor.get('.comic-editor__draft-choice--count button:last-child').trigger('click')
-    await blankEditor.get('.comic-editor__draft-actions button:last-child').trigger('click')
+    const sixPanelOption = blankEditor.get('[aria-label="漫画页格数"]').findAll('button')
+      .find((button) => button.text() === '6 格')
+    await sixPanelOption.trigger('click')
+    expect(sixPanelOption.attributes('aria-pressed')).toBe('true')
+    const createBlankPage = blankEditor.findAll('button').find((button) => button.text() === '建立空白页')
+    await createBlankPage.trigger('click')
     expect(blankEditor.text()).toContain('0/6')
+    const blankPageWorkspace = blankEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
+      .find((button) => button.text() === '页面与导出')
+    await blankPageWorkspace.trigger('click')
     expect(blankEditor.findAll('.comic-page-preview__panel')).toHaveLength(6)
     blankEditor.unmount()
 
@@ -4217,6 +4436,11 @@ describe('Media services', () => {
     expect(migrated[0]).toMatchObject({ id: 'legacy-1', data: 'data:image/png;base64,YWJj' })
     expect(localStorage.getItem('legacy_image_library')).not.toContain('YWJj')
 
+    await expect(deleteMediaAsset(media.id, { binaryStore })).rejects.toThrow('仍被素材、正文或漫画使用')
+    expect(blobs.has(media.id)).toBe(true)
+    // All comic documents in this case are isolated fixtures. Drop their
+    // references before checking that an unused binary can actually be removed.
+    localStorage.removeItem(STORAGE_KEYS.COMIC_PAGES)
     await deleteMediaAsset(media.id, { binaryStore })
     await deleteMediaAsset(migrated[0].mediaAssetId, { binaryStore })
 
@@ -4254,15 +4478,30 @@ describe('Media services', () => {
     expect(canvasSave).toMatchObject({ ok: false, reason: 'storage-write-failed', rollbackOk: true })
     expect(JSON.parse(canvasStorageData.get('prose_edges_v1'))).toEqual([{ id: 'old-edge' }])
     expect(canvasStorageData.has(STORAGE_KEYS.PROSE_CARDS_V1)).toBe(false)
+    const failedStoryboardWrite = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError')
+    })
+    try {
+      expect(() => saveValidatedStoryboardVersion({
+        projectId: 'comic-workflow', source: { sourceType: 'prose-card', sourceId: 'failure-check' },
+        shots: [{ content: '雨夜街角', duration: 3 }]
+      })).toThrow('分镜保存失败')
+    } finally { failedStoryboardWrite.mockRestore() }
+
+    await expect(deleteMediaAsset(canvasImage.mediaAssetId, { binaryStore })).rejects.toThrow('仍被素材、正文或漫画使用')
+    localStorage.removeItem(STORAGE_KEYS.PROSE_CARDS_V1)
     await deleteMediaAsset(canvasImage.mediaAssetId, { binaryStore })
-    await deleteMediaAsset(generatedRoughId, { binaryStore })
-    await deleteMediaAsset(generatedLineId, { binaryStore })
-    await deleteMediaAsset(generatedFlatsId, { binaryStore })
-    await deleteMediaAsset(generatedRenderId, { binaryStore })
+    await expect(deleteMediaAsset(generatedRoughId, { binaryStore })).rejects.toThrow('仍是其他图片的上游来源')
+    // Remove descendants first, just as an actual library must preserve a
+    // source image until its downstream generations no longer depend on it.
     await deleteMediaAsset(generatedEffectsId, { binaryStore })
-    await deleteMediaAsset('media-mono-line', { binaryStore })
-    await deleteMediaAsset(uploadedTonesId, { binaryStore })
+    await deleteMediaAsset(generatedRenderId, { binaryStore })
+    await deleteMediaAsset(generatedFlatsId, { binaryStore })
+    await deleteMediaAsset(generatedLineId, { binaryStore })
+    await deleteMediaAsset(generatedRoughId, { binaryStore })
     await deleteMediaAsset(monoEffectsId, { binaryStore })
+    await deleteMediaAsset(uploadedTonesId, { binaryStore })
+    await deleteMediaAsset('media-mono-line', { binaryStore })
 
     expect(listMediaAssets()).toHaveLength(0)
     expect(blobs.has(media.id)).toBe(false)

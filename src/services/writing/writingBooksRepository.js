@@ -1,3 +1,4 @@
+import { recoverAssistantEdits } from '../storage/assistantEditJournal.js'
 import { normalizeManuscriptLanguage } from '../../../shared/writingLanguage.js'
 // 书籍 repository（工作台标签计划 Task 1）：`writing_books` 的唯一读写边界。
 // Authoring、Experience 写回和工作台标签解析器都通过这里访问书数据；
@@ -32,6 +33,7 @@ export function normalizeWritingBook(raw) {
 }
 
 export function loadWritingBooks() {
+  recoverAssistantEdits()
   const stored = getItem(STORAGE_KEYS.WRITING_BOOKS)
   if (!Array.isArray(stored)) return []
   return stored.map(normalizeWritingBook).filter(Boolean)
@@ -42,6 +44,10 @@ export function saveWritingBooksDurable(books) {
   const ok = setItem(STORAGE_KEYS.WRITING_BOOKS, books)
   if (!ok) return storageWriteFailure({ resource: 'writing-books' })
 
+  return publishWritingBooks(books)
+}
+
+export function publishWritingBooks(books) {
   const currentRevision = nextRevision()
   for (const listener of revisionListeners) {
     try {

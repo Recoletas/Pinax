@@ -56,6 +56,7 @@ export function useWorkstationMeta() {
   // "未登记" with a plain-fact statement — no more archived-fiction
   // vocabulary in the workstation chrome).
   const currentTask = computed(() => {
+    if (gameStore.roleplaySession?.scenarioRun) return gameStore.roleplaySession.goal || gameStore.roleplaySession.scenario?.title || '本场冒险'
     const demoMode = totalCount.value === 0
     if (demoMode) {
       const scene = demo.currentScene.value
@@ -86,8 +87,8 @@ export function useWorkstationMeta() {
   const isEmpty = computed(() => totalCount.value === 0)
 
   // The local demo is an empty-state presentation, not an AI-configuration
-  // probe. Built-in MiniMax is valid even though its real key is resolved on
-  // the server and is therefore not stored in localStorage.
+  // probe. The server-model row is valid even though the real key lives in the
+  // pi-agent kernel and is never stored in localStorage.
   const hasConfiguredAi = computed(() => {
     try {
       const config = resolveSelectedTextProviderConfig()
@@ -101,7 +102,7 @@ export function useWorkstationMeta() {
   // UI-E13-BIG1: true when no real messages yet. Keep this independent from
   // AI availability so the offline sample controls remain usable alongside a
   // configured provider.
-  const isDemoMode = computed(() => totalCount.value === 0)
+  const isDemoMode = computed(() => totalCount.value === 0 && !gameStore.roleplaySession?.scenarioRun)
 
   // UI-E13-BIG1: demo scene reference. Exposed so right rail can
   // read characters / location / time / weather without re-calling
@@ -116,6 +117,7 @@ export function useWorkstationMeta() {
   const demoCurrentEvent = computed(() => demo.currentEvent.value)
 
   const topstripAnchor = computed(() => {
+    if (gameStore.roleplaySession?.scenarioRun) return gameStore.roleplaySession.scenario?.title || '本场冒险'
     if (isEmpty.value) {
       // UI-E13-BIG1: anchor reflects demo scene location in demo mode
       const scene = demo.currentScene.value

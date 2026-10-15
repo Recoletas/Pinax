@@ -189,3 +189,16 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+<style scoped>
+.tip-banner { top: auto; left: auto; right: 24px; bottom: 24px; transform: none; width: min(380px, calc(100vw - 48px)); box-sizing: border-box; padding: 20px; gap: 12px; border: 1px solid var(--hairline-soft); border-radius: 12px; background: var(--surface-workbench-raised); backdrop-filter: none; font-family: var(--font-sans); }
+.tip-banner--welcome, .tip-banner--success { background: var(--surface-workbench-raised); border-color: var(--hairline-soft); }
+.tip-banner__body { gap: 9px; }
+.tip-banner__title { font-size: 15px; line-height: 1.5; font-weight: 600; }
+.tip-banner__text { font-size: 13px; line-height: 1.7; }
+.tip-banner__cta { min-height: 36px; padding: 8px 14px; margin-top: 4px; border: 0; border-radius: 8px; background: var(--accent); color: var(--accent-text); font: 500 13px/1.4 var(--font-sans); }
+.tip-banner__close { width: 32px; height: 32px; margin: -6px -8px 0 0; font-size: 22px; border-radius: 8px; }
+.tip-banner :is(button):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tip-layer-enter-from, .tip-layer-leave-to { transform: translateY(8px); }
+@media (max-width: 640px) { .tip-banner { top: 64px; bottom: auto; left: 12px; right: 12px; width: auto; padding: 16px; } .tip-banner__close { width: 44px; height: 44px; } .tip-banner__cta { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .tip-layer-enter-active, .tip-layer-leave-active { transition: none; } }
+</style>

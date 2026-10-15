@@ -1,37 +1,11 @@
+// 服务端指令卡与 prompt 组装（2026-10-09：OpenClaw 网关客户端与 getAdvice 通路退役，
+// 本文件只剩提示词层——模型调用一律经 server/services/modelRouting.js 的内核单闸）。
 import { writingLanguageInstruction } from '../../shared/writingLanguage.js'
-import WebSocket from 'ws'
-import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from 'fs'
-import { dirname, join } from 'path'
-import { homedir } from 'os'
-import {
-  randomUUID,
-  generateKeyPairSync,
-  createPublicKey,
-  createPrivateKey,
-  sign,
-  createHash
-} from 'crypto'
-
-const AGENT_ID = process.env.OPENCLAW_AGENT_ID || 'main'
-const GATEWAY_BASE_URL = process.env.OPENCLAW_BASE_URL || 'http://127.0.0.1:18789'
-const OPENCLAW_TIMEOUT_MS = Number.isFinite(Number(process.env.OPENCLAW_TIMEOUT_MS))
-  ? Math.max(5000, Math.floor(Number(process.env.OPENCLAW_TIMEOUT_MS)))
-  : 45000
-const DEVICE_IDENTITY_PATH = process.env.OPENCLAW_DEVICE_IDENTITY_PATH
-  || join(homedir(), '.openclaw', 'identity', 'pinax-device.json')
-
-const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
-
 import { validateServerTaskType } from './agentTaskAllowlist.js'
 import { agentEnvelopeToPromptText } from '../../shared/agentContextContract.js'
 
-export const OPENCLAW_PROVIDER = Object.freeze({
-  id: 'openclaw',
-  capabilities: ['text'],
-  timeoutMs: OPENCLAW_TIMEOUT_MS
-})
-
 const ADVISOR_TASK_INSTRUCTIONS = {
+  'memory.extraction': '任务：只从冻结原文提取有逐字引文支撑的人物事实三元组，作为作者待审候选。保留否定、假设和转述语义，不把人物传闻当作已发生事实；不得补造人物、关系或日期，不修改任何正式记忆。',
   'authoring.rehearsal.step': '任务：在作者隔离的故事试演中，从给定路径最后一刻承接最新行动，只演出一次新的具体回应。冻结现场是起点背景，已发生的事件、人物动作和环境描写不得再次演出。用人物对白与动作呈现，不写评审建议，不生成正式正文，不改设定。人物仅能依据已知信息行动；作者知道的秘密不等于人物知道。不得捏造引用、确定概率或强迫冲突升级。',
   'writing.fix.selection': '任务：修正选区文字。输出简洁可替换结果。',
   'writing.fix.paragraph': '任务：修正当前段落。输出简洁可替换段落。',
@@ -74,22 +48,6 @@ function resolveTaskTemplateKey(taskType) {
   return CANONICAL_TASK_TEMPLATE_KEYS[taskType] || taskType
 }
 
-function readGatewayTokenFromConfig() {
-  try {
-    const configPath = join(homedir(), '.openclaw', 'openclaw.json')
-    if (!existsSync(configPath)) return ''
-    const raw = JSON.parse(readFileSync(configPath, 'utf8'))
-    const token = raw?.gateway?.auth?.token
-    return typeof token === 'string' ? token.trim() : ''
-  } catch {
-    return ''
-  }
-}
-
-function resolveGatewayToken() {
-  return (process.env.OPENCLAW_GATEWAY_TOKEN || readGatewayTokenFromConfig() || '').trim()
-}
-
 function serializeContext(context) {
   if (typeof context === 'string') return context.trim()
   if (context == null) return ''
@@ -130,6 +88,11 @@ function getTaskInstruction(taskType) {
 
 function getTaskOutputInstruction(taskType, options = {}) {
   taskType = resolveTaskTemplateKey(taskType)
+  if (taskType === 'memory.extraction') {
+    return `输出要求：只返回 JSON 对象，不要 Markdown、建议或写入动作。格式：
+{"proposals":[{"subject":"原文人物名","predicate":"关系或动作","object":"宾语或结果","quote":"逐字复制的支撑原句","polarity":"positive","storyTime":{"precision":"unknown"},"confidence":0.8}],"unextractable":{"reason":""}}
+最多 12 项。polarity 只能为 positive、negative、hedged、report；传闻、梦境和转述必须用 report，否定用 negative，假设或不确定用 hedged。时间未知用 unknown，不补今天日期。承诺、计划和未来动作必须保留“答应/计划/将要”等限定词，不得拆成已经完成的事实；可用 predicate 表达“答应到访”，不能改为“到访”。否定、传闻与条件也必须在 predicate/object 中完整表达，不能只放在 polarity。quote 必须是冻结原文中包含全部限定词的连续完整原句，不得改写或只截取动作子串。实际兑现承诺必须另有完成证据；同名歧义或没有可靠事实时 proposals 返回空数组并说明原因。`
+  }
   if (taskType === 'writing.continue.light') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。格式：
 {
@@ -329,12 +292,12 @@ options 必须为 2-3 项，使用中文，不得替玩家决定，不得输出�
   }
 
   if (taskType === 'authoring.rehearsal.step') {
-    return '只输出 JSON：{"response":"40-180字、紧接上一刻的具体动作/对白回应，不重复作者行动或已有环境描写","change":"一句本次假想局面变化，80字以内","choices":["一个可试的具体行动","另一个可试的具体行动"],"evidenceRefs":["依据的原文 sourceRef"],"consequences":[]}'
+    return '只输出 JSON：{"response":"40-180字、紧接上一刻的具体动作与对白，按本次要求区分自然续演、待发生要求和已完成行动；不重演已发生事件或环境描写","change":"一句本次假想局面变化，80字以内","choices":["一个可试的具体行动","另一个可试的具体行动"],"evidenceRefs":["依据的原文 sourceRef"],"consequences":[]}'
       + ' response 最多600字符，choices 1-3条，每条最多80字符。仅引用上下文给出的 sourceRefs；回应是未采用的假想，不是正式事实。资料不足时明确描述不确定性，不假装角色已知秘密。不要输出 summary、replacement 或任何写入动作。'
       + ' consequences 是本步后果登记，协议最多2条，但每次只输出最明确的1条；没有就给空数组，只能登记问题中列出的事实与人物：'
       + ' 行动让某人确实得知已列出的事实时输出 {"kind":"knowledge","knowerRef":"人物ref","factKey":"事实标识","source":{"kind":"action或response","quote":"逐字原句"}}；'
       + ' 人物在回应中承诺/有条件承诺/拒绝/撤回时输出 {"kind":"commitment","promisorRef":"人物ref","beneficiaryRef":"人物ref或省略","state":"promised|conditioned|refused|withdrawn","content":"具体承诺","condition":"条件或省略","source":{"kind":"response","quote":"回应逐字原句"}}；更新既有承诺必须原样带上其 commitmentKey，新承诺不要编造 key。'
-      + ' quote 必须逐字来自本次作者行动或 response 字段原文，choices 不属于回应原文、绝不能作为 quote；未列出的事实与人物 ref 一律不要登记。'
+      + ' quote 必须逐字来自 response 字段原文；只有本次明确为已完成行动时，knowledge 才可引用作者行动原文。待发生的写作要求不能证明事件已发生。choices 不属于回应原文、绝不能作为 quote；未列出的事实与人物 ref 一律不要登记。'
   }
   if (taskType === 'authoring.scene.directions') {
     return `输出要求：只输出一个 JSON 对象，不要 Markdown。证据不足时输出：
@@ -371,11 +334,11 @@ directions 只能为 2-3 条；不得只改变语气、文风或氛围；任意�
       clues: '理线索：只排列已有事实、时间与因果；任何推断都明确写“推测”并降为 partial。',
       character: '挖角色：分别说明世界书设定、正文行为和当前场状态，不把速记当作人物事实。',
       'whole-book': '问全书：按章节或来源组织答案，引用每个结论实际依赖的原文。',
-      free: '自由问：只提供一般写作建议，claims、evidenceRefs 和 calculations 必须为空。'
+      free: '自由讨论：依据本次给出的当前文稿讨论，已写事实保持原状，新设想明确标为备选；未提供的内容不要假装读过。claims、evidenceRefs 和 calculations 必须为空。'
     })[knowledgeIntent] || '只回答当前问题，不扩展为正文生成或资料写入。'
     return `输出要求：只输出一个 JSON 对象，不要 Markdown、分析过程或写入动作。格式：
 {
-  "answer": "面向作者的简洁回答；资料不足时明确写当前资料中没有找到",
+  "answer": "面向作者的简洁回答，用书名、章节名或人物名表达；不要展示 sourceRef、node ID 等内部标识，标识只放下方结构化引用字段；资料不足时明确写当前资料中没有找到",
   "claims": [{
     "text": "一个可独立核查的结论",
     "confidence": "supported|partial|unsupported",
@@ -507,330 +470,4 @@ export function buildOpenClawUserMessage(context, question, taskMeta = {}) {
     `当前创作上下文：\n${contextText}`,
     `用户的问题：${questionText}`
   ].filter(Boolean).join('\n\n')
-}
-
-function base64UrlEncode(inputBuffer) {
-  return inputBuffer.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '')
-}
-
-function derivePublicKeyRaw(publicKeyPem) {
-  const key = createPublicKey(publicKeyPem)
-  const spki = key.export({ type: 'spki', format: 'der' })
-  if (
-    spki.length === ED25519_SPKI_PREFIX.length + 32
-    && spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
-  ) {
-    return spki.subarray(ED25519_SPKI_PREFIX.length)
-  }
-  return spki
-}
-
-function buildDeviceId(publicKeyPem) {
-  return createHash('sha256').update(derivePublicKeyRaw(publicKeyPem)).digest('hex')
-}
-
-function loadOrCreateDeviceIdentity(filePath = DEVICE_IDENTITY_PATH) {
-  try {
-    if (existsSync(filePath)) {
-      const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
-      if (
-        parsed?.version === 1
-        && typeof parsed.deviceId === 'string'
-        && typeof parsed.publicKeyPem === 'string'
-        && typeof parsed.privateKeyPem === 'string'
-      ) {
-        return {
-          deviceId: parsed.deviceId,
-          publicKeyPem: parsed.publicKeyPem,
-          privateKeyPem: parsed.privateKeyPem
-        }
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  const pair = generateKeyPairSync('ed25519')
-  const publicKeyPem = pair.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-  const privateKeyPem = pair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
-  const payload = {
-    version: 1,
-    deviceId: buildDeviceId(publicKeyPem),
-    publicKeyPem,
-    privateKeyPem,
-    createdAtMs: Date.now()
-  }
-
-  mkdirSync(dirname(filePath), { recursive: true })
-  writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 })
-  try {
-    chmodSync(filePath, 0o600)
-  } catch {
-    // best effort
-  }
-
-  return {
-    deviceId: payload.deviceId,
-    publicKeyPem: payload.publicKeyPem,
-    privateKeyPem: payload.privateKeyPem
-  }
-}
-
-function buildDeviceAuthPayload({ deviceId, clientId, clientMode, role, scopes, signedAtMs, token, nonce }) {
-  return [
-    'v2',
-    deviceId,
-    clientId,
-    clientMode,
-    role,
-    scopes.join(','),
-    String(signedAtMs),
-    token || '',
-    nonce
-  ].join('|')
-}
-
-function buildSignedDevice(challengeNonce, token, scopes) {
-  const identity = loadOrCreateDeviceIdentity()
-  const signedAt = Date.now()
-  const payload = buildDeviceAuthPayload({
-    deviceId: identity.deviceId,
-    clientId: 'gateway-client',
-    clientMode: 'backend',
-    role: 'operator',
-    scopes,
-    signedAtMs: signedAt,
-    token,
-    nonce: challengeNonce
-  })
-  const signature = base64UrlEncode(sign(null, Buffer.from(payload, 'utf8'), createPrivateKey(identity.privateKeyPem)))
-  return {
-    id: identity.deviceId,
-    publicKey: base64UrlEncode(derivePublicKeyRaw(identity.publicKeyPem)),
-    signature,
-    signedAt,
-    nonce: challengeNonce
-  }
-}
-
-function extractTextFromChatMessage(message) {
-  if (!message || typeof message !== 'object') return ''
-
-  if (typeof message.text === 'string') return message.text.trim()
-  if (typeof message.content === 'string') return message.content.trim()
-
-  if (Array.isArray(message.content)) {
-    const text = message.content
-      .map((item) => (item && typeof item === 'object' && typeof item.text === 'string' ? item.text : ''))
-      .filter(Boolean)
-      .join('\n')
-      .trim()
-    if (text) return text
-  }
-
-  return ''
-}
-
-function extractTextFromHistoryMessages(messages) {
-  if (!Array.isArray(messages)) return ''
-
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const item = messages[i]
-    if (!item || typeof item !== 'object') continue
-    if (item.role !== 'assistant') continue
-
-    if (typeof item.text === 'string' && item.text.trim()) {
-      return item.text.trim()
-    }
-
-    if (typeof item.content === 'string' && item.content.trim()) {
-      return item.content.trim()
-    }
-
-    if (Array.isArray(item.content)) {
-      const text = item.content
-        .map((part) => (part && typeof part === 'object' && typeof part.text === 'string' ? part.text : ''))
-        .filter(Boolean)
-        .join('\n')
-        .trim()
-      if (text) return text
-    }
-  }
-
-  return ''
-}
-
-export async function getAdvice(context, question, taskMeta = {}) {
-  const token = resolveGatewayToken()
-  if (!token) {
-    throw new Error('缺少 OPENCLAW_GATEWAY_TOKEN，请先配置网关 Token')
-  }
-
-  const userMessage = buildOpenClawUserMessage(context, question, taskMeta)
-
-  const wsUrl = GATEWAY_BASE_URL.replace(/^http/, 'ws').replace(/\/$/, '')
-  const connectId = randomUUID()
-  const sendId = randomUUID()
-  const historyId = randomUUID()
-  const requestId = randomUUID()
-  const idempotencyKey = `pinax_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
-  const sessionKey = `agent:${AGENT_ID}:pinax:${requestId}`
-
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let runId = ''
-    let waitingHistory = false
-
-    const ws = new WebSocket(wsUrl, {
-      perMessageDeflate: false,
-      headers: { 'User-Agent': 'Pinax-OpenClaw-Client/1.0.0' }
-    })
-
-    const done = (value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      resolve(value)
-      ws.close(1000, 'done')
-    }
-
-    const fail = (error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      reject(error instanceof Error ? error : new Error(String(error)))
-      ws.close(1008, 'error')
-    }
-
-    const timeout = setTimeout(() => {
-      fail(new Error(`OpenClaw Gateway 调用超时（${Math.floor(OPENCLAW_TIMEOUT_MS / 1000)}秒）`))
-    }, OPENCLAW_TIMEOUT_MS)
-
-    ws.on('message', (data) => {
-      let message
-      try {
-        message = JSON.parse(data.toString())
-      } catch {
-        return
-      }
-
-      if (message.type === 'event' && message.event === 'connect.challenge') {
-        const nonce = message.payload?.nonce
-        if (!nonce || typeof nonce !== 'string') {
-          fail(new Error('gateway connect challenge missing nonce'))
-          return
-        }
-
-        const scopes = ['operator.read', 'operator.write']
-        ws.send(JSON.stringify({
-          type: 'req',
-          id: connectId,
-          method: 'connect',
-          params: {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: 'gateway-client',
-              version: '1.0.0',
-              platform: 'linux',
-              mode: 'backend'
-            },
-            role: 'operator',
-            scopes,
-            caps: [],
-            commands: [],
-            permissions: {},
-            auth: { token },
-            device: buildSignedDevice(nonce, token, scopes)
-          }
-        }))
-        return
-      }
-
-      if (message.type === 'res' && message.id === connectId) {
-        if (!message.ok || message.payload?.type !== 'hello-ok') {
-          fail(new Error(`connect failed: ${message.error?.message || message.error || 'unknown error'}`))
-          return
-        }
-
-        ws.send(JSON.stringify({
-          type: 'req',
-          id: sendId,
-          method: 'chat.send',
-          params: {
-            sessionKey,
-            message: userMessage,
-            idempotencyKey,
-            timeoutMs: OPENCLAW_TIMEOUT_MS
-          }
-        }))
-        return
-      }
-
-      if (message.type === 'res' && message.id === sendId) {
-        if (!message.ok) {
-          fail(new Error(`chat.send failed: ${message.error?.message || message.error || 'unknown error'}`))
-          return
-        }
-        runId = typeof message.payload?.runId === 'string' ? message.payload.runId : runId
-        return
-      }
-
-      if (message.type === 'res' && message.id === historyId) {
-        if (!message.ok) {
-          fail(new Error(`chat.history failed: ${message.error?.message || message.error || 'unknown error'}`))
-          return
-        }
-
-        const content = extractTextFromHistoryMessages(message.payload?.messages)
-        if (!content) {
-          fail(new Error('OpenClaw 返回空内容'))
-          return
-        }
-        done(content)
-        return
-      }
-
-      if (message.type === 'event' && message.event === 'chat') {
-        const payload = message.payload || {}
-        if (runId && payload.runId && payload.runId !== runId) return
-
-        if (payload.state === 'error') {
-          fail(new Error(`chat error: ${payload.errorMessage || 'unknown error'}`))
-          return
-        }
-
-        if (payload.state !== 'final') return
-
-        const content = extractTextFromChatMessage(payload.message)
-        if (!content) {
-          if (!waitingHistory) {
-            waitingHistory = true
-            ws.send(JSON.stringify({
-              type: 'req',
-              id: historyId,
-              method: 'chat.history',
-              params: {
-                sessionKey,
-                limit: 20
-              }
-            }))
-          }
-          return
-        }
-
-        done(content)
-      }
-    })
-
-    ws.on('error', (error) => {
-      fail(new Error(`WebSocket error: ${error.message}`))
-    })
-
-    ws.on('close', (code, reason) => {
-      if (!settled && code !== 1000) {
-        fail(new Error(`WebSocket closed: ${reason?.toString() || code}`))
-      }
-    })
-  })
 }

@@ -6,7 +6,7 @@
  * - Validates config against each adapter's declared shape.
  */
 
-const SECRET_FIELDS = ['apiKey', 'api_key', 'token', 'secret', 'authorization', 'accessToken', 'access_token', 'password']
+const SECRET_FIELDS = new Set(['apikey', 'token', 'secret', 'authorization', 'accesstoken', 'password', 'cookie', 'setcookie', 'xapikey'])
 
 export function createProviderRegistry(options = {}) {
   const log = options.logger || console
@@ -103,7 +103,8 @@ export function createProviderRegistry(options = {}) {
   function redactConfig(config = {}) {
     const out = {}
     for (const [k, v] of Object.entries(config)) {
-      out[k] = isSecretField(k) ? '<redacted>' : v
+      out[k] = isSecretField(k) || /headers$/i.test(k) ? '<redacted>'
+        : (v && typeof v === 'object' ? redactConfig(v) : v)
     }
     return out
   }
@@ -116,7 +117,7 @@ export function createProviderRegistry(options = {}) {
 }
 
 export function isSecretField(key) {
-  return SECRET_FIELDS.includes(String(key || '').trim())
+  return SECRET_FIELDS.has(String(key || '').trim().toLowerCase().replace(/[-_]/g, ''))
 }
 
 function parseConfigKey(keySpec) {
@@ -129,7 +130,7 @@ function parseConfigKey(keySpec) {
 
 function humanizeLabel(key) {
   return String(key)
-    .replace(/[_\-]+/g, ' ')
+    .replace(/[_-]+/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .replace(/^./, (c) => c.toUpperCase())
 }

@@ -8,18 +8,20 @@
 export const SHOT_TYPES = {
   extreme_wide: {
     id: 'extreme_wide',
-    label: '远景',
+    label: '极远景',
     english: 'Extreme Wide Shot (EWS)',
     description: '展现广阔场景',
     usage: '建立场景、氛围'
   },
   wide: {
     id: 'wide',
-    label: '全景',
+    label: '远景',
     english: 'Wide Shot (WS)',
     description: '完整展示人物与环境',
     usage: '交代关系'
   },
+  full: { id: 'full', label: '全景', english: 'Full Shot', description: '人物全身与周边空间', usage: '展示人物动作' },
+  medium_wide: { id: 'medium_wide', label: '中远景', english: 'Medium Wide Shot', description: '人物与环境关系', usage: '动作与交流' },
   medium: {
     id: 'medium',
     label: '中景',
@@ -27,6 +29,7 @@ export const SHOT_TYPES = {
     description: '膝盖以上',
     usage: '日常对话、动作'
   },
+  medium_close: { id: 'medium_close', label: '中近景', english: 'Medium Close-Up', description: '人物上半身', usage: '对话与反应' },
   close_up: {
     id: 'close_up',
     label: '近景',
@@ -40,7 +43,11 @@ export const SHOT_TYPES = {
     english: 'Extreme Close-Up (ECU)',
     description: '局部细节',
     usage: '强调、紧张感'
-  }
+  },
+  two_shot: { id: 'two_shot', label: '双人镜头', english: 'Two Shot', description: '两个人物同框', usage: '人物关系' },
+  over_shoulder: { id: 'over_shoulder', label: '过肩镜头', english: 'Over-the-Shoulder', description: '从人物肩后观察', usage: '对话视角' },
+  pov: { id: 'pov', label: '主观镜头', english: 'Point of View', description: '人物眼中的画面', usage: '建立主观体验' },
+  aerial: { id: 'aerial', label: '航拍', english: 'Aerial Shot', description: '高空俯视场景', usage: '展示地理与空间' }
 }
 
 // 运镜定义
@@ -59,13 +66,13 @@ export const CAMERA_MOVEMENTS = {
   },
   pan: {
     id: 'pan',
-    label: '摇',
+    label: '横摇',
     english: 'Pan',
     description: '镜头左右摇动'
   },
   track: {
     id: 'track',
-    label: '移',
+    label: '轨道',
     english: 'Track',
     description: '镜头左右移动'
   },
@@ -80,7 +87,18 @@ export const CAMERA_MOVEMENTS = {
     label: '固定',
     english: 'Fixed',
     description: '镜头固定'
-  }
+  },
+  // Retain the values already saved by the canvas detail editor.
+  static: { id: 'static', label: '固定', english: 'Static', description: '镜头固定' },
+  tilt: { id: 'tilt', label: '竖摇', english: 'Tilt', description: '镜头上下摇动' },
+  dolly: { id: 'dolly', label: '推拉', english: 'Dolly', description: '摄影机前后移动' },
+  crane: { id: 'crane', label: '升降', english: 'Crane', description: '摄影机上下移动' },
+  zoom: { id: 'zoom', label: '变焦', english: 'Zoom', description: '通过焦距改变画面范围' },
+  handheld: { id: 'handheld', label: '手持', english: 'Handheld', description: '手持摄影机运动' },
+  steadicam: { id: 'steadicam', label: '稳定器', english: 'Steadicam', description: '平稳移动的跟拍' },
+  spin: { id: 'spin', label: '旋转', english: 'Spin', description: '镜头围绕主体旋转' },
+  tilt_up: { id: 'tilt_up', label: '仰拍', english: 'Low Angle', description: '从较低位置向上拍摄' },
+  tilt_down: { id: 'tilt_down', label: '俯拍', english: 'High Angle', description: '从较高位置向下拍摄' }
 }
 
 // 转场类型定义

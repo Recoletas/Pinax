@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { effectScope, ref } from 'vue'
+import { nextTick } from 'vue'
 import { createAuthoringProjectAdapter } from '../services/agents/authoring/authoringProjectAdapter.js'
 import { createAuthoringTextWorkflow } from '../services/agents/authoring/authoringTextWorkflow.js'
 import {
@@ -34,6 +35,9 @@ import {
 } from '../services/agents/authoring/authoringKnowledgeAnswerContract.js'
 import { useAuthoringKnowledgeAssistant, recordKnowledgeSeamFocus } from '../composables/useAuthoringKnowledgeAssistant.js'
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/authoringKnowledgeQuerySession.js'
+import { applyAuthoringSearchEditorTransaction } from '../composables/useAuthoringSearchWorkflow.js'
+import { useAuthoringBlockWorkflow } from '../composables/useAuthoringBlockWorkflow.js'
+import { deriveNarrativeGroundingPolicy } from '../services/agents/narrativeAgentPolicy.js'
 import {
   assessAuthoringVisualBriefFreshness,
   createAuthoringVisualBrief,
@@ -372,6 +376,63 @@ describe('authoring project adapter', () => {
       ok: true,
       session: { retrievalScope: 'project', target: null, evidenceEnvelope: { evidence: [] } }
     })
+    const freeSourceBlocks = freeFromUnsavedSurface.session.contextEnvelope.blocks
+    expect(freeSourceBlocks.some((block) => block.content.includes('当前速记（备选构思）') && block.content.includes('蓝铜钥匙'))).toBe(true)
+    expect(freeSourceBlocks.flatMap((block) => block.sourceRefs)).toEqual([])
+    const currentChapterDiscussion = await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'free', question: '下一段怎样继续？',
+      target: { projectId: 'book-query', chapterId: 'query-chapter-1' }
+    })
+    const discussionText = currentChapterDiscussion.session.contextEnvelope.blocks.map((block) => block.content).join('\n')
+    expect(discussionText).toContain('艾德加在钟楼下把钥匙交给莉娜')
+    expect(discussionText).not.toContain('莉娜在港口再次见到艾德加')
+    expect(currentChapterDiscussion.session.evidenceEnvelope.evidence).toEqual([])
+    expect(await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'free', question: '下一段怎样继续？',
+      target: { projectId: 'book-foreign', chapterId: 'query-chapter-1' }
+    })).toMatchObject({ ok: false, reason: 'knowledge-target-project-mismatch' })
+    expect(await knowledgeQuery.prepare({
+      projectId: 'book-query', queryIntent: 'free', question: '下一段怎样继续？',
+      target: { projectId: 'book-query', chapterId: 'missing-chapter' }
+    })).toMatchObject({ ok: false, reason: 'knowledge-target-document-missing' })
+    const liveDiscussionInput = {
+      projectId: 'book-query', queryIntent: 'free', question: '下一段怎样继续？',
+      liveSource: {
+        projectId: 'book-query', role: 'manuscript', chapterId: 'query-chapter-1', documentId: 'query-chapter-1',
+        documentRevision: 'live-r1', documentSchemaRevision: unsavedDocument.revision, document: unsavedDocument
+      }
+    }
+    const frozenDiscussion = knowledgeQuery.prepare(liveDiscussionInput)
+    liveDiscussionInput.liveSource.projectId = 'book-foreign'
+    expect((await frozenDiscussion).session.contextEnvelope.blocks.some((block) => block.content.includes('鸦羽印记'))).toBe(true)
+    expect(await knowledgeQuery.prepare(liveDiscussionInput)).toMatchObject({ ok: false, reason: 'knowledge-live-source-invalid' })
+
+    const mainEditor = { replaceNodeRanges: vi.fn(() => true) }
+    const dualEditor = { getActiveSource: () => ({ kind: 'chapter', id: 'query-chapter-1' }), replaceReviewRanges: vi.fn(() => true) }
+    const searchPlan = { chapters: [{ chapterId: 'query-chapter-1', patches: [{ nodeId: 'node-one', start: 2, end: 4, replacement: '新词' }] }] }
+    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: true, dual: false })
+    expect(mainEditor.replaceNodeRanges).toHaveBeenCalledWith([{ nodeId: 'node-one', range: { startOffset: 2, endOffset: 4 }, replacement: '新词' }], { origin: 'writing-agent' })
+    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, activePane: 'dual', dualPane: dualEditor })).toEqual({ main: false, dual: true })
+    expect(applyAuthoringSearchEditorTransaction({ plan: searchPlan, mainChapterId: 'another-chapter', mainEditor })).toEqual({ main: false, dual: false })
+    expect(applyAuthoringSearchEditorTransaction({ plan: { chapters: [...searchPlan.chapters, { chapterId: 'query-chapter-2', patches: [] }] }, mainChapterId: 'query-chapter-1', mainEditor })).toEqual({ main: false, dual: false })
+    expect(mainEditor.replaceNodeRanges).toHaveBeenCalledTimes(1)
+    const anchorDocument = createWritingDocument('门外响起三下敲击。\n\n林岚已经拆开信封，把信纸压在油灯下面。')
+    const anchorUnit = anchorDocument.content[0]
+    const anchorNode = anchorUnit.content.at(-1)
+    const anchorWorkflow = useAuthoringBlockWorkflow({
+      getTargetContext: () => ({
+        document: anchorDocument, documentTextLength: 40,
+        selection: { unitId: anchorUnit.attrs.unitId, nodeId: anchorNode.attrs.nodeId, end: 40, cursorLocalOffset: 20 }
+      })
+    })
+    expect(anchorWorkflow.resolveTarget().anchorExcerpt).toBe('林岚已经拆开信封，把信纸压在油灯下面。')
+    expect(anchorWorkflow.resolveTarget({ cursorLocalOffset: 8 }).anchorExcerpt).toBe('林岚已经拆开信封')
+    for (const input of ['让林岚问出寄信人的一个可追查细节', '让林岚开始调查灯室的声响']) {
+      expect(deriveNarrativeGroundingPolicy({ kernel: { blocks: [{ kind: 'turn', content: { input } }] } }).required).toBe(false)
+    }
+    for (const input of ['请核对周渡的人物设定', '查阅世界书资料', '核对灯塔的历史时间线', '确认人物的禁忌规则']) {
+      expect(deriveNarrativeGroundingPolicy({ kernel: { blocks: [{ kind: 'turn', content: { input } }] } }).required).toBe(true)
+    }
 
     const missing = await knowledgeQuery.prepare({
       projectId: 'book-query', queryIntent: 'setting', question: '泽尔布星人的出生地在哪里？'
@@ -487,13 +548,18 @@ describe('authoring project adapter', () => {
     })
     // 真实失效序列：先正常提问拿到回答证据 → 点名其中一条正文来源 →
     // 该来源从目录中消失（章内容改写使 node id 更新）→ 接缝 typed 终态。
-    const firstSeamProbeAsk = await seamStopAssistant.ask({ question: '艾德加此前在哪几章出现？', appendUser: false })
+    const firstSeamProbeAsk = await seamStopAssistant.ask({ intent: 'whole-book', question: '艾德加此前在哪几章出现？', appendUser: false })
     expect(firstSeamProbeAsk).toBe(true)
     const answeredRefs = seamStopAssistant.messages.value
       .filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
     const targetRef = answeredRefs.find((ref) => ref.startsWith('node:'))
+    expect(targetRef).toBeTruthy()
 
-    recordKnowledgeSeamFocus(targetRef)
+    recordKnowledgeSeamFocus(targetRef, 'book-query')
+    // 缺少作品归属的来源不得覆盖已登记焦点，也不得改写共享 trace。
+    const traceBeforeUnscopedFocus = JSON.stringify(window.__pinaxKnowledgeSeamTrace)
+    recordKnowledgeSeamFocus('worldbook-entry:unscoped')
+    expect(JSON.stringify(window.__pinaxKnowledgeSeamTrace)).toBe(traceBeforeUnscopedFocus)
     const providerCallsBeforeStop = seamStopExecute.mock.calls.length
     const originalGetBook = queryRepositories.getBook
     const originalGetBoundWorldbook = queryRepositories.getBoundWorldbook
@@ -501,7 +567,7 @@ describe('authoring project adapter', () => {
       const book = await originalGetBook('book-query')
       return { ...book, chapters: [{ id: 'brand-new-chapter', title: '改写章', editorDocument: createWritingDocument('全新的正文内容。') }] }
     }
-    const stoppedAsk = await seamStopAssistant.ask({ question: '再核对这一段。', appendUser: false })
+    const stoppedAsk = await seamStopAssistant.ask({ intent: 'whole-book', question: '再核对这一段。', appendUser: false })
     expect(stoppedAsk).toBe(false)
     expect(seamStopExecute.mock.calls.length).toBe(providerCallsBeforeStop)
     expect(seamStopAssistant.error.value).toContain('聚焦的资料当前不可用')
@@ -522,20 +588,20 @@ describe('authoring project adapter', () => {
       return rawGetItem.call(this, key)
     })
     try {
-      recordKnowledgeSeamFocus('worldbook-entry:edgar')
-      const offAsk = await seamStopAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+      recordKnowledgeSeamFocus('worldbook-entry:edgar', 'book-query')
+      const offAsk = await seamStopAssistant.ask({ intent: 'whole-book', question: '艾德加是谁？', appendUser: false })
       expect(offAsk).toBe(true)
       expect(readCounter.flag).toBe(1)
       expect(readCounter.worldbook).toBeLessThanOrEqual(2)
       const offTrace = JSON.stringify(window.__pinaxKnowledgeSeamTrace)
       expect(offTrace).not.toContain('旧港档案员')
       seamStopAssistant.clear()
-      recordKnowledgeSeamFocus('')
+      recordKnowledgeSeamFocus('', 'book-query')
     } finally {
       getItemSpy.mockRestore()
     }
     seamStopAssistant.clear()
-    recordKnowledgeSeamFocus('')
+    recordKnowledgeSeamFocus('', 'book-query')
     localStorage.removeItem('pinax_knowledge_read_model_enabled')
 
     // round-4 K42：焦点单次消费 + 实例归属校验，修复模块级焦点跨实例
@@ -553,8 +619,8 @@ describe('authoring project adapter', () => {
       executeQuery: focusProbeExecute
     })
     // 无本实例回答证据时，陈旧焦点被忽略：走旧路径且不消费 K。
-    recordKnowledgeSeamFocus('worldbook-entry:edgar')
-    const staleFocusAsk = await focusProbeAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+    recordKnowledgeSeamFocus('worldbook-entry:edgar', 'book-query')
+    const staleFocusAsk = await focusProbeAssistant.ask({ intent: 'whole-book', question: '艾德加是谁？', appendUser: false })
     expect(staleFocusAsk).toBe(true)
     expect(focusProbeExecute).toHaveBeenCalledTimes(1)
     let probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
@@ -565,13 +631,13 @@ describe('authoring project adapter', () => {
     const mappableRef = edgarAnswer.answer.evidence.map((item) => item.sourceRef)
       .find((ref) => ref.startsWith('worldbook-entry:'))
     expect(mappableRef).toBeTruthy()
-    recordKnowledgeSeamFocus(mappableRef)
-    const seamAsk = await focusProbeAssistant.ask({ question: '再核对艾德加。', appendUser: false })
+    recordKnowledgeSeamFocus(mappableRef, 'book-query')
+    const seamAsk = await focusProbeAssistant.ask({ intent: 'whole-book', question: '再核对艾德加。', appendUser: false })
     expect(seamAsk).toBe(true)
     probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
     expect(probeTrace.seamPrepares).toBe(1)
     const callsAfterSeam = focusProbeExecute.mock.calls.length
-    const plainAsk = await focusProbeAssistant.ask({ question: '艾德加此前在哪几章出现？', appendUser: false })
+    const plainAsk = await focusProbeAssistant.ask({ intent: 'whole-book', question: '艾德加此前在哪几章出现？', appendUser: false })
     expect(plainAsk).toBe(true)
     expect(focusProbeExecute.mock.calls.length).toBe(callsAfterSeam + 1)
     probeTrace = JSON.parse(JSON.stringify(window.__pinaxKnowledgeSeamTrace))
@@ -592,7 +658,7 @@ describe('authoring project adapter', () => {
       querySession: cancelSession,
       executeQuery: cancelProbeExecute
     })
-    const cancelFocusAsk = await cancelAssistant.ask({ question: '艾德加是谁？', appendUser: false })
+    const cancelFocusAsk = await cancelAssistant.ask({ intent: 'whole-book', question: '艾德加是谁？', appendUser: false })
     expect(cancelFocusAsk).toBe(true)
     const cancelAnswerRefs = cancelAssistant.messages.value.filter((m) => m.role === 'assistant').at(-1).answer.evidence.map((item) => item.sourceRef)
     const cancelController = new AbortController()
@@ -605,15 +671,126 @@ describe('authoring project adapter', () => {
     })
     const cancelTargetRef = cancelAnswerRefs.find((ref) => ref.startsWith('worldbook-entry:'))
     expect(cancelTargetRef).toBeTruthy()
-    recordKnowledgeSeamFocus(cancelTargetRef)
+    recordKnowledgeSeamFocus(cancelTargetRef, 'book-query')
     // 直接以已取消信号构造接缝请求：prepare 必须终态失败且零发布。
     const cancelledPrepared = await cancellingSession.prepare({
       projectId: 'book-query', queryIntent: 'whole-book', question: '艾德加是谁？',
       knowledgeReadModel: { enabled: true, sourceRefs: [cancelTargetRef], signal: cancelController.signal }
     })
     expect(cancelledPrepared).toMatchObject({ ok: false, reason: 'knowledge-read-model-aborted' })
-    recordKnowledgeSeamFocus('')
+    recordKnowledgeSeamFocus('', 'book-query')
     localStorage.removeItem('pinax_knowledge_read_model_enabled')
+
+    // PR #5: ownership is frozen before health await; stopped tasks never run in another book.
+    let releaseHealth
+    let health = new Promise(resolve => { releaseHealth = resolve })
+    const agentProject = ref('agent-book-a')
+    const agentCalls = []
+    const agentEngine = {
+      prepare: input => JSON.parse(JSON.stringify({ ...input, bookId: agentProject.value })),
+      destination: () => ({ chapterId: 'chapter-a' }),
+      healthz: () => health,
+      cancel: vi.fn(async () => ({ ok: true })),
+      run: vi.fn(async input => { agentCalls.push(input); input.callbacks.onTask({ taskId: 'task-a', bookId: input.prepared.bookId }); return { ok: true, finalContent: '完整候选', trace: { taskId: 'task-a' } } }),
+      resume: vi.fn(async input => { agentCalls.push(input); return { ok: true, finalContent: '续接候选', trace: { taskId: input.taskId } } }),
+      adopt: vi.fn(async () => ({ ok: false, error: '保存失败' }))
+    }
+    const agentAssistant = useAuthoringKnowledgeAssistant({ projectId: agentProject, agentEngine })
+    const pendingAgent = agentAssistant.ask({ intent: 'agent', question: '写一段开场' })
+    expect(agentAssistant.busy.value).toBe(true)
+    agentProject.value = 'agent-book-b'
+    await nextTick()
+    releaseHealth({ ok: true })
+    expect(await pendingAgent).toBe(false)
+    expect(agentEngine.run).not.toHaveBeenCalled()
+    expect(agentAssistant.messages.value).toEqual([])
+    agentProject.value = 'agent-book-a'
+    await nextTick()
+    health = Promise.resolve({ ok: true })
+    expect(await agentAssistant.ask({ intent: 'agent', question: '写一个开场' })).toBe(true)
+    expect(agentCalls[0].prepared.bookId).toBe('agent-book-a')
+    expect(agentAssistant.messages.value.at(-1)).toMatchObject({ kind: 'agent', status: 'completed', projectId: 'agent-book-a' })
+    expect(await agentAssistant.ask({ intent: 'agent', question: '接着推进' })).toBe(true)
+    expect(agentEngine.resume).toHaveBeenCalledTimes(1)
+    const candidateId = agentAssistant.messages.value.at(-1).id
+    expect(await agentAssistant.adoptAgentAnswer(candidateId)).toBe(false)
+    expect(agentAssistant.messages.value.at(-1).adopted).not.toBe(true)
+    agentEngine.adopt.mockResolvedValue({ ok: true, unitId: 'unit-agent' })
+    expect(await agentAssistant.adoptAgentAnswer(candidateId)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+    const restoredAgent = useAuthoringKnowledgeAssistant({ projectId: agentProject, agentEngine })
+    expect(restoredAgent.messages.value.at(-1)).toMatchObject({ kind: 'agent', adopted: true, text: '续接候选' })
+    const existingSession = agentAssistant.sessions.value[0].sessionId
+    expect(agentAssistant.newConversation()).toBe(true)
+    expect(agentAssistant.messages.value).toEqual([])
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+    expect(agentAssistant.agentState.value.taskId).toBe('task-a')
+    agentAssistant.draft.value = '未发送的旧问题'
+    expect(agentAssistant.newAgentTask()).toBe(true)
+    expect(agentAssistant.messages.value).toEqual([])
+    expect(agentAssistant.draft.value).toBe('')
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).adopted).toBe(true)
+
+    const ratedId = agentAssistant.messages.value.at(-1).id
+    expect(agentAssistant.rateMessage(ratedId, 'up')).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).reaction).toBe('up')
+    expect(agentAssistant.rateMessage(ratedId, 'up')).toBe(true)
+    expect(agentAssistant.messages.value.at(-1).reaction).toBe('')
+    expect(agentAssistant.renameConversation(existingSession, '故事讨论')).toBe(true)
+    expect(agentAssistant.conversationDetails(existingSession)).toMatchObject({ title: '故事讨论', storageKey: 'authoring_assistant_conversation:agent-book-a' })
+    expect(agentAssistant.newConversation()).toBe(true)
+    const archiveId = agentAssistant.sessions.value.find(session => session.active).sessionId
+    expect(agentAssistant.archiveConversation(archiveId)).toBe(true)
+    expect(agentAssistant.sessions.value.find(session => session.sessionId === archiveId)).toMatchObject({ archived: true, active: false })
+    expect(agentAssistant.archiveConversation(archiveId, false)).toBe(true)
+    expect(agentAssistant.deleteConversation(archiveId)).toBe(true)
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+
+    const originalHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
+    expect(agentAssistant.continueFromMessage(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.messages.value).toHaveLength(3)
+    expect(agentAssistant.agentState.value.taskId).toBe('')
+    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.messages.value.every(item => !item.taskId && !item.proposal)).toBe(true)
+    expect(await agentAssistant.ask({ question: '只接第一段' })).toBe(true)
+    expect(agentCalls.at(-1).text).toContain('只接第一段')
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.selectSession(existingSession)).toBe(true)
+    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    expect(await agentAssistant.editQuestion(originalHistory[3].id, '改成先敲门')).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe('改成先敲门')
+    expect(agentAssistant.messages.value).toHaveLength(5)
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[3].question)
+    const restoredHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
+
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[1].question)
+    expect(agentCalls.at(-1).text).not.toContain('接着推进')
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
+
+    const prepareBeforeSampling = agentEngine.prepare
+    agentEngine.prepare = input => ({ ...prepareBeforeSampling(input), kernel: { serialization: { blocks: [] } } })
+    health = Promise.resolve({ ok: true, assistantSampling: true })
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: '0.6' })).toBe(false)
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: 0.6 })).toBe(true)
+    expect(agentCalls.at(-1).prepared.kernel.serialization.blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'assistant-focus' }), expect.objectContaining({ kind: 'assistant-sampling', text: '{"temperature":0.6}' })
+    ]))
+    expect(agentAssistant.messages.value.at(-1).params).toMatchObject({ intent: 'character', temperatureOverride: 0.6 })
+    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
+    agentEngine.prepare = prepareBeforeSampling
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复

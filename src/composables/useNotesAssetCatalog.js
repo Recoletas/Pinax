@@ -11,6 +11,7 @@ import {
   updateNarrativeAssetDurable
 } from '../services/media/narrativeAssets'
 import { hydrateNarrativeImageAssets } from '../services/media/narrativeImageAssetBridge'
+import { findWritingBook, loadWritingBooks } from '../services/writing/writingBooksRepository.js'
 import {
   deleteAssetCanvasReferences,
   ensureAssetCanvasCard,
@@ -62,6 +63,7 @@ export function useNotesAssetCatalog({
   onAssetDeselected = () => {},
   onSelectionChanged = () => {},
   navigate = () => {},
+  getProjectId = () => undefined,
   colorForKind = () => ''
 } = {}) {
   const chapters = ref([])
@@ -112,6 +114,18 @@ export function useNotesAssetCatalog({
     excerpt: asset.content
   })))
 
+  // 素材列表跨书展示，选中素材的真实归属优先于进入资料页时的旧路由。
+  // 旧世界书归属仅接受已匹配的显式书籍上下文，不猜测共享世界书属于哪一本书。
+  function resolveWorkspaceBookId(bookId) {
+    const books = loadWritingBooks()
+    const explicit = String(bookId || '').trim()
+    const contextBook = findWritingBook(books, explicit)
+    if (!selectedAsset.value) return contextBook?.id || ''
+    const candidate = String(selectedAsset.value?.projectId || '').trim()
+    return findWritingBook(books, candidate)?.id
+      || (candidate && contextBook?.worldbookId === candidate ? contextBook.id : '')
+  }
+
   function saveOrBlock(actionLabel) {
     const result = editor.saveCurrentChapter()
     if (result.ok) return true
@@ -119,10 +133,21 @@ export function useNotesAssetCatalog({
     return false
   }
 
+  function openSelectedAssetInComics(bookId) {
+    if (!saveOrBlock('进入漫画制作')) return { ok: false, reason: 'save-blocked' }
+    const ownerBookId = resolveWorkspaceBookId(bookId)
+    const assetId = selectedAsset.value?.id
+    navigate({
+      name: 'comics',
+      query: { ...(ownerBookId ? { bookId: ownerBookId } : {}), ...(assetId ? { assetId } : {}) }
+    })
+    return { ok: true }
+  }
+
   /** C-R1：只刷新目录投影（列表/排序/图片 hydrate）；编辑器内容保持不动。 */
   function refreshCatalog() {
     const revision = ++notesMediaLoadRevision
-    chapters.value = sortNoteAssets(listActiveNarrativeAssets())
+    chapters.value = sortNoteAssets(listActiveNarrativeAssets({ projectId: getProjectId() }))
     void hydrateNarrativeImageAssets(chapters.value).then((hydrated) => {
       if (revision !== notesMediaLoadRevision) return
       const hydratedImages = new Map(hydrated.map((asset) => [asset.id, asset.image]))
@@ -193,7 +218,13 @@ export function useNotesAssetCatalog({
   // ---- 动作（全部走 Durable API；失败不产生副作用） ----
 
   function createAsset(input) {
-    return addNarrativeAssetDurable(input)
+    if (!saveOrBlock('新建素材')) return { ok: false, reason: 'save-blocked' }
+    const projectId = findWritingBook(loadWritingBooks(), input?.projectId)?.id || null
+    const created = addNarrativeAssetDurable({ ...input, projectId })
+    if (!created.ok) return created
+    refreshCatalog()
+    replaceEditorFromPersisted(created.asset.id)
+    return created
   }
 
   function setSelectedAssetKind(kind) {
@@ -235,7 +266,7 @@ export function useNotesAssetCatalog({
 
   function isAssetOnCanvas(assetId) {
     canvasImportRevision.value
-    return Boolean(findAssetCanvasCard(assetId))
+    return Boolean(findAssetCanvasCard(assetId, canvasOptions(chapters.value.find(asset => asset.id === assetId))))
   }
 
   function mergeCheckedAssets() {
@@ -260,7 +291,7 @@ export function useNotesAssetCatalog({
       return result
     }
 
-    canvasAttached.forEach((assetId) => deleteAssetCanvasReferences(assetId))
+    canvasAttached.forEach((assetId) => deleteAssetCanvasReferences(assetId, canvasOptions(chapters.value.find(asset => asset.id === assetId))))
     clearCheckedAssets()
     canvasImportRevision.value += 1
     // 作者明确执行合并：装载合并结果（显式语义，非普通刷新）
@@ -284,7 +315,7 @@ export function useNotesAssetCatalog({
       canvasTransferFeedback.value = `删除未执行（${result.reason === 'storage-write-failed' ? '存储写入失败' : result.reason}），画布引用保持不变`
       return result
     }
-    deleteAssetCanvasReferences(chapterId)
+    deleteAssetCanvasReferences(chapterId, canvasOptions(chapters.value.find(asset => asset.id === chapterId)))
     checkedAssetIds.value = checkedAssetIds.value.filter((id) => id !== chapterId)
     canvasImportRevision.value += 1
     refreshCatalog()
@@ -323,7 +354,7 @@ export function useNotesAssetCatalog({
       : selectedChapterId.value
 
     if (deletedIds.length > 0) {
-      deletedIds.forEach((assetId) => deleteAssetCanvasReferences(assetId))
+      deletedIds.forEach((assetId) => deleteAssetCanvasReferences(assetId, canvasOptions(chapters.value.find(asset => asset.id === assetId))))
       canvasImportRevision.value += 1
     }
     clearCheckedAssets()
@@ -335,11 +366,26 @@ export function useNotesAssetCatalog({
 
   // ---- 画布交接 ----
 
+  function canvasOptions(asset = selectedAsset.value) {
+    const owner = getProjectId() || findWritingBook(loadWritingBooks(), String(asset?.projectId || ''))?.id
+    return owner ? { projectId: owner } : {}
+  }
+  function persistCanvasTransfer(writeCards) {
+    try {
+      const result = writeCards()
+      canvasImportRevision.value += 1
+      return { ok: true, result }
+    } catch {
+      canvasTransferFeedback.value = '未能保存到画布，请重试。素材和当前编辑内容仍保留'
+      return { ok: false, reason: 'storage-write-failed' }
+    }
+  }
+
   function openSelectedAssetInCanvas() {
     if (!selectedAsset.value) return { ok: false, reason: 'no-selection' }
     if (!saveOrBlock('导入画布')) return { ok: false, reason: 'save-blocked' }
-    ensureAssetCanvasCard(selectedAsset.value)
-    canvasImportRevision.value += 1
+    const persisted = persistCanvasTransfer(() => ensureAssetCanvasCard(selectedAsset.value, canvasOptions()))
+    if (!persisted.ok) return persisted
     navigate({ name: 'prose-essay', query: { assetId: selectedAsset.value.id } })
     return { ok: true }
   }
@@ -348,8 +394,14 @@ export function useNotesAssetCatalog({
     const selected = getCheckedAssets()
     if (!selected.length) return { ok: false, reason: 'empty' }
     if (!saveOrBlock('批量导入画布')) return { ok: false, reason: 'save-blocked' }
-    const result = ensureAssetCanvasCards(selected)
-    canvasImportRevision.value += 1
+    const options = canvasOptions(selected[0])
+    if (options.projectId && selected.some(asset => asset.projectId !== options.projectId)) {
+      canvasTransferFeedback.value = '请选择同一本作品的素材后送入画布'
+      return { ok: false, reason: 'project-mismatch' }
+    }
+    const persisted = persistCanvasTransfer(() => ensureAssetCanvasCards(selected, options))
+    if (!persisted.ok) return persisted
+    const result = persisted.result
     canvasTransferFeedback.value = `已送入画布 ${result.cards.length} 项，其中 ${result.existingAssetIds.length} 项已存在`
     const primary = selected.find((asset) => asset.id === selectedAsset.value?.id) || selected[0]
     clearCheckedAssets()
@@ -362,41 +414,34 @@ export function useNotesAssetCatalog({
    * 结果始终归属发起素材；素材被删除则丢弃并提示；仅作者停留原素材时才导航。
    */
   async function generateAndImportToCanvas() {
-    const asset = selectedAsset.value
-    if (!asset) return { ok: false, reason: 'no-selection' }
-    const sourceAssetId = asset.id
+    if (!selectedAsset.value) return { ok: false, reason: 'no-selection' }
     if (!saveOrBlock('生成专业信息')) return { ok: false, reason: 'save-blocked' }
+    const asset = { ...selectedAsset.value }
+    const sourceAssetId = asset.id
 
     canvasTransferFeedback.value = ''
+    let extraFields = null
     try {
       const result = await generateProfessionalInfoForAsset({
         asset,
         settings: null,
         assetKind: asset.kind
       })
-      const extraFields = result.success ? result.extraFields : null
-      if (!listNarrativeAssets({ status: null }).some((item) => item.id === sourceAssetId)) {
-        canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已在生成期间删除，未送入画布`
-        return { ok: false, reason: 'asset-deleted' }
-      }
-      ensureAssetCanvasCardWithExtra(asset, extraFields)
-      if (selectedChapterId.value === sourceAssetId) {
-        navigate({ name: 'prose-essay', query: { assetId: sourceAssetId } })
-      } else {
-        canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已生成并送入画布`
-      }
+      extraFields = result.success ? result.extraFields : null
     } catch {
-
-      if (listNarrativeAssets({ status: null }).some((item) => item.id === sourceAssetId)) {
-        ensureAssetCanvasCardWithExtra(asset, null)
-        if (selectedChapterId.value === sourceAssetId) {
-          navigate({ name: 'prose-essay', query: { assetId: sourceAssetId } })
-        } else {
-          canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已送入画布（专业信息生成失败）`
-        }
-      }
-    } finally {
-      canvasImportRevision.value += 1
+      // 专业信息失败仍可送入原素材；画布写盘失败则必须停留并保留输入。
+    }
+    if (!listNarrativeAssets({ status: null }).some((item) => item.id === sourceAssetId)) {
+      canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已在生成期间删除，未送入画布`
+      return { ok: false, reason: 'asset-deleted' }
+    }
+    const persisted = persistCanvasTransfer(() => ensureAssetCanvasCardWithExtra(asset, extraFields, canvasOptions(asset)))
+    if (!persisted.ok) return persisted
+    if (selectedChapterId.value === sourceAssetId) {
+      if (!saveOrBlock('前往画布')) return { ok: false, reason: 'save-blocked', canvasSaved: true }
+      navigate({ name: 'prose-essay', query: { assetId: sourceAssetId } })
+    } else {
+      canvasTransferFeedback.value = `「${asset.title || '无标题素材'}」已送入画布${extraFields ? '，含专业信息' : '（未生成专业信息）'}`
     }
     return { ok: true }
   }
@@ -421,6 +466,7 @@ export function useNotesAssetCatalog({
     replaceEditorFromPersisted,
     selectChapter,
     saveOrBlock,
+    resolveWorkspaceBookId,
     goPrevAsset,
     goNextAsset,
     toggleCheckedAsset,
@@ -433,6 +479,7 @@ export function useNotesAssetCatalog({
     deleteChapter,
     deleteCheckedAssets,
     isAssetOnCanvas,
+    openSelectedAssetInComics,
     openSelectedAssetInCanvas,
     sendCheckedAssetsToCanvas,
     generateAndImportToCanvas

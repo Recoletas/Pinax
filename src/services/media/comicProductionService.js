@@ -2,8 +2,11 @@ import { buildComicPanelImageRequest } from './comicImagePrompt'
 import { getComicPanelImageSize } from './comicLayout'
 import {
   addComicPanelStageArtifact,
+  addComicPanelTake,
+  clearComicPanelPendingGeneration,
   clearComicStagePendingRequest,
   listComicPages,
+  updateComicPanel,
   updateComicPanelStage
 } from './comicPageStore'
 import { canSendComicRequest, comicRequestIntentHash, createComicRequestId } from './comicRequestGuard'
@@ -120,13 +123,34 @@ export function getComicReferenceCapabilityWarnings(panel = {}, config = {}) {
   const capabilities = getImageProviderCapabilities(config)
   const roles = new Set((panel.referenceBindings || []).map((binding) => binding.role))
   const warnings = []
-  if ([...roles].some((role) => ['identity', 'costume', 'location', 'prop', 'style'].includes(role)) && !capabilities.identityReference) {
-    warnings.push('当前模型不会提交身份/风格参考图')
+  if ([...roles].some((role) => ['identity', 'costume'].includes(role)) && !capabilities.identityReference) {
+    warnings.push('当前模型不会提交人物参考图')
+  }
+  if ([...roles].some((role) => ['location', 'prop', 'style'].includes(role))
+    && (!capabilities.identityReference || capabilities.referenceKind === 'character')) {
+    warnings.push('当前模型不支持地点、道具或风格图片参考，相关图片不会提交')
   }
   if ([...roles].some((role) => ['pose', 'edge', 'depth'].includes(role)) && !capabilities.controlImages) {
     warnings.push('当前模型不会提交 pose/edge/depth 控制图')
   }
+  const referenceIds = new Set((panel.referenceBindings || []).filter((binding) => (
+    capabilities.identityReference && (capabilities.referenceKind === 'character'
+      ? ['identity', 'costume'].includes(binding.role)
+      : ['identity', 'costume', 'location', 'prop', 'style'].includes(binding.role))
+  )).map((binding) => binding.assetId).filter(Boolean))
+  if (referenceIds.size > (Number(capabilities.maxReferenceImages) || 0)) {
+    warnings.push(`当前模型最多使用 ${capabilities.maxReferenceImages || 0} 张参考图，请减少当前格的参考绑定。`)
+  }
   return warnings
+}
+
+export function getComicPanelInputRevision(panel = {}) {
+  return JSON.stringify({
+    visual: panel.visual || '', beat: panel.beat || null,
+    dialogue: panel.dialogue || [], caption: panel.caption || '',
+    continuityRefs: panel.continuityRefs || [], direction: panel.direction || null,
+    referenceBindings: panel.referenceBindings || []
+  })
 }
 
 export async function runComicStageGeneration({
@@ -149,8 +173,16 @@ export async function runComicStageGeneration({
   // 未提供而同格仍有未决请求时拒绝发送，不自动重试。
   approvedClearRequestId = ''
 } = {}) {
+  page = cloneSnapshot(page)
+  panel = cloneSnapshot(panel)
+  config = cloneSnapshot(config)
+  projectId = projectId === undefined ? page.projectId ?? null : projectId
   const gate = getComicStageGate({ page, panel, stage, config, mode })
   if (!gate.allowed) throw new Error(gate.reason)
+  const liveTarget = listComicPages({}).find((item) => item.id === page.id)
+  if (!liveTarget || liveTarget.projectId !== projectId || !liveTarget.panels.some((item) => item.id === panel.id)) {
+    throw new Error('漫画页或所属作品已变化，请重新选择当前格。')
+  }
   // 防重守卫优先读持久化实时状态，调用方快照可能已过期。
   const livePending = listComicPages({}).find((item) => item.id === page.id)?.panels
     .find((item) => item.id === panel.id)?.production?.[stage]?.pendingRequest || null
@@ -186,6 +218,7 @@ export async function runComicStageGeneration({
       sentAt: Date.now()
     }
   })
+  let requestSent = false
   try {
     const imageSize = getComicPanelImageSize(page, panel.order)
     const baseRequest = buildComicPanelImageRequest({
@@ -199,14 +232,20 @@ export async function runComicStageGeneration({
       targetAspect: `${imageSize.width}:${imageSize.height}`
     })
     const referenceImages = []
-    if (parentAssetId) {
+    if (parentAssetId && gate.capabilities.imageToImage) {
       const data = await getMediaAssetDataUrl(parentAssetId, mediaOptions)
       if (!data) throw new Error('上游阶段产物不可用，请重新选择或上传')
       referenceImages.push({ id: parentAssetId, data, title: '阶段上游' })
-    } else {
+    } else if (gate.capabilities.imageToImage) {
       referenceImages.push(...baseRequest.referenceImages)
     }
     const bindingInputs = await resolveReferenceBindings(panel.referenceBindings, gate.capabilities, mediaOptions)
+    const submittedReferences = [...referenceImages, ...bindingInputs.referenceImages]
+      .filter((reference, index, references) => references.findIndex((item) => (item.id || item.data) === (reference.id || reference.data)) === index)
+    const referenceLimit = Number(gate.capabilities.maxReferenceImages) || 0
+    if (submittedReferences.length > referenceLimit) {
+      throw new Error(`当前模型最多使用 ${referenceLimit} 张参考图，请减少当前格的参考绑定。`)
+    }
     const prompt = buildComicStagePrompt({
       page,
       stage,
@@ -214,16 +253,25 @@ export async function runComicStageGeneration({
       revisionPrompt,
       mode
     })
+    const readyPage = listComicPages({}).find((item) => item.id === page.id)
+    const readyPanel = readyPage?.panels.find((item) => item.id === panel.id)
+    if (!ownsPendingRequest({ page, panel, stage, projectId, requestId }, readyPage, readyPanel)
+      || getComicStageInputRevision(readyPage, readyPanel, stage) !== inputRevision) {
+      throw new Error('漫画格或生成请求已变化，未发送这次图片请求。')
+    }
     const data = await generateImage(config, {
       ...baseRequest,
       prompt,
       width: imageSize.width,
       height: imageSize.height,
       count: 1,
-      referenceImages: [...referenceImages, ...bindingInputs.referenceImages].slice(0, 3),
+      referenceImages: submittedReferences,
       controlImages: bindingInputs.controlImages,
       maskImage: mode === 'inpaint' ? maskImage : '',
-      fetchImpl
+      fetchImpl: (...args) => {
+        requestSent = true
+        return (fetchImpl || globalThis.fetch)(...args)
+      }
     })
     const archiveResult = await archiveStageArtifactWithRecovery({
       requestId,
@@ -245,30 +293,29 @@ export async function runComicStageGeneration({
     })
     if (archiveResult.retryable) {
       // 生成成功、媒资保存失败：保留内存结果等待“只重试保存”，不再调用模型。
-      markStageFailure(page.id, panel.id, stage, {
+      markStageFailure({ page, panel, stage, projectId, requestId }, {
         code: 'media-persist-failed',
         message: archiveResult.error?.message || '图片保存失败，可只重试保存',
         retryable: true
       })
-      clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
       const persistError = new Error(archiveResult.error?.message || '图片保存失败，可只重试保存')
       persistError.code = 'media-persist-failed'
       persistError.requestId = requestId
       throw persistError
     }
-    clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
+    clearOwnedPending({ page, panel, stage, projectId, requestId })
     return archiveResult.page
   } catch (error) {
     if (error?.code !== 'media-persist-failed') {
-      const rejected = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408
-      markStageFailure(page.id, panel.id, stage, {
+      const rejected = !requestSent || (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408)
+      markStageFailure({ page, panel, stage, projectId, requestId }, {
         code: rejected ? 'stage_generation_failed' : 'outcome-unknown',
         message: error?.message || '阶段生成失败',
         retryable: true
       })
       // Network failure/timeout/5xx can occur AFTER the provider accepted the
       // image job. Keep its durable identity until explicit user clearance.
-      if (rejected) clearComicStagePendingRequest(page.id, panel.id, stage, requestId)
+      if (rejected) clearOwnedPending({ page, panel, stage, projectId, requestId })
     }
     throw error
   }
@@ -297,14 +344,36 @@ export async function retryComicStagePersist(requestId) {
   const retry = await archiveStageArtifactWithRecovery({ ...entry.payload, requestId })
   if (retry.retryable) throw retry.error || new Error('图片保存仍然失败')
   persistRetryQueue.delete(requestId)
-  if (retry.page) clearComicStagePendingRequest(entry.pageId, entry.panelId, entry.stage, requestId)
+  if (retry.page) clearOwnedPending(entry.payload)
   return retry
+}
+
+export function archiveComicPanelTakeWithRecovery(params = {}) {
+  const page = cloneSnapshot(params.page)
+  const panel = cloneSnapshot(params.panel)
+  return archiveStageArtifactWithRecovery({
+    ...params, page, panel, config: cloneSnapshot(params.config), kind: 'take', stage: '',
+    projectId: params.projectId === undefined ? page.projectId ?? null : params.projectId,
+    inputRevision: params.inputRevision || getComicPanelInputRevision(panel), origin: 'generated'
+  })
+}
+
+export function archiveUploadedComicPanel(params = {}) {
+  const page = cloneSnapshot(params.page)
+  const panel = cloneSnapshot(params.panel)
+  return archiveStageArtifactWithRecovery({
+    ...params, page, panel, kind: 'take', stage: '', origin: 'manual',
+    config: { name: '上传图片', type: 'manual', defaultModel: '' },
+    projectId: page.projectId ?? null,
+    inputRevision: params.inputRevision || getComicPanelInputRevision(panel)
+  })
 }
 
 async function archiveStageArtifactWithRecovery(params) {
   const { requestId, page, panel, stage, inputRevision, parentAssetId, origin } = params
+  let entry = params.archivedEntry || null
   try {
-    const entry = await addGeneratedImageToLibrary(params.storageKey, {
+    if (!entry) entry = await addGeneratedImageToLibrary(params.storageKey, {
       prompt: params.prompt,
       negativePrompt: params.negativePrompt,
       modelName: params.config.name,
@@ -313,9 +382,11 @@ async function archiveStageArtifactWithRecovery(params) {
       width: params.width,
       height: params.height,
       data: params.data,
+      generationJobId: requestId,
       parentAssetId,
       createdAt: new Date().toISOString()
     }, {
+      ...params.mediaOptions,
       projectId: params.projectId,
       purpose: 'comic-panel',
       parentAssetId,
@@ -324,33 +395,43 @@ async function archiveStageArtifactWithRecovery(params) {
         ...(panel.continuityRefs || []),
         { refType: 'comic-page', refId: page.id, projectId: params.projectId },
         { refType: 'comic-panel', refId: panel.id, projectId: params.projectId }
-      ],
-      ...params.mediaOptions
+      ]
     })
     const livePage = listComicPages({}).find((item) => item.id === page.id) || null
     const livePanel = livePage?.panels.find((item) => item.id === panel.id) || null
-    if (!livePanel) {
+    if (!livePanel || livePage.projectId !== params.projectId) {
       // 原格在请求期间被删除：媒资留在素材库（sourceRefs 可反查），不复活对象。
       persistRetryQueue.delete(requestId)
       return { entry, page: null, retryable: false, targetMissing: true }
     }
-    const liveInputRevision = getComicStageInputRevision(livePage, livePanel, stage)
+    const liveInputRevision = params.kind === 'take'
+      ? getComicPanelInputRevision(livePanel)
+      : getComicStageInputRevision(livePage, livePanel, stage)
     const inputChanged = liveInputRevision !== inputRevision
-    const saved = addComicPanelStageArtifact(page.id, panel.id, stage, {
+    const ownsRequest = ownsPendingRequest(params, livePage, livePanel)
+    const select = ownsRequest && !inputChanged
+    let saved = params.kind === 'take'
+      ? addComicPanelTake(page.id, panel.id, entry.mediaAssetId, { select, preserveStageState: !select })
+      : addComicPanelStageArtifact(page.id, panel.id, stage, {
       id: entry.mediaAssetId,
       parentAssetId,
       inputRevision,
       origin,
       createdAt: Date.now()
-    }, { select: !inputChanged })
-    if (saved && inputChanged) {
+    }, { select, preserveStageState: !select })
+    if (saved && inputChanged && ownsRequest && params.kind !== 'take') {
       // 请求发出后作者修改了格内容：候选进入原格候选区，不自动替换现选对象。
-      updateComicPanelStage(page.id, panel.id, stage, {
+      saved = updateComicPanelStage(page.id, panel.id, stage, {
+        status: livePanel.production?.[stage]?.selectedArtifactId ? 'stale' : 'review',
+        error: null,
         staleReason: '生成请求后格内容已修改，候选未自动选用'
-      })
+      }) || saved
+    } else if (saved && inputChanged && ownsRequest && params.kind === 'take') {
+      saved = updateComicPanel(page.id, panel.id, { generationStatus: 'ready', generationError: '' }) || saved
     }
+    if (saved && ownsRequest) saved = clearOwnedPending(params) || saved
     persistRetryQueue.delete(requestId)
-    return { entry, page: saved, retryable: false, targetMissing: false, staleAttach: inputChanged }
+    return { entry, page: saved, retryable: false, targetMissing: false, staleAttach: inputChanged || !ownsRequest }
   } catch (error) {
     while (persistRetryQueue.size >= PERSIST_RETRY_LIMIT) {
       const oldest = [...persistRetryQueue.values()].sort((left, right) => left.storedAt - right.storedAt)[0]
@@ -361,16 +442,34 @@ async function archiveStageArtifactWithRecovery(params) {
       pageId: page.id,
       panelId: panel.id,
       stage,
-      payload: { ...params },
+      payload: { ...params, archivedEntry: entry },
       storedAt: Date.now()
     })
     return { entry: null, page: null, retryable: true, error }
   }
 }
 
-function markStageFailure(pageId, panelId, stage, error) {
+function ownsPendingRequest(params, livePage, livePanel) {
+  if (!livePage || livePage.projectId !== params.projectId || !livePanel) return false
+  const pending = params.kind === 'take' ? livePanel.pendingGeneration : livePanel.production?.[params.stage]?.pendingRequest
+  return pending?.requestId === params.requestId
+}
+
+function clearOwnedPending(params) {
+  const livePage = listComicPages({}).find((item) => item.id === params.page.id)
+  const livePanel = livePage?.panels.find((item) => item.id === params.panel.id)
+  if (!ownsPendingRequest(params, livePage, livePanel)) return null
+  return params.kind === 'take'
+    ? clearComicPanelPendingGeneration(params.page.id, params.panel.id, params.requestId)
+    : clearComicStagePendingRequest(params.page.id, params.panel.id, params.stage, params.requestId)
+}
+
+function markStageFailure(params, error) {
   try {
-    updateComicPanelStage(pageId, panelId, stage, {
+    const livePage = listComicPages({}).find((item) => item.id === params.page.id)
+    const livePanel = livePage?.panels.find((item) => item.id === params.panel.id)
+    if (!ownsPendingRequest(params, livePage, livePanel)) return
+    updateComicPanelStage(params.page.id, params.panel.id, params.stage, {
       status: 'failed',
       error
     })
@@ -391,6 +490,9 @@ export async function archiveUploadedComicStage({
   height = 0,
   mediaOptions = {}
 } = {}) {
+  page = cloneSnapshot(page)
+  panel = cloneSnapshot(panel)
+  projectId = projectId === undefined ? page.projectId ?? null : projectId
   const upstream = getComicStageInputArtifact(panel, stage, page)
   return archiveComicStageArtifact({
     page,
@@ -440,6 +542,7 @@ async function archiveComicStageArtifact({
     parentAssetId,
     createdAt: new Date().toISOString()
   }, {
+    ...mediaOptions,
     projectId,
     purpose: 'comic-panel',
     parentAssetId,
@@ -448,16 +551,20 @@ async function archiveComicStageArtifact({
       ...(panel.continuityRefs || []),
       { refType: 'comic-page', refId: page.id, projectId },
       { refType: 'comic-panel', refId: panel.id, projectId }
-    ],
-    ...mediaOptions
+    ]
   })
+  const livePage = listComicPages({}).find((item) => item.id === page.id)
+  const livePanel = livePage?.panels.find((item) => item.id === panel.id)
+  if (!livePanel || livePage.projectId !== projectId) return { entry, page: null, targetMissing: true }
+  const select = getComicStageInputRevision(livePage, livePanel, stage) === inputRevision
+    && !livePanel.production?.[stage]?.pendingRequest
   const saved = addComicPanelStageArtifact(page.id, panel.id, stage, {
     id: entry.mediaAssetId,
     parentAssetId,
     inputRevision,
     origin,
     createdAt: Date.now()
-  })
+  }, { select, preserveStageState: !select })
   return { entry, page: saved }
 }
 
@@ -466,12 +573,17 @@ async function resolveReferenceBindings(bindings = [], capabilities = {}, mediaO
   const controlImages = []
   for (const binding of bindings) {
     if (!binding.assetId) continue
+    const referenceRoleAllowed = capabilities.referenceKind === 'character'
+      ? ['identity', 'costume'].includes(binding.role)
+      : ['identity', 'costume', 'location', 'prop', 'style'].includes(binding.role)
+    const controlRoleAllowed = ['pose', 'edge', 'depth'].includes(binding.role) && capabilities.controlImages
+    if (!(referenceRoleAllowed && capabilities.identityReference) && !controlRoleAllowed) continue
     const data = await getMediaAssetDataUrl(binding.assetId, mediaOptions).catch(() => '')
     if (!data) continue
-    if (['identity', 'costume', 'location', 'prop', 'style'].includes(binding.role) && capabilities.identityReference) {
+    if (referenceRoleAllowed && capabilities.identityReference) {
       referenceImages.push({ id: binding.assetId, data, title: binding.role })
     }
-    if (['pose', 'edge', 'depth'].includes(binding.role) && capabilities.controlImages) {
+    if (controlRoleAllowed) {
       controlImages.push({
         id: binding.assetId,
         role: binding.role,
@@ -481,6 +593,10 @@ async function resolveReferenceBindings(bindings = [], capabilities = {}, mediaO
     }
   }
   return { referenceImages, controlImages }
+}
+
+function cloneSnapshot(value) {
+  return value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : {}
 }
 
 export function buildComicStagePrompt({

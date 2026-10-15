@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createPublicAccessGuard } from '../server/publicAccessGuard.js'
-import { resolveMiniMaxApiKey, resolveTextApiKey } from '../shared/textModelKeys.js'
+import { resolveMiniMaxApiKey } from '../shared/textModelKeys.js'
 
 const secret = 'synthetic-proxy-secret-for-local-check-only'
 const guard = createPublicAccessGuard({ PINAX_PUBLIC_ORIGINS: 'http://pinax.cc,http://8.148.28.156', PINAX_PROXY_SECRET: secret })
@@ -44,8 +44,7 @@ try {
   for (const url of ['http://api.minimaxi.com', 'https://api.minimaxi.com.evil.invalid/v1', 'https://evil.invalid/minimaxi.com', 'https://api.minimaxi.com@evil.invalid', 'https://evil.invalid/?minimaxi.com', 'https://api.minimaxi.com:444/v1', 'https://user@api.minimaxi.com', 'https://api.minimaxi.com/?redirect=evil', 'https://api.minimaxi.com/#evil', '/minimaxi.com']) {
     for (const apiKey of ['', 'minimax-server-key']) {
       assert.equal(resolveMiniMaxApiKey({ baseUrl: url, apiKey }), '')
-      assert.equal(resolveTextApiKey({ provider: 'minimax', baseUrl: url, apiKey }), '')
-      checks += 2
+      checks += 1
     }
   }
   assert.equal(resolveMiniMaxApiKey({ baseUrl: 'https://custom.invalid', apiKey: 'own-key' }), 'own-key')

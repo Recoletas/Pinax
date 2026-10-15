@@ -2,7 +2,20 @@
   <header class="settings-context-bar" data-test="settings-context-bar" :data-worldbook-id="selectedId" :data-worldbook-name="activeWorldbook?.name || ''" :data-project-locked="projectLocked">
     <div class="context-main">
       <span class="context-kicker">{{ tr(projectLocked ? (projectIdentity ? '当前作品' : '关联资料') : '世界书') }}</span>
-      <strong v-if="projectLocked && projectIdentity" class="context-project-name" :title="projectLabel">{{ projectLabel || tr('当前作品') }}</strong>
+      <select
+        v-if="projectLocked && projectIdentity"
+        class="context-worldbook-select context-book-select"
+        data-test="settings-book-switcher"
+        :value="currentBookId"
+        :disabled="disabled || switchingBook"
+        :aria-label="tr('切换作品')"
+        :title="projectLabel || tr('切换作品')"
+        @focus="refreshBooks"
+        @change="switchBook"
+      >
+        <option v-if="!books.some(book => String(book.id) === currentBookId)" :value="currentBookId" disabled>{{ projectLabel || tr('当前作品') }}</option>
+        <option v-for="book in books" :key="book.id" :value="String(book.id)">{{ book.title || tr('未命名书稿') }}</option>
+      </select>
       <select
         v-else-if="worldbooksIndex.length"
         class="context-worldbook-select"
@@ -31,7 +44,9 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { loadWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { tr } from '../../i18n/index.js'
 
 const props = defineProps({
@@ -43,7 +58,7 @@ const props = defineProps({
   emptyLabel: { type: String, default: '尚未选择世界书' },
   showMeta: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
-  // 项目模式：世界书由书稿关联决定，选择器只读；显示所属书稿名。
+  // 项目模式：选择器切换作品，世界书由所选书稿的关联决定。
   projectLabel: { type: String, default: '' },
   projectLocked: { type: Boolean, default: false },
   projectIdentity: { type: Boolean, default: true },
@@ -51,6 +66,32 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'change'])
+
+const route = useRoute()
+const router = useRouter()
+const books = ref(loadWritingBooks())
+const switchingBook = ref(false)
+const currentBookId = computed(() => String(route.query.bookId || ''))
+function refreshBooks() { books.value = loadWritingBooks() }
+async function switchBook(event) {
+  const requested = String(event.target.value)
+  refreshBooks()
+  const book = books.value.find(item => String(item.id) === requested)
+  if (!book || requested === currentBookId.value) {
+    event.target.value = currentBookId.value
+    return
+  }
+  switchingBook.value = true
+  try {
+    // Retain the settings section, never carry another book's entry/place/return locator.
+    const query = { bookId: requested }
+    if (book.worldbookId) query.worldbookId = String(book.worldbookId)
+    await router.push({ name: route.name, query })
+  } finally {
+    event.target.value = currentBookId.value
+    switchingBook.value = false
+  }
+}
 
 const selectedId = computed(() => String(props.modelValue || props.activeWorldbook?.id || ''))
 const metaLabel = computed(() => props.metaLabel || tr('世界书 {count} 本', { count: props.worldbooksIndex.length }))
@@ -64,129 +105,45 @@ function onChange(event) {
 
 <style scoped>
 .settings-context-bar {
-  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 6px clamp(16px, 3vw, 42px);
-  border-right: 1px solid color-mix(in srgb, var(--archive-olive) 15%, transparent);
-  background: transparent;
+  gap: 16px;
+  min-width: 0;
+  min-height: var(--workspace-toolbar-height, 52px);
+  padding: 6px 20px;
   flex-shrink: 0;
 }
-
-.context-main,
-.context-meta {
-  display: flex;
-  align-items: center;
+.context-main, .context-meta { display: flex; align-items: center; min-width: 0; }
+.context-main { flex: 1; gap: 8px; }
+.context-kicker { color: var(--text-secondary); font: 12px/1.4 var(--font-sans); white-space: nowrap; }
+.context-worldbook-select, .context-worldbook-empty {
+  max-width: min(42vw, 380px);
   min-width: 0;
-}
-
-.context-main {
-  gap: 10px;
-}
-
-.context-meta {
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.context-meta-divider {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 60%, var(--border));
-}
-
-.context-meta-item i {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 10%, transparent);
-}
-
-.context-kicker {
-  color: var(--text-secondary);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  line-height: 1;
-}
-
-.context-mismatch {
-  max-width: 40vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.context-worldbook-select,
-.context-worldbook-empty {
-  max-width: min(30vw, 260px);
-  min-width: 120px;
   color: var(--text-primary);
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
+  font: 500 14px/1.5 var(--font-sans);
 }
-
 .context-worldbook-select {
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 44%, var(--border));
-  border-radius: 0;
+  box-sizing: border-box;
+  height: var(--workspace-control-height, 36px);
+  min-height: var(--workspace-control-height, 36px);
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--workspace-radius, 10px);
   background: transparent;
-  padding: 6px 22px 6px 2px;
   cursor: pointer;
+  transition: background .16s ease, border-color .16s ease;
 }
-
-.context-worldbook-select:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.context-worldbook-empty {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 760px) {
-  .settings-context-bar {
-    min-height: 46px;
-    gap: 10px;
-    padding-block: 6px;
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--archive-olive) 13%, transparent);
-  }
-
-  .context-main {
-    width: 100%;
-  }
-
-  .context-meta-divider,
-  .context-meta-item:last-child {
-    display: none;
-  }
-
-  .context-worldbook-select,
-  .context-worldbook-empty {
-    max-width: 48vw;
-    min-width: 104px;
-    font-size: 14px;
-  }
-}
-.settings-context-bar { min-height: var(--workspace-toolbar-height, 46px); gap: 16px; padding: 4px 20px; border-right: 0; }
-.context-main { flex: 1; gap: 14px; }
-.context-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; color: var(--text-primary); max-width: min(45vw, 420px); }
-.context-kicker { white-space: nowrap; font: inherit; font-size: 13px; letter-spacing: 0; }
-.context-worldbook-select { min-width: 0; max-width: min(42vw, 360px); padding: 6px 24px 6px 8px; font-family: inherit; font-size: 13px; font-weight: 500; border: 1px solid var(--archive-paper-strong); border-radius: 5px; background: var(--archive-paper); }
-.context-worldbook-select:disabled { opacity: 1; border-color: transparent; background: transparent; }
-.context-mismatch { font-size: 13px; }
-@media (max-width: 760px) { .settings-context-bar { padding: 10px 16px; flex-wrap: wrap; gap: 8px; } .context-main { flex: 1; width: auto; } .context-kicker { display: none; } .context-worldbook-select { max-width: 56vw; font-size: 14px; } }
+.context-worldbook-select:hover:not(:disabled) { background: var(--surface-workbench-muted); }
+.context-worldbook-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--surface-workbench-muted); }
+.context-worldbook-select:disabled { cursor: default; opacity: .65; }
+.context-book-select { flex: 1; width: 100%; text-overflow: ellipsis; }
+.context-worldbook-empty { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-mismatch { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); }
+.context-meta { gap: 10px; color: var(--text-secondary); font: 12px/1.4 var(--font-sans); white-space: nowrap; }
+.context-meta-divider { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); }
+.context-meta-item i { display: inline-block; width: 5px; height: 5px; margin-right: 6px; border-radius: 50%; background: var(--success); }
+@media (max-width: 760px), (pointer: coarse) { .context-worldbook-select { height: 44px; min-height: 44px; } }
+@media (max-width: 760px) { .settings-context-bar { padding: 6px 12px; gap: 8px; } .context-worldbook-select { max-width: 100%; } .context-kicker { display: none; } .context-meta-divider, .context-meta-item:last-child { display: none; } }
+@media (prefers-reduced-motion: reduce) { .context-worldbook-select { transition: none; } }
 </style>

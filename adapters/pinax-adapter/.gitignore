@@ -1,0 +1,6 @@
+node_modules/
+tasks/
+tasks-test-*/
+tasks-bridge-*/
+.external/*
+!.external/pinax-adapter.json.example

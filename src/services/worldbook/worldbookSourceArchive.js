@@ -412,6 +412,8 @@ export function createCreationWorkspace(input = {}) {
     selectedSourceIds: [...new Set((Array.isArray(input.selectedSourceIds) ? input.selectedSourceIds : []).map(String).filter(Boolean))],
     sourceFailures: normalizeSourceFailures(input.sourceFailures),
     brief: asText(input.brief).trim(),
+    pastedText: asText(input.pastedText),
+    sourceInputMode: input.sourceInputMode === 'text' ? 'text' : 'file',
     foundationDraft: input.foundationDraft && typeof input.foundationDraft === 'object'
       ? structuredClone(input.foundationDraft)
       : null,

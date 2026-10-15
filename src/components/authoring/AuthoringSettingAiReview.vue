@@ -120,7 +120,7 @@ onBeforeUnmount(() => controller?.abort())
 
 <style scoped>
 .setting-ai-review{position:absolute;z-index:5;inset:62px 12px auto;display:grid;max-height:calc(100% - 74px);gap:10px;overflow:auto;padding:13px;border:1px solid var(--border-subtle);background:var(--surface-workbench-raised);box-shadow:0 10px 28px color-mix(in srgb,var(--text-primary) 14%,transparent)}
-header,footer{display:flex;align-items:center;justify-content:space-between;gap:10px}header strong{font-size:13px}button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{min-height:34px;padding:0 14px;background:var(--accent-primary,var(--accent,#1677ff));color:#fff}.primary:disabled{opacity:.5;cursor:not-allowed}
+header,footer{display:flex;align-items:center;justify-content:space-between;gap:10px}header strong{font-size:13px}button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{min-height:34px;padding:0 14px;background:var(--accent-primary,var(--accent,#1677ff));color:var(--accent-text)}.primary:disabled{opacity:.5;cursor:not-allowed}
 input,textarea{box-sizing:border-box;width:100%;padding:7px 0;resize:none;border:0;border-bottom:1px solid var(--border-subtle);outline:0;background:transparent;color:var(--text-primary);font:12px/1.65 var(--font-body)}input:focus,textarea:focus{border-bottom-color:var(--accent-primary)}p{margin:0;color:var(--danger,#b42318);font-size:11px}footer{justify-content:flex-end}
 @media(pointer:coarse){button{min-width:44px;min-height:44px}}
 </style>

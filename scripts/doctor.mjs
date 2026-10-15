@@ -118,7 +118,7 @@ if (existsSync(serverEnv) && !keySet) {
   }
 }
 console.log(`[info] ${keyName}: ${keySet ? 'set' : 'unset'}`)
-if (!keySet) console.log('[info] 未配置模型密钥：普通写作、导入、备份可用；AI 推演/生成待配置（见 server/.env.example）')
+if (!keySet) console.log('[info] 未配置媒体密钥：普通写作、导入、备份可用；图片/视频内置渠道待配置（见 server/.env.example）。文本 AI 功能由 pi-agent 内核提供，与此键无关')
 
 // 5. 端口探测（只报占用与否）
 const origin = String(process.env.PINAX_DEV_BACKEND_ORIGIN || '').trim().replace(/\/+$/, '') || 'http://127.0.0.1:3001'

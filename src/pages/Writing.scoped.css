@@ -285,6 +285,18 @@
     inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
 }
 .wall__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
+.wall__tabs > .wall__tab--more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+@media (max-width: 720px) {
+  .wall__tabs > .wall__tab--more { width: 44px; height: 44px; }
+}
 .wall__back {
   margin-left: 0;
   background: transparent;
@@ -339,7 +351,7 @@
   overflow-x: clip;
   border: 0;
   box-shadow: none;
-  background: var(--archive-paper-soft);
+  background: var(--surface-workbench);
 }
 .writing-page .wall__dossier::before,
 .writing-page .wall__dossier::after { content: none; }

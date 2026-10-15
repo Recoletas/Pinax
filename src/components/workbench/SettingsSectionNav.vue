@@ -1,5 +1,6 @@
 <template>
   <nav
+    ref="sectionNav"
     class="settings-section-nav"
     role="tablist"
     :aria-label="tr('设定分区')"
@@ -14,30 +15,49 @@
       :data-test="`settings-section-tab-${tab.key}`"
       :to="sectionRoute(tab)"
     >
-      <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="14" />
+      <WorkbenchIcon class="settings-section-tab__icon" :name="tab.icon" :size="16" />
       <span class="settings-section-tab__label">{{ tr(tab.label) }}</span>
     </router-link>
   </nav>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { useRoute } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 
-/* 设定工作区只保留三个一级职责：设定、地图、条目。
+/* 设定工作区只保留四个一级职责：设定、资料、地图、条目。
    世界书首页作为设定入口保留路由，但不再占用一个重复 tab。 */
 const tabs = [
-  { key: 'structured', icon: 'network', label: '设定', routeNames: ['settings-structured', 'settings-worldbook'], routeName: 'settings-structured' },
+  { key: 'structured', icon: 'worldbook', label: '设定', routeNames: ['settings-structured', 'settings-worldbook'], routeName: 'settings-structured' },
   { key: 'sources', icon: 'sources', label: '资料', routeNames: ['settings-sources'], routeName: 'settings-sources' },
   { key: 'map', icon: 'map', label: '地图', routeNames: ['settings-world-map'], routeName: 'settings-world-map' },
   { key: 'advanced', icon: 'settings', label: '条目', routeNames: ['settings-worldbook-advanced'], routeName: 'settings-worldbook-advanced' }
 ]
 
 const route = useRoute()
+const sectionNav = ref(null)
 const currentRouteName = computed(() => String(route.name || ''))
 const currentTabKey = computed(() => tabs.find((tab) => tab.routeNames.includes(currentRouteName.value))?.key || '')
+
+function revealCurrentSection() {
+  const nav = sectionNav.value
+  if (!nav || nav.scrollWidth <= nav.clientWidth) return
+  const active = nav.querySelector('.settings-section-tab.active')
+  if (!active) return
+  const navLeft = nav.getBoundingClientRect().left + nav.clientLeft
+  const navRight = navLeft + nav.clientWidth
+  const activeBounds = active.getBoundingClientRect()
+  if (activeBounds.left < navLeft) {
+    nav.scrollLeft += activeBounds.left - navLeft
+  } else if (activeBounds.right > navRight) {
+    nav.scrollLeft += activeBounds.right - navRight
+  }
+}
+
+onMounted(revealCurrentSection)
+watch(currentTabKey, revealCurrentSection, { flush: 'post' })
 
 // 分区切换保留项目上下文与适用的对象定位（联动闭环 L2）。
 // bookId/worldbookId 始终保留；对象定位只带给用得到它的分区，跨分区清除。
@@ -61,170 +81,42 @@ function sectionRoute(tab) {
 <style scoped>
 .settings-section-nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 0 clamp(12px, 3vw, 42px);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 54%, transparent);
-  background: transparent;
+  flex-wrap: nowrap;
+  align-items: center;
   flex-shrink: 0;
-  /* W5b UX sweep: on <760px the nav becomes overflow-x: auto and
-     the active tab can scroll out of view. Pure CSS scroll-snap +
-     scroll-padding keeps the active tab flush with the visible edge
-     so the user can always see which tab is selected. */
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 20px;
+  background: var(--surface-workbench-canvas);
   scroll-padding-inline: 8px;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
+  scrollbar-width: none;
 }
-
-/* The active tab is the snap target; inline:start means it docks to the
-   left edge of the scroller (or right, in RTL) after route change. */
-
-
-/* 透明底、底部活动线和小间距保持设定工作区的连续稿面语言。 */
 .settings-section-tab {
   position: relative;
-  min-height: 34px;
-  padding: 0 11px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: var(--workspace-control-height, 36px);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--workspace-radius, 10px);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
+  font: 500 13px/1.4 var(--font-sans);
   text-decoration: none;
   white-space: nowrap;
-  transition: color 0.16s ease, background 0.16s ease;
+  transition: color .16s ease, background .16s ease;
 }
-
-.settings-section-tab:first-child {
-  border-left: 0;
-}
-
-.settings-section-tab:hover {
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  color: var(--text-primary);
-}
-
-.settings-section-tab:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-.settings-section-tab.active {
-  color: var(--text-primary);
-  font-weight: 600;
-  border-bottom-color: var(--accent);
-  /* W5b UX sweep (continued): scroll-snap-align + scroll-margin so the
-     active tab stays in view when the nav scrolls horizontally. */
-  scroll-snap-align: start;
-  scroll-margin-inline-start: 8px;
-}
-
-/* 一级导航只用图标、文字和活动线，不再添加编号或印章。 */
-.settings-section-tab::before {
-  content: none;
-}
-
-.settings-section-tab__icon {
-  display: inline-flex;
-  color: var(--text-muted);
-}
-
-:global(html.theme-legacy .settings-section-tab__icon) {
-  display: inline-flex;
-}
-
-:global(html.theme-legacy .settings-section-tab.active .settings-section-tab__icon) {
-  color: var(--signal-primary);
-}
-
-.settings-section-tab__label {
-  display: inline-flex;
-  align-items: center;
-}
-
-/* 760px 以下允许横向滚动，保证三个一级入口仍可触达。 */
-@media (max-width: 760px) {
-  .settings-section-nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding: 0 8px;
-  }
-
-  .settings-section-tab {
-    min-width: max-content;
-    padding: 0 10px;
-    font-size: 11px;
-  }
-}
-
-/* 兼容旧主题的色彩覆盖；主题 2 仍保持冷白稿面。 */
-
-/* Theme 2: one quiet workbench rail shared by every settings surface. */
-.theme-legacy .settings-section-nav {
-  min-height: 42px;
-  align-items: stretch;
-  gap: 0;
-  padding-inline: clamp(14px, 3vw, 42px);
-  border-bottom-color: color-mix(in srgb, var(--archive-olive) 16%, transparent);
-  background: color-mix(in srgb, var(--archive-paper-soft) 74%, transparent);
-}
-
-.theme-legacy .settings-section-tab {
-  min-height: 42px;
-  padding-inline: 14px;
-  gap: 7px;
-  color: var(--archive-ink-soft);
-  font-size: 12px;
-}
-
-.theme-legacy .settings-section-tab:hover {
-  background: color-mix(in srgb, var(--archive-olive) 5%, transparent);
-  color: var(--archive-ink);
-}
-
-.theme-legacy .settings-section-tab.active {
-  border-bottom-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
-  color: var(--archive-ink);
-}
-
-.theme-legacy .settings-section-tab.active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 18px;
-  height: 2px;
-  background: var(--archive-rose);
-  transform: translateX(-50%);
-}
-
-@media (max-width: 760px) {
-  .theme-legacy .settings-section-nav {
-    min-height: 40px;
-    padding-inline: 6px;
-  }
-
-  .theme-legacy .settings-section-tab {
-    min-height: 40px;
-    padding-inline: 11px;
-  }
-}
-.settings-section-nav { align-items: center; gap: 4px; padding: 5px 20px; background: var(--archive-paper-soft); }
-.settings-section-nav .settings-section-tab { min-height: 34px; padding: 0 12px; border: 0; border-radius: 5px; font-size: 13px; color: var(--archive-ink-soft); }
-.settings-section-nav .settings-section-tab.active { background: color-mix(in srgb, var(--archive-olive) 9%, transparent); color: var(--archive-olive); }
-.settings-section-nav .settings-section-tab::before { display: none; }
-.settings-section-tab__icon { width: 18px; height: 18px; }
-@media (max-width: 760px) { .settings-section-nav { padding: 8px 12px; } .settings-section-nav .settings-section-tab { font-size: 14px; } }
-
-/* NB04：激活标签文字用主文字色（4.5:1） */
-.router-link-active > .settings-section-tab__label {
-  color: var(--text-primary);
-}
+.settings-section-tab:hover { background: var(--nav-hover); color: var(--text-primary); }
+.settings-section-tab.active { color: var(--text-primary); scroll-snap-align: start; scroll-margin-inline-start: 8px; }
+.settings-section-tab.active::after { content: ''; position: absolute; inset-inline: 10px; bottom: 1px; height: 2px; border-radius: 1px; background: currentColor; }
+.settings-section-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-section-tab__icon { display: inline-flex; flex: none; width: 16px; height: 16px; color: currentColor; }
+.settings-section-tab__label { display: inline-flex; align-items: center; }
+@media (max-width: 760px), (pointer: coarse) { .settings-section-tab { min-height: 44px; } }
+@media (max-width: 760px) { .settings-section-nav { overflow-x: auto; padding: 6px 12px; } .settings-section-tab { flex: 1 0 auto; padding-inline: 10px; } }
+@media (prefers-reduced-motion: reduce) { .settings-section-tab { transition: none; } }
 </style>

@@ -5,10 +5,9 @@ const INSPECTOR_LABELS = Object.freeze({
   outline: '大纲',
   characters: '角色',
   worldbook: '设定',
-  scene: '现场',
+  scene: '推演',
   rehearsal: '推演',
   collaboration: '共同排演',
-  materials: '素材',
   ai: '助手',
   history: '历史',
   dual: '双栏'
@@ -53,7 +52,7 @@ export function useAuthoringInspectorState({
   const activeInspectorLabel = computed(() => INSPECTOR_LABELS[activeInspectorTool.value] || '批注')
 
   function freezeWritingSurfaceBeforeToolSelect(tool) {
-    const normalizedTool = String(tool || '')
+    const normalizedTool = tool === 'scene' ? 'rehearsal' : String(tool || '')
     const previous = inspectorReturnSurface.value
     let next = previous
     const togglingCurrentTool = inspectorOpen.value && normalizedTool === activeInspectorTool.value
@@ -80,7 +79,7 @@ export function useAuthoringInspectorState({
   }
 
   function prepareToolSelection(tool) {
-    const normalizedTool = String(tool || '')
+    const normalizedTool = tool === 'scene' ? 'rehearsal' : String(tool || '')
     const preparedIsCurrent = preparedToolSelection?.tool === normalizedTool
       && Date.now() - Number(preparedToolSelection?.createdAt || 0) < 1000
     if (!preparedIsCurrent) freezeWritingSurfaceBeforeToolSelect(normalizedTool)
@@ -97,7 +96,7 @@ export function useAuthoringInspectorState({
 
   function closeWritingInspector(options = {}) {
     const shouldRestoreSurface = options?.restoreSurface !== false
-    if (inspectorDetailState.value?.kind === 'scene-edit') {
+    if (inspectorDetailState.value?.kind === 'scene-edit' && options.preserveSceneDraft !== true) {
       discardSceneDraft?.()
       inspectorDetailState.value = null
     }
@@ -116,7 +115,7 @@ export function useAuthoringInspectorState({
   // close ordering in the inspector owner instead of letting every page helper
   // directly mutate active tool/open/detail refs in a different order.
   function openInspectorTool(tool, options = {}) {
-    const normalizedTool = String(tool || '')
+    const normalizedTool = tool === 'scene' ? 'rehearsal' : String(tool || '')
     if (!INSPECTOR_LABELS[normalizedTool]) return false
     const previousTool = activeInspectorTool.value
     const prepared = prepareToolSelection(normalizedTool)
@@ -127,7 +126,7 @@ export function useAuthoringInspectorState({
       }
       activeWritingPane.value = 'main'
     }
-    if (inspectorDetailState.value?.kind === 'scene-edit' && normalizedTool !== 'scene') {
+    if (inspectorDetailState.value?.kind === 'scene-edit' && normalizedTool !== 'rehearsal') {
       discardSceneDraft?.()
       inspectorDetailState.value = null
     }
@@ -147,6 +146,7 @@ export function useAuthoringInspectorState({
   }
 
   function selectInspectorTool(tool) {
+    if (tool === 'scene') tool = 'rehearsal'
     const prepared = prepareToolSelection(tool)
     if (tool === 'dual') {
       if (inspectorOpen.value && activeInspectorTool.value === 'dual') {
@@ -172,7 +172,7 @@ export function useAuthoringInspectorState({
       }
       activeWritingPane.value = 'main'
     }
-    if (inspectorDetailState.value?.kind === 'scene-edit' && tool !== 'scene') {
+    if (inspectorDetailState.value?.kind === 'scene-edit' && tool !== 'rehearsal') {
       discardSceneDraft?.()
       inspectorDetailState.value = null
     }

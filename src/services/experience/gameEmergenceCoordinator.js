@@ -404,4 +404,3 @@ clearEmergenceDraft() {
   this.saveCurrentSession()
 },
 }
-
