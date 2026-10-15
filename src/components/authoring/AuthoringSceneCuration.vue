@@ -470,7 +470,7 @@ function chooseCurrentLocation(candidate) {
 .scene-curation__person-toggle { box-sizing: border-box; width: 100%; min-height: 40px; padding: 8px; font-size: 13px; }
 .scene-curation__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 18px; }
 .scene-curation__actions button { min-height: 36px; border: 0; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-sans); cursor: pointer; }
-.scene-curation__actions button[data-test='curation-save'] { padding: 7px 18px; border: 0; border-radius: 999px; background: var(--control-accent-bg, var(--accent-primary)); color: var(--accent-text); }
+.scene-curation__actions button[data-test='curation-save'] { padding: 7px 18px; border: 0; border-radius: 999px; background: var(--control-accent-bg, var(--accent-primary)); color: var(--control-accent-text); }
 .scene-curation__actions button:disabled { opacity: .45; cursor: not-allowed; }
 .scene-curation button:focus-visible,
 .scene-curation summary:focus-visible { outline: 2px solid var(--control-focus); outline-offset: 3px; }

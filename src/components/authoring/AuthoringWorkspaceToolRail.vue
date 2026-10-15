@@ -3,6 +3,7 @@ import { tr } from '../../i18n/index.js'
 import { computed, watch, onScopeDispose } from 'vue'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 const props = defineProps({ activeTool: { type: String, default: 'annotations' }, pending: { type: Object, default: () => ({}) }, dual: Boolean, collaborationVisible: Boolean, workspaceHidden: Boolean })
 const emit = defineEmits(['before-select', 'select'])
 const workspace = useComposableWorkspace()
@@ -17,7 +18,7 @@ function emitBeforeSelect(toolId, event) {
   if (event?.button != null && event.button !== 0) return
   emit('before-select', toolId)
 }
-// 写作、参考、辅助分组保留可见文字，切换仍由页面唯一 owner 处理。
+// 分组保持原顺序；名称由浮层与可访问名称提供。
 const assistantTool = { id: 'ai', label: '助手' }
 const baseTools = Object.freeze([
   { ...assistantTool, icon: 'assistant', group: 'writing' },
@@ -39,11 +40,10 @@ const tools = computed(() => props.collaborationVisible
   <Teleport :to="workspace?.railTarget.value || 'body'" :disabled="!docked">
   <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
     <button v-for="(tool, index) in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id" :data-group-start="index > 0 && tools[index - 1].group !== tool.group ? 'true' : undefined"
-      :aria-label="tr(tool.label)" :data-selected="(tool.id === 'dual' ? dual : activeTool === tool.id)" :aria-pressed="!docked && (tool.id === 'dual' ? dual : activeTool === tool.id)" :title="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
+      :aria-label="tr(tool.label)" :data-selected="(tool.id === 'dual' ? dual : activeTool === tool.id)" :aria-pressed="!docked && (tool.id === 'dual' ? dual : activeTool === tool.id)" v-workbench-tooltip="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
       @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
       <span v-if="pending[tool.id]" class="writing-tool-rail__pending" aria-hidden="true" />
-      <span class="writing-tool-rail__label">{{ tr(tool.label) }}</span>
     </button>
   </nav>
   </Teleport>
@@ -52,13 +52,11 @@ const tools = computed(() => props.collaborationVisible
 <style scoped>
 .writing-tool-rail { box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; width: var(--writing-tool-rail-width, 60px); min-width: var(--writing-tool-rail-width, 60px); padding: 12px 5px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; border: 0; background: transparent; }
 .writing-tool-rail__pending { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); position: absolute; inset-inline-end: 9px; top: 9px; }
-.writing-tool-rail button { position: relative; display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 52px; padding: 5px 2px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
-.writing-tool-rail__label { font-family: var(--font-interface, var(--font-sans)); font-size: 13px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: center; }
-.writing-tool-rail button[aria-pressed="true"] { color: var(--accent); background: var(--nav-primary-selected); }
-.writing-tool-rail button[aria-pressed="true"] .writing-tool-rail__label { font-weight: 500; }
+.writing-tool-rail button { position: relative; display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 5px; width: 100%; min-height: 40px; padding: 5px 2px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+.writing-tool-rail button[aria-pressed="true"] { color: var(--text-primary); background: var(--workbench-selected); }
 .writing-tool-rail button:hover { background: var(--nav-hover); color: var(--text-primary); }
-.writing-tool-rail button[aria-pressed="true"]:hover { background: var(--nav-focused); color: var(--accent); }
-.writing-tool-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.writing-tool-rail button[aria-pressed="true"]:hover { background: var(--workbench-selected-hover); color: var(--text-primary); }
+.writing-tool-rail button:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: -2px; }
 .writing-tool-rail button:active { background: var(--nav-focused); }
 @media (min-width: 721px) { .writing-tool-rail button[data-group-start="true"] { margin-top: 14px; } }
 @media (prefers-reduced-motion: reduce) { .writing-tool-rail button { transition: none; } }

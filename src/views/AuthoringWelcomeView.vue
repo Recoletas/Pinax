@@ -1,9 +1,9 @@
 <template>
   <div class="authoring-welcome" :class="{ 'is-embedded': embedded }">
-    <LibrarySidebar v-if="!embedded" :books="books" :recent-book-id="recentBook?.id || ''" @settings="settings.open" />
+    <Teleport v-if="!embedded" :to="host?.directoryTarget.value || 'body'" :disabled="!host?.directoryTarget.value"><LibrarySidebar v-show="host?.directory.mode.value === 'files'" docked :books="books" :recent-book-id="recentBook?.id || ''" @settings="settings.open" /></Teleport>
     <main class="library-main">
       <section class="library-heading" aria-labelledby="library-title">
-        <div><h1 id="library-title">{{ tr('我的作品') }}</h1><p v-if="!books.length">{{ tr('从第一本书开始，把想法写成故事。') }}</p></div>
+        <div><h1 id="library-title">{{ tr('我的作品') }}</h1></div>
         <LibraryQuickActions :empty="!books.length" @backup="settings.open('storage')" />
       </section>
       <p v-if="recent.persistenceNotice" class="library-notice" role="status">{{ tr(recent.persistenceNotice) }}</p>
@@ -17,11 +17,10 @@
         </div>
         <p v-if="search.trim()" class="library-results" role="status">{{ tr('找到 {length} 本书稿', { length: visibleBooks.length }) }}</p>
         <section v-if="visibleBooks.length" class="library-books" :class="{ 'is-list': view === 'list' }" :aria-label="tr(&quot;书稿&quot;)"><BookLibraryCard v-for="book in visibleBooks" :key="book.id" :book="book" data-test="library-book" @click.capture="openBook($event, book)" /></section>
-        <div v-else class="library-no-results"><h2>{{ tr('没有找到这本书') }}</h2><p>{{ tr('试试其他书名，或清除搜索查看全部作品。') }}</p><button type="button" class="library-button" @click="clearSearch">{{ tr('清除搜索') }}</button></div>
+        <div v-else class="library-no-results"><h2>{{ tr('没有找到这本书') }}</h2><button type="button" class="library-button" @click="clearSearch">{{ tr('清除搜索') }}</button></div>
       </template>
       <section v-else class="library-empty" aria-labelledby="library-empty-title"><h2 id="library-empty-title">{{ tr('还没有作品') }}</h2><p>{{ tr('开始写作、和助手构思，或导入已有的 TXT / Markdown 书稿。') }}</p></section>
     </main>
-    <SettingsPopup v-if="settings.isOpen.value" />
   </div>
 </template>
 
@@ -32,7 +31,6 @@ import { useRouter, isNavigationFailure, NavigationFailureType } from 'vue-route
 import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 import { useSettingsPopup } from '../composables/useSettingsPopup.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
-import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import BookLibraryCard from '../components/authoring/BookLibraryCard.vue'
 import LibrarySidebar from '../components/authoring/LibrarySidebar.vue'
 import LibraryQuickActions from '../components/authoring/LibraryQuickActions.vue'

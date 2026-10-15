@@ -18,12 +18,12 @@ watch(() => props.history.snapshots.value[0]?.chapterId, () => { visibleCount.va
     <template v-else>
     <p class="writing-version-panel__help">{{ tr('保存章节正文与批注的快照，需要时恢复旧稿。恢复前会保留当前版本。') }}</p>
     <div class="writing-version-panel__current">
-      <div><span>当前章节</span><strong>{{ chapterTitle || '未命名章节' }}</strong></div>
+      <div><strong>{{ chapterTitle || '未命名章节' }}</strong></div>
       <div class="writing-version-panel__revision" aria-label="当前修订"><small>修订</small><b>{{ documentRevision }}</b></div>
     </div>
     <section class="writing-version-panel__automatic" aria-label="自动历史设置">
       <label>
-        <span><strong>自动历史</strong><small>正文落盘并跨过字数节点时保存</small></span>
+        <span><strong>自动历史</strong></span>
         <input type="checkbox" :checked="history.preferences.value.enabled" @change="history.updatePreference({ enabled: $event.target.checked })">
       </label>
       <label>
@@ -44,7 +44,7 @@ watch(() => props.history.snapshots.value[0]?.chapterId, () => { visibleCount.va
       <footer><button type="button" @click="history.restoreRecovery">恢复草稿</button><button type="button" class="is-quiet" @click="history.discardRecovery">丢弃</button></footer>
     </section>
     <section v-if="history.recentBlockHistory.value.length" class="writing-block-history" aria-label="最近片段历史">
-      <header class="writing-block-history__head"><strong>片段历史</strong><small>独立于章节快照</small></header>
+      <header class="writing-block-history__head"><strong>片段历史</strong></header>
       <article v-for="entry in history.recentBlockHistory.value" :key="entry.id" class="writing-block-history__entry">
         <header><div><strong>正文片段</strong><small>修订 {{ entry.fromDocumentRevision }} → {{ entry.toDocumentRevision }}</small></div><span>{{ history.formatTime(entry.createdAt) }}</span></header>
         <p>{{ history.formatPreview(entry.previousText) }}</p>

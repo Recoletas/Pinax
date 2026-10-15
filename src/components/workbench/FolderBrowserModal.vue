@@ -3,7 +3,6 @@
     <section class="folder-browser" role="dialog" aria-modal="true" :aria-label="tr('选择项目文件夹')">
       <header class="folder-browser__head">
         <div>
-          <span class="folder-browser__kicker">{{ tr('本地文件夹') }}</span>
           <h2>{{ tr('选择项目文件夹') }}</h2>
         </div>
         <button type="button" class="folder-browser__close" :aria-label="tr('关闭')" @click="emit('close')">×</button>
@@ -128,7 +127,6 @@ onMounted(() => { void go('') })
 .folder-browser__head, .folder-browser__foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; }
 .folder-browser__head { border-bottom: 1px solid var(--border); }
 .folder-browser__head h2 { margin: 2px 0 0; font: 600 18px/1.3 var(--font-sans); }
-.folder-browser__kicker { color: var(--text-secondary); font-size: 11px; letter-spacing: 0.12em; }
 .folder-browser__close { width: 40px; height: 40px; border: 0; background: transparent; color: var(--text-secondary); font-size: 22px; cursor: pointer; }
 .folder-browser__crumb { display: flex; align-items: center; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); min-width: 0; overflow: hidden; }
 .folder-browser__crumb button { flex: none; min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; cursor: pointer; }

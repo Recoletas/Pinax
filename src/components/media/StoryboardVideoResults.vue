@@ -89,8 +89,8 @@ function resultDetail(item) {
 
 <template>
   <section class="video-results" aria-label="当前镜头的视频结果">
-    <header class="video-results__header"><h3>镜头 {{ shotNumber }} 的视频</h3><span>{{ items.length }} 个结果</span></header>
-    <p v-if="!items.length" class="video-results__empty">生成后可在这里比较结果。切换镜头，会显示对应的视频。</p>
+    <header class="video-results__header"><h3>镜头 {{ shotNumber }} 的视频</h3><span v-if="items.length">{{ items.length }} 个结果</span></header>
+    <p v-if="!items.length" class="video-results__empty">这个镜头还没有生成视频。</p>
     <template v-else>
       <div class="video-results__list" role="group" aria-label="选择视频结果">
         <button v-for="(item, index) in items.slice(0, visibleCount)" :key="item.id" :data-video-result-id="item.id" type="button" class="video-results__item" :class="{ 'is-selected': item.id === selectedId }" :aria-pressed="item.id === selectedId" @click="selectResult(item)">
@@ -112,7 +112,7 @@ function resultDetail(item) {
           <button v-else-if="!localLoading && selected.generationJobId && !selected.unsaved" type="button" :disabled="savingIds.has(selected.id)" @click="emit('save-original', selected)">{{ savingIds.has(selected.id) ? '正在保存原件…' : '保存视频原件' }}</button>
           <a v-if="availability.url" :href="availability.url" target="_blank" rel="noopener noreferrer">打开原链接</a>
         </div>
-        <p class="video-results__hint">{{ localUrl ? '原件已保存在当前浏览器，完整工作区备份会包含这个视频。' : localError || '原件尚未保存在本机，远端链接可能过期。' }}</p>
+        <p v-if="!localUrl" class="video-results__hint">{{ localError || '原件尚未保存在本机，远端链接可能过期。' }}</p>
         <details v-if="selected.promptSnapshot" class="video-results__prompt"><summary>查看当时的画面描述</summary><p>{{ selected.promptSnapshot }}</p></details>
       </div>
     </template>

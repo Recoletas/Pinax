@@ -657,17 +657,18 @@
   box-sizing: border-box;
   width: 100%;
   min-height: 88px;
-  padding: 10px 11px;
-  border: 1px solid var(--authoring-hairline);
-  border-radius: 7px;
-  background: var(--archive-paper);
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--authoring-hairline);
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   font: 13px/1.65 var(--font-sans);
   resize: vertical;
 }
 .theme-legacy .writing-page .writing-annotation__edit:focus {
-  border-color: var(--accent);
-  outline: 1px solid var(--accent);
+  border-bottom-color: var(--accent);
+  outline: none;
   outline-offset: 0;
   box-shadow: none;
 }
@@ -679,16 +680,16 @@
 .theme-legacy .writing-page .writing-inspector__tabs { padding: 6px 12px; gap: 4px; border-bottom: 1px solid var(--authoring-hairline); }
 .theme-legacy .writing-page .writing-inspector__tabs button { border: 0; border-radius: 5px; padding: 6px 10px; font-size: 12px; }
 .theme-legacy .writing-page .writing-inspector__tabs button.active { background: var(--archive-paper); color: var(--archive-ink); }
-.theme-legacy .writing-page .writing-scene-overview { padding: 24px; }
-.theme-legacy .writing-page .writing-scene-overview__summary { gap: 0; margin-bottom: 22px; }
-.theme-legacy .writing-page .writing-scene-overview__summary > div { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; padding-block: 16px; border-bottom: 1px solid var(--authoring-hairline); }
-.theme-legacy .writing-page .writing-scene-overview__summary dd { font: 400 16px/1.75 var(--font-sans); }
+.theme-legacy .writing-page .writing-scene-overview { padding: 12px 8px 16px; }
+.theme-legacy .writing-page .writing-scene-overview__summary { gap: 0; margin-bottom: 16px; }
+.theme-legacy .writing-page .writing-scene-overview__summary > div { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; padding-block: 8px; border-bottom: 0; }
+.theme-legacy .writing-page .writing-scene-overview__summary dd { font: 400 14px/1.75 var(--font-interface); }
 .theme-legacy .writing-page .writing-scene-overview__events { display: grid; gap: 8px; padding-block: 16px; }
 .theme-legacy .writing-page .writing-scene-overview__events strong { font-size: 12px; color: var(--text-secondary); }
 .theme-legacy .writing-page .writing-scene-overview__events button { padding: 8px 0; border: 0; background: transparent; color: var(--archive-ink); text-align: left; font: 14px/1.7 var(--font-sans); }
-.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions button { min-height: 36px; border: 0; background: transparent; padding: 7px 0; color: var(--text-secondary); font: 13px/1.5 var(--font-sans); }
-.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions button.control-primary { padding: 7px 18px; border-radius: 999px; background: var(--control-accent-bg); color: var(--accent-text); }
+.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border: 0; background: transparent; padding: 7px 8px; color: var(--text-secondary); font: 13px/1.5 var(--font-interface); text-decoration: none; }
+.theme-legacy .writing-page .writing-scene-overview .writing-inspector__actions button.control-primary { padding: 7px 12px; border-radius: var(--radius-control); background: var(--control-accent-bg); color: var(--control-accent-text); }
 
 .theme-legacy .writing-page .writing-inspector__body--assistant {
   min-height: 0;
@@ -2041,8 +2042,8 @@ body.is-writing-zen .ws-tabs {
   pointer-events: auto;
 }
 
-/* English tool names need space without reducing their readable size. */
-.writing-page:lang(en) { --writing-tool-rail-width: 76px; }
+/* Icon-only tools use the same rail width in every interface language. */
+.writing-page:lang(en) { --writing-tool-rail-width: 52px; }
 
 @media (max-width: 720px), (pointer: coarse) {
   .theme-legacy .writing-page .authoring-chapter-search,
@@ -2053,3 +2054,11 @@ body.is-writing-zen .ws-tabs {
   .theme-legacy .writing-page .writing-tool-rail { padding: 0 4px env(safe-area-inset-bottom, 0px); }
   .theme-legacy .writing-page .writing-tool-rail button { min-height: 48px; border-radius: 10px; }
 }
+
+/* Secondary annotation actions share the quiet icon controls of the tool rail. */
+.writing-annotation footer { display: flex; align-items: center; gap: 8px; }
+.writing-annotation footer button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; }
+.writing-annotation footer button:has(svg) { width: 32px; padding-inline: 0; flex: none; }
+.writing-annotation :is(p,blockquote) { line-height: 1.8; }
+.writing-annotation-composer header button { display: grid; place-items: center; }
+@media (pointer: coarse) { .writing-annotation footer button { min-width: 44px; min-height: 44px; } }

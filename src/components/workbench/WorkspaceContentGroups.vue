@@ -1,18 +1,33 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
+import { useRoute } from 'vue-router'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import { isWorkspaceModule } from '../../services/workspace/workspaceViewContract.js'
 import WorkspaceContentTabs from './WorkspaceContentTabs.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
-const Sources = defineAsyncComponent(() => import('./WorkspaceSourcesView.vue'))
-const Reference = defineAsyncComponent(() => import('./WorkspaceReferenceView.vue'))
-const Media = defineAsyncComponent(() => import('./WorkspaceMediaView.vue'))
-const Module = defineAsyncComponent(() => import('./WorkspaceModuleView.vue'))
-const Home = defineAsyncComponent(() => import('../../views/AuthoringWelcomeView.vue'))
-const Settings = defineAsyncComponent(() => import('./WorkspaceSettingsView.vue'))
-const viewComponents = { home: Home, 'game-editor': Module, 'map-editor': Module, 'entries-editor': Module, 'online-editor': Module, 'comic-editor': Module, 'director-editor': Module, 'materials-editor': Module, sources: Sources, 'settings-editor': Settings, source: Reference, chapter: Reference, exploration: Reference, entry: Reference, asset: Media, comic: Media, video: Media }
+import WorkspaceExtensionList from './WorkspaceExtensionList.vue'
+import { vWorkbenchTooltip } from './workbenchTooltip.js'
+const componentCache = new Map()
+function componentFor(type) {
+  const definition = host.extensions.getView(type)
+  if (!definition) return null
+  if (!componentCache.has(type)) componentCache.set(type, defineAsyncComponent(definition.load))
+  return componentCache.get(type)
+}
 const host = useComposableWorkspace()
+const route = useRoute()
+const navigationVisible = computed(() => route.name === 'authoring' && Boolean(host.scope.value.bookId) || route.name === 'welcome')
+const activityItems = computed(() => [{ id: 'files', label: host.scope.value.bookId ? '文件' : '作品', icon: 'sources' }, ...(host.scope.value.bookId ? [{ id: 'search', label: '搜索', icon: 'search' }, { id: 'chapters', label: '书稿', icon: 'outline' }] : []), { id: 'extensions', label: '扩展', icon: 'extensions' }])
+const navigationTitle = computed(() => activityItems.value.find(item => item.id === host.directory.mode.value)?.label || '文件')
+async function selectActivity(mode) {
+  if (mode === 'extensions' && !(host.directory.mode.value === mode && host.directory.expanded.value)) {
+    if (!await host.directory.prepare() || !await host.prepareOpen('main')) return
+    const selected = host.state.views.find(view => view.resource.type === 'extensions')?.resource.extensionId || 'pinax.core'
+    if (!await host.openAt({ type: 'extensions', bookId: host.scope.value.bookId || '', extensionId: selected }, 'main')) return
+  }
+  host.directory.select(mode)
+}
 const root = ref(null)
 const mainTarget = ref(null)
 const sideTarget = ref(null)
@@ -44,6 +59,14 @@ watch(primaryHidden, hidden => { host.state.primaryVisible = !hidden && mainUses
 watch(() => host.scope.value.bookId, bookId => { host.directoryDocked.value = Boolean(bookId) }, { immediate: true })
 watch(mainModule, () => { host.state.primaryVisible = !primaryHidden.value && mainUsesPrimary.value })
 watch(narrow, value => { host.state.narrow = value }, { immediate: true })
+function directoryKeydown(event) {
+  if (!host.state.narrow) return
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); host.directory.setExpanded(false) }
+  if (event.key !== 'Tab') return
+  const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), select:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')].filter(element => element.getClientRects().length)
+  const first = controls[0], last = controls.at(-1)
+  if (first && ((!event.shiftKey && document.activeElement === last) || (event.shiftKey && document.activeElement === first))) { event.preventDefault(); (event.shiftKey ? last : first).focus() }
+}
 function composition(event, composing) {
   const id = event.target?.closest?.('[data-workspace-view-id]')?.getAttribute('data-workspace-view-id')
   if (id) host.state.composingViewId = composing ? id : ''
@@ -65,6 +88,35 @@ function returnToInspector(event) {
   }
 }
 onMounted(() => { targetsReady.value = true; narrowQuery?.addEventListener('change', updateViewport) })
+let directoryDrag = null
+function startDirectoryResize(event) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  directoryDrag = { x: event.clientX, width: host.directory.width.value, scale: root.value.getBoundingClientRect().width / root.value.offsetWidth || 1, target: event.currentTarget, pointerId: event.pointerId }
+  event.currentTarget.setPointerCapture(event.pointerId)
+}
+function resizeDirectory(event) { if (directoryDrag) host.directory.resize(directoryDrag.width + (event.clientX - directoryDrag.x) / directoryDrag.scale, false) }
+function endDirectoryResize() {
+  if (!directoryDrag) return
+  const previous = directoryDrag; directoryDrag = null
+  host.directory.resize(host.directory.width.value)
+  if (previous.target.hasPointerCapture?.(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId)
+}
+function directoryResizeKey(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return
+  event.preventDefault()
+  host.directory.resize(event.key === 'Home' ? 248 : host.directory.width.value + (event.key === 'ArrowLeft' ? -16 : 16))
+}
+watch(() => host.directory.expanded.value, async expanded => {
+  if (expanded) {
+    if (host.state.narrow) { await nextTick(); root.value?.querySelector('.workspace-directory-heading button')?.focus() }
+    return
+  }
+  if (!document.activeElement?.closest('#workspace-project-sidebar')) return
+  await nextTick()
+  const selector = host.state.narrow ? '[data-workspace-directory-toggle]' : `.workspace-activity-bar button[data-directory-mode="${host.directory.mode.value}"]`
+  root.value?.closest('.app-shell')?.querySelector(selector)?.focus()
+})
 let drag = null
 async function close(view) {
   await nextTick()
@@ -85,13 +137,21 @@ function resizeKey(event) {
   if (event.key === 'Home') host.resetLayout()
   else host.resize(host.state.width + (event.key === 'ArrowLeft' ? 24 : -24))
 }
-onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = null; host.directoryTarget.value = null; host.directoryDocked.value = false; endResize(); narrowQuery?.removeEventListener('change', updateViewport) })
+onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = null; host.directoryTarget.value = null; host.directoryDocked.value = false; endResize(); endDirectoryResize(); narrowQuery?.removeEventListener('change', updateViewport) })
 </script>
 
 <template>
-  <div ref="root" class="workspace-content-groups" :class="{ 'has-project-directory': Boolean(host.scope.value.bookId), 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
-    <div :ref="element => host.directoryTarget.value = element" v-show="Boolean(host.scope.value.bookId)" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" @keydown.esc.stop="host.state.directoryOpen = false"></div>
-    <section class="workspace-primary-group" :inert="primaryHidden ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
+  <div ref="root" class="workspace-content-groups" :class="{ 'has-project-directory': Boolean(host.scope.value.bookId), 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px`, '--workspace-directory-width': `${host.directory.width.value}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
+    <nav v-if="navigationVisible" class="workspace-activity-bar" :aria-label="tr('工作区视图')">
+      <button v-for="item in activityItems" :key="item.id" type="button" :data-directory-mode="item.id" :class="{ active: host.directory.expanded.value && host.directory.mode.value === item.id, 'is-bottom': item.id === 'extensions' }" :aria-pressed="host.directory.expanded.value && host.directory.mode.value === item.id" :aria-expanded="host.directory.expanded.value && host.directory.mode.value === item.id" aria-controls="workspace-project-sidebar" :aria-label="tr(item.label)" v-workbench-tooltip="{ text: tr(item.label), side: 'right' }" @click="selectActivity(item.id)"><WorkbenchIcon :name="item.icon" :size="22" /></button>
+    </nav>
+    <button v-if="navigationVisible && host.state.narrow && host.directory.expanded.value" class="workspace-directory-overlay" type="button" :aria-label="tr('关闭目录')" @click="host.directory.setExpanded(false)"></button>
+    <aside id="workspace-project-sidebar" v-show="navigationVisible && host.directory.expanded.value" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" :aria-label="tr(navigationTitle)" :role="host.state.narrow ? 'dialog' : undefined" :aria-modal="host.state.narrow && host.directory.expanded.value ? 'true' : undefined" @keydown="directoryKeydown">
+      <header v-if="host.state.narrow" class="workspace-directory-heading"><select :value="host.directory.mode.value" :aria-label="tr('侧栏视图')" @change="selectActivity($event.target.value)"><option v-for="item in activityItems" :key="item.id" :value="item.id">{{ tr(item.label) }}</option></select><button type="button" :aria-label="tr('收起侧栏')" :title="tr('收起侧栏')" @click="host.directory.setExpanded(false)"><WorkbenchIcon name="panel-left" :size="16" /></button></header>
+      <div class="workspace-directory-content"><WorkspaceExtensionList v-show="host.directory.mode.value === 'extensions'" /><div :ref="element => host.directoryTarget.value = element" v-show="host.directory.mode.value !== 'extensions'" class="workspace-directory-owner"></div></div>
+      <div v-if="!host.state.narrow" class="workspace-directory-resize" role="separator" tabindex="0" aria-orientation="vertical" :aria-label="tr('调整目录宽度')" :aria-valuenow="host.directory.width.value" aria-valuemin="200" aria-valuemax="360" @pointerdown="startDirectoryResize" @pointermove="resizeDirectory" @pointerup="endDirectoryResize" @pointercancel="endDirectoryResize" @lostpointercapture="endDirectoryResize" @keydown="directoryResizeKey"></div>
+    </aside>
+    <section class="workspace-primary-group" :inert="primaryHidden || host.state.narrow && host.directory.expanded.value ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
       <div :ref="element => host.tabsTarget.value = element" class="workspace-tabs-host"></div>
       <div ref="mainTarget" v-show="!mainUsesPrimary" class="workspace-main-body"></div>
       <div v-show="mainUsesPrimary" class="workspace-original-primary" :inert="mainUsesPrimary ? undefined : ''"><slot /></div>
@@ -112,10 +172,10 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
       <div ref="sideTarget" class="workspace-side-body">
       </div>
     </div>
-    <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value && mainModule?.resource.type !== 'home'" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
+    <div :ref="element => host.railTarget.value = element" v-show="host.railDocked.value && !['home', 'settings-editor'].includes(mainModule?.resource.type)" class="workspace-writing-tools" :aria-label="tr('写作工具')"></div>
     <template v-if="targetsReady"><Teleport v-for="view in renderedViews" :key="view.id" :to="view.id === host.state.mainModuleId ? mainTarget : sideTarget">
       <section v-show="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId))" :data-workspace-view-id="view.id" class="workspace-reference-body" :class="{ 'workspace-module-body': isWorkspaceModule(view.resource.type) }" :inert="!host.state.hidden && ((view.id === host.state.mainModuleId && !['chapter', 'exploration'].includes(view.resource.type)) || (view.group !== 'main' && view.id === host.state.sideActiveId)) ? undefined : ''">
-        <component :is="viewComponents[view.resource.type]" :resource="view.resource" :instance-id="view.id" v-bind="view.resource.type === 'home' ? { embedded: true } : {}" @title="titles[view.id] = $event" @icon="host.viewIcons[view.id] = $event" />
+        <component :is="componentFor(view.resource.type)" :resource="view.resource" :instance-id="view.id" v-bind="view.resource.type === 'home' ? { embedded: true } : {}" @title="titles[view.id] = $event" @icon="host.viewIcons[view.id] = $event" />
       </section>
     </Teleport></template>
   </div>
@@ -123,11 +183,31 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
 
 <style scoped>
 .workspace-tabs-host { flex: none; min-width: 0; }
-.workspace-directory-dock.writing-page { display: flex; flex-direction: row; flex: 0 0 248px; width: 248px; min-width: 0; min-height: 0; padding: 0; overflow: hidden; }
-.workspace-directory-dock :deep(.wall__shelf) { box-sizing: border-box; width: 100%; height: 100%; align-self: stretch; }
-.workspace-directory-toggle { display: none; border: 0; color: var(--text-primary); background: transparent; min-height: 44px; padding: 0 12px; }
-.workspace-directory-dock:empty { display: none; }
-@media (max-width: 900px) { .workspace-directory-toggle { display: block; } .workspace-directory-dock.writing-page { display: none; } .workspace-directory-dock.writing-page.is-open { display: flex; position: absolute; inset: 44px auto 0 0; width: min(320px, calc(100vw - 42px)); z-index: 110; background: var(--surface-workbench-muted); box-shadow: var(--shadow-workbench-float); } .workspace-directory-dock.writing-page :deep(.wall__shelf) { position: static; transform: none; height: 100%; max-height: none; } }
+/* The activity bar and sidebar are siblings of the editor, never its owners. */
+.workspace-activity-bar { display: flex; flex: 0 0 44px; flex-direction: column; align-items: stretch; padding-top: 4px; background: var(--workbench-chrome); border-inline-end: 1px solid transparent; }
+.workspace-activity-bar button { position: relative; display: grid; place-items: center; width: 44px; height: 46px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
+.workspace-activity-bar .is-bottom { margin-top: auto; margin-bottom: 8px; }
+.workspace-activity-bar button:hover { color: var(--text-primary); background: var(--nav-hover); }
+.workspace-activity-bar button.active { color: var(--text-primary); background: var(--workbench-selected); }
+
+.workspace-activity-bar button:focus-visible, .workspace-directory-heading button:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: -3px; }
+.workspace-directory-dock.writing-page { display: flex; flex-direction: column; position: relative; flex: 0 0 var(--workspace-directory-width); width: var(--workspace-directory-width); min-width: 0; min-height: 0; padding: 0; overflow: hidden; background: var(--surface-workbench-muted); border-inline-end: 1px solid var(--hairline-soft); }
+.workspace-directory-heading { display: flex; align-items: center; justify-content: space-between; height: 48px; flex: none; padding: 0 10px 0 16px; font: 500 12px/1.5 var(--font-interface); color: var(--text-secondary); }
+.workspace-directory-heading button { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.workspace-directory-heading button:hover { background: var(--nav-hover); color: var(--text-primary); }
+.workspace-directory-content { flex: 1; min-height: 0; overflow: auto; }
+.workspace-directory-owner { height: 100%; min-height: 0; }
+.workspace-directory-heading select { min-width: 0; max-width: 180px; padding: 4px 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; }
+.workspace-directory-dock.writing-page :deep(.wall__shelf) { box-sizing: border-box; width: 100%; height: 100%; align-self: stretch; padding: 0; border: 0; background: transparent; }
+.workspace-directory-content :deep(.wall__shelf-manuscript) { gap: 0; scrollbar-width: thin; }
+.workspace-directory-resize { position: absolute; inset-block: 0; inset-inline-end: -2px; width: 5px; z-index: 4; cursor: col-resize; touch-action: none; }
+.workspace-directory-resize:hover, .workspace-directory-resize:focus-visible { background: var(--accent); outline: none; }
+.workspace-directory-overlay { position: absolute; inset: 44px 0 0; z-index: 109; border: 0; background: color-mix(in srgb, var(--archive-ink) 18%, transparent); }
+@media (max-width: 900px) {
+  .workspace-activity-bar { display: none; }
+  .workspace-directory-dock.writing-page { position: absolute; inset: 44px auto 0 0; width: min(320px, calc(100vw - 42px)); z-index: 110; background: var(--surface-workbench-muted); box-shadow: var(--shadow-workbench-float); }
+  .workspace-directory-dock.writing-page :deep(.wall__shelf) { position: static; transform: none; height: 100%; max-height: none; }
+}
 .workspace-content-groups { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-primary-group { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .workspace-original-primary { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
@@ -148,7 +228,7 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
 .workspace-content-close, .workspace-reference-controls button { display: grid; place-items: center; flex: none; width: 30px; height: 36px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .workspace-reference-controls { display: flex; flex: none; padding-inline: 4px; }
 .workspace-reference-header button:hover { background: var(--nav-hover); color: var(--text-primary); }
-.workspace-reference-header button:focus-visible, .workspace-reference-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.workspace-reference-header button:focus-visible, .workspace-reference-resize:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: -2px; }
 .workspace-reference-body { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .workspace-reference-notice { margin: 0; padding: 8px 16px; font: 12px/1.5 var(--font-sans); color: var(--text-secondary); }
 .workspace-host-notice { position: absolute; bottom: 20px; inset-inline: 20px; z-index: 5; display: flex; align-items: center; gap: 12px; width: fit-content; max-width: calc(100% - 40px); margin: 0 auto; padding: 10px 14px; background: var(--surface-workbench); border: 1px solid var(--hairline-soft); color: var(--text-secondary); font: 13px/1.5 var(--font-sans); }
@@ -197,5 +277,5 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
   .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector), .has-project-directory :deep(.writing-page:not(.is-assistant-full) .wall__main.has-inspector:has(> .writing-inspector.is-catalog-workbench)) { grid-template-columns: 0 minmax(0, 1fr) var(--writing-tool-rail-width, 52px) !important; }
   .has-project-directory :deep(.writing-page .writing-inspector), .has-project-directory :deep(.authoring-dual-pane) { width: min(440px, calc(100% - var(--writing-tool-rail-width, 52px))); }
 }
-.workspace-content-groups:has(.writing-page.is-zen) .workspace-directory-dock { display: none; }
+.workspace-content-groups:has(.writing-page.is-zen) :is(.workspace-directory-dock, .workspace-activity-bar) { display: none; }
 </style>

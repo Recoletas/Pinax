@@ -2,12 +2,11 @@
   <section class="comic-planner" data-test="comic-adaptation-planner">
     <header class="comic-planner__header">
       <div>
-        <span class="comic-planner__kicker">{{ persisted ? '制作序列' : '改编与分页' }}</span>
         <h2>{{ plan?.title || '从素材建立多页方案' }}</h2>
         <p v-if="persisted">
           {{ plan.pages.length }} 页 · {{ totalPanels(plan) }} 格 · 视觉规则{{ bibleConfirmed ? '已确认' : '待确认' }}
         </p>
-        <p v-else>{{ sources.length }} 条素材已选 · 先比较节奏，再建立制作页</p>
+        <p v-else>已选 {{ sources.length }} 条素材</p>
       </div>
       <button
         v-if="!persisted"
@@ -381,7 +380,7 @@ function addReference() {
 .comic-planner__header, .comic-planner__section-head, .comic-planner__footer, .comic-planner__reference-add { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .comic-planner__header { padding-bottom: 24px; align-items: flex-start; }
 .comic-planner__header > div { min-width: 0; flex: 1; }
-.comic-planner__kicker, .comic-planner__section-head > div > span { color: var(--text-secondary); font-size: 12px; }
+.comic-planner__section-head > div > span { color: var(--text-secondary); font-size: 12px; }
 .comic-planner :is(h2, h3, p) { margin: 0; }
 .comic-planner h2 { margin-top: 5px; font-size: 24px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .comic-planner__header p { margin-top: 8px; color: var(--text-secondary); font-size: 13px; }

@@ -39,10 +39,12 @@ function dragOver(event) { if ([...event.dataTransfer.types].includes('applicati
 .workspace-content-tab-slot { display: flex; flex: none; align-items: center; max-width: 220px; border-inline-end: 1px solid var(--hairline-soft); }
 .workspace-content-tab { display: flex; align-items: center; gap: 7px; min-width: 0; height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--text-secondary); font: 13px var(--font-sans); cursor: pointer; }
 .workspace-content-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-content-tab.is-active { color: var(--text-primary); background: var(--nav-focused); }
+.workspace-content-tab.is-active { color: var(--text-primary); background: var(--workbench-selected); }
 .workspace-content-close { display: grid; place-items: center; flex: none; width: 30px; height: 36px; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; opacity: 0; }
 .workspace-content-tab-slot:is(:hover, :focus-within) .workspace-content-close, .workspace-content-tab.is-active + .workspace-content-close { opacity: 1; }
+button { -webkit-tap-highlight-color: transparent; }
+button:active { background: var(--workbench-selected-hover); }
 button:hover { background: var(--nav-hover); color: var(--text-primary); }
-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+button:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: -2px; }
 @media (max-width: 900px), (pointer: coarse) { .workspace-content-close { min-width: 40px; min-height: 44px; opacity: 1; } }
 </style>

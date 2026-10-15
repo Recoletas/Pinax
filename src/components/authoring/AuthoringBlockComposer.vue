@@ -313,8 +313,8 @@ defineExpose({ focusInstruction })
   padding: 7px 18px;
   border: 0;
   border-radius: 3px;
-  background: var(--control-accent-bg, var(--accent-primary));
-  color: var(--archive-paper-soft, #f5f7f4);
+  background: var(--control-accent-bg, var(--accent));
+  color: var(--control-accent-text, var(--accent-text));
   font-weight: 650;
 }
 .authoring-block-composer [role="alert"] { margin: 8px 0 0; color: var(--text-danger, var(--text-primary)); font-size: 12px; }

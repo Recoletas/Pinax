@@ -3,7 +3,6 @@
     <section ref="dialog" class="manuscript-import" role="dialog" aria-modal="true" aria-labelledby="manuscript-import-title" @keydown="onKeydown">
       <header class="manuscript-import__head">
         <div>
-          <span class="manuscript-import__kicker">{{ tr('带着旧稿开始') }}</span>
           <h2 id="manuscript-import-title">{{ tr('导入 TXT / Markdown') }}</h2>
         </div>
         <button ref="closeButton" class="manuscript-import__close" type="button" :aria-label="tr(&quot;关闭导入&quot;)" @click="emit('close')">×</button>
@@ -515,7 +514,6 @@ onBeforeUnmount(() => {
 
 .manuscript-import__head { border-bottom: 1px solid var(--border); }
 .manuscript-import__head h2 { margin: 2px 0 0; font: 700 22px/1.25 var(--font-sans); }
-.manuscript-import__kicker { color: var(--text-secondary); font-size: 11px; letter-spacing: 0.12em; }
 
 .manuscript-import__close {
   width: 44px;

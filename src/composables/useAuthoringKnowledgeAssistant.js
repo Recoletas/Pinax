@@ -270,7 +270,7 @@ export function createAuthoringKnowledgeAssistant({
       const copy = JSON.parse(JSON.stringify(message))
       copy.id = messageId(copy.role === 'user' ? 'question' : 'answer')
       // A branch is conversation history, not another editable copy of old proposals.
-      for (const key of ['proposal', 'adoptionReceipt', 'toolResults', 'taskId', 'beatPlan']) delete copy[key]
+      for (const key of ['proposal', 'adoptionReceipt', 'toolResults', 'taskId', 'beatPlan', 'answerVersions', 'answerVersionIndex', 'answerVersionQuestions']) delete copy[key]
       return copy
     })
     const sessionId = messageId('session')
@@ -283,31 +283,80 @@ export function createAuthoringKnowledgeAssistant({
     }
     return true
   }
-  async function editQuestion(id, question) {
-    const message = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'user')
-    const text = normalizedText(question)
-    if (!message || !text || !editorAttached()) return false
-    const intent = message.intent || 'free'
-    if (!branchConversation(id, { before: true })) return false
-    updateDraft(text)
-    return ask({ question: text, intent })
+  async function editQuestion(id, text) {
+    const question = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'user')
+    const edited = normalizedText(text)
+    if (!question || !edited) return false
+    return regenerateQuestion(question, null, edited)
   }
-  function regenerateAnswer(id, params = null) {
-    const messages = activeEntry.value.state.messages
-    const index = messages.findIndex(message => message.id === id && message.role === 'assistant')
-    const question = index >= 0 ? messages.slice(0, index).findLast(message => message.role === 'user') : null
-    if (!question) return false
-    if (!params) return editQuestion(question.id, question.question)
-    const sampling = normalizeAssistantSampling(params)
-    if (!sampling || !branchConversation(question.id, { before: true })) return false
-    updateDraft(question.question)
-    return ask({ question: question.question, intent: sampling.intent, sampling })
+  function answerVersionInfo(id) {
+    const history = activeEntry.value.state.messages
+    const index = history.findIndex(message => message.id === id && message.role === 'assistant')
+    const question = index < 0 ? null : history.slice(0, index).findLast(message => message.role === 'user')
+    return { question, index: question?.answerVersionIndex || 0, count: question?.answerVersions?.length || 1 }
+  }
+  function selectAnswerVersion(id, index) {
+    const entry = activeEntry.value, state = entry.state
+    const info = answerVersionInfo(id), question = info.question
+    if (!question || state.busy || state.agentAdoptionBusy || disposed || !Number.isInteger(index)
+      || index < 0 || index >= info.count || index === info.index || persistConversation(entry)?.ok !== true) return false
+    const questionIndex = state.messages.indexOf(question)
+    const previous = JSON.parse(JSON.stringify(state.messages))
+    question.answerVersions[info.index] = JSON.parse(JSON.stringify(state.messages.slice(questionIndex + 1)))
+    const selected = question.answerVersions[index]
+    if (!Array.isArray(selected)) return false
+    question.answerVersionIndex = index
+    question.question = question.answerVersionQuestions?.[index] ?? question.question
+    state.messages = [...state.messages.slice(0, questionIndex + 1), ...JSON.parse(JSON.stringify(selected))]
+    state.error = ''; state.lastRequest = null
+    state.status = state.messages.at(-1)?.status || 'idle'
+    reviewedMessageId.value = ''
+    state.agentTaskId = ''
+    agentEngine?.revokePermission?.()
+    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; state.permissionRevision++
+    if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
+    scheduleStalenessRefresh()
+    return true
+  }
+  async function regenerateAnswer(id, params = null) {
+    return regenerateQuestion(answerVersionInfo(id).question, params)
+  }
+  async function regenerateQuestion(question, params = null, editedText = null) {
+    const entry = activeEntry.value, state = entry.state
+    const sampling = params ? normalizeAssistantSampling(params) : null
+    if (!question || params && (!sampling || !agentEngine) || state.busy || state.agentAdoptionBusy
+      || disposed || !editorAttached() || !entry.runtime.canSaveConversation) return false
+    if (entry.runtime.cancellation) {
+      const stopped = await entry.runtime.cancellation
+      entry.runtime.cancellation = null
+      if (stopped === false || entry !== activeEntry.value || state.busy || disposed || !state.messages.includes(question)) return false
+    }
+    if (persistConversation(entry)?.ok !== true) return false
+    const previous = JSON.parse(JSON.stringify(state.messages))
+    const questionIndex = state.messages.indexOf(question)
+    const versions = question.answerVersions || []
+    const currentIndex = question.answerVersionIndex || 0
+    versions[currentIndex] = JSON.parse(JSON.stringify(state.messages.slice(questionIndex + 1)))
+    // Versions belong to this question, never to a new conversation/session.
+    const questions = versions.map((_, index) => question.answerVersionQuestions?.[index] ?? question.question)
+    question.answerVersions = [...versions.slice(-7), null]
+    question.answerVersionQuestions = [...questions.slice(-7), editedText ?? question.question]
+    question.question = editedText ?? question.question
+    question.answerVersionIndex = question.answerVersions.length - 1
+    state.messages = state.messages.slice(0, questionIndex + 1)
+    agentEngine?.revokePermission?.()
+    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; state.permissionRevision++
+    state.agentTaskId = ''
+    reviewedMessageId.value = ''
+    if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
+    const pending = ask({ question: question.question, intent: sampling?.intent || question.intent || 'free', ...(sampling ? { sampling } : {}) }, { appendUser: false })
+    const succeeded = await pending
+    if (state.messages.length === questionIndex + 1) { state.messages = previous; persistConversation(entry) }
+    return succeeded
   }
   function continueFromMessage(id) {
     const message = activeEntry.value.state.messages.find(item => item.id === id && item.role === 'assistant')
     if (!message || activeEntry.value.state.busy || activeEntry.value.state.agentAdoptionBusy) return false
-    // Continuing the current last answer already has the correct history.
-    if (activeEntry.value.state.messages.at(-1)?.id === id) return true
     return branchConversation(id)
   }
   function renameConversation(sessionId, title) {
@@ -778,7 +827,7 @@ export function createAuthoringKnowledgeAssistant({
   }
   return Object.freeze({
     undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, answerVersionInfo, selectAnswerVersion, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

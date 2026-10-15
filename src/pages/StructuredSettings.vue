@@ -23,7 +23,6 @@
       :aria-label="tr('当前地点上下文')"
     >
       <div class="place-context-copy">
-        <span class="place-context-kicker">{{ tr('地点上下文') }}</span>
         <strong>{{ focusedPlace.name || focusedPlace.placeId }}</strong>
         <span>{{ tr('历史 {history} · 条目 {entries}', { history: focusedPlace.historyNodeIds?.length || 0, entries: focusedPlace.entryIds?.length || 0 }) }}</span>
       </div>
@@ -68,7 +67,6 @@
         <div class="empty-state" data-test="settings-unbound">
           <p>{{ tr('还没有设定') }}</p>
           <button type="button" class="control-primary" @click="createRequest = { type: 'entry', bookId: context?.bookId }">{{ tr('新建设定') }}</button>
-          <p class="empty-state__hint">{{ tr('添加资料后会建立并关联资料库；也可在工作台关联已有世界书。') }}</p>
           <button
             type="button"
             class="empty-state__action"
@@ -241,11 +239,6 @@ onMounted(async () => {
   gap: 2px;
 }
 
-.place-context-kicker {
-  color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.04em;
-}
 
 .place-context-copy strong {
   overflow: hidden;

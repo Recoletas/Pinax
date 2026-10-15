@@ -53,7 +53,7 @@ function showData(session) { data.value = props.assistant.conversationDetails(se
 .assistant-conversation-list button:hover { color:var(--text-primary); background:var(--nav-hover); }
 .assistant-conversation-list button:focus-visible, .assistant-conversation-list summary:focus-visible { outline:2px solid var(--accent); }
 .assistant-conversation-list__row { display:grid; grid-template-columns:minmax(0,1fr) 28px; align-items:start; border-radius:var(--radius-control); }
-.assistant-conversation-list__row.is-active { background:var(--nav-selected); color:var(--text-primary); }
+.assistant-conversation-list__row.is-active { background:var(--nav-selected-secondary, var(--nav-selected)); color:var(--text-primary); }
 .assistant-conversation-list__select { display:flex; min-width:0; gap:8px; align-items:center; text-align:start; padding:7px 6px; }
 .assistant-conversation-list__select span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .assistant-conversation-list__menu summary { display:flex; align-items:center; justify-content:center; min-height:34px; cursor:pointer; list-style:none; }

@@ -166,7 +166,7 @@ async function removeSource(source) {
     >
       <strong>{{ tr("资料") }}</strong>
       <span>{{ tr('{count} 份 · {chars} 字', { count: sources.length, chars: formatUiNumber(totalChars) }) }}</span>
-      <span class="sources-panel__hint">{{ open ? tr("收起") : tr("展开管理与预览") }}</span>
+      <WorkbenchIcon name="chevron-down" :size="16" :style="{ transform: open ? 'rotate(180deg)' : undefined }" />
     </button>
 
     <div v-if="standalone || open" class="sources-panel__body">
@@ -195,7 +195,6 @@ async function removeSource(source) {
         <WorkbenchIcon name="sources" :size="30" />
         <h3>{{ tr("还没有参考资料") }}</h3>
         <p>{{ tr("添加参考文档或文字片段，随时查阅原文。") }}</p>
-        <small>{{ tr("支持 TXT、Markdown、PDF、DOCX 与 EPUB") }}</small>
       </div>
       <p v-else-if="!filtered.length" class="sources-panel__empty">{{ tr("没有匹配的资料；调整搜索或类型筛选。") }}</p>
 

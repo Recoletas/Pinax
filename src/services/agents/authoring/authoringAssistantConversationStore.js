@@ -28,12 +28,13 @@ function storedQuerySession(session, projectId) {
   }
 }
 
-function storedMessages(messages, projectId) {
+function storedMessages(messages, projectId, includeVersions = true) {
   return (Array.isArray(messages) ? messages : []).flatMap((message) => {
     const common = { id: String(message?.id || ''), role: message?.role, createdAt: Number(message?.createdAt) || 0 }
     if (!common.id) return []
     if (message.role === 'user') {
-      return [{ ...common, question: String(message.question || ''), intent: String(message.intent || 'whole-book') }]
+      return [{ ...common, question: String(message.question || ''), intent: String(message.intent || 'whole-book'),
+        ...(includeVersions && Array.isArray(message.answerVersions) ? { answerVersionQuestions: message.answerVersions.slice(0, 8).map((_, index) => String(message.answerVersionQuestions?.[index] ?? message.question ?? '').slice(0, 12000)), answerVersions: message.answerVersions.slice(0, 8).map(version => version === null ? null : storedMessages(version, projectId, false).slice(0, 60)), answerVersionIndex: Math.max(0, Math.min(Math.min(8, message.answerVersions.length) - 1, Number(message.answerVersionIndex) || 0)) } : {}) }]
     }
     if (message.role === 'assistant' && message.kind === 'agent' && message.projectId === projectId) {
       return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),

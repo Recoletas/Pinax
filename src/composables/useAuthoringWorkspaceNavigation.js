@@ -1,6 +1,7 @@
 import { nextTick, onMounted, onScopeDispose, unref, watch } from 'vue'
 import { openOrFocusWorkspaceTab } from '../services/workspace/workspaceRouteAdapter.js'
 import { recordWorkspaceRecentLocation } from '../services/workspace/workspaceRecentHistory.js'
+import { getNodePlainText } from '../services/writing/writingDocumentSchema.js'
 import { getExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
 import { useComposableWorkspace } from './useComposableWorkspace.js'
 
@@ -37,6 +38,8 @@ export function useAuthoringWorkspaceNavigation({
   selectedWorldbookId,
   activeWritingUnitId,
   writingDocument,
+  readWorldbook,
+  canInsertSettingName,
   notebookEditorRef,
   saveStatus,
   pendingBackJump,
@@ -103,6 +106,13 @@ export function useAuthoringWorkspaceNavigation({
     if (disposed || text(selectedValue(selectedBookId)) !== resource.bookId) return false
     if (resource.type === 'exploration') return text(selectedValue(activeDocument)?.id) === resource.id
     if (selectedValue(activeDocument) || text(selectedValue(selectedChapterId)) !== resource.id) return false
+    if (resource.nodeId && resource.matchText) {
+      const nodes = selectedValue(writingDocument)?.content?.flatMap(unit => unit.content || []) || []
+      const node = nodes.find(item => item.attrs?.nodeId === resource.nodeId)
+      const content = getNodePlainText(node)
+      if (!node || content.slice(resource.start, resource.end) !== resource.matchText) { notify?.('这处正文已变化，请返回设定重新定位。'); return false }
+      return selectedValue(notebookEditorRef)?.selectNodeRange?.(resource.nodeId, resource.start, resource.nodeId, resource.end) ?? false
+    }
     const previous = chapterPositions.get(resource.id)
     if (previous && text(previous.documentRevision) === text(getDocumentRevision?.())) {
       if (previous.selection) selectedValue(notebookEditorRef)?.setSelection?.(previous.selection.from, previous.selection.to)
@@ -115,7 +125,19 @@ export function useAuthoringWorkspaceNavigation({
     chapterNavigation = pending.catch(() => false)
     return pending
   })
-  onScopeDispose(() => { releaseChapterNavigator?.(); chapterPositions.clear() })
+  const releaseSettingInserter = contentWorkspace?.bindSettingNameInserter(request => {
+    const worldbook = readWorldbook?.()
+    const book = selectedValue(books)?.find(item => String(item.id) === request.bookId)
+    if (disposed || !canInsertSettingName?.() || request.bookId !== text(selectedValue(selectedBookId))
+      || request.chapterId !== text(selectedValue(selectedChapterId)) || selectedValue(activeDocument)
+      || String(book?.worldbookId || '') !== request.worldbookId || String(worldbook?.id || '') !== request.worldbookId) return false
+    const entry = worldbook.entries?.find(item => String(item.id) === request.entryId)
+    if (!entry?.name) return false
+    const editor = selectedValue(notebookEditorRef), selection = editor?.getSelection?.()
+    if (selection && selection.from !== selection.to && !editor.setSelection?.(selection.to, selection.to)) return false
+    return editor?.insertPlainText?.(entry.name) ?? false
+  })
+  onScopeDispose(() => { releaseChapterNavigator?.(); releaseSettingInserter?.(); chapterPositions.clear() })
 
   function ownsKeyboard(event) { return contentWorkspace?.state.primaryVisible !== false && !event.target?.closest?.('.workspace-reference-group') }
   function forwardEditorHistoryKey(event, { undo, redo }) {

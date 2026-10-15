@@ -6,10 +6,10 @@
   --nav-fg-selected: var(--archive-ink);
   --nav-hover: color-mix(in srgb, var(--archive-ink) 5%, var(--nav-surface));
   --nav-selected: color-mix(in srgb, var(--archive-ink) 7%, var(--nav-surface));
-  --nav-primary-selected: color-mix(in srgb, var(--accent) 10%, var(--nav-surface));
+  --nav-primary-selected: var(--workbench-selected);
   --nav-selected-secondary: color-mix(in srgb, var(--archive-ink) 5%, var(--nav-surface));
-  --nav-primary-fg: var(--accent);
-  --nav-focused: color-mix(in srgb, var(--accent) 13%, var(--nav-surface));
+  --nav-primary-fg: var(--text-primary);
+  --nav-focused: var(--workbench-selected-hover);
   --nav-row-height: 42px;
 }
 .theme-legacy .app-shell .shell-content aside.workspace-sidebar {

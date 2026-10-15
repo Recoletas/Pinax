@@ -160,7 +160,7 @@ watch([() => route.query.sourceId, sourceView], ([id, view]) => {
     </SettingsWorkspaceHeader>
 
     <header v-if="bookId && projectBook && !contextLoading && !loadError" class="settings-sources-head">
-      <div class="settings-sources-heading"><h1>{{ tr("参考资料") }} <span v-if="sourceCount" class="settings-sources-count">{{ sourceCount }}</span></h1><p>{{ tr("收集本书的参考文档，随时查阅原文。") }}</p></div>
+      <div class="settings-sources-heading"><h1>{{ tr("资料") }} <span v-if="sourceCount" class="settings-sources-count">{{ sourceCount }}</span></h1></div>
       <button type="button" class="control-primary settings-sources-add" data-test="sources-add" @click="goCreate"><WorkbenchIcon name="plus" :size="17" />{{ tr("添加资料") }}</button>
     </header>
 

@@ -72,13 +72,14 @@ function imported(payload) {
 </template>
 <style scoped>
 .directory-create-dialog { width: min(380px, calc(100vw - 32px)); box-sizing: border-box; margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: var(--surface-workbench); color: var(--text-primary); box-shadow: var(--shadow-workbench-float); }
-.directory-create-dialog::backdrop { background: rgb(0 0 0 / 35%); }
+.directory-create-dialog::backdrop { background: var(--surface-workbench-scrim); }
 header, footer { display: flex; align-items: center; gap: 12px; }
 header { margin-bottom: 20px; }
 h2 { flex: 1; margin: 0; font: 600 17px var(--font-sans); }
 header button { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
 label { display: grid; gap: 8px; margin-block: 16px; font: 13px var(--font-sans); }
 input, select { width: 100%; box-sizing: border-box; min-height: 38px; padding: 8px 10px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: var(--surface-workbench-input); color: var(--text-primary); font: inherit; }
+input:focus-visible, select:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
 .directory-create-location { color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
 footer { justify-content: flex-end; margin-top: 24px; }
 footer button { padding: 8px 16px; cursor: pointer; }

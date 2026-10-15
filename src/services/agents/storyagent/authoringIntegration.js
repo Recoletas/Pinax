@@ -27,7 +27,7 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
     const chapter = getChapter?.()
     const linked = getWorldbook?.()
     const world = book.worldbookId && String(linked?.id || '') === String(book.worldbookId) ? linked : null
-    const item = (entry, type) => ({ id: String(entry.id), title: entry.title || entry.name || '未命名', type, text: String(entry.text || entry.content || ''), summary: String(entry.content || entry.summary || entry.text || ''), aliases: Array.isArray(entry.keys) ? entry.keys : [], sourceRefs: [`${type}:${entry.id}`] })
+    const item = (entry, type) => ({ id: String(entry.id), title: entry.title || entry.name || '未命名', type, text: String(entry.text || entry.content || ''), summary: String(entry.content || entry.summary || entry.text || ''), aliases: [...new Set([...(Array.isArray(entry.keys) ? entry.keys : []), ...(Array.isArray(entry.aliases) ? entry.aliases : [])])], sourceRefs: [`${type}:${entry.id}`] })
     const manuscriptItems = [...(book.chapters || [])].sort((a, b) => Number(String(b.id) === String(chapter?.id)) - Number(String(a.id) === String(chapter?.id))).map(entry => item({ ...entry, text: String(entry.id) === String(chapter?.id) ? getLiveText?.() : getChapterMarkdown(entry) }, 'chapter'))
     const books = (readBooks?.() || []).filter(item => item?.id)
     const workspaceBooks = [book, ...books.filter(item => String(item.id) !== String(book.id))]

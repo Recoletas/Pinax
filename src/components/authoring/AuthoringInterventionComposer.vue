@@ -443,8 +443,8 @@ onMounted(() => nextTick(() => afterInput.value?.focus?.({ preventScroll: true }
   padding: 7px 18px;
   border: 0;
   border-radius: 3px;
-  background: var(--control-accent-bg, var(--accent-primary));
-  color: var(--archive-paper-soft, #f5f7f4);
+  background: var(--control-accent-bg, var(--accent));
+  color: var(--control-accent-text, var(--accent-text));
   font-weight: 650;
 }
 @media (max-width: 720px) {

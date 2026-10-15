@@ -37,13 +37,16 @@
     </div>
     <p class="graph-foot">
       {{ footerStats }}
-      <span class="graph-foot-hint">{{ tr('悬停看邻域 · 点节点打开词条 · Alt+点聚焦邻域 · Shift+拖节点建边 · 拖画布平移 · 滚轮缩放 · 双击空白复位') }}</span>
+      <span v-if="controls" class="graph-controls"><button type="button" :aria-label="tr('缩小关系图')" v-workbench-tooltip="tr('缩小')" @click="zoomAtCenter(0.8)"><WorkbenchIcon name="zoom-out" :size="16" /></button><button type="button" :aria-label="tr('放大关系图')" v-workbench-tooltip="tr('放大')" @click="zoomAtCenter(1.25)"><WorkbenchIcon name="zoom-in" :size="16" /></button><button type="button" :aria-label="tr('重置关系图视野')" v-workbench-tooltip="tr('重置视野')" @click="resetView"><WorkbenchIcon name="refresh" :size="15" /></button></span>
+      <span v-else class="graph-foot-hint">{{ tr('悬停看邻域 · 点节点打开词条 · Alt+点聚焦邻域 · Shift+拖节点建边 · 拖画布平移 · 滚轮缩放 · 双击空白复位') }}</span>
     </p>
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 import { tr } from '../../i18n/index.js'
 import { catColorOf } from '../../services/worldbook/entryBrowserModel.js'
 
@@ -62,6 +65,9 @@ import { catColorOf } from '../../services/worldbook/entryBrowserModel.js'
  * 组件自身仍不写任何数据、无路由副作用；建边落库由父层走 EntryLinksEditor 契约。
  */
 const props = defineProps({
+  controls: Boolean,
+  labeledNodes: Boolean,
+  focusEntryId: { type: String, default: '' },
   /** worldbook-graph@1（entryBrowserModel.buildGraph 产物） */
   graph: { type: Object, default: null },
   /** 当前分类过滤（'' = 全部）：真相在父层，图例只读 + 回写 */
@@ -128,10 +134,11 @@ let lastSize = { w: 0, h: 0 }
 let labelColor = 'rgba(60, 54, 46, 0.92)'
 let labelFont = '22px sans-serif'
 let hitColor = 'rgba(176, 154, 95, 0.95)'
+let nodeFill = '', nodeStroke = '', selectedFill = ''
 let resizeObserver = null
 let themeObserver = null
 
-const MIN_K = 0.35
+const MIN_K = 0.1
 const MAX_K = 3
 /** 斥力/弹簧预跑拍数（kit 220 拍；大图降拍防长阻塞） */
 const PREGO_ITERATIONS = 220
@@ -177,6 +184,7 @@ function draw(activeHover) {
     ctx.lineTo(b.x, b.y)
     ctx.stroke()
   }
+  const screenLabelFont = k < 1 ? labelFont.replace(/([\d.]+)px/, (_, size) => `${Number(size) / k}px`) : labelFont
   // 名称显隐：放大后全显，度数 ≥5 的枢纽与检索命中常显
   const labelAll = nodes.length <= 40 || k >= 1.2
   for (const n of nodes) {
@@ -186,6 +194,26 @@ function draw(activeHover) {
     const r = radiusOf(n)
     const isHit = Boolean(hits && hits.has(n.e.id))
     ctx.globalAlpha = alpha
+    if (props.labeledNodes) {
+      const chosen = n.e.id === props.focusEntryId
+      ctx.font = labelFont.replace(/([\d.]+)px/, (_, size) => `${Number(size) / k}px`)
+      const label = n.e.title.length > 12 ? n.e.title.slice(0, 11) + '…' : n.e.title
+      const width = Math.max(176 / k, ctx.measureText(label).width + 48 / k), height = 88 / k
+      n.labelBox = { width, height }
+      ctx.beginPath()
+      if (ctx.roundRect) ctx.roundRect(n.x - width / 2, n.y - height / 2, width, height, 12 / k)
+      else ctx.rect(n.x - width / 2, n.y - height / 2, width, height)
+      ctx.fillStyle = chosen ? selectedFill : nodeFill; ctx.fill()
+      ctx.lineWidth = 1.5 / k; ctx.strokeStyle = chosen ? hitColor : nodeStroke; ctx.stroke()
+      ctx.fillStyle = labelColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+      ctx.fillText(label, n.x, n.y - 14 / k)
+      ctx.font = labelFont.replace(/([\d.]+)px/, () => `${22 / k}px`)
+      ctx.globalAlpha = alpha * .65
+      ctx.fillText(n.e.cat, n.x, n.y + 22 / k)
+      ctx.textBaseline = 'alphabetic'
+      ctx.globalAlpha = 1
+      continue
+    }
     ctx.beginPath()
     ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
     ctx.fillStyle = catColorOf(n.e.cat)
@@ -205,7 +233,7 @@ function draw(activeHover) {
       ctx.stroke()
     }
     if (labelAll || n.deg >= 5 || isHit || (lit && neighbors.has(n.e.id))) {
-      ctx.font = labelFont
+      ctx.font = screenLabelFont
       ctx.textAlign = 'center'
       ctx.fillStyle = labelColor
       ctx.fillText(n.e.title, n.x, n.y - r - 6 / k)
@@ -316,8 +344,18 @@ function relayout() {
     }
   }
 
+  if (props.labeledNodes && nodes.length <= 10) {
+    const center = nodes.find(node => node.e.id === props.focusEntryId) || nodes[0]
+    if (center) { center.x = W / 2; center.y = H / 2 }
+    const surrounding = nodes.filter(node => node !== center)
+    surrounding.forEach((node, index) => {
+      const angle = (surrounding.length === 2 ? -Math.PI * .75 : -Math.PI / 2) + index * Math.PI * 2 / surrounding.length
+      node.x = W / 2 + Math.cos(angle) * W * .30
+      node.y = H / 2 + Math.sin(angle) * H * .32
+    })
+  }
   layout = { nodes, edges }
-  if (nodes.length <= 12) { view.k = 1.6; view.tx = W / 2 * (1 - view.k); view.ty = H / 2 * (1 - view.k) }
+  fitView()
   const counts = new Map()
   for (const n of nodes) counts.set(n.e.cat, (counts.get(n.e.cat) || 0) + 1)
   legend.value = [...counts.entries()]
@@ -331,7 +369,7 @@ function toWorld(clientX, clientY) {
   if (!canvas) return null
   const rect = canvas.getBoundingClientRect()
   const { k, tx, ty } = view
-  return { x: ((clientX - rect.left) * 2 - tx) / k, y: ((clientY - rect.top) * 2 - ty) / k }
+  return { x: ((clientX - rect.left) * canvas.width / rect.width - tx) / k, y: ((clientY - rect.top) * canvas.height / rect.height - ty) / k }
 }
 
 function pickNode(clientX, clientY) {
@@ -344,7 +382,7 @@ function pickNode(clientX, clientY) {
     if (!isVisible(n.e.id)) continue
     const r = Math.max(radiusOf(n), 12 / k)
     const d = (n.x - p.x) ** 2 + (n.y - p.y) ** 2
-    if (d <= r * r && d < bestD) {
+    if ((props.labeledNodes && n.labelBox ? Math.abs(n.x - p.x) <= n.labelBox.width / 2 && Math.abs(n.y - p.y) <= n.labelBox.height / 2 : d <= r * r) && d < bestD) {
       best = n
       bestD = d
     }
@@ -404,7 +442,7 @@ function onPointerMove(event) {
     if (id !== hoverId) {
       hoverId = id
       draw(id)
-      if (canvasRef.value) canvasRef.value.style.cursor = id ? 'pointer' : 'grab'
+      if (canvasRef.value) { canvasRef.value.style.cursor = id ? 'pointer' : 'grab'; canvasRef.value.title = hit?.e.title || '' }
     }
     return
   }
@@ -497,17 +535,33 @@ function onDoubleClick(event) {
   resetView()
 }
 
+function fitView() {
+  const canvas = canvasRef.value, nodes = layout?.nodes || []
+  if (!canvas || !nodes.length) { view = { k: 1, tx: 0, ty: 0 }; return }
+  const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x))
+  const minY = Math.min(...nodes.map(n => n.y)), maxY = Math.max(...nodes.map(n => n.y))
+  // Include label space; small sidebar canvases must still show the whole graph.
+  const k = Math.min(1.6, (canvas.width - 160) / Math.max(100, maxX - minX), (canvas.height - 120) / Math.max(100, maxY - minY))
+  view = { k: Math.max(0.1, k), tx: canvas.width / 2 - (minX + maxX) / 2 * Math.max(0.1, k), ty: canvas.height / 2 - (minY + maxY) / 2 * Math.max(0.1, k) }
+}
 function resetView() {
-  view = { k: 1, tx: 0, ty: 0 }
+  fitView()
   draw(null)
 }
 
+function zoomAtCenter(factor) {
+  const canvas = canvasRef.value
+  if (!canvas) return
+  const { k, tx, ty } = view, nk = Math.max(MIN_K, Math.min(MAX_K, k * factor))
+  view = { k: nk, tx: canvas.width / 2 - (canvas.width / 2 - tx) * nk / k, ty: canvas.height / 2 - (canvas.height / 2 - ty) * nk / k }
+  draw(hoverId)
+}
 function onWheel(event) {
   const canvas = canvasRef.value
   if (!canvas) return
   const rect = canvas.getBoundingClientRect()
-  const px = (event.clientX - rect.left) * 2
-  const py = (event.clientY - rect.top) * 2
+  const px = (event.clientX - rect.left) * canvas.width / rect.width
+  const py = (event.clientY - rect.top) * canvas.height / rect.height
   const { k, tx, ty } = view
   const nk = Math.max(MIN_K, Math.min(MAX_K, k * (event.deltaY < 0 ? 1.12 : 0.89)))
   view.tx = px - ((px - tx) * nk) / k
@@ -527,7 +581,7 @@ function legendStyle(cat) {
 }
 
 watch(
-  () => props.graph,
+  () => [props.graph, props.focusEntryId],
   () => {
     focusId.value = ''
     cancelEdgeDrag()
@@ -549,6 +603,9 @@ function refreshTheme() {
     // 标签颜色/字体随主题：读容器 computed 值（canvas 不认 CSS var）
     const computed = getComputedStyle(rootRef.value)
     labelColor = computed.color || labelColor
+    nodeFill = computed.getPropertyValue('--surface-workbench-raised').trim() || computed.backgroundColor
+    nodeStroke = computed.getPropertyValue('--hairline-soft').trim() || labelColor
+    selectedFill = computed.getPropertyValue('--nav-selected-secondary').trim() || nodeFill
     if (computed.fontFamily) labelFont = `26px ${computed.fontFamily}`
     const accent = computed.getPropertyValue('--accent').trim()
     if (accent) hitColor = accent
@@ -683,4 +740,10 @@ onBeforeUnmount(() => {
     display: none;
   }
 }
+
+.graph-controls { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.graph-controls button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.graph-controls button:hover { background: var(--nav-hover); color: var(--text-primary); }
+.graph-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (pointer: coarse) { .graph-controls button { width: 44px; height: 44px; } }
 </style>

@@ -3,7 +3,7 @@ import { tr } from '../../i18n/index.js'
 import { ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import WorkspaceProjectNavigation from '../workbench/WorkspaceProjectNavigation.vue'
-const props = defineProps({ books: { type: Array, default: () => [] }, recentBookId: { type: [String, Number], default: '' } })
+const props = defineProps({ docked: Boolean, books: { type: Array, default: () => [] }, recentBookId: { type: [String, Number], default: '' } })
 defineEmits(['settings'])
 const baseUrl = import.meta.env.BASE_URL
 const selectedBookId = ref('')
@@ -24,7 +24,7 @@ function selectBook(value) {
 </script>
 
 <template>
-  <aside class="library-sidebar workspace-sidebar" :class="{ 'is-expanded': expanded }" :aria-label="tr(&quot;首页导航&quot;)">
+  <aside class="library-sidebar workspace-sidebar" :class="{ 'is-expanded': expanded, 'is-docked': docked }" :aria-label="tr(&quot;首页导航&quot;)">
     <div class="library-sidebar__brand"><img :src="`${baseUrl}pinax-icon-192.png`" alt=""><strong>Pinax</strong><button type="button" class="library-sidebar__toggle" :aria-expanded="expanded" :aria-label="tr(expanded ? '收起功能导航' : '展开功能导航')" @click="expanded = !expanded"><WorkbenchIcon name="menu" :size="20" /></button></div>
     <nav class="library-sidebar__nav">
       <WorkspaceProjectNavigation v-if="books.length" :book-id="selectedBookId" current="home" @select-book="selectBook" />
@@ -73,4 +73,7 @@ function selectBook(value) {
 @media (prefers-reduced-motion: reduce) {
   .library-sidebar.workspace-sidebar .library-sidebar__nav .library-sidebar__utility { transition: none; }
 }
+.library-sidebar.is-docked { width: 100%; height: 100%; flex: 1; padding-top: 4px; border: 0; box-sizing: border-box; }
+.is-docked .library-sidebar__brand, .is-docked .library-sidebar__local { display: none; }
+.is-docked .library-sidebar__nav { display: flex; max-height: none; padding-top: 0; }
 </style>

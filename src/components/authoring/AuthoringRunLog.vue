@@ -1,11 +1,11 @@
 <template>
   <div class="authoring-run-log" data-test="authoring-run-log" :aria-label="tr('运行记录')">
     <div class="authoring-run-log__bar">
-      <strong>{{ tr('运行记录') }}</strong>
+      <strong>{{ tr('作品记录') }}</strong>
       <button type="button" class="authoring-run-log__refresh" :aria-label="tr('刷新列表')" :title="tr('刷新列表')" @click="refresh"><WorkbenchIcon name="refresh" :size="14" /></button>
     </div>
 
-    <p v-if="!entries.length" class="authoring-run-log__empty" data-test="authoring-run-log-empty">{{ tr('本作品还没有运行记录。助手对话或写作 Agent 跑完后会在这里留档。') }}</p>
+    <p v-if="!entries.length" class="authoring-run-log__empty" data-test="authoring-run-log-empty">{{ tr('暂无运行记录') }}</p>
 
     <ol v-else class="authoring-run-log__list">
       <li v-for="entry in entries" :key="entry.requestId">
@@ -137,13 +137,13 @@ function errorText(trace) {
 .authoring-run-log__prompt { justify-self: start; padding: 6px 0; border: 0; background: transparent; color: var(--accent-primary); font: inherit; cursor: pointer; }
 .authoring-run-log { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 10px; padding: 14px 12px 18px; }
 .authoring-run-log__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px; }
-.authoring-run-log__bar strong { color: var(--text-primary); font: 500 14px/1.5 var(--font-interface, var(--font-sans)); }
+.authoring-run-log__bar strong { color: var(--text-primary); font: 500 12px/1.5 var(--font-interface, var(--font-sans)); }
 .authoring-run-log__refresh { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; }
 .authoring-run-log__refresh:hover { background: var(--nav-hover); color: var(--text-primary); }
 .authoring-run-log__refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.authoring-run-log__empty { margin: auto; padding: 24px 18px; color: var(--text-muted, var(--archive-ink-soft)); font: 13px/1.7 var(--font-interface, var(--font-sans)); text-align: center; }
-.authoring-run-log__list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.authoring-run-log__entry { border: 1px solid var(--border-subtle, var(--hairline-soft, rgba(0, 0, 0, 0.12))); border-radius: 10px; }
+.authoring-run-log__empty { margin:0; padding:8px 2px; color: var(--text-muted, var(--archive-ink-soft)); font:12px/1.7 var(--font-interface, var(--font-sans)); text-align:start; }
+.authoring-run-log__list { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.authoring-run-log__entry { border:0; border-bottom:1px solid var(--hairline-soft); }
 .authoring-run-log__entry summary { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 8px 10px; color: var(--text-secondary); font: 12px/1.5 var(--font-interface, var(--font-sans)); cursor: pointer; list-style: none; }
 .authoring-run-log__entry summary::-webkit-details-marker { display: none; }
 .authoring-run-log__entry summary > svg { flex: none; color: var(--text-muted); }

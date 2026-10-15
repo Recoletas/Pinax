@@ -2,9 +2,12 @@ import { computed, onScopeDispose, provide, reactive, shallowReactive, shallowRe
 import { WORKSPACE_MODULE_ROUTES, WORKSPACE_VIEW_LIMIT, isWorkspaceModule, normalizeWorkspaceLayout, normalizeWorkspaceResource, workspaceResourceKey } from '../services/workspace/workspaceViewContract.js'
 import { COMPOSABLE_WORKSPACE_CONTEXT } from './useComposableWorkspace.js'
 import { createWorkspaceAssistantSessions } from './useWorkspaceAssistantSessions.js'
+import { useWorkspaceDirectory } from './useWorkspaceDirectory.js'
+import { workspaceExtensions } from '../services/workspace/workspaceExtensions.js'
 
 // One host owns placement. Domain components continue to own their data/tasks.
-export function provideComposableWorkspace(route, { openAssistant, openChapter, returnToPrimary } = {}) {
+export function provideComposableWorkspace(route, { openAssistant, openChapter, returnToPrimary, renderers } = {}) {
+  if (renderers) workspaceExtensions.bindRenderers(renderers)
   const assistantNavigationNotice = '请先完成或停止助手任务，再切换作品；正文采用期间请稍候。'
   const state = reactive({ directoryOpen: false, views: [], activeId: '', mainModuleId: '', sideActiveId: '', expanded: false, hidden: false, width: 420, notice: '', primaryVisible: true, narrow: false, primaryComposing: false, composingViewId: '' })
   const tabsTarget = shallowRef(null)
@@ -14,6 +17,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   const directoryDocked = shallowRef(false)
   const railTarget = shallowRef(null)
   const railDocked = shallowRef(false)
+  let settingNameInserter = null
   const primaryChapter = shallowRef(null)
   const primaryReturnResource = shallowRef(null)
   const explicitScope = shallowRef(null)
@@ -25,6 +29,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   }))
   const scope = computed(() => explicitScope.value?.routeName === route.name ? unref(explicitScope.value.value)
     : { bookId: typeof route.query.bookId === 'string' ? route.query.bookId : '', worldbookId: typeof route.query.worldbookId === 'string' ? route.query.worldbookId : '' })
+  const directory = useWorkspaceDirectory({ state, scope })
   const scopeKey = computed(() => JSON.stringify([scope.value.bookId, scope.value.bookId ? '' : scope.value.worldbookId]))
   const activeView = computed(() => state.views.find(view => view.id === state.activeId) || null)
   const moduleNavigation = computed(() => Boolean(route.query.bookId && (route.name !== 'experience' || scope.value.bookId === route.query.bookId) && ['authoring', 'settings-structured', 'settings-sources', 'settings-worldbook-advanced', 'settings-world-map', 'comics', 'prose-essay', 'materials', 'experience', 'online-experience'].includes(route.name)))
@@ -46,6 +51,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
       mainModuleId: state.mainModuleId, sideActiveId: state.sideActiveId, expanded: state.expanded, hidden: state.hidden, width: state.width })) } catch { state.notice = '布局未能保存；内容不受影响。' }
   }
   function accepts(resource) {
+    if (resource.type === 'extensions') return resource.bookId === String(scope.value.bookId || '')
     return scope.value.bookId ? resource.bookId === scope.value.bookId
       : !resource.bookId && Boolean(scope.value.worldbookId) && resource.worldbookId === scope.value.worldbookId
   }
@@ -58,6 +64,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     if (state.composingViewId || state.primaryComposing) { state.notice = '请先完成当前输入，再切换内容。'; return false }
     const key = workspaceResourceKey(resource)
     const existing = state.views.find(view => workspaceResourceKey(view.resource) === key)
+    if (!existing && !workspaceExtensions.enabled(workspaceExtensions.getView(resource.type)?.extensionId)) { state.notice = '此扩展已停用，请在扩展中启用后再打开。'; return false }
     if (existing && resource.type === 'game-editor' && existing.resource.worldbookId !== resource.worldbookId) { state.notice = '作品资料库关联已变化，请先关闭原跑团，再重新打开。'; return false }
     if (existing && resource.type === 'game-editor' && resource.sessionId && resource.sessionId !== existing.resource.sessionId && taskSummaries.value.some(task => task.viewId === existing.id)) { state.notice = '请先结束当前跑团生成，再切换存档。'; return false }
     const id = existing?.id || (state.views.some(view => view.id === key) ? `${key}:${++revision}` : key)
@@ -184,6 +191,14 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     if (!state.views.length) { state.expanded = false; returnFocus?.isConnected && returnFocus.focus?.({ preventScroll: true }); returnFocus = null }
     persist(); return true
   }
+  function bindSettingNameInserter(insert) {
+    settingNameInserter = insert
+    return () => { if (settingNameInserter === insert) settingNameInserter = null }
+  }
+  function insertSettingName(request) {
+    if (disposed || state.primaryComposing || state.composingViewId || request?.bookId !== scope.value.bookId) return false
+    return settingNameInserter?.(request) ?? false
+  }
   function bindChapterNavigator(navigate) {
     chapterNavigator = navigate
     return () => { if (chapterNavigator === navigate) chapterNavigator = null }
@@ -289,7 +304,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { extensions: workspaceExtensions, directory, bindSettingNameInserter, insertSettingName, openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }

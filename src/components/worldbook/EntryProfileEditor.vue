@@ -1,15 +1,14 @@
 <template>
-  <section class="entry-profile-editor" aria-labelledby="entry-profile-title" :inert="saving ? '' : undefined">
-    <header class="entry-profile-head">
+  <section class="entry-profile-editor" :class="{ 'is-compact-fields': compactFields }" :aria-labelledby="compactFields ? undefined : 'entry-profile-title'" :aria-label="compactFields ? tr('属性') : undefined" :inert="saving ? '' : undefined">
+    <header v-if="!compactFields" class="entry-profile-head">
       <div>
-        <span class="panel-kicker">{{ tr("条目档案") }}</span>
         <h3 id="entry-profile-title">{{ tr("模板与字段") }}</h3>
       </div>
       <span v-if="!compactFields && missingLabels.length" class="entry-profile-missing" role="status">
         {{ tr("必填未填：{labels}", { labels: missingLabels.join('、') }) }}
       </span>
     </header>
-    <p class="entry-profile-hint">
+    <p v-if="!compactFields" class="entry-profile-hint">
       {{ tr("按需添加属性。保存时可只保留字段，或确认用字段整理正文。") }}
     </p>
 
@@ -28,9 +27,8 @@
         v-if="field.multiline"
         v-model="values[field.key]"
         rows="3"
-        :placeholder="tr(field.label)"
       ></textarea>
-      <input v-else v-model="values[field.key]" class="text-input" type="text" :placeholder="tr(field.label)" />
+      <input v-else v-model="values[field.key]" class="text-input" type="text" />
     </label>
 
     <label v-if="compactFields && hiddenFields.length" class="entry-profile-template">{{ tr('添加属性') }}
@@ -38,23 +36,19 @@
     </label>
     <section class="entry-profile-free" aria-labelledby="entry-profile-free-title">
       <header class="entry-profile-free-head">
-        <span id="entry-profile-free-title">{{ tr("自由字段") }}</span>
+        <span id="entry-profile-free-title">{{ tr("自定义属性") }}</span>
         <span class="entry-profile-free-add">
-          <input v-model.trim="newFreeKey" class="text-input" type="text" :placeholder="tr('字段名，如 性别/年龄/目标')" @keyup.enter="addFreeField" />
-          <button type="button" class="ghost-btn small" @click="addFreeField">{{ tr("添加字段") }}</button>
+          <input v-model.trim="newFreeKey" class="text-input" type="text" :placeholder="tr('属性名称')" @keyup.enter="addFreeField" />
+          <button type="button" class="ghost-btn small" @click="addFreeField" :aria-label="tr('添加属性')" v-workbench-tooltip="tr('添加属性')"><WorkbenchIcon name="plus" :size="16" /></button>
         </span>
       </header>
-      <p class="entry-profile-hint">
-        {{ tr("模板之外的字段（含正文里识别出的【自定义标签】）在这里编辑；保存时会一并投影进正文。") }}
-      </p>
       <div v-for="pair in freeEntries" :key="pair.key" class="entry-profile-field">
         <span class="entry-profile-free-label">
           {{ pair.key }}
-          <button type="button" class="ghost-btn small" @click="removeFreeField(pair.key)">{{ tr("移除") }}</button>
+          <button type="button" class="ghost-btn small" @click="removeFreeField(pair.key)" :aria-label="tr('移除属性 {name}', { name: pair.key })" v-workbench-tooltip="tr('移除属性')"><WorkbenchIcon name="close" :size="14" /></button>
         </span>
-        <textarea v-model="values[pair.key]" rows="2" :placeholder="pair.key"></textarea>
+        <textarea v-model="values[pair.key]" rows="2" :aria-label="pair.key"></textarea>
       </div>
-      <div v-if="!freeEntries.length" class="empty-hint">{{ tr("暂无自由字段。") }}</div>
     </section>
 
     <section class="entry-profile-speech" aria-labelledby="entry-profile-speech-title">
@@ -87,7 +81,7 @@
     </section>
 
     <details class="entry-profile-preview">
-      <summary>{{ tr("预览投影正文") }}</summary>
+      <summary>{{ tr("预览整理后的正文") }}</summary>
       <pre class="entry-profile-preview-body">{{ renderedContent || tr('（空）') }}</pre>
     </details>
 
@@ -108,6 +102,8 @@
 </template>
 
 <script setup>
+import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import {
@@ -432,4 +428,24 @@ function emitSave(overwrite) {
   .entry-profile-actions button,
   .entry-profile-confirm-actions button { min-height: 44px; }
 }
+/* Optional attributes remain quiet beside the free-form setting text. */
+.is-compact-fields { gap: 20px; padding-block: 18px; }
+.is-compact-fields .entry-profile-template { display: flex; align-items: center; gap: 16px; }
+.is-compact-fields .entry-profile-template select { flex: 1; min-width: 0; width: auto; margin: 0; }
+.is-compact-fields :is(input.text-input,select,textarea) { border: 0; border-bottom: 1px solid var(--hairline-soft); border-radius: 0; padding: 8px 0; background: transparent; box-shadow: none; font: 14px/1.7 var(--font-interface); }
+.is-compact-fields :is(input,select,textarea):focus-visible { outline: none; border-bottom-color: var(--accent); }
+.is-compact-fields .entry-profile-free, .is-compact-fields .entry-profile-speech { padding: 16px 0 0; border: 0; border-top: 1px solid var(--hairline-soft); border-radius: 0; }
+.is-compact-fields .entry-profile-free-add { min-width: 0; }
+.is-compact-fields .entry-profile-free-head { flex-wrap: nowrap; font-weight: 500; }
+.is-compact-fields .entry-profile-free-head > span:first-child { flex: none; }
+.is-compact-fields .entry-profile-free-add input { width: 100%; }
+.is-compact-fields .entry-profile-free-label { display: flex; }
+.is-compact-fields .entry-profile-actions { justify-content: flex-end; }
+.is-compact-fields .entry-profile-actions button { border-radius: var(--radius-control); padding: 7px 12px; }
+.is-compact-fields .entry-profile-hint { font-size: 12px; }
+
+.is-compact-fields button { border: 0; border-radius: var(--radius-control); padding: 6px 10px; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-interface); cursor: pointer; }
+.is-compact-fields button:hover { background: var(--nav-hover); color: var(--text-primary); }
+.is-compact-fields .entry-profile-actions button, .is-compact-fields .entry-profile-confirm-actions .primary-btn { background: var(--control-accent-bg, var(--accent)); color: var(--control-accent-text); }
+.is-compact-fields .entry-profile-free-head + .entry-profile-hint { display: none; }
 </style>

@@ -8,10 +8,12 @@ export const DEFAULT_FOLDERS = Object.freeze([
   { id: 'sources', name: '资料', parentId: '', order: 3 },
   { id: 'assets', name: '素材', parentId: '', order: 4 }
 ])
+// Maps keep the existing per-project workbench identity (empty resource ID).
+// The tree needs a stable node key, not a second editable map resource.
 export function directoryResourceKey(raw) {
   const ref = normalizeWorkspaceResource(raw)
-  if (!ref?.id || !ref.bookId) return ''
-  return JSON.stringify([ref.bookId, ref.type, ['entry', 'source'].includes(ref.type) ? ref.worldbookId : '', ref.id])
+  if (!ref?.bookId || !ref.id && ref.type !== 'map-editor') return ''
+  return JSON.stringify([ref.bookId, ref.type, ['entry', 'source'].includes(ref.type) ? ref.worldbookId : '', ref.type === 'map-editor' ? 'world-map' : ref.id])
 }
 export function createDirectory() {
   return { version: 1, revision: 0, defaultFoldersVersion: 1, folders: DEFAULT_FOLDERS.map(folder => ({ ...folder })), placements: [], links: [] }
@@ -69,7 +71,7 @@ export function saveDirectory(bookId, previous, next) {
   window.dispatchEvent(new CustomEvent('pinax-project-directory-changed', { detail: { bookId } }))
   return value
 }
-export function directoryRows(directory, resources) {
+export function directoryRows(directory, resources, { worldbook = null } = {}) {
   const folders = new Map(directory.folders.map(item => [item.id, item]))
   const placements = new Map(directory.placements.map(item => [item.key, item]))
   const rows = directory.folders.map(folder => ({ ...folder, key: `folder:${folder.id}`, folder: true, title: folder.name, icon: 'folder', label: '文件夹' }))
@@ -78,11 +80,28 @@ export function directoryRows(directory, resources) {
     if (!key) return
     const placement = placements.get(key) || (item.aliases || []).map(alias => placements.get(alias)).find(Boolean)
     const preferred = placement?.automatic ? item.folder : placement?.parentId ?? item.folder
-    rows.push({ ...item, folder: false, key, parentId: folders.has(preferred) ? preferred : '', order: placement?.order ?? index })
+    rows.push({ ...item, folder: false, key, parentId: folders.has(preferred) ? preferred : '', order: placement?.order ?? item.order ?? index })
   })
+  // Derived category folders never change the persisted resource placement or owner.
+  const settings = rows.find(row => row.folder && row.id === 'settings')
+  if (settings && worldbook?.id) {
+    if (settings.name === '设定') settings.title = worldbook.name || worldbook.title || '世界书'
+    settings.icon = 'worldbook'
+    settings.label = '世界书'
+    const categories = new Map()
+    const labels = { character: '人物', location: '地点', organization: '组织', general: '其他设定' }
+    for (const row of rows) {
+      if (row.folder || row.parentId !== 'settings' || row.resource?.type !== 'entry' || row.readonly) continue
+      const type = ['character', 'location', 'organization'].includes(row.settingType) ? row.settingType : 'general'
+      const id = `worldbook-category:${worldbook.id}:${type}`
+      if (!categories.has(id)) categories.set(id, { id, key: `folder:${id}`, parentId: 'settings', order: Object.keys(labels).indexOf(type) < 0 ? 99 : Object.keys(labels).indexOf(type), folder: true, virtual: true, title: labels[type] || '其他设定', name: labels[type] || '其他设定', icon: type === 'general' ? 'setting-file' : row.icon, label: '分类' })
+      row.parentId = id
+    }
+    for (const folder of categories.values()) { folders.set(folder.id, folder); rows.push(folder) }
+  }
   const path = row => {
     const parts = []; let parent = row.parentId
-    while (parent && folders.has(parent)) { const folder = folders.get(parent); parts.unshift(folder.name); parent = folder.parentId }
+    while (parent && folders.has(parent)) { const folder = folders.get(parent); parts.unshift(folder.title || folder.name); parent = folder.parentId }
     return parts.join(' / ')
   }
   return rows.map(row => ({ ...row, path: path(row) }))

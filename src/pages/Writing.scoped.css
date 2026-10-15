@@ -285,6 +285,18 @@
     inset 0 -1px 0 color-mix(in srgb, var(--border) 60%, transparent);
 }
 .wall__tab:disabled { color: var(--text-muted); cursor: not-allowed; }
+.wall__tabs > .wall__tab--more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+@media (max-width: 720px) {
+  .wall__tabs > .wall__tab--more { width: 44px; height: 44px; }
+}
 .wall__back {
   margin-left: 0;
   background: transparent;
@@ -3125,10 +3137,3 @@
     overflow-y: auto;
   }
 }
-
-/* Mixed directory / manuscript order share the original shelf. */
-
-.authoring-directory-mode { display: flex; gap: 12px; margin: 0 14px 10px; border-bottom: 1px solid var(--hairline-soft); }
-.authoring-directory-mode button { padding: 6px 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text-secondary); font: 12px var(--font-sans); cursor: pointer; }
-.authoring-directory-mode button[aria-pressed='true'] { border-bottom-color: var(--accent); color: var(--text-primary); font-weight: 600; }
-.authoring-directory-mode button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -7,7 +7,9 @@ import FolioSurface from '../components/folio/FolioSurface.vue'
 import SettingsPopup from '../components/workbench/SettingsPopup.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import WorkspaceTabs from '../components/workbench/WorkspaceTabs.vue'
+import WorkbenchTooltip from '../components/workbench/WorkbenchTooltip.vue'
 import WorkspaceContentGroups from '../components/workbench/WorkspaceContentGroups.vue'
+import { builtinWorkspaceRenderers } from '../components/workbench/workspaceBuiltinViews.js'
 import WorkspaceReferenceMenu from '../components/workbench/WorkspaceReferenceMenu.vue'
 import { useWorkspaceProjectActions } from '../composables/useWorkspaceProjectActions.js'
 import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
@@ -26,7 +28,7 @@ function selectProjectSurface(surface) {
 }
 const route = useRoute()
 const router = useRouter()
-const contentWorkspace = provideComposableWorkspace(route, { returnToPrimary: async ({ bookId }) => {
+const contentWorkspace = provideComposableWorkspace(route, { renderers: builtinWorkspaceRenderers, returnToPrimary: async ({ bookId }) => {
   const { loadWritingBooks } = await import('../services/writing/writingBooksRepository.js')
   const chapters = loadWritingBooks().find(book => String(book.id) === bookId)?.chapters || []
   const remembered = contentWorkspace.primaryReturnResource.value
@@ -147,7 +149,7 @@ function handleGlobalKeydown(e) {
 async function openHome() {
   closeDrawer()
   if (contentWorkspace.scope.value.bookId) await contentWorkspace.openHome()
-  else await router.push({ name: 'welcome' })
+  else if (await contentWorkspace.prepareOpen('main')) { contentWorkspace.hide(); await router.push({ name: 'welcome' }) }
 }
 
 function closeDrawer() {
@@ -177,7 +179,7 @@ onBeforeUnmount(() => {
     <Teleport :to="contentWorkspace.tabsTarget.value || 'body'" :disabled="!contentWorkspace.tabsTarget.value">
     <WorkspaceTabs :inert="drawerOpen ? '' : undefined">
       <div class="shell-tab-actions">
-        <button v-if="contentWorkspace.scope.value.bookId && contentWorkspace.state.narrow" type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.state.directoryOpen" @click="contentWorkspace.state.directoryOpen = !contentWorkspace.state.directoryOpen"><WorkbenchIcon name="panel-left" :size="18" /></button>
+        <button v-if="(route.name === 'authoring' && contentWorkspace.scope.value.bookId || route.name === 'welcome') && contentWorkspace.state.narrow" data-workspace-directory-toggle type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.directory.expanded.value" @click="contentWorkspace.directory.toggle()"><WorkbenchIcon name="panel-left" :size="18" /></button>
         <WorkspaceReferenceMenu />
         <button v-for="task in contentWorkspace.taskSummaries.value.filter(task => !String(task.viewId).startsWith('assistant:'))" :key="task.viewId" class="shell-assistant-task" type="button" :aria-label="tr(task.label)" :title="tr(task.label)" @click="task.open?.()"><WorkbenchIcon :name="task.icon || 'film'" :size="16" /><span>{{ tr(task.label) }}</span></button>
         <button v-if="contentWorkspace.state.hidden && contentWorkspace.activeView.value" type="button" :aria-label="tr('返回已打开内容')" :title="tr('返回已打开内容')" @click="contentWorkspace.activate(contentWorkspace.state.activeId)"><WorkbenchIcon name="columns" :size="18" /></button>
@@ -190,7 +192,7 @@ onBeforeUnmount(() => {
     </Teleport>
     <p v-if="workspaceRecent.persistenceNotice && route.name !== 'welcome'" class="shell-navigation-notice" role="status">{{ tr(workspaceRecent.persistenceNotice) }}</p>
       <Transition name="modal-fade">
-        <SettingsPopup v-if="settingsPopup.isOpen.value && route.name !== 'welcome'" />
+        <SettingsPopup v-if="settingsPopup.isOpen.value" />
       </Transition>
 
       <Transition name="modal-fade">
@@ -246,6 +248,7 @@ onBeforeUnmount(() => {
         </div>
       </FolioSurface>
 
+    <WorkbenchTooltip />
     <main class="shell-content" :inert="drawerOpen ? '' : undefined">
       <div v-if="projectNavigationError" class="workspace-navigation-error" role="status">{{ tr(projectNavigationError) }}<button type="button" :aria-label="tr('关闭提示')" @click="projectNavigationError = ''">×</button></div>
       <WorkspaceContentGroups>

@@ -15,11 +15,12 @@
   --control-fg: var(--archive-ink-soft);
   --control-fg-strong: var(--archive-ink);
   --control-accent: var(--accent);
-  --control-accent-bg: var(--accent);
+  --control-accent-bg: var(--workbench-action);
+  --control-accent-text: var(--workbench-action-text);
   --control-hover: color-mix(in srgb, var(--archive-ink) 6%, transparent);
-  --control-active: color-mix(in srgb, var(--accent) 13%, var(--archive-paper));
+  --control-active: var(--workbench-selected);
   --control-danger: var(--danger, #c94040);
-  --control-focus: var(--accent);
+  --control-focus: var(--workbench-focus);
   --control-hit-min: 36px;
   --control-radius: var(--radius-control, 12px);
 }
@@ -76,14 +77,14 @@
   padding: 7px 18px;
   border-radius: 999px;
   background: var(--control-accent-bg);
-  color: var(--accent-text);
+  color: var(--control-accent-text);
   font-weight: 500;
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary:hover:not(:disabled):not([aria-disabled='true']) {
-  background: color-mix(in srgb, var(--control-accent-bg) 88%, var(--archive-ink));
+  background: var(--workbench-action-hover);
 }
 :is(.theme-legacy, .theme-legacy .app-shell .shell-content) .control-primary:active:not(:disabled):not([aria-disabled='true']) {
-  background: color-mix(in srgb, var(--control-accent-bg) 82%, var(--archive-ink));
+  background: var(--workbench-action-hover);
 }
 
 /* —— secondary：次级确认（淡背景，无闭合框） —— */

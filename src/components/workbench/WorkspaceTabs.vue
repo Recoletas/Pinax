@@ -3,6 +3,7 @@ import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import WorkbenchIcon from './WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from './workbenchTooltip.js'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore'
 import { activateWorkspaceTab, closeWorkspaceProject, closeWorkspaceTab } from '../../services/workspace/workspaceRouteAdapter'
 import { groupWorkspaceProjectTabs, SURFACE_LABELS } from '../../services/workspace/workspaceTabContract.js'
@@ -41,11 +42,12 @@ const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home'
 const tabs = computed(() => {
   const grouped = groupWorkspaceProjectTabs(workspaceTabs.tabs, workspaceTabs.activeTabId)
   const mainViews = contentWorkspace?.state.views.filter(view => view.group === 'main' && view.resource.type !== 'home') || []
+  const globalViews = mainViews.filter(view => !view.resource.bookId).map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: WORKSPACE_VIEW_TYPES[view.resource.type]?.title, icon: WORKSPACE_VIEW_TYPES[view.resource.type]?.icon }))
   return [homeTab, ...grouped.flatMap(tab => tab.projectGrouped && tab.projectId === route.query.bookId && mainViews.length
-    ? mainViews.map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: contentWorkspace.viewTitles[view.id] || view.title || WORKSPACE_VIEW_TYPES[view.resource.type]?.title || '内容', icon: contentWorkspace.viewIcons[view.id] || WORKSPACE_VIEW_TYPES[view.resource.type]?.icon, projectId: tab.projectId, scope: 'project' })) : [tab])]
+    ? mainViews.map(view => ({ id: `content:${view.id}`, key: view.id, view, pinned: view.pinned, title: contentWorkspace.viewTitles[view.id] || view.title || WORKSPACE_VIEW_TYPES[view.resource.type]?.title || '内容', icon: contentWorkspace.viewIcons[view.id] || WORKSPACE_VIEW_TYPES[view.resource.type]?.icon, projectId: tab.projectId, scope: 'project' })) : [tab]), ...globalViews]
 })
 const activeTabId = computed(() => {
-  if (route.name === 'welcome' || !contentWorkspace?.state.hidden && contentWorkspace?.state.views.find(view => view.id === contentWorkspace.state.mainModuleId)?.resource.type === 'home') return HOME_TAB_ID
+  if (route.name === 'welcome' && !contentWorkspace?.state.mainModuleId || !contentWorkspace?.state.hidden && contentWorkspace?.state.views.find(view => view.id === contentWorkspace.state.mainModuleId)?.resource.type === 'home') return HOME_TAB_ID
   const id = !contentWorkspace?.state.hidden && contentWorkspace?.state.mainModuleId || contentWorkspace?.primaryChapter.value?.id
   return tabs.value.some(tab => tab.id === `content:${id}`) ? `content:${id}` : workspaceTabs.activeTabId
 })
@@ -103,7 +105,7 @@ async function activateTab(tabId) {
   }
   if (tabId === HOME_TAB_ID) {
     if (contentWorkspace?.scope.value.bookId) await contentWorkspace.openHome()
-    else void router.push({ name: 'welcome' })
+    else if (await contentWorkspace?.prepareOpen('main')) { contentWorkspace.hide(); void router.push({ name: 'welcome' }) }
     return
   }
   const tab = workspaceTabs.tabs.find(tab => tab.id === tabId)
@@ -242,13 +244,15 @@ onBeforeUnmount(() => {
           :data-tab-id="tab.id"
           :data-tab-key="tab.key"
           :aria-current="tab.id === activeTabId ? 'true' : undefined"
-          :title="displayTitle(tab)"
+          :title="tab.surface === 'home' ? undefined : displayTitle(tab)"
+          v-workbench-tooltip="tab.surface === 'home' ? displayTitle(tab) : ''"
+          :aria-label="displayTitle(tab)"
           @click="activateTab(tab.id)"
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
           <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
           <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.icon || (tab.projectGrouped ? 'book' : surfaceIcon(tab.surface))" :size="14" />
-          <span class="ws-tab__label">
+          <span v-if="tab.surface !== 'home'" class="ws-tab__label">
             <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
             <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
           </span>
@@ -279,8 +283,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   padding: 6px 12px;
   gap: 6px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--hairline-soft);
+  background: var(--workbench-chrome);
+  border-bottom: 1px solid transparent;
   position: relative;
   z-index: var(--z-workbench-chrome, 90);
 }
@@ -298,7 +302,7 @@ onBeforeUnmount(() => {
 }
 .ws-tabs__scroll::-webkit-scrollbar { display: none; }
 .ws-tabs__scroll:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--workbench-focus);
   outline-offset: -3px;
 }
 
@@ -331,6 +335,7 @@ onBeforeUnmount(() => {
   position: relative;
   white-space: nowrap;
   isolation: isolate;
+  -webkit-tap-highlight-color: transparent;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
@@ -339,11 +344,11 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--archive-ink) 5%, transparent);
 }
 .ws-tab:active {
-  background: var(--nav-focused);
+  background: var(--workbench-selected-hover);
 }
 
 .ws-tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--workbench-focus);
   outline-offset: -3px;
 }
 
@@ -351,11 +356,12 @@ onBeforeUnmount(() => {
   color: var(--archive-ink);
   font-weight: 500;
   background: var(--surface-workbench);
-  border-color: var(--hairline-soft);
-  box-shadow: var(--shadow-workbench);
+  border-color: transparent;
+  box-shadow: none;
   z-index: 1;
 }
-.ws-tab.is-active:active { background: var(--nav-focused); }
+.ws-tab.is-active > .ws-tab__icon { color: var(--text-secondary); }
+.ws-tab.is-active:active { background: var(--workbench-selected-hover); }
 .ws-tab.is-active:not([data-tab-key="home"]) { width: 204px; }
 
 .ws-tab__project-bar { display: none; }
@@ -406,6 +412,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   cursor: pointer;
   opacity: 0;
+  -webkit-tap-highlight-color: transparent;
   transition: color 120ms ease, background-color 120ms ease, opacity 120ms ease;
 }
 .ws-tab-slot:is(:hover, :focus-within) .ws-tab__close,
@@ -415,15 +422,15 @@ onBeforeUnmount(() => {
   color: var(--archive-ink);
   background: color-mix(in srgb, var(--archive-ink) 9%, transparent);
 }
-.ws-tab__close:active { background: var(--nav-focused); }
+.ws-tab__close:active { background: var(--workbench-selected-hover); }
 
 .ws-tab__close:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--workbench-focus);
   outline-offset: -2px;
 }
 
-.ws-tab[data-tab-key="home"] { width: 82px; min-width: 82px; }
-.ws-tab:lang(en)[data-tab-key="home"] { width: 100px; min-width: 100px; flex-basis: 100px; }
+.ws-tab[data-tab-key="home"] { width: 36px; min-width: 36px; justify-content: center; padding: 0; }
+
 .ws-tab.is-pinned { padding-right: 8px; }
 
 @media (max-width: 1179px) {
@@ -437,7 +444,7 @@ onBeforeUnmount(() => {
   .ws-tabs { min-height: 52px; padding: 4px; }
   .ws-tab { height: 44px; width: 166px; max-width: 190px; font-size: 14px; padding-right: 48px; }
   .ws-tab.is-active:not([data-tab-key="home"]) { width: 190px; }
-  .ws-tab[data-tab-key="home"] { flex-basis: 82px; min-width: 82px; }
+  .ws-tab[data-tab-key="home"] { width: 44px; flex-basis: 44px; min-width: 44px; padding: 0; }
   .ws-tab__label-full { display: inline; }
   .ws-tab__label-short { display: none; }
   .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }

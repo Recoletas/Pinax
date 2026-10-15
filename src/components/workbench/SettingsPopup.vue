@@ -32,14 +32,12 @@
       <div class="settings-modal__body">
         <section v-if="activeSection === 'writing'" id="settings-panel-writing" class="settings-section" role="tabpanel" :aria-label="tr(&quot;写作偏好&quot;)"><WritingPreferences /></section>
         <section v-if="activeSection === 'appearance'" id="settings-panel-appearance" class="settings-section appearance-preferences" role="tabpanel" :aria-label="tr(&quot;外观&quot;)">
-          <h2>{{ tr('外观') }}</h2>
           <label>{{ tr('界面语言') }}<select :aria-label="tr('界面语言')" data-test="ui-language" :value="uiLocale" @change="changeLanguage($event.target.value)"><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
           <label>{{ tr('助手解释语言') }}<select :aria-label="tr('助手解释语言')" data-test="assistant-language" :value="assistantLanguage" @change="changeLanguage(uiLocale, $event.target.value)"><option value="">{{ tr('跟随界面') }}</option><option value="zh-CN">{{ tr('简体中文') }}</option><option value="en">English</option></select></label>
           <p class="settings-field-hint">{{ tr('语言偏好仅保存在此设备，不随书稿备份恢复；切换界面不会翻译正文。') }}</p>
           <p v-if="languageSaveError" role="alert">{{ tr('语言偏好保存失败，请重试。') }}</p>
           <label>{{ tr('配色') }}<select :aria-label="tr('配色')" :value="theme.colorScheme" @change="theme.setColorScheme($event.target.value)"><option value="light">{{ tr('日间') }}</option><option value="dark">{{ tr('夜间') }}</option></select></label>
           <label>{{ tr('界面缩放') }}<select :aria-label="tr('界面缩放')" :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
-          <p class="settings-field-hint">{{ tr('只改变显示，不修改正文。夜间模式也可在右上角直接切换。') }}</p>
         </section>
         <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" :aria-label="tr(&quot;记忆与历史&quot;)">
           <MemoryHistoryWorkspace />
@@ -80,7 +78,6 @@
           :aria-label="tr(&quot;体验&quot;)"
         >
           <label class="settings-field-label" id="narrative-expansion-label">{{ tr('单次续写篇幅') }}</label>
-          <p class="settings-field-hint">{{ tr('仅影响之后的 AI 生成长度，不会改写已显示的正文。') }}</p>
           <nav class="settings-tabs" role="group" aria-labelledby="narrative-expansion-label">
             <button
               v-for="level in expansion.levels"

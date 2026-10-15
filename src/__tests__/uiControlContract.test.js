@@ -16,6 +16,7 @@ import { writingChapterRowLabel } from '../services/writing/writingChapterLabels
 import { createDirectory, readDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../services/workspace/projectDirectory.js'
 import { sourceChunkLocator } from '../services/workspace/sourceChunkLocator.js'
 import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
+import { createWorkspaceExtensionRegistry, workspaceExtensions } from '../services/workspace/workspaceExtensions.js'
 import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
 import { selectRecentWorkspaceBooks } from '../services/workspace/workspaceRecentHistory.js'
 import { groupWorkspaceProjectTabs, resolveRouteIntent } from '../services/workspace/workspaceTabContract.js'
@@ -276,13 +277,56 @@ describe('workbench control contract (U1)', () => {
     const shared = { sourceId: 'source-a', locator: { start: 0, end: 5 }, sourceRefs: [{ sourceId: 'source-a', locator: { start: 0, end: 5 } }, { sourceId: 'source-b', locator: { start: 37, end: 42 } }] }
     expect(sourceChunkLocator(shared, 'source-b')).toEqual({ start: 37, end: 42 })
     expect(sourceChunkLocator(shared, 'source-c')).toBeNull()
+    const extensionView = { type: 'example-view', title: '示例', icon: 'document', load: async () => ({ default: {} }) }
+    let rejectPreference = false
+    const registry = createWorkspaceExtensionRegistry([{ id: 'example.core', title: '基础', required: true, views: [{ ...extensionView, type: 'example-core' }] }, { id: 'example.optional', title: '示例', views: [extensionView] }], () => { if (rejectPreference) throw new Error('full') })
+    expect(registry.getView('example-view').extensionId).toBe('example.optional')
+    const assembled = createWorkspaceExtensionRegistry([{ id: 'example.assembled', title: '装配视图', views: [{ type: 'assembled-view', title: '装配', icon: 'document', renderer: 'reader' }] }])
+    expect(() => assembled.getView('assembled-view').load()).toThrow('尚未装配')
+    assembled.bindRenderers({ reader: async () => 'reader-module' })
+    expect(await assembled.getView('assembled-view').load()).toBe('reader-module')
+    expect(() => registry.register({ id: 'example.other', title: '冲突', views: [{ ...extensionView, type: 'new-view' }, extensionView] })).toThrow()
+    expect(registry.getView('new-view')).toBeUndefined()
+    expect(registry.setEnabled('example.core', false).ok).toBe(false)
+    expect(registry.setEnabled('example.optional', false).ok).toBe(true)
+    expect(registry.enabled('example.optional')).toBe(false)
+    rejectPreference = true
+    expect(registry.setEnabled('example.optional', true).ok).toBe(false)
+    expect(registry.enabled('example.optional')).toBe(false)
+    registry.restore({ version: 1, disabled: ['example.core'] })
+    expect(registry.enabled('example.core')).toBe(true)
+    expect(normalizeWorkspaceResource({ type: 'extensions' })).toMatchObject({ type: 'extensions', bookId: '' })
     const workspaceRoute = reactive({ name: 'authoring', query: { bookId: 'guard-book' } })
     let host
     const root = document.createElement('div')
     const app = createApp({ setup() { host = provideComposableWorkspace(workspaceRoute); return () => null } })
     app.mount(root)
     try {
+      expect(host.directory.mode.value).toBe('files')
+      expect(host.directory.expanded.value).toBe(true)
+      host.directory.select('files')
+      expect(host.directory.expanded.value).toBe(false)
+      host.directory.select('chapters')
+      expect(host.directory.mode.value).toBe('chapters')
+      expect(host.directory.expanded.value).toBe(true)
+      host.directory.setExpanded(false)
+      host.directory.resize(999)
+      expect(host.directory.width.value).toBe(360)
+      host.directory.resize(50)
+      expect(host.directory.width.value).toBe(200)
+      host.directory.resize(248)
+      host.state.narrow = true
+      host.directory.toggle()
+      expect(host.state.directoryOpen).toBe(true)
+      host.state.directoryOpen = false
+      host.state.narrow = false
+      expect(host.directory.expanded.value).toBe(false)
+      expect(JSON.parse(localStorage.getItem('pinax-directory-mode:v1:guard-book'))).toMatchObject({ mode: 'chapters', expanded: false })
       expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book', pageId: 'page-one', panelId: 'panel-one' })).toBe(true)
+      expect(workspaceExtensions.setEnabled('pinax.comics', false).ok).toBe(true)
+      expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book' })).toBe(true)
+      expect(host.openResource({ type: 'comic', bookId: 'guard-book', id: 'new-comic' })).toBe(false)
+      expect(workspaceExtensions.setEnabled('pinax.comics', true).ok).toBe(true)
       expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book' })).toBe(true)
       expect(host.activeView.value.resource.pageId).toBe('page-one')
       expect(host.activeView.value.resource.panelId).toBe('panel-one')
@@ -368,6 +412,9 @@ describe('workbench control contract (U1)', () => {
       expect(await host.openHome()).toBe(true)
       const homeView = host.state.views.find(view => view.resource.type === 'home')
       expect(homeView).toMatchObject({ group: 'main', pinned: true })
+      expect(host.directory.expanded.value).toBe(false)
+      host.directory.setExpanded(true)
+      expect(host.directory.expanded.value).toBe(true)
       expect(host.state.mainModuleId).toBe(homeView.id)
       expect(await host.openHome()).toBe(true)
       expect(host.state.views.filter(view => view.resource.type === 'home')).toHaveLength(1)
@@ -424,6 +471,21 @@ describe('workbench control contract (U1)', () => {
       workspaceRoute.query.bookId = 'another-book'
       await nextTick()
       expect(host.state.views).toHaveLength(0)
+      expect(host.directory.mode.value).toBe('files')
+      expect(host.directory.expanded.value).toBe(true)
+      localStorage.setItem('pinax-directory-mode:v1:legacy-book', 'chapters')
+      workspaceRoute.query.bookId = 'legacy-book'
+      await nextTick()
+      expect(host.directory.mode.value).toBe('chapters')
+      expect(host.directory.expanded.value).toBe(true)
+      workspaceRoute.query.bookId = 'guard-book'
+      await nextTick()
+      expect(host.directory.mode.value).toBe('chapters')
+      expect(host.directory.expanded.value).toBe(false)
+      workspaceRoute.name = 'welcome'; workspaceRoute.query = {}
+      await nextTick()
+      expect(await host.openAt({ type: 'extensions', extensionId: 'pinax.core' }, 'main')).toBe(true)
+      expect(host.state.views.find(view => view.id === host.state.mainModuleId).resource.extensionId).toBe('pinax.core')
     } finally { app.unmount(); localStorage.removeItem('pinax-workspace-views:v1:["guard-book",""]') }
     let shutdownHost
     let signalAtShutdown
@@ -652,8 +714,9 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain('data-test="authoring-illustrator-trigger"')
     expect(source).toContain('@pointerdown="freezeIllustratorSource"')
     expect(source).toContain('captureCurrentIllustratorSource')
-    expect(source).toContain('v-if="selectionActionsVisible && !illustratorBlocking && !reviewPanelOpen && !searchPanelOpen"')
-    expect(source).toMatch(/function positionSelectionActions\(selection\) \{[\s\S]*?if \(illustratorBlocking\.value\) \{[\s\S]*?hideSelectionActions\(\)/)
+    const selectionVisibility = source.match(/v-if="selectionActionsVisible([^"]*)"/)?.[1] || ''
+    for (const guard of ['directoryHost.state.primaryVisible', '!assistantWorkspace.expanded.value', '!illustratorBlocking', '!reviewPanelOpen', '!searchPanelOpen']) expect(selectionVisibility).toContain(guard)
+    expect(source).toMatch(/function positionSelectionActions\(selection\) \{[\s\S]*?if \([^)]*illustratorBlocking\.value[^)]*\) \{[\s\S]*?hideSelectionActions\(\)/)
     expect(authoringDualPane).toContain('captureVisualSource')
     expect(authoringDualPane).toContain('insertMediaReference')
     expect(authoringIllustratorDrawer).toContain('<ImageGenerationWorkbench')

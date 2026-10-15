@@ -1,13 +1,11 @@
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 
-// W-B dock 收敛：旧四段 dock 的「执行」tab 退役，运行日志降级为 Agent 面板内
-// 的次级入口——默认收起，点开即在助手面板下方展开。AuthoringRunLog 沉到本组件
-// 异步加载（trace 概览，按作品过滤）；「本会话工具流水」读当前会话消息自带的
-// toolResults（工具入参/输出摘要，ZCode 式逐条可展开——输出全文只在内存/会话
-// 存储，不进 agentRequestTrace，对齐「trace 不落内容」的既有口径）。
+// 更多菜单打开日志浮窗；作品 trace 按需加载，当前会话的工具入参与输出
+// 从消息读取，不把内容写入 agentRequestTrace。
 const AuthoringRunLog = defineAsyncComponent(() => import('./AuthoringRunLog.vue'))
 
 const props = defineProps({
@@ -16,10 +14,20 @@ const props = defineProps({
 })
 
 const open = ref(false)
-const expanded = ref(new Set())
-function toggle() {
-  open.value = !open.value
+const menu = ref(null), dialog = ref(null), closeButton = ref(null)
+const view = ref('current')
+async function toggle() {
+  if (menu.value) menu.value.open = false
+  open.value = true
+  await nextTick()
+  dialog.value?.showModal()
+  closeButton.value?.focus()
 }
+function close() { dialog.value?.close(); open.value = false; nextTick(() => menu.value?.querySelector('summary')?.focus()) }
+function backdrop(event) { if (event.target !== dialog.value) return; const r = dialog.value.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) close() }
+watch(() => props.projectId, () => { dialog.value?.close(); open.value = false; expanded.value = new Set(); view.value = 'current' })
+onBeforeUnmount(() => dialog.value?.close())
+const expanded = ref(new Set())
 
 function outputHead(result) {
   const raw = result?.result
@@ -58,6 +66,7 @@ const toolEntries = computed(() => {
 function toggleEntry(entry) {
   const next = new Set(expanded.value); if (next.has(entry.key)) next.delete(entry.key); else next.add(entry.key); expanded.value = next
 }
+function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function shortTime(at) {
   if (!at) return ''
   const date = new Date(at)
@@ -66,59 +75,68 @@ function shortTime(at) {
 </script>
 
 <template>
-  <section class="authoring-run-log-drawer" :class="{ 'is-open': open }">
-    <button type="button" class="authoring-run-log-drawer__toggle" data-test="authoring-run-log-entry"
-      :aria-expanded="open.toString()" :aria-controls="open ? 'authoring-run-log-drawer-body' : undefined"
-      @click="toggle">
-      <WorkbenchIcon name="history" :size="14" />
-      <span>{{ tr('运行日志') }}</span>
-      <WorkbenchIcon name="chevron-down" :size="14" class="authoring-run-log-drawer__chevron" />
-    </button>
-    <div v-if="open" id="authoring-run-log-drawer-body" class="authoring-run-log-drawer__body">
-      <section v-if="toolEntries.length" class="authoring-run-log-drawer__tools" data-test="authoring-tool-ledger">
-        <h4 class="authoring-run-log-drawer__tools-title">{{ tr('本会话工具流水') }}</h4>
+  <div class="authoring-run-log-drawer">
+    <details ref="menu" class="authoring-run-log-drawer__menu" @focusout="!$event.currentTarget.contains($event.relatedTarget) && ($event.currentTarget.open = false)" @keydown.esc.stop="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary')?.focus()">
+      <summary :aria-label="tr('更多助手操作')" v-workbench-tooltip="tr('更多助手操作')"><WorkbenchIcon name="more" :size="18" /></summary>
+      <div class="authoring-run-log-drawer__actions"><button type="button" data-test="authoring-run-log-entry" @click="toggle"><WorkbenchIcon name="history" :size="15" />{{ tr('运行日志') }}</button></div>
+    </details>
+    <Teleport to="body">
+      <dialog v-if="open" ref="dialog" class="authoring-run-log-drawer__dialog" :aria-label="tr('运行日志')" @cancel.prevent="close" @click="backdrop">
+        <header><strong>{{ tr('运行日志') }}</strong><button ref="closeButton" type="button" :aria-label="tr('关闭运行日志')" @click="close"><WorkbenchIcon name="close" :size="18" /></button></header>
+        <nav class="authoring-run-log-drawer__tabs" aria-label="日志范围"><button type="button" :aria-pressed="view === 'current'" @click="view = 'current'">{{ tr('本次对话') }}</button><button type="button" :aria-pressed="view === 'project'" @click="view = 'project'">{{ tr('作品记录') }}</button></nav>
+        <div class="authoring-run-log-drawer__body">
+      <section v-if="view === 'current' && toolEntries.length" class="authoring-run-log-drawer__tools" data-test="authoring-tool-ledger">
         <ol class="authoring-run-log-drawer__tool-list">
           <li v-for="entry in toolEntries" :key="entry.key" class="authoring-run-log-drawer__tool" :class="{ 'is-error': entry.isError }">
             <button type="button" class="authoring-run-log-drawer__tool-row" :aria-expanded="entry.expanded.toString()" @click="toggleEntry(entry)">
-              <code class="authoring-run-log-drawer__tool-name">{{ entry.toolName }}</code>
-              <code v-if="entry.input" class="authoring-run-log-drawer__tool-input">{{ entry.input }}</code>
+              <WorkbenchIcon :name="entry.isError ? 'alert' : 'check'" :size="13" /><span class="authoring-run-log-drawer__tool-name">{{ toolLabel(entry.toolName) }}</span>
               <span v-if="entry.isError" class="authoring-run-log-drawer__tool-error">{{ tr('出错') }}</span>
-              <span v-if="entry.chars" class="authoring-run-log-drawer__tool-chars">{{ tr('{n} 字符', { n: entry.chars }) }}</span>
               <time class="authoring-run-log-drawer__tool-time">{{ shortTime(entry.at) }}</time>
               <WorkbenchIcon name="chevron-down" :size="12" class="authoring-run-log-drawer__tool-chevron" :class="{ 'is-open': entry.expanded }" />
             </button>
-            <pre v-if="entry.expanded" class="authoring-run-log-drawer__tool-output">{{ entry.head }}{{ entry.chars > entry.head.length ? '\n…（已截断，共 ' + entry.chars + ' 字符）' : '' }}</pre>
+            <div v-if="entry.expanded" class="authoring-run-log-drawer__details"><span class="authoring-run-log-drawer__detail-label">{{ tr('参数') }} · {{ entry.toolName }}</span><pre class="authoring-run-log-drawer__tool-output">{{ entry.input }}</pre><span class="authoring-run-log-drawer__detail-label">{{ tr('结果') }}</span><pre class="authoring-run-log-drawer__tool-output">{{ entry.head }}{{ entry.chars > entry.head.length ? '\n…（已截断，共 ' + entry.chars + ' 字符）' : '' }}</pre></div>
           </li>
         </ol>
       </section>
-      <AuthoringRunLog :project-id="projectId" />
-    </div>
-  </section>
+      <p v-else-if="view === 'current'" class="authoring-run-log-drawer__empty">{{ tr('这次对话还没有工具记录。') }}</p>
+      <AuthoringRunLog v-else :project-id="projectId" />
+        </div>
+      </dialog>
+    </Teleport>
+  </div>
 </template>
 
 <style scoped>
-.authoring-run-log-drawer { flex: none; border-top: 1px solid var(--hairline-soft, var(--authoring-hairline)); background: var(--surface-workbench-muted); }
-.authoring-run-log-drawer__toggle { display: flex; width: 100%; min-height: 36px; align-items: center; gap: 7px; padding: 6px 14px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-interface, var(--font-sans)); cursor: pointer; }
-.authoring-run-log-drawer__toggle:hover { background: var(--nav-hover); color: var(--text-primary); }
-.authoring-run-log-drawer__toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.authoring-run-log-drawer__chevron { margin-inline-start: auto; transition: transform 120ms ease; }
-.authoring-run-log-drawer:not(.is-open) .authoring-run-log-drawer__chevron { transform: rotate(-90deg); }
-.authoring-run-log-drawer__body { max-height: min(340px, 50vh); overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--hairline-soft, var(--authoring-hairline)); }
-.authoring-run-log-drawer__tools { padding: 8px 14px 4px; }
-.authoring-run-log-drawer__tools-title { margin: 0 0 6px; color: var(--text-muted); font: 11px/1.4 var(--font-interface, var(--font-sans)); text-transform: uppercase; letter-spacing: .04em; }
-.authoring-run-log-drawer__tool-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
-.authoring-run-log-drawer__tool { border: 1px solid var(--hairline-soft); border-radius: 8px; background: var(--surface-primary, transparent); }
-.authoring-run-log-drawer__tool.is-error { border-color: var(--signal-warm, var(--danger)); }
-.authoring-run-log-drawer__tool-row { display: flex; width: 100%; align-items: center; gap: 7px; min-height: 30px; padding: 3px 8px; border: 0; background: transparent; color: var(--text-secondary); font: 12px/1.4 var(--font-interface, var(--font-sans)); cursor: pointer; text-align: start; }
-.authoring-run-log-drawer__tool-row:hover { background: var(--nav-hover); color: var(--text-primary); }
-.authoring-run-log-drawer__tool-name { flex: none; color: var(--accent-primary, var(--accent)); font-size: 12px; }
-.authoring-run-log-drawer__tool-input { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px; border-radius: 5px; background: var(--surface-workbench-muted); color: var(--text-muted); font-size: 11px; }
-.authoring-run-log-drawer__tool-error { flex: none; color: var(--signal-warm, var(--danger)); font-size: 11px; }
-.authoring-run-log-drawer__tool-chars { flex: none; color: var(--text-muted); font-size: 11px; }
-.authoring-run-log-drawer__tool-time { margin-inline-start: auto; flex: none; color: var(--text-muted); font-size: 11px; }
-.authoring-run-log-drawer__tool-chevron { flex: none; transition: transform 120ms ease; }
-.authoring-run-log-drawer__tool-chevron.is-open { transform: rotate(180deg); }
-.authoring-run-log-drawer__tool-output { margin: 0; padding: 8px 10px; border-top: 1px solid var(--hairline-soft); background: var(--surface-workbench-input); color: var(--text-secondary); font: 11px/1.6 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; }
-@media (max-width: 720px) { .authoring-run-log-drawer__toggle { min-height: 44px; } .authoring-run-log-drawer__tool-row { min-height: 40px; flex-wrap: wrap; } }
-@media (prefers-reduced-motion: reduce) { .authoring-run-log-drawer__chevron, .authoring-run-log-drawer__tool-chevron { transition: none; } }
+.authoring-run-log-drawer { flex:none; font:13px/1.5 var(--font-interface); }
+.authoring-run-log-drawer__menu { position:relative; }
+.authoring-run-log-drawer__menu summary { display:grid; place-items:center; width:36px; height:36px; border-radius:var(--radius-control); cursor:pointer; list-style:none; color:var(--text-secondary); }
+.authoring-run-log-drawer__menu summary::-webkit-details-marker { display:none; }
+.authoring-run-log-drawer__menu summary:hover { background:var(--nav-hover); }
+.authoring-run-log-drawer__actions { position:absolute; z-index:20; top:calc(100% + 4px); right:0; min-width:150px; padding:4px; background:var(--surface-workbench-raised); border:1px solid var(--hairline-soft); border-radius:var(--radius-popover); box-shadow:var(--shadow-workbench-float); }
+.authoring-run-log-drawer__actions button { display:flex; width:100%; align-items:center; gap:8px; min-height:36px; padding:8px; text-align:start; }
+:is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) button { border:0; border-radius:var(--radius-control); background:transparent; color:var(--text-secondary); font:inherit; cursor:pointer; }
+:is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) button:hover { background:var(--nav-hover); color:var(--text-primary); }
+:is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) :is(button,summary):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.authoring-run-log-drawer__dialog { position:fixed; inset:auto; top:50%; left:50%; margin:0; transform:translate(-50%,-50%); box-sizing:border-box; width:min(680px, calc(100vw - 32px)); max-height:80dvh; padding:0; border:1px solid var(--hairline-soft); border-radius:var(--radius-popover); background:var(--surface-workbench-raised); color:var(--text-primary); box-shadow:var(--shadow-workbench-float); font:13px/1.5 var(--font-interface); }
+.authoring-run-log-drawer__dialog[open] { display:flex; flex-direction:column; }
+.authoring-run-log-drawer__dialog::backdrop { background:var(--surface-workbench-scrim); }
+.authoring-run-log-drawer__dialog header { display:flex; flex:none; align-items:center; justify-content:space-between; padding:20px 24px 12px; }
+.authoring-run-log-drawer__dialog header strong { font-size:14px; font-weight:600; }
+.authoring-run-log-drawer__dialog header button { display:grid; place-items:center; width:32px; height:32px; }
+.authoring-run-log-drawer__tabs { display:flex; flex:none; gap:18px; padding:0 24px; border-bottom:1px solid var(--hairline-soft); }
+.authoring-run-log-drawer__tabs button { padding:8px 0; border-radius:0; border-bottom:2px solid transparent; }
+.authoring-run-log-drawer__tabs button[aria-pressed='true'] { color:var(--text-primary); border-bottom-color:var(--accent); }
+.authoring-run-log-drawer__body { min-height:0; overflow:auto; overscroll-behavior:contain; padding:12px 24px 20px; }
+.authoring-run-log-drawer__empty { padding:20px 0; margin:0; color:var(--text-muted); }
+.authoring-run-log-drawer__tool-list { padding:0; margin:0; list-style:none; }
+.authoring-run-log-drawer__tool { border-bottom:1px solid var(--hairline-soft); }
+.authoring-run-log-drawer__tool-row { display:flex; width:100%; align-items:center; gap:10px; min-height:44px; padding:8px 4px; }
+.authoring-run-log-drawer__tool-name { flex:1; min-width:0; text-align:start; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.authoring-run-log-drawer__tool-time { color:var(--text-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.authoring-run-log-drawer__tool-error { color:var(--danger); font-size:11px; }
+.authoring-run-log-drawer__tool-chevron.is-open { transform:rotate(180deg); }
+.authoring-run-log-drawer__details { display:grid; gap:6px; padding:4px 0 12px; }
+.authoring-run-log-drawer__detail-label { color:var(--text-muted); font-size:11px; }
+.authoring-run-log-drawer__tool-output { margin:0; padding:10px; border-radius:var(--radius-control); background:var(--surface-workbench-input); color:var(--text-secondary); font:12px/1.6 var(--font-mono,monospace); white-space:pre-wrap; overflow-wrap:anywhere; max-height:240px; overflow:auto; }
+@media (max-width:720px), (pointer:coarse) { .authoring-run-log-drawer__menu summary, :is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) button { min-height:44px; } .authoring-run-log-drawer__menu summary { width:44px; } .authoring-run-log-drawer__dialog header, .authoring-run-log-drawer__body { padding-inline:16px; } }
 </style>

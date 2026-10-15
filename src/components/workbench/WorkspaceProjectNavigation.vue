@@ -7,8 +7,10 @@ import { loadWritingBooks, subscribeWritingBooks } from '../../services/writing/
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
+import { workspaceExtensions } from '../../services/workspace/workspaceExtensions.js'
 
 const contentWorkspace = useComposableWorkspace()
+const extensionRegistry = contentWorkspace?.extensions || workspaceExtensions
 
 const props = defineProps({
   bookId: { type: String, default: '' },
@@ -48,7 +50,7 @@ const mainSurfaces = Object.freeze([
   { key: 'settings', label: '设定', icon: 'worldbook' },
   { key: 'sources', label: '资料', icon: 'sources' }
 ])
-const extraSurfaces = Object.freeze([
+const extraSurfaceDefinitions = Object.freeze([
   { key: 'materials', label: '素材', icon: 'image' },
   { key: 'map', label: '地图', icon: 'map' },
   { key: 'comics', label: '漫画', icon: 'comics' },
@@ -57,7 +59,8 @@ const extraSurfaces = Object.freeze([
   { key: 'experience', label: '跑团', icon: 'adventure' },
   { key: 'online', label: '联机', icon: 'users' }
 ])
-const currentExtra = computed(() => extraSurfaces.find(surface => surface.key === currentSurface.value))
+const extraSurfaces = computed(() => extraSurfaceDefinitions.filter(item => !({ comics: 'pinax.comics', canvas: 'pinax.director', materials: 'pinax.materials' })[item.key] || extensionRegistry.enabled(({ comics: 'pinax.comics', canvas: 'pinax.director', materials: 'pinax.materials' })[item.key])))
+const currentExtra = computed(() => extraSurfaces.value.find(surface => surface.key === currentSurface.value))
 function closeMore(restoreFocus = false) {
   if (!moreMenuRef.value?.open) return
   moreMenuRef.value.open = false

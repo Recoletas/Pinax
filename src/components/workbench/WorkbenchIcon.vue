@@ -1,11 +1,13 @@
 <script setup>
 import {
   FilePlus2,
+  Puzzle,
+  ListFilter,
   FolderOpen,
-  BookText,
+
   FilePenLine,
-  ContactRound,
-  Landmark,
+  MapPin,
+
   Building2,
   CalendarDays,
   ScrollText,
@@ -44,7 +46,12 @@ import {
   BookOpen,
   Clapperboard,
   ChevronDown,
+  Check,
+  CircleAlert,
   LayoutGrid,
+  Table2,
+  Copy,
+  Maximize2,
   List,
   Compass,
   Download,
@@ -76,12 +83,16 @@ import {
 } from 'lucide-vue-next'
 
 const icons = {
+  extensions: Puzzle,
+  filter: ListFilter,
+  check: Check,
+  alert: CircleAlert,
   project: BookOpen,
   'folder-open': FolderOpen,
-  chapter: BookText,
+  chapter: FileText,
   idea: FilePenLine,
-  'character-file': ContactRound,
-  'location-file': Landmark,
+  'character-file': UserRound,
+  'location-file': MapPin,
   'organization-file': Building2,
   'event-file': CalendarDays,
   'setting-file': ScrollText,
@@ -117,6 +128,9 @@ const icons = {
   library: LibraryBig,
   'chevron-down': ChevronDown,
   grid: LayoutGrid,
+  table: Table2,
+  copy: Copy,
+  expand: Maximize2,
   list: List,
   archive: Archive,
   'arrow-left': ArrowLeft,
@@ -155,7 +169,7 @@ const icons = {
 defineProps({
   name: { type: String, required: true },
   size: { type: [Number, String], default: 16 },
-  strokeWidth: { type: [Number, String], default: 1.7 }
+  strokeWidth: { type: [Number, String], default: 1.5 }
 })
 </script>
 

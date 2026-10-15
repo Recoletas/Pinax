@@ -1,4 +1,4 @@
-import { nextTick, ref, watch, onMounted } from 'vue'
+import { nextTick, watch, onMounted, onScopeDispose } from 'vue'
 import { resolveBookSourceContext } from '../services/worldbook/worldbookProjectSources.js'
 import { tr } from '../i18n/index.js'
 import { useComposableWorkspace } from './useComposableWorkspace.js'
@@ -6,15 +6,29 @@ import { useComposableWorkspace } from './useComposableWorkspace.js'
 // Directory commands share the document owners and leave protections.
 export function useAuthoringDirectory(owner) {
   const directoryHost = useComposableWorkspace()
-  const directoryMode = ref('files')
-  onMounted(() => {
-    watch(() => String(owner.bookId() || ''), bookId => {
-      try { directoryMode.value = localStorage.getItem(`pinax-directory-mode:v1:${bookId}`) === 'chapters' ? 'chapters' : 'files' } catch { directoryMode.value = 'files' }
-    }, { immediate: true })
-  })
-  watch(directoryMode, value => {
-    try { localStorage.setItem(`pinax-directory-mode:v1:${owner.bookId()}`, value) } catch { /* Display preferences do not block writing. */ }
-  })
+  const directoryMode = directoryHost.directory.mode
+  const release = directoryHost.directory.bindPrepare(prepareDirectoryOpen)
+  onScopeDispose(release)
+  onMounted(() => watch([directoryMode, () => String(owner.bookId() || ''), directoryHost.directory.expanded], ([mode, bookId, expanded], previous) => {
+    const search = owner.getSearch?.()
+    if (mode === 'search' && bookId && expanded) {
+      if (previous?.[1] && previous[1] !== bookId) { search?.close({ restore: false }); search?.updateQuery('') }
+      if (!search?.open.value) { search?.show(); search?.updateScope('manuscript'); if (search?.query.value) search.run() }
+    } else if (mode === 'search' || previous?.[0] === 'search') search?.close({ restore: false })
+  }, { immediate: true, flush: 'post' }))
+  async function openDirectoryFinding(finding) {
+    const bookId = String(owner.bookId())
+    if (!prepareDirectoryOpen() || !await directoryHost.prepareOpen('main') || String(owner.bookId()) !== bookId) return false
+    const target = finding.target || {}
+    if (target.sourceKind !== 'worldbook-entry') {
+      const ref = target.sourceKind === 'manuscript' ? { type: 'chapter', id: target.chapterId } : target.sourceKind === 'exploration' ? { type: 'exploration', id: target.documentId } : null
+      if (!ref || !await directoryHost.openAt({ ...ref, bookId }, 'main')) return false
+    }
+    const opened = await owner.getSearch().openFinding(finding)
+    if (opened && directoryHost.state.narrow) directoryHost.state.directoryOpen = false
+    return opened
+  }
+
   async function refreshDirectoryWorldbook(bookId, worldbookId) {
     if (String(owner.bookId()) !== bookId) return false
     const context = resolveBookSourceContext(bookId)
@@ -48,5 +62,5 @@ export function useAuthoringDirectory(owner) {
     if (String(owner.bookId()) !== bookId) return null
     return { type, bookId, id }
   }
-  return { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook }
+  return { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook }
 }

@@ -765,27 +765,31 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.messages.value.at(-2).question).toBe('改成先敲门')
     expect(agentAssistant.messages.value).toHaveLength(5)
     expect(agentCalls.at(-1).text).not.toContain('接着推进')
-    expect(agentAssistant.selectSession(existingSession)).toBe(true)
-    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[3].question)
+    const restoredHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
 
     expect(await agentAssistant.regenerateAnswer(originalHistory[2].id)).toBe(true)
     expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[1].question)
     expect(agentCalls.at(-1).text).not.toContain('接着推进')
-    expect(agentAssistant.selectSession(existingSession)).toBe(true)
-    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
 
     const prepareBeforeSampling = agentEngine.prepare
     agentEngine.prepare = input => ({ ...prepareBeforeSampling(input), kernel: { serialization: { blocks: [] } } })
     health = Promise.resolve({ ok: true, assistantSampling: true })
-    expect(agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: '0.6' })).toBe(false)
+    expect(await agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: '0.6' })).toBe(false)
     expect(await agentAssistant.regenerateAnswer(originalHistory[2].id, { intent: 'character', temperatureOverride: 0.6 })).toBe(true)
     expect(agentCalls.at(-1).prepared.kernel.serialization.blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'assistant-focus' }), expect.objectContaining({ kind: 'assistant-sampling', text: '{"temperature":0.6}' })
     ]))
     expect(agentAssistant.messages.value.at(-1).params).toMatchObject({ intent: 'character', temperatureOverride: 0.6 })
     expect(agentAssistant.agentState.value.permission.mode).toBe('review')
-    expect(agentAssistant.selectSession(existingSession)).toBe(true)
-    expect(JSON.parse(JSON.stringify(agentAssistant.messages.value))).toEqual(originalHistory)
+    expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
+    expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
+    expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
     agentEngine.prepare = prepareBeforeSampling
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录

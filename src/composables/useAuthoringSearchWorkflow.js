@@ -203,8 +203,7 @@ export function useAuthoringSearchWorkflow(host) {
     activeFindingId.value = finding.id
     hasNavigated.value = true
     if (finding.target?.sourceKind === 'worldbook-entry') {
-      host.openWorldbookEntry(finding.target.entryId)
-      return true
+      return await host.openWorldbookEntry(finding.target.entryId) !== false
     }
     return host.selectTarget(finding)
   }
@@ -229,7 +228,7 @@ export function useAuthoringSearchWorkflow(host) {
     replacePreview.value = null
     preparedSource = null
     returnSurface = null
-    if (navigatedToEditor) nextTick(host.restoreSelectionActions)
+    if (restore && navigatedToEditor) nextTick(host.restoreSelectionActions)
     if (shouldRestore && surface) nextTick(() => host.restoreSurface(surface))
   }
 

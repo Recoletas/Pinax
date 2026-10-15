@@ -3,15 +3,15 @@
     <header v-if="!reviewOpen" class="authoring-knowledge__toolbar">
       <div v-if="!expanded" class="authoring-knowledge__toolbar-primary"><slot name="workspace-actions"><div class="authoring-knowledge__model">
         <strong>{{ expanded ? tr('当前对话') : projectTitle || tr('未命名作品') }}</strong>
-        <small>{{ tr('写作助手') }}</small>
       </div></slot></div>
       <div v-if="!reviewOpen" class="authoring-knowledge__toolbar-actions">
-        <button v-if="messages.length" type="button" :class="{ active: searchOpen }" :aria-pressed="searchOpen" :aria-label="tr('搜索当前问答')" :title="tr('搜索当前问答')" @click="toggleSearch">
+        <button v-if="messages.length" type="button" :class="{ active: searchOpen }" :aria-pressed="searchOpen" :aria-label="tr('搜索当前问答')" v-workbench-tooltip="tr('搜索当前问答')" @click="toggleSearch">
           <WorkbenchIcon name="search" :size="18" />
         </button>
-        <button type="button" class="assistant-conversation-toggle" :class="{ active: historyOpen }" :aria-pressed="historyOpen" :aria-label="tr('对话')" :title="tr('对话')" @click="toggleHistory">
+        <button type="button" class="assistant-conversation-toggle" :class="{ active: historyOpen }" :aria-pressed="historyOpen" :aria-label="tr('对话')" v-workbench-tooltip="tr('对话')" @click="toggleHistory">
           <WorkbenchIcon name="history" :size="18" /><span>{{ tr('对话') }}</span>
         </button>
+        <AuthoringRunLogDrawer v-if="agentState.enabled" :project-id="projectId" :messages="messages" />
       </div>
     </header>
     <AuthoringGoalReview v-if="reviewOpen" ref="goalReviewRef" :workflow="reviewWorkflow" @close="closeReview" />
@@ -19,7 +19,7 @@
     <div v-if="searchOpen" class="authoring-knowledge__search">
       <WorkbenchIcon name="search" :size="15" />
       <input ref="searchInputRef" v-model="searchTerm" type="search" :placeholder="tr('搜索问题或回答')" :aria-label="tr('搜索问题或回答')" />
-      <button type="button" :aria-label="tr('关闭搜索')" @click="closeSearch">×</button>
+      <button type="button" :aria-label="tr('关闭搜索')" @click="closeSearch"><WorkbenchIcon name="close" :size="16" /></button>
     </div>
 
     <div v-if="historyOpen" class="authoring-knowledge__history" :aria-label="tr('作品对话')">
@@ -34,7 +34,7 @@
     <div ref="threadRef" class="authoring-knowledge__thread" aria-live="polite" @scroll.passive="updateActiveQuestion">
       <template v-for="message in visibleMessages" :key="message.id">
         <div v-if="message.role === 'user'" class="authoring-knowledge__question-row" :class="{ 'is-editing': editingQuestionId === message.id }" :data-message-id="message.id" tabindex="-1">
-          <button v-if="assistant?.editQuestion && editingQuestionId !== message.id" type="button" class="authoring-knowledge__edit-trigger" :disabled="busy || agentState.adoptionBusy" :title="tr('编辑提问')" :aria-label="tr('编辑提问')" @click="startQuestionEdit(message)"><WorkbenchIcon name="pencil" :size="16" /></button>
+          <button v-if="assistant?.editQuestion && editingQuestionId !== message.id" type="button" class="authoring-knowledge__edit-trigger" :disabled="busy || agentState.adoptionBusy" v-workbench-tooltip="tr('编辑提问')" :aria-label="tr('编辑提问')" @click="startQuestionEdit(message)"><WorkbenchIcon name="pencil" :size="16" /></button>
           <div class="authoring-knowledge__question">
           <template v-if="editingQuestionId === message.id">
             <textarea v-model="editedQuestion" class="authoring-knowledge__edit-input" rows="3" :aria-label="tr('编辑提问')" @input="fitEditedQuestion" @keydown.esc.stop.prevent="cancelQuestionEdit" />
@@ -47,7 +47,7 @@
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <div v-if="message.thinking || message.tools?.length" class="authoring-knowledge__process">
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><small>{{ tr('调用者：助手') }}</small><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
           </div>
           <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
@@ -111,8 +111,7 @@
     </div>
 
     <footer class="authoring-knowledge__composer">
-      <div v-if="documentTitle" class="assistant-document-context"><span>{{ tr('当前文稿') }}</span><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
-      <AuthoringRunLogDrawer v-if="agentState.enabled" :project-id="projectId" :messages="messages" />
+      <div v-if="documentTitle" class="assistant-document-context"><WorkbenchIcon name="chapter" :size="14" /><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
       <AuthoringAgentTools v-if="agentState.enabled && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
       <div class="authoring-knowledge__input-row">
         <div v-if="mentionCandidates.length" class="authoring-knowledge__mentions" role="listbox" :aria-label="tr('选择参考资料')">
@@ -123,7 +122,7 @@
           @compositionend="composing = false; updateMention($event.target)" @keydown="draftKeydown"></textarea>
         <div class="authoring-knowledge__composer-actions">
           <details ref="toolsRef" class="authoring-knowledge__tools" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
-            <summary :aria-label="tr('添加参考')" :title="tr('添加文件或章节')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="plus" :size="20" /></summary>
+            <summary :aria-label="tr('添加参考')" v-workbench-tooltip="tr('添加文件或章节')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="plus" :size="20" /></summary>
             <div class="authoring-knowledge__tool-menu" :aria-label="tr('添加参考')">
               <button type="button" :disabled="busy || !projectId" @click="openFileImport"><WorkbenchIcon name="sources" :size="18" /><span>{{ tr('添加文件') }}</span></button>
               <button type="button" :disabled="busy || !agentState.enabled" @click="referencePicker = 'chapter'"><WorkbenchIcon name="book" :size="18" /><span>{{ tr('引用章节') }}</span></button>
@@ -167,6 +166,7 @@ const AuthoringRunLogDrawer = defineAsyncComponent(() => import('./AuthoringRunL
 import { tr, uiLocale } from '../../i18n/index.js'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onDeactivated, onMounted, ref, unref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../../utils/sanitize.js'
 
@@ -218,9 +218,10 @@ async function saveQuestionEdit(message) {
   const text = editedQuestion.value.trim()
   if (!text || props.busy || props.agentState.adoptionBusy) return
   const pending = props.assistant?.editQuestion?.(message.id, text)
-  // The original question remains intact in its session; the new branch owns the request.
-  await pending
-  if (!props.messages.some(item => item.id === message.id)) cancelQuestionEdit()
+  await nextTick()
+  if (props.messages.find(item => item.id === message.id)?.question === text) cancelQuestionEdit()
+  const succeeded = await pending
+  if (succeeded) cancelQuestionEdit()
 }
 function continueFromAnswer(message) {
   if (props.assistant?.continueFromMessage?.(message.id)) { cancelQuestionEdit(); searchTerm.value = ''; nextTick(() => draftInputRef.value?.focus()) }
@@ -675,8 +676,8 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__model strong { overflow: hidden; font-size: 14px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-knowledge__model small { overflow: hidden; color: var(--text-secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .authoring-knowledge__toolbar-actions { display: flex; align-items: center; gap: 2px; }
-.authoring-knowledge__toolbar-actions button { display: grid; flex: none; width: 36px; height: 36px; place-items: center; border: 0; border-radius: var(--workspace-radius, 10px); background: transparent; color: var(--text-secondary); cursor: pointer; }
-.authoring-knowledge__toolbar-actions button:hover, .authoring-knowledge__toolbar-actions button.active { background: var(--surface-workbench-muted); color: var(--text-primary); }
+.authoring-knowledge__toolbar-actions > button { display: grid; flex: none; width: 36px; height: 36px; place-items: center; border: 0; border-radius: var(--workspace-radius, 10px); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.authoring-knowledge__toolbar-actions > button:hover, .authoring-knowledge__toolbar-actions > button.active { background: var(--surface-workbench-muted); color: var(--text-primary); }
 .authoring-knowledge__search { display: grid; min-height: 44px; flex: none; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 6px 10px; border-bottom: 1px solid var(--archive-paper-strong); color: var(--text-secondary); }
 .authoring-knowledge__search input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; }
 .authoring-knowledge__search button { min-width: 36px; min-height: 36px; border-radius: 12px; border: 0; background: transparent; color: var(--text-secondary); font-size: 20px; cursor: pointer; }
@@ -738,8 +739,8 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__composer { position: relative; z-index: 1; flex: none; padding: 10px var(--assistant-gutter) 16px; background: var(--surface-assistant); }
 .authoring-knowledge__composer:has(.authoring-knowledge__tools[open]) { padding-bottom: calc(16px + var(--reference-menu-height, 144px) + 8px); }
 .authoring-knowledge__tools > .authoring-knowledge__tool-menu.is-below { top: calc(100% + 8px); box-sizing: border-box; }
-.authoring-knowledge__input-row { position: relative; box-sizing: border-box; display: flex; min-height: var(--assistant-input-min-height); flex-direction: column; align-items: stretch; gap: 12px; padding: var(--assistant-input-padding); border: 1px solid var(--hairline-soft); border-radius: var(--assistant-input-radius); background: var(--surface-workbench-input); box-shadow: var(--shadow-workbench); }
-.authoring-knowledge__input-row:focus-within { outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: 1px; border-color: transparent; }
+.authoring-knowledge__input-row { position: relative; box-sizing: border-box; display: flex; min-height: var(--assistant-input-min-height); flex-direction: column; align-items: stretch; gap: 12px; padding: var(--assistant-input-padding); border: 1px solid var(--hairline-soft); border-radius: var(--assistant-input-radius); background: var(--surface-workbench-input); box-shadow: none; }
+.authoring-knowledge__input-row:focus-within { outline: 2px solid var(--workbench-focus); outline-offset: 1px; border-color: transparent; }
 .authoring-knowledge__input-row textarea { display: block; box-sizing: border-box; flex: none; width: 100%; min-width: 0; min-height: 28px; max-height: 160px; resize: none; border: 0; outline: 0; padding: 0 4px; background: transparent; color: var(--text-primary); font: 15px/28px var(--font-interface, var(--font-sans)); }
 .authoring-knowledge__composer-actions { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .authoring-knowledge__input-row textarea::placeholder { color: var(--text-muted); opacity: 1; }
@@ -764,11 +765,11 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__tool-menu button[aria-pressed="true"] { background: var(--nav-selected-secondary, var(--nav-selected)); color: var(--text-primary); }
 .authoring-knowledge__tool-menu button > svg { flex: none; }
 .authoring-knowledge__tool-menu button:disabled { opacity: .45; cursor: default; }
-.authoring-knowledge__send { display: grid; flex: none; width: var(--workspace-control-height, 36px); height: var(--workspace-control-height, 36px); margin-inline-start: 0; place-items: center; border: 0; border-radius: 50%; background: var(--text-primary); color: var(--surface-assistant); cursor: pointer; }
-.authoring-knowledge__send:hover:not(:disabled) { background: var(--accent); color: var(--bg-primary); }
+.authoring-knowledge__send { display: grid; flex: none; width: var(--workspace-control-height, 36px); height: var(--workspace-control-height, 36px); margin-inline-start: 0; place-items: center; border: 0; border-radius: 50%; background: var(--workbench-action); color: var(--workbench-action-text); cursor: pointer; }
+.authoring-knowledge__send:hover:not(:disabled) { background: var(--workbench-action-hover); color: var(--workbench-action-text); }
 .authoring-knowledge__send:disabled { background: var(--nav-hover); color: var(--text-muted); cursor: default; }
 .authoring-knowledge__send.is-cancel { background: var(--text-secondary); }
-.authoring-knowledge button:focus-visible, .authoring-knowledge summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.authoring-knowledge button:focus-visible, .authoring-knowledge summary:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 3px; }
 .authoring-knowledge__context { display: flex; flex: 1 1 0; align-items: center; gap: 8px; min-width: 0; margin: 0 4px; color: var(--text-muted); font: 12px/1.5 var(--font-interface, var(--font-sans)); }
 .authoring-knowledge__context button { display: inline-flex; flex: 0 1 auto; min-width: 0; align-items: center; gap: 6px; padding: 2px 0; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
 .authoring-knowledge__context button span { overflow: hidden; max-width: min(380px, 100%); text-overflow: ellipsis; white-space: nowrap; }
@@ -778,7 +779,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge.is-expanded .authoring-knowledge__toolbar { min-height: 48px; padding-inline: var(--assistant-gutter); border-bottom: 0; }
 .authoring-knowledge.is-expanded .authoring-knowledge__model strong { display: none; }
 .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding-block: 12px 16px; }
-.authoring-knowledge.is-expanded { --assistant-reading-width: 1040px; --assistant-gutter: max(32px, calc((100% - var(--assistant-reading-width)) / 2)); --assistant-input-padding: 16px 18px 12px; --assistant-input-radius: 24px; --assistant-input-min-height: 108px; --assistant-answer-size: 16px; --assistant-intro-size: clamp(28px, 2.8vw, 34px); }
+.authoring-knowledge.is-expanded { --assistant-reading-width: 900px; --assistant-gutter: max(32px, calc((100% - var(--assistant-reading-width)) / 2)); --assistant-input-padding: 16px 18px 12px; --assistant-input-radius: 24px; --assistant-input-min-height: 108px; --assistant-answer-size: 16px; --assistant-intro-size: clamp(28px, 2.8vw, 34px); }
 .authoring-knowledge.is-expanded .authoring-knowledge__input-row textarea { font-size: 16px; }
 .authoring-knowledge.is-expanded .authoring-knowledge__question-row { margin-bottom: 28px; }
 .authoring-knowledge.is-expanded .authoring-knowledge__question { padding: 11px 18px; }
@@ -794,7 +795,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge.is-starting .authoring-knowledge__thread { width: 100%; max-width: var(--assistant-reading-width); flex: none; margin-inline: auto; padding: 0; overflow: visible; }
 .authoring-knowledge.is-starting .authoring-knowledge__thread:empty { display: none; }
 .authoring-knowledge.is-starting .authoring-knowledge__composer { width: 100%; max-width: var(--assistant-reading-width); margin-inline: auto; padding: 0; background: transparent; }
-.authoring-knowledge.is-expanded.is-starting .authoring-knowledge__input-row { background: color-mix(in srgb, var(--accent) 3%, var(--surface-workbench-input)); box-shadow: var(--shadow-workbench), 0 8px 36px color-mix(in srgb, var(--accent) 7%, transparent); }
+.authoring-knowledge.is-expanded.is-starting .authoring-knowledge__input-row { background: var(--surface-workbench-input); box-shadow: none; }
 .authoring-knowledge__start-options { width: 100%; max-width: var(--assistant-reading-width); flex: none; margin: 22px auto 0; }
 .authoring-knowledge__prompt-list { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .authoring-knowledge__prompt-list button { display: inline-flex; min-height: var(--workspace-control-height, 36px); align-items: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--hairline-soft); border-radius: 999px; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-interface, var(--font-sans)); cursor: pointer; }
@@ -805,17 +806,17 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge:not(.is-expanded) .authoring-knowledge__purpose-menu { inset-inline-end: 12px; max-width: calc(100% - 24px); }
 @keyframes knowledge-pulse { to { opacity: .28; transform: scale(.72); } }
 @media (pointer: coarse) {
-  .authoring-knowledge__toolbar-actions button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
-  .authoring-knowledge__search button, .authoring-knowledge__history button, .authoring-knowledge__toolbar-actions button, .authoring-knowledge__tool-menu button, .authoring-knowledge__evidence-list button, .authoring-knowledge__context button, .authoring-knowledge__prompt-list button { min-height: 44px; }
+  .authoring-knowledge__toolbar-actions > button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .authoring-knowledge__search button, .authoring-knowledge__history button, .authoring-knowledge__toolbar-actions > button, .authoring-knowledge__tool-menu button, .authoring-knowledge__evidence-list button, .authoring-knowledge__context button, .authoring-knowledge__prompt-list button { min-height: 44px; }
   .authoring-knowledge__purpose summary { min-height: 44px; }
   .authoring-knowledge__send, .authoring-knowledge__tools summary { width: 44px; height: 44px; }
 }
 @media (max-width: 720px) {
-  .authoring-knowledge__toolbar-actions button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
-  .authoring-knowledge__search button, .authoring-knowledge__history button, .authoring-knowledge__toolbar-actions button, .authoring-knowledge__tool-menu button, .authoring-knowledge__evidence-list button, .authoring-knowledge__context button, .authoring-knowledge__prompt-list button { min-height: 44px; }
+  .authoring-knowledge__toolbar-actions > button { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .authoring-knowledge__search button, .authoring-knowledge__history button, .authoring-knowledge__toolbar-actions > button, .authoring-knowledge__tool-menu button, .authoring-knowledge__evidence-list button, .authoring-knowledge__context button, .authoring-knowledge__prompt-list button { min-height: 44px; }
   .authoring-knowledge__send, .authoring-knowledge__tools summary { width: 44px; height: 44px; }
   .authoring-knowledge__purpose summary { min-height: 44px; }
-  .authoring-knowledge.is-expanded { --assistant-reading-width: 1040px; --assistant-gutter: 16px; --assistant-input-padding: 14px 12px 10px; --assistant-input-radius: 22px; }
+  .authoring-knowledge.is-expanded { --assistant-reading-width: 900px; --assistant-gutter: 16px; --assistant-input-padding: 14px 12px 10px; --assistant-input-radius: 22px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__thread { padding-block: 16px 24px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__toolbar { padding-inline: 16px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding: 10px 16px max(16px, env(safe-area-inset-bottom)); }
@@ -845,13 +846,13 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 30px; padding: 0; display: flex; align-items: center; gap: 6px; line-height: 1.5; list-style: none; }
 .authoring-knowledge__agent-detail[open] summary svg { transform: rotate(180deg); }
 .authoring-knowledge__agent-detail summary::-webkit-details-marker { display: none; }
-.authoring-knowledge__agent-detail summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__agent-detail summary:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
 .authoring-knowledge__agent-detail p { margin: 4px 0 10px 18px; white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
 @media (max-width: 720px) { .authoring-knowledge__agent-detail summary { min-height: 44px; } }
-.authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 7px 12px; min-height: 36px; border: 1px solid var(--hairline-soft); border-radius: var(--workspace-radius, 10px); background: var(--nav-primary-selected); color: var(--accent); font: 500 13px/1.5 var(--font-interface); cursor: pointer; }
+.authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 7px 12px; min-height: 36px; border: 1px solid var(--hairline-soft); border-radius: var(--workspace-radius, 10px); background: var(--workbench-action); color: var(--workbench-action-text); font: 500 13px/1.5 var(--font-interface); cursor: pointer; }
 .authoring-knowledge__agent-adopt:hover:not(:disabled) { background: var(--nav-focused); }
 .authoring-knowledge__agent-adopt:disabled { opacity: .5; cursor: default; }
-.authoring-knowledge__agent-adopt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__agent-adopt:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
 @media (max-width: 720px) { .authoring-knowledge__agent-adopt { min-height: 44px; } }
 .authoring-knowledge__input-row { position: relative; }
 .authoring-knowledge__mentions { position: absolute; z-index: 9; left: 0; bottom: calc(100% + 6px); width: min(300px, 100%); max-height: 260px; overflow: auto; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover); background: var(--surface-workbench-overlay); box-shadow: var(--shadow-workbench-float); }
@@ -863,21 +864,25 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__message-actions button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 4px 7px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: 12px/1.5 var(--font-interface, var(--font-sans)); cursor: pointer; }
 .authoring-knowledge__message-actions button:hover, .authoring-knowledge__message-actions button:focus-visible { background: var(--surface-workbench-input); color: var(--text-primary); }
 .authoring-knowledge__message-actions button:disabled { opacity: .45; cursor: default; }
-.authoring-knowledge__edit-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.authoring-knowledge__edit-input:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 3px; border-radius: 3px; }
 .authoring-knowledge__tool-outcome { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; }
 .authoring-knowledge__edit-trigger { flex: 0 0 32px; display: grid; place-items: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); opacity: 0; pointer-events: none; cursor: pointer; }
 .authoring-knowledge__question-row:hover .authoring-knowledge__edit-trigger, .authoring-knowledge__question-row:focus-within .authoring-knowledge__edit-trigger { opacity: 1; pointer-events: auto; }
 .authoring-knowledge__edit-trigger:hover { background: var(--surface-workbench-input); color: var(--text-primary); }
-.authoring-knowledge__edit-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.authoring-knowledge__edit-trigger:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
 .authoring-knowledge__edit-trigger:disabled { cursor: default; }
 .authoring-knowledge__question-row.is-editing { width: 100%; max-width: 100%; }
 @media (hover: none), (pointer: coarse) { .authoring-knowledge__edit-trigger { opacity: 1; pointer-events: auto; width: 44px; height: 44px; flex-basis: 44px; } }
 .authoring-knowledge__question:has(.authoring-knowledge__edit-input) { width: 100%; max-width: 100%; box-sizing: border-box; }
 .authoring-knowledge__edit-input { width: 100%; min-height: 80px; box-sizing: border-box; border: 0; background: transparent; color: var(--text-primary); resize: none; font: 15px/1.7 var(--font-interface, var(--font-sans)); }
+
+.authoring-knowledge.is-expanded .authoring-knowledge__history { inset: 48px 24px auto auto; width: min(340px, calc(100% - 48px)); box-sizing: border-box; padding: 10px; background: var(--surface-workbench-raised); }
+.authoring-knowledge.is-expanded .authoring-knowledge__toolbar { border-bottom: 1px solid var(--hairline-soft); }
+@media (max-width: 720px) { .authoring-knowledge.is-expanded .authoring-knowledge__history { right: 16px; width: calc(100% - 32px); } }
 </style>
 
 <style scoped>
-.authoring-knowledge__toolbar-actions button:has(>span) { display: inline-flex; align-items: center; white-space: nowrap; width: auto; gap: 6px; padding: 0 8px; font: 12px/1.5 var(--font-interface); }
+.authoring-knowledge__toolbar-actions > button:has(>span) { display: inline-flex; align-items: center; white-space: nowrap; width: auto; gap: 6px; padding: 0 8px; font: 12px/1.5 var(--font-interface); }
 .assistant-document-context { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin: 0 4px 10px; color: var(--text-muted); font: 12px/1.5 var(--font-interface); }
 .assistant-document-context button { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: transparent; color: var(--text-secondary); font: inherit; cursor: pointer; }
 .assistant-conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

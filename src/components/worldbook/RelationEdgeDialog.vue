@@ -13,7 +13,6 @@
         @keydown.esc="cancel"
       >
         <header class="relation-edge-head">
-          <p class="relation-edge-kicker">{{ tr('图谱建边') }}</p>
           <h3 class="relation-edge-title">{{ tr('{from} → {to}', { from: fromName, to: toName }) }}</h3>
         </header>
 
@@ -158,11 +157,6 @@ function confirmEdge() {
   gap: 2px;
 }
 
-.relation-edge-kicker {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
 
 .relation-edge-title {
   margin: 0;

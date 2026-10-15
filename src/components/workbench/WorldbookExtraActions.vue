@@ -2,7 +2,6 @@
   <footer class="quick-extra">
     <div class="quick-extra__heading">
       <span>建立与整理</span>
-      <small>WORLD TOOLS</small>
     </div>
     <div class="quick-extra__row">
       <button
@@ -131,11 +130,6 @@ defineEmits(['structured', 'import', 'ai'])
   font-weight: 700;
 }
 
-.quick-extra__heading small {
-  color: var(--archive-ink-soft);
-  font: 600 8px/1 var(--font-mono);
-  letter-spacing: .14em;
-}
 
 .theme-legacy .quick-extra {
   gap: 0;

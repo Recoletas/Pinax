@@ -20,7 +20,7 @@
         type="button"
         :aria-expanded="chapterDrawerOpen.toString()"
         aria-controls="writing-chapter-shelf"
-        @click.stop="directoryHost?.directoryDocked.value ? directoryHost.state.directoryOpen = true : openChapterDrawer()"
+        @click.stop="directoryHost?.directoryDocked.value ? directoryHost.directory.setExpanded(true) : openChapterDrawer()"
       >
         <WorkbenchIcon name="panel-left" :size="15" />
         <span>{{ tr('章节目录') }}</span>
@@ -29,16 +29,16 @@
       <div class="wall__tabs">
         <button
           ref="moreToolsTriggerRef"
-          class="wall__tab"
+          class="wall__tab wall__tab--more"
           type="button"
           :aria-expanded="moreMenuOpen.toString()"
+          aria-haspopup="menu"
           :aria-label="tr(&quot;更多写作操作&quot;)"
-          :title="tr(&quot;更多写作操作&quot;)"
+          v-workbench-tooltip="tr('更多写作操作')"
           @pointerdown="freezeMobileToolSource"
           @click.stop="toggleMoreMenu($event)"
         >
           <WorkbenchIcon name="more" :size="16" />
-          <span>{{ chapterShelfSheetMode ? tr('工具') : tr('更多') }}</span>
         </button>
         <Teleport to="body">
           <!-- 工具条是 42px 单行 + overflow 裁切，absolute 菜单会被整体裁没（死按钮）；
@@ -132,7 +132,7 @@
       <aside
         id="writing-chapter-shelf"
         ref="chapterShelfRef"
-        class="wall__shelf workspace-sidebar"
+        class="wall__shelf workspace-sidebar" v-show="!['search', 'extensions'].includes(directoryMode)"
         :class="{ 'is-mobile-open': chapterDrawerOpen }"
         :tabindex="chapterDrawerOpen ? -1 : undefined"
         :inert="!directoryHost?.directoryDocked.value && chapterShelfSheetMode && !chapterDrawerOpen ? '' : undefined"
@@ -140,11 +140,7 @@
         :aria-label="tr(&quot;章节书架&quot;)"
       >
         <div class="wall__shelf-manuscript">
-          <div v-if="selectedBookId" class="authoring-directory-mode" aria-label="目录查看方式">
-            <button type="button" :aria-pressed="directoryMode === 'files'" @click="directoryMode = 'files'">{{ tr('文件目录') }}</button>
-            <button type="button" :aria-pressed="directoryMode === 'chapters'" @click="directoryMode = 'chapters'">{{ tr('章节顺序') }}</button>
-          </div>
-          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" />
+          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" @manage-worldbook="openBindingSelect" />
           <div v-show="directoryMode === 'chapters' || !selectedBookId">
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
@@ -226,7 +222,7 @@
           </div>
           </div>
           <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
-          <div v-if="selectedBookId" class="wall__binding-line" data-test="book-worldbook-binding">
+          <div v-if="selectedBookId && (directoryMode !== 'files' || bookWorldbookStatus.status !== 'bound' || bindingSelectOpen)" class="wall__binding-line" data-test="book-worldbook-binding">
             <template v-if="bindingSelectOpen">
               <select
                 v-model="bindingDraftWorldbookId"
@@ -630,7 +626,7 @@
             </Teleport>
             <Teleport to="body">
               <div
-                v-if="selectionActionsVisible && !illustratorBlocking && !reviewPanelOpen && !searchPanelOpen"
+                v-if="selectionActionsVisible && directoryHost.state.primaryVisible && !assistantWorkspace.expanded.value && !illustratorBlocking && !reviewPanelOpen && !searchPanelOpen"
                 class="writing-selection-actions"
                 :style="selectionToolbarStyle"
                 role="toolbar"
@@ -960,7 +956,7 @@
             >{{ event.label }}</button>
           </section>
           <div class="writing-inspector__actions">
-            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest">{{ tr('调整当前场') }}</button>
+            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest"><WorkbenchIcon name="pencil" :size="14" />{{ tr('调整当前场') }}</button>
             <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
             <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
           </div>
@@ -1142,9 +1138,9 @@
                 <p v-for="item in getAnnotationSupplements(annotation)" :key="item.id"><span>{{ tr('补充') }}</span>{{ item.body }}</p>
               </div>
               <footer>
-                <button type="button" @click.stop="startAnnotationEdit(annotation)">{{ tr('编辑') }}</button>
+                <button type="button" @click.stop="startAnnotationEdit(annotation)" :aria-label="tr('编辑批注')" v-workbench-tooltip="tr('编辑批注')"><WorkbenchIcon name="pencil" :size="15" /></button>
                 <button v-if="annotation.status !== 'orphaned'" type="button" @click.stop="startRewriteFromAnnotation(annotation)">{{ tr('按批注改写') }}</button>
-                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)">{{ tr('删除') }}</button>
+                <button type="button" class="is-danger" @click.stop="deleteAnnotation(annotation)" :aria-label="tr('删除批注')" v-workbench-tooltip="tr('删除批注')"><WorkbenchIcon name="trash" :size="15" /></button>
               </footer>
 
               <section
@@ -1210,7 +1206,7 @@
             >
               <header>
                 <span>{{ tr('新批注') }}</span>
-                <button type="button" :title="tr(&quot;取消批注&quot;)" :aria-label="tr(&quot;取消批注&quot;)" @click="closeAnnotationComposer">×</button>
+                <button type="button" :title="tr(&quot;取消批注&quot;)" :aria-label="tr(&quot;取消批注&quot;)" @click="closeAnnotationComposer"><WorkbenchIcon name="close" :size="16" /></button>
               </header>
               <p>“{{ selectedText.slice(0, 72) }}{{ selectedText.length > 72 ? '…' : '' }}”</p>
               <textarea
@@ -1321,7 +1317,7 @@
     />
 
     <AuthoringSearchPanel
-      :open="searchPanelOpen"
+      :docked="directoryMode === 'search'" :target="directoryHost.directoryTarget.value" :open="searchPanelOpen"
       :query="searchQuery"
       :scope="searchScope"
       :findings="searchFindings"
@@ -1336,12 +1332,12 @@
       :replace-preview="searchReplacePreview"
       :replace-busy="searchReplaceBusy"
       :can-return="searchCanReturn"
-      @close="closeSearchPanel"
+      @close="closeSearchPanel(); directoryMode === 'search' && directoryHost.directory.setExpanded(false)"
       @update:query="updateSearchQuery"
       @update:scope="updateSearchScope"
       @update:replacement="updateSearchReplacement"
       @search="runProjectSearch"
-      @open-result="openSearchFinding"
+      @open-result="directoryMode === 'search' ? openDirectoryFinding($event) : openSearchFinding($event)"
       @return-origin="returnFromSearch"
       @replace-one="replaceOneSearchFinding"
       @replace-all="replaceAllSearchFindings"
@@ -1535,6 +1531,7 @@ import { useWritingTypographyStore, WRITING_FONT_OPTIONS, MIN_FONT_SIZE, MAX_FON
 import { useGameStore } from '../stores/gameStore'
 import FolioSurface from '../components/folio/FolioSurface.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import { vWorkbenchTooltip } from '../components/workbench/workbenchTooltip.js'
 import { publishWritingBooks } from '../services/writing/writingBooksRepository.js'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
 import { buildWritingSelectionRanges } from '../services/writing/writingSelectionRanges.js'
@@ -1554,8 +1551,8 @@ const AuthoringDualPane = defineAsyncComponent(() => import('../components/autho
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
 import { useAuthoringDirectory } from '../composables/useAuthoringDirectory.js'
 const ProjectDirectory = defineAsyncComponent(() => import('../components/workbench/ProjectDirectory.vue'))
-const { directoryHost, directoryMode, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook } = useAuthoringDirectory({
-  hasPendingDraft: () => pendingGhostAdoption.value || blockPreview.value,
+const { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook } = useAuthoringDirectory({
+  hasPendingDraft: () => pendingGhostAdoption.value || blockPreview.value, getSearch: () => searchWorkflow,
   bookId: () => selectedBookId.value, chapterId: () => selectedChapterId.value, ideaId: () => wt3ActiveDocId.value,
   saveIdea: () => wt3PersistActiveDoc(), saveChapter: () => saveCurrentChapter(), leaveIdea: () => wt3PersistBeforeLeaving(),
   createChapter: () => createNewChapter(), createIdea: () => wt3QuickCapture(), book: () => currentBook.value, refreshWorldbook: () => refreshBoundWorldbookAfterCharacterChange()
@@ -8417,7 +8414,8 @@ async function openBindingSelect() {
   void worldStore.loadWorldbooksIndex()
   bindingDraftWorldbookId.value = selectedBookWorldbookId.value
   bindingSelectOpen.value = true
-  if (chapterShelfSheetMode.value) { closeWritingInspector({ restoreSurface: false, preserveSceneDraft: true }); openChapterDrawer() }
+  if (directoryHost?.directoryDocked.value) directoryHost.directory.setExpanded(true)
+  else if (chapterShelfSheetMode.value) { closeWritingInspector({ restoreSurface: false, preserveSceneDraft: true }); openChapterDrawer() }
   await nextTick()
   if (bindingSelectOpen.value) chapterShelfRef.value?.querySelector('.wall__binding-select')?.focus()
 }
@@ -9455,6 +9453,7 @@ function openBookAtChapter(bookId, chapterId) {
 // Workspace navigation owns URL ↔ selection sync and volatile return state.
 // The page retains the actual book/chapter/editor actions passed into it.
 workspaceNavigationController = useAuthoringWorkspaceNavigation({
+  readWorldbook: () => boundWorldbook.value, canInsertSettingName: () => !authoringTaskBusy.value && !writingCompositionActive.value && !knowledgeAssistant.busy.value && !knowledgeAssistant.agentState.value.adoptionBusy,
   router,
   route,
   workspaceTabsStore,
@@ -10145,13 +10144,13 @@ function onNotebookSelectionChange(selection) {
 function positionSelectionActions(selection) {
   // 画师是覆盖整个写作工作台的 modal owner。编辑器在失焦和图片加载时
   // 仍可能补发 selectionchange；这些迟到事件不能让正文浮条穿透到画师上层。
-  if (illustratorBlocking.value) {
+  if (illustratorBlocking.value || !directoryHost.state.primaryVisible || assistantWorkspace.expanded.value) {
     hideSelectionActions()
     return
   }
   if (selection?.text?.trim() && selection.cursorRect) {
     const rect = selection.cursorRect
-    if (rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
+    if (rect.bottom <= rect.top || rect.bottom < 0 || rect.top > window.innerHeight || rect.right < 0 || rect.left > window.innerWidth) {
       hideSelectionActions()
       return
     }
@@ -10159,7 +10158,7 @@ function positionSelectionActions(selection) {
     // 浮条宽度随按钮集合变化（B/I/分隔线加入后远超旧估宽）；
     // 先渲染再实测 offsetWidth/Height，交给 resolver 按缩放做视口钳制。
     nextTick(() => {
-      if (illustratorBlocking.value) {
+      if (illustratorBlocking.value || !directoryHost.state.primaryVisible || assistantWorkspace.expanded.value) {
         hideSelectionActions()
         return
       }
@@ -10745,14 +10744,16 @@ function createAuthoringSearchWorkflow() {
       showNameGen.value = false
     },
     notify: (message) => authoringTask.notify(message),
-    openWorldbookEntry: (entryId) => openWorldbookMentionDetail(entryId),
+    openWorldbookEntry: (entryId) => directoryMode.value === 'search'
+      ? directoryHost.openAt({ type: 'settings-editor', bookId: String(selectedBookId.value), worldbookId: String(boundWorldbook.value?.id || ''), entryId, focusEntry: true, entryRequestId: crypto.randomUUID() }, 'main')
+      : openWorldbookMentionDetail(entryId),
     selectTarget: (finding) => selectMainSearchTarget(finding),
     restoreSurface: (surface) => restoreSearchSurface(surface),
     restoreSelectionActions: () => {
       const selection = window.getSelection()
       const editor = document.querySelector('.writing-notebook-editor__surface .ProseMirror')
       if (selection?.rangeCount && editor?.contains(selection.anchorNode) && !selection.isCollapsed) {
-        selectionActionsVisible.value = true
+        positionSelectionActions(notebookEditorRef.value?.getSelection?.())
       }
     },
     persistEditorsBeforeReplace: (setError) => persistSearchEditorsBeforeReplace(setError),

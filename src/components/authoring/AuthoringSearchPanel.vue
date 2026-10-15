@@ -1,11 +1,11 @@
 <template>
-  <Teleport to="body">
+  <Teleport :to="docked && target ? target : 'body'">
     <Transition name="authoring-search-panel">
       <section
         v-if="open"
-        class="authoring-search-panel"
-        role="dialog"
-        aria-modal="false"
+        class="authoring-search-panel" :class="{ 'is-docked': docked }"
+        :role="docked ? 'region' : 'dialog'"
+        :aria-modal="docked ? undefined : 'false'"
         aria-labelledby="authoring-search-title"
         data-test="authoring-search-panel"
         @keydown.esc.stop.prevent="emit('close')"
@@ -16,6 +16,7 @@
             <p>{{ scope === 'current-chapter' ? (currentChapterLabel || '当前章') : scopeLabel }}</p>
           </div>
           <div class="authoring-search-panel__head-actions">
+            <button v-if="docked" type="button" :aria-label="replacementOpen ? '收起替换' : '展开替换'" title="替换" :aria-expanded="replacementOpen" @click="replacementOpen = !replacementOpen"><WorkbenchIcon name="pencil" :size="15" /></button>
             <button
               v-if="canReturn"
               class="authoring-search-panel__return"
@@ -112,7 +113,7 @@
           </div>
         </div>
 
-        <div v-else-if="!busy" class="authoring-search-panel__empty">
+        <div v-else-if="!busy && (!docked || normalizedQuery)" class="authoring-search-panel__empty">
           <template v-if="normalizedQuery">
             <strong>没有找到“{{ normalizedQuery }}”</strong>
             <p>可以换个词，或切换查找范围。</p>
@@ -167,7 +168,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 
 const props = defineProps({
-  open: Boolean,
+  open: Boolean, docked: Boolean, target: { default: null },
   query: { type: String, default: '' },
   scope: { type: String, default: 'current-chapter' },
   findings: { type: Array, default: () => [] },
@@ -201,6 +202,7 @@ const emit = defineEmits([
 
 const queryInputRef = ref(null)
 const composing = ref(false)
+const replacementOpen = ref(false)
 const scopeOptions = Object.freeze([
   { value: 'current-chapter', label: '当前章' },
   { value: 'manuscript', label: '全书' },
@@ -210,7 +212,7 @@ const scopeOptions = Object.freeze([
 
 const normalizedQuery = computed(() => props.query.trim())
 const scopeLabel = computed(() => scopeOptions.find((option) => option.value === props.scope)?.label || '当前章')
-const replaceAllowed = computed(() => ['current-chapter', 'manuscript'].includes(props.scope) && Boolean(normalizedQuery.value))
+const replaceAllowed = computed(() => ['current-chapter', 'manuscript'].includes(props.scope) && Boolean(normalizedQuery.value) && (!props.docked || replacementOpen.value))
 const validReplacePreview = computed(() => {
   const preview = props.replacePreview?.plan || props.replacePreview
   if (!preview || props.scope !== 'manuscript') return null
@@ -239,7 +241,8 @@ function chooseScope(nextScope) {
 }
 
 function resultLocation(finding) {
-  return [finding?.display?.sourceLabel, finding?.display?.position].filter(Boolean).join(' · ') || '打开来源'
+  const position = props.docked ? finding?.display?.position?.split('·').at(-1)?.trim() : finding?.display?.position
+  return [finding?.display?.sourceLabel, position].filter(Boolean).join(' · ') || '打开来源'
 }
 
 function excerptParts(finding) {
@@ -401,4 +404,23 @@ watch(() => props.open, (open) => {
   .authoring-search-panel-enter-from,
   .authoring-search-panel-leave-to { transform: translateY(8px); }
 }
+.authoring-search-panel.is-docked { position: static; width: 100%; height: 100%; max-height: none; min-height: 0; inset: auto; transform: none; border: 0; background: transparent; box-shadow: none; font-size: 12px; }
+.is-docked .authoring-search-panel__head { min-height: 34px; padding: 2px 10px 4px; border: 0; gap: 4px; }
+.is-docked .authoring-search-panel__identity h2 { display: none; }
+.is-docked .authoring-search-panel__identity p { max-width: 110px; }
+.is-docked .authoring-search-panel__query { padding: 6px 10px; gap: 4px; }
+.is-docked .authoring-search-panel__query label { min-height: 32px; padding: 0 7px; border-color: var(--hairline-soft); border-radius: 4px; background: var(--surface-workbench-input); }
+.is-docked .authoring-search-panel__query > button { min-height: 32px; padding: 0 7px; border: 0; color: var(--accent); }
+.is-docked .authoring-search-panel__scopes { padding: 0 8px; flex-wrap: nowrap; }
+.is-docked .authoring-search-panel__scopes button { flex: 1 1 0; min-width: 0; padding-inline: 4px; font-size: 12px; }
+.is-docked .authoring-search-panel__status { padding-inline: 12px; }
+.is-docked .authoring-search-panel__results { flex: 1; max-height: none; padding: 0; }
+.is-docked .authoring-search-result { padding-inline: 4px; }
+.is-docked .authoring-search-result__open { min-width: 0; padding: 8px; }
+.is-docked .authoring-search-result__meta { flex-wrap: wrap; gap: 3px; }
+.is-docked .authoring-search-result__meta strong { font-size: 12px; }
+.is-docked .authoring-search-result__excerpt { font: 12px/1.7 var(--font-interface); }
+.is-docked .authoring-search-panel__empty { padding: 20px 12px; }
+.is-docked .authoring-search-panel__replace-box { padding: 10px; }
+.is-docked .authoring-search-panel__replace-actions, .is-docked .authoring-search-panel__preview > div { flex-wrap: wrap; gap: 6px; }
 </style>
