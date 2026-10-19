@@ -141,7 +141,7 @@ jobs:
       # 网络守卫拦截一切非本机请求，出现任何 provider 外发即失败。
       - name: Run authoring smoke (no model key)
         if: matrix.journey == 'authoring'
-        run: node scripts/ci/authoring-smoke.mjs
+        run: npm run ci:authoring-smoke
         env:
           SMOKE_OUT_DIR: smoke-artifacts
 

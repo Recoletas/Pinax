@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-10-19 · 修复 CI 浏览器旅程入口过期
+
+- GitHub CI [#169](https://github.com/Recoletas/Pinax/actions/runs/39254339451) 的 test/build 通过，两条 authoring-smoke 矩阵任务失败。公开摘要可读取，未登录无法查看完整远端日志；本地执行相同入口，均在 `首页导航 → 备份与恢复` 定位上超时，确认脚本仍依赖旧首页侧栏。当前真实入口是工作区导航抽屉。
+- 两个脚本改为实际点击“打开工作区导航”及抽屉中的“备份与恢复”。没有跳过诊断隐私、编码识别、导入后刷新持久化、来源/媒体 ZIP 往返、幂等恢复或 IndexedDB 失败保护断言。用户服务不动，仅脚本自建进程，结束清理。
+- 新增 `npm run verify:ci`，串联已有 verify:full、ci:authoring-smoke、ci:workspace-backup-smoke；GitHub authoring job 统一调用相同 npm 入口。原 verify:full 本身不包含浏览器矩阵，本地此前通过不能代表 CI 全部 job 通过；验证状态文档已说明区别。
+- 本轮 `CI=1 npm run verify:ci` exit 0：20/20 文件、200/200 用例，StoryAgent integration 24/24，lint 无新增 error（5 条原有 warning），Vite 20.47s、VitePress 6.29s；两条浏览器旅程 RESULT: PASS。备份实际捕获 ZIP 并验证书稿/来源/媒体恢复、二次恢复新增 0 项、注入写失败后旧数据完整。Node 语法和 diff 检查 exit 0。
+- 修复单独作为一份完成的 CI 修复提交并立即推送，属于本次作者报错的明确修复指令；未部署生产或调用模型。远端最终状态以该提交的 Actions 结果为准；临时浏览器、截图与故障日志收尾清理。
+
 ## 2026-10-19 · 累积改动集中提交与推送
 
 - 作者要求整理这段时间的修改后提交并推送，后续以完整、有规模的功能／修复为提交单位，push 大致每天集中一次；有当次明确指令时照常立即推送，不建立无人值守定时推送任务。约定已写入 STATUS 的现有工作规则，不写用户专属 LOCAL.md。
