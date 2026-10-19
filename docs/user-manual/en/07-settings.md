@@ -8,19 +8,25 @@ Theme, zoom and writing typography remain separate. Switching languages does not
 
 ## AI setup and data
 
-Writing and backups work without AI. In **AI settings**, select a text model and test its connection. A built-in model is available only if the deployment server provides its key. You can configure your own supported provider.
+Writing and backups work without AI. In **AI settings**, select a text model and test its connection. A built-in model is available only if the deployment server provides its key. On local/self-hosted deployments with model editing enabled, you can add a supported text configuration. Selecting it switches the runtime model through the backend; all text features share that active model. Public visitors cannot change the server model. Images and video have separate configuration chains.
 
 When you invoke AI, the requested selection and relevant context or linked references may be sent through the deployment server to the configured provider. Do not send material you are not authorized to share. Model keys are excluded from backups. Provider error details may remain in their original language.
 
 ## Memory & history
 
-The story-fact ledger is different from manuscript version history. Pinax uses Utopia’s temporal fact-ledger design as a foundation and implements facts, evidence, decisions and revisions in browser-local Dexie/IndexedDB, with some temporal coordination algorithms ported into Pinax. It does not connect to an external Utopia service and is not a full replica of Utopia’s cognitive/temporal engine. Some conflict handling still requires review, and not every data domain lives in this database. AI-extracted proposals are not automatically accepted facts. Use **Memory & history** for story facts and their evidence; use **Comments → Versions** or the chapter menu’s **Version history** to compare manuscript versions.
+The story-fact ledger is different from manuscript version history. Pinax uses Utopia’s temporal fact-ledger design as a foundation and implements facts, evidence, decisions and revisions in browser-local Dexie/IndexedDB, with some temporal coordination algorithms ported into Pinax. It does not connect to an external Utopia service and is not a full replica of Utopia’s cognitive/temporal engine. Some conflict handling still requires review, and not every data domain lives in this database. AI-extracted proposals are not automatically accepted facts. Use **Memory & history** for story facts and their evidence; use **Comments → Versions** or the chapter menu’s **Version history** to inspect manuscript versions.
+
+## Local projects
+
+Local deployments can bind project directories for document reading, worldbook file storage and knowledge retrieval. Public deployments disable these interfaces. Binding a directory is not an automatic migration of all browser data; knowledge retrieval additionally needs the knowledge runtime.
 
 ## Export and backup are different
 
 **Export chapter / Export manuscript** produces readable UTF-8 Markdown. It is not a complete workspace backup.
 
 **Workspace backup (ZIP)** includes manuscripts, settings, source archives, saved media and memory history. **Lightweight backup (JSON)** preserves local records but excludes archived memory history and media files kept outside those records. External links and unsaved media are not guaranteed to be included in either format.
+
+![Workspace ZIP, lightweight JSON backup and restore actions](../images/20261016/backup-en.png)
 
 ## Restore
 

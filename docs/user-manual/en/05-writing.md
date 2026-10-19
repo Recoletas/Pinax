@@ -1,8 +1,8 @@
 # Writing workspace
 
-The left sidebar contains chapter search, new-chapter and new-book controls, notes, the volume and chapter directory, and story-bible linking. The current scene stays at the bottom; the manuscript is in the center, and tool buttons open panels on the right. Hover over an icon to see its name. Some rehearsal and scene controls still use Chinese labels; these are included below where needed.
+Use the mixed project directory to open content, the central editor to write, and the right tool icons for writing tools. Switch to manuscript order when arranging volumes and chapters; folder placement is separate. The current-scene control stays at the bottom. Hover or focus an icon to see its name. See [Quick start](./01-quickstart.md) for the workspace layout.
 
-![Chapter list, manuscript and tool rail](../../screenshots/user-guide-20260924/13-workbench-en.png)
+![Writing workspace with the current directory and tools](../images/20261016/writing-en.png)
 
 ## Chapters and notes
 
@@ -20,8 +20,6 @@ Formatting changes font, spacing, indentation and block-boundary display. These 
 
 ## Comments and rewriting
 
-![A comment attached to selected manuscript text](../../screenshots/user-guide-20260924/14-annotations-en.png)
-
 1. Select text in the editable manuscript and choose **Comments**.
 2. Describe the change and what must remain, then add the comment.
 3. Use **Rewrite from comment** when ready. This step needs a text model.
@@ -31,43 +29,55 @@ Editing or deleting a comment does not change the source passage. If that passag
 
 If the selection toolbar is missing, close active search/proofreading overlays and select text again in the manuscript, rather than a panel answer or preview.
 
-## Assistant: brainstorming, source lookup and manuscript review
+![A comment attached to selected manuscript text; no rewrite has been requested](../images/20261016/annotations-en.png)
 
-Choose **Assistant** at the top to open the full page, then **Back to workbench** to continue writing. For questions while writing, open the assistant sidebar; **Open assistant** expands the same conversation. Switching views keeps your draft and reading position without resending a question.
+## Assistant
 
-The manuscript sidebar contains the current book’s contents. Use **Navigate** at the top to open Story Bible, Sources or other workspaces; **More tools** in that drawer opens inspiration, map, comics and video. Select **Writing** to return to this book’s writing location, or select its existing workspace tab. The question list scrolls independently and highlights the question being viewed. Select a question to revisit its answer without sending it again. Stop an active review before returning to the conversation. The assistant’s Story Bible and Sources controls are disabled during a query, review or rewrite. Leaving through the top navigation also prompts you to finish or stop the task first.
+Open the sidebar while writing, or expand the same conversation into the full assistant. Switching the presentation does not resend a message. The conversation picker avoids adding another persistent sidebar alongside the file directory.
 
-The sidebar toolbar opens the full assistant or sources. Once there are messages, it also provides search and question history. Search filters the current conversation; choosing a history entry fills the input so you can edit it before sending.
+The assistant receives a bounded current-book context: directory, current chapter and relevant settings. It can request more through tools, but does not automatically read every book in full. Use references or `@` to specify a passage or source.
 
-For an empty manuscript, choose **Start with the assistant**, or select **Brainstorm with the assistant** when creating a manuscript. You can name it later. The suggested starting points fill a question draft without sending it. Edit the question before sending, or go straight to writing.
+![Assistant beside the manuscript with an unsent continuation request](../images/20261016/assistant-en.png)
 
-The default is **Discuss the story**, for characters, plot and writing choices. It does not automatically read the manuscript. Include a passage in your question if you want to discuss it. To check established content, switch to **Look up sources** in the input, or select it from **+**, then write and send your question.
+### Edit the manuscript
 
-The **+** menu also offers **Review manuscript** and **Generate illustration**. Manuscript review is disabled when the manuscript is empty.
+Choose permissions in the composer:
 
-| What you need | Suggested entry and question |
+- **Read-only** retrieves and discusses.
+- **Review changes**, the default, proposes edits for you to apply.
+- **Automatic changes** applies only within the chapter, setting and outline scope you authorize, after revision and save checks.
+
+Use **Current chapter** for this chapter only, or **This book** for its manuscript, settings and outline. **Custom** reveals individual chapters and optional settings/outline access. Read-only mode hides editing scopes.
+
+Each message captures its permissions when sent. Changes made during generation apply to the next message; the running task and its automatic adoption keep the original authorization. Use Stop to end the current task. Manually applying an existing proposal checks the settings selected at adoption.
+
+For current-chapter prose, the assistant requests a draft through the existing rehearsal planning, generation and checking path. It does not merely paste the chat response into the document.
+
+Character, setting and outline edits appear in their original fields, with removed text struck through and additions highlighted. The existing directory and other fields stay in place. Use the check or cross beside the title to accept or dismiss that object’s edits. After applying, Done hides the marks without changing the saved content; Undo this turn reverts all applied edits from that turn. New objects appear in the original directory but are saved only when accepted.
+
+Open **Review proposed changes** to see manuscript edits in place. Apply or discard the group. Applied changes can be undone, with later-edit conflicts checked first. A failed or incomplete result may retain readable text without allowing adoption. A chat claim or read-tool call is not a successful write receipt.
+
+### Follow up, regenerate or fork
+
+| Action | Conversation behavior |
 | --- | --- |
-| Discuss plot or writing choices | **Discuss the story**: “I want these two characters to test each other without revealing their intentions. How could the scene develop?” |
-| Check earlier text or story-bible entries | **Look up sources**: “Where does she first explain her background? Give the supporting passages.” |
-| Check manuscript problems | **+ → Review manuscript**: choose a scope and describe the problem, such as repeated description or an awkward transition |
+| Send a follow-up | Continue this conversation |
+| Edit question and regenerate | Keep this conversation; create another version of the turn |
+| Regenerate / change parameters and retry | Keep this conversation and its answer versions |
+| Start another conversation from an answer | Fork into a new conversation; retain the original |
+| New conversation | Begin an empty topic |
 
-**Look up sources** searches the current book's connected manuscript, story-bible entries and other supported content. When supporting material is found, the answer includes the sources actually cited. Select a source title to preview the passage inside the assistant, then choose **Open original** to go to its source.
+The edit pencil is beside the question and appears on hover or keyboard focus. Up to eight versions are retained per turn. Selecting an older answer does not rerun tools or undo an already applied manuscript change; use the edit receipt's undo control for that.
 
-This scope does not mean every chapter was read in full. Retrieval can miss a relevant passage; narrow the question and name the character or event. Original chunks imported and linked to this book are included in retrieval. Citations can open their source files; other books are outside this scope. This interface does not search the web.
+Use **Conversations** to create, switch or delete a conversation. Deletion requires confirmation. Conversations are saved per book; refresh does not resend a message or guarantee recovery of a running request.
 
-Conversations and input drafts are saved separately for each manuscript in this browser. Switching manuscripts opens the corresponding conversation. Refreshing does not resend a question; it interrupts an active request, which you can retry yourself.
+### References and activity
 
-### Write & revise
+The **+** menu adds files, chapters and sources. Files are parsed into the book's source archive before being attached; removing a reference chip does not delete its original. References and techniques can also be chosen through the dedicated picker.
 
-Choose **Write & revise** in the input task menu. Select references and techniques, or type `@` and use the arrow keys, Enter or Tab to confirm a reference. Confirming a reference does not send a task.
+Open citations to inspect the source passage. Updated sources require a fresh lookup. Expand thinking/tool details for actual activity and errors; the top more menu opens the run log. Sampling controls affect this assistant request, not the server's selected model.
 
-Choose **Review proposed changes** to inspect manuscript edits in the manuscript area and character, setting or outline edits in their existing sidebar. Confirm the group to save its changes together. A failed save rolls back incomplete writes and retains the proposal. Applied changes can be undone; later edits are checked before undoing.
-
-Follow-up messages continue the task. **Start a new task** keeps the conversation and creates a fresh task. **New conversation** starts another topic; project navigation lets you reopen earlier conversations. Refreshing never runs a task automatically.
-
-These tools require the server runtime. If unavailable, inputs and saved results are retained; retry after the runtime recovers. The optional story exploration switch is off by default and does not bypass strict task checks. Retrieval covers bounded loaded excerpts. Imported book sources can now be selected as references; an external database is not connected here.
-
-**Review manuscript** opens the review panel. Choose a scope and describe your goal, then inspect the suggestions or rewrite candidates before applying them. The manuscript stays unchanged until you apply a result; use the review's undo control to reverse an applied change. **Generate illustration** needs its own supported image configuration, even if the text-model connection works.
+Local knowledge retrieval requires a separate runtime and bound project. The public deployment disables local-file access. Ordinary book-snapshot lookup is distinct from that local knowledge service.
 
 ## Generate an illustration
 
@@ -110,13 +120,13 @@ Copy useful text, or save an available draft as a note, before leaving or refres
 
 ## Current scene
 
-![Time and other context in the current-scene panel](../../screenshots/user-guide-20260924/16-current-scene-en.png)
-
-Open the current-scene panel and choose **Edit current scene**. Set the time, place and characters present.
+Open the current-scene control from Rehearsal or the bottom of the directory. Set the time, place and characters present.
 
 The recognition section suggests matches from nearby manuscript text and the linked story bible. Choose the candidates to add, then press **保存当前场** to save the scene. Merely selecting a candidate changes the form, not the saved scene; cancelling discards the edits.
 
 Recognition matches known names and keywords. A mention in a memory, quotation or negative statement may not mean the character is present. A new name without a story-bible entry will not automatically become a character record. No new suggestions does not mean the scene is empty. Normal typing does not update the cast on every keystroke; you can open the scene form and run recognition again when needed.
+
+![Current-scene controls inside the rehearsal panel](../images/20261016/current-scene-en.png)
 
 ## Finding earlier text and story facts
 

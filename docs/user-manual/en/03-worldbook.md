@@ -1,45 +1,53 @@
-# Story bible and settings
+# Story bible and sources
 
-The story bible gathers a work’s source material, structured settings, detailed entries and map. It gives supported writing tools a consistent view of the story. It is not a prerequisite for writing: start with one useful character or rule and expand as the manuscript grows.
+A story-bible entry records the characters, places and rules you maintain. A source provides reference material. Importing a document does not make all its claims established story facts.
 
-![Create a story bible by importing sources or starting from an idea](../../screenshots/user-guide-20260924/18-worldbook-en.png)
+## Write an entry
 
-## Switch books in Settings
+Open a character or place from the manuscript's story-bible folder, or select it in the settings collection. Both edit the same entry.
 
-When Settings is opened for a book, use the book selector at the top to switch works. The current section stays open and loads the selected book's linked worldbook. **Back to manuscript** returns to that book. An unlinked book shows an empty state; books linked to the same worldbook share its settings. Save entry edits before switching, or confirm that you want to discard them.
+Create an entry with a name and type, then write directly in its title and body. Body edits save on blur or a guarded switch; Ctrl/Cmd+S also saves. Expand properties to use a template or add fields. A long form is not required before writing.
 
-## Four kinds of story information
+If structured fields disagree with your edited body, choose whether to save fields while retaining the body or explicitly replace the body. Pending or failed saves must be resolved before switching. The older grouped settings remain under the optional creative-foundation section.
 
-**Sources** are reference files and excerpts. TXT, Markdown, DOCX and PDF can be imported or text can be pasted. Sources preserve where information came from; imported material is not automatically confirmed canon.
+A manuscript uses its linked story bible. Books deliberately linked to the same bible share those entries, rather than getting private copies.
 
-**Structured settings** are the information the author has chosen to use: world, story, characters and writing rules. Sources can conflict; review them before promoting a detail into an official setting.
+![Character entry with free-form text and related tools](../images/20261016/settings-entry-en.png)
 
-**Advanced entries** provide finer organization, groups and keyword-based retrieval. Start with the defaults; tune retrieval only when a large library needs it.
+## Right-side tools
 
-**Map** organizes locations and spatial relations. Map and writing workflows are not fully integrated yet, so check what a task actually references before relying on map information.
+| Tool | Purpose |
+| --- | --- |
+| Related category | Find and open entries by type |
+| Scenes and experiences | Inspect recorded appearances, locations and associated history |
+| Table | Edit entries and fields in rows; expand the table when needed |
+| Relations | Inspect the selected entry and direct links, or switch to the full graph |
+| Manage | Edit management information for the current entry |
 
-## A practical setup
+The graph stays on the right while the body remains in the center. Scene history comes from recorded manuscript scene anchors and story-bible history. Merely mentioning a name does not establish presence or current location. A mapped place can open the existing map; missing map bindings are not guessed.
 
-Choose **Sources → Add sources** in book navigation to import into the current book. An import dialog opens over the current page. Confirmation closes it and updates the source list. Closing it or pressing Escape keeps the book’s pending draft; wait for an active save to finish. Select another book in the Sources sidebar, or open **Open book navigation** on a phone; the list reloads for the chosen book.
+![The relationship graph remains in the right sidebar](../images/20261016/settings-graph-en.png)
 
-1. If no story bible is linked, open **Settings** and choose **Add sources** from the empty state. The creation workspace opens on sources; an existing story bible has a **Sources** section in its header.
-2. Under **Files**, select or drop supported files. Under **Paste text**, enter an excerpt and click **Add to list**. Switching modes preserves your text and queued sources. Check that the extracted text is readable. Confirm **Add to this book** to update the list; staging an excerpt alone does not add it to the book. An unlinked book gets its own linked source library on confirmation. PDFs support up to 100 MB per file; other source files support up to 50 MB. Drag files into the dialog and release when “Drop to add sources” appears. Scanned PDFs may need OCR.
-3. Organize the structured settings yourself. Under **More options**, expand **Develop the story foundation** in the source importer for an optional AI draft from selected sources. Importing reference documents does not require this step. Review the draft before treating it as canon.
-4. Use advanced entries or the map only when they help with retrieval or geography.
-5. Return to the manuscript and confirm it is linked to this story bible. If you only want to start writing, create one character or rule in the writing workspace instead; Pinax creates a linked story bible as needed.
+## Bottom panel
 
-You do not need to complete every section before drafting.
+Manuscript mentions match names and aliases in this book. Open a result to locate the passage; ambiguous names still require your judgment.
 
-## How information changes while writing
+Insert into manuscript inserts the entry's name at the saved cursor in an opened chapter. An existing selection is not replaced; insertion goes after it. Check the target chapter shown in the panel. The insertion can be undone in the manuscript. It does not copy the entire profile or create new historical facts.
 
-Author-edited characters, places, rules and constraints belong to the story bible. Text may also produce candidate scene updates or evidence-backed story-memory proposals. Recognition and extraction can be wrong, and a temporary event or character lie should not silently become canon. Review and confirm candidates before they become formal scene information or facts.
+## Import reference material
 
-The story bible stores author-maintained settings. **Settings → Memory & history** shows facts, source evidence, pending AI proposals and revisions. For earlier manuscript text, use **Comments → Versions** or the chapter menu’s **Version history**. An empty memory ledger does not mean that manuscript versions are empty too.
+Use the source/file import dialog. Drop files, choose them or paste text, wait for parsing, inspect the result and confirm addition to this book.
 
-Recognition in the scene form matches known names and keywords near the writing position. Select the proposed people or place, then save the scene. A mention in a memory or quotation may not mean the person is present. A name without an entry in the linked story bible is not automatically added as a new character. See [Writing workspace](./05-writing.md) for the confirmation steps.
+Supported formats include TXT, Markdown, DOCX and PDF. The current per-file limit is 100 MB for PDF and 50 MB for other formats. This does not mean a model reads the entire file at once. Scanned PDFs may require OCR first.
 
-## Using settings with AI
+The archive holds parsed text and source metadata; keep the original PDF or Word file separately. The source reader is read-only.
 
-After linking a story bible, supported tasks can refer to the work’s characters, places, rules and history. The assistant may show the evidence behind an answer so you can return to the source. Not every AI tool reads the entire manuscript or all settings. Check the task scope and verify the result before using it.
+## Three different source capabilities
 
-For chapter editing, scene rehearsal and assistant tools, see [Writing workspace](./05-writing.md). For memory and backup details, see [Settings](./07-settings.md).
+- Imported sources belong to the book's source archive and can be read, cited and used for extraction.
+- Project documents are read-only documents from a bound local project.
+- Local knowledge search needs the separate knowledge runtime and project binding. Its derived index does not replace original files.
+
+The public deployment disables local-file and local-knowledge interfaces. Ordinary assistant citations can still refer to the supplied book snapshot. A knowledge-tool capability flag is not proof that a local runtime or source file is available.
+
+Review extracted names, aliases and evidence before applying them to official entries. Memory proposals and the fact ledger are available in Settings → Memory & history. See [Settings and backups](./07-settings.md).

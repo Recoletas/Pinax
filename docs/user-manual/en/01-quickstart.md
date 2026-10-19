@@ -1,52 +1,45 @@
 # Quick start
 
-Create a manuscript, write a passage, add a comment and save a backup. AI rewriting is optional.
+## Open a manuscript
 
-## 1. Create or import a manuscript
+Create a manuscript on the home page, or import TXT / Markdown and review the chapter preview before confirming. Import PDF and Word reference files through Sources; they do not automatically become chapters.
 
-![New manuscript and import actions on the home page](../../screenshots/user-guide-20260924/12-home-en.png)
+Open existing work from the library or recently opened list. That list groups by manuscript.
 
-Choose **Start writing** in an empty library, or **New manuscript** if you already have books, enter a title and confirm. The workspace opens with the first chapter ready to edit.
+![Open or create a manuscript from the home page](../images/20261016/home-en.png)
 
-To discuss the story first, select **Brainstorm with the assistant**, then **Create and brainstorm**. You can add a title later. Suggested starting points fill a question draft; the assistant responds only after you send it.
+## Find your content
 
-For an existing draft, choose **Import manuscript** and select a TXT or Markdown file. Check the text, chapter names and split points in the preview before confirming. Import creates a new manuscript; it does not append to your open chapter.
+The left directory has default folders for manuscript text, notes, settings, sources, materials and comics. The story-bible folder uses its actual name and groups entries such as characters and places. You may create folders and mix supported content types.
 
-PDF and DOCX reference files go through **Sources → Add sources** in book navigation. For existing work, The first **Recently opened** entry returns to the last opened location. See [Story bible](./03-worldbook.md).
+Right-click a folder and choose **New** to create a chapter, note, setting or comic page, or import a source into that folder. **New folder** adds a child folder. Enter saves a folder name; Esc cancels. The top **+** remains available.
 
-## 2. Write and check saving
+Drag between rows to reorder the directory, or onto the middle of a folder to move content into it. A line or folder highlight shows the destination. **Move to…** provides a keyboard and touch alternative. Clear search and filters before dragging; automatic character/place groups cannot be moved. Removing a folder moves its contents to its parent without deleting the originals.
 
-![Chapter list, manuscript editor and right-side tools](../../screenshots/user-guide-20260924/13-workbench-en.png)
+Use the left activity icons to switch between files, search, manuscript order and extensions. Hover to see the names. Organizing folders does not change narrative/export order; use the manuscript-order view for volumes and chapters.
 
-Click the central editor and type. Select a chapter on the left to switch text. Open tools on the right when needed; you can close a panel to make more room.
+Central tabs reopen the original content. Select a chapter tab to return from a source or setting. On desktop, opening manuscript text expands the directory; returning home preserves its visibility. On mobile, select content through the directory drawer.
 
-Wait for the save status to show that your changes are saved. If saving fails, copy the visible text or export it before refreshing. See [Troubleshooting](./08-faq.md).
+![Project directory, manuscript editor and tool rail](../images/20261016/writing-en.png)
 
-## 3. Add a comment
+## Start writing
 
-![A comment linked to a manuscript selection](../../screenshots/user-guide-20260924/14-annotations-en.png)
+Open a chapter and type. Changes save automatically; use typography controls for font, spacing and indentation. If saving fails, keep the page open and copy unsaved text before retrying.
 
-1. Select a sentence in the manuscript, then choose **Comments** from the selection toolbar.
-2. Enter an instruction such as “Keep her polite, but do not reveal her motive yet,” and add the comment.
-3. The comment appears on the right. The original sentence remains unchanged; you can edit or delete the comment later.
+Right-side tools provide annotations, the assistant, rehearsal, outline and setting references. They are optional.
 
-Comments work without AI. If the selection toolbar does not appear, return to the editable manuscript and select the passage again. More help is in [Troubleshooting](./08-faq.md).
+## Add a character or source
 
-## 4. Optional: rewrite from a comment
+Create a setting entry from the directory, choose its name and type, and write its body. Expand properties only when needed. To import sources, open the file-import dialog, add files or pasted text, inspect the parsed result and confirm.
 
-Choose **Rewrite from comment**. This requires a working text model; select a configuration and test its connection in **Settings → AI settings** if needed.
+## Try the assistant
 
-Compare the candidate with the original before applying it. Check facts, character voice and surrounding sentences. You can discard the candidate and keep the original. If the source passage changed during generation, generate a new candidate for the updated text.
+Ask a specific question, for example: “Keep this passage's facts, but make the dialogue more natural.” The default permission is review before applying changes. Read-only mode discusses and retrieves; automatic mode applies within the scope you explicitly authorize.
 
-## 5. Download a backup
+Proposed manuscript changes appear in the manuscript for review. A chat response alone does not mean text was saved. See [Writing](./05-writing.md#assistant).
 
-Open **Settings → Backup & restore** and export a full workspace ZIP. Save the downloaded file. To move to another browser, device or site address, choose **Restore backup** there, inspect the preview and confirm.
+## Back up
 
-Text export is useful for continuing in another editor. A workspace ZIP also carries related project data. See [Settings](./07-settings.md) for the scope of each format.
+Export manuscript text for use in another editor. Use a full workspace ZIP to move manuscripts, settings, archived sources and saved media.
 
-## Next steps
-
-- Ask about characters or earlier events: [Writing workspace](./05-writing.md).
-- Rehearse an action and turn it into a manuscript draft: [Writing workspace](./05-writing.md).
-- Add characters, places and rules: [Story bible](./03-worldbook.md).
-- Report a problem: [Troubleshooting](./08-faq.md).
+Before changing HTTP to HTTPS, hostname, browser or device, export from the old location and restore at the new one. These locations do not share browser storage. See [Settings](./07-settings.md).

@@ -1,13 +1,17 @@
 # 当前事实层
 
+当前发布基线：2026-10-15，main 实现 `cb6ee525`，生产适配 `265bfdb6`。运行包已部署；HTTPS 与精简右键菜单仍有待办。
+
 > `docs/src/` 只记录“现在这个仓库是什么状态”。它不是 API 参考，也不是任务系统。
 
 ## 快速回答
 
 | 问题 | 先看 |
 | --- | --- |
-| 当前方向 / 执行骨架是什么？ | [`../PLAN.md`](../PLAN.md) |
-| 最近改了什么？ | [`../LOG.md`](../LOG.md) |
+| 工作区、数据和助手由谁负责？ | [当前架构](https://github.com/Recoletas/Pinax/blob/main/docs/engineering/current-architecture.md) |
+| 怎样构建和部署？ | [运行包发布](https://github.com/Recoletas/Pinax/blob/main/docs/engineering/agent-runtime-deployment.md) |
+| 当前方向 / 执行骨架是什么？ | [`../PLAN.md`](https://github.com/Recoletas/Pinax/blob/main/docs/PLAN.md) |
+| 最近改了什么？ | [`../LOG.md`](https://github.com/Recoletas/Pinax/blob/main/docs/LOG.md) |
 | 某段行为归谁负责？ | [`code-map.md`](./code-map.md) |
 | 当前有哪些风险或已知限制？ | [`known-issues.md`](./known-issues.md) |
 | 最近测试 / 构建状态如何？ | [`test-status.md`](./test-status.md) |

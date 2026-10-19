@@ -1,53 +1,53 @@
 # Troubleshooting
 
-## My manuscript disappeared
+## My manuscripts disappeared
 
-Check the exact application address, browser and profile. Private browsing and another origin use different storage. Return to the original address before assuming the work was deleted. Restore a saved backup if necessary; do not clear site data.
+Return to the original browser profile and address. HTTP, HTTPS, hostnames, IP addresses and ports have separate browser storage. Do not clear site data or import over existing work first.
 
-## Saving failed
+Export a full workspace ZIP from the old address and restore it at the new one. Private browsing or clearing site data may remove unbacked-up work.
 
-Keep the page open. Retry saving or export the current manuscript text first. Preserve existing backup files. The browser may refuse writes due to storage restrictions or capacity. Another browser or device may allow restoring your backup. Never treat a failed restore as a completed one.
+## Edge says the site is not secure
 
-## Imported text looks wrong
+At the 2026-10-15 check, the public site served HTTP and HTTPS was not working. The operator still needs to configure TLS. Before an HTTPS migration, export data from the HTTP origin; the browser does not move it automatically.
 
-Use the import preview's encoding controls. Changing the encoding can change chapter detection; review titles before confirming. If headings are ambiguous, import as one chapter. Pinax supports TXT and Markdown here, not every ebook format.
+## The assistant wrote a reply but did not change my chapter
 
-## AI is unavailable or uses the wrong language
+Check permissions and the actual result. Read-only mode does not edit. Review mode requires applying the proposal. Automatic mode still requires a valid target and authorization, successful checks and a successful save.
 
-Check the selected model and its connection test. A built-in model requires server configuration. Set Manuscript language, check Assistant explanation language and explicitly state unusual output requirements. Existing results keep their original language after an interface switch. Do not apply output that translates or changes a passage unintentionally.
+Reading a chapter or looking up settings is not an edit receipt. Open the proposed changes, or expand failed tool calls to read the error.
 
-## Why do the counts differ from my word processor?
+## Does regeneration create another conversation?
 
-Pinax counts Han characters plus Unicode words, including numbers, and splits hyphenated words. Technical character limits and model tokens use separate units. [Writing and review](./05-writing.md) describes the policy.
+No. Editing a question, regenerating and retrying with different parameters keep this conversation and preserve answer versions. Forking explicitly creates another conversation. Switching answer versions does not undo an edit already applied to the manuscript.
 
-## A help page is still Chinese
+## A tool failed or an answer is incomplete
 
-Some advanced chapters currently have only a Chinese version. The page states this explicitly. The chapter address remains stable when you switch language.
+Expand the failed tool for its actual reason. Possible causes include an outdated runtime, changed source revision, unavailable local knowledge, a model timeout or failed output checks. Retained text may be copied but is not a completed, adoptable edit.
 
-## The selection toolbar does not appear
+Report the action sequence and sanitized error. Never include API keys or private manuscript content in public reports.
 
-Select text in the central editable manuscript, not a chapter name, panel answer or read-only preview. Close active search/proofreading overlays and select the text again. If the problem persists, report the browser and which panel was open. Save or copy the text before refreshing.
+## Can I leave rehearsal instructions blank?
 
-## A rehearsal response did not change my manuscript
+Yes, continuation uses the current manuscript context. Check the starting passage. A blank chapter may need a character, situation or direction.
 
-The response belongs to the rehearsal route. **写成试稿** requests a draft for the manuscript; review and adopt that draft to insert it. If **查看试稿** is shown, there is already a draft to review. Repeated generation will not fix a save failure.
+Write-next-passage produces a manuscript draft for adoption. Plot rehearsal explores developments in the sidebar before prose generation. Enter submits; Ctrl+Enter or ⌘+Enter adds a line. Closing the panel does not adopt the draft.
 
-## Rehearsal repeats an event
+## Why is a mentioned character not in the current scene?
 
-Check that you continued from the intended step. If the source text or settings changed and the panel reports stale context, use **重新确定起点**. Check the current scene and conditions. If it still repeats a completed action, leave the draft unapplied and report the previous response, your action and the repeated passage.
+Mentions, memories and quotations do not necessarily mean presence. Recognition suggests candidates; confirm and save the scene. New names do not automatically become official character entries.
 
-## A recognized character has not joined the scene
+## Why does a source or knowledge search fail?
 
-Recognition offers candidates. Add the desired character or place to the scene form, then save with **保存当前场**. Cancelling leaves the saved scene unchanged. Recognition uses the linked story bible; a new name does not automatically create a character entry. Mentions in memories or quotations may not describe the current cast.
+Check the scope: imported browser sources, bound local project documents and local knowledge search are different. Local knowledge needs its runtime and project binding; the public site disables local filesystem interfaces. Missing original text cannot be replaced with an index summary.
 
-## Rename a note
+For PDFs, check the 100 MB limit and whether the file contains a text layer. Other supported files have a 50 MB limit. Review parsing before adding a source.
 
-Open the note under **Notes**, click its title at the top of the editor, enter a non-empty title, then press Enter or click outside to save. Esc cancels the edit. The linked chapter title is unchanged.
+## Saving or media generation failed
 
-## The assistant found no evidence
+Keep unsaved text and the page open, then retry saving. Do not clear storage to fix a save failure.
 
-That does not prove the book contains no relevant passage. A whole-book question still uses retrieved excerpts. Narrow the question, name the character or event, and check the returned citations.
+Text, image and video models are separate configurations. Retry saving an already generated image instead of generating again; continue querying an existing video task rather than submitting a duplicate. Only saved video originals can survive an expired remote URL.
 
-## Report a problem
+## Which backup should I use?
 
-Include what you wanted to do, what you clicked, the expected result and the actual result. Add the browser and the exact error if available. A short relevant excerpt is usually more useful than a whole manuscript. Remove keys and private information from screenshots.
+Use a full workspace ZIP for migration. Lightweight JSON excludes archived source and media files; manuscript export is readable text only. Keep original source files and model credentials separately. See [Settings](./07-settings.md).
