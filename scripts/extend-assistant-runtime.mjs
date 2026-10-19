@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 const root = path.resolve(import.meta.dirname, '..')
-export const assistantRuntimeFiles = ['runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js']
+export const assistantRuntimeFiles = ['runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js', 'shared/requestModelConfig.js']
 export function extendAssistantRuntime(directory) {
   const target = path.join(directory, 'dist/pinax')
   for (const file of assistantRuntimeFiles) fs.copyFileSync(path.join(root, file), path.join(target, path.basename(file)))
@@ -34,6 +34,13 @@ export function extendAssistantRuntime(directory) {
     ['        catch (e) {\n            // 能力任务', '        catch (e) {\n            if (assistantTask?.state.delivery && String(ac.signal.reason?.message || "") === "PINAX_ASSISTANT_DELIVERED") {\n                const delivery = assistantTask.state.delivery;\n                finalText = assistantCompletionText(agent.state.messages, delivery, finalText);\n                emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, bookId: req.bookId, finalText, delivery, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls });\n                return { ...base, status: "completed", finalText, delivery, messages: agent.state.messages, steps: counters.steps, toolCalls: counters.toolCalls };\n            }\n            // 能力任务']
   ])
   patch('server.js', [['[...PINAX_TOOL_NAMES, "manuscript", "notes", "outline"]', '[...PINAX_TOOL_NAMES, "manuscript", "notes", "outline", "workspace"]'], ['const store = new TaskStore(cfg.tasksDir);', 'const store = new TaskStore(cfg.tasksDir);'], ['json(res, 200, { ok: true', 'json(res, 200, { assistantProtocolVersion: 2, assistantWorkspace: true, assistantNarrative: true, assistantSampling: true, assistantObservability: true, assistantKnowledge: true, ok: true']])
+  patch('server.js', [
+    ['import { applyModelPatch,', 'import { requestScopedRuntimeConfig } from "./requestModelConfig.js";\nimport { applyModelPatch,'],
+    ['createRun(turn, cfg,', 'createRun(turn, requestScopedRuntimeConfig(cfg, turn.modelConfig),'],
+    ['runComplete(cfg, validated.value,', 'runComplete(requestScopedRuntimeConfig(cfg, body.modelConfig), validated.value,'],
+    ['runCompleteStream(cfg, validated.value,', 'runCompleteStream(requestScopedRuntimeConfig(cfg, body.modelConfig), validated.value,'],
+    ['assistantProtocolVersion: 2,', 'requestModels: true, assistantProtocolVersion: 2,']
+  ])
   // pi-ai requires block arrays for every assistant message, including plain drafts
   // sent back for revision. A string causes a local serializer error before any request.
   patch('modelFunnel.js', [

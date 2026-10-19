@@ -1,4 +1,7 @@
 <script setup>
+import ModelPickerMenu from '../settings/ModelPickerMenu.vue'
+import '../settings/ModelManagement.css'
+import { useModelCatalog } from '../../composables/useModelCatalog.js'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { videoJobService } from '../../services/media/videoJobService'
 import {
@@ -14,11 +17,13 @@ import {
 import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
+  manage: Boolean,
   modelValue: { type: String, default: '' },
   configs: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue', 'configs-updated'])
+const catalog = useModelCatalog('video')
 
 const showPicker = ref(false)
 const showConfig = ref(false)
@@ -29,7 +34,6 @@ const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
 let connectionController = null
 let connectionRevision = 0
 onBeforeUnmount(() => resetConnectionState())
-const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_VIDEO_CONFIG_ID)
 const editingIsMinimax = computed(() => editingConfig.value?.providerId === 'minimax-video')
@@ -47,11 +51,9 @@ watch(() => props.configs, (configs) => {
     : listVideoProviderConfigs()
 }, { immediate: true, deep: true })
 
-function openPicker() {
-  if (props.disabled) return
-  refreshConfigs()
-  showPicker.value = true
-}
+
+watch(catalog.configs, (configs) => { localConfigs.value = configs; emit('configs-updated', configs) })
+watch(catalog.selectedId, id => { if (id && id !== props.modelValue) emit('update:modelValue', id) })
 
 function refreshConfigs() {
   localConfigs.value = listVideoProviderConfigs()
@@ -201,27 +203,12 @@ useTransientLayer({
 
 <template>
   <div class="video-model-picker">
-    <button
-      ref="triggerRef"
-      type="button"
-      class="video-model-picker__trigger"
-      data-testid="video-model-config-trigger"
-      :disabled="disabled"
-      aria-haspopup="dialog"
-      :aria-expanded="layerOpen"
-      @click="openPicker"
-    >
-      <span>
-        <small>视频模型</small>
-        <strong>{{ selectedConfig?.name || '选择或配置模型' }}</strong>
-      </span>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-    </button>
+    <ModelPickerMenu v-if="!manage" kind="video" :model-value="modelValue" :configs="localConfigs"  @refresh="refreshConfigs" @update:model-value="$emit('update:modelValue', $event)" />
 
-    <Teleport to="body">
-      <div v-if="showPicker" class="video-model-overlay" @click.self="showPicker = false">
-        <section class="video-model-dialog" role="dialog" aria-modal="true" aria-label="选择视频模型">
-          <header>
+    <Teleport to="body" :disabled="manage">
+      <div v-if="manage || showPicker" class="video-model-overlay" :class="{ 'model-management-inline': manage }" @click.self="showPicker = false">
+        <section class="video-model-dialog" :role="manage ? 'region' : 'dialog'" :aria-modal="manage ? undefined : true" aria-label="选择视频模型">
+          <header v-if="!manage">
             <div><strong>选择视频模型</strong><small>{{ localConfigs.length }} 个配置</small></div>
             <button type="button" class="is-icon" title="关闭" aria-label="关闭" @click="showPicker = false">×</button>
           </header>
@@ -251,6 +238,8 @@ useTransientLayer({
         </section>
       </div>
 
+    </Teleport>
+    <Teleport to="body">
       <div v-if="showConfig && editingConfig" class="video-model-overlay" @click.self="closeConfig">
         <section class="video-model-dialog video-model-dialog--config" role="dialog" aria-modal="true" aria-label="视频模型配置">
           <header>

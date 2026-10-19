@@ -21,6 +21,8 @@ Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。�
 
 服务器部署需要前端 `dist`、后端生产依赖和编译后的运行包；只更新前端无法更新正在运行的工具。构建、启动和回滚见[运行包发布](./agent-runtime-deployment.md)。
 
+模型配置统一在 SettingsPopup 的 models 分区。`useSettingsPopup.open('ai'/'media')` 保留旧调用别名并定位文本/图片；工作区快速选择通过 `ModelPickerMenu` 复用对应 store，`modelConfigEvents` 在同页同步增删改与默认选择。重新生成不重置当前权限。助手发送前复制模型和权限，`prepared.modelConfig/modelSettings` 只在内存及请求链中使用，不进入消息或任务日志；正文委托将模型快照传入原推演 executor。Express 的 AsyncLocalStorage 将本次配置传给 complete/stream/capability，运行器 `requestScopedRuntimeConfig` 复制 cfg 后运行，不调用全局 applyModelPatch、不持久化密钥。公网拒绝请求自定义文本配置；旧运行器缺少 requestModels 能力时，自定义模型请求明确拒绝，避免静默用错模型。
+
 ## 2. 工作区、路由与视图
 
 | 职责 | 当前入口 | 边界 |
@@ -72,7 +74,7 @@ Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。�
 | 画布 | `proseCanvasRepository` | 按作品保存；旧全局数据只做保守迁移 |
 | 跑团 | `gameStore` 与 experience coordinator | 保留原存档和剧情 owner，不成为书稿真源 |
 | 地图 | `geographyStore` 与 world-map 服务 | 地图几何、世界书地点与历史投影有各自边界 |
-| 模型配置 | 文本/图片/视频配置 store；文本生效模型在运行器 | 本机选中文本配置经后端热切运行器；公网禁止修改 |
+| 模型配置 | 原文本/图片/视频 store，共用设置分区与快速选择器 | 选择只更新偏好；发送时冻结快照，Express 请求上下文及运行器按任务隔离，公网不开放自定义文本配置 |
 | 工作区布局 | workspace host、标签与目录状态 | 只存身份、定位、尺寸等，不存正文、授权或模型密钥 |
 
 持久化使用 `durableMutationResult` 的 `{ ok, reason, retryable }` 合同。调用方须检查保存回执，不能先发布“成功”再异步补写。正文、世界书和画布已有失败回滚与恢复路径，不能另开直接数据库写入捷径。

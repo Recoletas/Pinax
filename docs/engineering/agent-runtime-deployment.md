@@ -15,6 +15,8 @@ npm run build
 
 构建会拉取 `shared/storyagentRuntimeSource.json` 固定的上游提交，再编译 Pinax 适配。默认输出 `.runtime/storyagent`；上例使用独立候选 `.runtime/storyagent-next`，避免覆盖运行中的包。`runtime-source.json` 记录上游版本、锁文件和适配指纹；源清单的 `protocolVersion` 与运行包的 `assistantProtocolVersion` 不是同一个字段。
 
+按任务切换模型需要运行包 `/healthz` 声明 `requestModels: true`，以及配套的 Express `requestModelContext`。前端配置列表不再通过 POST /model 热改全局模型；自定义文本配置随单次请求进入内核，生成时只使用该任务的配置副本。旧包不支持时明确要求更新，不静默使用服务器默认模型。公网继续拒绝自定义文本模型请求。
+
 不要把已有 `tasks` 目录当构建输出清空；脚本会拒绝覆盖含旧日志的目录。升级时使用新目录，并保留任务和配置。
 
 ## 2. 发布需要哪些文件

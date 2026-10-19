@@ -1,4 +1,7 @@
 <script setup>
+import ModelPickerMenu from '../settings/ModelPickerMenu.vue'
+import '../settings/ModelManagement.css'
+import { useModelCatalog } from '../../composables/useModelCatalog.js'
 import { tr } from '../../i18n/index.js'
 import { computed, reactive, ref, watch } from 'vue'
 import {
@@ -16,11 +19,13 @@ import {
 import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
+  manage: Boolean,
   modelValue: { type: String, default: '' },
   configs: { type: Array, default: () => [] }
 })
 
 const emit = defineEmits(['update:modelValue', 'configs-updated'])
+const catalog = useModelCatalog('image')
 const showPicker = ref(false)
 const showConfig = ref(false)
 const triggerRef = ref(null)
@@ -30,7 +35,6 @@ const modelTypes = IMAGE_MODEL_TYPES
 const templateHelpText = computed(() => tr('支持以下模板变量：') + ' {{prompt}}, {{negative_prompt}}, {{width}}, {{height}}, {{reference_image}}, {{reference_images_json}}, {{mask_image}}, {{control_images_json}}')
 const comfyTemplateHelpText = computed(() => tr('从 ComfyUI 导出 API 格式工作流，用以下变量替换节点输入：') + ' {{prompt}}, {{negative_prompt}}, {{width}}, {{height}}, {{seed}}')
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
-const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_IMAGE_CONFIG_ID)
 
@@ -40,10 +44,9 @@ watch(() => props.configs, (configs) => {
     : listImageProviderConfigs()
 }, { immediate: true, deep: true })
 
-function openPicker() {
-  refreshConfigs()
-  showPicker.value = true
-}
+
+watch(catalog.configs, (configs) => { localConfigs.value = configs; emit('configs-updated', configs) })
+watch(catalog.selectedId, id => { if (id && id !== props.modelValue) emit('update:modelValue', id) })
 
 function refreshConfigs() {
   localConfigs.value = listImageProviderConfigs()
@@ -169,20 +172,12 @@ useTransientLayer({
 
 <template>
   <div class="image-model-picker">
-    <button ref="triggerRef" class="image-model-picker__trigger" type="button" @click="openPicker">
-      <span class="image-model-picker__trigger-copy">
-        <span class="image-model-picker__eyebrow">{{ tr("图片模型") }}</span>
-        <strong>{{ selectedConfig?.builtin ? tr(selectedConfig.name) : (selectedConfig?.name || tr("选择或配置模型")) }}</strong>
-      </span>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-        <path d="m7 10 5 5 5-5" />
-      </svg>
-    </button>
+    <ModelPickerMenu v-if="!manage" kind="image" :model-value="modelValue" :configs="localConfigs"  @refresh="refreshConfigs" @update:model-value="$emit('update:modelValue', $event)" />
 
-    <Teleport to="body">
-      <div v-if="showPicker" class="image-model-overlay" @click.self="showPicker = false">
-        <section class="image-model-dialog" role="dialog" aria-modal="true" :aria-label="tr('选择图片模型')">
-          <header class="image-model-dialog__header">
+    <Teleport to="body" :disabled="manage">
+      <div v-if="manage || showPicker" class="image-model-overlay" :class="{ 'model-management-inline': manage }" @click.self="showPicker = false">
+        <section class="image-model-dialog" :role="manage ? 'region' : 'dialog'" :aria-modal="manage ? undefined : true" :aria-label="tr('选择图片模型')">
+          <header v-if="!manage" class="image-model-dialog__header">
             <div>
               <strong>{{ tr("选择图片模型") }}</strong>
               <span>{{ tr('模型配置：{count}', { count: localConfigs.length }) }}</span>
@@ -224,6 +219,8 @@ useTransientLayer({
         </section>
       </div>
 
+    </Teleport>
+    <Teleport to="body">
       <div v-if="showConfig && editingConfig" class="image-model-overlay" @click.self="closeConfig">
         <section class="image-model-dialog image-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr('图片模型配置')">
           <header class="image-model-dialog__header">
@@ -251,7 +248,7 @@ useTransientLayer({
             <label><span>{{ tr("名称") }}</span><input v-model="editingConfig.name" :placeholder="tr('例如：本地 SDXL')" /></label>
             <label>
               <span>{{ tr("类型") }}</span>
-              <select :value="editingConfig.type" @change="changeModelType">
+              <select :aria-label="tr('类型')" :value="editingConfig.type" @change="changeModelType">
                 <option v-for="item in modelTypes" :key="item.value" :value="item.value">{{ tr(item.label) }}</option>
               </select>
             </label>

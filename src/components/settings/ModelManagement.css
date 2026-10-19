@@ -1,0 +1,22 @@
+.model-management-inline.model-management-inline:is(.text-model-overlay,.image-model-overlay,.video-model-overlay) { position:static;display:block;inset:auto;padding:0;background:transparent;backdrop-filter:none;overflow:visible; }
+.model-management-inline.model-management-inline :is(.text-model-dialog,.image-model-dialog,.video-model-dialog) { width:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;background:transparent;color:var(--text-primary);overflow:visible; }
+.model-management-inline.model-management-inline :is(.text-model-list,.image-model-list,.video-model-list) { padding:0;max-height:none;overflow:visible;display:flex;flex-direction:column;gap:2px; }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) { min-height:58px;padding:10px 12px;border:0;border-radius:var(--radius-control);background:transparent;color:var(--text-primary); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option).active { background:var(--nav-primary-selected); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option):hover { background:var(--nav-hover); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) strong { color:var(--text-primary);font:500 14px/1.5 var(--font-sans); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) small { color:var(--text-secondary);font:12px/1.5 var(--font-sans); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) i { display:none; }
+.model-management-inline.model-management-inline footer { padding:14px 0 0;border-top:1px solid var(--hairline-soft);margin-top:14px;background:transparent; }
+.model-management-inline.model-management-inline footer button { padding:7px 12px;min-height:34px;border:0;border-radius:var(--radius-control);background:var(--nav-hover);color:var(--text-primary);font:13px/1.5 var(--font-sans);cursor:pointer; }
+/* Configuration editors keep the same material as the settings host. */
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) { background:var(--surface-workbench);color:var(--text-primary);border:1px solid var(--hairline-soft);border-radius:var(--radius-panel,var(--radius-control));box-shadow:var(--shadow-workbench-float);font:14px/1.6 var(--font-sans); }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) :is(header,footer) { border-color:var(--hairline-soft);border-style:solid;background:transparent; }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) :is(input,select,textarea) { background:var(--surface-workbench-input);color:var(--text-primary);border:1px solid var(--hairline-soft);border-radius:var(--radius-control);font:13px/1.5 var(--font-sans); }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) button { border:0;border-radius:var(--radius-control);background:var(--nav-hover);color:var(--text-primary);font:13px/1.5 var(--font-sans); }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) button.is-primary { background:var(--accent);color:var(--accent-text); }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) { display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box; }
+.model-management-inline.model-management-inline .text-model-option > span { flex:1;min-width:0; }
+.model-management-inline.model-management-inline :is(.text-model-option,.image-model-option,.video-model-option) > button.is-icon { flex:none;width:30px; }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) :is(header,footer) { border:0;border-bottom:1px solid var(--hairline-soft); }
+body :is(.text-model-dialog.text-model-dialog,.image-model-dialog.image-model-dialog,.video-model-dialog.video-model-dialog) footer { border-bottom:0;border-top:1px solid var(--hairline-soft); }

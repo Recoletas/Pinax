@@ -34,7 +34,7 @@ export async function generateAssistantNarrative({ request, prepared, signal }, 
     ...(request.operation === 'replace' ? { rewriteText: request.before } : {}) })
   if (!built.ok) throw new Error(`写作要求无效：${built.reason}`)
   const narrative = readNarrative()
-  const input = { target: { id: chapterId, revision: readCurrent().revision }, intent: { invocationTarget: target, operation, turn: built.turn }, options: { signal, assistantSampling: prepared.sampling, onModelRequest: prepared.onNarrativeModelRequest } }
+  const input = { target: { id: chapterId, revision: readCurrent().revision }, intent: { invocationTarget: target, operation, turn: built.turn }, options: { signal, assistantModelSettings: prepared.modelSettings, assistantSampling: prepared.sampling, onModelRequest: prepared.onNarrativeModelRequest } }
   const context = await narrative.resolveContext({ taskId: 'authoring.advance', request: input })
   if (!isCurrent()) throw new Error('正文或编辑位置已变化，生成尚未执行。')
   let result

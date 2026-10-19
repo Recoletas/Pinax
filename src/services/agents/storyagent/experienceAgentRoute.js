@@ -1,3 +1,4 @@
+import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
 // Optional adapter route for uncontracted experience turns. Strict task contracts retain the native review/repair owner.
 import { createPiNarrativeAgentBridge } from './piNarrativeAgentBridge.js'
 import { parseNarrativeAgentSseEvent } from '../../../../shared/narrativeAgentStreamContract.js'
@@ -47,7 +48,10 @@ export function createExperiencePiAgentRoute({ endpoint } = {}) {
       const health = await bridge.healthz({ signal: args.signal }).catch(() => null)
       if (args.signal?.aborted) throw new DOMException('已停止', 'AbortError')
       if (!health?.ok) return null
+      const modelConfig = normalizeRequestModelConfig(args.settings)
+      if (modelConfig && !health.requestModels) throw new Error('运行器尚未支持按任务切换模型，请更新运行器后重试。')
       const run = await bridge.run({
+        modelConfig,
         kernel: args.kernel,
         index: args.index,
         mode: args.mode,

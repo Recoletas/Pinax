@@ -1,3 +1,4 @@
+import { resolveSelectedTextProviderConfig } from '../services/textProviderConfigStore.js'
 import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
 import { normalizeAssistantSampling } from '../services/agents/authoring/assistantRegenerateOptions.js'
 import { computed, onScopeDispose, reactive, ref, unref, watch } from 'vue'
@@ -313,7 +314,6 @@ export function createAuthoringKnowledgeAssistant({
     reviewedMessageId.value = ''
     state.agentTaskId = ''
     agentEngine?.revokePermission?.()
-    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
     if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
     scheduleStalenessRefresh()
     return true
@@ -345,7 +345,6 @@ export function createAuthoringKnowledgeAssistant({
     question.answerVersionIndex = question.answerVersions.length - 1
     state.messages = state.messages.slice(0, questionIndex + 1)
     agentEngine?.revokePermission?.()
-    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
     state.agentTaskId = ''
     reviewedMessageId.value = ''
     if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
@@ -589,6 +588,7 @@ export function createAuthoringKnowledgeAssistant({
     }
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
     const requestPermission = cloneQueryInput(state.agentPermission)
+    const requestModel = cloneQueryInput(resolveSelectedTextProviderConfig())
     const requestSessionId = state.activeSessionId
     const providerQuestion = questionWithConversation(question, state.messages)
     const token = ++runtime.token
@@ -621,7 +621,7 @@ export function createAuthoringKnowledgeAssistant({
         // runAuthoringAgentTurn captures the context before its first await.
         const requestId = messageId('agent')
         const pending = runAuthoringAgentTurn({ engine: requestEngine, entry, question, providerQuestion, token, signal: controller.signal,
-          sampling, permission: requestPermission, sessionId: requestSessionId, persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: requestId })
+          sampling, modelSelection: requestModel, permission: requestPermission, sessionId: requestSessionId, persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: requestId })
         const succeeded = await pending
         if (!succeeded || token !== runtime.token || disposed) return false
         state.status = state.messages.at(-1)?.status || 'completed'; state.hasUnread = true; state.lastRequest = null

@@ -1,3 +1,4 @@
+import { modelRequestContext } from './services/requestModelContext.js'
 import './loadEnv.js' // 最先执行: 加载 server/.env 到 process.env
 import express from 'express'
 import cors from 'cors'
@@ -64,6 +65,7 @@ if (collaborationRepository) app.use('/api/collaboration', createCollaborationRo
   onMembersInvalidated: result => collaborationRelay?.invalidateMembers(result)
 }))
 app.use(express.json({ limit: '16mb' }))
+app.use(['/api/chat', '/api/generate', '/api/advisor', '/api/storyagent'], modelRequestContext)
 
 const mediaRouter = createMediaRouter()
 const imageRouter = createImageRouter()

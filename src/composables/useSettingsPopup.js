@@ -9,12 +9,16 @@ import { ref } from 'vue'
  */
 
 const isOpen = ref(false)
-const activeSection = ref('ai')
+const activeSection = ref('models')
+const modelKind = ref('text')
 
-const VALID_SECTIONS = new Set(['writing', 'appearance', 'ai', 'storage', 'experience', 'memory', 'localproject'])
+const VALID_SECTIONS = new Set(['writing', 'appearance', 'models', 'ai', 'media', 'storage', 'experience', 'memory', 'localproject'])
 
-function open(section = 'ai') {
-  activeSection.value = VALID_SECTIONS.has(section) ? section : 'ai'
+function open(section = 'models', kind = null) {
+  if (['text', 'image', 'video'].includes(kind)) modelKind.value = kind
+  else if (section === 'ai') modelKind.value = 'text'
+  else if (section === 'media') modelKind.value = 'image'
+  activeSection.value = ['ai', 'media'].includes(section) ? 'models' : VALID_SECTIONS.has(section) ? section : 'models'
   isOpen.value = true
 }
 
@@ -31,5 +35,5 @@ function toggle(section) {
 }
 
 export function useSettingsPopup() {
-  return { isOpen, activeSection, open, close, toggle }
+  return { isOpen, activeSection, modelKind, open, close, toggle }
 }

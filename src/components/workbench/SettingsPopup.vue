@@ -42,24 +42,7 @@
         <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" :aria-label="tr(&quot;记忆与历史&quot;)">
           <MemoryHistoryWorkspace />
         </section>
-        <section
-          v-show="activeSection === 'ai'"
-          id="settings-panel-ai"
-          class="settings-section"
-          role="tabpanel"
-          :aria-label="tr(&quot;AI 配置&quot;)"
-        >
-          <ApiSettingsPanel />
-        </section>
-        <section
-          v-show="activeSection === 'media'"
-          id="settings-panel-media"
-          class="settings-section"
-          role="tabpanel"
-          :aria-label="tr(&quot;媒体模型&quot;)"
-        >
-          <MediaModelSettings />
-        </section>
+        <section v-if="activeSection === 'models'" id="settings-panel-models" class="settings-section" role="tabpanel" :aria-label="tr('模型')"><ModelSettings /></section>
         <section
           v-show="activeSection === 'localproject'"
           id="settings-panel-localproject"
@@ -220,8 +203,7 @@ const languageSaveError = ref(false)
 function changeLanguage(locale, assistant = assistantLanguage.value) { languageSaveError.value = !setLanguagePreferences(locale, assistant) }
 import { onMounted, computed, ref, nextTick, defineAsyncComponent } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
-import ApiSettingsPanel from '../worldbook/ApiSettingsPanel.vue'
-import MediaModelSettings from '../settings/MediaModelSettings.vue'
+import ModelSettings from '../settings/ModelSettings.vue'
 import LocalProjectPanel from './LocalProjectPanel.vue'
 import WritingPreferences from './WritingPreferences.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
@@ -294,8 +276,7 @@ onMounted(async () => {
 const allTabs = [
   { key: 'writing', label: '写作' },
   { key: 'appearance', label: '外观' },
-  { key: 'ai', label: 'AI 配置' },
-  { key: 'media', label: '媒体模型' },
+  { key: 'models', label: '模型' },
   { key: 'experience', label: '体验' },
   { key: 'memory', label: '记忆与历史' },
   { key: 'storage', label: '备份与恢复' },

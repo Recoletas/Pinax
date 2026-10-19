@@ -1,5 +1,16 @@
 # 开发日志
 
+## 2026-10-19 · 重答权限与统一模型配置（main，本地）
+
+- 修复重新生成及切换回答版本时重置 permission 的问题。保留对旧 policy 的撤销和新请求授权，偏好由作者当前选择决定；fork 新对话语义不变。发送前同时复制当前权限和模型，期间调整不污染在途请求。
+- 按 [ZCode 官方模型连接说明](https://zcode.z.ai/cn/docs/configuration) 核实的“对话模型名称→模型列表→管理模型→设置”路径落地：统一 SettingsPopup 的模型分区与文本/图片/视频分类，旧 ai/media 调用保留别名；三个工作区模型选择器共用紧凑弹层和原配置库。设置中的列表就地选择/管理，编辑表单保留既有字段与能力；同页配置修改和默认选择即时同步，不增加另一份配置存储。
+- 文本不再在打开设置或点选时 POST /model 改全局运行器。助手 prepared 内存快照传给 run/resume；正文生成委托经过原推演链沿用本次模型。Express AsyncLocalStorage 将配置传给 complete/stream/capability；运行器复制 cfg 并指定本次服务地址、协议与密钥，默认配置不变。公网拒绝自定义文本模型；旧运行器缺少 requestModels 能力时明确拒绝自定义请求，避免默默用错模型。配置密钥不进入对话、提示词或任务日志。
+- UI 隔离浏览器在当前 5173 上验证 A→B 重答，两个请求分别携带 A/B，授权范围均为 book；另验证 A 运行中切到 B/自动修改，没有额外授权或中断 A，下一次重答才采用 B/自动。新增、编辑、删除配置均实际操作，三类设置可切换，页面零异常，亮暗及 390 截图已实际查看。模型任务使用可控 SSE，未冒充真实供应商生成。
+- 运行包全新 Git 拉取因 HTTP/2 RPC/CANCEL 与 early EOF 失败；候选 `.runtime/storyagent-model-selection-20261019` 改由已安装的同一固定来源包增量构造。核对上游 `30f3773e1c1770ed078d88e6a5c9e3791a96e513`、HEAD 旧扩展 SHA `592b05006025c501eeff75121322593a4d57163f1d9382279862a0be6a1ce91c`、锁 SHA `1fa8ecffdfe3ee55a5f01e96262c11dca0d32f05f5fab5bc3163097a99a267df` 完全一致后复制代码/依赖，仅添加本轮模型适配与新 manifest；不复制用户配置或日志。候选新扩展 SHA `448f2311c9766ae84dc8781c5160658fc51eaca3ca9ffe4f682c263e6b5e676f`。这不记作全新源码构建成功。
+- 隔离候选运行器接本地假供应商，以真实 pi-agent 循环并发运行 alpha/beta：complete 两次、assistant 两次，地址/密钥各自匹配、全局 default 不变、任务日志无请求密钥。真实 Express handleGenerateRequest 再分别转发两个模型，公网配置覆盖被 403 拒绝；共六次本地模拟供应商调用，未访问付费模型。
+- `CI=1 npm run verify:ci` exit 0：20/20 文件、200/200 用例，StoryAgent integration 24/24，lint 0 新增 error（5 条存量 warning），Vite 23.84s、VitePress 6.32s、两条 CI 浏览器旅程及全部结构/体积/同步/diff 门禁通过。单测在原用例内覆盖不热改运行器、协议映射、并发请求上下文隔离、选择器管理跳转、重答当前权限不重置。
+- 当前用户服务更新需确认：已询问是否更新并重启 3001 与 8451，保留 5173、原模型配置和任务日志。未自动部署公网或推送；按完整功能提交、每日集中 push 的约定收尾。
+
 ## 2026-10-19 · 修复 CI 浏览器旅程入口过期
 
 - GitHub CI [#169](https://github.com/Recoletas/Pinax/actions/runs/39254339451) 的 test/build 通过，两条 authoring-smoke 矩阵任务失败。公开摘要可读取，未登录无法查看完整远端日志；本地执行相同入口，均在 `首页导航 → 备份与恢复` 定位上超时，确认脚本仍依赖旧首页侧栏。当前真实入口是工作区导航抽屉。

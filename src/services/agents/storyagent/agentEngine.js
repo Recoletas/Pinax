@@ -57,6 +57,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
     async run({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId = null, signal = null, callbacks = {}, onStatus = null, mode = 'auto', skills = [] } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, skills, bookId })
       return bridge.run({
+        modelConfig: prepared?.modelConfig || null,
         maxTokens: 6000,
         budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         kernel,
@@ -75,6 +76,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
     async resume({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId, signal = null, callbacks = {}, onStatus = null } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, bookId })
       return bridge.resume({
+        modelConfig: prepared?.modelConfig || null,
         maxTokens: 6000,
         budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         taskId: String(taskId || ''),

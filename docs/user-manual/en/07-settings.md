@@ -8,7 +8,7 @@ Theme, zoom and writing typography remain separate. Switching languages does not
 
 ## AI setup and data
 
-Writing and backups work without AI. In **AI settings**, select a text model and test its connection. A built-in model is available only if the deployment server provides its key. On local/self-hosted deployments with model editing enabled, you can add a supported text configuration. Selecting it switches the runtime model through the backend; all text features share that active model. Public visitors cannot change the server model. Images and video have separate configuration chains.
+Writing and backups work without AI. In **Settings → Models**, switch between Text, Images and Video to manage configurations. A built-in model is available only if the deployment server provides its key. On local/self-hosted deployments with model editing enabled, you can add a supported text configuration. The assistant’s model picker switches saved configurations and links to Manage models. Each send or regeneration captures the current model and permissions; changing either affects the next request, without changing running tasks or the runtime’s global default. Delegated prose generation keeps the same captured model. Public visitors cannot change the server model. Image and video pickers use the same configuration lists as their respective tabs in Models.
 
 When you invoke AI, the requested selection and relevant context or linked references may be sent through the deployment server to the configured provider. Do not send material you are not authorized to share. Model keys are excluded from backups. Provider error details may remain in their original language.
 

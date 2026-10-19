@@ -1,3 +1,5 @@
+import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
+import { toResolvedTextApiSettings } from '../../textProviderConfigStore.js'
 import { recordPromptSnapshot } from '../promptSnapshot.js'
 import { recordAgentRequestTrace } from '../agentRequestTrace.js'
 import { assistantFocusInstruction } from '../authoring/assistantRegenerateOptions.js'
@@ -24,12 +26,14 @@ function retrievedReferences(prepared, results, projectId) {
   return references.slice(0, 12)
 }
 
-export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, permission, sessionId }) {
+export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, modelSelection = null, permission, sessionId }) {
   const { state, runtime, projectId } = entry
   // Prepare synchronously before health probing or loading the bridge.
   const prepared = engine.prepare({ text: providerQuestion, bookId: projectId, pinnedRefs: state.agentRefs || [], skills: state.agentSkills || [] })
   prepared.authorQuestion = question
   prepared.sampling = sampling
+  prepared.modelConfig = normalizeRequestModelConfig(modelSelection)
+  prepared.modelSettings = modelSelection ? toResolvedTextApiSettings(modelSelection) : null
   if (sampling) {
     prepared.kernel.serialization.blocks.push({ kind: 'assistant-focus', title: '本轮参考侧重', text: assistantFocusInstruction(sampling.intent) })
     if (sampling.temperatureOverride !== null) prepared.kernel.serialization.blocks.push({ kind: 'assistant-sampling', title: '本轮取样参数', text: JSON.stringify({ temperature: sampling.temperatureOverride }) })
@@ -41,6 +45,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   if (!current()) return false
   const health = await engine.healthz({ signal })
   if (!current()) return false
+  if (prepared.modelConfig && !health?.requestModels) throw new Error('运行器尚未支持按任务切换模型，请更新运行器；本次尚未调用模型。')
   if (!health?.ok) throw new Error('助手服务暂不可用，输入已保留。')
   if (sampling?.temperatureOverride != null && !health.assistantSampling) throw new Error('助手运行包尚未支持参数重答，请更新运行包后重试。')
   if (engine.authorize) {
@@ -48,7 +53,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     await engine.authorize(permission, sessionId, prepared, signal)
     if (!current()) return false
   }
-  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling }
+  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling, modelName: modelSelection?.model || health.model || '', modelConfigId: modelSelection?.id || '' }
   state.messages.push(answer)
   // Use the reactive object from the collection; raw-object writes do not trigger Vue updates.
   const message = state.messages[state.messages.length - 1]

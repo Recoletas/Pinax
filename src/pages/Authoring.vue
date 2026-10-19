@@ -4865,8 +4865,8 @@ function getAuthoringNarrativeRun() {
     authoringNarrativeRun = createAuthoringNarrativeRun({
       prepareSession: (input) => getAuthoringRunSessionAdapter().prepareSession(input),
       executeSession: async ({ session, ...execution }) => {
-        const settings = session === ifBaselineRun.value?.runSession && ifSettings.value
-          ? ifSettings.value : await getResolvedApiSettings()
+        const settings = execution.assistantModelSettings || (session === ifBaselineRun.value?.runSession && ifSettings.value
+          ? ifSettings.value : await getResolvedApiSettings())
         return getNarrativeKernelExecutor().executeTurn({
           ...execution,
           authoringRunSession: session,

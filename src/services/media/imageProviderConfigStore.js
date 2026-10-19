@@ -1,3 +1,4 @@
+import { writeModelPreference } from '../modelConfigEvents.js'
 import { STORAGE_KEYS } from '../../composables/useStorage'
 import { createImageModelConfigDraft, IMAGE_MODEL_TYPES } from './imageProviderService'
 
@@ -93,7 +94,7 @@ export function getSelectedImageProviderConfigId(options = {}) {
 export function saveSelectedImageProviderConfigId(configId, options = {}) {
   const storage = resolveStorage(options.storage)
   const id = String(configId || '').trim()
-  storage.setItem(STORAGE_KEYS.IMAGE_MODEL_SELECTED, id)
+  writeModelPreference(storage, STORAGE_KEYS.IMAGE_MODEL_SELECTED, id, 'image')
   return id
 }
 
@@ -133,7 +134,7 @@ function readConfigs(storage) {
 }
 
 function writeConfigs(storage, configs) {
-  storage.setItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS, JSON.stringify(configs))
+  writeModelPreference(storage, STORAGE_KEYS.IMAGE_MODEL_CONFIGS, JSON.stringify(configs), 'image')
 }
 
 function resolveStorage(storage) {

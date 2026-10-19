@@ -9,7 +9,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
-import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
+import { resolveSelectedTextProviderConfig, saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -2717,6 +2717,8 @@ describe('Media services', () => {
   it('shares provider config and keeps generated binary data outside localStorage', async () => {
     const textConfig = saveTextProviderConfig({ name: 'Journey model', model: 'journey-text', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', provider: 'openai' })
     saveSelectedTextProviderConfigId(BUILTIN_TEXT_CONFIG_ID)
+    const originalModelFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, readOnly: false, provider: 'fixture', model: 'server-model' }) }))
     const settingsPanel = mount(ApiSettingsPanel, { global: { stubs: { TextModelPicker: { name: 'TextModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] } } } })
     // 模型能力探测完成后才显示本机配置，公网不会闪现可写控件。
     await flushPromises()
@@ -2732,7 +2734,7 @@ describe('Media services', () => {
     await nextTick()
     expect(picker.props('configs')).toEqual(listTextProviderConfigs())
 
-    // 协议轴：选中配置热切进内核时，Anthropic 线（预设域）与 OpenAI 兼容线分流不同 api。
+    // Model preferences do not mutate the runtime; each request carries its own protocol/config snapshot.
     const fetchBefore = globalThis.fetch
     const patches = []
     globalThis.fetch = vi.fn(async (_url, options) => {
@@ -2744,16 +2746,46 @@ describe('Media services', () => {
     try {
       picker.vm.$emit('update:modelValue', anthropicConfig.id)
       await flushPromises()
-      expect(patches.at(-1)).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      const { normalizeRequestModelConfig, requestScopedRuntimeConfig } = await import('../../shared/requestModelConfig.js')
+      expect(normalizeRequestModelConfig(resolveSelectedTextProviderConfig())).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      expect(patches).toHaveLength(0)
       picker.vm.$emit('update:modelValue', compatConfig.id)
       await flushPromises()
-      expect(patches.at(-1)).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+      expect(normalizeRequestModelConfig(resolveSelectedTextProviderConfig())).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+      expect(patches).toHaveLength(0)
+      const defaults = { provider: 'default', model: 'original', apiKey: 'server-only', budget: { maxCallsPerTurn: 6 } }
+      const captured = requestScopedRuntimeConfig(defaults, anthropicConfig)
+      requestScopedRuntimeConfig(defaults, compatConfig)
+      expect(captured.model).toBe(anthropicConfig.model)
+      expect(defaults.model).toBe('original')
+      expect(requestScopedRuntimeConfig(defaults, null).model).toBe('original')
+      expect(() => normalizeRequestModelConfig({ ...compatConfig, baseUrl: 'file:///tmp/key' })).toThrow('地址无效')
+      const { modelRequestContext, currentRequestModel } = await import('../../server/services/requestModelContext.js')
+      const readInRequest = config => new Promise(resolve => modelRequestContext({ body: { modelConfig: config } }, {}, async () => { await Promise.resolve(); resolve(currentRequestModel()?.model) }))
+      expect(await Promise.all([readInRequest(anthropicConfig), readInRequest(compatConfig)])).toEqual([anthropicConfig.model, compatConfig.model])
+      expect(currentRequestModel()).toBeNull()
+      const { default: Menu } = await import('../components/settings/ModelPickerMenu.vue')
+      const { useSettingsPopup } = await import('../composables/useSettingsPopup.js')
+      const menu = mount(Menu, { props: { kind: 'text', modelValue: anthropicConfig.id, configs: [anthropicConfig, compatConfig] }, attachTo: document.body })
+      try {
+        await menu.get('.model-picker-trigger').trigger('click')
+        await nextTick()
+        document.querySelectorAll('.model-picker-menu [role=option]')[1].click()
+        expect(menu.emitted('update:modelValue').at(-1)).toEqual([compatConfig.id])
+        await menu.get('.model-picker-trigger').trigger('click')
+        await nextTick()
+        document.querySelector('.model-picker-manage').click()
+        expect(useSettingsPopup().activeSection.value).toBe('models')
+        expect(useSettingsPopup().modelKind.value).toBe('text')
+      } finally { menu.unmount(); useSettingsPopup().close() }
+
     } finally {
       globalThis.fetch = fetchBefore
       deleteTextProviderConfig(anthropicConfig.id)
       deleteTextProviderConfig(compatConfig.id)
     }
     settingsPanel.unmount()
+    globalThis.fetch = originalModelFetch
 
     // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
     localStorage.removeItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS)

@@ -132,6 +132,7 @@
               <button type="button" @click="useTool('illustrator')"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生成插图') }}</span></button>
             </div>
           </details>
+          <AuthoringAssistantModel v-if="agentState.enabled" />
           <details ref="purposeRef" class="authoring-knowledge__purpose" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
             <summary :aria-label="tr('助手权限')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="assistant" :size="15" /><span>{{ tr(permissionLabel) }}</span><small v-if="agentState.permission?.mode !== 'read'">{{ tr(permissionScopeLabel) }}</small><WorkbenchIcon name="chevron-down" :size="14" /></summary>
             <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手权限')">
@@ -157,6 +158,7 @@
 </template>
 
 <script setup>
+import AuthoringAssistantModel from './AuthoringAssistantModel.vue'
 import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
 import AssistantMessageActions from './AssistantMessageActions.vue'
 import AssistantConversationList from './AssistantConversationList.vue'

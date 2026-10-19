@@ -1,16 +1,10 @@
+import { writeModelPreference } from './modelConfigEvents.js'
 /**
- * 文本模型配置 store — 与 image/video 的「配置列表 + 新增」模式对齐。
- *
- * 存储形态 (2026-10-08 直连退役后):
- * - 一条「服务器模型」行由 createServerModelConfig() 计算得出, 永不落盘, 始终排第一且只读;
- *   它代表 pi-agent 内核当前持有的模型（所有链路共用的唯一模型）, 浏览器不接触密钥。
- * - 用户自定义配置存于 STORAGE_KEYS.TEXT_MODEL_CONFIGS; 选中 id 存于 TEXT_MODEL_SELECTED。
- *   选中用户配置即把它热切到内核（经 /api/storyagent/model, 见 ApiSettingsPanel）。
- * - 首次读取时把旧的单一对象 localStorage['apiSettings'] 迁移为一条可编辑用户配置
- *   (一次性、幂等), 之后旧 key 被移除; 无自带 key 的旧配置直接落回服务器模型行。
- *
- * getResolvedApiSettings() 经 toResolvedTextApiSettings() 拿到 { provider, baseUrl, apiKey, model, format }
- * 形状；服务器模型行以合同占位值满足消费方的非空校验（服务端不读取这些字段）。
+ * Shared text model catalog. The server default is read-only and never stores its
+ * credentials in the browser. User profiles and their selected default remain in
+ * the existing storage keys; selection does not POST a global runtime change.
+ * Each generation captures its chosen profile and forwards a request-scoped
+ * configuration through the kernel. Legacy apiSettings migration stays intact.
  */
 import { STORAGE_KEYS } from '../composables/useStorage'
 
@@ -138,7 +132,7 @@ export function getSelectedTextProviderConfigId(options = {}) {
 export function saveSelectedTextProviderConfigId(configId, options = {}) {
   const storage = resolveStorage(options.storage)
   const id = String(configId || '').trim()
-  storage.setItem(STORAGE_KEYS.TEXT_MODEL_SELECTED, id)
+  writeModelPreference(storage, STORAGE_KEYS.TEXT_MODEL_SELECTED, id, 'text')
   return id
 }
 
@@ -283,7 +277,7 @@ function readConfigs(storage) {
 }
 
 function writeConfigs(storage, configs) {
-  storage.setItem(STORAGE_KEYS.TEXT_MODEL_CONFIGS, JSON.stringify(configs))
+  writeModelPreference(storage, STORAGE_KEYS.TEXT_MODEL_CONFIGS, JSON.stringify(configs), 'text')
 }
 
 function resolveStorage(storage) {

@@ -770,7 +770,9 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[3].question)
     const restoredHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
 
+    await agentAssistant.setAgentPermission({ mode: 'auto', scope: 'book', worldbook: true, outline: true })
     expect(await agentAssistant.regenerateAnswer(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.agentState.value.permission).toMatchObject({ mode: 'auto', scope: 'book', worldbook: true, outline: true })
     expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[1].question)
     expect(agentCalls.at(-1).text).not.toContain('接着推进')
     expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
@@ -786,7 +788,7 @@ describe('authoring project adapter', () => {
       expect.objectContaining({ kind: 'assistant-focus' }), expect.objectContaining({ kind: 'assistant-sampling', text: '{"temperature":0.6}' })
     ]))
     expect(agentAssistant.messages.value.at(-1).params).toMatchObject({ intent: 'character', temperatureOverride: 0.6 })
-    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.agentState.value.permission.mode).toBe('auto')
     expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
     expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
     expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))

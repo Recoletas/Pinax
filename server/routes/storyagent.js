@@ -41,6 +41,7 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     if (modelWrite && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: 'agent 模型切换仅限本机使用；公网部署已禁用。' })
     if (create && (!req.body?.taskId || !String(req.body.taskId).startsWith(prefix))) return res.status(403).json({ error: 'agent-task-scope-mismatch' })
     const runsModel = create || task?.[2] === 'resume'
+    if (runsModel && req.body?.modelConfig && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: '此部署只提供服务器已配置的模型。' })
     if (runsModel && activeRuns >= 2) return res.status(429).json({ error: 'agent-concurrency-limit', message: '助手当前繁忙，请稍后再试。' })
     if (runsModel) {
       if (req.body?.taskKind === 'assistant') {
