@@ -24,7 +24,7 @@
   </div>
 </template>
 <script setup>
-import { computed, ref, unref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { experiencePiAgentEnabled, setExperiencePiAgentEnabled } from '../../services/agents/storyagent/experienceAgentRoute.js'
@@ -39,7 +39,12 @@ const referenceType = entry => tr(({ chapter: '章节', entry: '设定', source:
 const referenceIcon = entry => entry.type === 'chapter' ? 'chapter' : entry.type === 'source' ? 'source-file' : 'setting-file'
 const skillHint = id => tr(({ 'dialogue-polish': '潜台词与人物语气', 'foreshadow-plant': '埋下可回收的细节', 'cold-open': '从动作与压力开始', ghostwrite: '延续原文，不复述前情', 'close-thread': '让已有线索得到回应' })[id] || '用于本轮写作')
 const menuRef = ref(null)
-function leave(event) { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }
+// A label/padding press can temporarily blur to null before the click lands.
+// Keep its details subtree visible until the pointer action completes.
+function leave(event) { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }
+function closeOutside(event) { if (menuRef.value && !menuRef.value.contains(event.target)) menuRef.value.open = false }
+onMounted(() => document.addEventListener('pointerdown', closeOutside))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOutside))
 watch(() => props.projectId, () => { query.value = ''; visibleLimit.value = 12; if (menuRef.value) menuRef.value.open = false })
 const state = computed(() => unref(props.assistant.agentState) || {})
 const matchedCandidates = computed(() => {

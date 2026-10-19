@@ -4,6 +4,8 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr, formatUiNumber, uiLocale } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
+import AuthoringInlineEdit from './AuthoringInlineEdit.vue'
+import { useAssistantObjectEdits } from '../../composables/useAssistantObjectEdits.js'
 import AuthoringSettingAiReview from './AuthoringSettingAiReview.vue'
 import { buildAuthoringSettingContext } from '../../services/authoring/authoringSettingContext.js'
 
@@ -11,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 
 const props = defineProps({
+  assistantReview: { type: Object, default: null },
   worldbook: { type: Object, default: null }, selectedText: { type: String, default: '' },
   bookId: { type: String, default: '' },
   sceneProjection: { type: Object, default: null }, contextLedger: { type: [Array, Object], default: null },
@@ -18,7 +21,7 @@ const props = defineProps({
   caretContext: { type: Object, default: null }, focusEntryId: { type: String, default: '' },
   candidateEntryIds: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'close'])
+const emit = defineEmits(['bind', 'create', 'update', 'remove', 'open-full', 'close', 'assistant-edit-action'])
 const router = useRouter()
 const workspace = useComposableWorkspace()
 // N-A：本书资料概况与入口（NA04 右栏片）。资料数量来自绑定世界书的 sourceDocuments。
@@ -52,7 +55,7 @@ let draftOwnerWorldbookId = ''
 const externalConflict = ref(false)
 const fingerprint = entry => JSON.stringify(entry || null)
 function preserveExternalDraft() {
-  if (draftDirty && selectedId.value) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'setting', { baseline: draftBaseline, draft: { ...draft } })
+  if (draftDirty && selectedId.value && !selectedEntry.value?.__assistantPendingCreate) saveEntryPanelDraft(draftOwnerWorldbookId, selectedId.value, 'setting', { baseline: draftBaseline, draft: { ...draft } })
 }
 function reloadExternalDraft() {
   if (window.confirm(tr('载入最新条目会替换当前未保存的输入，是否继续？'))) { clearEntryPanelDraft(props.worldbook?.id, selectedId.value, 'setting'); loadDraft(selectedEntry.value) }
@@ -62,7 +65,9 @@ function overwriteExternalDraft() {
   draftBaseline = fingerprint(selectedEntry.value); externalConflict.value = false; flushSave()
 }
 
-const nonCharacterEntries = computed(() => (props.worldbook?.entries || []).filter((entry) => entry?.type !== 'character'))
+const { catalog: entryCatalog, state: assistantEdits, field: assistantField, act: assistantAct } = useAssistantObjectEdits({ review: () => props.assistantReview, items: () => props.worldbook?.entries || [], selectedId: () => selectedId.value, worldbook: () => props.worldbook, emit: action => emit('assistant-edit-action', action) })
+const nonCharacterEntries = computed(() => entryCatalog.value.filter(entry => entry?.type !== 'character'))
+async function handleAssistantAction(action) { if (action !== 'done') { flushSave(); await nextTick() }; assistantAct(action) }
 const selectedEntry = computed(() => nonCharacterEntries.value.find((entry) => String(entry.id) === selectedId.value) || null)
 const settingContext = computed(() => buildAuthoringSettingContext({
   worldbook: props.worldbook, document: props.document, caretContext: props.caretContext,
@@ -71,7 +76,7 @@ const settingContext = computed(() => buildAuthoringSettingContext({
 const contextualEntries = computed(() => {
   const ids = new Set(settingContext.value.groups.flatMap((group) => group.items)
     .filter((item) => item.type !== 'character').map((item) => String(item.id)))
-  return nonCharacterEntries.value.filter((entry) => ids.has(String(entry.id)))
+  return nonCharacterEntries.value.filter((entry) => entry.__assistantPendingCreate || String(entry.id) === String(props.focusEntryId) || ids.has(String(entry.id)))
 })
 const visibleEntries = computed(() => {
   const source = directoryMode.value === 'contextual' ? contextualEntries.value : nonCharacterEntries.value
@@ -130,7 +135,7 @@ function entryPayload() {
 function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
-  if (!draftDirty) return
+  if (!draftDirty || selectedEntry.value?.__assistantPendingCreate) return
   if (draftOwnerWorldbookId !== String(props.worldbook?.id || '')) { preserveExternalDraft(); return }
   if (fingerprint(selectedEntry.value) !== draftBaseline) { externalConflict.value = true; preserveExternalDraft(); return }
   draftDirty = false
@@ -138,7 +143,7 @@ function flushSave() {
   if (payload) emit('update', selectedEntry.value.id, payload, { silent: true })
 }
 function scheduleSave() {
-  if (hydrating || !selectedEntry.value) return
+  if (hydrating || !selectedEntry.value || selectedEntry.value.__assistantPendingCreate) return
   draftDirty = true
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 500)
@@ -202,19 +207,21 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
   <section class="authoring-setting-workbench catalog-workbench" data-catalog="settings">
     <main class="setting-sheet catalog-sheet">
       <div v-if="externalConflict" class="catalog-external-conflict" role="alert"><p>{{ tr('条目已更新，当前输入尚未保存。') }}</p><button type="button" @click="reloadExternalDraft">{{ tr('载入最新') }}</button><button type="button" @click="overwriteExternalDraft">{{ tr('保存当前输入') }}</button></div>
-      <template v-if="worldbook && selectedEntry">
+      <template v-if="selectedEntry && (worldbook || selectedEntry.__assistantPendingCreate)">
         <header class="setting-sheet__head catalog-sheet-head">
-          <input v-model="draft.name" :aria-label="tr('设定名称')" @blur="flushSave" />
-          <button type="button" class="setting-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
-          <button type="button" class="setting-delete" :aria-label="tr('删除设定')" :title="tr('删除设定')" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
+          <AuthoringInlineEdit v-if="assistantField(entry => entry.name)" :parts="assistantField(entry => entry.name)" title-field />
+          <input v-else v-model="draft.name" :aria-label="tr('设定名称')" @blur="flushSave" />
+          <AuthoringInlineEdit v-if="assistantEdits" :state="assistantEdits" actions-only @action="handleAssistantAction" />
+          <button v-else type="button" class="setting-ai" :aria-pressed="aiReviewOpen.toString()" @click="aiReviewOpen = !aiReviewOpen">{{ tr('AI 补全') }}</button>
+          <button v-if="!assistantEdits" type="button" class="setting-delete" :aria-label="tr('删除设定')" :title="tr('删除设定')" @click="requestRemove"><WorkbenchIcon name="trash" :size="15" /></button>
         </header>
-        <AuthoringSettingAiReview v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
+        <AuthoringSettingAiReview v-if="!assistantEdits" v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
         <div class="setting-sheet__scroll catalog-sheet-body">
           <!-- A2-1：内容优先；触发词/注入归"用于AI的规则"折叠；类型/分组归对象属性 -->
-          <label class="setting-content"><span>{{ tr('内容') }}</span><textarea ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
+          <label class="setting-content"><span>{{ tr('内容') }}</span><AuthoringInlineEdit v-if="assistantField(entry => entry.content)" :parts="assistantField(entry => entry.content)" :label="tr('内容')" /><textarea v-else :readonly="selectedEntry.__assistantPendingCreate" ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
           <div class="setting-object-row">
-            <label><span>{{ tr('类型') }}</span><select v-model="draft.type" @change="flushSave"><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select></label>
-            <label><span>{{ tr('分组') }}</span><input v-model="draft.group" :placeholder="tr('可选')" @blur="flushSave" /></label>
+            <label><span>{{ tr('类型') }}</span><select :disabled="selectedEntry.__assistantPendingCreate" v-model="draft.type" @change="flushSave"><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select></label>
+            <label><span>{{ tr('分组') }}</span><input :readonly="selectedEntry.__assistantPendingCreate" v-model="draft.group" :placeholder="tr('可选')" @blur="flushSave" /></label>
           </div>
           <details class="setting-ai-rules">
             <summary>{{ tr('用于 AI 的规则') }}</summary>
@@ -249,7 +256,7 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
       <select v-model="typeFilter" class="setting-type-filter" :aria-label="tr('筛选设定类型')"><option value="all">{{ tr('全部类型') }}</option><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select>
       <section v-for="group in groupedEntries" :key="group.name" class="setting-directory__group">
         <h3><button type="button" :aria-expanded="(!collapsedFolders.has(group.name)).toString()" @click="toggleFolder(group.name)"><span class="catalog-folder-caret" :class="{ open: !collapsedFolders.has(group.name) }">›</span><WorkbenchIcon name="folder" :size="17" /><span>{{ group.name || tr('未分组') }}</span></button></h3>
-        <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.entries" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id) }" :title="entry.name || tr('未命名设定')" @click="selectEntry(entry)"><span>{{ entry.name || tr('未命名设定') }}</span></button></template>
+        <template v-if="!collapsedFolders.has(group.name)"><button v-for="entry in group.entries" :key="entry.id" type="button" :class="{ active: selectedId === String(entry.id), 'is-assistant-created': entry.__assistantPendingCreate }" :title="entry.name || tr('未命名设定')" @click="selectEntry(entry)"><span>{{ entry.name || tr('未命名设定') }}</span></button></template>
       </section>
       <div v-if="!groupedEntries.length" class="setting-directory__empty">{{ directoryMode === 'contextual' ? tr('当前落笔处没有命中的设定') : tr('没有匹配的设定') }}</div>
     </aside>

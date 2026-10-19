@@ -51,3 +51,30 @@ export function classifyOrphanedComicRequest(pendingRequest, { hasLiveIntent = f
   if (hasLiveIntent) return 'running'
   return 'outcome-unknown'
 }
+
+// Live ownership survives a panel remount; it never survives a browser refresh.
+const liveRequests = new Map()
+const activityListeners = new Set()
+export function beginComicRequest(requestId, target) {
+  liveRequests.set(requestId, target)
+  activityListeners.forEach(listener => listener())
+}
+export function finishComicRequest(requestId) {
+  liveRequests.delete(requestId)
+  activityListeners.forEach(listener => listener())
+}
+export function isComicRequestActive(requestId) { return liveRequests.has(requestId) }
+export function hasActiveComicPageRequest(pageId) {
+  return [...liveRequests.values()].some(target => target.pageId === pageId)
+}
+export function hasActiveComicProjectRequest(projectId) {
+  return [...liveRequests.values()].some(target => target.projectId === projectId)
+}
+export function subscribeComicRequestActivity(listener) {
+  activityListeners.add(listener)
+  return () => activityListeners.delete(listener)
+}
+export function isKnownComicGenerationFailure(error) {
+  return error?.generationOutcome === 'known-failed'
+    || (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408)
+}

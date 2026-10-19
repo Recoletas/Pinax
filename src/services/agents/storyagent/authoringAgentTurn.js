@@ -24,7 +24,7 @@ function retrievedReferences(prepared, results, projectId) {
   return references.slice(0, 12)
 }
 
-export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null }) {
+export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, permission, sessionId }) {
   const { state, runtime, projectId } = entry
   // Prepare synchronously before health probing or loading the bridge.
   const prepared = engine.prepare({ text: providerQuestion, bookId: projectId, pinnedRefs: state.agentRefs || [], skills: state.agentSkills || [] })
@@ -45,7 +45,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   if (sampling?.temperatureOverride != null && !health.assistantSampling) throw new Error('助手运行包尚未支持参数重答，请更新运行包后重试。')
   if (engine.authorize) {
     if (health.assistantProtocolVersion !== 2) throw new Error('助手运行包需要更新，本轮尚未执行，输入已保留。')
-    await engine.authorize(state.agentPermission || { mode: 'review', scope: 'current' }, state.activeSessionId, prepared, signal)
+    await engine.authorize(permission, sessionId, prepared, signal)
     if (!current()) return false
   }
   const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling }
@@ -65,7 +65,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     onStatus: (status) => { if (current() && status.phase === 'tool' && status.tool !== 'complete_assistant_task') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), callId: String(status.callId || ''), input: status.input || null, status: 'running' }) },
     onPromptComposed: composed => {
       if (!current() || !composed || typeof composed.system !== 'string' || typeof composed.user !== 'string') return
-      recordPromptSnapshot({ key: id, surface: 'authoring-agent', projectId, sessionId: state.activeSessionId,
+      recordPromptSnapshot({ key: id, surface: 'authoring-agent', projectId, sessionId,
         blocks: [{ kind: 'system', content: composed.system, chars: composed.system.length }, { kind: 'user', content: composed.user, chars: composed.user.length }, ...(composed.history?.length ? [{ kind: 'history', content: composed.history, chars: JSON.stringify(composed.history).length }] : [])],
         toolNames: composed.toolNames || [], temperature: composed.temperature, budget: { usedChars: composed.system.length + composed.user.length + (composed.history?.length ? JSON.stringify(composed.history).length : 0) } })
       message.promptSnapshotKey = id
@@ -102,7 +102,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       prepared.onNarrativeModelRequest = input => {
         if (!current()) return
         const key = `${id}:narrative:${input.phase}`
-        recordPromptSnapshot({ key, surface: 'authoring', projectId, sessionId: state.activeSessionId, temperature: input.temperature,
+        recordPromptSnapshot({ key, surface: 'authoring', projectId, sessionId, temperature: input.temperature,
           blocks: input.messages.map(item => ({ kind: item.role === 'system' ? 'system' : 'user', content: item.content, chars: String(item.content || '').length })),
           toolNames: input.toolNames, budget: { usedChars: input.messages.reduce((sum, item) => sum + String(item.content || '').length, 0) } })
         // Prefer the writing/revision input over the quality checker prompt.

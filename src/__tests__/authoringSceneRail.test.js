@@ -239,7 +239,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
       }
     })
     await curation.find('.scene-curation__person-toggle').trigger('click')
-    expect(curation.text()).toContain('加入当前场')
+    expect(curation.text()).toContain('设为在场')
     await curation.find('.scene-curation__candidate-actions .is-current').trigger('click')
     const selectedDraft = curation.emitted('update-draft')?.at(-1)?.[0]
     expect(selectedDraft.presentCharacterIds).toEqual(['char-lina'])
@@ -263,7 +263,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
       [{ mode: 'next-passage', entityKind: 'location', entityId: 'place-port' }]
     ])
     expect(curation.emitted('update-draft')).toHaveLength(updateCountBeforeRunIntent)
-    expect(curation.text()).toContain('保存当前场')
+    expect(curation.get('[data-test=curation-save]').text()).toBe('保存')
     expect(curation.text()).not.toContain('保存并推演')
     expect(curation.find('[role="listbox"]').exists()).toBe(false)
     expect(curation.find('.scene-curation__person-toggle').text()).toContain('在场')
@@ -281,7 +281,7 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     await curation.findAll('.scene-curation__people .scene-curation__scope-btn')
       .find((button) => button.text() === '让他下一段入场').trigger('click')
     expect(curation.emitted('run-intent')).toHaveLength(runIntentCountAtCapacity)
-    expect(curation.text()).toContain('当前场最多保留 8 位在场人物')
+    expect(curation.text()).toContain('在场人物最多 8 位，请先移除一位。')
     await curation.setProps({ draft: { ...selectedDraft, originAxis: 'worldbook-mismatch' } })
     expect(curation.text()).toContain('来自旧世界书')
 
@@ -309,10 +309,10 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
         locationCandidates: [{ id: 'place-port', name: '旧港' }, { id: 'place-tower', name: '孤塔' }]
       }
     })
-    expect(preview.text()).toContain('调整这一处的现场')
+    expect(preview.text()).toContain('人物、地点与时间')
     expect(preview.text()).toContain('莉娜→莉娜、艾德加')
     expect(preview.text()).toContain('旧港→孤塔')
-    expect(preview.text()).toContain('在右侧保存后成为当前场')
+    expect(preview.text()).toContain('在右侧保存这些调整')
   })
 
   it('keeps contextual setting selection bounded and preserves inspector return state（合并3例）', async () => {
@@ -402,10 +402,12 @@ describe('authoring scene rail — current scene index (Task 8)', () => {
     await outline.find('.authoring-outline-detail__primary button').trigger('click')
     expect(outline.emitted('insert')?.[0]?.[0]).toMatchObject({ id: 'o1' })
   })
-  it("titles the section 当前场 and offers one 调整 action emitting edit（合并3例）", async () => {
+  it("titles the section 当前 and reveals one 调整 action when expanded（合并3例）", async () => {
 {
 const wrapper = mountRail()
-    expect(wrapper.text()).toContain('当前场')
+    expect(wrapper.attributes('aria-label')).toBe('当前')
+    expect(wrapper.find('[data-test="scene-edit"]').exists()).toBe(false)
+    await wrapper.find('.scene-rail__toggle').trigger('click')
     expect(wrapper.text()).not.toContain('本章现场')
     const edit = wrapper.find('[data-test="scene-edit"]')
     expect(edit.text()).toBe('调整')
@@ -448,9 +450,12 @@ it('renders projection status %j as %s' + '（参数组合并）', async () => {
   const failuresK6 = []
   for (const [caseIndexK6, caseValueK6] of casesK6.entries()) {
     const rowK6 = Array.isArray(caseValueK6) ? caseValueK6 : [caseValueK6]
-    try { await ((overrides, label) => {
+    try { await (async (overrides, label) => {
     const wrapper = mountRail(makeProjection(overrides))
+    expect(wrapper.find('.scene-rail__status').text()).toBe('旧港税务所')
+    await wrapper.setProps({ projection: makeProjection({ ...overrides, location: null }) })
     expect(wrapper.find('.scene-rail__status').text()).toBe(label)
+    wrapper.unmount()
   })(...rowK6) } catch (errorK6) { failuresK6.push('#' + caseIndexK6 + ': ' + (errorK6 && errorK6.message)) }
   }
   if (failuresK6.length) throw new Error(failuresK6.join('\n'))

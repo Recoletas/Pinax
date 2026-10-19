@@ -979,6 +979,7 @@ function readComicPages(storage) {
 
 function writeComicPages(storage, pages) {
   storage.setItem(STORAGE_KEYS.COMIC_PAGES, JSON.stringify(pages))
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pinax-comic-pages-changed'))
 }
 
 function resolveStorage(storage) {

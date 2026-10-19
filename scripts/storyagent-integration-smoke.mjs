@@ -38,6 +38,8 @@ const workspaceAgent = createAuthoringStoryAgent({
   readBooks: () => [workspaceBook, { id: 'book-b', worldbookId: 'world-b', chapters: [] }],
   readWorldbookSnapshot: id => { workspaceReads.push(id); return { id, entries: [{ id: 'other', name: '其他人物', content: '其他设定' }] } }
 })
+const permissionTarget = workspaceAgent.permissionContext()
+check(permissionTarget.bookId === 'book-a' && permissionTarget.kernel.serialization.blocks.length === 0 && workspaceAgent.chapterOptions().length === 0 && workspaceReads.length === 0, '权限目标及章节选项不读取其他作品或装配正文与设定上下文')
 const workspacePrepared = workspaceAgent.prepare({ text: '查阅作品' })
 check(workspaceReads.join(',') === 'world-b' && JSON.stringify(workspacePrepared).includes('其他设定') && JSON.stringify(workspacePrepared).includes('当前设定'), '当前世界书复用已绑定对象，跨作品查阅经注入的只读快照入口')
 

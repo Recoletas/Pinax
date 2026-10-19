@@ -1,7 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { tr } from '../../i18n/index.js'
-import { SKILL_PRESETS } from '../../services/agents/storyagent/panelComposer.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import { useSettingsPopup } from '../../composables/useSettingsPopup.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
@@ -10,8 +9,8 @@ const host = useComposableWorkspace()
 const workspaceExtensions = host.extensions
 const settings = useSettingsPopup()
 const error = ref('')
-const current = computed(() => workspaceExtensions.extensions.get(props.resource.extensionId) || workspaceExtensions.extensions.get('pinax.core'))
-const enabled = computed(() => workspaceExtensions.enabled(current.value.id))
+const current = computed(() => { const item = workspaceExtensions.extensions.get(props.resource.extensionId); return item && !item.builtin ? item : null })
+const enabled = computed(() => current.value && workspaceExtensions.enabled(current.value.id))
 function toggle() { error.value = ''; const result = workspaceExtensions.setEnabled(current.value.id, !enabled.value); if (!result.ok) error.value = result.message }
 async function open() {
   const bookId = host.scope.value.bookId
@@ -23,13 +22,19 @@ async function open() {
 </script>
 <template>
   <article class="workspace-extensions-view" data-test="workspace-extensions-view">
-    <header><WorkbenchIcon :name="current.icon" :size="42" /><div><h1>{{ tr(current.title) }}</h1><p>{{ tr('内置扩展') }}</p></div></header>
+    <template v-if="current">
+    <header><WorkbenchIcon :name="current.icon" :size="42" /><div><h1>{{ tr(current.title) }}</h1><p>{{ tr('扩展') }}</p></div></header>
     <p class="extension-description">{{ tr(current.description) }}</p>
     <div class="extension-actions"><button v-if="!current.required" type="button" class="extension-secondary" :aria-label="tr(enabled ? '停用扩展' : '启用扩展')" @click="toggle">{{ tr(enabled ? '停用' : '启用') }}</button><span v-else>{{ tr('工作台基础能力') }}</span><button type="button" class="extension-primary" :disabled="!enabled" @click="open">{{ tr(!host.scope.value.bookId ? '打开作品' : current.required ? '查看设定' : '打开') }}</button></div>
     <p v-if="error" role="alert">{{ tr(error) }}</p>
     <p v-if="!current.required" class="extension-note">{{ tr('停用后不再新开此工作台，已打开的内容和任务保留。') }}</p>
     <section><h2>{{ tr('包含的视图') }}</h2><div v-for="view in current.views.filter(item => !['home', 'extensions'].includes(item.type))" :key="view.type" class="extension-contribution"><WorkbenchIcon :name="view.icon" :size="17" /><span>{{ tr(view.title) }}</span></div></section>
-    <section v-if="current.required"><h2>{{ tr('写作技法') }}</h2><p>{{ tr('在助手的“参考与技法”中为当前对话选择。') }}</p><div class="extension-skills"><span v-for="skill in SKILL_PRESETS" :key="skill.id">{{ tr(skill.label) }}</span></div></section>
+    </template>
+    <template v-else>
+      <header><WorkbenchIcon name="extensions" :size="32" /><h1>{{ tr('扩展') }}</h1></header>
+      <p class="extension-description">{{ tr('暂无已安装扩展。第三方扩展暂未开放。') }}</p>
+      <p class="extension-note">{{ tr('写作技法在助手的“参考与技法”中选择。') }}</p>
+    </template>
     <footer><button type="button" @click="settings.open('ai')"><WorkbenchIcon name="settings" :size="16" />{{ tr('模型设置') }}</button><button v-if="host.scope.value.bookId" type="button" @click="settings.open('localproject')"><WorkbenchIcon name="sources" :size="16" />{{ tr('项目知识库设置') }}</button></footer>
   </article>
 </template>

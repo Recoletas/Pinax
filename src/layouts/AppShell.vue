@@ -179,7 +179,7 @@ onBeforeUnmount(() => {
     <Teleport :to="contentWorkspace.tabsTarget.value || 'body'" :disabled="!contentWorkspace.tabsTarget.value">
     <WorkspaceTabs :inert="drawerOpen ? '' : undefined">
       <div class="shell-tab-actions">
-        <button v-if="(route.name === 'authoring' && contentWorkspace.scope.value.bookId || route.name === 'welcome') && contentWorkspace.state.narrow" data-workspace-directory-toggle type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.directory.expanded.value" @click="contentWorkspace.directory.toggle()"><WorkbenchIcon name="panel-left" :size="18" /></button>
+        <button v-if="(contentWorkspace.activeDirectorySurface.value || route.name === 'authoring' && contentWorkspace.scope.value.bookId || route.name === 'welcome') && contentWorkspace.state.narrow" data-workspace-directory-toggle type="button" :aria-label="tr('目录')" :aria-expanded="contentWorkspace.navigationDirectory.value.expanded.value" @click="contentWorkspace.navigationDirectory.value.toggle()"><WorkbenchIcon name="panel-left" :size="18" /></button>
         <WorkspaceReferenceMenu />
         <button v-for="task in contentWorkspace.taskSummaries.value.filter(task => !String(task.viewId).startsWith('assistant:'))" :key="task.viewId" class="shell-assistant-task" type="button" :aria-label="tr(task.label)" :title="tr(task.label)" @click="task.open?.()"><WorkbenchIcon :name="task.icon || 'film'" :size="16" /><span>{{ tr(task.label) }}</span></button>
         <button v-if="contentWorkspace.state.hidden && contentWorkspace.activeView.value" type="button" :aria-label="tr('返回已打开内容')" :title="tr('返回已打开内容')" @click="contentWorkspace.activate(contentWorkspace.state.activeId)"><WorkbenchIcon name="columns" :size="18" /></button>

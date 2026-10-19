@@ -49,6 +49,14 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
   const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context, formatInstructions: typeof generateNarrative === 'function' ? '讨论与检索正常回答。当前章节的正文续写、改写和增补必须调用 generate_narrative_draft，提供作者要求，由推演链生成；设定、大纲及标题修改调用 submit_edit_proposals。不要在聊天里自行撰写正文充当修改结果；修改需作者确认。' : '讨论与检索正常回答。用户要求写作、改写、增补人物设定或大纲时，查清目标后调用 submit_edit_proposals 提交修改，最终回答简述修改与依据。禁止把操作说明当正文；修改需作者确认。' })
   return Object.freeze({
     ...engine,
+    permissionContext() {
+      const destination = this.destination()
+      if (!destination.bookId) throw new Error('请先打开作品。')
+      return { bookId: destination.bookId, currentChapterId: destination.chapterId, kernel: { serialization: { blocks: [] } } }
+    },
+    chapterOptions() {
+      return (getBook?.()?.chapters || []).map(chapter => ({ id: String(chapter.id), title: chapter.title || '未命名章节' }))
+    },
     prepare(input) {
       const prepared = engine.prepare(input)
       if (typeof generateNarrative === 'function' && prepared.currentChapterId) prepared.kernel.serialization.blocks.push({ kind: 'assistant-narrative', title: '推演写作能力', text: '正文续写、改写及增补使用 generate_narrative_draft；由当前作品的冻结现场、BeatPlan与正文执行链生成，不直接提交自行撰写的正文。' })

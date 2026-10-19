@@ -172,7 +172,7 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
       : undefined
   const payload = {
     messages,
-    ...(request.tools?.length ? { tools: request.tools.map((tool) => ({ name: tool.name, description: tool.description || '', parameters: tool.parameters || { type: 'object', properties: {} } })) } : {}),
+    ...(request.tools?.length ? { tools: request.tools.map((tool) => ({ name: tool.name, description: tool.description || '', parameters: tool.inputSchema || tool.parameters || { type: 'object', properties: {} } })) } : {}),
     ...(mappedToolChoice ? { toolChoice: mappedToolChoice } : {}),
     ...(Number.isFinite(Number(request.options?.maxTokens)) ? { maxTokens: Number(request.options.maxTokens) } : {}),
     ...(Number.isFinite(Number(request.options?.temperature)) ? { temperature: Number(request.options.temperature) } : {}),
@@ -185,7 +185,10 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
     throw Object.assign(new Error('agent-step 组装后所有提示词为空——拒绝转发（20261008 空提示词护栏）'), { code: 'NARRATIVE_AGENT_EMPTY_PROMPT', retryable: false })
   }
   try {
-    const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000 })
+    const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000, signal })
+    if (['error', 'aborted'].includes(result.finishReason)) {
+      throw Object.assign(new Error('模型服务未完成本次生成，请重试。'), { code: 'NARRATIVE_PROVIDER_UPSTREAM_FAILED' })
+    }
     const calls = (result.toolCalls || []).map((call, index) => ({
       id: call.id || `call_${index + 1}`,
       name: call.name,

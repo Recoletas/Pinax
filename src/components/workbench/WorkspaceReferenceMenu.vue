@@ -47,7 +47,7 @@ async function load() {
     groups.value.push(
       { title: '漫画', items: [{ title: '漫画工作台', resource: { ...ref, type: 'comic-editor' } }, ...listComicPages({ projectId: scope.bookId }).map(page => ({ title: page.title, resource: { ...ref, type: 'comic', id: page.id } }))] },
       { title: '视频', items: [{ title: '视频工作台', resource: { ...ref, type: 'director-editor' } }, ...listStoryboardDocuments({ projectId: scope.bookId }).map(document => ({ title: document.source?.title || '分镜视频', resource: { ...ref, type: 'video', id: document.id, versionId: document.currentVersionId } }))] },
-      { title: '素材与插画', items: [{ title: '素材与插画工作台', resource: { ...ref, type: 'materials-editor' } }, ...listNarrativeAssets({ projectId: scope.bookId }).map(asset => ({ title: asset.title, resource: { ...ref, type: 'asset', id: asset.id, contentHash: asset.contentHash || '' } }))] })
+      { title: '素材', items: [...listNarrativeAssets({ projectId: scope.bookId }).map(asset => ({ title: asset.title, resource: { ...ref, type: 'asset', id: asset.id, contentHash: asset.contentHash || '' } }))] })
   } catch { if (!disposed && ticket === sequence) error.value = '制作内容读取失败，正文和资料仍可打开。' }
   finally { if (!disposed && ticket === sequence) loading.value = false }
 }

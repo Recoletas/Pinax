@@ -41,7 +41,7 @@ defineEmits(['exclude'])
 const groupMeta = Object.freeze([
   { id: 'manuscript', label: '当前正文', shortLabel: '正文', kinds: ['manuscript-unit'] },
   { id: 'chapter', label: '章节上下文', shortLabel: '章节', kinds: ['chapter-continuity', 'outline-node'] },
-  { id: 'scene', label: '当前场', shortLabel: '现场', kinds: ['scene-projection', 'author-note'] },
+  { id: 'scene', label: '当前', shortLabel: '现场', kinds: ['scene-projection', 'author-note'] },
   { id: 'worldbook', label: '世界设定', shortLabel: '设定', kinds: ['worldbook-entry'] },
   { id: 'reference', label: '作者参考', shortLabel: '自选', kinds: ['exploration-doc', 'narrative-asset'] },
   { id: 'memory', label: '相关记忆', shortLabel: '记忆', kinds: ['memory'] }
@@ -74,7 +74,7 @@ function displayLabel(label, kind) {
     if (previous) return tr('前文片段 {count}', { count: previous[1] })
     if (['待重写文本块', '当前落笔处'].includes(value)) return tr(value)
   }
-  if (kind === 'scene-projection' && value === '当前场') return tr('当前场')
+  if (kind === 'scene-projection' && ['当前场', '当前'].includes(value)) return tr('当前')
   if (kind === 'memory') {
     const category = ({
       'plot-event': '剧情记忆',
@@ -147,7 +147,7 @@ const summaryText = computed(() => visibleGroups.value.flatMap((group) => {
 
 function kindFallback(kind) {
   return tr(({
-    'manuscript-unit': '落笔处正文', 'chapter-continuity': '章节摘要', 'scene-projection': '当前场',
+    'manuscript-unit': '落笔处正文', 'chapter-continuity': '章节摘要', 'scene-projection': '当前',
     'outline-node': '已采纳大纲', 'worldbook-entry': '世界书条目', 'exploration-doc': '速记',
     'narrative-asset': '素材', memory: '记忆', 'author-note': '作者安排'
   })[kind] || '参考来源')

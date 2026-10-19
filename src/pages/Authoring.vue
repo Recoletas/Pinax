@@ -621,6 +621,12 @@
                 @save-as-exploration="saveBlockDraftAsExploration"
               />
             </Teleport>
+            <div v-if="blockWorkflow.savedExploration.value?.projectId === selectedBookId" class="writing-inspector__pending-proposals" role="status">
+              <button type="button" @click="openExplorationDoc(blockWorkflow.savedExploration.value.id)">{{ tr('已保存为构思') }} · {{ blockWorkflow.savedExploration.value.title }} →</button>
+            </div>
+            <div v-if="blockWorkflow.recoverableDraft.value" class="writing-inspector__pending-proposals" role="status">
+              <button type="button" @click="selectInspectorTool('rehearsal'); blockWorkflow.open()">{{ tr('有一份未写入正文的推演草稿') }} · {{ tr('查看') }} →</button>
+            </div>
             <Teleport v-if="!blockPreview && adoptionImpact" to="#authoring-block-gap">
               <AuthoringAdoptionImpact :impact="adoptionImpact.projection" />
             </Teleport>
@@ -869,10 +875,9 @@
           </div>
         </header>
 
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook')) && ['worldbook', 'characters', 'outline'].includes(activeInspectorTool)" :kind="activeInspectorTool === 'outline' ? 'outline' : 'worldbook'" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
         <AuthoringRehearsalScene v-if="activeInspectorTool === 'rehearsal'" :projection="sceneProjection" :detail-open="inspectorTab === 'detail'" :recognition-pending="sceneRecognitionPending">
         <nav v-if="inspectorTab !== 'detail'" class="writing-inspector__tabs" :aria-label="tr(&quot;现场与因果视图&quot;)">
-          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">{{ tr('当前场') }}</button>
+          <button type="button" :class="{ active: sceneInspectorMode === 'current' }" @click="sceneInspectorMode = 'current'">{{ tr('当前') }}</button>
           <button type="button" :class="{ active: sceneInspectorMode === 'story' }" @click="sceneInspectorMode = 'story'">{{ tr('场景与因果') }}</button>
         </nav>
         <div v-if="inspectorTab === 'detail'" class="writing-scene-content" data-authoring-inspector="scene">
@@ -956,7 +961,7 @@
             >{{ event.label }}</button>
           </section>
           <div class="writing-inspector__actions">
-            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest"><WorkbenchIcon name="pencil" :size="14" />{{ tr('调整当前场') }}</button>
+            <button type="button" class="control-primary" data-test="scene-overview-edit" @click="handleSceneEditRequest"><WorkbenchIcon name="pencil" :size="14" />{{ tr('调整') }}</button>
             <button type="button" data-test="scene-overview-if" @click="openIfEntry()">{{ tr('人物 IF 试验') }}</button>
             <button v-if="!activeWritingUnitId" type="button" @click="openBlockComposer()">{{ tr('推演本章开场') }}</button>
           </div>
@@ -1042,7 +1047,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="outline">
-          <AuthoringOutlinePanel :key="selectedBookId" :book-id="selectedBookId"
+          <AuthoringOutlinePanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :key="selectedBookId" :book-id="selectedBookId"
             :chapter-id="selectedChapterId"
             :items="chapterOutlineItems"
             :project-nodes="wt3OutlineNodes"
@@ -1069,7 +1074,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
-          <AuthoringWorldbookPanel
+          <AuthoringWorldbookPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal"
             :worldbook="boundWorldbook"
             :book-id="selectedBookId"
             :selected-text="selectedText"
@@ -1236,7 +1241,7 @@
           :chapter-selected="Boolean(selectedChapterId) && !wt3ActiveDoc"
         />
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
-          <AuthoringCharacterPanel :manuscript-language="currentBook?.manuscriptLanguage"
+          <AuthoringCharacterPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
             :chapters="chapters"
             :current-chapter-id="selectedChapterId"
@@ -1268,7 +1273,7 @@
             <button type="button" @click="openAssetInbox">{{ tr('打开收件箱') }}</button>
           </div>
           <div class="writing-inspector__actions">
-            <button type="button" @click="openMaterialsPage">{{ tr('打开完整素材库') }}</button>
+            <button type="button" @click="openMaterialsPage">{{ tr('查看素材') }}</button>
           </div>
         </div>
       </aside>
@@ -1522,6 +1527,7 @@ import { inferWritingLanguage } from '../../shared/writingLanguage.js'
 import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
 import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
+import { clampWorkspaceMenuPosition } from '../services/workspace/workspacePopupPosition.js'
 import { markdownToHtml, htmlToMarkdown, markdownToPlainText } from '../services/writing/writingHtmlConversion.js'
 import { useRoute, useRouter } from 'vue-router'
 import { extractWritingSuggestionWindow } from '../services/agents/authoring/writingSuggestion'
@@ -3431,37 +3437,41 @@ function resolveScenePerson(id) {
   if (fromEncountered) return { id, name: fromEncountered.name || '' }
   return { id, name: '' }
 }
-const sceneProjection = computed(() => buildAuthoringSceneProjection({
-  chapter: selectedChapterId.value ? { id: selectedChapterId.value } : null,
-  documentRevision: writingDocument.value?.revision ?? null,
-  projectId: selectedBookId.value || null,
-  runtimeState: {
-    encounteredCharacters: gameStore.encounteredCharacters,
-    plotJournal: gameStore.plotJournal,
-    worldMapState: gameStore.worldMapState,
-    writingTime: gameStore.writingTime,
-    // 复验修复 2：正常投影不携带 Experience sceneThread（会话只参与显式导入）。
-    worldMapStateNote: undefined,
-    emergenceCandidates: gameStore.emergenceCandidates,
-    dialogueMode: gameStore.dialogueMode,
-    dialogueCharacter: gameStore.dialogueCharacter,
-    activeActor: resolveScenePerson(sceneActiveActorId.value),
-    dialogueTarget: resolveScenePerson(sceneDialogueTargetId.value)
-  },
-  // v2 输入（Task 5）：提供锚点数据时现场以锚点 + 绑定世界书 + 真实观察器为唯一依据。
-  document: writingDocument.value,
-  // 失焦/未落笔时 activeWritingUnitId 为空——当前场是章节事实，不能因为
-  // 焦点离开正文就整体退化为待设置。回退到最新写作位置（文档末单元）。
-  activeUnitId: activeWritingUnitId.value || documentUnitOrder().at(-1) || null,
-  // 单元顺序是“沿用前文锚点”继承解析的输入；缺了它投影只能在当前单元
-  // 找锚点，落笔处之后/之前的场景会整体退化为待设置。
-  unitOrder: documentUnitOrder(),
-  expectedWorldbookId: selectedBookWorldbookId.value,
-  worldbook: boundWorldbook.value || null,
-  sceneAnchors: sceneAnchors.value,
-  acceptedObservations: authoringObservations.value,
-  outlineItems: chapterOutlineItems.value
-}))
+function resolveMainSceneProjection(activeUnitId) {
+  return buildAuthoringSceneProjection({
+    chapter: selectedChapterId.value ? { id: selectedChapterId.value } : null,
+    documentRevision: writingDocument.value?.revision ?? null,
+    projectId: selectedBookId.value || null,
+    runtimeState: {
+      encounteredCharacters: gameStore.encounteredCharacters,
+      plotJournal: gameStore.plotJournal,
+      worldMapState: gameStore.worldMapState,
+      writingTime: gameStore.writingTime,
+      // 复验修复 2：正常投影不携带 Experience sceneThread（会话只参与显式导入）。
+      worldMapStateNote: undefined,
+      emergenceCandidates: gameStore.emergenceCandidates,
+      dialogueMode: gameStore.dialogueMode,
+      dialogueCharacter: gameStore.dialogueCharacter,
+      activeActor: resolveScenePerson(sceneActiveActorId.value),
+      dialogueTarget: resolveScenePerson(sceneDialogueTargetId.value)
+    },
+    // v2 输入（Task 5）：提供锚点数据时现场以锚点 + 绑定世界书 + 真实观察器为唯一依据。
+    document: writingDocument.value,
+    activeUnitId,
+    // 单元顺序是“沿用前文锚点”继承解析的输入；缺了它投影只能在当前单元
+    // 找锚点，落笔处之后/之前的场景会整体退化为待设置。
+    unitOrder: documentUnitOrder(),
+    expectedWorldbookId: selectedBookWorldbookId.value,
+    worldbook: boundWorldbook.value || null,
+    sceneAnchors: sceneAnchors.value,
+    acceptedObservations: authoringObservations.value,
+    outlineItems: chapterOutlineItems.value
+  })
+}
+// 展示可回退到末单元；运行校验必须使用发起时冻结的目标。
+const sceneProjection = computed(() => resolveMainSceneProjection(
+  activeWritingUnitId.value || documentUnitOrder().at(-1) || null
+))
 // UX-03：检查器“现场”页的只读概览文案（左栏索引才是定位入口）。
 const sceneOverviewPresentNames = computed(() => (
   (sceneProjection.value.presentCharacters || []).map((person) => person.name).filter(Boolean).join('、')
@@ -4818,7 +4828,8 @@ function readLiveAuthoringRunTarget(expected = {}) {
     documentSchemaRevision: String(writingDocument.value?.revision ?? ''),
     unitRevision: String(unit.attrs.unitRevision ?? ''),
     nodeRevision: String(node.attrs.nodeRevision ?? ''),
-    sceneProjection: cloneAuthoringRunValue(sceneProjection.value)
+    // Bind the scene to the frozen target, not the editor focus left by an earlier edit.
+    sceneProjection: cloneAuthoringRunValue(resolveMainSceneProjection(String(unit.attrs.unitId)))
   }
 }
 function selectedAuthoringRunReferences() {
@@ -6158,7 +6169,7 @@ function restoreBlockSelection(bookmark) {
   notebookEditorRef.value?.restoreSelectionBookmark?.(bookmark)
 }
 function abandonBlockComposer({ restoreSelection = false } = {}) {
-  return abandonBlockComposerWorkflow({ shouldRestoreSelection: restoreSelection })
+  return abandonBlockComposerWorkflow({ shouldRestoreSelection: restoreSelection, preserveRecovery: true })
 }
 const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkflow({
   preview: blockPreview,
@@ -6244,6 +6255,18 @@ const { perform: performBlockPreviewAdoption } = useAuthoringGhostAdoptionWorkfl
   persistAdoption: (exploration) => (
     exploration ? wt3PersistActiveDoc()?.ok === true : saveCurrentChapter({ preservePageOutline: true })
   ),
+  verifyPersistedAdoption: (adoption) => {
+    const book = loadWritingBooks().find(item => String(item.id) === String(selectedBookId.value))
+    const stored = adoption.documentRole === 'exploration'
+      ? book?.explorationDocuments?.find(item => String(item.id) === String(wt3ActiveDocId.value))
+      : book?.chapters?.find(item => String(item.id) === String(selectedChapterId.value))
+    if (!stored) return false
+    const units = stored.editorDocument?.content || []
+    if (adoption.documentRole !== 'exploration' && !adoption.insertedUnitIds.every(id => units.some(unit => unit.attrs?.unitId === id))) return false
+    const normalize = text => String(text || '').replace(/\s+/g, '')
+    const text = normalize(adoption.documentRole === 'exploration' ? stored.content : getChapterMarkdown(stored))
+    return String(adoption.adoptedText).split(/\n\s*\n/).filter(part => part.trim()).every(part => text.includes(normalize(part)))
+  },
   observeAdoption: async (adoption) => {
     const unitId = adoption.insertedUnitIds?.at(-1) || adoption.insertedUnitId
     const unit = (writingDocument.value?.content || []).find((item) => item?.attrs?.unitId === unitId)
@@ -7468,24 +7491,31 @@ function openInboxAssetFromInspector(asset) {
   openAssetInbox()
 }
 function openMaterialsPage() {
-  if (pendingGhostAdoption.value) {
-    authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
-    return false
-  }
-  const outgoingChapterBoundary = !wt3ActiveDoc.value
-    ? buildCurrentChapterObserverBoundary()
-    : null
-  const saved = wt3ActiveDoc.value
-    ? wt3PersistBeforeLeaving()?.ok === true
-    : (!selectedChapterId.value || saveCurrentChapter())
-  if (!saved) {
-    authoringTask.notify(tr('文档保存失败，未打开素材页'))
-    return false
-  }
-  if (outgoingChapterBoundary) dispatchChapterBoundary(outgoingChapterBoundary)
-  router.push({ name: 'materials' })
+  openAssetInbox()
   return true
 }
+// Compatibility for old material bookmarks: open the existing asset or the novel illustrator.
+watch([() => route.query.tool, () => route.query.legacyAssetId, selectedBookId, selectedChapterId], async () => {
+  const { tool, legacyAssetId, bookId } = route.query
+  if ((!legacyAssetId && tool !== 'illustrator') || String(bookId) !== String(selectedBookId.value) || !selectedChapterId.value) return
+  await nextTick()
+  if (String(bookId) !== String(selectedBookId.value) || route.query.bookId !== bookId || route.query.legacyAssetId !== legacyAssetId || route.query.tool !== tool) return
+  if (legacyAssetId) await directoryHost.openAt({ type: 'asset', bookId: String(bookId), id: String(legacyAssetId) }, 'main')
+  else {
+    directoryHost.showPrimary()
+    // The routed chapter and its scene projection settle after the editor mounts.
+    await nextTick()
+    await waitForWritingPaint()
+    await waitForWritingPaint()
+    if (route.query.bookId !== bookId || route.query.tool !== tool) return
+    activeWritingPane.value = 'main'
+    openIllustrator()
+  }
+  if (route.query.bookId !== bookId || route.query.legacyAssetId !== legacyAssetId || route.query.tool !== tool) return
+  const query = { ...route.query }; delete query.tool; delete query.legacyAssetId
+  await router.replace({ name: 'authoring', query })
+}, { flush: 'post' })
+
 function closeAssetInbox() {
   assetInboxOpen.value = false
 }
@@ -9338,17 +9368,11 @@ function captureSelectionAsAsset() {
     quickNoteStatus.value = result.message || '收为素材失败'
     return
   }
-  quickNoteStatus.value = '已收为素材 · 跳转素材页'
-  router.push({
-    name: 'materials',
-    query: {
-      assetId: result.assetId,
-      from: 'writing-selection',
-      chapterId: selectedChapterId.value,
-      selectorOffset: String(snapshot.start),
-      selectorLength: String(snapshot.end - snapshot.start)
-    }
-  })
+  quickNoteStatus.value = '已收为素材'
+  assetInboxScope.value = 'current-book'
+  assetInboxKind.value = ''
+  assetInboxActiveId.value = result.assetId
+  openAssetInbox()
 }
 function applyBackJumpToTextarea(jump) {
   if (notebookEditorActive.value && notebookEditorRef.value) {
@@ -9787,40 +9811,10 @@ function onNotebookReady() {
   nextTick(refreshNotebookCommandAvailability)
 }
 function clampContextMenuPosition() {
-  const element = contextMenuRef.value
-  if (!element || !contextMenu.value.show) return
-  const body = document.body
-  const cssZoom = Number.parseFloat(window.getComputedStyle(body).zoom) || 1
-  const transformedScale = body?.offsetWidth > 0
-    ? body.getBoundingClientRect().width / body.offsetWidth
-    : 1
-  const scale = Math.max(0.1, cssZoom !== 1 ? cssZoom : (transformedScale || 1))
-  const viewport = window.visualViewport
-  const leftEdge = Number(viewport?.offsetLeft || 0)
-  const topEdge = Number(viewport?.offsetTop || 0)
-  const rightEdge = leftEdge + Number(viewport?.width || window.innerWidth)
-  const bottomEdge = topEdge + Number(viewport?.height || window.innerHeight)
-  const margin = 8
-  const availableVisualHeight = Math.max(44, bottomEdge - topEdge - margin * 2)
-  contextMenu.value.maxHeight = Math.floor(availableVisualHeight / scale)
-  const visualWidth = Math.min(
-    Math.max(Number(element.getBoundingClientRect?.().width || 0), Number(element.offsetWidth || 0) * scale),
-    Math.max(0, rightEdge - leftEdge - margin * 2)
-  )
-  const visualHeight = Math.min(Number(element.scrollHeight || element.offsetHeight || 0) * scale, availableVisualHeight)
-  const desiredVisualX = Number(contextMenu.value.anchorX ?? contextMenu.value.x * scale)
-  const desiredVisualY = Number(contextMenu.value.anchorY ?? contextMenu.value.y * scale)
-  const clampedVisualX = Math.max(
-    leftEdge + margin,
-    Math.min(desiredVisualX, rightEdge - visualWidth - margin)
-  )
-  const clampedVisualY = Math.max(
-    topEdge + margin,
-    Math.min(desiredVisualY, bottomEdge - visualHeight - margin)
-  )
-  contextMenu.value.x = Math.round(clampedVisualX / scale)
-  contextMenu.value.y = Math.round(clampedVisualY / scale)
+  const placement = clampWorkspaceMenuPosition(contextMenuRef.value, contextMenu.value)
+  if (placement) Object.assign(contextMenu.value, placement)
 }
+
 function handleContextMenuViewportChange() {
   if (contextMenu.value.show) nextTick(clampContextMenuPosition)
 }

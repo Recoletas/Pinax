@@ -11,6 +11,8 @@ import {
   MoveUpRight,
   Plus,
   Rows2,
+  Settings2,
+  X,
   Trash2,
   Type,
   UserRound
@@ -38,6 +40,8 @@ const props = defineProps({
 
 const emit = defineEmits(['select-panel', 'update-page', 'update-lettering-box', 'update-lettering-tail'])
 const mode = ref('layout')
+const settingsDialog = ref(null)
+const settingsDraft = reactive({ pageId: '', panelId: '', panelOrder: 0, format: 'page-ltr', gutter: 0 })
 const stageElement = ref(null)
 const stageSize = reactive({ width: 0, height: 0 })
 const viewMode = ref(props.page.format === 'webtoon' ? 'width' : 'page')
@@ -146,13 +150,19 @@ function reorder(delta) {
   updatePage(reorderComicPanel(props.page, activePanel.value.id, delta))
 }
 
-function updateGutter(value) {
-  if (!activePanel.value) return
-  updatePage(setComicPanelGutter(props.page, activePanel.value.id, Number(value)))
+function openCanvasSettings() {
+  Object.assign(settingsDraft, { pageId: props.page.id, panelId: activePanel.value?.id || '', panelOrder: activePanel.value?.order || 0, format: props.page.format, gutter: activePanel.value?.frame?.gutter || 0 })
+  settingsDialog.value?.showModal()
 }
 
-function updateFormat(format) {
-  updatePage(setComicCompositionFormat(props.page, format))
+function applyCanvasSettings() {
+  settingsDialog.value?.close()
+  if (settingsDraft.pageId !== props.page.id) return
+  let next = props.page
+  if (next.format !== settingsDraft.format) next = setComicCompositionFormat(next, settingsDraft.format)
+  const panel = next.panels.find(item => item.id === settingsDraft.panelId)
+  if (panel && (panel.frame?.gutter || 0) !== Number(settingsDraft.gutter)) next = setComicPanelGutter(next, panel.id, Number(settingsDraft.gutter))
+  if (next !== props.page) updatePage(next)
 }
 
 function addControl() {
@@ -414,11 +424,12 @@ function clamp(value, min, max) {
           type="button"
           :class="{ active: mode === item.value }"
           :aria-checked="mode === item.value"
+          :title="item.label"
+          :aria-label="item.label"
           role="radio"
           @click="mode = item.value"
         >
-          <component :is="item.icon" :size="14" aria-hidden="true" />
-          {{ item.label }}
+          <component :is="item.icon" :size="17" aria-hidden="true" />
         </button>
       </div>
 
@@ -439,17 +450,7 @@ function clamp(value, min, max) {
           <button type="button" title="阅读顺序后移" aria-label="阅读顺序后移" :disabled="activeIndex < 0 || activeIndex >= page.panels.length - 1" @click="reorder(1)">
             <ArrowDown :size="15" aria-hidden="true" />
           </button>
-          <label class="comic-composition__gutter">
-            <span>沟槽</span>
-            <input
-              type="range"
-              min="0"
-              max="0.08"
-              step="0.002"
-              :value="activePanel?.frame?.gutter || 0"
-              @change="updateGutter($event.target.value)"
-            />
-          </label>
+
         </template>
         <button
           v-else-if="['blocking', 'motion', 'balloon'].includes(mode)"
@@ -460,16 +461,32 @@ function clamp(value, min, max) {
           <Plus :size="14" aria-hidden="true" />
           添加{{ modes.find((item) => item.value === mode)?.label }}
         </button>
-        <label class="comic-composition__format">
-          <span>阅读</span>
-          <select :value="page.format" @change="updateFormat($event.target.value)">
-            <option value="page-ltr">左到右页漫</option>
-            <option value="page-rtl">右到左页漫</option>
-            <option value="webtoon">竖向条漫</option>
-          </select>
-        </label>
+        <button type="button" title="画布设置" aria-label="画布设置" @click="openCanvasSettings"><Settings2 :size="16" aria-hidden="true" /></button>
       </div>
     </header>
+
+    <dialog ref="settingsDialog" class="comic-composition__settings" aria-label="画布设置">
+      <header><strong>画布设置</strong><button type="button" aria-label="关闭画布设置" @click="settingsDialog?.close()"><X :size="18" aria-hidden="true" /></button></header>
+      <label class="comic-composition__format">
+        <span>阅读方向</span>
+        <select v-model="settingsDraft.format">
+          <option value="page-ltr">左到右页漫</option>
+          <option value="page-rtl">右到左页漫</option>
+          <option value="webtoon">竖向条漫</option>
+        </select>
+      </label>
+      <label v-if="settingsDraft.panelId" class="comic-composition__gutter">
+        <span>第 {{ settingsDraft.panelOrder }} 格间距</span>
+        <input
+          type="range"
+          min="0"
+          max="0.08"
+          step="0.002"
+          v-model.number="settingsDraft.gutter"
+        />
+      </label>
+      <button type="button" class="control-secondary" @click="applyCanvasSettings">应用</button>
+    </dialog>
 
     <div ref="stageElement" class="comic-composition__stage">
       <div
@@ -479,7 +496,7 @@ function clamp(value, min, max) {
       >
         <ComicPagePreview
           :page="page"
-          :active-panel-id="activePanel?.id || ''"
+          :active-panel-id="mode === 'lettering' ? activePanel?.id || '' : ''"
           :interactive="mode === 'lettering'"
           :editable-lettering="mode === 'lettering'"
           @select-panel="selectPanel"
@@ -729,7 +746,7 @@ function clamp(value, min, max) {
   font-size: 9px;
 }
 
-.comic-composition__gutter input { width: 72px; accent-color: var(--accent); }
+.comic-composition__gutter input { width: 72px; accent-color: var(--workbench-focus, var(--accent)); }
 .comic-composition__format select {
   min-height: 26px;
   border: 0;
@@ -746,7 +763,7 @@ function clamp(value, min, max) {
   padding: 10px;
   overflow: auto;
   scrollbar-gutter: stable;
-  background: color-mix(in srgb, var(--archive-paper-soft) 48%, transparent);
+  background: var(--surface-workbench-muted);
 }
 
 .comic-composition__page {
@@ -761,7 +778,7 @@ function clamp(value, min, max) {
   justify-content: space-between;
   gap: 8px;
   padding: 5px 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hairline-soft);
   background: var(--surface-workbench-canvas, var(--bg-primary));
   color: var(--text-secondary);
 }
@@ -793,7 +810,11 @@ function clamp(value, min, max) {
   .comic-composition__viewbar { padding: 3px 6px; }
   .comic-composition__viewbar button { min-width: 44px; min-height: 44px; }
 }
-.comic-composition__page :deep(.comic-page-preview) { width: 100%; height: 100%; box-shadow: 0 12px 28px color-mix(in srgb, var(--archive-ink) 14%, transparent); }
+.comic-composition__page :deep(.comic-page-preview) { width: 100%; height: 100%; border-color: var(--hairline-soft); box-shadow: var(--shadow-workbench); }
+/* The composition overlay owns selection and numbering outside lettering mode. */
+.comic-composition__page :deep(.comic-page-preview:not(.is-interactive) .comic-page-preview__index) { display: none; }
+.comic-composition__page :deep(.comic-page-preview__panel.active) { outline: 2px solid var(--workbench-focus, var(--accent)); outline-offset: -2px; }
+.comic-composition__page :deep(.comic-page-preview__placeholder strong) { font: 400 24px/1.2 var(--font-sans); font-variant-numeric: tabular-nums; }
 .comic-composition__overlay { position: absolute; inset: 0; z-index: 20; }
 
 .comic-composition__panel-layer {
@@ -803,23 +824,29 @@ function clamp(value, min, max) {
 }
 
 .comic-composition__panel-layer.active {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline: 2px solid var(--workbench-focus, var(--accent));
   outline-offset: -2px;
 }
 
 .comic-composition__panel-layer:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.comic-composition__order {
+.comic-composition__order,
+.comic-composition__page :deep(.comic-page-preview.is-interactive .comic-page-preview__index) {
   position: absolute;
   z-index: 5;
-  top: 4px;
-  left: 4px;
-  min-width: 18px;
-  height: 18px;
+  top: 6px;
+  bottom: auto;
+  left: 6px;
+  text-shadow: none;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--hairline-soft);
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--archive-ink) 76%, transparent);
-  color: white;
-  font-size: 9px;
+  background: var(--surface-workbench-overlay);
+  color: var(--text-secondary);
+  font: 500 11px/1 var(--font-sans);
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 
@@ -829,8 +856,8 @@ function clamp(value, min, max) {
   width: 12px;
   height: 12px;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--accent) 68%, var(--archive-ink));
-  border-radius: 50%;
+  border: 1px solid var(--workbench-focus, var(--accent));
+  border-radius: 3px;
   background: var(--archive-paper);
   touch-action: none;
 }
@@ -989,19 +1016,35 @@ function clamp(value, min, max) {
 }
 </style>
 <style scoped>
-.comic-composition__toolbar { flex-wrap: wrap; padding: 10px 12px; gap: 8px; background: var(--workspace-surface, var(--bg-primary)); border-color: var(--border); }
-.comic-composition__modes { flex: 1 1 100%; overflow-x: auto; scrollbar-width: none; gap: 4px; }
-.comic-composition__modes button { flex: 0 0 auto; min-height: 36px; padding: 7px 10px; border: 0; border-radius: 12px; font-family: var(--font-sans); font-size: 14px; }
-.comic-composition__modes button.active { background: var(--workspace-nav-active, var(--bg-tertiary)); color: var(--text-primary); }
-.comic-composition__commands { margin-left: auto; flex-wrap: wrap; gap: 4px; }
-.comic-composition__commands > button { min-width: 36px; min-height: 36px; border-radius: 12px; }
+.comic-composition__toolbar { flex-wrap: nowrap; padding: 6px 12px; gap: 16px; overflow-x: auto; scrollbar-width: thin; background: var(--surface-workbench-canvas); border-color: var(--hairline-soft); }
+.comic-composition__modes { flex: 0 0 auto; gap: 3px; }
+.comic-composition__modes button { flex: 0 0 auto; width: 32px; min-height: 32px; padding: 6px; border: 0; border-radius: 5px; font-family: var(--font-sans); font-size: 14px; }
+.comic-composition__modes button.active { background: var(--workbench-selected, var(--bg-tertiary)); color: var(--text-primary); }
+.comic-composition__modes button:hover:not(.active), .comic-composition__commands > button:hover:not(:disabled) { background: var(--nav-hover); }
+.comic-composition :is(button, select, input):focus-visible { outline: 2px solid var(--workbench-focus, var(--accent)); outline-offset: 2px; }
+.comic-composition__commands { margin-left: auto; flex: 0 0 auto; flex-wrap: nowrap; gap: 3px; padding-left: 12px; border-left: 1px solid var(--hairline-soft); }
+.comic-composition__commands > button { min-width: 32px; min-height: 32px; border-radius: 5px; }
 .comic-composition__format, .comic-composition__gutter { font-family: var(--font-sans); font-size: 13px; }
 .comic-composition__format select { min-height: 36px; font-size: 13px; }
 @media (max-width: 640px), (pointer: coarse) {
   .comic-composition__toolbar { flex-direction: row; flex-wrap: nowrap; justify-content: flex-start; height: 52px; min-height: 52px; padding: 4px 8px; overflow-x: auto; scrollbar-width: none; gap: 4px; }
   .comic-composition__modes { flex: 0 0 auto; overflow: visible; }
   .comic-composition__commands { flex: 0 0 auto; flex-wrap: nowrap; margin: 0; overflow: visible; }
+  .comic-composition__modes button { width: 44px; }
   .comic-composition__modes button, .comic-composition__commands > button, .comic-composition__format select { min-height: 44px; }
   .comic-composition__commands > button { min-width: 44px; }
 }
+</style>
+
+<style scoped>
+.comic-composition__settings { position: fixed; inset: 0; margin: auto; width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 20px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); color: var(--text-primary); background: var(--surface-workbench); box-shadow: var(--shadow-workbench-float); font: 13px/1.5 var(--font-sans); }
+.comic-composition__settings::backdrop { background: var(--surface-workbench-scrim); }
+.comic-composition__settings header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.comic-composition__settings header strong { font-size: 15px; font-weight: 600; }
+.comic-composition__settings header button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.comic-composition__settings label { display: grid; gap: 8px; padding: 0; margin-bottom: 18px; color: var(--text-secondary); }
+.comic-composition__settings :is(select, input) { width: 100%; min-height: 36px; }
+.comic-composition__settings select { padding: 6px 8px; border: 0; border-radius: 5px; background: var(--surface-workbench-input); color: var(--text-primary); }
+.comic-composition__settings > button { float: right; min-height: 36px; padding: 6px 14px; cursor: pointer; }
+@media (max-width: 640px), (pointer: coarse) { .comic-composition__settings :is(button, select, input) { min-height: 44px; } }
 </style>

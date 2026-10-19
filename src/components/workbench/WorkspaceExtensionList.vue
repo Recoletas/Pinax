@@ -6,7 +6,7 @@ import WorkbenchIcon from './WorkbenchIcon.vue'
 const host = useComposableWorkspace()
 const workspaceExtensions = host.extensions
 const query = ref('')
-const entries = computed(() => [...workspaceExtensions.extensions.values()].filter(item => `${tr(item.title)} ${tr(item.description)}`.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())))
+const entries = computed(() => [...workspaceExtensions.extensions.values()].filter(item => !item.builtin).filter(item => `${tr(item.title)} ${tr(item.description)}`.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())))
 const selected = computed(() => host.state.views.find(view => view.id === host.state.mainModuleId)?.resource.extensionId || 'pinax.core')
 async function select(id) {
   if (!await host.directory.prepare() || !await host.prepareOpen('main')) return
@@ -18,7 +18,7 @@ async function select(id) {
   <section class="workspace-extension-list" aria-label="扩展列表">
     <label><WorkbenchIcon name="search" :size="14" /><input v-model="query" type="search" :aria-label="tr('搜索扩展')" :placeholder="tr('搜索扩展')" /></label>
     <nav><button v-for="item in entries" :key="item.id" type="button" :aria-current="selected === item.id ? 'true' : undefined" @click="select(item.id)"><WorkbenchIcon :name="item.icon" :size="20" /><span>{{ tr(item.title) }}<small v-if="!workspaceExtensions.enabled(item.id)">{{ tr('已停用') }}</small></span></button></nav>
-    <p v-if="!entries.length">{{ tr('没有找到扩展') }}</p>
+    <p v-if="!entries.length">{{ tr(query ? '没有找到扩展' : '暂无已安装扩展') }}</p>
   </section>
 </template>
 <style scoped>

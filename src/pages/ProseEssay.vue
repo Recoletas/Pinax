@@ -1,5 +1,13 @@
 <template>
   <div ref="workspaceRoot" class="prose-essay-page is-archive-paper" :tabindex="workspaceProps.workspaceEmbedded ? -1 : undefined" @pointerdown.capture="focusWorkspace">
+    <dialog ref="materialPicker" class="canvas-material-picker" @click="onMaterialPickerBackdrop">
+      <header><h2>选用素材</h2><button type="button" aria-label="关闭素材选择" @click="materialPicker.close()">×</button></header>
+      <p v-if="materialPickerError" role="alert">{{ materialPickerError }}</p>
+      <div class="canvas-material-picker__items">
+        <button v-for="asset in availableMaterials" :key="asset.id" type="button" @click="useMaterial(asset)"><strong>{{ asset.title || '未命名素材' }}</strong><span v-if="asset.content?.trim() !== asset.title?.trim()">{{ asset.content?.slice(0, 140) }}</span></button>
+        <p v-if="!availableMaterials.length">本作品还没有素材。可先从正文选取片段，或直接在画布写场景。</p>
+      </div>
+    </dialog>
     <FolioSurface as="header" variant="chrome" :decorated="false" class="prose-essay__hero">
       <div class="prose-top">
         <div class="prose-top__left">
@@ -57,14 +65,9 @@
             </svg>
             <span class="prose-top__chip-label">生成视频</span>
           </button>
-          <router-link
-            class="prose-top__chip prose-top__chip--link"
-            :to="materialsLocation"
-            title="素材库"
-            aria-label="素材库"
-          >
-            <span class="prose-top__chip-label">素材库</span>
-          </router-link>
+          <button class="prose-top__chip prose-top__chip--link" type="button" @click="openMaterialPicker">
+            <span class="prose-top__chip-label">选用素材</span>
+          </button>
           <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
           <button
             v-if="false"
@@ -174,9 +177,9 @@
           <button class="prose-top__chip prose-top__chip--cta" type="button" :disabled="isGenerating || !currentTopic.trim()" @click="generateCards">
             <span class="prose-top__chip-label">{{ isGenerating ? generationMessage : '拆成镜头' }}</span>
           </button>
-          <router-link class="prose-top__chip prose-top__chip--cta" :to="materialsLocation">
-            <span class="prose-top__chip-label">从素材库导入</span>
-          </router-link>
+          <button class="prose-top__chip prose-top__chip--cta" type="button" @click="openMaterialPicker">
+            <span class="prose-top__chip-label">选用素材</span>
+          </button>
         </div>
       </div>
     </section>
@@ -248,7 +251,7 @@
           <p class="empty-desc">生成节点后，可在这里组织关系、镜头顺序与视频任务。</p>
           <div class="empty-cards__actions">
             <button class="prose-top__chip prose-top__chip--generate" type="button" @click="focusTopicInput">输入场景线索</button>
-            <router-link class="empty-cards__link" :to="materialsLocation">从素材库导入</router-link>
+            <button class="empty-cards__link" type="button" @click="openMaterialPicker">选用素材</button>
           </div>
         </div>
 
@@ -546,10 +549,31 @@ const workspaceRoot = ref(null)
 const router = useRouter()
 const route = useRoute()
 const referenceWorkspace = useProseReferenceWorkspace(route)
-const materialsLocation = computed(() => ({
-  name: 'materials',
-  query: route.query.bookId ? { bookId: String(route.query.bookId) } : {}
-}))
+const materialPicker = ref(null)
+const materialPickerError = ref('')
+const availableMaterials = computed(() => canvasAssets.value.filter(asset => asset.projectId === (route.query.bookId || null) && !['rejected', 'archived'].includes(asset.status)))
+async function openMaterialPicker() {
+  materialPickerError.value = ''
+  materialPicker.value?.showModal()
+  try { await loadCanvasAssets() } catch { materialPickerError.value = '素材读取失败，请关闭后重试。' }
+}
+function onMaterialPickerBackdrop(event) {
+  if (event.target !== materialPicker.value) return
+  const rect = materialPicker.value.getBoundingClientRect()
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) materialPicker.value.close()
+}
+function useMaterial(asset) {
+  if (asset.projectId !== (route.query.bookId || null)) return
+  let card = cards.value.find(item => item.assetId === asset.id)
+  if (!card) {
+    card = { ...createCardFromAsset(asset), projectId: asset.projectId }
+    cards.value.push(card)
+    if (!saveData()) { cards.value.pop(); materialPickerError.value = '素材未能加入画布，请重试。'; return }
+  }
+  selectCard(card)
+  materialPicker.value?.close()
+  nextTick(() => jumpToCard(card.id))
+}
 const { isDark, toggleTheme } = useTheme()
 const {
   advisorOpen,
@@ -1249,7 +1273,7 @@ function getCardImageReferences(card) {
 function openCardMaterial(card) {
   if (!card?.assetId) return
   if (referenceWorkspace.openAsset(card.assetId)) return
-  router.push({ ...materialsLocation.value, query: { ...materialsLocation.value.query, assetId: card.assetId } })
+  router.push({ name: 'authoring', query: { bookId: card.projectId || route.query.bookId, legacyAssetId: card.assetId } })
 }
 
 function focusAssetCardFromRoute() {
@@ -2822,3 +2846,15 @@ function exportEditingPackage() {
 </script>
 
 <style scoped src="./ProseEssay.scoped.css"></style>
+
+<style scoped>
+.canvas-material-picker { position: fixed; inset: 0; margin: auto; overflow-y: auto; box-sizing: border-box; font: 14px/1.6 var(--font-interface); width: min(560px, calc(100vw - 32px)); max-height: 75vh; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-lg); }
+.canvas-material-picker::backdrop { background: rgb(0 0 0 / 35%); }
+.canvas-material-picker header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.canvas-material-picker h2 { margin: 0; font: 600 17px var(--font-interface); }
+.canvas-material-picker button { border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.canvas-material-picker__items { display: grid; gap: 4px; }
+.canvas-material-picker__items button { display: grid; gap: 6px; padding: 12px; text-align: left; border-radius: 6px; }
+.canvas-material-picker__items button:hover { background: var(--bg-hover); }
+.canvas-material-picker__items span, .canvas-material-picker p { color: var(--text-secondary); font: 13px/1.6 var(--font-interface); }
+</style>

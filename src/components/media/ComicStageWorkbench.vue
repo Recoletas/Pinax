@@ -1,4 +1,7 @@
 <script setup>
+import { useComicRequestActivity } from '../../composables/comics/useComicRequestActivity.js'
+import GenerationProgress from './GenerationProgress.vue'
+import ComicImageCandidates from './ComicImageCandidates.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   Check,
@@ -22,6 +25,7 @@ import {
   getComicStageGate,
   getComicStageInputRevision,
   listComicPersistRetries,
+  recoverArchivedComicRequest,
   retryComicStagePersist,
   runComicStageGeneration
 } from '../../services/media/comicProductionService'
@@ -38,7 +42,8 @@ const props = defineProps({
   projectId: { type: String, default: null },
   sourceTitle: { type: String, default: '' },
   sourceText: { type: String, default: '' },
-  preferredStage: { type: String, default: '' }
+  preferredStage: { type: String, default: '' },
+  stageRequestId: { type: Number, default: 0 }
 })
 
 const emit = defineEmits(['page-saved'])
@@ -47,6 +52,7 @@ const artifactPreviews = ref([])
 const loadingArtifacts = ref(false)
 const busy = ref(false)
 const batchBusy = ref(false)
+const progress = ref({ startedAt: 0, completed: 0, total: 0 })
 const error = ref('')
 const status = ref('')
 const maskImage = ref('')
@@ -70,6 +76,7 @@ function beginOperation(kind = 'single') {
   }))
   activeOperations.set(operation.key, operation)
   busy.value = true
+  progress.value = { startedAt: Date.now(), completed: 0, total: 0 }
   return operation
 }
 
@@ -91,10 +98,12 @@ onBeforeUnmount(() => {
 const stageOptions = computed(() => props.page.colorMode === 'monochrome'
   ? ['rough', 'line', 'tones', 'effects']
   : ['rough', 'line', 'flats', 'render', 'effects'])
+const requestActivity = useComicRequestActivity()
+const stageRunning = computed(() => requestActivity.isActive(stageEntry.value.pendingRequest?.requestId))
 const stageEntry = computed(() => props.panel.production?.[activeStage.value] || {})
 // B 夜：本会话没有在途请求（busy=false）而阶段仍挂着 pendingRequest，
 // 说明是刷新前遗留的未知结果——不自动重发，交给作者核查或显式再生成。
-const stageUnknown = computed(() => !busy.value && !persistRetryId.value && Boolean(stageEntry.value.pendingRequest))
+const stageUnknown = computed(() => !busy.value && !stageRunning.value && !persistRetryId.value && Boolean(stageEntry.value.pendingRequest))
 const persistRetryId = ref('')
 const selectedArtifact = computed(() => artifactPreviews.value
   .find((artifact) => artifact.id === stageEntry.value.selectedArtifactId) || null)
@@ -141,7 +150,7 @@ const previousImageData = computed(() => previousPanel.value?.imageTakes
 watch(stageOptions, (stages) => {
   if (!stages.includes(activeStage.value)) activeStage.value = stages[0]
 }, { immediate: true })
-watch(() => props.preferredStage, (stage) => {
+watch([() => props.preferredStage, () => props.stageRequestId], ([stage]) => {
   if (stageOptions.value.includes(stage)) activeStage.value = stage
 }, { immediate: true })
 
@@ -189,8 +198,8 @@ async function loadArtifacts() {
 }
 
 async function generateStage(mode = 'generate', approvedClearRequestId = '') {
-  if (busy.value || !props.modelConfig) return
-  const pending = stageEntry.value.pendingRequest
+  if (busy.value || stageRunning.value || !props.modelConfig) return
+  const pending = listComicPages({}).find(item => item.id === props.page.id)?.panels.find(item => item.id === props.panel.id)?.production?.[activeStage.value]?.pendingRequest
   if (pending && pending.requestId !== approvedClearRequestId) {
     error.value = '上一请求结果未知，请先核查结果或明确选择“重新生成”，避免重复请求'
     return
@@ -235,7 +244,7 @@ async function generateStage(mode = 'generate', approvedClearRequestId = '') {
   }
 }
 
-function resolveUnknownRequest(action) {
+async function resolveUnknownRequest(action) {
   const key = scopeKey()
   const pageId = props.page.id
   const panelId = props.panel.id
@@ -247,8 +256,9 @@ function resolveUnknownRequest(action) {
     void generateStage('generate', pending.requestId)
     return
   }
-  // 核查：只重新读取本格与候选列表；没有新候选就保持未知状态。
-  void loadArtifacts().then(() => {
+  try {
+    await recoverArchivedComicRequest({ pageId, panelId, projectId: props.page.projectId, stage })
+    await loadArtifacts()
     if (disposed || key !== scopeKey()) return
     const latest = listComicPages({}).find((item) => item.id === pageId)?.panels
       .find((item) => item.id === panelId)?.production?.[stage]
@@ -258,7 +268,7 @@ function resolveUnknownRequest(action) {
       status.value = '未发现新候选；请求仍按结果未知处理，可明确再生成'
     }
     emitLatestPage()
-  })
+  } catch (failure) { if (!disposed && key === scopeKey()) error.value = failure?.message || '核查失败，请重试' }
 }
 
 async function retryPersist() {
@@ -315,13 +325,12 @@ async function uploadMask(event) {
 }
 
 function selectArtifact(artifactId) {
-  const saved = selectComicPanelStageArtifact(
-    props.page.id,
-    props.panel.id,
-    activeStage.value,
-    artifactId
-  )
-  if (saved) emit('page-saved', saved)
+  try {
+    const saved = selectComicPanelStageArtifact(props.page.id, props.panel.id, activeStage.value, artifactId)
+    if (saved) emit('page-saved', saved)
+  } catch (selectionError) {
+    error.value = selectionError?.message || '候选未保存，请重试'
+  }
 }
 
 function approveStage() {
@@ -349,6 +358,7 @@ async function batchGenerateStage() {
   const stage = activeStage.value
   const operation = beginOperation('batch')
   const candidates = batchEligible.value.map((panel) => panel.id)
+  progress.value.total = candidates.length
   let page = operation.page
   let completed = 0
   let failed = 0
@@ -368,8 +378,10 @@ async function batchGenerateStage() {
         sourceText: operation.sourceText
       })
       completed += 1
+      progress.value.completed = completed + failed
     } catch {
       failed += 1
+      progress.value.completed = completed + failed
       page = listComicPages({}).find((item) => item.id === operation.page.id) || page
     }
   }
@@ -457,7 +469,6 @@ function readImageDimensions(data) {
 
 <template>
   <section class="comic-stage-workbench" aria-label="当前格制作阶段">
-    <p class="comic-stage-workbench__intro">逐步精修当前画面。每一步选好候选并确认后，再继续下一步。</p>
     <div class="comic-stage-workbench__tabs" role="tablist" aria-label="制作阶段">
       <button
         v-for="stage in stageOptions"
@@ -486,52 +497,42 @@ function readImageDimensions(data) {
       <p v-if="page.visualBible?.renderingNotes"><strong>{{ page.colorMode === 'monochrome' ? '网点' : '色光' }}</strong>{{ page.visualBible.renderingNotes }}</p>
     </div>
 
-    <div class="comic-stage-workbench__candidates">
-      <button
-        v-for="artifact in artifactPreviews"
-        :key="artifact.id"
-        type="button"
-        :class="{ active: stageEntry.selectedArtifactId === artifact.id }"
-        :title="`${artifactOrigin(artifact.id)}候选 ${artifact.id}`"
-        @click="selectArtifact(artifact.id)"
-      >
-        <img v-if="artifact.data" :src="artifact.data" alt="" />
-        <span v-else>{{ artifactOrigin(artifact.id) }}</span>
-        <small>{{ artifactOrigin(artifact.id) }}</small>
-      </button>
-      <span v-if="loadingArtifacts" class="comic-stage-workbench__empty">读取候选…</span>
-      <span v-else-if="!artifactPreviews.length" class="comic-stage-workbench__empty">
-        {{ stageEntry.status === 'failed' ? stageEntry.error?.message : '尚无阶段产物' }}
-      </span>
-    </div>
-
-    <figure v-if="selectedArtifact?.data" class="comic-stage-workbench__selected">
-      <img :src="selectedArtifact.data" :alt="`${COMIC_STAGE_LABELS[activeStage]}当前候选`" />
-      <figcaption>
-        <span>{{ artifactOrigin(selectedArtifact.id) }}</span>
-        <span>{{ stageStatus(activeStage) }}</span>
-        <span v-if="selectedLineage?.parentAssetId">沿用上一阶段</span>
-      </figcaption>
-    </figure>
+    <ComicImageCandidates
+      :key="`${page.id}:${panel.id}:${activeStage}`"
+      :panel-id="panel.id"
+      :panel-order="panel.order"
+      :stage-label="COMIC_STAGE_LABELS[activeStage]"
+      :takes="artifactPreviews.filter(artifact => artifact.data)"
+      :current-image="selectedArtifact"
+      select-label="选作当前候选"
+      selected-label="当前候选"
+      @select="selectArtifact"
+    />
+    <span v-if="loadingArtifacts" class="comic-stage-workbench__empty">读取候选…</span>
+    <p v-else-if="stageEntry.artifactIds.length && !artifactPreviews.some(artifact => artifact.data)" class="comic-stage-workbench__gate">暂未读到候选图片，请重新打开这一格。</p>
+    <p v-if="selectedArtifact" class="comic-stage-workbench__selection-status">
+      {{ artifactOrigin(selectedArtifact.id) }} · {{ stageStatus(activeStage) }}<span v-if="selectedLineage?.parentAssetId"> · 沿用上一阶段</span>
+    </p>
 
     <div v-if="stageUnknown" class="comic-stage-workbench__unknown" role="alert" data-test="comic-stage-unknown">
-      <span>上次{{ COMIC_STAGE_LABELS[activeStage] }}请求结果未知（可能在刷新前已发出）。</span>
+      <span>{{ stageEntry.error?.message || `上次${COMIC_STAGE_LABELS[activeStage]}生成已中断，尚未收到完整图片。` }}</span>
       <div>
         <button type="button" @click="resolveUnknownRequest('verify')">核查结果</button>
-        <button type="button" @click="resolveUnknownRequest('regenerate')">明确再生成</button>
+        <button type="button" @click="resolveUnknownRequest('regenerate')">重新生成</button>
       </div>
     </div>
 
+    <GenerationProgress v-if="busy || stageRunning" v-bind="progress" :started-at="stageEntry.pendingRequest?.sentAt || progress.startedAt" :label="`正在制作${COMIC_STAGE_LABELS[activeStage]}`" />
     <div class="comic-stage-workbench__actions">
-      <button class="comic-stage-workbench__generate" type="button" :disabled="busy || stageUnknown || !generateGate.allowed" :title="stageUnknown ? '上一请求结果未知，请先核查或明确再生成' : generateGate.reason" @click="generateStage()">
+      <button class="comic-stage-workbench__generate" type="button" :disabled="busy || stageRunning || stageUnknown || !generateGate.allowed" :title="stageUnknown ? '上一请求结果未知，请先核查或明确再生成' : generateGate.reason" @click="generateStage()">
         <RefreshCw :size="13" aria-hidden="true" />
-        {{ busy ? '处理中…' : activeStage === 'rough' ? '生成草稿' : `生成${COMIC_STAGE_LABELS[activeStage]}` }}
+        {{ busy || stageRunning ? '处理中…' : activeStage === 'rough' ? '生成草稿' : `生成${COMIC_STAGE_LABELS[activeStage]}` }}
       </button>
-      <button type="button" :disabled="busy" @click="uploadInput?.click()">
+      <button type="button" :disabled="busy || stageRunning" @click="uploadInput?.click()">
         <Upload :size="13" aria-hidden="true" />
         上传替换
       </button>
-      <button class="comic-stage-workbench__approve" type="button" :disabled="busy || stageEntry.status !== 'review' || !selectedArtifact" @click="approveStage">
+      <button class="comic-stage-workbench__approve" type="button" :disabled="busy || stageRunning || stageEntry.status !== 'review' || !selectedArtifact" @click="approveStage">
         <Check :size="13" aria-hidden="true" />
         确认采用
       </button>
@@ -560,14 +561,14 @@ function readImageDimensions(data) {
         <span v-if="maskImage">遮罩已就绪</span>
       </div>
       <textarea v-model="revisionPrompt" rows="2" placeholder="只描述遮罩区域要修正的内容" aria-label="局部修正提示"></textarea>
-      <button type="button" :disabled="busy || !maskImage || !inpaintGate.allowed" @click="generateStage('inpaint')">
+      <button type="button" :disabled="busy || stageRunning || !maskImage || !inpaintGate.allowed" @click="generateStage('inpaint')">
         <Sparkles :size="13" aria-hidden="true" />
         生成修订候选
       </button>
     </details>
 
     <details class="comic-stage-workbench__references">
-      <summary>身份与结构参考 · {{ activeBindings.length }}</summary>
+      <summary>参考图片<span v-if="activeBindings.length">{{ activeBindings.length }}</span></summary>
       <div v-for="(binding, index) in activeBindings" :key="`${binding.role}:${binding.assetId}:${index}`" class="comic-stage-workbench__binding">
         <span>{{ { identity: '身份', costume: '服装', location: '地点', prop: '道具', style: '风格', pose: '姿势', edge: '边缘', depth: '深度' }[binding.role] || binding.role }}</span>
         <strong>{{ mediaLabel(referenceAssets.find((asset) => asset.id === binding.assetId) || { id: binding.assetId }) }}</strong>
@@ -599,7 +600,7 @@ function readImageDimensions(data) {
 
     <div v-if="persistRetryId" class="comic-stage-workbench__unknown" data-test="comic-persist-retry">
       <span>图片保存失败，结果已暂存在本会话内存中。</span>
-      <button type="button" :disabled="busy" @click="retryPersist">只重试保存</button>
+      <button type="button" :disabled="busy || stageRunning" @click="retryPersist">只重试保存</button>
     </div>
 
     <p v-if="error" class="comic-stage-workbench__message is-error" role="alert">{{ error }}</p>
@@ -957,6 +958,17 @@ function readImageDimensions(data) {
 .comic-stage-workbench__binding button, .comic-stage-workbench__binding-add button { width: 36px; height: 36px; }
 .comic-stage-workbench__unknown { padding: 12px; gap: 10px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-control); background: var(--surface-workbench-input); font-size: 13px; }
 .comic-stage-workbench :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.comic-stage-workbench__tabs { padding: 0; gap: 8px; border-radius: 0; background: transparent; }
+.comic-stage-workbench__tabs button { min-height: 50px; border-radius: 0; border-bottom: 2px solid transparent; box-shadow: none; }
+.comic-stage-workbench__tabs button.active { background: transparent; border-bottom-color: var(--text-primary); box-shadow: none; }
+.comic-stage-workbench__tabs button.is-stale { color: var(--text-secondary); }
+.comic-stage-workbench__tabs small { color: var(--text-muted); }
+.comic-stage-workbench__selection-status { margin: 0; font-size: 12px; color: var(--text-secondary); }
+.comic-stage-workbench__actions button { border-radius: 5px; }
+.comic-stage-workbench__actions .comic-stage-workbench__approve:not(:disabled) { background: var(--workbench-action); color: var(--workbench-action-text); }
+.comic-stage-workbench__actions .comic-stage-workbench__generate:not(:disabled) { background: var(--nav-selected); }
+.comic-stage-workbench__references summary { display: flex; align-items: center; gap: 10px; }
+.comic-stage-workbench__references summary span { color: var(--text-muted); font-size: 12px; }
 @media (max-width: 640px), (pointer: coarse) {
   .comic-stage-workbench__actions button, .comic-stage-workbench__revision button, .comic-stage-workbench__unknown button, .comic-stage-workbench__binding button, .comic-stage-workbench__binding-add button, .comic-stage-workbench__binding-add select { min-height: 44px; }
 }

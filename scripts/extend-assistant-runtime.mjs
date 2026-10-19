@@ -34,5 +34,13 @@ export function extendAssistantRuntime(directory) {
     ['        catch (e) {\n            // 能力任务', '        catch (e) {\n            if (assistantTask?.state.delivery && String(ac.signal.reason?.message || "") === "PINAX_ASSISTANT_DELIVERED") {\n                const delivery = assistantTask.state.delivery;\n                finalText = assistantCompletionText(agent.state.messages, delivery, finalText);\n                emitTask("completed", { status: "completed", taskId: req.taskId || base.taskId, bookId: req.bookId, finalText, delivery, model: `${cfg.provider}.${cfg.model}`, usage: counters.usage, steps: counters.steps, toolCalls: counters.toolCalls });\n                return { ...base, status: "completed", finalText, delivery, messages: agent.state.messages, steps: counters.steps, toolCalls: counters.toolCalls };\n            }\n            // 能力任务']
   ])
   patch('server.js', [['[...PINAX_TOOL_NAMES, "manuscript", "notes", "outline"]', '[...PINAX_TOOL_NAMES, "manuscript", "notes", "outline", "workspace"]'], ['const store = new TaskStore(cfg.tasksDir);', 'const store = new TaskStore(cfg.tasksDir);'], ['json(res, 200, { ok: true', 'json(res, 200, { assistantProtocolVersion: 2, assistantWorkspace: true, assistantNarrative: true, assistantSampling: true, assistantObservability: true, assistantKnowledge: true, ok: true']])
+  // pi-ai requires block arrays for every assistant message, including plain drafts
+  // sent back for revision. A string causes a local serializer error before any request.
+  patch('modelFunnel.js', [
+    ['if (message.role === "assistant" && message.toolCalls?.length) {', 'if (message.role === "assistant") {'],
+    ['for (const call of message.toolCalls)\n', 'for (const call of (message.toolCalls || []))\n'],
+    ['...(request.toolChoice !== undefined ? { toolChoice: request.toolChoice } : {})', '...(request.toolChoice !== undefined ? { toolChoice: model.api === "anthropic-messages" && request.toolChoice?.type === "function" ? { type: "tool", name: request.toolChoice.function.name } : request.toolChoice } : {})'],
+    ['    const content = (message.content ?? []).filter', '    if (["error", "aborted"].includes(message.stopReason)) throw new Error("模型补全未完成：" + (message.errorMessage || message.stopReason));\n    const content = (message.content ?? []).filter']
+  ])
   return createHash('sha256').update(fs.readFileSync(import.meta.filename)).update(assistantRuntimeFiles.map(file => fs.readFileSync(path.join(root, file))).reduce((all, buffer) => Buffer.concat([all, buffer]), Buffer.alloc(0))).digest('hex')
 }

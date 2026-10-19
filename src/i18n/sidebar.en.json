@@ -286,5 +286,17 @@
   "取消并返回": "Cancel and return",
   "返回当前场": "Return to current scene",
   "世界地图": "World map",
-  "选一项设定查看场景与经历。": "Select an entry to see scenes and history."
+  "选一项设定查看场景与经历。": "Select an entry to see scenes and history.",
+  "新建文件夹": "New folder",
+  "新建设定…": "New setting…",
+  "设定…": "Setting…",
+  "漫画页": "Comic page",
+  "导入资料…": "Import source…",
+  "移到…": "Move to…",
+  "移除文件夹": "Remove folder",
+  "关联内容…": "Related content…",
+  "文件夹名称": "Folder name",
+  "重命名文件夹": "Rename folder",
+  "保存名称": "Save name",
+  "移除此文件夹？其中的内容将移到上一级，不会删除原件。": "Remove this folder? Its contents will move to the parent folder. No content will be deleted."
 }

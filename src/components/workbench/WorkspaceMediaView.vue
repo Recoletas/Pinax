@@ -1,4 +1,5 @@
 <script setup>
+import { useRouter } from 'vue-router'
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
@@ -11,6 +12,7 @@ const VideoPanel = defineAsyncComponent(() => import('../media/StoryboardVideoPa
 const props = defineProps({ resource: { type: Object, required: true }, instanceId: { type: String, required: true } })
 const emit = defineEmits(['title'])
 const host = useComposableWorkspace()
+const router = useRouter()
 const item = ref(null)
 const image = ref('')
 const videoContext = ref(null)
@@ -86,6 +88,11 @@ onMounted(() => { window.addEventListener('focus', refresh); window.addEventList
 onBeforeUnmount(() => { disposed = true; sequence += 1; releaseAssets(); unregister?.(); unregisterTask?.(); window.removeEventListener('focus', refresh); window.removeEventListener('storage', refresh) })
 const references = computed(() => item.value?.sourceRefs || [])
 async function openWorkbench() {
+  if (props.resource.type === 'asset') {
+    if (!await host.prepareOpen('main')) return
+    await router.push({ name: 'authoring', query: { bookId: props.resource.bookId, tool: 'illustrator' } })
+    return
+  }
   const resource = props.resource.type === 'comic'
     ? { type: 'comic-editor', bookId: props.resource.bookId, pageId: props.resource.id }
     : { type: 'materials-editor', bookId: props.resource.bookId, assetId: props.resource.id }
@@ -99,7 +106,7 @@ async function openWorkbench() {
     <p v-if="notice" role="status">{{ tr(notice) }}</p>
     <template v-if="item">
       <VideoPanel v-if="resource.type === 'video' && videoContext" ref="videoRef" embedded :context="videoContext" :project-id="resource.bookId" :stale="stale" :validate-context="currentVideoMatches" @shots-updated="updateShots" />
-      <template v-else><div class="workspace-media-actions"><span>{{ tr('参考内容') }}</span><button type="button" class="control-quiet" @click="openWorkbench">{{ tr(resource.type === 'comic' ? '打开漫画工作台' : '打开素材') }}</button></div><h1>{{ item.title }}</h1><ComicPagePreview v-if="resource.type === 'comic'" :page="item" /><img v-else-if="image" class="workspace-media-image" :src="image" :alt="item.title" /><pre v-if="item.content">{{ item.content }}</pre>
+      <template v-else><div class="workspace-media-actions"><span>{{ tr('参考内容') }}</span><button type="button" class="control-quiet" @click="openWorkbench">{{ tr(resource.type === 'comic' ? '打开漫画工作台' : '打开画师') }}</button></div><h1>{{ item.title }}</h1><ComicPagePreview v-if="resource.type === 'comic'" :page="item" /><img v-else-if="image" class="workspace-media-image" :src="image" :alt="item.title" /><pre v-if="item.content">{{ item.content }}</pre>
         <nav v-if="references.length" :aria-label="tr('查看来源')"><button v-for="source in references.filter(ref => ['chapter', 'worldbook-entry', 'narrative-asset', 'comic-page'].includes(ref.refType))" :key="`${source.refType}:${source.refId}`" type="button" class="control-quiet" @click="openSource(source)">{{ tr('查看来源') }} · {{ source.excerpt || source.refId }}</button></nav>
       </template>
     </template>

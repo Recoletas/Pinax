@@ -51,7 +51,6 @@ const mainSurfaces = Object.freeze([
   { key: 'sources', label: '资料', icon: 'sources' }
 ])
 const extraSurfaceDefinitions = Object.freeze([
-  { key: 'materials', label: '素材', icon: 'image' },
   { key: 'map', label: '地图', icon: 'map' },
   { key: 'comics', label: '漫画', icon: 'comics' },
   { key: 'canvas', label: '视频', icon: 'film' },

@@ -14,7 +14,7 @@
   --workspace-control-height: 36px;
   --workspace-radius: var(--radius-control);
 }
-.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast, .docs-page__head, .settings-topbar) {
+.theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast, .settings-topbar) {
   min-height: var(--workspace-toolbar-height);
   background: var(--surface-workbench-canvas);
   background-image: none;
@@ -48,21 +48,16 @@
 }
 .theme-legacy .app-shell .shell-content .active-card .chapter-title-input { font-family: inherit; font-size: 24px; font-weight: 600; }
 .theme-legacy .app-shell .shell-content .reading-deck { padding: 24px; }
-.theme-legacy .app-shell .shell-content .comic-planner { width: 100%; max-width: none; margin: 0; padding: 28px 32px; }
 .theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface { background: var(--surface-workbench); border: 0; }
 .theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::before,
 .theme-legacy .app-shell .shell-content .notes-content-area > .folio-surface::after { display: none; }
-.theme-legacy .app-shell .shell-content .comic-planner__header h2 { font-family: inherit; font-size: 26px; font-weight: 600; }
-.theme-legacy .app-shell .shell-content :is(.comic-planner__header p, .comic-planner__empty p) { font-size: 14px; line-height: 1.7; }
-.theme-legacy .app-shell .shell-content :is(.comic-planner__primary, .active-card button) { min-height: var(--workspace-control-height); border-radius: var(--workspace-radius); font-size: 14px; }
-.theme-legacy .app-shell .shell-content .docs-page__head-inner { min-height: var(--workspace-toolbar-height); padding-block: 0; }
-.theme-legacy .app-shell .shell-content .docs-page__sidebar { background: var(--surface-workbench-muted); }
+.theme-legacy .app-shell .shell-content .active-card button { min-height: var(--workspace-control-height); border-radius: var(--workspace-radius); font-size: 14px; }
 .theme-legacy .app-shell .shell-content .authoring-editor-toolbar-host { min-height: var(--workspace-toolbar-height); background: var(--surface-workbench-canvas); border-color: transparent; }
 .theme-legacy .app-shell .shell-content .scene-board-host > .scene-material-board { flex: 1; width: 100%; background: var(--surface-workbench); }
 .theme-legacy .app-shell .shell-content .active-card .prose-rich-editor { width: 100%; min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .theme-legacy .app-shell .shell-content :is(.manuscript-top, .prose-top, .comic-studio__topbar, .comic-studio__mast) { padding-inline: 12px; gap: 8px; }
-  .theme-legacy .app-shell .shell-content :is(.active-card, .comic-planner) { padding: 20px 16px; }
+  .theme-legacy .app-shell .shell-content .active-card { padding: 20px 16px; }
   .theme-legacy .app-shell .shell-content .reading-deck { padding: 12px; }
 }
 .theme-legacy .app-shell .shell-content :is(.manuscript-top__tab, .prose-top__chip, .comic-studio__mode-btn) {
@@ -105,6 +100,9 @@
 .theme-legacy .app-shell .shell-content .index-card::after { display: none; }
 .theme-legacy .app-shell .shell-content .index-card__title { font-size: 14px; }
 .theme-legacy .app-shell .shell-content .notes-sidekick { background: var(--surface-workbench-muted); border-color: transparent; }
+/* Comic canvas supplies the muted ground; its controls share the workbench surface. */
+.theme-legacy .app-shell .shell-content .comic-studio__inspector { background: var(--surface-workbench); border-left: 1px solid var(--hairline-soft); }
+.theme-legacy .app-shell .shell-content .comic-studio__workflow button { border-radius: 0; }
 .theme-legacy .app-shell .shell-content .notes-sidekick__title { font-size: 15px; }
 .theme-legacy .app-shell .shell-content .writing-page .authoring-editor-toolbar-host .tool-btn { font-family: var(--font-sans); font-size: 14px; border-radius: var(--workspace-radius); }
 @media (max-width: 760px), (pointer: coarse) {

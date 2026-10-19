@@ -17,7 +17,7 @@ export function useWorkspaceProjectActions({ route, router, host, onError }) {
     { key: 'video', label: '视频', icon: 'film', route: 'prose-essay' },
     { key: 'experience', label: '跑团', icon: 'adventure', route: 'experience' }
   ]
-  const extras = [{ key: 'online', label: '联机', icon: 'users', route: 'online-experience' },{ key: 'map', label: '地图', icon: 'map', route: 'settings-world-map' }, { key: 'entries', label: '条目', icon: 'list', route: 'settings-worldbook-advanced' }, { key: 'materials', label: '素材', icon: 'image', route: 'materials' }]
+  const extras = [{ key: 'online', label: '联机', icon: 'users', route: 'online-experience' },{ key: 'map', label: '地图', icon: 'map', route: 'settings-world-map' }, { key: 'entries', label: '条目', icon: 'list', route: 'settings-worldbook-advanced' }]
   const busy = ref(false)
   const error = ref('')
   async function openSurface(key) {

@@ -3346,6 +3346,7 @@ describe('Media services', () => {
     expect(retryButton).toBeTruthy()
     await retryButton.trigger('click')
     await vi.waitFor(() => expect(workbench.emitted('generation-complete')).toHaveLength(1))
+    await vi.waitFor(() => expect(workbench.get('.image-gen-generate-btn').element.disabled).toBe(false))
     expect(partialFetch).toHaveBeenCalledTimes(3)
     expect(workbench.findAll('.image-gen-thumb')).toHaveLength(retained + 1)
     addSpy.mockRejectedValueOnce(new Error('存储已满'))
@@ -3835,7 +3836,8 @@ describe('Media services', () => {
     expect(generateLine.attributes('disabled')).toBeDefined()
     await roughTab.trigger('click')
     await flushPromises()
-    expect(productionWorkbench.text()).toContain('尚无阶段产物')
+    expect(productionWorkbench.find('[aria-label="图片候选"]').exists()).toBe(false)
+    expect(productionWorkbench.find('.comic-stage-workbench__generate').attributes('disabled')).toBeUndefined()
     productionWorkbench.unmount()
     const monochromeWorkbench = mount(ComicStageWorkbench, {
       props: {
@@ -4188,7 +4190,7 @@ describe('Media services', () => {
         referenceCatalog
       }
     })
-    expect(adaptationPlanner.findAll('[role="tab"]')).toHaveLength(2)
+    expect(adaptationPlanner.findAll('[aria-label="选择分镜方案"] option')).toHaveLength(2)
     expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')).toHaveLength(2)
     expect(adaptationPlanner.findAll('.comic-plan-page')).toHaveLength(2)
     expect(adaptationPlanner.text()).toContain('视觉规则')
@@ -4196,7 +4198,8 @@ describe('Media services', () => {
     expect(adaptationPlanner.emitted('update-plan').at(-1)[0].pages[0].title).toBe('作者调整的第一页')
     expect(adaptationCandidates[0].pages[0].title).not.toBe('作者调整的第一页')
     await adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].trigger('click')
-    expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].attributes('aria-pressed')).toBe('true')
+    expect(adaptationPlanner.get('[aria-label="选择计划页"]').element.value).toBe('1')
+    expect(adaptationPlanner.get('[aria-label="下一页分镜"]').attributes('disabled')).toBeDefined()
     expect(adaptationPlanner.findAll('.comic-plan-page')[1].attributes('style') || '').not.toContain('display: none')
     await adaptationPlanner.findAll('.comic-planner__sections > button')[1].trigger('click')
     await adaptationPlanner.findAll('.comic-planner__icon')[0].trigger('click')
@@ -4221,6 +4224,7 @@ describe('Media services', () => {
         bibleConfirmed: false
       }
     })
+    await persistedPlanner.findAll('.comic-planner__sections > button')[1].trigger('click')
     await persistedPlanner.get('.comic-planner__header .comic-planner__primary').trigger('click')
     expect(persistedPlanner.emitted('confirm-bible')).toHaveLength(1)
     persistedPlanner.unmount()
@@ -4321,8 +4325,7 @@ describe('Media services', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects[0].style)
       .toEqual({ fontFamily: 'rounded', fontSize: 37, fontWeight: 800, textAlign: 'right', textDirection: 'horizontal', rotation: 0 })
     expect(comicEditor.findAll('.comic-lettering-overlay__handle')).toHaveLength(8)
-    const pageWorkspaceTab = comicEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
-      .find((button) => button.text() === '页面与导出')
+    const pageWorkspaceTab = comicEditor.get('button[aria-label="页面与导出"]')
     await pageWorkspaceTab.trigger('click')
     expect(comicEditor.text()).toContain('视觉连续性')
     expect(comicEditor.text()).toContain('页级节拍与连续性')
@@ -4418,9 +4421,8 @@ describe('Media services', () => {
     expect(sixPanelOption.attributes('aria-pressed')).toBe('true')
     const createBlankPage = blankEditor.findAll('button').find((button) => button.text() === '建立空白页')
     await createBlankPage.trigger('click')
-    expect(blankEditor.text()).toContain('0/6')
-    const blankPageWorkspace = blankEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
-      .find((button) => button.text() === '页面与导出')
+    expect(blankEditor.get('.comic-editor__panel-nav').text()).toContain('第 1 格')
+    const blankPageWorkspace = blankEditor.get('button[aria-label="页面与导出"]')
     await blankPageWorkspace.trigger('click')
     expect(blankEditor.findAll('.comic-page-preview__panel')).toHaveLength(6)
     blankEditor.unmount()

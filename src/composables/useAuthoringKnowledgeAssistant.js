@@ -177,8 +177,8 @@ export function createAuthoringKnowledgeAssistant({
         hasUnread: Boolean(saved.hasUnread),
         persistenceError: loaded.ok ? '' : loaded.error,
         agentTaskId: saved.agentTaskId || '', agentRefs: saved.agentRefs || [], agentSkills: saved.agentSkills || [],
-        agentPermission: { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }, permissionRevision: 0,
-        agentAdoptionBusy: false, activeSessionId: saved.activeSessionId || messageId('session'),
+        agentPermission: { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false },
+        agentAdoptionBusy: false, runningPermission: null, activeSessionId: saved.activeSessionId || messageId('session'),
         agentSessions: saved.agentSessions || []
       }),
       runtime: {
@@ -238,7 +238,7 @@ export function createAuthoringKnowledgeAssistant({
     entry.runtime.token += 1
     entry.runtime.staleToken += 1
     agentEngine?.revokePermission?.()
-    entry.state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; entry.state.permissionRevision++
+    entry.state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
     reviewedMessageId.value = ''
     entry.state.activeSessionId = sessionId
     entry.state.messages = JSON.parse(JSON.stringify(saved.messages || []))
@@ -313,7 +313,7 @@ export function createAuthoringKnowledgeAssistant({
     reviewedMessageId.value = ''
     state.agentTaskId = ''
     agentEngine?.revokePermission?.()
-    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; state.permissionRevision++
+    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
     if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
     scheduleStalenessRefresh()
     return true
@@ -345,7 +345,7 @@ export function createAuthoringKnowledgeAssistant({
     question.answerVersionIndex = question.answerVersions.length - 1
     state.messages = state.messages.slice(0, questionIndex + 1)
     agentEngine?.revokePermission?.()
-    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }; state.permissionRevision++
+    state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
     state.agentTaskId = ''
     reviewedMessageId.value = ''
     if (persistConversation(entry)?.ok !== true) { state.messages = previous; return false }
@@ -407,7 +407,7 @@ export function createAuthoringKnowledgeAssistant({
     const previous = JSON.parse(JSON.stringify(state))
     state.agentSessions = state.agentSessions.filter(session => session.sessionId !== sessionId)
     if (state.activeSessionId === sessionId) {
-      agentEngine?.revokePermission?.(); state.agentPermission = { mode: 'review', scope: 'current' }; state.permissionRevision++
+      agentEngine?.revokePermission?.(); state.agentPermission = { mode: 'review', scope: 'current' }
       reviewedMessageId.value = ''
       const next = state.agentSessions[0]
       state.activeSessionId = next?.sessionId || messageId('session')
@@ -465,6 +465,7 @@ export function createAuthoringKnowledgeAssistant({
     entry.runtime.controller?.abort()
     entry.runtime.controller = null
     entry.state.busy = false
+    entry.state.runningPermission = null
     if (wasBusy) {
       entry.state.status = leaving ? 'interrupted' : 'cancelled'
       if (leaving) entry.state.error = '上次查询因离开写作页停止；如需继续，请手动重试。'
@@ -575,7 +576,6 @@ export function createAuthoringKnowledgeAssistant({
     const entry = activeEntry.value
     const state = entry.state
     const runtime = entry.runtime
-    const permissionRevision = state.permissionRevision
     const question = normalizedText(typeof payload === 'string' ? payload : payload.question ?? state.draft)
     const intent = String(typeof payload === 'object' ? payload.intent || state.selectedIntent : state.selectedIntent)
     const project = entry.projectId
@@ -588,6 +588,8 @@ export function createAuthoringKnowledgeAssistant({
       if (stopped === false || entry !== activeEntry.value || disposed || state.busy) return false
     }
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
+    const requestPermission = cloneQueryInput(state.agentPermission)
+    const requestSessionId = state.activeSessionId
     const providerQuestion = questionWithConversation(question, state.messages)
     const token = ++runtime.token
     let revealChange = null
@@ -600,6 +602,7 @@ export function createAuthoringKnowledgeAssistant({
     runtime.requestDraftRevision = runtime.draftRevision
     runtime.canSaveConversation = true
     runtime.canSaveDraft = true
+    state.runningPermission = requestPermission
     state.busy = true
     state.status = 'running'
     state.error = ''
@@ -616,18 +619,19 @@ export function createAuthoringKnowledgeAssistant({
     try {
       if (agentEngine) {
         // runAuthoringAgentTurn captures the context before its first await.
+        const requestId = messageId('agent')
         const pending = runAuthoringAgentTurn({ engine: requestEngine, entry, question, providerQuestion, token, signal: controller.signal,
-          sampling, persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: messageId('agent') })
+          sampling, permission: requestPermission, sessionId: requestSessionId, persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: requestId })
         const succeeded = await pending
         if (!succeeded || token !== runtime.token || disposed) return false
         state.status = state.messages.at(-1)?.status || 'completed'; state.hasUnread = true; state.lastRequest = null
-        const message = state.messages.findLast(item => item.kind === 'agent' && item.proposal)
-        if (message?.proposal && permissionRevision === state.permissionRevision && entry === activeEntry.value) {
+        const message = state.messages.find(item => item.id === requestId && item.proposal)
+        if (message?.proposal && entry === activeEntry.value) {
           reviewedMessageId.value = message.id
-          if (state.agentPermission.mode === 'auto' && editorAttached() && attachmentRevision() === requestAttachment) {
-            const result = await applyAgentProposal({ automatic: true })
+          if (requestPermission.mode === 'auto' && editorAttached() && attachmentRevision() === requestAttachment) {
+            const result = await applyAgentProposal({ automatic: true, permission: requestPermission })
             if (!result) state.error ||= '自动修改未应用，建议已保留供审阅。'
-          } else if (state.agentPermission.mode === 'auto') {
+          } else if (requestPermission.mode === 'auto') {
             state.error = '修改建议已保留，请返回正文审阅后采用。'
           } else { revealChange = message.proposal.changes.find(change => change.kind === 'chapter') || message.proposal.changes[0] }
         }
@@ -700,6 +704,7 @@ export function createAuthoringKnowledgeAssistant({
     } finally {
       if (token === runtime.token) {
         state.busy = false
+        state.runningPermission = null
         runtime.controller = null
         persistConversation(entry)
         if (revealChange && entry === activeEntry.value && editorAttached() && attachmentRevision() === requestAttachment) onReviewProposal?.(revealChange)
@@ -718,7 +723,7 @@ export function createAuthoringKnowledgeAssistant({
   watch(activeProjectId, (next, previous) => {
     if (previous && next !== previous) {
       const entry = entries.get(previous)
-      if (entry) { agentEngine?.revokePermission?.(); entry.state.agentPermission = { mode: 'review', scope: 'current' }; entry.state.permissionRevision++; cancelEntry(entry, { leaving: true }); persistDraft(entry) }
+      if (entry) { agentEngine?.revokePermission?.(); entry.state.agentPermission = { mode: 'review', scope: 'current' }; cancelEntry(entry, { leaving: true }); persistDraft(entry) }
       reviewedMessageId.value = ''
       focusedEvidenceSources.delete(previous)
     }
@@ -769,7 +774,6 @@ export function createAuthoringKnowledgeAssistant({
     const stored = getItem(`assistant_edit_receipt:${message.proposal.id}`, null)
     if (stored?.bookId === message.proposal.bookId) message.proposal = stored
     reviewedMessageId.value = id
-    if (!agentEngine.ensureEditorAuthorization) void setAgentPermission(activeEntry.value.state.agentPermission)
     onReviewProposal?.(message.proposal.changes[0])
     return true
   }
@@ -779,13 +783,21 @@ export function createAuthoringKnowledgeAssistant({
     reviewedMessageId.value = id
     return applyAgentProposal({ undo: true })
   }
-  async function applyAgentProposal({ undo = false, discard = false, changeIds = null, automatic = false } = {}) {
+  async function applyAgentProposal({ undo = false, discard = false, changeIds = null, automatic = false, permission = null } = {}) {
     const entry = activeEntry.value
     const proposal = proposalReview.value
     if (!editorAttached() || !proposal || (entry.state.busy && !automatic) || entry.state.agentAdoptionBusy) return false
+    const adoptionPermission = cloneQueryInput(automatic ? permission || entry.state.runningPermission : entry.state.agentPermission)
+    const sessionId = entry.state.activeSessionId
     entry.state.agentAdoptionBusy = true
     try {
-      if (!undo && !discard) await agentEngine.ensureEditorAuthorization?.(entry.state.agentPermission, entry.state.activeSessionId)
+      if (!undo && !discard) {
+        if (agentEngine.ensureEditorAuthorization) await agentEngine.ensureEditorAuthorization(adoptionPermission, sessionId)
+        else if (agentEngine.authorize) {
+          const prepared = typeof agentEngine.permissionContext === 'function' ? agentEngine.permissionContext() : agentEngine.prepare({ text: '', bookId: entry.projectId })
+          await agentEngine.authorize(adoptionPermission, sessionId, prepared)
+        }
+      }
       const result = await agentEngine.applyProposal(proposal, { undo, discard, changeIds })
       if (!result.ok) entry.state.error = result.error
       else entry.state.error = ''
@@ -793,21 +805,28 @@ export function createAuthoringKnowledgeAssistant({
     } catch (error) { entry.state.error = error.message || '修改未保存，建议已保留。'; return false }
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
-  const agentState = computed(() => ({ permission: activeEntry.value.state.agentPermission, enabled: Boolean(agentEngine), taskId: activeEntry.value.state.agentTaskId, refs: activeEntry.value.state.agentRefs, skills: activeEntry.value.state.agentSkills, adoptionBusy: activeEntry.value.state.agentAdoptionBusy }))
+  function actOnProposal({ action, changeIds } = {}) {
+    if (!['adopt', 'discard', 'undo'].includes(action)) return false
+    return applyAgentProposal({ undo: action === 'undo', discard: action === 'discard', changeIds })
+  }
+  const agentState = computed(() => {
+    const state = activeEntry.value.state
+    const preferenceKey = permission => JSON.stringify([permission.mode, permission.scope, [...(permission.chapterIds || [])].sort(), Boolean(permission.worldbook), Boolean(permission.outline)])
+    return { permission: state.agentPermission, currentChapterId: agentEngine?.destination?.()?.chapterId || '', permissionPending: Boolean(state.busy && state.runningPermission && preferenceKey(state.agentPermission) !== preferenceKey(state.runningPermission)), enabled: Boolean(agentEngine), taskId: state.agentTaskId, refs: state.agentRefs, skills: state.agentSkills, adoptionBusy: state.agentAdoptionBusy }
+  })
   async function setAgentPermission(patch) {
     const entry = activeEntry.value
     if (!editorAttached() || entry.state.agentAdoptionBusy) return false
-    agentEngine?.revokePermission?.()
-    const revision = ++entry.state.permissionRevision
-    entry.state.agentPermission = { ...entry.state.agentPermission, ...patch }
-    // Update policy immediately so pending suggestions can be reviewed after changing scope.
-    try {
-      const prepared = agentEngine?.prepare({ text: '', bookId: entry.projectId })
-      if (prepared && agentEngine.authorize) await agentEngine.authorize(entry.state.agentPermission, entry.state.activeSessionId, prepared)
-      return true
-    } catch (error) { if (revision === entry.state.permissionRevision && entry === activeEntry.value) entry.state.error = error.message; return false }
+    entry.state.agentPermission = cloneQueryInput({ ...entry.state.agentPermission, ...patch })
+    // Settings are preferences for the next send. Revoking/replacing a policy
+    // here aborts the current server stream; grant only at send or adoption.
+    return true
   }
   function agentContext() { try { return agentEngine?.context() || {} } catch { return {} } }
+  function agentChapterOptions() {
+    try { return typeof agentEngine?.chapterOptions === 'function' ? agentEngine.chapterOptions() : (agentContext().chapterEntries || []).map(({ id, title }) => ({ id, title })) }
+    catch { return [] }
+  }
   function setAgentReferences(refs) { activeEntry.value.state.agentRefs = refs.slice(0, 8); persistConversation(activeEntry.value) }
   function setAgentSkills(skills) { activeEntry.value.state.agentSkills = skills.slice(0, 3); persistConversation(activeEntry.value) }
   function newAgentTask() { return newConversation() }
@@ -826,8 +845,8 @@ export function createAuthoringKnowledgeAssistant({
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
   return Object.freeze({
-    undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal,
-    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, answerVersionInfo, selectAnswerVersion, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
+    undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal, actOnProposal,
+    setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, answerVersionInfo, selectAnswerVersion, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, agentChapterOptions, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
     ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

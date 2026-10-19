@@ -143,7 +143,7 @@ function openOriginal() {
 }
 
 function authorityLabel(authority) {
-  return ({ manuscript: '正文', worldbook: '世界设定', outline: '大纲意图', history: '历史', scene: '当前场', memory: '相关记忆', suggestion: '速记' })[authority] || '项目资料'
+  return ({ manuscript: '正文', worldbook: '世界设定', outline: '大纲意图', history: '历史', scene: '当前', memory: '相关记忆', suggestion: '速记' })[authority] || '项目资料'
 }
 
 watch(() => props.projectId, () => closePreview({ restoreFocus: false }))

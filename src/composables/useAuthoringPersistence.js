@@ -138,8 +138,6 @@ export function useAuthoringPersistence({
   }
 
   function handleAuthoringPageExit(event) {
-    if (!EXIT_GUARD_STATUSES.has(saveStatus.value)) return true
-    writeRecoveryDraft?.()
     if (valueOf(pendingGhostAdoption) || valueOf(blockPreview)) {
       if (event?.type === 'beforeunload') {
         event.preventDefault?.()
@@ -147,6 +145,8 @@ export function useAuthoringPersistence({
       }
       return false
     }
+    if (!EXIT_GUARD_STATUSES.has(saveStatus.value)) return true
+    writeRecoveryDraft?.()
     clearPendingDocumentSaveTimers()
     const persisted = valueOf(activeDocument)
       ? persistActiveDocument?.()?.ok === true
@@ -183,10 +183,12 @@ export function useAuthoringPersistence({
     }
   }
 
-  watch(saveStatus, (next, previous) => {
-    const needsExitGuard = EXIT_GUARD_STATUSES.has(next)
+  watch(() => EXIT_GUARD_STATUSES.has(saveStatus.value) || Boolean(valueOf(pendingGhostAdoption)) || Boolean(valueOf(blockPreview)), (needsExitGuard) => {
     if (needsExitGuard) window.addEventListener('beforeunload', handleAuthoringPageExit)
     else window.removeEventListener('beforeunload', handleAuthoringPageExit)
+  }, { immediate: true })
+
+  watch(saveStatus, (next, previous) => {
     if (feedbackTimer) clearTimeout(feedbackTimer)
     feedbackTimer = null
     if (next === 'saved') {

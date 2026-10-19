@@ -9,14 +9,15 @@ import {
   updateComicPanel,
   updateComicPanelStage
 } from './comicPageStore'
-import { canSendComicRequest, comicRequestIntentHash, createComicRequestId } from './comicRequestGuard'
+import { beginComicRequest, finishComicRequest, isKnownComicGenerationFailure, canSendComicRequest, comicRequestIntentHash, createComicRequestId } from './comicRequestGuard'
 import {
   generateImage,
   getImageProviderCapabilities
 } from './imageProviderService'
 import {
   addGeneratedImageToLibrary,
-  getMediaAssetDataUrl
+  getMediaAssetDataUrl,
+  listMediaAssets
 } from './mediaAssetStore'
 
 export const COMIC_STAGE_LABELS = Object.freeze({
@@ -186,7 +187,7 @@ export async function runComicStageGeneration({
   // 防重守卫优先读持久化实时状态，调用方快照可能已过期。
   const livePending = listComicPages({}).find((item) => item.id === page.id)?.panels
     .find((item) => item.id === panel.id)?.production?.[stage]?.pendingRequest || null
-  const existingPending = livePending || panel.production?.[stage]?.pendingRequest || null
+  const existingPending = livePending
   const inputRevision = getComicStageInputRevision(page, panel, stage)
   const intentHash = comicRequestIntentHash({
     pageId: page.id,
@@ -219,6 +220,7 @@ export async function runComicStageGeneration({
     }
   })
   let requestSent = false
+  beginComicRequest(requestId, { pageId: page.id, panelId: panel.id, projectId })
   try {
     const imageSize = getComicPanelImageSize(page, panel.order)
     const baseRequest = buildComicPanelImageRequest({
@@ -307,7 +309,7 @@ export async function runComicStageGeneration({
     return archiveResult.page
   } catch (error) {
     if (error?.code !== 'media-persist-failed') {
-      const rejected = !requestSent || (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && error.status !== 408)
+      const rejected = !requestSent || isKnownComicGenerationFailure(error)
       markStageFailure({ page, panel, stage, projectId, requestId }, {
         code: rejected ? 'stage_generation_failed' : 'outcome-unknown',
         message: error?.message || '阶段生成失败',
@@ -318,6 +320,8 @@ export async function runComicStageGeneration({
       if (rejected) clearOwnedPending({ page, panel, stage, projectId, requestId })
     }
     throw error
+  } finally {
+    finishComicRequest(requestId)
   }
 }
 
@@ -462,6 +466,38 @@ function clearOwnedPending(params) {
   return params.kind === 'take'
     ? clearComicPanelPendingGeneration(params.page.id, params.panel.id, params.requestId)
     : clearComicStagePendingRequest(params.page.id, params.panel.id, params.stage, params.requestId)
+}
+
+// Recover only an archived result belonging to this exact request and target.
+// A different candidate (or metadata without its image) cannot settle a request.
+export async function recoverArchivedComicRequest({ pageId, panelId, projectId, stage = '' }) {
+  const page = listComicPages({}).find(item => item.id === pageId && item.projectId === projectId)
+  const panel = page?.panels.find(item => item.id === panelId)
+  const pending = stage ? panel?.production?.[stage]?.pendingRequest : panel?.pendingGeneration
+  if (!pending?.requestId) return null
+  const assets = listMediaAssets({ projectId, purpose: 'comic-panel' }).filter(asset =>
+    asset.generationJobId === pending.requestId
+    && asset.sourceRefs.some(ref => ref.refType === 'comic-page' && ref.refId === pageId)
+    && asset.sourceRefs.some(ref => ref.refType === 'comic-panel' && ref.refId === panelId))
+  for (const asset of assets) {
+    if (!await getMediaAssetDataUrl(asset.id)) continue
+    const params = { page, panel, stage, projectId, requestId: pending.requestId, kind: stage ? 'stage' : 'take' }
+    const live = listComicPages({}).find(item => item.id === pageId)
+    const livePanel = live?.panels.find(item => item.id === panelId)
+    if (!ownsPendingRequest(params, live, livePanel)) return null
+    // Recovery retains the candidate for review; it never changes the author's selection.
+    const saved = stage
+      ? addComicPanelStageArtifact(pageId, panelId, stage, {
+        id: asset.id, parentAssetId: asset.parentAssetId, inputRevision: pending.inputRevision,
+        origin: 'generated', createdAt: asset.createdAt
+      }, { select: false, preserveStageState: true })
+      : addComicPanelTake(pageId, panelId, asset.id, { select: false, preserveStageState: true })
+    if (!saved) return null
+    if (stage) updateComicPanelStage(pageId, panelId, stage, { status: livePanel.production?.[stage]?.selectedArtifactId ? 'stale' : 'review', error: null, staleReason: '已找回候选，请重新审阅' })
+    else updateComicPanel(pageId, panelId, { generationStatus: 'ready', generationError: '' })
+    return clearOwnedPending(params)
+  }
+  return null
 }
 
 function markStageFailure(params, error) {

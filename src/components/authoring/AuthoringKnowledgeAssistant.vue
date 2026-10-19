@@ -135,7 +135,7 @@
           <details ref="purposeRef" class="authoring-knowledge__purpose" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
             <summary :aria-label="tr('助手权限')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="assistant" :size="15" /><span>{{ tr(permissionLabel) }}</span><small v-if="agentState.permission?.mode !== 'read'">{{ tr(permissionScopeLabel) }}</small><WorkbenchIcon name="chevron-down" :size="14" /></summary>
             <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手权限')">
-              <AuthoringAssistantPermissions :assistant="assistant" :busy="agentState.adoptionBusy" />
+              <AuthoringAssistantPermissions :assistant="assistant" :busy="agentState.adoptionBusy" @resize="placeMenu(purposeRef)" />
             </div>
           </details>
           <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" :title="tr('停止查询')" @click="$emit('cancel')"><WorkbenchIcon name="close" :size="20" /></button>
@@ -179,6 +179,7 @@ const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalRe
 
 import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import { workspacePopupViewport } from '../../services/workspace/workspacePopupPosition.js'
 
 const props = defineProps({
   assistant: { type: Object, default: null },
@@ -397,11 +398,21 @@ const searchInputRef = ref(null)
 const toolsRef = ref(null)
 const purposeRef = ref(null)
 const expandedSources = ref(new Set())
+const menusToPlace = new Set()
+let menuFrame = null
 function placeMenu(menu) {
+  if (!menu) return
+  menusToPlace.add(menu)
+  if (menuFrame !== null) return
+  menuFrame = window.requestAnimationFrame(() => {
+    menuFrame = null
+    for (const pending of menusToPlace) positionMenu(pending)
+    menusToPlace.clear()
+  })
+}
+function positionMenu(menu) {
   const panel = menu?.querySelector('.authoring-knowledge__tool-menu')
   if (!panel) return
-  panel.classList.remove('is-below', 'is-compact')
-  panel.style.maxHeight = ''
   if (menu === toolsRef.value) {
     const composer = menu.closest('.authoring-knowledge__composer')
     composer?.style.removeProperty('--reference-menu-height')
@@ -418,9 +429,10 @@ function placeMenu(menu) {
   if (!anchor || !trigger) return
   const host = anchor.getBoundingClientRect()
   const scale = host.width / anchor.offsetWidth || 1
-  const viewport = window.visualViewport
-  const top = viewport?.offsetTop || 0
-  const bottom = top + (viewport?.height || window.innerHeight)
+  const viewport = workspacePopupViewport()
+  const bounds = knowledgeRootRef.value?.getBoundingClientRect()
+  const top = Math.max(viewport.top, bounds?.top || 0)
+  const bottom = Math.min(viewport.bottom, bounds?.bottom ?? Infinity)
   const availableAbove = trigger.top - top - 8
   const availableBelow = bottom - trigger.bottom - 8
   const height = panel.scrollHeight * scale
@@ -430,8 +442,8 @@ function placeMenu(menu) {
   panel.style.bottom = 'auto'
   panel.style.right = 'auto'
   const width = panel.getBoundingClientRect().width
-  const viewportLeft = viewport?.offsetLeft || 0
-  const viewportRight = viewportLeft + (viewport?.width || window.innerWidth)
+  const viewportLeft = viewport.left
+  const viewportRight = viewport.right
   const left = Math.max(viewportLeft + 8, Math.min(trigger.right - width, viewportRight - width - 8))
   panel.style.left = `${(left - host.left) / scale}px`
   panel.style.top = `${(below ? trigger.bottom + 6 : trigger.top - Math.min(height, maxHeight) - 6) / scale - host.top / scale}px`
@@ -443,7 +455,13 @@ function closeMenu(menu, restoreFocus = false) {
   if (restoreFocus) menu.querySelector('summary')?.focus({ preventScroll: true })
 }
 function leaveMenu(event) {
-  if (!event.currentTarget.contains(event.relatedTarget)) closeMenu(event.currentTarget)
+  const menu = event.currentTarget
+  // Clicking a label or menu padding blurs the focused control with no next
+  // focus target. Keep the details open: closing it during that mouse press
+  // invalidates Blink's hit-test position before its text-selection handler.
+  // Outside pointer presses are handled by closeMenusOutside; Tab navigation
+  // supplies an explicit relatedTarget and may close the menu here.
+  if (event.relatedTarget && !menu.contains(event.relatedTarget)) closeMenu(menu)
 }
 function closeMenusOutside(event) {
   for (const menu of [toolsRef.value, purposeRef.value]) {
@@ -471,6 +489,7 @@ function fitDraft() {
 function resizeConversation(event) {
   // A thread scroll is authored navigation, not a layout change to undo.
   if (event?.type === 'scroll') {
+    if (event.target?.closest?.('.authoring-knowledge__tool-menu')) return
     for (const menu of [toolsRef.value, purposeRef.value]) if (menu?.open) placeMenu(menu)
     return
   }
@@ -479,12 +498,13 @@ function resizeConversation(event) {
   if (!reviewOpen.value) queueThreadRestore(position)
 }
 onMounted(() => { document.addEventListener('pointerdown', closeMenusOutside); window.addEventListener('resize', resizeConversation); document.addEventListener('scroll', resizeConversation, true); window.visualViewport?.addEventListener('resize', resizeConversation) })
-onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); document.removeEventListener('scroll', resizeConversation, true); window.visualViewport?.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); document.removeEventListener('scroll', resizeConversation, true); window.visualViewport?.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame); if (menuFrame !== null) window.cancelAnimationFrame(menuFrame); menusToPlace.clear() })
 watch(() => [props.draft, props.expanded, props.projectId, props.selectedIntent], () => nextTick(fitDraft), { immediate: true })
 watch(draftInputRef, () => nextTick(fitDraft))
 watch(() => [referencePicker.value, referenceQuery.value, referenceCandidates.value.length], () => nextTick(() => placeMenu(toolsRef.value)))
+watch(() => [props.agentState.permission?.mode, props.agentState.permission?.scope, props.agentState.permission?.chapterIds?.length], () => nextTick(() => { if (purposeRef.value?.open) placeMenu(purposeRef.value) }))
 const permissionLabel = computed(() => ({ read: '只读', review: '审阅修改', auto: '自动修改' })[props.agentState.permission?.mode] || '审阅修改')
-const permissionScopeLabel = computed(() => ({ book: '本书', selected: '指定章节', current: '当前章节' })[props.agentState.permission?.scope] || '当前章节')
+const permissionScopeLabel = computed(() => { const policy = props.agentState.permission || {}; return policy.scope === 'book' && policy.worldbook && policy.outline ? '本作品' : (!policy.scope || policy.scope === 'current') && !policy.worldbook && !policy.outline ? '当前章节' : '自定义' })
 const discussing = computed(() => props.selectedIntent === 'free')
 const placeholder = computed(() => props.agentState.enabled ? '讨论情节、查阅资料，或说说想怎样修改…' : '说说你的故事想法…')
 const suggestedTasks = Object.freeze([
@@ -754,7 +774,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__purpose summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .authoring-knowledge__purpose summary > svg { flex: none; }
 .authoring-knowledge__purpose summary:hover, .authoring-knowledge__purpose[open] summary { background: var(--nav-hover); color: var(--text-primary); }
-.authoring-knowledge__tool-menu { position: absolute; z-index: 5; inset-inline-start: 0; bottom: calc(100% + 14px); width: 210px; max-width: calc(100vw - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover, 16px); background: var(--surface-workbench-overlay, var(--surface-workbench-raised)); box-shadow: var(--shadow-workbench-float); }
+.authoring-knowledge__tool-menu { position: absolute; box-sizing: border-box; z-index: 5; inset-inline-start: 0; bottom: calc(100% + 14px); width: 210px; max-width: calc(100vw - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover, 16px); background: var(--surface-workbench-overlay, var(--surface-workbench-raised)); box-shadow: var(--shadow-workbench-float); }
 .authoring-knowledge__tool-menu.is-below { top: calc(100% + 14px); bottom: auto; }
 .authoring-knowledge__purpose-menu { inset-inline-start: auto; inset-inline-end: 0; width: 250px; }
 .authoring-knowledge__tool-menu button { display: flex; width: 100%; min-height: 42px; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--archive-ink); font: 14px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
