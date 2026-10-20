@@ -1159,7 +1159,7 @@ watch(mobilePane, (pane) => {
 </template>
 
 <style scoped>
-.comic-studio { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--text-primary); font-family: var(--font-sans); background: var(--surface-workbench); }
+.comic-studio { flex: 1 1 auto; width: 100%; min-width: 0; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--text-primary); font-family: var(--font-sans); background: var(--surface-workbench); }
 
 .comic-studio *,
 .comic-studio *::before,

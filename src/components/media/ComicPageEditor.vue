@@ -43,7 +43,7 @@ import {
 import { buildComicPublicationReport, fitComicLetteringBoxHeight, getComicLetteringTailPoints, getComicLetteringTextMetrics, wrapComicLetteringText } from '../../services/media/comicLetteringService'
 import { getComicPanelDisplayExportBlock, getComicPanelDisplayImage, resolveComicPanelDisplay } from '../../services/media/comicPanelDisplay'
 import { generateComicPageScript } from '../../services/media/comicScriptService'
-import { archiveComicPanelTakeWithRecovery, archiveUploadedComicPanel, getComicPanelInputRevision, getComicPersistRetry, listComicPersistRetries, recoverArchivedComicRequest, retryComicStagePersist } from '../../services/media/comicProductionService'
+import { archiveComicPanelTakeWithRecovery, archiveUploadedComicPanel, getComicPanelInputRevision, resolveComicPanelGenerationReferences, getComicPersistRetry, listComicPersistRetries, recoverArchivedComicRequest, retryComicStagePersist } from '../../services/media/comicProductionService'
 
 const props = defineProps({
   pageId: { type: String, default: '' },
@@ -478,6 +478,17 @@ async function generatePanel(panel) {
     updateComicPanel(page.id, target.id, { generationStatus: 'generating', generationError: '' })
     patchRuntimePanel(target.id, { generationStatus: 'generating', generationError: '', pendingGeneration: pending })
     panelRequestNotice.value = ''
+    const referenceInputs = await resolveComicPanelGenerationReferences({ page, panel: target, config })
+    if (referenceInputs) Object.assign(imageRequest, referenceInputs)
+    // Reading reference binaries may yield to a resource switch or edit. Do not
+    // send an abandoned target; a later return retains its saved candidates.
+    if (!visible() || !ownsSlot()) {
+      if (ownsSlot()) {
+        clearComicPanelPendingGeneration(page.id, target.id, requestId)
+        updateComicPanel(page.id, target.id, { generationStatus: 'idle', generationError: '' })
+      }
+      return
+    }
     requestSent = true
     panelRequestPhases[target.id] = '正在生成画面'
     const data = await generateImage(config, { ...imageRequest, width: size.width, height: size.height, count: 1 })
@@ -2387,6 +2398,7 @@ function safeFilename(value) {
                   <option value="close">近景</option>
                   <option value="extreme-close">特写</option>
                   <option value="insert">插入特写</option>
+                  <option value="empty">空镜</option>
                 </select>
               </label>
               <label>

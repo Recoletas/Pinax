@@ -2,7 +2,7 @@ import { getResolvedApiSettings } from '../api'
 import { mergeSourceRefs, normalizeSourceRefs } from './narrativeAssets'
 import { buildPlaceEntityIndex } from '../worldHistory/placeEntity'
 import { runGenerationStreamTask } from '../generationService'
-import { createComicPage, listComicPages, saveComicPageDraft } from './comicPageStore'
+import { createComicPage, listComicPages, normalizeComicPanelDirection, saveComicPageDraft } from './comicPageStore'
 
 const VALID_FORMATS = new Set(['page-ltr', 'page-rtl', 'webtoon'])
 const VALID_COLOR_MODES = new Set(['color', 'monochrome'])
@@ -108,8 +108,9 @@ export function buildComicAdaptationMessages({
         '只输出单个 JSON 对象，不要 Markdown，不要解释。',
         `必须输出 ${count} 个差异明显的 candidates；每个方案至少 2 页，每页按叙事需要使用 1-8 格，不得统一套用固定 4/6 格。`,
         '先给精炼的可编辑初稿：短素材每个方案只需 2 页、每页 1-3 格；visual 不超过 45 字，节拍与连续性各写一句。不要为凑页数扩写新情节。',
-        'JSON：{"candidates":[{"id":"stable-id","title":"方案名","rationale":"节奏取舍","format":"page-ltr|page-rtl|webtoon","colorMode":"color|monochrome","pages":[{"title":"页标题","narrativeBeat":"本页剧情任务","pageTurnHook":"页尾钩子","continuityNotes":["连续性"],"panels":[{"visual":"单幅可见画面，不含文字","beat":{"action":"","emotion":"","reveal":"","transition":""},"dialogue":[{"speaker":"","text":""}],"caption":""}]}],"visualBible":{"referenceIds":["目录 ID"],"invariants":[{"referenceId":"目录 ID","notes":["不可改变的外观或空间事实"],"locked":true}],"palette":["颜色"],"lineStyle":"线条规则","renderingNotes":"渲染规则"}}]}。',
+        'JSON：{"candidates":[{"id":"stable-id","title":"方案名","rationale":"节奏取舍","format":"page-ltr|page-rtl|webtoon","colorMode":"color|monochrome","pages":[{"title":"页标题","narrativeBeat":"本页剧情任务","pageTurnHook":"页尾钩子","continuityNotes":["连续性"],"panels":[{"visual":"单幅可见画面，不含文字","direction":{"shotSize":"medium","cameraAngle":"eye"},"beat":{"action":"","emotion":"","reveal":"","transition":""},"dialogue":[{"speaker":"","text":""}],"caption":""}]}],"visualBible":{"referenceIds":["目录 ID"],"invariants":[{"referenceId":"目录 ID","notes":["不可改变的外观或空间事实"],"locked":true}],"palette":["颜色"],"lineStyle":"线条规则","renderingNotes":"渲染规则"}}]}。',
         'panel.visual 只描述画面、构图、动作与光线；对白和旁白必须放在独立字段，禁止要求模型在图片中绘制文字。',
+        '相邻格各自推进动作、信息或情绪，不重复人物肖像。每格提供 direction.shotSize：extreme-wide|wide|medium|close|extreme-close|insert|empty；无人环境用 empty，手部等局部用 insert。visualBible.lineStyle、palette、renderingNotes 只记录画风，不混入人物名单或动作。',
         '每页 narrativeBeat 与 pageTurnHook 必须具体；后一页要承接前一页动作、角色位置、服装、地点、时段和关键道具。',
         '视觉圣经 referenceIds 只能使用给定引用目录 ID；无法确认的实体不要虚构 ID。'
       ].join('\n')
@@ -245,6 +246,7 @@ export function buildComicPagesFromAdaptation({
     panels: page.panels.map((panel, panelIndex) => ({
       order: panelIndex + 1,
       visual: panel.visual,
+      direction: panel.direction,
       beat: panel.beat,
       dialogue: panel.dialogue,
       caption: panel.caption,
@@ -282,6 +284,7 @@ export function saveComicAdaptationPage({ projectId, sequenceId, pageId, expecte
     panels: current.panels.map((panel, index) => ({
       ...panel,
       visual: text(draft.panels[index].visual),
+      direction: { ...panel.direction, ...draft.panels[index].direction },
       beat: { ...panel.beat, ...draft.panels[index].beat },
       dialogue: normalizeDialogue(draft.panels[index].dialogue),
       caption: text(draft.panels[index].caption)
@@ -318,6 +321,7 @@ function normalizeAdaptationPage(page = {}) {
       return {
         order: index + 1,
         visual,
+        direction: normalizeComicPanelDirection(panel?.direction),
         beat,
         dialogue: normalizeDialogue(panel?.dialogue),
         caption: compact(panel?.caption, 240)

@@ -1,3 +1,4 @@
+import { findWritingBook, loadWritingBooks } from '../writing/writingBooksRepository'
 import { buildComicPanelImageRequest } from './comicImagePrompt'
 import { getComicPanelImageSize } from './comicLayout'
 import {
@@ -145,6 +146,38 @@ export function getComicReferenceCapabilityWarnings(panel = {}, config = {}) {
   return warnings
 }
 
+// Direct image generation and staged production share the same author-owned
+// bindings. Previously only the staged path read these, so choosing a character
+// reference had no effect on the ordinary "生成画面" action.
+export async function resolveComicPanelGenerationReferences({ page = {}, panel = {}, config = {}, mediaOptions = {} } = {}) {
+  if (['empty', 'insert', 'extreme-close'].includes(panel.direction?.shotSize)) return null
+  let bindings = panel.referenceBindings || []
+  if (!bindings.length && page.visualBibleStatus === 'confirmed') {
+    bindings = (page.visualBible?.references || [])
+      .filter((entry) => entry.kind === 'character' && entry.locked)
+      .flatMap((entry) => (entry.assetIds || []).map((assetId) => ({ role: 'identity', assetId })))
+  }
+  bindings = bindings.filter((binding, index) => binding.assetId && bindings.findIndex((other) => (
+    other.assetId === binding.assetId && other.role === binding.role
+  )) === index)
+  if (!bindings.length) return null
+  const warnings = getComicReferenceCapabilityWarnings({ referenceBindings: bindings }, config)
+  if (warnings.length) throw new Error(warnings.join('；'))
+  const assets = new Map(listMediaAssets({}, mediaOptions).map((asset) => [asset.id, asset]))
+  const ownerBook = findWritingBook(loadWritingBooks(), page.projectId)
+  const allowedProjects = new Set([page.projectId, ownerBook?.worldbookId].filter(Boolean))
+  for (const binding of bindings) {
+    const asset = assets.get(binding.assetId)
+    if (!asset) throw new Error('参考图片已不存在，请重新选择。')
+    if (asset.projectId && !allowedProjects.has(asset.projectId)) throw new Error('参考图片不属于当前作品。')
+  }
+  const inputs = await resolveReferenceBindings(bindings, getImageProviderCapabilities(config), mediaOptions)
+  inputs.referenceImages = inputs.referenceImages.filter((image, index, images) => images.findIndex((other) => other.id === image.id) === index)
+  const loaded = new Set([...inputs.referenceImages, ...inputs.controlImages].map((image) => image.id))
+  if (bindings.some((binding) => !loaded.has(binding.assetId))) throw new Error('参考图片无法读取，请重新选择。')
+  return inputs
+}
+
 export function getComicPanelInputRevision(panel = {}) {
   return JSON.stringify({
     visual: panel.visual || '', beat: panel.beat || null,
@@ -241,7 +274,8 @@ export async function runComicStageGeneration({
     } else if (gate.capabilities.imageToImage) {
       referenceImages.push(...baseRequest.referenceImages)
     }
-    const bindingInputs = await resolveReferenceBindings(panel.referenceBindings, gate.capabilities, mediaOptions)
+    const bindingInputs = await resolveComicPanelGenerationReferences({ page, panel, config, mediaOptions })
+      || { referenceImages: [], controlImages: [] }
     const submittedReferences = [...referenceImages, ...bindingInputs.referenceImages]
       .filter((reference, index, references) => references.findIndex((item) => (item.id || item.data) === (reference.id || reference.data)) === index)
     const referenceLimit = Number(gate.capabilities.maxReferenceImages) || 0
@@ -250,6 +284,7 @@ export async function runComicStageGeneration({
     }
     const prompt = buildComicStagePrompt({
       page,
+      panel,
       stage,
       basePrompt: baseRequest.prompt,
       revisionPrompt,
@@ -411,7 +446,13 @@ async function archiveStageArtifactWithRecovery(params) {
     const liveInputRevision = params.kind === 'take'
       ? getComicPanelInputRevision(livePanel)
       : getComicStageInputRevision(livePage, livePanel, stage)
+    const pageContext = (value = {}) => JSON.stringify({
+      styleBible: value.styleBible, visualBible: value.visualBible,
+      visualBibleStatus: value.visualBibleStatus, colorMode: value.colorMode,
+      layout: value.layout, format: value.format, canvas: value.canvas
+    })
     const inputChanged = liveInputRevision !== inputRevision
+      || (params.kind === 'take' && pageContext(livePage) !== pageContext(page))
     const ownsRequest = ownsPendingRequest(params, livePage, livePanel)
     const select = ownsRequest && !inputChanged
     let saved = params.kind === 'take'
@@ -637,13 +678,14 @@ function cloneSnapshot(value) {
 
 export function buildComicStagePrompt({
   page = {},
+  panel = {},
   stage,
   basePrompt = '',
   revisionPrompt = '',
   mode = 'generate'
 } = {}) {
   const instructions = {
-    rough: '制作可审阅的漫画粗分镜草稿：重点确认人物站位、动作、透视、景别和明暗大关系，使用简洁灰阶线条，不要完成上色。',
+    rough: '制作可审阅的漫画粗分镜草稿：重点确认本格主体、动作、透视、景别和明暗大关系，使用简洁灰阶线条，不要完成上色。',
     line: '严格沿用输入草稿的构图、人物身份、动作和透视，清理为可继续制作的黑白线稿；轮廓明确，背景层级清楚，不增加新人物或文字。',
     flats: '严格保持输入线稿的轮廓、构图和人物身份，只铺设干净的固有色分区；色块边界服从线稿，不添加光影、材质高光、文字或新物体。',
     tones: '严格保持输入线稿的轮廓、构图和人物身份，完成黑块、灰阶与网点分区；保持纯黑白输出，不引入彩色、文字或新物体。',
@@ -656,7 +698,8 @@ export function buildComicStagePrompt({
     : ''
   const lineStyle = bible.lineStyle ? `线条规则：${bible.lineStyle}。` : ''
   const renderingNotes = bible.renderingNotes ? `上色/网点/效果规则：${bible.renderingNotes}。` : ''
-  const styleBible = page.styleBible ? `统一画风：${page.styleBible}。` : ''
+  const localShot = ['empty', 'insert', 'extreme-close'].includes(panel.direction?.shotSize)
+  const styleBible = !localShot && page.styleBible ? `统一画风：${page.styleBible}。` : ''
   const stageRules = stage === 'flats' || stage === 'render' || (stage === 'effects' && page.colorMode !== 'monochrome')
     ? [palette, renderingNotes]
     : stage === 'tones' || (stage === 'effects' && page.colorMode === 'monochrome')

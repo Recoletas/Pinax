@@ -69,6 +69,7 @@ import {
   getMediaAsset,
   loadGeneratedImageLibrary,
   listMediaAssets,
+  updateMediaAsset,
   saveMediaAsset
 } from '../services/media/mediaAssetStore'
 import {
@@ -120,7 +121,8 @@ import {
   getComicProductionRoute,
   getComicStageGate,
   getComicStageInputRevision,
-  runComicStageGeneration
+  runComicStageGeneration,
+  resolveComicPanelGenerationReferences
 } from '../services/media/comicProductionService'
 import {
   getComicImageStyle,
@@ -3440,10 +3442,11 @@ describe('Media services', () => {
         {"visual":"雨中的街角远景","dialogue":[],"caption":"夜深"},
         {"visual":"旅人推开酒馆木门","dialogue":[{"speaker":"旅人","text":"还有房间吗？"}]},
         {"visual":"掌柜抬头审视旅人","dialogue":[],"caption":""},
-        {"visual":"桌下露出沾泥的密信","dialogue":[],"caption":"无人察觉"}
+        {"visual":"桌下露出沾泥的密信","direction":{"shotSize":"insert"},"dialogue":[],"caption":"无人察觉"}
       ]}
     \`\`\``)
     expect(parsedScript.panels).toHaveLength(4)
+    expect(parsedScript.panels[3].direction.shotSize).toBe('insert')
     expect(buildComicScriptMessages({ sourceText: '雨夜旅人进入酒馆', panelCount: 4 })[1].content)
       .toContain('4 格')
 
@@ -4145,7 +4148,7 @@ describe('Media services', () => {
               continuityNotes: ['雨势持续'],
               panels: [
                 { visual: '雨夜街角远景', beat: { action: '旅人走近酒馆' } },
-                { visual: '湿透的靴子踏过门槛', beat: { action: '推门' } },
+                { visual: '湿透的靴子踏过门槛', direction: { shotSize: 'insert' }, beat: { action: '推门' } },
                 { visual: '掌柜隔着灯影抬眼', beat: { reveal: '掌柜早有戒备' } }
               ]
             },
@@ -4315,7 +4318,7 @@ describe('Media services', () => {
     const imageRequest = buildComicPanelImageRequest({
       page: comicPage,
       panel: { ...comicPage.panels[1], visual: '旅人推开酒馆木门，雨水从斗篷滴落' },
-      previousPanel: { ...comicPage.panels[0], visual: '雨中的街角远景，酒馆门口亮着暖灯' },
+      previousPanel: { ...comicPage.panels[0], visual: '雨中的街角远景，酒馆门口亮着暖灯', beat: { action: '旅人来到门前' } },
       sourceTitle: '雨夜来客',
       sourceText: '雨夜，旅人进入酒馆。他问：“还有房间吗？”掌柜注意到他袖口的泥。',
       providerType: 'minimax_image',
@@ -4325,7 +4328,10 @@ describe('Media services', () => {
     expect(imageRequest.prompt).toContain('单幅')
     expect(imageRequest.prompt).toContain('雨夜来客')
     expect(imageRequest.prompt).toContain('连续性优先')
-    expect(imageRequest.prompt).toContain('上一镜锚点')
+    expect(imageRequest.prompt).toContain('上一格情节')
+    expect(imageRequest.prompt).toContain('旅人来到门前')
+    expect(imageRequest.prompt).not.toContain('雨中的街角远景')
+    expect(imageRequest.prompt.indexOf('当前镜头：')).toBeLessThan(imageRequest.prompt.indexOf('全页视觉约定'))
     expect(imageRequest.prompt).toContain('目标画幅：3:4')
     expect(imageRequest.prompt).not.toContain('还有房间吗')
     expect(imageRequest.prompt).not.toContain('拼贴')
@@ -4334,6 +4340,70 @@ describe('Media services', () => {
     expect(imageRequest.negativePrompt).toBe('')
     expect(imageRequest.referenceImages).toEqual([])
     expect(`${imageRequest.prompt}\n${imageRequest.negativePrompt}`.length).toBeLessThanOrEqual(1480)
+    const insertRequest = buildComicPanelImageRequest({
+      page: { styleBible: '同一人物服装与画风'.repeat(200) },
+      panel: { visual: '只画手部和信封湿边，不出现人脸', direction: { shotSize: 'extreme-close' } },
+      previousPanel: { visual: '人物半身肖像，手持信封', direction: { notes: '半身人物居中' } },
+      sourceText: '故事背景'.repeat(500),
+      sourceTitle: '标题'.repeat(100),
+      targetAspect: '9:16', providerType: 'minimax_image'
+    })
+    expect(insertRequest.prompt).toContain('当前镜头：只画手部和信封湿边，不出现人脸')
+    expect(insertRequest.prompt).toContain('摄影设计：特写')
+    expect(insertRequest.prompt).toContain('目标画幅：9:16')
+    expect(insertRequest.prompt).not.toContain('人物半身肖像')
+    expect(insertRequest.prompt).not.toContain('半身人物居中')
+    expect(insertRequest.prompt.endsWith('交付为一张自然完整、纯视觉的单幅画面，不带版面元素。')).toBe(true)
+    expect(insertRequest.prompt.length).toBeLessThanOrEqual(1240)
+    const emptyShotPage = createComicPage({
+      styleBible: '红衣人物拿着信封站在门前',
+      visualBible: { lineStyle: '钢笔水彩', palette: ['冷灰蓝', '琥珀'] },
+      panels: [{ visual: '无人门廊与木门', direction: { shotSize: 'empty' } }]
+    })
+    const emptyShotRequest = buildComicPanelImageRequest({
+      page: emptyShotPage, panel: emptyShotPage.panels[0],
+      previousPanel: { visual: '红衣人物半身', beat: { action: '许遥拿信' } },
+      sourceText: '许遥在门前拿着信封', providerType: 'sd_webui',
+      previousImageData: 'data:image/png;base64,YWJj'
+    })
+    expect(emptyShotPage.panels[0].direction.shotSize).toBe('empty')
+    expect(emptyShotRequest.prompt).toContain('空镜：只画环境')
+    expect(emptyShotRequest.prompt).toContain('钢笔水彩')
+    expect(emptyShotRequest.prompt).toContain('冷灰蓝')
+    expect(emptyShotRequest.prompt).not.toContain('红衣人物')
+    expect(emptyShotRequest.prompt).not.toContain('许遥')
+    expect(emptyShotRequest.referenceImages).toEqual([])
+    expect(buildComicStagePrompt({ page: emptyShotPage, panel: emptyShotPage.panels[0], stage: 'rough', basePrompt: emptyShotRequest.prompt })).not.toContain('红衣人物')
+    const explicitReferences = await resolveComicPanelGenerationReferences({
+      page: { projectId: 'book-1' },
+      panel: { referenceBindings: [{ role: 'identity', assetId: media.id }, { role: 'costume', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })
+    expect(explicitReferences.referenceImages).toHaveLength(1)
+    expect(explicitReferences.referenceImages[0].data).toMatch(/^data:image/)
+    await expect(resolveComicPanelGenerationReferences({
+      page: { projectId: 'other-book' }, panel: { referenceBindings: [{ role: 'identity', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })).rejects.toThrow('不属于当前作品')
+    const booksBeforeReferenceCheck = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
+    try {
+      localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{ id: 'book-1', worldbookId: 'bound-world' }]))
+      updateMediaAsset(media.id, { projectId: 'bound-world' })
+      const worldReference = await resolveComicPanelGenerationReferences({
+        page: { projectId: 'book-1' }, panel: { referenceBindings: [{ role: 'identity', assetId: media.id }] },
+        config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+      })
+      expect(worldReference.referenceImages[0].id).toBe(media.id)
+    } finally {
+      updateMediaAsset(media.id, { projectId: 'book-1' })
+      if (booksBeforeReferenceCheck === null) localStorage.removeItem(STORAGE_KEYS.WRITING_BOOKS)
+      else localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, booksBeforeReferenceCheck)
+    }
+    await expect(resolveComicPanelGenerationReferences({
+      page: { projectId: 'book-1' }, panel: { direction: { shotSize: 'empty' }, referenceBindings: [{ role: 'identity', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })).resolves.toBeNull()
+    expect(sequencePages[0].panels[1].direction.shotSize).toBe('insert')
     const referencedImageRequest = buildComicPanelImageRequest({
       page: comicPage,
       panel: comicPage.panels[1],

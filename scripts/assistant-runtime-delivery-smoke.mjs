@@ -20,8 +20,8 @@ assert.equal((await complete.execute('', { intent: 'edit', outcome: 'proposal', 
 assert.equal(task.state.delivery.outcome, 'proposal'); checks++
 assert.equal(make({ ...permission, mode: 'read' }).tools.some(tool => tool.name === 'submit_edit_proposals'), false); checks++
 const read = make({ ...permission, mode: 'read' })
-assert.equal((await read.tools[0].execute('', { intent: 'edit', outcome: 'blocked', message: '请授权修改。' })).isError, undefined); checks++
-assert.equal((await make({ ...permission, expiresAt: Date.now() - 1 }).tools[0].execute('', { changes: [change] })).isError, true); checks++
+assert.equal((await read.tools.find(tool => tool.name === 'complete_assistant_task').execute('', { intent: 'edit', outcome: 'blocked', message: '请授权修改。' })).isError, undefined); checks++
+assert.equal((await make({ ...permission, expiresAt: Date.now() - 1 }).tools.find(tool => tool.name === 'submit_edit_proposals').execute('', { changes: [change] })).isError, true); checks++
 assert.ok(assistantSystemPrompt({ kernel: { blocks: [] } }, ['complete_assistant_task']).includes('试试第一个方向')); checks++
 assert.ok(assistantUserPrompt({ intent: '试试第一个方向' }).includes('complete_assistant_task')); checks++
 // Prompt injection never grants scopes: the policy is outside model-controlled arguments.
@@ -77,12 +77,12 @@ assert.equal(acceptedAppend.changes[0].operation, 'append'); checks++
 assert.equal(acceptedAppend.changes[0].after, anchoredAppend.after); checks++
 assert.equal(anchoredAppend.before, '推开门。'); checks++
 assert.equal(acceptedAppend.normalizations.length, 1); checks++
-assert.equal(payloadOf(await make(permission).tools[0].execute('', { changes: [{ ...anchoredAppend, before: '甲推' }] })).ok, false); checks++
+assert.equal(payloadOf(await make(permission).tools.find(tool => tool.name === 'submit_edit_proposals').execute('', { changes: [{ ...anchoredAppend, before: '甲推' }] })).ok, false); checks++
 const truncated = createAssistantTask({ bookId: 'book', assistantPolicy: permission }, { domains: { manuscript: [{ id: 'chapter', text: '甲推开门。', sourceLength: 20000 }] } })
-assert.equal(payloadOf(await truncated.tools[0].execute('', { changes: [anchoredAppend] })).ok, false); checks++
-assert.equal(payloadOf(await make(permission).tools[0].execute('', { changes: [{ ...anchoredAppend, targetId: 'other', before: '另一章' }] })).ok, false); checks++
+assert.equal(payloadOf(await truncated.tools.find(tool => tool.name === 'submit_edit_proposals').execute('', { changes: [anchoredAppend] })).ok, false); checks++
+assert.equal(payloadOf(await make(permission).tools.find(tool => tool.name === 'submit_edit_proposals').execute('', { changes: [{ ...anchoredAppend, targetId: 'other', before: '另一章' }] })).ok, false); checks++
 const failedEdit = make(permission)
-await failedEdit.tools[0].execute('', { changes: [{ ...anchoredAppend, before: '不在末尾的原文' }] })
+await failedEdit.tools.find(tool => tool.name === 'submit_edit_proposals').execute('', { changes: [{ ...anchoredAppend, before: '不在末尾的原文' }] })
 const failedComplete = failedEdit.tools.find(tool => tool.name === 'complete_assistant_task')
 assert.equal(payloadOf(await failedComplete.execute('', { intent: 'answer', outcome: 'answer', message: '改为聊天正文交付。' })).ok, false); checks++
 assert.equal(payloadOf(await failedComplete.execute('', { intent: 'edit', outcome: 'blocked', message: '尚未提交修改，不能写入。' })).ok, true); checks++
