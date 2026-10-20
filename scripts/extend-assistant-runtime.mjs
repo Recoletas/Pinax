@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 const root = path.resolve(import.meta.dirname, '..')
-export const assistantRuntimeFiles = ['runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js', 'shared/requestModelConfig.js', 'shared/assistantUserInput.js']
+export const assistantRuntimeFiles = ['runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js', 'shared/requestModelConfig.js', 'shared/assistantUserInput.js', 'runtime-extensions/assistantSteering.js']
 export function extendAssistantRuntime(directory) {
   const target = path.join(directory, 'dist/pinax')
   for (const file of assistantRuntimeFiles) fs.copyFileSync(path.join(root, file), path.join(target, path.basename(file)))
@@ -43,6 +43,16 @@ export function extendAssistantRuntime(directory) {
   ])
   // pi-ai requires block arrays for every assistant message, including plain drafts
   // sent back for revision. A string causes a local serializer error before any request.
+  patch('runner.js', [
+    ['import { Agent }', 'import { createAssistantSteering } from "./assistantSteering.js";\nimport { Agent }'],
+    ['    let finalText = "";', '    const steering = createAssistantSteering({ agent, task: assistantTask, req, counters, budget, signal: ac.signal, emit: frame => { for (const listener of listeners) listener(frame); } });\n    let finalText = "";'],
+    ['        switch (ev.type) {', '        switch (ev.type) {\n            case "message_start": steering.consumed(ev.message); break;'],
+    ['        abort,\n        done: run,', '        abort,\n        steer: input => steering.enqueue(input),\n        done: run,']
+  ])
+  patch('server.js', [
+    ['                if (req.method === "POST" && action === "cancel") {', '                if (req.method === "POST" && action === "steer") {\n                    const input = JSON.parse(await readBody(req));\n                    const owner = active.get(taskId);\n                    const result = owner?.run?.steer?.(input) || { ok: false, error: "task-not-active" };\n                    return json(res, result.ok ? 200 : 409, result);\n                }\n                if (req.method === "POST" && action === "cancel") {'],
+    ['assistantUserInput: true,', 'assistantSteering: true, assistantUserInput: true,']
+  ])
   patch('modelFunnel.js', [
     ['if (message.role === "assistant" && message.toolCalls?.length) {', 'if (message.role === "assistant") {'],
     ['for (const call of message.toolCalls)\n', 'for (const call of (message.toolCalls || []))\n'],

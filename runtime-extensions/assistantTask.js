@@ -106,6 +106,7 @@ export function assistantProviderFailure(messages) {
 
 export function assistantToolGuard(task, name, budget) {
   const state = task.state
+  if (state.pendingInput?.size) return { block: true, reason: '收到作者补充，请先读取下一轮消息。' }
   if (state.delivery) return { block: true, reason: '本轮已完成，请停止调用。' }
   if (state.proposal && name !== 'complete_assistant_task') return { block: true, reason: '修改提议已成功提交。请调用 complete_assistant_task，以 proposal 完成本轮，不再查阅或重复提交。' }
   // Completion is a local delivery acknowledgement, not a resource operation.

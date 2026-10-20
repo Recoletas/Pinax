@@ -1802,5 +1802,16 @@
   "自行填写": "Write your own answer",
   "也可以直接写下你的想法": "Or write your own answer",
   "写下你的回答": "Write your answer",
-  "询问作者": "Ask the author"
+  "询问作者": "Ask the author",
+  "待发送消息": "Queued messages",
+  "待发送": "Queued",
+  "继续发送队列": "Resume queued messages",
+  "编辑待发送消息": "Edit queued message",
+  "移除待发送消息": "Remove queued message",
+  "等待接收": "Awaiting delivery",
+  "运行中发送方式": "Send while running",
+  "补充到当前任务": "Add to current task",
+  "本轮结束后发送": "Send after this turn",
+  "排队发送": "Queue message",
+  "停止生成": "Stop generation"
 }

@@ -27,7 +27,7 @@ function retrievedReferences(prepared, results, projectId) {
   return references.slice(0, 12)
 }
 
-export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, modelSelection = null, permission, sessionId }) {
+export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, modelSelection = null, permission, sessionId, onInputConsumed }) {
   const { state, runtime, projectId } = entry
   // Prepare synchronously before health probing or loading the bridge.
   const prepared = engine.prepare({ text: providerQuestion, bookId: projectId, pinnedRefs: state.agentRefs || [], skills: state.agentSkills || [] })
@@ -78,6 +78,10 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     },
     onToolResult: result => {
       if (!current() || result.toolName === 'complete_assistant_task') return
+      if (result.toolName === 'author_input') {
+        try { onInputConsumed?.(JSON.parse(result.result?.content?.[0]?.text || '{}').id) } catch { /* malformed acknowledgement */ }
+        return
+      }
       const tool = message.tools.find(item => (result.callId ? item.callId === result.callId : item.name === result.toolName) && item.status === 'running')
       if (!tool) return
       let payload

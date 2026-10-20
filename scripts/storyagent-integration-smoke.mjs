@@ -95,6 +95,10 @@ try {
   check((await fetch(`${base}/v1/pinax/tasks/${owned}/cancel`, { method: 'POST', headers })).ok, '当前浏览器可以停止自己的任务')
   check((await fetch(`${base}/v1/pinax/tasks`, { method: 'POST', headers, body: JSON.stringify({ taskId: 'foreign' }) })).status === 403, '不能指定他人的任务 ID 创建任务')
   check(upstreamCalls.length === 2 && upstreamCalls.every(call => call.url.startsWith(`${KIT_TASK_PLANE_ENDPOINT}/`)), '被拒绝的请求不转发，运行地址只由服务器决定')
+  check((await fetch(`${base}/v1/pinax/tasks/not-owned/steer`, { method: 'POST', headers, body: JSON.stringify({ id: 'q', text: '补充', bookId: 'book-a' }) })).status === 404, '不能向其他浏览器的运行任务发送补充')
+  const liveInput = { id: 'queued-one', text: '保留人物姓名', bookId: 'book-a', assistantPolicy: { mode: 'auto' }, modelConfig: { model: 'override' } }
+  const liveResponse = await fetch(`${base}/v1/pinax/tasks/${owned}/steer`, { method: 'POST', headers, body: JSON.stringify(liveInput) })
+  check(liveResponse.ok && JSON.stringify(JSON.parse(upstreamCalls.at(-1).options.body)) === JSON.stringify({ id: liveInput.id, text: liveInput.text, bookId: liveInput.bookId }), '运行中补充只转发文字与归属，不接受替换模型或扩大权限')
   const previousPublic = process.env.PINAX_PUBLIC_ORIGINS
   process.env.PINAX_PUBLIC_ORIGINS = 'https://example.invalid'
   try {

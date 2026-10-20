@@ -2803,6 +2803,25 @@ describe('Media services', () => {
       await questionForm.get('form').trigger('submit')
       expect(questionForm.emitted('answer')).toHaveLength(1)
     } finally { questionForm.unmount() }
+    const { default: MessageQueue } = await import('../components/authoring/AssistantMessageQueue.vue')
+    const queueUi = mount(MessageQueue, { props: { items: [{ id: 'q1', question: '检查人物', status: 'waiting' }], busy: true } })
+    try {
+      expect(queueUi.text()).toContain('检查人物')
+      await queueUi.get('[aria-label="移除待发送消息"]').trigger('click')
+      expect(queueUi.emitted('remove')[0]).toEqual(['q1'])
+      await queueUi.setProps({ items: [{ id: 'q1', question: '检查人物', status: 'accepted' }] })
+      expect(queueUi.find('[aria-label="移除待发送消息"]').exists()).toBe(false)
+    } finally { queueUi.unmount() }
+    const { default: AssistantPanel } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
+    const composerPanel = mount(AssistantPanel, { props: { agentState: { enabled: true }, projectId: 'fixture', messages: [{ id: 'm', kind: 'agent', role: 'assistant', text: '处理中', status: 'running' }], busy: false, draft: '补充要求', assistant: { agentContext: () => ({ worldEntries: [], chapterEntries: [] }), pendingMessages: ref([]), queueMessage: vi.fn() } } })
+    try {
+      expect(composerPanel.find('.assistant-stop').exists()).toBe(false)
+      await composerPanel.setProps({ busy: true })
+      expect(composerPanel.find('.assistant-stop').exists()).toBe(true)
+      expect(composerPanel.find('.assistant-send-options').exists()).toBe(true)
+      await composerPanel.get('.authoring-knowledge__send').trigger('click')
+      expect(composerPanel.props('assistant').queueMessage).toHaveBeenCalledWith(expect.objectContaining({ question: '补充要求' }), 'followup')
+    } finally { composerPanel.unmount() }
     settingsPanel.unmount()
     globalThis.fetch = originalModelFetch
 
