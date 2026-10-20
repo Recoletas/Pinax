@@ -1,9 +1,13 @@
 import { normalizeAssistantSampling } from './assistantRegenerateOptions.js'
+import { normalizeAssistantQuestions } from '../../../../shared/assistantUserInput.js'
 import { createBrowserStorageRepository } from '../../storage/browserStorageRepository.js'
 
 export const AUTHORING_ASSISTANT_CONVERSATION_PREFIX = 'authoring_assistant_conversation:'
 export const AUTHORING_ASSISTANT_DRAFT_PREFIX = 'authoring_assistant_draft:'
 const SCHEMA_VERSION = 1
+function savedQuestions(input) {
+  try { return normalizeAssistantQuestions(input) } catch { return [] }
+}
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value))
@@ -39,6 +43,7 @@ function storedMessages(messages, projectId, includeVersions = true) {
     if (message.role === 'assistant' && message.kind === 'agent' && message.projectId === projectId) {
       return [{ ...common, kind: 'agent', projectId, chapterId: String(message.chapterId || ''), text: String(message.text || '').slice(0, 24000),
         failureReason: String(message.failureReason || '').slice(0, 1000), outcome: String(message.outcome || ''), deliveryMessage: String(message.deliveryMessage || '').slice(0, 12000),
+        questions: savedQuestions(message.questions), questionResponse: String(message.questionResponse || '').slice(0, 16000),
         thinking: String(message.thinking || '').slice(-4000), tools: clone((message.tools || []).slice(0, 30)),
         usage: clone(message.usage || null), reaction: ['up', 'down'].includes(message.reaction) ? message.reaction : '', promptSnapshotKey: String(message.promptSnapshotKey || ''), params: normalizeAssistantSampling(message.params), narrativePromptKey: String(message.narrativePromptKey || ''),
         status: message.status === 'running' ? 'interrupted' : message.status, taskId: String(message.taskId || ''), adopted: Boolean(message.adopted),

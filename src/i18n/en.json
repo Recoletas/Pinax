@@ -1797,5 +1797,10 @@
   "无法读取模型配置。": "Could not load model configurations.",
   "模型选择未保存，请重试。": "Could not save the selected model. Please retry.",
   "模型类型": "Model type",
-  "此模型由服务器提供，浏览器不接触真实密钥。选择后用于下一次请求，不会覆盖自定义配置或改变正在运行的任务。": "This model is provided by the server. Its key stays on the server. Your selection applies to the next request without changing running tasks."
+  "此模型由服务器提供，浏览器不接触真实密钥。选择后用于下一次请求，不会覆盖自定义配置或改变正在运行的任务。": "This model is provided by the server. Its key stays on the server. Your selection applies to the next request without changing running tasks.",
+  "回答助手的问题": "Answer the assistant’s questions",
+  "自行填写": "Write your own answer",
+  "也可以直接写下你的想法": "Or write your own answer",
+  "写下你的回答": "Write your answer",
+  "询问作者": "Ask the author"
 }

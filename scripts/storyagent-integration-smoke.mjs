@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import express from 'express'
+import { mkdtemp, copyFile, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { assistantRuntimeFiles } from './extend-assistant-runtime.mjs'
 import { createStoryAgentRouter } from '../server/routes/storyagent.js'
 import { createStoryAgentEngine } from '../src/services/agents/storyagent/agentEngine.js'
 import { createAuthoringStoryAgent } from '../src/services/agents/storyagent/authoringIntegration.js'
@@ -102,4 +107,21 @@ try {
   } finally { if (previousPublic === undefined) delete process.env.PINAX_PUBLIC_ORIGINS; else process.env.PINAX_PUBLIC_ORIGINS = previousPublic }
 
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
+// Exercise the exact files copied into the packaged runtime without a supplier call.
+const extensionDir = await mkdtemp(path.join(tmpdir(), 'pinax-question-extension-'))
+try {
+  await writeFile(path.join(extensionDir, 'package.json'), '{"type":"module"}')
+  for (const file of assistantRuntimeFiles) await copyFile(new URL(`../${file}`, import.meta.url), path.join(extensionDir, path.basename(file)))
+  const { createAssistantTask, assistantToolGuard } = await import(pathToFileURL(path.join(extensionDir, 'assistantTask.js')).href)
+  const task = createAssistantTask({ bookId: 'book-a', kernel: { blocks: [] }, assistantPolicy: { mode: 'read', bookId: 'book-a' } }, { domains: {} })
+  const questionTool = task.tools.find(tool => tool.name === 'request_user_input')
+  check(questionTool?.executionMode === 'sequential' && !task.tools.some(tool => tool.name === 'submit_edit_proposals'), '只读也可询问；提问批次串行，不能并发绕过等待或获得写入权限')
+  const invalid = await questionTool.execute('bad', { questions: [{ id: 'same', question: 'A' }, { id: 'same', question: 'B' }] })
+  check(invalid.isError && task.state.delivery === null, '拒绝重复问题 ID，不产生虚假的等待状态')
+  task.state.acceptedCalls = 6
+  check(assistantToolGuard(task, 'request_user_input', { maxCallsPerTurn: 6 }) === undefined, '工具预算耗尽仍可向作者提问，不强迫猜测交付')
+  const result = await questionTool.execute('question-call', { questions: [{ id: 'direction', question: '更新正文还是设定？', options: [] }] })
+  const payload = JSON.parse(result.content[0].text)
+  check(payload.waitingForAuthor && task.state.delivery.outcome === 'needs_input' && task.state.proposal === null && assistantToolGuard(task, 'submit_edit_proposals', { maxCallsPerTurn: 6 })?.block === true, '提问后暂停，不允许继续修改；保留问题供原任务续接')
+} finally { await rm(extensionDir, { recursive: true, force: true }) }
 console.log(`storyagent-integration-smoke: ${checks}/${checks} passed`)

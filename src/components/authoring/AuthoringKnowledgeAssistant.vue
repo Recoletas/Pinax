@@ -49,7 +49,8 @@
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
           <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
           </div>
-          <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
+          <AssistantUserInput v-if="message.questions?.length && !message.questionResponse && messages.at(-1)?.id === message.id" :key="message.id" :questions="message.questions" :busy="busy || agentState.adoptionBusy" @answer="assistant?.answerQuestions(message.id, $event)" />
+          <div v-else class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
@@ -160,6 +161,7 @@
 <script setup>
 import AuthoringAssistantModel from './AuthoringAssistantModel.vue'
 import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
+import AssistantUserInput from './AssistantUserInput.vue'
 import AssistantMessageActions from './AssistantMessageActions.vue'
 import AssistantConversationList from './AssistantConversationList.vue'
 import { promptPreviewKey, closePromptPreview } from '../../composables/usePromptPreview.js'
@@ -537,7 +539,7 @@ const visibleMessages = computed(() => {
 })
 
 function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
-function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', request_user_input: '询问作者', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })

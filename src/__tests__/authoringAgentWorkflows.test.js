@@ -794,6 +794,30 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
     agentEngine.prepare = prepareBeforeSampling
 
+    // Asking is a persisted checkpoint in the same conversation and task.
+    const inputProject = ref('input-book')
+    const questions = [{ id: 'direction', question: '这次更新哪一处？', options: [{ label: '补充设定', description: '' }] }]
+    const inputEngine = {
+      prepare: input => ({ ...input, kernel: { serialization: { blocks: [] } } }),
+      destination: () => ({ chapterId: 'input-chapter' }),
+      healthz: async () => ({ ok: true, assistantProtocolVersion: 2 }), authorize: vi.fn(async () => {}),
+      run: vi.fn(async () => ({ ok: true, finalContent: '这次更新哪一处？', trace: { taskId: 'input-task' }, finalToolResults: [{ toolName: 'request_user_input', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'mixed', outcome: 'needs_input', message: '这次更新哪一处？', questions }) }] } }] })),
+      resume: vi.fn(async input => ({ ok: true, finalContent: '已按回答继续', trace: { taskId: input.taskId }, finalToolResults: [{ toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'answer', outcome: 'answer', message: '已继续' }) }] } }] }))
+    }
+    const inputAssistant = useAuthoringKnowledgeAssistant({ projectId: inputProject, agentEngine: inputEngine })
+    expect(await inputAssistant.ask({ question: '给我更新' })).toBe(true)
+    const inputMessage = inputAssistant.messages.value.at(-1)
+    expect(inputMessage).toMatchObject({ status: 'needs_input', questions, taskId: 'input-task' })
+    const restoredInput = useAuthoringKnowledgeAssistant({ projectId: inputProject, agentEngine: inputEngine })
+    expect(restoredInput.messages.value.at(-1).questions).toEqual(questions)
+    expect(restoredInput.answerQuestions(inputMessage.id, {})).toBe(false)
+    const inputSession = restoredInput.sessions.value.find(item => item.active).sessionId
+    expect(await restoredInput.answerQuestions(inputMessage.id, { direction: '补充设定，保留正文' })).toBe(true)
+    expect(inputEngine.resume).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'input-task', text: '这次更新哪一处？\n补充设定，保留正文' }))
+    expect(restoredInput.sessions.value.find(item => item.active).sessionId).toBe(inputSession)
+    expect(restoredInput.messages.value.find(item => item.id === inputMessage.id).questionResponse).toContain('保留正文')
+    expect(restoredInput.answerQuestions(inputMessage.id, { direction: '修改正文' })).toBe(false)
+
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复
     // 启用准备指纹稳定，桥接 scope 不跨请求残留。

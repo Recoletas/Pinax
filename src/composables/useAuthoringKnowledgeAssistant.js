@@ -1,4 +1,5 @@
 import { resolveSelectedTextProviderConfig } from '../services/textProviderConfigStore.js'
+import { formatAssistantAnswers } from '../../shared/assistantUserInput.js'
 import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
 import { normalizeAssistantSampling } from '../services/agents/authoring/assistantRegenerateOptions.js'
 import { computed, onScopeDispose, reactive, ref, unref, watch } from 'vue'
@@ -609,6 +610,8 @@ export function createAuthoringKnowledgeAssistant({
     state.selectedIntent = intent
     state.lastRequest = { question, intent, projectId: project, ...(sampling ? { sampling } : {}) }
     if (appendUser) {
+      const pending = state.messages.at(-1)
+      if (pending?.status === 'needs_input' && pending.questions?.length) pending.questionResponse = question
       state.messages.push({ id: messageId('question'), role: 'user', question, intent, createdAt: Date.now() })
     }
     // 只清掉实际发送的草稿；等待期间作者可以继续输入下一问。
@@ -712,6 +715,14 @@ export function createAuthoringKnowledgeAssistant({
       if (requestEngine && (!editorAttached() || attachmentRevision() !== requestAttachment)) requestEngine.revokePermission?.()
       if (runtime.requestEngine === requestEngine) runtime.requestEngine = null
     }
+  }
+
+  function answerQuestions(messageId, answers) {
+    const state = activeEntry.value.state
+    const message = state.messages.at(-1)
+    if (state.busy || state.agentAdoptionBusy || message?.id !== messageId || message.status !== 'needs_input' || message.questionResponse) return false
+    try { return ask({ question: formatAssistantAnswers(message.questions, answers), projectId: activeEntry.value.projectId }) }
+    catch (error) { state.error = error.message; return false }
   }
 
   async function retry() {
@@ -849,6 +860,6 @@ export function createAuthoringKnowledgeAssistant({
     setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, answerVersionInfo, selectAnswerVersion, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, agentChapterOptions, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
     messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
     persistenceError, hasUnread, status,
-    ask, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
+    ask, answerQuestions, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft
   })
 }

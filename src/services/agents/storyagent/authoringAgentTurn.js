@@ -1,4 +1,5 @@
 import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
+import { normalizeAssistantQuestions } from '../../../../shared/assistantUserInput.js'
 import { toResolvedTextApiSettings } from '../../textProviderConfigStore.js'
 import { recordPromptSnapshot } from '../promptSnapshot.js'
 import { recordAgentRequestTrace } from '../agentRequestTrace.js'
@@ -133,12 +134,13 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (changes.length) message.proposal = await engine.prepareProposal({ changes }, prepared, message.id)
     }
     if (!current()) return false
-    const deliveryResult = message.toolResults.findLast(tool => tool.toolName === 'complete_assistant_task' && !tool.isError)
+    const deliveryResult = message.toolResults.findLast(tool => ['complete_assistant_task', 'request_user_input'].includes(tool.toolName) && !tool.isError)
     if (engine.authorize) {
       let delivery
       try { delivery = JSON.parse(deliveryResult?.result?.content?.find(block => block.type === 'text')?.text || '{}') } catch { /* invalid delivery */ }
       if (!delivery?.ok || !['answer', 'proposal', 'needs_input', 'blocked'].includes(delivery.outcome) || !['answer', 'edit', 'mixed'].includes(delivery.intent) || (['edit', 'mixed'].includes(delivery.intent) && delivery.outcome === 'answer') || (delivery.outcome === 'proposal' && !message.proposal) || (message.proposal && delivery.outcome !== 'proposal') || (message.toolResults.some(tool => tool.toolName === 'submit_edit_proposals') && delivery.outcome === 'answer')) throw new Error('助手未交付有效的修改，已有内容已保留。')
       message.outcome = delivery.outcome
+      if (delivery.outcome === 'needs_input' && delivery.questions) message.questions = normalizeAssistantQuestions(delivery.questions)
       if (['needs_input', 'blocked'].includes(delivery.outcome)) message.status = delivery.outcome
       message.deliveryMessage = String(delivery.message || '')
       message.text = requests.length ? '已通过推演生成正文修改建议，可在原文处审阅。' : delivery.outcome === 'answer' ? (streamedAnswer.trim() ? streamedAnswer : message.text || message.deliveryMessage) : message.deliveryMessage || message.text

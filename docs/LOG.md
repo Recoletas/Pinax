@@ -4115,3 +4115,22 @@ main `5347c43` 与生产 `3ed6dd0` 已推送；完整门禁 exit 0（20 文件/2
 完成真实Storyflow知识内核独立构建、本书派生索引／原文读取、目录／表格／图谱关联检索、Advisor与跑团提示词预览及Windows事务句柄修复。真实kit／编译器／助手工具贯通19项exit0（隔离合成内容）；完整门禁20／200 exit0，双构建／lint／结构／体积／diff通过。3001重启及8451更新获作者授权，24份旧日志不变，5173保留。通用卡源文未随上游分发，本机作者项目尚未绑定；这两项不能冒充已入库。记录见worldbook-workspace-20261012。
 
 - 2026-10-18 宣传片v16补拍（部分完成）：当前场设置已实拍；五次助手尝试及一次推演暴露任务检查失败、超时、重复正文及整章替换仅定位首段。重复采用已撤销、错误范围建议已放弃；没有制作成功假镜头。失败回执见 `marketing/pinax-h3-materials/generated/film-60s/recording-v16.json`，完整影片保留v15。未修改产品或重启服务；等待作者确认是否将生成链修复纳入本轮。
+
+## 2026-10-20 本地运行器启用请求级模型
+
+- 作者明确授权更新后，确认 3001 已被旧进程占用（重复启动产生 EADDRINUSE），原 8451 未提供 requestModels 能力。最近 50 个任务为 completed/cancelled，无 running。
+- 将已验证候选的 dist 和运行包清单更新到 storyagent-next；依赖锁哈希一致，保留原依赖、完整进程环境和任务目录。旧 dist 与清单保存在 `.runtime/service-update-backup-20261020`，未修改模型配置。
+- 仅停止并重启原 3001、8451；两端健康检查均返回 requestModels=true。5173 保持原进程。
+- 报告中的外链样式 scoped 错误未在当前 5173 复现：先加载 Authoring.vue 再请求 index=3 的 Authoring.assistant.css 均 HTTP 200；这不证明所有 HMR 场景已修复，未为此改动源码。
+- 本轮 `npm run verify:full` exit 0：核心 20 文件/200 用例、StoryAgent 24/24、应用与文档构建通过；两端更新后的健康检查通过。未发起付费模型生成，未推送或部署公网。
+
+## 2026-10-20 助手向作者提问
+
+- 参考已读取的官方源码：[Codex request_user_input schema](https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/handlers/request_user_input_spec.rs)、[pi question 示例](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/question.ts)、[pi RPC UI 子协议](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/rpc.md)。Codex 提供问题 ID 与可选答案，pi 示例等待 UI 选择或输入；Pinax 用现有任务日志和 resume 在回合边界保存等待，不引入长期 HTTP Promise 或第二套会话。上述为 10-20 读取的 main，不当作不可变版本承诺。
+- 已实施 request_user_input：1–3 个问题，最多 4 个选项，也支持纯自由回答；显式提交、无默认选项、不超时选答。工具立即产生 needs_input 交付并阻止后续工具，预算耗尽仍可询问。核对已安装 pi-agent-core 的 executeToolCalls 后，提问工具显式声明 executionMode=sequential：同批包含提问时按顺序检查，防止并行预检查绕过等待状态。隔离 SSE 实测同批提问后的有效修改调用被拒绝，回答后新回合才可提交。complete_assistant_task 不再接受无结构 needs_input，避免内部说明替代向作者发问。提议已提交时不能再提问覆盖交付。
+- 网页使用现有助手消息显示问题；自由输入清除原选项，回答携带原问题，沿用 taskId 与会话。回答仅是用户消息，不扩大授权；模型与权限仍在发送时冻结。旧问题/重复点击受最新消息与 busy 检查保护。问题与已发送回答随原会话持久化；未发送的选项/填写内容暂为组件内状态。
+- 候选包 `.runtime/storyagent-user-input-20261020` 基于已验证 HEAD 扩展包增量构造，基线指纹 448f2311c9766ae84dc8781c5160658fc51eaca3ca9ffe4f682c263e6b5e676f；依赖复用本地同锁包，未复制模型配置与任务日志。构建脚本同步包含新工具、共享合同、预算保留与 assistantUserInput 健康标志。未进行全新上游下载/编译，不能表述成干净构建。
+- 隔离运行器通过真实 pi-agent 工具执行与本机模拟供应商：首次提问仅 1 次模型调用，等待期间不再调用；停止并重启隔离运行器后，原 taskId 仍可续接，读取成对工具历史并成功提交 worldbook 修改提议，再正常交付。总计 3 次本机模拟调用，0 次外部调用/付费调用。
+- 浏览器在现有 5173 挂载实际助手组件，以合成消息检查无默认答案、选项、自由输入覆盖、显式提交；亮/暗/390 截图已实际查看，未出现页面异常或水平溢出。此项是组件交互检查，真实模型是否会适时提问尚未实测。截图与临时评测脚本完成后清理。
+- 作者明确确认本轮更新后，仅更新并重启 8451。直接及经 3001 的健康检查均 assistantUserInput=true / requestModels=true；配置状态未变，64 个任务文件保留，3001/5173 进程 PID 保持不变。旧 dist/清单保存在 `.runtime/service-update-backup-20261020-user-input`，可回退。最终扩展指纹 c8ce38d50456c7922f011e97fcf6869c26c7af4c4326425f42f18dd1d2028c98。未推送、未部署公网。
+- 本轮最终 `npm run verify:ci` exit 0：20/20 文件、200/200 用例，StoryAgent 28/28，lint 无新增错误（5 条既有 warning），Vite 20.79s、文档 7.09s，两条 CI 浏览器旅程均 RESULT PASS。隔离运行器与问题表单评测 exit 0；健康检查不代表已验证真实模型的提问质量。无新增规则候选，沿用现有 UI、验证与服务授权规范。

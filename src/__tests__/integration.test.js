@@ -2784,6 +2784,25 @@ describe('Media services', () => {
       deleteTextProviderConfig(anthropicConfig.id)
       deleteTextProviderConfig(compatConfig.id)
     }
+    // Structured clarification uses native choices and explicit submission, never a default answer.
+    const { normalizeAssistantQuestions, formatAssistantAnswers } = await import('../../shared/assistantUserInput.js')
+    const questions = normalizeAssistantQuestions([{ id: 'direction', question: '这次更新哪一处？', options: [{ label: '补充设定', description: '以正文人物为准' }, { label: '修改正文', description: '' }] }])
+    expect(() => normalizeAssistantQuestions([...questions, ...questions])).toThrow('ID')
+    expect(() => formatAssistantAnswers(questions, {})).toThrow('回答每个问题')
+    const { default: UserInput } = await import('../components/authoring/AssistantUserInput.vue')
+    const questionForm = mount(UserInput, { props: { questions } })
+    try {
+      expect(questionForm.get('button').element.disabled).toBe(true)
+      await questionForm.findAll('input')[0].setValue(true)
+      expect(questionForm.emitted('answer')).toBeUndefined()
+      await questionForm.get('textarea').setValue('保留正文人物，只补充设定')
+      await questionForm.get('form').trigger('submit')
+      expect(questionForm.emitted('answer')[0][0]).toEqual({ direction: '保留正文人物，只补充设定' })
+      expect(formatAssistantAnswers(questions, questionForm.emitted('answer')[0][0])).toContain('这次更新哪一处？\n保留正文人物，只补充设定')
+      await questionForm.setProps({ busy: true })
+      await questionForm.get('form').trigger('submit')
+      expect(questionForm.emitted('answer')).toHaveLength(1)
+    } finally { questionForm.unmount() }
     settingsPanel.unmount()
     globalThis.fetch = originalModelFetch
 
