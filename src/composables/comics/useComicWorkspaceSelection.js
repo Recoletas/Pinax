@@ -230,11 +230,11 @@ export function useComicWorkspaceSelection({ route } = {}) {
     for (const page of inScope) {
       for (const panel of page.panels) {
         if (panel.pendingGeneration) {
-          summaries.push({ pageId: page.id, panelId: panel.id, stage: '', kind: 'panel', sentAt: panel.pendingGeneration.sentAt })
+          summaries.push({ pageId: page.id, panelId: panel.id, stage: '', kind: 'panel', requestId: panel.pendingGeneration.requestId, sentAt: panel.pendingGeneration.sentAt })
         }
         for (const [stage, state] of Object.entries(panel.production || {})) {
           if (state?.pendingRequest) {
-            summaries.push({ pageId: page.id, panelId: panel.id, stage, kind: 'stage', sentAt: state.pendingRequest.sentAt })
+            summaries.push({ pageId: page.id, panelId: panel.id, stage, kind: 'stage', requestId: state.pendingRequest.requestId, sentAt: state.pendingRequest.sentAt })
           }
         }
       }

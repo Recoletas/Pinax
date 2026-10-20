@@ -35,7 +35,7 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
       const candidate = preview.candidate
       if (!['narrative', 'rewrite'].includes(candidate?.mode) || candidate.id !== preview.candidateId) {
         host.composer.staleResult = { text: adoptedText, target: candidate?.target || null, reason: 'candidate-replaced' }
-        return false
+        return fail(host.composer, { phase: 'stale', message: '这份草稿已失去原来的写入位置，文字仍保留，可复制或保存为构思。', retryable: false })
       }
       const liveDependencyRevisions = candidate.runSession
         ? await host.collectLiveDependencies(candidate.runSession)
@@ -51,7 +51,7 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
       })
       if (!validation.ok) {
         host.composer.staleResult = { text: adoptedText, target: candidate.target, reason: validation.reason }
-        return false
+        return fail(host.composer, { phase: 'stale', message: '正文或写入位置已变化，这份草稿尚未写入。可以复制或保存为构思。', retryable: false })
       }
 
       host.cancelPendingSaves()
@@ -160,8 +160,11 @@ export function useAuthoringGhostAdoptionWorkflow(host) {
     if (!host.persistAdoption(exploration)) {
       return fail(host.composer, {
         phase: 'persist', code: 'AUTHORING_PERSIST_FAILED',
-        message: 'Ghost 事务已保留；重试只会再次保存，不会重新生成或重复插入', retryable: true
+        message: '正文保存失败，草稿仍在。点击“再次保存”重试。', retryable: true
       })
+    }
+    if (host.verifyPersistedAdoption && !host.verifyPersistedAdoption(adoption)) {
+      return fail(host.composer, { phase: 'persist', code: 'AUTHORING_ADOPTION_NOT_CONFIRMED', message: '未能确认文字已保存，草稿仍保留，请再次保存。', retryable: true })
     }
     if (!exploration) {
       try {

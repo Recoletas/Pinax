@@ -8,26 +8,14 @@ Pinax is for people with stories to tell who may have limited time, energy or wr
 
 The product centers on text and the manuscript workspace. Characters, settings and sources support the manuscript; roleplay, comics, image generation and video are extensions around it. Writing, import, export and backups work without an AI key or account.
 
-Pinax is a **Public Alpha**. Use the address provided by your invitation or run it yourself; this repository does not promise a universally available hosted service. English covers the main writing path; advanced worldbuilding, experiments and some auxiliary tools still have Chinese UI. Real-model literary quality and physical-device input remain separate acceptance checks.
+Pinax is a **Public Alpha**. Try the public deployment at [pinax.cc](http://pinax.cc/) or run it locally. As checked on 2026-10-15, the public site still uses HTTP and HTTPS remains pending; back up before changing origins. English covers the main writing path; advanced worldbuilding, experiments and some auxiliary tools still have Chinese UI. Real-model literary quality and physical-device input remain separate acceptance checks.
 
-![English writing workspace with chapters, manuscript text and on-demand tools](public/docs/screenshots/user-guide-20260924/13-workbench-en.png)
-
-Captured from the local frontend on 2026-09-24 with a fictional sample manuscript; the hosted deployment may differ.
-
-<details>
-<summary>Image workspace in English</summary>
-
-![English image workspace with visual styles and editable prompt](docs/screenshots/english-support/image-workspace-en.png)
-
-Actual browser capture, 2026-09-22. The preview is the built-in style reference, not a newly generated result.
-
-</details>
 
 ## Start writing
 
 1. Open **Settings → Appearance** and choose **English**. This preference stays on your device.
-2. Choose **New manuscript** or **Import TXT / Markdown**. Check imported chapters before creating the manuscript. Set **Manuscript language** if you want a writing-language default.
-3. Write, develop character profiles, or request a review. AI suggestions are reviewed before being applied to the manuscript.
+2. Choose **New manuscript** or **Import TXT / Markdown**. Check imported chapters before creating the manuscript.
+3. Write, develop character profiles, or request a review. Assistant edits default to review before adoption; automatic changes require explicit scope authorization.
 4. Export readable Markdown or keep a **Workspace backup (ZIP)**. Test restoring a copy before relying on a device migration.
 
 The [quick start](docs/user-manual/en/01-quickstart.md) and [writing guide](docs/user-manual/en/05-writing.md) explain the controls. [Settings and backups](docs/user-manual/en/07-settings.md) cover model connections, data sending and restore behavior.
@@ -36,7 +24,7 @@ The [quick start](docs/user-manual/en/01-quickstart.md) and [writing guide](docs
 
 Work is stored in this browser, using localStorage and IndexedDB for different data domains. There is no automatic cloud sync. Another browser, profile, hostname, protocol or port may have different storage. Keep backups and return to the original address before assuming work was lost.
 
-Interface language, manuscript language and assistant explanation language are separate. Switching the interface does not translate existing content, rename chapters or regenerate AI output. Explanations can be Chinese while quoted passages and rewrite text remain English.
+Interface language and assistant explanation language are separate from the language of your existing manuscript. Switching the interface does not translate existing content, rename chapters or regenerate AI output. Explanations can be Chinese while quoted passages and rewrite text remain English.
 
 AI requests may send the selected passage, relevant context and references through the deployment server to the configured provider. Model keys are excluded from workspace backups. AI is optional; review suggestions carefully.
 
@@ -54,6 +42,14 @@ Run the backend in another terminal for API and help resources:
 ```sh
 npm run server
 ```
+
+Text AI also requires a compiled runtime and server model configuration:
+
+```sh
+PINAX_RUNTIME_OUTPUT=.runtime/storyagent-next npm run build:agent-runtime
+```
+
+Build before starting the configured backend. Local knowledge retrieval separately needs `npm run build:knowledge-runtime` and project binding. Public deployments disable local-file access. See [runtime deployment](docs/engineering/agent-runtime-deployment.md) for production artifacts and rollback.
 
 Use the address printed by Vite. Model availability depends on the deployment configuration. See the [engineering documentation](docs/README.md) for deployment details.
 

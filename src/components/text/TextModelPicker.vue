@@ -1,4 +1,7 @@
 <script setup>
+import ModelPickerMenu from '../settings/ModelPickerMenu.vue'
+import '../settings/ModelManagement.css'
+import { useModelCatalog } from '../../composables/useModelCatalog.js'
 import { tr } from '../../i18n/index.js'
 import { computed, reactive, ref, watch } from 'vue'
 import { testApiConnection } from '../../services/api'
@@ -13,11 +16,13 @@ import {
 import { useTransientLayer } from '../../composables/useTransientLayer'
 
 const props = defineProps({
+  manage: Boolean,
   modelValue: { type: String, default: '' },
   configs: { type: Array, default: () => [] },
   disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue', 'configs-updated'])
+const catalog = useModelCatalog('text')
 
 const showPicker = ref(false)
 const showConfig = ref(false)
@@ -25,7 +30,6 @@ const triggerRef = ref(null)
 const editingConfig = ref(null)
 const localConfigs = ref([])
 const connectionState = reactive({ testing: false, kind: 'idle', message: '' })
-const selectedConfig = computed(() => localConfigs.value.find((item) => item.id === props.modelValue) || null)
 const layerOpen = computed(() => showPicker.value || showConfig.value)
 const editingIsBuiltin = computed(() => editingConfig.value?.builtin === true || editingConfig.value?.id === BUILTIN_TEXT_CONFIG_ID)
 const canSaveConfig = computed(() => Boolean(
@@ -41,11 +45,9 @@ watch(() => props.configs, (configs) => {
     : listTextProviderConfigs()
 }, { immediate: true, deep: true })
 
-function openPicker() {
-  if (props.disabled) return
-  refreshConfigs()
-  showPicker.value = true
-}
+
+watch(catalog.configs, (configs) => { localConfigs.value = configs; emit('configs-updated', configs) })
+watch(catalog.selectedId, id => { if (id && id !== props.modelValue) emit('update:modelValue', id) })
 
 function refreshConfigs() {
   localConfigs.value = listTextProviderConfigs()
@@ -190,25 +192,12 @@ useTransientLayer({
 
 <template>
   <div class="text-model-picker">
-    <button
-      ref="triggerRef"
-      type="button"
-      class="text-model-picker__trigger"
-      data-testid="text-model-config-trigger"
-      :disabled="disabled"
-      @click="openPicker"
-    >
-      <span>
-        <small>{{ tr('文本模型') }}</small>
-        <strong>{{ selectedConfig?.name || tr('选择或配置模型') }}</strong>
-      </span>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
-    </button>
+    <ModelPickerMenu v-if="!manage" kind="text" :model-value="modelValue" :configs="localConfigs"  :disabled="disabled" @refresh="refreshConfigs" @update:model-value="$emit('update:modelValue', $event)" />
 
-    <Teleport to="body">
-      <div v-if="showPicker" class="text-model-overlay" @click.self="showPicker = false">
-        <section class="text-model-dialog" role="dialog" aria-modal="true" :aria-label="tr(&quot;选择文本模型&quot;)">
-          <header>
+    <Teleport to="body" :disabled="manage">
+      <div v-if="manage || showPicker" class="text-model-overlay" :class="{ 'model-management-inline': manage }" @click.self="showPicker = false">
+        <section class="text-model-dialog" :role="manage ? 'region' : 'dialog'" :aria-modal="manage ? undefined : true" :aria-label="tr(&quot;选择文本模型&quot;)">
+          <header v-if="!manage">
             <div><strong>{{ tr('选择文本模型') }}</strong><small>{{ tr('{length} 个配置', { length: localConfigs.length }) }}</small></div>
             <button type="button" class="is-icon" :title="tr(&quot;关闭&quot;)" :aria-label="tr(&quot;关闭&quot;)" @click="showPicker = false">×</button>
           </header>
@@ -258,6 +247,8 @@ useTransientLayer({
         </section>
       </div>
 
+    </Teleport>
+    <Teleport to="body">
       <div v-if="showConfig && editingConfig" class="text-model-overlay" @click.self="closeConfig">
         <section class="text-model-dialog text-model-dialog--config" role="dialog" aria-modal="true" :aria-label="tr(&quot;文本模型配置&quot;)">
           <header>
@@ -277,7 +268,7 @@ useTransientLayer({
             <div class="text-model-server-key">
               <span>API Key</span>
               <strong>{{ tr('已由服务器配置，无需填写') }}</strong>
-              <p>{{ tr('该模型由 pi-agent 内核持有密钥，所有链路（写作、讨论、审校、设定生成、推演）共用；浏览器不接触真实密钥。内核未运行时，此选项不可用。') }}</p>
+              <p>{{ tr('此模型由服务器提供，浏览器不接触真实密钥。选择后用于下一次请求，不会覆盖自定义配置或改变正在运行的任务。') }}</p>
             </div>
           </div>
 
@@ -286,7 +277,7 @@ useTransientLayer({
             <label><span>{{ tr('名称') }}</span><input v-model="editingConfig.name" :placeholder="tr(&quot;例如：我的 DeepSeek&quot;)" /></label>
             <label>
               <span>{{ tr('渠道') }}</span>
-              <select :value="editingConfig.providerId" @change="changeProvider">
+              <select :aria-label="tr('渠道')" :value="editingConfig.providerId" @change="changeProvider">
                 <option v-for="item in TEXT_PROVIDER_TYPES" :key="item.id" :value="item.id">{{ item.name }}</option>
               </select>
             </label>

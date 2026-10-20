@@ -6,7 +6,7 @@
       <button type="button" class="authoring-block-composer__close" :aria-label="tr('收起推演')" @click="cancel">{{ tr("收起") }}</button>
     </header>
     <p v-if="showSceneContext && sceneContextSummary" class="authoring-block-composer__scene-context">
-      <span>{{ tr("当前场") }}</span>{{ sceneContextSummary }}
+      <span>{{ tr("当前") }}</span>{{ sceneContextSummary }}
     </p>
     <slot name="context" />
     <AuthoringGenerationStatus v-if="generating" />
@@ -47,7 +47,7 @@
       <div data-test="block-stale-preview" class="authoring-block-composer__retained-prose"><p v-for="(paragraph, index) in staleParagraphs" :key="index">{{ paragraph }}</p></div>
       <div class="authoring-block-composer__retained-actions">
         <button type="button" @click="copyRetained">{{ tr(copyNotice || '复制') }}</button>
-        <button type="button" :disabled="staleResult.savedAsExploration" @click="$emit('save-retained')">{{ tr(staleResult.savedAsExploration ? '已留作构思' : '留作构思') }}</button>
+        <button type="button" :disabled="staleResult.savedAsExploration" @click="$emit('save-retained')">{{ tr(staleResult.savedAsExploration ? '已保存为构思' : '保存为构思') }}</button>
         <button v-if="!generating" type="button" @click="editingRetained = true; nextTick(() => { fitInstruction(); focusInstruction() })">{{ tr('修改要求') }}</button>
         <button v-else type="button" @click="$emit('stop')">{{ tr('停止') }}</button>
       </div>
@@ -104,7 +104,8 @@ const editingRetained = ref(false)
 const showRetained = computed(() => Boolean(staleText.value) && !editingRetained.value)
 const displayTarget = computed(() => showRetained.value ? props.staleResult?.target || props.target : props.target)
 watch(() => props.staleResult, () => { copyNotice.value = ''; editingRetained.value = false })
-const staleNotice = computed(() => (props.staleResult?.dependencyIssues || []).some(issue => issue.reason === 'revision-missing')
+const staleNotice = computed(() => props.staleResult?.recovered ? '已找回上次的草稿，尚未写入正文。'
+  : (props.staleResult?.dependencyIssues || []).some(issue => issue.reason === 'revision-missing')
   ? '这份草稿的参考尚未确认，暂未加入正文。'
   : (props.staleResult?.dependencyIssues || []).some(issue => issue.reason === 'revision-changed')
     ? '生成期间正文或参考有改动，这份草稿已保留。'

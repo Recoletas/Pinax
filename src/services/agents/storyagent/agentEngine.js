@@ -1,3 +1,4 @@
+import { sendAssistantLiveInput } from './assistantLiveInput.js'
 // StoryAgent 引擎适配器（融合 B 路线）：把 pi-agent 桥包装成助手可调用的任务引擎。
 // 职责：项目上下文 + @ 参考组装 kernel（panelComposer 预序列化 blocks 透传）、
 // 资源快照组装、run/resume/cancel/tasks 转发。不含任何 Vue/页面状态。
@@ -57,6 +58,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
     async run({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId = null, signal = null, callbacks = {}, onStatus = null, mode = 'auto', skills = [] } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, skills, bookId })
       return bridge.run({
+        modelConfig: prepared?.modelConfig || null,
         maxTokens: 6000,
         budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         kernel,
@@ -75,6 +77,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
     async resume({ prepared = null, bookId = valueOf(projectId), text, pinnedRefs = [], taskId, signal = null, callbacks = {}, onStatus = null } = {}) {
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, bookId })
       return bridge.resume({
+        modelConfig: prepared?.modelConfig || null,
         maxTokens: 6000,
         budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         taskId: String(taskId || ''),
@@ -87,6 +90,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         onStatus,
       })
     },
+    steer: sendAssistantLiveInput,
     async cancel(taskId) {
       return bridge.cancel(taskId)
     },

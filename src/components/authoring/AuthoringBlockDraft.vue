@@ -74,8 +74,9 @@
       <span>{{ characterCount }} 字 · {{ paragraphCount }} 段</span>
       <div class="authoring-block-draft__actions">
         <button v-if="changed && !locked" type="button" :disabled="busy" @click="emit('restore')">恢复生成稿</button>
+        <button type="button" @click="copyDraft">{{ copyLabel }}</button>
         <button v-if="!locked" type="button" :disabled="busy" @click="emit('dismiss')">丢弃</button>
-        <button v-if="!locked" type="button" :disabled="busy" @click="emit('save-as-exploration')">留作构思</button>
+        <button v-if="!locked" type="button" :disabled="busy" @click="emit('save-as-exploration')">保存为构思</button>
         <button
           type="button"
           class="is-primary"
@@ -107,6 +108,11 @@ const props = defineProps({
   sessionFingerprint: { type: String, default: '' }
 })
 
+const copyLabel = ref('复制')
+async function copyDraft() {
+  try { await navigator.clipboard.writeText(props.modelValue); copyLabel.value = '已复制' }
+  catch { copyLabel.value = '请选中文字复制' }
+}
 const emit = defineEmits(['update:modelValue', 'accept', 'dismiss', 'restore', 'save-as-exploration', 'switch-if', 'retry-if'])
 const draftInput = ref(null)
 const boundaryCorrections = ref([])

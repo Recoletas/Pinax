@@ -59,10 +59,10 @@ const changed = computed(() => rows.value.some((row) => row.changed))
 </script>
 
 <template>
-  <section class="authoring-scene-curation-preview" data-test="scene-curation-preview" aria-label="当前场草稿">
+  <section class="authoring-scene-curation-preview" data-test="scene-curation-preview" aria-label="人物与地点调整">
     <header>
       <div>
-        <strong>调整这一处的现场</strong>
+        <strong>人物、地点与时间</strong>
         <span>{{ changed ? '右侧改动尚未保存' : '在右侧选择人物、地点或时间' }}</span>
       </div>
     </header>
@@ -78,7 +78,7 @@ const changed = computed(() => rows.value.some((row) => row.changed))
     </dl>
 
     <p v-if="error" role="alert">{{ error.message }}</p>
-    <footer><span>{{ changed ? '在右侧保存后成为当前场' : '正文不会被自动改写' }}</span></footer>
+    <footer><span>{{ changed ? '在右侧保存这些调整' : '正文不会被自动改写' }}</span></footer>
   </section>
 </template>
 

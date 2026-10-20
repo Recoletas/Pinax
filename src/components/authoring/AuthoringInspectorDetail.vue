@@ -103,7 +103,7 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
 <template>
   <section class="writing-inspector-detail" :aria-label="`${kindLabel}详情`">
     <button type="button" class="writing-inspector-detail__back" @click="detail.kind === 'scene-edit' ? emit('cancel') : emit('close')">
-      <WorkbenchIcon name="arrow-left" :size="15" />{{ tr(detail.kind === 'scene-edit' ? '取消并返回' : '返回当前场') }}
+      <WorkbenchIcon name="arrow-left" :size="15" />{{ tr(detail.kind === 'scene-edit' ? '取消并返回' : '返回') }}
     </button>
     <h3 ref="titleRef" tabindex="-1" class="writing-inspector__context writing-inspector-detail__title">
       {{ kindLabel }}<template v-if="displayName"> · {{ displayName }}</template>

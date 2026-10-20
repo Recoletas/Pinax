@@ -188,7 +188,8 @@ async function seedWorkspaceData(page) {
 }
 
 async function openSettingsBackup(page) {
-  await page.getByRole('complementary', { name: '首页导航' }).getByRole('button', { name: '备份与恢复', exact: true }).click()
+  await page.getByRole('button', { name: '打开工作区导航', exact: true }).click()
+  await page.getByRole('dialog', { name: '工作区导航', exact: true }).getByRole('button', { name: '备份与恢复', exact: true }).click()
   const settings = page.getByRole('dialog', { name: '设置' })
   await settings.locator('[data-test="backup-export-workspace-button"]').waitFor({ timeout: 30_000 })
   return settings

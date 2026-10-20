@@ -267,7 +267,7 @@ async function generateWithMinimax(config, options, fetchImpl, baseUrl) {
   const payload = await readJsonResponse(response, 'MiniMax Image', options.signal)
   const providerCode = Number(payload?.base_resp?.status_code ?? 0)
   if (providerCode !== 0) {
-    throw new Error(`MiniMax Image ${providerCode}: ${payload?.base_resp?.status_msg || '生成失败'}`)
+    throw Object.assign(new Error(`MiniMax Image ${providerCode}: ${payload?.base_resp?.status_msg || '生成失败'}`), { generationOutcome: 'known-failed', providerCode })
   }
   const base64 = payload?.data?.image_base64?.[0]
   if (typeof base64 === 'string' && base64.trim()) return `data:image/jpeg;base64,${base64}`
@@ -316,7 +316,19 @@ async function generateWithMinimaxViaServer(config, options, fetchImpl, { model,
     payload = {}
   }
   if (!response.ok || payload?.ok !== true) {
-    throw Object.assign(new Error(payload?.message || `MiniMax Image error: ${response.status || 'unknown'}`), { status: response.status })
+    // Older proxies wrapped explicit MiniMax rejections in 502 without metadata.
+    const legacyCode = payload?.error === 'ERR_PROVIDER' && String(payload.message || '').match(/^MiniMax Image (\d+):/)
+    const legacyStatus = payload?.error === 'ERR_PROVIDER' && String(payload.message || '').match(/^MiniMax 图片请求失败 \((4\d\d)\)$/)
+    const knownFailure = payload?.generationOutcome === 'known-failed'
+      || (legacyCode && Number(legacyCode[1]) !== 0)
+      || (legacyStatus && Number(legacyStatus[1]) !== 408)
+    const message = payload?.message === 'fetch failed'
+      ? '图片服务连接中断，未收到完整结果'
+      : payload?.message || `图片服务未返回有效结果（${response.status || '未知状态'}）`
+    throw Object.assign(new Error(message), {
+      status: response.status, generationOutcome: knownFailure ? 'known-failed' : 'outcome-unknown',
+      requestId: payload?.requestId || response.headers?.get?.('X-Image-Request-Id') || ''
+    })
   }
   return resolveImageCandidate(payload.image, fetchImpl, options.signal)
 }

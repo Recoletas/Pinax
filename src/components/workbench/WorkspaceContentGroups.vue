@@ -17,16 +17,19 @@ function componentFor(type) {
 }
 const host = useComposableWorkspace()
 const route = useRoute()
-const navigationVisible = computed(() => route.name === 'authoring' && Boolean(host.scope.value.bookId) || route.name === 'welcome')
-const activityItems = computed(() => [{ id: 'files', label: host.scope.value.bookId ? '文件' : '作品', icon: 'sources' }, ...(host.scope.value.bookId ? [{ id: 'search', label: '搜索', icon: 'search' }, { id: 'chapters', label: '书稿', icon: 'outline' }] : []), { id: 'extensions', label: '扩展', icon: 'extensions' }])
-const navigationTitle = computed(() => activityItems.value.find(item => item.id === host.directory.mode.value)?.label || '文件')
+const directory = computed(() => host.navigationDirectory.value)
+const customDirectory = computed(() => host.activeDirectorySurface.value)
+const navigationVisible = computed(() => Boolean(customDirectory.value) || route.name === 'authoring' && Boolean(host.scope.value.bookId) || route.name === 'welcome')
+const activityItems = computed(() => customDirectory.value?.items || [{ id: 'files', label: host.scope.value.bookId ? '文件' : '作品', icon: 'sources' }, ...(host.scope.value.bookId ? [{ id: 'search', label: '搜索', icon: 'search' }, { id: 'chapters', label: '书稿', icon: 'outline' }] : []), { id: 'extensions', label: '扩展', icon: 'extensions' }])
+const navigationTitle = computed(() => activityItems.value.find(item => item.id === directory.value.mode.value)?.label || '文件')
 async function selectActivity(mode) {
-  if (mode === 'extensions' && !(host.directory.mode.value === mode && host.directory.expanded.value)) {
-    if (!await host.directory.prepare() || !await host.prepareOpen('main')) return
+  if (customDirectory.value) { directory.value.select(mode); return }
+  if (mode === 'extensions' && !(directory.value.mode.value === mode && directory.value.expanded.value)) {
+    if (!await directory.value.prepare() || !await host.prepareOpen('main')) return
     const selected = host.state.views.find(view => view.resource.type === 'extensions')?.resource.extensionId || 'pinax.core'
     if (!await host.openAt({ type: 'extensions', bookId: host.scope.value.bookId || '', extensionId: selected }, 'main')) return
   }
-  host.directory.select(mode)
+  directory.value.select(mode)
 }
 const root = ref(null)
 const mainTarget = ref(null)
@@ -61,9 +64,9 @@ watch(mainModule, () => { host.state.primaryVisible = !primaryHidden.value && ma
 watch(narrow, value => { host.state.narrow = value }, { immediate: true })
 function directoryKeydown(event) {
   if (!host.state.narrow) return
-  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); host.directory.setExpanded(false) }
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); directory.value.setExpanded(false) }
   if (event.key !== 'Tab') return
-  const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), select:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')].filter(element => element.getClientRects().length)
+  const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled), select:not(:disabled), input:not(:disabled), a[href], summary, [tabindex="0"]')].filter(element => element.getClientRects().length)
   const first = controls[0], last = controls.at(-1)
   if (first && ((!event.shiftKey && document.activeElement === last) || (event.shiftKey && document.activeElement === first))) { event.preventDefault(); (event.shiftKey ? last : first).focus() }
 }
@@ -92,29 +95,29 @@ let directoryDrag = null
 function startDirectoryResize(event) {
   if (event.button !== 0) return
   event.preventDefault()
-  directoryDrag = { x: event.clientX, width: host.directory.width.value, scale: root.value.getBoundingClientRect().width / root.value.offsetWidth || 1, target: event.currentTarget, pointerId: event.pointerId }
+  directoryDrag = { x: event.clientX, width: directory.value.width.value, scale: root.value.getBoundingClientRect().width / root.value.offsetWidth || 1, target: event.currentTarget, pointerId: event.pointerId }
   event.currentTarget.setPointerCapture(event.pointerId)
 }
-function resizeDirectory(event) { if (directoryDrag) host.directory.resize(directoryDrag.width + (event.clientX - directoryDrag.x) / directoryDrag.scale, false) }
+function resizeDirectory(event) { if (directoryDrag) directory.value.resize(directoryDrag.width + (event.clientX - directoryDrag.x) / directoryDrag.scale, false) }
 function endDirectoryResize() {
   if (!directoryDrag) return
   const previous = directoryDrag; directoryDrag = null
-  host.directory.resize(host.directory.width.value)
+  directory.value.resize(directory.value.width.value)
   if (previous.target.hasPointerCapture?.(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId)
 }
 function directoryResizeKey(event) {
   if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return
   event.preventDefault()
-  host.directory.resize(event.key === 'Home' ? 248 : host.directory.width.value + (event.key === 'ArrowLeft' ? -16 : 16))
+  directory.value.resize(event.key === 'Home' ? 248 : directory.value.width.value + (event.key === 'ArrowLeft' ? -16 : 16))
 }
-watch(() => host.directory.expanded.value, async expanded => {
+watch(() => directory.value.expanded.value, async expanded => {
   if (expanded) {
     if (host.state.narrow) { await nextTick(); root.value?.querySelector('.workspace-directory-heading button')?.focus() }
     return
   }
   if (!document.activeElement?.closest('#workspace-project-sidebar')) return
   await nextTick()
-  const selector = host.state.narrow ? '[data-workspace-directory-toggle]' : `.workspace-activity-bar button[data-directory-mode="${host.directory.mode.value}"]`
+  const selector = host.state.narrow ? '[data-workspace-directory-toggle]' : `.workspace-activity-bar button[data-directory-mode="${directory.value.mode.value}"]`
   root.value?.closest('.app-shell')?.querySelector(selector)?.focus()
 })
 let drag = null
@@ -141,17 +144,17 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
 </script>
 
 <template>
-  <div ref="root" class="workspace-content-groups" :class="{ 'has-project-directory': Boolean(host.scope.value.bookId), 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px`, '--workspace-directory-width': `${host.directory.width.value}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
+  <div ref="root" class="workspace-content-groups" :class="{ 'has-project-directory': Boolean(host.scope.value.bookId), 'has-reference': visible, 'has-docked-tools': host.railDocked.value, 'is-expanded': visible && host.state.expanded, 'primary-is-composing': host.state.primaryComposing }" :style="{ '--workspace-reference-width': `${host.state.width}px`, '--workspace-directory-width': `${directory.width.value}px` }" data-test="workspace-content-groups" @pointerdown.capture="focusOwner" @focusin.capture="focusOwner" @click.capture="returnToInspector" @compositionstart.capture="composition($event, true)" @compositionend.capture="composition($event, false)">
     <nav v-if="navigationVisible" class="workspace-activity-bar" :aria-label="tr('工作区视图')">
-      <button v-for="item in activityItems" :key="item.id" type="button" :data-directory-mode="item.id" :class="{ active: host.directory.expanded.value && host.directory.mode.value === item.id, 'is-bottom': item.id === 'extensions' }" :aria-pressed="host.directory.expanded.value && host.directory.mode.value === item.id" :aria-expanded="host.directory.expanded.value && host.directory.mode.value === item.id" aria-controls="workspace-project-sidebar" :aria-label="tr(item.label)" v-workbench-tooltip="{ text: tr(item.label), side: 'right' }" @click="selectActivity(item.id)"><WorkbenchIcon :name="item.icon" :size="22" /></button>
+      <button v-for="item in activityItems" :key="item.id" type="button" :data-directory-mode="item.id" :class="{ active: directory.expanded.value && directory.mode.value === item.id, 'is-bottom': item.id === 'extensions' }" :aria-pressed="directory.expanded.value && directory.mode.value === item.id" :aria-expanded="directory.expanded.value && directory.mode.value === item.id" aria-controls="workspace-project-sidebar" :aria-label="tr(item.label)" v-workbench-tooltip="{ text: tr(item.label), side: 'right' }" @click="selectActivity(item.id)"><WorkbenchIcon :name="item.icon" :size="22" /></button>
     </nav>
-    <button v-if="navigationVisible && host.state.narrow && host.directory.expanded.value" class="workspace-directory-overlay" type="button" :aria-label="tr('关闭目录')" @click="host.directory.setExpanded(false)"></button>
-    <aside id="workspace-project-sidebar" v-show="navigationVisible && host.directory.expanded.value" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" :aria-label="tr(navigationTitle)" :role="host.state.narrow ? 'dialog' : undefined" :aria-modal="host.state.narrow && host.directory.expanded.value ? 'true' : undefined" @keydown="directoryKeydown">
-      <header v-if="host.state.narrow" class="workspace-directory-heading"><select :value="host.directory.mode.value" :aria-label="tr('侧栏视图')" @change="selectActivity($event.target.value)"><option v-for="item in activityItems" :key="item.id" :value="item.id">{{ tr(item.label) }}</option></select><button type="button" :aria-label="tr('收起侧栏')" :title="tr('收起侧栏')" @click="host.directory.setExpanded(false)"><WorkbenchIcon name="panel-left" :size="16" /></button></header>
-      <div class="workspace-directory-content"><WorkspaceExtensionList v-show="host.directory.mode.value === 'extensions'" /><div :ref="element => host.directoryTarget.value = element" v-show="host.directory.mode.value !== 'extensions'" class="workspace-directory-owner"></div></div>
-      <div v-if="!host.state.narrow" class="workspace-directory-resize" role="separator" tabindex="0" aria-orientation="vertical" :aria-label="tr('调整目录宽度')" :aria-valuenow="host.directory.width.value" aria-valuemin="200" aria-valuemax="360" @pointerdown="startDirectoryResize" @pointermove="resizeDirectory" @pointerup="endDirectoryResize" @pointercancel="endDirectoryResize" @lostpointercapture="endDirectoryResize" @keydown="directoryResizeKey"></div>
+    <button v-if="navigationVisible && host.state.narrow && directory.expanded.value" class="workspace-directory-overlay" type="button" :aria-label="tr('关闭目录')" @click="directory.setExpanded(false)"></button>
+    <aside id="workspace-project-sidebar" v-show="navigationVisible && directory.expanded.value" class="workspace-directory-dock writing-page" :class="{ 'is-open': host.state.directoryOpen }" :aria-label="tr(navigationTitle)" :role="host.state.narrow ? 'dialog' : undefined" :aria-modal="host.state.narrow && directory.expanded.value ? 'true' : undefined" @keydown="directoryKeydown">
+      <header v-if="host.state.narrow" class="workspace-directory-heading"><select :value="directory.mode.value" :aria-label="tr('侧栏视图')" @change="selectActivity($event.target.value)"><option v-for="item in activityItems" :key="item.id" :value="item.id">{{ tr(item.label) }}</option></select><button type="button" :aria-label="tr('收起侧栏')" :title="tr('收起侧栏')" @click="directory.setExpanded(false)"><WorkbenchIcon name="panel-left" :size="16" /></button></header>
+      <div class="workspace-directory-content"><WorkspaceExtensionList v-show="!customDirectory && directory.mode.value === 'extensions'" /><div :ref="element => host.directoryTarget.value = element" v-show="customDirectory || directory.mode.value !== 'extensions'" class="workspace-directory-owner"></div></div>
+      <div v-if="!host.state.narrow" class="workspace-directory-resize" role="separator" tabindex="0" aria-orientation="vertical" :aria-label="tr('调整目录宽度')" :aria-valuenow="directory.width.value" aria-valuemin="200" aria-valuemax="360" @pointerdown="startDirectoryResize" @pointermove="resizeDirectory" @pointerup="endDirectoryResize" @pointercancel="endDirectoryResize" @lostpointercapture="endDirectoryResize" @keydown="directoryResizeKey"></div>
     </aside>
-    <section class="workspace-primary-group" :inert="primaryHidden || host.state.narrow && host.directory.expanded.value ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
+    <section class="workspace-primary-group" :inert="primaryHidden || host.state.narrow && directory.expanded.value ? '' : undefined" :aria-hidden="primaryHidden ? 'true' : undefined">
       <div :ref="element => host.tabsTarget.value = element" class="workspace-tabs-host"></div>
       <div ref="mainTarget" v-show="!mainUsesPrimary" class="workspace-main-body"></div>
       <div v-show="mainUsesPrimary" class="workspace-original-primary" :inert="mainUsesPrimary ? undefined : ''"><slot /></div>

@@ -2,12 +2,12 @@
 
 这里是 Pinax 的工程文档入口。按需要选择使用指南、部署说明或开发资料。
 
-产品介绍以核心工作台为中心：基础写作与通用 AI，关联世界书后的特色 AI，以及独立跑团。设定按资料、各项设定、高级条目、地图说明；漫画和视频列为边缘扩展。用户指南提供流程概览，具体操作留在对应章节。
+使用手册讲当前界面怎么操作；工程文档讲数据、任务和部署由谁负责。当前目录、助手会话、设定详情和资料接入已按 2026-10-15 发布版本核对。历史计划和验收记录仍保留，不作为当前按钮或部署状态的说明。
 
 | 我要做什么 | 从这里开始 |
 | --- | --- |
 | 使用 Pinax 写作 | [作者使用指南](./user-manual/README.md) · [快速开始](./user-manual/01-quickstart.md) · [常见问题](./user-manual/08-faq.md) |
-| 自行部署或排障 | [README 的本地运行](../README.md#开发者本地运行) · [运维排障](./operations/troubleshooting.md) · [服务端配置示例](../server/.env.example) |
+| 自行部署或排障 | [README 的本地运行](../README.md#开发者本地运行) · [运行包发布](./engineering/agent-runtime-deployment.md) · [运维排障](./operations/troubleshooting.md) · [服务端配置示例](../server/.env.example) |
 | 参与开发 | [贡献指南](../CONTRIBUTING.md) · [代码地图](./src/code-map.md) · [测试状态](./src/test-status.md) |
 
 面向作者的“帮助”应直接进入用户手册；`docs/src/` 继续承载架构、决策、验证和维护记录，不与作者手册重复维护正文。
@@ -22,7 +22,9 @@
 | [plan/pinax-integrated-product-roadmap.md](./plan/pinax-integrated-product-roadmap.md) | 当前唯一产品级路线图：设定、地理、历史、冒险、写作与视听输出 |
 | [STATUS.md](./STATUS.md) | 当前 session 状态、下一步和最近验证 |
 | [LOG.md](./LOG.md) | 近期用户可感知变化和文档定位调整 |
-| [UI/UX 与故事试演计划](./plan/authoring-ux-and-story-play-plan-20260905.md) | 当前Authoring体验优化任务、依赖、验收；进行中的计划不作为清理对象 |
+| [UI/UX 与故事试演计划](./plan/authoring-ux-and-story-play-plan-20260905.md) | 历史体验优化任务与验收依据；当前进度以 STATUS 为准 |
+| [engineering/current-architecture.md](./engineering/current-architecture.md) | 工作区、唯一数据 owner、助手/推演、资料与知识链的现状 |
+| [agent-runs/release-20261015.md](./agent-runs/release-20261015.md) | 最近生产发布的版本、检查与回滚证据 |
 | [src/code-map.md](./src/code-map.md) | 代码 owning surface，找行为负责人 |
 | [src/known-issues.md](./src/known-issues.md) | 当前风险、已知缺口和稳定限制 |
 | [src/test-status.md](./src/test-status.md) | 完整验证命令、测试预算与浏览器/真实渠道边界 |
@@ -48,6 +50,8 @@
 npm run docs:dev
 npm run docs:build
 ```
+
+应用内手册由 Express 从 `docs/user-manual/` 提供，Vite 开发环境将该路径代理到后端；只启动前端时帮助资源可能加载失败。`manifest.json` 保持章节 ID 稳定，英文手册位于 `en/`，没有再维护一套 public 文字副本。
 
 VitePress 源码位于 [src/](./src/)，入口页是 [src/index.md](./src/index.md)。不要提交 `.vitepress/cache/` 或 `.vitepress/dist/` 生成产物。
 

@@ -193,7 +193,9 @@ export function createNarrativeKernelExecutor({
           '只将这一方向写成连续正文；不要重新规划、枚举或混入其他方向。'
         ].join('\n')
       : ''
-    const operationInstruction = turn?.operation === 'rewrite-unit'
+    const operationInstruction = turn?.rewriteText
+      ? '本次只替换作者指定的原文片段。前文仅供衔接，不属于替换范围；只输出该片段的新正文，不复制整块文本，不复述已保留的段落。'
+      : turn?.operation === 'rewrite-unit'
       ? '重写“待重写文本块”的完整内容：保留已成立的事实、人物关系与叙事视角，改善表达与节奏；只输出可整体替换该文本块的正文，不续写后续情节。'
       : turn?.operation === 'next-passage'
         ? '从“当前落笔处”最后一句之后接续，只写新增正文。光标前的叙述与动作已经发生，不重新开场、不重演已完成的动作；回应作者要求后，在指定的收束处停下。'

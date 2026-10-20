@@ -1,3 +1,4 @@
+import { currentRequestModel, assertRequestModelSupport } from './requestModelContext.js'
 // 能力任务代理：把任务作为 capability 任务发到 kit 任务面，submit 回执即任务结果。
 // advisor 路径（taskType+信封+问题）把回执序列化为 advice JSON——createAdvisorTaskResponse 的既有解析/模板/语义修复全部原样工作；
 // 结构化生成路径（W1-1 试点）自备 systemPrompt+submitTool 直接复用低层 submitCapabilityTask。
@@ -48,12 +49,14 @@ export async function submitCapabilityTask({
   if (!prompt || !toolName) {
     throw Object.assign(new Error('能力任务缺少系统提示或提交工具'), { code: 'AGENT_PROVIDER_CONFIG_INVALID', retryable: false })
   }
+  await assertRequestModelSupport()
   const resolvedTaskId = String(taskId || '').trim() || `pcap_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`
   const resolvedTimeoutMs = Math.max(1000, Math.floor(Number(timeoutMs) || 90_000))
   const body = {
     requestId: String(requestId || '').trim() || resolvedTaskId,
     taskId: resolvedTaskId,
     taskKind: 'capability',
+    ...(currentRequestModel() ? { modelConfig: currentRequestModel() } : {}),
     mode: 'init',
     capability: {
       systemPrompt: prompt,

@@ -30,6 +30,14 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   const scope = computed(() => explicitScope.value?.routeName === route.name ? unref(explicitScope.value.value)
     : { bookId: typeof route.query.bookId === 'string' ? route.query.bookId : '', worldbookId: typeof route.query.worldbookId === 'string' ? route.query.worldbookId : '' })
   const directory = useWorkspaceDirectory({ state, scope })
+  // Route-owned navigation uses the same shell without changing project preferences.
+  const directorySurface = shallowRef(null)
+  const activeDirectorySurface = computed(() => directorySurface.value?.routeName === route.name ? directorySurface.value : null)
+  const navigationDirectory = computed(() => activeDirectorySurface.value?.controller || directory)
+  function bindDirectorySurface(surface) {
+    directorySurface.value = surface
+    return () => { if (directorySurface.value === surface) directorySurface.value = null }
+  }
   const scopeKey = computed(() => JSON.stringify([scope.value.bookId, scope.value.bookId ? '' : scope.value.worldbookId]))
   const activeView = computed(() => state.views.find(view => view.id === state.activeId) || null)
   const moduleNavigation = computed(() => Boolean(route.query.bookId && (route.name !== 'experience' || scope.value.bookId === route.query.bookId) && ['authoring', 'settings-structured', 'settings-sources', 'settings-worldbook-advanced', 'settings-world-map', 'comics', 'prose-essay', 'materials', 'experience', 'online-experience'].includes(route.name)))
@@ -304,7 +312,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { extensions: workspaceExtensions, directory, bindSettingNameInserter, insertSettingName, openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { activeDirectorySurface, navigationDirectory, bindDirectorySurface, extensions: workspaceExtensions, directory, bindSettingNameInserter, insertSettingName, openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }

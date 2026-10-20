@@ -49,7 +49,8 @@
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
           <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
           </div>
-          <div class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
+          <AssistantUserInput v-if="message.questions?.length && !message.questionResponse && messages.at(-1)?.id === message.id" :key="message.id" :questions="message.questions" :busy="busy || agentState.adoptionBusy" @answer="assistant?.answerQuestions(message.id, $event)" />
+          <div v-else class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
@@ -111,6 +112,7 @@
     </div>
 
     <footer class="authoring-knowledge__composer">
+      <AssistantMessageQueue :items="unref(assistant?.pendingMessages) || []" :busy="busy" :has-draft="!!draft.trim()" @edit="editQueuedMessage" @remove="assistant?.removeQueuedMessage($event)" @resume="assistant?.resumeQueuedMessages()" />
       <div v-if="documentTitle" class="assistant-document-context"><WorkbenchIcon name="chapter" :size="14" /><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
       <AuthoringAgentTools v-if="agentState.enabled && assistant" :assistant="assistant" :busy="busy" :project-id="projectId" />
       <div class="authoring-knowledge__input-row">
@@ -132,14 +134,21 @@
               <button type="button" @click="useTool('illustrator')"><WorkbenchIcon name="image" :size="18" /><span>{{ tr('生成插图') }}</span></button>
             </div>
           </details>
+          <AuthoringAssistantModel v-if="agentState.enabled" />
           <details ref="purposeRef" class="authoring-knowledge__purpose" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
-            <summary :aria-label="tr('助手权限')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="assistant" :size="15" /><span>{{ tr(permissionLabel) }}</span><small v-if="agentState.permission?.mode !== 'read'">{{ tr(permissionScopeLabel) }}</small><WorkbenchIcon name="chevron-down" :size="14" /></summary>
+            <summary :aria-label="tr('助手权限')" :title="`${tr(permissionLabel)} · ${tr(permissionScopeLabel)}`" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="assistant" :size="15" /><span>{{ tr(permissionLabel) }}</span><WorkbenchIcon name="chevron-down" :size="12" /></summary>
             <div class="authoring-knowledge__tool-menu authoring-knowledge__purpose-menu" :aria-label="tr('助手权限')">
-              <AuthoringAssistantPermissions :assistant="assistant" :busy="agentState.adoptionBusy" />
+              <AuthoringAssistantPermissions :assistant="assistant" :busy="agentState.adoptionBusy" @resize="placeMenu(purposeRef)" />
             </div>
           </details>
-          <button v-if="busy" type="button" class="authoring-knowledge__send is-cancel" :aria-label="tr('停止查询')" :title="tr('停止查询')" @click="$emit('cancel')"><WorkbenchIcon name="close" :size="20" /></button>
-          <button v-else type="button" class="authoring-knowledge__send" :aria-label="tr('发送问题')" :title="tr('发送问题')" :disabled="!draft.trim()" @click="submit"><WorkbenchIcon name="arrow-up" :size="20" /></button>
+          <div class="assistant-send-actions">
+            <button v-if="busy" type="button" class="assistant-stop" :aria-label="tr('停止生成')" :title="tr('停止生成')" @click="$emit('cancel')"><WorkbenchIcon name="stop" :size="13" /></button>
+            <details v-if="busy" ref="sendOptionsRef" class="authoring-knowledge__purpose assistant-send-options" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
+              <summary :aria-label="tr('运行中发送方式')" :title="tr(sendMode === 'steer' ? '补充到当前任务' : '本轮结束后发送')"><WorkbenchIcon name="chevron-down" :size="13" /></summary>
+              <div class="authoring-knowledge__tool-menu"><button type="button" :aria-pressed="sendMode === 'followup'" @click="setSendMode('followup', $event)">{{ tr('本轮结束后发送') }}</button><button type="button" :aria-pressed="sendMode === 'steer'" @click="setSendMode('steer', $event)">{{ tr('补充到当前任务') }}</button></div>
+            </details>
+            <button type="button" class="authoring-knowledge__send" :aria-label="tr(busy ? sendMode === 'steer' ? '补充到当前任务' : '排队发送' : '发送问题')" :title="tr(busy ? sendMode === 'steer' ? '补充到当前任务' : '排队发送' : '发送问题')" :disabled="!draft.trim()" @click="submit"><WorkbenchIcon name="arrow-up" :size="19" /></button>
+          </div>
         </div>
       </div>
     </footer>
@@ -157,7 +166,10 @@
 </template>
 
 <script setup>
+import AuthoringAssistantModel from './AuthoringAssistantModel.vue'
+import AssistantMessageQueue from './AssistantMessageQueue.vue'
 import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
+import AssistantUserInput from './AssistantUserInput.vue'
 import AssistantMessageActions from './AssistantMessageActions.vue'
 import AssistantConversationList from './AssistantConversationList.vue'
 import { promptPreviewKey, closePromptPreview } from '../../composables/usePromptPreview.js'
@@ -179,6 +191,7 @@ const AuthoringGoalReview = defineAsyncComponent(() => import('./AuthoringGoalRe
 
 import { mentionAtCursor, filterMentions, applyMention } from '../../services/agents/storyagent/panelComposer.js'
 import { recordKnowledgeSeamFocus } from '../../composables/useAuthoringKnowledgeAssistant.js'
+import { workspacePopupViewport } from '../../services/workspace/workspacePopupPosition.js'
 
 const props = defineProps({
   assistant: { type: Object, default: null },
@@ -396,12 +409,23 @@ const searchTerm = ref('')
 const searchInputRef = ref(null)
 const toolsRef = ref(null)
 const purposeRef = ref(null)
+const sendOptionsRef = ref(null)
 const expandedSources = ref(new Set())
+const menusToPlace = new Set()
+let menuFrame = null
 function placeMenu(menu) {
+  if (!menu) return
+  menusToPlace.add(menu)
+  if (menuFrame !== null) return
+  menuFrame = window.requestAnimationFrame(() => {
+    menuFrame = null
+    for (const pending of menusToPlace) positionMenu(pending)
+    menusToPlace.clear()
+  })
+}
+function positionMenu(menu) {
   const panel = menu?.querySelector('.authoring-knowledge__tool-menu')
   if (!panel) return
-  panel.classList.remove('is-below', 'is-compact')
-  panel.style.maxHeight = ''
   if (menu === toolsRef.value) {
     const composer = menu.closest('.authoring-knowledge__composer')
     composer?.style.removeProperty('--reference-menu-height')
@@ -418,9 +442,10 @@ function placeMenu(menu) {
   if (!anchor || !trigger) return
   const host = anchor.getBoundingClientRect()
   const scale = host.width / anchor.offsetWidth || 1
-  const viewport = window.visualViewport
-  const top = viewport?.offsetTop || 0
-  const bottom = top + (viewport?.height || window.innerHeight)
+  const viewport = workspacePopupViewport()
+  const bounds = knowledgeRootRef.value?.getBoundingClientRect()
+  const top = Math.max(viewport.top, bounds?.top || 0)
+  const bottom = Math.min(viewport.bottom, bounds?.bottom ?? Infinity)
   const availableAbove = trigger.top - top - 8
   const availableBelow = bottom - trigger.bottom - 8
   const height = panel.scrollHeight * scale
@@ -430,8 +455,8 @@ function placeMenu(menu) {
   panel.style.bottom = 'auto'
   panel.style.right = 'auto'
   const width = panel.getBoundingClientRect().width
-  const viewportLeft = viewport?.offsetLeft || 0
-  const viewportRight = viewportLeft + (viewport?.width || window.innerWidth)
+  const viewportLeft = viewport.left
+  const viewportRight = viewport.right
   const left = Math.max(viewportLeft + 8, Math.min(trigger.right - width, viewportRight - width - 8))
   panel.style.left = `${(left - host.left) / scale}px`
   panel.style.top = `${(below ? trigger.bottom + 6 : trigger.top - Math.min(height, maxHeight) - 6) / scale - host.top / scale}px`
@@ -443,10 +468,16 @@ function closeMenu(menu, restoreFocus = false) {
   if (restoreFocus) menu.querySelector('summary')?.focus({ preventScroll: true })
 }
 function leaveMenu(event) {
-  if (!event.currentTarget.contains(event.relatedTarget)) closeMenu(event.currentTarget)
+  const menu = event.currentTarget
+  // Clicking a label or menu padding blurs the focused control with no next
+  // focus target. Keep the details open: closing it during that mouse press
+  // invalidates Blink's hit-test position before its text-selection handler.
+  // Outside pointer presses are handled by closeMenusOutside; Tab navigation
+  // supplies an explicit relatedTarget and may close the menu here.
+  if (event.relatedTarget && !menu.contains(event.relatedTarget)) closeMenu(menu)
 }
 function closeMenusOutside(event) {
-  for (const menu of [toolsRef.value, purposeRef.value]) {
+  for (const menu of [toolsRef.value, purposeRef.value, sendOptionsRef.value]) {
     if (!menu?.contains(event.target)) closeMenu(menu)
   }
 }
@@ -458,6 +489,7 @@ function focusFirstMenu(menu) {
 function useTool(tool) {
   closeMenu(toolsRef.value, true)
   closeMenu(purposeRef.value)
+  closeMenu(sendOptionsRef.value)
   if (tool === 'review') openReview()
   else if (tool === 'illustrator') emit('open-illustrator')
 }
@@ -466,12 +498,13 @@ function fitDraft() {
   if (!input?.getClientRects().length) return
   input.style.height = '0px'
   input.style.height = `${Math.min(160, Math.max(28, input.scrollHeight))}px`
-  for (const menu of [toolsRef.value, purposeRef.value]) if (menu?.open) placeMenu(menu)
+  for (const menu of [toolsRef.value, purposeRef.value, sendOptionsRef.value]) if (menu?.open) placeMenu(menu)
 }
 function resizeConversation(event) {
   // A thread scroll is authored navigation, not a layout change to undo.
   if (event?.type === 'scroll') {
-    for (const menu of [toolsRef.value, purposeRef.value]) if (menu?.open) placeMenu(menu)
+    if (event.target?.closest?.('.authoring-knowledge__tool-menu')) return
+    for (const menu of [toolsRef.value, purposeRef.value, sendOptionsRef.value]) if (menu?.open) placeMenu(menu)
     return
   }
   const position = lastThreadPosition || captureThreadPosition()
@@ -479,12 +512,13 @@ function resizeConversation(event) {
   if (!reviewOpen.value) queueThreadRestore(position)
 }
 onMounted(() => { document.addEventListener('pointerdown', closeMenusOutside); window.addEventListener('resize', resizeConversation); document.addEventListener('scroll', resizeConversation, true); window.visualViewport?.addEventListener('resize', resizeConversation) })
-onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); document.removeEventListener('scroll', resizeConversation, true); window.visualViewport?.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', closeMenusOutside); window.removeEventListener('resize', resizeConversation); document.removeEventListener('scroll', resizeConversation, true); window.visualViewport?.removeEventListener('resize', resizeConversation); discardThreadRestore(); if (activeQuestionFrame !== null) window.cancelAnimationFrame(activeQuestionFrame); if (menuFrame !== null) window.cancelAnimationFrame(menuFrame); menusToPlace.clear() })
 watch(() => [props.draft, props.expanded, props.projectId, props.selectedIntent], () => nextTick(fitDraft), { immediate: true })
 watch(draftInputRef, () => nextTick(fitDraft))
 watch(() => [referencePicker.value, referenceQuery.value, referenceCandidates.value.length], () => nextTick(() => placeMenu(toolsRef.value)))
+watch(() => [props.agentState.permission?.mode, props.agentState.permission?.scope, props.agentState.permission?.chapterIds?.length], () => nextTick(() => { if (purposeRef.value?.open) placeMenu(purposeRef.value) }))
 const permissionLabel = computed(() => ({ read: '只读', review: '审阅修改', auto: '自动修改' })[props.agentState.permission?.mode] || '审阅修改')
-const permissionScopeLabel = computed(() => ({ book: '本书', selected: '指定章节', current: '当前章节' })[props.agentState.permission?.scope] || '当前章节')
+const permissionScopeLabel = computed(() => { const policy = props.agentState.permission || {}; return policy.scope === 'book' && policy.worldbook && policy.outline ? '本作品' : (!policy.scope || policy.scope === 'current') && !policy.worldbook && !policy.outline ? '当前章节' : '自定义' })
 const discussing = computed(() => props.selectedIntent === 'free')
 const placeholder = computed(() => props.agentState.enabled ? '讨论情节、查阅资料，或说说想怎样修改…' : '说说你的故事想法…')
 const suggestedTasks = Object.freeze([
@@ -515,7 +549,7 @@ const visibleMessages = computed(() => {
 })
 
 function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
-function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', request_user_input: '询问作者', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -587,6 +621,7 @@ watch(() => props.projectId, () => {
   pendingReviewFocus = false
   closeMenu(toolsRef.value)
   closeMenu(purposeRef.value)
+  closeMenu(sendOptionsRef.value)
   expandedSources.value = new Set()
   lastActiveQuestionId = ''
   focusedQuestion = null
@@ -637,9 +672,14 @@ function draftKeydown(event) {
   if (event.key === 'Enter') submitOnEnter(event)
 }
 watch(() => props.projectId, () => { mention.value = null; mentionIndex.value = 0 })
+const sendMode = ref('followup')
+function setSendMode(mode, event) { sendMode.value = mode; closeMenu(event.target.closest('details'), true) }
+watch(() => props.busy, busy => { if (!busy) { sendMode.value = 'followup'; closeMenu(sendOptionsRef.value) } })
+async function editQueuedMessage(id) { if (props.assistant?.editQueuedMessage(id)) { await nextTick(); draftInputRef.value?.focus() } }
 function submit() {
   const question = props.draft.trim()
-  if (!question || props.busy) return
+  if (!question) return
+  if (props.busy) { void props.assistant?.queueMessage({ question, intent: props.selectedIntent }, sendMode.value); return }
   emit('ask', { intent: props.selectedIntent === 'agent' ? 'agent' : discussing.value ? 'free' : 'whole-book', question })
 }
 
@@ -742,19 +782,25 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__input-row { position: relative; box-sizing: border-box; display: flex; min-height: var(--assistant-input-min-height); flex-direction: column; align-items: stretch; gap: 12px; padding: var(--assistant-input-padding); border: 1px solid var(--hairline-soft); border-radius: var(--assistant-input-radius); background: var(--surface-workbench-input); box-shadow: none; }
 .authoring-knowledge__input-row:focus-within { outline: 2px solid var(--workbench-focus); outline-offset: 1px; border-color: transparent; }
 .authoring-knowledge__input-row textarea { display: block; box-sizing: border-box; flex: none; width: 100%; min-width: 0; min-height: 28px; max-height: 160px; resize: none; border: 0; outline: 0; padding: 0 4px; background: transparent; color: var(--text-primary); font: 15px/28px var(--font-interface, var(--font-sans)); }
-.authoring-knowledge__composer-actions { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.authoring-knowledge__composer-actions { display: flex; min-width: 0; align-items: center; flex-wrap: nowrap; gap: 4px; }
+.assistant-send-actions { display: flex; flex: none; align-items: center; gap: 2px; margin-inline-start: auto; }
+.assistant-stop { display: grid; flex: none; width: 28px; height: 32px; padding: 0; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.assistant-stop:hover { background: var(--nav-hover); }
+.assistant-stop :deep(svg) { fill: currentColor; stroke-width: 0; }
+.assistant-send-options summary { width: 24px; height: 32px; padding: 0; justify-content: center; }
+@media (pointer: coarse) { .assistant-stop, .assistant-send-options summary { width: 44px; min-height: 44px; } }
 .authoring-knowledge__input-row textarea::placeholder { color: var(--text-muted); opacity: 1; }
 .authoring-knowledge__tools { position: relative; flex: none; }
-.authoring-knowledge__purpose { position: relative; min-width: 0; flex: 0 1 auto; margin-inline-start: auto; }
+.authoring-knowledge__purpose { position: relative; min-width: 0; flex: none; margin-inline-start: 0; }
 .authoring-knowledge__tools summary { display: grid; width: var(--workspace-control-height, 36px); height: var(--workspace-control-height, 36px); place-items: center; border-radius: var(--workspace-radius, 10px); color: var(--text-secondary); cursor: pointer; list-style: none; }
 .authoring-knowledge__tools summary::-webkit-details-marker, .authoring-knowledge__purpose summary::-webkit-details-marker { display: none; }
 .authoring-knowledge__tools[open] summary, .authoring-knowledge__tools summary:hover { background: var(--surface-workbench-muted); color: var(--archive-ink); }
-.authoring-knowledge__purpose summary { display: flex; min-width: 0; min-height: var(--workspace-control-height, 36px); box-sizing: border-box; align-items: center; gap: 7px; padding: 4px 9px; border-radius: var(--workspace-radius, 10px); color: var(--text-secondary); font: 13px/1.4 var(--font-interface, var(--font-sans)); white-space: nowrap; cursor: pointer; list-style: none; }
+.authoring-knowledge__purpose summary { display: flex; min-width: 0; min-height: var(--workspace-control-height, 36px); box-sizing: border-box; align-items: center; gap: 4px; padding: 4px 5px; border-radius: var(--workspace-radius, 10px); color: var(--text-secondary); font: 13px/1.4 var(--font-interface, var(--font-sans)); white-space: nowrap; cursor: pointer; list-style: none; }
 .authoring-knowledge__purpose summary small { font-size: 11px; color: var(--text-muted); }
 .authoring-knowledge__purpose summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .authoring-knowledge__purpose summary > svg { flex: none; }
 .authoring-knowledge__purpose summary:hover, .authoring-knowledge__purpose[open] summary { background: var(--nav-hover); color: var(--text-primary); }
-.authoring-knowledge__tool-menu { position: absolute; z-index: 5; inset-inline-start: 0; bottom: calc(100% + 14px); width: 210px; max-width: calc(100vw - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover, 16px); background: var(--surface-workbench-overlay, var(--surface-workbench-raised)); box-shadow: var(--shadow-workbench-float); }
+.authoring-knowledge__tool-menu { position: absolute; box-sizing: border-box; z-index: 5; inset-inline-start: 0; bottom: calc(100% + 14px); width: 210px; max-width: calc(100vw - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover, 16px); background: var(--surface-workbench-overlay, var(--surface-workbench-raised)); box-shadow: var(--shadow-workbench-float); }
 .authoring-knowledge__tool-menu.is-below { top: calc(100% + 14px); bottom: auto; }
 .authoring-knowledge__purpose-menu { inset-inline-start: auto; inset-inline-end: 0; width: 250px; }
 .authoring-knowledge__tool-menu button { display: flex; width: 100%; min-height: 42px; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--archive-ink); font: 14px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
@@ -820,9 +866,9 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
   .authoring-knowledge.is-expanded .authoring-knowledge__thread { padding-block: 16px 24px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__toolbar { padding-inline: 16px; }
   .authoring-knowledge.is-expanded .authoring-knowledge__composer { padding: 10px 16px max(16px, env(safe-area-inset-bottom)); }
-  .authoring-knowledge__composer-actions { flex-wrap: wrap; gap: 4px 6px; }
+  .authoring-knowledge__composer-actions { flex-wrap: nowrap; gap: 3px; }
   .authoring-knowledge__context { order: -1; flex: 1 0 calc(100% - 8px); }
-  .authoring-knowledge.is-expanded .authoring-knowledge__purpose, .authoring-knowledge:not(.is-expanded) .authoring-knowledge__purpose { position: static; flex: 1 1 0; margin-inline-start: 0; }
+  .authoring-knowledge.is-expanded .authoring-knowledge__purpose, .authoring-knowledge:not(.is-expanded) .authoring-knowledge__purpose { position: static; flex: none; margin-inline-start: 0; }
   .authoring-knowledge__purpose summary { width: fit-content; max-width: 100%; }
   .authoring-knowledge .authoring-knowledge__purpose-menu { inset-inline-end: 12px; max-width: calc(100% - 24px); }
   .authoring-knowledge.is-expanded.is-starting .authoring-knowledge__body { padding: 32px 18px 48px; }

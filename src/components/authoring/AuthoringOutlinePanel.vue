@@ -1,17 +1,20 @@
 <script setup>
 import './AuthoringCatalogWorkbench.css'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import AuthoringInlineEdit from './AuthoringInlineEdit.vue'
+import { useAssistantObjectEdits } from '../../composables/useAssistantObjectEdits.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { tr, uiLocale } from '../../i18n/index.js'
 
 const props = defineProps({
+  assistantReview: { type: Object, default: null },
   projectNodes: { type: Array, default: () => [] }, projectEdges: { type: Array, default: () => [] },
   projectConflicts: { type: Array, default: () => [] }, projectFilter: { type: String, default: 'all' },
   chapters: { type: Array, default: () => [] }, explorations: { type: Array, default: () => [] },
   items: { type: Array, default: () => [] }, focusProjectNodeId: { type: String, default: '' },
   bookId: { type: String, default: '' }, chapterId: { type: [String, Number], default: '' }, chapterTitle: { type: String, default: '' }, selectedText: { type: String, default: '' }
 })
-const emit = defineEmits(['add', 'update', 'update-project', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'open-dual', 'history', 'close'])
+const emit = defineEmits(['assistant-edit-action', 'add', 'update', 'update-project', 'remove', 'move', 'insert', 'filter', 'open-project-chapter', 'open-project-exploration', 'open-dual', 'history', 'close'])
 const FILTERS = [{ key: 'all', label: '全部' }, { key: 'unfiled', label: '未编排' }, { key: 'causes', label: '人物线' }, { key: 'foreshadows', label: '伏笔' }]
 const STATUS_LABELS = { exploring: '推演中', planned: '已计划', drafted: '已成稿', fulfilled: '已兑现', parked: '已搁置' }
 const EDGE_LABELS = { causes: '因果', foreshadows: '伏笔', alternative: '另一种可能', parallel: '并行' }
@@ -28,13 +31,22 @@ const title = ref('')
 const content = ref('')
 const confirmDeleteId = ref('')
 
-const projectNodeById = computed(() => new Map(props.projectNodes.map((node) => [String(node.id), node])))
+const { catalog: assistantNodes, state: assistantEdits, field: assistantField, act: assistantAct } = useAssistantObjectEdits({
+  review: () => props.assistantReview, items: () => props.projectNodes,
+  selectedId: () => selectedKind.value === 'project' ? selectedId.value : '', kind: 'outline',
+  emit: action => emit('assistant-edit-action', action)
+})
+async function handleAssistantAction(action) {
+  if (action !== 'done') { flushSave(); await nextTick() }
+  assistantAct(action)
+}
+const projectNodeById = computed(() => new Map(assistantNodes.value.map((node) => [String(node.id), node])))
 const selectedProjectNode = computed(() => selectedKind.value === 'project' ? projectNodeById.value.get(selectedId.value) || null : null)
 const selectedItemIndex = computed(() => selectedKind.value === 'chapter' ? props.items.findIndex((item) => String(item.id) === selectedId.value) : -1)
 const selectedItem = computed(() => props.items[selectedItemIndex.value] || null)
 const filteredProjectNodes = computed(() => {
   const needle = query.value.trim().toLocaleLowerCase()
-  return props.projectNodes.filter((node) => {
+  return assistantNodes.value.filter((node) => {
     if (props.projectFilter === 'unfiled' && node.chapterRefs?.length) return false
     if (['causes', 'foreshadows'].includes(props.projectFilter) && !props.projectEdges.some((edge) => edge.kind === props.projectFilter && (edge.fromNodeId === node.id || edge.toNodeId === node.id))) return false
     return !needle || `${node.title || ''} ${node.intent || ''}`.toLocaleLowerCase().includes(needle)
@@ -64,7 +76,7 @@ function flushSave() {
   clearTimeout(saveTimer)
   saveTimer = null
   const item = selectedItem.value || selectedProjectNode.value
-  if (!item || creating.value) return
+  if (!item || creating.value || item.__assistantPendingCreate) return
   const nextTitle = title.value.trim()
   const nextContent = content.value.trim()
   if (nextTitle === (item.title || '') && nextContent === (selectedProjectNode.value ? item.intent || '' : item.content || '')) return
@@ -108,13 +120,18 @@ function chapterLabel(id) {
   return `${tr('第{number}章', { number })}${chapter.title ? ` ${chapter.title}` : ''}`
 }
 function directoryExcerpt(value) { return String(value || '').replace(/\s+/g, ' ').trim() || tr('暂无内容') }
-function selectInitial() { const project = props.projectNodes[0]; const item = props.items[0]; if (project) selectProject(project); else if (item) selectItem(item) }
+function selectInitial() { const project = assistantNodes.value[0]; const item = props.items[0]; if (project) selectProject(project); else if (item) selectItem(item) }
 
 watch(() => props.chapterId, () => { clearTimeout(saveTimer); saveTimer = null; selectedId.value = ''; selectedKind.value = ''; creating.value = false; selectInitial() }, { flush: 'sync' })
+watch(() => JSON.stringify(selectedProjectNode.value), () => {
+  if (!saveTimer && !creating.value && selectedProjectNode.value) {
+    title.value = selectedProjectNode.value.title || ''; content.value = selectedProjectNode.value.intent || ''; nextTick(resizeContent)
+  }
+})
 onBeforeUnmount(flushSave)
 
 watch(() => props.focusProjectNodeId, (id) => { const node = projectNodeById.value.get(String(id || '')); if (node) selectProject(node) }, { immediate: true })
-watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.map((item) => item.id).join('|')], () => {
+watch(() => [assistantNodes.value.map((node) => node.id).join('|'), props.items.map((item) => item.id).join('|')], () => {
   if (creating.value) { const added = props.items.find(item => !creatingFromIds.has(String(item.id))); if (added) selectItem(added) }
   const exists = selectedKind.value === 'project' ? selectedProjectNode.value : selectedKind.value === 'chapter' ? selectedItem.value : false
   if (!exists && !creating.value) selectInitial()
@@ -125,16 +142,18 @@ watch(() => [props.projectNodes.map((node) => node.id).join('|'), props.items.ma
   <section class="outline-workbench catalog-workbench" data-catalog="outline">
     <main class="outline-editor catalog-sheet">
       <header class="outline-editor__head catalog-sheet-head">
-        <input v-if="selectedItem || selectedProjectNode || creating" v-model="title" :aria-label="tr('大纲标题')" :placeholder="tr('大纲标题')" @input="scheduleSave" @blur="flushSave" />
+        <AuthoringInlineEdit v-if="assistantField(entry => entry.title)" :parts="assistantField(entry => entry.title)" title-field />
+        <input v-else-if="selectedItem || selectedProjectNode || creating" :readonly="selectedProjectNode?.__assistantPendingCreate" v-model="title" :aria-label="tr('大纲标题')" :placeholder="tr('大纲标题')" @input="scheduleSave" @blur="flushSave" />
         <h2 v-else>{{ selectedProjectNode?.title || selectedItem?.title || (creating ? tr('新章纲') : tr('总纲')) }}</h2>
-        <div><button type="button" :title="tr('历史版本')" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
+        <AuthoringInlineEdit v-if="assistantEdits" :state="assistantEdits" actions-only @action="handleAssistantAction" />
+        <div v-else><button type="button" :title="tr('历史版本')" @click="emit('history')"><WorkbenchIcon name="undo-extension" :size="17" /></button></div>
       </header>
       <div v-if="creating || selectedItem || selectedProjectNode" class="outline-editor__body authoring-outline-detail catalog-sheet-body" :class="{ 'is-project-detail': selectedProjectNode }">
         <div class="outline-editor__toolbar">
           <span>{{ selectedProjectNode ? `${tr('总纲')} · ${statusLabel(selectedProjectNode.status)}` : `${chapterTitle || tr('当前章节')} · ${tr('章纲')}` }}</span>
           <div class="authoring-outline-detail__primary"><button v-if="selectedItem" type="button" @click="emit('insert', selectedItem)">{{ tr('插入正文') }}</button><button v-if="selectedItem" type="button" class="danger" @click="removeSelected">{{ confirmDeleteId === selectedItem.id ? tr('确认删除') : tr('删除') }}</button></div>
         </div>
-        <label v-if="selectedItem || selectedProjectNode || creating" class="catalog-prose-field"><span>{{ tr('内容') }}</span><textarea ref="contentInput" v-model="content" :aria-label="tr('大纲内容')" :placeholder="tr('写下关键动作、转折和必须兑现的信息')" @input="scheduleSave" @blur="flushSave"></textarea></label>
+        <label v-if="selectedItem || selectedProjectNode || creating" class="catalog-prose-field"><span>{{ tr('内容') }}</span><AuthoringInlineEdit v-if="assistantField(entry => entry.intent)" :parts="assistantField(entry => entry.intent)" /><textarea v-else :readonly="selectedProjectNode?.__assistantPendingCreate" ref="contentInput" v-model="content" :aria-label="tr('大纲内容')" :placeholder="tr('写下关键动作、转折和必须兑现的信息')" @input="scheduleSave" @blur="flushSave"></textarea></label>
         <section v-if="selectedProjectNode && selectedRelations.length" class="outline-relations"><h3>{{ tr('叙事关系') }}</h3><button v-for="edge in selectedRelations" :key="edge.id" type="button" @click="edge.peer && selectProject(edge.peer)"><small>{{ relationLabel(edge) }}</small><span>{{ edge.peer?.title || tr('已移除节点') }}</span></button></section>
         <section v-if="selectedProjectNode?.chapterRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('关联章节') }}</h3><button v-for="chapterId in selectedProjectNode.chapterRefs" :key="chapterId" type="button" :disabled="!chapterById(chapterId)" @click="emit('open-project-chapter', chapterId)"><span>{{ chapterLabel(chapterId) }}</span><small>{{ chapterById(chapterId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>
         <section v-if="selectedProjectNode?.explorationRefs?.length" class="outline-relations authoring-outline-project-links"><h3>{{ tr('推演草稿') }}</h3><button v-for="reference in selectedProjectNode.explorationRefs" :key="reference.documentId" type="button" :disabled="!explorationById(reference.documentId)" @click="emit('open-project-exploration', reference.documentId)"><span>{{ explorationById(reference.documentId)?.title || tr('推演草稿已移除') }}</span><small>{{ explorationById(reference.documentId) ? tr('打开 ›') : tr('引用已失效') }}</small></button></section>

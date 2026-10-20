@@ -81,7 +81,7 @@ const VALID_LAYOUTS = new Set(['strip-4', 'feature-4', 'page-6', 'feature-6', 'f
 const VALID_STATUSES = new Set(['draft', 'accepted'])
 const VALID_GENERATION_STATUSES = new Set(['idle', 'generating', 'ready', 'error'])
 const VALID_COLOR_MODES = new Set(['color', 'monochrome'])
-const VALID_SHOT_SIZES = new Set(['extreme-wide', 'wide', 'medium', 'close', 'extreme-close', 'insert'])
+const VALID_SHOT_SIZES = new Set(['extreme-wide', 'wide', 'medium', 'close', 'extreme-close', 'insert', 'empty'])
 const VALID_CAMERA_ANGLES = new Set(['eye', 'high', 'low', 'bird', 'worm', 'dutch', 'pov'])
 const VALID_PERSPECTIVES = new Set(['flat', 'one-point', 'two-point', 'three-point', 'fisheye'])
 const VALID_VISUAL_BIBLE_STATUSES = new Set(['draft', 'confirmed'])
@@ -562,7 +562,7 @@ function normalizePanel(input = {}, fallbackOrder, context) {
     visual: String(input.visual || '').trim(),
     beat: normalizeBeat(input.beat),
     frame: normalizeFrame(input.frame || getDefaultComicPanelFrame(context.layout, fallbackOrder, context.panelCount)),
-    direction: normalizeDirection(input.direction, context.projectId),
+    direction: normalizeComicPanelDirection(input.direction, context.projectId),
     dialogue: normalizeDialogue(input.dialogue),
     caption: String(input.caption || '').trim(),
     continuityRefs: normalizeSourceRefs(input.continuityRefs, context),
@@ -770,7 +770,8 @@ function normalizeFrame(input = {}) {
   }
 }
 
-function normalizeDirection(input = {}, projectId = null) {
+export function normalizeComicPanelDirection(input = {}, projectId = null) {
+  input = input && typeof input === 'object' && !Array.isArray(input) ? input : {}
   return {
     revision: normalizePositiveInteger(input.revision, 1),
     notes: normalizeText(input.notes),
@@ -979,6 +980,7 @@ function readComicPages(storage) {
 
 function writeComicPages(storage, pages) {
   storage.setItem(STORAGE_KEYS.COMIC_PAGES, JSON.stringify(pages))
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pinax-comic-pages-changed'))
 }
 
 function resolveStorage(storage) {

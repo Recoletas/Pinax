@@ -5,7 +5,7 @@ import { MAX_AUTHORING_PRESENT_CHARACTERS } from '../../services/agents/authorin
 // worldbook scene closure Task 10：右侧检查器的现场调整（受控组件）。
 // 不访问 store/localStorage/provider；所有状态经 props 进入、事件上抛。
 // 布局固定为 时间 → 地点 → 人物。列表只负责选择对象；一个就地动作区
-// 再说明这个对象是加入当前场、安排下一段，还是仅供本次推演。
+// 再说明这个对象是设为在场、安排下一段，还是仅供本次推演。
 
 const props = defineProps({
   draft: { type: Object, required: true },
@@ -65,7 +65,7 @@ function togglePerson(candidate) {
   const current = new Set(props.draft.presentCharacterIds || [])
   const removing = current.has(candidate.id)
   if (!removing && current.size >= MAX_AUTHORING_PRESENT_CHARACTERS) {
-    selectionNotice.value = `当前场最多保留 ${MAX_AUTHORING_PRESENT_CHARACTERS} 位在场人物，请先移除一位。`
+    selectionNotice.value = `在场人物最多 ${MAX_AUTHORING_PRESENT_CHARACTERS} 位，请先移除一位。`
     return
   }
   selectionNotice.value = ''
@@ -83,14 +83,14 @@ function isSelected(candidate) {
   return (props.draft.presentCharacterIds || []).includes(candidate.id)
 }
 
-// C1-2 作用范围语义：加入当前场仍走受控草稿保存；另外两种选择只上抛
+// C1-2 作用范围语义：设为在场仍走受控草稿保存；另外两种选择只上抛
 // 一次性意图，组件自身绝不把它们写进 scene anchor。
 function requestRunIntent(candidate, entityKind, mode) {
   selectionNotice.value = ''
   if (entityKind === 'character' && mode === 'next-passage') {
     const current = new Set(props.draft.presentCharacterIds || [])
     if (!current.has(candidate.id) && current.size >= MAX_AUTHORING_PRESENT_CHARACTERS) {
-      selectionNotice.value = `当前场最多保留 ${MAX_AUTHORING_PRESENT_CHARACTERS} 位在场人物，请先移除一位。`
+      selectionNotice.value = `在场人物最多 ${MAX_AUTHORING_PRESENT_CHARACTERS} 位，请先移除一位。`
       return
     }
   }
@@ -198,7 +198,7 @@ function chooseCurrentLocation(candidate) {
             ><span aria-hidden="true">{{ draft.locationId === candidate.id ? '●' : '○' }}</span><span>{{ candidate.name }}</span><small>{{ draft.locationId === candidate.id ? '当前地点' : '选择' }}</small></button>
             <div v-if="isActive('location', candidate)" class="scene-curation__candidate-actions">
               <strong>{{ candidate.name }}</strong>
-              <button type="button" class="is-current" @click="chooseCurrentLocation(candidate)">{{ draft.locationId === candidate.id ? '移出当前场' : '设为当前地点' }}</button>
+              <button type="button" class="is-current" @click="chooseCurrentLocation(candidate)">{{ draft.locationId === candidate.id ? '移出' : '设为当前地点' }}</button>
               <button v-if="draft.locationId !== candidate.id" type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'next-passage')">下一段转到这里</button>
               <button type="button" class="scene-curation__scope-btn" @click="requestRunIntent(candidate, 'location', 'run-only')">仅带入本次推演</button>
             </div>
@@ -244,7 +244,7 @@ function chooseCurrentLocation(candidate) {
                 type="button"
                 class="is-current"
                 @click="togglePerson(candidate)"
-              >{{ isSelected(candidate) ? '移出当前场' : '加入当前场' }}</button>
+              >{{ isSelected(candidate) ? '移出' : '设为在场' }}</button>
               <button
                 v-if="isSelected(candidate)"
                 type="button"
@@ -273,7 +273,7 @@ function chooseCurrentLocation(candidate) {
     <p v-if="error || selectionNotice" class="scene-curation__error" role="alert">{{ error?.message || selectionNotice }}</p>
 
     <footer class="writing-inspector__actions scene-curation__actions">
-      <button type="button" class="control-primary" data-test="curation-save" :disabled="busy" @click="emit('save')">保存当前场</button>
+      <button type="button" class="control-primary" data-test="curation-save" :disabled="busy" @click="emit('save')">保存</button>
       <button type="button" data-test="curation-cancel" :disabled="busy" @click="emit('cancel')">取消</button>
       <button v-if="canUndo" type="button" data-test="curation-undo" :disabled="busy" @click="emit('undo')">撤销上次保存</button>
       <button

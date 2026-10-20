@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createApp, effectScope, nextTick, reactive, ref } from 'vue'
 import { readProseCanvasWorkspace, saveProseCanvasWorkspace, PROSE_CANVAS_KEYS } from '../services/canvas/proseCanvasRepository.js'
 import { useProseDirectorExport } from '../composables/useProseDirectorExport.js'
@@ -253,7 +253,7 @@ describe('workbench control contract (U1)', () => {
     expect(restored.width).toBe(680)
     expect(normalizeWorkspaceLayout({ version: 99, views: [] }, { bookId: 'book-a' })).toBeNull()
     // Page defaults return without overwriting authored folders, links or resource ordering.
-    expect(createDirectory().folders.map(folder => folder.name)).toEqual(['正文', '构思', '设定', '资料', '素材'])
+    expect(createDirectory().folders.map(folder => folder.name)).toEqual(['正文', '构思', '设定', '资料', '素材', '漫画'])
     const chapterRef = { type: 'chapter', bookId: 'book-a', id: 'chapter-a' }
     const chapterKey = directoryResourceKey(chapterRef)
     const oldDirectory = { version: 1, revision: 4, folders: [
@@ -266,7 +266,7 @@ describe('workbench control contract (U1)', () => {
     expect(migratedDirectory.revision).toBe(4)
     expect(migratedDirectory.folders).toContainEqual(oldDirectory.folders[0])
     expect(migratedDirectory.folders).toContainEqual(oldDirectory.folders[1])
-    expect(migratedDirectory.folders).toHaveLength(6)
+    expect(migratedDirectory.folders).toHaveLength(7)
     expect(directoryRows(migratedDirectory, [{ title: '开篇', folder: 'manuscript', resource: chapterRef }]).find(row => row.key === chapterKey)).toMatchObject({ parentId: 'manuscript', order: 42, resource: chapterRef })
     expect(localStorage.getItem(DIRECTORY_PREFIX + 'book-a')).toBe(oldRaw)
     const authoredRoot = moveDirectoryRow(migratedDirectory, { key: chapterKey }, '', 43)
@@ -323,9 +323,9 @@ describe('workbench control contract (U1)', () => {
       expect(host.directory.expanded.value).toBe(false)
       expect(JSON.parse(localStorage.getItem('pinax-directory-mode:v1:guard-book'))).toMatchObject({ mode: 'chapters', expanded: false })
       expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book', pageId: 'page-one', panelId: 'panel-one' })).toBe(true)
-      expect(workspaceExtensions.setEnabled('pinax.comics', false).ok).toBe(true)
+      expect(workspaceExtensions.setEnabled('pinax.comics', false).ok).toBe(false)
       expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book' })).toBe(true)
-      expect(host.openResource({ type: 'comic', bookId: 'guard-book', id: 'new-comic' })).toBe(false)
+      expect(workspaceExtensions.enabled('pinax.comics')).toBe(true)
       expect(workspaceExtensions.setEnabled('pinax.comics', true).ok).toBe(true)
       expect(host.openResource({ type: 'comic-editor', bookId: 'guard-book' })).toBe(true)
       expect(host.activeView.value.resource.pageId).toBe('page-one')
@@ -412,7 +412,7 @@ describe('workbench control contract (U1)', () => {
       expect(await host.openHome()).toBe(true)
       const homeView = host.state.views.find(view => view.resource.type === 'home')
       expect(homeView).toMatchObject({ group: 'main', pinned: true })
-      expect(host.directory.expanded.value).toBe(false)
+      expect(host.directory.expanded.value).toBe(true)
       host.directory.setExpanded(true)
       expect(host.directory.expanded.value).toBe(true)
       expect(host.state.mainModuleId).toBe(homeView.id)
@@ -428,34 +428,52 @@ describe('workbench control contract (U1)', () => {
       const health = new Promise(resolve => { finishHealth = resolve })
       let writes = 0
       let authorizations = 0
+      let revocations = 0
+      const permissions = []
+      let waitForRun = null
+      let runStarted = null
+      let preparedRequests = 0
       const requestEngine = {
-        prepare: () => ({ bookId: 'guard-book', currentChapterId: 'chapter-a' }),
+        prepare: () => { preparedRequests++; return { bookId: 'guard-book', currentChapterId: 'chapter-a' } },
+        permissionContext: () => ({ bookId: 'guard-book', currentChapterId: 'chapter-a' }),
         destination: () => ({ bookId: 'guard-book', chapterId: 'chapter-a' }),
         healthz: () => health,
-        authorize: async () => { authorizations++ },
-        revokePermission: () => {},
+        authorize: async permission => { authorizations++; permissions.push(JSON.parse(JSON.stringify(permission))) },
+        revokePermission: () => { revocations++ },
         prepareProposal: async input => ({ id: 'background-proposal', bookId: 'guard-book', status: 'pending', changes: input.changes }),
-        run: async ({ callbacks }) => {
+        run: async ({ callbacks, signal }) => {
           callbacks.onTask({ taskId: 'background-task', bookId: 'guard-book' })
+          runStarted?.(signal)
+          if (waitForRun) await waitForRun
           return { ok: true, finalContent: '后台建议', finalToolResults: [
             { toolName: 'submit_edit_proposals', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, changes: [{ kind: 'chapter', targetId: 'chapter-a', field: 'content', text: '新段落' }] }) }] } },
             { toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'edit', outcome: 'proposal', message: '后台建议' }) }] } }
           ] }
         },
+        resume: input => requestEngine.run(input),
         cancel: async () => true,
         applyProposal: async () => { writes++; return { ok: true } }
       }
       const editorScope = effectScope()
       const assistant = editorScope.run(() => host.attachAssistant({ projectId: ref('guard-book'), agentEngine: requestEngine }))
       expect(await assistant.setAgentPermission({ mode: 'auto' })).toBe(true)
+      expect(preparedRequests).toBe(0)
+      expect(authorizations).toBe(0)
       const pending = assistant.ask({ question: '修改原章' })
       expect(assistant.busy.value).toBe(true)
+      expect(await assistant.setAgentPermission({ mode: 'review', scope: 'book' })).toBe(true)
+      expect(authorizations).toBe(0)
+      expect(revocations).toBe(0)
+      expect(assistant.agentState.value.permissionPending).toBe(true)
       expect(await host.prepareLeave({ name: 'comic-studio', query: { bookId: 'guard-book' } }, workspaceRoute)).toBe(true)
       expect(await host.prepareLeave({ name: 'welcome', query: {} }, workspaceRoute)).toBe(false)
       editorScope.stop()
       expect(host.assistantSummary.value.label).toBe('助手运行中')
       finishHealth({ ok: true, assistantProtocolVersion: 2 })
       expect(await pending).toBe(true)
+      expect(permissions[0]).toMatchObject({ mode: 'auto', scope: 'current' })
+      expect(assistant.agentState.value.permission).toMatchObject({ mode: 'review', scope: 'book' })
+      expect(assistant.agentState.value.permissionPending).toBe(false)
       expect(writes).toBe(0)
       expect(assistant.messages.value.at(-1).proposal.bookId).toBe('guard-book')
       expect(host.assistantSummary.value.label).toBe('助手有新结果')
@@ -466,7 +484,41 @@ describe('workbench control contract (U1)', () => {
       expect(renewed.reviewProposal(renewed.messages.value.at(-1).id)).toBe(true)
       expect(await renewed.applyAgentProposal()).toBe(true)
       expect(writes).toBe(1)
-      expect(authorizations).toBeGreaterThan(2)
+      expect(authorizations).toBe(2)
+      expect(permissions.at(-1)).toMatchObject({ mode: 'review', scope: 'book' })
+      let finishRun
+      waitForRun = new Promise(resolve => { finishRun = resolve })
+      const started = new Promise(resolve => { runStarted = resolve })
+      const secondRequest = renewed.ask({ question: '按新范围讨论' })
+      const runSignal = await started
+      const grantedCount = authorizations
+      const revokedCount = revocations
+      expect(permissions.at(-1)).toMatchObject({ mode: 'review', scope: 'book' })
+      expect(await renewed.setAgentPermission({ mode: 'auto', scope: 'selected', chapterIds: ['chapter-b'] })).toBe(true)
+      expect(renewed.agentState.value.permissionPending).toBe(true)
+      expect(authorizations).toBe(grantedCount)
+      expect(revocations).toBe(revokedCount)
+      expect(runSignal.aborted).toBe(false)
+      expect(renewed.agentState.value.taskId).toBe('background-task')
+      finishRun()
+      expect(await secondRequest).toBe(true)
+      expect(writes).toBe(1) // Switching to auto cannot apply a review-mode turn.
+      expect(renewed.messages.value.at(-1)).toMatchObject({ status: 'completed', taskId: 'background-task', proposal: { bookId: 'guard-book' } })
+      expect(renewed.agentState.value.permissionPending).toBe(false)
+      expect(await renewed.setAgentPermission({ scope: 'current' })).toBe(true)
+      waitForRun = new Promise(resolve => { finishRun = resolve })
+      const autoStarted = new Promise(resolve => { runStarted = resolve })
+      const autoRequest = renewed.ask({ question: '按原授权自动修改' })
+      await autoStarted
+      expect(await renewed.setAgentPermission({ mode: 'read' })).toBe(true)
+      finishRun()
+      expect(await autoRequest).toBe(true)
+      expect(writes).toBe(2) // In-flight auto adoption keeps its captured grant.
+      expect(permissions.at(-1)).toMatchObject({ mode: 'auto', scope: 'current' })
+      waitForRun = null
+      expect(await renewed.ask({ question: '下一轮只读' })).toBe(true)
+      expect(permissions.at(-1)).toMatchObject({ mode: 'read', scope: 'current' })
+      expect(writes).toBe(2)
       renewedScope.stop()
       workspaceRoute.query.bookId = 'another-book'
       await nextTick()
@@ -481,7 +533,7 @@ describe('workbench control contract (U1)', () => {
       workspaceRoute.query.bookId = 'guard-book'
       await nextTick()
       expect(host.directory.mode.value).toBe('chapters')
-      expect(host.directory.expanded.value).toBe(false)
+      expect(host.directory.expanded.value).toBe(true)
       workspaceRoute.name = 'welcome'; workspaceRoute.query = {}
       await nextTick()
       expect(await host.openAt({ type: 'extensions', extensionId: 'pinax.core' }, 'main')).toBe(true)
@@ -514,7 +566,6 @@ describe('workbench control contract (U1)', () => {
     const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
     expect(workspaceTabs).toContain('height: 36px;')
-    expect(workspaceTabs).toContain('var(--hairline-soft)')
     // N-B：关闭钮为兄弟 button（消除交互嵌套），hover/聚焦/激活时可见。
     expect(workspaceTabs).toContain('.ws-tab-slot:is(:hover, :focus-within) .ws-tab__close')
     expect(workspaceTabs).toContain('.ws-tab.is-active + .ws-tab__close')
@@ -555,7 +606,7 @@ describe('workbench control contract (U1)', () => {
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__cork \{[\s\S]*display: flex;[\s\S]*flex-wrap: nowrap;[\s\S]*overflow-x: auto;/)
       expect(authoringBlockCss).toMatch(/\.theme-legacy \.writing-page \.wall__main \{[\s\S]*display: grid;[\s\S]*grid-template-columns:/)
       expect(authoringBlockCss).toContain('.writing-annotation__edit')
-      expect(authoringBlockCss).toMatch(/\.writing-annotation__edit \{[\s\S]*border: 1px solid var\(--authoring-hairline\);[\s\S]*box-shadow: none;/)
+      expect(authoringBlockCss).toMatch(/\.writing-annotation__edit \{[\s\S]*border-bottom: 1px solid var\(--authoring-hairline\);[\s\S]*box-shadow: none;/)
       expect(authoringBlockCss).toContain(':has(> .writing-inspector.is-catalog-workbench)')
       expect(authoringWorldbookPanel).toContain('class="catalog-actions"')
       expect(authoringWorldbookPanel).toContain('@click="startCreate"')
@@ -658,13 +709,147 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringKnowledgeAssistant).toContain('@media (hover: none), (pointer: coarse)')
     expect(workspace).toContain('<AuthoringKnowledgeAssistant')
     expect(workspace).toContain(':notice="notice"')
+    // Common ranges are presets; detailed chapter/settings grants are opt-in.
+    {
+      const { mount } = await import('@vue/test-utils')
+      const { default: Permissions } = await import('../components/authoring/AuthoringAssistantPermissions.vue')
+      const agentState = ref({ currentChapterId: 'two', permission: { mode: 'auto', scope: 'current', chapterIds: [], worldbook: false, outline: false } })
+      const updates = []
+      const assistant = {
+        agentState,
+        agentChapterOptions: () => [{ id: 'one', title: '第一章' }, { id: 'two', title: '第二章' }],
+        agentContext: () => { throw new Error('Permission controls must not assemble full context') },
+        setAgentPermission: patch => { updates.push(patch); agentState.value.permission = { ...agentState.value.permission, ...patch }; return true }
+      }
+      const panel = mount(Permissions, { props: { assistant } })
+      const second = mount(Permissions, { props: { assistant } })
+      const button = label => panel.findAll('button').find(item => item.text() === label)
+      try {
+        expect(panel.find('select').exists()).toBe(false)
+        expect(panel.findAll('input[type="checkbox"]')).toHaveLength(0)
+        await button('本作品').trigger('click')
+        expect(updates.at(-1)).toEqual({ scope: 'book', worldbook: true, outline: true })
+        await button('自定义').trigger('click')
+        expect(panel.findAll('.assistant-permissions__chapters input').every(item => item.element.checked)).toBe(true)
+        expect(second.find('.assistant-permissions__custom').exists()).toBe(false)
+        await panel.findAll('.assistant-permissions__chapters input')[1].setValue(false)
+        expect(updates.at(-1)).toEqual({ scope: 'selected', chapterIds: ['one'] })
+        agentState.value.permissionPending = true
+        await nextTick()
+        expect(panel.get('[role="status"]').text()).toBe('下次发送生效')
+        await button('当前章节').trigger('click')
+        expect(updates.at(-1)).toEqual({ scope: 'current', worldbook: false, outline: false })
+        await button('自定义').trigger('click')
+        expect(panel.findAll('.assistant-permissions__chapters input')[1].element.checked).toBe(true)
+        await panel.findAll('.assistant-permissions__chapters input')[0].setValue(true)
+        expect(updates.at(-1)).toEqual({ scope: 'selected', chapterIds: ['two', 'one'] })
+        const count = updates.length
+        await panel.setProps({ busy: true })
+        await panel.findAll('.assistant-permissions__custom input')[0].trigger('change')
+        expect(updates).toHaveLength(count)
+        await panel.setProps({ busy: false })
+        agentState.value.permission.mode = 'read'
+        await nextTick()
+        expect(panel.find('.assistant-permissions__range').exists()).toBe(false)
+        expect(updates).toHaveLength(count)
+        agentState.value.permission.mode = 'auto'
+        const empty = mount(Permissions, { props: { assistant: { ...assistant, agentChapterOptions: () => [] } } })
+        try { expect(empty.findAll('button').find(item => item.text() === '当前章节').element.disabled).toBe(true) }
+        finally { empty.unmount() }
+      } finally { panel.unmount(); second.unmount() }
+    }
+    // Assistant changes stay in the original object fields and directory.
+    {
+      const { mount } = await import('@vue/test-utils')
+      const { prepareAssistantProposal, applyAssistantProposal } = await import('../services/agents/storyagent/assistantEditTransaction.js')
+      const { default: Settings } = await import('../components/authoring/AuthoringWorldbookPanel.vue')
+      const { default: Characters } = await import('../components/authoring/AuthoringCharacterPanel.vue')
+      const { default: Outline } = await import('../components/authoring/AuthoringOutlinePanel.vue')
+      const book = { id: 'inline-book', worldbookId: 'inline-world', chapters: [], outlineNodes: [{ id: 'plot', title: '开篇', intent: '前往学城。' }] }
+      const worldbook = { id: 'inline-world', entries: [{ id: 'relations', name: '关系摘要', type: 'general', content: '旧关系。' }] }
+      const proposal = prepareAssistantProposal({ changes: [
+        { kind: 'worldbook', targetId: 'lia', title: '莉安娜', entryType: 'character', operation: 'create', field: 'content', before: '', after: '学城的学生。' },
+        { kind: 'worldbook', targetId: 'relations', operation: 'replace', field: 'content', before: '旧关系。', after: '新关系。' },
+        { kind: 'outline', targetId: 'plot', operation: 'replace', field: 'intent', before: '前往学城。', after: '进入档案室。' }
+      ].map(change => ({ reason: '补充设定', ...change })) }, { book, worldbook, runId: 'inline-review' })
+      worldbook.entries.push({ id: 'edgar', name: '艾德加', type: 'character', content: '学院学生。' })
+      const { useAssistantObjectEdits } = await import('../composables/useAssistantObjectEdits.js')
+      for (const after of ['新旧关系。', '旧关系。新', '关系。']) {
+        const edit = prepareAssistantProposal({ changes: [{ kind: 'worldbook', targetId: 'relations', operation: 'replace', field: 'content', before: '旧关系。', after, reason: '调整' }] }, { book, worldbook, runId: 'diff-order' })
+        const projection = useAssistantObjectEdits({ review: { proposal: edit, bookId: book.id }, items: worldbook.entries, selectedId: 'relations', worldbook, emit: () => {} })
+        expect(projection.field(entry => entry.content).filter(part => part.type !== 'remove').map(part => part.text).join('')).toBe(after)
+      }
+      const review = { proposal, bookId: book.id }
+      const settings = mount(Settings, { props: { worldbook, bookId: book.id, focusEntryId: 'relations', assistantReview: review } })
+      const characters = mount(Characters, { props: { worldbook, bookId: book.id, focusEntryId: 'lia', assistantReview: review } })
+      const outline = mount(Outline, { props: { projectNodes: book.outlineNodes, bookId: book.id, focusProjectNodeId: 'plot', assistantReview: review } })
+      try {
+        await nextTick()
+        expect(settings.get('.object-inline-diff del').text()).toBe('旧')
+        expect(settings.get('.object-inline-diff ins').text()).toBe('新')
+        expect(settings.text()).toContain('关系摘要')
+        expect(settings.find('.assistant-edit-review').exists()).toBe(false)
+        expect(characters.text()).toContain('莉安娜')
+        expect(characters.get('.object-inline-diff ins').text()).toBe('莉安娜')
+        expect(characters.findAll('.object-inline-diff ins').map(item => item.text()).join('')).toContain('学城的学生。')
+        expect(outline.get('.object-inline-diff ins').text()).toBe('进入档案室')
+        expect(worldbook.entries).toHaveLength(2)
+        expect(characters.emitted('update')).toBeUndefined()
+        await settings.get('[aria-label="采用修改"]').trigger('click')
+        await nextTick()
+        expect(settings.emitted('assistant-edit-action').at(-1)).toEqual([{ action: 'adopt', changeIds: ['change-2'] }])
+        const applied = applyAssistantProposal(proposal, { book, worldbook, changeIds: ['change-2'] })
+        const adopted = { ...proposal, changes: applied.proposalChanges, status: applied.status, receipt: { changes: applied.changes, worldbookId: worldbook.id } }
+        await settings.setProps({ worldbook: applied.worldbook, assistantReview: { ...review, proposal: adopted } })
+        expect(settings.get('.object-inline-diff ins').text()).toBe('新')
+        await settings.get('[aria-label="撤销本轮修改"]').trigger('click')
+        expect(settings.emitted('assistant-edit-action').at(-1)).toEqual([{ action: 'undo' }])
+        await settings.get('[aria-label="完成"]').trigger('click')
+        expect(settings.find('.object-inline-diff').exists()).toBe(false)
+        expect(settings.get('textarea').element.value).toBe('新关系。')
+        expect(applied.worldbook.entries[0].content).toBe('新关系。')
+        const undone = applyAssistantProposal(adopted, { book: applied.book, worldbook: applied.worldbook, undo: true })
+        await settings.setProps({ worldbook: undone.worldbook, assistantReview: { ...review, proposal: { ...adopted, status: undone.status, changes: undone.proposalChanges } } })
+        expect(settings.find('.object-inline-diff').exists()).toBe(false)
+        expect(settings.get('textarea').element.value).toBe('旧关系。')
+        await settings.setProps({ assistantReview: { ...review, bookId: 'another-book' } })
+        expect(settings.find('.object-inline-actions').exists()).toBe(false)
+      } finally { settings.unmount(); characters.unmount(); outline.unmount() }
+      expect(worldbook.entries).toHaveLength(2)
+    }
     // The real assistant component renders Markdown, streams updates and strips executable HTML.
     {
       const { mount } = await import('@vue/test-utils')
       const { default: KnowledgeAssistant } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
       const answer = { id: 'markdown-answer', kind: 'agent', role: 'assistant', text: '\n\n**人物**\n\n---\n\n1. 第一项\n2. 第二项\n\n<script>window.injected = true</script><a href="javascript:alert(1)">坏链接</a>', thinking: '核对资料。', tools: [{ name: 'world_lookup' }] }
       const panel = mount(KnowledgeAssistant, { props: { messages: [answer] }, global: { stubs: { AuthoringAgentTools: true } } })
+      const pageFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(true)
       try {
+        // A press on label text first blurs to null, then focuses/activates its
+        // input. Hiding details in between crashes Edge's native hit testing.
+        // Test the parent popup lifecycle, not just radio/checkbox changes.
+        async function checkPopupFocus(menu) {
+          menu.element.open = true
+          await menu.trigger('focusout', { relatedTarget: null })
+          await nextTick()
+          expect(menu.element.open).toBe(true)
+          await menu.trigger('focusout', { relatedTarget: menu.get('summary').element })
+          expect(menu.element.open).toBe(true)
+          await menu.trigger('focusout', { relatedTarget: document.body })
+          expect(menu.element.open).toBe(false)
+          menu.element.open = true
+          document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+          expect(menu.element.open).toBe(false)
+          menu.element.open = true
+          await menu.trigger('keydown', { key: 'Escape' })
+          expect(menu.element.open).toBe(false)
+        }
+        await checkPopupFocus(panel.get('.authoring-knowledge__purpose'))
+        await checkPopupFocus(panel.get('.authoring-knowledge__tools'))
+        const { default: AgentTools } = await import('../components/authoring/AuthoringAgentTools.vue')
+        const references = mount(AgentTools, { props: { assistant: { agentState: ref({}) } } })
+        try { await checkPopupFocus(references.get('details')) }
+        finally { references.unmount() }
         expect(panel.find('.authoring-knowledge__markdown strong').text()).toBe('人物')
         expect(panel.findAll('.authoring-knowledge__markdown ol li')).toHaveLength(2)
         expect(panel.find('.authoring-knowledge__markdown hr').exists()).toBe(true)
@@ -675,7 +860,7 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
         await panel.setProps({ messages: [{ ...answer, text: '**流式' }] })
         await panel.setProps({ messages: [{ ...answer, text: '**流式完成**' }] })
         expect(panel.find('.authoring-knowledge__markdown strong').text()).toBe('流式完成')
-      } finally { panel.unmount() }
+      } finally { pageFocus.mockRestore(); panel.unmount() }
     }
 
     expect(source).toContain('<AuthoringInterventionComposer')

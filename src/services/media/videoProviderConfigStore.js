@@ -1,3 +1,4 @@
+import { writeModelPreference } from '../modelConfigEvents.js'
 import { STORAGE_KEYS } from '../../composables/useStorage'
 import { MINIMAX_SERVER_KEY_SENTINEL } from '../../../shared/textModelKeys'
 
@@ -150,7 +151,7 @@ export function getSelectedVideoProviderConfigId(options = {}) {
 export function saveSelectedVideoProviderConfigId(configId, options = {}) {
   const storage = resolveStorage(options.storage)
   const id = String(configId || '').trim()
-  storage.setItem(STORAGE_KEYS.VIDEO_MODEL_SELECTED, id)
+  writeModelPreference(storage, STORAGE_KEYS.VIDEO_MODEL_SELECTED, id, 'video')
   return id
 }
 
@@ -221,7 +222,7 @@ function readConfigs(storage) {
 }
 
 function writeConfigs(storage, configs) {
-  storage.setItem(STORAGE_KEYS.VIDEO_MODEL_CONFIGS, JSON.stringify(configs))
+  writeModelPreference(storage, STORAGE_KEYS.VIDEO_MODEL_CONFIGS, JSON.stringify(configs), 'video')
 }
 
 function resolveStorage(storage) {

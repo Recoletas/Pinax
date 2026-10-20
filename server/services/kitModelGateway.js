@@ -1,3 +1,4 @@
+import { currentRequestModel, assertRequestModelSupport } from './requestModelContext.js'
 // 统一模型漏斗网关：文本模型调用统一转发到 kit 任务面 /v1/pinax/complete（内核持有模型与密钥）；
 // 结构化生成（W1-1 试点）另有 capability 版 fetchImpl——把单发结构化生成改为 kit 任务面 capability 任务
 // （agent 循环与强制提交归 kit 持有），失败回落漏斗直连（双层 fail-open）。
@@ -46,7 +47,8 @@ function foldSystemIntoPrompt(payload) {
 /** 一次性补全转发。返回 { ok, content, toolCalls, finishReason, usage, model }；上游失败抛错（code: KIT_COMPLETE_FAILED）。
  *  signal：调用方（如 chat 的客户端断连）中止时联动中止内核请求。 */
 export async function forwardComplete(payload, { timeoutMs = 120_000, signal } = {}) {
-  const folded = foldSystemIntoPrompt(payload)
+  await assertRequestModelSupport()
+  const folded = foldSystemIntoPrompt({ ...payload, ...(currentRequestModel() ? { modelConfig: currentRequestModel() } : {}) })
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const onAbort = () => controller.abort(signal?.reason)
@@ -74,7 +76,8 @@ export async function forwardComplete(payload, { timeoutMs = 120_000, signal } =
 
 /** 流式补全转发：onDelta(content) 增量回调；resolve 为完整结果（与 forwardComplete 同形状，toolCalls 恒空）。 */
 export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000, signal } = {}) {
-  const folded = foldSystemIntoPrompt(payload)
+  await assertRequestModelSupport()
+  const folded = foldSystemIntoPrompt({ ...payload, ...(currentRequestModel() ? { modelConfig: currentRequestModel() } : {}) })
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   const onAbort = () => controller.abort(signal?.reason)
@@ -172,7 +175,7 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
       : undefined
   const payload = {
     messages,
-    ...(request.tools?.length ? { tools: request.tools.map((tool) => ({ name: tool.name, description: tool.description || '', parameters: tool.parameters || { type: 'object', properties: {} } })) } : {}),
+    ...(request.tools?.length ? { tools: request.tools.map((tool) => ({ name: tool.name, description: tool.description || '', parameters: tool.inputSchema || tool.parameters || { type: 'object', properties: {} } })) } : {}),
     ...(mappedToolChoice ? { toolChoice: mappedToolChoice } : {}),
     ...(Number.isFinite(Number(request.options?.maxTokens)) ? { maxTokens: Number(request.options.maxTokens) } : {}),
     ...(Number.isFinite(Number(request.options?.temperature)) ? { temperature: Number(request.options.temperature) } : {}),
@@ -185,7 +188,10 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
     throw Object.assign(new Error('agent-step 组装后所有提示词为空——拒绝转发（20261008 空提示词护栏）'), { code: 'NARRATIVE_AGENT_EMPTY_PROMPT', retryable: false })
   }
   try {
-    const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000 })
+    const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000, signal })
+    if (['error', 'aborted'].includes(result.finishReason)) {
+      throw Object.assign(new Error('模型服务未完成本次生成，请重试。'), { code: 'NARRATIVE_PROVIDER_UPSTREAM_FAILED' })
+    }
     const calls = (result.toolCalls || []).map((call, index) => ({
       id: call.id || `call_${index + 1}`,
       name: call.name,

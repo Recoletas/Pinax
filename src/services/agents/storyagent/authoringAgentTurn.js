@@ -1,3 +1,6 @@
+import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
+import { normalizeAssistantQuestions } from '../../../../shared/assistantUserInput.js'
+import { toResolvedTextApiSettings } from '../../textProviderConfigStore.js'
 import { recordPromptSnapshot } from '../promptSnapshot.js'
 import { recordAgentRequestTrace } from '../agentRequestTrace.js'
 import { assistantFocusInstruction } from '../authoring/assistantRegenerateOptions.js'
@@ -24,12 +27,14 @@ function retrievedReferences(prepared, results, projectId) {
   return references.slice(0, 12)
 }
 
-export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null }) {
+export async function runAuthoringAgentTurn({ engine, entry, question, providerQuestion, token, signal, persist, isCurrent, id, sampling = null, modelSelection = null, permission, sessionId, onInputConsumed }) {
   const { state, runtime, projectId } = entry
   // Prepare synchronously before health probing or loading the bridge.
   const prepared = engine.prepare({ text: providerQuestion, bookId: projectId, pinnedRefs: state.agentRefs || [], skills: state.agentSkills || [] })
   prepared.authorQuestion = question
   prepared.sampling = sampling
+  prepared.modelConfig = normalizeRequestModelConfig(modelSelection)
+  prepared.modelSettings = modelSelection ? toResolvedTextApiSettings(modelSelection) : null
   if (sampling) {
     prepared.kernel.serialization.blocks.push({ kind: 'assistant-focus', title: '本轮参考侧重', text: assistantFocusInstruction(sampling.intent) })
     if (sampling.temperatureOverride !== null) prepared.kernel.serialization.blocks.push({ kind: 'assistant-sampling', title: '本轮取样参数', text: JSON.stringify({ temperature: sampling.temperatureOverride }) })
@@ -41,14 +46,15 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   if (!current()) return false
   const health = await engine.healthz({ signal })
   if (!current()) return false
+  if (prepared.modelConfig && !health?.requestModels) throw new Error('运行器尚未支持按任务切换模型，请更新运行器；本次尚未调用模型。')
   if (!health?.ok) throw new Error('助手服务暂不可用，输入已保留。')
   if (sampling?.temperatureOverride != null && !health.assistantSampling) throw new Error('助手运行包尚未支持参数重答，请更新运行包后重试。')
   if (engine.authorize) {
     if (health.assistantProtocolVersion !== 2) throw new Error('助手运行包需要更新，本轮尚未执行，输入已保留。')
-    await engine.authorize(state.agentPermission || { mode: 'review', scope: 'current' }, state.activeSessionId, prepared, signal)
+    await engine.authorize(permission, sessionId, prepared, signal)
     if (!current()) return false
   }
-  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling }
+  const answer = { id, role: 'assistant', kind: 'agent', projectId, chapterId: destination.chapterId, text: '', thinking: '', tools: [], status: 'running', createdAt: Date.now(), taskId: '', params: sampling, modelName: modelSelection?.model || health.model || '', modelConfigId: modelSelection?.id || '' }
   state.messages.push(answer)
   // Use the reactive object from the collection; raw-object writes do not trigger Vue updates.
   const message = state.messages[state.messages.length - 1]
@@ -65,13 +71,17 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     onStatus: (status) => { if (current() && status.phase === 'tool' && status.tool !== 'complete_assistant_task') message.tools.push({ name: String(status.tool || ''), action: String(status.action || ''), callId: String(status.callId || ''), input: status.input || null, status: 'running' }) },
     onPromptComposed: composed => {
       if (!current() || !composed || typeof composed.system !== 'string' || typeof composed.user !== 'string') return
-      recordPromptSnapshot({ key: id, surface: 'authoring-agent', projectId, sessionId: state.activeSessionId,
+      recordPromptSnapshot({ key: id, surface: 'authoring-agent', projectId, sessionId,
         blocks: [{ kind: 'system', content: composed.system, chars: composed.system.length }, { kind: 'user', content: composed.user, chars: composed.user.length }, ...(composed.history?.length ? [{ kind: 'history', content: composed.history, chars: JSON.stringify(composed.history).length }] : [])],
         toolNames: composed.toolNames || [], temperature: composed.temperature, budget: { usedChars: composed.system.length + composed.user.length + (composed.history?.length ? JSON.stringify(composed.history).length : 0) } })
       message.promptSnapshotKey = id
     },
     onToolResult: result => {
       if (!current() || result.toolName === 'complete_assistant_task') return
+      if (result.toolName === 'author_input') {
+        try { onInputConsumed?.(JSON.parse(result.result?.content?.[0]?.text || '{}').id) } catch { /* malformed acknowledgement */ }
+        return
+      }
       const tool = message.tools.find(item => (result.callId ? item.callId === result.callId : item.name === result.toolName) && item.status === 'running')
       if (!tool) return
       let payload
@@ -102,7 +112,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       prepared.onNarrativeModelRequest = input => {
         if (!current()) return
         const key = `${id}:narrative:${input.phase}`
-        recordPromptSnapshot({ key, surface: 'authoring', projectId, sessionId: state.activeSessionId, temperature: input.temperature,
+        recordPromptSnapshot({ key, surface: 'authoring', projectId, sessionId, temperature: input.temperature,
           blocks: input.messages.map(item => ({ kind: item.role === 'system' ? 'system' : 'user', content: item.content, chars: String(item.content || '').length })),
           toolNames: input.toolNames, budget: { usedChars: input.messages.reduce((sum, item) => sum + String(item.content || '').length, 0) } })
         // Prefer the writing/revision input over the quality checker prompt.
@@ -128,12 +138,13 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       if (changes.length) message.proposal = await engine.prepareProposal({ changes }, prepared, message.id)
     }
     if (!current()) return false
-    const deliveryResult = message.toolResults.findLast(tool => tool.toolName === 'complete_assistant_task' && !tool.isError)
+    const deliveryResult = message.toolResults.findLast(tool => ['complete_assistant_task', 'request_user_input'].includes(tool.toolName) && !tool.isError)
     if (engine.authorize) {
       let delivery
       try { delivery = JSON.parse(deliveryResult?.result?.content?.find(block => block.type === 'text')?.text || '{}') } catch { /* invalid delivery */ }
       if (!delivery?.ok || !['answer', 'proposal', 'needs_input', 'blocked'].includes(delivery.outcome) || !['answer', 'edit', 'mixed'].includes(delivery.intent) || (['edit', 'mixed'].includes(delivery.intent) && delivery.outcome === 'answer') || (delivery.outcome === 'proposal' && !message.proposal) || (message.proposal && delivery.outcome !== 'proposal') || (message.toolResults.some(tool => tool.toolName === 'submit_edit_proposals') && delivery.outcome === 'answer')) throw new Error('助手未交付有效的修改，已有内容已保留。')
       message.outcome = delivery.outcome
+      if (delivery.outcome === 'needs_input' && delivery.questions) message.questions = normalizeAssistantQuestions(delivery.questions)
       if (['needs_input', 'blocked'].includes(delivery.outcome)) message.status = delivery.outcome
       message.deliveryMessage = String(delivery.message || '')
       message.text = requests.length ? '已通过推演生成正文修改建议，可在原文处审阅。' : delivery.outcome === 'answer' ? (streamedAnswer.trim() ? streamedAnswer : message.text || message.deliveryMessage) : message.deliveryMessage || message.text

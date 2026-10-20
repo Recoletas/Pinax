@@ -20,6 +20,9 @@ export function persistAssistantEdits(writes, id) {
   if (!setItem(JOURNAL, journal)) throw new Error('修改恢复记录无法保存，尚未写入。')
   try {
     for (const item of writes) if (!setItem(item.key, item.after)) throw new Error('作品保存失败，修改建议已保留。')
+    for (const item of writes) {
+      if (JSON.stringify(getItem(item.key, null)) !== JSON.stringify(item.after)) throw new Error('保存结果未能确认，修改建议仍保留。')
+    }
     if (!setItem(JOURNAL, { ...journal, committed: true })) throw new Error('修改回执保存失败。')
     removeItem(JOURNAL)
   } catch (error) {

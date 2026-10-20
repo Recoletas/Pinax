@@ -21,7 +21,7 @@ export function createWorkspaceAssistantSessions({ scope, registerTaskAdapter, o
           const snapshot = binding.value
           const active = currentEngine()
           if (!snapshot || !active) throw new Error('请返回正文后采用修改。')
-          const prepared = active.prepare({ text: '', bookId: projectId })
+          const prepared = typeof active.permissionContext === 'function' ? active.permissionContext() : active.prepare({ text: '', bookId: projectId })
           await active.authorize?.(permission, sessionId, prepared)
           if (binding.value !== snapshot) throw new Error('编辑位置已变化，修改未应用。')
         }

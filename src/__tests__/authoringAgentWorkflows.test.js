@@ -770,7 +770,9 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[3].question)
     const restoredHistory = JSON.parse(JSON.stringify(agentAssistant.messages.value))
 
+    await agentAssistant.setAgentPermission({ mode: 'auto', scope: 'book', worldbook: true, outline: true })
     expect(await agentAssistant.regenerateAnswer(originalHistory[2].id)).toBe(true)
+    expect(agentAssistant.agentState.value.permission).toMatchObject({ mode: 'auto', scope: 'book', worldbook: true, outline: true })
     expect(agentAssistant.messages.value.at(-2).question).toBe(originalHistory[1].question)
     expect(agentCalls.at(-1).text).not.toContain('接着推进')
     expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
@@ -786,11 +788,98 @@ describe('authoring project adapter', () => {
       expect.objectContaining({ kind: 'assistant-focus' }), expect.objectContaining({ kind: 'assistant-sampling', text: '{"temperature":0.6}' })
     ]))
     expect(agentAssistant.messages.value.at(-1).params).toMatchObject({ intent: 'character', temperatureOverride: 0.6 })
-    expect(agentAssistant.agentState.value.permission.mode).toBe('review')
+    expect(agentAssistant.agentState.value.permission.mode).toBe('auto')
     expect(agentAssistant.sessions.value.find(session => session.active)?.sessionId).toBe(existingSession)
     expect(agentAssistant.selectAnswerVersion(agentAssistant.messages.value.at(-1).id, 0)).toBe(true)
     expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
     agentEngine.prepare = prepareBeforeSampling
+
+    // Asking is a persisted checkpoint in the same conversation and task.
+    const inputProject = ref('input-book')
+    const questions = [{ id: 'direction', question: '这次更新哪一处？', options: [{ label: '补充设定', description: '' }] }]
+    const inputEngine = {
+      prepare: input => ({ ...input, kernel: { serialization: { blocks: [] } } }),
+      destination: () => ({ chapterId: 'input-chapter' }),
+      healthz: async () => ({ ok: true, assistantProtocolVersion: 2 }), authorize: vi.fn(async () => {}),
+      run: vi.fn(async () => ({ ok: true, finalContent: '这次更新哪一处？', trace: { taskId: 'input-task' }, finalToolResults: [{ toolName: 'request_user_input', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'mixed', outcome: 'needs_input', message: '这次更新哪一处？', questions }) }] } }] })),
+      resume: vi.fn(async input => ({ ok: true, finalContent: '已按回答继续', trace: { taskId: input.taskId }, finalToolResults: [{ toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'answer', outcome: 'answer', message: '已继续' }) }] } }] }))
+    }
+    const inputAssistant = useAuthoringKnowledgeAssistant({ projectId: inputProject, agentEngine: inputEngine })
+    expect(await inputAssistant.ask({ question: '给我更新' })).toBe(true)
+    const inputMessage = inputAssistant.messages.value.at(-1)
+    expect(inputMessage).toMatchObject({ status: 'needs_input', questions, taskId: 'input-task' })
+    const restoredInput = useAuthoringKnowledgeAssistant({ projectId: inputProject, agentEngine: inputEngine })
+    expect(restoredInput.messages.value.at(-1).questions).toEqual(questions)
+    expect(restoredInput.answerQuestions(inputMessage.id, {})).toBe(false)
+    const inputSession = restoredInput.sessions.value.find(item => item.active).sessionId
+    expect(await restoredInput.answerQuestions(inputMessage.id, { direction: '补充设定，保留正文' })).toBe(true)
+    expect(inputEngine.resume).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'input-task', text: '这次更新哪一处？\n补充设定，保留正文' }))
+    expect(restoredInput.sessions.value.find(item => item.active).sessionId).toBe(inputSession)
+    expect(restoredInput.messages.value.find(item => item.id === inputMessage.id).questionResponse).toContain('保留正文')
+    expect(restoredInput.answerQuestions(inputMessage.id, { direction: '修改正文' })).toBe(false)
+
+    // Busy sends stay in a bounded per-conversation queue; completion drains FIFO.
+    let releaseQueueRun
+    let queueChapter = 'input-chapter'
+    const queueEngine = { ...inputEngine, destination: () => ({ chapterId: queueChapter }), run: vi.fn(async input => { input.callbacks.onTask({ taskId: 'queued-task', bookId: 'queue-book' }); return new Promise(resolve => { releaseQueueRun = resolve }) }), resume: vi.fn(inputEngine.resume.getMockImplementation()) }
+    const queueAssistant = useAuthoringKnowledgeAssistant({ projectId: ref('queue-book'), agentEngine: queueEngine })
+    const firstQueueTurn = queueAssistant.ask({ question: '先读章节' })
+    await vi.waitFor(() => expect(releaseQueueRun).toBeTypeOf('function'))
+    queueAssistant.draft.value = '然后检查人物'
+    expect(await queueAssistant.queueMessage({ question: '然后检查人物' })).toBe(true)
+    expect(queueAssistant.draft.value).toBe('')
+    expect(await queueAssistant.queueMessage({ question: '最后补充地点' })).toBe(true)
+    expect(queueEngine.resume).not.toHaveBeenCalled()
+    expect(queueAssistant.pendingMessages.value.map(item => item.question)).toEqual(['然后检查人物', '最后补充地点'])
+    expect(queueAssistant.removeQueuedMessage(queueAssistant.pendingMessages.value[1].id)).toBe(true)
+    expect(await queueAssistant.queueMessage({ question: '最后检查大纲' })).toBe(true)
+    queueChapter = 'another-chapter'
+    releaseQueueRun({ ok: true, finalContent: '已读', trace: { taskId: 'queued-task' }, finalToolResults: [{ toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'answer', outcome: 'answer', message: '已读' }) }] } }] })
+    expect(await firstQueueTurn).toBe(true)
+    await nextTick()
+    expect(queueEngine.resume).not.toHaveBeenCalled()
+    expect(queueAssistant.pendingMessages.value).toHaveLength(2)
+    queueChapter = 'input-chapter'
+    queueAssistant.resumeQueuedMessages(); queueAssistant.resumeQueuedMessages()
+    await vi.waitFor(() => expect(queueEngine.resume).toHaveBeenCalledTimes(2))
+    expect(queueEngine.resume.mock.calls.map(call => call[0].text)).toEqual(['然后检查人物', '最后检查大纲'])
+    expect(queueEngine.resume.mock.calls[0][0]).toMatchObject({ taskId: 'queued-task', text: '然后检查人物' })
+    expect(queueAssistant.pendingMessages.value).toEqual([])
+    await vi.waitFor(() => expect(queueAssistant.busy.value).toBe(false))
+    let releaseHeldTurn, heldCallbacks
+    queueEngine.cancel = vi.fn(async () => ({ ok: true }))
+    queueEngine.resume.mockImplementationOnce(input => { heldCallbacks = input.callbacks; return new Promise(resolve => { releaseHeldTurn = resolve }) })
+    const heldTurn = queueAssistant.ask({ question: '等待中的任务' })
+    await vi.waitFor(() => expect(releaseHeldTurn).toBeTypeOf('function'))
+    queueEngine.steer = vi.fn(async (taskId, input) => {
+      heldCallbacks.onToolResult({ toolName: 'author_input', result: { content: [{ type: 'text', text: JSON.stringify({ id: input.id }) }] } })
+      return { ok: true }
+    })
+    expect(await queueAssistant.queueMessage({ question: '保留姓名，只检查关系' }, 'steer')).toBe(true)
+    expect(queueEngine.steer).toHaveBeenCalledWith('queued-task', expect.objectContaining({ text: '保留姓名，只检查关系', bookId: 'queue-book' }))
+    expect(queueEngine.cancel).not.toHaveBeenCalled()
+    expect(queueAssistant.pendingMessages.value).toEqual([])
+    expect(queueAssistant.messages.value.at(-2).question).toBe('保留姓名，只检查关系')
+    expect(queueAssistant.busy.value).toBe(true)
+    expect(await queueAssistant.queueMessage({ question: '待恢复的消息' })).toBe(true)
+    let finishLateInput
+    queueEngine.steer.mockImplementationOnce(() => new Promise(resolve => { finishLateInput = resolve }))
+    const lateInput = queueAssistant.queueMessage({ question: '取消前提交的补充' }, 'steer')
+    const lateId = queueAssistant.pendingMessages.value.at(-1).id
+    queueAssistant.cancel()
+    finishLateInput({ ok: true })
+    expect(await lateInput).toBe(true)
+    expect(queueAssistant.pendingMessages.value.find(item => item.id === lateId).status).toBe('waiting')
+    expect(queueAssistant.removeQueuedMessage(lateId)).toBe(true)
+    releaseHeldTurn({ ok: false })
+    expect(await heldTurn).toBe(false)
+    const queueRestored = useAuthoringKnowledgeAssistant({ projectId: ref('queue-book'), agentEngine: queueEngine })
+    const callsAtRestore = queueEngine.run.mock.calls.length + queueEngine.resume.mock.calls.length
+    expect(queueRestored.pendingMessages.value.map(item => item.question)).toEqual(['待恢复的消息'])
+    await nextTick()
+    expect(queueEngine.run.mock.calls.length + queueEngine.resume.mock.calls.length).toBe(callsAtRestore)
+    expect(queueRestored.newConversation()).toBe(true)
+    expect(queueRestored.pendingMessages.value).toEqual([])
 
     // 生命周期（round-2 K25）：接缝遵守检索作用域——target 之前的授权目录
     // 才可引用；target 之后的来源不在裁剪后的目录里，typed 失败。重复

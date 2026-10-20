@@ -34,13 +34,19 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     }
     if (req.path === '/policies/revoke' && req.method === 'POST') { policies.revoke(prefix, req.body || {}); stopPolicyRuns(prefix, req.body || {}); return res.json({ ok: true }) }
     const create = req.method === 'POST' && req.path === '/v1/pinax/tasks'
-    const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel))?$/.exec(req.path)
+    const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel|steer))?$/.exec(req.path)
     if (!health && !modelRead && !modelWrite && !create && !(task && task[1].startsWith(prefix) && ((req.method === 'GET' && !task[2]) || (req.method === 'POST' && task[2])))) {
       return res.status(404).json({ error: 'agent-route-not-found' })
     }
     if (modelWrite && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: 'agent 模型切换仅限本机使用；公网部署已禁用。' })
     if (create && (!req.body?.taskId || !String(req.body.taskId).startsWith(prefix))) return res.status(403).json({ error: 'agent-task-scope-mismatch' })
     const runsModel = create || task?.[2] === 'resume'
+    if (task?.[2] === 'steer') {
+      const { id, text, bookId } = req.body || {}
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id) || typeof text !== 'string' || !text.trim() || text.length > 12000 || typeof bookId !== 'string') return res.status(400).json({ error: 'invalid-live-input' })
+      req.body = { id, text, bookId }
+    }
+    if (runsModel && req.body?.modelConfig && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: '此部署只提供服务器已配置的模型。' })
     if (runsModel && activeRuns >= 2) return res.status(429).json({ error: 'agent-concurrency-limit', message: '助手当前繁忙，请稍后再试。' })
     if (runsModel) {
       if (req.body?.taskKind === 'assistant') {
@@ -58,7 +64,7 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     const controller = new AbortController()
     const policyKey = req.body?.assistantPolicy ? JSON.stringify([prefix, req.body.assistantPolicy.bookId, req.body.assistantPolicy.sessionId]) : null
     if (policyKey) { const runs = policyRuns.get(policyKey) || new Set(); runs.add(controller); policyRuns.set(policyKey, runs) }
-    const timer = setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite ? 5000 : 250000)
+    const timer = setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite || task?.[2] === 'steer' ? 5000 : 250000)
     res.on('close', () => controller.abort())
     try {
       const response = await fetchImpl(new URL(req.path, upstream), {

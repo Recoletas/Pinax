@@ -160,15 +160,15 @@ function openDetail(kind, id) {
 </script>
 
 <template>
-  <section class="scene-rail" aria-label="当前场">
+  <section class="scene-rail" aria-label="当前">
     <header class="scene-rail__head">
-      <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" :aria-label="tr('展开或收起当前场')">
-        <span>{{ tr('当前场') }}</span>
+      <button class="scene-rail__toggle" type="button" :aria-expanded="expanded" @click="expanded = !expanded" :aria-label="tr('展开或收起当前信息')">
+        <span>{{ tr('当前') }}</span>
         <span class="scene-rail__status" :data-scene-status="status">{{ missingRefCount ? `${missingRefCount} 条引用失效` : projection.location?.name || statusLabel }}</span>
         <span v-if="unread > 0" class="scene-rail__unread" :aria-label="tr('未查看变化')">+{{ unread }}</span>
         <span aria-hidden="true">{{ expanded ? '⌄' : '›' }}</span>
       </button>
-      <button v-if="expanded" type="button" class="scene-rail__edit" data-test="scene-edit" data-scene-rail-item="scene-edit" :title="tr('调整当前场')" @click="emit('edit')">{{ tr('调整') }}</button>
+      <button v-if="expanded" type="button" class="scene-rail__edit" data-test="scene-edit" data-scene-rail-item="scene-edit" :title="tr('调整')" @click="emit('edit')">{{ tr('调整') }}</button>
     </header>
     <div v-show="expanded" class="scene-rail__expanded">
 

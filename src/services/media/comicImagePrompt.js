@@ -16,26 +16,40 @@ export function buildComicPanelImageRequest({
   targetAspect = ''
 } = {}) {
   const sourceContext = stripVerbatimDialogue(sourceText)
-  const continuity = buildPageContinuity(page)
+  const localShot = ['empty', 'insert', 'extreme-close'].includes(panel.direction?.shotSize)
+  const continuity = buildPageContinuity(page, localShot)
   const previousAnchor = buildPreviousAnchor(previousPanel)
   const currentBeat = buildCurrentBeat(panel)
   const direction = buildDirection(panel.direction)
 
-  const prompt = [
-    '生成一张全幅叙事插画，只表现当前镜头的一个明确瞬间。',
-    '连续性优先：与相邻镜头保持同一角色身份、面貌、发型、体型、服装、地点、时段、光线、色调和关键道具；动作从上一镜自然延续，但构图必须推进剧情。',
-    continuity ? `全页视觉约定：${clip(continuity, 260)}` : '',
-    previousAnchor ? `上一镜锚点：${clip(previousAnchor, 220)}` : '',
-    sourceTitle ? `故事主题：${clip(sourceTitle, 80)}` : '',
-    sourceContext ? `原素材情境：${clip(sourceContext, 300)}` : '',
-    `当前镜头：${clip(panel.visual, 340) || '从原素材中选择与上一镜衔接的下一瞬间。'}`,
-    currentBeat ? `剧情推进：${clip(currentBeat, 160)}` : '',
-    direction ? `摄影设计：${direction}` : '',
-    targetAspect ? `目标画幅：${clip(targetAspect, 24)}；主体、动作和关键道具完整落在画面内，并在边缘保留少量安全空间。` : '',
-    '交付为一张自然完整、纯视觉的单幅画面，不带版面元素。'
-  ].filter(Boolean).join('\n').slice(0, PROMPT_LIMIT)
+  // Allocate from the current shot outward. Appending everything and slicing
+  // once used to privilege the previous portrait over the requested insert,
+  // and could drop the current shot/direction when context grew.
+  const ending = '交付为一张自然完整、纯视觉的单幅画面，不带版面元素。'
+  const lines = [
+    '生成一张全幅叙事插画。当前镜头决定画面主体、动作和景别。',
+    '连续性优先保持身份与画风，不照搬上一格的构图；本格未要求的人物和道具不因前文出现而入画。'
+  ]
+  function addSection(label, value, limit) {
+    const text = clip(value, limit)
+    if (!text) return
+    const remaining = PROMPT_LIMIT - [...lines, ending].join('\n').length - label.length - 1
+    if (remaining < 24) return
+    lines.push(`${label}${text.slice(0, remaining)}`)
+  }
+  addSection('当前镜头：', panel.visual || '从原素材中选择一个明确的叙事瞬间。', 520)
+  addSection('摄影设计：', direction, 260)
+  addSection('目标画幅：', targetAspect, 24)
+  addSection('本格剧情：', currentBeat, 120)
+  addSection('全页视觉约定（只约束身份、环境和画风）：', continuity, 220)
+  addSection('故事主题：', sourceTitle, 60)
+  if (!localShot) {
+    addSection('原素材背景（不改变本格取景）：', sourceContext, 150)
+    addSection('上一格情节（不复现画面）：', previousAnchor, 100)
+  }
+  const prompt = [...lines, ending].join('\n')
 
-  const canUsePreviousImage = providerType !== 'minimax_image'
+  const canUsePreviousImage = !localShot && providerType !== 'minimax_image'
     && /^(data:image\/|https?:\/\/)/i.test(String(previousImageData || ''))
 
   return {
@@ -48,8 +62,22 @@ export function buildComicPanelImageRequest({
   }
 }
 
-function buildPageContinuity(page) {
+function buildPageContinuity(page, localShot = false) {
   const visualBible = page.visualBible || {}
+  // Inserts and empty shots inherit explicit rendering rules, not a page-wide
+  // cast list, props, blocking or narrative prose. The author still controls
+  // visible identity details in this shot's own description.
+  if (localShot) {
+    return [
+      visualBible.lineStyle,
+      visualBible.renderingNotes,
+      ...(Array.isArray(visualBible.palette) ? visualBible.palette : []),
+      ...(Array.isArray(page.visualBibleRefs) ? page.visualBibleRefs : [])
+        .filter((entry) => ['palette', 'lineStyle'].includes(entry.kind))
+        .map((entry) => entry.note),
+      page.colorMode === 'monochrome' ? '黑白画面' : ''
+    ].map(clean).filter(Boolean).join('；')
+  }
   const refs = (Array.isArray(page.visualBibleRefs) ? page.visualBibleRefs : [])
     .map((entry) => [entry.refId, entry.note].filter(Boolean).join('：'))
     .filter(Boolean)
@@ -72,7 +100,10 @@ function buildPageContinuity(page) {
 
 function buildPreviousAnchor(panel) {
   if (!panel) return ''
-  return [panel.visual, panel.beat?.action, panel.beat?.emotion, panel.direction?.notes]
+  // Shot descriptions, lens notes and poses are not continuity invariants.
+  // Keep only explicit story beats; an unannotated previous image needs no
+  // textual reconstruction inside the next image request.
+  return [panel.beat?.action, panel.beat?.reveal, panel.beat?.transition]
     .map(clean)
     .filter(Boolean)
     .join('；')
@@ -88,7 +119,8 @@ function buildCurrentBeat(panel) {
 function buildDirection(direction = {}) {
   const shotSizes = {
     'extreme-wide': '大远景', wide: '远景', medium: '中景', close: '近景',
-    'extreme-close': '特写', insert: '插入特写'
+    'extreme-close': '特写：指定局部占满画面', insert: '插入特写：只呈现本格指定的局部',
+    empty: '空镜：只画环境，画面内无人'
   }
   const angles = {
     eye: '平视', high: '高机位', low: '低机位', bird: '俯视', worm: '仰视',

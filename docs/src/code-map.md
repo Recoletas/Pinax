@@ -3,7 +3,7 @@
 > 目标是快速找到行为负责人，不在这里复述实现细节。
 
 数据所有权、依赖方向、代码放置规则与渐进拆分顺序见
-[当前架构与代码边界](../engineering/current-architecture.md)。
+[当前架构与代码边界](https://github.com/Recoletas/Pinax/blob/main/docs/engineering/current-architecture.md)。
 
 ## 顶层
 
@@ -35,6 +35,31 @@
 
 ## 重点子系统
 
+### 工作区与目录
+
+| 职责 | 关键文件 |
+| --- | --- |
+| 外壳与内容组 | `src/layouts/AppShell.vue`、`src/components/workbench/WorkspaceContentGroups.vue` |
+| 资源、布局与守卫 | `src/composables/useComposableWorkspace.js`、`src/services/workspace/workspaceViewContract.js` |
+| 项目目录与偏好 | `src/components/workbench/ProjectDirectory.vue`、`src/services/workspace/projectDirectory.js`、`src/composables/useWorkspaceDirectory.js` |
+| 内置扩展 | `src/services/workspace/workspaceExtensions.js` |
+| 正文保存与返回 | `src/composables/useAuthoringPersistence.js`、`src/composables/useAuthoringWorkspaceNavigation.js` |
+| 原可编辑双栏 | `src/components/authoring/AuthoringDualPane.vue` |
+
+### 助手与设定工作台
+
+| 职责 | 关键文件 |
+| --- | --- |
+| 助手界面与权限 | `src/components/authoring/AuthoringKnowledgeAssistant.vue`、`src/components/authoring/AuthoringAssistantPermissions.vue` |
+| 助手宿主 | `src/composables/useAuthoringKnowledgeAssistant.js` |
+| 对话持久化 | `src/services/agents/authoring/authoringAssistantConversationStore.js` |
+| 设定正文与右栏 | `src/components/worldbook/WorldbookContentWorkspace.vue` |
+| 设定视图适配 | `src/components/workbench/WorkspaceSettingsView.vue` |
+| 正文提及与场景历史 | `src/components/worldbook/SettingUsagePanel.vue`、`src/components/worldbook/SettingContextPanel.vue` |
+| 资料视图适配 | `src/components/workbench/WorkspaceSourcesView.vue` |
+| 世界书文件绑定 | `src/services/worldbook/worldbookFileRepository.js` |
+
+
 ### 地图引擎
 
 路径：`src/services/world-map/`
@@ -55,7 +80,7 @@
 | --- | --- |
 | 世界书存储 | `src/stores/worldStore.js` |
 | 上下文构建 | `src/services/worldbook/worldbookContextBuilder.js` |
-| 快速导入 / 生成 | `src/services/worldbookImportGeneration.js`, `src/services/worldbookDraftAssets.js` |
+| 快速导入 / 生成 | `src/services/worldbook/worldbookImportGeneration.js`, `src/services/worldbook/worldbookDraftAssets.js` |
 | 结构化设定 | `src/services/worldbook/settingPanelSchema.js`, `src/services/worldbook/settingFieldGeneration.js`, `src/components/worldbook/` |
 
 ### 记忆 / 顾问 / 生成
@@ -85,7 +110,11 @@ Authoring的方向规划、上下文冻结、Ghost采用与因果排演归 `src/
 | 路径 | 角色 |
 | --- | --- |
 | `server/index.js` | Express 入口 |
-| `server/routes/chat.js` | 聊天 / 代理相关入口之一 |
+| `server/routes/chat.js`、`server/services/kitModelGateway.js` | 普通文本请求进入统一任务面 |
+| `server/routes/storyagent.js`、`server/services/storyAgentRuntime.js` | 助手代理与 loopback 运行器启动/复用 |
+| `server/routes/knowledge.js`、`server/services/knowledgeRuntime.js` | 本机知识路由、项目索引与工作线程 |
+| `scripts/build-storyagent-runtime.mjs`、`scripts/build-knowledge-runtime.mjs` | 两个独立运行包的本机构建 |
+| `shared/storyagentRuntimeSource.json`、`shared/knowledgeRuntimeSource.json` | 固定上游源版本 |
 | `server/` 其他模块 | WebSocket、顾问任务、外部通道 |
 
 ## 测试入口

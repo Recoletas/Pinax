@@ -1,30 +1,23 @@
 # Pinax user guide
 
-Pinax is for writing manuscripts, organizing characters and settings, and using AI for revision, questions and scene rehearsal. Writing, comments and manual organization work without a model; AI requests need a working model configuration.
+Open a manuscript, then use its directory to find chapters, notes, story-bible entries and sources. Content opens in the central workspace; tools on the right follow the active editor.
 
-## Start here
+![Current home page with manuscript creation, import and the bookshelf](../images/20261016/home-en.png)
 
-![Pinax home: start a manuscript or import a draft without AI setup](../../screenshots/user-guide-20260924/12-home-en.png)
+| Task | Guide |
+| --- | --- |
+| Create or import a manuscript, use the directory | [Quick start](./01-quickstart.md) |
+| Write, annotate, ask the assistant or rehearse a scene | [Writing](./05-writing.md) |
+| Develop characters and places, import reference material | [Story bible and sources](./03-worldbook.md) |
+| Configure models, back up or move your work | [Settings](./07-settings.md) |
+| Diagnose missing work, failed saves or AI errors | [Troubleshooting](./08-faq.md) |
 
-Create a manuscript, write your first scene, then try an annotation or a focused AI task if you want. Add story information as it becomes useful. See [Quick start](./01-quickstart.md).
+In-app guides use the workspace sidebar. The guide icon opens searchable chapters; the outline icon shows headings in the current article. On phones, use the directory button in the top bar. Previous and next chapter links appear below the article.
 
-The library opens as a cover bookshelf, with a list view available. **Recently opened** show the book and location: chapter, note, or comic page and panel. Closing a tab keeps its recent entry; a removed location is marked unavailable. The library also sorts by **Recently used**, separately from modification time.
+The home page's recently opened list contains manuscripts, not every file or conversation. Default folders organize manuscript text, notes, settings, sources and materials. Folder placement does not change chapter export order; use the manuscript-order view for that.
 
-## Workspaces
+Hover over a tool icon, or focus it with the keyboard, to see its name. The original editable dual pane remains available alongside optional workspace reference views.
 
-- [Writing workspace](./05-writing.md): manuscript, chapters, annotations, assistant, scene rehearsal, notes and earlier manuscript versions.
-- [Story bible](./03-worldbook.md): sources, structured settings, advanced entries and map.
-- [Settings and backups](./07-settings.md), [troubleshooting](./08-faq.md).
+Writing does not require AI. Work is stored in this browser; there is no automatic cloud sync. Export a full workspace ZIP before changing devices or URLs.
 
-Writing-workspace rehearsal explores a scene for the manuscript. Roleplay is a separate session-based experience; the two are not interchangeable.
-Materials, roleplay, video and comics are listed in the guide navigation, but their detailed pages are currently available in Chinese only.
-
-## Two different histories
-
-For earlier manuscript text, open **Comments → Manuscript history** or **Version history** from the chapter menu. For story facts, evidence and revisions, open **Settings → Memory & history**.
-
-## Storage and AI
-
-Work is stored in this browser and does not automatically sync across URLs, browsers or devices. Export a backup before moving. When you use AI, the text and selected sources needed for that task are sent to the configured model provider. Writing, organizing settings and backing up do not require AI.
-
-Some map, multiplayer and audiovisual workflows are less integrated than the core writing path. Their chapters explain current limitations. Switching the interface language does not translate manuscripts or model output.
+Updated 2026-10-16 against the 2026-10-15 release. Some advanced interfaces remain in Chinese. Materials, roleplay, video and comics currently have detailed guides in Chinese through the main guide navigation.

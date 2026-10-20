@@ -13,7 +13,7 @@ const router = useRouter()
 const editor = ref(null)
 const notice = ref('')
 const moduleName = WORKSPACE_MODULE_ROUTES[props.resource.type]
-const loaders = { experience: () => import('../../pages/Experience.vue'), comics: () => import('../../pages/ComicStudio.vue'), materials: () => import('../../pages/Notes.vue'), 'online-experience': () => import('../../pages/OnlineExperience.vue'), 'prose-essay': () => import('../../pages/ProseEssay.vue'), 'settings-world-map': () => import('../../pages/WorldMapPage.vue'), 'settings-worldbook-advanced': () => import('../../pages/WorldBookEditor.vue') }
+const loaders = { experience: () => import('../../pages/Experience.vue'), comics: () => import('../../pages/ComicStudio.vue'), materials: () => import('./LegacyMaterialsView.vue'), 'online-experience': () => import('../../pages/OnlineExperience.vue'), 'prose-essay': () => import('../../pages/ProseEssay.vue'), 'settings-world-map': () => import('../../pages/WorldMapPage.vue'), 'settings-worldbook-advanced': () => import('../../pages/WorldBookEditor.vue') }
 const component = defineAsyncComponent(loaders[moduleName])
 const location = reactive({ name: moduleName, path: moduleName === 'comics' ? '/comics' : '/prose-essay', query: {}, hash: '', fullPath: '', meta: {}, params: {}, matched: [] })
 watch(() => props.resource, resource => {
@@ -37,7 +37,7 @@ async function navigate(target, replace = false) {
       if (!failure || router.currentRoute.value.fullPath === router.resolve(target).fullPath) host.hide()
       return failure
     }
-    if (!host.openResource({ type, bookId: props.resource.bookId, worldbookId: props.resource.worldbookId, assetId: target.query?.assetId || '', workspace: target.query?.workspace || '', entryId: target.query?.entryId || '', placeId: target.query?.placeId || '', historyNodeId: target.query?.historyNodeId || '', sessionId: target.query?.sessionId || '', messageId: target.query?.messageId || '' })) throw Error('工作台暂时无法打开')
+    if (!host.openResource({ type, bookId: props.resource.bookId, worldbookId: props.resource.worldbookId, pageId: target.query?.pageId || '', panelId: target.query?.panelId || '', assetId: target.query?.assetId || '', workspace: target.query?.workspace || '', entryId: target.query?.entryId || '', placeId: target.query?.placeId || '', historyNodeId: target.query?.historyNodeId || '', sessionId: target.query?.sessionId || '', messageId: target.query?.messageId || '' })) throw Error('工作台暂时无法打开')
     host.move(true)
     return undefined
   }
@@ -64,10 +64,12 @@ emit('title', moduleName === 'settings-world-map' ? '地图' : moduleName === 's
 
 <template>
   <section class="workspace-module-view" :data-module-editor="moduleName">
-      <WorkspaceProductionSource v-if="['comics', 'prose-essay'].includes(moduleName)" :book-id="resource.bookId" :asset-id="resource.assetId" :module="moduleName" :blocked="Boolean(editor?.getWorkspaceTaskSummary?.())" @source="host.updateResource(instanceId, { assetId: $event })" @compare="compareChapter" />
+      <WorkspaceProductionSource v-if="moduleName === 'prose-essay'" :book-id="resource.bookId" :asset-id="resource.assetId" :module="moduleName" :blocked="Boolean(editor?.getWorkspaceTaskSummary?.())" @source="host.updateResource(instanceId, { assetId: $event })" @compare="compareChapter" />
       <p v-if="notice" role="status">{{ tr(notice) }}</p>
       <p v-if="!editor" class="workspace-module-loading" role="status">{{ tr('加载工作台…') }}</p>
-      <component :is="component" ref="editor" workspace-embedded :workspace-active="active" @workspace-resource="host.updateResource(instanceId, $event)" />
+      <component :is="component" ref="editor" workspace-embedded :workspace-active="active" @workspace-resource="host.updateResource(instanceId, $event)">
+        <template v-if="moduleName === 'comics'" #chapter-source><WorkspaceProductionSource compact :book-id="resource.bookId" :asset-id="resource.assetId" module="comics" :blocked="Boolean(editor?.getWorkspaceTaskSummary?.())" @adapt="editor?.adaptFromSource($event)" @source="host.updateResource(instanceId, { assetId: $event })" @compare="compareChapter" /></template>
+      </component>
   </section>
 </template>
 
@@ -89,11 +91,16 @@ emit('title', moduleName === 'settings-world-map' ? '地图' : moduleName === 's
   .workspace-module-view :deep(.comic-studio__catalog), .workspace-module-view :deep(.comic-studio__canvas), .workspace-module-view :deep(.comic-studio__inspector) { display: none; }
   .workspace-module-view :deep([data-mobile-pane="sources"] .comic-studio__catalog), .workspace-module-view :deep([data-mobile-pane="page"] .comic-studio__canvas), .workspace-module-view :deep([data-mobile-pane="panel"] .comic-studio__inspector) { display: flex; }
   .workspace-module-view :deep(.workspace-pane-switch--980) { display: flex; }
-  .workspace-module-view :deep(.comic-studio__workflow) { display: flex; width: 100%; overflow-x: auto; }
-  .workspace-module-view :deep(.comic-studio__mast-left) { flex-wrap: wrap; min-width: 0; }
-  .workspace-module-view :deep(.comic-studio__mast) { padding-inline: 12px; flex-wrap: wrap; }
+  .workspace-module-view :deep(.comic-studio__workflow) { display: flex; flex: none; width: auto; margin-left: 0; gap: 8px; }
+  .workspace-module-view :deep(.comic-studio__mast-left) { flex: 1; flex-wrap: nowrap; min-width: 0; }
+  .workspace-module-view :deep(.comic-studio__mast) { padding: 4px 12px; flex-wrap: nowrap; }
+  .workspace-module-view :deep(.comic-studio__mast-actions) { flex: none; }
+  .workspace-module-view :deep(.comic-studio__book strong) { max-width: 14ch; }
 }
 @container creative-module (max-width: 760px) {
+  .workspace-module-view :deep(.comic-studio__new) { width: 36px; min-height: 40px; padding: 0; }
+  .workspace-module-view :deep(.comic-studio__new > span) { display: none; }
+  .workspace-module-view :deep(.comic-studio__mast-left) { gap: 10px; }
   .workspace-module-view :deep(.worldbook-page .entry-layout) { grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 0; }
   .workspace-module-view :deep(.worldbook-page .entry-editor) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .workspace-module-view :deep(.worldbook-page .entry-editor > *) { grid-column: 1; min-width: 0; }

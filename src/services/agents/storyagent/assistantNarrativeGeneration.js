@@ -30,10 +30,11 @@ export async function generateAssistantNarrative({ request, prepared, signal }, 
   const operation = request.operation === 'replace' ? 'rewrite-unit' : 'next-passage'
   const instruction = [prepared.authorQuestion || '', request.instruction,
     request.operation === 'replace' ? `只输出以下原文片段的替换正文，不改写其他段落：\n${request.before}` : request.operation === 'insert' ? '只输出插入该位置的新增正文，不复述前文或后文。' : '从当前章节末尾接续，只输出新增正文，不复述已经发生的事。'].filter(Boolean).join('\n')
-  const built = buildAuthoringTurnIntent({ operation, kind: 'action', instruction, sourceRefs: [`chapter:${chapterId}`] })
+  const built = buildAuthoringTurnIntent({ operation, kind: 'action', instruction, sourceRefs: [`chapter:${chapterId}`],
+    ...(request.operation === 'replace' ? { rewriteText: request.before } : {}) })
   if (!built.ok) throw new Error(`写作要求无效：${built.reason}`)
   const narrative = readNarrative()
-  const input = { target: { id: chapterId, revision: readCurrent().revision }, intent: { invocationTarget: target, operation, turn: built.turn }, options: { signal, assistantSampling: prepared.sampling, onModelRequest: prepared.onNarrativeModelRequest } }
+  const input = { target: { id: chapterId, revision: readCurrent().revision }, intent: { invocationTarget: target, operation, turn: built.turn }, options: { signal, assistantModelSettings: prepared.modelSettings, assistantSampling: prepared.sampling, onModelRequest: prepared.onNarrativeModelRequest } }
   const context = await narrative.resolveContext({ taskId: 'authoring.advance', request: input })
   if (!isCurrent()) throw new Error('正文或编辑位置已变化，生成尚未执行。')
   let result

@@ -303,13 +303,14 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
       finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
     },
 
-    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null, taskKind = 'narrative', maxTokens = null }) {
+    async run({ kernel, index, registry, mode = 'continue', intent = null, formatInstructions = '', requestId = '', signal = null, callbacks = {}, onStatus = null, budget = null, taskId = null, bookId = null, taskKind = 'narrative', maxTokens = null, modelConfig = null }) {
       taskId = base === '/api/storyagent' ? scopedId(taskId) : taskId || freshId()
       if (signal?.aborted) throw abortError(signal)
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
       const body = {
         requestId: requestId || `pi_${Date.now().toString(36)}`,
         mode, taskKind,
+        ...(modelConfig ? { modelConfig } : {}),
         intent,
         ...(maxTokens ? { maxTokens } : {}),
         formatInstructions,
@@ -347,9 +348,10 @@ export function createPiNarrativeAgentBridge({ endpoint = '/api/storyagent', fet
       return { ...result, cancelled: result.status === 'cancelled' }
     },
 
-    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null, taskKind = 'assistant', formatInstructions = '', budget = null, maxTokens = null }) {
+    async resume({ taskId, kernel, index, intent = null, callbacks = {}, onStatus = null, signal = null, requestId = '', bookId = null, taskKind = 'assistant', formatInstructions = '', budget = null, maxTokens = null, modelConfig = null }) {
       const state = { usage: null, error: null, taskEvent: null, terminal: false }
       const body = {
+        ...(modelConfig ? { modelConfig } : {}),
         requestId: requestId || `pi_resume_${Date.now().toString(36)}`,
         mode: 'continue', taskId, taskKind, formatInstructions,
         ...(budget ? { budget: { agentTimeoutMs: budget.agentTimeoutMs, maxModelSteps: budget.maxModelSteps, maxCallsPerTurn: budget.maxCallsPerTurn } } : {}),

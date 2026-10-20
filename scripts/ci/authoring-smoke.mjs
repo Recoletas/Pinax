@@ -156,7 +156,8 @@ async function runJourney() {
     await page.locator('[data-test="welcome-start-authoring"]').waitFor({ timeout: 30_000 })
 
     log('step 2: 打开备份/诊断面板，导出低敏诊断并验证隐私合同')
-    await page.getByRole('complementary', { name: '首页导航' }).getByRole('button', { name: '备份与恢复', exact: true }).click()
+    await page.getByRole('button', { name: '打开工作区导航', exact: true }).click()
+    await page.getByRole('dialog', { name: '工作区导航', exact: true }).getByRole('button', { name: '备份与恢复', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     // 用稳定的功能标记等待诊断区，不再绑定会随产品文案调整的标题。
     const diagnosticExport = settings.locator('[data-test="beta-diagnostic-export"]')

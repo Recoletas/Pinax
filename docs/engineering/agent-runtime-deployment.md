@@ -1,46 +1,88 @@
-# Agent 运行包发布
+# 构建、部署与更新运行包
 
-PR #6 将文本请求出口统一到 Storyflow。仅上传 `dist` 无法运行文本生成，还必须携带运行包。
+文本生成需要前端、Express 和 Storyflow 运行包配套。仅上传 `dist/` 只能更新页面，不能更新助手工具。公网 2026-10-15 已按本文的产物发布方式更新，具体提交和回滚位置见[发布回执](../agent-runs/release-20261015.md)。
 
-## 本机构建
+## 1. 准备环境
 
-使用 Node 22，在 Pinax 仓库执行：
+使用仓库要求的 Node.js `>=22.13.0 <23`。在开发机安装依赖并构建；2 GB 生产服务器只接收产物，不在服务器跑 Vite、TypeScript 或 `npm ci`。
 
 ```sh
+nvm use
 npm ci
 PINAX_RUNTIME_OUTPUT=.runtime/storyagent-next npm run build:agent-runtime
 npm run build
 ```
 
-运行器源版本固定在 `shared/storyagentRuntimeSource.json`；构建脚本只导出源代码和锁文件，使用 `npm ci` 编译并移除开发依赖，不带入上游配置或上游已安装依赖。输出目录由 `PINAX_RUNTIME_OUTPUT` 指定（默认 `.runtime/storyagent`）；本轮候选位于 `.runtime/storyagent-next`，其 `runtime-source.json` 记录源提交、依赖锁和 Pinax 扩展指纹。此目录被 Git 忽略，需要随发布包上传。
+构建会拉取 `shared/storyagentRuntimeSource.json` 固定的上游提交，再编译 Pinax 适配。默认输出 `.runtime/storyagent`；上例使用独立候选 `.runtime/storyagent-next`，避免覆盖运行中的包。`runtime-source.json` 记录上游版本、锁文件和适配指纹；源清单的 `protocolVersion` 与运行包的 `assistantProtocolVersion` 不是同一个字段。
 
-2026-10-12 助手返修经过独立包验证，并按作者授权切为 `.runtime/storyagent-next`、仅重启8451。健康响应包含 `assistantWorkspace: true`，新版交付预算及默认目录已加载。最近一次追加参数修复前的包保存在 `.runtime/storyagent-next-backup-append-1791781497`，首轮旧包保存在 `.runtime/storyagent-next-backup-20261012-1791780256`；任务目录和模型配置未改，5份日志哈希已核对。Express与前端未重启。运行PID另记 `.runtime/storyagent-current.pid`，本轮运行器为独立后台进程，Express重启会探测并复用。不要覆盖任务目录或密钥配置。
+按任务切换模型需要运行包 `/healthz` 声明 `requestModels: true`，以及配套的 Express `requestModelContext`。前端配置列表不再通过 POST /model 热改全局模型；自定义文本配置随单次请求进入内核，生成时只使用该任务的配置副本。旧包不支持时明确要求更新，不静默使用服务器默认模型。公网继续拒绝自定义文本模型请求。
 
-## 服务器运行
+结构化作者提问需要运行包声明 `assistantUserInput: true`。`request_user_input` 保存 `needs_input` 交付与问题后结束本次生成连接，任务传输状态仍为 completed，业务状态为等待作者。网页展示问题，回答后通过原 taskId 的 resume 续接，不依赖长期存活的工具 Promise。问题/回答保存在既有会话存储，运行日志保留成对的工具调用与结果；不会自动超时选择，也不通过回答扩大权限。旧运行包仍只显示普通澄清文字，需要更新运行包才能产生问题选项。
 
-服务器使用同平台 Node 22；发布包含 `dist/`、`server/`、`shared/`、必要的服务端生产依赖和本轮 `.runtime/storyagent-next/`（或通过 `PINAX_RUNTIME_DIR` 显式指定的运行包）。服务器启动 Express 时自动拉起编译后的运行器，监听 loopback，浏览器只能通过 Express 代理访问。运行器默认任务目录为 `.runtime/data/storyagent-tasks`，可用 `PINAX_ADAPTER_TASKS_DIR` 显式覆盖。宿主在拉起新运行器前非破坏性复制旧 `.runtime/storyagent/tasks` 日志，保留源文件，并拒绝覆盖分歧日志。默认构建遇到输出目录含旧日志会拒绝替换，应使用独立候选目录。更新前先停止旧运行器，避免迁移期间继续追加。
+运行中补充需要 `assistantSteering: true` 运行包及配套 Express `/tasks/:id/steer` 转发。正文消息队列由原会话所有者保存；steer 则使用 pi Agent.steer，在原回合的安全间隔接收。HTTP 接收不等于模型已读：`author_input` 工具结果帧确认实际消费后，前端才将待发送项转为对话中的作者消息。补充不重启请求、不更换模型、不扩大授权；修改已经提交或进入委托生成时返回冲突，由前端保留为下轮消息。接口只接受消息 ID、文字和 bookId，沿用浏览器任务前缀隔离。运行器可接受最多 8 个去重输入，预算不增加；中断后未确认消费的项保留在暂停队列中。
 
-保留服务器已有环境配置和模型密钥。只有 `MINIMAX_API_KEY` 且没有显式 Kit 模型配置时，启动器使用 MiniMax-M2.7 的 Anthropic 接口；有显式配置时尊重显式配置。公网必须设置已有的 `PINAX_PUBLIC_ORIGINS`，由服务端关闭本机文件能力和模型写接口。不得上传本地 `.env`，也不要把运行器端口暴露到公网。
+不要把已有 `tasks` 目录当构建输出清空；脚本会拒绝覆盖含旧日志的目录。升级时使用新目录，并保留任务和配置。
 
-协议 2 前后端须成套更新，运行包健康响应需包含 `assistantProtocolVersion: 2`；只刷新网页无法让已加载旧模块的 Express 或运行器更新。发布前检查 `/api/storyagent/healthz`、模型状态、真实助手检索与生成；采用动作应在浏览器执行，不能让运行器直接修改正式作品。运行器缺失时会明确返回不可用，不自动切换另一套文本引擎。
+## 2. 发布需要哪些文件
 
-## 回滚
+| 内容 | 发布要求 |
+| --- | --- |
+| `dist/` | 本机构建的静态页面与资源 |
+| `server/`、`shared/`、包清单 | 与前端来自同一套发布提交 |
+| 后端生产 `node_modules` | 在兼容目标系统的平台准备；原生依赖需匹配架构、Node ABI 和 glibc |
+| `.runtime/storyagent-next/` 或指定目录 | 完整编译包及其生产依赖，不只是入口 JS |
+| 服务器配置 | 保留原 `.env` 和模型配置，不用本地文件覆盖 |
+| `.runtime/data/` | 任务日志、派生数据等；独立保存，不作为可删除构建目录 |
 
-保留上一版完整前端、后端和运行包，通过现有进程管理器一起切回，保留原环境配置和任务目录。不要只回滚前端或只覆盖运行器依赖。
+不要直接把 Windows 或不同 Node 版本的 `node_modules` 传到 Linux。SQLite 等原生模块必须在隔离候选目录确认能加载，再切换正式服务。`deploy/setup.sh` 是旧环境脚本，不代替本轮 Node 22 和运行包发布流程。
 
-本轮已经在 1871 MiB 的现有服务器上做临时运行包内存检查：运行器空闲约 91 MiB，两个合成任务并发峰值约 103 MiB，测试进程合计约 180 MiB。临时目录已清理；该检查没有部署或重启生产服务。真实模型质量和整站负载不能由该内存结果推定。
+仓库使用 `main` 做开发集成，`server-version` 承接生产适配。先完成 main，再合并到生产分支构建；不要在生产分支继续开发功能。
 
-2026-10-12 推演接线沿用作者的8451更新授权：当前包健康响应增加 `assistantNarrative: true`，支持 `generate_narrative_draft` 的 planned 请求；正文实际生成仍由前端冻结会话调用既有内核，不由聊天工具直接写入。旧包保存于 `.runtime/storyagent-next-backup-narrative-1791805953`，当前PID2413804，仍以pid文件为准。切包前后的10份既有任务日志哈希一致，模型环境与配置继承，5173／3001未重启。
+## 3. 启动与配置
 
-2026-10-13 PR #7助手适配增加 `assistantSampling`／`assistantObservability`，从实际pi消息列表流式发送提示词组成，采样仅对合法本轮助手参数生效。当前PID2542722，回退包 `.runtime/storyagent-next-backup-observability-1791851363`，更新前后21份既有任务日志哈希一致。原配置继承，前端与Express未重启；新增预览帧不单独写任务日志，既有运行器journal机制不变；新内存快照由浏览器持有。
+Express 的 `startStoryAgentRuntime` 先探测 loopback 任务面，健康时复用；否则在配置和产物齐备时启动运行器。
 
+| 配置 | 用途 |
+| --- | --- |
+| `PINAX_RUNTIME_DIR` | 显式指定运行包；未指定时优先使用协议 2 的 storyagent-next，否则 storyagent |
+| `PINAX_ADAPTER_ENDPOINT` | 任务面地址，默认 loopback 8451；拒绝公网主机 |
+| `PINAX_ADAPTER_CONFIG` | 显式模型配置文件路径 |
+| `PINAX_ADAPTER_TASKS_DIR` | 任务日志位置，默认 `.runtime/data/storyagent-tasks` |
+| `PINAX_STORYAGENT_ENABLED=0` | 禁止由 Express 自动拉起运行器 |
+| `PINAX_PUBLIC_ORIGINS` | 公网来源配置；同时收紧模型配置和本机能力 |
 
-2026-10-13剩余知识接线：8451健康增加 `assistantKnowledge:true`，PID2568202，回退包 `.runtime/storyagent-next-backup-knowledge-1791854711`，24份既有日志SHA256保持一致。工具只按需经本机Express `/api/knowledge`代理；默认3001，运行器可用 `PINAX_KNOWLEDGE_PROXY_PORT` 配置其他端口。原配置／任务路径不变。5173／3001未重启；知识工具需要新的Express路由以及独立kit协议／内核服务，健康标记只说明工具已装入，不证明这两项依赖就绪。
+模型配置示例见 [server/.env.example](../../server/.env.example)。只有 `MINIMAX_API_KEY`、没有其他显式模型密钥/配置时，启动器采用代码中的 MiniMax 默认配置；已有显式配置优先。密钥不写入前端构建变量、发布日志或提交。
 
-## 2026-10-13 知识内核接线
+运行器不监听公网。浏览器经 `/api/storyagent` 使用能力令牌访问任务。前端刷新不会重载旧 Express 模块；更新后端或运行器需要对应进程重新加载，且应先处理在途任务。
 
-本地使用 Node22 与 Python3，执行 `npm run build:knowledge-runtime`，默认构建 `.runtime/knowledge`。已有目录不覆盖，升级通过 `PINAX_KNOWLEDGE_RUNTIME` 指定独立候选。版本固定69420a76e93d1537891f9264d6e15e2984c534ba；构建导出core／adapters／契约／编译器及公开图，保留上游MIT许可，不包含上游私有知识原文或配置。Express按需在只读工作线程调用真实内核，无需额外两个常驻服务。
+## 4. 切换与回滚
 
-本书项目位置来自已有注册表。查询时生成独立派生索引，来源更新后重建；只有索引的通用卡会明确标记，缺少原文时读取失败，不补造正文。资料导入、项目绑定和正式世界书仍沿原入口。公网部署继续关闭本机知识能力。
+1. 记录旧提交、静态目录指向、运行包、生产依赖和进程配置。备份配置与日志，但不输出密钥。
+2. 上传到独立候选目录，核对文件哈希和运行包清单，检查目标机原生依赖能否加载。
+3. 在维护窗口停止需要替换的旧进程。现存 8451 会被复用，不能只重启 Express 就假定运行器已更新。
+4. 成套切换后端、运行包和静态资源，再由原进程管理器启动服务。已有打开页面可能还请求旧哈希资源，可短期保留上一版 assets。
+5. 检查首页和资源、模型状态、`/api/storyagent/healthz`、公网能力限制，以及本次实际承诺的用户流程。
 
-作者已授权更新3001。最终8451 PID2613222、3001 PID2613223；回退包 `.runtime/storyagent-next-backup-pr7-final-1791860850`。24份既有日志SHA256一致，继承原环境与模型设置（模型由既有环境凭据提供，显式配置文件当前不存在）；5173未重启。健康检查及当前3001真实kb_search通过。PID最终以各自pid文件为准；生产未部署。
+协议 2 发布需核对 `assistantProtocolVersion: 2`。`assistantWorkspace`、`assistantNarrative`、`assistantSampling`、`assistantObservability`、`assistantKnowledge` 标志只证明对应适配已装入；健康响应不能证明真实生成、采用或知识检索成功。
+
+失败时切回上一套前端、后端、依赖和运行包。保留原环境和任务目录；回滚代码不应还原旧日志覆盖新记录。旧任务日志迁移由 `storyAgentJournals` 非破坏性复制并检查分歧。
+
+## 5. 本机知识运行包（可选）
+
+只为本机项目知识检索安装，公网部署不需要借此开放服务器文件。
+
+```sh
+npm run build:knowledge-runtime
+```
+
+构建需 Node 22 和 Python 3；源版本由 `shared/knowledgeRuntimeSource.json` 固定，默认输出 `.runtime/knowledge`。已有目录不会被覆盖；升级使用新的 `PINAX_KNOWLEDGE_RUNTIME` 路径，运行 Express 时也要指向该路径。
+
+Express 在按需工作线程中调用真实知识内核，不再要求另启 8421/8431 两个常驻服务。项目范围从已绑定注册表取得；派生索引存到 `.runtime/data/knowledge`，不会替代正式来源。来源变化会重建/拒绝过期结果，缺少原文时明确报错。
+
+工具标志为 true 而查询失败时，继续检查运行包、项目绑定、索引和原文。不要用旧 kit-guard 的 Windows 计划任务成功码来判断当前 Pinax 知识链就绪。
+
+## 6. HTTPS 与用户数据迁移
+
+截至 2026-10-15，公网 HTTP 可用，HTTPS 握手失败；现有 Nginx 仅提供 80 端口。证书、自动续期和 HTTPS 跳转仍待配置。
+
+HTTP 与 HTTPS 的 localStorage/IndexedDB 隔离。启用强制跳转前应提供旧地址导出备份的窗口和新地址恢复说明，保留回退入口；不要因新地址书库为空就初始化覆盖或清理旧数据。迁移后再核对 `PINAX_PUBLIC_ORIGINS`、证书链和混合内容请求。

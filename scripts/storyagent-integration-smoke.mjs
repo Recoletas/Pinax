@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import express from 'express'
+import { mkdtemp, copyFile, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { assistantRuntimeFiles } from './extend-assistant-runtime.mjs'
 import { createStoryAgentRouter } from '../server/routes/storyagent.js'
 import { createStoryAgentEngine } from '../src/services/agents/storyagent/agentEngine.js'
 import { createAuthoringStoryAgent } from '../src/services/agents/storyagent/authoringIntegration.js'
@@ -38,6 +43,8 @@ const workspaceAgent = createAuthoringStoryAgent({
   readBooks: () => [workspaceBook, { id: 'book-b', worldbookId: 'world-b', chapters: [] }],
   readWorldbookSnapshot: id => { workspaceReads.push(id); return { id, entries: [{ id: 'other', name: '其他人物', content: '其他设定' }] } }
 })
+const permissionTarget = workspaceAgent.permissionContext()
+check(permissionTarget.bookId === 'book-a' && permissionTarget.kernel.serialization.blocks.length === 0 && workspaceAgent.chapterOptions().length === 0 && workspaceReads.length === 0, '权限目标及章节选项不读取其他作品或装配正文与设定上下文')
 const workspacePrepared = workspaceAgent.prepare({ text: '查阅作品' })
 check(workspaceReads.join(',') === 'world-b' && JSON.stringify(workspacePrepared).includes('其他设定') && JSON.stringify(workspacePrepared).includes('当前设定'), '当前世界书复用已绑定对象，跨作品查阅经注入的只读快照入口')
 
@@ -88,6 +95,10 @@ try {
   check((await fetch(`${base}/v1/pinax/tasks/${owned}/cancel`, { method: 'POST', headers })).ok, '当前浏览器可以停止自己的任务')
   check((await fetch(`${base}/v1/pinax/tasks`, { method: 'POST', headers, body: JSON.stringify({ taskId: 'foreign' }) })).status === 403, '不能指定他人的任务 ID 创建任务')
   check(upstreamCalls.length === 2 && upstreamCalls.every(call => call.url.startsWith(`${KIT_TASK_PLANE_ENDPOINT}/`)), '被拒绝的请求不转发，运行地址只由服务器决定')
+  check((await fetch(`${base}/v1/pinax/tasks/not-owned/steer`, { method: 'POST', headers, body: JSON.stringify({ id: 'q', text: '补充', bookId: 'book-a' }) })).status === 404, '不能向其他浏览器的运行任务发送补充')
+  const liveInput = { id: 'queued-one', text: '保留人物姓名', bookId: 'book-a', assistantPolicy: { mode: 'auto' }, modelConfig: { model: 'override' } }
+  const liveResponse = await fetch(`${base}/v1/pinax/tasks/${owned}/steer`, { method: 'POST', headers, body: JSON.stringify(liveInput) })
+  check(liveResponse.ok && JSON.stringify(JSON.parse(upstreamCalls.at(-1).options.body)) === JSON.stringify({ id: liveInput.id, text: liveInput.text, bookId: liveInput.bookId }), '运行中补充只转发文字与归属，不接受替换模型或扩大权限')
   const previousPublic = process.env.PINAX_PUBLIC_ORIGINS
   process.env.PINAX_PUBLIC_ORIGINS = 'https://example.invalid'
   try {
@@ -100,4 +111,21 @@ try {
   } finally { if (previousPublic === undefined) delete process.env.PINAX_PUBLIC_ORIGINS; else process.env.PINAX_PUBLIC_ORIGINS = previousPublic }
 
 } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
+// Exercise the exact files copied into the packaged runtime without a supplier call.
+const extensionDir = await mkdtemp(path.join(tmpdir(), 'pinax-question-extension-'))
+try {
+  await writeFile(path.join(extensionDir, 'package.json'), '{"type":"module"}')
+  for (const file of assistantRuntimeFiles) await copyFile(new URL(`../${file}`, import.meta.url), path.join(extensionDir, path.basename(file)))
+  const { createAssistantTask, assistantToolGuard } = await import(pathToFileURL(path.join(extensionDir, 'assistantTask.js')).href)
+  const task = createAssistantTask({ bookId: 'book-a', kernel: { blocks: [] }, assistantPolicy: { mode: 'read', bookId: 'book-a' } }, { domains: {} })
+  const questionTool = task.tools.find(tool => tool.name === 'request_user_input')
+  check(questionTool?.executionMode === 'sequential' && !task.tools.some(tool => tool.name === 'submit_edit_proposals'), '只读也可询问；提问批次串行，不能并发绕过等待或获得写入权限')
+  const invalid = await questionTool.execute('bad', { questions: [{ id: 'same', question: 'A' }, { id: 'same', question: 'B' }] })
+  check(invalid.isError && task.state.delivery === null, '拒绝重复问题 ID，不产生虚假的等待状态')
+  task.state.acceptedCalls = 6
+  check(assistantToolGuard(task, 'request_user_input', { maxCallsPerTurn: 6 }) === undefined, '工具预算耗尽仍可向作者提问，不强迫猜测交付')
+  const result = await questionTool.execute('question-call', { questions: [{ id: 'direction', question: '更新正文还是设定？', options: [] }] })
+  const payload = JSON.parse(result.content[0].text)
+  check(payload.waitingForAuthor && task.state.delivery.outcome === 'needs_input' && task.state.proposal === null && assistantToolGuard(task, 'submit_edit_proposals', { maxCallsPerTurn: 6 })?.block === true, '提问后暂停，不允许继续修改；保留问题供原任务续接')
+} finally { await rm(extensionDir, { recursive: true, force: true }) }
 console.log(`storyagent-integration-smoke: ${checks}/${checks} passed`)

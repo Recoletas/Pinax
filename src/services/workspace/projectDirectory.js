@@ -6,7 +6,8 @@ export const DEFAULT_FOLDERS = Object.freeze([
   { id: 'ideas', name: '构思', parentId: '', order: 1 },
   { id: 'settings', name: '设定', parentId: '', order: 2 },
   { id: 'sources', name: '资料', parentId: '', order: 3 },
-  { id: 'assets', name: '素材', parentId: '', order: 4 }
+  { id: 'assets', name: '素材', parentId: '', order: 4 },
+  { id: 'comics', name: '漫画', parentId: '', order: 5 }
 ])
 // Maps keep the existing per-project workbench identity (empty resource ID).
 // The tree needs a stable node key, not a second editable map resource.
@@ -16,10 +17,10 @@ export function directoryResourceKey(raw) {
   return JSON.stringify([ref.bookId, ref.type, ['entry', 'source'].includes(ref.type) ? ref.worldbookId : '', ref.type === 'map-editor' ? 'world-map' : ref.id])
 }
 export function createDirectory() {
-  return { version: 1, revision: 0, defaultFoldersVersion: 1, folders: DEFAULT_FOLDERS.map(folder => ({ ...folder })), placements: [], links: [] }
+  return { version: 1, revision: 0, defaultFoldersVersion: 2, folders: DEFAULT_FOLDERS.map(folder => ({ ...folder })), placements: [], links: [] }
 }
 export function validateDirectory(value, bookId) {
-  if (value?.version !== 1 || value.defaultFoldersVersion !== undefined && value.defaultFoldersVersion !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.folders) || !Array.isArray(value.placements) || !Array.isArray(value.links)) throw new Error('目录格式无法读取，原记录已保留。')
+  if (value?.version !== 1 || value.defaultFoldersVersion !== undefined && ![1, 2].includes(value.defaultFoldersVersion) || !Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.folders) || !Array.isArray(value.placements) || !Array.isArray(value.links)) throw new Error('目录格式无法读取，原记录已保留。')
   const ids = new Set()
   for (const folder of value.folders) {
     if (!folder || typeof folder.id !== 'string' || !folder.id || ids.has(folder.id) || typeof folder.name !== 'string' || !folder.name.trim() || typeof folder.parentId !== 'string' || !Number.isFinite(folder.order)) throw new Error('目录文件夹记录无效，原记录已保留。')
@@ -43,7 +44,7 @@ export function validateDirectory(value, bookId) {
   }
   for (const link of value.links) if (!validKey(link?.from) || !validKey(link?.to) || link.from === link.to) throw new Error('目录关联记录无效，原记录已保留。')
   // Whitelist metadata: the directory must never acquire a copy of content.
-  return { version: 1, revision: value.revision, ...(value.defaultFoldersVersion === 1 ? { defaultFoldersVersion: 1 } : {}),
+  return { version: 1, revision: value.revision, ...(value.defaultFoldersVersion ? { defaultFoldersVersion: value.defaultFoldersVersion } : {}),
     folders: value.folders.map(({ id, name, parentId, order }) => ({ id, name, parentId, order })),
     placements: value.placements.map(({ key, parentId, order, automatic }) => ({ key, parentId, order, ...(automatic === true ? { automatic: true } : {}) })),
     links: value.links.map(({ from, to }) => ({ from, to })) }
@@ -54,10 +55,11 @@ export function readDirectory(bookId) {
   let value
   try { value = JSON.parse(raw) } catch { throw new Error('目录记录损坏，原数据已保留，可通过备份恢复。') }
   const valid = validateDirectory(value, bookId)
-  if (valid.defaultFoldersVersion === 1) return valid
+  if (valid.defaultFoldersVersion === 2) return valid
+  if (valid.defaultFoldersVersion === 1) return { ...valid, defaultFoldersVersion: 2, folders: valid.folders.some(folder => folder.id === 'comics') ? valid.folders : [...valid.folders, { ...DEFAULT_FOLDERS.find(folder => folder.id === 'comics') }] }
   // Seed page folders once. Keep authored names, nesting, links and original ordering.
   const ids = new Set(valid.folders.map(folder => folder.id))
-  return { ...valid, defaultFoldersVersion: 1,
+  return { ...valid, defaultFoldersVersion: 2,
     folders: [...valid.folders, ...DEFAULT_FOLDERS.filter(folder => !ids.has(folder.id)).map(folder => ({ ...folder }))],
     placements: valid.placements.map(item => item.parentId === '' ? { ...item, automatic: true } : item) }
 

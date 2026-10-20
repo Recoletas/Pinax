@@ -7,6 +7,8 @@
  *   POST /api/media/images
  */
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
+import { describeImageTransportError, fetchImageWithConnectRetry } from '../media/imageTransport.js'
 import { resolveMiniMaxApiKey } from '../../shared/textModelKeys.js'
 import { redactSecrets } from '../media/errorNormalization.js'
 import { buildMiniMaxImageSize, normalizeMiniMaxSubjectReferences, MINIMAX_REFERENCE_LIMIT } from '../../shared/minimaxImageRequest.js'
@@ -32,6 +34,9 @@ export function createImageRouter(options = {}) {
 
   router.post('/api/media/images', async (req, res) => {
     const controller = new AbortController()
+    const requestId = randomUUID()
+    const startedAt = Date.now()
+    res.set('X-Image-Request-Id', requestId)
     const onDisconnect = () => { if (!res.writableEnded) controller.abort() }
     req.once('aborted', onDisconnect)
     res.once('close', onDisconnect)
@@ -61,7 +66,7 @@ export function createImageRouter(options = {}) {
         return res.status(500).json({ error: 'ERR_INTERNAL', message: '服务器不支持网络请求' })
       }
       const root = baseUrl.endsWith('/v1') ? baseUrl.slice(0, -3) : baseUrl
-      const response = await fetchImpl(`${root}/v1/image_generation`, {
+      const response = await fetchImageWithConnectRetry(fetchImpl, `${root}/v1/image_generation`, {
         redirect: 'error',
         method: 'POST',
         signal: controller.signal,
@@ -76,15 +81,15 @@ export function createImageRouter(options = {}) {
           prompt_optimizer: false,
           aigc_watermark: false
         })
-      })
+      }, { onRetry: failure => logger.warn?.('[image] retry before connect', { requestId, codes: failure.codes, elapsedMs: Date.now() - startedAt }) })
       const payload = await readJson(response)
       if (!response.ok) {
-        return res.status(502).json({ error: 'ERR_PROVIDER', message: `MiniMax 图片请求失败 (${response.status})` })
+        return res.status(502).json({ error: 'ERR_PROVIDER', providerStatus: response.status, generationOutcome: response.status >= 400 && response.status < 500 && response.status !== 408 ? 'known-failed' : 'outcome-unknown', message: `MiniMax 图片请求失败 (${response.status})` })
       }
       const providerCode = Number(payload?.base_resp?.status_code ?? 0)
       if (providerCode !== 0) {
         const message = String(payload?.base_resp?.status_msg || '生成失败').slice(0, 300)
-        return res.status(502).json({ error: 'ERR_PROVIDER', message: `MiniMax Image ${providerCode}: ${message}` })
+        return res.status(502).json({ error: 'ERR_PROVIDER', providerCode, generationOutcome: 'known-failed', message: redactSecrets(`MiniMax Image ${providerCode}: ${message}`) })
       }
       const base64 = payload?.data?.image_base64?.[0]
       if (typeof base64 === 'string' && base64.trim()) {
@@ -98,10 +103,13 @@ export function createImageRouter(options = {}) {
     } catch (err) {
       if (controller.signal.aborted || res.destroyed) return
       if (err?.code === 'ERR_INVALID_INPUT') return res.status(400).json({ error: err.code, message: err.message })
-      logger.error?.('[image] proxy failed', err?.message || err)
-      return res.status(500).json({
-        error: 'ERR_INTERNAL',
-        message: redactSecrets(err?.message || '图片生成失败') || '图片生成失败'
+      const failure = describeImageTransportError(err)
+      logger.error?.('[image] proxy failed', { requestId, codes: failure.codes, elapsedMs: Date.now() - startedAt, generationOutcome: failure.generationOutcome })
+      return res.status(502).json({
+        error: 'ERR_IMAGE_TRANSPORT',
+        message: failure.message,
+        generationOutcome: failure.generationOutcome,
+        requestId
       })
     } finally {
       req.removeListener('aborted', onDisconnect)
@@ -115,8 +123,11 @@ export function createImageRouter(options = {}) {
 async function readJson(response) {
   try {
     return await response.json()
-  } catch {
-    return {}
+  } catch (error) {
+    if (!response.ok) return {}
+    // Keep socket/body errors intact; do not turn a truncated result into 'no image'.
+    if (error instanceof SyntaxError) throw Object.assign(new Error('Invalid image response'), { code: 'ERR_IMAGE_RESPONSE_INVALID' })
+    throw error
   }
 }
 

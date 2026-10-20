@@ -47,7 +47,7 @@ const presentNames = computed(() => (
       >{{ event.label }}</button>
     </section>
     <div class="writing-inspector__actions">
-      <button type="button" data-test="scene-overview-edit" @click="emit('edit-request')">{{ tr('调整当前场') }}</button>
+      <button type="button" data-test="scene-overview-edit" @click="emit('edit-request')">{{ tr('调整') }}</button>
       <button type="button" data-test="scene-overview-if" @click="emit('if-entry')">{{ tr('人物 IF 试验') }}</button>
       <button v-if="!activeWritingUnitId" type="button" @click="emit('compose-open')">{{ tr('推演本章开场') }}</button>
     </div>

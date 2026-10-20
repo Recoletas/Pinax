@@ -1,4 +1,5 @@
-import { computed, reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
+import { saveGeneratedDraft, readGeneratedDraft, clearGeneratedDraft } from '../services/writing/generatedDraftRecovery.js'
 import { normalizeAuthoringFailure } from '../services/agents/authoring/authoringExecutionResult.js'
 import { createExplorationDocument } from '../services/writing/authoringDocumentRepository.js'
 import {
@@ -70,8 +71,31 @@ export function useAuthoringBlockWorkflow({
   })
   const failure = shallowRef(null)
   const adoptionBusy = ref(false)
+  const savedExploration = shallowRef(null)
   let requestVersion = 0
   let explorationSavePending = false
+  let recoveryWarningShown = false
+  const recoveryRevision = ref(0)
+  const recoverableDraft = computed(() => {
+    // Invalidate after writes as storage itself is not reactive.
+    void recoveryRevision.value
+    if (preview.value || composer.staleResult) return null
+    return readGeneratedDraft(defaultTarget())
+  })
+
+  const recoveryTarget = () => preview.value?.candidate?.target || composer.staleResult?.target || composer.target
+  watch([draftText, () => composer.staleResult?.text], () => {
+    const text = draftText.value || composer.staleResult?.text
+    if (!text) return
+    try { saveGeneratedDraft(recoveryTarget(), text); recoveryWarningShown = false; recoveryRevision.value += 1 }
+    catch {
+      if (!recoveryWarningShown) notify('草稿备份未能保存，请先复制文字。')
+      recoveryWarningShown = true
+    }
+  }, { flush: 'sync' })
+  function forgetRecovery(target = recoveryTarget()) {
+    try { clearGeneratedDraft(target); recoveryRevision.value += 1 } catch { /* Keep the extra recovery copy if storage is unavailable. */ }
+  }
 
   const people = computed(() => {
     const projection = sceneProjection.value || {}
@@ -196,12 +220,17 @@ export function useAuthoringBlockWorkflow({
     clearPendingDraft()
     resetComposer()
     failure.value = null
+    savedExploration.value = null
   }
 
   function open(target = defaultTarget(), options = {}) {
     if (hasPendingAdoption()) return false
     const frozenTarget = resolveTarget(target || {})
     if (!frozenTarget.unitId && !isEmptyDocument()) return false
+    if (!preview.value && !composer.staleResult) {
+      const recovered = readGeneratedDraft(frozenTarget)
+      if (recovered) composer.staleResult = { ...recovered, recovered: true, adoptable: false }
+    }
     const retained = composer.staleResult
     const keepResult = retained && retained.target?.projectId === frozenTarget.projectId && retained.target?.documentId === frozenTarget.documentId
     const nextReferenceKey = targetScopeKey(frozenTarget)
@@ -234,12 +263,13 @@ export function useAuthoringBlockWorkflow({
     if (!composer.staleResult) composer.failure = null
   }
 
-  function abandon({ shouldRestoreSelection = false } = {}) {
+  function abandon({ shouldRestoreSelection = false, preserveRecovery = false } = {}) {
     if (hasPendingAdoption()) return false
     closeCharacterIf()
     const bookmark = composer.target?.selectionBookmark
     invalidateRequest()
     cancelTask()
+    if (!preserveRecovery) forgetRecovery()
     clearDraft()
     resetComposer()
     clearRunReferences()
@@ -249,7 +279,8 @@ export function useAuthoringBlockWorkflow({
   }
 
   function close() {
-    return abandon({ shouldRestoreSelection: true })
+    composer.open = false
+    return true
   }
 
   function restoreDraft() {
@@ -372,9 +403,11 @@ export function useAuthoringBlockWorkflow({
   async function accept() {
     if (adoptionBusy.value) return false
     adoptionBusy.value = true
+    const recovery = recoveryTarget()
     const guided = shouldCompleteFirstRun()
     try {
       const ok = await performAdoption()
+      if (ok) forgetRecovery(recovery)
       if (ok && guided) completeFirstRun()
       return ok
     } finally {
@@ -431,6 +464,8 @@ export function useAuthoringBlockWorkflow({
       return false
     }
     refreshExplorations(projectId)
+    savedExploration.value = { projectId, id: result.document.id, title: result.document.title }
+    forgetRecovery()
     draftText.value = ''
     if (context.ifExperiment) {
       preview.value = null
@@ -439,7 +474,7 @@ export function useAuthoringBlockWorkflow({
       return true
     }
     abandon({ shouldRestoreSelection: true })
-    notify('已留作构思，可在左栏构思区查看')
+    notify(`已保存到构思：${title}，尚未写入正文`)
     return true
   }
 
@@ -461,14 +496,20 @@ export function useAuthoringBlockWorkflow({
     } catch { result = { ok: false } }
     finally { explorationSavePending = false }
     if (selectedBookId.value !== projectId || selectedChapterId.value !== chapterId) return Boolean(result?.ok)
-    if (result?.ok) refreshExplorations(projectId)
-    notify(result?.ok ? '已留作构思，可在左栏构思区查看' : '留作构思保存失败，请重试')
+    if (result?.ok) {
+      refreshExplorations(projectId)
+      forgetRecovery(retained.target)
+      savedExploration.value = { projectId, id: result.document.id, title: result.document.title }
+    }
+    notify(result?.ok ? `已保存到构思：${result.document.title}，尚未写入正文` : '保存为构思失败，请重试')
     if (result?.ok && composer.staleResult === retained) composer.staleResult = { ...retained, savedAsExploration: true }
     return Boolean(result?.ok)
   }
 
   return {
     preview,
+    savedExploration,
+    recoverableDraft,
     draftText,
     originalText,
     previousText,

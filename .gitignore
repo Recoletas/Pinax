@@ -100,3 +100,6 @@ server/.pinax-app/
 
 # Reproducible local Agent runtime build (upload with server release)
 .runtime/
+
+# Local promotional renders, recordings, provider receipts and intermediate media
+/docs/marketing/pinax-h3-materials/generated/

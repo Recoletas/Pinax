@@ -286,6 +286,7 @@ export function createAuthoringNarrativeRun({
     signal = null,
     turn = null,
     assistantSampling = null,
+    assistantModelSettings = null,
     onModelRequest = null,
     resolveLiveContextDependencies = null
   } = {}) {
@@ -310,6 +311,7 @@ export function createAuthoringNarrativeRun({
       intentMode,
       turn,
       assistantSampling,
+      assistantModelSettings,
       onModelRequest,
       signal,
       envelope,

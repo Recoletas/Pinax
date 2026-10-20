@@ -1,6 +1,6 @@
 import { getResolvedApiSettings } from '../api'
 import { runGenerationTask } from '../generationService'
-import { createComicPage } from './comicPageStore'
+import { createComicPage, normalizeComicPanelDirection } from './comicPageStore'
 
 export function buildComicScriptMessages({ sourceText = '', sourceTitle = '', panelCount = 4 } = {}) {
   const count = clampPanelCount(panelCount)
@@ -18,9 +18,11 @@ export function buildComicScriptMessages({ sourceText = '', sourceTitle = '', pa
         '格式：{"title":"页标题","layout":"strip-4 或 page-6","styleBible":"统一画风、角色与色彩连续性",' +
         '"pagePurpose":"本页要传达的核心情绪或情节转折（一句话）","pageTurnHook":"让读者翻页的视觉或悬念钩子（一句）",' +
         '"continuityNotes":["前后页需要保持的连续点"],"visualBibleRefs":[{"kind":"character|location|prop|palette|lineStyle","refId":"实体 ID","note":"本页要点"}],' +
-        '"panels":[{"visual":"只描述可见画面、构图、角色动作与光线，不写对白文字","dialogue":[{"speaker":"角色","text":"对白"}],"caption":"旁白"}]}。',
+        '"visualBible":{"lineStyle":"画风线条","palette":["色彩"],"renderingNotes":"渲染规则"},"panels":[{"visual":"只描述可见画面、构图、角色动作与光线，不写对白文字","direction":{"shotSize":"medium","cameraAngle":"eye"},"dialogue":[{"speaker":"角色","text":"对白"}],"caption":"旁白"}]}。',
         '每格 visual 必须具体且能独立生图；对白、旁白和拟声词不得烘焙进 visual。',
-        '相邻格保持人物服装、地点、时段和关键道具连续。',
+        '相邻格保持人物服装、地点、时段和关键道具连续，但每格应有新的动作、信息或情绪变化，不重复同一幅人物肖像。',
+        '每格提供 direction.shotSize：extreme-wide|wide|medium|close|extreme-close|insert|empty。无人环境用 empty，手部等局部用 insert；取景里不该出现的对象不要写入该格 visual。',
+        '另提供 visualBible：{lineStyle:线条画风,palette:[色彩],renderingNotes:渲染规则}，这里只写画风，不放角色名单、动作和剧情。',
         'pagePurpose 是本页一句话目标；pageTurnHook 是面向下一页的视觉钩子或悬念；visualBibleRefs 仅列本页需要强调的实体；缺信息时填简短占位文字但绝不留空字段。'
       ].join('\n')
     },
@@ -54,6 +56,11 @@ export function parseComicScript(content = '') {
         title: String(parsed.title || '漫画页').trim() || '漫画页',
         layout: panels.length >= 6 ? 'page-6' : 'strip-4',
         styleBible: String(parsed.styleBible || '').trim(),
+        visualBible: {
+          lineStyle: String(parsed.visualBible?.lineStyle || '').trim(),
+          palette: normalizeScriptContinuityNotes(parsed.visualBible?.palette),
+          renderingNotes: String(parsed.visualBible?.renderingNotes || '').trim()
+        },
         pagePurpose: String(parsed.pagePurpose || '').trim(),
         pageTurnHook: String(parsed.pageTurnHook || '').trim(),
         continuityNotes: normalizeScriptContinuityNotes(parsed?.continuityNotes),
@@ -119,6 +126,7 @@ function normalizeScriptPanels(panels) {
   return panels.slice(0, 6).map((panel, index) => ({
     order: index + 1,
     visual: String(panel?.visual || '').replace(/\s+/g, ' ').trim(),
+    direction: normalizeComicPanelDirection(panel?.direction),
     dialogue: (Array.isArray(panel?.dialogue) ? panel.dialogue : []).slice(0, 6).map((line) => ({
       speaker: String(line?.speaker || '').trim(),
       text: String(line?.text || '').trim()

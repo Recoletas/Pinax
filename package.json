@@ -35,6 +35,7 @@
     "catalog-sync": "node scripts/check-capability-catalog-sync.mjs",
     "brand:icons": "node scripts/brand/build-icons.mjs",
     "verify:browser": "node scripts/ui-audit.mjs && node scripts/online-narrative-smoke.mjs",
+    "verify:ci": "npm run verify:full && npm run ci:authoring-smoke && npm run ci:workspace-backup-smoke",
     "ci:authoring-smoke": "node scripts/ci/authoring-smoke.mjs",
     "ci:workspace-backup-smoke": "node scripts/ci/workspace-backup-smoke.mjs",
     "smoke:authoring-journeys": "node scripts/authoring-journeys-smoke.mjs",

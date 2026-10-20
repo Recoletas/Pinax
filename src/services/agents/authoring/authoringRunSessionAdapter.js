@@ -98,7 +98,8 @@ function targetFromRequest(request = {}) {
     unitRevision: text(source.unitRevision),
     nodeRevision: text(source.nodeRevision)
   }
-  target.contextMode = (request?.intent?.operation || request?.intent?.turn?.operation) === 'rewrite-unit'
+  target.contextMode = request?.intent?.turn?.rewriteText ? 'rewrite-range'
+    : (request?.intent?.operation || request?.intent?.turn?.operation) === 'rewrite-unit'
     ? 'rewrite-unit'
     : 'caret-prefix'
   if (!target.projectId || !target.documentId || !target.unitId || !target.nodeId) return null
@@ -511,7 +512,7 @@ export function createAuthoringRunSessionAdapter({
     if (!bundle) return failure('authoring-run-live-target-unavailable')
     // 重写当前块不消费“安排下一段”；只有 run-only 设定可作为这次改写参考。
     // 纠正当前已经体现在共享 sceneProjection 中，不需要第二份 intent 候选。
-    const runSceneIntents = expectedTarget.contextMode === 'rewrite-unit'
+    const runSceneIntents = ['rewrite-unit', 'rewrite-range'].includes(expectedTarget.contextMode)
       ? list(bundle.sceneIntents).filter((intent) => text(intent?.mode) === 'run-only')
       : bundle.sceneIntents
     if (bundle.projection?.worldbookStatus === 'missing'

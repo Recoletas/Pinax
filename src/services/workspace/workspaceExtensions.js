@@ -26,10 +26,10 @@ export function createWorkspaceExtensionRegistry(initial = [], persist = () => {
     if (entries.some(([, load]) => typeof load !== 'function')) throw new Error('视图组件加载器无效。')
     entries.forEach(([key, load]) => renderers.set(key, load))
   }
-  function enabled(id) { return Boolean(extensions.get(id)?.required || extensions.has(id) && !state.disabled.includes(id)) }
+  function enabled(id) { return Boolean(extensions.get(id)?.builtin || extensions.get(id)?.required || extensions.has(id) && !state.disabled.includes(id)) }
   function setEnabled(id, value) {
     const extension = extensions.get(id)
-    if (!extension || extension.required && !value) return { ok: false, message: '此扩展是工作台的基础能力。' }
+    if (!extension || (extension.builtin || extension.required) && !value) return { ok: false, message: '此功能是工作台的内置能力。' }
     const next = value ? state.disabled.filter(item => item !== id) : [...new Set([...state.disabled, id])]
     try { persist({ version: 1, disabled: next }) } catch { return { ok: false, message: '扩展偏好未能保存，请重试。' } }
     state.disabled = next; state.revision++
@@ -56,7 +56,7 @@ const builtins = [
   { id: 'pinax.director', title: '视频', description: '组织镜头、编导画布与视频素材。', icon: 'film', version: '1', views: [view('director-editor', '视频', 'film', 'module'), view('video', '镜头视频', 'film', 'media')] },
   { id: 'pinax.materials', title: '素材与插画', description: '整理素材、制作插画并查看图片。', icon: 'image', version: '1', views: [view('materials-editor', '素材与插画', 'image', 'module'), view('asset', '素材参考', 'image', 'media')] }
 ]
-export const workspaceExtensions = createWorkspaceExtensionRegistry(builtins, value => localStorage.setItem(WORKSPACE_EXTENSION_PREFERENCES, JSON.stringify(value)))
+export const workspaceExtensions = createWorkspaceExtensionRegistry(builtins.map(item => ({ ...item, builtin: true })), value => localStorage.setItem(WORKSPACE_EXTENSION_PREFERENCES, JSON.stringify(value)))
 try { workspaceExtensions.restore(JSON.parse(localStorage.getItem(WORKSPACE_EXTENSION_PREFERENCES))) } catch { /* Invalid display preferences leave built-ins available. */ }
 if (typeof window !== 'undefined') window.addEventListener('storage', event => {
   if (event.key === WORKSPACE_EXTENSION_PREFERENCES || event.key === null) {

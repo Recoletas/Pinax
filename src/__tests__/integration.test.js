@@ -9,7 +9,7 @@ import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import { UniqueID } from '@tiptap/extension-unique-id'
 import ApiSettingsPanel from '../components/worldbook/ApiSettingsPanel.vue'
-import { saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
+import { resolveSelectedTextProviderConfig, saveTextProviderConfig, deleteTextProviderConfig, listTextProviderConfigs, saveSelectedTextProviderConfigId, getSelectedTextProviderConfigId, BUILTIN_TEXT_CONFIG_ID } from '../services/textProviderConfigStore'
 import MaterialSourceDrawer from '../components/materials/MaterialSourceDrawer.vue'
 import ComicAdaptationPlanner from '../components/media/ComicAdaptationPlanner.vue'
 import ComicCompositionCanvas from '../components/media/ComicCompositionCanvas.vue'
@@ -69,6 +69,7 @@ import {
   getMediaAsset,
   loadGeneratedImageLibrary,
   listMediaAssets,
+  updateMediaAsset,
   saveMediaAsset
 } from '../services/media/mediaAssetStore'
 import {
@@ -120,7 +121,8 @@ import {
   getComicProductionRoute,
   getComicStageGate,
   getComicStageInputRevision,
-  runComicStageGeneration
+  runComicStageGeneration,
+  resolveComicPanelGenerationReferences
 } from '../services/media/comicProductionService'
 import {
   getComicImageStyle,
@@ -2717,6 +2719,8 @@ describe('Media services', () => {
   it('shares provider config and keeps generated binary data outside localStorage', async () => {
     const textConfig = saveTextProviderConfig({ name: 'Journey model', model: 'journey-text', baseUrl: 'https://example.invalid/v1', apiKey: 'fixture-only', provider: 'openai' })
     saveSelectedTextProviderConfigId(BUILTIN_TEXT_CONFIG_ID)
+    const originalModelFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, readOnly: false, provider: 'fixture', model: 'server-model' }) }))
     const settingsPanel = mount(ApiSettingsPanel, { global: { stubs: { TextModelPicker: { name: 'TextModelPicker', template: '<div />', props: ['modelValue', 'configs'], emits: ['update:modelValue', 'configs-updated'] } } } })
     // 模型能力探测完成后才显示本机配置，公网不会闪现可写控件。
     await flushPromises()
@@ -2732,7 +2736,7 @@ describe('Media services', () => {
     await nextTick()
     expect(picker.props('configs')).toEqual(listTextProviderConfigs())
 
-    // 协议轴：选中配置热切进内核时，Anthropic 线（预设域）与 OpenAI 兼容线分流不同 api。
+    // Model preferences do not mutate the runtime; each request carries its own protocol/config snapshot.
     const fetchBefore = globalThis.fetch
     const patches = []
     globalThis.fetch = vi.fn(async (_url, options) => {
@@ -2744,16 +2748,84 @@ describe('Media services', () => {
     try {
       picker.vm.$emit('update:modelValue', anthropicConfig.id)
       await flushPromises()
-      expect(patches.at(-1)).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      const { normalizeRequestModelConfig, requestScopedRuntimeConfig } = await import('../../shared/requestModelConfig.js')
+      expect(normalizeRequestModelConfig(resolveSelectedTextProviderConfig())).toMatchObject({ provider: 'anthropic', baseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' })
+      expect(patches).toHaveLength(0)
       picker.vm.$emit('update:modelValue', compatConfig.id)
       await flushPromises()
-      expect(patches.at(-1)).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+      expect(normalizeRequestModelConfig(resolveSelectedTextProviderConfig())).toMatchObject({ provider: 'openai', api: 'openai-completions' })
+      expect(patches).toHaveLength(0)
+      const defaults = { provider: 'default', model: 'original', apiKey: 'server-only', budget: { maxCallsPerTurn: 6 } }
+      const captured = requestScopedRuntimeConfig(defaults, anthropicConfig)
+      requestScopedRuntimeConfig(defaults, compatConfig)
+      expect(captured.model).toBe(anthropicConfig.model)
+      expect(defaults.model).toBe('original')
+      expect(requestScopedRuntimeConfig(defaults, null).model).toBe('original')
+      expect(() => normalizeRequestModelConfig({ ...compatConfig, baseUrl: 'file:///tmp/key' })).toThrow('地址无效')
+      const { modelRequestContext, currentRequestModel } = await import('../../server/services/requestModelContext.js')
+      const readInRequest = config => new Promise(resolve => modelRequestContext({ body: { modelConfig: config } }, {}, async () => { await Promise.resolve(); resolve(currentRequestModel()?.model) }))
+      expect(await Promise.all([readInRequest(anthropicConfig), readInRequest(compatConfig)])).toEqual([anthropicConfig.model, compatConfig.model])
+      expect(currentRequestModel()).toBeNull()
+      const { default: Menu } = await import('../components/settings/ModelPickerMenu.vue')
+      const { useSettingsPopup } = await import('../composables/useSettingsPopup.js')
+      const menu = mount(Menu, { props: { kind: 'text', modelValue: anthropicConfig.id, configs: [anthropicConfig, compatConfig] }, attachTo: document.body })
+      try {
+        await menu.get('.model-picker-trigger').trigger('click')
+        await nextTick()
+        document.querySelectorAll('.model-picker-menu [role=option]')[1].click()
+        expect(menu.emitted('update:modelValue').at(-1)).toEqual([compatConfig.id])
+        await menu.get('.model-picker-trigger').trigger('click')
+        await nextTick()
+        document.querySelector('.model-picker-manage').click()
+        expect(useSettingsPopup().activeSection.value).toBe('models')
+        expect(useSettingsPopup().modelKind.value).toBe('text')
+      } finally { menu.unmount(); useSettingsPopup().close() }
+
     } finally {
       globalThis.fetch = fetchBefore
       deleteTextProviderConfig(anthropicConfig.id)
       deleteTextProviderConfig(compatConfig.id)
     }
+    // Structured clarification uses native choices and explicit submission, never a default answer.
+    const { normalizeAssistantQuestions, formatAssistantAnswers } = await import('../../shared/assistantUserInput.js')
+    const questions = normalizeAssistantQuestions([{ id: 'direction', question: '这次更新哪一处？', options: [{ label: '补充设定', description: '以正文人物为准' }, { label: '修改正文', description: '' }] }])
+    expect(() => normalizeAssistantQuestions([...questions, ...questions])).toThrow('ID')
+    expect(() => formatAssistantAnswers(questions, {})).toThrow('回答每个问题')
+    const { default: UserInput } = await import('../components/authoring/AssistantUserInput.vue')
+    const questionForm = mount(UserInput, { props: { questions } })
+    try {
+      expect(questionForm.get('button').element.disabled).toBe(true)
+      await questionForm.findAll('input')[0].setValue(true)
+      expect(questionForm.emitted('answer')).toBeUndefined()
+      await questionForm.get('textarea').setValue('保留正文人物，只补充设定')
+      await questionForm.get('form').trigger('submit')
+      expect(questionForm.emitted('answer')[0][0]).toEqual({ direction: '保留正文人物，只补充设定' })
+      expect(formatAssistantAnswers(questions, questionForm.emitted('answer')[0][0])).toContain('这次更新哪一处？\n保留正文人物，只补充设定')
+      await questionForm.setProps({ busy: true })
+      await questionForm.get('form').trigger('submit')
+      expect(questionForm.emitted('answer')).toHaveLength(1)
+    } finally { questionForm.unmount() }
+    const { default: MessageQueue } = await import('../components/authoring/AssistantMessageQueue.vue')
+    const queueUi = mount(MessageQueue, { props: { items: [{ id: 'q1', question: '检查人物', status: 'waiting' }], busy: true } })
+    try {
+      expect(queueUi.text()).toContain('检查人物')
+      await queueUi.get('[aria-label="移除待发送消息"]').trigger('click')
+      expect(queueUi.emitted('remove')[0]).toEqual(['q1'])
+      await queueUi.setProps({ items: [{ id: 'q1', question: '检查人物', status: 'accepted' }] })
+      expect(queueUi.find('[aria-label="移除待发送消息"]').exists()).toBe(false)
+    } finally { queueUi.unmount() }
+    const { default: AssistantPanel } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
+    const composerPanel = mount(AssistantPanel, { props: { agentState: { enabled: true }, projectId: 'fixture', messages: [{ id: 'm', kind: 'agent', role: 'assistant', text: '处理中', status: 'running' }], busy: false, draft: '补充要求', assistant: { agentContext: () => ({ worldEntries: [], chapterEntries: [] }), pendingMessages: ref([]), queueMessage: vi.fn() } } })
+    try {
+      expect(composerPanel.find('.assistant-stop').exists()).toBe(false)
+      await composerPanel.setProps({ busy: true })
+      expect(composerPanel.find('.assistant-stop').exists()).toBe(true)
+      expect(composerPanel.find('.assistant-send-options').exists()).toBe(true)
+      await composerPanel.get('.authoring-knowledge__send').trigger('click')
+      expect(composerPanel.props('assistant').queueMessage).toHaveBeenCalledWith(expect.objectContaining({ question: '补充要求' }), 'followup')
+    } finally { composerPanel.unmount() }
     settingsPanel.unmount()
+    globalThis.fetch = originalModelFetch
 
     // 2C2G 服务器负载高时该长流程单测可能超过默认 5s 超时, 放宽到 30s。
     localStorage.removeItem(STORAGE_KEYS.IMAGE_MODEL_CONFIGS)
@@ -3346,6 +3418,7 @@ describe('Media services', () => {
     expect(retryButton).toBeTruthy()
     await retryButton.trigger('click')
     await vi.waitFor(() => expect(workbench.emitted('generation-complete')).toHaveLength(1))
+    await vi.waitFor(() => expect(workbench.get('.image-gen-generate-btn').element.disabled).toBe(false))
     expect(partialFetch).toHaveBeenCalledTimes(3)
     expect(workbench.findAll('.image-gen-thumb')).toHaveLength(retained + 1)
     addSpy.mockRejectedValueOnce(new Error('存储已满'))
@@ -3369,10 +3442,11 @@ describe('Media services', () => {
         {"visual":"雨中的街角远景","dialogue":[],"caption":"夜深"},
         {"visual":"旅人推开酒馆木门","dialogue":[{"speaker":"旅人","text":"还有房间吗？"}]},
         {"visual":"掌柜抬头审视旅人","dialogue":[],"caption":""},
-        {"visual":"桌下露出沾泥的密信","dialogue":[],"caption":"无人察觉"}
+        {"visual":"桌下露出沾泥的密信","direction":{"shotSize":"insert"},"dialogue":[],"caption":"无人察觉"}
       ]}
     \`\`\``)
     expect(parsedScript.panels).toHaveLength(4)
+    expect(parsedScript.panels[3].direction.shotSize).toBe('insert')
     expect(buildComicScriptMessages({ sourceText: '雨夜旅人进入酒馆', panelCount: 4 })[1].content)
       .toContain('4 格')
 
@@ -3835,7 +3909,8 @@ describe('Media services', () => {
     expect(generateLine.attributes('disabled')).toBeDefined()
     await roughTab.trigger('click')
     await flushPromises()
-    expect(productionWorkbench.text()).toContain('尚无阶段产物')
+    expect(productionWorkbench.find('[aria-label="图片候选"]').exists()).toBe(false)
+    expect(productionWorkbench.find('.comic-stage-workbench__generate').attributes('disabled')).toBeUndefined()
     productionWorkbench.unmount()
     const monochromeWorkbench = mount(ComicStageWorkbench, {
       props: {
@@ -4073,7 +4148,7 @@ describe('Media services', () => {
               continuityNotes: ['雨势持续'],
               panels: [
                 { visual: '雨夜街角远景', beat: { action: '旅人走近酒馆' } },
-                { visual: '湿透的靴子踏过门槛', beat: { action: '推门' } },
+                { visual: '湿透的靴子踏过门槛', direction: { shotSize: 'insert' }, beat: { action: '推门' } },
                 { visual: '掌柜隔着灯影抬眼', beat: { reveal: '掌柜早有戒备' } }
               ]
             },
@@ -4188,7 +4263,7 @@ describe('Media services', () => {
         referenceCatalog
       }
     })
-    expect(adaptationPlanner.findAll('[role="tab"]')).toHaveLength(2)
+    expect(adaptationPlanner.findAll('[aria-label="选择分镜方案"] option')).toHaveLength(2)
     expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')).toHaveLength(2)
     expect(adaptationPlanner.findAll('.comic-plan-page')).toHaveLength(2)
     expect(adaptationPlanner.text()).toContain('视觉规则')
@@ -4196,7 +4271,8 @@ describe('Media services', () => {
     expect(adaptationPlanner.emitted('update-plan').at(-1)[0].pages[0].title).toBe('作者调整的第一页')
     expect(adaptationCandidates[0].pages[0].title).not.toBe('作者调整的第一页')
     await adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].trigger('click')
-    expect(adaptationPlanner.findAll('.comic-planner__page-nav > button')[1].attributes('aria-pressed')).toBe('true')
+    expect(adaptationPlanner.get('[aria-label="选择计划页"]').element.value).toBe('1')
+    expect(adaptationPlanner.get('[aria-label="下一页分镜"]').attributes('disabled')).toBeDefined()
     expect(adaptationPlanner.findAll('.comic-plan-page')[1].attributes('style') || '').not.toContain('display: none')
     await adaptationPlanner.findAll('.comic-planner__sections > button')[1].trigger('click')
     await adaptationPlanner.findAll('.comic-planner__icon')[0].trigger('click')
@@ -4221,6 +4297,7 @@ describe('Media services', () => {
         bibleConfirmed: false
       }
     })
+    await persistedPlanner.findAll('.comic-planner__sections > button')[1].trigger('click')
     await persistedPlanner.get('.comic-planner__header .comic-planner__primary').trigger('click')
     expect(persistedPlanner.emitted('confirm-bible')).toHaveLength(1)
     persistedPlanner.unmount()
@@ -4241,7 +4318,7 @@ describe('Media services', () => {
     const imageRequest = buildComicPanelImageRequest({
       page: comicPage,
       panel: { ...comicPage.panels[1], visual: '旅人推开酒馆木门，雨水从斗篷滴落' },
-      previousPanel: { ...comicPage.panels[0], visual: '雨中的街角远景，酒馆门口亮着暖灯' },
+      previousPanel: { ...comicPage.panels[0], visual: '雨中的街角远景，酒馆门口亮着暖灯', beat: { action: '旅人来到门前' } },
       sourceTitle: '雨夜来客',
       sourceText: '雨夜，旅人进入酒馆。他问：“还有房间吗？”掌柜注意到他袖口的泥。',
       providerType: 'minimax_image',
@@ -4251,7 +4328,10 @@ describe('Media services', () => {
     expect(imageRequest.prompt).toContain('单幅')
     expect(imageRequest.prompt).toContain('雨夜来客')
     expect(imageRequest.prompt).toContain('连续性优先')
-    expect(imageRequest.prompt).toContain('上一镜锚点')
+    expect(imageRequest.prompt).toContain('上一格情节')
+    expect(imageRequest.prompt).toContain('旅人来到门前')
+    expect(imageRequest.prompt).not.toContain('雨中的街角远景')
+    expect(imageRequest.prompt.indexOf('当前镜头：')).toBeLessThan(imageRequest.prompt.indexOf('全页视觉约定'))
     expect(imageRequest.prompt).toContain('目标画幅：3:4')
     expect(imageRequest.prompt).not.toContain('还有房间吗')
     expect(imageRequest.prompt).not.toContain('拼贴')
@@ -4260,6 +4340,70 @@ describe('Media services', () => {
     expect(imageRequest.negativePrompt).toBe('')
     expect(imageRequest.referenceImages).toEqual([])
     expect(`${imageRequest.prompt}\n${imageRequest.negativePrompt}`.length).toBeLessThanOrEqual(1480)
+    const insertRequest = buildComicPanelImageRequest({
+      page: { styleBible: '同一人物服装与画风'.repeat(200) },
+      panel: { visual: '只画手部和信封湿边，不出现人脸', direction: { shotSize: 'extreme-close' } },
+      previousPanel: { visual: '人物半身肖像，手持信封', direction: { notes: '半身人物居中' } },
+      sourceText: '故事背景'.repeat(500),
+      sourceTitle: '标题'.repeat(100),
+      targetAspect: '9:16', providerType: 'minimax_image'
+    })
+    expect(insertRequest.prompt).toContain('当前镜头：只画手部和信封湿边，不出现人脸')
+    expect(insertRequest.prompt).toContain('摄影设计：特写')
+    expect(insertRequest.prompt).toContain('目标画幅：9:16')
+    expect(insertRequest.prompt).not.toContain('人物半身肖像')
+    expect(insertRequest.prompt).not.toContain('半身人物居中')
+    expect(insertRequest.prompt.endsWith('交付为一张自然完整、纯视觉的单幅画面，不带版面元素。')).toBe(true)
+    expect(insertRequest.prompt.length).toBeLessThanOrEqual(1240)
+    const emptyShotPage = createComicPage({
+      styleBible: '红衣人物拿着信封站在门前',
+      visualBible: { lineStyle: '钢笔水彩', palette: ['冷灰蓝', '琥珀'] },
+      panels: [{ visual: '无人门廊与木门', direction: { shotSize: 'empty' } }]
+    })
+    const emptyShotRequest = buildComicPanelImageRequest({
+      page: emptyShotPage, panel: emptyShotPage.panels[0],
+      previousPanel: { visual: '红衣人物半身', beat: { action: '许遥拿信' } },
+      sourceText: '许遥在门前拿着信封', providerType: 'sd_webui',
+      previousImageData: 'data:image/png;base64,YWJj'
+    })
+    expect(emptyShotPage.panels[0].direction.shotSize).toBe('empty')
+    expect(emptyShotRequest.prompt).toContain('空镜：只画环境')
+    expect(emptyShotRequest.prompt).toContain('钢笔水彩')
+    expect(emptyShotRequest.prompt).toContain('冷灰蓝')
+    expect(emptyShotRequest.prompt).not.toContain('红衣人物')
+    expect(emptyShotRequest.prompt).not.toContain('许遥')
+    expect(emptyShotRequest.referenceImages).toEqual([])
+    expect(buildComicStagePrompt({ page: emptyShotPage, panel: emptyShotPage.panels[0], stage: 'rough', basePrompt: emptyShotRequest.prompt })).not.toContain('红衣人物')
+    const explicitReferences = await resolveComicPanelGenerationReferences({
+      page: { projectId: 'book-1' },
+      panel: { referenceBindings: [{ role: 'identity', assetId: media.id }, { role: 'costume', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })
+    expect(explicitReferences.referenceImages).toHaveLength(1)
+    expect(explicitReferences.referenceImages[0].data).toMatch(/^data:image/)
+    await expect(resolveComicPanelGenerationReferences({
+      page: { projectId: 'other-book' }, panel: { referenceBindings: [{ role: 'identity', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })).rejects.toThrow('不属于当前作品')
+    const booksBeforeReferenceCheck = localStorage.getItem(STORAGE_KEYS.WRITING_BOOKS)
+    try {
+      localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{ id: 'book-1', worldbookId: 'bound-world' }]))
+      updateMediaAsset(media.id, { projectId: 'bound-world' })
+      const worldReference = await resolveComicPanelGenerationReferences({
+        page: { projectId: 'book-1' }, panel: { referenceBindings: [{ role: 'identity', assetId: media.id }] },
+        config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+      })
+      expect(worldReference.referenceImages[0].id).toBe(media.id)
+    } finally {
+      updateMediaAsset(media.id, { projectId: 'book-1' })
+      if (booksBeforeReferenceCheck === null) localStorage.removeItem(STORAGE_KEYS.WRITING_BOOKS)
+      else localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, booksBeforeReferenceCheck)
+    }
+    await expect(resolveComicPanelGenerationReferences({
+      page: { projectId: 'book-1' }, panel: { direction: { shotSize: 'empty' }, referenceBindings: [{ role: 'identity', assetId: media.id }] },
+      config: { type: 'minimax_image' }, mediaOptions: { binaryStore }
+    })).resolves.toBeNull()
+    expect(sequencePages[0].panels[1].direction.shotSize).toBe('insert')
     const referencedImageRequest = buildComicPanelImageRequest({
       page: comicPage,
       panel: comicPage.panels[1],
@@ -4321,8 +4465,7 @@ describe('Media services', () => {
     expect(JSON.parse(localStorage.getItem(STORAGE_KEYS.COMIC_PAGES))[0].panels[0].letteringObjects[0].style)
       .toEqual({ fontFamily: 'rounded', fontSize: 37, fontWeight: 800, textAlign: 'right', textDirection: 'horizontal', rotation: 0 })
     expect(comicEditor.findAll('.comic-lettering-overlay__handle')).toHaveLength(8)
-    const pageWorkspaceTab = comicEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
-      .find((button) => button.text() === '页面与导出')
+    const pageWorkspaceTab = comicEditor.get('button[aria-label="页面与导出"]')
     await pageWorkspaceTab.trigger('click')
     expect(comicEditor.text()).toContain('视觉连续性')
     expect(comicEditor.text()).toContain('页级节拍与连续性')
@@ -4418,9 +4561,8 @@ describe('Media services', () => {
     expect(sixPanelOption.attributes('aria-pressed')).toBe('true')
     const createBlankPage = blankEditor.findAll('button').find((button) => button.text() === '建立空白页')
     await createBlankPage.trigger('click')
-    expect(blankEditor.text()).toContain('0/6')
-    const blankPageWorkspace = blankEditor.get('nav[aria-label="漫画制作工作区"]').findAll('button')
-      .find((button) => button.text() === '页面与导出')
+    expect(blankEditor.get('.comic-editor__panel-nav').text()).toContain('第 1 格')
+    const blankPageWorkspace = blankEditor.get('button[aria-label="页面与导出"]')
     await blankPageWorkspace.trigger('click')
     expect(blankEditor.findAll('.comic-page-preview__panel')).toHaveLength(6)
     blankEditor.unmount()

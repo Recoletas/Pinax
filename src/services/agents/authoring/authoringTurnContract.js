@@ -72,6 +72,7 @@ function validateSelectedDirection(value) {
 export function validateAuthoringTurnIntent(turn) {
   if (!turn || !TURN_KIND_SET.has(turn.kind)) return { valid: false, reason: 'turn-kind-unknown' }
   if (!TURN_OPERATION_SET.has(turn.operation || 'next-passage')) return { valid: false, reason: 'turn-operation-unknown' }
+  if (turn.rewriteText != null && (turn.operation !== 'rewrite-unit' || typeof turn.rewriteText !== 'string' || !turn.rewriteText.trim() || turn.rewriteText.length > 8000)) return { valid: false, reason: 'turn-rewrite-text-invalid' }
   if (cleanSourceRefs(turn.sourceRefs) === null) return { valid: false, reason: 'turn-source-refs-invalid' }
   const directionValidation = validateSelectedDirection(turn.selectedDirection)
   if (!directionValidation.valid) return directionValidation
@@ -100,6 +101,7 @@ export function buildAuthoringTurnIntent({
   instruction = '',
   directorNote = '',
   sourceRefs = [],
+  rewriteText = null,
   selectedDirection = null
 } = {}) {
   if (!TURN_KIND_SET.has(kind)) return { ok: false, reason: 'turn-kind-unknown', turn: null }
@@ -115,6 +117,7 @@ export function buildAuthoringTurnIntent({
     targetId: cleanText(targetId),
     viewpointCharacterId: cleanText(viewpointCharacterId),
     instruction: normalizedInstruction,
+    ...(rewriteText != null ? { rewriteText } : {}),
     controlIntent: normalizedInstruction
       ? Object.freeze({ marker: CONTROL_INTENT_MARKER, text: normalizedInstruction, excludeFromProse: true })
       : null,

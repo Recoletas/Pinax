@@ -5,8 +5,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../utils/sanitize'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
+import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 
-// 独立全页文档界面（对标 platform.minimaxi.com/docs 的阅读体验）：
 // 工作区文档标签：保留章节深链接，复用 AppShell 的导航与标签。
 // 章节清单来自 /docs/user-manual/manifest.json（带 group 分组字段），
 // 正文按章节拉取同名 .md，经 marked → sanitizeHtml 渲染。
@@ -24,7 +24,35 @@ const chapterBody = ref('')
 const chapterError = ref(null)
 const chapterLoading = ref(false)
 const fetchToken = ref(0)
-const sidebarOpen = ref(false)
+const directoryQuery = ref('')
+const bodyRef = ref(null)
+const activeHeading = ref('')
+const host = useComposableWorkspace()
+const directoryMode = ref('guide')
+const desktopExpanded = ref(true)
+const directoryExpanded = computed(() => host.state.narrow ? host.state.directoryOpen : desktopExpanded.value)
+function setDirectoryExpanded(value) {
+  if (host.state.narrow) host.state.directoryOpen = Boolean(value)
+  else desktopExpanded.value = Boolean(value)
+}
+const releaseDirectory = host.bindDirectorySurface({
+  routeName: 'docs',
+  items: [{ id: 'guide', label: '使用指南', icon: 'guide' }, { id: 'outline', label: '本页内容', icon: 'outline' }],
+  controller: {
+    mode: directoryMode, expanded: directoryExpanded,
+    width: host.directory.width, resize: host.directory.resize,
+    setExpanded: setDirectoryExpanded,
+    toggle: () => setDirectoryExpanded(!directoryExpanded.value),
+    select: mode => {
+      if (directoryMode.value === mode) setDirectoryExpanded(!directoryExpanded.value)
+      else { directoryMode.value = mode; setDirectoryExpanded(true) }
+    }
+  }
+})
+const chapterIcons = { README: 'guide', '01-quickstart': 'writing', '05-writing': 'writing', '03-worldbook': 'worldbook', '04-materials': 'sources', '07-settings': 'settings', '08-faq': 'message-square', '02-experience': 'adventure', '06-storyboard': 'film', '09-comics': 'comics' }
+const chapterIndex = computed(() => manifest.value?.chapters.findIndex(ch => ch.id === currentChapter.value?.id) ?? -1)
+const previousChapter = computed(() => manifest.value?.chapters[chapterIndex.value - 1])
+const nextChapter = computed(() => chapterIndex.value < 0 ? null : manifest.value?.chapters[chapterIndex.value + 1])
 
 const currentChapterId = computed(() => {
   const id = route.params.chapterId || DEFAULT_CHAPTER
@@ -60,6 +88,8 @@ const groups = computed(() => {
   if (!manifest.value) return []
   const map = new Map()
   for (const ch of manifest.value.chapters) {
+    const query = directoryQuery.value.trim().toLocaleLowerCase()
+    if (query && !`${ch.title} ${ch.summary || ''}`.toLocaleLowerCase().includes(query)) continue
     const g = ch.group || '其他'
     if (!map.has(g)) map.set(g, [])
     map.get(g).push(ch)
@@ -67,15 +97,84 @@ const groups = computed(() => {
   return Array.from(map, ([name, chapters]) => ({ name, chapters }))
 })
 
-const sanitizedHtml = computed(() => {
-  if (!chapterBody.value) return ''
+const renderedChapter = computed(() => {
+  if (!chapterBody.value) return { html: '', headings: [] }
   const html = marked.parse(chapterBody.value, { async: false })
-    // Manual Markdown is fetched from /docs/user-manual/<chapter>, but rendered
-    // inside /docs/<chapter>; resolve repository-relative screenshot assets
-    // against the app's public /docs/screenshots mount instead of the SPA URL.
     .replace(/(src=["'])(?:\.\.\/)+screenshots\//g, '$1/docs/screenshots/')
-  return sanitizeHtml(html)
+  const doc = new DOMParser().parseFromString(sanitizeHtml(html), 'text/html')
+  // Resolve manual assets against their Markdown file, not the SPA chapter URL.
+  const assetBase = new URL(`/docs/user-manual/${chapterLanguage.value === 'en' ? 'en/' : ''}${currentChapter.value?.file || 'README.md'}`, window.location.origin)
+  for (const img of doc.querySelectorAll('img')) {
+    const src = img.getAttribute('src') || ''
+    if (/^\.\.?\//.test(src)) img.setAttribute('src', new URL(src, assetBase).pathname)
+    img.setAttribute('loading', 'lazy')
+    img.setAttribute('decoding', 'async')
+    if (img.getAttribute('src')?.includes('/images/20261016/')) {
+      // Reserve the captured viewport so lazy images do not move heading links.
+      img.setAttribute('width', '1440')
+      img.setAttribute('height', '960')
+    }
+    if (img.getAttribute('src')?.startsWith('/docs/user-manual/images/') && !img.closest('a')) {
+      const link = doc.createElement('a')
+      link.href = img.getAttribute('src')
+      link.target = '_blank'
+      link.rel = 'noopener'
+      img.replaceWith(link)
+      link.append(img)
+    }
+  }
+  const used = new Map()
+  const headings = []
+  for (const node of doc.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+    const title = node.textContent.trim()
+    const base = title.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-') || 'section'
+    const count = used.get(base) || 0
+    used.set(base, count + 1)
+    node.id = count ? `${base}-${count}` : base
+    if (node.tagName === 'H2') headings.push({ id: node.id, title })
+  }
+  for (const table of doc.querySelectorAll('table')) {
+    const wrapper = doc.createElement('div')
+    wrapper.className = 'docs-table-scroll'
+    table.replaceWith(wrapper)
+    wrapper.append(table)
+  }
+  return { html: doc.body.innerHTML, headings }
 })
+const sanitizedHtml = computed(() => renderedChapter.value.html)
+const headings = computed(() => renderedChapter.value.headings)
+
+function updateActiveHeading() {
+  const body = bodyRef.value
+  if (!body) return
+  const top = body.getBoundingClientRect().top + 64
+  let id = headings.value[0]?.id || ''
+  for (const node of body.querySelectorAll('h2[id]')) {
+    if (node.getBoundingClientRect().top > top) break
+    id = node.id
+  }
+  activeHeading.value = id
+}
+function scrollToHash(hash = route.hash) {
+  const body = bodyRef.value
+  if (!body) return
+  let id = ''
+  try { id = decodeURIComponent(hash.replace(/^#/, '')) } catch { /* malformed fragment */ }
+  const target = [...body.querySelectorAll('[id]')].find(node => node.id === id)
+  if (target) target.scrollIntoView({ block: 'start', behavior: 'instant' })
+  else body.scrollTop = 0
+  updateActiveHeading()
+}
+function decodedHash(hash) {
+  try { return decodeURIComponent(hash) } catch { return hash }
+}
+async function jumpToHeading(id) {
+  const hash = `#${decodedHash(id)}`
+  await router.replace({ hash })
+  scrollToHash(hash)
+  if (host.state.narrow) { setDirectoryExpanded(false); await nextTick(); bodyRef.value?.focus({ preventScroll: true }) }
+}
+watch(() => route.hash, () => { if (!chapterLoading.value) nextTick(() => scrollToHash()) })
 
 async function loadManifest() {
   const token = ++manifestToken
@@ -96,9 +195,9 @@ async function loadManifest() {
 }
 
 async function loadChapter(chapterId) {
-  const meta = resolveChapter(chapterId)
-  if (!meta) return
   const token = ++fetchToken.value
+  const meta = resolveChapter(chapterId)
+  if (!meta) { chapterBody.value = ''; chapterError.value = tr('找不到这篇指南'); chapterLoading.value = false; return }
   const locale = uiLocale.value
   const contentLanguage = locale === 'en' && !meta.chineseOnly ? 'en' : 'zh-CN'
   chapterBody.value = ''
@@ -115,41 +214,45 @@ async function loadChapter(chapterId) {
     if (token !== fetchToken.value) return
     chapterError.value = e?.message || String(e)
   } finally {
-    if (token === fetchToken.value) chapterLoading.value = false
+    if (token === fetchToken.value) {
+      chapterLoading.value = false
+      await nextTick()
+      if (token === fetchToken.value) scrollToHash()
+    }
   }
 }
 
-function selectChapter(chapterId) {
-  sidebarOpen.value = false
-  if (chapterId === currentChapterId.value) return
-  router.push({ name: 'docs', params: { chapterId } })
+async function selectChapter(chapterId) {
+  const restoreFocus = host.state.narrow && directoryExpanded.value
+  if (host.state.narrow) setDirectoryExpanded(false)
+  directoryQuery.value = ''
+  if (chapterId !== currentChapter.value?.id) await router.push({ name: 'docs', params: { chapterId }, query: route.query })
+  if (restoreFocus) { await nextTick(); bodyRef.value?.focus({ preventScroll: true }) }
 }
 
-// 拦截正文内的 <a> 点击：外部链接/锚点走浏览器默认；站内 ./XX.md 映射成
-// /docs/XX 走 Vue Router（避免整页跳转后清单匹配不上 → 空白页）。中键 /
-// Ctrl/Cmd 点击时在新标签打开解析后的正确地址。
 function onContentClick(event) {
   const anchor = event.target?.closest?.('a[href]')
   if (!anchor) return
   const href = (anchor.getAttribute('href') || '').trim()
-  if (!href) return
-  // 外部协议 / 纯锚点 / 协议相对：交回浏览器默认行为
-  if (/^(?:https?:|mailto:|tel:|ftp:|#|\/\/|data:)/i.test(href)) return
-  event.preventDefault()
-  // 去掉 ./ 前缀与 #fragment / ?query，只留路径
-  const clean = href.replace(/^\.\/+/, '').split(/[?#]/)[0]
-  if (clean.endsWith('.md')) {
-    const id = chapterByFile.value.get(clean) || clean.slice(0, -3)
-    const resolved = router.resolve({ name: 'docs', params: { chapterId: id } })
-    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) {
-      window.open(resolved.href, '_blank', 'noopener')
-    } else if (id !== currentChapterId.value) {
-      router.push(resolved)
-    }
-    return
+  if (!href || anchor.target === '_blank' || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) return
+  if (href.startsWith('#')) {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return
+    event.preventDefault(); void jumpToHeading(href.slice(1)); return
   }
-  // 站内绝对路径（如 /experience、/writing）交给应用路由
-  if (clean.startsWith('/')) router.push(clean)
+  const url = new URL(href, window.location.href)
+  const clean = href.replace(/^\.\//, '').split(/[?#]/)[0]
+  const id = chapterByFile.value.get(clean)
+  if (id) {
+    event.preventDefault()
+    const resolved = router.resolve({ name: 'docs', params: { chapterId: id }, query: route.query, hash: decodedHash(url.hash) })
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) window.open(resolved.href, '_blank', 'noopener')
+    else router.push(resolved)
+  } else if (clean.endsWith('.md')) {
+    // Repository-only docs have no chapter route; open their actual source.
+    event.preventDefault()
+    const source = new URL(href, `https://github.com/Recoletas/Pinax/blob/main/docs/user-manual/${chapterLanguage.value === 'en' ? 'en/' : ''}${currentChapter.value?.file || 'README.md'}`)
+    window.open(source.href, '_blank', 'noopener')
+  } else if (clean.startsWith('/') && !event.ctrlKey && !event.metaKey) { event.preventDefault(); router.push(href) }
 }
 
 function retryChapter() {
@@ -162,22 +265,13 @@ function retryManifest() {
   void loadManifest().then(ok => { if (ok) return loadChapter(currentChapterId.value) })
 }
 
-function goBack() {
-  const from = route.query?.from
-  if (from && String(from).startsWith('/')) {
-    router.push(String(from))
-  } else {
-    router.push('/')
-  }
-}
-
 watch(
   currentChapterId,
   (id) => {
     if (!id || !manifest.value) return
     loadChapter(id)
     nextTick(() => {
-      const body = document.querySelector('.docs-page__body')
+      const body = bodyRef.value
       if (body) body.scrollTop = 0
     })
   },
@@ -190,13 +284,10 @@ watch(
   () => currentChapter.value?.id,
   (resolvedId) => {
     if (resolvedId && resolvedId !== currentChapterId.value) {
-      router.replace({ name: 'docs', params: { chapterId: resolvedId } })
+      router.replace({ name: 'docs', params: { chapterId: resolvedId }, query: route.query, hash: route.hash })
     }
   }
 )
-
-// 关闭移动端侧栏
-
 
 // 章节切换时同步 document.title（App.vue 只管 AppShell 内路由）
 function syncTitle() {
@@ -223,6 +314,8 @@ watch(uiLocale, async () => {
 })
 
 onBeforeUnmount(() => {
+  releaseDirectory()
+  host.state.directoryOpen = false
   manifestToken++
   fetchToken.value++
 })
@@ -230,494 +323,107 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="docs-page" data-test="docs-page">
-    <p v-if="currentChapter?.chineseOnly" role="status">{{ tr('本章目前仅有中文版本。') }}</p>
-    <header class="docs-page__head">
-      <div class="docs-page__head-inner">
-        <button
-          type="button"
-          class="docs-page__back"
-          data-test="docs-back"
-          @click="goBack"
-        >
-          <WorkbenchIcon name="arrow-left" :size="16" /><span>{{ tr('返回工作区') }}</span>
-        </button>
-
-        <button
-          type="button"
-          class="docs-page__menu-toggle"
-          :aria-label="tr(&quot;切换章节目录&quot;)"
-          :aria-expanded="sidebarOpen ? 'true' : 'false'"
-          data-test="docs-menu-toggle"
-          @click="sidebarOpen = !sidebarOpen"
-        >
-          <WorkbenchIcon name="panel-left" :size="16" />
-        </button>
-
-        <div class="docs-page__brand">
-          <span>{{ tr('使用指南') }}</span>
-        </div>
-
-        <span class="docs-page__chapter-caption">
-          {{ currentChapter?.title || '…' }}
-        </span>
-      </div>
-    </header>
-
-    <div class="docs-page__layout">
-      <aside
-        class="docs-page__sidebar workspace-sidebar"
-        :class="{ open: sidebarOpen }"
-        :aria-label="tr(&quot;章节目录&quot;)"
-      >
-        <p v-if="manifestError" class="docs-page__hint" role="alert">{{ tr('章节列表加载失败') }}<button type="button" class="docs-page__retry" @click="retryManifest">{{ tr('重试') }}</button>
-        </p>
-        <template v-else-if="manifest">
-          <nav
-            v-for="group in groups"
-            :key="group.name"
-            class="docs-page__group"
-          >
-            <h3 class="docs-page__group-title workspace-nav-section">{{ group.name }}</h3>
-            <ul class="docs-page__list">
-              <li v-for="ch in group.chapters" :key="ch.id">
-                <button
-                  type="button"
-                  class="docs-page__nav-item workspace-nav-item"
-                  :class="{ 'is-active': ch.id === currentChapter?.id }"
-                  :aria-current="ch.id === currentChapter?.id ? 'page' : 'false'"
-                  :data-test="`docs-nav-${ch.id}`"
-                  @click="selectChapter(ch.id)"
-                >
-                  <span class="docs-page__nav-title workspace-nav-label">{{ ch.title }}</span>
-                  <span class="docs-page__nav-summary workspace-nav-meta">{{ ch.summary }}</span>
+    <Teleport v-if="host.directoryTarget.value" :to="host.directoryTarget.value">
+      <div class="docs-page__sidebar" :aria-label="tr(directoryMode === 'guide' ? '章节目录' : '本页内容')">
+        <template v-if="directoryMode === 'guide'">
+          <div class="docs-page__directory-head">
+            <label class="docs-page__search"><WorkbenchIcon name="search" :size="16" /><input v-model="directoryQuery" type="search" :placeholder="tr('查找章节')" :aria-label="tr('查找章节')" /></label>
+          </div>
+          <p v-if="manifestError" class="docs-page__hint" role="alert">{{ tr('章节列表加载失败') }}<button type="button" class="docs-page__retry" @click="retryManifest">{{ tr('重试') }}</button></p>
+          <template v-else-if="manifest">
+            <nav v-for="group in groups" :key="group.name" class="docs-page__group" :aria-label="group.name">
+              <h2 class="docs-page__group-title">{{ group.name }}</h2>
+              <ul class="docs-page__list"><li v-for="ch in group.chapters" :key="ch.id">
+                <button type="button" class="docs-page__nav-item" :class="{ 'is-active': ch.id === currentChapter?.id }" :aria-current="ch.id === currentChapter?.id ? 'page' : undefined" :data-test="`docs-nav-${ch.id}`" @click="selectChapter(ch.id)">
+                  <WorkbenchIcon :name="chapterIcons[ch.id] || 'guide'" :size="17" /><span>{{ ch.title }}</span>
                 </button>
-              </li>
-            </ul>
-          </nav>
+              </li></ul>
+            </nav>
+            <p v-if="!groups.length" class="docs-page__hint" role="status">{{ tr('没有匹配的章节') }}</p>
+          </template>
+          <p v-else class="docs-page__hint" role="status">{{ tr('章节加载中…') }}</p>
         </template>
-        <p v-else class="docs-page__hint">{{ tr('章节加载中…') }}</p>
-      </aside>
-
-      <!-- 移动端遮罩 -->
-      <button
-        v-if="sidebarOpen"
-        type="button"
-        class="docs-page__scrim"
-        :aria-label="tr(&quot;关闭章节目录&quot;)"
-        @click="sidebarOpen = false"
-      />
-
-      <main class="docs-page__main">
-        <article class="docs-page__body" data-test="docs-body">
+        <nav v-else class="docs-page__outline" :aria-label="tr('本页内容')">
+          <h2 class="docs-page__group-title">{{ currentChapter?.title }}</h2>
+          <a v-for="heading in headings" :key="heading.id" :href="`#${heading.id}`" :class="{ 'is-active': activeHeading === heading.id }" :aria-current="activeHeading === heading.id ? 'location' : undefined" @click.prevent="jumpToHeading(heading.id)">{{ heading.title }}</a>
+        </nav>
+      </div>
+    </Teleport>
+    <section class="docs-page__main">
+        <article ref="bodyRef" class="docs-page__body" data-test="docs-body" tabindex="-1" :aria-busy="chapterLoading" @scroll.passive="updateActiveHeading">
           <p v-if="chapterLoading" class="docs-page__hint" role="status">{{ tr('章节加载中…') }}</p>
-          <p v-else-if="chapterError" class="docs-page__hint docs-page__error" role="alert">{{ tr('加载失败：{chapterError}', { chapterError: chapterError }) }}<button type="button" class="docs-page__retry" @click="retryChapter">{{ tr('重试') }}</button>
-          </p>
-          <div
-            v-else-if="chapterBody"
-            class="docs-page__content"
-            data-test="docs-content"
-            :lang="chapterLanguage"
-            v-html="sanitizedHtml"
-            @click="onContentClick"
-          />
+          <div v-else-if="chapterError" class="docs-page__hint" role="alert"><p>{{ tr('加载失败：{chapterError}', { chapterError }) }}</p><button type="button" class="docs-page__retry" @click="retryChapter">{{ tr('重试') }}</button></div>
+          <template v-else-if="chapterBody">
+            <p v-if="currentChapter?.chineseOnly" class="docs-page__language-note" role="status">{{ tr('本章目前仅有中文版本。') }}</p>
+            <div class="docs-page__content" data-test="docs-content" :lang="chapterLanguage" v-html="sanitizedHtml" @click="onContentClick" @auxclick="onContentClick" />
+            <nav class="docs-page__pagination" :aria-label="tr('相邻章节')">
+              <button v-if="previousChapter" type="button" @click="selectChapter(previousChapter.id)"><WorkbenchIcon name="arrow-left" :size="16" /><span>{{ previousChapter.title }}</span></button>
+              <button v-if="nextChapter" type="button" class="docs-page__next" @click="selectChapter(nextChapter.id)"><span>{{ nextChapter.title }}</span><WorkbenchIcon name="arrow-right" :size="16" /></button>
+            </nav>
+          </template>
           <p v-else class="docs-page__hint">{{ tr('无内容') }}</p>
         </article>
-      </main>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.docs-page {
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.docs-page__head {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  border-bottom: 1px solid var(--hairline-soft);
-  background: var(--surface-raised);
-}
-
-.docs-page__head-inner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 20px;
-}
-
-.docs-page__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 6px 8px;
-  border-radius: 3px;
-  transition: background var(--motion-fast, 140ms), color var(--motion-fast, 140ms);
-}
-
-.docs-page__back:hover,
-.docs-page__back:focus-visible {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  outline: none;
-}
-
-.docs-page__menu-toggle {
-  display: none;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  width: 30px;
-  height: 30px;
-  font-size: 15px;
-  line-height: 1;
-  border-radius: 3px;
-}
-
-.docs-page__brand {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 14px;
-}
-
-.docs-page__brand strong {
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0.01em;
-}
-
-.docs-page__brand-sep {
-  color: var(--text-muted);
-}
-
-.docs-page__chapter-caption {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.docs-page__layout {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  width: 100%;
-}
-
-.docs-page__sidebar {
-  width: var(--workspace-sidebar-width, 240px);
-  flex: 0 0 var(--workspace-sidebar-width, 240px);
-  border-right: 1px solid var(--hairline-soft);
-  padding: 18px 14px 32px;
-  overflow-y: auto;
-  background: var(--surface-soft);
-}
-
-.docs-page__group {
-  margin-bottom: 20px;
-}
-
-.docs-page__group-title {
-  margin: 0 0 6px;
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.docs-page__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.docs-page__nav-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  text-align: left;
-  border-radius: 6px;
-  transition: background var(--motion-fast, 140ms), color var(--motion-fast, 140ms);
-}
-
-.docs-page__nav-item:hover,
-.docs-page__nav-item:focus-visible {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  outline: none;
-}
-
-.docs-page__nav-item.is-active {
-  background: var(--accent-light);
-  color: var(--text-primary);
-}
-
-.docs-page__nav-title {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.docs-page__nav-summary {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.45;
-}
-
-.docs-page__main {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-
-.docs-page__body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 32px 44px 64px;
-  background: var(--bg-secondary);
-}
-
-.docs-page__hint {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 0;
-  padding: 12px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.docs-page__error {
-  color: var(--danger);
-}
-
-.docs-page__retry {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 12px;
-  border-radius: 3px;
-}
-
-.docs-page__retry:hover {
-  background: var(--bg-hover);
-}
-
-.docs-page__content {
-  max-width: 760px;
-  margin-inline: auto;
-  font-size: 16px;
-  line-height: 1.9;
-  color: var(--text-primary);
-}
-
-.docs-page__content :deep(h1),
-.docs-page__content :deep(h2),
-.docs-page__content :deep(h3) {
-  line-height: 1.3;
-  color: var(--text-primary);
-}
-
-.docs-page__content :deep(h1) {
-  font-size: 30px;
-  font-weight: 700;
-  margin: 0 0 1em;
-  padding-bottom: 0.5em;
-  border-bottom: 0;
-}
-
-.docs-page__content :deep(h2) {
-  font-size: 19px;
-  font-weight: 600;
-  margin: 1.8em 0 0.6em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--hairline-soft);
-}
-
-.docs-page__content :deep(h3) {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 1.6em 0 0.5em;
-}
-
-.docs-page__content :deep(p) {
-  margin: 0.7em 0;
-}
-
-.docs-page__content :deep(img) {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 1.1em auto;
-  border: 1px solid var(--hairline-soft);
-  border-radius: 6px;
-}
-
-.docs-page__content :deep(ul),
-.docs-page__content :deep(ol) {
-  padding-left: 1.7em;
-  margin: 0.7em 0;
-}
-
-.docs-page__content :deep(li) {
-  margin: 0.25em 0;
-}
-
-.docs-page__content :deep(code) {
-  background: var(--bg-tertiary);
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-}
-
-.docs-page__content :deep(pre) {
-  background: var(--bg-tertiary);
-  padding: 14px 16px;
-  border-radius: 4px;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 0.9em 0;
-}
-
-.docs-page__content :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-
-.docs-page__content :deep(blockquote) {
-  margin: 0.9em 0;
-  padding: 8px 16px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-light);
-  color: var(--text-primary);
-}
-
-.docs-page__content :deep(blockquote p) {
-  margin: 0.3em 0;
-}
-
-.docs-page__content :deep(a) {
-  color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.docs-page__content :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1em 0;
-  font-size: 13px;
-}
-
-.docs-page__content :deep(th),
-.docs-page__content :deep(td) {
-  border: 1px solid var(--hairline-soft);
-  padding: 7px 12px;
-  text-align: left;
-}
-
-.docs-page__content :deep(th) {
-  background: var(--surface-raised);
-  font-weight: 600;
-}
-
-.docs-page__content :deep(hr) {
-  border: 0;
-  border-top: 1px solid var(--hairline-soft);
-  margin: 1.5em 0;
-}
-
-.docs-page__scrim {
-  display: none;
-}
-
-/* 移动端：侧栏变抽屉 + 遮罩 */
-@media (max-width: 720px) {
-  .docs-page__menu-toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .docs-page__chapter-caption {
-    display: none;
-  }
-
-  .docs-page__head-inner {
-    padding: 10px 14px;
-    gap: 10px;
-  }
-
-  .docs-page__layout {
-    position: relative;
-  }
-
-  .docs-page__sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    top: 0;
-    bottom: 0;
-    width: min(300px, 82vw);
-    flex: none;
-    z-index: 60;
-    transform: translateX(-100%);
-    transition: transform var(--motion-layer, 180ms) var(--motion-ease-out);
-    box-shadow: none;
-    padding-top: 20px;
-  }
-
-  .docs-page__sidebar.open {
-    transform: translateX(0);
-    box-shadow: var(--shadow-elevated);
-  }
-
-  .docs-page__scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 55;
-    background: var(--surface-overlay, rgba(0, 0, 0, 0.22));
-    border: 0;
-    padding: 0;
-    cursor: pointer;
-  }
-
-  .docs-page__body {
-    padding: 20px 18px 56px;
-  }
-
-  .docs-page__content {
-    font-size: 14px;
-  }
+.docs-page { display: flex; flex: 1; flex-direction: column; width: 100%; min-width: 0; min-height: 0; height: 100%; overflow: hidden; background: var(--surface-workbench); color: var(--text-primary); font-family: var(--font-interface, var(--font-sans)); }
+.docs-page__sidebar { box-sizing: border-box; min-height: 100%; padding: 14px 12px 24px; color: var(--text-primary); font-family: var(--font-interface); }
+.docs-page__directory-head { display: flex; align-items: center; gap: 6px; margin-bottom: 24px; }
+.docs-page__search { display: flex; flex: 1; align-items: center; min-width: 0; gap: 8px; color: var(--text-muted); background: var(--surface-workbench); padding: 0 10px; min-height: 36px; border-radius: var(--radius-control); }
+.docs-page__search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-primary); font: 13px/1.5 var(--font-sans); }
+.docs-page__search input::placeholder { color: var(--text-muted); }
+.docs-page__search:focus-within { outline: 2px solid var(--workbench-focus-ring, var(--text-secondary)); outline-offset: 2px; }
+.docs-page__group { margin-bottom: 24px; }
+.docs-page__group-title { margin: 0 10px 8px; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+.docs-page__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.docs-page__nav-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 8px 10px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text-secondary); font: 14px/1.5 var(--font-sans); text-align: start; cursor: pointer; }
+.docs-page__nav-item svg { flex: none; opacity: .8; }
+.docs-page__nav-item:hover { background: var(--nav-hover); color: var(--text-primary); }
+.docs-page__nav-item.is-active { background: var(--nav-primary-selected); color: var(--text-primary); font-weight: 600; }
+.docs-page__main { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.docs-page__body { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 44px clamp(24px, 4vw, 72px) 56px; scroll-padding-top: 28px; outline: 0; }
+.docs-page__content, .docs-page__pagination, .docs-page__language-note { width: 100%; max-width: 820px; margin-inline: auto; }
+.docs-page__content { font-size: 16px; line-height: 1.85; overflow-wrap: anywhere; }
+.docs-page__content :deep(h1) { margin: 0 0 26px; color: var(--text-primary); font-size: 30px; font-weight: 650; line-height: 1.3; letter-spacing: -.025em; }
+.docs-page__content :deep(h2) { margin: 42px 0 16px; color: var(--text-primary); font-size: 22px; font-weight: 600; line-height: 1.4; letter-spacing: -.015em; }
+.docs-page__content :deep(h3) { margin: 30px 0 12px; color: var(--text-primary); font-size: 17px; font-weight: 600; line-height: 1.5; }
+.docs-page__content :deep(p) { margin: 12px 0; }
+.docs-page__content :deep(ul), .docs-page__content :deep(ol) { padding-left: 1.5em; margin: 16px 0; }
+.docs-page__content :deep(li) { padding-left: 4px; margin: 8px 0; }
+.docs-page__content :deep(li::marker) { color: var(--text-muted); }
+.docs-page__content :deep(strong) { font-weight: 600; }
+.docs-page__content :deep(a) { color: var(--text-primary); text-decoration-color: var(--text-muted); text-underline-offset: 4px; text-decoration-thickness: 1px; }
+.docs-page__content :deep(a:hover) { color: var(--accent); }
+.docs-page__content :deep(img) { display: block; max-width: 100%; height: auto; margin: 24px auto; border-radius: var(--radius-control); }
+.docs-page__content :deep(code) { padding: 2px 5px; border-radius: 4px; background: var(--surface-workbench-input); font: .88em var(--font-mono); }
+.docs-page__content :deep(pre) { margin: 24px 0; padding: 18px 20px; border-radius: var(--radius-control); background: var(--surface-workbench-muted); overflow: auto; line-height: 1.7; }
+.docs-page__content :deep(pre code) { padding: 0; background: transparent; overflow-wrap: normal; }
+.docs-page__content :deep(blockquote) { margin: 24px 0; padding: 2px 0 2px 18px; border-left: 2px solid var(--hairline-soft); color: var(--text-secondary); }
+.docs-page__content :deep(.docs-table-scroll) { max-width: 100%; overflow-x: auto; margin: 24px 0; }
+.docs-page__content :deep(table) { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 1.7; }
+.docs-page__content :deep(th), .docs-page__content :deep(td) { padding: 12px 14px; text-align: start; vertical-align: top; border-bottom: 1px solid var(--hairline-soft); min-width: 96px; }
+.docs-page__content :deep(th) { background: var(--surface-workbench-muted); font-weight: 600; color: var(--text-secondary); }
+.docs-page__content :deep(hr) { margin: 32px 0; border: 0; border-top: 1px solid var(--hairline-soft); }
+.docs-page__outline a { display: block; box-sizing: border-box; padding: 9px 10px; border-radius: var(--radius-control); color: var(--text-secondary); text-decoration: none; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.docs-page__outline a:hover { color: var(--text-primary); background: var(--nav-hover); }
+.docs-page__outline a.is-active { color: var(--text-primary); background: var(--nav-primary-selected); }
+.docs-page__pagination { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--hairline-soft); display: flex; justify-content: space-between; gap: 24px; }
+.docs-page__pagination button { display: inline-flex; align-items: center; gap: 12px; border: 0; padding: 8px 0; background: transparent; color: var(--text-secondary); font: 14px/1.5 var(--font-sans); text-align: start; cursor: pointer; }
+.docs-page__pagination button:hover { color: var(--text-primary); }
+.docs-page__pagination svg { flex: none; }
+.docs-page__next { margin-left: auto; text-align: end !important; }
+.docs-page__hint { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 0; color: var(--text-secondary); font-size: 14px; }
+.docs-page__language-note { margin-bottom: 18px; color: var(--text-muted); font-size: 13px; }
+.docs-page__retry { border: 0; border-radius: var(--radius-control); background: var(--nav-hover); color: var(--text-primary); padding: 8px 12px; cursor: pointer; }
+:is(.docs-page, .docs-page__sidebar) :is(button, a):focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 3px; }
+@media (max-width: 900px) {
+  .docs-page__search, .docs-page__nav-item, .docs-page__outline a { min-height: 44px; }
+  .docs-page__body { padding: 28px 24px 40px; }
+  .docs-page__content { font-size: 15px; line-height: 1.85; }
+  .docs-page__content :deep(h1) { font-size: 28px; }
+  .docs-page__content :deep(h2) { margin-top: 36px; font-size: 20px; }
+  .docs-page__pagination button { min-height: 44px; }
 }
 </style>
