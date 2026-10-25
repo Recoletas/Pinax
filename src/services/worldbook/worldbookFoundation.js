@@ -15,4 +15,3 @@ export function worldbookFoundation(worldbook = {}) {
     content: fields.map(([label, value]) => `【${label}】\n${value}`).join('\n\n')
   }
 }
-
