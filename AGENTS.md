@@ -26,6 +26,11 @@ If a required tool/skill is unavailable, say so briefly and continue with the re
 - After feature work passes verification on `main`, sync/merge `main` into `server-version` for production adaptation.
 - Do not develop feature work directly on `server-version` unless the user explicitly asks for a production hotfix.
 
+## Local services and verification
+- 已授权的开发维护中，可按需更新或重启相关本地服务（3001 / 8451 / 5173），无需逐次确认；保留原配置和任务数据，尽量在无在途任务时切换。此授权不扩展到公网部署。
+- 按变更范围执行必要验证。启用已验证且未再改动的产物时，只检查相关服务健康及配置、任务数据保留情况，不机械重跑完整门禁。
+- 普通小改、纯文档或样式变更不强制 `verify:full`；涉及广泛核心链路、发布集成或 CI 时，仍选用适用的完整门禁。不新增只镜像实现的测试。
+
 ## Multi-agent workflow
 When the user requests multi-agent workflow on a non-trivial feature:
 1. Codex drafts high-level plan
