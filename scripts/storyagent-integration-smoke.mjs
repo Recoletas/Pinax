@@ -10,6 +10,7 @@ import { assistantRuntimeFiles } from './extend-assistant-runtime.mjs'
 import { createStoryAgentRouter } from '../server/routes/storyagent.js'
 import { createStoryAgentEngine } from '../src/services/agents/storyagent/agentEngine.js'
 import { createAuthoringStoryAgent } from '../src/services/agents/storyagent/authoringIntegration.js'
+import { buildResourceSnapshot } from '../src/services/agents/storyagent/piNarrativeAgentBridge.js'
 import { createAuthoringAssistantConversationStore } from '../src/services/agents/authoring/authoringAssistantConversationStore.js'
 import { createBrowserStorageRepository } from '../src/services/storage/browserStorageRepository.js'
 import { runExperienceAgentGeneration } from '../src/services/agents/storyagent/experienceAgentRoute.js'
@@ -37,9 +38,15 @@ check([...fakeMap.keys()].every(key => key.startsWith('authoring_assistant_conve
 
 const workspaceReads = []
 const workspaceBook = { id: 'book-a', worldbookId: 'world-a', chapters: [] }
+const worldFoundation = `低魔西幻，城镇以修道院钟声报时。${'背景细节。'.repeat(600)}基础末句。`
+const workspaceWorld = { id: 'world-a', worldDescription: worldFoundation, writingStyle: '朴素而有行动感。', entries: [
+  { id: 'local', name: '当前人物', content: '当前设定' },
+  { id: 'style', name: '叙述语域', type: 'style', content: '用本书的时代与称谓叙述。', injection: { mode: 'constant' } },
+  { id: 'triggered-rule', name: '仪式规则', type: 'rule', content: '仪式需要两位见证者。', keys: ['仪式'], injection: { mode: 'selective' } }
+] }
 const workspaceAgent = createAuthoringStoryAgent({
   projectId: workspaceBook.id, getBook: () => workspaceBook,
-  getWorldbook: () => ({ id: 'world-a', entries: [{ id: 'local', name: '当前人物', content: '当前设定' }] }),
+  getWorldbook: () => workspaceWorld,
   readBooks: () => [workspaceBook, { id: 'book-b', worldbookId: 'world-b', chapters: [] }],
   readWorldbookSnapshot: id => { workspaceReads.push(id); return { id, entries: [{ id: 'other', name: '其他人物', content: '其他设定' }] } }
 })
@@ -47,6 +54,23 @@ const permissionTarget = workspaceAgent.permissionContext()
 check(permissionTarget.bookId === 'book-a' && permissionTarget.kernel.serialization.blocks.length === 0 && workspaceAgent.chapterOptions().length === 0 && workspaceReads.length === 0, '权限目标及章节选项不读取其他作品或装配正文与设定上下文')
 const workspacePrepared = workspaceAgent.prepare({ text: '查阅作品' })
 check(workspaceReads.join(',') === 'world-b' && JSON.stringify(workspacePrepared).includes('其他设定') && JSON.stringify(workspacePrepared).includes('当前设定'), '当前世界书复用已绑定对象，跨作品查阅经注入的只读快照入口')
+const orientation = workspacePrepared.kernel.serialization.blocks
+check(orientation.find(block => block.kind === 'worldbook-foundation')?.text.includes(worldFoundation) && orientation.find(block => block.kind === 'writing-constraints')?.text.includes('用本书的时代与称谓叙述。'), '空章节的外层助手也收到完整世界基础与已启用文风')
+check(!orientation.find(block => block.kind === 'writing-constraints')?.text.includes('两位见证者') && workspaceAgent.prepare({ text: '写仪式开场' }).kernel.serialization.blocks.find(block => block.kind === 'writing-constraints')?.text.includes('两位见证者'), '选择性规则沿用作者触发条件，并扫描本轮请求')
+workspaceBook.worldbookId = 'world-missing'
+const unboundOrientation = workspaceAgent.prepare({ text: '继续' }).kernel.serialization.blocks
+check(!unboundOrientation.some(block => ['worldbook-foundation', 'writing-constraints'].includes(block.kind)), '绑定改变后不会把旧库背景和规则传给另一作品')
+workspaceBook.worldbookId = 'world-a'
+
+const clearedBook = { id: 'cleared-book', chapters: [{ id: 'cleared-chapter', content: '已删除的旧稿' }] }
+const clearedAgent = createAuthoringStoryAgent({ projectId: clearedBook.id, getBook: () => clearedBook, getChapter: () => clearedBook.chapters[0], getLiveText: () => '' })
+const clearedPrepared = clearedAgent.prepare({ text: '重新写开头' })
+const cleared = buildResourceSnapshot(clearedPrepared.index).domains.manuscript[0]
+check(cleared.text === '' && cleared.summary === '' && cleared.sourceLength === 0, '作者清空正文后，准备和工具快照均不回填旧稿')
+
+workspaceWorld.entries.push({ id: 'long-details', name: '长属性人物', type: 'character', content: '人物正文', profile: { values: { history: '经历。'.repeat(1000) + '属性末句。' } } })
+const detailSnapshot = buildResourceSnapshot(workspaceAgent.prepare({ text: '查阅长属性人物' }).index).domains.world_lookup.find(item => item.id === 'long-details')
+check(detailSnapshot.text.startsWith('人物正文') && detailSnapshot.text.endsWith('属性末句。') && detailSnapshot.sourceLength === detailSnapshot.text.length, '人物正文与完整属性共同进入可读取的设定快照')
 
 let books = [{ id: 'book-a', chapters: [{ id: 'chapter-a', content: '', editorDocument: null }] }]
 let saves = 0

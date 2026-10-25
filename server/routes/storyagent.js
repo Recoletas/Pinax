@@ -16,7 +16,7 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     const key = JSON.stringify([owner, input.bookId, input.sessionId])
     for (const controller of policyRuns.get(key) || []) controller.abort()
   }
-  router.get('/capabilities', (_req, res) => res.json({ protocolVersion: 2, assistantPermissions: true, deliveryContract: true, proposalTool: 'submit_edit_proposals', confirmationRequired: true, modelEditing: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), maxConcurrentTasks: 2, budgets: { maxModelSteps: 8, maxCallsPerTurn: 6, agentTimeoutMs: 240000 }, localFiles: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), recovery: 'saved-results-and-task-resume' }))
+  router.get('/capabilities', (_req, res) => res.json({ protocolVersion: 2, assistantPermissions: true, deliveryContract: true, proposalTool: 'submit_edit_proposals', confirmationRequired: true, modelEditing: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), maxConcurrentTasks: null, budgets: {}, localFiles: !Boolean(String(process.env.PINAX_PUBLIC_ORIGINS || '').trim()), recovery: 'saved-results-and-task-resume' }))
   router.use(async (req, res) => {
     const health = req.method === 'GET' && req.path === '/healthz'
     const modelRead = req.method === 'GET' && req.path === '/model'
@@ -34,7 +34,7 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
     }
     if (req.path === '/policies/revoke' && req.method === 'POST') { policies.revoke(prefix, req.body || {}); stopPolicyRuns(prefix, req.body || {}); return res.json({ ok: true }) }
     const create = req.method === 'POST' && req.path === '/v1/pinax/tasks'
-    const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel|steer))?$/.exec(req.path)
+    const task = /^\/v1\/pinax\/tasks\/([a-zA-Z0-9_-]{1,80})(?:\/(resume|cancel|steer|narrative-result|compact))?$/.exec(req.path)
     if (!health && !modelRead && !modelWrite && !create && !(task && task[1].startsWith(prefix) && ((req.method === 'GET' && !task[2]) || (req.method === 'POST' && task[2])))) {
       return res.status(404).json({ error: 'agent-route-not-found' })
     }
@@ -46,8 +46,8 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
       if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(id) || typeof text !== 'string' || !text.trim() || text.length > 12000 || typeof bookId !== 'string') return res.status(400).json({ error: 'invalid-live-input' })
       req.body = { id, text, bookId }
     }
-    if (runsModel && req.body?.modelConfig && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: '此部署只提供服务器已配置的模型。' })
-    if (runsModel && activeRuns >= 2) return res.status(429).json({ error: 'agent-concurrency-limit', message: '助手当前繁忙，请稍后再试。' })
+    if ((runsModel || task?.[2] === 'compact') && req.body?.modelConfig && process.env.PINAX_PUBLIC_ORIGINS) return res.status(403).json({ error: 'ERR_LOCAL_ONLY', message: '此部署只提供服务器已配置的模型。' })
+    if (runsModel && req.body?.taskKind !== 'assistant' && activeRuns >= 2) return res.status(429).json({ error: 'agent-concurrency-limit', message: '助手当前繁忙，请稍后再试。' })
     if (runsModel) {
       if (req.body?.taskKind === 'assistant') {
         const reference = (req.body.kernel?.blocks || []).find(block => block.kind === 'assistant-policy')
@@ -57,14 +57,14 @@ export function createStoryAgentRouter({ fetchImpl = fetch, endpoint = process.e
         req.body = { ...req.body, assistantPolicy: policy }
       } else { delete req.body.assistantPolicy }
       const limits = { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6, maxToolResultChars: 4200 }
-      req.body = { ...req.body, budget: Object.fromEntries(Object.entries(limits).map(([key, maximum]) => [key, Math.min(maximum, Math.max(1, Number(req.body?.budget?.[key]) || maximum))])) }
+      req.body = { ...req.body, budget: req.body.taskKind === 'assistant' ? {} : Object.fromEntries(Object.entries(limits).map(([key, maximum]) => [key, Math.min(maximum, Math.max(1, Number(req.body?.budget?.[key]) || maximum))])) }
       if (req.body.resources && JSON.stringify(req.body.resources).length > 1000000) return res.status(413).json({ error: 'agent-resource-budget-exceeded' })
     }
     if (runsModel) activeRuns++
     const controller = new AbortController()
     const policyKey = req.body?.assistantPolicy ? JSON.stringify([prefix, req.body.assistantPolicy.bookId, req.body.assistantPolicy.sessionId]) : null
     if (policyKey) { const runs = policyRuns.get(policyKey) || new Set(); runs.add(controller); policyRuns.set(policyKey, runs) }
-    const timer = setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite || task?.[2] === 'steer' ? 5000 : 250000)
+    const timer = (runsModel && req.body?.taskKind === 'assistant') || task?.[2] === 'compact' ? null : setTimeout(() => controller.abort(), health || modelRead ? 2000 : modelWrite || task?.[2] === 'steer' ? 5000 : 250000)
     res.on('close', () => controller.abort())
     try {
       const response = await fetchImpl(new URL(req.path, upstream), {

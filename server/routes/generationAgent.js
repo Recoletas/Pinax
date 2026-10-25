@@ -64,6 +64,7 @@ export function createGenerationAgentStepStreamHandler({
     res.status(200)
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('X-Accel-Buffering', 'no')
     res.setHeader('Connection', 'keep-alive')
     res.flushHeaders?.()
     let seq = 0
@@ -85,12 +86,22 @@ export function createGenerationAgentStepStreamHandler({
     res.once?.('close', abortClosedResponse)
     try {
       send('step.start', { stepIndex: 0, toolChoice: request.options.toolChoice || 'auto' })
-      const result = await runner(request, { signal: controller.signal })
+      let streamedText = ''
+      const result = await runner(request, { signal: controller.signal, onEvent: event => {
+        if (event?.type === 'tool.input.delta') {
+          send('tool.input.delta', event)
+          return
+        }
+        if (event?.type !== 'text.delta' || typeof event.content !== 'string' || !event.content) return
+        streamedText += event.content
+        send('text.delta', { content: event.content })
+      } })
       for (const call of result.calls || []) {
         send('tool.input.delta', { callId: call.id, toolName: call.name, input: call.arguments })
         send('tool.call', { callId: call.id, toolName: call.name, action: call.arguments?.action })
       }
-      if (result.kind === 'final_ready') send('text.delta', { content: result.text })
+      if (result.kind === 'final_ready' && !streamedText) send('text.delta', { content: result.text })
+      else if (result.kind === 'final_ready' && streamedText !== result.text) throw Object.assign(new Error('模型流式正文与完成回执不一致。'), { code: 'NARRATIVE_STREAM_CONTENT_MISMATCH' })
       send('usage', { usage: result.usage })
       send('step.finish', {
         stepIndex: 0,

@@ -16,10 +16,9 @@ export function buildNarrativeFormatInstructions() {
     '【叙事输出格式】',
     'marker 只是传输协议，不是正文。每个自然段或说话人切换时使用一次，不要把每句话拆成一块；不要输出 HTML、JSON、颜色说明或其他控制标签。',
     '允许的类型只有：:::narration、:::action|角色名、:::dialogue|角色名、:::thought|角色名、:::system。',
-    'marker 与正文之间换行；一个自然段 1-2 个句子，自然段之间用换行分隔，不要把整轮正文写成一行或只用空格隔开句子。',
+    'marker 与正文之间换行；自然段之间用换行分隔，段落长短与行文节奏服从作者要求和内容需要。',
     '正文直接以叙述或对白开始；不要输出"【正文】""【旁白】"之类的小节标题、序号或任何框架说明。',
-    '台词统一使用中文双引号“”，嵌套引用使用中文单引号‘’；最终可见正文不要混用「」或『』。叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文；不要替玩家决定未输入的行动。',
-    '示例：\n:::narration\n雨水沿着舷窗滑落。\n\n风声从甲板缝隙里灌进来。\n:::dialogue|陆晨曦\n“信号还在吗？”\n:::action|陆晨曦\n她抬手调高了增益。',
+    '台词统一使用中文双引号“”，嵌套引用使用中文单引号‘’；最终可见正文不要混用「」或『』。叙述中夹有一句台词时仍可放在 narration 块，不要为了 marker 改写自然行文。',
     '如果没有明显语义切换，可以只输出一个 narration 块，但段与段之间仍要空行。'
   ].join('\n')
 }
@@ -91,9 +90,10 @@ export function parseNarrativePresentation(text, options = {}) {
   const speakerMap = options.speakerMap && typeof options.speakerMap === 'object' ? options.speakerMap : null
   // P4：可信说话者注册表（cast/世界书/运行时角色），未提供时退回旧行为
   const speakerRegistry = Array.isArray(options.speakerRegistry) ? options.speakerRegistry : null
-  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap, speakerRegistry })
+  const preserveParagraphs = options.preserveParagraphs === true
+  const structured = parseMarkedBlocks(sourceText, messageId, { complete, fallbackSpeaker, speakerMap, speakerRegistry, preserveParagraphs })
   if (structured) return structured
-  const legacyBlocks = parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker, speakerRegistry })
+  const legacyBlocks = parseLegacyBlocks(sourceText, messageId, { fallbackSpeaker, speakerRegistry, preserveParagraphs })
   return {
     version: NARRATIVE_PRESENTATION_VERSION,
     source: 'parser',
@@ -106,10 +106,13 @@ export function parseNarrativePresentation(text, options = {}) {
 
 // Authoring transport has the same marker grammar as Experience. Keep one
 // canonical projection so protocol markers never reach the notebook model.
+// Authoring keeps the source paragraphs; reading-density reflow belongs to
+// Experience's default presentation parser, not the stored manuscript.
 export function normalizeNarrativeTransportProse(text, options = {}) {
   const presentation = parseNarrativePresentation(text, {
     complete: true,
     messageId: options.messageId || 'authoring-transport',
+    preserveParagraphs: options.preserveParagraphs !== false,
     speakerMap: options.speakerMap || null,
     speakerRegistry: options.speakerRegistry || null
   })
@@ -124,6 +127,7 @@ export function normalizeNarrativeTransportResult(text, options = {}) {
   const presentation = parseNarrativePresentation(text, {
     complete: true,
     messageId: options.messageId || 'authoring-transport',
+    preserveParagraphs: options.preserveParagraphs !== false,
     speakerMap: options.speakerMap || null,
     speakerRegistry: options.speakerRegistry || null
   })
@@ -174,12 +178,12 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
     if (value) {
       const speaker = current.speaker || (current.kind === 'dialogue' ? fallbackSpeaker : '')
       const speakerSource = current.speaker ? 'marker' : (speaker ? 'message' : '')
-      // P6：同一 marker 块内按空行拆分自然段 —— 每个段落一个 block，
+      // P6：同一 marker 块内按换行拆分自然段 —— 每个段落一个 block，
       // CSS 的段首缩进 / 段落间距（.narrative-block--narration 等）才生效；
-      // 无空行的 narration/action/thought 再走阅读密度兜底（模型把整轮压成一行时）。
+      // Experience 的无换行段落再走阅读密度兜底；Authoring 保留模型原段。
       const paragraphs = splitParagraphs(value)
       for (const paragraph of paragraphs) {
-        const chunks = splitPresentationBlock(current.kind, paragraph)
+        const chunks = splitPresentationBlock(current.kind, paragraph, options)
         for (const chunk of chunks) {
           const block = createBlock(current.kind, chunk, speaker, messageId, blocks.length, speakerSource, speakerMap, speakerRegistry)
           // Preserve explicit model line breaks. The short-block compactor is
@@ -235,8 +239,8 @@ export function parseMarkedBlocks(text, messageId = 'message', options = {}) {
   flush()
 
   if (!sawMarker || (complete && blocks.length === 0)) return null
-  // P4 规则 5：合并相邻的短未署名 narration（无说话者切换、合并后 ≤180 字）
-  const mergedBlocks = mergeAdjacentShortNarration(blocks)
+  // P4：Experience 可合并短未署名 narration；写作落稿保留 marker 段落边界。
+  const mergedBlocks = options.preserveParagraphs === true ? blocks : mergeAdjacentShortNarration(blocks)
   // P3/P6：transport sanitizer —— 移除残留的协议头（行首或行内 :::kind|speaker）
   const sanitizedBlocks = mergedBlocks.filter((block) => {
     block.text = sanitizeTransportMarkers(block.text)
@@ -272,7 +276,11 @@ function splitReadableProse(value) {
   return groupSentences(sentences).flatMap((group) => splitLongSingleSentence(group))
 }
 
-function splitPresentationBlock(kind, value) {
+function splitPresentationBlock(kind, value, options = {}) {
+  if (options.preserveParagraphs === true) {
+    const text = kind === 'dialogue' ? normalizeCompleteDialogueWrapper(value) : String(value || '').trim()
+    return [text].filter(Boolean)
+  }
   if (READABLE_PROSE_KINDS.has(kind)) return splitReadableProse(value)
   if (kind === 'dialogue') return splitDialogueProse(value)
   return [String(value || '').trim()].filter(Boolean)
@@ -470,7 +478,7 @@ function parseLegacyBlocks(text, messageId, options = {}) {
       else if (isDialogueDominant(cleanLine)) {
         const explicitSpeaker = extractExplicitDialogueSpeaker(cleanLine)
         const speaker = explicitSpeaker || fallbackSpeaker
-        for (const chunk of splitDialogueProse(cleanLine)) {
+        for (const chunk of splitPresentationBlock('dialogue', cleanLine, options)) {
           blocks.push(createBlock(
             'dialogue',
             chunk,
@@ -484,7 +492,7 @@ function parseLegacyBlocks(text, messageId, options = {}) {
         }
       }
       else {
-        for (const chunk of splitReadableProse(cleanLine)) {
+        for (const chunk of splitPresentationBlock('narration', cleanLine, options)) {
           blocks.push(createBlock('narration', chunk, '', messageId, blocks.length))
         }
       }

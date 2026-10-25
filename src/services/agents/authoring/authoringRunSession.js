@@ -12,6 +12,7 @@ import {
   readAuthoringSceneIntentCandidates,
   readAuthoringSceneProjectionCandidates,
   readAuthoringWorldbookCandidates,
+  readAuthoringWorldbookFoundationCandidates,
   readManuscriptRunCandidates
 } from '../context/authoringRunContextReaders.js'
 import { deriveManifestToolAuthorization } from '../context/manifestToolAuthorization.js'
@@ -358,6 +359,11 @@ export async function createAuthoringRunSession(input = {}) {
   const readerCalls = await Promise.all([
     invokeReader('manuscript', readManuscriptRunCandidates, { targetCapture, document: documentSnapshot }),
     invokeReader('scene-projection', readAuthoringSceneProjectionCandidates, sharedReaderInput),
+    invokeReader('worldbook-foundation', readAuthoringWorldbookFoundationCandidates, {
+      ...sharedReaderInput,
+      worldbookId: text(projection?.worldbookId),
+      repository: source.worldbookRepository
+    }),
     invokeReader('worldbook', readAuthoringWorldbookCandidates, {
       ...sharedReaderInput,
       worldbookId: text(projection?.worldbookId),
@@ -400,13 +406,13 @@ export async function createAuthoringRunSession(input = {}) {
   const rejectedReader = readerCalls.find((call) => !call.ok)
   if (rejectedReader) return rejectedReader
 
-  const [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents] = readerCalls
+  const [manuscript, scene, foundation, worldbook, history, references, memory, outline, sceneIntents] = readerCalls
     .map((call) => call.result)
-  const discoveryExclusions = [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents]
+  const discoveryExclusions = [manuscript, scene, foundation, worldbook, history, references, memory, outline, sceneIntents]
     .flatMap((result) => list(result.exclusions))
     .map(sanitizeExclusion)
     .filter(Boolean)
-  const discoveredCandidates = [manuscript, scene, worldbook, history, references, memory, outline, sceneIntents]
+  const discoveredCandidates = [manuscript, scene, foundation, worldbook, history, references, memory, outline, sceneIntents]
     .flatMap((result) => list(result.candidates))
     .map((candidate) => normalizeRunCandidateDependencies(candidate, projection))
 

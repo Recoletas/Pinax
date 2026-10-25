@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { validateAgentContextEnvelope } from '../../shared/agentContextContract.js'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow.js'
 import {
   AUTHORING_NARRATIVE_RUN_ERROR_CODES,
@@ -299,6 +300,64 @@ const deepFreeze = (value) => {
       code: AUTHORING_NARRATIVE_RUN_ERROR_CODES.SESSION_INVALID,
       reason: 'session-not-deep-frozen'
     })
+
+    // Required manuscript/foundation/constraints can exceed the reference budget.
+    // The frozen production chain must deliver them intact, including >64 blocks.
+    const necessaryBlocks = Array.from({ length: 66 }, (_, index) => {
+      const text = index === 0 ? '本章当前正文必须完整保留。'.repeat(2600) : `必要背景与约束${index}。`
+      return {
+        ...session.manifest.blocks[0], candidateId: `required-${index}`,
+        kind: index === 0 ? 'manuscript-unit' : index === 1 ? 'worldbook-foundation' : 'author-constraint',
+        text, chars: text.length, sourceRefs: [`required-source:${index}`]
+      }
+    })
+    const necessaryChars = necessaryBlocks.reduce((total, block) => total + block.chars, 0)
+    expect(necessaryChars).toBeGreaterThan(32000)
+    const longSession = deepFreeze({ ...session, manifest: {
+      ...session.manifest, fingerprint: 'manifest-long-required', blocks: necessaryBlocks,
+      totalChars: necessaryChars, budget: { totalChars: necessaryChars, maxItems: necessaryBlocks.length }
+    } })
+    prepareSession.mockResolvedValueOnce({ ok: true, session: longSession })
+    executeSession.mockClear()
+    const longOutcome = await runtime.execute({ taskId: 'authoring.advance', intent: {} })
+    expect(longOutcome.status).toBe('applied')
+    expect(executeSession).toHaveBeenCalledTimes(1)
+    expect(executeSession.mock.calls[0][0]).toMatchObject({ session: longSession, contextManifest: longSession.manifest })
+    expect(executeSession.mock.calls[0][0].envelope.blocks.map(block => block.content)).toEqual(necessaryBlocks.map(block => block.text))
+    expect(longOutcome.envelope.budget).toMatchObject({ maxChars: necessaryChars, usedChars: necessaryChars })
+    expect(longOutcome.ledger.parts.filter(part => part.status === 'included')).toHaveLength(66)
+
+    // Public/default validation retains its former resource limits.
+    const longEnvelope = longOutcome.envelope
+    expect(validateAgentContextEnvelope(longEnvelope)).toMatchObject({ valid: false, reason: 'invalid-envelope-shape' })
+    const oneBlock = { ...longEnvelope, blocks: longEnvelope.blocks.slice(0, 1) }
+    expect(validateAgentContextEnvelope(oneBlock)).toMatchObject({ valid: false, reason: 'invalid-budget' })
+    const trustedLimits = { maxChars: Infinity, maxBlocks: Infinity }
+    expect(validateAgentContextEnvelope(longEnvelope, null, trustedLimits)).toEqual({ valid: true })
+    for (const budget of [
+      { maxChars: 0, usedChars: 0 }, { maxChars: 100.5, usedChars: 1 },
+      { maxChars: 100, usedChars: -1 }, { maxChars: 100, usedChars: 0.5 },
+      { maxChars: 100, usedChars: 101 }, { maxChars: Infinity, usedChars: 1 }
+    ]) {
+      expect(validateAgentContextEnvelope({ ...oneBlock, budget })).toMatchObject({ valid: false, reason: 'invalid-budget' })
+      expect(validateAgentContextEnvelope({ ...oneBlock, budget }, null, trustedLimits)).toMatchObject({ valid: false, reason: 'invalid-budget' })
+    }
+    const taskPolicy = { surfaces: [longEnvelope.surface], requiresRevision: true, targetTypes: ['chapter'] }
+    expect(validateAgentContextEnvelope({ ...longEnvelope, target: { ...longEnvelope.target, revision: '' } }, taskPolicy, trustedLimits)).toMatchObject({ valid: false, reason: 'target-revision-required' })
+    expect(validateAgentContextEnvelope({ ...longEnvelope, surface: 'settings' }, taskPolicy, trustedLimits)).toMatchObject({ valid: false, reason: 'surface-not-allowed' })
+    expect(validateAgentContextEnvelope({ ...longEnvelope, blocks: [{ ...longEnvelope.blocks[0], sourceRefs: ['x'.repeat(201)] }] }, taskPolicy, trustedLimits)).toMatchObject({ valid: false, reason: 'invalid-block' })
+
+    const manySmallBlocks = necessaryBlocks.map(block => ({ ...block, text: '必要项', chars: 3 }))
+    for (const [variant, reason] of [
+      [{ ...longSession }, 'session-not-deep-frozen'],
+      [deepFreeze({ ...longSession, profile: 'narrative-short' }), 'session-manifest-budget-invalid'],
+      [deepFreeze({ ...longSession, profile: 'narrative-short', manifest: { ...longSession.manifest, profile: 'narrative-short', blocks: manySmallBlocks, totalChars: manySmallBlocks.length * 3, budget: { totalChars: 12800 } } }), 'invalid-envelope-shape'],
+      [deepFreeze({ ...longSession, manifest: { ...longSession.manifest, totalChars: necessaryChars + 1 } }), 'session-manifest-total-invalid']
+    ]) {
+      const refusedRun = createAuthoringNarrativeRun({ prepareSession: async () => ({ ok: true, session: variant }), executeSession })
+      await expect(refusedRun.resolveContext({ taskId: 'authoring.advance', request: { target: { revision: 'doc-r1' } } }))
+        .rejects.toMatchObject({ code: AUTHORING_NARRATIVE_RUN_ERROR_CODES.SESSION_INVALID, reason })
+    }
 }
 })
 
@@ -1040,6 +1099,8 @@ expect(task.undoLastRequest()).toBe(false)
 describe('useAuthoringTask cancellation generation gate', () => {
   it('drops a provider result that resolves after cancel before publishing or applying it', async () => {
     let resolveExecute
+    let rejectExecute
+    let scope = 'book-one:chapter-one'
     const applyPatchToEditor = vi.fn(() => true)
     const persist = vi.fn(() => true)
     const onResultAccepted = vi.fn()
@@ -1050,11 +1111,12 @@ describe('useAuthoringTask cancellation generation gate', () => {
         selection: { start: DOC_TEXT.length, end: DOC_TEXT.length, hasSelection: false },
         request: { question: '按此推进' }
       }),
-      execute: () => new Promise((resolve) => { resolveExecute = resolve }),
+      execute: () => new Promise((resolve, reject) => { resolveExecute = resolve; rejectExecute = reject }),
       applyPatchToEditor,
       persist,
       restoreFullText: vi.fn(),
       getLiveRevision: () => buildDocumentRevision('chapter:c1', DOC_TEXT),
+      getScopeKey: () => scope,
       onResultAccepted
     })
 
@@ -1077,5 +1139,27 @@ describe('useAuthoringTask cancellation generation gate', () => {
     expect(persist).not.toHaveBeenCalled()
     expect(task.auxiliary.value).toBeNull()
     expect(task.appliedCount.value).toBe(0)
+    const cancelledWithTail = task.run('authoring.continue')
+    task.cancel()
+    rejectExecute(Object.assign(new Error('stopped'), { generatedText: '停止前已经收到的完整尾字。' }))
+    await expect(cancelledWithTail).resolves.toMatchObject({ reason: 'aborted', text: '停止前已经收到的完整尾字。', adoptable: false })
+    const changedScope = task.run('authoring.continue')
+    task.cancel()
+    scope = 'book-two:chapter-two'
+    rejectExecute(Object.assign(new Error('stopped'), { generatedText: '另一本书不能显示的尾字。' }))
+    await expect(changedScope).resolves.toMatchObject({ reason: 'aborted', text: '' })
+    const replaced = task.run('authoring.continue')
+    const rejectOld = rejectExecute
+    task.cancel()
+    const replacement = task.run('authoring.continue')
+    rejectOld(Object.assign(new Error('stopped'), { generatedText: '新请求不能显示的旧尾字。' }))
+    await expect(replaced).resolves.toMatchObject({ reason: 'aborted', text: '' })
+    expect(task.busy.value).toBe(true)
+    task.cancel()
+    rejectExecute(Object.assign(new Error('stopped'), { generatedText: '新请求自己的尾字。' }))
+    await expect(replacement).resolves.toMatchObject({ reason: 'aborted', text: '新请求自己的尾字。' })
+    expect(applyPatchToEditor).not.toHaveBeenCalled()
+    expect(persist).not.toHaveBeenCalled()
+    expect(onResultAccepted).not.toHaveBeenCalled()
   })
 })

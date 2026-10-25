@@ -224,10 +224,27 @@ function isCurrentManuscript(candidate, target) {
     && (!target?.unitId || candidate.position.unitId === target.unitId)
 }
 
-// 先保留已经通过 eligibility/conflict 的落笔正文，再装入钉选与其他资料。
-// 否则钉选可耗尽预算，让“接着写”实际只看到设定而看不到接续位置。
-function pack(winners, profile, target) {
+function isRequiredNarrativeInput(candidate, target) {
+  if (isCurrentManuscript(candidate, target)) return true
+  if (!['worldbook-foundation', 'worldbook-entry'].includes(candidate.kind)
+    || candidate.narrativeStatus !== 'constraint'
+    || candidate.intendedReference) return false
+  // Binding and source reads belong to the run readers; retain only their
+  // canonical source shape after project eligibility and conflict resolution.
+  return Boolean(candidate.sourceId)
+    && candidate.sourceKind === candidate.kind
+    && candidate.primarySourceRef === `${candidate.kind}:${candidate.sourceId}`
+    && candidate.sourceRefs.includes(candidate.primarySourceRef)
+}
+
+// narrative-long keeps the current writing and established world constraints
+// intact. The profile budget limits optional references, never these inputs.
+// Other profiles keep their existing excerpt selection and fixed budgets.
+function pack(winners, profile, target, profileId) {
+  const required = (candidate) => profileId === 'narrative-long' && isRequiredNarrativeInput(candidate, target)
   const ranked = [...winners].sort((a, b) => {
+    const requiredDelta = Number(required(b)) - Number(required(a))
+    if (requiredDelta) return requiredDelta
     const currentDelta = Number(isCurrentManuscript(b, target)) - Number(isCurrentManuscript(a, target))
     if (currentDelta) return currentDelta
     const pinnedDelta = (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)
@@ -241,12 +258,15 @@ function pack(winners, profile, target) {
   const blocks = []
   const excluded = []
   let used = 0
+  let optionalChars = 0
+  let optionalItems = 0
   for (const candidate of ranked) {
-    if (blocks.length >= profile.maxItems) {
+    const requiredInput = required(candidate)
+    if (!requiredInput && optionalItems >= profile.maxItems) {
       excluded.push(excludeCandidate(candidate, 'budget-max-items'))
       continue
     }
-    const representation = pickRepresentation(candidate, profile, profile.totalChars - used)
+    const representation = pickRepresentation(candidate, profile, requiredInput ? Infinity : profile.totalChars - optionalChars)
     if (!representation) {
       if (isCurrentManuscript(candidate, target) && target?.contextMode) {
         throw Object.assign(new Error(target.contextMode === 'rewrite-unit'
@@ -259,6 +279,10 @@ function pack(winners, profile, target) {
       continue
     }
     used += representation.text.length
+    if (!requiredInput) {
+      optionalChars += representation.text.length
+      optionalItems++
+    }
     blocks.push({
       candidateId: candidate.id,
       kind: candidate.kind,
@@ -275,6 +299,7 @@ function pack(winners, profile, target) {
       sourceAuthority: candidate.sourceAuthority,
       narrativeStatus: candidate.narrativeStatus,
       temporalRelation: candidate.temporalRelation,
+      position: { ...candidate.position },
       ...(isCurrentManuscript(candidate, target) && target?.contextMode
         ? { contextMode: target.contextMode }
         : {}),
@@ -324,7 +349,7 @@ export function compileWritingContext({
   }
   const { winners, losers, unresolved } = resolveConflicts(eligible, { taskKind })
   const conflictExcluded = losers
-  const { blocks, excluded, totalChars } = pack(winners, profileSpec, target)
+  const { blocks, excluded, totalChars } = pack(winners, profileSpec, target, profile)
   const dependencyMerge = mergeWritingContextDependencyRevisions([
     ...Object.entries(dependencyRevisions || {}),
     ...blocks.flatMap((block) => {
@@ -351,7 +376,12 @@ export function compileWritingContext({
     excluded: allExcluded,
     unresolvedConflicts: unresolved,
     totalChars,
-    budget: { totalChars: profileSpec.totalChars, maxItems: profileSpec.maxItems },
+    // Declare the actual capacity when required narrative inputs exceed the
+    // reference allowance. Runtime must not apply that allowance a second time.
+    budget: {
+      totalChars: Math.max(profileSpec.totalChars, totalChars),
+      maxItems: Math.max(profileSpec.maxItems, blocks.length)
+    },
     dependencies,
     candidateReport: {
       discovered: normalized.length + preExcluded.length,

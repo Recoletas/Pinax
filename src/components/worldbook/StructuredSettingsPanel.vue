@@ -69,7 +69,6 @@
               <span>{{ showBriefBar ? tr('收起要求') : tr('补充要求') }}</span>
             </button>
           </div>
-            <span v-if="readyDraftCount > 0" class="draft-summary">{{ tr('{count} 项草稿待审', { count: readyDraftCount }) }}</span>
           </header>
           <div v-if="showBriefBar" class="brief-bar-wrapper">
             <GenerationBriefBar
@@ -117,6 +116,7 @@
                 <small>{{ draft.snippet }}</small>
               </button>
             </div>
+            <button type="button" class="draft-queue__adopt" :disabled="batchAdopting || sectionGenState === 'pending'" @click="adoptSectionDrafts">{{ batchAdopting ? tr('采纳中…') : tr('全部采纳') }}</button>
           </nav>
 
           <div class="settings-editor-layout" :class="{ 'has-review': focusedDraft }">
@@ -233,6 +233,7 @@ const activeSectionKey = ref('world')
 const placeCatalogRef = ref(null)
 async function selectSection(key) {
   if (key === activeSectionKey.value) return true
+  if (batchAdopting.value) return false
   if (placeCatalogRef.value?.confirmNavigation?.() === false) return false
   if (!(await flushAll())) return false
   activeSectionKey.value = key
@@ -240,6 +241,7 @@ async function selectSection(key) {
 }
 const workingKey = ref('')
 const feedback = ref('')
+const batchAdopting = ref(false)
 const form = reactive(normalizeStructuredSettings(props.worldbook?.structuredSettings))
 
 // dirty registry：card 注册自己 mount/unmount；watcher 同步时跳过
@@ -316,12 +318,6 @@ watch(
 )
 
 // ---------- 单字段 AI 生成（保留向后兼容） ----------
-async function saveField({ sectionKey, fieldKey }) {
-  const updated = await worldStore.updateStructuredSetting(props.worldbook.id, sectionKey, fieldKey, form[sectionKey][fieldKey])
-  emit('saved', updated?.updatedAt ?? Date.now())
-  feedback.value = '已保存'
-}
-
 function onFieldSaved(savedAt) {
   emit('saved', savedAt || Date.now())
 }
@@ -1039,11 +1035,59 @@ async function saveDraftToField() {
     feedback.value = '世界书已更新，这份草稿已过期，请重新生成后再采纳。'
     return
   }
+  if ([...fieldRefs.values()].some((el) => ['dirty', 'saving', 'error'].includes(unref(el?.state)))) {
+    feedback.value = '先保存当前编辑的设定，再采纳草稿。'
+    return
+  }
   const fieldKey = focusedDraftKey.value
-  form[activeSectionKey.value][fieldKey] = focusedDraft.value.content
-  await saveField({ sectionKey: activeSectionKey.value, fieldKey })
-  discardDraft(fieldKey)
-  feedback.value = '已更新世界书条目'
+  const sectionKey = activeSectionKey.value
+  const content = focusedDraft.value.content
+  try {
+    const updated = await worldStore.adoptStructuredSettingDrafts(props.worldbook.id, sectionKey, [{ fieldKey, content }], props.worldbook)
+    form[sectionKey][fieldKey] = content
+    discardDraft(fieldKey)
+    emit('saved', updated?.updatedAt ?? Date.now())
+    feedback.value = '已更新世界书条目'
+  } catch (error) {
+    feedback.value = error?.message || '采纳失败，草稿已保留。'
+  }
+}
+
+async function adoptSectionDrafts() {
+  if (batchAdopting.value || sectionGenState.value === 'pending') return
+  const sectionKey = activeSectionKey.value
+  const worldbookId = props.worldbook.id
+  const drafts = [...getSectionDrafts(sectionKey).entries()].map(([fieldKey, draft]) => ({
+    fieldKey,
+    content: draft.content,
+    draftId: draft.draftId,
+    worldbookRevision: draft.worldbookRevision
+  }))
+  if (!drafts.length) return
+  const revision = getWorldbookRevision()
+  if (drafts.some((draft) => !isStructuredSettingRevisionCurrent(draft.worldbookRevision, revision))) {
+    feedback.value = '世界书已更新，这组草稿已过期，请重新生成后再采纳。'
+    return
+  }
+  if ([...fieldRefs.values()].some((el) => ['dirty', 'saving', 'error'].includes(unref(el?.state)))) {
+    feedback.value = '先保存当前编辑的设定，再采纳这组草稿。'
+    return
+  }
+  batchAdopting.value = true
+  try {
+    const updated = await worldStore.adoptStructuredSettingDrafts(worldbookId, sectionKey, drafts, props.worldbook)
+    if (props.worldbook.id !== worldbookId || activeSectionKey.value !== sectionKey) return
+    for (const draft of drafts) {
+      form[sectionKey][draft.fieldKey] = draft.content
+      if (getSectionDrafts(sectionKey).get(draft.fieldKey)?.draftId === draft.draftId) discardDraft(draft.fieldKey)
+    }
+    emit('saved', updated?.updatedAt ?? Date.now())
+    feedback.value = `已采纳 ${drafts.length} 项设定`
+  } catch (error) {
+    feedback.value = error?.message || '采纳失败，草稿已保留。'
+  } finally {
+    batchAdopting.value = false
+  }
 }
 
 function copyDraft() {
@@ -1279,7 +1323,6 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .section-actions .brief-toggle-btn[aria-pressed='true'] { color: var(--text-primary); background: var(--nav-selected); }
 .section-actions .section-ai-btn.is-pending { cursor: progress; }
 .section-actions .section-ai-btn:is(.is-error, .is-partial, .is-stale, .is-aborted) { background: var(--surface-workbench-muted); color: var(--text-primary); }
-.draft-summary { width: 100%; color: var(--success); font-size: 12px; }
 .brief-bar-wrapper, .feedback-line, .generation-failed-fields { max-width: 880px; margin: 0 auto 20px; }
 .feedback-line, .generation-failed-fields { padding: 12px 16px; border-radius: 12px; color: var(--text-secondary); background: var(--surface-workbench-muted); font: 13px/1.7 var(--font-sans); }
 .generation-failed-fields { color: var(--danger); }
@@ -1287,6 +1330,10 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
 .draft-queue__lead { flex-shrink: 0; display: flex; gap: 6px; align-items: baseline; padding-top: 4px; color: var(--text-secondary); font-size: 12px; }
 .draft-queue__lead strong { color: var(--text-primary); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .draft-queue__items { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.draft-queue__adopt { flex: none; align-self: center; min-height: 36px; margin-inline-start: auto; padding: 6px 12px; border: 0; border-radius: var(--radius-control); background: var(--accent); color: var(--accent-text); font: 500 13px/1.5 var(--font-sans); cursor: pointer; }
+.draft-queue__adopt:hover { background: var(--accent-hover); }
+.draft-queue__adopt:disabled { opacity: .55; cursor: default; }
+.draft-queue__adopt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .draft-queue__item { min-width: 0; max-width: 240px; min-height: 36px; padding: 4px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
 .draft-queue__item:hover, .draft-queue__item.active { color: var(--text-primary); background: var(--nav-selected); }
 .draft-queue__item span, .draft-queue__item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1356,6 +1403,7 @@ defineExpose({ flushAll, undoCurrentField, redoCurrentField })
   .fields-grid :deep(.field-label) { font-size: 15px; }
   .fields-grid :deep(.action-btn) { padding-inline: 8px; font-size: 13px; }
   .draft-queue { flex-wrap: wrap; }
+  .draft-queue__adopt { min-height: 44px; }
   .draft-queue__item { max-width: min(240px, 72vw); min-height: 44px; }
   .settings-editor-layout.has-review > :deep(.setting-draft-review) { top: calc(48px + env(safe-area-inset-top, 0px)); right: 0; bottom: 0; left: 0; width: auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); border: 0; border-radius: 0; box-shadow: none; }
 }

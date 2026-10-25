@@ -144,6 +144,8 @@ import {
   createNarrativeMessageId,
   ensureNarrativeMessage,
   NARRATIVE_PRESENTATION_VERSION,
+  normalizeNarrativeTransportProse,
+  normalizeNarrativeTransportResult,
   parseNarrativePresentation,
   parseMarkedBlocks
 } from '../services/narrativePresentation'
@@ -166,6 +168,10 @@ import {
   validateWritingDocument,
   writingDocumentToEditorContent
 } from '../services/writing/writingDocumentSchema.js'
+import {
+  buildAuthoringTurnUnitMarkdown,
+  createWritingUnitFromAuthoringTurn
+} from '../services/writing/writingAuthoringTurnImport.js'
 import {
   createWritingCandidateRequest,
   getWritingCandidateStaleReason,
@@ -2353,6 +2359,51 @@ const structured = parseNarrativePresentation([
       'thought:林岫:他不该知道这个名字。可落款上的笔迹不会骗人。',
       'thought:林岫:三年前的葬礼是她亲眼看着办完的。除非当时棺材里根本没有人。'
     ])
+
+    // Stored authoring prose preserves source paragraphs through transport,
+    // schema import, editor projection and re-import, including long dialogue.
+    const authoredParagraph = paragraphWall.blocks.map((block) => block.text).join('')
+    const authoredClause = `${'他把箱里的旧账按年份排好，'.repeat(12)}才交给同伴核对。`
+    const authoredSpeech = '“都有。第一封是三年前寄出的。第二封没有落款。第三封上的墨迹还没有干。”'
+    const authoredParagraphs = [authoredParagraph, '第一处停顿。', '第二处停顿。', authoredClause, authoredSpeech, '他记得那艘船。去年见过它。船长没有换人。名字却改了。']
+    const authoredTransport = [
+      '```text', ':::narration', '【正文】', authoredParagraph, '', '第一处停顿。',
+      ':::narration', '第二处停顿。', ':::action|林岫', authoredClause,
+      ':::dialogue|林岫', `「${authoredSpeech.slice(1, -1)}」`,
+      ':::thought|林岫', authoredParagraphs[5], '```'
+    ].join('\n')
+    const authoredProse = authoredParagraphs.join('\n\n')
+    const authoredPresentation = parseNarrativePresentation(authoredTransport, {
+      preserveParagraphs: true,
+      speakerRegistry: buildSpeakerRegistry({ cast: [{ speakerId: 'char:authoring', name: '林岫' }] })
+    })
+    expect(authoredPresentation.blocks.map((block) => block.text)).toEqual(authoredParagraphs)
+    expect(authoredPresentation.blocks[4]).toMatchObject({ kind: 'dialogue', speaker: '林岫', speakerId: 'char:authoring', speakerTrust: 'verified' })
+    const authoredResult = normalizeNarrativeTransportResult(authoredTransport)
+    expect(authoredResult.prose).toBe(authoredProse)
+    expect(authoredResult.boundaryHints.map((hint) => hint.offset)).toEqual([3, 4, 5].map((index) => (
+      authoredParagraphs.slice(0, index).join('\n\n').length + 2
+    )))
+    expect(normalizeNarrativeTransportProse(authoredTransport)).toBe(authoredProse)
+    expect(normalizeNarrativeTransportResult(authoredProse).prose).toBe(authoredProse)
+    expect(normalizeNarrativeTransportProse(authoredProse.replace(/\n\n/g, '\n'))).toBe(authoredProse)
+    for (const source of [authoredTransport, authoredResult.prose]) {
+      const document = createWritingDocument(source)
+      const editorContent = writingDocumentToEditorContent(document)
+      expect(editorContent.flatMap((unit) => unit.content).map((node) => node.content.map((item) => item.text).join(''))).toEqual(authoredParagraphs)
+      expect(getWritingDocumentMarkdown(document)).toBe(authoredProse)
+      const roundTrip = editorContentToWritingDocument(editorContent, document)
+      expect(getWritingDocumentMarkdown(roundTrip)).toBe(authoredProse)
+      expect(validateWritingDocument(roundTrip)).toEqual({ valid: true, errors: [] })
+    }
+    const importedTurn = createWritingUnitFromAuthoringTurn({
+      text: authoredResult.prose,
+      originRef: { type: 'authoring-turn', requestId: 'preserved-paragraphs' }
+    })
+    expect(importedTurn.ok).toBe(true)
+    expect(importedTurn.unit.content.map((node) => node.content[0].text)).toEqual(authoredParagraphs)
+    expect(buildAuthoringTurnUnitMarkdown(authoredResult.prose)).toBe(`\n${authoredProse}\n`)
+
     const longBlock = parseNarrativePresentation(
       ':::narration\n他沿着堤岸走了半里，风把斗笠吹得歪向一边。 河水在暮色里泛着碎光。 他停下来，把灯笼往水里照了照。 次日清晨，他在渡口等到了那条船。 船夫递过一张纸条。 纸上只有两个字：西边。',
       { messageId: 'long-block' }
@@ -2694,7 +2745,10 @@ const refreshed = ensureNarrativeMessage({
       blocks: [{ kind: 'continuity', content: { causality: { relationships: [] } } }]
     }, { intent: 'respond' })).not.toContain('本场有效关系')
     expect(buildNarrativeFormatInstructions()).toContain('自然段之间用换行分隔')
-    expect(buildNarrativeFormatInstructions()).toContain('一个自然段 1-2 个句子')
+    expect(buildNarrativeFormatInstructions()).toContain('段落长短与行文节奏服从作者要求和内容需要')
+    expect(buildNarrativeFormatInstructions()).not.toContain('一个自然段 1-2 个句子')
+    expect(buildNarrativeFormatInstructions()).not.toContain('示例：')
+    expect(buildNarrativeFormatInstructions()).not.toContain('玩家')
     expect(buildNarrativeFormatInstructions()).toContain('台词统一使用中文双引号“”')
     expect(buildNarrativeFormatInstructions()).not.toContain('「」或“”')
     expect(buildNarrativeFormatInstructions()).toContain('不要输出"【正文】"')

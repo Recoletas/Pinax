@@ -3,6 +3,9 @@ import { createNarrativeKernelExecutor } from '../services/agents/authoring/narr
 import { runNarrativeAgentGeneration } from '../services/agents/narrativeAgentOrchestrator.js'
 import { createAuthoringTaskContract, parseTaskQualityVerdict } from '../services/agents/narrativeTaskQuality.js'
 import { getNarrativeToolCatalog } from '../../shared/narrativeAgentContract.js'
+import { buildNarrativeTurnNote, buildNarrativeVoiceContract } from '../services/agents/narrativeVoicePolicy.js'
+import { authoringPromptContext } from '../services/agents/authoring/narrativePromptContext.js'
+import { toNarrativeToolItems } from '../services/agents/narrativeResourceIndex.js'
 
 // 验收修复 1：Authoring 回合必须真正构建并执行 NarrativeKernel（orchestrator 路径），
 // 且内核消费与 UI 左栏/composer 同一份共享现场投影（spec §9/§10）。
@@ -31,6 +34,97 @@ const PROJECTION = Object.freeze({
 
 describe('narrative kernel executor', () => {
   it("builds a real kernel that consumes the shared projection and runs it through the orchestrator（合并3例）", async () => {
+    {
+      const instruction = [
+        '请依照这份分节计划写出完整章节，约3500—4500字。',
+        '第一节：来客委托。' + '先让主角和来客在柜台对话。'.repeat(60),
+        '第二节：地窖旧册。中段要求必须保留：比较纸张、缺页与装订痕迹。',
+        '第三节：麻烦落地。' + '让前一节留下的线索带来新的后果。'.repeat(60),
+        '第四节：章末错字。末尾要求必须保留：两版抄本出现差异，主角收起旧册。'
+      ].join('\n\n')
+      const history = '历史起点。' + '旧对话仅供参考。'.repeat(160) + '历史末尾。'
+      const plan = {
+        responseObligation: '完成作者委托的四节章节',
+        causalSteps: ['来客委托', '地窖旧册', '麻烦落地', '章末错字'],
+        revealOrChange: '两版抄本出现差异',
+        endCondition: '主角收起旧册',
+        mode: 'dialogue'
+      }
+      const decisionRunner = vi.fn(async (_request, { phase }) => phase === 'plan'
+        ? { kind: 'tool_calls', calls: [{ id: 'chapter-plan', name: 'submit_narrative_beat_plan', arguments: plan }] }
+        : { kind: 'final_ready', calls: [], text: '两版抄本出现差异。\n\n主角收起旧册。', finishReason: 'stop' })
+      const buildKernel = vi.fn(buildNarrativeKernel)
+      const runGeneration = vi.fn(args => runNarrativeAgentGeneration({ ...args, decisionRunner }))
+      const registry = { revision: 'chapter-registry', execute: vi.fn(async () => ({ ok: true, plan })) }
+      const executor = createNarrativeKernelExecutor({
+        buildKernel,
+        runGeneration,
+        buildResourceIndex: () => ({}),
+        createRegistry: () => registry
+      })
+      const result = await executor.executeTurn({
+        intentMode: 'advance',
+        turn: { kind: 'action', operation: 'next-passage', instruction, planning: 'plan' },
+        narrativeContext: { messages: [{ role: 'user', content: history }, { role: 'assistant', content: '雨声停了。' }] },
+        projection: PROJECTION,
+        settings: { provider: 'test' }
+      })
+      const kernel = runGeneration.mock.calls[0][0].kernel
+      expect(kernel.surface).toBe('authoring')
+      const turnBlock = kernel.blocks.find(block => block.kind === 'turn')
+      expect(turnBlock.content.input).toContain(instruction)
+      expect(turnBlock.truncated).toBe(false)
+      const serialized = JSON.parse(runGeneration.mock.calls[0][0].kernelSerialization.payload)
+      expect(serialized.blocks.find(block => block.kind === 'turn').content.input).toBe(turnBlock.content.input)
+      expect(kernel.recentMessages[0].content.length).toBeLessThan(history.length)
+      expect(kernel.recentMessages[0].content).toContain('历史起点。')
+      expect(kernel.recentMessages[0].content).toContain('历史末尾。')
+      expect(decisionRunner).toHaveBeenCalledTimes(2)
+      expect(decisionRunner.mock.calls[1][0].messages.filter(message => message.content.includes(instruction))).toHaveLength(1)
+      expect(result.trace.phases).toMatchObject({ plan: { rounds: 1 }, write: { rounds: 1 } })
+      expect(decisionRunner.mock.calls[0][0].tools.map(tool => tool.name)).toEqual(['submit_narrative_beat_plan'])
+      for (const [request] of decisionRunner.mock.calls) {
+        expect(request.messages.at(-1).content).toContain(instruction)
+        const prompt = request.messages.map(message => message.content).join('\n')
+        expect(prompt).not.toMatch(/建议约 600-950|目标约 950|完整场景拍|2-4 次有效发言|不得替玩家声明/)
+      }
+      const writingPrompt = decisionRunner.mock.calls[1][0].messages.map(message => message.content).join('\n')
+      expect(writingPrompt).toContain('动作与措辞：想象人物实际完成动作')
+      expect(writingPrompt).toContain('两人都知道的背景无需互相讲课')
+      expect(registry.execute).toHaveBeenCalledTimes(1)
+      expect(result.text).toBe('两版抄本出现差异。\n\n主角收起旧册。')
+      const experience = buildNarrativeKernel({ messages: [{ role: 'user', content: '检查旧册。' }] })
+      expect(experience.surface).toBe('experience')
+      expect(buildNarrativeTurnNote(experience)).toContain('建议约 600-950')
+      expect(buildNarrativeVoiceContract()).toContain('每个场景拍最多一个环境细节')
+      expect(buildNarrativeVoiceContract({ surface: 'authoring' })).not.toMatch(/玩家|场景拍|最多/)
+      const authoringNote = buildNarrativeTurnNote({ surface: 'authoring', blocks: [
+        { kind: 'continuity', content: { frame: { assistantTail: 'UNADOPTED_STYLE_SENTINEL', lastBlock: { kind: 'narration', textTail: 'UNADOPTED_ANCHOR_SENTINEL' } } } },
+        { kind: 'recent', content: { messages: [{ role: 'assistant', content: 'UNADOPTED_RECENT_SENTINEL' }] } }
+      ] })
+      expect(authoringNote).toContain('正式原文')
+      expect(authoringNote).toContain('指定样文')
+      expect(authoringNote).not.toMatch(/UNADOPTED_|只模仿节奏|大致句长|建议约|场景拍/)
+      for (const turn of [
+        { kind: 'action', operation: 'next-passage', instruction: '依照已确定的四节安排写作。', planning: 'reuse' },
+        { kind: 'action', operation: 'next-passage', instruction: '接着写来客打开箱子。' },
+        { kind: 'action', operation: 'rewrite-unit', instruction: '润色原对白，保留事实。', rewriteText: '“名字？”她问。\n\n“艾文。”' }
+      ]) {
+        decisionRunner.mockClear()
+        const direct = await executor.executeTurn({ intentMode: 'advance', turn, projection: PROJECTION, settings: {} })
+        expect(decisionRunner).toHaveBeenCalledTimes(1)
+        expect(direct.trace.phases.plan.rounds).toBe(0)
+        const request = decisionRunner.mock.calls[0][0]
+        expect(request.tools.map(tool => tool.name)).not.toContain('submit_narrative_beat_plan')
+        expect(request.messages.at(-1).content).toContain(turn.instruction)
+        if (turn.rewriteText) {
+          expect(request.messages.at(-1).content).toContain(turn.rewriteText)
+          expect(request.messages[0].content).toContain('你是作者的文字编辑')
+          expect(request.messages.map(message => message.content).join('\n')).not.toContain('revealOrChange 必须')
+        }
+      }
+
+    }
     {
       const contract = createAuthoringTaskContract({ instruction: '可以增加一位医生；以列车进站的广播结尾。', operation: 'next-passage' })
       expect(contract).toMatchObject({ kind: 'authoring', hasStopBoundary: true })
@@ -161,6 +255,8 @@ const buildKernel = vi.fn(() => ({ revision: 'nar-1', blocks: [] }))
     expect(runArgs.registry).toEqual({ registry: true })
     expect(runArgs.mode).toBe('auto') // advance → orchestrator auto 模式
     expect(runArgs.intent).toBe('respond') // 显式指令必须回应本轮输入，不能退化成泛化推进。
+    expect(runArgs.taskContract).toBeUndefined()
+    expect(runArgs.criticSampleRate).toBe(0)
     expect(result.text).toBe('守卫在门口停下脚步。')
 }
 {
@@ -441,7 +537,7 @@ import {
   collectAuthoringSceneRunIntentEffects,
   createAuthoringSceneRunIntent
 } from '../services/agents/authoring/authoringSceneRunIntents.js'
-import { authoringRunReferenceRevision } from '../services/agents/context/authoringRunContextReaders.js'
+import { authoringRunReferenceRevision, readAuthoringWorldbookCandidates } from '../services/agents/context/authoringRunContextReaders.js'
 import { collectAuthoringRunDependencyRevisions } from '../services/agents/context/authoringRunContextDependencies.js'
 import { createManifestAuthorizedNarrativeIndex } from '../services/agents/context/manifestToolAuthorization.js'
 import { createNarrativeAsset } from '../services/media/narrativeAssets.js'
@@ -543,6 +639,33 @@ describe('writing context compiler — eligibility before scoring', () => {
     expect(manifest.totalChars).toBeLessThanOrEqual(COMPILER_PROFILES['inline-fast'].totalChars)
     expect(manifest.blocks.length).toBeLessThanOrEqual(COMPILER_PROFILES['inline-fast'].maxItems)
     expect(manifest.excluded.length).toBeGreaterThan(0)
+
+    const requiredRules = Array.from({ length: 24 }, (_, index) => makeCandidate({
+      id: `worldbook-entry:required-${index}`, kind: 'worldbook-entry', sourceKind: 'worldbook-entry',
+      sourceId: `required-${index}`, primarySourceRef: `worldbook-entry:required-${index}`,
+      sourceRefs: [`worldbook-entry:required-${index}`], sourceAuthority: 'author-adopted',
+      narrativeStatus: 'constraint', temporalRelation: 'atemporal', representations: { full: `作者规则 ${index}。` }
+    }))
+    const longCurrent = makeCandidate({
+      id: 'long-current', position: { chapterId: target.chapterId, unitId: 'long-unit' },
+      temporalRelation: 'at-target', representations: { full: '原'.repeat(13000) }
+    })
+    const relatedCharacters = Array.from({ length: 25 }, (_, index) => makeCandidate({
+      id: `worldbook-entry:character-${index}`, kind: 'worldbook-entry',
+      sourceAuthority: 'imported-reference', temporalRelation: 'atemporal',
+      representations: { full: `角色${index}的正式设定。`.padEnd(500, '。') }
+    }))
+    const longManifest = compileWritingContext({ candidates: [longCurrent, ...requiredRules, ...relatedCharacters],
+      target: { ...target, unitId: 'long-unit' }, profile: 'narrative-long', taskKind: 'manuscript' })
+    expect(longManifest.blocks.find(block => block.candidateId === 'long-current').text).toHaveLength(13000)
+    expect(longManifest.blocks.filter(block => block.candidateId.startsWith('worldbook-entry:character-'))).toHaveLength(24)
+    expect(longManifest.excluded).toEqual([expect.objectContaining({ reason: 'budget-max-items' })])
+    const fullSize = 13000 + requiredRules.reduce((sum, rule) => sum + rule.representations.full.length, 0) + 12000
+    expect(longManifest.totalChars).toBe(fullSize)
+    const wire = serializeNarrativeKernelForProvider(buildNarrativeKernel({ surface: 'authoring', contextManifest: longManifest }))
+    const receipt = buildModelCallReceipt({ manifest: longManifest, serializedBlocks: wire.serializedBlocks })
+    expect(receipt.totalActualChars).toBe(fullSize)
+    expect(reconcileManifestWithReceipt(longManifest, receipt)).toEqual([])
   })
 
   it('falls back to an excerpt that fits instead of dropping an oversized full representation', () => {
@@ -566,7 +689,7 @@ describe('writing context compiler — eligibility before scoring', () => {
     expect(manifest.blocks).toHaveLength(1)
   })
 
-  it('reads all inline rich-text children and preserves opaque source revisions', () => {
+  it('reads all inline rich-text children and preserves opaque source revisions', async () => {
     const candidates = buildWritingContextCandidates({
       projectId: 'book-1',
       chapterId: 'ch-1',
@@ -606,6 +729,55 @@ describe('writing context compiler — eligibility before scoring', () => {
     })
     expect(candidates.find((item) => item.kind === 'scene-projection').representations.full)
       .toContain('视角：莉娜')
+
+    const entries = [
+      { id: 'reference-novel', type: 'source', content: '参考小说中，女王能呼风唤雨。', updatedAt: 1 },
+      { id: 'our-character', type: 'character', content: '本书主角不能施法。', updatedAt: 1 },
+      { id: 'our-style', type: 'style', content: '依照作者原稿的叙述方式。', updatedAt: 1 }
+    ]
+    const genericCandidates = buildWritingContextCandidates({ projectId: 'book-1', matchedEntries: entries })
+    const runCandidates = await readAuthoringWorldbookCandidates({
+      projectId: 'book-1', worldbookId: 'world-1', entries,
+      repository: { getBoundWorldbook: async () => ({ projectId: 'book-1', worldbookId: 'world-1', worldbook: { id: 'world-1', entries } }) }
+    })
+    for (const list of [genericCandidates, runCandidates.candidates]) {
+      expect(list.find(candidate => candidate.sourceRefs.includes('worldbook-entry:reference-novel')))
+        .toMatchObject({ sourceAuthority: 'imported-reference', usageRole: 'inspiration', narrativeStatus: 'hypothesis' })
+      expect(list.find(candidate => candidate.sourceRefs.includes('worldbook-entry:our-character')))
+        .toMatchObject({ usageRole: 'fact', narrativeStatus: 'fact' })
+      expect(list.find(candidate => candidate.sourceRefs.includes('worldbook-entry:our-style')))
+        .toMatchObject({ usageRole: 'intent', narrativeStatus: 'constraint' })
+      const manifest = compileWritingContext({ candidates: list, target: { projectId: 'book-1' }, profile: 'narrative-long' })
+      const wire = serializeNarrativeKernelForProvider(buildNarrativeKernel({ surface: 'authoring', contextManifest: manifest }))
+      const included = JSON.parse(wire.payload).blocks.find(block => block.kind === 'compiled-context').content.entries
+      const rendered = authoringPromptContext(wire)
+      for (const entry of included) {
+        expect(rendered.sources).toContain(entry.text)
+        expect(rendered.sources).toContain(entry.candidateId)
+        expect(rendered.sources).toContain(entry.sourceAuthority)
+      }
+      expect(JSON.parse(rendered.runtime).blocks.some(block => block.kind === 'turn')).toBe(false)
+      const ordered = authoringPromptContext({ payload: JSON.stringify({ blocks: [{ kind: 'compiled-context', content: { entries: [
+        { kind: 'manuscript-unit', text: '最后一句', temporalRelation: 'at-target', position: { chapterId: 'a', unitIndex: 2 } },
+        { kind: 'worldbook-foundation', text: '正式背景' },
+        { kind: 'manuscript-unit', text: '第一段\n\n第二段', temporalRelation: 'before-target', position: { chapterId: 'a', unitIndex: 0 } },
+        { kind: 'manuscript-unit', text: '中间段', temporalRelation: 'before-target', position: { chapterId: 'a', unitIndex: 1 } }
+      ] } }] }) }).sources
+      expect(ordered.indexOf('正式背景')).toBeLessThan(ordered.indexOf('第一段\n\n第二段'))
+      expect(ordered.indexOf('第一段\n\n第二段')).toBeLessThan(ordered.indexOf('中间段'))
+      expect(ordered.indexOf('中间段')).toBeLessThan(ordered.indexOf('最后一句'))
+      expect(included.find(entry => entry.sourceRefs.includes('worldbook-entry:reference-novel')))
+        .toMatchObject({ usageRole: 'inspiration', narrativeStatus: 'hypothesis', text: entries[0].content })
+    }
+    const sourceManifest = compileWritingContext({ candidates: runCandidates.candidates,
+      target: { projectId: 'book-1' }, profile: 'narrative-long' })
+    const authorized = createManifestAuthorizedNarrativeIndex({ manifest: sourceManifest, projectId: 'book-1' })
+    expect(authorized.ok).toBe(true)
+    const source = authorized.index.byId.get('reference-novel')
+    expect(source).toMatchObject({ type: 'source', summary: entries[0].content, trust: 'draft' })
+    const returned = toNarrativeToolItems([source, authorized.index.byId.get('our-character')], 'get')
+    expect(returned.items[0]).toMatchObject({ id: 'reference-novel', type: 'source', eligibleEvidence: false })
+    expect(returned.items[1]).toMatchObject({ id: 'our-character', trust: 'canonical', eligibleEvidence: true })
   })
 
   it('resolves conflict sets by authority and reports unresolved low-authority winners', () => {
@@ -693,21 +865,20 @@ describe('model call receipt — produced from actual serialization', () => {
       }]
     })
     const providerBlock = JSON.parse(kernelSerialization.payload).blocks[0]
-    expect(providerBlock.content.truncated).toBe(true)
-    expect(kernelSerialization.serializedBlocks.long.length).toBeGreaterThan(0)
-    expect(kernelSerialization.serializedBlocks.long.length).toBeLessThan(longText.length)
+    expect(providerBlock.content.truncated).toBeUndefined()
+    expect(kernelSerialization.serializedBlocks.long).toBe(longText)
     expect(providerBlock.content.entries[0].text).toBe(kernelSerialization.serializedBlocks.long)
     const longReceipt = buildModelCallReceipt({
       manifest: longManifest,
       serializedBlocks: kernelSerialization.serializedBlocks
     })
-    expect(longReceipt.entries[0]).toMatchObject({ included: true, cut: true })
+    expect(longReceipt.entries[0]).toMatchObject({ included: true, cut: false })
     expect(longReceipt.omissions).toContainEqual({
       candidateId: 'compiler-cut', reason: 'budget-excluded', stage: 'compiler'
     })
 
-    // U1 安全收口：最终 payload 加静态前缀受 transcript text part 上限约束；
-    // omitted 与 serializedBlocks 必须和实际发送一致；极端超限抛 typed 错误。
+    // The provider sends the compiler result in full, including context after
+    // the current manuscript; no second 2400/8000-character selection step.
     const overhead = narrativeTranscriptStaticOverheadChars({ phase: 'prose', formatInstructions: '以莉娜视角。' })
     const bounded = serializeKernelWithinTextPartBudget({
       revision: 'nar-u1',
@@ -729,7 +900,9 @@ describe('model call receipt — produced from actual serialization', () => {
         { kind: 'summary', content: { text: '前情提要。' }, sourceRefs: ['chapter:5'] }
       ]
     }, overhead)
-    expect(bounded.payload.length + overhead).toBeLessThanOrEqual(8000)
+    expect(bounded.payload.length + overhead).toBeGreaterThan(8000)
+    expect(Object.keys(bounded.serializedBlocks)).toHaveLength(6)
+    expect(bounded.omittedCandidateIds).toEqual([])
     const boundedParsed = JSON.parse(bounded.payload)
     const includedIds = new Set(
       (boundedParsed.blocks.find((b) => b.kind === 'compiled-context')?.content?.entries || []).map((e) => e.candidateId)
@@ -745,16 +918,18 @@ describe('model call receipt — produced from actual serialization', () => {
       blocks: [{ kind: 'turn', content: { instruction: '短指令。' }, sourceRefs: ['author'] }]
     }) })
     expect(passthrough.payload.length + overhead).toBeLessThanOrEqual(8000)
-    // 静态指令耗尽预算时，短 payload 和复用 initial 也必须拒绝。
+    // Static instructions do not impose an unrelated 8000-character rejection.
     for (const staticChars of [7999, 8000, 9000]) {
-      expect(() => serializeKernelWithinTextPartBudget({
+      expect(serializeKernelWithinTextPartBudget({
         revision: 'short', blocks: []
-      }, staticChars, { initial: passthrough })).toThrow('本回合参考内容超出单次请求上限')
+      }, staticChars, { initial: passthrough })).toBe(passthrough)
     }
-    expect(() => serializeKernelWithinTextPartBudget({
+    const fullInstruction = '完整的四节写作要求'.repeat(2000)
+    const longInstruction = serializeKernelWithinTextPartBudget({
       revision: 'nar-u1-huge',
-      blocks: [{ kind: 'turn', content: { instruction: '放不下的指令'.repeat(2000) }, sourceRefs: ['author'] }]
-    }, 7900)).toThrow('本回合参考内容超出单次请求上限')
+      blocks: [{ kind: 'turn', content: { instruction: fullInstruction }, sourceRefs: ['author'] }]
+    }, 7900)
+    expect(JSON.parse(longInstruction.payload).blocks[0].content.instruction).toBe(fullInstruction)
   })
 
   it('flags declared-but-not-serialized and missing pieces (fail-closed accounting)', () => {
@@ -843,6 +1018,41 @@ describe('Phase 4 ownership gate', () => {
     expect(kernel.blocks.map((block) => block.kind)).not.toEqual(expect.arrayContaining([
       'scene', 'projection', 'cast', 'summary', 'recent', 'continuity', 'style'
     ]))
+
+    const backgroundCandidates = Array.from({ length: 8 }, (_, index) => makeCandidate({
+      id: `world-rule:${index}`, kind: 'worldbook-entry',
+      sourceAuthority: 'author-adopted', narrativeStatus: 'constraint',
+      usageRole: 'intent', temporalRelation: 'atemporal',
+      sourceRefs: [`worldbook-entry:rule-${index}`],
+      representations: { full: '港城的抄写行会由教会和商会共同监督。'.repeat(30) + `规则末尾_${index}` }
+    }))
+    backgroundCandidates.push(makeCandidate({
+      id: 'current-manuscript', kind: 'manuscript-unit', position: { chapterId: 'ch-5', unitId: 'u-5' },
+      sourceAuthority: 'canonical-prose', temporalRelation: 'at-target',
+      representations: { full: '他重新核对纸上的字迹。'.repeat(300) + '钟楼敲响晚钟。' }
+    }), makeCandidate({
+      id: 'next-outline', kind: 'outline-node', position: { chapterId: 'ch-5' }, sourceAuthority: 'author-adopted',
+      narrativeStatus: 'intent', temporalRelation: 'at-target',
+      representations: { full: '大纲末尾：主角发现不同抄本之间的一个错字。' }
+    }))
+    const fullManifest = compileWritingContext({ candidates: backgroundCandidates, target,
+      profile: 'narrative-long', taskKind: 'manuscript' })
+    expect(fullManifest.blocks).toHaveLength(backgroundCandidates.length)
+    const fullKernel = buildNarrativeKernel({ surface: 'authoring', contextManifest: fullManifest,
+      projectId: 'book-1', messages: [{ role: 'user', content: '继续写。' }] })
+    const fullWire = serializeNarrativeKernelForProvider(fullKernel)
+    expect(fullWire.serializedBlocks).toEqual(Object.fromEntries(fullManifest.blocks.map(block => [block.candidateId, block.text])))
+    expect(fullWire.omittedCandidateIds).toEqual([])
+    const wireEntries = JSON.parse(fullWire.payload).blocks.find(block => block.kind === 'compiled-context').content.entries
+    expect(wireEntries.find(entry => entry.candidateId === 'world-rule:7')).toMatchObject({
+      sourceAuthority: 'author-adopted', narrativeStatus: 'constraint', usageRole: 'intent',
+      sourceRefs: ['worldbook-entry:rule-7']
+    })
+    expect(fullWire.payload).toContain('规则末尾_7')
+    expect(fullWire.payload).toContain('大纲末尾：主角发现不同抄本之间的一个错字。')
+    expect(fullWire.payload).toContain('钟楼敲响晚钟。')
+    const fullReceipt = buildModelCallReceipt({ manifest: fullManifest, serializedBlocks: fullWire.serializedBlocks })
+    expect(reconcileManifestWithReceipt(fullManifest, fullReceipt)).toEqual([])
     expect(kernel.recentMessages).toEqual([])
     expect(kernel.toolCatalog.map((tool) => tool.name)).toEqual([
       'world_lookup', 'memory_lookup', 'submit_narrative_beat_plan'
@@ -854,10 +1064,9 @@ describe('Phase 4 ownership gate', () => {
       'wb-entry:rule-star': '石柱每次只能校准一颗星。',
       'memory-fact': '莉娜已经确认铜钟裂纹来自盐蚀。'
     })
-    expect(kernel.blocks.find((block) => block.kind === 'lore')?.content.entries[0])
-      .toMatchObject({ candidateId: 'wb-entry:rule-star', content: '石柱每次只能校准一颗星。' })
-    expect(kernel.blocks.find((block) => block.kind === 'compiled-context')?.content.entries
-      .some((entry) => entry.kind === 'worldbook-entry')).toBe(false)
+    expect(kernel.blocks.some((block) => block.kind === 'lore')).toBe(false)
+    expect(kernel.blocks.find((block) => block.kind === 'compiled-context')?.content.entries)
+      .toContainEqual(expect.objectContaining({ candidateId: 'wb-entry:rule-star', text: '石柱每次只能校准一颗星。', sourceAuthority: 'imported-reference' }))
   })
 })
 
@@ -1197,6 +1406,12 @@ describe('C1-1A authoring run session gate', () => {
       .toMatchObject({ label: '待重写文本块', reason: '作者明确要求重写整个当前文本块' })
     expect(rewriteSerialized).toContain('AFTER_CARET_SENTINEL')
     expect(rewriteSerialized).not.toContain('FUTURE_UNIT_SENTINEL')
+
+    const rangeResult = await createAuthoringRunSession({ ...input, target: { ...input.target, contextMode: 'rewrite-range' } })
+    expect(rangeResult.ok).toBe(true)
+    expect(rangeResult.session.target.contextMode).toBe('rewrite-range')
+    expect(rangeResult.session.candidates.find(candidate => candidate.sourceId === 'u-target')?.representations.full).toBe(targetPrefix)
+    expect(JSON.stringify(rangeResult.session)).not.toContain('AFTER_CARET_SENTINEL')
 
     expect(session.references).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceId: 'exp-bell', usageRole: 'intent', scope: 'run-only' }),
@@ -1942,6 +2157,7 @@ describe('C1-1A authoring run session gate', () => {
       buildResourceIndex: fullIndexBuilder,
       resolveMemories: memoryResolver
     })
+    const fullLocalRule = `${'作者明确指定的本地创作规则。\n'.repeat(220)}末条规则仍须完整传给正文模型。`
     const executionInput = {
       intentMode: 'advance',
       turn: {
@@ -1976,7 +2192,10 @@ describe('C1-1A authoring run session gate', () => {
       contextManifest: prepared.session.manifest,
       // W6·C：本地约束文件随 executeTurn 显式输入透传（执行器不内部查找）。
       localRules: {
-        files: [{ id: '写作约束', name: '写作约束', kind: 'rule', content: 'LR_SENTINEL：第一行\n第二行', sourceRef: 'local-rule:写作约束.md' }]
+        files: [
+          { id: '写作约束', name: '写作约束', kind: 'rule', content: 'LR_SENTINEL：第一行\n第二行', sourceRef: 'local-rule:写作约束.md' },
+          { id: '长规则', name: '长规则', kind: 'rule', content: fullLocalRule, sourceRef: 'local-rule:长规则.md' }
+        ]
       },
       resolveLiveContextDependencies: liveResolver
     }
@@ -1985,6 +2204,7 @@ describe('C1-1A authoring run session gate', () => {
     expect(memoryResolver).not.toHaveBeenCalled()
     expect(liveResolver).toHaveBeenCalledTimes(1)
     const runArgs = runGeneration.mock.calls[0][0]
+    expect(runArgs.planning).toBe('reuse')
     expect(runArgs.registry.names).toEqual([
       'world_lookup', 'memory_lookup', 'submit_narrative_beat_plan'
     ])
@@ -1998,6 +2218,16 @@ describe('C1-1A authoring run session gate', () => {
     expect(JSON.parse(runArgs.kernelSerialization.payload).blocks
       .find((block) => block.kind === 'local-rules').content.files[0].content)
       .toBe('LR_SENTINEL：第一行\n第二行')
+    const serializedLocalRules = JSON.parse(runArgs.kernelSerialization.payload).blocks
+      .find(block => block.kind === 'local-rules')
+    expect(serializedLocalRules.content.files[1].content).toBe(fullLocalRule)
+    expect(serializedLocalRules.sourceRefs).toContain('local-rule:长规则.md')
+    expect(serializedLocalRules.content).not.toHaveProperty('preview')
+    // The exception belongs to Authoring; Experience keeps its existing sizing.
+    const experienceWire = serializeNarrativeKernelForProvider({ ...runArgs.kernel, surface: 'experience' })
+    expect(JSON.parse(experienceWire.payload).blocks.find(block => block.kind === 'local-rules').content)
+      .toMatchObject({ truncated: true, preview: expect.any(String) })
+    expect(experienceWire.payload).not.toContain('末条规则仍须完整传给正文模型。')
     expect(runArgs.kernelSerialization.payload).not.toMatch(/ROGUE_(?:NARRATIVE|SCENE|WORLD|RUNTIME|HISTORY)/)
     expect(runArgs.kernelSerialization.payload).toContain('沿盐霜追查')
     expect(runArgs.kernelSerialization.payload).not.toContain('放弃钟绳转查码头')

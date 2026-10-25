@@ -62,7 +62,7 @@ export const seedWorldbookPresets = [
     creativeExits: ['写成边境调查章节', '整理成王国势力分镜', '整理成三方证据卡'],
     entries: [
       createSeedWorldbookEntry('rule', '暮湾一致性规则', ['暮湾', '雾潮', '契约'], '雾潮、学院、城防队和旧时代契约之间的因果必须稳定；任何新线索都要能回扣已有异常和调查记录。', '硬约束', 'constant'),
-      createSeedWorldbookEntry('style', '奇幻调查文风', ['调查文风', '线索', '雾港'], '叙事以谨慎调查、湿冷港雾和证据递进为主，避免突然变成无约束战斗爽文。', '文风约束', 'constant'),
+      createSeedWorldbookEntry('style', '奇幻调查文风', ['调查文风', '线索', '暮湾'], '叙事以谨慎调查、湿冷港雾和证据递进为主，避免突然变成无约束战斗爽文。', '文风约束', 'constant'),
       createSeedWorldbookEntry('forbidden', '雾潮禁写边界', ['禁忌', '雾潮契约', '风蚀罗盘'], '禁止让风蚀罗盘无限使用，禁止无代价解除雾潮，禁止让角色在没有证据时直接得知真相。', '禁写边界', 'constant'),
       createSeedWorldbookEntry('location', '暮湾主城', ['暮湾', '主城'], '港雾常年笼罩的贸易主城，王室公署、城防队和盐税账房都在这里争夺调查主导权。', '地理'),
       createSeedWorldbookEntry('location', '银藤学院', ['银藤学院', '法师学院'], '培养探索者与记录官的学院，地下藏有古代观测仪，近期观测到雾潮频率异常。', '地理'),

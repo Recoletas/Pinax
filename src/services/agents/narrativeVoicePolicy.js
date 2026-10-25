@@ -45,7 +45,21 @@ function latestAssistantAnchor(kernel) {
   return clip(sentences.at(-1) || sample, 180)
 }
 
-export function buildNarrativeVoiceContract() {
+export function buildNarrativeVoiceContract({ surface = 'experience' } = {}) {
+  if (surface === 'authoring') {
+    return [
+      '【写作指导】',
+      '依照作者要求完成本次写作，方法帮助组织内容，不另外规定作品的题材、语气或情节走向。',
+      '计时、称谓、制度与物件沿用本书语境；中文书写语言不代表故事采用中国历史背景。',
+      '先把眼前发生的事讲明白，再选择怎样讲：谁在做什么、动作对着什么、对方因此怎样回应。叙述、对白、概述都可以使用；省略过程时保留读者理解转变所需的连接。作者指定的文风优先，清楚不等于只写短句。',
+      '动作与措辞：想象人物实际完成动作，核对物件的形态、持握方式和先后位置；接着写时保留动作结果：已经放下的笔，再用时需要拿起；切好的菜尚未炒熟。再选准确的动词。下面是表达方法示例，不是本书情节：液体要有容器，“攥着热水”应按情境写成“端着一杯热水”；“学了四年手”若指学艺，就写“当了四年学徒”。修正搭配，不用新术语装饰普通动作。',
+      '观察与判断：先让读者看见足以支持判断的差别，再写人物的理解与反应。“署名与委托人不同”支持核对身份，不独自证明伪造、年代或阴谋。人物可以猜错、隐瞒、撒谎，但叙述要让猜测与已知事实可辨；需要补设定时沿本书已有背景展开。',
+      '人物与信息：在当下有作用的经历才在这里交代。人物递来东西时，可以先写递交和接话，不必同时报出年龄、履历与性格。需要解释时用叙述直接交代；过渡和日常可概述，值得停留的交锋再展开。',
+      '对白：先明确各人这句话想让对方知道或做什么，再接住上一句话。以用词、态度和说话习惯区别人物，不靠人人打哑谜或说俏皮话。两人都知道的背景无需互相讲课；让读者知情可以使用叙述。换说话人时分段，让读者认得谁在说话；同段动作的主语要与说话者对应，换人行动就点明人物。例如弟弟问姐姐吃不吃，下一段可写“‘吃。’姐姐把包放下。”，不能接“他说”而让弟弟回答自己。动作插入服务于意思与节奏。',
+      '修辞与节奏：先确定具体感受，再决定是否需要比喻。例如想写纸面粗糙，可以直接说“纸边起了毛”，不用另造难以想象的意象。选取能帮助理解处境或形成鲜明感受的细节；说话间的一次家务动作可以交代环境，不必逐一描写每次拿放、擦拭和停手。保留有作用的长句、重复、幽默与留白；幽默来自人物处境或口吻，悬念来自尚未解决的事，不靠故意省掉必要信息。',
+      '落笔时结合上下文修正不成立的动作、指代和搭配，保留作者有意的特殊表达。以上例子只解释方法，不移植其中的物件、句子或剧情；直接交付正文，无需展示检查过程。'
+    ].join('\n')
+  }
   return [
     '【行文契约（五条）】',
     '1. 先回应玩家输入，再推进一个已有因果。',
@@ -82,6 +96,16 @@ export function buildNarrativeRelationshipNote(kernel) {
 }
 
 export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = null, expansion = 'standard' } = {}) {
+  const authoring = kernel?.surface === 'authoring'
+  if (authoring) {
+    return [
+      '【本次写作】',
+      '按作者本轮要求完成正文，写作范围与结束位置以这次委托为准。',
+      '以提供的正式原文定位进度；续写接住已经发生的变化，改写则接好目标片段的前后文。',
+      '文风参考作者明确说明、指定样文及当前正式原文。未采用草稿可以修订，但不自动代表作者认可的风格。',
+      '大纲和构思描述计划，参考作品提供材料；结合各自来源和时间位置使用，不把它们当作本章已经发生的事情。'
+    ].join('\n')
+  }
   const effectiveIntent = intent || (mode === 'init' ? 'open' : mode === 'auto' ? 'advance' : 'respond')
   const range = intentCharRange(effectiveIntent, { expansion })
   const style = clip(findBlock(kernel, 'style')?.fingerprint, 240)
@@ -97,7 +121,9 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
   const relationshipNote = buildNarrativeRelationshipNote(kernel)
   const instructions = [
     '【本轮作者注释｜只约束下一次正文】',
-    effectiveIntent === 'open'
+    authoring
+      ? '按作者本轮要求完成正文；写作范围、篇幅与结束位置以作者要求为准。'
+      : effectiveIntent === 'open'
       ? '用一个可见、可听或可触的现场事实开场，再让人物进入动作；不要先介绍世界观。'
       : effectiveIntent === 'extend'
         ? '从最后一句正文直接续接，不重述场景、不复述前文；延续同一动作链和情绪线。'
@@ -112,7 +138,7 @@ export function buildNarrativeTurnNote(kernel, { mode = 'continue', intent = nul
     relationshipNote
       ? '若上述关系与眼前互动有关，让它通过已经形成的习惯、成本、回避、纠正、默契或遗漏自然显现；不要解释关系名称。'
       : '',
-    `建议约 ${range.min}-${range.max} 个中文字符。作者指定的结束事件与跑团行动权限优先；达到边界立即收束，不能为凑字数续写后果。`,
+    authoring ? '' : `建议约 ${range.min}-${range.max} 个中文字符。作者指定的结束事件与跑团行动权限优先；达到边界立即收束，不能为凑字数续写后果。`,
     style ? `既定文风：${style}` : '',
     anchor ? `连续锚点（从最后一段承接）：${anchor}` : '',
     sample ? `邻近正文样本：${sample}` : '',

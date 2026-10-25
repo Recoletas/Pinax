@@ -9,7 +9,7 @@ import {
 import { shouldDispatchAuthoringObservers } from '../services/agents/authoring/authoringObserverDispatch.js'
 import { getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import { getWritingBlockText } from '../../shared/writingBlockHistoryContract.js'
-import { normalizeNarrativeTransportProse } from '../services/narrativePresentation.js'
+import { normalizeNarrativeTransportProse, parseNarrativePresentation } from '../services/narrativePresentation.js'
 
 const RUN_FAILURE_MESSAGES = Object.freeze({
   aborted: '这一拍已取消',
@@ -75,6 +75,7 @@ export function useAuthoringBlockWorkflow({
   let requestVersion = 0
   let explorationSavePending = false
   let recoveryWarningShown = false
+  let lastStreamingSaveAt = 0
   const recoveryRevision = ref(0)
   const recoverableDraft = computed(() => {
     // Invalidate after writes as storage itself is not reactive.
@@ -84,9 +85,11 @@ export function useAuthoringBlockWorkflow({
   })
 
   const recoveryTarget = () => preview.value?.candidate?.target || composer.staleResult?.target || composer.target
-  watch([draftText, () => composer.staleResult?.text], () => {
+  watch([draftText, () => composer.staleResult?.text, () => composer.staleResult?.streaming], () => {
     const text = draftText.value || composer.staleResult?.text
     if (!text) return
+    if (composer.staleResult?.streaming && Date.now() - lastStreamingSaveAt < 1000) return
+    lastStreamingSaveAt = Date.now()
     try { saveGeneratedDraft(recoveryTarget(), text); recoveryWarningShown = false; recoveryRevision.value += 1 }
     catch {
       if (!recoveryWarningShown) notify('草稿备份未能保存，请先复制文字。')
@@ -327,13 +330,34 @@ export function useAuthoringBlockWorkflow({
       : (turn.instruction || turn.selectedDirection)
           ? AUTHORING_TURN_TASK_IDS[turn.kind]
           : AUTHORING_TURN_TASK_IDS.continue
-    const outcome = await runTask(taskId, {
-      turn,
-      targetOverride: payload.invocationTarget || null,
-      authoringRunSession: payload.authoringRunSession || null
-    })
+    let lastDraftUpdate = 0
+    const target = payload.invocationTarget || composer.target
+    let outcome
+    try {
+      outcome = await runTask(taskId, {
+        turn,
+        targetOverride: payload.invocationTarget || null,
+        authoringRunSession: payload.authoringRunSession || null,
+        onDraftUpdate: update => {
+          if (!isCurrentRequest(version) || update?.phase !== 'write') return
+          // Reset frames withdraw prose from a tool-call turn immediately.
+          // Visible updates are paced; the completed result still owns adoption.
+          if (update.text && Date.now() - lastDraftUpdate < 100) return
+          lastDraftUpdate = update.text ? Date.now() : 0
+          const text = parseNarrativePresentation(String(update.text || ''), { complete: false, preserveParagraphs: true }).content || ''
+          if (!text && composer.staleResult?.streamOwner !== version) return
+          if (!text) forgetRecovery(target)
+          composer.staleResult = { text, target, adoptable: false, streaming: true, streamOwner: version }
+        }
+      })
+    } finally {
+      if (isCurrentRequest(version) && composer.staleResult?.streamOwner === version) composer.staleResult.streaming = false
+    }
     if (!isCurrentRequest(version)) {
       return { ok: false, reason: 'superseded', phase: 'provider', code: 'AUTHORING_SUPERSEDED', retryable: true }
+    }
+    if (outcome?.reason === 'aborted' && outcome.text) {
+      composer.staleResult = { text: normalizeNarrativeTransportProse(outcome.text), target, adoptable: false, streaming: false, streamOwner: version }
     }
     recordOutcome(outcome)
     if (shouldDispatchAuthoringObservers(outcome)) {
@@ -385,7 +409,7 @@ export function useAuthoringBlockWorkflow({
     if (!isCurrentRequest(version)) return
     composer.failure = outcome?.ok ? null : normalizeAuthoringFailure(outcome)
     if (outcome?.ok) composer.staleResult = null
-    if ((outcome?.reason === 'stale' || outcome?.reason === 'target-unit-stale')
+    if ((!outcome?.ok && outcome?.phase !== 'persist' && String(outcome?.text || '').trim() || outcome?.reason === 'stale' || outcome?.reason === 'target-unit-stale')
       && (String(outcome.text || '').trim() || !composer.staleResult)) {
       composer.staleResult = {
         text: outcome.text || '',

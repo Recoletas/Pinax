@@ -1,3 +1,7 @@
+import { entryDetailsText } from '../../../../shared/assistantEntryDetails.js'
+import { worldbookFoundation } from '../../worldbook/worldbookFoundation.js'
+import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
+import { assistantProjectState } from '../authoring/assistantSuggestions.js'
 import { compileLexiconPrompt } from '../../../../shared/lexiconFileContract.js'
 import { readLocalRuleFilesForBook, readLocalLexiconForBook } from '../../localMirrorSettings.js'
 import { assertAssistantPermission, normalizeAssistantPermission } from '../../../../shared/assistantPermission.js'
@@ -20,18 +24,23 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
     }
     return bridge
   }
-  const lazyBridge = Object.fromEntries(['run', 'resume', 'cancel', 'healthz', 'tasks'].map(name => [name, async (...args) => (await loadBridge())[name](...args)]))
-  const context = (bookId) => {
+  const lazyBridge = Object.fromEntries(['run', 'resume', 'cancel', 'compact', 'waitForTaskIdle', 'healthz', 'tasks'].map(name => [name, async (...args) => (await loadBridge())[name](...args)]))
+  const context = (bookId, { text = '' } = {}) => {
     const book = getBook?.()
     if (String(book?.id || '') !== String(bookId || '')) throw new Error('作品已切换，请重新发送。')
     const chapter = getChapter?.()
     const linked = getWorldbook?.()
     const world = book.worldbookId && String(linked?.id || '') === String(book.worldbookId) ? linked : null
-    const item = (entry, type) => ({ id: String(entry.id), title: entry.title || entry.name || '未命名', type, text: String(entry.text || entry.content || ''), summary: String(entry.content || entry.summary || entry.text || ''), aliases: [...new Set([...(Array.isArray(entry.keys) ? entry.keys : []), ...(Array.isArray(entry.aliases) ? entry.aliases : [])])], sourceRefs: [`${type}:${entry.id}`] })
+    const item = (entry, type) => ({ id: String(entry.id), title: entry.title || entry.name || '未命名', type, text: String(entry.text ?? entry.content ?? ''), summary: String(type === 'chapter' ? entry.text ?? entry.content ?? '' : entry.summary || entry.content || entry.text || ''), aliases: [...new Set([...(Array.isArray(entry.keys) ? entry.keys : []), ...(Array.isArray(entry.aliases) ? entry.aliases : [])])], sourceRefs: [`${type}:${entry.id}`] })
     const manuscriptItems = [...(book.chapters || [])].sort((a, b) => Number(String(b.id) === String(chapter?.id)) - Number(String(a.id) === String(chapter?.id))).map(entry => item({ ...entry, text: String(entry.id) === String(chapter?.id) ? getLiveText?.() : getChapterMarkdown(entry) }, 'chapter'))
     const books = (readBooks?.() || []).filter(item => item?.id)
     const workspaceBooks = [book, ...books.filter(item => String(item.id) !== String(book.id))]
     return {
+      projectState: assistantProjectState({ book, worldbook: world, manuscriptText: getLiveText?.() }),
+      worldFoundation: world ? worldbookFoundation(world).content : '',
+      worldConstraints: matchWorldbookEntries({ worldbook: world, chatHistory: [{ role: 'user', content: `${getLiveText?.() || ''}\n${text}` }], includeStarterEntries: false })
+        .filter(entry => ['rule', 'style', 'forbidden'].includes(String(entry.type || '').toLowerCase()))
+        .map(entry => ({ id: entry.id, title: entry.name || entry.title, text: entry.content || '' })),
       manuscriptText: String(getLiveText?.() || ''),
       workspaceProjects: workspaceBooks.map(item => ({ id: String(item.id), title: item.title || '未命名作品' })),
       workspaceItems: buildAssistantWorkspaceItems(workspaceBooks, book.id, getChapterMarkdown, item => item.worldbookId ? (String(item.worldbookId) === String(world?.id) ? world : readWorldbookSnapshot?.(item.worldbookId)) : null),
@@ -40,15 +49,16 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       bookTitle: book.title || '', chapterTitle: chapter?.title || '', manuscriptTail: String(getLiveText?.() || '').slice(-2400),
       chapterEntries: manuscriptItems,
       manuscriptItems,
-      worldEntries: (world?.entries || []).map(entry => item(entry, 'worldbook')),
+      worldEntries: (world?.entries || []).map(entry => ({ ...item({ ...entry, text: [entry.content, entryDetailsText(entry)].filter(Boolean).join('\n\n') }, 'worldbook'), entryType: String(entry.type || '') })),
       sourceEntries: (world?.sourceDocuments || []).map(entry => item({ ...entry, content: entry.content || entry.contentPreview || '', title: entry.title || entry.sourceLabel }, 'source')),
       notesItems: (getNotes?.() || []).map(entry => item(entry, 'notes')),
       outlineItems: (getOutline?.() || []).map(entry => item({ ...entry, text: entry.intent || entry.summary || entry.description || entry.title }, 'outline'))
     }
   }
-  const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context, formatInstructions: typeof generateNarrative === 'function' ? '讨论与检索正常回答。当前章节的正文续写、改写和增补必须调用 generate_narrative_draft，提供作者要求，由推演链生成；设定、大纲及标题修改调用 submit_edit_proposals。不要在聊天里自行撰写正文充当修改结果；修改需作者确认。' : '讨论与检索正常回答。用户要求写作、改写、增补人物设定或大纲时，查清目标后调用 submit_edit_proposals 提交修改，最终回答简述修改与依据。禁止把操作说明当正文；修改需作者确认。' })
+  const engine = createStoryAgentEngine({ bridge: lazyBridge, projectId, resolveContext: context, formatInstructions: typeof generateNarrative === 'function' ? '讨论与检索正常回答。当前章节的正文续写、改写和增补必须调用 generate_narrative_draft，提供作者要求，由推演链生成；设定、大纲及标题修改调用 submit_edit_proposals。不要在聊天里自行撰写正文充当修改结果；修改按本轮审阅或自动修改权限交付。' : '讨论与检索正常回答。用户要求写作、改写、增补人物设定或大纲时，查清目标后调用 submit_edit_proposals 提交修改，最终回答简述修改与依据。禁止把操作说明当正文；修改按本轮审阅或自动修改权限交付。' })
   return Object.freeze({
     ...engine,
+    projectState() { return assistantProjectState({ book: getBook?.(), worldbook: getWorldbook?.(), manuscriptText: getLiveText?.() }) },
     permissionContext() {
       const destination = this.destination()
       if (!destination.bookId) throw new Error('请先打开作品。')
@@ -59,7 +69,7 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
     },
     prepare(input) {
       const prepared = engine.prepare(input)
-      if (typeof generateNarrative === 'function' && prepared.currentChapterId) prepared.kernel.serialization.blocks.push({ kind: 'assistant-narrative', title: '推演写作能力', text: '正文续写、改写及增补使用 generate_narrative_draft；由当前作品的冻结现场、BeatPlan与正文执行链生成，不直接提交自行撰写的正文。' })
+      if (typeof generateNarrative === 'function' && prepared.currentChapterId) prepared.kernel.serialization.blocks.push({ kind: 'assistant-narrative', title: '推演写作能力', text: '正文续写、改写及增补使用 generate_narrative_draft；由当前作品的冻结上下文与正文执行链生成，按任务需要规划，不直接提交自行撰写的正文。' })
       return prepared
     },
     async prepareNarrativeProposal(request, prepared, runId, signal) {
@@ -107,13 +117,17 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
         readLocalRuleFilesForBook(prepared.bookId), readLocalLexiconForBook(prepared.bookId)
       ])
       if (signal?.aborted) throw signal.reason || new Error('请求已取消')
-      const ruleText = rules.files.slice(0, 8).map(item => `${item.name}: ${String(item.content || '').slice(0, 400)}`).join('\n')
+      const ruleText = rules.files.map(item => `【${item.name}】\n${String(item.content || '')}`).join('\n\n')
       const lexiconText = compileLexiconPrompt(lexicon.lexicon)
-      if (ruleText || lexiconText) prepared.kernel.serialization.blocks.push({ kind: 'local-rules', title: '作者词汇与本地约束', text: [ruleText.slice(0, 1200), lexiconText].filter(Boolean).join('\n') })
+      if (ruleText || lexiconText) prepared.kernel.serialization.blocks.push({ kind: 'local-rules', title: '作者词汇与本地约束', text: [ruleText, lexiconText].filter(Boolean).join('\n\n') })
       const documents = prepared.editBaseline?.worldbook?.sourceDocuments || []
       if (!documents.some(document => document.chunkIds?.length)) return prepared
       const { retrieveAssistantSourceChunks } = await import('./assistantSourceRetrieval.js')
-      const sources = await retrieveAssistantSourceChunks(documents, text, { signal })
+      const pinnedDocumentIds = (prepared.pinnedRefs || []).filter(ref => ref.type === 'source').map(ref => String(ref.sourceDocumentId || ref.id))
+      const sources = await retrieveAssistantSourceChunks(documents, [text, prepared.manuscriptTail].filter(Boolean).join('\n'), { signal, pinnedDocumentIds })
+      // Retrieval already happened for the assistant catalogue. Reuse these
+      // frozen excerpts for writing even when the model does not call lookup.
+      prepared.writingReferences = sources.filter(source => source.pinned || source.score > 0)
       prepared.index.byDomain.world = [...prepared.index.byDomain.world.filter(item => item.type !== 'source').slice(0, 96), ...sources]
       return prepared
     },
@@ -121,13 +135,26 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       const { prepareAssistantProposal } = await import('./assistantEditTransaction.js')
       if (!prepared.editBaseline) throw new Error('本轮缺少编辑基线。')
       assertAssistantPermission(prepared.permission, input.changes, prepared.bookId)
-      return { ...prepareAssistantProposal(input, { ...prepared.editBaseline, runId }), permission: prepared.permission }
+      const proposal = prepareAssistantProposal(input, { ...prepared.editBaseline, runId })
+      assertAssistantPermission(prepared.permission, proposal.changes, prepared.bookId)
+      return { ...proposal, permission: prepared.permission }
     },
     applyProposal(proposal, options = {}) { return withAssistantEditLock(() => this.commitProposal(proposal, options)) },
-    async commitProposal(proposal, { undo = false, discard = false, changeIds = null } = {}) {
+    async commitProposal(proposal, { undo = false, discard = false, changeIds = null, acknowledge = null } = {}) {
       const { applyAssistantProposal, selectAssistantProposalChanges } = await import('./assistantEditTransaction.js')
       const savedReceipt = getItem(`assistant_edit_receipt:${proposal.id}`, null)
       if (savedReceipt && JSON.stringify(savedReceipt.changes) !== JSON.stringify(proposal.changes)) return { ok: false, error: '这组修改已在其他窗口处理，请刷新后继续。' }
+      if (acknowledge) {
+        if (String(getBook?.()?.id) !== proposal.bookId) return { ok: false, error: '作品已切换，请返回原作品。' }
+        const { kind, targetId } = acknowledge
+        const changes = proposal.changes.filter(change => change.kind === kind && change.targetId === targetId)
+        if (!changes.some(change => change.status === 'adopted') || changes.some(change => !change.status || change.status === 'pending')) return { ok: false, error: '请先采用修改，再完成确认。' }
+        const reviewedTargets = [...new Set([...(savedReceipt?.reviewedTargets || proposal.reviewedTargets || []), `${kind}:${targetId}`])]
+        const next = { ...proposal, reviewedTargets }
+        persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
+        Object.assign(proposal, next)
+        return { ok: true, status: next.status }
+      }
       if (discard) {
         const result = applyAssistantProposal(proposal, { book: getBook(), worldbook: getWorldbook(), discard: true, changeIds })
         const next = { ...proposal, changes: result.proposalChanges, status: result.status }
@@ -154,9 +181,11 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       const nextBooks = (getItem(STORAGE_KEYS.WRITING_BOOKS, null) || readBooks()).map(item => String(item.id) === proposal.bookId ? result.book : item)
       const usesWorldbook = (undo ? proposal.receipt.changes : result.changes).some(change => change.kind === 'worldbook')
       const receipt = { proposalId: proposal.id, changes: undo ? [] : [...(proposal.receipt?.changes || []), ...result.changes], createdWorldbook: result.createdWorldbook || proposal.receipt?.createdWorldbook, worldbookId: result.book.worldbookId, adoptedAt: Date.now() }
-      const nextProposal = { ...proposal, changes: result.proposalChanges, status: result.status, receipt }
+      const reviewedTargets = (savedReceipt?.reviewedTargets || proposal.reviewedTargets || []).filter(key => !result.changes.some(change => key === `${change.kind}:${change.targetId}`))
+      const nextProposal = { ...proposal, changes: result.proposalChanges, status: result.status, receipt, reviewedTargets }
       const writes = [{ key: STORAGE_KEYS.WRITING_BOOKS, after: nextBooks }]
       if (usesWorldbook) {
+        if (result.worldbook) result.worldbook.pendingFileSync = true
         const id = result.worldbook?.id || proposal.receipt?.worldbookId || proposal.worldbookId
         writes.push({ key: `worldbook_${id}`, after: result.worldbook })
         const index = (getItem('worldbooks_index', []) || []).filter(item => String(item.id) !== String(id))

@@ -12,6 +12,7 @@ import {
   memoryPrimarySourceRef,
   readAuthoringSceneIntentCandidates,
   readManuscriptRunCandidates,
+  worldbookFoundationRevision,
   worldbookRunRevision
 } from '../context/authoringRunContextReaders.js'
 import { collectAuthoringRunDependencyRevisions } from '../context/authoringRunContextDependencies.js'
@@ -395,6 +396,9 @@ function buildMemorySourceRevisions({
     }
   }
   assign('scene-projection:current', projection?.projectionFingerprint)
+  if (text(worldbook?.id)) {
+    assign(`worldbook-foundation:${text(worldbook.id)}`, worldbookFoundationRevision(worldbook))
+  }
   for (const entry of list(worldbook?.entries)) {
     assign(`worldbook-entry:${text(entry?.id)}`, worldbookRunRevision(entry))
   }

@@ -12,7 +12,7 @@
             <p v-if="!candidates.length">{{ tr('当前没有匹配的参考') }}</p>
           </template>
           <template v-else>
-            <button v-for="skill in SKILL_PRESETS" :key="skill.id" type="button" :aria-pressed="state.skills?.some(s => s.id === skill.id)" :disabled="busy || (!state.skills?.some(s => s.id === skill.id) && state.skills?.length >= 3)" @click="toggleSkill(skill)"><WorkbenchIcon name="document" :size="16" /><span>{{ tr(skill.label) }}<small>{{ skillHint(skill.id) }}</small></span><WorkbenchIcon v-if="state.skills?.some(s => s.id === skill.id)" name="check" :size="14" /></button>
+            <button v-for="skill in SKILL_PRESETS" :key="skill.id" type="button" :aria-pressed="state.skills?.some(s => s.id === skill.id)" :disabled="busy" @click="toggleSkill(skill)"><WorkbenchIcon name="document" :size="16" /><span>{{ tr(skill.label) }}<small>{{ skillHint(skill.id) }}</small></span><WorkbenchIcon v-if="state.skills?.some(s => s.id === skill.id)" name="check" :size="14" /></button>
             <details class="agent-tools__advanced"><summary><WorkbenchIcon name="chevron-down" :size="14" />{{ tr('更多设置') }}</summary><label class="agent-tools__experience"><input v-model="experienceEnabled" type="checkbox" :disabled="busy" @change="setExperiencePiAgentEnabled(experienceEnabled)" /><span>{{ tr('体验推演也使用写作工具') }}</span></label></details>
           </template>
         </div>
@@ -37,7 +37,7 @@ const visibleLimit = ref(12)
 watch(query, () => { visibleLimit.value = 12 })
 const referenceType = entry => tr(({ chapter: '章节', entry: '设定', source: '资料', worldbook: '设定' })[entry.type] || '参考')
 const referenceIcon = entry => entry.type === 'chapter' ? 'chapter' : entry.type === 'source' ? 'source-file' : 'setting-file'
-const skillHint = id => tr(({ 'dialogue-polish': '潜台词与人物语气', 'foreshadow-plant': '埋下可回收的细节', 'cold-open': '从动作与压力开始', ghostwrite: '延续原文，不复述前情', 'close-thread': '让已有线索得到回应' })[id] || '用于本轮写作')
+const skillHint = id => tr(SKILL_PRESETS.find(skill => skill.id === id)?.description || '用于本轮写作')
 const menuRef = ref(null)
 // A label/padding press can temporarily blur to null before the click lands.
 // Keep its details subtree visible until the pointer action completes.

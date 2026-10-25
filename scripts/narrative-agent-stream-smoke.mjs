@@ -1,5 +1,6 @@
 import { createGenerationAgentStepStreamHandler } from '../server/routes/generationAgent.js'
 import {
+  createNarrativeAgentStreamEvent,
   parseNarrativeAgentSseEvent,
   reduceNarrativeAgentStreamEvents
 } from '../shared/narrativeAgentStreamContract.js'
@@ -75,6 +76,15 @@ const errorCase = await runCase('typed-error', Object.assign(
 ))
 
 const checks = {
+  incompleteStreamRetainsDraft: (() => {
+    const partial = reduceNarrativeAgentStreamEvents([createNarrativeAgentStreamEvent('text.delta', { content: '尚未完成的正文' })])
+    return partial.error?.code === 'NARRATIVE_STREAM_INCOMPLETE' && partial.finalText === '尚未完成的正文'
+  })(),
+  largeDeltaIsIntact: (() => {
+    const value = '长正文。'.repeat(6000)
+    const full = reduceNarrativeAgentStreamEvents([createNarrativeAgentStreamEvent('text.delta', { content: value }), createNarrativeAgentStreamEvent('step.finish', { status: 'final_ready' })])
+    return !full.error && full.text === value
+  })(),
   toolSequence: toolCase.events.map((event) => event.type).join(',')
     === 'step.start,tool.input.delta,tool.call,usage,step.finish',
   toolArgumentsReassembled: toolCase.reduced.calls[0]?.arguments?.query === '钟楼',

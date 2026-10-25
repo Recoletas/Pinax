@@ -473,14 +473,15 @@ export function createWorldbookFileSyncController({
     try {
       const raw = safeRead(id)
       if (!raw) return
+      const expectedRevision = state.expectedRevision
       // 竞争守卫（副作用 owner 复核）：入队后 revision 已变 → 本次是过期写，拒绝。
-      if (revisionOf(raw) !== state.expectedRevision) return
+      if (revisionOf(raw) !== expectedRevision) return
       const root = await resolveRoot(id)
-      if (!root) return
+      if (!root || revisionOf(safeRead(id)) !== expectedRevision) return
       const result = await push(root, assemble(raw))
       if (result && result.ok) {
         const current = safeRead(id)
-        if (current && revisionOf(current) === state.expectedRevision) {
+        if (current && revisionOf(current) === expectedRevision) {
           onSynced(id, { dir: ensureString(result.dir), at: Date.now() })
         } else {
           // 过期完成：不盖成功标记，期间新变更的入队会立即重新推送。

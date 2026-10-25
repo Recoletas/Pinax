@@ -1,4 +1,8 @@
+import { assistantInputCandidate } from '../services/agents/authoring/assistantSuggestions.js'
+import { createAssistantPermissionPreference } from '../../shared/assistantPermission.js'
 import { createAssistantInputQueue } from './useAssistantInputQueue.js'
+import { assistantContextMessages, assistantEditDecisions, assistantQuestionWithContext, summarizeAssistantContext } from '../services/agents/authoring/assistantConversationContext.js'
+import { toResolvedTextApiSettings } from '../services/textProviderConfigStore.js'
 import { resolveSelectedTextProviderConfig } from '../services/textProviderConfigStore.js'
 import { formatAssistantAnswers } from '../../shared/assistantUserInput.js'
 import { runAuthoringAgentTurn } from '../services/agents/storyagent/authoringAgentTurn.js'
@@ -13,7 +17,7 @@ import {
 import { createAuthoringKnowledgeQuerySession } from '../services/agents/authoring/lazyAuthoringKnowledgeQuerySession.js'
 import { getItem } from './useStorage.js'
 import { createBrowserStorageRepository } from '../services/storage/browserStorageRepository.js'
-import { createAuthoringAssistantConversationStore } from '../services/agents/authoring/authoringAssistantConversationStore.js'
+import { ASSISTANT_STOP_MESSAGES, createAuthoringAssistantConversationStore } from '../services/agents/authoring/authoringAssistantConversationStore.js'
 
 function valueOf(value) {
   return typeof value === 'function' ? value() : unref(value)
@@ -30,6 +34,10 @@ function messageId(prefix = 'knowledge') {
 function errorMessage(error) {
   if (error?.code === 'AGENT_REQUEST_ABORTED' || error?.code === 'knowledge-read-model-aborted') return ''
   return String(error?.message || '助手暂时没有完成查询，请稍后重试。')
+}
+
+function reviewableProposal(message) {
+  return Boolean(message?.proposal?.changes?.length && ['running', 'completed', 'cancelled', 'interrupted', 'failed'].includes(message.status))
 }
 
 // 受限 I0 开关（round-3 K34，O0 冻结）：存储键缺省关闭；无设置页，测试经
@@ -114,27 +122,6 @@ function cloneQueryInput(value) {
   return value == null ? null : freeze(JSON.parse(JSON.stringify(value)))
 }
 
-function questionWithConversation(question, messages) {
-  const turns = []
-  let remaining = 2400
-  const history = [...messages]
-  const lastMessage = history.at(-1)
-  // 重试或停止后再次发送同一问题时，末尾尚无回答的作者问题只出现一次。
-  if (lastMessage?.role === 'user' && normalizedText(lastMessage.question) === question) history.pop()
-  for (const message of history.reverse()) {
-    const answer = message.role === 'assistant' ? message.answer : null
-    if (answer?.stale) continue
-    const content = message.role === 'user' ? message.question : answer?.answer || (message.kind === 'agent' ? message.text : '')
-    if (!content) continue
-    const excerpt = String(content).slice(0, Math.min(600, remaining))
-    if (!excerpt) break
-    turns.unshift(`${message.role === 'user' ? '作者' : '助手'}：${excerpt}`)
-    remaining -= excerpt.length
-    if (remaining <= 0 || turns.length >= 6) break
-  }
-  if (!turns.length) return question
-  return `此前对话仅用于理解作者意图，旧回答不是作品事实。作品事实必须以本次授权证据为准，不能把以下对话当作引用来源。\n${turns.join('\n')}\n\n本次作者问题：${question}`
-}
 
 export function useAuthoringKnowledgeAssistant(options = {}) {
   const workspace = useComposableWorkspace()
@@ -170,18 +157,18 @@ export function createAuthoringKnowledgeAssistant({
     const entry = {
       projectId: project,
       state: reactive({
-        messages: saved.messages || [],
+        messages: saved.messages || [], contextCheckpoint: saved.contextCheckpoint || null, contextCompactedAt: Number(saved.contextCompactedAt) || 0, compacting: false,
         draft: loaded.draft || '',
         selectedIntent: saved.selectedIntent || 'free',
         busy: false,
-        error: interrupted ? '上次查询因页面关闭中断；如需继续，请手动重试。' : saved.error || '',
+        error: interrupted ? ASSISTANT_STOP_MESSAGES.unknown : saved.error || '',
         lastRequest: saved.lastRequest || null,
         status: interrupted ? 'interrupted' : saved.status || 'idle',
         hasUnread: Boolean(saved.hasUnread),
         persistenceError: loaded.ok ? '' : loaded.error,
         agentTaskId: saved.agentTaskId || '', agentRefs: saved.agentRefs || [], agentSkills: saved.agentSkills || [],
-        agentPermission: { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false },
-        agentAdoptionBusy: false, runningPermission: null, activeSessionId: saved.activeSessionId || messageId('session'),
+        agentPermission: createAssistantPermissionPreference(),
+        agentAdoptionBusy: false, agentStopPending: false, runningPermission: null, activeSessionId: saved.activeSessionId || messageId('session'),
         agentSessions: saved.agentSessions || [], pendingMessages: saved.pendingMessages || [], queuePaused: true
       }),
       runtime: {
@@ -218,6 +205,13 @@ export function createAuthoringKnowledgeAssistant({
   const status = computed(() => activeEntry.value.state.status)
   const canSubmit = computed(() => Boolean(editorAttached() && activeProjectId.value && draft.value.trim() && !busy.value))
 
+  const inputCandidate = computed(() => {
+    const state = activeEntry.value.state
+    if (!editorAttached() || state.busy || state.agentAdoptionBusy || state.error || state.messages.some(message => ['pending', 'partial'].includes(message.proposal?.status))) return ''
+    const project = agentEngine?.projectState?.()
+    return project?.bookId === activeEntry.value.projectId ? assistantInputCandidate(project, state.messages.at(-1)) : ''
+  })
+
   function updateDraft(value) {
     draft.value = value
   }
@@ -230,25 +224,27 @@ export function createAuthoringKnowledgeAssistant({
     const state = entry.state
     const previous = state.agentSessions.find(session => session.sessionId === state.activeSessionId)
     const record = { sessionId: state.activeSessionId, projectId: entry.projectId, title: (previous?.title !== '新对话' ? previous?.title : '') || state.messages.find(message => message.question)?.question?.slice(0, 40) || '新对话',
-      archived: Boolean(previous?.archived), updatedAt: Date.now(), messages: state.messages, pendingMessages: state.pendingMessages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
+      archived: Boolean(previous?.archived), updatedAt: Date.now(), messages: state.messages, pendingMessages: state.pendingMessages, draft: state.draft, selectedIntent: state.selectedIntent, agentTaskId: state.agentTaskId, contextCheckpoint: state.contextCheckpoint, contextCompactedAt: state.contextCompactedAt, agentRefs: state.agentRefs, agentSkills: state.agentSkills }
     state.agentSessions = [record, ...state.agentSessions.filter(session => session.sessionId !== state.activeSessionId)].slice(0, 20)
   }
   function selectSession(sessionId) {
     const entry = activeEntry.value
-    if (entry.state.busy || entry.state.agentAdoptionBusy || entry.state.activeSessionId === sessionId) return false
+    if (entry.state.busy || entry.state.agentStopPending || entry.state.agentAdoptionBusy || entry.state.activeSessionId === sessionId) return false
     persistConversation(entry)
     const saved = entry.state.agentSessions.find(session => session.sessionId === sessionId)
     if (!saved) return false
     entry.runtime.token += 1
     entry.runtime.staleToken += 1
     agentEngine?.revokePermission?.()
-    entry.state.agentPermission = { mode: 'review', scope: 'current', chapterIds: [], worldbook: false, outline: false }
+    entry.state.agentPermission = createAssistantPermissionPreference()
     reviewedMessageId.value = ''
     entry.state.activeSessionId = sessionId
     entry.state.messages = JSON.parse(JSON.stringify(saved.messages || []))
     entry.state.draft = saved.draft || ''
     entry.state.selectedIntent = saved.selectedIntent || 'free'
     entry.state.agentTaskId = saved.agentTaskId || ''
+    entry.state.contextCheckpoint = saved.contextCheckpoint || null
+    entry.state.contextCompactedAt = Number(saved.contextCompactedAt) || 0
     entry.state.pendingMessages = saved.pendingMessages || []; entry.state.queuePaused = true
     entry.state.agentSkills = saved.agentSkills || []
     entry.state.agentRefs = saved.agentRefs || []; entry.state.error = ''; entry.state.lastRequest = null; entry.state.status = 'idle'
@@ -258,7 +254,7 @@ export function createAuthoringKnowledgeAssistant({
   }
   function newConversation() {
     const entry = activeEntry.value
-    if (entry.state.busy || entry.state.agentAdoptionBusy) return false
+    if (entry.state.busy || entry.state.agentStopPending || entry.state.agentAdoptionBusy) return false
     persistConversation(entry)
     const sessionId = messageId('session')
     entry.state.agentSessions.unshift({ sessionId, projectId: entry.projectId, title: '新对话', messages: [], updatedAt: Date.now() })
@@ -267,7 +263,7 @@ export function createAuthoringKnowledgeAssistant({
   function branchConversation(id, { before = false } = {}) {
     const entry = activeEntry.value
     const state = entry.state
-    if (state.busy || state.agentAdoptionBusy || disposed || !entry.runtime.canSaveConversation) return false
+    if (state.busy || state.agentStopPending || state.agentAdoptionBusy || disposed || !entry.runtime.canSaveConversation) return false
     const index = state.messages.findIndex(message => message.id === id)
     if (index < 0 || persistConversation(entry)?.ok !== true) return false
     const previous = JSON.parse(JSON.stringify(state))
@@ -312,6 +308,8 @@ export function createAuthoringKnowledgeAssistant({
     if (!Array.isArray(selected)) return false
     question.answerVersionIndex = index
     question.question = question.answerVersionQuestions?.[index] ?? question.question
+    state.contextCheckpoint = null
+    state.contextCompactedAt = 0
     state.messages = [...state.messages.slice(0, questionIndex + 1), ...JSON.parse(JSON.stringify(selected))]
     state.error = ''; state.lastRequest = null
     state.status = state.messages.at(-1)?.status || 'idle'
@@ -330,10 +328,12 @@ export function createAuthoringKnowledgeAssistant({
     const sampling = params ? normalizeAssistantSampling(params) : null
     if (!question || params && (!sampling || !agentEngine) || state.busy || state.agentAdoptionBusy
       || disposed || !editorAttached() || !entry.runtime.canSaveConversation) return false
-    if (entry.runtime.cancellation) {
-      const stopped = await entry.runtime.cancellation
-      entry.runtime.cancellation = null
-      if (stopped === false || entry !== activeEntry.value || state.busy || disposed || !state.messages.includes(question)) return false
+    if (entry.runtime.cancellation || state.agentStopPending) {
+      if (!await confirmTaskStopped(entry) || entry !== activeEntry.value || state.busy || disposed || !state.messages.includes(question)) return false
+    }
+    if (entry.runtime.agentTurn) {
+      await entry.runtime.agentTurn.settled
+      if (entry !== activeEntry.value || state.busy || disposed || !state.messages.includes(question)) return false
     }
     if (persistConversation(entry)?.ok !== true) return false
     const previous = JSON.parse(JSON.stringify(state.messages))
@@ -347,6 +347,8 @@ export function createAuthoringKnowledgeAssistant({
     question.answerVersionQuestions = [...questions.slice(-7), editedText ?? question.question]
     question.question = editedText ?? question.question
     question.answerVersionIndex = question.answerVersions.length - 1
+    state.contextCheckpoint = null
+    state.contextCompactedAt = 0
     state.messages = state.messages.slice(0, questionIndex + 1)
     agentEngine?.revokePermission?.()
     state.agentTaskId = ''
@@ -373,7 +375,7 @@ export function createAuthoringKnowledgeAssistant({
   }
   function archiveConversation(sessionId, archived = true) {
     const entry = activeEntry.value, state = entry.state
-    if (state.busy || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    if (state.busy || state.agentStopPending || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
     if (persistConversation(entry)?.ok !== true) return false
     const saved = state.agentSessions.find(session => session.sessionId === sessionId)
     if (!saved) return false
@@ -404,19 +406,21 @@ export function createAuthoringKnowledgeAssistant({
   function deleteConversation(sessionId) {
     const entry = activeEntry.value
     const state = entry.state
-    if (state.busy || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
+    if (state.busy || state.agentStopPending || state.agentAdoptionBusy || !entry.runtime.canSaveConversation) return false
     if (persistConversation(entry)?.ok === false) return false
     if (!state.agentSessions.some(session => session.sessionId === sessionId)) return false
     const previous = JSON.parse(JSON.stringify(state))
     state.agentSessions = state.agentSessions.filter(session => session.sessionId !== sessionId)
     if (state.activeSessionId === sessionId) {
-      agentEngine?.revokePermission?.(); state.agentPermission = { mode: 'review', scope: 'current' }
+      agentEngine?.revokePermission?.(); state.agentPermission = createAssistantPermissionPreference()
       reviewedMessageId.value = ''
       const next = state.agentSessions[0]
       state.activeSessionId = next?.sessionId || messageId('session')
       state.messages = JSON.parse(JSON.stringify(next?.messages || []))
       state.draft = next?.draft || ''; state.selectedIntent = next?.selectedIntent || 'free'
       state.pendingMessages = next?.pendingMessages || []; state.queuePaused = true
+      state.contextCheckpoint = next?.contextCheckpoint || null
+      state.contextCompactedAt = Number(next?.contextCompactedAt) || 0
       state.agentTaskId = next?.agentTaskId || ''; state.agentRefs = next?.agentRefs || []; state.agentSkills = next?.agentSkills || []
       state.error = ''; state.lastRequest = null; state.status = 'idle'; state.hasUnread = false
       entry.runtime.token += 1; entry.runtime.staleToken += 1
@@ -457,24 +461,44 @@ export function createAuthoringKnowledgeAssistant({
     entry.runtime.draftTimer = setTimeout(() => persistDraft(entry), 450)
   }
 
-  function cancelEntry(entry, { leaving = false, restoreDraft = true } = {}) {
+  function cancelEntry(entry, { reason = 'user-cancelled', restoreDraft = true } = {}) {
     const wasBusy = entry.state.busy
+    const wasCompacting = entry.state.compacting
+    const interrupted = reason !== 'user-cancelled'
     entry.state.queuePaused = true
     for (const item of entry.state.pendingMessages) item.status = 'waiting'
     entry.runtime.token += 1
     const taskId = entry.state.agentTaskId
-    if (wasBusy && taskId && agentEngine) {
+    if ((wasBusy || entry.state.agentStopPending) && !wasCompacting && taskId && agentEngine) {
       const executionEngine = entry.runtime.requestEngine || agentEngine
-      entry.runtime.cancellation = executionEngine.cancel(taskId).catch(() => { entry.state.error = '远端停止尚未确认，请稍后重试。'; persistConversation(entry); return false })
+      entry.state.agentStopPending = true
+      const cancellation = Promise.resolve().then(() => executionEngine.cancel(taskId)).then(result => {
+        if (!result?.ok || result.stopped === false) throw new Error('远端停止尚未确认，请重试停止。')
+        if (entry.runtime.cancellation === cancellation) { entry.state.agentStopPending = false; entry.runtime.cancellation = null }
+        return true
+      }).catch(() => {
+        if (entry.runtime.cancellation === cancellation) { entry.state.error = '远端停止尚未确认，请重试停止。'; persistConversation(entry) }
+        return false
+      })
+      entry.runtime.cancellation = cancellation
     }
-    for (const message of entry.state.messages) if (message.kind === 'agent' && message.status === 'running') message.status = leaving ? 'interrupted' : 'cancelled'
+    for (const message of entry.state.messages) if (message.kind === 'agent' && (message.status === 'running'
+      || wasBusy && !wasCompacting && message.id === entry.runtime.agentMessageId)) {
+      message.status = interrupted ? 'interrupted' : 'cancelled'
+      message.stopReason = reason
+      message.failureReason = ASSISTANT_STOP_MESSAGES[reason]
+      for (const draft of message.generatedDrafts || []) if (draft.status === 'generating') draft.status = 'interrupted'
+      const draft = message.generatedDrafts?.findLast(draft => draft.status === 'interrupted' || !message.proposal)?.text
+      if (draft && !String(message.text || '').includes(draft)) message.text = [message.text, draft].filter(Boolean).join('\n\n')
+    }
     entry.runtime.controller?.abort()
     entry.runtime.controller = null
     entry.state.busy = false
+    entry.state.compacting = false
     entry.state.runningPermission = null
-    if (wasBusy) {
-      entry.state.status = leaving ? 'interrupted' : 'cancelled'
-      if (leaving) entry.state.error = '上次查询因离开写作页停止；如需继续，请手动重试。'
+    if (wasBusy && !wasCompacting) {
+      entry.state.status = interrupted ? 'interrupted' : 'cancelled'
+      entry.state.error = interrupted ? ASSISTANT_STOP_MESSAGES[reason] : ''
       if (restoreDraft && !entry.state.draft && entry.state.lastRequest
         && entry.runtime.draftRevision === entry.runtime.requestDraftRevision) {
         entry.state.draft = entry.state.lastRequest.question
@@ -488,17 +512,38 @@ export function createAuthoringKnowledgeAssistant({
     cancelEntry(activeEntry.value)
   }
 
+  async function confirmTaskStopped(entry) {
+    const pending = entry.runtime.cancellation
+    if (pending && await pending !== false) return true
+    if (!entry.state.agentStopPending && !pending) return true
+    try {
+      if (!agentEngine?.waitForTaskIdle || !entry.state.agentTaskId) return false
+      await agentEngine.waitForTaskIdle(entry.state.agentTaskId, { bookId: entry.projectId })
+      entry.state.agentStopPending = false
+      if (entry.runtime.cancellation === pending) entry.runtime.cancellation = null
+      return true
+    } catch (error) {
+      entry.state.agentStopPending = true
+      entry.state.error = error.message || '远端停止尚未确认，请重试停止。'
+      return false
+    }
+  }
+
   function clear() {
     const entry = activeEntry.value
+    if (entry.state.agentStopPending) return false
     entry.runtime.canSaveConversation = true
     entry.runtime.canSaveDraft = true
     cancelEntry(entry, { restoreDraft: false })
+    if (entry.state.agentStopPending) return false
     entry.runtime.staleToken += 1
     if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
     entry.runtime.staleTimer = null
     entry.state.agentTaskId = ''
     entry.state.agentRefs = []
     entry.state.messages = []
+    entry.state.contextCheckpoint = null
+    entry.state.contextCompactedAt = 0
     entry.state.pendingMessages = []; entry.state.queuePaused = true
     entry.state.draft = ''
     entry.state.error = ''
@@ -508,6 +553,54 @@ export function createAuthoringKnowledgeAssistant({
     focusedEvidenceSources.delete(entry.projectId)
     persistConversation(entry)
     persistDraft(entry)
+  }
+
+  const compacting = computed(() => activeEntry.value.state.compacting)
+  const contextCompacted = computed(() => Boolean(activeEntry.value.state.contextCheckpoint || activeEntry.value.state.contextCompactedAt))
+  const canCompactContext = computed(() => {
+    const state = activeEntry.value.state
+    return !state.busy && !state.agentAdoptionBusy && state.messages.at(-1)?.status !== 'needs_input'
+      && (agentEngine ? Boolean(state.agentTaskId) : assistantContextMessages(state.messages, state.contextCheckpoint).filter(message => message.role === 'user').length > 2)
+  })
+  async function compactContext() {
+    const entry = activeEntry.value, state = entry.state, runtime = entry.runtime
+    if (!canCompactContext.value || disposed || !runtime.canSaveConversation) return false
+    const previous = { contextCheckpoint: state.contextCheckpoint, contextCompactedAt: state.contextCompactedAt, status: state.status }
+    const sessionId = state.activeSessionId, source = JSON.stringify(state.messages)
+    const token = ++runtime.token, controller = new AbortController()
+    runtime.controller = controller; runtime.requestEngine = null
+    state.busy = true; state.compacting = true; state.error = ''
+    let succeeded = false
+    try {
+      let checkpoint
+      if (agentEngine) {
+        if (!agentEngine.compact) throw new Error('运行器尚未支持会话压缩，请更新运行器；原对话已保留。')
+        const result = await agentEngine.compact(state.agentTaskId, { bookId: entry.projectId, modelConfig: resolveSelectedTextProviderConfig(), signal: controller.signal })
+        if (result?.ok !== true) throw new Error(result?.error?.message || result?.message || '上下文压缩未完成，原对话已保留。')
+      } else {
+        checkpoint = await summarizeAssistantContext(state.messages, state.contextCheckpoint, {
+          settings: toResolvedTextApiSettings(resolveSelectedTextProviderConfig()), signal: controller.signal
+        })
+      }
+      if (disposed || token !== runtime.token || controller.signal.aborted || activeEntry.value !== entry
+        || state.activeSessionId !== sessionId || JSON.stringify(state.messages) !== source) return false
+      if (checkpoint) state.contextCheckpoint = checkpoint
+      state.contextCompactedAt = Date.now()
+      if (persistConversation(entry)?.ok !== true) {
+        Object.assign(state, previous); syncSession(entry)
+        throw new Error(agentEngine ? '上下文已压缩，但本地状态未能保存；原消息仍保留。' : '摘要未能保存，原上下文保持不变。')
+      }
+      succeeded = true
+      return true
+    } catch (error) {
+      if (!controller.signal.aborted && token === runtime.token) state.error = errorMessage(error)
+      return false
+    } finally {
+      if (runtime.controller === controller) { runtime.controller = null; state.busy = false }
+      if (token === runtime.token) state.compacting = false
+      // A summary is not a generated assistant answer and does not consume queued messages.
+      if (token === runtime.token && !disposed) { state.status = previous.status; persistConversation(entry); inputQueue.afterTurn(entry, succeeded) }
+    }
   }
 
   function selectIntent(intent) {
@@ -590,16 +683,19 @@ export function createAuthoringKnowledgeAssistant({
     if (payload?.sampling && (!sampling || !agentEngine)) { state.error = '重答参数无效或当前助手不支持参数重答。'; return false }
     if (!editorAttached() || !project || !question || state.busy || state.agentAdoptionBusy || disposed) return false
     const initialSessionId = state.activeSessionId
-    if (runtime.cancellation) {
-      const stopped = await runtime.cancellation
-      runtime.cancellation = null
-      if (stopped === false || entry !== activeEntry.value || state.activeSessionId !== initialSessionId || disposed || state.busy) return false
+    if (runtime.cancellation || state.agentStopPending) {
+      if (!await confirmTaskStopped(entry) || entry !== activeEntry.value || state.activeSessionId !== initialSessionId || disposed || state.busy) return false
+    }
+    if (runtime.agentTurn) {
+      await runtime.agentTurn.settled
+      if (entry !== activeEntry.value || state.activeSessionId !== initialSessionId || disposed || state.busy) return false
     }
     if (payload?.projectId && normalizedText(payload.projectId) !== project) return false
     const requestPermission = cloneQueryInput(state.agentPermission)
     const requestModel = cloneQueryInput(resolveSelectedTextProviderConfig())
     const requestSessionId = state.activeSessionId
-    const providerQuestion = questionWithConversation(question, state.messages)
+    const providerQuestion = assistantQuestionWithContext(question, state.messages, state.contextCheckpoint)
+    const editDecisions = assistantEditDecisions(state.messages, project, id => getItem(`assistant_edit_receipt:${id}`, null))
     const token = ++runtime.token
     let revealChange = null
     let turnSucceeded = false
@@ -633,12 +729,15 @@ export function createAuthoringKnowledgeAssistant({
         // runAuthoringAgentTurn captures the context before its first await.
         const requestId = messageId('agent')
         const pending = runAuthoringAgentTurn({ engine: requestEngine, entry, question, providerQuestion, token, signal: controller.signal,
-          sampling, modelSelection: requestModel, permission: requestPermission, sessionId: requestSessionId, onInputConsumed: id => inputQueue.consume(entry, id), persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: requestId })
+          sampling, modelSelection: requestModel, permission: requestPermission, sessionId: requestSessionId, editDecisions, onInputConsumed: id => inputQueue.consume(entry, id), persist: () => persistConversation(entry), isCurrent: t => t === runtime.token && !disposed, id: requestId })
+        const turn = { id: requestId, settled: pending.then(() => {}, () => {}) }
+        runtime.agentTurn = turn
+        void turn.settled.then(() => { if (runtime.agentTurn === turn) runtime.agentTurn = null })
         const succeeded = await pending
         if (!succeeded || token !== runtime.token || disposed) return false
         state.status = state.messages.at(-1)?.status || 'completed'; state.hasUnread = true; state.lastRequest = null
         const message = state.messages.find(item => item.id === requestId && item.proposal)
-        if (message?.proposal && entry === activeEntry.value) {
+        if (message?.proposal && message.status === 'completed' && entry === activeEntry.value) {
           reviewedMessageId.value = message.id
           if (requestPermission.mode === 'auto' && editorAttached() && attachmentRevision() === requestAttachment) {
             const result = await applyAgentProposal({ automatic: true, permission: requestPermission })
@@ -703,6 +802,7 @@ export function createAuthoringKnowledgeAssistant({
       return true
     } catch (caught) {
       if (token !== runtime.token || disposed) return false
+      if (['AGENT_TASK_STOP_UNCONFIRMED', 'AGENT_TASK_STATUS_UNCONFIRMED', 'task-already-running'].includes(caught?.code)) state.agentStopPending = true
       const message = errorMessage(caught)
       state.status = message ? 'failed' : 'cancelled'
       if (message) {
@@ -745,7 +845,7 @@ export function createAuthoringKnowledgeAssistant({
   watch(activeProjectId, (next, previous) => {
     if (previous && next !== previous) {
       const entry = entries.get(previous)
-      if (entry) { agentEngine?.revokePermission?.(); entry.state.agentPermission = { mode: 'review', scope: 'current' }; cancelEntry(entry, { leaving: true }); persistDraft(entry) }
+      if (entry) { agentEngine?.revokePermission?.(); entry.state.agentPermission = createAssistantPermissionPreference(); cancelEntry(entry, { reason: 'project-changed' }); persistDraft(entry) }
       reviewedMessageId.value = ''
       focusedEvidenceSources.delete(previous)
     }
@@ -768,7 +868,7 @@ export function createAuthoringKnowledgeAssistant({
       if (entry.runtime.staleTimer) clearTimeout(entry.runtime.staleTimer)
       entry.runtime.staleTimer = null
       entry.runtime.staleToken += 1
-      cancelEntry(entry, { leaving: true })
+      cancelEntry(entry, { reason: 'owner-disposed' })
       persistDraft(entry)
       focusedEvidenceSources.delete(entry.projectId)
     }
@@ -780,24 +880,31 @@ export function createAuthoringKnowledgeAssistant({
     for (const message of state.messages) if (message.proposal) byId.set(message.id, message)
     return [...byId.values()]
   })
-  const pendingProposals = computed(() => allProposalMessages.value.filter(message => ['pending', 'partial'].includes(getItem(`assistant_edit_receipt:${message.proposal.id}`, null)?.status || message.proposal.status)).map(message => ({ ...message.proposal, messageId: message.id })))
-  const proposalReview = computed(() => activeEntry.value.state.messages.find(message => message.id === reviewedMessageId.value)?.proposal || null)
+  const pendingProposals = computed(() => allProposalMessages.value.filter(message => reviewableProposal(message) && ['pending', 'partial'].includes(getItem(`assistant_edit_receipt:${message.proposal.id}`, null)?.status || message.proposal.status)).map(message => ({ ...message.proposal, messageId: message.id })))
+  const proposalReview = computed(() => activeEntry.value.state.messages.find(message => message.id === reviewedMessageId.value && reviewableProposal(message))?.proposal || null)
   const canUndoProposal = computed(() => agentEngine?.canUndoProposal?.(proposalReview.value) || false)
-  function reviewProposal(id) {
+  function reviewProposal(id, { locate = true } = {}) {
     const state = activeEntry.value.state
-    if (state.busy || state.agentAdoptionBusy) return false
+    if (state.agentAdoptionBusy) return false
     let message = state.messages.find(item => item.id === id)
     if (!message) {
       const session = state.agentSessions.find(session => session.messages?.some(item => item.id === id))
       if (!session || !selectSession(session.sessionId)) return false
       message = state.messages.find(item => item.id === id)
     }
-    if (!message?.proposal) return false
+    if (!reviewableProposal(message)) return false
     const stored = getItem(`assistant_edit_receipt:${message.proposal.id}`, null)
     if (stored?.bookId === message.proposal.bookId) message.proposal = stored
     reviewedMessageId.value = id
-    onReviewProposal?.(message.proposal.changes[0])
+    if (locate) onReviewProposal?.(message.proposal.changes[0])
     return true
+  }
+  async function adoptSettingsProposal(id) {
+    if (!reviewProposal(id, { locate: false })) return false
+    const proposal = proposalReview.value
+    if (!proposal || !['pending', 'partial'].includes(proposal.status) ||
+      !proposal.changes?.length || proposal.changes.some((change) => change.kind !== 'worldbook')) return false
+    return applyAgentProposal()
   }
   async function undoAgentProposal(id) {
     const message = activeEntry.value.state.messages.find(item => item.id === id)
@@ -805,41 +912,53 @@ export function createAuthoringKnowledgeAssistant({
     reviewedMessageId.value = id
     return applyAgentProposal({ undo: true })
   }
-  async function applyAgentProposal({ undo = false, discard = false, changeIds = null, automatic = false, permission = null } = {}) {
+  async function applyAgentProposal({ undo = false, discard = false, changeIds = null, automatic = false, permission = null, acknowledge = null } = {}) {
     const entry = activeEntry.value
-    const proposal = proposalReview.value
+    let proposal = proposalReview.value
     if (!editorAttached() || !proposal || (entry.state.busy && !automatic) || entry.state.agentAdoptionBusy) return false
+    const messageId = reviewedMessageId.value
     const adoptionPermission = cloneQueryInput(automatic ? permission || entry.state.runningPermission : entry.state.agentPermission)
     const sessionId = entry.state.activeSessionId
     entry.state.agentAdoptionBusy = true
     try {
-      if (!undo && !discard) {
+      if (entry.runtime.agentTurn?.id === messageId) await entry.runtime.agentTurn.settled
+      if (entry !== activeEntry.value || entry.state.activeSessionId !== sessionId || reviewedMessageId.value !== messageId || !editorAttached() || entry.state.busy && !automatic) return false
+      proposal = proposalReview.value
+      if (!proposal) return false
+      if (entry.state.agentStopPending && !await confirmTaskStopped(entry)) return false
+      const owner = entry.state.messages.find(message => message.proposal?.id === proposal.id)
+      if (owner?.taskId && owner.status !== 'completed' && agentEngine.waitForTaskIdle) {
+        try { await agentEngine.waitForTaskIdle(owner.taskId, { bookId: entry.projectId }) }
+        catch (error) { entry.state.agentStopPending = true; throw error }
+      }
+      if (entry !== activeEntry.value || entry.state.activeSessionId !== sessionId || !editorAttached() || entry.state.busy && !automatic) return false
+      if (!undo && !discard && !acknowledge) {
         if (agentEngine.ensureEditorAuthorization) await agentEngine.ensureEditorAuthorization(adoptionPermission, sessionId)
         else if (agentEngine.authorize) {
           const prepared = typeof agentEngine.permissionContext === 'function' ? agentEngine.permissionContext() : agentEngine.prepare({ text: '', bookId: entry.projectId })
           await agentEngine.authorize(adoptionPermission, sessionId, prepared)
         }
       }
-      const result = await agentEngine.applyProposal(proposal, { undo, discard, changeIds })
+      const result = await agentEngine.applyProposal(proposal, { undo, discard, changeIds, acknowledge })
       if (!result.ok) entry.state.error = result.error
       else entry.state.error = ''
       return result.ok
     } catch (error) { entry.state.error = error.message || '修改未保存，建议已保留。'; return false }
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
-  function actOnProposal({ action, changeIds } = {}) {
-    if (!['adopt', 'discard', 'undo'].includes(action)) return false
-    return applyAgentProposal({ undo: action === 'undo', discard: action === 'discard', changeIds })
+  function actOnProposal({ action, changeIds, kind, targetId } = {}) {
+    if (!['adopt', 'discard', 'undo', 'done'].includes(action)) return false
+    return applyAgentProposal({ undo: action === 'undo', discard: action === 'discard', changeIds, acknowledge: action === 'done' ? { kind, targetId } : null })
   }
   const agentState = computed(() => {
     const state = activeEntry.value.state
     const preferenceKey = permission => JSON.stringify([permission.mode, permission.scope, [...(permission.chapterIds || [])].sort(), Boolean(permission.worldbook), Boolean(permission.outline)])
-    return { permission: state.agentPermission, currentChapterId: agentEngine?.destination?.()?.chapterId || '', permissionPending: Boolean(state.busy && state.runningPermission && preferenceKey(state.agentPermission) !== preferenceKey(state.runningPermission)), enabled: Boolean(agentEngine), taskId: state.agentTaskId, refs: state.agentRefs, skills: state.agentSkills, adoptionBusy: state.agentAdoptionBusy }
+    return { permission: state.agentPermission, currentChapterId: agentEngine?.destination?.()?.chapterId || '', permissionPending: Boolean(state.busy && state.runningPermission && preferenceKey(state.agentPermission) !== preferenceKey(state.runningPermission)), enabled: Boolean(agentEngine), taskId: state.agentTaskId, refs: state.agentRefs, skills: state.agentSkills, adoptionBusy: state.agentAdoptionBusy, stopPending: state.agentStopPending }
   })
   async function setAgentPermission(patch) {
     const entry = activeEntry.value
     if (!editorAttached() || entry.state.agentAdoptionBusy) return false
-    entry.state.agentPermission = cloneQueryInput({ ...entry.state.agentPermission, ...patch })
+    entry.state.agentPermission = createAssistantPermissionPreference({ ...entry.state.agentPermission, ...patch })
     // Settings are preferences for the next send. Revoking/replacing a policy
     // here aborts the current server stream; grant only at send or adoption.
     return true
@@ -850,7 +969,7 @@ export function createAuthoringKnowledgeAssistant({
     catch { return [] }
   }
   function setAgentReferences(refs) { activeEntry.value.state.agentRefs = refs.slice(0, 8); persistConversation(activeEntry.value) }
-  function setAgentSkills(skills) { activeEntry.value.state.agentSkills = skills.slice(0, 3); persistConversation(activeEntry.value) }
+  function setAgentSkills(skills) { activeEntry.value.state.agentSkills = skills; persistConversation(activeEntry.value) }
   function newAgentTask() { return newConversation() }
   async function adoptAgentAnswer(id) {
     const entry = activeEntry.value
@@ -867,9 +986,10 @@ export function createAuthoringKnowledgeAssistant({
     finally { entry.state.agentAdoptionBusy = false; persistConversation(entry) }
   }
   return Object.freeze({
-    undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal, actOnProposal,
+    inputCandidate,
+    undoAgentProposal, canUndoProposal, pendingProposals, proposalReview, reviewProposal, adoptSettingsProposal, closeProposal: () => { reviewedMessageId.value = '' }, applyAgentProposal, actOnProposal,
     setAgentPermission, sessions, selectSession, newConversation, editQuestion, continueFromMessage, regenerateAnswer, answerVersionInfo, selectAnswerVersion, renameConversation, archiveConversation, rateMessage, conversationDetails, deleteConversation, agentState, agentContext, agentChapterOptions, setAgentReferences, setAgentSkills, newAgentTask, adoptAgentAnswer,
-    messages, draft, selectedIntent, busy, error, lastRequest, canSubmit,
+    messages, draft, selectedIntent, busy, error, lastRequest, canSubmit, compacting, contextCompacted, canCompactContext, compactContext,
     persistenceError, hasUnread, status,
     pendingMessages: inputQueue.pending, queueMessage: inputQueue.enqueue, removeQueuedMessage: inputQueue.remove, editQueuedMessage: inputQueue.edit, resumeQueuedMessages: inputQueue.resume,
     ask, answerQuestions, retry, cancel, clear, selectIntent, refreshStaleness, markRead, updateDraft

@@ -1647,7 +1647,7 @@ describe('agentContracts', function () {
     expect(validateGenerationAgentTurnRequest({
       ...providerTurnRequest,
       options: { ...providerTurnRequest.options, timeoutMs: 100001 }
-    }).valid).toBe(false)
+    }).valid).toBe(true)
     expect(resolveGenerationToolProtocol({
       id: 'MiniMax',
       baseUrl: 'https://api.minimaxi.com/anthropic'
@@ -2528,7 +2528,7 @@ describe('agentContracts', function () {
     })
     expect(transcriptLoop.trace.evidenceRounds).toBe(1)
     expect(transcriptLoop.trace.evidenceExhausted).toBe(false)
-    expect(transcriptLoop.trace.stepTimeouts).toMatchObject({ plan: 35000, write: 60000 })
+    expect(transcriptLoop.trace.stepTimeouts).toEqual({})
 
     var optionalGroundingKernel = {
       ...narrativeKernel,
@@ -2538,7 +2538,7 @@ describe('agentContracts', function () {
           : block
       })
     }
-    expect(deriveNarrativeGroundingPolicy({ kernel: narrativeKernel }).level).toBe('required')
+    expect(deriveNarrativeGroundingPolicy({ kernel: narrativeKernel }).level).toBe('optional')
     expect(deriveNarrativeGroundingPolicy({ kernel: optionalGroundingKernel }).level).toBe('optional')
     expect(hasNarrativeGroundingEvidence([worldLookup])).toBe(true)
     expect(hasNarrativeGroundingEvidence([{ ok: false, items: [] }])).toBe(false)
@@ -2711,7 +2711,7 @@ describe('agentContracts', function () {
       kernel: narrativeKernel,
       registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
-      requestId: 'narrative-r5-grounding-gate',
+      requestId: 'narrative-r5-grounding-no-veto',
       decisionRunner: async function () {
         groundingGateCalls += 1
         return groundingGateCalls === 1
@@ -2730,10 +2730,10 @@ describe('agentContracts', function () {
             }
           : { kind: 'final_ready', text: '没有核对资料的正文', calls: [] }
       }
-    })).rejects.toMatchObject({ code: 'NARRATIVE_GROUNDING_REQUIRED' })
+    })).resolves.toMatchObject({ finalText: '没有核对资料的正文', trace: { groundingPolicy: { required: false } } })
 
     var doomLoopCalls = 0
-    await expect(runNarrativeAgentLoop({
+    const repeatedLookupRun = await runNarrativeAgentLoop({
       kernel: optionalGroundingKernel,
       registry: narrativeRegistry,
       settings: providerTurnRequest.provider,
@@ -2746,18 +2746,21 @@ describe('agentContracts', function () {
             calls: [{ id: 'doom-plan', name: 'submit_narrative_beat_plan', arguments: validBeatPlan }]
           }
         }
+        if (doomLoopCalls === 7) return { kind: 'final_ready', text: '核对完资料后继续前进。', calls: [] }
         return {
           kind: 'tool_calls',
           calls: ['a', 'b', 'c'].map(function (suffix) {
             return {
-              id: `doom-${suffix}`,
+              id: `doom-${doomLoopCalls}-${suffix}`,
               name: 'world_lookup',
               arguments: { action: 'search', query: '褚岩', limit: 1 }
             }
           })
         }
       }
-    })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_DOOM_LOOP' })
+    })
+    expect(doomLoopCalls).toBe(7)
+    expect(repeatedLookupRun.finalText).toBe('核对完资料后继续前进。')
 
     var fallbackStreamCalls = 0
     await expect(runNarrativeAgentGeneration({
@@ -2837,8 +2840,7 @@ describe('agentContracts', function () {
       trace: { status: 'ready', terminalMode: 'direct-text' }
     })
 
-    // C5：有界补全 —— finishReason=length 时同一 transcript 内自动补全一次，聚合为同一正文。
-    // Q3：respond 先提交 BeatPlan，再触发截断正文与一次补全。
+    // Length stops resume the same chapter even across multiple responses.
     var completionCalls = 0
     var completedRun = await runNarrativeAgentGeneration({
       kernel: {
@@ -2872,13 +2874,81 @@ describe('agentContracts', function () {
         if (completionCalls === 2) {
           return { kind: 'final_ready', text: '雨水沿着舷窗滑落，', finishReason: 'length', calls: [] }
         }
-        return { kind: 'final_ready', text: '打湿了甲板上的缆绳。', calls: [] }
+        if (completionCalls === 3) return { kind: 'final_ready', text: '打湿了甲板上的', finishReason: 'max_tokens', calls: [] }
+        return { kind: 'final_ready', text: '缆绳。', finishReason: 'stop', calls: [] }
       }
     })
-    expect(completionCalls).toBe(3)
+    expect(completionCalls).toBe(4)
     expect(completedRun.finalText).toBe('雨水沿着舷窗滑落，打湿了甲板上的缆绳。')
     expect(completedRun.trace.boundedCompletion).toBe(true)
     expect(completedRun.trace.incomplete).toBe(false)
+    expect(completedRun.trace.completionRounds).toBe(2)
+    expect(completedRun.trace.finishReason).toBe('stop')
+
+    // A draft becomes visible before the provider finishes; only the final
+    // result is delivered through the existing adoption callback.
+    const draftUpdates = []
+    const finalChunks = []
+    let releaseProse
+    const prosePending = new Promise(resolve => { releaseProse = resolve })
+    const liveRun = runNarrativeAgentGeneration({
+      kernel: { ...narrativeKernel, surface: 'authoring' }, registry: narrativeRegistry,
+      intent: 'extend', criticSampleRate: 0,
+      callbacks: { onDraftUpdate: update => draftUpdates.push(update), onChunk: chunk => finalChunks.push(chunk.content) },
+      decisionRunner: async request => {
+        request.onEvent?.({ type: 'text.delta', content: '他打开门。' })
+        await prosePending
+        request.onEvent?.({ type: 'text.delta', content: '\n\n屋里的人回过头。' })
+        return { kind: 'final_ready', text: '他打开门。\n\n屋里的人回过头。', calls: [], finishReason: 'stop' }
+      }
+    })
+    await vi.waitFor(() => expect(draftUpdates.some(update => update.text === '他打开门。')).toBe(true))
+    expect(finalChunks).toEqual([])
+    releaseProse()
+    expect((await liveRun).finalText).toBe('他打开门。\n\n屋里的人回过头。')
+    expect(finalChunks).toEqual(['他打开门。\n\n屋里的人回过头。'])
+    expect(draftUpdates.at(-1).text).toBe(finalChunks[0])
+
+    const toolStartUpdates = []
+    const toolStartAbort = new AbortController()
+    await expect(runNarrativeAgentLoop({
+      kernel: { ...narrativeKernel, surface: 'authoring' }, registry: narrativeRegistry,
+      intent: 'extend', signal: toolStartAbort.signal,
+      onDraftUpdate: update => toolStartUpdates.push(update.text),
+      decisionRunner: async request => {
+        request.onEvent?.({ type: 'text.delta', content: '我先查一下资料。' })
+        request.onEvent?.({ type: 'tool.input.delta', callId: 'lookup-start', toolName: 'world_lookup', input: {} })
+        const error = Object.assign(new Error('author cancelled'), { code: 'NARRATIVE_AGENT_ABORTED', generatedText: '我先查一下资料。' })
+        toolStartAbort.abort(error)
+        throw error
+      }
+    })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_ABORTED', generatedText: '' })
+    expect(toolStartUpdates).toContain('我先查一下资料。')
+    expect(toolStartUpdates.at(-1)).toBe('')
+
+    const longSegments = [...Array.from({ length: 18 }, (_, i) => `第${i + 1}节。` + '他把两份底本逐字核对。'.repeat(800)), '他翻开最后一本，找到缺失的字。']
+    let longStep = 0
+    const longChapter = await runNarrativeAgentLoop({
+      kernel: { ...narrativeKernel, blocks: narrativeKernel.blocks.map(block => block.kind === 'turn' ? { ...block, content: { input: '继续' } } : block) }, registry: narrativeRegistry, intent: 'extend',
+      decisionRunner: async () => ({ kind: 'final_ready', calls: [], text: longSegments[longStep],
+        finishReason: ++longStep < longSegments.length ? 'length' : 'stop' })
+    })
+    expect(longChapter.finalText).toBe(longSegments.join(''))
+    expect(longChapter.trace.completionRounds).toBe(18)
+    expect(longChapter.transcript.messages.length).toBeGreaterThan(32)
+
+    const interruptedCompletion = new AbortController()
+    let partialCalls = 0
+    await expect(runNarrativeAgentLoop({
+      kernel: { ...narrativeKernel, blocks: narrativeKernel.blocks.map(block => block.kind === 'turn' ? { ...block, content: { input: '继续' } } : block) }, registry: narrativeRegistry, intent: 'extend', signal: interruptedCompletion.signal,
+      decisionRunner: async request => {
+        if (++partialCalls === 1) return { kind: 'final_ready', text: '已写出的第一节。', finishReason: 'length', calls: [] }
+        request.onEvent?.({ type: 'text.delta', content: '下一节尚未写完' })
+        const error = Object.assign(new Error('author cancelled'), { code: 'NARRATIVE_AGENT_ABORTED' })
+        interruptedCompletion.abort(error)
+        throw error
+      }
+    })).rejects.toMatchObject({ code: 'NARRATIVE_AGENT_ABORTED', generatedText: '已写出的第一节。下一节尚未写完' })
 
     // P6：补全保守 —— 自然落点且 ≥70% 目标下限（651/900 字）不再补全；
     // targetChars 由应用写入（respond standard = 950），模型自报值（50）无效。
@@ -2925,9 +2995,7 @@ describe('agentContracts', function () {
     expect(conservativeRun.trace.boundedCompletion).toBe(false)
     expect(conservativeRun.trace.targetChars).toBe(950)
 
-    // P1：资料预算耗尽 → 强制完成，不再抛『两轮限制』。
-    // 模型先规划、连查两轮资料（预算=2），第三轮资料请求被闸门拦截（控制消息），
-    // 随后请求带 toolChoice none 并直接写正文。
+    // 连续查阅资料仍可继续使用工具，由模型正常完成正文。
     var budgetCalls = 0
     var budgetExhaustedRun = await runNarrativeAgentLoop({
       kernel: optionalGroundingKernel,
@@ -2962,17 +3030,17 @@ describe('agentContracts', function () {
           }
         }
         if (budgetCalls === 5) {
-          // 第三轮资料请求已被预算闸门拦截 → 请求应带 toolChoice none
-          expect(request.options.toolChoice).toBe('none')
-          return { kind: 'final_ready', text: '预算耗尽后用现有资料完成的正文。', calls: [] }
+          expect(request.options.toolChoice).toBe('auto')
+          expect(request.tools.some(tool => tool.function?.name === 'world_lookup' || tool.name === 'world_lookup')).toBe(true)
+          return { kind: 'final_ready', text: '查阅资料后完成的正文。', calls: [] }
         }
         throw new Error('unexpected extra step')
       }
     })
     expect(budgetCalls).toBe(5)
-    expect(budgetExhaustedRun.trace.evidenceExhausted).toBe(true)
-    expect(budgetExhaustedRun.trace.evidenceRounds).toBe(2)
-    expect(budgetExhaustedRun.finalText).toBe('预算耗尽后用现有资料完成的正文。')
+    expect(budgetExhaustedRun.trace.evidenceExhausted).toBe(false)
+    expect(budgetExhaustedRun.trace.evidenceRounds).toBe(3)
+    expect(budgetExhaustedRun.finalText).toBe('查阅资料后完成的正文。')
 
     // P1：geo 不再无条件暴露 —— 无地点且无路线询问时不启用 geo_lookup。
     expect(resolveNarrativeActiveToolNames('继续前进')).not.toContain('geo_lookup')

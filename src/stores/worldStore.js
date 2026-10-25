@@ -272,13 +272,16 @@ function buildWorldbookFilePayload(raw) {
   }
 }
 
-/** 双写结果轻量标记：只挂在内存 activeWorldbook 上（不入持久化，避免标记写入再触发推送）。 */
+/** 同步成功后清理助手事务的持久待同步标记；显示用时间/错误仍只更新内存。 */
 function markWorldbookFileSync(worldbookId, info) {
   try {
+    const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+    if (raw?.pendingFileSync) { delete raw.pendingFileSync; persistOrThrow(WORLDBOOK_KEY_PREFIX + worldbookId, raw, '世界书同步状态') }
     const store = useWorldStore()
     if (store.activeWorldbook?.id === worldbookId) {
       store.activeWorldbook.fileSyncAt = info?.at || Date.now()
       store.activeWorldbook.fileSyncError = null
+      delete store.activeWorldbook.pendingFileSync
     }
   } catch { /* 标记失败不影响双写 */ }
 }
@@ -490,6 +493,14 @@ export const useWorldStore = defineStore('world', {
       return resolvePlaceEntity(this.activeWorldbook, placeRef)
     },
 
+    // The assistant journal has already committed this snapshot atomically.
+    // Publish it through the same file-sync seam as ordinary entry edits.
+    publishPersistedWorldbook(worldbook) {
+      this.worldbooksIndex = decodeStored(getItem(WORLDBOOKS_INDEX_KEY), [])
+      this.activeWorldbook = worldbook
+      if (worldbook?.id) queueWorldbookFilePush(worldbook.id)
+    },
+
     // ---------- 世界书 CRUD ----------
 
     async loadWorldbooksIndex() {
@@ -514,17 +525,21 @@ export const useWorldStore = defineStore('world', {
         const persistedRaw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
         // 文件真源优先（W2·A3）：server 不可达/超时/未绑定/条目失配 → 完全走原 localStorage
         // 路径（零行为差异）；文件缺失而本地有 → 首载迁移（异步幂等推一次）。
-        const fileSource = await resolveWorldbookLoadSource(worldbookId, persistedRaw)
+        const fileSource = persistedRaw?.pendingFileSync ? { source: 'localStorage' } : await resolveWorldbookLoadSource(worldbookId, persistedRaw)
+        // An adopted assistant edit is already durable locally; an older file
+        // must not replace it while its existing file-sync queue is pending.
+        const pendingRaw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (pendingRaw?.pendingFileSync) { fileSource.source = 'localStorage'; fileSource.raw = pendingRaw }
         if (fileSource.source === 'blocked') throw new Error(fileSource.error?.message || '世界书文件无法读取，未覆盖现有数据。')
-        if (!persistedRaw && fileSource.source !== 'files') throw new Error('世界书不存在')
-        const raw = fileSource.source === 'files' ? fileSource.raw : persistedRaw
+        if (!persistedRaw && !fileSource.raw && fileSource.source !== 'files') throw new Error('世界书不存在')
+        const raw = fileSource.raw || persistedRaw
         const normalized = normalizeWorldbook(raw)
         const loaded = await migrateLegacyWorldbookSources(worldbookId, normalized)
         if (activationTicket === worldbookActivationSequence) {
           this.activeWorldbook = loaded
           if (fileSource.source === 'files') {
             cacheWorldbookFromFiles(worldbookId, raw)
-          } else if (fileSource.migrate && persistedRaw) {
+          } else if ((fileSource.migrate || raw?.pendingFileSync) && raw) {
             queueWorldbookFilePush(worldbookId)
           }
         }
@@ -1438,6 +1453,48 @@ export const useWorldStore = defineStore('world', {
         structuredSettings,
         entries
       })
+    },
+
+    async adoptStructuredSettingDrafts(worldbookId, sectionKey, drafts, expectedWorldbook) {
+      return unwrapWorldbookMutation(await this._runWorldbookMutation(worldbookId, async () => {
+        const raw = decodeStored(getItem(WORLDBOOK_KEY_PREFIX + worldbookId), null)
+        if (!raw) throw new Error('世界书不存在')
+        const worldbook = normalizeWorldbook(raw)
+        if (
+          String(worldbook.updatedAt || '') !== String(expectedWorldbook?.updatedAt || '') ||
+          JSON.stringify(normalizeStructuredSettings(worldbook.structuredSettings)) !==
+            JSON.stringify(normalizeStructuredSettings(expectedWorldbook?.structuredSettings))
+        ) throw new Error('世界书已更新，请确认最新内容后重新生成。')
+
+        const section = getSettingSection(sectionKey)
+        if (!section || !Array.isArray(drafts) || drafts.length === 0) throw new Error('没有可采纳的设定草稿')
+        const structuredSettings = normalizeStructuredSettings(worldbook.structuredSettings)
+        let entries = worldbook.entries
+        let structuredCharacterTombstones = worldbook.structuredCharacterTombstones || []
+        let includesCharacter = false
+        const seen = new Set()
+        for (const draft of drafts) {
+          const fieldKey = String(draft?.fieldKey || '')
+          const field = getSettingField(sectionKey, fieldKey)
+          if (!field || seen.has(fieldKey)) throw new Error('设定草稿字段无效或重复')
+          seen.add(fieldKey)
+          const content = String(draft.content || '')
+          structuredSettings[sectionKey][fieldKey] = content
+          if (field.entryType === 'character') {
+            includesCharacter = true
+            const ref = structuredSettingRef(sectionKey, fieldKey)
+            structuredCharacterTombstones = structuredCharacterTombstones.filter((item) => !String(item).startsWith(`${ref}:`))
+            entries = entries.filter((entry) => entry?.metadata?.structuredSettingRef !== ref)
+          } else {
+            entries = upsertStructuredFieldEntry(entries, section, field, content, { now: Date.now() })
+          }
+        }
+        return this._updateWorldbookMutation(worldbookId, {
+          structuredSettings,
+          entries,
+          ...(includesCharacter ? { structuredCharacterTombstones, structuredCharacterMigrationVersion: 0 } : {})
+        })
+      }, 'worldbook'), 'worldbook')
     },
 
     async convertStructuredSettingToEntry(worldbookId, sectionKey, fieldKey) {

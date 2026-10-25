@@ -199,7 +199,7 @@ function parseResponse(data, request, resolved) {
 
 function createAbortContext(externalSignal, timeoutMs) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
+  const timeoutId = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => controller.abort(new Error('timeout')), timeoutMs) : null
   const onAbort = () => controller.abort(externalSignal?.reason)
   if (externalSignal) {
     if (externalSignal.aborted) onAbort()

@@ -282,7 +282,7 @@
         </template>
 
         <template v-else-if="!selectedChapterId">
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.operation === 'create')" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.operation === 'create')" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
               <span class="wall__empty-kicker">{{ tr('空白章节') }}</span>
@@ -449,11 +449,11 @@
               @dismiss="dismissFirstRunGuide"
             />
             <div v-if="!knowledgeAssistant.proposalReview.value && assistantPanelProposals.length" class="writing-inspector__pending-proposals"><button v-for="proposal in assistantPanelProposals" :key="proposal.id" type="button" @click="knowledgeAssistant.reviewProposal(proposal.messageId)">{{ tr('查看修改建议') }} · {{ proposal.changes.find(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook'))?.label }}</button></div>
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && (change.targetId === selectedChapterId || change.operation === 'create'))" kind="chapter" :compact="!knowledgeAssistant.proposalReview.value.changes.some(change => change.operation === 'create')" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
+        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && (change.targetId === selectedChapterId || change.operation === 'create'))" kind="chapter" :compact="!knowledgeAssistant.proposalReview.value.changes.some(change => change.operation === 'create')" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
             <WritingNotebookEditor
               :key="notebookDocumentKey"
               ref="notebookEditorRef"
-              :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, chapterId: selectedChapterId, busy: knowledgeAssistant.agentState.value.adoptionBusy }"
+              :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, chapterId: selectedChapterId, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy }"
               @assistant-edit-action="knowledgeAssistant.applyAgentProposal({ discard: $event.action === 'discard', changeIds: [$event.changeId] })"
               :model-value="markdownContent"
               :document="writingDocument"
@@ -1047,7 +1047,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="outline">
-          <AuthoringOutlinePanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :key="selectedBookId" :book-id="selectedBookId"
+          <AuthoringOutlinePanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :key="selectedBookId" :book-id="selectedBookId"
             :chapter-id="selectedChapterId"
             :items="chapterOutlineItems"
             :project-nodes="wt3OutlineNodes"
@@ -1074,7 +1074,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
-          <AuthoringWorldbookPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal"
+          <AuthoringWorldbookPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal"
             :worldbook="boundWorldbook"
             :book-id="selectedBookId"
             :selected-text="selectedText"
@@ -1241,7 +1241,7 @@
           :chapter-selected="Boolean(selectedChapterId) && !wt3ActiveDoc"
         />
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
-          <AuthoringCharacterPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :manuscript-language="currentBook?.manuscriptLanguage"
+          <AuthoringCharacterPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
             :chapters="chapters"
             :current-chapter-id="selectedChapterId"
@@ -1696,7 +1696,7 @@ import {
   resolveInsertOffset,
   spliceTextAt
 } from '../services/agents/authoring/writingSelectionCapture'
-import { getItem, STORAGE_KEYS } from '../composables/useStorage'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import {
   deleteWritingAnnotation,
   getWritingAnnotationLabel,
@@ -3552,7 +3552,7 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
     observeAdoption: ({ text, unitId, bookId, chapterId }) => commitDirectAuthoringObservation({ text, unitId, memoryProjectId: bookId, documentId: chapterId, chapterId, unitRevision: 0, sourceRefs: [`unit:${chapterId}:${unitId}`], sourceDocumentRevision: currentDocumentRevision() }),
     readBooks: () => books.value, saveBooks: saveWritingBooksDurable,
     publishRepository: publishWritingBooks,
-    publishWorldbook: (next) => { worldStore.worldbooksIndex = getItem('worldbooks_index', []) || []; if (!next || String(currentBook.value?.worldbookId) === String(next.id)) { worldStore.activeWorldbook = next; boundWorldbook.value = next } },
+    publishWorldbook: (next) => { if (!next || String(currentBook.value?.worldbookId) === String(next.id)) { worldStore.publishPersistedWorldbook(next); boundWorldbook.value = next } },
     publishBooks: (next, chapterId) => { books.value = next; chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters;
       const chapter = chapters.value.find(c => c.id === chapterId); if (!chapter) return; if (!selectedChapterId.value) selectedChapterId.value = chapterId; currentChapterTitle.value = chapter.title || ''; markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value); fenceNotebookHistory() }
   }),
@@ -5227,7 +5227,7 @@ const authoringTask = useAuthoringTask({
       }
     }
   },
-  execute: async ({ taskId, request, signal }) => {
+  execute: async ({ taskId, request, signal, onDraftUpdate }) => {
     const runtime = getAuthoringRuntime()
     if (!getAuthoringFacade()) throw Object.assign(new Error(tr('请先选择章节')), { code: 'AGENT_NO_TARGET' })
     const intent = {
@@ -5248,7 +5248,8 @@ const authoringTask = useAuthoringTask({
     const outcome = await runtime.execute({
       taskId,
       intent,
-      signal
+      signal,
+      onDraftUpdate
     })
     if (outcome.status === 'stale') {
       const generatedAction = (outcome.result?.actions || [])

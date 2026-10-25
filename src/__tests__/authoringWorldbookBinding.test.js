@@ -74,6 +74,186 @@ describe('authoring project worldbook binding', () => {
     expect(calls).toEqual(['wa-slow', 'wb', 'missing'])
 }
 {
+    // An empty chapter still receives its bound world's foundation. Foundation
+    // edits invalidate that frozen run without depending on updatedAt or entries.
+    const { createWritingDocument } = await import('../services/writing/writingDocumentSchema.js')
+    const { createAuthoringRunSessionAdapter } = await import('../services/agents/authoring/authoringRunSessionAdapter.js')
+    const { collectAuthoringRunDependencyRevisions } = await import('../services/agents/context/authoringRunContextDependencies.js')
+    const { reconcileManifestDependencies } = await import('../services/agents/context/contextManifestLifecycle.js')
+    const { readAuthoringWorldbookFoundationCandidates, worldbookFoundationRevision } = await import('../services/agents/context/authoringRunContextReaders.js')
+    const { createManifestAuthorizedNarrativeIndex } = await import('../services/agents/context/manifestToolAuthorization.js')
+    const document = createWritingDocument('')
+    const unit = document.content[0]
+    const node = unit.content[0]
+    let worldbook = {
+      id: 'wb-foundation', name: '暮湾', updatedAt: 1,
+      worldDescription: `这座西幻港城以教堂钟声计时。${'街区沿山坡伸向海港。'.repeat(40)}世界概述末尾仍须保留。`,
+      writingStyle: '第三人称限知，克制而清晰。',
+      forbidden: '不改变本书既定世界前提。',
+      examples: '钟声越过潮水，门房抬头看向山坡。',
+      entries: []
+    }
+    const invocationTarget = {
+      projectId: 'book-foundation', documentRole: 'manuscript', documentId: 'chapter-foundation', chapterId: 'chapter-foundation',
+      unitId: unit.attrs.unitId, nodeId: node.attrs.nodeId, cursorLocalOffset: 0,
+      documentRevision: String(document.revision), documentSchemaRevision: String(document.revision),
+      unitRevision: String(unit.attrs.unitRevision), nodeRevision: String(node.attrs.nodeRevision)
+    }
+    const projection = {
+      schemaVersion: 2, projectId: invocationTarget.projectId, chapterId: invocationTarget.chapterId,
+      revision: String(document.revision), activeUnitId: unit.attrs.unitId,
+      worldbookId: worldbook.id, worldbookStatus: 'bound', presentCharacters: [], sourceRefs: []
+    }
+    const worldbookRepository = {
+      getBoundWorldbook: (projectId, worldbookId) => worldbook && projectId === invocationTarget.projectId && worldbookId === worldbook.id
+        ? { projectId, worldbookId, worldbook } : null
+    }
+    const adapter = createAuthoringRunSessionAdapter({
+      repositoryAdapters: {
+        liveTargetReader: expected => ({ ...expected, document, sceneProjection: projection }),
+        worldbookRepository
+      }
+    })
+    const request = { intent: { invocationTarget, turn: { operation: 'next-passage', instruction: '写第一章。' } } }
+    const prepared = await adapter.prepareSession({ taskId: 'authoring.advance', request })
+    expect(prepared.ok).toBe(true)
+    const manifest = prepared.session.manifest
+    const foundation = manifest.blocks.find(block => block.kind === 'worldbook-foundation')
+    const foundationRef = 'worldbook-foundation:wb-foundation'
+    expect(foundation).toMatchObject({
+      candidateId: foundationRef, primarySourceRef: foundationRef, sourceId: 'wb-foundation', sourceKind: 'worldbook-foundation',
+      sourceAuthority: 'author-adopted', narrativeStatus: 'constraint', usageRole: 'intent', representation: 'full'
+    })
+    for (const field of ['worldDescription', 'writingStyle', 'forbidden', 'examples']) expect(foundation.text).toContain(worldbook[field])
+    expect(Object.isFrozen(foundation)).toBe(true)
+    expect(reconcileManifestDependencies(manifest, await adapter.collectLiveDependencies(prepared.session))).toEqual([])
+    // The foundation has no invented worldbook-entry identity or lookup access.
+    const authorized = createManifestAuthorizedNarrativeIndex({ manifest, projectId: invocationTarget.projectId })
+    expect(authorized.ok).toBe(true)
+    expect(authorized.index.counts.world).toBe(0)
+    // Offline generation smoke: the production executor sends the frozen
+    // foundation and reports those exact bytes, with no model request.
+    const { createNarrativeKernelExecutor } = await import('../services/agents/authoring/narrativeKernelExecutor.js')
+    let providerSerialization
+    const executor = createNarrativeKernelExecutor({
+      runGeneration: async ({ kernelSerialization }) => {
+        providerSerialization = kernelSerialization
+        return { finalText: '钟声越过潮水。', trace: { calls: [] } }
+      }
+    })
+    const generated = await executor.executeTurn({
+      projectId: invocationTarget.projectId, projection: prepared.session.sceneProjection, contextManifest: manifest,
+      turn: { kind: 'action', operation: 'next-passage', instruction: '写第一章。' },
+      resolveLiveContextDependencies: () => adapter.collectLiveDependencies(prepared.session)
+    })
+    expect(providerSerialization.serializedBlocks[foundationRef]).toBe(foundation.text)
+    expect(generated.contextReceipt.entries.find(entry => entry.candidateId === foundationRef))
+      .toMatchObject({ included: true, actualChars: foundation.text.length, cut: false })
+    expect(generated.contextReconciliation).toEqual([])
+
+    const initialWorldbook = worldbook
+    const revision = worldbookFoundationRevision(worldbook)
+    worldbook = { ...initialWorldbook, updatedAt: 99, entries: [{ id: 'unused', content: '无关条目改动' }] }
+    expect(worldbookFoundationRevision(worldbook)).toBe(revision)
+    expect(reconcileManifestDependencies(manifest, await adapter.collectLiveDependencies(prepared.session))).toEqual([])
+    for (const field of ['name', 'worldDescription', 'writingStyle', 'forbidden', 'examples']) {
+      worldbook = { ...initialWorldbook, [field]: `${initialWorldbook[field]}（作者新修订）` }
+      expect(reconcileManifestDependencies(manifest, await adapter.collectLiveDependencies(prepared.session)))
+        .toContainEqual(expect.objectContaining({ dependency: foundationRef, reason: 'revision-changed' }))
+      expect(foundation.text).not.toContain('作者新修订')
+    }
+    worldbook = null
+    expect(reconcileManifestDependencies(manifest, await adapter.collectLiveDependencies(prepared.session)))
+      .toContainEqual(expect.objectContaining({ dependency: foundationRef, reason: 'revision-missing' }))
+    const staleOverride = collectAuthoringRunDependencyRevisions({ sceneProjection: projection, sourceRevisions: manifest.dependencies })
+    expect(staleOverride[foundationRef]).toBeUndefined()
+    const mismatch = await readAuthoringWorldbookFoundationCandidates({
+      projectId: invocationTarget.projectId, worldbookId: 'wb-foundation',
+      repository: { getBoundWorldbook: () => ({ projectId: 'other-book', worldbookId: 'wb-foundation', worldbook: initialWorldbook }) }
+    })
+    expect(mismatch.candidates).toEqual([])
+    expect(mismatch.exclusions[0].reason).toBe('worldbook-binding-mismatch')
+
+    worldbook = { id: 'wb-foundation', name: '默认世界书', description: '自动创建的默认世界书', entries: [] }
+    const empty = await adapter.prepareSession({ taskId: 'authoring.advance', request })
+    expect(empty.ok).toBe(true)
+    expect(empty.session.manifest.blocks.some(block => block.kind === 'worldbook-foundation')).toBe(false)
+    worldbook = { ...initialWorldbook, worldDescription: '', description: '旧版保存的世界前提。' }
+    const legacy = await adapter.prepareSession({ taskId: 'authoring.advance', request })
+    expect(legacy.session.manifest.blocks.find(block => block.kind === 'worldbook-foundation').text).toContain(worldbook.description)
+
+    worldbook = { ...initialWorldbook, entries: ['rule', 'style', 'forbidden', 'source'].map(type => ({
+      id: type, type, name: type, content: `${type}的已存正文`, enabled: true, injection: { mode: 'constant' }
+    })) }
+    const withEntries = await adapter.prepareSession({ taskId: 'authoring.advance', request })
+    for (const type of ['rule', 'style', 'forbidden']) expect(withEntries.session.manifest.blocks.find(block => block.sourceId === type))
+      .toMatchObject({ usageRole: 'intent', narrativeStatus: 'constraint', sourceAuthority: 'imported-reference' })
+    expect(withEntries.session.manifest.blocks.find(block => block.sourceId === 'source'))
+      .toMatchObject({ usageRole: 'inspiration', narrativeStatus: 'hypothesis', sourceAuthority: 'imported-reference' })
+
+    // Required narrative inputs cannot disappear behind the reference budget.
+    worldbook = { ...initialWorldbook, worldDescription: '界'.repeat(12801) }
+    const longFoundationRun = await adapter.prepareSession({ taskId: 'authoring.advance', request })
+    expect(longFoundationRun.ok).toBe(true)
+    expect(longFoundationRun.session.manifest.blocks.find(block => block.kind === 'worldbook-foundation').text)
+      .toContain(worldbook.worldDescription)
+    expect(longFoundationRun.session.manifest.totalChars).toBeGreaterThan(12800)
+    expect(longFoundationRun.session.manifest.budget.totalChars).toBe(longFoundationRun.session.manifest.totalChars)
+
+    const { compileWritingContext } = await import('../services/agents/context/writingContextCompiler.js')
+    const foundationCandidate = prepared.session.candidates.find(candidate => candidate.kind === 'worldbook-foundation')
+    const ruleCandidate = withEntries.session.candidates.find(candidate => candidate.sourceId === 'rule')
+    const currentText = '文'.repeat(12000)
+    const currentCandidate = {
+      id: 'unit:chapter-foundation:current', kind: 'manuscript-unit', projectId: invocationTarget.projectId,
+      sourceAuthority: 'canonical-manuscript', narrativeStatus: 'fact', temporalRelation: 'at-target',
+      position: { chapterId: invocationTarget.chapterId, unitId: 'current' }, revision: 'unit-r1',
+      sourceRefs: ['unit:chapter-foundation:current'], representations: { full: currentText, excerpt: currentText.slice(-4800) }
+    }
+    const target = { projectId: invocationTarget.projectId, chapterId: invocationTarget.chapterId, unitId: 'current', contextMode: 'caret-prefix' }
+    const smallFoundation = { ...foundationCandidate, representations: { full: '界'.repeat(1000) } }
+    const combined = compileWritingContext({ candidates: [smallFoundation, currentCandidate], target, profile: 'narrative-long' })
+    expect(combined.blocks.find(block => block.candidateId === currentCandidate.id)).toMatchObject({ text: currentText, representation: 'full' })
+    expect(combined.blocks.find(block => block.candidateId === foundationCandidate.id).text).toBe(smallFoundation.representations.full)
+    expect(combined.totalChars).toBe(13000)
+    expect(combined.excluded).toEqual([])
+
+    const references = Array.from({ length: 30 }, (_, index) => ({
+      id: `narrative-asset:reference-${index}`, kind: 'narrative-asset', projectId: invocationTarget.projectId,
+      sourceId: `reference-${index}`, sourceRefs: [`narrative-asset:reference-${index}`],
+      sourceAuthority: 'author-explicit', narrativeStatus: 'hypothesis', temporalRelation: 'atemporal',
+      revision: 'asset-r1', pinned: true, representations: { full: '参考'.repeat(500) }
+    }))
+    const foreignConstraint = { ...ruleCandidate, id: 'foreign-rule', projectId: 'other-book', pinned: true }
+    const crowded = compileWritingContext({
+      candidates: [...references, foreignConstraint, smallFoundation, ruleCandidate, currentCandidate], target, profile: 'narrative-long'
+    })
+    expect(crowded.blocks.map(block => block.candidateId)).toEqual([
+      currentCandidate.id, smallFoundation.id, ruleCandidate.id, ...references.slice(0, 12).map(candidate => candidate.id)
+    ])
+    expect(crowded.excluded).toContainEqual(expect.objectContaining({ candidateId: 'foreign-rule', reason: 'project-mismatch' }))
+    expect(crowded.excluded.filter(item => item.candidateId.startsWith('narrative-asset:'))).toHaveLength(18)
+    const manyRules = Array.from({ length: 30 }, (_, index) => ({
+      ...ruleCandidate, id: `worldbook-entry:rule-${index}`, sourceId: `rule-${index}`,
+      primarySourceRef: `worldbook-entry:rule-${index}`, sourceRefs: [`worldbook-entry:rule-${index}`]
+    }))
+    const crowdedByCount = compileWritingContext({ candidates: [...references, ...manyRules], target, profile: 'narrative-long' })
+    expect(crowdedByCount.blocks.map(block => block.candidateId)).toEqual([
+      ...manyRules.map(candidate => candidate.id), ...references.slice(0, 12).map(candidate => candidate.id)
+    ])
+    expect(crowdedByCount.budget.maxItems).toBe(42)
+
+    const longerCurrent = { ...currentCandidate, representations: { full: '文'.repeat(18000), excerpt: '文'.repeat(4800) } }
+    for (const contextMode of ['caret-prefix', 'rewrite-unit']) {
+      const complete = compileWritingContext({ candidates: [longerCurrent], target: { ...target, contextMode }, profile: 'narrative-long' })
+      expect(complete.blocks[0]).toMatchObject({ text: longerCurrent.representations.full, representation: 'full', contextMode })
+    }
+    // The separate short profile still owns its original excerpt budget.
+    const short = compileWritingContext({ candidates: [longerCurrent, smallFoundation], target, profile: 'manual-short' })
+    expect(short.blocks.find(block => block.candidateId === currentCandidate.id)).toMatchObject({ representation: 'excerpt', text: longerCurrent.representations.excerpt })
+    expect(short.totalChars).toBeLessThanOrEqual(6400)
+}
+{
 expect(normalizeBookWorldbookBinding({ worldbookId: 42 })).toBe('42')
     expect(normalizeBookWorldbookBinding({ worldbookId: ' wb-1 ' })).toBe('wb-1')
     expect(normalizeBookWorldbookBinding({})).toBe('')

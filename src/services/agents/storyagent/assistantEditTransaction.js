@@ -1,12 +1,15 @@
+import { applyEntryDetails, entryDetailsSnapshot } from '../../../../shared/assistantEntryDetails.js'
 import { parseCharacterEntryProfile } from '../../characterCard.js'
 import { mergeWritingDocumentFromMarkdown, getChapterMarkdown, getWritingBlockAtPosition, getWritingDocumentNodes, createWritingDocument } from '../../writing/writingDocumentSchema.js'
-import { validateAssistantChanges } from '../../../../shared/assistantEditProposal.js'
+import { validateAssistantChanges, reserveAssistantCreateIds } from '../../../../shared/assistantEditProposal.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const valueOf = (target, change) => change.kind === 'chapter' && change.field === 'content' ? getChapterMarkdown(target) : String(target?.[change.field] || '')
 function listOf(book, worldbook, kind) { return kind === 'chapter' ? book.chapters : kind === 'outline' ? (book.outlineNodes ||= []) : worldbook?.entries || [] }
 export function prepareAssistantProposal(input, { book, worldbook, runId }) {
-  const changes = validateAssistantChanges(input)
+  const changes = reserveAssistantCreateIds(validateAssistantChanges(input), { chapter: book.chapters || [], worldbook: worldbook?.entries || [], outline: book.outlineNodes || [] })
+  const worldIds = new Set([...(worldbook?.entries || []).map(entry => String(entry.id)), ...changes.filter(change => change.kind === 'worldbook' && change.operation === 'create').map(change => change.targetId)])
+  for (const change of changes) if (change.details?.relations?.some(row => !worldIds.has(row.to))) throw new Error('关系目标不在本书设定中，请先查阅或新建对应条目。')
   const ranges = new Map()
   const prepared = changes.map((change, index) => {
     const key = `${change.kind}:${change.targetId}:${change.field}`
@@ -31,7 +34,7 @@ export function prepareAssistantProposal(input, { book, worldbook, runId }) {
     // Surrounding text protects location while permitting unrelated edits elsewhere.
     const sourceNode = change.kind === 'chapter' && target.editorDocument ? getWritingBlockAtPosition(target.editorDocument, from) : null
     const anchor = { from, to, nodeId: sourceNode?.nodeId || '', unitId: sourceNode?.unitId || '', prefix: baseline.slice(Math.max(0, from - 48), from), suffix: baseline.slice(to, to + 48) }
-    return { ...change, ...identity, label: target.name || target.title || change.targetId, baseline, anchor }
+    return { ...change, ...identity, ...(change.details ? { detailsBaseline: entryDetailsSnapshot(target) } : {}), label: target.name || target.title || change.targetId, baseline, anchor }
   })
   for (const change of prepared) if ((change.dependsOn || []).some(id => !prepared.some(item => item.changeId === id) || id === change.changeId)) throw new Error('修改依赖不存在。')
   return { schemaVersion: 2, id: `${runId}:edit`, runId, bookId: String(book.id), worldbookId: String(book.worldbookId || ''), status: 'pending', changes: prepared }
@@ -79,6 +82,7 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     const target = listOf(book, worldbook, change.kind)?.find(item => String(item.id) === change.targetId)
     const original = valueOf(target, change)
     if (change.anchor?.nodeId && target?.editorDocument && !getWritingDocumentNodes(target.editorDocument).some(item => item.node.attrs.nodeId === change.anchor.nodeId)) throw new Error('原段落已删除，请重新定位。')
+    if (change.details && entryDetailsSnapshot(target) !== change.detailsBaseline) throw new Error('条目属性已变化，请重新生成修改。')
     applyTextChange(original, change) // Validate every anchor against the same original field before changing it.
     const needle = change.anchor ? change.anchor.prefix + (change.operation === 'insert' ? '' : change.before) + change.anchor.suffix : change.before
     placements.set(change.changeId, change.operation === 'append' ? original.length : original.indexOf(needle) + (change.anchor?.prefix?.length || 0))
@@ -95,6 +99,7 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
       if (target) throw new Error('新建条目已存在。')
       const created = { id: change.targetId, ...(change.kind === 'worldbook' ? { type: change.entryType, name: change.title, content: '' } : { title: change.title, content: '' }) }
       assign(created, change, change.after)
+      applyEntryDetails(created, change.details)
       list.push(created); receipts.push({ ...change, created: true, afterEntity: JSON.stringify(created) }); continue
     }
     if (!target) throw new Error('修改目标已不存在。')
@@ -113,7 +118,15 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     const hadCharacterProfile = Object.hasOwn(target.metadata || {}, 'characterProfile')
     const beforeCharacterProfile = hadCharacterProfile ? clone(target.metadata.characterProfile) : null
     if (undo && characterContent && change.appliedCharacterProfile && JSON.stringify(target.metadata?.characterProfile) !== change.appliedCharacterProfile) throw new Error('人物资料已被修改，无法直接撤销。')
+    const beforeDetails = change.details ? entryDetailsSnapshot(target) : null
+    if (undo && change.details && beforeDetails !== change.appliedDetails) throw new Error('条目属性已变化，不能直接撤销。')
     assign(target, change, after)
+    if (change.details) {
+      if (undo) {
+        for (const key of ['aliases', 'profile', 'relations', 'links', 'sourceRefs']) delete target[key]
+        Object.assign(target, JSON.parse(change.beforeDetails))
+      } else applyEntryDetails(target, change.details)
+    }
     if (undo && Object.hasOwn(change, 'beforeEditorDocument')) {
       if (change.beforeEditorDocument) target.editorDocument = { ...clone(change.beforeEditorDocument), revision: Number(target.editorDocument?.revision || 0) + 1 }
       else delete target.editorDocument
@@ -129,12 +142,12 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
         else delete target.metadata.characterProfile
       }
     }
-    receipts.push({ ...change, ...(beforeEditorDocument !== undefined ? { beforeEditorDocument } : {}), baseline: before, applied: valueOf(target, change), ...(characterContent ? { hadCharacterProfile, beforeCharacterProfile, appliedCharacterProfile: JSON.stringify(target.metadata.characterProfile) } : {}) })
+    receipts.push({ ...change, ...(change.details ? { beforeDetails, appliedDetails: entryDetailsSnapshot(target) } : {}), ...(beforeEditorDocument !== undefined ? { beforeEditorDocument } : {}), baseline: before, applied: valueOf(target, change), ...(characterContent ? { hadCharacterProfile, beforeCharacterProfile, appliedCharacterProfile: JSON.stringify(target.metadata.characterProfile) } : {}) })
   }
   if (undo && proposal.receipt.createdWorldbook && !nextWorldbook.entries.length && !(nextWorldbook.sourceDocuments || []).length) { nextBook.worldbookId = ''; nextWorldbook = null }
   if (nextWorldbook) nextWorldbook.entriesMap = Object.fromEntries(nextWorldbook.entries.map(entry => [entry.id, entry]))
   nextBook.updatedAt = new Date().toISOString()
-  if (nextWorldbook && changes.some(change => change.kind === 'worldbook')) nextWorldbook.updatedAt = Date.now()
+  if (nextWorldbook && changes.some(change => change.kind === 'worldbook')) nextWorldbook.updatedAt = Math.max(Date.now(), Number(worldbook?.updatedAt || 0) + 1)
   const handled = new Set((undo ? proposal.receipt.changes : selected).map(change => change.changeId))
   const proposalChanges = proposal.changes.map(change => handled.has(change.changeId) ? { ...change, status: undo ? 'undone' : discard ? 'discarded' : 'adopted' } : { ...change })
   // Partial adoption advances anchors using the recorded positions, never by guessing a repeated fragment.

@@ -1,4 +1,5 @@
-import { computed, ref, unref } from 'vue'
+import { entryDetailsSnapshot } from '../../shared/assistantEntryDetails.js'
+import { computed, unref } from 'vue'
 import { applyAssistantProposal } from '../services/agents/storyagent/assistantEditTransaction.js'
 import { buildWritingCandidateDiff } from '../../shared/writingCandidateContract.js'
 const value = input => typeof input === 'function' ? input() : unref(input)
@@ -7,7 +8,6 @@ const pending = change => !change.status || change.status === 'pending'
 // Read-only projections for the existing object editor. Every actual write still
 // goes through the assistant's permission/revision checked adoption transaction.
 export function useAssistantObjectEdits({ review, items, selectedId, kind = 'worldbook', worldbook, emit }) {
-  const acknowledged = ref(new Set())
   const current = computed(() => {
     const input = value(review)
     const proposal = input?.proposal
@@ -17,6 +17,7 @@ export function useAssistantObjectEdits({ review, items, selectedId, kind = 'wor
     return { ...input, proposal }
   })
   const changes = computed(() => (current.value?.proposal.changes || []).filter(change => change.kind === kind))
+  const relatedIds = computed(() => new Set(changes.value.filter(change => !['discarded', 'undone'].includes(change.status)).map(change => String(change.targetId))))
   const catalog = computed(() => {
     const source = value(items) || []
     const creates = changes.value.filter(change => pending(change) && change.operation === 'create' && !source.some(item => String(item.id) === change.targetId))
@@ -42,14 +43,19 @@ export function useAssistantObjectEdits({ review, items, selectedId, kind = 'wor
         return { before: source, after, pending: true, key, busy: input.busy, error: input.error || '' }
       } catch (error) { return { before: source, after: source, pending: true, key, busy: input.busy, error: error.message } }
     }
-    if (!source || !receipts.value.length || acknowledged.value.has(key)) return null
+    if (!source || !receipts.value.length || input.proposal.reviewedTargets?.includes(`${kind}:${id}`)) return null
     // Later manual edits are not assistant changes; never label them as such.
     const latest = new Map(receipts.value.filter(change => !change.created).map(change => [change.field, change]))
+    if ([...latest.values()].some(change => change.details && entryDetailsSnapshot(source) !== change.appliedDetails)) return null
     if ([...latest.values()].some(change => String(source[change.field] || '') !== change.applied)) return null
     let before = { ...source, metadata: { ...(source.metadata || {}) } }
     for (const change of [...receipts.value].reverse()) {
       if (change.created) { before = null; break }
       before[change.field] = change.baseline
+      if (change.beforeDetails) {
+        for (const key of ['aliases', 'profile', 'relations', 'links', 'sourceRefs']) delete before[key]
+        Object.assign(before, JSON.parse(change.beforeDetails))
+      }
       if (Object.hasOwn(change, 'beforeCharacterProfile')) {
         if (change.hadCharacterProfile) before.metadata.characterProfile = change.beforeCharacterProfile
         else delete before.metadata.characterProfile
@@ -71,8 +77,8 @@ export function useAssistantObjectEdits({ review, items, selectedId, kind = 'wor
   }
   function act(action) {
     if (!frame.value || frame.value.busy) return
-    if (action === 'done') { const next = new Set(acknowledged.value); next.add(frame.value.key); acknowledged.value = next; return }
+    if (action === 'done') { emit({ action, kind, targetId: String(value(selectedId) || '') }); return }
     emit({ action, ...(action === 'undo' ? {} : { changeIds: targetChanges.value.map(change => change.changeId) }) })
   }
-  return { catalog, state: frame, field, act }
+  return { catalog, relatedIds, state: frame, field, act }
 }

@@ -1,3 +1,4 @@
+import { writingMethodText } from '../../../shared/assistantWritingMethods.js'
 import { getResolvedApiSettings, sendStructuredGeneration } from '../api'
 import {
   getFieldMeta,
@@ -687,7 +688,7 @@ export async function generateCharacterProfileDraft({
       }), 2800),
       relatedEntries: formatEntries(relatedEntries, 2600),
       currentCharacter: { id: entryId, name, profile: currentProfile },
-      userBrief: clipText(userBrief, 1200)
+      userBrief: [clipText(userBrief, 1200), writingMethodText([{ id: 'character-design' }])].filter(Boolean).join('\n\n')
     }
   }
   try {

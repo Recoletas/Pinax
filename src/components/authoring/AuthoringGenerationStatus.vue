@@ -1,8 +1,8 @@
 <template>
   <div class="authoring-generation-status" role="status" aria-live="polite">
     <span>{{ tr(label) }}</span>
-    <span aria-hidden="true">{{ tr('已等待 {seconds} 秒', { seconds: elapsed }) }}</span>
-    <small v-if="elapsed >= 15">{{ tr("暂未完成，仍在等待模型返回；可以随时停止。") }}</small>
+    <span v-if="!hasDraft" aria-hidden="true">{{ tr('已等待 {seconds} 秒', { seconds: elapsed }) }}</span>
+    <small v-if="!hasDraft && elapsed >= 15">{{ tr("暂未完成，仍在等待模型返回；可以随时停止。") }}</small>
   </div>
 </template>
 
@@ -10,7 +10,7 @@
 import { tr } from '../../i18n/index.js'
 import { onBeforeUnmount, ref } from 'vue'
 
-defineProps({ label: { type: String, default: '正在生成推演稿…' } })
+defineProps({ label: { type: String, default: '正在生成推演稿…' }, hasDraft: { type: Boolean, default: false } })
 const elapsed = ref(0)
 const startedAt = Date.now()
 const timer = setInterval(() => { elapsed.value = Math.floor((Date.now() - startedAt) / 1000) }, 1000)

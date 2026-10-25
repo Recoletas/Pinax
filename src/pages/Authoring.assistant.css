@@ -217,7 +217,9 @@
 .writing-page .writing-inspector__body .character-empty .character-empty__primary { color: var(--accent-text); border-radius: 8px; min-height: 40px; }
 .writing-page .writing-inspector__body :is(.character-sheet__head, .setting-sheet__head, .outline-editor__head) { padding-inline: 20px; min-height: 58px; }
 .writing-page .writing-inspector__body :is(.character-sheet__scroll, .setting-sheet__scroll, .outline-editor__body) { padding-inline: 20px; }
-.writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) :is(button, summary, input, textarea, select):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) :is(button, summary, select):focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* All catalog text editors share inline focus; controls retain a focus ring. */
+.writing-page .writing-inspector__body :is(.authoring-character-workbench, .authoring-setting-workbench, .outline-workbench) .catalog-sheet :is(input, textarea):focus-visible { outline: none; box-shadow: inset 0 -1px var(--accent); }
 .writing-page .rehearsal-panel .rehearsal-intro { margin-block: 4px 18px; color: var(--text-primary); font-size: 16px; line-height: 1.6; }
 .writing-page .rehearsal-panel .rehearsal-primary { border-radius: 8px; min-height: 40px; padding-inline: 16px; }
 .writing-page .rehearsal-panel .rehearsal-limit { margin-top: 12px; color: var(--text-secondary); line-height: 1.6; }

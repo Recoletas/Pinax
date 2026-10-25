@@ -1,5 +1,11 @@
 // Product permission contract; model output can never grant access.
 export const ASSISTANT_MODES = ['read', 'review', 'auto']
+// UI preferences for the next request, never a replacement for an issued grant.
+export function createAssistantPermissionPreference(input = {}) {
+  const mode = ASSISTANT_MODES.includes(input.mode) ? input.mode : 'review'
+  const writable = mode !== 'read'
+  return { ...input, mode, scope: input.scope || 'current', chapterIds: [...(input.chapterIds || [])], worldbook: writable, outline: writable }
+}
 export function normalizeAssistantPermission(input, { bookId, sessionId, chapterId = '' } = {}) {
   if ([bookId, sessionId].some(value => typeof value !== 'string' || !value.trim() || value.length > 120 || /[\u0000-\u001f]/.test(value)) || !ASSISTANT_MODES.includes(input?.mode)) throw new Error('助手权限无效。')
   const ids = value => [...new Set((Array.isArray(value) ? value : []).filter(id => typeof id === 'string' && id.trim() && id.length <= 120))].slice(0, 120)

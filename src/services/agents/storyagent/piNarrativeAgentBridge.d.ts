@@ -29,6 +29,7 @@ export interface BridgeCallbacks {
   onPromptComposed?: (prompt: { system: string; user: string; history?: unknown[]; toolNames?: string[]; temperature?: number | null }) => void;
   onReasoning?: (chunk: { content: string }) => void;
   onBeatPlan?: (plan: Record<string, unknown> | null) => void;
+  onNarrativeRequest?: (request: Record<string, unknown>) => Promise<{ text: string }>;
   onToolResult?: (result: Record<string, unknown>) => void;
   onChunk?: (chunk: { content: string }) => void;
   /** 只在确认 completed 且无 error 时调用；部分生成或取消不算完成。 */
@@ -77,6 +78,8 @@ export interface BridgeRunResult {
     calls?: { name: string; action?: string }[];
     [key: string]: any;
   };
+  delivery?: Record<string, unknown> | null;
+  proposalChanges?: Record<string, unknown>[];
   finalToolResults: unknown[];
 }
 
@@ -110,9 +113,12 @@ export interface PinaxNarrativeAgentBridge {
   healthz(options?: { signal?: AbortSignal | null; timeoutMs?: number }): Promise<Record<string, unknown> | null>;
   run(args: BridgeRunArgs): Promise<BridgeRunResult>;
   status(taskId: string): Promise<Record<string, unknown> | null>;
+  /** Waits only for a stop already requested by this bridge; active work is reported, never cancelled or replayed. */
+  waitForTaskIdle(taskId: string, options?: { signal?: AbortSignal | null; bookId?: string | null }): Promise<Record<string, unknown>>;
   /** HTTP/网络/未确认终态时 reject；不会以 null 隐藏失败。 */
   cancel(taskId: string, options?: { signal?: AbortSignal | null }): Promise<BridgeCancelResult>;
   resume(args: BridgeResumeArgs): Promise<BridgeRunResult>;
+  compact(taskId: string, options: { bookId: string; modelConfig?: Record<string, unknown> | null; signal?: AbortSignal | null }): Promise<{ ok: true; operationId?: string; status?: string }>;
 }
 
 export declare function createPiNarrativeAgentBridge(options?: {

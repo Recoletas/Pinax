@@ -11,7 +11,7 @@
         <button type="button" class="assistant-conversation-toggle" :class="{ active: historyOpen }" :aria-pressed="historyOpen" :aria-label="tr('对话')" v-workbench-tooltip="tr('对话')" @click="toggleHistory">
           <WorkbenchIcon name="history" :size="18" /><span>{{ tr('对话') }}</span>
         </button>
-        <AuthoringRunLogDrawer v-if="agentState.enabled" :project-id="projectId" :messages="messages" />
+        <AuthoringRunLogDrawer v-if="agentState.enabled" :project-id="projectId" :messages="messages" :compacted="!!unref(assistant?.contextCompacted)" :can-compact="!!unref(assistant?.canCompactContext)" :compacting="!!unref(assistant?.compacting)" @compact="assistant?.compactContext()" />
       </div>
     </header>
     <AuthoringGoalReview v-if="reviewOpen" ref="goalReviewRef" :workflow="reviewWorkflow" @close="closeReview" />
@@ -47,16 +47,19 @@
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <div v-if="message.thinking || message.tools?.length" class="authoring-knowledge__process">
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary>{{ toolLabel(tool.name) }}<span v-if="tool.status === 'failed'" class="authoring-knowledge__tool-outcome" :title="tool.error">{{ tr('未成功执行') }}</span><span v-else-if="tool.status === 'running'"> · {{ tr('进行中') }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
+          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary><WorkbenchIcon name="chevron-down" :size="12" /><span>{{ toolLabel(tool.name) }}</span><span v-if="tool.status === 'completed'" class="authoring-knowledge__tool-outcome" role="img" :title="tr('已完成')" :aria-label="tr('已完成')"><WorkbenchIcon name="check" :size="12" /></span><span v-else class="authoring-knowledge__tool-outcome" :title="tool.error">{{ toolStatusLabel(tool, message) }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
           </div>
           <AssistantUserInput v-if="message.questions?.length && !message.questionResponse && messages.at(-1)?.id === message.id" :key="message.id" :questions="message.questions" :busy="busy || agentState.adoptionBusy" @answer="assistant?.answerQuestions(message.id, $event)" />
-          <div v-else class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(message.text)" />
+          <div v-else class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(visibleAgentText(message))" />
           <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
             <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
           </section>
           <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr(message.failureReason || (message.status === 'failed' ? '生成中断，文字已保留。可以复制或重试。' : '生成已停止，文字已保留。')) }}</p>
-          <button v-if="message.status === 'completed' && message.proposal" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" />{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</button>
-          <button v-if="canUndoMessage(message)" type="button" class="authoring-knowledge__agent-adopt" :disabled="busy || agentState.adoptionBusy" @click="assistant.undoAgentProposal(message.id)">{{ tr('撤销本次修改') }}</button>
+          <div v-if="canReviewProposal(message) || canUndoMessage(message)" class="authoring-knowledge__edit-actions">
+            <button v-if="canAdoptSettingsProposal(message)" type="button" class="authoring-knowledge__agent-adopt is-primary" :disabled="busy || agentState.adoptionBusy" @click="assistant.adoptSettingsProposal(message.id)"><WorkbenchIcon name="check" :size="14" /><span>{{ tr('全部采纳设定') }}</span></button>
+            <button v-if="canReviewProposal(message)" type="button" class="authoring-knowledge__agent-adopt" :disabled="agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" /><span>{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</span></button>
+            <button v-if="canUndoMessage(message)" type="button" class="authoring-knowledge__agent-adopt is-quiet" :aria-label="tr('撤销本次修改')" v-workbench-tooltip="tr('撤销本次修改')" :disabled="busy || agentState.adoptionBusy" @click="assistant.undoAgentProposal(message.id)"><WorkbenchIcon name="undo-extension" :size="14" /><span>{{ tr('撤销') }}</span></button>
+          </div>
           <AssistantMessageActions v-if="message.status !== 'running'" :message="message" :messages="messages" :assistant="assistant" :busy="busy || agentState.adoptionBusy" :copied="copiedAnswerId === message.id" @copy="copyAnswer(message)" @continue="continueFromAnswer(message)" />
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
@@ -100,7 +103,7 @@
       <p v-if="messages.length && !visibleMessages.length" class="authoring-knowledge__no-results">{{ tr('没有找到相关问答') }}</p>
 
       <div v-if="busy" class="authoring-knowledge__thinking" role="status">
-        <span aria-hidden="true"></span>{{ tr(messages.at(-1)?.tools?.some(tool => tool.name === 'generate_narrative_draft' && tool.status === 'running') ? '正在推演正文…' : selectedIntent === 'free' ? '正在整理思路…' : '正在核对项目资料…') }}
+        <span aria-hidden="true"></span>{{ tr(unref(assistant?.compacting) ? '正在压缩上下文…' : messages.at(-1)?.tools?.some(tool => tool.name === 'generate_narrative_draft' && tool.status === 'running') ? '正在推演正文…' : selectedIntent === 'free' ? '正在整理思路…' : '正在核对项目资料…') }}
       </div>
       <button v-if="notice?.text" type="button" class="authoring-knowledge__notice" @click="$emit('review-notice')">
         <span>{{ notice.text }}</span><small v-if="notice.reviewable">{{ tr('查看') }}</small>
@@ -119,9 +122,10 @@
         <div v-if="mentionCandidates.length" class="authoring-knowledge__mentions" role="listbox" :aria-label="tr('选择参考资料')">
           <button v-for="(entry, index) in mentionCandidates" :key="entry.type + ':' + entry.id" type="button" role="option" :aria-selected="index === mentionIndex" @pointerdown.prevent="pickMention(entry)">{{ entry.title }}</button>
         </div>
-        <textarea ref="draftInputRef" :value="draft" rows="1" :placeholder="tr(placeholder)" :aria-label="tr('向助手提问')"
+        <textarea ref="draftInputRef" :value="draft" rows="1" :placeholder="tr(inputCandidate || placeholder)" :class="{ 'has-input-candidate': inputCandidate }" :aria-label="tr('向助手提问')"
           @input="updateMentionDraft" @click="updateMention($event.target)" @keyup="updateMentionCursor" @compositionstart="composing = true"
           @compositionend="composing = false; updateMention($event.target)" @keydown="draftKeydown"></textarea>
+        <button v-if="inputCandidate" type="button" class="assistant-input-candidate" :aria-label="tr('采纳输入建议')" :title="tr('Tab 采纳输入建议')" @pointerdown.prevent @click="acceptInputCandidate"><kbd>Tab</kbd></button>
         <div class="authoring-knowledge__composer-actions">
           <details ref="toolsRef" class="authoring-knowledge__tools" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
             <summary :aria-label="tr('添加参考')" v-workbench-tooltip="tr('添加文件或章节')" @keydown.down.prevent="focusFirstMenu($event.currentTarget.parentElement)"><WorkbenchIcon name="plus" :size="20" /></summary>
@@ -142,7 +146,7 @@
             </div>
           </details>
           <div class="assistant-send-actions">
-            <button v-if="busy" type="button" class="assistant-stop" :aria-label="tr('停止生成')" :title="tr('停止生成')" @click="$emit('cancel')"><WorkbenchIcon name="stop" :size="13" /></button>
+            <button v-if="busy || agentState.stopPending" type="button" class="assistant-stop" :aria-label="tr('停止生成')" :title="tr('停止生成')" @click="$emit('cancel')"><WorkbenchIcon name="stop" :size="13" /></button>
             <details v-if="busy" ref="sendOptionsRef" class="authoring-knowledge__purpose assistant-send-options" @toggle="placeMenu($event.currentTarget)" @keydown.esc.stop.prevent="closeMenu($event.currentTarget, true)" @focusout="leaveMenu">
               <summary :aria-label="tr('运行中发送方式')" :title="tr(sendMode === 'steer' ? '补充到当前任务' : '本轮结束后发送')"><WorkbenchIcon name="chevron-down" :size="13" /></summary>
               <div class="authoring-knowledge__tool-menu"><button type="button" :aria-pressed="sendMode === 'followup'" @click="setSendMode('followup', $event)">{{ tr('本轮结束后发送') }}</button><button type="button" :aria-pressed="sendMode === 'steer'" @click="setSendMode('steer', $event)">{{ tr('补充到当前任务') }}</button></div>
@@ -182,6 +186,10 @@ import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../../utils/sanitize.js'
 
+function visibleAgentText(message) {
+  const draft = message.status === 'running' && message.generatedDrafts?.findLast(item => item.status === 'generating')?.text
+  return draft && !String(message.text || '').includes(draft) ? [message.text, draft].filter(Boolean).join('\n\n') : message.text
+}
 function renderAssistantAnswer(text) {
   return sanitizeHtml(marked.parse(String(text || '').trim(), { async: false, gfm: true, breaks: true }))
 }
@@ -517,8 +525,17 @@ watch(() => [props.draft, props.expanded, props.projectId, props.selectedIntent]
 watch(draftInputRef, () => nextTick(fitDraft))
 watch(() => [referencePicker.value, referenceQuery.value, referenceCandidates.value.length], () => nextTick(() => placeMenu(toolsRef.value)))
 watch(() => [props.agentState.permission?.mode, props.agentState.permission?.scope, props.agentState.permission?.chapterIds?.length], () => nextTick(() => { if (purposeRef.value?.open) placeMenu(purposeRef.value) }))
+const declinedInputCandidate = ref('')
+const inputCandidateKey = computed(() => `${props.projectId}:${props.messages.at(-1)?.id || ''}:${unref(props.assistant?.inputCandidate) || ''}`)
+const inputCandidate = computed(() => props.agentState.enabled && !props.draft && !props.busy && !props.agentState.adoptionBusy && !composing.value && inputCandidateKey.value !== declinedInputCandidate.value ? unref(props.assistant?.inputCandidate) || '' : '')
+function acceptInputCandidate() {
+  if (!inputCandidate.value) return
+  emit('update:draft', tr(inputCandidate.value))
+  nextTick(() => { const input = draftInputRef.value; input?.focus({ preventScroll: true }); input?.setSelectionRange(input.value.length, input.value.length) })
+}
+watch(inputCandidate, () => nextTick(fitDraft))
 const permissionLabel = computed(() => ({ read: '只读', review: '审阅修改', auto: '自动修改' })[props.agentState.permission?.mode] || '审阅修改')
-const permissionScopeLabel = computed(() => { const policy = props.agentState.permission || {}; return policy.scope === 'book' && policy.worldbook && policy.outline ? '本作品' : (!policy.scope || policy.scope === 'current') && !policy.worldbook && !policy.outline ? '当前章节' : '自定义' })
+const permissionScopeLabel = computed(() => { const policy = props.agentState.permission || {}; return policy.scope === 'book' ? '全部章节' : (!policy.scope || policy.scope === 'current') ? '当前章节' : '自定义' })
 const discussing = computed(() => props.selectedIntent === 'free')
 const placeholder = computed(() => props.agentState.enabled ? '讨论情节、查阅资料，或说说想怎样修改…' : '说说你的故事想法…')
 const suggestedTasks = Object.freeze([
@@ -548,8 +565,28 @@ const visibleMessages = computed(() => {
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
 
+function canReviewProposal(message) {
+  return Boolean(message.proposal?.changes?.length && ['running', 'completed', 'cancelled', 'interrupted', 'failed'].includes(message.status))
+}
+function canAdoptSettingsProposal(message) {
+  const proposal = canReviewProposal(message) ? message.proposal : null
+  return Boolean(
+    proposal && ['pending', 'partial'].includes(proposal.status) &&
+    proposal.changes?.length &&
+    proposal.changes.every((change) => change.kind === 'worldbook') &&
+    proposal.changes.some((change) => !change.status || change.status === 'pending')
+  )
+}
 function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
-function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', request_user_input: '询问作者', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolLabel(name) { return tr(({ writing_methods: '查阅写作方法', knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', request_user_input: '询问作者', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolStatusLabel(tool, message) {
+  if (tool.status === 'failed') {
+    const reason = String(tool.error || '').trim().split('\n')[0]
+    return reason ? reason.slice(0, 48) + (reason.length > 48 ? '…' : '') : tr('未成功执行')
+  }
+  if (tool.status === 'cancelled' || (tool.status === 'running' && message.status === 'cancelled')) return tr('已取消')
+  return tr(tool.status === 'running' && message.status === 'running' ? '进行中' : '未收到结果')
+}
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })
@@ -669,6 +706,8 @@ function draftKeydown(event) {
     if (['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); mentionIndex.value = (mentionIndex.value + (event.key === 'ArrowDown' ? 1 : -1) + mentionCandidates.value.length) % mentionCandidates.value.length; return }
     if (['Tab', 'Enter'].includes(event.key) && !event.shiftKey) { event.preventDefault(); pickMention(mentionCandidates.value[mentionIndex.value] || mentionCandidates.value[0]); return }
   }
+  if (inputCandidate.value && event.key === 'Escape') { event.preventDefault(); declinedInputCandidate.value = inputCandidateKey.value; return }
+  if (inputCandidate.value && event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); acceptInputCandidate(); return }
   if (event.key === 'Enter') submitOnEnter(event)
 }
 watch(() => props.projectId, () => { mention.value = null; mentionIndex.value = 0 })
@@ -789,6 +828,12 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .assistant-stop :deep(svg) { fill: currentColor; stroke-width: 0; }
 .assistant-send-options summary { width: 24px; height: 32px; padding: 0; justify-content: center; }
 @media (pointer: coarse) { .assistant-stop, .assistant-send-options summary { width: 44px; min-height: 44px; } }
+.authoring-knowledge__input-row textarea.has-input-candidate { padding-inline-end: 42px; }
+.authoring-knowledge__input-row .assistant-input-candidate { position: absolute; inset-block-start: 12px; inset-inline-end: 14px; min-width: 30px; min-height: 28px; padding: 2px 5px; border: 1px solid var(--hairline-soft); border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.assistant-input-candidate kbd { font: 11px/1.4 var(--font-interface); }
+.authoring-knowledge__input-row .assistant-input-candidate:hover { background: var(--nav-hover); color: var(--text-primary); }
+.assistant-input-candidate:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .authoring-knowledge__input-row .assistant-input-candidate { min-width: 44px; min-height: 44px; inset-block-start: 4px; } .authoring-knowledge__input-row textarea.has-input-candidate { padding-inline-end: 50px; } }
 .authoring-knowledge__input-row textarea::placeholder { color: var(--text-muted); opacity: 1; }
 .authoring-knowledge__tools { position: relative; flex: none; }
 .authoring-knowledge__purpose { position: relative; min-width: 0; flex: none; margin-inline-start: 0; }
@@ -887,19 +932,25 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 @media (prefers-reduced-motion: reduce) {
   .authoring-knowledge__thinking span { animation: none; }
 }
-.authoring-knowledge__process { display: grid; gap: 0; margin: -4px 0 14px; }
+.authoring-knowledge__process { display: grid; gap: 4px; margin: 0 0 12px; }
 .authoring-knowledge__agent-detail { margin: 0; padding: 0; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; }
-.authoring-knowledge__agent-detail summary { cursor: pointer; min-height: 30px; padding: 0; display: flex; align-items: center; gap: 6px; line-height: 1.5; list-style: none; }
-.authoring-knowledge__agent-detail[open] summary svg { transform: rotate(180deg); }
+.authoring-knowledge__agent-detail > summary { cursor: pointer; min-height: 26px; padding: 2px 0; display: flex; align-items: center; gap: 6px; line-height: 1.5; list-style: none; }
+.authoring-knowledge__agent-detail[open] > summary > svg { transform: rotate(180deg); }
 .authoring-knowledge__agent-detail summary::-webkit-details-marker { display: none; }
 .authoring-knowledge__agent-detail summary:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
-.authoring-knowledge__agent-detail p { margin: 4px 0 10px 18px; white-space: pre-wrap; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.authoring-knowledge__agent-detail > p { margin: 6px 0 10px 18px; padding-right: 8px; white-space: pre-wrap; max-height: 240px; overflow: auto; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; scrollbar-gutter: stable; }
 @media (max-width: 720px) { .authoring-knowledge__agent-detail summary { min-height: 44px; } }
-.authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; padding: 7px 12px; min-height: 36px; border: 1px solid var(--hairline-soft); border-radius: var(--workspace-radius, 10px); background: var(--workbench-action); color: var(--workbench-action-text); font: 500 13px/1.5 var(--font-interface); cursor: pointer; }
-.authoring-knowledge__agent-adopt:hover:not(:disabled) { background: var(--nav-focused); }
-.authoring-knowledge__agent-adopt:disabled { opacity: .5; cursor: default; }
+.authoring-knowledge__edit-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.authoring-knowledge__agent-adopt { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: 0 0 auto; max-width: 100%; min-height: 32px; padding: 5px 10px; border: 1px solid var(--hairline-soft); border-radius: 7px; background: var(--surface-workbench-input); color: var(--text-primary); font: 500 12px/20px var(--font-interface, var(--font-sans)); cursor: pointer; }
+.authoring-knowledge__agent-adopt > svg { flex: 0 0 auto; }
+.authoring-knowledge__agent-adopt > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.authoring-knowledge__agent-adopt.is-primary { border-color: transparent; background: var(--accent); color: var(--accent-text); }
+.authoring-knowledge__agent-adopt.is-primary:hover:not(:disabled) { background: var(--accent-hover); color: var(--accent-text); }
+.authoring-knowledge__agent-adopt.is-quiet { border-color: transparent; background: transparent; color: var(--text-secondary); }
+.authoring-knowledge__agent-adopt:hover:not(:disabled) { background: var(--nav-hover, var(--surface-workbench-input)); color: var(--text-primary); }
+.authoring-knowledge__agent-adopt:disabled { opacity: .45; cursor: default; }
 .authoring-knowledge__agent-adopt:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 2px; }
-@media (max-width: 720px) { .authoring-knowledge__agent-adopt { min-height: 44px; } }
+@media (max-width: 720px), (pointer: coarse) { .authoring-knowledge__agent-adopt { min-height: 44px; } }
 .authoring-knowledge__input-row { position: relative; }
 .authoring-knowledge__mentions { position: absolute; z-index: 9; left: 0; bottom: calc(100% + 6px); width: min(300px, 100%); max-height: 260px; overflow: auto; padding: 8px; border: 1px solid var(--hairline-soft); border-radius: var(--radius-popover); background: var(--surface-workbench-overlay); box-shadow: var(--shadow-workbench-float); }
 .authoring-knowledge__mentions button { display: block; width: 100%; min-height: 36px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); font: 13px/1.5 var(--font-interface, var(--font-sans)); text-align: start; cursor: pointer; }
@@ -911,7 +962,7 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 .authoring-knowledge__message-actions button:hover, .authoring-knowledge__message-actions button:focus-visible { background: var(--surface-workbench-input); color: var(--text-primary); }
 .authoring-knowledge__message-actions button:disabled { opacity: .45; cursor: default; }
 .authoring-knowledge__edit-input:focus-visible { outline: 2px solid var(--workbench-focus); outline-offset: 3px; border-radius: 3px; }
-.authoring-knowledge__tool-outcome { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; }
+.authoring-knowledge__tool-outcome { margin-inline-start: 8px; color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
 .authoring-knowledge__edit-trigger { flex: 0 0 32px; display: grid; place-items: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); opacity: 0; pointer-events: none; cursor: pointer; }
 .authoring-knowledge__question-row:hover .authoring-knowledge__edit-trigger, .authoring-knowledge__question-row:focus-within .authoring-knowledge__edit-trigger { opacity: 1; pointer-events: auto; }
 .authoring-knowledge__edit-trigger:hover { background: var(--surface-workbench-input); color: var(--text-primary); }
@@ -943,8 +994,11 @@ watch(searchTerm, () => { focusedQuestion = null; nextTick(updateActiveQuestion)
 </style>
 
 <style scoped>
-.assistant-tool-call { margin:4px 0; }
-.assistant-tool-call > summary { padding:4px 0; cursor:pointer; }
+.assistant-tool-call { margin:2px 0 2px 18px; }
+.assistant-tool-call > summary { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-height:26px; padding:2px 0; cursor:pointer; list-style:none; line-height:1.5; }
+.assistant-tool-call[open] > summary > svg { transform:rotate(180deg); }
+.assistant-tool-call > p { margin:4px 0 8px 18px; max-height:120px; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; font-size:12px; line-height:1.7; }
+@media (max-width:720px) { .assistant-tool-call > summary { min-height:44px; } }
 .assistant-tool-call small { color:var(--text-muted); }
 .assistant-tool-call pre { max-height:160px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; padding:8px; background:var(--surface-workbench-input); font:11px/1.5 var(--font-mono); }
 </style>

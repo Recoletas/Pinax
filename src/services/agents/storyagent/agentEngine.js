@@ -1,3 +1,5 @@
+import { resolveWritingMethods } from '../../../../shared/assistantWritingMethods.js'
+import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
 import { sendAssistantLiveInput } from './assistantLiveInput.js'
 // StoryAgent 引擎适配器（融合 B 路线）：把 pi-agent 桥包装成助手可调用的任务引擎。
 // 职责：项目上下文 + @ 参考组装 kernel（panelComposer 预序列化 blocks 透传）、
@@ -13,8 +15,8 @@ function fallbackContext() {
 export function createStoryAgentEngine({ bridge, projectId = null, resolveContext = null, formatInstructions = '若本轮产出叙事正文：纯正文，不要标题；对话类回应不需要正文格式。' } = {}) {
   if (!bridge) throw new Error('createStoryAgentEngine 需要 bridge（createPiNarrativeAgentBridge 产物）')
 
-  function buildPayload({ text, pinnedRefs = [], skills = [], bookId = valueOf(projectId) }) {
-    const ctx = (typeof resolveContext === 'function' ? resolveContext(bookId) : resolveContext) || fallbackContext()
+  function buildPayload({ text, pinnedRefs = [], skills = [], editDecisions = null, bookId = valueOf(projectId) }) {
+    const ctx = (typeof resolveContext === 'function' ? resolveContext(bookId, { text }) : resolveContext) || fallbackContext()
     const worldEntries = Array.isArray(ctx.worldEntries) ? ctx.worldEntries : []
     const referenceCatalogue = [...worldEntries, ...(ctx.chapterEntries || []), ...(ctx.sourceEntries || [])]
     pinnedRefs = pinnedRefs.map(ref => {
@@ -23,6 +25,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
       if (!current) throw new Error('参考资料已变化，请重新选择后发送。')
       return current
     })
+    skills = resolveWritingMethods(skills)
     const kernel = {
       revision: `sae_${Date.now().toString(36)}`,
       serialization: {
@@ -35,10 +38,15 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         }),
       },
     }
-    kernel.serialization.blocks = kernel.serialization.blocks.filter(block => block.kind !== 'project')
+    kernel.serialization.blocks.push({ kind: 'writing-methods', title: '作者选择的写作方法', text: JSON.stringify(skills) })
+    if (editDecisions?.proposals?.length) kernel.serialization.blocks.push({ kind: 'author-edit-decisions', title: '作者已处理的修改与待审状态', text: JSON.stringify(editDecisions) })
+    // The assistant request is not a scene description. Keep it verbatim in
+    // the user turn instead of repeating its first 800 characters as world data.
+    kernel.serialization.blocks = kernel.serialization.blocks.filter(block => !['project', 'skills', 'scene'].includes(block.kind))
     kernel.serialization.blocks.push(...buildAssistantOrientation(ctx, bookId))
-    if (ctx.currentChapterId) kernel.serialization.blocks.push({ kind: 'editing-target', title: '当前修改目标', text: JSON.stringify({ chapterId: ctx.currentChapterId, ...(ctx.selection?.text ? { selectedText: String(ctx.selection.text).slice(0, 8000), nodeId: ctx.selection.nodeId || '' } : {}) }) })
+    if (ctx.currentChapterId) kernel.serialization.blocks.push({ kind: 'editing-target', title: '当前修改目标', text: JSON.stringify({ chapterId: ctx.currentChapterId, ...(ctx.selection?.text ? { selectedText: String(ctx.selection.text), nodeId: ctx.selection.nodeId || '' } : {}) }) })
     const index = {
+      currentChapterId: String(ctx.currentChapterId || ''),
       revision: `saew_${worldEntries.length}_${(ctx.manuscriptItems || []).length}_${(ctx.notesItems || []).length}`,
       byDomain: {
         workspace: ctx.workspaceItems || [],
@@ -48,7 +56,7 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
         outline: Array.isArray(ctx.outlineItems) ? ctx.outlineItems : [],
       },
     }
-    return JSON.parse(JSON.stringify({ kernel, index, currentChapterId: String(ctx.currentChapterId || ''), bookId: String(bookId || ''), worldEntries, editBaseline: ctx.editBaseline || null }))
+    return JSON.parse(JSON.stringify({ kernel, index, currentChapterId: String(ctx.currentChapterId || ''), bookId: String(bookId || ''), manuscriptTail: ctx.manuscriptTail || '', worldEntries, methods: skills, pinnedRefs, editBaseline: ctx.editBaseline || null }))
   }
 
   return Object.freeze({
@@ -59,8 +67,6 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, skills, bookId })
       return bridge.run({
         modelConfig: prepared?.modelConfig || null,
-        maxTokens: 6000,
-        budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         kernel,
         index,
         mode,
@@ -78,8 +84,6 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
       const { kernel, index, bookId: ownerId } = prepared || buildPayload({ text, pinnedRefs, bookId })
       return bridge.resume({
         modelConfig: prepared?.modelConfig || null,
-        maxTokens: 6000,
-        budget: { agentTimeoutMs: 240000, maxModelSteps: 8, maxCallsPerTurn: 6 },
         taskId: String(taskId || ''),
         kernel,
         index,
@@ -91,9 +95,13 @@ export function createStoryAgentEngine({ bridge, projectId = null, resolveContex
       })
     },
     steer: sendAssistantLiveInput,
+    compact(taskId, { bookId = valueOf(projectId), modelConfig = null, signal = null } = {}) {
+      return bridge.compact(taskId, { bookId: String(bookId || ''), modelConfig: normalizeRequestModelConfig(modelConfig), signal })
+    },
     async cancel(taskId) {
       return bridge.cancel(taskId)
     },
+    ...(typeof bridge.waitForTaskIdle === 'function' ? { waitForTaskIdle: (taskId, options) => bridge.waitForTaskIdle(taskId, options) } : {}),
     async tasks() {
       return bridge.tasks(String(valueOf(projectId) || ''))
     },

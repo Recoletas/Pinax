@@ -77,6 +77,7 @@ import {
   saveSourceArchiveBundle,
   SOURCE_ARCHIVE_CAPACITY_BYTES
 } from '@/services/worldbook/worldbookSourceArchive'
+import { retrieveAssistantSourceChunks } from '@/services/agents/storyagent/assistantSourceRetrieval.js'
 import {
   getCreationGenerationFailure,
   getCreationGenerationLabel,
@@ -232,7 +233,8 @@ mockWorldStoreLifecycle()
 
     const queue = panelWrapper.find('[aria-label="待审 AI 草稿"]')
     expect(queue.exists()).toBe(true)
-    expect(queue.findAll('button')).toHaveLength(2)
+    expect(queue.findAll('.draft-queue__item')).toHaveLength(2)
+    expect(queue.find('.draft-queue__adopt').text()).toBe('全部采纳')
     expect(panelWrapper.find('[data-test="active-draft"]').text()).toBe('origin')
 
     await queue.findAll('button')[1].trigger('click')
@@ -494,6 +496,12 @@ describe('世界书创建工作区来源与 adapter 合同 (U1/U2)', () => {
     expect(await loadSourceChunks(savedBundle.artifact.chunkIds)).toMatchObject([
       { sourceId: 's1', text: '同一段资料' }
     ])
+    const selectedDocuments = [{ id: 'owned-source', title: '已绑定资料', archiveRef: savedBundle.artifact.id, chunkIds: savedBundle.artifact.chunkIds, contentHash: savedBundle.artifact.contentHash }]
+    const retrievedForWriting = await retrieveAssistantSourceChunks(selectedDocuments, '同一段资料')
+    expect(retrievedForWriting).toEqual([expect.objectContaining({ sourceDocumentId: 'owned-source', text: '同一段资料', type: 'source' })])
+    expect(retrievedForWriting[0].score).toBeGreaterThan(0)
+    expect((await retrieveAssistantSourceChunks(selectedDocuments, 'unrelated', { pinnedDocumentIds: ['owned-source'] }))[0].pinned).toBe(true)
+    expect(await retrieveAssistantSourceChunks([], '同一段资料')).toEqual([])
     const reusedBundle = await saveSourceArchiveBundle(second)
     expect(reusedBundle.reused).toBe(true)
     expect(reusedBundle.artifact.id).toBe('s1')

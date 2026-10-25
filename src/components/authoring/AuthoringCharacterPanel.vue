@@ -1,4 +1,5 @@
 <script setup>
+import { entryDetailsText } from '../../../shared/assistantEntryDetails.js'
 import './AuthoringCatalogWorkbench.css'
 import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
 import { tr } from '../../i18n/index.js'
@@ -275,6 +276,7 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
           <button type="button" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">{{ tr('角色') }}</button>
           <button type="button" :class="{ active: tab === 'mentions' }" @click="tab = 'mentions'">{{ tr('提及章节') }}<small>{{ mentions.length }}</small></button>
         </nav>
+        <AuthoringInlineEdit v-if="assistantField(entryDetailsText)" :parts="assistantField(entryDetailsText)" />
         <AuthoringCharacterAiReview v-if="selectedCharacter && !assistantEdits" v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedCharacter" :profile="draft" @apply="applyAiProfile" />
         <span class="character-upload-tooltip" :class="{ 'is-visible': uploadHintVisible }" role="tooltip">{{ tr('支持 jpg、jpeg、png 格式，单张不大于 5MB') }}</span>
         <div v-if="tab === 'profile'" ref="profileScroll" class="character-sheet__scroll catalog-sheet-body">

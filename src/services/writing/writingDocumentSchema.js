@@ -328,11 +328,12 @@ export function createWritingDocument(markdown = '') {
   const input = String(markdown ?? '')
   const presentation = parseNarrativePresentation(input, {
     complete: true,
-    fallbackSpeaker: ''
+    fallbackSpeaker: '',
+    preserveParagraphs: true
   })
-  // Narrative markers are a transport protocol for the experience page, not
-  // writing content. Keep the editor's source as ordinary Markdown so the
-  // live surface never exposes `:::...` control lines.
+  // Strip the shared narrative transport without applying Experience's
+  // display reflow to manuscript paragraphs. The editor stores ordinary
+  // Markdown and never exposes `:::...` control lines.
   const source = presentation.hasMarkers ? presentation.content : input
   const tokens = marked.lexer(source)
   const nodes = []

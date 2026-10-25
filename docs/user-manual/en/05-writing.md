@@ -47,15 +47,21 @@ Choose permissions in the composer:
 - **Review changes**, the default, proposes edits for you to apply.
 - **Automatic changes** applies only within the chapter, setting and outline scope you authorize, after revision and save checks.
 
-Use **Current chapter** for this chapter only, or **This book** for its manuscript, settings and outline. **Custom** reveals individual chapters and optional settings/outline access. Read-only mode hides editing scopes.
+Review and automatic editing both include this book’s settings and outline. **Manuscript chapters** controls text edits only: choose **Current chapter**, **All chapters**, or individual chapters under **Custom**. Read-only mode hides editing scopes.
 
 Each message captures its permissions when sent. Changes made during generation apply to the next message; the running task and its automatic adoption keep the original authorization. Use Stop to end the current task. Manually applying an existing proposal checks the settings selected at adoption.
 
-For current-chapter prose, the assistant requests a draft through the existing rehearsal planning, generation and checking path. It does not merely paste the chat response into the document.
+For current-chapter prose, the assistant requests a draft through the existing rehearsal context, writing methods and generation path. It does not merely paste the chat response into the document.
 
 Character, setting and outline edits appear in their original fields, with removed text struck through and additions highlighted. The existing directory and other fields stay in place. Use the check or cross beside the title to accept or dismiss that object’s edits. After applying, Done hides the marks without changing the saved content; Undo this turn reverts all applied edits from that turn. New objects appear in the original directory but are saved only when accepted.
 
 Open **Review proposed changes** to see manuscript edits in place. Apply or discard the group. Applied changes can be undone, with later-edit conflicts checked first. A failed or incomplete result may retain readable text without allowing adoption. A chat claim or read-tool call is not a successful write receipt.
+
+Writing drafts reuse the narrative context and writing methods, then go to the author for review. Clear instructions are executed directly; an existing direction is reused, while complex open-ended work can request a separate plan. An automatic model examiner does not block delivery or rewrite the chapter. If a response reaches the model's output boundary, generation continues from the same draft. Cancellation or failure preserves the text already received. Chapter-length requests keep their full scope rather than inheriting a short roleplay turn. Pending drafts can be revised or extended before adoption. Mentioning a timeline, route or world rule does not create a mandatory retrieval gate.
+
+Prose appears progressively in the existing draft area, or in the assistant's reply when requested there. This preview is not yet part of the manuscript. Completed candidates can be viewed while the assistant continues working. Adoption remains unavailable until the task settles, and then uses the usual controls; stopping or losing the connection preserves received text without automatically restarting the draft. Streaming improves visibility, but a full chapter still takes time to generate.
+
+When every proposed change in a reply concerns story bible entries, **Apply all settings** appears below that reply. It uses the same permission and save checks as the review action. Use **Review proposed changes** to inspect or apply entries individually. A plain chat answer has no adoption action.
 
 ### Follow up, regenerate or fork
 
@@ -72,6 +78,16 @@ The edit pencil is beside the question and appears on hover or keyboard focus. U
 Use **Conversations** to create, switch or delete a conversation. Deletion requires confirmation. Conversations are saved per book; refresh does not resend a message or guarantee recovery of a running request.
 
 ### References and activity
+
+The assistant selects writing methods for the task, such as character design, worldbuilding or plot development, instead of applying every method to every request. Applicable methods you select in **References and techniques** also reach narrative generation. Voice follows your instructions, designated samples and the existing manuscript, without imposing short sentences or a preset tone. If a source is meant as a style sample, say so in your request.
+
+The existing manuscript establishes story progress; an outline describes plans, and imported works provide reference material. An unadopted draft is not treated as an event that has happened or as your approved voice. You can ask for setting proposals followed by prose based on them; dependent changes are reviewed and adopted together. Aliases, properties, relationships and sources remain part of the original entry and its undo history.
+
+**More → Compress context** condenses the history the model reads while preserving visible messages and the current task. Long conversations also use native automatic compaction. Manual compaction is unavailable during generation or while waiting for your answer; short conversations may need no compaction. A failed attempt keeps the existing conversation. This requires the updated runtime and server.
+
+Setting proposals can be submitted in batches while the assistant continues reading, drafting or asking you a question. Pending proposals remain while it waits for your answer; answering resumes the same task without adopting them automatically.
+
+Switching tools or viewing other content in the same book keeps the assistant running. Closing or reloading the whole workspace interrupts generation that depends on the page. Received text is retained, the message distinguishes an explicit stop from a workspace interruption, and retrying remains your choice.
 
 The **+** menu adds files, chapters and sources. Files are parsed into the book's source archive before being attached; removing a reference chip does not delete its original. References and techniques can also be chosen through the dedicated picker.
 
@@ -101,6 +117,8 @@ Open **Rehearsal** on the right. Before you place the cursor in the manuscript, 
 If character or location suggestions appear, select the ones you need and save. The pending request then resumes with your instructions; there is no need to submit again. You can also continue with the existing scene without changing it.
 
 Enter submits. Ctrl+Enter (or ⌘+Enter on Mac) adds a line. References are prepared when you submit, without repeated preparation while you type. Use **Stop** during generation to end the current wait.
+
+Prose drafts retain the generated text's paragraph breaks instead of splitting after a fixed number of sentences. Sentence length, paragraphs and imagery follow your request and the work's voice. Review the draft for wording, facts and continuity before adopting it.
 
 ### Continue, branch and compare
 
@@ -149,4 +167,7 @@ Before moving to a different browser, device or URL, export a full workspace ZIP
 In **Outline**, select a project or chapter node and edit its title and content directly. Changes save after a short pause or when the input loses focus. A new chapter outline opens ready for typing. Search, filters, grouped navigation, chapter-outline ordering, and explicit manuscript insertion remain available.
 
 Use **Conversations** to create, switch, or delete a conversation. Deletion requires confirmation; deleting the last one starts an empty conversation. The composer’s **+** adds local files or references this book’s chapters and imported sources. Local files are parsed into the book’s source library and selected as references. A reference chip’s × removes the reference only. Memory and revision records remain under **Settings → Memory & history**.
+
+
+The assistant can suggest saving concrete story ideas or organizing settings in its normal replies when relevant. You can accept or continue with your own topic. When the input is empty, a gray candidate may appear. Press **Tab** or click its Tab key marker to fill the input without sending; **Esc** skips it. Typing and **Shift+Tab** keep their usual behavior.
 

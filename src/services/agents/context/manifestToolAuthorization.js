@@ -237,6 +237,8 @@ function readAuthorizedBinding(block, blockIndex) {
       candidateId,
       revision,
       text: block.text,
+      usageRole: requiredText(block.usageRole),
+      narrativeStatus: requiredText(block.narrativeStatus),
       label: requiredText(block.label) || canonical.sourceId
     }
   }
@@ -319,6 +321,7 @@ export function deriveManifestToolAuthorization(manifest, { projectId } = {}) {
 
 function buildAuthorizedSnapshot(authorization) {
   const worldBindings = authorization.bindings.filter((binding) => binding.domain === 'world')
+  const sourceBindings = worldBindings.filter((binding) => binding.usageRole === 'inspiration' && binding.narrativeStatus === 'hypothesis')
   const memoryBindings = authorization.bindings.filter((binding) => binding.domain === 'memory')
   const historyBindings = authorization.bindings.filter((binding) => binding.domain === 'history')
   return {
@@ -330,7 +333,7 @@ function buildAuthorizedSnapshot(authorization) {
       description: '',
       worldDescription: '',
       openingHook: '',
-      entries: worldBindings.map((binding) => ({
+      entries: worldBindings.filter((binding) => !sourceBindings.includes(binding)).map((binding) => ({
         id: binding.sourceId,
         name: binding.label,
         type: 'lore',
@@ -353,7 +356,16 @@ function buildAuthorizedSnapshot(authorization) {
       sourceRevision: binding.revision,
       metadata: { title: binding.label }
     })),
-    additionalResources: historyBindings.map((binding) => ({
+    additionalResources: [...sourceBindings.map((binding) => ({
+      id: binding.sourceId,
+      domain: 'world',
+      type: 'source',
+      title: binding.label,
+      summary: binding.text,
+      sourceRefs: [binding.sourceRef],
+      // Imported material remains readable without becoming canonical world evidence.
+      trust: 'draft'
+    })), ...historyBindings.map((binding) => ({
       id: binding.sourceId,
       domain: 'history',
       type: 'world-history',
@@ -361,7 +373,7 @@ function buildAuthorizedSnapshot(authorization) {
       summary: binding.text,
       sourceRefs: [binding.sourceRef],
       trust: 'canonical'
-    })),
+    }))],
     runtimeState: {}
   }
 }

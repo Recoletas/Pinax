@@ -1,9 +1,12 @@
+import { assistantSuggestionInstruction } from '../authoring/assistantSuggestions.js'
 // A virtual directory over Pinax resources; it is never an operating-system path.
 export const assistantProjectPath = id => `/works/${encodeURIComponent(String(id || ''))}`
 export function buildAssistantOrientation(ctx, bookId) {
   const path = assistantProjectPath(bookId)
   const chapters = ctx.manuscriptItems || []
-  const worlds = ctx.worldEntries || []
+  const worlds = (ctx.worldEntries || []).filter(entry => !['source', 'style'].includes(entry.entryType))
+  const sources = [...(ctx.sourceEntries || []), ...(ctx.worldEntries || []).filter(entry => entry.entryType === 'source')]
+  const unavailable = ctx.projectState?.settingsStatus === 'unavailable'
   const current = String(ctx.manuscriptText ?? ctx.manuscriptTail ?? '')
   const related = worlds.filter(entry => [entry.title, ...(entry.aliases || [])].some(name => String(name || '').length >= 2 && current.includes(name))).slice(0, 6)
   return [
@@ -12,12 +15,17 @@ export function buildAssistantOrientation(ctx, bookId) {
       `当前章节：${ctx.chapterTitle || '未选择'}；章节 ID：${ctx.currentChapterId || '无'}。讨论默认围绕这里，不要求作者重复报作品名。`,
       '目录只说明资源在哪里，不代表已读过全文。需要更多内容时主动使用 manuscript、world_lookup、outline 或 workspace 查阅。',
       '正文：', ...chapters.slice(0, 40).map(entry => `${path}/chapters/${encodeURIComponent(entry.id)} — ${entry.title}${entry.id === ctx.currentChapterId ? '（当前）' : ''}`),
-      `设定：${worlds.slice(0, 60).map(entry => `${entry.title} [${entry.id}]`).join('；') || '尚无设定'}`,
-      `资料：${(ctx.sourceEntries || []).slice(0, 20).map(entry => `${entry.title} [${entry.id}]`).join('；') || '尚无资料'}`,
+      `设定：${worlds.slice(0, 60).map(entry => `${entry.title} [${entry.id}]`).join('；') || (unavailable ? '绑定的资料库尚未读取，不能断言为空' : '尚无设定')}`,
+      `资料：${sources.slice(0, 20).map(entry => `${entry.title} [${entry.id}]`).join('；') || (unavailable ? '绑定的资料库尚未读取，资料状态未确认' : '当前会话未列出导入资料；不代表其他来源为空')}`,
       `大纲：${(ctx.outlineItems || []).slice(0, 20).map(entry => `${entry.title} [${entry.id}]`).join('；') || '尚无大纲'}`,
       `可查阅作品：${(ctx.workspaceProjects || []).slice(0, 40).map(book => `《${book.title}》 [${book.id}]`).join('；') || '当前作品'}`,
       '查阅其他作品不改变当前改稿目标或授权。未读到的内容不能当成事实。'
     ].join('\n').slice(0, 6500) },
+    ...(ctx.worldFoundation ? [{ kind: 'worldbook-foundation', title: '本书世界背景与文风', text: ctx.worldFoundation }] : []),
+    ...(ctx.worldConstraints?.length ? [{ kind: 'writing-constraints', title: '本书创作规则', text: ctx.worldConstraints.map(entry => `【${entry.title || entry.id}】\n${entry.text}`).join('\n\n') }] : []),
+    { kind: 'writing-context', title: '作品材料的用法', text: '当前正式正文用于确定情节进度、叙述视角和衔接；文风沿用作者明确要求、指定样文与正式稿。导入资料提供参考，大纲和构思记录计划，未采用候选仍可调整。人物知道什么、读者已经读到什么与作者知道的设定应分开；查到一条信息不代表要立刻在正文里揭示它。作者本轮要求更改已有内容时按该要求处理。' },
+    { kind: 'assistant-initiative', title: '协作建议', text: assistantSuggestionInstruction() },
+    ...(ctx.projectState ? [{ kind: 'project-state', title: '本书内容概况', text: JSON.stringify(ctx.projectState) }] : []),
     { kind: 'manuscript-context', title: '当前章节正文', text: current.length <= 8000 ? `当前章节全文：\n${current || '（空白章节，不虚构已有情节。）'}` : `当前章节节选（全文 ${current.length} 字；未展示中间部分，需要时查阅）：\n【开头】\n${current.slice(0, 2800)}\n【最近正文】\n${current.slice(-4600)}` },
     ...(related.length ? [{ kind: 'related-settings', title: '正文涉及的设定', text: related.map(entry => `${entry.title} [${entry.id}]：\n${String(entry.text || entry.summary || '').slice(0, 1100)}`).join('\n\n') }] : [])
   ]

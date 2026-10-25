@@ -21,7 +21,6 @@ import {
 import { classifyContextRunOutcome } from '../context/contextRunBudget.js'
 import { reconcileManifestDependencies } from '../context/contextManifestLifecycle.js'
 import { createManifestAuthorizedNarrativeIndex } from '../context/manifestToolAuthorization.js'
-import { createAuthoringTaskContract } from '../narrativeTaskQuality.js'
 
 function emptyResultError() {
   return Object.assign(new Error('叙事内核没有返回正文'), { code: 'AGENT_EMPTY_RESULT' })
@@ -104,6 +103,7 @@ export function createNarrativeKernelExecutor({
     settings = {},
     assistantSampling = null,
     onModelRequest = null,
+    onDraftUpdate = null,
     worldbook = null,
     runtimeState = {},
     signal = null,
@@ -200,7 +200,14 @@ export function createNarrativeKernelExecutor({
       : turn?.operation === 'next-passage'
         ? '从“当前落笔处”最后一句之后接续，只写新增正文。光标前的叙述与动作已经发生，不重新开场、不重演已完成的动作；回应作者要求后，在指定的收束处停下。'
         : ''
-    const effectiveInstruction = [operationInstruction, directionInstruction, instruction].filter(Boolean).join('\n')
+    const effectiveInstruction = [operationInstruction, directionInstruction, instruction,
+      turn?.rewriteText ? `【本次替换的原文】\n${turn.rewriteText}` : ''
+    ].filter(Boolean).join('\n')
+    // Planning is a writing choice, not a change to the author's operation.
+    // Selected directions already carry revision checks in the run session.
+    const planning = direction ? 'reuse' : turn?.planning || (
+      turn?.operation === 'rewrite-unit' || instruction ? 'direct' : 'plan'
+    )
     const messages = effectiveInstruction
       ? [
           ...contextMessages,
@@ -212,6 +219,7 @@ export function createNarrativeKernelExecutor({
         ]
       : contextMessages
     const kernel = buildKernel({
+      surface: 'authoring',
       worldbook: manifestMode ? null : worldbook,
       runtimeState: kernelRuntimeState,
       messages,
@@ -264,13 +272,17 @@ export function createNarrativeKernelExecutor({
         registry,
         mode: orchestratorMode(intentMode),
         intent: instruction ? 'respond' : intentMode,
+        planning,
         formatInstructions: languageFormatInstructions,
         worldId: projectId,
         settings: assistantSampling?.temperatureOverride != null ? { ...settings, assistantTemperature: assistantSampling.temperatureOverride } : settings,
         onModelRequest,
+        callbacks: { onDraftUpdate },
         requestId: `authoring:${Date.now().toString(36)}`,
         signal,
-        taskContract: createAuthoringTaskContract({ instruction, operation: turn?.operation })
+        // Author writing is delivered as a reviewable draft. A generated
+        // examiner must not withhold it or repeatedly rewrite the whole chapter.
+        criticSampleRate: 0
       })
     } catch (error) {
       error.contextOutcome = classifyContextRunOutcome({ error })

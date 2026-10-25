@@ -8,6 +8,7 @@ import {
   getAuthoringAliasMetricSnapshot,
   resetAuthoringAliasMetric
 } from '../services/agents/authoring/authoringTaskDispatcher.js'
+import { generateAssistantNarrative } from '../services/agents/storyagent/assistantNarrativeGeneration.js'
 import { createNarrativeSceneWorkflow } from '../services/agents/authoring/narrativeSceneWorkflow.js'
 import { createAuthoringAuxiliaryWorkflow } from '../services/agents/authoring/authoringAuxiliaryWorkflow.js'
 import { createLegacyExperienceStateBridge } from '../services/agents/authoring/legacyExperienceStateBridge.js'
@@ -427,11 +428,36 @@ describe('authoring project adapter', () => {
     })
     expect(anchorWorkflow.resolveTarget().anchorExcerpt).toBe('林岚已经拆开信封，把信纸压在油灯下面。')
     expect(anchorWorkflow.resolveTarget({ cursorLocalOffset: 8 }).anchorExcerpt).toBe('林岚已经拆开信封')
+    let updateDraft, finishDraft
+    const draftTarget = { projectId: 'stream-book', documentId: 'stream-chapter' }
+    const streamingWorkflow = useAuthoringBlockWorkflow({
+      selectedBookId: ref('stream-book'), selectedChapterId: ref('stream-chapter'),
+      getTurnContext: () => ({ worldbookReady: true }), defaultTarget: () => draftTarget,
+      clearPendingDraft: () => {}, notify: vi.fn(),
+      runTask: (_, options) => { updateDraft = options.onDraftUpdate; return new Promise(resolve => { finishDraft = resolve }) }
+    })
+    const pendingStream = streamingWorkflow.run({ invocationTarget: draftTarget })
+    updateDraft({ phase: 'plan', text: '规划内容不显示。' })
+    expect(streamingWorkflow.composer.staleResult).toBeNull()
+    updateDraft({ phase: 'write', text: ':::narration\n门内传出脚步声。' })
+    expect(streamingWorkflow.composer.staleResult).toMatchObject({ text: '门内传出脚步声。', adoptable: false, streaming: true })
+    expect(streamingWorkflow.preview.value).toBeNull()
+    updateDraft({ phase: 'write', text: '' })
+    expect(streamingWorkflow.composer.staleResult.text).toBe('')
+    updateDraft({ phase: 'write', text: ':::narration\n脚步停在门后。' })
+    updateDraft({ phase: 'write', text: ':::narration\n脚步停在门后。他听见钥匙转动。' })
+    expect(streamingWorkflow.composer.staleResult.text).toBe('脚步停在门后。')
+    finishDraft({ ok: false, reason: 'aborted', text: ':::narration\n脚步停在门后。他听见钥匙转动。' })
+    await pendingStream
+    expect(streamingWorkflow.composer.staleResult).toMatchObject({ text: '脚步停在门后。他听见钥匙转动。', streaming: false, adoptable: false })
+    streamingWorkflow.resetScope()
+    updateDraft({ phase: 'write', text: '离开后的迟到内容。' })
+    expect(streamingWorkflow.composer.staleResult).toBeNull()
     for (const input of ['让林岚问出寄信人的一个可追查细节', '让林岚开始调查灯室的声响']) {
       expect(deriveNarrativeGroundingPolicy({ kernel: { blocks: [{ kind: 'turn', content: { input } }] } }).required).toBe(false)
     }
     for (const input of ['请核对周渡的人物设定', '查阅世界书资料', '核对灯塔的历史时间线', '确认人物的禁忌规则']) {
-      expect(deriveNarrativeGroundingPolicy({ kernel: { blocks: [{ kind: 'turn', content: { input } }] } }).required).toBe(true)
+      expect(deriveNarrativeGroundingPolicy({ kernel: { blocks: [{ kind: 'turn', content: { input } }] } })).toMatchObject({ level: 'optional', required: false })
     }
 
     const missing = await knowledgeQuery.prepare({
@@ -794,13 +820,254 @@ describe('authoring project adapter', () => {
     expect(agentAssistant.messages.value.slice(2)).toEqual(restoredHistory.slice(2))
     agentEngine.prepare = prepareBeforeSampling
 
+    // Tool rows belong to call IDs, including repeated names and replayed events.
+    const toolScope = effectScope()
+    const toolResult = (callId, payload, isError = false) => ({ callId, toolName: 'generate_narrative_draft', isError, result: { content: [{ type: 'text', text: JSON.stringify(payload) }] } })
+    const failedToolResult = toolResult('draft-1', { ok: false, error: { message: '续写的 before 应为空。\n额外详情' } })
+    const completedToolResults = ['draft-2', 'draft-3', 'draft-5'].map(callId => toolResult(callId, { ok: true }))
+    const toolEngine = {
+      prepare: input => ({ ...input, index: { byDomain: {} } }),
+      healthz: async () => ({ ok: true }),
+      run: vi.fn(async ({ callbacks }) => {
+        const start = (callId, input = null) => callbacks.onStatus({ phase: 'tool', tool: 'generate_narrative_draft', callId, input })
+        start('draft-1'); start('draft-1', { instruction: '首次推演' }); start('draft-2')
+        callbacks.onToolResult(completedToolResults[0])
+        callbacks.onToolResult(failedToolResult)
+        callbacks.onToolResult(completedToolResults[0]); start('draft-2')
+        callbacks.onToolResult(completedToolResults[1]); start('draft-3', { instruction: '第三次推演' })
+        start('draft-4'); start('draft-5')
+        expect(toolAssistant.messages.value.at(-1).toolResults).toHaveLength(2)
+        return { ok: true, finalContent: '已保留独立调用记录。', finalToolResults: [failedToolResult, ...completedToolResults] }
+      })
+    }
+    const toolAssistant = toolScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref('tool-status-book'), agentEngine: toolEngine }))
+    try {
+      expect(await toolAssistant.ask({ question: '继续推演' })).toBe(true)
+      const completedTools = toolAssistant.messages.value.at(-1)
+      expect(completedTools.tools).toMatchObject([
+        { callId: 'draft-1', status: 'failed', error: '续写的 before 应为空。', input: { instruction: '首次推演' } },
+        { callId: 'draft-2', status: 'completed' },
+        { callId: 'draft-3', status: 'completed', input: { instruction: '第三次推演' } },
+        { callId: 'draft-4', status: 'interrupted' },
+        { callId: 'draft-5', status: 'completed' }
+      ])
+      expect(completedTools.tools).toHaveLength(5)
+
+      const { mount } = await import('@vue/test-utils')
+      const { default: KnowledgeAssistant } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
+      const panel = mount(KnowledgeAssistant, { props: { messages: [completedTools] }, global: { stubs: { AuthoringAgentTools: true } } })
+      try {
+        const summaries = panel.findAll('.assistant-tool-call > summary')
+        expect(summaries).toHaveLength(5)
+        expect(summaries[0].text()).toContain('续写的 before 应为空。')
+        expect(summaries[1].find('[title="已完成"][aria-label="已完成"] svg').exists()).toBe(true)
+        expect(summaries[1].text()).toBe('推演写作')
+        expect(summaries[3].text()).toContain('未收到结果')
+        const historicalTool = { ...completedTools, status: 'completed', tools: [{ name: 'generate_narrative_draft', status: 'running' }] }
+        await panel.setProps({ messages: [historicalTool] })
+        expect(panel.get('.assistant-tool-call > summary').text()).toContain('未收到结果')
+        await panel.setProps({ messages: [{ ...historicalTool, status: 'running' }] })
+        expect(panel.get('.assistant-tool-call > summary').text()).toContain('进行中')
+        await panel.setProps({ messages: [{ ...historicalTool, status: 'cancelled' }] })
+        expect(panel.get('.assistant-tool-call > summary').text()).toContain('已取消')
+      } finally { panel.unmount() }
+
+      toolEngine.run.mockImplementationOnce(async ({ callbacks }) => {
+        callbacks.onStatus({ phase: 'tool', tool: 'generate_narrative_draft', callId: 'disconnected' })
+        throw new Error('连接中断')
+      })
+      expect(await toolAssistant.ask({ question: '断线仍保留调用' })).toBe(false)
+      expect(toolAssistant.messages.value.at(-1)).toMatchObject({ status: 'failed', tools: [{ callId: 'disconnected', status: 'interrupted' }] })
+
+      let releaseToolTurn, cancelledCallbacks
+      toolEngine.run.mockImplementationOnce(({ callbacks }) => {
+        cancelledCallbacks = callbacks
+        callbacks.onStatus({ phase: 'tool', tool: 'generate_narrative_draft', callId: 'cancelled-draft' })
+        return new Promise(resolve => { releaseToolTurn = resolve })
+      })
+      const cancelledToolTurn = toolAssistant.ask({ question: '取消仍保留调用' })
+      await vi.waitFor(() => expect(releaseToolTurn).toBeTypeOf('function'))
+      toolAssistant.cancel()
+      cancelledCallbacks.onToolResult(toolResult('cancelled-draft', { ok: true }))
+      releaseToolTurn({ ok: true, finalContent: '迟到结果' })
+      expect(await cancelledToolTurn).toBe(false)
+      expect(toolAssistant.messages.value.at(-1)).toMatchObject({ status: 'cancelled', tools: [{ callId: 'cancelled-draft', status: 'cancelled' }] })
+      expect(toolAssistant.messages.value.at(-1).proposal).toBeUndefined()
+      const restoredTools = toolScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref('tool-status-book'), agentEngine: toolEngine }))
+      expect(restoredTools.messages.value.at(-1).tools[0].status).toBe('cancelled')
+    } finally { toolScope.stop() }
+
+    // A completed draft stays adoptable when a later revision is interrupted.
+    // Its transaction is distinct from the partial text preserved in the chat.
+    const { prepareAssistantProposal: prepareRetained, applyAssistantProposal: applyRetained } = await import('../services/agents/storyagent/assistantEditTransaction.js')
+    const retainedScope = effectScope()
+    let retainedBook = { id: 'retained-book', worldbookId: 'retained-world', chapters: [{ id: 'retained-chapter', title: '开篇', content: '原正文。' }] }
+    let retainedWorld = { id: 'retained-world', entries: [{ id: 'dock', name: '港口', content: '旧设定。' }] }
+    const settingChange = { kind: 'worldbook', targetId: 'dock', field: 'content', operation: 'replace', before: '旧设定', after: '新设定', reason: '本轮补齐' }
+    const narrativeRequest = { targetId: 'retained-chapter', operation: 'append', before: '', instruction: '续写', pendingChanges: [settingChange] }
+    const completeDraft = '这一版已经完整生成。'
+    let remoteActive = true, secondDraftStarted = false, lateNarrativeDraft
+    const stopUnconfirmed = () => Object.assign(new Error('远端停止尚未确认'), { code: 'AGENT_TASK_STOP_UNCONFIRMED', taskId: 'retained-task' })
+    const retainedEngine = {
+      prepare: input => ({ ...input, index: { byDomain: {} }, kernel: { serialization: { blocks: [] } }, editBaseline: JSON.parse(JSON.stringify({ book: retainedBook, worldbook: retainedWorld })) }),
+      destination: () => ({ chapterId: 'retained-chapter' }),
+      healthz: async () => ({ ok: true, assistantProtocolVersion: 2, assistantNarrativeExchange: true }),
+      authorize: vi.fn(async () => {}),
+      prepareProposal: vi.fn(async (input, prepared, runId) => prepareRetained(input, { ...prepared.editBaseline, runId })),
+      prepareNarrativeProposal: vi.fn(async (request, prepared, runId, signal) => {
+        if (request.instruction === '再次修订') {
+          lateNarrativeDraft = prepared.onNarrativeDraftUpdate
+          lateNarrativeDraft({ phase: 'plan', text: '这是规划，不是正文。' })
+          lateNarrativeDraft({ phase: 'write', text: '即将查询资料的前言。' })
+          expect(retainedAssistant.messages.value.at(-1).generatedDrafts).toHaveLength(1)
+          lateNarrativeDraft({ phase: 'write', text: '' })
+          expect(retainedAssistant.messages.value.at(-1).generatedDrafts[0].text).toBe('')
+          lateNarrativeDraft({ phase: 'write', text: '第二版尚未完成' })
+          lateNarrativeDraft({ phase: 'write', text: '第二版尚未完成的残段。' })
+          expect(retainedAssistant.messages.value.at(-1).generatedDrafts[0].text).toBe('第二版尚未完成')
+          secondDraftStarted = true
+          return new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('修订已中断'), { generatedText: '第二版尚未完成的残段。' })), { once: true }))
+        }
+        prepared.onNarrativeDraftUpdate({ phase: 'write', text: '这一版已经' })
+        return { ...prepareRetained({ changes: [{ kind: 'chapter', field: 'content', targetId: request.targetId, operation: request.operation, before: request.before, after: completeDraft, reason: request.instruction }] }, { ...prepared.editBaseline, runId }), narrativeReceipt: { manifestFingerprint: 'retained-context' } }
+      }),
+      run: vi.fn(async ({ callbacks }) => {
+        callbacks.onTask({ taskId: 'retained-task', bookId: 'retained-book' })
+        await callbacks.onNarrativeRequest(narrativeRequest)
+        await callbacks.onNarrativeRequest({ ...narrativeRequest, instruction: '再次修订' })
+      }),
+      cancel: vi.fn(async () => { if (remoteActive) throw stopUnconfirmed(); return { ok: true, stopped: true } }),
+      waitForTaskIdle: vi.fn(async () => { if (remoteActive) throw stopUnconfirmed(); return { executionActive: false, status: 'cancelled' } }),
+      applyProposal: vi.fn(async (proposal, options) => {
+        const result = applyRetained(proposal, { book: retainedBook, worldbook: retainedWorld, ...options })
+        retainedBook = result.book; retainedWorld = result.worldbook
+        proposal.status = result.status; proposal.changes = result.proposalChanges
+        return { ok: true }
+      })
+    }
+    const retainedAssistant = retainedScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref('retained-book'), agentEngine: retainedEngine }))
+    try {
+      await retainedAssistant.setAgentPermission({ mode: 'auto' })
+      const retainedTurn = retainedAssistant.ask({ question: '续写并整理设定' })
+      await vi.waitFor(() => expect(secondDraftStarted, retainedAssistant.error.value).toBe(true))
+      const retainedMessage = retainedAssistant.messages.value.at(-1)
+      expect(retainedMessage.generatedDrafts).toMatchObject([{ text: '第二版尚未完成', status: 'generating' }])
+      expect(retainedMessage.text).not.toContain('这是规划')
+      expect(retainedMessage.proposal.changes.map(change => change.after)).toEqual(['新设定', completeDraft])
+      expect(retainedMessage.proposal.changes[0].groupId).toBe(retainedMessage.proposal.changes[1].groupId)
+      expect(retainedMessage.proposal.narrativeReceipt.manifestFingerprint).toBe('retained-context')
+      expect(retainedAssistant.reviewProposal(retainedMessage.id)).toBe(true)
+      expect(await retainedAssistant.applyAgentProposal()).toBe(false)
+      expect(retainedBook.chapters[0].content).toBe('原正文。')
+      retainedAssistant.cancel()
+      lateNarrativeDraft({ phase: 'write', text: '取消后的迟到正文不能覆盖草稿。' })
+      expect(await retainedTurn).toBe(false)
+      expect(retainedMessage).toMatchObject({ status: 'cancelled', text: expect.stringContaining('第二版尚未完成的残段。'), failureReason: expect.stringContaining('完整修改已保留') })
+      expect(retainedMessage.text).not.toContain(completeDraft)
+      expect(retainedMessage.text.match(/第二版尚未完成/g)).toHaveLength(1)
+      expect(retainedMessage.text).not.toContain('迟到正文')
+      expect(retainedMessage.proposal.changes[1].after).toBe(completeDraft)
+      expect(retainedEngine.applyProposal).not.toHaveBeenCalled()
+      expect(retainedAssistant.pendingProposals.value).toHaveLength(1)
+      expect(retainedAssistant.reviewProposal(retainedMessage.id)).toBe(true)
+      expect(await retainedAssistant.applyAgentProposal()).toBe(false)
+      const authorizations = retainedEngine.authorize.mock.calls.length
+      expect(await retainedAssistant.ask({ question: '继续' })).toBe(false)
+      expect(retainedEngine.authorize).toHaveBeenCalledTimes(authorizations)
+      expect(retainedAssistant.agentState.value).toMatchObject({ taskId: 'retained-task', stopPending: true })
+      expect(retainedAssistant.newConversation()).toBe(false)
+      remoteActive = false
+      retainedAssistant.cancel()
+      await vi.waitFor(() => expect(retainedAssistant.agentState.value.stopPending).toBe(false))
+      expect(retainedEngine.cancel).toHaveBeenCalledTimes(2)
+      expect(await retainedAssistant.applyAgentProposal()).toBe(true)
+      expect(retainedBook.chapters[0].content).toBe(`原正文。\n\n${completeDraft}`)
+      expect(retainedWorld.entries[0].content).toBe('新设定。')
+      const restoredRetained = retainedScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref('retained-book'), agentEngine: retainedEngine }))
+      expect(restoredRetained.messages.value.at(-1).proposal.changes[1].after).toBe(completeDraft)
+
+      // Tool callbacks are not awaited by the stream. Drain accepted batches
+      // before rejecting, and never promote an invalid later batch to a proposal.
+      retainedEngine.resume = vi.fn(async ({ callbacks }) => {
+        callbacks.onTask({ taskId: 'retained-task', bookId: 'retained-book' })
+        const changes = [{ ...settingChange, before: '新设定', after: '再补充设定' }]
+        callbacks.onToolResult({ ...toolResult('accepted-setting', { ok: true, changes }), toolName: 'submit_edit_proposals' })
+        callbacks.onToolResult({ ...toolResult('accepted-chapter', { ok: true, changes: [{ kind: 'chapter', targetId: 'retained-chapter', field: 'content', operation: 'append', before: '', after: '工具提交的完整正文。', reason: '补充正文' }] }), toolName: 'submit_edit_proposals' })
+        callbacks.onToolResult({ ...toolResult('invalid-setting', { ok: true, proposalChanges: [{ ...changes[0], targetId: 'missing-target' }] }), toolName: 'submit_edit_proposals' })
+        throw new Error('提交之后连接中断')
+      })
+      expect(await retainedAssistant.ask({ question: '补充港口设定' })).toBe(false)
+      const disconnected = retainedAssistant.messages.value.at(-1)
+      expect(disconnected.status).toBe('failed')
+      expect(disconnected.proposal.changes[0].after).toBe('再补充设定')
+      expect(disconnected.proposal.changes[1].after).toBe('工具提交的完整正文。')
+      expect(disconnected.text).not.toContain('再补充设定')
+      expect(disconnected.tools.at(-1).status).toBe('failed')
+      expect(retainedEngine.waitForTaskIdle.mock.invocationCallOrder.at(-1)).toBeLessThan(retainedEngine.authorize.mock.invocationCallOrder.at(-1))
+
+      const { mount } = await import('@vue/test-utils')
+      const { default: KnowledgeAssistant } = await import('../components/authoring/AuthoringKnowledgeAssistant.vue')
+      const retainedPanel = mount(KnowledgeAssistant, { props: { messages: [disconnected], assistant: retainedAssistant, agentState: { ...retainedAssistant.agentState.value, stopPending: true } }, global: { stubs: { AuthoringAgentTools: true } } })
+      try {
+        expect(retainedPanel.text()).toContain('查看修改建议')
+        expect(retainedPanel.find('.assistant-stop').exists()).toBe(true)
+        await retainedPanel.setProps({ messages: [{ ...disconnected, proposal: null }] })
+        expect(retainedPanel.find('.authoring-knowledge__agent-adopt').exists()).toBe(false)
+      } finally { retainedPanel.unmount() }
+
+      // A remote stop can finish before local proposal validation. Adoption
+      // waits once, then reads and applies the latest complete version.
+      let finishValidation
+      const prepareBeforeSettling = retainedEngine.prepareProposal.getMockImplementation()
+      retainedEngine.prepareProposal.mockImplementation(async (input, prepared, runId) => {
+        if (input.changes.some(change => change.after === '收尾校验完成的正文。')) await new Promise(resolve => { finishValidation = resolve })
+        return prepareBeforeSettling(input, prepared, runId)
+      })
+      retainedEngine.resume.mockImplementationOnce(async ({ callbacks, signal }) => {
+        callbacks.onTask({ taskId: 'retained-task', bookId: 'retained-book' })
+        await callbacks.onNarrativeRequest({ ...narrativeRequest, pendingChanges: [] })
+        callbacks.onToolResult(toolResult('settling-draft', { ok: true, proposalChanges: [{ kind: 'chapter', targetId: 'retained-chapter', field: 'content', operation: 'append', before: '', after: '收尾校验完成的正文。', reason: '修订完整草稿' }] }))
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('已停止')), { once: true }))
+      })
+      const settlingTurn = retainedAssistant.ask({ question: '生成后修订' })
+      await vi.waitFor(() => expect(finishValidation).toBeTypeOf('function'))
+      const settlingMessage = retainedAssistant.messages.value.at(-1)
+      retainedAssistant.cancel()
+      await vi.waitFor(() => expect(retainedAssistant.agentState.value.stopPending).toBe(false))
+      expect(retainedAssistant.reviewProposal(settlingMessage.id)).toBe(true)
+      const beforeSettlingApply = retainedEngine.applyProposal.mock.calls.length
+      const applyWhileSettling = retainedAssistant.applyAgentProposal()
+      await nextTick()
+      expect(retainedEngine.applyProposal).toHaveBeenCalledTimes(beforeSettlingApply)
+      finishValidation()
+      expect(await settlingTurn).toBe(false)
+      expect(await applyWhileSettling).toBe(true)
+      expect(settlingMessage.proposal.changes[0]).toMatchObject({ after: '收尾校验完成的正文。', status: 'adopted' })
+      expect(retainedBook.chapters[0].content).toBe(`原正文。\n\n${completeDraft}\n\n收尾校验完成的正文。`)
+      retainedEngine.prepareProposal.mockImplementation(prepareBeforeSettling)
+      retainedEngine.resume.mockImplementationOnce(async ({ callbacks }) => {
+        callbacks.onTask({ taskId: 'retained-task', bookId: 'retained-book' })
+        await callbacks.onNarrativeRequest({ ...narrativeRequest, pendingChanges: [] })
+        await callbacks.onNarrativeRequest({ ...narrativeRequest, draftAction: 'extend', pendingChanges: retainedAssistant.messages.value.at(-1).proposal.changes })
+        throw new Error('延展成功后断线')
+      })
+      expect(await retainedAssistant.ask({ question: '扩展已有草稿' })).toBe(false)
+      expect(retainedAssistant.messages.value.at(-1).proposal.changes[0].after).toBe(`${completeDraft}\n\n${completeDraft}`)
+      retainedEngine.resume.mockImplementationOnce(async ({ callbacks }) => {
+        callbacks.onToolResult({ ...toolResult('invalid-only', { ok: true, changes: [{ ...settingChange, targetId: 'missing-target' }] }), toolName: 'submit_edit_proposals' })
+        throw new Error('无有效候选')
+      })
+      expect(await retainedAssistant.ask({ question: '校验无效候选' })).toBe(false)
+      expect(retainedAssistant.messages.value.at(-1).proposal).toBeUndefined()
+    } finally { retainedScope.stop() }
+
     // Asking is a persisted checkpoint in the same conversation and task.
     const inputProject = ref('input-book')
     const questions = [{ id: 'direction', question: '这次更新哪一处？', options: [{ label: '补充设定', description: '' }] }]
     const inputEngine = {
       prepare: input => ({ ...input, kernel: { serialization: { blocks: [] } } }),
       destination: () => ({ chapterId: 'input-chapter' }),
-      healthz: async () => ({ ok: true, assistantProtocolVersion: 2 }), authorize: vi.fn(async () => {}),
+      healthz: async () => ({ ok: true, assistantProtocolVersion: 2, assistantNarrativeExchange: true, assistantNativeSession: true }), authorize: vi.fn(async () => {}),
       run: vi.fn(async () => ({ ok: true, finalContent: '这次更新哪一处？', trace: { taskId: 'input-task' }, finalToolResults: [{ toolName: 'request_user_input', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'mixed', outcome: 'needs_input', message: '这次更新哪一处？', questions }) }] } }] })),
       resume: vi.fn(async input => ({ ok: true, finalContent: '已按回答继续', trace: { taskId: input.taskId }, finalToolResults: [{ toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'answer', outcome: 'answer', message: '已继续' }) }] } }] }))
     }
@@ -818,10 +1085,142 @@ describe('authoring project adapter', () => {
     expect(restoredInput.messages.value.find(item => item.id === inputMessage.id).questionResponse).toContain('保留正文')
     expect(restoredInput.answerQuestions(inputMessage.id, { direction: '修改正文' })).toBe(false)
 
+    // Native pi can ask after preparing edits. Waiting must never auto-apply;
+    // only a successful resumed delivery can replace the retained candidate.
+    const continuationScope = effectScope()
+    const inheritedChanges = [{ kind: 'worldbook', targetId: 'linlan', field: 'content', operation: 'replace', before: '旧人物说明', after: '新人物说明' }]
+    const continuationReview = vi.fn()
+    const continuationEngine = {
+      ...inputEngine,
+      prepare: vi.fn(input => ({ ...input, index: { byDomain: {} }, kernel: { serialization: { blocks: [] } } })),
+      prepareProposal: vi.fn(async ({ changes }, prepared, runId) => ({ id: `${runId}:edit`, runId, bookId: prepared.bookId, status: 'pending', changes: changes.map(change => ({ ...change, status: 'pending' })) })),
+      applyProposal: vi.fn(async proposal => { proposal.status = 'adopted'; proposal.changes.forEach(change => { change.status = 'adopted' }); return { ok: true } }),
+      compact: vi.fn(async () => ({ ok: true })),
+      run: vi.fn(async () => ({ ok: true, finalContent: questions[0].question, trace: { taskId: 'continuation-task' },
+        finalToolResults: [{ toolName: 'complete_assistant_task', result: { content: [{ type: 'text', text: JSON.stringify({ ok: true, intent: 'edit', outcome: 'proposal', message: '较早的工具回执不能覆盖最终问题。' }) }] } }], proposalChanges: inheritedChanges,
+        delivery: { intent: 'mixed', outcome: 'needs_input', message: questions[0].question, questions } })),
+      resume: vi.fn()
+        .mockResolvedValueOnce({ ok: false, error: { message: '续接暂时中断' } })
+        .mockResolvedValueOnce({ ok: true, finalContent: '已按你的选择完成修改。', trace: { taskId: 'continuation-task' }, finalToolResults: [], proposalChanges: inheritedChanges,
+          delivery: { intent: 'edit', outcome: 'proposal', message: '修改已经准备好。' } })
+    }
+    const continuationAssistant = continuationScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref('continuation-book'), agentEngine: continuationEngine, onReviewProposal: continuationReview }))
+    try {
+      await continuationAssistant.setAgentPermission({ mode: 'auto', scope: 'book', worldbook: true, outline: true })
+      expect(await continuationAssistant.ask({ question: '先完善人物，遇到方向不明再问我' })).toBe(true)
+      const waiting = continuationAssistant.messages.value.at(-1)
+      const retainedCandidate = JSON.parse(JSON.stringify(waiting.proposal))
+      expect(waiting.status).toBe('needs_input')
+      expect(retainedCandidate.changes[0].after).toBe('新人物说明')
+      expect(continuationAssistant.pendingProposals.value).toEqual([])
+      expect(continuationAssistant.proposalReview.value).toBeNull()
+      expect(continuationAssistant.reviewProposal(waiting.id)).toBe(false)
+      expect(continuationReview).not.toHaveBeenCalled()
+      expect(continuationEngine.applyProposal).not.toHaveBeenCalled()
+      expect(await continuationAssistant.answerQuestions(waiting.id, { direction: '补充设定' })).toBe(false)
+      expect(continuationAssistant.error.value).toContain('续接暂时中断')
+      expect(waiting.proposal).toEqual(retainedCandidate)
+      expect(continuationEngine.applyProposal).not.toHaveBeenCalled()
+      expect(await continuationAssistant.retry()).toBe(true)
+      const completed = continuationAssistant.messages.value.at(-1)
+      expect(completed).toMatchObject({ status: 'completed', taskId: 'continuation-task', proposal: { status: 'adopted' } })
+      expect(completed.toolResults).toEqual([])
+      expect(completed.text).toBe('已按你的选择完成修改。')
+      expect(waiting.proposal).toBeUndefined()
+      expect(continuationEngine.applyProposal).toHaveBeenCalledOnce()
+      expect(continuationEngine.applyProposal.mock.calls[0][0].changes[0].after).toBe('新人物说明')
+      expect(continuationEngine.resume.mock.calls.at(-1)[0].prepared.text).toBe('这次更新哪一处？\n补充设定')
+      expect(continuationEngine.resume.mock.calls.at(-1)[0].prepared.editDecisions.proposals[0]).toMatchObject({ taskId: 'continuation-task', status: 'pending' })
+
+      const taskBeforeCompact = continuationAssistant.agentState.value.taskId
+      const historyBeforeCompact = JSON.stringify(continuationAssistant.messages.value)
+      const sessionBeforeCompact = continuationAssistant.sessions.value.find(session => session.active).sessionId
+      expect(await continuationAssistant.compactContext()).toBe(true)
+      expect(continuationEngine.compact).toHaveBeenCalledWith(taskBeforeCompact, expect.objectContaining({ bookId: 'continuation-book', signal: expect.any(AbortSignal) }))
+      expect(continuationAssistant.agentState.value.taskId).toBe(taskBeforeCompact)
+      expect(JSON.stringify(continuationAssistant.messages.value)).toBe(historyBeforeCompact)
+      expect(continuationAssistant.sessions.value.find(session => session.active).sessionId).toBe(sessionBeforeCompact)
+      expect(continuationAssistant.contextCompacted.value).toBe(true)
+      continuationEngine.compact.mockRejectedValueOnce(new Error('旧任务没有原生会话，原对话已保留。'))
+      expect(await continuationAssistant.compactContext()).toBe(false)
+      expect(continuationAssistant.error.value).toContain('旧任务没有原生会话')
+      expect(continuationAssistant.agentState.value.taskId).toBe(taskBeforeCompact)
+      expect(JSON.stringify(continuationAssistant.messages.value)).toBe(historyBeforeCompact)
+      expect(continuationAssistant.busy.value).toBe(false)
+    } finally { continuationScope.stop() }
+
+    // An unchanged candidate keeps the version it was based on before asking.
+    // Freshly revised candidates can use the version read after the author answers.
+    const { prepareAssistantProposal, applyAssistantProposal } = await import('../services/agents/storyagent/assistantEditTransaction.js')
+    const { entryDetailsSnapshot } = await import('../../shared/assistantEntryDetails.js')
+    const baselineBook = { id: 'baseline-book', worldbookId: 'baseline-world', chapters: [] }
+    const baselineWorld = { id: 'baseline-world', entries: ['linlan', 'dock'].map(id => ({ id, type: 'general', name: id, content: '前文。旧说明。后文。', profile: { values: { 动机: '原动机' } } })) }
+    const baselineChanges = baselineWorld.entries.map(entry => ({ kind: 'worldbook', targetId: entry.id, field: 'content', operation: 'replace', before: '旧说明', after: '候选说明', reason: '补齐设定说明', details: { attributes: [{ key: '动机', value: '候选动机' }] } }))
+    const revisedChanges = [baselineChanges[0], { ...baselineChanges[1], after: '依据作者回答重新写的说明' }]
+    const baselineScope = effectScope()
+    const baselineEngine = {
+      ...inputEngine,
+      prepare: input => ({ ...input, index: { byDomain: {} }, kernel: { serialization: { blocks: [] } }, editBaseline: JSON.parse(JSON.stringify({ book: baselineBook, worldbook: baselineWorld })) }),
+      prepareProposal: async (input, prepared, runId) => prepareAssistantProposal(input, { ...prepared.editBaseline, runId }),
+      run: async () => ({ ok: true, finalContent: questions[0].question, trace: { taskId: 'baseline-task' }, proposalChanges: baselineChanges,
+        delivery: { intent: 'mixed', outcome: 'needs_input', message: questions[0].question, questions } }),
+      resume: async () => ({ ok: true, finalContent: '已整理人物和地点的修改。', trace: { taskId: 'baseline-task' }, proposalChanges: revisedChanges,
+        delivery: { intent: 'edit', outcome: 'proposal', message: '修改已准备好。' } })
+    }
+    const baselineAssistant = baselineScope.run(() => useAuthoringKnowledgeAssistant({ projectId: ref(baselineBook.id), agentEngine: baselineEngine }))
+    try {
+      expect(await baselineAssistant.ask({ question: '先整理人物和地点，方向不明时问我' }), baselineAssistant.error.value).toBe(true)
+      const originalWaiting = baselineAssistant.messages.value.at(-1)
+      const originalProposal = JSON.parse(JSON.stringify(originalWaiting.proposal))
+      const originalChange = JSON.parse(JSON.stringify(originalWaiting.proposal.changes[0]))
+      baselineWorld.entries[0].profile.values.动机 = '作者等待时亲自改的人物动机'
+      baselineWorld.entries[1].profile.values.动机 = '作者提供的新地点动机'
+      baselineWorld.entries[1].content = '作者补充的前文。旧说明。后文。'
+      baselineBook.worldbookId = 'replacement-world'
+      baselineWorld.id = 'replacement-world'
+      expect(await baselineAssistant.answerQuestions(originalWaiting.id, { direction: '保留人物候选，重新写地点说明' })).toBe(false)
+      expect(baselineAssistant.error.value).toContain('关联设定库已变化')
+      expect(originalWaiting.proposal).toEqual(originalProposal)
+      baselineBook.worldbookId = 'baseline-world'
+      baselineWorld.id = 'baseline-world'
+      expect(await baselineAssistant.retry()).toBe(true)
+      const resumedProposal = baselineAssistant.messages.value.at(-1).proposal
+      const unchanged = resumedProposal.changes[0], revised = resumedProposal.changes[1]
+      expect(unchanged).toMatchObject({ baseline: originalChange.baseline, anchor: originalChange.anchor, detailsBaseline: originalChange.detailsBaseline })
+      expect(revised.baseline).toBe(baselineWorld.entries[1].content)
+      expect(revised.detailsBaseline).toBe(entryDetailsSnapshot(baselineWorld.entries[1]))
+      expect(revised.anchor.from).toBe(baselineWorld.entries[1].content.indexOf('旧说明'))
+      expect(() => applyAssistantProposal(resumedProposal, { book: baselineBook, worldbook: baselineWorld, changeIds: [unchanged.changeId] })).toThrow('条目属性已变化')
+      expect(baselineWorld.entries[0].profile.values.动机).toBe('作者等待时亲自改的人物动机')
+      expect(unchanged.status).toBe('pending')
+      const revisedApplied = applyAssistantProposal(resumedProposal, { book: baselineBook, worldbook: baselineWorld, changeIds: [revised.changeId] })
+      expect(revisedApplied.worldbook.entries[1].content).toBe('作者补充的前文。依据作者回答重新写的说明。后文。')
+      expect(revisedApplied.worldbook.entries[0].profile.values.动机).toBe('作者等待时亲自改的人物动机')
+    } finally { baselineScope.stop() }
+
+    const { createAuthoringAssistantConversationStore } = await import('../services/agents/authoring/authoringAssistantConversationStore.js')
+    const { assistantQuestionWithContext, assistantEditDecisions } = await import('../services/agents/authoring/assistantConversationContext.js')
+    const savedHistory = new Map()
+    const longConversationStore = createAuthoringAssistantConversationStore({ storage: { getText: key => savedHistory.get(key) ?? null, setJson: (key, value) => savedHistory.set(key, JSON.stringify(value)) } })
+    const longHistory = Array.from({ length: 72 }, (_, index) => ({ id: `history-${index}`, role: 'user', question: `${index}：${'较长的作者决定。'.repeat(80)}保留第${index}轮结尾`, createdAt: index }))
+    expect(longConversationStore.saveConversation('long-book', { messages: longHistory, activeSessionId: 'long-session', agentSessions: [{ sessionId: 'long-session', projectId: 'long-book', messages: longHistory }] }).ok).toBe(true)
+    const loadedLong = longConversationStore.load('long-book')
+    expect(loadedLong.ok).toBe(true)
+    expect(loadedLong.conversation.messages).toHaveLength(72)
+    expect(loadedLong.conversation.agentSessions[0].messages).toHaveLength(72)
+    expect(loadedLong.conversation.agentSessions[0].messages[0].question).toBe(longHistory[0].question)
+    const completeStartup = assistantQuestionWithContext('继续', loadedLong.conversation.messages, null)
+    expect(completeStartup).toContain('保留第0轮结尾')
+    expect(completeStartup).toContain('保留第71轮结尾')
+    const actualReceipt = { id: 'decision:edit', bookId: 'long-book', status: 'partial', changes: [{ ...inheritedChanges[0], changeId: 'change-1', status: 'adopted' }, { ...inheritedChanges[0], targetId: 'dock', changeId: 'change-2', status: 'discarded' }] }
+    expect(assistantEditDecisions([{ taskId: 'decision-task', proposal: { ...actualReceipt, status: 'pending', changes: [] } }], 'long-book', () => actualReceipt).proposals[0]).toMatchObject({
+      taskId: 'decision-task', status: 'partial', changes: [{ status: 'adopted' }, { status: 'discarded' }]
+    })
+
     // Busy sends stay in a bounded per-conversation queue; completion drains FIFO.
     let releaseQueueRun
     let queueChapter = 'input-chapter'
-    const queueEngine = { ...inputEngine, destination: () => ({ chapterId: queueChapter }), run: vi.fn(async input => { input.callbacks.onTask({ taskId: 'queued-task', bookId: 'queue-book' }); return new Promise(resolve => { releaseQueueRun = resolve }) }), resume: vi.fn(inputEngine.resume.getMockImplementation()) }
+    const queueEngine = { ...inputEngine, destination: () => ({ chapterId: queueChapter }), run: vi.fn(async input => { input.callbacks.onChunk({ content: '已读' }); input.callbacks.onTask({ taskId: 'queued-task', bookId: 'queue-book' }); return new Promise(resolve => { releaseQueueRun = resolve }) }), resume: vi.fn(inputEngine.resume.getMockImplementation()) }
     const queueAssistant = useAuthoringKnowledgeAssistant({ projectId: ref('queue-book'), agentEngine: queueEngine })
     const firstQueueTurn = queueAssistant.ask({ question: '先读章节' })
     await vi.waitFor(() => expect(releaseQueueRun).toBeTypeOf('function'))
@@ -847,6 +1246,7 @@ describe('authoring project adapter', () => {
     expect(queueAssistant.pendingMessages.value).toEqual([])
     await vi.waitFor(() => expect(queueAssistant.busy.value).toBe(false))
     let releaseHeldTurn, heldCallbacks
+    queueEngine.prepare = vi.fn(queueEngine.prepare)
     queueEngine.cancel = vi.fn(async () => ({ ok: true }))
     queueEngine.resume.mockImplementationOnce(input => { heldCallbacks = input.callbacks; return new Promise(resolve => { releaseHeldTurn = resolve }) })
     const heldTurn = queueAssistant.ask({ question: '等待中的任务' })
@@ -860,6 +1260,7 @@ describe('authoring project adapter', () => {
     expect(queueEngine.cancel).not.toHaveBeenCalled()
     expect(queueAssistant.pendingMessages.value).toEqual([])
     expect(queueAssistant.messages.value.at(-2).question).toBe('保留姓名，只检查关系')
+    expect(queueEngine.prepare.mock.results.at(-1).value.authorAmendments).toEqual(['保留姓名，只检查关系'])
     expect(queueAssistant.busy.value).toBe(true)
     expect(await queueAssistant.queueMessage({ question: '待恢复的消息' })).toBe(true)
     let finishLateInput
@@ -1242,6 +1643,83 @@ const casesK3 = [
     ['authoring.trigger', 'trigger']
   ]
 it('runs %s through one isolated NarrativeKernel turn' + '（参数组合并）', async () => {
+  const current = { projectId: 'draft-book', chapterId: 'draft-chapter', markdown: '',
+    document: createWritingDocument(''), revision: 'draft-r1' }
+  const pendingDraft = '雨下到亥时才停了一阵。'
+  let narrativeProgress
+  const receivedDrafts = vi.fn()
+  const runTurn = vi.fn(async ({ onDraftUpdate }) => {
+    narrativeProgress = onDraftUpdate
+    onDraftUpdate?.({ phase: 'plan', text: '不能展示的规划' })
+    onDraftUpdate?.({ phase: 'write', text: ':::narration\n晚钟响过' })
+    onDraftUpdate?.({ phase: 'write', text: '' })
+    onDraftUpdate?.({ phase: 'write', text: ':::narration\n晚钟响过，雷米' })
+    return { text: '晚钟响过，雷米收起契约。' }
+  })
+  const resolveContext = vi.fn(async () => ({}))
+  const result = await generateAssistantNarrative({
+    request: { operation: 'append', instruction: '按西幻背景重写开篇。', draftAction: 'revise',
+      pendingChanges: [{ targetId: 'draft-chapter', after: pendingDraft }] },
+    prepared: { bookId: 'draft-book', currentChapterId: 'draft-chapter', authorQuestion: '按本书设定修改。', onNarrativeDraftUpdate: receivedDrafts, methods: [{ id: 'world-design' }],
+      pinnedRefs: [{ id: 'reference-book', type: 'source', title: '参考书', summary: '过短的预览' }],
+      writingReferences: [{ id: 'chunk-ref', type: 'source', title: '参考书', sourceDocumentId: 'reference-book', chunkId: 'chunk-1', contentHash: 'hash-1', sourceRefs: ['source:reference-book:chunk-1'], text: '她把砚台放在桌上。\n\n墨汁还没有干。' }],
+      editBaseline: { book: { chapters: [{ id: 'draft-chapter', content: '' }] } } }
+  }, { readCurrent: () => current, resolveTarget: target => target,
+    readNarrative: () => ({ resolveContext, runTurn }) })
+  const instruction = runTurn.mock.calls[0][0].turn.instruction
+  expect(instruction).toContain(pendingDraft)
+  expect(instruction).toContain('【代笔续写】')
+  expect(instruction).toContain('她把砚台放在桌上。\n\n墨汁还没有干。')
+  expect(instruction).toContain('source:reference-book:chunk-1')
+  expect(instruction).toContain('不是本书事实')
+  expect(instruction).not.toContain('过短的预览')
+  expect(instruction).not.toContain('【世界设定】')
+  expect(instruction).not.toContain('按西幻背景重写开篇。')
+  expect(instruction.endsWith('作者本轮原话（本次写作以此为准）：\n按本书设定修改。')).toBe(true)
+  expect(runTurn.mock.calls[0][0].turn.planning).toBe('direct')
+  expect(instruction).toContain('不是既定设定')
+  expect(instruction).toContain('其余沿用作品背景与规则')
+  expect(instruction).not.toContain('与旧资料冲突时以这些明确修改为准')
+  expect(result.text).toBe('晚钟响过，雷米收起契约。')
+  expect(receivedDrafts.mock.calls.map(([update]) => update)).toEqual([
+    { phase: 'write', text: '晚钟响过' }, { phase: 'write', text: '' }, { phase: 'write', text: '晚钟响过，雷米' }
+  ])
+  current.chapterId = 'other-chapter'
+  narrativeProgress({ phase: 'write', text: '换章后的迟到文本' })
+  expect(receivedDrafts).toHaveBeenCalledTimes(3)
+  current.chapterId = 'draft-chapter'
+  await generateAssistantNarrative({
+    request: { operation: 'append', instruction: '接着这份草稿写。', draftAction: 'extend',
+      pendingChanges: [{ targetId: 'draft-chapter', after: pendingDraft }] },
+    prepared: { bookId: 'draft-book', currentChapterId: 'draft-chapter', authorQuestion: '接着草稿写。', authorConversation: '作者：选第二种，回宿舍找弟弟。', authorAmendments: ['用弟弟的视角。'],
+      editBaseline: { book: { chapters: [{ id: 'draft-chapter', content: '' }] } } }
+  }, { readCurrent: () => current, resolveTarget: target => target,
+    readNarrative: () => ({ resolveContext, runTurn }) })
+  expect(runTurn.mock.calls.at(-1)[0].turn.instruction).toContain('接在本轮未采用草稿的最后一句之后')
+  expect(runTurn.mock.calls.at(-1)[0].turn.instruction).not.toContain('从当前章节末尾接续')
+  expect(runTurn.mock.calls.at(-1)[0].turn.instruction).toContain('作者：选第二种，回宿舍找弟弟。')
+  expect(runTurn.mock.calls.at(-1)[0].turn.instruction).toContain('用弟弟的视角。')
+  const savedOpening = '雷米已经交还了旧册。他穿过庭院。马夫招呼他上车。'
+  const range = '正文中段。'.repeat(1800)
+  const savedEnding = '马车停在学院门前。他还没有见到院长。'
+  current.markdown = `${savedOpening}\n\n${range}\n\n${savedEnding}`
+  current.document = createWritingDocument(current.markdown)
+  const revisedParagraph = '雷米在车上读完了信。他将信折好。这件事明天再问。'
+  runTurn.mockResolvedValue({ text: `:::narration\n${revisedParagraph}\n\n另起一段。` })
+  const longRevision = await generateAssistantNarrative({
+    request: { operation: 'replace', before: range, instruction: '改写这一段，接好前后文。' },
+    prepared: { bookId: 'draft-book', currentChapterId: 'draft-chapter', authorQuestion: '改写中段。',
+      editBaseline: { book: { chapters: [{ id: 'draft-chapter', content: current.markdown }] } } }
+  }, { readCurrent: () => current, resolveTarget: target => target,
+    readNarrative: () => ({ resolveContext, runTurn }) })
+  const revisionTurn = runTurn.mock.calls.at(-1)[0].turn
+  expect(revisionTurn.rewriteText).toBe(range)
+  expect(revisionTurn.instruction).toContain('【局部润色】')
+  expect(revisionTurn.planning).toBe('direct')
+  expect(revisionTurn.instruction).toContain(`位置前的相邻正式原文（用于衔接，保留原样）：\n${savedOpening}`)
+  expect(revisionTurn.instruction).toContain(`位置后的相邻正式原文（保留原样，生成内容需接到这里；不是此刻已发生的事件）：\n${savedEnding}`)
+  expect(longRevision.text).toBe(`${revisedParagraph}\n\n另起一段。`)
+  expect(current.markdown).toBe(`${savedOpening}\n\n${range}\n\n${savedEnding}`)
   const failuresK3 = []
   for (const [caseIndexK3, caseValueK3] of casesK3.entries()) {
     const rowK3 = Array.isArray(caseValueK3) ? caseValueK3 : [caseValueK3]

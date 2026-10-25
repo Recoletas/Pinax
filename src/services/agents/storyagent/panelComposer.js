@@ -1,3 +1,4 @@
+import { ASSISTANT_WRITING_METHODS } from '../../../../shared/assistantWritingMethods.js'
 // StoryAgent-beta composer 纯逻辑：@ 提及、/ 命令、内置预设与技法。
 // 交互语义对标 storymasterv4 storyharness Chat.tsx（波9-12 对齐 pi-web 的验证形态）：
 // @ 必须在行首或空白后、token 不含空白；↑↓ 选择、Tab/Enter 确认、Esc 关闭。
@@ -48,13 +49,7 @@ export const INTENT_PRESETS = Object.freeze([
 ])
 
 /** 内置写作技法（取自 storymasterv4 skills 库的精简指令面，同名技法 full 版在 v4 仓库）。 */
-export const SKILL_PRESETS = Object.freeze([
-  { id: 'dialogue-polish', label: '对白打磨', instruction: '对白打磨：删减解释性台词，让每句话带潜台词；说话人节奏差异化，不用书面腔。' },
-  { id: 'foreshadow-plant', label: '伏笔埋设', instruction: '伏笔埋设：只埋一个可回收的伏笔，藏在动作或物件里，不解释、不点题。' },
-  { id: 'cold-open', label: '冷开场', instruction: '冷开场：第一句进入事件中段，禁止天气/环境起手式，两段内给出压力源。' },
-  { id: 'ghostwrite', label: '代笔续写', instruction: '代笔续写：延续既有文风与人称，不复述上文，不加总结句。' },
-  { id: 'close-thread', label: '收束线索', instruction: '收束线索：给当前线索一个明确的收束动作，不引入新人物与新设定。' },
-])
+export const SKILL_PRESETS = ASSISTANT_WRITING_METHODS
 
 /** 斜杠命令注册表（面板按此渲染菜单与执行）。
  *  分工口径（对标 pi-web/storyharness）：/ 只管动作与配置；资料引用归 @ 域
@@ -138,8 +133,8 @@ export function buildKernelBlocks({ sceneText = '', firstEntry = null, pinnedRef
   if (sk.length) {
     blocks.push({
       kind: 'skills',
-      title: '已加载技能（本轮会话装载的工具能力，产出行为按此约束）',
-      text: sk.map((s) => `【${s.label}】${s.instruction}`).join('\n').slice(0, 2000),
+      title: '作者选择的写作方法',
+      text: sk.map((s) => `【${s.label}】${s.instruction}`).join('\n'),
     })
   }
   const refs = (Array.isArray(pinnedRefs) ? pinnedRefs : []).filter((e) => e?.title)

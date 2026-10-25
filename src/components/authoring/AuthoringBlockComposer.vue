@@ -9,7 +9,7 @@
       <span>{{ tr("当前") }}</span>{{ sceneContextSummary }}
     </p>
     <slot name="context" />
-    <AuthoringGenerationStatus v-if="generating" />
+    <AuthoringGenerationStatus v-if="generating" :has-draft="!!staleText && !!staleResult?.streaming" />
     <template v-if="!showRetained">
       <div v-if="!emptyChapter" class="authoring-block-composer__operations" role="radiogroup" :aria-label="tr('写作任务')">
         <button type="button" role="radio" :disabled="generating" :aria-checked="operation === 'next-passage'" @click="operation = 'next-passage'">{{ tr("推演下一段") }}</button>
@@ -47,7 +47,7 @@
       <div data-test="block-stale-preview" class="authoring-block-composer__retained-prose"><p v-for="(paragraph, index) in staleParagraphs" :key="index">{{ paragraph }}</p></div>
       <div class="authoring-block-composer__retained-actions">
         <button type="button" @click="copyRetained">{{ tr(copyNotice || '复制') }}</button>
-        <button type="button" :disabled="staleResult.savedAsExploration" @click="$emit('save-retained')">{{ tr(staleResult.savedAsExploration ? '已保存为构思' : '保存为构思') }}</button>
+        <button v-if="!generating" type="button" :disabled="staleResult.savedAsExploration" @click="$emit('save-retained')">{{ tr(staleResult.savedAsExploration ? '已保存为构思' : '保存为构思') }}</button>
         <button v-if="!generating" type="button" @click="editingRetained = true; nextTick(() => { fitInstruction(); focusInstruction() })">{{ tr('修改要求') }}</button>
         <button v-else type="button" @click="$emit('stop')">{{ tr('停止') }}</button>
       </div>

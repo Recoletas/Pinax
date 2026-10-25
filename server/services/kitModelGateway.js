@@ -1,5 +1,5 @@
 import { currentRequestModel, assertRequestModelSupport } from './requestModelContext.js'
-// 统一模型漏斗网关：文本模型调用统一转发到 kit 任务面 /v1/pinax/complete（内核持有模型与密钥）；
+// 统一模型漏斗网关：文本模型调用统一转发到 kit 任务面 /v1/pinax/complete[/stream]（内核持有模型与密钥）；
 // 结构化生成（W1-1 试点）另有 capability 版 fetchImpl——把单发结构化生成改为 kit 任务面 capability 任务
 // （agent 循环与强制提交归 kit 持有），失败回落漏斗直连（双层 fail-open）。
 // 可用性探测带 5s 缓存；任务面不可达时调用方给出统一"未检测到可用模型"错误（2026-10-08 直连退役）。
@@ -50,7 +50,7 @@ export async function forwardComplete(payload, { timeoutMs = 120_000, signal } =
   await assertRequestModelSupport()
   const folded = foldSystemIntoPrompt({ ...payload, ...(currentRequestModel() ? { modelConfig: currentRequestModel() } : {}) })
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const timer = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null
   const onAbort = () => controller.abort(signal?.reason)
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason)
@@ -74,12 +74,12 @@ export async function forwardComplete(payload, { timeoutMs = 120_000, signal } =
   }
 }
 
-/** 流式补全转发：onDelta(content) 增量回调；resolve 为完整结果（与 forwardComplete 同形状，toolCalls 恒空）。 */
-export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000, signal } = {}) {
+/** 流式补全转发：增量正文与显式终态分开；完整工具调用、停止原因及用量取自终帧。 */
+export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_000, signal, onEvent } = {}) {
   await assertRequestModelSupport()
   const folded = foldSystemIntoPrompt({ ...payload, ...(currentRequestModel() ? { modelConfig: currentRequestModel() } : {}) })
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const timer = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null
   const onAbort = () => controller.abort(signal?.reason)
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason)
@@ -97,31 +97,48 @@ export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_
     }
     const decoder = new TextDecoder()
     let buffer = ''
-    let result = { ok: true, content: '', toolCalls: [], finishReason: 'stop', usage: null, model: null }
-    for await (const chunk of response.body) {
-      buffer += decoder.decode(chunk, { stream: true })
-      let index = buffer.indexOf('\n\n')
-      while (index >= 0) {
-        const raw = buffer.slice(0, index).trim()
-        buffer = buffer.slice(index + 2)
-        index = buffer.indexOf('\n\n')
-        if (!raw.startsWith('data: ')) continue
-        const data = raw.slice(6)
-        if (data === '[DONE]') continue
-        try {
-          const parsed = JSON.parse(data)
-          if (parsed.error) throw Object.assign(new Error(parsed.error), { code: 'KIT_COMPLETE_FAILED' })
-          if (typeof parsed.content === 'string' && parsed.content) {
-            result.content += parsed.content
-            onDelta?.(parsed.content)
-          }
-        } catch (error) {
-          if (error?.code === 'KIT_COMPLETE_FAILED') throw error
-          /* 非 JSON 帧忽略 */
-        }
+    let streamedText = ''
+    let toolStarted = false
+    let result = null
+    const consume = raw => {
+      const data = raw.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n')
+      if (!data || data === '[DONE]') return
+      let parsed
+      try { parsed = JSON.parse(data) } catch { throw Object.assign(new Error('运行器返回了无效的生成事件。'), { code: 'KIT_STREAM_PROTOCOL_ERROR' }) }
+      if (parsed.error) throw Object.assign(new Error(parsed.error), { code: 'KIT_COMPLETE_FAILED' })
+      if (parsed.type === 'complete') {
+        if (result || parsed.result?.ok !== true || typeof parsed.result.content !== 'string' || !Array.isArray(parsed.result.toolCalls) || !parsed.result.finishReason) throw Object.assign(new Error('运行器未返回有效的生成终态。'), { code: 'KIT_STREAM_PROTOCOL_ERROR' })
+        result = parsed.result
+        if (['error', 'aborted'].includes(result.finishReason)) throw Object.assign(new Error('模型服务未完成本次生成。'), { code: 'KIT_COMPLETE_FAILED' })
+      } else if (parsed.type === 'tool.input.delta') {
+        if (result) throw Object.assign(new Error('生成终态后收到额外工具事件。'), { code: 'KIT_STREAM_PROTOCOL_ERROR' })
+        toolStarted = true
+        onEvent?.({ type: 'tool.input.delta', callId: parsed.callId || '', toolName: parsed.toolName || '', input: {} })
+      } else if (typeof parsed.content === 'string' && parsed.content) {
+        if (result) throw Object.assign(new Error('生成终态后收到额外正文。'), { code: 'KIT_STREAM_PROTOCOL_ERROR' })
+        streamedText += parsed.content
+        onDelta?.(parsed.content)
       }
     }
-    return result
+    try {
+      for await (const chunk of response.body) {
+        buffer += decoder.decode(chunk, { stream: true })
+        let boundary = /\r?\n\r?\n/.exec(buffer)
+        while (boundary) {
+          consume(buffer.slice(0, boundary.index))
+          buffer = buffer.slice(boundary.index + boundary[0].length)
+          boundary = /\r?\n\r?\n/.exec(buffer)
+        }
+      }
+      buffer += decoder.decode()
+      if (buffer.trim()) consume(buffer)
+      if (!result) throw Object.assign(new Error('生成连接结束，但尚未收到运行器的完成确认。'), { code: 'KIT_STREAM_INCOMPLETE' })
+      if (result.content !== streamedText) throw Object.assign(new Error('生成正文与完成回执不一致。'), { code: 'KIT_STREAM_CONTENT_MISMATCH' })
+      if (controller.signal.aborted) throw controller.signal.reason || new Error('生成已停止')
+      return result
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), { generatedText: toolStarted ? '' : streamedText })
+    }
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
@@ -130,12 +147,12 @@ export async function forwardCompleteStream(payload, onDelta, { timeoutMs = 180_
 
 /** 叙事 agent-step 的 kit 漏斗 runner（与 runToolCallingProviderTurn 同返回合同）。
  *  入参 request：generationToolContract 归一化形状 {messages(parts), tools, options, requestId}。
- *  单回合：一次 /complete 转发，tools + toolChoice 透传；浏览器仍拥有工具执行与多回合循环。
+ *  单回合：一次 /complete/stream 转发，tools + toolChoice 透传；浏览器仍拥有工具执行与多回合循环。
  *  2026-10-08 回归修复（docs/plan/legacy-feature-regression-findings-20261008.md 问题一）：
  *  契约层 content 必填、parts 可选，本网关曾只读 parts——content-only 调用方
  *  （narrativeCritic / authoringRehearsalToolRun / narrativeTaskQuality）静默拿到空提示词。
  *  取文本一律 parts 优先、string content 兜底；assistant 轮 toolCalls 仍只认 parts（契约层 raw.toolCalls 合并维持现状）。 */
-export async function runKitFunnelProviderTurn(request, { signal } = {}) {
+export async function runKitFunnelProviderTurn(request, { signal, onEvent } = {}) {
   const messages = (request.messages || []).map((message) => {
     const textParts = (message.parts || []).filter((part) => part.type === 'text').map((part) => part.text || '')
     const text = textParts.length ? textParts.join('\n') : (typeof message.content === 'string' ? message.content : '')
@@ -188,7 +205,7 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
     throw Object.assign(new Error('agent-step 组装后所有提示词为空——拒绝转发（20261008 空提示词护栏）'), { code: 'NARRATIVE_AGENT_EMPTY_PROMPT', retryable: false })
   }
   try {
-    const result = await forwardComplete(payload, { timeoutMs: Number(request.options?.timeoutMs) || 100_000, signal })
+    const result = await forwardCompleteStream(payload, content => onEvent?.({ type: 'text.delta', content }), { timeoutMs: request.options?.timeoutMs ?? null, signal, onEvent })
     if (['error', 'aborted'].includes(result.finishReason)) {
       throw Object.assign(new Error('模型服务未完成本次生成，请重试。'), { code: 'NARRATIVE_PROVIDER_UPSTREAM_FAILED' })
     }
@@ -205,10 +222,11 @@ export async function runKitFunnelProviderTurn(request, { signal } = {}) {
       finishReason: result.finishReason || (calls.length ? 'tool_calls' : 'stop')
     }
   } catch (error) {
-    if (signal?.aborted) throw Object.assign(new Error('kit funnel aborted'), { code: 'NARRATIVE_PROVIDER_ABORTED' })
+    if (signal?.aborted) throw Object.assign(new Error('kit funnel aborted'), { code: 'NARRATIVE_PROVIDER_ABORTED', generatedText: error?.generatedText || '' })
     throw Object.assign(new Error(error?.message || 'kit funnel 转发失败'), {
       code: error?.code === 'KIT_COMPLETE_FAILED' ? 'NARRATIVE_PROVIDER_UPSTREAM_FAILED' : (error?.code || 'NARRATIVE_PROVIDER_NETWORK_FAILED'),
-      retryable: true
+      retryable: !error?.generatedText,
+      generatedText: error?.generatedText || ''
     })
   }
 }

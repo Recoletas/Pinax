@@ -9,6 +9,7 @@ import {
   historyRunRevision,
   memoryRunRevision,
   memorySourceDependencyKey,
+  worldbookFoundationRevision,
   worldbookRunRevision
 } from './authoringRunContextReaders.js'
 
@@ -21,6 +22,7 @@ const OWNED_DEPENDENCY_PREFIXES = Object.freeze([
   'exploration:',
   'narrative-asset:',
   'worldbook-entry:',
+  'worldbook-foundation:',
   'history-node:',
   'memory:',
   'memory-source:',
@@ -126,6 +128,7 @@ export function collectAuthoringRunDependencyRevisions({
 
   const expectedWorldbookId = text(sceneProjection?.worldbookId)
   if (worldbook && expectedWorldbookId && text(worldbook.id) === expectedWorldbookId) {
+    assignRevision(revisions, `worldbook-foundation:${expectedWorldbookId}`, worldbookFoundationRevision(worldbook))
     for (const entry of list(worldbook.entries)) {
       assignRevision(revisions, `worldbook-entry:${text(entry?.id)}`, worldbookRunRevision(entry))
     }

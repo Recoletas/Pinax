@@ -1,4 +1,5 @@
 <script setup>
+import { entryDetailsText } from '../../../shared/assistantEntryDetails.js'
 import './AuthoringCatalogWorkbench.css'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { readEntryPanelDraft, saveEntryPanelDraft, clearEntryPanelDraft } from '../../services/worldbook/entryPanelDraft.js'
@@ -48,6 +49,7 @@ const collapsedFolders = ref(new Set())
 const contentInput = ref(null)
 const draft = reactive({ name: '', type: 'general', content: '', keysText: '', group: '', mode: 'selective' })
 let hydrating = false
+let contentResizeObserver = null
 let saveTimer = null
 let draftDirty = false
 let draftBaseline = ''
@@ -65,7 +67,7 @@ function overwriteExternalDraft() {
   draftBaseline = fingerprint(selectedEntry.value); externalConflict.value = false; flushSave()
 }
 
-const { catalog: entryCatalog, state: assistantEdits, field: assistantField, act: assistantAct } = useAssistantObjectEdits({ review: () => props.assistantReview, items: () => props.worldbook?.entries || [], selectedId: () => selectedId.value, worldbook: () => props.worldbook, emit: action => emit('assistant-edit-action', action) })
+const { catalog: entryCatalog, relatedIds: assistantEntryIds, state: assistantEdits, field: assistantField, act: assistantAct } = useAssistantObjectEdits({ review: () => props.assistantReview, items: () => props.worldbook?.entries || [], selectedId: () => selectedId.value, worldbook: () => props.worldbook, emit: action => emit('assistant-edit-action', action) })
 const nonCharacterEntries = computed(() => entryCatalog.value.filter(entry => entry?.type !== 'character'))
 async function handleAssistantAction(action) { if (action !== 'done') { flushSave(); await nextTick() }; assistantAct(action) }
 const selectedEntry = computed(() => nonCharacterEntries.value.find((entry) => String(entry.id) === selectedId.value) || null)
@@ -76,7 +78,7 @@ const settingContext = computed(() => buildAuthoringSettingContext({
 const contextualEntries = computed(() => {
   const ids = new Set(settingContext.value.groups.flatMap((group) => group.items)
     .filter((item) => item.type !== 'character').map((item) => String(item.id)))
-  return nonCharacterEntries.value.filter((entry) => entry.__assistantPendingCreate || String(entry.id) === String(props.focusEntryId) || ids.has(String(entry.id)))
+  return nonCharacterEntries.value.filter((entry) => entry.__assistantPendingCreate || assistantEntryIds.value.has(String(entry.id)) || String(entry.id) === selectedId.value || String(entry.id) === String(props.focusEntryId) || ids.has(String(entry.id)))
 })
 const visibleEntries = computed(() => {
   const source = directoryMode.value === 'contextual' ? contextualEntries.value : nonCharacterEntries.value
@@ -111,10 +113,28 @@ function loadDraft(entry) {
 }
 function resizeContent() {
   const element = contentInput.value
-  if (!element) return
+  if (!element || !element.getClientRects().length) return
   element.style.height = 'auto'
-  element.style.height = `${Math.max(180, Math.ceil(element.scrollHeight))}px`
+  element.style.height = `${Math.max(54, Math.ceil(element.scrollHeight))}px`
 }
+// The editor can reappear after inline review or receive a different width
+// without a new input event. Observe width only to avoid a resize feedback loop.
+watch(contentInput, (element) => {
+  contentResizeObserver?.disconnect()
+  contentResizeObserver = null
+  if (!element) return
+  nextTick(resizeContent)
+  if (typeof ResizeObserver === 'undefined') return
+  let previousWidth = -1
+  contentResizeObserver = new ResizeObserver(([entry]) => {
+    const width = entry.contentRect.width
+    if (width === previousWidth) return
+    previousWidth = width
+    resizeContent()
+  })
+  contentResizeObserver.observe(element)
+}, { flush: 'post' })
+watch(() => draft.content, resizeContent, { flush: 'post' })
 function selectEntry(entry) {
   if (!entry?.id) return
   flushSave()
@@ -200,7 +220,7 @@ watch(() => props.worldbook?.id, () => {
   directoryMode.value = 'contextual'
   typeFilter.value = 'all'
 })
-onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
+onBeforeUnmount(() => { contentResizeObserver?.disconnect(); flushSave(); preserveExternalDraft() })
 </script>
 
 <template>
@@ -217,8 +237,9 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
         </header>
         <AuthoringSettingAiReview v-if="!assistantEdits" v-model:open="aiReviewOpen" :worldbook="worldbook" :entry="selectedEntry" @apply="applyAiCandidate" />
         <div class="setting-sheet__scroll catalog-sheet-body">
+          <AuthoringInlineEdit v-if="assistantField(entryDetailsText)" :parts="assistantField(entryDetailsText)" />
           <!-- A2-1：内容优先；触发词/注入归"用于AI的规则"折叠；类型/分组归对象属性 -->
-          <label class="setting-content"><span>{{ tr('内容') }}</span><AuthoringInlineEdit v-if="assistantField(entry => entry.content)" :parts="assistantField(entry => entry.content)" :label="tr('内容')" /><textarea v-else :readonly="selectedEntry.__assistantPendingCreate" ref="contentInput" v-model="draft.content" @input="resizeContent(); scheduleSave()" @blur="flushSave"></textarea></label>
+          <label class="setting-content"><span>{{ tr('内容') }}</span><AuthoringInlineEdit v-if="assistantField(entry => entry.content)" :parts="assistantField(entry => entry.content)" :label="tr('内容')" /><textarea v-else :readonly="selectedEntry.__assistantPendingCreate" ref="contentInput" v-model="draft.content" rows="1" @input="scheduleSave()" @blur="flushSave"></textarea></label>
           <div class="setting-object-row">
             <label><span>{{ tr('类型') }}</span><select :disabled="selectedEntry.__assistantPendingCreate" v-model="draft.type" @change="flushSave"><option v-for="item in ENTRY_TYPES" :key="item[0]" :value="item[0]">{{ tr(item[1]) }}</option></select></label>
             <label><span>{{ tr('分组') }}</span><input :readonly="selectedEntry.__assistantPendingCreate" v-model="draft.group" :placeholder="tr('可选')" @blur="flushSave" /></label>
@@ -266,7 +287,7 @@ onBeforeUnmount(() => { flushSave(); preserveExternalDraft() })
 <style scoped>
 .authoring-setting-workbench{display:grid;grid-template-columns:minmax(300px,1.35fr) minmax(210px,.95fr);min-height:100%;height:100%;background:var(--surface-workbench-raised)}
 button{border:0;background:transparent;color:var(--text-secondary);font:inherit;cursor:pointer}.primary{background:var(--accent-primary,var(--accent,#1677ff))!important;color:var(--accent-text)!important}
-.setting-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.setting-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.setting-sheet__head input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 17px/1.5 var(--font-body);outline:0}.setting-sheet__head input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-ai{color:var(--accent-primary);font-size:11px}.setting-delete{width:28px;height:28px}.setting-sheet__scroll{flex:1;min-height:0;overflow:auto;padding:7px 16px 32px}.setting-sheet__scroll label{display:grid;gap:7px;padding:14px 0;border-bottom:1px dashed var(--border-subtle)}.setting-sheet__scroll label>span{color:var(--text-secondary);font-size:12px}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{box-sizing:border-box;width:100%;border:0;outline:0;background:transparent;color:var(--text-primary);font:14px/1.8 var(--font-body)}.setting-sheet__scroll textarea{min-height:180px;overflow:hidden;resize:none}.setting-sheet__scroll input:focus,.setting-sheet__scroll textarea:focus,.setting-sheet__scroll select:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.setting-sheet{position:relative;display:flex;min-width:0;min-height:0;flex-direction:column;border-right:1px solid var(--border-subtle)}.setting-sheet__head{display:flex;min-height:62px;align-items:center;gap:12px;padding:8px 16px}.setting-sheet__head input{min-width:0;flex:1;border:0;background:transparent;color:var(--text-primary);font:600 17px/1.5 var(--font-body);outline:0}.setting-sheet__head input:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-ai{color:var(--accent-primary);font-size:11px}.setting-delete{width:28px;height:28px}.setting-sheet__scroll{flex:1;min-height:0;overflow:auto;padding:7px 16px 32px}.setting-sheet__scroll label{display:grid;gap:7px;padding:14px 0;border-bottom:1px dashed var(--border-subtle)}.setting-sheet__scroll label>span{color:var(--text-secondary);font-size:12px}.setting-sheet__scroll input,.setting-sheet__scroll textarea,.setting-sheet__scroll select{box-sizing:border-box;width:100%;border:0;outline:0;background:transparent;color:var(--text-primary);font:14px/1.8 var(--font-body)}.setting-sheet__scroll textarea{height:auto;min-height:54px;max-height:none;overflow:hidden;resize:none}.setting-sheet__scroll input:focus,.setting-sheet__scroll textarea:focus,.setting-sheet__scroll select:focus{box-shadow:inset 0 -1px var(--accent-primary)}.setting-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .setting-object-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 0 4px}
 .setting-ai-rules{border-top:1px dashed var(--border-subtle);margin-top:4px;padding-top:2px}
 .setting-ai-rules summary{color:var(--text-secondary);font:500 12px/1 var(--font-sans);cursor:pointer;padding:10px 0;list-style:none;user-select:none}

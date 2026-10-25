@@ -1,3 +1,4 @@
+import { worldbookFoundation } from '../../worldbook/worldbookFoundation.js'
 import {
   authorityRank,
   normalizeContextCandidate,
@@ -172,6 +173,63 @@ export function worldbookRunRevision(entry = {}) {
   })
 }
 
+// Top-level author settings belong to the bound worldbook, not to an invented
+// entry. Discovery and live reconciliation hash the same consumed fields.
+export function worldbookFoundationRevision(worldbook = {}) {
+  const foundation = worldbookFoundation(worldbook)
+  if (!text(worldbook.id) || !foundation.content) return ''
+  return fingerprintValue('worldbook-foundation', { id: text(worldbook.id), ...foundation })
+}
+
+export async function readAuthoringWorldbookFoundationCandidates({
+  projectId = '', worldbookId = '', repository = null
+} = {}) {
+  const candidates = []
+  const exclusions = []
+  if (!text(projectId) || !text(worldbookId)) return { candidates, exclusions }
+  const primarySourceRef = `worldbook-foundation:${text(worldbookId)}`
+  const source = {
+    id: primarySourceRef,
+    kind: 'worldbook-foundation',
+    sourceKind: 'worldbook-foundation',
+    sourceId: text(worldbookId),
+    primarySourceRef,
+    sourceRefs: [primarySourceRef]
+  }
+  const exclude = (reason) => ({ candidates, exclusions: [safeExclusion(source, reason)] })
+  if (typeof repository?.getBoundWorldbook !== 'function') return exclude('worldbook-source-reader-unavailable')
+  let binding
+  try {
+    binding = await repository.getBoundWorldbook(text(projectId), text(worldbookId))
+  } catch {
+    return exclude('worldbook-read-failed')
+  }
+  const worldbook = binding?.worldbook
+  if (text(binding?.projectId) !== text(projectId)
+    || text(binding?.worldbookId) !== text(worldbookId)
+    || text(worldbook?.id) !== text(worldbookId)) return exclude('worldbook-binding-mismatch')
+  const foundation = worldbookFoundation(worldbook)
+  if (!foundation.content) return { candidates, exclusions }
+  const revision = worldbookFoundationRevision(worldbook)
+  candidates.push({
+    ...source,
+    projectId: text(projectId),
+    label: foundation.name ? `${foundation.name} · 世界背景与创作规则` : '世界背景与创作规则',
+    usageRole: 'intent',
+    sourceAuthority: 'author-adopted',
+    narrativeStatus: 'constraint',
+    temporalRelation: 'atemporal',
+    scope: 'project',
+    reason: '绑定世界书的既定世界背景与创作规则',
+    revision,
+    attentionPriority: 100,
+    dependencyRevisions: { [primarySourceRef]: revision },
+    representations: { full: foundation.content },
+    estimatedChars: foundation.content.length
+  })
+  return { candidates, exclusions }
+}
+
 export function authoringRunHistoryNodes(worldbook = {}) {
   const history = worldbook?.geoHistory || {}
   return [
@@ -275,7 +333,7 @@ export function captureAuthoringRunTarget({ target = {}, document = null, sceneP
     })
   }
 
-  const contextMode = target.contextMode === 'rewrite-unit' ? 'rewrite-unit' : 'caret-prefix'
+  const contextMode = ['rewrite-unit', 'rewrite-range'].includes(target.contextMode) ? target.contextMode : 'caret-prefix'
   const prefixParts = contextMode === 'rewrite-unit'
     ? nodes.map(nodeText).filter(Boolean)
     : nodes.slice(0, nodeIndex).map(nodeText).filter(Boolean)
@@ -634,16 +692,19 @@ export async function readAuthoringWorldbookCandidates({
     }
     const matchReason = text(raw?.matchReason || raw?.entry?.matchReason || entry.matchReason)
     const currentScene = matchReason === 'current-scene'
+    const entryType = text(entry.type).toLowerCase()
+    const constraint = ['rule', 'forbidden', 'style'].includes(entryType)
+    const reference = entryType === 'source'
     candidates.push({
       ...source,
       projectId: text(projectId),
-      usageRole: 'fact',
+      usageRole: reference ? 'inspiration' : constraint ? 'intent' : 'fact',
       sourceAuthority: 'imported-reference',
-      narrativeStatus: ['rule', 'forbidden', 'style'].includes(text(entry.type)) ? 'constraint' : 'fact',
+      narrativeStatus: reference ? 'hypothesis' : constraint ? 'constraint' : 'fact',
       temporalRelation: 'atemporal',
       scope: 'project',
       position: {},
-      reason: currentScene ? '当前场精确引用' : `世界书命中（${matchReason || 'keyword'}）`,
+      reason: reference ? '参考来源，不代表本书已发生的事实' : currentScene ? '当前场精确引用' : `世界书命中（${matchReason || 'keyword'}）`,
       sourceRefs: worldbookSourceRefs(entry, primarySourceRef),
       revision,
       attentionPriority: currentScene ? 99 : 76,

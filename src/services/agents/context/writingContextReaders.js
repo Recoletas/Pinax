@@ -164,21 +164,25 @@ export function buildWritingContextCandidates(input = {}) {
     })
   }
 
-  // —— worldbook-entry：matcher 命中即候选（imported-reference，atemporal fact/constraint）——
+  // 来源条目保留参考身份；命中关键词不等于成为本书正式事实。
   for (const entry of Array.isArray(matchedEntries) ? matchedEntries : []) {
     const entryContent = text(entry.content || entry.text || '').trim()
     if (!entryContent) continue
     const isCurrentSceneEntry = entry.matchReason === 'current-scene'
+    const entryType = text(entry.type).trim().toLowerCase()
+    const constraint = ['rule', 'forbidden', 'style'].includes(entryType)
+    const reference = entryType === 'source'
     candidates.push({
       id: `wb-entry:${entry.id}`,
       kind: 'worldbook-entry',
       projectId,
+      usageRole: reference ? 'inspiration' : constraint ? 'intent' : 'fact',
       sourceAuthority: 'imported-reference',
-      narrativeStatus: ['rule', 'forbidden', 'style'].includes(entry.type) ? 'constraint' : 'fact',
+      narrativeStatus: reference ? 'hypothesis' : constraint ? 'constraint' : 'fact',
       temporalRelation: 'atemporal',
       scope: 'project',
       position: {},
-      reason: isCurrentSceneEntry ? '当前场精确引用' : `世界书命中（${entry.matchReason || 'keyword'}）`,
+      reason: reference ? '参考来源，不代表本书已发生的事实' : isCurrentSceneEntry ? '当前场精确引用' : `世界书命中（${entry.matchReason || 'keyword'}）`,
       sourceRefs: [`worldbook-entry:${entry.id}`],
       revision: worldbookEntryRevision(entry),
       attentionPriority: isCurrentSceneEntry ? 99 : 72,

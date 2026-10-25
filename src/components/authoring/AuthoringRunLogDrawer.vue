@@ -10,8 +10,11 @@ const AuthoringRunLog = defineAsyncComponent(() => import('./AuthoringRunLog.vue
 
 const props = defineProps({
   projectId: { type: [String, Number], default: '' },
-  messages: { type: Array, default: () => [] }
+  messages: { type: Array, default: () => [] },
+  canCompact: Boolean, compacting: Boolean, compacted: Boolean
 })
+const emit = defineEmits(['compact'])
+function compactContext() { if (menu.value) menu.value.open = false; emit('compact') }
 
 const open = ref(false)
 const menu = ref(null), dialog = ref(null), closeButton = ref(null)
@@ -66,7 +69,7 @@ const toolEntries = computed(() => {
 function toggleEntry(entry) {
   const next = new Set(expanded.value); if (next.has(entry.key)) next.delete(entry.key); else next.add(entry.key); expanded.value = next
 }
-function toolLabel(name) { return tr(({ knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
+function toolLabel(name) { return tr(({ writing_methods: '查阅写作方法', knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', complete_assistant_task: '交付本轮结果' })[name] || name) }
 function shortTime(at) {
   if (!at) return ''
   const date = new Date(at)
@@ -78,7 +81,7 @@ function shortTime(at) {
   <div class="authoring-run-log-drawer">
     <details ref="menu" class="authoring-run-log-drawer__menu" @focusout="!$event.currentTarget.contains($event.relatedTarget) && ($event.currentTarget.open = false)" @keydown.esc.stop="$event.currentTarget.open = false; $event.currentTarget.querySelector('summary')?.focus()">
       <summary :aria-label="tr('更多助手操作')" v-workbench-tooltip="tr('更多助手操作')"><WorkbenchIcon name="more" :size="18" /></summary>
-      <div class="authoring-run-log-drawer__actions"><button type="button" data-test="authoring-run-log-entry" @click="toggle"><WorkbenchIcon name="history" :size="15" />{{ tr('运行日志') }}</button></div>
+      <div class="authoring-run-log-drawer__actions"><button type="button" data-test="assistant-compact-context" :disabled="!canCompact || compacting" :title="tr('保留原消息，只压缩后续发送的上下文；至少需要三轮对话。')" @click="compactContext"><WorkbenchIcon name="archive" :size="15" />{{ tr(compacting ? '正在压缩…' : compacted && !canCompact ? '上下文已压缩' : '压缩上下文') }}</button><button type="button" data-test="authoring-run-log-entry" @click="toggle"><WorkbenchIcon name="history" :size="15" />{{ tr('运行日志') }}</button></div>
     </details>
     <Teleport to="body">
       <dialog v-if="open" ref="dialog" class="authoring-run-log-drawer__dialog" :aria-label="tr('运行日志')" @cancel.prevent="close" @click="backdrop">
@@ -113,6 +116,7 @@ function shortTime(at) {
 .authoring-run-log-drawer__menu summary::-webkit-details-marker { display:none; }
 .authoring-run-log-drawer__menu summary:hover { background:var(--nav-hover); }
 .authoring-run-log-drawer__actions { position:absolute; z-index:20; top:calc(100% + 4px); right:0; min-width:150px; padding:4px; background:var(--surface-workbench-raised); border:1px solid var(--hairline-soft); border-radius:var(--radius-popover); box-shadow:var(--shadow-workbench-float); }
+.authoring-run-log-drawer__actions button:disabled { opacity:.45; cursor:default; }
 .authoring-run-log-drawer__actions button { display:flex; width:100%; align-items:center; gap:8px; min-height:36px; padding:8px; text-align:start; }
 :is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) button { border:0; border-radius:var(--radius-control); background:transparent; color:var(--text-secondary); font:inherit; cursor:pointer; }
 :is(.authoring-run-log-drawer,.authoring-run-log-drawer__dialog) button:hover { background:var(--nav-hover); color:var(--text-primary); }

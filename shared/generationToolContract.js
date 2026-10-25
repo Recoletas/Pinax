@@ -19,13 +19,7 @@ const WORLD_BOOK_SEARCH_LIMITS = Object.freeze({
 })
 
 export const GENERATION_AGENT_LIMITS = Object.freeze({
-  maxMessages: 28,
-  maxMessageChars: 8000,
-  maxToolResultChars: 7200,
-  maxInputChars: 24000,
-  maxTools: 6,
-  maxTokens: 8192,
-  maxTimeoutMs: 100000
+  maxToolResultChars: 7200
 })
 
 function text(value) {
@@ -161,9 +155,6 @@ function normalizeTools(rawTools) {
   if (!Array.isArray(rawTools) || rawTools.length === 0) {
     return contractError('NARRATIVE_TOOLS_REQUIRED', 'tools 至少包含一个只读工具')
   }
-  if (rawTools.length > GENERATION_AGENT_LIMITS.maxTools) {
-    return contractError('NARRATIVE_TOOLS_TOO_MANY', `tools 不能超过 ${GENERATION_AGENT_LIMITS.maxTools} 个`)
-  }
   const seen = new Set()
   const tools = []
   for (const raw of rawTools) {
@@ -193,7 +184,7 @@ const GENERATION_OPAQUE_KEYS = new Set(['signature', 'redactedData', 'encryptedC
 
 function normalizeMessageParts(rawParts, index, role, allowedToolNames) {
   if (rawParts == null) return { valid: true, parts: [] }
-  if (!Array.isArray(rawParts) || rawParts.length === 0 || rawParts.length > 12) {
+  if (!Array.isArray(rawParts) || rawParts.length === 0) {
     return contractError('NARRATIVE_MESSAGE_PARTS_INVALID', `messages[${index}].parts 数量无效`)
   }
   const parts = []
@@ -206,7 +197,7 @@ function normalizeMessageParts(rawParts, index, role, allowedToolNames) {
     if (type === 'text' || type === 'refusal') {
       const value = text(rawPart?.text)
       if (!value) return contractError('NARRATIVE_MESSAGE_PART_EMPTY', `messages[${index}].parts[${partIndex}] 文本为空`)
-      parts.push({ type, text: value.slice(0, GENERATION_AGENT_LIMITS.maxMessageChars) })
+      parts.push({ type, text: value })
       continue
     }
     if (type === 'reasoning') {
@@ -266,12 +257,6 @@ function normalizeMessage(raw, index, allowedToolNames) {
     return contractError('NARRATIVE_MESSAGE_ROLE_INVALID', `messages[${index}].role 非法`)
   }
   const content = contentText(raw.content)
-  const maxChars = role === 'tool'
-    ? GENERATION_AGENT_LIMITS.maxToolResultChars
-    : GENERATION_AGENT_LIMITS.maxMessageChars
-  if (content.length > maxChars) {
-    return contractError('NARRATIVE_MESSAGE_TOO_LONG', `messages[${index}] 超过 ${maxChars} 字符`)
-  }
   const partsResult = normalizeMessageParts(raw.parts, index, role, allowedToolNames)
   if (!partsResult.valid) return partsResult
   // 2026-10-08 回归单源化（docs/plan/legacy-feature-regression-findings-20261008.md 问题一）：
@@ -326,9 +311,6 @@ function normalizeMessages(rawMessages, allowedToolNames) {
   if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
     return contractError('NARRATIVE_MESSAGES_REQUIRED', 'messages 不能为空')
   }
-  if (rawMessages.length > GENERATION_AGENT_LIMITS.maxMessages) {
-    return contractError('NARRATIVE_MESSAGES_TOO_MANY', `messages 不能超过 ${GENERATION_AGENT_LIMITS.maxMessages} 条`)
-  }
   const messages = []
   let totalChars = 0
   for (let index = 0; index < rawMessages.length; index += 1) {
@@ -336,9 +318,6 @@ function normalizeMessages(rawMessages, allowedToolNames) {
     if (!normalized.valid) return normalized
     totalChars += normalized.message.content.length
     messages.push(normalized.message)
-  }
-  if (totalChars > GENERATION_AGENT_LIMITS.maxInputChars) {
-    return contractError('NARRATIVE_INPUT_TOO_LONG', `消息总长度超过 ${GENERATION_AGENT_LIMITS.maxInputChars} 字符`)
   }
   return { valid: true, messages, totalChars }
 }
@@ -349,15 +328,16 @@ function normalizeOptions(raw = {}) {
   const declaredMaxTokens = raw?.maxTokens ?? raw?.max_tokens
   const maxTokens = Number.isFinite(Number(declaredMaxTokens)) ? Math.floor(Number(declaredMaxTokens)) : null
   const temperature = Number(raw?.temperature ?? 0.2)
-  const timeoutMs = Number(raw?.timeoutMs ?? raw?.timeout_ms ?? 12000)
-  if (maxTokens !== null && (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > GENERATION_AGENT_LIMITS.maxTokens)) {
-    return contractError('NARRATIVE_MAX_TOKENS_INVALID', `maxTokens 必须是 1-${GENERATION_AGENT_LIMITS.maxTokens} 的整数`)
+  const declaredTimeoutMs = raw?.timeoutMs ?? raw?.timeout_ms
+  const timeoutMs = declaredTimeoutMs == null ? null : Number(declaredTimeoutMs)
+  if (maxTokens !== null && (!Number.isInteger(maxTokens) || maxTokens < 1)) {
+    return contractError('NARRATIVE_MAX_TOKENS_INVALID', 'maxTokens 必须为正整数')
   }
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
     return contractError('NARRATIVE_TEMPERATURE_INVALID', 'temperature 必须在 0-2 之间')
   }
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000 || timeoutMs > GENERATION_AGENT_LIMITS.maxTimeoutMs) {
-    return contractError('NARRATIVE_TIMEOUT_INVALID', `timeoutMs 必须在 1000-${GENERATION_AGENT_LIMITS.maxTimeoutMs} 之间`)
+  if (timeoutMs !== null && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+    return contractError('NARRATIVE_TIMEOUT_INVALID', 'timeoutMs 必须为正数')
   }
   const rawCapabilities = raw?.capabilities
   const capabilities = rawCapabilities && typeof rawCapabilities === 'object' && !Array.isArray(rawCapabilities)
@@ -383,7 +363,7 @@ function normalizeOptions(raw = {}) {
     options: {
       ...(maxTokens !== null ? { maxTokens } : {}),
       temperature,
-      timeoutMs: Math.floor(timeoutMs),
+      ...(timeoutMs == null ? {} : { timeoutMs: Math.floor(timeoutMs) }),
       parallelToolCalls: raw?.parallelToolCalls !== false,
       ...(capabilities ? { capabilities } : {}),
       ...(toolChoice != null ? { toolChoice } : {}),

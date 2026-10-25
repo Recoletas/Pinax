@@ -1,3 +1,4 @@
+import { writingMethodText } from '../../../shared/assistantWritingMethods.js'
 import { getResolvedApiSettings } from '../api'
 import { runGenerationTask } from '../generationService'
 import { parseJsonFromAiContent } from './worldbookImportGeneration'
@@ -240,6 +241,7 @@ function buildPrompt({ worldbook, mode, brief, selectedEntryIds, auditTargetSubs
     '只返回严格 JSON 对象，不要 Markdown、标题、解释、分析或思考过程。',
     `当前模式：${mode}`,
     modeInstruction,
+    mode === WORLDBOOK_MAINTENANCE_MODES.REFINE ? writingMethodText([{ id: dedupedEntries.some(entry => entry.type === 'character') ? 'character-design' : 'world-design' }]) : '',
     '每个 candidate 必须包含 action、entryIds、confidence、reason；create/update/merge/retag 必须提供 proposedEntry。',
     'proposedEntry 只允许 name、type、keys、keysSecondary、content、group、mode；不要丢失已有事实，不要擅自改变时间、人物关系或因果。',
     'action 只能是 create、update、merge、retag、conflict、ignore；entryIds 只能使用上下文中的真实 ID；最多返回 12 个候选。',

@@ -19,6 +19,12 @@ import {
 const NARRATIVE_TASK_IDS = new Set(AUTHORING_NARRATIVE_TASK_IDS)
 const SESSION_KIND = 'authoring-run-session'
 const MANIFEST_KIND = 'compiled-context-manifest'
+const NARRATIVE_LONG_CONTEXT_LIMITS = Object.freeze({ maxChars: Infinity, maxBlocks: Infinity })
+
+function contextValidationLimits(session) {
+  return session.profile === 'narrative-long' && session.manifest.profile === 'narrative-long'
+    ? NARRATIVE_LONG_CONTEXT_LIMITS : undefined
+}
 
 export const AUTHORING_NARRATIVE_RUN_ERROR_CODES = Object.freeze({
   PREPARE_UNAVAILABLE: 'AUTHORING_RUN_SESSION_PREPARE_UNAVAILABLE',
@@ -74,10 +80,11 @@ function validateFrozenSession(session, taskId) {
     return 'session-manifest-collections-invalid'
   }
   const maxChars = Number(manifest.budget?.totalChars)
-  if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > AGENT_CONTEXT_MAX_CHARS) {
+  const maxAllowedChars = contextValidationLimits(session)?.maxChars ?? AGENT_CONTEXT_MAX_CHARS
+  if (!Number.isInteger(maxChars) || maxChars < 1 || maxChars > maxAllowedChars) {
     return 'session-manifest-budget-invalid'
   }
-  if (!Number.isInteger(Number(manifest.totalChars)) || Number(manifest.totalChars) < 0) {
+  if (!Number.isInteger(Number(manifest.totalChars)) || Number(manifest.totalChars) < 0 || Number(manifest.totalChars) > maxChars) {
     return 'session-manifest-total-invalid'
   }
   return ''
@@ -181,7 +188,7 @@ function buildManifestContext({ taskId, request, session }) {
     manifestFingerprint: session.manifest.fingerprint,
     manifestExcluded: session.manifest.excluded
   }
-  const validation = validateAgentContextEnvelope(envelope, task)
+  const validation = validateAgentContextEnvelope(envelope, task, contextValidationLimits(session))
   if (!validation.valid) {
     throw typedError(
       AUTHORING_NARRATIVE_RUN_ERROR_CODES.SESSION_INVALID,
@@ -288,6 +295,7 @@ export function createAuthoringNarrativeRun({
     assistantSampling = null,
     assistantModelSettings = null,
     onModelRequest = null,
+    onDraftUpdate = null,
     resolveLiveContextDependencies = null
   } = {}) {
     const taskId = resolveAuthoringTaskId(authoringRunSession?.taskId)
@@ -313,6 +321,7 @@ export function createAuthoringNarrativeRun({
       assistantSampling,
       assistantModelSettings,
       onModelRequest,
+      onDraftUpdate,
       signal,
       envelope,
       projectId: String(session.manifest.target.projectId),

@@ -171,14 +171,18 @@ export function createAgentContextLedger(envelope) {
   }
 }
 
-export function validateAgentContextEnvelope(envelope, taskDefinition = null) {
+export function validateAgentContextEnvelope(envelope, taskDefinition = null, limits = {}) {
+  // Only a trusted caller can widen these limits; envelope data never selects them.
+  const limit = (value, fallback) => value === Infinity || Number.isInteger(value) && value > 0 ? value : fallback
+  const maxAllowedChars = limit(limits?.maxChars, AGENT_CONTEXT_MAX_CHARS)
+  const maxAllowedBlocks = limit(limits?.maxBlocks, 64)
   if (!envelope || typeof envelope !== 'object' || envelope.version !== AGENT_CONTEXT_SCHEMA_VERSION) {
     return { valid: false, code: AGENT_CONTEXT_ERROR_CODES.INVALID, reason: 'invalid-schema-version' }
   }
   if (
     !String(envelope.surface || '').trim()
     || !Array.isArray(envelope.blocks)
-    || envelope.blocks.length > 64
+    || envelope.blocks.length > maxAllowedBlocks
   ) {
     return { valid: false, code: AGENT_CONTEXT_ERROR_CODES.INVALID, reason: 'invalid-envelope-shape' }
   }
@@ -188,7 +192,7 @@ export function validateAgentContextEnvelope(envelope, taskDefinition = null) {
   if (
     !Number.isInteger(maxChars)
     || maxChars < 1
-    || maxChars > AGENT_CONTEXT_MAX_CHARS
+    || maxChars > maxAllowedChars
     || !Number.isInteger(usedChars)
     || usedChars < 0
     || usedChars > maxChars

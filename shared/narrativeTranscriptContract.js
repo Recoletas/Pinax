@@ -6,6 +6,8 @@ import {
 export const NARRATIVE_TRANSCRIPT_SCHEMA_VERSION = 1
 
 export const NARRATIVE_TRANSCRIPT_LIMITS = Object.freeze({
+  // Legacy sizing hints for reference excerpts and existing consumers. They do
+  // not limit authored text, message count or a task's accumulated transcript.
   maxMessages: 32,
   maxPartsPerMessage: 12,
   maxPartChars: 8000,
@@ -126,9 +128,6 @@ function normalizePart(raw, location, options) {
   if (type === 'tool-result') return normalizeToolResult(raw, location)
 
   const value = text(raw.text)
-  if (value.length > NARRATIVE_TRANSCRIPT_LIMITS.maxPartChars) {
-    return error('NARRATIVE_TRANSCRIPT_PART_TOO_LONG', `${location}.text 超过长度上限`)
-  }
   if (type !== 'reasoning' && !value) {
     return error('NARRATIVE_TRANSCRIPT_PART_EMPTY', `${location}.text 不能为空`)
   }
@@ -163,19 +162,11 @@ function normalizeMessage(raw, index, options) {
   if (!Array.isArray(raw.parts) || raw.parts.length === 0) {
     return error('NARRATIVE_TRANSCRIPT_PARTS_REQUIRED', `${location}.parts 不能为空`)
   }
-  if (raw.parts.length > NARRATIVE_TRANSCRIPT_LIMITS.maxPartsPerMessage) {
-    return error('NARRATIVE_TRANSCRIPT_PARTS_TOO_MANY', `${location}.parts 超过数量上限`)
-  }
   const parts = []
-  let chars = 0
   for (let partIndex = 0; partIndex < raw.parts.length; partIndex += 1) {
     const normalized = normalizePart(raw.parts[partIndex], `${location}.parts[${partIndex}]`, options)
     if (!normalized.valid) return normalized
-    chars += normalized.part.text?.length || JSON.stringify(normalized.part).length
     parts.push(normalized.part)
-  }
-  if (chars > NARRATIVE_TRANSCRIPT_LIMITS.maxPartChars * 2) {
-    return error('NARRATIVE_TRANSCRIPT_MESSAGE_TOO_LONG', `${location} 超过消息长度上限`)
   }
   const providerMetadata = normalizeOpaque(raw.providerMetadata)
   if (raw.providerMetadata != null && providerMetadata == null) {
@@ -238,19 +229,11 @@ export function normalizeNarrativeTranscript(raw = {}, options = {}) {
   if (!Array.isArray(raw.messages)) {
     return error('NARRATIVE_TRANSCRIPT_MESSAGES_REQUIRED', 'transcript.messages 必须是数组')
   }
-  if (raw.messages.length > NARRATIVE_TRANSCRIPT_LIMITS.maxMessages) {
-    return error('NARRATIVE_TRANSCRIPT_MESSAGES_TOO_MANY', 'transcript.messages 超过数量上限')
-  }
   const messages = []
-  let totalChars = 0
   for (let index = 0; index < raw.messages.length; index += 1) {
     const normalized = normalizeMessage(raw.messages[index], index, options)
     if (!normalized.valid) return normalized
-    totalChars += JSON.stringify(normalized.message).length
     messages.push(normalized.message)
-  }
-  if (totalChars > NARRATIVE_TRANSCRIPT_LIMITS.maxTotalChars) {
-    return error('NARRATIVE_TRANSCRIPT_TOO_LONG', 'transcript 总长度超过上限')
   }
   const ordering = validateToolOrdering(messages, options.allowPendingToolCalls === true)
   if (!ordering.valid) return ordering

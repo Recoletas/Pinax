@@ -228,6 +228,7 @@ export async function sendNarrativeAgentStepStream({
     error.code = reduced.error.code || 'NARRATIVE_PROVIDER_REQUEST_FAILED'
     error.retryable = Boolean(reduced.error.retryable)
     error.requestId = validation.request.requestId
+    error.generatedText = events.some(event => event.type === 'tool.input.delta' || event.type === 'tool.call') ? '' : reduced.finalText || ''
     throw error
   }
   return {

@@ -73,7 +73,8 @@ export async function runNarrativeAgentTurn({
   options = {},
   intentMode = '',
   requestId = '',
-  signal = null
+  signal = null,
+  onEvent = null
 } = {}) {
   if (!Array.isArray(messages) || messages.length === 0) {
     throw new Error('runNarrativeAgentTurn requires non-empty messages')
@@ -87,6 +88,7 @@ export async function runNarrativeAgentTurn({
     settings,
     options: { ...(options || {}), ...(intentMode ? { intentMode } : {}) },
     requestId,
-    signal
+    signal,
+    onEvent
   })
 }

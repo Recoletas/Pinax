@@ -123,7 +123,8 @@ export function useAuthoringTask({
     turn = null,
     narrativeContext = null,
     targetOverride = null,
-    authoringRunSession = null
+    authoringRunSession = null,
+    onDraftUpdate = null
   } = {}) {
     if (busy.value) return
     const target = resolveTarget(commandId, targetOverride)
@@ -143,6 +144,9 @@ export function useAuthoringTask({
     try {
       const result = await execute?.({
         taskId: commandId,
+        onDraftUpdate: update => {
+          if (version === requestVersion && !controller.signal.aborted && scopeUnchangedSince(requestScopeKey)) onDraftUpdate?.(update)
+        },
         request: turn
           ? {
               ...target.request,
@@ -391,7 +395,10 @@ export function useAuthoringTask({
       return { ok: true, text: generated, insertedUnitId: observedUnitId }
     } catch (err) {
       if (version !== requestVersion || controller.signal.aborted) {
-        return { ok: false, reason: 'aborted', phase: 'provider', code: 'AUTHORING_ABORTED', retryable: true }
+        // A stopped request can return its final partial tokens to its own
+        // preview. A replacement request or another document cannot receive them.
+        const text = version === requestVersion && scopeUnchangedSince(requestScopeKey) ? String(err?.generatedText || '') : ''
+        return { ok: false, reason: 'aborted', phase: 'provider', code: 'AUTHORING_ABORTED', message: '已停止生成', retryable: true, text, adoptable: false }
       }
       if (err?.name === 'AbortError' || err?.code === 'AGENT_REQUEST_ABORTED' || err?.code === 'AGENT_ABORTED') {
         // 边界切换触发的中止不该在新章节里弹出“已停止生成”，与作用域门禁一致静默。
@@ -402,7 +409,7 @@ export function useAuthoringTask({
           code: 'AUTHORING_ABORTED',
           message: '已停止生成',
           retryable: true
-        }, 'aborted')
+        }, 'aborted', scopeUnchangedSince(requestScopeKey) ? String(err?.generatedText || '') : '')
       }
       if (err?.code === 'AGENT_CONTROL_TEXT_LEAK') {
         error.value = String(err?.message || '生成正文包含了用户控制文本')
@@ -532,7 +539,8 @@ export function useAuthoringTask({
   }
 
   function cancel() {
-    requestVersion += 1
+    // Abort invalidates writes and streaming callbacks; starting another run
+    // advances the version. Keep this identity long enough to retain stop's tail.
     abortController?.abort()
     abortController = null
     busy.value = false

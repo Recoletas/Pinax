@@ -35,7 +35,7 @@ export function createAuthoringCommandRuntime({
 } = {}) {
   const dispatcher = createAuthoringTaskDispatcher({ workflows })
 
-  async function execute({ taskId, intent = {}, signal } = {}) {
+  async function execute({ taskId, intent = {}, signal, onDraftUpdate } = {}) {
     const startedAt = Date.now()
     const canonicalId = resolveAuthoringTaskId(taskId)
     const target = resolveTarget?.(canonicalId) || null
@@ -45,7 +45,7 @@ export function createAuthoringCommandRuntime({
       target,
       intent,
       surface,
-      options: { signal }
+      options: { signal, ...(typeof onDraftUpdate === 'function' ? { onDraftUpdate } : {}) }
     })
     const validation = validateTaskRequest(request)
     if (!validation.valid) {

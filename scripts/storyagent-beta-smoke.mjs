@@ -100,6 +100,18 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(8471, '127.0.0.1', r))
 try {
   console.log('[1] buildResourceSnapshot / buildKernelPayload（鸭子类型输入）')
+  const completeChapter = '段落。'.repeat(3200) + '只有章末才有的句子。'
+  const fullSnapshot = buildResourceSnapshot({ currentChapterId: 'long-current', byDomain: {
+    manuscript: [{ id: 'long-current', text: completeChapter }],
+    world: [{ id: 'source-setting', type: 'worldbook', entryType: 'source', text: '参考作品的人物' }]
+  } })
+  check('当前长章完整快照含章末，声明完整来源', fullSnapshot.domains.manuscript[0].text === completeChapter && fullSnapshot.coverage.manuscript.completeSourceIds.includes('long-current'))
+  check('导入来源保持资料类型', fullSnapshot.domains.world_lookup[0].type === 'source')
+  const clearedSnapshot = buildResourceSnapshot({ currentChapterId: 'cleared', byDomain: {
+    manuscript: [{ id: 'cleared', text: '', content: '已清空的旧稿', summary: '旧稿摘要' }]
+  } })
+  check('清空当前章不会从旧稿或摘要回填', clearedSnapshot.domains.manuscript[0].text === '' && clearedSnapshot.domains.manuscript[0].summary === '' && clearedSnapshot.domains.manuscript[0].sourceLength === 0)
+
   check('byDomain 普通对象可用，world → world_lookup', resources.domains.world_lookup?.length === 2)
   check('快照条目字段收敛为 id/title/type/summary', resources.domains.world_lookup[0].title === '沈砚宁')
   check('kernel 缺 serialization 时现拼有界块（scene+character）', kernel.blocks.length >= 2)
@@ -180,7 +192,7 @@ try {
   check('whole-book + 线程已触碰 Agent → agent（agent-thread-active）', routeAgentIntent({ intent: 'whole-book', text: '这本书讲了什么', agentTouched: true }).engine === A)
   check('knowledge 意图优先级最高（即使有 @ 参考）', routeAgentIntent({ intent: 'setting', text: '写一段', hasPinnedRefs: true, agentTouched: true }).engine === D)
 
-  console.log('[6] 统一 conversation store（注入 fake storage，round-trip + 裁剪）')
+  console.log('[6] 统一 conversation store（注入 fake storage，round-trip + 完整历史）')
   function createFakeStorage() {
     const map = new Map()
     return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) }
@@ -202,16 +214,19 @@ try {
   check('round-trip：两会话 + 活动指针', loaded.sessions.length === 2 && loaded.activeSessionId === 'sas_a')
   check('thinking 持久化裁剪 ≤4000', (loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].thinking || '').length === 4000)
   check('任务 ID 与完成状态保留', loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].taskId === 't' && loaded.sessions.find(session => session.sessionId === sessionsFixture[0].sessionId).messages[1].status === 'completed')
-  const capped = Array.from({ length: 70 }, (_, i) => ({ id: `m${i}`, role: 'user', kind: 'agent', question: `q${i}`, createdAt: i }))
-  store.saveAgentSessions('book_3', [{ sessionId: 'sas_big', title: '大', createdAt: 1, updatedAt: 1, messages: capped }], 'sas_big')
-  const loadedCapped = store.loadAgentSessions('book_3')
-  check('单会话消息裁剪 ≤60（保留最新）', loadedCapped.sessions[0].messages.length === 60 && loadedCapped.sessions[0].messages[59].question === 'q69')
+  const fullHistory = Array.from({ length: 70 }, (_, i) => ({ id: `m${i}`, role: 'user', kind: 'agent', question: `q${i}`, createdAt: i }))
+  store.saveAgentSessions('book_3', [{ sessionId: 'sas_big', title: '大', createdAt: 1, updatedAt: 1, messages: fullHistory }], 'sas_big')
+  const restoredHistory = store.loadAgentSessions('book_3').sessions[0].messages
+  check('单会话完整历史保留（含首尾身份和内容）', restoredHistory.length === fullHistory.length
+    && restoredHistory[0].id === fullHistory[0].id && restoredHistory[0].question === fullHistory[0].question
+    && restoredHistory.at(-1).id === fullHistory.at(-1).id && restoredHistory.at(-1).question === fullHistory.at(-1).question)
   check('书隔离：未写过的书读出空', store.loadAgentSessions('book_2').sessions.length === 0)
   store.deleteAgentSession('book_3', 'sas_big')
   check('deleteAgentSession 生效', store.loadAgentSessions('book_3').sessions.length === 0)
 
   console.log('[7] agentEngine（fetchImpl 假 SSE：kernel 组装 / 流式 / 归属）')
   const engineCalls = []
+  let engineExecutionActive = false
   function sseResponse(frames) {
     return new Response(frames.join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } })
   }
@@ -222,8 +237,9 @@ try {
     fetchImpl: async (url, opts) => {
       engineCalls.push({ url: String(url), opts })
       const urlText = String(url)
-      if (urlText.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true, stopped: true, taskId: urlText.split('/').at(-2), status: 'cancelled' }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (urlText.endsWith('/cancel')) { engineExecutionActive = false; return new Response(JSON.stringify({ ok: true, stopped: true, taskId: urlText.split('/').at(-2), status: 'cancelled' }), { status: 200, headers: { 'content-type': 'application/json' } }) }
       if (urlText.includes('/tasks/list?')) return new Response(JSON.stringify({ tasks: [{ taskId: 't9', status: 'completed' }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (opts.method !== 'POST' && /\/v1\/pinax\/tasks\/[^/]+$/.test(urlText)) return Response.json({ taskId: urlText.split('/').at(-1), bookId: 'book_1', status: engineExecutionActive ? 'running' : 'completed', executionActive: engineExecutionActive })
       if (urlText.endsWith('/v1/pinax/tasks') || urlText.endsWith('/resume')) {
         const body = JSON.parse(opts.body)
         return sseResponse([
@@ -262,9 +278,92 @@ try {
   const engineResume = await engine.resume({ text: '接着写', taskId: 'engtask_1', callbacks: {} })
   check('engine.resume 走 /resume 且携带归属', engineCalls.some((c) => c.url.endsWith('/resume')) && JSON.parse(engineCalls.find((c) => c.url.endsWith('/resume')).opts.body).bookId === 'book_1')
   check('engine.resume trace 补全（status/steps/reasoningChars）', engineResume.trace.status === 'completed' && typeof engineResume.trace.steps === 'number' && typeof engineResume.trace.reasoningChars === 'number')
+  engineExecutionActive = true
   await engine.cancel('engtask_1')
   check('engine.cancel 走 /cancel 端点', engineCalls.some((c) => c.url.endsWith('/cancel')))
   check('engine.tasks 走 /tasks/list', await (async () => { await engine.tasks(); return engineCalls.some((c) => c.url.includes('/tasks/list?')) })())
+
+  console.log('[7a] 实际 HTTP 断流、停止确认与同任务续接竞争')
+  const recoveryTasks = new Map()
+  const taskRecord = id => {
+    if (!recoveryTasks.has(id)) recoveryTasks.set(id, { taskId: id, active: true, status: 'running', creates: 0, resumes: [], cancels: 0, stop: 'immediate' })
+    return recoveryTasks.get(id)
+  }
+  const json = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)) }
+  const recoveryServer = http.createServer(async (req, res) => {
+    const chunks = []
+    for await (const chunk of req) chunks.push(chunk)
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}
+    const pieces = req.url.split('/').filter(Boolean)
+    const task = taskRecord(body.taskId || pieces[3]), action = pieces[4]
+    if (req.method === 'GET') return json(res, 200, { taskId: task.taskId, bookId: 'race-book', status: task.status, executionActive: task.active, interrupted: task.status === 'running' && !task.active })
+    if (action === 'cancel') {
+      task.cancels++
+      if (task.stop === 'fail') return json(res, 409, { ok: false, stopped: false, error: 'task-not-active', status: task.status, taskId: task.taskId })
+      if (task.stop === 'deferred') { task.cancelResponse = res; task.cancelArrived?.(); return }
+      if (task.stop !== 'false-receipt') { task.active = false; task.status = 'cancelled' }
+      return json(res, 200, { ok: true, stopped: true, status: 'cancelled', taskId: task.taskId })
+    }
+    if (action === 'narrative-result') {
+      task.active = false; task.status = 'cancelled'
+      return json(res, 409, { ok: false, error: 'generation-request-not-active', taskId: task.taskId })
+    }
+    if (action === 'resume') {
+      task.resumes.push(body)
+      if (task.conflict) task.active = true
+      if (task.active) return json(res, 409, { error: 'task-already-running', taskId: task.taskId })
+      task.status = 'completed'
+      return sse(res, [`event: task.completed\ndata: ${JSON.stringify({ taskId: task.taskId, bookId: 'race-book', status: 'completed', finalText: '同一任务续接完成。' })}\n\n`])
+    }
+    task.creates++; task.stream = res
+    res.writeHead(200, { 'content-type': 'text/event-stream' })
+    res.write(`event: task.started\ndata: ${JSON.stringify({ taskId: task.taskId, bookId: 'race-book', status: 'running' })}\n\n`)
+    if (task.generationConflict) res.write(`event: narrative.request\ndata: ${JSON.stringify({ bookId: 'race-book', callId: 'draft', nonce: 'nonce', request: {} })}\n\n`)
+  })
+  await new Promise(resolve => recoveryServer.listen(0, '127.0.0.1', resolve))
+  try {
+    const recovering = createPiNarrativeAgentBridge({ endpoint: `http://127.0.0.1:${recoveryServer.address().port}` })
+    const args = taskId => ({ taskId, bookId: 'race-book', kernel: kernelInput, index: {}, intent: '用户明确要求的本轮续写' })
+    const dropRun = taskId => recovering.run({ ...args(taskId), callbacks: { onTask: (_, event) => { if (event === 'task.started') taskRecord(taskId).stream.destroy() } } }).catch(error => error)
+    const delayed = taskRecord('stop-and-resume'); delayed.stop = 'deferred'
+    const cancelArrived = new Promise(resolve => { delayed.cancelArrived = resolve })
+    const dropped = dropRun(delayed.taskId)
+    await cancelArrived
+    const stopping = recovering.cancel(delayed.taskId)
+    const waitingResume = recovering.resume(args(delayed.taskId))
+    await new Promise(resolve => setImmediate(resolve))
+    check('断流清理与手动停止共用一次取消，确认前不发送续接', delayed.cancels === 1 && delayed.resumes.length === 0)
+    delayed.active = false; delayed.status = 'cancelled'
+    json(delayed.cancelResponse, 200, { ok: true, stopped: true, status: 'cancelled', taskId: delayed.taskId })
+    const [dropError, stopReceipt, continued] = await Promise.all([dropped, stopping, waitingResume])
+    check('停止真实落定后沿原任务续聊一次，当前输入与会话未替换', dropError instanceof Error && stopReceipt.stopped && continued.ok && continued.trace.taskId === delayed.taskId && delayed.creates === 1 && delayed.resumes.length === 1 && delayed.resumes[0].intent === args(delayed.taskId).intent)
+
+    const failedStop = taskRecord('unconfirmed-stop'); failedStop.stop = 'fail'
+    const unconfirmed = await dropRun(failedStop.taskId)
+    const refused = await recovering.resume(args(failedStop.taskId)).catch(error => error)
+    check('停止失败不吞，后续续接重新核对且不向仍运行任务重发', unconfirmed.code === 'AGENT_TASK_STOP_UNCONFIRMED' && refused.code === 'AGENT_TASK_STOP_UNCONFIRMED' && refused.executionActive === true && failedStop.resumes.length === 0)
+    failedStop.active = false; failedStop.status = 'cancelled'
+    const recovered = await recovering.resume(args(failedStop.taskId))
+    check('任务后来已停止可据状态恢复，无新建任务或额外取消', recovered.ok && failedStop.creates === 1 && failedStop.resumes.length === 1 && failedStop.cancels === 1)
+
+    const busyTask = taskRecord('normal-active')
+    const busyError = await recovering.waitForTaskIdle(busyTask.taskId, { bookId: 'race-book' }).catch(error => error)
+    check('未要求取消的正常任务立即报告真实运行状态，不等待或擅自停止', busyError.code === 'task-already-running' && busyError.executionActive === true && busyTask.cancels === 0 && busyTask.resumes.length === 0)
+    const actualStop = await recovering.cancel(busyTask.taskId)
+    check('已失去本地busy的任务仍可获得真实停止回执', actualStop.stopped && actualStop.cancelled && busyTask.cancels === 1)
+
+    const falseReceipt = taskRecord('false-stop-receipt'); falseReceipt.stop = 'false-receipt'
+    const falseStop = await recovering.cancel(falseReceipt.taskId).catch(error => error)
+    check('stopped回执不能覆盖executionActive仍为true的事实', falseStop.code === 'AGENT_TASK_STOP_UNCONFIRMED' && falseStop.executionActive === true)
+
+    const generationConflict = taskRecord('generation-conflict'); generationConflict.generationConflict = true
+    const generationError = await recovering.run({ ...args(generationConflict.taskId), callbacks: { onNarrativeRequest: async () => ({ text: '已保存的草稿。' }) } }).catch(error => error)
+    check('正文回传409按实际错误解释，不冒充任务仍在运行', generationError.code === 'generation-request-not-active' && !generationError.message.includes('仍在运行') && generationConflict.cancels === 0)
+
+    const raced = taskRecord('resume-race'); raced.active = false; raced.status = 'completed'; raced.conflict = true
+    const raceError = await recovering.resume(args(raced.taskId)).catch(error => error)
+    check('对账后另一owner抢先启动时不自动重试已发送输入或取消对方', raceError.code === 'task-already-running' && raced.resumes.length === 1 && raced.cancels === 0 && raced.creates === 0)
+  } finally { recoveryServer.closeAllConnections(); await new Promise(resolve => recoveryServer.close(resolve)) }
 
   console.log('[7b] toolManifest 转换接口 + calc（P2 起 canonical 在 storyflow-kit）')
   {

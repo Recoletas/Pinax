@@ -64,7 +64,7 @@ export function createNarrativeAgentStreamEvent(type, payload = {}, meta = {}) {
     event.toolName = text(payload.toolName, 80)
     event.action = text(payload.action, 80)
   } else if (type === 'text.delta') {
-    event.content = String(payload.content ?? '').slice(0, 20_000)
+    event.content = String(payload.content ?? '')
   } else if (type === 'step.finish') {
     event.stepIndex = boundedInt(payload.stepIndex, 0, 20)
     event.status = ['tool_calls', 'final_ready', 'error'].includes(payload.status)
@@ -110,6 +110,7 @@ export function reduceNarrativeAgentStreamEvents(events = []) {
   let usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
   let error = null
   let finishReason = ''
+  let finished = false
   for (const event of Array.isArray(events) ? events : []) {
     if (event?.type === 'tool.input.delta' && event.callId) {
       inputs.set(event.callId, event.input || {})
@@ -124,12 +125,15 @@ export function reduceNarrativeAgentStreamEvents(events = []) {
       finalText += String(event.content || '')
     } else if (event?.type === 'step.finish') {
       finishReason = text(event.finishReason, 80)
+      finished = true
+      if (event.status === 'error') error = { code: 'NARRATIVE_STREAM_FAILED', message: '模型未完成本次生成，已收到的文字已保留。', retryable: true }
     } else if (event?.type === 'usage') {
       usage = cleanUsage(event.usage)
     } else if (event?.type === 'error') {
       error = event
     }
   }
+  if (!error && !finished) error = { code: 'NARRATIVE_STREAM_INCOMPLETE', message: '生成连接中断，已收到的文字已保留。', retryable: true }
   if (error) return { error, calls, finalText, usage, finishReason }
   return { kind: calls.length ? 'tool_calls' : 'final_ready', calls, text: finalText, usage, finishReason }
 }

@@ -16,6 +16,8 @@ import { writingChapterRowLabel } from '../services/writing/writingChapterLabels
 import { createDirectory, readDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../services/workspace/projectDirectory.js'
 import { sourceChunkLocator } from '../services/workspace/sourceChunkLocator.js'
 import { provideComposableWorkspace } from '../composables/useWorkspaceHost.js'
+import { createAuthoringKnowledgeAssistant } from '../composables/useAuthoringKnowledgeAssistant.js'
+import { ASSISTANT_STOP_MESSAGES, AUTHORING_ASSISTANT_CONVERSATION_PREFIX, createAuthoringAssistantConversationStore } from '../services/agents/authoring/authoringAssistantConversationStore.js'
 import { createWorkspaceExtensionRegistry, workspaceExtensions } from '../services/workspace/workspaceExtensions.js'
 import { generateWritingNames } from '../services/writing/writingNameGenerator.js'
 import { selectRecentWorkspaceBooks } from '../services/workspace/workspaceRecentHistory.js'
@@ -465,11 +467,17 @@ describe('workbench control contract (U1)', () => {
       expect(authorizations).toBe(0)
       expect(revocations).toBe(0)
       expect(assistant.agentState.value.permissionPending).toBe(true)
+      // Switching visible tools keeps the shell request owner and its task.
+      expect(await host.openAt({ type: 'sources', bookId: 'guard-book' }, 'main')).toBe(true)
+      expect(assistant.busy.value).toBe(true)
+      expect(host.hide()).toBe(true)
+      expect(assistant.busy.value).toBe(true)
       expect(await host.prepareLeave({ name: 'comic-studio', query: { bookId: 'guard-book' } }, workspaceRoute)).toBe(true)
       expect(await host.prepareLeave({ name: 'welcome', query: {} }, workspaceRoute)).toBe(false)
+      workspaceRoute.name = 'comics'
       editorScope.stop()
       expect(host.assistantSummary.value.label).toBe('助手运行中')
-      finishHealth({ ok: true, assistantProtocolVersion: 2 })
+      finishHealth({ ok: true, assistantProtocolVersion: 2, assistantNarrativeExchange: true, assistantNativeSession: true })
       expect(await pending).toBe(true)
       expect(permissions[0]).toMatchObject({ mode: 'auto', scope: 'current' })
       expect(assistant.agentState.value.permission).toMatchObject({ mode: 'review', scope: 'book' })
@@ -479,7 +487,7 @@ describe('workbench control contract (U1)', () => {
       expect(host.assistantSummary.value.label).toBe('助手有新结果')
       expect(await assistant.applyAgentProposal()).toBe(false)
       const renewedScope = effectScope()
-      const renewed = renewedScope.run(() => host.attachAssistant({ projectId: ref('guard-book'), agentEngine: { ...requestEngine, healthz: async () => ({ ok: true, assistantProtocolVersion: 2 }) } }))
+      const renewed = renewedScope.run(() => host.attachAssistant({ projectId: ref('guard-book'), agentEngine: { ...requestEngine, healthz: async () => ({ ok: true, assistantProtocolVersion: 2, assistantNarrativeExchange: true, assistantNativeSession: true }) } }))
       expect(renewed.messages.value.at(-1).text).toBe('后台建议')
       expect(renewed.reviewProposal(renewed.messages.value.at(-1).id)).toBe(true)
       expect(await renewed.applyAgentProposal()).toBe(true)
@@ -499,6 +507,14 @@ describe('workbench control contract (U1)', () => {
       expect(authorizations).toBe(grantedCount)
       expect(revocations).toBe(revokedCount)
       expect(runSignal.aborted).toBe(false)
+      const liveReply = renewed.messages.value.at(-1)
+      liveReply.proposal = { id: 'visible-while-running', bookId: 'guard-book', status: 'pending', changes: [{ kind: 'chapter', targetId: 'chapter-a', field: 'content', operation: 'append', before: '', after: '已完成候选。' }] }
+      expect(liveReply.status).toBe('running')
+      expect(renewed.reviewProposal(liveReply.id)).toBe(true)
+      expect(renewed.proposalReview.value.id).toBe('visible-while-running')
+      expect(await renewed.applyAgentProposal()).toBe(false)
+      expect(runSignal.aborted).toBe(false)
+
       expect(renewed.agentState.value.taskId).toBe('background-task')
       finishRun()
       expect(await secondRequest).toBe(true)
@@ -542,27 +558,143 @@ describe('workbench control contract (U1)', () => {
     let shutdownHost
     let signalAtShutdown
     let cancelled = 0
+    let runCount = 0
     const shutdownApp = createApp({ setup() { shutdownHost = provideComposableWorkspace(reactive({ name: 'authoring', query: { bookId: 'shutdown-book' } })); return () => null } })
     shutdownApp.mount(document.createElement('div'))
     const shutdownEditor = effectScope()
-    const shutdownAssistant = shutdownEditor.run(() => shutdownHost.attachAssistant({ projectId: 'shutdown-book', agentEngine: {
-      prepare: () => ({ bookId: 'shutdown-book' }), destination: () => ({ chapterId: 'original-chapter' }),
+    const shutdownEngine = {
+      prepare: input => ({ bookId: input.bookId }), destination: () => ({ chapterId: 'original-chapter' }),
       healthz: async () => ({ ok: true }), revokePermission: () => {},
-      run: async ({ signal, callbacks }) => {
-        signalAtShutdown = signal
-        callbacks.onTask({ taskId: 'shutdown-task', bookId: 'shutdown-book' })
-        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      prepareNarrativeProposal: async (_, __, ___, signal) => {
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('transport aborted'), { generatedText: '取消时回传的草稿。' })), { once: true }))
       },
-      cancel: async () => { cancelled++; return true }
-    } }))
+      run: async ({ signal, callbacks, prepared }) => {
+        runCount++
+        signalAtShutdown = signal
+        callbacks.onTask({ taskId: 'shutdown-task', bookId: prepared.bookId })
+        callbacks.onChunk({ content: '已生成的开头。' })
+        callbacks.onStatus({ phase: 'tool', tool: 'generate_narrative_draft', callId: 'shutdown-draft' })
+        await callbacks.onNarrativeRequest({ bookId: prepared.bookId, callId: 'shutdown-draft' })
+      },
+      cancel: async () => { cancelled++; return { ok: true, stopped: true } },
+      waitForTaskIdle: async taskId => ({ taskId, bookId: 'shutdown-book', status: 'cancelled', executionActive: false })
+    }
+    shutdownEngine.resume = input => shutdownEngine.run(input)
+    const shutdownAssistant = shutdownEditor.run(() => shutdownHost.attachAssistant({ projectId: 'shutdown-book', agentEngine: shutdownEngine }))
     const interrupted = shutdownAssistant.ask({ question: '等待后退出应用' })
     await nextTick()
+    expect(await shutdownAssistant.queueMessage({ question: '队列中的下一问。' })).toBe(true)
+    shutdownAssistant.updateDraft('下一问尚未发送。')
     shutdownEditor.stop()
     expect(signalAtShutdown.aborted).toBe(false)
     shutdownApp.unmount()
     expect(signalAtShutdown.aborted).toBe(true)
     expect(await interrupted).toBe(false)
     expect(cancelled).toBe(1)
+    expect(runCount).toBe(1)
+    expect(shutdownAssistant.status.value).toBe('interrupted')
+    expect(shutdownAssistant.error.value).toBe(ASSISTANT_STOP_MESSAGES['owner-disposed'])
+    expect(shutdownAssistant.messages.value.at(-1)).toMatchObject({ status: 'interrupted', stopReason: 'owner-disposed', failureReason: ASSISTANT_STOP_MESSAGES['owner-disposed'], tools: [{ status: 'interrupted' }] })
+    expect(shutdownAssistant.messages.value.at(-1).text).toContain('取消时回传的草稿。')
+    expect(shutdownAssistant.messages.value.at(-1).proposal).toBeUndefined()
+    expect(shutdownAssistant.draft.value).toBe('下一问尚未发送。')
+    expect(shutdownAssistant.pendingMessages.value).toMatchObject([{ question: '队列中的下一问。', status: 'waiting' }])
+    const conversationStore = createAuthoringAssistantConversationStore()
+    const savedInterruption = conversationStore.load('shutdown-book').conversation
+    expect(savedInterruption.messages.at(-1)).toMatchObject({ status: 'interrupted', stopReason: 'owner-disposed', failureReason: ASSISTANT_STOP_MESSAGES['owner-disposed'] })
+    const restoredScope = effectScope()
+    const restoredAssistant = restoredScope.run(() => createAuthoringKnowledgeAssistant({ projectId: 'shutdown-book', agentEngine: shutdownEngine }))
+    await nextTick()
+    expect(runCount).toBe(1) // Restoring the conversation never resends its queue.
+    expect(restoredAssistant.draft.value).toBe('下一问尚未发送。')
+    expect(restoredAssistant.pendingMessages.value).toHaveLength(1)
+    expect(restoredAssistant.messages.value.at(-1).stopReason).toBe('owner-disposed')
+    const authorCancelled = restoredAssistant.ask({ question: '作者主动发起下一次' })
+    await vi.waitFor(() => expect(runCount).toBe(2))
+    restoredAssistant.cancel()
+    expect(await authorCancelled).toBe(false)
+    restoredScope.stop()
+    expect(runCount).toBe(2)
+    expect(cancelled).toBe(2)
+    expect(conversationStore.load('shutdown-book').conversation.messages.at(-1)).toMatchObject({ status: 'cancelled', stopReason: 'user-cancelled', failureReason: ASSISTANT_STOP_MESSAGES['user-cancelled'] })
+
+    // Repair only the old owner/abort race, leaving earlier author stops alone.
+    const legacy = JSON.parse(JSON.stringify(savedInterruption))
+    legacy.error = '上次查询因离开写作页停止；如需继续，请手动重试。'
+    const legacyReply = legacy.messages.at(-1)
+    Object.assign(legacyReply, { status: 'cancelled', stopReason: '', failureReason: '' })
+    legacyReply.tools[0].status = 'cancelled'
+    legacy.messages.unshift({ ...legacyReply, id: 'earlier-author-cancel', text: '旧回复。' })
+    localStorage.setItem(`${AUTHORING_ASSISTANT_CONVERSATION_PREFIX}shutdown-book`, JSON.stringify(legacy))
+    const migrated = conversationStore.load('shutdown-book').conversation
+    expect(migrated.error).toBe(ASSISTANT_STOP_MESSAGES.unknown)
+    expect(migrated.messages.at(-1)).toMatchObject({ status: 'interrupted', stopReason: 'unknown', failureReason: ASSISTANT_STOP_MESSAGES.unknown, tools: [{ status: 'interrupted' }] })
+    expect(migrated.messages[0]).toMatchObject({ status: 'cancelled', stopReason: '', failureReason: '' })
+    expect(migrated.agentSessions.find(session => session.sessionId === migrated.activeSessionId).messages.at(-1).stopReason).toBe('unknown')
+    legacy.status = 'running'; legacy.error = ''; legacyReply.status = 'running'
+    localStorage.setItem(`${AUTHORING_ASSISTANT_CONVERSATION_PREFIX}shutdown-book`, JSON.stringify(legacy))
+    const reloadedScope = effectScope()
+    const reloaded = reloadedScope.run(() => createAuthoringKnowledgeAssistant({ projectId: 'shutdown-book', agentEngine: shutdownEngine }))
+    expect(reloaded.status.value).toBe('interrupted')
+    expect(reloaded.error.value).toBe(ASSISTANT_STOP_MESSAGES.unknown)
+    expect(reloaded.messages.value.at(-1)).toMatchObject({ status: 'interrupted', stopReason: 'unknown', failureReason: ASSISTANT_STOP_MESSAGES.unknown })
+    reloadedScope.stop()
+    expect(runCount).toBe(2)
+
+    // The standalone fallback still stops on a real project owner change.
+    const project = ref('project-change-book'), changingScope = effectScope()
+    const changingAssistant = changingScope.run(() => createAuthoringKnowledgeAssistant({ projectId: project, agentEngine: shutdownEngine }))
+    const changedProject = changingAssistant.ask({ question: '切换作品前的任务' })
+    await nextTick()
+    project.value = 'next-project'
+    await nextTick()
+    expect(await changedProject).toBe(false)
+    changingScope.stop()
+    expect(conversationStore.load('project-change-book').conversation.messages.at(-1)).toMatchObject({ status: 'interrupted', stopReason: 'project-changed', failureReason: ASSISTANT_STOP_MESSAGES['project-changed'] })
+    expect(runCount).toBe(3)
+    expect(cancelled).toBe(3)
+    for (const completedTool of [false, true]) {
+      const projectId = completedTool ? 'late-draft-completed-tools' : 'late-draft-no-tools'
+      const lateScope = effectScope()
+      const lateAssistant = lateScope.run(() => createAuthoringKnowledgeAssistant({ projectId, agentEngine: {
+        ...shutdownEngine,
+        run: async ({ signal, callbacks }) => {
+          callbacks.onTask({ taskId: `task:${projectId}`, bookId: projectId })
+          if (completedTool) {
+            callbacks.onStatus({ phase: 'tool', tool: 'world_lookup', callId: 'lookup-done' })
+            callbacks.onToolResult({ toolName: 'world_lookup', callId: 'lookup-done', result: { content: [{ type: 'text', text: '{"ok":true}' }] } })
+          }
+          await new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('late transport abort'), { generatedText: '停止后回传的最后一段。' })), { once: true }))
+        }
+      } }))
+      const lateRequest = lateAssistant.ask({ question: '最后一段需要持久保存' })
+      await nextTick()
+      lateScope.stop()
+      expect(await lateRequest).toBe(false)
+      const savedLate = conversationStore.load(projectId).conversation.messages.at(-1)
+      expect(savedLate).toMatchObject({ text: '停止后回传的最后一段。', status: 'interrupted', stopReason: 'owner-disposed', failureReason: ASSISTANT_STOP_MESSAGES['owner-disposed'] })
+      expect(savedLate.tools).toEqual(completedTool ? [expect.objectContaining({ status: 'completed' })] : [])
+    }
+    let preparedProposal, finishProposal
+    const proposalStarted = new Promise(resolve => { preparedProposal = resolve })
+    const proposalResult = new Promise(resolve => { finishProposal = resolve })
+    const proposalScope = effectScope()
+    const proposalAssistant = proposalScope.run(() => createAuthoringKnowledgeAssistant({ projectId: 'late-proposal-book', agentEngine: {
+      ...shutdownEngine,
+      run: async ({ callbacks }) => {
+        callbacks.onTask({ taskId: 'late-proposal-task', bookId: 'late-proposal-book' })
+        return { ok: true, finalContent: '已生成建议。', proposalChanges: [{ kind: 'chapter', targetId: 'original-chapter', field: 'content', after: '保留草稿。' }], finalToolResults: [] }
+      },
+      prepareProposal: async () => { preparedProposal(); return proposalResult }
+    } }))
+    const preparing = proposalAssistant.ask({ question: '准备建议时停止' })
+    await proposalStarted
+    proposalScope.stop()
+    const retainedProposal = { bookId: 'late-proposal-book', changes: [{ kind: 'chapter', targetId: 'chapter', field: 'content', operation: 'append', before: '', after: '完整建议。' }] }
+    finishProposal(retainedProposal)
+    expect(await preparing).toBe(false)
+    const savedProposalReply = conversationStore.load('late-proposal-book').conversation.messages.at(-1)
+    expect(savedProposalReply).toMatchObject({ status: 'interrupted', stopReason: 'owner-disposed', text: '已生成建议。', proposal: retainedProposal })
     const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
     expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
     expect(workspaceTabs).toContain('height: 36px;')
@@ -709,11 +841,11 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(authoringKnowledgeAssistant).toContain('@media (hover: none), (pointer: coarse)')
     expect(workspace).toContain('<AuthoringKnowledgeAssistant')
     expect(workspace).toContain(':notice="notice"')
-    // Common ranges are presets; detailed chapter/settings grants are opt-in.
+    // Chapter presets constrain manuscript only; write modes include settings and outline.
     {
       const { mount } = await import('@vue/test-utils')
       const { default: Permissions } = await import('../components/authoring/AuthoringAssistantPermissions.vue')
-      const agentState = ref({ currentChapterId: 'two', permission: { mode: 'auto', scope: 'current', chapterIds: [], worldbook: false, outline: false } })
+      const agentState = ref({ currentChapterId: 'two', permission: { mode: 'auto', scope: 'current', chapterIds: [], worldbook: true, outline: true } })
       const updates = []
       const assistant = {
         agentState,
@@ -727,8 +859,8 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
       try {
         expect(panel.find('select').exists()).toBe(false)
         expect(panel.findAll('input[type="checkbox"]')).toHaveLength(0)
-        await button('本作品').trigger('click')
-        expect(updates.at(-1)).toEqual({ scope: 'book', worldbook: true, outline: true })
+        await button('全部章节').trigger('click')
+        expect(updates.at(-1)).toEqual({ scope: 'book' })
         await button('自定义').trigger('click')
         expect(panel.findAll('.assistant-permissions__chapters input').every(item => item.element.checked)).toBe(true)
         expect(second.find('.assistant-permissions__custom').exists()).toBe(false)
@@ -738,7 +870,7 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
         await nextTick()
         expect(panel.get('[role="status"]').text()).toBe('下次发送生效')
         await button('当前章节').trigger('click')
-        expect(updates.at(-1)).toEqual({ scope: 'current', worldbook: false, outline: false })
+        expect(updates.at(-1)).toEqual({ scope: 'current' })
         await button('自定义').trigger('click')
         expect(panel.findAll('.assistant-permissions__chapters input')[1].element.checked).toBe(true)
         await panel.findAll('.assistant-permissions__chapters input')[0].setValue(true)
@@ -805,6 +937,8 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
         await settings.get('[aria-label="撤销本轮修改"]').trigger('click')
         expect(settings.emitted('assistant-edit-action').at(-1)).toEqual([{ action: 'undo' }])
         await settings.get('[aria-label="完成"]').trigger('click')
+        expect(settings.emitted('assistant-edit-action').at(-1)).toEqual([{ action: 'done', kind: 'worldbook', targetId: 'relations' }])
+        await settings.setProps({ assistantReview: { ...review, proposal: { ...adopted, reviewedTargets: ['worldbook:relations'] } } })
         expect(settings.find('.object-inline-diff').exists()).toBe(false)
         expect(settings.get('textarea').element.value).toBe('新关系。')
         expect(applied.worldbook.entries[0].content).toBe('新关系。')
@@ -860,7 +994,27 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
         await panel.setProps({ messages: [{ ...answer, text: '**流式' }] })
         await panel.setProps({ messages: [{ ...answer, text: '**流式完成**' }] })
         expect(panel.find('.authoring-knowledge__markdown strong').text()).toBe('流式完成')
+        const draft = { status: 'generating', text: '雷米推开了门。' }
+        await panel.setProps({ messages: [{ ...answer, text: '', status: 'running', generatedDrafts: [draft] }] })
+        expect(panel.findAll('.authoring-knowledge__answer-text')).toHaveLength(1)
+        expect(panel.get('.authoring-knowledge__answer-text').text()).toBe(draft.text)
+        expect(panel.find('.authoring-knowledge__edit-actions').exists()).toBe(false)
+        await panel.setProps({ messages: [{ ...answer, text: '', status: 'running', generatedDrafts: [{ ...draft, text: '' }] }] })
+        expect(panel.get('.authoring-knowledge__answer-text').text()).toBe('')
+        await panel.setProps({ messages: [{ ...answer, text: '已生成正文。', status: 'completed', generatedDrafts: [] }] })
+        expect(panel.get('.authoring-knowledge__answer-text').text()).toBe('已生成正文。')
       } finally { pageFocus.mockRestore(); panel.unmount() }
+      const { default: BlockComposer } = await import('../components/authoring/AuthoringBlockComposer.vue')
+      const composer = mount(BlockComposer, { props: { target: {}, generating: true, staleResult: { text: '他拾起信封。', streaming: true, adoptable: false } } })
+      try {
+        expect(composer.get('[data-test="block-stale-preview"]').text()).toBe('他拾起信封。')
+        expect(composer.text()).not.toContain('保存为构思')
+        expect(composer.text()).not.toContain('已等待')
+        expect(composer.text()).not.toContain('仍在等待模型返回')
+        expect(composer.find('textarea').exists()).toBe(false)
+        await composer.setProps({ generating: false, staleResult: { text: '他拾起信封。', streaming: false, adoptable: false } })
+        expect(composer.text()).toContain('保存为构思')
+      } finally { composer.unmount() }
     }
 
     expect(source).toContain('<AuthoringInterventionComposer')
