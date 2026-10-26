@@ -16,6 +16,8 @@ const testFiles = [
 const nodeFiles = [
   'server/**/*.js',
   'scripts/**/*.{js,mjs,cjs}',
+  // 仓库内置 skill 自带的可执行脚本（如 project-bootstrap 的只读盘点）同样跑在 Node。
+  'agent-skills/**/scripts/*.{js,mjs,cjs}',
   'electron/**/*.js',
   '*.config.{js,mjs,cjs}',
   'vitest.setup.js'

@@ -58,7 +58,9 @@ process.on('unhandledRejection', (reason) => {
 
 app.use('/api', createPublicAccessGuard())
 const publicOrigins = String(process.env.PINAX_PUBLIC_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
-app.use(cors(publicOrigins.length ? { origin: publicOrigins } : undefined))
+const corsMiddleware = cors(publicOrigins.length ? { origin: publicOrigins } : undefined)
+// MCP 是给本机 Agent 的接口，不面向浏览器：跳过全局 CORS，避免浏览器跨源探活拿到放行信号。
+app.use((req, res, next) => (req.path === '/mcp' || req.path === '/mcp/' ? next() : corsMiddleware(req, res, next)))
 if (collaborationRepository) app.use('/api/collaboration', createCollaborationRouter({
   repository: collaborationRepository,
   allowedOrigins: collaborationAllowedOrigins,
@@ -83,6 +85,16 @@ app.use('/api/knowledge', createKnowledgeRouter())
 app.use('/api/storyagent', createStoryAgentRouter())
 app.use(mediaRouter)
 app.use(imageRouter)
+
+// MCP 本机入口：动态加载，SDK 缺失或加载失败不影响既有服务启动。
+app.all(['/mcp', '/mcp/'], async (req, res) => {
+  try {
+    const { handleMcpHttp } = await import('./mcp/http.js')
+    await handleMcpHttp(req, res)
+  } catch (error) {
+    if (!res.headersSent) res.status(503).json({ ok: false, code: 'ERR_MCP_UNAVAILABLE', message: error.message })
+  }
+})
 
 app.use(express.static(join(__dirname, '../dist')))
 

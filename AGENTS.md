@@ -64,6 +64,7 @@ When the user explicitly asks to use Claude as a sub-agent or to run broad paral
 | 代码变更影响文档、行为、状态、计划、已知问题 | docs-status-handoff |
 | 修改 world-map / geography / map renderer / map worker | map-engine-workflow |
 | 修改 worldbook / 世界书导入 / context builder | worldbook-workflow |
+| 初始化 / 导入 / 重构本地项目文件夹，或同步 / 矫正 / 重建 RAG（知识索引）与 SQLite 目录 | project-bootstrap |
 | 修改 AGENTS.md / CLAUDE.md / agent-skills / .agents / .claude shim / docs/STATUS.md 结构 | agent-maintenance |
 
 一轮里可能触发多个 skill（例：改 UI 后准备 commit，依次 `ui-style-check` → `testing-verification` → `docs-status-handoff` → `commit-conventions`）。
