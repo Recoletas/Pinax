@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { createKnowledgeProjectIndexer, collectKnowledgeSources } from './knowledgeProjectIndex.js'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
-export function createKnowledgeRuntime({ runtimeRoot = process.env.PINAX_KNOWLEDGE_RUNTIME || path.join(root, '.runtime/knowledge'), cacheRoot = path.join(root, '.runtime/data/knowledge') } = {}) {
+export function createKnowledgeRuntime({ runtimeRoot = process.env.PINAX_KNOWLEDGE_RUNTIME || path.join(root, '.runtime/knowledge'), cacheRoot = process.env.PINAX_KNOWLEDGE_CACHE_ROOT || path.join(root, '.runtime/data/knowledge') } = {}) {
   runtimeRoot = path.resolve(runtimeRoot)
   const indexer = createKnowledgeProjectIndexer({ runtimeRoot, cacheRoot })
   const queues = new Map()

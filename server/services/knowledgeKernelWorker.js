@@ -5,7 +5,17 @@ import { parentPort, workerData } from 'node:worker_threads'
 
 const { runtimeRoot, projectDirectory, verb, args } = workerData
 try {
-  const { NodeFsAdapter } = await import(pathToFileURL(path.join(runtimeRoot, 'adapters/dist/node.js')).href)
+  // 构建产物里存在两份 Node 适配器：`<runtime>/adapters/dist/node.js`（脚本另外编译并拷贝的）与
+  // `<runtime>/core/node_modules/@storyflow/adapters/dist/node.js`（core 真正 import 的那一份）。
+  // 适配器注册表是模块级单例，import 错副本会把实现注册进另一个实例，core 侧仍报
+  // 「FS 抽象层未注册平台适配器」（本机 2026-10-26 实测）。所以优先取 core 解析到的那份。
+  const adapterCandidates = [
+    path.join(runtimeRoot, 'core/node_modules/@storyflow/adapters/dist/node.js'),
+    path.join(runtimeRoot, 'adapters/dist/node.js')
+  ]
+  const adapterPath = adapterCandidates.find((file) => fs.existsSync(file))
+  if (!adapterPath) throw new Error(`知识内核缺少 Node 适配器：${adapterCandidates.join(' 或 ')} 均不存在，请重新运行 npm run build:knowledge-runtime。`)
+  const { NodeFsAdapter } = await import(pathToFileURL(adapterPath).href)
   const { Kernel } = await import(pathToFileURL(path.join(runtimeRoot, 'core/dist/kernel.js')).href)
   const { VERB_BY_NAME } = await import(pathToFileURL(path.join(runtimeRoot, 'core/dist/verbs.js')).href)
   if (!['kb_search', 'kb_read', 'worldbook_search'].includes(verb)) throw new Error('只允许知识读取操作。')

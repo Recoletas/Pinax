@@ -58,6 +58,10 @@
     "gate:narrative-release": "node scripts/narrative-release-gate.mjs",
     "smoke:narrative-stream": "node scripts/narrative-agent-stream-smoke.mjs",
     "smoke:narrative-recovery": "node scripts/narrative-recovery-smoke.mjs",
+    "mcp": "node server/mcp/index.js",
+    "smoke:mcp": "node scripts/mcp-smoke.mjs",
+    "mcp:conformance": "node scripts/mcp-conformance.mjs",
+    "mcp:dameng": "node scripts/dameng-mcp-e2e.mjs",
     "smoke:online-narrative": "node scripts/online-narrative-smoke.mjs",
     "smoke:collaboration-foundation": "node scripts/collaboration-fault-matrix.mjs",
     "smoke:collaboration-transport": "node scripts/collaboration-transport-matrix.mjs",
@@ -88,6 +92,7 @@
     "build:agent-runtime": "node scripts/build-storyagent-runtime.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-unique-id": "^3.31.3",
     "@tiptap/pm": "^3.31.3",

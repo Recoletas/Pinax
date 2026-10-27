@@ -24,7 +24,7 @@ import { LEXICON_FILE_NAME, buildLexiconFile, parseLexiconFile } from '../../sha
 export const MIRROR_SCHEMA = 'pinax-project-fs@2'
 export const PROJECT_SPEC = 'pinax-project@1'
 /** 项目文件夹范式（Obsidian/VS Code 模式）：任意位置自包含文件夹，.pinax/project.json 为标记。 */
-const KIND_TEMPLATES = {
+export const KIND_TEMPLATES = {
   novel: ['正文', '大纲', '世界书', '构思', '资料', '日志', '约束'],
   screenplay: ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束'],
   generic: ['文档', '资料', '日志', '约束']
