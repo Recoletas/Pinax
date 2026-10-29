@@ -12,6 +12,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-mcp-smoke-'))
 const projectRoot = path.join(temp, '项目')
 const appData = path.join(temp, 'appdata')
 let failed = 0
+let passed = 0
+let skipped = 0
 
 // 对外契约：工具清单写死在这里，新增/删除工具必须同时改这里并记入 docs/STATUS.md。
 const EXPECTED_TOOLS = [
@@ -38,11 +40,22 @@ const EXPECTED_TOOLS = [
 
 function check(name, condition, detail = '') {
   if (condition) {
+    passed += 1
     console.log(`ok   ${name}`)
   } else {
     failed += 1
     console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`)
   }
+}
+
+/**
+ * 跳过项与通过项必须分开记账：缺知识内核这类「环境没配齐」的情况，
+ * 断言只能证明「返回了类型化错误」，不能算「RAG 链路已验证」。
+ * 混在一起报 all checks passed 就是门禁说谎。
+ */
+function skip(name, reason, detail = '') {
+  skipped += 1
+  console.log(`skip ${name} — ${reason}${detail ? `（${detail}）` : ''}`)
 }
 
 function write(file, content) {
@@ -441,14 +454,33 @@ async function runStdio() {
     check('project_import 规则/约束收敛为一个', (ruleBack.rules || []).filter((item) => item.name === '文风').length === 1, JSON.stringify((ruleBack.rules || []).map((item) => item.name)))
 
     const indexStatus = payload(await client.request('tools/call', { name: 'pinax_project_index', arguments: { projectPath: batchRoot, action: 'status' } }))
-    check('project_index status 如实报状态', indexStatus.ok === true && ['fresh', 'stale', 'never-indexed', 'inputs-rejected', 'runtime-missing'].includes(indexStatus.verdict), JSON.stringify({ v: indexStatus.verdict, r: indexStatus.inputs?.revision?.slice(0, 12) }))
-    check('project_index status 只读不写缓存', indexStatus.written === false && !fs.existsSync(path.join(root, '.runtime', 'data', 'knowledge', 'proj_smoke')), String(indexStatus.written))
+    // 环境判定：状态卡自己报本机有没有装知识内核。没装时只有「如实拒绝」可断言，
+    // 「索引新鲜」「检索命中」这两件事在本机根本没被验证，必须记成 skip 而不是 pass。
+    const kernelReady = indexStatus.runtimeInstalled === true
+    if (kernelReady) {
+      check('project_index status 如实报状态', indexStatus.ok === true && ['fresh', 'stale', 'never-indexed', 'inputs-rejected'].includes(indexStatus.verdict), JSON.stringify({ v: indexStatus.verdict, r: indexStatus.inputs?.revision?.slice(0, 12) }))
+    } else {
+      check('project_index status 未装内核时如实报 runtime-missing', indexStatus.ok === true && indexStatus.verdict === 'runtime-missing', JSON.stringify({ v: indexStatus.verdict }))
+    }
+    const batchProjectId = JSON.parse(fs.readFileSync(path.join(batchRoot, '.pinax', 'project.json'), 'utf-8')).projectId
+    const cacheRoot = String(indexStatus.cacheRoot || path.join(root, '.runtime', 'data', 'knowledge'))
+    check('project_index status 只读不写缓存', indexStatus.written === false && !fs.existsSync(path.join(cacheRoot, batchProjectId)), JSON.stringify({ w: indexStatus.written, cacheRoot }))
     const indexSync = payload(await client.request('tools/call', { name: 'pinax_project_index', arguments: { projectPath: batchRoot, action: 'sync' } }))
     // 本冒烟把 advisor 指向 stub：没有真 Pinax 服务，sync 要么真成功（装齐环境时），要么给类型化错误——绝不能被当成成功。
     const knowledgeTypedFailure = indexSync.ok === false && ['KNOWLEDGE_RUNTIME_MISSING', 'ERR_KNOWLEDGE_UNAVAILABLE', 'ERR_KNOWLEDGE_TIMEOUT', 'ERR_KNOWLEDGE_RESPONSE_INVALID', 'ERR_PROJECT_NOT_REGISTERED', 'KNOWLEDGE_READ_FAILED'].includes(indexSync.code)
-    check('project_index sync 只在装齐环境时成功，否则类型化拒绝', knowledgeTypedFailure || (indexSync.ok === true && indexSync.verdict === 'fresh'), JSON.stringify({ ok: indexSync.ok, code: indexSync.code, v: indexSync.verdict }).slice(0, 240))
+    if (kernelReady) {
+      check('project_index sync 装齐环境时判 fresh', indexSync.ok === true && indexSync.verdict === 'fresh', JSON.stringify({ ok: indexSync.ok, code: indexSync.code, v: indexSync.verdict }).slice(0, 240))
+    } else {
+      check('project_index sync 未装内核时类型化拒绝（不冒充成功）', knowledgeTypedFailure, JSON.stringify({ ok: indexSync.ok, code: indexSync.code, v: indexSync.verdict }).slice(0, 240))
+      skip('project_index sync 真正建索引并判 fresh', '本机未安装知识内核（.runtime/knowledge/core/dist/verbs.js 缺失）', 'RAG 建索引与新鲜度判定未验证')
+    }
     const searched = payload(await client.request('tools/call', { name: 'pinax_knowledge_search', arguments: { projectPath: batchRoot, q: '柯秒' } }))
-    check('knowledge_search 不冒充空结果（无环境时必须给 code）', (searched.ok === true && Array.isArray(searched.results)) || (searched.ok === false && Boolean(searched.code)), JSON.stringify({ ok: searched.ok, code: searched.code, n: searched.resultCount }).slice(0, 240))
+    if (kernelReady) {
+      check('knowledge_search 返回结果数组', searched.ok === true && Array.isArray(searched.results), JSON.stringify({ ok: searched.ok, code: searched.code, n: searched.resultCount }).slice(0, 240))
+    } else {
+      check('knowledge_search 未装内核时类型化拒绝（不冒充空结果）', searched.ok === false && Boolean(searched.code), JSON.stringify({ ok: searched.ok, code: searched.code, n: searched.resultCount }).slice(0, 240))
+      skip('knowledge_search 真实检索命中', '本机未安装知识内核', '检索命中、排序与 provenance 未验证')
+    }
     let badVerb = ''
     try {
       await client.request('tools/call', { name: 'pinax_knowledge_search', arguments: { projectPath: batchRoot, verb: 'kb_write', q: 'x' } })
@@ -458,6 +490,31 @@ async function runStdio() {
     check('project_import 相对路径拒绝', noSource.ok === false && (noSource.code === 'ERR_PATH_NOT_ABSOLUTE' || noSource.code === 'ERR_DIR_NOT_FOUND'), JSON.stringify(noSource).slice(0, 200))
     const selfImport = payload(await client.request('tools/call', { name: 'pinax_project_import', arguments: { projectPath: batchRoot, sourcePath: batchRoot } }))
     check('project_import 拒绝把项目当素材', selfImport.ok === false && selfImport.code === 'ERR_SOURCE_IS_PROJECT', JSON.stringify(selfImport).slice(0, 200))
+
+    // —— 落点边界：非空目录不建项目；符号链接不把写入带出项目根 ——
+    const dirtyDir = path.join(temp, '已有素材目录')
+    write(path.join(dirtyDir, '作者手写.md'), '作者自己的文件\n')
+    const dirtyInit = payload(await client.request('tools/call', { name: 'pinax_project_init', arguments: { projectPath: dirtyDir, name: '不该建成' } }))
+    check('project_init 在非空目录拒绝（不污染作者目录）', dirtyInit.ok === false && dirtyInit.code === 'ERR_DIR_NOT_EMPTY', JSON.stringify(dirtyInit).slice(0, 200))
+    check('project_init 拒绝后没在作者目录落任何文件', !fs.existsSync(path.join(dirtyDir, '.pinax')) && fs.readdirSync(dirtyDir).length === 1, fs.readdirSync(dirtyDir).join(','))
+
+    const outsideDir = path.join(temp, '项目外目录')
+    write(path.join(outsideDir, '原有.md'), '原有内容\n')
+    const linkRoot = path.join(temp, '符号链接项目')
+    write(path.join(linkRoot, '.pinax', 'project.json'), JSON.stringify({
+      schemaVersion: 1, spec: 'pinax-project@1', projectId: 'proj_symlink', name: '符号链接项目', kind: 'novel', createdAt: '2026-10-26T00:00:00.000Z', updatedAt: '2026-10-26T00:00:00.000Z'
+    }, null, 2))
+    fs.symlinkSync(outsideDir, path.join(linkRoot, '约束'), 'dir')
+    const linkWrite = payload(await client.request('tools/call', { name: 'pinax_rule_write', arguments: { projectPath: linkRoot, name: '越界规则', content: '不该写出去' } }))
+    check('写工具不把内容写经符号链接落到项目外', linkWrite.ok === false && (linkWrite.code === 'ERR_TARGET_OUTSIDE' || linkWrite.code === 'ERR_TARGET_SYMLINK'), JSON.stringify(linkWrite).slice(0, 200))
+    check('符号链接目标未被写入', !fs.existsSync(path.join(outsideDir, '越界规则.md')), fs.readdirSync(outsideDir).join(','))
+
+    // —— 只读工具不得触发镜像事务回滚（回滚会删项目目录）——
+    const journal = `${linkRoot}.pinax-sync.json`
+    write(journal, JSON.stringify({ committed: false, hadOriginal: true }))
+    const pendingRead = payload(await client.request('tools/call', { name: 'pinax_project_context', arguments: { projectPath: linkRoot } }))
+    check('有未完成镜像事务时读工具类型化拒绝', pendingRead.ok === false && pendingRead.code === 'ERR_MIRROR_TRANSACTION_PENDING', JSON.stringify(pendingRead).slice(0, 200))
+    fs.rmSync(journal, { force: true })
 
     let invalidArgs = ''
     try {
@@ -707,6 +764,20 @@ async function runHttp() {
     })
     check('HTTP 拒绝浏览器 Origin', blocked.status === 403, String(blocked.status))
 
+    // 经反代转发的请求一律拒：同机 nginx 转发后 remoteAddress 是回环、Host 可能被改写成
+    // localhost，这两道校验会被击穿，带转发头就是反代来的证据。
+    const proxied = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'x-forwarded-for': '203.0.113.7',
+        'x-forwarded-host': 'localhost'
+      },
+      body: JSON.stringify(init)
+    })
+    check('HTTP 拒绝经反代转发的请求', proxied.status === 403, String(proxied.status))
+
     const expertCall = {
       jsonrpc: '2.0',
       id: 4,
@@ -789,7 +860,11 @@ try {
 }
 
 if (failed) {
-  console.error(`\nmcp smoke: ${failed} failed`)
+  console.error(`\nmcp smoke: ${failed} failed（passed ${passed}，skipped ${skipped}）`)
   process.exit(1)
 }
-console.log('\nmcp smoke: all checks passed')
+if (skipped) {
+  console.log(`\nmcp smoke: ${passed} passed, ${skipped} skipped（跳过项未验证，见上面 skip 行；不代表相关链路已验证）`)
+  process.exit(0)
+}
+console.log(`\nmcp smoke: all checks passed（${passed} 项）`)

@@ -24,11 +24,12 @@ import { LEXICON_FILE_NAME, buildLexiconFile, parseLexiconFile } from '../../sha
 export const MIRROR_SCHEMA = 'pinax-project-fs@2'
 export const PROJECT_SPEC = 'pinax-project@1'
 /** 项目文件夹范式（Obsidian/VS Code 模式）：任意位置自包含文件夹，.pinax/project.json 为标记。 */
-export const KIND_TEMPLATES = {
-  novel: ['正文', '大纲', '世界书', '构思', '资料', '日志', '约束'],
-  screenplay: ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束'],
-  generic: ['文档', '资料', '日志', '约束']
-}
+// 导出后可能被 MCP 与 skill 脚本引用：冻结内层数组，堵住「谁 push 一下就污染全进程模板」的路。
+export const KIND_TEMPLATES = Object.freeze({
+  novel: Object.freeze(['正文', '大纲', '世界书', '构思', '资料', '日志', '约束']),
+  screenplay: Object.freeze(['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束']),
+  generic: Object.freeze(['文档', '资料', '日志', '约束'])
+})
 // 「约束」是用户手写自由区，不纳入自动镜像的文件清单。
 const LIMITS = {
   maxChapters: 500,

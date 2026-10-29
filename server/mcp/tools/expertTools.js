@@ -1,4 +1,5 @@
 import { askAdvisor } from '../agentAsk.js'
+import { assertLocalRoute } from '../localProjects.js'
 import {
   composeExpertQuestion,
   expertAskOptions,
@@ -22,6 +23,7 @@ function failure(code, message) {
 }
 
 function listPayload({ includePrompt = false } = {}) {
+  assertLocalRoute()
   const registry = loadExperts()
   return {
     count: registry.experts.length,

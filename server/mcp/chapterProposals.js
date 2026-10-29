@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { readChapter, resolveProject } from './localProjects.js'
+import { assertInsideProject, readChapter, resolveProject } from './localProjects.js'
 
 // 批次 4：审阅档写回。只新增 <项目>/.pinax/proposals/*.json，绝不改 正文/ 原稿，
 // 也不改 .pinax/project.json。提案是纯文件产物，等作者看过再自己决定是否落稿。
@@ -125,6 +125,7 @@ export function writeChapterProposal({
 
   let file = path.join(dir, `${base}.json`)
   if (fs.existsSync(file)) file = path.join(dir, `${base}-${Math.random().toString(36).slice(2, 6)}.json`)
+  assertInsideProject(resolved, file)
   try {
     fs.writeFileSync(file, JSON.stringify(payload, null, 2) + '\n', { flag: 'wx' })
   } catch (error) {

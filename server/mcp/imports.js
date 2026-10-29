@@ -8,7 +8,7 @@ import {
   sanitizeFilename,
   serializeWorldbookEntryFile
 } from '../services/localMirrorService.js'
-import { assertLocalRoute, resolveProject } from './localProjects.js'
+import { assertInsideProject, assertLocalRoute, resolveProject } from './localProjects.js'
 
 // MCP 填充工具（作者给定的既有文本导入，不生成内容）：
 // 只允许本地项目文件夹，只写 正文/ 约束/ 世界书/ 与 .pinax/project.json，
@@ -116,6 +116,10 @@ export function initProject({ projectPath, name, kind = 'novel', projectId } = {
   if (!KIND_TEMPLATES[kind]) {
     throw failure('ERR_KIND_INVALID', `未知项目类型 ${kind}（可用：${Object.keys(KIND_TEMPLATES).join('/')}）。`)
   }
+  // 与既有镜像服务同口径：建项目只在空目录做，避免在作者既有素材目录里落 .pinax/ 与骨架目录。
+  if (fs.existsSync(root) && fs.readdirSync(root).length > 0) {
+    throw failure('ERR_DIR_NOT_EMPTY', `目标目录非空——建项目需要空目录（打开已有项目用 pinax_project_open）：${root}`)
+  }
   const cleanName = sanitizeFilename(name, '')
   if (!cleanName) throw failure('ERR_NAME_REQUIRED', '新建项目必须提供 name。')
   const id = String(projectId || '').trim() || `proj_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -174,6 +178,7 @@ export function writeRule({ projectPath, projectId, name, content, overwrite = f
     .filter((file) => /\.(?:md|txt)$/iu.test(file))
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
   const target = path.join(dir, `${cleanName}.md`)
+  assertInsideProject(resolved, target)
   const existing = readIfFile(target)
   const payload = `${text}\n`
 
@@ -298,6 +303,7 @@ export function writeWorldbookEntry({
     if (!overwrite) {
       throw failure('ERR_ENTRY_EXISTS', `世界书已有「${cleanName}」（${hit.relPath}）且内容不同；确认覆盖请传 overwrite:true。`)
     }
+    assertInsideProject(resolved, hit.file)
     writeText(hit.file, payload, { overwrite: true })
     return {
       created: false,
@@ -312,6 +318,7 @@ export function writeWorldbookEntry({
   const dir = path.join(resolved.root, '世界书', catDir)
   ensureDir(dir, 'ERR_WORLDBOOK_DIR_FAILED')
   const target = path.join(dir, `${sanitizeFilename(cleanName)}.md`)
+  assertInsideProject(resolved, target)
   if (readIfFile(target) !== null) {
     if (!overwrite) {
       throw failure('ERR_ENTRY_EXISTS', `目标文件已存在：${relative(resolved.root, target)}；确认覆盖请传 overwrite:true。`)
@@ -367,6 +374,7 @@ export function importChapter({
   const fileName = `${String(number).padStart(3, '0')}-${cleanTitle}.md`
   const target = path.join(resolved.root, '正文', fileName)
   ensureDir(path.join(resolved.root, '正文'), 'ERR_CHAPTER_DIR_FAILED')
+  assertInsideProject(resolved, target)
   const existingFile = chapterFiles(resolved.root).find((name) => name.startsWith(`${String(number).padStart(3, '0')}-`))
   const existing = existingFile ? readIfFile(path.join(resolved.root, '正文', existingFile)) : null
 
@@ -382,6 +390,7 @@ export function importChapter({
     if (!overwrite) {
       throw failure('ERR_CHAPTER_EXISTS', `正文/${existingFile} 已存在且内容不同；确认覆盖请传 overwrite:true。`)
     }
+    assertInsideProject(resolved, path.join(resolved.root, '正文', existingFile))
     writeText(path.join(resolved.root, '正文', existingFile), `${text}\n`, { overwrite: true })
     return {
       created: false,

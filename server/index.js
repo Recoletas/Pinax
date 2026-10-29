@@ -60,7 +60,9 @@ app.use('/api', createPublicAccessGuard())
 const publicOrigins = String(process.env.PINAX_PUBLIC_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
 const corsMiddleware = cors(publicOrigins.length ? { origin: publicOrigins } : undefined)
 // MCP 是给本机 Agent 的接口，不面向浏览器：跳过全局 CORS，避免浏览器跨源探活拿到放行信号。
-app.use((req, res, next) => (req.path === '/mcp' || req.path === '/mcp/' ? next() : corsMiddleware(req, res, next)))
+// 用前缀判定而不是全等：将来挂 /mcp/sse 之类子路径时也不会漏掉这层例外。
+const isMcpPath = (pathname) => pathname === '/mcp' || pathname.startsWith('/mcp/')
+app.use((req, res, next) => (isMcpPath(req.path) ? next() : corsMiddleware(req, res, next)))
 if (collaborationRepository) app.use('/api/collaboration', createCollaborationRouter({
   repository: collaborationRepository,
   allowedOrigins: collaborationAllowedOrigins,
@@ -114,7 +116,9 @@ app.use(
 )
 
 // SPA fallback for Vue Router history mode — must come after /api routes
-app.use(/^\/(?!api\/|ws\/).*/, (req, res) => {
+// /mcp/ 排除在外：MCP 子路径不是前端路由，落进 SPA 兜底会回 index.html(200)，
+// 对 Agent 客户端是极难诊断的失败模式；宁可 404。
+app.use(/^\/(?!api\/|ws\/|mcp\/).*/, (req, res) => {
   res.sendFile(join(__dirname, '../dist/index.html'))
 })
 

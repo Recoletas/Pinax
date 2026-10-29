@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createLocalMirrorService } from '../services/localMirrorService.js'
 import { collectKnowledgeSources } from '../services/knowledgeProjectIndex.js'
-import { resolveProject } from './localProjects.js'
+import { assertLocalRoute, resolveProject } from './localProjects.js'
 import { resolveAdvisorBaseUrl } from './agentAsk.js'
 
 // 批次 8：知识索引（RAG）状态与只读检索。
@@ -225,6 +225,8 @@ export async function searchKnowledge({
   timeoutMs,
   advisorBaseUrl
 } = {}) {
+  // 不带项目参数的全局检索也在本机路线内：公网部署整组禁用（HTTP 轨另有第一道 403）。
+  assertLocalRoute()
   const wanted = String(verb || 'kb_search').trim().toLowerCase()
   if (!KNOWLEDGE_VERBS[wanted]) {
     throw failure('ERR_KNOWLEDGE_VERB_INVALID', `verb 只能是 ${Object.keys(KNOWLEDGE_VERBS).join(' / ')}；收到 ${verb}。`)

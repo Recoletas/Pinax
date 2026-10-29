@@ -13,6 +13,8 @@
 | `ERR_LOCAL_ONLY` 或本机接口 403 | 是否公网部署、请求来源及能力配置 | 公网禁用本机文件/知识接口是预期行为，不要开放端口绕过限制 |
 | 所有请求都被来源校验拒绝 | `PINAX_PUBLIC_ORIGINS` 与实际协议、域名、端口 | 配置真实来源；不要改为任意来源放行 |
 | 原生模块加载错误 | Node ABI、CPU 架构、Linux glibc 和候选生产依赖 | 在兼容平台准备产物，隔离加载确认后再切正式服务 |
+| 知识索引总是 `never-indexed` / `stale` | `PINAX_KNOWLEDGE_CACHE_ROOT` 是否被设置、服务端与调用方是否同根 | 服务端与 MCP 侧现按同一环境变量解析缓存根；**若历史 `.env` 里残留该变量，索引缓存根会迁移，旧缓存变孤儿**，需重跑一次 `pinax_project_index action:"sync"` |
+| `/mcp` 返回 403 | `PINAX_PUBLIC_ORIGINS`、请求是否经反代、Host 头 | 公网部署整组禁用是预期行为；本机入口只接受回环 + localhost Host + 无 Origin，且**拒绝经反代转发的请求**（带 `x-forwarded-*` 一律拒） |
 
 非敏感探针可使用：
 

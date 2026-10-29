@@ -1,4 +1,4 @@
-import { listChapters, readChapter, resolveProject } from '../localProjects.js'
+import { chapterStats, listChapters, readChapter, resolveProject } from '../localProjects.js'
 
 const projectRef = {
   projectPath: {
@@ -29,8 +29,14 @@ export const chapterTools = [
     run: async (args) => {
       const resolved = resolveProject(args)
       const all = listChapters(resolved.root)
+      const stats = chapterStats(resolved.root)
       const limit = Math.max(1, Math.min(500, Number(args.limit) || 200))
-      return { total: all.length, truncated: all.length > limit, chapters: all.slice(0, limit) }
+      return {
+        total: stats.total,
+        truncated: all.length > limit,
+        cappedAt500: stats.truncated,
+        chapters: all.slice(0, limit)
+      }
     }
   },
   {

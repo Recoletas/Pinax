@@ -70,8 +70,9 @@ export const knowledgeTools = [
         worldbookRevision: { type: 'string', maxLength: 200, description: '可选：期望的世界书 revision（一致性护栏）。' },
         indexRevision: { type: 'string', maxLength: 200, description: '可选：期望的索引 revision（kb_read 一致性护栏）。' },
         timeoutMs: { type: 'integer', minimum: 1000, maximum: 180000, description: `等待毫秒数，默认 ${KNOWLEDGE_TOOL_LIMITS.defaultTimeoutMs}。` }
-      },
-      anyOf: [{ required: ['projectPath'] }, { required: ['projectId'] }]
+      }
+      // 不带项目参数时走全局知识面（结果不等于本书，回执里会标注 scope.global），
+      // 因此这里不写 anyOf：schema 与运行时必须一致，别让「必须带项目」变成一句空话。
     },
     annotations: readOnlyAnnotations,
     run: async (args) => searchKnowledge(args)

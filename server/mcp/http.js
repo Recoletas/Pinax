@@ -34,6 +34,13 @@ export async function handleMcpHttp(req, res) {
   if (!isLoopback(req.socket?.remoteAddress)) {
     return reject(res, 403, 'ERR_MCP_LOOPBACK_ONLY', 'MCP 入口只接受本机回环连接。')
   }
+  // 被反代进来的请求一律拒：同机 nginx 转发后 remoteAddress 是回环、Host 也可能被改写成
+  // localhost，这两道校验会被击穿；带转发头说明它来自代理，不是本机 Agent 直连。
+  const forwarded = ['x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded']
+    .some((header) => String(req.headers?.[header] || '').trim())
+  if (forwarded) {
+    return reject(res, 403, 'ERR_MCP_PROXIED_REQUEST', 'MCP 入口不接受经反代转发的请求；请在本机直接连接。')
+  }
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(hostnameOf(req))) {
     return reject(res, 403, 'ERR_MCP_HOST_REJECTED', 'MCP 入口只接受 localhost / 127.0.0.1。')
   }

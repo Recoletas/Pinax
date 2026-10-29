@@ -311,6 +311,27 @@ function classifyFile({ entry, text, worldbookMode }) {
   }
 }
 
+function realPathOf(target) {
+  try {
+    return fs.realpathSync(target)
+  } catch {
+    return null
+  }
+}
+
+/** 最近的、真实存在的祖先目录的 realpath（用于新目录尚未创建时的落点校验）。 */
+function nearestExistingRealPath(target) {
+  let current = path.resolve(target)
+  for (let depth = 0; depth < 64; depth += 1) {
+    const real = realPathOf(current)
+    if (real) return real
+    const parent = path.dirname(current)
+    if (parent === current) return null
+    current = parent
+  }
+  return null
+}
+
 function projectTarget(root, target) {
   if (!target || typeof target !== 'string') throw failure('ERR_TARGET_MISSING', '缺少目标路径，未写入。')
   if (target.includes('\\') || target.includes(':')) throw failure('ERR_TARGET_INVALID', `目标路径非法：${target}`)
@@ -320,7 +341,31 @@ function projectTarget(root, target) {
   const absolute = path.resolve(root, segments.join(path.sep))
   const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`
   if (!absolute.toLowerCase().startsWith(prefix.toLowerCase())) throw failure('ERR_TARGET_OUTSIDE', `目标越出项目根：${target}`)
+  // 词法判断不够：项目内一个指向项目外的符号链接目录会把写入带出项目根。
+  // 这里把祖先目录解成 realpath 再判一次包含性，落在项目外就拒。
+  const realRoot = realPathOf(root) || root
+  const realAnchor = nearestExistingRealPath(path.dirname(absolute))
+  if (!realAnchor) throw failure('ERR_TARGET_OUTSIDE', `目标目录不可解析，未写入：${target}`)
+  const realPrefix = realRoot.endsWith(path.sep) ? realRoot : `${realRoot}${path.sep}`
+  if (realAnchor !== realRoot && !realAnchor.toLowerCase().startsWith(realPrefix.toLowerCase())) {
+    throw failure('ERR_TARGET_OUTSIDE', `目标越出项目根（经符号链接）：${target}`)
+  }
+  try {
+    if (fs.lstatSync(absolute).isSymbolicLink()) {
+      throw failure('ERR_TARGET_SYMLINK', `目标是符号链接，拒绝写入：${target}`)
+    }
+  } catch (error) {
+    if (error?.code === 'ERR_TARGET_SYMLINK') throw error
+    // 目标还不存在（新建），忽略。
+  }
   return absolute
+}
+
+/** 原子落盘：先写同目录临时文件再 rename，避免中途失败留下半截文件。 */
+function writeFileAtomic(absolute, text) {
+  const temp = `${absolute}.pinax-tmp-${Math.random().toString(36).slice(2, 8)}`
+  fs.writeFileSync(temp, text, { encoding: 'utf-8' })
+  fs.renameSync(temp, absolute)
 }
 
 /** 大纲/构思/资料/日志/JSON 归档：受控落盘（幂等：同内容复用，不同内容默认拒绝）。 */
@@ -330,7 +375,7 @@ function writeControlledFile({ root, target, text, overwrite }) {
     const existing = fs.readFileSync(absolute, 'utf-8').replace(/\r\n?/g, '\n').trim()
     if (existing === text) return { created: false, reused: true, warnings: ['目标已存在且内容相同，未重复写入。'] }
     if (!overwrite) throw failure('ERR_FILE_EXISTS', `${target} 已存在且内容不同；确认覆盖请传 overwrite:true。`)
-    fs.writeFileSync(absolute, `${text}\n`, 'utf-8')
+    writeFileAtomic(absolute, `${text}\n`)
     return { created: false, reused: false, warnings: ['已覆盖目标文件。'] }
   }
   fs.mkdirSync(path.dirname(absolute), { recursive: true })
@@ -363,6 +408,16 @@ export function importFolder({
   }
   if (sourceRoot.toLowerCase() === resolved.root.toLowerCase()) {
     throw failure('ERR_SOURCE_IS_PROJECT', 'sourcePath 不能就是项目文件夹本身；请指向作者的素材目录。')
+  }
+  // 相交也不行：源目录是项目的子目录会自导自写；源目录是项目的父目录会把项目自己的文件也扫进去。
+  const realProject = realPathOf(resolved.root) || resolved.root
+  const realSource = realPathOf(sourceRoot) || sourceRoot
+  const inside = (child, parent) => {
+    const prefix = parent.endsWith(path.sep) ? parent : `${parent}${path.sep}`
+    return child.toLowerCase().startsWith(prefix.toLowerCase())
+  }
+  if (inside(realSource, realProject) || inside(realProject, realSource)) {
+    throw failure('ERR_SOURCE_IS_PROJECT', `sourcePath 与项目文件夹相交（source=${sourceRoot}，project=${resolved.root}）；请指向互不包含的素材目录。`)
   }
 
   const limit = Math.max(1, Math.min(2000, Number(maxFiles) || MAX_SOURCE_FILES))
